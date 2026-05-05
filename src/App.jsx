@@ -9708,6 +9708,97 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                       const bg = el.style.backgroundColor||el.style.background;
                       if(bg && bg.includes('slate')) el.style.background='white';
                     });
+                    // 運動トレンド：全項目の一覧テーブルに差し替え
+                    if(printSecs['sec-exercise']){
+                      const exSec = perClone.querySelector('#sec-exercise');
+                      if(exSec){
+                        const allExItems = appData.systemSettings?.exerciseItems || appSettings.exerciseItems;
+                        const parseExVal = (v)=>{ if(!v||v==='○'||v==='ー') return null; const n=parseFloat(String(v).replace(/[^\d.]/g,'')); return isNaN(n)?null:n; };
+                        const exMonths = monthlyData.map(d=>d.month);
+                        let exHtml='<div style="font-size:14px;font-weight:bold;color:#475569;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #e2e8f0;">運動トレンド（全項目）</div>';
+                        allExItems.forEach(exItem=>{
+                          const itemVals = validRecs.map(r=>({date:r.date,val:r.exercises?.[exItem.id]||''})).filter(d=>d.val&&d.val!=='ー');
+                          const nums = itemVals.map(d=>parseExVal(d.val)).filter(v=>v!==null);
+                          const avg = nums.length?nums.reduce((a,b)=>a+b,0)/nums.length:null;
+                          const max = nums.length?Math.max(...nums):null;
+                          const min = nums.length?Math.min(...nums):null;
+                          const monthlyAvgs = exMonths.map(m=>{
+                            const mRecs = validRecs.filter(r=>{const mm=r.date.match(/(\d+)月/);return mm&&+mm[1]===m;});
+                            const mNums = mRecs.map(r=>parseExVal(r.exercises?.[exItem.id])).filter(v=>v!==null);
+                            return mNums.length?(mNums.reduce((a,b)=>a+b,0)/mNums.length).toFixed(1):'-';
+                          });
+                          exHtml+=`<div style="background:white;border-radius:10px;padding:12px 16px;border:1px solid #e2e8f0;margin-bottom:10px;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                              <span style="font-size:13px;font-weight:bold;color:#1e293b;">${exItem.name}</span>
+                              <span style="font-size:11px;color:#64748b;">${avg!==null?`平均:${avg.toFixed(1)} / 最高:${max} / 最低:${min}`:'記録なし'}</span>
+                            </div>
+                            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                              <tr style="background:#f8fafc;">
+                                <th style="padding:4px 6px;text-align:left;color:#475569;border:1px solid #e2e8f0;">月</th>
+                                ${exMonths.map(m=>`<th style="padding:4px 6px;text-align:center;color:#475569;border:1px solid #e2e8f0;">${m}月</th>`).join('')}
+                              </tr>
+                              <tr>
+                                <td style="padding:4px 6px;font-weight:bold;color:#6366f1;border:1px solid #e2e8f0;">平均</td>
+                                ${monthlyAvgs.map(v=>`<td style="padding:4px 6px;text-align:center;font-weight:bold;color:#1e293b;border:1px solid #e2e8f0;">${v}</td>`).join('')}
+                              </tr>
+                            </table>
+                          </div>`;
+                        });
+                        exSec.innerHTML = exHtml;
+                      }
+                    }
+                    // 体力測定：全項目の一覧テーブルに差し替え
+                    if(printSecs['sec-fitness']){
+                      const fitSec = perClone.querySelector('#sec-fitness');
+                      if(fitSec){
+                        const fitnessItems = appData.systemSettings?.fitnessItems || appSettings.fitnessItems;
+                        const fitnessRecs = (appData.fitnessRecords||[]).filter(r=>r.patientId===selectedPatientId).sort((a,b)=>a.date.localeCompare(b.date));
+                        let fitHtml='<div style="font-size:14px;font-weight:bold;color:#475569;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #e2e8f0;">体力測定（全項目）</div>';
+                        if(fitnessRecs.length>0){
+                          fitHtml+=`<table style="width:100%;border-collapse:collapse;font-size:12px;">
+                            <thead><tr style="background:#f8fafc;">
+                              <th style="padding:5px 8px;text-align:left;color:#475569;border:1px solid #e2e8f0;font-weight:bold;">測定日</th>
+                              ${fitnessItems.map(it=>`<th style="padding:5px 8px;text-align:center;color:#475569;border:1px solid #e2e8f0;font-weight:bold;">${it.name}(${it.unit})</th>`).join('')}
+                            </tr></thead><tbody>`;
+                          [...fitnessRecs].reverse().forEach((r,ri)=>{
+                            fitHtml+=`<tr style="background:${ri%2===0?'white':'#fafbfc'};">
+                              <td style="padding:4px 8px;font-weight:bold;color:#475569;border:1px solid #e2e8f0;white-space:nowrap;">${r.date}</td>
+                              ${fitnessItems.map(it=>{
+                                const v=r.values?.[it.id];
+                                return `<td style="padding:4px 8px;text-align:center;font-weight:bold;color:#1e293b;border:1px solid #e2e8f0;">${v!==undefined&&v!==''?v:'—'}</td>`;
+                              }).join('')}
+                            </tr>`;
+                          });
+                          fitHtml+=`</tbody></table>`;
+                          // 変化率サマリー
+                          if(fitnessRecs.length>=2){
+                            const first=fitnessRecs[0], last=fitnessRecs[fitnessRecs.length-1];
+                            fitHtml+=`<div style="margin-top:10px;padding:10px 14px;background:#f0fdf4;border-radius:8px;border:1px solid #86efac;font-size:12px;">
+                              <div style="font-weight:bold;color:#16a34a;margin-bottom:6px;">変化サマリー（${first.date} → ${last.date}）</div>
+                              <div style="display:flex;flex-wrap:wrap;gap:12px;">
+                              ${fitnessItems.map(it=>{
+                                const fv=parseFloat(first.values?.[it.id]),lv=parseFloat(last.values?.[it.id]);
+                                if(isNaN(fv)||isNaN(lv)) return '';
+                                const diff=(lv-fv).toFixed(1);
+                                const arrow=diff>0?'↑':diff<0?'↓':'→';
+                                const col=diff>0?'#16a34a':diff<0?'#ef4444':'#64748b';
+                                return `<span style="color:${col};font-weight:bold;">${it.name}: ${arrow}${Math.abs(diff)}${it.unit}</span>`;
+                              }).join('')}
+                              </div>
+                            </div>`;
+                          }
+                        } else {
+                          fitHtml+='<div style="text-align:center;color:#94a3b8;padding:20px;">体力測定の記録がありません</div>';
+                        }
+                        fitSec.innerHTML = fitHtml;
+                        // 折りたたみ状態を解除（次の兄弟要素も表示）
+                        let sib=fitSec.nextElementSibling;
+                        while(sib && !sib.id){
+                          sib.style.display='';
+                          sib=sib.nextElementSibling;
+                        }
+                      }
+                    }
                     // 各セクションにページ区切りを挿入
                     let isFirstSec = true;
                     allSecIds.forEach(secId=>{
