@@ -9467,10 +9467,10 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   const [period, setPeriod] = useState('12'); // デフォルト1年
   const [customFrom, setCustomFrom] = useState('2026-01');
   const [customTo, setCustomTo]   = useState('2026-03');
-  // セクション選択（プレビュー用）
-  const ALL_SECTIONS = [['sec-basicinfo','基本情報'],['sec-kpi','基本指標'],['sec-trend','通所'],['sec-kibun','気分'],['sec-vital','バイタルトレンド'],['sec-exercise','運動トレンド'],['sec-fitness','体力測定'],['sec-absence','欠席一覧'],['sec-kyushi','休止一覧'],['sec-monitoring','モニタリング'],['sec-detail','詳細記録']];
+  // セクション選択（プレビュー用） [id, label, size, recommendedBreak]
+  const ALL_SECTIONS = [['sec-basicinfo','基本情報','短',false],['sec-kpi','基本指標','短',false],['sec-trend','通所','長',true],['sec-kibun','気分','中',false],['sec-vital','バイタルトレンド','長',true],['sec-exercise','運動トレンド','長',true],['sec-fitness','体力測定','長',true],['sec-absence','欠席一覧','短',true],['sec-kyushi','休止一覧','短',false],['sec-monitoring','モニタリング','中',true],['sec-detail','詳細記録','長',true]];
   const [printSecs, setPrintSecs] = useState(()=>Object.fromEntries(ALL_SECTIONS.map(([id])=>[id,true])));
-  const [printBreaks, setPrintBreaks] = useState(()=>Object.fromEntries(ALL_SECTIONS.map(([id])=>[id,true])));
+  const [printBreaks, setPrintBreaks] = useState(()=>Object.fromEntries(ALL_SECTIONS.map(([id,,,rb])=>[id,rb])));
   const [showSecSelect, setShowSecSelect] = useState(false);
   // Hoisted from IIFEs to satisfy React hook rules
   const [vitalTooltip, setVitalTooltip] = useState(null);
@@ -9660,18 +9660,28 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                 <div style={{fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:10,paddingBottom:6,borderBottom:'1px solid #f1f5f9'}}>印刷するセクションを選択</div>
                 <div style={{display:'flex',gap:4,marginBottom:8,fontSize:10,color:'#94a3b8',fontWeight:'bold'}}>
                   <span style={{flex:1}}>セクション</span>
+                  <span style={{width:30,textAlign:'center'}}>量</span>
                   <span style={{width:50,textAlign:'center'}}>改ページ</span>
                 </div>
-                {ALL_SECTIONS.map(([id,label],idx)=>(
-                  <div key={id} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0'}}>
+                {ALL_SECTIONS.map(([id,label,size],idx)=>(
+                  <div key={id} style={{display:'flex',alignItems:'center',gap:6,padding:'3px 0'}}>
                     <label style={{display:'flex',alignItems:'center',gap:6,flex:1,fontSize:13,fontWeight:'bold',color:'#1e293b',cursor:'pointer'}}>
                       <input type="checkbox" checked={!!printSecs[id]} onChange={e=>setPrintSecs(p=>({...p,[id]:e.target.checked}))} style={{width:15,height:15,cursor:'pointer',accentColor:'#2563eb'}}/>
                       {label}
                     </label>
-                    {idx>0 && <input type="checkbox" checked={!!printBreaks[id]} onChange={e=>setPrintBreaks(p=>({...p,[id]:e.target.checked}))} title="このセクションの前で改ページ" style={{width:14,height:14,cursor:'pointer',accentColor:'#f59e0b',marginRight:18}}/>}
+                    <span style={{width:30,textAlign:'center',fontSize:10,fontWeight:'bold',color:size==='長'?'#ef4444':size==='中'?'#f59e0b':'#22c55e',background:size==='長'?'#fef2f2':size==='中'?'#fffbeb':'#f0fdf4',borderRadius:4,padding:'1px 4px'}}>{size}</span>
+                    {idx>0 ? <input type="checkbox" checked={!!printBreaks[id]} onChange={e=>setPrintBreaks(p=>({...p,[id]:e.target.checked}))} title="このセクションの前で改ページ" style={{width:14,height:14,cursor:'pointer',accentColor:'#f59e0b',marginRight:18}}/> : <span style={{width:14,marginRight:18}}/>}
                   </div>
                 ))}
-                <div style={{marginTop:12,paddingTop:8,borderTop:'1px solid #f1f5f9',display:'flex',gap:6}}>
+                <div style={{marginTop:8,padding:'8px 10px',background:'#eff6ff',borderRadius:8,border:'1px solid #bfdbfe'}}>
+                  <div style={{fontSize:10,fontWeight:'bold',color:'#1e40af',marginBottom:4}}>おすすめの改ページ設定</div>
+                  <div style={{fontSize:10,color:'#475569',lineHeight:'1.5'}}>
+                    <span style={{color:'#22c55e',fontWeight:'bold'}}>短</span>の項目は前後とまとめて1ページに<br/>
+                    <span style={{color:'#ef4444',fontWeight:'bold'}}>長</span>の項目は単独で改ページ推奨
+                  </div>
+                </div>
+                <div style={{marginTop:8,paddingTop:8,borderTop:'1px solid #f1f5f9',display:'flex',gap:6,flexWrap:'wrap'}}>
+                  <button onClick={()=>{setPrintSecs(Object.fromEntries(ALL_SECTIONS.map(([id])=>[id,true])));setPrintBreaks(Object.fromEntries(ALL_SECTIONS.map(([id,,,rb])=>[id,rb])));}} style={{flex:1,padding:'5px',borderRadius:6,border:'1px solid #dbeafe',fontSize:11,fontWeight:'bold',color:'#2563eb',cursor:'pointer',background:'#eff6ff'}}>おすすめ</button>
                   <button onClick={()=>{setPrintSecs(Object.fromEntries(ALL_SECTIONS.map(([id])=>[id,true])));setPrintBreaks(Object.fromEntries(ALL_SECTIONS.map(([id])=>[id,true])));}} style={{flex:1,padding:'5px',borderRadius:6,border:'1px solid #e2e8f0',fontSize:11,fontWeight:'bold',color:'#475569',cursor:'pointer',background:'#f8fafc'}}>全選択</button>
                   <button onClick={()=>{
                     setShowSecSelect(false);
@@ -9826,8 +9836,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                     const parts = perClone.innerHTML;
                     if(!parts){alert('セクションを1つ以上選択してください');return;}
                     const title = `分析_個人_${selectedPatient?.name||''}`;
-                    const html=`<div style="padding:8mm 10mm;font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;width:210mm;box-sizing:border-box;"><style>*{box-sizing:border-box;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}@media print{.page-sep{display:none!important;}[data-page-break]{page-break-before:always!important;break-before:page!important;}}</style>${parts}</div>`;
-                    window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 portrait',html}}));
+                    const html=`<div style="padding:8mm 10mm;font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;width:297mm;box-sizing:border-box;"><style>*{box-sizing:border-box;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}@media print{.page-sep{display:none!important;}[data-page-break]{page-break-before:always!important;break-before:page!important;}}</style>${parts}</div>`;
+                    window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 landscape',html}}));
                   }} style={{flex:1,padding:'5px',borderRadius:6,border:'none',fontSize:11,fontWeight:'bold',color:'white',cursor:'pointer',background:'#2563eb'}}>プレビュー</button>
                 </div>
               </div>
@@ -11412,9 +11422,9 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
   const [showAllAbs, setShowAllAbs] = React.useState(false);
   const [showAllReason, setShowAllReason] = React.useState(false);
   // セクション選択（プレビュー用）
-  const OPS_SECTIONS = [['ops-rate','稼働率'],['ops-monthly','月別推移'],['ops-dow','曜日別'],['ops-attr','利用者属性'],['ops-mood','気分割合'],['ops-kaikin','皆勤賞'],['ops-rank-att','出席率'],['ops-rank-abs','欠席率'],['ops-reason','欠席理由']];
+  const OPS_SECTIONS = [['ops-rate','稼働率','中',false],['ops-monthly','月別推移','長',true],['ops-dow','曜日別','中',false],['ops-attr','利用者属性','中',true],['ops-mood','気分割合','短',false],['ops-kaikin','皆勤賞','短',true],['ops-rank-att','出席率','中',false],['ops-rank-abs','欠席率','中',false],['ops-reason','欠席理由','短',true]];
   const [opsPrintSecs, setOpsPrintSecs] = React.useState(()=>Object.fromEntries(OPS_SECTIONS.map(([id])=>[id,true])));
-  const [opsPrintBreaks, setOpsPrintBreaks] = React.useState(()=>Object.fromEntries(OPS_SECTIONS.map(([id])=>[id,true])));
+  const [opsPrintBreaks, setOpsPrintBreaks] = React.useState(()=>Object.fromEntries(OPS_SECTIONS.map(([id,,,rb])=>[id,rb])));
   const [showOpsSecSelect, setShowOpsSecSelect] = React.useState(false);
   const [salesEditModal, setSalesEditModal] = React.useState(null); // { month: '2025-06' }
   const [period, setPeriod] = React.useState('1');
@@ -11773,18 +11783,28 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                 <div style={{fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:10,paddingBottom:6,borderBottom:'1px solid #f1f5f9'}}>印刷するセクションを選択</div>
                 <div style={{display:'flex',gap:4,marginBottom:8,fontSize:10,color:'#94a3b8',fontWeight:'bold'}}>
                   <span style={{flex:1}}>セクション</span>
+                  <span style={{width:30,textAlign:'center'}}>量</span>
                   <span style={{width:50,textAlign:'center'}}>改ページ</span>
                 </div>
-                {OPS_SECTIONS.map(([id,label],idx)=>(
-                  <div key={id} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0'}}>
+                {OPS_SECTIONS.map(([id,label,size],idx)=>(
+                  <div key={id} style={{display:'flex',alignItems:'center',gap:6,padding:'3px 0'}}>
                     <label style={{display:'flex',alignItems:'center',gap:6,flex:1,fontSize:13,fontWeight:'bold',color:'#1e293b',cursor:'pointer'}}>
                       <input type="checkbox" checked={!!opsPrintSecs[id]} onChange={e=>setOpsPrintSecs(p=>({...p,[id]:e.target.checked}))} style={{width:15,height:15,cursor:'pointer',accentColor:'#ea580c'}}/>
                       {label}
                     </label>
-                    {idx>0 && <input type="checkbox" checked={!!opsPrintBreaks[id]} onChange={e=>setOpsPrintBreaks(p=>({...p,[id]:e.target.checked}))} title="このセクションの前で改ページ" style={{width:14,height:14,cursor:'pointer',accentColor:'#f59e0b',marginRight:18}}/>}
+                    <span style={{width:30,textAlign:'center',fontSize:10,fontWeight:'bold',color:size==='長'?'#ef4444':size==='中'?'#f59e0b':'#22c55e',background:size==='長'?'#fef2f2':size==='中'?'#fffbeb':'#f0fdf4',borderRadius:4,padding:'1px 4px'}}>{size}</span>
+                    {idx>0 ? <input type="checkbox" checked={!!opsPrintBreaks[id]} onChange={e=>setOpsPrintBreaks(p=>({...p,[id]:e.target.checked}))} title="このセクションの前で改ページ" style={{width:14,height:14,cursor:'pointer',accentColor:'#f59e0b',marginRight:18}}/> : <span style={{width:14,marginRight:18}}/>}
                   </div>
                 ))}
-                <div style={{marginTop:12,paddingTop:8,borderTop:'1px solid #f1f5f9',display:'flex',gap:6}}>
+                <div style={{marginTop:8,padding:'8px 10px',background:'#fff7ed',borderRadius:8,border:'1px solid #fed7aa'}}>
+                  <div style={{fontSize:10,fontWeight:'bold',color:'#c2410c',marginBottom:4}}>おすすめの改ページ設定</div>
+                  <div style={{fontSize:10,color:'#475569',lineHeight:'1.5'}}>
+                    <span style={{color:'#22c55e',fontWeight:'bold'}}>短</span>の項目は前後とまとめて1ページに<br/>
+                    <span style={{color:'#ef4444',fontWeight:'bold'}}>長</span>の項目は単独で改ページ推奨
+                  </div>
+                </div>
+                <div style={{marginTop:8,paddingTop:8,borderTop:'1px solid #f1f5f9',display:'flex',gap:6,flexWrap:'wrap'}}>
+                  <button onClick={()=>{setOpsPrintSecs(Object.fromEntries(OPS_SECTIONS.map(([id])=>[id,true])));setOpsPrintBreaks(Object.fromEntries(OPS_SECTIONS.map(([id,,,rb])=>[id,rb])));}} style={{flex:1,padding:'5px',borderRadius:6,border:'1px solid #fed7aa',fontSize:11,fontWeight:'bold',color:'#ea580c',cursor:'pointer',background:'#fff7ed'}}>おすすめ</button>
                   <button onClick={()=>{setOpsPrintSecs(Object.fromEntries(OPS_SECTIONS.map(([id])=>[id,true])));setOpsPrintBreaks(Object.fromEntries(OPS_SECTIONS.map(([id])=>[id,true])));}} style={{flex:1,padding:'5px',borderRadius:6,border:'1px solid #e2e8f0',fontSize:11,fontWeight:'bold',color:'#475569',cursor:'pointer',background:'#f8fafc'}}>全選択</button>
                   <button onClick={()=>{
                     setShowOpsSecSelect(false);
@@ -11842,8 +11862,8 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                     const parts = clone.innerHTML;
                     if(!parts){alert('セクションを1つ以上選択してください');return;}
                     const title='分析_稼働';
-                    const html=`<div style="padding:8mm 10mm;font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;width:210mm;box-sizing:border-box;"><style>*{box-sizing:border-box;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}@media print{.page-sep{display:none!important;}[data-page-break]{page-break-before:always!important;break-before:page!important;}}</style>${parts}</div>`;
-                    window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 portrait',html}}));
+                    const html=`<div style="padding:8mm 10mm;font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;width:297mm;box-sizing:border-box;"><style>*{box-sizing:border-box;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}@media print{.page-sep{display:none!important;}[data-page-break]{page-break-before:always!important;break-before:page!important;}}</style>${parts}</div>`;
+                    window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 landscape',html}}));
                   }} style={{flex:1,padding:'5px',borderRadius:6,border:'none',fontSize:11,fontWeight:'bold',color:'white',cursor:'pointer',background:'#ea580c'}}>プレビュー</button>
                 </div>
               </div>
