@@ -9485,8 +9485,6 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   const [customTo, setCustomTo]   = useState('2026-03');
   // セクション選択（プレビュー用） [id, label, size]
   const ALL_SECTIONS = [['sec-basicinfo','基本情報','短'],['sec-kpi','基本指標','短'],['sec-trend','通所','長'],['sec-kibun','気分','中'],['sec-vital','バイタルトレンド','長'],['sec-exercise','運動トレンド','長'],['sec-fitness','体力測定','長'],['sec-absence','欠席一覧','短'],['sec-kyushi','休止一覧','短'],['sec-monitoring','モニタリング','中'],['sec-detail','詳細記録','長']];
-  const [printSecs, setPrintSecs] = useState(()=>Object.fromEntries(ALL_SECTIONS.map(([id])=>[id,true])));
-  const [showSecSelect, setShowSecSelect] = useState(false);
   // Hoisted from IIFEs to satisfy React hook rules
   const [vitalTooltip, setVitalTooltip] = useState(null);
   const [selExId, setSelExId] = useState(null);
@@ -9665,54 +9663,11 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             <input type="date" value={`${customTo}-01`} onChange={e=>setCustomTo(e.target.value.substring(0,7))} style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:10,padding:'6px 10px',fontSize:12,fontWeight:'bold',outline:'none',cursor:'pointer'}}/>
           </>}
           <span style={{background:'white',color:'#1e40af',borderRadius:8,padding:'6px 12px',fontSize:11,fontWeight:'bold',whiteSpace:'nowrap'}}>{rangeLabel}</span>
-          <div style={{position:'relative'}}>
-            <button type="button" onClick={()=>setShowSecSelect(v=>!v)}
-              style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:8,padding:'6px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
-              <Printer size={14}/>プレビュー ▾
-            </button>
-            {showSecSelect && (
-              <div style={{position:'absolute',top:'calc(100% + 6px)',right:0,background:'white',border:'1px solid #e2e8f0',borderRadius:14,boxShadow:'0 8px 32px rgba(0,0,0,0.18)',zIndex:9999,padding:16,minWidth:220}} onClick={e=>e.stopPropagation()}>
-                <div style={{fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:10,paddingBottom:6,borderBottom:'1px solid #f1f5f9'}}>印刷するセクションを選択</div>
-                <div style={{marginBottom:6,padding:'6px 8px',background:'#eff6ff',borderRadius:6,fontSize:10,color:'#475569',lineHeight:'1.4'}}>
-                  A4横・2段組で自動配置されます
-                </div>
-                {ALL_SECTIONS.map(([id,label,size])=>(
-                  <div key={id} style={{display:'flex',alignItems:'center',gap:6,padding:'3px 0'}}>
-                    <label style={{display:'flex',alignItems:'center',gap:6,flex:1,fontSize:13,fontWeight:'bold',color:'#1e293b',cursor:'pointer'}}>
-                      <input type="checkbox" checked={!!printSecs[id]} onChange={e=>setPrintSecs(p=>({...p,[id]:e.target.checked}))} style={{width:15,height:15,cursor:'pointer',accentColor:'#2563eb'}}/>
-                      {label}
-                    </label>
-                    <span style={{fontSize:10,fontWeight:'bold',color:size==='長'?'#ef4444':size==='中'?'#f59e0b':'#22c55e',background:size==='長'?'#fef2f2':size==='中'?'#fffbeb':'#f0fdf4',borderRadius:4,padding:'1px 4px'}}>{size}</span>
-                  </div>
-                ))}
-                <div style={{marginTop:8,paddingTop:8,borderTop:'1px solid #f1f5f9',display:'flex',gap:6}}>
-                  <button onClick={()=>setPrintSecs(Object.fromEntries(ALL_SECTIONS.map(([id])=>[id,true])))} style={{flex:1,padding:'5px',borderRadius:6,border:'1px solid #e2e8f0',fontSize:11,fontWeight:'bold',color:'#475569',cursor:'pointer',background:'#f8fafc'}}>全選択</button>
-                  <button onClick={()=>{
-                    setShowSecSelect(false);
+          <button type="button" onClick={()=>{
                     const perContainer = document.getElementById('print-content-analysis');
                     if(!perContainer){ alert('分析データが見つかりません'); return; }
                     const perClone = perContainer.cloneNode(true);
                     const allSecIds = ALL_SECTIONS.map(([id])=>id);
-                    // 非選択コンテナセクションを非表示
-                    allSecIds.forEach(secId=>{
-                      if(printSecs[secId]) return;
-                      const el = perClone.querySelector('#'+secId);
-                      if(el && !el.getAttribute('data-sec')) el.style.display='none';
-                    });
-                    // 非選択マーカーセクションを非表示
-                    const perSecEls = Array.from(perClone.querySelectorAll('[data-sec]'));
-                    perSecEls.forEach((secEl, i) => {
-                      const secId = secEl.getAttribute('data-sec');
-                      if(!printSecs[secId]){
-                        secEl.style.display='none';
-                        let sib = secEl.nextElementSibling;
-                        const nextSec = perSecEls[i+1];
-                        while(sib && sib !== nextSec){
-                          sib.style.display='none';
-                          sib = sib.nextElementSibling;
-                        }
-                      }
-                    });
                     // SVG viewBox付与
                     perClone.querySelectorAll('svg').forEach(svg=>{
                       if(!svg.getAttribute('viewBox')){
@@ -9731,140 +9686,163 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                       if(bg && bg.includes('slate')) el.style.background='white';
                     });
                     // 運動トレンド：全項目の一覧テーブルに差し替え
-                    if(printSecs['sec-exercise']){
-                      const exSec = perClone.querySelector('#sec-exercise');
-                      if(exSec){
-                        const allExItems = appData.systemSettings?.exerciseItems || appSettings.exerciseItems;
-                        const parseExVal = (v)=>{ if(!v||v==='○'||v==='ー') return null; const n=parseFloat(String(v).replace(/[^\d.]/g,'')); return isNaN(n)?null:n; };
-                        const exMonths = monthlyData.map(d=>d.month);
-                        let exHtml='<div style="font-size:14px;font-weight:bold;color:#475569;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #e2e8f0;">運動トレンド（全項目）</div>';
-                        allExItems.forEach(exItem=>{
-                          const itemVals = validRecs.map(r=>({date:r.date,val:r.exercises?.[exItem.id]||''})).filter(d=>d.val&&d.val!=='ー');
-                          const nums = itemVals.map(d=>parseExVal(d.val)).filter(v=>v!==null);
-                          const avg = nums.length?nums.reduce((a,b)=>a+b,0)/nums.length:null;
-                          const max = nums.length?Math.max(...nums):null;
-                          const min = nums.length?Math.min(...nums):null;
-                          const monthlyAvgs = exMonths.map(m=>{
-                            const mRecs = validRecs.filter(r=>{const mm=r.date.match(/(\d+)月/);return mm&&+mm[1]===m;});
-                            const mNums = mRecs.map(r=>parseExVal(r.exercises?.[exItem.id])).filter(v=>v!==null);
-                            return mNums.length?(mNums.reduce((a,b)=>a+b,0)/mNums.length).toFixed(1):'-';
-                          });
-                          exHtml+=`<div style="background:white;border-radius:10px;padding:12px 16px;border:1px solid #e2e8f0;margin-bottom:10px;">
-                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                              <span style="font-size:13px;font-weight:bold;color:#1e293b;">${exItem.name}</span>
-                              <span style="font-size:11px;color:#64748b;">${avg!==null?`平均:${avg.toFixed(1)} / 最高:${max} / 最低:${min}`:'記録なし'}</span>
-                            </div>
-                            <table style="width:100%;border-collapse:collapse;font-size:12px;">
-                              <tr style="background:#f8fafc;">
-                                <th style="padding:4px 6px;text-align:left;color:#475569;border:1px solid #e2e8f0;">月</th>
-                                ${exMonths.map(m=>`<th style="padding:4px 6px;text-align:center;color:#475569;border:1px solid #e2e8f0;">${m}月</th>`).join('')}
-                              </tr>
-                              <tr>
-                                <td style="padding:4px 6px;font-weight:bold;color:#6366f1;border:1px solid #e2e8f0;">平均</td>
-                                ${monthlyAvgs.map(v=>`<td style="padding:4px 6px;text-align:center;font-weight:bold;color:#1e293b;border:1px solid #e2e8f0;">${v}</td>`).join('')}
-                              </tr>
-                            </table>
-                          </div>`;
+                    const exSec = perClone.querySelector('#sec-exercise');
+                    if(exSec){
+                      const allExItems = appData.systemSettings?.exerciseItems || appSettings.exerciseItems;
+                      const parseExVal = (v)=>{ if(!v||v==='○'||v==='ー') return null; const n=parseFloat(String(v).replace(/[^\d.]/g,'')); return isNaN(n)?null:n; };
+                      const exMonths = monthlyData.map(d=>d.month);
+                      let exHtml='<div style="font-size:14px;font-weight:bold;color:#475569;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #e2e8f0;">運動トレンド（全項目）</div>';
+                      allExItems.forEach(exItem=>{
+                        const itemVals = validRecs.map(r=>({date:r.date,val:r.exercises?.[exItem.id]||''})).filter(d=>d.val&&d.val!=='ー');
+                        const nums = itemVals.map(d=>parseExVal(d.val)).filter(v=>v!==null);
+                        const avg = nums.length?nums.reduce((a,b)=>a+b,0)/nums.length:null;
+                        const max = nums.length?Math.max(...nums):null;
+                        const min = nums.length?Math.min(...nums):null;
+                        const monthlyAvgs = exMonths.map(m=>{
+                          const mRecs = validRecs.filter(r=>{const mm=r.date.match(/(\d+)月/);return mm&&+mm[1]===m;});
+                          const mNums = mRecs.map(r=>parseExVal(r.exercises?.[exItem.id])).filter(v=>v!==null);
+                          return mNums.length?(mNums.reduce((a,b)=>a+b,0)/mNums.length).toFixed(1):'-';
                         });
-                        exSec.innerHTML = exHtml;
-                      }
+                        exHtml+=`<div style="background:white;border-radius:10px;padding:12px 16px;border:1px solid #e2e8f0;margin-bottom:10px;">
+                          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                            <span style="font-size:13px;font-weight:bold;color:#1e293b;">${exItem.name}</span>
+                            <span style="font-size:11px;color:#64748b;">${avg!==null?`平均:${avg.toFixed(1)} / 最高:${max} / 最低:${min}`:'記録なし'}</span>
+                          </div>
+                          <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                            <tr style="background:#f8fafc;">
+                              <th style="padding:4px 6px;text-align:left;color:#475569;border:1px solid #e2e8f0;">月</th>
+                              ${exMonths.map(m=>`<th style="padding:4px 6px;text-align:center;color:#475569;border:1px solid #e2e8f0;">${m}月</th>`).join('')}
+                            </tr>
+                            <tr>
+                              <td style="padding:4px 6px;font-weight:bold;color:#6366f1;border:1px solid #e2e8f0;">平均</td>
+                              ${monthlyAvgs.map(v=>`<td style="padding:4px 6px;text-align:center;font-weight:bold;color:#1e293b;border:1px solid #e2e8f0;">${v}</td>`).join('')}
+                            </tr>
+                          </table>
+                        </div>`;
+                      });
+                      exSec.innerHTML = exHtml;
                     }
                     // 体力測定：全項目の一覧テーブルに差し替え
-                    if(printSecs['sec-fitness']){
-                      const fitSec = perClone.querySelector('#sec-fitness');
-                      if(fitSec){
-                        const fitnessItems = appData.systemSettings?.fitnessItems || appSettings.fitnessItems;
-                        const fitnessRecs = (appData.fitnessRecords||[]).filter(r=>r.patientId===selectedPatientId).sort((a,b)=>a.date.localeCompare(b.date));
-                        let fitHtml='<div style="font-size:14px;font-weight:bold;color:#475569;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #e2e8f0;">体力測定（全項目）</div>';
-                        if(fitnessRecs.length>0){
-                          fitHtml+=`<table style="width:100%;border-collapse:collapse;font-size:12px;">
-                            <thead><tr style="background:#f8fafc;">
-                              <th style="padding:5px 8px;text-align:left;color:#475569;border:1px solid #e2e8f0;font-weight:bold;">測定日</th>
-                              ${fitnessItems.map(it=>`<th style="padding:5px 8px;text-align:center;color:#475569;border:1px solid #e2e8f0;font-weight:bold;">${it.name}(${it.unit})</th>`).join('')}
-                            </tr></thead><tbody>`;
-                          [...fitnessRecs].reverse().forEach((r,ri)=>{
-                            fitHtml+=`<tr style="background:${ri%2===0?'white':'#fafbfc'};">
-                              <td style="padding:4px 8px;font-weight:bold;color:#475569;border:1px solid #e2e8f0;white-space:nowrap;">${r.date}</td>
-                              ${fitnessItems.map(it=>{
-                                const v=r.values?.[it.id];
-                                return `<td style="padding:4px 8px;text-align:center;font-weight:bold;color:#1e293b;border:1px solid #e2e8f0;">${v!==undefined&&v!==''?v:'—'}</td>`;
-                              }).join('')}
-                            </tr>`;
-                          });
-                          fitHtml+=`</tbody></table>`;
-                          // 変化率サマリー
-                          if(fitnessRecs.length>=2){
-                            const first=fitnessRecs[0], last=fitnessRecs[fitnessRecs.length-1];
-                            fitHtml+=`<div style="margin-top:10px;padding:10px 14px;background:#f0fdf4;border-radius:8px;border:1px solid #86efac;font-size:12px;">
-                              <div style="font-weight:bold;color:#16a34a;margin-bottom:6px;">変化サマリー（${first.date} → ${last.date}）</div>
-                              <div style="display:flex;flex-wrap:wrap;gap:12px;">
-                              ${fitnessItems.map(it=>{
-                                const fv=parseFloat(first.values?.[it.id]),lv=parseFloat(last.values?.[it.id]);
-                                if(isNaN(fv)||isNaN(lv)) return '';
-                                const diff=(lv-fv).toFixed(1);
-                                const arrow=diff>0?'↑':diff<0?'↓':'→';
-                                const col=diff>0?'#16a34a':diff<0?'#ef4444':'#64748b';
-                                return `<span style="color:${col};font-weight:bold;">${it.name}: ${arrow}${Math.abs(diff)}${it.unit}</span>`;
-                              }).join('')}
-                              </div>
-                            </div>`;
-                          }
-                        } else {
-                          fitHtml+='<div style="text-align:center;color:#94a3b8;padding:20px;">体力測定の記録がありません</div>';
+                    const fitSec = perClone.querySelector('#sec-fitness');
+                    if(fitSec){
+                      const fitnessItems = appData.systemSettings?.fitnessItems || appSettings.fitnessItems;
+                      const fitnessRecs = (appData.fitnessRecords||[]).filter(r=>r.patientId===selectedPatientId).sort((a,b)=>a.date.localeCompare(b.date));
+                      let fitHtml='<div style="font-size:14px;font-weight:bold;color:#475569;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #e2e8f0;">体力測定（全項目）</div>';
+                      if(fitnessRecs.length>0){
+                        fitHtml+=`<table style="width:100%;border-collapse:collapse;font-size:12px;">
+                          <thead><tr style="background:#f8fafc;">
+                            <th style="padding:5px 8px;text-align:left;color:#475569;border:1px solid #e2e8f0;font-weight:bold;">測定日</th>
+                            ${fitnessItems.map(it=>`<th style="padding:5px 8px;text-align:center;color:#475569;border:1px solid #e2e8f0;font-weight:bold;">${it.name}(${it.unit})</th>`).join('')}
+                          </tr></thead><tbody>`;
+                        [...fitnessRecs].reverse().forEach((r,ri)=>{
+                          fitHtml+=`<tr style="background:${ri%2===0?'white':'#fafbfc'};">
+                            <td style="padding:4px 8px;font-weight:bold;color:#475569;border:1px solid #e2e8f0;white-space:nowrap;">${r.date}</td>
+                            ${fitnessItems.map(it=>{
+                              const v=r.values?.[it.id];
+                              return `<td style="padding:4px 8px;text-align:center;font-weight:bold;color:#1e293b;border:1px solid #e2e8f0;">${v!==undefined&&v!==''?v:'—'}</td>`;
+                            }).join('')}
+                          </tr>`;
+                        });
+                        fitHtml+=`</tbody></table>`;
+                        if(fitnessRecs.length>=2){
+                          const first=fitnessRecs[0], last=fitnessRecs[fitnessRecs.length-1];
+                          fitHtml+=`<div style="margin-top:10px;padding:10px 14px;background:#f0fdf4;border-radius:8px;border:1px solid #86efac;font-size:12px;">
+                            <div style="font-weight:bold;color:#16a34a;margin-bottom:6px;">変化サマリー（${first.date} → ${last.date}）</div>
+                            <div style="display:flex;flex-wrap:wrap;gap:12px;">
+                            ${fitnessItems.map(it=>{
+                              const fv=parseFloat(first.values?.[it.id]),lv=parseFloat(last.values?.[it.id]);
+                              if(isNaN(fv)||isNaN(lv)) return '';
+                              const diff=(lv-fv).toFixed(1);
+                              const arrow=diff>0?'↑':diff<0?'↓':'→';
+                              const col=diff>0?'#16a34a':diff<0?'#ef4444':'#64748b';
+                              return `<span style="color:${col};font-weight:bold;">${it.name}: ${arrow}${Math.abs(diff)}${it.unit}</span>`;
+                            }).join('')}
+                            </div>
+                          </div>`;
                         }
-                        fitSec.innerHTML = fitHtml;
-                        // 折りたたみ状態を解除（次の兄弟要素も表示）
-                        let sib=fitSec.nextElementSibling;
-                        while(sib && !sib.id){
-                          sib.style.display='';
-                          sib=sib.nextElementSibling;
-                        }
+                      } else {
+                        fitHtml+='<div style="text-align:center;color:#94a3b8;padding:20px;">体力測定の記録がありません</div>';
+                      }
+                      fitSec.innerHTML = fitHtml;
+                      let sib=fitSec.nextElementSibling;
+                      while(sib && !sib.id){
+                        sib.style.display='';
+                        sib=sib.nextElementSibling;
                       }
                     }
-                    // 各セクションをカラム幅に収まるよう縮小ラップ
+                    // 固定ページレイアウト構築
+                    // ページ定義: 各ページの左右に配置するセクション
+                    const PAGE_LAYOUT = [
+                      { left: ['sec-basicinfo','sec-kpi','sec-kibun'], right: ['sec-vital'] },
+                      { left: ['sec-trend','sec-absence','sec-kyushi'], right: ['sec-monitoring'] },
+                      { left: ['sec-exercise'], right: ['sec-fitness'] },
+                      { left: ['sec-detail'], right: [] },
+                    ];
                     const colW = (297 - 16 - 8) / 2;
                     const colPx = colW * 3.7795;
                     const measure = document.createElement('div');
                     measure.style.cssText = 'position:absolute;left:-9999px;top:0;width:297mm;visibility:hidden;';
                     document.body.appendChild(measure);
                     measure.appendChild(perClone);
-                    // セクションIDを持つ要素とその後続兄弟をグループ化して縮小
-                    const secIdSet = new Set(allSecIds.filter(id=>printSecs[id]));
-                    allSecIds.forEach(secId=>{
-                      if(!printSecs[secId]) return;
+                    // セクションをIDで抽出しグループ化
+                    const secIdSet = new Set(allSecIds);
+                    const extractSection = (secId) => {
                       const el = perClone.querySelector('#'+secId);
-                      if(!el) return;
-                      // セクション要素＋後続の非セクション兄弟をグループ化
+                      if(!el) return null;
                       const group = document.createElement('div');
-                      group.style.cssText = 'break-inside:avoid;page-break-inside:avoid;margin-bottom:12px;';
+                      group.style.cssText = 'margin-bottom:8px;';
                       el.parentNode.insertBefore(group, el);
                       group.appendChild(el);
-                      while(group.nextElementSibling && !group.nextElementSibling.id || (group.nextElementSibling?.id && !secIdSet.has(group.nextElementSibling.id))){
+                      while(group.nextElementSibling && (!group.nextElementSibling.id || !secIdSet.has(group.nextElementSibling.id))){
                         if(!group.nextElementSibling) break;
                         group.appendChild(group.nextElementSibling);
                       }
-                      // グループの実幅を計測して縮小
-                      const natW = group.scrollWidth;
-                      if(natW > colPx){
-                        const sc = colPx / natW;
-                        const wrapper = document.createElement('div');
-                        wrapper.style.cssText = `transform:scale(${sc.toFixed(4)});transform-origin:top left;width:${(100/sc).toFixed(2)}%;margin-bottom:${-(group.scrollHeight*(1-sc)).toFixed(0)}px;break-inside:avoid;page-break-inside:avoid;`;
-                        group.parentNode.insertBefore(wrapper, group);
-                        wrapper.appendChild(group);
-                      }
+                      return group;
+                    };
+                    const sectionGroups = {};
+                    allSecIds.forEach(secId => {
+                      sectionGroups[secId] = extractSection(secId);
                     });
-                    const parts = perClone.innerHTML;
+                    // 各セクションを半ページ幅に収まるよう縮小
+                    const scaleToFit = (group, targetPx) => {
+                      if(!group) return '';
+                      const natW = group.scrollWidth;
+                      if(natW > targetPx){
+                        const sc = targetPx / natW;
+                        group.style.transform = `scale(${sc.toFixed(4)})`;
+                        group.style.transformOrigin = 'top left';
+                        group.style.width = `${(100/sc).toFixed(2)}%`;
+                        group.style.marginBottom = `${-(group.scrollHeight*(1-sc)).toFixed(0)}px`;
+                      }
+                      return group.outerHTML;
+                    };
+                    // ページHTMLを組み立て
+                    let pagesHtml = '';
+                    const pageLabels = ['ページ1: 基本情報・基本指標・気分 / バイタルトレンド','ページ2: 通所・欠席・休止 / モニタリング','ページ3: 運動トレンド / 体力測定','ページ4: 詳細記録'];
+                    let pageIdx = 0;
+                    PAGE_LAYOUT.forEach((pageDef, pi) => {
+                      const leftHtml = pageDef.left.map(id => scaleToFit(sectionGroups[id], colPx)).join('');
+                      const rightHtml = pageDef.right.map(id => scaleToFit(sectionGroups[id], colPx)).join('');
+                      const hasContent = leftHtml || rightHtml;
+                      if(!hasContent) return;
+                      const isFullWidth = pageDef.right.length === 0;
+                      const pageBreak = pi > 0 ? 'page-break-before:always;' : '';
+                      const pageSep = pi > 0 ? `<div class="page-sep" style="border-top:3px dashed #cbd5e1;margin:16px 0 12px;padding-top:8px;display:flex;align-items:center;gap:8px;"><span style="background:#e2e8f0;color:#475569;font-size:11px;font-weight:bold;padding:2px 10px;border-radius:4px;">${pageLabels[pi]||'ページ'+(pi+1)}</span><span style="flex:1;border-top:1px solid #e2e8f0;"></span></div>` : `<div class="page-sep" style="margin-bottom:8px;display:flex;align-items:center;gap:8px;"><span style="background:#dbeafe;color:#2563eb;font-size:11px;font-weight:bold;padding:2px 10px;border-radius:4px;">${pageLabels[0]}</span><span style="flex:1;border-top:1px solid #e2e8f0;"></span></div>`;
+                      if(isFullWidth){
+                        pagesHtml += `${pageSep}<div style="${pageBreak}width:100%;"><div style="width:100%;">${leftHtml}</div></div>`;
+                      } else {
+                        pagesHtml += `${pageSep}<div style="${pageBreak}display:flex;gap:8mm;width:100%;"><div style="flex:1;min-width:0;overflow:hidden;">${leftHtml}</div><div style="flex:1;min-width:0;overflow:hidden;">${rightHtml}</div></div>`;
+                      }
+                      pageIdx++;
+                    });
                     document.body.removeChild(measure);
-                    if(!parts){alert('セクションを1つ以上選択してください');return;}
                     const title = `分析_個人_${selectedPatient?.name||''}`;
-                    const colStyle = 'columns:2;column-gap:8mm;';
-                    const html=`<div style="padding:6mm 8mm;font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;width:297mm;box-sizing:border-box;"><style>*{box-sizing:border-box;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}@media print{.page-sep{display:none!important;}.print-col{column-fill:auto!important;}}</style><div class="print-col" style="${colStyle}">${parts}</div></div>`;
+                    const html=`<div style="padding:6mm 8mm;font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;width:297mm;box-sizing:border-box;"><style>*{box-sizing:border-box;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}@media print{@page{margin:0;}.page-sep{display:none!important;}}</style>${pagesHtml}</div>`;
                     window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 landscape',html}}));
-                  }} style={{flex:1,padding:'5px',borderRadius:6,border:'none',fontSize:11,fontWeight:'bold',color:'white',cursor:'pointer',background:'#2563eb'}}>プレビュー</button>
-                </div>
-              </div>
-            )}
-          </div>
+                  }}
+              style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:8,padding:'6px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
+              <Printer size={14}/>印刷プレビュー
+            </button>
 
         </div>
       </div>
