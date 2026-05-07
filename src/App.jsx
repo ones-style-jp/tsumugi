@@ -9821,20 +9821,44 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                         }
                       }
                     }
-                    // 各セクションにbreak-inside:avoidを設定（2段組で自動配置）
+                    // 各セクションをカラム幅に収まるよう縮小ラップ
+                    const colW = (297 - 16 - 8) / 2;
+                    const colPx = colW * 3.7795;
+                    const measure = document.createElement('div');
+                    measure.style.cssText = 'position:absolute;left:-9999px;top:0;width:297mm;visibility:hidden;';
+                    document.body.appendChild(measure);
+                    measure.appendChild(perClone);
+                    // セクションIDを持つ要素とその後続兄弟をグループ化して縮小
+                    const secIdSet = new Set(allSecIds.filter(id=>printSecs[id]));
                     allSecIds.forEach(secId=>{
                       if(!printSecs[secId]) return;
                       const el = perClone.querySelector('#'+secId);
-                      if(el){ el.style.breakInside='avoid'; el.style.pageBreakInside='avoid'; el.style.marginBottom='12px'; el.style.overflow='hidden'; }
+                      if(!el) return;
+                      // セクション要素＋後続の非セクション兄弟をグループ化
+                      const group = document.createElement('div');
+                      group.style.cssText = 'break-inside:avoid;page-break-inside:avoid;margin-bottom:12px;';
+                      el.parentNode.insertBefore(group, el);
+                      group.appendChild(el);
+                      while(group.nextElementSibling && !group.nextElementSibling.id || (group.nextElementSibling?.id && !secIdSet.has(group.nextElementSibling.id))){
+                        if(!group.nextElementSibling) break;
+                        group.appendChild(group.nextElementSibling);
+                      }
+                      // グループの実幅を計測して縮小
+                      const natW = group.scrollWidth;
+                      if(natW > colPx){
+                        const sc = colPx / natW;
+                        const wrapper = document.createElement('div');
+                        wrapper.style.cssText = `transform:scale(${sc.toFixed(4)});transform-origin:top left;width:${(100/sc).toFixed(2)}%;margin-bottom:${-(group.scrollHeight*(1-sc)).toFixed(0)}px;break-inside:avoid;page-break-inside:avoid;`;
+                        group.parentNode.insertBefore(wrapper, group);
+                        wrapper.appendChild(group);
+                      }
                     });
-                    // テーブルや内部要素を列幅に収める
-                    perClone.querySelectorAll('table').forEach(t=>{ t.style.maxWidth='100%'; t.style.width='100%'; t.style.fontSize='10px'; });
-                    perClone.querySelectorAll('div[style]').forEach(d=>{ if(d.style.width && d.style.width.includes('px')){ d.style.maxWidth='100%'; d.style.width='100%'; } });
                     const parts = perClone.innerHTML;
+                    document.body.removeChild(measure);
                     if(!parts){alert('セクションを1つ以上選択してください');return;}
                     const title = `分析_個人_${selectedPatient?.name||''}`;
                     const colStyle = 'columns:2;column-gap:8mm;';
-                    const html=`<div style="padding:6mm 8mm;font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;width:297mm;box-sizing:border-box;"><style>*{box-sizing:border-box;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}.print-col>*{max-width:100%!important;overflow:hidden;}@media print{.page-sep{display:none!important;}.print-col{column-fill:auto!important;}}</style><div class="print-col" style="${colStyle}">${parts}</div></div>`;
+                    const html=`<div style="padding:6mm 8mm;font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;width:297mm;box-sizing:border-box;"><style>*{box-sizing:border-box;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}@media print{.page-sep{display:none!important;}.print-col{column-fill:auto!important;}}</style><div class="print-col" style="${colStyle}">${parts}</div></div>`;
                     window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 landscape',html}}));
                   }} style={{flex:1,padding:'5px',borderRadius:6,border:'none',fontSize:11,fontWeight:'bold',color:'white',cursor:'pointer',background:'#2563eb'}}>プレビュー</button>
                 </div>
@@ -11829,19 +11853,41 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                       const bg = el.style.backgroundColor||el.style.background;
                       if(bg && bg.includes('slate')) el.style.background='white';
                     });
-                    // 各セクションにbreak-inside:avoidを設定（2段組で自動配置）
+                    // 各セクションをカラム幅に収まるよう縮小ラップ
+                    const colW2 = (297 - 16 - 8) / 2;
+                    const colPx2 = colW2 * 3.7795;
+                    const measure2 = document.createElement('div');
+                    measure2.style.cssText = 'position:absolute;left:-9999px;top:0;width:297mm;visibility:hidden;';
+                    document.body.appendChild(measure2);
+                    measure2.appendChild(clone);
+                    const opsIdSet = new Set(opsSecIds.filter(id=>opsPrintSecs[id]));
                     opsSecIds.forEach(secId=>{
                       if(!opsPrintSecs[secId]) return;
                       const el = clone.querySelector('#'+secId);
-                      if(el){ el.style.breakInside='avoid'; el.style.pageBreakInside='avoid'; el.style.marginBottom='12px'; el.style.overflow='hidden'; }
+                      if(!el) return;
+                      const group = document.createElement('div');
+                      group.style.cssText = 'break-inside:avoid;page-break-inside:avoid;margin-bottom:12px;';
+                      el.parentNode.insertBefore(group, el);
+                      group.appendChild(el);
+                      while(group.nextElementSibling && !group.nextElementSibling.id || (group.nextElementSibling?.id && !opsIdSet.has(group.nextElementSibling.id))){
+                        if(!group.nextElementSibling) break;
+                        group.appendChild(group.nextElementSibling);
+                      }
+                      const natW = group.scrollWidth;
+                      if(natW > colPx2){
+                        const sc = colPx2 / natW;
+                        const wrapper = document.createElement('div');
+                        wrapper.style.cssText = `transform:scale(${sc.toFixed(4)});transform-origin:top left;width:${(100/sc).toFixed(2)}%;margin-bottom:${-(group.scrollHeight*(1-sc)).toFixed(0)}px;break-inside:avoid;page-break-inside:avoid;`;
+                        group.parentNode.insertBefore(wrapper, group);
+                        wrapper.appendChild(group);
+                      }
                     });
-                    clone.querySelectorAll('table').forEach(t=>{ t.style.maxWidth='100%'; t.style.width='100%'; t.style.fontSize='10px'; });
-                    clone.querySelectorAll('div[style]').forEach(d=>{ if(d.style.width && d.style.width.includes('px')){ d.style.maxWidth='100%'; d.style.width='100%'; } });
                     const parts = clone.innerHTML;
+                    document.body.removeChild(measure2);
                     if(!parts){alert('セクションを1つ以上選択してください');return;}
                     const title='分析_稼働';
                     const colStyle = 'columns:2;column-gap:8mm;';
-                    const html=`<div style="padding:6mm 8mm;font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;width:297mm;box-sizing:border-box;"><style>*{box-sizing:border-box;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}.print-col>*{max-width:100%!important;overflow:hidden;}@media print{.page-sep{display:none!important;}.print-col{column-fill:auto!important;}}</style><div class="print-col" style="${colStyle}">${parts}</div></div>`;
+                    const html=`<div style="padding:6mm 8mm;font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;width:297mm;box-sizing:border-box;"><style>*{box-sizing:border-box;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}@media print{.page-sep{display:none!important;}.print-col{column-fill:auto!important;}}</style><div class="print-col" style="${colStyle}">${parts}</div></div>`;
                     window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 landscape',html}}));
                   }} style={{flex:1,padding:'5px',borderRadius:6,border:'none',fontSize:11,fontWeight:'bold',color:'white',cursor:'pointer',background:'#ea580c'}}>プレビュー</button>
                 </div>
