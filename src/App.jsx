@@ -9668,17 +9668,16 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                     if(!perContainer){ alert('分析データが見つかりません'); return; }
                     const perClone = perContainer.cloneNode(true);
                     const allSecIds = ALL_SECTIONS.map(([id])=>id);
-                    // SVG viewBox付与
+                    // SVG viewBox付与（縮小時にすべて表示されるように）
                     perClone.querySelectorAll('svg').forEach(svg=>{
-                      if(!svg.getAttribute('viewBox')){
-                        const w=parseInt(svg.getAttribute('width'))||0;
-                        const h=parseInt(svg.getAttribute('height'))||0;
-                        if(w > 100){
-                          svg.setAttribute('viewBox',`0 0 ${w} ${h}`);
-                          svg.style.maxWidth='100%';
-                          svg.style.height='auto';
-                        }
+                      const w=parseInt(svg.getAttribute('width'))||0;
+                      const h=parseInt(svg.getAttribute('height'))||0;
+                      if(!svg.getAttribute('viewBox') && w > 0 && h > 0){
+                        svg.setAttribute('viewBox',`0 0 ${w} ${h}`);
                       }
+                      svg.style.maxWidth='100%';
+                      svg.style.height='auto';
+                      svg.removeAttribute('width');
                     });
                     perClone.querySelectorAll('.vital-scroll').forEach(d=>{d.style.overflow='visible';d.style.maxWidth='100%';});
                     perClone.querySelectorAll('[style]').forEach(el=>{
@@ -9802,17 +9801,41 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                     allSecIds.forEach(secId => {
                       sectionGroups[secId] = extractSection(secId);
                     });
-                    const scaleToFit = (group, targetPx) => {
-                      if(!group) return '';
-                      const natW = group.scrollWidth;
-                      if(natW > targetPx){
-                        const sc = targetPx / natW;
-                        group.style.transform = `scale(${sc.toFixed(4)})`;
-                        group.style.transformOrigin = 'top left';
-                        group.style.width = `${(100/sc).toFixed(2)}%`;
-                        group.style.marginBottom = `${-(group.scrollHeight*(1-sc)).toFixed(0)}px`;
+                    // 列ごとに統一されたzoom倍率を適用（テーブルやSVGも含めた最大幅で計算）
+                    const measureNaturalWidth = (g) => {
+                      if(!g) return 0;
+                      // テーブルラッパーのoverflowを一時的に解除して実幅を計測
+                      const overflowSaves = [];
+                      g.querySelectorAll('*').forEach(el => {
+                        const cs = el.style;
+                        if(cs.overflow || cs.overflowX){
+                          overflowSaves.push({el, overflow: cs.overflow, overflowX: cs.overflowX});
+                          if(cs.overflow === 'hidden' || cs.overflow === 'auto' || cs.overflow === 'scroll') cs.overflow = 'visible';
+                          if(cs.overflowX === 'auto' || cs.overflowX === 'scroll') cs.overflowX = 'visible';
+                        }
+                      });
+                      let w = g.scrollWidth;
+                      g.querySelectorAll('table, svg').forEach(el => {
+                        const ew = el.scrollWidth || el.offsetWidth;
+                        if(ew > w) w = ew;
+                      });
+                      // overflowを元に戻す
+                      overflowSaves.forEach(s => { s.el.style.overflow = s.overflow; s.el.style.overflowX = s.overflowX; });
+                      return w;
+                    };
+                    const buildColumn = (secIds, targetPx) => {
+                      if(!secIds.length) return '';
+                      let maxW = 0;
+                      secIds.forEach(id => {
+                        const w = measureNaturalWidth(sectionGroups[id]);
+                        if(w > maxW) maxW = w;
+                      });
+                      const sc = maxW > targetPx ? targetPx / maxW : 1;
+                      const inner = secIds.map(id => sectionGroups[id]?.outerHTML || '').join('');
+                      if(sc < 1){
+                        return `<div style="zoom:${sc.toFixed(4)};">${inner}</div>`;
                       }
-                      return group.outerHTML;
+                      return inner;
                     };
                     let pagesHtml = '';
                     PAGE_LAYOUT.forEach((pageDef, pi) => {
@@ -9821,14 +9844,14 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                         ? `<div class="page-sep" style="border-top:3px dashed #cbd5e1;margin:16px 0 12px;padding-top:8px;display:flex;align-items:center;gap:8px;"><span style="background:#e2e8f0;color:#475569;font-size:11px;font-weight:bold;padding:2px 10px;border-radius:4px;">${pageDef.label}</span><span style="flex:1;border-top:1px solid #e2e8f0;"></span></div>`
                         : `<div class="page-sep" style="margin-bottom:8px;display:flex;align-items:center;gap:8px;"><span style="background:#dbeafe;color:#2563eb;font-size:11px;font-weight:bold;padding:2px 10px;border-radius:4px;">${pageDef.label}</span><span style="flex:1;border-top:1px solid #e2e8f0;"></span></div>`;
                       if(pageDef.mode === 'full'){
-                        const content = pageDef.left.map(id => scaleToFit(sectionGroups[id], fullPx)).join('');
+                        const content = buildColumn(pageDef.left, fullPx);
                         if(!content) return;
                         pagesHtml += `${pageSep}<div style="${pageBreak}width:100%;"><div style="width:100%;">${content}</div></div>`;
                       } else {
-                        const leftHtml = pageDef.left.map(id => scaleToFit(sectionGroups[id], colPx)).join('');
-                        const rightHtml = pageDef.right.map(id => scaleToFit(sectionGroups[id], colPx)).join('');
+                        const leftHtml = buildColumn(pageDef.left, colPx);
+                        const rightHtml = buildColumn(pageDef.right, colPx);
                         if(!leftHtml && !rightHtml) return;
-                        pagesHtml += `${pageSep}<div style="${pageBreak}display:flex;gap:8mm;width:100%;"><div style="flex:1;min-width:0;overflow:hidden;">${leftHtml}</div><div style="flex:1;min-width:0;overflow:hidden;">${rightHtml}</div></div>`;
+                        pagesHtml += `${pageSep}<div style="${pageBreak}display:flex;gap:8mm;width:100%;align-items:flex-start;"><div style="flex:1;min-width:0;">${leftHtml}</div><div style="flex:1;min-width:0;">${rightHtml}</div></div>`;
                       }
                     });
                     document.body.removeChild(measure);
