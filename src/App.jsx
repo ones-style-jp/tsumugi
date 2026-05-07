@@ -9708,14 +9708,14 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                             <span style="font-size:13px;font-weight:bold;color:#1e293b;">${exItem.name}</span>
                             <span style="font-size:11px;color:#64748b;">${avg!==null?`平均:${avg.toFixed(1)} / 最高:${max} / 最低:${min}`:'記録なし'}</span>
                           </div>
-                          <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                          <table style="width:auto;border-collapse:collapse;font-size:12px;table-layout:auto;">
                             <tr style="background:#f8fafc;">
-                              <th style="padding:4px 6px;text-align:left;color:#475569;border:1px solid #e2e8f0;">月</th>
-                              ${exMonths.map(m=>`<th style="padding:4px 6px;text-align:center;color:#475569;border:1px solid #e2e8f0;">${m}月</th>`).join('')}
+                              <th style="padding:4px 10px;text-align:left;color:#475569;border:1px solid #e2e8f0;white-space:nowrap;">月</th>
+                              ${exMonths.map(m=>`<th style="padding:4px 12px;text-align:center;color:#475569;border:1px solid #e2e8f0;white-space:nowrap;">${m}月</th>`).join('')}
                             </tr>
                             <tr>
-                              <td style="padding:4px 6px;font-weight:bold;color:#6366f1;border:1px solid #e2e8f0;">平均</td>
-                              ${monthlyAvgs.map(v=>`<td style="padding:4px 6px;text-align:center;font-weight:bold;color:#1e293b;border:1px solid #e2e8f0;">${v}</td>`).join('')}
+                              <td style="padding:4px 10px;font-weight:bold;color:#6366f1;border:1px solid #e2e8f0;white-space:nowrap;">平均</td>
+                              ${monthlyAvgs.map(v=>`<td style="padding:4px 12px;text-align:center;font-weight:bold;color:#1e293b;border:1px solid #e2e8f0;white-space:nowrap;">${v}</td>`).join('')}
                             </tr>
                           </table>
                         </div>`;
@@ -9774,7 +9774,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                     const PAGE_LAYOUT = [
                       { left: ['sec-basicinfo','sec-kpi','sec-trend','sec-kibun'], right: ['sec-vital','sec-fitness'], label:'ページ1: 基本情報・指標・通所・気分 / バイタル・体力測定' },
                       { left: ['sec-exercise','sec-monitoring'], right: ['sec-absence','sec-kyushi'], label:'ページ2: 運動・モニタリング / 欠席・休止' },
-                      { left: ['sec-detail'], right: [], mode:'columns', label:'ページ3: 詳細記録' },
+                      { left: ['sec-detail'], right: [], mode:'full', label:'ページ3〜: 詳細記録（全幅・複数ページ）' },
                     ];
                     const colW = (297 - 16 - 8) / 2;
                     const colPx = colW * 3.7795;
@@ -9820,10 +9820,10 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                       const pageSep = pi > 0
                         ? `<div class="page-sep" style="border-top:3px dashed #cbd5e1;margin:16px 0 12px;padding-top:8px;display:flex;align-items:center;gap:8px;"><span style="background:#e2e8f0;color:#475569;font-size:11px;font-weight:bold;padding:2px 10px;border-radius:4px;">${pageDef.label}</span><span style="flex:1;border-top:1px solid #e2e8f0;"></span></div>`
                         : `<div class="page-sep" style="margin-bottom:8px;display:flex;align-items:center;gap:8px;"><span style="background:#dbeafe;color:#2563eb;font-size:11px;font-weight:bold;padding:2px 10px;border-radius:4px;">${pageDef.label}</span><span style="flex:1;border-top:1px solid #e2e8f0;"></span></div>`;
-                      if(pageDef.mode === 'columns'){
+                      if(pageDef.mode === 'full'){
                         const content = pageDef.left.map(id => scaleToFit(sectionGroups[id], fullPx)).join('');
                         if(!content) return;
-                        pagesHtml += `${pageSep}<div style="${pageBreak}width:100%;"><div style="columns:2;column-gap:8mm;column-fill:auto;height:190mm;">${content}</div></div>`;
+                        pagesHtml += `${pageSep}<div style="${pageBreak}width:100%;"><div style="width:100%;">${content}</div></div>`;
                       } else {
                         const leftHtml = pageDef.left.map(id => scaleToFit(sectionGroups[id], colPx)).join('');
                         const rightHtml = pageDef.right.map(id => scaleToFit(sectionGroups[id], colPx)).join('');
@@ -9833,7 +9833,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                     });
                     document.body.removeChild(measure);
                     const title = `分析_個人_${selectedPatient?.name||''}`;
-                    const html=`<div style="padding:6mm 8mm;font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;width:297mm;box-sizing:border-box;"><style>*{box-sizing:border-box;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}@media print{@page{margin:0;}.page-sep{display:none!important;}}</style>${pagesHtml}</div>`;
+                    const html=`<div style="padding:6mm 8mm;font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;width:297mm;box-sizing:border-box;"><style>*{box-sizing:border-box;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}#sec-detail table{page-break-inside:auto;}#sec-detail tr{page-break-inside:avoid;page-break-after:auto;}#sec-detail thead{display:table-header-group;}@media print{@page{margin:0;}.page-sep{display:none!important;}}</style>${pagesHtml}</div>`;
                     window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 landscape',html}}));
                   }}
               style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:8,padding:'6px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
@@ -10153,8 +10153,9 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                     );
                   })()}
                 </div>
+        </div>
+        <div id="sec-kibun" data-sec="sec-kibun" style={{scrollMarginTop:120}}>
           <div style={{background:'white',borderRadius:12,border:'1px solid #fde68a',padding:'16px',marginTop:12}}>
-            <div id="sec-kibun" data-sec="sec-kibun" style={{scrollMarginTop:120}}/>
             <div style={{fontSize:14,fontWeight:'bold',color:'#92400e',marginBottom:10}}>気分トレンド（通所時/帰宅時）</div>
             {(()=>{
               const MOOD_DEF=[
@@ -10263,7 +10264,6 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
               <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{display:'inline-block',width:20,height:2,background:'#f97316',borderRadius:2}}/>帰宅時</span>
             </div>
           </div>
-        </div>
 
         {/* === 気分割合（通所時/帰宅時） === */}
         {(()=>{
@@ -10323,6 +10323,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             </div>
           );
         })()}
+        </div>
 
         {/* === バイタルトレンド（日別） === */}
         <div id="sec-vital" data-sec="sec-vital" style={{scrollMarginTop:120}}/>
