@@ -9771,20 +9771,19 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                       }
                     }
                     // 固定ページレイアウト構築
-                    // ページ定義: 各ページの左右に配置するセクション
                     const PAGE_LAYOUT = [
-                      { left: ['sec-basicinfo','sec-kpi','sec-kibun'], right: ['sec-vital'] },
-                      { left: ['sec-trend','sec-absence','sec-kyushi'], right: ['sec-monitoring'] },
-                      { left: ['sec-exercise'], right: ['sec-fitness'] },
-                      { left: ['sec-detail'], right: [] },
+                      { left: ['sec-basicinfo','sec-kpi','sec-trend','sec-kibun'], right: ['sec-vital','sec-fitness'], label:'ページ1: 基本情報・指標・通所・気分 / バイタル・体力測定' },
+                      { left: ['sec-exercise','sec-monitoring'], right: ['sec-absence','sec-kyushi'], label:'ページ2: 運動・モニタリング / 欠席・休止' },
+                      { left: ['sec-detail'], right: [], mode:'columns', label:'ページ3: 詳細記録' },
                     ];
                     const colW = (297 - 16 - 8) / 2;
                     const colPx = colW * 3.7795;
+                    const fullW = 297 - 16;
+                    const fullPx = fullW * 3.7795;
                     const measure = document.createElement('div');
                     measure.style.cssText = 'position:absolute;left:-9999px;top:0;width:297mm;visibility:hidden;';
                     document.body.appendChild(measure);
                     measure.appendChild(perClone);
-                    // セクションをIDで抽出しグループ化
                     const secIdSet = new Set(allSecIds);
                     const extractSection = (secId) => {
                       const el = perClone.querySelector('#'+secId);
@@ -9803,7 +9802,6 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                     allSecIds.forEach(secId => {
                       sectionGroups[secId] = extractSection(secId);
                     });
-                    // 各セクションを半ページ幅に収まるよう縮小
                     const scaleToFit = (group, targetPx) => {
                       if(!group) return '';
                       const natW = group.scrollWidth;
@@ -9816,24 +9814,22 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                       }
                       return group.outerHTML;
                     };
-                    // ページHTMLを組み立て
                     let pagesHtml = '';
-                    const pageLabels = ['ページ1: 基本情報・基本指標・気分 / バイタルトレンド','ページ2: 通所・欠席・休止 / モニタリング','ページ3: 運動トレンド / 体力測定','ページ4: 詳細記録'];
-                    let pageIdx = 0;
                     PAGE_LAYOUT.forEach((pageDef, pi) => {
-                      const leftHtml = pageDef.left.map(id => scaleToFit(sectionGroups[id], colPx)).join('');
-                      const rightHtml = pageDef.right.map(id => scaleToFit(sectionGroups[id], colPx)).join('');
-                      const hasContent = leftHtml || rightHtml;
-                      if(!hasContent) return;
-                      const isFullWidth = pageDef.right.length === 0;
                       const pageBreak = pi > 0 ? 'page-break-before:always;' : '';
-                      const pageSep = pi > 0 ? `<div class="page-sep" style="border-top:3px dashed #cbd5e1;margin:16px 0 12px;padding-top:8px;display:flex;align-items:center;gap:8px;"><span style="background:#e2e8f0;color:#475569;font-size:11px;font-weight:bold;padding:2px 10px;border-radius:4px;">${pageLabels[pi]||'ページ'+(pi+1)}</span><span style="flex:1;border-top:1px solid #e2e8f0;"></span></div>` : `<div class="page-sep" style="margin-bottom:8px;display:flex;align-items:center;gap:8px;"><span style="background:#dbeafe;color:#2563eb;font-size:11px;font-weight:bold;padding:2px 10px;border-radius:4px;">${pageLabels[0]}</span><span style="flex:1;border-top:1px solid #e2e8f0;"></span></div>`;
-                      if(isFullWidth){
-                        pagesHtml += `${pageSep}<div style="${pageBreak}width:100%;"><div style="width:100%;">${leftHtml}</div></div>`;
+                      const pageSep = pi > 0
+                        ? `<div class="page-sep" style="border-top:3px dashed #cbd5e1;margin:16px 0 12px;padding-top:8px;display:flex;align-items:center;gap:8px;"><span style="background:#e2e8f0;color:#475569;font-size:11px;font-weight:bold;padding:2px 10px;border-radius:4px;">${pageDef.label}</span><span style="flex:1;border-top:1px solid #e2e8f0;"></span></div>`
+                        : `<div class="page-sep" style="margin-bottom:8px;display:flex;align-items:center;gap:8px;"><span style="background:#dbeafe;color:#2563eb;font-size:11px;font-weight:bold;padding:2px 10px;border-radius:4px;">${pageDef.label}</span><span style="flex:1;border-top:1px solid #e2e8f0;"></span></div>`;
+                      if(pageDef.mode === 'columns'){
+                        const content = pageDef.left.map(id => scaleToFit(sectionGroups[id], fullPx)).join('');
+                        if(!content) return;
+                        pagesHtml += `${pageSep}<div style="${pageBreak}width:100%;"><div style="columns:2;column-gap:8mm;column-fill:auto;height:190mm;">${content}</div></div>`;
                       } else {
+                        const leftHtml = pageDef.left.map(id => scaleToFit(sectionGroups[id], colPx)).join('');
+                        const rightHtml = pageDef.right.map(id => scaleToFit(sectionGroups[id], colPx)).join('');
+                        if(!leftHtml && !rightHtml) return;
                         pagesHtml += `${pageSep}<div style="${pageBreak}display:flex;gap:8mm;width:100%;"><div style="flex:1;min-width:0;overflow:hidden;">${leftHtml}</div><div style="flex:1;min-width:0;overflow:hidden;">${rightHtml}</div></div>`;
                       }
-                      pageIdx++;
                     });
                     document.body.removeChild(measure);
                     const title = `分析_個人_${selectedPatient?.name||''}`;
