@@ -9907,9 +9907,12 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                               const {w: dnatW} = measureNaturalSize(dContent);
                               const dnatH_px = dContent.scrollHeight;
                               const dnatH_mm = dnatH_px / MM;
-                              const dz = Math.min(1, innerWpx / Math.max(1, dnatW));
-                              // ページを埋めるよう各行に追加高さを配分（zoom 後にちょうど innerH を満たす）
-                              const targetNatH_mm = innerH / dz;
+                              // 安全マージン（描画誤差で見切れないよう僅かに小さくフィット）
+                              const safeWpx = innerWpx - 6;
+                              const safeH_mm = innerH - 3;
+                              const dz = Math.min(1, safeWpx / Math.max(1, dnatW));
+                              // ページを埋めるよう各行に追加高さを配分（zoom 後にちょうど innerH-余白 を満たす）
+                              const targetNatH_mm = safeH_mm / dz;
                               const delta_mm = Math.max(0, targetNatH_mm - dnatH_mm);
                               if(delta_mm > 0 && dTable){
                                 const dTbody = dTable.querySelector('tbody');
@@ -9931,7 +9934,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                                 ? `第${ci+1}期 P${pi+1}-${dp+1}/${numDp}: 詳細記録（横）`
                                 : `第${ci+1}期 P${pi+1}: 詳細記録（横）`;
                               const dSep = `<div class="page-sep" style="margin:${(pi>0||ci>0||dp>0)?'14px 0 8px':'0 0 8px'};display:flex;align-items:center;gap:8px;"><span style="background:#fef3c7;color:#92400e;font-size:11px;font-weight:bold;padding:2px 10px;border-radius:4px;">${dPageLabel}</span><span style="flex:1;border-top:1px solid #e2e8f0;"></span></div>`;
-                              const dWrapStyle = `${dPageBreak}width:${pageW}mm;height:${pageH}mm;padding:${PAD}mm;box-sizing:border-box;overflow:hidden;background:white;`;
+                              const dWrapStyle = `${dPageBreak}width:${pageW}mm;height:${pageH}mm;padding:${PAD}mm;box-sizing:border-box;overflow:hidden;background:white;margin:0 auto;`;
                               chunkPagesHtml += `${dSep}<div class="l-page" style="${dWrapStyle}">${dInner}</div>`;
                             }
                             return;
@@ -9945,7 +9948,10 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                           if(content.children.length === 0) return;
                           measure.appendChild(content);
                           const {w: natW, h: natH} = measureNaturalSize(content);
-                          const sc = Math.min(1, innerWpx / Math.max(1, natW), innerHpx / Math.max(1, natH));
+                          // 安全マージン（描画誤差で下が切れないよう、ページ内有効領域を 3mm 縮める）
+                          const safeWpx2 = innerWpx - 6;
+                          const safeHpx2 = innerHpx - 12;
+                          const sc = Math.min(1, safeWpx2 / Math.max(1, natW), safeHpx2 / Math.max(1, natH));
                           const inner = sc < 1
                             ? `<div style="zoom:${sc.toFixed(4)};">${content.innerHTML}</div>`
                             : content.innerHTML;
@@ -9953,7 +9959,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                           const pageClass = isLand ? 'l-page' : 'p-page';
                           const pageBreak = (pi > 0 || ci > 0) ? 'page-break-before:always;' : '';
                           const sep = `<div class="page-sep" style="margin:${(pi>0||ci>0)?'14px 0 8px':'0 0 8px'};display:flex;align-items:center;gap:8px;"><span style="background:${isLand?'#fef3c7':'#dbeafe'};color:${isLand?'#92400e':'#2563eb'};font-size:11px;font-weight:bold;padding:2px 10px;border-radius:4px;">${pageDef.label}</span><span style="flex:1;border-top:1px solid #e2e8f0;"></span></div>`;
-                          const wrapStyle = `${pageBreak}width:${pageW}mm;height:${pageH}mm;padding:${PAD}mm;box-sizing:border-box;overflow:hidden;background:white;`;
+                          const wrapStyle = `${pageBreak}width:${pageW}mm;height:${pageH}mm;padding:${PAD}mm;box-sizing:border-box;overflow:hidden;background:white;margin:0 auto;`;
                           chunkPagesHtml += `${sep}<div class="${pageClass}" style="${wrapStyle}">${inner}</div>`;
                         });
                         document.body.removeChild(measure);
