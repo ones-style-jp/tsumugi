@@ -9775,7 +9775,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                       { sections: ['sec-vital','sec-fitness'], orientation:'portrait', label:'ページ2: 体温・血圧・脈・体力測定（縦）' },
                       { sections: ['sec-exercise','sec-monitoring'], orientation:'portrait', label:'ページ3: 運動トレンド・モニタリング（縦）' },
                       { sections: ['sec-absence','sec-kyushi'], orientation:'portrait', label:'ページ4: 欠席一覧・休止一覧（縦）' },
-                      { sections: ['sec-detail'], orientation:'landscape', label:'ページ5: 詳細記録（横・縮小）' },
+                      { sections: ['sec-detail'], orientation:'landscape', flow:true, label:'ページ5〜: 詳細記録（横・必要に応じて複数ページ）' },
                     ];
                     const MM = 3.7795;
                     const PAD = 6; // mm
@@ -9838,7 +9838,9 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                       if(content.children.length === 0) return;
                       measure.appendChild(content);
                       const {w: natW, h: natH} = measureNaturalSize(content);
-                      const sc = Math.min(1, innerWpx / Math.max(1, natW), innerHpx / Math.max(1, natH));
+                      const sc = pageDef.flow
+                        ? Math.min(1, innerWpx / Math.max(1, natW))
+                        : Math.min(1, innerWpx / Math.max(1, natW), innerHpx / Math.max(1, natH));
                       const inner = sc < 1
                         ? `<div style="zoom:${sc.toFixed(4)};">${content.innerHTML}</div>`
                         : content.innerHTML;
@@ -9846,11 +9848,15 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                       const pageClass = isLand ? 'l-page' : 'p-page';
                       const pageBreak = pi > 0 ? 'page-break-before:always;' : '';
                       const sep = `<div class="page-sep" style="margin:${pi>0?'14px 0 8px':'0 0 8px'};display:flex;align-items:center;gap:8px;"><span style="background:${isLand?'#fef3c7':'#dbeafe'};color:${isLand?'#92400e':'#2563eb'};font-size:11px;font-weight:bold;padding:2px 10px;border-radius:4px;">${pageDef.label}</span><span style="flex:1;border-top:1px solid #e2e8f0;"></span></div>`;
-                      pagesHtml += `${sep}<div class="${pageClass}" style="${pageBreak}width:${pageW}mm;height:${pageH}mm;padding:${PAD}mm;box-sizing:border-box;overflow:hidden;background:white;">${inner}</div>`;
+                      const wrapStyle = pageDef.flow
+                        ? `${pageBreak}width:${pageW}mm;min-height:${pageH}mm;padding:${PAD}mm;box-sizing:border-box;background:white;`
+                        : `${pageBreak}width:${pageW}mm;height:${pageH}mm;padding:${PAD}mm;box-sizing:border-box;overflow:hidden;background:white;`;
+                      const flowClass = pageDef.flow ? ' flow-page' : '';
+                      pagesHtml += `${sep}<div class="${pageClass}${flowClass}" style="${wrapStyle}">${inner}</div>`;
                     });
                     document.body.removeChild(measure);
                     const title = `分析_個人_${selectedPatient?.name||''}`;
-                    const html=`<div style="font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;"><style>*{box-sizing:border-box;}html,body{width:auto!important;max-width:none!important;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}@page p{size:210mm 297mm;margin:0;}@page l{size:297mm 210mm;margin:0;}.p-page{page:p;}.l-page{page:l;}@media print{.page-sep{display:none!important;}}</style>${pagesHtml}</div>`;
+                    const html=`<div style="font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;"><style>*{box-sizing:border-box;}html,body{width:auto!important;max-width:none!important;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}@page p{size:210mm 297mm;margin:0;}@page l{size:297mm 210mm;margin:0;}.p-page{page:p;}.l-page{page:l;}.flow-page table{page-break-inside:auto;}.flow-page tr{page-break-inside:avoid;page-break-after:auto;}.flow-page thead{display:table-header-group;}@media print{.page-sep{display:none!important;}}</style>${pagesHtml}</div>`;
                     window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 landscape',html}}));
                   }}
               style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:8,padding:'6px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
