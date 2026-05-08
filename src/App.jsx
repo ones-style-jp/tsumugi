@@ -9663,200 +9663,241 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             <input type="date" value={`${customTo}-01`} onChange={e=>setCustomTo(e.target.value.substring(0,7))} style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:10,padding:'6px 10px',fontSize:12,fontWeight:'bold',outline:'none',cursor:'pointer'}}/>
           </>}
           <span style={{background:'white',color:'#1e40af',borderRadius:8,padding:'6px 12px',fontSize:11,fontWeight:'bold',whiteSpace:'nowrap'}}>{rangeLabel}</span>
-          <button type="button" onClick={()=>{
-                    const perContainer = document.getElementById('print-content-analysis');
-                    if(!perContainer){ alert('分析データが見つかりません'); return; }
-                    const perClone = perContainer.cloneNode(true);
-                    const allSecIds = ALL_SECTIONS.map(([id])=>id);
-                    // SVG viewBox付与（縮小時にすべて表示されるように）
-                    perClone.querySelectorAll('svg').forEach(svg=>{
-                      const w=parseInt(svg.getAttribute('width'))||0;
-                      const h=parseInt(svg.getAttribute('height'))||0;
-                      if(!svg.getAttribute('viewBox') && w > 0 && h > 0){
-                        svg.setAttribute('viewBox',`0 0 ${w} ${h}`);
-                      }
-                      svg.style.maxWidth='100%';
-                      svg.style.height='auto';
-                      svg.removeAttribute('width');
-                    });
-                    perClone.querySelectorAll('.vital-scroll').forEach(d=>{d.style.overflow='visible';d.style.maxWidth='100%';});
-                    perClone.querySelectorAll('[style]').forEach(el=>{
-                      const bg = el.style.backgroundColor||el.style.background;
-                      if(bg && bg.includes('slate')) el.style.background='white';
-                    });
-                    // 運動トレンド：全項目の一覧テーブルに差し替え
-                    const exSec = perClone.querySelector('#sec-exercise');
-                    if(exSec){
-                      const allExItems = appData.systemSettings?.exerciseItems || appSettings.exerciseItems;
-                      const parseExVal = (v)=>{ if(!v||v==='○'||v==='ー') return null; const n=parseFloat(String(v).replace(/[^\d.]/g,'')); return isNaN(n)?null:n; };
-                      const exMonths = monthlyData.map(d=>d.month);
-                      let exHtml='<div style="font-size:14px;font-weight:bold;color:#475569;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #e2e8f0;">運動トレンド（全項目）</div>';
-                      allExItems.forEach(exItem=>{
-                        const itemVals = validRecs.map(r=>({date:r.date,val:r.exercises?.[exItem.id]||''})).filter(d=>d.val&&d.val!=='ー');
-                        const nums = itemVals.map(d=>parseExVal(d.val)).filter(v=>v!==null);
-                        const avg = nums.length?nums.reduce((a,b)=>a+b,0)/nums.length:null;
-                        const max = nums.length?Math.max(...nums):null;
-                        const min = nums.length?Math.min(...nums):null;
-                        const monthlyAvgs = exMonths.map(m=>{
-                          const mRecs = validRecs.filter(r=>{const mm=r.date.match(/(\d+)月/);return mm&&+mm[1]===m;});
-                          const mNums = mRecs.map(r=>parseExVal(r.exercises?.[exItem.id])).filter(v=>v!==null);
-                          return mNums.length?(mNums.reduce((a,b)=>a+b,0)/mNums.length).toFixed(1):'-';
-                        });
-                        exHtml+=`<div style="background:white;border-radius:10px;padding:12px 16px;border:1px solid #e2e8f0;margin-bottom:10px;">
-                          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                            <span style="font-size:13px;font-weight:bold;color:#1e293b;">${exItem.name}</span>
-                            <span style="font-size:11px;color:#64748b;">${avg!==null?`平均:${avg.toFixed(1)} / 最高:${max} / 最低:${min}`:'記録なし'}</span>
-                          </div>
-                          <table style="width:auto;border-collapse:collapse;font-size:12px;table-layout:auto;">
-                            <tr style="background:#f8fafc;">
-                              <th style="padding:4px 10px;text-align:left;color:#475569;border:1px solid #e2e8f0;white-space:nowrap;">月</th>
-                              ${exMonths.map(m=>`<th style="padding:4px 12px;text-align:center;color:#475569;border:1px solid #e2e8f0;white-space:nowrap;">${m}月</th>`).join('')}
-                            </tr>
-                            <tr>
-                              <td style="padding:4px 10px;font-weight:bold;color:#6366f1;border:1px solid #e2e8f0;white-space:nowrap;">平均</td>
-                              ${monthlyAvgs.map(v=>`<td style="padding:4px 12px;text-align:center;font-weight:bold;color:#1e293b;border:1px solid #e2e8f0;white-space:nowrap;">${v}</td>`).join('')}
-                            </tr>
-                          </table>
-                        </div>`;
-                      });
-                      exSec.innerHTML = exHtml;
-                    }
-                    // 体力測定：全項目の一覧テーブルに差し替え
-                    const fitSec = perClone.querySelector('#sec-fitness');
-                    if(fitSec){
-                      const fitnessItems = appData.systemSettings?.fitnessItems || appSettings.fitnessItems;
-                      const fitnessRecs = (appData.fitnessRecords||[]).filter(r=>r.patientId===selectedPatientId).sort((a,b)=>a.date.localeCompare(b.date));
-                      let fitHtml='<div style="font-size:14px;font-weight:bold;color:#475569;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #e2e8f0;">体力測定（全項目）</div>';
-                      if(fitnessRecs.length>0){
-                        fitHtml+=`<table style="width:100%;border-collapse:collapse;font-size:12px;">
-                          <thead><tr style="background:#f8fafc;">
-                            <th style="padding:5px 8px;text-align:left;color:#475569;border:1px solid #e2e8f0;font-weight:bold;">測定日</th>
-                            ${fitnessItems.map(it=>`<th style="padding:5px 8px;text-align:center;color:#475569;border:1px solid #e2e8f0;font-weight:bold;">${it.name}(${it.unit})</th>`).join('')}
-                          </tr></thead><tbody>`;
-                        [...fitnessRecs].reverse().forEach((r,ri)=>{
-                          fitHtml+=`<tr style="background:${ri%2===0?'white':'#fafbfc'};">
-                            <td style="padding:4px 8px;font-weight:bold;color:#475569;border:1px solid #e2e8f0;white-space:nowrap;">${r.date}</td>
-                            ${fitnessItems.map(it=>{
-                              const v=r.values?.[it.id];
-                              return `<td style="padding:4px 8px;text-align:center;font-weight:bold;color:#1e293b;border:1px solid #e2e8f0;">${v!==undefined&&v!==''?v:'—'}</td>`;
-                            }).join('')}
-                          </tr>`;
-                        });
-                        fitHtml+=`</tbody></table>`;
-                        if(fitnessRecs.length>=2){
-                          const first=fitnessRecs[0], last=fitnessRecs[fitnessRecs.length-1];
-                          fitHtml+=`<div style="margin-top:10px;padding:10px 14px;background:#f0fdf4;border-radius:8px;border:1px solid #86efac;font-size:12px;">
-                            <div style="font-weight:bold;color:#16a34a;margin-bottom:6px;">変化サマリー（${first.date} → ${last.date}）</div>
-                            <div style="display:flex;flex-wrap:wrap;gap:12px;">
-                            ${fitnessItems.map(it=>{
-                              const fv=parseFloat(first.values?.[it.id]),lv=parseFloat(last.values?.[it.id]);
-                              if(isNaN(fv)||isNaN(lv)) return '';
-                              const diff=(lv-fv).toFixed(1);
-                              const arrow=diff>0?'↑':diff<0?'↓':'→';
-                              const col=diff>0?'#16a34a':diff<0?'#ef4444':'#64748b';
-                              return `<span style="color:${col};font-weight:bold;">${it.name}: ${arrow}${Math.abs(diff)}${it.unit}</span>`;
-                            }).join('')}
-                            </div>
-                          </div>`;
+          <button type="button" onClick={async()=>{
+                    // 期間設定を保存して 3ヶ月チャンクで連続生成
+                    const origPeriod = period, origBaseMonth = baseMonth;
+                    const computeChunks = () => {
+                      if (period === 'custom') {
+                        const [fY,fM] = customFrom.split('-').map(Number);
+                        const [tY,tM] = customTo.split('-').map(Number);
+                        const totalMonths = Math.max(1, (tY-fY)*12 + (tM-fM) + 1);
+                        const numChunks = Math.max(1, Math.ceil(totalMonths / 3));
+                        const result = [];
+                        let endY = fY, endM = fM + 2;
+                        while(endM > 12){endM -= 12; endY++;}
+                        for(let i=0;i<numChunks;i++){
+                          result.push(`${endY}-${String(endM).padStart(2,'0')}`);
+                          endM += 3; while(endM > 12){endM -= 12; endY++;}
                         }
-                      } else {
-                        fitHtml+='<div style="text-align:center;color:#94a3b8;padding:20px;">体力測定の記録がありません</div>';
+                        return result;
                       }
-                      fitSec.innerHTML = fitHtml;
-                      let sib=fitSec.nextElementSibling;
-                      while(sib && !sib.id){
-                        sib.style.display='';
-                        sib=sib.nextElementSibling;
+                      const periodM = parseInt(period,10) || 3;
+                      const numChunks = Math.max(1, Math.ceil(periodM / 3));
+                      const [bY,bM] = baseMonth.split('-').map(Number);
+                      const result = [];
+                      for(let i=numChunks-1;i>=0;i--){
+                        let cM = bM - i*3, cY = bY;
+                        while(cM <= 0){cM += 12; cY--;}
+                        result.push(`${cY}-${String(cM).padStart(2,'0')}`);
                       }
-                    }
-                    // 固定ページレイアウト構築（縦×4 + 横×1）
-                    const PAGE_LAYOUT = [
-                      { sections: ['sec-basicinfo','sec-kpi','sec-trend','sec-kibun'], orientation:'portrait', label:'ページ1: 基本情報・基本指標・月別通所・気分（縦）' },
-                      { sections: ['sec-vital','sec-fitness'], orientation:'portrait', label:'ページ2: 体温・血圧・脈・体力測定（縦）' },
-                      { sections: ['sec-exercise','sec-monitoring'], orientation:'portrait', label:'ページ3: 運動トレンド・モニタリング（縦）' },
-                      { sections: ['sec-absence','sec-kyushi'], orientation:'portrait', label:'ページ4: 欠席一覧・休止一覧（縦）' },
-                      { sections: ['sec-detail'], orientation:'landscape', flow:true, label:'ページ5〜: 詳細記録（横・必要に応じて複数ページ）' },
-                    ];
-                    const MM = 3.7795;
-                    const PAD = 6; // mm
-                    const measure = document.createElement('div');
-                    measure.style.cssText = 'position:absolute;left:-9999px;top:0;width:297mm;visibility:hidden;';
-                    document.body.appendChild(measure);
-                    measure.appendChild(perClone);
-                    const secIdSet = new Set(allSecIds);
-                    const extractSection = (secId) => {
-                      const el = perClone.querySelector('#'+secId);
-                      if(!el) return null;
-                      const group = document.createElement('div');
-                      group.style.cssText = 'margin-bottom:6px;';
-                      el.parentNode.insertBefore(group, el);
-                      group.appendChild(el);
-                      while(group.nextElementSibling && (!group.nextElementSibling.id || !secIdSet.has(group.nextElementSibling.id))){
-                        if(!group.nextElementSibling) break;
-                        group.appendChild(group.nextElementSibling);
-                      }
-                      return group;
+                      return result;
                     };
-                    const sectionGroups = {};
-                    allSecIds.forEach(secId => {
-                      sectionGroups[secId] = extractSection(secId);
-                    });
-                    // overflowを一時解除して container の自然幅・高さを計測
-                    const measureNaturalSize = (container) => {
-                      const overflowSaves = [];
-                      container.querySelectorAll('*').forEach(el => {
-                        const cs = el.style;
-                        if(cs.overflow || cs.overflowX){
-                          overflowSaves.push({el, overflow: cs.overflow, overflowX: cs.overflowX});
-                          if(cs.overflow === 'hidden' || cs.overflow === 'auto' || cs.overflow === 'scroll') cs.overflow = 'visible';
-                          if(cs.overflowX === 'auto' || cs.overflowX === 'scroll') cs.overflowX = 'visible';
+                    const chunks = computeChunks();
+                    // 進捗オーバーレイ
+                    const overlay = document.createElement('div');
+                    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(15,23,42,0.85);display:flex;align-items:center;justify-content:center;font-family:sans-serif;';
+                    overlay.innerHTML = `<div style="text-align:center;padding:24px 40px;background:#1e293b;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);color:white;"><div style="font-size:18px;font-weight:bold;margin-bottom:6px;">📄 印刷データ準備中...</div><div id="print-progress" style="font-size:12px;color:#94a3b8;">0 / ${chunks.length}</div></div>`;
+                    document.body.appendChild(overlay);
+                    const allPagesHtml = [];
+                    try {
+                      for(let ci=0; ci<chunks.length; ci++){
+                        const progEl = document.getElementById('print-progress');
+                        if(progEl) progEl.textContent = `${ci+1} / ${chunks.length}（${chunks[ci]} までの3ヶ月）`;
+                        setPeriod('3'); setBaseMonth(chunks[ci]);
+                        // React再レンダリング待ち
+                        await new Promise(r => setTimeout(r, 220));
+                        const perContainer = document.getElementById('print-content-analysis');
+                        if(!perContainer) continue;
+                        const perClone = perContainer.cloneNode(true);
+                        const allSecIds = ALL_SECTIONS.map(([id])=>id);
+                        // SVG viewBox付与
+                        perClone.querySelectorAll('svg').forEach(svg=>{
+                          const w=parseInt(svg.getAttribute('width'))||0;
+                          const h=parseInt(svg.getAttribute('height'))||0;
+                          if(!svg.getAttribute('viewBox') && w > 0 && h > 0){
+                            svg.setAttribute('viewBox',`0 0 ${w} ${h}`);
+                          }
+                          svg.style.maxWidth='100%';
+                          svg.style.height='auto';
+                          svg.removeAttribute('width');
+                        });
+                        perClone.querySelectorAll('.vital-scroll').forEach(d=>{d.style.overflow='visible';d.style.maxWidth='100%';});
+                        perClone.querySelectorAll('[style]').forEach(el=>{
+                          const bg = el.style.backgroundColor||el.style.background;
+                          if(bg && bg.includes('slate')) el.style.background='white';
+                        });
+                        // この chunk の対象月・記録（appData から再算出）
+                        const [cBY,cBM] = chunks[ci].split('-').map(Number);
+                        const cMonths = []; for(let i=0;i<3;i++){let m=cBM-i;while(m<=0)m+=12;cMonths.push(m);}
+                        const cAllRecs = (appData.ticketRecords||[]).filter(r=>r.patientId===selectedPatientId);
+                        const cRecs = cAllRecs.filter(r=>{const mM=r.date?r.date.match(/(\d+)月/):null;return mM?cMonths.includes(parseInt(mM[1],10)):false;});
+                        const cValid = cRecs.filter(r=>r.status==='出席'||r.status==='振替');
+                        // 運動トレンド: 3ヶ月モードはグラフで描画（全項目）
+                        const exSec = perClone.querySelector('#sec-exercise');
+                        if(exSec){
+                          const allExItems = appData.systemSettings?.exerciseItems || appSettings.exerciseItems;
+                          const parseExVal = (v)=>{ if(!v||v==='○'||v==='ー') return null; const n=parseFloat(String(v).replace(/[^\d.]/g,'')); return isNaN(n)?null:n; };
+                          let exHtml=`<div style="font-size:14px;font-weight:bold;color:#475569;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #e2e8f0;">運動トレンド（${cBY}年${cMonths.slice().reverse().map(m=>m+'月').join('・')}）</div>`;
+                          allExItems.forEach(exItem=>{
+                            const dailyData = cValid.map(r=>({date:r.date, val:parseExVal(r.exercises?.[exItem.id])})).filter(d=>d.val!==null);
+                            if(dailyData.length===0){
+                              exHtml+=`<div style="background:white;border-radius:8px;padding:6px 12px;border:1px solid #e2e8f0;margin-bottom:5px;font-size:11px;color:#94a3b8;"><b style="color:#475569;font-size:12px;">${exItem.name}</b>　記録なし</div>`;
+                              return;
+                            }
+                            const vals = dailyData.map(d=>d.val);
+                            const avg = vals.reduce((a,b)=>a+b,0)/vals.length;
+                            const maxV = Math.max(...vals), minV = Math.min(...vals);
+                            const yMax = maxV<=0?1:Math.ceil(maxV*1.1);
+                            // チャート寸法（viewBox基準・width:100%でページ幅に自動フィット = グラフ詰め）
+                            const CW=720, CH=110, PL=34, PR=10, PT=10, PB=20;
+                            const dW=CW-PL-PR, dH=CH-PT-PB;
+                            const xAt=i=>dailyData.length===1?PL+dW/2:PL+(i/(dailyData.length-1))*dW;
+                            const yAt=v=>PT+(1-v/yMax)*dH;
+                            const yTicks=[0, yMax/2, yMax];
+                            let svg='';
+                            yTicks.forEach(v=>{
+                              svg+=`<line x1="${PL}" y1="${yAt(v)}" x2="${CW-PR}" y2="${yAt(v)}" stroke="#f1f5f9" stroke-width="1"/>`;
+                              svg+=`<text x="${PL-3}" y="${yAt(v)+3}" font-size="9" fill="#64748b" text-anchor="end">${(Math.round(v*10)/10)}</text>`;
+                            });
+                            svg+=`<polyline points="${dailyData.map((d,i)=>`${xAt(i)},${yAt(d.val)}`).join(' ')}" fill="none" stroke="#6366f1" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`;
+                            dailyData.forEach((d,i)=>{
+                              const isMax=d.val===maxV, isMin=d.val===minV;
+                              const r=isMax||isMin?3:1.8;
+                              const c=isMax?'#ef4444':isMin?'#3b82f6':'#6366f1';
+                              svg+=`<circle cx="${xAt(i)}" cy="${yAt(d.val)}" r="${r}" fill="${c}" stroke="white" stroke-width="0.8"/>`;
+                            });
+                            const labelEvery = Math.max(1, Math.ceil(dailyData.length/8));
+                            dailyData.forEach((d,i)=>{
+                              if(i%labelEvery===0||i===dailyData.length-1){
+                                const mm = d.date.match(/(\d+)月(\d+)日/);
+                                const lbl = mm ? `${mm[1]}/${mm[2]}` : d.date;
+                                svg+=`<text x="${xAt(i)}" y="${CH-5}" font-size="8" fill="#475569" text-anchor="middle">${lbl}</text>`;
+                              }
+                            });
+                            exHtml+=`<div style="background:white;border-radius:8px;padding:6px 10px 4px;border:1px solid #e2e8f0;margin-bottom:5px;">
+                              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;">
+                                <span style="font-size:12px;font-weight:bold;color:#1e293b;">${exItem.name}</span>
+                                <span style="font-size:10px;color:#64748b;">平均 ${avg.toFixed(1)} ／ 最高 ${maxV} ／ 最低 ${minV} ／ N=${dailyData.length}</span>
+                              </div>
+                              <svg viewBox="0 0 ${CW} ${CH}" preserveAspectRatio="none" style="width:100%;height:auto;display:block;">${svg}</svg>
+                            </div>`;
+                          });
+                          exSec.innerHTML = exHtml;
                         }
-                      });
-                      let w = container.scrollWidth;
-                      const h = container.scrollHeight;
-                      container.querySelectorAll('table, svg').forEach(el => {
-                        const ew = el.scrollWidth || el.offsetWidth;
-                        if(ew > w) w = ew;
-                      });
-                      overflowSaves.forEach(s => { s.el.style.overflow = s.overflow; s.el.style.overflowX = s.overflowX; });
-                      return {w, h};
-                    };
-                    let pagesHtml = '';
-                    PAGE_LAYOUT.forEach((pageDef, pi) => {
-                      const isLand = pageDef.orientation === 'landscape';
-                      const pageW = isLand ? 297 : 210;
-                      const pageH = isLand ? 210 : 297;
-                      const innerW = pageW - PAD*2;
-                      const innerH = pageH - PAD*2;
-                      const innerWpx = innerW * MM;
-                      const innerHpx = innerH * MM;
-                      const content = document.createElement('div');
-                      content.style.cssText = `width:${innerW}mm;`;
-                      pageDef.sections.forEach(secId => {
-                        if(sectionGroups[secId]) content.appendChild(sectionGroups[secId]);
-                      });
-                      if(content.children.length === 0) return;
-                      measure.appendChild(content);
-                      const {w: natW, h: natH} = measureNaturalSize(content);
-                      const sc = pageDef.flow
-                        ? Math.min(1, innerWpx / Math.max(1, natW))
-                        : Math.min(1, innerWpx / Math.max(1, natW), innerHpx / Math.max(1, natH));
-                      const inner = sc < 1
-                        ? `<div style="zoom:${sc.toFixed(4)};">${content.innerHTML}</div>`
-                        : content.innerHTML;
-                      measure.removeChild(content);
-                      const pageClass = isLand ? 'l-page' : 'p-page';
-                      const pageBreak = pi > 0 ? 'page-break-before:always;' : '';
-                      const sep = `<div class="page-sep" style="margin:${pi>0?'14px 0 8px':'0 0 8px'};display:flex;align-items:center;gap:8px;"><span style="background:${isLand?'#fef3c7':'#dbeafe'};color:${isLand?'#92400e':'#2563eb'};font-size:11px;font-weight:bold;padding:2px 10px;border-radius:4px;">${pageDef.label}</span><span style="flex:1;border-top:1px solid #e2e8f0;"></span></div>`;
-                      const wrapStyle = pageDef.flow
-                        ? `${pageBreak}width:${pageW}mm;min-height:${pageH}mm;padding:${PAD}mm;box-sizing:border-box;background:white;`
-                        : `${pageBreak}width:${pageW}mm;height:${pageH}mm;padding:${PAD}mm;box-sizing:border-box;overflow:hidden;background:white;`;
-                      const flowClass = pageDef.flow ? ' flow-page' : '';
-                      pagesHtml += `${sep}<div class="${pageClass}${flowClass}" style="${wrapStyle}">${inner}</div>`;
-                    });
-                    document.body.removeChild(measure);
-                    const title = `分析_個人_${selectedPatient?.name||''}`;
-                    const html=`<div style="font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;"><style>*{box-sizing:border-box;}html,body{width:auto!important;max-width:none!important;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}@page p{size:210mm 297mm;margin:0;}@page l{size:297mm 210mm;margin:0;}.p-page{page:p;}.l-page{page:l;}.flow-page table{page-break-inside:auto;}.flow-page tr{page-break-inside:avoid;page-break-after:auto;}.flow-page thead{display:table-header-group;}@media print{.page-sep{display:none!important;}}</style>${pagesHtml}</div>`;
+                        // 体力測定: 全項目の一覧テーブル（期間に依存しない・全期間の記録を表示）
+                        const fitSec = perClone.querySelector('#sec-fitness');
+                        if(fitSec){
+                          const fitnessItems = appData.systemSettings?.fitnessItems || appSettings.fitnessItems;
+                          const fitnessRecs = (appData.fitnessRecords||[]).filter(r=>r.patientId===selectedPatientId).sort((a,b)=>a.date.localeCompare(b.date));
+                          let fitHtml='<div style="font-size:14px;font-weight:bold;color:#475569;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #e2e8f0;">体力測定（全項目）</div>';
+                          if(fitnessRecs.length>0){
+                            fitHtml+=`<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#f8fafc;"><th style="padding:5px 8px;text-align:left;color:#475569;border:1px solid #e2e8f0;font-weight:bold;">測定日</th>${fitnessItems.map(it=>`<th style="padding:5px 8px;text-align:center;color:#475569;border:1px solid #e2e8f0;font-weight:bold;">${it.name}(${it.unit})</th>`).join('')}</tr></thead><tbody>`;
+                            [...fitnessRecs].reverse().forEach((r,ri)=>{
+                              fitHtml+=`<tr style="background:${ri%2===0?'white':'#fafbfc'};"><td style="padding:4px 8px;font-weight:bold;color:#475569;border:1px solid #e2e8f0;white-space:nowrap;">${r.date}</td>${fitnessItems.map(it=>{const v=r.values?.[it.id];return `<td style="padding:4px 8px;text-align:center;font-weight:bold;color:#1e293b;border:1px solid #e2e8f0;">${v!==undefined&&v!==''?v:'—'}</td>`;}).join('')}</tr>`;
+                            });
+                            fitHtml+=`</tbody></table>`;
+                            if(fitnessRecs.length>=2){
+                              const first=fitnessRecs[0], last=fitnessRecs[fitnessRecs.length-1];
+                              fitHtml+=`<div style="margin-top:10px;padding:10px 14px;background:#f0fdf4;border-radius:8px;border:1px solid #86efac;font-size:12px;"><div style="font-weight:bold;color:#16a34a;margin-bottom:6px;">変化サマリー（${first.date} → ${last.date}）</div><div style="display:flex;flex-wrap:wrap;gap:12px;">${fitnessItems.map(it=>{const fv=parseFloat(first.values?.[it.id]),lv=parseFloat(last.values?.[it.id]);if(isNaN(fv)||isNaN(lv))return '';const diff=(lv-fv).toFixed(1);const arrow=diff>0?'↑':diff<0?'↓':'→';const col=diff>0?'#16a34a':diff<0?'#ef4444':'#64748b';return `<span style="color:${col};font-weight:bold;">${it.name}: ${arrow}${Math.abs(diff)}${it.unit}</span>`;}).join('')}</div></div>`;
+                            }
+                          } else {
+                            fitHtml+='<div style="text-align:center;color:#94a3b8;padding:20px;">体力測定の記録がありません</div>';
+                          }
+                          fitSec.innerHTML = fitHtml;
+                          let sib=fitSec.nextElementSibling;
+                          while(sib && !sib.id){ sib.style.display=''; sib=sib.nextElementSibling; }
+                        }
+                        // ページレイアウト（縦×4 + 横×1）
+                        const PAGE_LAYOUT = [
+                          { sections: ['sec-basicinfo','sec-kpi','sec-trend','sec-kibun'], orientation:'portrait', label:`第${ci+1}期 P1: 基本情報・基本指標・月別通所・気分（縦）` },
+                          { sections: ['sec-vital','sec-fitness'], orientation:'portrait', label:`第${ci+1}期 P2: 体温・血圧・脈・体力測定（縦）` },
+                          { sections: ['sec-exercise'], orientation:'portrait', label:`第${ci+1}期 P3: 運動トレンド（縦）` },
+                          { sections: ['sec-absence','sec-kyushi','sec-monitoring'], orientation:'portrait', label:`第${ci+1}期 P4: 欠席一覧・休止一覧・モニタリング（縦）` },
+                          { sections: ['sec-detail'], orientation:'landscape', flow:true, label:`第${ci+1}期 P5〜: 詳細記録（横・必要に応じて複数ページ）` },
+                        ];
+                        const MM = 3.7795, PAD = 6;
+                        const measure = document.createElement('div');
+                        measure.style.cssText = 'position:absolute;left:-9999px;top:0;width:297mm;visibility:hidden;';
+                        document.body.appendChild(measure);
+                        measure.appendChild(perClone);
+                        const secIdSet = new Set(allSecIds);
+                        const extractSection = (secId) => {
+                          const el = perClone.querySelector('#'+secId);
+                          if(!el) return null;
+                          const group = document.createElement('div');
+                          group.style.cssText = 'margin-bottom:6px;';
+                          el.parentNode.insertBefore(group, el);
+                          group.appendChild(el);
+                          while(group.nextElementSibling && (!group.nextElementSibling.id || !secIdSet.has(group.nextElementSibling.id))){
+                            if(!group.nextElementSibling) break;
+                            group.appendChild(group.nextElementSibling);
+                          }
+                          return group;
+                        };
+                        const sectionGroups = {};
+                        allSecIds.forEach(secId => { sectionGroups[secId] = extractSection(secId); });
+                        const measureNaturalSize = (container) => {
+                          const overflowSaves = [];
+                          container.querySelectorAll('*').forEach(el => {
+                            const cs = el.style;
+                            if(cs.overflow || cs.overflowX){
+                              overflowSaves.push({el, overflow: cs.overflow, overflowX: cs.overflowX});
+                              if(cs.overflow === 'hidden' || cs.overflow === 'auto' || cs.overflow === 'scroll') cs.overflow = 'visible';
+                              if(cs.overflowX === 'auto' || cs.overflowX === 'scroll') cs.overflowX = 'visible';
+                            }
+                          });
+                          let w = container.scrollWidth;
+                          const h = container.scrollHeight;
+                          container.querySelectorAll('table, svg').forEach(el => {
+                            const ew = el.scrollWidth || el.offsetWidth;
+                            if(ew > w) w = ew;
+                          });
+                          overflowSaves.forEach(s => { s.el.style.overflow = s.overflow; s.el.style.overflowX = s.overflowX; });
+                          return {w, h};
+                        };
+                        let chunkPagesHtml = '';
+                        PAGE_LAYOUT.forEach((pageDef, pi) => {
+                          const isLand = pageDef.orientation === 'landscape';
+                          const pageW = isLand ? 297 : 210;
+                          const pageH = isLand ? 210 : 297;
+                          const innerW = pageW - PAD*2;
+                          const innerH = pageH - PAD*2;
+                          const innerWpx = innerW * MM;
+                          const innerHpx = innerH * MM;
+                          const content = document.createElement('div');
+                          content.style.cssText = `width:${innerW}mm;`;
+                          pageDef.sections.forEach(secId => {
+                            if(sectionGroups[secId]) content.appendChild(sectionGroups[secId]);
+                          });
+                          if(content.children.length === 0) return;
+                          measure.appendChild(content);
+                          const {w: natW, h: natH} = measureNaturalSize(content);
+                          const sc = pageDef.flow
+                            ? Math.min(1, innerWpx / Math.max(1, natW))
+                            : Math.min(1, innerWpx / Math.max(1, natW), innerHpx / Math.max(1, natH));
+                          const inner = sc < 1
+                            ? `<div style="zoom:${sc.toFixed(4)};">${content.innerHTML}</div>`
+                            : content.innerHTML;
+                          measure.removeChild(content);
+                          const pageClass = isLand ? 'l-page' : 'p-page';
+                          const pageBreak = (pi > 0 || ci > 0) ? 'page-break-before:always;' : '';
+                          const sep = `<div class="page-sep" style="margin:${(pi>0||ci>0)?'14px 0 8px':'0 0 8px'};display:flex;align-items:center;gap:8px;"><span style="background:${isLand?'#fef3c7':'#dbeafe'};color:${isLand?'#92400e':'#2563eb'};font-size:11px;font-weight:bold;padding:2px 10px;border-radius:4px;">${pageDef.label}</span><span style="flex:1;border-top:1px solid #e2e8f0;"></span></div>`;
+                          const wrapStyle = pageDef.flow
+                            ? `${pageBreak}width:${pageW}mm;min-height:${pageH}mm;padding:${PAD}mm;box-sizing:border-box;background:white;`
+                            : `${pageBreak}width:${pageW}mm;height:${pageH}mm;padding:${PAD}mm;box-sizing:border-box;overflow:hidden;background:white;`;
+                          const flowClass = pageDef.flow ? ' flow-page' : '';
+                          chunkPagesHtml += `${sep}<div class="${pageClass}${flowClass}" style="${wrapStyle}">${inner}</div>`;
+                        });
+                        document.body.removeChild(measure);
+                        allPagesHtml.push(chunkPagesHtml);
+                      }
+                    } finally {
+                      // 元の期間に復元
+                      setPeriod(origPeriod); setBaseMonth(origBaseMonth);
+                      if(overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+                    }
+                    const title = `分析_個人_${selectedPatient?.name||''}（3ヶ月×${chunks.length}）`;
+                    const html=`<div style="font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;"><style>*{box-sizing:border-box;}html,body{width:auto!important;max-width:none!important;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}@page p{size:210mm 297mm;margin:0;}@page l{size:297mm 210mm;margin:0;}.p-page{page:p;}.l-page{page:l;}.flow-page table{page-break-inside:auto;}.flow-page tr{page-break-inside:avoid;page-break-after:auto;}.flow-page thead{display:table-header-group;}@media print{.page-sep{display:none!important;}}</style>${allPagesHtml.join('')}</div>`;
                     window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 landscape',html}}));
                   }}
               style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:8,padding:'6px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
@@ -9888,6 +9929,11 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             const age = calcAge(selectedPatient.birthDate);
             return (
               <div style={{background:'white',borderRadius:12,padding:'14px 18px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #f1f5f9'}}>
+                <div style={{display:'flex',alignItems:'baseline',gap:12,flexWrap:'wrap',marginBottom:12,paddingBottom:10,borderBottom:'2px solid #e2e8f0'}}>
+                  <div style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',letterSpacing:1}}>利用者名</div>
+                  <div style={{fontSize:20,fontWeight:'bold',color:'#1e293b',lineHeight:1.1}}>{selectedPatient.name} <span style={{fontSize:14,color:'#475569'}}>様</span></div>
+                  {selectedPatient.kana && <div style={{fontSize:13,color:'#94a3b8'}}>（{selectedPatient.kana}）</div>}
+                </div>
                 <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:12}}>
                   {[
                     {label:'生年月日',value:selectedPatient.birthDate?new Date(selectedPatient.birthDate).toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'}):'—'},
