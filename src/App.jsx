@@ -9856,6 +9856,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                           return {w, h};
                         };
                         let chunkPagesHtml = '';
+                        const ROWS_PER_DETAIL_PAGE = 15;
                         PAGE_LAYOUT.forEach((pageDef, pi) => {
                           const isLand = pageDef.orientation === 'landscape';
                           const pageW = isLand ? 297 : 210;
@@ -9864,6 +9865,78 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                           const innerH = pageH - PAD*2;
                           const innerWpx = innerW * MM;
                           const innerHpx = innerH * MM;
+                          // 詳細記録ページは 15行/ページに分割して全ページ固定高さ
+                          if(pageDef.flow && pageDef.sections.includes('sec-detail')){
+                            const detailGroup = sectionGroups['sec-detail'];
+                            if(!detailGroup) return;
+                            const origTable = detailGroup.querySelector('table');
+                            const allRows = origTable ? Array.from(origTable.querySelector('tbody')?.children || []) : [];
+                            const numDp = origTable ? Math.max(1, Math.ceil(allRows.length / ROWS_PER_DETAIL_PAGE)) : 1;
+                            for(let dp=0; dp<numDp; dp++){
+                              const sliceStart = dp * ROWS_PER_DETAIL_PAGE;
+                              const sliceRows = allRows.slice(sliceStart, sliceStart + ROWS_PER_DETAIL_PAGE);
+                              // detailGroup を複製して、tbody を 15行に差し替え（不足分は空行で埋める）
+                              const dGroup = detailGroup.cloneNode(true);
+                              const dTable = dGroup.querySelector('table');
+                              if(dTable && origTable){
+                                const dTbody = dTable.querySelector('tbody');
+                                if(dTbody){
+                                  dTbody.innerHTML = '';
+                                  sliceRows.forEach(r => dTbody.appendChild(r.cloneNode(true)));
+                                  const emptyCount = ROWS_PER_DETAIL_PAGE - sliceRows.length;
+                                  if(emptyCount > 0 && allRows.length > 0){
+                                    const sample = allRows[0];
+                                    const colCount = sample.children.length;
+                                    for(let i=0;i<emptyCount;i++){
+                                      const tr = document.createElement('tr');
+                                      for(let c=0;c<colCount;c++){
+                                        const td = document.createElement('td');
+                                        td.style.cssText = 'border:1px solid #e2e8f0;padding:2px;background:#fafbfc;';
+                                        td.innerHTML = '&nbsp;';
+                                        tr.appendChild(td);
+                                      }
+                                      dTbody.appendChild(tr);
+                                    }
+                                  }
+                                }
+                              }
+                              const dContent = document.createElement('div');
+                              dContent.style.cssText = `width:${innerW}mm;`;
+                              dContent.appendChild(dGroup);
+                              measure.appendChild(dContent);
+                              const {w: dnatW} = measureNaturalSize(dContent);
+                              const dnatH_px = dContent.scrollHeight;
+                              const dnatH_mm = dnatH_px / MM;
+                              const dz = Math.min(1, innerWpx / Math.max(1, dnatW));
+                              // ページを埋めるよう各行に追加高さを配分（zoom 後にちょうど innerH を満たす）
+                              const targetNatH_mm = innerH / dz;
+                              const delta_mm = Math.max(0, targetNatH_mm - dnatH_mm);
+                              if(delta_mm > 0 && dTable){
+                                const dTbody = dTable.querySelector('tbody');
+                                if(dTbody){
+                                  const trList = Array.from(dTbody.children);
+                                  const addPerRow_mm = delta_mm / Math.max(1, trList.length);
+                                  trList.forEach(tr => {
+                                    const curH_mm = tr.offsetHeight / MM;
+                                    tr.style.height = `${(curH_mm + addPerRow_mm).toFixed(2)}mm`;
+                                  });
+                                }
+                              }
+                              measure.removeChild(dContent);
+                              const dInner = dz < 1
+                                ? `<div style="zoom:${dz.toFixed(4)};">${dContent.innerHTML}</div>`
+                                : dContent.innerHTML;
+                              const dPageBreak = (pi > 0 || ci > 0 || dp > 0) ? 'page-break-before:always;' : '';
+                              const dPageLabel = numDp > 1
+                                ? `第${ci+1}期 P${pi+1}-${dp+1}/${numDp}: 詳細記録（横）`
+                                : `第${ci+1}期 P${pi+1}: 詳細記録（横）`;
+                              const dSep = `<div class="page-sep" style="margin:${(pi>0||ci>0||dp>0)?'14px 0 8px':'0 0 8px'};display:flex;align-items:center;gap:8px;"><span style="background:#fef3c7;color:#92400e;font-size:11px;font-weight:bold;padding:2px 10px;border-radius:4px;">${dPageLabel}</span><span style="flex:1;border-top:1px solid #e2e8f0;"></span></div>`;
+                              const dWrapStyle = `${dPageBreak}width:${pageW}mm;height:${pageH}mm;padding:${PAD}mm;box-sizing:border-box;overflow:hidden;background:white;`;
+                              chunkPagesHtml += `${dSep}<div class="l-page" style="${dWrapStyle}">${dInner}</div>`;
+                            }
+                            return;
+                          }
+                          // 通常ページ（詳細以外）
                           const content = document.createElement('div');
                           content.style.cssText = `width:${innerW}mm;`;
                           pageDef.sections.forEach(secId => {
@@ -9872,9 +9945,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                           if(content.children.length === 0) return;
                           measure.appendChild(content);
                           const {w: natW, h: natH} = measureNaturalSize(content);
-                          const sc = pageDef.flow
-                            ? Math.min(1, innerWpx / Math.max(1, natW))
-                            : Math.min(1, innerWpx / Math.max(1, natW), innerHpx / Math.max(1, natH));
+                          const sc = Math.min(1, innerWpx / Math.max(1, natW), innerHpx / Math.max(1, natH));
                           const inner = sc < 1
                             ? `<div style="zoom:${sc.toFixed(4)};">${content.innerHTML}</div>`
                             : content.innerHTML;
@@ -9882,11 +9953,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                           const pageClass = isLand ? 'l-page' : 'p-page';
                           const pageBreak = (pi > 0 || ci > 0) ? 'page-break-before:always;' : '';
                           const sep = `<div class="page-sep" style="margin:${(pi>0||ci>0)?'14px 0 8px':'0 0 8px'};display:flex;align-items:center;gap:8px;"><span style="background:${isLand?'#fef3c7':'#dbeafe'};color:${isLand?'#92400e':'#2563eb'};font-size:11px;font-weight:bold;padding:2px 10px;border-radius:4px;">${pageDef.label}</span><span style="flex:1;border-top:1px solid #e2e8f0;"></span></div>`;
-                          const wrapStyle = pageDef.flow
-                            ? `${pageBreak}width:${pageW}mm;min-height:${pageH}mm;padding:${PAD}mm;box-sizing:border-box;background:white;`
-                            : `${pageBreak}width:${pageW}mm;height:${pageH}mm;padding:${PAD}mm;box-sizing:border-box;overflow:hidden;background:white;`;
-                          const flowClass = pageDef.flow ? ' flow-page' : '';
-                          chunkPagesHtml += `${sep}<div class="${pageClass}${flowClass}" style="${wrapStyle}">${inner}</div>`;
+                          const wrapStyle = `${pageBreak}width:${pageW}mm;height:${pageH}mm;padding:${PAD}mm;box-sizing:border-box;overflow:hidden;background:white;`;
+                          chunkPagesHtml += `${sep}<div class="${pageClass}" style="${wrapStyle}">${inner}</div>`;
                         });
                         document.body.removeChild(measure);
                         allPagesHtml.push(chunkPagesHtml);
@@ -9929,13 +9997,12 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             const age = calcAge(selectedPatient.birthDate);
             return (
               <div style={{background:'white',borderRadius:12,padding:'14px 18px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #f1f5f9'}}>
-                <div style={{display:'flex',alignItems:'baseline',gap:12,flexWrap:'wrap',marginBottom:12,paddingBottom:10,borderBottom:'2px solid #e2e8f0'}}>
-                  <div style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',letterSpacing:1}}>利用者名</div>
-                  <div style={{fontSize:20,fontWeight:'bold',color:'#1e293b',lineHeight:1.1}}>{selectedPatient.name} <span style={{fontSize:14,color:'#475569'}}>様</span></div>
-                  {selectedPatient.kana && <div style={{fontSize:13,color:'#94a3b8'}}>（{selectedPatient.kana}）</div>}
-                </div>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:12}}>
+                <div style={{display:'grid',gridTemplateColumns:'2fr 1.4fr 0.8fr 0.8fr 0.8fr',gap:10,marginBottom:12}}>
                   {[
+                    {label:'利用者名',value:(<>
+                      <span>{selectedPatient.name} <span style={{fontSize:12,color:'#475569'}}>様</span></span>
+                      {selectedPatient.kana && <div style={{fontSize:11,color:'#94a3b8',fontWeight:'normal',marginTop:1}}>{selectedPatient.kana}</div>}
+                    </>)},
                     {label:'生年月日',value:selectedPatient.birthDate?new Date(selectedPatient.birthDate).toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'}):'—'},
                     {label:'年齢',value:age!==null?`${age}歳`:'—'},
                     {label:'身長',value:selectedPatient.height?`${selectedPatient.height}cm`:'—'},
