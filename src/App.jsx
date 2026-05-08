@@ -9709,7 +9709,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                         const perContainer = document.getElementById('print-content-analysis');
                         if(!perContainer) continue;
                         const perClone = perContainer.cloneNode(true);
-                        const allSecIds = ALL_SECTIONS.map(([id])=>id);
+                        const allSecIds = [...ALL_SECTIONS.map(([id])=>id), 'sec-exercise2'];
                         // SVG viewBox付与
                         perClone.querySelectorAll('svg').forEach(svg=>{
                           const w=parseInt(svg.getAttribute('width'))||0;
@@ -9732,57 +9732,73 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                         const cAllRecs = (appData.ticketRecords||[]).filter(r=>r.patientId===selectedPatientId);
                         const cRecs = cAllRecs.filter(r=>{const mM=r.date?r.date.match(/(\d+)月/):null;return mM?cMonths.includes(parseInt(mM[1],10)):false;});
                         const cValid = cRecs.filter(r=>r.status==='出席'||r.status==='振替');
-                        // 運動トレンド: 3ヶ月モードはグラフで描画（全項目）
+                        // 運動トレンド: 3ヶ月モードはグラフで描画（全項目を半分ずつ 2 ページに分割）
                         const exSec = perClone.querySelector('#sec-exercise');
                         if(exSec){
                           const allExItems = appData.systemSettings?.exerciseItems || appSettings.exerciseItems;
                           const parseExVal = (v)=>{ if(!v||v==='○'||v==='ー') return null; const n=parseFloat(String(v).replace(/[^\d.]/g,'')); return isNaN(n)?null:n; };
-                          let exHtml=`<div style="font-size:14px;font-weight:bold;color:#475569;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #e2e8f0;">運動トレンド（${cBY}年${cMonths.slice().reverse().map(m=>m+'月').join('・')}）</div>`;
-                          allExItems.forEach(exItem=>{
-                            const dailyData = cValid.map(r=>({date:r.date, val:parseExVal(r.exercises?.[exItem.id])})).filter(d=>d.val!==null);
-                            if(dailyData.length===0){
-                              exHtml+=`<div style="background:white;border-radius:8px;padding:6px 12px;border:1px solid #e2e8f0;margin-bottom:5px;font-size:11px;color:#94a3b8;"><b style="color:#475569;font-size:12px;">${exItem.name}</b>　記録なし</div>`;
-                              return;
-                            }
-                            const vals = dailyData.map(d=>d.val);
-                            const avg = vals.reduce((a,b)=>a+b,0)/vals.length;
-                            const maxV = Math.max(...vals), minV = Math.min(...vals);
-                            const yMax = maxV<=0?1:Math.ceil(maxV*1.1);
-                            // チャート寸法（viewBox基準・width:100%でページ幅に自動フィット = グラフ詰め）
-                            const CW=720, CH=110, PL=34, PR=10, PT=10, PB=20;
-                            const dW=CW-PL-PR, dH=CH-PT-PB;
-                            const xAt=i=>dailyData.length===1?PL+dW/2:PL+(i/(dailyData.length-1))*dW;
-                            const yAt=v=>PT+(1-v/yMax)*dH;
-                            const yTicks=[0, yMax/2, yMax];
-                            let svg='';
-                            yTicks.forEach(v=>{
-                              svg+=`<line x1="${PL}" y1="${yAt(v)}" x2="${CW-PR}" y2="${yAt(v)}" stroke="#f1f5f9" stroke-width="1"/>`;
-                              svg+=`<text x="${PL-3}" y="${yAt(v)+3}" font-size="9" fill="#64748b" text-anchor="end">${(Math.round(v*10)/10)}</text>`;
-                            });
-                            svg+=`<polyline points="${dailyData.map((d,i)=>`${xAt(i)},${yAt(d.val)}`).join(' ')}" fill="none" stroke="#6366f1" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`;
-                            dailyData.forEach((d,i)=>{
-                              const isMax=d.val===maxV, isMin=d.val===minV;
-                              const r=isMax||isMin?3:1.8;
-                              const c=isMax?'#ef4444':isMin?'#3b82f6':'#6366f1';
-                              svg+=`<circle cx="${xAt(i)}" cy="${yAt(d.val)}" r="${r}" fill="${c}" stroke="white" stroke-width="0.8"/>`;
-                            });
-                            const labelEvery = Math.max(1, Math.ceil(dailyData.length/8));
-                            dailyData.forEach((d,i)=>{
-                              if(i%labelEvery===0||i===dailyData.length-1){
-                                const mm = d.date.match(/(\d+)月(\d+)日/);
-                                const lbl = mm ? `${mm[1]}/${mm[2]}` : d.date;
-                                svg+=`<text x="${xAt(i)}" y="${CH-5}" font-size="8" fill="#475569" text-anchor="middle">${lbl}</text>`;
+                          const buildExHtml = (items, headerText) => {
+                            let html=`<div style="font-size:14px;font-weight:bold;color:#475569;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #e2e8f0;">${headerText}</div>`;
+                            items.forEach(exItem=>{
+                              const dailyData = cValid.map(r=>({date:r.date, val:parseExVal(r.exercises?.[exItem.id])})).filter(d=>d.val!==null);
+                              if(dailyData.length===0){
+                                html+=`<div style="background:white;border-radius:8px;padding:6px 12px;border:1px solid #e2e8f0;margin-bottom:5px;font-size:11px;color:#94a3b8;"><b style="color:#475569;font-size:12px;">${exItem.name}</b>　記録なし</div>`;
+                                return;
                               }
+                              const vals = dailyData.map(d=>d.val);
+                              const avg = vals.reduce((a,b)=>a+b,0)/vals.length;
+                              const maxV = Math.max(...vals), minV = Math.min(...vals);
+                              const yMax = maxV<=0?1:Math.ceil(maxV*1.1);
+                              const CW=720, CH=110, PL=34, PR=10, PT=10, PB=20;
+                              const dW=CW-PL-PR, dH=CH-PT-PB;
+                              const xAt=i=>dailyData.length===1?PL+dW/2:PL+(i/(dailyData.length-1))*dW;
+                              const yAt=v=>PT+(1-v/yMax)*dH;
+                              const yTicks=[0, yMax/2, yMax];
+                              let svg='';
+                              yTicks.forEach(v=>{
+                                svg+=`<line x1="${PL}" y1="${yAt(v)}" x2="${CW-PR}" y2="${yAt(v)}" stroke="#f1f5f9" stroke-width="1"/>`;
+                                svg+=`<text x="${PL-3}" y="${yAt(v)+3}" font-size="9" fill="#64748b" text-anchor="end">${(Math.round(v*10)/10)}</text>`;
+                              });
+                              svg+=`<polyline points="${dailyData.map((d,i)=>`${xAt(i)},${yAt(d.val)}`).join(' ')}" fill="none" stroke="#6366f1" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`;
+                              dailyData.forEach((d,i)=>{
+                                const isMax=d.val===maxV, isMin=d.val===minV;
+                                const r=isMax||isMin?3:1.8;
+                                const c=isMax?'#ef4444':isMin?'#3b82f6':'#6366f1';
+                                svg+=`<circle cx="${xAt(i)}" cy="${yAt(d.val)}" r="${r}" fill="${c}" stroke="white" stroke-width="0.8"/>`;
+                              });
+                              const labelEvery = Math.max(1, Math.ceil(dailyData.length/8));
+                              dailyData.forEach((d,i)=>{
+                                if(i%labelEvery===0||i===dailyData.length-1){
+                                  const mm = d.date.match(/(\d+)月(\d+)日/);
+                                  const lbl = mm ? `${mm[1]}/${mm[2]}` : d.date;
+                                  svg+=`<text x="${xAt(i)}" y="${CH-5}" font-size="8" fill="#475569" text-anchor="middle">${lbl}</text>`;
+                                }
+                              });
+                              html+=`<div style="background:white;border-radius:8px;padding:6px 10px 4px;border:1px solid #e2e8f0;margin-bottom:5px;">
+                                <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;">
+                                  <span style="font-size:12px;font-weight:bold;color:#1e293b;">${exItem.name}</span>
+                                  <span style="font-size:10px;color:#64748b;">平均 ${avg.toFixed(1)} ／ 最高 ${maxV} ／ 最低 ${minV} ／ N=${dailyData.length}</span>
+                                </div>
+                                <svg viewBox="0 0 ${CW} ${CH}" preserveAspectRatio="none" style="width:100%;height:auto;display:block;">${svg}</svg>
+                              </div>`;
                             });
-                            exHtml+=`<div style="background:white;border-radius:8px;padding:6px 10px 4px;border:1px solid #e2e8f0;margin-bottom:5px;">
-                              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;">
-                                <span style="font-size:12px;font-weight:bold;color:#1e293b;">${exItem.name}</span>
-                                <span style="font-size:10px;color:#64748b;">平均 ${avg.toFixed(1)} ／ 最高 ${maxV} ／ 最低 ${minV} ／ N=${dailyData.length}</span>
-                              </div>
-                              <svg viewBox="0 0 ${CW} ${CH}" preserveAspectRatio="none" style="width:100%;height:auto;display:block;">${svg}</svg>
-                            </div>`;
-                          });
-                          exSec.innerHTML = exHtml;
+                            return html;
+                          };
+                          const ymLabel = `${cBY}年${cMonths.slice().reverse().map(m=>m+'月').join('・')}`;
+                          const half = Math.ceil(allExItems.length / 2);
+                          const firstItems = allExItems.slice(0, half);
+                          const secondItems = allExItems.slice(half);
+                          exSec.innerHTML = buildExHtml(firstItems, `運動トレンド①（${ymLabel}）`);
+                          // sec-exercise2 を sec-exercise の直後に挿入
+                          const ex2 = perClone.querySelector('#sec-exercise2');
+                          if(ex2) ex2.parentNode.removeChild(ex2);
+                          if(secondItems.length > 0){
+                            const newEx2 = document.createElement('div');
+                            newEx2.id = 'sec-exercise2';
+                            newEx2.style.cssText = 'scroll-margin-top:120px;margin-bottom:16px;';
+                            newEx2.innerHTML = buildExHtml(secondItems, `運動トレンド②（${ymLabel} 続き）`);
+                            exSec.parentNode.insertBefore(newEx2, exSec.nextSibling);
+                          }
                         }
                         // 体力測定: 全項目の一覧テーブル（期間に依存しない・全期間の記録を表示）
                         const fitSec = perClone.querySelector('#sec-fitness');
@@ -9807,13 +9823,15 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                           let sib=fitSec.nextElementSibling;
                           while(sib && !sib.id){ sib.style.display=''; sib=sib.nextElementSibling; }
                         }
-                        // ページレイアウト（縦×4 + 横×1）
+                        // ページレイアウト（縦×5 + 横×1）
+                        const hasEx2 = !!perClone.querySelector('#sec-exercise2');
                         const PAGE_LAYOUT = [
                           { sections: ['sec-basicinfo','sec-kpi','sec-trend','sec-kibun'], orientation:'portrait', label:`第${ci+1}期 P1: 基本情報・基本指標・月別通所・気分（縦）` },
                           { sections: ['sec-vital','sec-fitness'], orientation:'portrait', label:`第${ci+1}期 P2: 体温・血圧・脈・体力測定（縦）` },
-                          { sections: ['sec-exercise'], orientation:'portrait', label:`第${ci+1}期 P3: 運動トレンド（縦）` },
-                          { sections: ['sec-absence','sec-kyushi','sec-monitoring'], orientation:'portrait', label:`第${ci+1}期 P4: 欠席一覧・休止一覧・モニタリング（縦）` },
-                          { sections: ['sec-detail'], orientation:'landscape', flow:true, label:`第${ci+1}期 P5〜: 詳細記録（横・必要に応じて複数ページ）` },
+                          { sections: ['sec-exercise'], orientation:'portrait', label:`第${ci+1}期 P3: 運動トレンド①（縦）` },
+                          ...(hasEx2 ? [{ sections: ['sec-exercise2'], orientation:'portrait', label:`第${ci+1}期 P4: 運動トレンド②（縦）` }] : []),
+                          { sections: ['sec-absence','sec-kyushi','sec-monitoring'], orientation:'portrait', label:`第${ci+1}期 P${hasEx2?5:4}: 欠席一覧・休止一覧・モニタリング（縦）` },
+                          { sections: ['sec-detail'], orientation:'landscape', flow:true, label:`第${ci+1}期 P${hasEx2?6:5}〜: 詳細記録（横・必要に応じて複数ページ）` },
                         ];
                         const MM = 3.7795, PAD = 6;
                         const measure = document.createElement('div');
