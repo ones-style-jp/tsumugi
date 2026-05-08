@@ -9769,16 +9769,16 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                         sib=sib.nextElementSibling;
                       }
                     }
-                    // 固定ページレイアウト構築
+                    // 固定ページレイアウト構築（縦×4 + 横×1）
                     const PAGE_LAYOUT = [
-                      { left: ['sec-basicinfo','sec-kpi','sec-trend','sec-kibun'], right: ['sec-vital','sec-fitness'], label:'ページ1: 基本情報・指標・通所・気分 / バイタル・体力測定' },
-                      { left: ['sec-exercise','sec-monitoring'], right: ['sec-absence','sec-kyushi'], label:'ページ2: 運動・モニタリング / 欠席・休止' },
-                      { left: ['sec-detail'], right: [], mode:'full', label:'ページ3〜: 詳細記録（全幅・複数ページ）' },
+                      { sections: ['sec-basicinfo','sec-kpi','sec-trend','sec-kibun'], orientation:'portrait', label:'ページ1: 基本情報・基本指標・月別通所・気分（縦）' },
+                      { sections: ['sec-vital','sec-fitness'], orientation:'portrait', label:'ページ2: 体温・血圧・脈・体力測定（縦）' },
+                      { sections: ['sec-exercise','sec-monitoring'], orientation:'portrait', label:'ページ3: 運動トレンド・モニタリング（縦）' },
+                      { sections: ['sec-absence','sec-kyushi'], orientation:'portrait', label:'ページ4: 欠席一覧・休止一覧（縦）' },
+                      { sections: ['sec-detail'], orientation:'landscape', label:'ページ5: 詳細記録（横・縮小）' },
                     ];
-                    const colW = (297 - 16 - 8) / 2;
-                    const colPx = colW * 3.7795;
-                    const fullW = 297 - 16;
-                    const fullPx = fullW * 3.7795;
+                    const MM = 3.7795;
+                    const PAD = 6; // mm
                     const measure = document.createElement('div');
                     measure.style.cssText = 'position:absolute;left:-9999px;top:0;width:297mm;visibility:hidden;';
                     document.body.appendChild(measure);
@@ -9788,7 +9788,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                       const el = perClone.querySelector('#'+secId);
                       if(!el) return null;
                       const group = document.createElement('div');
-                      group.style.cssText = 'margin-bottom:8px;';
+                      group.style.cssText = 'margin-bottom:6px;';
                       el.parentNode.insertBefore(group, el);
                       group.appendChild(el);
                       while(group.nextElementSibling && (!group.nextElementSibling.id || !secIdSet.has(group.nextElementSibling.id))){
@@ -9801,12 +9801,10 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                     allSecIds.forEach(secId => {
                       sectionGroups[secId] = extractSection(secId);
                     });
-                    // 列ごとに統一されたzoom倍率を適用（テーブルやSVGも含めた最大幅で計算）
-                    const measureNaturalWidth = (g) => {
-                      if(!g) return 0;
-                      // テーブルラッパーのoverflowを一時的に解除して実幅を計測
+                    // overflowを一時解除して container の自然幅・高さを計測
+                    const measureNaturalSize = (container) => {
                       const overflowSaves = [];
-                      g.querySelectorAll('*').forEach(el => {
+                      container.querySelectorAll('*').forEach(el => {
                         const cs = el.style;
                         if(cs.overflow || cs.overflowX){
                           overflowSaves.push({el, overflow: cs.overflow, overflowX: cs.overflowX});
@@ -9814,49 +9812,45 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                           if(cs.overflowX === 'auto' || cs.overflowX === 'scroll') cs.overflowX = 'visible';
                         }
                       });
-                      let w = g.scrollWidth;
-                      g.querySelectorAll('table, svg').forEach(el => {
+                      let w = container.scrollWidth;
+                      const h = container.scrollHeight;
+                      container.querySelectorAll('table, svg').forEach(el => {
                         const ew = el.scrollWidth || el.offsetWidth;
                         if(ew > w) w = ew;
                       });
-                      // overflowを元に戻す
                       overflowSaves.forEach(s => { s.el.style.overflow = s.overflow; s.el.style.overflowX = s.overflowX; });
-                      return w;
-                    };
-                    const buildColumn = (secIds, targetPx) => {
-                      if(!secIds.length) return '';
-                      let maxW = 0;
-                      secIds.forEach(id => {
-                        const w = measureNaturalWidth(sectionGroups[id]);
-                        if(w > maxW) maxW = w;
-                      });
-                      const sc = maxW > targetPx ? targetPx / maxW : 1;
-                      const inner = secIds.map(id => sectionGroups[id]?.outerHTML || '').join('');
-                      if(sc < 1){
-                        return `<div style="zoom:${sc.toFixed(4)};">${inner}</div>`;
-                      }
-                      return inner;
+                      return {w, h};
                     };
                     let pagesHtml = '';
                     PAGE_LAYOUT.forEach((pageDef, pi) => {
+                      const isLand = pageDef.orientation === 'landscape';
+                      const pageW = isLand ? 297 : 210;
+                      const pageH = isLand ? 210 : 297;
+                      const innerW = pageW - PAD*2;
+                      const innerH = pageH - PAD*2;
+                      const innerWpx = innerW * MM;
+                      const innerHpx = innerH * MM;
+                      const content = document.createElement('div');
+                      content.style.cssText = `width:${innerW}mm;`;
+                      pageDef.sections.forEach(secId => {
+                        if(sectionGroups[secId]) content.appendChild(sectionGroups[secId]);
+                      });
+                      if(content.children.length === 0) return;
+                      measure.appendChild(content);
+                      const {w: natW, h: natH} = measureNaturalSize(content);
+                      const sc = Math.min(1, innerWpx / Math.max(1, natW), innerHpx / Math.max(1, natH));
+                      const inner = sc < 1
+                        ? `<div style="zoom:${sc.toFixed(4)};">${content.innerHTML}</div>`
+                        : content.innerHTML;
+                      measure.removeChild(content);
+                      const pageClass = isLand ? 'l-page' : 'p-page';
                       const pageBreak = pi > 0 ? 'page-break-before:always;' : '';
-                      const pageSep = pi > 0
-                        ? `<div class="page-sep" style="border-top:3px dashed #cbd5e1;margin:16px 0 12px;padding-top:8px;display:flex;align-items:center;gap:8px;"><span style="background:#e2e8f0;color:#475569;font-size:11px;font-weight:bold;padding:2px 10px;border-radius:4px;">${pageDef.label}</span><span style="flex:1;border-top:1px solid #e2e8f0;"></span></div>`
-                        : `<div class="page-sep" style="margin-bottom:8px;display:flex;align-items:center;gap:8px;"><span style="background:#dbeafe;color:#2563eb;font-size:11px;font-weight:bold;padding:2px 10px;border-radius:4px;">${pageDef.label}</span><span style="flex:1;border-top:1px solid #e2e8f0;"></span></div>`;
-                      if(pageDef.mode === 'full'){
-                        const content = buildColumn(pageDef.left, fullPx);
-                        if(!content) return;
-                        pagesHtml += `${pageSep}<div style="${pageBreak}width:100%;"><div style="width:100%;">${content}</div></div>`;
-                      } else {
-                        const leftHtml = buildColumn(pageDef.left, colPx);
-                        const rightHtml = buildColumn(pageDef.right, colPx);
-                        if(!leftHtml && !rightHtml) return;
-                        pagesHtml += `${pageSep}<div style="${pageBreak}display:flex;gap:8mm;width:100%;align-items:flex-start;"><div style="flex:1;min-width:0;">${leftHtml}</div><div style="flex:1;min-width:0;">${rightHtml}</div></div>`;
-                      }
+                      const sep = `<div class="page-sep" style="margin:${pi>0?'14px 0 8px':'0 0 8px'};display:flex;align-items:center;gap:8px;"><span style="background:${isLand?'#fef3c7':'#dbeafe'};color:${isLand?'#92400e':'#2563eb'};font-size:11px;font-weight:bold;padding:2px 10px;border-radius:4px;">${pageDef.label}</span><span style="flex:1;border-top:1px solid #e2e8f0;"></span></div>`;
+                      pagesHtml += `${sep}<div class="${pageClass}" style="${pageBreak}width:${pageW}mm;height:${pageH}mm;padding:${PAD}mm;box-sizing:border-box;overflow:hidden;background:white;">${inner}</div>`;
                     });
                     document.body.removeChild(measure);
                     const title = `分析_個人_${selectedPatient?.name||''}`;
-                    const html=`<div style="padding:6mm 8mm;font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;width:297mm;box-sizing:border-box;"><style>*{box-sizing:border-box;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}#sec-detail table{page-break-inside:auto;}#sec-detail tr{page-break-inside:avoid;page-break-after:auto;}#sec-detail thead{display:table-header-group;}@media print{@page{margin:0;}.page-sep{display:none!important;}}</style>${pagesHtml}</div>`;
+                    const html=`<div style="font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;"><style>*{box-sizing:border-box;}html,body{width:auto!important;max-width:none!important;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}@page p{size:210mm 297mm;margin:0;}@page l{size:297mm 210mm;margin:0;}.p-page{page:p;}.l-page{page:l;}@media print{.page-sep{display:none!important;}}</style>${pagesHtml}</div>`;
                     window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 landscape',html}}));
                   }}
               style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:8,padding:'6px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
