@@ -10551,7 +10551,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           const maxPulseDate=maxPulse?dailyData.find(d=>d.pulse===maxPulse)?.date:'';
           const minPulseDate=minPulse?dailyData.find(d=>d.pulse===minPulse)?.date:'';
 
-          const isMonthly = dailyData.length<=12; const _STEP=isMonthly?60:(dailyData.length<=14?50:dailyData.length<=30?28:14); const PAD_X=20; const W=dailyData.length*_STEP+PAD_X*2,H=180,LW=50;
+          const isMonthly = dailyData.length<=12; const _STEP=isMonthly?60:(dailyData.length<=14?50:dailyData.length<=30?28:14); const PAD_X=20; const W=dailyData.length*_STEP+PAD_X*2,H=180,LW=110;
           const VitalChart = ({field,color1,color2,yMin,yMax,refLines,normalBand,title,legend1,legend2,unit}) => {
             const pts1=dailyData.map((d,i)=>({v:d[field],i,d})).filter(p=>p.v!==null);
             const pts2=color2?dailyData.map((d,i)=>({v:d.bpDn,i,d})).filter(p=>p.v!==null):[];
