@@ -9912,10 +9912,13 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                                     const sample = allRows[0];
                                     const colCount = sample.children.length;
                                     for(let i=0;i<emptyCount;i++){
+                                      // 実データ行と同じ見た目: tr に borderBottom と交互背景、td は枠線なし
                                       const tr = document.createElement('tr');
+                                      const bg = (sliceRows.length + i) % 2 === 0 ? 'white' : '#fafbfc';
+                                      tr.style.cssText = `border-bottom:1px solid #f8fafc;background-color:${bg};`;
                                       for(let c=0;c<colCount;c++){
                                         const td = document.createElement('td');
-                                        td.style.cssText = 'border:1px solid #e2e8f0;padding:2px;background:#fafbfc;';
+                                        td.style.cssText = 'padding:8px 10px;';
                                         td.innerHTML = '&nbsp;';
                                         tr.appendChild(td);
                                       }
@@ -11105,11 +11108,11 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
         {!isCol('sec-absence') && records.filter(r=>r.status==='欠席'||r.status==='休業').length > 0 && (
           <div style={{background:'white',borderRadius:14,boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #fecaca',overflow:'hidden',marginBottom:16}}>
             <div style={{padding:'12px 20px',borderBottom:'1px solid #fef2f2',background:'#fef2f2',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-              <div style={{fontSize:13,fontWeight:'bold',color:'#dc2626',display:'flex',alignItems:'center',gap:6}}>
+              <div style={{fontSize:14,fontWeight:'bold',color:'#dc2626',display:'flex',alignItems:'center',gap:6}}>
                 <span style={{width:8,height:8,background:'#ef4444',borderRadius:'50%',display:'inline-block'}}/>
                 欠席・休業 一覧
               </div>
-              <span style={{fontSize:13,color:'#ef4444',fontWeight:'bold',background:'#fee2e2',padding:'2px 8px',borderRadius:6}}>
+              <span style={{fontSize:14,color:'#ef4444',fontWeight:'bold',background:'#fee2e2',padding:'2px 8px',borderRadius:6}}>
                 {records.filter(r=>r.status==='欠席'||r.status==='休業').length}件
               </span>
             </div>
@@ -11117,7 +11120,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
               {records.filter(r=>r.status==='欠席'||r.status==='休業').map((r,i)=>(
                 <div key={r.id} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'8px 20px',borderBottom:'1px solid #fef2f2',backgroundColor:i%2===0?'white':'#fffbfb'}}>
                   <div style={{fontWeight:'bold',color:'#475569',whiteSpace:'nowrap',minWidth:60,fontSize:14}}>{r.date}</div>
-                  <span style={{fontSize:13,fontWeight:'bold',padding:'2px 8px',borderRadius:6,backgroundColor:r.status==='欠席'?'#fee2e2':'#f1f5f9',color:r.status==='欠席'?'#dc2626':'#64748b',whiteSpace:'nowrap',flexShrink:0}}>{r.status}</span>
+                  <span style={{fontSize:14,fontWeight:'bold',padding:'2px 8px',borderRadius:6,backgroundColor:r.status==='欠席'?'#fee2e2':'#f1f5f9',color:r.status==='欠席'?'#dc2626':'#64748b',whiteSpace:'nowrap',flexShrink:0}}>{r.status}</span>
                   <div style={{fontSize:14,color:r.tokki?'#475569':'#cbd5e1',flex:1}}>
                     {r.tokki||<span style={{fontStyle:'italic',color:'#000'}}>理由の記載なし</span>}
                   </div>
@@ -11130,11 +11133,11 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
         <div id="sec-kyushi" style={{scrollMarginTop:120,marginBottom:0}}><div onClick={()=>toggleSec('sec-kyushi')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:8,paddingBottom:6,borderBottom:'2px solid #e2e8f0',cursor:'pointer'}}><span>休止一覧</span><span style={{fontSize:14,color:'#94a3b8'}}>{isCol('sec-kyushi')?'▶':'▼'}</span></div></div>{/* === 休止一覧 === */}
         {!isCol('sec-kyushi') && <div style={{background:'white',borderRadius:14,boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #fed7aa',overflow:'hidden',marginBottom:16}}>
           <div style={{padding:'12px 20px',borderBottom:'1px solid #fff7ed',background:'#fff7ed',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-            <div style={{fontSize:13,fontWeight:'bold',color:'#c2410c',display:'flex',alignItems:'center',gap:6}}>
+            <div style={{fontSize:14,fontWeight:'bold',color:'#c2410c',display:'flex',alignItems:'center',gap:6}}>
               <span style={{width:8,height:8,background:'#f97316',borderRadius:'50%',display:'inline-block'}}/>
               休止 一覧
             </div>
-            <span style={{fontSize:13,color:'#f97316',fontWeight:'bold',background:'#ffedd5',padding:'2px 8px',borderRadius:6}}>
+            <span style={{fontSize:14,color:'#f97316',fontWeight:'bold',background:'#ffedd5',padding:'2px 8px',borderRadius:6}}>
               {records.filter(r=>r.status==='休止').length}件
             </span>
           </div>
@@ -11143,7 +11146,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
               {records.filter(r=>r.status==='休止').map((r,i)=>(
                 <div key={r.id} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'8px 20px',borderBottom:'1px solid #fff7ed',backgroundColor:i%2===0?'white':'#fffcf9'}}>
                   <div style={{fontWeight:'bold',color:'#475569',whiteSpace:'nowrap',minWidth:60,fontSize:14}}>{r.date}</div>
-                  <span style={{fontSize:13,fontWeight:'bold',padding:'2px 8px',borderRadius:6,backgroundColor:'#ffedd5',color:'#c2410c',whiteSpace:'nowrap',flexShrink:0}}>休止</span>
+                  <span style={{fontSize:14,fontWeight:'bold',padding:'2px 8px',borderRadius:6,backgroundColor:'#ffedd5',color:'#c2410c',whiteSpace:'nowrap',flexShrink:0}}>休止</span>
                   <div style={{fontSize:14,color:r.tokki?'#475569':'#cbd5e1',flex:1}}>
                     {r.tokki||<span style={{fontStyle:'italic',color:'#000'}}>理由の記載なし</span>}
                   </div>
@@ -11158,7 +11161,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
         <div id="sec-monitoring" data-sec="sec-monitoring" style={{scrollMarginTop:120}}/>{/* === モニタリング === */}
         <div style={{background:'white',borderRadius:14,boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #d1fae5',overflow:'hidden',marginBottom:16}}>
           <div style={{padding:'12px 20px',borderBottom:'1px solid #d1fae5',background:'#f0fdf4',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-            <div style={{fontSize:13,fontWeight:'bold',color:'#065f46',display:'flex',alignItems:'center',gap:6}}>
+            <div style={{fontSize:14,fontWeight:'bold',color:'#065f46',display:'flex',alignItems:'center',gap:6}}>
               <span style={{width:8,height:8,background:'#10b981',borderRadius:'50%',display:'inline-block'}}/>
               モニタリング
             </div>
@@ -11173,7 +11176,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                 .map((r,i)=>(
                   <div key={r.id} style={{padding:'14px 20px',borderBottom:'1px solid #f0fdf4',backgroundColor:i%2===0?'white':'#f8fffe'}}>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-                      <span style={{fontSize:13,fontWeight:'bold',color:'#059669'}}>{r.period||'—'}</span>
+                      <span style={{fontSize:14,fontWeight:'bold',color:'#059669'}}>{r.period||'—'}</span>
                       <span style={{fontSize:14,color:'#334155'}}>{r.createdDate||''}</span>
                     </div>
                     <div style={{fontSize:14,color:'#475569',lineHeight:1.8,whiteSpace:'pre-wrap'}}>{r.summary}</div>
