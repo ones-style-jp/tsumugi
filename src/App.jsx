@@ -9709,7 +9709,13 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                         const perContainer = document.getElementById('print-content-analysis');
                         if(!perContainer) continue;
                         const perClone = perContainer.cloneNode(true);
-                        const allSecIds = [...ALL_SECTIONS.map(([id])=>id), 'sec-exercise2'];
+                        // sec-exercise2 を sec-exercise の直後に置く（DOM順と一致させ、後段の extractSection で
+                        // 後続セクション（体力測定・欠席一覧・休止一覧・モニタリング・詳細記録）を巻き込まないようにする）
+                        const _baseSecIds = ALL_SECTIONS.map(([id])=>id);
+                        const _exIdx = _baseSecIds.indexOf('sec-exercise');
+                        const allSecIds = _exIdx >= 0
+                          ? [..._baseSecIds.slice(0, _exIdx+1), 'sec-exercise2', ..._baseSecIds.slice(_exIdx+1)]
+                          : [..._baseSecIds, 'sec-exercise2'];
                         // SVG viewBox付与
                         perClone.querySelectorAll('svg').forEach(svg=>{
                           const w=parseInt(svg.getAttribute('width'))||0;
