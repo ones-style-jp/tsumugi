@@ -9497,6 +9497,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   const [selTrekkiMonth, setSelTrekkiMonth] = useState(null);
   const [detailMonth, setDetailMonth] = useState(null);
   const [moodTooltip, setMoodTooltip] = useState(null); // {x,y,label,arr,arrR,dep,depR}
+  // 印刷プレビューに「詳細記録（横ページ）」を含めるか。デフォルト false（ケアマネ向け配付では不要）。
+  const [printIncludeDetail, setPrintIncludeDetail] = useState(false);
   const selectedPatient = (appData.patients||[]).find(p => p.id === selectedPatientId || String(p.id) === String(selectedPatientId)) || (appData.patients||[])[0];
 
   const targetMonths = useMemo(() => {
@@ -9663,6 +9665,12 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             <input type="date" value={`${customTo}-01`} onChange={e=>setCustomTo(e.target.value.substring(0,7))} style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:10,padding:'6px 10px',fontSize:12,fontWeight:'bold',outline:'none',cursor:'pointer'}}/>
           </>}
           <span style={{background:'white',color:'#1e40af',borderRadius:8,padding:'6px 12px',fontSize:11,fontWeight:'bold',whiteSpace:'nowrap'}}>{rangeLabel}</span>
+          <label title="チェックを入れると、印刷プレビューの末尾に日々の詳細記録（横ページ）も含めて生成します"
+                 style={{display:'flex',alignItems:'center',gap:5,background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:8,padding:'6px 10px',fontWeight:'bold',fontSize:12,cursor:'pointer',whiteSpace:'nowrap'}}>
+            <input type="checkbox" checked={printIncludeDetail} onChange={e=>setPrintIncludeDetail(e.target.checked)}
+                   style={{cursor:'pointer',accentColor:'#22c55e',width:14,height:14,margin:0}}/>
+            詳細記録も印刷
+          </label>
           <button type="button" onClick={async()=>{
                     // 期間設定を保存して 3ヶ月チャンクで連続生成
                     const origPeriod = period, origBaseMonth = baseMonth;
@@ -9837,7 +9845,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                           { sections: ['sec-exercise'], orientation:'portrait', label:`第${ci+1}期 P3: 運動トレンド①（縦）` },
                           ...(hasEx2 ? [{ sections: ['sec-exercise2'], orientation:'portrait', label:`第${ci+1}期 P4: 運動トレンド②（縦）` }] : []),
                           { sections: ['sec-absence','sec-kyushi','sec-monitoring'], orientation:'portrait', label:`第${ci+1}期 P${hasEx2?5:4}: 欠席一覧・休止一覧・モニタリング（縦）` },
-                          { sections: ['sec-detail'], orientation:'landscape', flow:true, label:`第${ci+1}期 P${hasEx2?6:5}〜: 詳細記録（横・必要に応じて複数ページ）` },
+                          ...(printIncludeDetail ? [{ sections: ['sec-detail'], orientation:'landscape', flow:true, label:`第${ci+1}期 P${hasEx2?6:5}〜: 詳細記録（横・必要に応じて複数ページ）` }] : []),
                         ];
                         const MM = 3.7795, PAD = 6;
                         const measure = document.createElement('div');
