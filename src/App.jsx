@@ -55,6 +55,32 @@ const downloadPdf = async (element, filename) => {
   }).from(element).save();
 };
 
+// === 利用者プルダウン: かな順ソート + 行（ア/カ/サ...）optgroup ===
+// 並び順は kana 優先、なければ name を fallback。空文字 / 記号は「その他」へ。
+const _KANA_ROWS = [
+  ['ア行', /^[ぁ-おァ-オ]/],
+  ['カ行', /^[が-ごカ-ゴか-こ]/],
+  ['サ行', /^[ざ-ぞサ-ゾさ-そ]/],
+  ['タ行', /^[だ-どタ-ドた-と]/],
+  ['ナ行', /^[な-のナ-ノ]/],
+  ['ハ行', /^[ば-ぽハ-ポは-ほ]/],
+  ['マ行', /^[ま-もマ-モ]/],
+  ['ヤ行', /^[ゃ-よャ-ヨ]/],
+  ['ラ行', /^[ら-ろラ-ロ]/],
+  ['ワ行', /^[わ-んワ-ン]/],
+];
+const _sortKey = (p) => (p.kana || p.name || '').trim();
+const sortPatientsByKana = (list) => [...list].sort((a, b) => _sortKey(a).localeCompare(_sortKey(b), 'ja'));
+const groupPatientsByKanaRow = (list) => {
+  const sorted = sortPatientsByKana(list);
+  const groups = _KANA_ROWS.map(([label, re]) => ({ label, items: sorted.filter(p => re.test(_sortKey(p))) }));
+  const used = new Set();
+  groups.forEach(g => g.items.forEach(p => used.add(p.id)));
+  const other = sorted.filter(p => !used.has(p.id));
+  if (other.length > 0) groups.push({ label: 'その他', items: other });
+  return groups.filter(g => g.items.length > 0);
+};
+
 // === 印刷プレビューモーダル ===
 function PrintPreviewModal({ children, title, onClose, onPrint }) {
   React.useEffect(() => {
@@ -8333,8 +8359,9 @@ export default function App() {
                     📠 FAX
                   </button>
                   <button onClick={()=>openPrintWindow(false)}
+                    title="PDFファイルとして保存する場合は、開いた印刷ダイアログで『送信先』を『PDFに保存』に変更してください"
                     style={{background:'#2563eb',color:'white',border:'none',borderRadius:10,padding:'10px 20px',fontWeight:'bold',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',gap:8,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
-                    📥 PDF保存
+                    💾 PDFで保存
                   </button>
                   <div style={{width:1,height:32,background:'#475569',margin:'0 4px'}}/>
                   <button onClick={()=>setPrintPreviewContent(null)}
@@ -8358,8 +8385,11 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <div className="no-print" style={{background:'#1e293b',padding:'8px 20px',display:'flex',justifyContent:'center',gap:6}}>
-                <span style={{color:'#64748b',fontSize:11}}>🖨️ 印刷 — プリンターへ出力　　📠 FAX — FAXプリンターを選択　　📥 PDF保存 — 「PDFとして保存」を選択</span>
+              <div className="no-print" style={{background:'#fef3c7',padding:'10px 20px',display:'flex',justifyContent:'center',alignItems:'center',gap:8,borderTop:'2px solid #fbbf24'}}>
+                <span style={{fontSize:18}}>💡</span>
+                <span style={{color:'#78350f',fontSize:13,fontWeight:'bold'}}>
+                  PDFで保存したい場合は「💾 PDFで保存」をクリック → 印刷ダイアログで「送信先」を「<u>PDFに保存</u>」に変更してください
+                </span>
               </div>
             </div>
           );
@@ -8958,7 +8988,12 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                 setSelectedDate(e.target.value);
               }} className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold outline-none cursor-pointer text-slate-700"/>
                 <select value={monthPatientId || (appData.patients[0]?.id) || ''} onChange={e=>setMonthPatientId(Number(e.target.value))} className="text-center bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold outline-none cursor-pointer text-slate-700">
-                  {appData.patients.filter(p=>p.status!=='退所').map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+                  {/* 利用者プルダウン: かな昇順 + ア行/カ行... の optgroup でラベル付け */}
+                  {groupPatientsByKanaRow((appData.patients||[]).filter(p=>p.status!=='退所')).map(g => (
+                    <optgroup key={g.label} label={g.label}>
+                      {g.items.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </optgroup>
+                  ))}
                 </select>
                 <button onClick={() => setIsMonthEditMode(!isMonthEditMode)} className={`flex items-center px-4 py-2 rounded-xl text-sm font-bold transition-all border ${isMonthEditMode ? 'bg-blue-100 text-blue-700 border-blue-300' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
                   {isMonthEditMode ? <><Unlock size={16} className="mr-1.5"/>編集中</> : <><Lock size={16} className="mr-1.5"/>編集する</>}
@@ -9647,9 +9682,14 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           </div>
         </div>
         <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+          {/* 利用者プルダウン: かな昇順 + ア行/カ行... の optgroup でラベル付け */}
           <select value={selectedPatientId||""} onChange={e=>{const id=Number(e.target.value);setSelectedPatientId(id);onPatientChange&&onPatientChange(id);}}
             style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:10,padding:'6px 12px',fontSize:13,fontWeight:'bold',outline:'none',cursor:'pointer'}}>
-            {appData.patients.map(p=><option key={p.id} value={p.id} style={{color:'#1e293b'}}>{p.name}</option>)}
+            {groupPatientsByKanaRow(appData.patients||[]).map(g => (
+              <optgroup key={g.label} label={g.label}>
+                {g.items.map(p => <option key={p.id} value={p.id} style={{color:'#1e293b'}}>{p.name}</option>)}
+              </optgroup>
+            ))}
           </select>
           <div style={{display:'flex',background:'rgba(255,255,255,0.15)',borderRadius:10,overflow:'hidden',border:'1px solid rgba(255,255,255,0.3)'}}>
             {[['1','1ヶ月'],['3','3ヶ月'],['6','半年'],['12','1年'],['custom','期間指定']].map(([v,l])=>(
