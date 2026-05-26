@@ -8335,6 +8335,13 @@ export default function App() {
 
           return (
             <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:9900,display:'flex',flexDirection:'column'}}>
+              {/* PDF保存の案内（上部に固定、見落とし防止） */}
+              <div className="no-print" style={{background:'#fef3c7',padding:'10px 20px',display:'flex',justifyContent:'center',alignItems:'center',gap:8,borderBottom:'2px solid #fbbf24',flexShrink:0}}>
+                <span style={{fontSize:18}}>💡</span>
+                <span style={{color:'#78350f',fontSize:13,fontWeight:'bold'}}>
+                  PDFで保存したい場合は「💾 PDFで保存」をクリック → 印刷ダイアログで「送信先」を「<u>PDFに保存</u>」に変更してください
+                </span>
+              </div>
               {/* ヘッダー */}
               <div className="no-print" style={{background:'#1e293b',padding:'12px 20px',display:'flex',alignItems:'center',gap:12,flexShrink:0,boxShadow:'0 2px 8px rgba(0,0,0,0.3)'}}>
                 <div style={{flex:1}}>
@@ -8384,12 +8391,6 @@ export default function App() {
                     <div style={{fontSize:13,color:'#94a3b8'}}>印刷ボタンをクリックしてください</div>
                   </div>
                 )}
-              </div>
-              <div className="no-print" style={{background:'#fef3c7',padding:'10px 20px',display:'flex',justifyContent:'center',alignItems:'center',gap:8,borderTop:'2px solid #fbbf24'}}>
-                <span style={{fontSize:18}}>💡</span>
-                <span style={{color:'#78350f',fontSize:13,fontWeight:'bold'}}>
-                  PDFで保存したい場合は「💾 PDFで保存」をクリック → 印刷ダイアログで「送信先」を「<u>PDFに保存</u>」に変更してください
-                </span>
               </div>
             </div>
           );
@@ -10047,7 +10048,9 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                     }
                     const title = `分析_個人_${selectedPatient?.name||''}（3ヶ月×${chunks.length}）`;
                     const html=`<div style="font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;"><style>*{box-sizing:border-box;}html,body{width:auto!important;max-width:none!important;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}@page p{size:210mm 297mm;margin:0;}@page l{size:297mm 210mm;margin:0;}.p-page{page:p;}.l-page{page:l;}.flow-page table{page-break-inside:auto;}.flow-page tr{page-break-inside:avoid;page-break-after:auto;}.flow-page thead{display:table-header-group;}@media print{.page-sep{display:none!important;}}</style>${allPagesHtml.join('')}</div>`;
-                    window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 landscape',html}}));
+                    // プレビュー表示幅は A4 縦（210mm）で固定。多数派が縦ページなので左右余白が自然に。
+                    // 横ページ（詳細記録）は内部で 297mm の .l-page として描画されるが、印刷時の @page l ルールで正しく横で出る。
+                    window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 portrait',html}}));
                   }}
               style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:8,padding:'6px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
               <Printer size={14}/>印刷プレビュー
