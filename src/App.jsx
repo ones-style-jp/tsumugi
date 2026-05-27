@@ -12783,7 +12783,6 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
           <input type="date" value={`${curMonth}-01`} onChange={e=>setCurMonth(e.target.value.substring(0,7))} className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold outline-none cursor-pointer text-slate-700"/>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <button onClick={()=>{ if(onShowPrintPreview){onShowPrintPreview(`サービス提供記録_${sp?.name||''}`, 'A4 landscape', 'print-content-ticket')}else{document.title=`サービス提供記録_${sp?.name||''}`;window.print();setTimeout(()=>{document.title='DayCare v2';},1000);} }} className="bg-blue-700 text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm"><Save size={16} className="mr-1.5"/>PDF</button>
           <button onClick={()=>{if(onShowPrintPreview){onShowPrintPreview(`サービス提供記録_${sp?.name||''}`, 'A4 landscape', 'print-content-ticket')}else{window.print();}}} className="bg-slate-900 text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm"><Printer size={16} className="mr-1.5"/>プレビュー</button>
         </div>
       </div>
@@ -16587,14 +16586,6 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         </button>
         <div className="flex-1"/>
         <div className="flex gap-2 shrink-0">
-        <button onClick={()=>{
-          const _d=new Date(selectedDate);
-          const DOW=['日','月','火','水','木','金','土'];
-          document.title=`業務日誌_${_d.getFullYear()}年${_d.getMonth()+1}月${_d.getDate()}日（${DOW[_d.getDay()]}）`;
-          if(onShowPrintPreview){onShowPrintPreview(document.title||'業務日誌','A4 portrait','diary-print-content');}else{setIsPrintPreview('both');}
-        }} className="bg-blue-700 text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm hover:bg-blue-800 transition-all">
-          <Save size={16} className="mr-1.5"/> PDF
-        </button>
         <button onClick={()=>{
           const _d=new Date(selectedDate);
           const DOW=['日','月','火','水','木','金','土'];
