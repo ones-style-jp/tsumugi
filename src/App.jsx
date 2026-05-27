@@ -17240,7 +17240,8 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
   const [currentMonth, setCurrentMonth] = React.useState(() => { const d=new Date(); return new Date(d.getFullYear(),d.getMonth(),1); });
   const [selectedEntry, setSelectedEntry] = React.useState(null);
-  const [faxData, setFaxData] = React.useState({});
+  // 保存済みの faxDataStore を初期値として読み込む（再表示時に編集状態が消えないように）
+  const [faxData, setFaxData] = React.useState(() => appData.faxDataStore || {});
   const [isPrint, setIsPrint] = React.useState(false);
 
   const facility = appData.systemSettings?.facilityInfo || {};
@@ -17540,8 +17541,18 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
   }
   if (cells.length>0) { while(cells.length<7) cells.push(null); weeks.push(cells); }
 
-  const statusColors = { none:'', printed:'#d1fae5', pdf:'#fef9c3', both:'#ede9fe' };
-  const statusLabels = { printed:'印刷済', pdf:'PDF済', both:'印/PDF済' };
+  const statusColors = { none:'', edited:'#dbeafe', printed:'#d1fae5', pdf:'#fef9c3', both:'#ede9fe' };
+  const statusLabels = { edited:'編集済', printed:'印刷済', pdf:'PDF済', both:'印/PDF済' };
+  // fax データが何らかの編集（理由・連絡者・備考・チェック）を含むかどうか
+  const isFaxEdited = (fd) => {
+    if (!fd) return false;
+    if (typeof fd.reason === 'string' && fd.reason.trim() !== '') return true;
+    if (typeof fd.reporter === 'string' && fd.reporter.trim() !== '') return true;
+    if (typeof fd.memo === 'string' && fd.memo.trim() !== '') return true;
+    const cb = fd.checkboxes || {};
+    if (cb.kyuukyuu || cb.kakunin || cb.orikaesu) return true;
+    return false;
+  };
 
   return (
     <div style={{height:'100%',display:'flex',flexDirection:'column',background:'#f0f4f9'}}>
@@ -17600,7 +17611,9 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
                     {absences.map(({patient:pat, tokki},ai)=>{
                       const k = getKey(dateStr, pat.id);
                       const fd = faxData[k];
-                      const st = fd?.status || 'none';
+                      // 印刷/PDF状態が無くても編集されていれば「編集済」を表示
+                      const rawSt = fd?.status || 'none';
+                      const st = (rawSt === 'none' && isFaxEdited(fd)) ? 'edited' : rawSt;
                       const maskedN = pat.name;  // カレンダーはマスキングなし
                       return (
                         <button key={ai} type="button" onClick={()=>{if(!isClosed) openFax(dateStr, pat, tokki);}}
@@ -17611,7 +17624,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
                             textAlign:'left',display:'flex',alignItems:'center',gap:4
                           }}>
                           <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{maskedN}</span>
-                          {st!=='none'&&<span style={{fontSize:9,flexShrink:0,color:'#475569'}}>{statusLabels[st]}</span>}
+                          {st!=='none'&&<span style={{fontSize:9,flexShrink:0,color:'#475569',background:'rgba(255,255,255,0.7)',padding:'1px 4px',borderRadius:3}}>{statusLabels[st]}</span>}
                         </button>
                       );
                     })}
