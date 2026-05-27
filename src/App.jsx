@@ -13417,9 +13417,10 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
               <tr className="border-b border-black h-12">
                 <td className="p-0" colSpan={2}>
                   <div className="flex items-center h-full px-3">
-                    <span className="font-normal" style={{fontSize:15}}>体温</span>
-                    <span className="font-bold" style={{fontSize:24}}>　{record.temp || "　"}</span>
-                    <span className="font-normal" style={{fontSize:14}}>℃</span>
+                    <span className="font-normal" style={{fontSize:15,marginRight:'0.4em'}}>体温</span>
+                    {/* 固定幅 + 右寄せにして、未入力時でも ℃ の位置が動かないようにする */}
+                    <span className="font-bold" style={{fontSize:24,display:'inline-block',minWidth:'2.8em',textAlign:'right',fontVariantNumeric:'tabular-nums'}}>{record.temp || ''}</span>
+                    <span className="font-normal" style={{fontSize:14,marginLeft:'0.15em'}}>℃</span>
                     <span style={{display:'inline-block', width:'4em', fontSize:15}} />
                     <span style={{fontSize:24}}>　</span>
                     <table style={{borderCollapse:'collapse', flex:'none'}}>
