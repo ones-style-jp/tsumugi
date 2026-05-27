@@ -17369,7 +17369,29 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
             }} style={{background:'#0f766e',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
               📋 プレビュー
             </button>
-            <button type="button" onClick={()=>{ markClean(); onSave({...appData, faxDataStore: {...(appData.faxDataStore||{}), ...faxData}}); }} style={{background:'#2563eb',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
+            <button type="button" onClick={()=>{
+              markClean();
+              // faxData で編集された理由(reason)を、対応する ticketRecord.tokki にも反映
+              // → カレンダーや他画面が参照する欠席理由が同期される
+              let newTickets = appData.ticketRecords || [];
+              Object.entries(faxData).forEach(([k, fx]) => {
+                if (!fx || fx.reason === undefined) return; // 編集が無い key はスキップ
+                const [dateIso, patIdStr] = k.split('_');
+                const pid = parseInt(patIdStr, 10);
+                if (!dateIso || !pid) return;
+                const parts = dateIso.split('-');
+                if (parts.length < 3) return;
+                const dateStr = `${parseInt(parts[1])}月${parseInt(parts[2])}日`;
+                newTickets = newTickets.map(r => {
+                  if (r.patientId !== pid || r.date !== dateStr || r.status !== '欠席') return r;
+                  // 元 tokki が「○月○日AMへ振替（理由）」の形なら、振替ノートを保持して理由だけ差し替える
+                  const m = (r.tokki || '').match(/^(.+?へ振替)/);
+                  const newTokki = m ? `${m[1]}（${fx.reason}）` : fx.reason;
+                  return { ...r, tokki: newTokki };
+                });
+              });
+              onSave({...appData, faxDataStore: {...(appData.faxDataStore||{}), ...faxData}, ticketRecords: newTickets});
+            }} style={{background:'#2563eb',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
               <Save size={13}/> 保存
             </button>
           </div>
