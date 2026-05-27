@@ -8510,7 +8510,7 @@ export default function App() {
             {['ticket','fitness','master','dash_personal','monitoring'].includes(currentView) && <QuickNav navigateTo={navigateTo} currentView={currentView} patientId={targetPatientId} appData={appData}/>}
             <div ref={contentRef} style={{flex:1,overflow:'auto',padding:currentView==='ticket'?'0':'16px'}}>
             <div style={{minWidth:DESIGN_WIDTH,transformOrigin:'top left',transform:contentScale<1?`scale(${contentScale})`:'none',width:contentScale<1?`${100/contentScale}%`:'100%'}}>
-            {currentView === 'record' ? <RecordView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={recordDirtyRef} saveFnRef={recordSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} showTip={showTip} hideTip={hideTip} /> : 
+            {currentView === 'record' ? <RecordView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={recordDirtyRef} saveFnRef={recordSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} showTip={showTip} hideTip={hideTip} isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} /> :
              currentView === 'ticket' ? <TicketView appData={appData} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  onSave={handleSaveToCloud} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={ticketDirtyRef} /> : 
              currentView === 'print' ? <ContactBookView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={printDirtyRef} sharedAmpm={sharedAmpm} /> : 
              currentView === 'master' ? <MasterView appData={appData} onSave={handleSaveToCloud} targetPatientId={targetPatientId} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={masterDirtyRef} saveFnRef={masterSaveFnRef} /> :
@@ -8563,13 +8563,31 @@ export default function App() {
 }
 
 // === RecordView ===
-function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate, dirtyRef, saveFnRef, sharedAmpm, setSharedAmpm, showTip, hideTip }) {
+function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate, dirtyRef, saveFnRef, sharedAmpm, setSharedAmpm, showTip, hideTip, isSidebarOpen, setIsSidebarOpen }) {
   const [localPatients, setLocalPatients] = useState([]);
   const [localTicketRecords, setLocalTicketRecords] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [patientInfoModal, setPatientInfoModal] = useState(null); // masterData object
   const [vitalCollapsed, setVitalCollapsed] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // 全画面表示時はサイドバーを閉じ、解除したら元の状態に戻す
+  const _prevSidebarRef = useRef(null);
+  useEffect(() => {
+    if (!setIsSidebarOpen) return;
+    if (isFullscreen) {
+      if (_prevSidebarRef.current === null) _prevSidebarRef.current = !!isSidebarOpen;
+      setIsSidebarOpen(false);
+    } else if (_prevSidebarRef.current !== null) {
+      setIsSidebarOpen(_prevSidebarRef.current);
+      _prevSidebarRef.current = null;
+    }
+    // unmount/画面遷移時の保険: 全画面ON状態でアンマウントされたら元に戻す
+    return () => {
+      if (isFullscreen && _prevSidebarRef.current !== null && setIsSidebarOpen) {
+        setIsSidebarOpen(_prevSidebarRef.current);
+      }
+    };
+  }, [isFullscreen]);
   const [massageHistModal, setMassageHistModal] = useState(null); // {patientId, name}
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [filterMode, setFilterMode] = useState('single');
