@@ -9160,7 +9160,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
       </div>
       )}
 
-      <style>{`#record-table tbody tr { height: 32px !important; max-height: 32px !important; } #record-table tbody tr td { height: 32px !important; max-height: 32px !important; overflow: hidden !important; padding-top: 2px !important; padding-bottom: 2px !important; box-sizing: border-box !important; }  #record-table tr.readonly-row input:disabled, #record-table tr.readonly-row button:disabled, #record-table tr.readonly-row textarea:disabled, #record-table tr.readonly-row select:disabled { opacity: 1 !important; color: #000 !important; -webkit-text-fill-color: #000 !important; }`}</style>
+      <style>{`#record-table tbody tr { height: 32px !important; max-height: 32px !important; } #record-table tbody tr td { height: 32px !important; max-height: 32px !important; overflow: hidden !important; padding-top: 2px !important; padding-bottom: 2px !important; box-sizing: border-box !important; }  #record-table tr.readonly-row input:disabled, #record-table tr.readonly-row button:disabled, #record-table tr.readonly-row textarea:disabled, #record-table tr.readonly-row select:disabled { opacity: 1 !important; color: #000 !important; -webkit-text-fill-color: #000 !important; } /* 列見出しを縦スクロール時も常に上部固定 */ #record-table thead th { position: -webkit-sticky !important; position: sticky !important; top: 0 !important; }`}</style>
       {/* 画面上部の横スクロールバー: 下のテーブルスクロールと scrollLeft を同期 */}
       <div ref={topScrollRef} onScroll={_syncFromTop}
            className="bg-slate-100 border border-slate-300 rounded-t-xl"
@@ -9185,8 +9185,8 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
             <col style={{width:'500px'}} />
             <col style={{width:'110px'}} />
           </colgroup>
-          <thead className="bg-slate-800 text-white">
-            <tr>
+          <thead className="bg-slate-800 text-white" style={{position:'sticky',top:0,zIndex:30}}>
+            <tr style={{position:'sticky',top:0}}>
               {filterMode === 'month' && <th className="px-2 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 left-0 z-50 bg-slate-900">日付</th>}
               <th className={`px-2 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-50 bg-slate-900 ${filterMode === 'month' ? 'left-[80px]' : 'left-0'}`}>利用者名</th>
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">状態</th>
@@ -9349,7 +9349,9 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                             <button onClick={(e)=>{
                               e.stopPropagation();
                               const rect=e.currentTarget.getBoundingClientRect();
-                              const recs=(appData.ticketRecords||[]).filter(r=>r.patientId===(p.patientId||p.id)&&r.massage).sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,3);
+                              // M月D日 形式は localeCompare では昇順にならないので、月*100+日 をキーに数値ソート
+                              const _dKey=(s)=>{const m=(s||'').match(/(\d+)月(\d+)日/);return m?parseInt(m[1])*100+parseInt(m[2]):0;};
+                              const recs=(appData.ticketRecords||[]).filter(r=>r.patientId===(p.patientId||p.id)&&r.massage).sort((a,b)=>_dKey(b.date)-_dKey(a.date)).slice(0,3);
                               const el=document.getElementById('massage-tooltip');
                               if(el){
                                 const isOpen=el.style.display==='block';
