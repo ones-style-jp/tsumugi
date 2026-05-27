@@ -55,6 +55,35 @@ const downloadPdf = async (element, filename) => {
   }).from(element).save();
 };
 
+// === 1行に収まるよう自動縮小するテキスト（折り返さず scale で fit させる） ===
+const AutoFitLine = ({ children, style }) => {
+  const containerRef = React.useRef(null);
+  const textRef = React.useRef(null);
+  const [scale, setScale] = React.useState(1);
+  React.useEffect(() => {
+    const measure = () => {
+      if (!textRef.current || !containerRef.current) return;
+      const tw = textRef.current.scrollWidth;
+      const cw = containerRef.current.clientWidth;
+      setScale((tw > cw && cw > 0) ? cw / tw : 1);
+    };
+    measure();
+    let ro;
+    if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+      ro = new ResizeObserver(measure);
+      ro.observe(containerRef.current);
+    }
+    return () => { if (ro) ro.disconnect(); };
+  }, [children]);
+  return (
+    <span ref={containerRef} style={{...style, overflow:'hidden', display:'inline-block', verticalAlign:'bottom'}}>
+      <span ref={textRef} style={{whiteSpace:'nowrap', display:'inline-block', transformOrigin:'left center', transform: scale < 1 ? `scale(${scale})` : 'none'}}>
+        {children}
+      </span>
+    </span>
+  );
+};
+
 // === 利用者プルダウン: かな順ソート + 行（ア/カ/サ...）optgroup ===
 // 並び順は kana 優先、なければ name を fallback。空文字 / 記号は「その他」へ。
 const _KANA_ROWS = [
@@ -17360,13 +17389,13 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
                   <span style={{fontWeight:'bold'}}>送付先：</span>
                   <span></span>
                 </div>
-                <div style={{marginLeft:90,marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end'}}>
-                  <span>{patient.cmOffice || '　'}</span>
-                  <span style={{fontWeight:'bold'}}>御中</span>
+                <div style={{marginLeft:90,marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:8}}>
+                  <AutoFitLine style={{flex:1,minWidth:0,fontSize:17}}>{patient.cmOffice || '　'}</AutoFitLine>
+                  <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap'}}>御中</span>
                 </div>
-                <div style={{marginLeft:90,marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end'}}>
-                  <span>{patient.cmName || '　'}</span>
-                  <span style={{fontWeight:'bold'}}>様</span>
+                <div style={{marginLeft:90,marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:8}}>
+                  <AutoFitLine style={{flex:1,minWidth:0,fontSize:17}}>{patient.cmName || '　'}</AutoFitLine>
+                  <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap'}}>様</span>
                 </div>
                 {patient.cmFax && (
                   <div style={{marginLeft:90,fontSize:14,color:'#475569',marginTop:6}}>
@@ -17681,13 +17710,13 @@ function GeneralFaxView({ appData, onShowPrintPreview }) {
                 <span style={{fontWeight:'bold'}}>送付先：</span>
                 <span></span>
               </div>
-              <div style={{marginLeft:90,marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end'}}>
-                <span>{patient?.cmOffice || '　'}</span>
-                <span style={{fontWeight:'bold'}}>御中</span>
+              <div style={{marginLeft:90,marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:8}}>
+                <AutoFitLine style={{flex:1,minWidth:0,fontSize:17}}>{patient?.cmOffice || '　'}</AutoFitLine>
+                <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap'}}>御中</span>
               </div>
-              <div style={{marginLeft:90,marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end'}}>
-                <span>{patient?.cmName || '　'}</span>
-                <span style={{fontWeight:'bold'}}>様</span>
+              <div style={{marginLeft:90,marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:8}}>
+                <AutoFitLine style={{flex:1,minWidth:0,fontSize:17}}>{patient?.cmName || '　'}</AutoFitLine>
+                <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap'}}>様</span>
               </div>
               {patient?.cmFax && (
                 <div style={{marginLeft:90,fontSize:14,color:'#475569',marginTop:6}}>
