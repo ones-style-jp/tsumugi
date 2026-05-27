@@ -16591,9 +16591,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           const DOW=['日','月','火','水','木','金','土'];
           const title=`業務日誌_${_d.getFullYear()}年${_d.getMonth()+1}月${_d.getDate()}日（${DOW[_d.getDay()]}）`;
           document.title=title;
-          // グローバル印刷プレビュー（印刷 / FAX / PDFで保存ボタン付き）を開く。
-          // onShowPrintPreview が無い場合は従来のインラインプレビューにフォールバック。
-          if (onShowPrintPreview) onShowPrintPreview(title, 'A4 portrait', 'diary-print-content');
+          // AM + PM の 2 ページを含む隠しコンテナをグローバル印刷モーダルに渡す
+          if (onShowPrintPreview) onShowPrintPreview(title, 'A4 portrait', 'diary-print-content-both');
           else setIsPrintPreview('both');
         }} className="bg-slate-900 text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm hover:bg-black transition-all">
           <Printer size={16} className="mr-1.5"/> プレビュー
@@ -16610,6 +16609,15 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           </div>
         </div>
       </div>{/* end diary-print-content */}
+      {/* 印刷用 AM+PM 2ページの非表示コンテナ（プレビューモーダルから capture される） */}
+      <div id="diary-print-content-both" style={{display:'none'}} aria-hidden="true">
+        <div style={{width:'210mm',height:'297mm',overflow:'hidden',pageBreakAfter:'always',background:'white'}}>
+          <DiarySheet data={getDiaryData('AM')} />
+        </div>
+        <div style={{width:'210mm',height:'297mm',overflow:'hidden',background:'white'}}>
+          <DiarySheet data={getDiaryData('PM')} />
+        </div>
+      </div>
     </div>
   );
 }
