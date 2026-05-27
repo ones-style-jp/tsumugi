@@ -8317,9 +8317,15 @@ export default function App() {
           const size = printPreviewContent.pageSize || 'A4 portrait';
           const isLandscape = size.toLowerCase().includes('landscape');
           const isB6 = size.toLowerCase().includes('b6');
-          const pageW = isB6 ? 128 : isLandscape ? 297 : 210;
+          // HTML 内に .l-page と .p-page が混在する場合は、幅広い方（297mm）をプレビュー枠にして
+          // 全ページが margin:0 auto で中央揃いになるようにする
+          const hasLPage = /class="l-page"|class='l-page'/.test(printPreviewContent.html || '');
+          const hasPPage = /class="p-page"|class='p-page'/.test(printPreviewContent.html || '');
+          const isMixed = hasLPage && hasPPage;
+          const pageW = isB6 ? 128 : (isLandscape || isMixed) ? 297 : 210;
           const pageH = isB6 ? 182 : isLandscape ? 210 : 297;
           const scale = Math.min(1,(window.innerWidth-60)/(pageW*3.7795));
+          const [showPdfTip, setShowPdfTip] = React.useState(false);
 
           const getStyles = () => Array.from(document.querySelectorAll('link[rel="stylesheet"],style'))
             .map(s=>s.tagName==='LINK'?s.outerHTML:`<style>${s.textContent.replace(/@page\s*\{[^}]*\}/g,'')}</style>`).join('');
@@ -8335,13 +8341,6 @@ export default function App() {
 
           return (
             <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:9900,display:'flex',flexDirection:'column'}}>
-              {/* PDF保存の案内（上部に固定、見落とし防止） */}
-              <div className="no-print" style={{background:'#fef3c7',padding:'10px 20px',display:'flex',justifyContent:'center',alignItems:'center',gap:8,borderBottom:'2px solid #fbbf24',flexShrink:0}}>
-                <span style={{fontSize:18}}>💡</span>
-                <span style={{color:'#78350f',fontSize:13,fontWeight:'bold'}}>
-                  PDFで保存したい場合は「💾 PDFで保存」をクリック → 印刷ダイアログで「送信先」を「<u>PDFに保存</u>」に変更してください
-                </span>
-              </div>
               {/* ヘッダー */}
               <div className="no-print" style={{background:'#1e293b',padding:'12px 20px',display:'flex',alignItems:'center',gap:12,flexShrink:0,boxShadow:'0 2px 8px rgba(0,0,0,0.3)'}}>
                 <div style={{flex:1}}>
@@ -8365,11 +8364,26 @@ export default function App() {
                     style={{background:'#7c3aed',color:'white',border:'none',borderRadius:10,padding:'10px 20px',fontWeight:'bold',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',gap:8,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
                     📠 FAX
                   </button>
-                  <button onClick={()=>openPrintWindow(false)}
-                    title="PDFファイルとして保存する場合は、開いた印刷ダイアログで『送信先』を『PDFに保存』に変更してください"
-                    style={{background:'#2563eb',color:'white',border:'none',borderRadius:10,padding:'10px 20px',fontWeight:'bold',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',gap:8,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
-                    💾 PDFで保存
-                  </button>
+                  <div style={{position:'relative'}}
+                       onMouseEnter={()=>setShowPdfTip(true)}
+                       onMouseLeave={()=>setShowPdfTip(false)}>
+                    <button onClick={()=>openPrintWindow(false)}
+                      style={{background:'#2563eb',color:'white',border:'none',borderRadius:10,padding:'10px 20px',fontWeight:'bold',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',gap:8,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
+                      💾 PDFで保存
+                    </button>
+                    {showPdfTip && (
+                      <div style={{position:'absolute',top:'calc(100% + 10px)',right:0,background:'#fef3c7',border:'2px solid #fbbf24',borderRadius:12,padding:'14px 18px',width:420,boxShadow:'0 8px 24px rgba(0,0,0,0.35)',zIndex:10}}>
+                        <div style={{fontSize:15,fontWeight:'bold',color:'#78350f',marginBottom:8,display:'flex',alignItems:'center',gap:6}}>
+                          <span style={{fontSize:18}}>📄</span> PDFで保存する手順
+                        </div>
+                        <ol style={{margin:0,paddingLeft:22,fontSize:14,color:'#78350f',lineHeight:1.8,fontWeight:'bold'}}>
+                          <li>このボタンをクリック</li>
+                          <li>開いた印刷ダイアログで「<u>送信先</u>」を「<u>PDFに保存</u>」に変更</li>
+                          <li>「保存」をクリックして任意の場所に保存</li>
+                        </ol>
+                      </div>
+                    )}
+                  </div>
                   <div style={{width:1,height:32,background:'#475569',margin:'0 4px'}}/>
                   <button onClick={()=>setPrintPreviewContent(null)}
                     style={{background:'#475569',color:'white',border:'none',borderRadius:10,padding:'10px 16px',fontWeight:'bold',fontSize:14,cursor:'pointer'}}>
@@ -9950,6 +9964,14 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                               const sliceRows = allRows.slice(sliceStart, sliceStart + ROWS_PER_DETAIL_PAGE);
                               // detailGroup を複製して、tbody を 15行に差し替え（不足分は空行で埋める）
                               const dGroup = detailGroup.cloneNode(true);
+                              // 詳細記録カードの overflow:auto を visible に強制（プレビュー時にスクロールバーや
+                              // スクロール残骸の暗い帯が出るのを防止）
+                              dGroup.querySelectorAll('[style]').forEach(el => {
+                                const s = el.style;
+                                if (s.overflow === 'hidden' || s.overflow === 'auto' || s.overflow === 'scroll') s.overflow = 'visible';
+                                if (s.overflowX === 'hidden' || s.overflowX === 'auto' || s.overflowX === 'scroll') s.overflowX = 'visible';
+                                if (s.overflowY === 'hidden' || s.overflowY === 'auto' || s.overflowY === 'scroll') s.overflowY = 'visible';
+                              });
                               const dTable = dGroup.querySelector('table');
                               if(dTable && origTable){
                                 const dTbody = dTable.querySelector('tbody');
@@ -10047,9 +10069,9 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                       if(overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
                     }
                     const title = `分析_個人_${selectedPatient?.name||''}（3ヶ月×${chunks.length}）`;
-                    const html=`<div style="font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;"><style>*{box-sizing:border-box;}html,body{width:auto!important;max-width:none!important;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}@page p{size:210mm 297mm;margin:0;}@page l{size:297mm 210mm;margin:0;}.p-page{page:p;}.l-page{page:l;}.flow-page table{page-break-inside:auto;}.flow-page tr{page-break-inside:avoid;page-break-after:auto;}.flow-page thead{display:table-header-group;}@media print{.page-sep{display:none!important;}}</style>${allPagesHtml.join('')}</div>`;
-                    // プレビュー表示幅は A4 縦（210mm）で固定。多数派が縦ページなので左右余白が自然に。
-                    // 横ページ（詳細記録）は内部で 297mm の .l-page として描画されるが、印刷時の @page l ルールで正しく横で出る。
+                    const html=`<div style="font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:transparent;"><style>*{box-sizing:border-box;}html,body{width:auto!important;max-width:none!important;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}@page p{size:210mm 297mm;margin:0;}@page l{size:297mm 210mm;margin:0;}.p-page{page:p;}.l-page{page:l;}.flow-page table{page-break-inside:auto;}.flow-page tr{page-break-inside:avoid;page-break-after:auto;}.flow-page thead{display:table-header-group;}/* プレビュー表示時のみ: ページごとに影と隙間で「紙の重なり」感を出す。印刷時は無効化。 */@media screen{.p-page,.l-page{box-shadow:0 6px 24px rgba(0,0,0,0.35)!important;margin-top:32px!important;margin-bottom:0!important;}.page-sep{margin-top:20px!important;}}@media print{.page-sep{display:none!important;}.p-page,.l-page{box-shadow:none!important;margin-top:0!important;}}</style>${allPagesHtml.join('')}</div>`;
+                    // プレビュー枠は混在ページ（縦+横）に対応するため、modal 側で .l-page を検出して
+                    // 自動的に 297mm 幅にする（PreviewModal の isMixed ロジック）。dispatch では portrait を申告。
                     window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 portrait',html}}));
                   }}
               style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:8,padding:'6px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
