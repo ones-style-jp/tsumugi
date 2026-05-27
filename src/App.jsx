@@ -17624,68 +17624,77 @@ function GeneralFaxView({ appData, onShowPrintPreview }) {
         </div>
       </div>
 
-      <div style={{flex:1,overflow:'auto',padding:'20px',display:'flex',gap:20,alignItems:'flex-start',justifyContent:'center',flexWrap:'wrap'}}>
-        {/* 左: 入力フォーム */}
-        <div style={{width:320,background:'white',borderRadius:14,padding:20,boxShadow:'0 1px 6px rgba(0,0,0,0.08)',border:'1px solid #e2e8f0',display:'flex',flexDirection:'column',gap:14,flexShrink:0}}>
-          <div>
-            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>利用者</label>
-            <select value={selectedPatientId||''} onChange={e=>setSelectedPatientId(Number(e.target.value)||null)}
-                    style={{width:'100%',padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:14,fontWeight:'bold',outline:'none',background:'#f8fafc'}}>
-              <option value="">— 利用者を選択 —</option>
-              {groupPatientsByKanaRow(patients).map(g => (
-                <optgroup key={g.label} label={g.label}>
-                  {g.items.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </optgroup>
-              ))}
-            </select>
-            {patient && (
-              <div style={{marginTop:8,padding:'8px 10px',background:'#f0fdf4',border:'1px solid #86efac',borderRadius:8,fontSize:12,lineHeight:1.6}}>
-                <div><b style={{color:'#475569'}}>事業所:</b> {patient.cmOffice || <span style={{color:'#ef4444'}}>未設定</span>}</div>
-                <div><b style={{color:'#475569'}}>ケアマネ:</b> {patient.cmName || <span style={{color:'#ef4444'}}>未設定</span>}</div>
-                {patient.cmFax && <div><b style={{color:'#475569'}}>FAX:</b> {patient.cmFax}</div>}
+      <div style={{flex:1,overflow:'auto',padding:'20px',display:'flex',gap:20,alignItems:'flex-start',justifyContent:'center',flexDirection:'column'}}>
+        {/* 入力フォーム: A4 と同じ幅(794px)で横長に展開 */}
+        <div style={{width:794,maxWidth:'100%',background:'white',borderRadius:14,padding:20,boxShadow:'0 1px 6px rgba(0,0,0,0.08)',border:'1px solid #e2e8f0',display:'flex',flexDirection:'column',gap:14}}>
+          {/* 1行目: 利用者 / 件名 / 送付件数 */}
+          <div style={{display:'grid',gridTemplateColumns:'220px 1fr 160px',gap:12,alignItems:'end'}}>
+            <div>
+              <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>利用者</label>
+              <select value={selectedPatientId||''} onChange={e=>setSelectedPatientId(Number(e.target.value)||null)}
+                      style={{width:'100%',padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:14,fontWeight:'bold',outline:'none',background:'#f8fafc',boxSizing:'border-box'}}>
+                <option value="">— 利用者を選択 —</option>
+                {groupPatientsByKanaRow(patients).map(g => (
+                  <optgroup key={g.label} label={g.label}>
+                    {g.items.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>件名</label>
+              <input type="text" value={subject} onChange={e=>setSubject(e.target.value)}
+                     placeholder="例: 介護計画書のご確認"
+                     style={{width:'100%',padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:14,fontWeight:'bold',outline:'none',background:'#f8fafc',boxSizing:'border-box'}}/>
+            </div>
+            <div>
+              <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>送付件数（表紙含）</label>
+              <div style={{display:'flex',alignItems:'center',gap:4}}>
+                <button type="button" onClick={()=>setPageCount(c=>Math.max(1,c-1))}
+                        style={{width:30,height:34,border:'1px solid #cbd5e1',borderRadius:8,background:'#f8fafc',fontWeight:'bold',fontSize:18,cursor:'pointer',flexShrink:0}}>−</button>
+                <input type="number" min="1" max="99" value={pageCount}
+                       onChange={e=>setPageCount(Math.max(1,Math.min(99,parseInt(e.target.value)||1)))}
+                       style={{flex:1,minWidth:0,padding:'8px 4px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:16,fontWeight:'bold',outline:'none',background:'#f8fafc',textAlign:'center',boxSizing:'border-box'}}/>
+                <button type="button" onClick={()=>setPageCount(c=>Math.min(99,c+1))}
+                        style={{width:30,height:34,border:'1px solid #cbd5e1',borderRadius:8,background:'#f8fafc',fontWeight:'bold',fontSize:18,cursor:'pointer',flexShrink:0}}>+</button>
+                <span style={{fontSize:13,fontWeight:'bold',color:'#475569',marginLeft:2}}>枚</span>
               </div>
-            )}
-          </div>
-          <div>
-            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>件名</label>
-            <input type="text" value={subject} onChange={e=>setSubject(e.target.value)}
-                   placeholder="例: 介護計画書のご確認"
-                   style={{width:'100%',padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:14,fontWeight:'bold',outline:'none',background:'#f8fafc',boxSizing:'border-box'}}/>
-          </div>
-          <div>
-            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>連絡事項</label>
-            <textarea value={memo} onChange={e=>setMemo(e.target.value)} rows={10}
-                      placeholder="連絡内容を自由に入力してください"
-                      style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:14,outline:'none',background:'#f8fafc',boxSizing:'border-box',resize:'vertical',fontFamily:'inherit',lineHeight:1.6}}/>
-          </div>
-          <div>
-            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>送付件数（枚数・表紙含）</label>
-            <div style={{display:'flex',alignItems:'center',gap:8}}>
-              <button type="button" onClick={()=>setPageCount(c=>Math.max(1,c-1))}
-                      style={{width:32,height:32,border:'1px solid #cbd5e1',borderRadius:8,background:'#f8fafc',fontWeight:'bold',fontSize:18,cursor:'pointer'}}>−</button>
-              <input type="number" min="1" max="99" value={pageCount}
-                     onChange={e=>setPageCount(Math.max(1,Math.min(99,parseInt(e.target.value)||1)))}
-                     style={{flex:1,padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:16,fontWeight:'bold',outline:'none',background:'#f8fafc',textAlign:'center',boxSizing:'border-box'}}/>
-              <button type="button" onClick={()=>setPageCount(c=>Math.min(99,c+1))}
-                      style={{width:32,height:32,border:'1px solid #cbd5e1',borderRadius:8,background:'#f8fafc',fontWeight:'bold',fontSize:18,cursor:'pointer'}}>+</button>
-              <span style={{fontSize:14,fontWeight:'bold',color:'#475569'}}>枚</span>
             </div>
           </div>
-          <div>
-            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>マーク（任意）</label>
-            <div style={{display:'flex',flexDirection:'column',gap:6}}>
+
+          {/* 2行目: ケアマネ情報（自動表示） & マーク */}
+          <div style={{display:'grid',gridTemplateColumns:'1fr auto',gap:16,alignItems:'center'}}>
+            <div style={{padding:'8px 12px',background:patient?'#f0fdf4':'#f8fafc',border:'1px solid '+(patient?'#86efac':'#e2e8f0'),borderRadius:8,fontSize:12,lineHeight:1.6,display:'flex',gap:18,flexWrap:'wrap',alignItems:'center',minHeight:30}}>
+              {patient ? (<>
+                <span><b style={{color:'#475569'}}>事業所:</b> {patient.cmOffice || <span style={{color:'#ef4444'}}>未設定</span>}</span>
+                <span><b style={{color:'#475569'}}>ケアマネ:</b> {patient.cmName || <span style={{color:'#ef4444'}}>未設定</span>}</span>
+                {patient.cmFax && <span><b style={{color:'#475569'}}>FAX:</b> {patient.cmFax}</span>}
+              </>) : (
+                <span style={{color:'#94a3b8',fontWeight:'bold'}}>利用者を選ぶと、事業所・ケアマネ・FAX が自動入力されます</span>
+              )}
+            </div>
+            <div style={{display:'flex',gap:14,alignItems:'center'}}>
+              <span style={{fontSize:12,fontWeight:'bold',color:'#475569'}}>マーク:</span>
               {[['kyuukyuu','至急！'],['kakunin','ご確認ください'],['orikaesu','折り返しご連絡ください']].map(([k,label])=>(
-                <label key={k} style={{display:'flex',alignItems:'center',gap:6,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>
+                <label key={k} style={{display:'flex',alignItems:'center',gap:4,fontSize:12,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>
                   <input type="checkbox" checked={checks[k]} onChange={e=>setChecks(c=>({...c,[k]:e.target.checked}))}
-                         style={{width:16,height:16,accentColor:'#1e293b',cursor:'pointer'}}/>
+                         style={{width:15,height:15,accentColor:'#1e293b',cursor:'pointer'}}/>
                   <span style={{color:checks[k]?'#1e293b':'#94a3b8'}}>{label}</span>
                 </label>
               ))}
             </div>
           </div>
+
+          {/* 3行目: 連絡事項（A4幅全面） */}
+          <div>
+            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>連絡事項</label>
+            <textarea value={memo} onChange={e=>setMemo(e.target.value)} rows={8}
+                      placeholder="連絡内容を自由に入力してください（送付状の本文枠に全面表示されます）"
+                      style={{width:'100%',padding:'12px 14px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:14,outline:'none',background:'#f8fafc',boxSizing:'border-box',resize:'vertical',fontFamily:'inherit',lineHeight:1.7}}/>
+          </div>
         </div>
 
-        {/* 右: A4 送付状プレビュー */}
+        {/* A4 送付状プレビュー */}
         <div id="print-content-general-fax"
              style={{width:794,minHeight:1123,background:'white',boxShadow:'0 4px 24px rgba(0,0,0,0.12)',padding:'40px 48px',boxSizing:'border-box',fontFamily:'serif',display:'flex',flexDirection:'column'}}>
 
