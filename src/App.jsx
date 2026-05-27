@@ -8570,6 +8570,38 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
   const [patientInfoModal, setPatientInfoModal] = useState(null); // masterData object
   const [vitalCollapsed, setVitalCollapsed] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // 上下2本の横スクロールバー: 上の薄いバー (topScrollRef) と本来のテーブル領域 (tableScrollRef) を同期。
+  const topScrollRef = useRef(null);
+  const tableScrollRef = useRef(null);
+  const [tableScrollWidth, setTableScrollWidth] = useState(0);
+  const _syncingRef = useRef(false);
+  useEffect(() => {
+    const measure = () => {
+      const el = tableScrollRef.current;
+      if (el) setTableScrollWidth(el.scrollWidth);
+    };
+    measure();
+    let ro;
+    if (typeof ResizeObserver !== 'undefined' && tableScrollRef.current) {
+      ro = new ResizeObserver(measure);
+      ro.observe(tableScrollRef.current);
+      const tbl = tableScrollRef.current.querySelector('#record-table');
+      if (tbl) ro.observe(tbl);
+    }
+    window.addEventListener('resize', measure);
+    const t = setInterval(measure, 600); // フィルタや列の増減で幅が変わるため軽くポーリング
+    return () => { if (ro) ro.disconnect(); window.removeEventListener('resize', measure); clearInterval(t); };
+  }, []);
+  const _syncFromTop = (e) => {
+    if (_syncingRef.current) { _syncingRef.current = false; return; }
+    const tbl = tableScrollRef.current; if (!tbl) return;
+    if (tbl.scrollLeft !== e.currentTarget.scrollLeft) { _syncingRef.current = true; tbl.scrollLeft = e.currentTarget.scrollLeft; }
+  };
+  const _syncFromTable = (e) => {
+    if (_syncingRef.current) { _syncingRef.current = false; return; }
+    const top = topScrollRef.current; if (!top) return;
+    if (top.scrollLeft !== e.currentTarget.scrollLeft) { _syncingRef.current = true; top.scrollLeft = e.currentTarget.scrollLeft; }
+  };
   // 全画面表示時はサイドバーを閉じ、解除したら元の状態に戻す
   const _prevSidebarRef = useRef(null);
   useEffect(() => {
@@ -9097,7 +9129,14 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
       )}
 
       <style>{`#record-table tbody tr { height: 32px !important; max-height: 32px !important; } #record-table tbody tr td { height: 32px !important; max-height: 32px !important; overflow: hidden !important; padding-top: 2px !important; padding-bottom: 2px !important; box-sizing: border-box !important; }  #record-table tr.readonly-row input:disabled, #record-table tr.readonly-row button:disabled, #record-table tr.readonly-row textarea:disabled, #record-table tr.readonly-row select:disabled { opacity: 1 !important; color: #000 !important; -webkit-text-fill-color: #000 !important; }`}</style>
-      <div className="bg-white rounded-xl shadow-md border border-slate-300 flex-1 min-h-0 overflow-auto relative pb-16" style={{WebkitOverflowScrolling:'auto',touchAction:'pan-x pan-y',userSelect:'none',WebkitUserSelect:'none',WebkitTouchCallout:'none',msUserSelect:'none',MozUserSelect:'none'}}>
+      {/* 画面上部の横スクロールバー: 下のテーブルスクロールと scrollLeft を同期 */}
+      <div ref={topScrollRef} onScroll={_syncFromTop}
+           className="bg-slate-100 border border-slate-300 rounded-t-xl"
+           style={{overflowX:'auto',overflowY:'hidden',height:14,flexShrink:0,marginBottom:-1}}>
+        <div style={{width: tableScrollWidth, height: 1}}/>
+      </div>
+      <div ref={tableScrollRef} onScroll={_syncFromTable}
+           className="bg-white rounded-b-xl rounded-tr-xl shadow-md border border-slate-300 flex-1 min-h-0 overflow-auto relative pb-16" style={{WebkitOverflowScrolling:'auto',touchAction:'pan-x pan-y',userSelect:'none',WebkitUserSelect:'none',WebkitTouchCallout:'none',msUserSelect:'none',MozUserSelect:'none'}}>
         <table id="record-table" className="text-sm text-left relative" style={{tableLayout:'fixed',borderCollapse:'separate',borderSpacing:0,minWidth:'max-content',width:'max-content'}}>
           <colgroup>
             {filterMode === 'month' && <col style={{width:'80px'}} />}
