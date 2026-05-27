@@ -9549,6 +9549,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   const [moodTooltip, setMoodTooltip] = useState(null); // {x,y,label,arr,arrR,dep,depR}
   // 印刷プレビューに「詳細記録（横ページ）」を含めるか。デフォルト false（ケアマネ向け配付では不要）。
   const [printIncludeDetail, setPrintIncludeDetail] = useState(false);
+  // 印刷プレビュー実行前の期間/月選択ポップアップの表示状態
+  const [showPrintOptionsPopup, setShowPrintOptionsPopup] = useState(false);
   const selectedPatient = (appData.patients||[]).find(p => p.id === selectedPatientId || String(p.id) === String(selectedPatientId)) || (appData.patients||[])[0];
 
   const targetMonths = useMemo(() => {
@@ -9720,13 +9722,14 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             <input type="date" value={`${customTo}-01`} onChange={e=>setCustomTo(e.target.value.substring(0,7))} style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:10,padding:'6px 10px',fontSize:12,fontWeight:'bold',outline:'none',cursor:'pointer'}}/>
           </>}
           <span style={{background:'white',color:'#1e40af',borderRadius:8,padding:'6px 12px',fontSize:11,fontWeight:'bold',whiteSpace:'nowrap'}}>{rangeLabel}</span>
-          <label title="チェックを入れると、印刷プレビューの末尾に日々の詳細記録（横ページ）も含めて生成します"
-                 style={{display:'flex',alignItems:'center',gap:5,background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:8,padding:'6px 10px',fontWeight:'bold',fontSize:12,cursor:'pointer',whiteSpace:'nowrap'}}>
-            <input type="checkbox" checked={printIncludeDetail} onChange={e=>setPrintIncludeDetail(e.target.checked)}
-                   style={{cursor:'pointer',accentColor:'#22c55e',width:14,height:14,margin:0}}/>
-            詳細記録も印刷
-          </label>
-          <button type="button" onClick={async()=>{
+          {/* 「詳細記録も印刷」チェックボックスはポップアップ側に移動済 */}
+          {/* 表示用ボタン: クリックでポップアップを開く（期間/月を選択させる） */}
+          <button type="button" onClick={()=>setShowPrintOptionsPopup(true)}
+              style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:8,padding:'6px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
+            <Printer size={14}/>印刷プレビュー
+          </button>
+          {/* 隠しトリガー: ポップアップから .click() で発火される。既存の生成ロジックを温存。 */}
+          <button type="button" id="personal-print-hidden-trigger" style={{display:'none'}} onClick={async()=>{
                     // 期間設定を保存して 3ヶ月チャンクで連続生成
                     const origPeriod = period, origBaseMonth = baseMonth;
                     const computeChunks = () => {
@@ -10073,13 +10076,69 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                     // プレビュー枠は混在ページ（縦+横）に対応するため、modal 側で .l-page を検出して
                     // 自動的に 297mm 幅にする（PreviewModal の isMixed ロジック）。dispatch では portrait を申告。
                     window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 portrait',html}}));
-                  }}
-              style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:8,padding:'6px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
-              <Printer size={14}/>印刷プレビュー
-            </button>
+                  }}>
+          </button>
 
         </div>
       </div>
+
+      {/* 印刷プレビュー前のオプション選択ポップアップ */}
+      {showPrintOptionsPopup && (
+        <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.55)',zIndex:9800,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}
+             onClick={()=>setShowPrintOptionsPopup(false)}>
+          <div onClick={e=>e.stopPropagation()}
+               style={{background:'white',borderRadius:16,padding:'24px 28px',width:'100%',maxWidth:520,boxShadow:'0 20px 60px rgba(0,0,0,0.4)'}}>
+            <div style={{fontSize:18,fontWeight:'bold',color:'#1e293b',marginBottom:6,display:'flex',alignItems:'center',gap:8}}>
+              <Printer size={20}/>印刷プレビューの設定
+            </div>
+            <div style={{fontSize:13,color:'#64748b',marginBottom:18}}>
+              生成する期間と対象を選んでから「プレビューを生成」を押してください（15〜30秒かかります）
+            </div>
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:13,fontWeight:'bold',color:'#475569',marginBottom:6}}>期間</div>
+              <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+                {[['1','1ヶ月'],['3','3ヶ月'],['6','半年'],['12','1年'],['custom','期間指定']].map(([v,l])=>(
+                  <button key={v} onClick={()=>setPeriod(v)}
+                          style={{padding:'8px 14px',fontSize:13,fontWeight:'bold',color:period===v?'white':'#1e40af',background:period===v?'#1e40af':'#eef2ff',border:'1px solid '+(period===v?'#1e40af':'#c7d2fe'),borderRadius:8,cursor:'pointer'}}>{l}</button>
+                ))}
+              </div>
+            </div>
+            {period!=='custom' ? (
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:13,fontWeight:'bold',color:'#475569',marginBottom:6}}>基準月（その月を含む過去 {period==='1'?'1ヶ月':period==='3'?'3ヶ月':period==='6'?'半年':'1年'} 分）</div>
+                <input type="date" value={`${baseMonth}-01`} onChange={e=>setBaseMonth(e.target.value.substring(0,7))}
+                       style={{background:'#f8fafc',border:'1px solid #cbd5e1',borderRadius:8,padding:'8px 12px',fontSize:13,fontWeight:'bold',color:'#1e293b',outline:'none',cursor:'pointer',width:'100%',boxSizing:'border-box'}}/>
+              </div>
+            ) : (
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:13,fontWeight:'bold',color:'#475569',marginBottom:6}}>期間指定</div>
+                <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                  <input type="date" value={`${customFrom}-01`} onChange={e=>setCustomFrom(e.target.value.substring(0,7))}
+                         style={{background:'#f8fafc',border:'1px solid #cbd5e1',borderRadius:8,padding:'8px 12px',fontSize:13,fontWeight:'bold',color:'#1e293b',outline:'none',cursor:'pointer',flex:1}}/>
+                  <span style={{color:'#64748b',fontWeight:'bold'}}>〜</span>
+                  <input type="date" value={`${customTo}-01`} onChange={e=>setCustomTo(e.target.value.substring(0,7))}
+                         style={{background:'#f8fafc',border:'1px solid #cbd5e1',borderRadius:8,padding:'8px 12px',fontSize:13,fontWeight:'bold',color:'#1e293b',outline:'none',cursor:'pointer',flex:1}}/>
+                </div>
+              </div>
+            )}
+            <label style={{display:'flex',alignItems:'center',gap:8,padding:'10px 12px',background:'#f0fdf4',border:'1px solid #86efac',borderRadius:8,cursor:'pointer',marginBottom:20}}>
+              <input type="checkbox" checked={printIncludeDetail} onChange={e=>setPrintIncludeDetail(e.target.checked)}
+                     style={{cursor:'pointer',accentColor:'#22c55e',width:16,height:16,margin:0}}/>
+              <span style={{fontSize:13,fontWeight:'bold',color:'#166534'}}>詳細記録（日々の生記録 / 横ページ）も印刷に含める</span>
+            </label>
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+              <button onClick={()=>setShowPrintOptionsPopup(false)}
+                      style={{background:'#f1f5f9',color:'#475569',border:'1px solid #cbd5e1',borderRadius:10,padding:'10px 20px',fontWeight:'bold',fontSize:14,cursor:'pointer'}}>
+                キャンセル
+              </button>
+              <button onClick={()=>{ setShowPrintOptionsPopup(false); setTimeout(()=>document.getElementById('personal-print-hidden-trigger')?.click(),50); }}
+                      style={{background:'linear-gradient(135deg,#2563eb,#1e40af)',color:'white',border:'none',borderRadius:10,padding:'10px 20px',fontWeight:'bold',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',gap:6,boxShadow:'0 2px 8px rgba(37,99,235,0.3)'}}>
+                <Printer size={16}/>プレビューを生成
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ページ内ナビゲーション */}
       <div style={{background:'white',borderBottom:'1px solid #e2e8f0',padding:'8px 24px',display:'flex',gap:4,overflowX:'auto',flexWrap:'nowrap'}}>
