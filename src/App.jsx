@@ -15790,7 +15790,7 @@ function DiarySettingsPanel({ appData, dsRef }) {
   );
 }
 // === 日誌画面 ===
-function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAmpm, setSharedAmpm, dirtyRef }) {
+function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAmpm, setSharedAmpm, dirtyRef, onShowPrintPreview }) {
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
   const ampm = sharedAmpm === 'all' ? 'AM' : (sharedAmpm || 'AM');
