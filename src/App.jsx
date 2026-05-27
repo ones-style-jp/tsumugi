@@ -15980,38 +15980,38 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     const _updateLog = data?.log ? (patch) => onSave({ ...appData, diaryLogs: { ...(appData.diaryLogs||{}), [data.logKey]: { ...(data.log||{}), ...patch } }}) : updateLog;
     const _toggle = (field, key) => _updateLog({ [field]: { ...(_log[field]||{}), [key]: !(_log[field]||{})[key] } });
     return (
-    <div style={{width:'210mm',minWidth:'210mm',height:'297mm',minHeight:'297mm',backgroundColor:'white',fontFamily:'sans-serif',padding:'10px 6px',boxSizing:'border-box',display:'flex',flexDirection:'column'}}>
+    <div style={{width:'200mm',minWidth:'200mm',height:'287mm',minHeight:'287mm',backgroundColor:'white',fontFamily:'sans-serif',padding:'10px 6px',boxSizing:'border-box',display:'flex',flexDirection:'column',margin:'0 auto'}}>
       {/* タイトル行 */}
       <div style={{borderBottom:'2px solid #333',paddingBottom:3,marginBottom:4,textAlign:'center'}}>
         <div style={{fontSize:17,fontWeight:'bold',letterSpacing:'0.25em'}}>業　務　日　誌</div>
       </div>
 
       {/* 担当職員 — 横一列ボックス */}
-      {/* 提供日・提供時間・利用者数 — 3枠横並び */}
+      {/* 提供日・提供時間・利用者数 — 全列固定幅で日付/AM/PMによって列幅が動かないように */}
       <div style={{display:'flex',gap:4,marginBottom:4,width:'100%'}}>
-        {/* 提供日 */}
-        <div style={{border:'1px solid #555',borderRadius:2,overflow:'hidden',flex:'1 1 0',display:'flex',flexDirection:'column'}}>
+        {/* 提供日（固定幅） */}
+        <div style={{border:'1px solid #555',borderRadius:2,overflow:'hidden',width:108,flexShrink:0,display:'flex',flexDirection:'column'}}>
           <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 8px',textAlign:'center'}}>提供日</div>
-          <div style={{padding:'6px 12px',textAlign:'center',flex:1,display:'flex',alignItems:'center',justifyContent:'center'}}>
-            <div style={{fontSize:13,fontWeight:'bold',whiteSpace:'nowrap'}}>{yw}</div>
+          <div style={{padding:'6px 6px',textAlign:'center',flex:1,display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <div style={{fontSize:12,fontWeight:'bold',whiteSpace:'nowrap'}}>{yw}</div>
           </div>
         </div>
-        {/* 提供時間 */}
-        <div style={{border:'1px solid #555',borderRadius:2,overflow:'hidden',flex:'1 1 0',display:'flex',flexDirection:'column'}}>
+        {/* 提供時間（固定幅・少し狭め） */}
+        <div style={{border:'1px solid #555',borderRadius:2,overflow:'hidden',width:140,flexShrink:0,display:'flex',flexDirection:'column'}}>
           <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 8px',textAlign:'center'}}>提供時間</div>
-          <div style={{padding:'6px 12px',textAlign:'center',flex:1,display:'flex',alignItems:'center',justifyContent:'center'}}>
-            <div style={{fontSize:13,fontWeight:'bold',color:'#000',whiteSpace:'nowrap'}}>{_ampm==='AM'?'午前':_ampm==='PM'?'午後':'終日'}　{_serviceTime}</div>
+          <div style={{padding:'6px 6px',textAlign:'center',flex:1,display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <div style={{fontSize:12,fontWeight:'bold',color:'#000',whiteSpace:'nowrap'}}>{_ampm==='AM'?'午前':_ampm==='PM'?'午後':'終日'}　{_serviceTime}</div>
           </div>
         </div>
-        {/* 利用者数 */}
+        {/* 利用者数（数値部分を固定幅化して列幅を安定させる） */}
         <div style={{display:'flex',gap:3,flexShrink:0,alignItems:'stretch'}}>
           <div style={{border:'1px solid #555',borderRadius:2,overflow:'hidden',flexShrink:0}}>
             <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 8px',textAlign:'center'}}>利用者数</div>
             <div style={{display:'flex'}}>
               {[['予定',planned],['出席',attended],['欠席',absent]].map(([l,n],li)=>(
-                <div key={l} style={{display:'flex',alignItems:'baseline',gap:2,padding:'4px 10px',borderLeft:li===0?'none':'1px solid #ddd'}}>
+                <div key={l} style={{display:'flex',alignItems:'baseline',gap:2,padding:'4px 8px',borderLeft:li===0?'none':'1px solid #ddd'}}>
                   <span style={{fontSize:8,color:'#000'}}>{l}</span>
-                  <span style={{fontSize:16,fontWeight:'bold',lineHeight:1}}>{n}</span>
+                  <span style={{fontSize:16,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.4em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{n}</span>
                   <span style={{fontSize:8,color:'#000'}}>名</span>
                 </div>
               ))}
@@ -16022,12 +16022,12 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             <div style={{display:'flex'}}>
               <div style={{display:'flex',alignItems:'baseline',gap:2,padding:'4px 8px'}}>
                 <span style={{fontSize:7.5,color:'#000',whiteSpace:'nowrap'}}>事対・要支援</span>
-                <span style={{fontSize:16,fontWeight:'bold',lineHeight:1}}>{_jigyoCount}</span>
+                <span style={{fontSize:16,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.4em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{_jigyoCount}</span>
                 <span style={{fontSize:8,color:'#000'}}>名</span>
               </div>
               <div style={{display:'flex',alignItems:'baseline',gap:2,padding:'4px 8px',borderLeft:'1px solid #ddd'}}>
                 <span style={{fontSize:7.5,color:'#000',whiteSpace:'nowrap'}}>要介護</span>
-                <span style={{fontSize:16,fontWeight:'bold',lineHeight:1}}>{_kaigoCount}</span>
+                <span style={{fontSize:16,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.4em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{_kaigoCount}</span>
                 <span style={{fontSize:8,color:'#000'}}>名</span>
               </div>
             </div>
@@ -16609,12 +16609,14 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           </div>
         </div>
       </div>{/* end diary-print-content */}
-      {/* 印刷用 AM+PM 2ページの非表示コンテナ（プレビューモーダルから capture される） */}
+      {/* 印刷用 AM+PM 2ページの非表示コンテナ（プレビューモーダルから capture される）
+          DiarySheet 自体が 200x287mm に縮小されているので、A4(210x297)に対して
+          5mm の安全マージンが上下左右に確保され、印刷時の左右上下見切れを防ぐ。 */}
       <div id="diary-print-content-both" style={{display:'none'}} aria-hidden="true">
-        <div style={{width:'210mm',height:'297mm',overflow:'hidden',pageBreakAfter:'always',background:'white'}}>
+        <div className="diary-page-wrap" style={{width:'210mm',height:'297mm',overflow:'hidden',pageBreakAfter:'always',background:'white',display:'flex',alignItems:'center',justifyContent:'center',marginBottom:24}}>
           <DiarySheet data={getDiaryData('AM')} />
         </div>
-        <div style={{width:'210mm',height:'297mm',overflow:'hidden',background:'white'}}>
+        <div className="diary-page-wrap" style={{width:'210mm',height:'297mm',overflow:'hidden',background:'white',display:'flex',alignItems:'center',justifyContent:'center'}}>
           <DiarySheet data={getDiaryData('PM')} />
         </div>
       </div>
