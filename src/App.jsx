@@ -9328,10 +9328,8 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                        <div style={p.done ? {backgroundColor:'#fff7ed',color:'#1e293b',border:'2px solid #fb923c',borderRadius:8,padding:'2px 4px'} : {}} className={`w-full py-1 text-center font-bold ${getMassageFontSize(p.massage)}`}>{p.massage || "-"}</div>
                     ) : (() => {
                       const pid = p.patientId || p.id;
-                      const prevRecords = (appData.ticketRecords || []).filter(r => r.patientId === pid && r.massage).sort((a,b) => {
-                        const dA = a.date.match(/(\d+)月(\d+)日/); const dB = b.date.match(/(\d+)月(\d+)日/);
-                        return dB ? (parseInt(dB[1])*100+parseInt(dB[2])) - (dA ? parseInt(dA[1])*100+parseInt(dA[2]) : 0) : 0;
-                      });
+                      // 日付に年情報が無いため、id（作成タイムスタンプ ≒ 時系列）降順で並べる
+                      const prevRecords = (appData.ticketRecords || []).filter(r => r.patientId === pid && r.massage).sort((a,b) => (Number(b.id)||0)-(Number(a.id)||0));
                       const prev1 = prevRecords[0]?.massage || "";
                       const prev2 = prevRecords[1]?.massage || "";
                       const staffList = appData?.systemSettings?.massageStaff || appSettings.massageStaff;
@@ -9349,9 +9347,9 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                             <button onClick={(e)=>{
                               e.stopPropagation();
                               const rect=e.currentTarget.getBoundingClientRect();
-                              // M月D日 形式は localeCompare では昇順にならないので、月*100+日 をキーに数値ソート
-                              const _dKey=(s)=>{const m=(s||'').match(/(\d+)月(\d+)日/);return m?parseInt(m[1])*100+parseInt(m[2]):0;};
-                              const recs=(appData.ticketRecords||[]).filter(r=>r.patientId===(p.patientId||p.id)&&r.massage).sort((a,b)=>_dKey(b.date)-_dKey(a.date)).slice(0,3);
+                              // 日付に年情報が無いため、追加順（≒時系列）を表す id 降順で並べる方が
+                              // 年をまたいでも正確（12月→1月 などのケースが崩れない）
+                              const recs=(appData.ticketRecords||[]).filter(r=>r.patientId===(p.patientId||p.id)&&r.massage).sort((a,b)=>(Number(b.id)||0)-(Number(a.id)||0)).slice(0,3);
                               const el=document.getElementById('massage-tooltip');
                               if(el){
                                 const isOpen=el.style.display==='block';
