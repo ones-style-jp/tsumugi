@@ -15996,20 +15996,20 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             <AutoFitLine style={{fontSize:12,fontWeight:'bold',width:'100%',textAlign:'center'}}>{yw}</AutoFitLine>
           </div>
         </div>
-        {/* 提供時間（固定幅・少し狭め） */}
-        <div style={{border:'1px solid #555',borderRadius:2,overflow:'hidden',width:140,flexShrink:0,display:'flex',flexDirection:'column'}}>
+        {/* 提供時間（少し広めの固定幅） */}
+        <div style={{border:'1px solid #555',borderRadius:2,overflow:'hidden',width:165,flexShrink:0,display:'flex',flexDirection:'column'}}>
           <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 8px',textAlign:'center'}}>提供時間</div>
           <div style={{padding:'6px 6px',textAlign:'center',flex:1,display:'flex',alignItems:'center',justifyContent:'center'}}>
             <div style={{fontSize:12,fontWeight:'bold',color:'#000',whiteSpace:'nowrap'}}>{_ampm==='AM'?'午前':_ampm==='PM'?'午後':'終日'}　{_serviceTime}</div>
           </div>
         </div>
-        {/* 利用者数（数値部分を固定幅化して列幅を安定させる） */}
-        <div style={{display:'flex',gap:3,flexShrink:0,alignItems:'stretch'}}>
-          <div style={{border:'1px solid #555',borderRadius:2,overflow:'hidden',flexShrink:0}}>
+        {/* 利用者数 + 介護度別 グループ: 残りの空白を均等に分け合う */}
+        <div style={{display:'flex',gap:3,flex:'1 1 0',alignItems:'stretch',minWidth:0}}>
+          <div style={{border:'1px solid #555',borderRadius:2,overflow:'hidden',flex:'1 1 0',minWidth:0,display:'flex',flexDirection:'column'}}>
             <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 8px',textAlign:'center'}}>利用者数</div>
-            <div style={{display:'flex'}}>
+            <div style={{display:'flex',flex:1}}>
               {[['予定',planned],['出席',attended],['欠席',absent]].map(([l,n],li)=>(
-                <div key={l} style={{display:'flex',alignItems:'baseline',gap:2,padding:'4px 8px',borderLeft:li===0?'none':'1px solid #ddd'}}>
+                <div key={l} style={{display:'flex',alignItems:'baseline',justifyContent:'center',gap:2,padding:'4px 4px',borderLeft:li===0?'none':'1px solid #ddd',flex:'1 1 0',minWidth:0}}>
                   <span style={{fontSize:8,color:'#000'}}>{l}</span>
                   <span style={{fontSize:16,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.4em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{n}</span>
                   <span style={{fontSize:8,color:'#000'}}>名</span>
@@ -16017,15 +16017,15 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
               ))}
             </div>
           </div>
-          <div style={{border:'1px solid #555',borderRadius:2,overflow:'hidden',flexShrink:0}}>
+          <div style={{border:'1px solid #555',borderRadius:2,overflow:'hidden',flex:'1 1 0',minWidth:0,display:'flex',flexDirection:'column'}}>
             <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 6px',textAlign:'center'}}>介護度別</div>
-            <div style={{display:'flex'}}>
-              <div style={{display:'flex',alignItems:'baseline',gap:2,padding:'4px 8px'}}>
+            <div style={{display:'flex',flex:1}}>
+              <div style={{display:'flex',alignItems:'baseline',justifyContent:'center',gap:2,padding:'4px 4px',flex:'1 1 0',minWidth:0}}>
                 <span style={{fontSize:7.5,color:'#000',whiteSpace:'nowrap'}}>事対・要支援</span>
                 <span style={{fontSize:16,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.4em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{_jigyoCount}</span>
                 <span style={{fontSize:8,color:'#000'}}>名</span>
               </div>
-              <div style={{display:'flex',alignItems:'baseline',gap:2,padding:'4px 8px',borderLeft:'1px solid #ddd'}}>
+              <div style={{display:'flex',alignItems:'baseline',justifyContent:'center',gap:2,padding:'4px 4px',borderLeft:'1px solid #ddd',flex:'1 1 0',minWidth:0}}>
                 <span style={{fontSize:7.5,color:'#000',whiteSpace:'nowrap'}}>要介護</span>
                 <span style={{fontSize:16,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.4em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{_kaigoCount}</span>
                 <span style={{fontSize:8,color:'#000'}}>名</span>
