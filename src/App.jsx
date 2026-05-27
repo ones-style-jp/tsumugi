@@ -16589,8 +16589,12 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         <button onClick={()=>{
           const _d=new Date(selectedDate);
           const DOW=['日','月','火','水','木','金','土'];
-          document.title=`業務日誌_${_d.getFullYear()}年${_d.getMonth()+1}月${_d.getDate()}日（${DOW[_d.getDay()]}）`;
-          setIsPrintPreview('both');
+          const title=`業務日誌_${_d.getFullYear()}年${_d.getMonth()+1}月${_d.getDate()}日（${DOW[_d.getDay()]}）`;
+          document.title=title;
+          // グローバル印刷プレビュー（印刷 / FAX / PDFで保存ボタン付き）を開く。
+          // onShowPrintPreview が無い場合は従来のインラインプレビューにフォールバック。
+          if (onShowPrintPreview) onShowPrintPreview(title, 'A4 portrait', 'diary-print-content');
+          else setIsPrintPreview('both');
         }} className="bg-slate-900 text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm hover:bg-black transition-all">
           <Printer size={16} className="mr-1.5"/> プレビュー
         </button>
