@@ -13019,6 +13019,34 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   const [printModeModal, setPrintModeModal] = React.useState(false);
   // 印刷モーダルで選択された利用者ID（チェックされたものだけ印刷される）
   const [printSelectedIds, setPrintSelectedIds] = React.useState([]);
+  // 利用者ごと項目の編集ダイアログ: { patientId, item, value }
+  const [patientValueModal, setPatientValueModal] = React.useState(null);
+  const openPatientValueEdit = (patientId, item) => {
+    const pat = (appData.patients||[]).find(p => p.id === patientId);
+    const cur = pat?.contactBookValues || {};
+    const hasOverride = Object.prototype.hasOwnProperty.call(cur, item.id);
+    setPatientValueModal({ patientId, item, value: hasOverride ? (cur[item.id] || '') : (item.value || ''), hasOverride });
+  };
+  const savePatientValue = () => {
+    if (!patientValueModal) return;
+    const { patientId, item, value } = patientValueModal;
+    const newPatients = (appData.patients||[]).map(p => p.id === patientId ? { ...p, contactBookValues: { ...(p.contactBookValues||{}), [item.id]: value } } : p);
+    markDirty();
+    onSave({ ...appData, patients: newPatients });
+    setPatientValueModal(null);
+  };
+  const resetPatientValue = () => {
+    if (!patientValueModal) return;
+    const { patientId, item } = patientValueModal;
+    const newPatients = (appData.patients||[]).map(p => {
+      if (p.id !== patientId) return p;
+      const { [item.id]: _omit, ...rest } = (p.contactBookValues||{});
+      return { ...p, contactBookValues: rest };
+    });
+    markDirty();
+    onSave({ ...appData, patients: newPatients });
+    setPatientValueModal(null);
+  };
 
   // モーダルを開く時、選択を初期化（デフォルトは全員）
   const handlePrint = () => {
@@ -13259,6 +13287,35 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
           </div>
         )}
 
+        {/* 利用者ごと項目の編集ダイアログ */}
+        {patientValueModal && (() => {
+          const pat = (appData.patients||[]).find(p => p.id === patientValueModal.patientId);
+          return (
+          <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4" onClick={()=>setPatientValueModal(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={e=>e.stopPropagation()}>
+              <div className="font-bold text-slate-800 text-base mb-1">利用者ごとの値を設定</div>
+              <div className="text-xs text-slate-500 mb-4">
+                <span className="font-bold text-slate-700">{pat?.name || '—'}</span> さんの「<span className="font-bold text-slate-700">{patientValueModal.item.label}</span>」
+              </div>
+              <input type="text" value={patientValueModal.value || ''}
+                     onChange={e=>setPatientValueModal({...patientValueModal, value:e.target.value})}
+                     autoFocus
+                     placeholder="例: 〇 / 無 / 任意の文字"
+                     className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-base outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 mb-3"/>
+              <div className="text-[11px] text-slate-400 mb-4">全体の既定値: <span className="font-bold text-slate-600">{patientValueModal.item.value || '（空）'}</span></div>
+              <div className="flex gap-2">
+                {patientValueModal.hasOverride && (
+                  <button onClick={resetPatientValue} className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-xs">既定値に戻す</button>
+                )}
+                <div className="flex-1"/>
+                <button onClick={()=>setPatientValueModal(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-bold text-sm">キャンセル</button>
+                <button onClick={savePatientValue} className="px-5 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-bold text-sm shadow">保存</button>
+              </div>
+            </div>
+          </div>
+          );
+        })()}
+
         {/* 印刷用の隠しカード群 — 利用者ID単位で id を付与し、選択された利用者の DOM を doPrint で取得する */}
         <div style={{display:'none'}} aria-hidden="true">
           {displayRecords.map((record) => {
@@ -13276,7 +13333,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
             const patient = appData.patients.find(p => p.id === record.patientId) || appData.patients[0];
             return (
               <div key={record.id} className="flex justify-center w-full">
-                <ContactBookCard record={record} patient={patient} selectedDate={selectedDate} config={appData.contactBookConfig} appData={appData} onOpenConfig={() => setIsConfigOpen(true)} />
+                <ContactBookCard record={record} patient={patient} selectedDate={selectedDate} config={appData.contactBookConfig} appData={appData} onOpenConfig={() => setIsConfigOpen(true)} onEditPatientValue={openPatientValueEdit} />
               </div>
             );
           })}
@@ -13290,7 +13347,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   );
 }
 
-function ContactBookCard({ record, patient, selectedDate, config, appData, onOpenConfig }) {
+function ContactBookCard({ record, patient, selectedDate, config, appData, onOpenConfig, onEditPatientValue }) {
   const d = new Date(selectedDate);
   const warekiYear = d.getFullYear() - 2018;
   const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
@@ -13320,10 +13377,18 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
   const rows = [];
   for (let i = 0; i < items.length; i += 2) rows.push([items[i], items[i + 1]]);
 
+  // 利用者ごと項目のオーバーライド値（patient.contactBookValues[itemId]）
+  const patientValues = patient?.contactBookValues || {};
   const renderItemValue = (item) => {
-    if (item.type === 'fixed') return item.value;
     if (item.type === 'linked') return dispEx(ex[item.linkedField]);
-    return "";
+    // fixed: 利用者ごと設定があれば優先、なければ全体の値
+    if (item.perPatient && Object.prototype.hasOwnProperty.call(patientValues, item.id)) return patientValues[item.id];
+    return item.value;
+  };
+  const handleCellClick = (item, e) => {
+    if (!item.perPatient || item.type === 'linked' || !onEditPatientValue) return;
+    e.stopPropagation();
+    onEditPatientValue(patient.id, item);
   };
 
   return (
@@ -13396,15 +13461,18 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
           <div className="mb-2 border-2 border-black overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all" style={{flexShrink:0}} onClick={onOpenConfig}>
             <table className="w-full border-collapse text-center table-fixed h-full">
               <tbody className="h-full">
-                {rows.map((row, idx) => (
+                {rows.map((row, idx) => {
+                  const cellCls = (item) => `text-black ${item && item.perPatient && item.type !== 'linked' && onEditPatientValue ? 'cursor-pointer hover:bg-violet-50 transition-colors' : ''}`;
+                  return (
                   <tr key={idx} className={idx !== rows.length - 1 ? "border-b border-black" : ""} style={{height:'22px'}}>
                     <th className="border-r border-black w-[30%] bg-white px-1" style={{fontWeight:"normal",fontSize:12}}>{row[0].label}</th>
-                    <td className="border-r-2 border-black w-[20%] text-black" style={{fontWeight:"bold",fontSize:20}}>{renderItemValue(row[0])}</td>
+                    <td className={`border-r-2 border-black w-[20%] ${cellCls(row[0])}`} style={{fontWeight:"bold",fontSize:20}} onClick={e=>handleCellClick(row[0], e)}>{renderItemValue(row[0])}</td>
                     {row[1]
-                      ? (<><th className="border-r border-black w-[30%] bg-white px-1" style={{fontWeight:"normal",fontSize:12}}>{row[1].label}</th><td className="w-[20%] text-black" style={{fontWeight:"bold",fontSize:20}}>{renderItemValue(row[1])}</td></>)
+                      ? (<><th className="border-r border-black w-[30%] bg-white px-1" style={{fontWeight:"normal",fontSize:12}}>{row[1].label}</th><td className={`w-[20%] ${cellCls(row[1])}`} style={{fontWeight:"bold",fontSize:20}} onClick={e=>handleCellClick(row[1], e)}>{renderItemValue(row[1])}</td></>)
                       : (<><th className="border-r border-black w-[30%] bg-white"></th><td className="w-[20%]"></td></>)}
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -13513,6 +13581,16 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave }) {
                     <input type="checkbox" checked={item.visible !== false} onChange={e => handleItemChange(item.id, 'visible', e.target.checked)}
                            className="w-5 h-5 cursor-pointer accent-emerald-500"/>
                     <span className="text-[10px] font-bold text-slate-500">表示</span>
+                  </label>
+                  {/* 利用者ごと設定トグル（fixed型のみ意味を持つ） */}
+                  <label className={`flex flex-col items-center gap-0.5 cursor-pointer select-none ${item.type==='linked'?'opacity-30 cursor-not-allowed':''}`}
+                         title={item.type==='linked' ? '提供記録連動の項目は利用者ごとに設定できません' : '各利用者の連絡帳カードをクリックして個別の値を設定できるようになります'}>
+                    <input type="checkbox"
+                           disabled={item.type==='linked'}
+                           checked={item.type!=='linked' && !!item.perPatient}
+                           onChange={e => handleItemChange(item.id, 'perPatient', e.target.checked)}
+                           className="w-5 h-5 cursor-pointer accent-violet-500"/>
+                    <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap">利用者ごと</span>
                   </label>
                   <div className="flex-1 grid grid-cols-12 gap-3 items-center">
                     <div className="col-span-4"><label className="block text-[12px] font-bold text-slate-500 mb-0.5">項目名</label><input type="text" value={item.label || ""} onChange={e => handleItemChange(item.id, 'label', e.target.value)} className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none" /></div>
