@@ -15989,11 +15989,11 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
       {/* 担当職員 — 横一列ボックス */}
       {/* 提供日・提供時間・利用者数 — 全列固定幅で日付/AM/PMによって列幅が動かないように */}
       <div style={{display:'flex',gap:4,marginBottom:4,width:'100%'}}>
-        {/* 提供日（固定幅） */}
-        <div style={{border:'1px solid #555',borderRadius:2,overflow:'hidden',width:108,flexShrink:0,display:'flex',flexDirection:'column'}}>
+        {/* 提供日（固定幅・長い日付でも切れないよう AutoFitLine で自動縮小） */}
+        <div style={{border:'1px solid #555',borderRadius:2,overflow:'hidden',width:180,flexShrink:0,display:'flex',flexDirection:'column'}}>
           <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 8px',textAlign:'center'}}>提供日</div>
           <div style={{padding:'6px 6px',textAlign:'center',flex:1,display:'flex',alignItems:'center',justifyContent:'center'}}>
-            <div style={{fontSize:12,fontWeight:'bold',whiteSpace:'nowrap'}}>{yw}</div>
+            <AutoFitLine style={{fontSize:12,fontWeight:'bold',width:'100%',textAlign:'center'}}>{yw}</AutoFitLine>
           </div>
         </div>
         {/* 提供時間（固定幅・少し狭め） */}
