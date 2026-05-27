@@ -8475,6 +8475,7 @@ export default function App() {
               <SidebarItem icon={<FileText size={18} />} label="サービス提供記録" active={currentView === 'ticket'} onClick={() => navigateTo('ticket')} />
               <SidebarItem icon={<PenTool size={18} />} label="日誌" active={currentView === 'diary'} onClick={() => navigateTo('diary')} />
               <SidebarItem icon={<FileText size={18} />} label="休み連絡" active={currentView === 'absence_fax'} onClick={() => navigateTo('absence_fax')} />
+              <SidebarItem icon={<FileText size={18} />} label="各種連絡" active={currentView === 'general_fax'} onClick={() => navigateTo('general_fax')} />
               <SidebarItem icon={<ClipboardList size={18} />} label="モニタリング" active={currentView === 'monitoring'} onClick={() => navigateTo('monitoring')} />
               <div className="pt-4 mt-4 border-t border-slate-800 space-y-1">
                 <SidebarItem icon={<Users size={18} />} label="利用者マスタ管理" active={currentView === 'master'} onClick={() => navigateTo('master')} />
@@ -8497,6 +8498,7 @@ export default function App() {
                  currentView === 'fitness' ? '体力測定' :
                  currentView === 'diary' ? '日誌' :
                  currentView === 'absence_fax' ? '休み連絡' :
+                 currentView === 'general_fax' ? '各種連絡' :
                  currentView === 'monitoring' ? 'モニタリング' :
                  currentView === 'master' ? '利用者マスタ管理' : 
                  currentView === 'dash_personal' ? '分析（個人）' :
@@ -8518,6 +8520,7 @@ export default function App() {
              currentView === 'settings' ? <SettingsView appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} /> :
              currentView === 'diary' ? <DailyLogView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} dirtyRef={diaryDirtyRef} /> :
              currentView === 'absence_fax' ? <AbsenceFaxView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={absenceDirtyRef} /> :
+             currentView === 'general_fax' ? <GeneralFaxView appData={appData} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
              currentView === 'fitness' ? <FitnessView appData={appData} onSave={handleSaveToCloud} selectedDate={selectedDate} sharedAmpm={sharedAmpm} navigateTo={navigateTo} targetPatientId={targetPatientId} onPatientChange={setTargetPatientId} dirtyRef={fitnessDirtyRef} /> :
              currentView === 'monitoring' ? <MonitoringView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={monitoringDirtyRef} saveFnRef={monitoringSaveFnRef} /> :
              currentView === 'dash_operation' ? <OperationDashboardView appData={appData} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} setAppData={setAppData} /> :
@@ -17561,6 +17564,199 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
               })}
             </div>
           ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// === GeneralFaxView (各種連絡) ===
+function GeneralFaxView({ appData, onShowPrintPreview }) {
+  const [selectedPatientId, setSelectedPatientId] = React.useState(null);
+  const [subject, setSubject] = React.useState('');
+  const [memo, setMemo] = React.useState('');
+  const [pageCount, setPageCount] = React.useState(1);
+  const [checks, setChecks] = React.useState({ kyuukyuu: false, kakunin: false, orikaesu: false });
+
+  const facility = appData.systemSettings?.facilityInfo || {};
+  const patients = appData.patients || [];
+  const patient = patients.find(p => p.id === selectedPatientId);
+
+  // AbsenceFaxView と同じマスキング
+  const maskName = (name) => {
+    if (!name) return '●●';
+    const maskWord = (word) => {
+      if (!word) return '';
+      if (word.length === 1) return word;
+      if (word.length === 2) return word[0] + '●';
+      if (word.length === 3) return word[0] + '●' + word[2];
+      return word[0] + '●'.repeat(word.length - 2) + word[word.length - 1];
+    };
+    return name.trim().split(/\s+/).map(maskWord).join(' ');
+  };
+
+  const toWareki = (dateStr) => {
+    const d = new Date(dateStr);
+    const y = d.getFullYear();
+    if (y >= 2019) return `令和${y-2018}年${d.getMonth()+1}月${d.getDate()}日`;
+    return `${y}年${d.getMonth()+1}月${d.getDate()}日`;
+  };
+
+  const today = toWareki(new Date().toISOString().split('T')[0]);
+  const maskedName = patient ? maskName(patient.name) : '';
+
+  const handlePreview = () => {
+    if (!patient) { alert('利用者を選択してください'); return; }
+    if (onShowPrintPreview) onShowPrintPreview(`各種連絡_${patient.name}`, 'A4 portrait', 'print-content-general-fax');
+  };
+
+  return (
+    <div style={{height:'100%',display:'flex',flexDirection:'column',background:'#f0f4f9'}}>
+      {/* 操作バー */}
+      <div className="fax-no-print" style={{flexShrink:0,background:'#1e293b',color:'white',padding:'10px 20px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+        <span style={{fontSize:14,fontWeight:'bold'}}>📨 各種連絡（送付状を作成）</span>
+        <div style={{marginLeft:'auto',display:'flex',gap:8}}>
+          <button type="button" onClick={handlePreview} disabled={!patient}
+                  style={{background:patient?'#0f766e':'#475569',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:patient?'pointer':'not-allowed',display:'flex',alignItems:'center',gap:5,opacity:patient?1:0.6}}>
+            📋 プレビュー
+          </button>
+        </div>
+      </div>
+
+      <div style={{flex:1,overflow:'auto',padding:'20px',display:'flex',gap:20,alignItems:'flex-start',justifyContent:'center',flexWrap:'wrap'}}>
+        {/* 左: 入力フォーム */}
+        <div style={{width:320,background:'white',borderRadius:14,padding:20,boxShadow:'0 1px 6px rgba(0,0,0,0.08)',border:'1px solid #e2e8f0',display:'flex',flexDirection:'column',gap:14,flexShrink:0}}>
+          <div>
+            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>利用者</label>
+            <select value={selectedPatientId||''} onChange={e=>setSelectedPatientId(Number(e.target.value)||null)}
+                    style={{width:'100%',padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:14,fontWeight:'bold',outline:'none',background:'#f8fafc'}}>
+              <option value="">— 利用者を選択 —</option>
+              {groupPatientsByKanaRow(patients).map(g => (
+                <optgroup key={g.label} label={g.label}>
+                  {g.items.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </optgroup>
+              ))}
+            </select>
+            {patient && (
+              <div style={{marginTop:8,padding:'8px 10px',background:'#f0fdf4',border:'1px solid #86efac',borderRadius:8,fontSize:12,lineHeight:1.6}}>
+                <div><b style={{color:'#475569'}}>事業所:</b> {patient.cmOffice || <span style={{color:'#ef4444'}}>未設定</span>}</div>
+                <div><b style={{color:'#475569'}}>ケアマネ:</b> {patient.cmName || <span style={{color:'#ef4444'}}>未設定</span>}</div>
+                {patient.cmFax && <div><b style={{color:'#475569'}}>FAX:</b> {patient.cmFax}</div>}
+              </div>
+            )}
+          </div>
+          <div>
+            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>件名</label>
+            <input type="text" value={subject} onChange={e=>setSubject(e.target.value)}
+                   placeholder="例: 介護計画書のご確認"
+                   style={{width:'100%',padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:14,fontWeight:'bold',outline:'none',background:'#f8fafc',boxSizing:'border-box'}}/>
+          </div>
+          <div>
+            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>連絡事項</label>
+            <textarea value={memo} onChange={e=>setMemo(e.target.value)} rows={10}
+                      placeholder="連絡内容を自由に入力してください"
+                      style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:14,outline:'none',background:'#f8fafc',boxSizing:'border-box',resize:'vertical',fontFamily:'inherit',lineHeight:1.6}}/>
+          </div>
+          <div>
+            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>送付件数（枚数・表紙含）</label>
+            <div style={{display:'flex',alignItems:'center',gap:8}}>
+              <button type="button" onClick={()=>setPageCount(c=>Math.max(1,c-1))}
+                      style={{width:32,height:32,border:'1px solid #cbd5e1',borderRadius:8,background:'#f8fafc',fontWeight:'bold',fontSize:18,cursor:'pointer'}}>−</button>
+              <input type="number" min="1" max="99" value={pageCount}
+                     onChange={e=>setPageCount(Math.max(1,Math.min(99,parseInt(e.target.value)||1)))}
+                     style={{flex:1,padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:16,fontWeight:'bold',outline:'none',background:'#f8fafc',textAlign:'center',boxSizing:'border-box'}}/>
+              <button type="button" onClick={()=>setPageCount(c=>Math.min(99,c+1))}
+                      style={{width:32,height:32,border:'1px solid #cbd5e1',borderRadius:8,background:'#f8fafc',fontWeight:'bold',fontSize:18,cursor:'pointer'}}>+</button>
+              <span style={{fontSize:14,fontWeight:'bold',color:'#475569'}}>枚</span>
+            </div>
+          </div>
+          <div>
+            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>マーク（任意）</label>
+            <div style={{display:'flex',flexDirection:'column',gap:6}}>
+              {[['kyuukyuu','至急！'],['kakunin','ご確認ください'],['orikaesu','折り返しご連絡ください']].map(([k,label])=>(
+                <label key={k} style={{display:'flex',alignItems:'center',gap:6,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>
+                  <input type="checkbox" checked={checks[k]} onChange={e=>setChecks(c=>({...c,[k]:e.target.checked}))}
+                         style={{width:16,height:16,accentColor:'#1e293b',cursor:'pointer'}}/>
+                  <span style={{color:checks[k]?'#1e293b':'#94a3b8'}}>{label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* 右: A4 送付状プレビュー */}
+        <div id="print-content-general-fax"
+             style={{width:794,minHeight:1123,background:'white',boxShadow:'0 4px 24px rgba(0,0,0,0.12)',padding:'40px 48px',boxSizing:'border-box',fontFamily:'serif',display:'flex',flexDirection:'column'}}>
+
+          {/* タイトル */}
+          <div style={{textAlign:'center',fontSize:28,fontWeight:'bold',border:'3px solid black',padding:'10px 0',marginBottom:28,letterSpacing:6}}>送付状</div>
+
+          {/* 上部2列 */}
+          <div style={{display:'flex',gap:0,marginBottom:20}}>
+            <div style={{flex:1,paddingRight:24}}>
+              <div style={{display:'grid',gridTemplateColumns:'90px 1fr',gap:'8px 10px',marginBottom:16,fontSize:16}}>
+                <span style={{fontWeight:'bold'}}>送付日：</span>
+                <span>{today}</span>
+                <span style={{fontWeight:'bold'}}>送付枚数：</span>
+                <span>{pageCount} 枚（表紙含）</span>
+                <span style={{fontWeight:'bold'}}>送付先：</span>
+                <span></span>
+              </div>
+              <div style={{marginLeft:90,marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end'}}>
+                <span>{patient?.cmOffice || '　'}</span>
+                <span style={{fontWeight:'bold'}}>御中</span>
+              </div>
+              <div style={{marginLeft:90,marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end'}}>
+                <span>{patient?.cmName || '　'}</span>
+                <span style={{fontWeight:'bold'}}>様</span>
+              </div>
+              {patient?.cmFax && (
+                <div style={{marginLeft:90,fontSize:14,color:'#475569',marginTop:6}}>
+                  FAX：{patient.cmFax}
+                </div>
+              )}
+            </div>
+            <div style={{width:280,border:'2px solid black',padding:'12px 16px',fontSize:12,lineHeight:2}}>
+              <div style={{fontWeight:'bold',fontSize:14,marginBottom:4}}>{facility.name || 'ひかりデイサービス扇橋店'}</div>
+              <div>〒{facility.zip||'135-0011'}</div>
+              <div>{facility.address||'東京都江東区扇橋1-4-9メイゾン白子'}</div>
+              <div>TEL：{facility.phone||'03-6458-7415'}</div>
+              <div>FAX：{facility.fax||'03-6458-7416'}</div>
+              <div>担当：　{facility.manager||'担当者'}</div>
+            </div>
+          </div>
+
+          {/* 件名 */}
+          <div style={{display:'flex',alignItems:'center',gap:16,marginBottom:20,borderBottom:'3px double black',paddingBottom:12}}>
+            <span style={{fontSize:16,fontWeight:'bold'}}>件名：</span>
+            <span style={{fontSize:20,fontWeight:'bold',letterSpacing:2}}>{subject || '　'}</span>
+          </div>
+
+          {/* チェックボックス（表示用） */}
+          <div style={{display:'flex',gap:28,marginBottom:12,fontSize:13,fontWeight:'bold',alignItems:'center'}}>
+            {[['kyuukyuu','至急！'],['kakunin','ご確認ください'],['orikaesu','折り返しご連絡ください']].map(([k,label])=>(
+              <span key={k} style={{display:'flex',alignItems:'center',gap:6}}>
+                <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',width:16,height:16,border:`2px solid ${checks[k]?'#1e293b':'#94a3b8'}`,borderRadius:3,background:checks[k]?'#1e293b':'white',color:'white',fontSize:11,fontWeight:'bold',flexShrink:0}}>{checks[k]?'✓':''}</span>
+                <span style={{color:checks[k]?'#1e293b':'#94a3b8'}}>{label}</span>
+              </span>
+            ))}
+          </div>
+
+          <div style={{fontSize:11,color:'#334155',marginBottom:16}}>・送付されていないページがありましたら、至急ご連絡ください。</div>
+
+          {/* 本文枠 — 利用者名 + 連絡事項（全面表示） */}
+          <div style={{border:'2px solid black',padding:'24px 28px',lineHeight:2.2,fontSize:13,flex:1,display:'flex',flexDirection:'column',minHeight:500}}>
+            <div style={{fontSize:19,fontWeight:'bold',marginBottom:20,borderBottom:'1px solid #e2e8f0',paddingBottom:14,display:'flex',alignItems:'center',gap:8}}>
+              <span style={{color:'#475569',fontWeight:'bold',whiteSpace:'nowrap'}}>利用者名：</span>
+              <span style={{borderBottom:'2px solid #1e293b',paddingBottom:2,letterSpacing:2}}>{maskedName || '　'}</span>
+              {patient && <span>様</span>}
+            </div>
+            <div style={{flex:1,whiteSpace:'pre-wrap',fontSize:16,lineHeight:1.9,padding:'4px 0'}}>
+              {memo || <span style={{color:'#cbd5e1'}}>※ 左の「連絡事項」欄に入力した内容がここに表示されます</span>}
+            </div>
+            <div style={{fontSize:13,marginTop:8}}>今後ともよろしくお願いいたします。</div>
+          </div>
         </div>
       </div>
     </div>
