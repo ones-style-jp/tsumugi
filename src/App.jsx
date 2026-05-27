@@ -17613,10 +17613,48 @@ function GeneralFaxView({ appData, onShowPrintPreview }) {
 
   return (
     <div style={{height:'100%',display:'flex',flexDirection:'column',background:'#f0f4f9'}}>
-      {/* 操作バー */}
-      <div className="fax-no-print" style={{flexShrink:0,background:'#1e293b',color:'white',padding:'10px 20px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
-        <span style={{fontSize:14,fontWeight:'bold'}}>📨 各種連絡（送付状を作成）</span>
-        <div style={{marginLeft:'auto',display:'flex',gap:8}}>
+      {/* 送付状内インライン入力の視覚ヒント（hover/focus でわずかな黄背景） */}
+      <style>{`.fax-inline-input{transition:background 0.15s;}.fax-inline-input:hover{background:#fef9c3 !important;}.fax-inline-input:focus{background:#fef3c7 !important;}`}</style>
+      {/* 操作バー: 利用者 / 送付件数 / マーク / プレビュー（送付状に直接書き込めない設定はここに集約） */}
+      <div className="fax-no-print" style={{flexShrink:0,background:'#1e293b',color:'white',padding:'8px 16px',display:'flex',alignItems:'center',gap:14,flexWrap:'wrap'}}>
+        <span style={{fontSize:14,fontWeight:'bold',whiteSpace:'nowrap'}}>📨 各種連絡</span>
+        {/* 利用者 */}
+        <label style={{display:'flex',alignItems:'center',gap:6,whiteSpace:'nowrap'}}>
+          <span style={{fontSize:12,fontWeight:'bold',color:'#cbd5e1'}}>利用者:</span>
+          <select value={selectedPatientId||''} onChange={e=>setSelectedPatientId(Number(e.target.value)||null)}
+                  style={{padding:'5px 8px',border:'1px solid rgba(255,255,255,0.25)',borderRadius:6,fontSize:13,fontWeight:'bold',outline:'none',background:'rgba(255,255,255,0.1)',color:'white',minWidth:160}}>
+            <option value="" style={{color:'#1e293b'}}>— 選択 —</option>
+            {groupPatientsByKanaRow(patients).map(g => (
+              <optgroup key={g.label} label={g.label}>
+                {g.items.map(p => <option key={p.id} value={p.id} style={{color:'#1e293b'}}>{p.name}</option>)}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+        {/* 送付件数 */}
+        <label style={{display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
+          <span style={{fontSize:12,fontWeight:'bold',color:'#cbd5e1'}}>送付件数:</span>
+          <button type="button" onClick={()=>setPageCount(c=>Math.max(1,c-1))}
+                  style={{width:24,height:26,border:'1px solid rgba(255,255,255,0.25)',borderRadius:6,background:'rgba(255,255,255,0.1)',color:'white',fontWeight:'bold',fontSize:14,cursor:'pointer'}}>−</button>
+          <input type="number" min="1" max="99" value={pageCount}
+                 onChange={e=>setPageCount(Math.max(1,Math.min(99,parseInt(e.target.value)||1)))}
+                 style={{width:42,padding:'4px 0',border:'1px solid rgba(255,255,255,0.25)',borderRadius:6,fontSize:13,fontWeight:'bold',outline:'none',background:'rgba(255,255,255,0.1)',color:'white',textAlign:'center',boxSizing:'border-box'}}/>
+          <button type="button" onClick={()=>setPageCount(c=>Math.min(99,c+1))}
+                  style={{width:24,height:26,border:'1px solid rgba(255,255,255,0.25)',borderRadius:6,background:'rgba(255,255,255,0.1)',color:'white',fontWeight:'bold',fontSize:14,cursor:'pointer'}}>+</button>
+          <span style={{fontSize:12,fontWeight:'bold',color:'#cbd5e1'}}>枚</span>
+        </label>
+        {/* マーク */}
+        <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+          <span style={{fontSize:12,fontWeight:'bold',color:'#cbd5e1'}}>マーク:</span>
+          {[['kyuukyuu','至急！'],['kakunin','ご確認ください'],['orikaesu','折り返しご連絡ください']].map(([k,label])=>(
+            <label key={k} style={{display:'flex',alignItems:'center',gap:4,fontSize:12,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>
+              <input type="checkbox" checked={checks[k]} onChange={e=>setChecks(c=>({...c,[k]:e.target.checked}))}
+                     style={{width:14,height:14,accentColor:'#22c55e',cursor:'pointer'}}/>
+              <span style={{color:checks[k]?'white':'#94a3b8'}}>{label}</span>
+            </label>
+          ))}
+        </div>
+        <div style={{marginLeft:'auto'}}>
           <button type="button" onClick={handlePreview} disabled={!patient}
                   style={{background:patient?'#0f766e':'#475569',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:patient?'pointer':'not-allowed',display:'flex',alignItems:'center',gap:5,opacity:patient?1:0.6}}>
             📋 プレビュー
@@ -17624,77 +17662,8 @@ function GeneralFaxView({ appData, onShowPrintPreview }) {
         </div>
       </div>
 
-      <div style={{flex:1,overflow:'auto',padding:'20px',display:'flex',gap:20,alignItems:'flex-start',justifyContent:'center',flexDirection:'column'}}>
-        {/* 入力フォーム: A4 と同じ幅(794px)で横長に展開 */}
-        <div style={{width:794,maxWidth:'100%',background:'white',borderRadius:14,padding:20,boxShadow:'0 1px 6px rgba(0,0,0,0.08)',border:'1px solid #e2e8f0',display:'flex',flexDirection:'column',gap:14}}>
-          {/* 1行目: 利用者 / 件名 / 送付件数 */}
-          <div style={{display:'grid',gridTemplateColumns:'220px 1fr 160px',gap:12,alignItems:'end'}}>
-            <div>
-              <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>利用者</label>
-              <select value={selectedPatientId||''} onChange={e=>setSelectedPatientId(Number(e.target.value)||null)}
-                      style={{width:'100%',padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:14,fontWeight:'bold',outline:'none',background:'#f8fafc',boxSizing:'border-box'}}>
-                <option value="">— 利用者を選択 —</option>
-                {groupPatientsByKanaRow(patients).map(g => (
-                  <optgroup key={g.label} label={g.label}>
-                    {g.items.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </optgroup>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>件名</label>
-              <input type="text" value={subject} onChange={e=>setSubject(e.target.value)}
-                     placeholder="例: 介護計画書のご確認"
-                     style={{width:'100%',padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:14,fontWeight:'bold',outline:'none',background:'#f8fafc',boxSizing:'border-box'}}/>
-            </div>
-            <div>
-              <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>送付件数（表紙含）</label>
-              <div style={{display:'flex',alignItems:'center',gap:4}}>
-                <button type="button" onClick={()=>setPageCount(c=>Math.max(1,c-1))}
-                        style={{width:30,height:34,border:'1px solid #cbd5e1',borderRadius:8,background:'#f8fafc',fontWeight:'bold',fontSize:18,cursor:'pointer',flexShrink:0}}>−</button>
-                <input type="number" min="1" max="99" value={pageCount}
-                       onChange={e=>setPageCount(Math.max(1,Math.min(99,parseInt(e.target.value)||1)))}
-                       style={{flex:1,minWidth:0,padding:'8px 4px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:16,fontWeight:'bold',outline:'none',background:'#f8fafc',textAlign:'center',boxSizing:'border-box'}}/>
-                <button type="button" onClick={()=>setPageCount(c=>Math.min(99,c+1))}
-                        style={{width:30,height:34,border:'1px solid #cbd5e1',borderRadius:8,background:'#f8fafc',fontWeight:'bold',fontSize:18,cursor:'pointer',flexShrink:0}}>+</button>
-                <span style={{fontSize:13,fontWeight:'bold',color:'#475569',marginLeft:2}}>枚</span>
-              </div>
-            </div>
-          </div>
-
-          {/* 2行目: ケアマネ情報（自動表示） & マーク */}
-          <div style={{display:'grid',gridTemplateColumns:'1fr auto',gap:16,alignItems:'center'}}>
-            <div style={{padding:'8px 12px',background:patient?'#f0fdf4':'#f8fafc',border:'1px solid '+(patient?'#86efac':'#e2e8f0'),borderRadius:8,fontSize:12,lineHeight:1.6,display:'flex',gap:18,flexWrap:'wrap',alignItems:'center',minHeight:30}}>
-              {patient ? (<>
-                <span><b style={{color:'#475569'}}>事業所:</b> {patient.cmOffice || <span style={{color:'#ef4444'}}>未設定</span>}</span>
-                <span><b style={{color:'#475569'}}>ケアマネ:</b> {patient.cmName || <span style={{color:'#ef4444'}}>未設定</span>}</span>
-                {patient.cmFax && <span><b style={{color:'#475569'}}>FAX:</b> {patient.cmFax}</span>}
-              </>) : (
-                <span style={{color:'#94a3b8',fontWeight:'bold'}}>利用者を選ぶと、事業所・ケアマネ・FAX が自動入力されます</span>
-              )}
-            </div>
-            <div style={{display:'flex',gap:14,alignItems:'center'}}>
-              <span style={{fontSize:12,fontWeight:'bold',color:'#475569'}}>マーク:</span>
-              {[['kyuukyuu','至急！'],['kakunin','ご確認ください'],['orikaesu','折り返しご連絡ください']].map(([k,label])=>(
-                <label key={k} style={{display:'flex',alignItems:'center',gap:4,fontSize:12,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>
-                  <input type="checkbox" checked={checks[k]} onChange={e=>setChecks(c=>({...c,[k]:e.target.checked}))}
-                         style={{width:15,height:15,accentColor:'#1e293b',cursor:'pointer'}}/>
-                  <span style={{color:checks[k]?'#1e293b':'#94a3b8'}}>{label}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* 3行目: 連絡事項（A4幅全面） */}
-          <div>
-            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>連絡事項</label>
-            <textarea value={memo} onChange={e=>setMemo(e.target.value)} rows={8}
-                      placeholder="連絡内容を自由に入力してください（送付状の本文枠に全面表示されます）"
-                      style={{width:'100%',padding:'12px 14px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:14,outline:'none',background:'#f8fafc',boxSizing:'border-box',resize:'vertical',fontFamily:'inherit',lineHeight:1.7}}/>
-          </div>
-        </div>
-
-        {/* A4 送付状プレビュー */}
+      <div style={{flex:1,overflow:'auto',padding:'20px',display:'flex',alignItems:'flex-start',justifyContent:'center'}}>
+        {/* A4 送付状プレビュー（件名・連絡事項は中で直接編集可能） */}
         <div id="print-content-general-fax"
              style={{width:794,minHeight:1123,background:'white',boxShadow:'0 4px 24px rgba(0,0,0,0.12)',padding:'40px 48px',boxSizing:'border-box',fontFamily:'serif',display:'flex',flexDirection:'column'}}>
 
@@ -17736,10 +17705,13 @@ function GeneralFaxView({ appData, onShowPrintPreview }) {
             </div>
           </div>
 
-          {/* 件名 */}
+          {/* 件名（送付状内で直接編集可能） */}
           <div style={{display:'flex',alignItems:'center',gap:16,marginBottom:20,borderBottom:'3px double black',paddingBottom:12}}>
-            <span style={{fontSize:16,fontWeight:'bold'}}>件名：</span>
-            <span style={{fontSize:20,fontWeight:'bold',letterSpacing:2}}>{subject || '　'}</span>
+            <span style={{fontSize:16,fontWeight:'bold',whiteSpace:'nowrap'}}>件名：</span>
+            <input type="text" value={subject} onChange={e=>setSubject(e.target.value)}
+                   placeholder="例: 介護計画書のご確認"
+                   className="fax-inline-input"
+                   style={{flex:1,fontSize:20,fontWeight:'bold',letterSpacing:2,border:'none',outline:'none',background:'transparent',padding:'2px 4px',fontFamily:'inherit'}}/>
           </div>
 
           {/* チェックボックス（表示用） */}
@@ -17754,16 +17726,17 @@ function GeneralFaxView({ appData, onShowPrintPreview }) {
 
           <div style={{fontSize:11,color:'#334155',marginBottom:16}}>・送付されていないページがありましたら、至急ご連絡ください。</div>
 
-          {/* 本文枠 — 利用者名 + 連絡事項（全面表示） */}
+          {/* 本文枠 — 利用者名 + 連絡事項（送付状内で直接編集可能） */}
           <div style={{border:'2px solid black',padding:'24px 28px',lineHeight:2.2,fontSize:13,flex:1,display:'flex',flexDirection:'column',minHeight:500}}>
             <div style={{fontSize:19,fontWeight:'bold',marginBottom:20,borderBottom:'1px solid #e2e8f0',paddingBottom:14,display:'flex',alignItems:'center',gap:8}}>
               <span style={{color:'#475569',fontWeight:'bold',whiteSpace:'nowrap'}}>利用者名：</span>
               <span style={{borderBottom:'2px solid #1e293b',paddingBottom:2,letterSpacing:2}}>{maskedName || '　'}</span>
               {patient && <span>様</span>}
             </div>
-            <div style={{flex:1,whiteSpace:'pre-wrap',fontSize:16,lineHeight:1.9,padding:'4px 0'}}>
-              {memo || <span style={{color:'#cbd5e1'}}>※ 左の「連絡事項」欄に入力した内容がここに表示されます</span>}
-            </div>
+            <textarea value={memo} onChange={e=>setMemo(e.target.value)}
+                      placeholder="ここに連絡事項を直接入力してください"
+                      className="fax-inline-input"
+                      style={{flex:1,fontSize:16,lineHeight:1.9,padding:'4px 0',border:'none',outline:'none',background:'transparent',resize:'none',fontFamily:'inherit',width:'100%'}}/>
             <div style={{fontSize:13,marginTop:8}}>今後ともよろしくお願いいたします。</div>
           </div>
         </div>
