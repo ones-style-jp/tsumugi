@@ -12993,10 +12993,11 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       return true;
     }) : recs;
 
+    // 並び順は RecordView と一致させるため、appData.patients の出現順を踏襲する
     return [...filteredRecs, ...extraPats].sort((a,b)=>{
-      const pa=appData.patients.find(p=>p.id===a.patientId);
-      const pb=appData.patients.find(p=>p.id===b.patientId);
-      return (pa?.kana||pa?.name||'').localeCompare(pb?.kana||pb?.name||'','ja');
+      const ia = appData.patients.findIndex(p => p.id === a.patientId);
+      const ib = appData.patients.findIndex(p => p.id === b.patientId);
+      return (ia === -1 ? 1e9 : ia) - (ib === -1 ? 1e9 : ib);
     });
   }, [appData.ticketRecords, appData.patients, appData.monthlyShifts, targetDateStr, selectedDate, sharedAmpm]);
 
@@ -13016,16 +13017,26 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   }, [isBulkEditOpen, isScheduleModalOpen]);
 
   const [printModeModal, setPrintModeModal] = React.useState(false);
+  // 印刷モーダルで選択された利用者ID（チェックされたものだけ印刷される）
+  const [printSelectedIds, setPrintSelectedIds] = React.useState([]);
 
-  const handlePrint = () => { setPrintModeModal(true); };
+  // モーダルを開く時、選択を初期化（デフォルトは全員）
+  const handlePrint = () => {
+    setPrintSelectedIds(displayRecords.map(r => r.patientId));
+    setPrintModeModal(true);
+  };
+  const togglePrintId = (pid) => setPrintSelectedIds(prev => prev.includes(pid) ? prev.filter(x=>x!==pid) : [...prev, pid]);
+  const selectAllPrint = () => setPrintSelectedIds(displayRecords.map(r => r.patientId));
+  const clearAllPrint = () => setPrintSelectedIds([]);
 
-  const doPrint = (mode) => {
+  const doPrint = (idsToprint) => {
     setPrintModeModal(false);
+    if(!idsToprint || !idsToprint.length){ alert('印刷する利用者を1人以上選択してください'); return; }
     const title = `連絡帳_${selectedDate}`;
-    const targets = mode === 'batch' ? displayRecords : [displayRecords[0]];
-    if(!targets || !targets.length){ alert('出席者がいません'); return; }
-    const htmlParts = targets.map((_,i)=>{
-      const eid = i===0 ? 'print-content-cb-single' : `print-content-cb-${i}`;
+    const targets = displayRecords.filter(r => idsToprint.includes(r.patientId));
+    if(!targets || !targets.length){ alert('対象が見つかりませんでした'); return; }
+    const htmlParts = targets.map(r => {
+      const eid = `print-content-cb-${r.patientId}`;
       const el = document.getElementById(eid);
       if(!el) return '';
       let h = el.outerHTML;
@@ -13207,41 +13218,56 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
           </div>
         )}
 
-        {/* 個別/一括印刷選択モーダル */}
+        {/* 印刷対象選択モーダル（チェックされた利用者だけ印刷） */}
         {printModeModal && (
-          <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-2xl p-6 w-72">
-              <div className="font-bold text-slate-800 text-base mb-4 text-center">印刷方法を選択</div>
-              <div className="space-y-3">
-                <button onClick={()=>doPrint('single')} className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 active:scale-95">
-                  📄 個別印刷（現在表示中の1人）
-                </button>
-                <button onClick={()=>doPrint('batch')} className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 active:scale-95">
-                  📋 一括印刷（本日通所者全員）
-                </button>
-                <button onClick={()=>setPrintModeModal(false)} className="w-full py-2 text-slate-500 hover:bg-slate-100 rounded-xl font-bold text-sm">
-                  キャンセル
+          <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4" onClick={()=>setPrintModeModal(false)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col" style={{maxHeight:'85vh'}} onClick={e=>e.stopPropagation()}>
+              <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between flex-shrink-0">
+                <div className="font-bold text-slate-800 text-base">🖨️ 印刷する利用者を選択</div>
+                <button onClick={()=>setPrintModeModal(false)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"><X size={18}/></button>
+              </div>
+              <div className="px-4 py-2 border-b border-slate-100 flex items-center gap-2 flex-shrink-0">
+                <button onClick={selectAllPrint} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold">全員選択</button>
+                <button onClick={clearAllPrint} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold">全員解除</button>
+                <div className="ml-auto text-xs font-bold text-slate-500">{printSelectedIds.length} / {displayRecords.length} 名</div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-3">
+                {displayRecords.length === 0 ? (
+                  <div className="text-center text-slate-400 py-8 text-sm font-bold">出席者がいません</div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {displayRecords.map(r => {
+                      const checked = printSelectedIds.includes(r.patientId);
+                      return (
+                        <label key={r.id} className={`flex items-center gap-3 px-3 py-2 rounded-lg border cursor-pointer transition-colors ${checked ? 'bg-blue-50 border-blue-300' : 'bg-white border-slate-200 hover:bg-slate-50'}`}>
+                          <input type="checkbox" checked={checked} onChange={()=>togglePrintId(r.patientId)} className="w-5 h-5 cursor-pointer accent-blue-500"/>
+                          <span className="font-bold text-slate-800 text-sm">{r.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-3 flex-shrink-0">
+                <button onClick={()=>setPrintModeModal(false)} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
+                <button onClick={()=>doPrint(printSelectedIds)} disabled={printSelectedIds.length===0}
+                        className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl font-bold text-sm shadow-md flex items-center gap-2">
+                  <Printer size={16}/>選択した{printSelectedIds.length}名を印刷
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* 個別印刷用（現在表示中の1人） */}
-        <div id="print-content-cb-single" style={{display:'none'}}>
-          {displayRecords.slice(0,1).map((record) => {
-            const patient = appData.patients.find(p => p.id === record.patientId) || appData.patients[0];
-            return <ContactBookCard key={record.id} record={record} patient={patient} selectedDate={selectedDate} config={appData.contactBookConfig} appData={appData} onOpenConfig={()=>setIsConfigOpen(true)} />;
-          })}
-        </div>
-
-        {/* 一括印刷用（全員） */}
-        <div id="print-content-cb-batch" style={{display:'none'}}>
+        {/* 印刷用の隠しカード群 — 利用者ID単位で id を付与し、選択された利用者の DOM を doPrint で取得する */}
+        <div style={{display:'none'}} aria-hidden="true">
           {displayRecords.map((record) => {
             const patient = appData.patients.find(p => p.id === record.patientId) || appData.patients[0];
-            return (<div key={record.id} style={{pageBreakAfter:'always'}}>
-              <ContactBookCard record={record} patient={patient} selectedDate={selectedDate} config={appData.contactBookConfig} appData={appData} onOpenConfig={()=>setIsConfigOpen(true)} />
-            </div>);
+            return (
+              <div key={record.id} id={`print-content-cb-${record.patientId}`}>
+                <ContactBookCard record={record} patient={patient} selectedDate={selectedDate} config={appData.contactBookConfig} appData={appData} onOpenConfig={()=>setIsConfigOpen(true)} />
+              </div>
+            );
           })}
         </div>
 
@@ -13249,7 +13275,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
           {displayRecords.map((record, ri) => {
             const patient = appData.patients.find(p => p.id === record.patientId) || appData.patients[0];
             return (
-              <div key={record.id} id={ri===0?'print-content-cb-single':`print-content-cb-${ri}`} className="flex justify-center w-full">
+              <div key={record.id} className="flex justify-center w-full">
                 <ContactBookCard record={record} patient={patient} selectedDate={selectedDate} config={appData.contactBookConfig} appData={appData} onOpenConfig={() => setIsConfigOpen(true)} />
               </div>
             );
@@ -13289,7 +13315,8 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
 
   const ex = record.exercises || {};
   const dispEx = (val) => (val === "ー" || val === "×" || !val) ? "" : val;
-  const items = config.items || [];
+  // visible !== false の項目だけ表示（旧データには visible が無いので「未設定=表示」として扱う）
+  const items = (config.items || []).filter(it => it && it.visible !== false);
   const rows = [];
   for (let i = 0; i < items.length; i += 2) rows.push([items[i], items[i + 1]]);
 
@@ -13479,8 +13506,14 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave }) {
             <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">表示項目リスト</h3>
             <div className="space-y-2">
               {localConfig.items.map((item, index) => (
-                <div key={item.id} className="flex items-center gap-3 bg-slate-50 border border-slate-200 p-3 rounded-xl hover:shadow-md transition-shadow group">
+                <div key={item.id} className={`flex items-center gap-3 border p-3 rounded-xl hover:shadow-md transition-shadow group ${item.visible === false ? 'bg-slate-100 border-slate-200 opacity-60' : 'bg-slate-50 border-slate-200'}`}>
                   <div className="flex flex-col gap-1 text-slate-300"><button onClick={() => moveItem(index, -1)} disabled={index===0} className="hover:text-blue-500"><MoveUp size={16}/></button><button onClick={() => moveItem(index, 1)} disabled={index===localConfig.items.length-1} className="hover:text-blue-500"><MoveDown size={16}/></button></div>
+                  {/* 表示/非表示トグル */}
+                  <label className="flex flex-col items-center gap-0.5 cursor-pointer select-none" title="チェックを外すと連絡帳に表示しません">
+                    <input type="checkbox" checked={item.visible !== false} onChange={e => handleItemChange(item.id, 'visible', e.target.checked)}
+                           className="w-5 h-5 cursor-pointer accent-emerald-500"/>
+                    <span className="text-[10px] font-bold text-slate-500">表示</span>
+                  </label>
                   <div className="flex-1 grid grid-cols-12 gap-3 items-center">
                     <div className="col-span-4"><label className="block text-[12px] font-bold text-slate-500 mb-0.5">項目名</label><input type="text" value={item.label || ""} onChange={e => handleItemChange(item.id, 'label', e.target.value)} className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none" /></div>
                     <div className="col-span-3"><label className="block text-[12px] font-bold text-slate-500 mb-0.5">反映方法</label><select value={item.type || "fixed"} onChange={e => handleItemChange(item.id, 'type', e.target.value)} className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"><option value="fixed">自由入力</option><option value="linked">提供記録連動</option></select></div>
