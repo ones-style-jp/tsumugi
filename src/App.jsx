@@ -9122,36 +9122,36 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
         </div>
       )}
 
-      {/* 厚労省バイタルサイン基準値パネル（折りたたみ可能・全画面時は非表示） */}
+      {/* 厚労省バイタルサイン基準値パネル（折りたたみ可能・全画面時は非表示・コンパクト表示） */}
       {!isFullscreen && (
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 px-4 py-2 flex-shrink-0 mb-3 text-[13px]">
-        <button onClick={()=>setVitalCollapsed(v=>!v)} className="font-bold text-slate-500 text-[13px] flex items-center gap-1.5 w-full hover:text-slate-700">
-          <Activity size={13} className="text-blue-500"/>
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 px-3 py-1 flex-shrink-0 mb-2 text-[11px]">
+        <button onClick={()=>setVitalCollapsed(v=>!v)} className="font-bold text-slate-500 text-[11px] flex items-center gap-1 w-full hover:text-slate-700">
+          <Activity size={11} className="text-blue-500"/>
           バイタルサイン 基準値（厚労省ガイドライン）
           <span className="ml-auto text-slate-400">{vitalCollapsed?'▼ 開く':'▲ 閉じる'}</span>
         </button>
-        {!vitalCollapsed && <div className="flex flex-wrap gap-x-5 gap-y-1.5 mt-2">
-          <div className="flex items-start gap-2 min-w-[220px]">
-            <span className="font-bold text-slate-600 whitespace-nowrap shrink-0 bg-slate-100 px-2 py-0.5 rounded text-[12px]">体温</span>
-            <div className="space-y-0.5">
+        {!vitalCollapsed && <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1">
+          <div className="flex items-start gap-1.5 min-w-[180px]">
+            <span className="font-bold text-slate-600 whitespace-nowrap shrink-0 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">体温</span>
+            <div className="space-y-0 leading-tight">
               <div><span className="text-emerald-700 font-bold">正常 36.0〜37.0℃</span></div>
               <div><span className="text-amber-600 font-bold">微熱 37.1〜38.0℃</span>　<span className="text-red-600 font-bold">高熱 38.1℃以上</span></div>
               <div><span className="text-blue-600 font-bold">低体温 35.9℃以下</span><span className="text-slate-400 ml-1">（注意）</span></div>
             </div>
           </div>
           <div className="w-px bg-slate-200 self-stretch"/>
-          <div className="flex items-start gap-2 min-w-[340px]">
-            <span className="font-bold text-slate-600 whitespace-nowrap shrink-0 bg-slate-100 px-2 py-0.5 rounded text-[12px]">血圧</span>
-            <div className="space-y-0.5">
+          <div className="flex items-start gap-1.5 min-w-[280px]">
+            <span className="font-bold text-slate-600 whitespace-nowrap shrink-0 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">血圧</span>
+            <div className="space-y-0 leading-tight">
               <div><span className="text-emerald-700 font-bold">正常 収縮期 100〜129 / 拡張期 60〜84 mmHg</span></div>
               <div><span className="text-amber-600 font-bold">高血圧Ⅰ度 130〜139/85〜89</span>　<span className="text-red-600 font-bold">Ⅱ度 140〜159/90〜99</span>　<span className="text-red-700 font-bold">Ⅲ度 160以上/100以上</span></div>
               <div><span className="text-blue-600 font-bold">低血圧 収縮期 90未満</span><span className="text-slate-400 ml-1">（起立性低血圧に注意）</span></div>
             </div>
           </div>
           <div className="w-px bg-slate-200 self-stretch"/>
-          <div className="flex items-start gap-2 min-w-[220px]">
-            <span className="font-bold text-slate-600 whitespace-nowrap shrink-0 bg-slate-100 px-2 py-0.5 rounded text-[12px]">脈拍</span>
-            <div className="space-y-0.5">
+          <div className="flex items-start gap-1.5 min-w-[180px]">
+            <span className="font-bold text-slate-600 whitespace-nowrap shrink-0 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">脈拍</span>
+            <div className="space-y-0 leading-tight">
               <div><span className="text-emerald-700 font-bold">正常 60〜100 回/分</span></div>
               <div><span className="text-red-600 font-bold">頻脈 101回以上</span>　<span className="text-blue-600 font-bold">徐脈 59回以下</span></div>
               <div className="text-slate-400">高齢者の目安 60〜80回/分。不整脈に注意。</div>
@@ -9186,8 +9186,8 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
             <col style={{width:'500px'}} />
             <col style={{width:'110px'}} />
           </colgroup>
-          <thead className="bg-slate-800 text-white" style={{position:'sticky',top:0,zIndex:30}}>
-            <tr style={{position:'sticky',top:0}}>
+          <thead className="bg-slate-800 text-white">
+            <tr>
               {filterMode === 'month' && <th className="px-2 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 left-0 z-50 bg-slate-900">日付</th>}
               <th className={`px-2 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-50 bg-slate-900 ${filterMode === 'month' ? 'left-[80px]' : 'left-0'}`}>利用者名</th>
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">状態</th>
