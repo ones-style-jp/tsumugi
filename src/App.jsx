@@ -16065,10 +16065,10 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 8px',textAlign:'center'}}>利用者数</div>
             <div style={{display:'flex',flex:1}}>
               {[['定員',capacity],['予定',planned],['出席',attended],['欠席',absent]].map(([l,n],li)=>(
-                <div key={l} style={{display:'flex',alignItems:'baseline',justifyContent:'center',gap:2,padding:'4px 4px',borderLeft:li===0?'none':'1px solid #ddd',flex:'1 1 0',minWidth:0}}>
-                  <span style={{fontSize:9,color:'#000',whiteSpace:'nowrap'}}>{l}</span>
+                <div key={l} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:2,padding:'4px 4px',borderLeft:li===0?'none':'1px solid #ddd',flex:'1 1 0',minWidth:0}}>
+                  <span style={{fontSize:9,color:'#000',whiteSpace:'nowrap',lineHeight:1}}>{l}</span>
                   <span style={{fontSize:12,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.3em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{n}</span>
-                  <span style={{fontSize:9,color:'#000'}}>名</span>
+                  <span style={{fontSize:9,color:'#000',lineHeight:1}}>名</span>
                 </div>
               ))}
             </div>
@@ -16076,19 +16076,15 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           <div style={{border:'1px solid #555',borderRadius:2,overflow:'hidden',flex:'1 1 0',minWidth:0,display:'flex',flexDirection:'column'}}>
             <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 6px',textAlign:'center'}}>介護度別</div>
             <div style={{display:'flex',flex:1}}>
-              <div style={{display:'flex',alignItems:'center',justifyContent:'center',padding:'4px 2px',flex:'1 1 0',minWidth:0,overflow:'hidden'}}>
-                <AutoFitLine style={{display:'inline-flex',alignItems:'baseline',gap:2,whiteSpace:'nowrap'}}>
-                  <span style={{fontSize:9,color:'#000'}}>事業対象・要支援</span>
-                  <span style={{fontSize:12,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.3em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{_jigyoCount}</span>
-                  <span style={{fontSize:9,color:'#000'}}>名</span>
-                </AutoFitLine>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:2,padding:'4px 2px',flex:'1 1 0',minWidth:0,whiteSpace:'nowrap'}}>
+                <span style={{fontSize:8,color:'#000',lineHeight:1}}>事業対象・要支援</span>
+                <span style={{fontSize:12,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.3em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{_jigyoCount}</span>
+                <span style={{fontSize:9,color:'#000',lineHeight:1}}>名</span>
               </div>
-              <div style={{display:'flex',alignItems:'center',justifyContent:'center',padding:'4px 2px',borderLeft:'1px solid #ddd',flex:'1 1 0',minWidth:0,overflow:'hidden'}}>
-                <AutoFitLine style={{display:'inline-flex',alignItems:'baseline',gap:2,whiteSpace:'nowrap'}}>
-                  <span style={{fontSize:9,color:'#000'}}>要介護</span>
-                  <span style={{fontSize:12,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.3em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{_kaigoCount}</span>
-                  <span style={{fontSize:9,color:'#000'}}>名</span>
-                </AutoFitLine>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:2,padding:'4px 2px',borderLeft:'1px solid #ddd',flex:'1 1 0',minWidth:0,whiteSpace:'nowrap'}}>
+                <span style={{fontSize:9,color:'#000',lineHeight:1}}>要介護</span>
+                <span style={{fontSize:12,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.3em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{_kaigoCount}</span>
+                <span style={{fontSize:9,color:'#000',lineHeight:1}}>名</span>
               </div>
             </div>
           </div>
