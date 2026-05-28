@@ -15907,10 +15907,13 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     .filter(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId); if(!p) return false; if(ampm==='1日') return true; return [ampm,'1日'].includes(p.scheduleAmPm?.[dow]); })
     .map(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId)||{}; return {id:r.id,name:p.name||r.name||'',careLevel:p.careLevel||'',tokki:r.tokki||'',status:r.status}; });
 
-  const totalRows = capacity;
+  // 各種設定の定員数 (capacity) を基準にしつつ、実際の出席者 (振替含む) が
+  // 定員を超える場合は行数を増やして全員が必ず日誌に表示されるようにする
   const attended = patients.filter(r=>r.status==='出席').length;
   const absent   = patients.filter(r=>r.status==='欠席'||r.status==='休業').length;
   const planned  = patients.length;
+  const actualAttendees = patients.filter(r=>r.status!=='欠席'&&r.status!=='休業').length; // 出席 + 振替
+  const totalRows = Math.max(capacity, actualAttendees);
   const jigyoCount = patients.filter(r=>r.careLevel&&(r.careLevel.startsWith('事業')||r.careLevel.startsWith('要支援'))).length;
   const kaigoCount = patients.filter(r=>r.careLevel&&r.careLevel.startsWith('要介護')).length;
 
@@ -16061,7 +16064,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           <div style={{border:'1px solid #555',borderRadius:2,overflow:'hidden',flex:'1 1 0',minWidth:0,display:'flex',flexDirection:'column'}}>
             <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 8px',textAlign:'center'}}>利用者数</div>
             <div style={{display:'flex',flex:1}}>
-              {[['予定',planned],['出席',attended],['欠席',absent]].map(([l,n],li)=>(
+              {[['定員',capacity],['予定',planned],['出席',attended],['欠席',absent]].map(([l,n],li)=>(
                 <div key={l} style={{display:'flex',alignItems:'baseline',justifyContent:'center',gap:2,padding:'4px 4px',borderLeft:li===0?'none':'1px solid #ddd',flex:'1 1 0',minWidth:0}}>
                   <span style={{fontSize:8,color:'#000'}}>{l}</span>
                   <span style={{fontSize:16,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.4em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{n}</span>
