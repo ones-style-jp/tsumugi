@@ -16065,9 +16065,9 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 8px',textAlign:'center'}}>利用者数</div>
             <div style={{display:'flex',flex:1}}>
               {[['定員',capacity],['予定',planned],['出席',attended],['欠席',absent]].map(([l,n],li)=>(
-                <div key={l} style={{display:'flex',alignItems:'baseline',justifyContent:'center',gap:2,padding:'4px 4px',borderLeft:li===0?'none':'1px solid #ddd',flex:'1 1 0',minWidth:0}}>
-                  <span style={{fontSize:8,color:'#000'}}>{l}</span>
-                  <span style={{fontSize:16,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.4em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{n}</span>
+                <div key={l} style={{display:'flex',alignItems:'baseline',justifyContent:'center',gap:1,padding:'4px 2px',borderLeft:li===0?'none':'1px solid #ddd',flex:'1 1 0',minWidth:0}}>
+                  <span style={{fontSize:8,color:'#000',whiteSpace:'nowrap'}}>{l}</span>
+                  <span style={{fontSize:13,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.2em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{n}</span>
                   <span style={{fontSize:8,color:'#000'}}>名</span>
                 </div>
               ))}
@@ -16234,7 +16234,9 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           <tbody>
             {_schedule.map((item,idx)=>(
               <tr key={item.id} style={{backgroundColor:idx%2===0?'white':'#f8f8fc'}}>
-                <td style={{border:'1px solid #dde',padding:'2px 5px',fontSize:9,fontWeight:'bold',color:'#1d4ed8',whiteSpace:'nowrap',verticalAlign:'middle'}}>{item.time}</td>
+                <td style={{border:'1px solid #dde',padding:'2px 3px',fontWeight:'bold',color:'#1d4ed8',verticalAlign:'middle',textAlign:'center'}}>
+                  <AutoFitLine style={{fontSize:9,width:'100%',textAlign:'center'}}>{item.time}</AutoFitLine>
+                </td>
                 <td style={{border:'1px solid #dde',padding:'2px 5px',fontSize:9,color:'#333',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',verticalAlign:'middle'}}>{item.content}</td>
               </tr>
             ))}
