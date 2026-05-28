@@ -16037,8 +16037,11 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     const _toggle = (field, key) => _updateLog({ [field]: { ...(_log[field]||{}), [key]: !(_log[field]||{})[key] } });
     // ページング: data がある場合は _patients.length と capacity の max、それ以外は外側 totalRows を使用
     const _totalRows = data ? Math.max(capacity, _patients.length) : totalRows;
-    const pi = pageInfo || { pageIndex: 0, totalPages: 1, rowStart: 0, rowEnd: _totalRows };
-    const isCont = pi.pageIndex > 0; // 2ページ目以降は継続ページ
+    // pageInfo に showStaff/showPatients/showExtras フラグを持たせて、セクション単位で表示を制御
+    const pi = pageInfo || { pageIndex: 0, totalPages: 1, rowStart: 0, rowEnd: _totalRows, showStaff: true, showPatients: true, showExtras: true };
+    const _showStaff = pi.showStaff !== false;
+    const _showPatients = pi.showPatients !== false;
+    const _showExtras = pi.showExtras !== false;
     return (
     <div style={{width:'200mm',minWidth:'200mm',height:'287mm',minHeight:'287mm',backgroundColor:'white',fontFamily:'sans-serif',padding:'10px 6px',boxSizing:'border-box',display:'flex',flexDirection:'column',margin:'0 auto'}}>
       {/* タイトル行 */}
@@ -16142,8 +16145,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         </div>
       )}
 
-      {/* 担当職員 — 横一列ボックス（1ページ目のみ） */}
-      {!isCont && (
+      {/* 担当職員 — 横一列ボックス（pageInfo の showStaff が true の場合のみ） */}
+      {_showStaff && (
       <div style={{border:'1px solid #555',marginBottom:4,borderRadius:2}}>
         <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 6px'}}>担当職員</div>
         <div style={{display:'flex',gap:3,padding:'3px 5px 0 5px'}}>
@@ -16158,12 +16161,13 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
       </div>
       )}
 
-      {/* 利用者テーブル */}
+      {/* 利用者テーブル（pageInfo の showPatients が true の場合のみ） */}
+      {_showPatients && (
       <div style={{border:'1px solid #aab',borderRadius:2,marginBottom:3,overflow:'hidden'}}>
       <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 6px'}}>利用者</div>
       <table style={{width:'100%',borderCollapse:'collapse',tableLayout:'fixed'}}>
         <colgroup>
-          <col style={{width:16}}/>  {/* No */}
+          <col style={{width:28}}/>  {/* No - 2桁の数字でも中央に表示できる幅 */}
           <col style={{width:90}}/>  {/* 利用者氏名 */}
           <col style={{width:34}}/>  {/* 介護度 */}
           <col style={{width:32}}/>  {/* 状態 */}
@@ -16173,7 +16177,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         </colgroup>
         <thead>
           <tr>
-            <th style={th(20)}>No</th>
+            <th style={th(28)}>No</th>
             <th style={th(null)}>利用者氏名</th>
             <th style={th(32)}>介護度</th>
             <th style={th(32)}>状態</th>
@@ -16211,7 +16215,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             const tdH = {height:28,minHeight:28,maxHeight:28,lineHeight:'14px',overflow:'hidden',padding:'0 4px',verticalAlign:'middle',whiteSpace:'nowrap',boxSizing:'border-box',fontSize:10};
             return (
               <tr key={i} style={{backgroundColor:i%2===0?'white':'#f8f8fc',height:28}}>
-                <td style={{...tdH,border:'1px solid #555',width:20,textAlign:'center',fontSize:9,color:i<capacity?'#000':'#ea580c'}}>{i+1}</td>
+                <td style={{...tdH,border:'1px solid #555',width:28,textAlign:'center',fontSize:9,padding:'0 2px',color:i<capacity?'#000':'#ea580c'}}>{i+1}</td>
                 <td style={{...tdH,border:'1px solid #555',fontWeight:pt?'bold':'normal',fontSize:10,textAlign:'center',textOverflow:'ellipsis'}}>
                   {pt?pt.name:''}
                 </td>
@@ -16232,9 +16236,10 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         </tbody>
       </table>
       </div>
+      )}
 
-      {/* タイムスケジュール — 1行ずつ（1ページ目のみ） */}
-      {!isCont && (
+      {/* タイムスケジュール — 1行ずつ（pageInfo の showExtras が true の場合のみ） */}
+      {_showExtras && (
       <div style={{border:'1px solid #555',borderRadius:2,overflow:'hidden',marginBottom:3}}>
         <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 6px',display:'flex',gap:8,alignItems:'center'}}>
           <span>タイムスケジュール</span>
@@ -16260,8 +16265,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
       </div>
       )}
 
-      {/* 送迎テーブル（1ページ目のみ） */}
-      {!isCont && (
+      {/* 送迎テーブル（pageInfo の showExtras が true の場合のみ） */}
+      {_showExtras && (
       <div style={{border:'1px solid #aab',borderRadius:2,marginBottom:6,overflow:'hidden'}}>
       <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 6px'}}>送迎</div>
       <table style={{width:'100%',borderCollapse:'collapse'}}>
@@ -16298,8 +16303,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
       </div>
       )}
 
-      {/* フッター（1ページ目のみ） */}
-      {!isCont && (
+      {/* フッター（pageInfo の showExtras が true の場合のみ） */}
+      {_showExtras && (
       <div style={{display:'flex',gap:4,marginTop:'auto',paddingTop:4}}>
         <div style={{flex:2,border:'1px solid #555',borderRadius:2,overflow:'hidden'}}>
           <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 8px'}}>記録者</div>
@@ -16478,23 +16483,34 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         {/* A4を96dpi換算でスケール表示 */}
         <div className="flex flex-col items-center py-8 gap-8">
           {(() => {
-            const ROWS_PER_PAGE = 15;
             const scale = Math.min(1, (window.innerWidth - 80) / 794);
             const items = [];
             printPages.forEach(ap => {
               const d = getDiaryData(ap);
               const totalRowsAp = Math.max(capacity, d.patients.length);
-              const numPages = Math.max(1, Math.ceil(totalRowsAp / ROWS_PER_PAGE));
-              for (let pidx = 0; pidx < numPages; pidx++) {
-                const start = pidx * ROWS_PER_PAGE;
-                const end = Math.min(totalRowsAp, start + ROWS_PER_PAGE);
-                items.push({ap, d, pidx, numPages, start, end});
+              const carCount = (appData.diarySettings?.cars||[]).length;
+              const FULL_THRESHOLD = carCount <= 3 ? 13 : 11;
+              const PATIENTS_ONLY_FIRST = 28;
+              const PATIENTS_ONLY_CONT = 32;
+              const apPages = [];
+              if (totalRowsAp <= FULL_THRESHOLD) {
+                apPages.push({rowStart:0, rowEnd:totalRowsAp, showStaff:true, showPatients:true, showExtras:true});
+              } else {
+                let s = 0; let first = true;
+                while (s < totalRowsAp) {
+                  const cap = first ? PATIENTS_ONLY_FIRST : PATIENTS_ONLY_CONT;
+                  const e = Math.min(totalRowsAp, s + cap);
+                  apPages.push({rowStart:s, rowEnd:e, showStaff:first, showPatients:true, showExtras:false});
+                  s = e; first = false;
+                }
+                apPages.push({rowStart:0, rowEnd:0, showStaff:false, showPatients:false, showExtras:true});
               }
+              apPages.forEach((p, pi) => items.push({ap, d, pi, numPages:apPages.length, ...p}));
             });
-            return items.map((pg) => (
-              <div key={`${pg.ap}-${pg.pidx}`}>
+            return items.map((pg, gi) => (
+              <div key={`${pg.ap}-${pg.pi}`}>
                 <div className="no-print text-white text-sm font-bold mb-2 text-center">
-                  ◆ {pg.ap}（{pg.ap==='AM'?'午前':'午後'}）{pg.numPages > 1 ? ` — ${pg.pidx+1} / ${pg.numPages} ページ` : ''}
+                  ◆ {pg.ap}（{pg.ap==='AM'?'午前':'午後'}）{pg.numPages > 1 ? ` — ${pg.pi+1} / ${pg.numPages} ページ` : ''}
                 </div>
                 <div className="diary-print-page" style={{
                   width:'794px', height:'1123px',
@@ -16505,7 +16521,11 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
                   transform:`scale(${scale})`,
                   marginBottom: `${(scale-1)*1123}px`
                 }}>
-                  <DiarySheet data={pg.d} pageInfo={{pageIndex: pg.pidx, totalPages: pg.numPages, rowStart: pg.start, rowEnd: pg.end}} />
+                  <DiarySheet data={pg.d} pageInfo={{
+                    pageIndex: pg.pi, totalPages: pg.numPages,
+                    rowStart: pg.rowStart, rowEnd: pg.rowEnd,
+                    showStaff: pg.showStaff, showPatients: pg.showPatients, showExtras: pg.showExtras
+                  }} />
                 </div>
               </div>
             ));
@@ -16705,25 +16725,50 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           5mm の安全マージンが上下左右に確保され、印刷時の左右上下見切れを防ぐ。 */}
       <div id="diary-print-content-both" style={{display:'none'}} aria-hidden="true">
         {(() => {
-          const ROWS_PER_PAGE = 15; // 1ページ目に収まる利用者行数の上限
           const pages = [];
           ['AM','PM'].forEach(ap => {
             const d = getDiaryData(ap);
             const totalRowsAp = Math.max(capacity, d.patients.length);
-            const numPages = Math.max(1, Math.ceil(totalRowsAp / ROWS_PER_PAGE));
-            for (let pidx = 0; pidx < numPages; pidx++) {
-              const start = pidx * ROWS_PER_PAGE;
-              const end = Math.min(totalRowsAp, start + ROWS_PER_PAGE);
-              pages.push({ap, d, pidx, numPages, start, end});
+            const carCount = (appData.diarySettings?.cars||[]).length;
+            // セクション混在時の利用者行数上限（フッター・送迎・タイムスケジュール込み）
+            const FULL_THRESHOLD = carCount <= 3 ? 13 : 11;
+            // 利用者のみの場合に1ページに収まる行数（担当職員あり）
+            const PATIENTS_ONLY_FIRST = 28;
+            // 利用者のみの場合に1ページに収まる行数（担当職員なし、2ページ目以降）
+            const PATIENTS_ONLY_CONT = 32;
+            const tmpl = (rowStart, rowEnd, showStaff, showPatients, showExtras) => ({ap, d, rowStart, rowEnd, showStaff, showPatients, showExtras});
+            if (totalRowsAp <= FULL_THRESHOLD) {
+              // ケース A: 全部1ページに収まる
+              pages.push(tmpl(0, totalRowsAp, true, true, true));
+            } else {
+              // ケース B/C: 2ページ以上 — 利用者を優先して埋め、タイムスケジュール/送迎は最後のページへ
+              const patientPages = [];
+              let s = 0; let first = true;
+              while (s < totalRowsAp) {
+                const cap = first ? PATIENTS_ONLY_FIRST : PATIENTS_ONLY_CONT;
+                const e = Math.min(totalRowsAp, s + cap);
+                patientPages.push({s, e, first});
+                s = e; first = false;
+              }
+              patientPages.forEach(pp => {
+                pages.push(tmpl(pp.s, pp.e, pp.first, true, false));
+              });
+              // 最後にタイムスケジュール+送迎+フッターのみのページを追加
+              pages.push(tmpl(0, 0, false, false, true));
             }
           });
+          const total = pages.length;
           return pages.map((pg, i) => (
-            <div key={`${pg.ap}-${pg.pidx}`} className="diary-page-wrap"
+            <div key={`p-${i}`} className="diary-page-wrap"
               style={{width:'210mm',height:'297mm',overflow:'hidden',
-                pageBreakAfter: i < pages.length-1 ? 'always' : 'auto',
+                pageBreakAfter: i < total-1 ? 'always' : 'auto',
                 background:'white',display:'flex',alignItems:'center',justifyContent:'center',
-                marginBottom: i < pages.length-1 ? 24 : 0}}>
-              <DiarySheet data={pg.d} pageInfo={{pageIndex: pg.pidx, totalPages: pg.numPages, rowStart: pg.start, rowEnd: pg.end}} />
+                marginBottom: i < total-1 ? 24 : 0}}>
+              <DiarySheet data={pg.d} pageInfo={{
+                pageIndex: i, totalPages: total,
+                rowStart: pg.rowStart, rowEnd: pg.rowEnd,
+                showStaff: pg.showStaff, showPatients: pg.showPatients, showExtras: pg.showExtras
+              }} />
             </div>
           ));
         })()}
