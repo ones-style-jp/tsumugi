@@ -16198,7 +16198,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             const tdH = {height:28,minHeight:28,maxHeight:28,lineHeight:'14px',overflow:'hidden',padding:'0 4px',verticalAlign:'middle',whiteSpace:'nowrap',boxSizing:'border-box',fontSize:10};
             return (
               <tr key={i} style={{backgroundColor:i%2===0?'white':'#f8f8fc',height:28}}>
-                <td style={{...tdH,border:'1px solid #555',width:20,textAlign:'center',fontSize:9,color:'#000'}}>{i<capacity?i+1:''}</td>
+                <td style={{...tdH,border:'1px solid #555',width:20,textAlign:'center',fontSize:9,color:i<capacity?'#000':'#ea580c'}}>{i+1}</td>
                 <td style={{...tdH,border:'1px solid #555',fontWeight:pt?'bold':'normal',fontSize:10,textAlign:'center',textOverflow:'ellipsis'}}>
                   {pt?pt.name:''}
                 </td>
