@@ -8541,7 +8541,7 @@ export default function App() {
             {['ticket','fitness','master','dash_personal','monitoring'].includes(currentView) && <QuickNav navigateTo={navigateTo} currentView={currentView} patientId={targetPatientId} appData={appData}/>}
             {/* 全画面で padding:0 にし、QuickNav と各ビューの sticky ツールバーの間に隙間ができないように統一 */}
             <div ref={contentRef} style={{flex:1,overflow:'auto',padding:0}}>
-            <div style={{minWidth:DESIGN_WIDTH,transformOrigin:'top left',transform:contentScale<1?`scale(${contentScale})`:'none',width:contentScale<1?`${100/contentScale}%`:'100%'}}>
+            <div style={{minWidth:DESIGN_WIDTH,transformOrigin:'top left',transform:contentScale<1?`scale(${contentScale})`:'none',width:contentScale<1?`${100/contentScale}%`:'100%',height:contentScale<1?`${100/contentScale}%`:'100%'}}>
             {currentView === 'record' ? <RecordView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={recordDirtyRef} saveFnRef={recordSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} showTip={showTip} hideTip={hideTip} isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} /> :
              currentView === 'ticket' ? <TicketView appData={appData} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  onSave={handleSaveToCloud} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={ticketDirtyRef} /> : 
              currentView === 'print' ? <ContactBookView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={printDirtyRef} sharedAmpm={sharedAmpm} /> : 
@@ -13208,31 +13208,32 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   return (
     <div className="h-full overflow-auto w-full bg-slate-200 relative">
       <style>{`@media print{@page{size:182mm 257mm;margin:0;}body,html,#root{height:auto!important;overflow:visible!important;background:white!important;}.no-print{display:none!important;}}`}</style>
-      <div className="max-w-[800px] mx-auto space-y-8 pb-32 pt-6">
-        <div className="bg-white px-4 py-3 rounded-2xl shadow-sm border border-slate-200 flex flex-row items-center gap-3 sticky top-0 z-30 flex-wrap">
-          <div className="flex items-center bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 shrink-0">
-            <CalendarCheck size={16} className="text-slate-400 mr-2" />
-            <input type="date" value={selectedDate} onChange={(e)=>{
-                  const d=new Date(e.target.value);const dow=d.getDay();
-                  const closed=(appData.systemSettings?.facilityInfo?.closedDays||[0]);
-                  if(closed.includes(dow)){alert('定休日のため選択できません。');return;}
-                  setSelectedDate(e.target.value);
-                }} className="bg-transparent text-sm font-bold outline-none cursor-pointer text-slate-700" />
-          </div>
-          <div className="bg-emerald-50 px-3 py-2 rounded-xl text-sm font-bold text-emerald-700 border border-emerald-200 flex items-center gap-1.5 shrink-0">
-            <Users size={15} /> {displayRecords.length} 名
-          </div>
-          <div className="flex-1" />
-          <button onClick={() => setIsScheduleModalOpen(true)} className="border px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0 bg-white border-slate-300 hover:bg-slate-50 text-slate-700">
-            <Clock size={16} className="mr-1.5" /> 次回予定 変更
-          </button>
-          <button onClick={() => setIsConfigOpen(true)} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0">
-            <Settings size={16} className="mr-1.5" /> 項目 設定
-          </button>
-          <button onClick={handlePrint} className="bg-slate-900 hover:bg-black text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0">
-            <Printer size={16} className="mr-1.5" /> プレビュー
-          </button>
+      {/* ツールバー: 横いっぱい・浮かさず上部に固定 */}
+      <div className="bg-white px-6 py-3 border-b border-slate-200 flex flex-row items-center gap-3 sticky top-0 z-30 flex-wrap shadow-sm">
+        <div className="flex items-center bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 shrink-0">
+          <CalendarCheck size={16} className="text-slate-400 mr-2" />
+          <input type="date" value={selectedDate} onChange={(e)=>{
+                const d=new Date(e.target.value);const dow=d.getDay();
+                const closed=(appData.systemSettings?.facilityInfo?.closedDays||[0]);
+                if(closed.includes(dow)){alert('定休日のため選択できません。');return;}
+                setSelectedDate(e.target.value);
+              }} className="bg-transparent text-sm font-bold outline-none cursor-pointer text-slate-700" />
         </div>
+        <div className="bg-emerald-50 px-3 py-2 rounded-xl text-sm font-bold text-emerald-700 border border-emerald-200 flex items-center gap-1.5 shrink-0">
+          <Users size={15} /> {displayRecords.length} 名
+        </div>
+        <div className="flex-1" />
+        <button onClick={() => setIsScheduleModalOpen(true)} className="border px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0 bg-white border-slate-300 hover:bg-slate-50 text-slate-700">
+          <Clock size={16} className="mr-1.5" /> 次回予定 変更
+        </button>
+        <button onClick={() => setIsConfigOpen(true)} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0">
+          <Settings size={16} className="mr-1.5" /> 項目 設定
+        </button>
+        <button onClick={handlePrint} className="bg-slate-900 hover:bg-black text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0">
+          <Printer size={16} className="mr-1.5" /> プレビュー
+        </button>
+      </div>
+      <div className="max-w-[800px] mx-auto space-y-8 pb-32 pt-6">
 
         {isScheduleModalOpen && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -17182,10 +17183,10 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                   <colgroup><col style={{width:36}}/><col style={{width:160}}/><col/>{!isPrintMode&&<col style={{width:260}}/>}</colgroup>
                   <thead>
                     <tr style={{background:'#0284c7',color:'white'}} className="thp">
-                      <th style={{padding:'10px 8px',textAlign:'center',width:36}}></th>
-                      <th style={{padding:'10px 14px',fontWeight:'bold',fontSize:12,textAlign:'center'}}>利用者名</th>
-                      <th style={{padding:'10px 14px',fontWeight:'bold',fontSize:12}}>モニタリング内容</th>
-                      {!isPrintMode && <th style={{padding:'10px 14px',textAlign:'center',fontWeight:'bold',fontSize:12}} className="no-print">操作</th>}
+                      <th style={{padding:'10px 8px',textAlign:'center',width:36,position:'sticky',top:0,zIndex:20,background:'#0284c7'}}></th>
+                      <th style={{padding:'10px 14px',fontWeight:'bold',fontSize:12,textAlign:'center',position:'sticky',top:0,zIndex:20,background:'#0284c7'}}>利用者名</th>
+                      <th style={{padding:'10px 14px',fontWeight:'bold',fontSize:12,position:'sticky',top:0,zIndex:20,background:'#0284c7'}}>モニタリング内容</th>
+                      {!isPrintMode && <th style={{padding:'10px 14px',textAlign:'center',fontWeight:'bold',fontSize:12,position:'sticky',top:0,zIndex:20,background:'#0284c7'}} className="no-print">操作</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -17578,11 +17579,11 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
         </div>
       </div>
 
-      {/* カレンダー */}
-      <div style={{flex:1,overflow:'auto',padding:'20px'}}>
-        <div style={{background:'white',borderRadius:14,boxShadow:'0 1px 6px rgba(0,0,0,0.08)',overflow:'hidden',border:'1px solid #e2e8f0'}}>
-          {/* 曜日ヘッダー */}
-          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',background:'#334155'}}>
+      {/* カレンダー: 曜日ヘッダーを sticky にし、ヘッダーとの間に隙間を作らない */}
+      <div style={{flex:1,overflow:'auto',padding:'0 20px 20px'}}>
+        <div style={{background:'white',borderLeft:'1px solid #e2e8f0',borderRight:'1px solid #e2e8f0',borderBottom:'1px solid #e2e8f0',borderBottomLeftRadius:14,borderBottomRightRadius:14,boxShadow:'0 1px 6px rgba(0,0,0,0.08)'}}>
+          {/* 曜日ヘッダー（スクロール時も上に固定） */}
+          <div style={{position:'sticky',top:0,zIndex:25,display:'grid',gridTemplateColumns:'repeat(7,1fr)',background:'#334155',borderTop:'1px solid #e2e8f0'}}>
             {['日','月','火','水','木','金','土'].map((d,i)=>{
               const isClosed=(appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(i);
               return (
@@ -17685,9 +17686,9 @@ function GeneralFaxView({ appData, onShowPrintPreview }) {
     <div style={{height:'100%',display:'flex',flexDirection:'column',background:'#f0f4f9'}}>
       {/* 送付状内インライン入力の視覚ヒント（hover/focus でわずかな黄背景） */}
       <style>{`.fax-inline-input{transition:background 0.15s;}.fax-inline-input:hover{background:#fef9c3 !important;}.fax-inline-input:focus{background:#fef3c7 !important;}`}</style>
-      {/* 操作バー: 利用者 / 送付件数 / マーク / プレビュー（スクロール時も上部に固定） */}
-      <div className="fax-no-print" style={{position:'sticky',top:0,zIndex:30,flexShrink:0,background:'#1e293b',color:'white',padding:'8px 16px',display:'flex',alignItems:'center',gap:14,flexWrap:'wrap'}}>
-        <span style={{fontSize:14,fontWeight:'bold',whiteSpace:'nowrap'}}>📨 各種連絡</span>
+      {/* 操作バー: 利用者 / 送付件数 / マーク / プレビュー（スクロール時も上部に固定。他画面と同じサイズに揃え） */}
+      <div className="fax-no-print" style={{position:'sticky',top:0,zIndex:30,flexShrink:0,background:'linear-gradient(135deg,#1e293b,#334155)',color:'white',padding:'12px 20px',display:'flex',alignItems:'center',gap:14,flexWrap:'wrap',boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
+        <span style={{fontSize:17,fontWeight:'bold',whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:6}}><FileText size={20}/>各種連絡</span>
         {/* 利用者 */}
         <label style={{display:'flex',alignItems:'center',gap:6,whiteSpace:'nowrap'}}>
           <span style={{fontSize:12,fontWeight:'bold',color:'#cbd5e1'}}>利用者:</span>
