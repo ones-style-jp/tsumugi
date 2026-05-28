@@ -9057,7 +9057,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
   return (
     <div className="flex flex-col h-full w-full mx-auto relative" style={{minWidth:0,overflowX:'hidden'}}>
       {!isFullscreen ? (
-      <div className="bg-white px-4 py-3 rounded-2xl shadow-sm border border-slate-200 flex flex-row items-center gap-3 flex-shrink-0 z-10 mb-4">
+      <div className="bg-white px-4 py-3 rounded-2xl shadow-sm border border-slate-200 flex flex-row items-center gap-3 flex-shrink-0 sticky top-0 z-30 mb-4">
           <div className="bg-slate-100 p-1 rounded-xl flex items-center">
               <button onClick={() => setFilterMode('single')} className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${filterMode === 'single' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>本日分</button>
               <button onClick={() => setFilterMode('month')} className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${filterMode === 'month' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>月全体</button>
@@ -12742,7 +12742,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
     <div style={{height:'100%',display:'flex',flexDirection:'column',minWidth:0}}>
       <style>{`@media print{body,html,#root{height:auto!important;overflow:visible!important;background:white!important;}.thp{display:none!important;}.tp{box-shadow:none!important;border:none!important;border-radius:0!important;margin:0!important;padding:4mm 5mm!important;page-break-after:always;}.tp:last-child{page-break-after:auto;}@page{size:A4 landscape;margin:0;}}.tp{width:297mm;height:210mm;box-sizing:border-box;}`}</style>
       {/* ヘッダー：スクロールコンテナの外 */}
-      <div className="thp bg-white px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-4 shrink-0" style={{minWidth:0}}>
+      <div className="thp bg-white px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-4 shrink-0 sticky top-0 z-30" style={{minWidth:0}}>
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <div style={{position:'relative'}}>
             <button onClick={()=>{setPatDropOpen(v=>!v);setPatSearch('');}} className="bg-slate-50 border border-slate-300 hover:border-blue-400 px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 min-w-[160px] max-w-[220px]">
@@ -16984,8 +16984,8 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 
   return (
     <div style={{height:'100%',display:'flex',flexDirection:'column',background:'#f0f4f9'}}>
-      {/* ヘッダー固定 */}
-      <div className="no-print" style={{flexShrink:0,background:'linear-gradient(135deg,#0ea5e9,#0284c7)',color:'white',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',boxShadow:'0 2px 8px rgba(0,0,0,0.15)'}}>
+      {/* ヘッダー固定（スクロール時も上部にとどまる） */}
+      <div className="no-print" style={{position:'sticky',top:0,zIndex:30,flexShrink:0,background:'linear-gradient(135deg,#0ea5e9,#0284c7)',color:'white',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',boxShadow:'0 2px 8px rgba(0,0,0,0.15)'}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <ClipboardList size={20}/>
           <span style={{fontSize:17,fontWeight:'bold'}}>モニタリング作成</span>
@@ -17351,8 +17351,8 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
 
     return (
       <div style={{height:'100%',display:'flex',flexDirection:'column',background:'#f0f4f9'}}>
-        {/* 操作バー */}
-        <div className="fax-no-print" style={{flexShrink:0,background:'#1e293b',color:'white',padding:'10px 20px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+        {/* 操作バー（スクロール時も上部に固定） */}
+        <div className="fax-no-print" style={{position:'sticky',top:0,zIndex:30,flexShrink:0,background:'#1e293b',color:'white',padding:'10px 20px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
           <button type="button" onClick={closeFax} style={{background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:13,cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>
             ← カレンダーに戻る
           </button>
@@ -17556,8 +17556,8 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
 
   return (
     <div style={{height:'100%',display:'flex',flexDirection:'column',background:'#f0f4f9'}}>
-      {/* ヘッダー */}
-      <div style={{flexShrink:0,background:'linear-gradient(135deg,#1e293b,#334155)',color:'white',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
+      {/* ヘッダー（スクロール時も上部に固定） */}
+      <div style={{position:'sticky',top:0,zIndex:30,flexShrink:0,background:'linear-gradient(135deg,#1e293b,#334155)',color:'white',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <FileText size={20}/>
           <span style={{fontSize:17,fontWeight:'bold'}}>休み連絡</span>
@@ -17684,8 +17684,8 @@ function GeneralFaxView({ appData, onShowPrintPreview }) {
     <div style={{height:'100%',display:'flex',flexDirection:'column',background:'#f0f4f9'}}>
       {/* 送付状内インライン入力の視覚ヒント（hover/focus でわずかな黄背景） */}
       <style>{`.fax-inline-input{transition:background 0.15s;}.fax-inline-input:hover{background:#fef9c3 !important;}.fax-inline-input:focus{background:#fef3c7 !important;}`}</style>
-      {/* 操作バー: 利用者 / 送付件数 / マーク / プレビュー（送付状に直接書き込めない設定はここに集約） */}
-      <div className="fax-no-print" style={{flexShrink:0,background:'#1e293b',color:'white',padding:'8px 16px',display:'flex',alignItems:'center',gap:14,flexWrap:'wrap'}}>
+      {/* 操作バー: 利用者 / 送付件数 / マーク / プレビュー（スクロール時も上部に固定） */}
+      <div className="fax-no-print" style={{position:'sticky',top:0,zIndex:30,flexShrink:0,background:'#1e293b',color:'white',padding:'8px 16px',display:'flex',alignItems:'center',gap:14,flexWrap:'wrap'}}>
         <span style={{fontSize:14,fontWeight:'bold',whiteSpace:'nowrap'}}>📨 各種連絡</span>
         {/* 利用者 */}
         <label style={{display:'flex',alignItems:'center',gap:6,whiteSpace:'nowrap'}}>
