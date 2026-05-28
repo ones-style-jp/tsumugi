@@ -14461,25 +14461,28 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               ))}
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5 bg-slate-50">{dPats.map(p => { const inf = subInfo(p); const bday = isBirthMonth(p); const expiring = isInsuranceExpiring(p); const bdayDate = bday && p.birthDate ? `${new Date(p.birthDate).getMonth()+1}/${new Date(p.birthDate).getDate()}` : null; const _age = calcAge(p.birthDate); return (<button key={p.id} onClick={() => { setEditingPatientId(p.id); onPatientChange&&onPatientChange(p.id); }} className={`w-full text-left px-2.5 py-2 rounded-lg flex items-center justify-between border gap-2 transition-all ${editingPatientId === p.id ? 'bg-blue-50 border-blue-200 shadow-sm' : expiring ? 'border-red-200 bg-red-50' : bday ? 'border-yellow-200 bg-yellow-50' : 'border-transparent hover:bg-white'}`}><div className="flex flex-col min-w-0 flex-1"><span className="font-bold text-[13px] text-slate-800 truncate flex items-center gap-1">{p.name}{bday && <><span title="今月が誕生月">👑</span>{bdayDate && <span className="text-[9px] text-yellow-600 font-bold">{bdayDate}</span>}</>}</span>{p.careLevel && <span className="text-[11px] text-blue-600 font-bold">{p.careLevel}</span>}{expiring && p.careLevelTo && <span className="text-[10px] text-red-600 font-bold">⚠ 保険更新 {p.careLevelTo.replace(/-/g,'/')}迄</span>}{patientStatusFilter === '休止' && inf.reason && <span className="text-[9px] text-orange-500 truncate mt-0.5">{inf.reason}</span>}</div>                <div className="flex flex-col items-end shrink-0 ml-1 min-w-0" style={{maxWidth:'45%'}}>
-                  {masterSort === 'startDate' && p.startDate ? (
-                    <span className="text-[11px] font-bold text-emerald-700 truncate text-right">{dTxt(dBtw(p.startDate,new Date()))}</span>
-                  ) : masterSort === 'careLevel' && p.careLevel ? (
-                    <span className="text-[11px] font-bold text-blue-700 truncate text-right">{p.careLevel}</span>
-                  ) : masterSort === 'cmOffice' ? (<>
-                    {p.cmOffice && <span className="text-[11px] font-bold text-slate-900 truncate text-right">{p.cmOffice}</span>}
-                    {p.cmName && <span className="text-[11px] font-bold text-slate-900 truncate text-right">{p.cmName}</span>}
-                  </>) : masterSort === 'bday' && p.birthDate ? (
-                    <span className="text-[11px] font-bold text-yellow-700 truncate text-right">{new Date(p.birthDate).getMonth()+1}/{new Date(p.birthDate).getDate()}</span>
-                  ) : masterSort === 'insurance' && p.careLevelTo ? (
-                    <span className="text-[11px] font-bold text-red-600 truncate text-right">{p.careLevelTo.replace(/-/g,'/')}</span>
-                  ) : masterSort === 'age' && _age !== null ? (
-                    <span className="text-[11px] font-bold text-violet-700 truncate text-right">{_age} 歳</span>
-                  ) : (<>
-                    {p.cmOffice && <span className="text-[11px] font-bold text-slate-900 truncate text-right">{p.cmOffice}</span>}
-                    {p.cmName && <span className="text-[11px] font-bold text-slate-900 truncate text-right">{p.cmName}</span>}
-                  </>)}
-                </div></button>); })}{dPats.length === 0 && <div className="text-center text-slate-400 text-[10px] font-bold py-6">該当なし</div>}</div>
+          <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5 bg-slate-50">{dPats.map(p => { const inf = subInfo(p); const bday = isBirthMonth(p); const expiring = isInsuranceExpiring(p); const bdayDate = bday && p.birthDate ? `${new Date(p.birthDate).getMonth()+1}/${new Date(p.birthDate).getDate()}` : null; const _age = calcAge(p.birthDate);
+            // 並び順による追加バッジ（事業所・ケアマネ・介護度は常に表示するので除外）
+            const _sortExtra =
+              masterSort === 'startDate' && p.startDate ? <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1 self-start mt-0.5">通所 {dTxt(dBtw(p.startDate,new Date()))}</span> :
+              masterSort === 'bday' && p.birthDate ? <span className="text-[10px] font-bold text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1 self-start mt-0.5">誕生 {new Date(p.birthDate).getMonth()+1}/{new Date(p.birthDate).getDate()}</span> :
+              masterSort === 'insurance' && p.careLevelTo ? <span className="text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 rounded px-1 self-start mt-0.5">更新 {p.careLevelTo.replace(/-/g,'/')}</span> :
+              masterSort === 'age' && _age !== null ? <span className="text-[10px] font-bold text-violet-700 bg-violet-50 border border-violet-200 rounded px-1 self-start mt-0.5">{_age} 歳</span> :
+              null;
+            return (<button key={p.id} onClick={() => { setEditingPatientId(p.id); onPatientChange&&onPatientChange(p.id); }} className={`w-full text-left px-2.5 py-2 rounded-lg flex items-center justify-between border gap-3 transition-all ${editingPatientId === p.id ? 'bg-blue-50 border-blue-200 shadow-sm' : expiring ? 'border-red-200 bg-red-50' : bday ? 'border-yellow-200 bg-yellow-50' : 'border-transparent hover:bg-white'}`}>
+              <div className="flex flex-col min-w-0 flex-1">
+                <span className="font-bold text-[13px] text-slate-800 truncate flex items-center gap-1">{p.name}{bday && <><span title="今月が誕生月">👑</span>{bdayDate && <span className="text-[9px] text-yellow-600 font-bold">{bdayDate}</span>}</>}</span>
+                {p.careLevel && <span className="text-[11px] text-blue-600 font-bold">{p.careLevel}</span>}
+                {_sortExtra}
+                {expiring && p.careLevelTo && <span className="text-[10px] text-red-600 font-bold">⚠ 保険更新 {p.careLevelTo.replace(/-/g,'/')}迄</span>}
+                {patientStatusFilter === '休止' && inf.reason && <span className="text-[9px] text-orange-500 truncate mt-0.5">{inf.reason}</span>}
+              </div>
+              {/* 事業所/ケアマネ常時表示（並び順に関わらず）。利用者名にかぶらないよう幅を絞る */}
+              <div className="flex flex-col items-end shrink-0 min-w-0" style={{maxWidth:'38%'}}>
+                {p.cmOffice && <span className="text-[10px] font-bold text-slate-900 truncate text-right w-full">{p.cmOffice}</span>}
+                {p.cmName && <span className="text-[10px] font-bold text-slate-600 truncate text-right w-full">{p.cmName}</span>}
+              </div>
+            </button>); })}{dPats.length === 0 && <div className="text-center text-slate-400 text-[10px] font-bold py-6">該当なし</div>}</div>
         </>)}
       </div>
 
