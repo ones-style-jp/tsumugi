@@ -16059,9 +16059,9 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             <div style={{fontSize:12,fontWeight:'bold',color:'#000',whiteSpace:'nowrap'}}>{_serviceTime}</div>
           </div>
         </div>
-        {/* 利用者数 + 介護度別 グループ: 残りの空白を均等に分け合う */}
+        {/* 利用者数 + 介護度別 グループ: 利用者数を広めに、介護度別を狭めに */}
         <div style={{display:'flex',gap:3,flex:'1 1 0',alignItems:'stretch',minWidth:0}}>
-          <div style={{border:'1px solid #555',borderRadius:2,overflow:'hidden',flex:'1 1 0',minWidth:0,display:'flex',flexDirection:'column'}}>
+          <div style={{border:'1px solid #555',borderRadius:2,overflow:'hidden',flex:'1.7 1 0',minWidth:0,display:'flex',flexDirection:'column'}}>
             <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 8px',textAlign:'center'}}>利用者数</div>
             <div style={{display:'flex',flex:1}}>
               {[['定員',capacity],['予定',planned],['出席',attended],['欠席',absent]].map(([l,n],li)=>(
