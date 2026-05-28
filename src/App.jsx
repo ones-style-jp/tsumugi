@@ -14539,33 +14539,50 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               {/* ① 状態・利用開始日・利用終了日 */}
               <div className="grid grid-cols-3 gap-4"><div><label className="block text-sm font-bold text-slate-600 mb-1.5">状態</label>{isResigned ? (<div className="w-full px-3 py-2.5 bg-slate-200 border border-slate-300 rounded-xl font-bold text-base text-slate-600">終了（退所済み）</div>) : (<select value={localPatient.status || "利用中"} onChange={e => handleStatusChange(e.target.value)} disabled={isOff} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none disabled:opacity-60"><option value="利用中">利用中</option><option value="休止">休止</option></select>)}</div><LabelInput label="利用開始日" type="date" disabled={isOff} value={localPatient.startDate} onChange={e => updateLP('startDate', e.target.value)} /><LabelInput label="利用終了日" type="date" disabled={isOff && !isEditingResigned} value={localPatient.endDate} onChange={e => updateLP('endDate', e.target.value)} /></div>
 
-              {/* ② 氏名・ふりがな・性別・生年月日 */}
-              <div className="grid grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-sm font-bold text-slate-600 mb-1.5">氏名</label>
-                  <input disabled={isOff} value={localPatient.name||''}
-                    onChange={e=>{let v=e.target.value.replace(/\u3000/g,' ');updateLP('name',v);}}
-                    onBlur={()=>{let v=(localPatient.name||'').replace(/\s+/g,' ').trim();updateLP('name',v);}}
-                    placeholder="山田 太郎"
-                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/>
-                  {localPatient.name&&!/\s/.test((localPatient.name||'').trim())&&(localPatient.name||'').trim().length>=3&&(
-                    <p className="text-[10px] text-amber-500 font-bold mt-0.5">⚠ 姓と名の間にスペース</p>
-                  )}
+              {/* ② 氏名（姓+名）・ふりがな（姓+名）・性別・生年月日 */}
+              {(() => {
+                // 半角スペース区切りで姓/名を分離。保存値は "姓 名" の単一文字列のまま。
+                const _splitSG = (s) => { const a=(s||'').split(/[\s　]+/).filter(Boolean); return { sn: a[0]||'', gn: a.slice(1).join(' ')||'' }; };
+                const _joinSG = (sn,gn) => { sn=(sn||'').trim(); gn=(gn||'').trim(); return sn && gn ? `${sn} ${gn}` : (sn || gn || ''); };
+                const ns = _splitSG(localPatient.name);
+                const ks = _splitSG(localPatient.kana);
+                return (
+                <div className="grid grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-600 mb-1.5">氏名（姓 / 名）</label>
+                    <div className="flex gap-2">
+                      <input disabled={isOff} value={ns.sn}
+                        onChange={e=>updateLP('name',_joinSG(e.target.value.replace(/[\s　]/g,''),ns.gn))}
+                        placeholder="山田"
+                        className="flex-1 min-w-0 px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/>
+                      <input disabled={isOff} value={ns.gn}
+                        onChange={e=>updateLP('name',_joinSG(ns.sn,e.target.value.replace(/[\s　]/g,'')))}
+                        placeholder="太郎"
+                        className="flex-1 min-w-0 px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-600 mb-1.5">ふりがな（姓 / 名）</label>
+                    <div className="flex gap-2">
+                      <input disabled={isOff} value={ks.sn}
+                        onChange={e=>updateLP('kana',_joinSG(e.target.value.replace(/[\s　]/g,''),ks.gn))}
+                        placeholder="やまだ"
+                        className="flex-1 min-w-0 px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/>
+                      <input disabled={isOff} value={ks.gn}
+                        onChange={e=>updateLP('kana',_joinSG(ks.sn,e.target.value.replace(/[\s　]/g,'')))}
+                        placeholder="たろう"
+                        className="flex-1 min-w-0 px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/>
+                    </div>
+                  </div>
+                  <div><label className="block text-sm font-bold text-slate-600 mb-1.5">性別</label><select disabled={isOff} value={localPatient.gender||""} onChange={e=>updateLP('gender',e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none disabled:opacity-60"><option value="">未選択</option><option value="男性">男性</option><option value="女性">女性</option></select></div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-600 mb-1.5">生年月日</label>
+                    <input type="date" disabled={isOff} value={localPatient.birthDate||''} onChange={e=>updateLP('birthDate',e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60"/>
+                    {localPatient.birthDate && <div className="text-[12px] text-slate-500 font-bold mt-1">{(()=>{const d=new Date(localPatient.birthDate);return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`;})()}　<span className="text-blue-600 text-[14px]">{calcAge(localPatient.birthDate)}歳</span></div>}
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-600 mb-1.5">ふりがな</label>
-                  <input disabled={isOff} value={localPatient.kana||''}
-                    onChange={e=>{let v=e.target.value.replace(/\u3000/g,' ');updateLP('kana',v);}}
-                    placeholder="やまだ たろう"
-                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/>
-                </div>
-                <div><label className="block text-sm font-bold text-slate-600 mb-1.5">性別</label><select disabled={isOff} value={localPatient.gender||""} onChange={e=>updateLP('gender',e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none disabled:opacity-60"><option value="">未選択</option><option value="男性">男性</option><option value="女性">女性</option></select></div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-600 mb-1.5">生年月日</label>
-                  <input type="date" disabled={isOff} value={localPatient.birthDate||''} onChange={e=>updateLP('birthDate',e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60"/>
-                  {localPatient.birthDate && <div className="text-[12px] text-slate-500 font-bold mt-1">{(()=>{const d=new Date(localPatient.birthDate);return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`;})()}　<span className="text-blue-600 text-[14px]">{calcAge(localPatient.birthDate)}歳</span></div>}
-                </div>
-              </div>
+                );
+              })()}
 
               {/* ③ 被保険者番号・介護度・適用期間・負担割合 */}
               <div style={{display:'grid',gridTemplateColumns:'160px 140px 1fr 120px',gap:16}}>
@@ -15536,7 +15553,23 @@ function SettingsView({ appData, onSave, dirtyRef }) {
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-4">
                 <div className="grid grid-cols-3 gap-3 mb-3">
                   <div><label className="block text-sm font-bold text-slate-600 mb-1.5">所属事業所</label><select value={newPerson.office} onChange={e => setNewPerson({...newPerson, office: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm"><option value="">選択...</option>{cmOffices.map((o,i)=><option key={i} value={o.name}>{o.name}</option>)}</select></div>
-                  <div><label className="block text-sm font-bold text-slate-600 mb-1.5">担当者名</label><input type="text" value={newPerson.name} onChange={e => setNewPerson({...newPerson, name: e.target.value})} placeholder="例: 鈴木 一郎" className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm"/></div>
+                  <div><label className="block text-sm font-bold text-slate-600 mb-1.5">担当者名（姓 / 名）</label>
+                    {(() => {
+                      const _sp=(s)=>{const a=(s||'').split(/[\s　]+/).filter(Boolean);return{sn:a[0]||'',gn:a.slice(1).join(' ')||''};};
+                      const _jn=(sn,gn)=>{sn=(sn||'').trim();gn=(gn||'').trim();return sn&&gn?`${sn} ${gn}`:(sn||gn||'');};
+                      const sp=_sp(newPerson.name);
+                      return (<div className="flex gap-2">
+                        <input type="text" value={sp.sn}
+                          onChange={e=>setNewPerson({...newPerson, name:_jn(e.target.value.replace(/[\s　]/g,''),sp.gn)})}
+                          placeholder="鈴木"
+                          className="flex-1 min-w-0 px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm"/>
+                        <input type="text" value={sp.gn}
+                          onChange={e=>setNewPerson({...newPerson, name:_jn(sp.sn,e.target.value.replace(/[\s　]/g,''))})}
+                          placeholder="一郎"
+                          className="flex-1 min-w-0 px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm"/>
+                      </div>);
+                    })()}
+                  </div>
                   <div><label className="block text-sm font-bold text-slate-600 mb-1.5">電話番号（直通）</label><input type="tel" value={newPerson.phone} onChange={e => setNewPerson({...newPerson, phone: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm"/></div>
                 </div>
                 <button type="button" onClick={() => { if(!newPerson.office||!newPerson.name){alert("事業所と担当者名を入力してください");return;} setCmPersons([...cmPersons,{...newPerson,fax:cmOffices.find(o=>o.name===newPerson.office)?.fax||""}]); setNewPerson({office:"",name:"",phone:""}); }} className="px-5 py-2 bg-slate-800 text-white rounded-lg font-bold text-sm active:scale-95 flex items-center"><Plus size={16} className="mr-1"/>追加</button>
