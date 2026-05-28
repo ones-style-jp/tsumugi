@@ -16067,7 +16067,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
               {[['定員',capacity],['予定',planned],['出席',attended],['欠席',absent]].map(([l,n],li)=>(
                 <div key={l} style={{display:'flex',alignItems:'baseline',justifyContent:'center',gap:2,padding:'4px 4px',borderLeft:li===0?'none':'1px solid #ddd',flex:'1 1 0',minWidth:0}}>
                   <span style={{fontSize:9,color:'#000',whiteSpace:'nowrap'}}>{l}</span>
-                  <span style={{fontSize:15,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.3em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{n}</span>
+                  <span style={{fontSize:12,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.3em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{n}</span>
                   <span style={{fontSize:9,color:'#000'}}>名</span>
                 </div>
               ))}
@@ -16078,12 +16078,12 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             <div style={{display:'flex',flex:1}}>
               <div style={{display:'flex',alignItems:'baseline',justifyContent:'center',gap:2,padding:'4px 4px',flex:'1 1 0',minWidth:0}}>
                 <span style={{fontSize:9,color:'#000',whiteSpace:'nowrap'}}>事対・要支援</span>
-                <span style={{fontSize:15,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.3em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{_jigyoCount}</span>
+                <span style={{fontSize:12,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.3em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{_jigyoCount}</span>
                 <span style={{fontSize:9,color:'#000'}}>名</span>
               </div>
               <div style={{display:'flex',alignItems:'baseline',justifyContent:'center',gap:2,padding:'4px 4px',borderLeft:'1px solid #ddd',flex:'1 1 0',minWidth:0}}>
                 <span style={{fontSize:9,color:'#000',whiteSpace:'nowrap'}}>要介護</span>
-                <span style={{fontSize:15,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.3em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{_kaigoCount}</span>
+                <span style={{fontSize:12,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.3em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{_kaigoCount}</span>
                 <span style={{fontSize:9,color:'#000'}}>名</span>
               </div>
             </div>
@@ -16234,10 +16234,11 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           <tbody>
             {_schedule.map((item,idx)=>(
               <tr key={item.id} style={{backgroundColor:idx%2===0?'white':'#f8f8fc'}}>
-                <td style={{border:'1px solid #dde',padding:'0 3px',fontWeight:'bold',color:'#1d4ed8',verticalAlign:'middle',textAlign:'center',lineHeight:'14px',height:14}}>
-                  <AutoFitLine style={{fontSize:9,width:'100%',textAlign:'center',lineHeight:'14px'}}>{item.time}</AutoFitLine>
+                <td style={{border:'1px solid #dde',padding:'2px 3px',fontWeight:'bold',color:'#1d4ed8',verticalAlign:'middle',textAlign:'center',lineHeight:'13px'}}>
+                  <AutoFitLine style={{fontSize:9,width:'100%',textAlign:'center',lineHeight:'13px'}}>{item.time}</AutoFitLine>
                 </td>
-                <td style={{border:'1px solid #dde',padding:'0 5px',fontSize:9,color:'#333',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',verticalAlign:'middle',lineHeight:'14px',height:14}}>{item.content}</td>
+                {/* 内容は折り返し可。長い文章は複数行になり、行幅は自動的に広がる */}
+                <td style={{border:'1px solid #dde',padding:'2px 5px',fontSize:9,color:'#333',whiteSpace:'normal',wordBreak:'break-word',overflowWrap:'anywhere',verticalAlign:'middle',lineHeight:'13px'}}>{item.content}</td>
               </tr>
             ))}
           </tbody>
