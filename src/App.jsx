@@ -16076,8 +16076,11 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           <div style={{border:'1px solid #555',borderRadius:2,overflow:'hidden',flex:'1 1 0',minWidth:0,display:'flex',flexDirection:'column'}}>
             <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 6px',textAlign:'center'}}>介護度別</div>
             <div style={{display:'flex',flex:1}}>
-              <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:2,padding:'4px 2px',flex:'1 1 0',minWidth:0,whiteSpace:'nowrap'}}>
-                <span style={{fontSize:8,color:'#000',lineHeight:1}}>事業対象・要支援</span>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:3,padding:'4px 2px',flex:'1 1 0',minWidth:0,whiteSpace:'nowrap'}}>
+                <div style={{display:'flex',flexDirection:'column',lineHeight:1.1,textAlign:'right'}}>
+                  <span style={{fontSize:8,color:'#000'}}>事業対象者</span>
+                  <span style={{fontSize:8,color:'#000'}}>要支援</span>
+                </div>
                 <span style={{fontSize:12,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.3em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{_jigyoCount}</span>
                 <span style={{fontSize:9,color:'#000',lineHeight:1}}>名</span>
               </div>
