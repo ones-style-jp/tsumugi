@@ -16052,11 +16052,11 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             <AutoFitLine style={{fontSize:12,fontWeight:'bold',width:'100%',textAlign:'center'}}>{yw}</AutoFitLine>
           </div>
         </div>
-        {/* 提供時間（少し広めの固定幅） */}
-        <div style={{border:'1px solid #555',borderRadius:2,overflow:'hidden',width:165,flexShrink:0,display:'flex',flexDirection:'column'}}>
+        {/* 提供時間（24時間表記なので AM/PM prefix は省略・幅を狭く） */}
+        <div style={{border:'1px solid #555',borderRadius:2,overflow:'hidden',width:120,flexShrink:0,display:'flex',flexDirection:'column'}}>
           <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 8px',textAlign:'center'}}>提供時間</div>
-          <div style={{padding:'6px 6px',textAlign:'center',flex:1,display:'flex',alignItems:'center',justifyContent:'center'}}>
-            <div style={{fontSize:12,fontWeight:'bold',color:'#000',whiteSpace:'nowrap'}}>{_ampm==='AM'?'午前':_ampm==='PM'?'午後':'終日'}　{_serviceTime}</div>
+          <div style={{padding:'6px 4px',textAlign:'center',flex:1,display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <div style={{fontSize:12,fontWeight:'bold',color:'#000',whiteSpace:'nowrap'}}>{_serviceTime}</div>
           </div>
         </div>
         {/* 利用者数 + 介護度別 グループ: 残りの空白を均等に分け合う */}
@@ -16065,10 +16065,10 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 8px',textAlign:'center'}}>利用者数</div>
             <div style={{display:'flex',flex:1}}>
               {[['定員',capacity],['予定',planned],['出席',attended],['欠席',absent]].map(([l,n],li)=>(
-                <div key={l} style={{display:'flex',alignItems:'baseline',justifyContent:'center',gap:1,padding:'4px 2px',borderLeft:li===0?'none':'1px solid #ddd',flex:'1 1 0',minWidth:0}}>
-                  <span style={{fontSize:8,color:'#000',whiteSpace:'nowrap'}}>{l}</span>
-                  <span style={{fontSize:13,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.2em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{n}</span>
-                  <span style={{fontSize:8,color:'#000'}}>名</span>
+                <div key={l} style={{display:'flex',alignItems:'baseline',justifyContent:'center',gap:2,padding:'4px 4px',borderLeft:li===0?'none':'1px solid #ddd',flex:'1 1 0',minWidth:0}}>
+                  <span style={{fontSize:9,color:'#000',whiteSpace:'nowrap'}}>{l}</span>
+                  <span style={{fontSize:15,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.3em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{n}</span>
+                  <span style={{fontSize:9,color:'#000'}}>名</span>
                 </div>
               ))}
             </div>
@@ -16077,14 +16077,14 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 6px',textAlign:'center'}}>介護度別</div>
             <div style={{display:'flex',flex:1}}>
               <div style={{display:'flex',alignItems:'baseline',justifyContent:'center',gap:2,padding:'4px 4px',flex:'1 1 0',minWidth:0}}>
-                <span style={{fontSize:7.5,color:'#000',whiteSpace:'nowrap'}}>事対・要支援</span>
-                <span style={{fontSize:16,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.4em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{_jigyoCount}</span>
-                <span style={{fontSize:8,color:'#000'}}>名</span>
+                <span style={{fontSize:9,color:'#000',whiteSpace:'nowrap'}}>事対・要支援</span>
+                <span style={{fontSize:15,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.3em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{_jigyoCount}</span>
+                <span style={{fontSize:9,color:'#000'}}>名</span>
               </div>
               <div style={{display:'flex',alignItems:'baseline',justifyContent:'center',gap:2,padding:'4px 4px',borderLeft:'1px solid #ddd',flex:'1 1 0',minWidth:0}}>
-                <span style={{fontSize:7.5,color:'#000',whiteSpace:'nowrap'}}>要介護</span>
-                <span style={{fontSize:16,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.4em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{_kaigoCount}</span>
-                <span style={{fontSize:8,color:'#000'}}>名</span>
+                <span style={{fontSize:9,color:'#000',whiteSpace:'nowrap'}}>要介護</span>
+                <span style={{fontSize:15,fontWeight:'bold',lineHeight:1,display:'inline-block',minWidth:'1.3em',textAlign:'center',fontVariantNumeric:'tabular-nums'}}>{_kaigoCount}</span>
+                <span style={{fontSize:9,color:'#000'}}>名</span>
               </div>
             </div>
           </div>
@@ -16234,10 +16234,10 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           <tbody>
             {_schedule.map((item,idx)=>(
               <tr key={item.id} style={{backgroundColor:idx%2===0?'white':'#f8f8fc'}}>
-                <td style={{border:'1px solid #dde',padding:'2px 3px',fontWeight:'bold',color:'#1d4ed8',verticalAlign:'middle',textAlign:'center'}}>
-                  <AutoFitLine style={{fontSize:9,width:'100%',textAlign:'center'}}>{item.time}</AutoFitLine>
+                <td style={{border:'1px solid #dde',padding:'0 3px',fontWeight:'bold',color:'#1d4ed8',verticalAlign:'middle',textAlign:'center',lineHeight:'14px',height:14}}>
+                  <AutoFitLine style={{fontSize:9,width:'100%',textAlign:'center',lineHeight:'14px'}}>{item.time}</AutoFitLine>
                 </td>
-                <td style={{border:'1px solid #dde',padding:'2px 5px',fontSize:9,color:'#333',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',verticalAlign:'middle'}}>{item.content}</td>
+                <td style={{border:'1px solid #dde',padding:'0 5px',fontSize:9,color:'#333',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',verticalAlign:'middle',lineHeight:'14px',height:14}}>{item.content}</td>
               </tr>
             ))}
           </tbody>
