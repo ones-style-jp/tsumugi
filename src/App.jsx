@@ -15292,9 +15292,9 @@ function SettingsView({ appData, onSave, dirtyRef }) {
 
   return (
     <div className="h-full overflow-hidden flex flex-col bg-slate-100">
-      {/* 上部タブナビ（横） */}
-      <div className="bg-white border-b border-slate-200 px-4 pt-3 shrink-0">
-        <div className="flex gap-1 overflow-x-auto pb-0 flex-nowrap">
+      {/* 上部タブナビ（横）+ 右側に保存ボタン */}
+      <div className="bg-white border-b border-slate-200 px-4 pt-3 shrink-0 flex items-center gap-3">
+        <div className="flex gap-1 overflow-x-auto pb-0 flex-nowrap flex-1 min-w-0">
           {tabs.map(tab => (
             <button type="button" key={tab.id} onClick={() => setActiveTab(tab.id)}
               className={`px-4 py-2 text-sm font-bold whitespace-nowrap rounded-t-xl border-b-2 transition-all ${activeTab === tab.id ? 'border-blue-600 text-blue-700 bg-blue-50' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}>
@@ -15302,10 +15302,14 @@ function SettingsView({ appData, onSave, dirtyRef }) {
             </button>
           ))}
         </div>
+        <button type="button" onClick={saveAll}
+          className="shrink-0 mb-2 px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md active:scale-95 flex items-center gap-1.5 text-sm">
+          <Save size={15}/>保存
+        </button>
       </div>
 
       {/* コンテンツ */}
-      <div className="flex-1 overflow-y-auto p-6 pb-24">
+      <div className="flex-1 overflow-y-auto p-6 pb-8">
         <div className="max-w-4xl mx-auto space-y-6 pb-6">
 
           {/* 事業所情報 */}
@@ -15521,7 +15525,7 @@ function SettingsView({ appData, onSave, dirtyRef }) {
           </>)}
 
           {/* 日誌 */}
-          {activeTab === 'diary' && <DiarySettingsPanel appData={appData} dsRef={diarySettingsRef}/>}
+          {activeTab === 'diary' && <DiarySettingsPanel appData={appData} dsRef={diarySettingsRef} markDirty={markDirty}/>}
 
           {/* 施設休業日（事業所情報タブに移動済み） */}
 
@@ -15769,27 +15773,22 @@ function SettingsView({ appData, onSave, dirtyRef }) {
 
         </div>
       </div>
-      {/* 固定保存バー */}
-      <div className="flex-shrink-0 border-t border-slate-200 bg-white px-6 py-3 flex justify-end shadow-md">
-        <button type="button" onClick={saveAll} className="px-8 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg active:scale-95 flex items-center gap-2 text-sm">
-          <Save size={16}/>保存
-        </button>
-      </div>
     </div>
   );
 }
 // === 日誌設定パネル ===
-function DiarySettingsPanel({ appData, dsRef }) {
+function DiarySettingsPanel({ appData, dsRef, markDirty }) {
   const initDs = appData.diarySettings || { staff:[], cars:[], scheduleAM:[], schedulePM:[] };
   // 初回のみrefを初期化
   React.useEffect(() => { dsRef.current = JSON.parse(JSON.stringify(initDs)); }, []);
   const [renderKey, setRenderKey] = React.useState(0);
   const ds = dsRef.current || initDs;
+  const _md = () => { if (markDirty) markDirty(); };
 
-  const mutate = (newDs) => { dsRef.current = newDs; setRenderKey(k=>k+1); };
-  const onBlurStaff = (i, field, val) => { const a=[...dsRef.current.staff]; a[i]={...a[i],[field]:val}; dsRef.current={...dsRef.current,staff:a}; };
-  const onBlurCar = (i, field, val) => { const a=[...dsRef.current.cars]; a[i]={...a[i],[field]:val}; dsRef.current={...dsRef.current,cars:a}; };
-  const onBlurSched = (ap, i, field, val) => { const k=`schedule${ap}`; const a=[...(dsRef.current[k]||[])]; a[i]={...a[i],[field]:val}; dsRef.current={...dsRef.current,[k]:a}; };
+  const mutate = (newDs) => { dsRef.current = newDs; setRenderKey(k=>k+1); _md(); };
+  const onBlurStaff = (i, field, val) => { const a=[...dsRef.current.staff]; a[i]={...a[i],[field]:val}; dsRef.current={...dsRef.current,staff:a}; _md(); };
+  const onBlurCar = (i, field, val) => { const a=[...dsRef.current.cars]; a[i]={...a[i],[field]:val}; dsRef.current={...dsRef.current,cars:a}; _md(); };
+  const onBlurSched = (ap, i, field, val) => { const k=`schedule${ap}`; const a=[...(dsRef.current[k]||[])]; a[i]={...a[i],[field]:val}; dsRef.current={...dsRef.current,[k]:a}; _md(); };
 
   const SC = ({title, children}) => (
     <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
@@ -16489,7 +16488,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
               const d = getDiaryData(ap);
               const totalRowsAp = Math.max(capacity, d.patients.length);
               const carCount = (appData.diarySettings?.cars||[]).length;
-              const FULL_THRESHOLD = carCount <= 3 ? 13 : 11;
+              const FULL_THRESHOLD = carCount <= 3 ? 17 : 14;
               const PATIENTS_ONLY_FIRST = 28;
               const PATIENTS_ONLY_CONT = 32;
               const apPages = [];
@@ -16718,7 +16717,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           {(() => {
             // 編集ビューでもページング: 利用者数が多ければ見切れず2ページ目に分割表示
             const carCount = ds.cars.length;
-            const FULL_THRESHOLD = carCount <= 3 ? 13 : 11;
+            const FULL_THRESHOLD = carCount <= 3 ? 17 : 14;
             const PATIENTS_ONLY_FIRST = 28;
             const PATIENTS_ONLY_CONT = 32;
             const pageList = [];
@@ -16753,7 +16752,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             const totalRowsAp = Math.max(capacity, d.patients.length);
             const carCount = (appData.diarySettings?.cars||[]).length;
             // セクション混在時の利用者行数上限（フッター・送迎・タイムスケジュール込み）
-            const FULL_THRESHOLD = carCount <= 3 ? 13 : 11;
+            const FULL_THRESHOLD = carCount <= 3 ? 17 : 14;
             // 利用者のみの場合に1ページに収まる行数（担当職員あり）
             const PATIENTS_ONLY_FIRST = 28;
             // 利用者のみの場合に1ページに収まる行数（担当職員なし、2ページ目以降）
