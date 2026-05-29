@@ -16714,10 +16714,32 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         </div>
       </div>
       <div id="diary-print-content">
-        <div className="flex justify-center py-8 px-4">
-          <div className="shadow-xl rounded-lg overflow-hidden border border-slate-300">
-            <DiarySheet />
-          </div>
+        <div className="flex flex-col items-center py-8 px-4 gap-8">
+          {(() => {
+            // 編集ビューでもページング: 利用者数が多ければ見切れず2ページ目に分割表示
+            const carCount = ds.cars.length;
+            const FULL_THRESHOLD = carCount <= 3 ? 13 : 11;
+            const PATIENTS_ONLY_FIRST = 28;
+            const PATIENTS_ONLY_CONT = 32;
+            const pageList = [];
+            if (totalRows <= FULL_THRESHOLD) {
+              pageList.push({rowStart:0, rowEnd:totalRows, showStaff:true, showPatients:true, showExtras:true});
+            } else {
+              let s = 0; let first = true;
+              while (s < totalRows) {
+                const cap = first ? PATIENTS_ONLY_FIRST : PATIENTS_ONLY_CONT;
+                const e = Math.min(totalRows, s + cap);
+                pageList.push({rowStart:s, rowEnd:e, showStaff:first, showPatients:true, showExtras:false});
+                s = e; first = false;
+              }
+              pageList.push({rowStart:0, rowEnd:0, showStaff:false, showPatients:false, showExtras:true});
+            }
+            return pageList.map((p, i) => (
+              <div key={i} className="shadow-xl rounded-lg overflow-hidden border border-slate-300">
+                <DiarySheet pageInfo={{pageIndex:i, totalPages:pageList.length, ...p}} />
+              </div>
+            ));
+          })()}
         </div>
       </div>{/* end diary-print-content */}
       {/* 印刷用 AM+PM 2ページの非表示コンテナ（プレビューモーダルから capture される）
