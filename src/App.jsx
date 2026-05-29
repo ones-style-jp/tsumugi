@@ -6968,6 +6968,27 @@ const initialData = {
     {"id":16147,"patientId":87,"name":"菊地 京子","kana":"きくち きょうこ","date":"3月5日","dayOfWeek":"木","status":"欠席","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"","kibunArrival":"","kibunDeparture":""},
     {"id":16148,"patientId":94,"name":"竹内 ヨシ","kana":"たけうち よし","date":"3月5日","dayOfWeek":"木","status":"振替","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"","kibunArrival":"good","kibunDeparture":"terrible"},
     {"id":16149,"patientId":97,"name":"青木 静子","kana":"あおき しずこ","date":"3月5日","dayOfWeek":"木","status":"出席","temp":"36.7","bpUpSt":"116","bpDnSt":"72","plSt":"69","bpUpEn":"111","bpDnEn":"70","plEn":"67","massage":"長谷川","exercises":{"u1":"○","u2":"○","u3":"○","u4":"○","u5":"○","u6":"○","heikobo":"10/20","fumidai":"15分","stepper":"50回"},"tokki":"","kibunArrival":"normal","kibunDeparture":"normal"},
+    {"id":16700,"patientId":11,"name":"竹内 太郎","kana":"たけうち たろう","date":"3月5日","dayOfWeek":"木","status":"振替","furikaeAmpm":"AM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16701,"patientId":12,"name":"山本 博","kana":"やまもと ひろし","date":"3月5日","dayOfWeek":"木","status":"振替","furikaeAmpm":"AM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16702,"patientId":13,"name":"田中 清","kana":"たなか きよし","date":"3月5日","dayOfWeek":"木","status":"振替","furikaeAmpm":"AM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16703,"patientId":15,"name":"井上 一郎","kana":"いのうえ いちろう","date":"3月5日","dayOfWeek":"木","status":"振替","furikaeAmpm":"AM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16704,"patientId":16,"name":"斉藤 富子","kana":"さいとう とみこ","date":"3月5日","dayOfWeek":"木","status":"振替","furikaeAmpm":"AM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16705,"patientId":18,"name":"酒井 富子","kana":"さかい とみこ","date":"3月5日","dayOfWeek":"木","status":"振替","furikaeAmpm":"AM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16706,"patientId":19,"name":"山崎 チヨ","kana":"やまざき ちよ","date":"3月5日","dayOfWeek":"木","status":"振替","furikaeAmpm":"AM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16707,"patientId":21,"name":"森 トメ","kana":"もり とめ","date":"3月5日","dayOfWeek":"木","status":"振替","furikaeAmpm":"AM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16708,"patientId":22,"name":"竹内 シゲ","kana":"たけうち しげ","date":"3月5日","dayOfWeek":"木","status":"振替","furikaeAmpm":"PM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16709,"patientId":23,"name":"小林 文子","kana":"こばやし ふみこ","date":"3月5日","dayOfWeek":"木","status":"振替","furikaeAmpm":"PM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16710,"patientId":25,"name":"菊地 ヨシ","kana":"きくち よし","date":"3月5日","dayOfWeek":"木","status":"振替","furikaeAmpm":"PM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16711,"patientId":26,"name":"清水 太郎","kana":"しみず たろう","date":"3月5日","dayOfWeek":"木","status":"振替","furikaeAmpm":"PM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16712,"patientId":28,"name":"中村 キミ","kana":"なかむら きみ","date":"3月5日","dayOfWeek":"木","status":"振替","furikaeAmpm":"PM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16713,"patientId":29,"name":"井上 功","kana":"いのうえ いさお","date":"3月5日","dayOfWeek":"木","status":"振替","furikaeAmpm":"PM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16714,"patientId":31,"name":"藤本 守","kana":"ふじもと まもる","date":"3月5日","dayOfWeek":"木","status":"振替","furikaeAmpm":"PM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16715,"patientId":32,"name":"高橋 進","kana":"たかはし すすむ","date":"3月5日","dayOfWeek":"木","status":"振替","furikaeAmpm":"PM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16716,"patientId":33,"name":"伊藤 博","kana":"いとう ひろし","date":"3月5日","dayOfWeek":"木","status":"振替","furikaeAmpm":"PM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16717,"patientId":35,"name":"森 太郎","kana":"もり たろう","date":"3月5日","dayOfWeek":"木","status":"振替","furikaeAmpm":"PM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16718,"patientId":36,"name":"伊藤 昭","kana":"いとう あきら","date":"3月5日","dayOfWeek":"木","status":"振替","furikaeAmpm":"PM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16719,"patientId":38,"name":"渡辺 シゲ","kana":"わたなべ しげ","date":"3月5日","dayOfWeek":"木","status":"振替","furikaeAmpm":"PM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+
     {"id":16150,"patientId":3,"name":"山口 康洋","kana":"やまぐち やすひろ","date":"3月6日","dayOfWeek":"金","status":"出席","temp":"36.0","bpUpSt":"119","bpDnSt":"75","plSt":"101","bpUpEn":"114","bpDnEn":"74","plEn":"98","massage":"高橋","exercises":{"u1":"○","u2":"○","u3":"○","u4":"○","u5":"○","u6":"○","heikobo":"10/20","fumidai":"15分","stepper":"50回"},"tokki":"","kibunArrival":"terrible","kibunDeparture":"normal"},
     {"id":16151,"patientId":7,"name":"小林 和夫","kana":"こばやし かずお","date":"3月6日","dayOfWeek":"金","status":"出席","temp":"37.1","bpUpSt":"126","bpDnSt":"84","plSt":"72","bpUpEn":"127","bpDnEn":"81","plEn":"76","massage":"長谷川","exercises":{"u1":"○","u2":"○","u3":"○","u4":"○","u5":"○","u6":"○","heikobo":"10/20","fumidai":"15分","stepper":"50回"},"tokki":"","kibunArrival":"good","kibunDeparture":"normal"},
     {"id":16152,"patientId":8,"name":"中村 ハルエ","kana":"なかむら はるえ","date":"3月6日","dayOfWeek":"金","status":"休止","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"","kibunArrival":"","kibunDeparture":""},
@@ -8861,7 +8882,8 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
         id: existIdx>=0 ? updatedRecords[existIdx].id : Date.now()+Math.random(),
         patientId:id, name:srcPatient?.name||'', kana:srcPatient?.kana||'',
         date:destDateStr, dayOfWeek:destDowStr,
-        status:'振替', tokki:`${srcLabel}${furikaeAmpm!=='1日'?furikaeAmpm:''}分振替`,
+        status:'振替', furikaeAmpm: furikaeAmpm,
+        tokki:`${srcLabel}${furikaeAmpm!=='1日'?furikaeAmpm:''}分振替`,
         temp:'',bpUpSt:'',bpDnSt:'',plSt:'',bpUpEn:'',bpDnEn:'',plEn:'',
         massage:'',exercises:{},actualTime:'',
         kibunArrival:'',kibunArrivalReason:'',kibunDeparture:'',kibunDepartureReason:'',done:false
@@ -14425,7 +14447,42 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   const sSt = (st, cl, hl) => { if (hl) return { t: "休業", c: "text-white bg-slate-600 font-bold" }; if (cl) return { t: "", c: "bg-slate-100" }; if (st === "〇" || st === "出席") return { t: "出席", c: "text-blue-700 font-bold bg-blue-50" }; if (st === "欠席") return { t: "欠席", c: "text-red-600 font-bold bg-red-50" }; if (st === "臨時") return { t: "臨時", c: "text-cyan-700 font-bold bg-cyan-50" }; if (typeof st === 'string' && st.startsWith("振")) { const m = st.match(/振\((.+?)\)/); return { t: m ? `振替\n(${m[1]})` : "振替", c: "text-emerald-700 font-bold bg-emerald-50 leading-tight" }; } if (st === "休業") return { t: "休業", c: "text-white font-bold bg-slate-600" }; return { t: "", c: "bg-white" }; };
   const shiftTog = (day, ap) => { if (!localPatient || isResigned) return; const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`; const dow = dO.getDay(); if ((appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow)) return; if (appData.holidays?.some(h => (h.date || h) === ds)) return; if (getPauseReasonOnDate(localPatient, ds)) return; const base = localPatient.scheduleAmPm?.[dow] || ""; const ib = base === "1日" || base === ap; const sh = appData.monthlyShifts?.[mKey]?.[localPatient.id] || {}; const cu = curSt(sh[`${day}_${ap}`], ib); let nx; if (ib) { if (cu === "〇" || cu === "出席") nx = "欠席"; else if (cu === "欠席") nx = "振替"; else if (typeof cu === 'string' && (cu === "振替" || cu.startsWith("振"))) nx = "休業"; else if (cu === "休業") nx = "空欄"; else nx = "〇"; } else { /* 非利用日: 臨時のトグル */ if (cu === "空欄" || cu === "" || !cu) nx = "臨時"; else if (cu === "臨時") nx = "空欄"; else nx = "空欄"; } if (nx === "振替") { setFurikaeModal({ isOpen: true, day, ampm: ap, fromDate: "", reason: "" }); return; } const ns2=saveSh(localPatient.id, day, ap, nx, ib, null, true); onSave({...appData, monthlyShifts:ns2}); markDirty(); };
   const saveSh = (pid, day, ap, st, ib, ex = null, noSave = true) => { let fs = st; const k = `${day}_${ap}`; if ((ib && fs === "〇") || (!ib && fs === "空欄")) fs = undefined; const ns = ex || JSON.parse(JSON.stringify(appData.monthlyShifts || {})); if (!ns[mKey]) ns[mKey] = {}; if (!ns[mKey][pid]) ns[mKey][pid] = {}; if (fs === undefined) delete ns[mKey][pid][k]; else ns[mKey][pid][k] = fs; if (!ex && !noSave) { onSave({ ...appData, monthlyShifts: ns }); markDirty(); } return ns; };
-  const subFuri = () => { let txt = "振替"; let ns = JSON.parse(JSON.stringify(appData.monthlyShifts || {})); let ur = [...(appData.ticketRecords || [])]; const destAmpm = furikaeModal.furikaeAmpm || 'AM'; if (furikaeModal.fromDate) { const fd = new Date(furikaeModal.fromDate); if (!isNaN(fd.getTime())) { txt = `振(${fd.getMonth() + 1}/${fd.getDate()})`; /* 振替先のシフトを設定 */ if (fd.getFullYear() === currentMonth.getFullYear() && fd.getMonth() === currentMonth.getMonth()) { const fDay = fd.getDate(); ns = saveSh(localPatient.id, fDay, destAmpm, `振(${currentMonth.getMonth()+1}/${furikaeModal.day})`, false, ns); } /* 振替元（今日）を欠席に */ const dO2 = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), furikaeModal.day); const base2 = localPatient.scheduleAmPm?.[dO2.getDay()] || ""; const ib2 = base2 === "1日" || base2 === furikaeModal.ampm; ns = saveSh(localPatient.id, furikaeModal.day, furikaeModal.ampm, "欠席", ib2, ns); if (furikaeModal.reason) { const tds = `${currentMonth.getMonth()+1}月${furikaeModal.day}日`; const ei = ur.findIndex(r => r.patientId === localPatient.id && r.date === tds); if (ei >= 0) ur[ei] = { ...ur[ei], tokki: furikaeModal.reason, status: "欠席" }; else ur.push({ id: Date.now() + Math.random(), patientId: localPatient.id, name: localPatient.name, kana: localPatient.kana, date: tds, dayOfWeek: dN[dO2.getDay()], status: "欠席", temp: "", bpUpSt: "", bpDnSt: "", plSt: "", bpUpEn: "", bpDnEn: "", plEn: "", massage: "", exercises: {}, tokki: furikaeModal.reason }); } } } onSave({ ...appData, monthlyShifts: ns, ticketRecords: ur }); setFurikaeModal({ isOpen: false, day: null, ampm: "", fromDate: "", reason: "" }); };
+  const subFuri = () => {
+    let ns = JSON.parse(JSON.stringify(appData.monthlyShifts || {}));
+    let ur = [...(appData.ticketRecords || [])];
+    const destAmpm = furikaeModal.furikaeAmpm || 'AM';
+    if (!furikaeModal.fromDate) return;
+    const fd = new Date(furikaeModal.fromDate);
+    if (isNaN(fd.getTime())) return;
+    const srcMonth = currentMonth.getMonth() + 1;
+    const srcDay = furikaeModal.day;
+    const srcAmpm = furikaeModal.ampm;
+    const srcLabel = `${srcMonth}月${srcDay}日`;
+    const destLabel = `${fd.getMonth() + 1}月${fd.getDate()}日`;
+    const destDow = dN[fd.getDay()];
+    // 振替先のシフトを設定
+    if (fd.getFullYear() === currentMonth.getFullYear() && fd.getMonth() === currentMonth.getMonth()) {
+      ns = saveSh(localPatient.id, fd.getDate(), destAmpm, `振(${srcMonth}/${srcDay})`, false, ns);
+    }
+    // 振替元（今日）を欠席に
+    const dO2 = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), srcDay);
+    const base2 = localPatient.scheduleAmPm?.[dO2.getDay()] || "";
+    const ib2 = base2 === "1日" || base2 === srcAmpm;
+    ns = saveSh(localPatient.id, srcDay, srcAmpm, "欠席", ib2, ns);
+    // 振替元 ticketRecord（欠席）の更新
+    const ampmSuffix = destAmpm !== '1日' ? destAmpm : '';
+    const srcTokki = `${destLabel}${ampmSuffix}へ振替${furikaeModal.reason ? '（' + furikaeModal.reason + '）' : ''}`;
+    const srcIdx = ur.findIndex(r => r.patientId === localPatient.id && r.date === srcLabel);
+    if (srcIdx >= 0) ur[srcIdx] = { ...ur[srcIdx], status: '欠席', tokki: srcTokki };
+    else ur.push({ id: Date.now() + Math.random(), patientId: localPatient.id, name: localPatient.name, kana: localPatient.kana, date: srcLabel, dayOfWeek: dN[dO2.getDay()], status: '欠席', temp: '', bpUpSt: '', bpDnSt: '', plSt: '', bpUpEn: '', bpDnEn: '', plEn: '', massage: '', exercises: {}, tokki: srcTokki });
+    // 振替先 ticketRecord（振替）の新規作成 / 更新
+    const destTokki = `${srcLabel}${ampmSuffix}分振替`;
+    const destIdx = ur.findIndex(r => r.patientId === localPatient.id && r.date === destLabel);
+    if (destIdx >= 0) ur[destIdx] = { ...ur[destIdx], status: '振替', furikaeAmpm: destAmpm, tokki: destTokki };
+    else ur.push({ id: Date.now() + Math.random() + 1, patientId: localPatient.id, name: localPatient.name, kana: localPatient.kana, date: destLabel, dayOfWeek: destDow, status: '振替', furikaeAmpm: destAmpm, tokki: destTokki, temp: '', bpUpSt: '', bpDnSt: '', plSt: '', bpUpEn: '', bpDnEn: '', plEn: '', massage: '', exercises: {} });
+    onSave({ ...appData, monthlyShifts: ns, ticketRecords: ur });
+    setFurikaeModal({ isOpen: false, day: null, ampm: "", fromDate: "", reason: "" });
+  };
   const skipFuri = () => { const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), furikaeModal.day); const base = localPatient.scheduleAmPm?.[dO.getDay()] || ""; const ib = base === "1日" || base === furikaeModal.ampm; saveSh(localPatient.id, furikaeModal.day, furikaeModal.ampm, ib ? "休業" : "〇", ib); setFurikaeModal({ isOpen: false, day: null, ampm: "", fromDate: "", reason: "" }); };
 
   const LabelInput = ({ label, disabled, value, onChange, type = "text", placeholder = "" }) => (<div><label className="block text-sm font-bold text-slate-600 mb-1.5">{label}</label><input type={type} disabled={disabled} value={value || ""} onChange={onChange} placeholder={placeholder} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none disabled:opacity-60" /></div>);
@@ -15901,9 +15958,24 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   const setCarTime = (carId,tf,v) => updateLog({ carTimes: { ...(log.carTimes||{}), [carId]: {...((log.carTimes||{})[carId]||{}),[tf]:v} }});
 
   // patients for this day/ampm
+  // 振替の場合は record.furikaeAmpm を優先（普段の曜日スケジュールに無くても表示）。
+  // furikaeAmpm が無い旧データは tokki から推定 ("...AM分振替"/"...PM分振替"/"...1日分振替")。
+  const _matchesAmpm = (r, p) => {
+    if (ampm === '1日') return true;
+    if (r.status === '振替') {
+      const fa = r.furikaeAmpm;
+      if (fa) return fa === ampm || fa === '1日';
+      if (typeof r.tokki === 'string') {
+        if (r.tokki.includes('1日分振替')) return true;
+        if (ampm === 'AM' && r.tokki.includes('AM分振替')) return true;
+        if (ampm === 'PM' && r.tokki.includes('PM分振替')) return true;
+      }
+    }
+    return [ampm,'1日'].includes(p.scheduleAmPm?.[dow]);
+  };
   const patients = (appData.ticketRecords||[])
     .filter(r=>r.date===dateStr)
-    .filter(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId); if(!p) return false; if(ampm==='1日') return true; return [ampm,'1日'].includes(p.scheduleAmPm?.[dow]); })
+    .filter(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId); if(!p) return false; return _matchesAmpm(r, p); })
     .map(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId)||{}; return {id:r.id,name:p.name||r.name||'',careLevel:p.careLevel||'',tokki:r.tokki||'',status:r.status}; });
 
   // 各種設定の定員数 (capacity) を基準にしつつ、実際の出席者 (振替含む) が
@@ -16009,9 +16081,22 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   };
 
   const getDiaryData = (ap) => {
+    // 振替記録は furikaeAmpm を優先（旧データは tokki から推定）
+    const _match = (r, p) => {
+      if (r.status === '振替') {
+        const fa = r.furikaeAmpm;
+        if (fa) return fa === ap || fa === '1日';
+        if (typeof r.tokki === 'string') {
+          if (r.tokki.includes('1日分振替')) return true;
+          if (ap === 'AM' && r.tokki.includes('AM分振替')) return true;
+          if (ap === 'PM' && r.tokki.includes('PM分振替')) return true;
+        }
+      }
+      return [ap,'1日'].includes(p.scheduleAmPm?.[dow]);
+    };
     const _patients = (appData.ticketRecords||[])
       .filter(r=>r.date===dateStr)
-      .filter(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId); if(!p) return false; return [ap,'1日'].includes(p.scheduleAmPm?.[dow]); })
+      .filter(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId); if(!p) return false; return _match(r, p); })
       .map(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId)||{}; return {id:r.id,name:p.name||r.name||'',careLevel:p.careLevel||'',tokki:r.tokki||'',status:r.status}; });
     const _serviceTime = ap==='AM' ? (fi.serviceTimeAM||'9:00〜12:05') : (fi.serviceTimePM||'13:25〜16:30');
     const _schedule = ap==='AM' ? (ds.scheduleAM||[]) : (ds.schedulePM||[]);
