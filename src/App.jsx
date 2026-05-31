@@ -16122,6 +16122,13 @@ function SettingsView({ appData, onSave, dirtyRef }) {
   );
 }
 // === 日誌設定パネル ===
+// セクションカード（DiarySettingsPanel 外で定義し、再レンダリングで再生成されないように）
+const _DSPSection = ({title, children}) => (
+  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+    <h3 className="text-base font-bold text-slate-800 mb-4 border-b border-slate-200 pb-2">{title}</h3>
+    {children}
+  </div>
+);
 function DiarySettingsPanel({ appData, dsRef, markDirty }) {
   const initDs = appData.diarySettings || { staff:[], cars:[], scheduleAM:[], schedulePM:[] };
   // 初回のみrefを初期化
@@ -16135,12 +16142,7 @@ function DiarySettingsPanel({ appData, dsRef, markDirty }) {
   const onBlurCar = (i, field, val) => { const a=[...dsRef.current.cars]; a[i]={...a[i],[field]:val}; dsRef.current={...dsRef.current,cars:a}; _md(); };
   const onBlurSched = (ap, i, field, val) => { const k=`schedule${ap}`; const a=[...(dsRef.current[k]||[])]; a[i]={...a[i],[field]:val}; dsRef.current={...dsRef.current,[k]:a}; _md(); };
 
-  const SC = ({title, children}) => (
-    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-      <h3 className="text-base font-bold text-slate-800 mb-4 border-b border-slate-200 pb-2">{title}</h3>
-      {children}
-    </div>
-  );
+  const SC = _DSPSection;
   return (
     <div className="space-y-6">
       <SC title="担当職員">
@@ -16201,7 +16203,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   const [carAssignSelections, setCarAssignSelections] = useState({}); // patIdx 
   const [tempModal, setTempModal] = useState(null); // {staffId, staffName, value}
   const [addStaffModal, setAddStaffModal] = useState(false);
-  const [newStaff, setNewStaff] = useState({role:'介護職員', name:''});
+  const [newStaff, setNewStaff] = useState({role:'介護職員', name:'', ampm:'both'});
   const nameInputRef = React.useRef(null);
 
   // 過去日付の編集ロック: 当日(local)より過去の selectedDate は読み取り専用 + 編集ボタンで一時解除
@@ -16298,11 +16300,17 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   const managerName = (ds.staff.find(s=>s.role==='管理者')?.name || fi.manager || '管理者');
 
   // Staff grouped - manager first
-  const managers  = ds.staff.filter(s=>s.role==='管理者');
-  const seikatsu  = ds.staff.filter(s=>s.role==='生活相談員');
-  const kinou     = ds.staff.filter(s=>s.role==='機能訓練指導員');
-  const kaigo     = ds.staff.filter(s=>s.role==='介護職員');
-  const kangoFu   = ds.staff.filter(s=>s.role==='看護師');
+  // 担当職員フィルタ: ampm フィールドが当日の AM/PM に合致 or 'both' or 未定義 のものを表示
+  const _staffOk = (s) => {
+    if (!s.ampm || s.ampm === 'both') return true;
+    if (ampm === '1日') return true;
+    return s.ampm === ampm;
+  };
+  const managers  = ds.staff.filter(s=>s.role==='管理者' && _staffOk(s));
+  const seikatsu  = ds.staff.filter(s=>s.role==='生活相談員' && _staffOk(s));
+  const kinou     = ds.staff.filter(s=>s.role==='機能訓練指導員' && _staffOk(s));
+  const kaigo     = ds.staff.filter(s=>s.role==='介護職員' && _staffOk(s));
+  const kangoFu   = ds.staff.filter(s=>s.role==='看護師' && _staffOk(s));
 
   // Time keypad helpers
   const openTimeKeypad = (carId, field, curVal) => { setTimeKeypad({carId,field}); setTimeInput(curVal||''); };
@@ -16378,11 +16386,11 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   const addStaffMember = () => {
     const nameVal = (nameInputRef.current?.value || newStaff.name).trim();
     if (!nameVal) return;
-    const staffEntry = { id: `s${Date.now()}`, name: nameVal, role: newStaff.role };
+    const staffEntry = { id: `s${Date.now()}`, name: nameVal, role: newStaff.role, ampm: newStaff.ampm || 'both' };
     const updated = { ...appData, diarySettings: { ...ds, staff: [...ds.staff, staffEntry] } };
     onSave(updated);
     setAddStaffModal(false);
-    setNewStaff({ role: '介護職員', name: '' });
+    setNewStaff({ role: '介護職員', name: '', ampm: 'both' });
   };
 
   const getDiaryData = (ap) => {
@@ -16438,10 +16446,26 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     const _showStaff = pi.showStaff !== false;
     const _showPatients = pi.showPatients !== false;
     const _showExtras = pi.showExtras !== false;
-    // 利用者数が多い／送迎車多い時はコンパクト化（17名+3台でも1ページに収まるように行高さを縮める）
-    const _compact = _totalRows >= 13 || (ds.cars||[]).length >= 3;
-    const _patientRowH = _compact ? 24 : 28;
-    const _carRowH = _compact ? 32 : 40;
+    // 利用者行高さを動的決定：少ない時はゆとりを持って大きく、多い時はコンパクトに
+    //  - 余白(下部)は 利用者2名 + 送迎車1台 分くらい残るように調整
+    const _carCount = (ds.cars||[]).length;
+    const _patientRowH = (() => {
+      // 基準: 10名以下=36, 13名以下=32, 15名以下=28, 17名以下=26, それ以上=24
+      let h = _totalRows <= 10 ? 36
+            : _totalRows <= 13 ? 32
+            : _totalRows <= 15 ? 28
+            : _totalRows <= 17 ? 26
+            : 24;
+      // 送迎車多い／スケジュール多い時は若干縮める
+      if (_carCount >= 4) h -= 2;
+      if ((_schedule?.length || 0) > 10) h -= 2;
+      return Math.max(22, h);
+    })();
+    const _carRowH = _totalRows >= 13 || _carCount >= 3 ? 32 : 40;
+    const _compact = _patientRowH <= 26;  // 縮小モード判定
+    // 利用者名フォントサイズ: 行高さに連動
+    const _nameFontSize = _patientRowH >= 34 ? 13 : _patientRowH >= 30 ? 12 : _patientRowH >= 26 ? 11 : 10;
+    const _statusFontSize = _patientRowH >= 30 ? 11 : _patientRowH >= 26 ? 10 : 9;
     return (
     <div style={{width:'200mm',minWidth:'200mm',height:'287mm',minHeight:'287mm',backgroundColor:'white',fontFamily:'sans-serif',padding:'10px 6px',boxSizing:'border-box',display:'flex',flexDirection:'column',margin:'0 auto'}}>
       {/* タイトル行 */}
@@ -16503,47 +16527,6 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           </div>
         </div>
       </div>
-
-      {/* 担当者追加モーダル */}
-      {addStaffModal && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}}>
-          <div style={{background:'white',borderRadius:16,padding:24,width:300,boxShadow:'0 8px 32px rgba(0,0,0,0.2)'}}>
-            <div style={{fontWeight:'bold',fontSize:16,marginBottom:16}}>担当者を追加</div>
-            <div style={{marginBottom:12}}>
-              <div style={{fontSize:12,fontWeight:'bold',color:'#000',marginBottom:4}}>役職</div>
-              <select value={newStaff.role} onChange={e=>setNewStaff({...newStaff,role:e.target.value})}
-                style={{width:'100%',padding:'8px 12px',border:'1px solid #ddd',borderRadius:8,fontSize:14,fontWeight:'bold',outline:'none'}}>
-                {['管理者','生活相談員','機能訓練指導員','看護師','介護職員'].map(r=>(
-                  <option key={r} value={r}>{r}</option>
-                ))}
-              </select>
-            </div>
-            <div style={{marginBottom:20}}>
-              <div style={{fontSize:12,fontWeight:'bold',color:'#000',marginBottom:4}}>名前</div>
-              <input type="text" ref={nameInputRef}
-                defaultValue=""
-                placeholder="名前を入力"
-                style={{width:'100%',padding:'8px 12px',border:'1px solid #ddd',borderRadius:8,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
-            </div>
-            {ds.staff.filter(s=>s.name&&!s.id.startsWith('ds')).length > 0 && (
-              <div style={{marginBottom:16,maxHeight:120,overflowY:'auto',border:'1px solid #eee',borderRadius:8,padding:'4px 0'}}>
-                <div style={{fontSize:11,fontWeight:'bold',color:'#888',padding:'4px 10px 2px'}}>追加済み（削除可）</div>
-                {ds.staff.filter(s=>s.name&&!s.id.startsWith('ds')).map(s=>(
-                  <div key={s.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'4px 10px',fontSize:12}}>
-                    <span style={{fontWeight:'bold',color:'#000',marginRight:8}}>{s.role}</span>
-                    <span style={{flex:1,fontWeight:'bold'}}>{s.name}</span>
-                    <button onClick={()=>deleteStaffMember(s.id)} style={{padding:'2px 8px',borderRadius:6,border:'1px solid #fca5a5',background:'#fef2f2',color:'#dc2626',fontSize:11,fontWeight:'bold',cursor:'pointer'}}>削除</button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div style={{display:'flex',gap:8}}>
-              <button onClick={()=>setAddStaffModal(false)} style={{flex:1,padding:'10px',borderRadius:8,border:'1px solid #ddd',background:'#f1f5f9',fontWeight:'bold',cursor:'pointer'}}>閉じる</button>
-              <button onClick={addStaffMember} style={{flex:1,padding:'10px',borderRadius:8,border:'none',background:'#2563eb',color:'white',fontWeight:'bold',cursor:'pointer'}}>追加</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* 担当職員 — 横一列ボックス（pageInfo の showStaff が true の場合のみ） */}
       {_showStaff && (
@@ -16611,18 +16594,19 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
               const sel = getSelectedCar(prefix);
               return <div style={{fontSize:8,textAlign:'center',color:sel?'#1d4ed8':'#bbb',fontWeight:sel?'bold':'normal',lineHeight:_compact?'16px':'20px'}}>{sel||'—'}</div>;
             };
-            const tdH = {height:_patientRowH,minHeight:_patientRowH,maxHeight:_patientRowH,lineHeight:_compact?'12px':'14px',overflow:'hidden',padding:'0 4px',verticalAlign:'middle',whiteSpace:'nowrap',boxSizing:'border-box',fontSize:10};
+            const _lineH = Math.max(12, _patientRowH - 12);
+            const tdH = {height:_patientRowH,minHeight:_patientRowH,maxHeight:_patientRowH,lineHeight:`${_lineH}px`,overflow:'hidden',padding:'0 4px',verticalAlign:'middle',whiteSpace:'nowrap',boxSizing:'border-box',fontSize:_nameFontSize};
             return (
               <tr key={i} style={{backgroundColor:i%2===0?'white':'#f8f8fc',height:_patientRowH}}>
-                <td style={{...tdH,border:'1px solid #555',width:28,textAlign:'center',fontSize:9,padding:'0 2px',color:i<capacity?'#000':'#ea580c'}}>{i+1}</td>
-                <td style={{...tdH,border:'1px solid #555',fontWeight:pt?'bold':'normal',fontSize:10,textAlign:'center',textOverflow:'ellipsis'}}>
+                <td style={{...tdH,border:'1px solid #555',width:28,textAlign:'center',fontSize:_statusFontSize,padding:'0 2px',color:i<capacity?'#000':'#ea580c'}}>{i+1}</td>
+                <td style={{...tdH,border:'1px solid #555',fontWeight:pt?'bold':'normal',fontSize:_nameFontSize,textAlign:'center',textOverflow:'ellipsis'}}>
                   {pt?pt.name:''}
                 </td>
-                <td style={{...tdH,border:'1px solid #555',width:32,textAlign:'center',fontSize:10}}>
+                <td style={{...tdH,border:'1px solid #555',width:32,textAlign:'center',fontSize:_statusFontSize}}>
                   {pt?abbrCare(pt.careLevel):''}
                 </td>
                 <td style={{...tdH,border:'1px solid #555',width:32,textAlign:'center'}}>
-                  <span style={{fontSize:9,fontWeight:'bold',color:statusColor,lineHeight:'24px'}}>{statusLabel}</span>
+                  <span style={{fontSize:_statusFontSize,fontWeight:'bold',color:statusColor}}>{statusLabel}</span>
                 </td>
                 {(() => {
                   // 様子・欠席理由 cell: 長文の場合は折り返し + 自動縮小（2行→さらに縮小）
@@ -16961,6 +16945,59 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
       `}</style>
       <TimeKeypadModal />
       <CarAssignModal />
+      {/* 担当者追加モーダル（DailyLogView 直下に配置し、ページング複数 DiarySheet による多重マウントを回避） */}
+      {addStaffModal && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <div style={{background:'white',borderRadius:16,padding:24,width:340,boxShadow:'0 8px 32px rgba(0,0,0,0.2)'}}>
+            <div style={{fontWeight:'bold',fontSize:16,marginBottom:16}}>担当者を追加</div>
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:12,fontWeight:'bold',color:'#000',marginBottom:4}}>役職</div>
+              <select value={newStaff.role} onChange={e=>setNewStaff({...newStaff,role:e.target.value})}
+                style={{width:'100%',padding:'8px 12px',border:'1px solid #ddd',borderRadius:8,fontSize:14,fontWeight:'bold',outline:'none'}}>
+                {['管理者','生活相談員','機能訓練指導員','看護師','介護職員'].map(r=>(
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:12,fontWeight:'bold',color:'#000',marginBottom:4}}>担当する時間帯</div>
+              <div style={{display:'flex',gap:6}}>
+                {[['AM','AM のみ'],['PM','PM のみ'],['both','両方']].map(([val,label])=>(
+                  <button key={val} type="button" onClick={()=>setNewStaff({...newStaff,ampm:val})}
+                    style={{flex:1,padding:'8px 4px',borderRadius:8,border:'1px solid',borderColor:(newStaff.ampm||'both')===val?'#2563eb':'#ddd',background:(newStaff.ampm||'both')===val?'#2563eb':'#f8fafc',color:(newStaff.ampm||'both')===val?'white':'#475569',fontSize:12,fontWeight:'bold',cursor:'pointer'}}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={{marginBottom:20}}>
+              <div style={{fontSize:12,fontWeight:'bold',color:'#000',marginBottom:4}}>名前</div>
+              <input type="text" ref={nameInputRef} defaultValue="" placeholder="名前を入力"
+                style={{width:'100%',padding:'8px 12px',border:'1px solid #ddd',borderRadius:8,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
+            </div>
+            {ds.staff.filter(s=>s.name&&!s.id.startsWith('ds')).length > 0 && (
+              <div style={{marginBottom:16,maxHeight:140,overflowY:'auto',border:'1px solid #eee',borderRadius:8,padding:'4px 0'}}>
+                <div style={{fontSize:11,fontWeight:'bold',color:'#888',padding:'4px 10px 2px'}}>追加済み（削除可）</div>
+                {ds.staff.filter(s=>s.name&&!s.id.startsWith('ds')).map(s=>{
+                  const apLbl = (!s.ampm || s.ampm==='both') ? '両方' : s.ampm;
+                  return (
+                    <div key={s.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'4px 10px',fontSize:12,gap:4}}>
+                      <span style={{fontWeight:'bold',color:'#000'}}>{s.role}</span>
+                      <span style={{flex:1,fontWeight:'bold'}}>{s.name}</span>
+                      <span style={{fontSize:10,fontWeight:'bold',background:'#e0f2fe',color:'#0369a1',padding:'1px 6px',borderRadius:4}}>{apLbl}</span>
+                      <button onClick={()=>deleteStaffMember(s.id)} style={{padding:'2px 8px',borderRadius:6,border:'1px solid #fca5a5',background:'#fef2f2',color:'#dc2626',fontSize:11,fontWeight:'bold',cursor:'pointer'}}>削除</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={()=>setAddStaffModal(false)} style={{flex:1,padding:'10px',borderRadius:8,border:'1px solid #ddd',background:'#f1f5f9',fontWeight:'bold',cursor:'pointer'}}>閉じる</button>
+              <button onClick={addStaffMember} style={{flex:1,padding:'10px',borderRadius:8,border:'none',background:'#2563eb',color:'white',fontWeight:'bold',cursor:'pointer'}}>追加</button>
+            </div>
+          </div>
+        </div>
+      )}
       {tempModal && (() => {
         const formatTemp = (raw) => {
           const digits = raw.replace(/\D/g,'');
