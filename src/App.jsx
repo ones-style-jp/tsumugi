@@ -8794,14 +8794,14 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
          }
          const pauseInfo = getPauseReasonOnDate(p, selectedDate);
          if (pauseInfo) {
-             pData.status = "欠席"; 
+             pData.status = "休止"; // 一時停止中は休止表記。カウント上は欠席扱い
              pData.tokki = `${pauseInfo.reason}（${pauseInfo.fromDate.replace(/-/g,'/')}〜）`;
          }
          return pData;
       })
       .sort((a, b) => {
-         // 出席 → 振替 → その他（欠席・休業・休止）の順
-         const rank = (s) => s === '出席' ? 0 : s === '振替' ? 1 : 2;
+         // 出席 → 振替 → 欠席 → 休止 → 休業 → その他
+         const rank = (s) => s === '出席' ? 0 : s === '振替' ? 1 : s === '欠席' ? 2 : s === '休止' ? 3 : s === '休業' ? 4 : 5;
          return rank(a.status) - rank(b.status);
       });
     setLocalPatients(filtered);
@@ -9181,10 +9181,12 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                   if(closed.includes(dow)){alert('定休日のため選択できません。');return;}
                   setSelectedDate(e.target.value);
                 }} className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold outline-none cursor-pointer text-slate-700" />
-                  <select value={timeFilter} onChange={e => setTimeFilter(e.target.value)} className="text-center bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold outline-none cursor-pointer text-slate-700">
-                      <option value="AM">AM</option>
-                      <option value="PM">PM</option>
-                  </select>
+                  <div className="flex rounded-xl overflow-hidden border border-slate-300">
+                    {['AM','PM'].map(v=>(
+                      <button key={v} type="button" onClick={()=>setTimeFilter(v)}
+                        className={`px-5 py-2 text-sm font-bold transition-all ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-50'}`}>{v}</button>
+                    ))}
+                  </div>
               </div>
             )}
             {filterMode === 'month' && (
@@ -14268,9 +14270,18 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [activeDetailTab, setActiveDetailTab] = useState('basic');
   const [isEditingResigned, setIsEditingResigned] = useState(false);
-  const [furikaeModal, setFurikaeModal] = useState({ isOpen: false, day: null, ampm: null, fromDate: "", reason: "" });
+  const [furikaeModal, setFurikaeModal] = useState({ isOpen: false, day: null, ampm: null, fromDate: "", reason: "", mode: 'forward' });
   // 月間スケジュールセルクリック時の状態選択ポップアップ
   const [shiftStatusModal, setShiftStatusModal] = useState({ isOpen: false, day: null, ap: null, currentStatus: '', isBase: false });
+  // 月間スケジュールの保留変更: 自動保存しないために draft 状態に格納する
+  const [pendingShifts, setPendingShifts] = useState(null);
+  const [pendingTickets, setPendingTickets] = useState(null);
+  const effShifts = pendingShifts ?? (appData.monthlyShifts || {});
+  const effTickets = pendingTickets ?? (appData.ticketRecords || []);
+  React.useEffect(() => {
+    // 利用者を切り替えたら保留変更は破棄せず（同一appDataなので継続）。
+    // 月を切り替えたら保留はクリアして混乱を避ける。
+  }, []);
   const [schedModal, setSchedModal] = useState(null); // {dayIndex, newVal, oldVal, applyFrom}
   const [keypad, setKeypad] = useState({ isOpen: false, field: null, exerciseId: null, value: "", isFirstInput: false, mode: 'exercise' });
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -16200,8 +16211,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     }
     return [ampm,'1日'].includes(p.scheduleAmPm?.[dow]);
   };
-  // ソート: 出席 → 振替 → 欠席系（欠席・休業・休止）の順
-  const _statusRank = (st) => st === '出席' ? 0 : st === '振替' ? 1 : 2;
+  // ソート: 出席 → 振替 → 欠席 → 休止 → 休業 → その他
+  const _statusRank = (st) => st === '出席' ? 0 : st === '振替' ? 1 : st === '欠席' ? 2 : st === '休止' ? 3 : st === '休業' ? 4 : 5;
   const patients = (appData.ticketRecords||[])
     .filter(r=>r.date===dateStr)
     .filter(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId); if(!p) return false; return _matchesAmpm(r, p); })
@@ -16211,9 +16222,9 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   // 各種設定の定員数 (capacity) を基準にしつつ、欠席を含む全員が必ず表示されるよう
   // totalRows は patients.length と capacity の max を採用
   const attended = patients.filter(r=>r.status==='出席').length;
-  const absent   = patients.filter(r=>r.status==='欠席'||r.status==='休業').length;
+  const absent   = patients.filter(r=>r.status==='欠席'||r.status==='休業'||r.status==='休止').length; // 休止も欠席扱い
   const planned  = patients.length;
-  const actualAttendees = patients.filter(r=>r.status!=='欠席'&&r.status!=='休業').length; // 出席 + 振替
+  const actualAttendees = patients.filter(r=>r.status!=='欠席'&&r.status!=='休業'&&r.status!=='休止').length; // 出席 + 振替
   const totalRows = Math.max(capacity, patients.length);
   const jigyoCount = patients.filter(r=>r.careLevel&&(r.careLevel.startsWith('事業')||r.careLevel.startsWith('要支援'))).length;
   const kaigoCount = patients.filter(r=>r.careLevel&&r.careLevel.startsWith('要介護')).length;
@@ -16329,7 +16340,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
       }
       return [ap,'1日'].includes(p.scheduleAmPm?.[dow]);
     };
-    const _rankS = (st) => st === '出席' ? 0 : st === '振替' ? 1 : 2;
+    const _rankS = (st) => st === '出席' ? 0 : st === '振替' ? 1 : st === '欠席' ? 2 : st === '休止' ? 3 : st === '休業' ? 4 : 5;
     const _patients = (appData.ticketRecords||[])
       .filter(r=>r.date===dateStr)
       .filter(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId); if(!p) return false; return _match(r, p); })
