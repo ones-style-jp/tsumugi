@@ -8829,6 +8829,9 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
   };
 
   const [statusModal, setStatusModal] = useState({ isOpen: false, id: null, status: '', reason: '', furikaeDate: '', substituteReason: '', furikaeAmpm: 'AM' });
+  // 振替の取り消し（保留）: 保存ボタン押下時にまとめて反映するために情報を貯めておく
+  const [pendingCancellations, setPendingCancellations] = useState([]);
+  React.useEffect(() => { setPendingCancellations([]); }, [selectedDate]);
 
   const handleStatusChange = (id, newStatus) => {
     if (newStatus === '取り消し') {
@@ -8842,10 +8845,13 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
     applyStatusChange(id, newStatus, '', '', '', 'AM');
   };
 
-  // 振替の「取り消し」:
-  //  - 振替先 ticketRecord（status=振替）を削除し、画面の枠からも消す
-  //  - 振替元 ticketRecord(status=欠席)の tokki から「○月○日へ振替」表記を取り除き、理由のみ残す
-  //  - monthlyShifts: 振替先の 振(M/D) を削除（元の欠席はそのまま）
+  // 振替の「取り消し」（保留）:
+  //  - 画面上は localPatients から外して枠から消す（即時反映）
+  //  - 実際の appData 更新は保存ボタン押下まで遅延（pendingCancellations に貯める）
+  //  - 保存時:
+  //    - 振替先 ticketRecord（status=振替）を削除
+  //    - 振替元 ticketRecord(status=欠席)の tokki から「○月○日へ振替」表記を取り除き、理由のみ残す
+  //    - monthlyShifts: 振替先の 振(M/D) を削除（元の欠席はそのまま）
   const cancelFurikae = (id) => {
     const dObj = new Date(selectedDate);
     const destDateStr = `${dObj.getMonth()+1}月${dObj.getDate()}日`;
@@ -8856,37 +8862,17 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
     const tokki = destRec.tokki || '';
     const m = tokki.match(/^(\d+月\d+日)(?:AM|PM|1日)?分振替$/);
     if (m) srcDateStr = m[1];
-    // 振替先 record を削除
-    let updated = (appData.ticketRecords||[]).filter(r => !(r.patientId === id && r.date === destDateStr && r.status === '振替'));
-    // 振替元の tokki を「理由のみ」に整える
-    if (srcDateStr) {
-      updated = updated.map(r => {
-        if (r.patientId === id && r.date === srcDateStr && r.status === '欠席') {
-          const t = r.tokki || '';
-          const subM = t.match(/^\d+月\d+日(?:AM|PM|1日)?へ振替(?:（(.+)）)?$/);
-          const cleaned = subM ? (subM[1] || '') : t;
-          return { ...r, tokki: cleaned };
-        }
-        return r;
-      });
-    }
-    // monthlyShifts: 振替先の 振(M/D) を削除
-    const newShifts = JSON.parse(JSON.stringify(appData.monthlyShifts || {}));
-    const destMK = `${dObj.getFullYear()}-${String(dObj.getMonth()+1).padStart(2,'0')}`;
-    const destDay = dObj.getDate();
-    const destAmpm = destRec.furikaeAmpm || 'AM';
-    if (newShifts[destMK]?.[id]) {
-      if (destAmpm === '1日') {
-        delete newShifts[destMK][id][`${destDay}_AM`];
-        delete newShifts[destMK][id][`${destDay}_PM`];
-      } else {
-        delete newShifts[destMK][id][`${destDay}_${destAmpm}`];
-      }
-    }
-    onSave({ ...appData, ticketRecords: updated, monthlyShifts: newShifts });
+    setPendingCancellations(prev => [...prev, {
+      patientId: id,
+      destDateStr,
+      destDay: dObj.getDate(),
+      destMK: `${dObj.getFullYear()}-${String(dObj.getMonth()+1).padStart(2,'0')}`,
+      destAmpm: destRec.furikaeAmpm || 'AM',
+      srcDateStr
+    }]);
     // localPatients からも該当患者を取り除き（振替先のスケジュールがなくなったので枠から消す）
     setLocalPatients(prev => prev.filter(p => p.id !== id));
-    if (dirtyRef) dirtyRef.current = false;
+    if (dirtyRef) dirtyRef.current = true; // 保存ボタンで反映してもらう
   };
 
   const applyStatusChange = (id, newStatus, reason, furikaeDate, substituteReason, furikaeAmpm='AM') => {
@@ -9067,11 +9053,37 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
 
   const handleSaveClick = () => {
       let updatedTicketRecords = [...(appData.ticketRecords || [])];
+      let newShifts = JSON.parse(JSON.stringify(appData.monthlyShifts || {}));
+      // 振替の取り消し（保留分）を先に反映
+      pendingCancellations.forEach(({patientId, destDateStr, destDay, destMK, destAmpm, srcDateStr}) => {
+          updatedTicketRecords = updatedTicketRecords.filter(r => !(r.patientId === patientId && r.date === destDateStr && r.status === '振替'));
+          if (srcDateStr) {
+              updatedTicketRecords = updatedTicketRecords.map(r => {
+                  if (r.patientId === patientId && r.date === srcDateStr && r.status === '欠席') {
+                      const t = r.tokki || '';
+                      const subM = t.match(/^\d+月\d+日(?:AM|PM|1日)?へ振替(?:（(.+)）)?$/);
+                      const cleaned = subM ? (subM[1] || '') : t;
+                      return { ...r, tokki: cleaned };
+                  }
+                  return r;
+              });
+          }
+          if (newShifts[destMK]?.[patientId]) {
+              if (destAmpm === '1日') {
+                  delete newShifts[destMK][patientId][`${destDay}_AM`];
+                  delete newShifts[destMK][patientId][`${destDay}_PM`];
+              } else {
+                  delete newShifts[destMK][patientId][`${destDay}_${destAmpm}`];
+              }
+          }
+      });
+      const cancelledIds = new Set(pendingCancellations.map(c => c.patientId));
       if (filterMode === 'single') {
           const dObj = new Date(selectedDate);
           const targetDateStr = `${dObj.getMonth() + 1}月${dObj.getDate()}日`;
           const dayOfWeekStr = ['日', '月', '火', '水', '木', '金', '土'][dObj.getDay()];
           localPatients.forEach(p => {
+              if (cancelledIds.has(p.id)) return; // 取り消し対象は書き戻さない
               const recordIndex = updatedTicketRecords.findIndex(r => r.patientId === p.id && r.date === targetDateStr);
               const newRecord = {
                   id: recordIndex >= 0 ? updatedTicketRecords[recordIndex].id : Date.now() + Math.random(),
@@ -9087,7 +9099,8 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
               else updatedTicketRecords.push(newRecord);
           });
       } else { updatedTicketRecords = localTicketRecords; }
-      onSave({ ...appData, ticketRecords: updatedTicketRecords });
+      onSave({ ...appData, ticketRecords: updatedTicketRecords, monthlyShifts: newShifts });
+      setPendingCancellations([]);
       if (dirtyRef) dirtyRef.current = false;
   };
 
@@ -9344,10 +9357,14 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                       <span className={`px-2 py-1 rounded-lg text-xs font-bold ${config.lightColor} ${config.textColor}`}>{p.status || '出席'}</span>
                     ) : (
                       <select value={p.status || "出席"} onChange={(e) => handleStatusChange(p.id, e.target.value)} style={{appearance:'none',WebkitAppearance:'none',MozAppearance:'none'}} className={`px-1 py-1.5 rounded-lg text-xs font-bold border-0 shadow-sm outline-none cursor-pointer w-full text-center ${config.lightColor} ${config.textColor} ring-1 ring-inset ${config.ring}`}>
-                        {appSettings.statusOptions
-                          .filter(opt => !(p.status === '振替' && opt.label === '欠席'))
-                          .map(opt => <option key={opt.label} value={opt.label}>{opt.label}</option>)}
-                        {p.status === '振替' && <option value="取り消し">取り消し</option>}
+                        {p.status === '振替' ? (
+                          <>
+                            <option value="振替">振替</option>
+                            <option value="取り消し">取り消し</option>
+                          </>
+                        ) : (
+                          appSettings.statusOptions.map(opt => <option key={opt.label} value={opt.label}>{opt.label}</option>)
+                        )}
                       </select>
                     )}
                   </td>
@@ -16092,13 +16109,13 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     .filter(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId); if(!p) return false; return _matchesAmpm(r, p); })
     .map(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId)||{}; return {id:r.id,name:p.name||r.name||'',careLevel:p.careLevel||'',tokki:r.tokki||'',status:r.status}; });
 
-  // 各種設定の定員数 (capacity) を基準にしつつ、実際の出席者 (振替含む) が
-  // 定員を超える場合は行数を増やして全員が必ず日誌に表示されるようにする
+  // 各種設定の定員数 (capacity) を基準にしつつ、欠席を含む全員が必ず表示されるよう
+  // totalRows は patients.length と capacity の max を採用
   const attended = patients.filter(r=>r.status==='出席').length;
   const absent   = patients.filter(r=>r.status==='欠席'||r.status==='休業').length;
   const planned  = patients.length;
   const actualAttendees = patients.filter(r=>r.status!=='欠席'&&r.status!=='休業').length; // 出席 + 振替
-  const totalRows = Math.max(capacity, actualAttendees);
+  const totalRows = Math.max(capacity, patients.length);
   const jigyoCount = patients.filter(r=>r.careLevel&&(r.careLevel.startsWith('事業')||r.careLevel.startsWith('要支援'))).length;
   const kaigoCount = patients.filter(r=>r.careLevel&&r.careLevel.startsWith('要介護')).length;
 
