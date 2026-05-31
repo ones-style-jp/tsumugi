@@ -16438,6 +16438,10 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     const _showStaff = pi.showStaff !== false;
     const _showPatients = pi.showPatients !== false;
     const _showExtras = pi.showExtras !== false;
+    // 利用者数が多い／送迎車多い時はコンパクト化（17名+3台でも1ページに収まるように行高さを縮める）
+    const _compact = _totalRows >= 13 || (ds.cars||[]).length >= 3;
+    const _patientRowH = _compact ? 24 : 28;
+    const _carRowH = _compact ? 32 : 40;
     return (
     <div style={{width:'200mm',minWidth:'200mm',height:'287mm',minHeight:'287mm',backgroundColor:'white',fontFamily:'sans-serif',padding:'10px 6px',boxSizing:'border-box',display:'flex',flexDirection:'column',margin:'0 auto'}}>
       {/* タイトル行 */}
@@ -16605,12 +16609,11 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             };
             const CarCell = ({prefix}) => {
               const sel = getSelectedCar(prefix);
-              return <div style={{fontSize:8,textAlign:'center',color:sel?'#1d4ed8':'#bbb',fontWeight:sel?'bold':'normal',lineHeight:'20px'}}>{sel||'—'}</div>;
+              return <div style={{fontSize:8,textAlign:'center',color:sel?'#1d4ed8':'#bbb',fontWeight:sel?'bold':'normal',lineHeight:_compact?'16px':'20px'}}>{sel||'—'}</div>;
             };
-            // 全tdに共通の高さ固定スタイル
-            const tdH = {height:28,minHeight:28,maxHeight:28,lineHeight:'14px',overflow:'hidden',padding:'0 4px',verticalAlign:'middle',whiteSpace:'nowrap',boxSizing:'border-box',fontSize:10};
+            const tdH = {height:_patientRowH,minHeight:_patientRowH,maxHeight:_patientRowH,lineHeight:_compact?'12px':'14px',overflow:'hidden',padding:'0 4px',verticalAlign:'middle',whiteSpace:'nowrap',boxSizing:'border-box',fontSize:10};
             return (
-              <tr key={i} style={{backgroundColor:i%2===0?'white':'#f8f8fc',height:28}}>
+              <tr key={i} style={{backgroundColor:i%2===0?'white':'#f8f8fc',height:_patientRowH}}>
                 <td style={{...tdH,border:'1px solid #555',width:28,textAlign:'center',fontSize:9,padding:'0 2px',color:i<capacity?'#000':'#ea580c'}}>{i+1}</td>
                 <td style={{...tdH,border:'1px solid #555',fontWeight:pt?'bold':'normal',fontSize:10,textAlign:'center',textOverflow:'ellipsis'}}>
                   {pt?pt.name:''}
@@ -16679,7 +16682,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           {ds.cars.map(car=>{
             const ct=(_log.carTimes||{})[car.id]||{};
             return (
-              <tr key={car.id} style={{height:40,minHeight:40}}>
+              <tr key={car.id} style={{height:_carRowH,minHeight:_carRowH}}>
                 <td style={{...cs(60),textAlign:'center',fontWeight:'bold',fontSize:8,lineHeight:1.2,verticalAlign:'middle'}}><div style={{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{car.name}</div><div style={{fontSize:7,fontWeight:'normal',color:'#000',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{car.type}</div></td>
                 <td style={{...cs(44),textAlign:'center',cursor:'pointer',fontSize:11,fontWeight:'bold',color:ct.arrive?'#1d4ed8':'#aaa'}}
                   onClick={()=>openTimeKeypad(car.id,'arrive',ct.arrive)}>
