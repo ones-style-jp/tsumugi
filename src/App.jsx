@@ -6947,6 +6947,16 @@ const initialData = {
     {"id":16126,"patientId":90,"name":"小野 幸子","kana":"おの さちこ","date":"3月4日","dayOfWeek":"水","status":"休止","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"","kibunArrival":"","kibunDeparture":""},
     {"id":16127,"patientId":92,"name":"島田 花子","kana":"しまだ はなこ","date":"3月4日","dayOfWeek":"水","status":"欠席","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"","kibunArrival":"","kibunDeparture":""},
     {"id":16128,"patientId":100,"name":"渡辺 タカ","kana":"わたなべ たか","date":"3月4日","dayOfWeek":"水","status":"休止","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"","kibunArrival":"","kibunDeparture":""},
+    {"id":16800,"patientId":39,"name":"山田 タカ","kana":"やまだ たか","date":"3月4日","dayOfWeek":"水","status":"振替","furikaeAmpm":"AM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16801,"patientId":41,"name":"和田 スエ","kana":"わだ すえ","date":"3月4日","dayOfWeek":"水","status":"振替","furikaeAmpm":"AM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16802,"patientId":43,"name":"石川 博","kana":"いしかわ ひろし","date":"3月4日","dayOfWeek":"水","status":"振替","furikaeAmpm":"AM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16803,"patientId":45,"name":"土屋 ハル","kana":"つちや はる","date":"3月4日","dayOfWeek":"水","status":"振替","furikaeAmpm":"AM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16804,"patientId":46,"name":"三浦 昭","kana":"みうら あきら","date":"3月4日","dayOfWeek":"水","status":"振替","furikaeAmpm":"AM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16805,"patientId":48,"name":"中島 フミ","kana":"なかじま ふみ","date":"3月4日","dayOfWeek":"水","status":"振替","furikaeAmpm":"AM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16806,"patientId":49,"name":"坂本 富子","kana":"さかもと とみこ","date":"3月4日","dayOfWeek":"水","status":"振替","furikaeAmpm":"AM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16807,"patientId":51,"name":"太田 静子","kana":"おおた しずこ","date":"3月4日","dayOfWeek":"水","status":"振替","furikaeAmpm":"AM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16808,"patientId":53,"name":"西村 節子","kana":"にしむら せつこ","date":"3月4日","dayOfWeek":"水","status":"振替","furikaeAmpm":"AM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
+    {"id":16809,"patientId":55,"name":"酒井 次郎","kana":"さかい じろう","date":"3月4日","dayOfWeek":"水","status":"振替","furikaeAmpm":"AM","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"振替","kibunArrival":"","kibunDeparture":""},
     {"id":16129,"patientId":1,"name":"久保 泰治","kana":"くぼ たいじ","date":"3月5日","dayOfWeek":"木","status":"出席","temp":"36.5","bpUpSt":"112","bpDnSt":"78","plSt":"73","bpUpEn":"110","bpDnEn":"76","plEn":"69","massage":"岩岡","exercises":{"u1":"10分","u2":"3分","u3":"3分","u4":"ー","u5":"3分","u6":"6分","heikobo":"10/20","fumidai":"15分","stepper":"50回"},"tokki":"","kibunArrival":"bad","kibunDeparture":"bad"},
     {"id":16130,"patientId":5,"name":"田中 義男","kana":"たなか よしお","date":"3月5日","dayOfWeek":"木","status":"休業","temp":"","bpUpSt":"","bpDnSt":"","plSt":"","bpUpEn":"","bpDnEn":"","plEn":"","massage":"","exercises":{},"tokki":"","kibunArrival":"","kibunDeparture":""},
     {"id":16131,"patientId":6,"name":"渡辺 トメ","kana":"わたなべ とめ","date":"3月5日","dayOfWeek":"木","status":"出席","temp":"36.1","bpUpSt":"119","bpDnSt":"74","plSt":"73","bpUpEn":"115","bpDnEn":"72","plEn":"74","massage":"田中","exercises":{"u1":"○","u2":"○","u3":"○","u4":"○","u5":"○","u6":"○","heikobo":"10/20","fumidai":"15分","stepper":"50回"},"tokki":"","kibunArrival":"bad","kibunDeparture":"normal"},
@@ -8821,11 +8831,62 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
   const [statusModal, setStatusModal] = useState({ isOpen: false, id: null, status: '', reason: '', furikaeDate: '', substituteReason: '', furikaeAmpm: 'AM' });
 
   const handleStatusChange = (id, newStatus) => {
+    if (newStatus === '取り消し') {
+      cancelFurikae(id);
+      return;
+    }
     if (newStatus === '欠席' || newStatus === '休業' || newStatus === '振替') {
       setStatusModal({ isOpen: true, id, status: newStatus, reason: '', furikaeDate: '', substituteReason: '', furikaeAmpm: 'AM' });
       return;
     }
     applyStatusChange(id, newStatus, '', '', '', 'AM');
+  };
+
+  // 振替の「取り消し」:
+  //  - 振替先 ticketRecord（status=振替）を削除し、画面の枠からも消す
+  //  - 振替元 ticketRecord(status=欠席)の tokki から「○月○日へ振替」表記を取り除き、理由のみ残す
+  //  - monthlyShifts: 振替先の 振(M/D) を削除（元の欠席はそのまま）
+  const cancelFurikae = (id) => {
+    const dObj = new Date(selectedDate);
+    const destDateStr = `${dObj.getMonth()+1}月${dObj.getDate()}日`;
+    const destRec = (appData.ticketRecords||[]).find(r => r.patientId === id && r.date === destDateStr && r.status === '振替');
+    if (!destRec) return;
+    // 振替先の tokki "M月D日{AM|PM|1日|""}分振替" から元日付を逆引き
+    let srcDateStr = '';
+    const tokki = destRec.tokki || '';
+    const m = tokki.match(/^(\d+月\d+日)(?:AM|PM|1日)?分振替$/);
+    if (m) srcDateStr = m[1];
+    // 振替先 record を削除
+    let updated = (appData.ticketRecords||[]).filter(r => !(r.patientId === id && r.date === destDateStr && r.status === '振替'));
+    // 振替元の tokki を「理由のみ」に整える
+    if (srcDateStr) {
+      updated = updated.map(r => {
+        if (r.patientId === id && r.date === srcDateStr && r.status === '欠席') {
+          const t = r.tokki || '';
+          const subM = t.match(/^\d+月\d+日(?:AM|PM|1日)?へ振替(?:（(.+)）)?$/);
+          const cleaned = subM ? (subM[1] || '') : t;
+          return { ...r, tokki: cleaned };
+        }
+        return r;
+      });
+    }
+    // monthlyShifts: 振替先の 振(M/D) を削除
+    const newShifts = JSON.parse(JSON.stringify(appData.monthlyShifts || {}));
+    const destMK = `${dObj.getFullYear()}-${String(dObj.getMonth()+1).padStart(2,'0')}`;
+    const destDay = dObj.getDate();
+    const destAmpm = destRec.furikaeAmpm || 'AM';
+    if (newShifts[destMK]?.[id]) {
+      if (destAmpm === '1日') {
+        delete newShifts[destMK][id][`${destDay}_AM`];
+        delete newShifts[destMK][id][`${destDay}_PM`];
+      } else {
+        delete newShifts[destMK][id][`${destDay}_${destAmpm}`];
+      }
+    }
+    onSave({ ...appData, ticketRecords: updated, monthlyShifts: newShifts });
+    // localPatients からも該当患者を取り除き（振替先のスケジュールがなくなったので枠から消す）
+    setLocalPatients(prev => prev.filter(p => p.id !== id));
+    if (dirtyRef) dirtyRef.current = false;
   };
 
   const applyStatusChange = (id, newStatus, reason, furikaeDate, substituteReason, furikaeAmpm='AM') => {
@@ -9283,7 +9344,10 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                       <span className={`px-2 py-1 rounded-lg text-xs font-bold ${config.lightColor} ${config.textColor}`}>{p.status || '出席'}</span>
                     ) : (
                       <select value={p.status || "出席"} onChange={(e) => handleStatusChange(p.id, e.target.value)} style={{appearance:'none',WebkitAppearance:'none',MozAppearance:'none'}} className={`px-1 py-1.5 rounded-lg text-xs font-bold border-0 shadow-sm outline-none cursor-pointer w-full text-center ${config.lightColor} ${config.textColor} ring-1 ring-inset ${config.ring}`}>
-                        {appSettings.statusOptions.map(opt => <option key={opt.label} value={opt.label}>{opt.label}</option>)}
+                        {appSettings.statusOptions
+                          .filter(opt => !(p.status === '振替' && opt.label === '欠席'))
+                          .map(opt => <option key={opt.label} value={opt.label}>{opt.label}</option>)}
+                        {p.status === '振替' && <option value="取り消し">取り消し</option>}
                       </select>
                     )}
                   </td>
@@ -14457,7 +14521,38 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   const dN = ['日', '月', '火', '水', '木', '金', '土'];
   const curSt = (ov, ib) => ov !== undefined ? ov : (ib ? "〇" : "空欄");
   const sSt = (st, cl, hl) => { if (hl) return { t: "休業", c: "text-white bg-slate-600 font-bold" }; if (cl) return { t: "", c: "bg-slate-100" }; if (st === "〇" || st === "出席") return { t: "出席", c: "text-blue-700 font-bold bg-blue-50" }; if (st === "欠席") return { t: "欠席", c: "text-red-600 font-bold bg-red-50" }; if (st === "臨時") return { t: "臨時", c: "text-cyan-700 font-bold bg-cyan-50" }; if (typeof st === 'string' && st.startsWith("振")) { const m = st.match(/振\((.+?)\)/); return { t: m ? `振替\n(${m[1]})` : "振替", c: "text-emerald-700 font-bold bg-emerald-50 leading-tight" }; } if (st === "休業") return { t: "休業", c: "text-white font-bold bg-slate-600" }; return { t: "", c: "bg-white" }; };
-  const shiftTog = (day, ap) => { if (!localPatient || isResigned) return; const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`; const dow = dO.getDay(); if ((appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow)) return; if (appData.holidays?.some(h => (h.date || h) === ds)) return; if (getPauseReasonOnDate(localPatient, ds)) return; const base = localPatient.scheduleAmPm?.[dow] || ""; const ib = base === "1日" || base === ap; const sh = appData.monthlyShifts?.[mKey]?.[localPatient.id] || {}; const cu = curSt(sh[`${day}_${ap}`], ib); let nx; if (ib) { if (cu === "〇" || cu === "出席") nx = "欠席"; else if (cu === "欠席") nx = "振替"; else if (typeof cu === 'string' && (cu === "振替" || cu.startsWith("振"))) nx = "休業"; else if (cu === "休業") nx = "空欄"; else nx = "〇"; } else { /* 非利用日: 臨時のトグル */ if (cu === "空欄" || cu === "" || !cu) nx = "臨時"; else if (cu === "臨時") nx = "空欄"; else nx = "空欄"; } if (nx === "振替") { setFurikaeModal({ isOpen: true, day, ampm: ap, fromDate: "", reason: "" }); return; } const ns2=saveSh(localPatient.id, day, ap, nx, ib, null, true); onSave({...appData, monthlyShifts:ns2}); markDirty(); };
+  // 振替の取り消し（MasterView 月間スケジュール用）
+  //   - 振替先 ticketRecord(status=振替) を削除
+  //   - 振替元 ticketRecord(status=欠席) の tokki から「○月○日へ振替」を取り除き理由のみ残す
+  //   - 振替先 monthlyShifts の 振(M/D) を削除（振替元の欠席シフトはそのまま）
+  const cancelFurikaeMaster = (day, ap) => {
+    const sh = appData.monthlyShifts?.[mKey]?.[localPatient.id] || {};
+    const cu = sh[`${day}_${ap}`];
+    if (typeof cu !== 'string' || !cu.startsWith('振')) return;
+    const mSrc = cu.match(/^振\((\d+)\/(\d+)\)$/);
+    const destDateStr = `${currentMonth.getMonth()+1}月${day}日`;
+    let updated = (appData.ticketRecords||[]).filter(r => !(r.patientId === localPatient.id && r.date === destDateStr && r.status === '振替'));
+    if (mSrc) {
+      const srcDateStr = `${parseInt(mSrc[1])}月${parseInt(mSrc[2])}日`;
+      updated = updated.map(r => {
+        if (r.patientId === localPatient.id && r.date === srcDateStr && r.status === '欠席') {
+          const t = r.tokki || '';
+          const subM = t.match(/^\d+月\d+日(?:AM|PM|1日)?へ振替(?:（(.+)）)?$/);
+          const cleaned = subM ? (subM[1] || '') : t;
+          return { ...r, tokki: cleaned };
+        }
+        return r;
+      });
+    }
+    const newShifts = JSON.parse(JSON.stringify(appData.monthlyShifts || {}));
+    if (newShifts[mKey]?.[localPatient.id]) {
+      delete newShifts[mKey][localPatient.id][`${day}_${ap}`];
+    }
+    onSave({ ...appData, ticketRecords: updated, monthlyShifts: newShifts });
+    markDirty();
+  };
+
+  const shiftTog = (day, ap) => { if (!localPatient || isResigned) return; const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`; const dow = dO.getDay(); if ((appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow)) return; if (appData.holidays?.some(h => (h.date || h) === ds)) return; if (getPauseReasonOnDate(localPatient, ds)) return; const base = localPatient.scheduleAmPm?.[dow] || ""; const ib = base === "1日" || base === ap; const sh = appData.monthlyShifts?.[mKey]?.[localPatient.id] || {}; const cu = curSt(sh[`${day}_${ap}`], ib); /* 振替セルのクリックは「取り消し」アクション */ if (typeof cu === 'string' && (cu === "振替" || cu.startsWith("振"))) { cancelFurikaeMaster(day, ap); return; } let nx; if (ib) { if (cu === "〇" || cu === "出席") nx = "欠席"; else if (cu === "欠席") nx = "振替"; else if (cu === "休業") nx = "空欄"; else nx = "〇"; } else { /* 非利用日: 臨時のトグル */ if (cu === "空欄" || cu === "" || !cu) nx = "臨時"; else if (cu === "臨時") nx = "空欄"; else nx = "空欄"; } if (nx === "振替") { setFurikaeModal({ isOpen: true, day, ampm: ap, fromDate: "", reason: "" }); return; } const ns2=saveSh(localPatient.id, day, ap, nx, ib, null, true); onSave({...appData, monthlyShifts:ns2}); markDirty(); };
   const saveSh = (pid, day, ap, st, ib, ex = null, noSave = true) => { let fs = st; const k = `${day}_${ap}`; if ((ib && fs === "〇") || (!ib && fs === "空欄")) fs = undefined; const ns = ex || JSON.parse(JSON.stringify(appData.monthlyShifts || {})); if (!ns[mKey]) ns[mKey] = {}; if (!ns[mKey][pid]) ns[mKey][pid] = {}; if (fs === undefined) delete ns[mKey][pid][k]; else ns[mKey][pid][k] = fs; if (!ex && !noSave) { onSave({ ...appData, monthlyShifts: ns }); markDirty(); } return ns; };
   const subFuri = () => {
     let ns = JSON.parse(JSON.stringify(appData.monthlyShifts || {}));
