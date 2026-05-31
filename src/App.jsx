@@ -16624,9 +16624,20 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
                 <td style={{...tdH,border:'1px solid #555',width:32,textAlign:'center'}}>
                   <span style={{fontSize:9,fontWeight:'bold',color:statusColor,lineHeight:'24px'}}>{statusLabel}</span>
                 </td>
-                <td style={{...tdH,border:'1px solid #555',fontSize:9,color:'#333',textOverflow:'ellipsis'}}>
-                  {pt ? <span style={{color:isAbsent?'#dc2626':'inherit'}}>{pt.tokki}</span> : null}
-                </td>
+                {(() => {
+                  // 様子・欠席理由 cell: 長文の場合は折り返し + 自動縮小（2行→さらに縮小）
+                  const tk = (pt?.tokki) || '';
+                  const len = tk.length;
+                  // 文字数で段階的にフォント縮小（24px の行高さでも2行まで収まる）
+                  const fs = len > 38 ? 7 : len > 22 ? 8 : 9;
+                  return (
+                    <td style={{...tdH, border:'1px solid #555', fontSize: fs, color:'#333',
+                                whiteSpace:'normal', wordBreak:'break-word', overflowWrap:'anywhere',
+                                lineHeight: 1.15, padding:'1px 4px'}}>
+                      {pt ? <span style={{color:isAbsent?'#dc2626':'inherit'}}>{tk}</span> : null}
+                    </td>
+                  );
+                })()}
                 <td style={{...tdH,border:'1px solid #555',width:70}}><CarCell prefix="pick"/></td>
                 <td style={{...tdH,border:'1px solid #555',width:70}}><CarCell prefix="drop"/></td>
               </tr>
@@ -16888,7 +16899,11 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
               const d = getDiaryData(ap);
               const totalRowsAp = Math.max(capacity, d.patients.length);
               const carCount = (appData.diarySettings?.cars||[]).length;
-              const FULL_THRESHOLD = carCount <= 3 ? 17 : 14;
+              const schedCount = (d.schedule || []).length;
+              let FULL_THRESHOLD = carCount <= 3 ? 17 : 14;
+              if (schedCount > 10) FULL_THRESHOLD -= 2;
+              if (schedCount > 14) FULL_THRESHOLD -= 2;
+              FULL_THRESHOLD = Math.max(8, FULL_THRESHOLD);
               const PATIENTS_ONLY_FIRST = 28;
               const PATIENTS_ONLY_CONT = 32;
               const apPages = [];
@@ -17128,7 +17143,12 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           {(() => {
             // 編集ビューでもページング: 利用者数が多ければ見切れず2ページ目に分割表示
             const carCount = ds.cars.length;
-            const FULL_THRESHOLD = carCount <= 3 ? 17 : 14;
+            const schedCount = (ampm === 'AM' ? ds.scheduleAM : ds.schedulePM)?.length || 0;
+            // スケジュール項目数や送迎車数に応じて閾値を動的調整
+            let FULL_THRESHOLD = carCount <= 3 ? 17 : 14;
+            if (schedCount > 10) FULL_THRESHOLD -= 2;
+            if (schedCount > 14) FULL_THRESHOLD -= 2;
+            FULL_THRESHOLD = Math.max(8, FULL_THRESHOLD);
             const PATIENTS_ONLY_FIRST = 28;
             const PATIENTS_ONLY_CONT = 32;
             const pageList = [];
@@ -17162,8 +17182,12 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             const d = getDiaryData(ap);
             const totalRowsAp = Math.max(capacity, d.patients.length);
             const carCount = (appData.diarySettings?.cars||[]).length;
+            const schedCount = (d.schedule || []).length;
             // セクション混在時の利用者行数上限（フッター・送迎・タイムスケジュール込み）
-            const FULL_THRESHOLD = carCount <= 3 ? 17 : 14;
+            let FULL_THRESHOLD = carCount <= 3 ? 17 : 14;
+            if (schedCount > 10) FULL_THRESHOLD -= 2;
+            if (schedCount > 14) FULL_THRESHOLD -= 2;
+            FULL_THRESHOLD = Math.max(8, FULL_THRESHOLD);
             // 利用者のみの場合に1ページに収まる行数（担当職員あり）
             const PATIENTS_ONLY_FIRST = 28;
             // 利用者のみの場合に1ページに収まる行数（担当職員なし、2ページ目以降）
