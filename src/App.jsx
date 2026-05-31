@@ -4,7 +4,7 @@ import {
   Printer, CheckCircle2, CloudUpload, Loader2, Plus, Trash2, X, FileText, BarChart3, TrendingUp,
   ArrowLeft, ArrowRight, Menu, BookOpen, Lock, Unlock, QrCode, MoveUp, MoveDown,
   ChevronLeft, ChevronRight, Save, UserPlus, Clock, CalendarOff, CalendarRange, PenTool, History,
-  ChevronDown, ChevronUp, Thermometer, Heart, Copy, Edit3
+  ChevronDown, ChevronUp, Thermometer, Heart, Copy, Edit3, Edit2
 } from 'lucide-react';
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
@@ -9051,7 +9051,19 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
     const monthKey2 = `${new Date(selectedDate).getFullYear()}-${String(new Date(selectedDate).getMonth() + 1).padStart(2, '0')}`;
     const dayNum2 = new Date(selectedDate).getDate();
     const dow2 = new Date(selectedDate).getDay();
+    const targetDateStr3 = `${new Date(selectedDate).getMonth()+1}月${new Date(selectedDate).getDate()}日`;
     displayRecords = displayRecords.filter(p => {
+      // 振替の record があれば furikaeAmpm を優先（普段の曜日に来なくても表示する）
+      const rec = (appData.ticketRecords||[]).find(r=>r.patientId===p.id && r.date===targetDateStr3);
+      if (rec && rec.status === '振替') {
+        const fa = rec.furikaeAmpm;
+        if (fa) return fa === timeFilter || fa === '1日';
+        if (typeof rec.tokki === 'string') {
+          if (rec.tokki.includes('1日分振替')) return true;
+          if (timeFilter === 'AM' && rec.tokki.includes('AM分振替')) return true;
+          if (timeFilter === 'PM' && rec.tokki.includes('PM分振替')) return true;
+        }
+      }
       const base = appData.patients.find(pt=>pt.id===p.id)?.scheduleAmPm?.[dow2] || '';
       const shiftAM = appData.monthlyShifts?.[monthKey2]?.[p.id]?.[`${dayNum2}_AM`];
       const shiftPM = appData.monthlyShifts?.[monthKey2]?.[p.id]?.[`${dayNum2}_PM`];
@@ -15916,6 +15928,13 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   const [newStaff, setNewStaff] = useState({role:'介護職員', name:''});
   const nameInputRef = React.useRef(null);
 
+  // 過去日付の編集ロック: 当日(local)より過去の selectedDate は読み取り専用 + 編集ボタンで一時解除
+  const [forceEdit, setForceEdit] = useState(false);
+  React.useEffect(() => { setForceEdit(false); }, [selectedDate]);
+  const _today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
+  const isPast = selectedDate < _today;
+  const isReadOnly = isPast && !forceEdit;
+
   const fi = appData.systemSettings?.facilityInfo || {};
   const ds = appData.diarySettings || { staff:[], cars:[], scheduleAM:[], schedulePM:[] };
 
@@ -16768,15 +16787,15 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         </div>
 
         {/* 送迎車割り当て */}
-        <button onClick={()=>{setCarAssignModal({prefix:'pick'});setCarAssignSelections({});}}
-          className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center gap-1.5">
+        <button disabled={isReadOnly} onClick={()=>{setCarAssignModal({prefix:'pick'});setCarAssignSelections({});}}
+          className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
           <span>🚗</span> 迎え
         </button>
-        <button onClick={()=>{setCarAssignModal({prefix:'drop'});setCarAssignSelections({});}}
-          className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center gap-1.5">
+        <button disabled={isReadOnly} onClick={()=>{setCarAssignModal({prefix:'drop'});setCarAssignSelections({});}}
+          className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
           <span>🚗</span> 送り
         </button>
-        <button onClick={()=>{setNewStaff({role:'介護職員',name:''});setAddStaffModal(true);}} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center gap-1.5">
+        <button disabled={isReadOnly} onClick={()=>{setNewStaff({role:'介護職員',name:''});setAddStaffModal(true);}} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
           <UserPlus size={15}/> 担当者追加
         </button>
         <div className="flex-1"/>
@@ -16792,12 +16811,23 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         }} className="bg-slate-900 text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm hover:bg-black transition-all">
           <Printer size={16} className="mr-1.5"/> プレビュー
         </button>
-        <button onClick={saveLog} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95">
-          <Save size={16} className="mr-1.5"/> 保存
-        </button>
+        {isReadOnly ? (
+          <button onClick={()=>setForceEdit(true)} title="過去日です。クリックで編集モードへ" className="bg-amber-500 hover:bg-amber-600 text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95">
+            <Edit2 size={16} className="mr-1.5"/> 編集
+          </button>
+        ) : (
+          <button onClick={saveLog} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95">
+            <Save size={16} className="mr-1.5"/> 保存
+          </button>
+        )}
         </div>
       </div>
-      <div id="diary-print-content">
+      {isReadOnly && (
+        <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-800 text-sm font-bold flex items-center gap-2">
+          <span>🔒 過去の日誌のため読み取り専用です。右上の「編集」ボタンで一時的に編集できます。</span>
+        </div>
+      )}
+      <div id="diary-print-content" style={isReadOnly ? {pointerEvents:'none', userSelect:'none', opacity:0.95} : undefined}>
         <div className="flex flex-col items-center py-8 px-4 gap-8">
           {(() => {
             // 編集ビューでもページング: 利用者数が多ければ見切れず2ページ目に分割表示
