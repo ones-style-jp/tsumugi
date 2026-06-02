@@ -12063,10 +12063,10 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
     clone.querySelectorAll('table').forEach(tbl=>{
       tbl.style.tableLayout = 'fixed';
       tbl.style.width = '100%';
-      tbl.style.fontSize = '11px';
+      tbl.style.fontSize = '9.5px';
       tbl.querySelectorAll('th,td').forEach(c=>{
         c.style.minWidth = '0';
-        c.style.padding = '2px 3px';
+        c.style.padding = '1px 2px';
         c.style.whiteSpace = 'nowrap';
         c.style.overflow = 'hidden';
         c.style.textOverflow = 'ellipsis';
@@ -12299,7 +12299,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
 
   // 2. 曜日別稼働率 + AM/PM別利用者ランキング
   const dowStats = React.useMemo(() => {
-    const days = ['月','火','水','木','金'];
+    const days = ['月','火','水','木','金','土'];
     return days.map(dow => {
       const dayRecs = recsAP.filter(r => r.dayOfWeek === dow);
       const calcRate = (ap) => {
@@ -12699,7 +12699,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                   </button>
                 </div>
                 <div data-print-id="rate-chart-graph" style={{overflowX:'auto'}}>
-                  <div style={{minWidth:700,height:420}}>
+                  <div style={{minWidth:700,height:280}}>
                     <ResponsiveContainer width="100%" height="100%">
                       {/* barCategoryGap で月間スペースを広げる。barSize は細めにして月ごとの空間を確保 */}
                       <ComposedChart data={chartDataWithDiff} margin={{top:20,right:60,left:20,bottom:5}} barCategoryGap="28%" barGap={3}>
@@ -12849,55 +12849,47 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
           onClose={()=>setSalesEditModal(null)}
         />}
 
-        {/* 2. 曜日別稼働率 */}
+        {/* 2. 曜日別稼働率 — 曜日カード形式（月曜日〜土曜日を枠で囲んで表示） */}
         <div id="ops-dow" data-sec="ops-dow" style={{scrollMarginTop:120}}/>
-        <Card title="曜日別稼働率（クリックで詳細）" accent='#8b5cf6'>
-          <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
-            <thead>
-              <tr style={{background:'#f8fafc'}}>
-                {['曜日','AM','PM','合計'].map(h=>(
-                  <th key={h} style={{padding:'6px 10px',textAlign:h==='曜日'?'left':'center',color:'#64748b',fontWeight:'bold',borderBottom:'2px solid #e2e8f0'}}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {dowStats.map((d,i) => {
-                const isOpen = openDow === d.dow;
-                return (
-                  <React.Fragment key={d.dow}>
-                    <tr onClick={()=>setOpenDow(isOpen?null:d.dow)}
-                      style={{borderBottom:'1px solid #f1f5f9',background:isOpen?'#f5f3ff':i%2===0?'white':'#fafafa',cursor:'pointer'}}>
-                      <td style={{padding:'8px 10px',fontWeight:'bold',fontSize:14,color:isOpen?'#7c3aed':'#1e293b'}}>
-                        {d.dow}曜 {isOpen?'▼':'▶'}
-                      </td>
-                      {[{s:d.am,col:'#3b82f6'},{s:d.pm,col:'#10b981'},{s:d.all,col:'#8b5cf6'}].map(({s,col},si)=>(
-                        <td key={si} style={{padding:'8px 10px',textAlign:'center'}}>
-                          {s.planned>0 ? (
-                            <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
-                              <span style={{fontSize:12,fontWeight:'bold',color:RC(s.rate)}}>{s.rate}%</span>
-                              <div style={{width:70}}><RateBar rate={s.rate} color={col}/></div>
-                              <span style={{fontSize:13,color:'#94a3b8'}}>{s.attended}/{s.planned}</span>
-                            </div>
-                          ) : <span style={{fontSize:13,color:'#cbd5e1'}}>ー</span>}
-                        </td>
-                      ))}
-                    </tr>
-                    {/* 印刷時は常に展開、画面では isOpen の時のみ表示。data-dow-detail を preprocessing で強制表示 */}
-                    <tr data-dow-detail="1" style={{background:'#faf9ff',display:isOpen?'table-row':'none'}}>
-                      <td/>
-                      <td style={{padding:'4px 10px 10px 140px',verticalAlign:'top'}}>
-                        <PatList patients={d.amRank}/>
-                      </td>
-                      <td style={{padding:'4px 10px 10px 110px',verticalAlign:'top'}}>
-                        <PatList patients={d.pmRank}/>
-                      </td>
-                      <td/>
-                    </tr>
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
+        <Card title="曜日別稼働率" accent='#8b5cf6'>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
+            {dowStats.map(d => {
+              const dayLabel = `${d.dow}曜日`;
+              const renderPats = (label, list, col) => list.length > 0 && (
+                <div style={{marginTop:6}}>
+                  <div style={{fontSize:10,fontWeight:'bold',color:col,marginBottom:3}}>{label} 利用者（出席率順）</div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',columnGap:8,rowGap:0}}>
+                    {list.map(p => (
+                      <div key={p.patient.id} style={{display:'flex',alignItems:'baseline',gap:3,fontSize:11,padding:'2px 0',borderBottom:'1px solid #f8fafc'}}>
+                        <span style={{flex:1,fontWeight:'bold',color:'#334155',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.patient.name}</span>
+                        <span style={{color:RC(p.rate),fontWeight:'bold',flexShrink:0}}>{p.rate}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+              return (
+                <div key={d.dow} style={{border:'1px solid #e2e8f0',borderRadius:10,padding:'10px 12px',background:'white'}}>
+                  <div style={{fontWeight:'bold',fontSize:14,color:'#7c3aed',marginBottom:6,paddingBottom:4,borderBottom:'1px solid #ede9fe'}}>{dayLabel}</div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6}}>
+                    {[{label:'AM',s:d.am,col:'#3b82f6'},{label:'PM',s:d.pm,col:'#10b981'},{label:'合計',s:d.all,col:'#8b5cf6'}].map(({label,s,col})=>(
+                      <div key={label} style={{textAlign:'center',padding:'5px 4px',borderRadius:6,background:`${col}10`}}>
+                        <div style={{fontSize:10,color:'#64748b',fontWeight:'bold'}}>{label}</div>
+                        {s.planned>0 ? (
+                          <React.Fragment>
+                            <div style={{fontSize:18,fontWeight:'bold',color:RC(s.rate),lineHeight:1.1}}>{s.rate}%</div>
+                            <div style={{fontSize:10,color:'#94a3b8'}}>{s.attended}/{s.planned}件</div>
+                          </React.Fragment>
+                        ) : <div style={{fontSize:12,color:'#cbd5e1',padding:'8px 0'}}>ー</div>}
+                      </div>
+                    ))}
+                  </div>
+                  {renderPats('AM', d.amRank, '#3b82f6')}
+                  {renderPats('PM', d.pmRank, '#10b981')}
+                </div>
+              );
+            })}
+          </div>
         </Card>
 
         {/* 7. 利用者属性分析 */}
@@ -13022,14 +13014,35 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         <Card title={`欠席理由ランキング　${periodLabel}（${reasonRank.length}種）`} accent='#64748b'>
           {reasonRank.length===0 ? (
             <div style={{textAlign:'center',color:'#94a3b8',fontSize:13,padding:'12px 0'}}>欠席理由の記録なし</div>
-          ) : (showAllReason ? reasonRank : reasonRank.slice(0,10)).map(({reason,count},i)=>(
-            <div key={reason} style={{display:'flex',alignItems:'center',gap:10,padding:'5px 0',borderBottom:'1px solid #f8fafc'}}>
-              <span style={{width:22,height:22,borderRadius:'50%',background:i<3?['#64748b','#94a3b8','#cbd5e1'][i]:'#e2e8f0',color:i<3?'white':'#64748b',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:'bold',flexShrink:0}}>{i+1}</span>
-              <span style={{flex:1,fontSize:13,fontWeight:'bold',color:'#334155'}}>{reason}</span>
-              <RateBar rate={count} max={reasonRank[0]?.count||1} color='#64748b'/>
-              <span style={{fontSize:13,fontWeight:'bold',color:'#1e293b',minWidth:32,textAlign:'right'}}>{count}件</span>
-            </div>
-          )).concat(reasonRank.length>10?[<button key="toggle" onClick={()=>setShowAllReason(!showAllReason)} style={{width:'100%',marginTop:8,padding:'4px',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:6,fontSize:13,fontWeight:'bold',color:'#64748b',cursor:'pointer'}}>{showAllReason?'▲ 閉じる':`▼ 全て表示（${reasonRank.length}種）`}</button>]:[])}
+          ) : (() => {
+            // 5列レイアウト: 1列目に 1〜N、2列目に N+1〜2N… と縦に順に流す
+            const N_COLS = 5;
+            const list = showAllReason ? reasonRank : reasonRank.slice(0,100);
+            const perCol = Math.ceil(list.length / N_COLS) || 1;
+            const cols = Array.from({length: N_COLS}, (_, ci) => list.slice(ci * perCol, (ci + 1) * perCol).map((item, ri) => ({...item, idx: ci * perCol + ri})));
+            return (
+              <React.Fragment>
+                <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},1fr)`,columnGap:24}}>
+                  {cols.map((col, ci) => (
+                    <div key={ci} style={{display:'flex',flexDirection:'column'}}>
+                      {col.map(({reason,count,idx}) => (
+                        <div key={reason} style={{display:'flex',alignItems:'baseline',padding:'2px 0',borderBottom:'1px solid #f8fafc'}}>
+                          <span style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',width:24,textAlign:'right',flexShrink:0,marginRight:10}}>{idx<3?(idx===0?'🥇':idx===1?'🥈':'🥉'):`${idx+1}.`}</span>
+                          <span style={{flex:1,fontSize:12,fontWeight:'bold',color:'#334155',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{reason}</span>
+                          <span style={{fontSize:12,fontWeight:'bold',color:'#1e293b',flexShrink:0,marginLeft:3}}>{count}件</span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+                {reasonRank.length > 100 && (
+                  <button onClick={()=>setShowAllReason(!showAllReason)} style={{width:'100%',marginTop:8,padding:'4px',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:6,fontSize:13,fontWeight:'bold',color:'#64748b',cursor:'pointer'}}>
+                    {showAllReason?'▲ 閉じる':`▼ 全て表示（${reasonRank.length}種）`}
+                  </button>
+                )}
+              </React.Fragment>
+            );
+          })()}
         </Card>
 
 
