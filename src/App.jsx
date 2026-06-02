@@ -12003,6 +12003,37 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
     // 曜日別の詳細(展開行) を全曜日強制表示
     clone.querySelectorAll('[data-dow-detail]').forEach(el => { el.style.display = 'table-row'; });
     // 年齢統計 box は JSX 側で既に 1 行表記になっているため preprocessing は不要
+    // 利用者属性カード全体を compact 化 (帰宅時の見切れ防止)
+    const attrCardForCompact = clone.querySelector('[data-sec="ops-attr"]')?.nextElementSibling
+      || clone.querySelector('[data-sec="ops-attr-mood"]')?.nextElementSibling?.firstElementChild;
+    if (attrCardForCompact) {
+      // 介護度内訳の SVG (pie chart) を小さく
+      attrCardForCompact.querySelectorAll('svg').forEach(svg => {
+        svg.style.width = '120px';
+        svg.style.height = '120px';
+        svg.style.margin = '-10px 0 -10px 0';
+      });
+      // 男女比 / 介護度内訳 のラベルや内訳行のフォントを縮小
+      attrCardForCompact.querySelectorAll('div').forEach(d => {
+        const fs = parseFloat(d.style.fontSize || '0');
+        if (fs >= 11 && fs <= 14) d.style.fontSize = '10px';
+      });
+      attrCardForCompact.querySelectorAll('span').forEach(s => {
+        const fs = parseFloat(s.style.fontSize || '0');
+        if (fs >= 11 && fs <= 14) s.style.fontSize = '10px';
+      });
+      // 各 box (男女比/介護度内訳) の padding を縮める
+      attrCardForCompact.querySelectorAll('[style*="background: rgb(248, 250, 252)"], [style*="background-color: rgb(248, 250, 252)"]').forEach(box => {
+        if (box.style.padding) box.style.padding = '8px';
+      });
+    }
+    // 気分割合カードも少し詰める
+    const moodCardForCompact = clone.querySelector('[data-print-id="mood-cards"]')?.closest('div[style*="padding"]')?.parentElement;
+    if (moodCardForCompact) {
+      moodCardForCompact.querySelectorAll('[data-print-id="mood-cards"]').forEach(grid => {
+        grid.style.gap = '3px';
+      });
+    }
     // 利用者属性 + 気分割合 を 1 ページに収めるため左右並びの単一セクションに統合
     const attrMarker = clone.querySelector('[data-sec="ops-attr"]');
     const moodMarker = clone.querySelector('[data-sec="ops-mood"]');
@@ -12900,7 +12931,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                 );
               };
               return (
-                <div key={d.dow} style={{border:'1px solid #e2e8f0',borderRadius:10,padding:'10px 12px',background:'white'}}>
+                <div key={d.dow} style={{border:'1px solid #e2e8f0',borderRadius:10,padding:'10px 12px',background:'white',overflow:'hidden',minWidth:0}}>
                   <div style={{fontWeight:'bold',fontSize:14,color:'#7c3aed',marginBottom:6,paddingBottom:4,borderBottom:'1px solid #ede9fe'}}>{dayLabel}</div>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6}}>
                     {[{label:'AM',s:d.am,col:'#3b82f6'},{label:'PM',s:d.pm,col:'#10b981'},{label:'合計',s:d.all,col:'#8b5cf6'}].map(({label,s,col})=>(
