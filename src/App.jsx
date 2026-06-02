@@ -12016,9 +12016,9 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         // 新しい結合セクションを作成
         const combined = document.createElement('div');
         combined.setAttribute('data-sec', 'ops-attr-mood');
-        // 結合用の grid wrapper を直後に挿入
+        // 結合用の wrapper (上下並び)を直後に挿入
         const wrapper = document.createElement('div');
-        wrapper.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;';
+        wrapper.style.cssText = 'display:flex;flex-direction:column;gap:12px;';
         // 既存のカードを移動
         wrapper.appendChild(attrCard);
         wrapper.appendChild(moodCard);
@@ -12085,6 +12085,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
       if (el.style.minWidth) el.style.minWidth = '0';
     });
     // 数値詳細テーブルを 12ヶ月分すべて収めるため fixed レイアウト + フォント縮小
+    // 売上は 1の位まで表示するため ¥X,XXX,XXX 形式のまま (フォント縮小で収める)
     clone.querySelectorAll('table').forEach(tbl=>{
       tbl.style.tableLayout = 'fixed';
       tbl.style.width = '100%';
@@ -12095,18 +12096,6 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         c.style.whiteSpace = 'nowrap';
         c.style.overflow = 'hidden';
         c.style.textOverflow = 'ellipsis';
-        // 売上系セルの ¥X,XXX,XXX を 万単位に短縮（列幅に必ず収まるように）
-        const t = (c.textContent || '').trim();
-        const m = t.match(/^([+\-]?)¥([\d,]+)$/);
-        if (m) {
-          const num = parseInt(m[2].replace(/,/g,''));
-          // 1万未満は ¥ のまま、それ以上は 万 表記 (端数は1桁)
-          if (num >= 10000) {
-            const wan = num / 10000;
-            const shown = wan >= 100 ? Math.round(wan).toLocaleString() : wan.toFixed(1);
-            c.textContent = `${m[1]}${shown}万`;
-          }
-        }
       });
     });
     // セクション単位で HTML 文字列を抽出（rootChildren を順に巡回し、data-sec を区切りに分類）
