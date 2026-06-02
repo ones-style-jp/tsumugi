@@ -12299,7 +12299,14 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
 
   // 2. 曜日別稼働率 + AM/PM別利用者ランキング
   const dowStats = React.useMemo(() => {
-    const days = ['月','火','水','木','金','土'];
+    // 各種設定の closedDays (定休日) を除いた営業曜日のみを表示
+    // closedDays は曜日番号 (0=日, 1=月, ..., 6=土) の配列
+    const closed = appData?.systemSettings?.facilityInfo?.closedDays || [0];
+    const allDays = [
+      {dow:'日', idx:0},{dow:'月', idx:1},{dow:'火', idx:2},
+      {dow:'水', idx:3},{dow:'木', idx:4},{dow:'金', idx:5},{dow:'土', idx:6}
+    ];
+    const days = allDays.filter(d => !closed.includes(d.idx)).map(d => d.dow);
     return days.map(dow => {
       const dayRecs = recsAP.filter(r => r.dayOfWeek === dow);
       const calcRate = (ap) => {
