@@ -11915,11 +11915,11 @@ function AttrSection({appData, tY, tM, baseMonth, attrMonth, setAttrMonth, perio
           </div>
         </div>
       </div>
-      <div>
+      <div data-print-id="age-stats">
         <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:6}}>■ 年齢統計</div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>
           {[{label:'総合',arr:ages,color:'#8b5cf6'},{label:'男性',arr:maleAges,color:'#3b82f6'},{label:'女性',arr:femaleAges,color:'#f472b6'}].map(({label,arr,color})=>(
-            <div key={label} style={{background:'#f8fafc',border:`2px solid ${color}30`,borderRadius:12,padding:'10px 8px',textAlign:'center'}}>
+            <div key={label} data-print-id="age-stat-box" style={{background:'#f8fafc',border:`2px solid ${color}30`,borderRadius:12,padding:'10px 8px',textAlign:'center'}}>
               <div style={{fontSize:11,fontWeight:'bold',color,marginBottom:4}}>{label}</div>
               <div style={{fontSize:22,fontWeight:'bold',color:'#1e293b',lineHeight:1}}>{avg(arr)}<span style={{fontSize:11,color:'#64748b',marginLeft:2}}>歳</span></div>
               <div style={{fontSize:10,color:'#94a3b8',marginTop:4,display:'flex',justifyContent:'center',gap:8}}><span style={{color:'#3b82f6'}}>最低 {arr.length?Math.min(...arr):'-'}歳</span><span style={{color:'#ef4444'}}>最高 {arr.length?Math.max(...arr):'-'}歳</span></div>
@@ -11995,6 +11995,17 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
     //  2) 稼働率ステータスバー(RateBar) を除去
     //  3) 稼働率カードを「左: 統計値、右: 月別棒グラフ、下: 数値詳細」の grid 配置に再構成
     clone.querySelectorAll('[data-print-strip]').forEach(el => el.remove());
+    // 曜日別の詳細(展開行) を全曜日強制表示
+    clone.querySelectorAll('[data-dow-detail]').forEach(el => { el.style.display = 'table-row'; });
+    // 年齢統計の box を compact 化 (利用者属性+気分割合 1ページ収容)
+    clone.querySelectorAll('[data-print-id="age-stat-box"]').forEach(el => {
+      el.style.padding = '6px 4px';
+      el.style.borderWidth = '1px';
+      const divs = el.querySelectorAll(':scope > div');
+      if (divs[1]) divs[1].style.fontSize = '16px';
+      if (divs[2]) divs[2].style.fontSize = '9px';
+      if (divs[3]) divs[3].style.fontSize = '9px';
+    });
     const rateBar = clone.querySelector('[data-print-id="rate-bar"]');
     if (rateBar) rateBar.remove();
     const rateStats = clone.querySelector('[data-print-id="rate-stats"]');
@@ -12871,18 +12882,17 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                         </td>
                       ))}
                     </tr>
-                    {isOpen && (
-                      <tr style={{background:'#faf9ff'}}>
-                        <td/>
-                        <td style={{padding:'4px 10px 10px 140px',verticalAlign:'top'}}>
-                          <PatList patients={d.amRank}/>
-                        </td>
-                        <td style={{padding:'4px 10px 10px 110px',verticalAlign:'top'}}>
-                          <PatList patients={d.pmRank}/>
-                        </td>
-                        <td/>
-                      </tr>
-                    )}
+                    {/* 印刷時は常に展開、画面では isOpen の時のみ表示。data-dow-detail を preprocessing で強制表示 */}
+                    <tr data-dow-detail="1" style={{background:'#faf9ff',display:isOpen?'table-row':'none'}}>
+                      <td/>
+                      <td style={{padding:'4px 10px 10px 140px',verticalAlign:'top'}}>
+                        <PatList patients={d.amRank}/>
+                      </td>
+                      <td style={{padding:'4px 10px 10px 110px',verticalAlign:'top'}}>
+                        <PatList patients={d.pmRank}/>
+                      </td>
+                      <td/>
+                    </tr>
                   </React.Fragment>
                 );
               })}
