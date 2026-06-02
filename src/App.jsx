@@ -12009,6 +12009,18 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         c.style.whiteSpace = 'nowrap';
         c.style.overflow = 'hidden';
         c.style.textOverflow = 'ellipsis';
+        // 売上系セルの ¥X,XXX,XXX を 万単位に短縮（列幅に必ず収まるように）
+        const t = (c.textContent || '').trim();
+        const m = t.match(/^([+\-]?)¥([\d,]+)$/);
+        if (m) {
+          const num = parseInt(m[2].replace(/,/g,''));
+          // 1万未満は ¥ のまま、それ以上は 万 表記 (端数は1桁)
+          if (num >= 10000) {
+            const wan = num / 10000;
+            const shown = wan >= 100 ? Math.round(wan).toLocaleString() : wan.toFixed(1);
+            c.textContent = `${m[1]}${shown}万`;
+          }
+        }
       });
     });
     // セクション単位で HTML 文字列を抽出（rootChildren を順に巡回し、data-sec を区切りに分類）
@@ -12628,7 +12640,8 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                 <div style={{overflowX:'auto'}}>
                   <div style={{minWidth:700,height:420}}>
                     <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={chartDataWithDiff} margin={{top:20,right:60,left:20,bottom:5}}>
+                      {/* barCategoryGap で月間スペースを広げる。barSize は細めにして月ごとの空間を確保 */}
+                      <ComposedChart data={chartDataWithDiff} margin={{top:20,right:60,left:20,bottom:5}} barCategoryGap="28%" barGap={3}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0"/>
                         <XAxis dataKey="label" tick={{fontSize:13,fill:'#64748b'}} axisLine={{stroke:'#cbd5e1'}} interval={0}/>
                         <YAxis
@@ -12661,8 +12674,8 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                           iconType="square"
                           iconSize={10}
                         />
-                        <Bar yAxisId="sales" dataKey="sales" name="今年度売上" fill="#5b8def" barSize={20} radius={[2,2,0,0]}/>
-                        <Bar yAxisId="sales" dataKey="prevSales" name="前年度売上" fill="#9ca3af" barSize={20} radius={[2,2,0,0]}/>
+                        <Bar yAxisId="sales" dataKey="sales" name="今年度売上" fill="#5b8def" barSize={14} radius={[2,2,0,0]}/>
+                        <Bar yAxisId="sales" dataKey="prevSales" name="前年度売上" fill="#9ca3af" barSize={14} radius={[2,2,0,0]}/>
                         <Line yAxisId="rate" type="monotone" dataKey="rate" name="今年度稼働率" stroke="#eab308" strokeWidth={2} dot={{fill:'#eab308',r:3}}/>
                         <Line yAxisId="rate" type="monotone" dataKey="prevRate" name="前年度稼働率" stroke="#9ca3af" strokeWidth={2} dot={{fill:'#9ca3af',r:3}} strokeDasharray="4 2"/>
                       </ComposedChart>
