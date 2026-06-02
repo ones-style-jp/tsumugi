@@ -16214,7 +16214,10 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   const isReadOnly = isPast && !forceEdit;
 
   const fi = appData.systemSettings?.facilityInfo || {};
-  const ds = appData.diarySettings || { staff:[], cars:[], scheduleAM:[], schedulePM:[] };
+  const _baseDs = appData.diarySettings || { staff:[], cars:[], scheduleAM:[], schedulePM:[] };
+  // 担当者の追加/削除は保留扱い（保存ボタンで commit）
+  const [pendingStaff, setPendingStaff] = useState(null); // null = no pending
+  const ds = pendingStaff ? { ..._baseDs, staff: pendingStaff } : _baseDs;
 
   const dateObj = new Date(selectedDate);
   const dateStr = `${dateObj.getMonth()+1}月${dateObj.getDate()}日`;
@@ -16247,7 +16250,12 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     markDirty();
   };
   const saveLog = () => {
-    onSave({ ...appData, diaryLogs: { ...(appData.diaryLogs||{}), [logKey]: localLog }});
+    const next = { ...appData, diaryLogs: { ...(appData.diaryLogs||{}), [logKey]: localLog }};
+    if (pendingStaff) {
+      next.diarySettings = { ..._baseDs, staff: pendingStaff };
+    }
+    onSave(next);
+    if (pendingStaff) setPendingStaff(null);
     markClean();
   };
   const toggle = (field, key) => updateLog({ [field]: { ...(log[field]||{}), [key]: !(log[field]||{})[key] } });
@@ -16351,19 +16359,23 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     </div>
   );
 
-  const DriverRow = ({carId, prefix}) => (
-    <div style={{display:'flex',flexWrap:'wrap',gap:'0px 0',alignItems:'flex-start',lineHeight:'13px'}}>
-      {ds.staff.filter(s=>s.name).map((s,si,arr)=>(
-        <React.Fragment key={s.id}>
-          <span style={{display:'inline-flex',alignItems:'center',gap:1}}>
-            <CB checked={!!(log.driver||{})[prefix+s.id]} onChange={()=>toggle('driver',prefix+s.id)} sz={10}/>
-            <span style={{fontSize:11}}>{s.name}</span>
-          </span>
-          {si < arr.length-1 && <span style={{fontSize:11}}>　</span>}
-        </React.Fragment>
-      ))}
-    </div>
-  );
+  const DriverRow = ({carId, prefix}) => {
+    // 送迎者リストも担当時間帯(ampm)で絞り込み
+    const list = ds.staff.filter(s=>s.name && _staffOk(s));
+    return (
+      <div style={{display:'flex',flexWrap:'wrap',gap:'0px 0',alignItems:'flex-start',lineHeight:'13px'}}>
+        {list.map((s,si,arr)=>(
+          <React.Fragment key={s.id}>
+            <span style={{display:'inline-flex',alignItems:'center',gap:1}}>
+              <CB checked={!!(log.driver||{})[prefix+s.id]} onChange={()=>toggle('driver',prefix+s.id)} sz={10}/>
+              <span style={{fontSize:11}}>{s.name}</span>
+            </span>
+            {si < arr.length-1 && <span style={{fontSize:11}}>　</span>}
+          </React.Fragment>
+        ))}
+      </div>
+    );
+  };
 
   const Hanko = ({name}) => {
     const chars=name.replace(/\s/g,'');
@@ -16379,16 +16391,17 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   const th = (w,extra={}) => ({...cs(w,extra),backgroundColor:'#dde',fontWeight:'bold',textAlign:'center',fontSize:8});
 
   const deleteStaffMember = (id) => {
-    const updated = { ...appData, diarySettings: { ...ds, staff: ds.staff.filter(s=>s.id!==id) } };
-    onSave(updated);
+    // 保留方式: pendingStaff を更新（保存ボタンで commit）
+    setPendingStaff(ds.staff.filter(s=>s.id!==id));
+    markDirty();
   };
 
   const addStaffMember = () => {
     const nameVal = (nameInputRef.current?.value || newStaff.name).trim();
     if (!nameVal) return;
     const staffEntry = { id: `s${Date.now()}`, name: nameVal, role: newStaff.role, ampm: newStaff.ampm || 'both' };
-    const updated = { ...appData, diarySettings: { ...ds, staff: [...ds.staff, staffEntry] } };
-    onSave(updated);
+    setPendingStaff([...ds.staff, staffEntry]);
+    markDirty();
     setAddStaffModal(false);
     setNewStaff({ role: '介護職員', name: '', ampm: 'both' });
   };
@@ -16703,7 +16716,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         <div style={{flex:2,border:'1px solid #555',borderRadius:2,overflow:'hidden'}}>
           <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 8px'}}>記録者</div>
           <div style={{padding:'3px 8px',display:'flex',flexWrap:'wrap',gap:'1px 0',minHeight:40,alignContent:'center'}}>
-            {ds.staff.filter(s=>s.name).map((s,si,arr)=>(
+            {ds.staff.filter(s=>s.name && _staffOk(s)).map((s,si,arr)=>(
               <React.Fragment key={s.id}>
                 <span style={{display:'inline-flex',alignItems:'center',gap:2}}>
                   <CB checked={!!(_log.recorder||{})[s.id]} onChange={()=>_toggle('recorder',s.id)} sz={11}/>
