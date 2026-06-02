@@ -11925,6 +11925,115 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
   const [showAllAtt, setShowAllAtt] = React.useState(false);
   const [showAllAbs, setShowAllAbs] = React.useState(false);
   const [showAllReason, setShowAllReason] = React.useState(false);
+  // 印刷オプション
+  const [printOptsModal, setPrintOptsModal] = React.useState(false);
+  const [printOpts, setPrintOpts] = React.useState({ mode: 'detailed', period: 'current', rankingAll: true });
+
+  // 印刷実行: 期間/モード/ランキング表示を一時切替して PDF を生成
+  const runOpsPrint = async (opts) => {
+    // 1. 期間を一時切替（必要なら）
+    const origPeriod = period;
+    const origBaseMonth = baseMonth;
+    if (opts.period === 'current') { setPeriod('1'); setBaseMonth(`${tY}-${String(tM).padStart(2,'0')}`); }
+    else if (opts.period === '12m') { setPeriod('12'); setBaseMonth(`${tY}-${String(tM).padStart(2,'0')}`); }
+    else if (opts.period === 'fy') {
+      const fsm = appData.systemSettings?.facilityInfo?.fiscalStartMonth || 6;
+      // 年度終わり = 現在月以前の(fsm-1)月
+      const today = new Date(tY, tM - 1, 1);
+      // 直近の年度: 始まりは fsm 月、終わりは翌年の(fsm-1)月
+      let fyEndY = tY, fyEndM = fsm - 1; if (fyEndM <= 0) { fyEndM += 12; fyEndY -= 1; }
+      // 現在月が年度の途中（fsm 〜 翌年 fsm-1）なら fyEnd を現在月にする
+      if (tM >= fsm) { fyEndY = tY + 1; fyEndM = fsm - 1; if (fyEndM <= 0) { fyEndM += 12; fyEndY -= 1; } }
+      setPeriod('12'); setBaseMonth(`${tY}-${String(tM).padStart(2,'0')}`);
+    }
+    // 2. ランキングを全件表示に切替
+    const prevAtt = showAllAtt, prevAbs = showAllAbs, prevReason = showAllReason;
+    if (opts.rankingAll) { setShowAllAtt(true); setShowAllAbs(true); setShowAllReason(true); }
+    // 3. 利用者属性は対象月をセット
+    const latestMonth = period === 'custom' ? customTo : baseMonth;
+    setAttrMonth(latestMonth);
+    // 再描画待ち
+    await new Promise(r => setTimeout(r, 300));
+    const container = document.getElementById('print-content-operation');
+    if (!container) { alert('稼働データが見つかりません'); return; }
+    const clone = container.cloneNode(true);
+    clone.querySelectorAll('svg').forEach(svg=>{
+      if(!svg.getAttribute('viewBox')){
+        const w=parseInt(svg.getAttribute('width'))||0;
+        const h=parseInt(svg.getAttribute('height'))||0;
+        if(w > 100){ svg.setAttribute('viewBox',`0 0 ${w} ${h}`); svg.style.maxWidth='100%'; svg.style.height='auto'; }
+      }
+    });
+    clone.querySelectorAll('.vital-scroll').forEach(d=>{d.style.overflow='visible';d.style.maxWidth='100%';});
+    clone.querySelectorAll('[style]').forEach(el=>{
+      const bg = el.style.backgroundColor||el.style.background;
+      if(bg && bg.includes('slate')) el.style.background='white';
+    });
+    // 「▼ 全て表示」「▲ 閉じる」のトグルボタンは印刷時不要 → 除去
+    clone.querySelectorAll('button').forEach(b=>{
+      const t = (b.textContent||'').trim();
+      if (t.startsWith('▼ 全て表示') || t.startsWith('▲ 閉じる')) b.remove();
+    });
+    const rootChildren = Array.from(clone.children);
+    const sectionMarkers = rootChildren
+      .map((el, i) => ({el, i, sec: el.getAttribute('data-sec')}))
+      .filter(x => !!x.sec);
+    const collectSec = (secId) => {
+      const idx = sectionMarkers.findIndex(m => m.sec === secId);
+      if (idx < 0) return [];
+      const start = sectionMarkers[idx].i;
+      const end = idx + 1 < sectionMarkers.length ? sectionMarkers[idx + 1].i : rootChildren.length;
+      return rootChildren.slice(start, end);
+    };
+    // ページ構成
+    let pageGroups;
+    if (opts.mode === 'summary') {
+      // 概要版: 稼働率 + 利用者属性 + 出席率ランキング を1ページにまとめる
+      pageGroups = [ ['ops-rate','ops-attr','ops-rank-att'] ];
+    } else {
+      pageGroups = [
+        ['ops-rate','ops-dow'],
+        ['ops-attr','ops-mood'],
+        ['ops-kaikin','ops-rank-att','ops-rank-abs','ops-reason']
+      ];
+    }
+    const pageW = 210 - 16;
+    const pagePx = pageW * 3.7795;
+    const measure = document.createElement('div');
+    measure.style.cssText = 'position:absolute;left:-9999px;top:0;width:210mm;visibility:hidden;';
+    document.body.appendChild(measure);
+    const pagesHtml = pageGroups.map((secIds, pageIdx)=>{
+      const pageDiv = document.createElement('div');
+      pageDiv.style.cssText = `padding:6mm 8mm;width:210mm;box-sizing:border-box;${pageIdx<pageGroups.length-1?'page-break-after:always;':''}`;
+      measure.appendChild(pageDiv);
+      secIds.forEach(secId=>{
+        const els = collectSec(secId);
+        if(!els.length) return;
+        const group = document.createElement('div');
+        group.style.cssText = 'break-inside:avoid;page-break-inside:avoid;margin-bottom:12px;';
+        els.forEach(el=>group.appendChild(el));
+        pageDiv.appendChild(group);
+        const natW = group.scrollWidth;
+        if(natW > pagePx){
+          const sc = pagePx / natW;
+          const wrapper = document.createElement('div');
+          wrapper.style.cssText = `transform:scale(${sc.toFixed(4)});transform-origin:top left;width:${(100/sc).toFixed(2)}%;margin-bottom:${-(group.scrollHeight*(1-sc)).toFixed(0)}px;break-inside:avoid;page-break-inside:avoid;`;
+          pageDiv.replaceChild(wrapper, group);
+          wrapper.appendChild(group);
+        }
+      });
+      return pageDiv.outerHTML;
+    }).join('');
+    document.body.removeChild(measure);
+    const title = opts.mode === 'summary' ? '分析_稼働_概要' : '分析_稼働';
+    const html = `<div style="font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;width:210mm;box-sizing:border-box;"><style>*{box-sizing:border-box;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}@media print{.page-sep{display:none!important;}}</style>${pagesHtml}</div>`;
+    window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 portrait',html}}));
+    // 復元（少し待つ）
+    setTimeout(() => {
+      if (opts.rankingAll) { setShowAllAtt(prevAtt); setShowAllAbs(prevAbs); setShowAllReason(prevReason); }
+      setPeriod(origPeriod); setBaseMonth(origBaseMonth);
+    }, 400);
+  };
   const [salesEditModal, setSalesEditModal] = React.useState(null); // { month: '2025-06' }
   const [period, setPeriod] = React.useState('1');
   const [customFrom, setCustomFrom] = React.useState(() => { const d=new Date(); d.setMonth(d.getMonth()-1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; });
@@ -12272,86 +12381,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
           )}
         </div>
         <div style={{display:'flex',gap:6,alignItems:'center'}}>
-          <button type="button" onClick={async()=>{
-            // 利用者属性を「最新の月」（custom時はcustomTo、それ以外はbaseMonth）にセット
-            const latestMonth = period === 'custom' ? customTo : baseMonth;
-            setAttrMonth(latestMonth);
-            await new Promise(r => setTimeout(r, 220));
-            const container = document.getElementById('print-content-operation');
-            if(!container){ alert('稼働データが見つかりません'); return; }
-            const clone = container.cloneNode(true);
-            // SVG viewBox付与
-            clone.querySelectorAll('svg').forEach(svg=>{
-              if(!svg.getAttribute('viewBox')){
-                const w=parseInt(svg.getAttribute('width'))||0;
-                const h=parseInt(svg.getAttribute('height'))||0;
-                if(w > 100){
-                  svg.setAttribute('viewBox',`0 0 ${w} ${h}`);
-                  svg.style.maxWidth='100%';
-                  svg.style.height='auto';
-                }
-              }
-            });
-            clone.querySelectorAll('.vital-scroll').forEach(d=>{d.style.overflow='visible';d.style.maxWidth='100%';});
-            clone.querySelectorAll('[style]').forEach(el=>{
-              const bg = el.style.backgroundColor||el.style.background;
-              if(bg && bg.includes('slate')) el.style.background='white';
-            });
-            // セクション要素を data-sec マーカーから抽出。
-            // ルート直下に存在するマーカーだけを対象にし、別マーカーまでの兄弟要素をひと固まりとして返す。
-            const rootChildren = Array.from(clone.children);
-            const sectionMarkers = rootChildren
-              .map((el, i) => ({el, i, sec: el.getAttribute('data-sec')}))
-              .filter(x => !!x.sec);
-            const collectSec = (secId) => {
-              const idx = sectionMarkers.findIndex(m => m.sec === secId);
-              if (idx < 0) return [];
-              const start = sectionMarkers[idx].i;
-              const end = idx + 1 < sectionMarkers.length ? sectionMarkers[idx + 1].i : rootChildren.length;
-              return rootChildren.slice(start, end);
-            };
-            // 3ページ構成
-            // 注意: 各セクションマーカーは必ず print-content-operation 直下の兄弟要素であること。
-            // ops-monthly は「稼働率」Card の内部にネストされているので
-            // pageGroups から除外し、ops-rate の Card 内コンテンツとして自然に含める。
-            const pageGroups = [
-              ['ops-rate','ops-dow'],
-              ['ops-attr','ops-mood'],
-              ['ops-kaikin','ops-rank-att','ops-rank-abs','ops-reason']
-            ];
-            // 各ページは縦1列。セクションがページ幅を超える場合のみ縮小ラップ
-            const pageW = 210 - 16; // 横幅 - 左右パディング合計
-            const pagePx = pageW * 3.7795;
-            const measure = document.createElement('div');
-            measure.style.cssText = 'position:absolute;left:-9999px;top:0;width:210mm;visibility:hidden;';
-            document.body.appendChild(measure);
-            const pagesHtml = pageGroups.map((secIds, pageIdx)=>{
-              const pageDiv = document.createElement('div');
-              pageDiv.style.cssText = `padding:6mm 8mm;width:210mm;box-sizing:border-box;${pageIdx<pageGroups.length-1?'page-break-after:always;':''}`;
-              measure.appendChild(pageDiv);
-              secIds.forEach(secId=>{
-                const els = collectSec(secId);
-                if(!els.length) return;
-                const group = document.createElement('div');
-                group.style.cssText = 'break-inside:avoid;page-break-inside:avoid;margin-bottom:12px;';
-                els.forEach(el=>group.appendChild(el));
-                pageDiv.appendChild(group);
-                const natW = group.scrollWidth;
-                if(natW > pagePx){
-                  const sc = pagePx / natW;
-                  const wrapper = document.createElement('div');
-                  wrapper.style.cssText = `transform:scale(${sc.toFixed(4)});transform-origin:top left;width:${(100/sc).toFixed(2)}%;margin-bottom:${-(group.scrollHeight*(1-sc)).toFixed(0)}px;break-inside:avoid;page-break-inside:avoid;`;
-                  pageDiv.replaceChild(wrapper, group);
-                  wrapper.appendChild(group);
-                }
-              });
-              return pageDiv.outerHTML;
-            }).join('');
-            document.body.removeChild(measure);
-            const title='分析_稼働';
-            const html=`<div style="font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;width:210mm;box-sizing:border-box;"><style>*{box-sizing:border-box;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}@media print{.page-sep{display:none!important;}}</style>${pagesHtml}</div>`;
-            window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 portrait',html}}));
-          }}
+          <button type="button" onClick={()=>setPrintOptsModal(true)}
             style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:8,padding:'6px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
             <Printer size={14}/>プレビュー
           </button>
@@ -12369,6 +12399,46 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
           ))}
         </div>
       </div>
+
+      {/* 印刷オプションモーダル */}
+      {printOptsModal && (
+        <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.5)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+          <div style={{background:'white',borderRadius:16,padding:24,width:420,maxWidth:'95vw',boxShadow:'0 12px 40px rgba(0,0,0,0.2)'}}>
+            <div style={{fontWeight:'bold',fontSize:16,marginBottom:16,color:'#1e293b'}}>印刷オプション</div>
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>印刷モード</div>
+              <div style={{display:'flex',gap:6}}>
+                {[['detailed','詳細 (3 ページ)'],['summary','概要 (1 ページ)']].map(([v,l])=>(
+                  <button key={v} type="button" onClick={()=>setPrintOpts({...printOpts,mode:v})}
+                    style={{flex:1,padding:'8px 4px',borderRadius:8,border:'1px solid',borderColor:printOpts.mode===v?'#2563eb':'#cbd5e1',background:printOpts.mode===v?'#2563eb':'white',color:printOpts.mode===v?'white':'#475569',fontSize:12,fontWeight:'bold',cursor:'pointer'}}>{l}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>期間</div>
+              <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                {[['current','当月のみ'],['12m','過去12ヶ月'],['fy','年度']].map(([v,l])=>(
+                  <button key={v} type="button" onClick={()=>setPrintOpts({...printOpts,period:v})}
+                    style={{flex:1,padding:'8px 4px',borderRadius:8,border:'1px solid',borderColor:printOpts.period===v?'#2563eb':'#cbd5e1',background:printOpts.period===v?'#2563eb':'white',color:printOpts.period===v?'white':'#475569',fontSize:12,fontWeight:'bold',cursor:'pointer'}}>{l}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{marginBottom:20}}>
+              <div style={{fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>ランキング表示</div>
+              <div style={{display:'flex',gap:6}}>
+                {[[true,'全件'],[false,'TOP 10 のみ']].map(([v,l])=>(
+                  <button key={String(v)} type="button" onClick={()=>setPrintOpts({...printOpts,rankingAll:v})}
+                    style={{flex:1,padding:'8px 4px',borderRadius:8,border:'1px solid',borderColor:printOpts.rankingAll===v?'#2563eb':'#cbd5e1',background:printOpts.rankingAll===v?'#2563eb':'white',color:printOpts.rankingAll===v?'white':'#475569',fontSize:12,fontWeight:'bold',cursor:'pointer'}}>{l}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={()=>setPrintOptsModal(false)} style={{flex:1,padding:'10px',borderRadius:8,border:'1px solid #cbd5e1',background:'#f1f5f9',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>キャンセル</button>
+              <button onClick={()=>{ setPrintOptsModal(false); runOpsPrint(printOpts); }} style={{flex:1,padding:'10px',borderRadius:8,border:'none',background:'#2563eb',color:'white',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>プレビュー表示</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div id="print-content-operation" style={{padding:'16px 20px',maxWidth:960,margin:'0 auto'}}>
 
