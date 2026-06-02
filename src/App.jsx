@@ -11850,7 +11850,23 @@ function AttrSection({appData, tY, tM, baseMonth, attrMonth, setAttrMonth}) {
   const femalePct = 100-malePct;
   const careLevelOrder=['事業対象者','要支援1','要支援2','要介護1','要介護2','要介護3','要介護4','要介護5'];
   const careLevelColors=['#a78bfa','#818cf8','#60a5fa','#34d399','#fbbf24','#f97316','#ef4444','#dc2626'];
-  const clCounts = careLevelOrder.map((cl,ci)=>({label:cl,color:careLevelColors[ci],count:activePats.filter(p=>p.careLevel===cl).length,males:males.filter(p=>p.careLevel===cl).length,females:females.filter(p=>p.careLevel===cl).length})).filter(c=>c.count>0);
+  const clCountsRaw = careLevelOrder.map((cl,ci)=>({label:cl,color:careLevelColors[ci],count:activePats.filter(p=>p.careLevel===cl).length,males:males.filter(p=>p.careLevel===cl).length,females:females.filter(p=>p.careLevel===cl).length})).filter(c=>c.count>0);
+  // 事業対象者と要支援1は内容がほぼ同じため合算して1項目にまとめる
+  const clCounts = (() => {
+    const jg = clCountsRaw.find(c=>c.label==='事業対象者');
+    const y1 = clCountsRaw.find(c=>c.label==='要支援1');
+    if (!jg && !y1) return clCountsRaw;
+    if (!jg || !y1) return clCountsRaw; // 片方しか居ない場合は合算不要
+    const merged = {
+      label: '事業対象者・要支援1',
+      color: jg.color,
+      count: jg.count + y1.count,
+      males: jg.males + y1.males,
+      females: jg.females + y1.females,
+    };
+    const rest = clCountsRaw.filter(c => c.label !== '事業対象者' && c.label !== '要支援1');
+    return [merged, ...rest];
+  })();
   const ages = activePats.map(p=>calcAge(p.birthDate)).filter(a=>a!==null);
   const maleAges = males.map(p=>calcAge(p.birthDate)).filter(a=>a!==null);
   const femaleAges = females.map(p=>calcAge(p.birthDate)).filter(a=>a!==null);
@@ -11951,7 +11967,8 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
     const latestMonth = period === 'custom' ? customTo : baseMonth;
     setAttrMonth(latestMonth);
     // 描画完了待ち
-    await new Promise(r => setTimeout(r, 500));
+    // 期間切替後のデータ再計算待ち（複雑なuseMemoや子コンポーネントの再描画を含むため余裕を持って800ms）
+    await new Promise(r => setTimeout(r, 800));
     const container = document.getElementById('print-content-operation');
     if (!container) { alert('稼働データが見つかりません'); return; }
     // クローン作成 + 整形
@@ -12023,6 +12040,10 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
       [data-sec="ops-attr"] + * [style*="display: grid"]{
         grid-template-columns: 1fr 1fr !important;
       }
+      /* Recharts のホバーツールチップを印刷HTML上で非表示にする
+         （プレビューでカーソルを乗せた時に出るポップアップが印刷物に残らないように） */
+      .recharts-tooltip-wrapper{display:none!important;}
+      .recharts-tooltip-cursor{display:none!important;}
       @media print{.page-sep{display:none!important;}}
     `;
     const html = `<div style="font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;width:${PAGE_W_MM}mm;box-sizing:border-box;"><style>${styleOverride}</style>${pagesHtml}</div>`;
@@ -12584,26 +12605,30 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                   </button>
                 </div>
                 <div style={{overflowX:'auto'}}>
-                  <div style={{minWidth:700,height:500}}>
+                  <div style={{minWidth:700,height:280}}>
                     <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={chartDataWithDiff} margin={{top:20,right:60,left:20,bottom:5}}>
+                      {/* margin.left を テーブル「項目」列(minWidth 90) に合わせて 70 に。
+                          margin.right はテーブル端と揃うよう Yaxis 右軸(40px幅) + 余白で 40。 */}
+                      <ComposedChart data={chartDataWithDiff} margin={{top:10,right:40,left:50,bottom:5}}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0"/>
-                        <XAxis dataKey="label" tick={{fontSize:13,fill:'#64748b'}} axisLine={{stroke:'#cbd5e1'}}/>
-                        <YAxis 
-                          yAxisId="sales" 
-                          orientation="left" 
+                        <XAxis dataKey="label" tick={{fontSize:12,fill:'#64748b'}} axisLine={{stroke:'#cbd5e1'}} interval={0}/>
+                        <YAxis
+                          yAxisId="sales"
+                          orientation="left"
+                          width={40}
                           domain={[0, 3000000]}
-                          ticks={[0, 200000, 400000, 600000, 800000, 1000000, 1200000, 1400000, 1600000, 1800000, 2000000, 2200000, 2400000, 2600000, 2800000, 3000000]}
-                          tick={{fontSize:12,fill:'#64748b'}}
+                          ticks={[0, 500000, 1000000, 1500000, 2000000, 2500000, 3000000]}
+                          tick={{fontSize:10,fill:'#64748b'}}
                           tickFormatter={(v)=>`${(v/10000).toFixed(0)}万`}
                           axisLine={{stroke:'#cbd5e1'}}
                         />
-                        <YAxis 
-                          yAxisId="rate" 
-                          orientation="right" 
+                        <YAxis
+                          yAxisId="rate"
+                          orientation="right"
+                          width={36}
                           domain={[0, 100]}
-                          ticks={[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100]}
-                          tick={{fontSize:12,fill:'#64748b'}}
+                          ticks={[0, 20, 40, 60, 80, 100]}
+                          tick={{fontSize:10,fill:'#64748b'}}
                           tickFormatter={(v)=>`${v}%`}
                           axisLine={{stroke:'#cbd5e1'}}
                         />
@@ -12634,7 +12659,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                       <tr style={{background:'#f8fafc'}}>
                         <th style={{padding:'4px 8px',borderBottom:'1px solid #e2e8f0',textAlign:'left',color:'#64748b',minWidth:90}}>項目</th>
                         {chartDataWithDiff.map(d=>(
-                          <th key={d.month} style={{padding:'4px 6px',borderBottom:'1px solid #e2e8f0',textAlign:'right',color:'#64748b',minWidth:70}}>{d.label}</th>
+                          <th key={d.month} style={{padding:'4px 6px',borderBottom:'1px solid #e2e8f0',textAlign:'center',color:'#64748b',minWidth:70}}>{d.label}</th>
                         ))}
                       </tr>
                     </thead>
