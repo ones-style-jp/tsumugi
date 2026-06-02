@@ -12118,9 +12118,10 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
       tbl.style.tableLayout = 'fixed';
       tbl.style.width = '100%';
       tbl.style.fontSize = '9.5px';
+      tbl.style.lineHeight = '1.5';
       tbl.querySelectorAll('th,td').forEach(c=>{
         c.style.minWidth = '0';
-        c.style.padding = '1px 2px';
+        c.style.padding = '4px 2px';  // 行間を広げて読みやすく
         c.style.whiteSpace = 'nowrap';
         c.style.overflow = 'hidden';
         c.style.textOverflow = 'ellipsis';
@@ -12903,7 +12904,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         {/* 2. 曜日別稼働率 — 曜日カード形式（月曜日〜土曜日を枠で囲んで表示） */}
         <div id="ops-dow" data-sec="ops-dow" style={{scrollMarginTop:120}}/>
         <Card title="曜日別稼働率" accent='#8b5cf6'>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:10}}>
             {dowStats.map(d => {
               const dayLabel = `${d.dow}曜日`;
               const renderPats = (label, list, col) => {
@@ -12913,15 +12914,17 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                 const N_COLS = Math.max(1, Math.ceil(list.length / PER_COL));
                 const fs = 11;
                 const cols = Array.from({length: N_COLS}, (_, ci) => list.slice(ci * PER_COL, (ci + 1) * PER_COL));
+                // 列数に応じて名前幅を調整 (列が多いほど名前を短く切り詰めて重なり防止)
+                const nameWidth = N_COLS >= 4 ? '4em' : N_COLS >= 3 ? '4.5em' : N_COLS >= 2 ? '5em' : '7em';
                 return (
-                  <div style={{marginTop:4}}>
+                  <div style={{marginTop:4,minWidth:0,overflow:'hidden'}}>
                     <div style={{fontSize:9,fontWeight:'bold',color:col,marginBottom:2}}>{label} 利用者（出席率順）</div>
-                    <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},1fr)`,columnGap:10}}>
+                    <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},minmax(0,1fr))`,columnGap:6}}>
                       {cols.map((subList, ci) => (
-                        <div key={ci} style={{display:'flex',flexDirection:'column',minWidth:0}}>
+                        <div key={ci} style={{display:'flex',flexDirection:'column',minWidth:0,overflow:'hidden'}}>
                           {subList.map(p => (
-                            <div key={p.patient.id} style={{display:'flex',alignItems:'baseline',padding:'0',borderBottom:'1px solid #f8fafc',lineHeight:1.35}}>
-                              <span style={{fontSize:10,fontWeight:'bold',color:'#334155',width:'6em',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flexShrink:0}}>{p.patient.name}</span>
+                            <div key={p.patient.id} style={{display:'flex',alignItems:'baseline',padding:'0',borderBottom:'1px solid #f8fafc',lineHeight:1.35,minWidth:0}}>
+                              <span style={{fontSize:10,fontWeight:'bold',color:'#334155',width:nameWidth,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flexShrink:0}}>{p.patient.name}</span>
                               <span style={{fontSize:10,color:RC(p.rate),fontWeight:'bold',marginLeft:3,flexShrink:0,width:'2.4em',textAlign:'right'}}>{p.rate}%</span>
                             </div>
                           ))}
@@ -12934,9 +12937,9 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
               return (
                 <div key={d.dow} style={{border:'1px solid #e2e8f0',borderRadius:8,padding:'6px 8px',background:'white',overflow:'hidden',minWidth:0}}>
                   <div style={{fontWeight:'bold',fontSize:13,color:'#7c3aed',marginBottom:4,paddingBottom:3,borderBottom:'1px solid #ede9fe'}}>{dayLabel}</div>
-                  <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:4}}>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:4,minWidth:0}}>
                     {[{label:'AM',s:d.am,col:'#3b82f6'},{label:'PM',s:d.pm,col:'#10b981'},{label:'合計',s:d.all,col:'#8b5cf6'}].map(({label,s,col})=>(
-                      <div key={label} style={{textAlign:'center',padding:'2px 3px',borderRadius:5,background:`${col}10`}}>
+                      <div key={label} style={{textAlign:'center',padding:'2px 3px',borderRadius:5,background:`${col}10`,minWidth:0,overflow:'hidden'}}>
                         <div style={{fontSize:9,color:'#64748b',fontWeight:'bold'}}>{label}</div>
                         {s.planned>0 ? (
                           <React.Fragment>
