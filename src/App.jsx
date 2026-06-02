@@ -12349,15 +12349,21 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
   );
 
   const renderKaikin = (k, getSD) => {
-    // 3列レイアウト: 順位の昇順を列内で縦に流す
+    // 4列レイアウト: 1列目に 1〜N、2列目に N+1〜2N… と縦に順に流す
+    const N_COLS = 4;
+    const perCol = Math.ceil(k.length / N_COLS) || 1;
+    const cols = Array.from({length: N_COLS}, (_, ci) => k.slice(ci * perCol, (ci + 1) * perCol).map((item, ri) => ({...item, idx: ci * perCol + ri})));
     return (
-      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',columnGap:18,rowGap:0}}>
-        {k.map(({patient,days},i) => (
-          <div key={patient.id} style={{display:'flex',alignItems:'center',gap:6,padding:'3px 4px',borderBottom:'1px solid #f1f5f9'}}>
-            <span style={{fontSize:13,flexShrink:0}}>{i===0?'🥇':i===1?'🥈':i===2?'🥉':'🏅'}</span>
-            <span style={{flex:1,fontSize:12,fontWeight:'bold',color:'#000',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{patient.name}</span>
-            <span style={{fontSize:11,color:'#000',whiteSpace:'nowrap'}}>{getSD(patient)}</span>
-            <span style={{fontSize:12,fontWeight:'bold',color:'#000',whiteSpace:'nowrap',minWidth:26,textAlign:'right'}}>{days}日</span>
+      <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},1fr)`,columnGap:12}}>
+        {cols.map((col, ci) => (
+          <div key={ci} style={{display:'flex',flexDirection:'column'}}>
+            {col.map(({patient,days,idx}) => (
+              <div key={patient.id} style={{display:'flex',alignItems:'baseline',gap:3,padding:'2px 3px',borderBottom:'1px solid #f1f5f9'}}>
+                <span style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',width:22,textAlign:'right',flexShrink:0}}>{idx<3?(idx===0?'🥇':idx===1?'🥈':'🥉'):`${idx+1}.`}</span>
+                <span style={{flex:1,fontSize:12,fontWeight:'bold',color:'#000',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{patient.name}</span>
+                <span style={{fontSize:12,fontWeight:'bold',color:'#000',whiteSpace:'nowrap',flexShrink:0}}>{days}日</span>
+              </div>
+            ))}
           </div>
         ))}
       </div>
@@ -12863,47 +12869,68 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         {/* 4. 出席率ランキング */}
         <div id="ops-rank-att" data-sec="ops-rank-att" style={{scrollMarginTop:120}}/>
         <Card title={`出席率ランキング　${periodLabel}（${attRank.length}名）`} accent='#3b82f6'>
-            {attRank.length===0 ? <div style={{color:'#94a3b8',fontSize:13,textAlign:'center',padding:'12px 0'}}>データなし</div> : (
-              <React.Fragment>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',columnGap:18,rowGap:0}}>
-                  {(showAllAtt ? attRank : attRank.slice(0,30)).map(({patient,count,total,rate},i)=>(
-                    <div key={patient.id} style={{display:'flex',alignItems:'center',gap:6,padding:'4px 0',borderBottom:'1px solid #f8fafc'}}>
-                      <span style={{width:18,height:18,borderRadius:'50%',background:i<3?['#f59e0b','#9ca3af','#cd7c3a'][i]:'#e2e8f0',color:i<3?'white':'#64748b',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:'bold',flexShrink:0}}>{i+1}</span>
-                      <span style={{flex:1,fontSize:12,fontWeight:'bold',color:'#1e293b',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{patient.name}</span>
-                      <span style={{fontSize:12,fontWeight:'bold',color:'#3b82f6',minWidth:36,textAlign:'right'}}>{rate}%</span>
-                    </div>
-                  ))}
-                </div>
-                {attRank.length > 30 && (
-                  <button onClick={()=>setShowAllAtt(!showAllAtt)} style={{width:'100%',marginTop:8,padding:'4px',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:6,fontSize:13,fontWeight:'bold',color:'#3b82f6',cursor:'pointer'}}>
-                    {showAllAtt ? '▲ 閉じる' : `▼ 全て表示（${attRank.length}名）`}
-                  </button>
-                )}
-              </React.Fragment>
-            )}
+            {attRank.length===0 ? <div style={{color:'#94a3b8',fontSize:13,textAlign:'center',padding:'12px 0'}}>データなし</div> : (() => {
+              // 4列レイアウト: 1列目に 1〜N、2列目に N+1〜2N… と縦に順に流す
+              const N_COLS = 4;
+              const list = showAllAtt ? attRank : attRank.slice(0,80);
+              const perCol = Math.ceil(list.length / N_COLS) || 1;
+              const cols = Array.from({length: N_COLS}, (_, ci) => list.slice(ci * perCol, (ci + 1) * perCol).map((item, ri) => ({...item, idx: ci * perCol + ri})));
+              return (
+                <React.Fragment>
+                  <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},1fr)`,columnGap:12}}>
+                    {cols.map((col, ci) => (
+                      <div key={ci} style={{display:'flex',flexDirection:'column'}}>
+                        {col.map(({patient,rate,idx}) => (
+                          <div key={patient.id} style={{display:'flex',alignItems:'baseline',gap:3,padding:'2px 3px',borderBottom:'1px solid #f8fafc'}}>
+                            <span style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',width:22,textAlign:'right',flexShrink:0}}>{idx<3?(idx===0?'🥇':idx===1?'🥈':'🥉'):`${idx+1}.`}</span>
+                            <span style={{flex:1,fontSize:12,fontWeight:'bold',color:'#1e293b',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{patient.name}</span>
+                            <span style={{fontSize:12,fontWeight:'bold',color:'#3b82f6',flexShrink:0}}>{rate}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                  {attRank.length > 80 && (
+                    <button onClick={()=>setShowAllAtt(!showAllAtt)} style={{width:'100%',marginTop:8,padding:'4px',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:6,fontSize:13,fontWeight:'bold',color:'#3b82f6',cursor:'pointer'}}>
+                      {showAllAtt ? '▲ 閉じる' : `▼ 全て表示（${attRank.length}名）`}
+                    </button>
+                  )}
+                </React.Fragment>
+              );
+            })()}
         </Card>
 
         {/* 5. 欠席率ランキング */}
         <div id="ops-rank-abs" data-sec="ops-rank-abs" style={{scrollMarginTop:120,marginTop:12}}/>
         <Card title={`欠席率ランキング　${periodLabel}（${absRank.length}名）`} accent='#ef4444'>
-            {absRank.length===0 ? <div style={{color:'#94a3b8',fontSize:13,textAlign:'center',padding:'12px 0'}}>データなし</div> : (
-              <React.Fragment>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',columnGap:18,rowGap:0}}>
-                  {(showAllAbs ? absRank : absRank.slice(0,30)).map(({patient,count,total,rate},i)=>(
-                    <div key={patient.id} style={{display:'flex',alignItems:'center',gap:6,padding:'4px 0',borderBottom:'1px solid #f8fafc'}}>
-                      <span style={{width:18,height:18,borderRadius:'50%',background:i<3?['#ef4444','#f87171','#fca5a5'][i]:'#e2e8f0',color:i<3?'white':'#64748b',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:'bold',flexShrink:0}}>{i+1}</span>
-                      <span style={{flex:1,fontSize:12,fontWeight:'bold',color:'#1e293b',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{patient.name}</span>
-                      <span style={{fontSize:12,fontWeight:'bold',color:'#ef4444',minWidth:36,textAlign:'right'}}>{rate}%</span>
-                    </div>
-                  ))}
-                </div>
-                {absRank.length > 30 && (
-                  <button onClick={()=>setShowAllAbs(!showAllAbs)} style={{width:'100%',marginTop:8,padding:'4px',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:6,fontSize:13,fontWeight:'bold',color:'#ef4444',cursor:'pointer'}}>
-                    {showAllAbs ? '▲ 閉じる' : `▼ 全て表示（${absRank.length}名）`}
-                  </button>
-                )}
-              </React.Fragment>
-            )}
+            {absRank.length===0 ? <div style={{color:'#94a3b8',fontSize:13,textAlign:'center',padding:'12px 0'}}>データなし</div> : (() => {
+              const N_COLS = 4;
+              const list = showAllAbs ? absRank : absRank.slice(0,80);
+              const perCol = Math.ceil(list.length / N_COLS) || 1;
+              const cols = Array.from({length: N_COLS}, (_, ci) => list.slice(ci * perCol, (ci + 1) * perCol).map((item, ri) => ({...item, idx: ci * perCol + ri})));
+              return (
+                <React.Fragment>
+                  <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},1fr)`,columnGap:12}}>
+                    {cols.map((col, ci) => (
+                      <div key={ci} style={{display:'flex',flexDirection:'column'}}>
+                        {col.map(({patient,rate,idx}) => (
+                          <div key={patient.id} style={{display:'flex',alignItems:'baseline',gap:3,padding:'2px 3px',borderBottom:'1px solid #f8fafc'}}>
+                            <span style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',width:22,textAlign:'right',flexShrink:0}}>{idx<3?(idx===0?'🥇':idx===1?'🥈':'🥉'):`${idx+1}.`}</span>
+                            <span style={{flex:1,fontSize:12,fontWeight:'bold',color:'#1e293b',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{patient.name}</span>
+                            <span style={{fontSize:12,fontWeight:'bold',color:'#ef4444',flexShrink:0}}>{rate}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                  {absRank.length > 80 && (
+                    <button onClick={()=>setShowAllAbs(!showAllAbs)} style={{width:'100%',marginTop:8,padding:'4px',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:6,fontSize:13,fontWeight:'bold',color:'#ef4444',cursor:'pointer'}}>
+                      {showAllAbs ? '▲ 閉じる' : `▼ 全て表示（${absRank.length}名）`}
+                    </button>
+                  )}
+                </React.Fragment>
+              );
+            })()}
         </Card>
 
         {/* 6. 欠席理由ランキング */}
