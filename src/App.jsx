@@ -11997,7 +11997,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
     clone.querySelectorAll('[data-print-strip]').forEach(el => el.remove());
     // 曜日別の詳細(展開行) を全曜日強制表示
     clone.querySelectorAll('[data-dow-detail]').forEach(el => { el.style.display = 'table-row'; });
-    // 年齢統計の box を compact 化 (利用者属性+気分割合 1ページ収容)
+    // 年齢統計の box を compact 化
     clone.querySelectorAll('[data-print-id="age-stat-box"]').forEach(el => {
       el.style.padding = '6px 4px';
       el.style.borderWidth = '1px';
@@ -12006,6 +12006,31 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
       if (divs[2]) divs[2].style.fontSize = '9px';
       if (divs[3]) divs[3].style.fontSize = '9px';
     });
+    // 利用者属性 + 気分割合 を 1 ページに収めるため左右並びの単一セクションに統合
+    const attrMarker = clone.querySelector('[data-sec="ops-attr"]');
+    const moodMarker = clone.querySelector('[data-sec="ops-mood"]');
+    if (attrMarker && moodMarker) {
+      const attrCard = attrMarker.nextElementSibling;
+      const moodCard = moodMarker.nextElementSibling;
+      if (attrCard && moodCard) {
+        // 新しい結合セクションを作成
+        const combined = document.createElement('div');
+        combined.setAttribute('data-sec', 'ops-attr-mood');
+        // 結合用の grid wrapper を直後に挿入
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;';
+        // 既存のカードを移動
+        wrapper.appendChild(attrCard);
+        wrapper.appendChild(moodCard);
+        // attrMarker の場所に combined と wrapper を入れる
+        const parent = attrMarker.parentElement;
+        parent.insertBefore(combined, attrMarker);
+        parent.insertBefore(wrapper, attrMarker);
+        // 古い marker を削除
+        attrMarker.remove();
+        moodMarker.remove();
+      }
+    }
     const rateBar = clone.querySelector('[data-print-id="rate-bar"]');
     if (rateBar) rateBar.remove();
     const rateStats = clone.querySelector('[data-print-id="rate-stats"]');
@@ -12104,8 +12129,9 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
       pageGroups = [ ['ops-rate','ops-attr','ops-rank-att'] ];
     } else {
       pageGroups = [
-        ['ops-rate','ops-dow'],
-        ['ops-attr','ops-mood'],
+        ['ops-rate'],
+        ['ops-dow'],
+        ['ops-attr-mood'], // 利用者属性 + 気分割合 を1ページに左右並びで配置
         ['ops-kaikin','ops-rank-att','ops-rank-abs','ops-reason']
       ];
     }
@@ -12706,7 +12732,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                   </button>
                 </div>
                 <div data-print-id="rate-chart-graph" style={{overflowX:'auto'}}>
-                  <div style={{minWidth:700,height:280}}>
+                  <div style={{minWidth:700,height:360}}>
                     <ResponsiveContainer width="100%" height="100%">
                       {/* barCategoryGap で月間スペースを広げる。barSize は細めにして月ごとの空間を確保 */}
                       <ComposedChart data={chartDataWithDiff} margin={{top:20,right:60,left:20,bottom:5}} barCategoryGap="28%" barGap={3}>
@@ -12862,19 +12888,30 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
           <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
             {dowStats.map(d => {
               const dayLabel = `${d.dow}曜日`;
-              const renderPats = (label, list, col) => list.length > 0 && (
-                <div style={{marginTop:6}}>
-                  <div style={{fontSize:10,fontWeight:'bold',color:col,marginBottom:3}}>{label} 利用者（出席率順）</div>
-                  <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',columnGap:8,rowGap:0}}>
-                    {list.map(p => (
-                      <div key={p.patient.id} style={{display:'flex',alignItems:'baseline',gap:3,fontSize:11,padding:'2px 0',borderBottom:'1px solid #f8fafc'}}>
-                        <span style={{flex:1,fontWeight:'bold',color:'#334155',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.patient.name}</span>
-                        <span style={{color:RC(p.rate),fontWeight:'bold',flexShrink:0}}>{p.rate}%</span>
-                      </div>
-                    ))}
+              const renderPats = (label, list, col) => {
+                if (list.length === 0) return null;
+                // 3列レイアウト: 1列目に 1〜N、2列目に N+1〜2N… と縦に流す（ランキングと同じスタイル）
+                const N_COLS = 3;
+                const perCol = Math.ceil(list.length / N_COLS) || 1;
+                const cols = Array.from({length: N_COLS}, (_, ci) => list.slice(ci * perCol, (ci + 1) * perCol));
+                return (
+                  <div style={{marginTop:6}}>
+                    <div style={{fontSize:10,fontWeight:'bold',color:col,marginBottom:3}}>{label} 利用者（出席率順）</div>
+                    <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},1fr)`,columnGap:18}}>
+                      {cols.map((subList, ci) => (
+                        <div key={ci} style={{display:'flex',flexDirection:'column'}}>
+                          {subList.map(p => (
+                            <div key={p.patient.id} style={{display:'flex',alignItems:'baseline',padding:'2px 0',borderBottom:'1px solid #f8fafc'}}>
+                              <span style={{flex:1,fontSize:11,fontWeight:'bold',color:'#334155',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.patient.name}</span>
+                              <span style={{fontSize:11,color:RC(p.rate),fontWeight:'bold',flexShrink:0,marginLeft:3}}>{p.rate}%</span>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              );
+                );
+              };
               return (
                 <div key={d.dow} style={{border:'1px solid #e2e8f0',borderRadius:10,padding:'10px 12px',background:'white'}}>
                   <div style={{fontWeight:'bold',fontSize:14,color:'#7c3aed',marginBottom:6,paddingBottom:4,borderBottom:'1px solid #ede9fe'}}>{dayLabel}</div>
