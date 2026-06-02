@@ -12941,7 +12941,8 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                 const cols = Array.from({length: N_COLS}, (_, ci) => list.slice(ci * perCol, (ci + 1) * perCol));
                 const fs = 12; // 3日2ページ分割で余裕あるためフォント大きめ
                 return (
-                  <div style={{marginTop:6,minWidth:0,overflow:'hidden'}}>
+                  // PM の場合は AM 利用者リストとの間に「1名分」の隙間 (約24px) を空ける
+                  <div style={{marginTop:label==='PM'?24:6,minWidth:0,overflow:'hidden'}}>
                     <div style={{fontSize:11,fontWeight:'bold',color:col,marginBottom:4,paddingBottom:2,borderBottom:`2px solid ${col}30`}}>{label} 利用者（出席率順）</div>
                     <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},minmax(0,1fr))`,columnGap:10}}>
                       {cols.map((subList, ci) => (
@@ -13020,14 +13021,14 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                     <div style={{fontWeight:'bold',fontSize:16,color:'#7c3aed',marginBottom:8,paddingBottom:5,borderBottom:'2px solid #ede9fe'}}>{dayLabel}</div>
                     <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6,minWidth:0}}>
                       {[{label:'AM',s:d.am,col:'#3b82f6'},{label:'PM',s:d.pm,col:'#10b981'},{label:'合計',s:d.all,col:'#8b5cf6'}].map(({label,s,col})=>(
-                        <div key={label} style={{textAlign:'center',padding:'5px 4px',borderRadius:6,background:`${col}10`,minWidth:0,overflow:'hidden'}}>
-                          <div style={{fontSize:10,color:'#64748b',fontWeight:'bold'}}>{label}</div>
+                        <div key={label} style={{textAlign:'center',padding:'10px 6px',borderRadius:8,background:`${col}10`,minWidth:0,overflow:'hidden'}}>
+                          <div style={{fontSize:12,color:'#64748b',fontWeight:'bold'}}>{label}</div>
                           {s.planned>0 ? (
                             <React.Fragment>
-                              <div style={{fontSize:18,fontWeight:'bold',color:RC(s.rate),lineHeight:1.15}}>{s.rate}%</div>
-                              <div style={{fontSize:10,color:'#94a3b8'}}>{s.attended}/{s.planned}件</div>
+                              <div style={{fontSize:24,fontWeight:'bold',color:RC(s.rate),lineHeight:1.15,marginTop:2}}>{s.rate}%</div>
+                              <div style={{fontSize:11,color:'#94a3b8'}}>{s.attended}/{s.planned}件</div>
                             </React.Fragment>
-                          ) : <div style={{fontSize:12,color:'#cbd5e1',padding:'8px 0'}}>ー</div>}
+                          ) : <div style={{fontSize:13,color:'#cbd5e1',padding:'12px 0'}}>ー</div>}
                         </div>
                       ))}
                     </div>
