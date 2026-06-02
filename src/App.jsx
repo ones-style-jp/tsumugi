@@ -11987,7 +11987,29 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
     });
     clone.querySelectorAll('button').forEach(b=>{
       const t = (b.textContent||'').trim();
-      if (t.startsWith('▼ 全て表示') || t.startsWith('▲ 閉じる')) b.remove();
+      // 印刷時は操作ボタンを丸ごと除去
+      if (t.startsWith('▼ 全て表示') || t.startsWith('▲ 閉じる') || t === '売上入力' || t.startsWith('売上入力')) b.remove();
+    });
+    // overflow:auto の横スクロール領域はすべて visible にして全列を表示
+    clone.querySelectorAll('[style*="overflow-x"]').forEach(el=>{
+      el.style.overflowX = 'visible';
+    });
+    clone.querySelectorAll('[style*="min-width"]').forEach(el=>{
+      // chart コンテナ等の minWidth は無効化して横スクロールを発生させない
+      if (el.style.minWidth) el.style.minWidth = '0';
+    });
+    // 数値詳細テーブルを 12ヶ月分すべて収めるため fixed レイアウト + フォント縮小
+    clone.querySelectorAll('table').forEach(tbl=>{
+      tbl.style.tableLayout = 'fixed';
+      tbl.style.width = '100%';
+      tbl.style.fontSize = '11px';
+      tbl.querySelectorAll('th,td').forEach(c=>{
+        c.style.minWidth = '0';
+        c.style.padding = '2px 3px';
+        c.style.whiteSpace = 'nowrap';
+        c.style.overflow = 'hidden';
+        c.style.textOverflow = 'ellipsis';
+      });
     });
     // セクション単位で HTML 文字列を抽出（rootChildren を順に巡回し、data-sec を区切りに分類）
     const rootChildren = Array.from(clone.children);
