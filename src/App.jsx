@@ -12782,8 +12782,9 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                           }}
                           contentStyle={{fontSize:13,borderRadius:8,border:'1px solid #e2e8f0'}}
                         />
-                        <Legend 
-                          wrapperStyle={{fontSize:13,paddingTop:8}}
+                        <Legend
+                          verticalAlign="top"
+                          wrapperStyle={{fontSize:13,paddingBottom:8,top:-4}}
                           iconType="square"
                           iconSize={10}
                         />
@@ -12909,9 +12910,10 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
               const dayLabel = `${d.dow}曜日`;
               const renderPats = (label, list, col) => {
                 if (list.length === 0) return null;
-                // 最大 5 行縦に並べ、それ以上は列を増やしていく
-                const PER_COL = 5;
-                const N_COLS = Math.max(1, Math.ceil(list.length / PER_COL));
+                // 1列あたり 6 行、最大 3 列まで (=最大18名表示、それ以上は超過分は切り捨てず後ろに続く)
+                const MAX_COLS = 3;
+                const PER_COL = Math.max(6, Math.ceil(list.length / MAX_COLS));
+                const N_COLS = Math.min(MAX_COLS, Math.max(1, Math.ceil(list.length / PER_COL)));
                 const fs = 11;
                 const cols = Array.from({length: N_COLS}, (_, ci) => list.slice(ci * PER_COL, (ci + 1) * PER_COL));
                 // 列数に応じて名前幅を調整 (列が多いほど名前を短く切り詰めて重なり防止)
