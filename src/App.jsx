@@ -12297,21 +12297,25 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
               const bg = el.style.backgroundColor||el.style.background;
               if(bg && bg.includes('slate')) el.style.background='white';
             });
-            // セクション要素を data-sec マーカーから抽出
-            const allSecEls = Array.from(clone.querySelectorAll('[data-sec]'));
-            const collectSec = (secId)=>{
-              const idx = allSecEls.findIndex(el=>el.getAttribute('data-sec')===secId);
-              if(idx < 0) return [];
-              const secEl = allSecEls[idx];
-              const nextSec = allSecEls[idx+1];
-              const parts=[secEl];
-              let sib = secEl.nextElementSibling;
-              while(sib && sib !== nextSec){ parts.push(sib); sib = sib.nextElementSibling; }
-              return parts;
+            // セクション要素を data-sec マーカーから抽出。
+            // ルート直下に存在するマーカーだけを対象にし、別マーカーまでの兄弟要素をひと固まりとして返す。
+            const rootChildren = Array.from(clone.children);
+            const sectionMarkers = rootChildren
+              .map((el, i) => ({el, i, sec: el.getAttribute('data-sec')}))
+              .filter(x => !!x.sec);
+            const collectSec = (secId) => {
+              const idx = sectionMarkers.findIndex(m => m.sec === secId);
+              if (idx < 0) return [];
+              const start = sectionMarkers[idx].i;
+              const end = idx + 1 < sectionMarkers.length ? sectionMarkers[idx + 1].i : rootChildren.length;
+              return rootChildren.slice(start, end);
             };
             // 3ページ構成
+            // 注意: 各セクションマーカーは必ず print-content-operation 直下の兄弟要素であること。
+            // ops-monthly は「稼働率」Card の内部にネストされているので
+            // pageGroups から除外し、ops-rate の Card 内コンテンツとして自然に含める。
             const pageGroups = [
-              ['ops-rate','ops-monthly','ops-dow'],
+              ['ops-rate','ops-dow'],
               ['ops-attr','ops-mood'],
               ['ops-kaikin','ops-rank-att','ops-rank-abs','ops-reason']
             ];
