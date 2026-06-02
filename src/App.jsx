@@ -11869,7 +11869,7 @@ function AttrSection({appData, tY, tM, baseMonth, attrMonth, setAttrMonth}) {
       <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:14}}>
         {monthOptions.map(m=>{const [my,mm]=m.split('-').map(Number);return <button key={m} onClick={()=>setAttrMonth(m)} style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:'bold',border:`1.5px solid ${m===attrMonth?'#ec4899':'#e2e8f0'}`,background:m===attrMonth?'#fce7f3':'white',color:m===attrMonth?'#be185d':'#64748b',cursor:'pointer'}}>{mm}月</button>;})}
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:14}}>
+      <div style={{display:'grid',gridTemplateColumns:'1fr',gap:16,marginBottom:14}}>
         <div style={{background:'#f8fafc',borderRadius:12,padding:'12px'}}>
           <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:8}}>■ 男女比</div>
           <div style={{height:18,borderRadius:9,overflow:'hidden',display:'flex',marginBottom:6}}><div style={{flex:malePct,background:'#3b82f6'}}/><div style={{flex:femalePct,background:'#f472b6'}}/></div>
@@ -12760,10 +12760,9 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         </Card>
 
 
+        {/* 4. 出席率ランキング */}
         <div id="ops-rank-att" data-sec="ops-rank-att" style={{scrollMarginTop:120}}/>
-        <div style={{display:'flex',flexDirection:'column',gap:12}}>
-          {/* 4. 出席率ランキング */}
-          <Card title={`出席率ランキング（${attRank.length}名）`} accent='#3b82f6'>
+        <Card title={`出席率ランキング（${attRank.length}名）`} accent='#3b82f6'>
             {attRank.length===0 ? <div style={{color:'#94a3b8',fontSize:13,textAlign:'center',padding:'12px 0'}}>データなし</div> : (
               <React.Fragment>
                 {(showAllAtt ? attRank : attRank.slice(0,10)).map(({patient,count,total,rate},i)=>(
@@ -12781,11 +12780,11 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                 )}
               </React.Fragment>
             )}
-          </Card>
+        </Card>
 
-          {/* 5. 欠席率ランキング */}
-          <div id="ops-rank-abs" data-sec="ops-rank-abs" style={{scrollMarginTop:120}}/>
-          <Card title={`欠席率ランキング（${absRank.length}名）`} accent='#ef4444'>
+        {/* 5. 欠席率ランキング */}
+        <div id="ops-rank-abs" data-sec="ops-rank-abs" style={{scrollMarginTop:120,marginTop:12}}/>
+        <Card title={`欠席率ランキング（${absRank.length}名）`} accent='#ef4444'>
             {absRank.length===0 ? <div style={{color:'#94a3b8',fontSize:13,textAlign:'center',padding:'12px 0'}}>データなし</div> : (
               <React.Fragment>
                 {(showAllAbs ? absRank : absRank.slice(0,10)).map(({patient,count,total,rate},i)=>(
@@ -12803,8 +12802,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                 )}
               </React.Fragment>
             )}
-          </Card>
-        </div>
+        </Card>
 
         {/* 6. 欠席理由ランキング */}
         <div id="ops-reason" data-sec="ops-reason" style={{scrollMarginTop:120}}/>
