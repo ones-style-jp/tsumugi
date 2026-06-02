@@ -11891,7 +11891,7 @@ function AttrSection({appData, tY, tM, baseMonth, attrMonth, setAttrMonth, perio
           <div style={{height:18,borderRadius:9,overflow:'hidden',display:'flex',marginBottom:6}}><div style={{flex:malePct,background:'#3b82f6'}}/><div style={{flex:femalePct,background:'#f472b6'}}/></div>
           <div style={{display:'flex',gap:8,fontSize:12,marginBottom:10}}><span style={{color:'#3b82f6',fontWeight:'bold'}}>👨男 {males.length}名 {malePct}%</span><span style={{color:'#f472b6',fontWeight:'bold'}}>👩女 {females.length}名 {femalePct}%</span></div>
           <div style={{fontSize:11,color:'#64748b',fontWeight:'bold',marginBottom:4}}>介護度別男女比</div>
-          {clCounts.map(c=>{const t=c.count||1;const mp=Math.round(c.males/t*100);return(<div key={c.label} style={{display:'flex',alignItems:'center',gap:4,marginBottom:3}}><span style={{fontSize:9,fontWeight:'bold',color:'#475569',width:64,flexShrink:0}}>{c.label}</span><div style={{flex:1,height:10,borderRadius:5,overflow:'hidden',display:'flex'}}><div style={{flex:mp,background:'#3b82f6'}}/><div style={{flex:100-mp,background:'#f472b6'}}/></div><span style={{fontSize:9,color:'#3b82f6',fontWeight:'bold',width:16,textAlign:'right'}}>{c.males}</span><span style={{fontSize:9,color:'#cbd5e1'}}>:</span><span style={{fontSize:9,color:'#f472b6',fontWeight:'bold',width:16}}>{c.females}</span></div>);})}
+          {clCounts.map(c=>{const t=c.count||1;const mp=Math.round(c.males/t*100);const lbl=c.label==='事業対象者・要支援1'?'事業対象者\n要支援1':c.label;return(<div key={c.label} style={{display:'flex',alignItems:'center',gap:4,marginBottom:3}}><span style={{fontSize:9,fontWeight:'bold',color:'#475569',width:64,flexShrink:0,whiteSpace:'pre-line',lineHeight:1.15}}>{lbl}</span><div style={{flex:1,height:10,borderRadius:5,overflow:'hidden',display:'flex'}}><div style={{flex:mp,background:'#3b82f6'}}/><div style={{flex:100-mp,background:'#f472b6'}}/></div><span style={{fontSize:9,color:'#3b82f6',fontWeight:'bold',width:16,textAlign:'right'}}>{c.males}</span><span style={{fontSize:9,color:'#cbd5e1'}}>:</span><span style={{fontSize:9,color:'#f472b6',fontWeight:'bold',width:16}}>{c.females}</span></div>);})}
         </div>
         <div style={{background:'#f8fafc',borderRadius:12,padding:'12px'}}>
           <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:8}}>■ 介護度内訳</div>
@@ -12007,11 +12007,12 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
     const attrCardForCompact = clone.querySelector('[data-sec="ops-attr"]')?.nextElementSibling
       || clone.querySelector('[data-sec="ops-attr-mood"]')?.nextElementSibling?.firstElementChild;
     if (attrCardForCompact) {
-      // 介護度内訳の SVG (pie chart) を小さく
+      // 介護度内訳の pie chart は印刷時は元サイズに近い大きさを維持
+      // (右側の介護度一覧が見切れない範囲で大きく表示)
       attrCardForCompact.querySelectorAll('svg').forEach(svg => {
-        svg.style.width = '120px';
-        svg.style.height = '120px';
-        svg.style.margin = '-10px 0 -10px 0';
+        svg.style.width = '180px';
+        svg.style.height = '180px';
+        svg.style.margin = '0';
       });
       // 男女比 / 介護度内訳 のラベルや内訳行のフォントを縮小
       attrCardForCompact.querySelectorAll('div').forEach(d => {
@@ -12148,8 +12149,9 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
       pageGroups = [
         ['ops-rate'],
         ['ops-dow'],
-        ['ops-attr-mood'], // 利用者属性 + 気分割合 を1ページに左右並びで配置
-        ['ops-kaikin','ops-rank-att','ops-rank-abs','ops-reason']
+        ['ops-attr-mood'], // 利用者属性 + 気分割合 を1ページに上下並びで配置
+        ['ops-kaikin','ops-rank-att'],
+        ['ops-rank-abs','ops-reason']
       ];
     }
     // A4 横向き: 297mm 幅。月別推移チャートやランキングが横にゆとり持って表示できる
@@ -12749,7 +12751,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                   </button>
                 </div>
                 <div data-print-id="rate-chart-graph" style={{overflowX:'auto'}}>
-                  <div style={{minWidth:700,height:360}}>
+                  <div style={{minWidth:700,height:440}}>
                     <ResponsiveContainer width="100%" height="100%">
                       {/* barCategoryGap で月間スペースを広げる。barSize は細めにして月ごとの空間を確保 */}
                       <ComposedChart data={chartDataWithDiff} margin={{top:20,right:60,left:20,bottom:5}} barCategoryGap="28%" barGap={3}>
@@ -12907,8 +12909,8 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
               const dayLabel = `${d.dow}曜日`;
               const renderPats = (label, list, col) => {
                 if (list.length === 0) return null;
-                // 最大 6 行縦に並べ、それ以上は列を増やしていく
-                const PER_COL = 6;
+                // 最大 5 行縦に並べ、それ以上は列を増やしていく
+                const PER_COL = 5;
                 const N_COLS = Math.max(1, Math.ceil(list.length / PER_COL));
                 const fs = 11;
                 const cols = Array.from({length: N_COLS}, (_, ci) => list.slice(ci * PER_COL, (ci + 1) * PER_COL));
