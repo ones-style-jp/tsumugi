@@ -12507,9 +12507,9 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
   );
 
   const renderKaikin = (k, getSD) => {
-    // 5列レイアウト: 1列目に 1〜N、2列目に N+1〜2N… と縦に順に流す。
+    // 6列レイアウト: 1列目に 1〜N、2列目に N+1〜2N… と縦に順に流す。
     // 行内は順位の右に余白を取り、名前と日数は密着させる。
-    const N_COLS = 5;
+    const N_COLS = 6;
     const perCol = Math.ceil(k.length / N_COLS) || 1;
     const cols = Array.from({length: N_COLS}, (_, ci) => k.slice(ci * perCol, (ci + 1) * perCol).map((item, ri) => ({...item, idx: ci * perCol + ri})));
     return (
@@ -12934,25 +12934,23 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
               const dayLabel = `${d.dow}曜日`;
               const renderPats = (label, list, col) => {
                 if (list.length === 0) return null;
-                // 1列あたり6行 / 最大 2 列 (=最大12名表示)。3日ずつ2ページ分割なのでカード幅に余裕あり
-                const PER_COL = 6;
+                // 行数指定なし: 利用者数に応じて 1〜2 列で自然に分配
                 const MAX_COLS = 2;
-                const N_COLS = Math.min(MAX_COLS, Math.max(1, Math.ceil(list.length / PER_COL)));
-                const truncated = list.slice(0, PER_COL * MAX_COLS);
-                const cols = Array.from({length: N_COLS}, (_, ci) => truncated.slice(ci * PER_COL, (ci + 1) * PER_COL));
-                // 2列までになったのでフォントは余裕を持って 1列=11px / 2列=10px
-                const fs = N_COLS === 1 ? 11 : 10;
-                const pctW = '2.4em';
+                const N_COLS = list.length <= 6 ? 1 : MAX_COLS;
+                const perCol = Math.ceil(list.length / N_COLS) || 1;
+                const cols = Array.from({length: N_COLS}, (_, ci) => list.slice(ci * perCol, (ci + 1) * perCol));
+                const fs = 12; // 3日2ページ分割で余裕あるためフォント大きめ
                 return (
-                  <div style={{marginTop:4,minWidth:0,overflow:'hidden'}}>
-                    <div style={{fontSize:9,fontWeight:'bold',color:col,marginBottom:2}}>{label} 利用者（出席率順）</div>
-                    <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},minmax(0,1fr))`,columnGap:6}}>
+                  <div style={{marginTop:6,minWidth:0,overflow:'hidden'}}>
+                    <div style={{fontSize:11,fontWeight:'bold',color:col,marginBottom:4,paddingBottom:2,borderBottom:`2px solid ${col}30`}}>{label} 利用者（出席率順）</div>
+                    <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},minmax(0,1fr))`,columnGap:10}}>
                       {cols.map((subList, ci) => (
                         <div key={ci} style={{display:'flex',flexDirection:'column',minWidth:0,overflow:'hidden'}}>
                           {subList.map(p => (
-                            <div key={p.patient.id} style={{display:'flex',alignItems:'baseline',padding:'0',borderBottom:'1px solid #f8fafc',lineHeight:1.35,minWidth:0}}>
-                              <span style={{fontSize:fs,fontWeight:'bold',color:'#334155',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0}}>{p.patient.name}</span>
-                              <span style={{fontSize:fs,color:RC(p.rate),fontWeight:'bold',marginLeft:3,flexShrink:0,width:pctW,textAlign:'right'}}>{p.rate}%</span>
+                            // 名前 7em 固定 → % は常に 8文字目位置に揃う
+                            <div key={p.patient.id} style={{display:'flex',alignItems:'baseline',padding:'1px 0',borderBottom:'1px solid #f8fafc',lineHeight:1.4,minWidth:0}}>
+                              <span style={{fontSize:fs,fontWeight:'bold',color:'#334155',width:'7em',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flexShrink:0}}>{p.patient.name}</span>
+                              <span style={{fontSize:fs,color:RC(p.rate),fontWeight:'bold',marginLeft:3,flexShrink:0}}>{p.rate}%</span>
                             </div>
                           ))}
                         </div>
@@ -12994,22 +12992,21 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                 const dayLabel = `${d.dow}曜日`;
                 const renderPats = (label, list, col) => {
                   if (list.length === 0) return null;
-                  const PER_COL = 6;
                   const MAX_COLS = 2;
-                  const N_COLS = Math.min(MAX_COLS, Math.max(1, Math.ceil(list.length / PER_COL)));
-                  const truncated = list.slice(0, PER_COL * MAX_COLS);
-                  const cols = Array.from({length: N_COLS}, (_, ci) => truncated.slice(ci * PER_COL, (ci + 1) * PER_COL));
-                  const fs = N_COLS === 1 ? 11 : 10;
+                  const N_COLS = list.length <= 6 ? 1 : MAX_COLS;
+                  const perCol = Math.ceil(list.length / N_COLS) || 1;
+                  const cols = Array.from({length: N_COLS}, (_, ci) => list.slice(ci * perCol, (ci + 1) * perCol));
+                  const fs = 12;
                   return (
-                    <div style={{marginTop:4,minWidth:0,overflow:'hidden'}}>
-                      <div style={{fontSize:9,fontWeight:'bold',color:col,marginBottom:2}}>{label} 利用者(出席率順)</div>
-                      <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},minmax(0,1fr))`,columnGap:8}}>
+                    <div style={{marginTop:6,minWidth:0,overflow:'hidden'}}>
+                      <div style={{fontSize:11,fontWeight:'bold',color:col,marginBottom:4,paddingBottom:2,borderBottom:`2px solid ${col}30`}}>{label} 利用者（出席率順）</div>
+                      <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},minmax(0,1fr))`,columnGap:10}}>
                         {cols.map((subList, ci) => (
                           <div key={ci} style={{display:'flex',flexDirection:'column',minWidth:0,overflow:'hidden'}}>
                             {subList.map(p => (
-                              <div key={p.patient.id} style={{display:'flex',alignItems:'baseline',padding:'0',borderBottom:'1px solid #f8fafc',lineHeight:1.35,minWidth:0}}>
-                                <span style={{fontSize:fs,fontWeight:'bold',color:'#334155',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0}}>{p.patient.name}</span>
-                                <span style={{fontSize:fs,color:RC(p.rate),fontWeight:'bold',marginLeft:3,flexShrink:0,width:'2.4em',textAlign:'right'}}>{p.rate}%</span>
+                              <div key={p.patient.id} style={{display:'flex',alignItems:'baseline',padding:'1px 0',borderBottom:'1px solid #f8fafc',lineHeight:1.4,minWidth:0}}>
+                                <span style={{fontSize:fs,fontWeight:'bold',color:'#334155',width:'7em',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flexShrink:0}}>{p.patient.name}</span>
+                                <span style={{fontSize:fs,color:RC(p.rate),fontWeight:'bold',marginLeft:3,flexShrink:0}}>{p.rate}%</span>
                               </div>
                             ))}
                           </div>
@@ -13019,18 +13016,18 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                   );
                 };
                 return (
-                  <div key={d.dow} style={{border:'1px solid #e2e8f0',borderRadius:8,padding:'6px 8px',background:'white',overflow:'hidden',minWidth:0}}>
-                    <div style={{fontWeight:'bold',fontSize:13,color:'#7c3aed',marginBottom:4,paddingBottom:3,borderBottom:'1px solid #ede9fe'}}>{dayLabel}</div>
-                    <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:4,minWidth:0}}>
+                  <div key={d.dow} style={{border:'1px solid #e2e8f0',borderRadius:10,padding:'10px 12px',background:'white',overflow:'hidden',minWidth:0}}>
+                    <div style={{fontWeight:'bold',fontSize:16,color:'#7c3aed',marginBottom:8,paddingBottom:5,borderBottom:'2px solid #ede9fe'}}>{dayLabel}</div>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6,minWidth:0}}>
                       {[{label:'AM',s:d.am,col:'#3b82f6'},{label:'PM',s:d.pm,col:'#10b981'},{label:'合計',s:d.all,col:'#8b5cf6'}].map(({label,s,col})=>(
-                        <div key={label} style={{textAlign:'center',padding:'2px 3px',borderRadius:5,background:`${col}10`,minWidth:0,overflow:'hidden'}}>
-                          <div style={{fontSize:9,color:'#64748b',fontWeight:'bold'}}>{label}</div>
+                        <div key={label} style={{textAlign:'center',padding:'5px 4px',borderRadius:6,background:`${col}10`,minWidth:0,overflow:'hidden'}}>
+                          <div style={{fontSize:10,color:'#64748b',fontWeight:'bold'}}>{label}</div>
                           {s.planned>0 ? (
                             <React.Fragment>
-                              <div style={{fontSize:13,fontWeight:'bold',color:RC(s.rate),lineHeight:1.1}}>{s.rate}%</div>
-                              <div style={{fontSize:8.5,color:'#94a3b8'}}>{s.attended}/{s.planned}件</div>
+                              <div style={{fontSize:18,fontWeight:'bold',color:RC(s.rate),lineHeight:1.15}}>{s.rate}%</div>
+                              <div style={{fontSize:10,color:'#94a3b8'}}>{s.attended}/{s.planned}件</div>
                             </React.Fragment>
-                          ) : <div style={{fontSize:10,color:'#cbd5e1',padding:'4px 0'}}>ー</div>}
+                          ) : <div style={{fontSize:12,color:'#cbd5e1',padding:'8px 0'}}>ー</div>}
                         </div>
                       ))}
                     </div>
@@ -13102,8 +13099,8 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
             {attRank.length===0 ? <div style={{color:'#94a3b8',fontSize:13,textAlign:'center',padding:'12px 0'}}>データなし</div> : (() => {
               // 5列レイアウト: 1列目に 1〜N、2列目に N+1〜2N… と縦に順に流す。
               // 名前と % は密着、列間に余白を確保。利用者が多ければ右に列が増える
-              const N_COLS = 5;
-              const list = showAllAtt ? attRank : attRank.slice(0,100);
+              const N_COLS = 6;
+              const list = showAllAtt ? attRank : attRank.slice(0,120);
               const perCol = Math.ceil(list.length / N_COLS) || 1;
               const cols = Array.from({length: N_COLS}, (_, ci) => list.slice(ci * perCol, (ci + 1) * perCol).map((item, ri) => ({...item, idx: ci * perCol + ri})));
               return (
@@ -13121,7 +13118,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                       </div>
                     ))}
                   </div>
-                  {attRank.length > 100 && (
+                  {attRank.length > 120 && (
                     <button onClick={()=>setShowAllAtt(!showAllAtt)} style={{width:'100%',marginTop:8,padding:'4px',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:6,fontSize:13,fontWeight:'bold',color:'#3b82f6',cursor:'pointer'}}>
                       {showAllAtt ? '▲ 閉じる' : `▼ 全て表示（${attRank.length}名）`}
                     </button>
@@ -13135,8 +13132,8 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         <div id="ops-rank-abs" data-sec="ops-rank-abs" style={{scrollMarginTop:120,marginTop:12}}/>
         <Card title={`欠席率ランキング　${periodLabel}（${absRank.length}名）`} accent='#ef4444'>
             {absRank.length===0 ? <div style={{color:'#94a3b8',fontSize:13,textAlign:'center',padding:'12px 0'}}>データなし</div> : (() => {
-              const N_COLS = 5;
-              const list = showAllAbs ? absRank : absRank.slice(0,100);
+              const N_COLS = 6;
+              const list = showAllAbs ? absRank : absRank.slice(0,120);
               const perCol = Math.ceil(list.length / N_COLS) || 1;
               const cols = Array.from({length: N_COLS}, (_, ci) => list.slice(ci * perCol, (ci + 1) * perCol).map((item, ri) => ({...item, idx: ci * perCol + ri})));
               return (
@@ -13154,7 +13151,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                       </div>
                     ))}
                   </div>
-                  {absRank.length > 100 && (
+                  {absRank.length > 120 && (
                     <button onClick={()=>setShowAllAbs(!showAllAbs)} style={{width:'100%',marginTop:8,padding:'4px',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:6,fontSize:13,fontWeight:'bold',color:'#ef4444',cursor:'pointer'}}>
                       {showAllAbs ? '▲ 閉じる' : `▼ 全て表示（${absRank.length}名）`}
                     </button>
@@ -13170,9 +13167,9 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
           {reasonRank.length===0 ? (
             <div style={{textAlign:'center',color:'#94a3b8',fontSize:13,padding:'12px 0'}}>欠席理由の記録なし</div>
           ) : (() => {
-            // 5列レイアウト: 1列目に 1〜N、2列目に N+1〜2N… と縦に順に流す
-            const N_COLS = 5;
-            const list = showAllReason ? reasonRank : reasonRank.slice(0,100);
+            // 6列レイアウト: 1列目に 1〜N、2列目に N+1〜2N… と縦に順に流す
+            const N_COLS = 6;
+            const list = showAllReason ? reasonRank : reasonRank.slice(0,120);
             const perCol = Math.ceil(list.length / N_COLS) || 1;
             const cols = Array.from({length: N_COLS}, (_, ci) => list.slice(ci * perCol, (ci + 1) * perCol).map((item, ri) => ({...item, idx: ci * perCol + ri})));
             return (
@@ -13190,7 +13187,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                     </div>
                   ))}
                 </div>
-                {reasonRank.length > 100 && (
+                {reasonRank.length > 120 && (
                   <button onClick={()=>setShowAllReason(!showAllReason)} style={{width:'100%',marginTop:8,padding:'4px',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:6,fontSize:13,fontWeight:'bold',color:'#64748b',cursor:'pointer'}}>
                     {showAllReason?'▲ 閉じる':`▼ 全て表示（${reasonRank.length}種）`}
                   </button>
