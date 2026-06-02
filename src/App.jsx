@@ -12118,10 +12118,10 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
       tbl.style.tableLayout = 'fixed';
       tbl.style.width = '100%';
       tbl.style.fontSize = '9.5px';
-      tbl.style.lineHeight = '1.5';
+      tbl.style.lineHeight = '1.4';
       tbl.querySelectorAll('th,td').forEach(c=>{
         c.style.minWidth = '0';
-        c.style.padding = '4px 2px';  // 行間を広げて読みやすく
+        c.style.padding = '2.5px 2px';  // 行間ほどよく + 1ページ収容
         c.style.whiteSpace = 'nowrap';
         c.style.overflow = 'hidden';
         c.style.textOverflow = 'ellipsis';
@@ -12784,7 +12784,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                         />
                         <Legend
                           verticalAlign="top"
-                          wrapperStyle={{fontSize:13,paddingBottom:8,top:-4}}
+                          wrapperStyle={{fontSize:13,paddingBottom:2,top:-2}}
                           iconType="square"
                           iconSize={10}
                         />
@@ -12796,9 +12796,9 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                     </ResponsiveContainer>
                   </div>
                 </div>
-                {/* 売上一覧テーブル: グラフとは別セクションとして視覚的に区切る */}
-                <div data-print-id="rate-detail-table" style={{marginTop:18,paddingTop:12,borderTop:'2px dashed #e2e8f0',overflowX:'auto'}}>
-                  <div style={{fontSize:12,fontWeight:'bold',color:'#94a3b8',marginBottom:6}}>■ 数値詳細</div>
+                {/* 売上一覧テーブル: グラフと近接表示 */}
+                <div data-print-id="rate-detail-table" style={{marginTop:4,overflowX:'auto'}}>
+                  <div style={{fontSize:12,fontWeight:'bold',color:'#94a3b8',marginBottom:4}}>■ 数値詳細</div>
                   <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
                     <thead>
                       <tr style={{background:'#f8fafc'}}>
@@ -12910,14 +12910,16 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
               const dayLabel = `${d.dow}曜日`;
               const renderPats = (label, list, col) => {
                 if (list.length === 0) return null;
-                // 1列あたり 6 行、最大 3 列まで (=最大18名表示、それ以上は超過分は切り捨てず後ろに続く)
+                // 6 行固定 / 最大 3 列 (=最大18名表示)。それ以上の利用者数は想定しない
+                const PER_COL = 6;
                 const MAX_COLS = 3;
-                const PER_COL = Math.max(6, Math.ceil(list.length / MAX_COLS));
                 const N_COLS = Math.min(MAX_COLS, Math.max(1, Math.ceil(list.length / PER_COL)));
-                const fs = 11;
-                const cols = Array.from({length: N_COLS}, (_, ci) => list.slice(ci * PER_COL, (ci + 1) * PER_COL));
-                // 列数に応じて名前幅を調整 (列が多いほど名前を短く切り詰めて重なり防止)
-                const nameWidth = N_COLS >= 4 ? '4em' : N_COLS >= 3 ? '4.5em' : N_COLS >= 2 ? '5em' : '7em';
+                const truncated = list.slice(0, PER_COL * MAX_COLS);
+                const cols = Array.from({length: N_COLS}, (_, ci) => truncated.slice(ci * PER_COL, (ci + 1) * PER_COL));
+                // 列数に応じてフォントを縮小しフルネームが収まるサイズに
+                // 1列=11px / 2列=10px / 3列=9px (% の幅も最小限に)
+                const fs = N_COLS === 1 ? 11 : N_COLS === 2 ? 10 : 9;
+                const pctW = N_COLS === 1 ? '2.4em' : '2.2em';
                 return (
                   <div style={{marginTop:4,minWidth:0,overflow:'hidden'}}>
                     <div style={{fontSize:9,fontWeight:'bold',color:col,marginBottom:2}}>{label} 利用者（出席率順）</div>
@@ -12926,8 +12928,8 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                         <div key={ci} style={{display:'flex',flexDirection:'column',minWidth:0,overflow:'hidden'}}>
                           {subList.map(p => (
                             <div key={p.patient.id} style={{display:'flex',alignItems:'baseline',padding:'0',borderBottom:'1px solid #f8fafc',lineHeight:1.35,minWidth:0}}>
-                              <span style={{fontSize:10,fontWeight:'bold',color:'#334155',width:nameWidth,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flexShrink:0}}>{p.patient.name}</span>
-                              <span style={{fontSize:10,color:RC(p.rate),fontWeight:'bold',marginLeft:3,flexShrink:0,width:'2.4em',textAlign:'right'}}>{p.rate}%</span>
+                              <span style={{fontSize:fs,fontWeight:'bold',color:'#334155',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0}}>{p.patient.name}</span>
+                              <span style={{fontSize:fs,color:RC(p.rate),fontWeight:'bold',marginLeft:3,flexShrink:0,width:pctW,textAlign:'right'}}>{p.rate}%</span>
                             </div>
                           ))}
                         </div>
