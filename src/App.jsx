@@ -11972,6 +11972,12 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
       const t = (b.textContent||'').trim();
       if (t.startsWith('▼ 全て表示') || t.startsWith('▲ 閉じる')) b.remove();
     });
+    // A4 横向きの広い紙面では 男女比/介護度内訳 を横並び (1fr 1fr) に上書き
+    clone.querySelectorAll('[style*="grid-template-columns"]').forEach(el=>{
+      if (el.style && el.style.gridTemplateColumns === '1fr') {
+        el.style.gridTemplateColumns = '1fr 1fr';
+      }
+    });
     // セクション単位で HTML 文字列を抽出（rootChildren を順に巡回し、data-sec を区切りに分類）
     const rootChildren = Array.from(clone.children);
     const sectionHTML = {}; // secId → string (連結済み)
@@ -11997,17 +12003,30 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         ['ops-kaikin','ops-rank-att','ops-rank-abs','ops-reason']
       ];
     }
+    // A4 横向き: 297mm 幅。月別推移チャートやランキングが横にゆとり持って表示できる
+    const PAGE_W_MM = 297;
     const renderSec = (secId) => sectionHTML[secId]
       ? `<div style="break-inside:avoid;page-break-inside:avoid;margin-bottom:12px;">${sectionHTML[secId]}</div>`
       : '';
     const pagesHtml = pageGroups.map((secIds, pageIdx)=>{
       const inner = secIds.map(renderSec).join('');
-      const pageStyle = `padding:6mm 8mm;width:210mm;box-sizing:border-box;${pageIdx<pageGroups.length-1?'page-break-after:always;':''}`;
+      const pageStyle = `padding:6mm 8mm;width:${PAGE_W_MM}mm;box-sizing:border-box;${pageIdx<pageGroups.length-1?'page-break-after:always;':''}`;
       return `<div style="${pageStyle}">${inner}</div>`;
     }).join('');
     const title = opts.mode === 'summary' ? '分析_稼働_概要' : '分析_稼働';
-    const html = `<div style="font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;width:210mm;box-sizing:border-box;"><style>*{box-sizing:border-box;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}@media print{.page-sep{display:none!important;}}</style>${pagesHtml}</div>`;
-    window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 portrait',html}}));
+    // A4 横にしたので 介護度内訳/男女比 のグリッドを 1fr 1fr (横並び) に上書き
+    const styleOverride = `
+      *{box-sizing:border-box;}
+      svg[viewBox]{max-width:100%!important;overflow:visible!important;}
+      /* 利用者属性カード内のグリッドを横並びに */
+      [data-sec="ops-attr"] ~ div[style*="display: grid"]:first-of-type,
+      [data-sec="ops-attr"] + * [style*="display: grid"]{
+        grid-template-columns: 1fr 1fr !important;
+      }
+      @media print{.page-sep{display:none!important;}}
+    `;
+    const html = `<div style="font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;width:${PAGE_W_MM}mm;box-sizing:border-box;"><style>${styleOverride}</style>${pagesHtml}</div>`;
+    window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 landscape',html}}));
     // 復元
     setTimeout(() => {
       if (opts.rankingAll) { setShowAllAtt(prevAtt); setShowAllAbs(prevAbs); setShowAllReason(prevReason); }
@@ -16713,7 +16732,16 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             {_schedule.map((item,idx)=>(
               <tr key={item.id} style={{backgroundColor:idx%2===0?'white':'#f8f8fc'}}>
                 <td style={{border:'1px solid #dde',padding:'2px 3px',fontWeight:'bold',color:'#1d4ed8',verticalAlign:'middle',textAlign:'center',lineHeight:'13px'}}>
-                  <AutoFitLine style={{fontSize:9,width:'100%',textAlign:'center',lineHeight:'13px'}}>{item.time}</AutoFitLine>
+                  {(() => {
+                    // 時間文字列の長さに応じてフォント自動縮小（セル幅 70px に必ず収まる）
+                    const t = (item.time || '');
+                    const fs = t.length >= 11 ? 7 : t.length >= 9 ? 8 : 9;
+                    return (
+                      <div style={{width:'100%',textAlign:'center',fontSize:fs,whiteSpace:'nowrap',overflow:'hidden',lineHeight:'13px'}}>
+                        {t}
+                      </div>
+                    );
+                  })()}
                 </td>
                 {/* 内容は折り返し可。長い文章は複数行になり、行幅は自動的に広がる */}
                 <td style={{border:'1px solid #dde',padding:'2px 5px',fontSize:9,color:'#333',whiteSpace:'normal',wordBreak:'break-word',overflowWrap:'anywhere',verticalAlign:'middle',lineHeight:'13px'}}>{item.content}</td>
