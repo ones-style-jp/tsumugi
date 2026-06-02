@@ -11815,7 +11815,7 @@ function OpsCard({title, accent='#3b82f6', children}) {
   );
 }
 
-function AttrSection({appData, tY, tM, baseMonth, attrMonth, setAttrMonth}) {
+function AttrSection({appData, tY, tM, baseMonth, attrMonth, setAttrMonth, periodLabel}) {
   const Card = OpsCard;
   const [aY, aM2] = attrMonth.split('-').map(Number);
   const monthOptions = Array.from({length:12},(_,i)=>{
@@ -11881,7 +11881,7 @@ function AttrSection({appData, tY, tM, baseMonth, attrMonth, setAttrMonth}) {
   const makeArc=(slices,r,color)=>{if(!slices.length)return null;const a1=slices[0].a1,a2=slices[slices.length-1].a2;const gap=0.08;const sa=a1+gap,ea=a2-gap;const x1=pcx+r*Math.cos(sa),y1=pcy+r*Math.sin(sa),x2=pcx+r*Math.cos(ea),y2=pcy+r*Math.sin(ea);return <path d={`M${x1},${y1} A${r},${r} 0 ${(ea-sa)>Math.PI?1:0},1 ${x2},${y2}`} fill="none" stroke={color} strokeWidth={3} strokeLinecap="round" strokeDasharray="5 3" opacity={0.8}/>;};
 
   return (
-    <Card title={`利用者属性　${aY}年${aM2}月　対象${activePats.length}名`} accent='#ec4899'>
+    <Card title={`利用者属性　${periodLabel || `${aY}年${aM2}月`}（${aY}年${aM2}月時点 対象${activePats.length}名）`} accent='#ec4899'>
       <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:14}}>
         {monthOptions.map(m=>{const [my,mm]=m.split('-').map(Number);return <button key={m} onClick={()=>setAttrMonth(m)} style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:'bold',border:`1.5px solid ${m===attrMonth?'#ec4899':'#e2e8f0'}`,background:m===attrMonth?'#fce7f3':'white',color:m===attrMonth?'#be185d':'#64748b',cursor:'pointer'}}>{mm}月</button>;})}
       </div>
@@ -12061,6 +12061,20 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
 
   const tY = parseInt(baseMonth.split('-')[0]);
   const tM = parseInt(baseMonth.split('-')[1]);
+  // 期間ラベル (各セクションのタイトルで使用)
+  const periodLabel = React.useMemo(() => {
+    if (period === 'all') return '全期間';
+    if (period === 'custom') {
+      const [fy,fm] = customFrom.split('-').map(Number);
+      const [ty2,tm2] = customTo.split('-').map(Number);
+      return `${fy}年${fm}月〜${ty2}年${tm2}月`;
+    }
+    if (period === '1') return `${tY}年${tM}月`;
+    const n = parseInt(period);
+    let sM = tM - n + 1, sY = tY;
+    while (sM <= 0) { sM += 12; sY--; }
+    return `${sY}年${sM}月〜${tY}年${tM}月`;
+  }, [period, tY, tM, customFrom, customTo]);
   const DOW_MAP = {'日':0,'月':1,'火':2,'水':3,'木':4,'金':5,'土':6};
   const DOW_LABELS = ['日','月','火','水','木','金','土'];
 
@@ -12335,26 +12349,17 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
   );
 
   const renderKaikin = (k, getSD) => {
-    const half = Math.ceil(k.length/2);
-    const col = (items, off) => (
-      <div style={{display:'flex',flexDirection:'column',gap:3}}>
-        {items.map(({patient,days},j) => {
-          const i=off+j;
-          return (
-            <div key={patient.id} style={{display:'flex',alignItems:'center',gap:6,padding:'3px 4px',borderBottom:'1px solid #f1f5f9'}}>
-              <span style={{fontSize:14,flexShrink:0}}>{i===0?'🥇':i===1?'🥈':i===2?'🥉':'🏅'}</span>
-              <span style={{flex:1,fontSize:13,fontWeight:'bold',color:'#000',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{patient.name}</span>
-              <span style={{fontSize:13,color:'#000',whiteSpace:'nowrap'}}>{getSD(patient)}</span>
-              <span style={{fontSize:13,fontWeight:'bold',color:'#000',whiteSpace:'nowrap',minWidth:28,textAlign:'right'}}>{days}日</span>
-            </div>
-          );
-        })}
-      </div>
-    );
+    // 3列レイアウト: 順位の昇順を列内で縦に流す
     return (
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 24px'}}>
-        {col(k.slice(0,half),0)}
-        {col(k.slice(half),half)}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',columnGap:18,rowGap:0}}>
+        {k.map(({patient,days},i) => (
+          <div key={patient.id} style={{display:'flex',alignItems:'center',gap:6,padding:'3px 4px',borderBottom:'1px solid #f1f5f9'}}>
+            <span style={{fontSize:13,flexShrink:0}}>{i===0?'🥇':i===1?'🥈':i===2?'🥉':'🏅'}</span>
+            <span style={{flex:1,fontSize:12,fontWeight:'bold',color:'#000',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{patient.name}</span>
+            <span style={{fontSize:11,color:'#000',whiteSpace:'nowrap'}}>{getSD(patient)}</span>
+            <span style={{fontSize:12,fontWeight:'bold',color:'#000',whiteSpace:'nowrap',minWidth:26,textAlign:'right'}}>{days}日</span>
+          </div>
+        ))}
       </div>
     );
   };
@@ -12605,30 +12610,26 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                   </button>
                 </div>
                 <div style={{overflowX:'auto'}}>
-                  <div style={{minWidth:700,height:280}}>
+                  <div style={{minWidth:700,height:420}}>
                     <ResponsiveContainer width="100%" height="100%">
-                      {/* margin.left を テーブル「項目」列(minWidth 90) に合わせて 70 に。
-                          margin.right はテーブル端と揃うよう Yaxis 右軸(40px幅) + 余白で 40。 */}
-                      <ComposedChart data={chartDataWithDiff} margin={{top:10,right:40,left:50,bottom:5}}>
+                      <ComposedChart data={chartDataWithDiff} margin={{top:20,right:60,left:20,bottom:5}}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0"/>
-                        <XAxis dataKey="label" tick={{fontSize:12,fill:'#64748b'}} axisLine={{stroke:'#cbd5e1'}} interval={0}/>
+                        <XAxis dataKey="label" tick={{fontSize:13,fill:'#64748b'}} axisLine={{stroke:'#cbd5e1'}} interval={0}/>
                         <YAxis
                           yAxisId="sales"
                           orientation="left"
-                          width={40}
                           domain={[0, 3000000]}
                           ticks={[0, 500000, 1000000, 1500000, 2000000, 2500000, 3000000]}
-                          tick={{fontSize:10,fill:'#64748b'}}
+                          tick={{fontSize:11,fill:'#64748b'}}
                           tickFormatter={(v)=>`${(v/10000).toFixed(0)}万`}
                           axisLine={{stroke:'#cbd5e1'}}
                         />
                         <YAxis
                           yAxisId="rate"
                           orientation="right"
-                          width={36}
                           domain={[0, 100]}
                           ticks={[0, 20, 40, 60, 80, 100]}
-                          tick={{fontSize:10,fill:'#64748b'}}
+                          tick={{fontSize:11,fill:'#64748b'}}
                           tickFormatter={(v)=>`${v}%`}
                           axisLine={{stroke:'#cbd5e1'}}
                         />
@@ -12652,8 +12653,9 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                     </ResponsiveContainer>
                   </div>
                 </div>
-                {/* 売上一覧テーブル */}
-                <div style={{marginTop:12,overflowX:'auto'}}>
+                {/* 売上一覧テーブル: グラフとは別セクションとして視覚的に区切る */}
+                <div style={{marginTop:18,paddingTop:12,borderTop:'2px dashed #e2e8f0',overflowX:'auto'}}>
+                  <div style={{fontSize:12,fontWeight:'bold',color:'#94a3b8',marginBottom:6}}>■ 数値詳細</div>
                   <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
                     <thead>
                       <tr style={{background:'#f8fafc'}}>
@@ -12811,11 +12813,11 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
 
         {/* 7. 利用者属性分析 */}
         <div id="ops-attr" data-sec="ops-attr" style={{scrollMarginTop:120}}/>
-        <AttrSection appData={appData} tY={tY} tM={tM} baseMonth={baseMonth} attrMonth={attrMonth} setAttrMonth={setAttrMonth}/>
+        <AttrSection appData={appData} tY={tY} tM={tM} baseMonth={baseMonth} attrMonth={attrMonth} setAttrMonth={setAttrMonth} periodLabel={periodLabel}/>
 
         {/* 2.5 気分割合 */}
         <div id="ops-mood" data-sec="ops-mood" style={{scrollMarginTop:120}}/>
-        <Card title={`気分割合（合計 ${moodStats.total}回）`} accent='#06b6d4'>
+        <Card title={`気分割合　${periodLabel}（合計 ${moodStats.total}回）`} accent='#06b6d4'>
           {moodStats.total === 0 ? (
             <div style={{textAlign:'center',color:'#94a3b8',fontSize:13,padding:'12px 0'}}>データなし</div>
           ) : (
@@ -12851,7 +12853,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
 
         {/* 3. 皆勤賞 */}
         <div id="ops-kaikin" data-sec="ops-kaikin" style={{scrollMarginTop:120}}/>
-        <Card title={`皆勤賞　${tY}年${tM}月（${kaikin.length}名）`} accent='#f59e0b'>
+        <Card title={`皆勤賞　${periodLabel}（${kaikin.length}名）`} accent='#f59e0b'>
           {kaikin.length === 0 ? (
             <div style={{textAlign:'center',color:'#94a3b8',fontSize:13,padding:'12px 0'}}>該当者なし</div>
           ) : renderKaikin(kaikin, getScheduleDays)}
@@ -12860,18 +12862,19 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
 
         {/* 4. 出席率ランキング */}
         <div id="ops-rank-att" data-sec="ops-rank-att" style={{scrollMarginTop:120}}/>
-        <Card title={`出席率ランキング（${attRank.length}名）`} accent='#3b82f6'>
+        <Card title={`出席率ランキング　${periodLabel}（${attRank.length}名）`} accent='#3b82f6'>
             {attRank.length===0 ? <div style={{color:'#94a3b8',fontSize:13,textAlign:'center',padding:'12px 0'}}>データなし</div> : (
               <React.Fragment>
-                {(showAllAtt ? attRank : attRank.slice(0,10)).map(({patient,count,total,rate},i)=>(
-                  <div key={patient.id} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid #f8fafc'}}>
-                    <span style={{width:20,height:20,borderRadius:'50%',background:i<3?['#f59e0b','#9ca3af','#cd7c3a'][i]:'#e2e8f0',color:i<3?'white':'#64748b',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:'bold',flexShrink:0}}>{i+1}</span>
-                    <span style={{flex:1,fontSize:13,fontWeight:'bold',color:'#1e293b',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{patient.name}</span>
-                    <RateBar rate={rate} max={100} color='#3b82f6'/>
-                    <span style={{fontSize:13,fontWeight:'bold',color:'#3b82f6',minWidth:40,textAlign:'right'}}>{rate}%</span>
-                  </div>
-                ))}
-                {attRank.length > 10 && (
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',columnGap:18,rowGap:0}}>
+                  {(showAllAtt ? attRank : attRank.slice(0,30)).map(({patient,count,total,rate},i)=>(
+                    <div key={patient.id} style={{display:'flex',alignItems:'center',gap:6,padding:'4px 0',borderBottom:'1px solid #f8fafc'}}>
+                      <span style={{width:18,height:18,borderRadius:'50%',background:i<3?['#f59e0b','#9ca3af','#cd7c3a'][i]:'#e2e8f0',color:i<3?'white':'#64748b',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:'bold',flexShrink:0}}>{i+1}</span>
+                      <span style={{flex:1,fontSize:12,fontWeight:'bold',color:'#1e293b',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{patient.name}</span>
+                      <span style={{fontSize:12,fontWeight:'bold',color:'#3b82f6',minWidth:36,textAlign:'right'}}>{rate}%</span>
+                    </div>
+                  ))}
+                </div>
+                {attRank.length > 30 && (
                   <button onClick={()=>setShowAllAtt(!showAllAtt)} style={{width:'100%',marginTop:8,padding:'4px',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:6,fontSize:13,fontWeight:'bold',color:'#3b82f6',cursor:'pointer'}}>
                     {showAllAtt ? '▲ 閉じる' : `▼ 全て表示（${attRank.length}名）`}
                   </button>
@@ -12882,18 +12885,19 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
 
         {/* 5. 欠席率ランキング */}
         <div id="ops-rank-abs" data-sec="ops-rank-abs" style={{scrollMarginTop:120,marginTop:12}}/>
-        <Card title={`欠席率ランキング（${absRank.length}名）`} accent='#ef4444'>
+        <Card title={`欠席率ランキング　${periodLabel}（${absRank.length}名）`} accent='#ef4444'>
             {absRank.length===0 ? <div style={{color:'#94a3b8',fontSize:13,textAlign:'center',padding:'12px 0'}}>データなし</div> : (
               <React.Fragment>
-                {(showAllAbs ? absRank : absRank.slice(0,10)).map(({patient,count,total,rate},i)=>(
-                  <div key={patient.id} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid #f8fafc'}}>
-                    <span style={{width:20,height:20,borderRadius:'50%',background:i<3?['#ef4444','#f87171','#fca5a5'][i]:'#e2e8f0',color:i<3?'white':'#64748b',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:'bold',flexShrink:0}}>{i+1}</span>
-                    <span style={{flex:1,fontSize:13,fontWeight:'bold',color:'#1e293b',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{patient.name}</span>
-                    <RateBar rate={rate} max={100} color='#ef4444'/>
-                    <span style={{fontSize:13,fontWeight:'bold',color:'#ef4444',minWidth:40,textAlign:'right'}}>{rate}%</span>
-                  </div>
-                ))}
-                {absRank.length > 10 && (
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',columnGap:18,rowGap:0}}>
+                  {(showAllAbs ? absRank : absRank.slice(0,30)).map(({patient,count,total,rate},i)=>(
+                    <div key={patient.id} style={{display:'flex',alignItems:'center',gap:6,padding:'4px 0',borderBottom:'1px solid #f8fafc'}}>
+                      <span style={{width:18,height:18,borderRadius:'50%',background:i<3?['#ef4444','#f87171','#fca5a5'][i]:'#e2e8f0',color:i<3?'white':'#64748b',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:'bold',flexShrink:0}}>{i+1}</span>
+                      <span style={{flex:1,fontSize:12,fontWeight:'bold',color:'#1e293b',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{patient.name}</span>
+                      <span style={{fontSize:12,fontWeight:'bold',color:'#ef4444',minWidth:36,textAlign:'right'}}>{rate}%</span>
+                    </div>
+                  ))}
+                </div>
+                {absRank.length > 30 && (
                   <button onClick={()=>setShowAllAbs(!showAllAbs)} style={{width:'100%',marginTop:8,padding:'4px',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:6,fontSize:13,fontWeight:'bold',color:'#ef4444',cursor:'pointer'}}>
                     {showAllAbs ? '▲ 閉じる' : `▼ 全て表示（${absRank.length}名）`}
                   </button>
@@ -12904,7 +12908,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
 
         {/* 6. 欠席理由ランキング */}
         <div id="ops-reason" data-sec="ops-reason" style={{scrollMarginTop:120}}/>
-        <Card title={`欠席理由ランキング（${reasonRank.length}種）`} accent='#64748b'>
+        <Card title={`欠席理由ランキング　${periodLabel}（${reasonRank.length}種）`} accent='#64748b'>
           {reasonRank.length===0 ? (
             <div style={{textAlign:'center',color:'#94a3b8',fontSize:13,padding:'12px 0'}}>欠席理由の記録なし</div>
           ) : (showAllReason ? reasonRank : reasonRank.slice(0,10)).map(({reason,count},i)=>(
