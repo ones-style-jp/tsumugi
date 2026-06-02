@@ -11882,7 +11882,7 @@ function AttrSection({appData, tY, tM, baseMonth, attrMonth, setAttrMonth, perio
 
   return (
     <Card title={`利用者属性　${periodLabel || `${aY}年${aM2}月`}（${aY}年${aM2}月時点 対象${activePats.length}名）`} accent='#ec4899'>
-      <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:14}}>
+      <div data-print-strip="attr-months" style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:14}}>
         {monthOptions.map(m=>{const [my,mm]=m.split('-').map(Number);return <button key={m} onClick={()=>setAttrMonth(m)} style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:'bold',border:`1.5px solid ${m===attrMonth?'#ec4899':'#e2e8f0'}`,background:m===attrMonth?'#fce7f3':'white',color:m===attrMonth?'#be185d':'#64748b',cursor:'pointer'}}>{mm}月</button>;})}
       </div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:14}}>
@@ -11990,6 +11990,56 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
       // 印刷時は操作ボタンを丸ごと除去
       if (t.startsWith('▼ 全て表示') || t.startsWith('▲ 閉じる') || t === '売上入力' || t.startsWith('売上入力')) b.remove();
     });
+    // 印刷用 DOM 再構成:
+    //  1) 利用者属性カード上部の月セレクタを除去
+    //  2) 稼働率ステータスバー(RateBar) を除去
+    //  3) 稼働率カードを「左: 統計値、右: 月別棒グラフ、下: 数値詳細」の grid 配置に再構成
+    clone.querySelectorAll('[data-print-strip]').forEach(el => el.remove());
+    const rateBar = clone.querySelector('[data-print-id="rate-bar"]');
+    if (rateBar) rateBar.remove();
+    const rateStats = clone.querySelector('[data-print-id="rate-stats"]');
+    const rateChartSec = clone.querySelector('[data-print-id="rate-chart-section"]');
+    if (rateStats && rateChartSec) {
+      // 統計値を縦並びに（左カラム）
+      rateStats.style.flexDirection = 'column';
+      rateStats.style.alignItems = 'flex-start';
+      rateStats.style.gap = '14px';
+      rateStats.style.flexWrap = 'nowrap';
+      // 稼働率カウントも縦にコンパクトに
+      const rateCounts = clone.querySelector('[data-print-id="rate-counts"]');
+      if (rateCounts) {
+        rateCounts.style.flexDirection = 'column';
+        rateCounts.style.gap = '4px';
+        rateCounts.style.alignItems = 'flex-start';
+      }
+      // 月別チャートを左右並びにするためのラッパーを作成
+      const wrapper = document.createElement('div');
+      wrapper.style.cssText = 'display:grid;grid-template-columns:200px 1fr;gap:18px;align-items:start;';
+      // 既存の rateStats を wrapper に移動
+      const parent = rateStats.parentElement;
+      const after = rateStats.nextSibling;
+      wrapper.appendChild(rateStats);
+      // 月別グラフ部分（rateChartSec の中の rate-chart-graph 部分）を取り出して右カラムに
+      const chartGraph = rateChartSec.querySelector('[data-print-id="rate-chart-graph"]');
+      // rate-chart-section の見出し(div)もまとめて右カラムへ
+      const rightCol = document.createElement('div');
+      // header bar (売上入力ボタンとタイトル) の親 div を rateChartSec から取得
+      const chartHeader = rateChartSec.querySelector('div:first-child');
+      if (chartHeader) rightCol.appendChild(chartHeader.cloneNode(true));
+      if (chartGraph) rightCol.appendChild(chartGraph);
+      wrapper.appendChild(rightCol);
+      // wrapper を rateStats が元あった位置に挿入
+      parent.insertBefore(wrapper, after);
+      // 数値詳細テーブルは Card 直下に残し、wrapper の下に来るように rateChartSec を取り外して
+      // detail-table のみ rateChartSec の代わりに挿入
+      const detailTable = rateChartSec.querySelector('[data-print-id="rate-detail-table"]');
+      if (detailTable) {
+        detailTable.style.marginTop = '14px';
+        rateChartSec.parentElement.replaceChild(detailTable, rateChartSec);
+      } else {
+        rateChartSec.remove();
+      }
+    }
     // overflow:auto の横スクロール領域はすべて visible にして全列を表示
     clone.querySelectorAll('[style*="overflow-x"]').forEach(el=>{
       el.style.overflowX = 'visible';
@@ -12498,7 +12548,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         {/* 1. 月全体稼働率 */}
         <div id="ops-rate" data-sec="ops-rate" style={{scrollMarginTop:120}}/>
         <Card title={period==='1'?`${tY}年${tM}月　稼働率`:period==='custom'?`${customFrom.replace('-','年').replace(/-(0?)(\d+)/,'$2月')}〜${customTo.replace('-','年').replace(/-(0?)(\d+)/,'$2月')}　稼働率`:(()=>{const n=parseInt(period,10);let sM=tM-n+1,sY=tY;while(sM<=0){sM+=12;sY--;}return `${sY}年${sM}月〜${tY}年${tM}月　稼働率`;})()} accent='#f97316'>
-          <div style={{display:'flex',alignItems:'center',gap:24,flexWrap:'wrap'}}>
+          <div data-print-id="rate-stats" style={{display:'flex',alignItems:'center',gap:24,flexWrap:'wrap'}}>
             <div style={{textAlign:'center',minWidth:80}}>
               <div style={{fontSize:48,fontWeight:'bold',lineHeight:1,color:RC(monthStats.rate)}}>{monthStats.rate}<span style={{fontSize:20}}>%</span></div>
               <div style={{fontSize:13,color:'#64748b',marginTop:4}}>稼働率</div>
@@ -12512,11 +12562,11 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
               </div>
             )}
             <div style={{flex:1,minWidth:180}}>
-              <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+              <div data-print-id="rate-bar" style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
                 <RateBar rate={monthStats.rate} color='#3b82f6'/>
                 <span style={{fontSize:13,color:'#475569',whiteSpace:'nowrap'}}>{monthStats.attended}/{monthStats.planned}件</span>
               </div>
-              <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
+              <div data-print-id="rate-counts" style={{display:'flex',gap:16,flexWrap:'wrap'}}>
                 {[['出席','#3b82f6',monthStats.attended],['欠席','#ef4444',monthStats.absent],['休止','#f97316',monthStats.kyushi],['休業','#94a3b8',monthStats.kyugyo]].map(([l,col,v])=>(
                   <div key={l} style={{display:'flex',alignItems:'center',gap:4,fontSize:13}}>
                     <span style={{width:8,height:8,borderRadius:'50%',background:col,flexShrink:0}}/>
@@ -12628,7 +12678,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
             });
             
             return (
-              <div style={{marginTop:14,borderTop:'1px solid #f1f5f9',paddingTop:12}}>
+              <div data-print-id="rate-chart-section" style={{marginTop:14,borderTop:'1px solid #f1f5f9',paddingTop:12}}>
                 <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
                   <div style={{fontSize:13,fontWeight:'bold',color:'#64748b'}}>月別稼働率・売上</div>
                   <button 
@@ -12637,7 +12687,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                     売上入力
                   </button>
                 </div>
-                <div style={{overflowX:'auto'}}>
+                <div data-print-id="rate-chart-graph" style={{overflowX:'auto'}}>
                   <div style={{minWidth:700,height:420}}>
                     <ResponsiveContainer width="100%" height="100%">
                       {/* barCategoryGap で月間スペースを広げる。barSize は細めにして月ごとの空間を確保 */}
@@ -12683,7 +12733,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                   </div>
                 </div>
                 {/* 売上一覧テーブル: グラフとは別セクションとして視覚的に区切る */}
-                <div style={{marginTop:18,paddingTop:12,borderTop:'2px dashed #e2e8f0',overflowX:'auto'}}>
+                <div data-print-id="rate-detail-table" style={{marginTop:18,paddingTop:12,borderTop:'2px dashed #e2e8f0',overflowX:'auto'}}>
                   <div style={{fontSize:12,fontWeight:'bold',color:'#94a3b8',marginBottom:6}}>■ 数値詳細</div>
                   <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
                     <thead>
