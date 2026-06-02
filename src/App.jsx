@@ -12008,10 +12008,9 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
       || clone.querySelector('[data-sec="ops-attr-mood"]')?.nextElementSibling?.firstElementChild;
     if (attrCardForCompact) {
       // 介護度内訳の pie chart は印刷時は元サイズに近い大きさを維持
-      // (右側の介護度一覧が見切れない範囲で大きく表示)
       attrCardForCompact.querySelectorAll('svg').forEach(svg => {
-        svg.style.width = '180px';
-        svg.style.height = '180px';
+        svg.style.width = '210px';
+        svg.style.height = '210px';
         svg.style.margin = '0';
       });
       // 男女比 / 介護度内訳 のラベルや内訳行のフォントを縮小
@@ -12157,7 +12156,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
     // A4 横向き: 297mm 幅。月別推移チャートやランキングが横にゆとり持って表示できる
     const PAGE_W_MM = 297;
     const renderSec = (secId) => sectionHTML[secId]
-      ? `<div style="break-inside:avoid;page-break-inside:avoid;margin-bottom:12px;">${sectionHTML[secId]}</div>`
+      ? `<div style="break-inside:avoid-page;page-break-inside:avoid;margin-bottom:10px;">${sectionHTML[secId]}</div>`
       : '';
     const pagesHtml = pageGroups.map((secIds, pageIdx)=>{
       const inner = secIds.map(renderSec).join('');
@@ -12751,7 +12750,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                   </button>
                 </div>
                 <div data-print-id="rate-chart-graph" style={{overflowX:'auto'}}>
-                  <div style={{minWidth:700,height:440}}>
+                  <div style={{minWidth:700,height:340}}>
                     <ResponsiveContainer width="100%" height="100%">
                       {/* barCategoryGap で月間スペースを広げる。barSize は細めにして月ごとの空間を確保 */}
                       <ComposedChart data={chartDataWithDiff} margin={{top:20,right:60,left:20,bottom:5}} barCategoryGap="28%" barGap={3}>
@@ -12915,16 +12914,15 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                 const fs = 11;
                 const cols = Array.from({length: N_COLS}, (_, ci) => list.slice(ci * PER_COL, (ci + 1) * PER_COL));
                 return (
-                  <div style={{marginTop:6}}>
-                    <div style={{fontSize:10,fontWeight:'bold',color:col,marginBottom:3}}>{label} 利用者（出席率順）</div>
-                    <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},1fr)`,columnGap:14}}>
+                  <div style={{marginTop:4}}>
+                    <div style={{fontSize:9,fontWeight:'bold',color:col,marginBottom:2}}>{label} 利用者（出席率順）</div>
+                    <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},1fr)`,columnGap:10}}>
                       {cols.map((subList, ci) => (
                         <div key={ci} style={{display:'flex',flexDirection:'column',minWidth:0}}>
                           {subList.map(p => (
-                            // 名前は固定幅 (6em ≈ 6文字) で確保、% は常に同じ縦ラインに揃う
-                            <div key={p.patient.id} style={{display:'flex',alignItems:'baseline',padding:'1px 0',borderBottom:'1px solid #f8fafc'}}>
-                              <span style={{fontSize:fs,fontWeight:'bold',color:'#334155',width:'6em',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flexShrink:0}}>{p.patient.name}</span>
-                              <span style={{fontSize:fs,color:RC(p.rate),fontWeight:'bold',marginLeft:4,flexShrink:0,width:'2.4em',textAlign:'right'}}>{p.rate}%</span>
+                            <div key={p.patient.id} style={{display:'flex',alignItems:'baseline',padding:'0',borderBottom:'1px solid #f8fafc',lineHeight:1.35}}>
+                              <span style={{fontSize:10,fontWeight:'bold',color:'#334155',width:'6em',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flexShrink:0}}>{p.patient.name}</span>
+                              <span style={{fontSize:10,color:RC(p.rate),fontWeight:'bold',marginLeft:3,flexShrink:0,width:'2.4em',textAlign:'right'}}>{p.rate}%</span>
                             </div>
                           ))}
                         </div>
@@ -12934,18 +12932,18 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                 );
               };
               return (
-                <div key={d.dow} style={{border:'1px solid #e2e8f0',borderRadius:10,padding:'10px 12px',background:'white',overflow:'hidden',minWidth:0}}>
-                  <div style={{fontWeight:'bold',fontSize:14,color:'#7c3aed',marginBottom:6,paddingBottom:4,borderBottom:'1px solid #ede9fe'}}>{dayLabel}</div>
-                  <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6}}>
+                <div key={d.dow} style={{border:'1px solid #e2e8f0',borderRadius:8,padding:'6px 8px',background:'white',overflow:'hidden',minWidth:0}}>
+                  <div style={{fontWeight:'bold',fontSize:13,color:'#7c3aed',marginBottom:4,paddingBottom:3,borderBottom:'1px solid #ede9fe'}}>{dayLabel}</div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:4}}>
                     {[{label:'AM',s:d.am,col:'#3b82f6'},{label:'PM',s:d.pm,col:'#10b981'},{label:'合計',s:d.all,col:'#8b5cf6'}].map(({label,s,col})=>(
-                      <div key={label} style={{textAlign:'center',padding:'3px 4px',borderRadius:6,background:`${col}10`}}>
+                      <div key={label} style={{textAlign:'center',padding:'2px 3px',borderRadius:5,background:`${col}10`}}>
                         <div style={{fontSize:9,color:'#64748b',fontWeight:'bold'}}>{label}</div>
                         {s.planned>0 ? (
                           <React.Fragment>
-                            <div style={{fontSize:14,fontWeight:'bold',color:RC(s.rate),lineHeight:1.1}}>{s.rate}%</div>
-                            <div style={{fontSize:9,color:'#94a3b8'}}>{s.attended}/{s.planned}件</div>
+                            <div style={{fontSize:13,fontWeight:'bold',color:RC(s.rate),lineHeight:1.1}}>{s.rate}%</div>
+                            <div style={{fontSize:8.5,color:'#94a3b8'}}>{s.attended}/{s.planned}件</div>
                           </React.Fragment>
-                        ) : <div style={{fontSize:11,color:'#cbd5e1',padding:'6px 0'}}>ー</div>}
+                        ) : <div style={{fontSize:10,color:'#cbd5e1',padding:'4px 0'}}>ー</div>}
                       </div>
                     ))}
                   </div>
