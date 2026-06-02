@@ -12907,21 +12907,22 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
               const dayLabel = `${d.dow}曜日`;
               const renderPats = (label, list, col) => {
                 if (list.length === 0) return null;
-                // 利用者数に応じて 1〜4列を自動選択 (5名で1列ずつ増やす)
-                const N_COLS = Math.min(4, Math.max(1, Math.ceil(list.length / 5)));
-                const fs = N_COLS >= 4 ? 9 : N_COLS >= 3 ? 10 : 11;
-                const perCol = Math.ceil(list.length / N_COLS) || 1;
-                const cols = Array.from({length: N_COLS}, (_, ci) => list.slice(ci * perCol, (ci + 1) * perCol));
+                // 最大 6 行縦に並べ、それ以上は列を増やしていく
+                const PER_COL = 6;
+                const N_COLS = Math.max(1, Math.ceil(list.length / PER_COL));
+                const fs = 11;
+                const cols = Array.from({length: N_COLS}, (_, ci) => list.slice(ci * PER_COL, (ci + 1) * PER_COL));
                 return (
                   <div style={{marginTop:6}}>
                     <div style={{fontSize:10,fontWeight:'bold',color:col,marginBottom:3}}>{label} 利用者（出席率順）</div>
                     <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},1fr)`,columnGap:14}}>
                       {cols.map((subList, ci) => (
-                        <div key={ci} style={{display:'flex',flexDirection:'column'}}>
+                        <div key={ci} style={{display:'flex',flexDirection:'column',minWidth:0}}>
                           {subList.map(p => (
+                            // 名前は固定幅 (6em ≈ 6文字) で確保、% は常に同じ縦ラインに揃う
                             <div key={p.patient.id} style={{display:'flex',alignItems:'baseline',padding:'1px 0',borderBottom:'1px solid #f8fafc'}}>
-                              <span style={{fontSize:fs,fontWeight:'bold',color:'#334155',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.patient.name}</span>
-                              <span style={{fontSize:fs,color:RC(p.rate),fontWeight:'bold',marginLeft:3,flexShrink:0}}>{p.rate}%</span>
+                              <span style={{fontSize:fs,fontWeight:'bold',color:'#334155',width:'6em',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flexShrink:0}}>{p.patient.name}</span>
+                              <span style={{fontSize:fs,color:RC(p.rate),fontWeight:'bold',marginLeft:4,flexShrink:0,width:'2.4em',textAlign:'right'}}>{p.rate}%</span>
                             </div>
                           ))}
                         </div>
@@ -12935,14 +12936,14 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                   <div style={{fontWeight:'bold',fontSize:14,color:'#7c3aed',marginBottom:6,paddingBottom:4,borderBottom:'1px solid #ede9fe'}}>{dayLabel}</div>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6}}>
                     {[{label:'AM',s:d.am,col:'#3b82f6'},{label:'PM',s:d.pm,col:'#10b981'},{label:'合計',s:d.all,col:'#8b5cf6'}].map(({label,s,col})=>(
-                      <div key={label} style={{textAlign:'center',padding:'5px 4px',borderRadius:6,background:`${col}10`}}>
-                        <div style={{fontSize:10,color:'#64748b',fontWeight:'bold'}}>{label}</div>
+                      <div key={label} style={{textAlign:'center',padding:'3px 4px',borderRadius:6,background:`${col}10`}}>
+                        <div style={{fontSize:9,color:'#64748b',fontWeight:'bold'}}>{label}</div>
                         {s.planned>0 ? (
                           <React.Fragment>
-                            <div style={{fontSize:18,fontWeight:'bold',color:RC(s.rate),lineHeight:1.1}}>{s.rate}%</div>
-                            <div style={{fontSize:10,color:'#94a3b8'}}>{s.attended}/{s.planned}件</div>
+                            <div style={{fontSize:14,fontWeight:'bold',color:RC(s.rate),lineHeight:1.1}}>{s.rate}%</div>
+                            <div style={{fontSize:9,color:'#94a3b8'}}>{s.attended}/{s.planned}件</div>
                           </React.Fragment>
-                        ) : <div style={{fontSize:12,color:'#cbd5e1',padding:'8px 0'}}>ー</div>}
+                        ) : <div style={{fontSize:11,color:'#cbd5e1',padding:'6px 0'}}>ー</div>}
                       </div>
                     ))}
                   </div>
