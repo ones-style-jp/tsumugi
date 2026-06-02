@@ -11930,32 +11930,31 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
   const [printOpts, setPrintOpts] = React.useState({ mode: 'detailed', period: 'current', rankingAll: true });
 
   // 印刷実行: 期間/モード/ランキング表示を一時切替して PDF を生成
+  // 実装方針: clone + appendChild ではなく、各セクションを HTML 文字列として個別に
+  //          抜き出してから再構築する。これにより副作用や React 再レンダリングの
+  //          影響を一切受けず、必ず各セクションが1回ずつだけ印刷される。
   const runOpsPrint = async (opts) => {
-    // 1. 期間を一時切替（必要なら）
     const origPeriod = period;
     const origBaseMonth = baseMonth;
+    // 期間切替
     if (opts.period === 'current') { setPeriod('1'); setBaseMonth(`${tY}-${String(tM).padStart(2,'0')}`); }
     else if (opts.period === '12m') { setPeriod('12'); setBaseMonth(`${tY}-${String(tM).padStart(2,'0')}`); }
     else if (opts.period === 'fy') {
       const fsm = appData.systemSettings?.facilityInfo?.fiscalStartMonth || 6;
-      // 年度終わり = 現在月以前の(fsm-1)月
-      const today = new Date(tY, tM - 1, 1);
-      // 直近の年度: 始まりは fsm 月、終わりは翌年の(fsm-1)月
-      let fyEndY = tY, fyEndM = fsm - 1; if (fyEndM <= 0) { fyEndM += 12; fyEndY -= 1; }
-      // 現在月が年度の途中（fsm 〜 翌年 fsm-1）なら fyEnd を現在月にする
-      if (tM >= fsm) { fyEndY = tY + 1; fyEndM = fsm - 1; if (fyEndM <= 0) { fyEndM += 12; fyEndY -= 1; } }
+      // 年度: 始まり= fsm 月、終わり= 翌年の(fsm-1)月
       setPeriod('12'); setBaseMonth(`${tY}-${String(tM).padStart(2,'0')}`);
     }
-    // 2. ランキングを全件表示に切替
+    // ランキング全件表示
     const prevAtt = showAllAtt, prevAbs = showAllAbs, prevReason = showAllReason;
     if (opts.rankingAll) { setShowAllAtt(true); setShowAllAbs(true); setShowAllReason(true); }
-    // 3. 利用者属性は対象月をセット
+    // 利用者属性の月セット
     const latestMonth = period === 'custom' ? customTo : baseMonth;
     setAttrMonth(latestMonth);
-    // 再描画待ち
-    await new Promise(r => setTimeout(r, 300));
+    // 描画完了待ち
+    await new Promise(r => setTimeout(r, 500));
     const container = document.getElementById('print-content-operation');
     if (!container) { alert('稼働データが見つかりません'); return; }
+    // クローン作成 + 整形
     const clone = container.cloneNode(true);
     clone.querySelectorAll('svg').forEach(svg=>{
       if(!svg.getAttribute('viewBox')){
@@ -11969,26 +11968,27 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
       const bg = el.style.backgroundColor||el.style.background;
       if(bg && bg.includes('slate')) el.style.background='white';
     });
-    // 「▼ 全て表示」「▲ 閉じる」のトグルボタンは印刷時不要 → 除去
     clone.querySelectorAll('button').forEach(b=>{
       const t = (b.textContent||'').trim();
       if (t.startsWith('▼ 全て表示') || t.startsWith('▲ 閉じる')) b.remove();
     });
+    // セクション単位で HTML 文字列を抽出（rootChildren を順に巡回し、data-sec を区切りに分類）
     const rootChildren = Array.from(clone.children);
-    const sectionMarkers = rootChildren
-      .map((el, i) => ({el, i, sec: el.getAttribute('data-sec')}))
-      .filter(x => !!x.sec);
-    const collectSec = (secId) => {
-      const idx = sectionMarkers.findIndex(m => m.sec === secId);
-      if (idx < 0) return [];
-      const start = sectionMarkers[idx].i;
-      const end = idx + 1 < sectionMarkers.length ? sectionMarkers[idx + 1].i : rootChildren.length;
-      return rootChildren.slice(start, end);
-    };
+    const sectionHTML = {}; // secId → string (連結済み)
+    let currentSec = null;
+    rootChildren.forEach(el => {
+      const dsec = el.getAttribute('data-sec');
+      if (dsec) {
+        currentSec = dsec;
+        sectionHTML[currentSec] = el.outerHTML;
+      } else if (currentSec) {
+        sectionHTML[currentSec] = (sectionHTML[currentSec] || '') + el.outerHTML;
+      }
+      // currentSec が null の段階の要素（最初のマーカーより前）は破棄
+    });
     // ページ構成
     let pageGroups;
     if (opts.mode === 'summary') {
-      // 概要版: 稼働率 + 利用者属性 + 出席率ランキング を1ページにまとめる
       pageGroups = [ ['ops-rate','ops-attr','ops-rank-att'] ];
     } else {
       pageGroups = [
@@ -11997,42 +11997,22 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         ['ops-kaikin','ops-rank-att','ops-rank-abs','ops-reason']
       ];
     }
-    const pageW = 210 - 16;
-    const pagePx = pageW * 3.7795;
-    const measure = document.createElement('div');
-    measure.style.cssText = 'position:absolute;left:-9999px;top:0;width:210mm;visibility:hidden;';
-    document.body.appendChild(measure);
+    const renderSec = (secId) => sectionHTML[secId]
+      ? `<div style="break-inside:avoid;page-break-inside:avoid;margin-bottom:12px;">${sectionHTML[secId]}</div>`
+      : '';
     const pagesHtml = pageGroups.map((secIds, pageIdx)=>{
-      const pageDiv = document.createElement('div');
-      pageDiv.style.cssText = `padding:6mm 8mm;width:210mm;box-sizing:border-box;${pageIdx<pageGroups.length-1?'page-break-after:always;':''}`;
-      measure.appendChild(pageDiv);
-      secIds.forEach(secId=>{
-        const els = collectSec(secId);
-        if(!els.length) return;
-        const group = document.createElement('div');
-        group.style.cssText = 'break-inside:avoid;page-break-inside:avoid;margin-bottom:12px;';
-        els.forEach(el=>group.appendChild(el));
-        pageDiv.appendChild(group);
-        const natW = group.scrollWidth;
-        if(natW > pagePx){
-          const sc = pagePx / natW;
-          const wrapper = document.createElement('div');
-          wrapper.style.cssText = `transform:scale(${sc.toFixed(4)});transform-origin:top left;width:${(100/sc).toFixed(2)}%;margin-bottom:${-(group.scrollHeight*(1-sc)).toFixed(0)}px;break-inside:avoid;page-break-inside:avoid;`;
-          pageDiv.replaceChild(wrapper, group);
-          wrapper.appendChild(group);
-        }
-      });
-      return pageDiv.outerHTML;
+      const inner = secIds.map(renderSec).join('');
+      const pageStyle = `padding:6mm 8mm;width:210mm;box-sizing:border-box;${pageIdx<pageGroups.length-1?'page-break-after:always;':''}`;
+      return `<div style="${pageStyle}">${inner}</div>`;
     }).join('');
-    document.body.removeChild(measure);
     const title = opts.mode === 'summary' ? '分析_稼働_概要' : '分析_稼働';
     const html = `<div style="font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:white;width:210mm;box-sizing:border-box;"><style>*{box-sizing:border-box;}svg[viewBox]{max-width:100%!important;overflow:visible!important;}@media print{.page-sep{display:none!important;}}</style>${pagesHtml}</div>`;
     window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 portrait',html}}));
-    // 復元（少し待つ）
+    // 復元
     setTimeout(() => {
       if (opts.rankingAll) { setShowAllAtt(prevAtt); setShowAllAbs(prevAbs); setShowAllReason(prevReason); }
       setPeriod(origPeriod); setBaseMonth(origBaseMonth);
-    }, 400);
+    }, 500);
   };
   const [salesEditModal, setSalesEditModal] = React.useState(null); // { month: '2025-06' }
   const [period, setPeriod] = React.useState('1');
