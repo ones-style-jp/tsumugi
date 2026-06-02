@@ -11919,11 +11919,16 @@ function AttrSection({appData, tY, tM, baseMonth, attrMonth, setAttrMonth, perio
         <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:6}}>■ 年齢統計</div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>
           {[{label:'総合',arr:ages,color:'#8b5cf6'},{label:'男性',arr:maleAges,color:'#3b82f6'},{label:'女性',arr:femaleAges,color:'#f472b6'}].map(({label,arr,color})=>(
-            <div key={label} data-print-id="age-stat-box" style={{background:'#f8fafc',border:`2px solid ${color}30`,borderRadius:12,padding:'10px 8px',textAlign:'center'}}>
-              <div style={{fontSize:11,fontWeight:'bold',color,marginBottom:4}}>{label}</div>
-              <div style={{fontSize:22,fontWeight:'bold',color:'#1e293b',lineHeight:1}}>{avg(arr)}<span style={{fontSize:11,color:'#64748b',marginLeft:2}}>歳</span></div>
-              <div style={{fontSize:10,color:'#94a3b8',marginTop:4,display:'flex',justifyContent:'center',gap:8}}><span style={{color:'#3b82f6'}}>最低 {arr.length?Math.min(...arr):'-'}歳</span><span style={{color:'#ef4444'}}>最高 {arr.length?Math.max(...arr):'-'}歳</span></div>
-              <div style={{fontSize:10,color:'#94a3b8',marginTop:2}}>{arr.length}名対象</div>
+            <div key={label} data-print-id="age-stat-box" style={{background:'#f8fafc',border:`2px solid ${color}30`,borderRadius:10,padding:'6px 10px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,flexWrap:'wrap'}}>
+              <div style={{display:'flex',alignItems:'baseline',gap:6}}>
+                <span style={{fontSize:12,fontWeight:'bold',color}}>{label}</span>
+                <span style={{fontSize:20,fontWeight:'bold',color:'#1e293b'}}>{avg(arr)}<span style={{fontSize:10,color:'#64748b',marginLeft:2}}>歳</span></span>
+              </div>
+              <div style={{fontSize:10,color:'#94a3b8',display:'flex',gap:6,flexWrap:'wrap'}}>
+                <span style={{color:'#3b82f6'}}>最低 {arr.length?Math.min(...arr):'-'}歳</span>
+                <span style={{color:'#ef4444'}}>最高 {arr.length?Math.max(...arr):'-'}歳</span>
+                <span>{arr.length}名</span>
+              </div>
             </div>
           ))}
         </div>
@@ -11997,15 +12002,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
     clone.querySelectorAll('[data-print-strip]').forEach(el => el.remove());
     // 曜日別の詳細(展開行) を全曜日強制表示
     clone.querySelectorAll('[data-dow-detail]').forEach(el => { el.style.display = 'table-row'; });
-    // 年齢統計の box を compact 化
-    clone.querySelectorAll('[data-print-id="age-stat-box"]').forEach(el => {
-      el.style.padding = '6px 4px';
-      el.style.borderWidth = '1px';
-      const divs = el.querySelectorAll(':scope > div');
-      if (divs[1]) divs[1].style.fontSize = '16px';
-      if (divs[2]) divs[2].style.fontSize = '9px';
-      if (divs[3]) divs[3].style.fontSize = '9px';
-    });
+    // 年齢統計 box は JSX 側で既に 1 行表記になっているため preprocessing は不要
     // 利用者属性 + 気分割合 を 1 ページに収めるため左右並びの単一セクションに統合
     const attrMarker = clone.querySelector('[data-sec="ops-attr"]');
     const moodMarker = clone.querySelector('[data-sec="ops-mood"]');
@@ -12874,25 +12871,26 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         {/* 2. 曜日別稼働率 — 曜日カード形式（月曜日〜土曜日を枠で囲んで表示） */}
         <div id="ops-dow" data-sec="ops-dow" style={{scrollMarginTop:120}}/>
         <Card title="曜日別稼働率" accent='#8b5cf6'>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
             {dowStats.map(d => {
               const dayLabel = `${d.dow}曜日`;
               const renderPats = (label, list, col) => {
                 if (list.length === 0) return null;
-                // 3列レイアウト: 1列目に 1〜N、2列目に N+1〜2N… と縦に流す（ランキングと同じスタイル）
-                const N_COLS = 3;
+                // 利用者数に応じて 1〜4列を自動選択 (5名で1列ずつ増やす)
+                const N_COLS = Math.min(4, Math.max(1, Math.ceil(list.length / 5)));
+                const fs = N_COLS >= 4 ? 9 : N_COLS >= 3 ? 10 : 11;
                 const perCol = Math.ceil(list.length / N_COLS) || 1;
                 const cols = Array.from({length: N_COLS}, (_, ci) => list.slice(ci * perCol, (ci + 1) * perCol));
                 return (
                   <div style={{marginTop:6}}>
                     <div style={{fontSize:10,fontWeight:'bold',color:col,marginBottom:3}}>{label} 利用者（出席率順）</div>
-                    <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},1fr)`,columnGap:18}}>
+                    <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},1fr)`,columnGap:14}}>
                       {cols.map((subList, ci) => (
                         <div key={ci} style={{display:'flex',flexDirection:'column'}}>
                           {subList.map(p => (
-                            <div key={p.patient.id} style={{display:'flex',alignItems:'baseline',padding:'2px 0',borderBottom:'1px solid #f8fafc'}}>
-                              <span style={{flex:1,fontSize:11,fontWeight:'bold',color:'#334155',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.patient.name}</span>
-                              <span style={{fontSize:11,color:RC(p.rate),fontWeight:'bold',flexShrink:0,marginLeft:3}}>{p.rate}%</span>
+                            <div key={p.patient.id} style={{display:'flex',alignItems:'baseline',padding:'1px 0',borderBottom:'1px solid #f8fafc'}}>
+                              <span style={{fontSize:fs,fontWeight:'bold',color:'#334155',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.patient.name}</span>
+                              <span style={{fontSize:fs,color:RC(p.rate),fontWeight:'bold',marginLeft:3,flexShrink:0}}>{p.rate}%</span>
                             </div>
                           ))}
                         </div>
@@ -12949,13 +12947,17 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                       <div key={m.key} style={{flex:m.count,background:m.color,transition:'flex 0.3s'}}/>
                     ))}
                   </div>
-                  <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:4}}>
+                  <div data-print-id="mood-cards" style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:4}}>
                     {moods.map(m=>(
-                      <div key={m.key} style={{background:m.bg,border:`1.5px solid ${m.color}`,borderRadius:8,padding:'6px 4px',textAlign:'center'}}>
-                        <div style={{fontSize:18,lineHeight:1,marginBottom:2}}>{m.emoji}</div>
-                        <div style={{fontSize:12,fontWeight:'bold',color:'#334155',marginBottom:2,whiteSpace:'nowrap'}}>{m.label}</div>
-                        <div style={{fontSize:14,fontWeight:'bold',color:'#0f172a',lineHeight:1}}>{m.pct}<span style={{fontSize:12}}>%</span></div>
-                        <div style={{fontSize:12,color:'#64748b',marginTop:1}}>{m.count}回</div>
+                      <div key={m.key} style={{background:m.bg,border:`1.5px solid ${m.color}`,borderRadius:8,padding:'5px 6px',textAlign:'center'}}>
+                        <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:4,marginBottom:2}}>
+                          <span style={{fontSize:16,lineHeight:1}}>{m.emoji}</span>
+                          <span style={{fontSize:11,fontWeight:'bold',color:'#334155',whiteSpace:'nowrap'}}>{m.label}</span>
+                        </div>
+                        <div style={{fontSize:13,fontWeight:'bold',color:'#0f172a',lineHeight:1.2}}>
+                          {m.pct}<span style={{fontSize:11}}>%</span>
+                          <span style={{fontSize:10,color:'#64748b',marginLeft:4,fontWeight:'normal'}}>({m.count}回)</span>
+                        </div>
                       </div>
                     ))}
                   </div>
