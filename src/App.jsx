@@ -12148,7 +12148,8 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
     } else {
       pageGroups = [
         ['ops-rate'],
-        ['ops-dow'],
+        ['ops-dow'],    // 曜日別 前半 (月火水)
+        ['ops-dow-2'],  // 曜日別 後半 (木金土)
         ['ops-attr-mood'], // 利用者属性 + 気分割合 を1ページに上下並びで配置
         ['ops-kaikin','ops-rank-att'],
         ['ops-rank-abs','ops-reason']
@@ -12239,7 +12240,9 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
   const recsAP = React.useMemo(() => recs.map(r => {
     const p = patMap[r.patientId];
     const di = DOW_MAP[r.dayOfWeek] ?? -1;
-    const ap = p && di >= 0 ? (p.scheduleAmPm?.[di] || '') : '';
+    let ap = p && di >= 0 ? (p.scheduleAmPm?.[di] || '') : '';
+    // 振替記録は furikaeAmpm を優先 (普段の曜日スケジュールに無い場合も正しく振り分け)
+    if (r.status === '振替' && r.furikaeAmpm) ap = r.furikaeAmpm;
     return { ...r, amPm: ap };
   }), [recs, patMap]);
 
@@ -12354,27 +12357,48 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
     const days = allDays.filter(d => !closed.includes(d.idx)).map(d => d.dow);
     return days.map(dow => {
       const dayRecs = recsAP.filter(r => r.dayOfWeek === dow);
+      // 1日 (終日) の利用者は AM と PM の両方に含める。
+      // 合計 = AM + PM (各セッション件数の総和) で整合する
       const calcRate = (ap) => {
-        const sub = ap ? dayRecs.filter(r => r.amPm === ap) : dayRecs;
+        const sub = ap === 'AM' ? dayRecs.filter(r => r.amPm === 'AM' || r.amPm === '1日')
+          : ap === 'PM' ? dayRecs.filter(r => r.amPm === 'PM' || r.amPm === '1日')
+          : null; // null = all (合計は別計算)
+        if (!sub) return null;
         const pl = sub.filter(r => ['出席','欠席','振替','休止'].includes(r.status));
         const at = sub.filter(r => r.status==='出席'||r.status==='振替');
         return { planned:pl.length, attended:at.length, rate: pl.length ? Math.round(at.length/pl.length*100) : null };
       };
-      // AM利用者ランキング
+      const am = calcRate('AM');
+      const pm = calcRate('PM');
+      const all = {
+        planned: am.planned + pm.planned,
+        attended: am.attended + pm.attended,
+        rate: (am.planned + pm.planned) ? Math.round((am.attended + pm.attended) / (am.planned + pm.planned) * 100) : null,
+      };
+      // AM/PM別利用者ランキング (1日 利用者は両方にカウント)
       const amPats = {}, pmPats = {};
       dayRecs.forEach(r => {
         const ap = r.amPm;
-        const bucket = ap==='PM' ? pmPats : amPats; // no AM → AM bucket too
-        if (!bucket[r.patientId]) bucket[r.patientId] = { planned:0, att:0 };
-        if (['出席','欠席','振替','休止'].includes(r.status)) bucket[r.patientId].planned++;
-        if (r.status==='出席'||r.status==='振替') bucket[r.patientId].att++;
+        const inAM = ap === 'AM' || ap === '1日';
+        const inPM = ap === 'PM' || ap === '1日';
+        const fallbackToAM = !inAM && !inPM; // amPm が ''/それ以外 の場合は AM 扱い
+        if (inAM || fallbackToAM) {
+          if (!amPats[r.patientId]) amPats[r.patientId] = { planned:0, att:0 };
+          if (['出席','欠席','振替','休止'].includes(r.status)) amPats[r.patientId].planned++;
+          if (r.status==='出席'||r.status==='振替') amPats[r.patientId].att++;
+        }
+        if (inPM) {
+          if (!pmPats[r.patientId]) pmPats[r.patientId] = { planned:0, att:0 };
+          if (['出席','欠席','振替','休止'].includes(r.status)) pmPats[r.patientId].planned++;
+          if (r.status==='出席'||r.status==='振替') pmPats[r.patientId].att++;
+        }
       });
       const toRank = (obj) => Object.entries(obj)
         .filter(([,s]) => s.planned > 0)
         .map(([id,s]) => ({ patient:patMap[id], rate:Math.round(s.att/s.planned*100), att:s.att, planned:s.planned }))
         .filter(x=>x.patient)
         .sort((a,b) => b.rate-a.rate || b.att-a.att);
-      return { dow, all:calcRate(null), am:calcRate('AM'), pm:calcRate('PM'), amRank:toRank(amPats), pmRank:toRank(pmPats) };
+      return { dow, all, am, pm, amRank:toRank(amPats), pmRank:toRank(pmPats) };
     });
   }, [recsAP, patMap]);
 
@@ -12494,9 +12518,9 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
           <div key={ci} style={{display:'flex',flexDirection:'column'}}>
             {col.map(({patient,days,idx}) => (
               <div key={patient.id} style={{display:'flex',alignItems:'baseline',padding:'2px 0',borderBottom:'1px solid #f1f5f9'}}>
-                <span style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',width:24,textAlign:'right',flexShrink:0,marginRight:10}}>{idx<3?(idx===0?'🥇':idx===1?'🥈':'🥉'):`${idx+1}.`}</span>
-                <span style={{flex:1,fontSize:12,fontWeight:'bold',color:'#000',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{patient.name}</span>
-                <span style={{fontSize:12,fontWeight:'bold',color:'#000',whiteSpace:'nowrap',flexShrink:0,marginLeft:3}}>{days}日</span>
+                <span style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',width:24,textAlign:'right',flexShrink:0,marginRight:6}}>{idx<3?(idx===0?'🥇':idx===1?'🥈':'🥉'):`${idx+1}.`}</span>
+                <span style={{fontSize:12,fontWeight:'bold',color:'#000',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',width:'7em',flexShrink:0}}>{patient.name}</span>
+                <span style={{fontSize:12,fontWeight:'bold',color:'#000',whiteSpace:'nowrap',flexShrink:0,marginLeft:2}}>{days}日</span>
               </div>
             ))}
           </div>
@@ -12902,24 +12926,23 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
           onClose={()=>setSalesEditModal(null)}
         />}
 
-        {/* 2. 曜日別稼働率 — 曜日カード形式（月曜日〜土曜日を枠で囲んで表示） */}
+        {/* 2. 曜日別稼働率 — 曜日カード形式 (3日ずつ 2ページに分割) */}
         <div id="ops-dow" data-sec="ops-dow" style={{scrollMarginTop:120}}/>
-        <Card title="曜日別稼働率" accent='#8b5cf6'>
+        <Card title="曜日別稼働率（前半）" accent='#8b5cf6'>
           <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:10}}>
-            {dowStats.map(d => {
+            {dowStats.slice(0,3).map(d => {
               const dayLabel = `${d.dow}曜日`;
               const renderPats = (label, list, col) => {
                 if (list.length === 0) return null;
-                // 6 行固定 / 最大 3 列 (=最大18名表示)。それ以上の利用者数は想定しない
+                // 1列あたり6行 / 最大 2 列 (=最大12名表示)。3日ずつ2ページ分割なのでカード幅に余裕あり
                 const PER_COL = 6;
-                const MAX_COLS = 3;
+                const MAX_COLS = 2;
                 const N_COLS = Math.min(MAX_COLS, Math.max(1, Math.ceil(list.length / PER_COL)));
                 const truncated = list.slice(0, PER_COL * MAX_COLS);
                 const cols = Array.from({length: N_COLS}, (_, ci) => truncated.slice(ci * PER_COL, (ci + 1) * PER_COL));
-                // 列数に応じてフォントを縮小しフルネームが収まるサイズに
-                // 1列=11px / 2列=10px / 3列=9px (% の幅も最小限に)
-                const fs = N_COLS === 1 ? 11 : N_COLS === 2 ? 10 : 9;
-                const pctW = N_COLS === 1 ? '2.4em' : '2.2em';
+                // 2列までになったのでフォントは余裕を持って 1列=11px / 2列=10px
+                const fs = N_COLS === 1 ? 11 : 10;
+                const pctW = '2.4em';
                 return (
                   <div style={{marginTop:4,minWidth:0,overflow:'hidden'}}>
                     <div style={{fontSize:9,fontWeight:'bold',color:col,marginBottom:2}}>{label} 利用者（出席率順）</div>
@@ -12961,6 +12984,64 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
             })}
           </div>
         </Card>
+
+        {/* 2b. 曜日別稼働率 後半 (木金土) — 印刷時に別ページに配置 */}
+        {dowStats.length > 3 && (<>
+          <div id="ops-dow-2" data-sec="ops-dow-2" style={{scrollMarginTop:120}}/>
+          <Card title="曜日別稼働率（後半）" accent='#8b5cf6'>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:10}}>
+              {dowStats.slice(3,6).map(d => {
+                const dayLabel = `${d.dow}曜日`;
+                const renderPats = (label, list, col) => {
+                  if (list.length === 0) return null;
+                  const PER_COL = 6;
+                  const MAX_COLS = 2;
+                  const N_COLS = Math.min(MAX_COLS, Math.max(1, Math.ceil(list.length / PER_COL)));
+                  const truncated = list.slice(0, PER_COL * MAX_COLS);
+                  const cols = Array.from({length: N_COLS}, (_, ci) => truncated.slice(ci * PER_COL, (ci + 1) * PER_COL));
+                  const fs = N_COLS === 1 ? 11 : 10;
+                  return (
+                    <div style={{marginTop:4,minWidth:0,overflow:'hidden'}}>
+                      <div style={{fontSize:9,fontWeight:'bold',color:col,marginBottom:2}}>{label} 利用者(出席率順)</div>
+                      <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},minmax(0,1fr))`,columnGap:8}}>
+                        {cols.map((subList, ci) => (
+                          <div key={ci} style={{display:'flex',flexDirection:'column',minWidth:0,overflow:'hidden'}}>
+                            {subList.map(p => (
+                              <div key={p.patient.id} style={{display:'flex',alignItems:'baseline',padding:'0',borderBottom:'1px solid #f8fafc',lineHeight:1.35,minWidth:0}}>
+                                <span style={{fontSize:fs,fontWeight:'bold',color:'#334155',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0}}>{p.patient.name}</span>
+                                <span style={{fontSize:fs,color:RC(p.rate),fontWeight:'bold',marginLeft:3,flexShrink:0,width:'2.4em',textAlign:'right'}}>{p.rate}%</span>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                };
+                return (
+                  <div key={d.dow} style={{border:'1px solid #e2e8f0',borderRadius:8,padding:'6px 8px',background:'white',overflow:'hidden',minWidth:0}}>
+                    <div style={{fontWeight:'bold',fontSize:13,color:'#7c3aed',marginBottom:4,paddingBottom:3,borderBottom:'1px solid #ede9fe'}}>{dayLabel}</div>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:4,minWidth:0}}>
+                      {[{label:'AM',s:d.am,col:'#3b82f6'},{label:'PM',s:d.pm,col:'#10b981'},{label:'合計',s:d.all,col:'#8b5cf6'}].map(({label,s,col})=>(
+                        <div key={label} style={{textAlign:'center',padding:'2px 3px',borderRadius:5,background:`${col}10`,minWidth:0,overflow:'hidden'}}>
+                          <div style={{fontSize:9,color:'#64748b',fontWeight:'bold'}}>{label}</div>
+                          {s.planned>0 ? (
+                            <React.Fragment>
+                              <div style={{fontSize:13,fontWeight:'bold',color:RC(s.rate),lineHeight:1.1}}>{s.rate}%</div>
+                              <div style={{fontSize:8.5,color:'#94a3b8'}}>{s.attended}/{s.planned}件</div>
+                            </React.Fragment>
+                          ) : <div style={{fontSize:10,color:'#cbd5e1',padding:'4px 0'}}>ー</div>}
+                        </div>
+                      ))}
+                    </div>
+                    {renderPats('AM', d.amRank, '#3b82f6')}
+                    {renderPats('PM', d.pmRank, '#10b981')}
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        </>)}
 
         {/* 7. 利用者属性分析 */}
         <div id="ops-attr" data-sec="ops-attr" style={{scrollMarginTop:120}}/>
@@ -13032,9 +13113,9 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                       <div key={ci} style={{display:'flex',flexDirection:'column'}}>
                         {col.map(({patient,rate,idx}) => (
                           <div key={patient.id} style={{display:'flex',alignItems:'baseline',padding:'2px 0',borderBottom:'1px solid #f8fafc'}}>
-                            <span style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',width:24,textAlign:'right',flexShrink:0,marginRight:10}}>{idx<3?(idx===0?'🥇':idx===1?'🥈':'🥉'):`${idx+1}.`}</span>
-                            <span style={{flex:1,fontSize:12,fontWeight:'bold',color:'#1e293b',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{patient.name}</span>
-                            <span style={{fontSize:12,fontWeight:'bold',color:'#3b82f6',flexShrink:0,marginLeft:3}}>{rate}%</span>
+                            <span style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',width:24,textAlign:'right',flexShrink:0,marginRight:6}}>{idx<3?(idx===0?'🥇':idx===1?'🥈':'🥉'):`${idx+1}.`}</span>
+                            <span style={{fontSize:12,fontWeight:'bold',color:'#1e293b',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',width:'7em',flexShrink:0}}>{patient.name}</span>
+                            <span style={{fontSize:12,fontWeight:'bold',color:'#3b82f6',flexShrink:0,marginLeft:2}}>{rate}%</span>
                           </div>
                         ))}
                       </div>
@@ -13065,9 +13146,9 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                       <div key={ci} style={{display:'flex',flexDirection:'column'}}>
                         {col.map(({patient,rate,idx}) => (
                           <div key={patient.id} style={{display:'flex',alignItems:'baseline',padding:'2px 0',borderBottom:'1px solid #f8fafc'}}>
-                            <span style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',width:24,textAlign:'right',flexShrink:0,marginRight:10}}>{idx<3?(idx===0?'🥇':idx===1?'🥈':'🥉'):`${idx+1}.`}</span>
-                            <span style={{flex:1,fontSize:12,fontWeight:'bold',color:'#1e293b',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{patient.name}</span>
-                            <span style={{fontSize:12,fontWeight:'bold',color:'#ef4444',flexShrink:0,marginLeft:3}}>{rate}%</span>
+                            <span style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',width:24,textAlign:'right',flexShrink:0,marginRight:6}}>{idx<3?(idx===0?'🥇':idx===1?'🥈':'🥉'):`${idx+1}.`}</span>
+                            <span style={{fontSize:12,fontWeight:'bold',color:'#1e293b',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',width:'7em',flexShrink:0}}>{patient.name}</span>
+                            <span style={{fontSize:12,fontWeight:'bold',color:'#ef4444',flexShrink:0,marginLeft:2}}>{rate}%</span>
                           </div>
                         ))}
                       </div>
@@ -13101,9 +13182,9 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                     <div key={ci} style={{display:'flex',flexDirection:'column'}}>
                       {col.map(({reason,count,idx}) => (
                         <div key={reason} style={{display:'flex',alignItems:'baseline',padding:'2px 0',borderBottom:'1px solid #f8fafc'}}>
-                          <span style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',width:24,textAlign:'right',flexShrink:0,marginRight:10}}>{idx<3?(idx===0?'🥇':idx===1?'🥈':'🥉'):`${idx+1}.`}</span>
-                          <span style={{flex:1,fontSize:12,fontWeight:'bold',color:'#334155',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{reason}</span>
-                          <span style={{fontSize:12,fontWeight:'bold',color:'#1e293b',flexShrink:0,marginLeft:3}}>{count}件</span>
+                          <span style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',width:24,textAlign:'right',flexShrink:0,marginRight:6}}>{idx<3?(idx===0?'🥇':idx===1?'🥈':'🥉'):`${idx+1}.`}</span>
+                          <span style={{fontSize:12,fontWeight:'bold',color:'#334155',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',width:'7em',flexShrink:0}}>{reason}</span>
+                          <span style={{fontSize:12,fontWeight:'bold',color:'#1e293b',flexShrink:0,marginLeft:2}}>{count}件</span>
                         </div>
                       ))}
                     </div>
