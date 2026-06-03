@@ -8150,10 +8150,194 @@ function SidebarItem({ icon, label, active, onClick, badge }) {
   );
 }
 
+// === 家族用閲覧画面 (URL ?family=<token> でアクセス) ===
+function FamilyView({ appData, patientId }) {
+  // localStorage から保存済みデータを優先（appData 未提供時に備える）
+  const [data, setData] = useState(()=>{
+    if (appData && appData.patients) return appData;
+    try {
+      const saved = JSON.parse(localStorage.getItem('daycareAppData_v3')||localStorage.getItem('daycareAppData_v2')||'null');
+      return saved || { patients: [], systemSettings: {} };
+    } catch { return { patients: [], systemSettings: {} }; }
+  });
+  const pid = parseInt(patientId, 10);
+  const patient = (data.patients||[]).find(p => p.id === pid || p.id === patientId);
+  const facility = data.systemSettings?.facilityInfo || {};
+  const announcements = data.familyAnnouncements || [];
+  const personalAnnouncements = (data.familyPersonalAnnouncements||[]).filter(a => a.patientId === pid || a.patientId === patientId);
+  const photos = (data.familyPhotos||[]).filter(ph => ph.patientId === pid || ph.patientId === patientId);
+  const calcAge = (bd) => { if(!bd) return null; const d=new Date(bd); const t=new Date(); let a=t.getFullYear()-d.getFullYear(); const m=t.getMonth()-d.getMonth(); if(m<0||(m===0&&t.getDate()<d.getDate())) a--; return a; };
+  if (!patient) {
+    return (
+      <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f1f5f9',fontFamily:'"Hiragino Sans","Yu Gothic",sans-serif'}}>
+        <div style={{background:'white',padding:'48px 40px',borderRadius:24,boxShadow:'0 10px 40px rgba(0,0,0,0.08)',textAlign:'center',maxWidth:420}}>
+          <div style={{fontSize:48,marginBottom:16}}>🔒</div>
+          <h1 style={{fontSize:18,fontWeight:'bold',color:'#1e293b',marginBottom:8}}>URLが無効です</h1>
+          <p style={{fontSize:13,color:'#64748b',lineHeight:1.7}}>このURLは期限切れか、ご利用の事業所と紐づいていません。<br/>事業所までお問い合わせください。</p>
+        </div>
+      </div>
+    );
+  }
+  const age = calcAge(patient.birthDate);
+  const [tab, setTab] = useState('home');
+  return (
+    <div style={{minHeight:'100vh',background:'linear-gradient(180deg,#f8fafc 0%,#f1f5f9 100%)',fontFamily:'"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",sans-serif',color:'#1e293b'}}>
+      <div style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',padding:'28px 20px 20px',boxShadow:'0 2px 12px rgba(99,102,241,0.25)'}}>
+        <div style={{maxWidth:720,margin:'0 auto'}}>
+          <div style={{fontSize:11,opacity:0.85,fontWeight:'bold',letterSpacing:1}}>{facility.name||'デイケアサービス'} 家族用閲覧</div>
+          <div style={{fontSize:22,fontWeight:'bold',marginTop:4}}>{patient.name} 様</div>
+          {patient.kana && <div style={{fontSize:12,opacity:0.85,marginTop:2}}>{patient.kana}</div>}
+        </div>
+      </div>
+      <div style={{maxWidth:720,margin:'-12px auto 0',padding:'0 16px'}}>
+        <div style={{background:'white',borderRadius:16,padding:4,boxShadow:'0 4px 16px rgba(0,0,0,0.06)',display:'flex',gap:2}}>
+          {[['home','🏠 ホーム'],['news','📢 お知らせ'],['profile','👤 基本情報'],['photos','📷 写真']].map(([k,l])=>(
+            <button key={k} onClick={()=>setTab(k)}
+              style={{flex:1,padding:'10px 8px',borderRadius:12,border:'none',background:tab===k?'#6366f1':'transparent',color:tab===k?'white':'#475569',fontWeight:'bold',fontSize:12,cursor:'pointer',transition:'all 0.15s'}}>
+              {l}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{maxWidth:720,margin:'16px auto 0',padding:'0 16px 40px'}}>
+        {tab === 'home' && (
+          <div style={{display:'flex',flexDirection:'column',gap:12}}>
+            <div style={{background:'white',borderRadius:16,padding:'18px 20px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
+              <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:8}}>📢 最新のお知らせ</div>
+              {[...personalAnnouncements, ...announcements].slice(0,3).length === 0 ? (
+                <div style={{fontSize:13,color:'#94a3b8',padding:'8px 0'}}>現在お知らせはありません</div>
+              ) : (
+                [...personalAnnouncements, ...announcements].slice(0,3).map((a,i)=>(
+                  <div key={i} style={{padding:'10px 0',borderBottom:i<2?'1px solid #f1f5f9':'none'}}>
+                    <div style={{fontSize:13,fontWeight:'bold',color:'#1e293b'}}>{a.title}</div>
+                    <div style={{fontSize:11,color:'#94a3b8',marginTop:2}}>{a.date}</div>
+                  </div>
+                ))
+              )}
+            </div>
+            <div style={{background:'white',borderRadius:16,padding:'18px 20px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
+              <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:10}}>👤 ご利用者プロフィール</div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px 16px',fontSize:13}}>
+                <div><span style={{color:'#94a3b8'}}>年齢: </span><b>{age!==null?`${age}歳`:'—'}</b></div>
+                <div><span style={{color:'#94a3b8'}}>介護度: </span><b>{patient.careLevel||'—'}</b></div>
+                <div><span style={{color:'#94a3b8'}}>利用開始: </span><b>{patient.startDate?patient.startDate.replace(/-/g,'/'):'—'}</b></div>
+                <div><span style={{color:'#94a3b8'}}>事業所: </span><b style={{fontSize:11}}>{facility.name||'—'}</b></div>
+              </div>
+            </div>
+            <div style={{background:'white',borderRadius:16,padding:'18px 20px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
+              <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:8}}>📷 最近の写真</div>
+              {photos.length === 0 ? (
+                <div style={{fontSize:13,color:'#94a3b8',padding:'8px 0'}}>写真はまだ登録されていません</div>
+              ) : (
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>
+                  {photos.slice(0,6).map((p,i)=>(
+                    <img key={i} src={p.url} alt="" style={{width:'100%',aspectRatio:'1',objectFit:'cover',borderRadius:8}}/>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        {tab === 'news' && (
+          <div style={{background:'white',borderRadius:16,padding:'8px 0',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
+            {[...personalAnnouncements.map(a=>({...a,_kind:'個別'})), ...announcements.map(a=>({...a,_kind:'全体'}))].length === 0 ? (
+              <div style={{padding:'32px 20px',textAlign:'center',color:'#94a3b8',fontSize:13}}>お知らせはありません</div>
+            ) : (
+              [...personalAnnouncements.map(a=>({...a,_kind:'個別'})), ...announcements.map(a=>({...a,_kind:'全体'}))].map((a,i)=>(
+                <div key={i} style={{padding:'16px 20px',borderTop:i>0?'1px solid #f1f5f9':'none'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
+                    <span style={{fontSize:9,fontWeight:'bold',padding:'2px 6px',borderRadius:4,background:a._kind==='個別'?'#fef3c7':'#dbeafe',color:a._kind==='個別'?'#92400e':'#1e40af'}}>{a._kind}</span>
+                    <span style={{fontSize:11,color:'#94a3b8'}}>{a.date}</span>
+                  </div>
+                  <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>{a.title}</div>
+                  <div style={{fontSize:13,color:'#475569',lineHeight:1.7,whiteSpace:'pre-wrap'}}>{a.body}</div>
+                  {a.attachments && a.attachments.length>0 && (
+                    <div style={{marginTop:8,display:'flex',flexWrap:'wrap',gap:6}}>
+                      {a.attachments.map((f,j)=>(
+                        <a key={j} href={f.url} download={f.name} style={{fontSize:11,fontWeight:'bold',padding:'6px 10px',background:'#f1f5f9',color:'#475569',borderRadius:8,textDecoration:'none',border:'1px solid #e2e8f0'}}>📎 {f.name}</a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        )}
+        {tab === 'profile' && (
+          <div style={{background:'white',borderRadius:16,padding:'20px 24px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
+            <div style={{fontSize:13,fontWeight:'bold',color:'#64748b',marginBottom:14,paddingBottom:8,borderBottom:'2px solid #f1f5f9'}}>基本情報</div>
+            <table style={{width:'100%',fontSize:13,borderCollapse:'collapse'}}>
+              <tbody>
+                {[
+                  ['氏名',patient.name],['ふりがな',patient.kana],['生年月日',patient.birthDate?patient.birthDate.replace(/-/g,'/'):'—'],
+                  ['年齢',age!==null?`${age}歳`:'—'],['性別',patient.gender||'—'],['介護度',patient.careLevel||'—'],
+                  ['利用開始日',patient.startDate?patient.startDate.replace(/-/g,'/'):'—'],
+                  ['事業所',facility.name||'—'],['事業所電話',facility.phone||'—']
+                ].map(([k,v],i)=>(
+                  <tr key={i} style={{borderBottom:'1px solid #f8fafc'}}>
+                    <td style={{padding:'10px 0',color:'#94a3b8',width:120,fontWeight:'bold'}}>{k}</td>
+                    <td style={{padding:'10px 0',color:'#1e293b',fontWeight:'bold'}}>{v||'—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {tab === 'photos' && (
+          <div style={{background:'white',borderRadius:16,padding:'20px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
+            {photos.length === 0 ? (
+              <div style={{padding:'32px 20px',textAlign:'center',color:'#94a3b8',fontSize:13}}>📷 写真はまだ登録されていません</div>
+            ) : (
+              <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
+                {photos.map((p,i)=>(
+                  <div key={i} style={{position:'relative'}}>
+                    <img src={p.url} alt="" style={{width:'100%',aspectRatio:'1',objectFit:'cover',borderRadius:10}}/>
+                    <a href={p.url} download={p.name||`photo_${i+1}.jpg`} style={{position:'absolute',bottom:6,right:6,background:'rgba(0,0,0,0.6)',color:'white',padding:'4px 8px',borderRadius:6,fontSize:10,fontWeight:'bold',textDecoration:'none'}}>↓</a>
+                    {p.caption && <div style={{fontSize:11,color:'#64748b',marginTop:4,padding:'0 2px'}}>{p.caption}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      <div style={{textAlign:'center',padding:'20px 16px 32px',fontSize:10,color:'#94a3b8'}}>
+        {facility.name||''} {facility.phone?`／${facility.phone}`:''}<br/>
+        このページは {patient.name} 様のご家族専用です
+      </div>
+    </div>
+  );
+}
+
 // === メインアプリケーション ===
 export default function App() {
+  // 家族用閲覧モード判定（hooks 前に決まる定数のみ）
+  const familyPatientId = React.useMemo(()=>{
+    try {
+      const p = new URLSearchParams(window.location.search).get('family');
+      if (!p) return null;
+      return decodeURIComponent(escape(atob(p)));
+    } catch { return null; }
+  }, []);
   const [currentView, setCurrentView] = useState('master');
-  const [appData, setAppData] = useState(JSON.parse(JSON.stringify(initialData)));
+  const [appData, setAppData] = useState(()=>{
+    // localStorage 復元: 過去にセッション中で保存したデータがあれば優先
+    try {
+      const saved = localStorage.getItem('daycareAppData_v3');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.patients) return parsed;
+      }
+    } catch {}
+    return JSON.parse(JSON.stringify(initialData));
+  });
+  useEffect(()=>{
+    try {
+      localStorage.setItem('daycareAppData_v3', JSON.stringify(appData));
+    } catch (e) {
+      // QuotaExceeded などは無視（写真等が原因の可能性あり）
+    }
+  }, [appData]);
   const [showToast, setShowToast] = useState(false);
   const [printPreviewContent, setPrintPreviewContent] = useState(null);
   useEffect(()=>{
@@ -8312,6 +8496,9 @@ export default function App() {
   };
 
   // ── ログイン画面 ──────────────────────────
+  if (familyPatientId) {
+    return <FamilyView appData={appData} patientId={familyPatientId} />;
+  }
   if (!session) {
     return (
       <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#1e3a5f 0%,#2d6a9f 50%,#1a5276 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
@@ -10374,8 +10561,9 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                 <div style={{display:'grid',gridTemplateColumns:'2fr 1.4fr 0.8fr 0.8fr 0.8fr',gap:10,marginBottom:12}}>
                   {[
                     {label:'利用者名',value:(<>
-                      <span>{selectedPatient.name} <span style={{fontSize:12,color:'#475569'}}>様</span></span>
-                      {selectedPatient.kana && <div style={{fontSize:11,color:'#94a3b8',fontWeight:'normal',marginTop:1}}>{selectedPatient.kana}</div>}
+                      <span>{selectedPatient.name} <span style={{fontSize:12,color:'#475569'}}>様</span>
+                        {selectedPatient.kana && <span style={{fontSize:11,color:'#94a3b8',fontWeight:'normal',marginLeft:8}}>（{selectedPatient.kana}）</span>}
+                      </span>
                     </>)},
                     {label:'生年月日',value:selectedPatient.birthDate?new Date(selectedPatient.birthDate).toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'}):'—'},
                     {label:'年齢',value:age!==null?`${age}歳`:'—'},
@@ -14638,6 +14826,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   const [docDeleteConfirm, setDocDeleteConfirm] = useState(null); // {key, imgId, name}
   const [newPatientModal, setNewPatientModal] = useState(false);
   const [csvModal, setCsvModal] = useState({isOpen:false, mode:null, importText:'', error:''});
+  const [familyShareModal, setFamilyShareModal] = useState(null); // {patient}
   const [newPatientName, setNewPatientName] = useState('');
   const [careLevelModal, setCareLevelModal] = useState(null); // {newValue, from, to, note, isCostBurden}
   const [cmChangeModal, setCmChangeModal] = useState(null); // {office, name, from, note}
@@ -15201,7 +15390,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   ))}
                 </>);
               })()}{(localPatient.cmOffice||localPatient.cmName) && <div className="flex flex-col"><span className="text-[13px] font-bold text-slate-900">{localPatient.cmOffice}</span><span className="text-[13px] font-bold text-slate-900">{localPatient.cmName}</span></div>}{localPatient.startDate && <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg">{dTxt(dBtw(localPatient.startDate,new Date()))}利用</span>}</div>{isResigned && <span className="text-xs font-bold bg-slate-200 text-slate-600 px-3 py-1 rounded-lg">終了</span>}
-            <div className="flex items-center gap-2">{isResigned ? (<>{!isEditingResigned && <button onClick={() => setIsEditingResigned(true)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm flex items-center active:scale-95"><Lock size={14} className="mr-1" />編集</button>}{isEditingResigned && <button onClick={() => { saveMasterInfo(); setIsEditingResigned(false); }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center active:scale-95"><Save size={14} className="mr-1" />保存</button>}<button onClick={() => setDeleteConfirmModal(true)} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm flex items-center shadow-lg active:scale-95"><Trash2 size={14} className="mr-1" />完全削除</button></>) : (<div className="flex gap-2">{!localPatient.startDate && <button onClick={() => setDeleteConfirmModal(true)} className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-600 rounded-xl font-bold text-sm flex items-center active:scale-95"><Trash2 size={14} className="mr-1" />削除</button>}<button onClick={saveMasterInfo} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-bold flex items-center shadow-lg active:scale-95 text-sm"><Save size={16} className="mr-1.5" />保存</button></div>)}</div>
+            <div className="flex items-center gap-2">{isResigned ? (<>{!isEditingResigned && <button onClick={() => setIsEditingResigned(true)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm flex items-center active:scale-95"><Lock size={14} className="mr-1" />編集</button>}{isEditingResigned && <button onClick={() => { saveMasterInfo(); setIsEditingResigned(false); }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center active:scale-95"><Save size={14} className="mr-1" />保存</button>}<button onClick={() => setDeleteConfirmModal(true)} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm flex items-center shadow-lg active:scale-95"><Trash2 size={14} className="mr-1" />完全削除</button></>) : (<div className="flex gap-2">{!localPatient.startDate && <button onClick={() => setDeleteConfirmModal(true)} className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-600 rounded-xl font-bold text-sm flex items-center active:scale-95"><Trash2 size={14} className="mr-1" />削除</button>}<button onClick={()=>setFamilyShareModal({patient:localPatient})} className="px-3 py-2 bg-violet-100 hover:bg-violet-200 text-violet-700 rounded-xl font-bold text-sm flex items-center active:scale-95" title="家族用URLとQRコードを発行"><QrCode size={14} className="mr-1"/>家族用URL</button><button onClick={saveMasterInfo} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-bold flex items-center shadow-lg active:scale-95 text-sm"><Save size={16} className="mr-1.5" />保存</button></div>)}</div>
           </div>
           <div className="flex border-b border-slate-200 bg-slate-50 shrink-0 px-6"><button onClick={() => setActiveDetailTab('basic')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${activeDetailTab === 'basic' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>基本情報</button><button onClick={() => setActiveDetailTab('service')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${activeDetailTab === 'service' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>サービス提供内容</button><button onClick={() => setActiveDetailTab('history')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${activeDetailTab === 'history' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>変更履歴</button></div>
           <div className="flex-1 overflow-auto p-6"><div className="max-w-5xl mx-auto space-y-5 pb-12 master-detail-content">
@@ -15585,8 +15774,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
       )}
       {csvModal.isOpen && (() => {
         // CSV ヘルパー: 既往歴 (kiou) 以外の主要フィールドを全て扱う
-        const HEADERS = ['利用者ID','氏名','ふりがな','性別','生年月日','電話番号','住所','被保険者番号','介護度','適用期間開始','適用期間終了','負担割合','ケアマネ事業所','ケアマネ担当者','ケアマネ電話','ケアマネFAX','利用開始日','利用終了日','状態','マッサージ姿勢','温浴電療','留意事項'];
-        const FIELDS  = ['id','name','kana','gender','birthDate','phone','address','insuranceNo','careLevel','careLevelFrom','careLevelTo','costBurden','cmOffice','cmName','cmPhone','cmFax','startDate','endDate','status','massageNeed','onyokuDenryo','ryui'];
+        const HEADERS = ['利用者ID','氏名','ふりがな','性別','生年月日','電話番号','郵便番号','住所','被保険者番号','介護度','適用期間開始','適用期間終了','負担割合','ケアマネ事業所','ケアマネ担当者','ケアマネ電話','ケアマネFAX','利用開始日','利用終了日','状態','マッサージ姿勢','温浴電療','留意事項'];
+        const FIELDS  = ['id','name','kana','gender','birthDate','phone','zipCode','address','insuranceNo','careLevel','careLevelFrom','careLevelTo','costBurden','cmOffice','cmName','cmPhone','cmFax','startDate','endDate','status','massageNeed','onyokuDenryo','ryui'];
         const escCell = (v) => { const s = String(v??''); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
         const buildCsv = () => {
           const rows = [HEADERS.join(',')];
@@ -15602,7 +15791,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         };
         const downloadTemplate = () => {
           // ヘッダー + 1行のサンプルデータ。利用者ID 空欄で新規追加、入力済みで更新
-          const sample = ['','介護 太郎','かいご たろう','男性','1940-05-15','03-1234-5678','東京都江東区扇橋1-2-3','0123456789','要介護2','2024-06-01','2026-05-31','90%','あおぞら居宅介護','鈴木 一郎','03-1111-2222','03-1111-2223','2023-04-01','','利用中','通常','無し','歩行時見守り必要'];
+          const sample = ['','介護 太郎','かいご たろう','男性','1940-05-15','03-1234-5678','135-0011','東京都江東区扇橋1-2-3','0123456789','要介護2','2024-06-01','2026-05-31','90%','あおぞら居宅介護','鈴木 一郎','03-1111-2222','03-1111-2223','2023-04-01','','利用中','通常','無し','歩行時見守り必要'];
           const csv = '﻿' + HEADERS.join(',') + '\n' + sample.map(escCell).join(',');
           const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
           const url = URL.createObjectURL(blob);
@@ -15698,6 +15887,55 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     <button disabled={!csvModal.importText.trim()} onClick={doImport} className="w-full py-2.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40">取り込みを実行</button>
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+      {familyShareModal && (() => {
+        const pat = familyShareModal.patient;
+        const token = btoa(unescape(encodeURIComponent(String(pat.id))));
+        const baseUrl = window.location.origin + window.location.pathname.replace(/\/+$/, '');
+        const url = `${baseUrl}/?family=${token}`;
+        const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=8&data=${encodeURIComponent(url)}`;
+        const copyUrl = () => { navigator.clipboard?.writeText(url).then(()=>setShowToast(true)); };
+        const printQr = () => {
+          const w = window.open('', '_blank');
+          if (!w) return;
+          w.document.write(`<html><head><title>家族用QR ${pat.name}</title><style>body{font-family:'Hiragino Sans','Yu Gothic',sans-serif;text-align:center;padding:40px 20px;}h1{font-size:22px;margin:8px 0;}h2{font-size:16px;color:#475569;margin:0 0 32px;font-weight:normal;}img{border:1px solid #e2e8f0;border-radius:12px;padding:12px;background:white;}p{font-size:11px;color:#64748b;margin-top:24px;word-break:break-all;max-width:480px;margin-left:auto;margin-right:auto;}@media print{button{display:none;}}</style></head><body><h1>${pat.name} 様 家族用閲覧URL</h1><h2>QR コードをスマートフォンで読み取ってください</h2><img src="${qrSrc}" width="240" height="240"/><p>${url}</p><button onclick="window.print()" style="margin-top:24px;padding:10px 24px;font-size:14px;font-weight:bold;background:#3b82f6;color:white;border:none;border-radius:8px;cursor:pointer;">印刷する</button></body></html>`);
+          w.document.close();
+        };
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={()=>setFamilyShareModal(null)}>
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md" onClick={e=>e.stopPropagation()}>
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+                <h2 className="text-base font-bold text-slate-800 flex items-center gap-2"><QrCode size={18} className="text-violet-600"/>家族用 URL / QR 発行</h2>
+                <button onClick={()=>setFamilyShareModal(null)} className="p-2 text-slate-400 hover:bg-slate-200 rounded-full"><X size={20}/></button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div className="text-center">
+                  <div className="text-sm font-bold text-slate-500 mb-1">利用者</div>
+                  <div className="text-lg font-bold text-slate-800">{pat.name} 様</div>
+                  {pat.kana && <div className="text-xs text-slate-400">{pat.kana}</div>}
+                </div>
+                <div className="flex justify-center">
+                  <img src={qrSrc} alt="QR" width={200} height={200} className="border border-slate-200 rounded-xl p-2 bg-white"/>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">家族用URL</label>
+                  <div className="flex gap-2">
+                    <input readOnly value={url} className="flex-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono outline-none"/>
+                    <button onClick={copyUrl} className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs whitespace-nowrap">コピー</button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={printQr} className="py-2.5 rounded-xl font-bold text-sm bg-violet-600 hover:bg-violet-700 text-white shadow active:scale-95">🖨 QRを印刷</button>
+                  <a href={url} target="_blank" rel="noopener noreferrer" className="py-2.5 rounded-xl font-bold text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 text-center">👁 プレビュー</a>
+                </div>
+                <div className="text-[11px] text-slate-500 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  <b>使い方:</b> このURL / QR をご家族にお渡しください。お渡しした方は <b>{pat.name}</b> 様の閲覧画面（お知らせ・基本情報・写真）にアクセスできます。<br/>
+                  <b>注意:</b> URLは推測されにくいですが、第三者に共有しないようご案内ください。
+                </div>
               </div>
             </div>
           </div>
