@@ -12002,6 +12002,8 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
     clone.querySelectorAll('[data-print-strip]').forEach(el => el.remove());
     // 曜日別の詳細(展開行) を全曜日強制表示
     clone.querySelectorAll('[data-dow-detail]').forEach(el => { el.style.display = 'table-row'; });
+    // 曜日カードの AM/PM/合計 % は画面では16pxに抑えているが、印刷時は紙面に余裕があるため22pxに拡大
+    clone.querySelectorAll('[data-print-id="dow-rate-pct"]').forEach(el => { el.style.fontSize = '22px'; });
     // 年齢統計 box は JSX 側で既に 1 行表記になっているため preprocessing は不要
     // 利用者属性カード全体を compact 化 (帰宅時の見切れ防止)
     const attrCardForCompact = clone.querySelector('[data-sec="ops-attr"]')?.nextElementSibling
@@ -12969,7 +12971,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                         <div style={{fontSize:12,color:'#64748b',fontWeight:'bold'}}>{label}</div>
                         {s.planned>0 ? (
                           <React.Fragment>
-                            <div style={{fontSize:22,fontWeight:'bold',color:RC(s.rate),lineHeight:1.15,marginTop:2}}>{s.rate}%</div>
+                            <div data-print-id="dow-rate-pct" style={{fontSize:16,fontWeight:'bold',color:RC(s.rate),lineHeight:1.15,marginTop:2}}>{s.rate}%</div>
                             <div style={{fontSize:11,color:'#94a3b8'}}>{s.attended}/{s.planned}件</div>
                           </React.Fragment>
                         ) : <div style={{fontSize:13,color:'#cbd5e1',padding:'12px 0'}}>ー</div>}
@@ -13025,7 +13027,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                           <div style={{fontSize:12,color:'#64748b',fontWeight:'bold'}}>{label}</div>
                           {s.planned>0 ? (
                             <React.Fragment>
-                              <div style={{fontSize:22,fontWeight:'bold',color:RC(s.rate),lineHeight:1.15,marginTop:2}}>{s.rate}%</div>
+                              <div data-print-id="dow-rate-pct" style={{fontSize:16,fontWeight:'bold',color:RC(s.rate),lineHeight:1.15,marginTop:2}}>{s.rate}%</div>
                               <div style={{fontSize:11,color:'#94a3b8'}}>{s.attended}/{s.planned}件</div>
                             </React.Fragment>
                           ) : <div style={{fontSize:13,color:'#cbd5e1',padding:'12px 0'}}>ー</div>}
