@@ -9975,7 +9975,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
 
   const handleTab = () => {
     const baseFields = ['temp', 'bpUpSt', 'bpDnSt', 'plSt', 'bpUpEn', 'bpDnEn', 'plEn'];
-    const exFields = appSettings.exerciseItems.filter(item => item.useKeypad).map(item => item.id);
+    const exFields = (appData.systemSettings?.exerciseItems || appSettings.exerciseItems).filter(item => item.useKeypad).map(item => item.id);
     const allFields = [...baseFields, ...exFields];
     let currentArray = filterMode === 'single' ? localPatients : localTicketRecords;
     const currentIndex = currentArray.findIndex(p => p.id === keypad.recordId);
@@ -10238,7 +10238,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
             <col style={{width:'60px'}} />
             <col style={{width:'180px'}} />
             <col style={{width:'180px'}} />
-            {appSettings.exerciseItems.map(item => (
+            {(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map(item => (
               <col key={item.id} style={{width:'68px'}} />
             ))}
             <col style={{width:'68px'}} />
@@ -10254,7 +10254,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800 text-xs">体温</th>
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">開始 血圧/脈</th>
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">終了 血圧/脈</th>
-              {appSettings.exerciseItems.map((item) => (
+              {(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map((item) => (
                 <th key={item.id} className="px-1 py-3 font-medium text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800 text-xs">{item.name}</th>
               ))}
               <th className="px-1 py-3 font-bold text-center border border-slate-700 text-white whitespace-nowrap sticky top-0 z-40 bg-slate-800 text-xs">マッサージ</th>
@@ -10362,7 +10362,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                     </div>
                   </td>
 
-                  {appSettings.exerciseItems.map((item) => {
+                  {(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map((item) => {
                     let val = p.exercises ? p.exercises[item.id] : "";
                     if (val === undefined || val === null) val = "";
                     const placeholderText = isEditMode ? (plannedEx[item.id] || "") : "";
@@ -10688,6 +10688,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   // 特記の表示は familyTokkiOverrides で制御 (visible:false の記録は表示しない)
   const [selectedPatientId, setSelectedPatientId] = useState(targetPatientId || ((appData.patients||[]).length > 0 ? (appData.patients||[])[0].id : null));
   const [patientSearch, setPatientSearch] = useState('');
+  // 3ヶ月超の場合の表示モード: 'auto'=自動(月平均)、'daily'=毎日表示
+  const [displayMode, setDisplayMode] = useState('auto');
   const filteredPatientsForSelector = React.useMemo(() => {
     const q = patientSearch.trim().toLowerCase();
     if (!q) return appData.patients||[];
@@ -10703,7 +10705,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   const [customTo, setCustomTo]   = useState('2026-03');
   // セクション選択（プレビュー用） [id, label, size]
   const ALL_SECTIONS = familyMode
-    ? [['sec-basicinfo','基本情報','短'],['sec-kpi','基本指標','短'],['sec-trend','通所','長'],['sec-kibun','気分','中'],['sec-vital','バイタルトレンド','長'],['sec-exercise','運動トレンド','長'],['sec-fitness','体力測定','長'],['sec-monitoring','モニタリング','中'],['sec-tokki','日々の特記','中']]
+    ? [['sec-basicinfo','基本情報','短'],['sec-kpi','基本指標','短'],['sec-trend','通所','長'],['sec-kibun','気分','中'],['sec-vital','バイタルトレンド','長'],['sec-exercise','運動トレンド','長'],['sec-fitness','体力測定','長'],['sec-tokki','日々の特記','中'],['sec-monitoring','モニタリング','中']]
     : [['sec-basicinfo','基本情報','短'],['sec-kpi','基本指標','短'],['sec-trend','通所','長'],['sec-kibun','気分','中'],['sec-vital','バイタルトレンド','長'],['sec-exercise','運動トレンド','長'],['sec-fitness','体力測定','長'],['sec-absence','欠席一覧','短'],['sec-kyushi','休止一覧','短'],['sec-monitoring','モニタリング','中'],['sec-detail','詳細記録','長']];
   // Hoisted from IIFEs to satisfy React hook rules
   const [vitalTooltip, setVitalTooltip] = useState(null);
@@ -10899,6 +10901,15 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             <input type="date" value={`${customTo}-01`} onChange={e=>setCustomTo(e.target.value.substring(0,7))} style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:10,padding:'6px 10px',fontSize:12,fontWeight:'bold',outline:'none',cursor:'pointer'}}/>
           </>}
           <span style={{background:'white',color:'#1e40af',borderRadius:8,padding:'6px 12px',fontSize:11,fontWeight:'bold',whiteSpace:'nowrap'}}>{rangeLabel}</span>
+          {/* 3ヶ月超の場合、月平均/毎日表示の切替 */}
+          {(period==='all' || parseInt(period,10)>=6) && (
+            <div style={{display:'flex',background:'rgba(255,255,255,0.15)',borderRadius:10,overflow:'hidden',border:'1px solid rgba(255,255,255,0.3)'}}>
+              {[['auto','月平均'],['daily','毎日']].map(([v,l])=>(
+                <button key={v} onClick={()=>setDisplayMode(v)}
+                  style={{padding:'6px 10px',fontSize:11,fontWeight:'bold',color:displayMode===v?'#1e40af':'white',background:displayMode===v?'white':'transparent',border:'none',cursor:'pointer'}}>{l}</button>
+              ))}
+            </div>
+          )}
           {/* 「詳細記録も印刷」チェックボックスはポップアップ側に移動済 */}
           {/* 表示用ボタン: クリックでポップアップを開く（期間/月を選択させる） */}
           {!familyMode && (
@@ -11319,9 +11330,9 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
         </div>
       )}
 
-      {/* ページ内ナビゲーション */}
+      {/* ページ内ナビゲーション (ALL_SECTIONS と連動。familyMode では非表示セクションを自動除外) */}
       <div style={{background:'white',borderBottom:'1px solid #e2e8f0',padding:'8px 24px',display:'flex',gap:4,overflowX:'auto',flexWrap:'nowrap'}}>
-        {[['sec-basicinfo','基本情報'],['sec-kpi','基本指標'],['sec-trend','通所'],['sec-kibun','気分'],['sec-vital','バイタルトレンド'],['sec-exercise','運動トレンド'],['sec-fitness','体力測定'],['sec-absence','欠席一覧'],['sec-kyushi','休止一覧'],['sec-monitoring','モニタリング'],['sec-detail','詳細記録']].map(([id,label])=>(
+        {ALL_SECTIONS.map(([id,label])=>(
           <button key={id} onClick={()=>{const el=document.getElementById(id);if(el)el.scrollIntoView({behavior:'smooth',block:'start'});}}
             style={{padding:'5px 14px',borderRadius:20,fontSize:12,fontWeight:'bold',color:'#000',whiteSpace:'nowrap',border:'none',background:'#f1f5f9',cursor:'pointer',transition:'all 0.15s'}}
             onMouseEnter={e=>{e.currentTarget.style.background='#dbeafe';e.currentTarget.style.color='#000';}}
@@ -11339,9 +11350,27 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           <div style={{fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:10,paddingBottom:6,borderBottom:'2px solid #e2e8f0'}}>基本情報</div>
           {selectedPatient && (()=>{
             const age = calcAge(selectedPatient.birthDate);
+            // 利用開始日からの経過日数を計算
+            let elapsedLabel = '—';
+            let startLabel = '—';
+            if (selectedPatient.startDate) {
+              startLabel = new Date(selectedPatient.startDate).toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
+              const start = new Date(selectedPatient.startDate);
+              const now = new Date();
+              const ms = now.getTime() - start.getTime();
+              const days = Math.floor(ms / (1000*60*60*24));
+              if (days >= 0) {
+                const years = Math.floor(days / 365);
+                const remDays = days - years*365;
+                const months = Math.floor(remDays / 30);
+                if (years > 0) elapsedLabel = `${years}年${months>0?`${months}ヶ月`:''} (${days}日)`;
+                else if (months > 0) elapsedLabel = `${months}ヶ月 (${days}日)`;
+                else elapsedLabel = `${days}日`;
+              }
+            }
             return (
               <div style={{background:'white',borderRadius:12,padding:'14px 18px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #f1f5f9'}}>
-                <div style={{display:'grid',gridTemplateColumns:'2fr 1.4fr 0.8fr 0.8fr 0.8fr',gap:10,marginBottom:12}}>
+                <div style={{display:'grid',gridTemplateColumns:'1.6fr 1.3fr 0.7fr 0.7fr 0.7fr 1.2fr 0.9fr',gap:8,marginBottom:12}}>
                   {[
                     {label:'利用者名',value:(<>
                       <span>{selectedPatient.name} <span style={{fontSize:12,color:'#475569'}}>様</span>
@@ -11352,6 +11381,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                     {label:'年齢',value:age!==null?`${age}歳`:'—'},
                     {label:'身長',value:selectedPatient.height?`${selectedPatient.height}cm`:'—'},
                     {label:'体重',value:selectedPatient.weight?`${selectedPatient.weight}kg`:'—'},
+                    {label:'利用開始日',value:startLabel},
+                    {label:'経過日数',value:elapsedLabel},
                   ].map(({label,value})=>(
                     <div key={label} style={{background:'#f8fafc',borderRadius:10,padding:'8px 12px',border:'1px solid #e2e8f0'}}>
                       <div style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',marginBottom:3}}>{label}</div>
@@ -11385,7 +11416,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
               {kyushi>0&&<span style={{color:'#f97316'}}>休止: <b>{kyushi}</b>件</span>}
             </span>
           </div>
-          <div style={{display:'flex',gap:10,alignItems:'stretch',flexWrap:'nowrap'}}>
+          <div style={{display:'flex',gap:10,alignItems:'stretch',flexWrap:'wrap'}}>
             {/* 通所率 */}
             {(()=>{
               const furikaeCount=records.filter(r=>r.tokki&&r.tokki.includes('振替')).length;
@@ -11413,11 +11444,14 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                 <div style={{background:'white',borderRadius:12,padding:'12px 14px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:`1px solid ${attendance<70?'#fecaca':'#f1f5f9'}`,display:'flex',flexDirection:'column',gap:6,position:'relative',flex:1,minWidth:160}}>
                   {attendance<70&&<div style={{position:'absolute',top:0,left:0,right:0,height:3,background:'#ef4444',borderRadius:'12px 12px 0 0'}}/>}
                   <div style={{fontSize:14,fontWeight:'bold',color:attendance<70?'#ef4444':'#1e293b'}}>通所率</div>
-                  <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'nowrap'}}>
-                    <svg width={72} height={72} viewBox="0 0 72 72" style={{flexShrink:0}}>
+                  <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',minWidth:0}}>
+                    <svg width={64} height={64} viewBox="0 0 72 72" style={{flexShrink:0}}>
                       {slices.length===1?<circle cx={cx} cy={cy} r={r2} fill={slices[0].color}/>:paths.map((p,i)=><path key={i} d={p.d} fill={p.color} stroke="white" strokeWidth={1.5}/>)}
                     </svg>
-                    <div style={{fontSize:'clamp(22px,4vw,34px)',fontWeight:'bold',color:attendance<70?'#dc2626':'#1e293b',lineHeight:1,flexShrink:0}}>{attendance}<span style={{fontSize:'clamp(13px,2vw,18px)'}}>%</span></div>
+                    <div style={{fontWeight:'bold',color:attendance<70?'#dc2626':'#1e293b',lineHeight:1,whiteSpace:'nowrap',display:'inline-flex',alignItems:'baseline'}}>
+                      <span style={{fontSize:'clamp(20px,3.5vw,30px)'}}>{attendance}</span>
+                      <span style={{fontSize:'clamp(11px,1.6vw,15px)',marginLeft:1,color:'#94a3b8'}}>%</span>
+                    </div>
                   </div>
                   <div style={{display:'flex',flexDirection:'column',gap:3,marginTop:2}}>
                     {slices.map((s,i)=>(<div key={i} style={{display:'flex',alignItems:'center',gap:5,fontSize:12}}><span style={{width:8,height:8,borderRadius:'50%',background:s.color,display:'inline-block',flexShrink:0}}/><span style={{fontWeight:'bold',color:'#475569'}}>{s.label}</span><span style={{color:'#1e293b',fontWeight:'bold'}}>{s.count}</span></div>))}
@@ -11662,8 +11696,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                   depR:r.kibunDepartureReason||'',
                 }));
               if(!kibunData.length) return <div style={{textAlign:'center',color:'#94a3b8',fontSize:13,padding:'20px 0'}}>記録なし</div>;
-              // 半年以上は月別平均、1ヶ月・3ヶ月は日別
-              const useMonthly = parseInt(period,10)>=6 || period==='all';
+              // 半年以上は月別平均、1ヶ月・3ヶ月は日別 (ただし displayMode='daily' なら強制的に日別)
+              const useMonthly = displayMode==='daily' ? false : (parseInt(period,10)>=6 || period==='all');
               const kibunMonthly = useMonthly ? (()=>{
                 const mMap={};
                 kibunData.forEach(d=>{
@@ -11821,7 +11855,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             kibunArrival:r.kibunArrival||null,
             kibunDeparture:r.kibunDeparture||null,
           }));
-          const dailyData = (period !== 'all' && parseInt(period,10) < 6) ? rawData : (()=>{
+          const dailyData = (displayMode==='daily' || (period !== 'all' && parseInt(period,10) < 6)) ? rawData : (()=>{
             const monthMap = {};
             rawData.forEach(d=>{
               const m = d.date.match(/(\d+)月/);
@@ -12135,7 +12169,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
         <div id="sec-exercise" style={{scrollMarginTop:120,marginBottom:16}}>
 <div style={{fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:10,paddingBottom:6,borderBottom:'2px solid #e2e8f0'}}>運動トレンド</div>
           {(() => {
-            const allExItems = appSettings.exerciseItems;
+            const allExItems = appData.systemSettings?.exerciseItems || appSettings.exerciseItems;
             const _selExId = selExId || (allExItems.length>0?allExItems[0].id:null);
             const selEx = allExItems.find(e=>e.id===_selExId);
             if(!selEx) return null;
@@ -12474,6 +12508,44 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           )}
         </div>}
 
+        {familyMode && (()=>{
+          // 家族向け: 特記コメントだけを独立セクションとして表示 (familyTokkiOverrides で制御)
+          // モニタリングの前に配置 (ジャンプナビ順と一致)
+          const overrides = ((appData.familyTokkiOverrides||{})[selectedPatientId]) || {};
+          const tokkiList = allRecords
+            .filter(r => r.tokki && r.tokki.trim() && r.status !== '欠席' && r.status !== '休業')
+            .filter(r => (overrides[r.id]||{}).visible !== false)
+            .map(r => {
+              const ov = overrides[r.id] || {};
+              return { ...r, displayText: ov.text || r.tokki };
+            });
+          return (
+            <>
+              <div id="sec-tokki" style={{scrollMarginTop:120,marginBottom:0}}>
+                <div onClick={()=>toggleSec('sec-tokki')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:8,paddingBottom:6,borderBottom:'2px solid #e2e8f0',cursor:'pointer',userSelect:'none'}}>
+                  <span>📝 日々の特記（事業所スタッフからのコメント）</span>
+                  <span style={{fontSize:14,color:'#94a3b8'}}>{isCol('sec-tokki')?'▶':'▼'}</span>
+                </div>
+              </div>
+              {!isCol('sec-tokki') && (
+                <div style={{background:'white',borderRadius:14,boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #fde68a',overflow:'hidden',marginBottom:16}}>
+                  {tokkiList.length === 0 ? (
+                    <div style={{padding:'24px',textAlign:'center',color:'#94a3b8',fontSize:13}}>特記事項はありません</div>
+                  ) : (
+                    <div style={{maxHeight:400,overflowY:'auto'}}>
+                      {tokkiList.slice(0,50).map((r,i)=>(
+                        <div key={r.id} style={{display:'flex',gap:12,padding:'10px 16px',borderBottom:i<Math.min(tokkiList.length,50)-1?'1px solid #fef3c7':'none',backgroundColor:i%2===0?'#fffbeb':'white'}}>
+                          <div style={{fontWeight:'bold',color:'#92400e',whiteSpace:'nowrap',minWidth:60,fontSize:13}}>{r.date}</div>
+                          <div style={{fontSize:13,color:'#1e293b',lineHeight:1.7,whiteSpace:'pre-wrap',flex:1}}>{r.displayText}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          );
+        })()}
         <div id="sec-monitoring" data-sec="sec-monitoring" style={{scrollMarginTop:120}}/>{/* === モニタリング === */}
         <div style={{background:'white',borderRadius:14,boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #d1fae5',overflow:'hidden',marginBottom:16}}>
           <div style={{padding:'12px 20px',borderBottom:'1px solid #d1fae5',background:'#f0fdf4',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -12513,43 +12585,6 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             </div>
           )}
         </div>
-        {familyMode && (()=>{
-          // 家族向け: 特記コメントだけを独立セクションとして表示 (familyTokkiOverrides で制御)
-          const overrides = ((appData.familyTokkiOverrides||{})[selectedPatientId]) || {};
-          const tokkiList = allRecords
-            .filter(r => r.tokki && r.tokki.trim() && r.status !== '欠席' && r.status !== '休業')
-            .filter(r => (overrides[r.id]||{}).visible !== false)
-            .map(r => {
-              const ov = overrides[r.id] || {};
-              return { ...r, displayText: ov.text || r.tokki };
-            });
-          return (
-            <>
-              <div id="sec-tokki" style={{scrollMarginTop:120,marginBottom:0}}>
-                <div onClick={()=>toggleSec('sec-tokki')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:8,paddingBottom:6,borderBottom:'2px solid #e2e8f0',cursor:'pointer',userSelect:'none'}}>
-                  <span>📝 日々の特記（事業所スタッフからのコメント）</span>
-                  <span style={{fontSize:14,color:'#94a3b8'}}>{isCol('sec-tokki')?'▶':'▼'}</span>
-                </div>
-              </div>
-              {!isCol('sec-tokki') && (
-                <div style={{background:'white',borderRadius:14,boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #fde68a',overflow:'hidden',marginBottom:16}}>
-                  {tokkiList.length === 0 ? (
-                    <div style={{padding:'24px',textAlign:'center',color:'#94a3b8',fontSize:13}}>特記事項はありません</div>
-                  ) : (
-                    <div style={{maxHeight:400,overflowY:'auto'}}>
-                      {tokkiList.slice(0,50).map((r,i)=>(
-                        <div key={r.id} style={{display:'flex',gap:12,padding:'10px 16px',borderBottom:i<Math.min(tokkiList.length,50)-1?'1px solid #fef3c7':'none',backgroundColor:i%2===0?'#fffbeb':'white'}}>
-                          <div style={{fontWeight:'bold',color:'#92400e',whiteSpace:'nowrap',minWidth:60,fontSize:13}}>{r.date}</div>
-                          <div style={{fontSize:13,color:'#1e293b',lineHeight:1.7,whiteSpace:'pre-wrap',flex:1}}>{r.displayText}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          );
-        })()}
         {!familyMode && <><div id="sec-detail" style={{scrollMarginTop:120}}><div onClick={()=>toggleSec('sec-detail')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:8,paddingBottom:6,borderBottom:'2px solid #e2e8f0',cursor:'pointer',userSelect:'none'}}><span>詳細記録</span><span style={{fontSize:14,color:'#94a3b8'}}>{isCol('sec-detail')?'▶':'▼'}</span></div></div></>}{/* === 詳細記録テーブル === */}
         {!familyMode && !isCol('sec-detail') && (()=>{
           const detailMonths=[...new Set(records.map(r=>{const m=r.date.match(/(\d+)月/);return m?m[1]+'月':'—'}))];
@@ -12568,7 +12603,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             <table style={{minWidth:900,borderCollapse:'collapse',fontSize:13}}>
               <thead>
                 <tr style={{backgroundColor:'#f8fafc',borderBottom:'1px solid #e2e8f0'}}>
-                  {['日付','状態','気分(通)','気分(帰)','体温','開始 血圧/脈','終了 血圧/脈',...appSettings.exerciseItems.map(e=>e.name),'マッサージ','特記'].map(h=>(
+                  {['日付','状態','気分(通)','気分(帰)','体温','開始 血圧/脈','終了 血圧/脈',...(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map(e=>e.name),'マッサージ','特記'].map(h=>(
                     <th key={h} style={{padding:'8px 10px',textAlign:'left',fontWeight:'bold',color:'#1e293b',whiteSpace:'nowrap',fontSize:14}}>{h}</th>
                   ))}
                 </tr>
@@ -12599,7 +12634,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                       <td style={{padding:'8px 10px',fontWeight:'bold',color:'#475569',whiteSpace:'nowrap'}}>
                         {r.bpUpEn?`${r.bpUpEn}/${r.bpDnEn}`:'-'}{r.plEn&&<span style={{color:'#334155',marginLeft:3,fontSize:14}}>({r.plEn})</span>}
                       </td>
-                      {appSettings.exerciseItems.map(ex=>(
+                      {(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map(ex=>(
                         <td key={ex.id} style={{padding:'8px 10px',textAlign:'center',fontSize:14,color:r.exercises?.[ex.id]&&r.exercises[ex.id]!=='ー'?'#1d4ed8':'#cbd5e1',fontWeight:'bold'}}>
                           {r.exercises?.[ex.id]||'-'}
                         </td>
@@ -12609,7 +12644,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                     </tr>
                   );
                 })}
-                {detailRecs.length===0&&<tr><td colSpan={7+appSettings.exerciseItems.length} style={{padding:'40px',textAlign:'center',color:'#000',fontWeight:'bold'}}>記録がありません</td></tr>}
+                {detailRecs.length===0&&<tr><td colSpan={7+(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).length} style={{padding:'40px',textAlign:'center',color:'#000',fontWeight:'bold'}}>記録がありません</td></tr>}
               </tbody>
             </table>
           </div>
@@ -14248,7 +14283,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
   const defTime = getDefTime(sp);
   const getSchedText = (p) => { if(!p?.scheduleAmPm) return ''; const dn=['日','月','火','水','木','金','土']; return p.scheduleAmPm.map((v,i)=>v?`${dn[i]}(${v})`:'').filter(Boolean).join('　'); };
   if (!sp) return <div className="p-8 text-center text-slate-500 font-bold">利用者データなし</div>;
-  const ex = appSettings.exerciseItems;
+  const ex = appData.systemSettings?.exerciseItems || appSettings.exerciseItems;
   const tc = 6 + ex.length + 1;
 
 
@@ -14888,7 +14923,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       </div>
       
       <DigitalKeypad isOpen={keypad.isOpen} value={keypad.value} isFirstInput={keypad.isFirstInput} mode={keypad.mode} onClose={() => { handleOverrideBlur(keypad.recordId, keypad.field, keypad.value); setKeypad({...keypad, isOpen: false}); }} onInput={handleKeypadInput} onEnter={handleKeypadEnter} onTab={handleKeypadTab} />
-      {isConfigOpen && <ContactBookConfigModal config={appData.contactBookConfig} exerciseItems={appSettings.exerciseItems} onClose={() => setIsConfigOpen(false)} onSave={handleSaveConfig} />}
+      {isConfigOpen && <ContactBookConfigModal config={appData.contactBookConfig} exerciseItems={appData.systemSettings?.exerciseItems || appSettings.exerciseItems} onClose={() => setIsConfigOpen(false)} onSave={handleSaveConfig} />}
     </div>
   );
 }
@@ -16547,7 +16582,45 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 const fkey=si.id==='massage'?'massageNeed':si.id==='onyoku'?'onyokuDenryo':`svc_${si.id}`;
                 return(<div key={si.id} className="flex-1 min-w-[120px]"><label className="block text-sm font-bold text-slate-600 mb-1">{si.label}</label><select disabled={isOff} value={localPatient[fkey]||''} onChange={e=>updateLP(fkey,e.target.value)} className="w-full px-3 py-3 bg-slate-50 border border-slate-300 rounded-xl font-bold text-base outline-none cursor-pointer disabled:opacity-60">{opts.map(o=><option key={o} value={o}>{o}</option>)}</select></div>);
               })}</div>
-              <div><h3 className="text-sm font-bold text-slate-600 mb-3">予定運動メニュー</h3><div className="grid grid-cols-5 gap-3">{(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map(item => { const isActive = keypad.isOpen && keypad.exerciseId === item.id; return (<div key={item.id} className={`p-2.5 rounded-xl border ${isActive ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-300' : 'bg-slate-50 border-slate-200'}`}><label className="block text-[12px] font-bold text-slate-500 mb-1 text-center truncate">{item.name}</label><input type="text" readOnly disabled={isOff} value={(localPatient.plannedExercises && localPatient.plannedExercises[item.id]) || ""} onClick={() => { if (!isOff) setKeypad({ isOpen: true, field: 'plannedExercise', exerciseId: item.id, value: (localPatient.plannedExercises && localPatient.plannedExercises[item.id]) || "", isFirstInput: true, mode: 'exercise' }); }} placeholder="未設定" className={`keypad-trigger w-full px-2 py-2 border rounded-lg font-bold text-sm text-center outline-none cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${isActive ? 'bg-blue-50 border-blue-500' : 'bg-white border-slate-300'}`} /></div>); })}</div></div>
+              <div><h3 className="text-sm font-bold text-slate-600 mb-3">マシン運動メニュー</h3><div className="grid grid-cols-5 gap-3">{(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map(item => { const isActive = keypad.isOpen && keypad.exerciseId === item.id; return (<div key={item.id} className={`p-2.5 rounded-xl border ${isActive ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-300' : 'bg-slate-50 border-slate-200'}`}><label className="block text-[12px] font-bold text-slate-500 mb-1 text-center truncate">{item.name}</label><input type="text" readOnly disabled={isOff} value={(localPatient.plannedExercises && localPatient.plannedExercises[item.id]) || ""} onClick={() => { if (!isOff) setKeypad({ isOpen: true, field: 'plannedExercise', exerciseId: item.id, value: (localPatient.plannedExercises && localPatient.plannedExercises[item.id]) || "", isFirstInput: true, mode: 'exercise' }); }} placeholder="未設定" className={`keypad-trigger w-full px-2 py-2 border rounded-lg font-bold text-sm text-center outline-none cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${isActive ? 'bg-blue-50 border-blue-500' : 'bg-white border-slate-300'}`} /></div>); })}</div></div>
+              {(()=>{
+                const indItems = appData.systemSettings?.individualExerciseItems || [];
+                if (indItems.length === 0) return null;
+                const patIndEx = localPatient.individualExercises || []; // [{itemId, defaultValue}]
+                const toggleInd = (itemId) => {
+                  const idx = patIndEx.findIndex(x => x.itemId === itemId);
+                  const updated = idx >= 0 ? patIndEx.filter((_,i)=>i!==idx) : [...patIndEx, {itemId, defaultValue:''}];
+                  updateLP('individualExercises', updated);
+                };
+                const updateIndDefault = (itemId, val) => {
+                  const updated = patIndEx.map(x => x.itemId === itemId ? {...x, defaultValue: val} : x);
+                  updateLP('individualExercises', updated);
+                };
+                return (
+                  <div className="mt-4 pt-4 border-t border-slate-200">
+                    <h3 className="text-sm font-bold text-slate-600 mb-1">個別運動メニュー <span className="text-[10px] text-slate-400 font-normal">（この利用者に提供する個別運動を選択。サービス提供記録入力の「個別追加」プルダウンに表示されます）</span></h3>
+                    <div className="grid grid-cols-4 gap-2 mt-2">
+                      {indItems.map(item => {
+                        const selected = patIndEx.find(x => x.itemId === item.id);
+                        return (
+                          <div key={item.id} className={`p-2 rounded-xl border-2 ${selected?'border-emerald-400 bg-emerald-50':'border-slate-200 bg-white'}`}>
+                            <label className="flex items-center gap-1.5 cursor-pointer mb-1">
+                              <input type="checkbox" checked={!!selected} disabled={isOff} onChange={()=>!isOff&&toggleInd(item.id)} className="accent-emerald-600"/>
+                              <span className="text-xs font-bold text-slate-700">{item.name}</span>
+                              <span className="text-[9px] text-slate-400 ml-auto">{item.defaultUnit||''}</span>
+                            </label>
+                            {selected && (
+                              <input type="text" disabled={isOff} value={selected.defaultValue||''} onChange={e=>updateIndDefault(item.id, e.target.value)}
+                                placeholder={`例: 15${item.defaultUnit||''}`}
+                                className="w-full px-2 py-1 bg-white border border-emerald-300 rounded text-xs font-bold outline-none focus:border-emerald-500 disabled:opacity-60"/>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
             </>)}
 
             {/* 変更履歴タブ */}
@@ -17268,6 +17341,14 @@ function SettingsView({ appData, onSave, dirtyRef }) {
   const [pwChange, setPwChange] = useState({old:'', new1:'', new2:'', error:'', ok:''});
   const [exerciseItems, setExerciseItems] = useState(appData.systemSettings?.exerciseItems || appSettings.exerciseItems);
   const [newExItem, setNewExItem] = useState({ name: '' });
+  // 個別運動メニュー (利用者ごとに自由に組み合わせる項目: 平行棒・屋外歩行・体操 等)
+  const [individualExerciseItems, setIndividualExerciseItems] = useState(appData.systemSettings?.individualExerciseItems || [
+    {id:'ie_walk', name:'屋外歩行', defaultUnit:'分'},
+    {id:'ie_bar', name:'平行棒', defaultUnit:'往復'},
+    {id:'ie_stepper', name:'ステッパー', defaultUnit:'回'},
+    {id:'ie_taiso', name:'体操', defaultUnit:'分'},
+  ]);
+  const [newIndExItem, setNewIndExItem] = useState({ name: '', defaultUnit: '回' });
   // 予定運動メニューの変更適用開始月 (デフォルト: 今月)
   const [exerciseApplyFrom, setExerciseApplyFrom] = useState(() => {
     const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
@@ -17293,7 +17374,7 @@ function SettingsView({ appData, onSave, dirtyRef }) {
   React.useEffect(() => {
     if (isInitialMount.current) { isInitialMount.current = false; return; }
     setDirty();
-  }, [facilityInfo, massageInput, onyokuInput, massageStaffInput, exerciseItems, exerciseItemsHistory, cmOffices, cmPersons, anthropicApiKey, setDirty]);
+  }, [facilityInfo, massageInput, onyokuInput, massageStaffInput, exerciseItems, exerciseItemsHistory, individualExerciseItems, cmOffices, cmPersons, anthropicApiKey, setDirty]);
 
   const [fitnessItems, setFitnessItems] = useState(
     appData.systemSettings?.fitnessItems || appSettings.fitnessItems
@@ -17343,7 +17424,7 @@ function SettingsView({ appData, onSave, dirtyRef }) {
     const newMassageStaff = massageStaffInput.split(/[、,]+/).map(s => s.trim()).filter(s => s);
     if (dirtyRef) dirtyRef.current = false;
     const diarySettings = diarySettingsRef.current || appData.diarySettings;
-    onSave({ ...appData, diarySettings, systemSettings: { ...appData.systemSettings, massageTypes: newMassage.length > 0 ? newMassage : ["無し"], onyokuTypes: newOnyoku.length > 0 ? newOnyoku : ["無し"], massageStaff: newMassageStaff.length > 0 ? newMassageStaff : ["ヘルプ"], cmOffices, careManagers: cmPersons, facilityInfo, exerciseItems, exerciseItemsHistory, exerciseQuickButtons, anthropicApiKey, serviceItems } });
+    onSave({ ...appData, diarySettings, systemSettings: { ...appData.systemSettings, massageTypes: newMassage.length > 0 ? newMassage : ["無し"], onyokuTypes: newOnyoku.length > 0 ? newOnyoku : ["無し"], massageStaff: newMassageStaff.length > 0 ? newMassageStaff : ["ヘルプ"], cmOffices, careManagers: cmPersons, facilityInfo, exerciseItems, exerciseItemsHistory, individualExerciseItems, exerciseQuickButtons, anthropicApiKey, serviceItems } });
   };
   const addHolidayRange = () => {
     if (!holidayStart || !holidayEnd) { alert("開始日と終了日を選択してください"); return; }
@@ -17500,8 +17581,8 @@ function SettingsView({ appData, onSave, dirtyRef }) {
 
           {/* サービス提供内容 */}
           {activeTab === 'record' && (<>
-            <SectionCard title="予定運動メニューの項目">
-              <p className="text-xs text-slate-500 mb-3">利用者マスタの「予定運動メニュー」に表示される項目を管理します。<br/>
+            <SectionCard title="マシン運動メニューの項目">
+              <p className="text-xs text-slate-500 mb-3">利用者マスタの「マシン運動メニュー」に表示される項目を管理します（u1〜u6 等の固定マシン）。<br/>
                 <b className="text-amber-700">※ 項目を追加・削除する場合は、下の「適用開始月」を選択してください。過去の記録は元の項目で残り続けます。</b>
               </p>
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3 flex items-center gap-3 flex-wrap">
@@ -17557,6 +17638,33 @@ function SettingsView({ appData, onSave, dirtyRef }) {
                   ))}
                 </div>
               )}
+            </SectionCard>
+            <SectionCard title="個別運動メニューの項目">
+              <p className="text-xs text-slate-500 mb-3">サービス提供記録入力で「個別①、個別②...」を追加する際にプルダウンで選択できる項目を管理します。利用者ごとに自由に組み合わせ可能です（屋外歩行・平行棒・体操 等）。</p>
+              <div className="space-y-2 mb-4">
+                {individualExerciseItems.map((item, i) => (
+                  <div key={item.id} className="flex items-center gap-2 bg-emerald-50 px-3 py-2 rounded-xl border border-emerald-200">
+                    <span className="flex-1 text-sm font-bold text-slate-700">{item.name}</span>
+                    <span className="text-[10px] text-emerald-700 bg-white px-2 py-0.5 rounded">単位: {item.defaultUnit||'回'}</span>
+                    <button type="button" onClick={()=>{
+                      if(!window.confirm(`「${item.name}」を削除します。よろしいですか？\n(過去の記録には影響しません)`)) return;
+                      setIndividualExerciseItems(individualExerciseItems.filter((_,j)=>j!==i));
+                    }} className="text-slate-300 hover:text-red-500 p-1 rounded"><Trash2 size={14}/></button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input type="text" value={newIndExItem.name} onChange={e=>setNewIndExItem({...newIndExItem,name:e.target.value})} placeholder="例: ⑦エアロバイク" className="flex-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
+                <select value={newIndExItem.defaultUnit} onChange={e=>setNewIndExItem({...newIndExItem,defaultUnit:e.target.value})} className="px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none">
+                  <option value="回">回</option><option value="分">分</option><option value="往復">往復</option><option value="セット">セット</option><option value="kg">kg</option>
+                </select>
+                <button type="button" onClick={()=>{
+                  if(!newIndExItem.name.trim()) return;
+                  const id = 'ie_' + Date.now();
+                  setIndividualExerciseItems(prev=>[...prev, {id, name:newIndExItem.name.trim(), defaultUnit:newIndExItem.defaultUnit}]);
+                  setNewIndExItem({name:'', defaultUnit:'回'});
+                }} className="px-4 py-2 bg-emerald-700 text-white rounded-xl font-bold text-sm active:scale-95 flex items-center"><Plus size={15} className="mr-1"/>追加</button>
+              </div>
             </SectionCard>
             <SectionCard title="テンキー補完ボタンの管理">
               <p className="text-xs text-slate-500 mb-3">運動入力テンキーの下部に表示される「+◯◯」ボタンを管理します。</p>
