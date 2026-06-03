@@ -15584,9 +15584,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         </div>
       )}
       {csvModal.isOpen && (() => {
-        // CSV ヘルパー: 主要フィールドのみ扱う (氏名・ふりがな・性別・生年月日・電話・住所・介護度・ケアマネ事業所・ケアマネ名・利用開始日・利用終了日・状態)
-        const HEADERS = ['利用者ID','氏名','ふりがな','性別','生年月日','電話番号','住所','介護度','ケアマネ事業所','ケアマネ担当者','利用開始日','利用終了日','状態'];
-        const FIELDS  = ['id','name','kana','gender','birthDate','phone','address','careLevel','cmOffice','cmName','startDate','endDate','status'];
+        // CSV ヘルパー: 既往歴 (kiou) 以外の主要フィールドを全て扱う
+        const HEADERS = ['利用者ID','氏名','ふりがな','性別','生年月日','電話番号','住所','被保険者番号','介護度','適用期間開始','適用期間終了','負担割合','ケアマネ事業所','ケアマネ担当者','ケアマネ電話','ケアマネFAX','利用開始日','利用終了日','状態','マッサージ姿勢','温浴電療','留意事項'];
+        const FIELDS  = ['id','name','kana','gender','birthDate','phone','address','insuranceNo','careLevel','careLevelFrom','careLevelTo','costBurden','cmOffice','cmName','cmPhone','cmFax','startDate','endDate','status','massageNeed','onyokuDenryo','ryui'];
         const escCell = (v) => { const s = String(v??''); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
         const buildCsv = () => {
           const rows = [HEADERS.join(',')];
@@ -15598,6 +15598,15 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
           const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a'); a.href = url; a.download = `利用者名簿_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+          URL.revokeObjectURL(url);
+        };
+        const downloadTemplate = () => {
+          // ヘッダー + 1行のサンプルデータ。利用者ID 空欄で新規追加、入力済みで更新
+          const sample = ['','介護 太郎','かいご たろう','男性','1940-05-15','03-1234-5678','東京都江東区扇橋1-2-3','0123456789','要介護2','2024-06-01','2026-05-31','90%','あおぞら居宅介護','鈴木 一郎','03-1111-2222','03-1111-2223','2023-04-01','','利用中','通常','無し','歩行時見守り必要'];
+          const csv = '﻿' + HEADERS.join(',') + '\n' + sample.map(escCell).join(',');
+          const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a'); a.href = url; a.download = `利用者名簿_テンプレート.csv`; a.click();
           URL.revokeObjectURL(url);
         };
         // 簡易 CSV パーサ (引用符・カンマ含む値に対応)
@@ -15662,14 +15671,18 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 <button onClick={()=>setCsvModal({isOpen:false,mode:null,importText:'',error:''})} className="p-2 text-slate-400 hover:bg-slate-200 rounded-full"><X size={20}/></button>
               </div>
               <div className="p-6 space-y-4">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-3">
                   <button onClick={downloadCsv} className="p-4 rounded-xl border-2 border-blue-200 bg-blue-50 hover:bg-blue-100 text-left">
                     <div className="text-sm font-bold text-blue-700 mb-1">📥 エクスポート</div>
-                    <div className="text-xs text-slate-600">現在の利用者名簿を CSV ファイルで保存（Excel/スプレッドシートで開けます）</div>
+                    <div className="text-xs text-slate-600">現在の利用者名簿を CSV で保存（Excel で開けます）</div>
+                  </button>
+                  <button onClick={downloadTemplate} className="p-4 rounded-xl border-2 border-amber-200 bg-amber-50 hover:bg-amber-100 text-left">
+                    <div className="text-sm font-bold text-amber-700 mb-1">📋 テンプレート</div>
+                    <div className="text-xs text-slate-600">空の入力用 CSV（見本1件付き）。Excel で記入してインポート可</div>
                   </button>
                   <button onClick={()=>setCsvModal({...csvModal, mode:'import'})} className="p-4 rounded-xl border-2 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-left">
                     <div className="text-sm font-bold text-emerald-700 mb-1">📤 インポート</div>
-                    <div className="text-xs text-slate-600">CSV を貼り付けて一括追加・更新（既存ID は更新、新規ID は追加）</div>
+                    <div className="text-xs text-slate-600">CSV を貼り付けて一括追加・更新（既存ID は更新）</div>
                   </button>
                 </div>
                 <div className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-3">
