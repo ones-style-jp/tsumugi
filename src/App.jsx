@@ -182,6 +182,35 @@ const toHalfWidth = (s) => (s||'')
   .replace(/　/g, ' ')
   .replace(/[ー－]/g, '-');
 
+// 日付文字列 ("4月15日" 等) を YYYY-MM に正規化。年が無いものは currentYear で補完
+const normalizeRecordMonth = (dateStr, currentYear) => {
+  if (!dateStr) return null;
+  const isoM = dateStr.match(/^(\d{4})-(\d{2})/);
+  if (isoM) return `${isoM[1]}-${isoM[2]}`;
+  const m = dateStr.match(/(\d+)月/);
+  if (m) {
+    const yr = currentYear || new Date().getFullYear();
+    return `${yr}-${String(m[1]).padStart(2,'0')}`;
+  }
+  return null;
+};
+
+// その日付に有効だった予定運動メニュー項目を返す (時系列バージョニング)
+const getExerciseItemsForDate = (systemSettings, dateStr, currentYear) => {
+  const current = systemSettings?.exerciseItems || appSettings.exerciseItems;
+  const history = systemSettings?.exerciseItemsHistory || [];
+  if (!history.length) return current;
+  const ymd = normalizeRecordMonth(dateStr, currentYear);
+  if (!ymd) return current;
+  // 履歴の中で「effectiveTo 以下に ymd が収まる最も古いもの」を選択。
+  // 全 effectiveTo より新しい場合は現行版。
+  const sorted = [...history].sort((a,b)=>(a.effectiveTo||'').localeCompare(b.effectiveTo||''));
+  for (const h of sorted) {
+    if (!h.effectiveTo || ymd <= h.effectiveTo) return h.items;
+  }
+  return current;
+};
+
 const appSettings = {
   statusOptions: [
     { label: "出席", color: "bg-blue-600", lightColor: "bg-blue-50", textColor: "text-blue-700", ring: "ring-blue-300" },
@@ -8945,17 +8974,22 @@ function FamilyPatientView({ data, patientId, onLogout }) {
           ))}
         </div>
       </div>
-      <div style={{maxWidth: tab==='analysis' ? 1200 : 720, margin:'16px auto 0',padding:'0 16px 40px'}}>
+      <div style={{maxWidth: tab==='analysis' ? 1100 : 720, margin:'16px auto 0',padding:'0 16px 40px'}}>
         {tab === 'analysis' && (
           <div style={{background:'white',borderRadius:16,boxShadow:'0 2px 8px rgba(0,0,0,0.04)',overflow:'hidden'}}>
-            <PersonalDashboardView
-              appData={data}
-              targetPatientId={pid}
-              familyMode={true}
-              hidePatientSelector={true}
-              navigateTo={()=>{}}
-              onShowPrintPreview={()=>{}}
-            />
+            {/* スマホで見たときに横スクロール可能にし、最小幅を確保して潰れないように */}
+            <div style={{overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
+              <div style={{minWidth:780}}>
+                <PersonalDashboardView
+                  appData={data}
+                  targetPatientId={pid}
+                  familyMode={true}
+                  hidePatientSelector={true}
+                  navigateTo={()=>{}}
+                  onShowPrintPreview={()=>{}}
+                />
+              </div>
+            </div>
           </div>
         )}
         {tab === 'news' && (
@@ -10669,7 +10703,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   const [customTo, setCustomTo]   = useState('2026-03');
   // セクション選択（プレビュー用） [id, label, size]
   const ALL_SECTIONS = familyMode
-    ? [['sec-basicinfo','基本情報','短'],['sec-kpi','基本指標','短'],['sec-trend','通所','長'],['sec-kibun','気分','中'],['sec-vital','バイタルトレンド','長'],['sec-exercise','運動トレンド','長'],['sec-fitness','体力測定','長'],['sec-monitoring','モニタリング','中']]
+    ? [['sec-basicinfo','基本情報','短'],['sec-kpi','基本指標','短'],['sec-trend','通所','長'],['sec-kibun','気分','中'],['sec-vital','バイタルトレンド','長'],['sec-exercise','運動トレンド','長'],['sec-fitness','体力測定','長'],['sec-monitoring','モニタリング','中'],['sec-tokki','日々の特記','中']]
     : [['sec-basicinfo','基本情報','短'],['sec-kpi','基本指標','短'],['sec-trend','通所','長'],['sec-kibun','気分','中'],['sec-vital','バイタルトレンド','長'],['sec-exercise','運動トレンド','長'],['sec-fitness','体力測定','長'],['sec-absence','欠席一覧','短'],['sec-kyushi','休止一覧','短'],['sec-monitoring','モニタリング','中'],['sec-detail','詳細記録','長']];
   // Hoisted from IIFEs to satisfy React hook rules
   const [vitalTooltip, setVitalTooltip] = useState(null);
@@ -11452,38 +11486,40 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             })()}
             {[
               {
-                label:'平均体温', value: avgTemp?`${avgTemp.toFixed(1)}℃`:'—',
+                label:'平均体温', valueNum: avgTemp?avgTemp.toFixed(1):'—', unit:'℃',
                 maxVal: maxTemp?maxTemp.toFixed(1):null, minVal: minTemp?minTemp.toFixed(1):null,
                 data: monthlyData.map(d=>d.temps.length?d.temps.reduce((a,b)=>a+b,0)/d.temps.length:null).filter(Boolean),
-                color: tempWarn?'#ef4444':'#f97316', warn: tempWarn, extra: ''
+                color: tempWarn?'#ef4444':'#f97316', warn: tempWarn
               },
               {
-                label:'平均血圧（収縮期）', value: avgBpUp?`${Math.round(avgBpUp)}`:'—',
+                label:'平均血圧（収縮期）', valueNum: avgBpUp?`${Math.round(avgBpUp)}`:'—', unit:'mmHg',
                 maxVal: maxBpUp, minVal: minBpUp,
                 data: monthlyData.map(d=>d.bpUps.length?d.bpUps.reduce((a,b)=>a+b,0)/d.bpUps.length:null).filter(Boolean),
-                color: bpWarn?'#ef4444':'#f43f5e', warn: bpWarn, extra: 'mmHg'
+                color: bpWarn?'#ef4444':'#f43f5e', warn: bpWarn
               },
               {
-                label:'平均血圧（拡張期）', value: avgBpDn?`${Math.round(avgBpDn)}`:'—',
+                label:'平均血圧（拡張期）', valueNum: avgBpDn?`${Math.round(avgBpDn)}`:'—', unit:'mmHg',
                 maxVal: maxBpDn, minVal: minBpDn,
                 data: monthlyData.map(d=>d.bpDns&&d.bpDns.length?d.bpDns.reduce((a,b)=>a+b,0)/d.bpDns.length:null).filter(Boolean),
-                color:'#a855f7', warn: false, extra: 'mmHg'
+                color:'#a855f7', warn: false
               },
               {
-                label:'平均脈拍', value: avgPulse?`${Math.round(avgPulse)}`:'—',
+                label:'平均脈拍', valueNum: avgPulse?`${Math.round(avgPulse)}`:'—', unit:'回/分',
                 maxVal: maxPulse, minVal: minPulse,
                 data: monthlyData.map(d=>d.pulses.length?d.pulses.reduce((a,b)=>a+b,0)/d.pulses.length:null).filter(Boolean),
-                color: pulseWarn?'#ef4444':'#22c55e', warn: pulseWarn, extra: '回/分'
+                color: pulseWarn?'#ef4444':'#22c55e', warn: pulseWarn
               },
             ].map((kpi,ki)=>(
               <div key={ki} style={{background:'white',borderRadius:12,padding:'14px 16px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:`1px solid ${kpi.warn?'#fecaca':'#f1f5f9'}`,display:'flex',flexDirection:'column',gap:6,position:'relative',overflow:'hidden',flex:1,minWidth:110}}>
                 {kpi.warn&&<div style={{position:'absolute',top:0,left:0,right:0,height:3,background:'#ef4444',borderRadius:'14px 14px 0 0'}}/>}
                 <div>
                   <div style={{fontSize:13,fontWeight:'bold',color:kpi.warn?'#ef4444':'#64748b',marginBottom:6}}>{kpi.label}</div>
-                  <div style={{fontSize:22,fontWeight:'bold',color:kpi.warn?'#dc2626':'#1e293b',letterSpacing:'-0.5px',lineHeight:1}}>{kpi.value}{kpi.extra&&<span style={{fontSize:13,fontWeight:'normal',color:'#334155',marginLeft:2}}>{kpi.extra}</span>}</div>
+                  <div style={{fontSize:22,fontWeight:'bold',color:kpi.warn?'#dc2626':'#1e293b',letterSpacing:'-0.5px',lineHeight:1}}>
+                    {kpi.valueNum}<span style={{fontSize:11,fontWeight:'normal',color:'#94a3b8',marginLeft:3}}>{kpi.unit}</span>
+                  </div>
                   <div style={{marginTop:6,display:'flex',flexDirection:'column',gap:1}}>
-                    <span style={{fontSize:14,fontWeight:'bold',color:'#ef4444'}}>最高 {kpi.maxVal!==null?`${kpi.maxVal}${kpi.extra?` ${kpi.extra}`:''}`:'—'}</span>
-                    <span style={{fontSize:14,fontWeight:'bold',color:'#1d4ed8'}}>最低 {kpi.minVal!==null?`${kpi.minVal}${kpi.extra?` ${kpi.extra}`:''}`:'—'}</span>
+                    <span style={{fontSize:13,fontWeight:'bold',color:'#ef4444'}}>最高 {kpi.maxVal!==null?<>{kpi.maxVal}<span style={{fontSize:10,fontWeight:'normal',color:'#94a3b8',marginLeft:2}}>{kpi.unit}</span></>:'—'}</span>
+                    <span style={{fontSize:13,fontWeight:'bold',color:'#1d4ed8'}}>最低 {kpi.minVal!==null?<>{kpi.minVal}<span style={{fontSize:10,fontWeight:'normal',color:'#94a3b8',marginLeft:2}}>{kpi.unit}</span></>:'—'}</span>
                   </div>
                   {kpi.warn&&<div style={{fontSize:14,color:'#ef4444',fontWeight:'bold',marginTop:4}}>⚠ 要注意</div>}
                 </div>
@@ -12257,6 +12293,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                     </div>
                     </div></div>
                   </div>
+                  {!familyMode && (
                   <div style={{background:'white',borderRadius:14,padding:'18px 20px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #f1f5f9'}}>
                     <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b',marginBottom:10}}>{selEx.name} — 月別平均</div>
                     <div style={{overflowX:'auto'}}>
@@ -12269,7 +12306,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                               {monthlyEx.map(d=><th key={d.month} style={{padding:'5px 0',textAlign:'center',color:'#1e293b',fontWeight:'bold'}}>{d.month}月</th>)}
                             </tr></thead>
                             <tbody>
-                              
+
                               <tr><td style={{padding:'4px 8px',fontWeight:'bold',color:'#6366f1'}}>平均</td>{monthlyEx.map(d=><td key={d.month} style={{padding:'4px 6px',textAlign:'center',fontWeight:'bold',color:'#6366f1'}}>{d.hasData?`${d.avg.toFixed(1)}${unitLabel}`:'-'}</td>)}</tr>
                               <tr><td style={{padding:'4px 8px',fontWeight:'bold',color:'#ef4444'}}>最高</td>{monthlyEx.map(d=><td key={d.month} style={{padding:'4px 6px',textAlign:'center',fontWeight:'bold',color:'#ef4444'}}>{d.hasData?`${d.max}${unitLabel}`:'-'}</td>)}</tr>
                               <tr><td style={{padding:'4px 8px',fontWeight:'bold',color:'#3b82f6'}}>最低</td>{monthlyEx.map(d=><td key={d.month} style={{padding:'4px 6px',textAlign:'center',fontWeight:'bold',color:'#3b82f6'}}>{d.hasData?`${d.min}${unitLabel}`:'-'}</td>)}</tr>
@@ -12279,6 +12316,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                       </div>
                     </div>
                   </div>
+                  )}
                 </div>
               </div>
             );
@@ -12475,6 +12513,43 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             </div>
           )}
         </div>
+        {familyMode && (()=>{
+          // 家族向け: 特記コメントだけを独立セクションとして表示 (familyTokkiOverrides で制御)
+          const overrides = ((appData.familyTokkiOverrides||{})[selectedPatientId]) || {};
+          const tokkiList = allRecords
+            .filter(r => r.tokki && r.tokki.trim() && r.status !== '欠席' && r.status !== '休業')
+            .filter(r => (overrides[r.id]||{}).visible !== false)
+            .map(r => {
+              const ov = overrides[r.id] || {};
+              return { ...r, displayText: ov.text || r.tokki };
+            });
+          return (
+            <>
+              <div id="sec-tokki" style={{scrollMarginTop:120,marginBottom:0}}>
+                <div onClick={()=>toggleSec('sec-tokki')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:8,paddingBottom:6,borderBottom:'2px solid #e2e8f0',cursor:'pointer',userSelect:'none'}}>
+                  <span>📝 日々の特記（事業所スタッフからのコメント）</span>
+                  <span style={{fontSize:14,color:'#94a3b8'}}>{isCol('sec-tokki')?'▶':'▼'}</span>
+                </div>
+              </div>
+              {!isCol('sec-tokki') && (
+                <div style={{background:'white',borderRadius:14,boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #fde68a',overflow:'hidden',marginBottom:16}}>
+                  {tokkiList.length === 0 ? (
+                    <div style={{padding:'24px',textAlign:'center',color:'#94a3b8',fontSize:13}}>特記事項はありません</div>
+                  ) : (
+                    <div style={{maxHeight:400,overflowY:'auto'}}>
+                      {tokkiList.slice(0,50).map((r,i)=>(
+                        <div key={r.id} style={{display:'flex',gap:12,padding:'10px 16px',borderBottom:i<Math.min(tokkiList.length,50)-1?'1px solid #fef3c7':'none',backgroundColor:i%2===0?'#fffbeb':'white'}}>
+                          <div style={{fontWeight:'bold',color:'#92400e',whiteSpace:'nowrap',minWidth:60,fontSize:13}}>{r.date}</div>
+                          <div style={{fontSize:13,color:'#1e293b',lineHeight:1.7,whiteSpace:'pre-wrap',flex:1}}>{r.displayText}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          );
+        })()}
         {!familyMode && <><div id="sec-detail" style={{scrollMarginTop:120}}><div onClick={()=>toggleSec('sec-detail')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:8,paddingBottom:6,borderBottom:'2px solid #e2e8f0',cursor:'pointer',userSelect:'none'}}><span>詳細記録</span><span style={{fontSize:14,color:'#94a3b8'}}>{isCol('sec-detail')?'▶':'▼'}</span></div></div></>}{/* === 詳細記録テーブル === */}
         {!familyMode && !isCol('sec-detail') && (()=>{
           const detailMonths=[...new Set(records.map(r=>{const m=r.date.match(/(\d+)月/);return m?m[1]+'月':'—'}))];
@@ -17193,6 +17268,11 @@ function SettingsView({ appData, onSave, dirtyRef }) {
   const [pwChange, setPwChange] = useState({old:'', new1:'', new2:'', error:'', ok:''});
   const [exerciseItems, setExerciseItems] = useState(appData.systemSettings?.exerciseItems || appSettings.exerciseItems);
   const [newExItem, setNewExItem] = useState({ name: '' });
+  // 予定運動メニューの変更適用開始月 (デフォルト: 今月)
+  const [exerciseApplyFrom, setExerciseApplyFrom] = useState(() => {
+    const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  });
+  const [exerciseItemsHistory, setExerciseItemsHistory] = useState(appData.systemSettings?.exerciseItemsHistory || []);
   const [exerciseQuickButtons, setExerciseQuickButtons] = useState(appData.systemSettings?.exerciseQuickButtons || ['分','回','kg']);
   const [newQuickBtn, setNewQuickBtn] = useState('');
   const isComposingRef = React.useRef(false);
@@ -17213,7 +17293,7 @@ function SettingsView({ appData, onSave, dirtyRef }) {
   React.useEffect(() => {
     if (isInitialMount.current) { isInitialMount.current = false; return; }
     setDirty();
-  }, [facilityInfo, massageInput, onyokuInput, massageStaffInput, exerciseItems, cmOffices, cmPersons, anthropicApiKey, setDirty]);
+  }, [facilityInfo, massageInput, onyokuInput, massageStaffInput, exerciseItems, exerciseItemsHistory, cmOffices, cmPersons, anthropicApiKey, setDirty]);
 
   const [fitnessItems, setFitnessItems] = useState(
     appData.systemSettings?.fitnessItems || appSettings.fitnessItems
@@ -17263,7 +17343,7 @@ function SettingsView({ appData, onSave, dirtyRef }) {
     const newMassageStaff = massageStaffInput.split(/[、,]+/).map(s => s.trim()).filter(s => s);
     if (dirtyRef) dirtyRef.current = false;
     const diarySettings = diarySettingsRef.current || appData.diarySettings;
-    onSave({ ...appData, diarySettings, systemSettings: { ...appData.systemSettings, massageTypes: newMassage.length > 0 ? newMassage : ["無し"], onyokuTypes: newOnyoku.length > 0 ? newOnyoku : ["無し"], massageStaff: newMassageStaff.length > 0 ? newMassageStaff : ["ヘルプ"], cmOffices, careManagers: cmPersons, facilityInfo, exerciseItems, exerciseQuickButtons, anthropicApiKey, serviceItems } });
+    onSave({ ...appData, diarySettings, systemSettings: { ...appData.systemSettings, massageTypes: newMassage.length > 0 ? newMassage : ["無し"], onyokuTypes: newOnyoku.length > 0 ? newOnyoku : ["無し"], massageStaff: newMassageStaff.length > 0 ? newMassageStaff : ["ヘルプ"], cmOffices, careManagers: cmPersons, facilityInfo, exerciseItems, exerciseItemsHistory, exerciseQuickButtons, anthropicApiKey, serviceItems } });
   };
   const addHolidayRange = () => {
     if (!holidayStart || !holidayEnd) { alert("開始日と終了日を選択してください"); return; }
@@ -17421,12 +17501,33 @@ function SettingsView({ appData, onSave, dirtyRef }) {
           {/* サービス提供内容 */}
           {activeTab === 'record' && (<>
             <SectionCard title="予定運動メニューの項目">
-              <p className="text-xs text-slate-500 mb-3">利用者マスタの「予定運動メニュー」に表示される項目を管理します。</p>
+              <p className="text-xs text-slate-500 mb-3">利用者マスタの「予定運動メニュー」に表示される項目を管理します。<br/>
+                <b className="text-amber-700">※ 項目を追加・削除する場合は、下の「適用開始月」を選択してください。過去の記録は元の項目で残り続けます。</b>
+              </p>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3 flex items-center gap-3 flex-wrap">
+                <label className="text-xs font-bold text-amber-800">この変更の適用開始月:</label>
+                <input type="month" value={exerciseApplyFrom} onChange={e=>setExerciseApplyFrom(e.target.value)} className="px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-sm font-bold outline-none"/>
+                <span className="text-[10px] text-amber-700">この月以降の新規記録に反映 (過去記録は変更前の項目で表示)</span>
+              </div>
               <div className="space-y-2 mb-4">
                 {exerciseItems.map((item, i) => (
                   <div key={item.id} className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
                     <span className="flex-1 text-sm font-bold text-slate-700">{item.name}</span>
-                    <button type="button" onClick={() => setExerciseItems(exerciseItems.filter((_,j)=>j!==i))} className="text-slate-300 hover:text-red-500 p-1 rounded"><Trash2 size={14}/></button>
+                    <button type="button" onClick={() => {
+                      if (!window.confirm(`「${item.name}」を ${exerciseApplyFrom} 以降の項目から削除します。よろしいですか？\n(過去の記録は元の項目のまま残ります)`)) return;
+                      // 削除時、現在の exerciseItems を履歴として保存し、新リストを設定
+                      setExerciseItemsHistory(prev => {
+                        const newH = [...prev];
+                        // 直近のスナップショット (まだ履歴化されていなければ追加)
+                        if (!newH.some(h => h.effectiveFrom === exerciseApplyFrom)) {
+                          // 旧バージョンを「前月まで有効」として履歴に追加
+                          const prevMonth = (() => { const [y,m] = exerciseApplyFrom.split('-').map(Number); const d = new Date(y, m-2, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; })();
+                          newH.push({ effectiveTo: prevMonth, items: [...exerciseItems] });
+                        }
+                        return newH.sort((a,b)=>(a.effectiveTo||'').localeCompare(b.effectiveTo||''));
+                      });
+                      setExerciseItems(exerciseItems.filter((_,j)=>j!==i));
+                    }} className="text-slate-300 hover:text-red-500 p-1 rounded"><Trash2 size={14}/></button>
                   </div>
                 ))}
               </div>
@@ -17434,12 +17535,28 @@ function SettingsView({ appData, onSave, dirtyRef }) {
                 <input type="text" value={newExItem.name} onChange={e=>setNewExItem({name:e.target.value})} placeholder="例: ⑦ラットプル" className="flex-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
                 <button type="button" onClick={()=>{
                   if(!newExItem.name.trim()) return;
+                  // 追加時も履歴に「旧バージョン」を保存
+                  setExerciseItemsHistory(prev => {
+                    const newH = [...prev];
+                    if (!newH.some(h => h.effectiveTo && h.effectiveTo >= exerciseApplyFrom)) {
+                      const prevMonth = (() => { const [y,m] = exerciseApplyFrom.split('-').map(Number); const d = new Date(y, m-2, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; })();
+                      newH.push({ effectiveTo: prevMonth, items: [...exerciseItems] });
+                    }
+                    return newH.sort((a,b)=>(a.effectiveTo||'').localeCompare(b.effectiveTo||''));
+                  });
                   const id = 'ex_' + Date.now();
                   setExerciseItems(prev=>[...prev, {id, name:newExItem.name.trim(), type:'text', useKeypad:true}]);
                   setNewExItem({name:''});
                 }} className="px-4 py-2 bg-slate-800 text-white rounded-xl font-bold text-sm active:scale-95 flex items-center"><Plus size={15} className="mr-1"/>追加</button>
               </div>
-              
+              {exerciseItemsHistory.length > 0 && (
+                <div className="mt-3 text-[10px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-2">
+                  <b>📚 過去の項目バージョン:</b>
+                  {exerciseItemsHistory.map((h,i) => (
+                    <div key={i} className="mt-1">〜{h.effectiveTo}: {h.items.map(it=>it.name).join(' / ')}</div>
+                  ))}
+                </div>
+              )}
             </SectionCard>
             <SectionCard title="テンキー補完ボタンの管理">
               <p className="text-xs text-slate-500 mb-3">運動入力テンキーの下部に表示される「+◯◯」ボタンを管理します。</p>
