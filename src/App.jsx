@@ -733,7 +733,7 @@ const initialData = {
       { id: 'am1', time: '9:00',          content: '【開始】手洗い・ティータイム・体温＆血圧測定　（珈琲・紅茶・緑茶・梅昆布茶・麦茶・ココア・コーンスープ・たまごスープ）' },
       { id: 'am2', time: '9:25',          content: '【集団体操】ラジオ体操・ストレッチ・脳トレ・道具運動・口腔訓練等' },
       { id: 'am3', time: '10:00',         content: '【ティータイム（2回目）】ドリンク＆一口サイズのケーキ' },
-      { id: 'am4', time: '10:10',         content: '【個別運動】マシントレーニング・マッサージ（20分）・足温浴（15分）・屋外歩行訓練' },
+      { id: 'am4', time: '10:10',         content: '【個別運動】マシントレーニング・介護整体（20分）・足温浴（15分）・屋外歩行訓練' },
       { id: 'am5', time: '11:50',         content: '【帰り支度】血圧測定' },
       { id: 'am6', time: '12:05',         content: '【終了】' },
       { id: 'am7', time: '12:10〜12:35',  content: '送迎車にてご自宅までお送り' },
@@ -743,7 +743,7 @@ const initialData = {
       { id: 'pm1', time: '13:25',         content: '【開始】手洗い・ティータイム・体温＆血圧測定　（珈琲・紅茶・緑茶・梅昆布茶・麦茶・ココア・コーンスープ・たまごスープ）' },
       { id: 'pm2', time: '13:50',         content: '【集団体操】ラジオ体操・ストレッチ・脳トレ・道具運動・口腔訓練等' },
       { id: 'pm3', time: '14:25',         content: '【ティータイム（2回目）】ドリンク＆一口サイズのケーキ' },
-      { id: 'pm4', time: '14:35',         content: '【個別運動】マシントレーニング・マッサージ（20分）・足温浴（15分）・屋外歩行訓練' },
+      { id: 'pm4', time: '14:35',         content: '【個別運動】マシントレーニング・介護整体（20分）・足温浴（15分）・屋外歩行訓練' },
       { id: 'pm5', time: '16:15',         content: '【帰り支度】血圧測定' },
       { id: 'pm6', time: '16:30',         content: '【終了】' },
       { id: 'pm7', time: '16:35〜17:00',  content: '送迎車にてご自宅までお送り' },
@@ -10251,12 +10251,8 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
             <col style={{width:'180px'}} />
             <col style={{width:'180px'}} />
             {(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map(item => (
-              <col key={item.id} style={{width:'68px'}} />
+              <col key={item.id} style={{width: item.type === 'individual' ? '120px' : '68px'}} />
             ))}
-            {/* 個別運動 3スロット */}
-            <col style={{width:'120px'}} />
-            <col style={{width:'120px'}} />
-            <col style={{width:'120px'}} />
             <col style={{width:'68px'}} />
             <col style={{width:'500px'}} />
             <col style={{width:'110px'}} />
@@ -10271,12 +10267,11 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">開始 血圧/脈</th>
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">終了 血圧/脈</th>
               {(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map((item) => (
-                <th key={item.id} className="px-1 py-3 font-medium text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800 text-xs">{item.name}{item.defaultUnit && <span className="text-[9px] font-normal text-slate-400 ml-1">({item.defaultUnit})</span>}</th>
+                <th key={item.id} className={`px-1 py-3 font-medium text-center border whitespace-nowrap sticky top-0 z-40 text-xs ${item.type==='individual' ? 'bg-emerald-800 text-emerald-50 border-emerald-700' : 'bg-slate-800 border-slate-700 text-white'}`}>
+                  {item.name}{item.defaultUnit && <span className="text-[9px] font-normal text-slate-400 ml-1">({item.defaultUnit})</span>}
+                </th>
               ))}
-              {[1,2,3].map(slot => (
-                <th key={`ind-h-${slot}`} className="px-1 py-3 font-medium text-center border border-emerald-700 whitespace-nowrap sticky top-0 z-40 bg-emerald-800 text-xs text-emerald-50">個別{['①','②','③'][slot-1]}</th>
-              ))}
-              <th className="px-1 py-3 font-bold text-center border border-slate-700 text-white whitespace-nowrap sticky top-0 z-40 bg-slate-800 text-xs">マッサージ</th>
+              <th className="px-1 py-3 font-bold text-center border border-slate-700 text-white whitespace-nowrap sticky top-0 z-40 bg-slate-800 text-xs">介護整体</th>
               <th className="px-2 py-3 font-bold border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">特記</th>
               <th className="px-1 py-3 font-bold text-center border border-slate-700 bg-slate-900 whitespace-nowrap sticky top-0 z-40">連携</th>
             </tr>
@@ -10382,8 +10377,43 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                   </td>
 
                   {(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map((item) => {
+                    // type='individual' の場合はプルダウン+入力の特殊セル
+                    if (item.type === 'individual') {
+                      const pid = p.patientId || p.id;
+                      const targetPatient = (appData.patients||[]).find(pp => pp.id === pid);
+                      const allIndItems = appData.systemSettings?.individualExerciseItems || [];
+                      const rawIndEx = targetPatient?.individualExercises;
+                      const enabledIds = (rawIndEx === undefined || rawIndEx === null)
+                        ? allIndItems.map(it => it.id)
+                        : rawIndEx.map(x => x.itemId);
+                      const enabledItems = allIndItems.filter(it => enabledIds.includes(it.id));
+                      const patSettings = (rawIndEx === undefined || rawIndEx === null)
+                        ? allIndItems.map(it => ({itemId: it.id, defaultValue: ''}))
+                        : rawIndEx;
+                      const cur = (p.exercises && typeof p.exercises[item.id] === 'object') ? p.exercises[item.id] : { itemId:'', value:'' };
+                      const selItem = allIndItems.find(it => it.id === cur.itemId);
+                      const patDefault = selItem ? (patSettings.find(x => x.itemId === selItem.id)?.defaultValue || '') : '';
+                      return (
+                        <td key={item.id} data-ind-cell className={`px-1 py-1 align-top border border-emerald-200 ${isAbsent ? 'bg-slate-100' : 'bg-emerald-50/40'}`}>
+                          <select value={cur.itemId || ''} disabled={isAbsent || isReadOnly}
+                            onChange={e=>updateExercise(p.id, item.id, {...cur, itemId: e.target.value})}
+                            className="w-full px-1 py-0.5 mb-1 text-[10px] font-bold bg-white border border-emerald-300 rounded outline-none focus:border-emerald-500 disabled:opacity-50">
+                            <option value="">— 選択 —</option>
+                            {enabledItems.map(it => <option key={it.id} value={it.id}>{it.name}{it.defaultUnit?` (${it.defaultUnit})`:''}</option>)}
+                          </select>
+                          <input type="text" value={cur.value || ''} disabled={isAbsent || isReadOnly || !selItem}
+                            onChange={e=>updateExercise(p.id, item.id, {...cur, value: e.target.value})}
+                            placeholder={selItem?`${patDefault||''}${selItem.defaultUnit?` ${selItem.defaultUnit}`:''}`:'未選択'}
+                            style={{fontSize:13,padding:'3px 4px'}}
+                            className="w-full text-center border border-emerald-300 rounded font-bold bg-white outline-none focus:border-emerald-500 disabled:opacity-40 placeholder-emerald-300"/>
+                        </td>
+                      );
+                    }
+                    // 通常の運動メニュー項目
                     let val = p.exercises ? p.exercises[item.id] : "";
                     if (val === undefined || val === null) val = "";
+                    // type=individual で値がオブジェクトの場合は表示しない (型ガード)
+                    if (typeof val === 'object') val = '';
                     const placeholderText = isEditMode ? (plannedEx[item.id] || "") : "";
                     const cellKey = `${p.id}-${item.id}`;
                     const isActive = activeCell === cellKey;
@@ -10408,48 +10438,6 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                       )}
                     </td>
                   )})}
-
-                  {/* 個別運動 3スロット: 上=プルダウン, 下=数値入力。利用者の個別運動メニュー (既定全選択) から選択 */}
-                  {(() => {
-                    const pid = p.patientId || p.id;
-                    const targetPatient = (appData.patients||[]).find(pp => pp.id === pid);
-                    const allIndItems = appData.systemSettings?.individualExerciseItems || [];
-                    // 利用者が選択した個別運動 (未設定なら全項目)
-                    const rawIndEx = targetPatient?.individualExercises;
-                    const enabledIds = (rawIndEx === undefined || rawIndEx === null)
-                      ? allIndItems.map(it => it.id)
-                      : rawIndEx.map(x => x.itemId);
-                    const enabledItems = allIndItems.filter(it => enabledIds.includes(it.id));
-                    const patSettings = (rawIndEx === undefined || rawIndEx === null)
-                      ? allIndItems.map(it => ({itemId: it.id, defaultValue: ''}))
-                      : rawIndEx;
-                    const recIndEx = p.individualExercises || {};
-                    return [1,2,3].map(slot => {
-                      const cur = recIndEx[slot] || {};
-                      const selItem = allIndItems.find(it => it.id === cur.itemId);
-                      const patDefault = selItem ? (patSettings.find(x => x.itemId === selItem.id)?.defaultValue || '') : '';
-                      return (
-                        <td key={`ind-${slot}`} data-ind-cell className={`px-1 py-1 align-middle border border-emerald-200 ${isAbsent ? 'bg-slate-100' : 'bg-emerald-50/40'}`} style={{verticalAlign:'top'}}>
-                          <select value={cur.itemId || ''} disabled={isAbsent || isReadOnly}
-                            onChange={e=>updateIndividualExercise(p.id, slot, 'itemId', e.target.value)}
-                            className="w-full px-1 py-0.5 text-[10px] font-bold bg-white border border-emerald-300 rounded outline-none focus:border-emerald-500 disabled:opacity-50">
-                            <option value="">— 選択 —</option>
-                            {enabledItems.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
-                          </select>
-                          {selItem && (
-                            <div className="text-[9px] text-emerald-700 mt-0.5 mb-0.5 truncate" title={`${selItem.name}${patDefault?` / ${patDefault}`:''}`}>
-                              {selItem.name}{patDefault && <span className="text-emerald-400"> / {patDefault}</span>}
-                            </div>
-                          )}
-                          <input type="text" value={cur.value || ''} disabled={isAbsent || isReadOnly || !selItem}
-                            onChange={e=>updateIndividualExercise(p.id, slot, 'value', e.target.value)}
-                            placeholder={selItem?`${patDefault||''}${selItem.defaultUnit||''}`:''}
-                            style={{fontSize:12,padding:'2px 4px'}}
-                            className="w-full text-center border border-emerald-300 rounded font-bold bg-white outline-none focus:border-emerald-500 disabled:opacity-40 placeholder-emerald-300"/>
-                        </td>
-                      );
-                    });
-                  })()}
 
                   <td className={`px-0.5 py-0 align-middle border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`} style={{height:32,overflow:'hidden',verticalAlign:'middle',padding:2}}>
                     {isReadOnly ? (
@@ -10706,7 +10694,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
           </div>
         </div>
       )}
-      {/* マッサージ確認ツールチップ（固定位置） */}
+      {/* 介護整体確認ツールチップ（固定位置） */}
       <div id="massage-tooltip" onClick={()=>{const el=document.getElementById('massage-tooltip');if(el)el.style.display='none';}}
         style={{display:'none',position:'fixed',background:'#1e293b',color:'white',borderRadius:10,boxShadow:'0 4px 16px rgba(0,0,0,0.4)',zIndex:99999,padding:'4px 0',whiteSpace:'nowrap',cursor:'pointer'}}/>
       {/* 利用者情報ポップアップ */}
@@ -10730,7 +10718,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                 <div className="text-[10px] font-bold text-amber-500 mb-1">留意点（申し送り）</div>
                 <div className="text-sm text-slate-700 whitespace-pre-wrap overflow-y-auto" style={{maxHeight:100}}>{patientInfoModal.ryui||'なし'}</div>
               </div>
-              {(appData.systemSettings?.serviceItems||[{id:'massage',label:'マッサージ',options:'',showInPopup:true},{id:'onyoku',label:'温浴時電療',options:'',showInPopup:true}]).filter(si=>si.showInPopup).map(si=>{
+              {(appData.systemSettings?.serviceItems||[{id:'massage',label:'介護整体',options:'',showInPopup:true},{id:'onyoku',label:'温浴時電療',options:'',showInPopup:true}]).filter(si=>si.showInPopup).map(si=>{
                 const fkey=si.id==='massage'?'massageNeed':si.id==='onyoku'?'onyokuDenryo':`svc_${si.id}`;
                 const val=patientInfoModal[fkey]||'未設定';
                 return(<div key={si.id} className="bg-blue-50 rounded-xl p-3"><div className="text-[10px] font-bold text-blue-400 mb-1">{si.label}</div><div className="text-sm text-slate-700">{val}</div></div>);
@@ -12664,7 +12652,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             <table style={{minWidth:900,borderCollapse:'collapse',fontSize:13}}>
               <thead>
                 <tr style={{backgroundColor:'#f8fafc',borderBottom:'1px solid #e2e8f0'}}>
-                  {['日付','状態','気分(通)','気分(帰)','体温','開始 血圧/脈','終了 血圧/脈',...(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map(e=>e.name),'マッサージ','特記'].map(h=>(
+                  {['日付','状態','気分(通)','気分(帰)','体温','開始 血圧/脈','終了 血圧/脈',...(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map(e=>e.name),'介護整体','特記'].map(h=>(
                     <th key={h} style={{padding:'8px 10px',textAlign:'left',fontWeight:'bold',color:'#1e293b',whiteSpace:'nowrap',fontSize:14}}>{h}</th>
                   ))}
                 </tr>
@@ -14438,7 +14426,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
             </table>
             {/* 情報行2：サービス項目（均等分割） */}
             {(() => {
-              const items = appData.systemSettings?.serviceItems||[{id:'massage',label:'マッサージ',options:''},{id:'onyoku',label:'温浴時電療',options:''}];
+              const items = appData.systemSettings?.serviceItems||[{id:'massage',label:'介護整体',options:''},{id:'onyoku',label:'温浴時電療',options:''}];
               if(items.length===0) return null;
               // 見出し幅: 文字数×0.6em相当 最小4% 最大10%
               const thWPct = items.map(si => Math.min(10, Math.max(4, si.label.length * 1.2)));
@@ -14475,7 +14463,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                     <th className="border border-slate-600 py-1" style={{width:80}}>開始 血圧（脈）</th>
                     <th className="border border-slate-600 py-1" style={{width:80}}>終了 血圧（脈）</th>
                     {ex.map(it=><th key={it.id} className="border border-slate-600 py-1 text-[7px] leading-tight px-0" style={{width:42}}>{it.name}</th>)}
-                    <th className="border border-slate-600 py-1 text-[8px]" style={{width:36}}>ﾏｯｻｰｼﾞ</th>
+                    <th className="border border-slate-600 py-1 text-[8px]" style={{width:36}}>介護整体</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -14526,7 +14514,24 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                           <td className="border border-slate-400 px-1 text-center font-bold text-[12px]" style={{wordBreak:'break-all',lineHeight:1.2}}>
                             <div className="cell-wrap" style={{justifyContent:'center'}}>{v(r.bpUpEn) ? <><span>{r.bpUpEn}/{r.bpDnEn}</span>{v(r.plEn)?<span className="text-slate-700">（{r.plEn}）</span>:''}</> : ''}</div>
                           </td>
-                          {ex.map(it=><td key={it.id} className="border border-slate-400 px-0.5 text-center font-bold text-[12px]" ><div className="cell-wrap" style={{justifyContent:'center'}}>{v(r.exercises?.[it.id])}</div></td>)}
+                          {ex.map(it => {
+                            const raw = r.exercises?.[it.id];
+                            // type=individual の場合: {itemId, value} の形式 → 「項目名: 値」を表示
+                            let display = '';
+                            if (it.type === 'individual' && raw && typeof raw === 'object') {
+                              const allInd = appData.systemSettings?.individualExerciseItems || [];
+                              const sel = allInd.find(ii => ii.id === raw.itemId);
+                              if (sel && raw.value) display = `${sel.name}\n${raw.value}${sel.defaultUnit||''}`;
+                              else if (sel) display = sel.name;
+                            } else if (typeof raw !== 'object') {
+                              display = v(raw);
+                            }
+                            return (
+                              <td key={it.id} className="border border-slate-400 px-0.5 text-center font-bold text-[12px]">
+                                <div className="cell-wrap" style={{justifyContent:'center',whiteSpace:'pre-line',fontSize: it.type==='individual'?9:12, lineHeight:1.2}}>{isA||mt?'':display}</div>
+                              </td>
+                            );
+                          })}
                           <td className="border border-slate-400 px-0.5 text-center font-bold"><div className="cell-wrap" style={{justifyContent:'center',whiteSpace:'nowrap',fontSize:(v(r.massage)||'').length>4?9:(v(r.massage)||'').length>3?10:12}}>{v(r.massage)}</div></td>
                         </tr>
                         {/* 特記行 */}
@@ -16638,7 +16643,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               <div><div className="flex items-center justify-between mb-2"><label className="text-sm font-bold text-slate-600 flex items-center gap-1.5"><CalendarCheck size={16} />月間スケジュール</label><div className="flex items-center gap-2"><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronLeft size={16} /></button><span className="text-base font-bold text-slate-700 tabular-nums w-28 text-center">{currentMonth.getFullYear()}年{currentMonth.getMonth() + 1}月</span><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronRight size={16} /></button></div></div>
                 <div className="flex border border-slate-200 rounded-xl bg-slate-50 p-1 gap-0.5">{allD.map(d => { const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d); const dow = dO.getDay(); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; const cl = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow); const hl = appData.holidays?.some(h => (h.date || h) === ds); const base = localPatient.scheduleAmPm?.[dow] || ""; const bAM = base === "AM" || base === "1日"; const bPM = base === "PM" || base === "1日"; const sh = effShifts?.[mKey]?.[localPatient.id] || {}; const pi = getPauseReasonOnDate(localPatient, ds); /* 休止中: 基本利用日 (bAM/bPM=true) の枠だけ「休止」表示。それ以外は通常空欄 */ const cA = pi ? (bAM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(sh[`${d}_AM`], bAM), cl, hl); const cP = pi ? (bPM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(sh[`${d}_PM`], bPM), cl, hl); const ok = !cl && !hl && !pi && !isOff; return (<div key={d} className="flex-1 min-w-0 flex flex-col items-stretch bg-white border border-slate-200 rounded overflow-hidden"><div className={`w-full text-center text-[11px] font-bold py-1 bg-slate-100 border-b border-slate-200 leading-tight ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{d}<br/><span className="text-[9px] font-normal">{dN[dow]}</span></div><button disabled={!ok} onClick={() => ok && shiftTog(d, "AM")} className={`h-9 flex items-center justify-center border-b border-slate-100 text-[10px] leading-none whitespace-pre-wrap ${cA.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cA.t}</button><button disabled={!ok} onClick={() => ok && shiftTog(d, "PM")} className={`h-9 flex items-center justify-center text-[10px] leading-none whitespace-pre-wrap ${cP.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cP.t}</button></div>); })}</div>
                 <div className="flex gap-2 mt-2 text-[11px] text-slate-400 font-bold flex-wrap items-center"><span>上段:AM/下段:PM</span><span className="text-blue-600 bg-blue-50 px-1 rounded">出席</span><span className="text-red-500 bg-red-50 px-1 rounded">欠席</span><span className="text-emerald-600 bg-emerald-50 px-1 rounded">振替</span><span className="text-cyan-700 bg-cyan-50 px-1 rounded">臨時</span><span className="text-white bg-slate-600 px-1 rounded">休業</span><span>空欄=非利用日</span></div></div>
-              <div className="flex flex-wrap gap-3">{(appData.systemSettings?.serviceItems||[{id:'massage',label:'マッサージ',options:'通常、横向き、仰向け、うつ伏せ、座位、無し'},{id:'onyoku',label:'温浴時電療',options:'腰、肩、無し'}]).map(si=>{
+              <div className="flex flex-wrap gap-3">{(appData.systemSettings?.serviceItems||[{id:'massage',label:'介護整体',options:'通常、横向き、仰向け、うつ伏せ、座位、無し'},{id:'onyoku',label:'温浴時電療',options:'腰、肩、無し'}]).map(si=>{
                 const opts=si.options.split(/[、,]+/).map(s=>s.trim()).filter(Boolean);
                 const fkey=si.id==='massage'?'massageNeed':si.id==='onyoku'?'onyokuDenryo':`svc_${si.id}`;
                 return(<div key={si.id} className="flex-1 min-w-[120px]"><label className="block text-sm font-bold text-slate-600 mb-1">{si.label}</label><select disabled={isOff} value={localPatient[fkey]||''} onChange={e=>updateLP(fkey,e.target.value)} className="w-full px-3 py-3 bg-slate-50 border border-slate-300 rounded-xl font-bold text-base outline-none cursor-pointer disabled:opacity-60">{opts.map(o=><option key={o} value={o}>{o}</option>)}</select></div>);
@@ -16745,7 +16750,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
       )}
       {csvModal.isOpen && (() => {
         // CSV ヘルパー: 既往歴 (kiou) 以外の主要フィールドを全て扱う
-        const HEADERS = ['利用者ID','氏名','ふりがな','性別','生年月日','電話番号','郵便番号','住所','被保険者番号','介護度','適用期間開始','適用期間終了','負担割合','ケアマネ事業所','ケアマネ担当者','ケアマネ電話','ケアマネFAX','利用開始日','利用終了日','状態','マッサージ姿勢','温浴電療','留意事項'];
+        const HEADERS = ['利用者ID','氏名','ふりがな','性別','生年月日','電話番号','郵便番号','住所','被保険者番号','介護度','適用期間開始','適用期間終了','負担割合','ケアマネ事業所','ケアマネ担当者','ケアマネ電話','ケアマネFAX','利用開始日','利用終了日','状態','介護整体姿勢','温浴電療','留意事項'];
         const FIELDS  = ['id','name','kana','gender','birthDate','phone','zipCode','address','insuranceNo','careLevel','careLevelFrom','careLevelTo','costBurden','cmOffice','cmName','cmPhone','cmFax','startDate','endDate','status','massageNeed','onyokuDenryo','ryui'];
         const escCell = (v) => { const s = String(v??''); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
         const buildCsv = () => {
@@ -17396,7 +17401,7 @@ function SettingsView({ appData, onSave, dirtyRef }) {
   const [massageStaffInput, setMassageStaffInput] = useState((appData.systemSettings?.massageStaff || appSettings.massageStaff).join('、'));
   const [onyokuInput, setOnyokuInput] = useState((appData.systemSettings?.onyokuTypes || []).join('、'));
   const [serviceItems, setServiceItems] = useState(appData.systemSettings?.serviceItems || [
-    { id:'massage', label:'マッサージ', options:(appData.systemSettings?.massageTypes||['通常','横向き','仰向け','うつ伏せ','座位','無し']).join('、'), showInPopup:true },
+    { id:'massage', label:'介護整体', options:(appData.systemSettings?.massageTypes||['通常','横向き','仰向け','うつ伏せ','座位','無し']).join('、'), showInPopup:true },
     { id:'onyoku', label:'温浴時電療', options:(appData.systemSettings?.onyokuTypes||['腰','肩','無し']).join('、'), showInPopup:true },
   ]);
   const [newServiceItem, setNewServiceItem] = useState({label:'', options:''});
@@ -17688,7 +17693,15 @@ function SettingsView({ appData, onSave, dirtyRef }) {
                 ))}
               </div>
               <datalist id="unit-suggestions">
-                <option value="回"/><option value="分"/><option value="秒"/><option value="往復"/><option value="セット"/><option value="kg"/><option value="m"/><option value="周"/>
+                {(()=>{
+                  // 既存項目で使われている単位 + 標準候補をマージ
+                  const usedUnits = new Set([
+                    ...exerciseItems.map(it => it.defaultUnit).filter(Boolean),
+                    ...individualExerciseItems.map(it => it.defaultUnit).filter(Boolean),
+                  ]);
+                  ['回','分','秒','往復','セット','kg','m','周'].forEach(u => usedUnits.add(u));
+                  return [...usedUnits].map(u => <option key={u} value={u}/>);
+                })()}
               </datalist>
               <div className="flex gap-2 mb-2">
                 <input type="text" value={newExItem.name} onChange={e=>setNewExItem({...newExItem,name:e.target.value})} placeholder="例: ⑦ラットプル" className="flex-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
@@ -17709,15 +17722,18 @@ function SettingsView({ appData, onSave, dirtyRef }) {
                 }} className="px-4 py-2 bg-slate-800 text-white rounded-xl font-bold text-sm active:scale-95 flex items-center"><Plus size={15} className="mr-1"/>項目追加</button>
               </div>
               <button type="button" onClick={()=>{
-                // 個別運動メニューに連番で「個別運動N」を追加
-                const existingNums = individualExerciseItems
-                  .map(it => { const m = (it.name||'').match(/^個別運動(\d+)$/); return m ? parseInt(m[1],10) : 0; })
+                // 運動メニュー (exerciseItems) に個別運動プレースホルダーを連番追加
+                // type:'individual' は記録入力時に「個別運動メニュー」プルダウンから選択する形式
+                const existingNums = exerciseItems
+                  .filter(it => it.type === 'individual')
+                  .map(it => { const m = (it.name||'').match(/個別運動([①-⑨]|\d+)/); if(!m) return 0; const v=m[1]; const map={'①':1,'②':2,'③':3,'④':4,'⑤':5,'⑥':6,'⑦':7,'⑧':8,'⑨':9}; return map[v] || parseInt(v,10) || 0; })
                   .filter(n => n > 0);
                 const nextNum = existingNums.length > 0 ? Math.max(...existingNums) + 1 : 1;
-                const id = 'ie_' + Date.now();
-                setIndividualExerciseItems(prev=>[...prev, {id, name:`個別運動${nextNum}`, defaultUnit:'回'}]);
+                const numLabel = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨'][nextNum-1] || nextNum;
+                const id = 'ind_' + Date.now();
+                setExerciseItems(prev=>[...prev, {id, name:`個別運動${numLabel}`, type:'individual', useKeypad:false, defaultUnit:''}]);
               }} className="w-full px-4 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 border-2 border-dashed border-emerald-300 rounded-xl font-bold text-sm active:scale-95 flex items-center justify-center gap-1">
-                <Plus size={15}/>個別運動メニューを追加 (現在 {individualExerciseItems.length}件)
+                <Plus size={15}/>個別運動を追加 (運動メニューの末尾に「個別運動①」等が追加されます)
               </button>
               {exerciseItemsHistory.length > 0 && (
                 <div className="mt-3 text-[10px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-2">
@@ -17788,8 +17804,8 @@ function SettingsView({ appData, onSave, dirtyRef }) {
               </div>
               
             </SectionCard>
-            <SectionCard title="マッサージ者の登録">
-              <p className="text-xs text-slate-500 mb-3">「、」または「,」区切りで入力。提供記録入力のマッサージ欄に表示されます。</p>
+            <SectionCard title="介護整体者の登録">
+              <p className="text-xs text-slate-500 mb-3">「、」または「,」区切りで入力。提供記録入力の介護整体欄に表示されます。</p>
               <input type="text" value={massageStaffInput} onChange={e=>setMassageStaffInput(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl font-bold outline-none mb-3"/>
             </SectionCard>
             <SectionCard title="サービス提供内容の項目管理">
