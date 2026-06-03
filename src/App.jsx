@@ -8273,143 +8273,73 @@ function SignupCompleteView({ context, appData, onSave }) {
 
 // === 家族画面プレビュー & 特記編集 (FamilyAdminView内のタブ) ===
 function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid, familyTokkiOverrides, setTokkiOverride }) {
-  const [innerTab, setInnerTab] = useState('vitals');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showTokkiEditor, setShowTokkiEditor] = useState(false);
+  const filteredPatients = searchQuery.trim()
+    ? patients.filter(p => (p.name||'').includes(searchQuery) || (p.kana||'').includes(searchQuery) || String(p.id).includes(searchQuery))
+    : patients;
   const patient = previewPid ? patients.find(p => p.id === previewPid) : null;
-  const ticketRecs = patient ? (appData.ticketRecords||[]).filter(r => r.patientId === patient.id) : [];
-  const fitnessRecs = patient ? (appData.fitnessRecords||[]).filter(r => r.patientId === patient.id) : [];
-  const monitoringRecs = patient ? (appData.monitoringRecords||[]).filter(r => r.patientId === patient.id) : [];
   const accs = patient ? (appData.familyAccounts||[]).filter(a => a.patientId === patient.id) : [];
-  const parseTicketDate = (s) => { const m=(s||'').match(/(\d+)月(\d+)日/); return m?`${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`:''; };
-  const recentTickets = [...ticketRecs].sort((a,b)=> parseTicketDate(b.date).localeCompare(parseTicketDate(a.date))).slice(0, 30);
-  const tokkiRecs = ticketRecs.filter(r => r.tokki && r.tokki.trim()).sort((a,b)=> parseTicketDate(b.date).localeCompare(parseTicketDate(a.date)));
-  const overrideMap = patient ? (familyTokkiOverrides[patient.id] || {}) : {};
-  const hasFitness = fitnessRecs.length > 0;
   if (!patient) {
     return (
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
         <h3 className="text-base font-bold text-slate-800 mb-3">📱 利用者を選択してプレビュー</h3>
-        <div className="text-xs text-slate-500 mb-3">家族画面で何が見えているかを確認・編集できます。利用者を選択してください:</div>
+        <div className="text-xs text-slate-500 mb-3">家族画面（分析個人の内容）が利用者ごとに何が見えるかを確認できます。</div>
+        <input type="text" value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} placeholder="🔍 利用者を検索 (氏名・ふりがな・ID)" className="w-full mb-3 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm outline-none focus:border-violet-400"/>
         <div className="grid grid-cols-3 md:grid-cols-5 gap-2 max-h-96 overflow-auto">
-          {patients.map(p => (
+          {filteredPatients.map(p => (
             <button key={p.id} onClick={()=>setPreviewPid(p.id)}
               className="px-3 py-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-violet-50 hover:border-violet-300 text-sm font-bold text-slate-700 text-left transition-colors">
               <div className="truncate">{p.name}</div>
               {p.kana && <div className="text-[10px] text-slate-400 truncate font-normal">{p.kana}</div>}
             </button>
           ))}
+          {filteredPatients.length === 0 && (
+            <div className="col-span-full text-center text-xs text-slate-400 py-8">該当する利用者が見つかりません</div>
+          )}
         </div>
       </div>
     );
   }
+  // 特記レコード
+  const ticketRecs = (appData.ticketRecords||[]).filter(r => r.patientId === patient.id);
+  const parseTicketDate = (s) => { const m=(s||'').match(/(\d+)月(\d+)日/); return m?`${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`:''; };
+  const tokkiRecs = ticketRecs.filter(r => r.tokki && r.tokki.trim()).sort((a,b)=> parseTicketDate(b.date).localeCompare(parseTicketDate(a.date)));
+  const overrideMap = familyTokkiOverrides[patient.id] || {};
   return (
     <div className="space-y-3">
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 flex items-center gap-3">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-3 flex items-center gap-3 flex-wrap">
         <button onClick={()=>setPreviewPid(null)} className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-600">← 利用者選択へ</button>
-        <div className="flex-1">
-          <div className="text-base font-bold text-slate-800">{patient.name} 様 {patient.kana && <span className="text-[11px] text-slate-400 font-normal ml-1">（{patient.kana}）</span>}</div>
-          <div className="text-[11px] text-slate-500">この画面でこの利用者の家族・ケアマネが何を見えているかを確認できます</div>
+        <div className="flex-1 min-w-[150px]">
+          <div className="text-sm font-bold text-slate-800">{patient.name} 様 の家族画面プレビュー <span className="text-[10px] text-slate-400 font-normal ml-2">家族・ケアマネに見えている内容と同じです</span></div>
         </div>
         {accs.length > 0 && (
-          <div className="text-[10px] text-slate-500 text-right">
-            <div>家族 {accs.filter(a=>(a.kind||'family')==='family').length}名</div>
-            <div>ケアマネ {accs.filter(a=>a.kind==='caremanager').length}名</div>
-          </div>
+          <div className="text-[10px] text-slate-500">家族 {accs.filter(a=>(a.kind||'family')==='family').length}名 / ケアマネ {accs.filter(a=>a.kind==='caremanager').length}名</div>
         )}
+        <button onClick={()=>setShowTokkiEditor(true)} className="px-3 py-2 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-700 text-xs font-bold">📝 特記の表示/非表示を編集</button>
       </div>
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200">
-        <div className="flex border-b border-slate-200 overflow-x-auto">
-          {[
-            ['vitals','💗 バイタル'],['exercise','💪 運動'],
-            ...(hasFitness?[['fitness','🏃 体力測定']]:[]),
-            ['monitoring','📋 モニタリング'],['notes','📝 特記 (編集可)'],
-          ].map(([k,l])=>(
-            <button key={k} onClick={()=>setInnerTab(k)} className={`px-4 py-2.5 text-xs font-bold whitespace-nowrap border-b-2 ${innerTab===k?'border-violet-600 text-violet-700':'border-transparent text-slate-500 hover:bg-slate-50'}`}>{l}</button>
-          ))}
-        </div>
-        <div className="p-4">
-          {innerTab === 'vitals' && (
-            recentTickets.filter(r=>r.temp||r.bpUpSt||r.plSt).length === 0 ? (
-              <div className="text-xs text-slate-400 text-center py-8">バイタル記録がありません</div>
-            ) : (
-              <div className="overflow-auto">
-                <table className="w-full text-xs">
-                  <thead className="bg-slate-50 text-slate-500">
-                    <tr><th className="p-2 text-left">日付</th><th className="p-2">体温</th><th className="p-2">血圧(開始)</th><th className="p-2">脈拍</th><th className="p-2">血圧(終了)</th><th className="p-2">脈拍</th></tr>
-                  </thead>
-                  <tbody>
-                    {recentTickets.filter(r=>r.temp||r.bpUpSt||r.plSt).slice(0,15).map((r,i)=>(
-                      <tr key={i} className="border-b border-slate-100">
-                        <td className="p-2 font-bold">{r.date}</td>
-                        <td className="p-2 text-center">{r.temp?`${r.temp}℃`:'—'}</td>
-                        <td className="p-2 text-center">{r.bpUpSt?`${r.bpUpSt}/${r.bpDnSt}`:'—'}</td>
-                        <td className="p-2 text-center">{r.plSt||'—'}</td>
-                        <td className="p-2 text-center">{r.bpUpEn?`${r.bpUpEn}/${r.bpDnEn}`:'—'}</td>
-                        <td className="p-2 text-center">{r.plEn||'—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )
-          )}
-          {innerTab === 'exercise' && (
-            recentTickets.filter(r=>r.exercises && Object.values(r.exercises||{}).some(v=>v && v!=='ー' && v!=='×')).length === 0 ? (
-              <div className="text-xs text-slate-400 text-center py-8">運動記録がありません</div>
-            ) : (
-              <div className="space-y-2">
-                {recentTickets.filter(r=>r.exercises && Object.values(r.exercises||{}).some(v=>v && v!=='ー' && v!=='×')).slice(0,12).map((r,i)=>{
-                  const items = Object.entries(r.exercises||{}).filter(([_,v])=>v && v!=='ー' && v!=='×');
-                  return (
-                    <div key={i} className="p-3 bg-slate-50 rounded-lg">
-                      <div className="text-[11px] font-bold text-slate-400 mb-2">{r.date}</div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {items.map(([k,v])=>(
-                          <div key={k} className="bg-white border border-slate-200 px-2 py-1 rounded text-xs"><span className="text-slate-400 font-bold">{k}: </span><b>{v}</b></div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )
-          )}
-          {innerTab === 'fitness' && hasFitness && (
-            <div className="space-y-2">
-              {[...fitnessRecs].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,10).map((r,i)=>{
-                const measures = Object.entries(r).filter(([k,v])=>!['id','patientId','date','name'].includes(k) && v != null && v !== '');
-                return (
-                  <div key={i} className="p-3 bg-slate-50 rounded-lg">
-                    <div className="text-[11px] font-bold text-slate-400 mb-2">{r.date}</div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {measures.map(([k,v])=>(<div key={k} className="bg-white border border-slate-200 px-2 py-1 rounded text-xs"><span className="text-slate-400 font-bold text-[10px]">{k}: </span><b>{String(v)}</b></div>))}
-                    </div>
-                  </div>
-                );
-              })}
+      {/* PersonalDashboardView を familyMode で埋め込み */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        <PersonalDashboardView
+          appData={{...appData, patients: appData.patients, familyTokkiOverrides}}
+          targetPatientId={patient.id}
+          familyMode={true}
+          hidePatientSelector={true}
+          navigateTo={()=>{}}
+          onShowPrintPreview={()=>{}}
+        />
+      </div>
+      {/* 特記編集モーダル */}
+      {showTokkiEditor && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={()=>setShowTokkiEditor(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 sticky top-0 bg-white">
+              <h3 className="text-sm font-bold text-slate-700">{patient.name} 様 — 特記の家族向け表示設定</h3>
+              <button onClick={()=>setShowTokkiEditor(false)} className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg">✕</button>
             </div>
-          )}
-          {innerTab === 'monitoring' && (
-            monitoringRecs.length === 0 ? (
-              <div className="text-xs text-slate-400 text-center py-8">モニタリング記録がありません</div>
-            ) : (
-              <div className="space-y-2">
-                {[...monitoringRecs].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,6).map((m,i)=>(
-                  <div key={i} className="p-3 bg-sky-50 border border-sky-200 rounded-lg">
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="text-[11px] font-bold text-sky-900">{m.date||'—'}</span>
-                      {m.status && <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${m.status==='確定'?'bg-emerald-500 text-white':'bg-amber-500 text-white'}`}>{m.status}</span>}
-                    </div>
-                    <div className="text-xs text-slate-700 whitespace-pre-wrap">{m.summary || m.content || Object.entries(m).filter(([k,v])=>!['id','patientId','date','status'].includes(k) && v).slice(0,3).map(([k,v])=>`${k}: ${String(v).slice(0,80)}`).join(' / ')}</div>
-                  </div>
-                ))}
-              </div>
-            )
-          )}
-          {innerTab === 'notes' && (
-            <div className="space-y-2">
+            <div className="p-4 overflow-auto flex-1 space-y-2">
               <div className="text-[11px] text-slate-500 bg-amber-50 border border-amber-200 p-2 rounded-lg">
-                <b>家族向けに公開する内容を編集できます。</b><br/>
-                ✓ = 家族画面に表示 / ✕ = 非表示 / 編集鉛筆 = 家族向けに別テキストで上書き
+                <b>✓ 表示</b> = 家族画面の詳細記録に表示 / <b>✕ 非表示</b> = 家族には見せない / <b>✏️ 上書</b> = 家族向けに別文言を表示
               </div>
               {tokkiRecs.length === 0 ? (
                 <div className="text-xs text-slate-400 text-center py-8">特記事項のある記録がありません</div>
@@ -8436,12 +8366,11 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
                       </div>
                       <div className="flex flex-col gap-1 shrink-0">
                         <button onClick={()=>setTokkiOverride(patient.id, r.id, {...ov, visible: !isVisible})}
-                          className={`px-2 py-1 rounded text-[10px] font-bold ${isVisible?'bg-emerald-100 text-emerald-700 hover:bg-emerald-200':'bg-slate-300 text-slate-600 hover:bg-slate-400'}`}
-                          title={isVisible?'家族画面に表示中':'家族画面に非表示'}>{isVisible?'✓ 表示':'✕ 非表示'}</button>
+                          className={`px-2 py-1 rounded text-[10px] font-bold ${isVisible?'bg-emerald-100 text-emerald-700 hover:bg-emerald-200':'bg-slate-300 text-slate-600 hover:bg-slate-400'}`}>{isVisible?'✓ 表示':'✕ 非表示'}</button>
                         {!hasOverride ? (
-                          <button onClick={()=>setTokkiOverride(patient.id, r.id, {...ov, text:r.tokki})} className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[10px] font-bold" title="家族向けに別の文言で表示する">✏️ 上書</button>
+                          <button onClick={()=>setTokkiOverride(patient.id, r.id, {...ov, text:r.tokki})} className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[10px] font-bold">✏️ 上書</button>
                         ) : (
-                          <button onClick={()=>setTokkiOverride(patient.id, r.id, {...ov, text:''})} className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-[10px] font-bold" title="上書きを解除して元の文言を表示">↩ 元に</button>
+                          <button onClick={()=>setTokkiOverride(patient.id, r.id, {...ov, text:''})} className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-[10px] font-bold">↩ 元に</button>
                         )}
                       </div>
                     </div>
@@ -8449,9 +8378,9 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
                 );
               })}
             </div>
-          )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -8972,35 +8901,13 @@ function FamilyView() {
 
 // === 家族画面 - 利用者ごとのコンテンツ ===
 function FamilyPatientView({ data, patientId, onLogout }) {
-  const [tab, setTab] = useState('home');
+  const [tab, setTab] = useState('analysis');
   const pid = parseInt(patientId, 10);
   const patient = (data.patients||[]).find(p => p.id === pid || p.id === patientId);
   const facility = data.systemSettings?.facilityInfo || {};
   const announcements = data.familyAnnouncements || [];
   const personalAnnouncements = (data.familyPersonalAnnouncements||[]).filter(a => a.patientId === pid || a.patientId === patientId);
   const photos = (data.familyPhotos||[]).filter(ph => ph.patientId == null || ph.patientId === pid || ph.patientId === patientId);
-  const ticketRecs = (data.ticketRecords||[]).filter(r => r.patientId === pid || r.patientId === patientId);
-  const fitnessRecs = (data.fitnessRecords||[]).filter(r => r.patientId === pid || r.patientId === patientId);
-  const monitoringRecs = (data.monitoringRecords||[]).filter(r => r.patientId === pid || r.patientId === patientId);
-  // 特記の表示制御 (利用者マスタ管理側で各記録の家族表示を制御可能)
-  const familyTokkiOverrides = (data.familyTokkiOverrides||{})[pid] || {};
-  const visibleTokkiRecs = ticketRecs.filter(r => {
-    if (!r.tokki || !r.tokki.trim()) return false;
-    const ov = familyTokkiOverrides[r.id] || {};
-    return ov.visible !== false; // デフォルト表示
-  }).map(r => {
-    const ov = familyTokkiOverrides[r.id] || {};
-    return { ...r, displayText: ov.text || r.tokki };
-  });
-  const hasFitness = fitnessRecs.length > 0;
-  const calcAge = (bd) => { if(!bd) return null; const d=new Date(bd); const t=new Date(); let a=t.getFullYear()-d.getFullYear(); const m=t.getMonth()-d.getMonth(); if(m<0||(m===0&&t.getDate()<d.getDate())) a--; return a; };
-  // 日付パース: "4月1日" 形式 → ソート可能な YYYYMMDD 風文字列 (年は ticketRecord に無いので current year を仮定 — 直近表示なので問題なし)
-  const parseTicketDate = (s) => {
-    const m = (s||'').match(/(\d+)月(\d+)日/);
-    if (!m) return '';
-    return `${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`;
-  };
-  const recentTickets = [...ticketRecs].sort((a,b)=> parseTicketDate(b.date).localeCompare(parseTicketDate(a.date))).slice(0, 30);
   if (!patient) {
     return (
       <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f1f5f9',fontFamily:'"Hiragino Sans","Yu Gothic",sans-serif'}}>
@@ -9012,7 +8919,6 @@ function FamilyPatientView({ data, patientId, onLogout }) {
       </div>
     );
   }
-  const age = calcAge(patient.birthDate);
   return (
     <div style={{minHeight:'100vh',background:'linear-gradient(180deg,#f8fafc 0%,#f1f5f9 100%)',fontFamily:'"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",sans-serif',color:'#1e293b'}}>
       <div style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',padding:'28px 20px 20px',boxShadow:'0 2px 12px rgba(99,102,241,0.25)'}}>
@@ -9029,62 +8935,31 @@ function FamilyPatientView({ data, patientId, onLogout }) {
           )}
         </div>
       </div>
-      <div style={{maxWidth:720,margin:'-12px auto 0',padding:'0 16px'}}>
-        <div style={{background:'white',borderRadius:16,padding:4,boxShadow:'0 4px 16px rgba(0,0,0,0.06)',display:'flex',gap:2,flexWrap:'wrap'}}>
-          {[
-            ['home','🏠'],['news','📢'],['profile','👤'],['photos','📷'],
-            ['vitals','💗 バイタル'],['exercise','💪 運動'],
-            ...(hasFitness?[['fitness','🏃 体力測定']]:[]),
-            ['monitoring','📋 モニタリング'],['notes','📝 特記'],
-          ].map(([k,l])=>(
+      <div style={{maxWidth:1100,margin:'-12px auto 0',padding:'0 16px'}}>
+        <div style={{background:'white',borderRadius:16,padding:4,boxShadow:'0 4px 16px rgba(0,0,0,0.06)',display:'flex',gap:2}}>
+          {[['analysis','📊 分析（個人）'],['news','📢 お知らせ'],['photos','📷 写真']].map(([k,l])=>(
             <button key={k} onClick={()=>setTab(k)}
-              style={{flex:'1 1 auto',minWidth:60,padding:'8px 6px',borderRadius:10,border:'none',background:tab===k?'#6366f1':'transparent',color:tab===k?'white':'#475569',fontWeight:'bold',fontSize:11,cursor:'pointer'}}>
+              style={{flex:1,padding:'10px 8px',borderRadius:12,border:'none',background:tab===k?'#6366f1':'transparent',color:tab===k?'white':'#475569',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>
               {l}
             </button>
           ))}
         </div>
       </div>
-      <div style={{maxWidth:720,margin:'16px auto 0',padding:'0 16px 40px'}}>
-        {tab === 'home' && (
-          <div style={{display:'flex',flexDirection:'column',gap:12}}>
-            <div style={{background:'white',borderRadius:16,padding:'18px 20px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
-              <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:8}}>📢 最新のお知らせ</div>
-              {[...personalAnnouncements, ...announcements].slice(0,3).length === 0 ? (
-                <div style={{fontSize:13,color:'#94a3b8',padding:'8px 0'}}>現在お知らせはありません</div>
-              ) : (
-                [...personalAnnouncements, ...announcements].slice(0,3).map((a,i)=>(
-                  <div key={i} style={{padding:'10px 0',borderBottom:i<2?'1px solid #f1f5f9':'none'}}>
-                    <div style={{fontSize:13,fontWeight:'bold',color:'#1e293b'}}>{a.title}</div>
-                    <div style={{fontSize:11,color:'#94a3b8',marginTop:2}}>{a.date}</div>
-                  </div>
-                ))
-              )}
-            </div>
-            <div style={{background:'white',borderRadius:16,padding:'18px 20px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
-              <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:10}}>👤 ご利用者プロフィール</div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px 16px',fontSize:13}}>
-                <div><span style={{color:'#94a3b8'}}>年齢: </span><b>{age!==null?`${age}歳`:'—'}</b></div>
-                <div><span style={{color:'#94a3b8'}}>介護度: </span><b>{patient.careLevel||'—'}</b></div>
-                <div><span style={{color:'#94a3b8'}}>利用開始: </span><b>{patient.startDate?patient.startDate.replace(/-/g,'/'):'—'}</b></div>
-                <div><span style={{color:'#94a3b8'}}>事業所: </span><b style={{fontSize:11}}>{facility.name||'—'}</b></div>
-              </div>
-            </div>
-            <div style={{background:'white',borderRadius:16,padding:'18px 20px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
-              <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:8}}>📷 最近の写真</div>
-              {photos.length === 0 ? (
-                <div style={{fontSize:13,color:'#94a3b8',padding:'8px 0'}}>写真はまだ登録されていません</div>
-              ) : (
-                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>
-                  {photos.slice(0,6).map((p,i)=>(
-                    <img key={i} src={p.url} alt="" style={{width:'100%',aspectRatio:'1',objectFit:'cover',borderRadius:8}}/>
-                  ))}
-                </div>
-              )}
-            </div>
+      <div style={{maxWidth: tab==='analysis' ? 1200 : 720, margin:'16px auto 0',padding:'0 16px 40px'}}>
+        {tab === 'analysis' && (
+          <div style={{background:'white',borderRadius:16,boxShadow:'0 2px 8px rgba(0,0,0,0.04)',overflow:'hidden'}}>
+            <PersonalDashboardView
+              appData={data}
+              targetPatientId={pid}
+              familyMode={true}
+              hidePatientSelector={true}
+              navigateTo={()=>{}}
+              onShowPrintPreview={()=>{}}
+            />
           </div>
         )}
         {tab === 'news' && (
-          <div style={{background:'white',borderRadius:16,padding:'8px 0',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
+          <div style={{maxWidth:720,margin:'0 auto',background:'white',borderRadius:16,padding:'8px 0',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
             {[...personalAnnouncements.map(a=>({...a,_kind:'個別'})), ...announcements.map(a=>({...a,_kind:'全体'}))].length === 0 ? (
               <div style={{padding:'32px 20px',textAlign:'center',color:'#94a3b8',fontSize:13}}>お知らせはありません</div>
             ) : (
@@ -9096,40 +8971,13 @@ function FamilyPatientView({ data, patientId, onLogout }) {
                   </div>
                   <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>{a.title}</div>
                   <div style={{fontSize:13,color:'#475569',lineHeight:1.7,whiteSpace:'pre-wrap'}}>{a.body}</div>
-                  {a.attachments && a.attachments.length>0 && (
-                    <div style={{marginTop:8,display:'flex',flexWrap:'wrap',gap:6}}>
-                      {a.attachments.map((f,j)=>(
-                        <a key={j} href={f.url} download={f.name} style={{fontSize:11,fontWeight:'bold',padding:'6px 10px',background:'#f1f5f9',color:'#475569',borderRadius:8,textDecoration:'none',border:'1px solid #e2e8f0'}}>📎 {f.name}</a>
-                      ))}
-                    </div>
-                  )}
                 </div>
               ))
             )}
           </div>
         )}
-        {tab === 'profile' && (
-          <div style={{background:'white',borderRadius:16,padding:'20px 24px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
-            <div style={{fontSize:13,fontWeight:'bold',color:'#64748b',marginBottom:14,paddingBottom:8,borderBottom:'2px solid #f1f5f9'}}>基本情報</div>
-            <table style={{width:'100%',fontSize:13,borderCollapse:'collapse'}}>
-              <tbody>
-                {[
-                  ['氏名',patient.name],['ふりがな',patient.kana],['生年月日',patient.birthDate?patient.birthDate.replace(/-/g,'/'):'—'],
-                  ['年齢',age!==null?`${age}歳`:'—'],['性別',patient.gender||'—'],['介護度',patient.careLevel||'—'],
-                  ['利用開始日',patient.startDate?patient.startDate.replace(/-/g,'/'):'—'],
-                  ['事業所',facility.name||'—'],['事業所電話',facility.phone||'—']
-                ].map(([k,v],i)=>(
-                  <tr key={i} style={{borderBottom:'1px solid #f8fafc'}}>
-                    <td style={{padding:'10px 0',color:'#94a3b8',width:120,fontWeight:'bold'}}>{k}</td>
-                    <td style={{padding:'10px 0',color:'#1e293b',fontWeight:'bold'}}>{v||'—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
         {tab === 'photos' && (
-          <div style={{background:'white',borderRadius:16,padding:'20px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
+          <div style={{maxWidth:720,margin:'0 auto',background:'white',borderRadius:16,padding:'20px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
             {photos.length === 0 ? (
               <div style={{padding:'32px 20px',textAlign:'center',color:'#94a3b8',fontSize:13}}>📷 写真はまだ登録されていません</div>
             ) : (
@@ -9143,140 +8991,6 @@ function FamilyPatientView({ data, patientId, onLogout }) {
                 ))}
               </div>
             )}
-          </div>
-        )}
-        {tab === 'vitals' && (
-          <div style={{background:'white',borderRadius:16,padding:'18px 20px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
-            <div style={{fontSize:13,fontWeight:'bold',color:'#64748b',marginBottom:12,paddingBottom:8,borderBottom:'2px solid #f1f5f9'}}>💗 バイタル記録 (最新30件)</div>
-            {recentTickets.filter(r=>r.temp||r.bpUpSt||r.plSt).length === 0 ? (
-              <div style={{padding:'24px',textAlign:'center',color:'#94a3b8',fontSize:13}}>記録がありません</div>
-            ) : (
-              <div style={{overflow:'auto'}}>
-                <table style={{width:'100%',fontSize:12,borderCollapse:'collapse'}}>
-                  <thead>
-                    <tr style={{background:'#f8fafc',color:'#64748b'}}>
-                      <th style={{padding:'8px 6px',textAlign:'left',fontWeight:'bold',position:'sticky',left:0,background:'#f8fafc'}}>日付</th>
-                      <th style={{padding:'8px 6px'}}>体温</th>
-                      <th style={{padding:'8px 6px'}}>血圧(開始)</th>
-                      <th style={{padding:'8px 6px'}}>脈拍</th>
-                      <th style={{padding:'8px 6px'}}>血圧(終了)</th>
-                      <th style={{padding:'8px 6px'}}>脈拍</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recentTickets.filter(r=>r.temp||r.bpUpSt||r.plSt).map((r,i)=>(
-                      <tr key={i} style={{borderBottom:'1px solid #f1f5f9'}}>
-                        <td style={{padding:'6px',fontWeight:'bold',position:'sticky',left:0,background:'white'}}>{r.date}</td>
-                        <td style={{padding:'6px',textAlign:'center'}}>{r.temp?`${r.temp}℃`:'—'}</td>
-                        <td style={{padding:'6px',textAlign:'center'}}>{r.bpUpSt?`${r.bpUpSt}/${r.bpDnSt}`:'—'}</td>
-                        <td style={{padding:'6px',textAlign:'center'}}>{r.plSt||'—'}</td>
-                        <td style={{padding:'6px',textAlign:'center'}}>{r.bpUpEn?`${r.bpUpEn}/${r.bpDnEn}`:'—'}</td>
-                        <td style={{padding:'6px',textAlign:'center'}}>{r.plEn||'—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-        {tab === 'exercise' && (
-          <div style={{background:'white',borderRadius:16,padding:'18px 20px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
-            <div style={{fontSize:13,fontWeight:'bold',color:'#64748b',marginBottom:12,paddingBottom:8,borderBottom:'2px solid #f1f5f9'}}>💪 運動記録 (最新30件)</div>
-            {recentTickets.filter(r=>r.exercises && Object.values(r.exercises||{}).some(v=>v && v!=='ー' && v!=='×')).length === 0 ? (
-              <div style={{padding:'24px',textAlign:'center',color:'#94a3b8',fontSize:13}}>記録がありません</div>
-            ) : (
-              <div style={{display:'flex',flexDirection:'column',gap:8}}>
-                {recentTickets.filter(r=>r.exercises && Object.values(r.exercises||{}).some(v=>v && v!=='ー' && v!=='×')).map((r,i)=>{
-                  const ex = r.exercises || {};
-                  const items = Object.entries(ex).filter(([_,v])=>v && v!=='ー' && v!=='×');
-                  return (
-                    <div key={i} style={{padding:'12px',background:'#f8fafc',borderRadius:10}}>
-                      <div style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',marginBottom:6}}>{r.date}</div>
-                      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(110px,1fr))',gap:6}}>
-                        {items.map(([k,v])=>(
-                          <div key={k} style={{background:'white',padding:'6px 8px',borderRadius:6,border:'1px solid #e2e8f0',fontSize:12}}>
-                            <span style={{color:'#94a3b8',fontWeight:'bold'}}>{k}: </span>
-                            <span style={{color:'#1e293b',fontWeight:'bold'}}>{v}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-        {tab === 'fitness' && hasFitness && (
-          <div style={{background:'white',borderRadius:16,padding:'18px 20px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
-            <div style={{fontSize:13,fontWeight:'bold',color:'#64748b',marginBottom:12,paddingBottom:8,borderBottom:'2px solid #f1f5f9'}}>🏃 体力測定の推移</div>
-            <div style={{display:'flex',flexDirection:'column',gap:8}}>
-              {[...fitnessRecs].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,12).map((r,i)=>{
-                const measures = Object.entries(r).filter(([k,v])=>!['id','patientId','date','name'].includes(k) && v != null && v !== '');
-                return (
-                  <div key={i} style={{padding:'12px',background:'#f8fafc',borderRadius:10}}>
-                    <div style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',marginBottom:6}}>{r.date}</div>
-                    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))',gap:6}}>
-                      {measures.map(([k,v])=>(
-                        <div key={k} style={{background:'white',padding:'6px 8px',borderRadius:6,border:'1px solid #e2e8f0',fontSize:12}}>
-                          <span style={{color:'#94a3b8',fontWeight:'bold',fontSize:10}}>{k}</span><br/>
-                          <span style={{color:'#1e293b',fontWeight:'bold'}}>{String(v)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-        {tab === 'monitoring' && (
-          <div style={{background:'white',borderRadius:16,padding:'18px 20px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
-            <div style={{fontSize:13,fontWeight:'bold',color:'#64748b',marginBottom:12,paddingBottom:8,borderBottom:'2px solid #f1f5f9'}}>📋 モニタリング記録</div>
-            {monitoringRecs.length === 0 ? (
-              <div style={{padding:'24px',textAlign:'center',color:'#94a3b8',fontSize:13}}>モニタリング記録はまだありません</div>
-            ) : (
-              <div style={{display:'flex',flexDirection:'column',gap:10}}>
-                {[...monitoringRecs].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,6).map((m,i)=>(
-                  <div key={i} style={{padding:'14px',background:'#f0f9ff',border:'1px solid #bae6fd',borderRadius:10}}>
-                    <div style={{fontSize:11,fontWeight:'bold',color:'#0c4a6e',marginBottom:8,display:'flex',justifyContent:'space-between'}}>
-                      <span>{m.date||'—'}</span>
-                      {m.status && <span style={{background:m.status==='確定'?'#10b981':'#f59e0b',color:'white',padding:'2px 8px',borderRadius:6,fontSize:10}}>{m.status}</span>}
-                    </div>
-                    {m.summary && <div style={{fontSize:13,color:'#1e293b',lineHeight:1.7,whiteSpace:'pre-wrap'}}>{m.summary}</div>}
-                    {m.content && <div style={{fontSize:13,color:'#1e293b',lineHeight:1.7,whiteSpace:'pre-wrap',marginTop:6}}>{m.content}</div>}
-                    {!m.summary && !m.content && (
-                      <div style={{fontSize:12,color:'#475569',lineHeight:1.7}}>
-                        {Object.entries(m).filter(([k,v])=>!['id','patientId','date','status'].includes(k) && v).slice(0,5).map(([k,v])=>(
-                          <div key={k} style={{marginBottom:3}}><b style={{color:'#94a3b8'}}>{k}:</b> {String(v).slice(0,200)}</div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        {tab === 'notes' && (
-          <div style={{background:'white',borderRadius:16,padding:'18px 20px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
-            <div style={{fontSize:13,fontWeight:'bold',color:'#64748b',marginBottom:12,paddingBottom:8,borderBottom:'2px solid #f1f5f9'}}>📝 ご通所中の特記</div>
-            {visibleTokkiRecs.length === 0 ? (
-              <div style={{padding:'24px',textAlign:'center',color:'#94a3b8',fontSize:13}}>特記事項はありません</div>
-            ) : (
-              <div style={{display:'flex',flexDirection:'column',gap:8}}>
-                {visibleTokkiRecs.sort((a,b)=>parseTicketDate(b.date).localeCompare(parseTicketDate(a.date))).slice(0,30).map((r,i)=>(
-                  <div key={i} style={{padding:'12px 14px',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:10}}>
-                    <div style={{fontSize:11,fontWeight:'bold',color:'#92400e',marginBottom:4}}>{r.date}</div>
-                    <div style={{fontSize:13,color:'#1e293b',lineHeight:1.7,whiteSpace:'pre-wrap'}}>{r.displayText}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div style={{fontSize:10,color:'#94a3b8',marginTop:14,padding:10,background:'#f8fafc',borderRadius:8,lineHeight:1.6}}>
-              ※ ここには事業所スタッフが家族向けに公開している特記事項が表示されます。一部記録は事業所の判断で非表示にしている場合があります。
-            </div>
           </div>
         )}
       </div>
@@ -10935,14 +10649,28 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
 }
 
 // === PersonalDashboardView (簡易版) ===
-function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatientChange, isSidebarOpen, onShowPrintPreview }) {
+function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatientChange, isSidebarOpen, onShowPrintPreview, familyMode = false, hidePatientSelector = false }) {
+  // familyMode: 利用者家族・ケアマネ向け表示。一部セクション (詳細記録/欠席/休止) を非表示にし、印刷ボタンも隠す
+  // 特記の表示は familyTokkiOverrides で制御 (visible:false の記録は表示しない)
   const [selectedPatientId, setSelectedPatientId] = useState(targetPatientId || ((appData.patients||[]).length > 0 ? (appData.patients||[])[0].id : null));
+  const [patientSearch, setPatientSearch] = useState('');
+  const filteredPatientsForSelector = React.useMemo(() => {
+    const q = patientSearch.trim().toLowerCase();
+    if (!q) return appData.patients||[];
+    return (appData.patients||[]).filter(p =>
+      (p.name||'').toLowerCase().includes(q) ||
+      (p.kana||'').toLowerCase().includes(q) ||
+      String(p.id).includes(q)
+    );
+  }, [appData.patients, patientSearch]);
   const [baseMonth, setBaseMonth] = useState('2026-03');
   const [period, setPeriod] = useState('12'); // デフォルト1年
   const [customFrom, setCustomFrom] = useState('2026-01');
   const [customTo, setCustomTo]   = useState('2026-03');
   // セクション選択（プレビュー用） [id, label, size]
-  const ALL_SECTIONS = [['sec-basicinfo','基本情報','短'],['sec-kpi','基本指標','短'],['sec-trend','通所','長'],['sec-kibun','気分','中'],['sec-vital','バイタルトレンド','長'],['sec-exercise','運動トレンド','長'],['sec-fitness','体力測定','長'],['sec-absence','欠席一覧','短'],['sec-kyushi','休止一覧','短'],['sec-monitoring','モニタリング','中'],['sec-detail','詳細記録','長']];
+  const ALL_SECTIONS = familyMode
+    ? [['sec-basicinfo','基本情報','短'],['sec-kpi','基本指標','短'],['sec-trend','通所','長'],['sec-kibun','気分','中'],['sec-vital','バイタルトレンド','長'],['sec-exercise','運動トレンド','長'],['sec-fitness','体力測定','長'],['sec-monitoring','モニタリング','中']]
+    : [['sec-basicinfo','基本情報','短'],['sec-kpi','基本指標','短'],['sec-trend','通所','長'],['sec-kibun','気分','中'],['sec-vital','バイタルトレンド','長'],['sec-exercise','運動トレンド','長'],['sec-fitness','体力測定','長'],['sec-absence','欠席一覧','短'],['sec-kyushi','休止一覧','短'],['sec-monitoring','モニタリング','中'],['sec-detail','詳細記録','長']];
   // Hoisted from IIFEs to satisfy React hook rules
   const [vitalTooltip, setVitalTooltip] = useState(null);
   const [selExId, setSelExId] = useState(null);
@@ -11108,14 +10836,21 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
         </div>
         <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
           {/* 利用者プルダウン: かな昇順 + ア行/カ行... の optgroup でラベル付け */}
-          <select value={selectedPatientId||""} onChange={e=>{const id=Number(e.target.value);setSelectedPatientId(id);onPatientChange&&onPatientChange(id);}}
-            style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:10,padding:'6px 12px',fontSize:13,fontWeight:'bold',outline:'none',cursor:'pointer'}}>
-            {groupPatientsByKanaRow(appData.patients||[]).map(g => (
-              <optgroup key={g.label} label={g.label}>
-                {g.items.map(p => <option key={p.id} value={p.id} style={{color:'#1e293b'}}>{p.name}</option>)}
-              </optgroup>
-            ))}
-          </select>
+          {!hidePatientSelector && (
+            <>
+              <input type="text" placeholder="🔍 利用者を検索" value={patientSearch}
+                onChange={e=>setPatientSearch(e.target.value)}
+                style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:10,padding:'6px 12px',fontSize:12,fontWeight:'bold',outline:'none',width:130,fontFamily:'inherit'}}/>
+              <select value={selectedPatientId||""} onChange={e=>{const id=Number(e.target.value);setSelectedPatientId(id);onPatientChange&&onPatientChange(id);}}
+                style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:10,padding:'6px 12px',fontSize:13,fontWeight:'bold',outline:'none',cursor:'pointer'}}>
+                {groupPatientsByKanaRow(filteredPatientsForSelector).map(g => (
+                  <optgroup key={g.label} label={g.label}>
+                    {g.items.map(p => <option key={p.id} value={p.id} style={{color:'#1e293b'}}>{p.name}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+            </>
+          )}
           <div style={{display:'flex',background:'rgba(255,255,255,0.15)',borderRadius:10,overflow:'hidden',border:'1px solid rgba(255,255,255,0.3)'}}>
             {[['1','1ヶ月'],['3','3ヶ月'],['6','半年'],['12','1年'],['custom','期間指定']].map(([v,l])=>(
               <button key={v} onClick={()=>setPeriod(v)} style={{padding:'6px 10px',fontSize:12,fontWeight:'bold',color:period===v?'#1e40af':'white',background:period===v?'white':'transparent',border:'none',cursor:'pointer',borderRight:'1px solid rgba(255,255,255,0.2)',transition:'all 0.15s'}}>{l}</button>
@@ -11132,10 +10867,12 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           <span style={{background:'white',color:'#1e40af',borderRadius:8,padding:'6px 12px',fontSize:11,fontWeight:'bold',whiteSpace:'nowrap'}}>{rangeLabel}</span>
           {/* 「詳細記録も印刷」チェックボックスはポップアップ側に移動済 */}
           {/* 表示用ボタン: クリックでポップアップを開く（期間/月を選択させる） */}
+          {!familyMode && (
           <button type="button" onClick={()=>setShowPrintOptionsPopup(true)}
               style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:8,padding:'6px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
             <Printer size={14}/>印刷プレビュー
           </button>
+          )}
           {/* 隠しトリガー: ポップアップから .click() で発火される。既存の生成ロジックを温存。 */}
           <button type="button" id="personal-print-hidden-trigger" style={{display:'none'}} onClick={async()=>{
                     // 期間設定を保存して 3ヶ月チャンクで連続生成
@@ -12645,8 +12382,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             );
           })()}
         </div>
-        <div id="sec-absence" style={{scrollMarginTop:120,marginBottom:0}}><div onClick={()=>toggleSec('sec-absence')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:8,paddingBottom:6,borderBottom:'2px solid #e2e8f0',cursor:'pointer'}}><span>欠席・休業一覧</span><span style={{fontSize:14,color:'#94a3b8'}}>{isCol('sec-absence')?'▶':'▼'}</span></div></div>{/* === 欠席一覧 === */}
-        {!isCol('sec-absence') && records.filter(r=>r.status==='欠席'||r.status==='休業').length > 0 && (
+        {!familyMode && <><div id="sec-absence" style={{scrollMarginTop:120,marginBottom:0}}><div onClick={()=>toggleSec('sec-absence')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:8,paddingBottom:6,borderBottom:'2px solid #e2e8f0',cursor:'pointer'}}><span>欠席・休業一覧</span><span style={{fontSize:14,color:'#94a3b8'}}>{isCol('sec-absence')?'▶':'▼'}</span></div></div></>}{/* === 欠席一覧 === */}
+        {!familyMode && !isCol('sec-absence') && records.filter(r=>r.status==='欠席'||r.status==='休業').length > 0 && (
           <div style={{background:'white',borderRadius:14,boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #fecaca',overflow:'hidden',marginBottom:16}}>
             <div style={{padding:'12px 20px',borderBottom:'1px solid #fef2f2',background:'#fef2f2',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
               <div style={{fontSize:14,fontWeight:'bold',color:'#dc2626',display:'flex',alignItems:'center',gap:6}}>
@@ -12671,8 +12408,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           </div>
         )}
 
-        <div id="sec-kyushi" style={{scrollMarginTop:120,marginBottom:0}}><div onClick={()=>toggleSec('sec-kyushi')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:8,paddingBottom:6,borderBottom:'2px solid #e2e8f0',cursor:'pointer'}}><span>休止一覧</span><span style={{fontSize:14,color:'#94a3b8'}}>{isCol('sec-kyushi')?'▶':'▼'}</span></div></div>{/* === 休止一覧 === */}
-        {!isCol('sec-kyushi') && <div style={{background:'white',borderRadius:14,boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #fed7aa',overflow:'hidden',marginBottom:16}}>
+        {!familyMode && <><div id="sec-kyushi" style={{scrollMarginTop:120,marginBottom:0}}><div onClick={()=>toggleSec('sec-kyushi')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:8,paddingBottom:6,borderBottom:'2px solid #e2e8f0',cursor:'pointer'}}><span>休止一覧</span><span style={{fontSize:14,color:'#94a3b8'}}>{isCol('sec-kyushi')?'▶':'▼'}</span></div></div></>}{/* === 休止一覧 === */}
+        {!familyMode && !isCol('sec-kyushi') && <div style={{background:'white',borderRadius:14,boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #fed7aa',overflow:'hidden',marginBottom:16}}>
           <div style={{padding:'12px 20px',borderBottom:'1px solid #fff7ed',background:'#fff7ed',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
             <div style={{fontSize:14,fontWeight:'bold',color:'#c2410c',display:'flex',alignItems:'center',gap:6}}>
               <span style={{width:8,height:8,background:'#f97316',borderRadius:'50%',display:'inline-block'}}/>
@@ -12738,8 +12475,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             </div>
           )}
         </div>
-        <div id="sec-detail" style={{scrollMarginTop:120}}><div onClick={()=>toggleSec('sec-detail')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:8,paddingBottom:6,borderBottom:'2px solid #e2e8f0',cursor:'pointer',userSelect:'none'}}><span>詳細記録</span><span style={{fontSize:14,color:'#94a3b8'}}>{isCol('sec-detail')?'▶':'▼'}</span></div></div>{/* === 詳細記録テーブル === */}
-        {!isCol('sec-detail') && (()=>{
+        {!familyMode && <><div id="sec-detail" style={{scrollMarginTop:120}}><div onClick={()=>toggleSec('sec-detail')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:8,paddingBottom:6,borderBottom:'2px solid #e2e8f0',cursor:'pointer',userSelect:'none'}}><span>詳細記録</span><span style={{fontSize:14,color:'#94a3b8'}}>{isCol('sec-detail')?'▶':'▼'}</span></div></div></>}{/* === 詳細記録テーブル === */}
+        {!familyMode && !isCol('sec-detail') && (()=>{
           const detailMonths=[...new Set(records.map(r=>{const m=r.date.match(/(\d+)月/);return m?m[1]+'月':'—'}))];
           const detailRecs = detailMonth ? records.filter(r=>{const m=r.date.match(/(\d+)月/);return m&&m[1]+'月'===detailMonth;}) : records;
           return (
