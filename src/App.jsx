@@ -14637,6 +14637,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   const [deleteConfirmModal, setDeleteConfirmModal] = useState(false);
   const [docDeleteConfirm, setDocDeleteConfirm] = useState(null); // {key, imgId, name}
   const [newPatientModal, setNewPatientModal] = useState(false);
+  const [csvModal, setCsvModal] = useState({isOpen:false, mode:null, importText:'', error:''});
   const [newPatientName, setNewPatientName] = useState('');
   const [careLevelModal, setCareLevelModal] = useState(null); // {newValue, from, to, note, isCostBurden}
   const [cmChangeModal, setCmChangeModal] = useState(null); // {office, name, from, note}
@@ -15123,8 +15124,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${expiringPats.length > 0 ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-slate-100 text-slate-400 border border-slate-200'}`}>⚠ {expiringPats.length}名</span>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <button onClick={()=>{setNewPatientName('');setNewPatientModal(true);}} className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[12px] font-bold shadow active:scale-95 whitespace-nowrap shrink-0"><Plus size={13}/>新規</button>
+              <div className="flex items-center gap-1">
+                <button onClick={()=>{setNewPatientName('');setNewPatientModal(true);}} className="flex items-center gap-1 px-2 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[12px] font-bold shadow active:scale-95 whitespace-nowrap shrink-0"><Plus size={13}/>新規</button>
+                <button onClick={()=>setCsvModal({isOpen:true, mode:null, importText:'', error:''})} title="CSV入出力" className="flex items-center gap-1 px-2 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-[12px] font-bold shadow active:scale-95 whitespace-nowrap shrink-0">CSV</button>
                 <button onClick={() => setIsSidebarCollapsed(true)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-lg"><ChevronLeft size={18} /></button>
               </div>
             </div>
@@ -15581,6 +15583,113 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
           </div>
         </div>
       )}
+      {csvModal.isOpen && (() => {
+        // CSV ヘルパー: 主要フィールドのみ扱う (氏名・ふりがな・性別・生年月日・電話・住所・介護度・ケアマネ事業所・ケアマネ名・利用開始日・利用終了日・状態)
+        const HEADERS = ['利用者ID','氏名','ふりがな','性別','生年月日','電話番号','住所','介護度','ケアマネ事業所','ケアマネ担当者','利用開始日','利用終了日','状態'];
+        const FIELDS  = ['id','name','kana','gender','birthDate','phone','address','careLevel','cmOffice','cmName','startDate','endDate','status'];
+        const escCell = (v) => { const s = String(v??''); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
+        const buildCsv = () => {
+          const rows = [HEADERS.join(',')];
+          (appData.patients||[]).forEach(p => rows.push(FIELDS.map(f => escCell(p[f])).join(',')));
+          return rows.join('\n');
+        };
+        const downloadCsv = () => {
+          const csv = '﻿' + buildCsv(); // UTF-8 BOM (Excel 文字化け防止)
+          const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a'); a.href = url; a.download = `利用者名簿_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+          URL.revokeObjectURL(url);
+        };
+        // 簡易 CSV パーサ (引用符・カンマ含む値に対応)
+        const parseCsv = (text) => {
+          const lines = []; let cur = []; let buf = ''; let q = false;
+          for (let i = 0; i < text.length; i++) {
+            const c = text[i];
+            if (q) {
+              if (c === '"') { if (text[i+1] === '"') { buf += '"'; i++; } else { q = false; } }
+              else buf += c;
+            } else {
+              if (c === '"') q = true;
+              else if (c === ',') { cur.push(buf); buf = ''; }
+              else if (c === '\n' || c === '\r') {
+                if (buf || cur.length) { cur.push(buf); lines.push(cur); cur = []; buf = ''; }
+                if (c === '\r' && text[i+1] === '\n') i++;
+              } else buf += c;
+            }
+          }
+          if (buf || cur.length) { cur.push(buf); lines.push(cur); }
+          return lines;
+        };
+        const doImport = () => {
+          try {
+            const rows = parseCsv(csvModal.importText.replace(/^﻿/,''));
+            if (rows.length < 2) throw new Error('ヘッダー行とデータ行が必要です');
+            const header = rows[0];
+            const colIdx = FIELDS.map((f, i) => { const h = HEADERS[i]; return header.findIndex(x => x.trim() === h); });
+            const existing = [...(appData.patients||[])];
+            const existingIds = new Set(existing.map(p => p.id));
+            let maxId = Math.max(0, ...existing.map(p => p.id));
+            let added = 0, updated = 0;
+            for (let r = 1; r < rows.length; r++) {
+              const row = rows[r]; if (!row.some(c => (c||'').trim())) continue;
+              const rec = {};
+              FIELDS.forEach((f, i) => { rec[f] = (row[colIdx[i]] || '').trim(); });
+              const idNum = parseInt(rec.id);
+              if (!isNaN(idNum) && existingIds.has(idNum)) {
+                const idx = existing.findIndex(p => p.id === idNum);
+                existing[idx] = {...existing[idx], ...rec, id: idNum};
+                updated++;
+              } else {
+                maxId += 1;
+                const newPat = {id:maxId, kiou:'', ryui:'', scheduleAmPm:['','','','','','',''], pickupType:'fixed', pickupTimes:['','','','','','',''], autoDeleteAfter5Years:false, massageNeed:'通常', onyokuDenryo:'無し', pauseHistory:[], plannedExercises:{}, ...rec, id:maxId};
+                if (!newPat.status) newPat.status = '利用中';
+                existing.push(newPat);
+                added++;
+              }
+            }
+            onSave({...appData, patients: existing});
+            setCsvModal({isOpen:false, mode:null, importText:'', error:''});
+            alert(`取り込み完了: 新規 ${added} 件 / 更新 ${updated} 件`);
+          } catch (e) {
+            setCsvModal({...csvModal, error: e.message || String(e)});
+          }
+        };
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
+                <h2 className="text-base font-bold text-slate-800">利用者名簿 CSV 入出力</h2>
+                <button onClick={()=>setCsvModal({isOpen:false,mode:null,importText:'',error:''})} className="p-2 text-slate-400 hover:bg-slate-200 rounded-full"><X size={20}/></button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <button onClick={downloadCsv} className="p-4 rounded-xl border-2 border-blue-200 bg-blue-50 hover:bg-blue-100 text-left">
+                    <div className="text-sm font-bold text-blue-700 mb-1">📥 エクスポート</div>
+                    <div className="text-xs text-slate-600">現在の利用者名簿を CSV ファイルで保存（Excel/スプレッドシートで開けます）</div>
+                  </button>
+                  <button onClick={()=>setCsvModal({...csvModal, mode:'import'})} className="p-4 rounded-xl border-2 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-left">
+                    <div className="text-sm font-bold text-emerald-700 mb-1">📤 インポート</div>
+                    <div className="text-xs text-slate-600">CSV を貼り付けて一括追加・更新（既存ID は更新、新規ID は追加）</div>
+                  </button>
+                </div>
+                <div className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-3">
+                  <b>対応列:</b> {HEADERS.join(' / ')}<br/>
+                  <b>ヒント:</b> エクスポートしたCSVをExcelで編集→再インポートで一括変更できます。<b>利用者ID</b> 空欄なら新規追加、既存IDなら更新。
+                </div>
+                {csvModal.mode === 'import' && (
+                  <div className="space-y-2">
+                    <textarea value={csvModal.importText} onChange={e=>setCsvModal({...csvModal,importText:e.target.value,error:''})}
+                      placeholder="ここにCSVを貼り付け（1行目はヘッダー）"
+                      className="w-full h-48 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono outline-none"/>
+                    {csvModal.error && <div className="text-xs font-bold text-red-600">エラー: {csvModal.error}</div>}
+                    <button disabled={!csvModal.importText.trim()} onClick={doImport} className="w-full py-2.5 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40">取り込みを実行</button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {newPatientModal && (<div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"><div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6"><h3 className="text-lg font-bold text-slate-800 mb-4 text-center">新規利用者の追加</h3><div className="mb-4"><label className="block text-sm font-bold text-slate-600 mb-1.5">利用者名</label><input type="text" autoFocus value={newPatientName} onChange={e=>setNewPatientName(e.target.value.replace(/\u3000/g," "))} onKeyDown={e=>{if(e.nativeEvent.isComposing||e.isComposing) return; if(e.key==='Enter'&&newPatientName.trim()){const newId=Math.max(0,...appData.patients.map(p=>p.id))+1;const newPat={id:newId,name:newPatientName.trim(),kana:'',status:'利用中',kiou:'',ryui:'',scheduleAmPm:['','','','','','',''],pickupType:'fixed',pickupTimes:['','','','','','',''],startDate:'',endDate:'',autoDeleteAfter5Years:false,massageNeed:'通常',onyokuDenryo:'無し',pauseHistory:[],plannedExercises:{u1:'',u2:'',u3:'',u4:'',u5:'',u6:'',heikobo:'',fumidai:'',stepper:'',okugai:'',onyoku:''},careLevel:'',gender:'',birthDate:'',phone:''};onSave({...appData,patients:[...appData.patients,newPat]});setEditingPatientId(newId);setPatientStatusFilter('利用中');setNewPatientModal(false);}}} placeholder="例: 介護 太郎" className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"/></div><div className="flex gap-3"><button onClick={()=>setNewPatientModal(false)} className="flex-1 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">キャンセル</button><button disabled={!newPatientName.trim()} onClick={()=>{const newId=Math.max(0,...appData.patients.map(p=>p.id))+1;const newPat={id:newId,name:newPatientName.trim(),kana:'',status:'利用中',kiou:'',ryui:'',scheduleAmPm:['','','','','','',''],pickupType:'fixed',pickupTimes:['','','','','','',''],startDate:'',endDate:'',autoDeleteAfter5Years:false,massageNeed:'通常',onyokuDenryo:'無し',pauseHistory:[],plannedExercises:{u1:'',u2:'',u3:'',u4:'',u5:'',u6:'',heikobo:'',fumidai:'',stepper:'',okugai:'',onyoku:''},careLevel:'',gender:'',birthDate:'',phone:''};onSave({...appData,patients:[...appData.patients,newPat]});setEditingPatientId(newId);setPatientStatusFilter('利用中');setNewPatientModal(false);}} className="flex-1 py-2.5 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-lg active:scale-95">追加する</button></div></div></div>)}
       {deleteConfirmModal && (<div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"><div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 text-center"><div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4"><Trash2 size={32} /></div><h3 className="text-lg font-bold text-slate-800 mb-2">完全に削除しますか？</h3><p className="text-sm text-slate-500 mb-6">全データが消去されます。元に戻せません。</p><div className="flex gap-3 justify-center"><button onClick={() => setDeleteConfirmModal(false)} className="px-6 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">キャンセル</button><button onClick={executeDelete} className="px-6 py-2.5 rounded-xl font-bold text-white bg-red-600 hover:bg-red-700 shadow-lg active:scale-95">削除する</button></div></div></div>)}
       {careLevelModal && (
@@ -16629,11 +16738,13 @@ function SettingsView({ appData, onSave, dirtyRef }) {
                           <input type="password" value={pwChange.new1} onChange={e=>setPwChange({...pwChange,new1:e.target.value})} placeholder="新しいパスワード" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
                           <input type="password" value={pwChange.new2} onChange={e=>setPwChange({...pwChange,new2:e.target.value})} placeholder="新しいパスワード（確認）" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
                           {pwChange.error && <div className="text-xs font-bold text-red-600">{pwChange.error}</div>}
+                          <div className="text-[11px] text-slate-500 leading-relaxed">パスワード要件: <b>8文字以上</b>、<b>英字</b>と<b>数字</b>を両方含む</div>
                           <button type="button" onClick={()=>{
                             if(!pwChange.old || !pwChange.new1 || !pwChange.new2){ setPwChange(p=>({...p,error:'全ての項目を入力してください'})); return; }
                             if(pwChange.old !== cred.pass){ setPwChange(p=>({...p,error:'現在のパスワードが正しくありません'})); return; }
                             if(pwChange.new1 !== pwChange.new2){ setPwChange(p=>({...p,error:'新しいパスワードが一致しません'})); return; }
-                            if(pwChange.new1.length < 4){ setPwChange(p=>({...p,error:'新しいパスワードは4文字以上にしてください'})); return; }
+                            if(pwChange.new1.length < 8){ setPwChange(p=>({...p,error:'新しいパスワードは8文字以上にしてください'})); return; }
+                            if(!/[A-Za-z]/.test(pwChange.new1) || !/[0-9]/.test(pwChange.new1)){ setPwChange(p=>({...p,error:'新しいパスワードは英字と数字を両方含めてください'})); return; }
                             const newCreds = [...allCreds]; newCreds[0] = {...cred, pass: pwChange.new1};
                             onSave({...appData, systemSettings:{...appData.systemSettings, loginCredentials: newCreds}});
                             setPwChange({old:'',new1:'',new2:'',error:'',ok:'パスワードを変更しました'});
