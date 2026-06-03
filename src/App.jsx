@@ -8150,22 +8150,340 @@ function SidebarItem({ icon, label, active, onClick, badge }) {
   );
 }
 
-// === 家族用閲覧画面 (URL ?family=<token> でアクセス) ===
-function FamilyView({ appData, patientId }) {
-  // localStorage から保存済みデータを優先（appData 未提供時に備える）
+// === 家族閲覧 管理画面 (事業所側) ===
+function FamilyAdminView({ appData, onSave }) {
+  const [tab, setTab] = useState('news');
+  const [newsForm, setNewsForm] = useState({ scope:'all', patientId:'', title:'', body:'', date: new Date().toISOString().slice(0,10) });
+  const [photoForm, setPhotoForm] = useState({ caption:'', class:'', patientId:'', files:[] });
+  const [photoFilter, setPhotoFilter] = useState('');
+  const patients = (appData.patients||[]).filter(p => p.status === '利用中');
+  const allAnnouncements = appData.familyAnnouncements || [];
+  const personalAnnouncements = appData.familyPersonalAnnouncements || [];
+  const photos = appData.familyPhotos || [];
+  const accounts = appData.familyAccounts || [];
+  const photoClasses = Array.from(new Set(photos.map(p => p.class).filter(Boolean)));
+  const filteredPhotos = photoFilter ? photos.filter(p => p.class === photoFilter) : photos;
+  const submitNews = () => {
+    if (!newsForm.title.trim()) { alert('タイトルを入力してください'); return; }
+    if (newsForm.scope === 'patient' && !newsForm.patientId) { alert('利用者を選択してください'); return; }
+    const item = {
+      id: `news_${Date.now()}`,
+      title: newsForm.title.trim(),
+      body: newsForm.body,
+      date: newsForm.date,
+    };
+    if (newsForm.scope === 'all') {
+      onSave({ ...appData, familyAnnouncements: [item, ...allAnnouncements] });
+    } else {
+      onSave({ ...appData, familyPersonalAnnouncements: [{...item, patientId: parseInt(newsForm.patientId,10)}, ...personalAnnouncements] });
+    }
+    setNewsForm({ scope:'all', patientId:'', title:'', body:'', date: new Date().toISOString().slice(0,10) });
+  };
+  const deleteNews = (kind, id) => {
+    if (!window.confirm('このお知らせを削除しますか？')) return;
+    if (kind === 'all') {
+      onSave({ ...appData, familyAnnouncements: allAnnouncements.filter(a => a.id !== id) });
+    } else {
+      onSave({ ...appData, familyPersonalAnnouncements: personalAnnouncements.filter(a => a.id !== id) });
+    }
+  };
+  const handlePhotoUpload = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    const readers = files.map(f => new Promise(res => {
+      const reader = new FileReader();
+      reader.onload = () => res({ url: reader.result, name: f.name });
+      reader.readAsDataURL(f);
+    }));
+    Promise.all(readers).then(items => {
+      const pid = photoForm.patientId ? parseInt(photoForm.patientId,10) : null;
+      const newPhotos = items.map((it,i) => ({
+        id:`ph_${Date.now()}_${i}_${Math.random().toString(36).slice(-4)}`,
+        url: it.url,
+        name: it.name,
+        caption: photoForm.caption,
+        class: photoForm.class,
+        date: new Date().toISOString().slice(0,10),
+        patientId: pid,  // null = 全員に表示
+      }));
+      onSave({ ...appData, familyPhotos: [...newPhotos, ...photos] });
+      setPhotoForm({ caption:'', class: photoForm.class, patientId:'', files:[] });
+      e.target.value = '';
+    });
+  };
+  const deletePhoto = (id) => {
+    if (!window.confirm('この写真を削除しますか？')) return;
+    onSave({ ...appData, familyPhotos: photos.filter(p => p.id !== id) });
+  };
+  return (
+    <div className="h-full overflow-auto bg-slate-50 p-6">
+      <div className="max-w-5xl mx-auto">
+        <div className="flex items-center gap-2 mb-4 bg-white rounded-2xl p-1.5 shadow-sm border border-slate-200">
+          {[['news','📢 お知らせ'],['photos','📷 写真'],['accounts','👥 アカウント一覧']].map(([k,l])=>(
+            <button key={k} onClick={()=>setTab(k)}
+              className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors ${tab===k?'bg-violet-600 text-white shadow':'text-slate-500 hover:bg-slate-100'}`}>
+              {l}
+            </button>
+          ))}
+        </div>
+        {tab === 'news' && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+              <h3 className="text-base font-bold text-slate-800 mb-4">📢 お知らせを投稿</h3>
+              <div className="space-y-3">
+                <div className="flex gap-2">
+                  <label className={`flex-1 px-4 py-2.5 rounded-xl border-2 cursor-pointer text-center font-bold text-sm transition-colors ${newsForm.scope==='all'?'bg-violet-50 border-violet-400 text-violet-700':'bg-white border-slate-200 text-slate-500'}`}>
+                    <input type="radio" checked={newsForm.scope==='all'} onChange={()=>setNewsForm(f=>({...f,scope:'all'}))} className="hidden"/>
+                    🌐 全体に表示
+                  </label>
+                  <label className={`flex-1 px-4 py-2.5 rounded-xl border-2 cursor-pointer text-center font-bold text-sm transition-colors ${newsForm.scope==='patient'?'bg-violet-50 border-violet-400 text-violet-700':'bg-white border-slate-200 text-slate-500'}`}>
+                    <input type="radio" checked={newsForm.scope==='patient'} onChange={()=>setNewsForm(f=>({...f,scope:'patient'}))} className="hidden"/>
+                    👤 個別に表示
+                  </label>
+                </div>
+                {newsForm.scope === 'patient' && (
+                  <select value={newsForm.patientId} onChange={e=>setNewsForm(f=>({...f,patientId:e.target.value}))}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none">
+                    <option value="">利用者を選択...</option>
+                    {patients.map(p => <option key={p.id} value={p.id}>{p.name}{p.kana?` (${p.kana})`:''}</option>)}
+                  </select>
+                )}
+                <div className="grid grid-cols-4 gap-3">
+                  <div className="col-span-3">
+                    <label className="block text-xs font-bold text-slate-500 mb-1">タイトル</label>
+                    <input value={newsForm.title} onChange={e=>setNewsForm(f=>({...f,title:e.target.value}))} placeholder="例: 8月のイベントのお知らせ" className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">表示日</label>
+                    <input type="date" value={newsForm.date} onChange={e=>setNewsForm(f=>({...f,date:e.target.value}))} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">本文</label>
+                  <textarea value={newsForm.body} onChange={e=>setNewsForm(f=>({...f,body:e.target.value}))}
+                    placeholder="お知らせ内容を入力..." rows={4}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm outline-none resize-none"/>
+                </div>
+                <button onClick={submitNews} className="w-full py-2.5 rounded-xl font-bold text-white bg-violet-600 hover:bg-violet-700 shadow active:scale-95">投稿する</button>
+              </div>
+            </div>
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200">
+              <h3 className="text-sm font-bold text-slate-700 px-5 py-3 border-b border-slate-100">投稿済みお知らせ ({allAnnouncements.length + personalAnnouncements.length}件)</h3>
+              {allAnnouncements.length + personalAnnouncements.length === 0 ? (
+                <div className="text-xs text-slate-400 text-center py-10">まだお知らせがありません</div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {[...allAnnouncements.map(a=>({...a,_kind:'all'})), ...personalAnnouncements.map(a=>({...a,_kind:'patient'}))].sort((a,b)=>b.date.localeCompare(a.date)).map(a => {
+                    const pat = a._kind === 'patient' ? patients.find(p=>p.id===a.patientId) : null;
+                    return (
+                      <div key={a.id} className="px-5 py-3 flex items-start justify-between gap-3 hover:bg-slate-50">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${a._kind==='all'?'bg-blue-100 text-blue-700':'bg-amber-100 text-amber-700'}`}>{a._kind==='all'?'全体':`個別: ${pat?.name||'不明'}`}</span>
+                            <span className="text-[11px] text-slate-400">{a.date}</span>
+                          </div>
+                          <div className="text-sm font-bold text-slate-800">{a.title}</div>
+                          {a.body && <div className="text-xs text-slate-500 mt-1 line-clamp-2">{a.body}</div>}
+                        </div>
+                        <button onClick={()=>deleteNews(a._kind, a.id)} className="px-2 py-1 text-[11px] font-bold bg-red-100 hover:bg-red-200 text-red-600 rounded">削除</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        {tab === 'photos' && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+              <h3 className="text-base font-bold text-slate-800 mb-4">📷 写真をアップロード</h3>
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">クラス / カテゴリ (任意)</label>
+                    <input value={photoForm.class} onChange={e=>setPhotoForm(f=>({...f,class:e.target.value}))} placeholder="例: 7月誕生会" list="photo-classes" className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm outline-none"/>
+                    <datalist id="photo-classes">{photoClasses.map(c=><option key={c} value={c}/>)}</datalist>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">対象利用者</label>
+                    <select value={photoForm.patientId} onChange={e=>setPhotoForm(f=>({...f,patientId:e.target.value}))} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none">
+                      <option value="">全員に表示</option>
+                      {patients.map(p => <option key={p.id} value={p.id}>{p.name}のみ</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">キャプション (任意)</label>
+                    <input value={photoForm.caption} onChange={e=>setPhotoForm(f=>({...f,caption:e.target.value}))} placeholder="例: 誕生会の様子" className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm outline-none"/>
+                  </div>
+                </div>
+                <label className="block">
+                  <span className="block text-xs font-bold text-slate-500 mb-1">写真を選択（複数可）</span>
+                  <input type="file" accept="image/*" multiple onChange={handlePhotoUpload} className="w-full text-xs font-bold text-slate-500 file:mr-3 file:px-4 file:py-2 file:rounded-lg file:border-0 file:bg-violet-100 file:text-violet-700 file:font-bold hover:file:bg-violet-200"/>
+                </label>
+                <div className="text-[10px] text-slate-400 leading-relaxed">
+                  ※「全員に表示」: 全利用者の家族画面に表示されます<br/>
+                  ※「○○のみ」: その利用者の家族のみ閲覧できます（個人写真用）<br/>
+                  ※ クラス名は絞り込み検索用です（誕生会・体操クラス等で分類）<br/>
+                  ※ 大きな写真は自動圧縮されないので、事前にリサイズ推奨
+                </div>
+              </div>
+            </div>
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-bold text-slate-700">アップロード済み写真 ({photos.length}件)</h3>
+                <select value={photoFilter} onChange={e=>setPhotoFilter(e.target.value)} className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none">
+                  <option value="">全クラス</option>
+                  {photoClasses.map(c=><option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              {filteredPhotos.length === 0 ? (
+                <div className="text-xs text-slate-400 text-center py-10">写真がありません</div>
+              ) : (
+                <div className="grid grid-cols-4 md:grid-cols-6 gap-2">
+                  {filteredPhotos.map(p => (
+                    <div key={p.id} className="relative group">
+                      <img src={p.url} alt="" className="w-full aspect-square object-cover rounded-lg"/>
+                      <button onClick={()=>deletePhoto(p.id)} className="absolute top-1 right-1 w-6 h-6 bg-red-600 text-white rounded-full text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity shadow">✕</button>
+                      {p.class && <div className="absolute bottom-1 left-1 text-[9px] font-bold bg-black/60 text-white px-1.5 py-0.5 rounded">{p.class}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        {tab === 'accounts' && (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
+              <h3 className="text-sm font-bold text-slate-700">家族アカウント一覧 ({accounts.length}件)</h3>
+              <span className="text-[11px] text-slate-500">追加・編集は利用者マスタ管理 → 各利用者の「家族アカウント」ボタンから</span>
+            </div>
+            {accounts.length === 0 ? (
+              <div className="text-xs text-slate-400 text-center py-10">まだアカウントがありません</div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {accounts.map(a => {
+                  const pat = patients.find(p=>p.id===a.patientId) || (appData.patients||[]).find(p=>p.id===a.patientId);
+                  return (
+                    <div key={a.id} className="px-5 py-3 flex items-center gap-4 text-sm">
+                      <div className="w-40 font-bold text-slate-800 truncate">{pat?.name || '不明な利用者'} 様</div>
+                      <div className="flex-1 font-mono text-xs text-slate-600">{a.username}</div>
+                      <div className="font-mono text-xs text-slate-400">{'•'.repeat((a.password||'').length)}</div>
+                      <div className="text-xs text-slate-400 w-24 text-right">{a.createdAt||''}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// === 家族用閲覧 - ログイン → 利用者ごとの画面 ===
+function FamilyView() {
+  // データを localStorage から読み出し
   const [data, setData] = useState(()=>{
-    if (appData && appData.patients) return appData;
     try {
       const saved = JSON.parse(localStorage.getItem('daycareAppData_v3')||localStorage.getItem('daycareAppData_v2')||'null');
-      return saved || { patients: [], systemSettings: {} };
-    } catch { return { patients: [], systemSettings: {} }; }
+      return saved || { patients: [], systemSettings: {}, familyAccounts: [] };
+    } catch { return { patients: [], systemSettings: {}, familyAccounts: [] }; }
   });
+  // ログイン状態 (sessionStorage で同一タブ内のみ保持)
+  const [authPid, setAuthPid] = useState(()=> sessionStorage.getItem('familyAuthPid') || null);
+  const [loginForm, setLoginForm] = useState({ username:'', password:'', error:'', showPw:false });
+  // データ更新を購読 (事業所側で更新されたら反映)
+  useEffect(()=>{
+    const reload = () => {
+      try {
+        const saved = JSON.parse(localStorage.getItem('daycareAppData_v3')||'null');
+        if (saved) setData(saved);
+      } catch {}
+    };
+    window.addEventListener('storage', reload);
+    const t = setInterval(reload, 5000); // 5秒ごとにポーリング (同タブの別操作は storage イベント発火しないため)
+    return () => { window.removeEventListener('storage', reload); clearInterval(t); };
+  }, []);
+  const facility = data.systemSettings?.facilityInfo || {};
+  // 未ログイン → ログイン画面
+  if (!authPid) {
+    const handleLogin = (e) => {
+      e.preventDefault();
+      const acc = (data.familyAccounts||[]).find(a =>
+        (a.username||'').trim().toLowerCase() === loginForm.username.trim().toLowerCase() &&
+        a.password === loginForm.password
+      );
+      if (!acc) {
+        setLoginForm(f=>({...f, error:'IDまたはパスワードが正しくありません'}));
+        return;
+      }
+      sessionStorage.setItem('familyAuthPid', String(acc.patientId));
+      setAuthPid(String(acc.patientId));
+    };
+    return (
+      <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#6366f1 0%,#8b5cf6 50%,#a855f7 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:16,fontFamily:'"Hiragino Sans","Yu Gothic",sans-serif'}}>
+        <div style={{width:'100%',maxWidth:380}}>
+          <div style={{textAlign:'center',color:'white',marginBottom:24}}>
+            <div style={{fontSize:36,marginBottom:8}}>👨‍👩‍👧</div>
+            <div style={{fontSize:13,opacity:0.9,fontWeight:'bold',letterSpacing:1}}>{facility.name||'デイケアサービス'}</div>
+            <div style={{fontSize:20,fontWeight:'bold',marginTop:4}}>ご家族専用ログイン</div>
+          </div>
+          <form onSubmit={handleLogin} style={{background:'white',borderRadius:24,padding:28,boxShadow:'0 20px 60px rgba(0,0,0,0.25)'}}>
+            <div style={{marginBottom:14}}>
+              <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>ログインID</label>
+              <input value={loginForm.username} onChange={e=>setLoginForm(f=>({...f,username:e.target.value,error:''}))} autoComplete="username"
+                placeholder="例: inoue_family" autoFocus
+                style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
+            </div>
+            <div style={{marginBottom:8}}>
+              <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>パスワード</label>
+              <div style={{position:'relative'}}>
+                <input type={loginForm.showPw?'text':'password'} value={loginForm.password} onChange={e=>setLoginForm(f=>({...f,password:e.target.value,error:''}))} autoComplete="current-password"
+                  placeholder="••••••••"
+                  style={{width:'100%',padding:'12px 40px 12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
+                <button type="button" onClick={()=>setLoginForm(f=>({...f,showPw:!f.showPw}))}
+                  style={{position:'absolute',right:8,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',fontSize:12,fontWeight:'bold',color:'#94a3b8'}}>
+                  {loginForm.showPw?'隠す':'表示'}
+                </button>
+              </div>
+            </div>
+            {loginForm.error && <div style={{color:'#ef4444',fontSize:12,fontWeight:'bold',marginBottom:12,textAlign:'center'}}>{loginForm.error}</div>}
+            <button type="submit"
+              style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',marginTop:12,boxShadow:'0 4px 12px rgba(99,102,241,0.3)'}}>
+              ログイン
+            </button>
+            <p style={{fontSize:10,color:'#94a3b8',textAlign:'center',marginTop:16,lineHeight:1.6}}>
+              ログイン情報は事業所から<br/>お渡しされた紙またはメールでご確認ください
+            </p>
+          </form>
+          <div style={{textAlign:'center',marginTop:20,fontSize:11,color:'rgba(255,255,255,0.85)'}}>
+            お困りの場合は事業所までお問い合わせください<br/>
+            {facility.phone && <span style={{fontWeight:'bold'}}>📞 {facility.phone}</span>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  const handleLogout = () => {
+    sessionStorage.removeItem('familyAuthPid');
+    setAuthPid(null);
+    setLoginForm({ username:'', password:'', error:'', showPw:false });
+  };
+  return <FamilyPatientView data={data} patientId={authPid} onLogout={handleLogout} />;
+}
+
+// === 家族画面 - 利用者ごとのコンテンツ ===
+function FamilyPatientView({ data, patientId, onLogout }) {
+  const [tab, setTab] = useState('home');
   const pid = parseInt(patientId, 10);
   const patient = (data.patients||[]).find(p => p.id === pid || p.id === patientId);
   const facility = data.systemSettings?.facilityInfo || {};
   const announcements = data.familyAnnouncements || [];
   const personalAnnouncements = (data.familyPersonalAnnouncements||[]).filter(a => a.patientId === pid || a.patientId === patientId);
-  const photos = (data.familyPhotos||[]).filter(ph => ph.patientId === pid || ph.patientId === patientId);
+  const photos = (data.familyPhotos||[]).filter(ph => ph.patientId == null || ph.patientId === pid || ph.patientId === patientId);
   const calcAge = (bd) => { if(!bd) return null; const d=new Date(bd); const t=new Date(); let a=t.getFullYear()-d.getFullYear(); const m=t.getMonth()-d.getMonth(); if(m<0||(m===0&&t.getDate()<d.getDate())) a--; return a; };
   if (!patient) {
     return (
@@ -8179,14 +8497,20 @@ function FamilyView({ appData, patientId }) {
     );
   }
   const age = calcAge(patient.birthDate);
-  const [tab, setTab] = useState('home');
   return (
     <div style={{minHeight:'100vh',background:'linear-gradient(180deg,#f8fafc 0%,#f1f5f9 100%)',fontFamily:'"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",sans-serif',color:'#1e293b'}}>
       <div style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',padding:'28px 20px 20px',boxShadow:'0 2px 12px rgba(99,102,241,0.25)'}}>
-        <div style={{maxWidth:720,margin:'0 auto'}}>
-          <div style={{fontSize:11,opacity:0.85,fontWeight:'bold',letterSpacing:1}}>{facility.name||'デイケアサービス'} 家族用閲覧</div>
-          <div style={{fontSize:22,fontWeight:'bold',marginTop:4}}>{patient.name} 様</div>
-          {patient.kana && <div style={{fontSize:12,opacity:0.85,marginTop:2}}>{patient.kana}</div>}
+        <div style={{maxWidth:720,margin:'0 auto',display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12}}>
+          <div>
+            <div style={{fontSize:11,opacity:0.85,fontWeight:'bold',letterSpacing:1}}>{facility.name||'デイケアサービス'} 家族用閲覧</div>
+            <div style={{fontSize:22,fontWeight:'bold',marginTop:4}}>{patient.name} 様</div>
+            {patient.kana && <div style={{fontSize:12,opacity:0.85,marginTop:2}}>{patient.kana}</div>}
+          </div>
+          {onLogout && (
+            <button onClick={onLogout} style={{background:'rgba(255,255,255,0.18)',color:'white',border:'1px solid rgba(255,255,255,0.3)',borderRadius:10,padding:'6px 12px',fontSize:11,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>
+              ログアウト
+            </button>
+          )}
         </div>
       </div>
       <div style={{maxWidth:720,margin:'-12px auto 0',padding:'0 16px'}}>
@@ -8311,13 +8635,11 @@ function FamilyView({ appData, patientId }) {
 
 // === メインアプリケーション ===
 export default function App() {
-  // 家族用閲覧モード判定（hooks 前に決まる定数のみ）
-  const familyPatientId = React.useMemo(()=>{
+  // 家族用閲覧モード判定: ?family が含まれていれば家族用ログイン画面に遷移
+  const isFamilyMode = React.useMemo(()=>{
     try {
-      const p = new URLSearchParams(window.location.search).get('family');
-      if (!p) return null;
-      return decodeURIComponent(escape(atob(p)));
-    } catch { return null; }
+      return new URLSearchParams(window.location.search).has('family');
+    } catch { return false; }
   }, []);
   const [currentView, setCurrentView] = useState('master');
   const [appData, setAppData] = useState(()=>{
@@ -8496,8 +8818,8 @@ export default function App() {
   };
 
   // ── ログイン画面 ──────────────────────────
-  if (familyPatientId) {
-    return <FamilyView appData={appData} patientId={familyPatientId} />;
+  if (isFamilyMode) {
+    return <FamilyView />;
   }
   if (!session) {
     return (
@@ -8723,6 +9045,7 @@ export default function App() {
                 <SidebarItem icon={<Users size={18} />} label="利用者マスタ管理" active={currentView === 'master'} onClick={() => navigateTo('master')} />
                 <SidebarItem icon={<BarChart3 size={18} />} label="分析（個人）" active={currentView === 'dash_personal'} onClick={() => navigateTo('dash_personal')} />
                 <SidebarItem icon={<TrendingUp size={18} />} label="分析（稼働）" active={currentView === 'dash_operation'} onClick={() => navigateTo('dash_operation')} />
+                <SidebarItem icon={<QrCode size={18} />} label="家族閲覧 管理" active={currentView === 'family_admin'} onClick={() => navigateTo('family_admin')} />
                 <SidebarItem icon={<Settings size={18} />} label="各種設定" active={currentView === 'settings'} onClick={() => navigateTo('settings')} />
               </div>
             </div>
@@ -8745,6 +9068,7 @@ export default function App() {
                  currentView === 'master' ? '利用者マスタ管理' :
                  currentView === 'dash_personal' ? '分析（個人）' :
                  currentView === 'dash_operation' ? '分析（稼働）' :
+                 currentView === 'family_admin' ? '家族閲覧 管理' :
                  currentView === 'settings' ? '各種設定' : 'システム画面'}
               </h1>
             </div>
@@ -8764,6 +9088,7 @@ export default function App() {
              currentView === 'master' ? <MasterView appData={appData} onSave={handleSaveToCloud} targetPatientId={targetPatientId} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={masterDirtyRef} saveFnRef={masterSaveFnRef} /> :
              currentView === 'dash_personal' ? <PersonalDashboardView appData={appData} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  navigateTo={navigateTo} onPatientChange={setTargetPatientId} isSidebarOpen={isSidebarOpen} /> :
              currentView === 'settings' ? <SettingsView appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} /> :
+             currentView === 'family_admin' ? <FamilyAdminView appData={appData} onSave={handleSaveToCloud} /> :
              currentView === 'diary' ? <DailyLogView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} dirtyRef={diaryDirtyRef} /> :
              currentView === 'absence_fax' ? <AbsenceFaxView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={absenceDirtyRef} /> :
              currentView === 'general_fax' ? <GeneralFaxView appData={appData} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
@@ -14249,11 +14574,19 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                 </>;
               })()}
             </div>
-            <div className="flex flex-col items-center shrink-0 border-l border-slate-400 pl-2">
-              <span className="text-[8px] font-bold text-blue-700 leading-tight text-center">ご家族<br/>専用</span>
-              <QrCode size={40} className="text-slate-800" strokeWidth={1.5} />
-              <span className="text-[7px] text-slate-500 leading-tight text-center">詳細はこちら</span>
-            </div>
+            {(() => {
+              const familyLoginUrl = (typeof window !== 'undefined')
+                ? `${window.location.origin}${window.location.pathname.replace(/\/+$/, '')}/?family`
+                : '/?family';
+              const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=2&data=${encodeURIComponent(familyLoginUrl)}`;
+              return (
+                <div className="flex flex-col items-center shrink-0 border-l border-slate-400 pl-2">
+                  <span className="text-[8px] font-bold text-blue-700 leading-tight text-center">ご家族<br/>専用</span>
+                  <img src={qrSrc} alt="家族用QR" style={{width:48,height:48,objectFit:'contain'}} crossOrigin="anonymous"/>
+                  <span className="text-[7px] text-slate-500 leading-tight text-center">QRから<br/>ログイン</span>
+                </div>
+              );
+            })()}
           </div>
 
           {/* フッター */}
@@ -15390,7 +15723,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   ))}
                 </>);
               })()}{(localPatient.cmOffice||localPatient.cmName) && <div className="flex flex-col"><span className="text-[13px] font-bold text-slate-900">{localPatient.cmOffice}</span><span className="text-[13px] font-bold text-slate-900">{localPatient.cmName}</span></div>}{localPatient.startDate && <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg">{dTxt(dBtw(localPatient.startDate,new Date()))}利用</span>}</div>{isResigned && <span className="text-xs font-bold bg-slate-200 text-slate-600 px-3 py-1 rounded-lg">終了</span>}
-            <div className="flex items-center gap-2">{isResigned ? (<>{!isEditingResigned && <button onClick={() => setIsEditingResigned(true)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm flex items-center active:scale-95"><Lock size={14} className="mr-1" />編集</button>}{isEditingResigned && <button onClick={() => { saveMasterInfo(); setIsEditingResigned(false); }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center active:scale-95"><Save size={14} className="mr-1" />保存</button>}<button onClick={() => setDeleteConfirmModal(true)} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm flex items-center shadow-lg active:scale-95"><Trash2 size={14} className="mr-1" />完全削除</button></>) : (<div className="flex gap-2">{!localPatient.startDate && <button onClick={() => setDeleteConfirmModal(true)} className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-600 rounded-xl font-bold text-sm flex items-center active:scale-95"><Trash2 size={14} className="mr-1" />削除</button>}<button onClick={()=>setFamilyShareModal({patient:localPatient})} className="px-3 py-2 bg-violet-100 hover:bg-violet-200 text-violet-700 rounded-xl font-bold text-sm flex items-center active:scale-95" title="家族用URLとQRコードを発行"><QrCode size={14} className="mr-1"/>家族用URL</button><button onClick={saveMasterInfo} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-bold flex items-center shadow-lg active:scale-95 text-sm"><Save size={16} className="mr-1.5" />保存</button></div>)}</div>
+            <div className="flex items-center gap-2">{isResigned ? (<>{!isEditingResigned && <button onClick={() => setIsEditingResigned(true)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm flex items-center active:scale-95"><Lock size={14} className="mr-1" />編集</button>}{isEditingResigned && <button onClick={() => { saveMasterInfo(); setIsEditingResigned(false); }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center active:scale-95"><Save size={14} className="mr-1" />保存</button>}<button onClick={() => setDeleteConfirmModal(true)} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm flex items-center shadow-lg active:scale-95"><Trash2 size={14} className="mr-1" />完全削除</button></>) : (<div className="flex gap-2">{!localPatient.startDate && <button onClick={() => setDeleteConfirmModal(true)} className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-600 rounded-xl font-bold text-sm flex items-center active:scale-95"><Trash2 size={14} className="mr-1" />削除</button>}<button onClick={()=>setFamilyShareModal({patient:localPatient})} className="px-3 py-2 bg-violet-100 hover:bg-violet-200 text-violet-700 rounded-xl font-bold text-sm flex items-center active:scale-95" title="家族用ログインアカウントを発行・管理"><QrCode size={14} className="mr-1"/>家族アカウント</button><button onClick={saveMasterInfo} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-bold flex items-center shadow-lg active:scale-95 text-sm"><Save size={16} className="mr-1.5" />保存</button></div>)}</div>
           </div>
           <div className="flex border-b border-slate-200 bg-slate-50 shrink-0 px-6"><button onClick={() => setActiveDetailTab('basic')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${activeDetailTab === 'basic' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>基本情報</button><button onClick={() => setActiveDetailTab('service')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${activeDetailTab === 'service' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>サービス提供内容</button><button onClick={() => setActiveDetailTab('history')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${activeDetailTab === 'history' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>変更履歴</button></div>
           <div className="flex-1 overflow-auto p-6"><div className="max-w-5xl mx-auto space-y-5 pb-12 master-detail-content">
@@ -15894,47 +16227,115 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
       })()}
       {familyShareModal && (() => {
         const pat = familyShareModal.patient;
-        const token = btoa(unescape(encodeURIComponent(String(pat.id))));
         const baseUrl = window.location.origin + window.location.pathname.replace(/\/+$/, '');
-        const url = `${baseUrl}/?family=${token}`;
-        const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=8&data=${encodeURIComponent(url)}`;
-        const copyUrl = () => { navigator.clipboard?.writeText(url).then(()=>setShowToast(true)); };
-        const printQr = () => {
+        const loginUrl = `${baseUrl}/?family`;
+        const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=8&data=${encodeURIComponent(loginUrl)}`;
+        const accounts = (appData.familyAccounts||[]).filter(a => a.patientId === pat.id);
+        const genPw = () => Math.random().toString(36).slice(-8) + Math.floor(Math.random()*10);
+        const defaultUsername = (pat.kana||pat.name||'').toLowerCase().replace(/[^a-z0-9]/g,'') + '_family';
+        const issueAccount = () => {
+          const newAcc = {
+            id: `fam_${Date.now()}`,
+            patientId: pat.id,
+            username: defaultUsername + (accounts.length > 0 ? `_${accounts.length+1}` : ''),
+            password: genPw(),
+            displayName: `${pat.name} 様 ご家族`,
+            createdAt: new Date().toISOString().slice(0,10),
+          };
+          onSave({ ...appData, familyAccounts: [...(appData.familyAccounts||[]), newAcc] });
+        };
+        const removeAccount = (accId) => {
+          if (!window.confirm('このアカウントを削除します。よろしいですか?')) return;
+          onSave({ ...appData, familyAccounts: (appData.familyAccounts||[]).filter(a => a.id !== accId) });
+        };
+        const resetPw = (accId) => {
+          const newPw = genPw();
+          onSave({ ...appData, familyAccounts: (appData.familyAccounts||[]).map(a => a.id === accId ? {...a, password: newPw} : a) });
+        };
+        const updateField = (accId, field, value) => {
+          onSave({ ...appData, familyAccounts: (appData.familyAccounts||[]).map(a => a.id === accId ? {...a, [field]: value} : a) });
+        };
+        const copyUrl = () => { navigator.clipboard?.writeText(loginUrl).then(()=>setShowToast(true)); };
+        const printSheet = (acc) => {
           const w = window.open('', '_blank');
           if (!w) return;
-          w.document.write(`<html><head><title>家族用QR ${pat.name}</title><style>body{font-family:'Hiragino Sans','Yu Gothic',sans-serif;text-align:center;padding:40px 20px;}h1{font-size:22px;margin:8px 0;}h2{font-size:16px;color:#475569;margin:0 0 32px;font-weight:normal;}img{border:1px solid #e2e8f0;border-radius:12px;padding:12px;background:white;}p{font-size:11px;color:#64748b;margin-top:24px;word-break:break-all;max-width:480px;margin-left:auto;margin-right:auto;}@media print{button{display:none;}}</style></head><body><h1>${pat.name} 様 家族用閲覧URL</h1><h2>QR コードをスマートフォンで読み取ってください</h2><img src="${qrSrc}" width="240" height="240"/><p>${url}</p><button onclick="window.print()" style="margin-top:24px;padding:10px 24px;font-size:14px;font-weight:bold;background:#3b82f6;color:white;border:none;border-radius:8px;cursor:pointer;">印刷する</button></body></html>`);
+          w.document.write(`<html><head><title>家族用ログイン情報 ${pat.name}</title><style>body{font-family:'Hiragino Sans','Yu Gothic',sans-serif;padding:40px 30px;max-width:600px;margin:0 auto;color:#1e293b;}h1{font-size:20px;margin:0 0 4px;text-align:center;}h2{font-size:13px;color:#64748b;margin:0 0 28px;text-align:center;font-weight:normal;}.box{border:2px solid #e2e8f0;border-radius:16px;padding:24px;margin:20px 0;}.label{font-size:11px;color:#64748b;font-weight:bold;margin-bottom:4px;}.value{font-size:18px;font-weight:bold;font-family:Menlo,monospace;background:#f8fafc;padding:10px 14px;border-radius:8px;margin-bottom:14px;letter-spacing:1px;}.qr-area{text-align:center;margin:20px 0;}img{border:1px solid #e2e8f0;border-radius:12px;padding:8px;background:white;}.note{font-size:11px;color:#64748b;line-height:1.7;background:#fef3c7;border:1px solid #fbbf24;border-radius:10px;padding:14px;margin-top:20px;}@media print{button{display:none;}}</style></head><body><h1>${pat.name} 様 家族用閲覧 ログイン情報</h1><h2>下記のQRコードを読み取り、IDとパスワードでログインしてください</h2><div class="qr-area"><img src="${qrSrc}" width="200" height="200"/><div style="font-size:10px;color:#94a3b8;margin-top:8px;word-break:break-all;">${loginUrl}</div></div><div class="box"><div class="label">ログインID</div><div class="value">${acc.username}</div><div class="label">パスワード</div><div class="value">${acc.password}</div></div><div class="note"><b>取り扱いについて</b><br/>・この情報は他の方に絶対に共有しないでください<br/>・パスワードを忘れた場合は事業所までご連絡ください<br/>・万一漏れた可能性がある場合も事業所までお知らせください</div><button onclick="window.print()" style="margin-top:24px;padding:10px 28px;font-size:14px;font-weight:bold;background:#6366f1;color:white;border:none;border-radius:10px;cursor:pointer;display:block;margin-left:auto;margin-right:auto;">印刷する</button></body></html>`);
           w.document.close();
         };
         return (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={()=>setFamilyShareModal(null)}>
-            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md" onClick={e=>e.stopPropagation()}>
-              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-                <h2 className="text-base font-bold text-slate-800 flex items-center gap-2"><QrCode size={18} className="text-violet-600"/>家族用 URL / QR 発行</h2>
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-auto" onClick={e=>e.stopPropagation()}>
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 sticky top-0 bg-white z-10">
+                <h2 className="text-base font-bold text-slate-800 flex items-center gap-2"><QrCode size={18} className="text-violet-600"/>家族アカウント発行・管理</h2>
                 <button onClick={()=>setFamilyShareModal(null)} className="p-2 text-slate-400 hover:bg-slate-200 rounded-full"><X size={20}/></button>
               </div>
-              <div className="p-6 space-y-4">
+              <div className="p-6 space-y-5">
                 <div className="text-center">
-                  <div className="text-sm font-bold text-slate-500 mb-1">利用者</div>
-                  <div className="text-lg font-bold text-slate-800">{pat.name} 様</div>
-                  {pat.kana && <div className="text-xs text-slate-400">{pat.kana}</div>}
+                  <div className="text-xs font-bold text-slate-500 mb-1">利用者</div>
+                  <div className="text-lg font-bold text-slate-800">{pat.name} 様 {pat.kana && <span className="text-xs text-slate-400 font-normal ml-1">（{pat.kana}）</span>}</div>
                 </div>
-                <div className="flex justify-center">
-                  <img src={qrSrc} alt="QR" width={200} height={200} className="border border-slate-200 rounded-xl p-2 bg-white"/>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">家族用URL</label>
-                  <div className="flex gap-2">
-                    <input readOnly value={url} className="flex-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono outline-none"/>
-                    <button onClick={copyUrl} className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs whitespace-nowrap">コピー</button>
+                <div className="bg-violet-50 border border-violet-200 rounded-xl p-4">
+                  <div className="text-xs font-bold text-violet-700 mb-2">共通ログインURL（全利用者共通）</div>
+                  <div className="flex items-start gap-3">
+                    <img src={qrSrc} alt="共通QR" width={100} height={100} className="border border-violet-300 rounded-lg p-1 bg-white shrink-0"/>
+                    <div className="flex-1 min-w-0 space-y-2">
+                      <div className="flex gap-2">
+                        <input readOnly value={loginUrl} className="flex-1 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-[11px] font-mono outline-none"/>
+                        <button onClick={copyUrl} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[11px] whitespace-nowrap">コピー</button>
+                      </div>
+                      <div className="text-[10px] text-slate-600 leading-relaxed">
+                        家族はこのQRを読み取ってログイン画面に行き、下記のID・パスワードを入力します。<br/>
+                        連絡帳の「ご家族専用」欄にも同じQRが自動で印字されます。
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <button onClick={printQr} className="py-2.5 rounded-xl font-bold text-sm bg-violet-600 hover:bg-violet-700 text-white shadow active:scale-95">🖨 QRを印刷</button>
-                  <a href={url} target="_blank" rel="noopener noreferrer" className="py-2.5 rounded-xl font-bold text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 text-center">👁 プレビュー</a>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm font-bold text-slate-700">この利用者の家族アカウント ({accounts.length}件)</div>
+                    <button onClick={issueAccount} className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow active:scale-95"><Plus size={12}/>新規発行</button>
+                  </div>
+                  {accounts.length === 0 ? (
+                    <div className="text-xs text-slate-400 text-center py-6 bg-slate-50 rounded-xl border border-slate-200">
+                      まだアカウントがありません。「新規発行」を押すと自動で ID/PW が生成されます
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {accounts.map(acc => (
+                        <div key={acc.id} className="border border-slate-200 rounded-xl p-3 bg-white">
+                          <div className="grid grid-cols-12 gap-2 items-center">
+                            <div className="col-span-4">
+                              <div className="text-[10px] font-bold text-slate-400">ログインID</div>
+                              <input value={acc.username} onChange={e=>updateField(acc.id,'username',e.target.value)} className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs font-mono outline-none focus:border-blue-400"/>
+                            </div>
+                            <div className="col-span-4">
+                              <div className="text-[10px] font-bold text-slate-400">パスワード</div>
+                              <div className="flex gap-1">
+                                <input value={acc.password} onChange={e=>updateField(acc.id,'password',e.target.value)} className="flex-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs font-mono outline-none focus:border-blue-400"/>
+                                <button onClick={()=>resetPw(acc.id)} className="px-2 py-1 text-[10px] font-bold bg-amber-100 hover:bg-amber-200 text-amber-700 rounded whitespace-nowrap" title="再発行">⟳</button>
+                              </div>
+                            </div>
+                            <div className="col-span-3">
+                              <div className="text-[10px] font-bold text-slate-400">家族名 (任意)</div>
+                              <input value={acc.displayName||''} onChange={e=>updateField(acc.id,'displayName',e.target.value)} placeholder="例: 井上家" className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs outline-none focus:border-blue-400"/>
+                            </div>
+                            <div className="col-span-1 flex flex-col gap-1">
+                              <button onClick={()=>printSheet(acc)} className="px-1.5 py-1 bg-violet-100 hover:bg-violet-200 text-violet-700 rounded text-[10px] font-bold" title="ログイン情報シート印刷">🖨</button>
+                              <button onClick={()=>removeAccount(acc.id)} className="px-1.5 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[10px] font-bold" title="削除">✕</button>
+                            </div>
+                          </div>
+                          {acc.createdAt && <div className="text-[9px] text-slate-400 mt-1">発行日: {acc.createdAt}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div className="text-[11px] text-slate-500 bg-amber-50 border border-amber-200 rounded-lg p-3">
-                  <b>使い方:</b> このURL / QR をご家族にお渡しください。お渡しした方は <b>{pat.name}</b> 様の閲覧画面（お知らせ・基本情報・写真）にアクセスできます。<br/>
-                  <b>注意:</b> URLは推測されにくいですが、第三者に共有しないようご案内ください。
+                <a href={loginUrl} target="_blank" rel="noopener noreferrer" className="block text-center py-2.5 rounded-xl font-bold text-sm bg-slate-100 hover:bg-slate-200 text-slate-700">👁 家族画面のプレビューを開く（別タブ）</a>
+                <div className="text-[11px] text-slate-500 bg-amber-50 border border-amber-200 rounded-lg p-3 leading-relaxed">
+                  <b>ご利用にあたって:</b><br/>
+                  ・ ご家族には「ログイン情報シート」を印刷してお渡しください<br/>
+                  ・ パスワードが漏れた可能性がある場合は <b>⟳</b> ボタンで再発行してください<br/>
+                  ・ アカウントの削除はいつでも可能です
                 </div>
               </div>
             </div>
