@@ -12004,6 +12004,8 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
     clone.querySelectorAll('[data-dow-detail]').forEach(el => { el.style.display = 'table-row'; });
     // 曜日カードの AM/PM/合計 % は画面では16pxに抑えているが、印刷時は紙面に余裕があるため22pxに拡大
     clone.querySelectorAll('[data-print-id="dow-rate-pct"]').forEach(el => { el.style.fontSize = '22px'; });
+    // 曜日カード利用者リストの行は画面では 11px に抑えているが、印刷時は 13px に拡大
+    clone.querySelectorAll('[data-print-id="dow-pat-row"] span').forEach(el => { el.style.fontSize = '13px'; });
     // 年齢統計 box は JSX 側で既に 1 行表記になっているため preprocessing は不要
     // 利用者属性カード全体を compact 化 (帰宅時の見切れ防止)
     const attrCardForCompact = clone.querySelector('[data-sec="ops-attr"]')?.nextElementSibling
@@ -12941,7 +12943,8 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                 const N_COLS = list.length <= 6 ? 1 : MAX_COLS;
                 const perCol = Math.ceil(list.length / N_COLS) || 1;
                 const cols = Array.from({length: N_COLS}, (_, ci) => list.slice(ci * perCol, (ci + 1) * perCol));
-                const fs = 13; // 3日2ページ分割で余裕あるためフォント大きめ
+                // 画面では狭いカード幅で 100% が見切れないよう 11px。印刷時は preprocessing で 13px に拡大
+                const fs = 11;
                 return (
                   // PM の場合は AM 利用者リストとの間に「1名分」の隙間 (約24px) を空ける
                   <div style={{marginTop:label==='PM'?24:6,minWidth:0,overflow:'hidden'}}>
@@ -12951,7 +12954,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                         <div key={ci} style={{display:'flex',flexDirection:'column',minWidth:0,overflow:'hidden'}}>
                           {subList.map(p => (
                             // 名前 7em 固定 → % は常に 8文字目位置に揃う
-                            <div key={p.patient.id} style={{display:'flex',alignItems:'baseline',padding:'1px 0',borderBottom:'1px solid #f8fafc',lineHeight:1.4,minWidth:0}}>
+                            <div key={p.patient.id} data-print-id="dow-pat-row" style={{display:'flex',alignItems:'baseline',padding:'1px 0',borderBottom:'1px solid #f8fafc',lineHeight:1.4,minWidth:0}}>
                               <span style={{fontSize:fs,fontWeight:'bold',color:'#334155',width:'7em',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flexShrink:0}}>{p.patient.name}</span>
                               <span style={{fontSize:fs,color:RC(p.rate),fontWeight:'bold',marginLeft:3,flexShrink:0}}>{p.rate}%</span>
                             </div>
@@ -12999,7 +13002,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                   const N_COLS = list.length <= 6 ? 1 : MAX_COLS;
                   const perCol = Math.ceil(list.length / N_COLS) || 1;
                   const cols = Array.from({length: N_COLS}, (_, ci) => list.slice(ci * perCol, (ci + 1) * perCol));
-                  const fs = 13;
+                  const fs = 11;
                   return (
                     <div style={{marginTop:6,minWidth:0,overflow:'hidden'}}>
                       <div style={{fontSize:11,fontWeight:'bold',color:col,marginBottom:4,paddingBottom:2,borderBottom:`2px solid ${col}30`}}>{label} 利用者（出席率順）</div>
@@ -14849,16 +14852,26 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
 
         if(isAdd) {
           if(before) {
-            // 増回前：scheduleAmPmに追加されるが、この日は空欄にする
-            newShifts[mk][localPatient.id][`${d}_${ap}`] = '空欄';
+            // 増回前：scheduleAmPmに追加されるが、この日は来ない扱いに。
+            // 既存のオーバーライド (例: 振替/出席/欠席) は尊重し、未定義の場合のみ '空欄' を設定。
+            const cur = newShifts[mk][localPatient.id][`${d}_${ap}`];
+            if (cur === undefined) {
+              newShifts[mk][localPatient.id][`${d}_${ap}`] = '空欄';
+            }
           } else {
             // 増回以降：デフォルト出席（明示的な欠席設定を削除）
             delete newShifts[mk][localPatient.id][`${d}_${ap}`];
           }
         } else if(isRemove) {
           if(before) {
-            // 減回前：scheduleAmPmから削除されるが、この日は出席を維持
-            newShifts[mk][localPatient.id][`${d}_${oldAp}`] = '出席';
+            // 減回前：scheduleAmPmから削除されるが、過去日の状態を維持する
+            // 注意: 既に '空欄' '欠席' '振替' '休業' 等のオーバーライドがある日はそのまま尊重し、
+            // 「未定義 (=旧スケジュールで出席だった日)」のみ明示的に '出席' を保存する
+            const cur = newShifts[mk][localPatient.id][`${d}_${oldAp}`];
+            if (cur === undefined || cur === '〇' || cur === '出席') {
+              newShifts[mk][localPatient.id][`${d}_${oldAp}`] = '出席';
+            }
+            // それ以外 ('空欄'/'欠席'/'振替'/'休業') の日は手を付けない
           } else {
             // 減回以降：空欄（基本利用日でなくなるのでデフォルト空欄）
             delete newShifts[mk][localPatient.id][`${d}_${oldAp}`];
