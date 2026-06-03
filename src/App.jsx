@@ -9333,7 +9333,7 @@ export default function App() {
             if(!printPreviewContent.html) return;
             const styles = getStyles();
             const w = window.open('','_blank','width=900,height=700');
-            w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${printPreviewContent.title}</title>${styles}<style>*{box-sizing:border-box;}html,body{margin:0;padding:0;background:white;width:${pageW}mm;height:auto;-webkit-print-color-adjust:exact;print-color-adjust:exact;overflow:visible;}svg{overflow:visible!important;max-width:none!important;}@page{size:${pageW}mm ${pageH}mm;margin:0;}@media print{html,body{width:${pageW}mm;height:auto;overflow:visible;}.no-print,.thp,.page-sep{display:none!important;}.tp{page-break-after:always;page-break-inside:avoid;}.tp:last-child{page-break-after:auto;}[data-page-break]{page-break-before:always;break-before:page;}}</style></head><body>${printPreviewContent.html}</body></html>`);
+            w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${printPreviewContent.title}</title>${styles}<style>*{box-sizing:border-box;}html,body{margin:0;padding:0;background:white;width:${pageW}mm;height:auto;-webkit-print-color-adjust:exact;print-color-adjust:exact;overflow:visible;}svg{overflow:visible!important;max-width:none!important;}@page{size:${pageW}mm ${pageH}mm;margin:0;}@media print{html,body{width:${pageW}mm;height:auto;overflow:hidden;margin:0!important;padding:0!important;}body>*{margin:0!important;padding:0!important;}body>*>*+*{margin-top:0!important;}.no-print,.thp,.page-sep{display:none!important;}.tp{page-break-inside:avoid;break-inside:avoid;}.tp:not(:last-child){page-break-after:always!important;break-after:page!important;}.tp:last-child{page-break-after:avoid!important;break-after:avoid!important;}[data-page-break]{page-break-before:always;break-before:page;}}</style></head><body>${printPreviewContent.html}</body></html>`);
             w.document.close();
             setTimeout(()=>{ w.focus(); w.print(); if(autoClose) setTimeout(()=>w.close(),1000); }, 800);
           };
@@ -14339,7 +14339,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
 
   return (
     <div style={{height:'100%',display:'flex',flexDirection:'column',minWidth:0}}>
-      <style>{`@media print{body,html,#root{height:auto!important;overflow:visible!important;background:white!important;}.thp{display:none!important;}.ticket-outer{padding:0!important;margin:0!important;}.ticket-outer>*+*{margin-top:0!important;}.tp{box-shadow:none!important;border:none!important;border-radius:0!important;margin:0!important;padding:2mm 4mm!important;page-break-after:always;page-break-inside:avoid!important;break-inside:avoid!important;overflow:hidden!important;}.tp:last-child{page-break-after:auto!important;break-after:auto!important;}@page{size:A4 landscape;margin:0;}}.tp{width:297mm;height:210mm;box-sizing:border-box;overflow:hidden;}`}</style>
+      <style>{`@media print{body,html,#root{margin:0!important;padding:0!important;background:white!important;overflow:hidden!important;}.thp{display:none!important;}.ticket-outer{padding:0!important;margin:0!important;}.ticket-outer>*+*{margin-top:0!important;}#print-content-ticket{margin:0!important;padding:0!important;}#print-content-ticket>*+*{margin-top:0!important;}.tp{box-shadow:none!important;border:none!important;border-radius:0!important;margin:0!important;padding:2mm 4mm!important;page-break-inside:avoid!important;break-inside:avoid!important;overflow:hidden!important;}.tp:not(:last-child){page-break-after:always!important;break-after:page!important;}.tp:last-child{page-break-after:avoid!important;break-after:avoid!important;}@page{size:A4 landscape;margin:0;}}.tp{width:297mm;height:210mm;box-sizing:border-box;overflow:hidden;}`}</style>
       {/* ヘッダー：スクロールコンテナの外 */}
       <div className="thp bg-white px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-4 shrink-0 sticky top-0 z-30" style={{minWidth:0}}>
         <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -14490,7 +14490,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                           <td rowSpan={2} className={`border border-slate-400 px-1 text-center ${rc}`} style={{verticalAlign:'middle',overflow:'hidden',maxWidth:50,padding:0}}>
                             <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:'2px 0'}}>
                               <div className="font-bold leading-tight" style={{fontSize:24}}>{r.dayNum}</div>
-                              <div className="font-normal leading-tight" style={{fontSize:13,color:'#475569',marginTop:2}}>{r.dayOfWeek}</div>
+                              <div className="font-normal leading-tight" style={{fontSize:13,color:'#475569',marginTop:2}}>（{r.dayOfWeek}）</div>
                             </div>
                           </td>
                           <td className={`border border-slate-400 px-0.5 text-center text-[9px] ${sc}`} ><div className="cell-wrap" style={{justifyContent:'center'}}>{sl}</div></td>
