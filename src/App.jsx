@@ -8543,7 +8543,7 @@ export default function App() {
       </div>
 
       <div className="flex-1 flex flex-col overflow-hidden bg-slate-50 relative min-w-0">
-          <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 z-10 shadow-sm flex-shrink-0">
+          <header className="h-12 bg-white border-b border-slate-200 flex items-center justify-between px-6 z-10 shadow-sm flex-shrink-0">
             <div className="flex items-center">
               <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 mr-4 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors outline-none"><Menu size={22} /></button>
               <h1 className="text-lg font-bold text-slate-700">
@@ -14655,6 +14655,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   const [furikaeModal, setFurikaeModal] = useState({ isOpen: false, day: null, ampm: null, fromDate: "", reason: "", mode: 'forward' });
   // 月間スケジュールセルクリック時の状態選択ポップアップ
   const [shiftStatusModal, setShiftStatusModal] = useState({ isOpen: false, day: null, ap: null, currentStatus: '', isBase: false });
+  // セル状態 > 休止 選択時の休止期間入力モーダル
+  const [pauseFromCellModal, setPauseFromCellModal] = useState({ isOpen: false, reason: '', fromDate: '', toDate: '' });
   // 月間スケジュールの保留変更: 自動保存しないために draft 状態に格納する
   const [pendingShifts, setPendingShifts] = useState(null);
   const [pendingTickets, setPendingTickets] = useState(null);
@@ -14950,7 +14952,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   const allD = Array.from({ length: mDays }, (_, i) => i + 1);
   const dN = ['日', '月', '火', '水', '木', '金', '土'];
   const curSt = (ov, ib) => ov !== undefined ? ov : (ib ? "〇" : "空欄");
-  const sSt = (st, cl, hl) => { if (hl) return { t: "休業", c: "text-white bg-slate-600 font-bold" }; if (cl) return { t: "", c: "bg-slate-100" }; if (st === "〇" || st === "出席") return { t: "出席", c: "text-blue-700 font-bold bg-blue-50" }; if (st === "欠席") return { t: "欠席", c: "text-red-600 font-bold bg-red-50" }; if (st === "臨時") return { t: "臨時", c: "text-cyan-700 font-bold bg-cyan-50" }; if (typeof st === 'string' && st.startsWith("振")) { const m = st.match(/振\((.+?)\)/); return { t: m ? `振替\n(${m[1]})` : "振替", c: "text-emerald-700 font-bold bg-emerald-50 leading-tight" }; } if (st === "休業") return { t: "休業", c: "text-white font-bold bg-slate-600" }; return { t: "", c: "bg-white" }; };
+  const sSt = (st, cl, hl) => { if (hl) return { t: "休業", c: "text-white bg-slate-600 font-bold" }; if (cl) return { t: "", c: "bg-slate-100" }; if (st === "〇" || st === "出席") return { t: "出席", c: "text-blue-700 font-bold bg-blue-50" }; if (st === "欠席") return { t: "欠席", c: "text-red-600 font-bold bg-red-50" }; if (st === "休止") return { t: "休止", c: "text-orange-600 font-bold bg-orange-50" }; if (st === "臨時") return { t: "臨時", c: "text-cyan-700 font-bold bg-cyan-50" }; if (typeof st === 'string' && st.startsWith("振")) { const m = st.match(/振\((.+?)\)/); return { t: m ? `振替\n(${m[1]})` : "振替", c: "text-emerald-700 font-bold bg-emerald-50 leading-tight" }; } if (st === "休業") return { t: "休業", c: "text-white font-bold bg-slate-600" }; return { t: "", c: "bg-white" }; };
   // 振替の取り消し（MasterView 月間スケジュール用）
   //   - 振替先 ticketRecord(status=振替) を削除
   //   - 振替元 ticketRecord(status=欠席) の tokki から「○月○日へ振替」を取り除き理由のみ残す
@@ -15011,6 +15013,12 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
       // 基本利用日(isBase)で振替 → 振替"先"を選択 (forward)
       // それ以外で振替 → 振替"元"の曜日/日付を選択 (backward)
       setFurikaeModal({ isOpen: true, day, ampm: ap, fromDate: "", reason: "", mode: isBase ? 'forward' : 'backward' });
+      return;
+    }
+    if (newStatus === '休止') {
+      // 休止モーダルを開き期間を入力 (登録は patient.pauseHistory に追加)
+      const today = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+      setPauseFromCellModal({ isOpen: true, reason: '', fromDate: today, toDate: '' });
       return;
     }
     // 出席/欠席/休業 を保存（保留扱い）
@@ -15508,7 +15516,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               <div><label className="block text-sm font-bold text-slate-600 mb-3">基本利用曜日</label><div className="grid grid-cols-7 gap-2">{['日', '月', '火', '水', '木', '金', '土'].map((d, i) => { const v = localPatient.scheduleAmPm?.[i] || ""; const isClosed = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(i); const colorCls = isClosed ? 'bg-slate-100 border-slate-200 text-slate-400' : v === 'AM' ? 'bg-red-50 border-red-300 text-red-700' : v === 'PM' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-400'; return (<div key={d} className="flex flex-col"><span className={`text-center text-[13px] font-bold mb-1 ${i===0?'text-red-400':i===6?'text-blue-400':'text-slate-500'}`}>{d}</span>{isClosed ? (<div className={`w-full py-2.5 text-[14px] font-bold text-center border rounded-xl bg-slate-100 border-slate-200 text-slate-400`}>定休</div>) : (<select disabled={isOff} value={v} onChange={e => updateSched(i, e.target.value)} className={`w-full py-2.5 text-[14px] font-bold text-center border rounded-xl outline-none cursor-pointer disabled:opacity-60 ${colorCls}`}><option value="">無</option><option value="AM">AM</option><option value="PM">PM</option></select>)}</div>); })}</div></div>
               {/* 月間スケジュール */}
               <div><div className="flex items-center justify-between mb-2"><label className="text-sm font-bold text-slate-600 flex items-center gap-1.5"><CalendarCheck size={16} />月間スケジュール</label><div className="flex items-center gap-2"><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronLeft size={16} /></button><span className="text-base font-bold text-slate-700 tabular-nums w-28 text-center">{currentMonth.getFullYear()}年{currentMonth.getMonth() + 1}月</span><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronRight size={16} /></button></div></div>
-                <div className="flex border border-slate-200 rounded-xl bg-slate-50 p-1 gap-0.5">{allD.map(d => { const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d); const dow = dO.getDay(); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; const cl = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow); const hl = appData.holidays?.some(h => (h.date || h) === ds); const base = localPatient.scheduleAmPm?.[dow] || ""; const bAM = base === "AM" || base === "1日"; const bPM = base === "PM" || base === "1日"; const sh = effShifts?.[mKey]?.[localPatient.id] || {}; const pi = getPauseReasonOnDate(localPatient, ds); const cA = pi ? sSt("欠席", cl, hl) : sSt(curSt(sh[`${d}_AM`], bAM), cl, hl); const cP = pi ? sSt("欠席", cl, hl) : sSt(curSt(sh[`${d}_PM`], bPM), cl, hl); const ok = !cl && !hl && !pi && !isOff; return (<div key={d} className="flex-1 min-w-0 flex flex-col items-stretch bg-white border border-slate-200 rounded overflow-hidden"><div className={`w-full text-center text-[11px] font-bold py-1 bg-slate-100 border-b border-slate-200 leading-tight ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{d}<br/><span className="text-[9px] font-normal">{dN[dow]}</span></div><button disabled={!ok} onClick={() => ok && shiftTog(d, "AM")} className={`h-9 flex items-center justify-center border-b border-slate-100 text-[10px] leading-none whitespace-pre-wrap ${cA.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cA.t}</button><button disabled={!ok} onClick={() => ok && shiftTog(d, "PM")} className={`h-9 flex items-center justify-center text-[10px] leading-none whitespace-pre-wrap ${cP.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cP.t}</button></div>); })}</div>
+                <div className="flex border border-slate-200 rounded-xl bg-slate-50 p-1 gap-0.5">{allD.map(d => { const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d); const dow = dO.getDay(); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; const cl = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow); const hl = appData.holidays?.some(h => (h.date || h) === ds); const base = localPatient.scheduleAmPm?.[dow] || ""; const bAM = base === "AM" || base === "1日"; const bPM = base === "PM" || base === "1日"; const sh = effShifts?.[mKey]?.[localPatient.id] || {}; const pi = getPauseReasonOnDate(localPatient, ds); /* 休止中: 基本利用日 (bAM/bPM=true) の枠だけ「休止」表示。それ以外は通常空欄 */ const cA = pi ? (bAM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(sh[`${d}_AM`], bAM), cl, hl); const cP = pi ? (bPM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(sh[`${d}_PM`], bPM), cl, hl); const ok = !cl && !hl && !pi && !isOff; return (<div key={d} className="flex-1 min-w-0 flex flex-col items-stretch bg-white border border-slate-200 rounded overflow-hidden"><div className={`w-full text-center text-[11px] font-bold py-1 bg-slate-100 border-b border-slate-200 leading-tight ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{d}<br/><span className="text-[9px] font-normal">{dN[dow]}</span></div><button disabled={!ok} onClick={() => ok && shiftTog(d, "AM")} className={`h-9 flex items-center justify-center border-b border-slate-100 text-[10px] leading-none whitespace-pre-wrap ${cA.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cA.t}</button><button disabled={!ok} onClick={() => ok && shiftTog(d, "PM")} className={`h-9 flex items-center justify-center text-[10px] leading-none whitespace-pre-wrap ${cP.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cP.t}</button></div>); })}</div>
                 <div className="flex gap-2 mt-2 text-[11px] text-slate-400 font-bold flex-wrap items-center"><span>上段:AM/下段:PM</span><span className="text-blue-600 bg-blue-50 px-1 rounded">出席</span><span className="text-red-500 bg-red-50 px-1 rounded">欠席</span><span className="text-emerald-600 bg-emerald-50 px-1 rounded">振替</span><span className="text-cyan-700 bg-cyan-50 px-1 rounded">臨時</span><span className="text-white bg-slate-600 px-1 rounded">休業</span><span>空欄=非利用日</span></div></div>
               <div className="flex flex-wrap gap-3">{(appData.systemSettings?.serviceItems||[{id:'massage',label:'マッサージ',options:'通常、横向き、仰向け、うつ伏せ、座位、無し'},{id:'onyoku',label:'温浴時電療',options:'腰、肩、無し'}]).map(si=>{
                 const opts=si.options.split(/[、,]+/).map(s=>s.trim()).filter(Boolean);
@@ -15817,6 +15825,44 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
           </div>
         </div>
       )}
+      {pauseFromCellModal.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200 bg-orange-50 flex justify-between items-center">
+              <h2 className="text-base font-bold text-orange-800 flex items-center"><CalendarOff size={20} className="mr-2"/>休止期間の登録</h2>
+              <button onClick={()=>setPauseFromCellModal({isOpen:false,reason:'',fromDate:'',toDate:''})} className="p-2 text-slate-400 hover:bg-slate-200 rounded-full"><X size={20}/></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div><label className="text-xs font-bold text-slate-500 block mb-1">休止理由</label>
+                <input type="text" value={pauseFromCellModal.reason} onChange={e=>setPauseFromCellModal({...pauseFromCellModal,reason:e.target.value})} placeholder="例: 入院、施設入所、家庭の都合" className="w-full p-3 bg-white border border-slate-300 rounded-xl font-bold outline-none"/>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="text-xs font-bold text-slate-500 block mb-1">開始日</label>
+                  <input type="date" value={pauseFromCellModal.fromDate} onChange={e=>setPauseFromCellModal({...pauseFromCellModal,fromDate:e.target.value})} className="w-full p-3 bg-white border border-slate-300 rounded-xl font-bold outline-none"/>
+                </div>
+                <div><label className="text-xs font-bold text-slate-500 block mb-1">終了日（空欄で無期限）</label>
+                  <input type="date" value={pauseFromCellModal.toDate} onChange={e=>setPauseFromCellModal({...pauseFromCellModal,toDate:e.target.value})} className="w-full p-3 bg-white border border-slate-300 rounded-xl font-bold outline-none"/>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t flex justify-end gap-3">
+              <button onClick={()=>setPauseFromCellModal({isOpen:false,reason:'',fromDate:'',toDate:''})} className="px-4 py-2 rounded-xl font-bold text-slate-600 hover:bg-slate-200 text-sm">キャンセル</button>
+              <button disabled={!pauseFromCellModal.fromDate || !pauseFromCellModal.reason.trim()} onClick={()=>{
+                if (!localPatient) { setPauseFromCellModal({isOpen:false,reason:'',fromDate:'',toDate:''}); return; }
+                const entry = { reason: pauseFromCellModal.reason.trim(), fromDate: pauseFromCellModal.fromDate };
+                if (pauseFromCellModal.toDate) entry.toDate = pauseFromCellModal.toDate;
+                const newHist = [...(localPatient.pauseHistory||[]), entry];
+                const newPat = { ...localPatient, pauseHistory: newHist };
+                setLocalPatient(newPat);
+                const newPats = appData.patients.map(p => p.id === newPat.id ? newPat : p);
+                onSave({ ...appData, patients: newPats });
+                markDirty();
+                setPauseFromCellModal({isOpen:false,reason:'',fromDate:'',toDate:''});
+              }} className="px-6 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold shadow-lg active:scale-95 text-sm disabled:opacity-40">登録</button>
+            </div>
+          </div>
+        </div>
+      )}
       {shiftStatusModal.isOpen && (() => {
         const cu = shiftStatusModal.currentStatus;
         // 現在状態を 出席/欠席/振替/休業 の4種に正規化
@@ -15824,7 +15870,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
           : (typeof cu === 'string' && cu.startsWith('振')) ? '振替'
           : (cu === '欠席' || cu === '休業') ? cu
           : '出席'; // 空欄など → 出席扱い
-        const ALL = ['出席', '欠席', '振替', '休業'];
+        const ALL = ['出席', '欠席', '振替', '休止', '休業'];
         // 振替セルは「取り消し」確認のみ
         const isOnFurikae = normCu === '振替';
         const options = isOnFurikae ? ['取り消し'] : ALL.filter(s => s !== normCu);
@@ -15832,6 +15878,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
           '出席': 'bg-blue-600 hover:bg-blue-700',
           '欠席': 'bg-red-500 hover:bg-red-600',
           '振替': 'bg-emerald-600 hover:bg-emerald-700',
+          '休止': 'bg-orange-500 hover:bg-orange-600',
           '休業': 'bg-slate-500 hover:bg-slate-600',
           '取り消し': 'bg-amber-500 hover:bg-amber-600',
         };
@@ -15945,6 +15992,8 @@ function SettingsView({ appData, onSave, dirtyRef }) {
   const isComposingRef = React.useRef(false);
   const [cmOffices, setCmOffices] = useState(appData.systemSettings?.cmOffices || []);
   const [cmPersons, setCmPersons] = useState(appData.systemSettings?.careManagers || []);
+  // ケアマネ事業所タブ: 選択中の事業所インデックス (左サイド一覧で選択 → 右の担当者をフィルタ)
+  const [selectedOfficeIdx, setSelectedOfficeIdx] = useState(null);
   const [newOffice, setNewOffice] = useState({ name: "", phone: "", fax: "" });
   const [newPerson, setNewPerson] = useState({ office: "", name: "", phone: "" });
   const [facilityInfo, setFacilityInfo] = useState(appData.systemSettings?.facilityInfo || { name: "", phone: "", fax: "", address: "", manager: "" });
@@ -16270,7 +16319,76 @@ function SettingsView({ appData, onSave, dirtyRef }) {
           {/* 施設休業日（事業所情報タブに移動済み） */}
 
           {/* ケアマネ事業所・担当者 */}
-          {activeTab === 'cm' && (<>
+          {activeTab === 'cm' && (() => {
+            const sortedOffices = [...cmOffices].map((o, origIdx) => ({...o, origIdx})).sort((a,b)=>(a.name||'').localeCompare(b.name||'', 'ja'));
+            const selOffice = selectedOfficeIdx !== null && selectedOfficeIdx < cmOffices.length ? cmOffices[selectedOfficeIdx] : null;
+            const officeFilteredPersons = selOffice ? cmPersons.filter(p => p.office === selOffice.name) : cmPersons;
+            const sortedPersons = [...officeFilteredPersons].sort((a,b)=>(a.name||'').localeCompare(b.name||'', 'ja'));
+            return (
+              <div className="grid grid-cols-[40%_1fr] gap-4">
+                <SectionCard title="ケアマネ事業所">
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 mb-3 space-y-2">
+                    <input type="text" value={newOffice.name} onChange={e=>setNewOffice({...newOffice,name:e.target.value})} placeholder="事業所名" className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm"/>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input type="tel" value={newOffice.phone} onChange={e=>setNewOffice({...newOffice,phone:e.target.value})} placeholder="電話番号" className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm"/>
+                      <input type="tel" value={newOffice.fax} onChange={e=>setNewOffice({...newOffice,fax:e.target.value})} placeholder="FAX" className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm"/>
+                    </div>
+                    <button type="button" onClick={()=>{if(!newOffice.name){alert("事業所名を入力してください");return;} setCmOffices([...cmOffices,{...newOffice}]); setNewOffice({name:"",phone:"",fax:""});}} className="w-full py-2 bg-slate-800 text-white rounded-lg font-bold text-sm active:scale-95 flex items-center justify-center"><Plus size={14} className="mr-1"/>事業所を追加</button>
+                  </div>
+                  <div className="text-xs text-slate-500 mb-2 px-1">{cmOffices.length}件・あいうえお順 {selectedOfficeIdx!==null && <button onClick={()=>setSelectedOfficeIdx(null)} className="ml-2 text-blue-600 hover:underline">× フィルター解除</button>}</div>
+                  {cmOffices.length === 0 ? <div className="text-slate-400 text-sm font-bold bg-slate-50 p-4 rounded-xl border text-center">登録なし</div> : (
+                    <div className="space-y-1.5 max-h-[500px] overflow-y-auto pr-1">{sortedOffices.map(o => {
+                      const sel = selectedOfficeIdx === o.origIdx;
+                      return (
+                        <div key={o.origIdx} onClick={()=>setSelectedOfficeIdx(sel ? null : o.origIdx)} className={`flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition-colors ${sel?'bg-blue-50 border-blue-300':'bg-white border-slate-200 hover:bg-slate-50'}`}>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-bold text-sm text-slate-800 truncate">{o.name}</div>
+                            <div className="text-[11px] text-slate-500 truncate">{o.phone||'-'} / FAX {o.fax||'-'}</div>
+                          </div>
+                          <button type="button" onClick={(e)=>{e.stopPropagation(); setCmOffices(cmOffices.filter((_,j)=>j!==o.origIdx)); if(selectedOfficeIdx===o.origIdx) setSelectedOfficeIdx(null);}} className="text-slate-300 hover:text-red-500 p-1 ml-2 shrink-0"><Trash2 size={14}/></button>
+                        </div>
+                      );
+                    })}</div>
+                  )}
+                </SectionCard>
+                <SectionCard title={selOffice ? `担当ケアマネジャー — ${selOffice.name}` : '担当ケアマネジャー（全事業所）'}>
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 mb-3 space-y-2">
+                    <select value={newPerson.office} onChange={e=>setNewPerson({...newPerson,office:e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm">
+                      <option value="">所属事業所を選択...</option>
+                      {sortedOffices.map(o=><option key={o.origIdx} value={o.name}>{o.name}</option>)}
+                    </select>
+                    {(() => {
+                      const _sp=(s)=>{const a=(s||'').split(/[\s　]+/).filter(Boolean);return{sn:a[0]||'',gn:a.slice(1).join(' ')||''};};
+                      const _jn=(sn,gn)=>{sn=(sn||'').trim();gn=(gn||'').trim();return sn&&gn?`${sn} ${gn}`:(sn||gn||'');};
+                      const sp=_sp(newPerson.name);
+                      return (<div className="grid grid-cols-2 gap-2">
+                        <input type="text" value={sp.sn} onChange={e=>setNewPerson({...newPerson,name:_jn(e.target.value.replace(/[\s　]/g,''),sp.gn)})} placeholder="姓 例: 鈴木" className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm"/>
+                        <input type="text" value={sp.gn} onChange={e=>setNewPerson({...newPerson,name:_jn(sp.sn,e.target.value.replace(/[\s　]/g,''))})} placeholder="名 例: 一郎" className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm"/>
+                      </div>);
+                    })()}
+                    <input type="tel" value={newPerson.phone} onChange={e=>setNewPerson({...newPerson,phone:e.target.value})} placeholder="電話番号（直通）" className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm"/>
+                    <button type="button" onClick={()=>{if(!newPerson.office||!newPerson.name){alert("事業所と担当者名を入力してください");return;} setCmPersons([...cmPersons,{...newPerson,fax:cmOffices.find(o=>o.name===newPerson.office)?.fax||""}]); setNewPerson({office:selOffice?.name||"",name:"",phone:""});}} className="w-full py-2 bg-slate-800 text-white rounded-lg font-bold text-sm active:scale-95 flex items-center justify-center"><Plus size={14} className="mr-1"/>担当者を追加</button>
+                  </div>
+                  <div className="text-xs text-slate-500 mb-2 px-1">{officeFilteredPersons.length}件{selOffice?`（${selOffice.name}）`:'（全事業所）'}・あいうえお順</div>
+                  {sortedPersons.length === 0 ? <div className="text-slate-400 text-sm font-bold bg-slate-50 p-4 rounded-xl border text-center">登録なし</div> : (
+                    <div className="space-y-1.5 max-h-[500px] overflow-y-auto pr-1">{sortedPersons.map((p,i)=>{
+                      const origIdx = cmPersons.findIndex(x => x === p);
+                      return (
+                        <div key={i} className="flex items-center justify-between bg-white border border-slate-200 shadow-sm p-2.5 rounded-lg">
+                          <div className="flex-1 min-w-0">
+                            <div className="font-bold text-sm text-slate-800 truncate">{p.name}</div>
+                            <div className="text-[11px] text-slate-500 truncate">{p.office} / {p.phone||'-'}</div>
+                          </div>
+                          <button type="button" onClick={()=>setCmPersons(cmPersons.filter((_,j)=>j!==origIdx))} className="text-slate-300 hover:text-red-500 p-1 ml-2 shrink-0"><Trash2 size={14}/></button>
+                        </div>
+                      );
+                    })}</div>
+                  )}
+                </SectionCard>
+              </div>
+            );
+          })()}
+          {activeTab === 'cm-OLD' && (<>
             <SectionCard title="ケアマネ事業所の登録">
               <p className="text-xs text-slate-500 mb-3">事業所を登録すると、担当者登録時にプルダウンで選択できます。</p>
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-4">
