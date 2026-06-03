@@ -9772,6 +9772,18 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
     else setLocalTicketRecords(prev => prev.map(p => p.id === id ? { ...p, exercises: { ...(p.exercises || {}), [field]: value } } : p));
     if (dirtyRef) dirtyRef.current = true;
   };
+  // 個別運動セルの更新: slot (1〜3), field='itemId'|'value'
+  const updateIndividualExercise = (id, slot, field, value) => {
+    const updater = (p) => {
+      const indEx = { ...(p.individualExercises || {}) };
+      const cur = indEx[slot] || {};
+      indEx[slot] = { ...cur, [field]: value };
+      return { ...p, individualExercises: indEx };
+    };
+    if (filterMode === 'single') setLocalPatients(prev => prev.map(p => p.id === id ? updater(p) : p));
+    else setLocalTicketRecords(prev => prev.map(p => p.id === id ? updater(p) : p));
+    if (dirtyRef) dirtyRef.current = true;
+  };
 
   const [statusModal, setStatusModal] = useState({ isOpen: false, id: null, status: '', reason: '', furikaeDate: '', substituteReason: '', furikaeAmpm: 'AM' });
   // 振替の取り消し（保留）: 保存ボタン押下時にまとめて反映するために情報を貯めておく
@@ -10220,7 +10232,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
       </div>
       )}
 
-      <style>{`#record-table tbody tr { height: 32px !important; max-height: 32px !important; } #record-table tbody tr td { height: 32px !important; max-height: 32px !important; overflow: hidden !important; padding-top: 2px !important; padding-bottom: 2px !important; box-sizing: border-box !important; }  #record-table tr.readonly-row input:disabled, #record-table tr.readonly-row button:disabled, #record-table tr.readonly-row textarea:disabled, #record-table tr.readonly-row select:disabled { opacity: 1 !important; color: #000 !important; -webkit-text-fill-color: #000 !important; } /* 列見出しを縦スクロール時も常に上部固定 */ #record-table thead th { position: -webkit-sticky !important; position: sticky !important; top: 0 !important; }`}</style>
+      <style>{`#record-table tbody tr { min-height: 32px !important; } #record-table tbody tr td { min-height: 32px !important; padding-top: 2px !important; padding-bottom: 2px !important; box-sizing: border-box !important; } /* 個別運動列は行高さを拡大 (プルダウン+ラベル+入力) */ #record-table tbody tr td[data-ind-cell] { min-height: 70px !important; height: auto !important; max-height: none !important; overflow: visible !important; vertical-align: top !important; }  #record-table tr.readonly-row input:disabled, #record-table tr.readonly-row button:disabled, #record-table tr.readonly-row textarea:disabled, #record-table tr.readonly-row select:disabled { opacity: 1 !important; color: #000 !important; -webkit-text-fill-color: #000 !important; } /* 列見出しを縦スクロール時も常に上部固定 */ #record-table thead th { position: -webkit-sticky !important; position: sticky !important; top: 0 !important; }`}</style>
       {/* 画面上部の横スクロールバー: 下のテーブルスクロールと scrollLeft を同期 */}
       <div ref={topScrollRef} onScroll={_syncFromTop}
            className="bg-slate-100 border border-slate-300 rounded-t-xl"
@@ -10241,6 +10253,10 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
             {(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map(item => (
               <col key={item.id} style={{width:'68px'}} />
             ))}
+            {/* 個別運動 3スロット */}
+            <col style={{width:'120px'}} />
+            <col style={{width:'120px'}} />
+            <col style={{width:'120px'}} />
             <col style={{width:'68px'}} />
             <col style={{width:'500px'}} />
             <col style={{width:'110px'}} />
@@ -10255,7 +10271,10 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">開始 血圧/脈</th>
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">終了 血圧/脈</th>
               {(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map((item) => (
-                <th key={item.id} className="px-1 py-3 font-medium text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800 text-xs">{item.name}</th>
+                <th key={item.id} className="px-1 py-3 font-medium text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800 text-xs">{item.name}{item.defaultUnit && <span className="text-[9px] font-normal text-slate-400 ml-1">({item.defaultUnit})</span>}</th>
+              ))}
+              {[1,2,3].map(slot => (
+                <th key={`ind-h-${slot}`} className="px-1 py-3 font-medium text-center border border-emerald-700 whitespace-nowrap sticky top-0 z-40 bg-emerald-800 text-xs text-emerald-50">個別{['①','②','③'][slot-1]}</th>
               ))}
               <th className="px-1 py-3 font-bold text-center border border-slate-700 text-white whitespace-nowrap sticky top-0 z-40 bg-slate-800 text-xs">マッサージ</th>
               <th className="px-2 py-3 font-bold border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">特記</th>
@@ -10380,15 +10399,57 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                           {val}
                         </button>
                       ) : (
-                        <input type="text" disabled={isAbsent || isReadOnly} readOnly={item.useKeypad} value={val || ""} 
+                        <input type="text" disabled={isAbsent || isReadOnly} readOnly={item.useKeypad} value={val || ""}
                           onClick={() => { if(item.useKeypad) { openKeypad(p.id, item.id, val, isAbsent); setActiveCell(cellKey); } }}
-                          onChange={(e) => { if(!item.useKeypad) updateExercise(p.id, item.id, e.target.value); }} 
+                          onChange={(e) => { if(!item.useKeypad) updateExercise(p.id, item.id, e.target.value); }}
                           style={{width:64,padding:'3px 1px',textAlign:'center',fontSize: (val||'').length > 7 ? 9 : (val||'').length > 5 ? 10 : (val||'').length > 3 ? 12 : 14, fontWeight:'bold'}}
-                          className={`border rounded-lg outline-none placeholder-slate-300 disabled:bg-transparent disabled:opacity-60 ${item.useKeypad && !isReadOnly ? 'cursor-pointer' : ''} ${isReadOnly ? 'border-transparent shadow-none' : isActive ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'bg-white border-slate-300 shadow-inner'}`} 
+                          className={`border rounded-lg outline-none placeholder-slate-300 disabled:bg-transparent disabled:opacity-60 ${item.useKeypad && !isReadOnly ? 'cursor-pointer' : ''} ${isReadOnly ? 'border-transparent shadow-none' : isActive ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'bg-white border-slate-300 shadow-inner'}`}
                           placeholder={placeholderText} />
                       )}
                     </td>
                   )})}
+
+                  {/* 個別運動 3スロット: 上=プルダウン, 下=数値入力。利用者の個別運動メニュー (既定全選択) から選択 */}
+                  {(() => {
+                    const pid = p.patientId || p.id;
+                    const targetPatient = (appData.patients||[]).find(pp => pp.id === pid);
+                    const allIndItems = appData.systemSettings?.individualExerciseItems || [];
+                    // 利用者が選択した個別運動 (未設定なら全項目)
+                    const rawIndEx = targetPatient?.individualExercises;
+                    const enabledIds = (rawIndEx === undefined || rawIndEx === null)
+                      ? allIndItems.map(it => it.id)
+                      : rawIndEx.map(x => x.itemId);
+                    const enabledItems = allIndItems.filter(it => enabledIds.includes(it.id));
+                    const patSettings = (rawIndEx === undefined || rawIndEx === null)
+                      ? allIndItems.map(it => ({itemId: it.id, defaultValue: ''}))
+                      : rawIndEx;
+                    const recIndEx = p.individualExercises || {};
+                    return [1,2,3].map(slot => {
+                      const cur = recIndEx[slot] || {};
+                      const selItem = allIndItems.find(it => it.id === cur.itemId);
+                      const patDefault = selItem ? (patSettings.find(x => x.itemId === selItem.id)?.defaultValue || '') : '';
+                      return (
+                        <td key={`ind-${slot}`} data-ind-cell className={`px-1 py-1 align-middle border border-emerald-200 ${isAbsent ? 'bg-slate-100' : 'bg-emerald-50/40'}`} style={{verticalAlign:'top'}}>
+                          <select value={cur.itemId || ''} disabled={isAbsent || isReadOnly}
+                            onChange={e=>updateIndividualExercise(p.id, slot, 'itemId', e.target.value)}
+                            className="w-full px-1 py-0.5 text-[10px] font-bold bg-white border border-emerald-300 rounded outline-none focus:border-emerald-500 disabled:opacity-50">
+                            <option value="">— 選択 —</option>
+                            {enabledItems.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
+                          </select>
+                          {selItem && (
+                            <div className="text-[9px] text-emerald-700 mt-0.5 mb-0.5 truncate" title={`${selItem.name}${patDefault?` / ${patDefault}`:''}`}>
+                              {selItem.name}{patDefault && <span className="text-emerald-400"> / {patDefault}</span>}
+                            </div>
+                          )}
+                          <input type="text" value={cur.value || ''} disabled={isAbsent || isReadOnly || !selItem}
+                            onChange={e=>updateIndividualExercise(p.id, slot, 'value', e.target.value)}
+                            placeholder={selItem?`${patDefault||''}${selItem.defaultUnit||''}`:''}
+                            style={{fontSize:12,padding:'2px 4px'}}
+                            className="w-full text-center border border-emerald-300 rounded font-bold bg-white outline-none focus:border-emerald-500 disabled:opacity-40 placeholder-emerald-300"/>
+                        </td>
+                      );
+                    });
+                  })()}
 
                   <td className={`px-0.5 py-0 align-middle border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`} style={{height:32,overflow:'hidden',verticalAlign:'middle',padding:2}}>
                     {isReadOnly ? (
@@ -16582,11 +16643,15 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 const fkey=si.id==='massage'?'massageNeed':si.id==='onyoku'?'onyokuDenryo':`svc_${si.id}`;
                 return(<div key={si.id} className="flex-1 min-w-[120px]"><label className="block text-sm font-bold text-slate-600 mb-1">{si.label}</label><select disabled={isOff} value={localPatient[fkey]||''} onChange={e=>updateLP(fkey,e.target.value)} className="w-full px-3 py-3 bg-slate-50 border border-slate-300 rounded-xl font-bold text-base outline-none cursor-pointer disabled:opacity-60">{opts.map(o=><option key={o} value={o}>{o}</option>)}</select></div>);
               })}</div>
-              <div><h3 className="text-sm font-bold text-slate-600 mb-3">マシン運動メニュー</h3><div className="grid grid-cols-5 gap-3">{(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map(item => { const isActive = keypad.isOpen && keypad.exerciseId === item.id; return (<div key={item.id} className={`p-2.5 rounded-xl border ${isActive ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-300' : 'bg-slate-50 border-slate-200'}`}><label className="block text-[12px] font-bold text-slate-500 mb-1 text-center truncate">{item.name}</label><input type="text" readOnly disabled={isOff} value={(localPatient.plannedExercises && localPatient.plannedExercises[item.id]) || ""} onClick={() => { if (!isOff) setKeypad({ isOpen: true, field: 'plannedExercise', exerciseId: item.id, value: (localPatient.plannedExercises && localPatient.plannedExercises[item.id]) || "", isFirstInput: true, mode: 'exercise' }); }} placeholder="未設定" className={`keypad-trigger w-full px-2 py-2 border rounded-lg font-bold text-sm text-center outline-none cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${isActive ? 'bg-blue-50 border-blue-500' : 'bg-white border-slate-300'}`} /></div>); })}</div></div>
+              <div><h3 className="text-sm font-bold text-slate-600 mb-3">運動メニュー</h3><div className="grid grid-cols-5 gap-3">{(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map(item => { const isActive = keypad.isOpen && keypad.exerciseId === item.id; return (<div key={item.id} className={`p-2.5 rounded-xl border ${isActive ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-300' : 'bg-slate-50 border-slate-200'}`}><label className="block text-[12px] font-bold text-slate-500 mb-1 text-center truncate">{item.name}{item.defaultUnit && <span className="text-[9px] text-slate-400 font-normal ml-1">({item.defaultUnit})</span>}</label><input type="text" readOnly disabled={isOff} value={(localPatient.plannedExercises && localPatient.plannedExercises[item.id]) || ""} onClick={() => { if (!isOff) setKeypad({ isOpen: true, field: 'plannedExercise', exerciseId: item.id, value: (localPatient.plannedExercises && localPatient.plannedExercises[item.id]) || "", isFirstInput: true, mode: 'exercise' }); }} placeholder="未設定" className={`keypad-trigger w-full px-2 py-2 border rounded-lg font-bold text-sm text-center outline-none cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${isActive ? 'bg-blue-50 border-blue-500' : 'bg-white border-slate-300'}`} /></div>); })}</div></div>
               {(()=>{
                 const indItems = appData.systemSettings?.individualExerciseItems || [];
                 if (indItems.length === 0) return null;
-                const patIndEx = localPatient.individualExercises || []; // [{itemId, defaultValue}]
+                // 既定: 利用者の設定が未定義 (=新規) なら全項目が選択されている扱い
+                const patIndExRaw = localPatient.individualExercises;
+                const patIndEx = (patIndExRaw === undefined || patIndExRaw === null)
+                  ? indItems.map(it => ({itemId: it.id, defaultValue: ''}))
+                  : patIndExRaw;
                 const toggleInd = (itemId) => {
                   const idx = patIndEx.findIndex(x => x.itemId === itemId);
                   const updated = idx >= 0 ? patIndEx.filter((_,i)=>i!==idx) : [...patIndEx, {itemId, defaultValue:''}];
@@ -16598,7 +16663,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 };
                 return (
                   <div className="mt-4 pt-4 border-t border-slate-200">
-                    <h3 className="text-sm font-bold text-slate-600 mb-1">個別運動メニュー <span className="text-[10px] text-slate-400 font-normal">（この利用者に提供する個別運動を選択。サービス提供記録入力の「個別追加」プルダウンに表示されます）</span></h3>
+                    <h3 className="text-sm font-bold text-slate-600 mb-1">個別運動メニュー <span className="text-[10px] text-slate-400 font-normal">（既定: 全選択。チェックを外すとサービス提供記録入力のプルダウンから除外されます）</span></h3>
                     <div className="grid grid-cols-4 gap-2 mt-2">
                       {indItems.map(item => {
                         const selected = patIndEx.find(x => x.itemId === item.id);
@@ -17340,7 +17405,7 @@ function SettingsView({ appData, onSave, dirtyRef }) {
   // パスワード変更フォーム状態
   const [pwChange, setPwChange] = useState({old:'', new1:'', new2:'', error:'', ok:''});
   const [exerciseItems, setExerciseItems] = useState(appData.systemSettings?.exerciseItems || appSettings.exerciseItems);
-  const [newExItem, setNewExItem] = useState({ name: '' });
+  const [newExItem, setNewExItem] = useState({ name: '', defaultUnit: '' });
   // 個別運動メニュー (利用者ごとに自由に組み合わせる項目: 平行棒・屋外歩行・体操 等)
   const [individualExerciseItems, setIndividualExerciseItems] = useState(appData.systemSettings?.individualExerciseItems || [
     {id:'ie_walk', name:'屋外歩行', defaultUnit:'分'},
@@ -17581,8 +17646,8 @@ function SettingsView({ appData, onSave, dirtyRef }) {
 
           {/* サービス提供内容 */}
           {activeTab === 'record' && (<>
-            <SectionCard title="マシン運動メニューの項目">
-              <p className="text-xs text-slate-500 mb-3">利用者マスタの「マシン運動メニュー」に表示される項目を管理します（u1〜u6 等の固定マシン）。<br/>
+            <SectionCard title="運動メニューの項目">
+              <p className="text-xs text-slate-500 mb-3">利用者マスタの「運動メニュー」に表示される項目を管理します。<br/>
                 <b className="text-amber-700">※ 項目を追加・削除する場合は、下の「適用開始月」を選択してください。過去の記録は元の項目で残り続けます。</b>
               </p>
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3 flex items-center gap-3 flex-wrap">
@@ -17590,18 +17655,28 @@ function SettingsView({ appData, onSave, dirtyRef }) {
                 <input type="month" value={exerciseApplyFrom} onChange={e=>setExerciseApplyFrom(e.target.value)} className="px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-sm font-bold outline-none"/>
                 <span className="text-[10px] text-amber-700">この月以降の新規記録に反映 (過去記録は変更前の項目で表示)</span>
               </div>
-              <div className="space-y-2 mb-4">
+              <div className="space-y-2 mb-3">
                 {exerciseItems.map((item, i) => (
                   <div key={item.id} className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
-                    <span className="flex-1 text-sm font-bold text-slate-700">{item.name}</span>
+                    <div className="flex flex-col gap-0.5">
+                      <button type="button" disabled={i===0} onClick={()=>{
+                        const arr=[...exerciseItems]; [arr[i-1],arr[i]]=[arr[i],arr[i-1]]; setExerciseItems(arr);
+                      }} className="px-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 text-xs">▲</button>
+                      <button type="button" disabled={i===exerciseItems.length-1} onClick={()=>{
+                        const arr=[...exerciseItems]; [arr[i+1],arr[i]]=[arr[i],arr[i+1]]; setExerciseItems(arr);
+                      }} className="px-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 text-xs">▼</button>
+                    </div>
+                    <input value={item.name} onChange={e=>{
+                      const arr=[...exerciseItems]; arr[i]={...arr[i],name:e.target.value}; setExerciseItems(arr);
+                    }} className="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold outline-none focus:border-blue-400"/>
+                    <input value={item.defaultUnit||''} onChange={e=>{
+                      const arr=[...exerciseItems]; arr[i]={...arr[i],defaultUnit:e.target.value}; setExerciseItems(arr);
+                    }} placeholder="単位" list="unit-suggestions" className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-xs font-bold outline-none focus:border-blue-400"/>
                     <button type="button" onClick={() => {
                       if (!window.confirm(`「${item.name}」を ${exerciseApplyFrom} 以降の項目から削除します。よろしいですか？\n(過去の記録は元の項目のまま残ります)`)) return;
-                      // 削除時、現在の exerciseItems を履歴として保存し、新リストを設定
                       setExerciseItemsHistory(prev => {
                         const newH = [...prev];
-                        // 直近のスナップショット (まだ履歴化されていなければ追加)
                         if (!newH.some(h => h.effectiveFrom === exerciseApplyFrom)) {
-                          // 旧バージョンを「前月まで有効」として履歴に追加
                           const prevMonth = (() => { const [y,m] = exerciseApplyFrom.split('-').map(Number); const d = new Date(y, m-2, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; })();
                           newH.push({ effectiveTo: prevMonth, items: [...exerciseItems] });
                         }
@@ -17612,11 +17687,14 @@ function SettingsView({ appData, onSave, dirtyRef }) {
                   </div>
                 ))}
               </div>
-              <div className="flex gap-2">
-                <input type="text" value={newExItem.name} onChange={e=>setNewExItem({name:e.target.value})} placeholder="例: ⑦ラットプル" className="flex-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
+              <datalist id="unit-suggestions">
+                <option value="回"/><option value="分"/><option value="秒"/><option value="往復"/><option value="セット"/><option value="kg"/><option value="m"/><option value="周"/>
+              </datalist>
+              <div className="flex gap-2 mb-2">
+                <input type="text" value={newExItem.name} onChange={e=>setNewExItem({...newExItem,name:e.target.value})} placeholder="例: ⑦ラットプル" className="flex-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
+                <input type="text" value={newExItem.defaultUnit||''} onChange={e=>setNewExItem({...newExItem,defaultUnit:e.target.value})} placeholder="単位" list="unit-suggestions" className="w-24 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
                 <button type="button" onClick={()=>{
                   if(!newExItem.name.trim()) return;
-                  // 追加時も履歴に「旧バージョン」を保存
                   setExerciseItemsHistory(prev => {
                     const newH = [...prev];
                     if (!newH.some(h => h.effectiveTo && h.effectiveTo >= exerciseApplyFrom)) {
@@ -17626,10 +17704,21 @@ function SettingsView({ appData, onSave, dirtyRef }) {
                     return newH.sort((a,b)=>(a.effectiveTo||'').localeCompare(b.effectiveTo||''));
                   });
                   const id = 'ex_' + Date.now();
-                  setExerciseItems(prev=>[...prev, {id, name:newExItem.name.trim(), type:'text', useKeypad:true}]);
-                  setNewExItem({name:''});
-                }} className="px-4 py-2 bg-slate-800 text-white rounded-xl font-bold text-sm active:scale-95 flex items-center"><Plus size={15} className="mr-1"/>追加</button>
+                  setExerciseItems(prev=>[...prev, {id, name:newExItem.name.trim(), type:'text', useKeypad:true, defaultUnit:newExItem.defaultUnit||''}]);
+                  setNewExItem({name:'', defaultUnit:''});
+                }} className="px-4 py-2 bg-slate-800 text-white rounded-xl font-bold text-sm active:scale-95 flex items-center"><Plus size={15} className="mr-1"/>項目追加</button>
               </div>
+              <button type="button" onClick={()=>{
+                // 個別運動メニューに連番で「個別運動N」を追加
+                const existingNums = individualExerciseItems
+                  .map(it => { const m = (it.name||'').match(/^個別運動(\d+)$/); return m ? parseInt(m[1],10) : 0; })
+                  .filter(n => n > 0);
+                const nextNum = existingNums.length > 0 ? Math.max(...existingNums) + 1 : 1;
+                const id = 'ie_' + Date.now();
+                setIndividualExerciseItems(prev=>[...prev, {id, name:`個別運動${nextNum}`, defaultUnit:'回'}]);
+              }} className="w-full px-4 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 border-2 border-dashed border-emerald-300 rounded-xl font-bold text-sm active:scale-95 flex items-center justify-center gap-1">
+                <Plus size={15}/>個別運動メニューを追加 (現在 {individualExerciseItems.length}件)
+              </button>
               {exerciseItemsHistory.length > 0 && (
                 <div className="mt-3 text-[10px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-2">
                   <b>📚 過去の項目バージョン:</b>
@@ -17640,12 +17729,24 @@ function SettingsView({ appData, onSave, dirtyRef }) {
               )}
             </SectionCard>
             <SectionCard title="個別運動メニューの項目">
-              <p className="text-xs text-slate-500 mb-3">サービス提供記録入力で「個別①、個別②...」を追加する際にプルダウンで選択できる項目を管理します。利用者ごとに自由に組み合わせ可能です（屋外歩行・平行棒・体操 等）。</p>
-              <div className="space-y-2 mb-4">
+              <p className="text-xs text-slate-500 mb-3">サービス提供記録入力の「個別運動」プルダウンで選択できる項目を管理します（屋外歩行・平行棒・体操 等）。利用者マスタで利用者ごとに使用する項目を選べます（既定: 全選択）。</p>
+              <div className="space-y-2 mb-3">
                 {individualExerciseItems.map((item, i) => (
                   <div key={item.id} className="flex items-center gap-2 bg-emerald-50 px-3 py-2 rounded-xl border border-emerald-200">
-                    <span className="flex-1 text-sm font-bold text-slate-700">{item.name}</span>
-                    <span className="text-[10px] text-emerald-700 bg-white px-2 py-0.5 rounded">単位: {item.defaultUnit||'回'}</span>
+                    <div className="flex flex-col gap-0.5">
+                      <button type="button" disabled={i===0} onClick={()=>{
+                        const arr=[...individualExerciseItems]; [arr[i-1],arr[i]]=[arr[i],arr[i-1]]; setIndividualExerciseItems(arr);
+                      }} className="px-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 text-xs">▲</button>
+                      <button type="button" disabled={i===individualExerciseItems.length-1} onClick={()=>{
+                        const arr=[...individualExerciseItems]; [arr[i+1],arr[i]]=[arr[i],arr[i+1]]; setIndividualExerciseItems(arr);
+                      }} className="px-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 text-xs">▼</button>
+                    </div>
+                    <input value={item.name} onChange={e=>{
+                      const arr=[...individualExerciseItems]; arr[i]={...arr[i],name:e.target.value}; setIndividualExerciseItems(arr);
+                    }} className="flex-1 px-2 py-1 bg-white border border-emerald-200 rounded text-sm font-bold outline-none focus:border-emerald-500"/>
+                    <input value={item.defaultUnit||''} onChange={e=>{
+                      const arr=[...individualExerciseItems]; arr[i]={...arr[i],defaultUnit:e.target.value}; setIndividualExerciseItems(arr);
+                    }} placeholder="単位" list="unit-suggestions" className="w-20 px-2 py-1 bg-white border border-emerald-200 rounded text-xs font-bold outline-none focus:border-emerald-500"/>
                     <button type="button" onClick={()=>{
                       if(!window.confirm(`「${item.name}」を削除します。よろしいですか？\n(過去の記録には影響しません)`)) return;
                       setIndividualExerciseItems(individualExerciseItems.filter((_,j)=>j!==i));
@@ -17655,9 +17756,7 @@ function SettingsView({ appData, onSave, dirtyRef }) {
               </div>
               <div className="flex gap-2">
                 <input type="text" value={newIndExItem.name} onChange={e=>setNewIndExItem({...newIndExItem,name:e.target.value})} placeholder="例: ⑦エアロバイク" className="flex-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
-                <select value={newIndExItem.defaultUnit} onChange={e=>setNewIndExItem({...newIndExItem,defaultUnit:e.target.value})} className="px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none">
-                  <option value="回">回</option><option value="分">分</option><option value="往復">往復</option><option value="セット">セット</option><option value="kg">kg</option>
-                </select>
+                <input type="text" value={newIndExItem.defaultUnit} onChange={e=>setNewIndExItem({...newIndExItem,defaultUnit:e.target.value})} placeholder="単位 (回/分等)" list="unit-suggestions" className="w-32 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
                 <button type="button" onClick={()=>{
                   if(!newIndExItem.name.trim()) return;
                   const id = 'ie_' + Date.now();
