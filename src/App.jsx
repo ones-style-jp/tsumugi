@@ -10251,7 +10251,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
             <col style={{width:'180px'}} />
             <col style={{width:'180px'}} />
             {(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map(item => (
-              <col key={item.id} style={{width: item.type === 'individual' ? '120px' : '68px'}} />
+              <col key={item.id} style={{width:'68px'}} />
             ))}
             <col style={{width:'68px'}} />
             <col style={{width:'500px'}} />
@@ -10268,7 +10268,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">終了 血圧/脈</th>
               {(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map((item) => (
                 <th key={item.id} className={`px-1 py-3 font-medium text-center border whitespace-nowrap sticky top-0 z-40 text-xs ${item.type==='individual' ? 'bg-emerald-800 text-emerald-50 border-emerald-700' : 'bg-slate-800 border-slate-700 text-white'}`}>
-                  {item.name}{item.defaultUnit && item.type !== 'individual' && <span className="text-[9px] font-normal text-slate-400 ml-1">({item.defaultUnit})</span>}
+                  {item.name}
                 </th>
               ))}
               <th className="px-1 py-3 font-bold text-center border border-slate-700 text-white whitespace-nowrap sticky top-0 z-40 bg-slate-800 text-xs">介護整体</th>
@@ -14452,7 +14452,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
 
             {/* メインテーブル */}
             <div className="flex-1 flex flex-col min-h-0" style={{overflowX:'auto'}}>
-              <style>{`.tp table tbody tr.data-row{height:45px;} .tp table tbody tr.tokki-row{height:34px;} .tp table tbody td{box-sizing:border-box!important;vertical-align:middle!important;} .tp table tbody tr.data-row td>div.cell-wrap{height:41px;overflow:hidden;display:flex;align-items:center;justify-content:center;word-break:break-all;flex-wrap:wrap;text-align:center;line-height:1.2;} .tp table tbody tr.tokki-row td>div.cell-wrap{height:30px;overflow:hidden;display:flex;align-items:center;}`}</style>
+              <style>{`.tp table tbody tr.data-row{height:38px;} .tp table tbody tr.tokki-row{height:24px;} .tp table tbody td{box-sizing:border-box!important;vertical-align:middle!important;} .tp table tbody tr.data-row td>div.cell-wrap{height:34px;overflow:hidden;display:flex;align-items:center;justify-content:center;word-break:break-all;flex-wrap:wrap;text-align:center;line-height:1.1;} .tp table tbody tr.tokki-row td>div.cell-wrap{height:22px;overflow:hidden;display:flex;align-items:center;}`}</style>
               <table className="w-full border-collapse" style={{tableLayout:'fixed',width:'100%'}}>
                 <thead className="shrink-0">
                   <tr className="bg-slate-800 text-white text-[10px]">
@@ -14463,14 +14463,13 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                     <th className="border border-slate-600 py-1" style={{width:80}}>開始 血圧（脈）</th>
                     <th className="border border-slate-600 py-1" style={{width:80}}>終了 血圧（脈）</th>
                     {(()=>{
-                      // 運動メニュー項目が増えるほど列幅を縮める
-                      const exW = ex.length > 12 ? 32 : ex.length > 8 ? 36 : 42;
-                      const indW = ex.length > 8 ? 56 : 64;
+                      // 運動メニュー項目数に応じて統一列幅を計算 (個別運動も介護整体も同じ幅)
+                      const unifiedW = ex.length > 12 ? 32 : ex.length > 8 ? 36 : 42;
                       return ex.map(it => (
-                        <th key={it.id} className="border border-slate-600 py-1 text-[7px] leading-tight px-0" style={{width: it.type==='individual' ? indW : exW}}>{it.name}</th>
+                        <th key={it.id} className="border border-slate-600 py-1 text-[7px] leading-tight px-0" style={{width: unifiedW}}>{it.name}</th>
                       ));
                     })()}
-                    <th className="border border-slate-600 py-1 text-[8px]" style={{width:36}}>介護整体</th>
+                    <th className="border border-slate-600 py-1 text-[8px]" style={{width: ex.length > 12 ? 32 : ex.length > 8 ? 36 : 42}}>介護整体</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -14486,9 +14485,9 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                     return (
                       <Fragment key={r.id}>
                         {/* データ行 */}
-                        <tr className={`data-row ${rc}`} style={{height:62}}>
+                        <tr className={`data-row ${rc}`} style={{height:38}}>
                           <td rowSpan={2} className={`border border-slate-400 px-1 text-center ${rc}`} style={{verticalAlign:'middle',overflow:'hidden',maxWidth:50}}>
-                            <div className="font-bold text-[13px] leading-tight">{r.dayNum}<span className="text-[11px] font-normal">/{r.dayOfWeek}</span></div>
+                            <div className="font-bold text-[17px] leading-tight">{r.dayNum}<span className="text-[12px] font-normal">/{r.dayOfWeek}</span></div>
                             {(()=>{
                               // 提供時間: "9:00〜12:05" 形式を縦並び (9:00 / 〜 / 12:05) に変換して表示
                               const formatVertical = (s) => {
@@ -14503,8 +14502,8 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                                   const newRecs=appData.ticketRecords.map(tr=>tr.id===r.id?{...tr,actualTime:e.target.value}:tr);
                                   onSave({...appData,ticketRecords:newRecs});
                                 }} rows={3}
-                                  className="w-full text-[10px] text-center border border-slate-200 rounded bg-white outline-none mt-0.5"
-                                  style={{height:42,resize:'none',lineHeight:1.1,padding:'1px 2px',fontWeight:'bold'}}
+                                  className="w-full text-[7px] text-center border border-slate-200 rounded bg-white outline-none mt-0.5"
+                                  style={{height:28,resize:'none',lineHeight:1.0,padding:'0 1px',fontWeight:'bold'}}
                                   placeholder={"9:00\n〜\n12:05"}/>
                               );
                             })()}
@@ -14570,7 +14569,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                           <td className="border border-slate-400 px-0.5 text-center font-bold"><div className="cell-wrap" style={{justifyContent:'center',whiteSpace:'nowrap',fontSize:(v(r.massage)||'').length>4?9:(v(r.massage)||'').length>3?10:12}}>{v(r.massage)}</div></td>
                         </tr>
                         {/* 特記行 */}
-                        <tr className={`tokki-row ${rc}`} style={{height:34}}>
+                        <tr className={`tokki-row ${rc}`} style={{height:24}}>
                           <td className="border-l border-b border-slate-400 px-1 py-0 bg-slate-100 text-center text-[9px] text-slate-500 font-bold" ><div className="cell-wrap">特記</div></td>
                           <td colSpan={tc - 2} className="border-r border-b border-slate-400 px-1.5 py-0 text-[10px] text-slate-700" ><div className="cell-wrap" style={{overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{r.tokki||''}</div></td>
                         </tr>
@@ -14591,7 +14590,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                         {ex.map(it=><td key={it.id} className="border border-slate-400" style={{minHeight:45}}></td>)}
                         <td className="border border-slate-400" style={{minHeight:45}}></td>
                       </tr>
-                      <tr className="tokki-row" style={{height:34}}>
+                      <tr className="tokki-row" style={{height:24}}>
                         <td className="border-l border-b border-slate-400 px-1 py-0 bg-slate-100 text-center text-[9px] text-slate-400 font-bold" style={{minHeight:26}}>特記</td>
                         <td colSpan={tc - 2} className="border-r border-b border-slate-400" style={{minHeight:34}}></td>
                       </tr>
@@ -17708,10 +17707,14 @@ function SettingsView({ appData, onSave, dirtyRef }) {
                     </div>
                     <input value={item.name} onChange={e=>{
                       const arr=[...exerciseItems]; arr[i]={...arr[i],name:e.target.value}; setExerciseItems(arr);
-                    }} className="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-sm font-bold outline-none focus:border-blue-400"/>
-                    <input value={item.defaultUnit||''} onChange={e=>{
-                      const arr=[...exerciseItems]; arr[i]={...arr[i],defaultUnit:e.target.value}; setExerciseItems(arr);
-                    }} placeholder="単位" list="unit-suggestions" className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-xs font-bold outline-none focus:border-blue-400"/>
+                    }} className={`flex-1 px-2 py-1 bg-white border rounded text-sm font-bold outline-none focus:border-blue-400 ${item.type==='individual'?'border-emerald-300 text-emerald-700':'border-slate-200'}`}/>
+                    {item.type === 'individual' ? (
+                      <span className="w-20 text-[10px] text-emerald-600 text-center italic">下の項目で単位設定</span>
+                    ) : (
+                      <input value={item.defaultUnit||''} onChange={e=>{
+                        const arr=[...exerciseItems]; arr[i]={...arr[i],defaultUnit:e.target.value}; setExerciseItems(arr);
+                      }} placeholder="単位" list="unit-suggestions" className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-xs font-bold outline-none focus:border-blue-400"/>
+                    )}
                     <button type="button" onClick={() => {
                       if (!window.confirm(`「${item.name}」を ${exerciseApplyFrom} 以降の項目から削除します。よろしいですか？\n(過去の記録は元の項目のまま残ります)`)) return;
                       setExerciseItemsHistory(prev => {
