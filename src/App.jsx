@@ -10268,7 +10268,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">終了 血圧/脈</th>
               {(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map((item) => (
                 <th key={item.id} className={`px-1 py-3 font-medium text-center border whitespace-nowrap sticky top-0 z-40 text-xs ${item.type==='individual' ? 'bg-emerald-800 text-emerald-50 border-emerald-700' : 'bg-slate-800 border-slate-700 text-white'}`}>
-                  {item.name}{item.defaultUnit && <span className="text-[9px] font-normal text-slate-400 ml-1">({item.defaultUnit})</span>}
+                  {item.name}{item.defaultUnit && item.type !== 'individual' && <span className="text-[9px] font-normal text-slate-400 ml-1">({item.defaultUnit})</span>}
                 </th>
               ))}
               <th className="px-1 py-3 font-bold text-center border border-slate-700 text-white whitespace-nowrap sticky top-0 z-40 bg-slate-800 text-xs">介護整体</th>
@@ -14462,7 +14462,14 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                     <th className="border border-slate-600 py-1" style={{width:48}}>体温</th>
                     <th className="border border-slate-600 py-1" style={{width:80}}>開始 血圧（脈）</th>
                     <th className="border border-slate-600 py-1" style={{width:80}}>終了 血圧（脈）</th>
-                    {ex.map(it=><th key={it.id} className="border border-slate-600 py-1 text-[7px] leading-tight px-0" style={{width:42}}>{it.name}</th>)}
+                    {(()=>{
+                      // 運動メニュー項目が増えるほど列幅を縮める
+                      const exW = ex.length > 12 ? 32 : ex.length > 8 ? 36 : 42;
+                      const indW = ex.length > 8 ? 56 : 64;
+                      return ex.map(it => (
+                        <th key={it.id} className="border border-slate-600 py-1 text-[7px] leading-tight px-0" style={{width: it.type==='individual' ? indW : exW}}>{it.name}</th>
+                      ));
+                    })()}
                     <th className="border border-slate-600 py-1 text-[8px]" style={{width:36}}>介護整体</th>
                   </tr>
                 </thead>
@@ -14479,10 +14486,28 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                     return (
                       <Fragment key={r.id}>
                         {/* データ行 */}
-                        <tr className={`data-row ${rc}`} style={{height:45}}>
+                        <tr className={`data-row ${rc}`} style={{height:62}}>
                           <td rowSpan={2} className={`border border-slate-400 px-1 text-center ${rc}`} style={{verticalAlign:'middle',overflow:'hidden',maxWidth:50}}>
                             <div className="font-bold text-[13px] leading-tight">{r.dayNum}<span className="text-[11px] font-normal">/{r.dayOfWeek}</span></div>
-                            <input type="text" value={jisseki||""} onChange={(e)=>{const newRecs=appData.ticketRecords.map(tr=>tr.id===r.id?{...tr,actualTime:e.target.value}:tr);onSave({...appData,ticketRecords:newRecs});}} className="w-full text-[8px] text-center border border-slate-200 rounded bg-white outline-none px-0.5 mt-0.5" style={{height:18}} placeholder="実施時間"/>
+                            {(()=>{
+                              // 提供時間: "9:00〜12:05" 形式を縦並び (9:00 / 〜 / 12:05) に変換して表示
+                              const formatVertical = (s) => {
+                                if (!s) return '';
+                                if (s.includes('\n')) return s;
+                                const m = s.match(/^\s*(\d{1,2}:\d{2})\s*[〜～~\-ー]\s*(\d{1,2}:\d{2})\s*$/);
+                                return m ? `${m[1]}\n〜\n${m[2]}` : s;
+                              };
+                              const verticalValue = formatVertical(jisseki||'');
+                              return (
+                                <textarea value={verticalValue} onChange={(e)=>{
+                                  const newRecs=appData.ticketRecords.map(tr=>tr.id===r.id?{...tr,actualTime:e.target.value}:tr);
+                                  onSave({...appData,ticketRecords:newRecs});
+                                }} rows={3}
+                                  className="w-full text-[10px] text-center border border-slate-200 rounded bg-white outline-none mt-0.5"
+                                  style={{height:42,resize:'none',lineHeight:1.1,padding:'1px 2px',fontWeight:'bold'}}
+                                  placeholder={"9:00\n〜\n12:05"}/>
+                              );
+                            })()}
                           </td>
                           <td className={`border border-slate-400 px-0.5 text-center text-[9px] ${sc}`} ><div className="cell-wrap" style={{justifyContent:'center'}}>{sl}</div></td>
                           <td className="border border-slate-400 px-0 text-center overflow-hidden" style={{fontSize:9,verticalAlign:'middle'}}>
@@ -14514,24 +14539,34 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                           <td className="border border-slate-400 px-1 text-center font-bold text-[12px]" style={{wordBreak:'break-all',lineHeight:1.2}}>
                             <div className="cell-wrap" style={{justifyContent:'center'}}>{v(r.bpUpEn) ? <><span>{r.bpUpEn}/{r.bpDnEn}</span>{v(r.plEn)?<span className="text-slate-700">（{r.plEn}）</span>:''}</> : ''}</div>
                           </td>
-                          {ex.map(it => {
-                            const raw = r.exercises?.[it.id];
-                            // type=individual の場合: {itemId, value} の形式 → 「項目名: 値」を表示
-                            let display = '';
-                            if (it.type === 'individual' && raw && typeof raw === 'object') {
-                              const allInd = appData.systemSettings?.individualExerciseItems || [];
-                              const sel = allInd.find(ii => ii.id === raw.itemId);
-                              if (sel && raw.value) display = `${sel.name}\n${raw.value}${sel.defaultUnit||''}`;
-                              else if (sel) display = sel.name;
-                            } else if (typeof raw !== 'object') {
-                              display = v(raw);
-                            }
-                            return (
-                              <td key={it.id} className="border border-slate-400 px-0.5 text-center font-bold text-[12px]">
-                                <div className="cell-wrap" style={{justifyContent:'center',whiteSpace:'pre-line',fontSize: it.type==='individual'?9:12, lineHeight:1.2}}>{isA||mt?'':display}</div>
-                              </td>
-                            );
-                          })}
+                          {(()=>{
+                            // 列幅に応じてフォントサイズも調整 (運動メニューが増えても見やすく)
+                            const baseExFs = ex.length > 12 ? 9 : ex.length > 8 ? 10 : 12;
+                            const baseIndFs = ex.length > 12 ? 7 : ex.length > 8 ? 8 : 9;
+                            return ex.map(it => {
+                              const raw = r.exercises?.[it.id];
+                              let display = '';
+                              let isIndividual = false;
+                              if (it.type === 'individual' && raw && typeof raw === 'object') {
+                                isIndividual = true;
+                                const allInd = appData.systemSettings?.individualExerciseItems || [];
+                                const sel = allInd.find(ii => ii.id === raw.itemId);
+                                if (sel && raw.value) display = `${sel.name}\n${raw.value}${sel.defaultUnit||''}`;
+                                else if (sel) display = sel.name;
+                              } else if (typeof raw !== 'object') {
+                                display = v(raw);
+                              }
+                              // 値の長さに応じて更に微調整
+                              const baseFs = isIndividual ? baseIndFs : baseExFs;
+                              const len = (display||'').replace(/\n/g,'').length;
+                              const adjFs = len > 8 ? Math.max(7, baseFs - 2) : len > 5 ? Math.max(8, baseFs - 1) : baseFs;
+                              return (
+                                <td key={it.id} className="border border-slate-400 px-0 text-center font-bold">
+                                  <div className="cell-wrap" style={{justifyContent:'center',whiteSpace:'pre-line',fontSize: adjFs, lineHeight:1.15, overflow:'hidden'}}>{isA||mt?'':display}</div>
+                                </td>
+                              );
+                            });
+                          })()}
                           <td className="border border-slate-400 px-0.5 text-center font-bold"><div className="cell-wrap" style={{justifyContent:'center',whiteSpace:'nowrap',fontSize:(v(r.massage)||'').length>4?9:(v(r.massage)||'').length>3?10:12}}>{v(r.massage)}</div></td>
                         </tr>
                         {/* 特記行 */}
@@ -16648,7 +16683,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 const fkey=si.id==='massage'?'massageNeed':si.id==='onyoku'?'onyokuDenryo':`svc_${si.id}`;
                 return(<div key={si.id} className="flex-1 min-w-[120px]"><label className="block text-sm font-bold text-slate-600 mb-1">{si.label}</label><select disabled={isOff} value={localPatient[fkey]||''} onChange={e=>updateLP(fkey,e.target.value)} className="w-full px-3 py-3 bg-slate-50 border border-slate-300 rounded-xl font-bold text-base outline-none cursor-pointer disabled:opacity-60">{opts.map(o=><option key={o} value={o}>{o}</option>)}</select></div>);
               })}</div>
-              <div><h3 className="text-sm font-bold text-slate-600 mb-3">運動メニュー</h3><div className="grid grid-cols-5 gap-3">{(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map(item => { const isActive = keypad.isOpen && keypad.exerciseId === item.id; return (<div key={item.id} className={`p-2.5 rounded-xl border ${isActive ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-300' : 'bg-slate-50 border-slate-200'}`}><label className="block text-[12px] font-bold text-slate-500 mb-1 text-center truncate">{item.name}{item.defaultUnit && <span className="text-[9px] text-slate-400 font-normal ml-1">({item.defaultUnit})</span>}</label><input type="text" readOnly disabled={isOff} value={(localPatient.plannedExercises && localPatient.plannedExercises[item.id]) || ""} onClick={() => { if (!isOff) setKeypad({ isOpen: true, field: 'plannedExercise', exerciseId: item.id, value: (localPatient.plannedExercises && localPatient.plannedExercises[item.id]) || "", isFirstInput: true, mode: 'exercise' }); }} placeholder="未設定" className={`keypad-trigger w-full px-2 py-2 border rounded-lg font-bold text-sm text-center outline-none cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${isActive ? 'bg-blue-50 border-blue-500' : 'bg-white border-slate-300'}`} /></div>); })}</div></div>
+              <div><h3 className="text-sm font-bold text-slate-600 mb-3">運動メニュー</h3><div className="grid grid-cols-5 gap-3">{(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map(item => { const isActive = keypad.isOpen && keypad.exerciseId === item.id; return (<div key={item.id} className={`p-2.5 rounded-xl border ${isActive ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-300' : 'bg-slate-50 border-slate-200'}`}><label className="block text-[12px] font-bold text-slate-500 mb-1 text-center truncate">{item.name}{item.defaultUnit && item.type !== 'individual' && <span className="text-[9px] text-slate-400 font-normal ml-1">({item.defaultUnit})</span>}</label><input type="text" readOnly disabled={isOff} value={(localPatient.plannedExercises && localPatient.plannedExercises[item.id]) || ""} onClick={() => { if (!isOff) setKeypad({ isOpen: true, field: 'plannedExercise', exerciseId: item.id, value: (localPatient.plannedExercises && localPatient.plannedExercises[item.id]) || "", isFirstInput: true, mode: 'exercise' }); }} placeholder="未設定" className={`keypad-trigger w-full px-2 py-2 border rounded-lg font-bold text-sm text-center outline-none cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${isActive ? 'bg-blue-50 border-blue-500' : 'bg-white border-slate-300'}`} /></div>); })}</div></div>
               {(()=>{
                 const indItems = appData.systemSettings?.individualExerciseItems || [];
                 if (indItems.length === 0) return null;
