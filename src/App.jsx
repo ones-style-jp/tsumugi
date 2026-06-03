@@ -8271,16 +8271,203 @@ function SignupCompleteView({ context, appData, onSave }) {
   );
 }
 
+// === 家族画面プレビュー & 特記編集 (FamilyAdminView内のタブ) ===
+function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid, familyTokkiOverrides, setTokkiOverride }) {
+  const [innerTab, setInnerTab] = useState('vitals');
+  const patient = previewPid ? patients.find(p => p.id === previewPid) : null;
+  const ticketRecs = patient ? (appData.ticketRecords||[]).filter(r => r.patientId === patient.id) : [];
+  const fitnessRecs = patient ? (appData.fitnessRecords||[]).filter(r => r.patientId === patient.id) : [];
+  const monitoringRecs = patient ? (appData.monitoringRecords||[]).filter(r => r.patientId === patient.id) : [];
+  const accs = patient ? (appData.familyAccounts||[]).filter(a => a.patientId === patient.id) : [];
+  const parseTicketDate = (s) => { const m=(s||'').match(/(\d+)月(\d+)日/); return m?`${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`:''; };
+  const recentTickets = [...ticketRecs].sort((a,b)=> parseTicketDate(b.date).localeCompare(parseTicketDate(a.date))).slice(0, 30);
+  const tokkiRecs = ticketRecs.filter(r => r.tokki && r.tokki.trim()).sort((a,b)=> parseTicketDate(b.date).localeCompare(parseTicketDate(a.date)));
+  const overrideMap = patient ? (familyTokkiOverrides[patient.id] || {}) : {};
+  const hasFitness = fitnessRecs.length > 0;
+  if (!patient) {
+    return (
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+        <h3 className="text-base font-bold text-slate-800 mb-3">📱 利用者を選択してプレビュー</h3>
+        <div className="text-xs text-slate-500 mb-3">家族画面で何が見えているかを確認・編集できます。利用者を選択してください:</div>
+        <div className="grid grid-cols-3 md:grid-cols-5 gap-2 max-h-96 overflow-auto">
+          {patients.map(p => (
+            <button key={p.id} onClick={()=>setPreviewPid(p.id)}
+              className="px-3 py-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-violet-50 hover:border-violet-300 text-sm font-bold text-slate-700 text-left transition-colors">
+              <div className="truncate">{p.name}</div>
+              {p.kana && <div className="text-[10px] text-slate-400 truncate font-normal">{p.kana}</div>}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 flex items-center gap-3">
+        <button onClick={()=>setPreviewPid(null)} className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-600">← 利用者選択へ</button>
+        <div className="flex-1">
+          <div className="text-base font-bold text-slate-800">{patient.name} 様 {patient.kana && <span className="text-[11px] text-slate-400 font-normal ml-1">（{patient.kana}）</span>}</div>
+          <div className="text-[11px] text-slate-500">この画面でこの利用者の家族・ケアマネが何を見えているかを確認できます</div>
+        </div>
+        {accs.length > 0 && (
+          <div className="text-[10px] text-slate-500 text-right">
+            <div>家族 {accs.filter(a=>(a.kind||'family')==='family').length}名</div>
+            <div>ケアマネ {accs.filter(a=>a.kind==='caremanager').length}名</div>
+          </div>
+        )}
+      </div>
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200">
+        <div className="flex border-b border-slate-200 overflow-x-auto">
+          {[
+            ['vitals','💗 バイタル'],['exercise','💪 運動'],
+            ...(hasFitness?[['fitness','🏃 体力測定']]:[]),
+            ['monitoring','📋 モニタリング'],['notes','📝 特記 (編集可)'],
+          ].map(([k,l])=>(
+            <button key={k} onClick={()=>setInnerTab(k)} className={`px-4 py-2.5 text-xs font-bold whitespace-nowrap border-b-2 ${innerTab===k?'border-violet-600 text-violet-700':'border-transparent text-slate-500 hover:bg-slate-50'}`}>{l}</button>
+          ))}
+        </div>
+        <div className="p-4">
+          {innerTab === 'vitals' && (
+            recentTickets.filter(r=>r.temp||r.bpUpSt||r.plSt).length === 0 ? (
+              <div className="text-xs text-slate-400 text-center py-8">バイタル記録がありません</div>
+            ) : (
+              <div className="overflow-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-50 text-slate-500">
+                    <tr><th className="p-2 text-left">日付</th><th className="p-2">体温</th><th className="p-2">血圧(開始)</th><th className="p-2">脈拍</th><th className="p-2">血圧(終了)</th><th className="p-2">脈拍</th></tr>
+                  </thead>
+                  <tbody>
+                    {recentTickets.filter(r=>r.temp||r.bpUpSt||r.plSt).slice(0,15).map((r,i)=>(
+                      <tr key={i} className="border-b border-slate-100">
+                        <td className="p-2 font-bold">{r.date}</td>
+                        <td className="p-2 text-center">{r.temp?`${r.temp}℃`:'—'}</td>
+                        <td className="p-2 text-center">{r.bpUpSt?`${r.bpUpSt}/${r.bpDnSt}`:'—'}</td>
+                        <td className="p-2 text-center">{r.plSt||'—'}</td>
+                        <td className="p-2 text-center">{r.bpUpEn?`${r.bpUpEn}/${r.bpDnEn}`:'—'}</td>
+                        <td className="p-2 text-center">{r.plEn||'—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+          {innerTab === 'exercise' && (
+            recentTickets.filter(r=>r.exercises && Object.values(r.exercises||{}).some(v=>v && v!=='ー' && v!=='×')).length === 0 ? (
+              <div className="text-xs text-slate-400 text-center py-8">運動記録がありません</div>
+            ) : (
+              <div className="space-y-2">
+                {recentTickets.filter(r=>r.exercises && Object.values(r.exercises||{}).some(v=>v && v!=='ー' && v!=='×')).slice(0,12).map((r,i)=>{
+                  const items = Object.entries(r.exercises||{}).filter(([_,v])=>v && v!=='ー' && v!=='×');
+                  return (
+                    <div key={i} className="p-3 bg-slate-50 rounded-lg">
+                      <div className="text-[11px] font-bold text-slate-400 mb-2">{r.date}</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {items.map(([k,v])=>(
+                          <div key={k} className="bg-white border border-slate-200 px-2 py-1 rounded text-xs"><span className="text-slate-400 font-bold">{k}: </span><b>{v}</b></div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          )}
+          {innerTab === 'fitness' && hasFitness && (
+            <div className="space-y-2">
+              {[...fitnessRecs].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,10).map((r,i)=>{
+                const measures = Object.entries(r).filter(([k,v])=>!['id','patientId','date','name'].includes(k) && v != null && v !== '');
+                return (
+                  <div key={i} className="p-3 bg-slate-50 rounded-lg">
+                    <div className="text-[11px] font-bold text-slate-400 mb-2">{r.date}</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {measures.map(([k,v])=>(<div key={k} className="bg-white border border-slate-200 px-2 py-1 rounded text-xs"><span className="text-slate-400 font-bold text-[10px]">{k}: </span><b>{String(v)}</b></div>))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {innerTab === 'monitoring' && (
+            monitoringRecs.length === 0 ? (
+              <div className="text-xs text-slate-400 text-center py-8">モニタリング記録がありません</div>
+            ) : (
+              <div className="space-y-2">
+                {[...monitoringRecs].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,6).map((m,i)=>(
+                  <div key={i} className="p-3 bg-sky-50 border border-sky-200 rounded-lg">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-[11px] font-bold text-sky-900">{m.date||'—'}</span>
+                      {m.status && <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${m.status==='確定'?'bg-emerald-500 text-white':'bg-amber-500 text-white'}`}>{m.status}</span>}
+                    </div>
+                    <div className="text-xs text-slate-700 whitespace-pre-wrap">{m.summary || m.content || Object.entries(m).filter(([k,v])=>!['id','patientId','date','status'].includes(k) && v).slice(0,3).map(([k,v])=>`${k}: ${String(v).slice(0,80)}`).join(' / ')}</div>
+                  </div>
+                ))}
+              </div>
+            )
+          )}
+          {innerTab === 'notes' && (
+            <div className="space-y-2">
+              <div className="text-[11px] text-slate-500 bg-amber-50 border border-amber-200 p-2 rounded-lg">
+                <b>家族向けに公開する内容を編集できます。</b><br/>
+                ✓ = 家族画面に表示 / ✕ = 非表示 / 編集鉛筆 = 家族向けに別テキストで上書き
+              </div>
+              {tokkiRecs.length === 0 ? (
+                <div className="text-xs text-slate-400 text-center py-8">特記事項のある記録がありません</div>
+              ) : tokkiRecs.map(r => {
+                const ov = overrideMap[r.id] || {};
+                const isVisible = ov.visible !== false;
+                const hasOverride = !!ov.text;
+                return (
+                  <div key={r.id} className={`p-3 rounded-lg border ${isVisible?'bg-amber-50 border-amber-200':'bg-slate-100 border-slate-300 opacity-60'}`}>
+                    <div className="flex items-start gap-2">
+                      <div className="text-[11px] font-bold text-slate-500 shrink-0 w-16">{r.date}</div>
+                      <div className="flex-1 space-y-2">
+                        <div>
+                          <div className="text-[10px] font-bold text-slate-400 mb-0.5">事業所記録 (元の特記)</div>
+                          <div className="text-xs text-slate-700 bg-white p-2 rounded border border-slate-200 whitespace-pre-wrap">{r.tokki}</div>
+                        </div>
+                        {hasOverride && (
+                          <div>
+                            <div className="text-[10px] font-bold text-emerald-600 mb-0.5">家族向け表示 (上書き)</div>
+                            <textarea value={ov.text||''} onChange={e=>setTokkiOverride(patient.id, r.id, {...ov, text:e.target.value})}
+                              rows={2} className="w-full text-xs text-slate-800 p-2 rounded border border-emerald-300 bg-white outline-none focus:border-emerald-500 resize-none"/>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-1 shrink-0">
+                        <button onClick={()=>setTokkiOverride(patient.id, r.id, {...ov, visible: !isVisible})}
+                          className={`px-2 py-1 rounded text-[10px] font-bold ${isVisible?'bg-emerald-100 text-emerald-700 hover:bg-emerald-200':'bg-slate-300 text-slate-600 hover:bg-slate-400'}`}
+                          title={isVisible?'家族画面に表示中':'家族画面に非表示'}>{isVisible?'✓ 表示':'✕ 非表示'}</button>
+                        {!hasOverride ? (
+                          <button onClick={()=>setTokkiOverride(patient.id, r.id, {...ov, text:r.tokki})} className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[10px] font-bold" title="家族向けに別の文言で表示する">✏️ 上書</button>
+                        ) : (
+                          <button onClick={()=>setTokkiOverride(patient.id, r.id, {...ov, text:''})} className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-[10px] font-bold" title="上書きを解除して元の文言を表示">↩ 元に</button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // === 家族閲覧 管理画面 (事業所側) ===
 function FamilyAdminView({ appData, onSave }) {
-  const [tab, setTab] = useState('news');
-  const [newsForm, setNewsForm] = useState({ scope:'all', patientIds:[], title:'', body:'', date: new Date().toISOString().slice(0,10) });
-  const [photoForm, setPhotoForm] = useState({ caption:'', class:'', patientIds:[], files:[] });
+  const [tab, setTab] = useState('post');
+  // 統合フォーム: お知らせ + 写真を一画面で
+  const [postForm, setPostForm] = useState({ scope:'all', patientIds:[], title:'', body:'', date: new Date().toISOString().slice(0,10), eventClass:'', files:[], filePreview:[] });
   const [patientFilter, setPatientFilter] = useState({ days:[], ampm:'' });
   const [photoFilter, setPhotoFilter] = useState('');
   const [historyFilter, setHistoryFilter] = useState({ year:'', month:'', kind:'all' });
   const [historyDetail, setHistoryDetail] = useState(null);
-  const patients = (appData.patients||[]).filter(p => p.status === '利用中');
+  const [previewPid, setPreviewPid] = useState(null); // プレビュータブで選択中の利用者
+  const [copied, setCopied] = useState(false);
+  const patients = sortPatientsByKana((appData.patients||[]).filter(p => p.status === '利用中'));
   const allAnnouncements = appData.familyAnnouncements || [];
   const personalAnnouncements = appData.familyPersonalAnnouncements || [];
   const photos = appData.familyPhotos || [];
@@ -8306,54 +8493,85 @@ function FamilyAdminView({ appData, onSave }) {
   const uncheckAll = (form, setForm) => setForm({ ...form, patientIds: [] });
   const toggleDay = (d) => setPatientFilter(f => ({ ...f, days: f.days.includes(d) ? f.days.filter(x=>x!==d) : [...f.days, d] }));
   const setAmpm = (v) => setPatientFilter(f => ({ ...f, ampm: f.ampm === v ? '' : v }));
-  const submitNews = () => {
-    if (!newsForm.title.trim()) { alert('タイトルを入力してください'); return; }
-    if (newsForm.scope === 'specific' && newsForm.patientIds.length === 0) { alert('対象の利用者を1人以上選択してください'); return; }
-    if (newsForm.scope === 'all') {
-      const item = { id: `news_${Date.now()}`, title: newsForm.title.trim(), body: newsForm.body, date: newsForm.date };
-      onSave({ ...appData, familyAnnouncements: [item, ...allAnnouncements] });
-    } else {
-      const newItems = newsForm.patientIds.map(pid => ({
-        id: `news_${Date.now()}_${pid}`,
-        patientId: pid,
-        title: newsForm.title.trim(),
-        body: newsForm.body,
-        date: newsForm.date,
-      }));
-      onSave({ ...appData, familyPersonalAnnouncements: [...newItems, ...personalAnnouncements] });
-    }
-    setNewsForm({ scope:'all', patientIds:[], title:'', body:'', date: new Date().toISOString().slice(0,10) });
-  };
-  const handlePhotoUpload = (e) => {
+  // 統合投稿: お知らせ + 写真 を同時に投稿
+  const handleFilesPicked = (e) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
-    const readers = files.map(f => new Promise(res => {
+    Promise.all(files.map(f => new Promise(res => {
       const reader = new FileReader();
       reader.onload = () => res({ url: reader.result, name: f.name });
       reader.readAsDataURL(f);
-    }));
-    Promise.all(readers).then(items => {
-      const pids = photoForm.patientIds.length > 0 ? photoForm.patientIds : [null];
+    }))).then(items => {
+      setPostForm(f => ({...f, files:[...f.files, ...items], filePreview:[...f.filePreview, ...items]}));
+      e.target.value = '';
+    });
+  };
+  const removeAttachedPhoto = (idx) => {
+    setPostForm(f => ({...f, files: f.files.filter((_,i)=>i!==idx), filePreview: f.filePreview.filter((_,i)=>i!==idx)}));
+  };
+  const submitPost = () => {
+    const hasText = postForm.title.trim();
+    const hasPhotos = postForm.files.length > 0;
+    if (!hasText && !hasPhotos) { alert('タイトルまたは写真のどちらかを入力してください'); return; }
+    if (postForm.scope === 'specific' && postForm.patientIds.length === 0) { alert('対象の利用者を1人以上選択してください'); return; }
+    let newData = { ...appData };
+    // お知らせ部分
+    if (hasText) {
+      if (postForm.scope === 'all') {
+        const item = { id: `news_${Date.now()}`, title: postForm.title.trim(), body: postForm.body, date: postForm.date };
+        newData = { ...newData, familyAnnouncements: [item, ...allAnnouncements] };
+      } else {
+        const newItems = postForm.patientIds.map(pid => ({
+          id: `news_${Date.now()}_${pid}`,
+          patientId: pid,
+          title: postForm.title.trim(),
+          body: postForm.body,
+          date: postForm.date,
+        }));
+        newData = { ...newData, familyPersonalAnnouncements: [...newItems, ...personalAnnouncements] };
+      }
+    }
+    // 写真部分
+    if (hasPhotos) {
+      const pids = postForm.scope === 'specific' && postForm.patientIds.length > 0 ? postForm.patientIds : [null];
       const newPhotos = [];
-      items.forEach((it, i) => {
+      postForm.files.forEach((it, i) => {
         pids.forEach(pid => {
           newPhotos.push({
             id:`ph_${Date.now()}_${i}_${pid||'all'}_${Math.random().toString(36).slice(-4)}`,
-            url: it.url, name: it.name, caption: photoForm.caption, class: photoForm.class,
-            date: new Date().toISOString().slice(0,10), patientId: pid,
+            url: it.url, name: it.name,
+            caption: postForm.title.trim() || '',
+            class: postForm.eventClass,
+            date: postForm.date, patientId: pid,
           });
         });
       });
-      onSave({ ...appData, familyPhotos: [...newPhotos, ...photos] });
-      setPhotoForm({ caption:'', class: photoForm.class, patientIds: photoForm.patientIds, files:[] });
-      e.target.value = '';
-    });
+      newData = { ...newData, familyPhotos: [...newPhotos, ...(newData.familyPhotos||photos)] };
+    }
+    onSave(newData);
+    setPostForm({ scope:'all', patientIds:[], title:'', body:'', date: new Date().toISOString().slice(0,10), eventClass: postForm.eventClass, files:[], filePreview:[] });
   };
   const deletePhoto = (id) => {
     if (!window.confirm('この写真を削除しますか？')) return;
     onSave({ ...appData, familyPhotos: photos.filter(p => p.id !== id) });
   };
   const filteredPhotos = photoFilter ? photos.filter(p => p.class === photoFilter) : photos;
+  // 特記の表示制御
+  const familyTokkiOverrides = appData.familyTokkiOverrides || {};
+  const setTokkiOverride = (pid, recId, override) => {
+    const current = familyTokkiOverrides[pid] || {};
+    const updated = { ...current, [recId]: override };
+    if (!override || (override.visible !== false && !override.text)) {
+      delete updated[recId];
+    }
+    onSave({ ...appData, familyTokkiOverrides: { ...familyTokkiOverrides, [pid]: updated } });
+  };
+  // 共通ログインURL
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin + window.location.pathname.replace(/\/+$/, '') : '';
+  const loginUrl = `${baseUrl}/?family`;
+  const copyLoginUrl = () => {
+    navigator.clipboard?.writeText(loginUrl).then(()=>{ setCopied(true); setTimeout(()=>setCopied(false),2000); });
+  };
   const historyEntries = [
     ...allAnnouncements.map(a => ({ ...a, _kind: 'news_all' })),
     ...personalAnnouncements.map(a => ({ ...a, _kind: 'news_personal' })),
@@ -8388,37 +8606,55 @@ function FamilyAdminView({ appData, onSave }) {
   return (
     <div className="h-full overflow-auto bg-slate-50 p-6">
       <div className="max-w-5xl mx-auto">
+        {/* 共通ログインURL バー (常時表示) */}
+        <div className="bg-gradient-to-r from-violet-500 to-purple-600 rounded-2xl p-4 mb-4 shadow-lg">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] font-bold text-violet-100 uppercase tracking-wider mb-1">家族共通ログインURL</div>
+              <div className="text-xs font-mono text-white bg-violet-700/40 px-2 py-1.5 rounded-lg truncate">{loginUrl}</div>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <button onClick={copyLoginUrl} className={`px-3 py-2 rounded-lg text-xs font-bold ${copied?'bg-emerald-500 text-white':'bg-white text-violet-700 hover:bg-violet-50'} shadow active:scale-95`}>
+                {copied ? '✓ コピー済' : '📋 コピー'}
+              </button>
+              <a href={loginUrl} target="_blank" rel="noopener noreferrer" className="px-3 py-2 rounded-lg text-xs font-bold bg-white text-violet-700 hover:bg-violet-50 shadow active:scale-95">
+                🌐 ログイン画面を開く
+              </a>
+            </div>
+          </div>
+        </div>
         <div className="flex items-center gap-2 mb-4 bg-white rounded-2xl p-1.5 shadow-sm border border-slate-200">
-          {[['news','📢 お知らせ投稿'],['photos','📷 写真アップロード'],['history','📂 過去履歴']].map(([k,l])=>(
+          {[['post','✏️ 投稿 (お知らせ・写真)'],['preview','📱 家族画面プレビュー & 特記編集'],['history','📂 過去履歴']].map(([k,l])=>(
             <button key={k} onClick={()=>setTab(k)} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors ${tab===k?'bg-violet-600 text-white shadow':'text-slate-500 hover:bg-slate-100'}`}>{l}</button>
           ))}
         </div>
-        {tab === 'news' && (
+        {tab === 'post' && (
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 space-y-3">
-            <h3 className="text-base font-bold text-slate-800 mb-1">📢 お知らせを投稿</h3>
+            <h3 className="text-base font-bold text-slate-800 mb-1">✏️ お知らせ・写真を投稿</h3>
+            <div className="text-[11px] text-slate-500">タイトル・本文・写真を一度に投稿できます (写真のみ・お知らせのみも可)</div>
             <div className="flex gap-2">
-              <label className={`flex-1 px-4 py-2.5 rounded-xl border-2 cursor-pointer text-center font-bold text-sm ${newsForm.scope==='all'?'bg-violet-50 border-violet-400 text-violet-700':'bg-white border-slate-200 text-slate-500'}`}>
-                <input type="radio" checked={newsForm.scope==='all'} onChange={()=>setNewsForm(f=>({...f,scope:'all'}))} className="hidden"/>🌐 全体に表示
+              <label className={`flex-1 px-4 py-2.5 rounded-xl border-2 cursor-pointer text-center font-bold text-sm ${postForm.scope==='all'?'bg-violet-50 border-violet-400 text-violet-700':'bg-white border-slate-200 text-slate-500'}`}>
+                <input type="radio" checked={postForm.scope==='all'} onChange={()=>setPostForm(f=>({...f,scope:'all'}))} className="hidden"/>🌐 全体に表示
               </label>
-              <label className={`flex-1 px-4 py-2.5 rounded-xl border-2 cursor-pointer text-center font-bold text-sm ${newsForm.scope==='specific'?'bg-violet-50 border-violet-400 text-violet-700':'bg-white border-slate-200 text-slate-500'}`}>
-                <input type="radio" checked={newsForm.scope==='specific'} onChange={()=>setNewsForm(f=>({...f,scope:'specific'}))} className="hidden"/>👥 個別に表示 (複数選択可)
+              <label className={`flex-1 px-4 py-2.5 rounded-xl border-2 cursor-pointer text-center font-bold text-sm ${postForm.scope==='specific'?'bg-violet-50 border-violet-400 text-violet-700':'bg-white border-slate-200 text-slate-500'}`}>
+                <input type="radio" checked={postForm.scope==='specific'} onChange={()=>setPostForm(f=>({...f,scope:'specific'}))} className="hidden"/>👥 個別に表示 (複数選択可)
               </label>
             </div>
-            {newsForm.scope === 'specific' && (
+            {postForm.scope === 'specific' && (
               <div className="space-y-2">
                 <FilterPanel/>
                 <div className="border border-slate-200 rounded-xl p-2 max-h-56 overflow-auto bg-white">
                   <div className="flex items-center justify-between mb-2 px-2">
-                    <span className="text-[11px] font-bold text-slate-500">対象を選択 (チェック {newsForm.patientIds.length}名)</span>
+                    <span className="text-[11px] font-bold text-slate-500">対象を選択 (チェック {postForm.patientIds.length}名)</span>
                     <div className="flex gap-1">
-                      <button onClick={()=>checkAllFiltered(newsForm, setNewsForm)} className="px-2 py-0.5 text-[10px] font-bold bg-violet-100 hover:bg-violet-200 text-violet-700 rounded">該当を全選択</button>
-                      <button onClick={()=>uncheckAll(newsForm, setNewsForm)} className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-500 rounded">クリア</button>
+                      <button onClick={()=>checkAllFiltered(postForm, setPostForm)} className="px-2 py-0.5 text-[10px] font-bold bg-violet-100 hover:bg-violet-200 text-violet-700 rounded">該当を全選択</button>
+                      <button onClick={()=>uncheckAll(postForm, setPostForm)} className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-500 rounded">クリア</button>
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-1">
                     {matchedByFilter.map(p => (
-                      <label key={p.id} className={`flex items-center gap-1.5 px-2 py-1 rounded-lg cursor-pointer text-xs ${newsForm.patientIds.includes(p.id) ? 'bg-violet-100 text-violet-700 font-bold' : 'hover:bg-slate-50 text-slate-600'}`}>
-                        <input type="checkbox" checked={newsForm.patientIds.includes(p.id)} onChange={()=>togglePatient(newsForm, setNewsForm, p.id)} className="accent-violet-600"/>
+                      <label key={p.id} className={`flex items-center gap-1.5 px-2 py-1 rounded-lg cursor-pointer text-xs ${postForm.patientIds.includes(p.id) ? 'bg-violet-100 text-violet-700 font-bold' : 'hover:bg-slate-50 text-slate-600'}`}>
+                        <input type="checkbox" checked={postForm.patientIds.includes(p.id)} onChange={()=>togglePatient(postForm, setPostForm, p.id)} className="accent-violet-600"/>
                         <span className="truncate">{p.name}</span>
                       </label>
                     ))}
@@ -8426,90 +8662,50 @@ function FamilyAdminView({ appData, onSave }) {
                 </div>
               </div>
             )}
-            <div className="grid grid-cols-4 gap-3">
-              <div className="col-span-3">
-                <label className="block text-xs font-bold text-slate-500 mb-1">タイトル</label>
-                <input value={newsForm.title} onChange={e=>setNewsForm(f=>({...f,title:e.target.value}))} placeholder="例: 8月のイベントのお知らせ" className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
+            <div className="grid grid-cols-12 gap-3">
+              <div className="col-span-6">
+                <label className="block text-xs font-bold text-slate-500 mb-1">タイトル (写真のみの場合は省略可)</label>
+                <input value={postForm.title} onChange={e=>setPostForm(f=>({...f,title:e.target.value}))} placeholder="例: 8月の誕生会を開催しました" className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
               </div>
-              <div>
+              <div className="col-span-4">
+                <label className="block text-xs font-bold text-slate-500 mb-1">イベント/クラス (任意)</label>
+                <input value={postForm.eventClass} onChange={e=>setPostForm(f=>({...f,eventClass:e.target.value}))} placeholder="例: 7月誕生会" list="event-classes" className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm outline-none"/>
+                <datalist id="event-classes">{photoClasses.map(c=><option key={c} value={c}/>)}</datalist>
+              </div>
+              <div className="col-span-2">
                 <label className="block text-xs font-bold text-slate-500 mb-1">表示日</label>
-                <input type="date" value={newsForm.date} onChange={e=>setNewsForm(f=>({...f,date:e.target.value}))} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
+                <input type="date" value={postForm.date} onChange={e=>setPostForm(f=>({...f,date:e.target.value}))} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
               </div>
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1">本文</label>
-              <textarea value={newsForm.body} onChange={e=>setNewsForm(f=>({...f,body:e.target.value}))} placeholder="お知らせ内容を入力..." rows={4} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm outline-none resize-none"/>
+              <label className="block text-xs font-bold text-slate-500 mb-1">本文 (任意)</label>
+              <textarea value={postForm.body} onChange={e=>setPostForm(f=>({...f,body:e.target.value}))} placeholder="お知らせの本文やイベントの内容..." rows={3} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm outline-none resize-none"/>
             </div>
-            <button onClick={submitNews} className="w-full py-2.5 rounded-xl font-bold text-white bg-violet-600 hover:bg-violet-700 shadow active:scale-95">
-              {newsForm.scope === 'specific' && newsForm.patientIds.length > 0 ? `${newsForm.patientIds.length}名に投稿する` : '投稿する'}
-            </button>
-          </div>
-        )}
-        {tab === 'photos' && (
-          <div className="space-y-4">
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 space-y-3">
-              <h3 className="text-base font-bold text-slate-800 mb-1">📷 写真をアップロード</h3>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">クラス / カテゴリ (任意)</label>
-                  <input value={photoForm.class} onChange={e=>setPhotoForm(f=>({...f,class:e.target.value}))} placeholder="例: 7月誕生会" list="photo-classes" className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm outline-none"/>
-                  <datalist id="photo-classes">{photoClasses.map(c=><option key={c} value={c}/>)}</datalist>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">キャプション (任意)</label>
-                  <input value={photoForm.caption} onChange={e=>setPhotoForm(f=>({...f,caption:e.target.value}))} placeholder="例: 誕生会の様子" className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm outline-none"/>
-                </div>
-              </div>
-              <FilterPanel/>
-              <div className="border border-slate-200 rounded-xl p-2 max-h-48 overflow-auto bg-white">
-                <div className="flex items-center justify-between mb-2 px-2">
-                  <span className="text-[11px] font-bold text-slate-500">対象を選択 (チェック {photoForm.patientIds.length}名 / 未選択は全員)</span>
-                  <div className="flex gap-1">
-                    <button onClick={()=>checkAllFiltered(photoForm, setPhotoForm)} className="px-2 py-0.5 text-[10px] font-bold bg-violet-100 hover:bg-violet-200 text-violet-700 rounded">該当を全選択</button>
-                    <button onClick={()=>uncheckAll(photoForm, setPhotoForm)} className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-500 rounded">クリア (全員配信)</button>
-                  </div>
-                </div>
-                <div className="grid grid-cols-3 gap-1">
-                  {matchedByFilter.map(p => (
-                    <label key={p.id} className={`flex items-center gap-1.5 px-2 py-1 rounded-lg cursor-pointer text-xs ${photoForm.patientIds.includes(p.id) ? 'bg-violet-100 text-violet-700 font-bold' : 'hover:bg-slate-50 text-slate-600'}`}>
-                      <input type="checkbox" checked={photoForm.patientIds.includes(p.id)} onChange={()=>togglePatient(photoForm, setPhotoForm, p.id)} className="accent-violet-600"/>
-                      <span className="truncate">{p.name}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <label className="block">
-                <span className="block text-xs font-bold text-slate-500 mb-1">写真を選択（複数可）</span>
-                <input type="file" accept="image/*" multiple onChange={handlePhotoUpload} className="w-full text-xs font-bold text-slate-500 file:mr-3 file:px-4 file:py-2 file:rounded-lg file:border-0 file:bg-violet-100 file:text-violet-700 file:font-bold hover:file:bg-violet-200"/>
-              </label>
-              <div className="text-[10px] text-slate-400 leading-relaxed">
-                ※ 曜日/AM/PMで絞り込んで「該当を全選択」が便利 (クラスごとの一括投稿に活用)<br/>
-                ※ チェックなしの場合は全利用者の家族に配信
-              </div>
-            </div>
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-bold text-slate-700">アップロード済み写真 ({photos.length}件)</h3>
-                <select value={photoFilter} onChange={e=>setPhotoFilter(e.target.value)} className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none">
-                  <option value="">全クラス</option>
-                  {photoClasses.map(c=><option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              {filteredPhotos.length === 0 ? (
-                <div className="text-xs text-slate-400 text-center py-10">写真がありません</div>
-              ) : (
-                <div className="grid grid-cols-4 md:grid-cols-6 gap-2">
-                  {filteredPhotos.map(p => (
-                    <div key={p.id} className="relative group">
-                      <img src={p.url} alt="" className="w-full aspect-square object-cover rounded-lg"/>
-                      <button onClick={()=>deletePhoto(p.id)} className="absolute top-1 right-1 w-6 h-6 bg-red-600 text-white rounded-full text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity shadow">✕</button>
-                      {p.class && <div className="absolute bottom-1 left-1 text-[9px] font-bold bg-black/60 text-white px-1.5 py-0.5 rounded">{p.class}</div>}
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">写真添付 (任意・複数可)</label>
+              <input type="file" accept="image/*" multiple onChange={handleFilesPicked} className="w-full text-xs font-bold text-slate-500 file:mr-3 file:px-4 file:py-2 file:rounded-lg file:border-0 file:bg-violet-100 file:text-violet-700 file:font-bold hover:file:bg-violet-200"/>
+              {postForm.filePreview.length > 0 && (
+                <div className="grid grid-cols-6 gap-2 mt-2 p-2 bg-slate-50 rounded-lg">
+                  {postForm.filePreview.map((p,i)=>(
+                    <div key={i} className="relative group">
+                      <img src={p.url} alt="" className="w-full aspect-square object-cover rounded"/>
+                      <button onClick={()=>removeAttachedPhoto(i)} className="absolute top-0.5 right-0.5 w-5 h-5 bg-red-600 text-white rounded-full text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
                     </div>
                   ))}
                 </div>
               )}
             </div>
+            <button onClick={submitPost} className="w-full py-2.5 rounded-xl font-bold text-white bg-violet-600 hover:bg-violet-700 shadow active:scale-95">
+              {(()=>{
+                const what = [postForm.title.trim() && 'お知らせ', postForm.files.length > 0 && `写真${postForm.files.length}枚`].filter(Boolean).join('+') || '内容';
+                const who = postForm.scope === 'specific' && postForm.patientIds.length > 0 ? `${postForm.patientIds.length}名に` : '全体に';
+                return `${who}${what}を投稿する`;
+              })()}
+            </button>
           </div>
+        )}
+        {tab === 'preview' && (
+          <FamilyPreviewTab patients={patients} appData={appData} onSave={onSave} previewPid={previewPid} setPreviewPid={setPreviewPid} familyTokkiOverrides={familyTokkiOverrides} setTokkiOverride={setTokkiOverride}/>
         )}
         {tab === 'history' && (
           <div className="space-y-4">
@@ -8635,7 +8831,16 @@ function FamilyView() {
   if (!authPid) {
     const handleLogin = (e) => {
       e.preventDefault();
-      const acc = (data.familyAccounts||[]).find(a =>
+      // ★ localStorage から最新版を取得 (新規発行直後でも反映されるように)
+      let latestAccounts = data.familyAccounts || [];
+      try {
+        const saved = JSON.parse(localStorage.getItem('daycareAppData_v3')||'null');
+        if (saved && Array.isArray(saved.familyAccounts)) {
+          latestAccounts = saved.familyAccounts;
+          if (saved !== data) setData(saved);
+        }
+      } catch {}
+      const acc = latestAccounts.find(a =>
         (a.username||'').trim().toLowerCase() === loginForm.username.trim().toLowerCase() &&
         a.password === loginForm.password
       );
@@ -15642,6 +15847,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   const [newPatientModal, setNewPatientModal] = useState(false);
   const [csvModal, setCsvModal] = useState({isOpen:false, mode:null, importText:'', error:''});
   const [familyShareModal, setFamilyShareModal] = useState(null); // {patient}
+  const [accountEditId, setAccountEditId] = useState(null); // 編集中のアカウント id
   const [newPatientName, setNewPatientName] = useState('');
   const [careLevelModal, setCareLevelModal] = useState(null); // {newValue, from, to, note, isCostBurden}
   const [cmChangeModal, setCmChangeModal] = useState(null); // {office, name, from, note}
@@ -16205,7 +16411,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   ))}
                 </>);
               })()}{(localPatient.cmOffice||localPatient.cmName) && <div className="flex flex-col"><span className="text-[13px] font-bold text-slate-900">{localPatient.cmOffice}</span><span className="text-[13px] font-bold text-slate-900">{localPatient.cmName}</span></div>}{localPatient.startDate && <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg">{dTxt(dBtw(localPatient.startDate,new Date()))}利用</span>}</div>{isResigned && <span className="text-xs font-bold bg-slate-200 text-slate-600 px-3 py-1 rounded-lg">終了</span>}
-            <div className="flex items-center gap-2">{isResigned ? (<>{!isEditingResigned && <button onClick={() => setIsEditingResigned(true)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm flex items-center active:scale-95"><Lock size={14} className="mr-1" />編集</button>}{isEditingResigned && <button onClick={() => { saveMasterInfo(); setIsEditingResigned(false); }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center active:scale-95"><Save size={14} className="mr-1" />保存</button>}<button onClick={() => setDeleteConfirmModal(true)} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm flex items-center shadow-lg active:scale-95"><Trash2 size={14} className="mr-1" />完全削除</button></>) : (<div className="flex gap-2">{!localPatient.startDate && <button onClick={() => setDeleteConfirmModal(true)} className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-600 rounded-xl font-bold text-sm flex items-center active:scale-95"><Trash2 size={14} className="mr-1" />削除</button>}<button onClick={()=>setFamilyShareModal({patient:localPatient})} className="px-3 py-2 bg-violet-100 hover:bg-violet-200 text-violet-700 rounded-xl font-bold text-sm flex items-center active:scale-95" title="家族用ログインアカウントを発行・管理"><QrCode size={14} className="mr-1"/>家族アカウント</button><button onClick={saveMasterInfo} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-bold flex items-center shadow-lg active:scale-95 text-sm"><Save size={16} className="mr-1.5" />保存</button></div>)}</div>
+            <div className="flex items-center gap-2">{isResigned ? (<>{!isEditingResigned && <button onClick={() => setIsEditingResigned(true)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm flex items-center active:scale-95"><Lock size={14} className="mr-1" />編集</button>}{isEditingResigned && <button onClick={() => { saveMasterInfo(); setIsEditingResigned(false); }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center active:scale-95"><Save size={14} className="mr-1" />保存</button>}<button onClick={() => setDeleteConfirmModal(true)} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm flex items-center shadow-lg active:scale-95"><Trash2 size={14} className="mr-1" />完全削除</button></>) : (<div className="flex gap-2">{!localPatient.startDate && <button onClick={() => setDeleteConfirmModal(true)} className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-600 rounded-xl font-bold text-sm flex items-center active:scale-95"><Trash2 size={14} className="mr-1" />削除</button>}<button onClick={()=>setFamilyShareModal({patient:localPatient})} className="px-3 py-2 bg-violet-100 hover:bg-violet-200 text-violet-700 rounded-xl font-bold text-sm flex items-center active:scale-95" title="家族・ケアマネ用ログインアカウントを発行・管理"><QrCode size={14} className="mr-1"/>アカウント管理</button><button onClick={saveMasterInfo} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-bold flex items-center shadow-lg active:scale-95 text-sm"><Save size={16} className="mr-1.5" />保存</button></div>)}</div>
           </div>
           <div className="flex border-b border-slate-200 bg-slate-50 shrink-0 px-6"><button onClick={() => setActiveDetailTab('basic')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${activeDetailTab === 'basic' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>基本情報</button><button onClick={() => setActiveDetailTab('service')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${activeDetailTab === 'service' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>サービス提供内容</button><button onClick={() => setActiveDetailTab('history')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${activeDetailTab === 'history' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>変更履歴</button></div>
           <div className="flex-1 overflow-auto p-6"><div className="max-w-5xl mx-auto space-y-5 pb-12 master-detail-content">
@@ -16792,18 +16998,20 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {group.list.map(acc => (
+                        {group.list.map(acc => {
+                          const isEditing = accountEditId === acc.id;
+                          return (
                           <div key={acc.id} className={`border ${group.color==='teal'?'border-teal-200 bg-teal-50/30':'border-slate-200 bg-white'} rounded-xl p-3`}>
                             <div className="grid grid-cols-12 gap-2 items-center">
                               <div className="col-span-4">
                                 <div className="text-[10px] font-bold text-slate-400">ログインID</div>
-                                <input value={acc.username} onChange={e=>updateField(acc.id,'username',toHalfWidth(e.target.value))} className="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs font-mono outline-none focus:border-blue-400"/>
+                                <input value={acc.username} disabled={!isEditing} onChange={e=>updateField(acc.id,'username',toHalfWidth(e.target.value))} className={`w-full px-2 py-1 border rounded text-xs font-mono outline-none ${isEditing?'bg-white border-slate-300 focus:border-blue-400':'bg-slate-50 border-slate-100 text-slate-600 cursor-not-allowed'}`}/>
                               </div>
                               <div className="col-span-4">
                                 <div className="text-[10px] font-bold text-slate-400">パスワード</div>
                                 <div className="flex gap-1">
-                                  <input value={acc.password} onChange={e=>updateField(acc.id,'password',toHalfWidth(e.target.value))} className="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs font-mono outline-none focus:border-blue-400"/>
-                                  <button onClick={()=>resetPw(acc.id)} className="px-2 py-1 text-[10px] font-bold bg-amber-100 hover:bg-amber-200 text-amber-700 rounded whitespace-nowrap" title="再発行">⟳</button>
+                                  <input value={acc.password} disabled={!isEditing} onChange={e=>updateField(acc.id,'password',toHalfWidth(e.target.value))} className={`flex-1 px-2 py-1 border rounded text-xs font-mono outline-none ${isEditing?'bg-white border-slate-300 focus:border-blue-400':'bg-slate-50 border-slate-100 text-slate-600 cursor-not-allowed'}`}/>
+                                  <button onClick={()=>{if(!isEditing){alert('「編集」ボタンを押してから再発行してください');return;} if(!window.confirm('パスワードを再発行します。ご家族は新しいパスワードでログインし直しが必要になります。よろしいですか？'))return; resetPw(acc.id);}} className={`px-2 py-1 text-[10px] font-bold rounded whitespace-nowrap ${isEditing?'bg-amber-100 hover:bg-amber-200 text-amber-700':'bg-slate-100 text-slate-300 cursor-not-allowed'}`} title={isEditing?'パスワード再発行':'編集モード時のみ有効'}>⟳</button>
                                 </div>
                               </div>
                               <div className="col-span-3">
@@ -16811,13 +17019,19 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                                 <input value={acc.displayName||''} onChange={e=>updateField(acc.id,'displayName',e.target.value)} placeholder={group.placeholderName} className="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs outline-none focus:border-blue-400"/>
                               </div>
                               <div className="col-span-1 flex flex-col gap-1">
+                                {isEditing ? (
+                                  <button onClick={()=>setAccountEditId(null)} className="px-1.5 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded text-[10px] font-bold" title="編集を確定">✓</button>
+                                ) : (
+                                  <button onClick={()=>setAccountEditId(acc.id)} className="px-1.5 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[10px] font-bold" title="ID/PW を編集">✏</button>
+                                )}
                                 <button onClick={()=>printSheet(acc)} className={`px-1.5 py-1 ${group.color==='teal'?'bg-teal-100 hover:bg-teal-200 text-teal-700':'bg-violet-100 hover:bg-violet-200 text-violet-700'} rounded text-[10px] font-bold`} title="ログイン情報シート印刷">🖨</button>
                                 <button onClick={()=>removeAccount(acc.id)} className="px-1.5 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[10px] font-bold" title="削除">✕</button>
                               </div>
                             </div>
-                            {acc.createdAt && <div className="text-[9px] text-slate-400 mt-1">発行日: {acc.createdAt}</div>}
+                            {acc.createdAt && <div className="text-[9px] text-slate-400 mt-1">発行日: {acc.createdAt}{isEditing && <span className="ml-2 text-blue-500 font-bold">編集モード中 - ✓ を押して確定</span>}</div>}
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
