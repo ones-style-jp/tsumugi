@@ -15226,30 +15226,30 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 const ks = _splitSG(localPatient.kana);
                 return (
                 <div className="grid grid-cols-4 gap-4">
-                  <div>
-                    <label className="block text-sm font-bold text-slate-600 mb-1.5">氏名（姓 / 名）</label>
-                    <div className="flex gap-2">
-                      <input disabled={isOff} value={ns.sn}
-                        onChange={e=>updateLP('name',_joinSG(e.target.value.replace(/[\s　]/g,''),ns.gn))}
-                        placeholder="山田"
-                        className="flex-1 min-w-0 px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/>
-                      <input disabled={isOff} value={ns.gn}
-                        onChange={e=>updateLP('name',_joinSG(ns.sn,e.target.value.replace(/[\s　]/g,'')))}
-                        placeholder="太郎"
-                        className="flex-1 min-w-0 px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-slate-600 mb-1.5">ふりがな（姓 / 名）</label>
-                    <div className="flex gap-2">
-                      <input disabled={isOff} value={ks.sn}
-                        onChange={e=>updateLP('kana',_joinSG(e.target.value.replace(/[\s　]/g,''),ks.gn))}
-                        placeholder="やまだ"
-                        className="flex-1 min-w-0 px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/>
-                      <input disabled={isOff} value={ks.gn}
-                        onChange={e=>updateLP('kana',_joinSG(ks.sn,e.target.value.replace(/[\s　]/g,'')))}
-                        placeholder="たろう"
-                        className="flex-1 min-w-0 px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/>
+                  {/* 氏名: 漢字とふりがなを横並びで配置し縦余白を節約 */}
+                  <div className="col-span-2">
+                    <label className="block text-sm font-bold text-slate-600 mb-1.5">氏名 / ふりがな</label>
+                    <div className="flex gap-2 items-stretch">
+                      <div className="flex gap-1 flex-1 min-w-0">
+                        <input disabled={isOff} value={ns.sn}
+                          onChange={e=>updateLP('name',_joinSG(e.target.value.replace(/[\s　]/g,''),ns.gn))}
+                          placeholder="山田"
+                          className="flex-1 min-w-0 px-2 py-2.5 bg-slate-50 border border-slate-300 rounded-l-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/>
+                        <input disabled={isOff} value={ns.gn}
+                          onChange={e=>updateLP('name',_joinSG(ns.sn,e.target.value.replace(/[\s　]/g,'')))}
+                          placeholder="太郎"
+                          className="flex-1 min-w-0 px-2 py-2.5 bg-slate-50 border border-slate-300 rounded-r-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/>
+                      </div>
+                      <div className="flex gap-1 flex-1 min-w-0">
+                        <input disabled={isOff} value={ks.sn}
+                          onChange={e=>updateLP('kana',_joinSG(e.target.value.replace(/[\s　]/g,''),ks.gn))}
+                          placeholder="やまだ"
+                          className="flex-1 min-w-0 px-2 py-2.5 bg-slate-50 border border-slate-300 rounded-l-xl text-xs text-slate-500 font-bold outline-none disabled:opacity-60 focus:border-blue-400"/>
+                        <input disabled={isOff} value={ks.gn}
+                          onChange={e=>updateLP('kana',_joinSG(ks.sn,e.target.value.replace(/[\s　]/g,'')))}
+                          placeholder="たろう"
+                          className="flex-1 min-w-0 px-2 py-2.5 bg-slate-50 border border-slate-300 rounded-r-xl text-xs text-slate-500 font-bold outline-none disabled:opacity-60 focus:border-blue-400"/>
+                      </div>
                     </div>
                   </div>
                   <div><label className="block text-sm font-bold text-slate-600 mb-1.5">性別</label><select disabled={isOff} value={localPatient.gender||""} onChange={e=>updateLP('gender',e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none disabled:opacity-60"><option value="">未選択</option><option value="男性">男性</option><option value="女性">女性</option></select></div>
@@ -15985,6 +15985,8 @@ function SettingsView({ appData, onSave, dirtyRef }) {
   const [newServiceItem, setNewServiceItem] = useState({label:'', options:''});
   const [editServiceItemIdx, setEditServiceItemIdx] = useState(null);
   const [newCred, setNewCred] = useState({storeName:'',id:'',pass:''});
+  // パスワード変更フォーム状態
+  const [pwChange, setPwChange] = useState({old:'', new1:'', new2:'', error:'', ok:''});
   const [exerciseItems, setExerciseItems] = useState(appData.systemSettings?.exerciseItems || appSettings.exerciseItems);
   const [newExItem, setNewExItem] = useState({ name: '' });
   const [exerciseQuickButtons, setExerciseQuickButtons] = useState(appData.systemSettings?.exerciseQuickButtons || ['分','回','kg']);
@@ -16591,41 +16593,69 @@ function SettingsView({ appData, onSave, dirtyRef }) {
 
           {/* システム */}
           {activeTab === 'system' && (<>
-            <SectionCard title="ログイン情報の設定">
-              <p className="text-xs text-slate-500 mb-4">ログイン画面で使用するIDとパスワードを設定します。複数店舗の場合は複数登録できます。</p>
-              <div className="space-y-2 mb-4">
-                {(appData.systemSettings?.loginCredentials||[]).map((c,i)=>(
-                  <div key={i} className="flex items-center gap-3 bg-slate-50 border border-slate-200 p-3 rounded-xl">
-                    <div className="flex-1 grid grid-cols-3 gap-3 text-sm">
-                      <div><div className="text-[10px] font-bold text-slate-400 mb-0.5">事業所名</div><div className="font-bold text-slate-700">{c.storeName}</div></div>
-                      <div><div className="text-[10px] font-bold text-slate-400 mb-0.5">ログインID</div><div className="font-bold text-slate-700">{c.id}</div></div>
-                      <div><div className="text-[10px] font-bold text-slate-400 mb-0.5">パスワード</div><div className="font-bold text-slate-700">{'•'.repeat(c.pass?.length||0)}</div></div>
-                    </div>
-                    <button type="button" onClick={()=>{const creds=[...(appData.systemSettings?.loginCredentials||[])];creds.splice(i,1);onSave({...appData,systemSettings:{...appData.systemSettings,loginCredentials:creds}});}} className="text-red-400 hover:text-red-600 p-1 shrink-0"><Trash2 size={14}/></button>
-                  </div>
-                ))}
-              </div>
-              {(()=>{
-                return(
-                  <div className="flex gap-2 flex-wrap bg-slate-50 p-3 rounded-xl border border-slate-200">
-                    <div><label className="block text-[10px] font-bold text-slate-400 mb-1">事業所名</label><input value={newCred.storeName} onChange={e=>setNewCred(p=>({...p,storeName:e.target.value}))} placeholder="例: ひかり扇橋店" className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none w-36"/></div>
-                    <div><label className="block text-[10px] font-bold text-slate-400 mb-1">ログインID</label><input value={newCred.id} onChange={e=>setNewCred(p=>({...p,id:e.target.value}))} placeholder="例: hikari-ogi" className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none w-32"/></div>
-                    <div><label className="block text-[10px] font-bold text-slate-400 mb-1">パスワード</label><input type="password" value={newCred.pass} onChange={e=>setNewCred(p=>({...p,pass:e.target.value}))} placeholder="••••••" className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none w-28"/></div>
-                    <button type="button" disabled={!newCred.storeName||!newCred.id||!newCred.pass} onClick={()=>{const creds=[...(appData.systemSettings?.loginCredentials||[]),{...newCred}];onSave({...appData,systemSettings:{...appData.systemSettings,loginCredentials:creds}});setNewCred({storeName:'',id:'',pass:''});}} className="px-4 py-2 bg-slate-800 text-white rounded-lg font-bold text-sm disabled:opacity-40 flex items-center gap-1 self-end"><Plus size={14}/>追加</button>
+            <SectionCard title="ログイン情報">
+              {(() => {
+                const allCreds = appData.systemSettings?.loginCredentials || [];
+                const cred = allCreds[0]; // 1事業所運用なので先頭のみ扱う
+                return (
+                  <div className="space-y-4">
+                    {cred ? (
+                      <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <div className="text-xs font-bold text-slate-400 mb-1">ログインID</div>
+                            <div className="font-bold text-base text-slate-800 px-3 py-2 bg-white border border-slate-200 rounded-lg">{cred.id}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs font-bold text-slate-400 mb-1">パスワード</div>
+                            <div className="font-bold text-base text-slate-800 px-3 py-2 bg-white border border-slate-200 rounded-lg tracking-widest">{'•'.repeat(Math.min(12, cred.pass?.length || 0))}</div>
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-3">※ ログインID の変更は別途実装予定（再発行はメール経由）</p>
+                      </div>
+                    ) : (
+                      <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                        <p className="text-xs text-slate-500">ログイン情報が未設定です。初回は ID とパスワードを登録してください。</p>
+                        <input value={newCred.id} onChange={e=>setNewCred(p=>({...p,id:e.target.value}))} placeholder="ログインID" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
+                        <input type="password" value={newCred.pass} onChange={e=>setNewCred(p=>({...p,pass:e.target.value}))} placeholder="パスワード" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
+                        <button type="button" disabled={!newCred.id||!newCred.pass} onClick={()=>{const creds=[{storeName:facilityInfo.name||'事業所',id:newCred.id,pass:newCred.pass}];onSave({...appData,systemSettings:{...appData.systemSettings,loginCredentials:creds}});setNewCred({storeName:'',id:'',pass:''});}} className="px-4 py-2 bg-slate-800 text-white rounded-lg font-bold text-sm disabled:opacity-40">登録</button>
+                      </div>
+                    )}
+                    {cred && (
+                      <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl">
+                        <div className="text-sm font-bold text-blue-800 mb-3">🔐 パスワード変更</div>
+                        <div className="space-y-2">
+                          <input type="password" value={pwChange.old} onChange={e=>setPwChange({...pwChange,old:e.target.value})} placeholder="現在のパスワード" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
+                          <input type="password" value={pwChange.new1} onChange={e=>setPwChange({...pwChange,new1:e.target.value})} placeholder="新しいパスワード" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
+                          <input type="password" value={pwChange.new2} onChange={e=>setPwChange({...pwChange,new2:e.target.value})} placeholder="新しいパスワード（確認）" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
+                          {pwChange.error && <div className="text-xs font-bold text-red-600">{pwChange.error}</div>}
+                          <button type="button" onClick={()=>{
+                            if(!pwChange.old || !pwChange.new1 || !pwChange.new2){ setPwChange(p=>({...p,error:'全ての項目を入力してください'})); return; }
+                            if(pwChange.old !== cred.pass){ setPwChange(p=>({...p,error:'現在のパスワードが正しくありません'})); return; }
+                            if(pwChange.new1 !== pwChange.new2){ setPwChange(p=>({...p,error:'新しいパスワードが一致しません'})); return; }
+                            if(pwChange.new1.length < 4){ setPwChange(p=>({...p,error:'新しいパスワードは4文字以上にしてください'})); return; }
+                            const newCreds = [...allCreds]; newCreds[0] = {...cred, pass: pwChange.new1};
+                            onSave({...appData, systemSettings:{...appData.systemSettings, loginCredentials: newCreds}});
+                            setPwChange({old:'',new1:'',new2:'',error:'',ok:'パスワードを変更しました'});
+                          }} className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm active:scale-95">パスワードを変更する</button>
+                          {pwChange.ok && <div className="text-xs font-bold text-emerald-600">✓ {pwChange.ok}</div>}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })()}
             </SectionCard>
-            <SectionCard title="Anthropic APIキー">
+            <SectionCard title="モニタリング用APIキー">
               <label className="block text-sm font-bold text-slate-600 mb-1.5">APIキー</label>
               <p className="text-xs text-slate-400 mb-2">モニタリング文章の自動生成に使用します。</p>
               <input type="password" value={anthropicApiKey} onChange={e => setAnthropicApiKey(e.target.value)}
-                placeholder="sk-ant-api03-..."
+                placeholder="sk-..."
                 className="w-full px-4 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono text-sm outline-none"/>
               {anthropicApiKey && <p className="text-xs text-emerald-600 font-bold mt-1">✓ 設定済み（末尾: ...{anthropicApiKey.slice(-6)}）</p>}
             </SectionCard>
             <SectionCard title="データ管理">
-              <p className="text-sm text-slate-500">データのバックアップ・復元機能は開発中です。</p>
+              <p className="text-sm text-slate-500">データのバックアップ・復元機能、利用者家族用閲覧画面は開発中です。</p>
             </SectionCard>
           </>)}
 
