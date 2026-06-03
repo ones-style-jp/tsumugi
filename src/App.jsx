@@ -14339,7 +14339,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
 
   return (
     <div style={{height:'100%',display:'flex',flexDirection:'column',minWidth:0}}>
-      <style>{`@media print{body,html,#root{height:auto!important;overflow:visible!important;background:white!important;}.thp{display:none!important;}.tp{box-shadow:none!important;border:none!important;border-radius:0!important;margin:0!important;padding:2mm 4mm!important;page-break-after:always;page-break-inside:avoid!important;break-inside:avoid!important;overflow:hidden!important;}.tp:last-child{page-break-after:auto;}@page{size:A4 landscape;margin:0;}}.tp{width:297mm;height:210mm;box-sizing:border-box;overflow:hidden;}`}</style>
+      <style>{`@media print{body,html,#root{height:auto!important;overflow:visible!important;background:white!important;}.thp{display:none!important;}.ticket-outer{padding:0!important;margin:0!important;}.ticket-outer>*+*{margin-top:0!important;}.tp{box-shadow:none!important;border:none!important;border-radius:0!important;margin:0!important;padding:2mm 4mm!important;page-break-after:always;page-break-inside:avoid!important;break-inside:avoid!important;overflow:hidden!important;}.tp:last-child{page-break-after:auto!important;break-after:auto!important;}@page{size:A4 landscape;margin:0;}}.tp{width:297mm;height:210mm;box-sizing:border-box;overflow:hidden;}`}</style>
       {/* ヘッダー：スクロールコンテナの外 */}
       <div className="thp bg-white px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-4 shrink-0 sticky top-0 z-30" style={{minWidth:0}}>
         <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -14387,7 +14387,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
       </div>
       {/* コンテンツ：横スクロール可能 */}
       <div className="flex-1 overflow-auto bg-slate-200" style={{minWidth:0}}>
-      <div className="space-y-6 pb-32 pt-6 px-4" style={{minWidth:'max-content'}}>
+      <div className="space-y-6 pb-32 pt-6 px-4 ticket-outer" style={{minWidth:'max-content'}}>
         <div id="print-content-ticket">
 
         {pages.map((pr, pi) => {
@@ -14398,10 +14398,10 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
             <div className="flex justify-between items-start mb-2 shrink-0">
               <div>
                 <div style={{fontSize:18,fontWeight:'bold',letterSpacing:'0.1em',lineHeight:1.1}}>{tY}年{tM}月 サービス提供記録</div>
-                <div style={{fontSize:26,fontWeight:'bold',marginTop:6,lineHeight:1.1}}>{sp.name} <span style={{fontSize:18,fontWeight:'normal'}}>様</span></div>
+                <div style={{fontSize:28,fontWeight:'bold',marginTop:14,lineHeight:1.1}}>{sp.name} <span style={{fontSize:20,fontWeight:'normal'}}>様</span></div>
               </div>
               <div className="text-[10px] text-slate-600 text-right leading-tight">
-                <div style={{fontSize:12}}>提供責任者: <b>{fi.serviceResponsible||'ー'}　　予定時間:</b> <b>{(()=>{
+                <div style={{fontSize:12}}>提供責任者: <b>{fi.serviceResponsible||'ー'}　　実施時間:</b> <b>{(()=>{
                   const h=sp?.scheduleAmPm||[];
                   const hasAM=h.some(s=>s==='AM'||s==='1日');
                   const hasPM=h.some(s=>s==='PM'||s==='1日');
@@ -14453,7 +14453,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
 
             {/* メインテーブル: print 時の flex 計算問題を避けるためフロー配置 */}
             <div className="flex flex-col" style={{overflowX:'auto'}}>
-              <style>{`.tp table tbody tr.data-row{height:38px;} .tp table tbody tr.tokki-row{height:28px;} .tp table tbody td{box-sizing:border-box!important;vertical-align:middle!important;} .tp table tbody tr.data-row td>div.cell-wrap{height:34px;overflow:hidden;display:flex;align-items:center;justify-content:center;word-break:break-all;flex-wrap:wrap;text-align:center;line-height:1.15;} .tp table tbody tr.tokki-row td>div.cell-wrap{height:26px;overflow:hidden;display:flex;align-items:center;justify-content:center;line-height:1.2;white-space:pre-wrap;word-break:break-all;text-align:center;}`}</style>
+              <style>{`.tp table tbody tr.data-row{height:46px;} .tp table tbody tr.tokki-row{height:42px;} .tp table tbody td{box-sizing:border-box!important;vertical-align:middle!important;} .tp table tbody tr.data-row td>div.cell-wrap{height:42px;overflow:hidden;display:flex;align-items:center;justify-content:center;word-break:break-all;flex-wrap:wrap;text-align:center;line-height:1.15;} .tp table tbody tr.tokki-row td>div.cell-wrap{height:38px;overflow:hidden;display:flex;align-items:center;justify-content:center;line-height:1.3;white-space:pre-wrap;word-break:break-all;text-align:center;}`}</style>
               <table className="w-full border-collapse" style={{tableLayout:'fixed',width:'100%'}}>
                 <thead className="shrink-0">
                   <tr className="bg-slate-800 text-white text-[10px]">
@@ -14486,28 +14486,11 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                     return (
                       <Fragment key={r.id}>
                         {/* データ行 */}
-                        <tr className={`data-row ${rc}`} style={{height:38}}>
+                        <tr className={`data-row ${rc}`} style={{height:46}}>
                           <td rowSpan={2} className={`border border-slate-400 px-1 text-center ${rc}`} style={{verticalAlign:'middle',overflow:'hidden',maxWidth:50,padding:0}}>
-                            <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:66,padding:'2px 0'}}>
-                              <div className="font-bold leading-tight" style={{fontSize:20}}>{r.dayNum}<span style={{fontSize:12,fontWeight:'normal'}}>/{r.dayOfWeek}</span></div>
-                              {(()=>{
-                                const formatVertical = (s) => {
-                                  if (!s) return '';
-                                  if (s.includes('\n')) return s;
-                                  const m = s.match(/^\s*(\d{1,2}:\d{2})\s*[〜～~\-ー]\s*(\d{1,2}:\d{2})\s*$/);
-                                  return m ? `${m[1]}\n〜\n${m[2]}` : s;
-                                };
-                                const verticalValue = formatVertical(jisseki||'');
-                                return (
-                                  <textarea value={verticalValue} onChange={(e)=>{
-                                    const newRecs=appData.ticketRecords.map(tr=>tr.id===r.id?{...tr,actualTime:e.target.value}:tr);
-                                    onSave({...appData,ticketRecords:newRecs});
-                                  }} rows={3}
-                                    className="w-full text-center border border-slate-200 rounded bg-white outline-none mt-0.5"
-                                    style={{fontSize:6,height:24,resize:'none',lineHeight:1.0,padding:'0',fontWeight:'bold',overflow:'hidden',display:'block',boxSizing:'border-box'}}
-                                    placeholder={"9:00\n〜\n12:05"}/>
-                                );
-                              })()}
+                            <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:'2px 0'}}>
+                              <div className="font-bold leading-tight" style={{fontSize:24}}>{r.dayNum}</div>
+                              <div className="font-normal leading-tight" style={{fontSize:13,color:'#475569',marginTop:2}}>{r.dayOfWeek}</div>
                             </div>
                           </td>
                           <td className={`border border-slate-400 px-0.5 text-center text-[9px] ${sc}`} ><div className="cell-wrap" style={{justifyContent:'center'}}>{sl}</div></td>
@@ -14571,7 +14554,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                           <td className="border border-slate-400 px-0.5 text-center font-bold"><div className="cell-wrap" style={{justifyContent:'center',whiteSpace:'nowrap',fontSize:(v(r.massage)||'').length>4?9:(v(r.massage)||'').length>3?10:12}}>{v(r.massage)}</div></td>
                         </tr>
                         {/* 特記行 */}
-                        <tr className={`tokki-row ${rc}`} style={{height:32}}>
+                        <tr className={`tokki-row ${rc}`} style={{height:42}}>
                           <td className="border-l border-b border-slate-400 px-1 py-0 bg-slate-100 text-center text-[9px] text-slate-500 font-bold" ><div className="cell-wrap">特記</div></td>
                           <td colSpan={tc - 2} className="border-r border-b border-slate-400 px-1.5 py-0 text-[10px] text-slate-700" ><div className="cell-wrap" style={{overflow:'hidden'}}>{r.tokki||''}</div></td>
                         </tr>
@@ -14581,19 +14564,19 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                   {/* 空行 */}
                   {Array.from({length:fill}).map((_,i)=>(
                     <Fragment key={`e${i}`}>
-                      <tr className="data-row" style={{height:38}}>
-                        <td rowSpan={2} className="border border-slate-400 px-1" style={{minHeight:66}}></td>
-                        <td className="border border-slate-400" style={{minHeight:38}}></td>
-                        <td className="border border-slate-400" style={{minHeight:38}}></td>
-                        <td className="border border-slate-400" style={{minHeight:38}}></td>
-                        <td className="border border-slate-400" style={{minHeight:38}}></td>
-                        <td className="border border-slate-400" style={{minHeight:38}}></td>
-                        {ex.map(it=><td key={it.id} className="border border-slate-400" style={{minHeight:38}}></td>)}
-                        <td className="border border-slate-400" style={{minHeight:38}}></td>
+                      <tr className="data-row" style={{height:46}}>
+                        <td rowSpan={2} className="border border-slate-400 px-1" style={{minHeight:88}}></td>
+                        <td className="border border-slate-400" style={{minHeight:46}}></td>
+                        <td className="border border-slate-400" style={{minHeight:46}}></td>
+                        <td className="border border-slate-400" style={{minHeight:46}}></td>
+                        <td className="border border-slate-400" style={{minHeight:46}}></td>
+                        <td className="border border-slate-400" style={{minHeight:46}}></td>
+                        {ex.map(it=><td key={it.id} className="border border-slate-400" style={{minHeight:46}}></td>)}
+                        <td className="border border-slate-400" style={{minHeight:46}}></td>
                       </tr>
-                      <tr className="tokki-row" style={{height:28}}>
-                        <td className="border-l border-b border-slate-400 px-1 py-0 bg-slate-100 text-center text-[9px] text-slate-400 font-bold" style={{minHeight:24}}>特記</td>
-                        <td colSpan={tc - 2} className="border-r border-b border-slate-400" style={{minHeight:24}}></td>
+                      <tr className="tokki-row" style={{height:42}}>
+                        <td className="border-l border-b border-slate-400 px-1 py-0 bg-slate-100 text-center text-[9px] text-slate-400 font-bold" style={{minHeight:42}}>特記</td>
+                        <td colSpan={tc - 2} className="border-r border-b border-slate-400" style={{minHeight:42}}></td>
                       </tr>
                     </Fragment>
                   ))}
