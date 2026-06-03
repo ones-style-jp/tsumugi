@@ -8547,7 +8547,7 @@ export default function App() {
             <div className="flex items-center">
               <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 mr-4 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors outline-none"><Menu size={22} /></button>
               <h1 className="text-lg font-bold text-slate-700">
-                {currentView === 'record' ? `サービス提供記録 入力　${formatDateDisplay(selectedDate)}` : 
+                {currentView === 'record' ? `サービス提供記録 入力　${formatDateDisplay(selectedDate)}` :
                  currentView === 'ticket' ? 'サービス提供記録' :
                  currentView === 'print' ? '連絡帳 作成・印刷' :
                  currentView === 'fitness' ? '体力測定' :
@@ -8555,16 +8555,19 @@ export default function App() {
                  currentView === 'absence_fax' ? '休み連絡' :
                  currentView === 'general_fax' ? '各種連絡' :
                  currentView === 'monitoring' ? 'モニタリング' :
-                 currentView === 'master' ? '利用者マスタ管理' : 
+                 currentView === 'master' ? '利用者マスタ管理' :
                  currentView === 'dash_personal' ? '分析（個人）' :
                  currentView === 'dash_operation' ? '分析（稼働）' :
                  currentView === 'settings' ? '各種設定' : 'システム画面'}
               </h1>
             </div>
+            {/* ジャンプナビをヘッダー右側に配置し、画面領域を節約 */}
+            {['ticket','fitness','master','dash_personal','monitoring'].includes(currentView) && (
+              <QuickNav navigateTo={navigateTo} currentView={currentView} patientId={targetPatientId} appData={appData}/>
+            )}
           </header>
 
-          <main className="flex-1 overflow-auto relative min-w-0 flex flex-col" style={{padding:0}}>
-            {['ticket','fitness','master','dash_personal','monitoring'].includes(currentView) && <QuickNav navigateTo={navigateTo} currentView={currentView} patientId={targetPatientId} appData={appData}/>}
+          <main className="flex-1 overflow-auto relative min-w-0 flex flex-col" style={{padding:0}}>{/* QuickNav はヘッダー内に移動 */}
             {/* 全画面で padding:0 にし、QuickNav と各ビューの sticky ツールバーの間に隙間ができないように統一 */}
             <div ref={contentRef} style={{flex:1,overflow:'auto',padding:0}}>
             <div style={{minWidth:DESIGN_WIDTH,transformOrigin:'top left',transform:contentScale<1?`scale(${contentScale})`:'none',width:contentScale<1?`${100/contentScale}%`:'100%',height:contentScale<1?`${100/contentScale}%`:'100%'}}>
@@ -11624,7 +11627,7 @@ function QuickNav({ navigateTo, currentView, patientId, appData }) {
     BarChart3: (s) => <BarChart3 size={s}/>,
   };
   return (
-    <div style={{display:'flex',gap:4,padding:'6px 12px',background:'#f8fafc',borderBottom:'1px solid #e2e8f0',flexWrap:'wrap',position:'relative',zIndex:50,overflow:'visible'}}>
+    <div style={{display:'flex',gap:4,flexWrap:'nowrap',position:'relative',zIndex:50,overflow:'visible'}}>
       {items.filter(item => {
         if(item.view === currentView) return false;
         if(item.checkFitness) {
@@ -11636,9 +11639,9 @@ function QuickNav({ navigateTo, currentView, patientId, appData }) {
         <button key={item.view}
           onClick={() => navigateTo(item.view, targetId)}
           data-tip={item.label}
-          style={{display:'flex',alignItems:'center',gap:4,padding:'4px 10px',borderRadius:8,border:'1px solid #e2e8f0',background:'white',cursor:'pointer',fontSize:13,fontWeight:'bold',color:'#475569',position:'relative'}}
+          style={{display:'flex',alignItems:'center',gap:3,padding:'4px 8px',borderRadius:6,border:'1px solid #e2e8f0',background:'white',cursor:'pointer',fontSize:12,fontWeight:'bold',color:'#475569',position:'relative',whiteSpace:'nowrap'}}
           className="hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 transition-all">
-          <span style={{color:item.view===currentView?item.color:'#64748b'}}>{iconMap[item.icon](13)}</span>
+          <span style={{color:item.view===currentView?item.color:'#64748b'}}>{iconMap[item.icon](12)}</span>
           {item.label}
         </button>
       ))}
@@ -17738,16 +17741,17 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     if (dirtyRef) dirtyRef.current = hasUnconfirmed;
   }, [results, dirtyRef]);
 
-  // 「保存して移動」用：未確定テキストを全て一括確定してappDataに保存
+  // 保存ボタン押下時: 確定済みの全テキスト(未保存分含む) と未確定テキスト も併せて appData に commit
   React.useEffect(() => {
     if (!saveFnRef) return;
     saveFnRef.current = () => {
-      const unconfirmed = Object.entries(results).filter(([,r]) => r.text && !r.confirmed);
-      if (unconfirmed.length === 0) return;
       const month = `${tY}年${tM}月`;
       let existing = [...(appData.monitoringRecords||[])];
       const newResults = {...results};
-      unconfirmed.forEach(([pid, res]) => {
+      let changed = false;
+      // 確定済み + テキストありの全件を保存対象に (新規 / 既存上書き 両方)
+      Object.entries(results).forEach(([pid, res]) => {
+        if (!res.text) return;
         const patientId = Number(pid);
         const newRec = {
           id: `${patientId}_${tY}-${String(tM).padStart(2,'0')}_${Date.now()}`,
@@ -17759,10 +17763,13 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
         };
         existing = existing.filter(r => !(r.patientId === patientId && r.period === month));
         existing.push(newRec);
-        newResults[pid] = {...res, confirmed: true};
+        if (!res.confirmed) newResults[pid] = {...res, confirmed: true};
+        changed = true;
       });
-      setResults(newResults);
-      onSave({...appData, monitoringRecords: existing});
+      if (changed) {
+        setResults(newResults);
+        onSave({...appData, monitoringRecords: existing});
+      }
       if (dirtyRef) dirtyRef.current = false;
     };
   }); // 毎レンダリング時に最新のclosureで更新
@@ -17934,26 +17941,14 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const confirmResult = (patientId) => {
     const res = results[patientId];
     if (!res?.text) return;
-    // 確定状態に変更
+    // 確定状態に変更 (画面表示のみ)。実際の appData への保存は保存ボタン押下まで遅延
     setResults(prev => ({...prev, [patientId]: {...prev[patientId], confirmed: true}}));
-    // appDataのmonitoringRecordsに保存
-    const month = `${tY}年${tM}月`;
-    const newRec = {
-      id: `${patientId}_${targetMonth}_${Date.now()}`,
-      patientId,
-      period: month,
-      createdDate: new Date().toLocaleDateString('ja-JP'),
-      createdAt: Date.now(),
-      summary: res.text,
-    };
-    const existing = (appData.monitoringRecords||[]).filter(
-      r => !(r.patientId === patientId && r.period === month)
-    );
-    onSave({...appData, monitoringRecords: [...existing, newRec]});
+    if (dirtyRef) dirtyRef.current = true;
   };
 
   const unconfirmResult = (patientId) => {
     setResults(prev => ({...prev, [patientId]: {...prev[patientId], confirmed: false}}));
+    if (dirtyRef) dirtyRef.current = true;
   };
 
   const generateAll = async () => {
