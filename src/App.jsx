@@ -182,6 +182,27 @@ const toHalfWidth = (s) => (s||'')
   .replace(/　/g, ' ')
   .replace(/[ー－]/g, '-');
 
+// 招待コード関連 (利用者ID 6桁 + チェックデジット 1桁 = 7桁)
+// patientId (任意の正数) を 6桁ゼロパディングし、各桁の合計 mod 10 のチェックデジットを付与
+const calcCheckDigit = (sixDigitStr) => {
+  const sum = sixDigitStr.split('').reduce((s,c) => s + (parseInt(c,10)||0), 0);
+  return String(sum % 10);
+};
+// 利用者 ID から 7桁招待コードを生成 (内部用)
+const generateInviteCode = (patientId) => {
+  const six = String(patientId).padStart(6,'0').slice(-6);
+  return six + calcCheckDigit(six);
+};
+// 7桁招待コードを検証 → 不正なら null、正しければ最初の6桁 (= 利用者ID と照合する値) を返す
+const verifyInviteCode = (code7) => {
+  const s = (code7||'').replace(/[^0-9]/g,'');
+  if (s.length !== 7) return null;
+  const six = s.slice(0,6);
+  const expectedCD = calcCheckDigit(six);
+  if (s[6] !== expectedCD) return null;
+  return six;
+};
+
 // 日付文字列 ("4月15日" 等) を YYYY-MM に正規化。年が無いものは currentYear で補完
 const normalizeRecordMonth = (dateStr, currentYear) => {
   if (!dateStr) return null;
@@ -8187,23 +8208,28 @@ function SidebarItem({ icon, label, active, onClick, badge }) {
 
 // === 新規アカウント登録完了画面 (URL ?signup=... でアクセス) ===
 function SignupCompleteView({ context, appData, onSave }) {
-  const [form, setForm] = useState({ username:'', password:'', password2:'', patientName:'', birthDate:'', inviteCode:'', storeName:'', done:false, matchedPatientId:null });
+  const [form, setForm] = useState({
+    username:'', password:'', password2:'',
+    // 家族用
+    patientName:'', birthDate:'', inviteCode:'',
+    // スタッフ用 事業所基本情報
+    storeName:'', storePhone:'', storeFax:'', storeAddress:'', storeZip:'',
+    franchiseCode:'',  // フランチャイズ加盟招待コード
+    storeNumbers:[''], // 事業所番号 (複数可)
+    done:false, matchedPatientId:null
+  });
   const patients = (appData?.patients||[]).filter(p => p.status === '利用中');
   const isFamily = context.kind === 'family';
   const facility = appData?.systemSettings?.facilityInfo || {};
-  // 利用者照合: 氏名+生年月日 または 招待コード(6桁) で利用者マスタを検索
+  // 利用者照合: 氏名+生年月日 または 7桁招待コード (6桁 + チェックデジット) で利用者マスタを検索
   const findMatchedPatient = () => {
     if (!isFamily) return null;
-    // 1. 招待コード優先 (6桁: 事業所3桁+利用者3桁、または利用者IDそのもの)
+    // 1. 招待コード優先 (7桁: 6桁ID + CD)
     if (form.inviteCode.trim()) {
-      const code = form.inviteCode.trim();
-      // 利用者ID 直接マッチ
-      const byId = patients.find(p => String(p.id) === code);
-      if (byId) return byId;
-      // 利用者ID 末尾3桁マッチ
-      const byTail = patients.find(p => String(p.id).padStart(6,'0').endsWith(code));
-      if (byTail) return byTail;
-      return null;
+      const six = verifyInviteCode(form.inviteCode);
+      if (!six) return null; // CD 不正
+      const idNum = parseInt(six, 10);
+      return patients.find(p => p.id === idNum) || null;
     }
     // 2. 氏名+生年月日
     if (form.patientName.trim() && form.birthDate) {
@@ -8215,6 +8241,8 @@ function SignupCompleteView({ context, appData, onSave }) {
     }
     return null;
   };
+  // フランチャイズ加盟招待コード (本社が発行・管理)
+  const franchiseCodes = appData?.systemSettings?.franchiseInviteCodes || [];
   const validate = () => {
     if (!form.username.trim()) return 'IDを入力してください';
     if (form.username.length < 4) return 'IDは4文字以上必要です';
@@ -8229,6 +8257,15 @@ function SignupCompleteView({ context, appData, onSave }) {
       }
       const matched = findMatchedPatient();
       if (!matched) return '入力された情報と一致する利用者が見つかりません。事業所までお問い合わせください。';
+    } else {
+      // スタッフ登録: フランチャイズ加盟招待コードを必須化
+      if (!form.franchiseCode.trim()) return 'フランチャイズ加盟招待コードを入力してください';
+      if (franchiseCodes.length > 0 && !franchiseCodes.includes(form.franchiseCode.trim())) {
+        return '入力された招待コードは登録されていません。フランチャイズ本部にお問い合わせください。';
+      }
+      if (!form.storeName.trim()) return '事業所名を入力してください';
+      const validStoreNums = form.storeNumbers.filter(n => n.trim());
+      if (validStoreNums.length === 0) return '事業所番号を1つ以上入力してください';
     }
     return null;
   };
@@ -8254,8 +8291,31 @@ function SignupCompleteView({ context, appData, onSave }) {
       const creds = appData.systemSettings?.loginCredentials || [];
       const exists = creds.some(c => c.id === form.username);
       if (exists) { alert('このIDは既に使用されています'); return; }
-      const newCreds = [...creds, { storeName: form.storeName||facility.name||'事業所', id: form.username, pass: form.password, email: context.email }];
-      onSave({ ...appData, systemSettings: { ...(appData.systemSettings||{}), loginCredentials: newCreds } });
+      const validStoreNums = form.storeNumbers.filter(n => n.trim());
+      const newCreds = [...creds, {
+        storeName: form.storeName,
+        id: form.username,
+        pass: form.password,
+        email: context.email,
+        franchiseCode: form.franchiseCode.trim(),
+        storePhone: form.storePhone,
+        storeFax: form.storeFax,
+        storeAddress: form.storeAddress,
+        storeZip: form.storeZip,
+        storeNumbers: validStoreNums,
+        createdAt: new Date().toISOString().slice(0,10),
+      }];
+      // 事業所基本情報も systemSettings.facilityInfo に保存
+      const newFacilityInfo = {
+        ...(appData.systemSettings?.facilityInfo || {}),
+        name: form.storeName,
+        phone: form.storePhone,
+        fax: form.storeFax,
+        zipCode: form.storeZip,
+        address: form.storeAddress,
+        email: context.email,
+      };
+      onSave({ ...appData, systemSettings: { ...(appData.systemSettings||{}), loginCredentials: newCreds, facilityInfo: newFacilityInfo } });
     }
     setForm(f=>({...f, done:true}));
   };
@@ -8300,11 +8360,15 @@ function SignupCompleteView({ context, appData, onSave }) {
                   style={{width:'100%',padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
               </div>
               <div style={{textAlign:'center',fontSize:10,color:'#94a3b8',margin:'4px 0'}}>— または —</div>
-              {/* 方法2: 招待コード */}
+              {/* 方法2: 招待コード (7桁: 6桁ID + チェックデジット1桁) */}
               <div style={{background:'white',padding:10,borderRadius:8}}>
-                <div style={{fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:6}}>方法2: 事業所から発行された招待コード</div>
-                <input value={form.inviteCode} onChange={e=>setForm(f=>({...f,inviteCode:toHalfWidth(e.target.value).replace(/[^0-9]/g,'').slice(0,6)}))} placeholder="6桁の数字" inputMode="numeric"
+                <div style={{fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:6}}>方法2: 事業所から発行された招待コード (7桁)</div>
+                <input value={form.inviteCode} onChange={e=>setForm(f=>({...f,inviteCode:toHalfWidth(e.target.value).replace(/[^0-9]/g,'').slice(0,7)}))} placeholder="7桁の数字" inputMode="numeric"
                   style={{width:'100%',padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:14,fontWeight:'bold',letterSpacing:4,outline:'none',boxSizing:'border-box',fontFamily:'Menlo,monospace',textAlign:'center'}}/>
+                {form.inviteCode.length === 7 && !verifyInviteCode(form.inviteCode) && (
+                  <div style={{fontSize:10,color:'#dc2626',marginTop:4,fontWeight:'bold'}}>⚠ コードの形式が正しくありません (チェックデジット不一致)</div>
+                )}
+                <div style={{fontSize:10,color:'#94a3b8',marginTop:4}}>※ 7桁目は誤入力検出用のチェックデジットです</div>
               </div>
               <div style={{fontSize:10,color:'#94a3b8',marginTop:8,lineHeight:1.5}}>
                 ※ 入力された情報が事業所のご利用者と一致した場合のみ登録できます<br/>
@@ -8313,11 +8377,58 @@ function SignupCompleteView({ context, appData, onSave }) {
             </div>
           )}
           {!isFamily && (
-            <div>
-              <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>事業所名 (任意)</label>
-              <input value={form.storeName} onChange={e=>setForm(f=>({...f,storeName:e.target.value}))} placeholder={facility.name||'例: ○○デイサービス'}
-                style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
-            </div>
+            <>
+              {/* フランチャイズ加盟招待コード (必須) */}
+              <div style={{background:'#fef3c7',border:'2px solid #fbbf24',borderRadius:12,padding:14}}>
+                <div style={{fontSize:12,fontWeight:'bold',color:'#92400e',marginBottom:6}}>🔑 フランチャイズ加盟招待コード <span style={{color:'#dc2626'}}>*必須*</span></div>
+                <input value={form.franchiseCode} onChange={e=>setForm(f=>({...f,franchiseCode:e.target.value.trim()}))} placeholder="本部から発行されたコードを入力" required
+                  style={{width:'100%',padding:'10px 12px',border:'1px solid #fbbf24',borderRadius:10,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box',fontFamily:'Menlo,monospace',letterSpacing:2}}/>
+                <div style={{fontSize:10,color:'#78350f',marginTop:6,lineHeight:1.6}}>
+                  ※ フランチャイズ加盟者のみ事業所アカウントを作成できます<br/>
+                  ※ コードをお持ちでない場合はフランチャイズ本部までご連絡ください
+                </div>
+              </div>
+              {/* 事業所基本情報 */}
+              <div style={{background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:12,padding:14}}>
+                <div style={{fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:8}}>🏢 事業所の基本情報</div>
+                <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                  <input value={form.storeName} onChange={e=>setForm(f=>({...f,storeName:e.target.value}))} placeholder="事業所名 (例: ○○デイサービス扇橋店) *必須*" required
+                    style={{padding:'10px 12px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+                  <input value={form.storePhone} onChange={e=>setForm(f=>({...f,storePhone:e.target.value}))} placeholder="電話番号 (例: 03-1234-5678)"
+                    style={{padding:'10px 12px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+                  <input value={form.storeFax} onChange={e=>setForm(f=>({...f,storeFax:e.target.value}))} placeholder="FAX (例: 03-1234-5679)"
+                    style={{padding:'10px 12px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+                  <input value={form.storeZip} onChange={e=>setForm(f=>({...f,storeZip:e.target.value}))} placeholder="郵便番号 (例: 135-0011)"
+                    style={{padding:'10px 12px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+                  <input value={form.storeAddress} onChange={e=>setForm(f=>({...f,storeAddress:e.target.value}))} placeholder="住所"
+                    style={{padding:'10px 12px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+                </div>
+              </div>
+              {/* 事業所番号 (複数追加可) */}
+              <div style={{background:'#f0f9ff',border:'1px solid #bae6fd',borderRadius:12,padding:14}}>
+                <div style={{fontSize:12,fontWeight:'bold',color:'#0c4a6e',marginBottom:8}}>🔢 事業所番号 <span style={{color:'#dc2626'}}>*必須*</span></div>
+                <div style={{fontSize:10,color:'#0369a1',marginBottom:8,lineHeight:1.6}}>
+                  介護保険事業所番号 (10桁) を入力してください。複数ある場合は「+ 追加」で増やせます。
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                  {form.storeNumbers.map((num, i) => (
+                    <div key={i} style={{display:'flex',gap:6}}>
+                      <input value={num} onChange={e=>{const arr=[...form.storeNumbers]; arr[i]=e.target.value.replace(/[^0-9-]/g,''); setForm(f=>({...f,storeNumbers:arr}));}}
+                        placeholder={`事業所番号 ${i+1} (例: 1370200001)`}
+                        style={{flex:1,padding:'10px 12px',border:'1px solid #bae6fd',borderRadius:8,fontSize:13,outline:'none',boxSizing:'border-box',fontFamily:'Menlo,monospace'}}/>
+                      {form.storeNumbers.length > 1 && (
+                        <button type="button" onClick={()=>{const arr=form.storeNumbers.filter((_,j)=>j!==i); setForm(f=>({...f,storeNumbers:arr}));}}
+                          style={{padding:'10px 14px',background:'#fee2e2',color:'#dc2626',border:'1px solid #fecaca',borderRadius:8,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>✕</button>
+                      )}
+                    </div>
+                  ))}
+                  <button type="button" onClick={()=>setForm(f=>({...f,storeNumbers:[...f.storeNumbers,'']}))}
+                    style={{padding:'8px',background:'#e0f2fe',color:'#0c4a6e',border:'2px dashed #7dd3fc',borderRadius:8,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>
+                    ＋ 事業所番号を追加
+                  </button>
+                </div>
+              </div>
+            </>
           )}
           <div>
             <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>ログインID</label>
@@ -17194,6 +17305,21 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 <div className="text-center">
                   <div className="text-xs font-bold text-slate-500 mb-1">利用者</div>
                   <div className="text-lg font-bold text-slate-800">{pat.name} 様 {pat.kana && <span className="text-xs text-slate-400 font-normal ml-1">（{pat.kana}）</span>}</div>
+                  <div className="text-[10px] text-slate-500 mt-1">利用者ID: {pat.id}</div>
+                </div>
+                {/* 家族登録用 招待コード (7桁: 6桁ID + チェックデジット) */}
+                <div className="bg-amber-50 border border-amber-300 rounded-xl p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-bold text-amber-800 mb-1">📋 家族登録用 招待コード</div>
+                      <div className="text-2xl font-bold text-amber-900 tracking-widest" style={{fontFamily:'Menlo,monospace'}}>{generateInviteCode(pat.id)}</div>
+                      <div className="text-[10px] text-amber-700 mt-1">7桁目はチェックデジット (入力ミス検出用)</div>
+                    </div>
+                    <button onClick={()=>{navigator.clipboard?.writeText(generateInviteCode(pat.id)); setShowToast(true);}} className="px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold whitespace-nowrap">コピー</button>
+                  </div>
+                  <div className="text-[10px] text-amber-700 mt-2 leading-relaxed">
+                    ご家族にこのコードをお伝えください。新規アカウント作成時に「方法2: 招待コード」で入力すると、安全にこの利用者と紐付けできます。
+                  </div>
                 </div>
                 <div className="bg-violet-50 border border-violet-200 rounded-xl p-4">
                   <div className="text-xs font-bold text-violet-700 mb-2">共通ログインURL（全利用者共通）</div>
