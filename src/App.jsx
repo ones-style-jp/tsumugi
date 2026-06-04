@@ -9098,48 +9098,6 @@ function FamilyPatientView({ data, patientId, onLogout }) {
         )}
         {tab === 'news' && (
           <div style={{maxWidth:720,margin:'0 auto'}}>
-            {/* 今回の記録 (最新の通所記録) */}
-            {(()=>{
-              const ticketRecs = (data.ticketRecords||[]).filter(r => r.patientId === pid || r.patientId === patientId);
-              const parseTicketDate = (s) => { const m=(s||'').match(/(\d+)月(\d+)日/); return m?`${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`:''; };
-              const validRecs = ticketRecs.filter(r => r.status==='出席'||r.status==='振替');
-              const latest = validRecs.sort((a,b)=> parseTicketDate(b.date).localeCompare(parseTicketDate(a.date)))[0];
-              if (!latest) return null;
-              const MOODS = {'excellent':'🤩 とても良い','good':'😊 良い','normal':'😐 普通','bad':'😞 良くない','terrible':'😫 とても良くない'};
-              const tokkiOverrides = ((data.familyTokkiOverrides||{})[pid]) || {};
-              const tokkiOv = tokkiOverrides[latest.id] || {};
-              const showTokki = tokkiOv.visible !== false;
-              const tokkiText = tokkiOv.text || latest.tokki || '';
-              return (
-                <div style={{background:'linear-gradient(135deg,#fef3c7,#fef9c3)',borderRadius:16,padding:'14px 18px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)',marginBottom:14,border:'1px solid #fde68a'}}>
-                  <div style={{display:'flex',alignItems:'baseline',justifyContent:'space-between',marginBottom:8}}>
-                    <div style={{fontSize:13,fontWeight:'bold',color:'#92400e'}}>📋 今回の記録</div>
-                    <div style={{fontSize:11,fontWeight:'bold',color:'#92400e'}}>{latest.date}</div>
-                  </div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px 12px',fontSize:13}}>
-                    {latest.temp && <div><span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>体温</span><br/><span style={{fontWeight:'bold',color:'#1e293b'}}>{latest.temp}<span style={{fontSize:11,color:'#94a3b8',marginLeft:2}}>℃</span></span></div>}
-                    {latest.bpUpSt && <div><span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>血圧 (開始)</span><br/><span style={{fontWeight:'bold',color:'#1e293b'}}>{latest.bpUpSt}/{latest.bpDnSt}<span style={{fontSize:11,color:'#94a3b8',marginLeft:2}}>mmHg</span>{latest.plSt && <span style={{fontSize:11,color:'#475569',marginLeft:4}}>脈 {latest.plSt}</span>}</span></div>}
-                    {latest.bpUpEn && <div><span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>血圧 (終了)</span><br/><span style={{fontWeight:'bold',color:'#1e293b'}}>{latest.bpUpEn}/{latest.bpDnEn}<span style={{fontSize:11,color:'#94a3b8',marginLeft:2}}>mmHg</span>{latest.plEn && <span style={{fontSize:11,color:'#475569',marginLeft:4}}>脈 {latest.plEn}</span>}</span></div>}
-                    {(latest.kibunArrival||latest.kibunDeparture) && (
-                      <div style={{gridColumn:'span 2'}}>
-                        <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>気分</span><br/>
-                        <span style={{fontWeight:'bold',color:'#1e293b',fontSize:12}}>
-                          {latest.kibunArrival && <>来所時: {MOODS[latest.kibunArrival]||latest.kibunArrival}</>}
-                          {latest.kibunArrival && latest.kibunDeparture && <span style={{color:'#94a3b8'}}> ／ </span>}
-                          {latest.kibunDeparture && <>帰宅時: {MOODS[latest.kibunDeparture]||latest.kibunDeparture}</>}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                  {showTokki && tokkiText && (
-                    <div style={{marginTop:10,paddingTop:10,borderTop:'1px solid #fde68a'}}>
-                      <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>特記</span>
-                      <div style={{fontSize:13,color:'#1e293b',lineHeight:1.6,whiteSpace:'pre-wrap',marginTop:4}}>{tokkiText}</div>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
             {/* お知らせ一覧 */}
             <div style={{background:'white',borderRadius:16,padding:'8px 0',boxShadow:'0 2px 8px rgba(0,0,0,0.04)',marginBottom:14}}>
               <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',padding:'8px 20px',borderBottom:'1px solid #f1f5f9'}}>📢 お知らせ</div>
@@ -10937,7 +10895,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   const [customTo, setCustomTo]   = useState('2026-03');
   // セクション選択（プレビュー用） [id, label, size]
   const ALL_SECTIONS = familyMode
-    ? [['sec-basicinfo','基本情報','短'],['sec-kpi','基本指標','短'],['sec-trend','通所','長'],['sec-kibun','気分','中'],['sec-vital','バイタルトレンド','長'],['sec-exercise','運動トレンド','長'],['sec-fitness','体力測定','長'],['sec-tokki','日々の特記','中'],['sec-monitoring','モニタリング','中']]
+    ? [['sec-basicinfo','基本情報','短'],['sec-latest','今回の記録','短'],['sec-kpi','基本指標','短'],['sec-trend','通所','長'],['sec-kibun','気分','中'],['sec-vital','バイタルトレンド','長'],['sec-exercise','運動トレンド','長'],['sec-fitness','体力測定','長'],['sec-tokki','日々の記録','中'],['sec-monitoring','モニタリング','中']]
     : [['sec-basicinfo','基本情報','短'],['sec-kpi','基本指標','短'],['sec-trend','通所','長'],['sec-kibun','気分','中'],['sec-vital','バイタルトレンド','長'],['sec-exercise','運動トレンド','長'],['sec-fitness','体力測定','長'],['sec-absence','欠席一覧','短'],['sec-kyushi','休止一覧','短'],['sec-monitoring','モニタリング','中'],['sec-detail','詳細記録','長']];
   // Hoisted from IIFEs to satisfy React hook rules
   const [vitalTooltip, setVitalTooltip] = useState(null);
@@ -11636,6 +11594,72 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             );
           })()}
         </div>
+
+        {/* familyMode 専用: 今回の記録 (最新の通所記録のサマリー) */}
+        {familyMode && (() => {
+          const validRecs = records.filter(r => r.status==='出席' || r.status==='振替');
+          const parseTicketDate = (s) => { const m=(s||'').match(/(\d+)月(\d+)日/); return m?`${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`:''; };
+          const latest = [...validRecs].sort((a,b)=> parseTicketDate(b.date).localeCompare(parseTicketDate(a.date)))[0];
+          if (!latest) return null;
+          const MOODS = {'excellent':'🤩 とても良い','good':'😊 良い','normal':'😐 普通','bad':'😞 良くない','terrible':'😫 とても良くない'};
+          const tokkiOv = ((appData.familyTokkiOverrides||{})[selectedPatientId]||{})[latest.id] || {};
+          const showTokki = tokkiOv.visible !== false;
+          const tokkiText = tokkiOv.text || latest.tokki || '';
+          return (
+            <div id="sec-latest" style={{marginBottom:16,scrollMarginTop:120}}>
+              <div style={{fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:10,paddingBottom:6,borderBottom:'2px solid #e2e8f0',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <span>📋 今回の記録</span>
+                <span style={{fontSize:13,color:'#92400e',fontWeight:'bold',background:'#fef3c7',padding:'2px 10px',borderRadius:6}}>{latest.date}</span>
+              </div>
+              <div style={{background:'linear-gradient(135deg,#fefce8,#fef9c3)',borderRadius:14,padding:'14px 18px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #fde68a'}}>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px 14px',fontSize:13}}>
+                  {latest.temp && (
+                    <div>
+                      <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>体温</span>
+                      <div style={{fontWeight:'bold',color:'#1e293b',fontSize:18,lineHeight:1.2}}>
+                        {latest.temp}<span style={{fontSize:11,color:'#94a3b8',marginLeft:2}}>℃</span>
+                      </div>
+                    </div>
+                  )}
+                  {latest.bpUpSt && (
+                    <div>
+                      <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>血圧 (開始)</span>
+                      <div style={{fontWeight:'bold',color:'#1e293b',fontSize:16,lineHeight:1.2}}>
+                        {latest.bpUpSt}/{latest.bpDnSt}<span style={{fontSize:10,color:'#94a3b8',marginLeft:2}}>mmHg</span>
+                      </div>
+                      {latest.plSt && <div style={{fontSize:11,color:'#475569'}}>脈拍 <b>{latest.plSt}</b></div>}
+                    </div>
+                  )}
+                  {latest.bpUpEn && (
+                    <div>
+                      <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>血圧 (終了)</span>
+                      <div style={{fontWeight:'bold',color:'#1e293b',fontSize:16,lineHeight:1.2}}>
+                        {latest.bpUpEn}/{latest.bpDnEn}<span style={{fontSize:10,color:'#94a3b8',marginLeft:2}}>mmHg</span>
+                      </div>
+                      {latest.plEn && <div style={{fontSize:11,color:'#475569'}}>脈拍 <b>{latest.plEn}</b></div>}
+                    </div>
+                  )}
+                  {(latest.kibunArrival||latest.kibunDeparture) && (
+                    <div style={{gridColumn:'1 / -1'}}>
+                      <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>気分</span>
+                      <div style={{fontWeight:'bold',color:'#1e293b',fontSize:13,marginTop:2}}>
+                        {latest.kibunArrival && <span>来所時: {MOODS[latest.kibunArrival]||latest.kibunArrival}</span>}
+                        {latest.kibunArrival && latest.kibunDeparture && <span style={{color:'#94a3b8',margin:'0 8px'}}>／</span>}
+                        {latest.kibunDeparture && <span>帰宅時: {MOODS[latest.kibunDeparture]||latest.kibunDeparture}</span>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {showTokki && tokkiText && (
+                  <div style={{marginTop:10,paddingTop:10,borderTop:'1px solid #fde68a'}}>
+                    <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>特記</span>
+                    <div style={{fontSize:13,color:'#1e293b',lineHeight:1.6,whiteSpace:'pre-wrap',marginTop:4}}>{tokkiText}</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         <div id="sec-kpi" style={{marginBottom:16,scrollMarginTop:120}}>
           <div style={{fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:10,paddingBottom:6,borderBottom:'2px solid #e2e8f0',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -12755,7 +12779,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             <>
               <div id="sec-tokki" style={{scrollMarginTop:120,marginBottom:0}}>
                 <div onClick={()=>toggleSec('sec-tokki')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:8,paddingBottom:6,borderBottom:'2px solid #e2e8f0',cursor:'pointer',userSelect:'none'}}>
-                  <span>📝 日々の特記（事業所スタッフからのコメント）</span>
+                  <span>📝 日々の記録（事業所スタッフからのコメント）</span>
                   <span style={{fontSize:14,color:'#94a3b8'}}>{isCol('sec-tokki')?'▶':'▼'}</span>
                 </div>
               </div>
