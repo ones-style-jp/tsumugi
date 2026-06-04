@@ -20239,6 +20239,109 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 
 
 // === AbsenceFaxView (休み連絡) ===
+// === FAX送信手順ヘルプモーダル (複合機からFAXする方法を端末別に案内) ===
+function FaxHelpModal({ onClose }) {
+  const [tab, setTab] = useState('win');
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.7)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={onClose}>
+      <div style={{background:'white',borderRadius:20,maxWidth:680,width:'100%',maxHeight:'90vh',overflow:'hidden',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,0.4)'}} onClick={e=>e.stopPropagation()}>
+        {/* ヘッダー */}
+        <div style={{padding:'18px 24px',background:'linear-gradient(135deg,#7c3aed,#a855f7)',color:'white',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <div>
+            <div style={{fontSize:18,fontWeight:'bold'}}>📠 FAX送信の手順</div>
+            <div style={{fontSize:11,opacity:0.85,marginTop:2}}>事業所の複合機を使ったFAX送信方法</div>
+          </div>
+          <button onClick={onClose} style={{background:'rgba(255,255,255,0.2)',border:'none',color:'white',width:32,height:32,borderRadius:'50%',cursor:'pointer',fontSize:18}}>✕</button>
+        </div>
+        {/* タブ */}
+        <div style={{display:'flex',padding:'8px 16px 0',gap:4,borderBottom:'1px solid #e2e8f0',background:'#f8fafc'}}>
+          {[['win','💻 Windows PC'],['mac','💻 Mac'],['ipad','📱 iPad / iPhone']].map(([k,l])=>(
+            <button key={k} onClick={()=>setTab(k)} style={{padding:'10px 16px',border:'none',background:tab===k?'white':'transparent',color:tab===k?'#7c3aed':'#64748b',fontWeight:'bold',fontSize:13,cursor:'pointer',borderRadius:'8px 8px 0 0',borderTop:tab===k?'2px solid #7c3aed':'none',borderLeft:tab===k?'1px solid #e2e8f0':'none',borderRight:tab===k?'1px solid #e2e8f0':'none'}}>{l}</button>
+          ))}
+        </div>
+        {/* コンテンツ */}
+        <div style={{flex:1,overflow:'auto',padding:24}}>
+          <div style={{background:'#fef3c7',border:'1px solid #fde68a',borderRadius:10,padding:'10px 14px',marginBottom:16,fontSize:12,color:'#92400e',lineHeight:1.6}}>
+            <b>💡 事前準備:</b><br/>
+            ・ 複合機が Wi-Fi (LAN) で接続されていること<br/>
+            ・ PC / iPad に複合機の **プリンタドライバー** がインストール済<br/>
+            ・ プリンタ一覧に「○○複合機 FAX」が表示されていること
+          </div>
+          {tab === 'win' && (
+            <div style={{fontSize:14,lineHeight:1.8,color:'#1e293b'}}>
+              <h3 style={{fontSize:15,fontWeight:'bold',marginBottom:10,color:'#7c3aed'}}>Windows PC からのFAX送信</h3>
+              <ol style={{paddingLeft:24,lineHeight:2}}>
+                <li>左側の「📋 プレビュー」ボタンをクリック</li>
+                <li>開いたプレビュー画面で「🖨 印刷」ボタン</li>
+                <li>印刷ダイアログの「<b>プリンター</b>」で <b>「○○複合機 FAX」</b> を選択<br/>
+                  <span style={{fontSize:11,color:'#64748b'}}>例: Canon iR-ADV C5535 FAX、Konica Minolta bizhub C368 FAX 等</span>
+                </li>
+                <li>「印刷」をクリック</li>
+                <li>「FAX送信」ダイアログが表示される</li>
+                <li>送信先 FAX 番号を入力 (ハイフンなし: 0312345678)</li>
+                <li>「OK」または「送信」をクリック</li>
+                <li>複合機側で送信処理 → 完了通知</li>
+              </ol>
+              <div style={{marginTop:14,padding:'10px 14px',background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:8,fontSize:12,color:'#1e3a8a'}}>
+                <b>💡 アドレス帳活用:</b> 複合機の管理画面でケアマネ事業所の FAX 番号を「アドレス帳」に登録すると、手順 6 で番号入力不要になります。
+              </div>
+            </div>
+          )}
+          {tab === 'mac' && (
+            <div style={{fontSize:14,lineHeight:1.8,color:'#1e293b'}}>
+              <h3 style={{fontSize:15,fontWeight:'bold',marginBottom:10,color:'#7c3aed'}}>Mac からのFAX送信</h3>
+              <ol style={{paddingLeft:24,lineHeight:2}}>
+                <li>左側の「📋 プレビュー」ボタンをクリック</li>
+                <li>開いたプレビュー画面で「🖨 印刷」ボタン</li>
+                <li>印刷ダイアログの「<b>プリンタ</b>」で <b>「○○複合機 - FAX」</b> を選択</li>
+                <li>「<b>プリセット</b>」または詳細設定で「FAX 設定」を確認</li>
+                <li>「<b>ファクス情報</b>」項目で送信先番号を入力</li>
+                <li>「FAX」または「送信」をクリック</li>
+              </ol>
+              <div style={{marginTop:14,padding:'10px 14px',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,fontSize:12,color:'#991b1b'}}>
+                <b>⚠ 注意:</b> 一部の複合機ドライバは Mac 版で FAX 送信が制限されている場合があります。その場合は PDF を保存して PC から送信してください。
+              </div>
+            </div>
+          )}
+          {tab === 'ipad' && (
+            <div style={{fontSize:14,lineHeight:1.8,color:'#1e293b'}}>
+              <h3 style={{fontSize:15,fontWeight:'bold',marginBottom:10,color:'#7c3aed'}}>iPad / iPhone からのFAX送信</h3>
+              <div style={{padding:'10px 14px',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,marginBottom:14,fontSize:12,color:'#991b1b'}}>
+                <b>⚠ iPad / iPhone から直接 FAX 送信できる複合機は少ないです</b><br/>
+                以下 3 つの方法から選んでください
+              </div>
+              <h4 style={{fontSize:14,fontWeight:'bold',marginTop:10,color:'#7c3aed'}}>方法1: 複合機メーカーの専用アプリ (推奨)</h4>
+              <ol style={{paddingLeft:24,lineHeight:1.8,fontSize:13}}>
+                <li>App Store からメーカーアプリをインストール<br/>
+                  <span style={{fontSize:11,color:'#64748b'}}>例: 「Canon PRINT」「Konica Bizhub」「Sharpdesk Mobile」「RICOH Smart Device Connector」</span>
+                </li>
+                <li>本アプリの「📋 プレビュー」→「💾 PDFで保存」</li>
+                <li>保存した PDF をメーカーアプリで開く ([共有]ボタン)</li>
+                <li>メーカーアプリの「FAX 送信」機能で送信</li>
+              </ol>
+              <h4 style={{fontSize:14,fontWeight:'bold',marginTop:14,color:'#7c3aed'}}>方法2: PC に転送して送信</h4>
+              <ol style={{paddingLeft:24,lineHeight:1.8,fontSize:13}}>
+                <li>iPad で PDF 保存</li>
+                <li>AirDrop / メール / クラウドで PC に転送</li>
+                <li>PC から複合機 FAX で送信 (Windows / Mac の手順参照)</li>
+              </ol>
+              <h4 style={{fontSize:14,fontWeight:'bold',marginTop:14,color:'#7c3aed'}}>方法3: 印刷して通常の FAX 操作</h4>
+              <ol style={{paddingLeft:24,lineHeight:1.8,fontSize:13}}>
+                <li>iPad で「💾 PDFで保存」→ AirPrint で複合機に印刷</li>
+                <li>複合機の前で原稿を FAX セットして送信</li>
+              </ol>
+            </div>
+          )}
+        </div>
+        {/* フッター */}
+        <div style={{padding:'12px 24px',borderTop:'1px solid #e2e8f0',background:'#f8fafc',fontSize:11,color:'#64748b',textAlign:'center'}}>
+          📞 不明な点はシステム管理者にお問い合わせください
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
@@ -20247,6 +20350,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
   // 保存済みの faxDataStore を初期値として読み込む（再表示時に編集状態が消えないように）
   const [faxData, setFaxData] = React.useState(() => appData.faxDataStore || {});
   const [isPrint, setIsPrint] = React.useState(false);
+  const [showFaxHelp, setShowFaxHelp] = React.useState(false);
 
   const facility = appData.systemSettings?.facilityInfo || {};
   const patients = appData.patients || [];
@@ -20373,6 +20477,9 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
               },100);
             }} style={{background:'#0f766e',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
               📋 プレビュー
+            </button>
+            <button type="button" onClick={()=>setShowFaxHelp(true)} style={{background:'#7c3aed',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
+              📠 FAX送信
             </button>
             <button type="button" onClick={()=>{
               markClean();
@@ -20655,6 +20762,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
           ))}
         </div>
       </div>
+      {showFaxHelp && <FaxHelpModal onClose={()=>setShowFaxHelp(false)}/>}
     </div>
   );
 }
@@ -20665,6 +20773,7 @@ function GeneralFaxView({ appData, onShowPrintPreview }) {
   const [selectedPatientId, setSelectedPatientId] = React.useState(null);
   const [subject, setSubject] = React.useState('');
   const [memo, setMemo] = React.useState('');
+  const [showFaxHelp, setShowFaxHelp] = React.useState(false);
   const [pageCount, setPageCount] = React.useState(1);
   const [checks, setChecks] = React.useState({ kyuukyuu: false, kakunin: false, orikaesu: false });
 
@@ -20743,10 +20852,14 @@ function GeneralFaxView({ appData, onShowPrintPreview }) {
             </label>
           ))}
         </div>
-        <div style={{marginLeft:'auto'}}>
+        <div style={{marginLeft:'auto',display:'flex',gap:8}}>
           <button type="button" onClick={handlePreview} disabled={!patient}
                   style={{background:patient?'#0f766e':'#475569',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:patient?'pointer':'not-allowed',display:'flex',alignItems:'center',gap:5,opacity:patient?1:0.6}}>
             📋 プレビュー
+          </button>
+          <button type="button" onClick={()=>setShowFaxHelp(true)}
+                  style={{background:'#7c3aed',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
+            📠 FAX送信
           </button>
         </div>
       </div>
@@ -20846,6 +20959,7 @@ function GeneralFaxView({ appData, onShowPrintPreview }) {
           </div>
         </div>
       </div>
+      {showFaxHelp && <FaxHelpModal onClose={()=>setShowFaxHelp(false)}/>}
     </div>
   );
 }
