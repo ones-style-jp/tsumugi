@@ -9465,6 +9465,10 @@ export default function App() {
           }
           const scale = Math.min(1,(window.innerWidth-60)/(pageW*3.7795));
           const [showPdfTip, setShowPdfTip] = React.useState(false);
+          const [showFaxHelp, setShowFaxHelp] = React.useState(false);
+          // FAX 送信ボタンは「休み連絡」「各種連絡」「サービス提供記録」のみ表示
+          const titleStr = printPreviewContent.title || '';
+          const isFaxTarget = titleStr.includes('休み連絡') || titleStr.includes('各種連絡') || titleStr.includes('サービス提供記録');
 
           const getStyles = () => Array.from(document.querySelectorAll('link[rel="stylesheet"],style'))
             .map(s=>s.tagName==='LINK'?s.outerHTML:`<style>${s.textContent.replace(/@page\s*\{[^}]*\}/g,'')}</style>`).join('');
@@ -9491,18 +9495,26 @@ export default function App() {
                     style={{background:'#0f766e',color:'white',border:'none',borderRadius:10,padding:'10px 20px',fontWeight:'bold',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',gap:8,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
                     🖨️ 印刷
                   </button>
-                  <button onClick={()=>{
-                    // FAX：印刷ウィンドウを開きFAXプリンターを選択する
-                    if(!printPreviewContent.html) return;
-                    const styles = getStyles();
-                    const w = window.open('','_blank','width=900,height=700');
-                    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>FAX — ${printPreviewContent.title}</title>${styles}<style>*{box-sizing:border-box;}html,body{margin:0;padding:0;background:white;width:${pageW}mm;height:auto;-webkit-print-color-adjust:exact;print-color-adjust:exact;overflow:visible;}svg{overflow:visible!important;max-width:none!important;}@page{size:${pageW}mm ${pageH}mm;margin:0;}@media print{html,body{overflow:visible;height:auto;}.no-print,.thp,.page-sep{display:none!important;}.tp{page-break-after:always;page-break-inside:avoid;}.tp:last-child{page-break-after:auto;}[data-page-break]{page-break-before:always;break-before:page;}}</style></head><body>${printPreviewContent.html}</body></html>`);
-                    w.document.close();
-                    setTimeout(()=>{ w.focus(); w.print(); }, 800);
-                  }}
-                    style={{background:'#7c3aed',color:'white',border:'none',borderRadius:10,padding:'10px 20px',fontWeight:'bold',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',gap:8,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
-                    📠 FAX
-                  </button>
+                  {isFaxTarget && (
+                    <div style={{display:'flex',gap:0,alignItems:'center'}}>
+                      <button onClick={()=>{
+                        // FAX：印刷ウィンドウを開きFAXプリンターを選択する
+                        if(!printPreviewContent.html) return;
+                        const styles = getStyles();
+                        const w = window.open('','_blank','width=900,height=700');
+                        w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>FAX — ${printPreviewContent.title}</title>${styles}<style>*{box-sizing:border-box;}html,body{margin:0;padding:0;background:white;width:${pageW}mm;height:auto;-webkit-print-color-adjust:exact;print-color-adjust:exact;overflow:visible;}svg{overflow:visible!important;max-width:none!important;}@page{size:${pageW}mm ${pageH}mm;margin:0;}@media print{html,body{overflow:visible;height:auto;}.no-print,.thp,.page-sep{display:none!important;}.tp{page-break-after:always;page-break-inside:avoid;}.tp:last-child{page-break-after:auto;}[data-page-break]{page-break-before:always;break-before:page;}}</style></head><body>${printPreviewContent.html}</body></html>`);
+                        w.document.close();
+                        setTimeout(()=>{ w.focus(); w.print(); }, 800);
+                      }}
+                        style={{background:'#7c3aed',color:'white',border:'none',borderRadius:'10px 0 0 10px',padding:'10px 16px',fontWeight:'bold',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',gap:8,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
+                        📠 FAX送信
+                      </button>
+                      <button onClick={()=>setShowFaxHelp(true)} title="FAX送信手順を見る"
+                        style={{background:'#5b21b6',color:'white',border:'none',borderLeft:'1px solid rgba(255,255,255,0.25)',borderRadius:'0 10px 10px 0',padding:'10px 12px',fontWeight:'bold',fontSize:16,cursor:'pointer',boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
+                        ⓘ
+                      </button>
+                    </div>
+                  )}
                   <div style={{position:'relative'}}
                        onMouseEnter={()=>setShowPdfTip(true)}
                        onMouseLeave={()=>setShowPdfTip(false)}>
@@ -9545,6 +9557,8 @@ export default function App() {
                   </div>
                 )}
               </div>
+              {/* FAX 送信手順ヘルプ */}
+              {showFaxHelp && <FaxHelpModal onClose={()=>setShowFaxHelp(false)}/>}
             </div>
           );
         };
@@ -14417,14 +14431,14 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
               const cols = Array.from({length: N_COLS}, (_, ci) => list.slice(ci * perCol, (ci + 1) * perCol).map((item, ri) => ({...item, idx: ci * perCol + ri})));
               return (
                 <React.Fragment>
-                  <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},1fr)`,columnGap:24}}>
+                  <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},minmax(0,1fr))`,columnGap:12}}>
                     {cols.map((col, ci) => (
-                      <div key={ci} style={{display:'flex',flexDirection:'column'}}>
+                      <div key={ci} style={{display:'flex',flexDirection:'column',minWidth:0}}>
                         {col.map(({patient,rate,idx}) => (
-                          <div key={patient.id} style={{display:'flex',alignItems:'baseline',padding:'2px 0',borderBottom:'1px solid #f8fafc'}}>
-                            <span style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',width:24,textAlign:'right',flexShrink:0,marginRight:6}}>{idx<3?(idx===0?'🥇':idx===1?'🥈':'🥉'):`${idx+1}.`}</span>
-                            <span style={{fontSize:12,fontWeight:'bold',color:'#1e293b',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',width:'7em',flexShrink:0}}>{patient.name}</span>
-                            <span style={{fontSize:12,fontWeight:'bold',color:'#3b82f6',flexShrink:0,marginLeft:2}}>{rate}%</span>
+                          <div key={patient.id} style={{display:'flex',alignItems:'baseline',padding:'2px 0',borderBottom:'1px solid #f8fafc',minWidth:0}}>
+                            <span style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',width:22,textAlign:'right',flexShrink:0,marginRight:4}}>{idx<3?(idx===0?'🥇':idx===1?'🥈':'🥉'):`${idx+1}.`}</span>
+                            <span style={{fontSize:12,fontWeight:'bold',color:'#1e293b',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1,minWidth:0}}>{patient.name}</span>
+                            <span style={{fontSize:12,fontWeight:'bold',color:'#3b82f6',flexShrink:0,marginLeft:4}}>{rate}%</span>
                           </div>
                         ))}
                       </div>
@@ -14450,14 +14464,14 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
               const cols = Array.from({length: N_COLS}, (_, ci) => list.slice(ci * perCol, (ci + 1) * perCol).map((item, ri) => ({...item, idx: ci * perCol + ri})));
               return (
                 <React.Fragment>
-                  <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},1fr)`,columnGap:24}}>
+                  <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},minmax(0,1fr))`,columnGap:12}}>
                     {cols.map((col, ci) => (
-                      <div key={ci} style={{display:'flex',flexDirection:'column'}}>
+                      <div key={ci} style={{display:'flex',flexDirection:'column',minWidth:0}}>
                         {col.map(({patient,rate,idx}) => (
-                          <div key={patient.id} style={{display:'flex',alignItems:'baseline',padding:'2px 0',borderBottom:'1px solid #f8fafc'}}>
-                            <span style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',width:24,textAlign:'right',flexShrink:0,marginRight:6}}>{idx<3?(idx===0?'🥇':idx===1?'🥈':'🥉'):`${idx+1}.`}</span>
-                            <span style={{fontSize:12,fontWeight:'bold',color:'#1e293b',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',width:'7em',flexShrink:0}}>{patient.name}</span>
-                            <span style={{fontSize:12,fontWeight:'bold',color:'#ef4444',flexShrink:0,marginLeft:2}}>{rate}%</span>
+                          <div key={patient.id} style={{display:'flex',alignItems:'baseline',padding:'2px 0',borderBottom:'1px solid #f8fafc',minWidth:0}}>
+                            <span style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',width:22,textAlign:'right',flexShrink:0,marginRight:4}}>{idx<3?(idx===0?'🥇':idx===1?'🥈':'🥉'):`${idx+1}.`}</span>
+                            <span style={{fontSize:12,fontWeight:'bold',color:'#1e293b',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1,minWidth:0}}>{patient.name}</span>
+                            <span style={{fontSize:12,fontWeight:'bold',color:'#ef4444',flexShrink:0,marginLeft:4}}>{rate}%</span>
                           </div>
                         ))}
                       </div>
@@ -20254,8 +20268,8 @@ function FaxHelpModal({ onClose }) {
           <button onClick={onClose} style={{background:'rgba(255,255,255,0.2)',border:'none',color:'white',width:32,height:32,borderRadius:'50%',cursor:'pointer',fontSize:18}}>✕</button>
         </div>
         {/* タブ */}
-        <div style={{display:'flex',padding:'8px 16px 0',gap:4,borderBottom:'1px solid #e2e8f0',background:'#f8fafc'}}>
-          {[['win','💻 Windows PC'],['mac','💻 Mac'],['ipad','📱 iPad / iPhone']].map(([k,l])=>(
+        <div style={{display:'flex',padding:'8px 16px 0',gap:4,borderBottom:'1px solid #e2e8f0',background:'#f8fafc',flexWrap:'wrap'}}>
+          {[['win','💻 Windows'],['mac','💻 Mac'],['ipad','📱 iPad / iPhone'],['android','🤖 Android']].map(([k,l])=>(
             <button key={k} onClick={()=>setTab(k)} style={{padding:'10px 16px',border:'none',background:tab===k?'white':'transparent',color:tab===k?'#7c3aed':'#64748b',fontWeight:'bold',fontSize:13,cursor:'pointer',borderRadius:'8px 8px 0 0',borderTop:tab===k?'2px solid #7c3aed':'none',borderLeft:tab===k?'1px solid #e2e8f0':'none',borderRight:tab===k?'1px solid #e2e8f0':'none'}}>{l}</button>
           ))}
         </div>
@@ -20332,6 +20346,39 @@ function FaxHelpModal({ onClose }) {
               </ol>
             </div>
           )}
+          {tab === 'android' && (
+            <div style={{fontSize:14,lineHeight:1.8,color:'#1e293b'}}>
+              <h3 style={{fontSize:15,fontWeight:'bold',marginBottom:10,color:'#7c3aed'}}>Android スマホ・タブレットからのFAX送信</h3>
+              <div style={{padding:'10px 14px',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,marginBottom:14,fontSize:12,color:'#991b1b'}}>
+                <b>⚠ Android から直接 FAX 送信できる複合機は少ないです</b><br/>
+                以下 3 つの方法から選んでください
+              </div>
+              <h4 style={{fontSize:14,fontWeight:'bold',marginTop:10,color:'#7c3aed'}}>方法1: 複合機メーカーの専用アプリ (推奨)</h4>
+              <ol style={{paddingLeft:24,lineHeight:1.8,fontSize:13}}>
+                <li>Google Play からメーカーアプリをインストール<br/>
+                  <span style={{fontSize:11,color:'#64748b'}}>例: 「Canon PRINT Service」「Konica Minolta Mobile Print」「Sharpdesk Mobile」「RICOH Smart Device Connector」「ApeosWare Mobile」(富士フイルム)</span>
+                </li>
+                <li>本アプリの「📋 プレビュー」→「💾 PDFで保存」</li>
+                <li>保存した PDF をメーカーアプリで開く ([共有]ボタン)</li>
+                <li>メーカーアプリの「FAX 送信」機能で送信</li>
+              </ol>
+              <h4 style={{fontSize:14,fontWeight:'bold',marginTop:14,color:'#7c3aed'}}>方法2: PC に転送して送信</h4>
+              <ol style={{paddingLeft:24,lineHeight:1.8,fontSize:13}}>
+                <li>Android で PDF 保存 (ダウンロードフォルダ)</li>
+                <li>Google Drive / メール / Bluetooth で PC に転送</li>
+                <li>PC から複合機 FAX で送信 (Windows / Mac の手順参照)</li>
+              </ol>
+              <h4 style={{fontSize:14,fontWeight:'bold',marginTop:14,color:'#7c3aed'}}>方法3: Google Cloud Print 経由で印刷 → 紙FAX</h4>
+              <ol style={{paddingLeft:24,lineHeight:1.8,fontSize:13}}>
+                <li>Android で「💾 PDFで保存」</li>
+                <li>「共有」→「印刷」→ 複合機を選択して印刷</li>
+                <li>複合機の前で印刷紙を FAX セットして送信</li>
+              </ol>
+              <div style={{marginTop:14,padding:'10px 14px',background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:8,fontSize:12,color:'#1e3a8a'}}>
+                <b>💡 ヒント:</b> Android の「Mopria Print Service」アプリをインストールすると、多くの複合機で印刷機能が拡張されます。
+              </div>
+            </div>
+          )}
         </div>
         {/* フッター */}
         <div style={{padding:'12px 24px',borderTop:'1px solid #e2e8f0',background:'#f8fafc',fontSize:11,color:'#64748b',textAlign:'center'}}>
@@ -20350,7 +20397,6 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
   // 保存済みの faxDataStore を初期値として読み込む（再表示時に編集状態が消えないように）
   const [faxData, setFaxData] = React.useState(() => appData.faxDataStore || {});
   const [isPrint, setIsPrint] = React.useState(false);
-  const [showFaxHelp, setShowFaxHelp] = React.useState(false);
 
   const facility = appData.systemSettings?.facilityInfo || {};
   const patients = appData.patients || [];
@@ -20477,9 +20523,6 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
               },100);
             }} style={{background:'#0f766e',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
               📋 プレビュー
-            </button>
-            <button type="button" onClick={()=>setShowFaxHelp(true)} style={{background:'#7c3aed',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
-              📠 FAX送信
             </button>
             <button type="button" onClick={()=>{
               markClean();
@@ -20762,7 +20805,6 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
           ))}
         </div>
       </div>
-      {showFaxHelp && <FaxHelpModal onClose={()=>setShowFaxHelp(false)}/>}
     </div>
   );
 }
@@ -20773,7 +20815,6 @@ function GeneralFaxView({ appData, onShowPrintPreview }) {
   const [selectedPatientId, setSelectedPatientId] = React.useState(null);
   const [subject, setSubject] = React.useState('');
   const [memo, setMemo] = React.useState('');
-  const [showFaxHelp, setShowFaxHelp] = React.useState(false);
   const [pageCount, setPageCount] = React.useState(1);
   const [checks, setChecks] = React.useState({ kyuukyuu: false, kakunin: false, orikaesu: false });
 
@@ -20856,10 +20897,6 @@ function GeneralFaxView({ appData, onShowPrintPreview }) {
           <button type="button" onClick={handlePreview} disabled={!patient}
                   style={{background:patient?'#0f766e':'#475569',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:patient?'pointer':'not-allowed',display:'flex',alignItems:'center',gap:5,opacity:patient?1:0.6}}>
             📋 プレビュー
-          </button>
-          <button type="button" onClick={()=>setShowFaxHelp(true)}
-                  style={{background:'#7c3aed',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
-            📠 FAX送信
           </button>
         </div>
       </div>
@@ -20959,7 +20996,6 @@ function GeneralFaxView({ appData, onShowPrintPreview }) {
           </div>
         </div>
       </div>
-      {showFaxHelp && <FaxHelpModal onClose={()=>setShowFaxHelp(false)}/>}
     </div>
   );
 }
