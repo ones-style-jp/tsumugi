@@ -20757,6 +20757,10 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
   const [showFaxHist, setShowFaxHist] = React.useState(false);
   const absHistory = (appData.faxHistory||[]).filter(h => h.type === 'absence');
   const deleteAbsHist = (id) => onSave({...appData, faxHistory: (appData.faxHistory||[]).filter(h => h.id !== id)});
+  // 担当者プルダウン: 各種設定の従業員から選択。デフォルトは管理者
+  const staffList = (appData.diarySettings?.staff || []).filter(s => s.name && s.name.trim());
+  const defaultManagerName = (staffList.find(s => s.role === '管理者')?.name) || staffList[0]?.name || (appData.systemSettings?.facilityInfo?.manager) || '';
+  const [selectedManager, setSelectedManager] = React.useState(defaultManagerName);
 
   const facility = appData.systemSettings?.facilityInfo || {};
   const patients = appData.patients || [];
@@ -20982,7 +20986,16 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
                 <AutoFitLine style={{display:'block',width:'100%'}}>{facility.address||'東京都江東区扇橋1-4-9メイゾン白子'}</AutoFitLine>
                 <AutoFitLine style={{display:'block',width:'100%'}}>TEL：{facility.phone||'03-6458-7415'}</AutoFitLine>
                 <AutoFitLine style={{display:'block',width:'100%'}}>FAX：{facility.fax||'03-6458-7416'}</AutoFitLine>
-                <AutoFitLine style={{display:'block',width:'100%'}}>担当：　{facility.manager||'担当者'}</AutoFitLine>
+                <div style={{display:'flex',alignItems:'center',gap:4,width:'100%'}}>
+                  <span style={{whiteSpace:'nowrap'}}>担当：　</span>
+                  <select value={selectedManager} onChange={e=>setSelectedManager(e.target.value)}
+                    style={{flex:1,fontSize:16,fontFamily:'inherit',border:'none',outline:'none',background:'transparent',padding:'0 2px',cursor:'pointer',appearance:'none',WebkitAppearance:'none',MozAppearance:'none',color:'inherit'}}>
+                    {staffList.length === 0 && <option value="">（従業員未登録）</option>}
+                    {staffList.map((s, i) => (
+                      <option key={s.id || i} value={s.name}>{s.name}{s.role ? `（${s.role}）` : ''}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -21198,6 +21211,10 @@ function GeneralFaxView({ appData, onSave, onShowPrintPreview }) {
   const [recipientOffice, setRecipientOffice] = React.useState('');
   const [recipientName, setRecipientName] = React.useState('');
   const [customPatientName, setCustomPatientName] = React.useState('');
+  // 担当者プルダウン: 各種設定の従業員から選択。デフォルトは管理者
+  const staffList = (appData.diarySettings?.staff || []).filter(s => s.name && s.name.trim());
+  const defaultManagerName = (staffList.find(s => s.role === '管理者')?.name) || staffList[0]?.name || (appData.systemSettings?.facilityInfo?.manager) || '';
+  const [selectedManager, setSelectedManager] = React.useState(defaultManagerName);
   const genHistory = (appData.faxHistory||[]).filter(h => h.type === 'general');
   const deleteGenHist = (id) => onSave && onSave({...appData, faxHistory: (appData.faxHistory||[]).filter(h => h.id !== id)});
 
@@ -21361,7 +21378,17 @@ function GeneralFaxView({ appData, onSave, onShowPrintPreview }) {
               <AutoFitLine style={{display:'block',width:'100%'}}>{facility.address||'東京都江東区扇橋1-4-9メイゾン白子'}</AutoFitLine>
               <AutoFitLine style={{display:'block',width:'100%'}}>TEL：{facility.phone||'03-6458-7415'}</AutoFitLine>
               <AutoFitLine style={{display:'block',width:'100%'}}>FAX：{facility.fax||'03-6458-7416'}</AutoFitLine>
-              <AutoFitLine style={{display:'block',width:'100%'}}>担当：　{facility.manager||'担当者'}</AutoFitLine>
+              <div style={{display:'flex',alignItems:'center',gap:4,width:'100%'}}>
+                <span style={{whiteSpace:'nowrap'}}>担当：　</span>
+                <select value={selectedManager} onChange={e=>setSelectedManager(e.target.value)}
+                  className="fax-inline-input"
+                  style={{flex:1,fontSize:16,fontFamily:'inherit',border:'none',outline:'none',background:'transparent',padding:'0 2px',cursor:'pointer',appearance:'none',WebkitAppearance:'none',MozAppearance:'none',color:'inherit'}}>
+                  {staffList.length === 0 && <option value="">（従業員未登録）</option>}
+                  {staffList.map((s, i) => (
+                    <option key={s.id || i} value={s.name}>{s.name}{s.role ? `（${s.role}）` : ''}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 
