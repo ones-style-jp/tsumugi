@@ -8187,10 +8187,34 @@ function SidebarItem({ icon, label, active, onClick, badge }) {
 
 // === 新規アカウント登録完了画面 (URL ?signup=... でアクセス) ===
 function SignupCompleteView({ context, appData, onSave }) {
-  const [form, setForm] = useState({ username:'', password:'', password2:'', patientId:'', storeName:'', done:false });
+  const [form, setForm] = useState({ username:'', password:'', password2:'', patientName:'', birthDate:'', inviteCode:'', storeName:'', done:false, matchedPatientId:null });
   const patients = (appData?.patients||[]).filter(p => p.status === '利用中');
   const isFamily = context.kind === 'family';
   const facility = appData?.systemSettings?.facilityInfo || {};
+  // 利用者照合: 氏名+生年月日 または 招待コード(6桁) で利用者マスタを検索
+  const findMatchedPatient = () => {
+    if (!isFamily) return null;
+    // 1. 招待コード優先 (6桁: 事業所3桁+利用者3桁、または利用者IDそのもの)
+    if (form.inviteCode.trim()) {
+      const code = form.inviteCode.trim();
+      // 利用者ID 直接マッチ
+      const byId = patients.find(p => String(p.id) === code);
+      if (byId) return byId;
+      // 利用者ID 末尾3桁マッチ
+      const byTail = patients.find(p => String(p.id).padStart(6,'0').endsWith(code));
+      if (byTail) return byTail;
+      return null;
+    }
+    // 2. 氏名+生年月日
+    if (form.patientName.trim() && form.birthDate) {
+      const nm = form.patientName.trim().replace(/\s+/g, '');
+      return patients.find(p => {
+        const pName = (p.name||'').replace(/\s+/g,'');
+        return pName === nm && p.birthDate === form.birthDate;
+      }) || null;
+    }
+    return null;
+  };
   const validate = () => {
     if (!form.username.trim()) return 'IDを入力してください';
     if (form.username.length < 4) return 'IDは4文字以上必要です';
@@ -8199,7 +8223,13 @@ function SignupCompleteView({ context, appData, onSave }) {
     if (form.password.length < 8) return 'パスワードは8文字以上必要です';
     if (!/[a-zA-Z]/.test(form.password) || !/[0-9]/.test(form.password)) return 'パスワードは英字と数字を組み合わせてください';
     if (form.password !== form.password2) return 'パスワードが一致しません';
-    if (isFamily && !form.patientId) return '利用者を選択してください';
+    if (isFamily) {
+      if (!form.inviteCode.trim() && (!form.patientName.trim() || !form.birthDate)) {
+        return '利用者の氏名・生年月日、または招待コードを入力してください';
+      }
+      const matched = findMatchedPatient();
+      if (!matched) return '入力された情報と一致する利用者が見つかりません。事業所までお問い合わせください。';
+    }
     return null;
   };
   const handleSubmit = (e) => {
@@ -8209,9 +8239,10 @@ function SignupCompleteView({ context, appData, onSave }) {
     if (isFamily) {
       const exists = (appData.familyAccounts||[]).some(a => a.username === form.username);
       if (exists) { alert('このIDは既に使用されています'); return; }
+      const matched = findMatchedPatient();
       const newAcc = {
         id: `fam_${Date.now()}`,
-        patientId: parseInt(form.patientId, 10),
+        patientId: matched.id,
         username: form.username,
         password: form.password,
         displayName: `${context.email}（家族）`,
@@ -8255,14 +8286,30 @@ function SignupCompleteView({ context, appData, onSave }) {
         </div>
         <div style={{display:'flex',flexDirection:'column',gap:14}}>
           {isFamily && (
-            <div>
-              <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>利用者を選択</label>
-              <select required value={form.patientId} onChange={e=>setForm(f=>({...f,patientId:e.target.value}))}
-                style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box',background:'white'}}>
-                <option value="">選択してください...</option>
-                {patients.map(p => <option key={p.id} value={p.id}>{p.name}{p.kana?` (${p.kana})`:''}</option>)}
-              </select>
-              <div style={{fontSize:10,color:'#94a3b8',marginTop:4}}>※ ご自身が家族として支援している利用者を選択してください</div>
+            <div style={{background:'#f0f9ff',border:'1px solid #bae6fd',borderRadius:12,padding:14}}>
+              <div style={{fontSize:12,fontWeight:'bold',color:'#0c4a6e',marginBottom:8}}>ご利用者の確認</div>
+              <div style={{fontSize:10,color:'#0369a1',marginBottom:10,lineHeight:1.6}}>
+                プライバシー保護のため、ご家族のご利用者を以下のいずれかの方法で照合します:
+              </div>
+              {/* 方法1: 氏名+生年月日 */}
+              <div style={{background:'white',padding:10,borderRadius:8,marginBottom:8}}>
+                <div style={{fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:6}}>方法1: 氏名と生年月日で照合</div>
+                <input value={form.patientName} onChange={e=>setForm(f=>({...f,patientName:e.target.value}))} placeholder="ご利用者の氏名 (フルネーム)"
+                  style={{width:'100%',padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,outline:'none',boxSizing:'border-box',marginBottom:6}}/>
+                <input type="date" value={form.birthDate} onChange={e=>setForm(f=>({...f,birthDate:e.target.value}))}
+                  style={{width:'100%',padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+              </div>
+              <div style={{textAlign:'center',fontSize:10,color:'#94a3b8',margin:'4px 0'}}>— または —</div>
+              {/* 方法2: 招待コード */}
+              <div style={{background:'white',padding:10,borderRadius:8}}>
+                <div style={{fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:6}}>方法2: 事業所から発行された招待コード</div>
+                <input value={form.inviteCode} onChange={e=>setForm(f=>({...f,inviteCode:toHalfWidth(e.target.value).replace(/[^0-9]/g,'').slice(0,6)}))} placeholder="6桁の数字" inputMode="numeric"
+                  style={{width:'100%',padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:14,fontWeight:'bold',letterSpacing:4,outline:'none',boxSizing:'border-box',fontFamily:'Menlo,monospace',textAlign:'center'}}/>
+              </div>
+              <div style={{fontSize:10,color:'#94a3b8',marginTop:8,lineHeight:1.5}}>
+                ※ 入力された情報が事業所のご利用者と一致した場合のみ登録できます<br/>
+                ※ 不明な場合は事業所までお問い合わせください
+              </div>
             </div>
           )}
           {!isFamily && (
@@ -9464,11 +9511,7 @@ export default function App() {
             pageH = isB6 ? 182 : isLandscape ? 210 : 297;
           }
           const scale = Math.min(1,(window.innerWidth-60)/(pageW*3.7795));
-          const [showPdfTip, setShowPdfTip] = React.useState(false);
           const [showFaxHelp, setShowFaxHelp] = React.useState(false);
-          // FAX 送信ボタンは「休み連絡」「各種連絡」「サービス提供記録」のみ表示
-          const titleStr = printPreviewContent.title || '';
-          const isFaxTarget = titleStr.includes('休み連絡') || titleStr.includes('各種連絡') || titleStr.includes('サービス提供記録');
 
           const getStyles = () => Array.from(document.querySelectorAll('link[rel="stylesheet"],style'))
             .map(s=>s.tagName==='LINK'?s.outerHTML:`<style>${s.textContent.replace(/@page\s*\{[^}]*\}/g,'')}</style>`).join('');
@@ -9491,50 +9534,15 @@ export default function App() {
                   <div style={{color:'white',fontWeight:'bold',fontSize:15,marginTop:2}}>📄 {printPreviewContent.title}</div>
                 </div>
                 <div style={{display:'flex',gap:10,alignItems:'center'}}>
+                  {/* 統合出力ボタン: 印刷/FAX/PDF すべて同じ印刷ダイアログを開くので統合 */}
                   <button onClick={()=>openPrintWindow(false)}
-                    style={{background:'#0f766e',color:'white',border:'none',borderRadius:10,padding:'10px 20px',fontWeight:'bold',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',gap:8,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
-                    🖨️ 印刷
+                    style={{background:'#2563eb',color:'white',border:'none',borderRadius:'10px 0 0 10px',padding:'10px 20px',fontWeight:'bold',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',gap:8,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
+                    📤 印刷・FAX・PDF
                   </button>
-                  {isFaxTarget && (
-                    <div style={{display:'flex',gap:0,alignItems:'center'}}>
-                      <button onClick={()=>{
-                        // FAX：印刷ウィンドウを開きFAXプリンターを選択する
-                        if(!printPreviewContent.html) return;
-                        const styles = getStyles();
-                        const w = window.open('','_blank','width=900,height=700');
-                        w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>FAX — ${printPreviewContent.title}</title>${styles}<style>*{box-sizing:border-box;}html,body{margin:0;padding:0;background:white;width:${pageW}mm;height:auto;-webkit-print-color-adjust:exact;print-color-adjust:exact;overflow:visible;}svg{overflow:visible!important;max-width:none!important;}@page{size:${pageW}mm ${pageH}mm;margin:0;}@media print{html,body{overflow:visible;height:auto;}.no-print,.thp,.page-sep{display:none!important;}.tp{page-break-after:always;page-break-inside:avoid;}.tp:last-child{page-break-after:auto;}[data-page-break]{page-break-before:always;break-before:page;}}</style></head><body>${printPreviewContent.html}</body></html>`);
-                        w.document.close();
-                        setTimeout(()=>{ w.focus(); w.print(); }, 800);
-                      }}
-                        style={{background:'#7c3aed',color:'white',border:'none',borderRadius:'10px 0 0 10px',padding:'10px 16px',fontWeight:'bold',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',gap:8,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
-                        📠 FAX送信
-                      </button>
-                      <button onClick={()=>setShowFaxHelp(true)} title="FAX送信手順を見る"
-                        style={{background:'#5b21b6',color:'white',border:'none',borderLeft:'1px solid rgba(255,255,255,0.25)',borderRadius:'0 10px 10px 0',padding:'10px 12px',fontWeight:'bold',fontSize:16,cursor:'pointer',boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
-                        ⓘ
-                      </button>
-                    </div>
-                  )}
-                  <div style={{position:'relative'}}
-                       onMouseEnter={()=>setShowPdfTip(true)}
-                       onMouseLeave={()=>setShowPdfTip(false)}>
-                    <button onClick={()=>openPrintWindow(false)}
-                      style={{background:'#2563eb',color:'white',border:'none',borderRadius:10,padding:'10px 20px',fontWeight:'bold',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',gap:8,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
-                      💾 PDFで保存
-                    </button>
-                    {showPdfTip && (
-                      <div style={{position:'absolute',top:'calc(100% + 10px)',right:0,background:'#fef3c7',border:'2px solid #fbbf24',borderRadius:12,padding:'14px 18px',width:420,boxShadow:'0 8px 24px rgba(0,0,0,0.35)',zIndex:10}}>
-                        <div style={{fontSize:15,fontWeight:'bold',color:'#78350f',marginBottom:8,display:'flex',alignItems:'center',gap:6}}>
-                          <span style={{fontSize:18}}>📄</span> PDFで保存する手順
-                        </div>
-                        <ol style={{margin:0,paddingLeft:22,fontSize:14,color:'#78350f',lineHeight:1.8,fontWeight:'bold'}}>
-                          <li>このボタンをクリック</li>
-                          <li>開いた印刷ダイアログで「<u>送信先</u>」を「<u>PDFに保存</u>」に変更</li>
-                          <li>「保存」をクリックして任意の場所に保存</li>
-                        </ol>
-                      </div>
-                    )}
-                  </div>
+                  <button onClick={()=>setShowFaxHelp(true)} title="印刷/FAX/PDF の手順を見る"
+                    style={{background:'#1d4ed8',color:'white',border:'none',borderLeft:'1px solid rgba(255,255,255,0.25)',borderRadius:'0 10px 10px 0',padding:'10px 12px',fontWeight:'bold',fontSize:16,cursor:'pointer',boxShadow:'0 2px 8px rgba(0,0,0,0.2)',marginLeft:-10}}>
+                    ⓘ
+                  </button>
                   <div style={{width:1,height:32,background:'#475569',margin:'0 4px'}}/>
                   <button onClick={()=>setPrintPreviewContent(null)}
                     style={{background:'#475569',color:'white',border:'none',borderRadius:10,padding:'10px 16px',fontWeight:'bold',fontSize:14,cursor:'pointer'}}>
@@ -18470,7 +18478,57 @@ function SettingsView({ appData, onSave, dirtyRef }) {
               {anthropicApiKey && <p className="text-xs text-emerald-600 font-bold mt-1">✓ 設定済み（末尾: ...{anthropicApiKey.slice(-6)}）</p>}
             </SectionCard>
             <SectionCard title="データ管理">
-              <p className="text-sm text-slate-500">データのバックアップ・復元機能、利用者家族用閲覧画面は開発中です。</p>
+              <p className="text-sm text-slate-500 mb-4">データのバックアップ・復元機能（クラウド連携）は開発中です。</p>
+              <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4 mt-4">
+                <h4 className="text-sm font-bold text-red-700 mb-2 flex items-center gap-2">
+                  ⚠ 全データクリア（本番運用開始用）
+                </h4>
+                <p className="text-xs text-slate-700 mb-3 leading-relaxed">
+                  デモ用の利用者データ・記録・写真などすべてを削除し、空白の状態から始めるためのボタンです。<br/>
+                  <b className="text-red-700">この操作は取り消せません。</b>本番運用を開始する前に、必要なデータをCSV等でエクスポートしてください。
+                </p>
+                <button type="button" onClick={()=>{
+                  const phrase = '全データを削除する';
+                  const ans = window.prompt(`デモデータを全て削除し、空白の状態にします。\n\n削除されるもの:\n・全利用者の基本情報\n・全提供記録 / 連絡帳 / 日誌\n・モニタリング / 体力測定\n・お知らせ / 写真\n・家族アカウント\n\n削除されないもの:\n・ログイン情報 / 事業所情報\n・各種設定 (運動メニュー等)\n\n確認のため、下の入力欄に「${phrase}」と入力してください:`);
+                  if (ans !== phrase) {
+                    if (ans !== null) alert('入力が一致しないため、削除を中止しました。');
+                    return;
+                  }
+                  // 二段階確認
+                  if (!window.confirm('本当に全てのデモデータを削除しますか？\nこの操作は取り消せません。')) return;
+                  // 保持する設定 (login, facility, exercise items 等)
+                  const keep = {
+                    systemSettings: appData.systemSettings,
+                    contactBookConfig: appData.contactBookConfig,
+                    diarySettings: appData.diarySettings,
+                  };
+                  // クリアデータ
+                  const cleaned = {
+                    patients: [],
+                    ticketRecords: [],
+                    monthlyShifts: {},
+                    monitoringRecords: [],
+                    fitnessRecords: [],
+                    holidays: [],
+                    closedDays: [],
+                    cancellationData: {},
+                    familyAccounts: [],
+                    familyAnnouncements: [],
+                    familyPersonalAnnouncements: [],
+                    familyPhotos: [],
+                    familyTokkiOverrides: {},
+                    faxDataStore: {},
+                    ...keep,
+                  };
+                  // 分離保存も掃除
+                  try { localStorage.removeItem('daycarePhotos_v1'); } catch {}
+                  onSave(cleaned);
+                  alert('✓ 全データを削除しました。\n本番運用を開始できます。\n\nページをリロードします。');
+                  setTimeout(()=>{ window.location.reload(); }, 800);
+                }} className="w-full py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm shadow active:scale-95">
+                  🗑 全データを削除して空白の状態にする
+                </button>
+              </div>
             </SectionCard>
           </>)}
 
@@ -20253,19 +20311,29 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 
 
 // === AbsenceFaxView (休み連絡) ===
-// === FAX送信手順ヘルプモーダル (複合機からFAXする方法を端末別に案内) ===
+// === 出力ヘルプモーダル (印刷・FAX・PDFの手順を端末別に案内) ===
 function FaxHelpModal({ onClose }) {
   const [tab, setTab] = useState('win');
   return (
     <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.7)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={onClose}>
       <div style={{background:'white',borderRadius:20,maxWidth:680,width:'100%',maxHeight:'90vh',overflow:'hidden',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,0.4)'}} onClick={e=>e.stopPropagation()}>
         {/* ヘッダー */}
-        <div style={{padding:'18px 24px',background:'linear-gradient(135deg,#7c3aed,#a855f7)',color:'white',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+        <div style={{padding:'18px 24px',background:'linear-gradient(135deg,#2563eb,#7c3aed)',color:'white',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
           <div>
-            <div style={{fontSize:18,fontWeight:'bold'}}>📠 FAX送信の手順</div>
-            <div style={{fontSize:11,opacity:0.85,marginTop:2}}>事業所の複合機を使ったFAX送信方法</div>
+            <div style={{fontSize:18,fontWeight:'bold'}}>📤 印刷・FAX・PDF の手順</div>
+            <div style={{fontSize:11,opacity:0.85,marginTop:2}}>「📤 印刷・FAX・PDF」ボタンを押した後、印刷ダイアログで送信先を選択します</div>
           </div>
           <button onClick={onClose} style={{background:'rgba(255,255,255,0.2)',border:'none',color:'white',width:32,height:32,borderRadius:'50%',cursor:'pointer',fontSize:18}}>✕</button>
+        </div>
+        {/* 共通の説明 */}
+        <div style={{padding:'12px 24px',background:'#eff6ff',borderBottom:'1px solid #dbeafe',fontSize:13,color:'#1e3a8a',lineHeight:1.7}}>
+          <b>💡 仕組み:</b> 「📤 印刷・FAX・PDF」ボタンを押すと、ブラウザの印刷ダイアログが開きます。<br/>
+          ダイアログの「<b>送信先</b>」「<b>プリンター</b>」を切り替えることで、用途別に出力できます:
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginTop:8}}>
+            <div style={{background:'white',padding:'8px 10px',borderRadius:6,border:'1px solid #bfdbfe'}}><b>🖨️ 印刷</b><br/><span style={{fontSize:11,color:'#475569'}}>通常のプリンタを選択</span></div>
+            <div style={{background:'white',padding:'8px 10px',borderRadius:6,border:'1px solid #bfdbfe'}}><b>📠 FAX送信</b><br/><span style={{fontSize:11,color:'#475569'}}>複合機の FAX を選択</span></div>
+            <div style={{background:'white',padding:'8px 10px',borderRadius:6,border:'1px solid #bfdbfe'}}><b>💾 PDF保存</b><br/><span style={{fontSize:11,color:'#475569'}}>「PDFに保存」を選択</span></div>
+          </div>
         </div>
         {/* タブ */}
         <div style={{display:'flex',padding:'8px 16px 0',gap:4,borderBottom:'1px solid #e2e8f0',background:'#f8fafc',flexWrap:'wrap'}}>
