@@ -9048,7 +9048,12 @@ function FamilyView() {
   const [authPid, setAuthPid] = useState(()=> sessionStorage.getItem('familyAuthPid') || null);
   const [loginForm, setLoginForm] = useState({ username:'', password:'', error:'', showPw:false });
   const [mode, setMode] = useState('login'); // 'login' | 'signup'
-  const [signupForm, setSignupForm] = useState({ inviteCode:'', username:'', password:'', password2:'', displayName:'', error:'', done:false });
+  const [signupForm, setSignupForm] = useState({
+    inviteCode:'', username:'', password:'', password2:'', displayName:'',
+    // 緊急連絡先 (利用者マスタの emergencyContacts に自動反映)
+    ecName:'', ecRelation:'', ecPhone:'', ecMobile:'', ecEmail:'',
+    error:'', done:false
+  });
   // データ更新を購読 (事業所側で更新されたら反映)
   useEffect(()=>{
     const reload = () => {
@@ -9137,6 +9142,16 @@ function FamilyView() {
                   if (pw.length < 8) { setSignupForm(f=>({...f, error:'パスワードは8文字以上必要です'})); return; }
                   if (!/[a-zA-Z]/.test(pw) || !/[0-9]/.test(pw)) { setSignupForm(f=>({...f, error:'パスワードは英字と数字を組み合わせてください'})); return; }
                   if (pw !== signupForm.password2) { setSignupForm(f=>({...f, error:'パスワードが一致しません'})); return; }
+                  // 緊急連絡先バリデーション
+                  const ecName = signupForm.ecName.trim();
+                  const ecRelation = signupForm.ecRelation.trim();
+                  const ecPhone = signupForm.ecPhone.trim();
+                  const ecMobile = signupForm.ecMobile.trim();
+                  const ecEmail = signupForm.ecEmail.trim();
+                  if (!ecName) { setSignupForm(f=>({...f, error:'緊急連絡先のお名前を入力してください'})); return; }
+                  if (!ecRelation) { setSignupForm(f=>({...f, error:'続柄を入力してください'})); return; }
+                  if (!ecPhone && !ecMobile) { setSignupForm(f=>({...f, error:'緊急連絡先の電話番号（固定または携帯）を1つ以上入力してください'})); return; }
+                  if (ecEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ecEmail)) { setSignupForm(f=>({...f, error:'メールアドレスの形式が正しくありません'})); return; }
                   // 2. 最新の localStorage を取得して招待コードを検証
                   let latest;
                   try { latest = JSON.parse(localStorage.getItem('daycareAppData_v3')||'null'); } catch { latest = null; }
@@ -9147,20 +9162,37 @@ function FamilyView() {
                   // 3. ID重複チェック
                   const exists = (latest.familyAccounts||[]).some(a => (a.username||'').toLowerCase() === uname.toLowerCase());
                   if (exists) { setSignupForm(f=>({...f, error:'このIDは既に使用されています'})); return; }
-                  // 4. アカウント作成 + 招待コードを使用済みに
+                  // 4. アカウント作成 + 招待コードを使用済みに + 利用者の緊急連絡先に追加
                   const newAccId = `fam_${Date.now()}`;
                   const newAcc = {
                     id: newAccId,
                     patientId: invite.patientId,
                     username: uname,
                     password: pw,
-                    displayName: signupForm.displayName.trim() || '',
+                    displayName: signupForm.displayName.trim() || ecName,
                     createdAt: new Date().toISOString().slice(0,10),
+                  };
+                  const newEmergencyContact = {
+                    name: ecName,
+                    relation: ecRelation,
+                    phone: ecPhone,
+                    phoneMobile: ecMobile,
+                    email: ecEmail,
+                    addedByFamilyAccountId: newAccId,
+                    addedAt: new Date().toISOString(),
                   };
                   const updated = {
                     ...latest,
                     familyAccounts: [...(latest.familyAccounts||[]), newAcc],
                     familyInvites: (latest.familyInvites||[]).map(i => i.id === invite.id ? {...i, usedBy: newAccId, usedAt: new Date().toISOString()} : i),
+                    patients: (latest.patients||[]).map(p => {
+                      if (p.id !== invite.patientId) return p;
+                      const existingContacts = p.emergencyContacts || [];
+                      // 同名+続柄が既にあればスキップ（重複登録を防ぐ）
+                      const dup = existingContacts.some(c => (c.name||'').trim() === ecName && (c.relation||'').trim() === ecRelation);
+                      if (dup) return p;
+                      return {...p, emergencyContacts: [...existingContacts, newEmergencyContact]};
+                    }),
                   };
                   try { localStorage.setItem('daycareAppData_v3', JSON.stringify(updated)); } catch {}
                   setData(updated);
@@ -9195,6 +9227,50 @@ function FamilyView() {
                     <input value={signupForm.displayName} onChange={e=>setSignupForm(f=>({...f,displayName:e.target.value,error:''}))}
                       placeholder="例: 山田 (息子)"
                       style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,outline:'none',boxSizing:'border-box'}}/>
+                  </div>
+                  {/* 緊急連絡先 */}
+                  <div style={{background:'#fef3c7',border:'1px solid #fbbf24',borderRadius:12,padding:14,marginBottom:12}}>
+                    <div style={{fontSize:12,fontWeight:'bold',color:'#92400e',marginBottom:4}}>📞 緊急連絡先</div>
+                    <div style={{fontSize:10,color:'#78350f',marginBottom:10,lineHeight:1.5}}>
+                      ご利用者の緊急連絡先として事業所に登録されます。複数のご家族が登録するとそれぞれ追加されます。
+                    </div>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
+                      <div>
+                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>お名前 <span style={{color:'#dc2626'}}>*</span></label>
+                        <input value={signupForm.ecName} onChange={e=>setSignupForm(f=>({...f,ecName:e.target.value,error:''}))}
+                          placeholder="例: 山田 太郎"
+                          style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
+                      </div>
+                      <div>
+                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>続柄 <span style={{color:'#dc2626'}}>*</span></label>
+                        <input value={signupForm.ecRelation} onChange={e=>setSignupForm(f=>({...f,ecRelation:e.target.value,error:''}))}
+                          placeholder="例: 長男 / 配偶者"
+                          style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
+                      </div>
+                    </div>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
+                      <div>
+                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>家の電話番号</label>
+                        <input type="tel" inputMode="numeric" value={signupForm.ecPhone} onChange={e=>setSignupForm(f=>({...f,ecPhone:e.target.value,error:''}))}
+                          placeholder="03-XXXX-XXXX"
+                          style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
+                      </div>
+                      <div>
+                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>携帯電話番号 <span style={{color:'#dc2626'}}>*</span></label>
+                        <input type="tel" inputMode="numeric" value={signupForm.ecMobile} onChange={e=>setSignupForm(f=>({...f,ecMobile:e.target.value,error:''}))}
+                          placeholder="090-XXXX-XXXX"
+                          style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>メールアドレス (任意)</label>
+                      <input type="email" value={signupForm.ecEmail} onChange={e=>setSignupForm(f=>({...f,ecEmail:toHalfWidth(e.target.value),error:''}))}
+                        placeholder="example@email.com"
+                        style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
+                    </div>
+                    <div style={{fontSize:10,color:'#78350f',marginTop:6,lineHeight:1.4}}>
+                      ※ 家・携帯のいずれかは必須です
+                    </div>
                   </div>
                   {signupForm.error && <div style={{color:'#ef4444',fontSize:12,fontWeight:'bold',marginBottom:10,textAlign:'center',background:'#fef2f2',padding:'8px 10px',borderRadius:8}}>{signupForm.error}</div>}
                   <button type="submit"
