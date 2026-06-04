@@ -8304,6 +8304,7 @@ function SignupCompleteView({ context, appData, onSave }) {
 function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid, familyTokkiOverrides, setTokkiOverride }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showTokkiEditor, setShowTokkiEditor] = useState(false);
+  const [previewInnerTab, setPreviewInnerTab] = useState('news'); // 'news' | 'records'
   const filteredPatients = searchQuery.trim()
     ? patients.filter(p => (p.name||'').includes(searchQuery) || (p.kana||'').includes(searchQuery) || String(p.id).includes(searchQuery))
     : patients;
@@ -8320,7 +8321,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
             <button key={p.id} onClick={()=>setPreviewPid(p.id)}
               className="px-3 py-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-violet-50 hover:border-violet-300 text-sm font-bold text-slate-700 text-left transition-colors">
               <div className="truncate">{p.name}</div>
-              {p.kana && <div className="text-[10px] text-slate-400 truncate font-normal">{p.kana}</div>}
+              <div className="text-[10px] text-slate-400 truncate font-normal">ID: {p.id}{p.kana?` / ${p.kana}`:''}</div>
             </button>
           ))}
           {filteredPatients.length === 0 && (
@@ -8340,24 +8341,77 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-3 flex items-center gap-3 flex-wrap">
         <button onClick={()=>setPreviewPid(null)} className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-600">← 利用者選択へ</button>
         <div className="flex-1 min-w-[150px]">
-          <div className="text-sm font-bold text-slate-800">{patient.name} 様 の家族画面プレビュー <span className="text-[10px] text-slate-400 font-normal ml-2">家族・ケアマネに見えている内容と同じです</span></div>
+          <div className="text-sm font-bold text-slate-800">{patient.name} 様 <span className="text-[10px] text-slate-400 font-normal ml-1">(ID: {patient.id}{patient.kana?` / ${patient.kana}`:''})</span> の家族画面プレビュー</div>
+          <div className="text-[10px] text-slate-400">家族・ケアマネに見えている内容と同じです</div>
         </div>
         {accs.length > 0 && (
           <div className="text-[10px] text-slate-500">家族 {accs.filter(a=>(a.kind||'family')==='family').length}名 / ケアマネ {accs.filter(a=>a.kind==='caremanager').length}名</div>
         )}
         <button onClick={()=>setShowTokkiEditor(true)} className="px-3 py-2 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-700 text-xs font-bold">📝 特記の表示/非表示を編集</button>
       </div>
-      {/* PersonalDashboardView を familyMode で埋め込み */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <PersonalDashboardView
-          appData={{...appData, patients: appData.patients, familyTokkiOverrides}}
-          targetPatientId={patient.id}
-          familyMode={true}
-          hidePatientSelector={true}
-          navigateTo={()=>{}}
-          onShowPrintPreview={()=>{}}
-        />
+      {/* 内部タブ切替 */}
+      <div className="bg-white rounded-xl p-1.5 shadow-sm border border-slate-200 flex gap-1">
+        {[['news','📢 お知らせ・写真'],['records','📊 通所記録']].map(([k,l])=>(
+          <button key={k} onClick={()=>setPreviewInnerTab(k)}
+            className={`flex-1 py-2 rounded-lg text-sm font-bold ${previewInnerTab===k?'bg-violet-600 text-white':'text-slate-500 hover:bg-slate-100'}`}>{l}</button>
+        ))}
       </div>
+      {previewInnerTab === 'news' && (() => {
+        const announcements = appData.familyAnnouncements || [];
+        const personalAnnouncements = (appData.familyPersonalAnnouncements||[]).filter(a => a.patientId === patient.id);
+        const photos = (appData.familyPhotos||[]).filter(ph => ph.patientId == null || ph.patientId === patient.id);
+        return (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 space-y-4">
+            <div>
+              <div className="text-sm font-bold text-slate-700 mb-2">📢 お知らせ ({personalAnnouncements.length + announcements.length}件)</div>
+              {personalAnnouncements.length + announcements.length === 0 ? (
+                <div className="text-xs text-slate-400 text-center py-6">お知らせはまだ投稿されていません</div>
+              ) : (
+                <div className="space-y-2">
+                  {[...personalAnnouncements.map(a=>({...a,_kind:'個別'})), ...announcements.map(a=>({...a,_kind:'全体'}))]
+                    .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
+                    .map(a => (
+                    <div key={a.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${a._kind==='個別'?'bg-amber-100 text-amber-700':'bg-blue-100 text-blue-700'}`}>{a._kind}</span>
+                        <span className="text-[10px] text-slate-400">{a.date}</span>
+                      </div>
+                      <div className="text-sm font-bold text-slate-800">{a.title}</div>
+                      {a.body && <div className="text-xs text-slate-600 mt-1 whitespace-pre-wrap">{a.body}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div>
+              <div className="text-sm font-bold text-slate-700 mb-2">📷 写真 ({photos.length}枚)</div>
+              {photos.length === 0 ? (
+                <div className="text-xs text-slate-400 text-center py-6">写真はまだ投稿されていません</div>
+              ) : (
+                <div className="grid grid-cols-4 md:grid-cols-6 gap-2">
+                  {photos.map(p => (
+                    <div key={p.id} className="aspect-square overflow-hidden rounded-lg border border-slate-200">
+                      <img src={p.url} alt="" className="w-full h-full object-cover"/>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+      {previewInnerTab === 'records' && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <PersonalDashboardView
+            appData={{...appData, patients: appData.patients, familyTokkiOverrides}}
+            targetPatientId={patient.id}
+            familyMode={true}
+            hidePatientSelector={true}
+            navigateTo={()=>{}}
+            onShowPrintPreview={()=>{}}
+          />
+        </div>
+      )}
       {/* 特記編集モーダル */}
       {showTokkiEditor && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={()=>setShowTokkiEditor(false)}>
@@ -8781,7 +8835,7 @@ function FamilyView() {
       } catch {}
     };
     window.addEventListener('storage', reload);
-    const t = setInterval(reload, 5000); // 5秒ごとにポーリング (同タブの別操作は storage イベント発火しないため)
+    const t = setInterval(reload, 1500); // 1.5秒ごとにポーリング (お知らせ等の即時反映)
     return () => { window.removeEventListener('storage', reload); clearInterval(t); };
   }, []);
   const facility = data.systemSettings?.facilityInfo || {};
@@ -8930,7 +8984,7 @@ function FamilyView() {
 
 // === 家族画面 - 利用者ごとのコンテンツ ===
 function FamilyPatientView({ data, patientId, onLogout }) {
-  const [tab, setTab] = useState('analysis');
+  const [tab, setTab] = useState('news');
   const pid = parseInt(patientId, 10);
   const patient = (data.patients||[]).find(p => p.id === pid || p.id === patientId);
   const facility = data.systemSettings?.facilityInfo || {};
@@ -8966,7 +9020,7 @@ function FamilyPatientView({ data, patientId, onLogout }) {
       </div>
       <div style={{maxWidth:1100,margin:'-12px auto 0',padding:'0 16px'}}>
         <div style={{background:'white',borderRadius:16,padding:4,boxShadow:'0 4px 16px rgba(0,0,0,0.06)',display:'flex',gap:2}}>
-          {[['analysis','📊 分析（個人）'],['news','📢 お知らせ'],['photos','📷 写真']].map(([k,l])=>(
+          {[['news','📢 お知らせ・写真'],['analysis','📊 通所記録']].map(([k,l])=>(
             <button key={k} onClick={()=>setTab(k)}
               style={{flex:1,padding:'10px 8px',borderRadius:12,border:'none',background:tab===k?'#6366f1':'transparent',color:tab===k?'white':'#475569',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>
               {l}
@@ -8993,38 +9047,44 @@ function FamilyPatientView({ data, patientId, onLogout }) {
           </div>
         )}
         {tab === 'news' && (
-          <div style={{maxWidth:720,margin:'0 auto',background:'white',borderRadius:16,padding:'8px 0',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
-            {[...personalAnnouncements.map(a=>({...a,_kind:'個別'})), ...announcements.map(a=>({...a,_kind:'全体'}))].length === 0 ? (
-              <div style={{padding:'32px 20px',textAlign:'center',color:'#94a3b8',fontSize:13}}>お知らせはありません</div>
-            ) : (
-              [...personalAnnouncements.map(a=>({...a,_kind:'個別'})), ...announcements.map(a=>({...a,_kind:'全体'}))].map((a,i)=>(
-                <div key={i} style={{padding:'16px 20px',borderTop:i>0?'1px solid #f1f5f9':'none'}}>
-                  <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
-                    <span style={{fontSize:9,fontWeight:'bold',padding:'2px 6px',borderRadius:4,background:a._kind==='個別'?'#fef3c7':'#dbeafe',color:a._kind==='個別'?'#92400e':'#1e40af'}}>{a._kind}</span>
-                    <span style={{fontSize:11,color:'#94a3b8'}}>{a.date}</span>
+          <div style={{maxWidth:720,margin:'0 auto'}}>
+            {/* お知らせ一覧 */}
+            <div style={{background:'white',borderRadius:16,padding:'8px 0',boxShadow:'0 2px 8px rgba(0,0,0,0.04)',marginBottom:14}}>
+              <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',padding:'8px 20px',borderBottom:'1px solid #f1f5f9'}}>📢 お知らせ</div>
+              {[...personalAnnouncements.map(a=>({...a,_kind:'個別'})), ...announcements.map(a=>({...a,_kind:'全体'}))].length === 0 ? (
+                <div style={{padding:'24px 20px',textAlign:'center',color:'#94a3b8',fontSize:13}}>お知らせはありません</div>
+              ) : (
+                [...personalAnnouncements.map(a=>({...a,_kind:'個別'})), ...announcements.map(a=>({...a,_kind:'全体'}))]
+                  .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
+                  .map((a,i)=>(
+                  <div key={a.id||i} style={{padding:'14px 20px',borderTop:i>0?'1px solid #f1f5f9':'none'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
+                      <span style={{fontSize:9,fontWeight:'bold',padding:'2px 6px',borderRadius:4,background:a._kind==='個別'?'#fef3c7':'#dbeafe',color:a._kind==='個別'?'#92400e':'#1e40af'}}>{a._kind}</span>
+                      <span style={{fontSize:11,color:'#94a3b8'}}>{a.date}</span>
+                    </div>
+                    <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>{a.title}</div>
+                    {a.body && <div style={{fontSize:13,color:'#475569',lineHeight:1.7,whiteSpace:'pre-wrap'}}>{a.body}</div>}
                   </div>
-                  <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>{a.title}</div>
-                  <div style={{fontSize:13,color:'#475569',lineHeight:1.7,whiteSpace:'pre-wrap'}}>{a.body}</div>
+                ))
+              )}
+            </div>
+            {/* 写真ギャラリー (お知らせ同画面で確認) */}
+            <div style={{background:'white',borderRadius:16,padding:'14px 20px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
+              <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:10}}>📷 写真</div>
+              {photos.length === 0 ? (
+                <div style={{padding:'24px 0',textAlign:'center',color:'#94a3b8',fontSize:13}}>写真はまだ登録されていません</div>
+              ) : (
+                <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
+                  {photos.map((p,i)=>(
+                    <div key={p.id||i} style={{position:'relative'}}>
+                      <img src={p.url} alt="" style={{width:'100%',aspectRatio:'1',objectFit:'cover',borderRadius:10}}/>
+                      <a href={p.url} download={p.name||`photo_${i+1}.jpg`} style={{position:'absolute',bottom:6,right:6,background:'rgba(0,0,0,0.6)',color:'white',padding:'4px 8px',borderRadius:6,fontSize:10,fontWeight:'bold',textDecoration:'none'}}>↓</a>
+                      {p.caption && <div style={{fontSize:11,color:'#64748b',marginTop:4,padding:'0 2px'}}>{p.caption}</div>}
+                    </div>
+                  ))}
                 </div>
-              ))
-            )}
-          </div>
-        )}
-        {tab === 'photos' && (
-          <div style={{maxWidth:720,margin:'0 auto',background:'white',borderRadius:16,padding:'20px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
-            {photos.length === 0 ? (
-              <div style={{padding:'32px 20px',textAlign:'center',color:'#94a3b8',fontSize:13}}>📷 写真はまだ登録されていません</div>
-            ) : (
-              <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
-                {photos.map((p,i)=>(
-                  <div key={i} style={{position:'relative'}}>
-                    <img src={p.url} alt="" style={{width:'100%',aspectRatio:'1',objectFit:'cover',borderRadius:10}}/>
-                    <a href={p.url} download={p.name||`photo_${i+1}.jpg`} style={{position:'absolute',bottom:6,right:6,background:'rgba(0,0,0,0.6)',color:'white',padding:'4px 8px',borderRadius:6,fontSize:10,fontWeight:'bold',textDecoration:'none'}}>↓</a>
-                    {p.caption && <div style={{fontSize:11,color:'#64748b',marginTop:4,padding:'0 2px'}}>{p.caption}</div>}
-                  </div>
-                ))}
-              </div>
-            )}
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -9074,7 +9134,17 @@ export default function App() {
     try {
       localStorage.setItem('daycareAppData_v3', JSON.stringify(appData));
     } catch (e) {
-      // QuotaExceeded などは無視（写真等が原因の可能性あり）
+      // 容量オーバー時: 写真データを別キーに分離して再試行
+      console.warn('localStorage 容量オーバー、写真を分離して再保存します', e);
+      try {
+        const photos = appData.familyPhotos || [];
+        localStorage.setItem('daycareAppData_v3', JSON.stringify({...appData, familyPhotos: []}));
+        // 写真は別キーに JSON 化して保存 (上限超えれば一部のみ保存)
+        try { localStorage.setItem('daycarePhotos_v1', JSON.stringify(photos)); } catch(_e){ console.error('写真保存も失敗', _e); }
+      } catch(e2) {
+        console.error('再保存も失敗。データを保存できませんでした', e2);
+        alert('データ保存容量を超えました。写真の数を減らすか、古い記録を整理してください。');
+      }
     }
   }, [appData]);
   const [showToast, setShowToast] = useState(false);
@@ -14382,7 +14452,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
           <input type="date" value={`${curMonth}-01`} onChange={e=>setCurMonth(e.target.value.substring(0,7))} className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold outline-none cursor-pointer text-slate-700"/>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <button onClick={()=>{if(onShowPrintPreview){onShowPrintPreview(`サービス提供記録_${sp?.name||''}`, 'A4 landscape', 'print-content-ticket')}else{window.print();}}} className="bg-slate-900 text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm"><Printer size={16} className="mr-1.5"/>プレビュー</button>
+          <button onClick={()=>{if(onShowPrintPreview){onShowPrintPreview(`サービス提供記録_${tY}年${tM}月_${sp?.name||''}`, 'A4 landscape', 'print-content-ticket')}else{window.print();}}} className="bg-slate-900 text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm"><Printer size={16} className="mr-1.5"/>プレビュー</button>
         </div>
       </div>
       {/* コンテンツ：横スクロール可能 */}
@@ -20193,8 +20263,9 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
         </div>
 
         {/* A4送付状 */}
+        <style>{`@media print{body,html{margin:0!important;padding:0!important;overflow:hidden!important;}body>*{margin:0!important;padding:0!important;}#print-content-fax{box-shadow:none!important;page-break-after:avoid!important;break-after:avoid!important;page-break-inside:avoid!important;break-inside:avoid!important;overflow:hidden!important;}}`}</style>
         <div style={{flex:1,overflow:'auto',display:'flex',justifyContent:'center',alignItems:'flex-start',padding:'20px',background:'#f0f4f9'}}>
-          <div id="print-content-fax" style={{width:794,height:1123,background:'white',boxShadow:'0 4px 24px rgba(0,0,0,0.12)',padding:'40px 48px',boxSizing:'border-box',fontFamily:'serif',position:'relative',display:'flex',flexDirection:'column'}}>
+          <div id="print-content-fax" style={{width:794,height:1123,maxHeight:1123,overflow:'hidden',background:'white',boxShadow:'0 4px 24px rgba(0,0,0,0.12)',padding:'40px 48px',boxSizing:'border-box',fontFamily:'serif',position:'relative',display:'flex',flexDirection:'column'}}>
 
             {/* タイトル */}
             <div style={{textAlign:'center',fontSize:28,fontWeight:'bold',border:'3px solid black',padding:'10px 0',marginBottom:28,letterSpacing:6}}>送付状</div>
@@ -20525,10 +20596,11 @@ function GeneralFaxView({ appData, onShowPrintPreview }) {
         </div>
       </div>
 
+      <style>{`@media print{body,html{margin:0!important;padding:0!important;overflow:hidden!important;}body>*{margin:0!important;padding:0!important;}#print-content-general-fax{box-shadow:none!important;page-break-after:avoid!important;break-after:avoid!important;page-break-inside:avoid!important;break-inside:avoid!important;overflow:hidden!important;}}`}</style>
       <div style={{flex:1,overflow:'auto',padding:'20px',display:'flex',alignItems:'flex-start',justifyContent:'center'}}>
         {/* A4 送付状プレビュー（件名・連絡事項は中で直接編集可能） */}
         <div id="print-content-general-fax"
-             style={{width:794,minHeight:1123,background:'white',boxShadow:'0 4px 24px rgba(0,0,0,0.12)',padding:'40px 48px',boxSizing:'border-box',fontFamily:'serif',display:'flex',flexDirection:'column'}}>
+             style={{width:794,height:1123,maxHeight:1123,overflow:'hidden',background:'white',boxShadow:'0 4px 24px rgba(0,0,0,0.12)',padding:'40px 48px',boxSizing:'border-box',fontFamily:'serif',display:'flex',flexDirection:'column'}}>
 
           {/* タイトル */}
           <div style={{textAlign:'center',fontSize:28,fontWeight:'bold',border:'3px solid black',padding:'10px 0',marginBottom:28,letterSpacing:6}}>送付状</div>
