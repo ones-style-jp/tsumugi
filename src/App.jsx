@@ -8506,15 +8506,42 @@ function FamilyAdminView({ appData, onSave }) {
   const toggleDay = (d) => setPatientFilter(f => ({ ...f, days: f.days.includes(d) ? f.days.filter(x=>x!==d) : [...f.days, d] }));
   const setAmpm = (v) => setPatientFilter(f => ({ ...f, ampm: f.ampm === v ? '' : v }));
   // 統合投稿: お知らせ + 写真 を同時に投稿
+  // 画像を圧縮 (最大幅 1200px、JPEG quality 0.8) して localStorage 容量を節約
+  const compressImage = (file) => new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const maxW = 1200;
+        const scale = Math.min(1, maxW / img.width);
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0,0,w,h);
+        ctx.drawImage(img, 0, 0, w, h);
+        try {
+          resolve(canvas.toDataURL('image/jpeg', 0.8));
+        } catch {
+          resolve(e.target.result); // フォールバック: 元データ
+        }
+      };
+      img.onerror = () => resolve(e.target.result);
+      img.src = e.target.result;
+    };
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(file);
+  });
   const handleFilesPicked = (e) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
-    Promise.all(files.map(f => new Promise(res => {
-      const reader = new FileReader();
-      reader.onload = () => res({ url: reader.result, name: f.name });
-      reader.readAsDataURL(f);
-    }))).then(items => {
-      setPostForm(f => ({...f, files:[...f.files, ...items], filePreview:[...f.filePreview, ...items]}));
+    Promise.all(files.map(async f => {
+      const compressed = await compressImage(f);
+      return { url: compressed || '', name: f.name };
+    })).then(items => {
+      const valid = items.filter(it => it.url);
+      setPostForm(f => ({...f, files:[...f.files, ...valid], filePreview:[...f.filePreview, ...valid]}));
       e.target.value = '';
     });
   };
@@ -9013,11 +9040,25 @@ function FamilyPatientView({ data, patientId, onLogout }) {
   }
   return (
     <div style={{minHeight:'100vh',background:'linear-gradient(180deg,#f8fafc 0%,#f1f5f9 100%)',fontFamily:'"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",sans-serif',color:'#1e293b'}}>
-      <div style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',padding:'28px 20px 20px',boxShadow:'0 2px 12px rgba(99,102,241,0.25)'}}>
+      {/* iPhone / 狭画面向けレスポンシブ調整 */}
+      <style>{`
+        @media (max-width: 720px) {
+          .family-tab-bar { padding:2px!important; gap:1px!important; }
+          .family-tab-btn { padding:8px 4px!important; font-size:11px!important; }
+          .family-content-area { padding-left:8px!important; padding-right:8px!important; }
+          .family-analysis-scroll { -webkit-overflow-scrolling:touch; }
+          .family-analysis-scroll::after { content:'← 横にスクロールできます →'; display:block; text-align:center; font-size:10px; color:#94a3b8; padding:8px; font-weight:bold; }
+        }
+        @media (max-width: 480px) {
+          .family-header-name { font-size:18px!important; }
+          .family-header-title { font-size:10px!important; }
+        }
+      `}</style>
+      <div style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',padding:'24px 16px 16px',boxShadow:'0 2px 12px rgba(99,102,241,0.25)'}}>
         <div style={{maxWidth:720,margin:'0 auto',display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12}}>
           <div>
-            <div style={{fontSize:11,opacity:0.85,fontWeight:'bold',letterSpacing:1}}>{facility.name||'デイケアサービス'} 家族用閲覧</div>
-            <div style={{fontSize:22,fontWeight:'bold',marginTop:4}}>{patient.name} 様</div>
+            <div className="family-header-title" style={{fontSize:11,opacity:0.85,fontWeight:'bold',letterSpacing:1}}>{facility.name||'デイケアサービス'} 家族用閲覧</div>
+            <div className="family-header-name" style={{fontSize:22,fontWeight:'bold',marginTop:4}}>{patient.name} 様</div>
             {patient.kana && <div style={{fontSize:12,opacity:0.85,marginTop:2}}>{patient.kana}</div>}
           </div>
           {onLogout && (
@@ -9027,21 +9068,21 @@ function FamilyPatientView({ data, patientId, onLogout }) {
           )}
         </div>
       </div>
-      <div style={{maxWidth:1100,margin:'-12px auto 0',padding:'0 16px'}}>
-        <div style={{background:'white',borderRadius:16,padding:4,boxShadow:'0 4px 16px rgba(0,0,0,0.06)',display:'flex',gap:2}}>
+      <div style={{maxWidth:1100,margin:'-12px auto 0',padding:'0 12px'}}>
+        <div className="family-tab-bar" style={{background:'white',borderRadius:16,padding:4,boxShadow:'0 4px 16px rgba(0,0,0,0.06)',display:'flex',gap:2}}>
           {[['news','📢 お知らせ・写真'],['analysis','📊 通所記録']].map(([k,l])=>(
-            <button key={k} onClick={()=>setTab(k)}
+            <button key={k} onClick={()=>setTab(k)} className="family-tab-btn"
               style={{flex:1,padding:'10px 8px',borderRadius:12,border:'none',background:tab===k?'#6366f1':'transparent',color:tab===k?'white':'#475569',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>
               {l}
             </button>
           ))}
         </div>
       </div>
-      <div style={{maxWidth: tab==='analysis' ? 1100 : 720, margin:'16px auto 0',padding:'0 16px 40px'}}>
+      <div className="family-content-area" style={{maxWidth: tab==='analysis' ? 1100 : 720, margin:'16px auto 0',padding:'0 12px 40px'}}>
         {tab === 'analysis' && (
           <div style={{background:'white',borderRadius:16,boxShadow:'0 2px 8px rgba(0,0,0,0.04)',overflow:'hidden'}}>
-            {/* スマホで見たときに横スクロール可能にし、最小幅を確保して潰れないように */}
-            <div style={{overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
+            {/* スマホで横スクロール可能 + ヒント表示 */}
+            <div className="family-analysis-scroll" style={{overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
               <div style={{minWidth:780}}>
                 <PersonalDashboardView
                   appData={data}
@@ -9057,6 +9098,48 @@ function FamilyPatientView({ data, patientId, onLogout }) {
         )}
         {tab === 'news' && (
           <div style={{maxWidth:720,margin:'0 auto'}}>
+            {/* 今回の記録 (最新の通所記録) */}
+            {(()=>{
+              const ticketRecs = (data.ticketRecords||[]).filter(r => r.patientId === pid || r.patientId === patientId);
+              const parseTicketDate = (s) => { const m=(s||'').match(/(\d+)月(\d+)日/); return m?`${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`:''; };
+              const validRecs = ticketRecs.filter(r => r.status==='出席'||r.status==='振替');
+              const latest = validRecs.sort((a,b)=> parseTicketDate(b.date).localeCompare(parseTicketDate(a.date)))[0];
+              if (!latest) return null;
+              const MOODS = {'excellent':'🤩 とても良い','good':'😊 良い','normal':'😐 普通','bad':'😞 良くない','terrible':'😫 とても良くない'};
+              const tokkiOverrides = ((data.familyTokkiOverrides||{})[pid]) || {};
+              const tokkiOv = tokkiOverrides[latest.id] || {};
+              const showTokki = tokkiOv.visible !== false;
+              const tokkiText = tokkiOv.text || latest.tokki || '';
+              return (
+                <div style={{background:'linear-gradient(135deg,#fef3c7,#fef9c3)',borderRadius:16,padding:'14px 18px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)',marginBottom:14,border:'1px solid #fde68a'}}>
+                  <div style={{display:'flex',alignItems:'baseline',justifyContent:'space-between',marginBottom:8}}>
+                    <div style={{fontSize:13,fontWeight:'bold',color:'#92400e'}}>📋 今回の記録</div>
+                    <div style={{fontSize:11,fontWeight:'bold',color:'#92400e'}}>{latest.date}</div>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px 12px',fontSize:13}}>
+                    {latest.temp && <div><span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>体温</span><br/><span style={{fontWeight:'bold',color:'#1e293b'}}>{latest.temp}<span style={{fontSize:11,color:'#94a3b8',marginLeft:2}}>℃</span></span></div>}
+                    {latest.bpUpSt && <div><span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>血圧 (開始)</span><br/><span style={{fontWeight:'bold',color:'#1e293b'}}>{latest.bpUpSt}/{latest.bpDnSt}<span style={{fontSize:11,color:'#94a3b8',marginLeft:2}}>mmHg</span>{latest.plSt && <span style={{fontSize:11,color:'#475569',marginLeft:4}}>脈 {latest.plSt}</span>}</span></div>}
+                    {latest.bpUpEn && <div><span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>血圧 (終了)</span><br/><span style={{fontWeight:'bold',color:'#1e293b'}}>{latest.bpUpEn}/{latest.bpDnEn}<span style={{fontSize:11,color:'#94a3b8',marginLeft:2}}>mmHg</span>{latest.plEn && <span style={{fontSize:11,color:'#475569',marginLeft:4}}>脈 {latest.plEn}</span>}</span></div>}
+                    {(latest.kibunArrival||latest.kibunDeparture) && (
+                      <div style={{gridColumn:'span 2'}}>
+                        <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>気分</span><br/>
+                        <span style={{fontWeight:'bold',color:'#1e293b',fontSize:12}}>
+                          {latest.kibunArrival && <>来所時: {MOODS[latest.kibunArrival]||latest.kibunArrival}</>}
+                          {latest.kibunArrival && latest.kibunDeparture && <span style={{color:'#94a3b8'}}> ／ </span>}
+                          {latest.kibunDeparture && <>帰宅時: {MOODS[latest.kibunDeparture]||latest.kibunDeparture}</>}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  {showTokki && tokkiText && (
+                    <div style={{marginTop:10,paddingTop:10,borderTop:'1px solid #fde68a'}}>
+                      <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>特記</span>
+                      <div style={{fontSize:13,color:'#1e293b',lineHeight:1.6,whiteSpace:'pre-wrap',marginTop:4}}>{tokkiText}</div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             {/* お知らせ一覧 */}
             <div style={{background:'white',borderRadius:16,padding:'8px 0',boxShadow:'0 2px 8px rgba(0,0,0,0.04)',marginBottom:14}}>
               <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',padding:'8px 20px',borderBottom:'1px solid #f1f5f9'}}>📢 お知らせ</div>
@@ -9412,8 +9495,16 @@ export default function App() {
           const hasLPage = /class="l-page"|class='l-page'/.test(printPreviewContent.html || '');
           const hasPPage = /class="p-page"|class='p-page'/.test(printPreviewContent.html || '');
           const isMixed = hasLPage && hasPPage;
-          const pageW = isB6 ? 128 : (isLandscape || isMixed) ? 297 : 210;
-          const pageH = isB6 ? 182 : isLandscape ? 210 : 297;
+          // 「257mm 182mm」「128mm 182mm」形式の明示的な mm 指定もサポート
+          const mmMatch = size.match(/^\s*(\d+)mm\s+(\d+)mm\s*$/);
+          let pageW, pageH;
+          if (mmMatch) {
+            pageW = parseInt(mmMatch[1], 10);
+            pageH = parseInt(mmMatch[2], 10);
+          } else {
+            pageW = isB6 ? 128 : (isLandscape || isMixed) ? 297 : 210;
+            pageH = isB6 ? 182 : isLandscape ? 210 : 297;
+          }
           const scale = Math.min(1,(window.innerWidth-60)/(pageW*3.7795));
           const [showPdfTip, setShowPdfTip] = React.useState(false);
 
@@ -14850,13 +14941,17 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       return h;
     }).filter(Boolean);
     if(!htmlParts.length){ alert('印刷データが見つかりません。'); return; }
+    // B5 横 (257×182mm) ページ内に B6 縦の連絡帳 (182×257mm logical) を縮小して中央配置
+    // scale 0.708 で 128.9×181.9mm = ほぼ B6 サイズになる
     const combinedHtml = htmlParts.map((h,i)=>
-      `<div style="page-break-after:${i < htmlParts.length-1 ? 'always' : 'auto'};display:flex;justify-content:center;">${h}</div>`
+      `<div style="page-break-after:${i < htmlParts.length-1 ? 'always' : 'auto'};width:257mm;height:182mm;display:flex;justify-content:center;align-items:flex-start;overflow:hidden;position:relative;">
+        <div style="transform:scale(0.708);transform-origin:top center;width:182mm;height:257mm;">${h}</div>
+      </div>`
     ).join('');
-    // プレビューモーダルへ
-    if(onShowPrintPreview) onShowPrintPreview(title, '182mm 257mm', null);
+    // プレビューモーダルへ — B5 横で送る
+    if(onShowPrintPreview) onShowPrintPreview(title, '257mm 182mm', null);
     setTimeout(()=>{
-      window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'182mm 257mm',html:combinedHtml}}));
+      window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'257mm 182mm',html:combinedHtml}}));
     },50);
   };
   const handleSaveConfig = (newConfig) => { markClean(); onSave({ ...appData, contactBookConfig: newConfig }); setIsConfigOpen(false); };
