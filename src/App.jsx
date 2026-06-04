@@ -203,6 +203,21 @@ const verifyInviteCode = (code7) => {
   return six;
 };
 
+// 使い捨て招待コード生成 (FAM-XXXX-XXXX 形式)
+// 紛らわしい文字 (0/O/1/I/L/U/V) を除いた英数字
+const _INV_CHARS = 'ABCDEFGHJKMNPQRSTWXYZ23456789';
+const generateOneTimeInviteCode = () => {
+  const part = (n) => Array.from({length:n}, () => _INV_CHARS[Math.floor(Math.random()*_INV_CHARS.length)]).join('');
+  return `FAM-${part(4)}-${part(4)}`;
+};
+// 入力コード正規化: 半角化・大文字化・ハイフン自動補完
+const normalizeInviteCode = (raw) => {
+  const s = (raw||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if (s.length <= 3) return s;
+  if (s.length <= 7) return `${s.slice(0,3)}-${s.slice(3)}`;
+  return `${s.slice(0,3)}-${s.slice(3,7)}-${s.slice(7,11)}`;
+};
+
 // 日付文字列 ("4月15日" 等) を YYYY-MM に正規化。年が無いものは currentYear で補完
 const normalizeRecordMonth = (dateStr, currentYear) => {
   if (!dateStr) return null;
@@ -9033,7 +9048,7 @@ function FamilyView() {
   const [authPid, setAuthPid] = useState(()=> sessionStorage.getItem('familyAuthPid') || null);
   const [loginForm, setLoginForm] = useState({ username:'', password:'', error:'', showPw:false });
   const [mode, setMode] = useState('login'); // 'login' | 'signup'
-  const [signupForm, setSignupForm] = useState({ email:'', generatedUrl:'', copied:false });
+  const [signupForm, setSignupForm] = useState({ inviteCode:'', username:'', password:'', password2:'', displayName:'', error:'', done:false });
   // データ更新を購読 (事業所側で更新されたら反映)
   useEffect(()=>{
     const reload = () => {
@@ -9092,60 +9107,102 @@ function FamilyView() {
           {mode === 'signup' ? (
             <div style={{background:'white',borderRadius:24,padding:28,boxShadow:'0 20px 60px rgba(0,0,0,0.25)'}}>
               <div style={{textAlign:'center',marginBottom:18}}>
-                <div style={{fontSize:18,fontWeight:'bold',color:'#1e293b'}}>新規ご家族の登録申請</div>
+                <div style={{fontSize:18,fontWeight:'bold',color:'#1e293b'}}>新規ご家族の登録</div>
                 <div style={{fontSize:11,color:'#94a3b8',marginTop:4,lineHeight:1.7}}>
-                  メールアドレスをご入力ください。<br/>登録手続き用のURLが発行されます。
+                  事業所から伝えられた招待コードを入力してください
                 </div>
               </div>
-              {!signupForm.generatedUrl ? (
-                <form onSubmit={(e)=>{
-                  e.preventDefault();
-                  const email = signupForm.email.trim();
-                  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert('正しいメールアドレスを入力してください'); return; }
-                  const token = `family-${btoa(unescape(encodeURIComponent(email + '|' + Date.now())))}`;
-                  const baseUrl = window.location.origin + window.location.pathname.replace(/\/+$/, '');
-                  const url = `${baseUrl}/?signup=${token}`;
-                  setSignupForm(f=>({...f, generatedUrl: url}));
-                }}>
-                  <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>メールアドレス</label>
-                  <input type="email" value={signupForm.email} onChange={e=>setSignupForm(f=>({...f,email:toHalfWidth(e.target.value)}))} autoFocus placeholder="例: yamada@example.com"
-                    style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
-                  <button type="submit"
-                    style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',marginTop:14,boxShadow:'0 4px 12px rgba(99,102,241,0.3)'}}>
-                    登録URLを発行
-                  </button>
-                </form>
-              ) : (
+              {signupForm.done ? (
                 <div>
-                  <div style={{background:'#f0fdf4',border:'1px solid #86efac',borderRadius:12,padding:'12px 14px',marginBottom:12}}>
-                    <div style={{fontSize:11,fontWeight:'bold',color:'#15803d',marginBottom:6}}>✓ 登録URLが発行されました</div>
-                    <div style={{fontSize:11,color:'#166534',lineHeight:1.7}}>下記のURLを{signupForm.email}にお送りするか、ブラウザで開いて登録を完了してください。</div>
+                  <div style={{background:'#f0fdf4',border:'1px solid #86efac',borderRadius:12,padding:'16px 18px',textAlign:'center'}}>
+                    <div style={{fontSize:36,marginBottom:8}}>✓</div>
+                    <div style={{fontSize:15,fontWeight:'bold',color:'#15803d',marginBottom:6}}>登録が完了しました</div>
+                    <div style={{fontSize:11,color:'#166534',lineHeight:1.7}}>下のボタンからログインしてください</div>
                   </div>
-                  <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>登録URL</label>
-                  <textarea readOnly value={signupForm.generatedUrl}
-                    style={{width:'100%',padding:'10px 12px',border:'1px solid #e2e8f0',borderRadius:10,fontSize:11,fontFamily:'Menlo,monospace',outline:'none',boxSizing:'border-box',height:74,resize:'none'}}/>
-                  <div style={{display:'flex',gap:8,marginTop:10}}>
-                    <button onClick={()=>{navigator.clipboard?.writeText(signupForm.generatedUrl); setSignupForm(f=>({...f,copied:true})); setTimeout(()=>setSignupForm(f=>({...f,copied:false})),2000);}}
-                      style={{flex:1,padding:'10px',background:signupForm.copied?'#16a34a':'#3b82f6',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>
-                      {signupForm.copied?'✓ コピーしました':'📋 URLをコピー'}
-                    </button>
-                    <a href={signupForm.generatedUrl} target="_blank" rel="noopener noreferrer"
-                      style={{flex:1,padding:'10px',background:'#f1f5f9',color:'#475569',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer',textDecoration:'none',textAlign:'center'}}>
-                      📨 URLを開く
-                    </a>
-                  </div>
-                  <div style={{fontSize:10,color:'#94a3b8',marginTop:14,lineHeight:1.6,background:'#fef3c7',padding:10,borderRadius:8,border:'1px solid #fbbf24'}}>
-                    <b>※</b> 現在メール自動送信は未対応です。発行URLは事業所からご家族へお伝えください。<br/>
-                    <b>※</b> このURLは1度きり有効です（次回以降は通常ログインしてください）。
-                  </div>
-                  <button onClick={()=>{setSignupForm({email:'',generatedUrl:'',copied:false}); setMode('login');}}
-                    style={{width:'100%',padding:'10px',marginTop:12,background:'transparent',color:'#64748b',border:'1px solid #e2e8f0',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>
-                    ログイン画面に戻る
+                  <button onClick={()=>{setSignupForm({inviteCode:'',username:'',password:'',password2:'',displayName:'',error:'',done:false}); setMode('login');}}
+                    style={{width:'100%',padding:'12px',marginTop:14,background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:'bold',cursor:'pointer'}}>
+                    ログイン画面へ
                   </button>
                 </div>
-              )}
-              {!signupForm.generatedUrl && (
-                <button onClick={()=>setMode('login')} style={{display:'block',width:'100%',padding:'10px',marginTop:14,background:'transparent',color:'#64748b',border:'none',fontSize:12,fontWeight:'bold',cursor:'pointer'}}>← ログイン画面に戻る</button>
+              ) : (
+                <form onSubmit={(e)=>{
+                  e.preventDefault();
+                  const code = signupForm.inviteCode.trim();
+                  const uname = signupForm.username.trim();
+                  const pw = signupForm.password;
+                  // 1. 入力バリデーション
+                  if (!code) { setSignupForm(f=>({...f, error:'招待コードを入力してください'})); return; }
+                  if (uname.length < 4) { setSignupForm(f=>({...f, error:'IDは4文字以上必要です'})); return; }
+                  if (!/^[a-zA-Z0-9_\-]+$/.test(uname)) { setSignupForm(f=>({...f, error:'IDは半角英数字・ハイフン・アンダースコアのみ使用できます'})); return; }
+                  if (pw.length < 8) { setSignupForm(f=>({...f, error:'パスワードは8文字以上必要です'})); return; }
+                  if (!/[a-zA-Z]/.test(pw) || !/[0-9]/.test(pw)) { setSignupForm(f=>({...f, error:'パスワードは英字と数字を組み合わせてください'})); return; }
+                  if (pw !== signupForm.password2) { setSignupForm(f=>({...f, error:'パスワードが一致しません'})); return; }
+                  // 2. 最新の localStorage を取得して招待コードを検証
+                  let latest;
+                  try { latest = JSON.parse(localStorage.getItem('daycareAppData_v3')||'null'); } catch { latest = null; }
+                  if (!latest) latest = data;
+                  const invite = (latest.familyInvites||[]).find(i => i.code === code);
+                  if (!invite) { setSignupForm(f=>({...f, error:'招待コードが見つかりません。事業所までお問い合わせください'})); return; }
+                  if (invite.usedBy) { setSignupForm(f=>({...f, error:'この招待コードは既に使用されています'})); return; }
+                  // 3. ID重複チェック
+                  const exists = (latest.familyAccounts||[]).some(a => (a.username||'').toLowerCase() === uname.toLowerCase());
+                  if (exists) { setSignupForm(f=>({...f, error:'このIDは既に使用されています'})); return; }
+                  // 4. アカウント作成 + 招待コードを使用済みに
+                  const newAccId = `fam_${Date.now()}`;
+                  const newAcc = {
+                    id: newAccId,
+                    patientId: invite.patientId,
+                    username: uname,
+                    password: pw,
+                    displayName: signupForm.displayName.trim() || '',
+                    createdAt: new Date().toISOString().slice(0,10),
+                  };
+                  const updated = {
+                    ...latest,
+                    familyAccounts: [...(latest.familyAccounts||[]), newAcc],
+                    familyInvites: (latest.familyInvites||[]).map(i => i.id === invite.id ? {...i, usedBy: newAccId, usedAt: new Date().toISOString()} : i),
+                  };
+                  try { localStorage.setItem('daycareAppData_v3', JSON.stringify(updated)); } catch {}
+                  setData(updated);
+                  setSignupForm(f=>({...f, done:true, error:''}));
+                }}>
+                  <div style={{marginBottom:12}}>
+                    <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>招待コード (FAM-XXXX-XXXX)</label>
+                    <input value={signupForm.inviteCode} onChange={e=>setSignupForm(f=>({...f,inviteCode:normalizeInviteCode(e.target.value),error:''}))}
+                      placeholder="FAM-XXXX-XXXX" autoFocus
+                      style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:15,fontWeight:'bold',outline:'none',boxSizing:'border-box',fontFamily:'Menlo,monospace',letterSpacing:2,textAlign:'center'}}/>
+                  </div>
+                  <div style={{marginBottom:12}}>
+                    <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>ログインID</label>
+                    <input value={signupForm.username} onChange={e=>setSignupForm(f=>({...f,username:toHalfWidth(e.target.value),error:''}))}
+                      placeholder="例: inoue_family (4文字以上、半角英数字)"
+                      style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
+                  </div>
+                  <div style={{marginBottom:12}}>
+                    <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>パスワード</label>
+                    <input type="password" value={signupForm.password} onChange={e=>setSignupForm(f=>({...f,password:toHalfWidth(e.target.value),error:''}))}
+                      placeholder="8文字以上、英字+数字"
+                      style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
+                  </div>
+                  <div style={{marginBottom:12}}>
+                    <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>パスワード（確認）</label>
+                    <input type="password" value={signupForm.password2} onChange={e=>setSignupForm(f=>({...f,password2:toHalfWidth(e.target.value),error:''}))}
+                      placeholder="もう一度入力"
+                      style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
+                  </div>
+                  <div style={{marginBottom:12}}>
+                    <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>表示名 (任意)</label>
+                    <input value={signupForm.displayName} onChange={e=>setSignupForm(f=>({...f,displayName:e.target.value,error:''}))}
+                      placeholder="例: 山田 (息子)"
+                      style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,outline:'none',boxSizing:'border-box'}}/>
+                  </div>
+                  {signupForm.error && <div style={{color:'#ef4444',fontSize:12,fontWeight:'bold',marginBottom:10,textAlign:'center',background:'#fef2f2',padding:'8px 10px',borderRadius:8}}>{signupForm.error}</div>}
+                  <button type="submit"
+                    style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',marginTop:6,boxShadow:'0 4px 12px rgba(99,102,241,0.3)'}}>
+                    登録する
+                  </button>
+                  <button type="button" onClick={()=>setMode('login')} style={{display:'block',width:'100%',padding:'10px',marginTop:10,background:'transparent',color:'#64748b',border:'none',fontSize:12,fontWeight:'bold',cursor:'pointer'}}>← ログイン画面に戻る</button>
+                </form>
               )}
             </div>
           ) : (
@@ -17372,20 +17429,71 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   <div className="text-lg font-bold text-slate-800">{pat.name} 様 {pat.kana && <span className="text-xs text-slate-400 font-normal ml-1">（{pat.kana}）</span>}</div>
                   <div className="text-[10px] text-slate-500 mt-1">利用者ID: {pat.id}</div>
                 </div>
-                {/* 家族登録用 招待コード (7桁: 6桁ID + チェックデジット) */}
-                <div className="bg-amber-50 border border-amber-300 rounded-xl p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-bold text-amber-800 mb-1">📋 家族登録用 招待コード</div>
-                      <div className="text-2xl font-bold text-amber-900 tracking-widest" style={{fontFamily:'Menlo,monospace'}}>{generateInviteCode(pat.id)}</div>
-                      <div className="text-[10px] text-amber-700 mt-1">7桁目はチェックデジット (入力ミス検出用)</div>
+                {/* 家族登録用 招待コード (使い捨て・1コード=1人) */}
+                {(() => {
+                  const invitesForPat = (appData.familyInvites || []).filter(i => i.patientId === pat.id).sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
+                  const issueNewInvite = () => {
+                    // 全体で重複しないコードを生成 (極めて低確率だが念のため)
+                    const existingCodes = new Set((appData.familyInvites||[]).map(i => i.code));
+                    let code = generateOneTimeInviteCode();
+                    let retry = 0;
+                    while (existingCodes.has(code) && retry < 10) { code = generateOneTimeInviteCode(); retry++; }
+                    const newInvite = {
+                      id: `inv_${Date.now()}`,
+                      code,
+                      patientId: pat.id,
+                      createdAt: new Date().toISOString(),
+                      usedBy: null,
+                      usedAt: null,
+                    };
+                    onSave({...appData, familyInvites: [...(appData.familyInvites||[]), newInvite]});
+                  };
+                  const deleteInvite = (invId) => {
+                    if (!window.confirm('この招待コードを削除しますか？\n未使用の場合は使用できなくなります。')) return;
+                    onSave({...appData, familyInvites: (appData.familyInvites||[]).filter(i => i.id !== invId)});
+                  };
+                  return (
+                    <div className="bg-amber-50 border border-amber-300 rounded-xl p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-xs font-bold text-amber-800">📩 家族登録用 招待コード（使い捨て）</div>
+                        <button onClick={issueNewInvite} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow active:scale-95"><Plus size={12}/>新規発行</button>
+                      </div>
+                      <div className="text-[10px] text-amber-700 mb-2 leading-relaxed">
+                        1コード = 1人のみ登録可能。ご家族に伝えるとログイン画面の「新規登録」から使えます。
+                      </div>
+                      {invitesForPat.length === 0 ? (
+                        <div className="text-[11px] text-amber-700 text-center py-3 bg-white/40 rounded-lg">未発行（「+ 新規発行」を押してください）</div>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {invitesForPat.map(inv => {
+                            const usedAcc = inv.usedBy ? (appData.familyAccounts||[]).find(a => a.id === inv.usedBy) : null;
+                            return (
+                              <div key={inv.id} className="flex items-center justify-between gap-2 bg-white border border-amber-200 rounded-lg px-3 py-2">
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-base font-bold text-amber-900 tracking-wider" style={{fontFamily:'Menlo,monospace'}}>{inv.code}</div>
+                                  <div className="text-[9px] text-amber-700">
+                                    発行: {new Date(inv.createdAt).toLocaleString('ja-JP',{year:'2-digit',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
+                                    {inv.usedBy ? (
+                                      <span className="ml-2 text-emerald-700 font-bold">✓ 使用済 {usedAcc?.username ? `(${usedAcc.username})` : ''}</span>
+                                    ) : (
+                                      <span className="ml-2 text-amber-700 font-bold">● 未使用</span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex gap-1 shrink-0">
+                                  {!inv.usedBy && (
+                                    <button onClick={()=>{navigator.clipboard?.writeText(inv.code); setShowToast(true);}} className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-700 rounded text-[10px] font-bold">コピー</button>
+                                  )}
+                                  <button onClick={()=>deleteInvite(inv.id)} className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[10px] font-bold">削除</button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                    <button onClick={()=>{navigator.clipboard?.writeText(generateInviteCode(pat.id)); setShowToast(true);}} className="px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold whitespace-nowrap">コピー</button>
-                  </div>
-                  <div className="text-[10px] text-amber-700 mt-2 leading-relaxed">
-                    ご家族にこのコードをお伝えください。新規アカウント作成時に「方法2: 招待コード」で入力すると、安全にこの利用者と紐付けできます。
-                  </div>
-                </div>
+                  );
+                })()}
                 <div className="bg-violet-50 border border-violet-200 rounded-xl p-4">
                   <div className="text-xs font-bold text-violet-700 mb-2">共通ログインURL（全利用者共通）</div>
                   <div className="flex items-start gap-3">
