@@ -8545,43 +8545,53 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
         const announcements = appData.familyAnnouncements || [];
         const personalAnnouncements = (appData.familyPersonalAnnouncements||[]).filter(a => a.patientId === patient.id);
         const photos = (appData.familyPhotos||[]).filter(ph => ph.patientId == null || ph.patientId === patient.id);
+        // 旧データの写真 (お知らせに紐付かない photos) を date+caption でグループ化して仮想お知らせとして表示
+        const orphanPhotos = photos.filter(p => !String(p.id||'').startsWith('news_'));
+        const virtualOldAnnouncements = (() => {
+          const groups = {};
+          orphanPhotos.forEach(p => {
+            const key = `${p.date||''}|${p.caption||''}`;
+            if (!groups[key]) groups[key] = {id:`old_${key}`, date: p.date||'', title: p.caption||'', body:'', _kind:'過去', photos:[]};
+            groups[key].photos.push(p);
+          });
+          return Object.values(groups);
+        })();
+        const merged = [
+          ...personalAnnouncements.map(a=>({...a,_kind:'個別'})),
+          ...announcements.map(a=>({...a,_kind:'全体'})),
+          ...virtualOldAnnouncements,
+        ].sort((a,b)=>(b.postedAt||b.date||'').localeCompare(a.postedAt||a.date||''));
         return (
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 space-y-4">
-            <div>
-              <div className="text-sm font-bold text-slate-700 mb-2">📢 お知らせ ({personalAnnouncements.length + announcements.length}件)</div>
-              {personalAnnouncements.length + announcements.length === 0 ? (
-                <div className="text-xs text-slate-400 text-center py-6">お知らせはまだ投稿されていません</div>
-              ) : (
-                <div className="space-y-2">
-                  {[...personalAnnouncements.map(a=>({...a,_kind:'個別'})), ...announcements.map(a=>({...a,_kind:'全体'}))]
-                    .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
-                    .map(a => (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 space-y-3">
+            <div className="text-sm font-bold text-slate-700">📢 お知らせ ({merged.length}件)</div>
+            {merged.length === 0 ? (
+              <div className="text-xs text-slate-400 text-center py-6">お知らせはまだ投稿されていません</div>
+            ) : (
+              <div className="space-y-3">
+                {merged.map(a => {
+                  const annPhotos = a.photos || [];
+                  return (
                     <div key={a.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
                       <div className="flex items-center gap-2 mb-1">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${a._kind==='個別'?'bg-amber-100 text-amber-700':'bg-blue-100 text-blue-700'}`}>{a._kind}</span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${a._kind==='個別'?'bg-amber-100 text-amber-700':a._kind==='過去'?'bg-slate-200 text-slate-600':'bg-blue-100 text-blue-700'}`}>{a._kind}</span>
                         <span className="text-[10px] text-slate-400">{a.date}</span>
                       </div>
-                      <div className="text-sm font-bold text-slate-800">{a.title}</div>
+                      {a.title && <div className="text-sm font-bold text-slate-800">{a.title}</div>}
                       {a.body && <div className="text-xs text-slate-600 mt-1 whitespace-pre-wrap">{a.body}</div>}
+                      {annPhotos.length > 0 && (
+                        <div className={`grid ${annPhotos.length===1?'grid-cols-1':'grid-cols-3'} gap-2 mt-2`}>
+                          {annPhotos.map((p,pi) => (
+                            <div key={p.id||pi} className="aspect-square overflow-hidden rounded-md border border-slate-200">
+                              <img src={p.url} alt="" className="w-full h-full object-cover"/>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div>
-              <div className="text-sm font-bold text-slate-700 mb-2">📷 写真 ({photos.length}枚)</div>
-              {photos.length === 0 ? (
-                <div className="text-xs text-slate-400 text-center py-6">写真はまだ投稿されていません</div>
-              ) : (
-                <div className="grid grid-cols-4 md:grid-cols-6 gap-2">
-                  {photos.map(p => (
-                    <div key={p.id} className="aspect-square overflow-hidden rounded-lg border border-slate-200">
-                      <img src={p.url} alt="" className="w-full h-full object-cover"/>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         );
       })()}
@@ -9065,13 +9075,24 @@ function FamilyView() {
   const [data, setData] = useState(loadDataMerged);
   // ログイン状態 (sessionStorage で同一タブ内のみ保持)
   const [authPid, setAuthPid] = useState(()=> sessionStorage.getItem('familyAuthPid') || null);
+  const [authAccId, setAuthAccId] = useState(()=> sessionStorage.getItem('familyAuthAccId') || null);
   const [loginForm, setLoginForm] = useState({ username:'', password:'', error:'', showPw:false });
   const [mode, setMode] = useState('login'); // 'login' | 'signup'
   const [signupForm, setSignupForm] = useState({
-    inviteCode:'', username:'', password:'', password2:'', displayName:'',
+    inviteCode:'', username:'', password:'', password2:'',
     email:'',  // 共通メールアドレス (家族アカウント + 緊急連絡先 両方に反映)
     // 緊急連絡先 (利用者マスタの emergencyContacts に自動反映)
-    ecName:'', ecRelation:'', ecPhone:'', ecMobile:'',
+    ecName:'',
+    ecRelation:'',           // 配偶者/長男/長女/次男/次女/兄弟姉妹/ケアマネージャー/自由記述
+    ecRelationCustom:'',     // 自由記述時の値
+    ecPhone:'', ecMobile:'',
+    // ケアマネ専用フィールド (続柄=ケアマネージャー の場合のみ)
+    cmOfficeMode:'select',   // 'select' | 'new'
+    cmOfficeId:'',           // 既存事業所選択時
+    cmNewOffice:{name:'', phone:'', fax:''},
+    cmManagerMode:'select',  // 'select' | 'new'
+    cmManagerId:'',          // 既存担当者選択時
+    cmNewManager:{lastName:'', firstName:'', phoneDirect:''},
     error:'', done:false
   });
   // データ更新を購読 (事業所側で更新されたら反映)
@@ -9119,7 +9140,9 @@ function FamilyView() {
         }
       } catch {}
       sessionStorage.setItem('familyAuthPid', String(acc.patientId));
+      sessionStorage.setItem('familyAuthAccId', String(acc.id));
       setAuthPid(String(acc.patientId));
+      setAuthAccId(String(acc.id));
     };
     return (
       <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#6366f1 0%,#8b5cf6 50%,#a855f7 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:16,fontFamily:'"Hiragino Sans","Yu Gothic",sans-serif'}}>
@@ -9162,18 +9185,58 @@ function FamilyView() {
                   if (pw.length < 8) { setSignupForm(f=>({...f, error:'パスワードは8文字以上必要です'})); return; }
                   if (!/[a-zA-Z]/.test(pw) || !/[0-9]/.test(pw)) { setSignupForm(f=>({...f, error:'パスワードは英字と数字を組み合わせてください'})); return; }
                   if (pw !== signupForm.password2) { setSignupForm(f=>({...f, error:'パスワードが一致しません'})); return; }
-                  // メールアドレスバリデーション (家族アカウント + 緊急連絡先 共通)
+                  // メールアドレス
                   const email = signupForm.email.trim();
                   if (!email) { setSignupForm(f=>({...f, error:'メールアドレスを入力してください'})); return; }
                   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setSignupForm(f=>({...f, error:'メールアドレスの形式が正しくありません'})); return; }
-                  // 緊急連絡先バリデーション
+                  // 続柄 (自由記述の場合は ecRelationCustom を採用)
+                  const isFreeText = signupForm.ecRelation === '自由記述';
+                  const ecRelation = isFreeText ? signupForm.ecRelationCustom.trim() : signupForm.ecRelation;
                   const ecName = signupForm.ecName.trim();
-                  const ecRelation = signupForm.ecRelation.trim();
                   const ecPhone = signupForm.ecPhone.trim();
                   const ecMobile = signupForm.ecMobile.trim();
-                  if (!ecName) { setSignupForm(f=>({...f, error:'緊急連絡先のお名前を入力してください'})); return; }
-                  if (!ecRelation) { setSignupForm(f=>({...f, error:'続柄を入力してください'})); return; }
-                  if (!ecPhone && !ecMobile) { setSignupForm(f=>({...f, error:'緊急連絡先の電話番号（固定または携帯）を1つ以上入力してください'})); return; }
+                  if (!ecName) { setSignupForm(f=>({...f, error:'お名前を入力してください'})); return; }
+                  if (!ecRelation) { setSignupForm(f=>({...f, error:'続柄を選択してください'})); return; }
+                  if (!ecPhone && !ecMobile) { setSignupForm(f=>({...f, error:'電話番号（固定または携帯）を1つ以上入力してください'})); return; }
+                  const isCaremanager = ecRelation === 'ケアマネージャー';
+                  // ケアマネのみ: 事業所と担当者の入力
+                  let cmOfficeName='', cmOfficePhone='', cmOfficeFax='';
+                  let cmManagerLast='', cmManagerFirst='', cmManagerDirect='';
+                  if (isCaremanager) {
+                    // 最新の localStorage を読んで既存マスタを取得
+                    let _lt;
+                    try { _lt = JSON.parse(localStorage.getItem('daycareAppData_v3')||'null'); } catch { _lt = null; }
+                    if (!_lt) _lt = data;
+                    const cmOffices = _lt.systemSettings?.cmOffices || [];
+                    const careManagers = _lt.systemSettings?.careManagers || [];
+                    if (signupForm.cmOfficeMode === 'select') {
+                      const off = cmOffices.find(o => o.name === signupForm.cmOfficeId);
+                      if (!off) { setSignupForm(f=>({...f, error:'事業所を選択してください'})); return; }
+                      cmOfficeName = off.name; cmOfficePhone = off.phone||''; cmOfficeFax = off.fax||'';
+                    } else {
+                      cmOfficeName = signupForm.cmNewOffice.name.trim();
+                      cmOfficePhone = signupForm.cmNewOffice.phone.trim();
+                      cmOfficeFax = signupForm.cmNewOffice.fax.trim();
+                      if (!cmOfficeName) { setSignupForm(f=>({...f, error:'事業所名を入力してください'})); return; }
+                    }
+                    if (signupForm.cmManagerMode === 'select') {
+                      const cm = careManagers.find(c => c.office === cmOfficeName && (c.name === signupForm.cmManagerId));
+                      if (!cm) { setSignupForm(f=>({...f, error:'担当者を選択してください'})); return; }
+                      const sp = (cm.name||'').split(/\s+/);
+                      cmManagerLast = sp[0]||''; cmManagerFirst = sp.slice(1).join(' ')||'';
+                      cmManagerDirect = cm.phoneDirect || cm.phone || '';
+                    } else {
+                      cmManagerLast = signupForm.cmNewManager.lastName.trim();
+                      cmManagerFirst = signupForm.cmNewManager.firstName.trim();
+                      cmManagerDirect = signupForm.cmNewManager.phoneDirect.trim();
+                      if (!cmManagerLast || !cmManagerFirst) { setSignupForm(f=>({...f, error:'担当者の姓と名を入力してください'})); return; }
+                    }
+                    // ecName をケアマネ名に合わせる
+                    const cmFullName = `${cmManagerLast} ${cmManagerFirst}`.trim();
+                    if (!signupForm.ecName.trim()) {
+                      // 自動補完 (お名前が空ならケアマネ名を使う)
+                    }
+                  }
                   // 2. 最新の localStorage を取得して招待コードを検証
                   let latest;
                   try { latest = JSON.parse(localStorage.getItem('daycareAppData_v3')||'null'); } catch { latest = null; }
@@ -9185,14 +9248,16 @@ function FamilyView() {
                   const exists = (latest.familyAccounts||[]).some(a => (a.username||'').toLowerCase() === uname.toLowerCase());
                   if (exists) { setSignupForm(f=>({...f, error:'このIDは既に使用されています'})); return; }
                   // 4. アカウント作成 + 招待コードを使用済みに + 利用者の緊急連絡先に追加
-                  const newAccId = `fam_${Date.now()}`;
+                  const newAccId = `${isCaremanager?'cm':'fam'}_${Date.now()}`;
                   const newAcc = {
                     id: newAccId,
                     patientId: invite.patientId,
                     username: uname,
                     password: pw,
-                    displayName: signupForm.displayName.trim() || ecName,
-                    email: email,  // 家族アカウントにも保存
+                    kind: isCaremanager ? 'caremanager' : 'family',
+                    relation: ecRelation,
+                    displayName: ecName,  // 表示用には登録名そのまま
+                    email: email,
                     createdAt: new Date().toISOString().slice(0,10),
                   };
                   const newEmergencyContact = {
@@ -9200,21 +9265,42 @@ function FamilyView() {
                     relation: ecRelation,
                     phone: ecPhone,
                     phoneMobile: ecMobile,
-                    email: email,  // 上で入力したメアドが自動反映
+                    email: email,
                     addedByFamilyAccountId: newAccId,
                     addedAt: new Date().toISOString(),
                   };
+                  // ケアマネの場合: 各種設定の cmOffices / careManagers に追加 (既存ならスキップ)
+                  let nextCmOffices = (latest.systemSettings?.cmOffices) || [];
+                  let nextCareManagers = (latest.systemSettings?.careManagers) || [];
+                  if (isCaremanager) {
+                    if (!nextCmOffices.some(o => o.name === cmOfficeName)) {
+                      nextCmOffices = [...nextCmOffices, { name: cmOfficeName, phone: cmOfficePhone, fax: cmOfficeFax }];
+                    }
+                    const cmFullName = `${cmManagerLast} ${cmManagerFirst}`.trim();
+                    if (!nextCareManagers.some(c => c.office === cmOfficeName && c.name === cmFullName)) {
+                      nextCareManagers = [...nextCareManagers, { office: cmOfficeName, name: cmFullName, phone: cmOfficePhone, phoneDirect: cmManagerDirect, lastName: cmManagerLast, firstName: cmManagerFirst }];
+                    }
+                  }
                   const updated = {
                     ...latest,
                     familyAccounts: [...(latest.familyAccounts||[]), newAcc],
                     familyInvites: (latest.familyInvites||[]).map(i => i.id === invite.id ? {...i, usedBy: newAccId, usedAt: new Date().toISOString()} : i),
+                    systemSettings: isCaremanager ? { ...(latest.systemSettings||{}), cmOffices: nextCmOffices, careManagers: nextCareManagers } : (latest.systemSettings || {}),
                     patients: (latest.patients||[]).map(p => {
                       if (p.id !== invite.patientId) return p;
                       const existingContacts = p.emergencyContacts || [];
-                      // 同名+続柄が既にあればスキップ（重複登録を防ぐ）
                       const dup = existingContacts.some(c => (c.name||'').trim() === ecName && (c.relation||'').trim() === ecRelation);
-                      if (dup) return p;
-                      return {...p, emergencyContacts: [...existingContacts, newEmergencyContact]};
+                      const updatedContacts = dup ? existingContacts : [...existingContacts, newEmergencyContact];
+                      // ケアマネ情報: もとから登録されていれば更新しない、未登録の場合のみ反映
+                      let cmFields = {};
+                      if (isCaremanager) {
+                        const cmFullName = `${cmManagerLast} ${cmManagerFirst}`.trim();
+                        if (!p.cmOffice) cmFields.cmOffice = cmOfficeName;
+                        if (!p.cmName) cmFields.cmName = cmFullName;
+                        if (!p.cmPhone) cmFields.cmPhone = cmManagerDirect || cmOfficePhone;
+                        if (!p.cmFax) cmFields.cmFax = cmOfficeFax;
+                      }
+                      return {...p, emergencyContacts: updatedContacts, ...cmFields};
                     }),
                   };
                   try { localStorage.setItem('daycareAppData_v3', JSON.stringify(updated)); } catch {}
@@ -9252,17 +9338,11 @@ function FamilyView() {
                       placeholder="もう一度入力"
                       style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
                   </div>
-                  <div style={{marginBottom:12}}>
-                    <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>表示名 (任意)</label>
-                    <input value={signupForm.displayName} onChange={e=>setSignupForm(f=>({...f,displayName:e.target.value,error:''}))}
-                      placeholder="例: 山田 (息子)"
-                      style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,outline:'none',boxSizing:'border-box'}}/>
-                  </div>
-                  {/* 緊急連絡先 */}
+                  {/* お名前 + 続柄 + 連絡先 */}
                   <div style={{background:'#fef3c7',border:'1px solid #fbbf24',borderRadius:12,padding:14,marginBottom:12}}>
-                    <div style={{fontSize:12,fontWeight:'bold',color:'#92400e',marginBottom:4}}>📞 緊急連絡先</div>
+                    <div style={{fontSize:12,fontWeight:'bold',color:'#92400e',marginBottom:4}}>📞 ご登録者情報・緊急連絡先</div>
                     <div style={{fontSize:10,color:'#78350f',marginBottom:10,lineHeight:1.5}}>
-                      ご利用者の緊急連絡先として事業所に登録されます。複数のご家族が登録するとそれぞれ追加されます。
+                      ご利用者の緊急連絡先として事業所に登録されます。
                     </div>
                     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
                       <div>
@@ -9273,11 +9353,27 @@ function FamilyView() {
                       </div>
                       <div>
                         <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>続柄 <span style={{color:'#dc2626'}}>*</span></label>
-                        <input value={signupForm.ecRelation} onChange={e=>setSignupForm(f=>({...f,ecRelation:e.target.value,error:''}))}
-                          placeholder="例: 長男 / 配偶者"
-                          style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
+                        <select value={signupForm.ecRelation} onChange={e=>setSignupForm(f=>({...f,ecRelation:e.target.value,error:''}))}
+                          style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white',fontWeight:'bold'}}>
+                          <option value="">— 選択 —</option>
+                          <option value="配偶者">配偶者</option>
+                          <option value="長男">長男</option>
+                          <option value="長女">長女</option>
+                          <option value="次男">次男</option>
+                          <option value="次女">次女</option>
+                          <option value="兄弟姉妹">兄弟姉妹</option>
+                          <option value="ケアマネージャー">ケアマネージャー</option>
+                          <option value="自由記述">自由記述...</option>
+                        </select>
                       </div>
                     </div>
+                    {signupForm.ecRelation === '自由記述' && (
+                      <div style={{marginBottom:8}}>
+                        <input value={signupForm.ecRelationCustom} onChange={e=>setSignupForm(f=>({...f,ecRelationCustom:e.target.value,error:''}))}
+                          placeholder="続柄を入力 (例: 孫 / 甥 / 友人)"
+                          style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
+                      </div>
+                    )}
                     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
                       <div>
                         <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>家の電話番号</label>
@@ -9286,17 +9382,94 @@ function FamilyView() {
                           style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
                       </div>
                       <div>
-                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>携帯電話番号 <span style={{color:'#dc2626'}}>*</span></label>
+                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>携帯電話番号</label>
                         <input type="tel" inputMode="numeric" value={signupForm.ecMobile} onChange={e=>setSignupForm(f=>({...f,ecMobile:e.target.value,error:''}))}
                           placeholder="090-XXXX-XXXX"
                           style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
                       </div>
                     </div>
                     <div style={{fontSize:10,color:'#78350f',marginTop:4,lineHeight:1.4}}>
-                      ※ 家・携帯のいずれかは必須です<br/>
+                      ※ 家・携帯のいずれかは必須<br/>
                       ※ メールアドレスは上で入力したものが自動で登録されます
                     </div>
                   </div>
+                  {/* ケアマネージャー専用: 事業所 + 担当者 */}
+                  {signupForm.ecRelation === 'ケアマネージャー' && (() => {
+                    const cmOffices = (data.systemSettings?.cmOffices) || [];
+                    const careManagers = (data.systemSettings?.careManagers) || [];
+                    const selectedOfficeName = signupForm.cmOfficeMode === 'select' ? signupForm.cmOfficeId : signupForm.cmNewOffice.name;
+                    const filteredManagers = careManagers.filter(c => c.office === selectedOfficeName);
+                    return (
+                      <div style={{background:'#e0f2fe',border:'1px solid #38bdf8',borderRadius:12,padding:14,marginBottom:12}}>
+                        <div style={{fontSize:12,fontWeight:'bold',color:'#075985',marginBottom:6}}>🩺 ケアマネ事業所・担当者</div>
+                        {/* 事業所 */}
+                        <div style={{marginBottom:10}}>
+                          <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>事業所 <span style={{color:'#dc2626'}}>*</span></label>
+                          <select value={signupForm.cmOfficeMode === 'new' ? '__new__' : signupForm.cmOfficeId}
+                            onChange={e=>{
+                              if (e.target.value === '__new__') setSignupForm(f=>({...f, cmOfficeMode:'new', cmOfficeId:'', error:''}));
+                              else setSignupForm(f=>({...f, cmOfficeMode:'select', cmOfficeId:e.target.value, cmManagerMode:'select', cmManagerId:'', error:''}));
+                            }}
+                            style={{width:'100%',padding:'10px 12px',border:'1px solid #7dd3fc',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white',fontWeight:'bold'}}>
+                            <option value="">— 選択 —</option>
+                            {cmOffices.map((o,i) => <option key={i} value={o.name}>{o.name}</option>)}
+                            <option value="__new__">＋ 新規作成（リストにない場合）</option>
+                          </select>
+                        </div>
+                        {signupForm.cmOfficeMode === 'new' && (
+                          <div style={{background:'white',borderRadius:8,padding:10,marginBottom:10,border:'1px dashed #7dd3fc'}}>
+                            <div style={{fontSize:10,fontWeight:'bold',color:'#0369a1',marginBottom:6}}>新規事業所の登録</div>
+                            <input value={signupForm.cmNewOffice.name} onChange={e=>setSignupForm(f=>({...f, cmNewOffice:{...f.cmNewOffice, name:e.target.value}, error:''}))}
+                              placeholder="事業所名 (例: あおぞら居宅介護支援事業所)"
+                              style={{width:'100%',padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:12,outline:'none',boxSizing:'border-box',marginBottom:6}}/>
+                            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
+                              <input value={signupForm.cmNewOffice.phone} onChange={e=>setSignupForm(f=>({...f, cmNewOffice:{...f.cmNewOffice, phone:e.target.value}, error:''}))}
+                                placeholder="電話番号"
+                                style={{padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:12,outline:'none',boxSizing:'border-box'}}/>
+                              <input value={signupForm.cmNewOffice.fax} onChange={e=>setSignupForm(f=>({...f, cmNewOffice:{...f.cmNewOffice, fax:e.target.value}, error:''}))}
+                                placeholder="FAX"
+                                style={{padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:12,outline:'none',boxSizing:'border-box'}}/>
+                            </div>
+                          </div>
+                        )}
+                        {/* 担当者 */}
+                        <div style={{marginBottom:8}}>
+                          <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>担当者 <span style={{color:'#dc2626'}}>*</span></label>
+                          <select value={signupForm.cmManagerMode === 'new' ? '__new__' : signupForm.cmManagerId}
+                            onChange={e=>{
+                              if (e.target.value === '__new__') setSignupForm(f=>({...f, cmManagerMode:'new', cmManagerId:'', error:''}));
+                              else setSignupForm(f=>({...f, cmManagerMode:'select', cmManagerId:e.target.value, error:''}));
+                            }}
+                            disabled={!selectedOfficeName}
+                            style={{width:'100%',padding:'10px 12px',border:'1px solid #7dd3fc',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white',fontWeight:'bold',opacity:!selectedOfficeName?0.5:1}}>
+                            <option value="">— 選択 —</option>
+                            {filteredManagers.map((c,i) => <option key={i} value={c.name}>{c.name}</option>)}
+                            <option value="__new__">＋ 新規作成（リストにない場合）</option>
+                          </select>
+                        </div>
+                        {signupForm.cmManagerMode === 'new' && (
+                          <div style={{background:'white',borderRadius:8,padding:10,border:'1px dashed #7dd3fc'}}>
+                            <div style={{fontSize:10,fontWeight:'bold',color:'#0369a1',marginBottom:6}}>新規担当者の登録</div>
+                            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:6}}>
+                              <input value={signupForm.cmNewManager.lastName} onChange={e=>setSignupForm(f=>({...f, cmNewManager:{...f.cmNewManager, lastName:e.target.value}, error:''}))}
+                                placeholder="姓"
+                                style={{padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:12,outline:'none',boxSizing:'border-box'}}/>
+                              <input value={signupForm.cmNewManager.firstName} onChange={e=>setSignupForm(f=>({...f, cmNewManager:{...f.cmNewManager, firstName:e.target.value}, error:''}))}
+                                placeholder="名"
+                                style={{padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:12,outline:'none',boxSizing:'border-box'}}/>
+                            </div>
+                            <input value={signupForm.cmNewManager.phoneDirect} onChange={e=>setSignupForm(f=>({...f, cmNewManager:{...f.cmNewManager, phoneDirect:e.target.value}, error:''}))}
+                              placeholder="直通電話番号 (任意)"
+                              style={{width:'100%',padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:12,outline:'none',boxSizing:'border-box'}}/>
+                          </div>
+                        )}
+                        <div style={{fontSize:10,color:'#0369a1',marginTop:6,lineHeight:1.5}}>
+                          ※ 新規作成した内容は事業所側の「各種設定」「ご利用者マスタ」に自動で反映されます<br/>
+                          ※ 既に登録されている場合は上書きされません
+                        </div>
+                      </div>
+                    );
+                  })()}
                   {signupForm.error && <div style={{color:'#ef4444',fontSize:12,fontWeight:'bold',marginBottom:10,textAlign:'center',background:'#fef2f2',padding:'8px 10px',borderRadius:8}}>{signupForm.error}</div>}
                   <button type="submit"
                     style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',marginTop:6,boxShadow:'0 4px 12px rgba(99,102,241,0.3)'}}>
@@ -9352,18 +9525,23 @@ function FamilyView() {
   }
   const handleLogout = () => {
     sessionStorage.removeItem('familyAuthPid');
+    sessionStorage.removeItem('familyAuthAccId');
     setAuthPid(null);
+    setAuthAccId(null);
     setLoginForm({ username:'', password:'', error:'', showPw:false });
   };
-  return <FamilyPatientView data={data} patientId={authPid} onLogout={handleLogout} />;
+  return <FamilyPatientView data={data} patientId={authPid} accountId={authAccId} onLogout={handleLogout} />;
 }
 
 // === 家族画面 - 利用者ごとのコンテンツ ===
-function FamilyPatientView({ data, patientId, onLogout }) {
+function FamilyPatientView({ data, patientId, accountId, onLogout }) {
   const [tab, setTab] = useState('news');
   const pid = parseInt(patientId, 10);
   const patient = (data.patients||[]).find(p => p.id === pid || p.id === patientId);
   const facility = data.systemSettings?.facilityInfo || {};
+  // ログイン中のアカウントが ケアマネ かどうか
+  const loggedAcc = (data.familyAccounts||[]).find(a => String(a.id) === String(accountId));
+  const isCmAccount = loggedAcc && (loggedAcc.kind === 'caremanager' || loggedAcc.relation === 'ケアマネージャー');
   const announcements = data.familyAnnouncements || [];
   const personalAnnouncements = (data.familyPersonalAnnouncements||[]).filter(a => a.patientId === pid || a.patientId === patientId);
   const photos = (data.familyPhotos||[]).filter(ph => ph.patientId == null || ph.patientId === pid || ph.patientId === patientId);
@@ -9466,7 +9644,7 @@ function FamilyPatientView({ data, patientId, onLogout }) {
                 <PersonalDashboardView
                   appData={data}
                   targetPatientId={pid}
-                  familyMode={true}
+                  familyMode={!isCmAccount}
                   hidePatientSelector={true}
                   navigateTo={()=>{}}
                   onShowPrintPreview={()=>{}}
@@ -9479,58 +9657,53 @@ function FamilyPatientView({ data, patientId, onLogout }) {
           <div style={{maxWidth:720,margin:'0 auto'}}>
             {/* お知らせ一覧 (投稿に紐付いた写真も同じカードで表示) */}
             {(() => {
+              // 旧データの写真 (お知らせに紐付かない photos) を date+caption でグループ化 → 過去のお知らせとして扱う
+              const orphanPhotos = photos.filter(p => !String(p.id||'').startsWith('news_'));
+              const virtualOldAnnouncements = (() => {
+                const groups = {};
+                orphanPhotos.forEach(p => {
+                  const key = `${p.date||''}|${p.caption||''}`;
+                  if (!groups[key]) groups[key] = {id:`old_${key}`, date: p.date||'', title: p.caption||'', body:'', _kind:'過去', photos:[]};
+                  groups[key].photos.push(p);
+                });
+                return Object.values(groups);
+              })();
               const merged = [
                 ...personalAnnouncements.map(a=>({...a,_kind:'個別'})),
-                ...announcements.map(a=>({...a,_kind:'全体'}))
+                ...announcements.map(a=>({...a,_kind:'全体'})),
+                ...virtualOldAnnouncements,
               ].sort((a,b) => (b.postedAt||b.date||'').localeCompare(a.postedAt||a.date||''));
-              // 投稿に紐付かない (旧データの) 写真のみ別枠で表示
-              const orphanPhotos = photos.filter(p => !String(p.id||'').startsWith('news_'));
               return (
                 <>
-                  {merged.length === 0 && orphanPhotos.length === 0 ? (
+                  {merged.length === 0 ? (
                     <div style={{background:'white',borderRadius:16,padding:'24px 20px',textAlign:'center',color:'#94a3b8',fontSize:13,boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>お知らせはまだ投稿されていません</div>
                   ) : (
-                    <>
-                      {merged.map((a) => {
-                        const isNew = (a.postedAt || (a.date ? `${a.date}T00:00:00.000Z` : '')) > lastReadAt;
-                        const annPhotos = a.photos || [];
-                        return (
-                          <div key={a.id} style={{background:'white',borderRadius:16,padding:'14px 18px',marginBottom:12,boxShadow:'0 2px 8px rgba(0,0,0,0.04)',border: isNew ? '2px solid #818cf8' : '1px solid transparent'}}>
-                            <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
-                              <span style={{fontSize:9,fontWeight:'bold',padding:'2px 6px',borderRadius:4,background:a._kind==='個別'?'#fef3c7':'#dbeafe',color:a._kind==='個別'?'#92400e':'#1e40af'}}>{a._kind}</span>
-                              <span style={{fontSize:11,color:'#94a3b8'}}>{a.date}</span>
-                              {isNew && <span style={{fontSize:9,fontWeight:'bold',padding:'2px 6px',borderRadius:4,background:'#ef4444',color:'white'}}>NEW</span>}
+                    merged.map((a) => {
+                      const isNew = (a.postedAt || (a.date ? `${a.date}T00:00:00.000Z` : '')) > lastReadAt && a._kind !== '過去';
+                      const annPhotos = a.photos || [];
+                      const kindStyle = a._kind === '個別' ? {bg:'#fef3c7',fg:'#92400e'} : a._kind === '過去' ? {bg:'#e2e8f0',fg:'#64748b'} : {bg:'#dbeafe',fg:'#1e40af'};
+                      return (
+                        <div key={a.id} style={{background:'white',borderRadius:16,padding:'14px 18px',marginBottom:12,boxShadow:'0 2px 8px rgba(0,0,0,0.04)',border: isNew ? '2px solid #818cf8' : '1px solid transparent'}}>
+                          <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
+                            <span style={{fontSize:9,fontWeight:'bold',padding:'2px 6px',borderRadius:4,background:kindStyle.bg,color:kindStyle.fg}}>{a._kind}</span>
+                            <span style={{fontSize:11,color:'#94a3b8'}}>{a.date}</span>
+                            {isNew && <span style={{fontSize:9,fontWeight:'bold',padding:'2px 6px',borderRadius:4,background:'#ef4444',color:'white'}}>NEW</span>}
+                          </div>
+                          {a.title && <div style={{fontSize:15,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>{a.title}</div>}
+                          {a.body && <div style={{fontSize:13,color:'#475569',lineHeight:1.7,whiteSpace:'pre-wrap',marginBottom:annPhotos.length>0?10:0}}>{a.body}</div>}
+                          {annPhotos.length > 0 && (
+                            <div style={{display:'grid',gridTemplateColumns:annPhotos.length===1?'1fr':'repeat(2,1fr)',gap:8,marginTop:8}}>
+                              {annPhotos.map((p,pi) => (
+                                <div key={p.id||pi} style={{position:'relative'}}>
+                                  <img src={p.url} alt="" style={{width:'100%',aspectRatio:'1',objectFit:'cover',borderRadius:10}}/>
+                                  <a href={p.url} download={p.name||`photo_${pi+1}.jpg`} style={{position:'absolute',bottom:6,right:6,background:'rgba(0,0,0,0.6)',color:'white',padding:'4px 8px',borderRadius:6,fontSize:10,fontWeight:'bold',textDecoration:'none'}}>↓</a>
+                                </div>
+                              ))}
                             </div>
-                            {a.title && <div style={{fontSize:15,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>{a.title}</div>}
-                            {a.body && <div style={{fontSize:13,color:'#475569',lineHeight:1.7,whiteSpace:'pre-wrap',marginBottom:annPhotos.length>0?10:0}}>{a.body}</div>}
-                            {annPhotos.length > 0 && (
-                              <div style={{display:'grid',gridTemplateColumns:annPhotos.length===1?'1fr':'repeat(2,1fr)',gap:8,marginTop:8}}>
-                                {annPhotos.map((p,pi) => (
-                                  <div key={p.id||pi} style={{position:'relative'}}>
-                                    <img src={p.url} alt="" style={{width:'100%',aspectRatio:'1',objectFit:'cover',borderRadius:10}}/>
-                                    <a href={p.url} download={p.name||`photo_${pi+1}.jpg`} style={{position:'absolute',bottom:6,right:6,background:'rgba(0,0,0,0.6)',color:'white',padding:'4px 8px',borderRadius:6,fontSize:10,fontWeight:'bold',textDecoration:'none'}}>↓</a>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                      {orphanPhotos.length > 0 && (
-                        <div style={{background:'white',borderRadius:16,padding:'14px 20px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
-                          <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:10}}>📷 過去の写真</div>
-                          <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
-                            {orphanPhotos.map((p,i)=>(
-                              <div key={p.id||i} style={{position:'relative'}}>
-                                <img src={p.url} alt="" style={{width:'100%',aspectRatio:'1',objectFit:'cover',borderRadius:10}}/>
-                                <a href={p.url} download={p.name||`photo_${i+1}.jpg`} style={{position:'absolute',bottom:6,right:6,background:'rgba(0,0,0,0.6)',color:'white',padding:'4px 8px',borderRadius:6,fontSize:10,fontWeight:'bold',textDecoration:'none'}}>↓</a>
-                                {p.caption && <div style={{fontSize:11,color:'#64748b',marginTop:4,padding:'0 2px'}}>{p.caption}</div>}
-                              </div>
-                            ))}
-                          </div>
+                          )}
                         </div>
-                      )}
-                    </>
+                      );
+                    })
                   )}
                 </>
               );
@@ -11353,8 +11526,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
     );
   }, [appData.patients, patientSearch]);
   const [baseMonth, setBaseMonth] = useState('2026-03');
-  // 家族画面では1ヶ月、事業所側では1年をデフォルトに
-  const [period, setPeriod] = useState(familyMode ? '1' : '12');
+  // 家族画面では1ヶ月、事業所側では3ヶ月をデフォルトに
+  const [period, setPeriod] = useState(familyMode ? '1' : '3');
   const [customFrom, setCustomFrom] = useState('2026-01');
   const [customTo, setCustomTo]   = useState('2026-03');
   // セクション選択（プレビュー用） [id, label, size]
@@ -12059,8 +12232,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           })()}
         </div>
 
-        {/* familyMode 専用: 今回の記録 (最新の通所記録のサマリー) */}
-        {familyMode && (() => {
+        {/* 今回の記録 (最新の通所記録のサマリー) - 家族・事業所共通 */}
+        {(() => {
           const validRecs = records.filter(r => r.status==='出席' || r.status==='振替');
           const parseTicketDate = (s) => { const m=(s||'').match(/(\d+)月(\d+)日/); return m?`${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`:''; };
           const latest = [...validRecs].sort((a,b)=> parseTicketDate(b.date).localeCompare(parseTicketDate(a.date)))[0];
@@ -17747,59 +17920,66 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     </div>
                   </div>
                 </div>
-                {[
-                  { key:'family', label:'👨‍👩‍👧 家族アカウント', list: familyAccs, color:'violet', placeholderName:'例: 井上家' },
-                  { key:'caremanager', label:'🩺 ケアマネージャー用アカウント', list: cmAccs, color:'teal', placeholderName:'例: 田中ケアマネ' },
-                ].map(group => (
-                  <div key={group.key}>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-sm font-bold text-slate-700">{group.label} ({group.list.length}件)</div>
-                      <button onClick={()=>issueAccount(group.key)} className={`px-3 py-1.5 ${group.color==='teal'?'bg-teal-600 hover:bg-teal-700':'bg-violet-600 hover:bg-violet-700'} text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow active:scale-95`}><Plus size={12}/>新規発行</button>
-                    </div>
-                    {group.list.length === 0 ? (
-                      <div className="text-xs text-slate-400 text-center py-4 bg-slate-50 rounded-xl border border-slate-200">
-                        {group.key === 'caremanager' ? 'ケアマネ用のアカウントを発行すると、担当ケアマネがバイタル・モニタリング等を閲覧できます' : 'まだ家族アカウントがありません'}
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {group.list.map(acc => {
-                          const isEditing = accountEditId === acc.id;
-                          return (
-                          <div key={acc.id} className={`border ${group.color==='teal'?'border-teal-200 bg-teal-50/30':'border-slate-200 bg-white'} rounded-xl p-3`}>
-                            <div className="grid grid-cols-12 gap-2 items-center">
-                              <div className="col-span-4">
-                                <div className="text-[10px] font-bold text-slate-400">ログインID</div>
-                                <input value={acc.username} disabled={!isEditing} onChange={e=>updateField(acc.id,'username',toHalfWidth(e.target.value))} className={`w-full px-2 py-1 border rounded text-xs font-mono outline-none ${isEditing?'bg-white border-slate-300 focus:border-blue-400':'bg-slate-50 border-slate-100 text-slate-600 cursor-not-allowed'}`}/>
-                              </div>
-                              <div className="col-span-4">
-                                <div className="text-[10px] font-bold text-slate-400">パスワード</div>
-                                <div className="flex gap-1">
-                                  <input value={acc.password} disabled={!isEditing} onChange={e=>updateField(acc.id,'password',toHalfWidth(e.target.value))} className={`flex-1 px-2 py-1 border rounded text-xs font-mono outline-none ${isEditing?'bg-white border-slate-300 focus:border-blue-400':'bg-slate-50 border-slate-100 text-slate-600 cursor-not-allowed'}`}/>
-                                  <button onClick={()=>{if(!isEditing){alert('「編集」ボタンを押してから再発行してください');return;} if(!window.confirm('パスワードを再発行します。ご家族は新しいパスワードでログインし直しが必要になります。よろしいですか？'))return; resetPw(acc.id);}} className={`px-2 py-1 text-[10px] font-bold rounded whitespace-nowrap ${isEditing?'bg-amber-100 hover:bg-amber-200 text-amber-700':'bg-slate-100 text-slate-300 cursor-not-allowed'}`} title={isEditing?'パスワード再発行':'編集モード時のみ有効'}>⟳</button>
+                {/* 📋 登録済アカウント (家族 + ケアマネ を統合表示) */}
+                {(() => {
+                  const allAccs = allAccountsForPat;
+                  return (
+                    <div>
+                      <div className="text-sm font-bold text-slate-700 mb-2">📋 登録済アカウント ({allAccs.length}件)</div>
+                      {allAccs.length === 0 ? (
+                        <div className="text-xs text-slate-400 text-center py-6 bg-slate-50 rounded-xl border border-slate-200 leading-relaxed">
+                          まだ登録されていません<br/>
+                          上の招待コードをご家族・ケアマネへお伝えすると、<br/>ログイン画面から登録できます
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {allAccs.map(acc => {
+                            const isEditing = accountEditId === acc.id;
+                            const isCm = (acc.kind === 'caremanager') || (acc.relation === 'ケアマネージャー');
+                            const accentBorder = isCm ? 'border-teal-200 bg-teal-50/30' : 'border-slate-200 bg-white';
+                            const printBg = isCm ? 'bg-teal-100 hover:bg-teal-200 text-teal-700' : 'bg-violet-100 hover:bg-violet-200 text-violet-700';
+                            return (
+                              <div key={acc.id} className={`border ${accentBorder} rounded-xl p-3`}>
+                                <div className="grid grid-cols-12 gap-2 items-center">
+                                  <div className="col-span-4">
+                                    <div className="text-[10px] font-bold text-slate-400">ログインID</div>
+                                    <input value={acc.username} disabled={!isEditing} onChange={e=>updateField(acc.id,'username',toHalfWidth(e.target.value))} className={`w-full px-2 py-1 border rounded text-xs font-mono outline-none ${isEditing?'bg-white border-slate-300 focus:border-blue-400':'bg-slate-50 border-slate-100 text-slate-600 cursor-not-allowed'}`}/>
+                                  </div>
+                                  <div className="col-span-3">
+                                    <div className="text-[10px] font-bold text-slate-400">パスワード</div>
+                                    <div className="flex gap-1">
+                                      <input value={acc.password} disabled={!isEditing} onChange={e=>updateField(acc.id,'password',toHalfWidth(e.target.value))} className={`flex-1 px-2 py-1 border rounded text-xs font-mono outline-none ${isEditing?'bg-white border-slate-300 focus:border-blue-400':'bg-slate-50 border-slate-100 text-slate-600 cursor-not-allowed'}`}/>
+                                      <button onClick={()=>{if(!isEditing){alert('「編集」ボタンを押してから再発行してください');return;} if(!window.confirm('パスワードを再発行します。ご家族は新しいパスワードでログインし直しが必要になります。よろしいですか？'))return; resetPw(acc.id);}} className={`px-2 py-1 text-[10px] font-bold rounded whitespace-nowrap ${isEditing?'bg-amber-100 hover:bg-amber-200 text-amber-700':'bg-slate-100 text-slate-300 cursor-not-allowed'}`} title={isEditing?'パスワード再発行':'編集モード時のみ有効'}>⟳</button>
+                                    </div>
+                                  </div>
+                                  <div className="col-span-4">
+                                    <div className="text-[10px] font-bold text-slate-400">名前・続柄</div>
+                                    <div className="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded text-xs text-slate-700 truncate">
+                                      <span className="font-bold">{acc.displayName || '—'}</span>
+                                      {acc.relation && (
+                                        <span className={`ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded ${isCm?'bg-teal-100 text-teal-700':'bg-violet-100 text-violet-700'}`}>{acc.relation}</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="col-span-1 flex flex-col gap-1">
+                                    {isEditing ? (
+                                      <button onClick={()=>setAccountEditId(null)} className="px-1.5 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded text-[10px] font-bold" title="編集を確定">✓</button>
+                                    ) : (
+                                      <button onClick={()=>setAccountEditId(acc.id)} className="px-1.5 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[10px] font-bold" title="ID/PW を編集">✏</button>
+                                    )}
+                                    <button onClick={()=>printSheet(acc)} className={`px-1.5 py-1 ${printBg} rounded text-[10px] font-bold`} title="ログイン情報シート印刷">🖨</button>
+                                    <button onClick={()=>removeAccount(acc.id)} className="px-1.5 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[10px] font-bold" title="削除">✕</button>
+                                  </div>
                                 </div>
+                                {acc.createdAt && <div className="text-[9px] text-slate-400 mt-1">発行日: {acc.createdAt}{acc.lastLogin && <span className="ml-2 text-emerald-600 font-bold">最終ログイン: {new Date(acc.lastLogin).toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>}{!acc.lastLogin && <span className="ml-2 text-slate-300">最終ログイン: 未ログイン</span>}{isEditing && <span className="ml-2 text-blue-500 font-bold">編集モード中 - ✓ を押して確定</span>}</div>}
                               </div>
-                              <div className="col-span-3">
-                                <div className="text-[10px] font-bold text-slate-400">{group.key==='caremanager'?'ケアマネ名':'家族名'} (任意)</div>
-                                <input value={acc.displayName||''} onChange={e=>updateField(acc.id,'displayName',e.target.value)} placeholder={group.placeholderName} className="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs outline-none focus:border-blue-400"/>
-                              </div>
-                              <div className="col-span-1 flex flex-col gap-1">
-                                {isEditing ? (
-                                  <button onClick={()=>setAccountEditId(null)} className="px-1.5 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded text-[10px] font-bold" title="編集を確定">✓</button>
-                                ) : (
-                                  <button onClick={()=>setAccountEditId(acc.id)} className="px-1.5 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[10px] font-bold" title="ID/PW を編集">✏</button>
-                                )}
-                                <button onClick={()=>printSheet(acc)} className={`px-1.5 py-1 ${group.color==='teal'?'bg-teal-100 hover:bg-teal-200 text-teal-700':'bg-violet-100 hover:bg-violet-200 text-violet-700'} rounded text-[10px] font-bold`} title="ログイン情報シート印刷">🖨</button>
-                                <button onClick={()=>removeAccount(acc.id)} className="px-1.5 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[10px] font-bold" title="削除">✕</button>
-                              </div>
-                            </div>
-                            {acc.createdAt && <div className="text-[9px] text-slate-400 mt-1">発行日: {acc.createdAt}{acc.lastLogin && <span className="ml-2 text-emerald-600 font-bold">最終ログイン: {new Date(acc.lastLogin).toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>}{!acc.lastLogin && <span className="ml-2 text-slate-300">最終ログイン: 未ログイン</span>}{isEditing && <span className="ml-2 text-blue-500 font-bold">編集モード中 - ✓ を押して確定</span>}</div>}
-                          </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
                 <a href={loginUrl} target="_blank" rel="noopener noreferrer" className="block text-center py-2.5 rounded-xl font-bold text-sm bg-slate-100 hover:bg-slate-200 text-slate-700">👁 家族画面のプレビューを開く（別タブ）</a>
                 <div className="text-[11px] text-slate-500 bg-amber-50 border border-amber-200 rounded-lg p-3 leading-relaxed">
                   <b>ご利用にあたって:</b><br/>
