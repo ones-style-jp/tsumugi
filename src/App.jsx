@@ -8241,8 +8241,12 @@ function SignupCompleteView({ context, appData, onSave }) {
     }
     return null;
   };
-  // フランチャイズ加盟招待コード (本社が発行・管理)
-  const franchiseCodes = appData?.systemSettings?.franchiseInviteCodes || [];
+  // フランチャイズ加盟招待コード
+  // 現状: appData.systemSettings.franchiseInviteCodes に保存 (事業所ごとの localStorage)
+  // Supabase 導入後: Supabase の franchise_codes テーブルで本部が中央管理
+  // デフォルトのデモコード: 開発・テスト用 (Supabase 移行後は削除)
+  const DEFAULT_FRANCHISE_CODES = ['ONES-DEMO-2026'];
+  const franchiseCodes = [...(appData?.systemSettings?.franchiseInviteCodes || []), ...DEFAULT_FRANCHISE_CODES];
   const validate = () => {
     if (!form.username.trim()) return 'IDを入力してください';
     if (form.username.length < 4) return 'IDは4文字以上必要です';
@@ -8387,6 +8391,14 @@ function SignupCompleteView({ context, appData, onSave }) {
                   ※ フランチャイズ加盟者のみ事業所アカウントを作成できます<br/>
                   ※ コードをお持ちでない場合はフランチャイズ本部までご連絡ください
                 </div>
+                {/* 開発・デモ用 */}
+                <details style={{marginTop:8}}>
+                  <summary style={{fontSize:10,color:'#92400e',fontWeight:'bold',cursor:'pointer'}}>📋 デモ用コード (試験運用中のみ表示)</summary>
+                  <div style={{fontSize:11,color:'#78350f',marginTop:6,padding:8,background:'rgba(255,255,255,0.6)',borderRadius:6,fontFamily:'Menlo,monospace'}}>
+                    ONES-DEMO-2026<br/>
+                    <span style={{fontSize:9,fontFamily:'inherit'}}>※ Supabase 連携後はこのコードを削除し、本部が個別に発行します</span>
+                  </div>
+                </details>
               </div>
               {/* 事業所基本情報 */}
               <div style={{background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:12,padding:14}}>
