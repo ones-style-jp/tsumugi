@@ -21104,21 +21104,21 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <FileText size={20}/>
           <span style={{fontSize:17,fontWeight:'bold'}}>休み連絡</span>
-          <button type="button" onClick={()=>setShowFaxHist(true)}
-            style={{background:'#7c3aed',border:'none',color:'white',borderRadius:8,padding:'5px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5,marginLeft:8}}>
-            📋 履歴
-          </button>
         </div>
         <div style={{display:'flex',alignItems:'center',gap:8}}>
           <button type="button" onClick={()=>setCurrentMonth(new Date(cY,cM-2,1))} style={{background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',color:'white',borderRadius:8,padding:'5px 12px',fontWeight:'bold',cursor:'pointer'}}>←</button>
           <span style={{fontSize:15,fontWeight:'bold',minWidth:100,textAlign:'center'}}>{cY}年{cM}月</span>
           <button type="button" onClick={()=>setCurrentMonth(new Date(cY,cM,1))} style={{background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',color:'white',borderRadius:8,padding:'5px 12px',fontWeight:'bold',cursor:'pointer'}}>→</button>
         </div>
-        <div style={{display:'flex',gap:10,fontSize:11}}>
+        <div style={{display:'flex',gap:10,fontSize:11,alignItems:'center'}}>
           <span style={{display:'flex',alignItems:'center',gap:4}}>
             <span style={{width:12,height:12,borderRadius:3,background:'#dbeafe',border:'1px solid #64748b',display:'inline-block'}}/>
             <span style={{color:'#cbd5e1'}}>編集済</span>
           </span>
+          <button type="button" onClick={()=>setShowFaxHist(true)}
+            style={{background:'#7c3aed',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5,marginLeft:8}}>
+            📋 履歴
+          </button>
         </div>
       </div>
 
@@ -21387,23 +21387,15 @@ function GeneralFaxView({ appData, onSave, onShowPrintPreview }) {
           <div style={{fontSize:11,color:'#334155',marginBottom:16}}>・送付されていないページがありましたら、至急ご連絡ください。</div>
 
           {/* 本文枠 — 利用者名 + 連絡事項（送付状内で直接編集可能） */}
+          {/* 利用者未選択時は利用者名行を省略し、連絡事項エリアを拡張 */}
           <div style={{border:'2px solid black',padding:'24px 28px',lineHeight:2.2,fontSize:13,flex:1,display:'flex',flexDirection:'column',minHeight:500}}>
-            <div style={{fontSize:19,fontWeight:'bold',marginBottom:20,borderBottom:'1px solid #e2e8f0',paddingBottom:14,display:'flex',alignItems:'center',gap:8}}>
-              <span style={{color:'#475569',fontWeight:'bold',whiteSpace:'nowrap'}}>利用者名：</span>
-              {patient ? (
-                <>
-                  <span style={{borderBottom:'2px solid #1e293b',paddingBottom:2,letterSpacing:2}}>{maskedName}</span>
-                  <span>様</span>
-                </>
-              ) : (
-                <>
-                  <input type="text" value={customPatientName} onChange={e=>setCustomPatientName(e.target.value)}
-                         placeholder="(任意入力)" className="fax-inline-input"
-                         style={{flex:1,fontSize:19,fontWeight:'bold',letterSpacing:2,border:'none',outline:'none',background:'transparent',padding:'2px 4px',fontFamily:'inherit',borderBottom:'2px solid #1e293b'}}/>
-                  {customPatientName.trim() && <span>様</span>}
-                </>
-              )}
-            </div>
+            {patient && (
+              <div style={{fontSize:19,fontWeight:'bold',marginBottom:20,borderBottom:'1px solid #e2e8f0',paddingBottom:14,display:'flex',alignItems:'center',gap:8}}>
+                <span style={{color:'#475569',fontWeight:'bold',whiteSpace:'nowrap'}}>利用者名：</span>
+                <span style={{borderBottom:'2px solid #1e293b',paddingBottom:2,letterSpacing:2}}>{maskedName}</span>
+                <span>様</span>
+              </div>
+            )}
             <textarea value={memo} onChange={e=>setMemo(e.target.value)}
                       placeholder="ここに連絡事項を直接入力してください"
                       className="fax-inline-input"
