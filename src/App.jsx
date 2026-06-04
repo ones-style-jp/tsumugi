@@ -8814,13 +8814,24 @@ function FamilyAdminView({ appData, onSave }) {
 
 // === 家族用閲覧 - ログイン → 利用者ごとの画面 ===
 function FamilyView() {
-  // データを localStorage から読み出し
-  const [data, setData] = useState(()=>{
+  // データを localStorage から読み出し (写真は別キーに分離保存される場合があるのでマージ)
+  const loadDataMerged = () => {
     try {
       const saved = JSON.parse(localStorage.getItem('daycareAppData_v3')||localStorage.getItem('daycareAppData_v2')||'null');
-      return saved || { patients: [], systemSettings: {}, familyAccounts: [] };
+      if (!saved) return { patients: [], systemSettings: {}, familyAccounts: [] };
+      // 写真が空または存在しない場合は別キーから読み込み
+      if (!saved.familyPhotos || saved.familyPhotos.length === 0) {
+        try {
+          const separatePhotos = JSON.parse(localStorage.getItem('daycarePhotos_v1')||'null');
+          if (separatePhotos && Array.isArray(separatePhotos) && separatePhotos.length > 0) {
+            saved.familyPhotos = separatePhotos;
+          }
+        } catch {}
+      }
+      return saved;
     } catch { return { patients: [], systemSettings: {}, familyAccounts: [] }; }
-  });
+  };
+  const [data, setData] = useState(loadDataMerged);
   // ログイン状態 (sessionStorage で同一タブ内のみ保持)
   const [authPid, setAuthPid] = useState(()=> sessionStorage.getItem('familyAuthPid') || null);
   const [loginForm, setLoginForm] = useState({ username:'', password:'', error:'', showPw:false });
@@ -8829,10 +8840,8 @@ function FamilyView() {
   // データ更新を購読 (事業所側で更新されたら反映)
   useEffect(()=>{
     const reload = () => {
-      try {
-        const saved = JSON.parse(localStorage.getItem('daycareAppData_v3')||'null');
-        if (saved) setData(saved);
-      } catch {}
+      const merged = loadDataMerged();
+      if (merged) setData(merged);
     };
     window.addEventListener('storage', reload);
     const t = setInterval(reload, 1500); // 1.5秒ごとにポーリング (お知らせ等の即時反映)
@@ -9125,7 +9134,18 @@ export default function App() {
       const saved = localStorage.getItem('daycareAppData_v3');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed && parsed.patients) return parsed;
+        if (parsed && parsed.patients) {
+          // 写真が別キーに分離保存されている場合はマージ
+          if (!parsed.familyPhotos || parsed.familyPhotos.length === 0) {
+            try {
+              const separatePhotos = JSON.parse(localStorage.getItem('daycarePhotos_v1')||'null');
+              if (separatePhotos && Array.isArray(separatePhotos) && separatePhotos.length > 0) {
+                parsed.familyPhotos = separatePhotos;
+              }
+            } catch {}
+          }
+          return parsed;
+        }
       }
     } catch {}
     return JSON.parse(JSON.stringify(initialData));
@@ -9133,13 +9153,14 @@ export default function App() {
   useEffect(()=>{
     try {
       localStorage.setItem('daycareAppData_v3', JSON.stringify(appData));
+      // 成功時: 古い分離保存キーを掃除 (整合性確保)
+      try { localStorage.removeItem('daycarePhotos_v1'); } catch {}
     } catch (e) {
       // 容量オーバー時: 写真データを別キーに分離して再試行
       console.warn('localStorage 容量オーバー、写真を分離して再保存します', e);
       try {
         const photos = appData.familyPhotos || [];
         localStorage.setItem('daycareAppData_v3', JSON.stringify({...appData, familyPhotos: []}));
-        // 写真は別キーに JSON 化して保存 (上限超えれば一部のみ保存)
         try { localStorage.setItem('daycarePhotos_v1', JSON.stringify(photos)); } catch(_e){ console.error('写真保存も失敗', _e); }
       } catch(e2) {
         console.error('再保存も失敗。データを保存できませんでした', e2);
