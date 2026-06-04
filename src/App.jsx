@@ -8536,7 +8536,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
       </div>
       {/* 内部タブ切替 */}
       <div className="bg-white rounded-xl p-1.5 shadow-sm border border-slate-200 flex gap-1">
-        {[['news','📢 お知らせ・写真'],['records','📊 通所記録']].map(([k,l])=>(
+        {[['news','📢 お知らせ'],['records','📊 通所記録']].map(([k,l])=>(
           <button key={k} onClick={()=>setPreviewInnerTab(k)}
             className={`flex-1 py-2 rounded-lg text-sm font-bold ${previewInnerTab===k?'bg-violet-600 text-white':'text-slate-500 hover:bg-slate-100'}`}>{l}</button>
         ))}
@@ -8739,38 +8739,57 @@ function FamilyAdminView({ appData, onSave }) {
     if (!hasText && !hasPhotos) { alert('タイトルまたは写真のどちらかを入力してください'); return; }
     if (postForm.scope === 'specific' && postForm.patientIds.length === 0) { alert('対象の利用者を1人以上選択してください'); return; }
     let newData = { ...appData };
-    // お知らせ部分
+    const nowIso = new Date().toISOString();
+    const ts = Date.now();
+    // タイトル/本文がある → お知らせを作成（写真があれば一緒に添付）
     if (hasText) {
+      const buildPhotos = (annId) => postForm.files.map((it, i) => ({
+        id: `${annId}_ph_${i}`,
+        url: it.url, name: it.name,
+        caption: postForm.title.trim(),
+        class: postForm.eventClass,
+      }));
       if (postForm.scope === 'all') {
-        const item = { id: `news_${Date.now()}`, title: postForm.title.trim(), body: postForm.body, date: postForm.date };
+        const annId = `news_${ts}`;
+        const item = { id: annId, title: postForm.title.trim(), body: postForm.body, date: postForm.date, postedAt: nowIso, photos: buildPhotos(annId) };
         newData = { ...newData, familyAnnouncements: [item, ...allAnnouncements] };
       } else {
-        const newItems = postForm.patientIds.map(pid => ({
-          id: `news_${Date.now()}_${pid}`,
-          patientId: pid,
-          title: postForm.title.trim(),
-          body: postForm.body,
-          date: postForm.date,
-        }));
+        const newItems = postForm.patientIds.map(pid => {
+          const annId = `news_${ts}_${pid}`;
+          return {
+            id: annId,
+            patientId: pid,
+            title: postForm.title.trim(),
+            body: postForm.body,
+            date: postForm.date,
+            postedAt: nowIso,
+            photos: buildPhotos(annId),
+          };
+        });
         newData = { ...newData, familyPersonalAnnouncements: [...newItems, ...personalAnnouncements] };
       }
-    }
-    // 写真部分
-    if (hasPhotos) {
-      const pids = postForm.scope === 'specific' && postForm.patientIds.length > 0 ? postForm.patientIds : [null];
-      const newPhotos = [];
-      postForm.files.forEach((it, i) => {
-        pids.forEach(pid => {
-          newPhotos.push({
-            id:`ph_${Date.now()}_${i}_${pid||'all'}_${Math.random().toString(36).slice(-4)}`,
-            url: it.url, name: it.name,
-            caption: postForm.title.trim() || '',
-            class: postForm.eventClass,
-            date: postForm.date, patientId: pid,
-          });
+    } else if (hasPhotos) {
+      // 写真のみの投稿 → 写真だけのお知らせとして登録 (タイトルなし)
+      const buildPhotos = (annId) => postForm.files.map((it, i) => ({
+        id: `${annId}_ph_${i}`,
+        url: it.url, name: it.name,
+        caption: '',
+        class: postForm.eventClass,
+      }));
+      if (postForm.scope === 'all') {
+        const annId = `news_${ts}`;
+        const item = { id: annId, title: '', body: '', date: postForm.date, postedAt: nowIso, photos: buildPhotos(annId) };
+        newData = { ...newData, familyAnnouncements: [item, ...allAnnouncements] };
+      } else {
+        const newItems = postForm.patientIds.map(pid => {
+          const annId = `news_${ts}_${pid}`;
+          return {
+            id: annId, patientId: pid, title: '', body: '', date: postForm.date,
+            postedAt: nowIso, photos: buildPhotos(annId),
+          };
         });
-      });
-      newData = { ...newData, familyPhotos: [...newPhotos, ...(newData.familyPhotos||photos)] };
+        newData = { ...newData, familyPersonalAnnouncements: [...newItems, ...personalAnnouncements] };
+      }
     }
     onSave(newData);
     setPostForm({ scope:'all', patientIds:[], title:'', body:'', date: new Date().toISOString().slice(0,10), eventClass: postForm.eventClass, files:[], filePreview:[] });
@@ -9348,6 +9367,33 @@ function FamilyPatientView({ data, patientId, onLogout }) {
   const announcements = data.familyAnnouncements || [];
   const personalAnnouncements = (data.familyPersonalAnnouncements||[]).filter(a => a.patientId === pid || a.patientId === patientId);
   const photos = (data.familyPhotos||[]).filter(ph => ph.patientId == null || ph.patientId === pid || ph.patientId === patientId);
+  // 未読お知らせ管理: localStorage に最終既読時刻を保存
+  const readKey = `familyReadAt_${patientId}`;
+  const [lastReadAt, setLastReadAt] = useState(() => {
+    try { return localStorage.getItem(readKey) || ''; } catch { return ''; }
+  });
+  const allAnnouncementsForUser = [...personalAnnouncements, ...announcements];
+  const unreadAnnouncements = allAnnouncementsForUser.filter(a => {
+    const t = a.postedAt || (a.date ? `${a.date}T00:00:00.000Z` : '');
+    return t && t > lastReadAt;
+  });
+  const unreadCount = unreadAnnouncements.length;
+  const markAllRead = () => {
+    const now = new Date().toISOString();
+    try { localStorage.setItem(readKey, now); } catch {}
+    setLastReadAt(now);
+    setUnreadPopupVisible(false);
+  };
+  // 初回マウント時に未読が1件以上あればポップアップ表示
+  const [unreadPopupVisible, setUnreadPopupVisible] = useState(false);
+  const [popupShown, setPopupShown] = useState(false);
+  useEffect(() => {
+    if (!popupShown && unreadCount > 0 && tab !== 'news') {
+      setUnreadPopupVisible(true);
+      setPopupShown(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unreadCount, popupShown]);
   if (!patient) {
     return (
       <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f1f5f9',fontFamily:'"Hiragino Sans","Yu Gothic",sans-serif'}}>
@@ -9391,12 +9437,24 @@ function FamilyPatientView({ data, patientId, onLogout }) {
       </div>
       <div style={{maxWidth:1100,margin:'-12px auto 0',padding:'0 12px'}}>
         <div className="family-tab-bar" style={{background:'white',borderRadius:16,padding:4,boxShadow:'0 4px 16px rgba(0,0,0,0.06)',display:'flex',gap:2}}>
-          {[['news','📢 お知らせ・写真'],['analysis','📊 通所記録']].map(([k,l])=>(
-            <button key={k} onClick={()=>setTab(k)} className="family-tab-btn"
-              style={{flex:1,padding:'10px 8px',borderRadius:12,border:'none',background:tab===k?'#6366f1':'transparent',color:tab===k?'white':'#475569',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>
-              {l}
-            </button>
-          ))}
+          {[['news','📢 お知らせ'],['analysis','📊 通所記録']].map(([k,l])=>{
+            // 未読バッジ: お知らせタブのみ表示
+            const showBadge = k === 'news' && unreadCount > 0;
+            return (
+              <button key={k} onClick={()=>{
+                setTab(k);
+                if (k === 'news') markAllRead();
+              }} className="family-tab-btn"
+                style={{flex:1,padding:'10px 8px',borderRadius:12,border:'none',background:tab===k?'#6366f1':'transparent',color:tab===k?'white':'#475569',fontWeight:'bold',fontSize:13,cursor:'pointer',position:'relative'}}>
+                {l}
+                {showBadge && (
+                  <span style={{position:'absolute',top:4,right:8,minWidth:18,height:18,padding:'0 5px',background:'#ef4444',color:'white',borderRadius:9,fontSize:10,fontWeight:'bold',display:'inline-flex',alignItems:'center',justifyContent:'center',boxShadow:'0 1px 3px rgba(0,0,0,0.3)'}}>
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
       <div className="family-content-area" style={{maxWidth: tab==='analysis' ? 1100 : 720, margin:'16px auto 0',padding:'0 12px 40px'}}>
@@ -9419,42 +9477,79 @@ function FamilyPatientView({ data, patientId, onLogout }) {
         )}
         {tab === 'news' && (
           <div style={{maxWidth:720,margin:'0 auto'}}>
-            {/* お知らせ一覧 */}
-            <div style={{background:'white',borderRadius:16,padding:'8px 0',boxShadow:'0 2px 8px rgba(0,0,0,0.04)',marginBottom:14}}>
-              <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',padding:'8px 20px',borderBottom:'1px solid #f1f5f9'}}>📢 お知らせ</div>
-              {[...personalAnnouncements.map(a=>({...a,_kind:'個別'})), ...announcements.map(a=>({...a,_kind:'全体'}))].length === 0 ? (
-                <div style={{padding:'24px 20px',textAlign:'center',color:'#94a3b8',fontSize:13}}>お知らせはありません</div>
-              ) : (
-                [...personalAnnouncements.map(a=>({...a,_kind:'個別'})), ...announcements.map(a=>({...a,_kind:'全体'}))]
-                  .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
-                  .map((a,i)=>(
-                  <div key={a.id||i} style={{padding:'14px 20px',borderTop:i>0?'1px solid #f1f5f9':'none'}}>
-                    <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
-                      <span style={{fontSize:9,fontWeight:'bold',padding:'2px 6px',borderRadius:4,background:a._kind==='個別'?'#fef3c7':'#dbeafe',color:a._kind==='個別'?'#92400e':'#1e40af'}}>{a._kind}</span>
-                      <span style={{fontSize:11,color:'#94a3b8'}}>{a.date}</span>
-                    </div>
-                    <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>{a.title}</div>
-                    {a.body && <div style={{fontSize:13,color:'#475569',lineHeight:1.7,whiteSpace:'pre-wrap'}}>{a.body}</div>}
-                  </div>
-                ))
-              )}
-            </div>
-            {/* 写真ギャラリー (お知らせ同画面で確認) */}
-            <div style={{background:'white',borderRadius:16,padding:'14px 20px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
-              <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:10}}>📷 写真</div>
-              {photos.length === 0 ? (
-                <div style={{padding:'24px 0',textAlign:'center',color:'#94a3b8',fontSize:13}}>写真はまだ登録されていません</div>
-              ) : (
-                <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
-                  {photos.map((p,i)=>(
-                    <div key={p.id||i} style={{position:'relative'}}>
-                      <img src={p.url} alt="" style={{width:'100%',aspectRatio:'1',objectFit:'cover',borderRadius:10}}/>
-                      <a href={p.url} download={p.name||`photo_${i+1}.jpg`} style={{position:'absolute',bottom:6,right:6,background:'rgba(0,0,0,0.6)',color:'white',padding:'4px 8px',borderRadius:6,fontSize:10,fontWeight:'bold',textDecoration:'none'}}>↓</a>
-                      {p.caption && <div style={{fontSize:11,color:'#64748b',marginTop:4,padding:'0 2px'}}>{p.caption}</div>}
-                    </div>
-                  ))}
+            {/* お知らせ一覧 (投稿に紐付いた写真も同じカードで表示) */}
+            {(() => {
+              const merged = [
+                ...personalAnnouncements.map(a=>({...a,_kind:'個別'})),
+                ...announcements.map(a=>({...a,_kind:'全体'}))
+              ].sort((a,b) => (b.postedAt||b.date||'').localeCompare(a.postedAt||a.date||''));
+              // 投稿に紐付かない (旧データの) 写真のみ別枠で表示
+              const orphanPhotos = photos.filter(p => !String(p.id||'').startsWith('news_'));
+              return (
+                <>
+                  {merged.length === 0 && orphanPhotos.length === 0 ? (
+                    <div style={{background:'white',borderRadius:16,padding:'24px 20px',textAlign:'center',color:'#94a3b8',fontSize:13,boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>お知らせはまだ投稿されていません</div>
+                  ) : (
+                    <>
+                      {merged.map((a) => {
+                        const isNew = (a.postedAt || (a.date ? `${a.date}T00:00:00.000Z` : '')) > lastReadAt;
+                        const annPhotos = a.photos || [];
+                        return (
+                          <div key={a.id} style={{background:'white',borderRadius:16,padding:'14px 18px',marginBottom:12,boxShadow:'0 2px 8px rgba(0,0,0,0.04)',border: isNew ? '2px solid #818cf8' : '1px solid transparent'}}>
+                            <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
+                              <span style={{fontSize:9,fontWeight:'bold',padding:'2px 6px',borderRadius:4,background:a._kind==='個別'?'#fef3c7':'#dbeafe',color:a._kind==='個別'?'#92400e':'#1e40af'}}>{a._kind}</span>
+                              <span style={{fontSize:11,color:'#94a3b8'}}>{a.date}</span>
+                              {isNew && <span style={{fontSize:9,fontWeight:'bold',padding:'2px 6px',borderRadius:4,background:'#ef4444',color:'white'}}>NEW</span>}
+                            </div>
+                            {a.title && <div style={{fontSize:15,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>{a.title}</div>}
+                            {a.body && <div style={{fontSize:13,color:'#475569',lineHeight:1.7,whiteSpace:'pre-wrap',marginBottom:annPhotos.length>0?10:0}}>{a.body}</div>}
+                            {annPhotos.length > 0 && (
+                              <div style={{display:'grid',gridTemplateColumns:annPhotos.length===1?'1fr':'repeat(2,1fr)',gap:8,marginTop:8}}>
+                                {annPhotos.map((p,pi) => (
+                                  <div key={p.id||pi} style={{position:'relative'}}>
+                                    <img src={p.url} alt="" style={{width:'100%',aspectRatio:'1',objectFit:'cover',borderRadius:10}}/>
+                                    <a href={p.url} download={p.name||`photo_${pi+1}.jpg`} style={{position:'absolute',bottom:6,right:6,background:'rgba(0,0,0,0.6)',color:'white',padding:'4px 8px',borderRadius:6,fontSize:10,fontWeight:'bold',textDecoration:'none'}}>↓</a>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {orphanPhotos.length > 0 && (
+                        <div style={{background:'white',borderRadius:16,padding:'14px 20px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
+                          <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:10}}>📷 過去の写真</div>
+                          <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
+                            {orphanPhotos.map((p,i)=>(
+                              <div key={p.id||i} style={{position:'relative'}}>
+                                <img src={p.url} alt="" style={{width:'100%',aspectRatio:'1',objectFit:'cover',borderRadius:10}}/>
+                                <a href={p.url} download={p.name||`photo_${i+1}.jpg`} style={{position:'absolute',bottom:6,right:6,background:'rgba(0,0,0,0.6)',color:'white',padding:'4px 8px',borderRadius:6,fontSize:10,fontWeight:'bold',textDecoration:'none'}}>↓</a>
+                                {p.caption && <div style={{fontSize:11,color:'#64748b',marginTop:4,padding:'0 2px'}}>{p.caption}</div>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        )}
+        {/* 未読お知らせポップアップ */}
+        {unreadPopupVisible && unreadCount > 0 && tab !== 'news' && (
+          <div style={{position:'fixed',top:80,right:16,zIndex:9000,background:'white',borderRadius:14,padding:'14px 16px',boxShadow:'0 8px 30px rgba(0,0,0,0.2)',border:'2px solid #6366f1',maxWidth:280,animation:'slideIn 0.3s ease-out'}}>
+            <div style={{display:'flex',alignItems:'flex-start',gap:10}}>
+              <div style={{fontSize:24}}>📢</div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>新しいお知らせが {unreadCount} 件あります</div>
+                <div style={{fontSize:11,color:'#64748b',marginBottom:8}}>「📢 お知らせ」タブで確認できます</div>
+                <div style={{display:'flex',gap:6}}>
+                  <button onClick={()=>{setTab('news'); markAllRead();}} style={{flex:1,padding:'6px 10px',background:'#6366f1',color:'white',border:'none',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>確認する</button>
+                  <button onClick={()=>setUnreadPopupVisible(false)} style={{padding:'6px 10px',background:'#f1f5f9',color:'#64748b',border:'none',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>あとで</button>
                 </div>
-              )}
+              </div>
             </div>
           </div>
         )}
@@ -9530,6 +9625,42 @@ export default function App() {
       }
     }
   }, [appData]);
+  // 家族側 (別タブの /family) で familyAccounts / familyInvites / 利用者の緊急連絡先が
+  // 更新されたら事業所側にも自動反映 (cross-tab 同期)
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key !== 'daycareAppData_v3' || !e.newValue) return;
+      try {
+        const incoming = JSON.parse(e.newValue);
+        if (!incoming) return;
+        setAppData(prev => {
+          // 家族側で変わりうる 3 キーのみ取り込み (それ以外は事業所側を尊重)
+          const inFA = Array.isArray(incoming.familyAccounts) ? incoming.familyAccounts : (prev.familyAccounts||[]);
+          const inFI = Array.isArray(incoming.familyInvites)  ? incoming.familyInvites  : (prev.familyInvites||[]);
+          // emergencyContacts の差分を取り込み
+          const inPatients = Array.isArray(incoming.patients) ? incoming.patients : [];
+          const mergedPatients = (prev.patients||[]).map(p => {
+            const inp = inPatients.find(x => x.id === p.id);
+            if (!inp) return p;
+            // emergencyContacts が増えていれば取り込み (重複防止)
+            const prevEC = p.emergencyContacts || [];
+            const inEC = inp.emergencyContacts || [];
+            if (inEC.length <= prevEC.length) return p;
+            const seen = new Set(prevEC.map(c => `${c.name}|${c.relation}`));
+            const newOnes = inEC.filter(c => !seen.has(`${c.name}|${c.relation}`));
+            if (newOnes.length === 0) return p;
+            return {...p, emergencyContacts: [...prevEC, ...newOnes]};
+          });
+          // 何も変わってなければ state 更新しない (autosave ループ防止)
+          const same = inFA === prev.familyAccounts && inFI === prev.familyInvites && mergedPatients === prev.patients;
+          if (same) return prev;
+          return {...prev, familyAccounts: inFA, familyInvites: inFI, patients: mergedPatients};
+        });
+      } catch {}
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
   const [showToast, setShowToast] = useState(false);
   const [printPreviewContent, setPrintPreviewContent] = useState(null);
   useEffect(()=>{
@@ -11222,7 +11353,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
     );
   }, [appData.patients, patientSearch]);
   const [baseMonth, setBaseMonth] = useState('2026-03');
-  const [period, setPeriod] = useState('12'); // デフォルト1年
+  // 家族画面では1ヶ月、事業所側では1年をデフォルトに
+  const [period, setPeriod] = useState(familyMode ? '1' : '12');
   const [customFrom, setCustomFrom] = useState('2026-01');
   const [customTo, setCustomTo]   = useState('2026-03');
   // セクション選択（プレビュー用） [id, label, size]
