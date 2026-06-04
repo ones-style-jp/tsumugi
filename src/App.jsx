@@ -11119,7 +11119,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           {!familyMode && (
           <button type="button" onClick={()=>setShowPrintOptionsPopup(true)}
               style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:8,padding:'6px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
-            <Printer size={14}/>印刷プレビュー
+            <Printer size={14}/>プレビュー
           </button>
           )}
           {/* 隠しトリガー: ポップアップから .click() で発火される。既存の生成ロジックを温存。 */}
@@ -11483,7 +11483,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           <div onClick={e=>e.stopPropagation()}
                style={{background:'white',borderRadius:16,padding:'24px 28px',width:'100%',maxWidth:520,boxShadow:'0 20px 60px rgba(0,0,0,0.4)'}}>
             <div style={{fontSize:18,fontWeight:'bold',color:'#1e293b',marginBottom:6,display:'flex',alignItems:'center',gap:8}}>
-              <Printer size={20}/>印刷プレビューの設定
+              <Printer size={20}/>プレビューの設定
             </div>
             <div style={{fontSize:13,color:'#64748b',marginBottom:18}}>
               生成する期間と対象を選んでから「プレビューを生成」を押してください（15〜30秒かかります）
