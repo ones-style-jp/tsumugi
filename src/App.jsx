@@ -20975,14 +20975,14 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
                 )}
               </div>
 
-              {/* 右：発信元 */}
-              <div style={{width:280,border:'2px solid black',padding:'12px 16px',fontSize:12,lineHeight:2}}>
-                <div style={{fontWeight:'bold',fontSize:14,marginBottom:4}}>{facility.name || 'ひかりデイサービス扇橋店'}</div>
-                <div>〒{facility.zip||'135-0011'}</div>
-                <div>{facility.address||'東京都江東区扇橋1-4-9メイゾン白子'}</div>
-                <div>TEL：{facility.phone||'03-6458-7415'}</div>
-                <div>FAX：{facility.fax||'03-6458-7416'}</div>
-                <div>担当：　{facility.manager||'担当者'}</div>
+              {/* 右：発信元（フォント拡大 + 2行に折り返す場合は自動縮小） */}
+              <div style={{width:280,border:'2px solid black',padding:'12px 16px',fontSize:16,lineHeight:1.7}}>
+                <AutoFitLine style={{fontWeight:'bold',fontSize:19,marginBottom:6,display:'block',width:'100%'}}>{facility.name || 'ひかりデイサービス扇橋店'}</AutoFitLine>
+                <AutoFitLine style={{display:'block',width:'100%'}}>〒{facility.zip||'135-0011'}</AutoFitLine>
+                <AutoFitLine style={{display:'block',width:'100%'}}>{facility.address||'東京都江東区扇橋1-4-9メイゾン白子'}</AutoFitLine>
+                <AutoFitLine style={{display:'block',width:'100%'}}>TEL：{facility.phone||'03-6458-7415'}</AutoFitLine>
+                <AutoFitLine style={{display:'block',width:'100%'}}>FAX：{facility.fax||'03-6458-7416'}</AutoFitLine>
+                <AutoFitLine style={{display:'block',width:'100%'}}>担当：　{facility.manager||'担当者'}</AutoFitLine>
               </div>
             </div>
 
@@ -21355,13 +21355,13 @@ function GeneralFaxView({ appData, onSave, onShowPrintPreview }) {
                 </div>
               )}
             </div>
-            <div style={{width:280,border:'2px solid black',padding:'12px 16px',fontSize:12,lineHeight:2}}>
-              <div style={{fontWeight:'bold',fontSize:14,marginBottom:4}}>{facility.name || 'ひかりデイサービス扇橋店'}</div>
-              <div>〒{facility.zip||'135-0011'}</div>
-              <div>{facility.address||'東京都江東区扇橋1-4-9メイゾン白子'}</div>
-              <div>TEL：{facility.phone||'03-6458-7415'}</div>
-              <div>FAX：{facility.fax||'03-6458-7416'}</div>
-              <div>担当：　{facility.manager||'担当者'}</div>
+            <div style={{width:280,border:'2px solid black',padding:'12px 16px',fontSize:16,lineHeight:1.7}}>
+              <AutoFitLine style={{fontWeight:'bold',fontSize:19,marginBottom:6,display:'block',width:'100%'}}>{facility.name || 'ひかりデイサービス扇橋店'}</AutoFitLine>
+              <AutoFitLine style={{display:'block',width:'100%'}}>〒{facility.zip||'135-0011'}</AutoFitLine>
+              <AutoFitLine style={{display:'block',width:'100%'}}>{facility.address||'東京都江東区扇橋1-4-9メイゾン白子'}</AutoFitLine>
+              <AutoFitLine style={{display:'block',width:'100%'}}>TEL：{facility.phone||'03-6458-7415'}</AutoFitLine>
+              <AutoFitLine style={{display:'block',width:'100%'}}>FAX：{facility.fax||'03-6458-7416'}</AutoFitLine>
+              <AutoFitLine style={{display:'block',width:'100%'}}>担当：　{facility.manager||'担当者'}</AutoFitLine>
             </div>
           </div>
 
