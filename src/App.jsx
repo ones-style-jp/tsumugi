@@ -8995,7 +8995,13 @@ function FamilyAdminView({ appData, onSave }) {
                         {e._kind === 'photo' ? (
                           <><img src={e.url} alt="" className="w-10 h-10 object-cover rounded shrink-0"/><span className="text-sm text-slate-700 truncate flex-1">{e.caption || e.name || '(キャプションなし)'}</span>{e.class && <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{e.class}</span>}</>
                         ) : (
-                          <><span className="text-sm font-bold text-slate-800 truncate flex-1">{e.title}</span>{pat && <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">{pat.name}</span>}</>
+                          <>
+                            {/* お知らせに紐付いた写真があれば先頭1枚をサムネ表示 */}
+                            {(e.photos || []).length > 0 && <img src={e.photos[0].url} alt="" className="w-10 h-10 object-cover rounded shrink-0"/>}
+                            <span className="text-sm font-bold text-slate-800 truncate flex-1">{e.title || '(タイトルなし)'}</span>
+                            {(e.photos || []).length > 0 && <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded shrink-0">📷×{e.photos.length}</span>}
+                            {pat && <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">{pat.name}</span>}
+                          </>
                         )}
                         <span className="text-slate-300 text-xs">›</span>
                       </button>
@@ -9022,11 +9028,22 @@ function FamilyAdminView({ appData, onSave }) {
                       </>
                     ) : (
                       <>
-                        <div className="text-lg font-bold text-slate-800 mb-2">{historyDetail.item.title}</div>
+                        {historyDetail.item.title && <div className="text-lg font-bold text-slate-800 mb-2">{historyDetail.item.title}</div>}
                         {historyDetail.kind === 'news_personal' && historyDetail.patient && (
                           <div className="text-xs font-bold text-amber-700 bg-amber-50 px-2 py-1 rounded inline-block mb-3">対象: {historyDetail.patient.name} 様</div>
                         )}
-                        <div className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap select-all">{historyDetail.item.body || '(本文なし)'}</div>
+                        {historyDetail.item.body && <div className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap select-all mb-3">{historyDetail.item.body}</div>}
+                        {/* お知らせに添付された写真も表示 */}
+                        {(historyDetail.item.photos || []).length > 0 && (
+                          <div className={`grid ${historyDetail.item.photos.length===1?'grid-cols-1':'grid-cols-2'} gap-2 mt-2`}>
+                            {historyDetail.item.photos.map((p, pi) => (
+                              <div key={p.id||pi} className="relative">
+                                <img src={p.url} alt="" className="w-full aspect-square object-cover rounded-lg border border-slate-200"/>
+                                <a href={p.url} download={p.name||`photo_${pi+1}.jpg`} className="absolute bottom-1 right-1 bg-black/60 text-white px-2 py-0.5 rounded text-[10px] font-bold no-underline">↓</a>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </>
                     )}
                     <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100">
@@ -11526,8 +11543,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
     );
   }, [appData.patients, patientSearch]);
   const [baseMonth, setBaseMonth] = useState('2026-03');
-  // 家族画面では1ヶ月、事業所側では3ヶ月をデフォルトに
-  const [period, setPeriod] = useState(familyMode ? '1' : '3');
+  // 家族画面・事業所側ともデフォルト「1ヶ月」
+  const [period, setPeriod] = useState('1');
   const [customFrom, setCustomFrom] = useState('2026-01');
   const [customTo, setCustomTo]   = useState('2026-03');
   // セクション選択（プレビュー用） [id, label, size]
