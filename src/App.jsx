@@ -9066,6 +9066,18 @@ function FamilyView() {
         setLoginForm(f=>({...f, error:'IDまたはパスワードが正しくありません'}));
         return;
       }
+      const nowIso = new Date().toISOString();
+      try {
+        const saved = JSON.parse(localStorage.getItem('daycareAppData_v3')||'null');
+        if (saved && Array.isArray(saved.familyAccounts)) {
+          const updated = {
+            ...saved,
+            familyAccounts: saved.familyAccounts.map(a => a.id === acc.id ? {...a, lastLogin: nowIso} : a)
+          };
+          localStorage.setItem('daycareAppData_v3', JSON.stringify(updated));
+          setData(updated);
+        }
+      } catch {}
       sessionStorage.setItem('familyAuthPid', String(acc.patientId));
       setAuthPid(String(acc.patientId));
     };
@@ -9635,6 +9647,28 @@ export default function App() {
           }
           const scale = Math.min(1,(window.innerWidth-60)/(pageW*3.7795));
           const [showFaxHelp, setShowFaxHelp] = React.useState(false);
+          const [showFaxRecord, setShowFaxRecord] = React.useState(false);
+          // FAX系のタイトルから type と patientName を推測
+          const _t = printPreviewContent.title || '';
+          const faxType = _t.includes('休み連絡') ? 'absence' : _t.includes('各種連絡') ? 'general' : _t.includes('サービス提供記録') ? 'ticket' : 'other';
+          const isFaxKind = faxType !== 'other';
+          const extractedPatient = (() => {
+            const m = _t.match(/休み連絡_(.+)/) || _t.match(/各種連絡_(.+)/) || _t.match(/サービス提供記録_.*?_(.+)/);
+            return m ? m[1].trim() : '';
+          })();
+          const saveFaxHistory = (rec) => {
+            const newEntry = {
+              id: `fax_${Date.now()}_${Math.random().toString(36).slice(-4)}`,
+              type: faxType,
+              timestamp: new Date().toISOString(),
+              subject: printPreviewContent.title || '',
+              patientName: extractedPatient,
+              recipientName: rec.recipientName,
+              recipientFax: rec.recipientFax,
+              note: rec.note,
+            };
+            setAppData(prev => ({...prev, faxHistory: [newEntry, ...(prev.faxHistory||[])]}));
+          };
 
           const getStyles = () => Array.from(document.querySelectorAll('link[rel="stylesheet"],style'))
             .map(s=>s.tagName==='LINK'?s.outerHTML:`<style>${s.textContent.replace(/@page\s*\{[^}]*\}/g,'')}</style>`).join('');
@@ -9666,6 +9700,12 @@ export default function App() {
                     style={{background:'#1d4ed8',color:'white',border:'none',borderLeft:'1px solid rgba(255,255,255,0.25)',borderRadius:'0 10px 10px 0',padding:'10px 12px',fontWeight:'bold',fontSize:16,cursor:'pointer',boxShadow:'0 2px 8px rgba(0,0,0,0.2)',marginLeft:-10}}>
                     ⓘ
                   </button>
+                  {isFaxKind && (
+                    <button onClick={()=>setShowFaxRecord(true)} title="送付履歴に記録する"
+                      style={{background:'#7c3aed',color:'white',border:'none',borderRadius:10,padding:'10px 16px',fontWeight:'bold',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',gap:6,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
+                      📝 履歴に記録
+                    </button>
+                  )}
                   <div style={{width:1,height:32,background:'#475569',margin:'0 4px'}}/>
                   <button onClick={()=>setPrintPreviewContent(null)}
                     style={{background:'#475569',color:'white',border:'none',borderRadius:10,padding:'10px 16px',fontWeight:'bold',fontSize:14,cursor:'pointer'}}>
@@ -9690,6 +9730,14 @@ export default function App() {
               </div>
               {/* FAX 送信手順ヘルプ */}
               {showFaxHelp && <FaxHelpModal onClose={()=>setShowFaxHelp(false)}/>}
+              {/* FAX 履歴記録ダイアログ */}
+              {showFaxRecord && (
+                <FaxHistoryRecordModal
+                  defaultRecord={{recipientName:'',recipientFax:'',note:''}}
+                  onSave={saveFaxHistory}
+                  onClose={()=>setShowFaxRecord(false)}
+                />
+              )}
             </div>
           );
         };
@@ -9811,7 +9859,7 @@ export default function App() {
              currentView === 'family_admin' ? <FamilyAdminView appData={appData} onSave={handleSaveToCloud} /> :
              currentView === 'diary' ? <DailyLogView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} dirtyRef={diaryDirtyRef} /> :
              currentView === 'absence_fax' ? <AbsenceFaxView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={absenceDirtyRef} /> :
-             currentView === 'general_fax' ? <GeneralFaxView appData={appData} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
+             currentView === 'general_fax' ? <GeneralFaxView appData={appData} onSave={setAppData} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
              currentView === 'fitness' ? <FitnessView appData={appData} onSave={handleSaveToCloud} selectedDate={selectedDate} sharedAmpm={sharedAmpm} navigateTo={navigateTo} targetPatientId={targetPatientId} onPatientChange={setTargetPatientId} dirtyRef={fitnessDirtyRef} /> :
              currentView === 'monitoring' ? <MonitoringView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={monitoringDirtyRef} saveFnRef={monitoringSaveFnRef} /> :
              currentView === 'dash_operation' ? <OperationDashboardView appData={appData} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} setAppData={setAppData} /> :
@@ -14670,6 +14718,9 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
   const [curMonth, setCurMonth] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; });
   const [patDropOpen, setPatDropOpen] = useState(false);
   const [patSearch, setPatSearch] = useState('');
+  const [showFaxHist, setShowFaxHist] = useState(false);
+  const ticketHistory = (appData.faxHistory||[]).filter(h => h.type === 'ticket');
+  const deleteFaxHist = (id) => onSave({...appData, faxHistory: (appData.faxHistory||[]).filter(h => h.id !== id)});
   const sp = appData.patients.find(p => p.id === selId) || appData.patients[0];
   const tY = parseInt(curMonth.split('-')[0]); const tM = parseInt(curMonth.split('-')[1]);
   const fi = appData.systemSettings?.facilityInfo || {};
@@ -14734,6 +14785,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button onClick={()=>{if(onShowPrintPreview){onShowPrintPreview(`サービス提供記録_${tY}年${tM}月_${sp?.name||''}`, 'A4 landscape', 'print-content-ticket')}else{window.print();}}} className="bg-slate-900 text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm"><Printer size={16} className="mr-1.5"/>プレビュー</button>
+          <button onClick={()=>setShowFaxHist(true)} className="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl font-bold flex items-center text-sm">📋 履歴</button>
         </div>
       </div>
       {/* コンテンツ：横スクロール可能 */}
@@ -14967,6 +15019,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
 
 
       </div>{/* end scroll container */}
+      {showFaxHist && <FaxHistoryListModal history={ticketHistory} typeLabel="サービス提供記録" onDelete={deleteFaxHist} onClose={()=>setShowFaxHist(false)}/>}
     </div>
   );
 }
@@ -17394,7 +17447,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                                 <button onClick={()=>removeAccount(acc.id)} className="px-1.5 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[10px] font-bold" title="削除">✕</button>
                               </div>
                             </div>
-                            {acc.createdAt && <div className="text-[9px] text-slate-400 mt-1">発行日: {acc.createdAt}{isEditing && <span className="ml-2 text-blue-500 font-bold">編集モード中 - ✓ を押して確定</span>}</div>}
+                            {acc.createdAt && <div className="text-[9px] text-slate-400 mt-1">発行日: {acc.createdAt}{acc.lastLogin && <span className="ml-2 text-emerald-600 font-bold">最終ログイン: {new Date(acc.lastLogin).toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>}{!acc.lastLogin && <span className="ml-2 text-slate-300">最終ログイン: 未ログイン</span>}{isEditing && <span className="ml-2 text-blue-500 font-bold">編集モード中 - ✓ を押して確定</span>}</div>}
                           </div>
                           );
                         })}
@@ -20449,6 +20502,104 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 
 
 // === AbsenceFaxView (休み連絡) ===
+// === FAX送付履歴記録モーダル (送信完了後にユーザーが手動で記録) ===
+function FaxHistoryRecordModal({ defaultRecord, onSave, onClose }) {
+  const [rec, setRec] = useState(defaultRecord || { recipientName:'', recipientFax:'', note:'' });
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.7)',zIndex:10000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={onClose}>
+      <div style={{background:'white',borderRadius:16,maxWidth:480,width:'100%',padding:24,boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}} onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b',marginBottom:6}}>📝 送付履歴に記録</div>
+        <div style={{fontSize:11,color:'#64748b',marginBottom:14}}>送付先・FAX番号などを入力して履歴に残します（後で確認できます）</div>
+        <div style={{display:'flex',flexDirection:'column',gap:10}}>
+          <div>
+            <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>送付先名 (任意)</label>
+            <input value={rec.recipientName} onChange={e=>setRec({...rec,recipientName:e.target.value})} placeholder="例: ○○ケアプランセンター 田中様"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none"/>
+          </div>
+          <div>
+            <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>FAX番号 (任意)</label>
+            <input value={rec.recipientFax} onChange={e=>setRec({...rec,recipientFax:e.target.value})} placeholder="例: 03-1234-5678"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none font-mono"/>
+          </div>
+          <div>
+            <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>備考 (任意)</label>
+            <input value={rec.note} onChange={e=>setRec({...rec,note:e.target.value})} placeholder="例: 至急、再送など"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none"/>
+          </div>
+        </div>
+        <div style={{display:'flex',gap:10,marginTop:18}}>
+          <button onClick={onClose} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-sm">キャンセル</button>
+          <button onClick={()=>{ onSave(rec); onClose(); }} className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-bold text-sm">記録する</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// === FAX送付履歴一覧モーダル ===
+function FaxHistoryListModal({ history, typeLabel, onDelete, onClose }) {
+  const [search, setSearch] = useState('');
+  const filtered = (history||[]).filter(h => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (h.recipientName||'').toLowerCase().includes(q)
+      || (h.recipientFax||'').includes(q)
+      || (h.subject||'').toLowerCase().includes(q)
+      || (h.patientName||'').includes(q)
+      || (h.note||'').includes(q);
+  }).sort((a,b) => (b.timestamp||'').localeCompare(a.timestamp||''));
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.7)',zIndex:10000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={onClose}>
+      <div style={{background:'white',borderRadius:16,maxWidth:720,width:'100%',maxHeight:'85vh',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}} onClick={e=>e.stopPropagation()}>
+        <div style={{padding:'16px 20px',background:'linear-gradient(135deg,#7c3aed,#a855f7)',color:'white',display:'flex',alignItems:'center',justifyContent:'space-between',borderRadius:'16px 16px 0 0'}}>
+          <div>
+            <div style={{fontSize:16,fontWeight:'bold'}}>📋 {typeLabel}の送付履歴</div>
+            <div style={{fontSize:11,opacity:0.85}}>{filtered.length}件 / 全{(history||[]).length}件</div>
+          </div>
+          <button onClick={onClose} style={{background:'rgba(255,255,255,0.2)',border:'none',color:'white',width:30,height:30,borderRadius:'50%',cursor:'pointer',fontSize:16}}>✕</button>
+        </div>
+        <div style={{padding:'12px 20px',borderBottom:'1px solid #e2e8f0'}}>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 送付先・FAX番号・利用者名で検索"
+            className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none"/>
+        </div>
+        <div style={{flex:1,overflow:'auto',padding:'8px 0'}}>
+          {filtered.length === 0 ? (
+            <div style={{padding:'40px 20px',textAlign:'center',color:'#94a3b8',fontSize:13}}>
+              {history && history.length > 0 ? '該当する履歴がありません' : '送付履歴はまだありません'}
+            </div>
+          ) : (
+            filtered.map(h => (
+              <div key={h.id} style={{padding:'12px 20px',borderBottom:'1px solid #f1f5f9',display:'flex',gap:12,alignItems:'flex-start'}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4,flexWrap:'wrap'}}>
+                    <span style={{fontSize:11,fontWeight:'bold',color:'#1e293b',background:'#f1f5f9',padding:'2px 6px',borderRadius:4}}>
+                      📅 {h.timestamp ? new Date(h.timestamp).toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—'}
+                    </span>
+                    {h.patientName && <span style={{fontSize:11,fontWeight:'bold',color:'#1e40af',background:'#dbeafe',padding:'2px 6px',borderRadius:4}}>👤 {h.patientName}</span>}
+                  </div>
+                  {h.subject && <div style={{fontSize:13,fontWeight:'bold',color:'#1e293b',marginBottom:2}}>📄 {h.subject}</div>}
+                  <div style={{fontSize:12,color:'#475569'}}>
+                    {(h.recipientName || h.recipientFax) ? (
+                      <>📠 宛先: <b>{h.recipientName||'(名前なし)'}</b>{h.recipientFax && <span style={{fontFamily:'Menlo,monospace',marginLeft:6,color:'#7c3aed'}}>{h.recipientFax}</span>}</>
+                    ) : (
+                      <span style={{color:'#94a3b8',fontStyle:'italic'}}>📠 宛先情報なし</span>
+                    )}
+                  </div>
+                  {h.note && <div style={{fontSize:11,color:'#64748b',marginTop:3,fontStyle:'italic'}}>💬 {h.note}</div>}
+                </div>
+                <button onClick={()=>{ if(window.confirm('この履歴を削除しますか?')) onDelete(h.id); }} className="text-slate-300 hover:text-red-500 text-sm">🗑</button>
+              </div>
+            ))
+          )}
+        </div>
+        <div style={{padding:'10px 20px',background:'#f8fafc',borderRadius:'0 0 16px 16px',fontSize:10,color:'#64748b',textAlign:'center'}}>
+          ※ 履歴はあくまで送付の記録です。実際の送信は複合機で行われます
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // === 出力ヘルプモーダル (印刷・FAX・PDFの手順を端末別に案内) ===
 function FaxHelpModal({ onClose }) {
   const [tab, setTab] = useState('win');
@@ -20603,6 +20754,9 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
   // 保存済みの faxDataStore を初期値として読み込む（再表示時に編集状態が消えないように）
   const [faxData, setFaxData] = React.useState(() => appData.faxDataStore || {});
   const [isPrint, setIsPrint] = React.useState(false);
+  const [showFaxHist, setShowFaxHist] = React.useState(false);
+  const absHistory = (appData.faxHistory||[]).filter(h => h.type === 'absence');
+  const deleteAbsHist = (id) => onSave({...appData, faxHistory: (appData.faxHistory||[]).filter(h => h.id !== id)});
 
   const facility = appData.systemSettings?.facilityInfo || {};
   const patients = appData.patients || [];
@@ -20729,6 +20883,10 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
               },100);
             }} style={{background:'#0f766e',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
               📋 プレビュー
+            </button>
+            <button type="button" onClick={()=>setShowFaxHist(true)}
+              style={{background:'#7c3aed',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
+              📋 履歴
             </button>
             <button type="button" onClick={()=>{
               markClean();
@@ -20917,8 +21075,8 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
   }
   if (cells.length>0) { while(cells.length<7) cells.push(null); weeks.push(cells); }
 
-  const statusColors = { none:'', edited:'#dbeafe', printed:'#d1fae5', pdf:'#fef9c3', both:'#ede9fe' };
-  const statusLabels = { edited:'編集済', printed:'印刷済', pdf:'PDF済', both:'印/PDF済' };
+  const statusColors = { none:'', edited:'#dbeafe', printed:'#dbeafe', pdf:'#dbeafe', both:'#dbeafe' };
+  const statusLabels = { edited:'編集済', printed:'編集済', pdf:'編集済', both:'編集済' };
   // fax データが何らかの編集（理由・連絡者・備考・チェック）を含むかどうか
   const isFaxEdited = (fd) => {
     if (!fd) return false;
@@ -20944,12 +21102,10 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
           <button type="button" onClick={()=>setCurrentMonth(new Date(cY,cM,1))} style={{background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',color:'white',borderRadius:8,padding:'5px 12px',fontWeight:'bold',cursor:'pointer'}}>→</button>
         </div>
         <div style={{display:'flex',gap:10,fontSize:11}}>
-          {Object.entries(statusLabels).map(([k,v])=>(
-            <span key={k} style={{display:'flex',alignItems:'center',gap:4}}>
-              <span style={{width:12,height:12,borderRadius:3,background:statusColors[k],border:'1px solid #64748b',display:'inline-block'}}/>
-              <span style={{color:'#cbd5e1'}}>{v}</span>
-            </span>
-          ))}
+          <span style={{display:'flex',alignItems:'center',gap:4}}>
+            <span style={{width:12,height:12,borderRadius:3,background:'#dbeafe',border:'1px solid #64748b',display:'inline-block'}}/>
+            <span style={{color:'#cbd5e1'}}>編集済</span>
+          </span>
         </div>
       </div>
 
@@ -21011,18 +21167,22 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
           ))}
         </div>
       </div>
+      {showFaxHist && <FaxHistoryListModal history={absHistory} typeLabel="休み連絡" onDelete={deleteAbsHist} onClose={()=>setShowFaxHist(false)}/>}
     </div>
   );
 }
 
 
 // === GeneralFaxView (各種連絡) ===
-function GeneralFaxView({ appData, onShowPrintPreview }) {
+function GeneralFaxView({ appData, onSave, onShowPrintPreview }) {
   const [selectedPatientId, setSelectedPatientId] = React.useState(null);
   const [subject, setSubject] = React.useState('');
   const [memo, setMemo] = React.useState('');
   const [pageCount, setPageCount] = React.useState(1);
   const [checks, setChecks] = React.useState({ kyuukyuu: false, kakunin: false, orikaesu: false });
+  const [showFaxHist, setShowFaxHist] = React.useState(false);
+  const genHistory = (appData.faxHistory||[]).filter(h => h.type === 'general');
+  const deleteGenHist = (id) => onSave && onSave({...appData, faxHistory: (appData.faxHistory||[]).filter(h => h.id !== id)});
 
   const facility = appData.systemSettings?.facilityInfo || {};
   const patients = appData.patients || [];
@@ -21103,6 +21263,10 @@ function GeneralFaxView({ appData, onShowPrintPreview }) {
           <button type="button" onClick={handlePreview} disabled={!patient}
                   style={{background:patient?'#0f766e':'#475569',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:patient?'pointer':'not-allowed',display:'flex',alignItems:'center',gap:5,opacity:patient?1:0.6}}>
             📋 プレビュー
+          </button>
+          <button type="button" onClick={()=>setShowFaxHist(true)}
+                  style={{background:'#7c3aed',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
+            📋 履歴
           </button>
         </div>
       </div>
@@ -21202,6 +21366,7 @@ function GeneralFaxView({ appData, onShowPrintPreview }) {
           </div>
         </div>
       </div>
+      {showFaxHist && <FaxHistoryListModal history={genHistory} typeLabel="各種連絡" onDelete={deleteGenHist} onClose={()=>setShowFaxHist(false)}/>}
     </div>
   );
 }
