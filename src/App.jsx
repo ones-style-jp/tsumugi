@@ -14326,7 +14326,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
     if (!sp) return [];
     return generateMonthlySchedule([sp], tY, tM, appData.monthlyShifts, appData.ticketRecords || [], appData.holidays, (appData.systemSettings?.facilityInfo?.closedDays||[0])).sort((a, b) => a.dayNum - b.dayNum);
   }, [appData, sp, tY, tM]);
-  const PER_PAGE = 7;
+  const PER_PAGE = 8;
   const pages = []; for (let i = 0; i < records.length; i += PER_PAGE) pages.push(records.slice(i, i + PER_PAGE));
   if (pages.length === 0) pages.push([]);
   const getDefTime = (p) => { if (!p?.scheduleAmPm) return fi.serviceTimeAM||""; const h=p.scheduleAmPm; if(h.some(s=>s==='1日')||(h.some(s=>s==='AM')&&h.some(s=>s==='PM'))) return fi.serviceTimeFullDay||""; if(h.some(s=>s==='PM')) return fi.serviceTimePM||""; return fi.serviceTimeAM||""; };
@@ -14456,23 +14456,23 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
               <style>{`
                 /* 行高さを完全固定 — 入力内容の有無にかかわらず一定 */
                 .tp table { table-layout: fixed; }
-                .tp table tbody tr.data-row { height:38px!important; max-height:38px!important; }
-                .tp table tbody tr.tokki-row { height:32px!important; max-height:32px!important; }
+                .tp table tbody tr.data-row { height:34px!important; max-height:34px!important; }
+                .tp table tbody tr.tokki-row { height:28px!important; max-height:28px!important; }
                 .tp table tbody td {
                   box-sizing:border-box!important;
                   vertical-align:middle!important;
                   overflow:hidden!important;
                 }
-                .tp table tbody tr.data-row td { height:38px!important; max-height:38px!important; }
-                .tp table tbody tr.tokki-row td { height:32px!important; max-height:32px!important; }
+                .tp table tbody tr.data-row td { height:34px!important; max-height:34px!important; }
+                .tp table tbody tr.tokki-row td { height:28px!important; max-height:28px!important; }
                 .tp table tbody tr.data-row td>div.cell-wrap {
-                  height:34px; max-height:34px; overflow:hidden;
+                  height:30px; max-height:30px; overflow:hidden;
                   display:flex; align-items:center; justify-content:center;
                   word-break:break-all; flex-wrap:wrap; text-align:center;
-                  line-height:1.15;
+                  line-height:1.1;
                 }
                 .tp table tbody tr.tokki-row td>div.cell-wrap {
-                  height:28px; max-height:28px; overflow:hidden;
+                  height:24px; max-height:24px; overflow:hidden;
                   display:flex; align-items:center; justify-content:center;
                   line-height:1.2; white-space:pre-wrap; word-break:break-all;
                   text-align:center;
@@ -14510,11 +14510,11 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                     return (
                       <Fragment key={r.id}>
                         {/* データ行 */}
-                        <tr className={`data-row ${rc}`} style={{height:38}}>
-                          <td rowSpan={2} className={`border border-slate-400 px-1 text-center ${rc}`} style={{verticalAlign:'middle',overflow:'hidden',maxWidth:50,padding:0,height:70}}>
-                            <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:'2px 0'}}>
-                              <div className="font-bold leading-tight" style={{fontSize:22}}>{r.dayNum}</div>
-                              <div className="font-normal leading-tight" style={{fontSize:12,color:'#475569',marginTop:1}}>（{r.dayOfWeek}）</div>
+                        <tr className={`data-row ${rc}`} style={{height:34}}>
+                          <td rowSpan={2} className={`border border-slate-400 px-1 text-center ${rc}`} style={{verticalAlign:'middle',overflow:'hidden',maxWidth:50,padding:0,height:62}}>
+                            <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:'1px 0'}}>
+                              <div className="font-bold leading-tight" style={{fontSize:20}}>{r.dayNum}</div>
+                              <div className="font-normal leading-tight" style={{fontSize:11,color:'#475569',marginTop:0}}>（{r.dayOfWeek}）</div>
                             </div>
                           </td>
                           <td className={`border border-slate-400 px-0.5 text-center text-[9px] ${sc}`} ><div className="cell-wrap" style={{justifyContent:'center'}}>{sl}</div></td>
@@ -14578,7 +14578,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                           <td className="border border-slate-400 px-0.5 text-center font-bold"><div className="cell-wrap" style={{justifyContent:'center',whiteSpace:'nowrap',fontSize:(v(r.massage)||'').length>4?9:(v(r.massage)||'').length>3?10:12}}>{v(r.massage)}</div></td>
                         </tr>
                         {/* 特記行 */}
-                        <tr className={`tokki-row ${rc}`} style={{height:32}}>
+                        <tr className={`tokki-row ${rc}`} style={{height:28}}>
                           <td className="border-l border-b border-slate-400 px-1 py-0 bg-slate-100 text-center text-[9px] text-slate-500 font-bold" ><div className="cell-wrap">特記</div></td>
                           <td colSpan={tc - 2} className="border-r border-b border-slate-400 px-1.5 py-0 text-[10px] text-slate-700" ><div className="cell-wrap" style={{overflow:'hidden'}}>{r.tokki||''}</div></td>
                         </tr>
@@ -14588,19 +14588,19 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                   {/* 空行 */}
                   {Array.from({length:fill}).map((_,i)=>(
                     <Fragment key={`e${i}`}>
-                      <tr className="data-row" style={{height:38}}>
-                        <td rowSpan={2} className="border border-slate-400 px-1" style={{height:70}}></td>
-                        <td className="border border-slate-400" style={{height:38}}></td>
-                        <td className="border border-slate-400" style={{height:38}}></td>
-                        <td className="border border-slate-400" style={{height:38}}></td>
-                        <td className="border border-slate-400" style={{height:38}}></td>
-                        <td className="border border-slate-400" style={{height:38}}></td>
-                        {ex.map(it=><td key={it.id} className="border border-slate-400" style={{height:38}}></td>)}
-                        <td className="border border-slate-400" style={{height:38}}></td>
+                      <tr className="data-row" style={{height:34}}>
+                        <td rowSpan={2} className="border border-slate-400 px-1" style={{height:62}}></td>
+                        <td className="border border-slate-400" style={{height:34}}></td>
+                        <td className="border border-slate-400" style={{height:34}}></td>
+                        <td className="border border-slate-400" style={{height:34}}></td>
+                        <td className="border border-slate-400" style={{height:34}}></td>
+                        <td className="border border-slate-400" style={{height:34}}></td>
+                        {ex.map(it=><td key={it.id} className="border border-slate-400" style={{height:34}}></td>)}
+                        <td className="border border-slate-400" style={{height:34}}></td>
                       </tr>
-                      <tr className="tokki-row" style={{height:32}}>
-                        <td className="border-l border-b border-slate-400 px-1 py-0 bg-slate-100 text-center text-[9px] text-slate-400 font-bold" style={{height:32}}>特記</td>
-                        <td colSpan={tc - 2} className="border-r border-b border-slate-400" style={{height:32}}></td>
+                      <tr className="tokki-row" style={{height:28}}>
+                        <td className="border-l border-b border-slate-400 px-1 py-0 bg-slate-100 text-center text-[9px] text-slate-400 font-bold" style={{height:28}}>特記</td>
+                        <td colSpan={tc - 2} className="border-r border-b border-slate-400" style={{height:28}}></td>
                       </tr>
                     </Fragment>
                   ))}
