@@ -9700,7 +9700,7 @@ export default function App() {
                     style={{background:'#1d4ed8',color:'white',border:'none',borderLeft:'1px solid rgba(255,255,255,0.25)',borderRadius:'0 10px 10px 0',padding:'10px 12px',fontWeight:'bold',fontSize:16,cursor:'pointer',boxShadow:'0 2px 8px rgba(0,0,0,0.2)',marginLeft:-10}}>
                     ⓘ
                   </button>
-                  {isFaxKind && (
+                  {isFaxKind && faxType !== 'absence' && (
                     <button onClick={()=>setShowFaxRecord(true)} title="送付履歴に記録する"
                       style={{background:'#7c3aed',color:'white',border:'none',borderRadius:10,padding:'10px 16px',fontWeight:'bold',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',gap:6,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
                       📝 履歴に記録
@@ -20873,20 +20873,29 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
           <span style={{fontSize:13,fontWeight:'bold',color:'#94a3b8'}}>{absDate}　{maskedName} 様</span>
           <div style={{marginLeft:'auto',display:'flex',gap:8,flexWrap:'wrap'}}>
             <button type="button" onClick={()=>{
-              // プレビューモーダルへ
+              // プレビューモーダルへ + 送付履歴を自動記録
               const el = document.getElementById('print-content-fax');
               if(!el) return;
               setIsPrint(true);
+              // 送付履歴を自動記録（利用者名 / ケアマネ名 / 送付日）
+              const newEntry = {
+                id: `fax_${Date.now()}_${Math.random().toString(36).slice(-4)}`,
+                type: 'absence',
+                timestamp: new Date().toISOString(),
+                subject: `休み連絡 (${absDate})`,
+                patientName: selectedEntry?.patient?.name || '',
+                recipientName: selectedEntry?.patient?.cmName || '',
+                recipientFax: selectedEntry?.patient?.cmFax || '',
+                recipientOffice: selectedEntry?.patient?.cmOffice || '',
+                note: '自動記録',
+              };
+              onSave({...appData, faxHistory: [newEntry, ...(appData.faxHistory||[])]});
               setTimeout(()=>{
                 onShowPrintPreview(`休み連絡_${selectedEntry?.patient?.name||''}`, 'A4 portrait', 'print-content-fax');
                 setIsPrint(false);
               },100);
             }} style={{background:'#0f766e',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
               📋 プレビュー
-            </button>
-            <button type="button" onClick={()=>setShowFaxHist(true)}
-              style={{background:'#7c3aed',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
-              📋 履歴
             </button>
             <button type="button" onClick={()=>{
               markClean();
@@ -21095,6 +21104,10 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <FileText size={20}/>
           <span style={{fontSize:17,fontWeight:'bold'}}>休み連絡</span>
+          <button type="button" onClick={()=>setShowFaxHist(true)}
+            style={{background:'#7c3aed',border:'none',color:'white',borderRadius:8,padding:'5px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5,marginLeft:8}}>
+            📋 履歴
+          </button>
         </div>
         <div style={{display:'flex',alignItems:'center',gap:8}}>
           <button type="button" onClick={()=>setCurrentMonth(new Date(cY,cM-2,1))} style={{background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',color:'white',borderRadius:8,padding:'5px 12px',fontWeight:'bold',cursor:'pointer'}}>←</button>
@@ -21181,6 +21194,10 @@ function GeneralFaxView({ appData, onSave, onShowPrintPreview }) {
   const [pageCount, setPageCount] = React.useState(1);
   const [checks, setChecks] = React.useState({ kyuukyuu: false, kakunin: false, orikaesu: false });
   const [showFaxHist, setShowFaxHist] = React.useState(false);
+  // 御中の前 / 様の前 / 利用者名（利用者未選択時に手入力可能）
+  const [recipientOffice, setRecipientOffice] = React.useState('');
+  const [recipientName, setRecipientName] = React.useState('');
+  const [customPatientName, setCustomPatientName] = React.useState('');
   const genHistory = (appData.faxHistory||[]).filter(h => h.type === 'general');
   const deleteGenHist = (id) => onSave && onSave({...appData, faxHistory: (appData.faxHistory||[]).filter(h => h.id !== id)});
 
@@ -21211,9 +21228,23 @@ function GeneralFaxView({ appData, onSave, onShowPrintPreview }) {
   const today = toWareki(new Date().toISOString().split('T')[0]);
   const maskedName = patient ? maskName(patient.name) : '';
 
+  // 利用者選択を変えたとき、御中の前 / 様の前 / 利用者名の表示を自動補完
+  React.useEffect(() => {
+    if (patient) {
+      setRecipientOffice(patient.cmOffice || '');
+      setRecipientName(patient.cmName || '');
+      setCustomPatientName(patient.name || '');
+    } else {
+      setRecipientOffice('');
+      setRecipientName('');
+      setCustomPatientName('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPatientId]);
+
   const handlePreview = () => {
-    if (!patient) { alert('利用者を選択してください'); return; }
-    if (onShowPrintPreview) onShowPrintPreview(`各種連絡_${patient.name}`, 'A4 portrait', 'print-content-general-fax');
+    const label = patient ? patient.name : (customPatientName || '汎用');
+    if (onShowPrintPreview) onShowPrintPreview(`各種連絡_${label}`, 'A4 portrait', 'print-content-general-fax');
   };
 
   return (
@@ -21227,8 +21258,8 @@ function GeneralFaxView({ appData, onSave, onShowPrintPreview }) {
         <label style={{display:'flex',alignItems:'center',gap:6,whiteSpace:'nowrap'}}>
           <span style={{fontSize:12,fontWeight:'bold',color:'#cbd5e1'}}>利用者:</span>
           <select value={selectedPatientId||''} onChange={e=>setSelectedPatientId(Number(e.target.value)||null)}
-                  style={{padding:'5px 8px',border:'1px solid rgba(255,255,255,0.25)',borderRadius:6,fontSize:13,fontWeight:'bold',outline:'none',background:'rgba(255,255,255,0.1)',color:'white',minWidth:160}}>
-            <option value="" style={{color:'#1e293b'}}>— 選択 —</option>
+                  style={{padding:'5px 8px',border:'1px solid rgba(255,255,255,0.25)',borderRadius:6,fontSize:13,fontWeight:'bold',outline:'none',background:'rgba(255,255,255,0.1)',color:'white',minWidth:160,textAlign:'center',textAlignLast:'center'}}>
+            <option value="" style={{color:'#1e293b'}}>— 利用者なし —</option>
             {groupPatientsByKanaRow(patients).map(g => (
               <optgroup key={g.label} label={g.label}>
                 {g.items.map(p => <option key={p.id} value={p.id} style={{color:'#1e293b'}}>{p.name}</option>)}
@@ -21241,9 +21272,9 @@ function GeneralFaxView({ appData, onSave, onShowPrintPreview }) {
           <span style={{fontSize:12,fontWeight:'bold',color:'#cbd5e1'}}>送付件数:</span>
           <button type="button" onClick={()=>setPageCount(c=>Math.max(1,c-1))}
                   style={{width:24,height:26,border:'1px solid rgba(255,255,255,0.25)',borderRadius:6,background:'rgba(255,255,255,0.1)',color:'white',fontWeight:'bold',fontSize:14,cursor:'pointer'}}>−</button>
-          <input type="number" min="1" max="99" value={pageCount}
-                 onChange={e=>setPageCount(Math.max(1,Math.min(99,parseInt(e.target.value)||1)))}
-                 style={{width:42,padding:'4px 0',border:'1px solid rgba(255,255,255,0.25)',borderRadius:6,fontSize:13,fontWeight:'bold',outline:'none',background:'rgba(255,255,255,0.1)',color:'white',textAlign:'center',boxSizing:'border-box'}}/>
+          <input type="text" inputMode="numeric" value={pageCount}
+                 onChange={e=>{const v=parseInt(e.target.value)||0; setPageCount(Math.max(1,Math.min(99,v||1)));}}
+                 style={{width:46,padding:'4px 0',border:'1px solid rgba(255,255,255,0.25)',borderRadius:6,fontSize:13,fontWeight:'bold',outline:'none',background:'rgba(255,255,255,0.1)',color:'white',textAlign:'center',boxSizing:'border-box'}}/>
           <button type="button" onClick={()=>setPageCount(c=>Math.min(99,c+1))}
                   style={{width:24,height:26,border:'1px solid rgba(255,255,255,0.25)',borderRadius:6,background:'rgba(255,255,255,0.1)',color:'white',fontWeight:'bold',fontSize:14,cursor:'pointer'}}>+</button>
           <span style={{fontSize:12,fontWeight:'bold',color:'#cbd5e1'}}>枚</span>
@@ -21260,8 +21291,8 @@ function GeneralFaxView({ appData, onSave, onShowPrintPreview }) {
           ))}
         </div>
         <div style={{marginLeft:'auto',display:'flex',gap:8}}>
-          <button type="button" onClick={handlePreview} disabled={!patient}
-                  style={{background:patient?'#0f766e':'#475569',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:patient?'pointer':'not-allowed',display:'flex',alignItems:'center',gap:5,opacity:patient?1:0.6}}>
+          <button type="button" onClick={handlePreview}
+                  style={{background:'#0f766e',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
             📋 プレビュー
           </button>
           <button type="button" onClick={()=>setShowFaxHist(true)}
@@ -21307,11 +21338,15 @@ function GeneralFaxView({ appData, onSave, onShowPrintPreview }) {
                 <span></span>
               </div>
               <div style={{marginLeft:90,marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:8}}>
-                <AutoFitLine style={{flex:1,minWidth:0,fontSize:17}}>{patient?.cmOffice || '　'}</AutoFitLine>
+                <input type="text" value={recipientOffice} onChange={e=>setRecipientOffice(e.target.value)}
+                       placeholder="(送付先名)" className="fax-inline-input"
+                       style={{flex:1,minWidth:0,fontSize:17,border:'none',outline:'none',background:'transparent',padding:'2px 4px',fontFamily:'inherit'}}/>
                 <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap'}}>御中</span>
               </div>
               <div style={{marginLeft:90,marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:8}}>
-                <AutoFitLine style={{flex:1,minWidth:0,fontSize:17}}>{patient?.cmName || '　'}</AutoFitLine>
+                <input type="text" value={recipientName} onChange={e=>setRecipientName(e.target.value)}
+                       placeholder="(担当者名)" className="fax-inline-input"
+                       style={{flex:1,minWidth:0,fontSize:17,border:'none',outline:'none',background:'transparent',padding:'2px 4px',fontFamily:'inherit'}}/>
                 <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap'}}>様</span>
               </div>
               {patient?.cmFax && (
@@ -21355,8 +21390,19 @@ function GeneralFaxView({ appData, onSave, onShowPrintPreview }) {
           <div style={{border:'2px solid black',padding:'24px 28px',lineHeight:2.2,fontSize:13,flex:1,display:'flex',flexDirection:'column',minHeight:500}}>
             <div style={{fontSize:19,fontWeight:'bold',marginBottom:20,borderBottom:'1px solid #e2e8f0',paddingBottom:14,display:'flex',alignItems:'center',gap:8}}>
               <span style={{color:'#475569',fontWeight:'bold',whiteSpace:'nowrap'}}>利用者名：</span>
-              <span style={{borderBottom:'2px solid #1e293b',paddingBottom:2,letterSpacing:2}}>{maskedName || '　'}</span>
-              {patient && <span>様</span>}
+              {patient ? (
+                <>
+                  <span style={{borderBottom:'2px solid #1e293b',paddingBottom:2,letterSpacing:2}}>{maskedName}</span>
+                  <span>様</span>
+                </>
+              ) : (
+                <>
+                  <input type="text" value={customPatientName} onChange={e=>setCustomPatientName(e.target.value)}
+                         placeholder="(任意入力)" className="fax-inline-input"
+                         style={{flex:1,fontSize:19,fontWeight:'bold',letterSpacing:2,border:'none',outline:'none',background:'transparent',padding:'2px 4px',fontFamily:'inherit',borderBottom:'2px solid #1e293b'}}/>
+                  {customPatientName.trim() && <span>様</span>}
+                </>
+              )}
             </div>
             <textarea value={memo} onChange={e=>setMemo(e.target.value)}
                       placeholder="ここに連絡事項を直接入力してください"
