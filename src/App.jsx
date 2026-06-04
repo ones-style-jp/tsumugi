@@ -9050,8 +9050,9 @@ function FamilyView() {
   const [mode, setMode] = useState('login'); // 'login' | 'signup'
   const [signupForm, setSignupForm] = useState({
     inviteCode:'', username:'', password:'', password2:'', displayName:'',
+    email:'',  // 共通メールアドレス (家族アカウント + 緊急連絡先 両方に反映)
     // 緊急連絡先 (利用者マスタの emergencyContacts に自動反映)
-    ecName:'', ecRelation:'', ecPhone:'', ecMobile:'', ecEmail:'',
+    ecName:'', ecRelation:'', ecPhone:'', ecMobile:'',
     error:'', done:false
   });
   // データ更新を購読 (事業所側で更新されたら反映)
@@ -9142,16 +9143,18 @@ function FamilyView() {
                   if (pw.length < 8) { setSignupForm(f=>({...f, error:'パスワードは8文字以上必要です'})); return; }
                   if (!/[a-zA-Z]/.test(pw) || !/[0-9]/.test(pw)) { setSignupForm(f=>({...f, error:'パスワードは英字と数字を組み合わせてください'})); return; }
                   if (pw !== signupForm.password2) { setSignupForm(f=>({...f, error:'パスワードが一致しません'})); return; }
+                  // メールアドレスバリデーション (家族アカウント + 緊急連絡先 共通)
+                  const email = signupForm.email.trim();
+                  if (!email) { setSignupForm(f=>({...f, error:'メールアドレスを入力してください'})); return; }
+                  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setSignupForm(f=>({...f, error:'メールアドレスの形式が正しくありません'})); return; }
                   // 緊急連絡先バリデーション
                   const ecName = signupForm.ecName.trim();
                   const ecRelation = signupForm.ecRelation.trim();
                   const ecPhone = signupForm.ecPhone.trim();
                   const ecMobile = signupForm.ecMobile.trim();
-                  const ecEmail = signupForm.ecEmail.trim();
                   if (!ecName) { setSignupForm(f=>({...f, error:'緊急連絡先のお名前を入力してください'})); return; }
                   if (!ecRelation) { setSignupForm(f=>({...f, error:'続柄を入力してください'})); return; }
                   if (!ecPhone && !ecMobile) { setSignupForm(f=>({...f, error:'緊急連絡先の電話番号（固定または携帯）を1つ以上入力してください'})); return; }
-                  if (ecEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ecEmail)) { setSignupForm(f=>({...f, error:'メールアドレスの形式が正しくありません'})); return; }
                   // 2. 最新の localStorage を取得して招待コードを検証
                   let latest;
                   try { latest = JSON.parse(localStorage.getItem('daycareAppData_v3')||'null'); } catch { latest = null; }
@@ -9170,6 +9173,7 @@ function FamilyView() {
                     username: uname,
                     password: pw,
                     displayName: signupForm.displayName.trim() || ecName,
+                    email: email,  // 家族アカウントにも保存
                     createdAt: new Date().toISOString().slice(0,10),
                   };
                   const newEmergencyContact = {
@@ -9177,7 +9181,7 @@ function FamilyView() {
                     relation: ecRelation,
                     phone: ecPhone,
                     phoneMobile: ecMobile,
-                    email: ecEmail,
+                    email: email,  // 上で入力したメアドが自動反映
                     addedByFamilyAccountId: newAccId,
                     addedAt: new Date().toISOString(),
                   };
@@ -9203,6 +9207,13 @@ function FamilyView() {
                     <input value={signupForm.inviteCode} onChange={e=>setSignupForm(f=>({...f,inviteCode:normalizeInviteCode(e.target.value),error:''}))}
                       placeholder="FAM-XXXX-XXXX" autoFocus
                       style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:15,fontWeight:'bold',outline:'none',boxSizing:'border-box',fontFamily:'Menlo,monospace',letterSpacing:2,textAlign:'center'}}/>
+                  </div>
+                  <div style={{marginBottom:12}}>
+                    <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>メールアドレス <span style={{color:'#dc2626'}}>*</span></label>
+                    <input type="email" value={signupForm.email} onChange={e=>setSignupForm(f=>({...f,email:toHalfWidth(e.target.value),error:''}))}
+                      placeholder="例: yamada@example.com"
+                      style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
+                    <div style={{fontSize:10,color:'#94a3b8',marginTop:4}}>※ 緊急連絡先のメールアドレスとしても自動登録されます</div>
                   </div>
                   <div style={{marginBottom:12}}>
                     <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>ログインID</label>
@@ -9262,14 +9273,9 @@ function FamilyView() {
                           style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
                       </div>
                     </div>
-                    <div>
-                      <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>メールアドレス (任意)</label>
-                      <input type="email" value={signupForm.ecEmail} onChange={e=>setSignupForm(f=>({...f,ecEmail:toHalfWidth(e.target.value),error:''}))}
-                        placeholder="example@email.com"
-                        style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
-                    </div>
-                    <div style={{fontSize:10,color:'#78350f',marginTop:6,lineHeight:1.4}}>
-                      ※ 家・携帯のいずれかは必須です
+                    <div style={{fontSize:10,color:'#78350f',marginTop:4,lineHeight:1.4}}>
+                      ※ 家・携帯のいずれかは必須です<br/>
+                      ※ メールアドレスは上で入力したものが自動で登録されます
                     </div>
                   </div>
                   {signupForm.error && <div style={{color:'#ef4444',fontSize:12,fontWeight:'bold',marginBottom:10,textAlign:'center',background:'#fef2f2',padding:'8px 10px',borderRadius:8}}>{signupForm.error}</div>}
@@ -16342,6 +16348,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   const [newPatientModal, setNewPatientModal] = useState(false);
   const [csvModal, setCsvModal] = useState({isOpen:false, mode:null, importText:'', error:''});
   const [familyShareModal, setFamilyShareModal] = useState(null); // {patient}
+  const [ocrModalOpen, setOcrModalOpen] = useState(false); // 保険証OCR取り込みモーダル
   const [accountEditId, setAccountEditId] = useState(null); // 編集中のアカウント id
   const [newPatientName, setNewPatientName] = useState('');
   const [careLevelModal, setCareLevelModal] = useState(null); // {newValue, from, to, note, isCostBurden}
@@ -16921,6 +16928,16 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             {isResigned && (<div className={`rounded-xl border-2 p-4 flex items-center justify-between ${isEditingResigned ? 'border-blue-300 bg-blue-50' : 'border-slate-300 bg-slate-100'}`}><div className="flex items-center gap-3"><CalendarOff size={20} className="text-slate-500" /><div><div className="text-sm font-bold text-slate-700">退所日: {fD(localPatient.endDate)}</div><div className="text-xs text-slate-500">{dTxt(dBtw(localPatient.endDate, new Date()))}経過</div></div></div><label className="flex items-center text-xs font-bold text-slate-600 cursor-pointer gap-2"><input type="checkbox" checked={localPatient.autoDeleteAfter5Years || false} onChange={e => updateLP('autoDeleteAfter5Years', e.target.checked)} disabled={isOff} className="w-4 h-4 rounded" />5年後自動削除</label></div>)}
 
             {activeDetailTab === 'basic' && (<>
+              {/* 📷 介護保険証 / 負担割合証 OCR 取り込み */}
+              {!isOff && (
+                <div className="bg-gradient-to-r from-indigo-50 to-violet-50 border border-indigo-200 rounded-xl p-3 flex items-center justify-between gap-3">
+                  <div className="flex-1">
+                    <div className="text-sm font-bold text-indigo-900 flex items-center gap-1.5">📷 介護保険証 / 負担割合証から自動取り込み</div>
+                    <div className="text-[11px] text-indigo-700 mt-0.5">写真を撮ってアップロードすると、氏名・被保険者番号・介護度・適用期間・住所・負担割合などを自動で抽出します</div>
+                  </div>
+                  <button onClick={()=>setOcrModalOpen(true)} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm shadow active:scale-95 whitespace-nowrap">読み取り開始</button>
+                </div>
+              )}
               {/* ① 状態・利用開始日・利用終了日 */}
               <div className="grid grid-cols-3 gap-4"><div><label className="block text-sm font-bold text-slate-600 mb-1.5">状態</label>{isResigned ? (<div className="w-full px-3 py-2.5 bg-slate-200 border border-slate-300 rounded-xl font-bold text-base text-slate-600">終了（退所済み）</div>) : (<select value={localPatient.status || "利用中"} onChange={e => handleStatusChange(e.target.value)} disabled={isOff} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none disabled:opacity-60"><option value="利用中">利用中</option><option value="休止">休止</option></select>)}</div><LabelInput label="利用開始日" type="date" disabled={isOff} value={localPatient.startDate} onChange={e => updateLP('startDate', e.target.value)} /><LabelInput label="利用終了日" type="date" disabled={isOff && !isEditingResigned} value={localPatient.endDate} onChange={e => updateLP('endDate', e.target.value)} /></div>
 
@@ -17450,6 +17467,18 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
           </div>
         );
       })()}
+      {ocrModalOpen && (
+        <InsuranceOcrModal
+          onApply={(fields) => {
+            // 抽出されたフィールドを localPatient に反映
+            Object.entries(fields).forEach(([k, v]) => {
+              if (v != null && v !== '') updateLP(k, v);
+            });
+            setOcrModalOpen(false);
+          }}
+          onClose={() => setOcrModalOpen(false)}
+        />
+      )}
       {familyShareModal && (() => {
         const pat = familyShareModal.patient;
         const baseUrl = window.location.origin + window.location.pathname.replace(/\/+$/, '');
@@ -20686,6 +20715,243 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 
 
 // === AbsenceFaxView (休み連絡) ===
+// === 介護保険証 / 負担割合証 OCR 取り込みモーダル ===
+// Tesseract.js を CDN から動的ロードして日本語 OCR を実行し、フィールドを抽出
+function InsuranceOcrModal({ onApply, onClose }) {
+  const [file, setFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressLabel, setProgressLabel] = useState('');
+  const [rawText, setRawText] = useState('');
+  const [fields, setFields] = useState({});
+  const [error, setError] = useState('');
+  const fileRef = useRef(null);
+
+  // Tesseract.js CDN ロード (キャッシュ済みなら再ロードしない)
+  const loadTesseract = () => new Promise((resolve, reject) => {
+    if (window.Tesseract) return resolve(window.Tesseract);
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.0.5/dist/tesseract.min.js';
+    script.onload = () => resolve(window.Tesseract);
+    script.onerror = () => reject(new Error('Tesseract.js の読み込みに失敗しました。インターネット接続をご確認ください。'));
+    document.head.appendChild(script);
+  });
+
+  // 和暦 / 西暦 を YYYY-MM-DD に正規化
+  const parseDate = (s) => {
+    if (!s) return '';
+    const m = s.match(/(令和|平成|昭和|明治|大正)?\s*(\d+)\s*年\s*(\d+)\s*月\s*(\d+)\s*日/);
+    if (!m) return '';
+    let year = parseInt(m[2], 10);
+    if (m[1] === '令和') year += 2018;
+    else if (m[1] === '平成') year += 1988;
+    else if (m[1] === '昭和') year += 1925;
+    else if (m[1] === '大正') year += 1911;
+    else if (m[1] === '明治') year += 1867;
+    else if (year < 100) year += 2000;
+    const mm = String(parseInt(m[3], 10)).padStart(2, '0');
+    const dd = String(parseInt(m[4], 10)).padStart(2, '0');
+    return `${year}-${mm}-${dd}`;
+  };
+
+  // OCR テキストから各フィールドを抽出
+  const parseFields = (text) => {
+    const out = {};
+    // 全角を半角に統一して扱う (ただし氏名・住所は元のまま)
+    const ascii = text.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+
+    // 氏名 (氏名 直後のテキスト)
+    const nm = text.match(/氏[\s　]*名[\s　]*[:：]?[\s　]*([^\n]+)/);
+    if (nm) {
+      const name = nm[1].trim().split(/[\s　]+/).slice(0, 2).join(' ');
+      if (name && name.length <= 20) out.name = name;
+    }
+
+    // 性別
+    if (/性[\s　]*別[\s　]*男/.test(text) || /\b男\s*$/m.test(text)) out.gender = '男性';
+    else if (/性[\s　]*別[\s　]*女/.test(text) || /\b女\s*$/m.test(text)) out.gender = '女性';
+
+    // 生年月日
+    const bm = text.match(/生年月[\s　]*日[\s　]*[:：]?[\s　]*((?:令和|平成|昭和|明治|大正)?[\s　]*\d+[\s　]*年[\s　]*\d+[\s　]*月[\s　]*\d+[\s　]*日)/);
+    if (bm) {
+      const d = parseDate(bm[1]);
+      if (d) out.birthDate = d;
+    }
+
+    // 被保険者番号 (10桁数字)
+    const ins = ascii.match(/被[\s　]*保[\s　]*険[\s　]*者[\s　]*番[\s　]*号[\s　]*[:：]?[\s　]*(\d{10})/);
+    if (ins) out.insuranceNo = ins[1];
+    else {
+      // フォールバック: 単独の10桁
+      const fb = ascii.match(/(?:^|[^\d])(\d{10})(?:[^\d]|$)/);
+      if (fb) out.insuranceNo = fb[1];
+    }
+
+    // 介護度
+    const careLevels = ['要支援1','要支援2','要介護1','要介護2','要介護3','要介護4','要介護5','事業対象者'];
+    for (const cl of careLevels) {
+      if (text.includes(cl) || text.includes(cl.replace(/(\d)/, c => '１２３４５'[parseInt(c)-1] || c))) {
+        out.careLevel = cl;
+        break;
+      }
+    }
+
+    // 認定の有効期間 (2つの日付を期間とみなす)
+    // 「認定の有効期間」「認定有効期間」「適用期間」のいずれかを起点に
+    const idx = ['認定の有効期間','認定有効期間','適用期間','有効期間'].reduce((found, kw) => {
+      if (found !== -1) return found;
+      const i = text.indexOf(kw);
+      return i !== -1 ? i : -1;
+    }, -1);
+    if (idx !== -1) {
+      const after = text.slice(idx);
+      const dates = after.match(/(?:令和|平成|昭和)?[\s　]*\d+[\s　]*年[\s　]*\d+[\s　]*月[\s　]*\d+[\s　]*日/g);
+      if (dates && dates.length >= 1) {
+        const s = parseDate(dates[0]);
+        if (s) out.careLevelFrom = s;
+      }
+      if (dates && dates.length >= 2) {
+        const e = parseDate(dates[1]);
+        if (e) out.careLevelTo = e;
+      }
+    }
+
+    // 住所
+    const ad = text.match(/(?:住[\s　]*所|現[\s　]*住[\s　]*所)[\s　]*[:：]?[\s　]*([^\n]+)/);
+    if (ad) {
+      const addr = ad[1].trim();
+      if (addr.length <= 80) out.address = addr;
+    }
+
+    // 郵便番号
+    const zip = ascii.match(/〒?[\s　]*(\d{3})[\s　-]?(\d{4})/);
+    if (zip) out.zipCode = `${zip[1]}-${zip[2]}`;
+
+    // 負担割合 (1割/2割/3割) - 通常 負担割合証に記載
+    if (/3[\s　]*割/.test(ascii) || /三[\s　]*割/.test(text)) out.costBurden = '70%';
+    else if (/2[\s　]*割/.test(ascii) || /二[\s　]*割/.test(text)) out.costBurden = '80%';
+    else if (/1[\s　]*割/.test(ascii) || /一[\s　]*割/.test(text)) out.costBurden = '90%';
+
+    return out;
+  };
+
+  const onFileChange = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setFile(f);
+    setPreviewUrl(URL.createObjectURL(f));
+    setRawText(''); setFields({}); setError(''); setProgress(0);
+  };
+
+  const runOcr = async () => {
+    if (!file) { setError('画像を選択してください'); return; }
+    setRunning(true); setError(''); setProgress(0); setProgressLabel('Tesseract を読み込み中...');
+    try {
+      const Tesseract = await loadTesseract();
+      setProgressLabel('日本語データを読み込み中... (初回は数十秒かかります)');
+      const result = await Tesseract.recognize(file, 'jpn', {
+        logger: (m) => {
+          if (m.status === 'recognizing text') {
+            setProgress(Math.round((m.progress || 0) * 100));
+            setProgressLabel('文字を認識中...');
+          } else if (m.status) {
+            setProgressLabel(m.status);
+          }
+        },
+      });
+      const text = result?.data?.text || '';
+      setRawText(text);
+      setFields(parseFields(text));
+      setProgressLabel('完了');
+    } catch (e) {
+      setError(e?.message || 'OCR に失敗しました');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const fieldLabels = {
+    name:'氏名', gender:'性別', birthDate:'生年月日', zipCode:'郵便番号', address:'住所',
+    insuranceNo:'被保険者番号', careLevel:'介護度', careLevelFrom:'適用期間（開始）',
+    careLevelTo:'適用期間（終了）', costBurden:'負担割合',
+  };
+
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.75)',zIndex:10000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:18,width:'100%',maxWidth:780,maxHeight:'90vh',overflow:'auto',boxShadow:'0 24px 60px rgba(0,0,0,0.4)'}}>
+        <div style={{padding:'16px 22px',borderBottom:'1px solid #e2e8f0',display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,background:'white',zIndex:1}}>
+          <div className="text-base font-bold text-slate-800 flex items-center gap-2">📷 介護保険証 / 負担割合証 OCR 取り込み</div>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-full">✕</button>
+        </div>
+        <div style={{padding:'18px 22px'}}>
+          {/* 画像選択 */}
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-3">
+            <div className="text-xs font-bold text-slate-600 mb-2">1. 介護保険証 / 負担割合証 の写真を選択</div>
+            <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={onFileChange} className="block w-full text-xs"/>
+            <div className="text-[10px] text-slate-500 mt-1">※ 紙の上から撮影 (なるべく文字がくっきり映るように)</div>
+          </div>
+
+          {previewUrl && (
+            <div className="mb-3 text-center">
+              <img src={previewUrl} alt="preview" style={{maxWidth:'100%',maxHeight:240,borderRadius:10,border:'1px solid #e2e8f0',background:'#f8fafc'}}/>
+            </div>
+          )}
+
+          {/* OCR 実行 */}
+          <div className="flex gap-2 mb-3">
+            <button onClick={runOcr} disabled={!file || running}
+              className={`flex-1 px-4 py-2.5 rounded-xl font-bold text-sm shadow ${(!file || running) ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}>
+              {running ? `読取中... ${progress}%` : '🔍 OCR で読み取る'}
+            </button>
+          </div>
+          {progressLabel && <div className="text-[11px] text-slate-500 mb-2">{progressLabel} {running && progress > 0 && `(${progress}%)`}</div>}
+
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 text-xs font-bold p-2 rounded-lg mb-3">⚠ {error}</div>}
+
+          {/* 抽出フィールド */}
+          {Object.keys(fields).length > 0 && (
+            <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-3 mb-3">
+              <div className="text-xs font-bold text-emerald-800 mb-2">✓ 抽出されたフィールド ({Object.keys(fields).length}件)</div>
+              <div className="grid grid-cols-2 gap-2">
+                {Object.entries(fieldLabels).map(([k, label]) => {
+                  const val = fields[k];
+                  if (!val) return null;
+                  return (
+                    <div key={k} className="bg-white border border-emerald-200 rounded-lg p-2">
+                      <div className="text-[10px] font-bold text-emerald-700">{label}</div>
+                      <input value={val} onChange={e=>setFields(f=>({...f, [k]: e.target.value}))} className="w-full text-sm font-bold text-slate-800 bg-transparent outline-none"/>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="text-[10px] text-emerald-700 mt-2">
+                ※ 上の値は手動で修正できます。「✓ 反映」を押すと利用者マスタに上書き保存します。
+              </div>
+              <button onClick={()=>onApply(fields)} className="mt-2 w-full px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm shadow">
+                ✓ この内容を利用者マスタに反映
+              </button>
+            </div>
+          )}
+
+          {/* 生 OCR テキスト (デバッグ用に表示) */}
+          {rawText && (
+            <details className="bg-slate-100 rounded-lg p-2">
+              <summary className="text-[11px] font-bold text-slate-600 cursor-pointer">📝 OCR の生テキストを見る</summary>
+              <pre className="text-[10px] text-slate-700 whitespace-pre-wrap font-mono mt-2 max-h-60 overflow-auto">{rawText}</pre>
+            </details>
+          )}
+
+          <div className="text-[10px] text-slate-500 mt-3 leading-relaxed bg-amber-50 border border-amber-200 rounded-lg p-2">
+            <b>※ プライバシー保護:</b> 画像処理はすべてブラウザ内で実行され、外部サーバーには送信されません。<br/>
+            <b>※ 精度について:</b> 印刷された文字は比較的高精度ですが、撮影状態（ピント・光・角度）により失敗する場合があります。抽出後は必ず内容を確認してください。
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // === FAX送付履歴記録モーダル (送信完了後にユーザーが手動で記録) ===
 function FaxHistoryRecordModal({ defaultRecord, onSave, onClose }) {
   const [rec, setRec] = useState(defaultRecord || { recipientName:'', recipientFax:'', note:'' });
