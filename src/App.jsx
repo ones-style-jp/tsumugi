@@ -93,8 +93,8 @@ const DataExportSection = ({ appData }) => {
   const [customFrom, setCustomFrom] = React.useState(`${new Date().getFullYear()}-01-01`);
   const [customTo, setCustomTo] = React.useState(`${new Date().getFullYear()}-12-31`);
   const [include, setInclude] = React.useState({
-    patients: true, tickets: true, contact: true, monitoring: true, fitness: true,
-    diary: true, announcements: true, photos: true, fax: true,
+    patients: true, tickets: true, fitness: true, diary: true,
+    absenceFax: true, generalFax: true,
   });
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState('');
@@ -160,7 +160,25 @@ const DataExportSection = ({ appData }) => {
       const root = zip.folder(rootDir);
       root.file('_meta.json', JSON.stringify({ exportedAt: new Date().toISOString(), range: label, app: 'デイケア管理アプリ' }, null, 2));
 
-      // 利用者一覧
+      // HTML 共通スタイル (印刷時 PDF 化用)
+      const htmlBase = (title, body) => `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>${title}</title><style>
+@page { size: A4; margin: 12mm; }
+body { font-family: "Hiragino Sans","Yu Gothic",sans-serif; color:#1e293b; max-width:780px; margin:20px auto; padding:0 12px; line-height:1.6; }
+h1 { font-size:18px; border-bottom:2px solid #334155; padding-bottom:6px; }
+h2 { font-size:15px; margin-top:20px; color:#475569; }
+table { width:100%; border-collapse:collapse; margin:8px 0; font-size:12px; }
+th, td { border:1px solid #cbd5e1; padding:5px 8px; text-align:left; vertical-align:top; }
+th { background:#f1f5f9; font-weight:bold; }
+.label { color:#64748b; font-size:11px; font-weight:bold; }
+.section { margin:18px 0; }
+.no-print { background:#fef3c7; border:1px solid #fbbf24; padding:8px 12px; border-radius:6px; margin:14px 0; font-size:12px; }
+@media print { .no-print { display:none; } body { margin:0; max-width:none; } }
+.print-hint button { padding:8px 18px; font-weight:bold; cursor:pointer; }
+</style></head><body>
+<div class="no-print print-hint">💡 ブラウザで「ファイル → 印刷 → 送信先: PDF として保存」を選択するとPDF化できます。<button onclick="window.print()">🖨 今すぐ印刷</button></div>
+${body}</body></html>`;
+
+      // 利用者一覧 (CSV のみ — 一覧データなので CSV 十分)
       if (include.patients) {
         setProgress('利用者一覧をエクスポート中...');
         const ps = appData.patients || [];
@@ -173,100 +191,149 @@ const DataExportSection = ({ appData }) => {
         ps.forEach(p => (p.emergencyContacts||[]).forEach(c => ecRows.push([p.id,p.name,c.relation,c.name,c.phone,c.phoneMobile,c.email])));
         if (ecRows.length > 0) root.file('01_緊急連絡先.csv', toCsv(ecHeaders, ecRows));
       }
-      // 提供記録
+      // 提供記録: 利用者×月ごとに HTML (印刷で PDF 化)
       if (include.tickets) {
         setProgress('提供記録をエクスポート中...');
         const recs = (appData.ticketRecords || []).filter(r => inRange(r.date, start, end));
-        const headers = ['記録ID','利用者ID','氏名','日付','曜日','状態','体温','血圧上(開始)','血圧下(開始)','脈(開始)','血圧上(終了)','血圧下(終了)','脈(終了)','整体','気分(来所)','気分(帰宅)','特記'];
-        const rows = recs.map(r => [r.id,r.patientId,r.name,r.date,r.dayOfWeek,r.status,r.temp,r.bpUpSt,r.bpDnSt,r.plSt,r.bpUpEn,r.bpDnEn,r.plEn,r.massage,r.kibunArrival,r.kibunDeparture,r.tokki]);
-        root.file('02_提供記録.csv', toCsv(headers, rows));
+        // patient×year-month でグルーピング
+        const groups = {};
+        const ps = appData.patients || [];
+        const patientMap = new Map(ps.map(p => [p.id, p]));
+        recs.forEach(r => {
+          const d = inferDate(r.date) || new Date();
+          const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+          const key = `${r.patientId}_${ym}`;
+          if (!groups[key]) groups[key] = { patientId:r.patientId, ym, records:[] };
+          groups[key].records.push({ ...r, _d:d });
+        });
+        const dir = root.folder('02_提供記録');
+        Object.values(groups).forEach(g => {
+          const pat = patientMap.get(g.patientId) || { name:`patient_${g.patientId}`, kana:'' };
+          const sorted = g.records.sort((a,b) => a._d - b._d);
+          const tableRows = sorted.map(r => `
+            <tr>
+              <td>${r._d.getFullYear()}/${String(r._d.getMonth()+1).padStart(2,'0')}/${String(r._d.getDate()).padStart(2,'0')}<br/><span class="label">${r.dayOfWeek||''}</span></td>
+              <td>${r.status||''}</td>
+              <td>${r.temp||''}</td>
+              <td>${r.bpUpSt||''}/${r.bpDnSt||''}<br/>脈${r.plSt||''}</td>
+              <td>${r.bpUpEn||''}/${r.bpDnEn||''}<br/>脈${r.plEn||''}</td>
+              <td>${r.massage||''}</td>
+              <td>${r.kibunArrival||''}/${r.kibunDeparture||''}</td>
+              <td>${(r.tokki||'').replace(/</g,'&lt;')}</td>
+            </tr>`).join('');
+          const html = htmlBase(`提供記録 ${pat.name} ${g.ym}`, `
+            <h1>サービス提供記録</h1>
+            <div class="section">
+              <div><span class="label">利用者:</span> <b>${pat.name}</b> 様 ${pat.kana?`(${pat.kana})`:''}</div>
+              <div><span class="label">対象月:</span> ${g.ym}</div>
+              <div><span class="label">介護度:</span> ${pat.careLevel||'—'}</div>
+            </div>
+            <table>
+              <thead><tr><th>日付</th><th>状態</th><th>体温</th><th>血圧(開始)</th><th>血圧(終了)</th><th>整体</th><th>気分</th><th>特記</th></tr></thead>
+              <tbody>${tableRows}</tbody>
+            </table>`);
+          const safeName = pat.name.replace(/[\/\\:?*"<>|\s]/g,'_');
+          dir.file(`${safeName}_${g.ym}.html`, html);
+        });
       }
-      // 連絡帳
-      if (include.contact) {
-        setProgress('連絡帳をエクスポート中...');
-        const cb = appData.contactBookRecords || appData.contactBook || [];
-        const cbArr = Array.isArray(cb) ? cb : Object.entries(cb).flatMap(([k,v]) => (Array.isArray(v)?v:[v]).map(item => ({key:k, ...item})));
-        const recs = cbArr.filter(r => inRange(r.date || r.key, start, end));
-        if (recs.length > 0) root.file('03_連絡帳.json', JSON.stringify(recs, null, 2));
-      }
-      // モニタリング
-      if (include.monitoring) {
-        setProgress('モニタリングをエクスポート中...');
-        const recs = (appData.monitoringRecords || []).filter(r => inRange(r.date, start, end));
-        if (recs.length > 0) root.file('04_モニタリング.json', JSON.stringify(recs, null, 2));
-      }
-      // 体力測定
+      // 体力測定 (CSV のみ)
       if (include.fitness) {
         setProgress('体力測定をエクスポート中...');
         const recs = (appData.fitnessRecords || []).filter(r => inRange(r.date, start, end));
         const items = appData.systemSettings?.fitnessItems || [];
         const headers = ['測定ID','利用者ID','日付', ...items.map(it => `${it.name}(${it.unit})`)];
         const rows = recs.map(r => [r.id, r.patientId, r.date, ...items.map(it => r.values?.[it.id]||'')]);
-        root.file('05_体力測定.csv', toCsv(headers, rows));
+        root.file('03_体力測定.csv', toCsv(headers, rows));
       }
-      // 日誌
+      // 日誌: 1日1ファイル HTML
       if (include.diary) {
         setProgress('日誌をエクスポート中...');
         const logs = appData.diaryLogs || {};
-        const filtered = {};
-        Object.entries(logs).forEach(([date, log]) => { if (inRange(date, start, end)) filtered[date] = log; });
-        if (Object.keys(filtered).length > 0) root.file('06_日誌.json', JSON.stringify(filtered, null, 2));
-      }
-      // お知らせ
-      if (include.announcements) {
-        setProgress('お知らせをエクスポート中...');
-        const all = (appData.familyAnnouncements || []).filter(a => inRange(a.postedAt || a.date, start, end));
-        const personal = (appData.familyPersonalAnnouncements || []).filter(a => inRange(a.postedAt || a.date, start, end));
-        if (all.length > 0 || personal.length > 0) {
-          root.file('07_お知らせ_全体.json', JSON.stringify(all, null, 2));
-          root.file('07_お知らせ_個別.json', JSON.stringify(personal, null, 2));
-          // HTML 形式でも出力 (見やすさ重視)
-          const html = [...all.map(a=>({...a,_kind:'全体'})), ...personal.map(a=>({...a,_kind:'個別'}))]
-            .sort((a,b)=>(b.postedAt||b.date||'').localeCompare(a.postedAt||a.date||''))
-            .map(a => `<article style="border:1px solid #ccc;padding:14px;margin:10px 0;border-radius:8px;"><h3 style="margin:0 0 6px;">${a.title||'(タイトルなし)'} <small style="color:#888;">[${a._kind}] ${a.date||''}</small></h3>${a.body?`<p style="white-space:pre-wrap;">${a.body}</p>`:''}${(a.photos||[]).length>0?`<div style="margin-top:8px;">${a.photos.length}枚の写真添付 (photos/ フォルダ参照)</div>`:''}</article>`).join('\n');
-          root.file('07_お知らせ.html', `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>お知らせ一覧</title></head><body style="font-family:sans-serif;max-width:720px;margin:20px auto;">${html}</body></html>`);
-        }
-      }
-      // 写真 (お知らせ内 + familyPhotos)
-      if (include.photos) {
-        setProgress('写真をエクスポート中...');
-        const photosDir = root.folder('photos');
-        let count = 0;
-        const allAnns = [...(appData.familyAnnouncements||[]), ...(appData.familyPersonalAnnouncements||[])];
-        allAnns.filter(a => inRange(a.postedAt || a.date, start, end)).forEach(a => {
-          (a.photos||[]).forEach((p, pi) => {
-            const blob = dataUrlToBlob(p.url);
-            if (blob) {
-              const ext = (p.name||'').match(/\.(\w+)$/)?.[1] || 'jpg';
-              photosDir.file(`${a.date||'undated'}_${a.id||'x'}_${pi+1}.${ext}`, blob);
-              count++;
-            }
-          });
+        const dir = root.folder('04_日誌');
+        Object.entries(logs).forEach(([date, log]) => {
+          if (!inRange(date, start, end)) return;
+          const safeDate = date.replace(/[\/\\:]/g,'-');
+          const body = `<h1>日誌</h1>
+            <div class="section"><span class="label">日付:</span> <b>${date}</b></div>
+            <div class="section"><pre style="white-space:pre-wrap;font-family:inherit;background:#f8fafc;padding:10px;border-radius:4px;border:1px solid #e2e8f0;">${JSON.stringify(log, null, 2).replace(/</g,'&lt;')}</pre></div>`;
+          dir.file(`${safeDate}.html`, htmlBase(`日誌 ${date}`, body));
         });
-        // 旧データの familyPhotos
-        (appData.familyPhotos||[]).filter(p => inRange(p.date, start, end)).forEach((p, pi) => {
-          const blob = dataUrlToBlob(p.url);
-          if (blob) {
-            const ext = (p.name||'').match(/\.(\w+)$/)?.[1] || 'jpg';
-            photosDir.file(`old_${p.date||'undated'}_${pi+1}.${ext}`, blob);
-            count++;
-          }
-        });
-        if (count === 0) root.remove('photos');
-        else root.file('_photos_count.txt', `${count} 枚の写真をエクスポート`);
       }
-      // FAX送付履歴
-      if (include.fax) {
-        const recs = (appData.faxHistory || []).filter(r => inRange(r.timestamp, start, end));
-        if (recs.length > 0) {
-          const headers = ['ID','タイプ','送信日時','件名','利用者名','送付先名','FAX番号','備考'];
-          const rows = recs.map(r => [r.id, r.type, r.timestamp, r.subject, r.patientName, r.recipientName, r.recipientFax, r.note]);
-          root.file('08_FAX送付履歴.csv', toCsv(headers, rows));
-        }
+      // 休み連絡 (FAX): 1件1ファイル HTML
+      if (include.absenceFax) {
+        setProgress('休み連絡をエクスポート中...');
+        const dir = root.folder('05_休み連絡');
+        const recs = (appData.faxHistory || []).filter(r => r.type === 'absence' && inRange(r.timestamp, start, end));
+        const facility = appData.systemSettings?.facilityInfo || {};
+        recs.forEach((r, idx) => {
+          const ts = r.timestamp ? new Date(r.timestamp) : null;
+          const tsStr = ts ? `${ts.getFullYear()}/${String(ts.getMonth()+1).padStart(2,'0')}/${String(ts.getDate()).padStart(2,'0')} ${String(ts.getHours()).padStart(2,'0')}:${String(ts.getMinutes()).padStart(2,'0')}` : '';
+          const body = `<h1>休み連絡 送付控え</h1>
+            <table>
+              <tr><th style="width:130px;">送付日時</th><td>${tsStr}</td></tr>
+              <tr><th>件名</th><td>${r.subject||''}</td></tr>
+              <tr><th>利用者</th><td>${r.patientName||''} 様</td></tr>
+              <tr><th>送付先 (居宅)</th><td>${r.recipientOffice||''}</td></tr>
+              <tr><th>担当ケアマネ</th><td>${r.recipientName||''}</td></tr>
+              <tr><th>FAX番号</th><td>${r.recipientFax||''}</td></tr>
+              <tr><th>備考</th><td>${r.note||''}</td></tr>
+            </table>
+            <div class="section" style="margin-top:30px;border-top:1px solid #cbd5e1;padding-top:10px;font-size:12px;color:#475569;">
+              <b>${facility.name||''}</b> / TEL ${facility.phone||''} / FAX ${facility.fax||''}
+            </div>`;
+          const safeName = `${tsStr.replace(/[\/:]/g,'').replace(' ','_')}_${(r.patientName||'').replace(/\s/g,'')}_${idx+1}`;
+          dir.file(`${safeName || `absence_${idx+1}`}.html`, htmlBase(`休み連絡 ${tsStr}`, body));
+        });
+      }
+      // 各種連絡 (FAX): 1件1ファイル HTML
+      if (include.generalFax) {
+        setProgress('各種連絡をエクスポート中...');
+        const dir = root.folder('06_各種連絡');
+        const recs = (appData.faxHistory || []).filter(r => r.type === 'general' && inRange(r.timestamp, start, end));
+        const facility = appData.systemSettings?.facilityInfo || {};
+        recs.forEach((r, idx) => {
+          const ts = r.timestamp ? new Date(r.timestamp) : null;
+          const tsStr = ts ? `${ts.getFullYear()}/${String(ts.getMonth()+1).padStart(2,'0')}/${String(ts.getDate()).padStart(2,'0')} ${String(ts.getHours()).padStart(2,'0')}:${String(ts.getMinutes()).padStart(2,'0')}` : '';
+          const body = `<h1>各種連絡 送付控え</h1>
+            <table>
+              <tr><th style="width:130px;">送付日時</th><td>${tsStr}</td></tr>
+              <tr><th>件名</th><td>${r.subject||''}</td></tr>
+              <tr><th>利用者</th><td>${r.patientName||'(なし)'}</td></tr>
+              <tr><th>送付先</th><td>${r.recipientName||''}</td></tr>
+              <tr><th>FAX番号</th><td>${r.recipientFax||''}</td></tr>
+              <tr><th>備考</th><td>${r.note||''}</td></tr>
+            </table>
+            <div class="section" style="margin-top:30px;border-top:1px solid #cbd5e1;padding-top:10px;font-size:12px;color:#475569;">
+              <b>${facility.name||''}</b> / TEL ${facility.phone||''} / FAX ${facility.fax||''}
+            </div>`;
+          const safeName = `${tsStr.replace(/[\/:]/g,'').replace(' ','_')}_${(r.patientName||'汎用').replace(/\s/g,'')}_${idx+1}`;
+          dir.file(`${safeName || `general_${idx+1}`}.html`, htmlBase(`各種連絡 ${tsStr}`, body));
+        });
       }
 
       // README
-      root.file('README.txt', `デイケア管理アプリ データエクスポート\n\n期間: ${label}\nエクスポート日時: ${new Date().toLocaleString('ja-JP')}\n\n各CSVは UTF-8 (BOM付き) で Excel で直接開けます。\nJSON はテキストエディタで開けます。\nお知らせは HTML 版が見やすいです。\n写真は photos/ フォルダにまとめています。\n\nこのファイルを保管しておけば、アプリのデータが消えても元に戻せる参考になります。`);
+      root.file('README.txt', `デイケア管理アプリ データエクスポート
+
+期間: ${label}
+エクスポート日時: ${new Date().toLocaleString('ja-JP')}
+
+【含まれるファイル】
+01_利用者一覧.csv  - 利用者基本情報 (Excelで開けます)
+01_緊急連絡先.csv  - 各利用者の緊急連絡先
+02_提供記録/       - 利用者×月ごとの HTML ファイル
+03_体力測定.csv    - 体力測定データ
+04_日誌/            - 1日1ファイルの HTML
+05_休み連絡/        - 送付した休み連絡の控え
+06_各種連絡/        - 送付した各種連絡の控え
+
+【PDF 化の方法】
+HTML ファイルをブラウザで開き、
+ファイル → 印刷 → 送信先「PDF として保存」を選択するとPDF化できます。
+画面上部の「🖨 今すぐ印刷」ボタンでも同じ印刷ダイアログが開きます。
+
+【保管推奨】
+法定保存期間 (多くの自治体で 2〜5 年) を満たすため、
+このZIPをデスクトップやクラウドストレージに保管してください。`);
 
       setProgress('ZIP を圧縮中...');
       const blob = await zip.generateAsync({ type:'blob', compression:'DEFLATE', compressionOptions:{level:6} }, (m) => {
@@ -315,17 +382,14 @@ const DataExportSection = ({ appData }) => {
         {/* 含める項目 */}
         <div>
           <div className="text-xs font-bold text-slate-600 mb-1.5">含める項目</div>
-          <div className="grid grid-cols-3 gap-1.5 text-xs">
+          <div className="grid grid-cols-2 gap-1.5 text-xs">
             {[
-              ['patients','利用者基本情報 + 緊急連絡先'],
-              ['tickets','提供記録'],
-              ['contact','連絡帳'],
-              ['monitoring','モニタリング'],
-              ['fitness','体力測定'],
-              ['diary','日誌'],
-              ['announcements','お知らせ (HTML+JSON)'],
-              ['photos','写真ファイル'],
-              ['fax','FAX送付履歴'],
+              ['patients','利用者基本情報 + 緊急連絡先 (CSV)'],
+              ['tickets','提供記録 (利用者×月ごとHTML)'],
+              ['fitness','体力測定 (CSV)'],
+              ['diary','日誌 (1日1HTML)'],
+              ['absenceFax','休み連絡 控え (HTML)'],
+              ['generalFax','各種連絡 控え (HTML)'],
             ].map(([k,l]) => (
               <label key={k} className="flex items-center gap-1.5 cursor-pointer">
                 <input type="checkbox" checked={include[k]} onChange={e=>setInclude(s=>({...s,[k]:e.target.checked}))} className="w-3.5 h-3.5"/>
@@ -343,55 +407,46 @@ const DataExportSection = ({ appData }) => {
           {progress && <div className="text-[11px] text-slate-600 mt-2 text-center font-bold">{progress}</div>}
         </div>
         <div className="text-[10px] text-slate-500 leading-relaxed">
-          ・写真が多いほど ZIP 生成・ダウンロードに時間がかかります<br/>
-          ・各ファイルは UTF-8 (CSV は BOM 付き) で、Excel やテキストエディタで開けます<br/>
-          ・お知らせは見やすさのため HTML 版も同梱します
+          ・提供記録・日誌・連絡控えは HTML 形式で出力します<br/>
+          ・<b>各 HTML をブラウザで開いて「ファイル → 印刷 → PDFとして保存」</b>でPDF化できます<br/>
+          ・CSV は UTF-8 (BOM付き) で Excel でそのまま開けます<br/>
+          ・お知らせ・写真・モニタリング等はアプリ内で随時参照する想定のため対象外
         </div>
       </div>
     </div>
   );
 };
 
-// === お迎え時間セル: 時/分を別入力。自前 state で確実に入力可能。 ===
+// === お迎え時間セル: ブラウザ標準の <input type="time"> を使用 ===
 const PickupTimeCell = ({ day, idx, slot, isOff, initial, onCommit }) => {
-  const splitTime = (t) => {
-    if (!t) return { h: '', m: '' };
-    const [h='', m=''] = String(t).split(':');
-    return { h, m: m === '--' ? '' : m };
+  // 保存形式 "HH:MM" を受け入れ。"HH:--" 形式の旧データは表示時に "HH:00" に整形
+  const normalize = (t) => {
+    if (!t) return '';
+    if (t.includes(':--')) return t.replace(':--', ':00');
+    const m = t.match(/^(\d{1,2}):(\d{1,2})$/);
+    if (m) return `${m[1].padStart(2,'0')}:${m[2].padStart(2,'0')}`;
+    return t;
   };
-  const init = splitTime(initial);
-  const [h, setH] = React.useState(init.h);
-  const [m, setM] = React.useState(init.m);
-  // 親側 initial が変わったとき (利用者切替時など) に同期
-  React.useEffect(() => { const x = splitTime(initial); setH(x.h); setM(x.m); }, [initial]);
-  const commit = (newH, newM) => {
-    const hh = String(newH||'').replace(/[^0-9]/g,'').slice(0,2);
-    const mm = String(newM||'').replace(/[^0-9]/g,'').slice(0,2);
-    let val = '';
-    if (hh && mm) val = `${hh}:${mm}`;
-    else if (hh && !mm) val = `${hh}:--`;
-    else val = '';
-    onCommit(val);
-  };
+  const [val, setVal] = React.useState(normalize(initial));
+  React.useEffect(() => { setVal(normalize(initial)); }, [initial]);
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-2">
       <div className="text-center mb-1">
         <span className={`text-sm font-bold ${idx===0?'text-red-500':idx===6?'text-blue-500':'text-slate-700'}`}>{day}</span>
         <span className={`ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded ${slot==='AM'?'bg-red-100 text-red-700':slot==='PM'?'bg-blue-100 text-blue-700':'bg-violet-100 text-violet-700'}`}>{slot}</span>
       </div>
-      <div className="flex items-center justify-center gap-1">
-        <input disabled={isOff} type="text" inputMode="numeric" maxLength={2}
-          value={h}
-          onChange={e => { const v = e.target.value.replace(/[^0-9]/g,'').slice(0,2); setH(v); commit(v, m); }}
-          placeholder="時"
-          className="w-12 px-1.5 py-1.5 bg-slate-50 border border-slate-300 rounded text-sm font-bold text-center outline-none disabled:opacity-60"/>
-        <span className="text-sm font-bold text-slate-400">:</span>
-        <input disabled={isOff} type="text" inputMode="numeric" maxLength={2}
-          value={m}
-          onChange={e => { const v = e.target.value.replace(/[^0-9]/g,'').slice(0,2); setM(v); commit(h, v); }}
-          placeholder="--"
-          className="w-12 px-1.5 py-1.5 bg-slate-50 border border-slate-300 rounded text-sm font-bold text-center outline-none disabled:opacity-60"/>
+      <div className="flex items-center justify-center">
+        <input disabled={isOff} type="time"
+          value={val}
+          onChange={e => { setVal(e.target.value); onCommit(e.target.value); }}
+          className="px-2 py-1.5 bg-slate-50 border border-slate-300 rounded text-sm font-bold text-center outline-none disabled:opacity-60 w-full"/>
       </div>
+      {val && (
+        <button disabled={isOff} type="button" onClick={() => { setVal(''); onCommit(''); }}
+          className="w-full mt-1 text-[10px] text-slate-400 hover:text-red-500 font-bold">
+          クリア
+        </button>
+      )}
     </div>
   );
 };
@@ -17082,7 +17137,6 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   const [newPatientModal, setNewPatientModal] = useState(false);
   const [csvModal, setCsvModal] = useState({isOpen:false, mode:null, importText:'', error:''});
   const [familyShareModal, setFamilyShareModal] = useState(null); // {patient}
-  const [ocrModalOpen, setOcrModalOpen] = useState(false); // 保険証OCR取り込みモーダル
   const [accountEditId, setAccountEditId] = useState(null); // 編集中のアカウント id
   const [newPatientName, setNewPatientName] = useState('');
   const [careLevelModal, setCareLevelModal] = useState(null); // {newValue, from, to, note, isCostBurden}
@@ -17662,16 +17716,6 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             {isResigned && (<div className={`rounded-xl border-2 p-4 flex items-center justify-between ${isEditingResigned ? 'border-blue-300 bg-blue-50' : 'border-slate-300 bg-slate-100'}`}><div className="flex items-center gap-3"><CalendarOff size={20} className="text-slate-500" /><div><div className="text-sm font-bold text-slate-700">退所日: {fD(localPatient.endDate)}</div><div className="text-xs text-slate-500">{dTxt(dBtw(localPatient.endDate, new Date()))}経過</div></div></div><label className="flex items-center text-xs font-bold text-slate-600 cursor-pointer gap-2"><input type="checkbox" checked={localPatient.autoDeleteAfter5Years || false} onChange={e => updateLP('autoDeleteAfter5Years', e.target.checked)} disabled={isOff} className="w-4 h-4 rounded" />5年後自動削除</label></div>)}
 
             {activeDetailTab === 'basic' && (<>
-              {/* 📷 介護保険証 / 負担割合証 OCR 取り込み */}
-              {!isOff && (
-                <div className="bg-gradient-to-r from-indigo-50 to-violet-50 border border-indigo-200 rounded-xl p-3 flex items-center justify-between gap-3">
-                  <div className="flex-1">
-                    <div className="text-sm font-bold text-indigo-900 flex items-center gap-1.5">📷 介護保険証 / 負担割合証から自動取り込み</div>
-                    <div className="text-[11px] text-indigo-700 mt-0.5">写真を撮ってアップロードすると、氏名・被保険者番号・介護度・適用期間・住所・負担割合などを自動で抽出します</div>
-                  </div>
-                  <button onClick={()=>setOcrModalOpen(true)} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm shadow active:scale-95 whitespace-nowrap">読み取り開始</button>
-                </div>
-              )}
               {/* ① 状態・利用開始日・利用終了日 */}
               <div className="grid grid-cols-3 gap-4"><div><label className="block text-sm font-bold text-slate-600 mb-1.5">状態</label>{isResigned ? (<div className="w-full px-3 py-2.5 bg-slate-200 border border-slate-300 rounded-xl font-bold text-base text-slate-600">終了（退所済み）</div>) : (<select value={localPatient.status || "利用中"} onChange={e => handleStatusChange(e.target.value)} disabled={isOff} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none disabled:opacity-60"><option value="利用中">利用中</option><option value="休止">休止</option></select>)}</div><LabelInput label="利用開始日" type="date" disabled={isOff} value={localPatient.startDate} onChange={e => updateLP('startDate', e.target.value)} /><LabelInput label="利用終了日" type="date" disabled={isOff && !isEditingResigned} value={localPatient.endDate} onChange={e => updateLP('endDate', e.target.value)} /></div>
 
@@ -18232,18 +18276,6 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
           </div>
         );
       })()}
-      {ocrModalOpen && (
-        <InsuranceOcrModal
-          onApply={(fields) => {
-            // 抽出されたフィールドを localPatient に反映
-            Object.entries(fields).forEach(([k, v]) => {
-              if (v != null && v !== '') updateLP(k, v);
-            });
-            setOcrModalOpen(false);
-          }}
-          onClose={() => setOcrModalOpen(false)}
-        />
-      )}
       {familyShareModal && (() => {
         const pat = familyShareModal.patient;
         const baseUrl = window.location.origin + window.location.pathname.replace(/\/+$/, '');
@@ -19667,8 +19699,8 @@ function SettingsView({ appData, onSave, dirtyRef }) {
                 };
                 const bytes = calcUsage();
                 const mb = (bytes * 2 / 1024 / 1024).toFixed(2); // UTF-16 → 約2倍
-                // 事業所別クォータ (Supabase Pro 移行後の運用想定: 各事業所ごとに上限GBを設定)
-                const quotaGB = appData.systemSettings?.storeQuotaGB || 2;
+                // 事業所別クォータ (固定 2GB)
+                const quotaGB = 2;
                 const LOCAL_LIMIT_MB = 5; // 現状の localStorage 上限 (Safari基準)
                 const QUOTA_MB = quotaGB * 1024;
                 const usedPctLocal = Math.min(100, Math.round((parseFloat(mb) / LOCAL_LIMIT_MB) * 100));
@@ -19699,24 +19731,14 @@ function SettingsView({ appData, onSave, dirtyRef }) {
                     <div className="border-t border-slate-200 pt-3">
                       <div className="text-sm font-bold text-slate-700 mb-2">🏢 事業所別クォータ（Supabase Pro 移行後）</div>
                       <div className="flex items-center gap-3 mb-2">
-                        <label className="text-xs font-bold text-slate-600 shrink-0">この事業所の上限:</label>
-                        <select value={quotaGB} onChange={e=>{
-                          const g = parseFloat(e.target.value);
-                          onSave({...appData, systemSettings:{...appData.systemSettings, storeQuotaGB: g}});
-                        }} className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg font-bold text-sm outline-none">
-                          <option value={1}>1 GB</option>
-                          <option value={2}>2 GB</option>
-                          <option value={5}>5 GB</option>
-                          <option value={10}>10 GB</option>
-                          <option value={20}>20 GB</option>
-                        </select>
-                        <div className="text-xs text-slate-500">（現在の使用率: <b className="text-slate-700">{usedPctQuota}%</b>）</div>
+                        <span className="text-xs font-bold text-slate-600 shrink-0">この事業所の上限:</span>
+                        <span className="px-3 py-1.5 bg-blue-50 border border-blue-300 rounded-lg font-bold text-sm text-blue-800">2 GB（固定）</span>
+                        <span className="text-xs text-slate-500">（現在の使用率: <b className="text-slate-700">{usedPctQuota}%</b>）</span>
                       </div>
                       <div className="text-[11px] text-slate-500 leading-relaxed">
-                        ・Supabase Pro 移行後は各事業所ごとに上限を設定して運用できます<br/>
-                        ・本部からみたフランチャイズ全体は事業所数 × この上限<br/>
-                        ・例: 9 店舗 × 2GB = 18GB (Pro プランの上限内)<br/>
-                        ・<b>上限を超えると新規投稿前に警告 + 古いお知らせ削除を案内</b>
+                        ・各事業所 2GB 上限で運用 (動画なし想定で 5 年分余裕)<br/>
+                        ・本部全体: 事業所数 × 2GB (例: 9店舗 = 18GB)<br/>
+                        ・<b>上限近くで警告 + 古いお知らせ削除を案内</b>
                       </div>
                       {/* 古いお知らせを今すぐ削除するボタン (容量逼迫時の手動掃除) */}
                       {(usedPctLocal > 50 || usedPctQuota > 50) && (
