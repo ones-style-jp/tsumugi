@@ -10691,7 +10691,7 @@ export default function App() {
               </div>
               <div>
                 <div style={{fontSize:22,fontWeight:'bold',color:'white',letterSpacing:'0.1em'}}>DAYCARE V2</div>
-                <div style={{fontSize:11,color:'rgba(255,255,255,0.6)',fontWeight:'bold'}}>デイサービス管理システム</div>
+                <div style={{fontSize:11,color:'rgba(255,255,255,0.6)',fontWeight:'bold'}}>Tsumugi — デイサービス管理</div>
               </div>
             </div>
           </div>
@@ -10885,7 +10885,7 @@ export default function App() {
             <div className="h-16 flex items-center px-6 border-b border-slate-800 bg-slate-950">
               <Activity className="w-6 h-6 text-blue-400 mr-3" />
               <div className="flex-1 min-w-0">
-                <span className="text-lg font-bold text-white tracking-tighter uppercase">DayCare v2</span>
+                <span className="text-lg font-bold text-white tracking-tight" style={{letterSpacing:'0.02em'}}>Tsumugi <span className="text-[10px] font-normal opacity-70 ml-1">紡ぎ</span></span>
                 {session?.mode==='demo' && <span className="ml-2 text-[9px] font-bold bg-amber-500 text-white px-1.5 py-0.5 rounded">DEMO</span>}
               </div>
             </div>
@@ -20944,7 +20944,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           }
         `}</style>
         <div className="no-print sticky top-0 z-50 flex items-center gap-4 px-6 py-3" style={{backgroundColor:'#333'}}>
-          <button onClick={()=>{ setIsPrintPreview(false); document.title='DayCare v2'; }} className="bg-white text-gray-800 px-4 py-2 rounded-xl font-bold text-sm hover:bg-gray-100">← 編集に戻る</button>
+          <button onClick={()=>{ setIsPrintPreview(false); document.title='Tsumugi'; }} className="bg-white text-gray-800 px-4 py-2 rounded-xl font-bold text-sm hover:bg-gray-100">← 編集に戻る</button>
           <span className="text-sm text-white opacity-80">印刷プレビュー（A4縦）{printPages.length > 1 ? ' — 2ページ' : ''}</span>
           <button onClick={()=>{
               const pages = document.querySelectorAll('.diary-print-page');
@@ -21698,7 +21698,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     } else {
       setIsPrintMode(true);
       document.title=`モニタリング_${tY}年${tM}月`;
-      setTimeout(()=>{window.print();setTimeout(()=>{document.title='DayCare v2';setIsPrintMode(false);},500);},300);
+      setTimeout(()=>{window.print();setTimeout(()=>{document.title='Tsumugi';setIsPrintMode(false);},500);},300);
     }
   };
 
@@ -22518,12 +22518,12 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
   };
 
   const handlePrint = () => {
-    const doAfterPrint = () => { document.title='DayCare v2';setIsPrint(false);if(selectedEntry){const key=getKey(selectedEntry.date,selectedEntry.patient.id);updateFax(key,{status:'printed'});}};
+    const doAfterPrint = () => { document.title='Tsumugi';setIsPrint(false);if(selectedEntry){const key=getKey(selectedEntry.date,selectedEntry.patient.id);updateFax(key,{status:'printed'});}};
     if(onShowPrintPreview){setIsPrint(true);setTimeout(()=>{onShowPrintPreview(`休み連絡_${selectedEntry?.patient?.name||''}`, 'A4 portrait', 'print-content-fax');doAfterPrint();},100);}
     else{setIsPrint(true);document.title=`休み連絡_${selectedEntry?.patient?.name||''}`;setTimeout(()=>{window.print();setTimeout(doAfterPrint,500);},100);}
   };
   const handleSavePdf = () => {
-    const doAfterPdf=()=>{document.title='DayCare v2';setIsPrint(false);if(selectedEntry){const key=getKey(selectedEntry.date,selectedEntry.patient.id);const cur=getFax(selectedEntry.date,selectedEntry.patient.id);updateFax(key,{status:cur.status==='printed'?'both':'pdf'});}};
+    const doAfterPdf=()=>{document.title='Tsumugi';setIsPrint(false);if(selectedEntry){const key=getKey(selectedEntry.date,selectedEntry.patient.id);const cur=getFax(selectedEntry.date,selectedEntry.patient.id);updateFax(key,{status:cur.status==='printed'?'both':'pdf'});}};
     if(onShowPrintPreview){setIsPrint(true);setTimeout(()=>{onShowPrintPreview(`休み連絡_${selectedEntry?.patient?.name||''}`, 'A4 portrait', 'print-content-fax');doAfterPdf();},100);}
     else{setIsPrint(true);document.title=`休み連絡_${selectedEntry?.patient?.name||''}`;setTimeout(()=>{window.print();setTimeout(doAfterPdf,500);},100);}
   };
