@@ -84,6 +84,274 @@ const AutoFitLine = ({ children, style }) => {
   );
 };
 
+// === データ一括エクスポート (ZIP): 各種設定 → データ管理 で使用 ===
+// JSZip を CDN から動的ロードして、期間指定で全データを ZIP にまとめる
+const DataExportSection = ({ appData }) => {
+  const [range, setRange] = React.useState('all'); // 'all' | 'year' | 'month' | 'custom'
+  const [year, setYear] = React.useState(new Date().getFullYear());
+  const [month, setMonth] = React.useState(new Date().getMonth() + 1);
+  const [customFrom, setCustomFrom] = React.useState(`${new Date().getFullYear()}-01-01`);
+  const [customTo, setCustomTo] = React.useState(`${new Date().getFullYear()}-12-31`);
+  const [include, setInclude] = React.useState({
+    patients: true, tickets: true, contact: true, monitoring: true, fitness: true,
+    diary: true, announcements: true, photos: true, fax: true,
+  });
+  const [busy, setBusy] = React.useState(false);
+  const [progress, setProgress] = React.useState('');
+
+  const loadJSZip = () => new Promise((resolve, reject) => {
+    if (window.JSZip) return resolve(window.JSZip);
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+    s.onload = () => resolve(window.JSZip);
+    s.onerror = () => reject(new Error('JSZip の読み込みに失敗しました (要インターネット接続)'));
+    document.head.appendChild(s);
+  });
+
+  // 期間判定 (start/end は Date)
+  const getRange = () => {
+    if (range === 'all') return { start: null, end: null, label: '全期間' };
+    if (range === 'year') return { start: new Date(year, 0, 1), end: new Date(year, 11, 31, 23, 59, 59), label: `${year}年` };
+    if (range === 'month') return { start: new Date(year, month-1, 1), end: new Date(year, month, 0, 23, 59, 59), label: `${year}年${month}月` };
+    return { start: new Date(customFrom), end: new Date(customTo + 'T23:59:59'), label: `${customFrom}〜${customTo}` };
+  };
+
+  // "X月Y日" → 今日に最も近い「過去または当日」の Date
+  const today = new Date();
+  const inferDate = (s) => {
+    const m = (s||'').match(/(\d+)月(\d+)日/);
+    if (!m) return null;
+    const mm = parseInt(m[1], 10), dd = parseInt(m[2], 10);
+    let y = today.getFullYear();
+    if (mm > today.getMonth()+1 || (mm === today.getMonth()+1 && dd > today.getDate())) y -= 1;
+    return new Date(y, mm-1, dd);
+  };
+  const inRange = (dateLike, start, end) => {
+    if (!start || !end) return true;
+    const d = typeof dateLike === 'string' ? (dateLike.match(/^\d{4}-\d{2}-\d{2}/) ? new Date(dateLike) : inferDate(dateLike)) : dateLike;
+    if (!d) return true;
+    return d >= start && d <= end;
+  };
+
+  // CSV エスケープ
+  const csvEsc = (v) => { const s = String(v??''); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
+  const toCsv = (headers, rows) => '﻿' + [headers.join(','), ...rows.map(r => r.map(csvEsc).join(','))].join('\n');
+
+  // データ URL → Blob 変換
+  const dataUrlToBlob = (dataUrl) => {
+    try {
+      const [meta, base64] = dataUrl.split(',');
+      const mime = (meta.match(/data:([^;]+)/) || [])[1] || 'image/jpeg';
+      const bin = atob(base64);
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      return new Blob([arr], { type: mime });
+    } catch { return null; }
+  };
+
+  const doExport = async () => {
+    setBusy(true); setProgress('JSZip を読み込み中...');
+    try {
+      const JSZip = await loadJSZip();
+      const zip = new JSZip();
+      const { start, end, label } = getRange();
+      const stamp = new Date().toISOString().slice(0,10);
+      const rootDir = `daycare_export_${stamp}_${label.replace(/[\/\\:?]/g,'-')}`;
+      const root = zip.folder(rootDir);
+      root.file('_meta.json', JSON.stringify({ exportedAt: new Date().toISOString(), range: label, app: 'デイケア管理アプリ' }, null, 2));
+
+      // 利用者一覧
+      if (include.patients) {
+        setProgress('利用者一覧をエクスポート中...');
+        const ps = appData.patients || [];
+        const headers = ['ID','氏名','ふりがな','性別','生年月日','電話','郵便番号','住所','被保険者番号','介護度','適用期間開始','適用期間終了','負担割合','ケアマネ事業所','ケアマネ名','ケアマネ電話','ケアマネFAX','利用開始日','利用終了日','状態','留意点'];
+        const rows = ps.map(p => [p.id,p.name,p.kana,p.gender,p.birthDate,p.phone,p.zipCode,p.address,p.insuranceNo,p.careLevel,p.careLevelFrom,p.careLevelTo,p.costBurden,p.cmOffice,p.cmName,p.cmPhone,p.cmFax,p.startDate,p.endDate,p.status,p.ryui]);
+        root.file('01_利用者一覧.csv', toCsv(headers, rows));
+        // 緊急連絡先
+        const ecHeaders = ['利用者ID','利用者名','続柄','氏名','電話(固定)','電話(携帯)','メール'];
+        const ecRows = [];
+        ps.forEach(p => (p.emergencyContacts||[]).forEach(c => ecRows.push([p.id,p.name,c.relation,c.name,c.phone,c.phoneMobile,c.email])));
+        if (ecRows.length > 0) root.file('01_緊急連絡先.csv', toCsv(ecHeaders, ecRows));
+      }
+      // 提供記録
+      if (include.tickets) {
+        setProgress('提供記録をエクスポート中...');
+        const recs = (appData.ticketRecords || []).filter(r => inRange(r.date, start, end));
+        const headers = ['記録ID','利用者ID','氏名','日付','曜日','状態','体温','血圧上(開始)','血圧下(開始)','脈(開始)','血圧上(終了)','血圧下(終了)','脈(終了)','整体','気分(来所)','気分(帰宅)','特記'];
+        const rows = recs.map(r => [r.id,r.patientId,r.name,r.date,r.dayOfWeek,r.status,r.temp,r.bpUpSt,r.bpDnSt,r.plSt,r.bpUpEn,r.bpDnEn,r.plEn,r.massage,r.kibunArrival,r.kibunDeparture,r.tokki]);
+        root.file('02_提供記録.csv', toCsv(headers, rows));
+      }
+      // 連絡帳
+      if (include.contact) {
+        setProgress('連絡帳をエクスポート中...');
+        const cb = appData.contactBookRecords || appData.contactBook || [];
+        const cbArr = Array.isArray(cb) ? cb : Object.entries(cb).flatMap(([k,v]) => (Array.isArray(v)?v:[v]).map(item => ({key:k, ...item})));
+        const recs = cbArr.filter(r => inRange(r.date || r.key, start, end));
+        if (recs.length > 0) root.file('03_連絡帳.json', JSON.stringify(recs, null, 2));
+      }
+      // モニタリング
+      if (include.monitoring) {
+        setProgress('モニタリングをエクスポート中...');
+        const recs = (appData.monitoringRecords || []).filter(r => inRange(r.date, start, end));
+        if (recs.length > 0) root.file('04_モニタリング.json', JSON.stringify(recs, null, 2));
+      }
+      // 体力測定
+      if (include.fitness) {
+        setProgress('体力測定をエクスポート中...');
+        const recs = (appData.fitnessRecords || []).filter(r => inRange(r.date, start, end));
+        const items = appData.systemSettings?.fitnessItems || [];
+        const headers = ['測定ID','利用者ID','日付', ...items.map(it => `${it.name}(${it.unit})`)];
+        const rows = recs.map(r => [r.id, r.patientId, r.date, ...items.map(it => r.values?.[it.id]||'')]);
+        root.file('05_体力測定.csv', toCsv(headers, rows));
+      }
+      // 日誌
+      if (include.diary) {
+        setProgress('日誌をエクスポート中...');
+        const logs = appData.diaryLogs || {};
+        const filtered = {};
+        Object.entries(logs).forEach(([date, log]) => { if (inRange(date, start, end)) filtered[date] = log; });
+        if (Object.keys(filtered).length > 0) root.file('06_日誌.json', JSON.stringify(filtered, null, 2));
+      }
+      // お知らせ
+      if (include.announcements) {
+        setProgress('お知らせをエクスポート中...');
+        const all = (appData.familyAnnouncements || []).filter(a => inRange(a.postedAt || a.date, start, end));
+        const personal = (appData.familyPersonalAnnouncements || []).filter(a => inRange(a.postedAt || a.date, start, end));
+        if (all.length > 0 || personal.length > 0) {
+          root.file('07_お知らせ_全体.json', JSON.stringify(all, null, 2));
+          root.file('07_お知らせ_個別.json', JSON.stringify(personal, null, 2));
+          // HTML 形式でも出力 (見やすさ重視)
+          const html = [...all.map(a=>({...a,_kind:'全体'})), ...personal.map(a=>({...a,_kind:'個別'}))]
+            .sort((a,b)=>(b.postedAt||b.date||'').localeCompare(a.postedAt||a.date||''))
+            .map(a => `<article style="border:1px solid #ccc;padding:14px;margin:10px 0;border-radius:8px;"><h3 style="margin:0 0 6px;">${a.title||'(タイトルなし)'} <small style="color:#888;">[${a._kind}] ${a.date||''}</small></h3>${a.body?`<p style="white-space:pre-wrap;">${a.body}</p>`:''}${(a.photos||[]).length>0?`<div style="margin-top:8px;">${a.photos.length}枚の写真添付 (photos/ フォルダ参照)</div>`:''}</article>`).join('\n');
+          root.file('07_お知らせ.html', `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>お知らせ一覧</title></head><body style="font-family:sans-serif;max-width:720px;margin:20px auto;">${html}</body></html>`);
+        }
+      }
+      // 写真 (お知らせ内 + familyPhotos)
+      if (include.photos) {
+        setProgress('写真をエクスポート中...');
+        const photosDir = root.folder('photos');
+        let count = 0;
+        const allAnns = [...(appData.familyAnnouncements||[]), ...(appData.familyPersonalAnnouncements||[])];
+        allAnns.filter(a => inRange(a.postedAt || a.date, start, end)).forEach(a => {
+          (a.photos||[]).forEach((p, pi) => {
+            const blob = dataUrlToBlob(p.url);
+            if (blob) {
+              const ext = (p.name||'').match(/\.(\w+)$/)?.[1] || 'jpg';
+              photosDir.file(`${a.date||'undated'}_${a.id||'x'}_${pi+1}.${ext}`, blob);
+              count++;
+            }
+          });
+        });
+        // 旧データの familyPhotos
+        (appData.familyPhotos||[]).filter(p => inRange(p.date, start, end)).forEach((p, pi) => {
+          const blob = dataUrlToBlob(p.url);
+          if (blob) {
+            const ext = (p.name||'').match(/\.(\w+)$/)?.[1] || 'jpg';
+            photosDir.file(`old_${p.date||'undated'}_${pi+1}.${ext}`, blob);
+            count++;
+          }
+        });
+        if (count === 0) root.remove('photos');
+        else root.file('_photos_count.txt', `${count} 枚の写真をエクスポート`);
+      }
+      // FAX送付履歴
+      if (include.fax) {
+        const recs = (appData.faxHistory || []).filter(r => inRange(r.timestamp, start, end));
+        if (recs.length > 0) {
+          const headers = ['ID','タイプ','送信日時','件名','利用者名','送付先名','FAX番号','備考'];
+          const rows = recs.map(r => [r.id, r.type, r.timestamp, r.subject, r.patientName, r.recipientName, r.recipientFax, r.note]);
+          root.file('08_FAX送付履歴.csv', toCsv(headers, rows));
+        }
+      }
+
+      // README
+      root.file('README.txt', `デイケア管理アプリ データエクスポート\n\n期間: ${label}\nエクスポート日時: ${new Date().toLocaleString('ja-JP')}\n\n各CSVは UTF-8 (BOM付き) で Excel で直接開けます。\nJSON はテキストエディタで開けます。\nお知らせは HTML 版が見やすいです。\n写真は photos/ フォルダにまとめています。\n\nこのファイルを保管しておけば、アプリのデータが消えても元に戻せる参考になります。`);
+
+      setProgress('ZIP を圧縮中...');
+      const blob = await zip.generateAsync({ type:'blob', compression:'DEFLATE', compressionOptions:{level:6} }, (m) => {
+        setProgress(`圧縮中... ${Math.round(m.percent)}%`);
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `${rootDir}.zip`; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      setProgress(`✓ ${rootDir}.zip をダウンロードしました`);
+    } catch (e) {
+      console.error(e); setProgress(`⚠ エラー: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="bg-blue-50 border-2 border-blue-300 rounded-xl p-4 mt-4">
+      <h4 className="text-sm font-bold text-blue-800 mb-2 flex items-center gap-2">📦 データ一括エクスポート (ZIP)</h4>
+      <p className="text-xs text-slate-700 mb-3 leading-relaxed">
+        期間を指定して、利用者情報・提供記録・連絡帳・モニタリング・体力測定・日誌・お知らせ・写真などを 1 つの ZIP ファイルにまとめてダウンロードします。<br/>
+        ローカル PC（デスクトップ等）に保存しておけば、アプリ側のデータを安心して削除して空き容量を確保できます。
+      </p>
+      <div className="bg-white border border-slate-200 rounded-lg p-3 space-y-3">
+        {/* 期間選択 */}
+        <div>
+          <div className="text-xs font-bold text-slate-600 mb-1.5">期間</div>
+          <div className="flex gap-2 flex-wrap items-center text-xs">
+            {[['all','全期間'],['year','年単位'],['month','月単位'],['custom','期間指定']].map(([k,l]) => (
+              <label key={k} className={`px-2.5 py-1 rounded-lg border-2 cursor-pointer font-bold ${range===k?'bg-blue-600 border-blue-700 text-white':'bg-white border-slate-200 text-slate-600'}`}>
+                <input type="radio" checked={range===k} onChange={()=>setRange(k)} className="hidden"/>{l}
+              </label>
+            ))}
+            {range === 'year' && <select value={year} onChange={e=>setYear(parseInt(e.target.value))} className="px-2 py-1 border border-slate-300 rounded font-bold">{Array.from({length:6},(_,i)=>today.getFullYear()-i).map(y=><option key={y} value={y}>{y}年</option>)}</select>}
+            {range === 'month' && <>
+              <select value={year} onChange={e=>setYear(parseInt(e.target.value))} className="px-2 py-1 border border-slate-300 rounded font-bold">{Array.from({length:6},(_,i)=>today.getFullYear()-i).map(y=><option key={y} value={y}>{y}年</option>)}</select>
+              <select value={month} onChange={e=>setMonth(parseInt(e.target.value))} className="px-2 py-1 border border-slate-300 rounded font-bold">{Array.from({length:12},(_,i)=>i+1).map(m=><option key={m} value={m}>{m}月</option>)}</select>
+            </>}
+            {range === 'custom' && <>
+              <input type="date" value={customFrom} onChange={e=>setCustomFrom(e.target.value)} className="px-2 py-1 border border-slate-300 rounded font-bold"/>
+              <span>〜</span>
+              <input type="date" value={customTo} onChange={e=>setCustomTo(e.target.value)} className="px-2 py-1 border border-slate-300 rounded font-bold"/>
+            </>}
+          </div>
+        </div>
+        {/* 含める項目 */}
+        <div>
+          <div className="text-xs font-bold text-slate-600 mb-1.5">含める項目</div>
+          <div className="grid grid-cols-3 gap-1.5 text-xs">
+            {[
+              ['patients','利用者基本情報 + 緊急連絡先'],
+              ['tickets','提供記録'],
+              ['contact','連絡帳'],
+              ['monitoring','モニタリング'],
+              ['fitness','体力測定'],
+              ['diary','日誌'],
+              ['announcements','お知らせ (HTML+JSON)'],
+              ['photos','写真ファイル'],
+              ['fax','FAX送付履歴'],
+            ].map(([k,l]) => (
+              <label key={k} className="flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" checked={include[k]} onChange={e=>setInclude(s=>({...s,[k]:e.target.checked}))} className="w-3.5 h-3.5"/>
+                <span className="font-bold text-slate-700">{l}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+        {/* 実行 */}
+        <div>
+          <button onClick={doExport} disabled={busy}
+            className={`w-full py-2 rounded-lg font-bold text-sm ${busy?'bg-slate-300 text-slate-500 cursor-not-allowed':'bg-blue-600 hover:bg-blue-700 text-white shadow active:scale-95'}`}>
+            {busy ? `処理中...` : '📦 ZIP でダウンロード'}
+          </button>
+          {progress && <div className="text-[11px] text-slate-600 mt-2 text-center font-bold">{progress}</div>}
+        </div>
+        <div className="text-[10px] text-slate-500 leading-relaxed">
+          ・写真が多いほど ZIP 生成・ダウンロードに時間がかかります<br/>
+          ・各ファイルは UTF-8 (CSV は BOM 付き) で、Excel やテキストエディタで開けます<br/>
+          ・お知らせは見やすさのため HTML 版も同梱します
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // === お迎え時間セル: 時/分を別入力。自前 state で確実に入力可能。 ===
 const PickupTimeCell = ({ day, idx, slot, isOff, initial, onCommit }) => {
   const splitTime = (t) => {
@@ -9898,7 +10166,10 @@ export default function App() {
     if(contentRef.current?.parentElement) obs.observe(contentRef.current.parentElement);
     return ()=>{ window.removeEventListener('resize', calc); obs.disconnect(); };
   },[isSidebarOpen]);
-  const [selectedDate, setSelectedDate] = useState('2026-03-04');
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  });
   const [targetPatientId, setTargetPatientId] = useState(null);
   const [navConfirm, setNavConfirm] = useState(null); // {view, patientId}
 
@@ -12339,8 +12610,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           const lastPause = isOnPause ? [...(_patient.pauseHistory||[])].pop() : null;
           // 体力測定: 同じ日 (MM-DD) に測定があれば取得
           const fitnessOnDay = (() => {
-            const md = parseTicketDate(latest.date);
-            if (!md) return null;
+            if (!latestFullDate) return null;
+            const md = `${String(latestFullDate.getMonth()+1).padStart(2,'0')}-${String(latestFullDate.getDate()).padStart(2,'0')}`;
             const fitnessAll = (appData.fitnessRecords||[]).filter(r => r.patientId === selectedPatientId);
             return fitnessAll.find(r => (r.date||'').slice(5) === md);
           })();
@@ -19484,13 +19755,16 @@ function SettingsView({ appData, onSave, dirtyRef }) {
                         <option value={12}>12ヶ月 (1年)</option>
                         <option value={24}>24ヶ月 (2年)</option>
                         <option value={36}>36ヶ月 (3年)</option>
+                        <option value={60}>60ヶ月 (5年)</option>
                         <option value={0}>削除しない</option>
                       </select>
-                      <div className="text-[11px] text-slate-500 mt-1.5">投稿日からこの期間が経過したお知らせ・写真は次回アプリ起動時に自動削除されます。</div>
+                      <div className="text-[11px] text-slate-500 mt-1.5">投稿日からこの期間が経過したお知らせ・写真は次回アプリ起動時に自動削除されます。<br/>※ 法定の保存期間（多くの自治体で 2〜5 年）にあわせて選択してください。</div>
                     </div>
                   </div>
                 );
               })()}
+              {/* 📦 データ一括エクスポート (ZIP) */}
+              <DataExportSection appData={appData} />
               <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4 mt-4">
                 <h4 className="text-sm font-bold text-red-700 mb-2 flex items-center gap-2">
                   ⚠ 全データクリア（本番運用開始用）
