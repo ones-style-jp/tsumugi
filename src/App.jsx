@@ -8488,7 +8488,6 @@ function SignupCompleteView({ context, appData, onSave }) {
 // === 家族画面プレビュー & 特記編集 (FamilyAdminView内のタブ) ===
 function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid, familyTokkiOverrides, setTokkiOverride }) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [showTokkiEditor, setShowTokkiEditor] = useState(false);
   const [previewInnerTab, setPreviewInnerTab] = useState('news'); // 'news' | 'records'
   const filteredPatients = searchQuery.trim()
     ? patients.filter(p => (p.name||'').includes(searchQuery) || (p.kana||'').includes(searchQuery) || String(p.id).includes(searchQuery))
@@ -8516,23 +8515,25 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
       </div>
     );
   }
-  // 特記レコード
-  const ticketRecs = (appData.ticketRecords||[]).filter(r => r.patientId === patient.id);
-  const parseTicketDate = (s) => { const m=(s||'').match(/(\d+)月(\d+)日/); return m?`${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`:''; };
-  const tokkiRecs = ticketRecs.filter(r => r.tokki && r.tokki.trim()).sort((a,b)=> parseTicketDate(b.date).localeCompare(parseTicketDate(a.date)));
-  const overrideMap = familyTokkiOverrides[patient.id] || {};
   return (
     <div className="space-y-3">
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-3 flex items-center gap-3 flex-wrap">
-        <button onClick={()=>setPreviewPid(null)} className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-600">← 利用者選択へ</button>
-        <div className="flex-1 min-w-[150px]">
-          <div className="text-sm font-bold text-slate-800">{patient.name} 様 <span className="text-[10px] text-slate-400 font-normal ml-1">(ID: {patient.id}{patient.kana?` / ${patient.kana}`:''})</span> の家族画面プレビュー</div>
-          <div className="text-[10px] text-slate-400">家族・ケアマネに見えている内容と同じです</div>
-        </div>
-        {accs.length > 0 && (
-          <div className="text-[10px] text-slate-500">家族 {accs.filter(a=>(a.kind||'family')==='family').length}名 / ケアマネ {accs.filter(a=>a.kind==='caremanager').length}名</div>
-        )}
-        <button onClick={()=>setShowTokkiEditor(true)} className="px-3 py-2 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-700 text-xs font-bold">📝 特記の表示/非表示を編集</button>
+      {/* コンパクトヘッダー: 利用者選択 + 利用者名 + 共通URL */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-2.5 flex items-center gap-2 flex-wrap">
+        <button onClick={()=>setPreviewPid(null)} title="利用者を選び直す" className="px-2.5 py-1.5 rounded-lg bg-violet-100 hover:bg-violet-200 text-violet-700 text-xs font-bold shrink-0">← 利用者選択</button>
+        <div className="text-sm font-bold text-slate-800 shrink-0">{patient.name} 様</div>
+        {accs.length > 0 && <div className="text-[10px] text-slate-500 shrink-0">登録 {accs.length}名</div>}
+        {/* 家族共通ログインURL (コンパクト) */}
+        {(() => {
+          const baseUrl = typeof window !== 'undefined' ? (window.location.origin + window.location.pathname.replace(/\/+$/, '')) : '';
+          const loginUrl = `${baseUrl}/?family`;
+          return (
+            <div className="ml-auto flex items-center gap-1.5 min-w-0">
+              <span className="text-[10px] font-bold text-slate-400 shrink-0">家族共通URL:</span>
+              <input readOnly value={loginUrl} className="flex-1 min-w-0 max-w-[260px] px-2 py-1 text-[10px] bg-slate-50 border border-slate-200 rounded font-mono outline-none"/>
+              <button onClick={()=>{navigator.clipboard?.writeText(loginUrl);}} className="px-2 py-1 text-[10px] font-bold bg-blue-600 hover:bg-blue-700 text-white rounded shrink-0">コピー</button>
+            </div>
+          );
+        })()}
       </div>
       {/* 内部タブ切替 */}
       <div className="bg-white rounded-xl p-1.5 shadow-sm border border-slate-200 flex gap-1">
@@ -8605,58 +8606,6 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
             navigateTo={()=>{}}
             onShowPrintPreview={()=>{}}
           />
-        </div>
-      )}
-      {/* 特記編集モーダル */}
-      {showTokkiEditor && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={()=>setShowTokkiEditor(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e=>e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 sticky top-0 bg-white">
-              <h3 className="text-sm font-bold text-slate-700">{patient.name} 様 — 特記の家族向け表示設定</h3>
-              <button onClick={()=>setShowTokkiEditor(false)} className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg">✕</button>
-            </div>
-            <div className="p-4 overflow-auto flex-1 space-y-2">
-              <div className="text-[11px] text-slate-500 bg-amber-50 border border-amber-200 p-2 rounded-lg">
-                <b>✓ 表示</b> = 家族画面の詳細記録に表示 / <b>✕ 非表示</b> = 家族には見せない / <b>✏️ 上書</b> = 家族向けに別文言を表示
-              </div>
-              {tokkiRecs.length === 0 ? (
-                <div className="text-xs text-slate-400 text-center py-8">特記事項のある記録がありません</div>
-              ) : tokkiRecs.map(r => {
-                const ov = overrideMap[r.id] || {};
-                const isVisible = ov.visible !== false;
-                const hasOverride = !!ov.text;
-                return (
-                  <div key={r.id} className={`p-3 rounded-lg border ${isVisible?'bg-amber-50 border-amber-200':'bg-slate-100 border-slate-300 opacity-60'}`}>
-                    <div className="flex items-start gap-2">
-                      <div className="text-[11px] font-bold text-slate-500 shrink-0 w-16">{r.date}</div>
-                      <div className="flex-1 space-y-2">
-                        <div>
-                          <div className="text-[10px] font-bold text-slate-400 mb-0.5">事業所記録 (元の特記)</div>
-                          <div className="text-xs text-slate-700 bg-white p-2 rounded border border-slate-200 whitespace-pre-wrap">{r.tokki}</div>
-                        </div>
-                        {hasOverride && (
-                          <div>
-                            <div className="text-[10px] font-bold text-emerald-600 mb-0.5">家族向け表示 (上書き)</div>
-                            <textarea value={ov.text||''} onChange={e=>setTokkiOverride(patient.id, r.id, {...ov, text:e.target.value})}
-                              rows={2} className="w-full text-xs text-slate-800 p-2 rounded border border-emerald-300 bg-white outline-none focus:border-emerald-500 resize-none"/>
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex flex-col gap-1 shrink-0">
-                        <button onClick={()=>setTokkiOverride(patient.id, r.id, {...ov, visible: !isVisible})}
-                          className={`px-2 py-1 rounded text-[10px] font-bold ${isVisible?'bg-emerald-100 text-emerald-700 hover:bg-emerald-200':'bg-slate-300 text-slate-600 hover:bg-slate-400'}`}>{isVisible?'✓ 表示':'✕ 非表示'}</button>
-                        {!hasOverride ? (
-                          <button onClick={()=>setTokkiOverride(patient.id, r.id, {...ov, text:r.tokki})} className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[10px] font-bold">✏️ 上書</button>
-                        ) : (
-                          <button onClick={()=>setTokkiOverride(patient.id, r.id, {...ov, text:''})} className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-[10px] font-bold">↩ 元に</button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
         </div>
       )}
     </div>
@@ -9815,6 +9764,34 @@ export default function App() {
       }
     }
   }, [appData]);
+  // お知らせ・写真の保存期間を過ぎたデータを起動時に自動削除
+  // 削除対象: postedAt (or date) が retentionMonths より古いもの
+  useEffect(() => {
+    const months = appData.systemSettings?.announcementRetentionMonths;
+    if (!months || months <= 0) return;  // 0 or undefined = 削除しない
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - months);
+    const cutoffIso = cutoff.toISOString();
+    const cutoffDate = cutoffIso.slice(0,10);
+    const isOld = (item) => {
+      const t = item.postedAt || item.date || '';
+      if (!t) return false;
+      // postedAt は ISO, date は YYYY-MM-DD 形式
+      return t < (t.length > 10 ? cutoffIso : cutoffDate);
+    };
+    const cleanAnn = (appData.familyAnnouncements||[]).filter(a => !isOld(a));
+    const cleanPersonal = (appData.familyPersonalAnnouncements||[]).filter(a => !isOld(a));
+    const cleanPhotos = (appData.familyPhotos||[]).filter(p => !isOld(p));
+    const removedCount = ((appData.familyAnnouncements||[]).length - cleanAnn.length)
+      + ((appData.familyPersonalAnnouncements||[]).length - cleanPersonal.length)
+      + ((appData.familyPhotos||[]).length - cleanPhotos.length);
+    if (removedCount > 0) {
+      console.log(`[自動削除] ${months}ヶ月以前のお知らせ・写真 ${removedCount} 件を削除しました`);
+      setAppData(prev => ({...prev, familyAnnouncements: cleanAnn, familyPersonalAnnouncements: cleanPersonal, familyPhotos: cleanPhotos}));
+    }
+    // 1回だけ実行 (起動時)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // 家族側 (別タブの /family) で familyAccounts / familyInvites / 利用者の緊急連絡先が
   // 更新されたら事業所側にも自動反映 (cross-tab 同期)
   useEffect(() => {
@@ -11289,7 +11266,34 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                   </td>
                   
                   <td className={`px-1 py-1 border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`} style={{height:32,overflow:'hidden'}}>
-                    <textarea disabled={isReadOnly || isPause} value={p.tokki || ""} onChange={(e) => updateRecord(p.id, 'tokki', e.target.value)} rows={2} className={`w-full px-2 border rounded-lg text-xs bg-transparent outline-none disabled:opacity-80 resize-none ${isReadOnly ? 'border-transparent' : 'border-slate-300 shadow-inner bg-white'}`} style={{fontSize:14,lineHeight:1.4,padding:'2px 6px',height:'100%'}} placeholder={isReadOnly ? "" : (isAbsent ? "欠席理由等..." : "特記事項...")} />
+                    {(() => {
+                      // 家族向け表示 ON/OFF: familyTokkiOverrides[patientId][recordId].visible
+                      const pid = p.patientId || p.id;
+                      const ov = ((appData.familyTokkiOverrides||{})[pid]||{})[p.id] || {};
+                      const isVisible = ov.visible !== false;
+                      const hasTokki = (p.tokki||'').trim().length > 0;
+                      const toggleVisible = () => {
+                        const fto = appData.familyTokkiOverrides || {};
+                        const cur = fto[pid] || {};
+                        const next = {...cur, [p.id]: {...ov, visible: !isVisible}};
+                        onSave({...appData, familyTokkiOverrides: {...fto, [pid]: next}});
+                      };
+                      return (
+                        <div style={{display:'flex',gap:2,alignItems:'stretch',height:'100%'}}>
+                          <textarea disabled={isReadOnly || isPause} value={p.tokki || ""} onChange={(e) => updateRecord(p.id, 'tokki', e.target.value)} rows={2}
+                            className={`flex-1 px-2 border rounded-lg text-xs bg-transparent outline-none disabled:opacity-80 resize-none ${isReadOnly ? 'border-transparent' : 'border-slate-300 shadow-inner bg-white'}`}
+                            style={{fontSize:14,lineHeight:1.4,padding:'2px 6px',height:'100%'}}
+                            placeholder={isReadOnly ? "" : (isAbsent ? "欠席理由等..." : "特記事項...")} />
+                          {hasTokki && !isAbsent && !isReadOnly && (
+                            <button type="button" onClick={toggleVisible}
+                              title={isVisible ? "家族画面に表示中 (クリックで非表示)" : "家族画面に非表示 (クリックで表示)"}
+                              style={{width:24,flexShrink:0,border:'none',borderRadius:6,fontSize:11,fontWeight:'bold',cursor:'pointer',background:isVisible?'#d1fae5':'#e2e8f0',color:isVisible?'#047857':'#94a3b8'}}>
+                              {isVisible ? '👁' : '✕'}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className={`px-1 py-2 border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-slate-50'}`} style={{overflow:'visible',position:'relative',zIndex:50}}>
                      {(()=>{ const _targets=appData.systemSettings?.fitnessTargets; const _cl=masterData.careLevel||''; const _show=!_targets||_targets.length===0||_targets.includes(_cl);
@@ -17564,6 +17568,56 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               <div><div className="flex items-center justify-between mb-2"><label className="text-sm font-bold text-slate-600 flex items-center gap-1.5"><CalendarCheck size={16} />月間スケジュール</label><div className="flex items-center gap-2"><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronLeft size={16} /></button><span className="text-base font-bold text-slate-700 tabular-nums w-28 text-center">{currentMonth.getFullYear()}年{currentMonth.getMonth() + 1}月</span><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronRight size={16} /></button></div></div>
                 <div className="flex border border-slate-200 rounded-xl bg-slate-50 p-1 gap-0.5">{allD.map(d => { const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d); const dow = dO.getDay(); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; const cl = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow); const hl = appData.holidays?.some(h => (h.date || h) === ds); const base = localPatient.scheduleAmPm?.[dow] || ""; const bAM = base === "AM" || base === "1日"; const bPM = base === "PM" || base === "1日"; const sh = effShifts?.[mKey]?.[localPatient.id] || {}; const pi = getPauseReasonOnDate(localPatient, ds); /* 休止中: 基本利用日 (bAM/bPM=true) の枠だけ「休止」表示。それ以外は通常空欄 */ const cA = pi ? (bAM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(sh[`${d}_AM`], bAM), cl, hl); const cP = pi ? (bPM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(sh[`${d}_PM`], bPM), cl, hl); const ok = !cl && !hl && !pi && !isOff; return (<div key={d} className="flex-1 min-w-0 flex flex-col items-stretch bg-white border border-slate-200 rounded overflow-hidden"><div className={`w-full text-center text-[11px] font-bold py-1 bg-slate-100 border-b border-slate-200 leading-tight ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{d}<br/><span className="text-[9px] font-normal">{dN[dow]}</span></div><button disabled={!ok} onClick={() => ok && shiftTog(d, "AM")} className={`h-9 flex items-center justify-center border-b border-slate-100 text-[10px] leading-none whitespace-pre-wrap ${cA.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cA.t}</button><button disabled={!ok} onClick={() => ok && shiftTog(d, "PM")} className={`h-9 flex items-center justify-center text-[10px] leading-none whitespace-pre-wrap ${cP.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cP.t}</button></div>); })}</div>
                 <div className="flex gap-2 mt-2 text-[11px] text-slate-400 font-bold flex-wrap items-center"><span>上段:AM/下段:PM</span><span className="text-blue-600 bg-blue-50 px-1 rounded">出席</span><span className="text-red-500 bg-red-50 px-1 rounded">欠席</span><span className="text-emerald-600 bg-emerald-50 px-1 rounded">振替</span><span className="text-cyan-700 bg-cyan-50 px-1 rounded">臨時</span><span className="text-white bg-slate-600 px-1 rounded">休業</span><span>空欄=非利用日</span></div></div>
+              {/* お迎え時間: 基本利用曜日に設定がある日のみ表示 */}
+              {(() => {
+                const dayLabels = ['日','月','火','水','木','金','土'];
+                const closedDays = appData.systemSettings?.facilityInfo?.closedDays || [0];
+                const activeDays = dayLabels.map((d, i) => ({d, i, slot: localPatient.scheduleAmPm?.[i] || ''})).filter(x => x.slot && !closedDays.includes(x.i));
+                if (activeDays.length === 0) return null;
+                const splitTime = (t) => {
+                  if (!t) return { h: '', m: '' };
+                  const [h='', m=''] = String(t).split(':');
+                  return { h, m };
+                };
+                const updateTime = (i, h, m) => {
+                  const arr = [...(localPatient.pickupTimes || ['','','','','','','']) ];
+                  if (!h && !m) arr[i] = '';
+                  else arr[i] = `${String(h||'').padStart(2,'0')}:${m ? String(m).padStart(2,'0') : '00'}`;
+                  updateLP('pickupTimes', arr);
+                };
+                return (
+                  <div>
+                    <label className="block text-sm font-bold text-slate-600 mb-2 flex items-center gap-1.5">🚐 お迎え時間（基本利用日のみ）</label>
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                      <div className="grid gap-2" style={{gridTemplateColumns:`repeat(${Math.min(activeDays.length, 7)}, 1fr)`}}>
+                        {activeDays.map(({d, i, slot}) => {
+                          const t = splitTime(localPatient.pickupTimes?.[i] || '');
+                          return (
+                            <div key={i} className="bg-white border border-slate-200 rounded-lg p-2">
+                              <div className="text-center mb-1">
+                                <span className={`text-sm font-bold ${i===0?'text-red-500':i===6?'text-blue-500':'text-slate-700'}`}>{d}</span>
+                                <span className={`ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded ${slot==='AM'?'bg-red-100 text-red-700':slot==='PM'?'bg-blue-100 text-blue-700':'bg-violet-100 text-violet-700'}`}>{slot}</span>
+                              </div>
+                              <div className="flex items-center justify-center gap-1">
+                                <input disabled={isOff} type="number" min="0" max="23" value={t.h} onChange={e=>updateTime(i, e.target.value.slice(0,2), t.m)}
+                                  placeholder="時" className="w-12 px-1.5 py-1.5 bg-slate-50 border border-slate-300 rounded text-sm font-bold text-center outline-none disabled:opacity-60"/>
+                                <span className="text-sm font-bold text-slate-400">:</span>
+                                <input disabled={isOff} type="number" min="0" max="59" value={t.m} onChange={e=>updateTime(i, t.h, e.target.value.slice(0,2))}
+                                  placeholder="分" className="w-12 px-1.5 py-1.5 bg-slate-50 border border-slate-300 rounded text-sm font-bold text-center outline-none disabled:opacity-60"/>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+                        ・基本利用日に設定した曜日のみ表示されます<br/>
+                        ・時間が決まっていない場合は「時」だけ入力（例: 9 → 09:00）<br/>
+                        ・連絡帳のお迎え時間欄にもこの時刻が反映されます
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
               <div className="flex flex-wrap gap-3">{(appData.systemSettings?.serviceItems||[{id:'massage',label:'介護整体',options:'通常、横向き、仰向け、うつ伏せ、座位、無し'},{id:'onyoku',label:'温浴時電療',options:'腰、肩、無し'}]).map(si=>{
                 const opts=si.options.split(/[、,]+/).map(s=>s.trim()).filter(Boolean);
                 const fkey=si.id==='massage'?'massageNeed':si.id==='onyoku'?'onyokuDenryo':`svc_${si.id}`;
@@ -19212,6 +19266,57 @@ function SettingsView({ appData, onSave, dirtyRef }) {
             </SectionCard>
             <SectionCard title="データ管理">
               <p className="text-sm text-slate-500 mb-4">データのバックアップ・復元機能（クラウド連携）は開発中です。</p>
+              {/* お知らせの自動削除設定 + 残容量表示 */}
+              {(() => {
+                // localStorage 使用量を概算
+                const calcUsage = () => {
+                  try {
+                    const main = (localStorage.getItem('daycareAppData_v3') || '').length;
+                    const photos = (localStorage.getItem('daycarePhotos_v1') || '').length;
+                    return main + photos;
+                  } catch { return 0; }
+                };
+                const bytes = calcUsage();
+                const mb = (bytes * 2 / 1024 / 1024).toFixed(2); // UTF-16 → 約2倍
+                const LIMIT_MB = 5; // Safari基準
+                const usedPct = Math.min(100, Math.round((parseFloat(mb) / LIMIT_MB) * 100));
+                const retentionMonths = appData.systemSettings?.announcementRetentionMonths || 24;
+                const announcements = (appData.familyAnnouncements||[]).length;
+                const personalAnn = (appData.familyPersonalAnnouncements||[]).length;
+                const photoCount = (appData.familyPhotos||[]).length;
+                return (
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 space-y-3">
+                    <div>
+                      <div className="text-sm font-bold text-slate-700 mb-1">💾 データ使用量</div>
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1">
+                          <div className="h-3 bg-white rounded-full overflow-hidden border border-slate-200">
+                            <div className={`h-full ${usedPct>80?'bg-red-500':usedPct>50?'bg-amber-500':'bg-emerald-500'}`} style={{width:`${usedPct}%`}}/>
+                          </div>
+                        </div>
+                        <div className="text-sm font-bold text-slate-700">{mb} MB / {LIMIT_MB} MB ({usedPct}%)</div>
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+                        ・お知らせ全体 {announcements}件 / 個別お知らせ {personalAnn}件 / 写真 {photoCount}枚<br/>
+                        ・上限は Safari 約 5 MB / Chrome 約 10 MB。複数事業所運用や大量の写真には不足するため、その場合は Supabase Pro 移行を推奨します。
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 mb-1.5">お知らせ・写真の保存期間（自動削除）</label>
+                      <select value={retentionMonths} onChange={e=>{
+                        const m = parseInt(e.target.value, 10);
+                        onSave({...appData, systemSettings:{...appData.systemSettings, announcementRetentionMonths: m}});
+                      }} className="px-3 py-2 bg-white border border-slate-300 rounded-lg font-bold text-sm outline-none">
+                        <option value={12}>12ヶ月 (1年)</option>
+                        <option value={24}>24ヶ月 (2年)</option>
+                        <option value={36}>36ヶ月 (3年)</option>
+                        <option value={0}>削除しない</option>
+                      </select>
+                      <div className="text-[11px] text-slate-500 mt-1.5">投稿日からこの期間が経過したお知らせ・写真は次回アプリ起動時に自動削除されます。</div>
+                    </div>
+                  </div>
+                );
+              })()}
               <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4 mt-4">
                 <h4 className="text-sm font-bold text-red-700 mb-2 flex items-center gap-2">
                   ⚠ 全データクリア（本番運用開始用）
