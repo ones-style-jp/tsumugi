@@ -8517,20 +8517,21 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
   }
   return (
     <div className="space-y-3">
-      {/* コンパクトヘッダー: 利用者選択 + 利用者名 + 共通URL */}
+      {/* コンパクトヘッダー: 利用者選択 + 利用者名 + URLコピー + ログイン画面を開く */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-2.5 flex items-center gap-2 flex-wrap">
         <button onClick={()=>setPreviewPid(null)} title="利用者を選び直す" className="px-2.5 py-1.5 rounded-lg bg-violet-100 hover:bg-violet-200 text-violet-700 text-xs font-bold shrink-0">← 利用者選択</button>
         <div className="text-sm font-bold text-slate-800 shrink-0">{patient.name} 様</div>
         {accs.length > 0 && <div className="text-[10px] text-slate-500 shrink-0">登録 {accs.length}名</div>}
-        {/* 家族共通ログインURL (コンパクト) */}
+        {/* 家族共通ログインURL: コピー + ログイン画面を開く */}
         {(() => {
           const baseUrl = typeof window !== 'undefined' ? (window.location.origin + window.location.pathname.replace(/\/+$/, '')) : '';
-          const loginUrl = `${baseUrl}/?family`;
+          const familyLoginUrl = `${baseUrl}/?family`;
           return (
-            <div className="ml-auto flex items-center gap-1.5 min-w-0">
-              <span className="text-[10px] font-bold text-slate-400 shrink-0">家族共通URL:</span>
-              <input readOnly value={loginUrl} className="flex-1 min-w-0 max-w-[260px] px-2 py-1 text-[10px] bg-slate-50 border border-slate-200 rounded font-mono outline-none"/>
-              <button onClick={()=>{navigator.clipboard?.writeText(loginUrl);}} className="px-2 py-1 text-[10px] font-bold bg-blue-600 hover:bg-blue-700 text-white rounded shrink-0">コピー</button>
+            <div className="ml-auto flex items-center gap-2 shrink-0">
+              <button onClick={()=>{navigator.clipboard?.writeText(familyLoginUrl);}}
+                className="px-3 py-1.5 text-xs font-bold bg-violet-600 hover:bg-violet-700 text-white rounded-lg shadow active:scale-95">📋 家族共通URLをコピー</button>
+              <a href={familyLoginUrl} target="_blank" rel="noopener noreferrer"
+                className="px-3 py-1.5 text-xs font-bold bg-white border border-violet-300 text-violet-700 hover:bg-violet-50 rounded-lg shadow-sm active:scale-95">🌐 ログイン画面を開く</a>
             </div>
           );
         })()}
@@ -8808,25 +8809,8 @@ function FamilyAdminView({ appData, onSave }) {
   return (
     <div className="h-full overflow-auto bg-slate-50 p-6">
       <div className="max-w-5xl mx-auto">
-        {/* 共通ログインURL バー (常時表示) */}
-        <div className="bg-gradient-to-r from-violet-500 to-purple-600 rounded-2xl p-4 mb-4 shadow-lg">
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex-1 min-w-0">
-              <div className="text-[10px] font-bold text-violet-100 uppercase tracking-wider mb-1">家族共通ログインURL</div>
-              <div className="text-xs font-mono text-white bg-violet-700/40 px-2 py-1.5 rounded-lg truncate">{loginUrl}</div>
-            </div>
-            <div className="flex gap-2 shrink-0">
-              <button onClick={copyLoginUrl} className={`px-3 py-2 rounded-lg text-xs font-bold ${copied?'bg-emerald-500 text-white':'bg-white text-violet-700 hover:bg-violet-50'} shadow active:scale-95`}>
-                {copied ? '✓ コピー済' : '📋 コピー'}
-              </button>
-              <a href={loginUrl} target="_blank" rel="noopener noreferrer" className="px-3 py-2 rounded-lg text-xs font-bold bg-white text-violet-700 hover:bg-violet-50 shadow active:scale-95">
-                🌐 ログイン画面を開く
-              </a>
-            </div>
-          </div>
-        </div>
         <div className="flex items-center gap-2 mb-4 bg-white rounded-2xl p-1.5 shadow-sm border border-slate-200">
-          {[['post','✏️ 投稿 (お知らせ・写真)'],['preview','📱 家族画面プレビュー & 特記編集'],['history','📂 過去履歴']].map(([k,l])=>(
+          {[['post','✏️ 投稿 (お知らせ・写真)'],['preview','📱 家族画面プレビュー'],['history','📂 過去履歴']].map(([k,l])=>(
             <button key={k} onClick={()=>setTab(k)} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors ${tab===k?'bg-violet-600 text-white shadow':'text-slate-500 hover:bg-slate-100'}`}>{l}</button>
           ))}
         </div>
@@ -11554,7 +11538,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   // セクション選択（プレビュー用） [id, label, size]
   const ALL_SECTIONS = familyMode
     ? [['sec-basicinfo','基本情報','短'],['sec-latest','今回の記録','短'],['sec-kpi','基本指標','短'],['sec-trend','通所','長'],['sec-kibun','気分','中'],['sec-vital','バイタルトレンド','長'],['sec-exercise','運動トレンド','長'],['sec-fitness','体力測定','長'],['sec-tokki','日々の記録','中'],['sec-monitoring','モニタリング','中']]
-    : [['sec-basicinfo','基本情報','短'],['sec-kpi','基本指標','短'],['sec-trend','通所','長'],['sec-kibun','気分','中'],['sec-vital','バイタルトレンド','長'],['sec-exercise','運動トレンド','長'],['sec-fitness','体力測定','長'],['sec-absence','欠席一覧','短'],['sec-kyushi','休止一覧','短'],['sec-monitoring','モニタリング','中'],['sec-detail','詳細記録','長']];
+    : [['sec-basicinfo','基本情報','短'],['sec-latest','今回の記録','短'],['sec-kpi','基本指標','短'],['sec-trend','通所','長'],['sec-kibun','気分','中'],['sec-vital','バイタルトレンド','長'],['sec-exercise','運動トレンド','長'],['sec-fitness','体力測定','長'],['sec-absence','欠席一覧','短'],['sec-kyushi','休止一覧','短'],['sec-monitoring','モニタリング','中'],['sec-detail','詳細記録','長']];
   // Hoisted from IIFEs to satisfy React hook rules
   const [vitalTooltip, setVitalTooltip] = useState(null);
   const [selExId, setSelExId] = useState(null);
@@ -12255,64 +12239,128 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
 
         {/* 今回の記録 (最新の通所記録のサマリー) - 家族・事業所共通 */}
         {(() => {
-          const validRecs = records.filter(r => r.status==='出席' || r.status==='振替');
           const parseTicketDate = (s) => { const m=(s||'').match(/(\d+)月(\d+)日/); return m?`${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`:''; };
-          const latest = [...validRecs].sort((a,b)=> parseTicketDate(b.date).localeCompare(parseTicketDate(a.date)))[0];
+          // どの状態(出席/振替/欠席/休止)でも最新の記録を取得
+          const latest = [...records].sort((a,b)=> parseTicketDate(b.date).localeCompare(parseTicketDate(a.date)))[0];
           if (!latest) return null;
           const MOODS = {'excellent':'🤩 とても良い','good':'😊 良い','normal':'😐 普通','bad':'😞 良くない','terrible':'😫 とても良くない'};
           const tokkiOv = ((appData.familyTokkiOverrides||{})[selectedPatientId]||{})[latest.id] || {};
           const showTokki = tokkiOv.visible !== false;
           const tokkiText = tokkiOv.text || latest.tokki || '';
+          // 利用者本人の休止情報 (現在休止中の場合)
+          const _patient = (appData.patients||[]).find(p => p.id === selectedPatientId);
+          const isOnPause = _patient && _patient.status === '休止';
+          const lastPause = isOnPause ? [...(_patient.pauseHistory||[])].pop() : null;
+          // 体力測定: 同じ日 (MM-DD) に測定があれば取得
+          const fitnessOnDay = (() => {
+            const md = parseTicketDate(latest.date);
+            if (!md) return null;
+            const fitnessAll = (appData.fitnessRecords||[]).filter(r => r.patientId === selectedPatientId);
+            return fitnessAll.find(r => (r.date||'').slice(5) === md);
+          })();
+          const fitnessItems = appData.systemSettings?.fitnessItems || appSettings.fitnessItems;
+          const isAbsent = latest.status === '欠席';
+          const isKyushi = latest.status === '休止';
+          const showFullData = latest.status === '出席' || latest.status === '振替';
+          const headerBg = showFullData ? 'linear-gradient(135deg,#fefce8,#fef9c3)' : isAbsent ? 'linear-gradient(135deg,#fee2e2,#fecaca)' : isKyushi ? 'linear-gradient(135deg,#fff7ed,#ffedd5)' : 'linear-gradient(135deg,#f1f5f9,#e2e8f0)';
+          const headerBorder = showFullData ? '#fde68a' : isAbsent ? '#fca5a5' : isKyushi ? '#fdba74' : '#cbd5e1';
+          const statusBadgeBg = showFullData ? '#fef3c7' : isAbsent ? '#fee2e2' : '#ffedd5';
+          const statusBadgeColor = showFullData ? '#92400e' : isAbsent ? '#b91c1c' : '#9a3412';
           return (
             <div id="sec-latest" style={{marginBottom:16,scrollMarginTop:120}}>
               <div style={{fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:10,paddingBottom:6,borderBottom:'2px solid #e2e8f0',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                 <span>📋 今回の記録</span>
-                <span style={{fontSize:13,color:'#92400e',fontWeight:'bold',background:'#fef3c7',padding:'2px 10px',borderRadius:6}}>{latest.date}</span>
+                <span style={{fontSize:13,fontWeight:'bold',background:statusBadgeBg,color:statusBadgeColor,padding:'2px 10px',borderRadius:6}}>{latest.date}{!showFullData && ` (${latest.status})`}</span>
               </div>
-              <div style={{background:'linear-gradient(135deg,#fefce8,#fef9c3)',borderRadius:14,padding:'14px 18px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #fde68a'}}>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px 14px',fontSize:13}}>
-                  {latest.temp && (
-                    <div>
-                      <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>体温</span>
-                      <div style={{fontWeight:'bold',color:'#1e293b',fontSize:18,lineHeight:1.2}}>
-                        {latest.temp}<span style={{fontSize:11,color:'#94a3b8',marginLeft:2}}>℃</span>
-                      </div>
+              <div style={{background:headerBg,borderRadius:14,padding:'14px 18px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:`1px solid ${headerBorder}`}}>
+                {/* 休止中: 休止情報を最優先で表示 */}
+                {isOnPause && lastPause ? (
+                  <div>
+                    <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>休止</span>
+                    <div style={{fontWeight:'bold',color:'#9a3412',fontSize:15,marginTop:4}}>
+                      {lastPause.reason || '休止中'}
+                      {lastPause.fromDate && <span style={{marginLeft:10,fontSize:12,color:'#7c2d12'}}>{lastPause.fromDate} 〜 現在</span>}
                     </div>
-                  )}
-                  {latest.bpUpSt && (
-                    <div>
-                      <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>血圧 (開始)</span>
-                      <div style={{fontWeight:'bold',color:'#1e293b',fontSize:16,lineHeight:1.2}}>
-                        {latest.bpUpSt}/{latest.bpDnSt}<span style={{fontSize:10,color:'#94a3b8',marginLeft:2}}>mmHg</span>
+                    {tokkiText && showTokki && (
+                      <div style={{marginTop:10,paddingTop:10,borderTop:`1px dashed ${headerBorder}`}}>
+                        <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>特記</span>
+                        <div style={{fontSize:13,color:'#1e293b',lineHeight:1.6,whiteSpace:'pre-wrap',marginTop:4}}>{tokkiText}</div>
                       </div>
-                      {latest.plSt && <div style={{fontSize:11,color:'#475569'}}>脈拍 <b>{latest.plSt}</b></div>}
-                    </div>
-                  )}
-                  {latest.bpUpEn && (
-                    <div>
-                      <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>血圧 (終了)</span>
-                      <div style={{fontWeight:'bold',color:'#1e293b',fontSize:16,lineHeight:1.2}}>
-                        {latest.bpUpEn}/{latest.bpDnEn}<span style={{fontSize:10,color:'#94a3b8',marginLeft:2}}>mmHg</span>
-                      </div>
-                      {latest.plEn && <div style={{fontSize:11,color:'#475569'}}>脈拍 <b>{latest.plEn}</b></div>}
-                    </div>
-                  )}
-                  {(latest.kibunArrival||latest.kibunDeparture) && (
-                    <div style={{gridColumn:'1 / -1'}}>
-                      <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>気分</span>
-                      <div style={{fontWeight:'bold',color:'#1e293b',fontSize:13,marginTop:2}}>
-                        {latest.kibunArrival && <span>来所時: {MOODS[latest.kibunArrival]||latest.kibunArrival}</span>}
-                        {latest.kibunArrival && latest.kibunDeparture && <span style={{color:'#94a3b8',margin:'0 8px'}}>／</span>}
-                        {latest.kibunDeparture && <span>帰宅時: {MOODS[latest.kibunDeparture]||latest.kibunDeparture}</span>}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                {showTokki && tokkiText && (
-                  <div style={{marginTop:10,paddingTop:10,borderTop:'1px solid #fde68a'}}>
-                    <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>特記</span>
-                    <div style={{fontSize:13,color:'#1e293b',lineHeight:1.6,whiteSpace:'pre-wrap',marginTop:4}}>{tokkiText}</div>
+                    )}
                   </div>
+                ) : isAbsent ? (
+                  /* 欠席: 理由 + 特記 */
+                  <div>
+                    <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>欠席理由</span>
+                    <div style={{fontWeight:'bold',color:'#b91c1c',fontSize:15,marginTop:4}}>
+                      {tokkiText || '理由未入力'}
+                    </div>
+                  </div>
+                ) : (
+                  /* 出席/振替: 1行に 体温 | 血圧+脈(開始) | 血圧+脈(終了) | 気分 */
+                  <>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:'10px 16px',fontSize:13}}>
+                      {/* 体温 */}
+                      <div>
+                        <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>体温</span>
+                        <div style={{fontWeight:'bold',color:'#1e293b',fontSize:18,lineHeight:1.2,marginTop:2}}>
+                          {latest.temp ? <>{latest.temp}<span style={{fontSize:11,color:'#94a3b8',marginLeft:2}}>℃</span></> : <span style={{color:'#cbd5e1',fontSize:14}}>—</span>}
+                        </div>
+                      </div>
+                      {/* 血圧+脈 開始 (横並び) */}
+                      <div>
+                        <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>血圧 / 脈 (開始)</span>
+                        <div style={{fontWeight:'bold',color:'#1e293b',fontSize:18,lineHeight:1.2,marginTop:2,display:'flex',alignItems:'baseline',gap:10,flexWrap:'wrap'}}>
+                          {latest.bpUpSt ? <span>{latest.bpUpSt}/{latest.bpDnSt}<span style={{fontSize:10,color:'#94a3b8',marginLeft:2}}>mmHg</span></span> : <span style={{color:'#cbd5e1',fontSize:14}}>—</span>}
+                          {latest.plSt && <span>{latest.plSt}<span style={{fontSize:10,color:'#94a3b8',marginLeft:2}}>回</span></span>}
+                        </div>
+                      </div>
+                      {/* 血圧+脈 終了 (横並び) */}
+                      <div>
+                        <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>血圧 / 脈 (終了)</span>
+                        <div style={{fontWeight:'bold',color:'#1e293b',fontSize:18,lineHeight:1.2,marginTop:2,display:'flex',alignItems:'baseline',gap:10,flexWrap:'wrap'}}>
+                          {latest.bpUpEn ? <span>{latest.bpUpEn}/{latest.bpDnEn}<span style={{fontSize:10,color:'#94a3b8',marginLeft:2}}>mmHg</span></span> : <span style={{color:'#cbd5e1',fontSize:14}}>—</span>}
+                          {latest.plEn && <span>{latest.plEn}<span style={{fontSize:10,color:'#94a3b8',marginLeft:2}}>回</span></span>}
+                        </div>
+                      </div>
+                      {/* 気分 */}
+                      <div>
+                        <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>気分</span>
+                        <div style={{fontWeight:'bold',color:'#1e293b',fontSize:13,marginTop:4,lineHeight:1.5}}>
+                          {latest.kibunArrival && <div>来所: {MOODS[latest.kibunArrival]||latest.kibunArrival}</div>}
+                          {latest.kibunDeparture && <div>帰宅: {MOODS[latest.kibunDeparture]||latest.kibunDeparture}</div>}
+                          {!latest.kibunArrival && !latest.kibunDeparture && <span style={{color:'#cbd5e1',fontSize:14}}>—</span>}
+                        </div>
+                      </div>
+                    </div>
+                    {/* 体力測定 (同じ日に測定があれば) */}
+                    {fitnessOnDay && (
+                      <div style={{marginTop:10,paddingTop:10,borderTop:`1px dashed ${headerBorder}`}}>
+                        <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>🏃 体力測定 (本日測定)</span>
+                        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))',gap:'6px 14px',marginTop:6,fontSize:13}}>
+                          {fitnessItems.map(it => {
+                            const v = fitnessOnDay.values?.[it.id];
+                            if (v === undefined || v === '') return null;
+                            return (
+                              <div key={it.id}>
+                                <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>{it.name}</span>
+                                <div style={{fontWeight:'bold',color:'#1e293b',fontSize:14,lineHeight:1.2}}>
+                                  {v}<span style={{fontSize:10,color:'#94a3b8',marginLeft:2}}>{it.unit}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    {/* 特記 */}
+                    {showTokki && tokkiText && (
+                      <div style={{marginTop:10,paddingTop:10,borderTop:`1px dashed ${headerBorder}`}}>
+                        <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>📝 特記</span>
+                        <div style={{fontSize:13,color:'#1e293b',lineHeight:1.6,whiteSpace:'pre-wrap',marginTop:4}}>{tokkiText}</div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -17577,12 +17625,15 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 const splitTime = (t) => {
                   if (!t) return { h: '', m: '' };
                   const [h='', m=''] = String(t).split(':');
-                  return { h, m };
+                  return { h, m: m === '--' ? '' : m };
                 };
                 const updateTime = (i, h, m) => {
                   const arr = [...(localPatient.pickupTimes || ['','','','','','','']) ];
-                  if (!h && !m) arr[i] = '';
-                  else arr[i] = `${String(h||'').padStart(2,'0')}:${m ? String(m).padStart(2,'0') : '00'}`;
+                  const hh = (h||'').replace(/[^0-9]/g,'').slice(0,2);
+                  const mm = (m||'').replace(/[^0-9]/g,'').slice(0,2);
+                  if (!hh && !mm) arr[i] = '';
+                  else if (hh && !mm) arr[i] = `${hh.padStart(2,'0')}:--`;  // 分未入力を維持
+                  else arr[i] = `${(hh||'00').padStart(2,'0')}:${mm.padStart(2,'0')}`;
                   updateLP('pickupTimes', arr);
                 };
                 return (
@@ -17599,11 +17650,11 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                                 <span className={`ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded ${slot==='AM'?'bg-red-100 text-red-700':slot==='PM'?'bg-blue-100 text-blue-700':'bg-violet-100 text-violet-700'}`}>{slot}</span>
                               </div>
                               <div className="flex items-center justify-center gap-1">
-                                <input disabled={isOff} type="number" min="0" max="23" value={t.h} onChange={e=>updateTime(i, e.target.value.slice(0,2), t.m)}
+                                <input disabled={isOff} type="text" inputMode="numeric" maxLength={2} value={t.h} onChange={e=>updateTime(i, e.target.value, t.m)}
                                   placeholder="時" className="w-12 px-1.5 py-1.5 bg-slate-50 border border-slate-300 rounded text-sm font-bold text-center outline-none disabled:opacity-60"/>
                                 <span className="text-sm font-bold text-slate-400">:</span>
-                                <input disabled={isOff} type="number" min="0" max="59" value={t.m} onChange={e=>updateTime(i, t.h, e.target.value.slice(0,2))}
-                                  placeholder="分" className="w-12 px-1.5 py-1.5 bg-slate-50 border border-slate-300 rounded text-sm font-bold text-center outline-none disabled:opacity-60"/>
+                                <input disabled={isOff} type="text" inputMode="numeric" maxLength={2} value={t.m} onChange={e=>updateTime(i, t.h, e.target.value)}
+                                  placeholder="--" className="w-12 px-1.5 py-1.5 bg-slate-50 border border-slate-300 rounded text-sm font-bold text-center outline-none disabled:opacity-60"/>
                               </div>
                             </div>
                           );
@@ -19278,35 +19329,64 @@ function SettingsView({ appData, onSave, dirtyRef }) {
                 };
                 const bytes = calcUsage();
                 const mb = (bytes * 2 / 1024 / 1024).toFixed(2); // UTF-16 → 約2倍
-                const LIMIT_MB = 5; // Safari基準
-                const usedPct = Math.min(100, Math.round((parseFloat(mb) / LIMIT_MB) * 100));
+                // 事業所別クォータ (Supabase Pro 移行後の運用想定: 各事業所ごとに上限GBを設定)
+                const quotaGB = appData.systemSettings?.storeQuotaGB || 2;
+                const LOCAL_LIMIT_MB = 5; // 現状の localStorage 上限 (Safari基準)
+                const QUOTA_MB = quotaGB * 1024;
+                const usedPctLocal = Math.min(100, Math.round((parseFloat(mb) / LOCAL_LIMIT_MB) * 100));
+                const usedPctQuota = Math.min(100, Math.round((parseFloat(mb) / QUOTA_MB) * 100 * 100) / 100);
                 const retentionMonths = appData.systemSettings?.announcementRetentionMonths || 24;
                 const announcements = (appData.familyAnnouncements||[]).length;
                 const personalAnn = (appData.familyPersonalAnnouncements||[]).length;
                 const photoCount = (appData.familyPhotos||[]).length;
                 return (
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 space-y-3">
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 space-y-4">
+                    {/* 現在の使用量 (localStorage) */}
                     <div>
-                      <div className="text-sm font-bold text-slate-700 mb-1">💾 データ使用量</div>
+                      <div className="text-sm font-bold text-slate-700 mb-1">💾 現在のデータ使用量 (このブラウザ内)</div>
                       <div className="flex items-center gap-3">
                         <div className="flex-1">
                           <div className="h-3 bg-white rounded-full overflow-hidden border border-slate-200">
-                            <div className={`h-full ${usedPct>80?'bg-red-500':usedPct>50?'bg-amber-500':'bg-emerald-500'}`} style={{width:`${usedPct}%`}}/>
+                            <div className={`h-full ${usedPctLocal>80?'bg-red-500':usedPctLocal>50?'bg-amber-500':'bg-emerald-500'}`} style={{width:`${usedPctLocal}%`}}/>
                           </div>
                         </div>
-                        <div className="text-sm font-bold text-slate-700">{mb} MB / {LIMIT_MB} MB ({usedPct}%)</div>
+                        <div className="text-sm font-bold text-slate-700">{mb} MB / {LOCAL_LIMIT_MB} MB ({usedPctLocal}%)</div>
                       </div>
                       <div className="text-[11px] text-slate-500 mt-2 leading-relaxed">
                         ・お知らせ全体 {announcements}件 / 個別お知らせ {personalAnn}件 / 写真 {photoCount}枚<br/>
-                        ・上限は Safari 約 5 MB / Chrome 約 10 MB。複数事業所運用や大量の写真には不足するため、その場合は Supabase Pro 移行を推奨します。
+                        ・上限は Safari 約 5 MB / Chrome 約 10 MB（ローカル保存のみ）
                       </div>
                     </div>
-                    <div>
+                    {/* 事業所別クォータ (Supabase 移行後) */}
+                    <div className="border-t border-slate-200 pt-3">
+                      <div className="text-sm font-bold text-slate-700 mb-2">🏢 事業所別クォータ（Supabase Pro 移行後）</div>
+                      <div className="flex items-center gap-3 mb-2">
+                        <label className="text-xs font-bold text-slate-600 shrink-0">この事業所の上限:</label>
+                        <select value={quotaGB} onChange={e=>{
+                          const g = parseFloat(e.target.value);
+                          onSave({...appData, systemSettings:{...appData.systemSettings, storeQuotaGB: g}});
+                        }} className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg font-bold text-sm outline-none">
+                          <option value={1}>1 GB</option>
+                          <option value={2}>2 GB</option>
+                          <option value={5}>5 GB</option>
+                          <option value={10}>10 GB</option>
+                          <option value={20}>20 GB</option>
+                        </select>
+                        <div className="text-xs text-slate-500">（現在の使用率: <b className="text-slate-700">{usedPctQuota}%</b>）</div>
+                      </div>
+                      <div className="text-[11px] text-slate-500 leading-relaxed">
+                        ・Supabase Pro 移行後は各事業所ごとに上限を設定して運用できます<br/>
+                        ・本部からみたフランチャイズ全体は事業所数 × この上限<br/>
+                        ・例: 9 店舗 × 2GB = 18GB (Pro プランの上限内)
+                      </div>
+                    </div>
+                    {/* 自動削除設定 */}
+                    <div className="border-t border-slate-200 pt-3">
                       <label className="block text-xs font-bold text-slate-600 mb-1.5">お知らせ・写真の保存期間（自動削除）</label>
                       <select value={retentionMonths} onChange={e=>{
                         const m = parseInt(e.target.value, 10);
                         onSave({...appData, systemSettings:{...appData.systemSettings, announcementRetentionMonths: m}});
-                      }} className="px-3 py-2 bg-white border border-slate-300 rounded-lg font-bold text-sm outline-none">
+                      }} className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg font-bold text-sm outline-none">
                         <option value={12}>12ヶ月 (1年)</option>
                         <option value={24}>24ヶ月 (2年)</option>
                         <option value={36}>36ヶ月 (3年)</option>
