@@ -84,6 +84,50 @@ const AutoFitLine = ({ children, style }) => {
   );
 };
 
+// === お迎え時間セル: 時/分を別入力。自前 state で確実に入力可能。 ===
+const PickupTimeCell = ({ day, idx, slot, isOff, initial, onCommit }) => {
+  const splitTime = (t) => {
+    if (!t) return { h: '', m: '' };
+    const [h='', m=''] = String(t).split(':');
+    return { h, m: m === '--' ? '' : m };
+  };
+  const init = splitTime(initial);
+  const [h, setH] = React.useState(init.h);
+  const [m, setM] = React.useState(init.m);
+  // 親側 initial が変わったとき (利用者切替時など) に同期
+  React.useEffect(() => { const x = splitTime(initial); setH(x.h); setM(x.m); }, [initial]);
+  const commit = (newH, newM) => {
+    const hh = String(newH||'').replace(/[^0-9]/g,'').slice(0,2);
+    const mm = String(newM||'').replace(/[^0-9]/g,'').slice(0,2);
+    let val = '';
+    if (hh && mm) val = `${hh}:${mm}`;
+    else if (hh && !mm) val = `${hh}:--`;
+    else val = '';
+    onCommit(val);
+  };
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-2">
+      <div className="text-center mb-1">
+        <span className={`text-sm font-bold ${idx===0?'text-red-500':idx===6?'text-blue-500':'text-slate-700'}`}>{day}</span>
+        <span className={`ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded ${slot==='AM'?'bg-red-100 text-red-700':slot==='PM'?'bg-blue-100 text-blue-700':'bg-violet-100 text-violet-700'}`}>{slot}</span>
+      </div>
+      <div className="flex items-center justify-center gap-1">
+        <input disabled={isOff} type="text" inputMode="numeric" maxLength={2}
+          value={h}
+          onChange={e => { const v = e.target.value.replace(/[^0-9]/g,'').slice(0,2); setH(v); commit(v, m); }}
+          placeholder="時"
+          className="w-12 px-1.5 py-1.5 bg-slate-50 border border-slate-300 rounded text-sm font-bold text-center outline-none disabled:opacity-60"/>
+        <span className="text-sm font-bold text-slate-400">:</span>
+        <input disabled={isOff} type="text" inputMode="numeric" maxLength={2}
+          value={m}
+          onChange={e => { const v = e.target.value.replace(/[^0-9]/g,'').slice(0,2); setM(v); commit(h, v); }}
+          placeholder="--"
+          className="w-12 px-1.5 py-1.5 bg-slate-50 border border-slate-300 rounded text-sm font-bold text-center outline-none disabled:opacity-60"/>
+      </div>
+    </div>
+  );
+};
+
 // === 利用者プルダウン: かな順ソート + 行（ア/カ/サ...）optgroup ===
 // 並び順は kana 優先、なければ name を fallback。空文字 / 記号は「その他」へ。
 const _KANA_ROWS = [
@@ -11548,7 +11592,11 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
       String(p.id).includes(q)
     );
   }, [appData.patients, patientSearch]);
-  const [baseMonth, setBaseMonth] = useState('2026-03');
+  // baseMonth デフォルトは「今日の月」(YYYY-MM)
+  const [baseMonth, setBaseMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  });
   // 家族画面・事業所側ともデフォルト「1ヶ月」
   const [period, setPeriod] = useState('1');
   const [customFrom, setCustomFrom] = useState('2026-01');
@@ -12257,9 +12305,29 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
 
         {/* 今回の記録 (最新の通所記録のサマリー) - 家族・事業所共通 */}
         {(() => {
-          const parseTicketDate = (s) => { const m=(s||'').match(/(\d+)月(\d+)日/); return m?`${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`:''; };
-          // どの状態(出席/振替/欠席/休止)でも最新の記録を取得
-          const latest = [...records].sort((a,b)=> parseTicketDate(b.date).localeCompare(parseTicketDate(a.date)))[0];
+          // 月日 (M月D日) から今日に最も近い「過去または当日」のフル日付を推定
+          // 例: 今日が 2026-06-05 で record.date = "3月31日" → 2026-03-31
+          //     today が 2026-06-05 で record.date = "7月15日" → 2025-07-15 (今年7月は未来なので前年)
+          const today = new Date(); today.setHours(0,0,0,0);
+          const ty = today.getFullYear();
+          const tm = today.getMonth() + 1;
+          const td = today.getDate();
+          const recordToDate = (s) => {
+            const m = (s||'').match(/(\d+)月(\d+)日/);
+            if (!m) return null;
+            const mm = parseInt(m[1], 10);
+            const dd = parseInt(m[2], 10);
+            let year = ty;
+            // 月日が今日より未来 → 去年と推定
+            if (mm > tm || (mm === tm && dd > td)) year = ty - 1;
+            return new Date(year, mm - 1, dd);
+          };
+          // どの状態(出席/振替/欠席/休止)でも最新の記録を取得 (年も考慮した日付でソート)
+          const withDates = records.map(r => ({ r, d: recordToDate(r.date) })).filter(x => x.d);
+          withDates.sort((a, b) => b.d.getTime() - a.d.getTime());
+          const latestPair = withDates[0];
+          const latest = latestPair?.r;
+          const latestFullDate = latestPair?.d;
           if (!latest) return null;
           const MOODS = {'excellent':'🤩 とても良い','good':'😊 良い','normal':'😐 普通','bad':'😞 良くない','terrible':'😫 とても良くない'};
           const tokkiOv = ((appData.familyTokkiOverrides||{})[selectedPatientId]||{})[latest.id] || {};
@@ -12288,7 +12356,10 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             <div id="sec-latest" style={{marginBottom:16,scrollMarginTop:120}}>
               <div style={{fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:10,paddingBottom:6,borderBottom:'2px solid #e2e8f0',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                 <span>📋 今回の記録</span>
-                <span style={{fontSize:13,fontWeight:'bold',background:statusBadgeBg,color:statusBadgeColor,padding:'2px 10px',borderRadius:6}}>{latest.date}{!showFullData && ` (${latest.status})`}</span>
+                <span style={{fontSize:13,fontWeight:'bold',background:statusBadgeBg,color:statusBadgeColor,padding:'2px 10px',borderRadius:6}}>
+                  {latestFullDate ? `${latestFullDate.getFullYear()}年${latest.date}` : latest.date}
+                  {!showFullData && ` (${latest.status})`}
+                </span>
               </div>
               <div style={{background:headerBg,borderRadius:14,padding:'14px 18px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:`1px solid ${headerBorder}`}}>
                 {/* 休止中: 休止情報を最優先で表示 */}
@@ -17640,49 +17711,25 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 const closedDays = appData.systemSettings?.facilityInfo?.closedDays || [0];
                 const activeDays = dayLabels.map((d, i) => ({d, i, slot: localPatient.scheduleAmPm?.[i] || ''})).filter(x => x.slot && !closedDays.includes(x.i));
                 if (activeDays.length === 0) return null;
-                const splitTime = (t) => {
-                  if (!t) return { h: '', m: '' };
-                  const [h='', m=''] = String(t).split(':');
-                  return { h, m: m === '--' ? '' : m };
-                };
-                // 入力中はパディングせず、保存値もそのまま受け入れる
-                // 例: "9:--" / "9:30" / "10:30" / "" (空)
-                const updateTime = (i, h, m) => {
-                  const arr = [...(localPatient.pickupTimes || ['','','','','','','']) ];
-                  const hh = (h||'').replace(/[^0-9]/g,'').slice(0,2);
-                  const mm = (m||'').replace(/[^0-9]/g,'').slice(0,2);
-                  if (!hh && !mm) arr[i] = '';
-                  else if (hh && !mm) arr[i] = `${hh}:--`;
-                  else arr[i] = `${hh || '0'}:${mm}`;
-                  updateLP('pickupTimes', arr);
-                };
                 return (
                   <div>
                     <label className="block text-sm font-bold text-slate-600 mb-2 flex items-center gap-1.5">🚐 お迎え時間（基本利用日のみ）</label>
                     <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                       <div className="grid gap-2" style={{gridTemplateColumns:`repeat(${Math.min(activeDays.length, 7)}, 1fr)`}}>
-                        {activeDays.map(({d, i, slot}) => {
-                          const t = splitTime(localPatient.pickupTimes?.[i] || '');
-                          return (
-                            <div key={i} className="bg-white border border-slate-200 rounded-lg p-2">
-                              <div className="text-center mb-1">
-                                <span className={`text-sm font-bold ${i===0?'text-red-500':i===6?'text-blue-500':'text-slate-700'}`}>{d}</span>
-                                <span className={`ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded ${slot==='AM'?'bg-red-100 text-red-700':slot==='PM'?'bg-blue-100 text-blue-700':'bg-violet-100 text-violet-700'}`}>{slot}</span>
-                              </div>
-                              <div className="flex items-center justify-center gap-1">
-                                <input disabled={isOff} type="text" inputMode="numeric" maxLength={2} value={t.h} onChange={e=>updateTime(i, e.target.value, t.m)}
-                                  placeholder="時" className="w-12 px-1.5 py-1.5 bg-slate-50 border border-slate-300 rounded text-sm font-bold text-center outline-none disabled:opacity-60"/>
-                                <span className="text-sm font-bold text-slate-400">:</span>
-                                <input disabled={isOff} type="text" inputMode="numeric" maxLength={2} value={t.m} onChange={e=>updateTime(i, t.h, e.target.value)}
-                                  placeholder="--" className="w-12 px-1.5 py-1.5 bg-slate-50 border border-slate-300 rounded text-sm font-bold text-center outline-none disabled:opacity-60"/>
-                              </div>
-                            </div>
-                          );
-                        })}
+                        {activeDays.map(({d, i, slot}) => (
+                          <PickupTimeCell key={`${localPatient.id}_${i}`}
+                            day={d} idx={i} slot={slot} isOff={isOff}
+                            initial={localPatient.pickupTimes?.[i] || ''}
+                            onCommit={(val) => {
+                              const arr = [...(localPatient.pickupTimes || ['','','','','','','']) ];
+                              arr[i] = val;
+                              updateLP('pickupTimes', arr);
+                            }}/>
+                        ))}
                       </div>
                       <div className="text-[11px] text-slate-500 mt-2 leading-relaxed">
                         ・基本利用日に設定した曜日のみ表示されます<br/>
-                        ・時間が決まっていない場合は「時」だけ入力（例: 9 → 09:00）<br/>
+                        ・時間が決まっていない場合は「時」だけ入力（例: 9 → 9:--、後で 30 を追加すると 9:30）<br/>
                         ・連絡帳のお迎え時間欄にもこの時刻が反映されます
                       </div>
                     </div>
