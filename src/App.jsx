@@ -100,6 +100,8 @@ const DataExportSection = ({ appData }) => {
   const [patientMode, setPatientMode] = React.useState('all');
   const [selectedPatientIds, setSelectedPatientIds] = React.useState([]);
   const [patientSearchQ, setPatientSearchQ] = React.useState('');
+  // 出力形式: 'html' (高速) or 'pdf' (実PDF, 重い)
+  const [outputFormat, setOutputFormat] = React.useState('pdf');
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState('');
 
@@ -111,6 +113,54 @@ const DataExportSection = ({ appData }) => {
     s.onerror = () => reject(new Error('JSZip の読み込みに失敗しました (要インターネット接続)'));
     document.head.appendChild(s);
   });
+  // jsPDF + html2canvas を CDN ロード (PDF 出力用)
+  const loadPdfLibs = () => Promise.all([
+    new Promise((res, rej) => {
+      if (window.jspdf?.jsPDF) return res();
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
+      s.onload = res; s.onerror = () => rej(new Error('jsPDF の読み込みに失敗'));
+      document.head.appendChild(s);
+    }),
+    new Promise((res, rej) => {
+      if (window.html2canvas) return res();
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+      s.onload = res; s.onerror = () => rej(new Error('html2canvas の読み込みに失敗'));
+      document.head.appendChild(s);
+    }),
+  ]);
+  // HTML文字列 → PDF Blob (A4 横/縦は HTML 内の @page で指定)
+  const htmlToPdfBlob = async (htmlStr, opts = {}) => {
+    const { orientation = 'landscape' } = opts;
+    // 描画用に hidden iframe を作成
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;left:-10000px;top:0;width:1200px;height:900px;border:none;visibility:hidden;';
+    document.body.appendChild(iframe);
+    try {
+      iframe.contentDocument.open();
+      iframe.contentDocument.write(htmlStr);
+      iframe.contentDocument.close();
+      // フォント読み込み待機
+      await new Promise(r => setTimeout(r, 200));
+      const body = iframe.contentDocument.body;
+      const canvas = await window.html2canvas(body, { scale: 2, backgroundColor:'#ffffff', useCORS: true, logging: false });
+      const imgData = canvas.toDataURL('image/jpeg', 0.92);
+      const { jsPDF } = window.jspdf;
+      const pdfW = orientation === 'landscape' ? 297 : 210;
+      const pdfH = orientation === 'landscape' ? 210 : 297;
+      const pdf = new jsPDF({ orientation, unit: 'mm', format: 'a4' });
+      const imgRatio = canvas.width / canvas.height;
+      const pdfRatio = pdfW / pdfH;
+      let imgW, imgH;
+      if (imgRatio > pdfRatio) { imgW = pdfW; imgH = pdfW / imgRatio; }
+      else { imgH = pdfH; imgW = pdfH * imgRatio; }
+      pdf.addImage(imgData, 'JPEG', (pdfW - imgW) / 2, (pdfH - imgH) / 2, imgW, imgH);
+      return pdf.output('blob');
+    } finally {
+      document.body.removeChild(iframe);
+    }
+  };
 
   // 期間判定 (start/end は Date)
   const getRange = () => {
@@ -160,11 +210,29 @@ const DataExportSection = ({ appData }) => {
     setBusy(true); setProgress('JSZip を読み込み中...');
     try {
       const JSZip = await loadJSZip();
+      if (outputFormat === 'pdf') {
+        setProgress('PDF 生成ライブラリを読み込み中... (初回は数十秒)');
+        await loadPdfLibs();
+      }
       const zip = new JSZip();
       const { start, end, label } = getRange();
       const stamp = new Date().toISOString().slice(0,10);
       const rootDir = `daycare_export_${stamp}_${label.replace(/[\/\\:?]/g,'-')}`;
       const root = zip.folder(rootDir);
+      // HTML を PDF に変換して追加するヘルパー
+      const addHtmlOrPdf = async (folder, baseName, htmlStr, opts) => {
+        if (outputFormat === 'pdf') {
+          try {
+            const blob = await htmlToPdfBlob(htmlStr, opts);
+            folder.file(`${baseName}.pdf`, blob);
+          } catch (e) {
+            console.warn('PDF生成失敗、HTMLで保存:', baseName, e);
+            folder.file(`${baseName}.html`, htmlStr);
+          }
+        } else {
+          folder.file(`${baseName}.html`, htmlStr);
+        }
+      };
       root.file('_meta.json', JSON.stringify({ exportedAt: new Date().toISOString(), range: label, app: 'デイケア管理アプリ' }, null, 2));
 
       // HTML 共通スタイル (印刷時 PDF 化用)
@@ -218,7 +286,10 @@ ${body}</body></html>`;
         const exerciseItems = appData.systemSettings?.exerciseItems || appSettings.exerciseItems || [];
         const dowJp = ['日','月','火','水','木','金','土'];
         const moodLabel = { excellent:'🤩', good:'😊', normal:'😐', bad:'😞', terrible:'😫' };
-        Object.values(groups).forEach(g => {
+        const groupArr = Object.values(groups);
+        for (let gi = 0; gi < groupArr.length; gi++) {
+          const g = groupArr[gi];
+          setProgress(`提供記録 ${gi+1}/${groupArr.length} を生成中...`);
           const pat = patientMap.get(g.patientId) || { name:`patient_${g.patientId}`, kana:'' };
           const sorted = g.records.sort((a,b) => a._d - b._d);
           const tY = sorted[0]?._d.getFullYear();
@@ -323,8 +394,8 @@ body { font-family: "Hiragino Sans","Yu Gothic",sans-serif; color:#1e293b; margi
 </div>
 </body></html>`;
           const safeName = pat.name.replace(/[\/\\:?*"<>|\s]/g,'_');
-          dir.file(`${safeName}_${g.ym}.html`, html);
-        });
+          await addHtmlOrPdf(dir, `${safeName}_${g.ym}`, html, { orientation: 'landscape' });
+        }
       }
       // 体力測定 (CSV のみ)
       if (include.fitness) {
@@ -337,31 +408,32 @@ body { font-family: "Hiragino Sans","Yu Gothic",sans-serif; color:#1e293b; margi
       }
       // 日誌: 1日1ファイル HTML
       if (include.diary) {
-        setProgress('日誌をエクスポート中...');
         const logs = appData.diaryLogs || {};
         const dir = root.folder('04_日誌');
-        Object.entries(logs).forEach(([date, log]) => {
-          if (!inRange(date, start, end)) return;
+        const entries = Object.entries(logs).filter(([date]) => inRange(date, start, end));
+        for (let i = 0; i < entries.length; i++) {
+          const [date, log] = entries[i];
+          setProgress(`日誌 ${i+1}/${entries.length} を生成中...`);
           const safeDate = date.replace(/[\/\\:]/g,'-');
           const body = `<h1>日誌</h1>
             <div class="section"><span class="label">日付:</span> <b>${date}</b></div>
             <div class="section"><pre style="white-space:pre-wrap;font-family:inherit;background:#f8fafc;padding:10px;border-radius:4px;border:1px solid #e2e8f0;">${JSON.stringify(log, null, 2).replace(/</g,'&lt;')}</pre></div>`;
-          dir.file(`${safeDate}.html`, htmlBase(`日誌 ${date}`, body));
-        });
+          await addHtmlOrPdf(dir, safeDate, htmlBase(`日誌 ${date}`, body), { orientation: 'portrait' });
+        }
       }
-      // 休み連絡 (FAX): 1件1ファイル HTML
+      // 休み連絡 (FAX): 1件1ファイル
       if (include.absenceFax) {
-        setProgress('休み連絡をエクスポート中...');
         const dir = root.folder('05_休み連絡');
         const targetNames = new Set(targetPatients.map(p => p.name));
         const recs = (appData.faxHistory || []).filter(r => {
           if (r.type !== 'absence' || !inRange(r.timestamp, start, end)) return false;
-          // 利用者選択モードなら、その利用者の連絡のみ
           if (patientMode === 'select' && r.patientName && !targetNames.has(r.patientName)) return false;
           return true;
         });
         const facility = appData.systemSettings?.facilityInfo || {};
-        recs.forEach((r, idx) => {
+        for (let i = 0; i < recs.length; i++) {
+          const r = recs[i];
+          setProgress(`休み連絡 ${i+1}/${recs.length} を生成中...`);
           const ts = r.timestamp ? new Date(r.timestamp) : null;
           const tsStr = ts ? `${ts.getFullYear()}/${String(ts.getMonth()+1).padStart(2,'0')}/${String(ts.getDate()).padStart(2,'0')} ${String(ts.getHours()).padStart(2,'0')}:${String(ts.getMinutes()).padStart(2,'0')}` : '';
           const body = `<h1>休み連絡 送付控え</h1>
@@ -377,23 +449,23 @@ body { font-family: "Hiragino Sans","Yu Gothic",sans-serif; color:#1e293b; margi
             <div class="section" style="margin-top:30px;border-top:1px solid #cbd5e1;padding-top:10px;font-size:12px;color:#475569;">
               <b>${facility.name||''}</b> / TEL ${facility.phone||''} / FAX ${facility.fax||''}
             </div>`;
-          const safeName = `${tsStr.replace(/[\/:]/g,'').replace(' ','_')}_${(r.patientName||'').replace(/\s/g,'')}_${idx+1}`;
-          dir.file(`${safeName || `absence_${idx+1}`}.html`, htmlBase(`休み連絡 ${tsStr}`, body));
-        });
+          const safeName = `${tsStr.replace(/[\/:]/g,'').replace(' ','_')}_${(r.patientName||'').replace(/\s/g,'')}_${i+1}`;
+          await addHtmlOrPdf(dir, safeName || `absence_${i+1}`, htmlBase(`休み連絡 ${tsStr}`, body), { orientation: 'portrait' });
+        }
       }
-      // 各種連絡 (FAX): 1件1ファイル HTML
+      // 各種連絡 (FAX): 1件1ファイル
       if (include.generalFax) {
-        setProgress('各種連絡をエクスポート中...');
         const dir = root.folder('06_各種連絡');
         const targetNames = new Set(targetPatients.map(p => p.name));
         const recs = (appData.faxHistory || []).filter(r => {
           if (r.type !== 'general' || !inRange(r.timestamp, start, end)) return false;
-          // 各種連絡は利用者なしでも送信可能なため、利用者選択時も「利用者なし」は含める
           if (patientMode === 'select' && r.patientName && !targetNames.has(r.patientName)) return false;
           return true;
         });
         const facility = appData.systemSettings?.facilityInfo || {};
-        recs.forEach((r, idx) => {
+        for (let i = 0; i < recs.length; i++) {
+          const r = recs[i];
+          setProgress(`各種連絡 ${i+1}/${recs.length} を生成中...`);
           const ts = r.timestamp ? new Date(r.timestamp) : null;
           const tsStr = ts ? `${ts.getFullYear()}/${String(ts.getMonth()+1).padStart(2,'0')}/${String(ts.getDate()).padStart(2,'0')} ${String(ts.getHours()).padStart(2,'0')}:${String(ts.getMinutes()).padStart(2,'0')}` : '';
           const body = `<h1>各種連絡 送付控え</h1>
@@ -408,9 +480,9 @@ body { font-family: "Hiragino Sans","Yu Gothic",sans-serif; color:#1e293b; margi
             <div class="section" style="margin-top:30px;border-top:1px solid #cbd5e1;padding-top:10px;font-size:12px;color:#475569;">
               <b>${facility.name||''}</b> / TEL ${facility.phone||''} / FAX ${facility.fax||''}
             </div>`;
-          const safeName = `${tsStr.replace(/[\/:]/g,'').replace(' ','_')}_${(r.patientName||'汎用').replace(/\s/g,'')}_${idx+1}`;
-          dir.file(`${safeName || `general_${idx+1}`}.html`, htmlBase(`各種連絡 ${tsStr}`, body));
-        });
+          const safeName = `${tsStr.replace(/[\/:]/g,'').replace(' ','_')}_${(r.patientName||'汎用').replace(/\s/g,'')}_${i+1}`;
+          await addHtmlOrPdf(dir, safeName || `general_${i+1}`, htmlBase(`各種連絡 ${tsStr}`, body), { orientation: 'portrait' });
+        }
       }
 
       // README
@@ -531,17 +603,29 @@ HTML ファイルをブラウザで開き、
             );
           })()}
         </div>
+        {/* 出力形式 */}
+        <div>
+          <div className="text-xs font-bold text-slate-600 mb-1.5">出力形式</div>
+          <div className="flex gap-2 flex-wrap items-center text-xs">
+            {[['pdf','📄 PDF (推奨)'],['html','📝 HTML (高速)']].map(([k,l]) => (
+              <label key={k} className={`px-2.5 py-1 rounded-lg border-2 cursor-pointer font-bold ${outputFormat===k?'bg-blue-600 border-blue-700 text-white':'bg-white border-slate-200 text-slate-600'}`}>
+                <input type="radio" checked={outputFormat===k} onChange={()=>setOutputFormat(k)} className="hidden"/>{l}
+              </label>
+            ))}
+            <span className="text-[10px] text-slate-500">{outputFormat==='pdf'?'画面表示のままPDF化 (記録数が多いと時間がかかります)':'ファイル数が多くてもすぐ生成。後でブラウザでPDF化'}</span>
+          </div>
+        </div>
         {/* 含める項目 */}
         <div>
           <div className="text-xs font-bold text-slate-600 mb-1.5">含める項目</div>
           <div className="grid grid-cols-2 gap-1.5 text-xs">
             {[
               ['patients','利用者基本情報 + 緊急連絡先 (CSV)'],
-              ['tickets','提供記録 (利用者×月ごとHTML)'],
+              ['tickets','提供記録 (利用者×月ごと)'],
               ['fitness','体力測定 (CSV)'],
-              ['diary','日誌 (1日1HTML)'],
-              ['absenceFax','休み連絡 控え (HTML)'],
-              ['generalFax','各種連絡 控え (HTML)'],
+              ['diary','日誌 (1日1ファイル)'],
+              ['absenceFax','休み連絡 控え'],
+              ['generalFax','各種連絡 控え'],
             ].map(([k,l]) => (
               <label key={k} className="flex items-center gap-1.5 cursor-pointer">
                 <input type="checkbox" checked={include[k]} onChange={e=>setInclude(s=>({...s,[k]:e.target.checked}))} className="w-3.5 h-3.5"/>
@@ -559,8 +643,8 @@ HTML ファイルをブラウザで開き、
           {progress && <div className="text-[11px] text-slate-600 mt-2 text-center font-bold">{progress}</div>}
         </div>
         <div className="text-[10px] text-slate-500 leading-relaxed">
-          ・提供記録・日誌・連絡控えは HTML 形式で出力します<br/>
-          ・<b>各 HTML をブラウザで開いて「ファイル → 印刷 → PDFとして保存」</b>でPDF化できます<br/>
+          ・<b>PDF形式</b>: そのまま開ける PDF を生成 (記録数が多いと数十秒〜数分かかります)<br/>
+          ・<b>HTML形式</b>: ブラウザで開いて「印刷 → PDFとして保存」が必要、ただし瞬時に生成<br/>
           ・CSV は UTF-8 (BOM付き) で Excel でそのまま開けます<br/>
           ・お知らせ・写真・モニタリング等はアプリ内で随時参照する想定のため対象外
         </div>
@@ -11707,7 +11791,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                             className="w-full px-1 py-0.5 mb-1 text-[10px] font-bold bg-white border border-emerald-300 rounded outline-none focus:border-emerald-500 disabled:opacity-50 appearance-none"
                             style={{WebkitAppearance:'none',MozAppearance:'none',backgroundImage:'none',textAlignLast:'center'}}>
                             <option value="">— 選択 —</option>
-                            {enabledItems.map(it => <option key={it.id} value={it.id}>{it.name}{it.defaultUnit?` (${it.defaultUnit})`:''}</option>)}
+                            {enabledItems.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
                           </select>
                           <input type="text" value={cur.value || ''} disabled={isAbsent || isReadOnly || !selItem}
                             onChange={e=>updateExercise(p.id, item.id, {...cur, value: e.target.value})}
@@ -16686,28 +16770,47 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
             <div className="flex-1 flex flex-nowrap items-center gap-x-2 min-w-0 overflow-hidden">
               <span style={{fontSize:18,fontWeight:"bold",whiteSpace:"nowrap",color:"#475569",flexShrink:0}}>次回お迎え時間</span>
               {(() => {
-                // 日付: 数字は30px, 月日（）は20px, 半角スペースで区切り
+                // 日付: 数字は30px, 「月」「日」のみ20px、括弧内の曜日は30px (数字と同じ)
+                // 状態機械: 括弧内なら全て30px、それ以外は 月/日 を20px・他を30px
                 const renderDate = (str) => {
                   if (!str) return null;
-                  const parts = str.split(/(月|日|（|）)/);
-                  return parts.map((p2, i) => {
-                    if (!p2) return null;
-                    if (/^(月|日)$/.test(p2)) return <span key={i} style={{fontSize:20, fontWeight:"bold", lineHeight:1.1}}>{' '+p2+' '}</span>;
-                    if (/^（|）$/.test(p2)) return <span key={i} style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{p2}</span>;
-                    return <span key={i} style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{p2}</span>;
-                  });
+                  const out = [];
+                  let inParen = false;
+                  for (let i = 0; i < str.length; i++) {
+                    const c = str[i];
+                    if (c === '（' || c === '(') { inParen = true; out.push(<span key={i} style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{c}</span>); continue; }
+                    if (c === '）' || c === ')') { inParen = false; out.push(<span key={i} style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{c}</span>); continue; }
+                    if (inParen) {
+                      out.push(<span key={i} style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{c}</span>);
+                    } else if (c === '月' || c === '日') {
+                      out.push(<span key={i} style={{fontSize:20, fontWeight:"bold", lineHeight:1.1}}>{' '+c+' '}</span>);
+                    } else {
+                      out.push(<span key={i} style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{c}</span>);
+                    }
+                  }
+                  return out;
                 };
                 const renderTime = (str) => {
                   if (!str) return null;
-                  // "　時　分" or "9時15分" — split by 時/分, render numbers large, kanji small
+                  // "　時　分" or "9時15分" or "9時　　分" — minute が空白の場合はコンパクトに
                   const t = str.replace(/^0/, "");
                   const mTime = t.match(/^(.*?)時(.*)分$/);
                   if (mTime) {
                     const h = mTime[1] || '　　';
-                    const m = mTime[2] || '　　';
+                    const m = mTime[2] || '';
+                    const mBlank = !m || /^[\s　]+$/.test(m);  // 分が全角/半角空白のみ
+                    if (mBlank) {
+                      // 分が未入力 → "9時" のみ + 手書き用の細い余白 + 小さい「分」
+                      return <>
+                        <span style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{h}</span>
+                        <span style={{fontSize:20, fontWeight:"bold", lineHeight:1.1}}> 時</span>
+                        <span style={{fontSize:30, fontWeight:"bold", lineHeight:1.1, color:'#cbd5e1'}}>　</span>
+                        <span style={{fontSize:20, fontWeight:"bold", lineHeight:1.1}}>分</span>
+                      </>;
+                    }
                     return <>
                       <span style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{h}</span>
-                      <span style={{fontSize:20, fontWeight:"bold", lineHeight:1.1}}> 時　</span>
+                      <span style={{fontSize:20, fontWeight:"bold", lineHeight:1.1}}> 時 </span>
                       <span style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{m}</span>
                       <span style={{fontSize:20, fontWeight:"bold", lineHeight:1.1}}> 分</span>
                     </>;
@@ -22478,25 +22581,24 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
             {/* 上部2列 */}
             <div style={{display:'flex',gap:0,marginBottom:20}}>
               {/* 左：送付先情報 */}
-              <div style={{flex:1,paddingRight:24}}>
+              <div style={{flex:1,paddingRight:24,maxWidth:'50%'}}>
                 <div style={{display:'grid',gridTemplateColumns:'90px 1fr',gap:'8px 10px',marginBottom:16,fontSize:16}}>
                   <span style={{fontWeight:'bold'}}>送付日：</span>
                   <span>{today}</span>
                   <span style={{fontWeight:'bold'}}>送付枚数：</span>
                   <span>1 枚（表紙含）</span>
-                  <span style={{fontWeight:'bold'}}>送付先：</span>
-                  <span></span>
                 </div>
-                <div style={{marginLeft:90,marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:8}}>
+                <div style={{fontSize:16,marginBottom:6,fontWeight:'bold'}}>送付先：</div>
+                <div style={{marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:8}}>
                   <AutoFitLine style={{flex:1,minWidth:0,fontSize:17}}>{patient.cmOffice || '　'}</AutoFitLine>
                   <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap'}}>御中</span>
                 </div>
-                <div style={{marginLeft:90,marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:8}}>
+                <div style={{marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:8}}>
                   <AutoFitLine style={{flex:1,minWidth:0,fontSize:17}}>{patient.cmName || '　'}</AutoFitLine>
                   <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap'}}>様</span>
                 </div>
                 {patient.cmFax && (
-                  <div style={{marginLeft:90,fontSize:14,color:'#475569',marginTop:6}}>
+                  <div style={{fontSize:14,color:'#475569',marginTop:6}}>
                     FAX：{patient.cmFax}
                   </div>
                 )}
@@ -22868,29 +22970,28 @@ function GeneralFaxView({ appData, onSave, onShowPrintPreview }) {
 
           {/* 上部2列 */}
           <div style={{display:'flex',gap:0,marginBottom:20}}>
-            <div style={{flex:1,paddingRight:24}}>
+            <div style={{flex:1,paddingRight:24,maxWidth:'50%'}}>
               <div style={{display:'grid',gridTemplateColumns:'90px 1fr',gap:'8px 10px',marginBottom:16,fontSize:16}}>
                 <span style={{fontWeight:'bold'}}>送付日：</span>
                 <span>{today}</span>
                 <span style={{fontWeight:'bold'}}>送付枚数：</span>
                 <span>{pageCount} 枚（表紙含）</span>
-                <span style={{fontWeight:'bold'}}>送付先：</span>
-                <span></span>
               </div>
-              <div style={{marginLeft:90,marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:8}}>
+              <div style={{fontSize:16,marginBottom:6,fontWeight:'bold'}}>送付先：</div>
+              <div style={{marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:8}}>
                 <input type="text" value={recipientOffice} onChange={e=>setRecipientOffice(e.target.value)}
                        placeholder="(送付先名)" className="fax-inline-input"
                        style={{flex:1,minWidth:0,fontSize:17,border:'none',outline:'none',background:'transparent',padding:'2px 4px',fontFamily:'inherit'}}/>
                 <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap'}}>御中</span>
               </div>
-              <div style={{marginLeft:90,marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:8}}>
+              <div style={{marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:8}}>
                 <input type="text" value={recipientName} onChange={e=>setRecipientName(e.target.value)}
                        placeholder="(担当者名)" className="fax-inline-input"
                        style={{flex:1,minWidth:0,fontSize:17,border:'none',outline:'none',background:'transparent',padding:'2px 4px',fontFamily:'inherit'}}/>
                 <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap'}}>様</span>
               </div>
               {patient?.cmFax && (
-                <div style={{marginLeft:90,fontSize:14,color:'#475569',marginTop:6}}>
+                <div style={{fontSize:14,color:'#475569',marginTop:6}}>
                   FAX：{patient.cmFax}
                 </div>
               )}
