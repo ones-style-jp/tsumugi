@@ -96,6 +96,10 @@ const DataExportSection = ({ appData }) => {
     patients: true, tickets: true, fitness: true, diary: true,
     absenceFax: true, generalFax: true,
   });
+  // 利用者選択: 'all' | 'select' (複数選択モード)
+  const [patientMode, setPatientMode] = React.useState('all');
+  const [selectedPatientIds, setSelectedPatientIds] = React.useState([]);
+  const [patientSearchQ, setPatientSearchQ] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState('');
 
@@ -150,6 +154,9 @@ const DataExportSection = ({ appData }) => {
   };
 
   const doExport = async () => {
+    if (patientMode === 'select' && selectedPatientIds.length === 0) {
+      alert('利用者を1人以上選択してください'); return;
+    }
     setBusy(true); setProgress('JSZip を読み込み中...');
     try {
       const JSZip = await loadJSZip();
@@ -178,27 +185,28 @@ th { background:#f1f5f9; font-weight:bold; }
 <div class="no-print print-hint">💡 ブラウザで「ファイル → 印刷 → 送信先: PDF として保存」を選択するとPDF化できます。<button onclick="window.print()">🖨 今すぐ印刷</button></div>
 ${body}</body></html>`;
 
+      // 対象利用者リスト (全員 or 選択)
+      const allPatients = appData.patients || [];
+      const targetPatients = patientMode === 'all' ? allPatients : allPatients.filter(p => selectedPatientIds.includes(p.id));
+      const targetIds = new Set(targetPatients.map(p => p.id));
       // 利用者一覧 (CSV のみ — 一覧データなので CSV 十分)
       if (include.patients) {
         setProgress('利用者一覧をエクスポート中...');
-        const ps = appData.patients || [];
         const headers = ['ID','氏名','ふりがな','性別','生年月日','電話','郵便番号','住所','被保険者番号','介護度','適用期間開始','適用期間終了','負担割合','ケアマネ事業所','ケアマネ名','ケアマネ電話','ケアマネFAX','利用開始日','利用終了日','状態','留意点'];
-        const rows = ps.map(p => [p.id,p.name,p.kana,p.gender,p.birthDate,p.phone,p.zipCode,p.address,p.insuranceNo,p.careLevel,p.careLevelFrom,p.careLevelTo,p.costBurden,p.cmOffice,p.cmName,p.cmPhone,p.cmFax,p.startDate,p.endDate,p.status,p.ryui]);
+        const rows = targetPatients.map(p => [p.id,p.name,p.kana,p.gender,p.birthDate,p.phone,p.zipCode,p.address,p.insuranceNo,p.careLevel,p.careLevelFrom,p.careLevelTo,p.costBurden,p.cmOffice,p.cmName,p.cmPhone,p.cmFax,p.startDate,p.endDate,p.status,p.ryui]);
         root.file('01_利用者一覧.csv', toCsv(headers, rows));
-        // 緊急連絡先
         const ecHeaders = ['利用者ID','利用者名','続柄','氏名','電話(固定)','電話(携帯)','メール'];
         const ecRows = [];
-        ps.forEach(p => (p.emergencyContacts||[]).forEach(c => ecRows.push([p.id,p.name,c.relation,c.name,c.phone,c.phoneMobile,c.email])));
+        targetPatients.forEach(p => (p.emergencyContacts||[]).forEach(c => ecRows.push([p.id,p.name,c.relation,c.name,c.phone,c.phoneMobile,c.email])));
         if (ecRows.length > 0) root.file('01_緊急連絡先.csv', toCsv(ecHeaders, ecRows));
       }
-      // 提供記録: 利用者×月ごとに HTML (印刷で PDF 化)
+      // 提供記録: 利用者×月ごとに HTML (印刷で PDF 化) — サービス提供記録票風レイアウト
       if (include.tickets) {
         setProgress('提供記録をエクスポート中...');
-        const recs = (appData.ticketRecords || []).filter(r => inRange(r.date, start, end));
-        // patient×year-month でグルーピング
+        const recs = (appData.ticketRecords || []).filter(r => targetIds.has(r.patientId) && inRange(r.date, start, end));
+        const facility = appData.systemSettings?.facilityInfo || {};
         const groups = {};
-        const ps = appData.patients || [];
-        const patientMap = new Map(ps.map(p => [p.id, p]));
+        const patientMap = new Map(allPatients.map(p => [p.id, p]));
         recs.forEach(r => {
           const d = inferDate(r.date) || new Date();
           const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
@@ -207,31 +215,113 @@ ${body}</body></html>`;
           groups[key].records.push({ ...r, _d:d });
         });
         const dir = root.folder('02_提供記録');
+        const exerciseItems = appData.systemSettings?.exerciseItems || appSettings.exerciseItems || [];
+        const dowJp = ['日','月','火','水','木','金','土'];
+        const moodLabel = { excellent:'🤩', good:'😊', normal:'😐', bad:'😞', terrible:'😫' };
         Object.values(groups).forEach(g => {
           const pat = patientMap.get(g.patientId) || { name:`patient_${g.patientId}`, kana:'' };
           const sorted = g.records.sort((a,b) => a._d - b._d);
-          const tableRows = sorted.map(r => `
-            <tr>
-              <td>${r._d.getFullYear()}/${String(r._d.getMonth()+1).padStart(2,'0')}/${String(r._d.getDate()).padStart(2,'0')}<br/><span class="label">${r.dayOfWeek||''}</span></td>
-              <td>${r.status||''}</td>
-              <td>${r.temp||''}</td>
-              <td>${r.bpUpSt||''}/${r.bpDnSt||''}<br/>脈${r.plSt||''}</td>
-              <td>${r.bpUpEn||''}/${r.bpDnEn||''}<br/>脈${r.plEn||''}</td>
-              <td>${r.massage||''}</td>
-              <td>${r.kibunArrival||''}/${r.kibunDeparture||''}</td>
-              <td>${(r.tokki||'').replace(/</g,'&lt;')}</td>
-            </tr>`).join('');
-          const html = htmlBase(`提供記録 ${pat.name} ${g.ym}`, `
-            <h1>サービス提供記録</h1>
-            <div class="section">
-              <div><span class="label">利用者:</span> <b>${pat.name}</b> 様 ${pat.kana?`(${pat.kana})`:''}</div>
-              <div><span class="label">対象月:</span> ${g.ym}</div>
-              <div><span class="label">介護度:</span> ${pat.careLevel||'—'}</div>
-            </div>
-            <table>
-              <thead><tr><th>日付</th><th>状態</th><th>体温</th><th>血圧(開始)</th><th>血圧(終了)</th><th>整体</th><th>気分</th><th>特記</th></tr></thead>
-              <tbody>${tableRows}</tbody>
-            </table>`);
+          const tY = sorted[0]?._d.getFullYear();
+          const tM = sorted[0]?._d.getMonth()+1;
+          // メインテーブル行
+          const tableRows = sorted.map(r => {
+            const isA = r.status === '欠席' || r.status === '休業' || r.status === '休止';
+            const exList = exerciseItems.map(it => {
+              const raw = r.exercises?.[it.id];
+              if (typeof raw === 'object' && raw) return raw.value || '';
+              return raw || '';
+            });
+            return `
+              <tr>
+                <td rowspan="2" class="day-cell"><div class="day-num">${r._d.getDate()}</div><div class="day-dow">(${dowJp[r._d.getDay()]})</div></td>
+                <td class="status ${isA?'absent':''}">${r.status||''}</td>
+                <td class="mood">${r.kibunArrival ? `<div>通${moodLabel[r.kibunArrival]||r.kibunArrival}</div>`:''}${r.kibunDeparture ? `<div>帰${moodLabel[r.kibunDeparture]||r.kibunDeparture}</div>`:''}</td>
+                <td class="temp">${isA?'':(r.temp ? `${r.temp}℃` : '')}</td>
+                <td class="bp">${isA?'':(r.bpUpSt ? `${r.bpUpSt}/${r.bpDnSt}${r.plSt?`<br/>(脈${r.plSt})`:''}` : '')}</td>
+                <td class="bp">${isA?'':(r.bpUpEn ? `${r.bpUpEn}/${r.bpDnEn}${r.plEn?`<br/>(脈${r.plEn})`:''}` : '')}</td>
+                ${exList.map(v => `<td class="ex">${isA?'':v}</td>`).join('')}
+                <td class="massage">${isA?'':(r.massage||'')}</td>
+              </tr>
+              <tr class="tokki-row">
+                <td class="tokki-label">特記</td>
+                <td colspan="${6 + exList.length}" class="tokki-text">${(r.tokki||'').replace(/</g,'&lt;').replace(/\n/g,'<br/>')}</td>
+              </tr>`;
+          }).join('');
+          const numCols = 6 + exerciseItems.length + 1; // 状態+気分+体温+血圧開+血圧終+運動+整体
+          const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>サービス提供記録 ${pat.name} ${g.ym}</title>
+<style>
+@page { size: A4 landscape; margin: 6mm; }
+body { font-family: "Hiragino Sans","Yu Gothic",sans-serif; color:#1e293b; margin:0; padding:8px; }
+.no-print { background:#fef3c7; border:1px solid #fbbf24; padding:8px 12px; border-radius:6px; margin:8px 0; font-size:12px; }
+.no-print button { padding:6px 14px; font-weight:bold; cursor:pointer; }
+@media print { .no-print { display:none; } body { margin:0; padding:0; } .page { page-break-after:always; } .page:last-child{ page-break-after:avoid; } }
+.page { padding:4mm; box-sizing:border-box; }
+.header { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:4px; }
+.header h1 { font-size:14px; margin:0; letter-spacing:0.1em; }
+.header .name { font-size:22px; font-weight:bold; margin-top:4px; }
+.header .meta { font-size:10px; color:#475569; text-align:right; line-height:1.5; }
+.info-table { width:100%; border-collapse:collapse; font-size:9px; margin-bottom:2px; }
+.info-table th { background:white; color:black; border:1px solid #334155; padding:1px 4px; text-align:center; font-weight:normal; font-size:9px; width:5%; }
+.info-table td { border:1px solid #334155; padding:1px 6px; font-size:10px; vertical-align:top; }
+.main-table { width:100%; border-collapse:collapse; font-size:10px; table-layout:fixed; }
+.main-table thead th { background:#1e293b; color:white; border:1px solid #475569; padding:3px 1px; font-size:9px; text-align:center; font-weight:bold; }
+.main-table tbody td { border:1px solid #94a3b8; padding:1px; text-align:center; vertical-align:middle; overflow:hidden; }
+.main-table td.day-cell { background:#f8fafc; }
+.main-table td.day-cell .day-num { font-size:18px; font-weight:bold; line-height:1; }
+.main-table td.day-cell .day-dow { font-size:10px; color:#475569; margin-top:2px; }
+.main-table td.status { font-size:10px; font-weight:bold; color:#1d4ed8; }
+.main-table td.status.absent { color:#dc2626; }
+.main-table td.mood { font-size:9px; }
+.main-table td.mood div { line-height:1.2; }
+.main-table td.temp { font-size:11px; font-weight:bold; }
+.main-table td.bp { font-size:10px; font-weight:bold; line-height:1.1; }
+.main-table td.ex { font-size:9px; }
+.main-table td.massage { font-size:10px; font-weight:bold; }
+.main-table tr.tokki-row td { background:#f1f5f9; height:24px; text-align:left; padding:1px 4px; font-size:9px; }
+.main-table tr.tokki-row td.tokki-label { background:#e2e8f0; color:#475569; font-weight:bold; text-align:center; width:34px; }
+.main-table tbody tr:not(.tokki-row) { height:32px; }
+</style>
+</head><body>
+<div class="no-print">💡 ブラウザで <b>Ctrl/Cmd + P</b> → 「PDFとして保存」を選択するとPDF化できます。 <button onclick="window.print()">🖨 今すぐ印刷</button></div>
+<div class="page">
+  <div class="header">
+    <div>
+      <h1>${tY}年${tM}月 サービス提供記録</h1>
+      <div class="name">${pat.name} <span style="font-size:14px;font-weight:normal;">様</span> ${pat.kana?`<span style="font-size:11px;color:#64748b;">(${pat.kana})</span>`:''}</div>
+    </div>
+    <div class="meta">
+      <b>${facility.name||''}</b><br/>
+      TEL ${facility.phone||''} / FAX ${facility.fax||''}<br/>
+      介護度: <b>${pat.careLevel||'—'}</b>
+    </div>
+  </div>
+  <table class="info-table"><tbody>
+    <tr>
+      <th>既往</th><td style="width:45%;">${pat.kiou||''}</td>
+      <th>留意</th><td style="width:45%;">${pat.ryui||''}</td>
+    </tr>
+    <tr>
+      <th>整体</th><td>${pat.massageNeed||'—'}</td>
+      <th>温浴</th><td>${pat.onyokuDenryo||'—'}</td>
+    </tr>
+  </tbody></table>
+  <table class="main-table">
+    <thead>
+      <tr>
+        <th style="width:38px;">日付</th>
+        <th style="width:34px;">状態</th>
+        <th style="width:42px;">気分</th>
+        <th style="width:42px;">体温</th>
+        <th style="width:54px;">開始<br/>血圧(脈)</th>
+        <th style="width:54px;">終了<br/>血圧(脈)</th>
+        ${exerciseItems.map(it => `<th>${it.name}</th>`).join('')}
+        <th style="width:42px;">整体</th>
+      </tr>
+    </thead>
+    <tbody>${tableRows}</tbody>
+  </table>
+</div>
+</body></html>`;
           const safeName = pat.name.replace(/[\/\\:?*"<>|\s]/g,'_');
           dir.file(`${safeName}_${g.ym}.html`, html);
         });
@@ -239,7 +329,7 @@ ${body}</body></html>`;
       // 体力測定 (CSV のみ)
       if (include.fitness) {
         setProgress('体力測定をエクスポート中...');
-        const recs = (appData.fitnessRecords || []).filter(r => inRange(r.date, start, end));
+        const recs = (appData.fitnessRecords || []).filter(r => targetIds.has(r.patientId) && inRange(r.date, start, end));
         const items = appData.systemSettings?.fitnessItems || [];
         const headers = ['測定ID','利用者ID','日付', ...items.map(it => `${it.name}(${it.unit})`)];
         const rows = recs.map(r => [r.id, r.patientId, r.date, ...items.map(it => r.values?.[it.id]||'')]);
@@ -263,7 +353,13 @@ ${body}</body></html>`;
       if (include.absenceFax) {
         setProgress('休み連絡をエクスポート中...');
         const dir = root.folder('05_休み連絡');
-        const recs = (appData.faxHistory || []).filter(r => r.type === 'absence' && inRange(r.timestamp, start, end));
+        const targetNames = new Set(targetPatients.map(p => p.name));
+        const recs = (appData.faxHistory || []).filter(r => {
+          if (r.type !== 'absence' || !inRange(r.timestamp, start, end)) return false;
+          // 利用者選択モードなら、その利用者の連絡のみ
+          if (patientMode === 'select' && r.patientName && !targetNames.has(r.patientName)) return false;
+          return true;
+        });
         const facility = appData.systemSettings?.facilityInfo || {};
         recs.forEach((r, idx) => {
           const ts = r.timestamp ? new Date(r.timestamp) : null;
@@ -289,7 +385,13 @@ ${body}</body></html>`;
       if (include.generalFax) {
         setProgress('各種連絡をエクスポート中...');
         const dir = root.folder('06_各種連絡');
-        const recs = (appData.faxHistory || []).filter(r => r.type === 'general' && inRange(r.timestamp, start, end));
+        const targetNames = new Set(targetPatients.map(p => p.name));
+        const recs = (appData.faxHistory || []).filter(r => {
+          if (r.type !== 'general' || !inRange(r.timestamp, start, end)) return false;
+          // 各種連絡は利用者なしでも送信可能なため、利用者選択時も「利用者なし」は含める
+          if (patientMode === 'select' && r.patientName && !targetNames.has(r.patientName)) return false;
+          return true;
+        });
         const facility = appData.systemSettings?.facilityInfo || {};
         recs.forEach((r, idx) => {
           const ts = r.timestamp ? new Date(r.timestamp) : null;
@@ -379,6 +481,56 @@ HTML ファイルをブラウザで開き、
             </>}
           </div>
         </div>
+        {/* 利用者選択 */}
+        <div>
+          <div className="text-xs font-bold text-slate-600 mb-1.5">対象の利用者</div>
+          <div className="flex gap-2 flex-wrap items-center text-xs mb-2">
+            {[['all','全員'],['select','選択 (複数可)']].map(([k,l]) => (
+              <label key={k} className={`px-2.5 py-1 rounded-lg border-2 cursor-pointer font-bold ${patientMode===k?'bg-blue-600 border-blue-700 text-white':'bg-white border-slate-200 text-slate-600'}`}>
+                <input type="radio" checked={patientMode===k} onChange={()=>setPatientMode(k)} className="hidden"/>{l}
+              </label>
+            ))}
+            {patientMode === 'select' && (
+              <span className="text-xs text-slate-500">{selectedPatientIds.length} 名選択中</span>
+            )}
+          </div>
+          {patientMode === 'select' && (() => {
+            const patients = (appData.patients||[]).filter(p => {
+              const q = patientSearchQ.trim().toLowerCase();
+              if (!q) return true;
+              return (p.name||'').toLowerCase().includes(q) || (p.kana||'').toLowerCase().includes(q) || String(p.id).includes(q);
+            });
+            const allSelected = patients.length > 0 && patients.every(p => selectedPatientIds.includes(p.id));
+            return (
+              <div className="border border-slate-200 rounded-lg p-2 bg-slate-50">
+                <div className="flex items-center gap-2 mb-2">
+                  <input type="text" value={patientSearchQ} onChange={e=>setPatientSearchQ(e.target.value)} placeholder="🔍 検索"
+                    className="flex-1 px-2 py-1 bg-white border border-slate-300 rounded text-xs outline-none"/>
+                  <button onClick={()=>{
+                    if (allSelected) setSelectedPatientIds(ids => ids.filter(id => !patients.find(p=>p.id===id)));
+                    else setSelectedPatientIds(ids => [...new Set([...ids, ...patients.map(p=>p.id)])]);
+                  }} className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[11px] font-bold whitespace-nowrap">
+                    {allSelected ? '全解除' : '全選択'}
+                  </button>
+                </div>
+                <div className="grid grid-cols-3 md:grid-cols-4 gap-1 max-h-48 overflow-auto">
+                  {patients.map(p => {
+                    const checked = selectedPatientIds.includes(p.id);
+                    return (
+                      <label key={p.id} className={`flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer text-[11px] font-bold ${checked?'bg-blue-100 text-blue-800':'bg-white hover:bg-slate-100 text-slate-700'}`}>
+                        <input type="checkbox" checked={checked} onChange={e=>{
+                          if (e.target.checked) setSelectedPatientIds(ids => [...ids, p.id]);
+                          else setSelectedPatientIds(ids => ids.filter(id => id !== p.id));
+                        }} className="w-3 h-3"/>
+                        <span className="truncate">{p.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
         {/* 含める項目 */}
         <div>
           <div className="text-xs font-bold text-slate-600 mb-1.5">含める項目</div>
@@ -417,36 +569,50 @@ HTML ファイルをブラウザで開き、
   );
 };
 
-// === お迎え時間セル: ブラウザ標準の <input type="time"> を使用 ===
+// === お迎え時間セル: 時/分を別入力。分は空欄可 ("9:--" として保存)。 ===
 const PickupTimeCell = ({ day, idx, slot, isOff, initial, onCommit }) => {
-  // 保存形式 "HH:MM" を受け入れ。"HH:--" 形式の旧データは表示時に "HH:00" に整形
-  const normalize = (t) => {
-    if (!t) return '';
-    if (t.includes(':--')) return t.replace(':--', ':00');
-    const m = t.match(/^(\d{1,2}):(\d{1,2})$/);
-    if (m) return `${m[1].padStart(2,'0')}:${m[2].padStart(2,'0')}`;
-    return t;
+  // 保存形式: "" / "9:--" / "9:30" 等。"HH" は0埋めしない (入力中の自然な数字反映のため)
+  const splitTime = (t) => {
+    if (!t) return { h: '', m: '' };
+    const parts = String(t).split(':');
+    const h = parts[0] || '';
+    const m = parts[1] === '--' ? '' : (parts[1] || '');
+    return { h, m };
   };
-  const [val, setVal] = React.useState(normalize(initial));
-  React.useEffect(() => { setVal(normalize(initial)); }, [initial]);
+  const init = splitTime(initial);
+  const [h, setH] = React.useState(init.h);
+  const [m, setM] = React.useState(init.m);
+  React.useEffect(() => { const x = splitTime(initial); setH(x.h); setM(x.m); }, [initial]);
+  const commit = (newH, newM) => {
+    const hh = String(newH||'').replace(/[^0-9]/g,'').slice(0,2);
+    const mm = String(newM||'').replace(/[^0-9]/g,'').slice(0,2);
+    let val = '';
+    if (hh && mm) val = `${hh}:${mm}`;
+    else if (hh) val = `${hh}:--`;
+    else if (mm) val = `0:${mm}`;
+    onCommit(val);
+  };
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-2">
       <div className="text-center mb-1">
         <span className={`text-sm font-bold ${idx===0?'text-red-500':idx===6?'text-blue-500':'text-slate-700'}`}>{day}</span>
         <span className={`ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded ${slot==='AM'?'bg-red-100 text-red-700':slot==='PM'?'bg-blue-100 text-blue-700':'bg-violet-100 text-violet-700'}`}>{slot}</span>
       </div>
-      <div className="flex items-center justify-center">
-        <input disabled={isOff} type="time"
-          value={val}
-          onChange={e => { setVal(e.target.value); onCommit(e.target.value); }}
-          className="px-2 py-1.5 bg-slate-50 border border-slate-300 rounded text-sm font-bold text-center outline-none disabled:opacity-60 w-full"/>
+      <div className="flex items-center justify-center gap-1">
+        <input disabled={isOff} type="text" inputMode="numeric" maxLength={2}
+          value={h}
+          onChange={e => { const v = e.target.value.replace(/[^0-9]/g,'').slice(0,2); setH(v); commit(v, m); }}
+          placeholder="9"
+          className="w-12 px-1.5 py-1.5 bg-slate-50 border border-slate-300 rounded text-sm font-bold text-center outline-none disabled:opacity-60"/>
+        <span className="text-sm font-bold text-slate-400">時</span>
+        <input disabled={isOff} type="text" inputMode="numeric" maxLength={2}
+          value={m}
+          onChange={e => { const v = e.target.value.replace(/[^0-9]/g,'').slice(0,2); setM(v); commit(h, v); }}
+          placeholder="30"
+          className="w-12 px-1.5 py-1.5 bg-slate-50 border border-slate-300 rounded text-sm font-bold text-center outline-none disabled:opacity-60"/>
+        <span className="text-sm font-bold text-slate-400">分</span>
       </div>
-      {val && (
-        <button disabled={isOff} type="button" onClick={() => { setVal(''); onCommit(''); }}
-          className="w-full mt-1 text-[10px] text-slate-400 hover:text-red-500 font-bold">
-          クリア
-        </button>
-      )}
+      <div className="text-[10px] text-slate-400 text-center mt-1">分は空欄でも可</div>
     </div>
   );
 };
@@ -8230,7 +8396,10 @@ const getNextVisitInfo = (patient, currentDateStr, monthlyShifts, appData) => {
                 const t = patient.pickupTimes?.[dayOfWeek] || "";
                 if (t.includes(':')) {
                     const pts = t.split(':');
-                    timeStr = `${pts[0] || '　　'}時${pts[1] || '　　'}分`;
+                    // "--" は分未定 → 空白として表示
+                    const hStr = pts[0] && pts[0] !== '--' ? pts[0] : '　　';
+                    const mStr = pts[1] && pts[1] !== '--' ? pts[1] : '　　';
+                    timeStr = `${hStr}時${mStr}分`;
                 } else if (t) timeStr = t;
             } else if (patient.pickupType === 'flexible') {
                 timeStr = "　時　分";
