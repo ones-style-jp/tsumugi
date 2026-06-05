@@ -8698,6 +8698,18 @@ function FamilyAdminView({ appData, onSave }) {
     const hasPhotos = postForm.files.length > 0;
     if (!hasText && !hasPhotos) { alert('タイトルまたは写真のどちらかを入力してください'); return; }
     if (postForm.scope === 'specific' && postForm.patientIds.length === 0) { alert('対象の利用者を1人以上選択してください'); return; }
+    // クォータ超過チェック (Supabase 移行後のシミュレーション + 現在の localStorage 警告)
+    try {
+      const used = ((localStorage.getItem('daycareAppData_v3')||'').length + (localStorage.getItem('daycarePhotos_v1')||'').length) * 2;
+      const quotaBytes = (appData.systemSettings?.storeQuotaGB || 2) * 1024 * 1024 * 1024;
+      const localLimitBytes = 5 * 1024 * 1024;
+      if (used > localLimitBytes * 0.9) {
+        if (!window.confirm('⚠ 現在のブラウザ保存容量が上限に近づいています (90%超)\n\n古いお知らせを削除してから投稿することをおすすめします。\n各種設定 → データ管理 で削除できます。\n\nこのまま投稿しますか?')) return;
+      }
+      if (used > quotaBytes * 0.95) {
+        if (!window.confirm(`⚠ 事業所クォータ (${appData.systemSettings?.storeQuotaGB || 2}GB) が 95% を超えています\n\nこのまま投稿しますか?`)) return;
+      }
+    } catch {}
     let newData = { ...appData };
     const nowIso = new Date().toISOString();
     const ts = Date.now();
@@ -10471,6 +10483,8 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
          const targetDateStr = `${new Date(selectedDate).getMonth() + 1}月${new Date(selectedDate).getDate()}日`;
          const existingRecord = (appData.ticketRecords || []).find(r => r.patientId === p.id && r.date === targetDateStr);
          if (existingRecord) {
+             pData.recordId = existingRecord.id;  // 家族閲覧管理側との特記表示連携用キー
+             pData.patientId = p.id;              // patient id を明示的に保持 (toggle 用)
              pData.status = existingRecord.status;
              pData.temp = existingRecord.temp || "";
              pData.bpUpSt = existingRecord.bpUpSt || "";
@@ -11252,14 +11266,18 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                   <td className={`px-1 py-1 border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`} style={{height:32,overflow:'hidden'}}>
                     {(() => {
                       // 家族向け表示 ON/OFF: familyTokkiOverrides[patientId][recordId].visible
+                      // single モードでは p.id = patient.id なので、ticket record の id (p.recordId) を使う
                       const pid = p.patientId || p.id;
-                      const ov = ((appData.familyTokkiOverrides||{})[pid]||{})[p.id] || {};
+                      const recId = p.recordId || p.id;
+                      const ov = ((appData.familyTokkiOverrides||{})[pid]||{})[recId] || {};
                       const isVisible = ov.visible !== false;
                       const hasTokki = (p.tokki||'').trim().length > 0;
+                      const hasRecord = !!p.recordId || (p.id !== pid);  // 保存済みレコードのみトグル有効
                       const toggleVisible = () => {
+                        if (!hasRecord) { alert('先に「保存」ボタンで記録を保存してから設定してください'); return; }
                         const fto = appData.familyTokkiOverrides || {};
                         const cur = fto[pid] || {};
-                        const next = {...cur, [p.id]: {...ov, visible: !isVisible}};
+                        const next = {...cur, [recId]: {...ov, visible: !isVisible}};
                         onSave({...appData, familyTokkiOverrides: {...fto, [pid]: next}});
                       };
                       return (
@@ -17627,13 +17645,15 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   const [h='', m=''] = String(t).split(':');
                   return { h, m: m === '--' ? '' : m };
                 };
+                // 入力中はパディングせず、保存値もそのまま受け入れる
+                // 例: "9:--" / "9:30" / "10:30" / "" (空)
                 const updateTime = (i, h, m) => {
                   const arr = [...(localPatient.pickupTimes || ['','','','','','','']) ];
                   const hh = (h||'').replace(/[^0-9]/g,'').slice(0,2);
                   const mm = (m||'').replace(/[^0-9]/g,'').slice(0,2);
                   if (!hh && !mm) arr[i] = '';
-                  else if (hh && !mm) arr[i] = `${hh.padStart(2,'0')}:--`;  // 分未入力を維持
-                  else arr[i] = `${(hh||'00').padStart(2,'0')}:${mm.padStart(2,'0')}`;
+                  else if (hh && !mm) arr[i] = `${hh}:--`;
+                  else arr[i] = `${hh || '0'}:${mm}`;
                   updateLP('pickupTimes', arr);
                 };
                 return (
@@ -19377,8 +19397,35 @@ function SettingsView({ appData, onSave, dirtyRef }) {
                       <div className="text-[11px] text-slate-500 leading-relaxed">
                         ・Supabase Pro 移行後は各事業所ごとに上限を設定して運用できます<br/>
                         ・本部からみたフランチャイズ全体は事業所数 × この上限<br/>
-                        ・例: 9 店舗 × 2GB = 18GB (Pro プランの上限内)
+                        ・例: 9 店舗 × 2GB = 18GB (Pro プランの上限内)<br/>
+                        ・<b>上限を超えると新規投稿前に警告 + 古いお知らせ削除を案内</b>
                       </div>
+                      {/* 古いお知らせを今すぐ削除するボタン (容量逼迫時の手動掃除) */}
+                      {(usedPctLocal > 50 || usedPctQuota > 50) && (
+                        <button onClick={()=>{
+                          const months = appData.systemSettings?.announcementRetentionMonths || 24;
+                          if (!window.confirm(`保存期間 (${months}ヶ月) を超えたお知らせ・写真を今すぐ削除しますか?\n\n(削除しない設定の場合は何も削除されません)`)) return;
+                          const cutoff = new Date();
+                          cutoff.setMonth(cutoff.getMonth() - months);
+                          const cutoffIso = cutoff.toISOString();
+                          const cutoffDate = cutoffIso.slice(0,10);
+                          const isOld = (item) => {
+                            const t = item.postedAt || item.date || '';
+                            if (!t) return false;
+                            return t < (t.length > 10 ? cutoffIso : cutoffDate);
+                          };
+                          const cleanAnn = (appData.familyAnnouncements||[]).filter(a => !isOld(a));
+                          const cleanPersonal = (appData.familyPersonalAnnouncements||[]).filter(a => !isOld(a));
+                          const cleanPhotos = (appData.familyPhotos||[]).filter(p => !isOld(p));
+                          const removed = (appData.familyAnnouncements||[]).length - cleanAnn.length
+                            + (appData.familyPersonalAnnouncements||[]).length - cleanPersonal.length
+                            + (appData.familyPhotos||[]).length - cleanPhotos.length;
+                          onSave({...appData, familyAnnouncements: cleanAnn, familyPersonalAnnouncements: cleanPersonal, familyPhotos: cleanPhotos});
+                          alert(`${removed} 件を削除しました`);
+                        }} className="mt-2 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow active:scale-95">
+                          🗑 古いお知らせを今すぐ削除
+                        </button>
+                      )}
                     </div>
                     {/* 自動削除設定 */}
                     <div className="border-t border-slate-200 pt-3">
