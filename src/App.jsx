@@ -130,32 +130,49 @@ const DataExportSection = ({ appData }) => {
       document.head.appendChild(s);
     }),
   ]);
-  // HTML文字列 → PDF Blob (A4 横/縦は HTML 内の @page で指定)
+  // HTML文字列 → PDF Blob (.tp 要素ごとに1ページ。なければ body 全体を1ページ)
   const htmlToPdfBlob = async (htmlStr, opts = {}) => {
     const { orientation = 'landscape' } = opts;
-    // 描画用に hidden iframe を作成
+    // 描画用に hidden iframe を作成 (A4横なら 297mm × 210mm 相当 = 1123 × 794 @96dpi)
+    const isLandscape = orientation === 'landscape';
+    const iframeW = isLandscape ? 1123 : 794;
+    const iframeH = isLandscape ? 794 : 1123;
     const iframe = document.createElement('iframe');
-    iframe.style.cssText = 'position:fixed;left:-10000px;top:0;width:1200px;height:900px;border:none;visibility:hidden;';
+    iframe.style.cssText = `position:fixed;left:-10000px;top:0;width:${iframeW}px;height:${iframeH}px;border:none;visibility:hidden;`;
     document.body.appendChild(iframe);
     try {
       iframe.contentDocument.open();
       iframe.contentDocument.write(htmlStr);
       iframe.contentDocument.close();
-      // フォント読み込み待機
-      await new Promise(r => setTimeout(r, 200));
-      const body = iframe.contentDocument.body;
-      const canvas = await window.html2canvas(body, { scale: 2, backgroundColor:'#ffffff', useCORS: true, logging: false });
-      const imgData = canvas.toDataURL('image/jpeg', 0.92);
+      // フォント・レンダリング待機
+      await new Promise(r => setTimeout(r, 300));
+      const doc = iframe.contentDocument;
+      // ページ要素を見つける
+      const pages = doc.querySelectorAll('.tp');
+      const targets = pages.length > 0 ? Array.from(pages) : [doc.body];
       const { jsPDF } = window.jspdf;
-      const pdfW = orientation === 'landscape' ? 297 : 210;
-      const pdfH = orientation === 'landscape' ? 210 : 297;
       const pdf = new jsPDF({ orientation, unit: 'mm', format: 'a4' });
-      const imgRatio = canvas.width / canvas.height;
-      const pdfRatio = pdfW / pdfH;
-      let imgW, imgH;
-      if (imgRatio > pdfRatio) { imgW = pdfW; imgH = pdfW / imgRatio; }
-      else { imgH = pdfH; imgW = pdfH * imgRatio; }
-      pdf.addImage(imgData, 'JPEG', (pdfW - imgW) / 2, (pdfH - imgH) / 2, imgW, imgH);
+      const pdfW = isLandscape ? 297 : 210;
+      const pdfH = isLandscape ? 210 : 297;
+      for (let i = 0; i < targets.length; i++) {
+        const target = targets[i];
+        const canvas = await window.html2canvas(target, {
+          scale: 2,
+          backgroundColor:'#ffffff',
+          useCORS: true,
+          logging: false,
+          width: target.scrollWidth,
+          height: target.scrollHeight,
+        });
+        const imgData = canvas.toDataURL('image/jpeg', 0.92);
+        const imgRatio = canvas.width / canvas.height;
+        const pdfRatio = pdfW / pdfH;
+        let imgW, imgH;
+        if (imgRatio > pdfRatio) { imgW = pdfW; imgH = pdfW / imgRatio; }
+        else { imgH = pdfH; imgW = pdfH * imgRatio; }
+        if (i > 0) pdf.addPage('a4', orientation);
+        pdf.addImage(imgData, 'JPEG', (pdfW - imgW) / 2, (pdfH - imgH) / 2, imgW, imgH);
+      }
       return pdf.output('blob');
     } finally {
       document.body.removeChild(iframe);
@@ -268,133 +285,184 @@ ${body}</body></html>`;
         targetPatients.forEach(p => (p.emergencyContacts||[]).forEach(c => ecRows.push([p.id,p.name,c.relation,c.name,c.phone,c.phoneMobile,c.email])));
         if (ecRows.length > 0) root.file('01_緊急連絡先.csv', toCsv(ecHeaders, ecRows));
       }
-      // 提供記録: 利用者×月ごとに HTML (印刷で PDF 化) — サービス提供記録票風レイアウト
+      // 提供記録: 利用者×月ごとに HTML — TicketView の画面表示と同じ全日リスト
       if (include.tickets) {
         setProgress('提供記録をエクスポート中...');
-        const recs = (appData.ticketRecords || []).filter(r => targetIds.has(r.patientId) && inRange(r.date, start, end));
         const facility = appData.systemSettings?.facilityInfo || {};
-        const groups = {};
-        const patientMap = new Map(allPatients.map(p => [p.id, p]));
-        recs.forEach(r => {
-          const d = inferDate(r.date) || new Date();
-          const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-          const key = `${r.patientId}_${ym}`;
-          if (!groups[key]) groups[key] = { patientId:r.patientId, ym, records:[] };
-          groups[key].records.push({ ...r, _d:d });
-        });
-        const dir = root.folder('02_提供記録');
         const exerciseItems = appData.systemSettings?.exerciseItems || appSettings.exerciseItems || [];
         const dowJp = ['日','月','火','水','木','金','土'];
         const moodLabel = { excellent:'🤩', good:'😊', normal:'😐', bad:'😞', terrible:'😫' };
-        const groupArr = Object.values(groups);
-        for (let gi = 0; gi < groupArr.length; gi++) {
-          const g = groupArr[gi];
-          setProgress(`提供記録 ${gi+1}/${groupArr.length} を生成中...`);
-          const pat = patientMap.get(g.patientId) || { name:`patient_${g.patientId}`, kana:'' };
-          const sorted = g.records.sort((a,b) => a._d - b._d);
-          const tY = sorted[0]?._d.getFullYear();
-          const tM = sorted[0]?._d.getMonth()+1;
-          // メインテーブル行
-          const tableRows = sorted.map(r => {
-            const isA = r.status === '欠席' || r.status === '休業' || r.status === '休止';
-            const exList = exerciseItems.map(it => {
-              const raw = r.exercises?.[it.id];
-              if (typeof raw === 'object' && raw) return raw.value || '';
-              return raw || '';
-            });
-            return `
-              <tr>
-                <td rowspan="2" class="day-cell"><div class="day-num">${r._d.getDate()}</div><div class="day-dow">(${dowJp[r._d.getDay()]})</div></td>
-                <td class="status ${isA?'absent':''}">${r.status||''}</td>
-                <td class="mood">${r.kibunArrival ? `<div>通${moodLabel[r.kibunArrival]||r.kibunArrival}</div>`:''}${r.kibunDeparture ? `<div>帰${moodLabel[r.kibunDeparture]||r.kibunDeparture}</div>`:''}</td>
-                <td class="temp">${isA?'':(r.temp ? `${r.temp}℃` : '')}</td>
-                <td class="bp">${isA?'':(r.bpUpSt ? `${r.bpUpSt}/${r.bpDnSt}${r.plSt?`<br/>(脈${r.plSt})`:''}` : '')}</td>
-                <td class="bp">${isA?'':(r.bpUpEn ? `${r.bpUpEn}/${r.bpDnEn}${r.plEn?`<br/>(脈${r.plEn})`:''}` : '')}</td>
-                ${exList.map(v => `<td class="ex">${isA?'':v}</td>`).join('')}
-                <td class="massage">${isA?'':(r.massage||'')}</td>
-              </tr>
-              <tr class="tokki-row">
-                <td class="tokki-label">特記</td>
-                <td colspan="${6 + exList.length}" class="tokki-text">${(r.tokki||'').replace(/</g,'&lt;').replace(/\n/g,'<br/>')}</td>
-              </tr>`;
-          }).join('');
-          const numCols = 6 + exerciseItems.length + 1; // 状態+気分+体温+血圧開+血圧終+運動+整体
-          const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>サービス提供記録 ${pat.name} ${g.ym}</title>
+        const dir = root.folder('02_提供記録');
+        // 対象月リストを生成: 期間内に含まれる月 × 対象利用者
+        const months = [];
+        if (start && end) {
+          const cur = new Date(start.getFullYear(), start.getMonth(), 1);
+          while (cur <= end) { months.push({ y: cur.getFullYear(), m: cur.getMonth()+1 }); cur.setMonth(cur.getMonth()+1); }
+        } else {
+          // 全期間: ticketRecords から含まれる月を抽出
+          const monthSet = new Set();
+          (appData.ticketRecords||[]).forEach(r => {
+            const d = inferDate(r.date);
+            if (d) monthSet.add(`${d.getFullYear()}-${d.getMonth()+1}`);
+          });
+          monthSet.forEach(k => { const [y,m] = k.split('-').map(Number); months.push({ y, m }); });
+          months.sort((a,b) => (a.y-b.y) || (a.m-b.m));
+        }
+        const totalCount = targetPatients.length * months.length;
+        let processed = 0;
+        for (const pat of targetPatients) {
+          for (const { y: tY, m: tM } of months) {
+            processed++;
+            setProgress(`提供記録 ${processed}/${totalCount}: ${pat.name} ${tY}年${tM}月...`);
+            // 全日リストを生成 (TicketView と同じロジック)
+            const dayRecords = generateMonthlySchedule([pat], tY, tM, appData.monthlyShifts, appData.ticketRecords || [], appData.holidays, (appData.systemSettings?.facilityInfo?.closedDays||[0])).sort((a,b) => a.dayNum - b.dayNum);
+            if (dayRecords.length === 0) continue;
+            // 通所曜日テキスト
+            const schedText = (pat.scheduleAmPm||[]).map((v,i) => v?`${dowJp[i]}(${v})`:'').filter(Boolean).join(' ');
+            const hasAM = (pat.scheduleAmPm||[]).some(s => s === 'AM' || s === '1日');
+            const hasPM = (pat.scheduleAmPm||[]).some(s => s === 'PM' || s === '1日');
+            const jisshiTime = (hasAM && hasPM) ? `${facility.serviceTimeAM||'—'}／${facility.serviceTimePM||'—'}` : hasPM ? (facility.serviceTimePM||'—') : (facility.serviceTimeAM||'—');
+            // 8件ずつページ分割
+            const PER_PAGE = 8;
+            const pageGroups = [];
+            for (let i = 0; i < dayRecords.length; i += PER_PAGE) pageGroups.push(dayRecords.slice(i, i+PER_PAGE));
+            if (pageGroups.length === 0) pageGroups.push([]);
+            // ページHTML生成
+            const renderPage = (rows) => {
+              const tableRows = rows.map(r => {
+                const isA = r.status==='欠席' || r.status==='休業' || r.status==='休止';
+                const isF = (() => { try { return new Date(tY, tM-1, r.dayNum) > new Date(); } catch { return false; } })();
+                const mt = isF && r.status==='出席';
+                const v = (x) => (isA||mt) ? '' : (x||'');
+                const sl = isF ? (r.status==='出席'?'予定':r.status) : r.status;
+                const slColor = sl==='出席'?'#1d4ed8':sl==='予定'?'#94a3b8':sl==='欠席'?'#dc2626':sl==='振替'?'#7c3aed':sl==='臨時'?'#0e7490':'#64748b';
+                const slWeight = (sl==='出席'||sl==='欠席'||sl==='振替'||sl==='臨時')?'bold':'normal';
+                const rowBg = isA ? '#f8fafc' : 'white';
+                const exCells = exerciseItems.map(it => {
+                  const raw = r.exercises?.[it.id];
+                  let display = '';
+                  if (it.type === 'individual' && typeof raw === 'object' && raw) {
+                    const allInd = appData.systemSettings?.individualExerciseItems || [];
+                    const sel = allInd.find(ii => ii.id === raw.itemId);
+                    if (sel && raw.value) display = `${sel.name}<br/>${raw.value}${sel.defaultUnit||''}`;
+                    else if (sel) display = sel.name;
+                  } else if (typeof raw !== 'object') {
+                    display = v(raw);
+                  }
+                  return `<td style="border:1px solid #94a3b8;text-align:center;font-size:10px;font-weight:bold;padding:1px;background:${rowBg};line-height:1.15;">${isA||mt?'':display}</td>`;
+                }).join('');
+                const kibunHtml = (() => {
+                  const arr = v(r.kibunArrival); const dep = v(r.kibunDeparture);
+                  if (!arr && !dep) return '';
+                  let out = '';
+                  if (arr) out += `<div style="font-size:11px;line-height:1.1;">通${moodLabel[arr]||arr}</div>`;
+                  if (dep) out += `<div style="font-size:11px;line-height:1.1;">帰${moodLabel[dep]||dep}</div>`;
+                  return out;
+                })();
+                return `
+                  <tr style="height:38px;background:${rowBg};">
+                    <td rowspan="2" style="border:1px solid #475569;text-align:center;vertical-align:middle;background:#f8fafc;padding:2px;height:74px;">
+                      <div style="font-size:22px;font-weight:bold;line-height:1;">${r.dayNum}</div>
+                      <div style="font-size:11px;color:#475569;margin-top:2px;">（${r.dayOfWeek}）</div>
+                    </td>
+                    <td style="border:1px solid #94a3b8;text-align:center;font-size:11px;font-weight:${slWeight};color:${slColor};padding:1px;">${sl}</td>
+                    <td style="border:1px solid #94a3b8;text-align:center;padding:1px;">${kibunHtml}</td>
+                    <td style="border:1px solid #94a3b8;text-align:center;font-size:12px;font-weight:bold;padding:1px;">${v(r.temp) ? `${r.temp}℃` : ''}</td>
+                    <td style="border:1px solid #94a3b8;text-align:center;font-size:11px;font-weight:bold;padding:1px;line-height:1.15;">${v(r.bpUpSt) ? `${r.bpUpSt}/${r.bpDnSt}${v(r.plSt)?`<br/><span style='color:#475569;font-size:10px;'>(${r.plSt})</span>`:''}` : ''}</td>
+                    <td style="border:1px solid #94a3b8;text-align:center;font-size:11px;font-weight:bold;padding:1px;line-height:1.15;">${v(r.bpUpEn) ? `${r.bpUpEn}/${r.bpDnEn}${v(r.plEn)?`<br/><span style='color:#475569;font-size:10px;'>(${r.plEn})</span>`:''}` : ''}</td>
+                    ${exCells}
+                    <td style="border:1px solid #94a3b8;text-align:center;font-size:11px;font-weight:bold;padding:1px;">${v(r.massage)}</td>
+                  </tr>
+                  <tr style="height:30px;background:${rowBg};">
+                    <td style="border:1px solid #94a3b8;background:#f1f5f9;text-align:center;font-size:10px;font-weight:bold;color:#64748b;padding:1px;">特記</td>
+                    <td colspan="${5 + exerciseItems.length + 1}" style="border:1px solid #94a3b8;text-align:left;font-size:10px;color:#1e293b;padding:1px 4px;background:${rowBg};">${(v(r.tokki)||'').replace(/</g,'&lt;').replace(/\n/g,'<br/>')}</td>
+                  </tr>`;
+              }).join('');
+              // 空行 (常に8行になるよう埋める)
+              const emptyRows = Math.max(0, PER_PAGE - rows.length);
+              const emptyRowsHtml = Array.from({length: emptyRows}).map(() => `
+                <tr style="height:38px;">
+                  <td rowspan="2" style="border:1px solid #475569;background:#f8fafc;height:74px;"></td>
+                  ${Array.from({length: 5 + exerciseItems.length + 1}).map(() => '<td style="border:1px solid #94a3b8;"></td>').join('')}
+                </tr>
+                <tr style="height:30px;">
+                  <td style="border:1px solid #94a3b8;background:#f1f5f9;text-align:center;font-size:10px;color:#cbd5e1;padding:1px;">特記</td>
+                  <td colspan="${5 + exerciseItems.length + 1}" style="border:1px solid #94a3b8;"></td>
+                </tr>`).join('');
+              return `
+              <div class="tp" style="width:297mm;min-height:210mm;box-sizing:border-box;padding:4mm 6mm;page-break-after:always;display:flex;flex-direction:column;">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;">
+                  <div>
+                    <div style="font-size:17px;font-weight:bold;letter-spacing:0.1em;line-height:1.1;">${tY}年${tM}月 サービス提供記録</div>
+                    <div style="font-size:26px;font-weight:bold;margin-top:8px;line-height:1.1;">${pat.name} <span style="font-size:18px;font-weight:normal;">様</span></div>
+                  </div>
+                  <div style="font-size:10px;color:#475569;text-align:right;line-height:1.5;">
+                    <div>提供責任者: <b>${facility.serviceResponsible||'—'}</b>　　実施時間: <b>${jisshiTime}</b></div>
+                    <div style="color:#1d4ed8;font-weight:bold;margin-top:2px;">通所曜日: ${schedText||'—'}</div>
+                  </div>
+                </div>
+                <table style="width:100%;border-collapse:collapse;margin-bottom:0;table-layout:fixed;">
+                  <colgroup><col style="width:5%;"/><col style="width:45%;"/><col style="width:5%;"/><col style="width:45%;"/></colgroup>
+                  <tbody>
+                    <tr>
+                      <th style="border:1px solid #475569;background:white;color:black;font-size:10px;font-weight:normal;padding:1px 4px;text-align:center;">既往</th>
+                      <td style="border:1px solid #475569;font-size:10px;padding:1px 6px;vertical-align:top;">${pat.kiou||''}</td>
+                      <th style="border:1px solid #475569;background:white;color:black;font-size:10px;font-weight:normal;padding:1px 4px;text-align:center;">留意</th>
+                      <td style="border:1px solid #475569;font-size:10px;padding:1px 6px;vertical-align:top;">${pat.ryui||''}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:4px;table-layout:fixed;">
+                  <tbody>
+                    <tr>
+                      <th style="border:1px solid #475569;background:white;color:black;font-size:10px;font-weight:normal;padding:1px 4px;text-align:center;width:8%;">マッサージ</th>
+                      <td style="border:1px solid #475569;font-size:11px;font-weight:bold;padding:1px 6px;width:42%;">${pat.massageNeed||'—'}</td>
+                      <th style="border:1px solid #475569;background:white;color:black;font-size:10px;font-weight:normal;padding:1px 4px;text-align:center;width:8%;">温浴時電療</th>
+                      <td style="border:1px solid #475569;font-size:11px;font-weight:bold;padding:1px 6px;width:42%;">${pat.onyokuDenryo||'—'}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <table style="width:100%;border-collapse:collapse;table-layout:fixed;flex:1;">
+                  <thead>
+                    <tr style="background:#1e293b;color:white;">
+                      <th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:50px;">日付</th>
+                      <th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:34px;">状態</th>
+                      <th style="border:1px solid #475569;padding:3px 1px;font-size:9px;width:60px;">気分</th>
+                      <th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:48px;">体温</th>
+                      <th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:58px;">開始 血圧(脈)</th>
+                      <th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:58px;">終了 血圧(脈)</th>
+                      ${exerciseItems.map(it => `<th style="border:1px solid #475569;padding:3px 1px;font-size:9px;line-height:1.1;">${it.name}</th>`).join('')}
+                      <th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:42px;">介護整体</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${tableRows}
+                    ${emptyRowsHtml}
+                  </tbody>
+                </table>
+              </div>`;
+            };
+            const allPagesHtml = pageGroups.map(renderPage).join('');
+            const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>サービス提供記録 ${pat.name} ${tY}年${tM}月</title>
 <style>
-@page { size: A4 landscape; margin: 6mm; }
-body { font-family: "Hiragino Sans","Yu Gothic",sans-serif; color:#1e293b; margin:0; padding:8px; }
-.no-print { background:#fef3c7; border:1px solid #fbbf24; padding:8px 12px; border-radius:6px; margin:8px 0; font-size:12px; }
+@page { size: A4 landscape; margin: 0; }
+body { font-family: "Hiragino Sans","Yu Gothic","Noto Sans JP",sans-serif; color:#1e293b; margin:0; padding:0; background:white; }
+.no-print { background:#fef3c7; border:1px solid #fbbf24; padding:8px 12px; margin:8px; font-size:12px; }
 .no-print button { padding:6px 14px; font-weight:bold; cursor:pointer; }
-@media print { .no-print { display:none; } body { margin:0; padding:0; } .page { page-break-after:always; } .page:last-child{ page-break-after:avoid; } }
-.page { padding:4mm; box-sizing:border-box; }
-.header { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:4px; }
-.header h1 { font-size:14px; margin:0; letter-spacing:0.1em; }
-.header .name { font-size:22px; font-weight:bold; margin-top:4px; }
-.header .meta { font-size:10px; color:#475569; text-align:right; line-height:1.5; }
-.info-table { width:100%; border-collapse:collapse; font-size:9px; margin-bottom:2px; }
-.info-table th { background:white; color:black; border:1px solid #334155; padding:1px 4px; text-align:center; font-weight:normal; font-size:9px; width:5%; }
-.info-table td { border:1px solid #334155; padding:1px 6px; font-size:10px; vertical-align:top; }
-.main-table { width:100%; border-collapse:collapse; font-size:10px; table-layout:fixed; }
-.main-table thead th { background:#1e293b; color:white; border:1px solid #475569; padding:3px 1px; font-size:9px; text-align:center; font-weight:bold; }
-.main-table tbody td { border:1px solid #94a3b8; padding:1px; text-align:center; vertical-align:middle; overflow:hidden; }
-.main-table td.day-cell { background:#f8fafc; }
-.main-table td.day-cell .day-num { font-size:18px; font-weight:bold; line-height:1; }
-.main-table td.day-cell .day-dow { font-size:10px; color:#475569; margin-top:2px; }
-.main-table td.status { font-size:10px; font-weight:bold; color:#1d4ed8; }
-.main-table td.status.absent { color:#dc2626; }
-.main-table td.mood { font-size:9px; }
-.main-table td.mood div { line-height:1.2; }
-.main-table td.temp { font-size:11px; font-weight:bold; }
-.main-table td.bp { font-size:10px; font-weight:bold; line-height:1.1; }
-.main-table td.ex { font-size:9px; }
-.main-table td.massage { font-size:10px; font-weight:bold; }
-.main-table tr.tokki-row td { background:#f1f5f9; height:24px; text-align:left; padding:1px 4px; font-size:9px; }
-.main-table tr.tokki-row td.tokki-label { background:#e2e8f0; color:#475569; font-weight:bold; text-align:center; width:34px; }
-.main-table tbody tr:not(.tokki-row) { height:32px; }
+@media print {
+  .no-print { display:none !important; }
+  body { margin:0; padding:0; }
+  .tp { page-break-after:always; break-after:page; }
+  .tp:last-child { page-break-after:avoid; break-after:avoid; }
+}
 </style>
 </head><body>
-<div class="no-print">💡 ブラウザで <b>Ctrl/Cmd + P</b> → 「PDFとして保存」を選択するとPDF化できます。 <button onclick="window.print()">🖨 今すぐ印刷</button></div>
-<div class="page">
-  <div class="header">
-    <div>
-      <h1>${tY}年${tM}月 サービス提供記録</h1>
-      <div class="name">${pat.name} <span style="font-size:14px;font-weight:normal;">様</span> ${pat.kana?`<span style="font-size:11px;color:#64748b;">(${pat.kana})</span>`:''}</div>
-    </div>
-    <div class="meta">
-      <b>${facility.name||''}</b><br/>
-      TEL ${facility.phone||''} / FAX ${facility.fax||''}<br/>
-      介護度: <b>${pat.careLevel||'—'}</b>
-    </div>
-  </div>
-  <table class="info-table"><tbody>
-    <tr>
-      <th>既往</th><td style="width:45%;">${pat.kiou||''}</td>
-      <th>留意</th><td style="width:45%;">${pat.ryui||''}</td>
-    </tr>
-    <tr>
-      <th>整体</th><td>${pat.massageNeed||'—'}</td>
-      <th>温浴</th><td>${pat.onyokuDenryo||'—'}</td>
-    </tr>
-  </tbody></table>
-  <table class="main-table">
-    <thead>
-      <tr>
-        <th style="width:38px;">日付</th>
-        <th style="width:34px;">状態</th>
-        <th style="width:42px;">気分</th>
-        <th style="width:42px;">体温</th>
-        <th style="width:54px;">開始<br/>血圧(脈)</th>
-        <th style="width:54px;">終了<br/>血圧(脈)</th>
-        ${exerciseItems.map(it => `<th>${it.name}</th>`).join('')}
-        <th style="width:42px;">整体</th>
-      </tr>
-    </thead>
-    <tbody>${tableRows}</tbody>
-  </table>
-</div>
+<div class="no-print">💡 Ctrl/Cmd + P で「PDFとして保存」 <button onclick="window.print()">🖨 印刷</button></div>
+${allPagesHtml}
 </body></html>`;
-          const safeName = pat.name.replace(/[\/\\:?*"<>|\s]/g,'_');
-          await addHtmlOrPdf(dir, `${safeName}_${g.ym}`, html, { orientation: 'landscape' });
+            const safeName = pat.name.replace(/[\/\\:?*"<>|\s]/g,'_');
+            await addHtmlOrPdf(dir, `${safeName}_${tY}-${String(tM).padStart(2,'0')}`, html, { orientation: 'landscape' });
+          }
         }
       }
       // 体力測定 (CSV のみ)
@@ -16792,26 +16860,24 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                 };
                 const renderTime = (str) => {
                   if (!str) return null;
-                  // "　時　分" or "9時15分" or "9時　　分" — minute が空白の場合はコンパクトに
+                  // "　時　分" or "9時15分" or "9時　　分"
+                  // 分は3文字分 (全角3つ = 約90px) のスペースを確保して見切れ防止
                   const t = str.replace(/^0/, "");
                   const mTime = t.match(/^(.*?)時(.*)分$/);
                   if (mTime) {
                     const h = mTime[1] || '　　';
                     const m = mTime[2] || '';
                     const mBlank = !m || /^[\s　]+$/.test(m);  // 分が全角/半角空白のみ
-                    if (mBlank) {
-                      // 分が未入力 → "9時" のみ + 手書き用の細い余白 + 小さい「分」
-                      return <>
-                        <span style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{h}</span>
-                        <span style={{fontSize:20, fontWeight:"bold", lineHeight:1.1}}> 時</span>
-                        <span style={{fontSize:30, fontWeight:"bold", lineHeight:1.1, color:'#cbd5e1'}}>　</span>
-                        <span style={{fontSize:20, fontWeight:"bold", lineHeight:1.1}}>分</span>
-                      </>;
-                    }
+                    // 分エリアは常に固定幅 (inline-block で 3文字分 = 90px)
+                    const minuteBoxStyle = {
+                      fontSize:30, fontWeight:"bold", lineHeight:1.1,
+                      display:'inline-block', minWidth:'2.4em', textAlign:'right',
+                      color: mBlank ? '#cbd5e1' : '#1e293b'
+                    };
                     return <>
                       <span style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{h}</span>
                       <span style={{fontSize:20, fontWeight:"bold", lineHeight:1.1}}> 時 </span>
-                      <span style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{m}</span>
+                      <span style={minuteBoxStyle}>{mBlank ? '　　' : m}</span>
                       <span style={{fontSize:20, fontWeight:"bold", lineHeight:1.1}}> 分</span>
                     </>;
                   }
@@ -22578,8 +22644,8 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
             {/* タイトル */}
             <div style={{textAlign:'center',fontSize:28,fontWeight:'bold',border:'3px solid black',padding:'10px 0',marginBottom:28,letterSpacing:6}}>送付状</div>
 
-            {/* 上部2列 */}
-            <div style={{display:'flex',gap:0,marginBottom:20}}>
+            {/* 上部2列: 左=送付先 / 右=発信元 (右寄せ) */}
+            <div style={{display:'flex',gap:0,marginBottom:20,justifyContent:'space-between',alignItems:'flex-start'}}>
               {/* 左：送付先情報 */}
               <div style={{flex:1,paddingRight:24,maxWidth:'50%'}}>
                 <div style={{display:'grid',gridTemplateColumns:'90px 1fr',gap:'8px 10px',marginBottom:16,fontSize:16}}>
@@ -22968,8 +23034,8 @@ function GeneralFaxView({ appData, onSave, onShowPrintPreview }) {
           {/* タイトル */}
           <div style={{textAlign:'center',fontSize:28,fontWeight:'bold',border:'3px solid black',padding:'10px 0',marginBottom:28,letterSpacing:6}}>送付状</div>
 
-          {/* 上部2列 */}
-          <div style={{display:'flex',gap:0,marginBottom:20}}>
+          {/* 上部2列: 左=送付先 / 右=発信元 (右寄せ) */}
+          <div style={{display:'flex',gap:0,marginBottom:20,justifyContent:'space-between',alignItems:'flex-start'}}>
             <div style={{flex:1,paddingRight:24,maxWidth:'50%'}}>
               <div style={{display:'grid',gridTemplateColumns:'90px 1fr',gap:'8px 10px',marginBottom:16,fontSize:16}}>
                 <span style={{fontWeight:'bold'}}>送付日：</span>
