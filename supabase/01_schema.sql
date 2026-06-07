@@ -3,8 +3,43 @@
 -- Supabase SQL Editor で上から順に実行
 -- =============================================
 
+-- =============================================
+-- 0. 既存テーブルのクリーンアップ
+-- =============================================
+-- ⚠️ データがあれば失われます (初回セットアップ時のみ使用)
+-- 既に運用中の場合は、このセクション全体をコメントアウトしてください
+drop table if exists public.audit_logs            cascade;
+drop table if exists public.family_read_status    cascade;
+drop table if exists public.fax_history           cascade;
+drop table if exists public.announcements         cascade;
+drop table if exists public.contact_books         cascade;
+drop table if exists public.daily_logs            cascade;
+drop table if exists public.fitness_records       cascade;
+drop table if exists public.monitoring_records    cascade;
+drop table if exists public.ticket_records        cascade;
+drop table if exists public.family_invites        cascade;
+drop table if exists public.family_accounts       cascade;
+drop table if exists public.emergency_contacts    cascade;
+drop table if exists public.patients              cascade;
+drop table if exists public.care_managers         cascade;
+drop table if exists public.cm_offices            cascade;
+drop table if exists public.staff                 cascade;
+drop table if exists public.stores                cascade;
+
+-- 既存のヘルパー関数も削除 (再作成のため)
+drop function if exists public.set_updated_at()                                                    cascade;
+drop function if exists public.current_user_store_id()                                             cascade;
+drop function if exists public.is_admin()                                                          cascade;
+drop function if exists public.is_staff()                                                          cascade;
+drop function if exists public.current_family_patient_id()                                         cascade;
+drop function if exists public.is_caremanager_account()                                            cascade;
+drop function if exists public.verify_invite_code(text)                                            cascade;
+drop function if exists public.consume_invite_and_create_family_account(text,uuid,text,text,text,text,text,text,text) cascade;
+drop function if exists public.generate_family_invite(uuid)                                        cascade;
+
 -- 拡張機能の有効化
 create extension if not exists "uuid-ossp";
+create extension if not exists "pgcrypto";  -- gen_random_uuid 用
 
 -- =============================================
 -- 1. 組織系
