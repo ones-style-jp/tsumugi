@@ -1,36 +1,45 @@
 -- =============================================
 -- Tsumugi 初期データ + ヘルパー関数 (04_seed.sql)
--- 最初の事業所と管理者の登録 + 招待コード検証関数
+-- システム管理者 (本部) のみ作成。事業所は管理者がアプリから作成。
 -- =============================================
 
 -- =============================================
--- 1. 最初の事業所 (ひかりデイサービス扇橋店) を登録
+-- 1. 既存データのクリーンアップ (フランチャイズ展開を一からやり直す場合)
 -- =============================================
-insert into public.stores (
-  id, name, short_name, zip_code, address, phone, fax, email,
-  manager_name, service_time_am, service_time_pm, capacity,
-  closed_days, franchise_code, status
-) values (
-  gen_random_uuid(),
-  'ひかりデイサービス扇橋店',
-  '扇橋店',
-  '135-0011',
-  '東京都江東区扇橋1-1-1',
-  '03-6458-7415',
-  '03-6458-7416',
-  'honbu@ones-style.co.jp',
-  '佐藤 健一',
-  '9:00〜12:05',
-  '13:20〜16:25',
-  10,
-  array[0],                                  -- 日曜定休
-  'ONES-DEMO-2026',
-  'active'
-)
-on conflict do nothing;
+-- ⚠️ データが消えます。初回セットアップ時のみ実行。
+delete from public.family_invites;
+delete from public.family_accounts;
+delete from public.emergency_contacts;
+delete from public.fitness_records;
+delete from public.monitoring_records;
+delete from public.ticket_records;
+delete from public.contact_books;
+delete from public.daily_logs;
+delete from public.announcements;
+delete from public.fax_history;
+delete from public.family_read_status;
+delete from public.audit_logs;
+delete from public.patients;
+delete from public.care_managers;
+delete from public.cm_offices;
+delete from public.staff;
+delete from public.stores;
 
--- 確認: 作成された事業所IDを取得 (このIDを後で使う)
-select id, name from public.stores where name = 'ひかりデイサービス扇橋店';
+-- =============================================
+-- 2. システム管理者の登録方法
+-- =============================================
+-- 事業所は作成しません。システム管理者(本部)を作成後、
+-- 管理者がアプリから自分で事業所を作成・管理します。
+--
+-- 手順:
+--   A. Supabase ダッシュボード → Authentication → Users
+--      「Add user → Create new user」
+--      Email: takahashi@ones-style.co.jp
+--      Password: 強固なもの (1Password 等で管理)
+--      ✅ Auto Confirm User にチェック
+--
+--   B. 下記の SQL を実行 (この 04_seed.sql の末尾でも自動実行されます):
+--      → 髙橋さんをシステム管理者として staff テーブルに登録
 
 -- =============================================
 -- 2. 招待コード検証用 RPC 関数
@@ -231,17 +240,60 @@ $$;
 grant execute on function public.generate_family_invite to authenticated;
 
 -- =============================================
+-- 5. システム管理者 (髙橋さん) を staff に登録
+-- =============================================
+-- ⚠️ 事前に Supabase Authentication → Users で
+--    takahashi@ones-style.co.jp のユーザーを作成しておくこと
+--
+-- ※ ユーザーが存在しない場合、このINSERTはスキップされます (警告のみ)
+
+do $$
+declare
+  v_user_id uuid;
+begin
+  select id into v_user_id from auth.users where email = 'takahashi@ones-style.co.jp' limit 1;
+
+  if v_user_id is null then
+    raise notice '⚠️  takahashi@ones-style.co.jp が auth.users に見つかりません。';
+    raise notice '   先に Supabase ダッシュボード Authentication → Users で作成してから';
+    raise notice '   この 04_seed.sql を再実行してください。';
+    return;
+  end if;
+
+  -- 既存の髙橋レコードがあれば一旦削除して綺麗に作り直す
+  delete from public.staff where email = 'takahashi@ones-style.co.jp';
+
+  insert into public.staff (
+    store_id, user_id, is_super_admin,
+    last_name, first_name, role, email, is_active
+  ) values (
+    null,                                    -- システム管理者は店舗に属さない
+    v_user_id,
+    true,                                    -- ← システム管理者フラグ
+    '髙橋',
+    '',                                      -- 名は後で本人が編集
+    'super_admin',
+    'takahashi@ones-style.co.jp',
+    true
+  );
+
+  raise notice '✅ 髙橋さんをシステム管理者として登録しました';
+end $$;
+
+-- =============================================
+-- 6. 動作確認用クエリ
+-- =============================================
+-- 登録されたシステム管理者を確認
+select s.full_name, s.role, s.email, s.is_super_admin, s.is_active
+from public.staff s
+where s.is_super_admin = true and s.deleted_at is null;
+
+-- =============================================
 -- 完了
 -- =============================================
 -- 次のステップ:
--- 1. Supabase ダッシュボード → Authentication → Users から最初のスタッフユーザーを作成
---    (Email: honbu@ones-style.co.jp / 任意のパスワード)
--- 2. 以下のSQLを実行して、そのユーザーを管理者として staff テーブルに登録:
---
--- insert into public.staff (store_id, user_id, last_name, first_name, role, email, is_active)
--- select
---   (select id from public.stores where name = 'ひかりデイサービス扇橋店'),
---   (select id from auth.users where email = 'honbu@ones-style.co.jp'),
---   '佐藤', '健一', 'manager', 'honbu@ones-style.co.jp', true;
---
--- 3. ログインして動作確認
+-- 1. ✅ システム管理者作成 (上のSQL で完了)
+-- 2. ⏭ アプリから tsumugi.ones-style.co.jp にアクセス
+-- 3. ⏭ takahashi@ones-style.co.jp + パスワード でログイン
+-- 4. ⏭ アプリ内から「新規事業所を作成」で各フランチャイズ店を登録
+-- 5. ⏭ 各店舗の管理者・スタッフをアプリから追加

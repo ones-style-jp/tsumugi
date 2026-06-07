@@ -68,24 +68,32 @@ create table public.stores (
 );
 create index idx_stores_status on public.stores(status) where deleted_at is null;
 
--- 1.2 staff (スタッフ)
+-- 1.2 staff (スタッフ / システム管理者)
+-- システム管理者 (本部) は store_id = NULL かつ is_super_admin = true
+-- 店舗スタッフは store_id 必須
 create table public.staff (
   id uuid primary key default uuid_generate_v4(),
-  store_id uuid not null references public.stores(id) on delete cascade,
+  store_id uuid references public.stores(id) on delete cascade,  -- NULL = 本部システム管理者
   user_id uuid references auth.users(id) on delete set null,  -- Supabase Auth と紐付け
+  is_super_admin boolean default false,                       -- ← システム管理者(本部) フラグ
   last_name text,
   first_name text,
   full_name text generated always as (last_name || ' ' || first_name) stored,
-  role text not null default 'staff' check (role in ('manager','staff','nurse','therapist','admin','part_time')),
+  role text not null default 'staff' check (role in ('super_admin','manager','staff','nurse','therapist','part_time')),
   email text,
   phone text,
   is_active boolean default true,
   created_at timestamptz default now(),
   updated_at timestamptz default now(),
-  deleted_at timestamptz
+  deleted_at timestamptz,
+  -- システム管理者は store_id NULL / 店舗スタッフは store_id 必須
+  constraint chk_staff_store_consistency check (
+    (is_super_admin = true) or (store_id is not null)
+  )
 );
 create index idx_staff_store on public.staff(store_id) where deleted_at is null;
 create index idx_staff_user on public.staff(user_id);
+create index idx_staff_super_admin on public.staff(is_super_admin) where is_super_admin = true and deleted_at is null;
 
 -- 1.3 cm_offices (ケアマネ事業所)
 create table public.cm_offices (
