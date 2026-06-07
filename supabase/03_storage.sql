@@ -4,6 +4,21 @@
 -- =============================================
 
 -- =============================================
+-- 0. 既存のStorageポリシーをクリーンアップ
+-- =============================================
+-- ⚠️ 再実行時用 (初回は何もしない)
+drop policy if exists "staff_read_announcement_photos"   on storage.objects;
+drop policy if exists "staff_upload_announcement_photos" on storage.objects;
+drop policy if exists "staff_delete_announcement_photos" on storage.objects;
+drop policy if exists "family_read_announcement_photos"  on storage.objects;
+drop policy if exists "staff_read_patient_docs"          on storage.objects;
+drop policy if exists "staff_write_patient_docs"         on storage.objects;
+drop policy if exists "staff_delete_patient_docs"        on storage.objects;
+drop policy if exists "staff_read_avatars"               on storage.objects;
+drop policy if exists "staff_write_own_avatar"           on storage.objects;
+drop policy if exists "staff_update_own_avatar"          on storage.objects;
+
+-- =============================================
 -- 1. Storage バケット作成
 -- =============================================
 
