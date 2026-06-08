@@ -937,6 +937,7 @@ const appSettings = {
     { label: "出席", color: "bg-blue-600", lightColor: "bg-blue-50", textColor: "text-blue-700", ring: "ring-blue-300" },
     { label: "欠席", color: "bg-red-600", lightColor: "bg-red-50", textColor: "text-red-700", ring: "ring-red-300" },
     { label: "振替", color: "bg-emerald-600", lightColor: "bg-emerald-50", textColor: "text-emerald-700", ring: "ring-emerald-300" },
+    { label: "休止", color: "bg-orange-500", lightColor: "bg-orange-50", textColor: "text-orange-700", ring: "ring-orange-300" },
     { label: "休業", color: "bg-slate-500", lightColor: "bg-slate-100", textColor: "text-slate-600", ring: "ring-slate-300" }
   ],
   massageStaff: ["高橋", "ヘルプ", "岩岡", "田中", "長谷川"],
@@ -11226,7 +11227,10 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
       .sort((a, b) => {
          // 出席 → 振替 → 欠席 → 休止 → 休業 → その他
          const rank = (s) => s === '出席' ? 0 : s === '振替' ? 1 : s === '欠席' ? 2 : s === '休止' ? 3 : s === '休業' ? 4 : 5;
-         return rank(a.status) - rank(b.status);
+         const rdiff = rank(a.status) - rank(b.status);
+         if (rdiff !== 0) return rdiff;
+         // 同じステータス内では あいうえお順 (kana)
+         return (a.kana || '').localeCompare(b.kana || '', 'ja');
       });
     setLocalPatients(filtered);
     // 月全体表示用：選択月のレコードのみ保持してメモリ節約
@@ -16894,9 +16898,9 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                     };
                     return <>
                       <span style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{h}</span>
-                      <span style={{fontSize:20, fontWeight:"bold", lineHeight:1.1}}> 時 </span>
+                      <span style={{fontSize:20, fontWeight:"bold", lineHeight:1.1}}>時</span>
                       <span style={minuteBoxStyle}>{mBlank ? '　　' : m}</span>
-                      <span style={{fontSize:20, fontWeight:"bold", lineHeight:1.1}}> 分</span>
+                      <span style={{fontSize:20, fontWeight:"bold", lineHeight:1.1}}>分</span>
                     </>;
                   }
                   return <span style={{fontSize:30, fontWeight:"bold"}}>{t}</span>;
