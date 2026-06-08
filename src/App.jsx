@@ -10833,7 +10833,7 @@ export default function App() {
                     style={{background:'#1d4ed8',color:'white',border:'none',borderLeft:'1px solid rgba(255,255,255,0.25)',borderRadius:'0 10px 10px 0',padding:'10px 12px',fontWeight:'bold',fontSize:16,cursor:'pointer',boxShadow:'0 2px 8px rgba(0,0,0,0.2)',marginLeft:-10}}>
                     ⓘ
                   </button>
-                  {isFaxKind && faxType !== 'absence' && (
+                  {isFaxKind && faxType === 'general' && (
                     <button onClick={()=>setShowFaxRecord(true)} title="送付履歴に記録する"
                       style={{background:'#7c3aed',color:'white',border:'none',borderRadius:10,padding:'10px 16px',fontWeight:'bold',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',gap:6,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
                       📝 履歴に記録
