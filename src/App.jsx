@@ -250,7 +250,7 @@ const DataExportSection = ({ appData }) => {
           folder.file(`${baseName}.html`, htmlStr);
         }
       };
-      root.file('_meta.json', JSON.stringify({ exportedAt: new Date().toISOString(), range: label, app: 'デイケア管理アプリ' }, null, 2));
+      root.file('_meta.json', JSON.stringify({ exportedAt: new Date().toISOString(), range: label, app: 'Tsumugi (紡ぎ)' }, null, 2));
 
       // HTML 共通スタイル (印刷時 PDF 化用)
       const htmlBase = (title, body) => `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>${title}</title><style>
@@ -554,7 +554,7 @@ ${allPagesHtml}
       }
 
       // README
-      root.file('README.txt', `デイケア管理アプリ データエクスポート
+      root.file('README.txt', `Tsumugi (紡ぎ) データエクスポート
 
 期間: ${label}
 エクスポート日時: ${new Date().toLocaleString('ja-JP')}
@@ -10681,19 +10681,24 @@ export default function App() {
   }
   if (!session) {
     return (
-      <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#1e3a5f 0%,#2d6a9f 50%,#1a5276 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#3d2a4a 0%,#5e3b6c 50%,#3d2a4a 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
         <div style={{width:'100%',maxWidth:400}}>
           {/* ロゴ */}
           <div style={{textAlign:'center',marginBottom:32}}>
-            <div style={{display:'inline-flex',alignItems:'center',gap:12,marginBottom:8}}>
-              <div style={{width:48,height:48,borderRadius:12,background:'rgba(255,255,255,0.15)',display:'flex',alignItems:'center',justifyContent:'center',border:'1px solid rgba(255,255,255,0.3)'}}>
-                <span style={{fontSize:24}}>🌸</span>
-              </div>
-              <div>
-                <div style={{fontSize:22,fontWeight:'bold',color:'white',letterSpacing:'0.1em'}}>DAYCARE V2</div>
-                <div style={{fontSize:11,color:'rgba(255,255,255,0.6)',fontWeight:'bold'}}>Tsumugi — デイサービス管理</div>
-              </div>
-            </div>
+            <svg viewBox="0 0 480 150" style={{width:'100%',maxWidth:340,height:'auto'}} xmlns="http://www.w3.org/2000/svg">
+              <g transform="translate(60, 75)">
+                <circle cx="-12" cy="-12" r="22" stroke="#fff8e7" strokeWidth="2.4" fill="none" opacity="0.9"/>
+                <circle cx="12" cy="-12" r="22" stroke="#fff8e7" strokeWidth="2.4" fill="none" opacity="0.9"/>
+                <circle cx="-12" cy="12" r="22" stroke="#fff8e7" strokeWidth="2.4" fill="none" opacity="0.9"/>
+                <circle cx="12" cy="12" r="22" stroke="#fff8e7" strokeWidth="2.4" fill="none" opacity="0.9"/>
+                <circle cx="0" cy="0" r="5" fill="#f5d27a"/>
+              </g>
+              <text x="135" y="68" fontFamily="'Hiragino Mincho ProN','Yu Mincho','Noto Serif JP',serif" fontSize="50" fill="#fff8e7" fontWeight="500" letterSpacing="6">紡ぎ</text>
+              <line x1="135" y1="88" x2="155" y2="88" stroke="#f5d27a" strokeWidth="1"/>
+              <text x="162" y="94" fontFamily="'Noto Serif',Georgia,serif" fontSize="20" fill="#f5d27a" letterSpacing="5" fontStyle="italic">Tsumugi</text>
+              <line x1="268" y1="88" x2="288" y2="88" stroke="#f5d27a" strokeWidth="1"/>
+              <text x="135" y="120" fontFamily="'Hiragino Mincho ProN','Yu Mincho',serif" fontSize="11" fill="#c4b6e2" letterSpacing="4">家族と現場を結ぶ、デイサービス管理</text>
+            </svg>
           </div>
 
           {/* ログインカード */}
@@ -10882,10 +10887,19 @@ export default function App() {
 
       <div className={`no-print bg-slate-900 text-slate-300 flex flex-col flex-shrink-0 shadow-2xl transition-all duration-300 ${isSidebarOpen ? 'w-64 opacity-100' : 'w-0 opacity-0 overflow-hidden'}`}>
           <div className="w-64 h-full flex flex-col">
-            <div className="h-16 flex items-center px-6 border-b border-slate-800 bg-slate-950">
-              <Activity className="w-6 h-6 text-blue-400 mr-3" />
+            <div className="h-16 flex items-center px-5 border-b border-slate-800 bg-slate-950">
+              <svg viewBox="0 0 80 80" className="w-7 h-7 mr-3 flex-shrink-0" xmlns="http://www.w3.org/2000/svg">
+                <g transform="translate(40, 40)">
+                  <circle cx="-12" cy="-12" r="22" stroke="#fff8e7" strokeWidth="2.6" fill="none" opacity="0.9"/>
+                  <circle cx="12" cy="-12" r="22" stroke="#fff8e7" strokeWidth="2.6" fill="none" opacity="0.9"/>
+                  <circle cx="-12" cy="12" r="22" stroke="#fff8e7" strokeWidth="2.6" fill="none" opacity="0.9"/>
+                  <circle cx="12" cy="12" r="22" stroke="#fff8e7" strokeWidth="2.6" fill="none" opacity="0.9"/>
+                  <circle cx="0" cy="0" r="5" fill="#f5d27a"/>
+                </g>
+              </svg>
               <div className="flex-1 min-w-0">
-                <span className="text-lg font-bold text-white tracking-tight" style={{letterSpacing:'0.02em'}}>Tsumugi <span className="text-[10px] font-normal opacity-70 ml-1">紡ぎ</span></span>
+                <span style={{fontFamily:"'Hiragino Mincho ProN','Yu Mincho','Noto Serif JP',serif",fontSize:'19px',color:'#fff8e7',fontWeight:500,letterSpacing:'4px'}}>紡ぎ</span>
+                <span style={{fontFamily:"'Noto Serif',Georgia,serif",fontSize:'10px',color:'#f5d27a',letterSpacing:'2px',marginLeft:'8px',fontStyle:'italic'}}>Tsumugi</span>
                 {session?.mode==='demo' && <span className="ml-2 text-[9px] font-bold bg-amber-500 text-white px-1.5 py-0.5 rounded">DEMO</span>}
               </div>
             </div>
