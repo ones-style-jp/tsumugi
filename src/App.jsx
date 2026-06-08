@@ -8626,7 +8626,17 @@ const getRowFromKana = (kana) => {
 const getPatientDisplayStatus = (p) => {
     if (!p) return '利用中';
     if (isPatientResigned(p)) return '退所済み';
-    if (p.status === '休止' || p.status === '一時中止') return '休止';
+    if (p.status === '休止' || p.status === '一時中止') {
+        // 休止履歴の最新エントリに toDate が設定されていて、今日がその日を過ぎていたら自動で利用中に戻す
+        const hist = p.pauseHistory || [];
+        const last = hist[hist.length - 1];
+        if (last && last.toDate) {
+            const today = new Date(); today.setHours(0,0,0,0);
+            const to = new Date(last.toDate); to.setHours(0,0,0,0);
+            if (today > to) return '利用中';
+        }
+        return '休止';
+    }
     return '利用中';
 };
 
@@ -11266,10 +11276,12 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
     if (dirtyRef) dirtyRef.current = true;
   };
 
-  const [statusModal, setStatusModal] = useState({ isOpen: false, id: null, status: '', reason: '', furikaeDate: '', substituteReason: '', furikaeAmpm: 'AM' });
+  const [statusModal, setStatusModal] = useState({ isOpen: false, id: null, status: '', reason: '', furikaeDate: '', substituteReason: '', furikaeAmpm: 'AM', pauseFromDate: '', pauseToDate: '' });
   // 振替の取り消し（保留）: 保存ボタン押下時にまとめて反映するために情報を貯めておく
   const [pendingCancellations, setPendingCancellations] = useState([]);
-  React.useEffect(() => { setPendingCancellations([]); }, [selectedDate]);
+  // 振替の新規設定（保留）: monthlyShifts への反映を保存ボタン押下まで遅延
+  const [pendingFurikaeShifts, setPendingFurikaeShifts] = useState([]);
+  React.useEffect(() => { setPendingCancellations([]); setPendingFurikaeShifts([]); }, [selectedDate]);
 
   const handleStatusChange = (id, newStatus) => {
     if (newStatus === '取り消し') {
@@ -11277,7 +11289,11 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
       return;
     }
     if (newStatus === '欠席' || newStatus === '休業' || newStatus === '振替') {
-      setStatusModal({ isOpen: true, id, status: newStatus, reason: '', furikaeDate: '', substituteReason: '', furikaeAmpm: 'AM' });
+      setStatusModal({ isOpen: true, id, status: newStatus, reason: '', furikaeDate: '', substituteReason: '', furikaeAmpm: 'AM', pauseFromDate: '', pauseToDate: '' });
+      return;
+    }
+    if (newStatus === '休止') {
+      setStatusModal({ isOpen: true, id, status: '休止', reason: '', furikaeDate: '', substituteReason: '', furikaeAmpm: 'AM', pauseFromDate: selectedDate, pauseToDate: '' });
       return;
     }
     applyStatusChange(id, newStatus, '', '', '', 'AM');
@@ -11313,7 +11329,23 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
     if (dirtyRef) dirtyRef.current = true; // 保存ボタンで反映してもらう
   };
 
-  const applyStatusChange = (id, newStatus, reason, furikaeDate, substituteReason, furikaeAmpm='AM') => {
+  const applyStatusChange = (id, newStatus, reason, furikaeDate, substituteReason, furikaeAmpm='AM', pauseFromDate='', pauseToDate='') => {
+    // 休止: 利用者マスタの pauseHistory に新エントリ追加 + status='休止'
+    if (newStatus === '休止') {
+      const targetPatientId = (localPatients.find(p=>p.id===id)?.patientId) || id;
+      const updatedPatients = (appData.patients||[]).map(pt => {
+        if (pt.id !== targetPatientId) return pt;
+        const newEntry = { reason: reason || '休止', fromDate: pauseFromDate || selectedDate, ...(pauseToDate?{toDate: pauseToDate}:{}) };
+        const newHistory = [...(pt.pauseHistory||[]), newEntry];
+        return { ...pt, status: '休止', pauseHistory: newHistory };
+      });
+      onSave({ ...appData, patients: updatedPatients });
+      // 画面上の localPatients も即時反映
+      setLocalPatients(prev => prev.map(p => p.id===id ? {...p, status: '休止', tokki: reason||'休止'} : p));
+      if (dirtyRef) dirtyRef.current = false; // 即時保存済み
+      return;
+    }
+
     const isNowAbsent = newStatus === '欠席' || newStatus === '休業';
     const srcD = new Date(selectedDate);
     const srcLabel = `${srcD.getMonth()+1}月${srcD.getDate()}日`;
@@ -11408,10 +11440,12 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
       if (srcIdx>=0) updatedRecords[srcIdx]=absRecord; else updatedRecords.push(absRecord);
     }
 
-    // 振替のシフト更新のみ即時保存（月間スケジュールは即時反映が必要）
-    // 欠席/休業/振替のチケット変更は localPatients 経由で保存ボタン時に保存
+    // 振替も自動保存しない: monthlyShifts の変更は appData に直接マージせず、
+    // 保存ボタン押下時にチケットレコード経由で月間シフトに反映する
+    // (保留: updatedShifts は保存ボタン時に使うので appData.monthlyShifts ではなく
+    //  pendingShifts に積んでおく)
     if (newStatus === '振替' && furikaeDate) {
-      onSave({ ...appData, monthlyShifts: updatedShifts });
+      setPendingFurikaeShifts(prev => [...prev, {shifts: updatedShifts}]);
     }
     if (dirtyRef) dirtyRef.current = true;
 
@@ -11541,8 +11575,19 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
               else updatedTicketRecords.push(newRecord);
           });
       } else { updatedTicketRecords = localTicketRecords; }
+      // 振替の新規シフト（保留分）をマージ
+      pendingFurikaeShifts.forEach(({shifts}) => {
+        for (const mk in shifts) {
+          if (!newShifts[mk]) newShifts[mk] = {};
+          for (const pid in shifts[mk]) {
+            if (!newShifts[mk][pid]) newShifts[mk][pid] = {};
+            Object.assign(newShifts[mk][pid], shifts[mk][pid]);
+          }
+        }
+      });
       onSave({ ...appData, ticketRecords: updatedTicketRecords, monthlyShifts: newShifts });
       setPendingCancellations([]);
+      setPendingFurikaeShifts([]);
       if (dirtyRef) dirtyRef.current = false;
   };
 
@@ -11978,19 +12023,25 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                   
                   <td className={`px-1 py-1 border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`} style={{height:32,overflow:'hidden'}}>
                     {(() => {
-                      // 家族向け表示 ON/OFF: familyTokkiOverrides[patientId][recordId].visible
-                      // single モードでは p.id = patient.id なので、ticket record の id (p.recordId) を使う
+                      // 家族向け表示 ON/OFF: familyTokkiOverrides[patientId][dateKey].visible
+                      // dateKey = "M月D日" の形式 (record.date と一致) にして
+                      // 保存前/保存後どちらでも同じキーで読み書きできるようにする
                       const pid = p.patientId || p.id;
                       const recId = p.recordId || p.id;
-                      const ov = ((appData.familyTokkiOverrides||{})[pid]||{})[recId] || {};
+                      const _dObj = new Date(selectedDate);
+                      const dateKey = p.date || `${_dObj.getMonth()+1}月${_dObj.getDate()}日`;
+                      const ftoPid = (appData.familyTokkiOverrides||{})[pid] || {};
+                      // 新キー(dateKey)優先、旧キー(recId)はフォールバック
+                      const ov = ftoPid[dateKey] || ftoPid[recId] || {};
                       const isVisible = ov.visible !== false;
                       const hasTokki = (p.tokki||'').trim().length > 0;
-                      const hasRecord = !!p.recordId || (p.id !== pid);  // 保存済みレコードのみトグル有効
                       const toggleVisible = () => {
-                        if (!hasRecord) { alert('先に「保存」ボタンで記録を保存してから設定してください'); return; }
                         const fto = appData.familyTokkiOverrides || {};
                         const cur = fto[pid] || {};
-                        const next = {...cur, [recId]: {...ov, visible: !isVisible}};
+                        const newOv = {...ov, visible: !isVisible};
+                        const next = {...cur, [dateKey]: newOv};
+                        // 保存済みレコードならrecordIdキーにも同期保存
+                        if (p.recordId) next[p.recordId] = newOv;
                         onSave({...appData, familyTokkiOverrides: {...fto, [pid]: next}});
                       };
                       return (
@@ -12037,10 +12088,42 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4">
             <div className="flex items-center gap-3 mb-5">
-              <span className={`px-3 py-1 rounded-full text-sm font-bold ${statusModal.status==='欠席'?'bg-red-100 text-red-700':statusModal.status==='休業'?'bg-slate-100 text-slate-600':'bg-blue-100 text-blue-700'}`}>{statusModal.status}</span>
-              <span className="text-slate-700 font-bold text-base">{statusModal.status==='欠席'?'欠席理由の入力':statusModal.status==='休業'?'休業理由の入力':'振替情報の入力'}</span>
+              <span className={`px-3 py-1 rounded-full text-sm font-bold ${statusModal.status==='欠席'?'bg-red-100 text-red-700':statusModal.status==='休業'?'bg-slate-100 text-slate-600':statusModal.status==='休止'?'bg-orange-100 text-orange-700':'bg-blue-100 text-blue-700'}`}>{statusModal.status}</span>
+              <span className="text-slate-700 font-bold text-base">{statusModal.status==='欠席'?'欠席理由の入力':statusModal.status==='休業'?'休業理由の入力':statusModal.status==='休止'?'休止情報の入力':'振替情報の入力'}</span>
             </div>
-            {statusModal.status === '振替' ? (
+            {statusModal.status === '休止' ? (
+              <div className="flex flex-col gap-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-600 mb-1.5">休止 開始日</label>
+                    <input type="date" value={statusModal.pauseFromDate} onChange={e => setStatusModal(s => ({...s, pauseFromDate: e.target.value}))}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-bold outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-600 mb-1.5">休止 終了日 <span className="text-[10px] font-normal text-slate-400">(未定なら空欄)</span></label>
+                    <input type="date" value={statusModal.pauseToDate} onChange={e => setStatusModal(s => ({...s, pauseToDate: e.target.value}))}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-bold outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-600 mb-1.5">休止理由</label>
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {['入院','体調不良','介護施設入所','家族の都合','その他'].map(r => (
+                      <button key={r} onClick={() => setStatusModal(s => ({...s, reason: r}))}
+                        className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${statusModal.reason===r ? 'bg-orange-600 text-white border-orange-600' : 'bg-slate-100 text-slate-600 border-slate-200 hover:border-orange-400'}`}>
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                  <textarea value={statusModal.reason} onChange={e => setStatusModal(s => ({...s, reason: e.target.value}))}
+                    placeholder="自由記述..." rows={2}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm outline-none resize-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100" />
+                </div>
+                <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-2.5 text-xs text-orange-700">
+                  保存すると 利用者マスタ管理 と 月間スケジュール にも反映されます。
+                </div>
+              </div>
+            ) : statusModal.status === '振替' ? (
               <div className="flex flex-col gap-3">
                 <div>
                   <label className="block text-sm font-bold text-slate-600 mb-1.5">振替先の日付</label>
@@ -12096,8 +12179,8 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
             )}
             <div className="flex gap-3 mt-5">
               <button onClick={() => setStatusModal(s => ({...s, isOpen: false}))} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200">キャンセル</button>
-              <button onClick={() => { applyStatusChange(statusModal.id, statusModal.status, statusModal.reason, statusModal.furikaeDate, statusModal.substituteReason, statusModal.furikaeAmpm||'AM'); setStatusModal(s => ({...s, isOpen: false})); }}
-                className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-blue-600 text-white hover:bg-blue-700">確定</button>
+              <button onClick={() => { applyStatusChange(statusModal.id, statusModal.status, statusModal.reason, statusModal.furikaeDate, statusModal.substituteReason, statusModal.furikaeAmpm||'AM', statusModal.pauseFromDate, statusModal.pauseToDate); setStatusModal(s => ({...s, isOpen: false})); }}
+                className={`flex-1 py-2.5 rounded-xl text-sm font-bold text-white ${statusModal.status==='休止'?'bg-orange-600 hover:bg-orange-700':'bg-blue-600 hover:bg-blue-700'}`}>確定</button>
             </div>
           </div>
         </div>
@@ -13004,7 +13087,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           const latestFullDate = latestPair?.d;
           if (!latest) return null;
           const MOODS = {'excellent':'🤩 とても良い','good':'😊 良い','normal':'😐 普通','bad':'😞 良くない','terrible':'😫 とても良くない'};
-          const tokkiOv = ((appData.familyTokkiOverrides||{})[selectedPatientId]||{})[latest.id] || {};
+          const _ftoPid = (appData.familyTokkiOverrides||{})[selectedPatientId] || {};
+          const tokkiOv = _ftoPid[latest.date] || _ftoPid[latest.id] || {};
           const showTokki = tokkiOv.visible !== false;
           const tokkiText = tokkiOv.text || latest.tokki || '';
           // 利用者本人の休止情報 (現在休止中の場合)
@@ -18426,7 +18510,29 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             </>)}
 
             {activeDetailTab === 'service' && (<>
-              {localPatient.pauseHistory && localPatient.pauseHistory.length > 0 && (<div className={`rounded-2xl border-2 overflow-hidden ${localPatient.status === '休止' ? 'border-orange-300 bg-orange-50' : 'border-slate-200 bg-slate-50'}`}>{localPatient.status === '休止' && (() => { const l = latPause(localPatient); return l ? (<div className="px-4 py-3 bg-orange-100 border-b border-orange-200 flex items-center justify-between"><div className="flex items-center gap-3"><CalendarOff size={18} className="text-orange-500" /><div><span className="text-sm font-bold text-orange-800">現在休止中: </span><span className="font-bold text-orange-900">{l.reason}</span><span className="text-xs text-orange-600 ml-2">{fD(l.fromDate)}〜</span></div></div><button onClick={() => setPauseModal({ isOpen: true, reason: "", fromDate: new Date().toISOString().split('T')[0] })} className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-[10px] font-bold active:scale-95 flex items-center gap-1"><Plus size={12} />理由変更</button></div>) : null; })()}{localPatient.status !== '休止' && <div className="px-4 py-2 bg-slate-100 border-b border-slate-200 text-xs font-bold text-slate-500 flex items-center gap-1.5"><History size={14} />過去の休止履歴あり</div>}<div className="px-4 py-2"><button onClick={() => setIsPauseHistoryOpen(!isPauseHistoryOpen)} className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500 hover:text-slate-700 w-full">{isPauseHistoryOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}履歴({localPatient.pauseHistory.length}件)</button>{isPauseHistoryOpen && <div className="mt-2 space-y-1.5">{[...localPatient.pauseHistory].reverse().map((h, i) => (<div key={i} className={`flex items-center gap-2 p-2 rounded-lg border text-xs ${i === 0 && localPatient.status === '休止' ? 'bg-orange-50 border-orange-200' : 'bg-white border-slate-200'}`}><div className={`w-1.5 h-1.5 rounded-full shrink-0 ${i === 0 && localPatient.status === '休止' ? 'bg-orange-500' : 'bg-slate-300'}`} /><span className="font-bold text-slate-700">{h.reason}</span><span className="text-slate-400 ml-auto shrink-0">{fD(h.fromDate)}〜</span>{i === 0 && localPatient.status === '休止' && <span className="text-[9px] bg-orange-500 text-white px-1.5 py-0.5 rounded-full font-bold shrink-0">現在</span>}</div>))}</div>}</div></div>)}
+              {localPatient.pauseHistory && localPatient.pauseHistory.length > 0 && (<div className={`rounded-2xl border-2 overflow-hidden ${localPatient.status === '休止' ? 'border-orange-300 bg-orange-50' : 'border-slate-200 bg-slate-50'}`}>{localPatient.status === '休止' && (() => { const l = latPause(localPatient); return l ? (<div className="px-4 py-3 bg-orange-100 border-b border-orange-200 flex items-center justify-between"><div className="flex items-center gap-3"><CalendarOff size={18} className="text-orange-500" /><div><span className="text-sm font-bold text-orange-800">現在休止中: </span><span className="font-bold text-orange-900">{l.reason}</span><span className="text-xs text-orange-600 ml-2">{fD(l.fromDate)}〜</span></div></div><button onClick={() => setPauseModal({ isOpen: true, reason: "", fromDate: new Date().toISOString().split('T')[0] })} className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-[10px] font-bold active:scale-95 flex items-center gap-1"><Plus size={12} />理由変更</button></div>) : null; })()}{localPatient.status !== '休止' && <div className="px-4 py-2 bg-slate-100 border-b border-slate-200 text-xs font-bold text-slate-500 flex items-center gap-1.5"><History size={14} />過去の休止履歴あり</div>}<div className="px-4 py-2"><button onClick={() => setIsPauseHistoryOpen(!isPauseHistoryOpen)} className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500 hover:text-slate-700 w-full">{isPauseHistoryOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}履歴({localPatient.pauseHistory.length}件)</button>{isPauseHistoryOpen && <div className="mt-2 space-y-1.5">{[...localPatient.pauseHistory].map((h, origIdx) => ({h, origIdx})).reverse().map(({h, origIdx}, displayIdx) => {
+                const isLatest = displayIdx === 0;
+                const isCurrentlyOnPause = localPatient.status === '休止' && getPatientDisplayStatus(localPatient) === '休止';
+                const showCurrent = isLatest && isCurrentlyOnPause && !h.toDate;
+                return (
+                  <div key={origIdx} className={`flex items-center gap-2 p-2 rounded-lg border text-xs ${isLatest && isCurrentlyOnPause ? 'bg-orange-50 border-orange-200' : 'bg-white border-slate-200'}`}>
+                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isLatest && isCurrentlyOnPause ? 'bg-orange-500' : 'bg-slate-300'}`} />
+                    <span className="font-bold text-slate-700">{h.reason}</span>
+                    <span className="text-slate-400 ml-auto shrink-0">{fD(h.fromDate)}〜</span>
+                    {h.toDate ? (
+                      <span className="text-slate-500 shrink-0 flex items-center gap-1">
+                        {fD(h.toDate)}
+                        {!isOff && <button onClick={()=>{const newHist=[...localPatient.pauseHistory]; newHist[origIdx]={...newHist[origIdx], toDate:''}; updateLP('pauseHistory', newHist);}} className="text-slate-300 hover:text-red-400 text-[10px]" title="終了日をクリア">✕</button>}
+                      </span>
+                    ) : (
+                      !isOff ? (
+                        <input type="date" value="" onChange={e=>{if(!e.target.value)return; const newHist=[...localPatient.pauseHistory]; newHist[origIdx]={...newHist[origIdx], toDate:e.target.value}; updateLP('pauseHistory', newHist);}} className="text-[10px] border border-slate-300 rounded px-1.5 py-0.5 bg-white shrink-0" title="終了日を入力" style={{maxWidth:120}} />
+                      ) : <span className="text-slate-400 shrink-0">現在</span>
+                    )}
+                    {showCurrent && <span className="text-[9px] bg-orange-500 text-white px-1.5 py-0.5 rounded-full font-bold shrink-0">現在</span>}
+                  </div>
+                );
+              })}</div>}</div></div>)}
               <div><label className="block text-sm font-bold text-slate-600 mb-1.5">留意点（スタッフへの申し送り）</label><textarea disabled={isOff} value={localPatient.ryui || ""} onChange={e => updateLP('ryui', e.target.value)} rows={2} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl outline-none resize-none text-base disabled:opacity-60 leading-relaxed" /></div>
               <div><label className="block text-sm font-bold text-slate-600 mb-3">基本利用曜日</label><div className="grid grid-cols-7 gap-2">{['日', '月', '火', '水', '木', '金', '土'].map((d, i) => { const v = localPatient.scheduleAmPm?.[i] || ""; const isClosed = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(i); const colorCls = isClosed ? 'bg-slate-100 border-slate-200 text-slate-400' : v === 'AM' ? 'bg-red-50 border-red-300 text-red-700' : v === 'PM' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-400'; return (<div key={d} className="flex flex-col"><span className={`text-center text-[13px] font-bold mb-1 ${i===0?'text-red-400':i===6?'text-blue-400':'text-slate-500'}`}>{d}</span>{isClosed ? (<div className={`w-full py-2.5 text-[14px] font-bold text-center border rounded-xl bg-slate-100 border-slate-200 text-slate-400`}>定休</div>) : (<select disabled={isOff} value={v} onChange={e => updateSched(i, e.target.value)} className={`w-full py-2.5 text-[14px] font-bold text-center border rounded-xl outline-none cursor-pointer disabled:opacity-60 ${colorCls}`}><option value="">無</option><option value="AM">AM</option><option value="PM">PM</option></select>)}</div>); })}</div></div>
               {/* 月間スケジュール */}
