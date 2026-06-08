@@ -11820,7 +11820,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                       const tooltipText = moodObj ? `${moodObj.label}${reasonVal ? ' : '+reasonVal : ''}` : '';
                       return (
                         <div key={timing} style={{flex:1,position:'relative'}}>
-                          <button disabled={isAbsent || isReadOnly} onClick={() => openKibunModal(p.id, timing)}
+                          <button disabled={isAbsent || isReadOnly || isPause} onClick={() => openKibunModal(p.id, timing)}
                             onPointerEnter={(e)=>{if(tooltipText&&showTip)showTip(tooltipText,e);}}
                             onPointerLeave={()=>{if(hideTip)hideTip();}}
                             className={`rounded transition-all disabled:opacity-40 ${moodObj ? moodObj.color + ' font-bold' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
@@ -11834,22 +11834,22 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                     </div>
                   </td>
                   <td className={`px-1 py-3 text-center border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`}>
-                    <input type="text" readOnly disabled={isAbsent || isReadOnly} value={p.temp || ""} onClick={() => { openKeypad(p.id, 'temp', p.temp, isAbsent); setActiveCell(`${p.id}-temp`); }} style={{fontSize:14,padding:'3px 1px'}} className={`w-full border rounded-lg text-center font-bold shadow-inner outline-none cursor-pointer disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'bg-transparent border-transparent shadow-none cursor-default' : activeCell===`${p.id}-temp` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'} ${getTempColorClass(p.temp || "")}`} />
+                    <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.temp || ""} onClick={() => { openKeypad(p.id, 'temp', p.temp, isAbsent); setActiveCell(`${p.id}-temp`); }} style={{fontSize:14,padding:'3px 1px'}} className={`w-full border rounded-lg text-center font-bold shadow-inner outline-none cursor-pointer disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'bg-transparent border-transparent shadow-none cursor-default' : activeCell===`${p.id}-temp` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'} ${getTempColorClass(p.temp || "")}`} />
                   </td>
                   <td className={`px-1 py-3 border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`}>
                     <div className="flex items-center justify-center gap-1">
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly} value={p.bpUpSt || ""} onClick={() => { openKeypad(p.id, 'bpUpSt', p.bpUpSt, isAbsent); setActiveCell(`${p.id}-bpUpSt`); }} style={{width:64,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpSt, p.bpDnSt)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpUpSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpUpSt || ""} onClick={() => { openKeypad(p.id, 'bpUpSt', p.bpUpSt, isAbsent); setActiveCell(`${p.id}-bpUpSt`); }} style={{width:64,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpSt, p.bpDnSt)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpUpSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
                       <span className="text-slate-300">/</span>
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly} value={p.bpDnSt || ""} onClick={() => { openKeypad(p.id, 'bpDnSt', p.bpDnSt, isAbsent); setActiveCell(`${p.id}-bpDnSt`); }} style={{width:64,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpSt, p.bpDnSt)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpDnSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly} value={p.plSt || ""} onClick={() => { openKeypad(p.id, 'plSt', p.plSt, isAbsent); setActiveCell(`${p.id}-plSt`); }} style={{fontSize:14,padding:'3px 1px',width:36}} className={`border rounded-lg text-center cursor-pointer ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(p.plSt, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-plSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpDnSt || ""} onClick={() => { openKeypad(p.id, 'bpDnSt', p.bpDnSt, isAbsent); setActiveCell(`${p.id}-bpDnSt`); }} style={{width:64,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpSt, p.bpDnSt)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpDnSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.plSt || ""} onClick={() => { openKeypad(p.id, 'plSt', p.plSt, isAbsent); setActiveCell(`${p.id}-plSt`); }} style={{fontSize:14,padding:'3px 1px',width:36}} className={`border rounded-lg text-center cursor-pointer ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(p.plSt, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-plSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
                     </div>
                   </td>
                   <td className={`px-1 py-3 border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`}>
                     <div className="flex items-center justify-center gap-1">
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly} value={p.bpUpEn || ""} onClick={() => { openKeypad(p.id, 'bpUpEn', p.bpUpEn, isAbsent); setActiveCell(`${p.id}-bpUpEn`); }} style={{width:64,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpEn, p.bpDnEn)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpUpEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpUpEn || ""} onClick={() => { openKeypad(p.id, 'bpUpEn', p.bpUpEn, isAbsent); setActiveCell(`${p.id}-bpUpEn`); }} style={{width:64,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpEn, p.bpDnEn)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpUpEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
                       <span className="text-slate-300">/</span>
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly} value={p.bpDnEn || ""} onClick={() => { openKeypad(p.id, 'bpDnEn', p.bpDnEn, isAbsent); setActiveCell(`${p.id}-bpDnEn`); }} style={{width:64,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpEn, p.bpDnEn)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpDnEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly} value={p.plEn || ""} onClick={() => { openKeypad(p.id, 'plEn', p.plEn, isAbsent); setActiveCell(`${p.id}-plEn`); }} style={{fontSize:14,padding:'3px 1px',width:36}} className={`border rounded-lg text-center cursor-pointer ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(p.plEn, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-plEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpDnEn || ""} onClick={() => { openKeypad(p.id, 'bpDnEn', p.bpDnEn, isAbsent); setActiveCell(`${p.id}-bpDnEn`); }} style={{width:64,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpEn, p.bpDnEn)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpDnEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.plEn || ""} onClick={() => { openKeypad(p.id, 'plEn', p.plEn, isAbsent); setActiveCell(`${p.id}-plEn`); }} style={{fontSize:14,padding:'3px 1px',width:36}} className={`border rounded-lg text-center cursor-pointer ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(p.plEn, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-plEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
                     </div>
                   </td>
 
@@ -11872,14 +11872,14 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                       const patDefault = selItem ? (patSettings.find(x => x.itemId === selItem.id)?.defaultValue || '') : '';
                       return (
                         <td key={item.id} data-ind-cell className={`px-1 py-1 align-top border border-emerald-200 ${isAbsent ? 'bg-slate-100' : 'bg-emerald-50/40'}`}>
-                          <select value={cur.itemId || ''} disabled={isAbsent || isReadOnly}
+                          <select value={cur.itemId || ''} disabled={isAbsent || isReadOnly || isPause}
                             onChange={e=>updateExercise(p.id, item.id, {...cur, itemId: e.target.value})}
                             className="w-full px-1 py-0.5 mb-1 text-[10px] font-bold bg-white border border-emerald-300 rounded outline-none focus:border-emerald-500 disabled:opacity-50 appearance-none"
                             style={{WebkitAppearance:'none',MozAppearance:'none',backgroundImage:'none',textAlignLast:'center'}}>
                             <option value="">— 選択 —</option>
                             {enabledItems.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
                           </select>
-                          <input type="text" value={cur.value || ''} disabled={isAbsent || isReadOnly || !selItem}
+                          <input type="text" value={cur.value || ''} disabled={isAbsent || isReadOnly || isPause || !selItem}
                             onChange={e=>updateExercise(p.id, item.id, {...cur, value: e.target.value})}
                             placeholder={selItem?`${patDefault||''}${selItem.defaultUnit?` ${selItem.defaultUnit}`:''}`:'未選択'}
                             style={{fontSize:13,padding:'3px 4px'}}
@@ -11898,7 +11898,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                     return (
                     <td key={item.id} className={`px-0.5 py-2 text-center border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`}>
                       {item.type === 'toggle' ? (
-                        <button disabled={isAbsent || isReadOnly} onClick={() => toggleMark(p.id, item.id, val, isAbsent)} 
+                        <button disabled={isAbsent || isReadOnly || isPause} onClick={() => toggleMark(p.id, item.id, val, isAbsent)} 
                           className={`w-8 h-8 rounded-full font-bold text-base flex items-center justify-center mx-auto transition-all disabled:opacity-60 border
                             ${val === '○' ? 'bg-blue-500 text-white border-blue-500 shadow-md' : 
                               val === '×' ? 'bg-red-500 text-white border-red-500 shadow-md' : 
@@ -11907,7 +11907,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                           {val}
                         </button>
                       ) : (
-                        <input type="text" disabled={isAbsent || isReadOnly} readOnly={item.useKeypad} value={val || ""}
+                        <input type="text" disabled={isAbsent || isReadOnly || isPause} readOnly={item.useKeypad} value={val || ""}
                           onClick={() => { if(item.useKeypad) { openKeypad(p.id, item.id, val, isAbsent); setActiveCell(cellKey); } }}
                           onChange={(e) => { if(!item.useKeypad) updateExercise(p.id, item.id, e.target.value); }}
                           style={{width:64,padding:'3px 1px',textAlign:'center',fontSize: (val||'').length > 7 ? 9 : (val||'').length > 5 ? 10 : (val||'').length > 3 ? 12 : 14, fontWeight:'bold'}}
@@ -11959,7 +11959,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                             style={{width:'100%',zIndex:10,fontSize:8,fontWeight:'bold',background:'rgba(254,243,199,0.95)',color:'#92400e',border:'1px solid #fcd34d',borderRadius:3,padding:'0 1px',lineHeight:1.4,cursor:'pointer',textAlign:'center',flexShrink:0}}
                             className="hover:bg-amber-200">📋 確認</button>
                           )}
-                          <select disabled={isAbsent} value={p.massage || ""}
+                          <select disabled={isAbsent || isPause} value={p.massage || ""}
                             onChange={(e) => { updateRecord(p.id, 'massage', e.target.value); if(p.done) updateRecord(p.id, 'done', false); }}
                             style={{appearance:'none',WebkitAppearance:'none',MozAppearance:'none',width:'100%',
                               ...(p.done ? {backgroundColor:'#fff7ed',color:'#1e293b',border:'2px solid #fb923c',borderRadius:8,boxSizing:'border-box'} : {border:'1px solid #e2e8f0',backgroundColor:'white',boxSizing:'border-box'})}}
@@ -11991,15 +11991,15 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                       };
                       return (
                         <div style={{display:'flex',gap:2,alignItems:'stretch',height:'100%'}}>
-                          <textarea disabled={isReadOnly || isPause} value={p.tokki || ""} onChange={(e) => updateRecord(p.id, 'tokki', e.target.value)} rows={2}
+                          <textarea disabled={isReadOnly} value={p.tokki || ""} onChange={(e) => updateRecord(p.id, 'tokki', e.target.value)} rows={2}
                             className={`flex-1 px-2 border rounded-lg text-xs bg-transparent outline-none disabled:opacity-80 resize-none ${isReadOnly ? 'border-transparent' : 'border-slate-300 shadow-inner bg-white'}`}
                             style={{fontSize:14,lineHeight:1.4,padding:'2px 6px',height:'100%'}}
                             placeholder={isReadOnly ? "" : (isAbsent ? "欠席理由等..." : "特記事項...")} />
-                          {hasTokki && !isAbsent && !isReadOnly && (
+                          {hasTokki && !isReadOnly && (
                             <button type="button" onClick={toggleVisible}
-                              title={isVisible ? "家族画面に表示中 (クリックで非表示)" : "家族画面に非表示 (クリックで表示)"}
-                              style={{width:24,flexShrink:0,border:'none',borderRadius:6,fontSize:11,fontWeight:'bold',cursor:'pointer',background:isVisible?'#d1fae5':'#e2e8f0',color:isVisible?'#047857':'#94a3b8'}}>
-                              {isVisible ? '👁' : '✕'}
+                              title={isVisible ? "家族の閲覧画面に表示中 (クリックで非表示)" : "家族の閲覧画面に非表示 (クリックで表示)"}
+                              style={{width:62,flexShrink:0,border:isVisible?'1px solid #6ee7b7':'1px solid #fca5a5',borderRadius:6,fontSize:10,fontWeight:'bold',cursor:'pointer',background:isVisible?'#ecfdf5':'#fef2f2',color:isVisible?'#047857':'#991b1b',padding:'2px 4px',whiteSpace:'nowrap',lineHeight:1.2}}>
+                              {isVisible ? '👁 載せる' : '✕ 非公開'}
                             </button>
                           )}
                         </div>
