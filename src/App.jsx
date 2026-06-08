@@ -11813,11 +11813,11 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
               const config = getStatusConfig(p.status);
               
               return (
-                <tr key={`${filterMode}-${p.id}`} className={`group transition-colors ${isAbsent ? 'text-slate-400' : 'hover:bg-blue-50/50'} ${isReadOnly ? 'readonly-row' : ''}`} style={{height:64,maxHeight:64}}>
+                <tr key={`${filterMode}-${p.id}`} className={`group transition-colors ${(isAbsent || isPause) ? 'text-slate-400' : 'hover:bg-blue-50/50'} ${isReadOnly ? 'readonly-row' : ''}`} style={{height:64,maxHeight:64}}>
                   {filterMode === 'month' && (
-                    <td className={`px-2 py-2 font-bold text-center border border-slate-300 sticky left-0 z-30 whitespace-nowrap text-xs ${isAbsent ? 'bg-slate-100' : 'bg-white group-hover:bg-blue-50'}`}>{p.date}</td>
+                    <td className={`px-2 py-2 font-bold text-center border border-slate-300 sticky left-0 z-30 whitespace-nowrap text-xs ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white group-hover:bg-blue-50'}`}>{p.date}</td>
                   )}
-                  <td className={`font-bold sticky z-30 ${filterMode === 'month' ? 'left-[80px]' : 'left-0'} ${isAbsent ? 'bg-slate-100' : 'bg-white group-hover:bg-blue-50'}`} style={{padding:'4px 6px',height:64,verticalAlign:'middle',borderTop:'1px solid #cbd5e1',borderBottom:'1px solid #cbd5e1',borderRight:'1px solid #cbd5e1',borderLeft:filterMode==='month'?'none':'1px solid #cbd5e1'}}>
+                  <td className={`font-bold sticky z-30 ${filterMode === 'month' ? 'left-[80px]' : 'left-0'} ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white group-hover:bg-blue-50'}`} style={{padding:'4px 6px',height:64,verticalAlign:'middle',borderTop:'1px solid #cbd5e1',borderBottom:'1px solid #cbd5e1',borderRight:'1px solid #cbd5e1',borderLeft:filterMode==='month'?'none':'1px solid #cbd5e1'}}>
                     {(()=>{
                       const _fr = (appData.fitnessRecords||[]).filter(r=>r.patientId===masterData.id).sort((a,b)=>b.date.localeCompare(a.date));
                       const _cycle = appData.systemSettings?.fitnessCycle;
@@ -11834,7 +11834,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                               体力測定
                             </span>
                           )}
-                          <div className={`flex flex-row items-center justify-center w-full gap-1 whitespace-nowrap truncate cursor-pointer hover:text-blue-600 ${isAbsent ? 'text-slate-400' : 'text-slate-800'}`}
+                          <div className={`flex flex-row items-center justify-center w-full gap-1 whitespace-nowrap truncate cursor-pointer hover:text-blue-600 ${(isAbsent || isPause) ? 'text-slate-400' : 'text-slate-800'}`}
                             onClick={()=>setPatientInfoModal(masterData)}>
                             <span className="text-sm">{nameParts[0]}</span>
                             <span className="text-sm">{nameParts[1] || "様"}</span>
@@ -11843,7 +11843,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                       );
                     })()}
                   </td>
-                  <td className={`px-1 py-3 text-center whitespace-nowrap border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`}>
+                  <td className={`px-1 py-3 text-center whitespace-nowrap border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`}>
                     {isReadOnly || isPause ? (
                       <span className={`px-2 py-1 rounded-lg text-xs font-bold ${config.lightColor} ${config.textColor}`}>{p.status || '出席'}</span>
                     ) : (
@@ -11859,7 +11859,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                       </select>
                     )}
                   </td>
-                  <td className={`px-0.5 py-0 text-center border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`} style={{height:32,maxHeight:32,overflow:'visible',padding:'1px'}}>
+                  <td className={`px-0.5 py-0 text-center border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`} style={{height:32,maxHeight:32,overflow:'visible',padding:'1px'}}>
                     <div style={{display:'flex',flexDirection:'row',height:'100%',gap:1}}>
                     {(['arrival','departure']).map((timing, ti) => {
                       const moodKey = timing === 'arrival' ? 'kibunArrival' : 'kibunDeparture';
@@ -11882,10 +11882,10 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                     })}
                     </div>
                   </td>
-                  <td className={`px-1 py-3 text-center border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`}>
+                  <td className={`px-1 py-3 text-center border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`}>
                     <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.temp || ""} onClick={() => { openKeypad(p.id, 'temp', p.temp, isAbsent); setActiveCell(`${p.id}-temp`); }} style={{fontSize:14,padding:'3px 1px'}} className={`w-full border rounded-lg text-center font-bold shadow-inner outline-none cursor-pointer disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'bg-transparent border-transparent shadow-none cursor-default' : activeCell===`${p.id}-temp` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'} ${getTempColorClass(p.temp || "")}`} />
                   </td>
-                  <td className={`px-1 py-3 border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`}>
+                  <td className={`px-1 py-3 border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`}>
                     <div className="flex items-center justify-center gap-1">
                       <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpUpSt || ""} onClick={() => { openKeypad(p.id, 'bpUpSt', p.bpUpSt, isAbsent); setActiveCell(`${p.id}-bpUpSt`); }} style={{width:64,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpSt, p.bpDnSt)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpUpSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
                       <span className="text-slate-300">/</span>
@@ -11893,7 +11893,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                       <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.plSt || ""} onClick={() => { openKeypad(p.id, 'plSt', p.plSt, isAbsent); setActiveCell(`${p.id}-plSt`); }} style={{fontSize:14,padding:'3px 1px',width:36}} className={`border rounded-lg text-center cursor-pointer ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(p.plSt, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-plSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
                     </div>
                   </td>
-                  <td className={`px-1 py-3 border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`}>
+                  <td className={`px-1 py-3 border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`}>
                     <div className="flex items-center justify-center gap-1">
                       <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpUpEn || ""} onClick={() => { openKeypad(p.id, 'bpUpEn', p.bpUpEn, isAbsent); setActiveCell(`${p.id}-bpUpEn`); }} style={{width:64,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpEn, p.bpDnEn)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpUpEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
                       <span className="text-slate-300">/</span>
@@ -11920,7 +11920,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                       const selItem = allIndItems.find(it => it.id === cur.itemId);
                       const patDefault = selItem ? (patSettings.find(x => x.itemId === selItem.id)?.defaultValue || '') : '';
                       return (
-                        <td key={item.id} data-ind-cell className={`px-1 py-1 align-top border border-emerald-200 ${isAbsent ? 'bg-slate-100' : 'bg-emerald-50/40'}`}>
+                        <td key={item.id} data-ind-cell className={`px-1 py-1 align-top border border-emerald-200 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-emerald-50/40'}`}>
                           <select value={cur.itemId || ''} disabled={isAbsent || isReadOnly || isPause}
                             onChange={e=>updateExercise(p.id, item.id, {...cur, itemId: e.target.value})}
                             className="w-full px-1 py-0.5 mb-1 text-[10px] font-bold bg-white border border-emerald-300 rounded outline-none focus:border-emerald-500 disabled:opacity-50 appearance-none"
@@ -11945,7 +11945,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                     const cellKey = `${p.id}-${item.id}`;
                     const isActive = activeCell === cellKey;
                     return (
-                    <td key={item.id} className={`px-0.5 py-2 text-center border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`}>
+                    <td key={item.id} className={`px-0.5 py-2 text-center border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`}>
                       {item.type === 'toggle' ? (
                         <button disabled={isAbsent || isReadOnly || isPause} onClick={() => toggleMark(p.id, item.id, val, isAbsent)} 
                           className={`w-8 h-8 rounded-full font-bold text-base flex items-center justify-center mx-auto transition-all disabled:opacity-60 border
@@ -11966,7 +11966,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                     </td>
                   )})}
 
-                  <td className={`px-0.5 py-0 align-middle border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`} style={{height:32,overflow:'hidden',verticalAlign:'middle',padding:2}}>
+                  <td className={`px-0.5 py-0 align-middle border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`} style={{height:32,overflow:'hidden',verticalAlign:'middle',padding:2}}>
                     {isReadOnly ? (
                        <div style={p.done ? {backgroundColor:'#fff7ed',color:'#1e293b',border:'2px solid #fb923c',borderRadius:8,padding:'2px 4px'} : {}} className={`w-full py-1 text-center font-bold ${getMassageFontSize(p.massage)}`}>{p.massage || "-"}</div>
                     ) : (() => {
@@ -12021,7 +12021,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                     })()}
                   </td>
                   
-                  <td className={`px-1 py-1 border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`} style={{height:32,overflow:'hidden'}}>
+                  <td className={`px-1 py-1 border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`} style={{height:32,overflow:'hidden'}}>
                     {(() => {
                       // 家族向け表示 ON/OFF: familyTokkiOverrides[patientId][dateKey].visible
                       // dateKey = "M月D日" の形式 (record.date と一致) にして
@@ -12061,7 +12061,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                       );
                     })()}
                   </td>
-                  <td className={`px-1 py-2 border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-slate-50'}`} style={{overflow:'visible',position:'relative',zIndex:50}}>
+                  <td className={`px-1 py-2 border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-slate-50'}`} style={{overflow:'visible',position:'relative',zIndex:50}}>
                      {(()=>{ const _targets=appData.systemSettings?.fitnessTargets; const _cl=masterData.careLevel||''; const _show=!_targets||_targets.length===0||_targets.includes(_cl);
                        return (<div style={{display:'flex',flexDirection:'row',gap:2,alignItems:'center',justifyContent:'center',overflow:'visible',position:'relative',zIndex:100}}>
                          <button onClick={()=>{navigateTo('master',p.patientId||p.id);}} title="利用者マスタ" onPointerEnter={(e)=>showTip&&showTip("利用者マスタ",e)} onPointerLeave={()=>hideTip&&hideTip()} style={{padding:3,display:'flex',alignItems:'center',justifyContent:'center'}} className="hover:bg-blue-100 hover:text-blue-600 rounded text-slate-500"><Users size={13}/></button>
@@ -16145,7 +16145,6 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button onClick={()=>{if(onShowPrintPreview){onShowPrintPreview(`サービス提供記録_${tY}年${tM}月_${sp?.name||''}`, 'A4 landscape', 'print-content-ticket')}else{window.print();}}} className="bg-slate-900 text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm"><Printer size={16} className="mr-1.5"/>プレビュー</button>
-          <button onClick={()=>setShowFaxHist(true)} className="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl font-bold flex items-center text-sm">📋 履歴</button>
         </div>
       </div>
       {/* コンテンツ：横スクロール可能 */}
@@ -16987,9 +16986,9 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                     };
                     return <>
                       <span style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{h}</span>
-                      <span style={{fontSize:20, fontWeight:"bold", lineHeight:1.1}}>時</span>
-                      <span style={minuteBoxStyle}>{mBlank ? '　　' : m}</span>
-                      <span style={{fontSize:20, fontWeight:"bold", lineHeight:1.1}}>分</span>
+                      <span style={{fontSize:20, fontWeight:"bold", lineHeight:1.1, marginLeft:'0.25em', marginRight:'0.25em'}}>時</span>
+                      <span style={{...minuteBoxStyle, textAlign: mBlank?'center':'left'}}>{mBlank ? '  ' : m}</span>
+                      <span style={{fontSize:20, fontWeight:"bold", lineHeight:1.1, marginLeft:'0.25em'}}>分</span>
                     </>;
                   }
                   return <span style={{fontSize:30, fontWeight:"bold"}}>{t}</span>;
@@ -17845,13 +17844,10 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
       }
     }
 
-    // 4. localPatientを更新してdirtyにする（自動保存しない）
+    // 4. localPatientと保留シフトを更新してdirtyにする（保存ボタン押下まで保存しない）
     const changeLog=[...(localPatient.changeLog||[]),changeLogEntry]; const newPat = {...localPatient, scheduleAmPm:newSched, scheduleChangeHistory:hist, changeLog};
-    const newPats = appData.patients.map(p=>p.id===localPatient.id?newPat:p);
     setLocalPatient(newPat);
-    // appDataのmonthlyShiftsとpatientsを更新（saveはユーザーの保存ボタンで行う）
-    const newAppData = {...appData, patients:newPats, monthlyShifts:newShifts};
-    onSave(newAppData);
+    setPendingShifts(newShifts);
     markDirty();
     setSchedModal(null);
   };
@@ -18298,53 +18294,29 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 </div>
                 <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-bold text-slate-600 mb-1.5">電話番号</label><div className="px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-base font-bold text-slate-700">{localPatient.cmPhone||'ー'}</div></div><div><label className="block text-sm font-bold text-slate-600 mb-1.5">FAX</label><div className="px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-base font-bold text-slate-700">{localPatient.cmFax||'ー'}</div></div></div>
 
-                {/* 名刺写真 */}
-                <div className="mt-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-sm font-bold text-slate-600">名刺写真</label>
-                    {!isOff && (
-                      <label className="flex items-center gap-1.5 cursor-pointer px-3 py-1.5 bg-slate-100 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-200">
-                        📷 追加
-                        <input type="file" accept="image/*" multiple className="hidden" onChange={e=>{
-                          const files=Array.from(e.target.files);
-                          const today=new Date().toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
-                          const cur=[...(localPatient.cmBusinessCard||[])];
-                          let loaded=0;
-                          files.forEach(f=>{
-                            const r=new FileReader();
-                            r.onload=ev=>{
-                              cur.push({id:Date.now()+Math.random(),data:ev.target.result,name:f.name,type:f.type||'image/jpeg',uploadedAt:today});
-                              loaded++;
-                              if(loaded===files.length) saveLP('cmBusinessCard',[...cur]);
-                            };
-                            r.readAsDataURL(f);
-                          });
-                          e.target.value='';
-                        }}/>
-                      </label>
-                    )}
-                  </div>
-                  {(localPatient.cmBusinessCard||[]).length===0 ? (
-                    <div className="text-xs text-slate-400 py-2">未登録（ケアマネの名刺写真を保存できます）</div>
-                  ) : (
-                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-wrap gap-2">
-                      {(localPatient.cmBusinessCard||[]).map((img,ii)=>(
-                        <div key={img.id||ii} className="relative group" style={{width:'calc(50% - 4px)'}}>
-                          <img src={img.data} alt={img.name}
-                            className="w-full rounded-lg border border-slate-200 cursor-pointer"
-                            style={{objectFit:'contain',background:'#fff',display:'block',maxHeight:200}}
-                            onClick={()=>window.open(img.data,'_blank')}/>
-                          <div className="text-[9px] text-slate-400 mt-1 truncate">{img.uploadedAt}</div>
-                          {!isOff && (
-                            <button type="button"
-                              onClick={e=>{e.stopPropagation();const a=(localPatient.cmBusinessCard||[]).filter(x=>x.id!==img.id);saveLP('cmBusinessCard',a);}}
-                              style={{position:'absolute',top:4,right:4,background:'#ef4444',color:'white',border:'none',borderRadius:'50%',width:22,height:22,fontSize:11,fontWeight:'bold',cursor:'pointer',zIndex:10,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
-                          )}
-                        </div>
-                      ))}
+                {/* ケアマネ担当者の名刺 (各種設定で登録した内容を参照表示) */}
+                {(() => {
+                  const cms = appData.systemSettings?.careManagers||[];
+                  const cm = cms.find(c=>c.office===localPatient.cmOffice && c.name===localPatient.cmName);
+                  const cards = cm?.businessCard || [];
+                  if (cards.length === 0) return null;
+                  return (
+                    <div className="mt-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <label className="block text-sm font-bold text-slate-600">名刺</label>
+                        <span className="text-[10px] text-slate-400">（各種設定 → ケアマネ事業所・担当者 で編集）</span>
+                      </div>
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-wrap gap-2">
+                        {cards.map((img,ii)=>(
+                          <img key={img.id||ii} src={img.data} alt={img.name}
+                            onClick={()=>window.open(img.data,'_blank')}
+                            className="rounded-lg border border-slate-200 cursor-pointer"
+                            style={{objectFit:'contain',background:'#fff',display:'block',maxHeight:160,maxWidth:'calc(50% - 4px)'}}/>
+                        ))}
+                      </div>
                     </div>
-                  )}
-                </div>
+                  );
+                })()}
               </div>
 
               {/* ⑦ 緊急連絡先 */}
@@ -19923,13 +19895,54 @@ function SettingsView({ appData, onSave, dirtyRef }) {
                   {sortedPersons.length === 0 ? <div className="text-slate-400 text-sm font-bold bg-slate-50 p-4 rounded-xl border text-center">登録なし</div> : (
                     <div className="space-y-1.5 max-h-[500px] overflow-y-auto pr-1">{sortedPersons.map((p,i)=>{
                       const origIdx = cmPersons.findIndex(x => x === p);
+                      const cards = p.businessCard || [];
                       return (
-                        <div key={i} className="flex items-center justify-between bg-white border border-slate-200 shadow-sm p-2.5 rounded-lg">
-                          <div className="flex-1 min-w-0">
-                            <div className="font-bold text-sm text-slate-800 truncate">{p.name}</div>
-                            <div className="text-[11px] text-slate-500 truncate">{p.office} / {p.phone||'-'}</div>
+                        <div key={i} className="bg-white border border-slate-200 shadow-sm p-2.5 rounded-lg">
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1 min-w-0">
+                              <div className="font-bold text-sm text-slate-800 truncate">{p.name}</div>
+                              <div className="text-[11px] text-slate-500 truncate">{p.office} / {p.phone||'-'}</div>
+                            </div>
+                            <label className="flex items-center gap-1 cursor-pointer px-2 py-1 bg-slate-100 border border-slate-200 rounded text-[10px] font-bold text-slate-600 hover:bg-slate-200 mr-1 shrink-0">
+                              📷 名刺
+                              <input type="file" accept="image/*" multiple className="hidden" onChange={e=>{
+                                const files=Array.from(e.target.files);
+                                const today=new Date().toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
+                                const cur=[...(p.businessCard||[])];
+                                let loaded=0;
+                                files.forEach(f=>{
+                                  const r=new FileReader();
+                                  r.onload=ev=>{
+                                    cur.push({id:Date.now()+Math.random(),data:ev.target.result,name:f.name,type:f.type||'image/jpeg',uploadedAt:today});
+                                    loaded++;
+                                    if(loaded===files.length) {
+                                      const newPersons=[...cmPersons];
+                                      newPersons[origIdx]={...newPersons[origIdx], businessCard:cur};
+                                      setCmPersons(newPersons);
+                                    }
+                                  };
+                                  r.readAsDataURL(f);
+                                });
+                                e.target.value='';
+                              }}/>
+                            </label>
+                            <button type="button" onClick={()=>setCmPersons(cmPersons.filter((_,j)=>j!==origIdx))} className="text-slate-300 hover:text-red-500 p-1 ml-1 shrink-0"><Trash2 size={14}/></button>
                           </div>
-                          <button type="button" onClick={()=>setCmPersons(cmPersons.filter((_,j)=>j!==origIdx))} className="text-slate-300 hover:text-red-500 p-1 ml-2 shrink-0"><Trash2 size={14}/></button>
+                          {cards.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1.5 pl-1">
+                              {cards.map((img,ii)=>(
+                                <div key={img.id||ii} className="relative">
+                                  <img src={img.data} alt={img.name}
+                                    onClick={()=>window.open(img.data,'_blank')}
+                                    className="rounded border border-slate-200 cursor-pointer"
+                                    style={{height:60,width:'auto',background:'#fff'}}/>
+                                  <button type="button"
+                                    onClick={()=>{const newCards=cards.filter(x=>x.id!==img.id); const newPersons=[...cmPersons]; newPersons[origIdx]={...newPersons[origIdx], businessCard:newCards}; setCmPersons(newPersons);}}
+                                    style={{position:'absolute',top:-4,right:-4,background:'#ef4444',color:'white',border:'none',borderRadius:'50%',width:18,height:18,fontSize:10,fontWeight:'bold',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       );
                     })}</div>
