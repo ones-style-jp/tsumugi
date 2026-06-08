@@ -10681,23 +10681,27 @@ export default function App() {
   }
   if (!session) {
     return (
-      <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#3d2a4a 0%,#5e3b6c 50%,#3d2a4a 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#8b6db3 0%,#b89dd1 50%,#8b6db3 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
         <div style={{width:'100%',maxWidth:400}}>
-          {/* ロゴ */}
+          {/* ロゴ (縦中央レイアウト) */}
           <div style={{textAlign:'center',marginBottom:32}}>
-            <svg viewBox="0 0 480 150" style={{width:'100%',maxWidth:340,height:'auto'}} xmlns="http://www.w3.org/2000/svg">
-              <g transform="translate(60, 75)">
-                <circle cx="-12" cy="-12" r="22" stroke="#fff8e7" strokeWidth="2.4" fill="none" opacity="0.9"/>
-                <circle cx="12" cy="-12" r="22" stroke="#fff8e7" strokeWidth="2.4" fill="none" opacity="0.9"/>
-                <circle cx="-12" cy="12" r="22" stroke="#fff8e7" strokeWidth="2.4" fill="none" opacity="0.9"/>
-                <circle cx="12" cy="12" r="22" stroke="#fff8e7" strokeWidth="2.4" fill="none" opacity="0.9"/>
-                <circle cx="0" cy="0" r="5" fill="#f5d27a"/>
+            <svg viewBox="0 0 320 270" style={{width:'100%',maxWidth:280,height:'auto',display:'block',margin:'0 auto'}} xmlns="http://www.w3.org/2000/svg">
+              {/* シンボル (中央上) */}
+              <g transform="translate(160, 60)">
+                <circle cx="-14" cy="-14" r="26" stroke="#fff8e7" strokeWidth="2.6" fill="none" opacity="0.9"/>
+                <circle cx="14" cy="-14" r="26" stroke="#fff8e7" strokeWidth="2.6" fill="none" opacity="0.9"/>
+                <circle cx="-14" cy="14" r="26" stroke="#fff8e7" strokeWidth="2.6" fill="none" opacity="0.9"/>
+                <circle cx="14" cy="14" r="26" stroke="#fff8e7" strokeWidth="2.6" fill="none" opacity="0.9"/>
+                <circle cx="0" cy="0" r="6" fill="#f5d27a"/>
               </g>
-              <text x="135" y="68" fontFamily="'Hiragino Mincho ProN','Yu Mincho','Noto Serif JP',serif" fontSize="50" fill="#fff8e7" fontWeight="500" letterSpacing="6">紡ぎ</text>
-              <line x1="135" y1="88" x2="155" y2="88" stroke="#f5d27a" strokeWidth="1"/>
-              <text x="162" y="94" fontFamily="'Noto Serif',Georgia,serif" fontSize="20" fill="#f5d27a" letterSpacing="5" fontStyle="italic">Tsumugi</text>
-              <line x1="268" y1="88" x2="288" y2="88" stroke="#f5d27a" strokeWidth="1"/>
-              <text x="135" y="120" fontFamily="'Hiragino Mincho ProN','Yu Mincho',serif" fontSize="11" fill="#c4b6e2" letterSpacing="4">家族と現場を結ぶ、デイサービス管理</text>
+              {/* メイン: 紡ぎ */}
+              <text x="160" y="170" textAnchor="middle" fontFamily="'Hiragino Mincho ProN','Yu Mincho','Noto Serif JP',serif" fontSize="56" fill="#fff8e7" fontWeight="500" letterSpacing="10">紡ぎ</text>
+              {/* サブ: Tsumugi (両側ライン付き) */}
+              <line x1="80" y1="198" x2="118" y2="198" stroke="#f5d27a" strokeWidth="1"/>
+              <text x="160" y="206" textAnchor="middle" fontFamily="'Noto Serif',Georgia,serif" fontSize="20" fill="#f5d27a" letterSpacing="6" fontStyle="italic">Tsumugi</text>
+              <line x1="202" y1="198" x2="240" y2="198" stroke="#f5d27a" strokeWidth="1"/>
+              {/* タグライン */}
+              <text x="160" y="246" textAnchor="middle" fontFamily="'Hiragino Mincho ProN','Yu Mincho',serif" fontSize="12" fill="#fff8e7" opacity="0.85" letterSpacing="4">家族と現場を結ぶ、デイサービス管理</text>
             </svg>
           </div>
 
