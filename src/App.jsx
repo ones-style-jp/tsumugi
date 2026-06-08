@@ -12974,25 +12974,30 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
 
         {/* 今回の記録 (最新の通所記録のサマリー) - 家族・事業所共通 */}
         {(() => {
-          // 月日 (M月D日) から今日に最も近い「過去または当日」のフル日付を推定
-          // 例: 今日が 2026-06-05 で record.date = "3月31日" → 2026-03-31
-          //     today が 2026-06-05 で record.date = "7月15日" → 2025-07-15 (今年7月は未来なので前年)
+          // 月日 (M月D日) から年を推定:
+          // 1. record.id が Date.now() ベース (>1e12=2001年以降) なら、その作成タイムスタンプの年を使う
+          // 2. そうでない場合 (デモデータ等の連番ID) は、今日基準で「過去または当日」になる年を推定
           const today = new Date(); today.setHours(0,0,0,0);
           const ty = today.getFullYear();
           const tm = today.getMonth() + 1;
           const td = today.getDate();
-          const recordToDate = (s) => {
-            const m = (s||'').match(/(\d+)月(\d+)日/);
+          const recordToDate = (rec) => {
+            const m = (rec.date||'').match(/(\d+)月(\d+)日/);
             if (!m) return null;
             const mm = parseInt(m[1], 10);
             const dd = parseInt(m[2], 10);
+            // 1. id がタイムスタンプ (作成日時を保持) → その年を使う
+            if (typeof rec.id === 'number' && rec.id > 1e12) {
+              const created = new Date(rec.id);
+              return new Date(created.getFullYear(), mm - 1, dd);
+            }
+            // 2. デモ/連番ID: 月日が今日より未来なら去年と推定
             let year = ty;
-            // 月日が今日より未来 → 去年と推定
             if (mm > tm || (mm === tm && dd > td)) year = ty - 1;
             return new Date(year, mm - 1, dd);
           };
           // どの状態(出席/振替/欠席/休止)でも最新の記録を取得 (年も考慮した日付でソート)
-          const withDates = records.map(r => ({ r, d: recordToDate(r.date) })).filter(x => x.d);
+          const withDates = records.map(r => ({ r, d: recordToDate(r) })).filter(x => x.d);
           withDates.sort((a, b) => b.d.getTime() - a.d.getTime());
           const latestPair = withDates[0];
           const latest = latestPair?.r;
@@ -18208,6 +18213,54 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-bold text-slate-600 mb-1.5">電話番号</label><div className="px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-base font-bold text-slate-700">{localPatient.cmPhone||'ー'}</div></div><div><label className="block text-sm font-bold text-slate-600 mb-1.5">FAX</label><div className="px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-base font-bold text-slate-700">{localPatient.cmFax||'ー'}</div></div></div>
+
+                {/* 名刺写真 */}
+                <div className="mt-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-bold text-slate-600">名刺写真</label>
+                    {!isOff && (
+                      <label className="flex items-center gap-1.5 cursor-pointer px-3 py-1.5 bg-slate-100 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-200">
+                        📷 追加
+                        <input type="file" accept="image/*" multiple className="hidden" onChange={e=>{
+                          const files=Array.from(e.target.files);
+                          const today=new Date().toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
+                          const cur=[...(localPatient.cmBusinessCard||[])];
+                          let loaded=0;
+                          files.forEach(f=>{
+                            const r=new FileReader();
+                            r.onload=ev=>{
+                              cur.push({id:Date.now()+Math.random(),data:ev.target.result,name:f.name,type:f.type||'image/jpeg',uploadedAt:today});
+                              loaded++;
+                              if(loaded===files.length) saveLP('cmBusinessCard',[...cur]);
+                            };
+                            r.readAsDataURL(f);
+                          });
+                          e.target.value='';
+                        }}/>
+                      </label>
+                    )}
+                  </div>
+                  {(localPatient.cmBusinessCard||[]).length===0 ? (
+                    <div className="text-xs text-slate-400 py-2">未登録（ケアマネの名刺写真を保存できます）</div>
+                  ) : (
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-wrap gap-2">
+                      {(localPatient.cmBusinessCard||[]).map((img,ii)=>(
+                        <div key={img.id||ii} className="relative group" style={{width:'calc(50% - 4px)'}}>
+                          <img src={img.data} alt={img.name}
+                            className="w-full rounded-lg border border-slate-200 cursor-pointer"
+                            style={{objectFit:'contain',background:'#fff',display:'block',maxHeight:200}}
+                            onClick={()=>window.open(img.data,'_blank')}/>
+                          <div className="text-[9px] text-slate-400 mt-1 truncate">{img.uploadedAt}</div>
+                          {!isOff && (
+                            <button type="button"
+                              onClick={e=>{e.stopPropagation();const a=(localPatient.cmBusinessCard||[]).filter(x=>x.id!==img.id);saveLP('cmBusinessCard',a);}}
+                              style={{position:'absolute',top:4,right:4,background:'#ef4444',color:'white',border:'none',borderRadius:'50%',width:22,height:22,fontSize:11,fontWeight:'bold',cursor:'pointer',zIndex:10,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* ⑦ 緊急連絡先 */}
