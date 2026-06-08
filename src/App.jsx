@@ -12056,7 +12056,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-slate-600 mb-1.5">振替理由</label>
+                  <label className="block text-sm font-bold text-slate-600 mb-1.5">振替理由 <span className="text-[10px] font-normal text-slate-400">（今日の「欠席」記録の理由として記載されます）</span></label>
                   <textarea value={statusModal.substituteReason} onChange={e => setStatusModal(s => ({...s, substituteReason: e.target.value}))}
                     placeholder="例：通院のため..." rows={2}
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm outline-none resize-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
