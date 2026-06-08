@@ -12260,8 +12260,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   });
   // 家族画面・事業所側ともデフォルト「1ヶ月」
   const [period, setPeriod] = useState('1');
-  const [customFrom, setCustomFrom] = useState('2026-01');
-  const [customTo, setCustomTo]   = useState('2026-03');
+  const [customFrom, setCustomFrom] = useState(() => { const d=new Date(); d.setMonth(d.getMonth()-1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; });
+  const [customTo, setCustomTo]   = useState(() => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; });
   // セクション選択（プレビュー用） [id, label, size]
   const ALL_SECTIONS = familyMode
     ? [['sec-basicinfo','基本情報','短'],['sec-latest','今回の記録','短'],['sec-kpi','基本指標','短'],['sec-trend','通所','長'],['sec-kibun','気分','中'],['sec-vital','バイタルトレンド','長'],['sec-exercise','運動トレンド','長'],['sec-fitness','体力測定','長'],['sec-tokki','日々の記録','中'],['sec-monitoring','モニタリング','中']]
