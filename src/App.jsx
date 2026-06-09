@@ -13,6 +13,9 @@ import {
   supabaseSignupFamily,
   supabaseLoginFamily,
   supabaseGetInviteByCode,
+  supabaseSyncState,
+  supabaseLoadState,
+  supabaseSubscribeState,
 } from './lib/supabase.js';
 
 // === システム設定 ===
@@ -9880,6 +9883,21 @@ function FamilyView() {
     } catch { return { patients: [], systemSettings: {}, familyAccounts: [] }; }
   };
   const [data, setData] = useState(loadDataMerged);
+  // ★ Supabase 同期 (家族画面): 起動時 + 15秒ごとに最新 state を pull
+  useEffect(() => {
+    if (!isSupabaseEnabled) return;
+    const stop = supabaseSubscribeState((sbData) => {
+      if (!sbData) return;
+      setData(prev => {
+        // 家族アカウント/招待は localStorage 側を尊重しつつ、それ以外を Supabase で上書き
+        const merged = { ...prev, ...sbData };
+        // localStorage にも反映 (再読込時の即時表示用)
+        try { localStorage.setItem('daycareAppData_v3', JSON.stringify(merged)); } catch {}
+        return merged;
+      });
+    }, 15000);
+    return stop;
+  }, []);
   // ログイン状態 (sessionStorage で同一タブ内のみ保持)
   const [authPid, setAuthPid] = useState(()=> sessionStorage.getItem('familyAuthPid') || null);
   const [authAccId, setAuthAccId] = useState(()=> sessionStorage.getItem('familyAuthAccId') || null);
@@ -9921,14 +9939,18 @@ function FamilyView() {
     return {};
   })();
   const [mode, setMode] = useState(_urlInvite ? 'signup' : 'login'); // 'login' | 'signup'
+  // 招待時の続柄が標準リストに無い場合は「その他」を選択 + 入力欄に自動反映
+  const _stdRelations = ['配偶者','長男','長女','次男','次女','兄','弟','姉','妹','ケアマネージャー'];
+  const _invRel = (_inviteInfo.relation || '').trim();
+  const _isCustomRel = _invRel && !_stdRelations.includes(_invRel);
   const [signupForm, setSignupForm] = useState({
     inviteCode: _urlInvite || '', username:'', password:'', password2:'',
     email: _inviteInfo.email || '',  // 招待時に登録したメアドを自動補完
     // 緊急連絡先 (利用者マスタの emergencyContacts に自動反映)
     ecName:'', ecKanaLast:'', ecKanaFirst:'',
     ecLastName:'', ecFirstName:'',
-    ecRelation: _inviteInfo.relation || '',
-    ecRelationCustom:'',     // 自由記述時の値
+    ecRelation: _isCustomRel ? 'その他' : _invRel,
+    ecRelationCustom: _isCustomRel ? _invRel : '',  // その他選択時の入力欄
     ecPhone:'', ecMobile:'',
     // ケアマネ専用フィールド (続柄=ケアマネージャー の場合のみ)
     cmOfficeMode:'select',   // 'select' | 'new'
@@ -10103,8 +10125,8 @@ function FamilyView() {
                   const email = signupForm.email.trim();
                   if (!email) { setSignupForm(f=>({...f, error:'メールアドレスを入力してください'})); return; }
                   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setSignupForm(f=>({...f, error:'メールアドレスの形式が正しくありません'})); return; }
-                  // 続柄 (自由記述の場合は ecRelationCustom を採用)
-                  const isFreeText = signupForm.ecRelation === '自由記述';
+                  // 続柄 (その他の場合は ecRelationCustom を採用)
+                  const isFreeText = signupForm.ecRelation === 'その他';
                   const ecRelation = isFreeText ? signupForm.ecRelationCustom.trim() : signupForm.ecRelation;
                   const ecName = signupForm.ecName.trim();
                   const ecPhone = signupForm.ecPhone.trim();
@@ -10377,11 +10399,11 @@ function FamilyView() {
                           <option value="姉">姉</option>
                           <option value="妹">妹</option>
                           <option value="ケアマネージャー">ケアマネージャー</option>
-                          <option value="自由記述">自由記述...</option>
+                          <option value="その他">その他...</option>
                         </select>
                       </div>
                     </div>
-                    {signupForm.ecRelation === '自由記述' && (
+                    {signupForm.ecRelation === 'その他' && (
                       <div style={{marginBottom:8}}>
                         <input value={signupForm.ecRelationCustom} onChange={e=>setSignupForm(f=>({...f,ecRelationCustom:e.target.value,error:''}))}
                           placeholder="続柄を入力 (例: 孫 / 甥 / 友人)"
@@ -10573,6 +10595,14 @@ function FamilyView() {
     setAuthPid(null);
     setAuthAccId(null);
     setLoginForm({ username:'', password:'', error:'', showPw:false });
+    setMode('login'); // ログアウト後は常にログイン画面へ
+    // URL に ?invite= が残っているとログアウト後も signup に戻されるので除去
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('invite');
+      url.searchParams.delete('t');
+      window.history.replaceState({}, '', url.toString());
+    } catch {}
   };
   return <FamilyPatientView data={data} patientId={authPid} accountId={authAccId} onLogout={handleLogout} />;
 }
@@ -10996,7 +11026,35 @@ export default function App() {
         alert('データ保存容量を超えました。写真の数を減らすか、古い記録を整理してください。');
       }
     }
+    // ★ Supabase 同期 (debounce 1.5秒 - 連続編集を1リクエストにまとめる)
+    if (isSupabaseEnabled) {
+      const t = setTimeout(() => { supabaseSyncState(appData); }, 1500);
+      return () => clearTimeout(t);
+    }
   }, [appData]);
+
+  // 起動時に Supabase から最新 state を pull (他端末で更新されている可能性)
+  useEffect(() => {
+    if (!isSupabaseEnabled) return;
+    (async () => {
+      try {
+        const row = await supabaseLoadState();
+        if (row && row.data && Object.keys(row.data).length > 0) {
+          setAppData(prev => {
+            // familyAccounts/Invites は localStorage 側を優先 (別テーブルで管理)
+            const merged = { ...row.data, familyAccounts: prev.familyAccounts || [], familyInvites: prev.familyInvites || [] };
+            return merged;
+          });
+        } else {
+          // 初回: Supabase が空なら現在の localStorage を初期 push
+          supabaseSyncState(appData);
+        }
+      } catch (e) {
+        console.warn('[supabase] initial pull failed', e);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // お知らせ・写真の保存期間を過ぎたデータを起動時に自動削除
   // 削除対象: postedAt (or date) が retentionMonths より古いもの
   useEffect(() => {
@@ -21219,19 +21277,15 @@ function SettingsView({ appData, onSave, dirtyRef }) {
                 };
                 const bytes = calcUsage();
                 const mb = (bytes * 2 / 1024 / 1024).toFixed(2); // UTF-16 → 約2倍
-                // 事業所別クォータ (固定 2GB)
-                const quotaGB = 2;
                 const LOCAL_LIMIT_MB = 5; // 現状の localStorage 上限 (Safari基準)
-                const QUOTA_MB = quotaGB * 1024;
                 const usedPctLocal = Math.min(100, Math.round((parseFloat(mb) / LOCAL_LIMIT_MB) * 100));
-                const usedPctQuota = Math.min(100, Math.round((parseFloat(mb) / QUOTA_MB) * 100 * 100) / 100);
                 const retentionMonths = appData.systemSettings?.announcementRetentionMonths || 24;
                 const announcements = (appData.familyAnnouncements||[]).length;
                 const personalAnn = (appData.familyPersonalAnnouncements||[]).length;
                 const photoCount = (appData.familyPhotos||[]).length;
                 return (
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 space-y-4">
-                    {/* 現在の使用量 (localStorage) */}
+                    {/* 現在の使用量 (このブラウザ内) */}
                     <div>
                       <div className="text-sm font-bold text-slate-700 mb-1">💾 現在のデータ使用量 (このブラウザ内)</div>
                       <div className="flex items-center gap-3">
@@ -21244,24 +21298,13 @@ function SettingsView({ appData, onSave, dirtyRef }) {
                       </div>
                       <div className="text-[11px] text-slate-500 mt-2 leading-relaxed">
                         ・お知らせ全体 {announcements}件 / 個別お知らせ {personalAnn}件 / 写真 {photoCount}枚<br/>
-                        ・上限は Safari 約 5 MB / Chrome 約 10 MB（ローカル保存のみ）
+                        ・この値は <b>このブラウザのキャッシュ上限</b> (Safari 約 5 MB / Chrome 約 10 MB) に対する使用率です<br/>
+                        ・クラウド (Supabase) には別途保存されています
                       </div>
                     </div>
-                    {/* 事業所別クォータ (Supabase 移行後) */}
-                    <div className="border-t border-slate-200 pt-3">
-                      <div className="text-sm font-bold text-slate-700 mb-2">🏢 事業所別クォータ（Supabase Pro 移行後）</div>
-                      <div className="flex items-center gap-3 mb-2">
-                        <span className="text-xs font-bold text-slate-600 shrink-0">この事業所の上限:</span>
-                        <span className="px-3 py-1.5 bg-blue-50 border border-blue-300 rounded-lg font-bold text-sm text-blue-800">2 GB（固定）</span>
-                        <span className="text-xs text-slate-500">（現在の使用率: <b className="text-slate-700">{usedPctQuota}%</b>）</span>
-                      </div>
-                      <div className="text-[11px] text-slate-500 leading-relaxed">
-                        ・各事業所 2GB 上限で運用 (動画なし想定で 5 年分余裕)<br/>
-                        ・本部全体: 事業所数 × 2GB (例: 9店舗 = 18GB)<br/>
-                        ・<b>上限近くで警告 + 古いお知らせ削除を案内</b>
-                      </div>
-                      {/* 古いお知らせを今すぐ削除するボタン (容量逼迫時の手動掃除) */}
-                      {(usedPctLocal > 50 || usedPctQuota > 50) && (
+                    {/* 古いお知らせを今すぐ削除するボタン (ローカル容量逼迫時の手動掃除) */}
+                    {usedPctLocal > 50 && (
+                      <div className="border-t border-slate-200 pt-3">
                         <button onClick={()=>{
                           const months = appData.systemSettings?.announcementRetentionMonths || 24;
                           if (!window.confirm(`保存期間 (${months}ヶ月) を超えたお知らせ・写真を今すぐ削除しますか?\n\n(削除しない設定の場合は何も削除されません)`)) return;
@@ -21282,11 +21325,11 @@ function SettingsView({ appData, onSave, dirtyRef }) {
                             + (appData.familyPhotos||[]).length - cleanPhotos.length;
                           onSave({...appData, familyAnnouncements: cleanAnn, familyPersonalAnnouncements: cleanPersonal, familyPhotos: cleanPhotos});
                           alert(`${removed} 件を削除しました`);
-                        }} className="mt-2 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow active:scale-95">
+                        }} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow active:scale-95">
                           🗑 古いお知らせを今すぐ削除
                         </button>
-                      )}
-                    </div>
+                      </div>
+                    )}
                     {/* 自動削除設定 */}
                     <div className="border-t border-slate-200 pt-3">
                       <label className="block text-xs font-bold text-slate-600 mb-1.5">お知らせ・写真の保存期間（自動削除）</label>

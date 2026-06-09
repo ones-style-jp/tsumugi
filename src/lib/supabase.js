@@ -181,3 +181,74 @@ export async function supabaseListFamilyByPatient(patientId) {
     return data || [];
   } catch { return []; }
 }
+
+// =========================================================
+// appData 全体を Supabase に保存 (スタッフ側からの push)
+// =========================================================
+// パスワード等の機密は除外し、家族画面で必要な部分のみ送る
+const APP_STATE_KEY = 'default';
+const sanitizeForSync = (data) => {
+  if (!data) return {};
+  const { familyAccounts, familyInvites, ...rest } = data;
+  // familyAccounts/Invites は別テーブルで管理しているので app_state からは除外
+  // (重複保存を避けてサイズを抑える)
+  return rest;
+};
+
+export async function supabaseSyncState(data) {
+  if (!supabase) return false;
+  try {
+    const sanitized = sanitizeForSync(data);
+    const { error } = await supabase
+      .from('app_state')
+      .update({ data: sanitized })
+      .eq('key', APP_STATE_KEY);
+    if (error) {
+      console.warn('[supabase] syncState error', error);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn('[supabase] syncState exception', e);
+    return false;
+  }
+}
+
+export async function supabaseLoadState() {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from('app_state')
+      .select('data, updated_at')
+      .eq('key', APP_STATE_KEY)
+      .maybeSingle();
+    if (error) {
+      console.warn('[supabase] loadState error', error);
+      return null;
+    }
+    return data;
+  } catch (e) {
+    console.warn('[supabase] loadState exception', e);
+    return null;
+  }
+}
+
+// 一定時間ごとに state を pull (家族画面で使う)
+export function supabaseSubscribeState(onChange, intervalMs = 15000) {
+  if (!supabase) return () => {};
+  let stopped = false;
+  let lastUpdate = '';
+  const tick = async () => {
+    if (stopped) return;
+    try {
+      const row = await supabaseLoadState();
+      if (row && row.updated_at !== lastUpdate) {
+        lastUpdate = row.updated_at;
+        onChange(row.data);
+      }
+    } catch {}
+  };
+  tick(); // 即時1回
+  const timer = setInterval(tick, intervalMs);
+  return () => { stopped = true; clearInterval(timer); };
+}

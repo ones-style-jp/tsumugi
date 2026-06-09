@@ -27,13 +27,14 @@
 
 ---
 
-## STEP 2: SQL 実行
+## STEP 2: SQL 実行 (2ファイル)
 
 1. 左サイドバー → 「**SQL Editor**」
-2. 「New query」
-3. このリポジトリの [`supabase/00_family_auth_minimal.sql`](./00_family_auth_minimal.sql) の中身を全コピー → 貼り付け
-4. 右下「**Run**」 (または Cmd+Enter)
-5. エラーが出なければ完了 (最後に `family_accounts | 0` と `family_invites | 0` が表示されればOK)
+2. 「New query」 → [`supabase/00_family_auth_minimal.sql`](./00_family_auth_minimal.sql) の中身を全コピー → 貼り付け → 「**Run**」
+3. もう一度 「New query」 → [`supabase/05_app_state.sql`](./05_app_state.sql) の中身を全コピー → 貼り付け → 「**Run**」
+4. それぞれエラーが出なければ完了
+   - 00 の結果: `family_accounts | 0` と `family_invites | 0`
+   - 05 の結果: `app_state | 1 (initial row)`
 
 > ⚠️ `01_schema.sql` ～ `04_seed.sql` は **Phase 2 用** (将来のフル移行用)。今は実行しない。
 
