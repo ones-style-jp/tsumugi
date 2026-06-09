@@ -10463,6 +10463,9 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
   // ログイン中のアカウントが ケアマネ かどうか
   const loggedAcc = (data.familyAccounts||[]).find(a => String(a.id) === String(accountId));
   const isCmAccount = loggedAcc && (loggedAcc.kind === 'caremanager' || loggedAcc.relation === 'ケアマネージャー');
+  // 親アカウント招待用 (parent が他家族を招待する)
+  const [inviteFamilyOpen, setInviteFamilyOpen] = useState(false);
+  const [inviteFamForm, setInviteFamForm] = useState({email:'', relation:'', createdUrl:''});
   const announcements = data.familyAnnouncements || [];
   const personalAnnouncements = (data.familyPersonalAnnouncements||[]).filter(a => a.patientId === pid || a.patientId === patientId);
   const photos = (data.familyPhotos||[]).filter(ph => ph.patientId == null || ph.patientId === pid || ph.patientId === patientId);
@@ -10528,11 +10531,19 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
               <div className="family-header-title" style={{fontSize:11,opacity:0.85,fontWeight:'bold',letterSpacing:1}}>{facility.name||'デイケアサービス'} 家族用閲覧</div>
               <div className="family-header-name" style={{fontSize:20,fontWeight:'bold',marginTop:2}}>{patient.name} 様</div>
             </div>
-            {onLogout && (
-              <button onClick={onLogout} style={{background:'rgba(255,255,255,0.18)',color:'white',border:'1px solid rgba(255,255,255,0.3)',borderRadius:10,padding:'6px 12px',fontSize:11,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>
-                ログアウト
-              </button>
-            )}
+            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+              {/* 親アカウントのみ: 他家族を招待 */}
+              {loggedAcc?.role === 'parent' && (
+                <button onClick={()=>setInviteFamilyOpen(true)} style={{background:'rgba(255,255,255,0.25)',color:'white',border:'1px solid rgba(255,255,255,0.4)',borderRadius:10,padding:'6px 12px',fontSize:11,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>
+                  👨‍👩‍👧 家族を追加
+                </button>
+              )}
+              {onLogout && (
+                <button onClick={onLogout} style={{background:'rgba(255,255,255,0.18)',color:'white',border:'1px solid rgba(255,255,255,0.3)',borderRadius:10,padding:'6px 12px',fontSize:11,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>
+                  ログアウト
+                </button>
+              )}
+            </div>
           </div>
         </div>
         <div style={{maxWidth:1100,margin:'0 auto',padding:'0 12px 10px'}}>
@@ -10622,11 +10633,12 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
                     {a.title && <div style={{fontSize:15,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>{a.title}</div>}
                     {a.body && <div style={{fontSize:13,color:'#475569',lineHeight:1.7,whiteSpace:'pre-wrap',marginBottom:annPhotos.length>0?10:0}}>{a.body}</div>}
                     {annPhotos.length > 0 && (
-                      <div style={{display:'grid',gridTemplateColumns:annPhotos.length===1?'1fr':'repeat(2,1fr)',gap:8,marginTop:8}}>
+                      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6,marginTop:8,maxWidth:360}}>
                         {annPhotos.map((p,pi) => (
                           <div key={p.id||pi} style={{position:'relative'}}>
-                            <img src={p.url} alt="" style={{width:'100%',aspectRatio:'1',objectFit:'cover',borderRadius:10}}/>
-                            <a href={p.url} download={p.name||`photo_${pi+1}.jpg`} style={{position:'absolute',bottom:6,right:6,background:'rgba(0,0,0,0.6)',color:'white',padding:'4px 8px',borderRadius:6,fontSize:10,fontWeight:'bold',textDecoration:'none'}}>↓</a>
+                            <img src={p.url} alt="" onClick={()=>window.open(p.url,'_blank')}
+                              style={{width:'100%',aspectRatio:'1',objectFit:'cover',borderRadius:8,cursor:'pointer'}}/>
+                            <a href={p.url} download={p.name||`photo_${pi+1}.jpg`} style={{position:'absolute',bottom:3,right:3,background:'rgba(0,0,0,0.6)',color:'white',padding:'2px 5px',borderRadius:4,fontSize:9,fontWeight:'bold',textDecoration:'none'}}>↓</a>
                           </div>
                         ))}
                       </div>
@@ -10680,6 +10692,87 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
         {facility.name||''} {facility.phone?`／${facility.phone}`:''}<br/>
         このページは {patient.name} 様のご家族専用です
       </div>
+      {/* 親アカウントによる家族追加招待モーダル */}
+      {inviteFamilyOpen && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:9000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={()=>{setInviteFamilyOpen(false); setInviteFamForm({email:'',relation:'',createdUrl:''});}}>
+          <div style={{background:'white',borderRadius:18,maxWidth:380,width:'100%',padding:'20px 18px',boxShadow:'0 20px 60px rgba(0,0,0,0.4)'}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b',marginBottom:6,display:'flex',alignItems:'center',gap:6}}>👨‍👩‍👧 ご家族を追加で招待</div>
+            <div style={{fontSize:11,color:'#64748b',marginBottom:14,lineHeight:1.6}}>
+              他のご家族のメールアドレスを入力してください。<br/>
+              そのメールアドレス宛に招待リンクが届きます (有効期限 14日)。
+            </div>
+            {inviteFamForm.createdUrl ? (
+              <div>
+                <div style={{background:'#f0fdf4',border:'1px solid #86efac',borderRadius:10,padding:'12px 14px',marginBottom:12}}>
+                  <div style={{fontSize:12,fontWeight:'bold',color:'#166534',marginBottom:6}}>✓ 招待URLを発行しました</div>
+                  <div style={{fontSize:10,color:'#166534',marginBottom:8,lineHeight:1.6}}>下のURLをコピーして、ご家族に LINE / メール / 電話などでお伝えください。</div>
+                  <input readOnly value={inviteFamForm.createdUrl}
+                    style={{width:'100%',padding:'8px 10px',border:'1px solid #d1fae5',borderRadius:8,fontSize:11,fontFamily:'monospace',background:'white',boxSizing:'border-box'}}/>
+                </div>
+                <div style={{display:'flex',gap:8}}>
+                  <button onClick={()=>{navigator.clipboard?.writeText(inviteFamForm.createdUrl); alert('URLをコピーしました');}}
+                    style={{flex:1,padding:'10px',background:'#6366f1',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>📋 コピー</button>
+                  <a href={`mailto:${encodeURIComponent(inviteFamForm.email||'')}?subject=${encodeURIComponent(`【${facility.name||'デイサービス'}】家族専用ページへのご招待`)}&body=${encodeURIComponent(`下記URLからご家族専用ページにご登録ください (有効期限 14日)\n\n${inviteFamForm.createdUrl}\n\n${facility.name||''}`)}`}
+                    style={{flex:1,padding:'10px',background:'#10b981',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer',textDecoration:'none',textAlign:'center'}}>📧 メール送信</a>
+                </div>
+                <button onClick={()=>{setInviteFamilyOpen(false); setInviteFamForm({email:'',relation:'',createdUrl:''});}}
+                  style={{width:'100%',padding:'10px',marginTop:8,background:'transparent',color:'#64748b',border:'none',fontSize:12,fontWeight:'bold',cursor:'pointer'}}>閉じる</button>
+              </div>
+            ) : (
+              <div>
+                <div style={{marginBottom:10}}>
+                  <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>ご家族のメールアドレス <span style={{color:'#dc2626'}}>*</span></label>
+                  <input type="email" value={inviteFamForm.email} onChange={e=>setInviteFamForm(f=>({...f,email:e.target.value}))}
+                    placeholder="brother@example.com"
+                    style={{width:'100%',padding:'10px 12px',border:'1px solid #e2e8f0',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+                </div>
+                <div style={{marginBottom:12}}>
+                  <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>続柄 (任意)</label>
+                  <select value={inviteFamForm.relation} onChange={e=>setInviteFamForm(f=>({...f,relation:e.target.value}))}
+                    style={{width:'100%',padding:'10px 12px',border:'1px solid #e2e8f0',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}>
+                    <option value="">— 選択 —</option>
+                    <option value="配偶者">配偶者</option>
+                    <option value="長男">長男</option><option value="長女">長女</option>
+                    <option value="次男">次男</option><option value="次女">次女</option>
+                    <option value="兄">兄</option><option value="弟">弟</option>
+                    <option value="姉">姉</option><option value="妹">妹</option>
+                  </select>
+                </div>
+                <div style={{display:'flex',gap:8}}>
+                  <button onClick={()=>{setInviteFamilyOpen(false); setInviteFamForm({email:'',relation:'',createdUrl:''});}}
+                    style={{flex:1,padding:'10px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
+                  <button onClick={()=>{
+                    const em = (inviteFamForm.email||'').trim();
+                    if (!em || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { alert('正しいメールアドレスを入力してください'); return; }
+                    // 招待コード生成
+                    const existingCodes = new Set((data.familyInvites||[]).map(i => i.code));
+                    let code = generateOneTimeInviteCode();
+                    let retry = 0;
+                    while (existingCodes.has(code) && retry < 10) { code = generateOneTimeInviteCode(); retry++; }
+                    const newInvite = {
+                      id: `inv_${Date.now()}`,
+                      code,
+                      patientId: patient.id,
+                      createdAt: new Date().toISOString(),
+                      createdByAccountId: loggedAcc?.id || null,  // 親が招待
+                      usedBy: null, usedAt: null,
+                      email: em, relation: inviteFamForm.relation || '',
+                      expiresAt: new Date(Date.now() + 14*24*60*60*1000).toISOString(),
+                    };
+                    const updated = { ...data, familyInvites: [...(data.familyInvites||[]), newInvite] };
+                    try { localStorage.setItem('daycareAppData_v3', JSON.stringify(updated)); } catch {}
+                    setData(updated);
+                    const baseUrl = window.location.origin + window.location.pathname.replace(/\/+$/, '');
+                    const url = `${baseUrl}/?family&invite=${encodeURIComponent(code)}`;
+                    setInviteFamForm(f=>({...f, createdUrl: url}));
+                  }}
+                    style={{flex:1,padding:'10px',background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>招待URLを発行</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -12993,9 +13086,9 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   }
 
   return (
-    <div className="h-full overflow-auto w-full" style={{backgroundColor:'#f0f4f9'}}>
-      {/* ヘッダーバー（固定） */}
-      <div style={{position:'sticky',top:0,zIndex:30}}>
+    <div className="w-full" style={{backgroundColor:'#f0f4f9',minHeight:'100%'}}>
+      {/* ヘッダーバー（固定） — 親 scroll container 内で sticky */}
+      <div style={{position:'sticky',top:0,zIndex:30,background:'#f0f4f9'}}>
       <div style={{background:'linear-gradient(135deg,#2563eb 0%,#1e40af 100%)',color:'white',padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
         <div style={{display:'flex',alignItems:'center',gap:12}}>
           <div style={{width:36,height:36,background:'rgba(255,255,255,0.2)',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center'}}>
