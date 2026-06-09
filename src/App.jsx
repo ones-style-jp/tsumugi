@@ -10624,6 +10624,8 @@ export default function App() {
   const ticketSaveFnRef = React.useRef(null);
   const absenceDirtyRef = React.useRef(false);
   const absenceSaveFnRef = React.useRef(null);
+  const generalFaxDirtyRef = React.useRef(false);
+  const generalFaxSaveFnRef = React.useRef(null);
   const [sharedAmpm, setSharedAmpm] = useState('AM'); // 'AM' or 'PM'
 
   const handleSaveToCloud = (newData) => {
@@ -10693,7 +10695,8 @@ export default function App() {
                    (currentView === 'diary' && diaryDirtyRef.current) ||
                    (currentView === 'monitoring' && monitoringDirtyRef.current) ||
                    (currentView === 'ticket' && ticketDirtyRef.current) ||
-                   (currentView === 'absence_fax' && absenceDirtyRef.current);
+                   (currentView === 'absence_fax' && absenceDirtyRef.current) ||
+                   (currentView === 'general_fax' && generalFaxDirtyRef.current);
     if (isDirty && view !== currentView) {
       setNavConfirm({ view, patientId });
       return;
@@ -11064,7 +11067,7 @@ export default function App() {
              currentView === 'family_admin' ? <FamilyAdminView appData={appData} onSave={handleSaveToCloud} /> :
              currentView === 'diary' ? <DailyLogView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} dirtyRef={diaryDirtyRef} saveFnRef={diarySaveFnRef} /> :
              currentView === 'absence_fax' ? <AbsenceFaxView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={absenceDirtyRef} saveFnRef={absenceSaveFnRef} /> :
-             currentView === 'general_fax' ? <GeneralFaxView appData={appData} onSave={setAppData} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
+             currentView === 'general_fax' ? <GeneralFaxView appData={appData} onSave={handleSaveToCloud} dirtyRef={generalFaxDirtyRef} saveFnRef={generalFaxSaveFnRef} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
              currentView === 'fitness' ? <FitnessView appData={appData} onSave={handleSaveToCloud} selectedDate={selectedDate} sharedAmpm={sharedAmpm} navigateTo={navigateTo} targetPatientId={targetPatientId} onPatientChange={setTargetPatientId} dirtyRef={fitnessDirtyRef} saveFnRef={fitnessSaveFnRef} /> :
              currentView === 'monitoring' ? <MonitoringView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={monitoringDirtyRef} saveFnRef={monitoringSaveFnRef} /> :
              currentView === 'dash_operation' ? <OperationDashboardView appData={appData} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} setAppData={setAppData} /> :
@@ -11089,6 +11092,7 @@ export default function App() {
                   print: printSaveFnRef,
                   diary: diarySaveFnRef,
                   absence_fax: absenceSaveFnRef,
+                  general_fax: generalFaxSaveFnRef,
                   fitness: fitnessSaveFnRef,
                   settings: settingsSaveFnRef,
                 };
@@ -11105,6 +11109,7 @@ export default function App() {
                 monitoringDirtyRef.current = false;
                 ticketDirtyRef.current = false;
                 absenceDirtyRef.current = false;
+                generalFaxDirtyRef.current = false;
                 const _nav = navConfirm;
                 setNavConfirm(null);
                 setTimeout(() => {
@@ -11124,6 +11129,7 @@ export default function App() {
                 monitoringDirtyRef.current = false;
                 ticketDirtyRef.current = false;
                 absenceDirtyRef.current = false;
+                generalFaxDirtyRef.current = false;
                 if (navConfirm.patientId) setTargetPatientId(navConfirm.patientId);
                 setCurrentView(navConfirm.view);
                 setNavConfirm(null);
@@ -12417,7 +12423,9 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
 function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatientChange, isSidebarOpen, onShowPrintPreview, familyMode = false, hidePatientSelector = false }) {
   // familyMode: 利用者家族・ケアマネ向け表示。一部セクション (詳細記録/欠席/休止) を非表示にし、印刷ボタンも隠す
   // 特記の表示は familyTokkiOverrides で制御 (visible:false の記録は表示しない)
-  const [selectedPatientId, setSelectedPatientId] = useState(targetPatientId || ((appData.patients||[]).length > 0 ? (appData.patients||[])[0].id : null));
+  // familyMode: 必ず targetPatientId が来る前提で 1 番目にフォールバック
+  // 通常モード: targetPatientId 未指定なら null (利用者選択画面を表示)
+  const [selectedPatientId, setSelectedPatientId] = useState(targetPatientId || (familyMode ? ((appData.patients||[])[0]?.id || null) : null));
   const [patientSearch, setPatientSearch] = useState('');
   // 3ヶ月超の場合の表示モード: 'auto'=自動(月平均)、'daily'=毎日表示
   const [displayMode, setDisplayMode] = useState('auto');
@@ -12591,6 +12599,45 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
 
   // 月ラベル
   const monthLabels = monthlyData.map(d=>`${d.month}月`);
+
+  // 利用者未選択時は選択画面のみ表示 (familyMode 以外)
+  if (!selectedPatientId && !familyMode) {
+    const allPats = sortPatientsByKana((appData.patients||[]).filter(p => getPatientDisplayStatus(p) === '利用中'));
+    const q = patientSearch.trim().toLowerCase();
+    const list = q ? allPats.filter(p => (p.name||'').toLowerCase().includes(q) || (p.kana||'').toLowerCase().includes(q) || String(p.id).includes(q)) : allPats;
+    return (
+      <div className="h-full overflow-auto w-full" style={{backgroundColor:'#f0f4f9'}}>
+        <div style={{background:'linear-gradient(135deg,#2563eb 0%,#1e40af 100%)',color:'white',padding:'12px 24px',display:'flex',alignItems:'center',gap:12}}>
+          <div style={{width:36,height:36,background:'rgba(255,255,255,0.2)',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <BarChart3 size={20}/>
+          </div>
+          <div>
+            <div style={{fontSize:11,opacity:0.7,fontWeight:'bold'}}>分析・個人</div>
+            <div style={{fontSize:18,fontWeight:'bold'}}>利用者を選択してください</div>
+          </div>
+        </div>
+        <div className="max-w-3xl mx-auto p-6">
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+            <input type="text" autoFocus placeholder="🔍 氏名・ふりがな・ID で検索" value={patientSearch}
+              onChange={e=>setPatientSearch(e.target.value)}
+              className="w-full mb-3 px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none focus:border-blue-400" />
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-[60vh] overflow-auto">
+              {list.map(p => (
+                <button key={p.id} onClick={()=>{ setSelectedPatientId(p.id); onPatientChange && onPatientChange(p.id); }}
+                  className="px-3 py-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 text-left transition-colors">
+                  <div className="text-sm font-bold text-slate-800 truncate">{p.name}</div>
+                  {p.kana && <div className="text-[10px] text-slate-400 truncate font-normal">{p.kana}</div>}
+                </button>
+              ))}
+              {list.length === 0 && (
+                <div className="col-span-full text-center text-xs text-slate-400 py-8">該当する利用者が見つかりません</div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full overflow-auto w-full" style={{backgroundColor:'#f0f4f9'}}>
@@ -17498,7 +17545,17 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                         className="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400 text-center" />
                     </div>
                     <div className="px-4 py-2 text-center">
-                      {prev !== undefined && prev !== '' ? <span className="font-bold text-slate-700">{prev}<span className="text-xs text-slate-400 ml-0.5">{item.unit}</span></span> : <span className="text-slate-300">—</span>}
+                      {lastRecord ? (
+                        <input type="number" step="0.1" defaultValue={prev ?? ''}
+                          onBlur={e => {
+                            const v = e.target.value;
+                            if ((prev ?? '') === v) return;
+                            const newRecords = records.map(r => r.id === lastRecord.id ? {...r, values: {...r.values, [item.id]: v}} : r);
+                            onSave({...appData, fitnessRecords: newRecords});
+                          }}
+                          placeholder="—"
+                          className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-blue-400 text-center bg-slate-50" />
+                      ) : <span className="text-slate-300">—</span>}
                     </div>
                     <div className="px-4 py-2 text-center">
                       {avg !== null ? <span className="font-bold text-green-700">{avg}<span className="text-xs text-green-500 ml-0.5">{item.unit}</span></span> : <span className="text-slate-300">—</span>}
@@ -17526,11 +17583,22 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                       {patRecords.slice(0,10).map((r,ri) => (
                         <tr key={r.id} className={ri%2===0?'bg-white':'bg-slate-50'}>
                           <td className="px-4 py-2 font-bold text-slate-600 whitespace-nowrap">{r.date}</td>
-                          {fitnessItems.map(item => (
-                            <td key={item.id} className="px-3 py-2 text-center font-bold text-slate-700">
-                              {r.values?.[item.id] !== undefined && r.values[item.id] !== '' ? r.values[item.id] : <span className="text-slate-300">—</span>}
-                            </td>
-                          ))}
+                          {fitnessItems.map(item => {
+                            const cur = r.values?.[item.id] ?? '';
+                            return (
+                              <td key={item.id} className="px-2 py-1 text-center">
+                                <input type="number" step="0.1" defaultValue={cur}
+                                  onBlur={e => {
+                                    const v = e.target.value;
+                                    if (String(cur) === v) return;
+                                    const newRecords = records.map(rr => rr.id === r.id ? {...rr, values: {...rr.values, [item.id]: v}} : rr);
+                                    onSave({...appData, fitnessRecords: newRecords});
+                                  }}
+                                  placeholder="—"
+                                  className="w-16 px-1.5 py-1 border border-transparent hover:border-slate-300 focus:border-blue-400 rounded text-xs font-bold outline-none text-center bg-transparent" />
+                              </td>
+                            );
+                          })}
                         </tr>
                       ))}
                     </tbody>
@@ -20632,7 +20700,7 @@ function DiarySettingsPanel({ appData, dsRef, markDirty }) {
   );
 }
 // === 日誌画面 ===
-function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAmpm, setSharedAmpm, dirtyRef, onShowPrintPreview }) {
+function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAmpm, setSharedAmpm, dirtyRef, saveFnRef, onShowPrintPreview }) {
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
   const ampm = sharedAmpm === 'all' ? 'AM' : (sharedAmpm || 'AM');
@@ -20701,6 +20769,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     if (pendingStaff) setPendingStaff(null);
     markClean();
   };
+  if (saveFnRef) saveFnRef.current = saveLog;
+  React.useEffect(() => () => { if (saveFnRef) saveFnRef.current = null; }, []);
   const toggle = (field, key) => updateLog({ [field]: { ...(log[field]||{}), [key]: !(log[field]||{})[key] } });
   const setPatRow = (i,f,v) => { const rows=[...(log.patientRows||[])]; while(rows.length<=i) rows.push({}); rows[i]={...rows[i],[f]:v}; updateLog({patientRows:rows}); };
   const setCarTime = (carId,tf,v) => updateLog({ carTimes: { ...(log.carTimes||{}), [carId]: {...((log.carTimes||{})[carId]||{}),[tf]:v} }});
@@ -22819,7 +22889,7 @@ function FaxHelpModal({ onClose }) {
   );
 }
 
-function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
+function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview }) {
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
   const [currentMonth, setCurrentMonth] = React.useState(() => { const d=new Date(); return new Date(d.getFullYear(),d.getMonth(),1); });
@@ -22887,7 +22957,15 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
 
   const updateFax = (key, updates) => {
     setFaxData(prev => ({ ...prev, [key]: { ...getFax(...key.split('_')), ...updates } }));
+    markDirty();
   };
+  // 未保存ポップアップ用: faxData を appData に書き戻す
+  const flushSave = () => {
+    onSave({ ...appData, faxDataStore: faxData });
+    markClean();
+  };
+  if (saveFnRef) saveFnRef.current = flushSave;
+  React.useEffect(() => () => { if (saveFnRef) saveFnRef.current = null; }, []);
 
   // 今日日付（和暦）
   const toWareki = (dateStr) => {
@@ -23272,21 +23350,41 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
 
 
 // === GeneralFaxView (各種連絡) ===
-function GeneralFaxView({ appData, onSave, onShowPrintPreview }) {
-  const [selectedPatientId, setSelectedPatientId] = React.useState(null);
-  const [subject, setSubject] = React.useState('');
-  const [memo, setMemo] = React.useState('');
-  const [pageCount, setPageCount] = React.useState(1);
-  const [checks, setChecks] = React.useState({ kyuukyuu: false, kakunin: false, orikaesu: false });
+function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview }) {
+  const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
+  const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
+  // 下書き復元
+  const draft = appData.generalFaxDraft || {};
+  const [selectedPatientId, setSelectedPatientId] = React.useState(draft.selectedPatientId || null);
+  const [subject, setSubject] = React.useState(draft.subject || '');
+  const [memo, setMemo] = React.useState(draft.memo || '');
+  const [pageCount, setPageCount] = React.useState(draft.pageCount || 1);
+  const [checks, setChecks] = React.useState(draft.checks || { kyuukyuu: false, kakunin: false, orikaesu: false });
   const [showFaxHist, setShowFaxHist] = React.useState(false);
-  // 御中の前 / 様の前 / 利用者名（利用者未選択時に手入力可能）
-  const [recipientOffice, setRecipientOffice] = React.useState('');
-  const [recipientName, setRecipientName] = React.useState('');
-  const [customPatientName, setCustomPatientName] = React.useState('');
-  // 担当者プルダウン: 各種設定の従業員から選択。デフォルトは管理者
+  const [recipientOffice, setRecipientOffice] = React.useState(draft.recipientOffice || '');
+  const [recipientName, setRecipientName] = React.useState(draft.recipientName || '');
+  const [customPatientName, setCustomPatientName] = React.useState(draft.customPatientName || '');
   const staffList = (appData.diarySettings?.staff || []).filter(s => s.name && s.name.trim());
   const defaultManagerName = (staffList.find(s => s.role === '管理者')?.name) || staffList[0]?.name || (appData.systemSettings?.facilityInfo?.manager) || '';
-  const [selectedManager, setSelectedManager] = React.useState(defaultManagerName);
+  const [selectedManager, setSelectedManager] = React.useState(draft.selectedManager || defaultManagerName);
+
+  // 任意のフォーム値が変わったら dirty を立てる (初回 mount はスキップ)
+  const _firstRef = React.useRef(true);
+  React.useEffect(() => {
+    if (_firstRef.current) { _firstRef.current = false; return; }
+    markDirty();
+  }, [selectedPatientId, subject, memo, pageCount, checks, recipientOffice, recipientName, customPatientName, selectedManager]);
+
+  // 未保存ポップアップ用: 下書きを appData に書き戻す
+  const flushSave = () => {
+    onSave && onSave({ ...appData, generalFaxDraft: {
+      selectedPatientId, subject, memo, pageCount, checks,
+      recipientOffice, recipientName, customPatientName, selectedManager,
+    }});
+    markClean();
+  };
+  if (saveFnRef) saveFnRef.current = flushSave;
+  React.useEffect(() => () => { if (saveFnRef) saveFnRef.current = null; }, []);
   const genHistory = (appData.faxHistory||[]).filter(h => h.type === 'general');
   const deleteGenHist = (id) => onSave && onSave({...appData, faxHistory: (appData.faxHistory||[]).filter(h => h.id !== id)});
 
