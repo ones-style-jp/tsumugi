@@ -9186,63 +9186,83 @@ function SignupCompleteView({ context, appData, onSave }) {
 
 // === 家族画面プレビュー & 特記編集 (FamilyAdminView内のタブ) ===
 function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid, familyTokkiOverrides, setTokkiOverride }) {
-  const [searchQuery, setSearchQuery] = useState('');
   const [previewInnerTab, setPreviewInnerTab] = useState('news'); // 'news' | 'records'
-  const filteredPatients = searchQuery.trim()
-    ? patients.filter(p => (p.name||'').includes(searchQuery) || (p.kana||'').includes(searchQuery) || String(p.id).includes(searchQuery))
-    : patients;
+  const [patDropOpen, setPatDropOpen] = useState(false);
+  const [patSearch, setPatSearch] = useState('');
   const patient = previewPid ? patients.find(p => p.id === previewPid) : null;
   const accs = patient ? (appData.familyAccounts||[]).filter(a => a.patientId === patient.id) : [];
-  if (!patient) {
-    return (
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
-        <h3 className="text-base font-bold text-slate-800 mb-3">📱 利用者を選択してプレビュー</h3>
-        <div className="text-xs text-slate-500 mb-3">家族画面（分析個人の内容）が利用者ごとに何が見えるかを確認できます。</div>
-        <input type="text" value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} placeholder="🔍 利用者を検索 (氏名・ふりがな・ID)" className="w-full mb-3 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm outline-none focus:border-violet-400"/>
-        <div className="grid grid-cols-3 md:grid-cols-5 gap-2 max-h-96 overflow-auto">
-          {filteredPatients.map(p => (
-            <button key={p.id} onClick={()=>setPreviewPid(p.id)}
-              className="px-3 py-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-violet-50 hover:border-violet-300 text-sm font-bold text-slate-700 text-left transition-colors">
-              <div className="truncate">{p.name}</div>
-              <div className="text-[10px] text-slate-400 truncate font-normal">ID: {p.id}{p.kana?` / ${p.kana}`:''}</div>
-            </button>
-          ))}
-          {filteredPatients.length === 0 && (
-            <div className="col-span-full text-center text-xs text-slate-400 py-8">該当する利用者が見つかりません</div>
-          )}
-        </div>
-      </div>
-    );
-  }
+  const filteredPatients = patSearch.trim()
+    ? patients.filter(p => (p.name||'').includes(patSearch) || (p.kana||'').includes(patSearch))
+    : patients;
+  const baseUrl = typeof window !== 'undefined' ? (window.location.origin + window.location.pathname.replace(/\/+$/, '')) : '';
+  const familyLoginUrl = `${baseUrl}/?family`;
   return (
     <div className="space-y-3">
-      {/* コンパクトヘッダー: 利用者選択 + 利用者名 + URLコピー + ログイン画面を開く */}
+      {/* 上部枠: 利用者選択ドロップダウン + 利用者名 + URLコピー + ログイン画面を開く (常時表示) */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-2.5 flex items-center gap-2 flex-wrap">
-        <button onClick={()=>setPreviewPid(null)} title="利用者を選び直す" className="px-2.5 py-1.5 rounded-lg bg-violet-100 hover:bg-violet-200 text-violet-700 text-xs font-bold shrink-0">← 利用者選択</button>
-        <div className="text-sm font-bold text-slate-800 shrink-0">{patient.name} 様</div>
-        {accs.length > 0 && <div className="text-[10px] text-slate-500 shrink-0">登録 {accs.length}名</div>}
+        <div style={{position:'relative'}} className="shrink-0">
+          <button onClick={()=>{setPatDropOpen(v=>!v); setPatSearch('');}}
+            className="bg-violet-50 hover:bg-violet-100 border border-violet-300 px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-2 min-w-[180px] text-violet-700">
+            <span className="truncate flex-1 text-left">{patient ? patient.name : '🔍 利用者を選択'}</span>
+            <ChevronDown size={14} className="shrink-0"/>
+          </button>
+          {patDropOpen && (
+            <>
+              <div style={{position:'fixed',inset:0,zIndex:9998}} onClick={()=>setPatDropOpen(false)}/>
+              <div style={{position:'absolute',top:'calc(100% + 4px)',left:0,background:'white',border:'1px solid #e2e8f0',borderRadius:12,boxShadow:'0 8px 32px rgba(0,0,0,0.15)',zIndex:9999,minWidth:260,maxHeight:380,display:'flex',flexDirection:'column'}}>
+                <div style={{padding:'8px 8px 4px'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:6,background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:8,padding:'6px 10px'}}>
+                    <Search size={14} color="#94a3b8"/>
+                    <input autoFocus type="text" value={patSearch} onChange={e=>setPatSearch(e.target.value)}
+                      placeholder="氏名・ふりがなで検索..." style={{border:'none',background:'transparent',outline:'none',fontSize:13,fontWeight:'bold',flex:1,width:0}}/>
+                    {patSearch && <button onClick={()=>setPatSearch('')} style={{color:'#94a3b8',lineHeight:1}}><X size={13}/></button>}
+                  </div>
+                </div>
+                <div style={{overflowY:'auto',flex:1}}>
+                  {filteredPatients.map(p => (
+                    <button key={p.id} onClick={()=>{setPreviewPid(p.id); setPatDropOpen(false); setPatSearch('');}}
+                      style={{width:'100%',padding:'8px 14px',display:'flex',alignItems:'center',gap:10,textAlign:'left',background:p.id===previewPid?'#f5f3ff':'transparent',cursor:'pointer',border:'none',fontSize:14,fontWeight:'bold',color:p.id===previewPid?'#6d28d9':'#1e293b'}}
+                      className="hover:bg-slate-50">
+                      {p.id===previewPid && <span style={{width:6,height:6,borderRadius:'50%',background:'#7c3aed',flexShrink:0}}/>}
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:14,fontWeight:'bold'}}>{p.name}</div>
+                        {p.kana && <div style={{fontSize:10,color:'#94a3b8',lineHeight:1.2}}>{p.kana}</div>}
+                      </div>
+                    </button>
+                  ))}
+                  {filteredPatients.length === 0 && (
+                    <div style={{padding:'16px',textAlign:'center',fontSize:12,color:'#94a3b8'}}>該当する利用者が見つかりません</div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+        {patient && <div className="text-sm font-bold text-slate-800 shrink-0">{patient.name} 様</div>}
+        {patient && accs.length > 0 && <div className="text-[10px] text-slate-500 shrink-0">登録 {accs.length}名</div>}
         {/* 家族共通ログインURL: コピー + ログイン画面を開く */}
-        {(() => {
-          const baseUrl = typeof window !== 'undefined' ? (window.location.origin + window.location.pathname.replace(/\/+$/, '')) : '';
-          const familyLoginUrl = `${baseUrl}/?family`;
-          return (
-            <div className="ml-auto flex items-center gap-2 shrink-0">
-              <button onClick={()=>{navigator.clipboard?.writeText(familyLoginUrl);}}
-                className="px-3 py-1.5 text-xs font-bold bg-violet-600 hover:bg-violet-700 text-white rounded-lg shadow active:scale-95">📋 家族共通URLをコピー</button>
-              <a href={familyLoginUrl} target="_blank" rel="noopener noreferrer"
-                className="px-3 py-1.5 text-xs font-bold bg-white border border-violet-300 text-violet-700 hover:bg-violet-50 rounded-lg shadow-sm active:scale-95">🌐 ログイン画面を開く</a>
-            </div>
-          );
-        })()}
+        <div className="ml-auto flex items-center gap-2 shrink-0">
+          <button onClick={()=>{navigator.clipboard?.writeText(familyLoginUrl);}}
+            className="px-3 py-1.5 text-xs font-bold bg-violet-600 hover:bg-violet-700 text-white rounded-lg shadow active:scale-95">📋 家族共通URLをコピー</button>
+          <a href={familyLoginUrl} target="_blank" rel="noopener noreferrer"
+            className="px-3 py-1.5 text-xs font-bold bg-white border border-violet-300 text-violet-700 hover:bg-violet-50 rounded-lg shadow-sm active:scale-95">🌐 ログイン画面を開く</a>
+        </div>
       </div>
-      {/* 内部タブ切替 */}
-      <div className="bg-white rounded-xl p-1.5 shadow-sm border border-slate-200 flex gap-1">
+      {!patient && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-12 text-center">
+          <div className="text-3xl mb-2">📱</div>
+          <div className="text-sm font-bold text-slate-700 mb-1">家族画面プレビュー</div>
+          <div className="text-xs text-slate-500">上の「🔍 利用者を選択」から利用者を選ぶと、家族側の画面が表示されます。</div>
+        </div>
+      )}
+      {/* 内部タブ切替 (利用者選択時のみ) */}
+      {patient && <div className="bg-white rounded-xl p-1.5 shadow-sm border border-slate-200 flex gap-1">
         {[['news','📢 お知らせ'],['records','📊 通所記録']].map(([k,l])=>(
           <button key={k} onClick={()=>setPreviewInnerTab(k)}
             className={`flex-1 py-2 rounded-lg text-sm font-bold ${previewInnerTab===k?'bg-violet-600 text-white':'text-slate-500 hover:bg-slate-100'}`}>{l}</button>
         ))}
-      </div>
-      {previewInnerTab === 'news' && (() => {
+      </div>}
+      {patient && previewInnerTab === 'news' && (() => {
         const announcements = appData.familyAnnouncements || [];
         const personalAnnouncements = (appData.familyPersonalAnnouncements||[]).filter(a => a.patientId === patient.id);
         const photos = (appData.familyPhotos||[]).filter(ph => ph.patientId == null || ph.patientId === patient.id);
@@ -9296,7 +9316,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
           </div>
         );
       })()}
-      {previewInnerTab === 'records' && (
+      {patient && previewInnerTab === 'records' && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           <PersonalDashboardView
             appData={{...appData, patients: appData.patients, familyTokkiOverrides}}
