@@ -9252,13 +9252,31 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
             className="px-3 py-1.5 text-xs font-bold bg-white border border-violet-300 text-violet-700 hover:bg-violet-50 rounded-lg shadow-sm active:scale-95">🌐 ログイン画面を開く</a>
         </div>
       </div>
-      {!patient && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-12 text-center">
-          <div className="text-3xl mb-2">📱</div>
-          <div className="text-sm font-bold text-slate-700 mb-1">家族画面プレビュー</div>
-          <div className="text-xs text-slate-500">上の「🔍 利用者を選択」から利用者を選ぶと、家族側の画面が表示されます。</div>
-        </div>
-      )}
+      {!patient && (() => {
+        const q = patSearch.trim().toLowerCase();
+        const allPats = sortPatientsByKana(patients);
+        const list = q ? allPats.filter(p => (p.name||'').toLowerCase().includes(q) || (p.kana||'').toLowerCase().includes(q) || String(p.id).includes(q)) : allPats;
+        return (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+            <div className="text-sm font-bold text-slate-700 mb-3">📱 利用者を選択してプレビュー</div>
+            <input type="text" autoFocus placeholder="🔍 氏名・ふりがな・ID で検索" value={patSearch}
+              onChange={e=>setPatSearch(e.target.value)}
+              className="w-full mb-3 px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none focus:border-violet-400" />
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-[60vh] overflow-auto">
+              {list.map(p => (
+                <button key={p.id} onClick={()=>{ setPreviewPid(p.id); setPatSearch(''); }}
+                  className="px-3 py-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-violet-50 hover:border-violet-300 text-left transition-colors">
+                  <div className="text-sm font-bold text-slate-800 truncate">{p.name}</div>
+                  {p.kana && <div className="text-[10px] text-slate-400 truncate font-normal">{p.kana}</div>}
+                </button>
+              ))}
+              {list.length === 0 && (
+                <div className="col-span-full text-center text-xs text-slate-400 py-8">該当する利用者が見つかりません</div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
       {/* 内部タブ切替 (利用者選択時のみ) */}
       {patient && <div className="bg-white rounded-xl p-1.5 shadow-sm border border-slate-200 flex gap-1">
         {[['news','📢 お知らせ'],['records','📊 通所記録']].map(([k,l])=>(
@@ -17136,10 +17154,10 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
 
           <div style={{height:'13px', flexShrink:0}} />
 
-          {/* 次回お迎え時間 + QR (日付を上、時刻を下に縦スタック) */}
+          {/* 次回お迎え時間 + QR (ラベル上一列、日付+時刻 下一列で横並び) */}
           <div className="border-2 border-black bg-white flex items-center px-3 mb-1 shrink-0 gap-2" style={{paddingTop:'2px', paddingBottom:'2px', minHeight:0}}>
-            <div className="flex-1 flex flex-nowrap items-center gap-x-2 min-w-0" style={{overflow:'hidden'}}>
-              <span style={{fontSize:16,fontWeight:"bold",whiteSpace:"pre",color:"#475569",flexShrink:0,lineHeight:1.15,textAlign:"center"}}>{`次回\nお迎え時間`}</span>
+            <div className="flex-1 flex flex-col min-w-0" style={{overflow:'hidden',gap:1}}>
+              <span style={{fontSize:14,fontWeight:"bold",color:"#475569",lineHeight:1.1,whiteSpace:"nowrap"}}>次回お迎え時間</span>
               {(() => {
                 // 日付: 数字は30px, 「月」「日」のみ20px、括弧内の曜日は30px (数字と同じ)
                 // 状態機械: 括弧内なら全て30px、それ以外は 月/日 を20px・他を30px
@@ -17201,7 +17219,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                   </span>;
                 };
                 return (
-                  <div style={{display:'flex',flexDirection:'column',gap:1,lineHeight:1.05,minWidth:0}}>
+                  <div style={{display:'flex',flexDirection:'row',alignItems:'baseline',gap:'0.6em',lineHeight:1.05,minWidth:0,whiteSpace:'nowrap'}}>
                     <span style={{whiteSpace:"nowrap"}}>{renderDate(nextDateDisplay)}</span>
                     <span style={{whiteSpace:"nowrap"}}>{renderTime(nextTimeDisplay)}</span>
                   </div>
