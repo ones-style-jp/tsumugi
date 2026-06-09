@@ -927,6 +927,26 @@ const generateOneTimeInviteCode = () => {
   const part = (n) => Array.from({length:n}, () => _INV_CHARS[Math.floor(Math.random()*_INV_CHARS.length)]).join('');
   return `FAM-${part(4)}-${part(4)}`;
 };
+
+// URL-safe base64 (招待データを URL に埋め込んで端末越しに動作させるため)
+const encodeInviteToken = (obj) => {
+  try {
+    const json = JSON.stringify(obj);
+    // UTF-8 → bytes → base64
+    const utf8 = unescape(encodeURIComponent(json));
+    return btoa(utf8).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  } catch { return ''; }
+};
+const decodeInviteToken = (token) => {
+  try {
+    if (!token) return null;
+    let b64 = token.replace(/-/g,'+').replace(/_/g,'/');
+    // padding
+    while (b64.length % 4) b64 += '=';
+    const utf8 = atob(b64);
+    return JSON.parse(decodeURIComponent(escape(utf8)));
+  } catch { return null; }
+};
 // 入力コード正規化: 半角化・大文字化・ハイフン自動補完
 const normalizeInviteCode = (raw) => {
   const s = (raw||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
@@ -9857,15 +9877,41 @@ function FamilyView() {
   const [authPid, setAuthPid] = useState(()=> sessionStorage.getItem('familyAuthPid') || null);
   const [authAccId, setAuthAccId] = useState(()=> sessionStorage.getItem('familyAuthAccId') || null);
   const [loginForm, setLoginForm] = useState({ username:'', password:'', error:'', showPw:false });
-  // URL ?invite=XXX があれば自動で新規登録モード + 招待コード自動設定
+  // URL ?invite=XXX&t=BASE64 があれば自動で新規登録モード + 招待コード/データ自動設定
   const _urlInvite = (() => {
     try { return new URLSearchParams(window.location.search).get('invite') || ''; } catch { return ''; }
   })();
-  // 招待データから email / relation を引き出す
+  const _urlToken = (() => {
+    try { return new URLSearchParams(window.location.search).get('t') || ''; } catch { return ''; }
+  })();
+  // 招待データを抽出: localStorage に存在すればそれを使う、なければ URL token から復元
   const _inviteInfo = (() => {
     if (!_urlInvite) return {};
-    const inv = (data.familyInvites||[]).find(i => i.code === _urlInvite);
-    return inv ? { email: inv.email || '', relation: inv.relation || '' } : {};
+    const local = (data.familyInvites||[]).find(i => i.code === _urlInvite);
+    if (local) return { email: local.email || '', relation: local.relation || '' };
+    // URL token から復元 (端末越し対応)
+    const tok = decodeInviteToken(_urlToken);
+    if (tok && tok.c === _urlInvite) {
+      // localStorage に保存して以降の処理で見つけられるようにする
+      try {
+        const saved = JSON.parse(localStorage.getItem('daycareAppData_v3')||'null') || {};
+        const existing = (saved.familyInvites||[]).find(i => i.code === tok.c);
+        if (!existing) {
+          saved.familyInvites = [...(saved.familyInvites||[]), {
+            id: `inv_${Date.now()}`,
+            code: tok.c, patientId: tok.p,
+            createdAt: new Date().toISOString(),
+            usedBy: null, usedAt: null,
+            email: tok.e || '', relation: tok.r || '',
+            expiresAt: tok.x || '',
+            _fromUrl: true,  // URL から復元したマーカー
+          }];
+          localStorage.setItem('daycareAppData_v3', JSON.stringify(saved));
+        }
+      } catch {}
+      return { email: tok.e || '', relation: tok.r || '' };
+    }
+    return {};
   })();
   const [mode, setMode] = useState(_urlInvite ? 'signup' : 'login'); // 'login' | 'signup'
   const [signupForm, setSignupForm] = useState({
@@ -10230,13 +10276,13 @@ function FamilyView() {
                     {/* ふりがな 姓 + 名 */}
                     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
                       <div>
-                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>ふりがな（姓）</label>
+                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>ふりがな（姓） <span style={{color:'#dc2626'}}>*</span></label>
                         <input value={signupForm.ecKanaLast} onChange={e=>setSignupForm(f=>({...f,ecKanaLast:e.target.value,error:''}))}
                           placeholder="例: やまだ"
                           style={{width:'100%',padding:'10px 12px',border:'1px solid #fde68a',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
                       </div>
                       <div>
-                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>ふりがな（名）</label>
+                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>ふりがな（名） <span style={{color:'#dc2626'}}>*</span></label>
                         <input value={signupForm.ecKanaFirst} onChange={e=>setSignupForm(f=>({...f,ecKanaFirst:e.target.value,error:''}))}
                           placeholder="例: たろう"
                           style={{width:'100%',padding:'10px 12px',border:'1px solid #fde68a',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
@@ -10772,7 +10818,8 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
                     try { localStorage.setItem('daycareAppData_v3', JSON.stringify(updated)); } catch {}
                     setData(updated);
                     const baseUrl = window.location.origin + window.location.pathname.replace(/\/+$/, '');
-                    const url = `${baseUrl}/?family&invite=${encodeURIComponent(code)}`;
+                    const tk = encodeInviteToken({ c: code, p: patient.id, e: em, r: inviteFamForm.relation||'', x: newInvite.expiresAt||'' });
+                    const url = `${baseUrl}/?family&invite=${encodeURIComponent(code)}&t=${tk}`;
                     setInviteFamForm(f=>({...f, createdUrl: url}));
                     // Brevo 経由で自動送信を試みる
                     try {
@@ -19589,7 +19636,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     }
                     const relation = window.prompt('続柄を入力してください (例: 配偶者、長男、長女、ケアマネージャー など。空欄可):') || '';
                     const inv = issueNewInvite({ email: email.trim(), relation: relation.trim() });
-                    const inviteUrl = `${baseUrlLocal}/?family&invite=${encodeURIComponent(inv.code)}`;
+                    // URL に招待データを埋め込み (端末越し用)
+                    const tk = encodeInviteToken({ c: inv.code, p: inv.patientId, e: inv.email||'', r: inv.relation||'', x: inv.expiresAt||'' });
+                    const inviteUrl = `${baseUrlLocal}/?family&invite=${encodeURIComponent(inv.code)}&t=${tk}`;
                     const facility = appData.systemSettings?.facilityInfo || {};
                     // Brevo 経由で自動送信を試みる
                     try {
@@ -19621,7 +19670,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     window.location.href = `mailto:${encodeURIComponent(email.trim())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
                   };
                   const copyInviteUrl = (inv) => {
-                    const url = `${baseUrlLocal}/?family&invite=${encodeURIComponent(inv.code)}`;
+                    const tk = encodeInviteToken({ c: inv.code, p: inv.patientId, e: inv.email||'', r: inv.relation||'', x: inv.expiresAt||'' });
+                    const url = `${baseUrlLocal}/?family&invite=${encodeURIComponent(inv.code)}&t=${tk}`;
                     navigator.clipboard?.writeText(url);
                     setShowToast(true);
                   };
