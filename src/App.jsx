@@ -16617,7 +16617,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     // B5 横 (257×182mm) ページ内に連絡帳 (182×257mm 縦) を中央配置 (微縮小)
     const combinedHtml = htmlParts.map((h,i)=>
       `<div style="page-break-after:${i < htmlParts.length-1 ? 'always' : 'auto'};width:257mm;height:182mm;display:flex;justify-content:center;align-items:center;overflow:hidden;">
-        <div style="transform:scale(0.68);transform-origin:center center;width:182mm;height:257mm;flex-shrink:0;">${h}</div>
+        <div style="transform:scale(0.6);transform-origin:center center;width:182mm;height:257mm;flex-shrink:0;">${h}</div>
       </div>`
     ).join('');
     if(onShowPrintPreview) onShowPrintPreview(title, '257mm 182mm', null);
@@ -17002,18 +17002,21 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
             </tbody>
           </table>
 
-          {/* 運動テーブル（残りスペースをフルに使う、項目増えれば自動で行が縮む） */}
+          {/* 運動テーブル（残りスペースをフルに使う、項目増えれば自動で行が縮む。フォントは大きめ・はみ出し時は CSS で縮小） */}
           <div className="mb-2 border-2 border-black overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all" style={{flex:'1 1 0', minHeight:0}} onClick={onOpenConfig}>
             <table className="w-full border-collapse text-center table-fixed" style={{height:'100%'}}>
               <tbody>
                 {rows.map((row, idx) => {
                   const cellCls = (item) => `text-black ${item && item.perPatient && item.type !== 'linked' && onEditPatientValue ? 'cursor-pointer hover:bg-violet-50 transition-colors' : ''}`;
+                  // 行が多いほどフォント縮小: 行数 6 までは大、それ以降は段階的に縮小
+                  const labelFs = rows.length <= 6 ? 16 : rows.length <= 9 ? 14 : rows.length <= 12 ? 12 : 10;
+                  const valueFs = rows.length <= 6 ? 24 : rows.length <= 9 ? 22 : rows.length <= 12 ? 20 : 18;
                   return (
                   <tr key={idx} className={idx !== rows.length - 1 ? "border-b border-black" : ""}>
-                    <th className="border-r border-black w-[30%] bg-white px-1" style={{fontWeight:"normal",fontSize:12}}>{row[0].label}</th>
-                    <td className={`border-r-2 border-black w-[20%] ${cellCls(row[0])}`} style={{fontWeight:"bold",fontSize:20}} onClick={e=>handleCellClick(row[0], e)}>{renderItemValue(row[0])}</td>
+                    <th className="border-r border-black w-[30%] bg-white px-1" style={{fontWeight:"normal",fontSize:labelFs,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{row[0].label}</th>
+                    <td className={`border-r-2 border-black w-[20%] ${cellCls(row[0])}`} style={{fontWeight:"bold",fontSize:valueFs,whiteSpace:'nowrap',overflow:'hidden'}} onClick={e=>handleCellClick(row[0], e)}>{renderItemValue(row[0])}</td>
                     {row[1]
-                      ? (<><th className="border-r border-black w-[30%] bg-white px-1" style={{fontWeight:"normal",fontSize:12}}>{row[1].label}</th><td className={`w-[20%] ${cellCls(row[1])}`} style={{fontWeight:"bold",fontSize:20}} onClick={e=>handleCellClick(row[1], e)}>{renderItemValue(row[1])}</td></>)
+                      ? (<><th className="border-r border-black w-[30%] bg-white px-1" style={{fontWeight:"normal",fontSize:labelFs,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{row[1].label}</th><td className={`w-[20%] ${cellCls(row[1])}`} style={{fontWeight:"bold",fontSize:valueFs,whiteSpace:'nowrap',overflow:'hidden'}} onClick={e=>handleCellClick(row[1], e)}>{renderItemValue(row[1])}</td></>)
                       : (<><th className="border-r border-black w-[30%] bg-white"></th><td className="w-[20%]"></td></>)}
                   </tr>
                   );
@@ -17023,10 +17026,10 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
           </div>
 
           <div style={{height:"18px",flexShrink:0}} />
-          {/* ご家族からの連絡欄 — 高さを 2/3 (15rem → 10rem) に縮小 */}
+          {/* ご家族からの連絡欄 — 高さ 10rem、ラベルフォント拡大 */}
           <div className="border-2 border-black bg-white mb-2 shrink-0" style={{height:'10rem'}}>
             <div className="px-2 py-0.5 border-b border-slate-400 bg-white">
-              <span className="font-bold text-[11px] text-slate-800">ご家族からの連絡欄</span>
+              <span className="font-bold text-slate-800" style={{fontSize:15}}>ご家族からの連絡欄</span>
             </div>
           </div>
 
@@ -17108,10 +17111,10 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                 : '/?family';
               const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=2&data=${encodeURIComponent(familyLoginUrl)}`;
               return (
-                <div className="flex flex-col items-center shrink-0 border-l border-slate-400 pl-2">
-                  <span className="text-[8px] font-bold text-blue-700 leading-tight text-center">ご家族<br/>専用</span>
-                  <img src={qrSrc} alt="家族用QR" style={{width:48,height:48,objectFit:'contain'}} crossOrigin="anonymous"/>
-                  <span className="text-[7px] text-slate-500 leading-tight text-center">QRから<br/>ログイン</span>
+                <div className="flex flex-col items-center shrink-0 border-l border-slate-400 pl-2" style={{minWidth:96}}>
+                  <span className="font-bold text-blue-700 leading-tight text-center whitespace-nowrap" style={{fontSize:11}}>ご家族専用</span>
+                  <img src={qrSrc} alt="家族用QR" style={{width:80,height:80,objectFit:'contain'}} crossOrigin="anonymous"/>
+                  <span className="text-slate-500 leading-tight text-center whitespace-nowrap" style={{fontSize:10}}>QRからログイン</span>
                 </div>
               );
             })()}
@@ -17201,7 +17204,7 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave }) {
 
 
 // === FitnessView (体力測定) ===
-function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, targetPatientId, onPatientChange, dirtyRef }) {
+function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, targetPatientId, onPatientChange, dirtyRef, saveFnRef }) {
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
   const [statusFilter, setStatusFilter] = useState('当月');
@@ -17286,6 +17289,21 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
     setValues({});
     alert('保存しました');
   };
+
+  // 未保存ポップアップから呼ばれる用 (alert 抜き)
+  const flushSave = () => {
+    if (!selectedPatientId || Object.keys(values).length === 0) { markClean(); return; }
+    const existing = records.find(r => r.patientId === selectedPatientId && r.date === date);
+    let newRecords;
+    if (existing) {
+      newRecords = records.map(r => r.id === existing.id ? { ...r, values: { ...r.values, ...values } } : r);
+    } else {
+      newRecords = [...records, { id: Date.now(), patientId: selectedPatientId, date, values }];
+    }
+    markClean(); onSave({ ...appData, fitnessRecords: newRecords });
+  };
+  if (saveFnRef) saveFnRef.current = flushSave;
+  React.useEffect(() => () => { if (saveFnRef) saveFnRef.current = null; }, []);
 
   return (
     <div className="flex h-full w-full gap-4 p-4 bg-slate-100 overflow-hidden">
@@ -17475,7 +17493,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                     <div className="px-4 py-3 font-bold text-sm text-slate-700">{item.name}<span className="text-xs text-slate-400 ml-1">（{item.unit}）</span></div>
                     <div className="px-4 py-2">
                       <input type="number" step="0.1" value={values[item.id] ?? ''}
-                        onChange={e => setValues({...values, [item.id]: e.target.value})}
+                        onChange={e => { setValues({...values, [item.id]: e.target.value}); markDirty(); }}
                         placeholder="—"
                         className="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400 text-center" />
                     </div>
