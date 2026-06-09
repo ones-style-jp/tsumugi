@@ -10709,8 +10709,8 @@ export default function App() {
                   <stop offset="100%" stopColor="#cee49b"/>
                 </radialGradient>
               </defs>
-              {/* クローバー (scale 0.8 で縮小、文字縦幅に合わせる) */}
-              <g transform="translate(50, 58) scale(0.8)">
+              {/* クローバー (scale 0.8 で縮小、文字縦幅に合わせる、右に55シフトで中央寄せ) */}
+              <g transform="translate(105, 58) scale(0.8)">
                 <path d="M 0 3 Q 1 22 -1 50" stroke="#3d5021" strokeWidth="2.2" fill="none" strokeLinecap="round"/>
                 <g transform="rotate(-60)">
                   <g transform="rotate(45)"><path d="M 0 -3 C -8 -10 -22 -22 -22 -34 C -22 -44 -11 -47 0 -40 C 11 -47 22 -44 22 -34 C 22 -22 8 -10 0 -3 Z" fill="url(#loginLeafA)" opacity="0.96"/></g>
@@ -10720,10 +10720,10 @@ export default function App() {
                   <circle cx="0" cy="0" r="4" fill="#fbbf24"/>
                 </g>
               </g>
-              {/* テキスト: 丸ゴ (白背景で映える深緑) */}
-              <text x="100" y="50" fontFamily="'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif" fontSize="40" fill="#3d5021" fontWeight="700" letterSpacing="3">紡ぎ</text>
-              <text x="102" y="73" fontFamily="'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif" fontSize="17" fill="#7daa3d" fontWeight="500" letterSpacing="6">Tsumugi</text>
-              <text x="102" y="98" fontFamily="'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif" fontSize="11" fill="#5e8030" fontWeight="400" letterSpacing="2" opacity="0.9">家族と現場を結ぶ、デイサービス管理</text>
+              {/* テキスト: 丸ゴ (白背景で映える深緑、右に55シフトで中央寄せ) */}
+              <text x="155" y="50" fontFamily="'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif" fontSize="40" fill="#3d5021" fontWeight="700" letterSpacing="3">紡ぎ</text>
+              <text x="157" y="73" fontFamily="'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif" fontSize="17" fill="#7daa3d" fontWeight="500" letterSpacing="6">Tsumugi</text>
+              <text x="157" y="98" fontFamily="'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif" fontSize="11" fill="#5e8030" fontWeight="400" letterSpacing="2" opacity="0.9">家族と現場を結ぶ、デイサービス管理</text>
             </svg>
           </div>
 
@@ -10914,7 +10914,7 @@ export default function App() {
       <div className={`no-print bg-slate-900 text-slate-300 flex flex-col flex-shrink-0 shadow-2xl transition-all duration-300 ${isSidebarOpen ? 'w-64 opacity-100' : 'w-0 opacity-0 overflow-hidden'}`}>
           <div className="w-64 h-full flex flex-col">
             <div className="h-16 flex items-center px-5 border-b" style={{background:'#fafef1',borderColor:'#d4e7a5'}}>
-              <svg viewBox="0 0 100 120" className="w-7 h-9 mr-3 flex-shrink-0" xmlns="http://www.w3.org/2000/svg">
+              <svg viewBox="0 0 100 100" className="w-8 h-8 mr-2 flex-shrink-0" xmlns="http://www.w3.org/2000/svg">
                 <defs>
                   <radialGradient id="sidebarLeafA" cx="40%" cy="55%" r="55%">
                     <stop offset="0%" stopColor="#608a3e"/>
@@ -10927,8 +10927,8 @@ export default function App() {
                     <stop offset="100%" stopColor="#cee49b"/>
                   </radialGradient>
                 </defs>
-                <g transform="translate(50, 45)">
-                  <path d="M 0 3 Q 1 22 -1 50" stroke="#3d5021" strokeWidth="1.8" fill="none" strokeLinecap="round"/>
+                <g transform="translate(50, 49)">
+                  <path d="M 0 3 Q 1 18 -1 42" stroke="#3d5021" strokeWidth="1.8" fill="none" strokeLinecap="round"/>
                   <g transform="rotate(-60)">
                     <g transform="rotate(45)"><path d="M 0 -3 C -8 -10 -22 -22 -22 -34 C -22 -44 -11 -47 0 -40 C 11 -47 22 -44 22 -34 C 22 -22 8 -10 0 -3 Z" fill="url(#sidebarLeafA)"/></g>
                     <g transform="rotate(135)"><path d="M 0 -3 C -8 -10 -22 -22 -22 -34 C -22 -44 -11 -47 0 -40 C 11 -47 22 -44 22 -34 C 22 -22 8 -10 0 -3 Z" fill="url(#sidebarLeafB)"/></g>
@@ -10938,9 +10938,9 @@ export default function App() {
                   </g>
                 </g>
               </svg>
-              <div className="flex-1 min-w-0">
-                <span style={{fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif",fontSize:'19px',color:'#3d5021',fontWeight:700,letterSpacing:'3px'}}>紡ぎ</span>
-                <span style={{fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif",fontSize:'10px',color:'#7daa3d',letterSpacing:'3px',marginLeft:'8px',fontWeight:500}}>Tsumugi</span>
+              <div className="flex-1 min-w-0 leading-none">
+                <span style={{fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif",fontSize:'22px',color:'#3d5021',fontWeight:700,letterSpacing:'2px',lineHeight:1}}>紡ぎ</span>
+                <span style={{fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif",fontSize:'10px',color:'#7daa3d',letterSpacing:'3px',marginLeft:'8px',fontWeight:500,lineHeight:1,verticalAlign:'middle'}}>Tsumugi</span>
                 {session?.mode==='demo' && <span className="ml-2 text-[9px] font-bold bg-amber-500 text-white px-1.5 py-0.5 rounded">DEMO</span>}
               </div>
             </div>
