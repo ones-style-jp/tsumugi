@@ -10141,7 +10141,10 @@ function FamilyView() {
                           <option value="長女">長女</option>
                           <option value="次男">次男</option>
                           <option value="次女">次女</option>
-                          <option value="兄弟姉妹">兄弟姉妹</option>
+                          <option value="兄">兄</option>
+                          <option value="弟">弟</option>
+                          <option value="姉">姉</option>
+                          <option value="妹">妹</option>
                           <option value="ケアマネージャー">ケアマネージャー</option>
                           <option value="自由記述">自由記述...</option>
                         </select>
