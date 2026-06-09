@@ -7,6 +7,13 @@ import {
   ChevronDown, ChevronUp, Thermometer, Heart, Copy, Edit3, Edit2
 } from 'lucide-react';
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import {
+  isSupabaseEnabled,
+  supabaseCreateInvite,
+  supabaseSignupFamily,
+  supabaseLoginFamily,
+  supabaseGetInviteByCode,
+} from './lib/supabase.js';
 
 // === システム設定 ===
 // === グローバル印刷CSS ===
@@ -9945,9 +9952,51 @@ function FamilyView() {
   const facility = data.systemSettings?.facilityInfo || {};
   // 未ログイン → ログイン画面
   if (!authPid) {
-    const handleLogin = (e) => {
+    const handleLogin = async (e) => {
       e.preventDefault();
-      // ★ localStorage から最新版を取得 (新規発行直後でも反映されるように)
+      // ★ Phase 1: Supabase が有効なら端末越しログインを試みる
+      if (isSupabaseEnabled) {
+        try {
+          const sbAcc = await supabaseLoginFamily({
+            username: loginForm.username.trim(),
+            password: loginForm.password,
+          });
+          // Supabase 上のアカウントを localStorage 形式に変換して merge
+          const localAcc = {
+            id: sbAcc.id,
+            patientId: sbAcc.patient_id,
+            username: sbAcc.username,
+            password: loginForm.password, // 旧コード互換のため (実体は使わない)
+            kind: sbAcc.kind || 'family',
+            relation: sbAcc.relation || '',
+            displayName: sbAcc.display_name || '',
+            email: sbAcc.email || '',
+            role: sbAcc.role || 'member',
+            lastLogin: new Date().toISOString(),
+            _fromSupabase: true,
+          };
+          // localStorage にも反映 (今後の表示用)
+          try {
+            const saved = JSON.parse(localStorage.getItem('daycareAppData_v3')||'null') || {};
+            const accs = saved.familyAccounts || [];
+            const idx = accs.findIndex(a => String(a.id) === String(localAcc.id));
+            if (idx >= 0) accs[idx] = {...accs[idx], ...localAcc};
+            else accs.push(localAcc);
+            saved.familyAccounts = accs;
+            localStorage.setItem('daycareAppData_v3', JSON.stringify(saved));
+            setData(saved);
+          } catch {}
+          sessionStorage.setItem('familyAuthPid', String(localAcc.patientId));
+          sessionStorage.setItem('familyAuthAccId', String(localAcc.id));
+          setAuthPid(String(localAcc.patientId));
+          setAuthAccId(String(localAcc.id));
+          return;
+        } catch (sbErr) {
+          // Supabase でログイン失敗 → localStorage フォールバックを試す
+          console.warn('[supabase] login fallback', sbErr?.message);
+        }
+      }
+      // フォールバック: localStorage 内でログイン (同一端末で登録済みの場合)
       let latestAccounts = data.familyAccounts || [];
       try {
         const saved = JSON.parse(localStorage.getItem('daycareAppData_v3')||'null');
@@ -9961,7 +10010,7 @@ function FamilyView() {
         a.password === loginForm.password
       );
       if (!acc) {
-        setLoginForm(f=>({...f, error:'IDまたはパスワードが正しくありません'}));
+        setLoginForm(f=>({...f, error: isSupabaseEnabled ? 'IDまたはパスワードが違います' : 'IDまたはパスワードが正しくありません'}));
         return;
       }
       const nowIso = new Date().toISOString();
@@ -10037,7 +10086,7 @@ function FamilyView() {
                   </button>
                 </div>
               ) : (
-                <form onSubmit={(e)=>{
+                <form onSubmit={async (e)=>{
                   e.preventDefault();
                   const code = signupForm.inviteCode.trim();
                   const uname = signupForm.username.trim();
@@ -10219,6 +10268,29 @@ function FamilyView() {
                   };
                   try { localStorage.setItem('daycareAppData_v3', JSON.stringify(updated)); } catch {}
                   setData(updated);
+                  // ★ Supabase 同期 (端末越しログインを可能にする)
+                  if (isSupabaseEnabled) {
+                    try {
+                      await supabaseSignupFamily({
+                        inviteCode: code,
+                        username: uname,
+                        password: pw,
+                        email: email,
+                        relation: ecRelation,
+                        displayName: ecName,
+                        kind: isCaremanager ? 'caremanager' : 'family',
+                        role: accRole === 'parent' ? 'parent' : 'member',
+                        facilityName: latest.facility?.name || '',
+                        patientName: (latest.patients||[]).find(p=>p.id===invite.patientId)?.name || '',
+                        inviteFallback: { patientId: invite.patientId, expiresAt: invite.expiresAt },
+                      });
+                    } catch (sbErr) {
+                      // Supabase 同期に失敗 → 同一端末ログインは可能だが、他端末からはログインできない
+                      console.warn('[supabase] signup sync failed:', sbErr?.message);
+                      setSignupForm(f=>({...f, done:true, error:'', warning:`端末同期に失敗しました (${sbErr?.message||'不明'})。同じ端末からはログイン可能です。`}));
+                      return;
+                    }
+                  }
                   setSignupForm(f=>({...f, done:true, error:''}));
                 }}>
                   <div style={{marginBottom:12}}>
@@ -10815,6 +10887,19 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
                     const updated = { ...data, familyInvites: [...(data.familyInvites||[]), newInvite] };
                     try { localStorage.setItem('daycareAppData_v3', JSON.stringify(updated)); } catch {}
                     setData(updated);
+                    // ★ Supabase 同期 (家族が別端末から登録できるように)
+                    if (isSupabaseEnabled) {
+                      supabaseCreateInvite({
+                        patientId: patient.id,
+                        code,
+                        email: em,
+                        relation: inviteFamForm.relation || '',
+                        facilityName: facility?.name || '',
+                        patientName: patient.name || '',
+                        facilityPhone: facility?.phone || '',
+                        expiresAt: newInvite.expiresAt,
+                      }).catch(err => console.warn('[supabase] invite push failed', err));
+                    }
                     const baseUrl = window.location.origin + window.location.pathname.replace(/\/+$/, '');
                     const tk = encodeInviteToken({ c: code, p: patient.id, e: em, r: inviteFamForm.relation||'', x: newInvite.expiresAt||'' });
                     const url = `${baseUrl}/?family&invite=${encodeURIComponent(code)}&t=${tk}`;
@@ -19618,6 +19703,19 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                       expiresAt: opts.expiresAt || new Date(Date.now() + 14*24*60*60*1000).toISOString(),
                     };
                     onSave({...appData, familyInvites: [...(appData.familyInvites||[]), newInvite]});
+                    // ★ Supabase 同期 (家族が別端末から登録できるように)
+                    if (isSupabaseEnabled) {
+                      supabaseCreateInvite({
+                        patientId: pat.id,
+                        code,
+                        email: opts.email || '',
+                        relation: opts.relation || '',
+                        facilityName: appData.facility?.name || '',
+                        patientName: pat.name || '',
+                        facilityPhone: appData.facility?.phone || '',
+                        expiresAt: newInvite.expiresAt,
+                      }).catch(err => console.warn('[supabase] invite push failed', err));
+                    }
                     return newInvite;
                   };
                   const sendMailInvite = async () => {

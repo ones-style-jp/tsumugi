@@ -1,0 +1,183 @@
+// Supabase クライアント (Phase 1: 家族認証のみ)
+// 環境変数が設定されていない場合は null を返し、呼び出し側で localStorage フォールバック
+import { createClient } from '@supabase/supabase-js';
+
+const url = import.meta.env.VITE_SUPABASE_URL || '';
+const key = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+
+export const supabase = (url && key) ? createClient(url, key, {
+  auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+}) : null;
+
+export const isSupabaseEnabled = !!supabase;
+
+// 簡易ハッシュ (SHA-256 + 固定ソルト)
+// 本格運用では Argon2/bcrypt が望ましいが、ブラウザ完結のため SHA-256 + ソルト
+export async function hashPassword(password) {
+  const enc = new TextEncoder();
+  const salt = 'tsumugi_v1_'; // 注: 本格運用では per-user ソルト推奨
+  const data = enc.encode(salt + (password || ''));
+  const buf = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+// =========================================================
+// 招待発行 (スタッフ側 / 親アカウント側で呼び出し)
+// =========================================================
+export async function supabaseCreateInvite(invite) {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from('family_invites')
+      .insert({
+        patient_id: String(invite.patientId || ''),
+        code: invite.code,
+        email: invite.email || null,
+        relation: invite.relation || null,
+        facility_name: invite.facilityName || null,
+        patient_name: invite.patientName || null,
+        facility_phone: invite.facilityPhone || null,
+        expires_at: invite.expiresAt || null,
+      })
+      .select()
+      .maybeSingle();
+    if (error) {
+      console.warn('[supabase] createInvite error', error);
+      return null;
+    }
+    return data;
+  } catch (e) {
+    console.warn('[supabase] createInvite exception', e);
+    return null;
+  }
+}
+
+// =========================================================
+// 招待コード検証 + 家族アカウント作成 (新規登録時)
+// =========================================================
+export async function supabaseSignupFamily({
+  inviteCode, username, password, email, relation, displayName, kind, role,
+  facilityName, patientName,
+  inviteFallback, // {patientId, expiresAt} - Supabase に招待が無い場合 (旧版で作成された招待) のフォールバック
+}) {
+  if (!supabase) throw new Error('Supabase 未接続');
+  // 1. 招待検索 (URL token から仮登録されているはず)
+  const { data: inv, error: invErr } = await supabase
+    .from('family_invites')
+    .select('*')
+    .eq('code', inviteCode)
+    .maybeSingle();
+  if (invErr) throw invErr;
+  // 招待が Supabase に無い → URL token のフォールバックがあれば自動作成
+  let invite = inv;
+  if (!invite && inviteFallback?.patientId) {
+    const { data: created, error: cErr } = await supabase
+      .from('family_invites')
+      .insert({
+        patient_id: String(inviteFallback.patientId),
+        code: inviteCode,
+        email: email || null,
+        relation: relation || null,
+        facility_name: facilityName || null,
+        patient_name: patientName || null,
+        expires_at: inviteFallback.expiresAt || null,
+      })
+      .select()
+      .single();
+    if (cErr) throw cErr;
+    invite = created;
+  }
+  if (!invite) throw new Error('招待コードが見つかりません');
+  if (inv.used_by) throw new Error('この招待コードは既に使用済みです');
+  if (inv.expires_at && new Date(inv.expires_at) < new Date()) {
+    throw new Error('招待コードの有効期限が切れています');
+  }
+  // 2. username 重複チェック
+  const { data: uExists } = await supabase
+    .from('family_accounts')
+    .select('id').eq('username', username).maybeSingle();
+  if (uExists) throw new Error('このログインIDは既に使用されています');
+  // 3. メール重複チェック
+  if (email) {
+    const { data: emExists } = await supabase
+      .from('family_accounts')
+      .select('id').eq('email', email).is('deleted_at', null).maybeSingle();
+    if (emExists) throw new Error('このメールアドレスは既に登録済みです');
+  }
+  // 4. 家族アカウント作成
+  const password_hash = await hashPassword(password);
+  const { data: acc, error: accErr } = await supabase
+    .from('family_accounts')
+    .insert({
+      patient_id: inv.patient_id,
+      username, password_hash,
+      kind: kind || 'family',
+      relation: relation || inv.relation || '',
+      display_name: displayName || '',
+      email: email || '',
+      facility_name: facilityName || inv.facility_name || '',
+      patient_name: patientName || inv.patient_name || '',
+      role: role || 'member',
+    })
+    .select()
+    .single();
+  if (accErr) throw accErr;
+  // 5. 招待を使用済み化
+  await supabase
+    .from('family_invites')
+    .update({ used_by: acc.id, used_at: new Date().toISOString() })
+    .eq('id', inv.id);
+  return { account: acc, invite: inv };
+}
+
+// =========================================================
+// ログイン
+// =========================================================
+export async function supabaseLoginFamily({ username, password }) {
+  if (!supabase) throw new Error('Supabase 未接続');
+  const password_hash = await hashPassword(password);
+  const { data, error } = await supabase
+    .from('family_accounts')
+    .select('*')
+    .eq('username', username)
+    .eq('password_hash', password_hash)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('IDまたはパスワードが違います');
+  await supabase
+    .from('family_accounts')
+    .update({ last_login: new Date().toISOString() })
+    .eq('id', data.id);
+  return data;
+}
+
+// =========================================================
+// 招待コードから事前情報取得 (家族登録画面で URL token と合わせて使う)
+// =========================================================
+export async function supabaseGetInviteByCode(code) {
+  if (!supabase) return null;
+  try {
+    const { data } = await supabase
+      .from('family_invites')
+      .select('*')
+      .eq('code', code)
+      .maybeSingle();
+    return data;
+  } catch { return null; }
+}
+
+// =========================================================
+// 患者IDから家族アカウント一覧 (親が他家族追加時の重複防止)
+// =========================================================
+export async function supabaseListFamilyByPatient(patientId) {
+  if (!supabase) return [];
+  try {
+    const { data } = await supabase
+      .from('family_accounts')
+      .select('*')
+      .eq('patient_id', String(patientId))
+      .is('deleted_at', null);
+    return data || [];
+  } catch { return []; }
+}
