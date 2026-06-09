@@ -9228,10 +9228,12 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
     : patients;
   const baseUrl = typeof window !== 'undefined' ? (window.location.origin + window.location.pathname.replace(/\/+$/, '')) : '';
   const familyLoginUrl = `${baseUrl}/?family`;
+  // records タブのときはヘッダーと PersonalDashboardView を密接に配置 (sticky + 隙間ゼロ)
+  const isRecordsTab = previewInnerTab === 'records' && patient;
   return (
-    <div className="space-y-3">
-      {/* 上部枠: ←一覧 | ドロップダウン | (タブ:お知らせ/通所記録) | URLコピー/ログイン縦並び */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-3 flex items-center gap-3 flex-wrap">
+    <div className={isRecordsTab ? '' : 'space-y-3'}>
+      {/* 上部枠: ←一覧 | ドロップダウン | (タブ:お知らせ/通所記録) | ログイン画面リンク — records 時は sticky */}
+      <div className={`bg-white border-slate-200 p-3 flex items-center gap-3 flex-wrap ${isRecordsTab ? 'border-b sticky top-0 z-50 shadow-sm' : 'rounded-2xl shadow-sm border'}`} style={isRecordsTab ? {marginBottom:0} : undefined}>
         {patient && (
           <button onClick={()=>{ setPreviewPid(null); setPatSearch(''); }} title="利用者一覧に戻る"
             className="px-3 py-2 rounded-lg text-sm font-bold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 shrink-0 whitespace-nowrap">
@@ -9287,11 +9289,9 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
         )}
         {patient && accs.length > 0 && <div className="text-[10px] text-slate-500 shrink-0">登録 {accs.length}名</div>}
         {/* 家族共通ログインURL: コピー + ログイン画面を開く (縦2行) */}
-        <div className="ml-auto flex flex-col gap-1 shrink-0">
-          <button onClick={()=>{navigator.clipboard?.writeText(familyLoginUrl);}}
-            className="px-3 py-1.5 text-xs font-bold bg-violet-600 hover:bg-violet-700 text-white rounded-lg shadow active:scale-95 whitespace-nowrap">📋 家族共通URLをコピー</button>
+        <div className="ml-auto flex items-center gap-2 shrink-0">
           <a href={familyLoginUrl} target="_blank" rel="noopener noreferrer"
-            className="px-3 py-1.5 text-xs font-bold bg-white border border-violet-300 text-violet-700 hover:bg-violet-50 rounded-lg shadow-sm active:scale-95 text-center whitespace-nowrap">🌐 ログイン画面を開く</a>
+            className="px-3 py-2 text-sm font-bold bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-50 rounded-lg shadow-sm active:scale-95 text-center whitespace-nowrap">🌐 ログイン画面を開く</a>
         </div>
       </div>
       {!patient && (() => {
@@ -9417,16 +9417,15 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
         );
       })()}
       {patient && previewInnerTab === 'records' && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-          <PersonalDashboardView
-            appData={{...appData, patients: appData.patients, familyTokkiOverrides}}
-            targetPatientId={patient.id}
-            familyMode={true}
-            hidePatientSelector={true}
-            navigateTo={()=>{}}
-            onShowPrintPreview={()=>{}}
-          />
-        </div>
+        <PersonalDashboardView
+          appData={{...appData, patients: appData.patients, familyTokkiOverrides}}
+          targetPatientId={patient.id}
+          familyMode={true}
+          hidePatientSelector={true}
+          stickyTopOffset={68}
+          navigateTo={()=>{}}
+          onShowPrintPreview={()=>{}}
+        />
       )}
     </div>
   );
@@ -12841,7 +12840,9 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
 }
 
 // === PersonalDashboardView (簡易版) ===
-function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatientChange, isSidebarOpen, onShowPrintPreview, familyMode = false, hidePatientSelector = false }) {
+function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatientChange, isSidebarOpen, onShowPrintPreview, familyMode = false, hidePatientSelector = false, stickyTopOffset = null }) {
+  // familyMode 時の sticky top 既定値: stickyTopOffset 未指定なら 56 (FamilyView 内)
+  const stickyTop = familyMode ? (stickyTopOffset != null ? stickyTopOffset : 56) : 0;
   // familyMode: 利用者家族・ケアマネ向け表示。一部セクション (詳細記録/欠席/休止) を非表示にし、印刷ボタンも隠す
   // 特記の表示は familyTokkiOverrides で制御 (visible:false の記録は表示しない)
   // familyMode: 必ず targetPatientId が来る前提で 1 番目にフォールバック
@@ -13104,7 +13105,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   return (
     <div className="w-full" style={{backgroundColor:'#f0f4f9',minHeight:'100%'}}>
       {/* ヘッダーバー（固定） — 親 scroll container 内で sticky */}
-      <div style={{position:'sticky',top: familyMode ? 56 : 0,zIndex:familyMode?40:30,background: familyMode ? '#f4f8ed' : '#f0f4f9'}}>
+      <div style={{position:'sticky',top: stickyTop, zIndex:familyMode?40:30,background: familyMode ? '#f4f8ed' : '#f0f4f9'}}>
       <div style={{background: familyMode ? 'linear-gradient(135deg,#7daa3d 0%,#b8d488 100%)' : 'linear-gradient(135deg,#2563eb 0%,#1e40af 100%)',color:'white',padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
         <div style={{display:'flex',alignItems:'center',gap:12}}>
           <div style={{width:36,height:36,background:'rgba(255,255,255,0.2)',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center'}}>
@@ -19589,8 +19590,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                         return;
                       }
                       const err = await resp.json().catch(() => ({}));
-                      // 失敗時は mailto にフォールバック
-                      if (!window.confirm(`自動送信に失敗しました (${err.error||resp.status})\n\n代わりにメールクライアントを開いて手動送信しますか？`)) return;
+                      const detail = [err.error, err.brevoMessage, err.hint].filter(Boolean).join('\n');
+                      if (!window.confirm(`自動送信に失敗しました\n\n${detail}\n\n代わりにメールクライアントを開いて手動送信しますか？`)) return;
                     } catch (e) {
                       if (!window.confirm(`自動送信エラー: ${String(e).slice(0,120)}\n\n代わりにメールクライアントを開いて手動送信しますか？`)) return;
                     }

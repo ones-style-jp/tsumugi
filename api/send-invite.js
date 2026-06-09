@@ -87,6 +87,17 @@ export default async function handler(req, res) {
   `.trim();
 
   try {
+    // Brevo は to[].name が空文字だと拒否することがあるので、空なら省略
+    const toEntry = { email: to };
+    if (toName && toName.trim()) toEntry.name = toName.trim();
+    // 必須最小フィールドのみ送信 (Brevo の 400 を避ける)
+    const payload = {
+      sender: { email: senderEmail, name: safeFacility.slice(0, 50) },
+      to: [toEntry],
+      subject: subject.slice(0, 100),
+      htmlContent: htmlBody,
+    };
+
     const response = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
@@ -94,20 +105,25 @@ export default async function handler(req, res) {
         'content-type': 'application/json',
         'api-key': apiKey,
       },
-      body: JSON.stringify({
-        sender: { email: senderEmail, name: `${safeFacility} (Tsumugi 紡ぎ)` },
-        to: [{ email: to, name: toName || '' }],
-        subject,
-        htmlContent: htmlBody,
-        replyTo: facilityName ? { email: senderEmail, name: safeFacility } : undefined,
-      }),
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
       const errText = await response.text().catch(() => '');
+      let parsed = null;
+      try { parsed = JSON.parse(errText); } catch {}
+      const brevoMsg = parsed?.message || parsed?.code || errText.slice(0, 300);
+      // よくあるケース別ヒント
+      let hint = '';
+      if (/unauthorized|sender/i.test(brevoMsg)) {
+        hint = `送信元 ${senderEmail} が Brevo で認証されていません。Brevo ダッシュボード > Senders & IP で認証してください。`;
+      } else if (/api[- ]?key/i.test(brevoMsg)) {
+        hint = 'API キーが無効です。Vercel 環境変数 BREVO_API_KEY を確認してください。';
+      }
       return res.status(response.status).json({
         error: `Brevo API エラー (${response.status})`,
-        detail: errText.slice(0, 500),
+        brevoMessage: brevoMsg,
+        hint,
       });
     }
 
