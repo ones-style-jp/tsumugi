@@ -10611,13 +10611,19 @@ export default function App() {
   const masterDirtyRef = React.useRef(false);
   const masterSaveFnRef = React.useRef(null);
   const settingsDirtyRef = React.useRef(false);
+  const settingsSaveFnRef = React.useRef(null);
   const printDirtyRef = React.useRef(false);
+  const printSaveFnRef = React.useRef(null);
   const fitnessDirtyRef = React.useRef(false);
+  const fitnessSaveFnRef = React.useRef(null);
   const diaryDirtyRef = React.useRef(false);
+  const diarySaveFnRef = React.useRef(null);
   const monitoringDirtyRef = React.useRef(false);
   const monitoringSaveFnRef = React.useRef(null);
   const ticketDirtyRef = React.useRef(false);
+  const ticketSaveFnRef = React.useRef(null);
   const absenceDirtyRef = React.useRef(false);
+  const absenceSaveFnRef = React.useRef(null);
   const [sharedAmpm, setSharedAmpm] = useState('AM'); // 'AM' or 'PM'
 
   const handleSaveToCloud = (newData) => {
@@ -11050,16 +11056,16 @@ export default function App() {
             <div ref={contentRef} style={{flex:1,overflow:'auto',padding:0}}>
             <div style={{minWidth:DESIGN_WIDTH,transformOrigin:'top left',transform:contentScale<1?`scale(${contentScale})`:'none',width:contentScale<1?`${100/contentScale}%`:'100%',height:contentScale<1?`${100/contentScale}%`:'100%'}}>
             {currentView === 'record' ? <RecordView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={recordDirtyRef} saveFnRef={recordSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} showTip={showTip} hideTip={hideTip} isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} /> :
-             currentView === 'ticket' ? <TicketView appData={appData} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  onSave={handleSaveToCloud} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={ticketDirtyRef} /> : 
-             currentView === 'print' ? <ContactBookView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={printDirtyRef} sharedAmpm={sharedAmpm} /> : 
+             currentView === 'ticket' ? <TicketView appData={appData} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  onSave={handleSaveToCloud} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={ticketDirtyRef} saveFnRef={ticketSaveFnRef} /> :
+             currentView === 'print' ? <ContactBookView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={printDirtyRef} saveFnRef={printSaveFnRef} sharedAmpm={sharedAmpm} /> :
              currentView === 'master' ? <MasterView appData={appData} onSave={handleSaveToCloud} targetPatientId={targetPatientId} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={masterDirtyRef} saveFnRef={masterSaveFnRef} /> :
              currentView === 'dash_personal' ? <PersonalDashboardView appData={appData} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  navigateTo={navigateTo} onPatientChange={setTargetPatientId} isSidebarOpen={isSidebarOpen} /> :
-             currentView === 'settings' ? <SettingsView appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} /> :
+             currentView === 'settings' ? <SettingsView appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} /> :
              currentView === 'family_admin' ? <FamilyAdminView appData={appData} onSave={handleSaveToCloud} /> :
-             currentView === 'diary' ? <DailyLogView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} dirtyRef={diaryDirtyRef} /> :
-             currentView === 'absence_fax' ? <AbsenceFaxView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={absenceDirtyRef} /> :
+             currentView === 'diary' ? <DailyLogView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} dirtyRef={diaryDirtyRef} saveFnRef={diarySaveFnRef} /> :
+             currentView === 'absence_fax' ? <AbsenceFaxView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={absenceDirtyRef} saveFnRef={absenceSaveFnRef} /> :
              currentView === 'general_fax' ? <GeneralFaxView appData={appData} onSave={setAppData} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
-             currentView === 'fitness' ? <FitnessView appData={appData} onSave={handleSaveToCloud} selectedDate={selectedDate} sharedAmpm={sharedAmpm} navigateTo={navigateTo} targetPatientId={targetPatientId} onPatientChange={setTargetPatientId} dirtyRef={fitnessDirtyRef} /> :
+             currentView === 'fitness' ? <FitnessView appData={appData} onSave={handleSaveToCloud} selectedDate={selectedDate} sharedAmpm={sharedAmpm} navigateTo={navigateTo} targetPatientId={targetPatientId} onPatientChange={setTargetPatientId} dirtyRef={fitnessDirtyRef} saveFnRef={fitnessSaveFnRef} /> :
              currentView === 'monitoring' ? <MonitoringView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={monitoringDirtyRef} saveFnRef={monitoringSaveFnRef} /> :
              currentView === 'dash_operation' ? <OperationDashboardView appData={appData} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} setAppData={setAppData} /> :
              <div className="flex h-full items-center justify-center text-slate-400 font-bold">開発中</div>}
@@ -11074,10 +11080,22 @@ export default function App() {
             <p className="text-sm text-slate-500 text-center mb-6">保存しますか？</p>
             <div className="flex flex-col gap-2">
               <button onClick={() => {
-                // 保存関数を発火 (移動前 View のものを呼ぶ)
-                try { recordSaveFnRef.current && recordSaveFnRef.current(); } catch(_){}
-                try { masterSaveFnRef.current && masterSaveFnRef.current(); } catch(_){}
-                try { monitoringSaveFnRef.current && monitoringSaveFnRef.current(); } catch(_){}
+                // 移動前 View の save fn のみ呼ぶ (他 View の古い ref を呼ぶと過去状態で上書きしてしまう)
+                const saveFnMap = {
+                  record: recordSaveFnRef,
+                  master: masterSaveFnRef,
+                  monitoring: monitoringSaveFnRef,
+                  ticket: ticketSaveFnRef,
+                  print: printSaveFnRef,
+                  diary: diarySaveFnRef,
+                  absence_fax: absenceSaveFnRef,
+                  fitness: fitnessSaveFnRef,
+                  settings: settingsSaveFnRef,
+                };
+                try {
+                  const ref = saveFnMap[currentView];
+                  if (ref && ref.current) ref.current();
+                } catch(_){}
                 recordDirtyRef.current = false;
                 masterDirtyRef.current = false;
                 settingsDirtyRef.current = false;
@@ -11087,7 +11105,6 @@ export default function App() {
                 monitoringDirtyRef.current = false;
                 ticketDirtyRef.current = false;
                 absenceDirtyRef.current = false;
-                // setAppData の commit を待ってから View 切替 (setTimeout で次の tick へ)
                 const _nav = navConfirm;
                 setNavConfirm(null);
                 setTimeout(() => {
