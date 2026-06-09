@@ -10004,6 +10004,7 @@ function FamilyView() {
                   if (pw.length < 8) { setSignupForm(f=>({...f, error:'パスワードは8文字以上必要です'})); return; }
                   if (!/[a-zA-Z]/.test(pw) || !/[0-9]/.test(pw)) { setSignupForm(f=>({...f, error:'パスワードは英字と数字を組み合わせてください'})); return; }
                   if (pw !== signupForm.password2) { setSignupForm(f=>({...f, error:'パスワードが一致しません'})); return; }
+                  if (!signupForm.agreedTerms || !signupForm.agreedPrivacy) { setSignupForm(f=>({...f, error:'利用規約とプライバシーポリシーに同意してください'})); return; }
                   // メールアドレス
                   const email = signupForm.email.trim();
                   if (!email) { setSignupForm(f=>({...f, error:'メールアドレスを入力してください'})); return; }
@@ -10014,7 +10015,8 @@ function FamilyView() {
                   const ecName = signupForm.ecName.trim();
                   const ecPhone = signupForm.ecPhone.trim();
                   const ecMobile = signupForm.ecMobile.trim();
-                  if (!ecName) { setSignupForm(f=>({...f, error:'お名前を入力してください'})); return; }
+                  if (!ecName) { setSignupForm(f=>({...f, error:'お名前 (姓・名) を入力してください'})); return; }
+                  if (!signupForm.ecKanaLast?.trim() || !signupForm.ecKanaFirst?.trim()) { setSignupForm(f=>({...f, error:'ふりがな (姓・名) を入力してください'})); return; }
                   if (!ecRelation) { setSignupForm(f=>({...f, error:'続柄を選択してください'})); return; }
                   if (!ecPhone && !ecMobile) { setSignupForm(f=>({...f, error:'電話番号（固定または携帯）を1つ以上入力してください'})); return; }
                   const isCaremanager = ecRelation === 'ケアマネージャー';
@@ -10086,7 +10088,13 @@ function FamilyView() {
                     displayName: ecName,
                     email: email,
                     createdAt: new Date().toISOString().slice(0,10),
-                    invitedByAccountId: invite.createdByAccountId || null, // 親招待の場合
+                    invitedByAccountId: invite.createdByAccountId || null,
+                    // 利用規約・プライバシーポリシーへの同意記録 (バージョン番号は後で変えられる)
+                    consents: {
+                      termsVersion: '1.0',
+                      privacyVersion: '1.0',
+                      acceptedAt: new Date().toISOString(),
+                    },
                   };
                   const ecLastName = (signupForm.ecLastName||'').trim();
                   const ecFirstName = (signupForm.ecFirstName||'').trim();
@@ -10353,9 +10361,39 @@ function FamilyView() {
                       </div>
                     );
                   })()}
+                  {/* 利用規約・プライバシーポリシー 同意 */}
+                  <div style={{background:'#f0fdf4',border:'1px solid #86efac',borderRadius:12,padding:14,marginBottom:12,marginTop:8}}>
+                    <div style={{fontSize:12,fontWeight:'bold',color:'#166534',marginBottom:8}}>📜 利用規約・プライバシーポリシー</div>
+                    <div style={{maxHeight:160,overflow:'auto',background:'white',border:'1px solid #d1fae5',borderRadius:8,padding:'10px 12px',fontSize:11,color:'#334155',lineHeight:1.7,marginBottom:10}}>
+                      <b style={{color:'#166534'}}>【利用規約】</b><br/>
+                      1. 本サービスは「{facility.name||'当事業所'}」の利用者ご家族・関係者専用です。<br/>
+                      2. アカウント情報は他人に譲渡・貸与できません。<br/>
+                      3. ご利用者の医療・介護情報を不正に開示・利用しないでください。<br/>
+                      4. システム停止・不具合により生じた損害について事業所は責任を負いません。<br/>
+                      5. 本サービスの利用は予告なく停止される場合があります。<br/><br/>
+                      <b style={{color:'#166534'}}>【プライバシーポリシー】</b><br/>
+                      1. 収集する情報: 氏名、ふりがな、続柄、メールアドレス、電話番号、ログインID、パスワード (暗号化)、アクセスログ。<br/>
+                      2. 利用目的: ご利用者の介護記録・連絡・お知らせの提供と緊急連絡先管理のため。<br/>
+                      3. 第三者提供: 法令に基づく場合を除き、ご本人の同意なく第三者へ提供しません。<br/>
+                      4. 委託先: メール送信のためメール配信サービス (Brevo) を利用します。<br/>
+                      5. 保管期間: 退所後 5年間、または法令で定める期間。<br/>
+                      6. 開示・訂正・削除: 事業所窓口までお問い合わせください。<br/>
+                      7. お問い合わせ: {facility.name||'当事業所'}{facility.phone?` / TEL ${facility.phone}`:''}<br/>
+                    </div>
+                    <label style={{display:'flex',alignItems:'flex-start',gap:8,fontSize:12,color:'#166534',cursor:'pointer',marginBottom:6}}>
+                      <input type="checkbox" checked={signupForm.agreedTerms||false} onChange={e=>setSignupForm(f=>({...f,agreedTerms:e.target.checked,error:''}))}
+                        style={{marginTop:2,accentColor:'#16a34a',cursor:'pointer'}}/>
+                      <span><b>利用規約</b>に同意します <span style={{color:'#dc2626'}}>*</span></span>
+                    </label>
+                    <label style={{display:'flex',alignItems:'flex-start',gap:8,fontSize:12,color:'#166534',cursor:'pointer'}}>
+                      <input type="checkbox" checked={signupForm.agreedPrivacy||false} onChange={e=>setSignupForm(f=>({...f,agreedPrivacy:e.target.checked,error:''}))}
+                        style={{marginTop:2,accentColor:'#16a34a',cursor:'pointer'}}/>
+                      <span><b>プライバシーポリシー</b>および<b>個人情報の取り扱い</b>に同意します <span style={{color:'#dc2626'}}>*</span></span>
+                    </label>
+                  </div>
                   {signupForm.error && <div style={{color:'#ef4444',fontSize:12,fontWeight:'bold',marginBottom:10,textAlign:'center',background:'#fef2f2',padding:'8px 10px',borderRadius:8}}>{signupForm.error}</div>}
-                  <button type="submit"
-                    style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#94c456,#5e8030)',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',marginTop:6,boxShadow:'0 4px 12px rgba(94,128,48,0.3)'}}>
+                  <button type="submit" disabled={!(signupForm.agreedTerms && signupForm.agreedPrivacy)}
+                    style={{width:'100%',padding:'13px',background: (signupForm.agreedTerms && signupForm.agreedPrivacy)?'linear-gradient(135deg,#94c456,#5e8030)':'#cbd5e1',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:(signupForm.agreedTerms && signupForm.agreedPrivacy)?'pointer':'not-allowed',marginTop:6,boxShadow:'0 4px 12px rgba(94,128,48,0.3)'}}>
                     登録する
                   </button>
                   <button type="button" onClick={()=>setMode('login')} style={{display:'block',width:'100%',padding:'10px',marginTop:10,background:'transparent',color:'#64748b',border:'none',fontSize:12,fontWeight:'bold',cursor:'pointer'}}>← ログイン画面に戻る</button>
@@ -10482,22 +10520,23 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
           .family-header-title { font-size:10px!important; }
         }
       `}</style>
-      <div style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',padding:'24px 16px 16px',boxShadow:'0 2px 12px rgba(99,102,241,0.25)'}}>
-        <div style={{maxWidth:720,margin:'0 auto',display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12}}>
-          <div>
-            <div className="family-header-title" style={{fontSize:11,opacity:0.85,fontWeight:'bold',letterSpacing:1}}>{facility.name||'デイケアサービス'} 家族用閲覧</div>
-            <div className="family-header-name" style={{fontSize:22,fontWeight:'bold',marginTop:4}}>{patient.name} 様</div>
-            {patient.kana && <div style={{fontSize:12,opacity:0.85,marginTop:2}}>{patient.kana}</div>}
+      {/* 固定ヘッダー: 事業所名 + 利用者名 + ログアウト + タブ */}
+      <div style={{position:'sticky',top:0,zIndex:60,background:'linear-gradient(135deg,#6366f1,#8b5cf6)',boxShadow:'0 2px 12px rgba(99,102,241,0.25)'}}>
+        <div style={{color:'white',padding:'14px 16px 10px'}}>
+          <div style={{maxWidth:720,margin:'0 auto',display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12}}>
+            <div>
+              <div className="family-header-title" style={{fontSize:11,opacity:0.85,fontWeight:'bold',letterSpacing:1}}>{facility.name||'デイケアサービス'} 家族用閲覧</div>
+              <div className="family-header-name" style={{fontSize:20,fontWeight:'bold',marginTop:2}}>{patient.name} 様</div>
+            </div>
+            {onLogout && (
+              <button onClick={onLogout} style={{background:'rgba(255,255,255,0.18)',color:'white',border:'1px solid rgba(255,255,255,0.3)',borderRadius:10,padding:'6px 12px',fontSize:11,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>
+                ログアウト
+              </button>
+            )}
           </div>
-          {onLogout && (
-            <button onClick={onLogout} style={{background:'rgba(255,255,255,0.18)',color:'white',border:'1px solid rgba(255,255,255,0.3)',borderRadius:10,padding:'6px 12px',fontSize:11,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>
-              ログアウト
-            </button>
-          )}
         </div>
-      </div>
-      <div style={{maxWidth:1100,margin:'-12px auto 0',padding:'0 12px'}}>
-        <div className="family-tab-bar" style={{background:'white',borderRadius:16,padding:4,boxShadow:'0 4px 16px rgba(0,0,0,0.06)',display:'flex',gap:2}}>
+        <div style={{maxWidth:1100,margin:'0 auto',padding:'0 12px 10px'}}>
+          <div className="family-tab-bar" style={{background:'rgba(255,255,255,0.95)',borderRadius:14,padding:4,boxShadow:'0 4px 16px rgba(0,0,0,0.1)',display:'flex',gap:2}}>
           {[['news','📢 お知らせ'],['analysis','📊 通所記録']].map(([k,l])=>{
             // 未読バッジ: お知らせタブのみ表示
             const showBadge = k === 'news' && unreadCount > 0;
@@ -10516,6 +10555,7 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
               </button>
             );
           })}
+          </div>
         </div>
       </div>
       <div className="family-content-area" style={{maxWidth: tab==='analysis' ? 1100 : 720, margin:'16px auto 0',padding:'0 12px 40px'}}>
@@ -10556,37 +10596,63 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
                 ...announcements.map(a=>({...a,_kind:'全体'})),
                 ...virtualOldAnnouncements,
               ].sort((a,b) => (b.postedAt||b.date||'').localeCompare(a.postedAt||a.date||''));
+              // 1ヶ月以内 (recent) と 1ヶ月以上前 (archived) に分割
+              const oneMonthAgo = new Date(); oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+              const dateOf = (a) => a.postedAt || (a.date ? `${a.date}T00:00:00.000Z` : '');
+              const recent = merged.filter(a => dateOf(a) >= oneMonthAgo.toISOString());
+              const archived = merged.filter(a => dateOf(a) < oneMonthAgo.toISOString());
+              const archivedByMonth = {};
+              archived.forEach(a => {
+                const d = dateOf(a).slice(0, 7) || '不明';
+                if (!archivedByMonth[d]) archivedByMonth[d] = [];
+                archivedByMonth[d].push(a);
+              });
+              const archivedMonths = Object.keys(archivedByMonth).sort((a,b)=>b.localeCompare(a));
+              const renderCard = (a) => {
+                const isNew = (a.postedAt || (a.date ? `${a.date}T00:00:00.000Z` : '')) > lastReadAt && a._kind !== '過去';
+                const annPhotos = a.photos || [];
+                const kindStyle = a._kind === '個別' ? {bg:'#fef3c7',fg:'#92400e'} : a._kind === '過去' ? {bg:'#e2e8f0',fg:'#64748b'} : {bg:'#dbeafe',fg:'#1e40af'};
+                return (
+                  <div key={a.id} style={{background:'white',borderRadius:16,padding:'14px 18px',marginBottom:12,boxShadow:'0 2px 8px rgba(0,0,0,0.04)',border: isNew ? '2px solid #818cf8' : '1px solid transparent'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
+                      <span style={{fontSize:9,fontWeight:'bold',padding:'2px 6px',borderRadius:4,background:kindStyle.bg,color:kindStyle.fg}}>{a._kind}</span>
+                      <span style={{fontSize:11,color:'#94a3b8'}}>{a.date}</span>
+                      {isNew && <span style={{fontSize:9,fontWeight:'bold',padding:'2px 6px',borderRadius:4,background:'#ef4444',color:'white'}}>NEW</span>}
+                    </div>
+                    {a.title && <div style={{fontSize:15,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>{a.title}</div>}
+                    {a.body && <div style={{fontSize:13,color:'#475569',lineHeight:1.7,whiteSpace:'pre-wrap',marginBottom:annPhotos.length>0?10:0}}>{a.body}</div>}
+                    {annPhotos.length > 0 && (
+                      <div style={{display:'grid',gridTemplateColumns:annPhotos.length===1?'1fr':'repeat(2,1fr)',gap:8,marginTop:8}}>
+                        {annPhotos.map((p,pi) => (
+                          <div key={p.id||pi} style={{position:'relative'}}>
+                            <img src={p.url} alt="" style={{width:'100%',aspectRatio:'1',objectFit:'cover',borderRadius:10}}/>
+                            <a href={p.url} download={p.name||`photo_${pi+1}.jpg`} style={{position:'absolute',bottom:6,right:6,background:'rgba(0,0,0,0.6)',color:'white',padding:'4px 8px',borderRadius:6,fontSize:10,fontWeight:'bold',textDecoration:'none'}}>↓</a>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              };
               return (
                 <>
                   {merged.length === 0 ? (
                     <div style={{background:'white',borderRadius:16,padding:'24px 20px',textAlign:'center',color:'#94a3b8',fontSize:13,boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>お知らせはまだ投稿されていません</div>
                   ) : (
-                    merged.map((a) => {
-                      const isNew = (a.postedAt || (a.date ? `${a.date}T00:00:00.000Z` : '')) > lastReadAt && a._kind !== '過去';
-                      const annPhotos = a.photos || [];
-                      const kindStyle = a._kind === '個別' ? {bg:'#fef3c7',fg:'#92400e'} : a._kind === '過去' ? {bg:'#e2e8f0',fg:'#64748b'} : {bg:'#dbeafe',fg:'#1e40af'};
-                      return (
-                        <div key={a.id} style={{background:'white',borderRadius:16,padding:'14px 18px',marginBottom:12,boxShadow:'0 2px 8px rgba(0,0,0,0.04)',border: isNew ? '2px solid #818cf8' : '1px solid transparent'}}>
-                          <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
-                            <span style={{fontSize:9,fontWeight:'bold',padding:'2px 6px',borderRadius:4,background:kindStyle.bg,color:kindStyle.fg}}>{a._kind}</span>
-                            <span style={{fontSize:11,color:'#94a3b8'}}>{a.date}</span>
-                            {isNew && <span style={{fontSize:9,fontWeight:'bold',padding:'2px 6px',borderRadius:4,background:'#ef4444',color:'white'}}>NEW</span>}
+                    <>
+                      {recent.map(renderCard)}
+                      {archivedMonths.map(m => (
+                        <details key={m} style={{background:'white',borderRadius:16,padding:'12px 18px',marginBottom:12,boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
+                          <summary style={{cursor:'pointer',fontSize:13,fontWeight:'bold',color:'#475569',listStyle:'none',display:'flex',alignItems:'center',justifyContent:'space-between',userSelect:'none'}}>
+                            <span>📁 {m.slice(0,4)}年 {parseInt(m.slice(5,7),10)}月のお知らせ</span>
+                            <span style={{fontSize:11,fontWeight:'normal',color:'#94a3b8'}}>{archivedByMonth[m].length}件 ▼</span>
+                          </summary>
+                          <div style={{marginTop:10}}>
+                            {archivedByMonth[m].map(renderCard)}
                           </div>
-                          {a.title && <div style={{fontSize:15,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>{a.title}</div>}
-                          {a.body && <div style={{fontSize:13,color:'#475569',lineHeight:1.7,whiteSpace:'pre-wrap',marginBottom:annPhotos.length>0?10:0}}>{a.body}</div>}
-                          {annPhotos.length > 0 && (
-                            <div style={{display:'grid',gridTemplateColumns:annPhotos.length===1?'1fr':'repeat(2,1fr)',gap:8,marginTop:8}}>
-                              {annPhotos.map((p,pi) => (
-                                <div key={p.id||pi} style={{position:'relative'}}>
-                                  <img src={p.url} alt="" style={{width:'100%',aspectRatio:'1',objectFit:'cover',borderRadius:10}}/>
-                                  <a href={p.url} download={p.name||`photo_${pi+1}.jpg`} style={{position:'absolute',bottom:6,right:6,background:'rgba(0,0,0,0.6)',color:'white',padding:'4px 8px',borderRadius:6,fontSize:10,fontWeight:'bold',textDecoration:'none'}}>↓</a>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })
+                        </details>
+                      ))}
+                    </>
                   )}
                 </>
               );
