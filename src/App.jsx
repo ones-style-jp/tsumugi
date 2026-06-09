@@ -17154,10 +17154,10 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
 
           <div style={{height:'13px', flexShrink:0}} />
 
-          {/* 次回お迎え時間 + QR (ラベル上一列、日付+時刻 下一列で横並び) */}
-          <div className="border-2 border-black bg-white flex items-center px-3 mb-1 shrink-0 gap-2" style={{paddingTop:'2px', paddingBottom:'2px', minHeight:0}}>
-            <div className="flex-1 flex flex-col min-w-0" style={{overflow:'hidden',gap:1}}>
-              <span style={{fontSize:14,fontWeight:"bold",color:"#475569",lineHeight:1.1,whiteSpace:"nowrap"}}>次回お迎え時間</span>
+          {/* 次回お迎え時間 + QR (ラベル上一列・枠ギリギリ、日付+時刻 下一列で横並び) */}
+          <div className="border-2 border-black bg-white flex items-start px-3 mb-1 shrink-0 gap-2" style={{paddingTop:'4px', paddingBottom:'6px', minHeight:0}}>
+            <div className="flex-1 flex flex-col min-w-0" style={{overflow:'hidden'}}>
+              <span style={{fontSize:15,fontWeight:"bold",color:"#475569",lineHeight:1,whiteSpace:"nowrap",marginBottom:'14px'}}>次回お迎え時間</span>
               {(() => {
                 // 日付: 数字は30px, 「月」「日」のみ20px、括弧内の曜日は30px (数字と同じ)
                 // 状態機械: 括弧内なら全て30px、それ以外は 月/日 を20px・他を30px
@@ -17171,20 +17171,20 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                     const c = str[i];
                     if (c === '（' || c === '(') {
                       inParen = true;
-                      out.push(<span key={i} style={{fontSize:32, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:38, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                       continue;
                     }
                     if (c === '）' || c === ')') {
                       inParen = false;
-                      out.push(<span key={i} style={{fontSize:32, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:38, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                       continue;
                     }
                     if (inParen) {
-                      out.push(<span key={i} style={{fontSize:32, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:38, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                     } else if (c === '月' || c === '日' || c === '年') {
-                      out.push(<span key={i} style={{fontSize:22, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{' '+c+' '}</span>);
+                      out.push(<span key={i} style={{fontSize:26, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{' '+c+' '}</span>);
                     } else {
-                      out.push(<span key={i} style={{fontSize:32, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:38, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                     }
                   }
                   return out;
@@ -17202,12 +17202,12 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                   const hBlank = !h;
                   const mBlank = !m;
                   const numStyle = (blank) => ({
-                    fontSize:32, fontWeight:'bold', lineHeight:1.1,
+                    fontSize:38, fontWeight:'bold', lineHeight:1.1,
                     display:'inline-block', minWidth:'2ch', textAlign:'right',
                     color: blank ? '#cbd5e1' : '#1e293b',
                     fontVariantNumeric:'tabular-nums'
                   });
-                  const labelStyle = { fontSize:22, fontWeight:'bold', lineHeight:1.1 };
+                  const labelStyle = { fontSize:26, fontWeight:'bold', lineHeight:1.1 };
                   return <span style={{whiteSpace:'pre'}}>
                     <span style={numStyle(hBlank)}>{hBlank ? '  ' : h}</span>
                     {' '}
