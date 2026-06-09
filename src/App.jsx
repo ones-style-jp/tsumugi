@@ -9242,6 +9242,12 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
             </>
           )}
         </div>
+        {patient && (
+          <button onClick={()=>{ setPreviewPid(null); setPatSearch(''); }} title="利用者一覧に戻る"
+            className="px-2.5 py-1.5 rounded-lg text-xs font-bold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 shrink-0 whitespace-nowrap">
+            ← 一覧
+          </button>
+        )}
         {patient && <div className="text-sm font-bold text-slate-800 shrink-0">{patient.name} 様</div>}
         {patient && accs.length > 0 && <div className="text-[10px] text-slate-500 shrink-0">登録 {accs.length}名</div>}
         {/* 家族共通ログインURL: コピー + ログイン画面を開く */}
@@ -9256,22 +9262,63 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
         const q = patSearch.trim().toLowerCase();
         const allPats = sortPatientsByKana(patients);
         const list = q ? allPats.filter(p => (p.name||'').toLowerCase().includes(q) || (p.kana||'').toLowerCase().includes(q) || String(p.id).includes(q)) : allPats;
+        const kanaRows = ['あ','か','さ','た','な','は','ま','や','ら','わ','その他'];
+        const groups = q ? null : kanaRows.map(row => ({ row, items: list.filter(p => getRowFromKana(p.kana) === row) })).filter(g => g.items.length > 0);
         return (
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
-            <div className="text-sm font-bold text-slate-700 mb-3">📱 利用者を選択してプレビュー</div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-sm font-bold text-slate-700">📱 利用者を選択してプレビュー</div>
+              <div className="text-xs text-slate-400 font-bold">利用中 {allPats.length}名</div>
+            </div>
             <input type="text" autoFocus placeholder="🔍 氏名・ふりがな・ID で検索" value={patSearch}
               onChange={e=>setPatSearch(e.target.value)}
-              className="w-full mb-3 px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none focus:border-violet-400" />
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-[60vh] overflow-auto">
-              {list.map(p => (
-                <button key={p.id} onClick={()=>{ setPreviewPid(p.id); setPatSearch(''); }}
-                  className="px-3 py-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-violet-50 hover:border-violet-300 text-left transition-colors">
-                  <div className="text-sm font-bold text-slate-800 truncate">{p.name}</div>
-                  {p.kana && <div className="text-[10px] text-slate-400 truncate font-normal">{p.kana}</div>}
-                </button>
-              ))}
-              {list.length === 0 && (
-                <div className="col-span-full text-center text-xs text-slate-400 py-8">該当する利用者が見つかりません</div>
+              className="w-full mb-3 px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-base font-bold outline-none focus:border-violet-400" />
+            <div className="flex flex-wrap gap-1 mb-3 pb-3 border-b border-slate-100">
+              {kanaRows.map(row => {
+                const cnt = allPats.filter(p => getRowFromKana(p.kana) === row).length;
+                if (cnt === 0) return null;
+                return (
+                  <button key={row} onClick={() => {
+                    setPatSearch('');
+                    setTimeout(() => { document.getElementById(`fam-kana-row-${row}`)?.scrollIntoView({behavior:'smooth', block:'start'}); }, 50);
+                  }}
+                    className="px-2.5 py-1 rounded-lg text-xs font-bold border border-slate-200 bg-white text-slate-700 hover:bg-violet-50 hover:border-violet-300 transition-colors">
+                    {row}<span className="ml-1 text-[10px] text-slate-400">({cnt})</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="overflow-auto" style={{maxHeight:'60vh'}}>
+              {groups ? (
+                groups.map(g => (
+                  <div key={g.row} id={`fam-kana-row-${g.row}`} className="mb-4">
+                    <div className="text-xs font-bold text-slate-500 mb-2 px-2 py-1 bg-slate-100 rounded inline-block">{g.row}行 ({g.items.length}名)</div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                      {g.items.map(p => (
+                        <button key={p.id} onClick={()=>{ setPreviewPid(p.id); setPatSearch(''); }}
+                          className="px-3 py-3 rounded-xl border border-slate-200 bg-white hover:bg-violet-50 hover:border-violet-400 text-left transition-colors shadow-sm">
+                          <div className="text-base font-bold text-slate-800 truncate">{p.name}</div>
+                          {p.kana && <div className="text-[11px] text-slate-400 truncate font-normal mt-0.5">{p.kana}</div>}
+                          {p.careLevel && <div className="text-[10px] font-bold text-violet-600 mt-1">{p.careLevel}</div>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                  {list.map(p => (
+                    <button key={p.id} onClick={()=>{ setPreviewPid(p.id); setPatSearch(''); }}
+                      className="px-3 py-3 rounded-xl border border-slate-200 bg-white hover:bg-violet-50 hover:border-violet-400 text-left transition-colors shadow-sm">
+                      <div className="text-base font-bold text-slate-800 truncate">{p.name}</div>
+                      {p.kana && <div className="text-[11px] text-slate-400 truncate font-normal mt-0.5">{p.kana}</div>}
+                      {p.careLevel && <div className="text-[10px] font-bold text-violet-600 mt-1">{p.careLevel}</div>}
+                    </button>
+                  ))}
+                  {list.length === 0 && (
+                    <div className="col-span-full text-center text-sm text-slate-400 py-12">該当する利用者が見つかりません</div>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -12671,6 +12718,9 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
     const allPats = sortPatientsByKana((appData.patients||[]).filter(p => getPatientDisplayStatus(p) === '利用中'));
     const q = patientSearch.trim().toLowerCase();
     const list = q ? allPats.filter(p => (p.name||'').toLowerCase().includes(q) || (p.kana||'').toLowerCase().includes(q) || String(p.id).includes(q)) : allPats;
+    // 行 (あ/か/さ...) でグループ化 — 検索中はグループ表示せず全件
+    const kanaRows = ['あ','か','さ','た','な','は','ま','や','ら','わ','その他'];
+    const groups = q ? null : kanaRows.map(row => ({ row, items: list.filter(p => getRowFromKana(p.kana) === row) })).filter(g => g.items.length > 0);
     return (
       <div className="h-full overflow-auto w-full" style={{backgroundColor:'#f0f4f9'}}>
         <div style={{background:'linear-gradient(135deg,#2563eb 0%,#1e40af 100%)',color:'white',padding:'12px 24px',display:'flex',alignItems:'center',gap:12}}>
@@ -12681,22 +12731,60 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             <div style={{fontSize:11,opacity:0.7,fontWeight:'bold'}}>分析・個人</div>
             <div style={{fontSize:18,fontWeight:'bold'}}>利用者を選択してください</div>
           </div>
+          <div className="ml-auto text-xs font-bold opacity-80">利用中 {allPats.length}名</div>
         </div>
-        <div className="max-w-3xl mx-auto p-6">
+        <div className="max-w-5xl mx-auto p-6">
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
             <input type="text" autoFocus placeholder="🔍 氏名・ふりがな・ID で検索" value={patientSearch}
               onChange={e=>setPatientSearch(e.target.value)}
-              className="w-full mb-3 px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none focus:border-blue-400" />
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-[60vh] overflow-auto">
-              {list.map(p => (
-                <button key={p.id} onClick={()=>{ setSelectedPatientId(p.id); onPatientChange && onPatientChange(p.id); }}
-                  className="px-3 py-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 text-left transition-colors">
-                  <div className="text-sm font-bold text-slate-800 truncate">{p.name}</div>
-                  {p.kana && <div className="text-[10px] text-slate-400 truncate font-normal">{p.kana}</div>}
-                </button>
-              ))}
-              {list.length === 0 && (
-                <div className="col-span-full text-center text-xs text-slate-400 py-8">該当する利用者が見つかりません</div>
+              className="w-full mb-3 px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-base font-bold outline-none focus:border-blue-400" />
+            {/* 行ジャンプボタン */}
+            <div className="flex flex-wrap gap-1 mb-3 pb-3 border-b border-slate-100">
+              {kanaRows.map(row => {
+                const cnt = allPats.filter(p => getRowFromKana(p.kana) === row).length;
+                if (cnt === 0) return null;
+                return (
+                  <button key={row} onClick={() => {
+                    setPatientSearch('');
+                    setTimeout(() => { document.getElementById(`kana-row-${row}`)?.scrollIntoView({behavior:'smooth', block:'start'}); }, 50);
+                  }}
+                    className="px-2.5 py-1 rounded-lg text-xs font-bold border border-slate-200 bg-white text-slate-700 hover:bg-blue-50 hover:border-blue-300 transition-colors">
+                    {row}<span className="ml-1 text-[10px] text-slate-400">({cnt})</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="overflow-auto" style={{maxHeight:'65vh'}}>
+              {groups ? (
+                groups.map(g => (
+                  <div key={g.row} id={`kana-row-${g.row}`} className="mb-4">
+                    <div className="text-xs font-bold text-slate-500 mb-2 px-2 py-1 bg-slate-100 rounded inline-block">{g.row}行 ({g.items.length}名)</div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                      {g.items.map(p => (
+                        <button key={p.id} onClick={()=>{ setSelectedPatientId(p.id); onPatientChange && onPatientChange(p.id); }}
+                          className="px-3 py-3 rounded-xl border border-slate-200 bg-white hover:bg-blue-50 hover:border-blue-400 text-left transition-colors shadow-sm">
+                          <div className="text-base font-bold text-slate-800 truncate">{p.name}</div>
+                          {p.kana && <div className="text-[11px] text-slate-400 truncate font-normal mt-0.5">{p.kana}</div>}
+                          {p.careLevel && <div className="text-[10px] font-bold text-blue-600 mt-1">{p.careLevel}</div>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                  {list.map(p => (
+                    <button key={p.id} onClick={()=>{ setSelectedPatientId(p.id); onPatientChange && onPatientChange(p.id); }}
+                      className="px-3 py-3 rounded-xl border border-slate-200 bg-white hover:bg-blue-50 hover:border-blue-400 text-left transition-colors shadow-sm">
+                      <div className="text-base font-bold text-slate-800 truncate">{p.name}</div>
+                      {p.kana && <div className="text-[11px] text-slate-400 truncate font-normal mt-0.5">{p.kana}</div>}
+                      {p.careLevel && <div className="text-[10px] font-bold text-blue-600 mt-1">{p.careLevel}</div>}
+                    </button>
+                  ))}
+                  {list.length === 0 && (
+                    <div className="col-span-full text-center text-sm text-slate-400 py-12">該当する利用者が見つかりません</div>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -12720,6 +12808,14 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           </div>
         </div>
         <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+          {/* 一覧に戻るボタン (familyMode 以外) */}
+          {!familyMode && !hidePatientSelector && (
+            <button onClick={()=>{ setSelectedPatientId(null); setPatientSearch(''); onPatientChange && onPatientChange(null); }}
+              title="利用者一覧に戻る"
+              style={{background:'rgba(255,255,255,0.2)',border:'1px solid rgba(255,255,255,0.4)',color:'white',borderRadius:10,padding:'6px 12px',fontSize:12,fontWeight:'bold',cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
+              ← 一覧に戻る
+            </button>
+          )}
           {/* 利用者プルダウン: かな昇順 + ア行/カ行... の optgroup でラベル付け */}
           {!hidePatientSelector && (
             <>
