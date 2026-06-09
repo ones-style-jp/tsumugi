@@ -1,0 +1,15 @@
+<svg viewBox="0 0 480 150" xmlns="http://www.w3.org/2000/svg">
+  <!-- Tsumugi (紡ぎ) Official Logo - Concept E: 四つ重ね + Mincho -->
+  <g transform="translate(60, 75)">
+    <circle cx="-12" cy="-12" r="22" stroke="#5e3b6c" stroke-width="2.2" fill="none" opacity="0.75"/>
+    <circle cx="12" cy="-12" r="22" stroke="#5e3b6c" stroke-width="2.2" fill="none" opacity="0.75"/>
+    <circle cx="-12" cy="12" r="22" stroke="#5e3b6c" stroke-width="2.2" fill="none" opacity="0.75"/>
+    <circle cx="12" cy="12" r="22" stroke="#5e3b6c" stroke-width="2.2" fill="none" opacity="0.75"/>
+    <circle cx="0" cy="0" r="4.5" fill="#c9a961"/>
+  </g>
+  <text x="135" y="68" font-family="'Hiragino Mincho ProN', 'Yu Mincho', 'Noto Serif JP', serif" font-size="50" fill="#5e3b6c" font-weight="500" letter-spacing="6">紡ぎ</text>
+  <line x1="135" y1="88" x2="155" y2="88" stroke="#7551a3" stroke-width="1"/>
+  <text x="162" y="94" font-family="'Noto Serif', Georgia, serif" font-size="20" fill="#7551a3" letter-spacing="5" font-style="italic">Tsumugi</text>
+  <line x1="268" y1="88" x2="288" y2="88" stroke="#7551a3" stroke-width="1"/>
+  <text x="135" y="120" font-family="'Hiragino Mincho ProN', 'Yu Mincho', serif" font-size="11" fill="#9b8bb0" letter-spacing="4">家族と現場を結ぶ、デイサービス管理</text>
+</svg>

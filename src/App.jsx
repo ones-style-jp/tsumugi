@@ -84,6 +84,695 @@ const AutoFitLine = ({ children, style }) => {
   );
 };
 
+// === データ一括エクスポート (ZIP): 各種設定 → データ管理 で使用 ===
+// JSZip を CDN から動的ロードして、期間指定で全データを ZIP にまとめる
+const DataExportSection = ({ appData }) => {
+  const [range, setRange] = React.useState('all'); // 'all' | 'year' | 'month' | 'custom'
+  const [year, setYear] = React.useState(new Date().getFullYear());
+  const [month, setMonth] = React.useState(new Date().getMonth() + 1);
+  const [customFrom, setCustomFrom] = React.useState(`${new Date().getFullYear()}-01-01`);
+  const [customTo, setCustomTo] = React.useState(`${new Date().getFullYear()}-12-31`);
+  const [include, setInclude] = React.useState({
+    patients: true, tickets: true, fitness: true, diary: true,
+    absenceFax: true, generalFax: true,
+  });
+  // 利用者選択: 'all' | 'select' (複数選択モード)
+  const [patientMode, setPatientMode] = React.useState('all');
+  const [selectedPatientIds, setSelectedPatientIds] = React.useState([]);
+  const [patientSearchQ, setPatientSearchQ] = React.useState('');
+  // 出力形式: 'html' (高速) or 'pdf' (実PDF, 重い)
+  const [outputFormat, setOutputFormat] = React.useState('pdf');
+  const [busy, setBusy] = React.useState(false);
+  const [progress, setProgress] = React.useState('');
+
+  const loadJSZip = () => new Promise((resolve, reject) => {
+    if (window.JSZip) return resolve(window.JSZip);
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+    s.onload = () => resolve(window.JSZip);
+    s.onerror = () => reject(new Error('JSZip の読み込みに失敗しました (要インターネット接続)'));
+    document.head.appendChild(s);
+  });
+  // jsPDF + html2canvas を CDN ロード (PDF 出力用)
+  const loadPdfLibs = () => Promise.all([
+    new Promise((res, rej) => {
+      if (window.jspdf?.jsPDF) return res();
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
+      s.onload = res; s.onerror = () => rej(new Error('jsPDF の読み込みに失敗'));
+      document.head.appendChild(s);
+    }),
+    new Promise((res, rej) => {
+      if (window.html2canvas) return res();
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+      s.onload = res; s.onerror = () => rej(new Error('html2canvas の読み込みに失敗'));
+      document.head.appendChild(s);
+    }),
+  ]);
+  // HTML文字列 → PDF Blob (.tp 要素ごとに1ページ。なければ body 全体を1ページ)
+  const htmlToPdfBlob = async (htmlStr, opts = {}) => {
+    const { orientation = 'landscape' } = opts;
+    // 描画用に hidden iframe を作成 (A4横なら 297mm × 210mm 相当 = 1123 × 794 @96dpi)
+    const isLandscape = orientation === 'landscape';
+    const iframeW = isLandscape ? 1123 : 794;
+    const iframeH = isLandscape ? 794 : 1123;
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = `position:fixed;left:-10000px;top:0;width:${iframeW}px;height:${iframeH}px;border:none;visibility:hidden;`;
+    document.body.appendChild(iframe);
+    try {
+      iframe.contentDocument.open();
+      iframe.contentDocument.write(htmlStr);
+      iframe.contentDocument.close();
+      // フォント・レンダリング待機
+      await new Promise(r => setTimeout(r, 300));
+      const doc = iframe.contentDocument;
+      // ページ要素を見つける
+      const pages = doc.querySelectorAll('.tp');
+      const targets = pages.length > 0 ? Array.from(pages) : [doc.body];
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ orientation, unit: 'mm', format: 'a4' });
+      const pdfW = isLandscape ? 297 : 210;
+      const pdfH = isLandscape ? 210 : 297;
+      for (let i = 0; i < targets.length; i++) {
+        const target = targets[i];
+        const canvas = await window.html2canvas(target, {
+          scale: 2.5,
+          backgroundColor:'#ffffff',
+          useCORS: true,
+          logging: false,
+          width: target.scrollWidth,
+          height: target.scrollHeight,
+          letterRendering: true,
+          allowTaint: true,
+        });
+        const imgData = canvas.toDataURL('image/jpeg', 0.95);
+        const imgRatio = canvas.width / canvas.height;
+        const pdfRatio = pdfW / pdfH;
+        let imgW, imgH;
+        if (imgRatio > pdfRatio) { imgW = pdfW; imgH = pdfW / imgRatio; }
+        else { imgH = pdfH; imgW = pdfH * imgRatio; }
+        if (i > 0) pdf.addPage('a4', orientation);
+        pdf.addImage(imgData, 'JPEG', (pdfW - imgW) / 2, (pdfH - imgH) / 2, imgW, imgH);
+      }
+      return pdf.output('blob');
+    } finally {
+      document.body.removeChild(iframe);
+    }
+  };
+
+  // 期間判定 (start/end は Date)
+  const getRange = () => {
+    if (range === 'all') return { start: null, end: null, label: '全期間' };
+    if (range === 'year') return { start: new Date(year, 0, 1), end: new Date(year, 11, 31, 23, 59, 59), label: `${year}年` };
+    if (range === 'month') return { start: new Date(year, month-1, 1), end: new Date(year, month, 0, 23, 59, 59), label: `${year}年${month}月` };
+    return { start: new Date(customFrom), end: new Date(customTo + 'T23:59:59'), label: `${customFrom}〜${customTo}` };
+  };
+
+  // "X月Y日" → 今日に最も近い「過去または当日」の Date
+  const today = new Date();
+  const inferDate = (s) => {
+    const m = (s||'').match(/(\d+)月(\d+)日/);
+    if (!m) return null;
+    const mm = parseInt(m[1], 10), dd = parseInt(m[2], 10);
+    let y = today.getFullYear();
+    if (mm > today.getMonth()+1 || (mm === today.getMonth()+1 && dd > today.getDate())) y -= 1;
+    return new Date(y, mm-1, dd);
+  };
+  const inRange = (dateLike, start, end) => {
+    if (!start || !end) return true;
+    const d = typeof dateLike === 'string' ? (dateLike.match(/^\d{4}-\d{2}-\d{2}/) ? new Date(dateLike) : inferDate(dateLike)) : dateLike;
+    if (!d) return true;
+    return d >= start && d <= end;
+  };
+
+  // CSV エスケープ
+  const csvEsc = (v) => { const s = String(v??''); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
+  const toCsv = (headers, rows) => '﻿' + [headers.join(','), ...rows.map(r => r.map(csvEsc).join(','))].join('\n');
+
+  // データ URL → Blob 変換
+  const dataUrlToBlob = (dataUrl) => {
+    try {
+      const [meta, base64] = dataUrl.split(',');
+      const mime = (meta.match(/data:([^;]+)/) || [])[1] || 'image/jpeg';
+      const bin = atob(base64);
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      return new Blob([arr], { type: mime });
+    } catch { return null; }
+  };
+
+  const doExport = async () => {
+    if (patientMode === 'select' && selectedPatientIds.length === 0) {
+      alert('利用者を1人以上選択してください'); return;
+    }
+    setBusy(true); setProgress('JSZip を読み込み中...');
+    try {
+      const JSZip = await loadJSZip();
+      if (outputFormat === 'pdf') {
+        setProgress('PDF 生成ライブラリを読み込み中... (初回は数十秒)');
+        await loadPdfLibs();
+      }
+      const zip = new JSZip();
+      const { start, end, label } = getRange();
+      const stamp = new Date().toISOString().slice(0,10);
+      const rootDir = `daycare_export_${stamp}_${label.replace(/[\/\\:?]/g,'-')}`;
+      const root = zip.folder(rootDir);
+      // HTML を PDF に変換して追加するヘルパー
+      const addHtmlOrPdf = async (folder, baseName, htmlStr, opts) => {
+        if (outputFormat === 'pdf') {
+          try {
+            const blob = await htmlToPdfBlob(htmlStr, opts);
+            folder.file(`${baseName}.pdf`, blob);
+          } catch (e) {
+            console.warn('PDF生成失敗、HTMLで保存:', baseName, e);
+            folder.file(`${baseName}.html`, htmlStr);
+          }
+        } else {
+          folder.file(`${baseName}.html`, htmlStr);
+        }
+      };
+      root.file('_meta.json', JSON.stringify({ exportedAt: new Date().toISOString(), range: label, app: 'Tsumugi (紡ぎ)' }, null, 2));
+
+      // HTML 共通スタイル (印刷時 PDF 化用)
+      const htmlBase = (title, body) => `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>${title}</title><style>
+@page { size: A4; margin: 12mm; }
+body { font-family: "Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","YuGothic","Noto Sans JP","メイリオ",Meiryo,sans-serif; color:#1e293b; max-width:780px; margin:20px auto; padding:0 12px; line-height:1.6; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
+h1 { font-size:18px; border-bottom:2px solid #334155; padding-bottom:6px; }
+h2 { font-size:15px; margin-top:20px; color:#475569; }
+table { width:100%; border-collapse:collapse; margin:8px 0; font-size:12px; }
+th, td { border:1px solid #cbd5e1; padding:5px 8px; text-align:left; vertical-align:top; }
+th { background:#f1f5f9; font-weight:bold; }
+.label { color:#64748b; font-size:11px; font-weight:bold; }
+.section { margin:18px 0; }
+.no-print { background:#fef3c7; border:1px solid #fbbf24; padding:8px 12px; border-radius:6px; margin:14px 0; font-size:12px; }
+@media print { .no-print { display:none; } body { margin:0; max-width:none; } }
+.print-hint button { padding:8px 18px; font-weight:bold; cursor:pointer; }
+</style></head><body>
+<div class="no-print print-hint">💡 ブラウザで「ファイル → 印刷 → 送信先: PDF として保存」を選択するとPDF化できます。<button onclick="window.print()">🖨 今すぐ印刷</button></div>
+${body}</body></html>`;
+
+      // 対象利用者リスト (全員 or 選択)
+      const allPatients = appData.patients || [];
+      const targetPatients = patientMode === 'all' ? allPatients : allPatients.filter(p => selectedPatientIds.includes(p.id));
+      const targetIds = new Set(targetPatients.map(p => p.id));
+      // 利用者一覧 (CSV のみ — 一覧データなので CSV 十分)
+      if (include.patients) {
+        setProgress('利用者一覧をエクスポート中...');
+        const headers = ['ID','氏名','ふりがな','性別','生年月日','電話','郵便番号','住所','被保険者番号','介護度','適用期間開始','適用期間終了','負担割合','ケアマネ事業所','ケアマネ名','ケアマネ電話','ケアマネFAX','利用開始日','利用終了日','状態','留意点'];
+        const rows = targetPatients.map(p => [p.id,p.name,p.kana,p.gender,p.birthDate,p.phone,p.zipCode,p.address,p.insuranceNo,p.careLevel,p.careLevelFrom,p.careLevelTo,p.costBurden,p.cmOffice,p.cmName,p.cmPhone,p.cmFax,p.startDate,p.endDate,p.status,p.ryui]);
+        root.file('01_利用者一覧.csv', toCsv(headers, rows));
+        const ecHeaders = ['利用者ID','利用者名','続柄','氏名','電話(固定)','電話(携帯)','メール'];
+        const ecRows = [];
+        targetPatients.forEach(p => (p.emergencyContacts||[]).forEach(c => ecRows.push([p.id,p.name,c.relation,c.name,c.phone,c.phoneMobile,c.email])));
+        if (ecRows.length > 0) root.file('01_緊急連絡先.csv', toCsv(ecHeaders, ecRows));
+      }
+      // 提供記録: 利用者×月ごとに HTML — TicketView の画面表示と同じ全日リスト
+      if (include.tickets) {
+        setProgress('提供記録をエクスポート中...');
+        const facility = appData.systemSettings?.facilityInfo || {};
+        const exerciseItems = appData.systemSettings?.exerciseItems || appSettings.exerciseItems || [];
+        const dowJp = ['日','月','火','水','木','金','土'];
+        const moodLabel = { excellent:'🤩', good:'😊', normal:'😐', bad:'😞', terrible:'😫' };
+        const dir = root.folder('02_提供記録');
+        // 対象月リストを生成: 期間内に含まれる月 × 対象利用者
+        const months = [];
+        if (start && end) {
+          const cur = new Date(start.getFullYear(), start.getMonth(), 1);
+          while (cur <= end) { months.push({ y: cur.getFullYear(), m: cur.getMonth()+1 }); cur.setMonth(cur.getMonth()+1); }
+        } else {
+          // 全期間: ticketRecords から含まれる月を抽出
+          const monthSet = new Set();
+          (appData.ticketRecords||[]).forEach(r => {
+            const d = inferDate(r.date);
+            if (d) monthSet.add(`${d.getFullYear()}-${d.getMonth()+1}`);
+          });
+          monthSet.forEach(k => { const [y,m] = k.split('-').map(Number); months.push({ y, m }); });
+          months.sort((a,b) => (a.y-b.y) || (a.m-b.m));
+        }
+        const totalCount = targetPatients.length * months.length;
+        let processed = 0;
+        for (const pat of targetPatients) {
+          for (const { y: tY, m: tM } of months) {
+            processed++;
+            setProgress(`提供記録 ${processed}/${totalCount}: ${pat.name} ${tY}年${tM}月...`);
+            // 全日リストを生成 (TicketView と同じロジック)
+            const dayRecords = generateMonthlySchedule([pat], tY, tM, appData.monthlyShifts, appData.ticketRecords || [], appData.holidays, (appData.systemSettings?.facilityInfo?.closedDays||[0])).sort((a,b) => a.dayNum - b.dayNum);
+            if (dayRecords.length === 0) continue;
+            // 通所曜日テキスト
+            const schedText = (pat.scheduleAmPm||[]).map((v,i) => v?`${dowJp[i]}(${v})`:'').filter(Boolean).join(' ');
+            const hasAM = (pat.scheduleAmPm||[]).some(s => s === 'AM' || s === '1日');
+            const hasPM = (pat.scheduleAmPm||[]).some(s => s === 'PM' || s === '1日');
+            const jisshiTime = (hasAM && hasPM) ? `${facility.serviceTimeAM||'—'}／${facility.serviceTimePM||'—'}` : hasPM ? (facility.serviceTimePM||'—') : (facility.serviceTimeAM||'—');
+            // 8件ずつページ分割
+            const PER_PAGE = 8;
+            const pageGroups = [];
+            for (let i = 0; i < dayRecords.length; i += PER_PAGE) pageGroups.push(dayRecords.slice(i, i+PER_PAGE));
+            if (pageGroups.length === 0) pageGroups.push([]);
+            // ページHTML生成
+            const renderPage = (rows) => {
+              const tableRows = rows.map(r => {
+                const isA = r.status==='欠席' || r.status==='休業' || r.status==='休止';
+                const isF = (() => { try { return new Date(tY, tM-1, r.dayNum) > new Date(); } catch { return false; } })();
+                const mt = isF && r.status==='出席';
+                const v = (x) => (isA||mt) ? '' : (x||'');
+                const sl = isF ? (r.status==='出席'?'予定':r.status) : r.status;
+                const slColor = sl==='出席'?'#1d4ed8':sl==='予定'?'#94a3b8':sl==='欠席'?'#dc2626':sl==='振替'?'#7c3aed':sl==='臨時'?'#0e7490':'#64748b';
+                const slWeight = (sl==='出席'||sl==='欠席'||sl==='振替'||sl==='臨時')?'bold':'normal';
+                const rowBg = isA ? '#f8fafc' : 'white';
+                const exCells = exerciseItems.map(it => {
+                  const raw = r.exercises?.[it.id];
+                  let display = '';
+                  if (it.type === 'individual' && typeof raw === 'object' && raw) {
+                    const allInd = appData.systemSettings?.individualExerciseItems || [];
+                    const sel = allInd.find(ii => ii.id === raw.itemId);
+                    if (sel && raw.value) display = `${sel.name}<br/>${raw.value}${sel.defaultUnit||''}`;
+                    else if (sel) display = sel.name;
+                  } else if (typeof raw !== 'object') {
+                    display = v(raw);
+                  }
+                  return `<td style="border:1px solid #94a3b8;text-align:center;font-size:10px;font-weight:bold;padding:1px;background:${rowBg};line-height:1.15;">${isA||mt?'':display}</td>`;
+                }).join('');
+                const kibunHtml = (() => {
+                  const arr = v(r.kibunArrival); const dep = v(r.kibunDeparture);
+                  if (!arr && !dep) return '';
+                  let out = '';
+                  if (arr) out += `<div style="font-size:11px;line-height:1.1;">通${moodLabel[arr]||arr}</div>`;
+                  if (dep) out += `<div style="font-size:11px;line-height:1.1;">帰${moodLabel[dep]||dep}</div>`;
+                  return out;
+                })();
+                return `
+                  <tr style="height:38px;background:${rowBg};">
+                    <td rowspan="2" style="border:1px solid #475569;text-align:center;vertical-align:middle;background:#f8fafc;padding:2px;height:74px;">
+                      <div style="font-size:22px;font-weight:bold;line-height:1;">${r.dayNum}</div>
+                      <div style="font-size:11px;color:#475569;margin-top:2px;">（${r.dayOfWeek}）</div>
+                    </td>
+                    <td style="border:1px solid #94a3b8;text-align:center;font-size:11px;font-weight:${slWeight};color:${slColor};padding:1px;">${sl}</td>
+                    <td style="border:1px solid #94a3b8;text-align:center;padding:1px;">${kibunHtml}</td>
+                    <td style="border:1px solid #94a3b8;text-align:center;font-size:12px;font-weight:bold;padding:1px;">${v(r.temp) ? `${r.temp}℃` : ''}</td>
+                    <td style="border:1px solid #94a3b8;text-align:center;font-size:11px;font-weight:bold;padding:1px;line-height:1.15;">${v(r.bpUpSt) ? `${r.bpUpSt}/${r.bpDnSt}${v(r.plSt)?`<br/><span style='color:#475569;font-size:10px;'>(${r.plSt})</span>`:''}` : ''}</td>
+                    <td style="border:1px solid #94a3b8;text-align:center;font-size:11px;font-weight:bold;padding:1px;line-height:1.15;">${v(r.bpUpEn) ? `${r.bpUpEn}/${r.bpDnEn}${v(r.plEn)?`<br/><span style='color:#475569;font-size:10px;'>(${r.plEn})</span>`:''}` : ''}</td>
+                    ${exCells}
+                    <td style="border:1px solid #94a3b8;text-align:center;font-size:11px;font-weight:bold;padding:1px;">${v(r.massage)}</td>
+                  </tr>
+                  <tr style="height:30px;background:${rowBg};">
+                    <td style="border:1px solid #94a3b8;background:#f1f5f9;text-align:center;font-size:10px;font-weight:bold;color:#64748b;padding:1px;">特記</td>
+                    <td colspan="${5 + exerciseItems.length + 1}" style="border:1px solid #94a3b8;text-align:left;font-size:10px;color:#1e293b;padding:1px 4px;background:${rowBg};">${(v(r.tokki)||'').replace(/</g,'&lt;').replace(/\n/g,'<br/>')}</td>
+                  </tr>`;
+              }).join('');
+              // 空行 (常に8行になるよう埋める)
+              const emptyRows = Math.max(0, PER_PAGE - rows.length);
+              const emptyRowsHtml = Array.from({length: emptyRows}).map(() => `
+                <tr style="height:38px;">
+                  <td rowspan="2" style="border:1px solid #475569;background:#f8fafc;height:74px;"></td>
+                  ${Array.from({length: 5 + exerciseItems.length + 1}).map(() => '<td style="border:1px solid #94a3b8;"></td>').join('')}
+                </tr>
+                <tr style="height:30px;">
+                  <td style="border:1px solid #94a3b8;background:#f1f5f9;text-align:center;font-size:10px;color:#cbd5e1;padding:1px;">特記</td>
+                  <td colspan="${5 + exerciseItems.length + 1}" style="border:1px solid #94a3b8;"></td>
+                </tr>`).join('');
+              return `
+              <div class="tp" style="width:297mm;min-height:210mm;box-sizing:border-box;padding:4mm 6mm;page-break-after:always;display:flex;flex-direction:column;">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;">
+                  <div>
+                    <div style="font-size:17px;font-weight:bold;letter-spacing:0.1em;line-height:1.1;">${tY}年${tM}月 サービス提供記録</div>
+                    <div style="font-size:26px;font-weight:bold;margin-top:8px;line-height:1.1;">${pat.name} <span style="font-size:18px;font-weight:normal;">様</span></div>
+                  </div>
+                  <div style="font-size:10px;color:#475569;text-align:right;line-height:1.5;">
+                    <div>提供責任者: <b>${facility.serviceResponsible||'—'}</b>　　実施時間: <b>${jisshiTime}</b></div>
+                    <div style="color:#1d4ed8;font-weight:bold;margin-top:2px;">通所曜日: ${schedText||'—'}</div>
+                  </div>
+                </div>
+                <table style="width:100%;border-collapse:collapse;margin-bottom:0;table-layout:fixed;">
+                  <colgroup><col style="width:5%;"/><col style="width:45%;"/><col style="width:5%;"/><col style="width:45%;"/></colgroup>
+                  <tbody>
+                    <tr>
+                      <th style="border:1px solid #475569;background:white;color:black;font-size:10px;font-weight:normal;padding:1px 4px;text-align:center;">既往</th>
+                      <td style="border:1px solid #475569;font-size:10px;padding:1px 6px;vertical-align:top;">${pat.kiou||''}</td>
+                      <th style="border:1px solid #475569;background:white;color:black;font-size:10px;font-weight:normal;padding:1px 4px;text-align:center;">留意</th>
+                      <td style="border:1px solid #475569;font-size:10px;padding:1px 6px;vertical-align:top;">${pat.ryui||''}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:4px;table-layout:fixed;">
+                  <tbody>
+                    <tr>
+                      <th style="border:1px solid #475569;background:white;color:black;font-size:10px;font-weight:normal;padding:1px 4px;text-align:center;width:8%;">マッサージ</th>
+                      <td style="border:1px solid #475569;font-size:11px;font-weight:bold;padding:1px 6px;width:42%;">${pat.massageNeed||'—'}</td>
+                      <th style="border:1px solid #475569;background:white;color:black;font-size:10px;font-weight:normal;padding:1px 4px;text-align:center;width:8%;">温浴時電療</th>
+                      <td style="border:1px solid #475569;font-size:11px;font-weight:bold;padding:1px 6px;width:42%;">${pat.onyokuDenryo||'—'}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <table style="width:100%;border-collapse:collapse;table-layout:fixed;flex:1;">
+                  <thead>
+                    <tr style="background:#1e293b;color:white;">
+                      <th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:50px;">日付</th>
+                      <th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:34px;">状態</th>
+                      <th style="border:1px solid #475569;padding:3px 1px;font-size:9px;width:60px;">気分</th>
+                      <th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:48px;">体温</th>
+                      <th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:58px;">開始 血圧(脈)</th>
+                      <th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:58px;">終了 血圧(脈)</th>
+                      ${exerciseItems.map(it => `<th style="border:1px solid #475569;padding:3px 1px;font-size:9px;line-height:1.1;">${it.name}</th>`).join('')}
+                      <th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:42px;">介護整体</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${tableRows}
+                    ${emptyRowsHtml}
+                  </tbody>
+                </table>
+              </div>`;
+            };
+            const allPagesHtml = pageGroups.map(renderPage).join('');
+            const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>サービス提供記録 ${pat.name} ${tY}年${tM}月</title>
+<style>
+@page { size: A4 landscape; margin: 0; }
+html, body { font-family: "Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","YuGothic","Noto Sans JP","メイリオ",Meiryo,sans-serif; color:#1e293b; margin:0; padding:0; background:white; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
+.no-print { background:#fef3c7; border:1px solid #fbbf24; padding:8px 12px; margin:8px; font-size:12px; }
+.no-print button { padding:6px 14px; font-weight:bold; cursor:pointer; }
+.tp table { border-collapse:collapse; }
+.tp table td, .tp table th { word-break:break-all; overflow-wrap:break-word; }
+@media print {
+  .no-print { display:none !important; }
+  body { margin:0; padding:0; }
+  .tp { page-break-after:always; break-after:page; }
+  .tp:last-child { page-break-after:avoid; break-after:avoid; }
+}
+</style>
+</head><body>
+<div class="no-print">💡 Ctrl/Cmd + P で「PDFとして保存」 <button onclick="window.print()">🖨 印刷</button></div>
+${allPagesHtml}
+</body></html>`;
+            const safeName = pat.name.replace(/[\/\\:?*"<>|\s]/g,'_');
+            await addHtmlOrPdf(dir, `${safeName}_${tY}-${String(tM).padStart(2,'0')}`, html, { orientation: 'landscape' });
+          }
+        }
+      }
+      // 体力測定 (CSV のみ)
+      if (include.fitness) {
+        setProgress('体力測定をエクスポート中...');
+        const recs = (appData.fitnessRecords || []).filter(r => targetIds.has(r.patientId) && inRange(r.date, start, end));
+        const items = appData.systemSettings?.fitnessItems || [];
+        const headers = ['測定ID','利用者ID','日付', ...items.map(it => `${it.name}(${it.unit})`)];
+        const rows = recs.map(r => [r.id, r.patientId, r.date, ...items.map(it => r.values?.[it.id]||'')]);
+        root.file('03_体力測定.csv', toCsv(headers, rows));
+      }
+      // 日誌: 1日1ファイル HTML
+      if (include.diary) {
+        const logs = appData.diaryLogs || {};
+        const dir = root.folder('04_日誌');
+        const entries = Object.entries(logs).filter(([date]) => inRange(date, start, end));
+        for (let i = 0; i < entries.length; i++) {
+          const [date, log] = entries[i];
+          setProgress(`日誌 ${i+1}/${entries.length} を生成中...`);
+          const safeDate = date.replace(/[\/\\:]/g,'-');
+          const body = `<h1>日誌</h1>
+            <div class="section"><span class="label">日付:</span> <b>${date}</b></div>
+            <div class="section"><pre style="white-space:pre-wrap;font-family:inherit;background:#f8fafc;padding:10px;border-radius:4px;border:1px solid #e2e8f0;">${JSON.stringify(log, null, 2).replace(/</g,'&lt;')}</pre></div>`;
+          await addHtmlOrPdf(dir, safeDate, htmlBase(`日誌 ${date}`, body), { orientation: 'portrait' });
+        }
+      }
+      // 休み連絡 (FAX): 1件1ファイル
+      if (include.absenceFax) {
+        const dir = root.folder('05_休み連絡');
+        const targetNames = new Set(targetPatients.map(p => p.name));
+        const recs = (appData.faxHistory || []).filter(r => {
+          if (r.type !== 'absence' || !inRange(r.timestamp, start, end)) return false;
+          if (patientMode === 'select' && r.patientName && !targetNames.has(r.patientName)) return false;
+          return true;
+        });
+        const facility = appData.systemSettings?.facilityInfo || {};
+        for (let i = 0; i < recs.length; i++) {
+          const r = recs[i];
+          setProgress(`休み連絡 ${i+1}/${recs.length} を生成中...`);
+          const ts = r.timestamp ? new Date(r.timestamp) : null;
+          const tsStr = ts ? `${ts.getFullYear()}/${String(ts.getMonth()+1).padStart(2,'0')}/${String(ts.getDate()).padStart(2,'0')} ${String(ts.getHours()).padStart(2,'0')}:${String(ts.getMinutes()).padStart(2,'0')}` : '';
+          const body = `<h1>休み連絡 送付控え</h1>
+            <table>
+              <tr><th style="width:130px;">送付日時</th><td>${tsStr}</td></tr>
+              <tr><th>件名</th><td>${r.subject||''}</td></tr>
+              <tr><th>利用者</th><td>${r.patientName||''} 様</td></tr>
+              <tr><th>送付先 (居宅)</th><td>${r.recipientOffice||''}</td></tr>
+              <tr><th>担当ケアマネ</th><td>${r.recipientName||''}</td></tr>
+              <tr><th>FAX番号</th><td>${r.recipientFax||''}</td></tr>
+              <tr><th>備考</th><td>${r.note||''}</td></tr>
+            </table>
+            <div class="section" style="margin-top:30px;border-top:1px solid #cbd5e1;padding-top:10px;font-size:12px;color:#475569;">
+              <b>${facility.name||''}</b> / TEL ${facility.phone||''} / FAX ${facility.fax||''}
+            </div>`;
+          const safeName = `${tsStr.replace(/[\/:]/g,'').replace(' ','_')}_${(r.patientName||'').replace(/\s/g,'')}_${i+1}`;
+          await addHtmlOrPdf(dir, safeName || `absence_${i+1}`, htmlBase(`休み連絡 ${tsStr}`, body), { orientation: 'portrait' });
+        }
+      }
+      // 各種連絡 (FAX): 1件1ファイル
+      if (include.generalFax) {
+        const dir = root.folder('06_各種連絡');
+        const targetNames = new Set(targetPatients.map(p => p.name));
+        const recs = (appData.faxHistory || []).filter(r => {
+          if (r.type !== 'general' || !inRange(r.timestamp, start, end)) return false;
+          if (patientMode === 'select' && r.patientName && !targetNames.has(r.patientName)) return false;
+          return true;
+        });
+        const facility = appData.systemSettings?.facilityInfo || {};
+        for (let i = 0; i < recs.length; i++) {
+          const r = recs[i];
+          setProgress(`各種連絡 ${i+1}/${recs.length} を生成中...`);
+          const ts = r.timestamp ? new Date(r.timestamp) : null;
+          const tsStr = ts ? `${ts.getFullYear()}/${String(ts.getMonth()+1).padStart(2,'0')}/${String(ts.getDate()).padStart(2,'0')} ${String(ts.getHours()).padStart(2,'0')}:${String(ts.getMinutes()).padStart(2,'0')}` : '';
+          const body = `<h1>各種連絡 送付控え</h1>
+            <table>
+              <tr><th style="width:130px;">送付日時</th><td>${tsStr}</td></tr>
+              <tr><th>件名</th><td>${r.subject||''}</td></tr>
+              <tr><th>利用者</th><td>${r.patientName||'(なし)'}</td></tr>
+              <tr><th>送付先</th><td>${r.recipientName||''}</td></tr>
+              <tr><th>FAX番号</th><td>${r.recipientFax||''}</td></tr>
+              <tr><th>備考</th><td>${r.note||''}</td></tr>
+            </table>
+            <div class="section" style="margin-top:30px;border-top:1px solid #cbd5e1;padding-top:10px;font-size:12px;color:#475569;">
+              <b>${facility.name||''}</b> / TEL ${facility.phone||''} / FAX ${facility.fax||''}
+            </div>`;
+          const safeName = `${tsStr.replace(/[\/:]/g,'').replace(' ','_')}_${(r.patientName||'汎用').replace(/\s/g,'')}_${i+1}`;
+          await addHtmlOrPdf(dir, safeName || `general_${i+1}`, htmlBase(`各種連絡 ${tsStr}`, body), { orientation: 'portrait' });
+        }
+      }
+
+      // README
+      root.file('README.txt', `Tsumugi (紡ぎ) データエクスポート
+
+期間: ${label}
+エクスポート日時: ${new Date().toLocaleString('ja-JP')}
+
+【含まれるファイル】
+01_利用者一覧.csv  - 利用者基本情報 (Excelで開けます)
+01_緊急連絡先.csv  - 各利用者の緊急連絡先
+02_提供記録/       - 利用者×月ごとの HTML ファイル
+03_体力測定.csv    - 体力測定データ
+04_日誌/            - 1日1ファイルの HTML
+05_休み連絡/        - 送付した休み連絡の控え
+06_各種連絡/        - 送付した各種連絡の控え
+
+【PDF 化の方法】
+HTML ファイルをブラウザで開き、
+ファイル → 印刷 → 送信先「PDF として保存」を選択するとPDF化できます。
+画面上部の「🖨 今すぐ印刷」ボタンでも同じ印刷ダイアログが開きます。
+
+【保管推奨】
+法定保存期間 (多くの自治体で 2〜5 年) を満たすため、
+このZIPをデスクトップやクラウドストレージに保管してください。`);
+
+      setProgress('ZIP を圧縮中...');
+      const blob = await zip.generateAsync({ type:'blob', compression:'DEFLATE', compressionOptions:{level:6} }, (m) => {
+        setProgress(`圧縮中... ${Math.round(m.percent)}%`);
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `${rootDir}.zip`; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      setProgress(`✓ ${rootDir}.zip をダウンロードしました`);
+    } catch (e) {
+      console.error(e); setProgress(`⚠ エラー: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="bg-blue-50 border-2 border-blue-300 rounded-xl p-4 mt-4">
+      <h4 className="text-sm font-bold text-blue-800 mb-2 flex items-center gap-2">📦 データ一括エクスポート (ZIP)</h4>
+      <p className="text-xs text-slate-700 mb-3 leading-relaxed">
+        期間を指定して、利用者情報・提供記録・連絡帳・モニタリング・体力測定・日誌・お知らせ・写真などを 1 つの ZIP ファイルにまとめてダウンロードします。<br/>
+        ローカル PC（デスクトップ等）に保存しておけば、アプリ側のデータを安心して削除して空き容量を確保できます。
+      </p>
+      <div className="bg-white border border-slate-200 rounded-lg p-3 space-y-3">
+        {/* 期間選択 */}
+        <div>
+          <div className="text-xs font-bold text-slate-600 mb-1.5">期間</div>
+          <div className="flex gap-2 flex-wrap items-center text-xs">
+            {[['all','全期間'],['year','年単位'],['month','月単位'],['custom','期間指定']].map(([k,l]) => (
+              <label key={k} className={`px-2.5 py-1 rounded-lg border-2 cursor-pointer font-bold ${range===k?'bg-blue-600 border-blue-700 text-white':'bg-white border-slate-200 text-slate-600'}`}>
+                <input type="radio" checked={range===k} onChange={()=>setRange(k)} className="hidden"/>{l}
+              </label>
+            ))}
+            {range === 'year' && <select value={year} onChange={e=>setYear(parseInt(e.target.value))} className="px-2 py-1 border border-slate-300 rounded font-bold">{Array.from({length:6},(_,i)=>today.getFullYear()-i).map(y=><option key={y} value={y}>{y}年</option>)}</select>}
+            {range === 'month' && <>
+              <select value={year} onChange={e=>setYear(parseInt(e.target.value))} className="px-2 py-1 border border-slate-300 rounded font-bold">{Array.from({length:6},(_,i)=>today.getFullYear()-i).map(y=><option key={y} value={y}>{y}年</option>)}</select>
+              <select value={month} onChange={e=>setMonth(parseInt(e.target.value))} className="px-2 py-1 border border-slate-300 rounded font-bold">{Array.from({length:12},(_,i)=>i+1).map(m=><option key={m} value={m}>{m}月</option>)}</select>
+            </>}
+            {range === 'custom' && <>
+              <input type="date" value={customFrom} onChange={e=>setCustomFrom(e.target.value)} className="px-2 py-1 border border-slate-300 rounded font-bold"/>
+              <span>〜</span>
+              <input type="date" value={customTo} onChange={e=>setCustomTo(e.target.value)} className="px-2 py-1 border border-slate-300 rounded font-bold"/>
+            </>}
+          </div>
+        </div>
+        {/* 利用者選択 */}
+        <div>
+          <div className="text-xs font-bold text-slate-600 mb-1.5">対象の利用者</div>
+          <div className="flex gap-2 flex-wrap items-center text-xs mb-2">
+            {[['all','全員'],['select','選択 (複数可)']].map(([k,l]) => (
+              <label key={k} className={`px-2.5 py-1 rounded-lg border-2 cursor-pointer font-bold ${patientMode===k?'bg-blue-600 border-blue-700 text-white':'bg-white border-slate-200 text-slate-600'}`}>
+                <input type="radio" checked={patientMode===k} onChange={()=>setPatientMode(k)} className="hidden"/>{l}
+              </label>
+            ))}
+            {patientMode === 'select' && (
+              <span className="text-xs text-slate-500">{selectedPatientIds.length} 名選択中</span>
+            )}
+          </div>
+          {patientMode === 'select' && (() => {
+            const patients = (appData.patients||[]).filter(p => {
+              const q = patientSearchQ.trim().toLowerCase();
+              if (!q) return true;
+              return (p.name||'').toLowerCase().includes(q) || (p.kana||'').toLowerCase().includes(q) || String(p.id).includes(q);
+            });
+            const allSelected = patients.length > 0 && patients.every(p => selectedPatientIds.includes(p.id));
+            return (
+              <div className="border border-slate-200 rounded-lg p-2 bg-slate-50">
+                <div className="flex items-center gap-2 mb-2">
+                  <input type="text" value={patientSearchQ} onChange={e=>setPatientSearchQ(e.target.value)} placeholder="🔍 検索"
+                    className="flex-1 px-2 py-1 bg-white border border-slate-300 rounded text-xs outline-none"/>
+                  <button onClick={()=>{
+                    if (allSelected) setSelectedPatientIds(ids => ids.filter(id => !patients.find(p=>p.id===id)));
+                    else setSelectedPatientIds(ids => [...new Set([...ids, ...patients.map(p=>p.id)])]);
+                  }} className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[11px] font-bold whitespace-nowrap">
+                    {allSelected ? '全解除' : '全選択'}
+                  </button>
+                </div>
+                <div className="grid grid-cols-3 md:grid-cols-4 gap-1 max-h-48 overflow-auto">
+                  {patients.map(p => {
+                    const checked = selectedPatientIds.includes(p.id);
+                    return (
+                      <label key={p.id} className={`flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer text-[11px] font-bold ${checked?'bg-blue-100 text-blue-800':'bg-white hover:bg-slate-100 text-slate-700'}`}>
+                        <input type="checkbox" checked={checked} onChange={e=>{
+                          if (e.target.checked) setSelectedPatientIds(ids => [...ids, p.id]);
+                          else setSelectedPatientIds(ids => ids.filter(id => id !== p.id));
+                        }} className="w-3 h-3"/>
+                        <span className="truncate">{p.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+        {/* 出力形式 */}
+        <div>
+          <div className="text-xs font-bold text-slate-600 mb-1.5">出力形式</div>
+          <div className="flex gap-2 flex-wrap items-center text-xs">
+            {[['pdf','📄 PDF (推奨)'],['html','📝 HTML (高速)']].map(([k,l]) => (
+              <label key={k} className={`px-2.5 py-1 rounded-lg border-2 cursor-pointer font-bold ${outputFormat===k?'bg-blue-600 border-blue-700 text-white':'bg-white border-slate-200 text-slate-600'}`}>
+                <input type="radio" checked={outputFormat===k} onChange={()=>setOutputFormat(k)} className="hidden"/>{l}
+              </label>
+            ))}
+            <span className="text-[10px] text-slate-500">{outputFormat==='pdf'?'画面表示のままPDF化 (記録数が多いと時間がかかります)':'ファイル数が多くてもすぐ生成。後でブラウザでPDF化'}</span>
+          </div>
+        </div>
+        {/* 含める項目 */}
+        <div>
+          <div className="text-xs font-bold text-slate-600 mb-1.5">含める項目</div>
+          <div className="grid grid-cols-2 gap-1.5 text-xs">
+            {[
+              ['patients','利用者基本情報 + 緊急連絡先 (CSV)'],
+              ['tickets','提供記録 (利用者×月ごと)'],
+              ['fitness','体力測定 (CSV)'],
+              ['diary','日誌 (1日1ファイル)'],
+              ['absenceFax','休み連絡 控え'],
+              ['generalFax','各種連絡 控え'],
+            ].map(([k,l]) => (
+              <label key={k} className="flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" checked={include[k]} onChange={e=>setInclude(s=>({...s,[k]:e.target.checked}))} className="w-3.5 h-3.5"/>
+                <span className="font-bold text-slate-700">{l}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+        {/* 実行 */}
+        <div>
+          <button onClick={doExport} disabled={busy}
+            className={`w-full py-2 rounded-lg font-bold text-sm ${busy?'bg-slate-300 text-slate-500 cursor-not-allowed':'bg-blue-600 hover:bg-blue-700 text-white shadow active:scale-95'}`}>
+            {busy ? `処理中...` : '📦 ZIP でダウンロード'}
+          </button>
+          {progress && <div className="text-[11px] text-slate-600 mt-2 text-center font-bold">{progress}</div>}
+        </div>
+        <div className="text-[10px] text-slate-500 leading-relaxed">
+          ・<b>PDF形式</b>: そのまま開ける PDF を生成 (記録数が多いと数十秒〜数分かかります)<br/>
+          ・<b>HTML形式</b>: ブラウザで開いて「印刷 → PDFとして保存」が必要、ただし瞬時に生成<br/>
+          ・CSV は UTF-8 (BOM付き) で Excel でそのまま開けます<br/>
+          ・お知らせ・写真・モニタリング等はアプリ内で随時参照する想定のため対象外
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// === お迎え時間セル: 時/分を別入力。分は空欄可 ("9:--" として保存)。 ===
+const PickupTimeCell = ({ day, idx, slot, isOff, initial, onCommit }) => {
+  // 保存形式: "" / "9:--" / "9:30" 等。"HH" は0埋めしない (入力中の自然な数字反映のため)
+  const splitTime = (t) => {
+    if (!t) return { h: '', m: '' };
+    const parts = String(t).split(':');
+    const h = parts[0] || '';
+    const m = parts[1] === '--' ? '' : (parts[1] || '');
+    return { h, m };
+  };
+  const init = splitTime(initial);
+  const [h, setH] = React.useState(init.h);
+  const [m, setM] = React.useState(init.m);
+  React.useEffect(() => { const x = splitTime(initial); setH(x.h); setM(x.m); }, [initial]);
+  const commit = (newH, newM) => {
+    const hh = String(newH||'').replace(/[^0-9]/g,'').slice(0,2);
+    const mm = String(newM||'').replace(/[^0-9]/g,'').slice(0,2);
+    let val = '';
+    if (hh && mm) val = `${hh}:${mm}`;
+    else if (hh) val = `${hh}:--`;
+    else if (mm) val = `0:${mm}`;
+    onCommit(val);
+  };
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-2">
+      <div className="text-center mb-1">
+        <span className={`text-sm font-bold ${idx===0?'text-red-500':idx===6?'text-blue-500':'text-slate-700'}`}>{day}</span>
+        <span className={`ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded ${slot==='AM'?'bg-red-100 text-red-700':slot==='PM'?'bg-blue-100 text-blue-700':'bg-violet-100 text-violet-700'}`}>{slot}</span>
+      </div>
+      <div className="flex items-center justify-center gap-1">
+        <input disabled={isOff} type="text" inputMode="numeric" maxLength={2}
+          value={h}
+          onChange={e => { const v = e.target.value.replace(/[^0-9]/g,'').slice(0,2); setH(v); commit(v, m); }}
+          placeholder="9"
+          className="w-12 px-1.5 py-1.5 bg-slate-50 border border-slate-300 rounded text-sm font-bold text-center outline-none disabled:opacity-60"/>
+        <span className="text-sm font-bold text-slate-400">時</span>
+        <input disabled={isOff} type="text" inputMode="numeric" maxLength={2}
+          value={m}
+          onChange={e => { const v = e.target.value.replace(/[^0-9]/g,'').slice(0,2); setM(v); commit(h, v); }}
+          placeholder="30"
+          className="w-12 px-1.5 py-1.5 bg-slate-50 border border-slate-300 rounded text-sm font-bold text-center outline-none disabled:opacity-60"/>
+        <span className="text-sm font-bold text-slate-400">分</span>
+      </div>
+      <div className="text-[10px] text-slate-400 text-center mt-1">分は空欄でも可</div>
+    </div>
+  );
+};
+
 // === 利用者プルダウン: かな順ソート + 行（ア/カ/サ...）optgroup ===
 // 並び順は kana 優先、なければ name を fallback。空文字 / 記号は「その他」へ。
 const _KANA_ROWS = [
@@ -203,6 +892,21 @@ const verifyInviteCode = (code7) => {
   return six;
 };
 
+// 使い捨て招待コード生成 (FAM-XXXX-XXXX 形式)
+// 紛らわしい文字 (0/O/1/I/L/U/V) を除いた英数字
+const _INV_CHARS = 'ABCDEFGHJKMNPQRSTWXYZ23456789';
+const generateOneTimeInviteCode = () => {
+  const part = (n) => Array.from({length:n}, () => _INV_CHARS[Math.floor(Math.random()*_INV_CHARS.length)]).join('');
+  return `FAM-${part(4)}-${part(4)}`;
+};
+// 入力コード正規化: 半角化・大文字化・ハイフン自動補完
+const normalizeInviteCode = (raw) => {
+  const s = (raw||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if (s.length <= 3) return s;
+  if (s.length <= 7) return `${s.slice(0,3)}-${s.slice(3)}`;
+  return `${s.slice(0,3)}-${s.slice(3,7)}-${s.slice(7,11)}`;
+};
+
 // 日付文字列 ("4月15日" 等) を YYYY-MM に正規化。年が無いものは currentYear で補完
 const normalizeRecordMonth = (dateStr, currentYear) => {
   if (!dateStr) return null;
@@ -237,6 +941,7 @@ const appSettings = {
     { label: "出席", color: "bg-blue-600", lightColor: "bg-blue-50", textColor: "text-blue-700", ring: "ring-blue-300" },
     { label: "欠席", color: "bg-red-600", lightColor: "bg-red-50", textColor: "text-red-700", ring: "ring-red-300" },
     { label: "振替", color: "bg-emerald-600", lightColor: "bg-emerald-50", textColor: "text-emerald-700", ring: "ring-emerald-300" },
+    { label: "休止", color: "bg-orange-500", lightColor: "bg-orange-50", textColor: "text-orange-700", ring: "ring-orange-300" },
     { label: "休業", color: "bg-slate-500", lightColor: "bg-slate-100", textColor: "text-slate-600", ring: "ring-slate-300" }
   ],
   massageStaff: ["高橋", "ヘルプ", "岩岡", "田中", "長谷川"],
@@ -7848,7 +8553,10 @@ const getNextVisitInfo = (patient, currentDateStr, monthlyShifts, appData) => {
                 const t = patient.pickupTimes?.[dayOfWeek] || "";
                 if (t.includes(':')) {
                     const pts = t.split(':');
-                    timeStr = `${pts[0] || '　　'}時${pts[1] || '　　'}分`;
+                    // "--" は分未定 → 空白として表示
+                    const hStr = pts[0] && pts[0] !== '--' ? pts[0] : '　　';
+                    const mStr = pts[1] && pts[1] !== '--' ? pts[1] : '　　';
+                    timeStr = `${hStr}時${mStr}分`;
                 } else if (t) timeStr = t;
             } else if (patient.pickupType === 'flexible') {
                 timeStr = "　時　分";
@@ -7922,7 +8630,17 @@ const getRowFromKana = (kana) => {
 const getPatientDisplayStatus = (p) => {
     if (!p) return '利用中';
     if (isPatientResigned(p)) return '退所済み';
-    if (p.status === '休止' || p.status === '一時中止') return '休止';
+    if (p.status === '休止' || p.status === '一時中止') {
+        // 休止履歴の最新エントリに toDate が設定されていて、今日がその日を過ぎていたら自動で利用中に戻す
+        const hist = p.pauseHistory || [];
+        const last = hist[hist.length - 1];
+        if (last && last.toDate) {
+            const today = new Date(); today.setHours(0,0,0,0);
+            const to = new Date(last.toDate); to.setHours(0,0,0,0);
+            if (today > to) return '利用中';
+        }
+        return '休止';
+    }
     return '利用中';
 };
 
@@ -8472,105 +9190,205 @@ function SignupCompleteView({ context, appData, onSave }) {
 
 // === 家族画面プレビュー & 特記編集 (FamilyAdminView内のタブ) ===
 function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid, familyTokkiOverrides, setTokkiOverride }) {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [showTokkiEditor, setShowTokkiEditor] = useState(false);
   const [previewInnerTab, setPreviewInnerTab] = useState('news'); // 'news' | 'records'
-  const filteredPatients = searchQuery.trim()
-    ? patients.filter(p => (p.name||'').includes(searchQuery) || (p.kana||'').includes(searchQuery) || String(p.id).includes(searchQuery))
-    : patients;
+  const [patDropOpen, setPatDropOpen] = useState(false);
+  const [patSearch, setPatSearch] = useState('');
   const patient = previewPid ? patients.find(p => p.id === previewPid) : null;
   const accs = patient ? (appData.familyAccounts||[]).filter(a => a.patientId === patient.id) : [];
-  if (!patient) {
-    return (
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
-        <h3 className="text-base font-bold text-slate-800 mb-3">📱 利用者を選択してプレビュー</h3>
-        <div className="text-xs text-slate-500 mb-3">家族画面（分析個人の内容）が利用者ごとに何が見えるかを確認できます。</div>
-        <input type="text" value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} placeholder="🔍 利用者を検索 (氏名・ふりがな・ID)" className="w-full mb-3 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm outline-none focus:border-violet-400"/>
-        <div className="grid grid-cols-3 md:grid-cols-5 gap-2 max-h-96 overflow-auto">
-          {filteredPatients.map(p => (
-            <button key={p.id} onClick={()=>setPreviewPid(p.id)}
-              className="px-3 py-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-violet-50 hover:border-violet-300 text-sm font-bold text-slate-700 text-left transition-colors">
-              <div className="truncate">{p.name}</div>
-              <div className="text-[10px] text-slate-400 truncate font-normal">ID: {p.id}{p.kana?` / ${p.kana}`:''}</div>
-            </button>
-          ))}
-          {filteredPatients.length === 0 && (
-            <div className="col-span-full text-center text-xs text-slate-400 py-8">該当する利用者が見つかりません</div>
-          )}
-        </div>
-      </div>
-    );
-  }
-  // 特記レコード
-  const ticketRecs = (appData.ticketRecords||[]).filter(r => r.patientId === patient.id);
-  const parseTicketDate = (s) => { const m=(s||'').match(/(\d+)月(\d+)日/); return m?`${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`:''; };
-  const tokkiRecs = ticketRecs.filter(r => r.tokki && r.tokki.trim()).sort((a,b)=> parseTicketDate(b.date).localeCompare(parseTicketDate(a.date)));
-  const overrideMap = familyTokkiOverrides[patient.id] || {};
+  const filteredPatients = patSearch.trim()
+    ? patients.filter(p => (p.name||'').includes(patSearch) || (p.kana||'').includes(patSearch))
+    : patients;
+  const baseUrl = typeof window !== 'undefined' ? (window.location.origin + window.location.pathname.replace(/\/+$/, '')) : '';
+  const familyLoginUrl = `${baseUrl}/?family`;
   return (
     <div className="space-y-3">
+      {/* 上部枠: ←一覧 | ドロップダウン | (タブ:お知らせ/通所記録) | URLコピー/ログイン縦並び */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-3 flex items-center gap-3 flex-wrap">
-        <button onClick={()=>setPreviewPid(null)} className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-600">← 利用者選択へ</button>
-        <div className="flex-1 min-w-[150px]">
-          <div className="text-sm font-bold text-slate-800">{patient.name} 様 <span className="text-[10px] text-slate-400 font-normal ml-1">(ID: {patient.id}{patient.kana?` / ${patient.kana}`:''})</span> の家族画面プレビュー</div>
-          <div className="text-[10px] text-slate-400">家族・ケアマネに見えている内容と同じです</div>
-        </div>
-        {accs.length > 0 && (
-          <div className="text-[10px] text-slate-500">家族 {accs.filter(a=>(a.kind||'family')==='family').length}名 / ケアマネ {accs.filter(a=>a.kind==='caremanager').length}名</div>
+        {patient && (
+          <button onClick={()=>{ setPreviewPid(null); setPatSearch(''); }} title="利用者一覧に戻る"
+            className="px-3 py-2 rounded-lg text-sm font-bold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 shrink-0 whitespace-nowrap">
+            ← 一覧
+          </button>
         )}
-        <button onClick={()=>setShowTokkiEditor(true)} className="px-3 py-2 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-700 text-xs font-bold">📝 特記の表示/非表示を編集</button>
-      </div>
-      {/* 内部タブ切替 */}
-      <div className="bg-white rounded-xl p-1.5 shadow-sm border border-slate-200 flex gap-1">
-        {[['news','📢 お知らせ・写真'],['records','📊 通所記録']].map(([k,l])=>(
-          <button key={k} onClick={()=>setPreviewInnerTab(k)}
-            className={`flex-1 py-2 rounded-lg text-sm font-bold ${previewInnerTab===k?'bg-violet-600 text-white':'text-slate-500 hover:bg-slate-100'}`}>{l}</button>
-        ))}
-      </div>
-      {previewInnerTab === 'news' && (() => {
-        const announcements = appData.familyAnnouncements || [];
-        const personalAnnouncements = (appData.familyPersonalAnnouncements||[]).filter(a => a.patientId === patient.id);
-        const photos = (appData.familyPhotos||[]).filter(ph => ph.patientId == null || ph.patientId === patient.id);
-        return (
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 space-y-4">
-            <div>
-              <div className="text-sm font-bold text-slate-700 mb-2">📢 お知らせ ({personalAnnouncements.length + announcements.length}件)</div>
-              {personalAnnouncements.length + announcements.length === 0 ? (
-                <div className="text-xs text-slate-400 text-center py-6">お知らせはまだ投稿されていません</div>
-              ) : (
-                <div className="space-y-2">
-                  {[...personalAnnouncements.map(a=>({...a,_kind:'個別'})), ...announcements.map(a=>({...a,_kind:'全体'}))]
-                    .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
-                    .map(a => (
-                    <div key={a.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${a._kind==='個別'?'bg-amber-100 text-amber-700':'bg-blue-100 text-blue-700'}`}>{a._kind}</span>
-                        <span className="text-[10px] text-slate-400">{a.date}</span>
-                      </div>
-                      <div className="text-sm font-bold text-slate-800">{a.title}</div>
-                      {a.body && <div className="text-xs text-slate-600 mt-1 whitespace-pre-wrap">{a.body}</div>}
-                    </div>
-                  ))}
+        <div style={{position:'relative'}} className="shrink-0">
+          <button onClick={()=>{setPatDropOpen(v=>!v); setPatSearch('');}}
+            className="bg-violet-50 hover:bg-violet-100 border border-violet-300 px-3 py-2 rounded-lg font-bold text-base flex items-center gap-2 text-violet-700">
+            <span className="truncate flex-1 text-left" style={{maxWidth:160}}>{patient ? patient.name : '🔍 利用者を選択'}</span>
+            <ChevronDown size={14} className="shrink-0"/>
+          </button>
+          {patDropOpen && (
+            <>
+              <div style={{position:'fixed',inset:0,zIndex:9998}} onClick={()=>setPatDropOpen(false)}/>
+              <div style={{position:'absolute',top:'calc(100% + 4px)',left:0,background:'white',border:'1px solid #e2e8f0',borderRadius:12,boxShadow:'0 8px 32px rgba(0,0,0,0.15)',zIndex:9999,minWidth:260,maxHeight:380,display:'flex',flexDirection:'column'}}>
+                <div style={{padding:'8px 8px 4px'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:6,background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:8,padding:'6px 10px'}}>
+                    <Search size={14} color="#94a3b8"/>
+                    <input autoFocus type="text" value={patSearch} onChange={e=>setPatSearch(e.target.value)}
+                      placeholder="氏名・ふりがなで検索..." style={{border:'none',background:'transparent',outline:'none',fontSize:13,fontWeight:'bold',flex:1,width:0}}/>
+                    {patSearch && <button onClick={()=>setPatSearch('')} style={{color:'#94a3b8',lineHeight:1}}><X size={13}/></button>}
+                  </div>
                 </div>
-              )}
-            </div>
-            <div>
-              <div className="text-sm font-bold text-slate-700 mb-2">📷 写真 ({photos.length}枚)</div>
-              {photos.length === 0 ? (
-                <div className="text-xs text-slate-400 text-center py-6">写真はまだ投稿されていません</div>
-              ) : (
-                <div className="grid grid-cols-4 md:grid-cols-6 gap-2">
-                  {photos.map(p => (
-                    <div key={p.id} className="aspect-square overflow-hidden rounded-lg border border-slate-200">
-                      <img src={p.url} alt="" className="w-full h-full object-cover"/>
-                    </div>
+                <div style={{overflowY:'auto',flex:1}}>
+                  {filteredPatients.map(p => (
+                    <button key={p.id} onClick={()=>{setPreviewPid(p.id); setPatDropOpen(false); setPatSearch('');}}
+                      style={{width:'100%',padding:'8px 14px',display:'flex',alignItems:'center',gap:10,textAlign:'left',background:p.id===previewPid?'#f5f3ff':'transparent',cursor:'pointer',border:'none',fontSize:14,fontWeight:'bold',color:p.id===previewPid?'#6d28d9':'#1e293b'}}
+                      className="hover:bg-slate-50">
+                      {p.id===previewPid && <span style={{width:6,height:6,borderRadius:'50%',background:'#7c3aed',flexShrink:0}}/>}
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:14,fontWeight:'bold'}}>{p.name}</div>
+                        {p.kana && <div style={{fontSize:10,color:'#94a3b8',lineHeight:1.2}}>{p.kana}</div>}
+                      </div>
+                    </button>
                   ))}
+                  {filteredPatients.length === 0 && (
+                    <div style={{padding:'16px',textAlign:'center',fontSize:12,color:'#94a3b8'}}>該当する利用者が見つかりません</div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+        {/* 内部タブ切替を同じ行に (利用者選択時のみ) */}
+        {patient && (
+          <div className="flex gap-1 shrink-0">
+            {[['news','📢 お知らせ'],['records','📊 通所記録']].map(([k,l])=>(
+              <button key={k} onClick={()=>setPreviewInnerTab(k)}
+                className={`px-3 py-2 rounded-lg text-sm font-bold ${previewInnerTab===k?'bg-violet-600 text-white':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{l}</button>
+            ))}
+          </div>
+        )}
+        {patient && accs.length > 0 && <div className="text-[10px] text-slate-500 shrink-0">登録 {accs.length}名</div>}
+        {/* 家族共通ログインURL: コピー + ログイン画面を開く (縦2行) */}
+        <div className="ml-auto flex flex-col gap-1 shrink-0">
+          <button onClick={()=>{navigator.clipboard?.writeText(familyLoginUrl);}}
+            className="px-3 py-1.5 text-xs font-bold bg-violet-600 hover:bg-violet-700 text-white rounded-lg shadow active:scale-95 whitespace-nowrap">📋 家族共通URLをコピー</button>
+          <a href={familyLoginUrl} target="_blank" rel="noopener noreferrer"
+            className="px-3 py-1.5 text-xs font-bold bg-white border border-violet-300 text-violet-700 hover:bg-violet-50 rounded-lg shadow-sm active:scale-95 text-center whitespace-nowrap">🌐 ログイン画面を開く</a>
+        </div>
+      </div>
+      {!patient && (() => {
+        const q = patSearch.trim().toLowerCase();
+        const allPats = sortPatientsByKana(patients);
+        const list = q ? allPats.filter(p => (p.name||'').toLowerCase().includes(q) || (p.kana||'').toLowerCase().includes(q) || String(p.id).includes(q)) : allPats;
+        const kanaRows = ['あ','か','さ','た','な','は','ま','や','ら','わ','その他'];
+        const groups = q ? null : kanaRows.map(row => ({ row, items: list.filter(p => getRowFromKana(p.kana) === row) })).filter(g => g.items.length > 0);
+        return (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-sm font-bold text-slate-700">📱 利用者を選択してプレビュー</div>
+              <div className="text-xs text-slate-400 font-bold">利用中 {allPats.length}名</div>
+            </div>
+            <input type="text" autoFocus placeholder="🔍 氏名・ふりがな・ID で検索" value={patSearch}
+              onChange={e=>setPatSearch(e.target.value)}
+              className="w-full mb-3 px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-base font-bold outline-none focus:border-violet-400" />
+            <div className="flex flex-wrap gap-1 mb-3 pb-3 border-b border-slate-100">
+              {kanaRows.map(row => {
+                const cnt = allPats.filter(p => getRowFromKana(p.kana) === row).length;
+                if (cnt === 0) return null;
+                return (
+                  <button key={row} onClick={() => {
+                    setPatSearch('');
+                    setTimeout(() => { document.getElementById(`fam-kana-row-${row}`)?.scrollIntoView({behavior:'smooth', block:'start'}); }, 50);
+                  }}
+                    className="px-2.5 py-1 rounded-lg text-xs font-bold border border-slate-200 bg-white text-slate-700 hover:bg-violet-50 hover:border-violet-300 transition-colors">
+                    {row}<span className="ml-1 text-[10px] text-slate-400">({cnt})</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="overflow-auto" style={{maxHeight:'60vh'}}>
+              {groups ? (
+                groups.map(g => (
+                  <div key={g.row} id={`fam-kana-row-${g.row}`} className="mb-4">
+                    <div className="text-xs font-bold text-slate-500 mb-2 px-2 py-1 bg-slate-100 rounded inline-block">{g.row}行 ({g.items.length}名)</div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                      {g.items.map(p => (
+                        <button key={p.id} onClick={()=>{ setPreviewPid(p.id); setPatSearch(''); }}
+                          className="px-3 py-3 rounded-xl border border-slate-200 bg-white hover:bg-violet-50 hover:border-violet-400 text-left transition-colors shadow-sm">
+                          <div className="text-base font-bold text-slate-800 truncate">{p.name}</div>
+                          {p.kana && <div className="text-[11px] text-slate-400 truncate font-normal mt-0.5">{p.kana}</div>}
+                          {p.careLevel && <div className="text-[10px] font-bold text-violet-600 mt-1">{p.careLevel}</div>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                  {list.map(p => (
+                    <button key={p.id} onClick={()=>{ setPreviewPid(p.id); setPatSearch(''); }}
+                      className="px-3 py-3 rounded-xl border border-slate-200 bg-white hover:bg-violet-50 hover:border-violet-400 text-left transition-colors shadow-sm">
+                      <div className="text-base font-bold text-slate-800 truncate">{p.name}</div>
+                      {p.kana && <div className="text-[11px] text-slate-400 truncate font-normal mt-0.5">{p.kana}</div>}
+                      {p.careLevel && <div className="text-[10px] font-bold text-violet-600 mt-1">{p.careLevel}</div>}
+                    </button>
+                  ))}
+                  {list.length === 0 && (
+                    <div className="col-span-full text-center text-sm text-slate-400 py-12">該当する利用者が見つかりません</div>
+                  )}
                 </div>
               )}
             </div>
           </div>
         );
       })()}
-      {previewInnerTab === 'records' && (
+      {/* 内部タブは上部枠に統合済 */}
+      {patient && previewInnerTab === 'news' && (() => {
+        const announcements = appData.familyAnnouncements || [];
+        const personalAnnouncements = (appData.familyPersonalAnnouncements||[]).filter(a => a.patientId === patient.id);
+        const photos = (appData.familyPhotos||[]).filter(ph => ph.patientId == null || ph.patientId === patient.id);
+        // 旧データの写真 (お知らせに紐付かない photos) を date+caption でグループ化して仮想お知らせとして表示
+        const orphanPhotos = photos.filter(p => !String(p.id||'').startsWith('news_'));
+        const virtualOldAnnouncements = (() => {
+          const groups = {};
+          orphanPhotos.forEach(p => {
+            const key = `${p.date||''}|${p.caption||''}`;
+            if (!groups[key]) groups[key] = {id:`old_${key}`, date: p.date||'', title: p.caption||'', body:'', _kind:'過去', photos:[]};
+            groups[key].photos.push(p);
+          });
+          return Object.values(groups);
+        })();
+        const merged = [
+          ...personalAnnouncements.map(a=>({...a,_kind:'個別'})),
+          ...announcements.map(a=>({...a,_kind:'全体'})),
+          ...virtualOldAnnouncements,
+        ].sort((a,b)=>(b.postedAt||b.date||'').localeCompare(a.postedAt||a.date||''));
+        return (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 space-y-3">
+            <div className="text-sm font-bold text-slate-700">📢 お知らせ ({merged.length}件)</div>
+            {merged.length === 0 ? (
+              <div className="text-xs text-slate-400 text-center py-6">お知らせはまだ投稿されていません</div>
+            ) : (
+              <div className="space-y-3">
+                {merged.map(a => {
+                  const annPhotos = a.photos || [];
+                  return (
+                    <div key={a.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${a._kind==='個別'?'bg-amber-100 text-amber-700':a._kind==='過去'?'bg-slate-200 text-slate-600':'bg-blue-100 text-blue-700'}`}>{a._kind}</span>
+                        <span className="text-[10px] text-slate-400">{a.date}</span>
+                      </div>
+                      {a.title && <div className="text-sm font-bold text-slate-800">{a.title}</div>}
+                      {a.body && <div className="text-xs text-slate-600 mt-1 whitespace-pre-wrap">{a.body}</div>}
+                      {annPhotos.length > 0 && (
+                        <div className="grid grid-cols-4 gap-2 mt-2" style={{maxWidth:360}}>
+                          {annPhotos.map((p,pi) => (
+                            <div key={p.id||pi} className="aspect-square overflow-hidden rounded-md border border-slate-200 cursor-pointer hover:opacity-80"
+                              onClick={()=>window.open(p.url,'_blank')}>
+                              <img src={p.url} alt="" className="w-full h-full object-cover"/>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+      {patient && previewInnerTab === 'records' && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           <PersonalDashboardView
             appData={{...appData, patients: appData.patients, familyTokkiOverrides}}
@@ -8580,58 +9398,6 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
             navigateTo={()=>{}}
             onShowPrintPreview={()=>{}}
           />
-        </div>
-      )}
-      {/* 特記編集モーダル */}
-      {showTokkiEditor && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={()=>setShowTokkiEditor(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e=>e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 sticky top-0 bg-white">
-              <h3 className="text-sm font-bold text-slate-700">{patient.name} 様 — 特記の家族向け表示設定</h3>
-              <button onClick={()=>setShowTokkiEditor(false)} className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg">✕</button>
-            </div>
-            <div className="p-4 overflow-auto flex-1 space-y-2">
-              <div className="text-[11px] text-slate-500 bg-amber-50 border border-amber-200 p-2 rounded-lg">
-                <b>✓ 表示</b> = 家族画面の詳細記録に表示 / <b>✕ 非表示</b> = 家族には見せない / <b>✏️ 上書</b> = 家族向けに別文言を表示
-              </div>
-              {tokkiRecs.length === 0 ? (
-                <div className="text-xs text-slate-400 text-center py-8">特記事項のある記録がありません</div>
-              ) : tokkiRecs.map(r => {
-                const ov = overrideMap[r.id] || {};
-                const isVisible = ov.visible !== false;
-                const hasOverride = !!ov.text;
-                return (
-                  <div key={r.id} className={`p-3 rounded-lg border ${isVisible?'bg-amber-50 border-amber-200':'bg-slate-100 border-slate-300 opacity-60'}`}>
-                    <div className="flex items-start gap-2">
-                      <div className="text-[11px] font-bold text-slate-500 shrink-0 w-16">{r.date}</div>
-                      <div className="flex-1 space-y-2">
-                        <div>
-                          <div className="text-[10px] font-bold text-slate-400 mb-0.5">事業所記録 (元の特記)</div>
-                          <div className="text-xs text-slate-700 bg-white p-2 rounded border border-slate-200 whitespace-pre-wrap">{r.tokki}</div>
-                        </div>
-                        {hasOverride && (
-                          <div>
-                            <div className="text-[10px] font-bold text-emerald-600 mb-0.5">家族向け表示 (上書き)</div>
-                            <textarea value={ov.text||''} onChange={e=>setTokkiOverride(patient.id, r.id, {...ov, text:e.target.value})}
-                              rows={2} className="w-full text-xs text-slate-800 p-2 rounded border border-emerald-300 bg-white outline-none focus:border-emerald-500 resize-none"/>
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex flex-col gap-1 shrink-0">
-                        <button onClick={()=>setTokkiOverride(patient.id, r.id, {...ov, visible: !isVisible})}
-                          className={`px-2 py-1 rounded text-[10px] font-bold ${isVisible?'bg-emerald-100 text-emerald-700 hover:bg-emerald-200':'bg-slate-300 text-slate-600 hover:bg-slate-400'}`}>{isVisible?'✓ 表示':'✕ 非表示'}</button>
-                        {!hasOverride ? (
-                          <button onClick={()=>setTokkiOverride(patient.id, r.id, {...ov, text:r.tokki})} className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[10px] font-bold">✏️ 上書</button>
-                        ) : (
-                          <button onClick={()=>setTokkiOverride(patient.id, r.id, {...ov, text:''})} className="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-[10px] font-bold">↩ 元に</button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
         </div>
       )}
     </div>
@@ -8723,39 +9489,70 @@ function FamilyAdminView({ appData, onSave }) {
     const hasPhotos = postForm.files.length > 0;
     if (!hasText && !hasPhotos) { alert('タイトルまたは写真のどちらかを入力してください'); return; }
     if (postForm.scope === 'specific' && postForm.patientIds.length === 0) { alert('対象の利用者を1人以上選択してください'); return; }
+    // クォータ超過チェック (Supabase 移行後のシミュレーション + 現在の localStorage 警告)
+    try {
+      const used = ((localStorage.getItem('daycareAppData_v3')||'').length + (localStorage.getItem('daycarePhotos_v1')||'').length) * 2;
+      const quotaBytes = (appData.systemSettings?.storeQuotaGB || 2) * 1024 * 1024 * 1024;
+      const localLimitBytes = 5 * 1024 * 1024;
+      if (used > localLimitBytes * 0.9) {
+        if (!window.confirm('⚠ 現在のブラウザ保存容量が上限に近づいています (90%超)\n\n古いお知らせを削除してから投稿することをおすすめします。\n各種設定 → データ管理 で削除できます。\n\nこのまま投稿しますか?')) return;
+      }
+      if (used > quotaBytes * 0.95) {
+        if (!window.confirm(`⚠ 事業所クォータ (${appData.systemSettings?.storeQuotaGB || 2}GB) が 95% を超えています\n\nこのまま投稿しますか?`)) return;
+      }
+    } catch {}
     let newData = { ...appData };
-    // お知らせ部分
+    const nowIso = new Date().toISOString();
+    const ts = Date.now();
+    // タイトル/本文がある → お知らせを作成（写真があれば一緒に添付）
     if (hasText) {
+      const buildPhotos = (annId) => postForm.files.map((it, i) => ({
+        id: `${annId}_ph_${i}`,
+        url: it.url, name: it.name,
+        caption: postForm.title.trim(),
+        class: postForm.eventClass,
+      }));
       if (postForm.scope === 'all') {
-        const item = { id: `news_${Date.now()}`, title: postForm.title.trim(), body: postForm.body, date: postForm.date };
+        const annId = `news_${ts}`;
+        const item = { id: annId, title: postForm.title.trim(), body: postForm.body, date: postForm.date, postedAt: nowIso, photos: buildPhotos(annId) };
         newData = { ...newData, familyAnnouncements: [item, ...allAnnouncements] };
       } else {
-        const newItems = postForm.patientIds.map(pid => ({
-          id: `news_${Date.now()}_${pid}`,
-          patientId: pid,
-          title: postForm.title.trim(),
-          body: postForm.body,
-          date: postForm.date,
-        }));
+        const newItems = postForm.patientIds.map(pid => {
+          const annId = `news_${ts}_${pid}`;
+          return {
+            id: annId,
+            patientId: pid,
+            title: postForm.title.trim(),
+            body: postForm.body,
+            date: postForm.date,
+            postedAt: nowIso,
+            photos: buildPhotos(annId),
+          };
+        });
         newData = { ...newData, familyPersonalAnnouncements: [...newItems, ...personalAnnouncements] };
       }
-    }
-    // 写真部分
-    if (hasPhotos) {
-      const pids = postForm.scope === 'specific' && postForm.patientIds.length > 0 ? postForm.patientIds : [null];
-      const newPhotos = [];
-      postForm.files.forEach((it, i) => {
-        pids.forEach(pid => {
-          newPhotos.push({
-            id:`ph_${Date.now()}_${i}_${pid||'all'}_${Math.random().toString(36).slice(-4)}`,
-            url: it.url, name: it.name,
-            caption: postForm.title.trim() || '',
-            class: postForm.eventClass,
-            date: postForm.date, patientId: pid,
-          });
+    } else if (hasPhotos) {
+      // 写真のみの投稿 → 写真だけのお知らせとして登録 (タイトルなし)
+      const buildPhotos = (annId) => postForm.files.map((it, i) => ({
+        id: `${annId}_ph_${i}`,
+        url: it.url, name: it.name,
+        caption: '',
+        class: postForm.eventClass,
+      }));
+      if (postForm.scope === 'all') {
+        const annId = `news_${ts}`;
+        const item = { id: annId, title: '', body: '', date: postForm.date, postedAt: nowIso, photos: buildPhotos(annId) };
+        newData = { ...newData, familyAnnouncements: [item, ...allAnnouncements] };
+      } else {
+        const newItems = postForm.patientIds.map(pid => {
+          const annId = `news_${ts}_${pid}`;
+          return {
+            id: annId, patientId: pid, title: '', body: '', date: postForm.date,
+            postedAt: nowIso, photos: buildPhotos(annId),
+          };
         });
-      });
-      newData = { ...newData, familyPhotos: [...newPhotos, ...(newData.familyPhotos||photos)] };
+        newData = { ...newData, familyPersonalAnnouncements: [...newItems, ...personalAnnouncements] };
+      }
     }
     onSave(newData);
     setPostForm({ scope:'all', patientIds:[], title:'', body:'', date: new Date().toISOString().slice(0,10), eventClass: postForm.eventClass, files:[], filePreview:[] });
@@ -8815,25 +9612,8 @@ function FamilyAdminView({ appData, onSave }) {
   return (
     <div className="h-full overflow-auto bg-slate-50 p-6">
       <div className="max-w-5xl mx-auto">
-        {/* 共通ログインURL バー (常時表示) */}
-        <div className="bg-gradient-to-r from-violet-500 to-purple-600 rounded-2xl p-4 mb-4 shadow-lg">
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex-1 min-w-0">
-              <div className="text-[10px] font-bold text-violet-100 uppercase tracking-wider mb-1">家族共通ログインURL</div>
-              <div className="text-xs font-mono text-white bg-violet-700/40 px-2 py-1.5 rounded-lg truncate">{loginUrl}</div>
-            </div>
-            <div className="flex gap-2 shrink-0">
-              <button onClick={copyLoginUrl} className={`px-3 py-2 rounded-lg text-xs font-bold ${copied?'bg-emerald-500 text-white':'bg-white text-violet-700 hover:bg-violet-50'} shadow active:scale-95`}>
-                {copied ? '✓ コピー済' : '📋 コピー'}
-              </button>
-              <a href={loginUrl} target="_blank" rel="noopener noreferrer" className="px-3 py-2 rounded-lg text-xs font-bold bg-white text-violet-700 hover:bg-violet-50 shadow active:scale-95">
-                🌐 ログイン画面を開く
-              </a>
-            </div>
-          </div>
-        </div>
         <div className="flex items-center gap-2 mb-4 bg-white rounded-2xl p-1.5 shadow-sm border border-slate-200">
-          {[['post','✏️ 投稿 (お知らせ・写真)'],['preview','📱 家族画面プレビュー & 特記編集'],['history','📂 過去履歴']].map(([k,l])=>(
+          {[['post','✏️ 投稿 (お知らせ・写真)'],['preview','📱 家族画面プレビュー'],['history','📂 過去履歴']].map(([k,l])=>(
             <button key={k} onClick={()=>setTab(k)} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors ${tab===k?'bg-violet-600 text-white shadow':'text-slate-500 hover:bg-slate-100'}`}>{l}</button>
           ))}
         </div>
@@ -8951,7 +9731,13 @@ function FamilyAdminView({ appData, onSave }) {
                         {e._kind === 'photo' ? (
                           <><img src={e.url} alt="" className="w-10 h-10 object-cover rounded shrink-0"/><span className="text-sm text-slate-700 truncate flex-1">{e.caption || e.name || '(キャプションなし)'}</span>{e.class && <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{e.class}</span>}</>
                         ) : (
-                          <><span className="text-sm font-bold text-slate-800 truncate flex-1">{e.title}</span>{pat && <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">{pat.name}</span>}</>
+                          <>
+                            {/* お知らせに紐付いた写真があれば先頭1枚をサムネ表示 */}
+                            {(e.photos || []).length > 0 && <img src={e.photos[0].url} alt="" className="w-10 h-10 object-cover rounded shrink-0"/>}
+                            <span className="text-sm font-bold text-slate-800 truncate flex-1">{e.title || '(タイトルなし)'}</span>
+                            {(e.photos || []).length > 0 && <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded shrink-0">📷×{e.photos.length}</span>}
+                            {pat && <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">{pat.name}</span>}
+                          </>
                         )}
                         <span className="text-slate-300 text-xs">›</span>
                       </button>
@@ -8978,11 +9764,22 @@ function FamilyAdminView({ appData, onSave }) {
                       </>
                     ) : (
                       <>
-                        <div className="text-lg font-bold text-slate-800 mb-2">{historyDetail.item.title}</div>
+                        {historyDetail.item.title && <div className="text-lg font-bold text-slate-800 mb-2">{historyDetail.item.title}</div>}
                         {historyDetail.kind === 'news_personal' && historyDetail.patient && (
                           <div className="text-xs font-bold text-amber-700 bg-amber-50 px-2 py-1 rounded inline-block mb-3">対象: {historyDetail.patient.name} 様</div>
                         )}
-                        <div className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap select-all">{historyDetail.item.body || '(本文なし)'}</div>
+                        {historyDetail.item.body && <div className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap select-all mb-3">{historyDetail.item.body}</div>}
+                        {/* お知らせに添付された写真も表示 */}
+                        {(historyDetail.item.photos || []).length > 0 && (
+                          <div className={`grid ${historyDetail.item.photos.length===1?'grid-cols-1':'grid-cols-2'} gap-2 mt-2`}>
+                            {historyDetail.item.photos.map((p, pi) => (
+                              <div key={p.id||pi} className="relative">
+                                <img src={p.url} alt="" className="w-full aspect-square object-cover rounded-lg border border-slate-200"/>
+                                <a href={p.url} download={p.name||`photo_${pi+1}.jpg`} className="absolute bottom-1 right-1 bg-black/60 text-white px-2 py-0.5 rounded text-[10px] font-bold no-underline">↓</a>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </>
                     )}
                     <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100">
@@ -9031,9 +9828,26 @@ function FamilyView() {
   const [data, setData] = useState(loadDataMerged);
   // ログイン状態 (sessionStorage で同一タブ内のみ保持)
   const [authPid, setAuthPid] = useState(()=> sessionStorage.getItem('familyAuthPid') || null);
+  const [authAccId, setAuthAccId] = useState(()=> sessionStorage.getItem('familyAuthAccId') || null);
   const [loginForm, setLoginForm] = useState({ username:'', password:'', error:'', showPw:false });
   const [mode, setMode] = useState('login'); // 'login' | 'signup'
-  const [signupForm, setSignupForm] = useState({ email:'', generatedUrl:'', copied:false });
+  const [signupForm, setSignupForm] = useState({
+    inviteCode:'', username:'', password:'', password2:'',
+    email:'',  // 共通メールアドレス (家族アカウント + 緊急連絡先 両方に反映)
+    // 緊急連絡先 (利用者マスタの emergencyContacts に自動反映)
+    ecName:'',
+    ecRelation:'',           // 配偶者/長男/長女/次男/次女/兄弟姉妹/ケアマネージャー/自由記述
+    ecRelationCustom:'',     // 自由記述時の値
+    ecPhone:'', ecMobile:'',
+    // ケアマネ専用フィールド (続柄=ケアマネージャー の場合のみ)
+    cmOfficeMode:'select',   // 'select' | 'new'
+    cmOfficeId:'',           // 既存事業所選択時
+    cmNewOffice:{name:'', phone:'', fax:''},
+    cmManagerMode:'select',  // 'select' | 'new'
+    cmManagerId:'',          // 既存担当者選択時
+    cmNewManager:{lastName:'', firstName:'', phoneDirect:''},
+    error:'', done:false
+  });
   // データ更新を購読 (事業所側で更新されたら反映)
   useEffect(()=>{
     const reload = () => {
@@ -9079,7 +9893,9 @@ function FamilyView() {
         }
       } catch {}
       sessionStorage.setItem('familyAuthPid', String(acc.patientId));
+      sessionStorage.setItem('familyAuthAccId', String(acc.id));
       setAuthPid(String(acc.patientId));
+      setAuthAccId(String(acc.id));
     };
     return (
       <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#6366f1 0%,#8b5cf6 50%,#a855f7 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:16,fontFamily:'"Hiragino Sans","Yu Gothic",sans-serif'}}>
@@ -9092,60 +9908,328 @@ function FamilyView() {
           {mode === 'signup' ? (
             <div style={{background:'white',borderRadius:24,padding:28,boxShadow:'0 20px 60px rgba(0,0,0,0.25)'}}>
               <div style={{textAlign:'center',marginBottom:18}}>
-                <div style={{fontSize:18,fontWeight:'bold',color:'#1e293b'}}>新規ご家族の登録申請</div>
+                <div style={{fontSize:18,fontWeight:'bold',color:'#1e293b'}}>新規ご家族の登録</div>
                 <div style={{fontSize:11,color:'#94a3b8',marginTop:4,lineHeight:1.7}}>
-                  メールアドレスをご入力ください。<br/>登録手続き用のURLが発行されます。
+                  事業所から伝えられた招待コードを入力してください
                 </div>
               </div>
-              {!signupForm.generatedUrl ? (
-                <form onSubmit={(e)=>{
-                  e.preventDefault();
-                  const email = signupForm.email.trim();
-                  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert('正しいメールアドレスを入力してください'); return; }
-                  const token = `family-${btoa(unescape(encodeURIComponent(email + '|' + Date.now())))}`;
-                  const baseUrl = window.location.origin + window.location.pathname.replace(/\/+$/, '');
-                  const url = `${baseUrl}/?signup=${token}`;
-                  setSignupForm(f=>({...f, generatedUrl: url}));
-                }}>
-                  <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>メールアドレス</label>
-                  <input type="email" value={signupForm.email} onChange={e=>setSignupForm(f=>({...f,email:toHalfWidth(e.target.value)}))} autoFocus placeholder="例: yamada@example.com"
-                    style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
-                  <button type="submit"
-                    style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',marginTop:14,boxShadow:'0 4px 12px rgba(99,102,241,0.3)'}}>
-                    登録URLを発行
-                  </button>
-                </form>
-              ) : (
+              {signupForm.done ? (
                 <div>
-                  <div style={{background:'#f0fdf4',border:'1px solid #86efac',borderRadius:12,padding:'12px 14px',marginBottom:12}}>
-                    <div style={{fontSize:11,fontWeight:'bold',color:'#15803d',marginBottom:6}}>✓ 登録URLが発行されました</div>
-                    <div style={{fontSize:11,color:'#166534',lineHeight:1.7}}>下記のURLを{signupForm.email}にお送りするか、ブラウザで開いて登録を完了してください。</div>
+                  <div style={{background:'#f0fdf4',border:'1px solid #86efac',borderRadius:12,padding:'16px 18px',textAlign:'center'}}>
+                    <div style={{fontSize:36,marginBottom:8}}>✓</div>
+                    <div style={{fontSize:15,fontWeight:'bold',color:'#15803d',marginBottom:6}}>登録が完了しました</div>
+                    <div style={{fontSize:11,color:'#166534',lineHeight:1.7}}>下のボタンからログインしてください</div>
                   </div>
-                  <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>登録URL</label>
-                  <textarea readOnly value={signupForm.generatedUrl}
-                    style={{width:'100%',padding:'10px 12px',border:'1px solid #e2e8f0',borderRadius:10,fontSize:11,fontFamily:'Menlo,monospace',outline:'none',boxSizing:'border-box',height:74,resize:'none'}}/>
-                  <div style={{display:'flex',gap:8,marginTop:10}}>
-                    <button onClick={()=>{navigator.clipboard?.writeText(signupForm.generatedUrl); setSignupForm(f=>({...f,copied:true})); setTimeout(()=>setSignupForm(f=>({...f,copied:false})),2000);}}
-                      style={{flex:1,padding:'10px',background:signupForm.copied?'#16a34a':'#3b82f6',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>
-                      {signupForm.copied?'✓ コピーしました':'📋 URLをコピー'}
-                    </button>
-                    <a href={signupForm.generatedUrl} target="_blank" rel="noopener noreferrer"
-                      style={{flex:1,padding:'10px',background:'#f1f5f9',color:'#475569',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer',textDecoration:'none',textAlign:'center'}}>
-                      📨 URLを開く
-                    </a>
-                  </div>
-                  <div style={{fontSize:10,color:'#94a3b8',marginTop:14,lineHeight:1.6,background:'#fef3c7',padding:10,borderRadius:8,border:'1px solid #fbbf24'}}>
-                    <b>※</b> 現在メール自動送信は未対応です。発行URLは事業所からご家族へお伝えください。<br/>
-                    <b>※</b> このURLは1度きり有効です（次回以降は通常ログインしてください）。
-                  </div>
-                  <button onClick={()=>{setSignupForm({email:'',generatedUrl:'',copied:false}); setMode('login');}}
-                    style={{width:'100%',padding:'10px',marginTop:12,background:'transparent',color:'#64748b',border:'1px solid #e2e8f0',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>
-                    ログイン画面に戻る
+                  <button onClick={()=>{setSignupForm({inviteCode:'',username:'',password:'',password2:'',displayName:'',error:'',done:false}); setMode('login');}}
+                    style={{width:'100%',padding:'12px',marginTop:14,background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:'bold',cursor:'pointer'}}>
+                    ログイン画面へ
                   </button>
                 </div>
-              )}
-              {!signupForm.generatedUrl && (
-                <button onClick={()=>setMode('login')} style={{display:'block',width:'100%',padding:'10px',marginTop:14,background:'transparent',color:'#64748b',border:'none',fontSize:12,fontWeight:'bold',cursor:'pointer'}}>← ログイン画面に戻る</button>
+              ) : (
+                <form onSubmit={(e)=>{
+                  e.preventDefault();
+                  const code = signupForm.inviteCode.trim();
+                  const uname = signupForm.username.trim();
+                  const pw = signupForm.password;
+                  // 1. 入力バリデーション
+                  if (!code) { setSignupForm(f=>({...f, error:'招待コードを入力してください'})); return; }
+                  if (uname.length < 4) { setSignupForm(f=>({...f, error:'IDは4文字以上必要です'})); return; }
+                  if (!/^[a-zA-Z0-9_\-]+$/.test(uname)) { setSignupForm(f=>({...f, error:'IDは半角英数字・ハイフン・アンダースコアのみ使用できます'})); return; }
+                  if (pw.length < 8) { setSignupForm(f=>({...f, error:'パスワードは8文字以上必要です'})); return; }
+                  if (!/[a-zA-Z]/.test(pw) || !/[0-9]/.test(pw)) { setSignupForm(f=>({...f, error:'パスワードは英字と数字を組み合わせてください'})); return; }
+                  if (pw !== signupForm.password2) { setSignupForm(f=>({...f, error:'パスワードが一致しません'})); return; }
+                  // メールアドレス
+                  const email = signupForm.email.trim();
+                  if (!email) { setSignupForm(f=>({...f, error:'メールアドレスを入力してください'})); return; }
+                  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setSignupForm(f=>({...f, error:'メールアドレスの形式が正しくありません'})); return; }
+                  // 続柄 (自由記述の場合は ecRelationCustom を採用)
+                  const isFreeText = signupForm.ecRelation === '自由記述';
+                  const ecRelation = isFreeText ? signupForm.ecRelationCustom.trim() : signupForm.ecRelation;
+                  const ecName = signupForm.ecName.trim();
+                  const ecPhone = signupForm.ecPhone.trim();
+                  const ecMobile = signupForm.ecMobile.trim();
+                  if (!ecName) { setSignupForm(f=>({...f, error:'お名前を入力してください'})); return; }
+                  if (!ecRelation) { setSignupForm(f=>({...f, error:'続柄を選択してください'})); return; }
+                  if (!ecPhone && !ecMobile) { setSignupForm(f=>({...f, error:'電話番号（固定または携帯）を1つ以上入力してください'})); return; }
+                  const isCaremanager = ecRelation === 'ケアマネージャー';
+                  // ケアマネのみ: 事業所と担当者の入力
+                  let cmOfficeName='', cmOfficePhone='', cmOfficeFax='';
+                  let cmManagerLast='', cmManagerFirst='', cmManagerDirect='';
+                  if (isCaremanager) {
+                    // 最新の localStorage を読んで既存マスタを取得
+                    let _lt;
+                    try { _lt = JSON.parse(localStorage.getItem('daycareAppData_v3')||'null'); } catch { _lt = null; }
+                    if (!_lt) _lt = data;
+                    const cmOffices = _lt.systemSettings?.cmOffices || [];
+                    const careManagers = _lt.systemSettings?.careManagers || [];
+                    if (signupForm.cmOfficeMode === 'select') {
+                      const off = cmOffices.find(o => o.name === signupForm.cmOfficeId);
+                      if (!off) { setSignupForm(f=>({...f, error:'事業所を選択してください'})); return; }
+                      cmOfficeName = off.name; cmOfficePhone = off.phone||''; cmOfficeFax = off.fax||'';
+                    } else {
+                      cmOfficeName = signupForm.cmNewOffice.name.trim();
+                      cmOfficePhone = signupForm.cmNewOffice.phone.trim();
+                      cmOfficeFax = signupForm.cmNewOffice.fax.trim();
+                      if (!cmOfficeName) { setSignupForm(f=>({...f, error:'事業所名を入力してください'})); return; }
+                    }
+                    if (signupForm.cmManagerMode === 'select') {
+                      const cm = careManagers.find(c => c.office === cmOfficeName && (c.name === signupForm.cmManagerId));
+                      if (!cm) { setSignupForm(f=>({...f, error:'担当者を選択してください'})); return; }
+                      const sp = (cm.name||'').split(/\s+/);
+                      cmManagerLast = sp[0]||''; cmManagerFirst = sp.slice(1).join(' ')||'';
+                      cmManagerDirect = cm.phoneDirect || cm.phone || '';
+                    } else {
+                      cmManagerLast = signupForm.cmNewManager.lastName.trim();
+                      cmManagerFirst = signupForm.cmNewManager.firstName.trim();
+                      cmManagerDirect = signupForm.cmNewManager.phoneDirect.trim();
+                      if (!cmManagerLast || !cmManagerFirst) { setSignupForm(f=>({...f, error:'担当者の姓と名を入力してください'})); return; }
+                    }
+                    // ecName をケアマネ名に合わせる
+                    const cmFullName = `${cmManagerLast} ${cmManagerFirst}`.trim();
+                    if (!signupForm.ecName.trim()) {
+                      // 自動補完 (お名前が空ならケアマネ名を使う)
+                    }
+                  }
+                  // 2. 最新の localStorage を取得して招待コードを検証
+                  let latest;
+                  try { latest = JSON.parse(localStorage.getItem('daycareAppData_v3')||'null'); } catch { latest = null; }
+                  if (!latest) latest = data;
+                  const invite = (latest.familyInvites||[]).find(i => i.code === code);
+                  if (!invite) { setSignupForm(f=>({...f, error:'招待コードが見つかりません。事業所までお問い合わせください'})); return; }
+                  if (invite.usedBy) { setSignupForm(f=>({...f, error:'この招待コードは既に使用されています'})); return; }
+                  // 3. ID重複チェック
+                  const exists = (latest.familyAccounts||[]).some(a => (a.username||'').toLowerCase() === uname.toLowerCase());
+                  if (exists) { setSignupForm(f=>({...f, error:'このIDは既に使用されています'})); return; }
+                  // 4. アカウント作成 + 招待コードを使用済みに + 利用者の緊急連絡先に追加
+                  const newAccId = `${isCaremanager?'cm':'fam'}_${Date.now()}`;
+                  const newAcc = {
+                    id: newAccId,
+                    patientId: invite.patientId,
+                    username: uname,
+                    password: pw,
+                    kind: isCaremanager ? 'caremanager' : 'family',
+                    relation: ecRelation,
+                    displayName: ecName,  // 表示用には登録名そのまま
+                    email: email,
+                    createdAt: new Date().toISOString().slice(0,10),
+                  };
+                  const newEmergencyContact = {
+                    name: ecName,
+                    relation: ecRelation,
+                    phone: ecPhone,
+                    phoneMobile: ecMobile,
+                    email: email,
+                    addedByFamilyAccountId: newAccId,
+                    addedAt: new Date().toISOString(),
+                  };
+                  // ケアマネの場合: 各種設定の cmOffices / careManagers に追加 (既存ならスキップ)
+                  let nextCmOffices = (latest.systemSettings?.cmOffices) || [];
+                  let nextCareManagers = (latest.systemSettings?.careManagers) || [];
+                  if (isCaremanager) {
+                    if (!nextCmOffices.some(o => o.name === cmOfficeName)) {
+                      nextCmOffices = [...nextCmOffices, { name: cmOfficeName, phone: cmOfficePhone, fax: cmOfficeFax }];
+                    }
+                    const cmFullName = `${cmManagerLast} ${cmManagerFirst}`.trim();
+                    if (!nextCareManagers.some(c => c.office === cmOfficeName && c.name === cmFullName)) {
+                      nextCareManagers = [...nextCareManagers, { office: cmOfficeName, name: cmFullName, phone: cmOfficePhone, phoneDirect: cmManagerDirect, lastName: cmManagerLast, firstName: cmManagerFirst }];
+                    }
+                  }
+                  const updated = {
+                    ...latest,
+                    familyAccounts: [...(latest.familyAccounts||[]), newAcc],
+                    familyInvites: (latest.familyInvites||[]).map(i => i.id === invite.id ? {...i, usedBy: newAccId, usedAt: new Date().toISOString()} : i),
+                    systemSettings: isCaremanager ? { ...(latest.systemSettings||{}), cmOffices: nextCmOffices, careManagers: nextCareManagers } : (latest.systemSettings || {}),
+                    patients: (latest.patients||[]).map(p => {
+                      if (p.id !== invite.patientId) return p;
+                      const existingContacts = p.emergencyContacts || [];
+                      const dup = existingContacts.some(c => (c.name||'').trim() === ecName && (c.relation||'').trim() === ecRelation);
+                      const updatedContacts = dup ? existingContacts : [...existingContacts, newEmergencyContact];
+                      // ケアマネ情報: もとから登録されていれば更新しない、未登録の場合のみ反映
+                      let cmFields = {};
+                      if (isCaremanager) {
+                        const cmFullName = `${cmManagerLast} ${cmManagerFirst}`.trim();
+                        if (!p.cmOffice) cmFields.cmOffice = cmOfficeName;
+                        if (!p.cmName) cmFields.cmName = cmFullName;
+                        if (!p.cmPhone) cmFields.cmPhone = cmManagerDirect || cmOfficePhone;
+                        if (!p.cmFax) cmFields.cmFax = cmOfficeFax;
+                      }
+                      return {...p, emergencyContacts: updatedContacts, ...cmFields};
+                    }),
+                  };
+                  try { localStorage.setItem('daycareAppData_v3', JSON.stringify(updated)); } catch {}
+                  setData(updated);
+                  setSignupForm(f=>({...f, done:true, error:''}));
+                }}>
+                  <div style={{marginBottom:12}}>
+                    <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>招待コード (FAM-XXXX-XXXX)</label>
+                    <input value={signupForm.inviteCode} onChange={e=>setSignupForm(f=>({...f,inviteCode:normalizeInviteCode(e.target.value),error:''}))}
+                      placeholder="FAM-XXXX-XXXX" autoFocus
+                      style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:15,fontWeight:'bold',outline:'none',boxSizing:'border-box',fontFamily:'Menlo,monospace',letterSpacing:2,textAlign:'center'}}/>
+                  </div>
+                  <div style={{marginBottom:12}}>
+                    <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>メールアドレス <span style={{color:'#dc2626'}}>*</span></label>
+                    <input type="email" value={signupForm.email} onChange={e=>setSignupForm(f=>({...f,email:toHalfWidth(e.target.value),error:''}))}
+                      placeholder="例: yamada@example.com"
+                      style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
+                    <div style={{fontSize:10,color:'#94a3b8',marginTop:4}}>※ 緊急連絡先のメールアドレスとしても自動登録されます</div>
+                  </div>
+                  <div style={{marginBottom:12}}>
+                    <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>ログインID</label>
+                    <input value={signupForm.username} onChange={e=>setSignupForm(f=>({...f,username:toHalfWidth(e.target.value),error:''}))}
+                      placeholder="例: inoue_family (4文字以上、半角英数字)"
+                      style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
+                  </div>
+                  <div style={{marginBottom:12}}>
+                    <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>パスワード</label>
+                    <input type="password" value={signupForm.password} onChange={e=>setSignupForm(f=>({...f,password:toHalfWidth(e.target.value),error:''}))}
+                      placeholder="8文字以上、英字+数字"
+                      style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
+                  </div>
+                  <div style={{marginBottom:12}}>
+                    <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>パスワード（確認）</label>
+                    <input type="password" value={signupForm.password2} onChange={e=>setSignupForm(f=>({...f,password2:toHalfWidth(e.target.value),error:''}))}
+                      placeholder="もう一度入力"
+                      style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
+                  </div>
+                  {/* お名前 + 続柄 + 連絡先 */}
+                  <div style={{background:'#fef3c7',border:'1px solid #fbbf24',borderRadius:12,padding:14,marginBottom:12}}>
+                    <div style={{fontSize:12,fontWeight:'bold',color:'#92400e',marginBottom:4}}>📞 ご登録者情報・緊急連絡先</div>
+                    <div style={{fontSize:10,color:'#78350f',marginBottom:10,lineHeight:1.5}}>
+                      ご利用者の緊急連絡先として事業所に登録されます。
+                    </div>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
+                      <div>
+                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>お名前 <span style={{color:'#dc2626'}}>*</span></label>
+                        <input value={signupForm.ecName} onChange={e=>setSignupForm(f=>({...f,ecName:e.target.value,error:''}))}
+                          placeholder="例: 山田 太郎"
+                          style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
+                      </div>
+                      <div>
+                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>続柄 <span style={{color:'#dc2626'}}>*</span></label>
+                        <select value={signupForm.ecRelation} onChange={e=>setSignupForm(f=>({...f,ecRelation:e.target.value,error:''}))}
+                          style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white',fontWeight:'bold'}}>
+                          <option value="">— 選択 —</option>
+                          <option value="配偶者">配偶者</option>
+                          <option value="長男">長男</option>
+                          <option value="長女">長女</option>
+                          <option value="次男">次男</option>
+                          <option value="次女">次女</option>
+                          <option value="兄弟姉妹">兄弟姉妹</option>
+                          <option value="ケアマネージャー">ケアマネージャー</option>
+                          <option value="自由記述">自由記述...</option>
+                        </select>
+                      </div>
+                    </div>
+                    {signupForm.ecRelation === '自由記述' && (
+                      <div style={{marginBottom:8}}>
+                        <input value={signupForm.ecRelationCustom} onChange={e=>setSignupForm(f=>({...f,ecRelationCustom:e.target.value,error:''}))}
+                          placeholder="続柄を入力 (例: 孫 / 甥 / 友人)"
+                          style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
+                      </div>
+                    )}
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
+                      <div>
+                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>家の電話番号</label>
+                        <input type="tel" inputMode="numeric" value={signupForm.ecPhone} onChange={e=>setSignupForm(f=>({...f,ecPhone:e.target.value,error:''}))}
+                          placeholder="03-XXXX-XXXX"
+                          style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
+                      </div>
+                      <div>
+                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>携帯電話番号</label>
+                        <input type="tel" inputMode="numeric" value={signupForm.ecMobile} onChange={e=>setSignupForm(f=>({...f,ecMobile:e.target.value,error:''}))}
+                          placeholder="090-XXXX-XXXX"
+                          style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
+                      </div>
+                    </div>
+                    <div style={{fontSize:10,color:'#78350f',marginTop:4,lineHeight:1.4}}>
+                      ※ 家・携帯のいずれかは必須<br/>
+                      ※ メールアドレスは上で入力したものが自動で登録されます
+                    </div>
+                  </div>
+                  {/* ケアマネージャー専用: 事業所 + 担当者 */}
+                  {signupForm.ecRelation === 'ケアマネージャー' && (() => {
+                    const cmOffices = (data.systemSettings?.cmOffices) || [];
+                    const careManagers = (data.systemSettings?.careManagers) || [];
+                    const selectedOfficeName = signupForm.cmOfficeMode === 'select' ? signupForm.cmOfficeId : signupForm.cmNewOffice.name;
+                    const filteredManagers = careManagers.filter(c => c.office === selectedOfficeName);
+                    return (
+                      <div style={{background:'#e0f2fe',border:'1px solid #38bdf8',borderRadius:12,padding:14,marginBottom:12}}>
+                        <div style={{fontSize:12,fontWeight:'bold',color:'#075985',marginBottom:6}}>🩺 ケアマネ事業所・担当者</div>
+                        {/* 事業所 */}
+                        <div style={{marginBottom:10}}>
+                          <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>事業所 <span style={{color:'#dc2626'}}>*</span></label>
+                          <select value={signupForm.cmOfficeMode === 'new' ? '__new__' : signupForm.cmOfficeId}
+                            onChange={e=>{
+                              if (e.target.value === '__new__') setSignupForm(f=>({...f, cmOfficeMode:'new', cmOfficeId:'', error:''}));
+                              else setSignupForm(f=>({...f, cmOfficeMode:'select', cmOfficeId:e.target.value, cmManagerMode:'select', cmManagerId:'', error:''}));
+                            }}
+                            style={{width:'100%',padding:'10px 12px',border:'1px solid #7dd3fc',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white',fontWeight:'bold'}}>
+                            <option value="">— 選択 —</option>
+                            {cmOffices.map((o,i) => <option key={i} value={o.name}>{o.name}</option>)}
+                            <option value="__new__">＋ 新規作成（リストにない場合）</option>
+                          </select>
+                        </div>
+                        {signupForm.cmOfficeMode === 'new' && (
+                          <div style={{background:'white',borderRadius:8,padding:10,marginBottom:10,border:'1px dashed #7dd3fc'}}>
+                            <div style={{fontSize:10,fontWeight:'bold',color:'#0369a1',marginBottom:6}}>新規事業所の登録</div>
+                            <input value={signupForm.cmNewOffice.name} onChange={e=>setSignupForm(f=>({...f, cmNewOffice:{...f.cmNewOffice, name:e.target.value}, error:''}))}
+                              placeholder="事業所名 (例: あおぞら居宅介護支援事業所)"
+                              style={{width:'100%',padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:12,outline:'none',boxSizing:'border-box',marginBottom:6}}/>
+                            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
+                              <input value={signupForm.cmNewOffice.phone} onChange={e=>setSignupForm(f=>({...f, cmNewOffice:{...f.cmNewOffice, phone:e.target.value}, error:''}))}
+                                placeholder="電話番号"
+                                style={{padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:12,outline:'none',boxSizing:'border-box'}}/>
+                              <input value={signupForm.cmNewOffice.fax} onChange={e=>setSignupForm(f=>({...f, cmNewOffice:{...f.cmNewOffice, fax:e.target.value}, error:''}))}
+                                placeholder="FAX"
+                                style={{padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:12,outline:'none',boxSizing:'border-box'}}/>
+                            </div>
+                          </div>
+                        )}
+                        {/* 担当者 */}
+                        <div style={{marginBottom:8}}>
+                          <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>担当者 <span style={{color:'#dc2626'}}>*</span></label>
+                          <select value={signupForm.cmManagerMode === 'new' ? '__new__' : signupForm.cmManagerId}
+                            onChange={e=>{
+                              if (e.target.value === '__new__') setSignupForm(f=>({...f, cmManagerMode:'new', cmManagerId:'', error:''}));
+                              else setSignupForm(f=>({...f, cmManagerMode:'select', cmManagerId:e.target.value, error:''}));
+                            }}
+                            disabled={!selectedOfficeName}
+                            style={{width:'100%',padding:'10px 12px',border:'1px solid #7dd3fc',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white',fontWeight:'bold',opacity:!selectedOfficeName?0.5:1}}>
+                            <option value="">— 選択 —</option>
+                            {filteredManagers.map((c,i) => <option key={i} value={c.name}>{c.name}</option>)}
+                            <option value="__new__">＋ 新規作成（リストにない場合）</option>
+                          </select>
+                        </div>
+                        {signupForm.cmManagerMode === 'new' && (
+                          <div style={{background:'white',borderRadius:8,padding:10,border:'1px dashed #7dd3fc'}}>
+                            <div style={{fontSize:10,fontWeight:'bold',color:'#0369a1',marginBottom:6}}>新規担当者の登録</div>
+                            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:6}}>
+                              <input value={signupForm.cmNewManager.lastName} onChange={e=>setSignupForm(f=>({...f, cmNewManager:{...f.cmNewManager, lastName:e.target.value}, error:''}))}
+                                placeholder="姓"
+                                style={{padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:12,outline:'none',boxSizing:'border-box'}}/>
+                              <input value={signupForm.cmNewManager.firstName} onChange={e=>setSignupForm(f=>({...f, cmNewManager:{...f.cmNewManager, firstName:e.target.value}, error:''}))}
+                                placeholder="名"
+                                style={{padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:12,outline:'none',boxSizing:'border-box'}}/>
+                            </div>
+                            <input value={signupForm.cmNewManager.phoneDirect} onChange={e=>setSignupForm(f=>({...f, cmNewManager:{...f.cmNewManager, phoneDirect:e.target.value}, error:''}))}
+                              placeholder="直通電話番号 (任意)"
+                              style={{width:'100%',padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:12,outline:'none',boxSizing:'border-box'}}/>
+                          </div>
+                        )}
+                        <div style={{fontSize:10,color:'#0369a1',marginTop:6,lineHeight:1.5}}>
+                          ※ 新規作成した内容は事業所側の「各種設定」「ご利用者マスタ」に自動で反映されます<br/>
+                          ※ 既に登録されている場合は上書きされません
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  {signupForm.error && <div style={{color:'#ef4444',fontSize:12,fontWeight:'bold',marginBottom:10,textAlign:'center',background:'#fef2f2',padding:'8px 10px',borderRadius:8}}>{signupForm.error}</div>}
+                  <button type="submit"
+                    style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',marginTop:6,boxShadow:'0 4px 12px rgba(99,102,241,0.3)'}}>
+                    登録する
+                  </button>
+                  <button type="button" onClick={()=>setMode('login')} style={{display:'block',width:'100%',padding:'10px',marginTop:10,background:'transparent',color:'#64748b',border:'none',fontSize:12,fontWeight:'bold',cursor:'pointer'}}>← ログイン画面に戻る</button>
+                </form>
               )}
             </div>
           ) : (
@@ -9194,21 +10278,53 @@ function FamilyView() {
   }
   const handleLogout = () => {
     sessionStorage.removeItem('familyAuthPid');
+    sessionStorage.removeItem('familyAuthAccId');
     setAuthPid(null);
+    setAuthAccId(null);
     setLoginForm({ username:'', password:'', error:'', showPw:false });
   };
-  return <FamilyPatientView data={data} patientId={authPid} onLogout={handleLogout} />;
+  return <FamilyPatientView data={data} patientId={authPid} accountId={authAccId} onLogout={handleLogout} />;
 }
 
 // === 家族画面 - 利用者ごとのコンテンツ ===
-function FamilyPatientView({ data, patientId, onLogout }) {
+function FamilyPatientView({ data, patientId, accountId, onLogout }) {
   const [tab, setTab] = useState('news');
   const pid = parseInt(patientId, 10);
   const patient = (data.patients||[]).find(p => p.id === pid || p.id === patientId);
   const facility = data.systemSettings?.facilityInfo || {};
+  // ログイン中のアカウントが ケアマネ かどうか
+  const loggedAcc = (data.familyAccounts||[]).find(a => String(a.id) === String(accountId));
+  const isCmAccount = loggedAcc && (loggedAcc.kind === 'caremanager' || loggedAcc.relation === 'ケアマネージャー');
   const announcements = data.familyAnnouncements || [];
   const personalAnnouncements = (data.familyPersonalAnnouncements||[]).filter(a => a.patientId === pid || a.patientId === patientId);
   const photos = (data.familyPhotos||[]).filter(ph => ph.patientId == null || ph.patientId === pid || ph.patientId === patientId);
+  // 未読お知らせ管理: localStorage に最終既読時刻を保存
+  const readKey = `familyReadAt_${patientId}`;
+  const [lastReadAt, setLastReadAt] = useState(() => {
+    try { return localStorage.getItem(readKey) || ''; } catch { return ''; }
+  });
+  const allAnnouncementsForUser = [...personalAnnouncements, ...announcements];
+  const unreadAnnouncements = allAnnouncementsForUser.filter(a => {
+    const t = a.postedAt || (a.date ? `${a.date}T00:00:00.000Z` : '');
+    return t && t > lastReadAt;
+  });
+  const unreadCount = unreadAnnouncements.length;
+  const markAllRead = () => {
+    const now = new Date().toISOString();
+    try { localStorage.setItem(readKey, now); } catch {}
+    setLastReadAt(now);
+    setUnreadPopupVisible(false);
+  };
+  // 初回マウント時に未読が1件以上あればポップアップ表示
+  const [unreadPopupVisible, setUnreadPopupVisible] = useState(false);
+  const [popupShown, setPopupShown] = useState(false);
+  useEffect(() => {
+    if (!popupShown && unreadCount > 0 && tab !== 'news') {
+      setUnreadPopupVisible(true);
+      setPopupShown(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unreadCount, popupShown]);
   if (!patient) {
     return (
       <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f1f5f9',fontFamily:'"Hiragino Sans","Yu Gothic",sans-serif'}}>
@@ -9252,12 +10368,24 @@ function FamilyPatientView({ data, patientId, onLogout }) {
       </div>
       <div style={{maxWidth:1100,margin:'-12px auto 0',padding:'0 12px'}}>
         <div className="family-tab-bar" style={{background:'white',borderRadius:16,padding:4,boxShadow:'0 4px 16px rgba(0,0,0,0.06)',display:'flex',gap:2}}>
-          {[['news','📢 お知らせ・写真'],['analysis','📊 通所記録']].map(([k,l])=>(
-            <button key={k} onClick={()=>setTab(k)} className="family-tab-btn"
-              style={{flex:1,padding:'10px 8px',borderRadius:12,border:'none',background:tab===k?'#6366f1':'transparent',color:tab===k?'white':'#475569',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>
-              {l}
-            </button>
-          ))}
+          {[['news','📢 お知らせ'],['analysis','📊 通所記録']].map(([k,l])=>{
+            // 未読バッジ: お知らせタブのみ表示
+            const showBadge = k === 'news' && unreadCount > 0;
+            return (
+              <button key={k} onClick={()=>{
+                setTab(k);
+                if (k === 'news') markAllRead();
+              }} className="family-tab-btn"
+                style={{flex:1,padding:'10px 8px',borderRadius:12,border:'none',background:tab===k?'#6366f1':'transparent',color:tab===k?'white':'#475569',fontWeight:'bold',fontSize:13,cursor:'pointer',position:'relative'}}>
+                {l}
+                {showBadge && (
+                  <span style={{position:'absolute',top:4,right:8,minWidth:18,height:18,padding:'0 5px',background:'#ef4444',color:'white',borderRadius:9,fontSize:10,fontWeight:'bold',display:'inline-flex',alignItems:'center',justifyContent:'center',boxShadow:'0 1px 3px rgba(0,0,0,0.3)'}}>
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
       <div className="family-content-area" style={{maxWidth: tab==='analysis' ? 1100 : 720, margin:'16px auto 0',padding:'0 12px 40px'}}>
@@ -9269,7 +10397,7 @@ function FamilyPatientView({ data, patientId, onLogout }) {
                 <PersonalDashboardView
                   appData={data}
                   targetPatientId={pid}
-                  familyMode={true}
+                  familyMode={!isCmAccount}
                   hidePatientSelector={true}
                   navigateTo={()=>{}}
                   onShowPrintPreview={()=>{}}
@@ -9280,42 +10408,74 @@ function FamilyPatientView({ data, patientId, onLogout }) {
         )}
         {tab === 'news' && (
           <div style={{maxWidth:720,margin:'0 auto'}}>
-            {/* お知らせ一覧 */}
-            <div style={{background:'white',borderRadius:16,padding:'8px 0',boxShadow:'0 2px 8px rgba(0,0,0,0.04)',marginBottom:14}}>
-              <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',padding:'8px 20px',borderBottom:'1px solid #f1f5f9'}}>📢 お知らせ</div>
-              {[...personalAnnouncements.map(a=>({...a,_kind:'個別'})), ...announcements.map(a=>({...a,_kind:'全体'}))].length === 0 ? (
-                <div style={{padding:'24px 20px',textAlign:'center',color:'#94a3b8',fontSize:13}}>お知らせはありません</div>
-              ) : (
-                [...personalAnnouncements.map(a=>({...a,_kind:'個別'})), ...announcements.map(a=>({...a,_kind:'全体'}))]
-                  .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
-                  .map((a,i)=>(
-                  <div key={a.id||i} style={{padding:'14px 20px',borderTop:i>0?'1px solid #f1f5f9':'none'}}>
-                    <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
-                      <span style={{fontSize:9,fontWeight:'bold',padding:'2px 6px',borderRadius:4,background:a._kind==='個別'?'#fef3c7':'#dbeafe',color:a._kind==='個別'?'#92400e':'#1e40af'}}>{a._kind}</span>
-                      <span style={{fontSize:11,color:'#94a3b8'}}>{a.date}</span>
-                    </div>
-                    <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>{a.title}</div>
-                    {a.body && <div style={{fontSize:13,color:'#475569',lineHeight:1.7,whiteSpace:'pre-wrap'}}>{a.body}</div>}
-                  </div>
-                ))
-              )}
-            </div>
-            {/* 写真ギャラリー (お知らせ同画面で確認) */}
-            <div style={{background:'white',borderRadius:16,padding:'14px 20px',boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>
-              <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:10}}>📷 写真</div>
-              {photos.length === 0 ? (
-                <div style={{padding:'24px 0',textAlign:'center',color:'#94a3b8',fontSize:13}}>写真はまだ登録されていません</div>
-              ) : (
-                <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
-                  {photos.map((p,i)=>(
-                    <div key={p.id||i} style={{position:'relative'}}>
-                      <img src={p.url} alt="" style={{width:'100%',aspectRatio:'1',objectFit:'cover',borderRadius:10}}/>
-                      <a href={p.url} download={p.name||`photo_${i+1}.jpg`} style={{position:'absolute',bottom:6,right:6,background:'rgba(0,0,0,0.6)',color:'white',padding:'4px 8px',borderRadius:6,fontSize:10,fontWeight:'bold',textDecoration:'none'}}>↓</a>
-                      {p.caption && <div style={{fontSize:11,color:'#64748b',marginTop:4,padding:'0 2px'}}>{p.caption}</div>}
-                    </div>
-                  ))}
+            {/* お知らせ一覧 (投稿に紐付いた写真も同じカードで表示) */}
+            {(() => {
+              // 旧データの写真 (お知らせに紐付かない photos) を date+caption でグループ化 → 過去のお知らせとして扱う
+              const orphanPhotos = photos.filter(p => !String(p.id||'').startsWith('news_'));
+              const virtualOldAnnouncements = (() => {
+                const groups = {};
+                orphanPhotos.forEach(p => {
+                  const key = `${p.date||''}|${p.caption||''}`;
+                  if (!groups[key]) groups[key] = {id:`old_${key}`, date: p.date||'', title: p.caption||'', body:'', _kind:'過去', photos:[]};
+                  groups[key].photos.push(p);
+                });
+                return Object.values(groups);
+              })();
+              const merged = [
+                ...personalAnnouncements.map(a=>({...a,_kind:'個別'})),
+                ...announcements.map(a=>({...a,_kind:'全体'})),
+                ...virtualOldAnnouncements,
+              ].sort((a,b) => (b.postedAt||b.date||'').localeCompare(a.postedAt||a.date||''));
+              return (
+                <>
+                  {merged.length === 0 ? (
+                    <div style={{background:'white',borderRadius:16,padding:'24px 20px',textAlign:'center',color:'#94a3b8',fontSize:13,boxShadow:'0 2px 8px rgba(0,0,0,0.04)'}}>お知らせはまだ投稿されていません</div>
+                  ) : (
+                    merged.map((a) => {
+                      const isNew = (a.postedAt || (a.date ? `${a.date}T00:00:00.000Z` : '')) > lastReadAt && a._kind !== '過去';
+                      const annPhotos = a.photos || [];
+                      const kindStyle = a._kind === '個別' ? {bg:'#fef3c7',fg:'#92400e'} : a._kind === '過去' ? {bg:'#e2e8f0',fg:'#64748b'} : {bg:'#dbeafe',fg:'#1e40af'};
+                      return (
+                        <div key={a.id} style={{background:'white',borderRadius:16,padding:'14px 18px',marginBottom:12,boxShadow:'0 2px 8px rgba(0,0,0,0.04)',border: isNew ? '2px solid #818cf8' : '1px solid transparent'}}>
+                          <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
+                            <span style={{fontSize:9,fontWeight:'bold',padding:'2px 6px',borderRadius:4,background:kindStyle.bg,color:kindStyle.fg}}>{a._kind}</span>
+                            <span style={{fontSize:11,color:'#94a3b8'}}>{a.date}</span>
+                            {isNew && <span style={{fontSize:9,fontWeight:'bold',padding:'2px 6px',borderRadius:4,background:'#ef4444',color:'white'}}>NEW</span>}
+                          </div>
+                          {a.title && <div style={{fontSize:15,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>{a.title}</div>}
+                          {a.body && <div style={{fontSize:13,color:'#475569',lineHeight:1.7,whiteSpace:'pre-wrap',marginBottom:annPhotos.length>0?10:0}}>{a.body}</div>}
+                          {annPhotos.length > 0 && (
+                            <div style={{display:'grid',gridTemplateColumns:annPhotos.length===1?'1fr':'repeat(2,1fr)',gap:8,marginTop:8}}>
+                              {annPhotos.map((p,pi) => (
+                                <div key={p.id||pi} style={{position:'relative'}}>
+                                  <img src={p.url} alt="" style={{width:'100%',aspectRatio:'1',objectFit:'cover',borderRadius:10}}/>
+                                  <a href={p.url} download={p.name||`photo_${pi+1}.jpg`} style={{position:'absolute',bottom:6,right:6,background:'rgba(0,0,0,0.6)',color:'white',padding:'4px 8px',borderRadius:6,fontSize:10,fontWeight:'bold',textDecoration:'none'}}>↓</a>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        )}
+        {/* 未読お知らせポップアップ */}
+        {unreadPopupVisible && unreadCount > 0 && tab !== 'news' && (
+          <div style={{position:'fixed',top:80,right:16,zIndex:9000,background:'white',borderRadius:14,padding:'14px 16px',boxShadow:'0 8px 30px rgba(0,0,0,0.2)',border:'2px solid #6366f1',maxWidth:280,animation:'slideIn 0.3s ease-out'}}>
+            <div style={{display:'flex',alignItems:'flex-start',gap:10}}>
+              <div style={{fontSize:24}}>📢</div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>新しいお知らせが {unreadCount} 件あります</div>
+                <div style={{fontSize:11,color:'#64748b',marginBottom:8}}>「📢 お知らせ」タブで確認できます</div>
+                <div style={{display:'flex',gap:6}}>
+                  <button onClick={()=>{setTab('news'); markAllRead();}} style={{flex:1,padding:'6px 10px',background:'#6366f1',color:'white',border:'none',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>確認する</button>
+                  <button onClick={()=>setUnreadPopupVisible(false)} style={{padding:'6px 10px',background:'#f1f5f9',color:'#64748b',border:'none',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>あとで</button>
                 </div>
-              )}
+              </div>
             </div>
           </div>
         )}
@@ -9391,6 +10551,70 @@ export default function App() {
       }
     }
   }, [appData]);
+  // お知らせ・写真の保存期間を過ぎたデータを起動時に自動削除
+  // 削除対象: postedAt (or date) が retentionMonths より古いもの
+  useEffect(() => {
+    const months = appData.systemSettings?.announcementRetentionMonths;
+    if (!months || months <= 0) return;  // 0 or undefined = 削除しない
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - months);
+    const cutoffIso = cutoff.toISOString();
+    const cutoffDate = cutoffIso.slice(0,10);
+    const isOld = (item) => {
+      const t = item.postedAt || item.date || '';
+      if (!t) return false;
+      // postedAt は ISO, date は YYYY-MM-DD 形式
+      return t < (t.length > 10 ? cutoffIso : cutoffDate);
+    };
+    const cleanAnn = (appData.familyAnnouncements||[]).filter(a => !isOld(a));
+    const cleanPersonal = (appData.familyPersonalAnnouncements||[]).filter(a => !isOld(a));
+    const cleanPhotos = (appData.familyPhotos||[]).filter(p => !isOld(p));
+    const removedCount = ((appData.familyAnnouncements||[]).length - cleanAnn.length)
+      + ((appData.familyPersonalAnnouncements||[]).length - cleanPersonal.length)
+      + ((appData.familyPhotos||[]).length - cleanPhotos.length);
+    if (removedCount > 0) {
+      console.log(`[自動削除] ${months}ヶ月以前のお知らせ・写真 ${removedCount} 件を削除しました`);
+      setAppData(prev => ({...prev, familyAnnouncements: cleanAnn, familyPersonalAnnouncements: cleanPersonal, familyPhotos: cleanPhotos}));
+    }
+    // 1回だけ実行 (起動時)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // 家族側 (別タブの /family) で familyAccounts / familyInvites / 利用者の緊急連絡先が
+  // 更新されたら事業所側にも自動反映 (cross-tab 同期)
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key !== 'daycareAppData_v3' || !e.newValue) return;
+      try {
+        const incoming = JSON.parse(e.newValue);
+        if (!incoming) return;
+        setAppData(prev => {
+          // 家族側で変わりうる 3 キーのみ取り込み (それ以外は事業所側を尊重)
+          const inFA = Array.isArray(incoming.familyAccounts) ? incoming.familyAccounts : (prev.familyAccounts||[]);
+          const inFI = Array.isArray(incoming.familyInvites)  ? incoming.familyInvites  : (prev.familyInvites||[]);
+          // emergencyContacts の差分を取り込み
+          const inPatients = Array.isArray(incoming.patients) ? incoming.patients : [];
+          const mergedPatients = (prev.patients||[]).map(p => {
+            const inp = inPatients.find(x => x.id === p.id);
+            if (!inp) return p;
+            // emergencyContacts が増えていれば取り込み (重複防止)
+            const prevEC = p.emergencyContacts || [];
+            const inEC = inp.emergencyContacts || [];
+            if (inEC.length <= prevEC.length) return p;
+            const seen = new Set(prevEC.map(c => `${c.name}|${c.relation}`));
+            const newOnes = inEC.filter(c => !seen.has(`${c.name}|${c.relation}`));
+            if (newOnes.length === 0) return p;
+            return {...p, emergencyContacts: [...prevEC, ...newOnes]};
+          });
+          // 何も変わってなければ state 更新しない (autosave ループ防止)
+          const same = inFA === prev.familyAccounts && inFI === prev.familyInvites && mergedPatients === prev.patients;
+          if (same) return prev;
+          return {...prev, familyAccounts: inFA, familyInvites: inFI, patients: mergedPatients};
+        });
+      } catch {}
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
   const [showToast, setShowToast] = useState(false);
   const [printPreviewContent, setPrintPreviewContent] = useState(null);
   useEffect(()=>{
@@ -9421,7 +10645,10 @@ export default function App() {
     if(contentRef.current?.parentElement) obs.observe(contentRef.current.parentElement);
     return ()=>{ window.removeEventListener('resize', calc); obs.disconnect(); };
   },[isSidebarOpen]);
-  const [selectedDate, setSelectedDate] = useState('2026-03-04');
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  });
   const [targetPatientId, setTargetPatientId] = useState(null);
   const [navConfirm, setNavConfirm] = useState(null); // {view, patientId}
 
@@ -9456,13 +10683,21 @@ export default function App() {
   const masterDirtyRef = React.useRef(false);
   const masterSaveFnRef = React.useRef(null);
   const settingsDirtyRef = React.useRef(false);
+  const settingsSaveFnRef = React.useRef(null);
   const printDirtyRef = React.useRef(false);
+  const printSaveFnRef = React.useRef(null);
   const fitnessDirtyRef = React.useRef(false);
+  const fitnessSaveFnRef = React.useRef(null);
   const diaryDirtyRef = React.useRef(false);
+  const diarySaveFnRef = React.useRef(null);
   const monitoringDirtyRef = React.useRef(false);
   const monitoringSaveFnRef = React.useRef(null);
   const ticketDirtyRef = React.useRef(false);
+  const ticketSaveFnRef = React.useRef(null);
   const absenceDirtyRef = React.useRef(false);
+  const absenceSaveFnRef = React.useRef(null);
+  const generalFaxDirtyRef = React.useRef(false);
+  const generalFaxSaveFnRef = React.useRef(null);
   const [sharedAmpm, setSharedAmpm] = useState('AM'); // 'AM' or 'PM'
 
   const handleSaveToCloud = (newData) => {
@@ -9532,7 +10767,8 @@ export default function App() {
                    (currentView === 'diary' && diaryDirtyRef.current) ||
                    (currentView === 'monitoring' && monitoringDirtyRef.current) ||
                    (currentView === 'ticket' && ticketDirtyRef.current) ||
-                   (currentView === 'absence_fax' && absenceDirtyRef.current);
+                   (currentView === 'absence_fax' && absenceDirtyRef.current) ||
+                   (currentView === 'general_fax' && generalFaxDirtyRef.current);
     if (isDirty && view !== currentView) {
       setNavConfirm({ view, patientId });
       return;
@@ -9557,48 +10793,68 @@ export default function App() {
   }
   if (!session) {
     return (
-      <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#1e3a5f 0%,#2d6a9f 50%,#1a5276 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#f4f8ed 0%,#fafdf2 50%,#f0f4e8 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
         <div style={{width:'100%',maxWidth:400}}>
-          {/* ロゴ */}
-          <div style={{textAlign:'center',marginBottom:32}}>
-            <div style={{display:'inline-flex',alignItems:'center',gap:12,marginBottom:8}}>
-              <div style={{width:48,height:48,borderRadius:12,background:'rgba(255,255,255,0.15)',display:'flex',alignItems:'center',justifyContent:'center',border:'1px solid rgba(255,255,255,0.3)'}}>
-                <span style={{fontSize:24}}>🌸</span>
-              </div>
-              <div>
-                <div style={{fontSize:22,fontWeight:'bold',color:'white',letterSpacing:'0.1em'}}>DAYCARE V2</div>
-                <div style={{fontSize:11,color:'rgba(255,255,255,0.6)',fontWeight:'bold'}}>デイサービス管理システム</div>
-              </div>
-            </div>
+          {/* ロゴ v23: 四つ葉クローバー (X字+rotate(-60)) + 丸ゴ + 明るい緑 */}
+          <div style={{textAlign:'center',marginBottom:28}}>
+            <svg viewBox="0 0 460 130" style={{width:'100%',maxWidth:380,height:'auto',display:'block',margin:'0 auto'}} xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <radialGradient id="loginLeafA" cx="40%" cy="55%" r="55%">
+                  <stop offset="0%" stopColor="#608a3e"/>
+                  <stop offset="50%" stopColor="#94c456"/>
+                  <stop offset="100%" stopColor="#d4e7a5"/>
+                </radialGradient>
+                <radialGradient id="loginLeafB" cx="55%" cy="50%" r="55%">
+                  <stop offset="0%" stopColor="#5a8330"/>
+                  <stop offset="50%" stopColor="#8fb84a"/>
+                  <stop offset="100%" stopColor="#cee49b"/>
+                </radialGradient>
+              </defs>
+              {/* クローバー (scale 0.8 で縮小、文字縦幅に合わせる、右に55シフトで中央寄せ) */}
+              <g transform="translate(105, 58) scale(0.8)">
+                <path d="M 0 3 Q 1 22 -1 50" stroke="#3d5021" strokeWidth="2.2" fill="none" strokeLinecap="round"/>
+                <g transform="rotate(-60)">
+                  <g transform="rotate(45)"><path d="M 0 -3 C -8 -10 -22 -22 -22 -34 C -22 -44 -11 -47 0 -40 C 11 -47 22 -44 22 -34 C 22 -22 8 -10 0 -3 Z" fill="url(#loginLeafA)" opacity="0.96"/></g>
+                  <g transform="rotate(135)"><path d="M 0 -3 C -8 -10 -22 -22 -22 -34 C -22 -44 -11 -47 0 -40 C 11 -47 22 -44 22 -34 C 22 -22 8 -10 0 -3 Z" fill="url(#loginLeafB)" opacity="0.96"/></g>
+                  <g transform="rotate(225)"><path d="M 0 -3 C -8 -10 -22 -22 -22 -34 C -22 -44 -11 -47 0 -40 C 11 -47 22 -44 22 -34 C 22 -22 8 -10 0 -3 Z" fill="url(#loginLeafA)" opacity="0.94"/></g>
+                  <g transform="rotate(315)"><path d="M 0 -3 C -8 -10 -22 -22 -22 -34 C -22 -44 -11 -47 0 -40 C 11 -47 22 -44 22 -34 C 22 -22 8 -10 0 -3 Z" fill="url(#loginLeafB)" opacity="0.94"/></g>
+                  <circle cx="0" cy="0" r="4" fill="#fbbf24"/>
+                </g>
+              </g>
+              {/* テキスト: 丸ゴ (白背景で映える深緑、右に55シフトで中央寄せ) */}
+              <text x="155" y="50" fontFamily="'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif" fontSize="40" fill="#3d5021" fontWeight="700" letterSpacing="3">紡ぎ</text>
+              <text x="157" y="73" fontFamily="'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif" fontSize="17" fill="#7daa3d" fontWeight="500" letterSpacing="6">Tsumugi</text>
+              <text x="157" y="98" fontFamily="'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif" fontSize="11" fill="#5e8030" fontWeight="400" letterSpacing="2" opacity="0.9">家族と現場を結ぶ、デイサービス管理</text>
+            </svg>
           </div>
 
-          {/* ログインカード */}
-          <div style={{background:'white',borderRadius:24,padding:32,boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
-            <h2 style={{fontSize:18,fontWeight:'bold',color:'#1e293b',marginBottom:24,textAlign:'center'}}>事業所ログイン</h2>
+          {/* ログインカード: 白基調 + 緑アクセント */}
+          <div style={{background:'#fff',borderRadius:18,padding:32,boxShadow:'0 12px 40px rgba(94,128,48,0.15)',borderTop:'3px solid #94c456',position:'relative'}}>
+            <h2 style={{fontSize:17,fontWeight:600,color:'#3d5021',marginBottom:22,textAlign:'center',fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif",letterSpacing:'4px'}}>事業所ログイン</h2>
             <form onSubmit={handleLogin}>
               <div style={{marginBottom:16}}>
-                <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>ログインID</label>
+                <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#5e8030',marginBottom:6,letterSpacing:'1px'}}>ログインID</label>
                 <input value={loginForm.id} onChange={e=>setLoginForm(f=>({...f,id:toHalfWidth(e.target.value),error:''}))}
                   placeholder="例: hikari-ogi"
-                  style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
+                  style={{width:'100%',padding:'12px 14px',border:'1px solid #d4e7a5',background:'#fdfdf3',borderRadius:10,fontSize:14,fontWeight:'bold',color:'#3d5021',outline:'none',boxSizing:'border-box'}}/>
               </div>
               <div style={{marginBottom:8}}>
-                <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>パスワード</label>
+                <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#5e8030',marginBottom:6,letterSpacing:'1px'}}>パスワード</label>
                 <input type="password" value={loginForm.pass} onChange={e=>setLoginForm(f=>({...f,pass:toHalfWidth(e.target.value),error:''}))}
                   placeholder="••••••••"
-                  style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
+                  style={{width:'100%',padding:'12px 14px',border:'1px solid #d4e7a5',background:'#fdfdf3',borderRadius:10,fontSize:14,fontWeight:'bold',color:'#3d5021',outline:'none',boxSizing:'border-box'}}/>
               </div>
-              {loginForm.error && <div style={{color:'#ef4444',fontSize:12,fontWeight:'bold',marginBottom:12,textAlign:'center'}}>{loginForm.error}</div>}
+              {loginForm.error && <div style={{color:'#b91c1c',fontSize:12,fontWeight:'bold',marginBottom:12,textAlign:'center'}}>{loginForm.error}</div>}
               <button type="submit"
-                style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#2563eb,#1d4ed8)',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',marginBottom:12,marginTop:8}}>
+                style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#94c456,#5e8030)',color:'#fff',border:'none',borderRadius:10,fontSize:15,fontWeight:'bold',cursor:'pointer',marginBottom:12,marginTop:8,letterSpacing:'4px',boxShadow:'0 4px 12px rgba(94,128,48,0.3)'}}>
                 ログイン
               </button>
             </form>
             <button onClick={handleDemoLogin}
-              style={{width:'100%',padding:'12px',background:'#f8fafc',color:'#475569',border:'2px dashed #cbd5e1',borderRadius:12,fontSize:14,fontWeight:'bold',cursor:'pointer'}}>
+              style={{width:'100%',padding:'12px',background:'#fafef1',color:'#5e8030',border:'2px dashed #b8d488',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer',letterSpacing:'2px'}}>
               🎮 デモで試す（ログイン不要）
             </button>
-            <div style={{borderTop:'1px solid #f1f5f9',marginTop:14,paddingTop:12}}>
+            <div style={{borderTop:'1px solid #e8efd0',marginTop:14,paddingTop:12}}>
               <button type="button" onClick={()=>{
                 const email = window.prompt('新規スタッフアカウントのメールアドレスを入力してください');
                 if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
@@ -9609,11 +10865,11 @@ export default function App() {
                 const baseUrl = window.location.origin + window.location.pathname.replace(/\/+$/, '');
                 const url = `${baseUrl}/?signup=${token}`;
                 window.prompt('登録URLが発行されました。コピーしてご使用ください:', url);
-              }} style={{width:'100%',padding:'10px',background:'#eff6ff',color:'#1d4ed8',border:'2px dashed #93c5fd',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>
+              }} style={{width:'100%',padding:'10px',background:'#fafef1',color:'#7daa3d',border:'2px dashed #cee49b',borderRadius:8,fontSize:12,fontWeight:'bold',cursor:'pointer',letterSpacing:'1px'}}>
                 ＋ 新規アカウント作成（メールアドレスから登録URL発行）
               </button>
             </div>
-            <p style={{fontSize:10,color:'#94a3b8',textAlign:'center',marginTop:16,lineHeight:1.6}}>
+            <p style={{fontSize:10,color:'#94a37a',textAlign:'center',marginTop:16,lineHeight:1.6}}>
               初回ログイン情報は<br/>各種設定 → システム で設定できます
             </p>
           </div>
@@ -9677,7 +10933,7 @@ export default function App() {
             if(!printPreviewContent.html) return;
             const styles = getStyles();
             const w = window.open('','_blank','width=900,height=700');
-            w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${printPreviewContent.title}</title>${styles}<style>*{box-sizing:border-box;}html,body{margin:0;padding:0;background:white;width:${pageW}mm;height:auto;-webkit-print-color-adjust:exact;print-color-adjust:exact;overflow:visible;}svg{overflow:visible!important;max-width:none!important;}@page{size:${pageW}mm ${pageH}mm;margin:0;}@media print{html,body{width:${pageW}mm;height:auto;overflow:hidden;margin:0!important;padding:0!important;}body>*{margin:0!important;padding:0!important;}body>*>*+*{margin-top:0!important;}.no-print,.thp,.page-sep{display:none!important;}.tp{page-break-inside:avoid;break-inside:avoid;}.tp:not(:last-child){page-break-after:always!important;break-after:page!important;}.tp:last-child{page-break-after:avoid!important;break-after:avoid!important;}[data-page-break]{page-break-before:always;break-before:page;}}</style></head><body>${printPreviewContent.html}</body></html>`);
+            w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${printPreviewContent.title}</title>${styles}<style>*{box-sizing:border-box;}html,body{margin:0;padding:0;background:white;width:${pageW}mm;height:auto;-webkit-print-color-adjust:exact;print-color-adjust:exact;overflow:visible;}svg{overflow:visible!important;max-width:none!important;}@page{size:${pageW}mm ${pageH}mm;margin:0;}*{box-shadow:none!important;outline:none!important;--tw-ring-shadow:0 0 transparent!important;--tw-ring-color:transparent!important;--tw-ring-offset-shadow:0 0 transparent!important;}@media print{html,body{width:${pageW}mm;height:auto;overflow:hidden;margin:0!important;padding:0!important;}body>*{margin:0!important;padding:0!important;}body>*>*+*{margin-top:0!important;}.no-print,.thp,.page-sep{display:none!important;}.tp{page-break-inside:avoid;break-inside:avoid;}.tp:not(:last-child){page-break-after:always!important;break-after:page!important;}.tp:last-child{page-break-after:avoid!important;break-after:avoid!important;}[data-page-break]{page-break-before:always;break-before:page;}}</style></head><body>${printPreviewContent.html}</body></html>`);
             w.document.close();
             setTimeout(()=>{ w.focus(); w.print(); if(autoClose) setTimeout(()=>w.close(),1000); }, 800);
           };
@@ -9700,7 +10956,7 @@ export default function App() {
                     style={{background:'#1d4ed8',color:'white',border:'none',borderLeft:'1px solid rgba(255,255,255,0.25)',borderRadius:'0 10px 10px 0',padding:'10px 12px',fontWeight:'bold',fontSize:16,cursor:'pointer',boxShadow:'0 2px 8px rgba(0,0,0,0.2)',marginLeft:-10}}>
                     ⓘ
                   </button>
-                  {isFaxKind && faxType !== 'absence' && (
+                  {isFaxKind && faxType === 'general' && (
                     <button onClick={()=>setShowFaxRecord(true)} title="送付履歴に記録する"
                       style={{background:'#7c3aed',color:'white',border:'none',borderRadius:10,padding:'10px 16px',fontWeight:'bold',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',gap:6,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
                       📝 履歴に記録
@@ -9758,10 +11014,34 @@ export default function App() {
 
       <div className={`no-print bg-slate-900 text-slate-300 flex flex-col flex-shrink-0 shadow-2xl transition-all duration-300 ${isSidebarOpen ? 'w-64 opacity-100' : 'w-0 opacity-0 overflow-hidden'}`}>
           <div className="w-64 h-full flex flex-col">
-            <div className="h-16 flex items-center px-6 border-b border-slate-800 bg-slate-950">
-              <Activity className="w-6 h-6 text-blue-400 mr-3" />
-              <div className="flex-1 min-w-0">
-                <span className="text-lg font-bold text-white tracking-tighter uppercase">DayCare v2</span>
+            <div className="h-16 flex items-center px-5 border-b" style={{background:'#fafef1',borderColor:'#d4e7a5'}}>
+              <svg viewBox="0 0 100 100" className="w-8 h-8 mr-2 flex-shrink-0" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <radialGradient id="sidebarLeafA" cx="40%" cy="55%" r="55%">
+                    <stop offset="0%" stopColor="#608a3e"/>
+                    <stop offset="50%" stopColor="#94c456"/>
+                    <stop offset="100%" stopColor="#d4e7a5"/>
+                  </radialGradient>
+                  <radialGradient id="sidebarLeafB" cx="55%" cy="50%" r="55%">
+                    <stop offset="0%" stopColor="#5a8330"/>
+                    <stop offset="50%" stopColor="#8fb84a"/>
+                    <stop offset="100%" stopColor="#cee49b"/>
+                  </radialGradient>
+                </defs>
+                <g transform="translate(50, 49)">
+                  <path d="M 0 3 Q 1 18 -1 42" stroke="#3d5021" strokeWidth="1.8" fill="none" strokeLinecap="round"/>
+                  <g transform="rotate(-60)">
+                    <g transform="rotate(45)"><path d="M 0 -3 C -8 -10 -22 -22 -22 -34 C -22 -44 -11 -47 0 -40 C 11 -47 22 -44 22 -34 C 22 -22 8 -10 0 -3 Z" fill="url(#sidebarLeafA)"/></g>
+                    <g transform="rotate(135)"><path d="M 0 -3 C -8 -10 -22 -22 -22 -34 C -22 -44 -11 -47 0 -40 C 11 -47 22 -44 22 -34 C 22 -22 8 -10 0 -3 Z" fill="url(#sidebarLeafB)"/></g>
+                    <g transform="rotate(225)"><path d="M 0 -3 C -8 -10 -22 -22 -22 -34 C -22 -44 -11 -47 0 -40 C 11 -47 22 -44 22 -34 C 22 -22 8 -10 0 -3 Z" fill="url(#sidebarLeafA)"/></g>
+                    <g transform="rotate(315)"><path d="M 0 -3 C -8 -10 -22 -22 -22 -34 C -22 -44 -11 -47 0 -40 C 11 -47 22 -44 22 -34 C 22 -22 8 -10 0 -3 Z" fill="url(#sidebarLeafB)"/></g>
+                    <circle cx="0" cy="0" r="4" fill="#fbbf24"/>
+                  </g>
+                </g>
+              </svg>
+              <div className="flex-1 min-w-0 leading-none">
+                <span style={{fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif",fontSize:'22px',color:'#3d5021',fontWeight:700,letterSpacing:'2px',lineHeight:1}}>紡ぎ</span>
+                <span style={{fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif",fontSize:'10px',color:'#7daa3d',letterSpacing:'3px',marginLeft:'8px',fontWeight:500,lineHeight:1,verticalAlign:'middle'}}>Tsumugi</span>
                 {session?.mode==='demo' && <span className="ml-2 text-[9px] font-bold bg-amber-500 text-white px-1.5 py-0.5 rounded">DEMO</span>}
               </div>
             </div>
@@ -9851,16 +11131,16 @@ export default function App() {
             <div ref={contentRef} style={{flex:1,overflow:'auto',padding:0}}>
             <div style={{minWidth:DESIGN_WIDTH,transformOrigin:'top left',transform:contentScale<1?`scale(${contentScale})`:'none',width:contentScale<1?`${100/contentScale}%`:'100%',height:contentScale<1?`${100/contentScale}%`:'100%'}}>
             {currentView === 'record' ? <RecordView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={recordDirtyRef} saveFnRef={recordSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} showTip={showTip} hideTip={hideTip} isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} /> :
-             currentView === 'ticket' ? <TicketView appData={appData} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  onSave={handleSaveToCloud} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={ticketDirtyRef} /> : 
-             currentView === 'print' ? <ContactBookView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={printDirtyRef} sharedAmpm={sharedAmpm} /> : 
+             currentView === 'ticket' ? <TicketView appData={appData} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  onSave={handleSaveToCloud} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={ticketDirtyRef} saveFnRef={ticketSaveFnRef} /> :
+             currentView === 'print' ? <ContactBookView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={printDirtyRef} saveFnRef={printSaveFnRef} sharedAmpm={sharedAmpm} /> :
              currentView === 'master' ? <MasterView appData={appData} onSave={handleSaveToCloud} targetPatientId={targetPatientId} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={masterDirtyRef} saveFnRef={masterSaveFnRef} /> :
              currentView === 'dash_personal' ? <PersonalDashboardView appData={appData} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  navigateTo={navigateTo} onPatientChange={setTargetPatientId} isSidebarOpen={isSidebarOpen} /> :
-             currentView === 'settings' ? <SettingsView appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} /> :
+             currentView === 'settings' ? <SettingsView appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} /> :
              currentView === 'family_admin' ? <FamilyAdminView appData={appData} onSave={handleSaveToCloud} /> :
-             currentView === 'diary' ? <DailyLogView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} dirtyRef={diaryDirtyRef} /> :
-             currentView === 'absence_fax' ? <AbsenceFaxView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={absenceDirtyRef} /> :
-             currentView === 'general_fax' ? <GeneralFaxView appData={appData} onSave={setAppData} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
-             currentView === 'fitness' ? <FitnessView appData={appData} onSave={handleSaveToCloud} selectedDate={selectedDate} sharedAmpm={sharedAmpm} navigateTo={navigateTo} targetPatientId={targetPatientId} onPatientChange={setTargetPatientId} dirtyRef={fitnessDirtyRef} /> :
+             currentView === 'diary' ? <DailyLogView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} dirtyRef={diaryDirtyRef} saveFnRef={diarySaveFnRef} /> :
+             currentView === 'absence_fax' ? <AbsenceFaxView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={absenceDirtyRef} saveFnRef={absenceSaveFnRef} /> :
+             currentView === 'general_fax' ? <GeneralFaxView appData={appData} onSave={handleSaveToCloud} dirtyRef={generalFaxDirtyRef} saveFnRef={generalFaxSaveFnRef} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
+             currentView === 'fitness' ? <FitnessView appData={appData} onSave={handleSaveToCloud} selectedDate={selectedDate} sharedAmpm={sharedAmpm} navigateTo={navigateTo} targetPatientId={targetPatientId} onPatientChange={setTargetPatientId} dirtyRef={fitnessDirtyRef} saveFnRef={fitnessSaveFnRef} /> :
              currentView === 'monitoring' ? <MonitoringView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={monitoringDirtyRef} saveFnRef={monitoringSaveFnRef} /> :
              currentView === 'dash_operation' ? <OperationDashboardView appData={appData} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} setAppData={setAppData} /> :
              <div className="flex h-full items-center justify-center text-slate-400 font-bold">開発中</div>}
@@ -9872,9 +11152,45 @@ export default function App() {
               <CloudUpload size={28} />
             </div>
             <h3 className="text-lg font-bold text-slate-800 text-center mb-2">⚠️ 未保存のデータがあります</h3>
-            <p className="text-sm text-slate-500 text-center mb-1">保存ボタンを押さずに移動すると、</p>
-            <p className="text-sm font-bold text-red-500 text-center mb-6">入力したデータが消えます。</p>
+            <p className="text-sm text-slate-500 text-center mb-6">保存しますか？</p>
             <div className="flex flex-col gap-2">
+              <button onClick={() => {
+                // 移動前 View の save fn のみ呼ぶ (他 View の古い ref を呼ぶと過去状態で上書きしてしまう)
+                const saveFnMap = {
+                  record: recordSaveFnRef,
+                  master: masterSaveFnRef,
+                  monitoring: monitoringSaveFnRef,
+                  ticket: ticketSaveFnRef,
+                  print: printSaveFnRef,
+                  diary: diarySaveFnRef,
+                  absence_fax: absenceSaveFnRef,
+                  general_fax: generalFaxSaveFnRef,
+                  fitness: fitnessSaveFnRef,
+                  settings: settingsSaveFnRef,
+                };
+                try {
+                  const ref = saveFnMap[currentView];
+                  if (ref && ref.current) ref.current();
+                } catch(_){}
+                recordDirtyRef.current = false;
+                masterDirtyRef.current = false;
+                settingsDirtyRef.current = false;
+                printDirtyRef.current = false;
+                fitnessDirtyRef.current = false;
+                diaryDirtyRef.current = false;
+                monitoringDirtyRef.current = false;
+                ticketDirtyRef.current = false;
+                absenceDirtyRef.current = false;
+                generalFaxDirtyRef.current = false;
+                const _nav = navConfirm;
+                setNavConfirm(null);
+                setTimeout(() => {
+                  if (_nav.patientId) setTargetPatientId(_nav.patientId);
+                  setCurrentView(_nav.view);
+                }, 0);
+              }} className="w-full py-3 rounded-xl text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 active:scale-95">
+                保存する
+              </button>
               <button onClick={() => {
                 recordDirtyRef.current = false;
                 masterDirtyRef.current = false;
@@ -9885,15 +11201,16 @@ export default function App() {
                 monitoringDirtyRef.current = false;
                 ticketDirtyRef.current = false;
                 absenceDirtyRef.current = false;
+                generalFaxDirtyRef.current = false;
                 if (navConfirm.patientId) setTargetPatientId(navConfirm.patientId);
                 setCurrentView(navConfirm.view);
                 setNavConfirm(null);
               }} className="w-full py-3 rounded-xl text-sm font-bold bg-red-500 text-white hover:bg-red-600 active:scale-95">
-                保存せずに移動（データ消去）
+                保存せずに移動
               </button>
               <button onClick={() => setNavConfirm(null)}
-                className="w-full py-3 rounded-xl text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 active:scale-95">
-                戻って保存する
+                className="w-full py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-500 hover:bg-slate-200 active:scale-95">
+                キャンセル
               </button>
             </div>
           </div>
@@ -9983,8 +11300,18 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
     const targetDateStr = `${dObj.getMonth()+1}月${dObj.getDate()}日`;
     return localPatients.some(p => {
       const saved = (appData.ticketRecords||[]).find(r => r.patientId===p.id && r.date===targetDateStr);
-      const fields = ['status','temp','bpUpSt','bpDnSt','plSt','bpUpEn','bpDnEn','plEn','massage','tokki','kibunArrival','kibunDeparture','done'];
-      return fields.some(f => (p[f]||'') !== (saved?.[f]||''));
+      const commonFields = ['status','massage','tokki','kibunArrival','kibunDeparture','done'];
+      if (commonFields.some(f => (p[f]||'') !== (saved?.[f]||''))) return true;
+      // ampm 別フィールドの未保存判定
+      const ampmFields = ['temp','bpUpSt','bpDnSt','plSt','bpUpEn','bpDnEn','plEn'];
+      for (const f of ampmFields) {
+        for (const a of ['AM','PM']) {
+          const cur = p[`${f}_${a}`] ?? '';
+          const sv = saved?.[`${f}_${a}`] ?? saved?.[f] ?? '';
+          if (a === 'AM' ? cur !== sv : cur !== (saved?.[`${f}_PM`] ?? '')) return true;
+        }
+      }
+      return false;
     });
   }, [localPatients, appData.ticketRecords, selectedDate, filterMode]);
 
@@ -10050,14 +11377,24 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
          const targetDateStr = `${new Date(selectedDate).getMonth() + 1}月${new Date(selectedDate).getDate()}日`;
          const existingRecord = (appData.ticketRecords || []).find(r => r.patientId === p.id && r.date === targetDateStr);
          if (existingRecord) {
+             pData.recordId = existingRecord.id;
+             pData.patientId = p.id;
              pData.status = existingRecord.status;
-             pData.temp = existingRecord.temp || "";
-             pData.bpUpSt = existingRecord.bpUpSt || "";
-             pData.bpDnSt = existingRecord.bpDnSt || "";
-             pData.plSt = existingRecord.plSt || "";
-             pData.bpUpEn = existingRecord.bpUpEn || "";
-             pData.bpDnEn = existingRecord.bpDnEn || "";
-             pData.plEn = existingRecord.plEn || "";
+             // vitals は AM/PM 独立: 旧形式の plain な temp は AM データとして移行
+             pData.temp_AM = existingRecord.temp_AM ?? existingRecord.temp ?? "";
+             pData.temp_PM = existingRecord.temp_PM ?? "";
+             pData.bpUpSt_AM = existingRecord.bpUpSt_AM ?? existingRecord.bpUpSt ?? "";
+             pData.bpUpSt_PM = existingRecord.bpUpSt_PM ?? "";
+             pData.bpDnSt_AM = existingRecord.bpDnSt_AM ?? existingRecord.bpDnSt ?? "";
+             pData.bpDnSt_PM = existingRecord.bpDnSt_PM ?? "";
+             pData.plSt_AM = existingRecord.plSt_AM ?? existingRecord.plSt ?? "";
+             pData.plSt_PM = existingRecord.plSt_PM ?? "";
+             pData.bpUpEn_AM = existingRecord.bpUpEn_AM ?? existingRecord.bpUpEn ?? "";
+             pData.bpUpEn_PM = existingRecord.bpUpEn_PM ?? "";
+             pData.bpDnEn_AM = existingRecord.bpDnEn_AM ?? existingRecord.bpDnEn ?? "";
+             pData.bpDnEn_PM = existingRecord.bpDnEn_PM ?? "";
+             pData.plEn_AM = existingRecord.plEn_AM ?? existingRecord.plEn ?? "";
+             pData.plEn_PM = existingRecord.plEn_PM ?? "";
              pData.massage = existingRecord.massage || "";
              pData.exercises = existingRecord.exercises || {};
              pData.tokki = existingRecord.tokki || "";
@@ -10067,8 +11404,12 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
              pData.kibunDepartureReason = existingRecord.kibunDepartureReason || "";
              pData.done = existingRecord.done || false;
          } else {
-             pData.temp = ""; pData.bpUpSt = ""; pData.bpDnSt = ""; pData.plSt = "";
-             pData.bpUpEn = ""; pData.bpDnEn = ""; pData.plEn = ""; pData.massage = "";
+             pData.temp_AM = ""; pData.temp_PM = "";
+             pData.bpUpSt_AM = ""; pData.bpUpSt_PM = ""; pData.bpDnSt_AM = ""; pData.bpDnSt_PM = "";
+             pData.plSt_AM = ""; pData.plSt_PM = "";
+             pData.bpUpEn_AM = ""; pData.bpUpEn_PM = ""; pData.bpDnEn_AM = ""; pData.bpDnEn_PM = "";
+             pData.plEn_AM = ""; pData.plEn_PM = "";
+             pData.massage = "";
              pData.tokki = ""; pData.exercises = {}; pData.kibunArrival = ""; pData.kibunArrivalReason = "";
              pData.kibunDeparture = ""; pData.kibunDepartureReason = ""; pData.done = false;
          }
@@ -10082,7 +11423,10 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
       .sort((a, b) => {
          // 出席 → 振替 → 欠席 → 休止 → 休業 → その他
          const rank = (s) => s === '出席' ? 0 : s === '振替' ? 1 : s === '欠席' ? 2 : s === '休止' ? 3 : s === '休業' ? 4 : 5;
-         return rank(a.status) - rank(b.status);
+         const rdiff = rank(a.status) - rank(b.status);
+         if (rdiff !== 0) return rdiff;
+         // 同じステータス内では あいうえお順 (kana)
+         return (a.kana || '').localeCompare(b.kana || '', 'ja');
       });
     setLocalPatients(filtered);
     // 月全体表示用：選択月のレコードのみ保持してメモリ節約
@@ -10118,10 +11462,12 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
     if (dirtyRef) dirtyRef.current = true;
   };
 
-  const [statusModal, setStatusModal] = useState({ isOpen: false, id: null, status: '', reason: '', furikaeDate: '', substituteReason: '', furikaeAmpm: 'AM' });
+  const [statusModal, setStatusModal] = useState({ isOpen: false, id: null, status: '', reason: '', furikaeDate: '', substituteReason: '', furikaeAmpm: 'AM', pauseFromDate: '', pauseToDate: '' });
   // 振替の取り消し（保留）: 保存ボタン押下時にまとめて反映するために情報を貯めておく
   const [pendingCancellations, setPendingCancellations] = useState([]);
-  React.useEffect(() => { setPendingCancellations([]); }, [selectedDate]);
+  // 振替の新規設定（保留）: monthlyShifts への反映を保存ボタン押下まで遅延
+  const [pendingFurikaeShifts, setPendingFurikaeShifts] = useState([]);
+  React.useEffect(() => { setPendingCancellations([]); setPendingFurikaeShifts([]); }, [selectedDate]);
 
   const handleStatusChange = (id, newStatus) => {
     if (newStatus === '取り消し') {
@@ -10129,7 +11475,11 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
       return;
     }
     if (newStatus === '欠席' || newStatus === '休業' || newStatus === '振替') {
-      setStatusModal({ isOpen: true, id, status: newStatus, reason: '', furikaeDate: '', substituteReason: '', furikaeAmpm: 'AM' });
+      setStatusModal({ isOpen: true, id, status: newStatus, reason: '', furikaeDate: '', substituteReason: '', furikaeAmpm: 'AM', pauseFromDate: '', pauseToDate: '' });
+      return;
+    }
+    if (newStatus === '休止') {
+      setStatusModal({ isOpen: true, id, status: '休止', reason: '', furikaeDate: '', substituteReason: '', furikaeAmpm: 'AM', pauseFromDate: selectedDate, pauseToDate: '' });
       return;
     }
     applyStatusChange(id, newStatus, '', '', '', 'AM');
@@ -10165,7 +11515,23 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
     if (dirtyRef) dirtyRef.current = true; // 保存ボタンで反映してもらう
   };
 
-  const applyStatusChange = (id, newStatus, reason, furikaeDate, substituteReason, furikaeAmpm='AM') => {
+  const applyStatusChange = (id, newStatus, reason, furikaeDate, substituteReason, furikaeAmpm='AM', pauseFromDate='', pauseToDate='') => {
+    // 休止: 利用者マスタの pauseHistory に新エントリ追加 + status='休止'
+    if (newStatus === '休止') {
+      const targetPatientId = (localPatients.find(p=>p.id===id)?.patientId) || id;
+      const updatedPatients = (appData.patients||[]).map(pt => {
+        if (pt.id !== targetPatientId) return pt;
+        const newEntry = { reason: reason || '休止', fromDate: pauseFromDate || selectedDate, ...(pauseToDate?{toDate: pauseToDate}:{}) };
+        const newHistory = [...(pt.pauseHistory||[]), newEntry];
+        return { ...pt, status: '休止', pauseHistory: newHistory };
+      });
+      onSave({ ...appData, patients: updatedPatients });
+      // 画面上の localPatients も即時反映
+      setLocalPatients(prev => prev.map(p => p.id===id ? {...p, status: '休止', tokki: reason||'休止'} : p));
+      if (dirtyRef) dirtyRef.current = false; // 即時保存済み
+      return;
+    }
+
     const isNowAbsent = newStatus === '欠席' || newStatus === '休業';
     const srcD = new Date(selectedDate);
     const srcLabel = `${srcD.getMonth()+1}月${srcD.getDate()}日`;
@@ -10260,10 +11626,12 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
       if (srcIdx>=0) updatedRecords[srcIdx]=absRecord; else updatedRecords.push(absRecord);
     }
 
-    // 振替のシフト更新のみ即時保存（月間スケジュールは即時反映が必要）
-    // 欠席/休業/振替のチケット変更は localPatients 経由で保存ボタン時に保存
+    // 振替も自動保存しない: monthlyShifts の変更は appData に直接マージせず、
+    // 保存ボタン押下時にチケットレコード経由で月間シフトに反映する
+    // (保留: updatedShifts は保存ボタン時に使うので appData.monthlyShifts ではなく
+    //  pendingShifts に積んでおく)
     if (newStatus === '振替' && furikaeDate) {
-      onSave({ ...appData, monthlyShifts: updatedShifts });
+      setPendingFurikaeShifts(prev => [...prev, {shifts: updatedShifts}]);
     }
     if (dirtyRef) dirtyRef.current = true;
 
@@ -10307,7 +11675,8 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
 
   const handleKeypadInput = (newValue, isFirst) => {
     let formatted = newValue;
-    if (keypad.field === 'temp') {
+    // temp / temp_AM / temp_PM のいずれも体温として扱う
+    if (keypad.field === 'temp' || keypad.field === 'temp_AM' || keypad.field === 'temp_PM') {
       const digits = newValue.replace(/[^0-9]/g, '');
       if (!newValue.includes('.') && digits.length >= 3) {
         formatted = digits.slice(0, 2) + '.' + digits.slice(2);
@@ -10319,7 +11688,9 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
   };
 
   const handleTab = () => {
-    const baseFields = ['temp', 'bpUpSt', 'bpDnSt', 'plSt', 'bpUpEn', 'bpDnEn', 'plEn'];
+    // 現在の timeFilter に合わせて ampm 別フィールドで Tab 巡回
+    const _ampm = timeFilter || 'AM';
+    const baseFields = [`temp_${_ampm}`, `bpUpSt_${_ampm}`, `bpDnSt_${_ampm}`, `plSt_${_ampm}`, `bpUpEn_${_ampm}`, `bpDnEn_${_ampm}`, `plEn_${_ampm}`];
     const exFields = (appData.systemSettings?.exerciseItems || appSettings.exerciseItems).filter(item => item.useKeypad).map(item => item.id);
     const allFields = [...baseFields, ...exFields];
     let currentArray = filterMode === 'single' ? localPatients : localTicketRecords;
@@ -10376,14 +11747,24 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
               if (cancelledIds.has(p.id)) return; // 取り消し対象は書き戻さない
               const recordIndex = updatedTicketRecords.findIndex(r => r.patientId === p.id && r.date === targetDateStr);
               const existing = recordIndex >= 0 ? updatedTicketRecords[recordIndex] : null;
+              // 旧形式互換用に plain フィールドも保持 (timeFilter の値を入れる)
               const newRecord = {
                   id: existing ? existing.id : Date.now() + Math.random(),
                   patientId: p.id, name: p.name, kana: p.kana, date: targetDateStr, dayOfWeek: dayOfWeekStr,
                   status: p.status,
-                  // 振替メタ情報 (furikaeAmpm) は既存記録のものを保全（出席→振替などにステータス変更しないので維持する）
                   ...(existing?.furikaeAmpm ? {furikaeAmpm: existing.furikaeAmpm} : {}),
-                  temp: p.temp || "", bpUpSt: p.bpUpSt || "", bpDnSt: p.bpDnSt || "",
-                  plSt: p.plSt || "", bpUpEn: p.bpUpEn || "", bpDnEn: p.bpDnEn || "", plEn: p.plEn || "",
+                  // vitals は AM/PM 独立フィールド
+                  temp_AM: p.temp_AM ?? "", temp_PM: p.temp_PM ?? "",
+                  bpUpSt_AM: p.bpUpSt_AM ?? "", bpUpSt_PM: p.bpUpSt_PM ?? "",
+                  bpDnSt_AM: p.bpDnSt_AM ?? "", bpDnSt_PM: p.bpDnSt_PM ?? "",
+                  plSt_AM: p.plSt_AM ?? "", plSt_PM: p.plSt_PM ?? "",
+                  bpUpEn_AM: p.bpUpEn_AM ?? "", bpUpEn_PM: p.bpUpEn_PM ?? "",
+                  bpDnEn_AM: p.bpDnEn_AM ?? "", bpDnEn_PM: p.bpDnEn_PM ?? "",
+                  plEn_AM: p.plEn_AM ?? "", plEn_PM: p.plEn_PM ?? "",
+                  // 旧形式互換用: 現 timeFilter の値を plain にも反映 (古いビューが参照する場合)
+                  temp: p[`temp_${timeFilter}`] ?? "",
+                  bpUpSt: p[`bpUpSt_${timeFilter}`] ?? "", bpDnSt: p[`bpDnSt_${timeFilter}`] ?? "", plSt: p[`plSt_${timeFilter}`] ?? "",
+                  bpUpEn: p[`bpUpEn_${timeFilter}`] ?? "", bpDnEn: p[`bpDnEn_${timeFilter}`] ?? "", plEn: p[`plEn_${timeFilter}`] ?? "",
                   massage: p.massage || "", exercises: p.exercises || {}, tokki: p.tokki || "", actualTime: p.actualTime || "",
                   kibunArrival: p.kibunArrival || "", kibunArrivalReason: p.kibunArrivalReason || "",
                   kibunDeparture: p.kibunDeparture || "", kibunDepartureReason: p.kibunDepartureReason || "",
@@ -10393,8 +11774,19 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
               else updatedTicketRecords.push(newRecord);
           });
       } else { updatedTicketRecords = localTicketRecords; }
+      // 振替の新規シフト（保留分）をマージ
+      pendingFurikaeShifts.forEach(({shifts}) => {
+        for (const mk in shifts) {
+          if (!newShifts[mk]) newShifts[mk] = {};
+          for (const pid in shifts[mk]) {
+            if (!newShifts[mk][pid]) newShifts[mk][pid] = {};
+            Object.assign(newShifts[mk][pid], shifts[mk][pid]);
+          }
+        }
+      });
       onSave({ ...appData, ticketRecords: updatedTicketRecords, monthlyShifts: newShifts });
       setPendingCancellations([]);
+      setPendingFurikaeShifts([]);
       if (dirtyRef) dirtyRef.current = false;
   };
 
@@ -10620,11 +12012,11 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
               const config = getStatusConfig(p.status);
               
               return (
-                <tr key={`${filterMode}-${p.id}`} className={`group transition-colors ${isAbsent ? 'text-slate-400' : 'hover:bg-blue-50/50'} ${isReadOnly ? 'readonly-row' : ''}`} style={{height:64,maxHeight:64}}>
+                <tr key={`${filterMode}-${p.id}`} className={`group transition-colors ${(isAbsent || isPause) ? 'text-slate-400' : 'hover:bg-blue-50/50'} ${isReadOnly ? 'readonly-row' : ''}`} style={{height:64,maxHeight:64}}>
                   {filterMode === 'month' && (
-                    <td className={`px-2 py-2 font-bold text-center border border-slate-300 sticky left-0 z-30 whitespace-nowrap text-xs ${isAbsent ? 'bg-slate-100' : 'bg-white group-hover:bg-blue-50'}`}>{p.date}</td>
+                    <td className={`px-2 py-2 font-bold text-center border border-slate-300 sticky left-0 z-30 whitespace-nowrap text-xs ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white group-hover:bg-blue-50'}`}>{p.date}</td>
                   )}
-                  <td className={`font-bold sticky z-30 ${filterMode === 'month' ? 'left-[80px]' : 'left-0'} ${isAbsent ? 'bg-slate-100' : 'bg-white group-hover:bg-blue-50'}`} style={{padding:'4px 6px',height:64,verticalAlign:'middle',borderTop:'1px solid #cbd5e1',borderBottom:'1px solid #cbd5e1',borderRight:'1px solid #cbd5e1',borderLeft:filterMode==='month'?'none':'1px solid #cbd5e1'}}>
+                  <td className={`font-bold sticky z-30 ${filterMode === 'month' ? 'left-[80px]' : 'left-0'} ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white group-hover:bg-blue-50'}`} style={{padding:'4px 6px',height:64,verticalAlign:'middle',borderTop:'1px solid #cbd5e1',borderBottom:'1px solid #cbd5e1',borderRight:'1px solid #cbd5e1',borderLeft:filterMode==='month'?'none':'1px solid #cbd5e1'}}>
                     {(()=>{
                       const _fr = (appData.fitnessRecords||[]).filter(r=>r.patientId===masterData.id).sort((a,b)=>b.date.localeCompare(a.date));
                       const _cycle = appData.systemSettings?.fitnessCycle;
@@ -10641,7 +12033,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                               体力測定
                             </span>
                           )}
-                          <div className={`flex flex-row items-center justify-center w-full gap-1 whitespace-nowrap truncate cursor-pointer hover:text-blue-600 ${isAbsent ? 'text-slate-400' : 'text-slate-800'}`}
+                          <div className={`flex flex-row items-center justify-center w-full gap-1 whitespace-nowrap truncate cursor-pointer hover:text-blue-600 ${(isAbsent || isPause) ? 'text-slate-400' : 'text-slate-800'}`}
                             onClick={()=>setPatientInfoModal(masterData)}>
                             <span className="text-sm">{nameParts[0]}</span>
                             <span className="text-sm">{nameParts[1] || "様"}</span>
@@ -10650,7 +12042,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                       );
                     })()}
                   </td>
-                  <td className={`px-1 py-3 text-center whitespace-nowrap border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`}>
+                  <td className={`px-1 py-3 text-center whitespace-nowrap border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`}>
                     {isReadOnly || isPause ? (
                       <span className={`px-2 py-1 rounded-lg text-xs font-bold ${config.lightColor} ${config.textColor}`}>{p.status || '出席'}</span>
                     ) : (
@@ -10666,7 +12058,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                       </select>
                     )}
                   </td>
-                  <td className={`px-0.5 py-0 text-center border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`} style={{height:32,maxHeight:32,overflow:'visible',padding:'1px'}}>
+                  <td className={`px-0.5 py-0 text-center border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`} style={{height:32,maxHeight:32,overflow:'visible',padding:'1px'}}>
                     <div style={{display:'flex',flexDirection:'row',height:'100%',gap:1}}>
                     {(['arrival','departure']).map((timing, ti) => {
                       const moodKey = timing === 'arrival' ? 'kibunArrival' : 'kibunDeparture';
@@ -10676,7 +12068,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                       const tooltipText = moodObj ? `${moodObj.label}${reasonVal ? ' : '+reasonVal : ''}` : '';
                       return (
                         <div key={timing} style={{flex:1,position:'relative'}}>
-                          <button disabled={isAbsent || isReadOnly} onClick={() => openKibunModal(p.id, timing)}
+                          <button disabled={isAbsent || isReadOnly || isPause} onClick={() => openKibunModal(p.id, timing)}
                             onPointerEnter={(e)=>{if(tooltipText&&showTip)showTip(tooltipText,e);}}
                             onPointerLeave={()=>{if(hideTip)hideTip();}}
                             className={`rounded transition-all disabled:opacity-40 ${moodObj ? moodObj.color + ' font-bold' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
@@ -10689,24 +12081,33 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                     })}
                     </div>
                   </td>
-                  <td className={`px-1 py-3 text-center border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`}>
-                    <input type="text" readOnly disabled={isAbsent || isReadOnly} value={p.temp || ""} onClick={() => { openKeypad(p.id, 'temp', p.temp, isAbsent); setActiveCell(`${p.id}-temp`); }} style={{fontSize:14,padding:'3px 1px'}} className={`w-full border rounded-lg text-center font-bold shadow-inner outline-none cursor-pointer disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'bg-transparent border-transparent shadow-none cursor-default' : activeCell===`${p.id}-temp` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'} ${getTempColorClass(p.temp || "")}`} />
+                  <td className={`px-1 py-3 text-center border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`}>
+                    {(() => { const fT=`temp_${timeFilter}`, fBu=`bpUpSt_${timeFilter}`, fBd=`bpDnSt_${timeFilter}`, fPl=`plSt_${timeFilter}`; const vT=p[fT]||"";
+                    return (
+                    <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={vT} onClick={() => { openKeypad(p.id, fT, vT, isAbsent); setActiveCell(`${p.id}-${fT}`); }} style={{fontSize:14,padding:'3px 1px'}} className={`w-full border rounded-lg text-center font-bold shadow-inner outline-none cursor-pointer disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'bg-transparent border-transparent shadow-none cursor-default' : activeCell===`${p.id}-${fT}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'} ${getTempColorClass(vT)}`} />
+                    );})()}
                   </td>
-                  <td className={`px-1 py-3 border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`}>
+                  <td className={`px-1 py-3 border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`}>
+                    {(() => { const fBu=`bpUpSt_${timeFilter}`, fBd=`bpDnSt_${timeFilter}`, fPl=`plSt_${timeFilter}`; const vBu=p[fBu]||"", vBd=p[fBd]||"", vPl=p[fPl]||"";
+                    return (
                     <div className="flex items-center justify-center gap-1">
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly} value={p.bpUpSt || ""} onClick={() => { openKeypad(p.id, 'bpUpSt', p.bpUpSt, isAbsent); setActiveCell(`${p.id}-bpUpSt`); }} style={{width:64,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpSt, p.bpDnSt)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpUpSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={vBu} onClick={() => { openKeypad(p.id, fBu, vBu, isAbsent); setActiveCell(`${p.id}-${fBu}`); }} style={{width:56,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(vBu, vBd)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-${fBu}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
                       <span className="text-slate-300">/</span>
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly} value={p.bpDnSt || ""} onClick={() => { openKeypad(p.id, 'bpDnSt', p.bpDnSt, isAbsent); setActiveCell(`${p.id}-bpDnSt`); }} style={{width:64,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpSt, p.bpDnSt)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpDnSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly} value={p.plSt || ""} onClick={() => { openKeypad(p.id, 'plSt', p.plSt, isAbsent); setActiveCell(`${p.id}-plSt`); }} style={{fontSize:14,padding:'3px 1px',width:36}} className={`border rounded-lg text-center cursor-pointer ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(p.plSt, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-plSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={vBd} onClick={() => { openKeypad(p.id, fBd, vBd, isAbsent); setActiveCell(`${p.id}-${fBd}`); }} style={{width:56,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(vBu, vBd)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-${fBd}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={vPl} onClick={() => { openKeypad(p.id, fPl, vPl, isAbsent); setActiveCell(`${p.id}-${fPl}`); }} style={{fontSize:14,padding:'3px 1px',width:56}} className={`border rounded-lg text-center cursor-pointer ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(vPl, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-${fPl}` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
                     </div>
+                    );})()}
                   </td>
-                  <td className={`px-1 py-3 border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`}>
+                  <td className={`px-1 py-3 border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`}>
+                    {(() => { const fBu=`bpUpEn_${timeFilter}`, fBd=`bpDnEn_${timeFilter}`, fPl=`plEn_${timeFilter}`; const vBu=p[fBu]||"", vBd=p[fBd]||"", vPl=p[fPl]||"";
+                    return (
                     <div className="flex items-center justify-center gap-1">
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly} value={p.bpUpEn || ""} onClick={() => { openKeypad(p.id, 'bpUpEn', p.bpUpEn, isAbsent); setActiveCell(`${p.id}-bpUpEn`); }} style={{width:64,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpEn, p.bpDnEn)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpUpEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={vBu} onClick={() => { openKeypad(p.id, fBu, vBu, isAbsent); setActiveCell(`${p.id}-${fBu}`); }} style={{width:56,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(vBu, vBd)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-${fBu}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
                       <span className="text-slate-300">/</span>
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly} value={p.bpDnEn || ""} onClick={() => { openKeypad(p.id, 'bpDnEn', p.bpDnEn, isAbsent); setActiveCell(`${p.id}-bpDnEn`); }} style={{width:64,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpEn, p.bpDnEn)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpDnEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly} value={p.plEn || ""} onClick={() => { openKeypad(p.id, 'plEn', p.plEn, isAbsent); setActiveCell(`${p.id}-plEn`); }} style={{fontSize:14,padding:'3px 1px',width:36}} className={`border rounded-lg text-center cursor-pointer ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(p.plEn, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-plEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={vBd} onClick={() => { openKeypad(p.id, fBd, vBd, isAbsent); setActiveCell(`${p.id}-${fBd}`); }} style={{width:56,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(vBu, vBd)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-${fBd}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={vPl} onClick={() => { openKeypad(p.id, fPl, vPl, isAbsent); setActiveCell(`${p.id}-${fPl}`); }} style={{fontSize:14,padding:'3px 1px',width:56}} className={`border rounded-lg text-center cursor-pointer ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(vPl, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-${fPl}` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
                     </div>
+                    );})()}
                   </td>
 
                   {(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map((item) => {
@@ -10727,15 +12128,15 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                       const selItem = allIndItems.find(it => it.id === cur.itemId);
                       const patDefault = selItem ? (patSettings.find(x => x.itemId === selItem.id)?.defaultValue || '') : '';
                       return (
-                        <td key={item.id} data-ind-cell className={`px-1 py-1 align-top border border-emerald-200 ${isAbsent ? 'bg-slate-100' : 'bg-emerald-50/40'}`}>
-                          <select value={cur.itemId || ''} disabled={isAbsent || isReadOnly}
+                        <td key={item.id} data-ind-cell className={`px-1 py-1 align-top border border-emerald-200 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-emerald-50/40'}`}>
+                          <select value={cur.itemId || ''} disabled={isAbsent || isReadOnly || isPause}
                             onChange={e=>updateExercise(p.id, item.id, {...cur, itemId: e.target.value})}
                             className="w-full px-1 py-0.5 mb-1 text-[10px] font-bold bg-white border border-emerald-300 rounded outline-none focus:border-emerald-500 disabled:opacity-50 appearance-none"
                             style={{WebkitAppearance:'none',MozAppearance:'none',backgroundImage:'none',textAlignLast:'center'}}>
                             <option value="">— 選択 —</option>
-                            {enabledItems.map(it => <option key={it.id} value={it.id}>{it.name}{it.defaultUnit?` (${it.defaultUnit})`:''}</option>)}
+                            {enabledItems.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
                           </select>
-                          <input type="text" value={cur.value || ''} disabled={isAbsent || isReadOnly || !selItem}
+                          <input type="text" value={cur.value || ''} disabled={isAbsent || isReadOnly || isPause || !selItem}
                             onChange={e=>updateExercise(p.id, item.id, {...cur, value: e.target.value})}
                             placeholder={selItem?`${patDefault||''}${selItem.defaultUnit?` ${selItem.defaultUnit}`:''}`:'未選択'}
                             style={{fontSize:13,padding:'3px 4px'}}
@@ -10752,9 +12153,9 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                     const cellKey = `${p.id}-${item.id}`;
                     const isActive = activeCell === cellKey;
                     return (
-                    <td key={item.id} className={`px-0.5 py-2 text-center border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`}>
+                    <td key={item.id} className={`px-0.5 py-2 text-center border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`}>
                       {item.type === 'toggle' ? (
-                        <button disabled={isAbsent || isReadOnly} onClick={() => toggleMark(p.id, item.id, val, isAbsent)} 
+                        <button disabled={isAbsent || isReadOnly || isPause} onClick={() => toggleMark(p.id, item.id, val, isAbsent)} 
                           className={`w-8 h-8 rounded-full font-bold text-base flex items-center justify-center mx-auto transition-all disabled:opacity-60 border
                             ${val === '○' ? 'bg-blue-500 text-white border-blue-500 shadow-md' : 
                               val === '×' ? 'bg-red-500 text-white border-red-500 shadow-md' : 
@@ -10763,7 +12164,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                           {val}
                         </button>
                       ) : (
-                        <input type="text" disabled={isAbsent || isReadOnly} readOnly={item.useKeypad} value={val || ""}
+                        <input type="text" disabled={isAbsent || isReadOnly || isPause} readOnly={item.useKeypad} value={val || ""}
                           onClick={() => { if(item.useKeypad) { openKeypad(p.id, item.id, val, isAbsent); setActiveCell(cellKey); } }}
                           onChange={(e) => { if(!item.useKeypad) updateExercise(p.id, item.id, e.target.value); }}
                           style={{width:64,padding:'3px 1px',textAlign:'center',fontSize: (val||'').length > 7 ? 9 : (val||'').length > 5 ? 10 : (val||'').length > 3 ? 12 : 14, fontWeight:'bold'}}
@@ -10773,7 +12174,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                     </td>
                   )})}
 
-                  <td className={`px-0.5 py-0 align-middle border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`} style={{height:32,overflow:'hidden',verticalAlign:'middle',padding:2}}>
+                  <td className={`px-0.5 py-0 align-middle border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`} style={{height:32,overflow:'hidden',verticalAlign:'middle',padding:2}}>
                     {isReadOnly ? (
                        <div style={p.done ? {backgroundColor:'#fff7ed',color:'#1e293b',border:'2px solid #fb923c',borderRadius:8,padding:'2px 4px'} : {}} className={`w-full py-1 text-center font-bold ${getMassageFontSize(p.massage)}`}>{p.massage || "-"}</div>
                     ) : (() => {
@@ -10815,7 +12216,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                             style={{width:'100%',zIndex:10,fontSize:8,fontWeight:'bold',background:'rgba(254,243,199,0.95)',color:'#92400e',border:'1px solid #fcd34d',borderRadius:3,padding:'0 1px',lineHeight:1.4,cursor:'pointer',textAlign:'center',flexShrink:0}}
                             className="hover:bg-amber-200">📋 確認</button>
                           )}
-                          <select disabled={isAbsent} value={p.massage || ""}
+                          <select disabled={isAbsent || isPause} value={p.massage || ""}
                             onChange={(e) => { updateRecord(p.id, 'massage', e.target.value); if(p.done) updateRecord(p.id, 'done', false); }}
                             style={{appearance:'none',WebkitAppearance:'none',MozAppearance:'none',width:'100%',
                               ...(p.done ? {backgroundColor:'#fff7ed',color:'#1e293b',border:'2px solid #fb923c',borderRadius:8,boxSizing:'border-box'} : {border:'1px solid #e2e8f0',backgroundColor:'white',boxSizing:'border-box'})}}
@@ -10828,10 +12229,47 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                     })()}
                   </td>
                   
-                  <td className={`px-1 py-1 border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-white'}`} style={{height:32,overflow:'hidden'}}>
-                    <textarea disabled={isReadOnly || isPause} value={p.tokki || ""} onChange={(e) => updateRecord(p.id, 'tokki', e.target.value)} rows={2} className={`w-full px-2 border rounded-lg text-xs bg-transparent outline-none disabled:opacity-80 resize-none ${isReadOnly ? 'border-transparent' : 'border-slate-300 shadow-inner bg-white'}`} style={{fontSize:14,lineHeight:1.4,padding:'2px 6px',height:'100%'}} placeholder={isReadOnly ? "" : (isAbsent ? "欠席理由等..." : "特記事項...")} />
+                  <td className={`px-1 py-1 border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`} style={{height:32,overflow:'hidden'}}>
+                    {(() => {
+                      // 家族向け表示 ON/OFF: familyTokkiOverrides[patientId][dateKey].visible
+                      // dateKey = "M月D日" の形式 (record.date と一致) にして
+                      // 保存前/保存後どちらでも同じキーで読み書きできるようにする
+                      const pid = p.patientId || p.id;
+                      const recId = p.recordId || p.id;
+                      const _dObj = new Date(selectedDate);
+                      const dateKey = p.date || `${_dObj.getMonth()+1}月${_dObj.getDate()}日`;
+                      const ftoPid = (appData.familyTokkiOverrides||{})[pid] || {};
+                      // 新キー(dateKey)優先、旧キー(recId)はフォールバック
+                      const ov = ftoPid[dateKey] || ftoPid[recId] || {};
+                      const isVisible = ov.visible !== false;
+                      const hasTokki = (p.tokki||'').trim().length > 0;
+                      const toggleVisible = () => {
+                        const fto = appData.familyTokkiOverrides || {};
+                        const cur = fto[pid] || {};
+                        const newOv = {...ov, visible: !isVisible};
+                        const next = {...cur, [dateKey]: newOv};
+                        // 保存済みレコードならrecordIdキーにも同期保存
+                        if (p.recordId) next[p.recordId] = newOv;
+                        onSave({...appData, familyTokkiOverrides: {...fto, [pid]: next}});
+                      };
+                      return (
+                        <div style={{display:'flex',gap:2,alignItems:'stretch',height:'100%'}}>
+                          <textarea disabled={isReadOnly} value={p.tokki || ""} onChange={(e) => updateRecord(p.id, 'tokki', e.target.value)} rows={2}
+                            className={`flex-1 px-2 border rounded-lg text-xs bg-transparent outline-none disabled:opacity-80 resize-none ${isReadOnly ? 'border-transparent' : 'border-slate-300 shadow-inner bg-white'}`}
+                            style={{fontSize:14,lineHeight:1.4,padding:'2px 6px',height:'100%'}}
+                            placeholder={isReadOnly ? "" : (isAbsent ? "欠席理由等..." : "特記事項...")} />
+                          {hasTokki && !isReadOnly && (
+                            <button type="button" onClick={toggleVisible}
+                              title={isVisible ? "家族の閲覧画面に表示中 (クリックで非表示)" : "家族の閲覧画面に非表示 (クリックで表示)"}
+                              style={{width:62,flexShrink:0,border:isVisible?'1px solid #6ee7b7':'1px solid #fca5a5',borderRadius:6,fontSize:10,fontWeight:'bold',cursor:'pointer',background:isVisible?'#ecfdf5':'#fef2f2',color:isVisible?'#047857':'#991b1b',padding:'2px 4px',whiteSpace:'nowrap',lineHeight:1.2}}>
+                              {isVisible ? '👁 載せる' : '✕ 非公開'}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </td>
-                  <td className={`px-1 py-2 border border-slate-300 ${isAbsent ? 'bg-slate-100' : 'bg-slate-50'}`} style={{overflow:'visible',position:'relative',zIndex:50}}>
+                  <td className={`px-1 py-2 border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-slate-50'}`} style={{overflow:'visible',position:'relative',zIndex:50}}>
                      {(()=>{ const _targets=appData.systemSettings?.fitnessTargets; const _cl=masterData.careLevel||''; const _show=!_targets||_targets.length===0||_targets.includes(_cl);
                        return (<div style={{display:'flex',flexDirection:'row',gap:2,alignItems:'center',justifyContent:'center',overflow:'visible',position:'relative',zIndex:100}}>
                          <button onClick={()=>{navigateTo('master',p.patientId||p.id);}} title="利用者マスタ" onPointerEnter={(e)=>showTip&&showTip("利用者マスタ",e)} onPointerLeave={()=>hideTip&&hideTip()} style={{padding:3,display:'flex',alignItems:'center',justifyContent:'center'}} className="hover:bg-blue-100 hover:text-blue-600 rounded text-slate-500"><Users size={13}/></button>
@@ -10858,10 +12296,42 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4">
             <div className="flex items-center gap-3 mb-5">
-              <span className={`px-3 py-1 rounded-full text-sm font-bold ${statusModal.status==='欠席'?'bg-red-100 text-red-700':statusModal.status==='休業'?'bg-slate-100 text-slate-600':'bg-blue-100 text-blue-700'}`}>{statusModal.status}</span>
-              <span className="text-slate-700 font-bold text-base">{statusModal.status==='欠席'?'欠席理由の入力':statusModal.status==='休業'?'休業理由の入力':'振替情報の入力'}</span>
+              <span className={`px-3 py-1 rounded-full text-sm font-bold ${statusModal.status==='欠席'?'bg-red-100 text-red-700':statusModal.status==='休業'?'bg-slate-100 text-slate-600':statusModal.status==='休止'?'bg-orange-100 text-orange-700':'bg-blue-100 text-blue-700'}`}>{statusModal.status}</span>
+              <span className="text-slate-700 font-bold text-base">{statusModal.status==='欠席'?'欠席理由の入力':statusModal.status==='休業'?'休業理由の入力':statusModal.status==='休止'?'休止情報の入力':'振替情報の入力'}</span>
             </div>
-            {statusModal.status === '振替' ? (
+            {statusModal.status === '休止' ? (
+              <div className="flex flex-col gap-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-600 mb-1.5">休止 開始日</label>
+                    <input type="date" value={statusModal.pauseFromDate} onChange={e => setStatusModal(s => ({...s, pauseFromDate: e.target.value}))}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-bold outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-600 mb-1.5">休止 終了日 <span className="text-[10px] font-normal text-slate-400">(未定なら空欄)</span></label>
+                    <input type="date" value={statusModal.pauseToDate} onChange={e => setStatusModal(s => ({...s, pauseToDate: e.target.value}))}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-bold outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-600 mb-1.5">休止理由</label>
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {['入院','体調不良','介護施設入所','家族の都合','その他'].map(r => (
+                      <button key={r} onClick={() => setStatusModal(s => ({...s, reason: r}))}
+                        className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${statusModal.reason===r ? 'bg-orange-600 text-white border-orange-600' : 'bg-slate-100 text-slate-600 border-slate-200 hover:border-orange-400'}`}>
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                  <textarea value={statusModal.reason} onChange={e => setStatusModal(s => ({...s, reason: e.target.value}))}
+                    placeholder="自由記述..." rows={2}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm outline-none resize-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100" />
+                </div>
+                <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-2.5 text-xs text-orange-700">
+                  保存すると 利用者マスタ管理 と 月間スケジュール にも反映されます。
+                </div>
+              </div>
+            ) : statusModal.status === '振替' ? (
               <div className="flex flex-col gap-3">
                 <div>
                   <label className="block text-sm font-bold text-slate-600 mb-1.5">振替先の日付</label>
@@ -10881,7 +12351,7 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-slate-600 mb-1.5">振替理由</label>
+                  <label className="block text-sm font-bold text-slate-600 mb-1.5">振替理由 <span className="text-[10px] font-normal text-slate-400">（今日の「欠席」記録の理由として記載されます）</span></label>
                   <textarea value={statusModal.substituteReason} onChange={e => setStatusModal(s => ({...s, substituteReason: e.target.value}))}
                     placeholder="例：通院のため..." rows={2}
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm outline-none resize-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
@@ -10917,8 +12387,8 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
             )}
             <div className="flex gap-3 mt-5">
               <button onClick={() => setStatusModal(s => ({...s, isOpen: false}))} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200">キャンセル</button>
-              <button onClick={() => { applyStatusChange(statusModal.id, statusModal.status, statusModal.reason, statusModal.furikaeDate, statusModal.substituteReason, statusModal.furikaeAmpm||'AM'); setStatusModal(s => ({...s, isOpen: false})); }}
-                className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-blue-600 text-white hover:bg-blue-700">確定</button>
+              <button onClick={() => { applyStatusChange(statusModal.id, statusModal.status, statusModal.reason, statusModal.furikaeDate, statusModal.substituteReason, statusModal.furikaeAmpm||'AM', statusModal.pauseFromDate, statusModal.pauseToDate); setStatusModal(s => ({...s, isOpen: false})); }}
+                className={`flex-1 py-2.5 rounded-xl text-sm font-bold text-white ${statusModal.status==='休止'?'bg-orange-600 hover:bg-orange-700':'bg-blue-600 hover:bg-blue-700'}`}>確定</button>
             </div>
           </div>
         </div>
@@ -11069,7 +12539,9 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
 function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatientChange, isSidebarOpen, onShowPrintPreview, familyMode = false, hidePatientSelector = false }) {
   // familyMode: 利用者家族・ケアマネ向け表示。一部セクション (詳細記録/欠席/休止) を非表示にし、印刷ボタンも隠す
   // 特記の表示は familyTokkiOverrides で制御 (visible:false の記録は表示しない)
-  const [selectedPatientId, setSelectedPatientId] = useState(targetPatientId || ((appData.patients||[]).length > 0 ? (appData.patients||[])[0].id : null));
+  // familyMode: 必ず targetPatientId が来る前提で 1 番目にフォールバック
+  // 通常モード: targetPatientId 未指定なら null (利用者選択画面を表示)
+  const [selectedPatientId, setSelectedPatientId] = useState(targetPatientId || (familyMode ? ((appData.patients||[])[0]?.id || null) : null));
   const [patientSearch, setPatientSearch] = useState('');
   // 3ヶ月超の場合の表示モード: 'auto'=自動(月平均)、'daily'=毎日表示
   const [displayMode, setDisplayMode] = useState('auto');
@@ -11082,14 +12554,19 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
       String(p.id).includes(q)
     );
   }, [appData.patients, patientSearch]);
-  const [baseMonth, setBaseMonth] = useState('2026-03');
-  const [period, setPeriod] = useState('12'); // デフォルト1年
-  const [customFrom, setCustomFrom] = useState('2026-01');
-  const [customTo, setCustomTo]   = useState('2026-03');
+  // baseMonth デフォルトは「今日の月」(YYYY-MM)
+  const [baseMonth, setBaseMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  });
+  // 家族画面・事業所側ともデフォルト「1ヶ月」
+  const [period, setPeriod] = useState('1');
+  const [customFrom, setCustomFrom] = useState(() => { const d=new Date(); d.setMonth(d.getMonth()-1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; });
+  const [customTo, setCustomTo]   = useState(() => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; });
   // セクション選択（プレビュー用） [id, label, size]
   const ALL_SECTIONS = familyMode
     ? [['sec-basicinfo','基本情報','短'],['sec-latest','今回の記録','短'],['sec-kpi','基本指標','短'],['sec-trend','通所','長'],['sec-kibun','気分','中'],['sec-vital','バイタルトレンド','長'],['sec-exercise','運動トレンド','長'],['sec-fitness','体力測定','長'],['sec-tokki','日々の記録','中'],['sec-monitoring','モニタリング','中']]
-    : [['sec-basicinfo','基本情報','短'],['sec-kpi','基本指標','短'],['sec-trend','通所','長'],['sec-kibun','気分','中'],['sec-vital','バイタルトレンド','長'],['sec-exercise','運動トレンド','長'],['sec-fitness','体力測定','長'],['sec-absence','欠席一覧','短'],['sec-kyushi','休止一覧','短'],['sec-monitoring','モニタリング','中'],['sec-detail','詳細記録','長']];
+    : [['sec-basicinfo','基本情報','短'],['sec-latest','今回の記録','短'],['sec-kpi','基本指標','短'],['sec-trend','通所','長'],['sec-kibun','気分','中'],['sec-vital','バイタルトレンド','長'],['sec-exercise','運動トレンド','長'],['sec-fitness','体力測定','長'],['sec-absence','欠席一覧','短'],['sec-kyushi','休止一覧','短'],['sec-monitoring','モニタリング','中'],['sec-detail','詳細記録','長']];
   // Hoisted from IIFEs to satisfy React hook rules
   const [vitalTooltip, setVitalTooltip] = useState(null);
   const [selExId, setSelExId] = useState(null);
@@ -11239,6 +12716,86 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   // 月ラベル
   const monthLabels = monthlyData.map(d=>`${d.month}月`);
 
+  // 利用者未選択時は選択画面のみ表示 (familyMode 以外)
+  if (!selectedPatientId && !familyMode) {
+    const allPats = sortPatientsByKana((appData.patients||[]).filter(p => getPatientDisplayStatus(p) === '利用中'));
+    const q = patientSearch.trim().toLowerCase();
+    const list = q ? allPats.filter(p => (p.name||'').toLowerCase().includes(q) || (p.kana||'').toLowerCase().includes(q) || String(p.id).includes(q)) : allPats;
+    // 行 (あ/か/さ...) でグループ化 — 検索中はグループ表示せず全件
+    const kanaRows = ['あ','か','さ','た','な','は','ま','や','ら','わ','その他'];
+    const groups = q ? null : kanaRows.map(row => ({ row, items: list.filter(p => getRowFromKana(p.kana) === row) })).filter(g => g.items.length > 0);
+    return (
+      <div className="h-full overflow-auto w-full" style={{backgroundColor:'#f0f4f9'}}>
+        <div style={{background:'linear-gradient(135deg,#2563eb 0%,#1e40af 100%)',color:'white',padding:'12px 24px',display:'flex',alignItems:'center',gap:12}}>
+          <div style={{width:36,height:36,background:'rgba(255,255,255,0.2)',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <BarChart3 size={20}/>
+          </div>
+          <div>
+            <div style={{fontSize:11,opacity:0.7,fontWeight:'bold'}}>分析・個人</div>
+            <div style={{fontSize:18,fontWeight:'bold'}}>利用者を選択してください</div>
+          </div>
+          <div className="ml-auto text-xs font-bold opacity-80">利用中 {allPats.length}名</div>
+        </div>
+        <div className="max-w-5xl mx-auto p-6">
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+            <input type="text" autoFocus placeholder="🔍 氏名・ふりがな・ID で検索" value={patientSearch}
+              onChange={e=>setPatientSearch(e.target.value)}
+              className="w-full mb-3 px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-base font-bold outline-none focus:border-blue-400" />
+            {/* 行ジャンプボタン */}
+            <div className="flex flex-wrap gap-1 mb-3 pb-3 border-b border-slate-100">
+              {kanaRows.map(row => {
+                const cnt = allPats.filter(p => getRowFromKana(p.kana) === row).length;
+                if (cnt === 0) return null;
+                return (
+                  <button key={row} onClick={() => {
+                    setPatientSearch('');
+                    setTimeout(() => { document.getElementById(`kana-row-${row}`)?.scrollIntoView({behavior:'smooth', block:'start'}); }, 50);
+                  }}
+                    className="px-2.5 py-1 rounded-lg text-xs font-bold border border-slate-200 bg-white text-slate-700 hover:bg-blue-50 hover:border-blue-300 transition-colors">
+                    {row}<span className="ml-1 text-[10px] text-slate-400">({cnt})</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="overflow-auto" style={{maxHeight:'65vh'}}>
+              {groups ? (
+                groups.map(g => (
+                  <div key={g.row} id={`kana-row-${g.row}`} className="mb-4">
+                    <div className="text-xs font-bold text-slate-500 mb-2 px-2 py-1 bg-slate-100 rounded inline-block">{g.row}行 ({g.items.length}名)</div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                      {g.items.map(p => (
+                        <button key={p.id} onClick={()=>{ setSelectedPatientId(p.id); onPatientChange && onPatientChange(p.id); }}
+                          className="px-3 py-3 rounded-xl border border-slate-200 bg-white hover:bg-blue-50 hover:border-blue-400 text-left transition-colors shadow-sm">
+                          <div className="text-base font-bold text-slate-800 truncate">{p.name}</div>
+                          {p.kana && <div className="text-[11px] text-slate-400 truncate font-normal mt-0.5">{p.kana}</div>}
+                          {p.careLevel && <div className="text-[10px] font-bold text-blue-600 mt-1">{p.careLevel}</div>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                  {list.map(p => (
+                    <button key={p.id} onClick={()=>{ setSelectedPatientId(p.id); onPatientChange && onPatientChange(p.id); }}
+                      className="px-3 py-3 rounded-xl border border-slate-200 bg-white hover:bg-blue-50 hover:border-blue-400 text-left transition-colors shadow-sm">
+                      <div className="text-base font-bold text-slate-800 truncate">{p.name}</div>
+                      {p.kana && <div className="text-[11px] text-slate-400 truncate font-normal mt-0.5">{p.kana}</div>}
+                      {p.careLevel && <div className="text-[10px] font-bold text-blue-600 mt-1">{p.careLevel}</div>}
+                    </button>
+                  ))}
+                  {list.length === 0 && (
+                    <div className="col-span-full text-center text-sm text-slate-400 py-12">該当する利用者が見つかりません</div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full overflow-auto w-full" style={{backgroundColor:'#f0f4f9'}}>
       {/* ヘッダーバー（固定） */}
@@ -11254,6 +12811,14 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           </div>
         </div>
         <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+          {/* 一覧に戻るボタン (familyMode 以外) */}
+          {!familyMode && !hidePatientSelector && (
+            <button onClick={()=>{ setSelectedPatientId(null); setPatientSearch(''); onPatientChange && onPatientChange(null); }}
+              title="利用者一覧に戻る"
+              style={{background:'rgba(255,255,255,0.2)',border:'1px solid rgba(255,255,255,0.4)',color:'white',borderRadius:10,padding:'6px 12px',fontSize:12,fontWeight:'bold',cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
+              ← 一覧に戻る
+            </button>
+          )}
           {/* 利用者プルダウン: かな昇順 + ア行/カ行... の optgroup でラベル付け */}
           {!hidePatientSelector && (
             <>
@@ -11746,9 +13311,16 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                 const years = Math.floor(days / 365);
                 const remDays = days - years*365;
                 const months = Math.floor(remDays / 30);
-                if (years > 0) elapsedLabel = `${years}年${months>0?`${months}ヶ月`:''} (${days}日)`;
-                else if (months > 0) elapsedLabel = `${months}ヶ月 (${days}日)`;
-                else elapsedLabel = `${days}日`;
+                // 「2年3ヶ月」を上、「(837日)」は改行して下に表示
+                const main = years > 0 ? `${years}年${months>0?`${months}ヶ月`:''}` : months > 0 ? `${months}ヶ月` : '';
+                if (main) {
+                  elapsedLabel = (<span style={{display:'flex',flexDirection:'column',lineHeight:1.2}}>
+                    <span>{main}</span>
+                    <span style={{fontSize:'0.78em',color:'#64748b',marginTop:1}}>({days}日)</span>
+                  </span>);
+                } else {
+                  elapsedLabel = `${days}日`;
+                }
               }
             }
             return (
@@ -11788,66 +13360,159 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           })()}
         </div>
 
-        {/* familyMode 専用: 今回の記録 (最新の通所記録のサマリー) */}
-        {familyMode && (() => {
-          const validRecs = records.filter(r => r.status==='出席' || r.status==='振替');
-          const parseTicketDate = (s) => { const m=(s||'').match(/(\d+)月(\d+)日/); return m?`${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`:''; };
-          const latest = [...validRecs].sort((a,b)=> parseTicketDate(b.date).localeCompare(parseTicketDate(a.date)))[0];
+        {/* 今回の記録 (最新の通所記録のサマリー) - 家族・事業所共通 */}
+        {(() => {
+          // 月日 (M月D日) から年を推定:
+          // 1. record.id が Date.now() ベース (>1e12=2001年以降) なら、その作成タイムスタンプの年を使う
+          // 2. そうでない場合 (デモデータ等の連番ID) は、今日基準で「過去または当日」になる年を推定
+          const today = new Date(); today.setHours(0,0,0,0);
+          const ty = today.getFullYear();
+          const tm = today.getMonth() + 1;
+          const td = today.getDate();
+          const recordToDate = (rec) => {
+            const m = (rec.date||'').match(/(\d+)月(\d+)日/);
+            if (!m) return null;
+            const mm = parseInt(m[1], 10);
+            const dd = parseInt(m[2], 10);
+            // 1. id がタイムスタンプ (作成日時を保持) → その年を使う
+            if (typeof rec.id === 'number' && rec.id > 1e12) {
+              const created = new Date(rec.id);
+              return new Date(created.getFullYear(), mm - 1, dd);
+            }
+            // 2. デモ/連番ID: 月日が今日より未来なら去年と推定
+            let year = ty;
+            if (mm > tm || (mm === tm && dd > td)) year = ty - 1;
+            return new Date(year, mm - 1, dd);
+          };
+          // どの状態(出席/振替/欠席/休止)でも最新の記録を取得 (年も考慮した日付でソート)
+          const withDates = records.map(r => ({ r, d: recordToDate(r) })).filter(x => x.d);
+          withDates.sort((a, b) => b.d.getTime() - a.d.getTime());
+          const latestPair = withDates[0];
+          const latest = latestPair?.r;
+          const latestFullDate = latestPair?.d;
           if (!latest) return null;
           const MOODS = {'excellent':'🤩 とても良い','good':'😊 良い','normal':'😐 普通','bad':'😞 良くない','terrible':'😫 とても良くない'};
-          const tokkiOv = ((appData.familyTokkiOverrides||{})[selectedPatientId]||{})[latest.id] || {};
+          const _ftoPid = (appData.familyTokkiOverrides||{})[selectedPatientId] || {};
+          const tokkiOv = _ftoPid[latest.date] || _ftoPid[latest.id] || {};
           const showTokki = tokkiOv.visible !== false;
           const tokkiText = tokkiOv.text || latest.tokki || '';
+          // 利用者本人の休止情報 (現在休止中の場合)
+          const _patient = (appData.patients||[]).find(p => p.id === selectedPatientId);
+          const isOnPause = _patient && _patient.status === '休止';
+          const lastPause = isOnPause ? [...(_patient.pauseHistory||[])].pop() : null;
+          // 体力測定: 同じ日 (MM-DD) に測定があれば取得
+          const fitnessOnDay = (() => {
+            if (!latestFullDate) return null;
+            const md = `${String(latestFullDate.getMonth()+1).padStart(2,'0')}-${String(latestFullDate.getDate()).padStart(2,'0')}`;
+            const fitnessAll = (appData.fitnessRecords||[]).filter(r => r.patientId === selectedPatientId);
+            return fitnessAll.find(r => (r.date||'').slice(5) === md);
+          })();
+          const fitnessItems = appData.systemSettings?.fitnessItems || appSettings.fitnessItems;
+          const isAbsent = latest.status === '欠席';
+          const isKyushi = latest.status === '休止';
+          const showFullData = latest.status === '出席' || latest.status === '振替';
+          const headerBg = showFullData ? 'linear-gradient(135deg,#fefce8,#fef9c3)' : isAbsent ? 'linear-gradient(135deg,#fee2e2,#fecaca)' : isKyushi ? 'linear-gradient(135deg,#fff7ed,#ffedd5)' : 'linear-gradient(135deg,#f1f5f9,#e2e8f0)';
+          const headerBorder = showFullData ? '#fde68a' : isAbsent ? '#fca5a5' : isKyushi ? '#fdba74' : '#cbd5e1';
+          const statusBadgeBg = showFullData ? '#fef3c7' : isAbsent ? '#fee2e2' : '#ffedd5';
+          const statusBadgeColor = showFullData ? '#92400e' : isAbsent ? '#b91c1c' : '#9a3412';
           return (
             <div id="sec-latest" style={{marginBottom:16,scrollMarginTop:120}}>
               <div style={{fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:10,paddingBottom:6,borderBottom:'2px solid #e2e8f0',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                 <span>📋 今回の記録</span>
-                <span style={{fontSize:13,color:'#92400e',fontWeight:'bold',background:'#fef3c7',padding:'2px 10px',borderRadius:6}}>{latest.date}</span>
+                <span style={{fontSize:13,fontWeight:'bold',background:statusBadgeBg,color:statusBadgeColor,padding:'2px 10px',borderRadius:6}}>
+                  {latestFullDate ? `${latestFullDate.getFullYear()}年${latest.date}` : latest.date}
+                  {!showFullData && ` (${latest.status})`}
+                </span>
               </div>
-              <div style={{background:'linear-gradient(135deg,#fefce8,#fef9c3)',borderRadius:14,padding:'14px 18px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #fde68a'}}>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px 14px',fontSize:13}}>
-                  {latest.temp && (
-                    <div>
-                      <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>体温</span>
-                      <div style={{fontWeight:'bold',color:'#1e293b',fontSize:18,lineHeight:1.2}}>
-                        {latest.temp}<span style={{fontSize:11,color:'#94a3b8',marginLeft:2}}>℃</span>
-                      </div>
+              <div style={{background:headerBg,borderRadius:14,padding:'14px 18px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:`1px solid ${headerBorder}`}}>
+                {/* 休止中: 休止情報を最優先で表示 */}
+                {isOnPause && lastPause ? (
+                  <div>
+                    <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>休止</span>
+                    <div style={{fontWeight:'bold',color:'#9a3412',fontSize:15,marginTop:4}}>
+                      {lastPause.reason || '休止中'}
+                      {lastPause.fromDate && <span style={{marginLeft:10,fontSize:12,color:'#7c2d12'}}>{lastPause.fromDate} 〜 現在</span>}
                     </div>
-                  )}
-                  {latest.bpUpSt && (
-                    <div>
-                      <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>血圧 (開始)</span>
-                      <div style={{fontWeight:'bold',color:'#1e293b',fontSize:16,lineHeight:1.2}}>
-                        {latest.bpUpSt}/{latest.bpDnSt}<span style={{fontSize:10,color:'#94a3b8',marginLeft:2}}>mmHg</span>
+                    {tokkiText && showTokki && (
+                      <div style={{marginTop:10,paddingTop:10,borderTop:`1px dashed ${headerBorder}`}}>
+                        <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>特記</span>
+                        <div style={{fontSize:13,color:'#1e293b',lineHeight:1.6,whiteSpace:'pre-wrap',marginTop:4}}>{tokkiText}</div>
                       </div>
-                      {latest.plSt && <div style={{fontSize:11,color:'#475569'}}>脈拍 <b>{latest.plSt}</b></div>}
-                    </div>
-                  )}
-                  {latest.bpUpEn && (
-                    <div>
-                      <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>血圧 (終了)</span>
-                      <div style={{fontWeight:'bold',color:'#1e293b',fontSize:16,lineHeight:1.2}}>
-                        {latest.bpUpEn}/{latest.bpDnEn}<span style={{fontSize:10,color:'#94a3b8',marginLeft:2}}>mmHg</span>
-                      </div>
-                      {latest.plEn && <div style={{fontSize:11,color:'#475569'}}>脈拍 <b>{latest.plEn}</b></div>}
-                    </div>
-                  )}
-                  {(latest.kibunArrival||latest.kibunDeparture) && (
-                    <div style={{gridColumn:'1 / -1'}}>
-                      <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>気分</span>
-                      <div style={{fontWeight:'bold',color:'#1e293b',fontSize:13,marginTop:2}}>
-                        {latest.kibunArrival && <span>来所時: {MOODS[latest.kibunArrival]||latest.kibunArrival}</span>}
-                        {latest.kibunArrival && latest.kibunDeparture && <span style={{color:'#94a3b8',margin:'0 8px'}}>／</span>}
-                        {latest.kibunDeparture && <span>帰宅時: {MOODS[latest.kibunDeparture]||latest.kibunDeparture}</span>}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                {showTokki && tokkiText && (
-                  <div style={{marginTop:10,paddingTop:10,borderTop:'1px solid #fde68a'}}>
-                    <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>特記</span>
-                    <div style={{fontSize:13,color:'#1e293b',lineHeight:1.6,whiteSpace:'pre-wrap',marginTop:4}}>{tokkiText}</div>
+                    )}
                   </div>
+                ) : isAbsent ? (
+                  /* 欠席: 理由 + 特記 */
+                  <div>
+                    <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>欠席理由</span>
+                    <div style={{fontWeight:'bold',color:'#b91c1c',fontSize:15,marginTop:4}}>
+                      {tokkiText || '理由未入力'}
+                    </div>
+                  </div>
+                ) : (
+                  /* 出席/振替: 1行に 体温 | 血圧+脈(開始) | 血圧+脈(終了) | 気分 */
+                  <>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:'10px 16px',fontSize:13}}>
+                      {/* 体温 */}
+                      <div>
+                        <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>体温</span>
+                        <div style={{fontWeight:'bold',color:'#1e293b',fontSize:18,lineHeight:1.2,marginTop:2}}>
+                          {latest.temp ? <>{latest.temp}<span style={{fontSize:11,color:'#94a3b8',marginLeft:2}}>℃</span></> : <span style={{color:'#cbd5e1',fontSize:14}}>—</span>}
+                        </div>
+                      </div>
+                      {/* 血圧+脈 開始 (横並び) */}
+                      <div>
+                        <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>血圧 / 脈 (開始)</span>
+                        <div style={{fontWeight:'bold',color:'#1e293b',fontSize:18,lineHeight:1.2,marginTop:2,display:'flex',alignItems:'baseline',gap:10,flexWrap:'wrap'}}>
+                          {latest.bpUpSt ? <span>{latest.bpUpSt}/{latest.bpDnSt}<span style={{fontSize:10,color:'#94a3b8',marginLeft:2}}>mmHg</span></span> : <span style={{color:'#cbd5e1',fontSize:14}}>—</span>}
+                          {latest.plSt && <span>{latest.plSt}<span style={{fontSize:10,color:'#94a3b8',marginLeft:2}}>回</span></span>}
+                        </div>
+                      </div>
+                      {/* 血圧+脈 終了 (横並び) */}
+                      <div>
+                        <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>血圧 / 脈 (終了)</span>
+                        <div style={{fontWeight:'bold',color:'#1e293b',fontSize:18,lineHeight:1.2,marginTop:2,display:'flex',alignItems:'baseline',gap:10,flexWrap:'wrap'}}>
+                          {latest.bpUpEn ? <span>{latest.bpUpEn}/{latest.bpDnEn}<span style={{fontSize:10,color:'#94a3b8',marginLeft:2}}>mmHg</span></span> : <span style={{color:'#cbd5e1',fontSize:14}}>—</span>}
+                          {latest.plEn && <span>{latest.plEn}<span style={{fontSize:10,color:'#94a3b8',marginLeft:2}}>回</span></span>}
+                        </div>
+                      </div>
+                      {/* 気分 */}
+                      <div>
+                        <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>気分</span>
+                        <div style={{fontWeight:'bold',color:'#1e293b',fontSize:13,marginTop:4,lineHeight:1.5}}>
+                          {latest.kibunArrival && <div>来所: {MOODS[latest.kibunArrival]||latest.kibunArrival}</div>}
+                          {latest.kibunDeparture && <div>帰宅: {MOODS[latest.kibunDeparture]||latest.kibunDeparture}</div>}
+                          {!latest.kibunArrival && !latest.kibunDeparture && <span style={{color:'#cbd5e1',fontSize:14}}>—</span>}
+                        </div>
+                      </div>
+                    </div>
+                    {/* 体力測定 (同じ日に測定があれば) */}
+                    {fitnessOnDay && (
+                      <div style={{marginTop:10,paddingTop:10,borderTop:`1px dashed ${headerBorder}`}}>
+                        <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>🏃 体力測定 (本日測定)</span>
+                        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))',gap:'6px 14px',marginTop:6,fontSize:13}}>
+                          {fitnessItems.map(it => {
+                            const v = fitnessOnDay.values?.[it.id];
+                            if (v === undefined || v === '') return null;
+                            return (
+                              <div key={it.id}>
+                                <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>{it.name}</span>
+                                <div style={{fontWeight:'bold',color:'#1e293b',fontSize:14,lineHeight:1.2}}>
+                                  {v}<span style={{fontSize:10,color:'#94a3b8',marginLeft:2}}>{it.unit}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    {/* 特記 */}
+                    {showTokki && tokkiText && (
+                      <div style={{marginTop:10,paddingTop:10,borderTop:`1px dashed ${headerBorder}`}}>
+                        <span style={{color:'#94a3b8',fontSize:10,fontWeight:'bold'}}>📝 特記</span>
+                        <div style={{fontSize:13,color:'#1e293b',lineHeight:1.6,whiteSpace:'pre-wrap',marginTop:4}}>{tokkiText}</div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -14785,7 +16450,6 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button onClick={()=>{if(onShowPrintPreview){onShowPrintPreview(`サービス提供記録_${tY}年${tM}月_${sp?.name||''}`, 'A4 landscape', 'print-content-ticket')}else{window.print();}}} className="bg-slate-900 text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm"><Printer size={16} className="mr-1.5"/>プレビュー</button>
-          <button onClick={()=>setShowFaxHist(true)} className="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl font-bold flex items-center text-sm">📋 履歴</button>
         </div>
       </div>
       {/* コンテンツ：横スクロール可能 */}
@@ -15084,11 +16748,17 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       return true;
     }) : recs;
 
-    // 並び順は RecordView と一致させるため、appData.patients の出現順を踏襲する
+    // RecordView と並び順を一致させる: 出席→振替→欠席→休止→休業→その他, 同ステータス内は kana 順
+    const rank = (s) => s === '出席' ? 0 : s === '振替' ? 1 : s === '欠席' ? 2 : s === '休止' ? 3 : s === '休業' ? 4 : 5;
+    const kanaOf = (r) => {
+      const pid = r.patientId;
+      const p = appData.patients.find(p => p.id === pid);
+      return p?.kana || '';
+    };
     return [...filteredRecs, ...extraPats].sort((a,b)=>{
-      const ia = appData.patients.findIndex(p => p.id === a.patientId);
-      const ib = appData.patients.findIndex(p => p.id === b.patientId);
-      return (ia === -1 ? 1e9 : ia) - (ib === -1 ? 1e9 : ib);
+      const rdiff = rank(a.status) - rank(b.status);
+      if (rdiff !== 0) return rdiff;
+      return kanaOf(a).localeCompare(kanaOf(b), 'ja');
     });
   }, [appData.ticketRecords, appData.patients, appData.monthlyShifts, targetDateStr, selectedDate, sharedAmpm]);
 
@@ -15163,14 +16833,12 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       return h;
     }).filter(Boolean);
     if(!htmlParts.length){ alert('印刷データが見つかりません。'); return; }
-    // B5 横 (257×182mm) ページ内に B6 縦の連絡帳 (182×257mm logical) を縮小して中央配置
-    // scale 0.708 で 128.9×181.9mm = ほぼ B6 サイズになる
+    // B5 横 (257×182mm) ページ内に連絡帳 (182×257mm 縦) を中央配置 (微縮小)
     const combinedHtml = htmlParts.map((h,i)=>
-      `<div style="page-break-after:${i < htmlParts.length-1 ? 'always' : 'auto'};width:257mm;height:182mm;display:flex;justify-content:center;align-items:flex-start;overflow:hidden;position:relative;">
-        <div style="transform:scale(0.708);transform-origin:top center;width:182mm;height:257mm;">${h}</div>
+      `<div style="page-break-after:${i < htmlParts.length-1 ? 'always' : 'auto'};width:257mm;height:182mm;display:flex;justify-content:center;align-items:center;overflow:hidden;">
+        <div style="transform:scale(0.66);transform-origin:center center;width:182mm;height:257mm;flex-shrink:0;">${h}</div>
       </div>`
     ).join('');
-    // プレビューモーダルへ — B5 横で送る
     if(onShowPrintPreview) onShowPrintPreview(title, '257mm 182mm', null);
     setTimeout(()=>{
       window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'257mm 182mm',html:combinedHtml}}));
@@ -15270,7 +16938,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
 
   return (
     <div className="h-full overflow-auto w-full bg-slate-200 relative">
-      <style>{`@media print{@page{size:182mm 257mm;margin:0;}body,html,#root{height:auto!important;overflow:visible!important;background:white!important;}.no-print{display:none!important;}.cb-page{border:0!important;box-shadow:none!important;}}`}</style>
+      <style>{`@media print{@page{size:182mm 257mm;margin:0;}body,html,#root{height:auto!important;overflow:visible!important;background:white!important;}.no-print{display:none!important;}.cb-page{border:0!important;box-shadow:none!important;}.cb-page *{box-shadow:none!important;outline:none!important;--tw-ring-shadow:0 0 transparent!important;--tw-ring-color:transparent!important;--tw-ring-offset-shadow:0 0 transparent!important;}}`}</style>
       {/* ツールバー: 横いっぱい・浮かさず上部に固定 */}
       <div className="bg-white px-6 py-3 border-b border-slate-200 flex flex-row items-center gap-3 sticky top-0 z-30 flex-wrap shadow-sm">
         <div className="flex items-center bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 shrink-0">
@@ -15506,45 +17174,44 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
             <div className="text-2xl font-bold tracking-widest">{dateStr}</div>
           </div>
 
-          {/* バイタル（行高・フォント大きめ） */}
+          {/* バイタル（行高・フォント大きめ） — 1.2倍に拡大 */}
           <table className="w-full border-collapse border-2 border-black text-center font-bold table-fixed bg-white shrink-0" style={{marginBottom:'20px'}}>
               <colgroup><col style={{width:"25%"}}/><col style={{width:"75%"}}/></colgroup>
             <tbody>
-              <tr className="border-b border-black h-12">
+              <tr className="border-b border-black" style={{height:'3.6rem'}}>
                 <td className="p-0" colSpan={2}>
                   <div className="flex items-center h-full px-3">
-                    <span className="font-normal" style={{fontSize:15,marginRight:'0.4em'}}>体温</span>
-                    {/* 固定幅 + 右寄せにして、未入力時でも ℃ の位置が動かないようにする */}
-                    <span className="font-bold" style={{fontSize:24,display:'inline-block',minWidth:'2.8em',textAlign:'right',fontVariantNumeric:'tabular-nums'}}>{record.temp || ''}</span>
-                    <span className="font-normal" style={{fontSize:14,marginLeft:'0.15em'}}>℃</span>
-                    <span style={{display:'inline-block', width:'4em', fontSize:15}} />
-                    <span style={{fontSize:24}}>　</span>
+                    <span className="font-normal" style={{fontSize:18,marginRight:'0.4em'}}>体温</span>
+                    <span className="font-bold" style={{fontSize:29,display:'inline-block',minWidth:'2.8em',textAlign:'right',fontVariantNumeric:'tabular-nums'}}>{record.temp || ''}</span>
+                    <span className="font-normal" style={{fontSize:17,marginLeft:'0.15em'}}>℃</span>
+                    <span style={{display:'inline-block', width:'4em', fontSize:18}} />
+                    <span style={{fontSize:29}}>　</span>
                     <table style={{borderCollapse:'collapse', flex:'none'}}>
                       <tbody>
                         <tr>
-                          <td style={{fontSize:14, whiteSpace:'nowrap', paddingRight:4}}>開始時　血圧</td>
-                          <td style={{fontSize:24, fontWeight:'bold', whiteSpace:'nowrap', paddingRight:0, minWidth:'6em'}}>{record.bpUpSt ? `${record.bpUpSt} / ${record.bpDnSt}` : "　"}</td>
-                          <td style={{fontSize:14, whiteSpace:'nowrap', paddingLeft:24, paddingRight:26}}>脈拍</td>
-                          <td style={{fontSize:24, fontWeight:'bold', whiteSpace:'nowrap'}}>{record.plSt || "　"}</td>
+                          <td style={{fontSize:17, whiteSpace:'nowrap', paddingRight:4}}>開始時　血圧</td>
+                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap', paddingRight:0, minWidth:'6em'}}>{record.bpUpSt ? `${record.bpUpSt} / ${record.bpDnSt}` : "　"}</td>
+                          <td style={{fontSize:17, whiteSpace:'nowrap', paddingLeft:24, paddingRight:26}}>脈拍</td>
+                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap'}}>{record.plSt || "　"}</td>
                         </tr>
                       </tbody>
                     </table>
                   </div>
                 </td>
               </tr>
-              <tr className="h-12">
+              <tr style={{height:'3.6rem'}}>
                 <td className="p-0" colSpan={2}>
                   <div className="flex items-center h-full px-3">
-                    <span style={{fontSize:15, visibility:'hidden'}}>体温　00.0℃</span>
-                    <span style={{display:'inline-block', width:'4em', fontSize:15}} />
-                    <span style={{fontSize:24}}>　　</span>
+                    <span style={{fontSize:18, visibility:'hidden'}}>体温　00.0℃</span>
+                    <span style={{display:'inline-block', width:'4em', fontSize:18}} />
+                    <span style={{fontSize:29}}>　　</span>
                     <table style={{borderCollapse:'collapse', flex:'none'}}>
                       <tbody>
                         <tr>
-                          <td style={{fontSize:14, whiteSpace:'nowrap', paddingRight:4}}>終了時　血圧</td>
-                          <td style={{fontSize:24, fontWeight:'bold', whiteSpace:'nowrap', paddingRight:0, minWidth:'6em'}}>{record.bpUpEn ? `${record.bpUpEn} / ${record.bpDnEn}` : "　"}</td>
-                          <td style={{fontSize:14, whiteSpace:'nowrap', paddingLeft:24, paddingRight:26}}>脈拍</td>
-                          <td style={{fontSize:24, fontWeight:'bold', whiteSpace:'nowrap'}}>{record.plEn || "　"}</td>
+                          <td style={{fontSize:17, whiteSpace:'nowrap', paddingRight:4}}>終了時　血圧</td>
+                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap', paddingRight:0, minWidth:'6em'}}>{record.bpUpEn ? `${record.bpUpEn} / ${record.bpDnEn}` : "　"}</td>
+                          <td style={{fontSize:17, whiteSpace:'nowrap', paddingLeft:24, paddingRight:26}}>脈拍</td>
+                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap'}}>{record.plEn || "　"}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -15554,18 +17221,21 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
             </tbody>
           </table>
 
-          {/* 運動テーブル（flex-1・行を小さく） */}
-          <div className="mb-2 border-2 border-black overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all" style={{flexShrink:0}} onClick={onOpenConfig}>
-            <table className="w-full border-collapse text-center table-fixed h-full">
-              <tbody className="h-full">
+          {/* 運動テーブル（残りスペースをフルに使う、項目増えれば自動で行が縮む。フォントは大きめ・はみ出し時は CSS で縮小） */}
+          <div className="mb-2 border-2 border-black overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all" style={{flex:'1 1 0', minHeight:0}} onClick={onOpenConfig}>
+            <table className="w-full border-collapse text-center table-fixed" style={{height:'100%'}}>
+              <tbody>
                 {rows.map((row, idx) => {
                   const cellCls = (item) => `text-black ${item && item.perPatient && item.type !== 'linked' && onEditPatientValue ? 'cursor-pointer hover:bg-violet-50 transition-colors' : ''}`;
+                  // 行が多いほどフォント縮小: 行数 6 までは大、それ以降は段階的に縮小
+                  const labelFs = rows.length <= 6 ? 16 : rows.length <= 9 ? 14 : rows.length <= 12 ? 12 : 10;
+                  const valueFs = rows.length <= 6 ? 24 : rows.length <= 9 ? 22 : rows.length <= 12 ? 20 : 18;
                   return (
-                  <tr key={idx} className={idx !== rows.length - 1 ? "border-b border-black" : ""} style={{height:'22px'}}>
-                    <th className="border-r border-black w-[30%] bg-white px-1" style={{fontWeight:"normal",fontSize:12}}>{row[0].label}</th>
-                    <td className={`border-r-2 border-black w-[20%] ${cellCls(row[0])}`} style={{fontWeight:"bold",fontSize:20}} onClick={e=>handleCellClick(row[0], e)}>{renderItemValue(row[0])}</td>
+                  <tr key={idx} className={idx !== rows.length - 1 ? "border-b border-black" : ""}>
+                    <th className="border-r border-black w-[30%] bg-white px-1" style={{fontWeight:"normal",fontSize:labelFs,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{row[0].label}</th>
+                    <td className={`border-r-2 border-black w-[20%] ${cellCls(row[0])}`} style={{fontWeight:"bold",fontSize:valueFs,whiteSpace:'nowrap',overflow:'hidden'}} onClick={e=>handleCellClick(row[0], e)}>{renderItemValue(row[0])}</td>
                     {row[1]
-                      ? (<><th className="border-r border-black w-[30%] bg-white px-1" style={{fontWeight:"normal",fontSize:12}}>{row[1].label}</th><td className={`w-[20%] ${cellCls(row[1])}`} style={{fontWeight:"bold",fontSize:20}} onClick={e=>handleCellClick(row[1], e)}>{renderItemValue(row[1])}</td></>)
+                      ? (<><th className="border-r border-black w-[30%] bg-white px-1" style={{fontWeight:"normal",fontSize:labelFs,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{row[1].label}</th><td className={`w-[20%] ${cellCls(row[1])}`} style={{fontWeight:"bold",fontSize:valueFs,whiteSpace:'nowrap',overflow:'hidden'}} onClick={e=>handleCellClick(row[1], e)}>{renderItemValue(row[1])}</td></>)
                       : (<><th className="border-r border-black w-[30%] bg-white"></th><td className="w-[20%]"></td></>)}
                   </tr>
                   );
@@ -15574,53 +17244,85 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
             </table>
           </div>
 
-          <div style={{height:"36px",flexShrink:0}} />
-          {/* ご家族からの連絡欄（10行・下線なし） */}
-          <div className="border-2 border-black bg-white mb-2 shrink-0" style={{height:'15rem'}}>
-            <div className="px-2 py-0.5 border-b border-slate-400 bg-white">
-              <span className="font-bold text-[11px] text-slate-800">ご家族からの連絡欄</span>
-            </div>
+          <div style={{height:"18px",flexShrink:0}} />
+          {/* ご家族からの連絡欄 — ラベルは枠の外、枠内はまっさらな書き込みエリア */}
+          <div className="shrink-0 mb-2">
+            <div className="font-bold text-slate-800" style={{fontSize:15,marginBottom:3}}>ご家族からの連絡欄</div>
+            <div className="border-2 border-black bg-white" style={{height:'10rem'}} />
           </div>
 
-          <div style={{height:'27px', flexShrink:0}} />
+          <div style={{height:'13px', flexShrink:0}} />
 
-          {/* 次回お迎え時間 + QR */}
-          <div className="border-2 border-black bg-white flex items-center px-3 mb-1 shrink-0 gap-2" style={{paddingTop:'2px', paddingBottom:'2px', minHeight:0}}>
-            <div className="flex-1 flex flex-nowrap items-center gap-x-2 min-w-0 overflow-hidden">
-              <span style={{fontSize:18,fontWeight:"bold",whiteSpace:"nowrap",color:"#475569",flexShrink:0}}>次回お迎え時間</span>
+          {/* 次回お迎え時間 + QR (ラベル上一列・枠ギリギリ、日付+時刻 下一列で横並び) */}
+          <div className="border-2 border-black bg-white flex items-start px-3 mb-1 shrink-0 gap-2" style={{paddingTop:'4px', paddingBottom:'6px', minHeight:0}}>
+            <div className="flex-1 flex flex-col min-w-0" style={{overflow:'hidden'}}>
+              <span style={{fontSize:15,fontWeight:"bold",color:"#475569",lineHeight:1,whiteSpace:"nowrap",marginBottom:'14px'}}>次回お迎え時間</span>
               {(() => {
-                // 日付: 数字は30px, 月日（）は20px, 半角スペースで区切り
+                // 日付: 数字は30px, 「月」「日」のみ20px、括弧内の曜日は30px (数字と同じ)
+                // 状態機械: 括弧内なら全て30px、それ以外は 月/日 を20px・他を30px
                 const renderDate = (str) => {
                   if (!str) return null;
-                  const parts = str.split(/(月|日|（|）)/);
-                  return parts.map((p2, i) => {
-                    if (!p2) return null;
-                    if (/^(月|日)$/.test(p2)) return <span key={i} style={{fontSize:20, fontWeight:"bold", lineHeight:1.1}}>{' '+p2+' '}</span>;
-                    if (/^（|）$/.test(p2)) return <span key={i} style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{p2}</span>;
-                    return <span key={i} style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{p2}</span>;
-                  });
+                  // 「6月9日（火）」を「6 月 9 日 （火）」のように 月/日 の前後に半角SP
+                  // 年/曜日も同様に判定 (年は数値の後に SP + 年)
+                  const out = [];
+                  let inParen = false;
+                  for (let i = 0; i < str.length; i++) {
+                    const c = str[i];
+                    if (c === '（' || c === '(') {
+                      inParen = true;
+                      out.push(<span key={i} style={{fontSize:38, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      continue;
+                    }
+                    if (c === '）' || c === ')') {
+                      inParen = false;
+                      out.push(<span key={i} style={{fontSize:38, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      continue;
+                    }
+                    if (inParen) {
+                      out.push(<span key={i} style={{fontSize:38, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                    } else if (c === '月' || c === '日' || c === '年') {
+                      out.push(<span key={i} style={{fontSize:26, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{' '+c+' '}</span>);
+                    } else {
+                      out.push(<span key={i} style={{fontSize:38, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                    }
+                  }
+                  return out;
                 };
                 const renderTime = (str) => {
                   if (!str) return null;
-                  // "　時　分" or "9時15分" — split by 時/分, render numbers large, kanji small
-                  const t = str.replace(/^0/, "");
-                  const mTime = t.match(/^(.*?)時(.*)分$/);
+                  // "　時　分" or "9時15分" or "9時　　分"
+                  // 表示形式: 数値 半角SP 時 半角SP 数値 半角SP 分 / 数値無は 2 文字分の空白
+                  const mTime = str.match(/^(.*?)時(.*)分$/);
+                  let h = '', m = '';
                   if (mTime) {
-                    const h = mTime[1] || '　　';
-                    const m = mTime[2] || '　　';
-                    return <>
-                      <span style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{h}</span>
-                      <span style={{fontSize:20, fontWeight:"bold", lineHeight:1.1}}> 時　</span>
-                      <span style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{m}</span>
-                      <span style={{fontSize:20, fontWeight:"bold", lineHeight:1.1}}> 分</span>
-                    </>;
+                    h = (mTime[1] || '').replace(/[\s　]/g, '');
+                    m = (mTime[2] || '').replace(/[\s　]/g, '');
                   }
-                  return <span style={{fontSize:30, fontWeight:"bold"}}>{t}</span>;
+                  const hBlank = !h;
+                  const mBlank = !m;
+                  const numStyle = (blank) => ({
+                    fontSize:38, fontWeight:'bold', lineHeight:1.1,
+                    display:'inline-block', minWidth:'2ch', textAlign:'right',
+                    color: blank ? '#cbd5e1' : '#1e293b',
+                    fontVariantNumeric:'tabular-nums'
+                  });
+                  const labelStyle = { fontSize:26, fontWeight:'bold', lineHeight:1.1 };
+                  return <span style={{whiteSpace:'pre'}}>
+                    <span style={numStyle(hBlank)}>{hBlank ? '  ' : h}</span>
+                    {' '}
+                    <span style={labelStyle}>時</span>
+                    {' '}
+                    <span style={numStyle(mBlank)}>{mBlank ? '  ' : m.padStart(2, '0')}</span>
+                    {' '}
+                    <span style={labelStyle}>分</span>
+                  </span>;
                 };
-                return <>
-                  <span style={{whiteSpace:"nowrap"}}>{renderDate(nextDateDisplay)}</span>
-                  <span style={{whiteSpace:"nowrap", marginLeft:'1em'}}>{renderTime(nextTimeDisplay)}</span>
-                </>;
+                return (
+                  <div style={{display:'flex',flexDirection:'row',alignItems:'baseline',gap:'0.6em',lineHeight:1.05,minWidth:0,whiteSpace:'nowrap'}}>
+                    <span style={{whiteSpace:"nowrap"}}>{renderDate(nextDateDisplay)}</span>
+                    <span style={{whiteSpace:"nowrap"}}>{renderTime(nextTimeDisplay)}</span>
+                  </div>
+                );
               })()}
             </div>
             {(() => {
@@ -15629,10 +17331,10 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                 : '/?family';
               const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=2&data=${encodeURIComponent(familyLoginUrl)}`;
               return (
-                <div className="flex flex-col items-center shrink-0 border-l border-slate-400 pl-2">
-                  <span className="text-[8px] font-bold text-blue-700 leading-tight text-center">ご家族<br/>専用</span>
-                  <img src={qrSrc} alt="家族用QR" style={{width:48,height:48,objectFit:'contain'}} crossOrigin="anonymous"/>
-                  <span className="text-[7px] text-slate-500 leading-tight text-center">QRから<br/>ログイン</span>
+                <div className="flex flex-col items-center shrink-0 border-l border-slate-400 pl-2" style={{minWidth:96}}>
+                  <span className="font-bold text-blue-700 leading-tight text-center whitespace-nowrap" style={{fontSize:11}}>ご家族専用</span>
+                  <img src={qrSrc} alt="家族用QR" style={{width:80,height:80,objectFit:'contain'}} crossOrigin="anonymous"/>
+                  <span className="text-slate-500 leading-tight text-center whitespace-nowrap" style={{fontSize:10}}>QRからログイン</span>
                 </div>
               );
             })()}
@@ -15722,7 +17424,7 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave }) {
 
 
 // === FitnessView (体力測定) ===
-function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, targetPatientId, onPatientChange, dirtyRef }) {
+function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, targetPatientId, onPatientChange, dirtyRef, saveFnRef }) {
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
   const [statusFilter, setStatusFilter] = useState('当月');
@@ -15735,6 +17437,8 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
 
   const fitnessItems = appData.systemSettings?.fitnessItems || appSettings.fitnessItems;
   const records = appData.fitnessRecords || [];
+  // 前回・過去の記録の編集モード (デフォルト off: 今回分のみ編集可)
+  const [editPast, setEditPast] = useState(false);
 
   const now = new Date();
   const thisMonth = now.getMonth(); // 0-based
@@ -15807,6 +17511,21 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
     setValues({});
     alert('保存しました');
   };
+
+  // 未保存ポップアップから呼ばれる用 (alert 抜き)
+  const flushSave = () => {
+    if (!selectedPatientId || Object.keys(values).length === 0) { markClean(); return; }
+    const existing = records.find(r => r.patientId === selectedPatientId && r.date === date);
+    let newRecords;
+    if (existing) {
+      newRecords = records.map(r => r.id === existing.id ? { ...r, values: { ...r.values, ...values } } : r);
+    } else {
+      newRecords = [...records, { id: Date.now(), patientId: selectedPatientId, date, values }];
+    }
+    markClean(); onSave({ ...appData, fitnessRecords: newRecords });
+  };
+  if (saveFnRef) saveFnRef.current = flushSave;
+  React.useEffect(() => () => { if (saveFnRef) saveFnRef.current = null; }, []);
 
   return (
     <div className="flex h-full w-full gap-4 p-4 bg-slate-100 overflow-hidden">
@@ -15996,12 +17715,25 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                     <div className="px-4 py-3 font-bold text-sm text-slate-700">{item.name}<span className="text-xs text-slate-400 ml-1">（{item.unit}）</span></div>
                     <div className="px-4 py-2">
                       <input type="number" step="0.1" value={values[item.id] ?? ''}
-                        onChange={e => setValues({...values, [item.id]: e.target.value})}
+                        onChange={e => { setValues({...values, [item.id]: e.target.value}); markDirty(); }}
                         placeholder="—"
                         className="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400 text-center" />
                     </div>
                     <div className="px-4 py-2 text-center">
-                      {prev !== undefined && prev !== '' ? <span className="font-bold text-slate-700">{prev}<span className="text-xs text-slate-400 ml-0.5">{item.unit}</span></span> : <span className="text-slate-300">—</span>}
+                      {!lastRecord ? <span className="text-slate-300">—</span>
+                       : editPast ? (
+                        <input type="number" step="0.1" defaultValue={prev ?? ''}
+                          onBlur={e => {
+                            const v = e.target.value;
+                            if ((prev ?? '') === v) return;
+                            const newRecords = records.map(r => r.id === lastRecord.id ? {...r, values: {...r.values, [item.id]: v}} : r);
+                            onSave({...appData, fitnessRecords: newRecords});
+                          }}
+                          placeholder="—"
+                          className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400 text-center bg-slate-50" />
+                       ) : (
+                        prev !== undefined && prev !== '' ? <span className="font-bold text-slate-700">{prev}<span className="text-xs text-slate-400 ml-0.5">{item.unit}</span></span> : <span className="text-slate-300">—</span>
+                       )}
                     </div>
                     <div className="px-4 py-2 text-center">
                       {avg !== null ? <span className="font-bold text-green-700">{avg}<span className="text-xs text-green-500 ml-0.5">{item.unit}</span></span> : <span className="text-slate-300">—</span>}
@@ -16014,7 +17746,13 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
             {/* 過去の記録 */}
             {patRecords.length > 0 && (
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="px-5 py-3 border-b border-slate-200 font-bold text-sm text-slate-700">過去の記録</div>
+                <div className="px-5 py-3 border-b border-slate-200 flex items-center justify-between gap-3">
+                  <div className="font-bold text-sm text-slate-700">過去の記録 (前回含む)</div>
+                  <button onClick={()=>setEditPast(v=>!v)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${editPast ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
+                    {editPast ? '✓ 編集中 (クリックで終了)' : '✏ 編集'}
+                  </button>
+                </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs border-collapse">
                     <thead>
@@ -16029,11 +17767,27 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                       {patRecords.slice(0,10).map((r,ri) => (
                         <tr key={r.id} className={ri%2===0?'bg-white':'bg-slate-50'}>
                           <td className="px-4 py-2 font-bold text-slate-600 whitespace-nowrap">{r.date}</td>
-                          {fitnessItems.map(item => (
-                            <td key={item.id} className="px-3 py-2 text-center font-bold text-slate-700">
-                              {r.values?.[item.id] !== undefined && r.values[item.id] !== '' ? r.values[item.id] : <span className="text-slate-300">—</span>}
-                            </td>
-                          ))}
+                          {fitnessItems.map(item => {
+                            const cur = r.values?.[item.id] ?? '';
+                            return (
+                              <td key={item.id} className="px-2 py-1 text-center">
+                                {editPast ? (
+                                  <input type="number" step="0.1" defaultValue={cur}
+                                    onBlur={e => {
+                                      const v = e.target.value;
+                                      if (String(cur) === v) return;
+                                      const newRecords = records.map(rr => rr.id === r.id ? {...rr, values: {...rr.values, [item.id]: v}} : rr);
+                                      onSave({...appData, fitnessRecords: newRecords});
+                                    }}
+                                    placeholder="—"
+                                    style={{minWidth:72}}
+                                    className="w-20 px-1.5 py-1 border border-slate-300 focus:border-blue-400 rounded text-xs font-bold outline-none text-center bg-white" />
+                                ) : (
+                                  cur !== '' && cur !== undefined ? <span className="font-bold text-slate-700" style={{whiteSpace:'nowrap'}}>{cur}</span> : <span className="text-slate-300">—</span>
+                                )}
+                              </td>
+                            );
+                          })}
                         </tr>
                       ))}
                     </tbody>
@@ -16388,95 +18142,106 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
 
   const applySchedChange = (dayIndex, newVal, oldVal, applyFrom) => {
     if(!localPatient || !applyFrom) return;
-    setSchedModal(null); // 最初に閉じる
+    setSchedModal(null);
     const dN2=['日','月','火','水','木','金','土'];
     const isAdd = !oldVal && !!newVal;
     const isRemove = !!oldVal && !newVal;
-    const isChange = !!oldVal && !!newVal && oldVal !== newVal;
-    const ap = newVal==='PM' ? 'PM' : 'AM';
-    const oldAp = oldVal==='PM' ? 'PM' : 'AM';
 
     // 1. scheduleAmPmを更新
     const newSched = [...(localPatient.scheduleAmPm || ['','','','','','',''])];
     newSched[dayIndex] = newVal;
 
-    // 2. 変更履歴に追加
+    // 2. 変更履歴
     const hist = [...(localPatient.scheduleChangeHistory||[])];
     hist.push({date:applyFrom, dayIndex, oldVal, newVal, label:`${dN2[dayIndex]}曜日 ${oldVal||'無'}→${newVal||'無'}`});
-    // changeLogにも追加（その他変更ログに表示）
-    const clKey = 'scheduleChangeHistory';
-    const changeTypeLabel = isAdd?'増回':isRemove?'減回':'変更'; const changeLogEntry = {date: new Date().toISOString().slice(0,10), label:`基本利用日${changeTypeLabel}`, oldValue:null, newValue:`${dN2[dayIndex]}曜日 ${oldVal||'無'}→${newVal||'無'}（${applyFrom}〜適用）`, note:changeTypeLabel};
+    const changeTypeLabel = isAdd?'増回':isRemove?'減回':'変更';
+    const changeLogEntry = {date: new Date().toISOString().slice(0,10), label:`基本利用日${changeTypeLabel}`, oldValue:null, newValue:`${dN2[dayIndex]}曜日 ${oldVal||'無'}→${newVal||'無'}（${applyFrom}〜適用）`, note:changeTypeLabel};
 
-    // 3. applyFromの月から6ヶ月分、対象曜日の日付を処理
+    // 3. シフトデータ更新
     const newShifts = JSON.parse(JSON.stringify(effShifts));
     const closedDays = appData.systemSettings?.facilityInfo?.closedDays||[0];
-    // applyFromの月を基準に計算
-    const [aY, aM] = applyFrom.split('-').map(Number);
 
-    for(let mo=0; mo<6; mo++){
-      const yr = aY + Math.floor((aM-1+mo)/12);
-      const mn = (aM-1+mo)%12; // 0-indexed
-      const mk = `${yr}-${String(mn+1).padStart(2,'0')}`;
-      if(!newShifts[mk]) newShifts[mk]={};
-      if(!newShifts[mk][localPatient.id]) newShifts[mk][localPatient.id]={};
-      const dim = new Date(yr, mn+1, 0).getDate();
+    if(!closedDays.includes(dayIndex)) {
+      // 該当 AP が指定 schedule で基本利用日か
+      const isBaseAp = (sched, ap) => sched === '1日' || sched === ap;
 
-      for(let d=1; d<=dim; d++){
-        const dow = new Date(yr, mn, d).getDay();
-        if(dow !== dayIndex) continue;
-        if(closedDays.includes(dayIndex)) continue;
-        const ds = `${yr}-${String(mn+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-        const before = ds < applyFrom; // applyFrom未満か
-
-        if(isAdd) {
-          if(before) {
-            // 増回前：scheduleAmPmに追加されるが、この日は来ない扱いに。
-            // 既存のオーバーライド (例: 振替/出席/欠席) は尊重し、未定義の場合のみ '空欄' を設定。
-            const cur = newShifts[mk][localPatient.id][`${d}_${ap}`];
-            if (cur === undefined) {
-              newShifts[mk][localPatient.id][`${d}_${ap}`] = '空欄';
-            }
-          } else {
-            // 増回以降：デフォルト出席（明示的な欠席設定を削除）
-            delete newShifts[mk][localPatient.id][`${d}_${ap}`];
-          }
-        } else if(isRemove) {
-          if(before) {
-            // 減回前：scheduleAmPmから削除されるが、過去日の状態を維持する
-            // 注意: 既に '空欄' '欠席' '振替' '休業' 等のオーバーライドがある日はそのまま尊重し、
-            // 「未定義 (=旧スケジュールで出席だった日)」のみ明示的に '出席' を保存する
-            const cur = newShifts[mk][localPatient.id][`${d}_${oldAp}`];
-            if (cur === undefined || cur === '〇' || cur === '出席') {
-              newShifts[mk][localPatient.id][`${d}_${oldAp}`] = '出席';
-            }
-            // それ以外 ('空欄'/'欠席'/'振替'/'休業') の日は手を付けない
-          } else {
-            // 減回以降：空欄（基本利用日でなくなるのでデフォルト空欄）
-            delete newShifts[mk][localPatient.id][`${d}_${oldAp}`];
-          }
-        } else if(isChange) {
-          if(before) {
-            // 変更前：旧の時間帯を維持
-            newShifts[mk][localPatient.id][`${d}_${oldAp}`] = '出席';
-            newShifts[mk][localPatient.id][`${d}_${ap}`] = '空欄';
-          } else {
-            // 変更後：新の時間帯に変更
-            delete newShifts[mk][localPatient.id][`${d}_${ap}`];
-            newShifts[mk][localPatient.id][`${d}_${oldAp}`] = '空欄';
-          }
-        }
+      // 処理対象月: 既存シフトデータのある全月 + applyFrom から6ヶ月分
+      // (既存月もカバーすることで、未来 applyFrom 時に過去月へ誤って新 schedule が
+      //  適用されないように明示的なオーバーライドを書き込む)
+      const [aY, aM] = applyFrom.split('-').map(Number);
+      const monthKeys = new Set(Object.keys(newShifts));
+      for(let mo=0; mo<6; mo++){
+        const yr = aY + Math.floor((aM-1+mo)/12);
+        const mn = (aM-1+mo)%12;
+        monthKeys.add(`${yr}-${String(mn+1).padStart(2,'0')}`);
       }
+
+      monthKeys.forEach(mk => {
+        if(!newShifts[mk]) newShifts[mk]={};
+        if(!newShifts[mk][localPatient.id]) newShifts[mk][localPatient.id]={};
+        const [yr, mn1] = mk.split('-').map(Number);
+        const dim = new Date(yr, mn1, 0).getDate();
+
+        for(let d=1; d<=dim; d++){
+          const dow = new Date(yr, mn1-1, d).getDay();
+          if(dow !== dayIndex) continue;
+          const ds = `${yr}-${String(mn1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+          const before = ds < applyFrom;
+
+          // AM と PM 両方を独立に処理 (1日 = AM+PM)
+          ['AM','PM'].forEach(ap => {
+            const k = `${d}_${ap}`;
+            const cur = newShifts[mk][localPatient.id][k];
+            // 明示的なシフト記録は保持
+            if (cur === '欠席' || cur === '休業' || cur === '臨時') return;
+            if (typeof cur === 'string' && cur.startsWith('振')) return;
+
+            const wasBase = isBaseAp(oldVal, ap);
+            const willBase = isBaseAp(newVal, ap);
+
+            if (before) {
+              if (wasBase && !willBase) {
+                // 過去は基本利用日 → 新スケジュールから外れる
+                // 過去の通所実績を '出席' で保持
+                if (cur === undefined || cur === '〇' || cur === '出席') {
+                  newShifts[mk][localPatient.id][k] = '出席';
+                }
+              } else if (!wasBase && willBase) {
+                // 過去は基本利用日でなかった → 新スケジュールでは基本
+                // 新 schedule からの '〇' デフォルト表示を抑制
+                if (cur === undefined || cur === '〇') {
+                  newShifts[mk][localPatient.id][k] = '空欄';
+                }
+              } else {
+                // 旧/新で基本利用日の判定が同じ → アルゴリズム由来の override を解除
+                if (cur === '〇' || cur === '空欄' || cur === '出席') {
+                  delete newShifts[mk][localPatient.id][k];
+                }
+              }
+            } else {
+              // applyFrom 以降: 新スケジュール通りに任せる
+              if (cur === '〇' || cur === '空欄' || cur === '出席') {
+                delete newShifts[mk][localPatient.id][k];
+              }
+            }
+          });
+        }
+        // 空エントリ整理
+        if (Object.keys(newShifts[mk][localPatient.id]).length === 0) {
+          delete newShifts[mk][localPatient.id];
+        }
+        if (Object.keys(newShifts[mk]).length === 0) {
+          delete newShifts[mk];
+        }
+      });
     }
 
-    // 4. localPatientを更新してdirtyにする（自動保存しない）
-    const changeLog=[...(localPatient.changeLog||[]),changeLogEntry]; const newPat = {...localPatient, scheduleAmPm:newSched, scheduleChangeHistory:hist, changeLog};
-    const newPats = appData.patients.map(p=>p.id===localPatient.id?newPat:p);
+    // 4. localPatientと保留シフトを更新
+    const changeLog=[...(localPatient.changeLog||[]),changeLogEntry];
+    const newPat = {...localPatient, scheduleAmPm:newSched, scheduleChangeHistory:hist, changeLog};
     setLocalPatient(newPat);
-    // appDataのmonthlyShiftsとpatientsを更新（saveはユーザーの保存ボタンで行う）
-    const newAppData = {...appData, patients:newPats, monthlyShifts:newShifts};
-    onSave(newAppData);
+    setPendingShifts(newShifts);
     markDirty();
-    setSchedModal(null);
   };
   const handleKpInput = (nv) => { setKeypad(p => ({ ...p, value: nv, isFirstInput: false })); if (keypad.field === 'plannedExercise' && localPatient) updateLP('plannedExercises', { ...(localPatient.plannedExercises || {}), [keypad.exerciseId]: nv }); };
   const isResigned = localPatient ? isPatientResigned(localPatient) : false;
@@ -16613,32 +18378,40 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     return ns;
   };
   const subFuri = () => {
+    // モーダル値をスナップショット (closure経由で参照、setFurikaeModal を最初に呼んでも有効)
+    const _fromDate = furikaeModal.fromDate;
+    const _destAmpmRaw = furikaeModal.furikaeAmpm || 'AM';
+    const _mode = furikaeModal.mode || 'forward';
+    const _clickedDay = furikaeModal.day;
+    const _clickedAmpm = furikaeModal.ampm;
+    const _reason = furikaeModal.reason;
+    // 最初にモーダルを閉じる (確定ボタンで確実に閉じるため)
+    setFurikaeModal({ isOpen: false, day: null, ampm: "", fromDate: "", reason: "", mode: 'forward' });
+    if (!_fromDate) return;
+    const fd = new Date(_fromDate);
+    if (isNaN(fd.getTime())) return;
+
     let ns = JSON.parse(JSON.stringify(effShifts));
     let ur = [...effTickets];
-    const destAmpmRaw = furikaeModal.furikaeAmpm || 'AM';
-    if (!furikaeModal.fromDate) return;
-    const fd = new Date(furikaeModal.fromDate);
-    if (isNaN(fd.getTime())) return;
-    const mode = furikaeModal.mode || 'forward';
     // mode に応じて src/dest を決定
     //  forward: クリックされた day/ampm が src、fromDate/furikaeAmpm が dest
     //  backward: クリックされた day/ampm が dest、fromDate/furikaeAmpm が src
     const clickedMonth = currentMonth.getMonth() + 1;
-    const clickedDay = furikaeModal.day;
-    const clickedAmpm = furikaeModal.ampm;
+    const clickedDay = _clickedDay;
+    const clickedAmpm = _clickedAmpm;
     const otherMonth = fd.getMonth() + 1;
     const otherDay = fd.getDate();
-    const otherAmpm = destAmpmRaw;
-    const srcMonth = mode === 'forward' ? clickedMonth : otherMonth;
-    const srcDay   = mode === 'forward' ? clickedDay   : otherDay;
-    const srcAmpm  = mode === 'forward' ? clickedAmpm  : otherAmpm;
-    const destMonth= mode === 'forward' ? otherMonth   : clickedMonth;
-    const destDay  = mode === 'forward' ? otherDay     : clickedDay;
-    const destAmpm = mode === 'forward' ? otherAmpm    : clickedAmpm;
+    const otherAmpm = _destAmpmRaw;
+    const srcMonth = _mode === 'forward' ? clickedMonth : otherMonth;
+    const srcDay   = _mode === 'forward' ? clickedDay   : otherDay;
+    const srcAmpm  = _mode === 'forward' ? clickedAmpm  : otherAmpm;
+    const destMonth= _mode === 'forward' ? otherMonth   : clickedMonth;
+    const destDay  = _mode === 'forward' ? otherDay     : clickedDay;
+    const destAmpm = _mode === 'forward' ? otherAmpm    : clickedAmpm;
     const srcLabel = `${srcMonth}月${srcDay}日`;
     const destLabel = `${destMonth}月${destDay}日`;
-    const srcDateObj = mode === 'forward' ? new Date(currentMonth.getFullYear(), srcMonth-1, srcDay) : fd;
-    const destDateObj = mode === 'forward' ? fd : new Date(currentMonth.getFullYear(), destMonth-1, destDay);
+    const srcDateObj = _mode === 'forward' ? new Date(currentMonth.getFullYear(), srcMonth-1, srcDay) : fd;
+    const destDateObj = _mode === 'forward' ? fd : new Date(currentMonth.getFullYear(), destMonth-1, destDay);
     const srcDow = dN[srcDateObj.getDay()];
     const destDow = dN[destDateObj.getDay()];
     // 振替先のシフトを設定（destDateObj が表示中の月なら）
@@ -16655,7 +18428,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     }
     // 振替元 ticketRecord（欠席）の更新
     const ampmSuffix = destAmpm !== '1日' ? destAmpm : '';
-    const srcTokki = `${destLabel}${ampmSuffix}へ振替${furikaeModal.reason ? '（' + furikaeModal.reason + '）' : ''}`;
+    const srcTokki = `${destLabel}${ampmSuffix}へ振替${_reason ? '（' + _reason + '）' : ''}`;
     const srcIdx = ur.findIndex(r => r.patientId === localPatient.id && r.date === srcLabel);
     if (srcIdx >= 0) ur[srcIdx] = { ...ur[srcIdx], status: '欠席', tokki: srcTokki };
     else ur.push({ id: Date.now() + Math.random(), patientId: localPatient.id, name: localPatient.name, kana: localPatient.kana, date: srcLabel, dayOfWeek: srcDow, status: '欠席', temp: '', bpUpSt: '', bpDnSt: '', plSt: '', bpUpEn: '', bpDnEn: '', plEn: '', massage: '', exercises: {}, tokki: srcTokki });
@@ -16667,7 +18440,6 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     setPendingShifts(ns);
     setPendingTickets(ur);
     markDirty();
-    setFurikaeModal({ isOpen: false, day: null, ampm: "", fromDate: "", reason: "", mode: 'forward' });
   };
   const skipFuri = () => {
     const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), furikaeModal.day);
@@ -16860,18 +18632,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   <select disabled={isOff} value={localPatient.costBurden||''} onChange={e=>updateLP('costBurden',e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none disabled:opacity-60">
                     <option value="">未選択</option><option value="70%">70%（3割）</option><option value="80%">80%（2割）</option><option value="90%">90%（1割）</option>
                   </select>
-                  {(localPatient.costBurdenHistory||[]).length>0 && (
-                    <details className="mt-1"><summary className="text-[10px] text-slate-400 cursor-pointer font-bold">履歴（{localPatient.costBurdenHistory.length}件）</summary>
-                      <div className="mt-1 space-y-0.5">
-                        {[...localPatient.costBurdenHistory].reverse().map((h,i)=>(
-                          <div key={i} className="text-[10px] text-slate-500 bg-slate-50 px-2 py-1 rounded flex gap-1 items-center">
-                            <span>{h.from?fD(h.from):'?'}</span><span className="text-slate-300">〜</span><span>{h.to?fD(h.to):'現在'}</span>
-                            <span className="font-bold text-slate-700 ml-1">{h.value}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </details>
-                  )}
+                  {/* 履歴は「変更履歴」タブで確認 */}
                 </div>
               </div>
 
@@ -16920,6 +18681,30 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-bold text-slate-600 mb-1.5">電話番号</label><div className="px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-base font-bold text-slate-700">{localPatient.cmPhone||'ー'}</div></div><div><label className="block text-sm font-bold text-slate-600 mb-1.5">FAX</label><div className="px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-base font-bold text-slate-700">{localPatient.cmFax||'ー'}</div></div></div>
+
+                {/* ケアマネ担当者の名刺 (各種設定で登録した内容を参照表示) */}
+                {(() => {
+                  const cms = appData.systemSettings?.careManagers||[];
+                  const cm = cms.find(c=>c.office===localPatient.cmOffice && c.name===localPatient.cmName);
+                  const cards = cm?.businessCard || [];
+                  if (cards.length === 0) return null;
+                  return (
+                    <div className="mt-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <label className="block text-sm font-bold text-slate-600">名刺</label>
+                        <span className="text-[10px] text-slate-400">（各種設定 → ケアマネ事業所・担当者 で編集）</span>
+                      </div>
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-wrap gap-2">
+                        {cards.map((img,ii)=>(
+                          <img key={img.id||ii} src={img.data} alt={img.name}
+                            onClick={()=>window.open(img.data,'_blank')}
+                            className="rounded-lg border border-slate-200 cursor-pointer"
+                            style={{objectFit:'contain',background:'#fff',display:'block',maxHeight:160,maxWidth:'calc(50% - 4px)'}}/>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* ⑦ 緊急連絡先 */}
@@ -17012,69 +18797,36 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                         <div className="text-xs text-slate-400 py-1">未登録</div>
                       ) : (
                         <React.Fragment>
-                          {/* 最新グループ：大きく表示 */}
-                          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-2">
-                            <div className="text-[10px] font-bold text-blue-600 mb-2">📅 {latestDate}（最新）</div>
+                          {/* 最新グループ：コンパクトに表示 (サムネイル、クリックで拡大) */}
+                          <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 mb-2">
+                            <div className="text-[10px] font-bold text-blue-600 mb-1.5">📅 {latestDate}（最新）</div>
                             <div className="flex flex-wrap gap-2">
                               {latestImgs.map((img,ii)=>(
-                                <div key={img.id||ii} className="relative group flex flex-col items-center" style={{width: latestImgs.length===1?'100%':'calc(50% - 4px)'}}>
+                                <div key={img.id||ii} className="relative" style={{width:96,height:96}}>
                                   {img.type==='application/pdf' ? (
-                                    <div className="w-full bg-red-50 border border-red-200 rounded-xl flex flex-col items-center justify-center cursor-pointer py-6 gap-2"
+                                    <div className="w-full h-full bg-red-50 border border-red-200 rounded-lg flex flex-col items-center justify-center cursor-pointer"
                                       onClick={()=>window.open(img.data,'_blank')}>
-                                      <span className="text-4xl">📋</span>
-                                      <span className="text-xs font-bold text-red-600 text-center px-2 truncate w-full text-center">{img.name}</span>
+                                      <span className="text-3xl">📋</span>
+                                      <span className="text-[9px] font-bold text-red-600 text-center px-1 truncate w-full">{img.name}</span>
                                     </div>
                                   ) : (
                                     <img src={img.data} alt={img.name}
-                                      className="w-full rounded-xl border border-slate-200 cursor-pointer"
-                                      style={{objectFit:'contain',background:'#f8fafc',display:'block',height:'auto',maxHeight:'none'}}
+                                      className="w-full h-full rounded-lg border border-slate-200 cursor-pointer"
+                                      style={{objectFit:'contain',background:'#f8fafc'}}
                                       onClick={()=>window.open(img.data,'_blank')}/>
                                   )}
-                                  <div className="text-[9px] text-slate-400 mt-1 truncate w-full text-center">{img.name}</div>
                                   {!isOff && (
                                     <button type="button"
                                       onClick={e=>{e.stopPropagation();setDocDeleteConfirm({key,imgId:img.id,name:img.name});}}
-                                      style={{position:'absolute',top:4,right:4,background:'#ef4444',color:'white',border:'none',borderRadius:'50%',width:24,height:24,fontSize:12,fontWeight:'bold',cursor:'pointer',zIndex:10,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+                                      style={{position:'absolute',top:-4,right:-4,background:'#ef4444',color:'white',border:'none',borderRadius:'50%',width:18,height:18,fontSize:10,fontWeight:'bold',cursor:'pointer',zIndex:10,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
                                   )}
                                 </div>
                               ))}
                             </div>
                           </div>
-                          {/* 過去書類 */}
+                          {/* 過去書類は「変更履歴」タブで確認 */}
                           {pastDates.length>0 && (
-                            <details className="mt-1">
-                              <summary className="text-[10px] font-bold text-slate-400 cursor-pointer hover:text-slate-600 select-none px-1 py-1">📁 過去書類（{pastDates.length}件）</summary>
-                              <div className="mt-2 flex flex-col gap-3">
-                                {pastDates.map(date=>(
-                                  <div key={date} className="bg-slate-50 border border-slate-200 rounded-xl p-3">
-                                    <div className="text-[10px] font-bold text-slate-500 mb-2">📅 {date}</div>
-                                    <div className="flex flex-col gap-1.5">
-                                      {groups[date].map((img,ii)=>(
-                                        <div key={img.id||ii} className="flex items-center gap-2 group">
-                                          {img.type==='application/pdf' ? (
-                                            <div className="w-10 h-10 bg-red-50 border border-red-200 rounded-lg flex items-center justify-center cursor-pointer flex-shrink-0"
-                                              onClick={()=>window.open(img.data,'_blank')}>
-                                              <span className="text-lg">📋</span>
-                                            </div>
-                                          ) : (
-                                            <img src={img.data} alt={img.name} className="w-10 h-10 object-contain rounded-lg border border-slate-200 cursor-pointer flex-shrink-0 bg-slate-50"
-                                              onClick={()=>window.open(img.data,'_blank')}/>
-                                          )}
-                                          <div className="flex-1 min-w-0">
-                                            <div className="text-xs font-bold text-slate-600 truncate">{img.name}</div>
-                                          </div>
-                                          {!isOff && (
-                                            <button type="button"
-                                              onClick={e=>{e.stopPropagation();setDocDeleteConfirm({key,imgId:img.id,name:img.name});}}
-                                              className="text-red-400 hover:text-red-600 text-xs font-bold px-2 flex-shrink-0">✕</button>
-                                          )}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </details>
+                            <div className="text-[10px] text-slate-400 font-bold px-1 py-1">📁 過去 {pastDates.length}件 → 変更履歴タブで確認</div>
                           )}
                         </React.Fragment>
                       )}
@@ -17085,13 +18837,66 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             </>)}
 
             {activeDetailTab === 'service' && (<>
-              {localPatient.pauseHistory && localPatient.pauseHistory.length > 0 && (<div className={`rounded-2xl border-2 overflow-hidden ${localPatient.status === '休止' ? 'border-orange-300 bg-orange-50' : 'border-slate-200 bg-slate-50'}`}>{localPatient.status === '休止' && (() => { const l = latPause(localPatient); return l ? (<div className="px-4 py-3 bg-orange-100 border-b border-orange-200 flex items-center justify-between"><div className="flex items-center gap-3"><CalendarOff size={18} className="text-orange-500" /><div><span className="text-sm font-bold text-orange-800">現在休止中: </span><span className="font-bold text-orange-900">{l.reason}</span><span className="text-xs text-orange-600 ml-2">{fD(l.fromDate)}〜</span></div></div><button onClick={() => setPauseModal({ isOpen: true, reason: "", fromDate: new Date().toISOString().split('T')[0] })} className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-[10px] font-bold active:scale-95 flex items-center gap-1"><Plus size={12} />理由変更</button></div>) : null; })()}{localPatient.status !== '休止' && <div className="px-4 py-2 bg-slate-100 border-b border-slate-200 text-xs font-bold text-slate-500 flex items-center gap-1.5"><History size={14} />過去の休止履歴あり</div>}<div className="px-4 py-2"><button onClick={() => setIsPauseHistoryOpen(!isPauseHistoryOpen)} className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500 hover:text-slate-700 w-full">{isPauseHistoryOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}履歴({localPatient.pauseHistory.length}件)</button>{isPauseHistoryOpen && <div className="mt-2 space-y-1.5">{[...localPatient.pauseHistory].reverse().map((h, i) => (<div key={i} className={`flex items-center gap-2 p-2 rounded-lg border text-xs ${i === 0 && localPatient.status === '休止' ? 'bg-orange-50 border-orange-200' : 'bg-white border-slate-200'}`}><div className={`w-1.5 h-1.5 rounded-full shrink-0 ${i === 0 && localPatient.status === '休止' ? 'bg-orange-500' : 'bg-slate-300'}`} /><span className="font-bold text-slate-700">{h.reason}</span><span className="text-slate-400 ml-auto shrink-0">{fD(h.fromDate)}〜</span>{i === 0 && localPatient.status === '休止' && <span className="text-[9px] bg-orange-500 text-white px-1.5 py-0.5 rounded-full font-bold shrink-0">現在</span>}</div>))}</div>}</div></div>)}
+              {localPatient.pauseHistory && localPatient.pauseHistory.length > 0 && (<div className={`rounded-2xl border-2 overflow-hidden ${localPatient.status === '休止' ? 'border-orange-300 bg-orange-50' : 'border-slate-200 bg-slate-50'}`}>{localPatient.status === '休止' && (() => { const l = latPause(localPatient); return l ? (<div className="px-4 py-3 bg-orange-100 border-b border-orange-200 flex items-center justify-between"><div className="flex items-center gap-3"><CalendarOff size={18} className="text-orange-500" /><div><span className="text-sm font-bold text-orange-800">現在休止中: </span><span className="font-bold text-orange-900">{l.reason}</span><span className="text-xs text-orange-600 ml-2">{fD(l.fromDate)}〜</span></div></div><button onClick={() => setPauseModal({ isOpen: true, reason: "", fromDate: new Date().toISOString().split('T')[0] })} className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-[10px] font-bold active:scale-95 flex items-center gap-1"><Plus size={12} />理由変更</button></div>) : null; })()}{localPatient.status !== '休止' && <div className="px-4 py-2 bg-slate-100 border-b border-slate-200 text-xs font-bold text-slate-500 flex items-center gap-1.5"><History size={14} />過去の休止履歴あり</div>}<div className="px-4 py-2"><button onClick={() => setIsPauseHistoryOpen(!isPauseHistoryOpen)} className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500 hover:text-slate-700 w-full">{isPauseHistoryOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}履歴({localPatient.pauseHistory.length}件)</button>{isPauseHistoryOpen && <div className="mt-2 space-y-1.5">{[...localPatient.pauseHistory].map((h, origIdx) => ({h, origIdx})).reverse().map(({h, origIdx}, displayIdx) => {
+                const isLatest = displayIdx === 0;
+                const isCurrentlyOnPause = localPatient.status === '休止' && getPatientDisplayStatus(localPatient) === '休止';
+                const showCurrent = isLatest && isCurrentlyOnPause && !h.toDate;
+                return (
+                  <div key={origIdx} className={`flex items-center gap-2 p-2 rounded-lg border text-xs ${isLatest && isCurrentlyOnPause ? 'bg-orange-50 border-orange-200' : 'bg-white border-slate-200'}`}>
+                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isLatest && isCurrentlyOnPause ? 'bg-orange-500' : 'bg-slate-300'}`} />
+                    <span className="font-bold text-slate-700">{h.reason}</span>
+                    <span className="text-slate-400 ml-auto shrink-0">{fD(h.fromDate)}〜</span>
+                    {h.toDate ? (
+                      <span className="text-slate-500 shrink-0 flex items-center gap-1">
+                        {fD(h.toDate)}
+                        {!isOff && <button onClick={()=>{const newHist=[...localPatient.pauseHistory]; newHist[origIdx]={...newHist[origIdx], toDate:''}; updateLP('pauseHistory', newHist);}} className="text-slate-300 hover:text-red-400 text-[10px]" title="終了日をクリア">✕</button>}
+                      </span>
+                    ) : (
+                      !isOff ? (
+                        <input type="date" value="" onChange={e=>{if(!e.target.value)return; const newHist=[...localPatient.pauseHistory]; newHist[origIdx]={...newHist[origIdx], toDate:e.target.value}; updateLP('pauseHistory', newHist);}} className="text-[10px] border border-slate-300 rounded px-1.5 py-0.5 bg-white shrink-0" title="終了日を入力" style={{maxWidth:120}} />
+                      ) : <span className="text-slate-400 shrink-0">現在</span>
+                    )}
+                    {showCurrent && <span className="text-[9px] bg-orange-500 text-white px-1.5 py-0.5 rounded-full font-bold shrink-0">現在</span>}
+                  </div>
+                );
+              })}</div>}</div></div>)}
               <div><label className="block text-sm font-bold text-slate-600 mb-1.5">留意点（スタッフへの申し送り）</label><textarea disabled={isOff} value={localPatient.ryui || ""} onChange={e => updateLP('ryui', e.target.value)} rows={2} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl outline-none resize-none text-base disabled:opacity-60 leading-relaxed" /></div>
               <div><label className="block text-sm font-bold text-slate-600 mb-3">基本利用曜日</label><div className="grid grid-cols-7 gap-2">{['日', '月', '火', '水', '木', '金', '土'].map((d, i) => { const v = localPatient.scheduleAmPm?.[i] || ""; const isClosed = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(i); const colorCls = isClosed ? 'bg-slate-100 border-slate-200 text-slate-400' : v === 'AM' ? 'bg-red-50 border-red-300 text-red-700' : v === 'PM' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-400'; return (<div key={d} className="flex flex-col"><span className={`text-center text-[13px] font-bold mb-1 ${i===0?'text-red-400':i===6?'text-blue-400':'text-slate-500'}`}>{d}</span>{isClosed ? (<div className={`w-full py-2.5 text-[14px] font-bold text-center border rounded-xl bg-slate-100 border-slate-200 text-slate-400`}>定休</div>) : (<select disabled={isOff} value={v} onChange={e => updateSched(i, e.target.value)} className={`w-full py-2.5 text-[14px] font-bold text-center border rounded-xl outline-none cursor-pointer disabled:opacity-60 ${colorCls}`}><option value="">無</option><option value="AM">AM</option><option value="PM">PM</option></select>)}</div>); })}</div></div>
               {/* 月間スケジュール */}
               <div><div className="flex items-center justify-between mb-2"><label className="text-sm font-bold text-slate-600 flex items-center gap-1.5"><CalendarCheck size={16} />月間スケジュール</label><div className="flex items-center gap-2"><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronLeft size={16} /></button><span className="text-base font-bold text-slate-700 tabular-nums w-28 text-center">{currentMonth.getFullYear()}年{currentMonth.getMonth() + 1}月</span><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronRight size={16} /></button></div></div>
                 <div className="flex border border-slate-200 rounded-xl bg-slate-50 p-1 gap-0.5">{allD.map(d => { const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d); const dow = dO.getDay(); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; const cl = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow); const hl = appData.holidays?.some(h => (h.date || h) === ds); const base = localPatient.scheduleAmPm?.[dow] || ""; const bAM = base === "AM" || base === "1日"; const bPM = base === "PM" || base === "1日"; const sh = effShifts?.[mKey]?.[localPatient.id] || {}; const pi = getPauseReasonOnDate(localPatient, ds); /* 休止中: 基本利用日 (bAM/bPM=true) の枠だけ「休止」表示。それ以外は通常空欄 */ const cA = pi ? (bAM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(sh[`${d}_AM`], bAM), cl, hl); const cP = pi ? (bPM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(sh[`${d}_PM`], bPM), cl, hl); const ok = !cl && !hl && !pi && !isOff; return (<div key={d} className="flex-1 min-w-0 flex flex-col items-stretch bg-white border border-slate-200 rounded overflow-hidden"><div className={`w-full text-center text-[11px] font-bold py-1 bg-slate-100 border-b border-slate-200 leading-tight ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{d}<br/><span className="text-[9px] font-normal">{dN[dow]}</span></div><button disabled={!ok} onClick={() => ok && shiftTog(d, "AM")} className={`h-9 flex items-center justify-center border-b border-slate-100 text-[10px] leading-none whitespace-pre-wrap ${cA.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cA.t}</button><button disabled={!ok} onClick={() => ok && shiftTog(d, "PM")} className={`h-9 flex items-center justify-center text-[10px] leading-none whitespace-pre-wrap ${cP.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cP.t}</button></div>); })}</div>
                 <div className="flex gap-2 mt-2 text-[11px] text-slate-400 font-bold flex-wrap items-center"><span>上段:AM/下段:PM</span><span className="text-blue-600 bg-blue-50 px-1 rounded">出席</span><span className="text-red-500 bg-red-50 px-1 rounded">欠席</span><span className="text-emerald-600 bg-emerald-50 px-1 rounded">振替</span><span className="text-cyan-700 bg-cyan-50 px-1 rounded">臨時</span><span className="text-white bg-slate-600 px-1 rounded">休業</span><span>空欄=非利用日</span></div></div>
+              {/* お迎え時間: 基本利用曜日に設定がある日のみ表示 */}
+              {(() => {
+                const dayLabels = ['日','月','火','水','木','金','土'];
+                const closedDays = appData.systemSettings?.facilityInfo?.closedDays || [0];
+                const activeDays = dayLabels.map((d, i) => ({d, i, slot: localPatient.scheduleAmPm?.[i] || ''})).filter(x => x.slot && !closedDays.includes(x.i));
+                if (activeDays.length === 0) return null;
+                return (
+                  <div>
+                    <label className="block text-sm font-bold text-slate-600 mb-2 flex items-center gap-1.5">🚐 お迎え時間（基本利用日のみ）</label>
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                      <div className="grid gap-2" style={{gridTemplateColumns:`repeat(${Math.min(activeDays.length, 7)}, 1fr)`}}>
+                        {activeDays.map(({d, i, slot}) => (
+                          <PickupTimeCell key={`${localPatient.id}_${i}`}
+                            day={d} idx={i} slot={slot} isOff={isOff}
+                            initial={localPatient.pickupTimes?.[i] || ''}
+                            onCommit={(val) => {
+                              const arr = [...(localPatient.pickupTimes || ['','','','','','','']) ];
+                              arr[i] = val;
+                              updateLP('pickupTimes', arr);
+                            }}/>
+                        ))}
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+                        ・基本利用日に設定した曜日のみ表示されます<br/>
+                        ・時間が決まっていない場合は「時」だけ入力（例: 9 → 9:--、後で 30 を追加すると 9:30）<br/>
+                        ・連絡帳のお迎え時間欄にもこの時刻が反映されます
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
               <div className="flex flex-wrap gap-3">{(appData.systemSettings?.serviceItems||[{id:'massage',label:'介護整体',options:'通常、横向き、仰向け、うつ伏せ、座位、無し'},{id:'onyoku',label:'温浴時電療',options:'腰、肩、無し'}]).map(si=>{
                 const opts=si.options.split(/[、,]+/).map(s=>s.trim()).filter(Boolean);
                 const fkey=si.id==='massage'?'massageNeed':si.id==='onyoku'?'onyokuDenryo':`svc_${si.id}`;
@@ -17159,6 +18964,62 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden"><div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"/><span className="font-bold text-sm text-slate-700">ケアマネ 変更履歴</span></div>
                   {!(localPatient.cmHistory||[]).length?<div className="px-4 py-8 text-center text-sm text-slate-400">変更履歴なし</div>:<div className="divide-y divide-slate-100">{[...(localPatient.cmHistory||[])].sort((a,b)=>(b.from||'').localeCompare(a.from||'')).map((h,si)=>{const ri=(localPatient.cmHistory||[]).findIndex(x=>x===h);return(<div key={si} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="text-sm text-slate-500">{h.from?fD(h.from):'?'}{h.to?' 〜 '+fD(h.to):' 〜'}</span><span className="font-bold text-sm text-slate-800">{h.office}</span>{h.name&&<span className="text-sm text-slate-600">{h.name}</span>}</div>{h.note&&<div className="text-[11px] text-slate-400">{h.note}</div>}</div><div className="flex gap-1 shrink-0"><button onClick={()=>setEditHistModal({type:'cm',idx:ri,entry:{...h}})} className="text-blue-400 hover:text-blue-600 p-1"><Edit3 size={13}/></button><button onClick={()=>setDeleteHistConfirm({type:'cm',idx:ri})} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={13}/></button></div></div>);})}</div>}
                 </div>
+                {/* 📄 書類変更履歴 — 項目ごと (介護保険証/負担割合証/お薬手帳/その他書類) に過去アップロード分を表示 */}
+                {(() => {
+                  const docKeys = [
+                    {key:'docInsurance', label:'介護保険証', color:'bg-blue-500'},
+                    {key:'docBurden', label:'負担割合証', color:'bg-indigo-500'},
+                    {key:'medicationImages', label:'お薬手帳・処方箋', color:'bg-cyan-500'},
+                    {key:'docOther', label:'その他書類', color:'bg-slate-500'},
+                  ];
+                  return docKeys.map(({key,label,color}) => {
+                    const imgs = localPatient[key] || [];
+                    const grp = {};
+                    imgs.forEach(img => { const d = img.uploadedAt || '日付不明'; if (!grp[d]) grp[d] = []; grp[d].push(img); });
+                    const dates = Object.keys(grp).sort((a,b)=>b.localeCompare(a));
+                    const pastDates = dates.slice(1);
+                    if (pastDates.length === 0) return null;
+                    return (
+                      <div key={key} className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                        <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${color} inline-block`}/>
+                          <span className="font-bold text-sm text-slate-700">📄 {label} 変更履歴</span>
+                          <span className="text-[10px] font-bold text-slate-400 ml-auto">過去 {pastDates.length}件</span>
+                        </div>
+                        <div className="divide-y divide-slate-100">
+                          {pastDates.map((date,i)=>(
+                            <div key={`${key}-${date}-${i}`} className="px-4 py-3">
+                              <div className="flex items-center gap-2 mb-1.5">
+                                <span className="text-xs font-bold text-slate-500">{date}</span>
+                                <span className="text-[10px] font-bold text-slate-400">({grp[date].length}枚)</span>
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {grp[date].map((img,ii)=>(
+                                  <div key={img.id||ii} className="relative" style={{width:56,height:56}}>
+                                    {img.type==='application/pdf' ? (
+                                      <div className="w-full h-full bg-red-50 border border-red-200 rounded flex flex-col items-center justify-center cursor-pointer"
+                                        onClick={()=>window.open(img.data,'_blank')}>
+                                        <span className="text-lg">📋</span>
+                                      </div>
+                                    ) : (
+                                      <img src={img.data} alt={img.name} className="w-full h-full object-contain rounded border border-slate-200 cursor-pointer bg-slate-50"
+                                        onClick={()=>window.open(img.data,'_blank')}/>
+                                    )}
+                                    {!isOff && (
+                                      <button type="button"
+                                        onClick={ev=>{ev.stopPropagation();setDocDeleteConfirm({key,imgId:img.id,name:img.name});}}
+                                        style={{position:'absolute',top:-4,right:-4,background:'#ef4444',color:'white',border:'none',borderRadius:'50%',width:16,height:16,fontSize:9,fontWeight:'bold',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
                 <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden"><div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-500 inline-block"/><span className="font-bold text-sm text-slate-700">その他変更ログ（既往歴・留意点・基本利用日）</span></div>
                   {!(localPatient.changeLog||[]).length?<div className="px-4 py-8 text-center text-sm text-slate-400">変更履歴なし（保存ボタンで記録されます）</div>:<div className="divide-y divide-slate-100">{[...(localPatient.changeLog||[])].reverse().map((log,i)=>{const ri=(localPatient.changeLog||[]).length-1-i;return(<div key={i} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="text-[12px] font-bold text-slate-400">{fD(log.date)}</span><span className="text-sm font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded">{log.label}</span></div><div className="text-xs text-slate-500 flex items-start gap-1 flex-wrap">{log.note ? <span className="font-bold text-slate-700">{log.newValue}</span> : <>{log.oldValue&&<span className="line-through text-slate-400 mr-1">{log.oldValue}</span>}<span className="text-slate-300 mx-1">→</span><span className="font-bold text-slate-700">{log.newValue}</span></>}</div>{log.note&&<div className="text-[11px] text-slate-400">{log.note}</div>}</div><div className="flex gap-1 shrink-0"><button onClick={()=>setEditHistModal({type:'changeLog',idx:ri,entry:{...log}})} className="text-blue-400 hover:text-blue-600 p-1"><Edit3 size={13}/></button><button onClick={()=>setDeleteHistConfirm({type:'changeLog',idx:ri})} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={13}/></button></div></div>);})}</div>}
                 </div>
@@ -17372,20 +19233,71 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   <div className="text-lg font-bold text-slate-800">{pat.name} 様 {pat.kana && <span className="text-xs text-slate-400 font-normal ml-1">（{pat.kana}）</span>}</div>
                   <div className="text-[10px] text-slate-500 mt-1">利用者ID: {pat.id}</div>
                 </div>
-                {/* 家族登録用 招待コード (7桁: 6桁ID + チェックデジット) */}
-                <div className="bg-amber-50 border border-amber-300 rounded-xl p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-bold text-amber-800 mb-1">📋 家族登録用 招待コード</div>
-                      <div className="text-2xl font-bold text-amber-900 tracking-widest" style={{fontFamily:'Menlo,monospace'}}>{generateInviteCode(pat.id)}</div>
-                      <div className="text-[10px] text-amber-700 mt-1">7桁目はチェックデジット (入力ミス検出用)</div>
+                {/* 家族登録用 招待コード (使い捨て・1コード=1人) */}
+                {(() => {
+                  const invitesForPat = (appData.familyInvites || []).filter(i => i.patientId === pat.id).sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
+                  const issueNewInvite = () => {
+                    // 全体で重複しないコードを生成 (極めて低確率だが念のため)
+                    const existingCodes = new Set((appData.familyInvites||[]).map(i => i.code));
+                    let code = generateOneTimeInviteCode();
+                    let retry = 0;
+                    while (existingCodes.has(code) && retry < 10) { code = generateOneTimeInviteCode(); retry++; }
+                    const newInvite = {
+                      id: `inv_${Date.now()}`,
+                      code,
+                      patientId: pat.id,
+                      createdAt: new Date().toISOString(),
+                      usedBy: null,
+                      usedAt: null,
+                    };
+                    onSave({...appData, familyInvites: [...(appData.familyInvites||[]), newInvite]});
+                  };
+                  const deleteInvite = (invId) => {
+                    if (!window.confirm('この招待コードを削除しますか？\n未使用の場合は使用できなくなります。')) return;
+                    onSave({...appData, familyInvites: (appData.familyInvites||[]).filter(i => i.id !== invId)});
+                  };
+                  return (
+                    <div className="bg-amber-50 border border-amber-300 rounded-xl p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-xs font-bold text-amber-800">📩 家族登録用 招待コード（使い捨て）</div>
+                        <button onClick={issueNewInvite} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow active:scale-95"><Plus size={12}/>新規発行</button>
+                      </div>
+                      <div className="text-[10px] text-amber-700 mb-2 leading-relaxed">
+                        1コード = 1人のみ登録可能。ご家族に伝えるとログイン画面の「新規登録」から使えます。
+                      </div>
+                      {invitesForPat.length === 0 ? (
+                        <div className="text-[11px] text-amber-700 text-center py-3 bg-white/40 rounded-lg">未発行（「+ 新規発行」を押してください）</div>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {invitesForPat.map(inv => {
+                            const usedAcc = inv.usedBy ? (appData.familyAccounts||[]).find(a => a.id === inv.usedBy) : null;
+                            return (
+                              <div key={inv.id} className="flex items-center justify-between gap-2 bg-white border border-amber-200 rounded-lg px-3 py-2">
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-base font-bold text-amber-900 tracking-wider" style={{fontFamily:'Menlo,monospace'}}>{inv.code}</div>
+                                  <div className="text-[9px] text-amber-700">
+                                    発行: {new Date(inv.createdAt).toLocaleString('ja-JP',{year:'2-digit',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
+                                    {inv.usedBy ? (
+                                      <span className="ml-2 text-emerald-700 font-bold">✓ 使用済 {usedAcc?.username ? `(${usedAcc.username})` : ''}</span>
+                                    ) : (
+                                      <span className="ml-2 text-amber-700 font-bold">● 未使用</span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex gap-1 shrink-0">
+                                  {!inv.usedBy && (
+                                    <button onClick={()=>{navigator.clipboard?.writeText(inv.code); setShowToast(true);}} className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-700 rounded text-[10px] font-bold">コピー</button>
+                                  )}
+                                  <button onClick={()=>deleteInvite(inv.id)} className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[10px] font-bold">削除</button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                    <button onClick={()=>{navigator.clipboard?.writeText(generateInviteCode(pat.id)); setShowToast(true);}} className="px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold whitespace-nowrap">コピー</button>
-                  </div>
-                  <div className="text-[10px] text-amber-700 mt-2 leading-relaxed">
-                    ご家族にこのコードをお伝えください。新規アカウント作成時に「方法2: 招待コード」で入力すると、安全にこの利用者と紐付けできます。
-                  </div>
-                </div>
+                  );
+                })()}
                 <div className="bg-violet-50 border border-violet-200 rounded-xl p-4">
                   <div className="text-xs font-bold text-violet-700 mb-2">共通ログインURL（全利用者共通）</div>
                   <div className="flex items-start gap-3">
@@ -17402,59 +19314,66 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     </div>
                   </div>
                 </div>
-                {[
-                  { key:'family', label:'👨‍👩‍👧 家族アカウント', list: familyAccs, color:'violet', placeholderName:'例: 井上家' },
-                  { key:'caremanager', label:'🩺 ケアマネージャー用アカウント', list: cmAccs, color:'teal', placeholderName:'例: 田中ケアマネ' },
-                ].map(group => (
-                  <div key={group.key}>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-sm font-bold text-slate-700">{group.label} ({group.list.length}件)</div>
-                      <button onClick={()=>issueAccount(group.key)} className={`px-3 py-1.5 ${group.color==='teal'?'bg-teal-600 hover:bg-teal-700':'bg-violet-600 hover:bg-violet-700'} text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow active:scale-95`}><Plus size={12}/>新規発行</button>
-                    </div>
-                    {group.list.length === 0 ? (
-                      <div className="text-xs text-slate-400 text-center py-4 bg-slate-50 rounded-xl border border-slate-200">
-                        {group.key === 'caremanager' ? 'ケアマネ用のアカウントを発行すると、担当ケアマネがバイタル・モニタリング等を閲覧できます' : 'まだ家族アカウントがありません'}
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {group.list.map(acc => {
-                          const isEditing = accountEditId === acc.id;
-                          return (
-                          <div key={acc.id} className={`border ${group.color==='teal'?'border-teal-200 bg-teal-50/30':'border-slate-200 bg-white'} rounded-xl p-3`}>
-                            <div className="grid grid-cols-12 gap-2 items-center">
-                              <div className="col-span-4">
-                                <div className="text-[10px] font-bold text-slate-400">ログインID</div>
-                                <input value={acc.username} disabled={!isEditing} onChange={e=>updateField(acc.id,'username',toHalfWidth(e.target.value))} className={`w-full px-2 py-1 border rounded text-xs font-mono outline-none ${isEditing?'bg-white border-slate-300 focus:border-blue-400':'bg-slate-50 border-slate-100 text-slate-600 cursor-not-allowed'}`}/>
-                              </div>
-                              <div className="col-span-4">
-                                <div className="text-[10px] font-bold text-slate-400">パスワード</div>
-                                <div className="flex gap-1">
-                                  <input value={acc.password} disabled={!isEditing} onChange={e=>updateField(acc.id,'password',toHalfWidth(e.target.value))} className={`flex-1 px-2 py-1 border rounded text-xs font-mono outline-none ${isEditing?'bg-white border-slate-300 focus:border-blue-400':'bg-slate-50 border-slate-100 text-slate-600 cursor-not-allowed'}`}/>
-                                  <button onClick={()=>{if(!isEditing){alert('「編集」ボタンを押してから再発行してください');return;} if(!window.confirm('パスワードを再発行します。ご家族は新しいパスワードでログインし直しが必要になります。よろしいですか？'))return; resetPw(acc.id);}} className={`px-2 py-1 text-[10px] font-bold rounded whitespace-nowrap ${isEditing?'bg-amber-100 hover:bg-amber-200 text-amber-700':'bg-slate-100 text-slate-300 cursor-not-allowed'}`} title={isEditing?'パスワード再発行':'編集モード時のみ有効'}>⟳</button>
+                {/* 📋 登録済アカウント (家族 + ケアマネ を統合表示) */}
+                {(() => {
+                  const allAccs = allAccountsForPat;
+                  return (
+                    <div>
+                      <div className="text-sm font-bold text-slate-700 mb-2">📋 登録済アカウント ({allAccs.length}件)</div>
+                      {allAccs.length === 0 ? (
+                        <div className="text-xs text-slate-400 text-center py-6 bg-slate-50 rounded-xl border border-slate-200 leading-relaxed">
+                          まだ登録されていません<br/>
+                          上の招待コードをご家族・ケアマネへお伝えすると、<br/>ログイン画面から登録できます
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {allAccs.map(acc => {
+                            const isEditing = accountEditId === acc.id;
+                            const isCm = (acc.kind === 'caremanager') || (acc.relation === 'ケアマネージャー');
+                            const accentBorder = isCm ? 'border-teal-200 bg-teal-50/30' : 'border-slate-200 bg-white';
+                            const printBg = isCm ? 'bg-teal-100 hover:bg-teal-200 text-teal-700' : 'bg-violet-100 hover:bg-violet-200 text-violet-700';
+                            return (
+                              <div key={acc.id} className={`border ${accentBorder} rounded-xl p-3`}>
+                                <div className="grid grid-cols-12 gap-2 items-center">
+                                  <div className="col-span-4">
+                                    <div className="text-[10px] font-bold text-slate-400">ログインID</div>
+                                    <input value={acc.username} disabled={!isEditing} onChange={e=>updateField(acc.id,'username',toHalfWidth(e.target.value))} className={`w-full px-2 py-1 border rounded text-xs font-mono outline-none ${isEditing?'bg-white border-slate-300 focus:border-blue-400':'bg-slate-50 border-slate-100 text-slate-600 cursor-not-allowed'}`}/>
+                                  </div>
+                                  <div className="col-span-3">
+                                    <div className="text-[10px] font-bold text-slate-400">パスワード</div>
+                                    <div className="flex gap-1">
+                                      <input value={acc.password} disabled={!isEditing} onChange={e=>updateField(acc.id,'password',toHalfWidth(e.target.value))} className={`flex-1 px-2 py-1 border rounded text-xs font-mono outline-none ${isEditing?'bg-white border-slate-300 focus:border-blue-400':'bg-slate-50 border-slate-100 text-slate-600 cursor-not-allowed'}`}/>
+                                      <button onClick={()=>{if(!isEditing){alert('「編集」ボタンを押してから再発行してください');return;} if(!window.confirm('パスワードを再発行します。ご家族は新しいパスワードでログインし直しが必要になります。よろしいですか？'))return; resetPw(acc.id);}} className={`px-2 py-1 text-[10px] font-bold rounded whitespace-nowrap ${isEditing?'bg-amber-100 hover:bg-amber-200 text-amber-700':'bg-slate-100 text-slate-300 cursor-not-allowed'}`} title={isEditing?'パスワード再発行':'編集モード時のみ有効'}>⟳</button>
+                                    </div>
+                                  </div>
+                                  <div className="col-span-4">
+                                    <div className="text-[10px] font-bold text-slate-400">名前・続柄</div>
+                                    <div className="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded text-xs text-slate-700 truncate">
+                                      <span className="font-bold">{acc.displayName || '—'}</span>
+                                      {acc.relation && (
+                                        <span className={`ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded ${isCm?'bg-teal-100 text-teal-700':'bg-violet-100 text-violet-700'}`}>{acc.relation}</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="col-span-1 flex flex-col gap-1">
+                                    {isEditing ? (
+                                      <button onClick={()=>setAccountEditId(null)} className="px-1.5 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded text-[10px] font-bold" title="編集を確定">✓</button>
+                                    ) : (
+                                      <button onClick={()=>setAccountEditId(acc.id)} className="px-1.5 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[10px] font-bold" title="ID/PW を編集">✏</button>
+                                    )}
+                                    <button onClick={()=>printSheet(acc)} className={`px-1.5 py-1 ${printBg} rounded text-[10px] font-bold`} title="ログイン情報シート印刷">🖨</button>
+                                    <button onClick={()=>removeAccount(acc.id)} className="px-1.5 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[10px] font-bold" title="削除">✕</button>
+                                  </div>
                                 </div>
+                                {acc.createdAt && <div className="text-[9px] text-slate-400 mt-1">発行日: {acc.createdAt}{acc.lastLogin && <span className="ml-2 text-emerald-600 font-bold">最終ログイン: {new Date(acc.lastLogin).toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>}{!acc.lastLogin && <span className="ml-2 text-slate-300">最終ログイン: 未ログイン</span>}{isEditing && <span className="ml-2 text-blue-500 font-bold">編集モード中 - ✓ を押して確定</span>}</div>}
                               </div>
-                              <div className="col-span-3">
-                                <div className="text-[10px] font-bold text-slate-400">{group.key==='caremanager'?'ケアマネ名':'家族名'} (任意)</div>
-                                <input value={acc.displayName||''} onChange={e=>updateField(acc.id,'displayName',e.target.value)} placeholder={group.placeholderName} className="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs outline-none focus:border-blue-400"/>
-                              </div>
-                              <div className="col-span-1 flex flex-col gap-1">
-                                {isEditing ? (
-                                  <button onClick={()=>setAccountEditId(null)} className="px-1.5 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded text-[10px] font-bold" title="編集を確定">✓</button>
-                                ) : (
-                                  <button onClick={()=>setAccountEditId(acc.id)} className="px-1.5 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[10px] font-bold" title="ID/PW を編集">✏</button>
-                                )}
-                                <button onClick={()=>printSheet(acc)} className={`px-1.5 py-1 ${group.color==='teal'?'bg-teal-100 hover:bg-teal-200 text-teal-700':'bg-violet-100 hover:bg-violet-200 text-violet-700'} rounded text-[10px] font-bold`} title="ログイン情報シート印刷">🖨</button>
-                                <button onClick={()=>removeAccount(acc.id)} className="px-1.5 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[10px] font-bold" title="削除">✕</button>
-                              </div>
-                            </div>
-                            {acc.createdAt && <div className="text-[9px] text-slate-400 mt-1">発行日: {acc.createdAt}{acc.lastLogin && <span className="ml-2 text-emerald-600 font-bold">最終ログイン: {new Date(acc.lastLogin).toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>}{!acc.lastLogin && <span className="ml-2 text-slate-300">最終ログイン: 未ログイン</span>}{isEditing && <span className="ml-2 text-blue-500 font-bold">編集モード中 - ✓ を押して確定</span>}</div>}
-                          </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
                 <a href={loginUrl} target="_blank" rel="noopener noreferrer" className="block text-center py-2.5 rounded-xl font-bold text-sm bg-slate-100 hover:bg-slate-200 text-slate-700">👁 家族画面のプレビューを開く（別タブ）</a>
                 <div className="text-[11px] text-slate-500 bg-amber-50 border border-amber-200 rounded-lg p-3 leading-relaxed">
                   <b>ご利用にあたって:</b><br/>
@@ -17807,6 +19726,28 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         const clickedLabel = isFwd ? '振替元' : '振替先';
         const otherLabel = isFwd ? '振替先' : '振替元';
         const clickedNote = isFwd ? '→ この日は欠席になります' : '→ この日に振替で出席します';
+        // backward mode の時、通所予定日のリストを生成 (基本利用日 + 既存の振替先を除外、今月分)
+        const basicUsageDays = isFwd ? [] : (() => {
+          const result = [];
+          const year = currentMonth.getFullYear();
+          const month = currentMonth.getMonth();
+          const lastDay = new Date(year, month + 1, 0).getDate();
+          for (let d = 1; d <= lastDay; d++) {
+            const dOM = new Date(year, month, d);
+            const dow = dOM.getDay();
+            const sched = localPatient.scheduleAmPm?.[dow] || '';
+            const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+            // クリックされた日 (振替先) と同じ日は除外
+            if (d === furikaeModal.day) continue;
+            if (sched === 'AM' || sched === '1日') {
+              result.push({day: d, dow, ampm: 'AM', dateStr, label: `${month+1}月${d}日（${dN[dow]}）午前`});
+            }
+            if (sched === 'PM' || sched === '1日') {
+              result.push({day: d, dow, ampm: 'PM', dateStr, label: `${month+1}月${d}日（${dN[dow]}）午後`});
+            }
+          }
+          return result;
+        })();
         return (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
@@ -17820,13 +19761,36 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 <span className="font-bold text-slate-800">{currentMonth.getMonth()+1}月{furikaeModal.day}日（{furikaeModal.ampm}）</span>
                 <div className={`text-xs mt-0.5 ${isFwd ? 'text-red-500' : 'text-emerald-600'}`}>{clickedNote}</div>
               </div>
-              <div><label className="text-xs font-bold text-slate-500 block mb-1">{otherLabel}の日付</label><input type="date" value={furikaeModal.fromDate} onChange={e => setFurikaeModal({ ...furikaeModal, fromDate: e.target.value })} className="w-full p-3 bg-white border border-slate-300 rounded-xl font-bold outline-none" /></div>
-              <div><label className="text-xs font-bold text-slate-500 block mb-1">{otherLabel}の時間帯</label>
-                <div className="flex gap-2">{[['AM','午前'],['PM','午後']].map(([val,label])=>(
-                  <button key={val} type="button" onClick={()=>setFurikaeModal({...furikaeModal, furikaeAmpm: val})}
-                    className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-all ${(furikaeModal.furikaeAmpm||'AM')===val ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-600 border-slate-300 hover:border-blue-400'}`}>{label}</button>
-                ))}</div>
-              </div>
+              {isFwd ? (
+                <>
+                  <div><label className="text-xs font-bold text-slate-500 block mb-1">{otherLabel}の日付</label><input type="date" value={furikaeModal.fromDate} onChange={e => setFurikaeModal({ ...furikaeModal, fromDate: e.target.value })} className="w-full p-3 bg-white border border-slate-300 rounded-xl font-bold outline-none" /></div>
+                  <div><label className="text-xs font-bold text-slate-500 block mb-1">{otherLabel}の時間帯</label>
+                    <div className="flex gap-2">{[['AM','午前'],['PM','午後']].map(([val,label])=>(
+                      <button key={val} type="button" onClick={()=>setFurikaeModal({...furikaeModal, furikaeAmpm: val})}
+                        className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-all ${(furikaeModal.furikaeAmpm||'AM')===val ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-600 border-slate-300 hover:border-blue-400'}`}>{label}</button>
+                    ))}</div>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <label className="text-xs font-bold text-slate-500 block mb-1">{otherLabel} (通所予定日から選択)</label>
+                  {basicUsageDays.length === 0 ? (
+                    <div className="text-xs text-slate-400 bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">今月の通所予定日が登録されていません</div>
+                  ) : (
+                    <div className="max-h-56 overflow-y-auto border border-slate-300 rounded-xl p-2 bg-slate-50 space-y-1">
+                      {basicUsageDays.map((opt, i) => {
+                        const selected = furikaeModal.fromDate === opt.dateStr && (furikaeModal.furikaeAmpm||'AM') === opt.ampm;
+                        return (
+                          <button key={i} type="button" onClick={() => setFurikaeModal({...furikaeModal, fromDate: opt.dateStr, furikaeAmpm: opt.ampm})}
+                            className={`w-full px-3 py-2 rounded-lg text-left text-sm font-bold border transition-all ${selected ? 'bg-emerald-600 text-white border-emerald-700' : 'bg-white text-slate-700 border-slate-200 hover:bg-emerald-50 hover:border-emerald-300'}`}>
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
               <div><label className="text-xs font-bold text-slate-500 block mb-1">欠席理由（任意）</label><input type="text" value={furikaeModal.reason} onChange={e => setFurikaeModal({ ...furikaeModal, reason: e.target.value })} placeholder="例: 通院のため振替" className="w-full p-3 bg-white border border-slate-300 rounded-xl font-bold outline-none" /></div>
               {furikaeModal.fromDate && (()=>{const d=new Date(furikaeModal.fromDate);const dn=['日','月','火','水','木','金','土'];return <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm"><div className="font-bold text-emerald-700">{otherLabel}：{d.getMonth()+1}月{d.getDate()}日（{dn[d.getDay()]}）{(furikaeModal.furikaeAmpm||'AM')==='AM'?'午前':'午後'}</div></div>;})()}
             </div>
@@ -18387,13 +20351,54 @@ function SettingsView({ appData, onSave, dirtyRef }) {
                   {sortedPersons.length === 0 ? <div className="text-slate-400 text-sm font-bold bg-slate-50 p-4 rounded-xl border text-center">登録なし</div> : (
                     <div className="space-y-1.5 max-h-[500px] overflow-y-auto pr-1">{sortedPersons.map((p,i)=>{
                       const origIdx = cmPersons.findIndex(x => x === p);
+                      const cards = p.businessCard || [];
                       return (
-                        <div key={i} className="flex items-center justify-between bg-white border border-slate-200 shadow-sm p-2.5 rounded-lg">
-                          <div className="flex-1 min-w-0">
-                            <div className="font-bold text-sm text-slate-800 truncate">{p.name}</div>
-                            <div className="text-[11px] text-slate-500 truncate">{p.office} / {p.phone||'-'}</div>
+                        <div key={i} className="bg-white border border-slate-200 shadow-sm p-2.5 rounded-lg">
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1 min-w-0">
+                              <div className="font-bold text-sm text-slate-800 truncate">{p.name}</div>
+                              <div className="text-[11px] text-slate-500 truncate">{p.office} / {p.phone||'-'}</div>
+                            </div>
+                            <label className="flex items-center gap-1 cursor-pointer px-2 py-1 bg-slate-100 border border-slate-200 rounded text-[10px] font-bold text-slate-600 hover:bg-slate-200 mr-1 shrink-0">
+                              📷 名刺
+                              <input type="file" accept="image/*" multiple className="hidden" onChange={e=>{
+                                const files=Array.from(e.target.files);
+                                const today=new Date().toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
+                                const cur=[...(p.businessCard||[])];
+                                let loaded=0;
+                                files.forEach(f=>{
+                                  const r=new FileReader();
+                                  r.onload=ev=>{
+                                    cur.push({id:Date.now()+Math.random(),data:ev.target.result,name:f.name,type:f.type||'image/jpeg',uploadedAt:today});
+                                    loaded++;
+                                    if(loaded===files.length) {
+                                      const newPersons=[...cmPersons];
+                                      newPersons[origIdx]={...newPersons[origIdx], businessCard:cur};
+                                      setCmPersons(newPersons);
+                                    }
+                                  };
+                                  r.readAsDataURL(f);
+                                });
+                                e.target.value='';
+                              }}/>
+                            </label>
+                            <button type="button" onClick={()=>setCmPersons(cmPersons.filter((_,j)=>j!==origIdx))} className="text-slate-300 hover:text-red-500 p-1 ml-1 shrink-0"><Trash2 size={14}/></button>
                           </div>
-                          <button type="button" onClick={()=>setCmPersons(cmPersons.filter((_,j)=>j!==origIdx))} className="text-slate-300 hover:text-red-500 p-1 ml-2 shrink-0"><Trash2 size={14}/></button>
+                          {cards.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1.5 pl-1">
+                              {cards.map((img,ii)=>(
+                                <div key={img.id||ii} className="relative">
+                                  <img src={img.data} alt={img.name}
+                                    onClick={()=>window.open(img.data,'_blank')}
+                                    className="rounded border border-slate-200 cursor-pointer"
+                                    style={{height:60,width:'auto',background:'#fff'}}/>
+                                  <button type="button"
+                                    onClick={()=>{const newCards=cards.filter(x=>x.id!==img.id); const newPersons=[...cmPersons]; newPersons[origIdx]={...newPersons[origIdx], businessCard:newCards}; setCmPersons(newPersons);}}
+                                    style={{position:'absolute',top:-4,right:-4,background:'#ef4444',color:'white',border:'none',borderRadius:'50%',width:18,height:18,fontSize:10,fontWeight:'bold',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       );
                     })}</div>
@@ -18670,56 +20675,106 @@ function SettingsView({ appData, onSave, dirtyRef }) {
             </SectionCard>
             <SectionCard title="データ管理">
               <p className="text-sm text-slate-500 mb-4">データのバックアップ・復元機能（クラウド連携）は開発中です。</p>
-              <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4 mt-4">
-                <h4 className="text-sm font-bold text-red-700 mb-2 flex items-center gap-2">
-                  ⚠ 全データクリア（本番運用開始用）
-                </h4>
-                <p className="text-xs text-slate-700 mb-3 leading-relaxed">
-                  デモ用の利用者データ・記録・写真などすべてを削除し、空白の状態から始めるためのボタンです。<br/>
-                  <b className="text-red-700">この操作は取り消せません。</b>本番運用を開始する前に、必要なデータをCSV等でエクスポートしてください。
-                </p>
-                <button type="button" onClick={()=>{
-                  const phrase = '全データを削除する';
-                  const ans = window.prompt(`デモデータを全て削除し、空白の状態にします。\n\n削除されるもの:\n・全利用者の基本情報\n・全提供記録 / 連絡帳 / 日誌\n・モニタリング / 体力測定\n・お知らせ / 写真\n・家族アカウント\n\n削除されないもの:\n・ログイン情報 / 事業所情報\n・各種設定 (運動メニュー等)\n\n確認のため、下の入力欄に「${phrase}」と入力してください:`);
-                  if (ans !== phrase) {
-                    if (ans !== null) alert('入力が一致しないため、削除を中止しました。');
-                    return;
-                  }
-                  // 二段階確認
-                  if (!window.confirm('本当に全てのデモデータを削除しますか？\nこの操作は取り消せません。')) return;
-                  // 保持する設定 (login, facility, exercise items 等)
-                  const keep = {
-                    systemSettings: appData.systemSettings,
-                    contactBookConfig: appData.contactBookConfig,
-                    diarySettings: appData.diarySettings,
-                  };
-                  // クリアデータ
-                  const cleaned = {
-                    patients: [],
-                    ticketRecords: [],
-                    monthlyShifts: {},
-                    monitoringRecords: [],
-                    fitnessRecords: [],
-                    holidays: [],
-                    closedDays: [],
-                    cancellationData: {},
-                    familyAccounts: [],
-                    familyAnnouncements: [],
-                    familyPersonalAnnouncements: [],
-                    familyPhotos: [],
-                    familyTokkiOverrides: {},
-                    faxDataStore: {},
-                    ...keep,
-                  };
-                  // 分離保存も掃除
-                  try { localStorage.removeItem('daycarePhotos_v1'); } catch {}
-                  onSave(cleaned);
-                  alert('✓ 全データを削除しました。\n本番運用を開始できます。\n\nページをリロードします。');
-                  setTimeout(()=>{ window.location.reload(); }, 800);
-                }} className="w-full py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm shadow active:scale-95">
-                  🗑 全データを削除して空白の状態にする
-                </button>
-              </div>
+              {/* お知らせの自動削除設定 + 残容量表示 */}
+              {(() => {
+                // localStorage 使用量を概算
+                const calcUsage = () => {
+                  try {
+                    const main = (localStorage.getItem('daycareAppData_v3') || '').length;
+                    const photos = (localStorage.getItem('daycarePhotos_v1') || '').length;
+                    return main + photos;
+                  } catch { return 0; }
+                };
+                const bytes = calcUsage();
+                const mb = (bytes * 2 / 1024 / 1024).toFixed(2); // UTF-16 → 約2倍
+                // 事業所別クォータ (固定 2GB)
+                const quotaGB = 2;
+                const LOCAL_LIMIT_MB = 5; // 現状の localStorage 上限 (Safari基準)
+                const QUOTA_MB = quotaGB * 1024;
+                const usedPctLocal = Math.min(100, Math.round((parseFloat(mb) / LOCAL_LIMIT_MB) * 100));
+                const usedPctQuota = Math.min(100, Math.round((parseFloat(mb) / QUOTA_MB) * 100 * 100) / 100);
+                const retentionMonths = appData.systemSettings?.announcementRetentionMonths || 24;
+                const announcements = (appData.familyAnnouncements||[]).length;
+                const personalAnn = (appData.familyPersonalAnnouncements||[]).length;
+                const photoCount = (appData.familyPhotos||[]).length;
+                return (
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 space-y-4">
+                    {/* 現在の使用量 (localStorage) */}
+                    <div>
+                      <div className="text-sm font-bold text-slate-700 mb-1">💾 現在のデータ使用量 (このブラウザ内)</div>
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1">
+                          <div className="h-3 bg-white rounded-full overflow-hidden border border-slate-200">
+                            <div className={`h-full ${usedPctLocal>80?'bg-red-500':usedPctLocal>50?'bg-amber-500':'bg-emerald-500'}`} style={{width:`${usedPctLocal}%`}}/>
+                          </div>
+                        </div>
+                        <div className="text-sm font-bold text-slate-700">{mb} MB / {LOCAL_LIMIT_MB} MB ({usedPctLocal}%)</div>
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+                        ・お知らせ全体 {announcements}件 / 個別お知らせ {personalAnn}件 / 写真 {photoCount}枚<br/>
+                        ・上限は Safari 約 5 MB / Chrome 約 10 MB（ローカル保存のみ）
+                      </div>
+                    </div>
+                    {/* 事業所別クォータ (Supabase 移行後) */}
+                    <div className="border-t border-slate-200 pt-3">
+                      <div className="text-sm font-bold text-slate-700 mb-2">🏢 事業所別クォータ（Supabase Pro 移行後）</div>
+                      <div className="flex items-center gap-3 mb-2">
+                        <span className="text-xs font-bold text-slate-600 shrink-0">この事業所の上限:</span>
+                        <span className="px-3 py-1.5 bg-blue-50 border border-blue-300 rounded-lg font-bold text-sm text-blue-800">2 GB（固定）</span>
+                        <span className="text-xs text-slate-500">（現在の使用率: <b className="text-slate-700">{usedPctQuota}%</b>）</span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 leading-relaxed">
+                        ・各事業所 2GB 上限で運用 (動画なし想定で 5 年分余裕)<br/>
+                        ・本部全体: 事業所数 × 2GB (例: 9店舗 = 18GB)<br/>
+                        ・<b>上限近くで警告 + 古いお知らせ削除を案内</b>
+                      </div>
+                      {/* 古いお知らせを今すぐ削除するボタン (容量逼迫時の手動掃除) */}
+                      {(usedPctLocal > 50 || usedPctQuota > 50) && (
+                        <button onClick={()=>{
+                          const months = appData.systemSettings?.announcementRetentionMonths || 24;
+                          if (!window.confirm(`保存期間 (${months}ヶ月) を超えたお知らせ・写真を今すぐ削除しますか?\n\n(削除しない設定の場合は何も削除されません)`)) return;
+                          const cutoff = new Date();
+                          cutoff.setMonth(cutoff.getMonth() - months);
+                          const cutoffIso = cutoff.toISOString();
+                          const cutoffDate = cutoffIso.slice(0,10);
+                          const isOld = (item) => {
+                            const t = item.postedAt || item.date || '';
+                            if (!t) return false;
+                            return t < (t.length > 10 ? cutoffIso : cutoffDate);
+                          };
+                          const cleanAnn = (appData.familyAnnouncements||[]).filter(a => !isOld(a));
+                          const cleanPersonal = (appData.familyPersonalAnnouncements||[]).filter(a => !isOld(a));
+                          const cleanPhotos = (appData.familyPhotos||[]).filter(p => !isOld(p));
+                          const removed = (appData.familyAnnouncements||[]).length - cleanAnn.length
+                            + (appData.familyPersonalAnnouncements||[]).length - cleanPersonal.length
+                            + (appData.familyPhotos||[]).length - cleanPhotos.length;
+                          onSave({...appData, familyAnnouncements: cleanAnn, familyPersonalAnnouncements: cleanPersonal, familyPhotos: cleanPhotos});
+                          alert(`${removed} 件を削除しました`);
+                        }} className="mt-2 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow active:scale-95">
+                          🗑 古いお知らせを今すぐ削除
+                        </button>
+                      )}
+                    </div>
+                    {/* 自動削除設定 */}
+                    <div className="border-t border-slate-200 pt-3">
+                      <label className="block text-xs font-bold text-slate-600 mb-1.5">お知らせ・写真の保存期間（自動削除）</label>
+                      <select value={retentionMonths} onChange={e=>{
+                        const m = parseInt(e.target.value, 10);
+                        onSave({...appData, systemSettings:{...appData.systemSettings, announcementRetentionMonths: m}});
+                      }} className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg font-bold text-sm outline-none">
+                        <option value={12}>12ヶ月 (1年)</option>
+                        <option value={24}>24ヶ月 (2年)</option>
+                        <option value={36}>36ヶ月 (3年)</option>
+                        <option value={60}>60ヶ月 (5年)</option>
+                        <option value={0}>削除しない</option>
+                      </select>
+                      <div className="text-[11px] text-slate-500 mt-1.5">投稿日からこの期間が経過したお知らせ・写真は次回アプリ起動時に自動削除されます。<br/>※ 法定の保存期間（多くの自治体で 2〜5 年）にあわせて選択してください。</div>
+                    </div>
+                  </div>
+                );
+              })()}
+              {/* 📦 データ一括エクスポート (ZIP) */}
+              <DataExportSection appData={appData} />
             </SectionCard>
           </>)}
 
@@ -18796,7 +20851,7 @@ function DiarySettingsPanel({ appData, dsRef, markDirty }) {
   );
 }
 // === 日誌画面 ===
-function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAmpm, setSharedAmpm, dirtyRef, onShowPrintPreview }) {
+function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAmpm, setSharedAmpm, dirtyRef, saveFnRef, onShowPrintPreview }) {
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
   const ampm = sharedAmpm === 'all' ? 'AM' : (sharedAmpm || 'AM');
@@ -18838,8 +20893,17 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   const [localLog, setLocalLog] = useState({});
 
   // logKeyが変わったら（日付・ampm切替）バッファを最新のappDataから読み込む
+  // 未保存の変更があれば、移動前の logKey に対して自動保存してから読み込む
   React.useEffect(() => {
-    const latest = (appData.diaryLogs||{})[logKey] || {};
+    const oldKey = logKeyRef.current;
+    let nextAppData = appData;
+    if (dirtyRef?.current && oldKey && oldKey !== logKey) {
+      // 移動前データを自動保存
+      const updatedLogs = { ...(appData.diaryLogs||{}), [oldKey]: localLog };
+      nextAppData = { ...appData, diaryLogs: updatedLogs };
+      onSave(nextAppData);
+    }
+    const latest = (nextAppData.diaryLogs||{})[logKey] || {};
     setLocalLog(JSON.parse(JSON.stringify(latest)));
     logKeyRef.current = logKey;
     if (dirtyRef) dirtyRef.current = false;
@@ -18865,6 +20929,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     if (pendingStaff) setPendingStaff(null);
     markClean();
   };
+  if (saveFnRef) saveFnRef.current = saveLog;
+  React.useEffect(() => () => { if (saveFnRef) saveFnRef.current = null; }, []);
   const toggle = (field, key) => updateLog({ [field]: { ...(log[field]||{}), [key]: !(log[field]||{})[key] } });
   const setPatRow = (i,f,v) => { const rows=[...(log.patientRows||[])]; while(rows.length<=i) rows.push({}); rows[i]={...rows[i],[f]:v}; updateLog({patientRows:rows}); };
   const setCarTime = (carId,tf,v) => updateLog({ carTimes: { ...(log.carTimes||{}), [carId]: {...((log.carTimes||{})[carId]||{}),[tf]:v} }});
@@ -19489,7 +21555,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           }
         `}</style>
         <div className="no-print sticky top-0 z-50 flex items-center gap-4 px-6 py-3" style={{backgroundColor:'#333'}}>
-          <button onClick={()=>{ setIsPrintPreview(false); document.title='DayCare v2'; }} className="bg-white text-gray-800 px-4 py-2 rounded-xl font-bold text-sm hover:bg-gray-100">← 編集に戻る</button>
+          <button onClick={()=>{ setIsPrintPreview(false); document.title='Tsumugi'; }} className="bg-white text-gray-800 px-4 py-2 rounded-xl font-bold text-sm hover:bg-gray-100">← 編集に戻る</button>
           <span className="text-sm text-white opacity-80">印刷プレビュー（A4縦）{printPages.length > 1 ? ' — 2ページ' : ''}</span>
           <button onClick={()=>{
               const pages = document.querySelectorAll('.diary-print-page');
@@ -19759,7 +21825,18 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         })()}
                 <div className="flex rounded-xl overflow-hidden border border-slate-300">
           {['AM','PM'].map(v=>(
-            <button key={v} onClick={()=>setAmpm(v)} className={`px-5 py-2 text-sm font-bold transition-all ${ampm===v?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-50'}`}>{v}</button>
+            <button key={v} onClick={()=>{
+              if (v === ampm) return;
+              // 切り替え前に現在の logKey データを保存 (未保存変更があれば)
+              if (dirtyRef?.current) {
+                const updatedLogs = { ...(appData.diaryLogs||{}), [logKey]: localLog };
+                const next = { ...appData, diaryLogs: updatedLogs };
+                if (pendingStaff) next.diarySettings = { ..._baseDs, staff: pendingStaff };
+                onSave(next);
+                markClean();
+              }
+              setAmpm(v);
+            }} className={`px-5 py-2 text-sm font-bold transition-all ${ampm===v?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-50'}`}>{v}</button>
           ))}
         </div>
 
@@ -20243,7 +22320,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     } else {
       setIsPrintMode(true);
       document.title=`モニタリング_${tY}年${tM}月`;
-      setTimeout(()=>{window.print();setTimeout(()=>{document.title='DayCare v2';setIsPrintMode(false);},500);},300);
+      setTimeout(()=>{window.print();setTimeout(()=>{document.title='Tsumugi';setIsPrintMode(false);},500);},300);
     }
   };
 
@@ -20502,6 +22579,243 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 
 
 // === AbsenceFaxView (休み連絡) ===
+// === 介護保険証 / 負担割合証 OCR 取り込みモーダル ===
+// Tesseract.js を CDN から動的ロードして日本語 OCR を実行し、フィールドを抽出
+function InsuranceOcrModal({ onApply, onClose }) {
+  const [file, setFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressLabel, setProgressLabel] = useState('');
+  const [rawText, setRawText] = useState('');
+  const [fields, setFields] = useState({});
+  const [error, setError] = useState('');
+  const fileRef = useRef(null);
+
+  // Tesseract.js CDN ロード (キャッシュ済みなら再ロードしない)
+  const loadTesseract = () => new Promise((resolve, reject) => {
+    if (window.Tesseract) return resolve(window.Tesseract);
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.0.5/dist/tesseract.min.js';
+    script.onload = () => resolve(window.Tesseract);
+    script.onerror = () => reject(new Error('Tesseract.js の読み込みに失敗しました。インターネット接続をご確認ください。'));
+    document.head.appendChild(script);
+  });
+
+  // 和暦 / 西暦 を YYYY-MM-DD に正規化
+  const parseDate = (s) => {
+    if (!s) return '';
+    const m = s.match(/(令和|平成|昭和|明治|大正)?\s*(\d+)\s*年\s*(\d+)\s*月\s*(\d+)\s*日/);
+    if (!m) return '';
+    let year = parseInt(m[2], 10);
+    if (m[1] === '令和') year += 2018;
+    else if (m[1] === '平成') year += 1988;
+    else if (m[1] === '昭和') year += 1925;
+    else if (m[1] === '大正') year += 1911;
+    else if (m[1] === '明治') year += 1867;
+    else if (year < 100) year += 2000;
+    const mm = String(parseInt(m[3], 10)).padStart(2, '0');
+    const dd = String(parseInt(m[4], 10)).padStart(2, '0');
+    return `${year}-${mm}-${dd}`;
+  };
+
+  // OCR テキストから各フィールドを抽出
+  const parseFields = (text) => {
+    const out = {};
+    // 全角を半角に統一して扱う (ただし氏名・住所は元のまま)
+    const ascii = text.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+
+    // 氏名 (氏名 直後のテキスト)
+    const nm = text.match(/氏[\s　]*名[\s　]*[:：]?[\s　]*([^\n]+)/);
+    if (nm) {
+      const name = nm[1].trim().split(/[\s　]+/).slice(0, 2).join(' ');
+      if (name && name.length <= 20) out.name = name;
+    }
+
+    // 性別
+    if (/性[\s　]*別[\s　]*男/.test(text) || /\b男\s*$/m.test(text)) out.gender = '男性';
+    else if (/性[\s　]*別[\s　]*女/.test(text) || /\b女\s*$/m.test(text)) out.gender = '女性';
+
+    // 生年月日
+    const bm = text.match(/生年月[\s　]*日[\s　]*[:：]?[\s　]*((?:令和|平成|昭和|明治|大正)?[\s　]*\d+[\s　]*年[\s　]*\d+[\s　]*月[\s　]*\d+[\s　]*日)/);
+    if (bm) {
+      const d = parseDate(bm[1]);
+      if (d) out.birthDate = d;
+    }
+
+    // 被保険者番号 (10桁数字)
+    const ins = ascii.match(/被[\s　]*保[\s　]*険[\s　]*者[\s　]*番[\s　]*号[\s　]*[:：]?[\s　]*(\d{10})/);
+    if (ins) out.insuranceNo = ins[1];
+    else {
+      // フォールバック: 単独の10桁
+      const fb = ascii.match(/(?:^|[^\d])(\d{10})(?:[^\d]|$)/);
+      if (fb) out.insuranceNo = fb[1];
+    }
+
+    // 介護度
+    const careLevels = ['要支援1','要支援2','要介護1','要介護2','要介護3','要介護4','要介護5','事業対象者'];
+    for (const cl of careLevels) {
+      if (text.includes(cl) || text.includes(cl.replace(/(\d)/, c => '１２３４５'[parseInt(c)-1] || c))) {
+        out.careLevel = cl;
+        break;
+      }
+    }
+
+    // 認定の有効期間 (2つの日付を期間とみなす)
+    // 「認定の有効期間」「認定有効期間」「適用期間」のいずれかを起点に
+    const idx = ['認定の有効期間','認定有効期間','適用期間','有効期間'].reduce((found, kw) => {
+      if (found !== -1) return found;
+      const i = text.indexOf(kw);
+      return i !== -1 ? i : -1;
+    }, -1);
+    if (idx !== -1) {
+      const after = text.slice(idx);
+      const dates = after.match(/(?:令和|平成|昭和)?[\s　]*\d+[\s　]*年[\s　]*\d+[\s　]*月[\s　]*\d+[\s　]*日/g);
+      if (dates && dates.length >= 1) {
+        const s = parseDate(dates[0]);
+        if (s) out.careLevelFrom = s;
+      }
+      if (dates && dates.length >= 2) {
+        const e = parseDate(dates[1]);
+        if (e) out.careLevelTo = e;
+      }
+    }
+
+    // 住所
+    const ad = text.match(/(?:住[\s　]*所|現[\s　]*住[\s　]*所)[\s　]*[:：]?[\s　]*([^\n]+)/);
+    if (ad) {
+      const addr = ad[1].trim();
+      if (addr.length <= 80) out.address = addr;
+    }
+
+    // 郵便番号
+    const zip = ascii.match(/〒?[\s　]*(\d{3})[\s　-]?(\d{4})/);
+    if (zip) out.zipCode = `${zip[1]}-${zip[2]}`;
+
+    // 負担割合 (1割/2割/3割) - 通常 負担割合証に記載
+    if (/3[\s　]*割/.test(ascii) || /三[\s　]*割/.test(text)) out.costBurden = '70%';
+    else if (/2[\s　]*割/.test(ascii) || /二[\s　]*割/.test(text)) out.costBurden = '80%';
+    else if (/1[\s　]*割/.test(ascii) || /一[\s　]*割/.test(text)) out.costBurden = '90%';
+
+    return out;
+  };
+
+  const onFileChange = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setFile(f);
+    setPreviewUrl(URL.createObjectURL(f));
+    setRawText(''); setFields({}); setError(''); setProgress(0);
+  };
+
+  const runOcr = async () => {
+    if (!file) { setError('画像を選択してください'); return; }
+    setRunning(true); setError(''); setProgress(0); setProgressLabel('Tesseract を読み込み中...');
+    try {
+      const Tesseract = await loadTesseract();
+      setProgressLabel('日本語データを読み込み中... (初回は数十秒かかります)');
+      const result = await Tesseract.recognize(file, 'jpn', {
+        logger: (m) => {
+          if (m.status === 'recognizing text') {
+            setProgress(Math.round((m.progress || 0) * 100));
+            setProgressLabel('文字を認識中...');
+          } else if (m.status) {
+            setProgressLabel(m.status);
+          }
+        },
+      });
+      const text = result?.data?.text || '';
+      setRawText(text);
+      setFields(parseFields(text));
+      setProgressLabel('完了');
+    } catch (e) {
+      setError(e?.message || 'OCR に失敗しました');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const fieldLabels = {
+    name:'氏名', gender:'性別', birthDate:'生年月日', zipCode:'郵便番号', address:'住所',
+    insuranceNo:'被保険者番号', careLevel:'介護度', careLevelFrom:'適用期間（開始）',
+    careLevelTo:'適用期間（終了）', costBurden:'負担割合',
+  };
+
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.75)',zIndex:10000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:18,width:'100%',maxWidth:780,maxHeight:'90vh',overflow:'auto',boxShadow:'0 24px 60px rgba(0,0,0,0.4)'}}>
+        <div style={{padding:'16px 22px',borderBottom:'1px solid #e2e8f0',display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,background:'white',zIndex:1}}>
+          <div className="text-base font-bold text-slate-800 flex items-center gap-2">📷 介護保険証 / 負担割合証 OCR 取り込み</div>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-full">✕</button>
+        </div>
+        <div style={{padding:'18px 22px'}}>
+          {/* 画像選択 */}
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-3">
+            <div className="text-xs font-bold text-slate-600 mb-2">1. 介護保険証 / 負担割合証 の写真を選択</div>
+            <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={onFileChange} className="block w-full text-xs"/>
+            <div className="text-[10px] text-slate-500 mt-1">※ 紙の上から撮影 (なるべく文字がくっきり映るように)</div>
+          </div>
+
+          {previewUrl && (
+            <div className="mb-3 text-center">
+              <img src={previewUrl} alt="preview" style={{maxWidth:'100%',maxHeight:240,borderRadius:10,border:'1px solid #e2e8f0',background:'#f8fafc'}}/>
+            </div>
+          )}
+
+          {/* OCR 実行 */}
+          <div className="flex gap-2 mb-3">
+            <button onClick={runOcr} disabled={!file || running}
+              className={`flex-1 px-4 py-2.5 rounded-xl font-bold text-sm shadow ${(!file || running) ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}>
+              {running ? `読取中... ${progress}%` : '🔍 OCR で読み取る'}
+            </button>
+          </div>
+          {progressLabel && <div className="text-[11px] text-slate-500 mb-2">{progressLabel} {running && progress > 0 && `(${progress}%)`}</div>}
+
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 text-xs font-bold p-2 rounded-lg mb-3">⚠ {error}</div>}
+
+          {/* 抽出フィールド */}
+          {Object.keys(fields).length > 0 && (
+            <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-3 mb-3">
+              <div className="text-xs font-bold text-emerald-800 mb-2">✓ 抽出されたフィールド ({Object.keys(fields).length}件)</div>
+              <div className="grid grid-cols-2 gap-2">
+                {Object.entries(fieldLabels).map(([k, label]) => {
+                  const val = fields[k];
+                  if (!val) return null;
+                  return (
+                    <div key={k} className="bg-white border border-emerald-200 rounded-lg p-2">
+                      <div className="text-[10px] font-bold text-emerald-700">{label}</div>
+                      <input value={val} onChange={e=>setFields(f=>({...f, [k]: e.target.value}))} className="w-full text-sm font-bold text-slate-800 bg-transparent outline-none"/>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="text-[10px] text-emerald-700 mt-2">
+                ※ 上の値は手動で修正できます。「✓ 反映」を押すと利用者マスタに上書き保存します。
+              </div>
+              <button onClick={()=>onApply(fields)} className="mt-2 w-full px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm shadow">
+                ✓ この内容を利用者マスタに反映
+              </button>
+            </div>
+          )}
+
+          {/* 生 OCR テキスト (デバッグ用に表示) */}
+          {rawText && (
+            <details className="bg-slate-100 rounded-lg p-2">
+              <summary className="text-[11px] font-bold text-slate-600 cursor-pointer">📝 OCR の生テキストを見る</summary>
+              <pre className="text-[10px] text-slate-700 whitespace-pre-wrap font-mono mt-2 max-h-60 overflow-auto">{rawText}</pre>
+            </details>
+          )}
+
+          <div className="text-[10px] text-slate-500 mt-3 leading-relaxed bg-amber-50 border border-amber-200 rounded-lg p-2">
+            <b>※ プライバシー保護:</b> 画像処理はすべてブラウザ内で実行され、外部サーバーには送信されません。<br/>
+            <b>※ 精度について:</b> 印刷された文字は比較的高精度ですが、撮影状態（ピント・光・角度）により失敗する場合があります。抽出後は必ず内容を確認してください。
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // === FAX送付履歴記録モーダル (送信完了後にユーザーが手動で記録) ===
 function FaxHistoryRecordModal({ defaultRecord, onSave, onClose }) {
   const [rec, setRec] = useState(defaultRecord || { recipientName:'', recipientFax:'', note:'' });
@@ -20746,7 +23060,7 @@ function FaxHelpModal({ onClose }) {
   );
 }
 
-function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
+function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview }) {
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
   const [currentMonth, setCurrentMonth] = React.useState(() => { const d=new Date(); return new Date(d.getFullYear(),d.getMonth(),1); });
@@ -20814,7 +23128,15 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
 
   const updateFax = (key, updates) => {
     setFaxData(prev => ({ ...prev, [key]: { ...getFax(...key.split('_')), ...updates } }));
+    markDirty();
   };
+  // 未保存ポップアップ用: faxData を appData に書き戻す
+  const flushSave = () => {
+    onSave({ ...appData, faxDataStore: faxData });
+    markClean();
+  };
+  if (saveFnRef) saveFnRef.current = flushSave;
+  React.useEffect(() => () => { if (saveFnRef) saveFnRef.current = null; }, []);
 
   // 今日日付（和暦）
   const toWareki = (dateStr) => {
@@ -20826,12 +23148,12 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
   };
 
   const handlePrint = () => {
-    const doAfterPrint = () => { document.title='DayCare v2';setIsPrint(false);if(selectedEntry){const key=getKey(selectedEntry.date,selectedEntry.patient.id);updateFax(key,{status:'printed'});}};
+    const doAfterPrint = () => { document.title='Tsumugi';setIsPrint(false);if(selectedEntry){const key=getKey(selectedEntry.date,selectedEntry.patient.id);updateFax(key,{status:'printed'});}};
     if(onShowPrintPreview){setIsPrint(true);setTimeout(()=>{onShowPrintPreview(`休み連絡_${selectedEntry?.patient?.name||''}`, 'A4 portrait', 'print-content-fax');doAfterPrint();},100);}
     else{setIsPrint(true);document.title=`休み連絡_${selectedEntry?.patient?.name||''}`;setTimeout(()=>{window.print();setTimeout(doAfterPrint,500);},100);}
   };
   const handleSavePdf = () => {
-    const doAfterPdf=()=>{document.title='DayCare v2';setIsPrint(false);if(selectedEntry){const key=getKey(selectedEntry.date,selectedEntry.patient.id);const cur=getFax(selectedEntry.date,selectedEntry.patient.id);updateFax(key,{status:cur.status==='printed'?'both':'pdf'});}};
+    const doAfterPdf=()=>{document.title='Tsumugi';setIsPrint(false);if(selectedEntry){const key=getKey(selectedEntry.date,selectedEntry.patient.id);const cur=getFax(selectedEntry.date,selectedEntry.patient.id);updateFax(key,{status:cur.status==='printed'?'both':'pdf'});}};
     if(onShowPrintPreview){setIsPrint(true);setTimeout(()=>{onShowPrintPreview(`休み連絡_${selectedEntry?.patient?.name||''}`, 'A4 portrait', 'print-content-fax');doAfterPdf();},100);}
     else{setIsPrint(true);document.title=`休み連絡_${selectedEntry?.patient?.name||''}`;setTimeout(()=>{window.print();setTimeout(doAfterPdf,500);},100);}
   };
@@ -20952,44 +23274,43 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
             {/* タイトル */}
             <div style={{textAlign:'center',fontSize:28,fontWeight:'bold',border:'3px solid black',padding:'10px 0',marginBottom:28,letterSpacing:6}}>送付状</div>
 
-            {/* 上部2列 */}
-            <div style={{display:'flex',gap:0,marginBottom:20}}>
+            {/* 上部2列: 左=送付先 / 右=発信元 (右寄せ) */}
+            <div style={{display:'flex',gap:0,marginBottom:20,justifyContent:'space-between',alignItems:'flex-start'}}>
               {/* 左：送付先情報 */}
-              <div style={{flex:1,paddingRight:24}}>
+              <div style={{flex:1,paddingRight:24,maxWidth:'50%'}}>
                 <div style={{display:'grid',gridTemplateColumns:'90px 1fr',gap:'8px 10px',marginBottom:16,fontSize:16}}>
                   <span style={{fontWeight:'bold'}}>送付日：</span>
                   <span>{today}</span>
                   <span style={{fontWeight:'bold'}}>送付枚数：</span>
                   <span>1 枚（表紙含）</span>
-                  <span style={{fontWeight:'bold'}}>送付先：</span>
-                  <span></span>
                 </div>
-                <div style={{marginLeft:90,marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:8}}>
+                <div style={{fontSize:16,marginBottom:6,fontWeight:'bold'}}>送付先：</div>
+                <div style={{marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',alignItems:'flex-end',gap:8}}>
                   <AutoFitLine style={{flex:1,minWidth:0,fontSize:17}}>{patient.cmOffice || '　'}</AutoFitLine>
-                  <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap'}}>御中</span>
+                  <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap',display:'inline-block',width:'2.5em',textAlign:'left'}}>御中</span>
                 </div>
-                <div style={{marginLeft:90,marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:8}}>
+                <div style={{marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',alignItems:'flex-end',gap:8}}>
                   <AutoFitLine style={{flex:1,minWidth:0,fontSize:17}}>{patient.cmName || '　'}</AutoFitLine>
-                  <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap'}}>様</span>
+                  <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap',display:'inline-block',width:'2.5em',textAlign:'left'}}>様</span>
                 </div>
                 {patient.cmFax && (
-                  <div style={{marginLeft:90,fontSize:14,color:'#475569',marginTop:6}}>
+                  <div style={{fontSize:14,color:'#475569',marginTop:6}}>
                     FAX：{patient.cmFax}
                   </div>
                 )}
               </div>
 
               {/* 右：発信元（フォント拡大 + 2行に折り返す場合は自動縮小） */}
-              <div style={{width:280,border:'2px solid black',padding:'12px 16px',fontSize:16,lineHeight:1.7}}>
-                <AutoFitLine style={{fontWeight:'bold',fontSize:19,marginBottom:6,display:'block',width:'100%'}}>{facility.name || 'ひかりデイサービス扇橋店'}</AutoFitLine>
-                <AutoFitLine style={{display:'block',width:'100%'}}>〒{facility.zip||'135-0011'}</AutoFitLine>
-                <AutoFitLine style={{display:'block',width:'100%'}}>{facility.address||'東京都江東区扇橋1-4-9メイゾン白子'}</AutoFitLine>
-                <AutoFitLine style={{display:'block',width:'100%'}}>TEL：{facility.phone||'03-6458-7415'}</AutoFitLine>
-                <AutoFitLine style={{display:'block',width:'100%'}}>FAX：{facility.fax||'03-6458-7416'}</AutoFitLine>
-                <div style={{display:'flex',alignItems:'center',gap:4,width:'100%'}}>
+              <div style={{width:280,border:'2px solid black',padding:'12px 16px',fontSize:16,lineHeight:1.7,textAlign:'right'}}>
+                <AutoFitLine style={{fontWeight:'bold',fontSize:19,marginBottom:6,display:'block',width:'100%',textAlign:'right'}}>{facility.name || 'ひかりデイサービス扇橋店'}</AutoFitLine>
+                <AutoFitLine style={{display:'block',width:'100%',textAlign:'right'}}>〒{facility.zip||'135-0011'}</AutoFitLine>
+                <AutoFitLine style={{display:'block',width:'100%',textAlign:'right'}}>{facility.address||'東京都江東区扇橋1-4-9メイゾン白子'}</AutoFitLine>
+                <AutoFitLine style={{display:'block',width:'100%',textAlign:'right'}}>TEL：{facility.phone||'03-6458-7415'}</AutoFitLine>
+                <AutoFitLine style={{display:'block',width:'100%',textAlign:'right'}}>FAX：{facility.fax||'03-6458-7416'}</AutoFitLine>
+                <div style={{display:'flex',alignItems:'center',gap:4,width:'100%',justifyContent:'flex-end'}}>
                   <span style={{whiteSpace:'nowrap'}}>担当：　</span>
                   <select value={selectedManager} onChange={e=>setSelectedManager(e.target.value)}
-                    style={{flex:1,fontSize:16,fontFamily:'inherit',border:'none',outline:'none',background:'transparent',padding:'0 2px',cursor:'pointer',appearance:'none',WebkitAppearance:'none',MozAppearance:'none',color:'inherit'}}>
+                    style={{fontSize:16,fontFamily:'inherit',border:'none',outline:'none',background:'transparent',padding:'0 2px',cursor:'pointer',appearance:'none',WebkitAppearance:'none',MozAppearance:'none',color:'inherit',textAlign:'right'}}>
                     {staffList.length === 0 && <option value="">（従業員未登録）</option>}
                     {staffList.map((s, i) => (
                       <option key={s.id || i} value={s.name}>{s.name}{s.role ? `（${s.role}）` : ''}</option>
@@ -21200,21 +23521,41 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
 
 
 // === GeneralFaxView (各種連絡) ===
-function GeneralFaxView({ appData, onSave, onShowPrintPreview }) {
-  const [selectedPatientId, setSelectedPatientId] = React.useState(null);
-  const [subject, setSubject] = React.useState('');
-  const [memo, setMemo] = React.useState('');
-  const [pageCount, setPageCount] = React.useState(1);
-  const [checks, setChecks] = React.useState({ kyuukyuu: false, kakunin: false, orikaesu: false });
+function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview }) {
+  const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
+  const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
+  // 下書き復元
+  const draft = appData.generalFaxDraft || {};
+  const [selectedPatientId, setSelectedPatientId] = React.useState(draft.selectedPatientId || null);
+  const [subject, setSubject] = React.useState(draft.subject || '');
+  const [memo, setMemo] = React.useState(draft.memo || '');
+  const [pageCount, setPageCount] = React.useState(draft.pageCount || 1);
+  const [checks, setChecks] = React.useState(draft.checks || { kyuukyuu: false, kakunin: false, orikaesu: false });
   const [showFaxHist, setShowFaxHist] = React.useState(false);
-  // 御中の前 / 様の前 / 利用者名（利用者未選択時に手入力可能）
-  const [recipientOffice, setRecipientOffice] = React.useState('');
-  const [recipientName, setRecipientName] = React.useState('');
-  const [customPatientName, setCustomPatientName] = React.useState('');
-  // 担当者プルダウン: 各種設定の従業員から選択。デフォルトは管理者
+  const [recipientOffice, setRecipientOffice] = React.useState(draft.recipientOffice || '');
+  const [recipientName, setRecipientName] = React.useState(draft.recipientName || '');
+  const [customPatientName, setCustomPatientName] = React.useState(draft.customPatientName || '');
   const staffList = (appData.diarySettings?.staff || []).filter(s => s.name && s.name.trim());
   const defaultManagerName = (staffList.find(s => s.role === '管理者')?.name) || staffList[0]?.name || (appData.systemSettings?.facilityInfo?.manager) || '';
-  const [selectedManager, setSelectedManager] = React.useState(defaultManagerName);
+  const [selectedManager, setSelectedManager] = React.useState(draft.selectedManager || defaultManagerName);
+
+  // 任意のフォーム値が変わったら dirty を立てる (初回 mount はスキップ)
+  const _firstRef = React.useRef(true);
+  React.useEffect(() => {
+    if (_firstRef.current) { _firstRef.current = false; return; }
+    markDirty();
+  }, [selectedPatientId, subject, memo, pageCount, checks, recipientOffice, recipientName, customPatientName, selectedManager]);
+
+  // 未保存ポップアップ用: 下書きを appData に書き戻す
+  const flushSave = () => {
+    onSave && onSave({ ...appData, generalFaxDraft: {
+      selectedPatientId, subject, memo, pageCount, checks,
+      recipientOffice, recipientName, customPatientName, selectedManager,
+    }});
+    markClean();
+  };
+  if (saveFnRef) saveFnRef.current = flushSave;
+  React.useEffect(() => () => { if (saveFnRef) saveFnRef.current = null; }, []);
   const genHistory = (appData.faxHistory||[]).filter(h => h.type === 'general');
   const deleteGenHist = (id) => onSave && onSave({...appData, faxHistory: (appData.faxHistory||[]).filter(h => h.id !== id)});
 
@@ -21343,46 +23684,45 @@ function GeneralFaxView({ appData, onSave, onShowPrintPreview }) {
           {/* タイトル */}
           <div style={{textAlign:'center',fontSize:28,fontWeight:'bold',border:'3px solid black',padding:'10px 0',marginBottom:28,letterSpacing:6}}>送付状</div>
 
-          {/* 上部2列 */}
-          <div style={{display:'flex',gap:0,marginBottom:20}}>
-            <div style={{flex:1,paddingRight:24}}>
+          {/* 上部2列: 左=送付先 / 右=発信元 (右寄せ) */}
+          <div style={{display:'flex',gap:0,marginBottom:20,justifyContent:'space-between',alignItems:'flex-start'}}>
+            <div style={{flex:1,paddingRight:24,maxWidth:'50%'}}>
               <div style={{display:'grid',gridTemplateColumns:'90px 1fr',gap:'8px 10px',marginBottom:16,fontSize:16}}>
                 <span style={{fontWeight:'bold'}}>送付日：</span>
                 <span>{today}</span>
                 <span style={{fontWeight:'bold'}}>送付枚数：</span>
                 <span>{pageCount} 枚（表紙含）</span>
-                <span style={{fontWeight:'bold'}}>送付先：</span>
-                <span></span>
               </div>
-              <div style={{marginLeft:90,marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:8}}>
+              <div style={{fontSize:16,marginBottom:6,fontWeight:'bold'}}>送付先：</div>
+              <div style={{marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',alignItems:'flex-end',gap:8}}>
                 <input type="text" value={recipientOffice} onChange={e=>setRecipientOffice(e.target.value)}
                        placeholder="(送付先名)" className="fax-inline-input"
                        style={{flex:1,minWidth:0,fontSize:17,border:'none',outline:'none',background:'transparent',padding:'2px 4px',fontFamily:'inherit'}}/>
-                <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap'}}>御中</span>
+                <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap',display:'inline-block',width:'2.5em',textAlign:'left'}}>御中</span>
               </div>
-              <div style={{marginLeft:90,marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:8}}>
+              <div style={{marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',alignItems:'flex-end',gap:8}}>
                 <input type="text" value={recipientName} onChange={e=>setRecipientName(e.target.value)}
                        placeholder="(担当者名)" className="fax-inline-input"
                        style={{flex:1,minWidth:0,fontSize:17,border:'none',outline:'none',background:'transparent',padding:'2px 4px',fontFamily:'inherit'}}/>
-                <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap'}}>様</span>
+                <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap',display:'inline-block',width:'2.5em',textAlign:'left'}}>様</span>
               </div>
               {patient?.cmFax && (
-                <div style={{marginLeft:90,fontSize:14,color:'#475569',marginTop:6}}>
+                <div style={{fontSize:14,color:'#475569',marginTop:6}}>
                   FAX：{patient.cmFax}
                 </div>
               )}
             </div>
-            <div style={{width:280,border:'2px solid black',padding:'12px 16px',fontSize:16,lineHeight:1.7}}>
-              <AutoFitLine style={{fontWeight:'bold',fontSize:19,marginBottom:6,display:'block',width:'100%'}}>{facility.name || 'ひかりデイサービス扇橋店'}</AutoFitLine>
-              <AutoFitLine style={{display:'block',width:'100%'}}>〒{facility.zip||'135-0011'}</AutoFitLine>
-              <AutoFitLine style={{display:'block',width:'100%'}}>{facility.address||'東京都江東区扇橋1-4-9メイゾン白子'}</AutoFitLine>
-              <AutoFitLine style={{display:'block',width:'100%'}}>TEL：{facility.phone||'03-6458-7415'}</AutoFitLine>
-              <AutoFitLine style={{display:'block',width:'100%'}}>FAX：{facility.fax||'03-6458-7416'}</AutoFitLine>
-              <div style={{display:'flex',alignItems:'center',gap:4,width:'100%'}}>
+            <div style={{width:280,border:'2px solid black',padding:'12px 16px',fontSize:16,lineHeight:1.7,textAlign:'right'}}>
+              <AutoFitLine style={{fontWeight:'bold',fontSize:19,marginBottom:6,display:'block',width:'100%',textAlign:'right'}}>{facility.name || 'ひかりデイサービス扇橋店'}</AutoFitLine>
+              <AutoFitLine style={{display:'block',width:'100%',textAlign:'right'}}>〒{facility.zip||'135-0011'}</AutoFitLine>
+              <AutoFitLine style={{display:'block',width:'100%',textAlign:'right'}}>{facility.address||'東京都江東区扇橋1-4-9メイゾン白子'}</AutoFitLine>
+              <AutoFitLine style={{display:'block',width:'100%',textAlign:'right'}}>TEL：{facility.phone||'03-6458-7415'}</AutoFitLine>
+              <AutoFitLine style={{display:'block',width:'100%',textAlign:'right'}}>FAX：{facility.fax||'03-6458-7416'}</AutoFitLine>
+              <div style={{display:'flex',alignItems:'center',gap:4,width:'100%',justifyContent:'flex-end'}}>
                 <span style={{whiteSpace:'nowrap'}}>担当：　</span>
                 <select value={selectedManager} onChange={e=>setSelectedManager(e.target.value)}
                   className="fax-inline-input"
-                  style={{flex:1,fontSize:16,fontFamily:'inherit',border:'none',outline:'none',background:'transparent',padding:'0 2px',cursor:'pointer',appearance:'none',WebkitAppearance:'none',MozAppearance:'none',color:'inherit'}}>
+                  style={{fontSize:16,fontFamily:'inherit',border:'none',outline:'none',background:'transparent',padding:'0 2px',cursor:'pointer',appearance:'none',WebkitAppearance:'none',MozAppearance:'none',color:'inherit',textAlign:'right'}}>
                   {staffList.length === 0 && <option value="">（従業員未登録）</option>}
                   {staffList.map((s, i) => (
                     <option key={s.id || i} value={s.name}>{s.name}{s.role ? `（${s.role}）` : ''}</option>
