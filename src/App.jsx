@@ -157,14 +157,16 @@ const DataExportSection = ({ appData }) => {
       for (let i = 0; i < targets.length; i++) {
         const target = targets[i];
         const canvas = await window.html2canvas(target, {
-          scale: 2,
+          scale: 2.5,
           backgroundColor:'#ffffff',
           useCORS: true,
           logging: false,
           width: target.scrollWidth,
           height: target.scrollHeight,
+          letterRendering: true,
+          allowTaint: true,
         });
-        const imgData = canvas.toDataURL('image/jpeg', 0.92);
+        const imgData = canvas.toDataURL('image/jpeg', 0.95);
         const imgRatio = canvas.width / canvas.height;
         const pdfRatio = pdfW / pdfH;
         let imgW, imgH;
@@ -255,7 +257,7 @@ const DataExportSection = ({ appData }) => {
       // HTML 共通スタイル (印刷時 PDF 化用)
       const htmlBase = (title, body) => `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>${title}</title><style>
 @page { size: A4; margin: 12mm; }
-body { font-family: "Hiragino Sans","Yu Gothic",sans-serif; color:#1e293b; max-width:780px; margin:20px auto; padding:0 12px; line-height:1.6; }
+body { font-family: "Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","YuGothic","Noto Sans JP","メイリオ",Meiryo,sans-serif; color:#1e293b; max-width:780px; margin:20px auto; padding:0 12px; line-height:1.6; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
 h1 { font-size:18px; border-bottom:2px solid #334155; padding-bottom:6px; }
 h2 { font-size:15px; margin-top:20px; color:#475569; }
 table { width:100%; border-collapse:collapse; margin:8px 0; font-size:12px; }
@@ -446,9 +448,11 @@ ${body}</body></html>`;
             const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>サービス提供記録 ${pat.name} ${tY}年${tM}月</title>
 <style>
 @page { size: A4 landscape; margin: 0; }
-body { font-family: "Hiragino Sans","Yu Gothic","Noto Sans JP",sans-serif; color:#1e293b; margin:0; padding:0; background:white; }
+html, body { font-family: "Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","YuGothic","Noto Sans JP","メイリオ",Meiryo,sans-serif; color:#1e293b; margin:0; padding:0; background:white; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
 .no-print { background:#fef3c7; border:1px solid #fbbf24; padding:8px 12px; margin:8px; font-size:12px; }
 .no-print button { padding:6px 14px; font-weight:bold; cursor:pointer; }
+.tp table { border-collapse:collapse; }
+.tp table td, .tp table th { word-break:break-all; overflow-wrap:break-word; }
 @media print {
   .no-print { display:none !important; }
   body { margin:0; padding:0; }
@@ -20589,56 +20593,6 @@ function SettingsView({ appData, onSave, dirtyRef }) {
               })()}
               {/* 📦 データ一括エクスポート (ZIP) */}
               <DataExportSection appData={appData} />
-              <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4 mt-4">
-                <h4 className="text-sm font-bold text-red-700 mb-2 flex items-center gap-2">
-                  ⚠ 全データクリア（本番運用開始用）
-                </h4>
-                <p className="text-xs text-slate-700 mb-3 leading-relaxed">
-                  デモ用の利用者データ・記録・写真などすべてを削除し、空白の状態から始めるためのボタンです。<br/>
-                  <b className="text-red-700">この操作は取り消せません。</b>本番運用を開始する前に、必要なデータをCSV等でエクスポートしてください。
-                </p>
-                <button type="button" onClick={()=>{
-                  const phrase = '全データを削除する';
-                  const ans = window.prompt(`デモデータを全て削除し、空白の状態にします。\n\n削除されるもの:\n・全利用者の基本情報\n・全提供記録 / 連絡帳 / 日誌\n・モニタリング / 体力測定\n・お知らせ / 写真\n・家族アカウント\n\n削除されないもの:\n・ログイン情報 / 事業所情報\n・各種設定 (運動メニュー等)\n\n確認のため、下の入力欄に「${phrase}」と入力してください:`);
-                  if (ans !== phrase) {
-                    if (ans !== null) alert('入力が一致しないため、削除を中止しました。');
-                    return;
-                  }
-                  // 二段階確認
-                  if (!window.confirm('本当に全てのデモデータを削除しますか？\nこの操作は取り消せません。')) return;
-                  // 保持する設定 (login, facility, exercise items 等)
-                  const keep = {
-                    systemSettings: appData.systemSettings,
-                    contactBookConfig: appData.contactBookConfig,
-                    diarySettings: appData.diarySettings,
-                  };
-                  // クリアデータ
-                  const cleaned = {
-                    patients: [],
-                    ticketRecords: [],
-                    monthlyShifts: {},
-                    monitoringRecords: [],
-                    fitnessRecords: [],
-                    holidays: [],
-                    closedDays: [],
-                    cancellationData: {},
-                    familyAccounts: [],
-                    familyAnnouncements: [],
-                    familyPersonalAnnouncements: [],
-                    familyPhotos: [],
-                    familyTokkiOverrides: {},
-                    faxDataStore: {},
-                    ...keep,
-                  };
-                  // 分離保存も掃除
-                  try { localStorage.removeItem('daycarePhotos_v1'); } catch {}
-                  onSave(cleaned);
-                  alert('✓ 全データを削除しました。\n本番運用を開始できます。\n\nページをリロードします。');
-                  setTimeout(()=>{ window.location.reload(); }, 800);
-                }} className="w-full py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm shadow active:scale-95">
-                  🗑 全データを削除して空白の状態にする
-                </button>
-              </div>
             </SectionCard>
           </>)}
 
