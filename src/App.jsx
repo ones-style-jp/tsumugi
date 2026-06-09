@@ -11074,7 +11074,7 @@ export default function App() {
             <p className="text-sm text-slate-500 text-center mb-6">保存しますか？</p>
             <div className="flex flex-col gap-2">
               <button onClick={() => {
-                // 各 View の保存関数を実行 (ある場合のみ)
+                // 保存関数を発火 (移動前 View のものを呼ぶ)
                 try { recordSaveFnRef.current && recordSaveFnRef.current(); } catch(_){}
                 try { masterSaveFnRef.current && masterSaveFnRef.current(); } catch(_){}
                 try { monitoringSaveFnRef.current && monitoringSaveFnRef.current(); } catch(_){}
@@ -11087,9 +11087,13 @@ export default function App() {
                 monitoringDirtyRef.current = false;
                 ticketDirtyRef.current = false;
                 absenceDirtyRef.current = false;
-                if (navConfirm.patientId) setTargetPatientId(navConfirm.patientId);
-                setCurrentView(navConfirm.view);
+                // setAppData の commit を待ってから View 切替 (setTimeout で次の tick へ)
+                const _nav = navConfirm;
                 setNavConfirm(null);
+                setTimeout(() => {
+                  if (_nav.patientId) setTargetPatientId(_nav.patientId);
+                  setCurrentView(_nav.view);
+                }, 0);
               }} className="w-full py-3 rounded-xl text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 active:scale-95">
                 保存する
               </button>
@@ -11106,8 +11110,12 @@ export default function App() {
                 if (navConfirm.patientId) setTargetPatientId(navConfirm.patientId);
                 setCurrentView(navConfirm.view);
                 setNavConfirm(null);
-              }} className="w-full py-3 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 active:scale-95">
+              }} className="w-full py-3 rounded-xl text-sm font-bold bg-red-500 text-white hover:bg-red-600 active:scale-95">
                 保存せずに移動
+              </button>
+              <button onClick={() => setNavConfirm(null)}
+                className="w-full py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-500 hover:bg-slate-200 active:scale-95">
+                キャンセル
               </button>
             </div>
           </div>
@@ -11948,18 +11956,18 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                   </td>
                   <td className={`px-1 py-3 border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`}>
                     <div className="flex items-center justify-center gap-1">
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpUpSt || ""} onClick={() => { openKeypad(p.id, 'bpUpSt', p.bpUpSt, isAbsent); setActiveCell(`${p.id}-bpUpSt`); }} style={{flex:1,minWidth:0,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpSt, p.bpDnSt)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpUpSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpUpSt || ""} onClick={() => { openKeypad(p.id, 'bpUpSt', p.bpUpSt, isAbsent); setActiveCell(`${p.id}-bpUpSt`); }} style={{width:56,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpSt, p.bpDnSt)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpUpSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
                       <span className="text-slate-300">/</span>
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpDnSt || ""} onClick={() => { openKeypad(p.id, 'bpDnSt', p.bpDnSt, isAbsent); setActiveCell(`${p.id}-bpDnSt`); }} style={{flex:1,minWidth:0,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpSt, p.bpDnSt)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpDnSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.plSt || ""} onClick={() => { openKeypad(p.id, 'plSt', p.plSt, isAbsent); setActiveCell(`${p.id}-plSt`); }} style={{fontSize:14,padding:'3px 1px',flex:1,minWidth:0}} className={`border rounded-lg text-center cursor-pointer ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(p.plSt, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-plSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpDnSt || ""} onClick={() => { openKeypad(p.id, 'bpDnSt', p.bpDnSt, isAbsent); setActiveCell(`${p.id}-bpDnSt`); }} style={{width:56,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpSt, p.bpDnSt)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpDnSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.plSt || ""} onClick={() => { openKeypad(p.id, 'plSt', p.plSt, isAbsent); setActiveCell(`${p.id}-plSt`); }} style={{fontSize:14,padding:'3px 1px',width:56}} className={`border rounded-lg text-center cursor-pointer ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(p.plSt, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-plSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
                     </div>
                   </td>
                   <td className={`px-1 py-3 border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`}>
                     <div className="flex items-center justify-center gap-1">
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpUpEn || ""} onClick={() => { openKeypad(p.id, 'bpUpEn', p.bpUpEn, isAbsent); setActiveCell(`${p.id}-bpUpEn`); }} style={{flex:1,minWidth:0,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpEn, p.bpDnEn)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpUpEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpUpEn || ""} onClick={() => { openKeypad(p.id, 'bpUpEn', p.bpUpEn, isAbsent); setActiveCell(`${p.id}-bpUpEn`); }} style={{width:56,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpEn, p.bpDnEn)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpUpEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
                       <span className="text-slate-300">/</span>
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpDnEn || ""} onClick={() => { openKeypad(p.id, 'bpDnEn', p.bpDnEn, isAbsent); setActiveCell(`${p.id}-bpDnEn`); }} style={{flex:1,minWidth:0,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpEn, p.bpDnEn)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpDnEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.plEn || ""} onClick={() => { openKeypad(p.id, 'plEn', p.plEn, isAbsent); setActiveCell(`${p.id}-plEn`); }} style={{fontSize:14,padding:'3px 1px',flex:1,minWidth:0}} className={`border rounded-lg text-center cursor-pointer ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(p.plEn, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-plEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpDnEn || ""} onClick={() => { openKeypad(p.id, 'bpDnEn', p.bpDnEn, isAbsent); setActiveCell(`${p.id}-bpDnEn`); }} style={{width:56,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpEn, p.bpDnEn)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpDnEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.plEn || ""} onClick={() => { openKeypad(p.id, 'plEn', p.plEn, isAbsent); setActiveCell(`${p.id}-plEn`); }} style={{fontSize:14,padding:'3px 1px',width:56}} className={`border rounded-lg text-center cursor-pointer ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(p.plEn, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-plEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
                     </div>
                   </td>
 
