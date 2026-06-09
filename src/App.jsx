@@ -9898,12 +9898,39 @@ function FamilyView() {
       setAuthAccId(String(acc.id));
     };
     return (
-      <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#6366f1 0%,#8b5cf6 50%,#a855f7 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:16,fontFamily:'"Hiragino Sans","Yu Gothic",sans-serif'}}>
+      <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#f4f8ed 0%,#fafdf2 50%,#f0f4e8 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:16,fontFamily:'"Hiragino Sans","Yu Gothic",sans-serif'}}>
         <div style={{width:'100%',maxWidth:380}}>
-          <div style={{textAlign:'center',color:'white',marginBottom:24}}>
-            <div style={{fontSize:36,marginBottom:8}}>👨‍👩‍👧</div>
-            <div style={{fontSize:13,opacity:0.9,fontWeight:'bold',letterSpacing:1}}>{facility.name||'デイケアサービス'}</div>
-            <div style={{fontSize:20,fontWeight:'bold',marginTop:4}}>ご家族専用ログイン</div>
+          {/* 紡ぎ ロゴ v23: 四つ葉クローバー + 丸ゴ + 緑 */}
+          <div style={{textAlign:'center',marginBottom:20}}>
+            <svg viewBox="0 0 460 130" style={{width:'100%',maxWidth:340,height:'auto',display:'block',margin:'0 auto'}} xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <radialGradient id="famLeafA" cx="40%" cy="55%" r="55%">
+                  <stop offset="0%" stopColor="#608a3e"/>
+                  <stop offset="50%" stopColor="#94c456"/>
+                  <stop offset="100%" stopColor="#d4e7a5"/>
+                </radialGradient>
+                <radialGradient id="famLeafB" cx="55%" cy="50%" r="55%">
+                  <stop offset="0%" stopColor="#5a8330"/>
+                  <stop offset="50%" stopColor="#8fb84a"/>
+                  <stop offset="100%" stopColor="#cee49b"/>
+                </radialGradient>
+              </defs>
+              <g transform="translate(105, 58) scale(0.8)">
+                <path d="M 0 3 Q 1 22 -1 50" stroke="#3d5021" strokeWidth="2.2" fill="none" strokeLinecap="round"/>
+                <g transform="rotate(-60)">
+                  <g transform="rotate(45)"><path d="M 0 -3 C -8 -10 -22 -22 -22 -34 C -22 -44 -11 -47 0 -40 C 11 -47 22 -44 22 -34 C 22 -22 8 -10 0 -3 Z" fill="url(#famLeafA)" opacity="0.96"/></g>
+                  <g transform="rotate(135)"><path d="M 0 -3 C -8 -10 -22 -22 -22 -34 C -22 -44 -11 -47 0 -40 C 11 -47 22 -44 22 -34 C 22 -22 8 -10 0 -3 Z" fill="url(#famLeafB)" opacity="0.96"/></g>
+                  <g transform="rotate(225)"><path d="M 0 -3 C -8 -10 -22 -22 -22 -34 C -22 -44 -11 -47 0 -40 C 11 -47 22 -44 22 -34 C 22 -22 8 -10 0 -3 Z" fill="url(#famLeafA)" opacity="0.94"/></g>
+                  <g transform="rotate(315)"><path d="M 0 -3 C -8 -10 -22 -22 -22 -34 C -22 -44 -11 -47 0 -40 C 11 -47 22 -44 22 -34 C 22 -22 8 -10 0 -3 Z" fill="url(#famLeafB)" opacity="0.94"/></g>
+                  <circle cx="0" cy="0" r="4" fill="#fbbf24"/>
+                </g>
+              </g>
+              <text x="155" y="50" fontFamily="'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif" fontSize="40" fill="#3d5021" fontWeight="700" letterSpacing="3">紡ぎ</text>
+              <text x="157" y="73" fontFamily="'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif" fontSize="17" fill="#7daa3d" fontWeight="500" letterSpacing="6">Tsumugi</text>
+              <text x="157" y="98" fontFamily="'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif" fontSize="11" fill="#5e8030" fontWeight="400" letterSpacing="2" opacity="0.9">家族と現場を結ぶ、デイサービス管理</text>
+            </svg>
+            <div style={{fontSize:12,fontWeight:'bold',color:'#5e8030',letterSpacing:1,marginTop:8}}>{facility.name||'デイケアサービス'}</div>
+            <div style={{fontSize:18,fontWeight:'bold',marginTop:2,color:'#3d5021',fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif",letterSpacing:'3px'}}>ご家族専用ログイン</div>
           </div>
           {mode === 'signup' ? (
             <div style={{background:'white',borderRadius:24,padding:28,boxShadow:'0 20px 60px rgba(0,0,0,0.25)'}}>
@@ -9921,7 +9948,7 @@ function FamilyView() {
                     <div style={{fontSize:11,color:'#166534',lineHeight:1.7}}>下のボタンからログインしてください</div>
                   </div>
                   <button onClick={()=>{setSignupForm({inviteCode:'',username:'',password:'',password2:'',displayName:'',error:'',done:false}); setMode('login');}}
-                    style={{width:'100%',padding:'12px',marginTop:14,background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:'bold',cursor:'pointer'}}>
+                    style={{width:'100%',padding:'12px',marginTop:14,background:'linear-gradient(135deg,#94c456,#5e8030)',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:'bold',cursor:'pointer'}}>
                     ログイン画面へ
                   </button>
                 </div>
@@ -10225,7 +10252,7 @@ function FamilyView() {
                   })()}
                   {signupForm.error && <div style={{color:'#ef4444',fontSize:12,fontWeight:'bold',marginBottom:10,textAlign:'center',background:'#fef2f2',padding:'8px 10px',borderRadius:8}}>{signupForm.error}</div>}
                   <button type="submit"
-                    style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',marginTop:6,boxShadow:'0 4px 12px rgba(99,102,241,0.3)'}}>
+                    style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#94c456,#5e8030)',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',marginTop:6,boxShadow:'0 4px 12px rgba(94,128,48,0.3)'}}>
                     登録する
                   </button>
                   <button type="button" onClick={()=>setMode('login')} style={{display:'block',width:'100%',padding:'10px',marginTop:10,background:'transparent',color:'#64748b',border:'none',fontSize:12,fontWeight:'bold',cursor:'pointer'}}>← ログイン画面に戻る</button>
@@ -10254,7 +10281,7 @@ function FamilyView() {
             </div>
             {loginForm.error && <div style={{color:'#ef4444',fontSize:12,fontWeight:'bold',marginBottom:12,textAlign:'center'}}>{loginForm.error}</div>}
             <button type="submit"
-              style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',marginTop:12,boxShadow:'0 4px 12px rgba(99,102,241,0.3)'}}>
+              style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#94c456,#5e8030)',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',marginTop:12,boxShadow:'0 4px 12px rgba(94,128,48,0.3)'}}>
               ログイン
             </button>
             <p style={{fontSize:10,color:'#94a3b8',textAlign:'center',marginTop:16,lineHeight:1.6}}>
@@ -10262,7 +10289,7 @@ function FamilyView() {
             </p>
             <div style={{borderTop:'1px solid #f1f5f9',marginTop:18,paddingTop:14}}>
               <button type="button" onClick={()=>setMode('signup')}
-                style={{width:'100%',padding:'10px',background:'#f8fafc',color:'#6366f1',border:'2px dashed #c7d2fe',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>
+                style={{width:'100%',padding:'10px',background:'#fafef1',color:'#5e8030',border:'2px dashed #cee49b',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>
                 ＋ 新規アカウント作成
               </button>
             </div>
