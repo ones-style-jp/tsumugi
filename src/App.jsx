@@ -16568,17 +16568,17 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       return h;
     }).filter(Boolean);
     if(!htmlParts.length){ alert('印刷データが見つかりません。'); return; }
-    // B5 横 (257×182mm) ページ内に B6 縦の連絡帳 (182×257mm logical) を縮小して中央配置
-    // scale 0.708 で 128.9×181.9mm = ほぼ B6 サイズになる
+    // B6 横 (182×128mm) ページ内に連絡帳 (元 182×257mm 縦) を縮小して縦向き中央配置
+    // scale 0.498 で 91×128mm = ページ高さに合うサイズに調整
     const combinedHtml = htmlParts.map((h,i)=>
-      `<div style="page-break-after:${i < htmlParts.length-1 ? 'always' : 'auto'};width:257mm;height:182mm;display:flex;justify-content:center;align-items:flex-start;overflow:hidden;position:relative;">
-        <div style="transform:scale(0.708);transform-origin:top center;width:182mm;height:257mm;">${h}</div>
+      `<div style="page-break-after:${i < htmlParts.length-1 ? 'always' : 'auto'};width:182mm;height:128mm;display:flex;justify-content:center;align-items:center;overflow:hidden;position:relative;">
+        <div style="transform:scale(0.498);transform-origin:center center;width:182mm;height:257mm;">${h}</div>
       </div>`
     ).join('');
-    // プレビューモーダルへ — B5 横で送る
-    if(onShowPrintPreview) onShowPrintPreview(title, '257mm 182mm', null);
+    // プレビューモーダルへ — B6 横で送る
+    if(onShowPrintPreview) onShowPrintPreview(title, '182mm 128mm', null);
     setTimeout(()=>{
-      window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'257mm 182mm',html:combinedHtml}}));
+      window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'182mm 128mm',html:combinedHtml}}));
     },50);
   };
   const handleSaveConfig = (newConfig) => { markClean(); onSave({ ...appData, contactBookConfig: newConfig }); setIsConfigOpen(false); };
@@ -22961,13 +22961,13 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
                   <span>1 枚（表紙含）</span>
                 </div>
                 <div style={{fontSize:16,marginBottom:6,fontWeight:'bold'}}>送付先：</div>
-                <div style={{marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:8}}>
+                <div style={{marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',alignItems:'flex-end',gap:8}}>
                   <AutoFitLine style={{flex:1,minWidth:0,fontSize:17}}>{patient.cmOffice || '　'}</AutoFitLine>
-                  <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap'}}>御中</span>
+                  <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap',display:'inline-block',width:'2.5em',textAlign:'left'}}>御中</span>
                 </div>
-                <div style={{marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:8}}>
+                <div style={{marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',alignItems:'flex-end',gap:8}}>
                   <AutoFitLine style={{flex:1,minWidth:0,fontSize:17}}>{patient.cmName || '　'}</AutoFitLine>
-                  <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap'}}>様</span>
+                  <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap',display:'inline-block',width:'2.5em',textAlign:'left'}}>様</span>
                 </div>
                 {patient.cmFax && (
                   <div style={{fontSize:14,color:'#475569',marginTop:6}}>
@@ -22977,16 +22977,16 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, onShowPrintPreview }) {
               </div>
 
               {/* 右：発信元（フォント拡大 + 2行に折り返す場合は自動縮小） */}
-              <div style={{width:280,border:'2px solid black',padding:'12px 16px',fontSize:16,lineHeight:1.7}}>
-                <AutoFitLine style={{fontWeight:'bold',fontSize:19,marginBottom:6,display:'block',width:'100%'}}>{facility.name || 'ひかりデイサービス扇橋店'}</AutoFitLine>
-                <AutoFitLine style={{display:'block',width:'100%'}}>〒{facility.zip||'135-0011'}</AutoFitLine>
-                <AutoFitLine style={{display:'block',width:'100%'}}>{facility.address||'東京都江東区扇橋1-4-9メイゾン白子'}</AutoFitLine>
-                <AutoFitLine style={{display:'block',width:'100%'}}>TEL：{facility.phone||'03-6458-7415'}</AutoFitLine>
-                <AutoFitLine style={{display:'block',width:'100%'}}>FAX：{facility.fax||'03-6458-7416'}</AutoFitLine>
-                <div style={{display:'flex',alignItems:'center',gap:4,width:'100%'}}>
+              <div style={{width:280,border:'2px solid black',padding:'12px 16px',fontSize:16,lineHeight:1.7,textAlign:'right'}}>
+                <AutoFitLine style={{fontWeight:'bold',fontSize:19,marginBottom:6,display:'block',width:'100%',textAlign:'right'}}>{facility.name || 'ひかりデイサービス扇橋店'}</AutoFitLine>
+                <AutoFitLine style={{display:'block',width:'100%',textAlign:'right'}}>〒{facility.zip||'135-0011'}</AutoFitLine>
+                <AutoFitLine style={{display:'block',width:'100%',textAlign:'right'}}>{facility.address||'東京都江東区扇橋1-4-9メイゾン白子'}</AutoFitLine>
+                <AutoFitLine style={{display:'block',width:'100%',textAlign:'right'}}>TEL：{facility.phone||'03-6458-7415'}</AutoFitLine>
+                <AutoFitLine style={{display:'block',width:'100%',textAlign:'right'}}>FAX：{facility.fax||'03-6458-7416'}</AutoFitLine>
+                <div style={{display:'flex',alignItems:'center',gap:4,width:'100%',justifyContent:'flex-end'}}>
                   <span style={{whiteSpace:'nowrap'}}>担当：　</span>
                   <select value={selectedManager} onChange={e=>setSelectedManager(e.target.value)}
-                    style={{flex:1,fontSize:16,fontFamily:'inherit',border:'none',outline:'none',background:'transparent',padding:'0 2px',cursor:'pointer',appearance:'none',WebkitAppearance:'none',MozAppearance:'none',color:'inherit'}}>
+                    style={{fontSize:16,fontFamily:'inherit',border:'none',outline:'none',background:'transparent',padding:'0 2px',cursor:'pointer',appearance:'none',WebkitAppearance:'none',MozAppearance:'none',color:'inherit',textAlign:'right'}}>
                     {staffList.length === 0 && <option value="">（従業員未登録）</option>}
                     {staffList.map((s, i) => (
                       <option key={s.id || i} value={s.name}>{s.name}{s.role ? `（${s.role}）` : ''}</option>
@@ -23350,17 +23350,17 @@ function GeneralFaxView({ appData, onSave, onShowPrintPreview }) {
                 <span>{pageCount} 枚（表紙含）</span>
               </div>
               <div style={{fontSize:16,marginBottom:6,fontWeight:'bold'}}>送付先：</div>
-              <div style={{marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:8}}>
+              <div style={{marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',alignItems:'flex-end',gap:8}}>
                 <input type="text" value={recipientOffice} onChange={e=>setRecipientOffice(e.target.value)}
                        placeholder="(送付先名)" className="fax-inline-input"
                        style={{flex:1,minWidth:0,fontSize:17,border:'none',outline:'none',background:'transparent',padding:'2px 4px',fontFamily:'inherit'}}/>
-                <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap'}}>御中</span>
+                <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap',display:'inline-block',width:'2.5em',textAlign:'left'}}>御中</span>
               </div>
-              <div style={{marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:8}}>
+              <div style={{marginBottom:10,fontSize:17,borderBottom:'1px solid black',paddingBottom:5,display:'flex',alignItems:'flex-end',gap:8}}>
                 <input type="text" value={recipientName} onChange={e=>setRecipientName(e.target.value)}
                        placeholder="(担当者名)" className="fax-inline-input"
                        style={{flex:1,minWidth:0,fontSize:17,border:'none',outline:'none',background:'transparent',padding:'2px 4px',fontFamily:'inherit'}}/>
-                <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap'}}>様</span>
+                <span style={{fontWeight:'bold',flexShrink:0,whiteSpace:'nowrap',display:'inline-block',width:'2.5em',textAlign:'left'}}>様</span>
               </div>
               {patient?.cmFax && (
                 <div style={{fontSize:14,color:'#475569',marginTop:6}}>
@@ -23368,17 +23368,17 @@ function GeneralFaxView({ appData, onSave, onShowPrintPreview }) {
                 </div>
               )}
             </div>
-            <div style={{width:280,border:'2px solid black',padding:'12px 16px',fontSize:16,lineHeight:1.7}}>
-              <AutoFitLine style={{fontWeight:'bold',fontSize:19,marginBottom:6,display:'block',width:'100%'}}>{facility.name || 'ひかりデイサービス扇橋店'}</AutoFitLine>
-              <AutoFitLine style={{display:'block',width:'100%'}}>〒{facility.zip||'135-0011'}</AutoFitLine>
-              <AutoFitLine style={{display:'block',width:'100%'}}>{facility.address||'東京都江東区扇橋1-4-9メイゾン白子'}</AutoFitLine>
-              <AutoFitLine style={{display:'block',width:'100%'}}>TEL：{facility.phone||'03-6458-7415'}</AutoFitLine>
-              <AutoFitLine style={{display:'block',width:'100%'}}>FAX：{facility.fax||'03-6458-7416'}</AutoFitLine>
-              <div style={{display:'flex',alignItems:'center',gap:4,width:'100%'}}>
+            <div style={{width:280,border:'2px solid black',padding:'12px 16px',fontSize:16,lineHeight:1.7,textAlign:'right'}}>
+              <AutoFitLine style={{fontWeight:'bold',fontSize:19,marginBottom:6,display:'block',width:'100%',textAlign:'right'}}>{facility.name || 'ひかりデイサービス扇橋店'}</AutoFitLine>
+              <AutoFitLine style={{display:'block',width:'100%',textAlign:'right'}}>〒{facility.zip||'135-0011'}</AutoFitLine>
+              <AutoFitLine style={{display:'block',width:'100%',textAlign:'right'}}>{facility.address||'東京都江東区扇橋1-4-9メイゾン白子'}</AutoFitLine>
+              <AutoFitLine style={{display:'block',width:'100%',textAlign:'right'}}>TEL：{facility.phone||'03-6458-7415'}</AutoFitLine>
+              <AutoFitLine style={{display:'block',width:'100%',textAlign:'right'}}>FAX：{facility.fax||'03-6458-7416'}</AutoFitLine>
+              <div style={{display:'flex',alignItems:'center',gap:4,width:'100%',justifyContent:'flex-end'}}>
                 <span style={{whiteSpace:'nowrap'}}>担当：　</span>
                 <select value={selectedManager} onChange={e=>setSelectedManager(e.target.value)}
                   className="fax-inline-input"
-                  style={{flex:1,fontSize:16,fontFamily:'inherit',border:'none',outline:'none',background:'transparent',padding:'0 2px',cursor:'pointer',appearance:'none',WebkitAppearance:'none',MozAppearance:'none',color:'inherit'}}>
+                  style={{fontSize:16,fontFamily:'inherit',border:'none',outline:'none',background:'transparent',padding:'0 2px',cursor:'pointer',appearance:'none',WebkitAppearance:'none',MozAppearance:'none',color:'inherit',textAlign:'right'}}>
                   {staffList.length === 0 && <option value="">（従業員未登録）</option>}
                   {staffList.map((s, i) => (
                     <option key={s.id || i} value={s.name}>{s.name}{s.role ? `（${s.role}）` : ''}</option>
