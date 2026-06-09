@@ -9936,7 +9936,7 @@ function FamilyView() {
       setAuthAccId(String(acc.id));
     };
     return (
-      <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#f4f8ed 0%,#fafdf2 50%,#f0f4e8 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:16,fontFamily:'"Hiragino Sans","Yu Gothic",sans-serif'}}>
+      <div style={{minHeight:'100vh',background:'#f4f8ed',display:'flex',alignItems:'center',justifyContent:'center',padding:16,fontFamily:'"Hiragino Sans","Yu Gothic",sans-serif'}}>
         <div style={{width:'100%',maxWidth:380}}>
           {/* 紡ぎ ロゴ v23: 四つ葉クローバー + 丸ゴ + 緑 */}
           <div style={{textAlign:'center',marginBottom:20}}>
@@ -9986,7 +9986,7 @@ function FamilyView() {
                     <div style={{fontSize:11,color:'#166534',lineHeight:1.7}}>下のボタンからログインしてください</div>
                   </div>
                   <button onClick={()=>{setSignupForm({inviteCode:'',username:'',password:'',password2:'',displayName:'',error:'',done:false}); setMode('login');}}
-                    style={{width:'100%',padding:'12px',marginTop:14,background:'linear-gradient(135deg,#a6cf6a,#7daa3d)',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:'bold',cursor:'pointer'}}>
+                    style={{width:'100%',padding:'12px',marginTop:14,background:'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:'bold',cursor:'pointer'}}>
                     ログイン画面へ
                   </button>
                 </div>
@@ -10071,6 +10071,12 @@ function FamilyView() {
                   // 3. ID重複チェック
                   const exists = (latest.familyAccounts||[]).some(a => (a.username||'').toLowerCase() === uname.toLowerCase());
                   if (exists) { setSignupForm(f=>({...f, error:'このIDは既に使用されています'})); return; }
+                  // 3-2. メールアドレス重複チェック
+                  const emailExists = (latest.familyAccounts||[]).some(a => (a.email||'').toLowerCase() === email.toLowerCase());
+                  if (emailExists) {
+                    setSignupForm(f=>({...f, error:'このメールアドレスは既に登録済みです。ログイン画面からログインしてください。'}));
+                    return;
+                  }
                   // 4. アカウント作成 + 招待コードを使用済みに + 利用者の緊急連絡先に追加
                   // 既存の家族アカウント (同一利用者) の有無で parent/child を決定
                   const existingFamilyForPat = (latest.familyAccounts||[]).filter(a => a.patientId === invite.patientId && a.kind === 'family');
@@ -10392,7 +10398,7 @@ function FamilyView() {
                   </div>
                   {signupForm.error && <div style={{color:'#ef4444',fontSize:12,fontWeight:'bold',marginBottom:10,textAlign:'center',background:'#fef2f2',padding:'8px 10px',borderRadius:8}}>{signupForm.error}</div>}
                   <button type="submit" disabled={!(signupForm.agreedTerms && signupForm.agreedPrivacy)}
-                    style={{width:'100%',padding:'13px',background: (signupForm.agreedTerms && signupForm.agreedPrivacy)?'linear-gradient(135deg,#a6cf6a,#7daa3d)':'#cbd5e1',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:(signupForm.agreedTerms && signupForm.agreedPrivacy)?'pointer':'not-allowed',marginTop:6,boxShadow:'0 4px 12px rgba(125,170,61,0.3)'}}>
+                    style={{width:'100%',padding:'13px',background: (signupForm.agreedTerms && signupForm.agreedPrivacy)?'#7daa3d':'#cbd5e1',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:(signupForm.agreedTerms && signupForm.agreedPrivacy)?'pointer':'not-allowed',marginTop:6,boxShadow:'0 4px 12px rgba(125,170,61,0.3)'}}>
                     登録する
                   </button>
                   <button type="button" onClick={()=>setMode('login')} style={{display:'block',width:'100%',padding:'10px',marginTop:10,background:'transparent',color:'#64748b',border:'none',fontSize:12,fontWeight:'bold',cursor:'pointer'}}>← ログイン画面に戻る</button>
@@ -10421,7 +10427,7 @@ function FamilyView() {
             </div>
             {loginForm.error && <div style={{color:'#ef4444',fontSize:12,fontWeight:'bold',marginBottom:12,textAlign:'center'}}>{loginForm.error}</div>}
             <button type="submit"
-              style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#a6cf6a,#7daa3d)',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',marginTop:12,boxShadow:'0 4px 12px rgba(125,170,61,0.3)'}}>
+              style={{width:'100%',padding:'13px',background:'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',marginTop:12,boxShadow:'0 4px 12px rgba(125,170,61,0.3)'}}>
               ログイン
             </button>
             <p style={{fontSize:10,color:'#94a3b8',textAlign:'center',marginTop:16,lineHeight:1.6}}>
@@ -10523,7 +10529,7 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
         }
       `}</style>
       {/* 固定ヘッダー: 全要素を1行に統合 (事業所名+利用者名 | タブ | 家族追加 | ログアウト) — 緑基調 */}
-      <div style={{position:'sticky',top:0,zIndex:60,background:'linear-gradient(135deg,#94c456 0%,#d4e7a5 100%)',boxShadow:'0 2px 12px rgba(125,170,61,0.3)'}}>
+      <div style={{position:'sticky',top:0,zIndex:60,background:'#d4e7a5',boxShadow:'0 2px 12px rgba(125,170,61,0.3)'}}>
         <div style={{color:'white',padding:'10px 16px'}}>
           <div style={{maxWidth:1200,margin:'0 auto',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
             {/* 左: 事業所名 + 利用者名 */}
@@ -10537,7 +10543,7 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
                 const showBadge = k === 'news' && unreadCount > 0;
                 return (
                   <button key={k} onClick={()=>{setTab(k); if (k === 'news') markAllRead();}} className="family-tab-btn"
-                    style={{flex:1,padding:'9px 6px',borderRadius:10,border:'none',background:tab===k?'#5e8030':'transparent',color:tab===k?'white':'#475569',fontWeight:'bold',fontSize:12,cursor:'pointer',position:'relative'}}>
+                    style={{flex:1,padding:'9px 6px',borderRadius:10,border:'none',background:tab===k?'#7daa3d':'transparent',color:tab===k?'white':'#475569',fontWeight:'bold',fontSize:12,cursor:'pointer',position:'relative'}}>
                     {l}
                     {showBadge && (
                       <span style={{position:'absolute',top:2,right:4,minWidth:16,height:16,padding:'0 4px',background:'#ef4444',color:'white',borderRadius:8,fontSize:9,fontWeight:'bold',display:'inline-flex',alignItems:'center',justifyContent:'center'}}>{unreadCount}</span>
@@ -10741,6 +10747,12 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
                     const em = (inviteFamForm.email||'').trim();
                     if (!em || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { alert('正しいメールアドレスを入力してください'); return; }
                     if (!(inviteFamForm.relation||'').trim()) { alert('続柄を選択してください'); return; }
+                    // 既存アカウントの重複チェック
+                    const emExists = (data.familyAccounts||[]).some(a => (a.email||'').toLowerCase() === em.toLowerCase());
+                    if (emExists) { alert('このメールアドレスは既に登録済みです。'); return; }
+                    // 未使用の招待が既にある場合は確認
+                    const emInvited = (data.familyInvites||[]).some(i => !i.usedBy && (i.email||'').toLowerCase() === em.toLowerCase());
+                    if (emInvited && !window.confirm('このメールアドレス宛に未使用の招待が既にあります。新しい招待を発行しますか？')) return;
                     // 招待コード生成
                     const existingCodes = new Set((data.familyInvites||[]).map(i => i.code));
                     let code = generateOneTimeInviteCode();
@@ -10781,7 +10793,7 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
                       }
                     } catch (_) {/* 自動送信失敗時は URL コピー/手動送信を案内 */}
                   }}
-                    style={{flex:1,padding:'10px',background:'linear-gradient(135deg,#94c456,#d4e7a5)',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>招待URLを発行</button>
+                    style={{flex:1,padding:'10px',background:'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>招待URLを発行</button>
                 </div>
               </div>
             )}
@@ -11097,7 +11109,7 @@ export default function App() {
   }
   if (!session) {
     return (
-      <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#f4f8ed 0%,#fafdf2 50%,#f0f4e8 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div style={{minHeight:'100vh',background:'#f4f8ed',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
         <div style={{width:'100%',maxWidth:400}}>
           {/* ロゴ v23: 四つ葉クローバー (X字+rotate(-60)) + 丸ゴ + 明るい緑 */}
           <div style={{textAlign:'center',marginBottom:28}}>
@@ -11150,7 +11162,7 @@ export default function App() {
               </div>
               {loginForm.error && <div style={{color:'#b91c1c',fontSize:12,fontWeight:'bold',marginBottom:12,textAlign:'center'}}>{loginForm.error}</div>}
               <button type="submit"
-                style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#a6cf6a,#7daa3d)',color:'#fff',border:'none',borderRadius:10,fontSize:15,fontWeight:'bold',cursor:'pointer',marginBottom:12,marginTop:8,letterSpacing:'4px',boxShadow:'0 4px 12px rgba(125,170,61,0.3)'}}>
+                style={{width:'100%',padding:'13px',background:'#7daa3d',color:'#fff',border:'none',borderRadius:10,fontSize:15,fontWeight:'bold',cursor:'pointer',marginBottom:12,marginTop:8,letterSpacing:'4px',boxShadow:'0 4px 12px rgba(125,170,61,0.3)'}}>
                 ログイン
               </button>
             </form>
@@ -13106,7 +13118,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
     <div className="w-full" style={{backgroundColor:'#f0f4f9',minHeight:'100%'}}>
       {/* ヘッダーバー（固定） — 親 scroll container 内で sticky */}
       <div style={{position:'sticky',top: stickyTop, zIndex:familyMode?40:30,background: familyMode ? '#f4f8ed' : '#f0f4f9'}}>
-      <div style={{background: familyMode ? 'linear-gradient(135deg,#94c456 0%,#d4e7a5 100%)' : 'linear-gradient(135deg,#2563eb 0%,#1e40af 100%)',color:'white',padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+      <div style={{background: familyMode ? '#d4e7a5' : 'linear-gradient(135deg,#2563eb 0%,#1e40af 100%)',color:'white',padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
         <div style={{display:'flex',alignItems:'center',gap:12}}>
           <div style={{width:36,height:36,background:'rgba(255,255,255,0.2)',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center'}}>
             <BarChart3 size={20}/>
@@ -19567,6 +19579,14 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     const email = window.prompt(`${pat.name} 様のご家族に送る招待メールアドレスを入力してください:`);
                     if (!email) return;
                     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { alert('メールアドレスの形式が正しくありません'); return; }
+                    // 既存アカウントの重複チェック
+                    const emailExistsAcc = (appData.familyAccounts||[]).some(a => (a.email||'').toLowerCase() === email.trim().toLowerCase());
+                    if (emailExistsAcc) { alert('このメールアドレスは既に登録済みです。重複登録できません。'); return; }
+                    // 招待が既に発行されているかチェック (使用前)
+                    const emailExistsInv = (appData.familyInvites||[]).some(i => !i.usedBy && (i.email||'').toLowerCase() === email.trim().toLowerCase());
+                    if (emailExistsInv) {
+                      if (!window.confirm(`このメールアドレス宛に未使用の招待が既に発行されています。\n新しい招待を発行しますか？\n(古い方は無効になります)`)) return;
+                    }
                     const relation = window.prompt('続柄を入力してください (例: 配偶者、長男、長女、ケアマネージャー など。空欄可):') || '';
                     const inv = issueNewInvite({ email: email.trim(), relation: relation.trim() });
                     const inviteUrl = `${baseUrlLocal}/?family&invite=${encodeURIComponent(inv.code)}`;
