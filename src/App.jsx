@@ -17790,92 +17790,106 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
 
   const applySchedChange = (dayIndex, newVal, oldVal, applyFrom) => {
     if(!localPatient || !applyFrom) return;
-    setSchedModal(null); // 最初に閉じる
+    setSchedModal(null);
     const dN2=['日','月','火','水','木','金','土'];
     const isAdd = !oldVal && !!newVal;
     const isRemove = !!oldVal && !newVal;
-    const isChange = !!oldVal && !!newVal && oldVal !== newVal;
-    const ap = newVal==='PM' ? 'PM' : 'AM';
-    const oldAp = oldVal==='PM' ? 'PM' : 'AM';
 
     // 1. scheduleAmPmを更新
     const newSched = [...(localPatient.scheduleAmPm || ['','','','','','',''])];
     newSched[dayIndex] = newVal;
 
-    // 2. 変更履歴に追加
+    // 2. 変更履歴
     const hist = [...(localPatient.scheduleChangeHistory||[])];
     hist.push({date:applyFrom, dayIndex, oldVal, newVal, label:`${dN2[dayIndex]}曜日 ${oldVal||'無'}→${newVal||'無'}`});
-    // changeLogにも追加（その他変更ログに表示）
-    const clKey = 'scheduleChangeHistory';
-    const changeTypeLabel = isAdd?'増回':isRemove?'減回':'変更'; const changeLogEntry = {date: new Date().toISOString().slice(0,10), label:`基本利用日${changeTypeLabel}`, oldValue:null, newValue:`${dN2[dayIndex]}曜日 ${oldVal||'無'}→${newVal||'無'}（${applyFrom}〜適用）`, note:changeTypeLabel};
+    const changeTypeLabel = isAdd?'増回':isRemove?'減回':'変更';
+    const changeLogEntry = {date: new Date().toISOString().slice(0,10), label:`基本利用日${changeTypeLabel}`, oldValue:null, newValue:`${dN2[dayIndex]}曜日 ${oldVal||'無'}→${newVal||'無'}（${applyFrom}〜適用）`, note:changeTypeLabel};
 
-    // 3. applyFromの月から6ヶ月分、対象曜日の日付を処理
+    // 3. シフトデータ更新
     const newShifts = JSON.parse(JSON.stringify(effShifts));
     const closedDays = appData.systemSettings?.facilityInfo?.closedDays||[0];
-    // applyFromの月を基準に計算
-    const [aY, aM] = applyFrom.split('-').map(Number);
 
-    for(let mo=0; mo<6; mo++){
-      const yr = aY + Math.floor((aM-1+mo)/12);
-      const mn = (aM-1+mo)%12; // 0-indexed
-      const mk = `${yr}-${String(mn+1).padStart(2,'0')}`;
-      if(!newShifts[mk]) newShifts[mk]={};
-      if(!newShifts[mk][localPatient.id]) newShifts[mk][localPatient.id]={};
-      const dim = new Date(yr, mn+1, 0).getDate();
+    if(!closedDays.includes(dayIndex)) {
+      // 該当 AP が指定 schedule で基本利用日か
+      const isBaseAp = (sched, ap) => sched === '1日' || sched === ap;
 
-      for(let d=1; d<=dim; d++){
-        const dow = new Date(yr, mn, d).getDay();
-        if(dow !== dayIndex) continue;
-        if(closedDays.includes(dayIndex)) continue;
-        const ds = `${yr}-${String(mn+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-        const before = ds < applyFrom; // applyFrom未満か
-
-        if(isAdd) {
-          if(before) {
-            // 増回前：scheduleAmPmに追加されるが、この日は来ない扱いに。
-            // 既存のオーバーライド (例: 振替/出席/欠席) は尊重し、未定義の場合のみ '空欄' を設定。
-            const cur = newShifts[mk][localPatient.id][`${d}_${ap}`];
-            if (cur === undefined) {
-              newShifts[mk][localPatient.id][`${d}_${ap}`] = '空欄';
-            }
-          } else {
-            // 増回以降：デフォルト出席（明示的な欠席設定を削除）
-            delete newShifts[mk][localPatient.id][`${d}_${ap}`];
-          }
-        } else if(isRemove) {
-          if(before) {
-            // 減回前：scheduleAmPmから削除されるが、過去日の状態を維持する
-            // 注意: 既に '空欄' '欠席' '振替' '休業' 等のオーバーライドがある日はそのまま尊重し、
-            // 「未定義 (=旧スケジュールで出席だった日)」のみ明示的に '出席' を保存する
-            const cur = newShifts[mk][localPatient.id][`${d}_${oldAp}`];
-            if (cur === undefined || cur === '〇' || cur === '出席') {
-              newShifts[mk][localPatient.id][`${d}_${oldAp}`] = '出席';
-            }
-            // それ以外 ('空欄'/'欠席'/'振替'/'休業') の日は手を付けない
-          } else {
-            // 減回以降：空欄（基本利用日でなくなるのでデフォルト空欄）
-            delete newShifts[mk][localPatient.id][`${d}_${oldAp}`];
-          }
-        } else if(isChange) {
-          if(before) {
-            // 変更前：旧の時間帯を維持
-            newShifts[mk][localPatient.id][`${d}_${oldAp}`] = '出席';
-            newShifts[mk][localPatient.id][`${d}_${ap}`] = '空欄';
-          } else {
-            // 変更後：新の時間帯に変更
-            delete newShifts[mk][localPatient.id][`${d}_${ap}`];
-            newShifts[mk][localPatient.id][`${d}_${oldAp}`] = '空欄';
-          }
-        }
+      // 処理対象月: 既存シフトデータのある全月 + applyFrom から6ヶ月分
+      // (既存月もカバーすることで、未来 applyFrom 時に過去月へ誤って新 schedule が
+      //  適用されないように明示的なオーバーライドを書き込む)
+      const [aY, aM] = applyFrom.split('-').map(Number);
+      const monthKeys = new Set(Object.keys(newShifts));
+      for(let mo=0; mo<6; mo++){
+        const yr = aY + Math.floor((aM-1+mo)/12);
+        const mn = (aM-1+mo)%12;
+        monthKeys.add(`${yr}-${String(mn+1).padStart(2,'0')}`);
       }
+
+      monthKeys.forEach(mk => {
+        if(!newShifts[mk]) newShifts[mk]={};
+        if(!newShifts[mk][localPatient.id]) newShifts[mk][localPatient.id]={};
+        const [yr, mn1] = mk.split('-').map(Number);
+        const dim = new Date(yr, mn1, 0).getDate();
+
+        for(let d=1; d<=dim; d++){
+          const dow = new Date(yr, mn1-1, d).getDay();
+          if(dow !== dayIndex) continue;
+          const ds = `${yr}-${String(mn1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+          const before = ds < applyFrom;
+
+          // AM と PM 両方を独立に処理 (1日 = AM+PM)
+          ['AM','PM'].forEach(ap => {
+            const k = `${d}_${ap}`;
+            const cur = newShifts[mk][localPatient.id][k];
+            // 明示的なシフト記録は保持
+            if (cur === '欠席' || cur === '休業' || cur === '臨時') return;
+            if (typeof cur === 'string' && cur.startsWith('振')) return;
+
+            const wasBase = isBaseAp(oldVal, ap);
+            const willBase = isBaseAp(newVal, ap);
+
+            if (before) {
+              if (wasBase && !willBase) {
+                // 過去は基本利用日 → 新スケジュールから外れる
+                // 過去の通所実績を '出席' で保持
+                if (cur === undefined || cur === '〇' || cur === '出席') {
+                  newShifts[mk][localPatient.id][k] = '出席';
+                }
+              } else if (!wasBase && willBase) {
+                // 過去は基本利用日でなかった → 新スケジュールでは基本
+                // 新 schedule からの '〇' デフォルト表示を抑制
+                if (cur === undefined || cur === '〇') {
+                  newShifts[mk][localPatient.id][k] = '空欄';
+                }
+              } else {
+                // 旧/新で基本利用日の判定が同じ → アルゴリズム由来の override を解除
+                if (cur === '〇' || cur === '空欄' || cur === '出席') {
+                  delete newShifts[mk][localPatient.id][k];
+                }
+              }
+            } else {
+              // applyFrom 以降: 新スケジュール通りに任せる
+              if (cur === '〇' || cur === '空欄' || cur === '出席') {
+                delete newShifts[mk][localPatient.id][k];
+              }
+            }
+          });
+        }
+        // 空エントリ整理
+        if (Object.keys(newShifts[mk][localPatient.id]).length === 0) {
+          delete newShifts[mk][localPatient.id];
+        }
+        if (Object.keys(newShifts[mk]).length === 0) {
+          delete newShifts[mk];
+        }
+      });
     }
 
-    // 4. localPatientと保留シフトを更新してdirtyにする（保存ボタン押下まで保存しない）
-    const changeLog=[...(localPatient.changeLog||[]),changeLogEntry]; const newPat = {...localPatient, scheduleAmPm:newSched, scheduleChangeHistory:hist, changeLog};
+    // 4. localPatientと保留シフトを更新
+    const changeLog=[...(localPatient.changeLog||[]),changeLogEntry];
+    const newPat = {...localPatient, scheduleAmPm:newSched, scheduleChangeHistory:hist, changeLog};
     setLocalPatient(newPat);
     setPendingShifts(newShifts);
     markDirty();
-    setSchedModal(null);
   };
   const handleKpInput = (nv) => { setKeypad(p => ({ ...p, value: nv, isFirstInput: false })); if (keypad.field === 'plannedExercise' && localPatient) updateLP('plannedExercises', { ...(localPatient.plannedExercises || {}), [keypad.exerciseId]: nv }); };
   const isResigned = localPatient ? isPatientResigned(localPatient) : false;
