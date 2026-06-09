@@ -9371,9 +9371,10 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
                       {a.title && <div className="text-sm font-bold text-slate-800">{a.title}</div>}
                       {a.body && <div className="text-xs text-slate-600 mt-1 whitespace-pre-wrap">{a.body}</div>}
                       {annPhotos.length > 0 && (
-                        <div className={`grid ${annPhotos.length===1?'grid-cols-1':'grid-cols-3'} gap-2 mt-2`}>
+                        <div className="grid grid-cols-4 gap-2 mt-2" style={{maxWidth:360}}>
                           {annPhotos.map((p,pi) => (
-                            <div key={p.id||pi} className="aspect-square overflow-hidden rounded-md border border-slate-200">
+                            <div key={p.id||pi} className="aspect-square overflow-hidden rounded-md border border-slate-200 cursor-pointer hover:opacity-80"
+                              onClick={()=>window.open(p.url,'_blank')}>
                               <img src={p.url} alt="" className="w-full h-full object-cover"/>
                             </div>
                           ))}
@@ -18796,29 +18797,28 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                         <div className="text-xs text-slate-400 py-1">未登録</div>
                       ) : (
                         <React.Fragment>
-                          {/* 最新グループ：大きく表示 */}
-                          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-2">
-                            <div className="text-[10px] font-bold text-blue-600 mb-2">📅 {latestDate}（最新）</div>
+                          {/* 最新グループ：コンパクトに表示 (サムネイル、クリックで拡大) */}
+                          <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 mb-2">
+                            <div className="text-[10px] font-bold text-blue-600 mb-1.5">📅 {latestDate}（最新）</div>
                             <div className="flex flex-wrap gap-2">
                               {latestImgs.map((img,ii)=>(
-                                <div key={img.id||ii} className="relative group flex flex-col items-center" style={{width: latestImgs.length===1?'100%':'calc(50% - 4px)'}}>
+                                <div key={img.id||ii} className="relative" style={{width:96,height:96}}>
                                   {img.type==='application/pdf' ? (
-                                    <div className="w-full bg-red-50 border border-red-200 rounded-xl flex flex-col items-center justify-center cursor-pointer py-6 gap-2"
+                                    <div className="w-full h-full bg-red-50 border border-red-200 rounded-lg flex flex-col items-center justify-center cursor-pointer"
                                       onClick={()=>window.open(img.data,'_blank')}>
-                                      <span className="text-4xl">📋</span>
-                                      <span className="text-xs font-bold text-red-600 text-center px-2 truncate w-full text-center">{img.name}</span>
+                                      <span className="text-3xl">📋</span>
+                                      <span className="text-[9px] font-bold text-red-600 text-center px-1 truncate w-full">{img.name}</span>
                                     </div>
                                   ) : (
                                     <img src={img.data} alt={img.name}
-                                      className="w-full rounded-xl border border-slate-200 cursor-pointer"
-                                      style={{objectFit:'contain',background:'#f8fafc',display:'block',height:'auto',maxHeight:'none'}}
+                                      className="w-full h-full rounded-lg border border-slate-200 cursor-pointer"
+                                      style={{objectFit:'contain',background:'#f8fafc'}}
                                       onClick={()=>window.open(img.data,'_blank')}/>
                                   )}
-                                  <div className="text-[9px] text-slate-400 mt-1 truncate w-full text-center">{img.name}</div>
                                   {!isOff && (
                                     <button type="button"
                                       onClick={e=>{e.stopPropagation();setDocDeleteConfirm({key,imgId:img.id,name:img.name});}}
-                                      style={{position:'absolute',top:4,right:4,background:'#ef4444',color:'white',border:'none',borderRadius:'50%',width:24,height:24,fontSize:12,fontWeight:'bold',cursor:'pointer',zIndex:10,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+                                      style={{position:'absolute',top:-4,right:-4,background:'#ef4444',color:'white',border:'none',borderRadius:'50%',width:18,height:18,fontSize:10,fontWeight:'bold',cursor:'pointer',zIndex:10,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
                                   )}
                                 </div>
                               ))}
@@ -18964,67 +18964,61 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden"><div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"/><span className="font-bold text-sm text-slate-700">ケアマネ 変更履歴</span></div>
                   {!(localPatient.cmHistory||[]).length?<div className="px-4 py-8 text-center text-sm text-slate-400">変更履歴なし</div>:<div className="divide-y divide-slate-100">{[...(localPatient.cmHistory||[])].sort((a,b)=>(b.from||'').localeCompare(a.from||'')).map((h,si)=>{const ri=(localPatient.cmHistory||[]).findIndex(x=>x===h);return(<div key={si} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="text-sm text-slate-500">{h.from?fD(h.from):'?'}{h.to?' 〜 '+fD(h.to):' 〜'}</span><span className="font-bold text-sm text-slate-800">{h.office}</span>{h.name&&<span className="text-sm text-slate-600">{h.name}</span>}</div>{h.note&&<div className="text-[11px] text-slate-400">{h.note}</div>}</div><div className="flex gap-1 shrink-0"><button onClick={()=>setEditHistModal({type:'cm',idx:ri,entry:{...h}})} className="text-blue-400 hover:text-blue-600 p-1"><Edit3 size={13}/></button><button onClick={()=>setDeleteHistConfirm({type:'cm',idx:ri})} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={13}/></button></div></div>);})}</div>}
                 </div>
-                {/* 📄 書類変更履歴 — 介護保険証/負担割合証/お薬手帳/その他書類の過去アップロード分 (画像付き) */}
+                {/* 📄 書類変更履歴 — 項目ごと (介護保険証/負担割合証/お薬手帳/その他書類) に過去アップロード分を表示 */}
                 {(() => {
                   const docKeys = [
-                    {key:'docInsurance', label:'介護保険証', color:'#3b82f6'},
-                    {key:'docBurden', label:'負担割合証', color:'#6366f1'},
-                    {key:'medicationImages', label:'お薬手帳・処方箋', color:'#06b6d4'},
-                    {key:'docOther', label:'その他書類', color:'#64748b'},
+                    {key:'docInsurance', label:'介護保険証', color:'bg-blue-500'},
+                    {key:'docBurden', label:'負担割合証', color:'bg-indigo-500'},
+                    {key:'medicationImages', label:'お薬手帳・処方箋', color:'bg-cyan-500'},
+                    {key:'docOther', label:'その他書類', color:'bg-slate-500'},
                   ];
-                  const allPastEntries = [];
-                  docKeys.forEach(({key,label,color}) => {
+                  return docKeys.map(({key,label,color}) => {
                     const imgs = localPatient[key] || [];
                     const grp = {};
                     imgs.forEach(img => { const d = img.uploadedAt || '日付不明'; if (!grp[d]) grp[d] = []; grp[d].push(img); });
                     const dates = Object.keys(grp).sort((a,b)=>b.localeCompare(a));
-                    dates.slice(1).forEach(date => {
-                      allPastEntries.push({ key, label, color, date, images: grp[date] });
-                    });
-                  });
-                  if (allPastEntries.length === 0) return null;
-                  return (
-                    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-                      <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-cyan-500 inline-block"/>
-                        <span className="font-bold text-sm text-slate-700">📄 書類変更履歴 (過去アップロード分)</span>
-                      </div>
-                      <div className="divide-y divide-slate-100">
-                        {allPastEntries.map((e,i)=>(
-                          <div key={`${e.key}-${e.date}-${i}`} className="px-4 py-3 flex items-start gap-3">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap mb-2">
-                                <span className="text-sm font-bold text-slate-700">{e.label}</span>
-                                <span className="text-xs text-slate-500">{e.date}</span>
-                                <span className="text-[10px] font-bold text-slate-400">({e.images.length}枚)</span>
+                    const pastDates = dates.slice(1);
+                    if (pastDates.length === 0) return null;
+                    return (
+                      <div key={key} className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                        <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${color} inline-block`}/>
+                          <span className="font-bold text-sm text-slate-700">📄 {label} 変更履歴</span>
+                          <span className="text-[10px] font-bold text-slate-400 ml-auto">過去 {pastDates.length}件</span>
+                        </div>
+                        <div className="divide-y divide-slate-100">
+                          {pastDates.map((date,i)=>(
+                            <div key={`${key}-${date}-${i}`} className="px-4 py-3">
+                              <div className="flex items-center gap-2 mb-1.5">
+                                <span className="text-xs font-bold text-slate-500">{date}</span>
+                                <span className="text-[10px] font-bold text-slate-400">({grp[date].length}枚)</span>
                               </div>
-                              <div className="flex flex-wrap gap-2">
-                                {e.images.map((img,ii)=>(
-                                  <div key={img.id||ii} className="relative" style={{width:80,height:80}}>
+                              <div className="flex flex-wrap gap-1.5">
+                                {grp[date].map((img,ii)=>(
+                                  <div key={img.id||ii} className="relative" style={{width:56,height:56}}>
                                     {img.type==='application/pdf' ? (
-                                      <div className="w-full h-full bg-red-50 border border-red-200 rounded-lg flex flex-col items-center justify-center cursor-pointer"
+                                      <div className="w-full h-full bg-red-50 border border-red-200 rounded flex flex-col items-center justify-center cursor-pointer"
                                         onClick={()=>window.open(img.data,'_blank')}>
-                                        <span className="text-2xl">📋</span>
-                                        <span className="text-[9px] font-bold text-red-600 truncate w-full text-center px-1">{img.name}</span>
+                                        <span className="text-lg">📋</span>
                                       </div>
                                     ) : (
-                                      <img src={img.data} alt={img.name} className="w-full h-full object-contain rounded-lg border border-slate-200 cursor-pointer bg-slate-50"
+                                      <img src={img.data} alt={img.name} className="w-full h-full object-contain rounded border border-slate-200 cursor-pointer bg-slate-50"
                                         onClick={()=>window.open(img.data,'_blank')}/>
                                     )}
                                     {!isOff && (
                                       <button type="button"
-                                        onClick={ev=>{ev.stopPropagation();setDocDeleteConfirm({key:e.key,imgId:img.id,name:img.name});}}
-                                        style={{position:'absolute',top:-4,right:-4,background:'#ef4444',color:'white',border:'none',borderRadius:'50%',width:18,height:18,fontSize:10,fontWeight:'bold',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+                                        onClick={ev=>{ev.stopPropagation();setDocDeleteConfirm({key,imgId:img.id,name:img.name});}}
+                                        style={{position:'absolute',top:-4,right:-4,background:'#ef4444',color:'white',border:'none',borderRadius:'50%',width:16,height:16,fontSize:9,fontWeight:'bold',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
                                     )}
                                   </div>
                                 ))}
                               </div>
                             </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  );
+                    );
+                  });
                 })()}
                 <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden"><div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-500 inline-block"/><span className="font-bold text-sm text-slate-700">その他変更ログ（既往歴・留意点・基本利用日）</span></div>
                   {!(localPatient.changeLog||[]).length?<div className="px-4 py-8 text-center text-sm text-slate-400">変更履歴なし（保存ボタンで記録されます）</div>:<div className="divide-y divide-slate-100">{[...(localPatient.changeLog||[])].reverse().map((log,i)=>{const ri=(localPatient.changeLog||[]).length-1-i;return(<div key={i} className="px-4 py-3 flex items-start gap-3"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 flex-wrap mb-0.5"><span className="text-[12px] font-bold text-slate-400">{fD(log.date)}</span><span className="text-sm font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded">{log.label}</span></div><div className="text-xs text-slate-500 flex items-start gap-1 flex-wrap">{log.note ? <span className="font-bold text-slate-700">{log.newValue}</span> : <>{log.oldValue&&<span className="line-through text-slate-400 mr-1">{log.oldValue}</span>}<span className="text-slate-300 mx-1">→</span><span className="font-bold text-slate-700">{log.newValue}</span></>}</div>{log.note&&<div className="text-[11px] text-slate-400">{log.note}</div>}</div><div className="flex gap-1 shrink-0"><button onClick={()=>setEditHistModal({type:'changeLog',idx:ri,entry:{...log}})} className="text-blue-400 hover:text-blue-600 p-1"><Edit3 size={13}/></button><button onClick={()=>setDeleteHistConfirm({type:'changeLog',idx:ri})} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={13}/></button></div></div>);})}</div>}
