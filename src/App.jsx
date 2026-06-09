@@ -13198,7 +13198,10 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                 // 「2年3ヶ月」を上、「(837日)」は改行して下に表示
                 const main = years > 0 ? `${years}年${months>0?`${months}ヶ月`:''}` : months > 0 ? `${months}ヶ月` : '';
                 if (main) {
-                  elapsedLabel = (<div><div>{main}</div><div style={{fontSize:'0.85em',color:'#64748b',marginTop:2}}>({days}日)</div></div>);
+                  elapsedLabel = (<span style={{display:'flex',flexDirection:'column',lineHeight:1.2}}>
+                    <span>{main}</span>
+                    <span style={{fontSize:'0.78em',color:'#64748b',marginTop:1}}>({days}日)</span>
+                  </span>);
                 } else {
                   elapsedLabel = `${days}日`;
                 }
@@ -17134,9 +17137,9 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
 
           <div style={{height:'13px', flexShrink:0}} />
 
-          {/* 次回お迎え時間 + QR */}
+          {/* 次回お迎え時間 + QR (日付を上、時刻を下に縦スタック) */}
           <div className="border-2 border-black bg-white flex items-center px-3 mb-1 shrink-0 gap-2" style={{paddingTop:'2px', paddingBottom:'2px', minHeight:0}}>
-            <div className="flex-1 flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0" style={{overflow:'hidden'}}>
+            <div className="flex-1 flex flex-nowrap items-center gap-x-2 min-w-0" style={{overflow:'hidden'}}>
               <span style={{fontSize:16,fontWeight:"bold",whiteSpace:"pre",color:"#475569",flexShrink:0,lineHeight:1.15,textAlign:"center"}}>{`次回\nお迎え時間`}</span>
               {(() => {
                 // 日付: 数字は30px, 「月」「日」のみ20px、括弧内の曜日は30px (数字と同じ)
@@ -17198,10 +17201,12 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                     <span style={labelStyle}>分</span>
                   </span>;
                 };
-                return <>
-                  <span style={{whiteSpace:"nowrap"}}>{renderDate(nextDateDisplay)}</span>
-                  <span style={{whiteSpace:"nowrap"}}>{renderTime(nextTimeDisplay)}</span>
-                </>;
+                return (
+                  <div style={{display:'flex',flexDirection:'column',gap:1,lineHeight:1.05,minWidth:0}}>
+                    <span style={{whiteSpace:"nowrap"}}>{renderDate(nextDateDisplay)}</span>
+                    <span style={{whiteSpace:"nowrap"}}>{renderTime(nextTimeDisplay)}</span>
+                  </div>
+                );
               })()}
             </div>
             {(() => {
@@ -21692,7 +21697,18 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         })()}
                 <div className="flex rounded-xl overflow-hidden border border-slate-300">
           {['AM','PM'].map(v=>(
-            <button key={v} onClick={()=>setAmpm(v)} className={`px-5 py-2 text-sm font-bold transition-all ${ampm===v?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-50'}`}>{v}</button>
+            <button key={v} onClick={()=>{
+              if (v === ampm) return;
+              // 切り替え前に現在の logKey データを保存 (未保存変更があれば)
+              if (dirtyRef?.current) {
+                const updatedLogs = { ...(appData.diaryLogs||{}), [logKey]: localLog };
+                const next = { ...appData, diaryLogs: updatedLogs };
+                if (pendingStaff) next.diarySettings = { ..._baseDs, staff: pendingStaff };
+                onSave(next);
+                markClean();
+              }
+              setAmpm(v);
+            }} className={`px-5 py-2 text-sm font-bold transition-all ${ampm===v?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-50'}`}>{v}</button>
           ))}
         </div>
 
