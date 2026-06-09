@@ -10563,25 +10563,26 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
       {/* iPhone / 狭画面向けレスポンシブ調整 */}
       <style>{`
         @media (max-width: 720px) {
-          .family-tab-bar { padding:2px!important; gap:1px!important; }
+          .family-tab-bar { padding:2px!important; gap:1px!important; flex:1 1 100%!important; min-width:0!important; order:3!important; margin-top:6px!important; }
           .family-tab-btn { padding:8px 4px!important; font-size:11px!important; }
           .family-content-area { padding-left:8px!important; padding-right:8px!important; }
-          .family-analysis-scroll { -webkit-overflow-scrolling:touch; }
-          .family-analysis-scroll::after { content:'← 横にスクロールできます →'; display:block; text-align:center; font-size:10px; color:#94a3b8; padding:8px; font-weight:bold; }
+          .family-header-actions { order:2!important; }
+          .family-header-info { flex:1 1 auto!important; min-width:0!important; }
         }
         @media (max-width: 480px) {
-          .family-header-name { font-size:18px!important; }
-          .family-header-title { font-size:10px!important; }
+          .family-header-name { font-size:16px!important; }
+          .family-header-title { font-size:9px!important; }
+          .family-header-actions button, .family-header-actions a { padding:6px 8px!important; font-size:10px!important; }
         }
       `}</style>
-      {/* 固定ヘッダー: 全要素を1行に統合 (事業所名+利用者名 | タブ | 家族追加 | ログアウト) — 緑基調 */}
+      {/* 固定ヘッダー: 全要素を1行に統合 — 緑基調 (文字は濃緑でコントラスト確保) */}
       <div style={{position:'sticky',top:0,zIndex:60,background:'#d4e7a5',boxShadow:'0 2px 12px rgba(125,170,61,0.3)'}}>
-        <div style={{color:'white',padding:'10px 16px'}}>
+        <div style={{color:'#3d5021',padding:'10px 16px'}}>
           <div style={{maxWidth:1200,margin:'0 auto',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
             {/* 左: 事業所名 + 利用者名 */}
-            <div style={{flexShrink:0}}>
-              <div className="family-header-title" style={{fontSize:11,opacity:0.85,fontWeight:'bold',letterSpacing:1}}>{facility.name||'デイケアサービス'}</div>
-              <div className="family-header-name" style={{fontSize:18,fontWeight:'bold',marginTop:1,fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif"}}>{patient.name} 様</div>
+            <div className="family-header-info" style={{flexShrink:1,minWidth:0}}>
+              <div className="family-header-title" style={{fontSize:11,opacity:0.85,fontWeight:'bold',letterSpacing:1,color:'#5e8030'}}>{facility.name||'デイケアサービス'}</div>
+              <div className="family-header-name" style={{fontSize:18,fontWeight:'bold',marginTop:1,fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif",color:'#3d5021'}}>{patient.name} 様</div>
             </div>
             {/* 中央: タブ (お知らせ / 通所記録) — flex-1 で広がる */}
             <div className="family-tab-bar" style={{background:'rgba(255,255,255,0.95)',borderRadius:12,padding:4,boxShadow:'0 2px 8px rgba(0,0,0,0.1)',display:'flex',gap:2,flex:'1 1 240px',minWidth:240}}>
@@ -10589,7 +10590,7 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
                 const showBadge = k === 'news' && unreadCount > 0;
                 return (
                   <button key={k} onClick={()=>{setTab(k); if (k === 'news') markAllRead();}} className="family-tab-btn"
-                    style={{flex:1,padding:'9px 6px',borderRadius:10,border:'none',background:tab===k?'#7daa3d':'transparent',color:tab===k?'white':'#475569',fontWeight:'bold',fontSize:12,cursor:'pointer',position:'relative'}}>
+                    style={{flex:1,padding:'9px 6px',borderRadius:10,border:'none',background:tab===k?'#5e8030':'transparent',color:tab===k?'white':'#475569',fontWeight:'bold',fontSize:12,cursor:'pointer',position:'relative'}}>
                     {l}
                     {showBadge && (
                       <span style={{position:'absolute',top:2,right:4,minWidth:16,height:16,padding:'0 4px',background:'#ef4444',color:'white',borderRadius:8,fontSize:9,fontWeight:'bold',display:'inline-flex',alignItems:'center',justifyContent:'center'}}>{unreadCount}</span>
@@ -10598,17 +10599,17 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
                 );
               })}
             </div>
-            {/* 右: 家族追加 (大) + ログアウト */}
-            <div style={{display:'flex',gap:8,marginLeft:'auto',flexShrink:0}}>
+            {/* 右: 家族追加 + ログアウト */}
+            <div className="family-header-actions" style={{display:'flex',gap:8,marginLeft:'auto',flexShrink:0}}>
               {loggedAcc?.role === 'parent' && (
                 <button onClick={()=>setInviteFamilyOpen(true)}
-                  style={{background:'rgba(255,255,255,0.92)',color:'#5e8030',border:'1px solid rgba(255,255,255,0.6)',borderRadius:10,padding:'10px 16px',fontSize:13,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap',boxShadow:'0 2px 6px rgba(0,0,0,0.08)'}}>
+                  style={{background:'white',color:'#3d5021',border:'1px solid #94c456',borderRadius:10,padding:'10px 16px',fontSize:13,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap',boxShadow:'0 2px 6px rgba(0,0,0,0.08)'}}>
                   👨‍👩‍👧 家族を追加
                 </button>
               )}
               {onLogout && (
                 <button onClick={onLogout}
-                  style={{background:'rgba(255,255,255,0.18)',color:'white',border:'1px solid rgba(255,255,255,0.4)',borderRadius:10,padding:'10px 14px',fontSize:11,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>
+                  style={{background:'rgba(255,255,255,0.7)',color:'#3d5021',border:'1px solid rgba(125,170,61,0.5)',borderRadius:10,padding:'10px 14px',fontSize:11,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>
                   ログアウト
                 </button>
               )}
@@ -10796,10 +10797,7 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
                     // 既存アカウントの重複チェック
                     const emExists = (data.familyAccounts||[]).some(a => (a.email||'').toLowerCase() === em.toLowerCase());
                     if (emExists) { alert('このメールアドレスは既に登録済みです。'); return; }
-                    // 未使用の招待が既にある場合は確認
-                    const emInvited = (data.familyInvites||[]).some(i => !i.usedBy && (i.email||'').toLowerCase() === em.toLowerCase());
-                    if (emInvited && !window.confirm('このメールアドレス宛に未使用の招待が既にあります。新しい招待を発行しますか？')) return;
-                    // 招待コード生成
+                    // 招待コード生成 (未使用招待の重複は許容 — 新しい方を使えばよい)
                     const existingCodes = new Set((data.familyInvites||[]).map(i => i.code));
                     let code = generateOneTimeInviteCode();
                     let retry = 0;
@@ -13165,7 +13163,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
     <div className="w-full" style={{backgroundColor:'#f0f4f9',minHeight:'100%'}}>
       {/* ヘッダーバー（固定） — 親 scroll container 内で sticky */}
       <div style={{position:'sticky',top: stickyTop, zIndex:familyMode?40:30,background: familyMode ? '#f4f8ed' : '#f0f4f9'}}>
-      <div style={{background: familyMode ? '#d4e7a5' : 'linear-gradient(135deg,#2563eb 0%,#1e40af 100%)',color:'white',padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+      <div style={{background: familyMode ? '#d4e7a5' : 'linear-gradient(135deg,#2563eb 0%,#1e40af 100%)',color: familyMode ? '#3d5021' : 'white',padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
         <div style={{display:'flex',alignItems:'center',gap:12}}>
           <div style={{width:36,height:36,background:'rgba(255,255,255,0.2)',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center'}}>
             <BarChart3 size={20}/>
@@ -19629,11 +19627,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     // 既存アカウントの重複チェック
                     const emailExistsAcc = (appData.familyAccounts||[]).some(a => (a.email||'').toLowerCase() === email.trim().toLowerCase());
                     if (emailExistsAcc) { alert('このメールアドレスは既に登録済みです。重複登録できません。'); return; }
-                    // 招待が既に発行されているかチェック (使用前)
-                    const emailExistsInv = (appData.familyInvites||[]).some(i => !i.usedBy && (i.email||'').toLowerCase() === email.trim().toLowerCase());
-                    if (emailExistsInv) {
-                      if (!window.confirm(`このメールアドレス宛に未使用の招待が既に発行されています。\n新しい招待を発行しますか？\n(古い方は無効になります)`)) return;
-                    }
+                    // 未使用招待の重複は許容
                     const relation = window.prompt('続柄を入力してください (例: 配偶者、長男、長女、ケアマネージャー など。空欄可):') || '';
                     const inv = issueNewInvite({ email: email.trim(), relation: relation.trim() });
                     // URL に招待データを埋め込み (端末越し用)
