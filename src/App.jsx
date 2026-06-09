@@ -10524,7 +10524,7 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
         }
       `}</style>
       {/* 固定ヘッダー: 全要素を1行に統合 (事業所名+利用者名 | タブ | 家族追加 | ログアウト) — 緑基調 */}
-      <div style={{position:'sticky',top:0,zIndex:60,background:'linear-gradient(135deg,#5e8030 0%,#94c456 100%)',boxShadow:'0 2px 12px rgba(94,128,48,0.3)'}}>
+      <div style={{position:'sticky',top:0,zIndex:60,background:'linear-gradient(135deg,#7daa3d 0%,#b8d488 100%)',boxShadow:'0 2px 12px rgba(94,128,48,0.3)'}}>
         <div style={{color:'white',padding:'10px 16px'}}>
           <div style={{maxWidth:1200,margin:'0 auto',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
             {/* 左: 事業所名 + 利用者名 */}
@@ -10565,23 +10565,17 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
           </div>
         </div>
       </div>
-      <div className="family-content-area" style={{maxWidth: tab==='analysis' ? 1100 : 720, margin:'16px auto 0',padding:'0 12px 40px'}}>
+      <div className="family-content-area" style={{maxWidth: tab==='analysis' ? '100%' : 720, margin: tab==='analysis' ? '0' : '16px auto 0', padding: tab==='analysis' ? '0' : '0 12px 40px'}}>
         {tab === 'analysis' && (
-          <div style={{background:'white',borderRadius:16,boxShadow:'0 2px 8px rgba(0,0,0,0.04)',overflow:'hidden'}}>
-            {/* スマホで横スクロール可能 + ヒント表示 */}
-            <div className="family-analysis-scroll" style={{overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
-              <div style={{minWidth:780}}>
-                <PersonalDashboardView
-                  appData={data}
-                  targetPatientId={pid}
-                  familyMode={!isCmAccount}
-                  hidePatientSelector={true}
-                  navigateTo={()=>{}}
-                  onShowPrintPreview={()=>{}}
-                />
-              </div>
-            </div>
-          </div>
+          /* カード枠を取り除き、PersonalDashboardView を直接ぶら下げて sticky を機能させる */
+          <PersonalDashboardView
+            appData={data}
+            targetPatientId={pid}
+            familyMode={!isCmAccount}
+            hidePatientSelector={true}
+            navigateTo={()=>{}}
+            onShowPrintPreview={()=>{}}
+          />
         )}
         {tab === 'news' && (
           <div style={{maxWidth:720,margin:'0 auto'}}>
@@ -13085,8 +13079,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   return (
     <div className="w-full" style={{backgroundColor:'#f0f4f9',minHeight:'100%'}}>
       {/* ヘッダーバー（固定） — 親 scroll container 内で sticky */}
-      <div style={{position:'sticky',top: familyMode ? 64 : 0,zIndex:familyMode?40:30,background: familyMode ? '#f4f8ed' : '#f0f4f9'}}>
-      <div style={{background: familyMode ? 'linear-gradient(135deg,#5e8030 0%,#94c456 100%)' : 'linear-gradient(135deg,#2563eb 0%,#1e40af 100%)',color:'white',padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+      <div style={{position:'sticky',top: familyMode ? 56 : 0,zIndex:familyMode?40:30,background: familyMode ? '#f4f8ed' : '#f0f4f9'}}>
+      <div style={{background: familyMode ? 'linear-gradient(135deg,#7daa3d 0%,#b8d488 100%)' : 'linear-gradient(135deg,#2563eb 0%,#1e40af 100%)',color:'white',padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
         <div style={{display:'flex',alignItems:'center',gap:12}}>
           <div style={{width:36,height:36,background:'rgba(255,255,255,0.2)',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center'}}>
             <BarChart3 size={20}/>
