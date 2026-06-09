@@ -10694,8 +10694,15 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
             {inviteFamForm.createdUrl ? (
               <div>
                 <div style={{background:'#f0fdf4',border:'1px solid #86efac',borderRadius:10,padding:'12px 14px',marginBottom:12}}>
-                  <div style={{fontSize:12,fontWeight:'bold',color:'#166534',marginBottom:6}}>✓ 招待URLを発行しました</div>
-                  <div style={{fontSize:10,color:'#166534',marginBottom:8,lineHeight:1.6}}>下のURLをコピーして、ご家族に LINE / メール / 電話などでお伝えください。</div>
+                  <div style={{fontSize:12,fontWeight:'bold',color:'#166534',marginBottom:6}}>
+                    ✓ 招待URLを発行しました
+                    {inviteFamForm.sentAuto && <span style={{marginLeft:8,fontSize:10,background:'#16a34a',color:'white',padding:'2px 8px',borderRadius:6}}>📧 自動送信済</span>}
+                  </div>
+                  <div style={{fontSize:10,color:'#166534',marginBottom:8,lineHeight:1.6}}>
+                    {inviteFamForm.sentAuto
+                      ? `${inviteFamForm.email} にメールを自動送信しました。届かない場合は下のURLをコピーして共有してください。`
+                      : '自動送信ができなかったため、下のURLをコピーして、ご家族に LINE / メール / 電話などでお伝えください。'}
+                  </div>
                   <input readOnly value={inviteFamForm.createdUrl}
                     style={{width:'100%',padding:'8px 10px',border:'1px solid #d1fae5',borderRadius:8,fontSize:11,fontFamily:'monospace',background:'white',boxSizing:'border-box'}}/>
                 </div>
@@ -10731,7 +10738,7 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
                 <div style={{display:'flex',gap:8}}>
                   <button onClick={()=>{setInviteFamilyOpen(false); setInviteFamForm({email:'',relation:'',createdUrl:''});}}
                     style={{flex:1,padding:'10px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
-                  <button onClick={()=>{
+                  <button onClick={async ()=>{
                     const em = (inviteFamForm.email||'').trim();
                     if (!em || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { alert('正しいメールアドレスを入力してください'); return; }
                     if (!(inviteFamForm.relation||'').trim()) { alert('続柄を選択してください'); return; }
@@ -10745,7 +10752,7 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
                       code,
                       patientId: patient.id,
                       createdAt: new Date().toISOString(),
-                      createdByAccountId: loggedAcc?.id || null,  // 親が招待
+                      createdByAccountId: loggedAcc?.id || null,
                       usedBy: null, usedAt: null,
                       email: em, relation: inviteFamForm.relation || '',
                       expiresAt: new Date(Date.now() + 14*24*60*60*1000).toISOString(),
@@ -10756,8 +10763,26 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
                     const baseUrl = window.location.origin + window.location.pathname.replace(/\/+$/, '');
                     const url = `${baseUrl}/?family&invite=${encodeURIComponent(code)}`;
                     setInviteFamForm(f=>({...f, createdUrl: url}));
+                    // Brevo 経由で自動送信を試みる
+                    try {
+                      const resp = await fetch('/api/send-invite', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          to: em,
+                          inviteUrl: url,
+                          facilityName: facility.name || '',
+                          patientName: patient.name || '',
+                          facilityPhone: facility.phone || '',
+                          expiresAtJp: '14日後',
+                        }),
+                      });
+                      if (resp.ok) {
+                        setInviteFamForm(f=>({...f, sentAuto: true}));
+                      }
+                    } catch (_) {/* 自動送信失敗時は URL コピー/手動送信を案内 */}
                   }}
-                    style={{flex:1,padding:'10px',background:'linear-gradient(135deg,#5e8030,#94c456)',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>招待URLを発行</button>
+                    style={{flex:1,padding:'10px',background:'linear-gradient(135deg,#7daa3d,#b8d488)',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>招待URLを発行</button>
                 </div>
               </div>
             )}
@@ -19537,16 +19562,41 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     onSave({...appData, familyInvites: [...(appData.familyInvites||[]), newInvite]});
                     return newInvite;
                   };
-                  const sendMailInvite = () => {
+                  const sendMailInvite = async () => {
                     const email = window.prompt(`${pat.name} 様のご家族に送る招待メールアドレスを入力してください:`);
                     if (!email) return;
                     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { alert('メールアドレスの形式が正しくありません'); return; }
                     const relation = window.prompt('続柄を入力してください (例: 配偶者、長男、長女、ケアマネージャー など。空欄可):') || '';
                     const inv = issueNewInvite({ email: email.trim(), relation: relation.trim() });
                     const inviteUrl = `${baseUrlLocal}/?family&invite=${encodeURIComponent(inv.code)}`;
-                    const subject = `【${(appData.systemSettings?.facilityInfo?.name)||'デイサービス'}】ご家族専用ページのご招待`;
-                    const body = `${pat.name} 様のご家族のみなさま\n\n下記URLからご家族専用ページにご登録ください (有効期限 14日)\n\n${inviteUrl}\n\n※このメールは ${(appData.systemSettings?.facilityInfo?.name)||''} よりお送りしています。\n※心当たりがない場合は破棄してください。`;
-                    // mailto で既定のメールクライアントを開く (Brevo SMTP 経由は将来対応予定)
+                    const facility = appData.systemSettings?.facilityInfo || {};
+                    // Brevo 経由で自動送信を試みる
+                    try {
+                      const resp = await fetch('/api/send-invite', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          to: email.trim(),
+                          inviteUrl,
+                          facilityName: facility.name || '',
+                          patientName: pat.name || '',
+                          facilityPhone: facility.phone || '',
+                          expiresAtJp: '14日後',
+                        }),
+                      });
+                      if (resp.ok) {
+                        alert(`✓ 招待メールを ${email.trim()} に送信しました`);
+                        return;
+                      }
+                      const err = await resp.json().catch(() => ({}));
+                      // 失敗時は mailto にフォールバック
+                      if (!window.confirm(`自動送信に失敗しました (${err.error||resp.status})\n\n代わりにメールクライアントを開いて手動送信しますか？`)) return;
+                    } catch (e) {
+                      if (!window.confirm(`自動送信エラー: ${String(e).slice(0,120)}\n\n代わりにメールクライアントを開いて手動送信しますか？`)) return;
+                    }
+                    // フォールバック: mailto
+                    const subject = `【${facility.name||'デイサービス'}】ご家族専用ページのご招待`;
+                    const body = `${pat.name} 様のご家族のみなさま\n\n下記URLからご家族専用ページにご登録ください (有効期限 14日)\n\n${inviteUrl}\n\n${facility.name||''}${facility.phone?` / TEL ${facility.phone}`:''}`;
                     window.location.href = `mailto:${encodeURIComponent(email.trim())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
                   };
                   const copyInviteUrl = (inv) => {
