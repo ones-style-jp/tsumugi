@@ -19573,7 +19573,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 updated++;
               } else {
                 maxId += 1;
-                const newPat = {id:maxId, kiou:'', ryui:'', scheduleAmPm:['','','','','','',''], pickupType:'fixed', pickupTimes:['','','','','','',''], autoDeleteAfter5Years:false, massageNeed:'通常', onyokuDenryo:'無し', pauseHistory:[], plannedExercises:{}, ...rec, id:maxId};
+                const newPat = {kiou:'', ryui:'', scheduleAmPm:['','','','','','',''], pickupType:'fixed', pickupTimes:['','','','','','',''], autoDeleteAfter5Years:false, massageNeed:'通常', onyokuDenryo:'無し', pauseHistory:[], plannedExercises:{}, ...rec, id:maxId};
                 if (!newPat.status) newPat.status = '利用中';
                 existing.push(newPat);
                 added++;
