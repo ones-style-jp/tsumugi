@@ -9202,12 +9202,18 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
   const familyLoginUrl = `${baseUrl}/?family`;
   return (
     <div className="space-y-3">
-      {/* 上部枠: 利用者選択ドロップダウン + 利用者名 + URLコピー + ログイン画面を開く (常時表示) */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-2.5 flex items-center gap-2 flex-wrap">
+      {/* 上部枠: ←一覧 | ドロップダウン | (タブ:お知らせ/通所記録) | URLコピー/ログイン縦並び */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-3 flex items-center gap-3 flex-wrap">
+        {patient && (
+          <button onClick={()=>{ setPreviewPid(null); setPatSearch(''); }} title="利用者一覧に戻る"
+            className="px-3 py-2 rounded-lg text-sm font-bold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 shrink-0 whitespace-nowrap">
+            ← 一覧
+          </button>
+        )}
         <div style={{position:'relative'}} className="shrink-0">
           <button onClick={()=>{setPatDropOpen(v=>!v); setPatSearch('');}}
-            className="bg-violet-50 hover:bg-violet-100 border border-violet-300 px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-2 min-w-[180px] text-violet-700">
-            <span className="truncate flex-1 text-left">{patient ? patient.name : '🔍 利用者を選択'}</span>
+            className="bg-violet-50 hover:bg-violet-100 border border-violet-300 px-3 py-2 rounded-lg font-bold text-base flex items-center gap-2 text-violet-700">
+            <span className="truncate flex-1 text-left" style={{maxWidth:160}}>{patient ? patient.name : '🔍 利用者を選択'}</span>
             <ChevronDown size={14} className="shrink-0"/>
           </button>
           {patDropOpen && (
@@ -9242,20 +9248,22 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
             </>
           )}
         </div>
+        {/* 内部タブ切替を同じ行に (利用者選択時のみ) */}
         {patient && (
-          <button onClick={()=>{ setPreviewPid(null); setPatSearch(''); }} title="利用者一覧に戻る"
-            className="px-2.5 py-1.5 rounded-lg text-xs font-bold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 shrink-0 whitespace-nowrap">
-            ← 一覧
-          </button>
+          <div className="flex gap-1 shrink-0">
+            {[['news','📢 お知らせ'],['records','📊 通所記録']].map(([k,l])=>(
+              <button key={k} onClick={()=>setPreviewInnerTab(k)}
+                className={`px-3 py-2 rounded-lg text-sm font-bold ${previewInnerTab===k?'bg-violet-600 text-white':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{l}</button>
+            ))}
+          </div>
         )}
-        {patient && <div className="text-sm font-bold text-slate-800 shrink-0">{patient.name} 様</div>}
         {patient && accs.length > 0 && <div className="text-[10px] text-slate-500 shrink-0">登録 {accs.length}名</div>}
-        {/* 家族共通ログインURL: コピー + ログイン画面を開く */}
-        <div className="ml-auto flex items-center gap-2 shrink-0">
+        {/* 家族共通ログインURL: コピー + ログイン画面を開く (縦2行) */}
+        <div className="ml-auto flex flex-col gap-1 shrink-0">
           <button onClick={()=>{navigator.clipboard?.writeText(familyLoginUrl);}}
-            className="px-3 py-1.5 text-xs font-bold bg-violet-600 hover:bg-violet-700 text-white rounded-lg shadow active:scale-95">📋 家族共通URLをコピー</button>
+            className="px-3 py-1.5 text-xs font-bold bg-violet-600 hover:bg-violet-700 text-white rounded-lg shadow active:scale-95 whitespace-nowrap">📋 家族共通URLをコピー</button>
           <a href={familyLoginUrl} target="_blank" rel="noopener noreferrer"
-            className="px-3 py-1.5 text-xs font-bold bg-white border border-violet-300 text-violet-700 hover:bg-violet-50 rounded-lg shadow-sm active:scale-95">🌐 ログイン画面を開く</a>
+            className="px-3 py-1.5 text-xs font-bold bg-white border border-violet-300 text-violet-700 hover:bg-violet-50 rounded-lg shadow-sm active:scale-95 text-center whitespace-nowrap">🌐 ログイン画面を開く</a>
         </div>
       </div>
       {!patient && (() => {
@@ -9324,13 +9332,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
           </div>
         );
       })()}
-      {/* 内部タブ切替 (利用者選択時のみ) */}
-      {patient && <div className="bg-white rounded-xl p-1.5 shadow-sm border border-slate-200 flex gap-1">
-        {[['news','📢 お知らせ'],['records','📊 通所記録']].map(([k,l])=>(
-          <button key={k} onClick={()=>setPreviewInnerTab(k)}
-            className={`flex-1 py-2 rounded-lg text-sm font-bold ${previewInnerTab===k?'bg-violet-600 text-white':'text-slate-500 hover:bg-slate-100'}`}>{l}</button>
-        ))}
-      </div>}
+      {/* 内部タブは上部枠に統合済 */}
       {patient && previewInnerTab === 'news' && (() => {
         const announcements = appData.familyAnnouncements || [];
         const personalAnnouncements = (appData.familyPersonalAnnouncements||[]).filter(a => a.patientId === patient.id);
@@ -18629,18 +18631,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   <select disabled={isOff} value={localPatient.costBurden||''} onChange={e=>updateLP('costBurden',e.target.value)} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none disabled:opacity-60">
                     <option value="">未選択</option><option value="70%">70%（3割）</option><option value="80%">80%（2割）</option><option value="90%">90%（1割）</option>
                   </select>
-                  {(localPatient.costBurdenHistory||[]).length>0 && (
-                    <details className="mt-1"><summary className="text-[10px] text-slate-400 cursor-pointer font-bold">履歴（{localPatient.costBurdenHistory.length}件）</summary>
-                      <div className="mt-1 space-y-0.5">
-                        {[...localPatient.costBurdenHistory].reverse().map((h,i)=>(
-                          <div key={i} className="text-[10px] text-slate-500 bg-slate-50 px-2 py-1 rounded flex gap-1 items-center">
-                            <span>{h.from?fD(h.from):'?'}</span><span className="text-slate-300">〜</span><span>{h.to?fD(h.to):'現在'}</span>
-                            <span className="font-bold text-slate-700 ml-1">{h.value}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </details>
-                  )}
+                  {/* 履歴は「変更履歴」タブで確認 */}
                 </div>
               </div>
 
