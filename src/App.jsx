@@ -16568,17 +16568,14 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       return h;
     }).filter(Boolean);
     if(!htmlParts.length){ alert('印刷データが見つかりません。'); return; }
-    // B6 横 (182×128mm) ページ内に連絡帳 (元 182×257mm 縦) を縮小して縦向き中央配置
-    // scale 0.498 で 91×128mm = ページ高さに合うサイズに調整
+    // B5 縦 (182×257mm) ページに連絡帳を等倍で印刷 (ネイティブサイズ)
+    // 紙が B5/A4 どちらでも連絡帳がフルサイズで表示される
     const combinedHtml = htmlParts.map((h,i)=>
-      `<div style="page-break-after:${i < htmlParts.length-1 ? 'always' : 'auto'};width:182mm;height:128mm;display:flex;justify-content:center;align-items:center;overflow:hidden;position:relative;">
-        <div style="transform:scale(0.498);transform-origin:center center;width:182mm;height:257mm;">${h}</div>
-      </div>`
+      `<div style="page-break-after:${i < htmlParts.length-1 ? 'always' : 'auto'};width:182mm;height:257mm;overflow:hidden;">${h}</div>`
     ).join('');
-    // プレビューモーダルへ — B6 横で送る
-    if(onShowPrintPreview) onShowPrintPreview(title, '182mm 128mm', null);
+    if(onShowPrintPreview) onShowPrintPreview(title, '182mm 257mm', null);
     setTimeout(()=>{
-      window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'182mm 128mm',html:combinedHtml}}));
+      window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'182mm 257mm',html:combinedHtml}}));
     },50);
   };
   const handleSaveConfig = (newConfig) => { markClean(); onSave({ ...appData, contactBookConfig: newConfig }); setIsConfigOpen(false); };
@@ -16991,7 +16988,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
 
           {/* 次回お迎え時間 + QR */}
           <div className="border-2 border-black bg-white flex items-center px-3 mb-1 shrink-0 gap-2" style={{paddingTop:'2px', paddingBottom:'2px', minHeight:0}}>
-            <div className="flex-1 flex flex-nowrap items-center gap-x-2 min-w-0 overflow-hidden">
+            <div className="flex-1 flex flex-nowrap items-center gap-x-2 min-w-0">
               <span style={{fontSize:18,fontWeight:"bold",whiteSpace:"nowrap",color:"#475569",flexShrink:0}}>次回お迎え時間</span>
               {(() => {
                 // 日付: 数字は30px, 「月」「日」のみ20px、括弧内の曜日は30px (数字と同じ)
@@ -17017,27 +17014,31 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                 const renderTime = (str) => {
                   if (!str) return null;
                   // "　時　分" or "9時15分" or "9時　　分"
-                  // 分は3文字分 (全角3つ = 約90px) のスペースを確保して見切れ防止
-                  const t = str.replace(/^0/, "");
-                  const mTime = t.match(/^(.*?)時(.*)分$/);
+                  // 表示形式: 数値 半角SP 時 半角SP 数値 半角SP 分 / 数値無は 2 文字分の空白
+                  const mTime = str.match(/^(.*?)時(.*)分$/);
+                  let h = '', m = '';
                   if (mTime) {
-                    const h = mTime[1] || '　　';
-                    const m = mTime[2] || '';
-                    const mBlank = !m || /^[\s　]+$/.test(m);  // 分が全角/半角空白のみ
-                    // 分エリアは常に固定幅 (inline-block で 3文字分 = 90px)
-                    const minuteBoxStyle = {
-                      fontSize:30, fontWeight:"bold", lineHeight:1.1,
-                      display:'inline-block', minWidth:'2.4em', textAlign:'right',
-                      color: mBlank ? '#cbd5e1' : '#1e293b'
-                    };
-                    return <>
-                      <span style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{h}</span>
-                      <span style={{fontSize:20, fontWeight:"bold", lineHeight:1.1, marginLeft:'0.25em', marginRight:'0.25em'}}>時</span>
-                      <span style={{...minuteBoxStyle, textAlign: mBlank?'center':'left'}}>{mBlank ? '  ' : m}</span>
-                      <span style={{fontSize:20, fontWeight:"bold", lineHeight:1.1, marginLeft:'0.25em'}}>分</span>
-                    </>;
+                    h = (mTime[1] || '').replace(/[\s　]/g, '');
+                    m = (mTime[2] || '').replace(/[\s　]/g, '');
                   }
-                  return <span style={{fontSize:30, fontWeight:"bold"}}>{t}</span>;
+                  const hBlank = !h;
+                  const mBlank = !m;
+                  const numStyle = (blank) => ({
+                    fontSize:30, fontWeight:'bold', lineHeight:1.1,
+                    display:'inline-block', minWidth:'2ch', textAlign:'right',
+                    color: blank ? '#cbd5e1' : '#1e293b',
+                    fontVariantNumeric:'tabular-nums'
+                  });
+                  const labelStyle = { fontSize:20, fontWeight:'bold', lineHeight:1.1 };
+                  return <span style={{whiteSpace:'pre'}}>
+                    <span style={numStyle(hBlank)}>{hBlank ? '  ' : h.padStart(2, ' ')}</span>
+                    {' '}
+                    <span style={labelStyle}>時</span>
+                    {' '}
+                    <span style={numStyle(mBlank)}>{mBlank ? '  ' : m.padStart(2, '0')}</span>
+                    {' '}
+                    <span style={labelStyle}>分</span>
+                  </span>;
                 };
                 return <>
                   <span style={{whiteSpace:"nowrap"}}>{renderDate(nextDateDisplay)}</span>
