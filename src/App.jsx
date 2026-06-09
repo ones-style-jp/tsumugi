@@ -9830,9 +9830,13 @@ function FamilyView() {
   const [authPid, setAuthPid] = useState(()=> sessionStorage.getItem('familyAuthPid') || null);
   const [authAccId, setAuthAccId] = useState(()=> sessionStorage.getItem('familyAuthAccId') || null);
   const [loginForm, setLoginForm] = useState({ username:'', password:'', error:'', showPw:false });
-  const [mode, setMode] = useState('login'); // 'login' | 'signup'
+  // URL ?invite=XXX があれば自動で新規登録モード + 招待コード自動設定
+  const _urlInvite = (() => {
+    try { return new URLSearchParams(window.location.search).get('invite') || ''; } catch { return ''; }
+  })();
+  const [mode, setMode] = useState(_urlInvite ? 'signup' : 'login'); // 'login' | 'signup'
   const [signupForm, setSignupForm] = useState({
-    inviteCode:'', username:'', password:'', password2:'',
+    inviteCode: _urlInvite || '', username:'', password:'', password2:'',
     email:'',  // 共通メールアドレス (家族アカウント + 緊急連絡先 両方に反映)
     // 緊急連絡先 (利用者マスタの emergencyContacts に自動反映)
     ecName:'',
@@ -10024,10 +10028,17 @@ function FamilyView() {
                   const invite = (latest.familyInvites||[]).find(i => i.code === code);
                   if (!invite) { setSignupForm(f=>({...f, error:'招待コードが見つかりません。事業所までお問い合わせください'})); return; }
                   if (invite.usedBy) { setSignupForm(f=>({...f, error:'この招待コードは既に使用されています'})); return; }
+                  // 期限切れチェック
+                  if (invite.expiresAt && new Date(invite.expiresAt) < new Date()) {
+                    setSignupForm(f=>({...f, error:'招待の有効期限が切れています。事業所にお問い合わせください'})); return;
+                  }
                   // 3. ID重複チェック
                   const exists = (latest.familyAccounts||[]).some(a => (a.username||'').toLowerCase() === uname.toLowerCase());
                   if (exists) { setSignupForm(f=>({...f, error:'このIDは既に使用されています'})); return; }
                   // 4. アカウント作成 + 招待コードを使用済みに + 利用者の緊急連絡先に追加
+                  // 既存の家族アカウント (同一利用者) の有無で parent/child を決定
+                  const existingFamilyForPat = (latest.familyAccounts||[]).filter(a => a.patientId === invite.patientId && a.kind === 'family');
+                  const accRole = isCaremanager ? 'caremanager' : (existingFamilyForPat.length === 0 ? 'parent' : 'child');
                   const newAccId = `${isCaremanager?'cm':'fam'}_${Date.now()}`;
                   const newAcc = {
                     id: newAccId,
@@ -10035,10 +10046,12 @@ function FamilyView() {
                     username: uname,
                     password: pw,
                     kind: isCaremanager ? 'caremanager' : 'family',
+                    role: accRole,           // 'parent' | 'child' | 'caremanager'
                     relation: ecRelation,
-                    displayName: ecName,  // 表示用には登録名そのまま
+                    displayName: ecName,
                     email: email,
                     createdAt: new Date().toISOString().slice(0,10),
+                    invitedByAccountId: invite.createdByAccountId || null, // 親招待の場合
                   };
                   const newEmergencyContact = {
                     name: ecName,
@@ -19263,11 +19276,11 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   <div className="text-lg font-bold text-slate-800">{pat.name} 様 {pat.kana && <span className="text-xs text-slate-400 font-normal ml-1">（{pat.kana}）</span>}</div>
                   <div className="text-[10px] text-slate-500 mt-1">利用者ID: {pat.id}</div>
                 </div>
-                {/* 家族登録用 招待コード (使い捨て・1コード=1人) */}
+                {/* 家族登録用 招待 (メール招待 or 招待コード手渡し) */}
                 {(() => {
                   const invitesForPat = (appData.familyInvites || []).filter(i => i.patientId === pat.id).sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
-                  const issueNewInvite = () => {
-                    // 全体で重複しないコードを生成 (極めて低確率だが念のため)
+                  const baseUrlLocal = typeof window !== 'undefined' ? (window.location.origin + window.location.pathname.replace(/\/+$/, '')) : '';
+                  const issueNewInvite = (opts = {}) => {
                     const existingCodes = new Set((appData.familyInvites||[]).map(i => i.code));
                     let code = generateOneTimeInviteCode();
                     let retry = 0;
@@ -19279,44 +19292,80 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                       createdAt: new Date().toISOString(),
                       usedBy: null,
                       usedAt: null,
+                      email: opts.email || '',
+                      relation: opts.relation || '',
+                      note: opts.note || '',
+                      expiresAt: opts.expiresAt || new Date(Date.now() + 14*24*60*60*1000).toISOString(),
                     };
                     onSave({...appData, familyInvites: [...(appData.familyInvites||[]), newInvite]});
+                    return newInvite;
+                  };
+                  const sendMailInvite = () => {
+                    const email = window.prompt(`${pat.name} 様のご家族に送る招待メールアドレスを入力してください:`);
+                    if (!email) return;
+                    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { alert('メールアドレスの形式が正しくありません'); return; }
+                    const relation = window.prompt('続柄を入力してください (例: 配偶者、長男、長女、ケアマネージャー など。空欄可):') || '';
+                    const inv = issueNewInvite({ email: email.trim(), relation: relation.trim() });
+                    const inviteUrl = `${baseUrlLocal}/?family&invite=${encodeURIComponent(inv.code)}`;
+                    const subject = `【${(appData.systemSettings?.facilityInfo?.name)||'デイサービス'}】ご家族専用ページのご招待`;
+                    const body = `${pat.name} 様のご家族のみなさま\n\n下記URLからご家族専用ページにご登録ください (有効期限 14日)\n\n${inviteUrl}\n\n※このメールは ${(appData.systemSettings?.facilityInfo?.name)||''} よりお送りしています。\n※心当たりがない場合は破棄してください。`;
+                    // mailto で既定のメールクライアントを開く (Brevo SMTP 経由は将来対応予定)
+                    window.location.href = `mailto:${encodeURIComponent(email.trim())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+                  };
+                  const copyInviteUrl = (inv) => {
+                    const url = `${baseUrlLocal}/?family&invite=${encodeURIComponent(inv.code)}`;
+                    navigator.clipboard?.writeText(url);
+                    setShowToast(true);
                   };
                   const deleteInvite = (invId) => {
-                    if (!window.confirm('この招待コードを削除しますか？\n未使用の場合は使用できなくなります。')) return;
+                    if (!window.confirm('この招待を削除しますか？\n未使用の場合は使用できなくなります。')) return;
                     onSave({...appData, familyInvites: (appData.familyInvites||[]).filter(i => i.id !== invId)});
                   };
                   return (
                     <div className="bg-amber-50 border border-amber-300 rounded-xl p-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="text-xs font-bold text-amber-800">📩 家族登録用 招待コード（使い捨て）</div>
-                        <button onClick={issueNewInvite} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow active:scale-95"><Plus size={12}/>新規発行</button>
+                      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                        <div className="text-xs font-bold text-amber-800">📩 家族登録用 招待 (使い捨て・1招待=1人)</div>
+                        <div className="flex gap-1">
+                          <button onClick={sendMailInvite} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow active:scale-95">📧 メール招待</button>
+                          <button onClick={()=>issueNewInvite()} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow active:scale-95"><Plus size={12}/>コード発行</button>
+                        </div>
                       </div>
                       <div className="text-[10px] text-amber-700 mb-2 leading-relaxed">
-                        1コード = 1人のみ登録可能。ご家族に伝えるとログイン画面の「新規登録」から使えます。
+                        📧 メール招待: ご家族のメールに招待URLを送ります (推奨)<br/>
+                        + コード発行: 対面で招待コードを伝える場合 (URLは家族の操作で要入力)
                       </div>
                       {invitesForPat.length === 0 ? (
-                        <div className="text-[11px] text-amber-700 text-center py-3 bg-white/40 rounded-lg">未発行（「+ 新規発行」を押してください）</div>
+                        <div className="text-[11px] text-amber-700 text-center py-3 bg-white/40 rounded-lg">未発行</div>
                       ) : (
                         <div className="space-y-1.5">
                           {invitesForPat.map(inv => {
                             const usedAcc = inv.usedBy ? (appData.familyAccounts||[]).find(a => a.id === inv.usedBy) : null;
+                            const isExpired = inv.expiresAt && new Date(inv.expiresAt) < new Date() && !inv.usedBy;
                             return (
-                              <div key={inv.id} className="flex items-center justify-between gap-2 bg-white border border-amber-200 rounded-lg px-3 py-2">
+                              <div key={inv.id} className={`flex items-center justify-between gap-2 bg-white border ${isExpired?'border-red-200 opacity-70':'border-amber-200'} rounded-lg px-3 py-2`}>
                                 <div className="flex-1 min-w-0">
-                                  <div className="text-base font-bold text-amber-900 tracking-wider" style={{fontFamily:'Menlo,monospace'}}>{inv.code}</div>
-                                  <div className="text-[9px] text-amber-700">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <div className="text-sm font-bold text-amber-900 tracking-wider" style={{fontFamily:'Menlo,monospace'}}>{inv.code}</div>
+                                    {inv.email && <div className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">📧 {inv.email}</div>}
+                                    {inv.relation && <div className="text-[10px] font-bold text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded">{inv.relation}</div>}
+                                  </div>
+                                  <div className="text-[9px] text-amber-700 mt-0.5">
                                     発行: {new Date(inv.createdAt).toLocaleString('ja-JP',{year:'2-digit',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
                                     {inv.usedBy ? (
                                       <span className="ml-2 text-emerald-700 font-bold">✓ 使用済 {usedAcc?.username ? `(${usedAcc.username})` : ''}</span>
+                                    ) : isExpired ? (
+                                      <span className="ml-2 text-red-600 font-bold">⚠ 期限切れ</span>
                                     ) : (
                                       <span className="ml-2 text-amber-700 font-bold">● 未使用</span>
                                     )}
                                   </div>
                                 </div>
                                 <div className="flex gap-1 shrink-0">
-                                  {!inv.usedBy && (
-                                    <button onClick={()=>{navigator.clipboard?.writeText(inv.code); setShowToast(true);}} className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-700 rounded text-[10px] font-bold">コピー</button>
+                                  {!inv.usedBy && !isExpired && (
+                                    <>
+                                      <button onClick={()=>copyInviteUrl(inv)} className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[10px] font-bold" title="招待URLをコピー">🔗 URL</button>
+                                      <button onClick={()=>{navigator.clipboard?.writeText(inv.code); setShowToast(true);}} className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-700 rounded text-[10px] font-bold">コード</button>
+                                    </>
                                   )}
                                   <button onClick={()=>deleteInvite(inv.id)} className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[10px] font-bold">削除</button>
                                 </div>
@@ -19370,9 +19419,12 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                                     <input value={acc.username} disabled={!isEditing} onChange={e=>updateField(acc.id,'username',toHalfWidth(e.target.value))} className={`w-full px-2 py-1 border rounded text-xs font-mono outline-none ${isEditing?'bg-white border-slate-300 focus:border-blue-400':'bg-slate-50 border-slate-100 text-slate-600 cursor-not-allowed'}`}/>
                                   </div>
                                   <div className="col-span-3">
-                                    <div className="text-[10px] font-bold text-slate-400">パスワード</div>
+                                    <div className="text-[10px] font-bold text-slate-400">パスワード <span className="text-slate-300 font-normal">(伏字)</span></div>
                                     <div className="flex gap-1">
-                                      <input value={acc.password} disabled={!isEditing} onChange={e=>updateField(acc.id,'password',toHalfWidth(e.target.value))} className={`flex-1 px-2 py-1 border rounded text-xs font-mono outline-none ${isEditing?'bg-white border-slate-300 focus:border-blue-400':'bg-slate-50 border-slate-100 text-slate-600 cursor-not-allowed'}`}/>
+                                      {/* 個人情報保護のため伏字表示 - 編集モード時のみ再発行可能 */}
+                                      <div className={`flex-1 px-2 py-1 border rounded text-xs font-mono ${isEditing?'bg-amber-50 border-amber-300 text-amber-700':'bg-slate-50 border-slate-100 text-slate-400'}`}>
+                                        {acc.password ? '••••••••' : '—'}
+                                      </div>
                                       <button onClick={()=>{if(!isEditing){alert('「編集」ボタンを押してから再発行してください');return;} if(!window.confirm('パスワードを再発行します。ご家族は新しいパスワードでログインし直しが必要になります。よろしいですか？'))return; resetPw(acc.id);}} className={`px-2 py-1 text-[10px] font-bold rounded whitespace-nowrap ${isEditing?'bg-amber-100 hover:bg-amber-200 text-amber-700':'bg-slate-100 text-slate-300 cursor-not-allowed'}`} title={isEditing?'パスワード再発行':'編集モード時のみ有効'}>⟳</button>
                                     </div>
                                   </div>
@@ -19383,7 +19435,11 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                                       {acc.relation && (
                                         <span className={`ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded ${isCm?'bg-teal-100 text-teal-700':'bg-violet-100 text-violet-700'}`}>{acc.relation}</span>
                                       )}
+                                      {acc.role === 'parent' && (
+                                        <span className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">👑 親アカウント</span>
+                                      )}
                                     </div>
+                                    {acc.email && <div className="text-[10px] text-slate-500 mt-0.5 truncate">📧 {acc.email}</div>}
                                   </div>
                                   <div className="col-span-1 flex flex-col gap-1">
                                     {isEditing ? (
