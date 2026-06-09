@@ -10852,7 +10852,7 @@ export default function App() {
             if(!printPreviewContent.html) return;
             const styles = getStyles();
             const w = window.open('','_blank','width=900,height=700');
-            w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${printPreviewContent.title}</title>${styles}<style>*{box-sizing:border-box;}html,body{margin:0;padding:0;background:white;width:${pageW}mm;height:auto;-webkit-print-color-adjust:exact;print-color-adjust:exact;overflow:visible;}svg{overflow:visible!important;max-width:none!important;}@page{size:${pageW}mm ${pageH}mm;margin:0;}@media print{html,body{width:${pageW}mm;height:auto;overflow:hidden;margin:0!important;padding:0!important;}body>*{margin:0!important;padding:0!important;}body>*>*+*{margin-top:0!important;}.no-print,.thp,.page-sep{display:none!important;}.tp{page-break-inside:avoid;break-inside:avoid;}.tp:not(:last-child){page-break-after:always!important;break-after:page!important;}.tp:last-child{page-break-after:avoid!important;break-after:avoid!important;}[data-page-break]{page-break-before:always;break-before:page;}}</style></head><body>${printPreviewContent.html}</body></html>`);
+            w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${printPreviewContent.title}</title>${styles}<style>*{box-sizing:border-box;}html,body{margin:0;padding:0;background:white;width:${pageW}mm;height:auto;-webkit-print-color-adjust:exact;print-color-adjust:exact;overflow:visible;}svg{overflow:visible!important;max-width:none!important;}@page{size:${pageW}mm ${pageH}mm;margin:0;}*{box-shadow:none!important;outline:none!important;--tw-ring-shadow:0 0 transparent!important;--tw-ring-color:transparent!important;--tw-ring-offset-shadow:0 0 transparent!important;}@media print{html,body{width:${pageW}mm;height:auto;overflow:hidden;margin:0!important;padding:0!important;}body>*{margin:0!important;padding:0!important;}body>*>*+*{margin-top:0!important;}.no-print,.thp,.page-sep{display:none!important;}.tp{page-break-inside:avoid;break-inside:avoid;}.tp:not(:last-child){page-break-after:always!important;break-after:page!important;}.tp:last-child{page-break-after:avoid!important;break-after:avoid!important;}[data-page-break]{page-break-before:always;break-before:page;}}</style></head><body>${printPreviewContent.html}</body></html>`);
             w.document.close();
             setTimeout(()=>{ w.focus(); w.print(); if(autoClose) setTimeout(()=>w.close(),1000); }, 800);
           };
@@ -11071,9 +11071,28 @@ export default function App() {
               <CloudUpload size={28} />
             </div>
             <h3 className="text-lg font-bold text-slate-800 text-center mb-2">⚠️ 未保存のデータがあります</h3>
-            <p className="text-sm text-slate-500 text-center mb-1">保存ボタンを押さずに移動すると、</p>
-            <p className="text-sm font-bold text-red-500 text-center mb-6">入力したデータが消えます。</p>
+            <p className="text-sm text-slate-500 text-center mb-6">保存しますか？</p>
             <div className="flex flex-col gap-2">
+              <button onClick={() => {
+                // 各 View の保存関数を実行 (ある場合のみ)
+                try { recordSaveFnRef.current && recordSaveFnRef.current(); } catch(_){}
+                try { masterSaveFnRef.current && masterSaveFnRef.current(); } catch(_){}
+                try { monitoringSaveFnRef.current && monitoringSaveFnRef.current(); } catch(_){}
+                recordDirtyRef.current = false;
+                masterDirtyRef.current = false;
+                settingsDirtyRef.current = false;
+                printDirtyRef.current = false;
+                fitnessDirtyRef.current = false;
+                diaryDirtyRef.current = false;
+                monitoringDirtyRef.current = false;
+                ticketDirtyRef.current = false;
+                absenceDirtyRef.current = false;
+                if (navConfirm.patientId) setTargetPatientId(navConfirm.patientId);
+                setCurrentView(navConfirm.view);
+                setNavConfirm(null);
+              }} className="w-full py-3 rounded-xl text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 active:scale-95">
+                保存する
+              </button>
               <button onClick={() => {
                 recordDirtyRef.current = false;
                 masterDirtyRef.current = false;
@@ -11087,12 +11106,8 @@ export default function App() {
                 if (navConfirm.patientId) setTargetPatientId(navConfirm.patientId);
                 setCurrentView(navConfirm.view);
                 setNavConfirm(null);
-              }} className="w-full py-3 rounded-xl text-sm font-bold bg-red-500 text-white hover:bg-red-600 active:scale-95">
-                保存せずに移動（データ消去）
-              </button>
-              <button onClick={() => setNavConfirm(null)}
-                className="w-full py-3 rounded-xl text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 active:scale-95">
-                戻って保存する
+              }} className="w-full py-3 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 active:scale-95">
+                保存せずに移動
               </button>
             </div>
           </div>
@@ -11933,18 +11948,18 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                   </td>
                   <td className={`px-1 py-3 border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`}>
                     <div className="flex items-center justify-center gap-1">
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpUpSt || ""} onClick={() => { openKeypad(p.id, 'bpUpSt', p.bpUpSt, isAbsent); setActiveCell(`${p.id}-bpUpSt`); }} style={{width:64,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpSt, p.bpDnSt)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpUpSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpUpSt || ""} onClick={() => { openKeypad(p.id, 'bpUpSt', p.bpUpSt, isAbsent); setActiveCell(`${p.id}-bpUpSt`); }} style={{flex:1,minWidth:0,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpSt, p.bpDnSt)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpUpSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
                       <span className="text-slate-300">/</span>
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpDnSt || ""} onClick={() => { openKeypad(p.id, 'bpDnSt', p.bpDnSt, isAbsent); setActiveCell(`${p.id}-bpDnSt`); }} style={{width:64,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpSt, p.bpDnSt)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpDnSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.plSt || ""} onClick={() => { openKeypad(p.id, 'plSt', p.plSt, isAbsent); setActiveCell(`${p.id}-plSt`); }} style={{fontSize:14,padding:'3px 1px',width:36}} className={`border rounded-lg text-center cursor-pointer ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(p.plSt, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-plSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpDnSt || ""} onClick={() => { openKeypad(p.id, 'bpDnSt', p.bpDnSt, isAbsent); setActiveCell(`${p.id}-bpDnSt`); }} style={{flex:1,minWidth:0,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpSt, p.bpDnSt)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpDnSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.plSt || ""} onClick={() => { openKeypad(p.id, 'plSt', p.plSt, isAbsent); setActiveCell(`${p.id}-plSt`); }} style={{fontSize:14,padding:'3px 1px',flex:1,minWidth:0}} className={`border rounded-lg text-center cursor-pointer ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(p.plSt, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-plSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
                     </div>
                   </td>
                   <td className={`px-1 py-3 border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`}>
                     <div className="flex items-center justify-center gap-1">
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpUpEn || ""} onClick={() => { openKeypad(p.id, 'bpUpEn', p.bpUpEn, isAbsent); setActiveCell(`${p.id}-bpUpEn`); }} style={{width:64,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpEn, p.bpDnEn)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpUpEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpUpEn || ""} onClick={() => { openKeypad(p.id, 'bpUpEn', p.bpUpEn, isAbsent); setActiveCell(`${p.id}-bpUpEn`); }} style={{flex:1,minWidth:0,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpEn, p.bpDnEn)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpUpEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
                       <span className="text-slate-300">/</span>
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpDnEn || ""} onClick={() => { openKeypad(p.id, 'bpDnEn', p.bpDnEn, isAbsent); setActiveCell(`${p.id}-bpDnEn`); }} style={{width:64,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpEn, p.bpDnEn)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpDnEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.plEn || ""} onClick={() => { openKeypad(p.id, 'plEn', p.plEn, isAbsent); setActiveCell(`${p.id}-plEn`); }} style={{fontSize:14,padding:'3px 1px',width:36}} className={`border rounded-lg text-center cursor-pointer ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(p.plEn, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-plEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpDnEn || ""} onClick={() => { openKeypad(p.id, 'bpDnEn', p.bpDnEn, isAbsent); setActiveCell(`${p.id}-bpDnEn`); }} style={{flex:1,minWidth:0,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpEn, p.bpDnEn)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpDnEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.plEn || ""} onClick={() => { openKeypad(p.id, 'plEn', p.plEn, isAbsent); setActiveCell(`${p.id}-plEn`); }} style={{fontSize:14,padding:'3px 1px',flex:1,minWidth:0}} className={`border rounded-lg text-center cursor-pointer ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(p.plEn, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-plEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
                     </div>
                   </td>
 
@@ -16489,11 +16504,17 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       return true;
     }) : recs;
 
-    // 並び順は RecordView と一致させるため、appData.patients の出現順を踏襲する
+    // RecordView と並び順を一致させる: 出席→振替→欠席→休止→休業→その他, 同ステータス内は kana 順
+    const rank = (s) => s === '出席' ? 0 : s === '振替' ? 1 : s === '欠席' ? 2 : s === '休止' ? 3 : s === '休業' ? 4 : 5;
+    const kanaOf = (r) => {
+      const pid = r.patientId;
+      const p = appData.patients.find(p => p.id === pid);
+      return p?.kana || '';
+    };
     return [...filteredRecs, ...extraPats].sort((a,b)=>{
-      const ia = appData.patients.findIndex(p => p.id === a.patientId);
-      const ib = appData.patients.findIndex(p => p.id === b.patientId);
-      return (ia === -1 ? 1e9 : ia) - (ib === -1 ? 1e9 : ib);
+      const rdiff = rank(a.status) - rank(b.status);
+      if (rdiff !== 0) return rdiff;
+      return kanaOf(a).localeCompare(kanaOf(b), 'ja');
     });
   }, [appData.ticketRecords, appData.patients, appData.monthlyShifts, targetDateStr, selectedDate, sharedAmpm]);
 
@@ -16568,11 +16589,10 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       return h;
     }).filter(Boolean);
     if(!htmlParts.length){ alert('印刷データが見つかりません。'); return; }
-    // B5 横 (257×182mm) ページ内に連絡帳 (182×257mm 縦) を高さに合わせて中央配置
-    // scale 0.708 で 128.9×181.9mm (B6 縦サイズ相当) になる
+    // B5 横 (257×182mm) ページ内に連絡帳 (182×257mm 縦) を中央配置 (微縮小)
     const combinedHtml = htmlParts.map((h,i)=>
       `<div style="page-break-after:${i < htmlParts.length-1 ? 'always' : 'auto'};width:257mm;height:182mm;display:flex;justify-content:center;align-items:center;overflow:hidden;">
-        <div style="transform:scale(0.708);transform-origin:center center;width:182mm;height:257mm;flex-shrink:0;">${h}</div>
+        <div style="transform:scale(0.68);transform-origin:center center;width:182mm;height:257mm;flex-shrink:0;">${h}</div>
       </div>`
     ).join('');
     if(onShowPrintPreview) onShowPrintPreview(title, '257mm 182mm', null);
@@ -16674,7 +16694,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
 
   return (
     <div className="h-full overflow-auto w-full bg-slate-200 relative">
-      <style>{`@media print{@page{size:182mm 257mm;margin:0;}body,html,#root{height:auto!important;overflow:visible!important;background:white!important;}.no-print{display:none!important;}.cb-page{border:0!important;box-shadow:none!important;}}`}</style>
+      <style>{`@media print{@page{size:182mm 257mm;margin:0;}body,html,#root{height:auto!important;overflow:visible!important;background:white!important;}.no-print{display:none!important;}.cb-page{border:0!important;box-shadow:none!important;}.cb-page *{box-shadow:none!important;outline:none!important;--tw-ring-shadow:0 0 transparent!important;--tw-ring-color:transparent!important;--tw-ring-offset-shadow:0 0 transparent!important;}}`}</style>
       {/* ツールバー: 横いっぱい・浮かさず上部に固定 */}
       <div className="bg-white px-6 py-3 border-b border-slate-200 flex flex-row items-center gap-3 sticky top-0 z-30 flex-wrap shadow-sm">
         <div className="flex items-center bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 shrink-0">
@@ -16910,45 +16930,44 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
             <div className="text-2xl font-bold tracking-widest">{dateStr}</div>
           </div>
 
-          {/* バイタル（行高・フォント大きめ） */}
+          {/* バイタル（行高・フォント大きめ） — 1.2倍に拡大 */}
           <table className="w-full border-collapse border-2 border-black text-center font-bold table-fixed bg-white shrink-0" style={{marginBottom:'20px'}}>
               <colgroup><col style={{width:"25%"}}/><col style={{width:"75%"}}/></colgroup>
             <tbody>
-              <tr className="border-b border-black h-12">
+              <tr className="border-b border-black" style={{height:'3.6rem'}}>
                 <td className="p-0" colSpan={2}>
                   <div className="flex items-center h-full px-3">
-                    <span className="font-normal" style={{fontSize:15,marginRight:'0.4em'}}>体温</span>
-                    {/* 固定幅 + 右寄せにして、未入力時でも ℃ の位置が動かないようにする */}
-                    <span className="font-bold" style={{fontSize:24,display:'inline-block',minWidth:'2.8em',textAlign:'right',fontVariantNumeric:'tabular-nums'}}>{record.temp || ''}</span>
-                    <span className="font-normal" style={{fontSize:14,marginLeft:'0.15em'}}>℃</span>
-                    <span style={{display:'inline-block', width:'4em', fontSize:15}} />
-                    <span style={{fontSize:24}}>　</span>
+                    <span className="font-normal" style={{fontSize:18,marginRight:'0.4em'}}>体温</span>
+                    <span className="font-bold" style={{fontSize:29,display:'inline-block',minWidth:'2.8em',textAlign:'right',fontVariantNumeric:'tabular-nums'}}>{record.temp || ''}</span>
+                    <span className="font-normal" style={{fontSize:17,marginLeft:'0.15em'}}>℃</span>
+                    <span style={{display:'inline-block', width:'4em', fontSize:18}} />
+                    <span style={{fontSize:29}}>　</span>
                     <table style={{borderCollapse:'collapse', flex:'none'}}>
                       <tbody>
                         <tr>
-                          <td style={{fontSize:14, whiteSpace:'nowrap', paddingRight:4}}>開始時　血圧</td>
-                          <td style={{fontSize:24, fontWeight:'bold', whiteSpace:'nowrap', paddingRight:0, minWidth:'6em'}}>{record.bpUpSt ? `${record.bpUpSt} / ${record.bpDnSt}` : "　"}</td>
-                          <td style={{fontSize:14, whiteSpace:'nowrap', paddingLeft:24, paddingRight:26}}>脈拍</td>
-                          <td style={{fontSize:24, fontWeight:'bold', whiteSpace:'nowrap'}}>{record.plSt || "　"}</td>
+                          <td style={{fontSize:17, whiteSpace:'nowrap', paddingRight:4}}>開始時　血圧</td>
+                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap', paddingRight:0, minWidth:'6em'}}>{record.bpUpSt ? `${record.bpUpSt} / ${record.bpDnSt}` : "　"}</td>
+                          <td style={{fontSize:17, whiteSpace:'nowrap', paddingLeft:24, paddingRight:26}}>脈拍</td>
+                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap'}}>{record.plSt || "　"}</td>
                         </tr>
                       </tbody>
                     </table>
                   </div>
                 </td>
               </tr>
-              <tr className="h-12">
+              <tr style={{height:'3.6rem'}}>
                 <td className="p-0" colSpan={2}>
                   <div className="flex items-center h-full px-3">
-                    <span style={{fontSize:15, visibility:'hidden'}}>体温　00.0℃</span>
-                    <span style={{display:'inline-block', width:'4em', fontSize:15}} />
-                    <span style={{fontSize:24}}>　　</span>
+                    <span style={{fontSize:18, visibility:'hidden'}}>体温　00.0℃</span>
+                    <span style={{display:'inline-block', width:'4em', fontSize:18}} />
+                    <span style={{fontSize:29}}>　　</span>
                     <table style={{borderCollapse:'collapse', flex:'none'}}>
                       <tbody>
                         <tr>
-                          <td style={{fontSize:14, whiteSpace:'nowrap', paddingRight:4}}>終了時　血圧</td>
-                          <td style={{fontSize:24, fontWeight:'bold', whiteSpace:'nowrap', paddingRight:0, minWidth:'6em'}}>{record.bpUpEn ? `${record.bpUpEn} / ${record.bpDnEn}` : "　"}</td>
-                          <td style={{fontSize:14, whiteSpace:'nowrap', paddingLeft:24, paddingRight:26}}>脈拍</td>
-                          <td style={{fontSize:24, fontWeight:'bold', whiteSpace:'nowrap'}}>{record.plEn || "　"}</td>
+                          <td style={{fontSize:17, whiteSpace:'nowrap', paddingRight:4}}>終了時　血圧</td>
+                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap', paddingRight:0, minWidth:'6em'}}>{record.bpUpEn ? `${record.bpUpEn} / ${record.bpDnEn}` : "　"}</td>
+                          <td style={{fontSize:17, whiteSpace:'nowrap', paddingLeft:24, paddingRight:26}}>脈拍</td>
+                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap'}}>{record.plEn || "　"}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -16958,14 +16977,14 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
             </tbody>
           </table>
 
-          {/* 運動テーブル（flex-1・行を小さく） */}
-          <div className="mb-2 border-2 border-black overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all" style={{flexShrink:0}} onClick={onOpenConfig}>
-            <table className="w-full border-collapse text-center table-fixed h-full">
-              <tbody className="h-full">
+          {/* 運動テーブル（残りスペースをフルに使う、項目増えれば自動で行が縮む） */}
+          <div className="mb-2 border-2 border-black overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all" style={{flex:'1 1 0', minHeight:0}} onClick={onOpenConfig}>
+            <table className="w-full border-collapse text-center table-fixed" style={{height:'100%'}}>
+              <tbody>
                 {rows.map((row, idx) => {
                   const cellCls = (item) => `text-black ${item && item.perPatient && item.type !== 'linked' && onEditPatientValue ? 'cursor-pointer hover:bg-violet-50 transition-colors' : ''}`;
                   return (
-                  <tr key={idx} className={idx !== rows.length - 1 ? "border-b border-black" : ""} style={{height:'22px'}}>
+                  <tr key={idx} className={idx !== rows.length - 1 ? "border-b border-black" : ""}>
                     <th className="border-r border-black w-[30%] bg-white px-1" style={{fontWeight:"normal",fontSize:12}}>{row[0].label}</th>
                     <td className={`border-r-2 border-black w-[20%] ${cellCls(row[0])}`} style={{fontWeight:"bold",fontSize:20}} onClick={e=>handleCellClick(row[0], e)}>{renderItemValue(row[0])}</td>
                     {row[1]
@@ -16978,15 +16997,15 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
             </table>
           </div>
 
-          <div style={{height:"36px",flexShrink:0}} />
-          {/* ご家族からの連絡欄（10行・下線なし） */}
-          <div className="border-2 border-black bg-white mb-2 shrink-0" style={{height:'15rem'}}>
+          <div style={{height:"18px",flexShrink:0}} />
+          {/* ご家族からの連絡欄 — 高さを 2/3 (15rem → 10rem) に縮小 */}
+          <div className="border-2 border-black bg-white mb-2 shrink-0" style={{height:'10rem'}}>
             <div className="px-2 py-0.5 border-b border-slate-400 bg-white">
               <span className="font-bold text-[11px] text-slate-800">ご家族からの連絡欄</span>
             </div>
           </div>
 
-          <div style={{height:'27px', flexShrink:0}} />
+          <div style={{height:'13px', flexShrink:0}} />
 
           {/* 次回お迎え時間 + QR */}
           <div className="border-2 border-black bg-white flex items-center px-3 mb-1 shrink-0 gap-2" style={{paddingTop:'2px', paddingBottom:'2px', minHeight:0}}>
