@@ -10692,7 +10692,7 @@ export default function App() {
   }
   if (!session) {
     return (
-      <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#8b6db3 0%,#b89dd1 50%,#8b6db3 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#f4f8ed 0%,#fafdf2 50%,#f0f4e8 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
         <div style={{width:'100%',maxWidth:400}}>
           {/* ロゴ v23: 四つ葉クローバー (X字+rotate(-60)) + 丸ゴ + 明るい緑 */}
           <div style={{textAlign:'center',marginBottom:28}}>
@@ -10720,40 +10720,40 @@ export default function App() {
                   <circle cx="0" cy="0" r="4" fill="#fbbf24"/>
                 </g>
               </g>
-              {/* テキスト: 丸ゴ */}
-              <text x="100" y="50" fontFamily="'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif" fontSize="40" fill="#fff" fontWeight="700" letterSpacing="3">紡ぎ</text>
-              <text x="102" y="73" fontFamily="'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif" fontSize="17" fill="#fff8e7" fontWeight="500" letterSpacing="6">Tsumugi</text>
-              <text x="102" y="98" fontFamily="'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif" fontSize="11" fill="#fff8e7" fontWeight="400" letterSpacing="2" opacity="0.85">家族と現場を結ぶ、デイサービス管理</text>
+              {/* テキスト: 丸ゴ (白背景で映える深緑) */}
+              <text x="100" y="50" fontFamily="'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif" fontSize="40" fill="#3d5021" fontWeight="700" letterSpacing="3">紡ぎ</text>
+              <text x="102" y="73" fontFamily="'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif" fontSize="17" fill="#7daa3d" fontWeight="500" letterSpacing="6">Tsumugi</text>
+              <text x="102" y="98" fontFamily="'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif" fontSize="11" fill="#5e8030" fontWeight="400" letterSpacing="2" opacity="0.9">家族と現場を結ぶ、デイサービス管理</text>
             </svg>
           </div>
 
-          {/* ログインカード (和モダンテーマ: クリーム白 + 紫アクセント + 金ボタン枠) */}
-          <div style={{background:'#fefcf7',borderRadius:18,padding:32,boxShadow:'0 20px 60px rgba(60,30,80,0.35)',borderTop:'3px solid #c9a961',position:'relative'}}>
-            <h2 style={{fontSize:17,fontWeight:500,color:'#4a3559',marginBottom:22,textAlign:'center',fontFamily:"'Hiragino Mincho ProN','Yu Mincho',serif",letterSpacing:'4px'}}>事業所ログイン</h2>
+          {/* ログインカード: 白基調 + 緑アクセント */}
+          <div style={{background:'#fff',borderRadius:18,padding:32,boxShadow:'0 12px 40px rgba(94,128,48,0.15)',borderTop:'3px solid #94c456',position:'relative'}}>
+            <h2 style={{fontSize:17,fontWeight:600,color:'#3d5021',marginBottom:22,textAlign:'center',fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif",letterSpacing:'4px'}}>事業所ログイン</h2>
             <form onSubmit={handleLogin}>
               <div style={{marginBottom:16}}>
-                <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#7551a3',marginBottom:6,letterSpacing:'1px'}}>ログインID</label>
+                <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#5e8030',marginBottom:6,letterSpacing:'1px'}}>ログインID</label>
                 <input value={loginForm.id} onChange={e=>setLoginForm(f=>({...f,id:toHalfWidth(e.target.value),error:''}))}
                   placeholder="例: hikari-ogi"
-                  style={{width:'100%',padding:'12px 14px',border:'1px solid #e8dff3',background:'#fdfbf6',borderRadius:10,fontSize:14,fontWeight:'bold',color:'#4a3559',outline:'none',boxSizing:'border-box'}}/>
+                  style={{width:'100%',padding:'12px 14px',border:'1px solid #d4e7a5',background:'#fdfdf3',borderRadius:10,fontSize:14,fontWeight:'bold',color:'#3d5021',outline:'none',boxSizing:'border-box'}}/>
               </div>
               <div style={{marginBottom:8}}>
-                <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#7551a3',marginBottom:6,letterSpacing:'1px'}}>パスワード</label>
+                <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#5e8030',marginBottom:6,letterSpacing:'1px'}}>パスワード</label>
                 <input type="password" value={loginForm.pass} onChange={e=>setLoginForm(f=>({...f,pass:toHalfWidth(e.target.value),error:''}))}
                   placeholder="••••••••"
-                  style={{width:'100%',padding:'12px 14px',border:'1px solid #e8dff3',background:'#fdfbf6',borderRadius:10,fontSize:14,fontWeight:'bold',color:'#4a3559',outline:'none',boxSizing:'border-box'}}/>
+                  style={{width:'100%',padding:'12px 14px',border:'1px solid #d4e7a5',background:'#fdfdf3',borderRadius:10,fontSize:14,fontWeight:'bold',color:'#3d5021',outline:'none',boxSizing:'border-box'}}/>
               </div>
               {loginForm.error && <div style={{color:'#b91c1c',fontSize:12,fontWeight:'bold',marginBottom:12,textAlign:'center'}}>{loginForm.error}</div>}
               <button type="submit"
-                style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#7551a3,#5e3b6c)',color:'#fff8e7',border:'none',borderRadius:10,fontSize:15,fontWeight:'bold',cursor:'pointer',marginBottom:12,marginTop:8,letterSpacing:'4px',boxShadow:'0 4px 12px rgba(94,59,108,0.3)'}}>
+                style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#94c456,#5e8030)',color:'#fff',border:'none',borderRadius:10,fontSize:15,fontWeight:'bold',cursor:'pointer',marginBottom:12,marginTop:8,letterSpacing:'4px',boxShadow:'0 4px 12px rgba(94,128,48,0.3)'}}>
                 ログイン
               </button>
             </form>
             <button onClick={handleDemoLogin}
-              style={{width:'100%',padding:'12px',background:'#faf7fc',color:'#5e3b6c',border:'2px dashed #c4b6e2',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer',letterSpacing:'2px'}}>
+              style={{width:'100%',padding:'12px',background:'#fafef1',color:'#5e8030',border:'2px dashed #b8d488',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer',letterSpacing:'2px'}}>
               🎮 デモで試す（ログイン不要）
             </button>
-            <div style={{borderTop:'1px solid #ece5f5',marginTop:14,paddingTop:12}}>
+            <div style={{borderTop:'1px solid #e8efd0',marginTop:14,paddingTop:12}}>
               <button type="button" onClick={()=>{
                 const email = window.prompt('新規スタッフアカウントのメールアドレスを入力してください');
                 if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
@@ -10764,11 +10764,11 @@ export default function App() {
                 const baseUrl = window.location.origin + window.location.pathname.replace(/\/+$/, '');
                 const url = `${baseUrl}/?signup=${token}`;
                 window.prompt('登録URLが発行されました。コピーしてご使用ください:', url);
-              }} style={{width:'100%',padding:'10px',background:'#faf7fc',color:'#7551a3',border:'2px dashed #d8c9ea',borderRadius:8,fontSize:12,fontWeight:'bold',cursor:'pointer',letterSpacing:'1px'}}>
+              }} style={{width:'100%',padding:'10px',background:'#fafef1',color:'#7daa3d',border:'2px dashed #cee49b',borderRadius:8,fontSize:12,fontWeight:'bold',cursor:'pointer',letterSpacing:'1px'}}>
                 ＋ 新規アカウント作成（メールアドレスから登録URL発行）
               </button>
             </div>
-            <p style={{fontSize:10,color:'#9b8bb0',textAlign:'center',marginTop:16,lineHeight:1.6}}>
+            <p style={{fontSize:10,color:'#94a37a',textAlign:'center',marginTop:16,lineHeight:1.6}}>
               初回ログイン情報は<br/>各種設定 → システム で設定できます
             </p>
           </div>
@@ -10913,7 +10913,7 @@ export default function App() {
 
       <div className={`no-print bg-slate-900 text-slate-300 flex flex-col flex-shrink-0 shadow-2xl transition-all duration-300 ${isSidebarOpen ? 'w-64 opacity-100' : 'w-0 opacity-0 overflow-hidden'}`}>
           <div className="w-64 h-full flex flex-col">
-            <div className="h-16 flex items-center px-5 border-b border-slate-800 bg-slate-950">
+            <div className="h-16 flex items-center px-5 border-b" style={{background:'#fafef1',borderColor:'#d4e7a5'}}>
               <svg viewBox="0 0 100 120" className="w-7 h-9 mr-3 flex-shrink-0" xmlns="http://www.w3.org/2000/svg">
                 <defs>
                   <radialGradient id="sidebarLeafA" cx="40%" cy="55%" r="55%">
@@ -10939,8 +10939,8 @@ export default function App() {
                 </g>
               </svg>
               <div className="flex-1 min-w-0">
-                <span style={{fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif",fontSize:'19px',color:'#fff8e7',fontWeight:700,letterSpacing:'3px'}}>紡ぎ</span>
-                <span style={{fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif",fontSize:'10px',color:'#94c456',letterSpacing:'3px',marginLeft:'8px',fontWeight:500}}>Tsumugi</span>
+                <span style={{fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif",fontSize:'19px',color:'#3d5021',fontWeight:700,letterSpacing:'3px'}}>紡ぎ</span>
+                <span style={{fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif",fontSize:'10px',color:'#7daa3d',letterSpacing:'3px',marginLeft:'8px',fontWeight:500}}>Tsumugi</span>
                 {session?.mode==='demo' && <span className="ml-2 text-[9px] font-bold bg-amber-500 text-white px-1.5 py-0.5 rounded">DEMO</span>}
               </div>
             </div>
