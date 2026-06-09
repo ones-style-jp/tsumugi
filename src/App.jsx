@@ -16568,14 +16568,16 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       return h;
     }).filter(Boolean);
     if(!htmlParts.length){ alert('印刷データが見つかりません。'); return; }
-    // B5 縦 (182×257mm) ページに連絡帳を等倍で印刷 (ネイティブサイズ)
-    // 紙が B5/A4 どちらでも連絡帳がフルサイズで表示される
+    // B5 横 (257×182mm) ページ内に連絡帳 (182×257mm 縦) を高さに合わせて中央配置
+    // scale 0.708 で 128.9×181.9mm (B6 縦サイズ相当) になる
     const combinedHtml = htmlParts.map((h,i)=>
-      `<div style="page-break-after:${i < htmlParts.length-1 ? 'always' : 'auto'};width:182mm;height:257mm;overflow:hidden;">${h}</div>`
+      `<div style="page-break-after:${i < htmlParts.length-1 ? 'always' : 'auto'};width:257mm;height:182mm;display:flex;justify-content:center;align-items:center;overflow:hidden;">
+        <div style="transform:scale(0.708);transform-origin:center center;width:182mm;height:257mm;flex-shrink:0;">${h}</div>
+      </div>`
     ).join('');
-    if(onShowPrintPreview) onShowPrintPreview(title, '182mm 257mm', null);
+    if(onShowPrintPreview) onShowPrintPreview(title, '257mm 182mm', null);
     setTimeout(()=>{
-      window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'182mm 257mm',html:combinedHtml}}));
+      window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'257mm 182mm',html:combinedHtml}}));
     },50);
   };
   const handleSaveConfig = (newConfig) => { markClean(); onSave({ ...appData, contactBookConfig: newConfig }); setIsConfigOpen(false); };
@@ -16989,24 +16991,34 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
           {/* 次回お迎え時間 + QR */}
           <div className="border-2 border-black bg-white flex items-center px-3 mb-1 shrink-0 gap-2" style={{paddingTop:'2px', paddingBottom:'2px', minHeight:0}}>
             <div className="flex-1 flex flex-nowrap items-center gap-x-2 min-w-0">
-              <span style={{fontSize:18,fontWeight:"bold",whiteSpace:"nowrap",color:"#475569",flexShrink:0}}>次回お迎え時間</span>
+              <span style={{fontSize:16,fontWeight:"bold",whiteSpace:"pre",color:"#475569",flexShrink:0,lineHeight:1.15,textAlign:"center"}}>{`次回\nお迎え時間`}</span>
               {(() => {
                 // 日付: 数字は30px, 「月」「日」のみ20px、括弧内の曜日は30px (数字と同じ)
                 // 状態機械: 括弧内なら全て30px、それ以外は 月/日 を20px・他を30px
                 const renderDate = (str) => {
                   if (!str) return null;
+                  // 「6月9日（火）」を「6 月 9 日 （火）」のように 月/日 の前後に半角SP
+                  // 年/曜日も同様に判定 (年は数値の後に SP + 年)
                   const out = [];
                   let inParen = false;
                   for (let i = 0; i < str.length; i++) {
                     const c = str[i];
-                    if (c === '（' || c === '(') { inParen = true; out.push(<span key={i} style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{c}</span>); continue; }
-                    if (c === '）' || c === ')') { inParen = false; out.push(<span key={i} style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{c}</span>); continue; }
+                    if (c === '（' || c === '(') {
+                      inParen = true;
+                      out.push(<span key={i} style={{fontSize:30, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      continue;
+                    }
+                    if (c === '）' || c === ')') {
+                      inParen = false;
+                      out.push(<span key={i} style={{fontSize:30, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      continue;
+                    }
                     if (inParen) {
-                      out.push(<span key={i} style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{c}</span>);
-                    } else if (c === '月' || c === '日') {
-                      out.push(<span key={i} style={{fontSize:20, fontWeight:"bold", lineHeight:1.1}}>{' '+c+' '}</span>);
+                      out.push(<span key={i} style={{fontSize:30, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                    } else if (c === '月' || c === '日' || c === '年') {
+                      out.push(<span key={i} style={{fontSize:20, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{' '+c+' '}</span>);
                     } else {
-                      out.push(<span key={i} style={{fontSize:30, fontWeight:"bold", lineHeight:1.1}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:30, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                     }
                   }
                   return out;
@@ -17031,7 +17043,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                   });
                   const labelStyle = { fontSize:20, fontWeight:'bold', lineHeight:1.1 };
                   return <span style={{whiteSpace:'pre'}}>
-                    <span style={numStyle(hBlank)}>{hBlank ? '  ' : h.padStart(2, ' ')}</span>
+                    <span style={numStyle(hBlank)}>{hBlank ? '  ' : h}</span>
                     {' '}
                     <span style={labelStyle}>時</span>
                     {' '}
