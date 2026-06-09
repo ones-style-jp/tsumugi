@@ -871,6 +871,34 @@ const toHalfWidth = (s) => (s||'')
   .replace(/　/g, ' ')
   .replace(/[ー－]/g, '-');
 
+// 日本の電話番号フォーマッタ: ハイフン無しの数字 → 自動でハイフン付与
+const formatJpPhone = (s) => {
+  const digits = (s || '').replace(/[^0-9]/g, '');
+  if (!digits) return '';
+  // 携帯 (090/080/070) と IP (050) → 3-4-4
+  if (/^(090|080|070|050)/.test(digits)) {
+    if (digits.length <= 3) return digits;
+    if (digits.length <= 7) return `${digits.slice(0,3)}-${digits.slice(3)}`;
+    return `${digits.slice(0,3)}-${digits.slice(3,7)}-${digits.slice(7,11)}`;
+  }
+  // フリーダイヤル等 0120 → 4-3-3
+  if (/^(0120|0800)/.test(digits)) {
+    if (digits.length <= 4) return digits;
+    if (digits.length <= 7) return `${digits.slice(0,4)}-${digits.slice(4)}`;
+    return `${digits.slice(0,4)}-${digits.slice(4,7)}-${digits.slice(7,10)}`;
+  }
+  // 2桁市外 (03/06) → 2-4-4
+  if (/^(03|06)/.test(digits)) {
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 6) return `${digits.slice(0,2)}-${digits.slice(2)}`;
+    return `${digits.slice(0,2)}-${digits.slice(2,6)}-${digits.slice(6,10)}`;
+  }
+  // その他 3桁市外 → 3-3-4
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `${digits.slice(0,3)}-${digits.slice(3)}`;
+  return `${digits.slice(0,3)}-${digits.slice(3,6)}-${digits.slice(6,10)}`;
+};
+
 // 招待コード関連 (利用者ID 6桁 + チェックデジット 1桁 = 7桁)
 // patientId (任意の正数) を 6桁ゼロパディングし、各桁の合計 mod 10 のチェックデジットを付与
 const calcCheckDigit = (sixDigitStr) => {
@@ -9834,13 +9862,20 @@ function FamilyView() {
   const _urlInvite = (() => {
     try { return new URLSearchParams(window.location.search).get('invite') || ''; } catch { return ''; }
   })();
+  // 招待データから email / relation を引き出す
+  const _inviteInfo = (() => {
+    if (!_urlInvite) return {};
+    const inv = (data.familyInvites||[]).find(i => i.code === _urlInvite);
+    return inv ? { email: inv.email || '', relation: inv.relation || '' } : {};
+  })();
   const [mode, setMode] = useState(_urlInvite ? 'signup' : 'login'); // 'login' | 'signup'
   const [signupForm, setSignupForm] = useState({
     inviteCode: _urlInvite || '', username:'', password:'', password2:'',
-    email:'',  // 共通メールアドレス (家族アカウント + 緊急連絡先 両方に反映)
+    email: _inviteInfo.email || '',  // 招待時に登録したメアドを自動補完
     // 緊急連絡先 (利用者マスタの emergencyContacts に自動反映)
-    ecName:'',
-    ecRelation:'',           // 配偶者/長男/長女/次男/次女/兄弟姉妹/ケアマネージャー/自由記述
+    ecName:'', ecKanaLast:'', ecKanaFirst:'',
+    ecLastName:'', ecFirstName:'',
+    ecRelation: _inviteInfo.relation || '',
     ecRelationCustom:'',     // 自由記述時の値
     ecPhone:'', ecMobile:'',
     // ケアマネ専用フィールド (続柄=ケアマネージャー の場合のみ)
@@ -10053,8 +10088,15 @@ function FamilyView() {
                     createdAt: new Date().toISOString().slice(0,10),
                     invitedByAccountId: invite.createdByAccountId || null, // 親招待の場合
                   };
+                  const ecLastName = (signupForm.ecLastName||'').trim();
+                  const ecFirstName = (signupForm.ecFirstName||'').trim();
+                  const ecKanaLast = (signupForm.ecKanaLast||'').trim();
+                  const ecKanaFirst = (signupForm.ecKanaFirst||'').trim();
                   const newEmergencyContact = {
                     name: ecName,
+                    lastName: ecLastName, firstName: ecFirstName,
+                    kana: `${ecKanaLast} ${ecKanaFirst}`.trim(),
+                    kanaLast: ecKanaLast, kanaFirst: ecKanaFirst,
                     relation: ecRelation,
                     phone: ecPhone,
                     phoneMobile: ecMobile,
@@ -10081,10 +10123,30 @@ function FamilyView() {
                     systemSettings: isCaremanager ? { ...(latest.systemSettings||{}), cmOffices: nextCmOffices, careManagers: nextCareManagers } : (latest.systemSettings || {}),
                     patients: (latest.patients||[]).map(p => {
                       if (p.id !== invite.patientId) return p;
+                      // 親アカウント (利用者の主要連絡先) は familyName/Relation/Phone/Email にセット (1件目=主要)
+                      // 親が未登録ならこの人を主要連絡先に。それ以外 (child/ケアマネ) は追加緊急連絡先 (配列)
+                      const isPrimary = accRole === 'parent' && !p.familyName;
+                      let primaryFields = {};
+                      if (isPrimary) {
+                        primaryFields = {
+                          familyName: ecName,
+                          familyKana: `${ecKanaLast} ${ecKanaFirst}`.trim(),
+                          familyRelation: ecRelation,
+                          familyPhone: ecPhone || '',
+                          familyPhoneMobile: ecMobile || '',
+                          familyEmail: email || '',
+                        };
+                      }
                       const existingContacts = p.emergencyContacts || [];
                       const dup = existingContacts.some(c => (c.name||'').trim() === ecName && (c.relation||'').trim() === ecRelation);
-                      const updatedContacts = dup ? existingContacts : [...existingContacts, newEmergencyContact];
-                      // ケアマネ情報: もとから登録されていれば更新しない、未登録の場合のみ反映
+                      let updatedContacts;
+                      if (isPrimary) {
+                        // 主要に反映済みなので追加配列にはコピーしない
+                        updatedContacts = existingContacts;
+                      } else {
+                        updatedContacts = dup ? existingContacts : [...existingContacts, newEmergencyContact];
+                      }
+                      // ケアマネ情報
                       let cmFields = {};
                       if (isCaremanager) {
                         const cmFullName = `${cmManagerLast} ${cmManagerFirst}`.trim();
@@ -10093,7 +10155,7 @@ function FamilyView() {
                         if (!p.cmPhone) cmFields.cmPhone = cmManagerDirect || cmOfficePhone;
                         if (!p.cmFax) cmFields.cmFax = cmOfficeFax;
                       }
-                      return {...p, emergencyContacts: updatedContacts, ...cmFields};
+                      return {...p, emergencyContacts: updatedContacts, ...primaryFields, ...cmFields};
                     }),
                   };
                   try { localStorage.setItem('daycareAppData_v3', JSON.stringify(updated)); } catch {}
@@ -10137,13 +10199,38 @@ function FamilyView() {
                     <div style={{fontSize:10,color:'#78350f',marginBottom:10,lineHeight:1.5}}>
                       ご利用者の緊急連絡先として事業所に登録されます。
                     </div>
-                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
+                    {/* 姓 + 名 */}
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:6}}>
                       <div>
-                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>お名前 <span style={{color:'#dc2626'}}>*</span></label>
-                        <input value={signupForm.ecName} onChange={e=>setSignupForm(f=>({...f,ecName:e.target.value,error:''}))}
-                          placeholder="例: 山田 太郎"
+                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>姓 <span style={{color:'#dc2626'}}>*</span></label>
+                        <input value={signupForm.ecLastName} onChange={e=>{const v=e.target.value; setSignupForm(f=>({...f,ecLastName:v,ecName:`${v} ${f.ecFirstName||''}`.trim(),error:''}));}}
+                          placeholder="例: 山田"
                           style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
                       </div>
+                      <div>
+                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>名 <span style={{color:'#dc2626'}}>*</span></label>
+                        <input value={signupForm.ecFirstName} onChange={e=>{const v=e.target.value; setSignupForm(f=>({...f,ecFirstName:v,ecName:`${f.ecLastName||''} ${v}`.trim(),error:''}));}}
+                          placeholder="例: 太郎"
+                          style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
+                      </div>
+                    </div>
+                    {/* ふりがな 姓 + 名 */}
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
+                      <div>
+                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>ふりがな（姓）</label>
+                        <input value={signupForm.ecKanaLast} onChange={e=>setSignupForm(f=>({...f,ecKanaLast:e.target.value,error:''}))}
+                          placeholder="例: やまだ"
+                          style={{width:'100%',padding:'10px 12px',border:'1px solid #fde68a',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
+                      </div>
+                      <div>
+                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>ふりがな（名）</label>
+                        <input value={signupForm.ecKanaFirst} onChange={e=>setSignupForm(f=>({...f,ecKanaFirst:e.target.value,error:''}))}
+                          placeholder="例: たろう"
+                          style={{width:'100%',padding:'10px 12px',border:'1px solid #fde68a',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
+                      </div>
+                    </div>
+                    {/* 続柄 */}
+                    <div style={{display:'grid',gridTemplateColumns:'1fr',gap:8,marginBottom:8}}>
                       <div>
                         <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>続柄 <span style={{color:'#dc2626'}}>*</span></label>
                         <select value={signupForm.ecRelation} onChange={e=>setSignupForm(f=>({...f,ecRelation:e.target.value,error:''}))}
@@ -10172,16 +10259,16 @@ function FamilyView() {
                     )}
                     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
                       <div>
-                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>家の電話番号</label>
-                        <input type="tel" inputMode="numeric" value={signupForm.ecPhone} onChange={e=>setSignupForm(f=>({...f,ecPhone:e.target.value,error:''}))}
-                          placeholder="03-XXXX-XXXX"
-                          style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
+                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>家の電話番号 <span style={{color:'#94a3b8',fontWeight:'normal'}}>(ハイフン不要)</span></label>
+                        <input type="tel" inputMode="numeric" value={signupForm.ecPhone} onChange={e=>{const v=toHalfWidth(e.target.value).replace(/[^0-9]/g,'').slice(0,11); setSignupForm(f=>({...f,ecPhone:v,error:''}));}}
+                          placeholder="0312345678"
+                          style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white',letterSpacing:1}}/>
                       </div>
                       <div>
-                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>携帯電話番号</label>
-                        <input type="tel" inputMode="numeric" value={signupForm.ecMobile} onChange={e=>setSignupForm(f=>({...f,ecMobile:e.target.value,error:''}))}
-                          placeholder="090-XXXX-XXXX"
-                          style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
+                        <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>携帯電話番号 <span style={{color:'#94a3b8',fontWeight:'normal'}}>(ハイフン不要)</span></label>
+                        <input type="tel" inputMode="numeric" value={signupForm.ecMobile} onChange={e=>{const v=toHalfWidth(e.target.value).replace(/[^0-9]/g,'').slice(0,11); setSignupForm(f=>({...f,ecMobile:v,error:''}));}}
+                          placeholder="09012345678"
+                          style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white',letterSpacing:1}}/>
                       </div>
                     </div>
                     <div style={{fontSize:10,color:'#78350f',marginTop:4,lineHeight:1.4}}>
@@ -18753,7 +18840,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               {/* ⑦ 緊急連絡先 */}
               <div className="border-t border-slate-200 pt-4"><h3 className="text-sm font-bold text-slate-600 mb-3 flex items-center gap-1.5"><Users size={16}/>緊急連絡先</h3>
                 <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-bold text-slate-600 mb-1.5">氏名</label><input disabled={isOff} value={localPatient.familyName||''} onChange={e=>updateLP('familyName',e.target.value)} placeholder="例: 介護 花子" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/></div><div><label className="block text-sm font-bold text-slate-600 mb-1.5">続柄</label><input disabled={isOff} value={localPatient.familyRelation||''} onChange={e=>updateLP('familyRelation',e.target.value)} placeholder="例: 長女" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/></div></div>
-                <div className="grid grid-cols-3 gap-4 mt-3"><div><label className="block text-sm font-bold text-slate-600 mb-1.5">電話番号（固定）</label><input type="tel" inputMode="numeric" disabled={isOff} value={localPatient.familyPhone||''} onChange={e=>updateLP('familyPhone',e.target.value)} placeholder="03-XXXX-XXXX" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/></div><div><label className="block text-sm font-bold text-slate-600 mb-1.5">電話番号（携帯）</label><input type="tel" inputMode="numeric" disabled={isOff} value={localPatient.familyPhoneMobile||''} onChange={e=>updateLP('familyPhoneMobile',e.target.value)} placeholder="090-XXXX-XXXX" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/></div><div><label className="block text-sm font-bold text-slate-600 mb-1.5">メールアドレス</label><input type="email" disabled={isOff} value={localPatient.familyEmail||''} onChange={e=>updateLP('familyEmail',e.target.value)} placeholder="hanako@example.com" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/></div></div>
+                <div className="grid grid-cols-3 gap-4 mt-3"><div><label className="block text-sm font-bold text-slate-600 mb-1.5">電話番号（固定）</label><input type="tel" inputMode="numeric" disabled={isOff} value={formatJpPhone(localPatient.familyPhone||'')} onChange={e=>updateLP('familyPhone',e.target.value.replace(/[^0-9]/g,''))} placeholder="03-XXXX-XXXX" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/></div><div><label className="block text-sm font-bold text-slate-600 mb-1.5">電話番号（携帯）</label><input type="tel" inputMode="numeric" disabled={isOff} value={formatJpPhone(localPatient.familyPhoneMobile||'')} onChange={e=>updateLP('familyPhoneMobile',e.target.value.replace(/[^0-9]/g,''))} placeholder="090-XXXX-XXXX" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/></div><div><label className="block text-sm font-bold text-slate-600 mb-1.5">メールアドレス</label><input type="email" disabled={isOff} value={localPatient.familyEmail||''} onChange={e=>updateLP('familyEmail',e.target.value)} placeholder="hanako@example.com" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/></div></div>
                 <div className="mt-4">
                   <div className="flex items-center justify-between mb-2"><span className="text-xs font-bold text-slate-500">追加の緊急連絡先</span>{!isOff&&<button type="button" onClick={()=>updateLP('emergencyContacts',[...(localPatient.emergencyContacts||[]),{name:'',relation:'',phone:'',phoneMobile:'',email:''}])} className="text-xs font-bold text-blue-600 bg-blue-50 border border-blue-200 px-3 py-1 rounded-lg hover:bg-blue-100">＋ 追加</button>}</div>
                   {(localPatient.emergencyContacts||[]).length===0&&<div className="text-xs text-slate-400 py-2">追加の緊急連絡先なし</div>}
@@ -18761,7 +18848,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     <div key={ei} className="mb-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
                       <div className="flex justify-between mb-2"><span className="text-[10px] font-bold text-slate-400">{ei+1}件目</span>{!isOff&&<button type="button" onClick={()=>updateLP('emergencyContacts',(localPatient.emergencyContacts||[]).filter((_,i)=>i!==ei))} className="text-slate-300 hover:text-red-400 text-xs font-bold">✕</button>}</div>
                       <div className="grid grid-cols-2 gap-3 mb-2"><div><label className="block text-sm font-bold text-slate-600 mb-1.5">氏名</label><input disabled={isOff} value={ec.name} onChange={e=>{const a=[...(localPatient.emergencyContacts||[])];a[ei]={...a[ei],name:e.target.value};updateLP('emergencyContacts',a);}} className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-60" placeholder="氏名"/></div><div><label className="block text-sm font-bold text-slate-600 mb-1.5">続柄</label><input disabled={isOff} value={ec.relation} onChange={e=>{const a=[...(localPatient.emergencyContacts||[])];a[ei]={...a[ei],relation:e.target.value};updateLP('emergencyContacts',a);}} className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-60" placeholder="例: 長男"/></div></div>
-                      <div className="grid grid-cols-3 gap-3"><div><label className="block text-sm font-bold text-slate-600 mb-1.5">電話（固定）</label><input type="tel" disabled={isOff} value={ec.phone} onChange={e=>{const a=[...(localPatient.emergencyContacts||[])];a[ei]={...a[ei],phone:e.target.value};updateLP('emergencyContacts',a);}} inputMode="numeric" className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-60" placeholder="03-XXXX-XXXX"/></div><div><label className="block text-sm font-bold text-slate-600 mb-1.5">電話（携帯）</label><input type="tel" disabled={isOff} value={ec.phoneMobile} onChange={e=>{const a=[...(localPatient.emergencyContacts||[])];a[ei]={...a[ei],phoneMobile:e.target.value};updateLP('emergencyContacts',a);}} inputMode="numeric" className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-60" placeholder="090-XXXX-XXXX"/></div><div><label className="block text-sm font-bold text-slate-600 mb-1.5">メール</label><input type="email" disabled={isOff} value={ec.email||''} onChange={e=>{const a=[...(localPatient.emergencyContacts||[])];a[ei]={...a[ei],email:e.target.value};updateLP('emergencyContacts',a);}} className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-60" placeholder="mail@example.com"/></div></div>
+                      <div className="grid grid-cols-3 gap-3"><div><label className="block text-sm font-bold text-slate-600 mb-1.5">電話（固定）</label><input type="tel" disabled={isOff} value={formatJpPhone(ec.phone||'')} onChange={e=>{const a=[...(localPatient.emergencyContacts||[])];a[ei]={...a[ei],phone:e.target.value.replace(/[^0-9]/g,'')};updateLP('emergencyContacts',a);}} inputMode="numeric" className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-60" placeholder="03-XXXX-XXXX"/></div><div><label className="block text-sm font-bold text-slate-600 mb-1.5">電話（携帯）</label><input type="tel" disabled={isOff} value={formatJpPhone(ec.phoneMobile||'')} onChange={e=>{const a=[...(localPatient.emergencyContacts||[])];a[ei]={...a[ei],phoneMobile:e.target.value.replace(/[^0-9]/g,'')};updateLP('emergencyContacts',a);}} inputMode="numeric" className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-60" placeholder="090-XXXX-XXXX"/></div><div><label className="block text-sm font-bold text-slate-600 mb-1.5">メール</label><input type="email" disabled={isOff} value={ec.email||''} onChange={e=>{const a=[...(localPatient.emergencyContacts||[])];a[ei]={...a[ei],email:e.target.value};updateLP('emergencyContacts',a);}} className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-60" placeholder="mail@example.com"/></div></div>
                     </div>
                   ))}
                 </div>
@@ -19415,31 +19502,27 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                               <div key={acc.id} className={`border ${accentBorder} rounded-xl p-3`}>
                                 <div className="grid grid-cols-12 gap-2 items-center">
                                   <div className="col-span-4">
-                                    <div className="text-[10px] font-bold text-slate-400">ログインID</div>
-                                    <input value={acc.username} disabled={!isEditing} onChange={e=>updateField(acc.id,'username',toHalfWidth(e.target.value))} className={`w-full px-2 py-1 border rounded text-xs font-mono outline-none ${isEditing?'bg-white border-slate-300 focus:border-blue-400':'bg-slate-50 border-slate-100 text-slate-600 cursor-not-allowed'}`}/>
-                                  </div>
-                                  <div className="col-span-3">
-                                    <div className="text-[10px] font-bold text-slate-400">パスワード <span className="text-slate-300 font-normal">(伏字)</span></div>
-                                    <div className="flex gap-1">
-                                      {/* 個人情報保護のため伏字表示 - 編集モード時のみ再発行可能 */}
-                                      <div className={`flex-1 px-2 py-1 border rounded text-xs font-mono ${isEditing?'bg-amber-50 border-amber-300 text-amber-700':'bg-slate-50 border-slate-100 text-slate-400'}`}>
-                                        {acc.password ? '••••••••' : '—'}
-                                      </div>
-                                      <button onClick={()=>{if(!isEditing){alert('「編集」ボタンを押してから再発行してください');return;} if(!window.confirm('パスワードを再発行します。ご家族は新しいパスワードでログインし直しが必要になります。よろしいですか？'))return; resetPw(acc.id);}} className={`px-2 py-1 text-[10px] font-bold rounded whitespace-nowrap ${isEditing?'bg-amber-100 hover:bg-amber-200 text-amber-700':'bg-slate-100 text-slate-300 cursor-not-allowed'}`} title={isEditing?'パスワード再発行':'編集モード時のみ有効'}>⟳</button>
-                                    </div>
-                                  </div>
-                                  <div className="col-span-4">
                                     <div className="text-[10px] font-bold text-slate-400">名前・続柄</div>
                                     <div className="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded text-xs text-slate-700 truncate">
+                                      {acc.role === 'parent' && (
+                                        <span className="text-[14px] mr-1" title="親アカウント">🍀</span>
+                                      )}
                                       <span className="font-bold">{acc.displayName || '—'}</span>
                                       {acc.relation && (
                                         <span className={`ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded ${isCm?'bg-teal-100 text-teal-700':'bg-violet-100 text-violet-700'}`}>{acc.relation}</span>
                                       )}
-                                      {acc.role === 'parent' && (
-                                        <span className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">👑 親アカウント</span>
-                                      )}
                                     </div>
                                     {acc.email && <div className="text-[10px] text-slate-500 mt-0.5 truncate">📧 {acc.email}</div>}
+                                  </div>
+                                  <div className="col-span-4">
+                                    <div className="text-[10px] font-bold text-slate-400">ログインID</div>
+                                    <input value={acc.username} disabled={!isEditing} onChange={e=>updateField(acc.id,'username',toHalfWidth(e.target.value))} className={`w-full px-2 py-1 border rounded text-xs font-mono outline-none ${isEditing?'bg-white border-slate-300 focus:border-blue-400':'bg-slate-50 border-slate-100 text-slate-600 cursor-not-allowed'}`}/>
+                                  </div>
+                                  <div className="col-span-3">
+                                    <div className="text-[10px] font-bold text-slate-400">パスワード <span className="text-slate-300 font-normal">(本人のみ)</span></div>
+                                    <div className="px-2 py-1 border rounded text-xs font-mono bg-slate-50 border-slate-100 text-slate-400" title="ご家族本人がログイン画面の「パスワードを忘れた」から再設定できます">
+                                      {acc.password ? '••••••••' : '—'}
+                                    </div>
                                   </div>
                                   <div className="col-span-1 flex flex-col gap-1">
                                     {isEditing ? (
