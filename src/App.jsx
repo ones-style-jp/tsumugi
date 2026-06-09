@@ -10523,49 +10523,45 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
           .family-header-title { font-size:10px!important; }
         }
       `}</style>
-      {/* 固定ヘッダー: 事業所名 + 利用者名 + ログアウト + タブ */}
-      <div style={{position:'sticky',top:0,zIndex:60,background:'linear-gradient(135deg,#6366f1,#8b5cf6)',boxShadow:'0 2px 12px rgba(99,102,241,0.25)'}}>
-        <div style={{color:'white',padding:'14px 16px 10px'}}>
-          <div style={{maxWidth:720,margin:'0 auto',display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12}}>
-            <div>
-              <div className="family-header-title" style={{fontSize:11,opacity:0.85,fontWeight:'bold',letterSpacing:1}}>{facility.name||'デイケアサービス'} 家族用閲覧</div>
-              <div className="family-header-name" style={{fontSize:20,fontWeight:'bold',marginTop:2}}>{patient.name} 様</div>
+      {/* 固定ヘッダー: 全要素を1行に統合 (事業所名+利用者名 | タブ | 家族追加 | ログアウト) — 緑基調 */}
+      <div style={{position:'sticky',top:0,zIndex:60,background:'linear-gradient(135deg,#5e8030 0%,#94c456 100%)',boxShadow:'0 2px 12px rgba(94,128,48,0.3)'}}>
+        <div style={{color:'white',padding:'10px 16px'}}>
+          <div style={{maxWidth:1200,margin:'0 auto',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+            {/* 左: 事業所名 + 利用者名 */}
+            <div style={{flexShrink:0}}>
+              <div className="family-header-title" style={{fontSize:11,opacity:0.85,fontWeight:'bold',letterSpacing:1}}>{facility.name||'デイケアサービス'}</div>
+              <div className="family-header-name" style={{fontSize:18,fontWeight:'bold',marginTop:1,fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif"}}>{patient.name} 様</div>
             </div>
-            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-              {/* 親アカウントのみ: 他家族を招待 */}
+            {/* 中央: タブ (お知らせ / 通所記録) — flex-1 で広がる */}
+            <div className="family-tab-bar" style={{background:'rgba(255,255,255,0.95)',borderRadius:12,padding:4,boxShadow:'0 2px 8px rgba(0,0,0,0.1)',display:'flex',gap:2,flex:'1 1 240px',minWidth:240}}>
+              {[['news','📢 お知らせ'],['analysis','📊 通所記録']].map(([k,l])=>{
+                const showBadge = k === 'news' && unreadCount > 0;
+                return (
+                  <button key={k} onClick={()=>{setTab(k); if (k === 'news') markAllRead();}} className="family-tab-btn"
+                    style={{flex:1,padding:'9px 6px',borderRadius:10,border:'none',background:tab===k?'#5e8030':'transparent',color:tab===k?'white':'#475569',fontWeight:'bold',fontSize:12,cursor:'pointer',position:'relative'}}>
+                    {l}
+                    {showBadge && (
+                      <span style={{position:'absolute',top:2,right:4,minWidth:16,height:16,padding:'0 4px',background:'#ef4444',color:'white',borderRadius:8,fontSize:9,fontWeight:'bold',display:'inline-flex',alignItems:'center',justifyContent:'center'}}>{unreadCount}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            {/* 右: 家族追加 (大) + ログアウト */}
+            <div style={{display:'flex',gap:8,marginLeft:'auto',flexShrink:0}}>
               {loggedAcc?.role === 'parent' && (
-                <button onClick={()=>setInviteFamilyOpen(true)} style={{background:'rgba(255,255,255,0.25)',color:'white',border:'1px solid rgba(255,255,255,0.4)',borderRadius:10,padding:'6px 12px',fontSize:11,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>
+                <button onClick={()=>setInviteFamilyOpen(true)}
+                  style={{background:'rgba(255,255,255,0.92)',color:'#5e8030',border:'1px solid rgba(255,255,255,0.6)',borderRadius:10,padding:'10px 16px',fontSize:13,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap',boxShadow:'0 2px 6px rgba(0,0,0,0.08)'}}>
                   👨‍👩‍👧 家族を追加
                 </button>
               )}
               {onLogout && (
-                <button onClick={onLogout} style={{background:'rgba(255,255,255,0.18)',color:'white',border:'1px solid rgba(255,255,255,0.3)',borderRadius:10,padding:'6px 12px',fontSize:11,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>
+                <button onClick={onLogout}
+                  style={{background:'rgba(255,255,255,0.18)',color:'white',border:'1px solid rgba(255,255,255,0.4)',borderRadius:10,padding:'10px 14px',fontSize:11,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>
                   ログアウト
                 </button>
               )}
             </div>
-          </div>
-        </div>
-        <div style={{maxWidth:1100,margin:'0 auto',padding:'0 12px 10px'}}>
-          <div className="family-tab-bar" style={{background:'rgba(255,255,255,0.95)',borderRadius:14,padding:4,boxShadow:'0 4px 16px rgba(0,0,0,0.1)',display:'flex',gap:2}}>
-          {[['news','📢 お知らせ'],['analysis','📊 通所記録']].map(([k,l])=>{
-            // 未読バッジ: お知らせタブのみ表示
-            const showBadge = k === 'news' && unreadCount > 0;
-            return (
-              <button key={k} onClick={()=>{
-                setTab(k);
-                if (k === 'news') markAllRead();
-              }} className="family-tab-btn"
-                style={{flex:1,padding:'10px 8px',borderRadius:12,border:'none',background:tab===k?'#6366f1':'transparent',color:tab===k?'white':'#475569',fontWeight:'bold',fontSize:13,cursor:'pointer',position:'relative'}}>
-                {l}
-                {showBadge && (
-                  <span style={{position:'absolute',top:4,right:8,minWidth:18,height:18,padding:'0 5px',background:'#ef4444',color:'white',borderRadius:9,fontSize:10,fontWeight:'bold',display:'inline-flex',alignItems:'center',justifyContent:'center',boxShadow:'0 1px 3px rgba(0,0,0,0.3)'}}>
-                    {unreadCount}
-                  </span>
-                )}
-              </button>
-            );
-          })}
           </div>
         </div>
       </div>
@@ -10624,7 +10620,7 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
                 const annPhotos = a.photos || [];
                 const kindStyle = a._kind === '個別' ? {bg:'#fef3c7',fg:'#92400e'} : a._kind === '過去' ? {bg:'#e2e8f0',fg:'#64748b'} : {bg:'#dbeafe',fg:'#1e40af'};
                 return (
-                  <div key={a.id} style={{background:'white',borderRadius:16,padding:'14px 18px',marginBottom:12,boxShadow:'0 2px 8px rgba(0,0,0,0.04)',border: isNew ? '2px solid #818cf8' : '1px solid transparent'}}>
+                  <div key={a.id} style={{background:'white',borderRadius:16,padding:'14px 18px',marginBottom:12,boxShadow:'0 2px 8px rgba(0,0,0,0.04)',border: isNew ? '2px solid #94c456' : '1px solid transparent'}}>
                     <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
                       <span style={{fontSize:9,fontWeight:'bold',padding:'2px 6px',borderRadius:4,background:kindStyle.bg,color:kindStyle.fg}}>{a._kind}</span>
                       <span style={{fontSize:11,color:'#94a3b8'}}>{a.date}</span>
@@ -10673,14 +10669,14 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
         )}
         {/* 未読お知らせポップアップ */}
         {unreadPopupVisible && unreadCount > 0 && tab !== 'news' && (
-          <div style={{position:'fixed',top:80,right:16,zIndex:9000,background:'white',borderRadius:14,padding:'14px 16px',boxShadow:'0 8px 30px rgba(0,0,0,0.2)',border:'2px solid #6366f1',maxWidth:280,animation:'slideIn 0.3s ease-out'}}>
+          <div style={{position:'fixed',top:80,right:16,zIndex:9000,background:'white',borderRadius:14,padding:'14px 16px',boxShadow:'0 8px 30px rgba(0,0,0,0.2)',border:'2px solid #5e8030',maxWidth:280,animation:'slideIn 0.3s ease-out'}}>
             <div style={{display:'flex',alignItems:'flex-start',gap:10}}>
               <div style={{fontSize:24}}>📢</div>
               <div style={{flex:1}}>
                 <div style={{fontSize:13,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>新しいお知らせが {unreadCount} 件あります</div>
                 <div style={{fontSize:11,color:'#64748b',marginBottom:8}}>「📢 お知らせ」タブで確認できます</div>
                 <div style={{display:'flex',gap:6}}>
-                  <button onClick={()=>{setTab('news'); markAllRead();}} style={{flex:1,padding:'6px 10px',background:'#6366f1',color:'white',border:'none',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>確認する</button>
+                  <button onClick={()=>{setTab('news'); markAllRead();}} style={{flex:1,padding:'6px 10px',background:'#5e8030',color:'white',border:'none',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>確認する</button>
                   <button onClick={()=>setUnreadPopupVisible(false)} style={{padding:'6px 10px',background:'#f1f5f9',color:'#64748b',border:'none',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>あとで</button>
                 </div>
               </div>
@@ -10711,7 +10707,7 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
                 </div>
                 <div style={{display:'flex',gap:8}}>
                   <button onClick={()=>{navigator.clipboard?.writeText(inviteFamForm.createdUrl); alert('URLをコピーしました');}}
-                    style={{flex:1,padding:'10px',background:'#6366f1',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>📋 コピー</button>
+                    style={{flex:1,padding:'10px',background:'#5e8030',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>📋 コピー</button>
                   <a href={`mailto:${encodeURIComponent(inviteFamForm.email||'')}?subject=${encodeURIComponent(`【${facility.name||'デイサービス'}】家族専用ページへのご招待`)}&body=${encodeURIComponent(`下記URLからご家族専用ページにご登録ください (有効期限 14日)\n\n${inviteFamForm.createdUrl}\n\n${facility.name||''}`)}`}
                     style={{flex:1,padding:'10px',background:'#10b981',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer',textDecoration:'none',textAlign:'center'}}>📧 メール送信</a>
                 </div>
@@ -10727,7 +10723,7 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
                     style={{width:'100%',padding:'10px 12px',border:'1px solid #e2e8f0',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>続柄 (任意)</label>
+                  <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>続柄 <span style={{color:'#dc2626'}}>*</span></label>
                   <select value={inviteFamForm.relation} onChange={e=>setInviteFamForm(f=>({...f,relation:e.target.value}))}
                     style={{width:'100%',padding:'10px 12px',border:'1px solid #e2e8f0',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}>
                     <option value="">— 選択 —</option>
@@ -10744,6 +10740,7 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
                   <button onClick={()=>{
                     const em = (inviteFamForm.email||'').trim();
                     if (!em || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { alert('正しいメールアドレスを入力してください'); return; }
+                    if (!(inviteFamForm.relation||'').trim()) { alert('続柄を選択してください'); return; }
                     // 招待コード生成
                     const existingCodes = new Set((data.familyInvites||[]).map(i => i.code));
                     let code = generateOneTimeInviteCode();
@@ -10766,7 +10763,7 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
                     const url = `${baseUrl}/?family&invite=${encodeURIComponent(code)}`;
                     setInviteFamForm(f=>({...f, createdUrl: url}));
                   }}
-                    style={{flex:1,padding:'10px',background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>招待URLを発行</button>
+                    style={{flex:1,padding:'10px',background:'linear-gradient(135deg,#5e8030,#94c456)',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>招待URLを発行</button>
                 </div>
               </div>
             )}
@@ -13088,8 +13085,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   return (
     <div className="w-full" style={{backgroundColor:'#f0f4f9',minHeight:'100%'}}>
       {/* ヘッダーバー（固定） — 親 scroll container 内で sticky */}
-      <div style={{position:'sticky',top:0,zIndex:30,background:'#f0f4f9'}}>
-      <div style={{background:'linear-gradient(135deg,#2563eb 0%,#1e40af 100%)',color:'white',padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+      <div style={{position:'sticky',top: familyMode ? 64 : 0,zIndex:familyMode?40:30,background: familyMode ? '#f4f8ed' : '#f0f4f9'}}>
+      <div style={{background: familyMode ? 'linear-gradient(135deg,#5e8030 0%,#94c456 100%)' : 'linear-gradient(135deg,#2563eb 0%,#1e40af 100%)',color:'white',padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
         <div style={{display:'flex',alignItems:'center',gap:12}}>
           <div style={{width:36,height:36,background:'rgba(255,255,255,0.2)',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center'}}>
             <BarChart3 size={20}/>
@@ -13126,7 +13123,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           )}
           <div style={{display:'flex',background:'rgba(255,255,255,0.15)',borderRadius:10,overflow:'hidden',border:'1px solid rgba(255,255,255,0.3)'}}>
             {[['1','1ヶ月'],['3','3ヶ月'],['6','半年'],['12','1年'],['custom','期間指定']].map(([v,l])=>(
-              <button key={v} onClick={()=>setPeriod(v)} style={{padding:'6px 10px',fontSize:12,fontWeight:'bold',color:period===v?'#1e40af':'white',background:period===v?'white':'transparent',border:'none',cursor:'pointer',borderRight:'1px solid rgba(255,255,255,0.2)',transition:'all 0.15s'}}>{l}</button>
+              <button key={v} onClick={()=>setPeriod(v)} style={{padding:'6px 10px',fontSize:12,fontWeight:'bold',color:period===v?(familyMode?'#3d5021':'#1e40af'):'white',background:period===v?'white':'transparent',border:'none',cursor:'pointer',borderRight:'1px solid rgba(255,255,255,0.2)',transition:'all 0.15s'}}>{l}</button>
             ))}
           </div>
           {period!=='custom'&&
@@ -13137,13 +13134,13 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             <span style={{color:'white',fontWeight:'bold'}}>〜</span>
             <input type="date" value={`${customTo}-01`} onChange={e=>setCustomTo(e.target.value.substring(0,7))} style={{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',color:'white',borderRadius:10,padding:'6px 10px',fontSize:12,fontWeight:'bold',outline:'none',cursor:'pointer'}}/>
           </>}
-          <span style={{background:'white',color:'#1e40af',borderRadius:8,padding:'6px 12px',fontSize:11,fontWeight:'bold',whiteSpace:'nowrap'}}>{rangeLabel}</span>
+          <span style={{background:'white',color:familyMode?'#3d5021':'#1e40af',borderRadius:8,padding:'6px 12px',fontSize:11,fontWeight:'bold',whiteSpace:'nowrap'}}>{rangeLabel}</span>
           {/* 3ヶ月超の場合、月平均/毎日表示の切替 */}
           {(period==='all' || parseInt(period,10)>=6) && (
             <div style={{display:'flex',background:'rgba(255,255,255,0.15)',borderRadius:10,overflow:'hidden',border:'1px solid rgba(255,255,255,0.3)'}}>
               {[['auto','月平均'],['daily','毎日']].map(([v,l])=>(
                 <button key={v} onClick={()=>setDisplayMode(v)}
-                  style={{padding:'6px 10px',fontSize:11,fontWeight:'bold',color:displayMode===v?'#1e40af':'white',background:displayMode===v?'white':'transparent',border:'none',cursor:'pointer'}}>{l}</button>
+                  style={{padding:'6px 10px',fontSize:11,fontWeight:'bold',color:displayMode===v?(familyMode?'#3d5021':'#1e40af'):'white',background:displayMode===v?'white':'transparent',border:'none',cursor:'pointer'}}>{l}</button>
               ))}
             </div>
           )}
