@@ -11232,8 +11232,18 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
     const targetDateStr = `${dObj.getMonth()+1}月${dObj.getDate()}日`;
     return localPatients.some(p => {
       const saved = (appData.ticketRecords||[]).find(r => r.patientId===p.id && r.date===targetDateStr);
-      const fields = ['status','temp','bpUpSt','bpDnSt','plSt','bpUpEn','bpDnEn','plEn','massage','tokki','kibunArrival','kibunDeparture','done'];
-      return fields.some(f => (p[f]||'') !== (saved?.[f]||''));
+      const commonFields = ['status','massage','tokki','kibunArrival','kibunDeparture','done'];
+      if (commonFields.some(f => (p[f]||'') !== (saved?.[f]||''))) return true;
+      // ampm 別フィールドの未保存判定
+      const ampmFields = ['temp','bpUpSt','bpDnSt','plSt','bpUpEn','bpDnEn','plEn'];
+      for (const f of ampmFields) {
+        for (const a of ['AM','PM']) {
+          const cur = p[`${f}_${a}`] ?? '';
+          const sv = saved?.[`${f}_${a}`] ?? saved?.[f] ?? '';
+          if (a === 'AM' ? cur !== sv : cur !== (saved?.[`${f}_PM`] ?? '')) return true;
+        }
+      }
+      return false;
     });
   }, [localPatients, appData.ticketRecords, selectedDate, filterMode]);
 
@@ -11299,16 +11309,24 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
          const targetDateStr = `${new Date(selectedDate).getMonth() + 1}月${new Date(selectedDate).getDate()}日`;
          const existingRecord = (appData.ticketRecords || []).find(r => r.patientId === p.id && r.date === targetDateStr);
          if (existingRecord) {
-             pData.recordId = existingRecord.id;  // 家族閲覧管理側との特記表示連携用キー
-             pData.patientId = p.id;              // patient id を明示的に保持 (toggle 用)
+             pData.recordId = existingRecord.id;
+             pData.patientId = p.id;
              pData.status = existingRecord.status;
-             pData.temp = existingRecord.temp || "";
-             pData.bpUpSt = existingRecord.bpUpSt || "";
-             pData.bpDnSt = existingRecord.bpDnSt || "";
-             pData.plSt = existingRecord.plSt || "";
-             pData.bpUpEn = existingRecord.bpUpEn || "";
-             pData.bpDnEn = existingRecord.bpDnEn || "";
-             pData.plEn = existingRecord.plEn || "";
+             // vitals は AM/PM 独立: 旧形式の plain な temp は AM データとして移行
+             pData.temp_AM = existingRecord.temp_AM ?? existingRecord.temp ?? "";
+             pData.temp_PM = existingRecord.temp_PM ?? "";
+             pData.bpUpSt_AM = existingRecord.bpUpSt_AM ?? existingRecord.bpUpSt ?? "";
+             pData.bpUpSt_PM = existingRecord.bpUpSt_PM ?? "";
+             pData.bpDnSt_AM = existingRecord.bpDnSt_AM ?? existingRecord.bpDnSt ?? "";
+             pData.bpDnSt_PM = existingRecord.bpDnSt_PM ?? "";
+             pData.plSt_AM = existingRecord.plSt_AM ?? existingRecord.plSt ?? "";
+             pData.plSt_PM = existingRecord.plSt_PM ?? "";
+             pData.bpUpEn_AM = existingRecord.bpUpEn_AM ?? existingRecord.bpUpEn ?? "";
+             pData.bpUpEn_PM = existingRecord.bpUpEn_PM ?? "";
+             pData.bpDnEn_AM = existingRecord.bpDnEn_AM ?? existingRecord.bpDnEn ?? "";
+             pData.bpDnEn_PM = existingRecord.bpDnEn_PM ?? "";
+             pData.plEn_AM = existingRecord.plEn_AM ?? existingRecord.plEn ?? "";
+             pData.plEn_PM = existingRecord.plEn_PM ?? "";
              pData.massage = existingRecord.massage || "";
              pData.exercises = existingRecord.exercises || {};
              pData.tokki = existingRecord.tokki || "";
@@ -11318,8 +11336,12 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
              pData.kibunDepartureReason = existingRecord.kibunDepartureReason || "";
              pData.done = existingRecord.done || false;
          } else {
-             pData.temp = ""; pData.bpUpSt = ""; pData.bpDnSt = ""; pData.plSt = "";
-             pData.bpUpEn = ""; pData.bpDnEn = ""; pData.plEn = ""; pData.massage = "";
+             pData.temp_AM = ""; pData.temp_PM = "";
+             pData.bpUpSt_AM = ""; pData.bpUpSt_PM = ""; pData.bpDnSt_AM = ""; pData.bpDnSt_PM = "";
+             pData.plSt_AM = ""; pData.plSt_PM = "";
+             pData.bpUpEn_AM = ""; pData.bpUpEn_PM = ""; pData.bpDnEn_AM = ""; pData.bpDnEn_PM = "";
+             pData.plEn_AM = ""; pData.plEn_PM = "";
+             pData.massage = "";
              pData.tokki = ""; pData.exercises = {}; pData.kibunArrival = ""; pData.kibunArrivalReason = "";
              pData.kibunDeparture = ""; pData.kibunDepartureReason = ""; pData.done = false;
          }
@@ -11585,7 +11607,8 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
 
   const handleKeypadInput = (newValue, isFirst) => {
     let formatted = newValue;
-    if (keypad.field === 'temp') {
+    // temp / temp_AM / temp_PM のいずれも体温として扱う
+    if (keypad.field === 'temp' || keypad.field === 'temp_AM' || keypad.field === 'temp_PM') {
       const digits = newValue.replace(/[^0-9]/g, '');
       if (!newValue.includes('.') && digits.length >= 3) {
         formatted = digits.slice(0, 2) + '.' + digits.slice(2);
@@ -11597,7 +11620,9 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
   };
 
   const handleTab = () => {
-    const baseFields = ['temp', 'bpUpSt', 'bpDnSt', 'plSt', 'bpUpEn', 'bpDnEn', 'plEn'];
+    // 現在の timeFilter に合わせて ampm 別フィールドで Tab 巡回
+    const _ampm = timeFilter || 'AM';
+    const baseFields = [`temp_${_ampm}`, `bpUpSt_${_ampm}`, `bpDnSt_${_ampm}`, `plSt_${_ampm}`, `bpUpEn_${_ampm}`, `bpDnEn_${_ampm}`, `plEn_${_ampm}`];
     const exFields = (appData.systemSettings?.exerciseItems || appSettings.exerciseItems).filter(item => item.useKeypad).map(item => item.id);
     const allFields = [...baseFields, ...exFields];
     let currentArray = filterMode === 'single' ? localPatients : localTicketRecords;
@@ -11654,14 +11679,24 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
               if (cancelledIds.has(p.id)) return; // 取り消し対象は書き戻さない
               const recordIndex = updatedTicketRecords.findIndex(r => r.patientId === p.id && r.date === targetDateStr);
               const existing = recordIndex >= 0 ? updatedTicketRecords[recordIndex] : null;
+              // 旧形式互換用に plain フィールドも保持 (timeFilter の値を入れる)
               const newRecord = {
                   id: existing ? existing.id : Date.now() + Math.random(),
                   patientId: p.id, name: p.name, kana: p.kana, date: targetDateStr, dayOfWeek: dayOfWeekStr,
                   status: p.status,
-                  // 振替メタ情報 (furikaeAmpm) は既存記録のものを保全（出席→振替などにステータス変更しないので維持する）
                   ...(existing?.furikaeAmpm ? {furikaeAmpm: existing.furikaeAmpm} : {}),
-                  temp: p.temp || "", bpUpSt: p.bpUpSt || "", bpDnSt: p.bpDnSt || "",
-                  plSt: p.plSt || "", bpUpEn: p.bpUpEn || "", bpDnEn: p.bpDnEn || "", plEn: p.plEn || "",
+                  // vitals は AM/PM 独立フィールド
+                  temp_AM: p.temp_AM ?? "", temp_PM: p.temp_PM ?? "",
+                  bpUpSt_AM: p.bpUpSt_AM ?? "", bpUpSt_PM: p.bpUpSt_PM ?? "",
+                  bpDnSt_AM: p.bpDnSt_AM ?? "", bpDnSt_PM: p.bpDnSt_PM ?? "",
+                  plSt_AM: p.plSt_AM ?? "", plSt_PM: p.plSt_PM ?? "",
+                  bpUpEn_AM: p.bpUpEn_AM ?? "", bpUpEn_PM: p.bpUpEn_PM ?? "",
+                  bpDnEn_AM: p.bpDnEn_AM ?? "", bpDnEn_PM: p.bpDnEn_PM ?? "",
+                  plEn_AM: p.plEn_AM ?? "", plEn_PM: p.plEn_PM ?? "",
+                  // 旧形式互換用: 現 timeFilter の値を plain にも反映 (古いビューが参照する場合)
+                  temp: p[`temp_${timeFilter}`] ?? "",
+                  bpUpSt: p[`bpUpSt_${timeFilter}`] ?? "", bpDnSt: p[`bpDnSt_${timeFilter}`] ?? "", plSt: p[`plSt_${timeFilter}`] ?? "",
+                  bpUpEn: p[`bpUpEn_${timeFilter}`] ?? "", bpDnEn: p[`bpDnEn_${timeFilter}`] ?? "", plEn: p[`plEn_${timeFilter}`] ?? "",
                   massage: p.massage || "", exercises: p.exercises || {}, tokki: p.tokki || "", actualTime: p.actualTime || "",
                   kibunArrival: p.kibunArrival || "", kibunArrivalReason: p.kibunArrivalReason || "",
                   kibunDeparture: p.kibunDeparture || "", kibunDepartureReason: p.kibunDepartureReason || "",
@@ -11979,22 +12014,32 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                     </div>
                   </td>
                   <td className={`px-1 py-3 text-center border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`}>
-                    <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.temp || ""} onClick={() => { openKeypad(p.id, 'temp', p.temp, isAbsent); setActiveCell(`${p.id}-temp`); }} style={{fontSize:14,padding:'3px 1px'}} className={`w-full border rounded-lg text-center font-bold shadow-inner outline-none cursor-pointer disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'bg-transparent border-transparent shadow-none cursor-default' : activeCell===`${p.id}-temp` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'} ${getTempColorClass(p.temp || "")}`} />
+                    {(() => { const fT=`temp_${timeFilter}`, fBu=`bpUpSt_${timeFilter}`, fBd=`bpDnSt_${timeFilter}`, fPl=`plSt_${timeFilter}`; const vT=p[fT]||"";
+                    return (
+                    <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={vT} onClick={() => { openKeypad(p.id, fT, vT, isAbsent); setActiveCell(`${p.id}-${fT}`); }} style={{fontSize:14,padding:'3px 1px'}} className={`w-full border rounded-lg text-center font-bold shadow-inner outline-none cursor-pointer disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'bg-transparent border-transparent shadow-none cursor-default' : activeCell===`${p.id}-${fT}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'} ${getTempColorClass(vT)}`} />
+                    );})()}
                   </td>
                   <td className={`px-1 py-3 border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`}>
+                    {(() => { const fBu=`bpUpSt_${timeFilter}`, fBd=`bpDnSt_${timeFilter}`, fPl=`plSt_${timeFilter}`; const vBu=p[fBu]||"", vBd=p[fBd]||"", vPl=p[fPl]||"";
+                    return (
                     <div className="flex items-center justify-center gap-1">
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpUpSt || ""} onClick={() => { openKeypad(p.id, 'bpUpSt', p.bpUpSt, isAbsent); setActiveCell(`${p.id}-bpUpSt`); }} style={{width:56,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpSt, p.bpDnSt)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpUpSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={vBu} onClick={() => { openKeypad(p.id, fBu, vBu, isAbsent); setActiveCell(`${p.id}-${fBu}`); }} style={{width:56,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(vBu, vBd)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-${fBu}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
                       <span className="text-slate-300">/</span>
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpDnSt || ""} onClick={() => { openKeypad(p.id, 'bpDnSt', p.bpDnSt, isAbsent); setActiveCell(`${p.id}-bpDnSt`); }} style={{width:56,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpSt, p.bpDnSt)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpDnSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.plSt || ""} onClick={() => { openKeypad(p.id, 'plSt', p.plSt, isAbsent); setActiveCell(`${p.id}-plSt`); }} style={{fontSize:14,padding:'3px 1px',width:56}} className={`border rounded-lg text-center cursor-pointer ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(p.plSt, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-plSt` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={vBd} onClick={() => { openKeypad(p.id, fBd, vBd, isAbsent); setActiveCell(`${p.id}-${fBd}`); }} style={{width:56,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(vBu, vBd)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-${fBd}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={vPl} onClick={() => { openKeypad(p.id, fPl, vPl, isAbsent); setActiveCell(`${p.id}-${fPl}`); }} style={{fontSize:14,padding:'3px 1px',width:56}} className={`border rounded-lg text-center cursor-pointer ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(vPl, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-${fPl}` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
                     </div>
+                    );})()}
                   </td>
                   <td className={`px-1 py-3 border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`}>
+                    {(() => { const fBu=`bpUpEn_${timeFilter}`, fBd=`bpDnEn_${timeFilter}`, fPl=`plEn_${timeFilter}`; const vBu=p[fBu]||"", vBd=p[fBd]||"", vPl=p[fPl]||"";
+                    return (
                     <div className="flex items-center justify-center gap-1">
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpUpEn || ""} onClick={() => { openKeypad(p.id, 'bpUpEn', p.bpUpEn, isAbsent); setActiveCell(`${p.id}-bpUpEn`); }} style={{width:56,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpEn, p.bpDnEn)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpUpEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={vBu} onClick={() => { openKeypad(p.id, fBu, vBu, isAbsent); setActiveCell(`${p.id}-${fBu}`); }} style={{width:56,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(vBu, vBd)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-${fBu}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
                       <span className="text-slate-300">/</span>
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.bpDnEn || ""} onClick={() => { openKeypad(p.id, 'bpDnEn', p.bpDnEn, isAbsent); setActiveCell(`${p.id}-bpDnEn`); }} style={{width:56,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(p.bpUpEn, p.bpDnEn)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-bpDnEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
-                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={p.plEn || ""} onClick={() => { openKeypad(p.id, 'plEn', p.plEn, isAbsent); setActiveCell(`${p.id}-plEn`); }} style={{fontSize:14,padding:'3px 1px',width:56}} className={`border rounded-lg text-center cursor-pointer ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(p.plEn, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-plEn` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={vBd} onClick={() => { openKeypad(p.id, fBd, vBd, isAbsent); setActiveCell(`${p.id}-${fBd}`); }} style={{width:56,padding:'3px 1px',textAlign:'center',fontSize:14,fontWeight:'bold'}} className={`border rounded-lg outline-none cursor-pointer ${getBpColorClass(vBu, vBd)} shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-${fBd}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
+                      <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={vPl} onClick={() => { openKeypad(p.id, fPl, vPl, isAbsent); setActiveCell(`${p.id}-${fPl}`); }} style={{fontSize:14,padding:'3px 1px',width:56}} className={`border rounded-lg text-center cursor-pointer ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(vPl, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-${fPl}` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
+                    </div>
+                    );})()}
                     </div>
                   </td>
 
@@ -13150,9 +13195,13 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                 const years = Math.floor(days / 365);
                 const remDays = days - years*365;
                 const months = Math.floor(remDays / 30);
-                if (years > 0) elapsedLabel = `${years}年${months>0?`${months}ヶ月`:''} (${days}日)`;
-                else if (months > 0) elapsedLabel = `${months}ヶ月 (${days}日)`;
-                else elapsedLabel = `${days}日`;
+                // 「2年3ヶ月」を上、「(837日)」は改行して下に表示
+                const main = years > 0 ? `${years}年${months>0?`${months}ヶ月`:''}` : months > 0 ? `${months}ヶ月` : '';
+                if (main) {
+                  elapsedLabel = (<div><div>{main}</div><div style={{fontSize:'0.85em',color:'#64748b',marginTop:2}}>({days}日)</div></div>);
+                } else {
+                  elapsedLabel = `${days}日`;
+                }
               }
             }
             return (
@@ -17087,7 +17136,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
 
           {/* 次回お迎え時間 + QR */}
           <div className="border-2 border-black bg-white flex items-center px-3 mb-1 shrink-0 gap-2" style={{paddingTop:'2px', paddingBottom:'2px', minHeight:0}}>
-            <div className="flex-1 flex flex-nowrap items-center gap-x-2 min-w-0">
+            <div className="flex-1 flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0" style={{overflow:'hidden'}}>
               <span style={{fontSize:16,fontWeight:"bold",whiteSpace:"pre",color:"#475569",flexShrink:0,lineHeight:1.15,textAlign:"center"}}>{`次回\nお迎え時間`}</span>
               {(() => {
                 // 日付: 数字は30px, 「月」「日」のみ20px、括弧内の曜日は30px (数字と同じ)
@@ -17102,20 +17151,20 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                     const c = str[i];
                     if (c === '（' || c === '(') {
                       inParen = true;
-                      out.push(<span key={i} style={{fontSize:34, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:32, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                       continue;
                     }
                     if (c === '）' || c === ')') {
                       inParen = false;
-                      out.push(<span key={i} style={{fontSize:34, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:32, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                       continue;
                     }
                     if (inParen) {
-                      out.push(<span key={i} style={{fontSize:34, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:32, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                     } else if (c === '月' || c === '日' || c === '年') {
-                      out.push(<span key={i} style={{fontSize:24, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{' '+c+' '}</span>);
+                      out.push(<span key={i} style={{fontSize:22, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{' '+c+' '}</span>);
                     } else {
-                      out.push(<span key={i} style={{fontSize:34, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:32, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                     }
                   }
                   return out;
@@ -17133,12 +17182,12 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                   const hBlank = !h;
                   const mBlank = !m;
                   const numStyle = (blank) => ({
-                    fontSize:34, fontWeight:'bold', lineHeight:1.1,
+                    fontSize:32, fontWeight:'bold', lineHeight:1.1,
                     display:'inline-block', minWidth:'2ch', textAlign:'right',
                     color: blank ? '#cbd5e1' : '#1e293b',
                     fontVariantNumeric:'tabular-nums'
                   });
-                  const labelStyle = { fontSize:24, fontWeight:'bold', lineHeight:1.1 };
+                  const labelStyle = { fontSize:22, fontWeight:'bold', lineHeight:1.1 };
                   return <span style={{whiteSpace:'pre'}}>
                     <span style={numStyle(hBlank)}>{hBlank ? '  ' : h}</span>
                     {' '}
@@ -17151,7 +17200,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                 };
                 return <>
                   <span style={{whiteSpace:"nowrap"}}>{renderDate(nextDateDisplay)}</span>
-                  <span style={{whiteSpace:"nowrap", marginLeft:'1em'}}>{renderTime(nextTimeDisplay)}</span>
+                  <span style={{whiteSpace:"nowrap"}}>{renderTime(nextTimeDisplay)}</span>
                 </>;
               })()}
             </div>
@@ -20711,8 +20760,17 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   const [localLog, setLocalLog] = useState({});
 
   // logKeyが変わったら（日付・ampm切替）バッファを最新のappDataから読み込む
+  // 未保存の変更があれば、移動前の logKey に対して自動保存してから読み込む
   React.useEffect(() => {
-    const latest = (appData.diaryLogs||{})[logKey] || {};
+    const oldKey = logKeyRef.current;
+    let nextAppData = appData;
+    if (dirtyRef?.current && oldKey && oldKey !== logKey) {
+      // 移動前データを自動保存
+      const updatedLogs = { ...(appData.diaryLogs||{}), [oldKey]: localLog };
+      nextAppData = { ...appData, diaryLogs: updatedLogs };
+      onSave(nextAppData);
+    }
+    const latest = (nextAppData.diaryLogs||{})[logKey] || {};
     setLocalLog(JSON.parse(JSON.stringify(latest)));
     logKeyRef.current = logKey;
     if (dirtyRef) dirtyRef.current = false;
