@@ -9233,7 +9233,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
   return (
     <div className={isRecordsTab ? '' : 'space-y-3'}>
       {/* 上部枠: ←一覧 | ドロップダウン | (タブ:お知らせ/通所記録) | ログイン画面リンク — records 時は sticky */}
-      <div className={`bg-white border-slate-200 p-3 flex items-center gap-3 flex-wrap ${isRecordsTab ? 'border-b sticky top-0 z-50 shadow-sm' : 'rounded-2xl shadow-sm border'}`} style={isRecordsTab ? {marginBottom:0} : undefined}>
+      <div className={`bg-white border-slate-200 p-3 flex items-center gap-3 flex-wrap ${isRecordsTab ? 'border-b shadow-sm' : 'rounded-2xl shadow-sm border'}`} style={isRecordsTab ? {position:'sticky',top:50,zIndex:45,marginBottom:0} : undefined}>
         {patient && (
           <button onClick={()=>{ setPreviewPid(null); setPatSearch(''); }} title="利用者一覧に戻る"
             className="px-3 py-2 rounded-lg text-sm font-bold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 shrink-0 whitespace-nowrap">
@@ -9242,7 +9242,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
         )}
         <div style={{position:'relative'}} className="shrink-0">
           <button onClick={()=>{setPatDropOpen(v=>!v); setPatSearch('');}}
-            className="bg-violet-50 hover:bg-violet-100 border border-violet-300 px-3 py-2 rounded-lg font-bold text-base flex items-center gap-2 text-violet-700">
+            className="bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 px-3 py-2 rounded-lg font-bold text-base flex items-center gap-2 text-emerald-700">
             <span className="truncate flex-1 text-left" style={{maxWidth:160}}>{patient ? patient.name : '🔍 利用者を選択'}</span>
             <ChevronDown size={14} className="shrink-0"/>
           </button>
@@ -9283,7 +9283,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
           <div className="flex gap-1 shrink-0">
             {[['news','📢 お知らせ'],['records','📊 通所記録']].map(([k,l])=>(
               <button key={k} onClick={()=>setPreviewInnerTab(k)}
-                className={`px-3 py-2 rounded-lg text-sm font-bold ${previewInnerTab===k?'bg-violet-600 text-white':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{l}</button>
+                className={`px-3 py-2 rounded-lg text-sm font-bold ${previewInnerTab===k?'bg-emerald-500 text-white':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{l}</button>
             ))}
           </div>
         )}
@@ -9308,7 +9308,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
             </div>
             <input type="text" autoFocus placeholder="🔍 氏名・ふりがな・ID で検索" value={patSearch}
               onChange={e=>setPatSearch(e.target.value)}
-              className="w-full mb-3 px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-base font-bold outline-none focus:border-violet-400" />
+              className="w-full mb-3 px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-base font-bold outline-none focus:border-emerald-400" />
             <div className="flex flex-wrap gap-1 mb-3 pb-3 border-b border-slate-100">
               {kanaRows.map(row => {
                 const cnt = allPats.filter(p => getRowFromKana(p.kana) === row).length;
@@ -9318,7 +9318,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
                     setPatSearch('');
                     setTimeout(() => { document.getElementById(`fam-kana-row-${row}`)?.scrollIntoView({behavior:'smooth', block:'start'}); }, 50);
                   }}
-                    className="px-2.5 py-1 rounded-lg text-xs font-bold border border-slate-200 bg-white text-slate-700 hover:bg-violet-50 hover:border-violet-300 transition-colors">
+                    className="px-2.5 py-1 rounded-lg text-xs font-bold border border-slate-200 bg-white text-slate-700 hover:bg-emerald-50 hover:border-emerald-300 transition-colors">
                     {row}<span className="ml-1 text-[10px] text-slate-400">({cnt})</span>
                   </button>
                 );
@@ -9332,10 +9332,10 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                       {g.items.map(p => (
                         <button key={p.id} onClick={()=>{ setPreviewPid(p.id); setPatSearch(''); }}
-                          className="px-3 py-3 rounded-xl border border-slate-200 bg-white hover:bg-violet-50 hover:border-violet-400 text-left transition-colors shadow-sm">
+                          className="px-3 py-3 rounded-xl border border-slate-200 bg-white hover:bg-emerald-50 hover:border-emerald-400 text-left transition-colors shadow-sm">
                           <div className="text-base font-bold text-slate-800 truncate">{p.name}</div>
                           {p.kana && <div className="text-[11px] text-slate-400 truncate font-normal mt-0.5">{p.kana}</div>}
-                          {p.careLevel && <div className="text-[10px] font-bold text-violet-600 mt-1">{p.careLevel}</div>}
+                          {p.careLevel && <div className="text-[10px] font-bold text-emerald-600 mt-1">{p.careLevel}</div>}
                         </button>
                       ))}
                     </div>
@@ -9345,10 +9345,10 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                   {list.map(p => (
                     <button key={p.id} onClick={()=>{ setPreviewPid(p.id); setPatSearch(''); }}
-                      className="px-3 py-3 rounded-xl border border-slate-200 bg-white hover:bg-violet-50 hover:border-violet-400 text-left transition-colors shadow-sm">
+                      className="px-3 py-3 rounded-xl border border-slate-200 bg-white hover:bg-emerald-50 hover:border-emerald-400 text-left transition-colors shadow-sm">
                       <div className="text-base font-bold text-slate-800 truncate">{p.name}</div>
                       {p.kana && <div className="text-[11px] text-slate-400 truncate font-normal mt-0.5">{p.kana}</div>}
-                      {p.careLevel && <div className="text-[10px] font-bold text-violet-600 mt-1">{p.careLevel}</div>}
+                      {p.careLevel && <div className="text-[10px] font-bold text-emerald-600 mt-1">{p.careLevel}</div>}
                     </button>
                   ))}
                   {list.length === 0 && (
@@ -9422,7 +9422,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
           targetPatientId={patient.id}
           familyMode={true}
           hidePatientSelector={true}
-          stickyTopOffset={68}
+          stickyTopOffset={114}
           navigateTo={()=>{}}
           onShowPrintPreview={()=>{}}
         />
@@ -9619,13 +9619,13 @@ function FamilyAdminView({ appData, onSave }) {
     return true;
   }).sort((a,b) => (b.date||'').localeCompare(a.date||''));
   const FilterPanel = () => (
-    <div className="bg-violet-50 border border-violet-200 rounded-xl p-3">
+    <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[11px] font-bold text-violet-700 whitespace-nowrap">曜日:</span>
+        <span className="text-[11px] font-bold text-emerald-700 whitespace-nowrap">曜日:</span>
         {dayLabels.map((l, idx) => (
-          <button key={l} onClick={()=>toggleDay(idx)} className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${patientFilter.days.includes(idx) ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-500 border-slate-300 hover:bg-slate-50'}`}>{l}</button>
+          <button key={l} onClick={()=>toggleDay(idx)} className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${patientFilter.days.includes(idx) ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white text-slate-500 border-slate-300 hover:bg-slate-50'}`}>{l}</button>
         ))}
-        <span className="text-[11px] font-bold text-violet-700 ml-2">時間帯:</span>
+        <span className="text-[11px] font-bold text-emerald-700 ml-2">時間帯:</span>
         {['AM','PM'].map(v => (
           <button key={v} onClick={()=>setAmpm(v)} className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${patientFilter.ampm === v ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-500 border-slate-300 hover:bg-slate-50'}`}>{v}</button>
         ))}
@@ -9637,11 +9637,11 @@ function FamilyAdminView({ appData, onSave }) {
     </div>
   );
   return (
-    <div className="h-full overflow-auto bg-slate-50 p-6">
-      <div className="max-w-5xl mx-auto">
-        <div className="flex items-center gap-2 mb-4 bg-white rounded-2xl p-1.5 shadow-sm border border-slate-200">
+    <div className={`h-full overflow-auto bg-slate-50 ${tab==='preview'?'p-0':'p-6'}`}>
+      <div className={tab==='preview'?'':'max-w-5xl mx-auto'}>
+        <div className={`flex items-center gap-2 bg-white shadow-sm border border-slate-200 ${tab==='preview'?'sticky top-0 z-50 border-b p-1.5':'rounded-2xl p-1.5 mb-4'}`}>
           {[['post','✏️ 投稿 (お知らせ・写真)'],['preview','📱 家族画面プレビュー'],['history','📂 過去履歴']].map(([k,l])=>(
-            <button key={k} onClick={()=>setTab(k)} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors ${tab===k?'bg-violet-600 text-white shadow':'text-slate-500 hover:bg-slate-100'}`}>{l}</button>
+            <button key={k} onClick={()=>setTab(k)} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors ${tab===k?'bg-emerald-500 text-white shadow':'text-slate-500 hover:bg-slate-100'}`}>{l}</button>
           ))}
         </div>
         {tab === 'post' && (
@@ -9649,10 +9649,10 @@ function FamilyAdminView({ appData, onSave }) {
             <h3 className="text-base font-bold text-slate-800 mb-1">✏️ お知らせ・写真を投稿</h3>
             <div className="text-[11px] text-slate-500">タイトル・本文・写真を一度に投稿できます (写真のみ・お知らせのみも可)</div>
             <div className="flex gap-2">
-              <label className={`flex-1 px-4 py-2.5 rounded-xl border-2 cursor-pointer text-center font-bold text-sm ${postForm.scope==='all'?'bg-violet-50 border-violet-400 text-violet-700':'bg-white border-slate-200 text-slate-500'}`}>
+              <label className={`flex-1 px-4 py-2.5 rounded-xl border-2 cursor-pointer text-center font-bold text-sm ${postForm.scope==='all'?'bg-emerald-50 border-emerald-400 text-emerald-700':'bg-white border-slate-200 text-slate-500'}`}>
                 <input type="radio" checked={postForm.scope==='all'} onChange={()=>setPostForm(f=>({...f,scope:'all'}))} className="hidden"/>🌐 全体に表示
               </label>
-              <label className={`flex-1 px-4 py-2.5 rounded-xl border-2 cursor-pointer text-center font-bold text-sm ${postForm.scope==='specific'?'bg-violet-50 border-violet-400 text-violet-700':'bg-white border-slate-200 text-slate-500'}`}>
+              <label className={`flex-1 px-4 py-2.5 rounded-xl border-2 cursor-pointer text-center font-bold text-sm ${postForm.scope==='specific'?'bg-emerald-50 border-emerald-400 text-emerald-700':'bg-white border-slate-200 text-slate-500'}`}>
                 <input type="radio" checked={postForm.scope==='specific'} onChange={()=>setPostForm(f=>({...f,scope:'specific'}))} className="hidden"/>👥 個別に表示 (複数選択可)
               </label>
             </div>
@@ -9663,14 +9663,14 @@ function FamilyAdminView({ appData, onSave }) {
                   <div className="flex items-center justify-between mb-2 px-2">
                     <span className="text-[11px] font-bold text-slate-500">対象を選択 (チェック {postForm.patientIds.length}名)</span>
                     <div className="flex gap-1">
-                      <button onClick={()=>checkAllFiltered(postForm, setPostForm)} className="px-2 py-0.5 text-[10px] font-bold bg-violet-100 hover:bg-violet-200 text-violet-700 rounded">該当を全選択</button>
+                      <button onClick={()=>checkAllFiltered(postForm, setPostForm)} className="px-2 py-0.5 text-[10px] font-bold bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded">該当を全選択</button>
                       <button onClick={()=>uncheckAll(postForm, setPostForm)} className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-500 rounded">クリア</button>
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-1">
                     {matchedByFilter.map(p => (
-                      <label key={p.id} className={`flex items-center gap-1.5 px-2 py-1 rounded-lg cursor-pointer text-xs ${postForm.patientIds.includes(p.id) ? 'bg-violet-100 text-violet-700 font-bold' : 'hover:bg-slate-50 text-slate-600'}`}>
-                        <input type="checkbox" checked={postForm.patientIds.includes(p.id)} onChange={()=>togglePatient(postForm, setPostForm, p.id)} className="accent-violet-600"/>
+                      <label key={p.id} className={`flex items-center gap-1.5 px-2 py-1 rounded-lg cursor-pointer text-xs ${postForm.patientIds.includes(p.id) ? 'bg-emerald-100 text-emerald-700 font-bold' : 'hover:bg-slate-50 text-slate-600'}`}>
+                        <input type="checkbox" checked={postForm.patientIds.includes(p.id)} onChange={()=>togglePatient(postForm, setPostForm, p.id)} className="accent-emerald-500"/>
                         <span className="truncate">{p.name}</span>
                       </label>
                     ))}
@@ -9699,7 +9699,7 @@ function FamilyAdminView({ appData, onSave }) {
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-1">写真添付 (任意・複数可)</label>
-              <input type="file" accept="image/*" multiple onChange={handleFilesPicked} className="w-full text-xs font-bold text-slate-500 file:mr-3 file:px-4 file:py-2 file:rounded-lg file:border-0 file:bg-violet-100 file:text-violet-700 file:font-bold hover:file:bg-violet-200"/>
+              <input type="file" accept="image/*" multiple onChange={handleFilesPicked} className="w-full text-xs font-bold text-slate-500 file:mr-3 file:px-4 file:py-2 file:rounded-lg file:border-0 file:bg-emerald-100 file:text-emerald-700 file:font-bold hover:file:bg-emerald-200"/>
               {postForm.filePreview.length > 0 && (
                 <div className="grid grid-cols-6 gap-2 mt-2 p-2 bg-slate-50 rounded-lg">
                   {postForm.filePreview.map((p,i)=>(
@@ -9711,7 +9711,7 @@ function FamilyAdminView({ appData, onSave }) {
                 </div>
               )}
             </div>
-            <button onClick={submitPost} className="w-full py-2.5 rounded-xl font-bold text-white bg-violet-600 hover:bg-violet-700 shadow active:scale-95">
+            <button onClick={submitPost} className="w-full py-2.5 rounded-xl font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow active:scale-95">
               {(()=>{
                 const what = [postForm.title.trim() && 'お知らせ', postForm.files.length > 0 && `写真${postForm.files.length}枚`].filter(Boolean).join('+') || '内容';
                 const who = postForm.scope === 'specific' && postForm.patientIds.length > 0 ? `${postForm.patientIds.length}名に` : '全体に';
@@ -9986,7 +9986,7 @@ function FamilyView() {
                     <div style={{fontSize:11,color:'#166534',lineHeight:1.7}}>下のボタンからログインしてください</div>
                   </div>
                   <button onClick={()=>{setSignupForm({inviteCode:'',username:'',password:'',password2:'',displayName:'',error:'',done:false}); setMode('login');}}
-                    style={{width:'100%',padding:'12px',marginTop:14,background:'linear-gradient(135deg,#94c456,#5e8030)',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:'bold',cursor:'pointer'}}>
+                    style={{width:'100%',padding:'12px',marginTop:14,background:'linear-gradient(135deg,#a6cf6a,#7daa3d)',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:'bold',cursor:'pointer'}}>
                     ログイン画面へ
                   </button>
                 </div>
@@ -10392,7 +10392,7 @@ function FamilyView() {
                   </div>
                   {signupForm.error && <div style={{color:'#ef4444',fontSize:12,fontWeight:'bold',marginBottom:10,textAlign:'center',background:'#fef2f2',padding:'8px 10px',borderRadius:8}}>{signupForm.error}</div>}
                   <button type="submit" disabled={!(signupForm.agreedTerms && signupForm.agreedPrivacy)}
-                    style={{width:'100%',padding:'13px',background: (signupForm.agreedTerms && signupForm.agreedPrivacy)?'linear-gradient(135deg,#94c456,#5e8030)':'#cbd5e1',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:(signupForm.agreedTerms && signupForm.agreedPrivacy)?'pointer':'not-allowed',marginTop:6,boxShadow:'0 4px 12px rgba(94,128,48,0.3)'}}>
+                    style={{width:'100%',padding:'13px',background: (signupForm.agreedTerms && signupForm.agreedPrivacy)?'linear-gradient(135deg,#a6cf6a,#7daa3d)':'#cbd5e1',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:(signupForm.agreedTerms && signupForm.agreedPrivacy)?'pointer':'not-allowed',marginTop:6,boxShadow:'0 4px 12px rgba(125,170,61,0.3)'}}>
                     登録する
                   </button>
                   <button type="button" onClick={()=>setMode('login')} style={{display:'block',width:'100%',padding:'10px',marginTop:10,background:'transparent',color:'#64748b',border:'none',fontSize:12,fontWeight:'bold',cursor:'pointer'}}>← ログイン画面に戻る</button>
@@ -10421,7 +10421,7 @@ function FamilyView() {
             </div>
             {loginForm.error && <div style={{color:'#ef4444',fontSize:12,fontWeight:'bold',marginBottom:12,textAlign:'center'}}>{loginForm.error}</div>}
             <button type="submit"
-              style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#94c456,#5e8030)',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',marginTop:12,boxShadow:'0 4px 12px rgba(94,128,48,0.3)'}}>
+              style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#a6cf6a,#7daa3d)',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',marginTop:12,boxShadow:'0 4px 12px rgba(125,170,61,0.3)'}}>
               ログイン
             </button>
             <p style={{fontSize:10,color:'#94a3b8',textAlign:'center',marginTop:16,lineHeight:1.6}}>
@@ -10523,7 +10523,7 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
         }
       `}</style>
       {/* 固定ヘッダー: 全要素を1行に統合 (事業所名+利用者名 | タブ | 家族追加 | ログアウト) — 緑基調 */}
-      <div style={{position:'sticky',top:0,zIndex:60,background:'linear-gradient(135deg,#7daa3d 0%,#b8d488 100%)',boxShadow:'0 2px 12px rgba(94,128,48,0.3)'}}>
+      <div style={{position:'sticky',top:0,zIndex:60,background:'linear-gradient(135deg,#94c456 0%,#d4e7a5 100%)',boxShadow:'0 2px 12px rgba(125,170,61,0.3)'}}>
         <div style={{color:'white',padding:'10px 16px'}}>
           <div style={{maxWidth:1200,margin:'0 auto',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
             {/* 左: 事業所名 + 利用者名 */}
@@ -10781,7 +10781,7 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
                       }
                     } catch (_) {/* 自動送信失敗時は URL コピー/手動送信を案内 */}
                   }}
-                    style={{flex:1,padding:'10px',background:'linear-gradient(135deg,#7daa3d,#b8d488)',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>招待URLを発行</button>
+                    style={{flex:1,padding:'10px',background:'linear-gradient(135deg,#94c456,#d4e7a5)',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>招待URLを発行</button>
                 </div>
               </div>
             )}
@@ -11133,7 +11133,7 @@ export default function App() {
           </div>
 
           {/* ログインカード: 白基調 + 緑アクセント */}
-          <div style={{background:'#fff',borderRadius:18,padding:32,boxShadow:'0 12px 40px rgba(94,128,48,0.15)',borderTop:'3px solid #94c456',position:'relative'}}>
+          <div style={{background:'#fff',borderRadius:18,padding:32,boxShadow:'0 12px 40px rgba(125,170,61,0.15)',borderTop:'3px solid #94c456',position:'relative'}}>
             <h2 style={{fontSize:17,fontWeight:600,color:'#3d5021',marginBottom:22,textAlign:'center',fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif",letterSpacing:'4px'}}>事業所ログイン</h2>
             <form onSubmit={handleLogin}>
               <div style={{marginBottom:16}}>
@@ -11150,7 +11150,7 @@ export default function App() {
               </div>
               {loginForm.error && <div style={{color:'#b91c1c',fontSize:12,fontWeight:'bold',marginBottom:12,textAlign:'center'}}>{loginForm.error}</div>}
               <button type="submit"
-                style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#94c456,#5e8030)',color:'#fff',border:'none',borderRadius:10,fontSize:15,fontWeight:'bold',cursor:'pointer',marginBottom:12,marginTop:8,letterSpacing:'4px',boxShadow:'0 4px 12px rgba(94,128,48,0.3)'}}>
+                style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,#a6cf6a,#7daa3d)',color:'#fff',border:'none',borderRadius:10,fontSize:15,fontWeight:'bold',cursor:'pointer',marginBottom:12,marginTop:8,letterSpacing:'4px',boxShadow:'0 4px 12px rgba(125,170,61,0.3)'}}>
                 ログイン
               </button>
             </form>
@@ -13106,7 +13106,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
     <div className="w-full" style={{backgroundColor:'#f0f4f9',minHeight:'100%'}}>
       {/* ヘッダーバー（固定） — 親 scroll container 内で sticky */}
       <div style={{position:'sticky',top: stickyTop, zIndex:familyMode?40:30,background: familyMode ? '#f4f8ed' : '#f0f4f9'}}>
-      <div style={{background: familyMode ? 'linear-gradient(135deg,#7daa3d 0%,#b8d488 100%)' : 'linear-gradient(135deg,#2563eb 0%,#1e40af 100%)',color:'white',padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+      <div style={{background: familyMode ? 'linear-gradient(135deg,#94c456 0%,#d4e7a5 100%)' : 'linear-gradient(135deg,#2563eb 0%,#1e40af 100%)',color:'white',padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
         <div style={{display:'flex',alignItems:'center',gap:12}}>
           <div style={{width:36,height:36,background:'rgba(255,255,255,0.2)',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center'}}>
             <BarChart3 size={20}/>
