@@ -18012,32 +18012,40 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     return ns;
   };
   const subFuri = () => {
+    // モーダル値をスナップショット (closure経由で参照、setFurikaeModal を最初に呼んでも有効)
+    const _fromDate = furikaeModal.fromDate;
+    const _destAmpmRaw = furikaeModal.furikaeAmpm || 'AM';
+    const _mode = furikaeModal.mode || 'forward';
+    const _clickedDay = furikaeModal.day;
+    const _clickedAmpm = furikaeModal.ampm;
+    const _reason = furikaeModal.reason;
+    // 最初にモーダルを閉じる (確定ボタンで確実に閉じるため)
+    setFurikaeModal({ isOpen: false, day: null, ampm: "", fromDate: "", reason: "", mode: 'forward' });
+    if (!_fromDate) return;
+    const fd = new Date(_fromDate);
+    if (isNaN(fd.getTime())) return;
+
     let ns = JSON.parse(JSON.stringify(effShifts));
     let ur = [...effTickets];
-    const destAmpmRaw = furikaeModal.furikaeAmpm || 'AM';
-    if (!furikaeModal.fromDate) return;
-    const fd = new Date(furikaeModal.fromDate);
-    if (isNaN(fd.getTime())) return;
-    const mode = furikaeModal.mode || 'forward';
     // mode に応じて src/dest を決定
     //  forward: クリックされた day/ampm が src、fromDate/furikaeAmpm が dest
     //  backward: クリックされた day/ampm が dest、fromDate/furikaeAmpm が src
     const clickedMonth = currentMonth.getMonth() + 1;
-    const clickedDay = furikaeModal.day;
-    const clickedAmpm = furikaeModal.ampm;
+    const clickedDay = _clickedDay;
+    const clickedAmpm = _clickedAmpm;
     const otherMonth = fd.getMonth() + 1;
     const otherDay = fd.getDate();
-    const otherAmpm = destAmpmRaw;
-    const srcMonth = mode === 'forward' ? clickedMonth : otherMonth;
-    const srcDay   = mode === 'forward' ? clickedDay   : otherDay;
-    const srcAmpm  = mode === 'forward' ? clickedAmpm  : otherAmpm;
-    const destMonth= mode === 'forward' ? otherMonth   : clickedMonth;
-    const destDay  = mode === 'forward' ? otherDay     : clickedDay;
-    const destAmpm = mode === 'forward' ? otherAmpm    : clickedAmpm;
+    const otherAmpm = _destAmpmRaw;
+    const srcMonth = _mode === 'forward' ? clickedMonth : otherMonth;
+    const srcDay   = _mode === 'forward' ? clickedDay   : otherDay;
+    const srcAmpm  = _mode === 'forward' ? clickedAmpm  : otherAmpm;
+    const destMonth= _mode === 'forward' ? otherMonth   : clickedMonth;
+    const destDay  = _mode === 'forward' ? otherDay     : clickedDay;
+    const destAmpm = _mode === 'forward' ? otherAmpm    : clickedAmpm;
     const srcLabel = `${srcMonth}月${srcDay}日`;
     const destLabel = `${destMonth}月${destDay}日`;
-    const srcDateObj = mode === 'forward' ? new Date(currentMonth.getFullYear(), srcMonth-1, srcDay) : fd;
-    const destDateObj = mode === 'forward' ? fd : new Date(currentMonth.getFullYear(), destMonth-1, destDay);
+    const srcDateObj = _mode === 'forward' ? new Date(currentMonth.getFullYear(), srcMonth-1, srcDay) : fd;
+    const destDateObj = _mode === 'forward' ? fd : new Date(currentMonth.getFullYear(), destMonth-1, destDay);
     const srcDow = dN[srcDateObj.getDay()];
     const destDow = dN[destDateObj.getDay()];
     // 振替先のシフトを設定（destDateObj が表示中の月なら）
@@ -18054,7 +18062,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     }
     // 振替元 ticketRecord（欠席）の更新
     const ampmSuffix = destAmpm !== '1日' ? destAmpm : '';
-    const srcTokki = `${destLabel}${ampmSuffix}へ振替${furikaeModal.reason ? '（' + furikaeModal.reason + '）' : ''}`;
+    const srcTokki = `${destLabel}${ampmSuffix}へ振替${_reason ? '（' + _reason + '）' : ''}`;
     const srcIdx = ur.findIndex(r => r.patientId === localPatient.id && r.date === srcLabel);
     if (srcIdx >= 0) ur[srcIdx] = { ...ur[srcIdx], status: '欠席', tokki: srcTokki };
     else ur.push({ id: Date.now() + Math.random(), patientId: localPatient.id, name: localPatient.name, kana: localPatient.kana, date: srcLabel, dayOfWeek: srcDow, status: '欠席', temp: '', bpUpSt: '', bpDnSt: '', plSt: '', bpUpEn: '', bpDnEn: '', plEn: '', massage: '', exercises: {}, tokki: srcTokki });
@@ -18066,7 +18074,6 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     setPendingShifts(ns);
     setPendingTickets(ur);
     markDirty();
-    setFurikaeModal({ isOpen: false, day: null, ampm: "", fromDate: "", reason: "", mode: 'forward' });
   };
   const skipFuri = () => {
     const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), furikaeModal.day);
@@ -19341,6 +19348,28 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         const clickedLabel = isFwd ? '振替元' : '振替先';
         const otherLabel = isFwd ? '振替先' : '振替元';
         const clickedNote = isFwd ? '→ この日は欠席になります' : '→ この日に振替で出席します';
+        // backward mode の時、通所予定日のリストを生成 (基本利用日 + 既存の振替先を除外、今月分)
+        const basicUsageDays = isFwd ? [] : (() => {
+          const result = [];
+          const year = currentMonth.getFullYear();
+          const month = currentMonth.getMonth();
+          const lastDay = new Date(year, month + 1, 0).getDate();
+          for (let d = 1; d <= lastDay; d++) {
+            const dOM = new Date(year, month, d);
+            const dow = dOM.getDay();
+            const sched = localPatient.scheduleAmPm?.[dow] || '';
+            const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+            // クリックされた日 (振替先) と同じ日は除外
+            if (d === furikaeModal.day) continue;
+            if (sched === 'AM' || sched === '1日') {
+              result.push({day: d, dow, ampm: 'AM', dateStr, label: `${month+1}月${d}日（${dN[dow]}）午前`});
+            }
+            if (sched === 'PM' || sched === '1日') {
+              result.push({day: d, dow, ampm: 'PM', dateStr, label: `${month+1}月${d}日（${dN[dow]}）午後`});
+            }
+          }
+          return result;
+        })();
         return (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
@@ -19354,13 +19383,36 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 <span className="font-bold text-slate-800">{currentMonth.getMonth()+1}月{furikaeModal.day}日（{furikaeModal.ampm}）</span>
                 <div className={`text-xs mt-0.5 ${isFwd ? 'text-red-500' : 'text-emerald-600'}`}>{clickedNote}</div>
               </div>
-              <div><label className="text-xs font-bold text-slate-500 block mb-1">{otherLabel}の日付</label><input type="date" value={furikaeModal.fromDate} onChange={e => setFurikaeModal({ ...furikaeModal, fromDate: e.target.value })} className="w-full p-3 bg-white border border-slate-300 rounded-xl font-bold outline-none" /></div>
-              <div><label className="text-xs font-bold text-slate-500 block mb-1">{otherLabel}の時間帯</label>
-                <div className="flex gap-2">{[['AM','午前'],['PM','午後']].map(([val,label])=>(
-                  <button key={val} type="button" onClick={()=>setFurikaeModal({...furikaeModal, furikaeAmpm: val})}
-                    className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-all ${(furikaeModal.furikaeAmpm||'AM')===val ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-600 border-slate-300 hover:border-blue-400'}`}>{label}</button>
-                ))}</div>
-              </div>
+              {isFwd ? (
+                <>
+                  <div><label className="text-xs font-bold text-slate-500 block mb-1">{otherLabel}の日付</label><input type="date" value={furikaeModal.fromDate} onChange={e => setFurikaeModal({ ...furikaeModal, fromDate: e.target.value })} className="w-full p-3 bg-white border border-slate-300 rounded-xl font-bold outline-none" /></div>
+                  <div><label className="text-xs font-bold text-slate-500 block mb-1">{otherLabel}の時間帯</label>
+                    <div className="flex gap-2">{[['AM','午前'],['PM','午後']].map(([val,label])=>(
+                      <button key={val} type="button" onClick={()=>setFurikaeModal({...furikaeModal, furikaeAmpm: val})}
+                        className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-all ${(furikaeModal.furikaeAmpm||'AM')===val ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-600 border-slate-300 hover:border-blue-400'}`}>{label}</button>
+                    ))}</div>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <label className="text-xs font-bold text-slate-500 block mb-1">{otherLabel} (通所予定日から選択)</label>
+                  {basicUsageDays.length === 0 ? (
+                    <div className="text-xs text-slate-400 bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">今月の通所予定日が登録されていません</div>
+                  ) : (
+                    <div className="max-h-56 overflow-y-auto border border-slate-300 rounded-xl p-2 bg-slate-50 space-y-1">
+                      {basicUsageDays.map((opt, i) => {
+                        const selected = furikaeModal.fromDate === opt.dateStr && (furikaeModal.furikaeAmpm||'AM') === opt.ampm;
+                        return (
+                          <button key={i} type="button" onClick={() => setFurikaeModal({...furikaeModal, fromDate: opt.dateStr, furikaeAmpm: opt.ampm})}
+                            className={`w-full px-3 py-2 rounded-lg text-left text-sm font-bold border transition-all ${selected ? 'bg-emerald-600 text-white border-emerald-700' : 'bg-white text-slate-700 border-slate-200 hover:bg-emerald-50 hover:border-emerald-300'}`}>
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
               <div><label className="text-xs font-bold text-slate-500 block mb-1">欠席理由（任意）</label><input type="text" value={furikaeModal.reason} onChange={e => setFurikaeModal({ ...furikaeModal, reason: e.target.value })} placeholder="例: 通院のため振替" className="w-full p-3 bg-white border border-slate-300 rounded-xl font-bold outline-none" /></div>
               {furikaeModal.fromDate && (()=>{const d=new Date(furikaeModal.fromDate);const dn=['日','月','火','水','木','金','土'];return <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm"><div className="font-bold text-emerald-700">{otherLabel}：{d.getMonth()+1}月{d.getDate()}日（{dn[d.getDay()]}）{(furikaeModal.furikaeAmpm||'AM')==='AM'?'午前':'午後'}</div></div>;})()}
             </div>
