@@ -16664,7 +16664,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     // B5 横 (257×182mm) ページ内に連絡帳 (182×257mm 縦) を中央配置 (微縮小)
     const combinedHtml = htmlParts.map((h,i)=>
       `<div style="page-break-after:${i < htmlParts.length-1 ? 'always' : 'auto'};width:257mm;height:182mm;display:flex;justify-content:center;align-items:center;overflow:hidden;">
-        <div style="transform:scale(0.6);transform-origin:center center;width:182mm;height:257mm;flex-shrink:0;">${h}</div>
+        <div style="transform:scale(0.66);transform-origin:center center;width:182mm;height:257mm;flex-shrink:0;">${h}</div>
       </div>`
     ).join('');
     if(onShowPrintPreview) onShowPrintPreview(title, '257mm 182mm', null);
@@ -17073,11 +17073,10 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
           </div>
 
           <div style={{height:"18px",flexShrink:0}} />
-          {/* ご家族からの連絡欄 — 高さ 10rem、ラベルフォント拡大 */}
-          <div className="border-2 border-black bg-white mb-2 shrink-0" style={{height:'10rem'}}>
-            <div className="px-2 py-0.5 border-b border-slate-400 bg-white">
-              <span className="font-bold text-slate-800" style={{fontSize:15}}>ご家族からの連絡欄</span>
-            </div>
+          {/* ご家族からの連絡欄 — ラベルは枠の外、枠内はまっさらな書き込みエリア */}
+          <div className="shrink-0 mb-2">
+            <div className="font-bold text-slate-800" style={{fontSize:15,marginBottom:3}}>ご家族からの連絡欄</div>
+            <div className="border-2 border-black bg-white" style={{height:'10rem'}} />
           </div>
 
           <div style={{height:'13px', flexShrink:0}} />
@@ -17099,20 +17098,20 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                     const c = str[i];
                     if (c === '（' || c === '(') {
                       inParen = true;
-                      out.push(<span key={i} style={{fontSize:30, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:34, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                       continue;
                     }
                     if (c === '）' || c === ')') {
                       inParen = false;
-                      out.push(<span key={i} style={{fontSize:30, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:34, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                       continue;
                     }
                     if (inParen) {
-                      out.push(<span key={i} style={{fontSize:30, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:34, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                     } else if (c === '月' || c === '日' || c === '年') {
-                      out.push(<span key={i} style={{fontSize:20, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{' '+c+' '}</span>);
+                      out.push(<span key={i} style={{fontSize:24, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{' '+c+' '}</span>);
                     } else {
-                      out.push(<span key={i} style={{fontSize:30, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:34, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                     }
                   }
                   return out;
@@ -17130,12 +17129,12 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                   const hBlank = !h;
                   const mBlank = !m;
                   const numStyle = (blank) => ({
-                    fontSize:30, fontWeight:'bold', lineHeight:1.1,
+                    fontSize:34, fontWeight:'bold', lineHeight:1.1,
                     display:'inline-block', minWidth:'2ch', textAlign:'right',
                     color: blank ? '#cbd5e1' : '#1e293b',
                     fontVariantNumeric:'tabular-nums'
                   });
-                  const labelStyle = { fontSize:20, fontWeight:'bold', lineHeight:1.1 };
+                  const labelStyle = { fontSize:24, fontWeight:'bold', lineHeight:1.1 };
                   return <span style={{whiteSpace:'pre'}}>
                     <span style={numStyle(hBlank)}>{hBlank ? '  ' : h}</span>
                     {' '}
@@ -17264,6 +17263,8 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
 
   const fitnessItems = appData.systemSettings?.fitnessItems || appSettings.fitnessItems;
   const records = appData.fitnessRecords || [];
+  // 前回・過去の記録の編集モード (デフォルト off: 今回分のみ編集可)
+  const [editPast, setEditPast] = useState(false);
 
   const now = new Date();
   const thisMonth = now.getMonth(); // 0-based
@@ -17545,7 +17546,8 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                         className="w-full px-3 py-1.5 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400 text-center" />
                     </div>
                     <div className="px-4 py-2 text-center">
-                      {lastRecord ? (
+                      {!lastRecord ? <span className="text-slate-300">—</span>
+                       : editPast ? (
                         <input type="number" step="0.1" defaultValue={prev ?? ''}
                           onBlur={e => {
                             const v = e.target.value;
@@ -17554,8 +17556,10 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                             onSave({...appData, fitnessRecords: newRecords});
                           }}
                           placeholder="—"
-                          className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-blue-400 text-center bg-slate-50" />
-                      ) : <span className="text-slate-300">—</span>}
+                          className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400 text-center bg-slate-50" />
+                       ) : (
+                        prev !== undefined && prev !== '' ? <span className="font-bold text-slate-700">{prev}<span className="text-xs text-slate-400 ml-0.5">{item.unit}</span></span> : <span className="text-slate-300">—</span>
+                       )}
                     </div>
                     <div className="px-4 py-2 text-center">
                       {avg !== null ? <span className="font-bold text-green-700">{avg}<span className="text-xs text-green-500 ml-0.5">{item.unit}</span></span> : <span className="text-slate-300">—</span>}
@@ -17568,7 +17572,13 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
             {/* 過去の記録 */}
             {patRecords.length > 0 && (
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="px-5 py-3 border-b border-slate-200 font-bold text-sm text-slate-700">過去の記録</div>
+                <div className="px-5 py-3 border-b border-slate-200 flex items-center justify-between gap-3">
+                  <div className="font-bold text-sm text-slate-700">過去の記録 (前回含む)</div>
+                  <button onClick={()=>setEditPast(v=>!v)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${editPast ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
+                    {editPast ? '✓ 編集中 (クリックで終了)' : '✏ 編集'}
+                  </button>
+                </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs border-collapse">
                     <thead>
@@ -17587,15 +17597,20 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                             const cur = r.values?.[item.id] ?? '';
                             return (
                               <td key={item.id} className="px-2 py-1 text-center">
-                                <input type="number" step="0.1" defaultValue={cur}
-                                  onBlur={e => {
-                                    const v = e.target.value;
-                                    if (String(cur) === v) return;
-                                    const newRecords = records.map(rr => rr.id === r.id ? {...rr, values: {...rr.values, [item.id]: v}} : rr);
-                                    onSave({...appData, fitnessRecords: newRecords});
-                                  }}
-                                  placeholder="—"
-                                  className="w-16 px-1.5 py-1 border border-transparent hover:border-slate-300 focus:border-blue-400 rounded text-xs font-bold outline-none text-center bg-transparent" />
+                                {editPast ? (
+                                  <input type="number" step="0.1" defaultValue={cur}
+                                    onBlur={e => {
+                                      const v = e.target.value;
+                                      if (String(cur) === v) return;
+                                      const newRecords = records.map(rr => rr.id === r.id ? {...rr, values: {...rr.values, [item.id]: v}} : rr);
+                                      onSave({...appData, fitnessRecords: newRecords});
+                                    }}
+                                    placeholder="—"
+                                    style={{minWidth:72}}
+                                    className="w-20 px-1.5 py-1 border border-slate-300 focus:border-blue-400 rounded text-xs font-bold outline-none text-center bg-white" />
+                                ) : (
+                                  cur !== '' && cur !== undefined ? <span className="font-bold text-slate-700" style={{whiteSpace:'nowrap'}}>{cur}</span> : <span className="text-slate-300">—</span>
+                                )}
                               </td>
                             );
                           })}
