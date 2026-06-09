@@ -12040,7 +12040,6 @@ function RecordView({ appData, onSave, navigateTo, selectedDate, setSelectedDate
                       <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={vPl} onClick={() => { openKeypad(p.id, fPl, vPl, isAbsent); setActiveCell(`${p.id}-${fPl}`); }} style={{fontSize:14,padding:'3px 1px',width:56}} className={`border rounded-lg text-center cursor-pointer ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(vPl, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-${fPl}` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
                     </div>
                     );})()}
-                    </div>
                   </td>
 
                   {(appData.systemSettings?.exerciseItems || appSettings.exerciseItems).map((item) => {
