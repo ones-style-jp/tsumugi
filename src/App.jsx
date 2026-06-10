@@ -16,6 +16,14 @@ import {
   supabaseSyncState,
   supabaseLoadState,
   supabaseSubscribeState,
+  supabaseSyncStateForStore,
+  supabaseLoadStateForStore,
+  supabaseStaffLogin,
+  supabaseStaffChangePassword,
+  supabaseListStores,
+  supabaseCreateStore,
+  supabaseCreateStaff,
+  supabaseListStaff,
 } from './lib/supabase.js';
 
 // === システム設定 ===
@@ -10965,6 +10973,296 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
 }
 
 // === メインアプリケーション ===
+// ===========================================
+// 本部管理者用 店舗選択 + 店舗追加 + スタッフ追加画面
+// ===========================================
+function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
+  const [stores, setStores] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddStore, setShowAddStore] = useState(false);
+  const [showAddStaff, setShowAddStaff] = useState(false);
+  const [storeForm, setStoreForm] = useState({ id:'', name:'', short_name:'', org_name:'ワンズスタイル株式会社', phone:'', error:'', loading:false });
+  const [staffForm, setStaffForm] = useState({ store_id:'', username:'', password:'', role:'manager', last_name:'', first_name:'', email:'', error:'', loading:false });
+
+  const loadStores = async () => {
+    setLoading(true);
+    const list = await supabaseListStores();
+    setStores(list);
+    setLoading(false);
+  };
+  useEffect(() => { loadStores(); }, []);
+
+  const handleCreateStore = async (e) => {
+    e.preventDefault();
+    if (!storeForm.id.trim() || !storeForm.name.trim()) { setStoreForm(f=>({...f, error:'店舗IDと店舗名は必須です'})); return; }
+    if (!/^[a-z0-9_-]+$/i.test(storeForm.id)) { setStoreForm(f=>({...f, error:'店舗IDは半角英数字・ハイフン・アンダースコアのみ'})); return; }
+    setStoreForm(f=>({...f, loading:true, error:''}));
+    try {
+      await supabaseCreateStore({
+        id: storeForm.id.trim(),
+        name: storeForm.name.trim(),
+        short_name: storeForm.short_name.trim() || storeForm.name.trim(),
+        org_name: storeForm.org_name.trim(),
+        phone: storeForm.phone.trim(),
+      });
+      setStoreForm({ id:'', name:'', short_name:'', org_name:'ワンズスタイル株式会社', phone:'', error:'', loading:false });
+      setShowAddStore(false);
+      loadStores();
+    } catch (err) {
+      setStoreForm(f=>({...f, loading:false, error: err?.message || '店舗作成に失敗しました'}));
+    }
+  };
+
+  const handleCreateStaff = async (e) => {
+    e.preventDefault();
+    if (!staffForm.store_id) { setStaffForm(f=>({...f, error:'店舗を選択してください'})); return; }
+    if (!staffForm.username.trim() || staffForm.username.length < 4) { setStaffForm(f=>({...f, error:'ログインIDは4文字以上必要です'})); return; }
+    if (staffForm.password.length < 8) { setStaffForm(f=>({...f, error:'パスワードは8文字以上必要です'})); return; }
+    setStaffForm(f=>({...f, loading:true, error:''}));
+    try {
+      await supabaseCreateStaff({
+        store_id: staffForm.store_id,
+        username: staffForm.username.trim(),
+        password: staffForm.password,
+        role: staffForm.role,
+        last_name: staffForm.last_name.trim(),
+        first_name: staffForm.first_name.trim(),
+        email: staffForm.email.trim(),
+      });
+      alert(`スタッフ「${staffForm.username}」を作成しました。初期パスワードを伝えてください。`);
+      setStaffForm({ store_id:'', username:'', password:'', role:'manager', last_name:'', first_name:'', email:'', error:'', loading:false });
+      setShowAddStaff(false);
+    } catch (err) {
+      setStaffForm(f=>({...f, loading:false, error: err?.message || 'スタッフ作成に失敗しました'}));
+    }
+  };
+
+  return (
+    <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#d4e7a5 0%,#f0f7e0 100%)',padding:24,boxSizing:'border-box'}}>
+      <div style={{maxWidth:900,margin:'0 auto'}}>
+        {/* ヘッダー */}
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:24,flexWrap:'wrap',gap:12}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:'bold',color:'#5e8030',letterSpacing:2}}>TSUMUGI 本部管理</div>
+            <div style={{fontSize:22,fontWeight:'bold',color:'#3d5021',fontFamily:"'Hiragino Maru Gothic ProN',sans-serif"}}>こんにちは、{staffSession.displayName || '管理者'} 様</div>
+          </div>
+          <button onClick={onLogout} style={{padding:'8px 16px',background:'white',color:'#475569',border:'1px solid #cbd5e1',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>ログアウト</button>
+        </div>
+        {/* 店舗一覧 */}
+        <div style={{background:'white',borderRadius:16,padding:24,marginBottom:16,boxShadow:'0 4px 16px rgba(0,0,0,0.06)'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+            <div style={{fontSize:16,fontWeight:'bold',color:'#3d5021'}}>🏢 登録店舗一覧 ({stores.length}店舗)</div>
+            <button onClick={()=>setShowAddStore(true)} style={{padding:'8px 14px',background:'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>+ 店舗を追加</button>
+          </div>
+          {loading ? (
+            <div style={{textAlign:'center',padding:32,color:'#94a3b8'}}>読込中...</div>
+          ) : stores.length === 0 ? (
+            <div style={{textAlign:'center',padding:32,color:'#94a3b8',background:'#f8fafc',borderRadius:12}}>
+              まだ店舗が登録されていません。「+ 店舗を追加」から作成してください。
+            </div>
+          ) : (
+            <div style={{display:'grid',gap:10}}>
+              {stores.map(s => (
+                <div key={s.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:14,background:'#f4f8ed',borderRadius:12,border:'1px solid #d4e7a5'}}>
+                  <div>
+                    <div style={{fontSize:14,fontWeight:'bold',color:'#3d5021'}}>{s.name}</div>
+                    <div style={{fontSize:10,color:'#64748b',marginTop:2}}>ID: {s.id} {s.phone && `/ ${s.phone}`}</div>
+                  </div>
+                  <button onClick={()=>onSelectStore(s)} style={{padding:'8px 14px',background:'white',color:'#3d5021',border:'1px solid #94c456',borderRadius:8,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>この店舗を開く →</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        {/* スタッフ追加 */}
+        <div style={{background:'white',borderRadius:16,padding:24,boxShadow:'0 4px 16px rgba(0,0,0,0.06)'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+            <div style={{fontSize:16,fontWeight:'bold',color:'#3d5021'}}>👥 スタッフアカウント発行</div>
+            <button onClick={()=>setShowAddStaff(true)} disabled={stores.length===0} style={{padding:'8px 14px',background: stores.length===0 ? '#cbd5e1' : '#5e8030',color:'white',border:'none',borderRadius:10,fontSize:12,fontWeight:'bold',cursor: stores.length===0 ? 'not-allowed' : 'pointer'}}>+ スタッフを追加</button>
+          </div>
+          <div style={{fontSize:11,color:'#64748b'}}>各店舗のスタッフのログインIDとパスワードを発行できます。</div>
+        </div>
+      </div>
+      {/* 店舗追加モーダル */}
+      {showAddStore && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:16,zIndex:1000}} onClick={()=>setShowAddStore(false)}>
+          <div style={{background:'white',borderRadius:16,padding:24,maxWidth:480,width:'100%',maxHeight:'90vh',overflow:'auto'}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:18,fontWeight:'bold',color:'#3d5021',marginBottom:16}}>🏢 新規店舗を追加</div>
+            <form onSubmit={handleCreateStore}>
+              <div style={{marginBottom:12}}>
+                <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>店舗ID <span style={{color:'#dc2626'}}>*</span> <span style={{fontWeight:'normal',color:'#94a3b8'}}>(半角英数字、例: store_honjo)</span></label>
+                <input value={storeForm.id} onChange={e=>setStoreForm(f=>({...f,id:e.target.value,error:''}))} placeholder="store_honjo" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',fontFamily:'monospace'}}/>
+              </div>
+              <div style={{marginBottom:12}}>
+                <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>店舗名 (正式) <span style={{color:'#dc2626'}}>*</span></label>
+                <input value={storeForm.name} onChange={e=>setStoreForm(f=>({...f,name:e.target.value,error:''}))} placeholder="ひかりデイサービス本所店" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+              </div>
+              <div style={{marginBottom:12}}>
+                <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>短縮名 (オプション)</label>
+                <input value={storeForm.short_name} onChange={e=>setStoreForm(f=>({...f,short_name:e.target.value}))} placeholder="本所店" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+              </div>
+              <div style={{marginBottom:12}}>
+                <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>法人名</label>
+                <input value={storeForm.org_name} onChange={e=>setStoreForm(f=>({...f,org_name:e.target.value}))} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+              </div>
+              <div style={{marginBottom:16}}>
+                <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>電話番号</label>
+                <input value={storeForm.phone} onChange={e=>setStoreForm(f=>({...f,phone:e.target.value}))} placeholder="03-1234-5678" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+              </div>
+              {storeForm.error && <div style={{color:'#dc2626',fontSize:12,fontWeight:'bold',marginBottom:12,padding:8,background:'#fef2f2',borderRadius:8}}>{storeForm.error}</div>}
+              <div style={{display:'flex',gap:8}}>
+                <button type="button" onClick={()=>setShowAddStore(false)} style={{flex:1,padding:'12px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
+                <button type="submit" disabled={storeForm.loading} style={{flex:1,padding:'12px',background:'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>{storeForm.loading?'作成中...':'店舗を作成'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* スタッフ追加モーダル */}
+      {showAddStaff && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:16,zIndex:1000}} onClick={()=>setShowAddStaff(false)}>
+          <div style={{background:'white',borderRadius:16,padding:24,maxWidth:480,width:'100%',maxHeight:'90vh',overflow:'auto'}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:18,fontWeight:'bold',color:'#3d5021',marginBottom:16}}>👤 新規スタッフを追加</div>
+            <form onSubmit={handleCreateStaff}>
+              <div style={{marginBottom:12}}>
+                <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>店舗 <span style={{color:'#dc2626'}}>*</span></label>
+                <select value={staffForm.store_id} onChange={e=>setStaffForm(f=>({...f,store_id:e.target.value,error:''}))} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}>
+                  <option value="">— 選択 —</option>
+                  {stores.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
+                <div>
+                  <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>姓</label>
+                  <input value={staffForm.last_name} onChange={e=>setStaffForm(f=>({...f,last_name:e.target.value}))} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+                </div>
+                <div>
+                  <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>名</label>
+                  <input value={staffForm.first_name} onChange={e=>setStaffForm(f=>({...f,first_name:e.target.value}))} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+                </div>
+              </div>
+              <div style={{marginBottom:12}}>
+                <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>役割 <span style={{color:'#dc2626'}}>*</span></label>
+                <select value={staffForm.role} onChange={e=>setStaffForm(f=>({...f,role:e.target.value}))} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}>
+                  <option value="manager">店舗管理者 (全操作可能)</option>
+                  <option value="staff">店舗スタッフ (記録入力中心)</option>
+                </select>
+              </div>
+              <div style={{marginBottom:12}}>
+                <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>ログインID <span style={{color:'#dc2626'}}>*</span></label>
+                <input value={staffForm.username} onChange={e=>setStaffForm(f=>({...f,username:e.target.value,error:''}))} placeholder="staff_yamada" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',fontFamily:'monospace'}}/>
+              </div>
+              <div style={{marginBottom:12}}>
+                <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>初期パスワード <span style={{color:'#dc2626'}}>*</span> <span style={{fontWeight:'normal',color:'#94a3b8'}}>(8文字以上)</span></label>
+                <input type="text" value={staffForm.password} onChange={e=>setStaffForm(f=>({...f,password:e.target.value,error:''}))} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',fontFamily:'monospace'}}/>
+              </div>
+              <div style={{marginBottom:16}}>
+                <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>メール</label>
+                <input type="email" value={staffForm.email} onChange={e=>setStaffForm(f=>({...f,email:e.target.value}))} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+              </div>
+              {staffForm.error && <div style={{color:'#dc2626',fontSize:12,fontWeight:'bold',marginBottom:12,padding:8,background:'#fef2f2',borderRadius:8}}>{staffForm.error}</div>}
+              <div style={{display:'flex',gap:8}}>
+                <button type="button" onClick={()=>setShowAddStaff(false)} style={{flex:1,padding:'12px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
+                <button type="submit" disabled={staffForm.loading} style={{flex:1,padding:'12px',background:'#5e8030',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>{staffForm.loading?'作成中...':'スタッフを作成'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===========================================
+// スタッフログイン画面 (本部/店舗管理者/店舗スタッフ)
+// ===========================================
+function StaffLoginGate({ onLogin }) {
+  const [form, setForm] = useState({ username:'', password:'', error:'', loading:false, showPw:false });
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!isSupabaseEnabled) {
+      setForm(f=>({...f, error:'Supabase が未接続です (Vercel 環境変数を確認してください)'}));
+      return;
+    }
+    if (!form.username.trim() || !form.password) {
+      setForm(f=>({...f, error:'IDとパスワードを入力してください'}));
+      return;
+    }
+    setForm(f=>({...f, loading:true, error:''}));
+    try {
+      const staff = await supabaseStaffLogin({ username: form.username, password: form.password });
+      const session = {
+        staffId: staff.id,
+        username: staff.username,
+        role: staff.role,
+        storeId: staff.store_id || null,
+        storeName: staff.stores?.name || '',
+        storeShortName: staff.stores?.short_name || '',
+        displayName: staff.display_name || staff.username,
+      };
+      sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(session));
+      onLogin(session);
+    } catch (err) {
+      setForm(f=>({...f, loading:false, error: err?.message || 'ログインに失敗しました'}));
+    }
+  };
+  return (
+    <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'linear-gradient(135deg,#d4e7a5 0%,#f0f7e0 100%)',padding:24,boxSizing:'border-box'}}>
+      <div style={{width:'100%',maxWidth:420,background:'white',borderRadius:24,padding:'32px 28px',boxShadow:'0 12px 40px rgba(125,170,61,0.25)',boxSizing:'border-box'}}>
+        {/* ロゴ */}
+        <div style={{textAlign:'center',marginBottom:24}}>
+          <svg viewBox="0 0 460 130" style={{width:'100%',maxWidth:280,height:'auto',display:'block',margin:'0 auto'}} xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <radialGradient id="staffLeaf" cx="40%" cy="55%" r="55%">
+                <stop offset="0%" stopColor="#608a3e"/>
+                <stop offset="50%" stopColor="#94c456"/>
+                <stop offset="100%" stopColor="#d4e7a5"/>
+              </radialGradient>
+            </defs>
+            <g transform="translate(105, 58) scale(0.8)">
+              <ellipse cx="-22" cy="-22" rx="20" ry="22" fill="url(#staffLeaf)" transform="rotate(-30 -22 -22)"/>
+              <ellipse cx="22" cy="-22" rx="20" ry="22" fill="url(#staffLeaf)" transform="rotate(30 22 -22)"/>
+              <ellipse cx="-22" cy="22" rx="20" ry="22" fill="url(#staffLeaf)" transform="rotate(-150 -22 22)"/>
+              <ellipse cx="22" cy="22" rx="20" ry="22" fill="url(#staffLeaf)" transform="rotate(150 22 22)"/>
+              <circle cx="0" cy="0" r="6" fill="#3d5021"/>
+            </g>
+            <text x="200" y="80" fontFamily="'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif" fontSize="64" fontWeight="bold" fill="#3d5021" letterSpacing="4">紡ぎ</text>
+            <text x="200" y="110" fontFamily="'Hiragino Sans',sans-serif" fontSize="14" fontWeight="bold" fill="#5e8030" letterSpacing="6">Tsumugi</text>
+          </svg>
+          <div style={{fontSize:12,color:'#5e8030',fontWeight:'bold',marginTop:8,letterSpacing:1}}>事業所スタッフ専用ログイン</div>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div style={{marginBottom:14}}>
+            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>ログインID</label>
+            <input value={form.username} onChange={e=>setForm(f=>({...f,username:e.target.value,error:''}))} autoFocus autoComplete="username"
+              style={{width:'100%',padding:'12px 14px',border:'1px solid #cbd5e1',borderRadius:12,fontSize:15,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
+          </div>
+          <div style={{marginBottom:18}}>
+            <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>パスワード</label>
+            <div style={{position:'relative'}}>
+              <input type={form.showPw?'text':'password'} value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value,error:''}))} autoComplete="current-password"
+                style={{width:'100%',padding:'12px 14px',paddingRight:60,border:'1px solid #cbd5e1',borderRadius:12,fontSize:15,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
+              <button type="button" onClick={()=>setForm(f=>({...f,showPw:!f.showPw}))}
+                style={{position:'absolute',right:8,top:'50%',transform:'translateY(-50%)',background:'transparent',border:'none',fontSize:11,color:'#64748b',cursor:'pointer',padding:6}}>
+                {form.showPw?'隠す':'表示'}
+              </button>
+            </div>
+          </div>
+          {form.error && <div style={{color:'#dc2626',fontSize:12,fontWeight:'bold',marginBottom:12,textAlign:'center',padding:'8px 12px',background:'#fef2f2',borderRadius:8}}>{form.error}</div>}
+          <button type="submit" disabled={form.loading}
+            style={{width:'100%',padding:'14px',background: form.loading ? '#cbd5e1' : '#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor: form.loading ? 'wait' : 'pointer',letterSpacing:1}}>
+            {form.loading ? 'ログイン中...' : 'ログイン'}
+          </button>
+        </form>
+        <div style={{marginTop:18,fontSize:10,color:'#94a3b8',textAlign:'center',lineHeight:1.7}}>
+          ご家族の方は <a href="?family" style={{color:'#5e8030',fontWeight:'bold'}}>こちら</a> からログイン<br/>
+          IDをお忘れの場合は事業所までお問い合わせください
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   // 家族用閲覧モード判定: ?family が含まれていれば家族用ログイン画面に遷移
   const isFamilyMode = React.useMemo(()=>{
@@ -10972,6 +11270,17 @@ export default function App() {
       return new URLSearchParams(window.location.search).has('family');
     } catch { return false; }
   }, []);
+  // ★ スタッフセッション (家族モード以外で必要)
+  const [staffSession, setStaffSession] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem('tsumugiStaffSession');
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  });
+  const handleStaffLogout = () => {
+    sessionStorage.removeItem('tsumugiStaffSession');
+    setStaffSession(null);
+  };
   // 新規登録モード: ?signup=family-xxx または ?signup=staff-xxx
   const signupContext = React.useMemo(()=>{
     try {
@@ -11026,35 +11335,35 @@ export default function App() {
         alert('データ保存容量を超えました。写真の数を減らすか、古い記録を整理してください。');
       }
     }
-    // ★ Supabase 同期 (debounce 1.5秒 - 連続編集を1リクエストにまとめる)
-    if (isSupabaseEnabled) {
-      const t = setTimeout(() => { supabaseSyncState(appData); }, 1500);
+    // ★ Supabase 同期 (debounce 1.5秒 - 店舗ごとに保存)
+    // staffSession.storeId が無い (本部 super_admin) 場合は同期しない (どの店舗のデータか確定しないため)
+    if (isSupabaseEnabled && staffSession?.storeId) {
+      const t = setTimeout(() => { supabaseSyncStateForStore(staffSession.storeId, appData); }, 1500);
       return () => clearTimeout(t);
     }
-  }, [appData]);
+  }, [appData, staffSession?.storeId]);
 
-  // 起動時に Supabase から最新 state を pull (他端末で更新されている可能性)
+  // 起動時 + 店舗切替え時に Supabase から最新 state を pull
   useEffect(() => {
-    if (!isSupabaseEnabled) return;
+    if (!isSupabaseEnabled || !staffSession?.storeId) return;
     (async () => {
       try {
-        const row = await supabaseLoadState();
+        const row = await supabaseLoadStateForStore(staffSession.storeId);
         if (row && row.data && Object.keys(row.data).length > 0) {
           setAppData(prev => {
-            // familyAccounts/Invites は localStorage 側を優先 (別テーブルで管理)
             const merged = { ...row.data, familyAccounts: prev.familyAccounts || [], familyInvites: prev.familyInvites || [] };
             return merged;
           });
         } else {
-          // 初回: Supabase が空なら現在の localStorage を初期 push
-          supabaseSyncState(appData);
+          // 初回: Supabase が空ならこの店舗の現在 state を push
+          supabaseSyncStateForStore(staffSession.storeId, appData);
         }
       } catch (e) {
         console.warn('[supabase] initial pull failed', e);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [staffSession?.storeId]);
   // お知らせ・写真の保存期間を過ぎたデータを起動時に自動削除
   // 削除対象: postedAt (or date) が retentionMonths より古いもの
   useEffect(() => {
@@ -11157,27 +11466,36 @@ export default function App() {
   const [navConfirm, setNavConfirm] = useState(null); // {view, patientId}
 
   // ── ログイン状態 ──────────────────────────
-  const [session, setSession] = useState(null); // null=未ログイン | {mode:'staff'|'demo', storeName}
+  // staffSession (Supabase 由来) を主とし、session は既存コード互換のため派生させる
+  const [session, setSession] = useState(() => {
+    if (staffSession) return { mode:'staff', storeName: staffSession.storeName || staffSession.storeShortName || '本部', storeId: staffSession.storeId, role: staffSession.role };
+    return null;
+  });
   const [loginForm, setLoginForm] = useState({id:'', pass:'', error:''});
 
-  const handleLogin = (e) => {
-    e.preventDefault();
-    // 各種設定のログイン情報と照合
-    const creds = appData.systemSettings?.loginCredentials || [];
-    const match = creds.find(c => c.id === loginForm.id && c.pass === loginForm.pass);
-    if (match) {
-      setSession({mode:'staff', storeName: match.storeName || appData.systemSettings?.facilityInfo?.name || '事業所'});
-      setLoginForm({id:'', pass:'', error:''});
+  // staffSession 変化時に session を同期 (家族ログインのような既存コードが session を参照するため)
+  useEffect(() => {
+    if (staffSession) {
+      setSession({ mode:'staff', storeName: staffSession.storeName || staffSession.storeShortName || '本部', storeId: staffSession.storeId, role: staffSession.role });
     } else {
-      setLoginForm(f=>({...f, error:'IDまたはパスワードが違います'}));
+      setSession(null);
     }
+  }, [staffSession]);
+
+  const handleLogin = (e) => {
+    // Supabase 移行後は使われない (互換のため残置)
+    e.preventDefault();
+    setLoginForm(f=>({...f, error:'スタッフログインは Supabase 経由に変更されました。新しいログイン画面を使用してください。'}));
   };
 
   const handleDemoLogin = () => {
-    setSession({mode:'demo', storeName:'ひかりデイサービス（デモ）'});
+    // デモは別 URL に分離 (本番では無効化)
+    alert('デモ機能は別 URL に移行しました');
   };
 
   const handleLogout = () => {
+    sessionStorage.removeItem('tsumugiStaffSession');
+    setStaffSession(null);
     setSession(null);
     setLoginForm({id:'', pass:'', error:''});
   };
@@ -11295,7 +11613,38 @@ export default function App() {
   if (isFamilyMode) {
     return <FamilyView />;
   }
-  if (!session) {
+  // ★ Supabase 経由のスタッフログイン (本番経路)
+  if (isSupabaseEnabled && !staffSession) {
+    return <StaffLoginGate onLogin={(s) => setStaffSession(s)} />;
+  }
+  // 本部管理者 (super_admin) で店舗未選択時: 店舗選択コンソール表示
+  if (isSupabaseEnabled && staffSession?.role === 'super_admin' && !staffSession?.storeId) {
+    return <SuperAdminConsole
+      staffSession={staffSession}
+      onSelectStore={(store) => {
+        const updated = { ...staffSession, storeId: store.id, storeName: store.name, storeShortName: store.short_name || store.name };
+        sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(updated));
+        setStaffSession(updated);
+      }}
+      onLogout={handleLogout}
+    />;
+  }
+  // Supabase 未接続時: 環境変数設定を促す画面
+  if (!isSupabaseEnabled && !session) {
+    return (
+      <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:24,background:'#f4f8ed'}}>
+        <div style={{maxWidth:500,background:'white',borderRadius:16,padding:32,boxShadow:'0 4px 16px rgba(0,0,0,0.08)'}}>
+          <div style={{fontSize:18,fontWeight:'bold',color:'#3d5021',marginBottom:12}}>⚙️ Supabase 設定が必要です</div>
+          <div style={{fontSize:13,color:'#475569',lineHeight:1.7}}>
+            Vercel の環境変数 <code style={{background:'#f1f5f9',padding:'2px 6px',borderRadius:4}}>VITE_SUPABASE_URL</code> と
+            <code style={{background:'#f1f5f9',padding:'2px 6px',borderRadius:4,marginLeft:4}}>VITE_SUPABASE_ANON_KEY</code> を設定してから Redeploy してください。
+          </div>
+        </div>
+      </div>
+    );
+  }
+  // (旧) ローカルログイン画面 - Supabase 未接続時の fallback (通常は到達しない)
+  if (false && !session) {
     return (
       <div style={{minHeight:'100vh',background:'#f4f8ed',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
         <div style={{width:'100%',maxWidth:400}}>

@@ -234,14 +234,14 @@ export async function supabaseLoadState() {
 }
 
 // 一定時間ごとに state を pull (家族画面で使う)
-export function supabaseSubscribeState(onChange, intervalMs = 15000) {
+export function supabaseSubscribeState(onChange, intervalMs = 15000, storeId = APP_STATE_KEY) {
   if (!supabase) return () => {};
   let stopped = false;
   let lastUpdate = '';
   const tick = async () => {
     if (stopped) return;
     try {
-      const row = await supabaseLoadState();
+      const row = await supabaseLoadStateForStore(storeId);
       if (row && row.updated_at !== lastUpdate) {
         lastUpdate = row.updated_at;
         onChange(row.data);
@@ -251,4 +251,124 @@ export function supabaseSubscribeState(onChange, intervalMs = 15000) {
   tick(); // 即時1回
   const timer = setInterval(tick, intervalMs);
   return () => { stopped = true; clearInterval(timer); };
+}
+
+// =========================================================
+// 店舗ごとの app_state 保存・読込 (マルチテナント用)
+// =========================================================
+export async function supabaseSyncStateForStore(storeId, data) {
+  if (!supabase || !storeId) return false;
+  try {
+    const sanitized = sanitizeForSync(data);
+    // 行が無ければ作成
+    await supabase.from('app_state').upsert({ key: storeId, data: sanitized });
+    return true;
+  } catch (e) {
+    console.warn('[supabase] syncStateForStore exception', e);
+    return false;
+  }
+}
+
+export async function supabaseLoadStateForStore(storeId) {
+  if (!supabase || !storeId) return null;
+  try {
+    const { data, error } = await supabase
+      .from('app_state')
+      .select('data, updated_at')
+      .eq('key', storeId)
+      .maybeSingle();
+    if (error) {
+      console.warn('[supabase] loadStateForStore error', error);
+      return null;
+    }
+    return data;
+  } catch (e) {
+    console.warn('[supabase] loadStateForStore exception', e);
+    return null;
+  }
+}
+
+// =========================================================
+// スタッフ認証 (本部管理者 / 店舗管理者 / 店舗スタッフ)
+// =========================================================
+export async function supabaseStaffLogin({ username, password }) {
+  if (!supabase) throw new Error('Supabase 未接続');
+  const password_hash = await hashPassword(password);
+  const { data, error } = await supabase
+    .from('staff')
+    .select('*, stores(id, name, short_name)')
+    .eq('username', username.trim())
+    .eq('password_hash', password_hash)
+    .eq('is_active', true)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('IDまたはパスワードが違います');
+  await supabase
+    .from('staff')
+    .update({ last_login: new Date().toISOString() })
+    .eq('id', data.id);
+  return data;
+}
+
+export async function supabaseStaffChangePassword(staffId, newPassword) {
+  if (!supabase) throw new Error('Supabase 未接続');
+  const password_hash = await hashPassword(newPassword);
+  const { error } = await supabase
+    .from('staff')
+    .update({ password_hash })
+    .eq('id', staffId);
+  if (error) throw error;
+  return true;
+}
+
+// =========================================================
+// 店舗マスタ
+// =========================================================
+export async function supabaseListStores() {
+  if (!supabase) return [];
+  try {
+    const { data } = await supabase
+      .from('stores')
+      .select('*')
+      .eq('status', 'active')
+      .order('name');
+    return data || [];
+  } catch { return []; }
+}
+
+export async function supabaseCreateStore({ id, name, short_name, org_name, address, phone, fax, email }) {
+  if (!supabase) throw new Error('Supabase 未接続');
+  const { data, error } = await supabase
+    .from('stores')
+    .insert({ id, name, short_name, org_name, address, phone, fax, email })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function supabaseCreateStaff({ store_id, username, password, role, last_name, first_name, email, phone }) {
+  if (!supabase) throw new Error('Supabase 未接続');
+  const password_hash = await hashPassword(password);
+  // 重複チェック
+  const { data: exists } = await supabase.from('staff').select('id').eq('username', username).maybeSingle();
+  if (exists) throw new Error('このログインIDは既に使用されています');
+  const { data, error } = await supabase
+    .from('staff')
+    .insert({ store_id, username, password_hash, role, last_name, first_name, email, phone })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function supabaseListStaff(storeId = null) {
+  if (!supabase) return [];
+  try {
+    let q = supabase.from('staff').select('*').is('deleted_at', null).order('created_at');
+    if (storeId) q = q.eq('store_id', storeId);
+    const { data } = await q;
+    return data || [];
+  } catch { return []; }
 }
