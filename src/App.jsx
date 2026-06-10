@@ -11209,9 +11209,9 @@ function StaffLoginGate({ onLogin }) {
   return (
     <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'linear-gradient(135deg,#d4e7a5 0%,#f0f7e0 100%)',padding:24,boxSizing:'border-box'}}>
       <div style={{width:'100%',maxWidth:420,background:'white',borderRadius:24,padding:'32px 28px',boxShadow:'0 12px 40px rgba(125,170,61,0.25)',boxSizing:'border-box'}}>
-        {/* ロゴ */}
-        <div style={{textAlign:'center',marginBottom:24}}>
-          <svg viewBox="0 0 460 130" style={{width:'100%',maxWidth:280,height:'auto',display:'block',margin:'0 auto'}} xmlns="http://www.w3.org/2000/svg">
+        {/* ロゴ: 四つ葉クローバー + 紡ぎ Tsumugi (シンプル中央配置) */}
+        <div style={{textAlign:'center',marginBottom:28}}>
+          <svg viewBox="0 0 100 100" style={{width:60,height:60,display:'block',margin:'0 auto 8px'}} xmlns="http://www.w3.org/2000/svg">
             <defs>
               <radialGradient id="staffLeaf" cx="40%" cy="55%" r="55%">
                 <stop offset="0%" stopColor="#608a3e"/>
@@ -11219,17 +11219,17 @@ function StaffLoginGate({ onLogin }) {
                 <stop offset="100%" stopColor="#d4e7a5"/>
               </radialGradient>
             </defs>
-            <g transform="translate(105, 58) scale(0.8)">
-              <ellipse cx="-22" cy="-22" rx="20" ry="22" fill="url(#staffLeaf)" transform="rotate(-30 -22 -22)"/>
-              <ellipse cx="22" cy="-22" rx="20" ry="22" fill="url(#staffLeaf)" transform="rotate(30 22 -22)"/>
-              <ellipse cx="-22" cy="22" rx="20" ry="22" fill="url(#staffLeaf)" transform="rotate(-150 -22 22)"/>
-              <ellipse cx="22" cy="22" rx="20" ry="22" fill="url(#staffLeaf)" transform="rotate(150 22 22)"/>
-              <circle cx="0" cy="0" r="6" fill="#3d5021"/>
+            <g transform="translate(50, 50)">
+              <ellipse cx="-18" cy="-18" rx="16" ry="20" fill="url(#staffLeaf)" transform="rotate(-30 -18 -18)"/>
+              <ellipse cx="18" cy="-18" rx="16" ry="20" fill="url(#staffLeaf)" transform="rotate(30 18 -18)"/>
+              <ellipse cx="-18" cy="18" rx="16" ry="20" fill="url(#staffLeaf)" transform="rotate(-150 -18 18)"/>
+              <ellipse cx="18" cy="18" rx="16" ry="20" fill="url(#staffLeaf)" transform="rotate(150 18 18)"/>
+              <circle cx="0" cy="0" r="5" fill="#3d5021"/>
             </g>
-            <text x="200" y="80" fontFamily="'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif" fontSize="64" fontWeight="bold" fill="#3d5021" letterSpacing="4">紡ぎ</text>
-            <text x="200" y="110" fontFamily="'Hiragino Sans',sans-serif" fontSize="14" fontWeight="bold" fill="#5e8030" letterSpacing="6">Tsumugi</text>
           </svg>
-          <div style={{fontSize:12,color:'#5e8030',fontWeight:'bold',marginTop:8,letterSpacing:1}}>事業所スタッフ専用ログイン</div>
+          <div style={{fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif",fontSize:36,fontWeight:'bold',color:'#3d5021',letterSpacing:6,lineHeight:1}}>紡ぎ</div>
+          <div style={{fontFamily:"'Hiragino Sans',sans-serif",fontSize:11,fontWeight:'bold',color:'#5e8030',letterSpacing:4,marginTop:6}}>Tsumugi</div>
+          <div style={{fontSize:11,color:'#5e8030',fontWeight:'bold',marginTop:14,letterSpacing:1}}>事業所スタッフ専用ログイン</div>
         </div>
         <form onSubmit={handleSubmit}>
           <div style={{marginBottom:14}}>
