@@ -10974,6 +10974,93 @@ function FamilyPatientView({ data, patientId, accountId, onLogout }) {
 
 // === メインアプリケーション ===
 // ===========================================
+// 記録者選択画面 (店舗ログイン後に「誰として利用するか」を選ぶ)
+// ===========================================
+function RecorderPickerGate({ storeName, members, canManage, onSelect, onAddMember, onRemoveMember, onLogout, onBackToStores }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newRole, setNewRole] = useState('');
+  const handleAdd = (e) => {
+    e.preventDefault();
+    if (!newName.trim()) return;
+    onAddMember({ name: newName.trim(), roleLabel: newRole.trim() || 'スタッフ' });
+    setNewName(''); setNewRole(''); setShowAdd(false);
+  };
+  return (
+    <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#d4e7a5 0%,#f0f7e0 100%)',padding:24,boxSizing:'border-box'}}>
+      <div style={{maxWidth:600,margin:'0 auto'}}>
+        <div style={{textAlign:'center',marginBottom:24}}>
+          <div style={{fontSize:11,fontWeight:'bold',color:'#5e8030',letterSpacing:2}}>{storeName || '事業所'}</div>
+          <div style={{fontSize:24,fontWeight:'bold',color:'#3d5021',fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif",marginTop:6,letterSpacing:2}}>こんにちは、どなたですか？</div>
+          <div style={{fontSize:12,color:'#5e8030',marginTop:6}}>記録に名前を残すため、入る前に教えてください</div>
+        </div>
+        <div style={{background:'white',borderRadius:20,padding:24,boxShadow:'0 8px 28px rgba(0,0,0,0.08)'}}>
+          {(members || []).length === 0 ? (
+            <div style={{textAlign:'center',padding:32}}>
+              <div style={{fontSize:14,color:'#475569',marginBottom:8,fontWeight:'bold'}}>まだメンバーが登録されていません</div>
+              <div style={{fontSize:11,color:'#94a3b8',marginBottom:18}}>下のボタンから店舗のスタッフ名を登録してください</div>
+              {canManage && (
+                <button onClick={()=>setShowAdd(true)} style={{padding:'10px 20px',background:'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>+ 最初のメンバーを追加</button>
+              )}
+            </div>
+          ) : (
+            <>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))',gap:10,marginBottom:16}}>
+                {members.map(m => (
+                  <div key={m.id} style={{position:'relative'}}>
+                    <button onClick={()=>onSelect(m)} style={{width:'100%',padding:'18px 12px',background:'#f4f8ed',color:'#3d5021',border:'2px solid #94c456',borderRadius:14,fontSize:14,fontWeight:'bold',cursor:'pointer',textAlign:'center',transition:'all 0.15s'}}
+                      onMouseEnter={e=>{e.currentTarget.style.background='#94c456';e.currentTarget.style.color='white';}}
+                      onMouseLeave={e=>{e.currentTarget.style.background='#f4f8ed';e.currentTarget.style.color='#3d5021';}}>
+                      <div style={{fontSize:24,marginBottom:6}}>👤</div>
+                      <div style={{lineHeight:1.3}}>{m.name}</div>
+                      {m.roleLabel && <div style={{fontSize:10,opacity:0.7,marginTop:3,fontWeight:'normal'}}>{m.roleLabel}</div>}
+                    </button>
+                    {canManage && (
+                      <button onClick={()=>{ if(window.confirm(`「${m.name}」を削除しますか？`)) onRemoveMember(m.id); }}
+                        style={{position:'absolute',top:-6,right:-6,width:22,height:22,background:'#fef2f2',color:'#dc2626',border:'1px solid #fecaca',borderRadius:'50%',fontSize:11,fontWeight:'bold',cursor:'pointer',padding:0,lineHeight:1}}>×</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {canManage && (
+                <button onClick={()=>setShowAdd(true)} style={{width:'100%',padding:'10px',background:'transparent',color:'#5e8030',border:'1.5px dashed #94c456',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>+ 新しいメンバーを追加</button>
+              )}
+            </>
+          )}
+        </div>
+        {/* 下部リンク */}
+        <div style={{textAlign:'center',marginTop:16,fontSize:11,color:'#5e8030'}}>
+          {onBackToStores && <button onClick={onBackToStores} style={{background:'transparent',color:'#5e8030',border:'none',cursor:'pointer',fontSize:11,fontWeight:'bold',marginRight:12}}>← 店舗選択に戻る</button>}
+          <button onClick={onLogout} style={{background:'transparent',color:'#94a3b8',border:'none',cursor:'pointer',fontSize:11,fontWeight:'bold'}}>ログアウト</button>
+        </div>
+      </div>
+      {/* メンバー追加モーダル */}
+      {showAdd && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:16,zIndex:1000}} onClick={()=>setShowAdd(false)}>
+          <div style={{background:'white',borderRadius:16,padding:24,maxWidth:380,width:'100%'}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:16,fontWeight:'bold',color:'#3d5021',marginBottom:14}}>👤 新しいメンバーを追加</div>
+            <form onSubmit={handleAdd}>
+              <div style={{marginBottom:12}}>
+                <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>お名前 <span style={{color:'#dc2626'}}>*</span></label>
+                <input value={newName} onChange={e=>setNewName(e.target.value)} autoFocus placeholder="田中 太郎" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,outline:'none',boxSizing:'border-box'}}/>
+              </div>
+              <div style={{marginBottom:18}}>
+                <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>役職 <span style={{color:'#94a3b8',fontWeight:'normal'}}>(オプション)</span></label>
+                <input value={newRole} onChange={e=>setNewRole(e.target.value)} placeholder="介護士 / 看護師 / 管理者 など" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+              </div>
+              <div style={{display:'flex',gap:8}}>
+                <button type="button" onClick={()=>setShowAdd(false)} style={{flex:1,padding:'10px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
+                <button type="submit" style={{flex:1,padding:'10px',background:'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>追加</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===========================================
 // 本部管理者用 店舗選択 + 店舗追加 + スタッフ追加画面
 // ===========================================
 function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
@@ -11074,13 +11161,16 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
             </div>
           )}
         </div>
-        {/* スタッフ追加 */}
+        {/* 店舗管理者ログイン発行 */}
         <div style={{background:'white',borderRadius:16,padding:24,boxShadow:'0 4px 16px rgba(0,0,0,0.06)'}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-            <div style={{fontSize:16,fontWeight:'bold',color:'#3d5021'}}>👥 スタッフアカウント発行</div>
-            <button onClick={()=>setShowAddStaff(true)} disabled={stores.length===0} style={{padding:'8px 14px',background: stores.length===0 ? '#cbd5e1' : '#5e8030',color:'white',border:'none',borderRadius:10,fontSize:12,fontWeight:'bold',cursor: stores.length===0 ? 'not-allowed' : 'pointer'}}>+ スタッフを追加</button>
+            <div style={{fontSize:16,fontWeight:'bold',color:'#3d5021'}}>🔑 店舗ログイン情報を発行</div>
+            <button onClick={()=>setShowAddStaff(true)} disabled={stores.length===0} style={{padding:'8px 14px',background: stores.length===0 ? '#cbd5e1' : '#5e8030',color:'white',border:'none',borderRadius:10,fontSize:12,fontWeight:'bold',cursor: stores.length===0 ? 'not-allowed' : 'pointer'}}>+ 店舗管理者を追加</button>
           </div>
-          <div style={{fontSize:11,color:'#64748b'}}>各店舗のスタッフのログインIDとパスワードを発行できます。</div>
+          <div style={{fontSize:11,color:'#64748b',lineHeight:1.6}}>
+            各店舗の <b>ログインID + パスワード</b> を発行します。<br/>
+            店舗スタッフ個別のログインは不要 (店舗にログイン後、画面でスタッフ名を選ぶ方式)。
+          </div>
         </div>
       </div>
       {/* 店舗追加モーダル */}
@@ -11122,7 +11212,11 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
       {showAddStaff && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:16,zIndex:1000}} onClick={()=>setShowAddStaff(false)}>
           <div style={{background:'white',borderRadius:16,padding:24,maxWidth:480,width:'100%',maxHeight:'90vh',overflow:'auto'}} onClick={e=>e.stopPropagation()}>
-            <div style={{fontSize:18,fontWeight:'bold',color:'#3d5021',marginBottom:16}}>👤 新規スタッフを追加</div>
+            <div style={{fontSize:18,fontWeight:'bold',color:'#3d5021',marginBottom:8}}>🔑 店舗管理者を追加</div>
+            <div style={{fontSize:11,color:'#64748b',marginBottom:16,lineHeight:1.6,padding:10,background:'#f4f8ed',borderRadius:8}}>
+              この店舗にログインできる ID/パスワード を発行します。<br/>
+              店舗スタッフ全員で共有する想定 (個別ログインは不要)。
+            </div>
             <form onSubmit={handleCreateStaff}>
               <div style={{marginBottom:12}}>
                 <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>店舗 <span style={{color:'#dc2626'}}>*</span></label>
@@ -11141,13 +11235,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
                   <input value={staffForm.first_name} onChange={e=>setStaffForm(f=>({...f,first_name:e.target.value}))} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
                 </div>
               </div>
-              <div style={{marginBottom:12}}>
-                <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>役割 <span style={{color:'#dc2626'}}>*</span></label>
-                <select value={staffForm.role} onChange={e=>setStaffForm(f=>({...f,role:e.target.value}))} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}>
-                  <option value="manager">店舗管理者 (全操作可能)</option>
-                  <option value="staff">店舗スタッフ (記録入力中心)</option>
-                </select>
-              </div>
+              <input type="hidden" value="manager" />
               <div style={{marginBottom:12}}>
                 <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>ログインID <span style={{color:'#dc2626'}}>*</span></label>
                 <input value={staffForm.username} onChange={e=>setStaffForm(f=>({...f,username:e.target.value,error:''}))} placeholder="staff_yamada" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',fontFamily:'monospace'}}/>
@@ -11295,9 +11383,18 @@ export default function App() {
       return saved ? JSON.parse(saved) : null;
     } catch { return null; }
   });
+  // ★ 現在の記録者 (店舗ログイン後に選ぶ)
+  const [activeRecorder, setActiveRecorder] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem('tsumugiActiveRecorder');
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  });
   const handleStaffLogout = () => {
     sessionStorage.removeItem('tsumugiStaffSession');
+    sessionStorage.removeItem('tsumugiActiveRecorder');
     setStaffSession(null);
+    setActiveRecorder(null);
   };
   // 新規登録モード: ?signup=family-xxx または ?signup=staff-xxx
   const signupContext = React.useMemo(()=>{
@@ -11513,7 +11610,9 @@ export default function App() {
 
   const handleLogout = () => {
     sessionStorage.removeItem('tsumugiStaffSession');
+    sessionStorage.removeItem('tsumugiActiveRecorder');
     setStaffSession(null);
+    setActiveRecorder(null);
     setSession(null);
     setLoginForm({id:'', pass:'', error:''});
   };
@@ -11643,8 +11742,37 @@ export default function App() {
         const updated = { ...staffSession, storeId: store.id, storeName: store.name, storeShortName: store.short_name || store.name };
         sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(updated));
         setStaffSession(updated);
+        // super_admin は記録者を自動で「本部」に
+        const recorder = { id: `recorder_honbu_${staffSession.staffId}`, name: '本部 ' + (staffSession.displayName || '管理者'), roleLabel: '本部管理', isSuperAdmin: true };
+        sessionStorage.setItem('tsumugiActiveRecorder', JSON.stringify(recorder));
+        setActiveRecorder(recorder);
       }}
       onLogout={handleLogout}
+    />;
+  }
+  // ★ ログイン済み + 店舗確定 + 記録者未選択 → RecorderPicker
+  if (isSupabaseEnabled && staffSession?.storeId && !activeRecorder) {
+    return <RecorderPickerGate
+      storeName={staffSession.storeName || staffSession.storeShortName}
+      members={appData.storeMembers || []}
+      canManage={staffSession.role === 'manager' || staffSession.role === 'super_admin'}
+      onSelect={(m) => {
+        sessionStorage.setItem('tsumugiActiveRecorder', JSON.stringify(m));
+        setActiveRecorder(m);
+      }}
+      onAddMember={(memberLike) => {
+        const m = { id: `mem_${Date.now()}_${Math.random().toString(36).slice(2,6)}`, name: memberLike.name, roleLabel: memberLike.roleLabel || '', addedAt: new Date().toISOString() };
+        setAppData(prev => ({ ...prev, storeMembers: [...(prev.storeMembers || []), m] }));
+      }}
+      onRemoveMember={(memberId) => {
+        setAppData(prev => ({ ...prev, storeMembers: (prev.storeMembers || []).filter(m => m.id !== memberId) }));
+      }}
+      onLogout={handleLogout}
+      onBackToStores={staffSession.role === 'super_admin' ? (() => {
+        const updated = { ...staffSession, storeId: null, storeName: '', storeShortName: '' };
+        sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(updated));
+        setStaffSession(updated);
+      }) : null}
     />;
   }
   // Supabase 未接続時: 環境変数設定を促す画面
@@ -11917,9 +12045,18 @@ export default function App() {
               </div>
             </div>
             {session && (
-              <div className="px-4 py-2 bg-slate-800 border-b border-slate-700 flex items-center justify-between">
+              <div className="px-4 py-2 bg-slate-800 border-b border-slate-700 flex items-center justify-between gap-2">
                 <span className="text-[10px] font-bold text-slate-400 truncate">{session.storeName}</span>
-                <button onClick={handleLogout} className="text-[10px] font-bold text-slate-500 hover:text-red-400 px-2 py-1 rounded whitespace-nowrap ml-1">ログアウト</button>
+                <button onClick={handleLogout} className="text-[10px] font-bold text-slate-500 hover:text-red-400 px-2 py-1 rounded whitespace-nowrap">ログアウト</button>
+              </div>
+            )}
+            {activeRecorder && (
+              <div className="px-4 py-2 bg-emerald-900/40 border-b border-emerald-700/50 flex items-center justify-between gap-2">
+                <span className="text-[11px] font-bold text-emerald-200 truncate flex items-center gap-1.5">
+                  <span className="text-[14px]">👤</span>
+                  <span className="truncate">{activeRecorder.name} さん{activeRecorder.roleLabel && <span className="text-[9px] opacity-70 ml-1">({activeRecorder.roleLabel})</span>}</span>
+                </span>
+                <button onClick={() => { sessionStorage.removeItem('tsumugiActiveRecorder'); setActiveRecorder(null); }} className="text-[10px] font-bold text-emerald-300 hover:text-white px-2 py-1 rounded whitespace-nowrap bg-emerald-800/50 hover:bg-emerald-700">切替</button>
               </div>
             )}
             <div className="flex-1 py-6 px-4 space-y-1 overflow-y-auto">
