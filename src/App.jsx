@@ -11178,6 +11178,9 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
 // ===========================================
 function StaffLoginGate({ onLogin }) {
   const [form, setForm] = useState({ username:'', password:'', error:'', loading:false, showPw:false });
+  // デバッグ用: Supabase 接続情報
+  const sbUrl = import.meta.env.VITE_SUPABASE_URL || '';
+  const sbUrlShort = sbUrl ? sbUrl.replace('https://','').slice(0,30) + '...' : '(未設定)';
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!isSupabaseEnabled) {
@@ -11203,7 +11206,10 @@ function StaffLoginGate({ onLogin }) {
       sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(session));
       onLogin(session);
     } catch (err) {
-      setForm(f=>({...f, loading:false, error: err?.message || 'ログインに失敗しました'}));
+      const msg = err?.message || 'ログインに失敗しました';
+      // 接続情報を付加してデバッグしやすく
+      const debug = msg.includes('fetch') ? ` [接続先: ${sbUrlShort}]` : '';
+      setForm(f=>({...f, loading:false, error: msg + debug}));
     }
   };
   return (
@@ -11266,6 +11272,9 @@ function StaffLoginGate({ onLogin }) {
         <div style={{marginTop:18,fontSize:10,color:'#94a3b8',textAlign:'center',lineHeight:1.7}}>
           ご家族の方は <a href="?family" style={{color:'#5e8030',fontWeight:'bold'}}>こちら</a> からログイン<br/>
           IDをお忘れの場合は事業所までお問い合わせください
+        </div>
+        <div style={{marginTop:10,fontSize:9,color:'#cbd5e1',textAlign:'center',fontFamily:'monospace'}}>
+          接続: {sbUrlShort}
         </div>
       </div>
     </div>
