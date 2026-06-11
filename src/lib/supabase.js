@@ -314,6 +314,47 @@ export async function supabaseLoadStateForStore(storeId) {
   }
 }
 
+// ★ 家族側から patient 1件だけを安全に update する
+//   (家族側でデータ全体を push すると、staff の編集を上書きしてしまうため)
+//   最新の app_state を取得 → 対象 patient を merge → 戻す
+export async function supabaseMergePatientFromFamily(storeId, patientId, patientPatch) {
+  if (!supabase || !storeId || !patientId) return false;
+  try {
+    const row = await supabaseLoadStateForStore(storeId);
+    if (!row || !row.data) return false;
+    const currentData = row.data;
+    const patients = (currentData.patients || []).map(p => {
+      if (String(p.id) !== String(patientId)) return p;
+      // emergencyContacts は配列マージ (重複防止)
+      let mergedContacts = p.emergencyContacts || [];
+      if (patientPatch.emergencyContacts) {
+        const incoming = patientPatch.emergencyContacts || [];
+        incoming.forEach(c => {
+          const dup = mergedContacts.some(ex =>
+            (ex.name||'').trim() === (c.name||'').trim() &&
+            (ex.relation||'').trim() === (c.relation||'').trim()
+          );
+          if (!dup) mergedContacts = [...mergedContacts, c];
+        });
+      }
+      // それ以外のフィールドはマージ (空でない値だけ上書き)
+      const filteredPatch = {};
+      Object.keys(patientPatch).forEach(k => {
+        if (k === 'emergencyContacts') return;
+        const v = patientPatch[k];
+        if (v !== undefined && v !== null && v !== '') filteredPatch[k] = v;
+      });
+      return { ...p, ...filteredPatch, emergencyContacts: mergedContacts };
+    });
+    const updatedData = { ...currentData, patients };
+    await supabase.from('app_state').upsert({ key: storeId, data: updatedData });
+    return true;
+  } catch (e) {
+    console.warn('[supabase] mergePatientFromFamily failed', e);
+    return false;
+  }
+}
+
 // =========================================================
 // スタッフ認証 (本部管理者 / 店舗管理者 / 店舗スタッフ)
 // =========================================================
