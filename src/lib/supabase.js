@@ -179,12 +179,24 @@ export async function supabaseGetInviteByCode(code) {
 }
 
 // 患者の招待 + 家族アカウント一覧を取得 (アカウント発行画面の自動更新用)
-export async function supabaseListInvitesAndAccountsForPatient(patientId) {
+// ★ 必ず store_id でも絞り込む (別店舗の同じ patient_id の家族が混入するバグの修正)
+export async function supabaseListInvitesAndAccountsForPatient(patientId, storeId) {
   if (!supabase) return { invites: [], accounts: [] };
   try {
+    let invQ = supabase.from('family_invites').select('*').eq('patient_id', String(patientId));
+    let accQ = supabase.from('family_accounts').select('*').eq('patient_id', String(patientId)).is('deleted_at', null);
+    // ★ storeId が指定されていれば必ずフィルタ (別店舗の混入防止)
+    if (storeId) {
+      invQ = invQ.eq('store_id', storeId);
+      accQ = accQ.eq('store_id', storeId);
+    } else {
+      // storeId 未指定の場合は安全のため空を返す (誤った全件取得を防止)
+      console.warn('[supabase] listInvitesAndAccountsForPatient called without storeId — returning empty');
+      return { invites: [], accounts: [] };
+    }
     const [inv, acc] = await Promise.all([
-      supabase.from('family_invites').select('*').eq('patient_id', String(patientId)).order('created_at', { ascending: false }),
-      supabase.from('family_accounts').select('*').eq('patient_id', String(patientId)).is('deleted_at', null).order('created_at', { ascending: false }),
+      invQ.order('created_at', { ascending: false }),
+      accQ.order('created_at', { ascending: false }),
     ]);
     return { invites: inv.data || [], accounts: acc.data || [] };
   } catch (e) {
