@@ -97,13 +97,9 @@ export async function supabaseSignupFamily({
     .from('family_accounts')
     .select('id').eq('username', username).maybeSingle();
   if (uExists) throw new Error('このログインIDは既に使用されています');
-  // 3. メール重複チェック
-  if (email) {
-    const { data: emExists } = await supabase
-      .from('family_accounts')
-      .select('id').eq('email', email).is('deleted_at', null).maybeSingle();
-    if (emExists) throw new Error('このメールアドレスは既に登録済みです');
-  }
+  // 3. メール重複は許容 (1 人で複数利用者を見るケース: 夫婦の子、複数利用者を担当するケアマネ等)
+  //    別ユーザー名で同じメールアドレスで複数アカウント作成可能
+  // (ログイン後にメール+パスワード一致するアカウントを集約して複数利用者を選択可能にする)
   // 4. 家族アカウント作成
   const password_hash = await hashPassword(password);
   const { data: acc, error: accErr } = await supabase
@@ -145,11 +141,24 @@ export async function supabaseLoginFamily({ username, password }) {
     .maybeSingle();
   if (error) throw error;
   if (!data) throw new Error('IDまたはパスワードが違います');
+  // 最終ログイン更新
   await supabase
     .from('family_accounts')
     .update({ last_login: new Date().toISOString() })
     .eq('id', data.id);
-  return data;
+  // ★ リンクアカウント検索: 同じメール + 同じパスワードハッシュのアカウント
+  //   (夫婦の子、複数利用者担当ケアマネ等が複数利用者を 1 つのログインで閲覧可能)
+  let linkedAccounts = [data];
+  if (data.email) {
+    const { data: others } = await supabase
+      .from('family_accounts')
+      .select('*')
+      .eq('email', data.email)
+      .eq('password_hash', password_hash)
+      .is('deleted_at', null);
+    if (others && others.length > 0) linkedAccounts = others;
+  }
+  return { ...data, linkedAccounts };
 }
 
 // =========================================================
