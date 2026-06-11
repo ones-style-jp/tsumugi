@@ -178,6 +178,21 @@ export async function supabaseGetInviteByCode(code) {
   } catch { return null; }
 }
 
+// 患者の招待 + 家族アカウント一覧を取得 (アカウント発行画面の自動更新用)
+export async function supabaseListInvitesAndAccountsForPatient(patientId) {
+  if (!supabase) return { invites: [], accounts: [] };
+  try {
+    const [inv, acc] = await Promise.all([
+      supabase.from('family_invites').select('*').eq('patient_id', String(patientId)).order('created_at', { ascending: false }),
+      supabase.from('family_accounts').select('*').eq('patient_id', String(patientId)).is('deleted_at', null).order('created_at', { ascending: false }),
+    ]);
+    return { invites: inv.data || [], accounts: acc.data || [] };
+  } catch (e) {
+    console.warn('[supabase] listInvitesAndAccountsForPatient failed', e);
+    return { invites: [], accounts: [] };
+  }
+}
+
 // =========================================================
 // 患者IDから家族アカウント一覧 (親が他家族追加時の重複防止)
 // =========================================================
