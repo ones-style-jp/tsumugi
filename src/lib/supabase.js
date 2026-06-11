@@ -377,6 +377,10 @@ export async function supabaseDeleteFamilyAccount(accountId) {
 
 export async function supabaseDeleteStore(storeId) {
   if (!supabase) throw new Error('Supabase 未接続');
+  // ★ 関連する家族アカウント・招待を完全削除 (この店舗 store_id で紐づくもの)
+  //   削除しないと: 別店舗 (同じ患者ID) で登録した家族と被って違う利用者の情報が漏洩する原因に
+  await supabase.from('family_invites').delete().eq('store_id', storeId);
+  await supabase.from('family_accounts').delete().eq('store_id', storeId);
   // 関連スタッフ削除
   await supabase.from('staff').delete().eq('store_id', storeId);
   // app_state 削除
