@@ -359,6 +359,22 @@ export async function supabaseCreateStore({ id, name, short_name, org_name, zip_
   return data;
 }
 
+// 家族アカウント削除 (username 即時解放)
+export async function supabaseDeleteFamilyAccount(accountId) {
+  if (!supabase) return false;
+  try {
+    // 関連 invite の used_by を解除 (used_at を残しつつ参照は外す)
+    await supabase.from('family_invites').update({ used_by: null }).eq('used_by', accountId);
+    // アカウント自体を物理削除
+    const { error } = await supabase.from('family_accounts').delete().eq('id', accountId);
+    if (error) throw error;
+    return true;
+  } catch (e) {
+    console.warn('[supabase] deleteFamilyAccount failed', e);
+    return false;
+  }
+}
+
 export async function supabaseDeleteStore(storeId) {
   if (!supabase) throw new Error('Supabase 未接続');
   // 関連スタッフ削除
