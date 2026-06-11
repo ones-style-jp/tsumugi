@@ -31,6 +31,7 @@ export async function supabaseCreateInvite(invite) {
       .from('family_invites')
       .insert({
         patient_id: String(invite.patientId || ''),
+        store_id: invite.storeId || null,  // ★ 家族側がこの店舗の app_state を pull できるよう必須
         code: invite.code,
         email: invite.email || null,
         relation: invite.relation || null,
@@ -100,12 +101,13 @@ export async function supabaseSignupFamily({
   // 3. メール重複は許容 (1 人で複数利用者を見るケース: 夫婦の子、複数利用者を担当するケアマネ等)
   //    別ユーザー名で同じメールアドレスで複数アカウント作成可能
   // (ログイン後にメール+パスワード一致するアカウントを集約して複数利用者を選択可能にする)
-  // 4. 家族アカウント作成
+  // 4. 家族アカウント作成 (★ invite.store_id を継承 → 家族側で店舗データを pull できるように)
   const password_hash = await hashPassword(password);
   const { data: acc, error: accErr } = await supabase
     .from('family_accounts')
     .insert({
-      patient_id: inv.patient_id,
+      patient_id: invite.patient_id,
+      store_id: invite.store_id || null,
       username, password_hash,
       kind: kind || 'family',
       relation: relation || inv.relation || '',
