@@ -337,15 +337,27 @@ export async function supabaseListStores() {
   } catch { return []; }
 }
 
-export async function supabaseCreateStore({ id, name, short_name, org_name, address, phone, fax, email }) {
+export async function supabaseCreateStore({ id, name, short_name, org_name, zip_code, address, phone, fax, email }) {
   if (!supabase) throw new Error('Supabase 未接続');
   const { data, error } = await supabase
     .from('stores')
-    .insert({ id, name, short_name, org_name, address, phone, fax, email })
+    .insert({ id, name, short_name, org_name, zip_code, address, phone, fax, email })
     .select()
     .single();
   if (error) throw error;
   return data;
+}
+
+export async function supabaseDeleteStore(storeId) {
+  if (!supabase) throw new Error('Supabase 未接続');
+  // 関連スタッフ削除
+  await supabase.from('staff').delete().eq('store_id', storeId);
+  // app_state 削除
+  await supabase.from('app_state').delete().eq('key', storeId);
+  // 店舗削除
+  const { error } = await supabase.from('stores').delete().eq('id', storeId);
+  if (error) throw error;
+  return true;
 }
 
 export async function supabaseCreateStaff({ store_id, username, password, role, last_name, first_name, email, phone }) {
