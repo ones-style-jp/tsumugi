@@ -428,6 +428,30 @@ export async function supabaseCreateStore({ id, name, short_name, org_name, zip_
 }
 
 // 家族アカウント削除 (username 即時解放)
+// ★ 利用者を削除する際に、その利用者の家族アカウント + 招待を Supabase から物理削除
+//   (削除しないと、別の利用者が同じ patient_id を再利用したときに古い家族情報が漏洩する)
+export async function supabaseDeletePatientFamily(storeId, patientId) {
+  if (!supabase || !storeId || !patientId) return false;
+  try {
+    // 1. 該当 family_invites を削除 (store_id AND patient_id でフィルタ)
+    await supabase
+      .from('family_invites')
+      .delete()
+      .eq('store_id', storeId)
+      .eq('patient_id', String(patientId));
+    // 2. 該当 family_accounts を削除
+    await supabase
+      .from('family_accounts')
+      .delete()
+      .eq('store_id', storeId)
+      .eq('patient_id', String(patientId));
+    return true;
+  } catch (e) {
+    console.warn('[supabase] deletePatientFamily failed', e);
+    return false;
+  }
+}
+
 export async function supabaseDeleteFamilyAccount(accountId) {
   if (!supabase) return false;
   try {
