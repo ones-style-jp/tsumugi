@@ -11059,6 +11059,9 @@ const DIARY_SP_LEGACY_CUTOFF = '2026-08-28';
 // ★ 2026-07-14 のコミットで送迎キーが行番号→利用者IDに変わった。この日以降の日誌は行番号フォールバック禁止
 //   (利用者IDは連番の小さい整数のため、行番号と衝突して他人の車/徒歩を誤読する)。
 const DIARY_PIDKEY_CUTOFF = '2026-07-15';
+// ★ 2026-09-10導入の厳格チェック(車ごとの到着/出発時間・送迎者・利用者ごとの車未選択)はこの日以降の日誌のみ。
+//   過去の完成済み日誌に遡って未完成が付く(カレンダーの完成印が消える)のを防ぐ。
+const DIARY_STRICT_CUTOFF = '2026-09-10';
 // ★ 休業判定(スロット別・2026-09-04): 休業日/定休日/半日休業のスロットは日誌の入力対象外として扱う。
 const diarySlotKyugyo = (appData, iso, dw, ap) => {
   const _h = (appData.holidays||[]).find(h => (h && (h.date||h)) === iso);
@@ -11074,7 +11077,9 @@ const diaryPendingItems = (log, iso, cars) => {
   if (sp['送り'] || (!_hasAny(log.drop) && !_hasAny(log.drop_walk))) items.push('送り');
   // ★ 2026-09-10(店舗要望): 時間の必須は方向別(到着=迎えで使う車・出発=送りで使う車)。
   //   使わない方向の車の時間は必須にしない。carsが未設定の店は時間チェック自体を行わない。
-  if (Array.isArray(cars) && cars.length) {
+  //   過去日(境界日より前)は旧基準のまま(遡って未完成にしない)。
+  const _strict = !iso || iso >= DIARY_STRICT_CUTOFF;
+  if (_strict && Array.isArray(cars) && cars.length) {
     const _used = (dirKey) => cars.filter(c => { const m = log[dirKey]; return !!m && Object.keys(m).some(k => k.endsWith('_'+c.id) && m[k]); });
     if (_used('pick').some(c => !(((log.carTimes||{})[c.id]||{}).arrive))) items.push('到着時間');
     if (_used('drop').some(c => !(((log.carTimes||{})[c.id]||{}).depart))) items.push('出発時間');
@@ -39486,8 +39491,10 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             });
             return out;
           };
-          const _upk = _unassignedFor('pick');
-          const _udr = _unassignedFor('drop');
+          // ★ 過去日(2026-09-10より前)は厳格チェック導入前の基準で判定(遡って未完成にしない)
+          const _strict = selectedDate >= DIARY_STRICT_CUTOFF;
+          const _upk = _strict ? _unassignedFor('pick') : [];
+          const _udr = _strict ? _unassignedFor('drop') : [];
           const items = [];
           // 迎え/送り: 「未選択◯名」に一本化(全体未記入=全員未選択として人数に含まれる)
           if (_upk.length) items.push({ key:'迎え', label:`迎え 未選択${_upk.length}名`, prefix:'pick' });
@@ -39502,13 +39509,14 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             if (!used) return false;
             return !Object.keys(_drv).some(k => k.startsWith(dpre+c.id+'_') && _drv[k]);
           });
-          if (_drvMissing('pick','a_')) items.push({ key:'迎えの送迎者', label:'迎えの送迎者', aid:'diary-sec-cars' });
-          if (_drvMissing('drop','d_')) items.push({ key:'送りの送迎者', label:'送りの送迎者', aid:'diary-sec-cars' });
+          if (_strict && _drvMissing('pick','a_')) items.push({ key:'迎えの送迎者', label:'迎えの送迎者', aid:'diary-sec-cars' });
+          if (_strict && _drvMissing('drop','d_')) items.push({ key:'送りの送迎者', label:'送りの送迎者', aid:'diary-sec-cars' });
           // ★ 2026-09-10(店舗要望): 時間の必須は方向別。到着=迎えで使う車すべて・出発=送りで使う車すべて。
           //   使わない方向の車は動かないので、その時間は未入力でも必須にしない。
           const _usedCars = (dirKey) => ds.cars.filter(c => { const m = log[dirKey]; return !!m && Object.keys(m).some(k => k.endsWith('_'+c.id) && m[k]); });
-          if (_usedCars('pick').some(c => !(((log.carTimes||{})[c.id]||{}).arrive))) items.push({ key:'到着時間', label:'到着時間', aid:'diary-sec-cars' });
-          if (_usedCars('drop').some(c => !(((log.carTimes||{})[c.id]||{}).depart))) items.push({ key:'出発時間', label:'出発時間', aid:'diary-sec-cars' });
+          if (_strict && _usedCars('pick').some(c => !(((log.carTimes||{})[c.id]||{}).arrive))) items.push({ key:'到着時間', label:'到着時間', aid:'diary-sec-cars' });
+          if (_strict && _usedCars('drop').some(c => !(((log.carTimes||{})[c.id]||{}).depart))) items.push({ key:'出発時間', label:'出発時間', aid:'diary-sec-cars' });
+          if (!_strict && !Object.values(log.carTimes||{}).some(t => t && (t.arrive || t.depart))) items.push({ key:'送迎時間', label:'送迎時間', aid:'diary-sec-cars' });
           if (!Object.keys(log.recorder||{}).some(k => (log.recorder||{})[k])) items.push({ key:'記録者', label:'記録者', aid:'diary-sec-recorder' });
           if (!log.managerConfirmed) items.push({ key:'管理者確認', label:'管理者確認', aid:'diary-sec-manager' });
           if (!items.length) return null;
