@@ -20638,7 +20638,10 @@ export default function App() {
             )}
             {/* QuickNav はヘッダー内に移動 */}
             {/* 全画面で padding:0 にし、QuickNav と各ビューの sticky ツールバーの間に隙間ができないように統一 */}
-            <div ref={contentRef} style={{flex:1,overflow:'auto',padding:0}}>
+            {/* ★ 2026-09-11(旧iPad表ずれ最終対策): このメインラッパはインラインoverflowのため一括CSSが当たらず、
+                旧iPadで引っ張り(ラバーバンド)が固着して画面がずれたままになっていた。提供記録の表と同じ
+                WebkitOverflowScrolling:'auto'(旧OSのみ慣性無効化・新OSでは無視される)+overscroll none を直接指定 */}
+            <div ref={contentRef} style={{flex:1,overflow:'auto',padding:0,WebkitOverflowScrolling:'auto',overscrollBehavior:'none'}}>
             {/* ★ 縮小は transform:scale ではなく zoom を使う。 transform はレイアウト箱と表示位置がずれ、
                 Chrome等でクリック座標が合わず「押せない/1回だけ押せる」不具合になる。 zoom はレイアウト自体を
                 縮小するので、どのブラウザでもクリック判定が一致する。 ホーム(dashboard)は等倍のまま。 */}

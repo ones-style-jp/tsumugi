@@ -81,3 +81,10 @@ table { -webkit-touch-callout: none; }
   table, table th, table td { -webkit-user-select: none; user-select: none; }
   table { touch-action: pan-x pan-y pinch-zoom; }
 }
+
+/* ★ 2026-09-11追補2(無印iPad第8世代・スクショで固着確認): タッチ端末ではスクロール領域の
+   引っ張り(ラバーバンド)を無効化し、旧OSで固着したまま戻らないバグを防ぐ。
+   -webkit-overflow-scrolling:auto は旧iPadのみ効き、新しいOSでは無視されるため副作用なし。 */
+@media (hover: none) and (pointer: coarse) {
+  .overflow-auto, .overflow-x-auto, .overflow-y-auto { overscroll-behavior: none; -webkit-overflow-scrolling: auto; }
+}
