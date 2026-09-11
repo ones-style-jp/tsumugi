@@ -23199,18 +23199,19 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           temp: p[`temp_${tf}`]||'', buSt: p[`bpUpSt_${tf}`]||'', bdSt: p[`bpDnSt_${tf}`]||'', plSt: p[`plSt_${tf}`]||'',
           buEn: p[`bpUpEn_${tf}`]||'', bdEn: p[`bpDnEn_${tf}`]||'', plEn: p[`plEn_${tf}`]||'',
         };
-        const _cell = (label, fieldKey, value, unit) => {
+        // ★ 2026-09-11(店舗要望): バイタルは厚労省基準の色分け(既存のgetTempColorClass等)をそのまま適用
+        const _cell = (label, fieldKey, value, unit, colorCls) => {
           const _act = keypad.isOpen && keypad.recordId === p.id && keypad.field === fieldKey;
           return (
           <button type="button" disabled={dis}
             onClick={()=>{ openKeypad(p.id, fieldKey, value, isAbsent, true); setActiveCell(`${p.id}-${fieldKey}`); }}
             className={`rounded-2xl border-2 p-3 flex flex-col items-center gap-1 disabled:opacity-40 active:scale-95 ${_act?'border-blue-500 ring-2 ring-blue-300 bg-blue-50':'border-slate-400 bg-white'}`}>
             <span style={{fontSize:17,fontWeight:'bold',color:'#1e293b'}}>{label}</span>
-            <span style={{fontSize:34,fontWeight:'bold',color: value?'#1d4ed8':'#94a3b8',lineHeight:1.1,fontVariantNumeric:'tabular-nums'}}>{value||'ー'}<span style={{fontSize:15,color:'#64748b'}}>{value?unit:''}</span></span>
+            <span className={value ? (colorCls||'text-black font-bold') : ''} style={{fontSize:34,lineHeight:1.1,fontVariantNumeric:'tabular-nums', ...(value?{}:{color:'#94a3b8',fontWeight:'bold'})}}>{value||'ー'}<span style={{fontSize:15,fontWeight:'bold',color:'#64748b'}}>{value?unit:''}</span></span>
           </button>
         ); };
         return (
-          <div style={{position:'fixed',inset:0,zIndex:9980,background:'#f8fafc',display:'flex',flexDirection:'column'}}>
+          <div style={{position:'fixed',inset:0,zIndex:10000,background:'#f8fafc',display:'flex',flexDirection:'column'}}>{/* ★ 2026-09-11: 全画面表示(z9999)より上に。テンキー(99999)・気分等のモーダル(z10000でDOM後勝ち)はさらに上 */}
             <div style={{flexShrink:0,background:'#0f766e',color:'white',padding:'12px 16px',display:'flex',alignItems:'center',gap:12}}>
               <div style={{fontSize:24,fontWeight:'bold',flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name} 様 <span style={{fontSize:15,opacity:0.85}}>（{p.status||'出席'}・{tf==='AM'?'午前':'午後'}）</span></div>
               <button onClick={()=>setZoomPid(null)} style={{background:'white',color:'#0f766e',border:'none',borderRadius:12,padding:'12px 22px',fontSize:18,fontWeight:'bold',cursor:'pointer'}}>閉じる</button>
@@ -23236,17 +23237,17 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 <div>
                   <div style={{fontSize:16,fontWeight:'bold',color:'#0f172a',marginBottom:8}}>バイタル（開始）</div>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
-                    {_cell('体温', `temp_${tf}`, _vals.temp, '℃')}
-                    {_cell('血圧', `bpSt_combo_${tf}`, (_vals.buSt&&_vals.bdSt)?`${_vals.buSt}/${_vals.bdSt}`:(_vals.buSt||''), '')}
-                    {_cell('脈拍', `plSt_${tf}`, _vals.plSt, '')}
+                    {_cell('体温', `temp_${tf}`, _vals.temp, '℃', getTempColorClass(_vals.temp))}
+                    {_cell('血圧', `bpSt_combo_${tf}`, (_vals.buSt&&_vals.bdSt)?`${_vals.buSt}/${_vals.bdSt}`:(_vals.buSt||''), '', getBpColorClass(_vals.buSt, _vals.bdSt))}
+                    {_cell('脈拍', `plSt_${tf}`, _vals.plSt, '', getPulseColorClass(_vals.plSt))}
                   </div>
                 </div>
                 <div>
                   <div style={{fontSize:16,fontWeight:'bold',color:'#0f172a',marginBottom:8}}>バイタル（終了）</div>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
                     <div/>
-                    {_cell('血圧', `bpEn_combo_${tf}`, (_vals.buEn&&_vals.bdEn)?`${_vals.buEn}/${_vals.bdEn}`:(_vals.buEn||''), '')}
-                    {_cell('脈拍', `plEn_${tf}`, _vals.plEn, '')}
+                    {_cell('血圧', `bpEn_combo_${tf}`, (_vals.buEn&&_vals.bdEn)?`${_vals.buEn}/${_vals.bdEn}`:(_vals.buEn||''), '', getBpColorClass(_vals.buEn, _vals.bdEn))}
+                    {_cell('脈拍', `plEn_${tf}`, _vals.plEn, '', getPulseColorClass(_vals.plEn))}
                   </div>
                 </div>
                 <div>
@@ -23262,7 +23263,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                           onClick={()=>{ openKeypad(p.id, item.id, (typeof v==='object'?'':v)||'', isAbsent, true); setActiveCell(`${p.id}-${item.id}`); }}
                           className={`rounded-2xl border-2 p-3 flex flex-col items-center gap-1 disabled:opacity-40 active:scale-95 ${(keypad.isOpen && keypad.recordId === p.id && keypad.field === item.id)?'border-blue-500 ring-2 ring-blue-300 bg-blue-50':'border-slate-400 bg-white'}`}>
                           <span style={{fontSize:15,fontWeight:'bold',color:'#1e293b',textAlign:'center',lineHeight:1.3}}>{item.name}</span>
-                          <span style={{fontSize:28,fontWeight:'bold',color: disp?'#1d4ed8':'#64748b',lineHeight:1.15,textAlign:'center'}}>{disp || (ph ? ph : 'ー')}</span>
+                          {/* ★ 2026-09-11(店舗要望): 運動は基本黒。○×ーの記号は特太(900)で見やすく */}
+                          <span style={{fontSize: /^[○×〇ー－-]+$/.test(String(disp).trim()) ? 32 : 28, fontWeight: /^[○×〇ー－-]+$/.test(String(disp).trim()) ? 900 : 'bold', color: disp?'#0f172a':'#64748b', lineHeight:1.15, textAlign:'center'}}>{disp || (ph ? ph : 'ー')}</span>
                           {disp && ph && <span style={{fontSize:12,color:'#475569'}}>目安: {ph}</span>}
                         </button>
                       );
