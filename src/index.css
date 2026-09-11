@@ -73,3 +73,11 @@ table, table th, table td, table img { -webkit-user-drag: none; }
 table { -webkit-touch-callout: none; }
 /* 内側のスクロール領域の慣性がページ全体へ連鎖して画面ごと動くのを防ぐ */
 .overflow-auto, .overflow-x-auto, .overflow-y-auto { overscroll-behavior: contain; }
+
+/* ★ 2026-09-11追補(無印iPad第8世代の報告): 古めのiPad/Safariでは長押しで文字選択(ルーペ)が始まり、
+   そのまま指を動かすと表全体が選択ドラッグで動いて見える。タッチ端末に限り表内の文字選択を無効化する
+   (PC・マウス環境では選択・コピー可のまま)。overscroll-behavior非対応の旧OSにも効く保険。 */
+@media (hover: none) and (pointer: coarse) {
+  table, table th, table td { -webkit-user-select: none; user-select: none; }
+  table { touch-action: pan-x pan-y pinch-zoom; }
+}
