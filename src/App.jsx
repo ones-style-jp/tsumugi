@@ -20061,12 +20061,13 @@ export default function App() {
               {/* ★ 2026-08-30 店舗要望: プレビューはまず画面で確認し、印刷ボタンを押した時だけ印刷画面へ
                   (以前の「開いたら自動で印刷タブも開く」は廃止) */}
               {/* ヘッダー — ★ プレビュー内容(注入HTML)より必ず手前＆操作可能にする */}
-              <div className="no-print" style={{background:'#1e293b',padding:'12px 20px',display:'flex',alignItems:'center',gap:12,flexShrink:0,boxShadow:'0 2px 8px rgba(0,0,0,0.3)',position:'relative',zIndex:10,pointerEvents:'auto'}}>
-                <div style={{flex:1}}>
+              {/* ★ 2026-09-11(店舗報告): iPhone等の狭い画面では折返して2段にし、「閉じる」が右外に見切れないように */}
+              <div className="no-print" style={{background:'#1e293b',padding:'10px 14px',display:'flex',alignItems:'center',gap:10,rowGap:8,flexWrap:'wrap',flexShrink:0,boxShadow:'0 2px 8px rgba(0,0,0,0.3)',position:'relative',zIndex:10,pointerEvents:'auto'}}>
+                <div style={{flex:'1 1 auto',minWidth:120,overflow:'hidden'}}>
                   <span style={{color:'#64748b',fontSize:11,fontWeight:'bold',letterSpacing:1}}>印刷プレビュー</span>
-                  <div style={{color:'white',fontWeight:'bold',fontSize:15,marginTop:2}}>{printPreviewContent.title}</div>
+                  <div style={{color:'white',fontWeight:'bold',fontSize:15,marginTop:2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{printPreviewContent.title}</div>
                 </div>
-                <div style={{display:'flex',gap:10,alignItems:'center'}}>
+                <div style={{display:'flex',gap:10,rowGap:8,alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end',marginLeft:'auto'}}>
                   {/* ★ 氏名マスキングは印刷ボタンの横に大きく表示(2026-09-08 店舗要望: 左上の小さい表示は見づらい) */}
                   <label title="利用者の氏名・ふりがなを1文字おきに○へ置き換えて印刷/FAXできます(例: 髙橋正樹→髙○正○・全印刷画面で共通)" style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',background:printMaskNames?'#fef3c7':'#f1f5f9',border:printMaskNames?'2px solid #f59e0b':'2px solid #cbd5e1',borderRadius:10,padding:'9px 16px'}}>
                     <input type="checkbox" checked={printMaskNames} onChange={e=>setPrintMaskNames(e.target.checked)} style={{width:18,height:18}}/>
@@ -20075,7 +20076,7 @@ export default function App() {
                   {/* 統合出力ボタン: 印刷/FAX/PDF すべて同じ印刷ダイアログを開くので統合 */}
                   <button onClick={()=>openPrintWindow(false)}
                     style={{background:'#2563eb',color:'white',border:'none',borderRadius:'10px 0 0 10px',padding:'10px 20px',fontWeight:'bold',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',gap:8,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
-                    印刷・FAX・PDF
+                    <span style={{whiteSpace:'nowrap'}}>印刷・FAX・PDF</span>
                   </button>
                   <button onClick={()=>setShowFaxHelp(true)} title="印刷/FAX/PDF の手順を見る"
                     style={{background:'#1d4ed8',color:'white',border:'none',borderLeft:'1px solid rgba(255,255,255,0.25)',borderRadius:'0 10px 10px 0',padding:'10px 12px',fontWeight:'bold',fontSize:16,cursor:'pointer',boxShadow:'0 2px 8px rgba(0,0,0,0.2)',marginLeft:-10}}>
@@ -30854,6 +30855,8 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave }) {
 
 // === FitnessView (体力測定) ===
 function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, targetPatientId, onPatientChange, dirtyRef, saveFnRef }) {
+  // ★ 全画面表示(2026-09-11 店舗要望): 旧iPadの表ずれ対策(提供記録と同方式)
+  const [viewFS, setViewFS] = React.useState(false);
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
   const [statusFilter, setStatusFilter] = useState('当月');
@@ -30987,7 +30990,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
   React.useEffect(() => () => { if (saveFnRef) saveFnRef.current = null; }, []);
 
   return (
-    <div className="flex h-full w-full gap-0 sm:gap-4 p-0 sm:p-4 bg-slate-100 overflow-hidden">
+    <div className="flex h-full w-full gap-0 sm:gap-4 p-0 sm:p-4 bg-slate-100 overflow-hidden" style={viewFS ? {position:'fixed',inset:0,zIndex:9999,height:'100dvh',width:'100vw'} : undefined}>
       {mobileRosterOpen && <div onClick={() => setMobileRosterOpen(false)} className="md:hidden fixed inset-0 bg-black/50 z-40" aria-hidden="true" />}
       {/* サイドバー */}
       <div className={`bg-white shadow-md border border-slate-300 flex flex-col overflow-hidden
@@ -31170,6 +31173,9 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                 {selectedPat.careLevel && <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-lg ml-1">{selectedPat.careLevel}</span>}
               </div>
               <div className="flex items-center gap-3">
+                <button onClick={()=>setViewFS(v=>!v)} className="bg-slate-700 hover:bg-slate-800 text-white px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap self-end" title={viewFS?'通常表示に戻す':'全画面表示(表が固定され誤スクロールしにくくなります)'}>
+                  {viewFS ? '通常表示' : '全画面'}
+                </button>
                 <div>
                   <label className="block text-sm font-bold text-slate-600 mb-1.5">測定日</label>
                   <input type="date" value={date} onChange={e => setDate(e.target.value)}
@@ -38082,6 +38088,8 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
 function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAmpm, setSharedAmpm, dirtyRef, saveFnRef, onShowPrintPreview }) {
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
+  // ★ 全画面表示(2026-09-11 店舗要望): 提供記録と同じくfixedで覆うと旧iPadでも表が固定される
+  const [viewFS, setViewFS] = React.useState(false);
   const ampm = sharedAmpm === 'all' ? 'AM' : (sharedAmpm || 'AM');
   const setAmpm = (v) => setSharedAmpm && setSharedAmpm(v);
   const capacity = appData?.systemSettings?.facilityInfo?.capacity || 10;
@@ -39292,7 +39300,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   }
 
   return (
-    <div ref={diaryScrollRef} className="h-full overflow-auto w-full bg-slate-100">
+    <div ref={diaryScrollRef} className="h-full overflow-auto w-full bg-slate-100" style={viewFS ? {position:'fixed',inset:0,zIndex:9999,height:'100dvh',width:'100vw',background:'#f1f5f9'} : undefined}>
       <style>{`
         @media print {
           body, html, #root { height: auto !important; overflow: visible !important; background: white !important; }
@@ -39502,7 +39510,10 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             </div>
           );
         })()}
-                <div className="flex rounded-xl overflow-hidden border border-slate-300">
+                <button onClick={()=>setViewFS(v=>!v)} className="bg-slate-700 hover:bg-slate-800 text-white px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title={viewFS?'通常表示に戻す':'全画面表示(表が固定され誤スクロールしにくくなります)'}>
+          {viewFS ? '通常表示' : '全画面'}
+        </button>
+        <div className="flex rounded-xl overflow-hidden border border-slate-300">
           {['AM','PM'].map(v=>(
             <button key={v} onClick={()=>{
               if (v === ampm) return;
