@@ -21502,7 +21502,18 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
         const _d=new Date(selectedDate);
         if(!window.confirm(`⚠ ${_d.getMonth()+1}月${_d.getDate()}日は過去の日付です。\n\nこの日を「${newStatus}」に変更してよろしいですか？\n\n入力済みの記録(血圧・脈・気分・運動など)は保持され、「出席」に戻せば元に戻りますが、誤って変更しないようご注意ください。`)) return;
       }
-      setStatusModal({ isOpen: true, id, status: newStatus, reason: '', reasonCat: '', furikaeDate: '', substituteReason: '', furikaeAmpm: 'AM', pauseFromDate: '', pauseToDate: '' });
+      // ★ 2026-09-11(店舗要望): 既に欠席で理由入力済みの日を振替にする時は理由を引き継ぐ(再入力不要)
+      let _preCat = '', _preSub = '';
+      if (newStatus === '振替') {
+        const _row = (filterMode==='single' ? localPatients : localTicketRecords).find(x => x.id === id);
+        const _tk = String(_row?.tokki || '').trim();
+        if (_row?.status === '欠席' && _tk && !/へ振替/.test(_tk)) {
+          const _pr = parseAbsReason(_tk);
+          _preCat = _pr.cat || '';
+          _preSub = _pr.cat ? (_pr.detail || '') : _tk;
+        }
+      }
+      setStatusModal({ isOpen: true, id, status: newStatus, reason: '', reasonCat: _preCat, furikaeDate: '', substituteReason: _preSub, furikaeAmpm: 'AM', pauseFromDate: '', pauseToDate: '' });
       return;
     }
     if (newStatus === '休止') {
@@ -21592,13 +21603,18 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       const _yr = _sd.getFullYear();
       const _recs = [...(appData.ticketRecords||[])];
       const _ridx = _recs.findIndex(r => r.patientId === targetPatientId && recMatchesDateYear(r, _dateLabel, _yr));
-      // ★ 休止の理由は pauseHistory(利用者)に持ち、特記(tokki)には焼き込まない(表示で計算する)。
-      //   焼き込むと休止が終わって出席に戻っても特記に残り続けるため。 既存の特記メモはそのまま保持。
-      if (_ridx >= 0) { obsMarkRecEditRec(_recs[_ridx], 'status'); _recs[_ridx] = { ..._recs[_ridx], status: '休止', _savedAt: syncNow() }; }
-      else _recs.push({ id: `tr_${targetPatientId}_${_yr}_${_sd.getMonth()+1}_${_sd.getDate()}`, patientId: targetPatientId, date: _dateLabel, year: _yr, status: '休止', _savedAt: syncNow() });
+      // ★ 2026-09-11(店舗要望): 休止にした日は特記へ休止理由を上書きで載せる(古い欠席理由を残さない)。
+      //   以前は焼き込まない方針だったが、出席へ戻す時に特記をクリアする仕組みを入れたため残留しない。
+      if (_ridx >= 0) {
+        ['status','tokki'].forEach(f=>obsMarkRecEditRec(_recs[_ridx], f));
+        const _oldTk = String(_recs[_ridx].tokki || '');
+        const _wasAbs = _recs[_ridx].status==='欠席' || _recs[_ridx].status==='休業';
+        _recs[_ridx] = { ..._recs[_ridx], status: '休止', tokki: (reason || ((_wasAbs && !/へ振替/.test(_oldTk)) ? '' : _oldTk)), _savedAt: syncNow() };
+      }
+      else _recs.push({ id: `tr_${targetPatientId}_${_yr}_${_sd.getMonth()+1}_${_sd.getDate()}`, patientId: targetPatientId, date: _dateLabel, year: _yr, status: '休止', tokki: reason || '', _savedAt: syncNow() });
       onSave({ ...appData, patients: updatedPatients, ticketRecords: _recs }, { manual: true, message: '✓ 休止に設定しました' });
       // 画面上の localPatients も即時反映
-      setLocalPatients(prev => prev.map(p => p.id===id ? {...p, status: '休止'} : p));
+      setLocalPatients(prev => prev.map(p => p.id===id ? {...p, status: '休止', tokki: (reason || (((p.status==='欠席'||p.status==='休業') && !/へ振替/.test(p.tokki||'')) ? '' : p.tokki))} : p));
       if (dirtyRef) dirtyRef.current = false; // 即時保存済み
       return;
     }
@@ -21757,6 +21773,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
         if (p.id !== id) return p;
         let newP = { ...p, status: newStatus === '振替' ? '欠席' : newStatus };
         if (tokkiText) newP.tokki = tokkiText;
+        // ★ 2026-09-11(店舗要望): 出席へ戻したら欠席/休業/休止の理由は特記から消す(「へ振替」リンクは取り消しフローで扱うため温存)
+        if (newStatus === '出席' && (p.status==='欠席'||p.status==='休業'||p.status==='休止') && !/へ振替/.test(p.tokki||'')) newP.tokki = '';
         if (isNowAbsent || newStatus === '振替') {
           newP.temp=""; newP.bpUpSt=""; newP.bpDnSt=""; newP.plSt=""; newP.bpUpEn=""; newP.bpDnEn=""; newP.plEn=""; newP.massage="";
           if (newP.exercises) { const e2={}; for(const k in newP.exercises) e2[k]=""; newP.exercises=e2; }
@@ -32710,7 +32728,14 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
       return;
     }
     if (newStatus === '振替') {
-      setFurikaeModal({ isOpen: true, day, ampm: ap, fromDate: "", reason: "", reasonCat: "", mode: isBase ? 'forward' : 'backward' });
+      // ★ 2026-09-11(店舗要望): 既に欠席で理由入力済みの日を振替にする時は理由を引き継ぐ(再入力不要)
+      let _pc = '', _pd = '';
+      {
+        const _dstr = `${currentMonth.getMonth()+1}月${day}日`;
+        const _ex = effTickets.find(t => t.patientId === localPatient.id && t.date === _dstr && t.status==='欠席' && String(t.tokki||'').trim() && !/へ振替/.test(t.tokki||''));
+        if (_ex) { const _pr = parseAbsReason(String(_ex.tokki).trim()); _pc = _pr.cat || ''; _pd = _pr.cat ? (_pr.detail || '') : String(_ex.tokki).trim(); }
+      }
+      setFurikaeModal({ isOpen: true, day, ampm: ap, fromDate: "", reason: _pd, reasonCat: _pc, mode: isBase ? 'forward' : 'backward' });
       return;
     }
     if (newStatus === '休止') {
@@ -32728,6 +32753,15 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     if (newStatus === '出席') stVal = isBase ? '〇' : '臨時';
     const ns2 = saveSh(localPatient.id, day, ap, stVal, isBase, null);
     setPendingShifts(ns2);
+    // ★ 2026-09-11(店舗要望): 出席へ戻したら、その日の提供記録の欠席/休業/休止と理由もクリア(振替リンクは温存)
+    if (newStatus === '出席') {
+      const _dstr = `${currentMonth.getMonth()+1}月${day}日`;
+      const _ex = effTickets.find(t => t.patientId === localPatient.id && t.date === _dstr && (t.status==='欠席'||t.status==='休業'||t.status==='休止') && !/へ振替/.test(t.tokki||''));
+      if (_ex) {
+        ['status','tokki'].forEach(f=>obsMarkRecEditRec(_ex,f));
+        setPendingTickets(effTickets.map(t => t === _ex ? { ...t, status: '出席', tokki: '', _savedAt: syncNow() } : t));
+      }
+    }
     markDirty();
   };
 
@@ -35163,6 +35197,18 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 //   最新の pauseHistory に追記し、commitLP で即クラウド保存(submitPause と同じ扱い)。
                 const _curHist = ((appData.patients||[]).find(p=>p.id===localPatient.id)?.pauseHistory) || localPatient.pauseHistory || [];
                 commitLP({ status: '休止', pauseHistory: [...(_curHist||[]), entry] }, '✓ 休止にしました（保存済み）');
+                // ★ 2026-09-11(店舗要望): その日の提供記録も休止+理由で上書き(古い欠席理由を残さない・保存ボタンで反映)
+                {
+                  const _fd0 = new Date(pauseFromCellModal.fromDate);
+                  const _dstr = `${_fd0.getMonth()+1}月${_fd0.getDate()}日`;
+                  const _rsn = pauseFromCellModal.reason.trim();
+                  const _ex = effTickets.find(t => t.patientId === localPatient.id && t.date === _dstr);
+                  if (_ex) {
+                    ['status','tokki'].forEach(f=>obsMarkRecEditRec(_ex,f));
+                    setPendingTickets(effTickets.map(t => t === _ex ? { ...t, status: '休止', tokki: (_rsn || (((t.status==='欠席'||t.status==='休業') && !/へ振替/.test(t.tokki||'')) ? '' : t.tokki)), _savedAt: syncNow() } : t));
+                    markDirty();
+                  }
+                }
                 setPauseFromCellModal({isOpen:false,reason:'',fromDate:'',toDate:''});
               }} className="px-6 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold shadow-lg active:scale-95 text-sm disabled:opacity-40">登録</button>
             </div>
