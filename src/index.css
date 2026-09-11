@@ -65,3 +65,11 @@ html, body, #root {
     .tsu-h-dvh { height: calc(100dvh - 16px) !important; max-height: calc(100dvh - 16px) !important; }
   }
 }
+
+/* ★ 2026-09-11(店舗要望): 提供記録以外の画面でも、表の長押しドラッグで表(セル/画像)が
+   持ち上がって上下横にずれるのを防ぐ(提供記録の.record-view-scrollと同じ対策の全画面版)。
+   文字選択は殺さない(コピー用途を残す)。 */
+table, table th, table td, table img { -webkit-user-drag: none; }
+table { -webkit-touch-callout: none; }
+/* 内側のスクロール領域の慣性がページ全体へ連鎖して画面ごと動くのを防ぐ */
+.overflow-auto, .overflow-x-auto, .overflow-y-auto { overscroll-behavior: contain; }

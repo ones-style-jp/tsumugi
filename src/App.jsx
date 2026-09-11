@@ -23199,15 +23199,24 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           temp: p[`temp_${tf}`]||'', buSt: p[`bpUpSt_${tf}`]||'', bdSt: p[`bpDnSt_${tf}`]||'', plSt: p[`plSt_${tf}`]||'',
           buEn: p[`bpUpEn_${tf}`]||'', bdEn: p[`bpDnEn_${tf}`]||'', plEn: p[`plEn_${tf}`]||'',
         };
-        // ★ 2026-09-11(店舗要望): バイタルは厚労省基準の色分け(既存のgetTempColorClass等)をそのまま適用
-        const _cell = (label, fieldKey, value, unit, colorCls) => {
+        // ★ 2026-09-11(店舗要望): バイタルは厚労省基準の色分け(既存のgetTempColorClass等)をそのまま適用。
+        //   血圧は通常一覧と同じく上下で別々に色分け(bp={up,dn}指定時)。
+        const _cell = (label, fieldKey, value, unit, colorCls, bp) => {
           const _act = keypad.isOpen && keypad.recordId === p.id && keypad.field === fieldKey;
           return (
           <button type="button" disabled={dis}
             onClick={()=>{ openKeypad(p.id, fieldKey, value, isAbsent, true); setActiveCell(`${p.id}-${fieldKey}`); }}
             className={`rounded-2xl border-2 p-3 flex flex-col items-center gap-1 disabled:opacity-40 active:scale-95 ${_act?'border-blue-500 ring-2 ring-blue-300 bg-blue-50':'border-slate-400 bg-white'}`}>
             <span style={{fontSize:17,fontWeight:'bold',color:'#1e293b'}}>{label}</span>
-            <span className={value ? (colorCls||'text-black font-bold') : ''} style={{fontSize:34,lineHeight:1.1,fontVariantNumeric:'tabular-nums', ...(value?{}:{color:'#94a3b8',fontWeight:'bold'})}}>{value||'ー'}<span style={{fontSize:15,fontWeight:'bold',color:'#64748b'}}>{value?unit:''}</span></span>
+            {bp && (bp.up || bp.dn) ? (
+              <span style={{fontSize:34,lineHeight:1.1,fontVariantNumeric:'tabular-nums'}}>
+                {bp.up ? <span className={getBpUpColorClass(bp.up)}>{bp.up}</span> : <span style={{color:'#94a3b8'}}>ー</span>}
+                <span className="text-slate-400">/</span>
+                {bp.dn ? <span className={getBpDnColorClass(bp.dn)}>{bp.dn}</span> : <span style={{color:'#94a3b8'}}>ー</span>}
+              </span>
+            ) : (
+              <span className={value ? (colorCls||'text-black font-bold') : ''} style={{fontSize:34,lineHeight:1.1,fontVariantNumeric:'tabular-nums', ...(value?{}:{color:'#94a3b8',fontWeight:'bold'})}}>{value||'ー'}<span style={{fontSize:15,fontWeight:'bold',color:'#64748b'}}>{value?unit:''}</span></span>
+            )}
           </button>
         ); };
         return (
@@ -23238,7 +23247,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   <div style={{fontSize:16,fontWeight:'bold',color:'#0f172a',marginBottom:8}}>バイタル（開始）</div>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
                     {_cell('体温', `temp_${tf}`, _vals.temp, '℃', getTempColorClass(_vals.temp))}
-                    {_cell('血圧', `bpSt_combo_${tf}`, (_vals.buSt&&_vals.bdSt)?`${_vals.buSt}/${_vals.bdSt}`:(_vals.buSt||''), '', getBpColorClass(_vals.buSt, _vals.bdSt))}
+                    {_cell('血圧', `bpSt_combo_${tf}`, (_vals.buSt&&_vals.bdSt)?`${_vals.buSt}/${_vals.bdSt}`:(_vals.buSt||''), '', null, {up:_vals.buSt, dn:_vals.bdSt})}
                     {_cell('脈拍', `plSt_${tf}`, _vals.plSt, '', getPulseColorClass(_vals.plSt))}
                   </div>
                 </div>
@@ -23246,7 +23255,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   <div style={{fontSize:16,fontWeight:'bold',color:'#0f172a',marginBottom:8}}>バイタル（終了）</div>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
                     <div/>
-                    {_cell('血圧', `bpEn_combo_${tf}`, (_vals.buEn&&_vals.bdEn)?`${_vals.buEn}/${_vals.bdEn}`:(_vals.buEn||''), '', getBpColorClass(_vals.buEn, _vals.bdEn))}
+                    {_cell('血圧', `bpEn_combo_${tf}`, (_vals.buEn&&_vals.bdEn)?`${_vals.buEn}/${_vals.bdEn}`:(_vals.buEn||''), '', null, {up:_vals.buEn, dn:_vals.bdEn})}
                     {_cell('脈拍', `plEn_${tf}`, _vals.plEn, '', getPulseColorClass(_vals.plEn))}
                   </div>
                 </div>
