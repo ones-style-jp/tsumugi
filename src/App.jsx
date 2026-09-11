@@ -19838,7 +19838,7 @@ export default function App() {
     );
   }
   return (
-    <div className="flex h-screen bg-slate-100 text-slate-800" style={{fontFamily:'"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","YuGothic","Noto Sans JP","メイリオ",Meiryo,sans-serif',fontSize:15,height:'100dvh'}}>
+    <div className="flex h-screen bg-slate-100 text-slate-800" style={{fontFamily:'"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","YuGothic","Noto Sans JP","メイリオ",Meiryo,sans-serif',fontSize:15,height:'100dvh',position:'fixed',inset:0,width:'100vw',overflow:'hidden'}}>{/* ★ 2026-09-11(店舗要望): 全画面表示と同じfixed固定を常時適用。旧iPadで表が長押しでずれる(文書バウンス)対策。中身は元々すべて内部スクロール */}
       <GlobalStyle />
       {/* ★ スタッフ切替で管理者を選んだ時の認証 */}
       {pendingStaffSwitch && (
@@ -30565,7 +30565,8 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
           <table className="w-full border-collapse border-2 border-black text-center font-bold table-fixed bg-white shrink-0" style={{marginBottom:'20px'}}>
               <colgroup><col style={{width:"25%"}}/><col style={{width:"75%"}}/></colgroup>
             <tbody>
-              <tr className="border-b border-black" style={{height:'3.6rem'}}>
+              {/* ★ 2026-09-11(iOS印刷調査): 行高はrem指定だと環境で解釈差が出るためpx固定 */}
+              <tr className="border-b border-black" style={{height:58}}>
                 <td className="p-0" colSpan={2}>
                   <div className="flex items-center h-full px-3">
                     <span className="font-normal" style={{fontSize:18,marginRight:'0.4em'}}>体温</span>
@@ -30586,7 +30587,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                   </div>
                 </td>
               </tr>
-              <tr style={{height:'3.6rem'}}>
+              <tr style={{height:58}}>
                 <td className="p-0" colSpan={2}>
                   <div className="flex items-center h-full px-3">
                     <span style={{fontSize:18, visibility:'hidden'}}>体温　00.0℃</span>
@@ -30855,8 +30856,7 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave }) {
 
 // === FitnessView (体力測定) ===
 function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, targetPatientId, onPatientChange, dirtyRef, saveFnRef }) {
-  // ★ 全画面表示(2026-09-11 店舗要望): 旧iPadの表ずれ対策(提供記録と同方式)
-  const [viewFS, setViewFS] = React.useState(false);
+
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
   const [statusFilter, setStatusFilter] = useState('当月');
@@ -30990,7 +30990,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
   React.useEffect(() => () => { if (saveFnRef) saveFnRef.current = null; }, []);
 
   return (
-    <div className="flex h-full w-full gap-0 sm:gap-4 p-0 sm:p-4 bg-slate-100 overflow-hidden" style={viewFS ? {position:'fixed',inset:0,zIndex:9999,height:'100dvh',width:'100vw'} : undefined}>
+    <div className="flex h-full w-full gap-0 sm:gap-4 p-0 sm:p-4 bg-slate-100 overflow-hidden">
       {mobileRosterOpen && <div onClick={() => setMobileRosterOpen(false)} className="md:hidden fixed inset-0 bg-black/50 z-40" aria-hidden="true" />}
       {/* サイドバー */}
       <div className={`bg-white shadow-md border border-slate-300 flex flex-col overflow-hidden
@@ -31173,9 +31173,6 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                 {selectedPat.careLevel && <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-lg ml-1">{selectedPat.careLevel}</span>}
               </div>
               <div className="flex items-center gap-3">
-                <button onClick={()=>setViewFS(v=>!v)} className="bg-slate-700 hover:bg-slate-800 text-white px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap self-end" title={viewFS?'通常表示に戻す':'全画面表示(表が固定され誤スクロールしにくくなります)'}>
-                  {viewFS ? '通常表示' : '全画面'}
-                </button>
                 <div>
                   <label className="block text-sm font-bold text-slate-600 mb-1.5">測定日</label>
                   <input type="date" value={date} onChange={e => setDate(e.target.value)}
@@ -38088,8 +38085,7 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
 function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAmpm, setSharedAmpm, dirtyRef, saveFnRef, onShowPrintPreview }) {
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
-  // ★ 全画面表示(2026-09-11 店舗要望): 提供記録と同じくfixedで覆うと旧iPadでも表が固定される
-  const [viewFS, setViewFS] = React.useState(false);
+
   const ampm = sharedAmpm === 'all' ? 'AM' : (sharedAmpm || 'AM');
   const setAmpm = (v) => setSharedAmpm && setSharedAmpm(v);
   const capacity = appData?.systemSettings?.facilityInfo?.capacity || 10;
@@ -39300,7 +39296,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   }
 
   return (
-    <div ref={diaryScrollRef} className="h-full overflow-auto w-full bg-slate-100" style={viewFS ? {position:'fixed',inset:0,zIndex:9999,height:'100dvh',width:'100vw',background:'#f1f5f9'} : undefined}>
+    <div ref={diaryScrollRef} className="h-full overflow-auto w-full bg-slate-100">
       <style>{`
         @media print {
           body, html, #root { height: auto !important; overflow: visible !important; background: white !important; }
@@ -39510,10 +39506,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             </div>
           );
         })()}
-                <button onClick={()=>setViewFS(v=>!v)} className="bg-slate-700 hover:bg-slate-800 text-white px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title={viewFS?'通常表示に戻す':'全画面表示(表が固定され誤スクロールしにくくなります)'}>
-          {viewFS ? '通常表示' : '全画面'}
-        </button>
-        <div className="flex rounded-xl overflow-hidden border border-slate-300">
+                <div className="flex rounded-xl overflow-hidden border border-slate-300">
           {['AM','PM'].map(v=>(
             <button key={v} onClick={()=>{
               if (v === ampm) return;
