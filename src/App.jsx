@@ -11100,8 +11100,8 @@ const diaryPendingItems = (log, iso, cars) => {
   const sp = (iso && iso < DIARY_SP_LEGACY_CUTOFF) ? {} : (log._sougeiPending || {});
   const items = [];
   const _hasAny = (o) => !!o && Object.values(o).some(v => Array.isArray(v) ? v.length : (v && typeof v === 'object' ? Object.keys(v).length : String(v ?? '').trim() !== ''));
-  if (sp['迎え'] || (!_hasAny(log.pick) && !_hasAny(log.pick_walk))) items.push('迎え');
-  if (sp['送り'] || (!_hasAny(log.drop) && !_hasAny(log.drop_walk))) items.push('送り');
+  if (sp['迎え'] || (!_hasAny(log.pick) && !_hasAny(log.pick_walk) && !_hasAny(log.pick_other))) items.push('迎え');
+  if (sp['送り'] || (!_hasAny(log.drop) && !_hasAny(log.drop_walk) && !_hasAny(log.drop_other))) items.push('送り');
   // ★ 2026-09-10(店舗要望): 時間の必須は方向別(到着=迎えで使う車・出発=送りで使う車)。
   //   使わない方向の車の時間は必須にしない。carsが未設定の店は時間チェック自体を行わない。
   //   過去日(境界日より前)は旧基準のまま(遡って未完成にしない)。
@@ -29666,6 +29666,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     if (!/\d/.test(_ndS)) return true;               // 次回日付が空欄
     // ★ 2026-09-12d(試験版): 送迎表で時間が決まっていれば入力済み扱い(徒歩も可)
     { const _tt = getTransportTimeFor(r.patientId, _ndS, r.year, appData); if (_tt === '徒歩' || _fullTime(_tt)) return false; }
+    // ★ 送迎表で「その他(家族送迎など)」の方はお迎え時間不要=入力済み扱い(2026-09-12f)
+    { try { const _m2 = _ndS.match(/(\d+)月(\d+)日/); if (_m2) { const _y2 = r.year || new Date(selectedDate).getFullYear(); const _iso2 = `${_y2}-${String(+_m2[1]).padStart(2,'0')}-${String(+_m2[2]).padStart(2,'0')}`; for (const _sl2 of ['AM','PM']) { const _pl2 = (appData.transportPlans||{})[`${_iso2}_${_sl2}`]; if (_pl2 && (_pl2.others||[]).some(x=>x && x.pid===r.patientId)) return false; } } } catch {} }
     if (info.isFurikae) {                              // 振替: その振替日向けの手入力のみ有効
       const _tf = String(r.nextTimeOverrideFor || '').trim();
       return !(_fullTime(r.nextTimeOverride) && _tf && _tf === _ndS);
@@ -30973,22 +30975,24 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const prevCarOf = {};
     if (prevPlan && prevPlan.cars) Object.keys(prevPlan.cars).forEach(cid => (prevPlan.cars[cid]||[]).forEach(m => { prevCarOf[m.pid] = cid; }));
     const prevWalk = new Set(((prevPlan && prevPlan.walkers) || []).map(m => m.pid));
+    const prevOther = new Set(((prevPlan && prevPlan.others) || []).map(m => m.pid));
     const carsMap = {}; cars.forEach(c => { carsMap[c.id] = []; });
-    const walkers = []; const un = [];
+    const walkers = []; const others = []; const un = [];
     att.forEach(a => {
       if (prevWalk.has(a.pid)) { walkers.push({ pid: a.pid, t: '徒歩' }); return; }
+      if (prevOther.has(a.pid)) { others.push({ pid: a.pid, t: '' }); return; }
       const cid = prevCarOf[a.pid];
       if (cid && carsMap[cid]) carsMap[cid].push({ pid: a.pid, t: a.time, mark: false });
       else un.push({ pid: a.pid, t: a.time, mark: false });
     });
     Object.keys(carsMap).forEach(cid => carsMap[cid].sort((x,y) => String(x.t).localeCompare(String(y.t))));
-    return { cars: carsMap, walkers, un, memo: '', _draft: true };
+    return { cars: carsMap, walkers, others, un, memo: '', _draft: true };
   };
   const getPlan = (iso, sl) => {
     const saved = plans[`${iso}_${sl}`];
     if (saved && typeof saved === 'object') {
       // 保存後に増えた利用者(振替追加等)は未割当に補充して見落としを防ぐ
-      const inPlan = new Set([ ...Object.values(saved.cars||{}).flat().map(m=>m.pid), ...((saved.walkers||[]).map(m=>m.pid)), ...((saved.un||[]).map(m=>m.pid)) ]);
+      const inPlan = new Set([ ...Object.values(saved.cars||{}).flat().map(m=>m.pid), ...((saved.walkers||[]).map(m=>m.pid)), ...((saved.others||[]).map(m=>m.pid)), ...((saved.un||[]).map(m=>m.pid)) ]);
       const extra = _attendees(iso, sl).filter(a => !inPlan.has(a.pid)).map(a => ({ pid: a.pid, t: a.time, mark: false }));
       return { cars: {}, walkers: [], memo: '', ...saved, un: [ ...(saved.un||[]), ...extra ] };
     }
@@ -31038,7 +31042,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     Object.keys(pl.cars||{}).forEach(cid => { const i = (pl.cars[cid]||[]).findIndex(m => m.pid === pid); if (i >= 0) carried = pl.cars[cid].splice(i,1)[0]; });
     ['walkers','un'].forEach(k => { const i = (pl[k]||[]).findIndex(m => m.pid === pid); if (i >= 0) carried = pl[k].splice(i,1)[0]; });
     if (!carried) carried = { pid, t: '', mark: false };
+    ['others'].forEach(k => { const i = (pl[k]||[]).findIndex(m => m.pid === pid); if (i >= 0) carried = pl[k].splice(i,1)[0]; });
     if (dest === 'walk') { pl.walkers = pl.walkers || []; pl.walkers.push({ ...carried, t: '徒歩' }); }
+    else if (dest === 'other') { pl.others = pl.others || []; pl.others.push({ ...carried, t: '' }); }
     else if (dest === 'un') { pl.un = pl.un || []; pl.un.push(carried); }
     else { pl.cars = pl.cars || {}; pl.cars[dest] = pl.cars[dest] || []; pl.cars[dest].push({ ...carried, t: carried.t === '徒歩' ? '' : carried.t }); }
   }); };
@@ -31094,7 +31100,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     Object.keys(pl.drop.cars||{}).forEach(cid => { const i = (pl.drop.cars[cid]||[]).findIndex(m => m.pid === pid); if (i >= 0) carried = pl.drop.cars[cid].splice(i,1)[0]; });
     { const i = (pl.drop.walkers||[]).findIndex(m => m.pid === pid); if (i >= 0) carried = pl.drop.walkers.splice(i,1)[0]; }
     if (!carried) carried = { pid };
+    { const i = (pl.drop.others||[]).findIndex(m => m.pid === pid); if (i >= 0) carried = pl.drop.others.splice(i,1)[0]; }
     if (dest === 'walk') { pl.drop.walkers = pl.drop.walkers || []; pl.drop.walkers.push(carried); }
+    else if (dest === 'other') { pl.drop.others = pl.drop.others || []; pl.drop.others.push(carried); }
     else { pl.drop.cars = pl.drop.cars || {}; pl.drop.cars[dest] = pl.drop.cars[dest] || []; pl.drop.cars[dest].push(carried); }
   });
   const reorderDrop = (iso, sl, cid, idx, dir) => mutate(iso, sl, (pl) => {
@@ -31138,7 +31146,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _autoRouteCore = async (iso, sl, basePlans) => {
     const msgs = [];
     const fac = _facilityAddr();
-    const pl = (() => { const saved = (basePlans||plans)[`${iso}_${sl}`]; if (saved && typeof saved === 'object') { const inPlan = new Set([ ...Object.values(saved.cars||{}).flat().map(m=>m.pid), ...((saved.walkers||[]).map(m=>m.pid)), ...((saved.un||[]).map(m=>m.pid)) ]); const extra = _attendees(iso, sl).filter(a => !inPlan.has(a.pid)).map(a => ({ pid: a.pid, t: a.time, mark: false })); return { cars: {}, walkers: [], memo: '', ...saved, un: [ ...(saved.un||[]), ...extra ] }; } return _draftPlan(iso, sl); })();
+    const pl = (() => { const saved = (basePlans||plans)[`${iso}_${sl}`]; if (saved && typeof saved === 'object') { const inPlan = new Set([ ...Object.values(saved.cars||{}).flat().map(m=>m.pid), ...((saved.walkers||[]).map(m=>m.pid)), ...((saved.others||[]).map(m=>m.pid)), ...((saved.un||[]).map(m=>m.pid)) ]); const extra = _attendees(iso, sl).filter(a => !inPlan.has(a.pid)).map(a => ({ pid: a.pid, t: a.time, mark: false })); return { cars: {}, walkers: [], memo: '', ...saved, un: [ ...(saved.un||[]), ...extra ] }; } return _draftPlan(iso, sl); })();
     const target = _targetArrive(sl);
     const nextPlanCars = JSON.parse(JSON.stringify(pl.cars||{}));
     cars.forEach(c => { nextPlanCars[c.id] = nextPlanCars[c.id] || []; });
@@ -31259,8 +31267,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       });
       const wk = (pl.walkers||[]);
       if (wk.length) h += `<div style="font-size:8px;">${wk.map(m=>`${esc(_pname(m.pid))} 徒歩`).join(' / ')}</div>`;
+      const ot = (pl.others||[]);
+      if (ot.length) h += `<div style="font-size:8px;color:#6d28d9;">その他: ${ot.map(m=>esc(_pname(m.pid))).join('、')}</div>`;
       // ★ 初回の方は備考へ自動記入(2026-09-12d)
-      const _firsts = [ ...Object.values(pl.cars||{}).flat(), ...(pl.walkers||[]) ].filter(m => _isFirstVisit(m.pid, iso)).map(m => _pname(m.pid));
+      const _firsts = [ ...Object.values(pl.cars||{}).flat(), ...(pl.walkers||[]), ...(pl.others||[]) ].filter(m => _isFirstVisit(m.pid, iso)).map(m => _pname(m.pid));
       if (_firsts.length) h += `<div style="font-size:8px;color:#0369a1;font-weight:bold;">初回: ${_firsts.map(esc).join('様、')}様</div>`;
       if (pl.dropMode === 'custom' && pl.drop) {
         const dparts = cars.map(c => { const ms=(pl.drop.cars?.[c.id]||[]); return ms.length ? `${esc(c.name)}=${ms.map(m=>esc(_pname(m.pid))).join('、')}` : ''; }).filter(Boolean);
@@ -31347,8 +31357,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 <div className="p-2 space-y-2">
                   {cars.map(c => (
                     <div key={c.id} className="border border-slate-300 rounded-lg overflow-hidden">
-                      <div className="bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                        <span className="truncate">{c.name}{c.type?`（${c.type}）`:''}</span>
+                      <div className="bg-slate-200 px-2 py-1 text-[12px] font-bold text-slate-800 flex items-center gap-1">
+                        <span className="truncate">{c.name}</span>
                         <select value={(pl.driver||{})[c.id]||''} onChange={e=>setDriver(iso, slot, c.id, e.target.value)} title="運転者" className="text-[10px] border border-slate-300 rounded bg-white px-0.5 py-0 max-w-[72px]">
                           <option value="">運転者</option>
                           {(ds.staff||[]).filter(st=>st.name).map(st=><option key={st.id} value={st.name}>{st.name}</option>)}
@@ -31357,34 +31367,49 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                         <span className={`ml-auto ${(Number(c.cap)>0 && (pl.cars?.[c.id]||[]).length>Number(c.cap))?'text-red-600 font-extrabold':'text-slate-400'}`}>{(pl.cars?.[c.id]||[]).length}名{Number(c.cap)>0?`/${c.cap}名`:''}{(Number(c.cap)>0 && (pl.cars?.[c.id]||[]).length>Number(c.cap))?' 超過':''}</span>
                       </div>
                       {(pl.cars?.[c.id]||[]).map((m, i) => (
-                        <div key={m.pid} className={`flex items-center gap-1 px-1.5 py-1 border-t border-slate-100 ${_isFurikae(iso, slot, m.pid)?'bg-emerald-100':(_isFirstVisit(m.pid, iso)?'bg-sky-100':'')}`}>
+                        <div key={m.pid} className={`flex items-center gap-1.5 px-1.5 py-1.5 border-t border-slate-100 ${_isFurikae(iso, slot, m.pid)?'bg-emerald-100':(_isFirstVisit(m.pid, iso)?'bg-sky-100':'')}`}>
                           <button onClick={()=>toggleMark(iso, slot, m.pid)} title="お迎え時間変更の印(TEL)" className={`shrink-0 w-4 h-4 rounded-full border text-[9px] leading-none font-bold ${m.mark?'bg-red-600 border-red-600 text-white':'border-slate-300 text-transparent hover:border-red-400'}`}>●</button>
-                          <button onClick={()=>setEditP({pid:m.pid})} title="タップで待ち合わせ場所・所要時間を編集" className="text-[12px] font-bold text-slate-800 flex-1 min-w-0 truncate text-left underline decoration-dotted decoration-slate-300 underline-offset-2">{_pname(m.pid)}</button>
-                          <input type="text" value={m.t||''} onChange={e=>setTime(iso, slot, m.pid, e.target.value)} placeholder="—:—" className={`w-12 text-center text-[12px] font-bold border rounded px-0.5 outline-none ${m.mark?'border-red-400 text-red-600':'border-slate-200'}`}/>
+                          <button onClick={()=>setEditP({pid:m.pid})} title="タップで待ち合わせ場所・所要時間を編集" className="text-[13px] font-bold text-slate-800 flex-1 min-w-0 truncate text-left underline decoration-dotted decoration-slate-300 underline-offset-2">{_pname(m.pid)}</button>
+                          <input type="text" value={m.t||''} onChange={e=>setTime(iso, slot, m.pid, e.target.value)} placeholder="—:—" className={`w-14 text-center text-[13px] font-bold border rounded px-0.5 py-0.5 outline-none ${m.mark?'border-red-400 text-red-600':'border-slate-300'}`}/>
                           <span className="text-[10px] text-slate-500 w-4 text-center shrink-0">{_nextDow(iso, m.pid)}</span>
                           <div className="flex flex-col shrink-0">
                             <button onClick={()=>reorder(iso, slot, c.id, i, -1)} className="text-slate-400 hover:text-slate-700 leading-none text-[9px]">▲</button>
                             <button onClick={()=>reorder(iso, slot, c.id, i, 1)} className="text-slate-400 hover:text-slate-700 leading-none text-[9px]">▼</button>
                           </div>
-                          <select value={c.id} onChange={e=>moveMember(iso, slot, m.pid, e.target.value)} className="shrink-0 text-[10px] border border-slate-200 rounded px-0 py-0.5 bg-white w-9">
-                            {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name.replace(/号車$/,'')}</option>)}
-                            <option value="walk">徒歩</option><option value="un">外す</option>
+                          <select value={c.id} onChange={e=>moveMember(iso, slot, m.pid, e.target.value)} className="shrink-0 text-[11px] font-bold border border-slate-300 rounded px-0.5 py-0.5 bg-white max-w-[86px]">
+                            {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name}</option>)}
+                            <option value="walk">徒歩</option><option value="other">その他</option><option value="un">外す</option>
                           </select>
                         </div>
                       ))}
                       {!(pl.cars?.[c.id]||[]).length && <div className="px-2 py-1 text-[10px] text-slate-400">なし</div>}
                     </div>
                   ))}
+                  {!!(pl.others||[]).length && (
+                    <div className="border border-violet-200 bg-violet-50 rounded-lg px-2 py-1">
+                      <div className="text-[11px] font-bold text-violet-700 mb-0.5">その他（家族送迎・遅れて来所など）</div>
+                      {(pl.others||[]).map(m => (
+                        <div key={m.pid} className="flex items-center gap-1 text-[13px] font-bold text-slate-700 py-0.5">
+                          <span className="flex-1 truncate">{_pname(m.pid)}</span>
+                          <select value="other" onChange={e=>moveMember(iso, slot, m.pid, e.target.value)} className="text-[11px] font-bold border border-slate-300 rounded bg-white max-w-[86px]">
+                            <option value="other">その他</option>
+                            {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name}</option>)}
+                            <option value="walk">徒歩</option><option value="un">外す</option>
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {!!(pl.walkers||[]).length && (
                     <div className="border border-emerald-200 bg-emerald-50 rounded-lg px-2 py-1">
                       <div className="text-[10px] font-bold text-emerald-700 mb-0.5">徒歩</div>
                       {(pl.walkers||[]).map(m => (
-                        <div key={m.pid} className="flex items-center gap-1 text-[12px] font-bold text-slate-700">
+                        <div key={m.pid} className="flex items-center gap-1 text-[13px] font-bold text-slate-700 py-0.5">
                           <span className="flex-1 truncate">{_pname(m.pid)}</span>
-                          <select value="walk" onChange={e=>moveMember(iso, slot, m.pid, e.target.value)} className="text-[10px] border border-slate-200 rounded bg-white w-9">
+                          <select value="walk" onChange={e=>moveMember(iso, slot, m.pid, e.target.value)} className="text-[11px] font-bold border border-slate-300 rounded bg-white max-w-[86px]">
                             <option value="walk">徒歩</option>
-                            {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name.replace(/号車$/,'')}</option>)}
-                            <option value="un">外す</option>
+                            {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name}</option>)}
+                            <option value="other">その他</option><option value="un">外す</option>
                           </select>
                         </div>
                       ))}
@@ -31394,13 +31419,13 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                     <div className="border border-amber-300 bg-amber-50 rounded-lg px-2 py-1">
                       <div className="text-[10px] font-bold text-amber-700 mb-0.5">未割当（車を選んでください）</div>
                       {(pl.un||[]).map(m => (
-                        <div key={m.pid} className="flex items-center gap-1 text-[12px] font-bold text-slate-700">
+                        <div key={m.pid} className="flex items-center gap-1 text-[13px] font-bold text-slate-700 py-0.5">
                           <span className={`flex-1 truncate ${_isFurikae(iso, slot, m.pid)?'bg-emerald-100 px-1 rounded':(_isFirstVisit(m.pid, iso)?'bg-sky-100 px-1 rounded':'')}`}>{_pname(m.pid)}</span>
                           <span className="text-[11px] text-slate-500">{m.t}</span>
-                          <select value="un" onChange={e=>moveMember(iso, slot, m.pid, e.target.value)} className="text-[10px] border border-slate-300 rounded bg-white w-9">
-                            <option value="un">未</option>
-                            {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name.replace(/号車$/,'')}</option>)}
-                            <option value="walk">徒歩</option>
+                          <select value="un" onChange={e=>moveMember(iso, slot, m.pid, e.target.value)} className="text-[11px] font-bold border border-slate-300 rounded bg-white max-w-[86px]">
+                            <option value="un">未割当</option>
+                            {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name}</option>)}
+                            <option value="walk">徒歩</option><option value="other">その他</option>
                           </select>
                         </div>
                       ))}
@@ -31425,9 +31450,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                                 <button onClick={()=>reorderDrop(iso, slot, c.id, i, -1)} className="text-slate-400 hover:text-slate-700 leading-none text-[8px]">▲</button>
                                 <button onClick={()=>reorderDrop(iso, slot, c.id, i, 1)} className="text-slate-400 hover:text-slate-700 leading-none text-[8px]">▼</button>
                               </div>
-                              <select value={c.id} onChange={e=>moveMemberDrop(iso, slot, m.pid, e.target.value)} className="shrink-0 text-[10px] border border-slate-200 rounded px-0 py-0 bg-white w-9">
-                                {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name.replace(/号車$/,'')}</option>)}
-                                <option value="walk">徒歩</option>
+                              <select value={c.id} onChange={e=>moveMemberDrop(iso, slot, m.pid, e.target.value)} className="shrink-0 text-[11px] font-bold border border-slate-300 rounded px-0.5 py-0 bg-white max-w-[86px]">
+                                {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name}</option>)}
+                                <option value="walk">徒歩</option><option value="other">その他</option>
                               </select>
                             </div>
                           ))}
@@ -31436,7 +31461,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                       ))}
                       {!!(pl.drop.walkers||[]).length && (
                         <div className="text-[10px] font-bold text-emerald-700">徒歩: {(pl.drop.walkers||[]).map(m=>(
-                          <span key={m.pid} className="mr-2">{_pname(m.pid)}<select value="walk" onChange={e=>moveMemberDrop(iso, slot, m.pid, e.target.value)} className="ml-0.5 text-[9px] border border-slate-200 rounded bg-white w-8"><option value="walk">徒</option>{cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name.replace(/号車$/,'')}</option>)}</select></span>
+                          <span key={m.pid} className="mr-2">{_pname(m.pid)}<select value="walk" onChange={e=>moveMemberDrop(iso, slot, m.pid, e.target.value)} className="ml-0.5 text-[10px] font-bold border border-slate-300 rounded bg-white max-w-[80px]"><option value="walk">徒歩</option>{cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name}</option>)}<option value="other">その他</option></select></span>
                         ))}</div>
                       )}
                     </div>
@@ -31491,7 +31516,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               {cars.map((c, i) => (
                 <div key={c.id} className="flex items-center gap-2">
                   {/* ★ 2026-09-12c: 車名が「シエン…」と見切れないよう幅固定をやめて折返し表示 */}
-                  <span className="text-sm font-bold text-slate-700 flex-1 min-w-0 break-words leading-tight">{c.name}{c.type?`（${c.type}）`:''}</span>
+                  <span className="text-sm font-bold text-slate-700 flex-1 min-w-0 break-words leading-tight">{c.name}</span>
                   <input type="text" inputMode="numeric" defaultValue={c.cap||''} id={`tp-set-cap-${c.id}`} placeholder="定員" className="w-20 px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none text-center"/>
                   <span className="text-xs text-slate-500">名（運転者を除く）</span>
                 </div>
@@ -38713,8 +38738,8 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
         <div className="space-y-2">
           {ds.cars.map((c,i)=>(
             <div key={c.id} className="flex items-center gap-2">
-              <input defaultValue={c.name} onBlur={e=>onBlurCar(i,'name',e.target.value)} placeholder="車名（例: 1号車）" className="w-[120px] px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
-              <input defaultValue={c.type} onBlur={e=>onBlurCar(i,'type',e.target.value)} placeholder="車種（例: ハイエース）" className="flex-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
+              {/* ★ 2026-09-12f(店舗要望): 車名は1枠に統一(「シエンタ」「1号車」など自由記載)。旧・車種欄は廃止 */}
+              <input defaultValue={c.name} onBlur={e=>onBlurCar(i,'name',e.target.value)} placeholder="車両名（例: シエンタ / 1号車）" className="flex-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
               {/* ★ 定員(2026-09-12 試験版・送迎表): 送迎表で定員オーバーを警告するために使用 */}
               <input defaultValue={c.cap || ''} onBlur={e=>onBlurCar(i,'cap',e.target.value.replace(/[^0-9]/g,''))} placeholder="定員" inputMode="numeric" className="w-[64px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none text-center focus:border-blue-400" title="送迎表で超過時に警告します"/>
               <span className="text-xs text-slate-500 whitespace-nowrap">名<span className="text-slate-400">（運転者を除く）</span></span>
@@ -38856,7 +38881,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     }
     // ★ 送迎の1週間前自動コピー (設定ON かつ 当日の送迎データが空のとき、7日前の同時間帯から複写)
     let _didAutoCopy = false;
-    const SOUGEI_FIELDS = ['pick','drop','pick_walk','drop_walk','driver','carTimes'];
+    const SOUGEI_FIELDS = ['pick','drop','pick_walk','drop_walk','pick_other','drop_other','driver','carTimes'];
     // ★ 休業日(各種設定の休業日・定休日)は送迎の自動コピーをしない(2026-08-27)
     if (appData.diarySettings?.autoCopySougei && !_dayIsKyugyo(selectedDate, dow)) {
       const sougeiEmpty = !SOUGEI_FIELDS.some(f => loaded[f] && Object.keys(loaded[f]).length);
@@ -38916,8 +38941,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           // ★ 1週間前からの自動コピー(未確認)。 迎え/送り を項目別に保持し、
           //   その項目を編集したらバッジが1つずつ消える(確認済み扱い)。
           const _pend = {};
-          if (prevLog.pick || prevLog.pick_walk) _pend['迎え'] = true;
-          if (prevLog.drop || prevLog.drop_walk) _pend['送り'] = true;
+          if (prevLog.pick || prevLog.pick_walk || prevLog.pick_other) _pend['迎え'] = true;
+          if (prevLog.drop || prevLog.drop_walk || prevLog.drop_other) _pend['送り'] = true;
           loaded._sougeiPending = _pend;
         }
       }
@@ -38995,7 +39020,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
       const next = {...prev, ...patch};
       // ★ 送迎を編集したら、その項目の「自動コピー未確認」バッジを外す(迎え/送り/運転者/時間 個別)
       if (next._sougeiPending && Object.keys(next._sougeiPending).length) {
-        const _lbl = { pick:'迎え', pick_walk:'迎え', drop:'送り', drop_walk:'送り', driver:'運転者', carTimes:'時間' };
+        const _lbl = { pick:'迎え', pick_walk:'迎え', pick_other:'迎え', drop:'送り', drop_walk:'送り', drop_other:'送り', driver:'運転者', carTimes:'時間' };
         const np = { ...next._sougeiPending }; let changed = false;
         Object.keys(patch).forEach(k => { const l = _lbl[k]; if (l && np[l]) { delete np[l]; changed = true; } });
         if (changed) next._sougeiPending = np;
@@ -39536,6 +39561,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
               const _wKey = _useId ? String(_pid) : String(i);
               const _cPre = _useId ? _pid : i;
               if(_wm[_wKey]) return [{label:'徒歩', name:''}];
+              const _om2 = _log[prefix+'_other']||{};
+              if(_om2[_wKey]) return [{label:'その他', name:''}];
               const checked = ds.cars.filter(c=>_sm[_cPre+'_'+c.id]);
               return checked.map(c => ({label: c.name || '', name: c.type || ''}));
             };
@@ -39751,7 +39778,9 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         ds.cars.forEach(c => { cleared[_cPre+'_'+c.id] = false; });
         logUpdates[targetKey][prefix] = { ...(logUpdates[targetKey][prefix]||{}), ...cleared };
         logUpdates[targetKey][prefix+'_walk'] = { ...(logUpdates[targetKey][prefix+'_walk']||{}), [_key]: false };
+        logUpdates[targetKey][prefix+'_other'] = { ...(logUpdates[targetKey][prefix+'_other']||{}), [_key]: false };
         if (val === 'walk') logUpdates[targetKey][prefix+'_walk'][_key] = true;
+        else if (val === 'other') logUpdates[targetKey][prefix+'_other'][_key] = true;
         else if (val) logUpdates[targetKey][prefix][_cPre+'_'+val] = true;
       });
       onSave({ ...appData, diaryLogs: { ...(appData.diaryLogs||{}), ...logUpdates }}, { silent: true }); // ★ silent=クラウド送信(2026-09-06真因修正)
@@ -39761,6 +39790,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
       // ★ キーは患者ID基準(振替で並びが変わっても別人にズレない)。
       const _slot = { ...(log[prefix]||{}) };
       const _walk = { ...(log[prefix+'_walk']||{}) };
+      const _oth = { ...(log[prefix+'_other']||{}) };
       Object.entries(carAssignSelections).forEach(([idx, val]) => {
         const i = parseInt(idx);
         const _pid = _diaryPtKey(patients[i]);
@@ -39768,10 +39798,12 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         const _cPre = _pid != null ? _pid : i;
         ds.cars.forEach(c => { _slot[_cPre+'_'+c.id] = false; });
         _walk[_key] = false;
+        _oth[_key] = false;
         if(val === 'walk') _walk[_key] = true;
+        else if(val === 'other') _oth[_key] = true;
         else if(val) _slot[_cPre+'_'+val] = true;
       });
-      updateLog({ [prefix]: _slot, [prefix+'_walk']: _walk });
+      updateLog({ [prefix]: _slot, [prefix+'_walk']: _walk, [prefix+'_other']: _oth });
     }
     setCarAssignModal(null);
     setCarAssignSelections({});
@@ -39798,13 +39830,14 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
               if(pt && (pt.status==='欠席'||pt.status==='休業'||pt.status==='休止')) return null;
               const val = carAssignSelections[String(i)] ?? (() => {
                 const _pid = _diaryPtKey(pt);
-                const _wm = log[carAssignModal.prefix+'_walk']||{}, _sm = log[carAssignModal.prefix]||{};
+                const _wm = log[carAssignModal.prefix+'_walk']||{}, _sm = log[carAssignModal.prefix]||{}, _om = log[carAssignModal.prefix+'_other']||{};
                 const _idHas = _pid != null && (_wm[String(_pid)] !== undefined || ds.cars.some(c=>_sm[_pid+'_'+c.id] !== undefined));
                 // ★ 2026-09-04: ID化以降は行番号フォールバック禁止(帳票側 getSelectedCar と同じ理由)
                 const _useId = _idHas || (_pid != null && selectedDate >= DIARY_PIDKEY_CUTOFF);
                 const _wKey = _useId ? String(_pid) : String(i);
                 const _cPre = _useId ? _pid : i;
                 if(_wm[_wKey]) return 'walk';
+                if(_om[_wKey]) return 'other';
                 const found = ds.cars.find(c=>_sm[_cPre+'_'+c.id]);
                 return found ? found.id : '';
               })();
@@ -39815,8 +39848,9 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
                     onChange={e=>setCarAssignSelections(prev=>({...prev,[String(i)]:e.target.value}))}
                     className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded-lg outline-none bg-white font-bold">
                     <option value="">未設定</option>
-                    {ds.cars.map(c=><option key={c.id} value={c.id}>{c.name}（{c.type}）</option>)}
+                    {ds.cars.map(c=><option key={c.id} value={c.id}>{c.name}{c.type?`（${c.type}）`:''}</option>)}
                     <option value="walk">徒歩</option>
+                    <option value="other">その他（家族送迎など）</option>
                   </select>
                 </div>
               );
@@ -40209,7 +40243,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           const _hasAny = (o) => !!o && Object.values(o).some(v => Array.isArray(v) ? v.length : (v && typeof v === 'object' ? Object.keys(v).length : String(v ?? '').trim() !== ''));
           // 車未選択の利用者(判定は送迎車割り当てモーダルと同一・徒歩=選択済み・欠席/休止/休業は対象外)
           const _unassignedFor = (prefix) => {
-            const _wm = log[prefix+'_walk']||{}, _sm = log[prefix]||{};
+            const _wm = log[prefix+'_walk']||{}, _sm = log[prefix]||{}, _om3 = log[prefix+'_other']||{};
             const out = [];
             Array.from({length: totalRows}).forEach((_, i) => {
               const pt = patients[i];
@@ -40222,7 +40256,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
               const _useId = _idHas || (_pid != null && selectedDate >= DIARY_PIDKEY_CUTOFF);
               const _wKey = _useId ? String(_pid) : String(i);
               const _cPre = _useId ? _pid : i;
-              if (_wm[_wKey]) return;
+              if (_wm[_wKey] || _om3[_wKey]) return;
               if (!ds.cars.some(c=>_sm[_cPre+'_'+c.id])) out.push(name);
             });
             return out;
@@ -40234,9 +40268,9 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           const items = [];
           // 迎え/送り: 「未選択◯名」に一本化(全体未記入=全員未選択として人数に含まれる)
           if (_upk.length) items.push({ key:'迎え', label:`迎え 未選択${_upk.length}名`, prefix:'pick' });
-          else if (sp['迎え'] || (!_hasAny(log.pick) && !_hasAny(log.pick_walk))) items.push({ key:'迎え', label:'迎え', prefix:'pick' });
+          else if (sp['迎え'] || (!_hasAny(log.pick) && !_hasAny(log.pick_walk) && !_hasAny(log.pick_other))) items.push({ key:'迎え', label:'迎え', prefix:'pick' });
           if (_udr.length) items.push({ key:'送り', label:`送り 未選択${_udr.length}名`, prefix:'drop' });
-          else if (sp['送り'] || (!_hasAny(log.drop) && !_hasAny(log.drop_walk))) items.push({ key:'送り', label:'送り', prefix:'drop' });
+          else if (sp['送り'] || (!_hasAny(log.drop) && !_hasAny(log.drop_walk) && !_hasAny(log.drop_other))) items.push({ key:'送り', label:'送り', prefix:'drop' });
           // ★ 送迎者(2026-09-10 店舗要望): 迎え/送りで使う車に運転者チェックが1人も無ければ未完了
           const _drv = log.driver || {};
           const _drvMissing = (dirKey, dpre) => ds.cars.some(c => {
@@ -40274,14 +40308,16 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           const plan = (appData.transportPlans||{})[`${selectedDate}_${ampm}`];
           if (!plan) { alert('この日の送迎表がまだ保存されていません。\n送迎表の画面で車割り当てを編集すると保存されます。'); return; }
           if (!window.confirm('送迎表の車割り当てを、この日誌の「迎え」「送り」へ取り込みます。\n既存の迎え/送りの割り当ては上書きされます。よろしいですか？\n（送りの車が迎えと違う場合は、取り込み後に送りだけ調整してください）')) return;
-          const _pk = {}, _dp = {}, _pw = {}, _dw2 = {};
+          const _pk = {}, _dp = {}, _pw = {}, _dw2 = {}, _po = {}, _do2 = {};
           Object.keys(plan.cars||{}).forEach(cid => (plan.cars[cid]||[]).forEach(m => { _pk[`${m.pid}_${cid}`] = true; }));
           (plan.walkers||[]).forEach(m => { _pw[String(m.pid)] = true; });
+          (plan.others||[]).forEach(m => { _po[String(m.pid)] = true; });
           // ★ 送り別割り当てがある日は送りをそちらから反映(2026-09-12d)
-          const _dropSrc = (plan.dropMode === 'custom' && plan.drop) ? plan.drop : { cars: plan.cars, walkers: plan.walkers };
+          const _dropSrc = (plan.dropMode === 'custom' && plan.drop) ? plan.drop : { cars: plan.cars, walkers: plan.walkers, others: plan.others };
           Object.keys(_dropSrc.cars||{}).forEach(cid => (_dropSrc.cars[cid]||[]).forEach(m => { _dp[`${m.pid}_${cid}`] = true; }));
           (_dropSrc.walkers||[]).forEach(m => { _dw2[String(m.pid)] = true; });
-          updateLog({ pick: _pk, drop: _dp, pick_walk: _pw, drop_walk: _dw2, _sougeiPending: { ...(log._sougeiPending||{}), '迎え': false, '送り': false } });
+          (_dropSrc.others||[]).forEach(m => { _do2[String(m.pid)] = true; });
+          updateLog({ pick: _pk, drop: _dp, pick_walk: _pw, drop_walk: _dw2, pick_other: _po, drop_other: _do2, _sougeiPending: { ...(log._sougeiPending||{}), '迎え': false, '送り': false } });
         }}
           className="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed" title="送迎表(運行表)で決めた車割り当てを、この日の迎え/送りへ一括反映します">
           送迎表取込
