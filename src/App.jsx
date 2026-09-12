@@ -31176,7 +31176,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       });
       if (remainUn.length) msgs.push(`${iso} ${sl}: 定員不足で${remainUn.length}名を割り当てできませんでした（${remainUn.map(m=>_pname(m.pid)).join('、')}）`);
     }
-    const carIds = cars.map(c=>c.id).filter(cid => (nextPlanCars[cid]||[]).length >= 2);
+    // ★ 2026-09-12g(店舗指摘): 1名だけの車が「2名以上」の条件でスキップされ時間が入らなかった→1名から計算する
+    const carIds = cars.map(c=>c.id).filter(cid => (nextPlanCars[cid]||[]).length >= 1);
     if (!carIds.length && !changed) return { msgs, changed: false };
     for (const cid of carIds) {
       const cname = cars.find(c=>c.id===cid)?.name || cid;
@@ -31221,7 +31222,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       if (!(await _probeMaps())) { setRouting(false); return; }
       const { msgs, changed, entry } = await _autoRouteCore(iso, sl, plans);
       if (changed && entry) onSave({ ...appData, transportPlans: { ...plans, [`${iso}_${sl}`]: entry } }, { silent: true });
-      alert((changed ? 'ルートを割り振りました。時間・順番は手で直せます。' : '対象の車(2名以上)がありませんでした。') + (msgs.length ? '\n\n' + msgs.join('\n') : ''));
+      alert((changed ? 'ルートを割り振りました。時間・順番は手で直せます。' : '乗車のある車がありませんでした。') + (msgs.length ? '\n\n' + msgs.join('\n') : ''));
     } catch (e) { alert('ルート計算に失敗しました: ' + String(e && e.message || e)); }
     setRouting(false);
   };
@@ -31341,7 +31342,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         <div className="text-[11px] font-bold text-slate-500 mb-2 bg-white border border-slate-200 rounded-lg px-3 py-2">
           自動下書き=月間スケジュール+送迎時間マスタ+前週の車割りから作成。行の「車」で移動、時間は直接入力。<span className="text-red-600">●</span>=連絡帳を渡した後にお迎え時間が変わった印(タップで付け外し・TEL忘れ防止)。<span className="bg-emerald-200 px-1">緑</span>=振替、<span className="bg-sky-200 px-1">水色</span>=初回利用の方。編集した日だけ保存されます(自動保存)。
         </div>
-        <div className="grid gap-3" style={{gridTemplateColumns:`repeat(${days.length}, minmax(230px, 1fr))`, overflowX:'auto'}}>
+        <div className="grid gap-3" style={{gridTemplateColumns:`repeat(${days.length}, minmax(250px, 1fr))`, overflowX:'auto'}}>
           {days.map(d => {
             const iso = _iso(d);
             const pl = getPlan(iso, slot);
@@ -31369,7 +31370,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                       {(pl.cars?.[c.id]||[]).map((m, i) => (
                         <div key={m.pid} className={`flex items-center gap-1.5 px-1.5 py-1.5 border-t border-slate-100 ${_isFurikae(iso, slot, m.pid)?'bg-emerald-100':(_isFirstVisit(m.pid, iso)?'bg-sky-100':'')}`}>
                           <button onClick={()=>toggleMark(iso, slot, m.pid)} title="お迎え時間変更の印(TEL)" className={`shrink-0 w-4 h-4 rounded-full border text-[9px] leading-none font-bold ${m.mark?'bg-red-600 border-red-600 text-white':'border-slate-300 text-transparent hover:border-red-400'}`}>●</button>
-                          <button onClick={()=>setEditP({pid:m.pid})} title="タップで待ち合わせ場所・所要時間を編集" className="text-[13px] font-bold text-slate-800 flex-1 min-w-0 truncate text-left underline decoration-dotted decoration-slate-300 underline-offset-2">{_pname(m.pid)}</button>
+                          <button onClick={()=>setEditP({pid:m.pid})} title="タップで待ち合わせ場所・所要時間を編集" className="text-[13px] font-bold text-slate-800 flex-1 min-w-0 text-left leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{overflowWrap:"anywhere"}}>{_pname(m.pid)}</button>
                           <input type="text" value={m.t||''} onChange={e=>setTime(iso, slot, m.pid, e.target.value)} placeholder="—:—" className={`w-14 text-center text-[13px] font-bold border rounded px-0.5 py-0.5 outline-none ${m.mark?'border-red-400 text-red-600':'border-slate-300'}`}/>
                           <span className="text-[10px] text-slate-500 w-4 text-center shrink-0">{_nextDow(iso, m.pid)}</span>
                           <div className="flex flex-col shrink-0">
@@ -31390,7 +31391,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                       <div className="text-[11px] font-bold text-violet-700 mb-0.5">その他（家族送迎・遅れて来所など）</div>
                       {(pl.others||[]).map(m => (
                         <div key={m.pid} className="flex items-center gap-1 text-[13px] font-bold text-slate-700 py-0.5">
-                          <span className="flex-1 truncate">{_pname(m.pid)}</span>
+                          <span className="flex-1 leading-tight" style={{overflowWrap:'anywhere'}}>{_pname(m.pid)}</span>
                           <select value="other" onChange={e=>moveMember(iso, slot, m.pid, e.target.value)} className="text-[11px] font-bold border border-slate-300 rounded bg-white max-w-[86px]">
                             <option value="other">その他</option>
                             {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name}</option>)}
@@ -31405,7 +31406,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                       <div className="text-[10px] font-bold text-emerald-700 mb-0.5">徒歩</div>
                       {(pl.walkers||[]).map(m => (
                         <div key={m.pid} className="flex items-center gap-1 text-[13px] font-bold text-slate-700 py-0.5">
-                          <span className="flex-1 truncate">{_pname(m.pid)}</span>
+                          <span className="flex-1 leading-tight" style={{overflowWrap:'anywhere'}}>{_pname(m.pid)}</span>
                           <select value="walk" onChange={e=>moveMember(iso, slot, m.pid, e.target.value)} className="text-[11px] font-bold border border-slate-300 rounded bg-white max-w-[86px]">
                             <option value="walk">徒歩</option>
                             {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name}</option>)}
@@ -31420,7 +31421,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                       <div className="text-[10px] font-bold text-amber-700 mb-0.5">未割当（車を選んでください）</div>
                       {(pl.un||[]).map(m => (
                         <div key={m.pid} className="flex items-center gap-1 text-[13px] font-bold text-slate-700 py-0.5">
-                          <span className={`flex-1 truncate ${_isFurikae(iso, slot, m.pid)?'bg-emerald-100 px-1 rounded':(_isFirstVisit(m.pid, iso)?'bg-sky-100 px-1 rounded':'')}`}>{_pname(m.pid)}</span>
+                          <span className={`flex-1 leading-tight ${_isFurikae(iso, slot, m.pid)?'bg-emerald-100 px-1 rounded':(_isFirstVisit(m.pid, iso)?'bg-sky-100 px-1 rounded':'')}`} style={{overflowWrap:'anywhere'}}>{_pname(m.pid)}</span>
                           <span className="text-[11px] text-slate-500">{m.t}</span>
                           <select value="un" onChange={e=>moveMember(iso, slot, m.pid, e.target.value)} className="text-[11px] font-bold border border-slate-300 rounded bg-white max-w-[86px]">
                             <option value="un">未割当</option>
@@ -31445,7 +31446,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                           <div className="bg-slate-50 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 flex justify-between"><span>{c.name}</span><span className={(Number(c.cap)>0 && (pl.drop.cars?.[c.id]||[]).length>Number(c.cap))?'text-red-600 font-extrabold':'text-slate-400'}>{(pl.drop.cars?.[c.id]||[]).length}名{Number(c.cap)>0?`/${c.cap}名`:''}</span></div>
                           {(pl.drop.cars?.[c.id]||[]).map((m, i) => (
                             <div key={m.pid} className="flex items-center gap-1 px-1.5 py-0.5 border-t border-slate-100">
-                              <span className="text-[11px] font-bold text-slate-700 flex-1 min-w-0 truncate">{_pname(m.pid)}</span>
+                              <span className="text-[11px] font-bold text-slate-700 flex-1 min-w-0 leading-tight" style={{overflowWrap:'anywhere'}}>{_pname(m.pid)}</span>
                               <div className="flex flex-col shrink-0">
                                 <button onClick={()=>reorderDrop(iso, slot, c.id, i, -1)} className="text-slate-400 hover:text-slate-700 leading-none text-[8px]">▲</button>
                                 <button onClick={()=>reorderDrop(iso, slot, c.id, i, 1)} className="text-slate-400 hover:text-slate-700 leading-none text-[8px]">▼</button>
