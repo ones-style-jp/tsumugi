@@ -31235,6 +31235,25 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   };
   // ★ ルート計算のコア(1日分・時間帯1つ): 保存はせず計算後のプランを返す。
   //   呼び出し側が1回のonSaveへまとめる(2026-09-12d: 週間一括で「後の日の保存が前の日を消す」バグの修正)。
+  // ★ 復元(2026-09-13 修正): v2.0のスライス置換で誤って消えた宣言群(routing/tpSettings/施設住所/到着目標/時刻整形/場所保存)
+  const savePatientPickup = (pid, place, minutes) => {
+    const pats = (appData.patients||[]).map(pt => pt.id === pid ? { ...pt, pickupPlace: place, pickupMinutes: String(minutes||'').replace(/[^0-9]/g,'') } : pt);
+    onSave({ ...appData, patients: pats }, { silent: true });
+  };
+  const [routing, setRouting] = useState(null); // ★ 計算中のキー('iso_slot' | 'week')
+  const [tpSettings, setTpSettings] = useState(false); // ★ 送迎表の設定モーダル(到着目標・出発・定員)
+  const _facilityAddr = () => { const fi = appData.systemSettings?.facilityInfo || {}; return `${fi.address||''}${fi.addressBuilding?(' '+fi.addressBuilding):''}`.trim(); };
+  const _targetArrive = (sl) => {
+    const conf = String((sl === 'AM' ? ds.arriveAM : ds.arrivePM) || '').match(/(\d{1,2})[:時](\d{2})/);
+    if (conf) return (+conf[1])*60 + (+conf[2]);
+    const _svc = String((sl === 'AM' ? appData.systemSettings?.facilityInfo?.serviceTimeAM : appData.systemSettings?.facilityInfo?.serviceTimePM) || '').split(/[～〜]/)[0] || '';
+    const _sm2 = _svc.match(/(\d{1,2}):(\d{2})/);
+    if (_sm2) return (+_sm2[1])*60 + (+_sm2[2]);
+    const sched = sl === 'AM' ? (ds.scheduleAM||[]) : (ds.schedulePM||[]);
+    for (const row of sched) { const m = String(row?.time||'').match(/(\d{1,2})[:時](\d{2})?/); if (m) { let h=+m[1], mi=+(m[2]||0)-5; if (mi<0){h--;mi+=60;} return h*60+mi; } }
+    return sl === 'AM' ? 9*60 - 5 : 13*60 + 30 - 5;
+  };
+  const _fmtHM = (mins) => { const h = Math.floor(mins/60), m2 = mins%60; return `${h}:${String(m2).padStart(2,'0')}`; };
   const _autoRouteCore = async (iso, sl, basePlans, opts) => {
     const keepOrder = !!(opts && opts.keepOrder);
     const msgs = [];
