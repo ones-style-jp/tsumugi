@@ -1213,6 +1213,22 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData) {
         merged.diaryLogs = outLogs;
       }
     }
+    // ★ 送迎表(transportPlans)も「日付_AMPM」キーのオブジェクト(2026-09-12 試験版・送迎表基本版)。
+    //   日誌と同様にキー単位で統合し、同じキーは _savedAt が新しい方を丸ごと採用する(項目単位分割はしない)。
+    {
+      const lTp = (localData.transportPlans && typeof localData.transportPlans === 'object') ? localData.transportPlans : null;
+      const cTp = (cloud.transportPlans && typeof cloud.transportPlans === 'object') ? cloud.transportPlans : null;
+      if (lTp || cTp) {
+        const out = { ...(cTp || {}) };
+        Object.keys(lTp || {}).forEach(k => {
+          const lv = lTp[k], cv = (cTp || {})[k];
+          if (!cv) { out[k] = lv; return; }
+          const lt = Number(lv && lv._savedAt) || 0, ct = Number(cv && cv._savedAt) || 0;
+          out[k] = (lt >= ct) ? lv : cv;
+        });
+        merged.transportPlans = out;
+      }
+    }
     // ★ 月別シフト(monthlyShifts)は { 月キー: { 利用者ID: シフト } } の入れ子。 端末間で別々の月/利用者を
     //   編集しても消えないよう、月→利用者 単位で統合する。 クラウドを土台に、ローカル(=編集端末)の利用者は
     //   ローカルを採用する。 appData は常にクラウド同期されておりローカルが最新のため、シフトの「削除」

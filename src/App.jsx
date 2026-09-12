@@ -5,7 +5,7 @@ import {
   Printer, CheckCircle2, CloudUpload, Loader2, Plus, Trash2, X, FileText, BarChart3, TrendingUp,
   ArrowLeft, ArrowRight, Menu, BookOpen, Lock, Unlock, QrCode, MoveUp, MoveDown,
   ChevronLeft, ChevronRight, Save, UserPlus, Clock, CalendarOff, CalendarRange, PenTool, History,
-  ChevronDown, ChevronUp, Thermometer, Heart, Copy, Edit3, Edit2, MessageSquare, Briefcase
+  ChevronDown, ChevronUp, Thermometer, Heart, Copy, Edit3, Edit2, MessageSquare, Briefcase, Car
 } from 'lucide-react';
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
@@ -18146,6 +18146,21 @@ export default function App() {
               if (_dlKept > 0) { merged.diaryLogs = outLogs; _mergedForPush = merged; syncLog('pull-preserve', { key: 'diaryLogs', kept: _dlKept }); }
             } catch (e) { console.warn('[pull preserve] diaryLogs failed', e); }
           }
+          // ★ 送迎表(transportPlans)もpullで保持(2026-09-12 試験版): 日付_AMPMキー単位で_savedAtの新しい方
+          if (prev && prev._sbStoreId === newStoreId && prev.transportPlans && typeof prev.transportPlans === 'object') {
+            try {
+              const lo = prev.transportPlans, co = (merged.transportPlans && typeof merged.transportPlans === 'object') ? merged.transportPlans : {};
+              const out = { ...co }; let _tpKept = 0;
+              Object.keys(lo).forEach(k => {
+                const lv = lo[k], cv = co[k];
+                if (!lv || typeof lv !== 'object') return;
+                if (!cv) { out[k] = lv; _tpKept++; return; }
+                const lt = Number(lv._savedAt) || 0, ct = Number(cv._savedAt) || 0;
+                if (lt > ct) { out[k] = lv; _tpKept++; }
+              });
+              if (_tpKept > 0) { merged.transportPlans = out; _mergedForPush = merged; syncLog('pull-preserve', { key: 'transportPlans', kept: _tpKept }); }
+            } catch (e) { console.warn('[pull preserve] transportPlans failed', e); }
+          }
           // ★ 休み連絡の状態(faxDataStore)・各種連絡の下書き(generalFaxDraft)・勤務表(workSchedule)も
           //   pull で保持する(2026-09-07 定型文消失対応の水平展開。push側 mergeStates と同じ判定)。
           if (prev && prev._sbStoreId === newStoreId) {
@@ -20460,6 +20475,7 @@ export default function App() {
               <SidebarItem icon={<Printer size={18} />} label="連絡帳" active={currentView === 'print'} onClick={() => navigateTo('print')} />
               {/* ★ サービス提供記録はサイドバーから削除し、各利用者の個人ファイル内で年月を選んで開く形に集約 */}
               <SidebarItem icon={<PenTool size={18} />} label="日誌" active={currentView === 'diary'} onClick={() => navigateTo('diary')} badge={diaryTodayBadge || undefined} />
+              <SidebarItem icon={<Car size={18} />} label="送迎表" active={currentView === 'transport'} onClick={() => navigateTo('transport')} />
               {!(appData.systemSettings?.fitnessCycle?.disabled || appData.systemSettings?.fitnessCycle?.unit==='実施しない') && (()=>{
                 // 体力測定バッジ: 当日出席 かつ 当月測定対象の利用者数
                 const _now = new Date(); _now.setHours(0,0,0,0);
@@ -20551,6 +20567,7 @@ export default function App() {
                  currentView === 'print' ? '連絡帳 作成・印刷' :
                  currentView === 'fitness' ? '体力測定' :
                  currentView === 'diary' ? '日誌' :
+                 currentView === 'transport' ? '送迎表（運行表）' :
                  currentView === 'jisseki' ? '実績登録' :
                  currentView === 'absence_fax' ? '休み連絡' :
                  currentView === 'general_fax' ? '各種連絡' :
@@ -20661,6 +20678,7 @@ export default function App() {
              currentView === 'cmmaster' ? <SettingsView cmOnly appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} isSuperAdmin={staffSession?.role === 'super_admin'} isAdmin={staffSession?.role === 'super_admin' || staffSession?.role === 'manager'} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} deviceName={deviceName} updateDeviceName={updateDeviceName} lastSync={appData._lastSync} /> :
              currentView === 'family_admin' ? <FamilyAdminView appData={appData} onSave={handleSaveToCloud} /> :
              currentView === 'jisseki' ? <JissekiView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
+             currentView === 'transport' ? <TransportView appData={appData} onSave={handleSaveToCloud} selectedDate={selectedDate} setSelectedDate={setSelectedDate} onShowPrintPreview={null} /> :
              currentView === 'diary' ? <DailyLogView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} dirtyRef={diaryDirtyRef} saveFnRef={diarySaveFnRef} /> :
              currentView === 'absence_fax' ? <AbsenceFaxView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?captureElHtmlWithValues(el):null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={absenceDirtyRef} saveFnRef={absenceSaveFnRef} /> :
              currentView === 'general_fax' ? <GeneralFaxView appData={appData} onSave={handleSaveToCloud} dirtyRef={generalFaxDirtyRef} saveFnRef={generalFaxSaveFnRef} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?captureElHtmlWithValues(el):null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
@@ -30858,6 +30876,265 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave }) {
 
 
 // === FitnessView (体力測定) ===
+
+// ============================================================
+// ★ 送迎表(運行表・基本版 2026-09-12 試験版): 週間×午前/午後×車ごとの乗車表。
+//   現行の手書き運行表(シエンタ/ステップ/タント×月〜金×氏名・時間・次回・備考)を踏襲。
+//   - 自動下書き: 月間スケジュール+基本利用日から乗車者を抽出、時間は送迎時間マスタ、車は前週同曜日をコピー
+//   - 自由編集: 車の移動/並べ替え/時間の手入力/時間変更マーク(●TEL)/備考。編集した日だけ保存される
+//   - 保存: transportPlans["YYYY-MM-DD_AM|PM"](日付キー+_savedAt。同期は日誌と同じキー単位マージ)
+//   - 印刷: A4横で1週間(午前+午後)を1枚に
+//   - 日誌連動: 日誌側の「送迎表から取り込み」で迎え/送りの車割り当てへ反映
+//   第2段(試験中に追加予定): 連絡帳お迎え時間への反映・AI割り当て
+// ============================================================
+function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowPrintPreview }) {
+  const ds = appData.diarySettings || {};
+  const cars = (ds.cars && ds.cars.length ? ds.cars : [{id:'car1',name:'1号車',type:''},{id:'car2',name:'2号車',type:''}]);
+  const plans = appData.transportPlans || {};
+  const [slot, setSlot] = useState('AM');
+  // 週の月曜(selectedDate基準)
+  const _mon = (() => { const d = new Date(selectedDate || new Date()); const dw = d.getDay(); const diff = (dw === 0 ? -6 : 1 - dw); d.setDate(d.getDate() + diff); d.setHours(0,0,0,0); return d; })();
+  const _iso = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const closedDays = appData.systemSettings?.facilityInfo?.closedDays || [0];
+  const DOWJ = ['日','月','火','水','木','金','土'];
+  const weekDays = [];
+  for (let i = 0; i < 7; i++) { const d = new Date(_mon); d.setDate(_mon.getDate() + i); if (!closedDays.includes(d.getDay())) weekDays.push(d); }
+  const days = weekDays.slice(0, 6); // 最大6列(通常は月〜金 or 月〜土)
+  const moveWeek = (n) => { const d = new Date(_mon); d.setDate(d.getDate() + n * 7); setSelectedDate(_iso(d)); };
+
+  // その日のスロットに来る予定の利用者(欠席/休業/休止は除外・振替は含む)
+  const _attendees = (iso, sl) => {
+    const d = new Date(iso); const dow = d.getDay(); const dayNum = d.getDate();
+    const mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const _hol = (appData.holidays||[]).find(h => (h && (h.date||h)) === iso);
+    if (_hol && (!_hol.ampm || _hol.ampm === '1日' || _hol.ampm === sl)) return [];
+    const out = [];
+    (appData.patients||[]).forEach(p => {
+      if (isPatientResigned(p)) return;
+      const ov = appData.monthlyShifts?.[mk]?.[p.id]?.[`${dayNum}_${sl}`];
+      const base = getScheduleOnDate(p, iso)?.[dow] || '';
+      const baseHit = base === sl || base === '1日';
+      let attending, furikae = false;
+      if (ov !== undefined && ov !== '') {
+        attending = (ov === '〇' || ov === '出席' || ov === '臨時' || String(ov).startsWith('振'));
+        furikae = String(ov).startsWith('振');
+      } else {
+        attending = baseHit && p.status !== '休止';
+      }
+      if (!attending) return;
+      if (getPauseReasonOnDate(p, iso)) return;
+      out.push({ pid: p.id, name: p.name, furikae, time: getPickupTimeForDow(p, dow, appData) || '' });
+    });
+    return out;
+  };
+
+  // 表示用プラン: 保存済みがあればそれ、無ければ自動下書き(前週同曜日の車割りをコピー)
+  const _draftPlan = (iso, sl) => {
+    const att = _attendees(iso, sl);
+    const prevD = new Date(iso); prevD.setDate(prevD.getDate() - 7);
+    const prevPlan = plans[`${_iso(prevD)}_${sl}`];
+    const prevCarOf = {};
+    if (prevPlan && prevPlan.cars) Object.keys(prevPlan.cars).forEach(cid => (prevPlan.cars[cid]||[]).forEach(m => { prevCarOf[m.pid] = cid; }));
+    const prevWalk = new Set(((prevPlan && prevPlan.walkers) || []).map(m => m.pid));
+    const carsMap = {}; cars.forEach(c => { carsMap[c.id] = []; });
+    const walkers = []; const un = [];
+    att.forEach(a => {
+      if (prevWalk.has(a.pid)) { walkers.push({ pid: a.pid, t: '徒歩' }); return; }
+      const cid = prevCarOf[a.pid];
+      if (cid && carsMap[cid]) carsMap[cid].push({ pid: a.pid, t: a.time, mark: false });
+      else un.push({ pid: a.pid, t: a.time, mark: false });
+    });
+    Object.keys(carsMap).forEach(cid => carsMap[cid].sort((x,y) => String(x.t).localeCompare(String(y.t))));
+    return { cars: carsMap, walkers, un, memo: '', _draft: true };
+  };
+  const getPlan = (iso, sl) => {
+    const saved = plans[`${iso}_${sl}`];
+    if (saved && typeof saved === 'object') {
+      // 保存後に増えた利用者(振替追加等)は未割当に補充して見落としを防ぐ
+      const inPlan = new Set([ ...Object.values(saved.cars||{}).flat().map(m=>m.pid), ...((saved.walkers||[]).map(m=>m.pid)), ...((saved.un||[]).map(m=>m.pid)) ]);
+      const extra = _attendees(iso, sl).filter(a => !inPlan.has(a.pid)).map(a => ({ pid: a.pid, t: a.time, mark: false }));
+      return { cars: {}, walkers: [], memo: '', ...saved, un: [ ...(saved.un||[]), ...extra ] };
+    }
+    return _draftPlan(iso, sl);
+  };
+  const savePlan = (iso, sl, plan) => {
+    const { _draft, ...rest } = plan;
+    const next = { ...rest, _savedAt: syncNow() };
+    onSave({ ...appData, transportPlans: { ...plans, [`${iso}_${sl}`]: next } }, { silent: true });
+  };
+  const mutate = (iso, sl, fn) => { const cur = getPlan(iso, sl); const next = JSON.parse(JSON.stringify({ ...cur })); delete next._draft; fn(next); savePlan(iso, sl, next); };
+  const _pname = (pid) => (appData.patients||[]).find(p => p.id === pid)?.name || '';
+  const _isFurikae = (iso, sl, pid) => { const a = _attendees(iso, sl).find(x => x.pid === pid); return !!(a && a.furikae); };
+  const _nextDow = (iso, pid) => {
+    try { const p = (appData.patients||[]).find(x => x.id === pid); if (!p) return '';
+      const info = getNextVisitInfo(p, iso, appData.monthlyShifts, appData);
+      const m = String(info.date||'').match(/（(.)）/); return m ? m[1] : '';
+    } catch { return ''; }
+  };
+  // 行の移動: dest = carId | 'walk' | 'un'
+  const moveMember = (iso, sl, pid, dest) => mutate(iso, sl, (pl) => {
+    let carried = null;
+    Object.keys(pl.cars||{}).forEach(cid => { const i = (pl.cars[cid]||[]).findIndex(m => m.pid === pid); if (i >= 0) carried = pl.cars[cid].splice(i,1)[0]; });
+    ['walkers','un'].forEach(k => { const i = (pl[k]||[]).findIndex(m => m.pid === pid); if (i >= 0) carried = pl[k].splice(i,1)[0]; });
+    if (!carried) carried = { pid, t: '', mark: false };
+    if (dest === 'walk') { pl.walkers = pl.walkers || []; pl.walkers.push({ ...carried, t: '徒歩' }); }
+    else if (dest === 'un') { pl.un = pl.un || []; pl.un.push(carried); }
+    else { pl.cars = pl.cars || {}; pl.cars[dest] = pl.cars[dest] || []; pl.cars[dest].push({ ...carried, t: carried.t === '徒歩' ? '' : carried.t }); }
+  });
+  const reorder = (iso, sl, cid, idx, dir) => mutate(iso, sl, (pl) => {
+    const arr = pl.cars?.[cid]; if (!arr) return; const j = idx + dir; if (j < 0 || j >= arr.length) return;
+    const t = arr[idx]; arr[idx] = arr[j]; arr[j] = t;
+  });
+  const setTime = (iso, sl, pid, val) => mutate(iso, sl, (pl) => {
+    Object.keys(pl.cars||{}).forEach(cid => (pl.cars[cid]||[]).forEach(m => { if (m.pid === pid) m.t = val; }));
+    (pl.un||[]).forEach(m => { if (m.pid === pid) m.t = val; });
+  });
+  const toggleMark = (iso, sl, pid) => mutate(iso, sl, (pl) => {
+    Object.keys(pl.cars||{}).forEach(cid => (pl.cars[cid]||[]).forEach(m => { if (m.pid === pid) m.mark = !m.mark; }));
+  });
+  const setMemo = (iso, sl, val) => mutate(iso, sl, (pl) => { pl.memo = val; });
+
+  // ==== 印刷(A4横・1週間・午前+午後) ====
+  const buildPrintHtml = () => {
+    const esc = (t) => String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    const cell = (m, iso, sl) => {
+      const fk = _isFurikae(iso, sl, m.pid);
+      return `<tr>
+        <td style="border:1px solid #333;padding:1px 3px;font-size:9px;${fk?'background:#fef08a;':''}">${esc(_pname(m.pid))}</td>
+        <td style="border:1px solid #333;padding:1px 2px;font-size:9px;text-align:center;white-space:nowrap;">${m.mark?'<span style="color:#dc2626;font-weight:bold;">●</span>':''}${esc(m.t)}</td>
+        <td style="border:1px solid #333;padding:1px 2px;font-size:8px;text-align:center;">${esc(_nextDow(iso, m.pid))}</td>
+      </tr>`;
+    };
+    const dayBlock = (iso, sl) => {
+      const pl = getPlan(iso, sl);
+      let h = '';
+      cars.forEach(c => {
+        const rows = (pl.cars?.[c.id]||[]);
+        h += `<div style="margin-bottom:3px;"><div style="font-size:8px;font-weight:bold;background:#e2e8f0;padding:0 3px;border:1px solid #333;border-bottom:none;">${esc(c.name)}</div>
+          <table style="border-collapse:collapse;width:100%;table-layout:fixed;"><colgroup><col/><col style="width:34px;"/><col style="width:20px;"/></colgroup>
+          ${rows.map(m=>cell(m, iso, sl)).join('') || '<tr><td style="border:1px solid #333;font-size:8px;color:#94a3b8;padding:1px 3px;" colspan="3">—</td></tr>'}</table></div>`;
+      });
+      const wk = (pl.walkers||[]);
+      if (wk.length) h += `<div style="font-size:8px;">${wk.map(m=>`${esc(_pname(m.pid))} 徒歩`).join(' / ')}</div>`;
+      if (pl.memo) h += `<div style="font-size:8px;color:#b91c1c;font-weight:bold;border-top:1px dashed #999;margin-top:2px;">備考: ${esc(pl.memo)}</div>`;
+      if ((pl.un||[]).length) h += `<div style="font-size:8px;color:#b45309;">未割当: ${(pl.un||[]).map(m=>esc(_pname(m.pid))).join('、')}</div>`;
+      return h;
+    };
+    const header = days.map(d => `<th style="border:1px solid #333;background:#f1f5f9;font-size:10px;padding:2px;">${d.getMonth()+1}/${d.getDate()}（${DOWJ[d.getDay()]}）</th>`).join('');
+    const row = (sl, label) => `<tr><td style="border:1px solid #333;writing-mode:vertical-rl;text-align:center;font-weight:bold;font-size:11px;width:16px;background:#f8fafc;">${label}</td>
+      ${days.map(d => `<td style="border:1px solid #333;vertical-align:top;padding:2px;">${dayBlock(_iso(d), sl)}</td>`).join('')}</tr>`;
+    return `<div id="transport-print-inner" style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#111;">
+      <div style="text-align:center;font-size:16px;font-weight:bold;letter-spacing:8px;margin:2mm 0;">運　行　表</div>
+      <table style="border-collapse:collapse;width:100%;table-layout:fixed;">
+        <thead><tr><th style="border:1px solid #333;width:16px;"></th>${header}</tr></thead>
+        <tbody>${row('AM','午前')}${row('PM','午後')}</tbody>
+      </table>
+      <div style="font-size:8px;color:#475569;margin-top:2mm;">黄=振替　●=お迎え時間の変更(要TEL)　（）内=次回利用曜日</div>
+    </div>`;
+  };
+  const doPrint = () => {
+    const html = buildPrintHtml();
+    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `<div style="width:277mm;">${html}</div>`, elementId: null } }));
+  };
+
+  // ==== 画面 ====
+  return (
+    <div className="h-full overflow-auto w-full bg-slate-100 p-3 sm:p-4">
+      <div className="max-w-[1500px] mx-auto">
+        <div className="bg-white px-4 py-3 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-3 flex-wrap mb-3 sticky top-0 z-30">
+          <span className="font-bold text-slate-800 text-base flex items-center gap-1.5"><Car size={18} className="text-blue-600"/>送迎表（運行表）</span>
+          <span className="text-[10px] font-bold text-white bg-violet-600 rounded px-1.5 py-0.5">試験版</span>
+          <div className="flex items-center gap-1">
+            <button onClick={()=>moveWeek(-1)} className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-bold">◀ 前週</button>
+            <span className="text-sm font-bold text-slate-700 px-1 whitespace-nowrap">{_mon.getMonth()+1}/{_mon.getDate()}〜の週</span>
+            <button onClick={()=>moveWeek(1)} className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-bold">翌週 ▶</button>
+          </div>
+          <div className="flex rounded-xl overflow-hidden border border-slate-300">
+            {['AM','PM'].map(v=>(
+              <button key={v} onClick={()=>setSlot(v)} className={`px-4 py-1.5 text-sm font-bold ${slot===v?'bg-blue-600 text-white':'bg-white text-slate-600'}`}>{v==='AM'?'午前':'午後'}</button>
+            ))}
+          </div>
+          <div className="flex-1"/>
+          <button onClick={doPrint} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-1.5"><Printer size={15}/>印刷(A4横・週間)</button>
+        </div>
+        <div className="text-[11px] font-bold text-slate-500 mb-2 bg-white border border-slate-200 rounded-lg px-3 py-2">
+          自動下書き=月間スケジュール+送迎時間マスタ+前週の車割りから作成。行の「車」で移動、時間は直接入力。<span className="text-red-600">●</span>=連絡帳を渡した後にお迎え時間が変わった印(タップで付け外し・TEL忘れ防止)。<span className="bg-yellow-200 px-1">黄</span>=振替の方。編集した日だけ保存されます(自動保存)。
+        </div>
+        <div className="grid gap-3" style={{gridTemplateColumns:`repeat(${days.length}, minmax(230px, 1fr))`, overflowX:'auto'}}>
+          {days.map(d => {
+            const iso = _iso(d);
+            const pl = getPlan(iso, slot);
+            return (
+              <div key={iso} className="bg-white rounded-xl border border-slate-300 shadow-sm overflow-hidden">
+                <div className={`px-2 py-1.5 text-sm font-bold flex items-center justify-between ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-800 text-white'}`}>
+                  <span>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）</span>
+                  {pl._draft ? <span className="text-[9px] bg-white/20 rounded px-1 py-0.5">下書き(未保存)</span> : <span className="text-[9px] bg-emerald-500 rounded px-1 py-0.5">保存済み</span>}
+                </div>
+                <div className="p-2 space-y-2">
+                  {cars.map(c => (
+                    <div key={c.id} className="border border-slate-300 rounded-lg overflow-hidden">
+                      <div className="bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-700 flex justify-between"><span>{c.name}{c.type?`（${c.type}）`:''}</span><span className="text-slate-400">{(pl.cars?.[c.id]||[]).length}名</span></div>
+                      {(pl.cars?.[c.id]||[]).map((m, i) => (
+                        <div key={m.pid} className={`flex items-center gap-1 px-1.5 py-1 border-t border-slate-100 ${_isFurikae(iso, slot, m.pid)?'bg-yellow-100':''}`}>
+                          <button onClick={()=>toggleMark(iso, slot, m.pid)} title="お迎え時間変更の印(TEL)" className={`shrink-0 w-4 h-4 rounded-full border text-[9px] leading-none font-bold ${m.mark?'bg-red-600 border-red-600 text-white':'border-slate-300 text-transparent hover:border-red-400'}`}>●</button>
+                          <span className="text-[12px] font-bold text-slate-800 flex-1 min-w-0 truncate">{_pname(m.pid)}</span>
+                          <input type="text" value={m.t||''} onChange={e=>setTime(iso, slot, m.pid, e.target.value)} placeholder="—:—" className={`w-12 text-center text-[12px] font-bold border rounded px-0.5 outline-none ${m.mark?'border-red-400 text-red-600':'border-slate-200'}`}/>
+                          <span className="text-[10px] text-slate-500 w-4 text-center shrink-0">{_nextDow(iso, m.pid)}</span>
+                          <div className="flex flex-col shrink-0">
+                            <button onClick={()=>reorder(iso, slot, c.id, i, -1)} className="text-slate-400 hover:text-slate-700 leading-none text-[9px]">▲</button>
+                            <button onClick={()=>reorder(iso, slot, c.id, i, 1)} className="text-slate-400 hover:text-slate-700 leading-none text-[9px]">▼</button>
+                          </div>
+                          <select value={c.id} onChange={e=>moveMember(iso, slot, m.pid, e.target.value)} className="shrink-0 text-[10px] border border-slate-200 rounded px-0 py-0.5 bg-white w-9">
+                            {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name.replace(/号車$/,'')}</option>)}
+                            <option value="walk">徒歩</option><option value="un">外す</option>
+                          </select>
+                        </div>
+                      ))}
+                      {!(pl.cars?.[c.id]||[]).length && <div className="px-2 py-1 text-[10px] text-slate-400">なし</div>}
+                    </div>
+                  ))}
+                  {!!(pl.walkers||[]).length && (
+                    <div className="border border-emerald-200 bg-emerald-50 rounded-lg px-2 py-1">
+                      <div className="text-[10px] font-bold text-emerald-700 mb-0.5">徒歩</div>
+                      {(pl.walkers||[]).map(m => (
+                        <div key={m.pid} className="flex items-center gap-1 text-[12px] font-bold text-slate-700">
+                          <span className="flex-1 truncate">{_pname(m.pid)}</span>
+                          <select value="walk" onChange={e=>moveMember(iso, slot, m.pid, e.target.value)} className="text-[10px] border border-slate-200 rounded bg-white w-9">
+                            <option value="walk">徒歩</option>
+                            {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name.replace(/号車$/,'')}</option>)}
+                            <option value="un">外す</option>
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {!!(pl.un||[]).length && (
+                    <div className="border border-amber-300 bg-amber-50 rounded-lg px-2 py-1">
+                      <div className="text-[10px] font-bold text-amber-700 mb-0.5">未割当（車を選んでください）</div>
+                      {(pl.un||[]).map(m => (
+                        <div key={m.pid} className="flex items-center gap-1 text-[12px] font-bold text-slate-700">
+                          <span className={`flex-1 truncate ${_isFurikae(iso, slot, m.pid)?'bg-yellow-100 px-1 rounded':''}`}>{_pname(m.pid)}</span>
+                          <span className="text-[11px] text-slate-500">{m.t}</span>
+                          <select value="un" onChange={e=>moveMember(iso, slot, m.pid, e.target.value)} className="text-[10px] border border-slate-300 rounded bg-white w-9">
+                            <option value="un">未</option>
+                            {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name.replace(/号車$/,'')}</option>)}
+                            <option value="walk">徒歩</option>
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <input type="text" value={pl.memo||''} onChange={e=>setMemo(iso, slot, e.target.value)} placeholder="備考（TEL・初回など）" className="w-full text-[11px] border border-slate-200 rounded-lg px-2 py-1 outline-none placeholder:text-slate-300"/>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, targetPatientId, onPatientChange, dirtyRef, saveFnRef }) {
 
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
@@ -39597,6 +39874,19 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             </div>
           );
         })()}
+        {/* ★ 送迎表(運行表)からの取り込み(2026-09-12 試験版): 車割り当てを日誌の迎え/送りへ一括反映 */}
+        <button disabled={isReadOnly} onClick={()=>{
+          const plan = (appData.transportPlans||{})[`${selectedDate}_${ampm}`];
+          if (!plan) { alert('この日の送迎表がまだ保存されていません。\n送迎表の画面で車割り当てを編集すると保存されます。'); return; }
+          if (!window.confirm('送迎表の車割り当てを、この日誌の「迎え」「送り」へ取り込みます。\n既存の迎え/送りの割り当ては上書きされます。よろしいですか？\n（送りの車が迎えと違う場合は、取り込み後に送りだけ調整してください）')) return;
+          const _pk = {}, _dp = {}, _pw = {}, _dw2 = {};
+          Object.keys(plan.cars||{}).forEach(cid => (plan.cars[cid]||[]).forEach(m => { _pk[`${m.pid}_${cid}`] = true; _dp[`${m.pid}_${cid}`] = true; }));
+          (plan.walkers||[]).forEach(m => { _pw[String(m.pid)] = true; _dw2[String(m.pid)] = true; });
+          updateLog({ pick: _pk, drop: _dp, pick_walk: _pw, drop_walk: _dw2, _sougeiPending: { ...(log._sougeiPending||{}), '迎え': false, '送り': false } });
+        }}
+          className="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed" title="送迎表(運行表)で決めた車割り当てを、この日の迎え/送りへ一括反映します">
+          送迎表取込
+        </button>
         {/* 送迎車割り当て */}
         <button disabled={isReadOnly} onClick={()=>{setCarAssignModal({prefix:'pick'});setCarAssignSelections({});}}
           className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
