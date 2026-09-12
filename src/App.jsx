@@ -30913,7 +30913,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       if (isPatientResigned(p)) return;
       const ov = appData.monthlyShifts?.[mk]?.[p.id]?.[`${dayNum}_${sl}`];
       const base = getScheduleOnDate(p, iso)?.[dow] || '';
-      const baseHit = base === sl || base === '1日';
+      // ★ 2026-09-12b: 「1日」の方は午前の便で来るためAMのみ(PMのお迎えには出さない)
+      const baseHit = base === sl || (base === '1日' && sl === 'AM');
       let attending, furikae = false;
       if (ov !== undefined && ov !== '') {
         attending = (ov === '〇' || ov === '出席' || ov === '臨時' || String(ov).startsWith('振'));
@@ -30923,7 +30924,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       }
       if (!attending) return;
       if (getPauseReasonOnDate(p, iso)) return;
-      out.push({ pid: p.id, name: p.name, furikae, time: getPickupTimeForDow(p, dow, appData) || '' });
+      // ★ 2026-09-12b: マスタのお迎え時間は「基本の時間帯と一致する時だけ」初期値に使う。
+      //   午後へ振替した方に午前の8時が出るのを防ぐ(振替・帯違いは空欄=手入力かルート自動で決める)
+      const _tOk = base === sl || (base === '1日' && sl === 'AM');
+      out.push({ pid: p.id, name: p.name, furikae, time: (_tOk && !furikae) ? (getPickupTimeForDow(p, dow, appData) || '') : '' });
     });
     return out;
   };
@@ -31013,46 +31017,80 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   //   「施設→各利用者→施設」の最短順を計算し、乗車順とお迎え時間を自動で割り振る。
   //   到着目標 = その時間帯のスケジュール先頭時刻の5分前(無ければ AM 9:00 / PM 13:30)。
   const [routing, setRouting] = useState(false);
+  const [tpSettings, setTpSettings] = useState(false); // ★ 送迎表の設定モーダル(到着目標・定員)
   const _facilityAddr = () => { const fi = appData.systemSettings?.facilityInfo || {}; return `${fi.address||''}${fi.addressBuilding?(' '+fi.addressBuilding):''}`.trim(); };
   const _targetArrive = (sl) => {
+    // ★ 2026-09-12b: 送迎表の設定(到着目標時刻)を最優先。未設定ならスケジュール先頭-5分→既定値
+    const conf = String((sl === 'AM' ? ds.arriveAM : ds.arrivePM) || '').match(/(\d{1,2})[:時](\d{2})/);
+    if (conf) return (+conf[1])*60 + (+conf[2]);
     const sched = sl === 'AM' ? (ds.scheduleAM||[]) : (ds.schedulePM||[]);
     for (const row of sched) { const m = String(row?.time||'').match(/(\d{1,2})[:時](\d{2})?/); if (m) { let h=+m[1], mi=+(m[2]||0)-5; if (mi<0){h--;mi+=60;} return h*60+mi; } }
     return sl === 'AM' ? 9*60 - 5 : 13*60 + 30 - 5;
   };
   const _fmtHM = (mins) => { const h = Math.floor(mins/60), m2 = mins%60; return `${h}:${String(m2).padStart(2,'0')}`; };
-  const autoRoute = async (iso, sl) => {
+  // ★ ルート計算のコア(1日分・時間帯1つ): 結果メッセージの配列を返す(週間一括で共用)
+  const _autoRouteCore = async (iso, sl) => {
+    const msgs = [];
     const fac = _facilityAddr();
-    if (!fac) { alert('各種設定→事業所情報の「住所」が未入力です。施設住所を入れてからお使いください。'); return; }
     const pl = getPlan(iso, sl);
     const carIds = cars.map(c=>c.id).filter(cid => (pl.cars?.[cid]||[]).length >= 2);
-    if (!carIds.length) { alert('2名以上乗る車がありません。先に車割り当てをしてください。'); return; }
-    if (!window.confirm('Googleマップで各車の最短ルートを計算し、乗車順とお迎え時間を自動で割り振ります。\n(現在の時間・順番は上書きされます)\nよろしいですか？')) return;
+    if (!carIds.length) return { msgs: [], changed: false };
+    const target = _targetArrive(sl);
+    const nextPlanCars = JSON.parse(JSON.stringify(pl.cars||{}));
+    let changed = false;
+    for (const cid of carIds) {
+      const cname = cars.find(c=>c.id===cid)?.name || cid;
+      const members = nextPlanCars[cid] || [];
+      const addrs = members.map(m => { const pt = (appData.patients||[]).find(x=>x.id===m.pid) || {}; return `${pt.address||''}${pt.pickupPlace?(' '+pt.pickupPlace):''}`.trim(); });
+      if (addrs.some(a2 => !a2)) { const missing = members.filter((m,i)=>!addrs[i]).map(m=>_pname(m.pid)).join('、'); msgs.push(`${iso} ${sl} ${cname}: 住所未入力のためスキップ（${missing}）`); continue; }
+      const r = await fetch('/api/route-plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ origin: fac, stops: addrs }) });
+      const j = await r.json().catch(()=>({}));
+      if (j.error || !Array.isArray(j.order)) { msgs.push(`${iso} ${sl} ${cname}: ${j.error||'計算に失敗'}`); continue; }
+      // 並べ替え + 迎え時刻 = 到着目標から「後続の移動時間+各人の乗車にかかる時間(未入力2分)」を逆算
+      const ordered = j.order.map(ix => members[ix]);
+      const legs = j.legSeconds || [];  // [施設→1人目, 1人目→2人目, ..., 最後→施設]
+      let cum = 0;
+      for (let k = ordered.length - 1; k >= 0; k--) {
+        const pt = (appData.patients||[]).find(x=>x.id===ordered[k].pid) || {};
+        const buf = Math.max(1, Number(pt.pickupMinutes) || 2);
+        cum += Math.ceil((legs[k+1]||0)/60) + buf;
+        ordered[k] = { ...ordered[k], t: _fmtHM(Math.max(0, target - cum)) };
+      }
+      nextPlanCars[cid] = ordered;
+      changed = true;
+    }
+    if (changed) mutate(iso, sl, (npl) => { npl.cars = nextPlanCars; });
+    return { msgs, changed };
+  };
+  const _probeMaps = async () => {
+    const fac = _facilityAddr();
+    if (!fac) { alert('各種設定→事業所情報の「住所」が未入力です。施設住所を入れてからお使いください。'); return false; }
+    const probe = await fetch('/api/route-plan'); const pj = await probe.json().catch(()=>({}));
+    if (!pj.configured) { alert('Googleマップ連携が未設定です(本部作業: Vercel環境変数 GOOGLE_MAPS_API_KEY)。\n設定されるまでは手動で並べ替え・時間入力をお使いください。'); return false; }
+    return true;
+  };
+  const autoRoute = async (iso, sl) => {
+    if (!window.confirm('Googleマップで各車の最短ルートを計算し、乗車順とお迎え時間を自動で割り振ります。\n(この日の時間・順番は上書きされます)\nよろしいですか？')) return;
     setRouting(true);
     try {
-      const probe = await fetch('/api/route-plan'); const pj = await probe.json().catch(()=>({}));
-      if (!pj.configured) { alert('Googleマップ連携が未設定です(本部作業: Vercel環境変数 GOOGLE_MAPS_API_KEY)。\n設定されるまでは手動で並べ替え・時間入力をお使いください。'); setRouting(false); return; }
-      const target = _targetArrive(sl);
-      const nextPlanCars = JSON.parse(JSON.stringify(pl.cars||{}));
-      for (const cid of carIds) {
-        const members = nextPlanCars[cid] || [];
-        const addrs = members.map(m => { const pt = (appData.patients||[]).find(x=>x.id===m.pid) || {}; return `${pt.address||''}${pt.pickupPlace?(' '+pt.pickupPlace):''}`.trim(); });
-        if (addrs.some(a2 => !a2)) { const missing = members.filter((m,i)=>!addrs[i]).map(m=>_pname(m.pid)).join('、'); alert(`住所未入力のためスキップ: ${cars.find(c=>c.id===cid)?.name}（${missing}）\n利用者マスタに住所を入力してください。`); continue; }
-        const r = await fetch('/api/route-plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ origin: fac, stops: addrs }) });
-        const j = await r.json().catch(()=>({}));
-        if (j.error || !Array.isArray(j.order)) { alert(`${cars.find(c=>c.id===cid)?.name}: ${j.error||'計算に失敗しました'}`); continue; }
-        // 並べ替え(乗せる順) + 迎え時刻 = 到着目標から帰路・後続区間・乗車バッファ(2分/人)を逆算
-        const ordered = j.order.map(ix => members[ix]);
-        const legs = j.legSeconds || [];  // [施設→1人目, 1人目→2人目, ..., 最後→施設]
-        const buf = 2; // 乗車バッファ(分/人)
-        let cum = 0;   // その人を乗せてから施設に着くまでの分
-        for (let k = ordered.length - 1; k >= 0; k--) {
-          cum += Math.ceil((legs[k+1]||0)/60) + buf;
-          ordered[k] = { ...ordered[k], t: _fmtHM(Math.max(0, target - cum)) };
-        }
-        nextPlanCars[cid] = ordered;
-      }
-      mutate(iso, sl, (npl) => { npl.cars = nextPlanCars; });
-      alert('ルートを割り振りました。時間・順番は手で直せます。');
+      if (!(await _probeMaps())) { setRouting(false); return; }
+      const { msgs, changed } = await _autoRouteCore(iso, sl);
+      alert((changed ? 'ルートを割り振りました。時間・順番は手で直せます。' : '対象の車(2名以上)がありませんでした。') + (msgs.length ? '\n\n' + msgs.join('\n') : ''));
+    } catch (e) { alert('ルート計算に失敗しました: ' + String(e && e.message || e)); }
+    setRouting(false);
+  };
+  // ★ 週間一括(2026-09-12b): 表示中の週の全営業日×午前/午後をまとめて計算
+  const autoRouteWeek = async () => {
+    if (!window.confirm(`表示中の週(${days.length}日分)の午前・午後すべてのルートと時間を一括で計算します。\n(各日の時間・順番は上書きされます)\nよろしいですか？`)) return;
+    setRouting(true);
+    try {
+      if (!(await _probeMaps())) { setRouting(false); return; }
+      const allMsgs = []; let nChanged = 0;
+      for (const d of days) { for (const sl of ['AM','PM']) {
+        const { msgs, changed } = await _autoRouteCore(_iso(d), sl);
+        allMsgs.push(...msgs); if (changed) nChanged++;
+      } }
+      alert(`週間ルートの一括作成が完了しました（${nChanged}コマ更新）。` + (allMsgs.length ? '\n\n' + allMsgs.join('\n') : ''));
     } catch (e) { alert('ルート計算に失敗しました: ' + String(e && e.message || e)); }
     setRouting(false);
   };
@@ -31118,6 +31156,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             ))}
           </div>
           <div className="flex-1"/>
+          <button onClick={autoRouteWeek} disabled={routing} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-sm disabled:opacity-50" title="表示中の週の午前・午後すべてのルートと時間をGoogleマップで一括作成">{routing?'計算中…':'週間ルート一括'}</button>
+          <button onClick={()=>setTpSettings(true)} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="到着目標時刻・車の定員の設定">設定</button>
           <button onClick={doPrint} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-1.5"><Printer size={15}/>印刷(A4横・週間)</button>
         </div>
         <div className="text-[11px] font-bold text-slate-500 mb-2 bg-white border border-slate-200 rounded-lg px-3 py-2">
@@ -31208,17 +31248,57 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               <div className="text-xs text-slate-500 mb-3">住所: {pt.address || '（未入力・利用者マスタで入力）'}</div>
               <label className="block text-xs font-bold text-slate-600 mb-1">待ち合わせ場所</label>
               <input type="text" defaultValue={pt.pickupPlace||''} id="tp-edit-place" placeholder="例: 自宅前 / ○○マンション入口" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none mb-3"/>
-              <label className="block text-xs font-bold text-slate-600 mb-1">送迎の所要時間（施設から片道・分）</label>
-              <input type="text" inputMode="numeric" defaultValue={pt.pickupMinutes||''} id="tp-edit-min" placeholder="例: 8" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none mb-4"/>
+              <label className="block text-xs font-bold text-slate-600 mb-1">乗車にかかる時間（分）＝車を停めてから乗せ終わるまで</label>
+              <input type="text" inputMode="numeric" defaultValue={pt.pickupMinutes||''} id="tp-edit-min" placeholder="例: 5（未入力は2分）" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none mb-4"/>
               <div className="flex justify-end gap-2">
                 <button onClick={()=>setEditP(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">閉じる</button>
                 <button onClick={()=>{ const pv=document.getElementById('tp-edit-place')?.value||''; const mv=document.getElementById('tp-edit-min')?.value||''; savePatientPickup(pt.id, pv, mv); setEditP(null); }} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm">保存</button>
               </div>
-              <div className="text-[10px] text-slate-400 mt-3">利用者マスタの「待ち合わせ場所・所要時間」と同じ項目に保存されます。</div>
+              <div className="text-[10px] text-slate-400 mt-3">利用者マスタの「待ち合わせ場所・乗車にかかる時間」と同じ項目に保存されます。</div>
             </div>
           </div>
         );
       })(), document.body)}
+      {/* ★ 送迎表の設定(2026-09-12b): 到着目標時刻(逆算の基準)と車の定員をここで編集 */}
+      {tpSettings && ReactDOM.createPortal((
+        <div className="fixed inset-0 bg-slate-900/60 flex items-start justify-center p-4 pt-20" style={{zIndex:10000}} onClick={()=>setTpSettings(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5" onClick={e=>e.stopPropagation()}>
+            <div className="font-bold text-slate-800 text-lg mb-3">送迎表の設定</div>
+            <div className="grid grid-cols-2 gap-3 mb-2">
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">午前の到着目標時刻</label>
+                <input type="text" defaultValue={ds.arriveAM||''} id="tp-set-am" placeholder="例: 8:55" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">午後の到着目標時刻</label>
+                <input type="text" defaultValue={ds.arrivePM||''} id="tp-set-pm" placeholder="例: 13:25" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
+              </div>
+            </div>
+            <div className="text-[11px] text-slate-500 mb-4">ルート自動作成は「この時刻に施設へ到着」する前提でお迎え時間を逆算します（未入力ならスケジュール先頭の5分前）。</div>
+            <div className="font-bold text-sm text-slate-700 mb-2">車の定員（運転者を除く乗車人数）</div>
+            <div className="space-y-2 mb-4">
+              {cars.map((c, i) => (
+                <div key={c.id} className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-slate-700 w-28 truncate">{c.name}{c.type?`（${c.type}）`:''}</span>
+                  <input type="text" inputMode="numeric" defaultValue={c.cap||''} id={`tp-set-cap-${c.id}`} placeholder="定員" className="w-20 px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none text-center"/>
+                  <span className="text-xs text-slate-500">名（運転者を除く）</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={()=>setTpSettings(false)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">閉じる</button>
+              <button onClick={()=>{
+                const am = document.getElementById('tp-set-am')?.value?.trim()||'';
+                const pm = document.getElementById('tp-set-pm')?.value?.trim()||'';
+                const newCars = cars.map(c => ({ ...c, cap: (document.getElementById(`tp-set-cap-${c.id}`)?.value||'').replace(/[^0-9]/g,'') }));
+                onSave({ ...appData, diarySettings: { ...(appData.diarySettings||{}), arriveAM: am, arrivePM: pm, cars: newCars } }, { manual: true, message: '✓ 送迎表の設定を保存しました' });
+                setTpSettings(false);
+              }} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm">保存</button>
+            </div>
+            <div className="text-[10px] text-slate-400 mt-3">定員は各種設定→日誌の送迎車両と同じ項目です（どちらで直しても共通）。</div>
+          </div>
+        </div>
+      ), document.body)}
     </div>
   );
 }
@@ -33900,10 +33980,10 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                           <input type="text" disabled={isOff} value={localPatient.pickupPlace || ''} onChange={e=>updateLP('pickupPlace', e.target.value)} placeholder="例: 自宅前 / ○○マンション入口" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none disabled:opacity-60"/>
                         </div>
                         <div>
-                          <label className="block text-xs font-bold text-slate-600 mb-1">送迎の所要時間（施設から片道・分）</label>
-                          <input type="text" inputMode="numeric" disabled={isOff} value={localPatient.pickupMinutes || ''} onChange={e=>updateLP('pickupMinutes', e.target.value.replace(/[^0-9]/g,''))} placeholder="例: 8" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none disabled:opacity-60"/>
+                          <label className="block text-xs font-bold text-slate-600 mb-1">乗車にかかる時間（分）</label>
+                          <input type="text" inputMode="numeric" disabled={isOff} value={localPatient.pickupMinutes || ''} onChange={e=>updateLP('pickupMinutes', e.target.value.replace(/[^0-9]/g,''))} placeholder="例: 5" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none disabled:opacity-60"/>
                         </div>
-                        <div className="col-span-2 text-[11px] text-slate-500">送迎表のルート自動作成・時間割り振りに使われます（Googleマップ連携時は住所から自動計算し、この所要時間は補助として使用）。</div>
+                        <div className="col-span-2 text-[11px] text-slate-500">乗車にかかる時間=車を停めてから（マンション1階等）お部屋へお迎えに行き、車に乗せ終わるまでの時間。送迎表のルート自動作成で移動時間に上乗せして逆算に使います（未入力は2分）。</div>
                       </div>
                     </div>
                   </div>
@@ -38424,8 +38504,8 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
               <input defaultValue={c.name} onBlur={e=>onBlurCar(i,'name',e.target.value)} placeholder="車名（例: 1号車）" className="w-[120px] px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
               <input defaultValue={c.type} onBlur={e=>onBlurCar(i,'type',e.target.value)} placeholder="車種（例: ハイエース）" className="flex-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
               {/* ★ 定員(2026-09-12 試験版・送迎表): 送迎表で定員オーバーを警告するために使用 */}
-              <input defaultValue={c.cap || ''} onBlur={e=>onBlurCar(i,'cap',e.target.value.replace(/[^0-9]/g,''))} placeholder="定員" inputMode="numeric" className="w-[64px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none text-center focus:border-blue-400" title="乗車定員(運転者を除く人数)。送迎表で超過時に警告します"/>
-              <span className="text-xs text-slate-400">名</span>
+              <input defaultValue={c.cap || ''} onBlur={e=>onBlurCar(i,'cap',e.target.value.replace(/[^0-9]/g,''))} placeholder="定員" inputMode="numeric" className="w-[64px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none text-center focus:border-blue-400" title="送迎表で超過時に警告します"/>
+              <span className="text-xs text-slate-500 whitespace-nowrap">名<span className="text-slate-400">（運転者を除く）</span></span>
               {dsRef.current.cars.length > 2 && <button onClick={()=>mutate({...dsRef.current,cars:dsRef.current.cars.filter((_,j)=>j!==i)})} className="text-red-400 hover:text-red-600"><X size={16}/></button>}
             </div>
           ))}
