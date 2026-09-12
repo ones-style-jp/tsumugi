@@ -31520,7 +31520,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 </div>
                 <div className="p-2 space-y-2">
                   {cars.map(c => (
-                    <div key={c.id} data-tpdrop={c.id} data-tpiso={iso} className={`border rounded-lg overflow-hidden ${dragMv&&dragMv.over&&dragMv.over.zone===c.id?'border-blue-600 ring-2 ring-blue-300':(dragMv&&dragMv.iso===iso?'border-blue-400 ring-1 ring-blue-200':'border-slate-300')}`}>
+                    <div key={c.id} data-tpdrop={c.id} data-tpiso={iso} className={`border rounded-lg overflow-hidden ${dragMv&&dragMv.iso===iso&&dragMv.over&&dragMv.over.zone===c.id?'border-blue-600 ring-2 ring-blue-300':(dragMv&&dragMv.iso===iso?'border-blue-400 ring-1 ring-blue-200':'border-slate-300')}`}>
                       <div className="bg-slate-200 px-2 py-1 text-[12px] font-bold text-slate-800 flex items-center gap-1">
                         <span className="truncate">{c.name}</span>
                         <select value={(pl.driver||{})[c.id]||''} onChange={e=>setDriver(iso, slot, c.id, e.target.value)} title="運転者" className="text-[10px] border border-slate-300 rounded bg-white px-0.5 py-0 max-w-[72px]">
@@ -31532,8 +31532,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                       </div>
                       {(pl.cars?.[c.id]||[]).map((m, i) => (
                         <div key={m.pid} data-tprow data-tppid={m.pid} data-tpcid={c.id}
-                          style={dragMv && dragMv.over && dragMv.over.zone===c.id && String(dragMv.over.pid)===String(m.pid) && String(dragMv.pid)!==String(m.pid) ? {boxShadow:'inset 0 3px 0 #3b82f6', paddingTop:14, transition:'padding-top 0.12s'} : {transition:'padding-top 0.12s'}}
-                          className={`flex items-center gap-1.5 px-1.5 py-1.5 border-t border-slate-100 ${dragMv&&String(dragMv.pid)===String(m.pid)?'opacity-40':''} ${_isFurikae(iso, slot, m.pid)?'bg-emerald-100':(_isFirstVisit(m.pid, iso)?'bg-sky-100':'')}`}>
+                          style={dragMv && dragMv.iso===iso && dragMv.over && dragMv.over.zone===c.id && String(dragMv.over.pid)===String(m.pid) && String(dragMv.pid)!==String(m.pid) ? {boxShadow:'inset 0 3px 0 #3b82f6', paddingTop:14, transition:'padding-top 0.12s'} : {transition:'padding-top 0.12s'}}
+                          className={`flex items-center gap-1.5 px-1.5 py-1.5 border-t border-slate-100 ${dragMv&&dragMv.iso===iso&&String(dragMv.pid)===String(m.pid)?'opacity-40':''} ${_isFurikae(iso, slot, m.pid)?'bg-emerald-100':(_isFirstVisit(m.pid, iso)?'bg-sky-100':'')}`}>
                           <button onClick={()=>toggleMark(iso, slot, m.pid)} title="お迎え時間変更の印(TEL)" className={`shrink-0 w-4 h-4 rounded-full border text-[9px] leading-none font-bold ${m.mark?'bg-red-600 border-red-600 text-white':'border-slate-300 text-transparent hover:border-red-400'}`}>●</button>
                           <button onClick={()=>{ if (!dragMv) setEditP({pid:m.pid}); }} {..._dragHandlers(m.pid, iso)} title="タップ=場所・乗車時間の編集 / 長押し=つかんで別の車へ移動" className="text-[13px] font-bold text-slate-800 flex-1 min-w-0 text-left leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{overflowWrap:"anywhere", touchAction:'pan-y'}}>{_pname(m.pid)}</button>
                           <input type="text" value={m.t||''} onChange={e=>setTime(iso, slot, m.pid, e.target.value)} placeholder="—:—" className={`w-14 text-center text-[13px] font-bold border rounded px-0.5 py-0.5 outline-none ${m.mark?'border-red-400 text-red-600':'border-slate-300'}`}/>
@@ -31651,7 +31651,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               <label className="block text-xs font-bold text-slate-600 mb-1">待ち合わせ場所</label>
               <input type="text" defaultValue={pt.pickupPlace||''} id="tp-edit-place" placeholder="例: 自宅前 / ○○マンション入口" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none mb-3"/>
               <label className="block text-xs font-bold text-slate-600 mb-1">乗車にかかる時間（分）＝車を停めてから乗せ終わるまで</label>
-              <input type="text" inputMode="numeric" defaultValue={pt.pickupMinutes||''} id="tp-edit-min" placeholder="例: 5（未入力は2分）" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none mb-4"/>
+              <select defaultValue={String(pt.pickupMinutes||'')} id="tp-edit-min" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none mb-4 bg-white">
+                <option value="">未設定（2分として計算）</option>
+                {Array.from({length:15},(_,i)=>i+1).map(v=><option key={v} value={v}>{v}分</option>)}
+              </select>
               <div className="flex justify-end gap-2">
                 <button onClick={()=>setEditP(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">閉じる</button>
                 <button onClick={()=>{ const pv=document.getElementById('tp-edit-place')?.value||''; const mv=document.getElementById('tp-edit-min')?.value||''; savePatientPickup(pt.id, pv, mv); setEditP(null); }} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm">保存</button>
@@ -34411,7 +34414,10 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                         </div>
                         <div>
                           <label className="block text-xs font-bold text-slate-600 mb-1">乗車にかかる時間（分）</label>
-                          <input type="text" inputMode="numeric" disabled={isOff} value={localPatient.pickupMinutes || ''} onChange={e=>updateLP('pickupMinutes', e.target.value.replace(/[^0-9]/g,''))} placeholder="例: 5" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none disabled:opacity-60"/>
+                          <select disabled={isOff} value={String(localPatient.pickupMinutes || '')} onChange={e=>updateLP('pickupMinutes', e.target.value)} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none disabled:opacity-60">
+                            <option value="">未設定（2分として計算）</option>
+                            {Array.from({length:15},(_,i)=>i+1).map(v=><option key={v} value={v}>{v}分</option>)}
+                          </select>
                         </div>
                         <div className="col-span-2 text-[11px] text-slate-500">乗車にかかる時間=車を停めてから（マンション1階等）お部屋へお迎えに行き、車に乗せ終わるまでの時間。送迎表のルート自動作成で移動時間に上乗せして逆算に使います（未入力は2分）。</div>
                       </div>
