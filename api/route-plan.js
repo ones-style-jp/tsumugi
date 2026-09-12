@@ -23,13 +23,15 @@ export default async function handler(req, res) {
   if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
   body = body || {};
   const origin = String(body.origin || '').trim();
-  const stops = Array.isArray(body.stops) ? body.stops.map(x => String(x || '').trim()).filter(Boolean).slice(0, 10) : [];
+  // ★ 2026-09-12h: 上限を23停留へ(Directions APIの上限25waypoint内)。keepOrder=trueで順番を変えずに区間時間だけ取得
+  const stops = Array.isArray(body.stops) ? body.stops.map(x => String(x || '').trim()).filter(Boolean).slice(0, 23) : [];
+  const keepOrder = !!body.keepOrder;
   if (!origin || stops.length < 1) return res.status(400).json({ error: 'origin と stops は必須です' });
 
   try {
     const params = new URLSearchParams({
       origin, destination: origin,
-      waypoints: 'optimize:true|' + stops.join('|'),
+      waypoints: (keepOrder ? '' : 'optimize:true|') + stops.join('|'),
       key, language: 'ja', region: 'jp',
     });
     const r = await fetch('https://maps.googleapis.com/maps/api/directions/json?' + params.toString());
@@ -38,9 +40,13 @@ export default async function handler(req, res) {
       return res.status(200).json({ error: `ルート計算に失敗しました (${j.status || 'no route'})`, detail: j.error_message || '' });
     }
     const route = j.routes[0];
+    const legs = route.legs || [];
     return res.status(200).json({
-      order: route.waypoint_order || stops.map((_, i) => i),
-      legSeconds: (route.legs || []).map(l => (l.duration && l.duration.value) || 0),
+      order: keepOrder ? stops.map((_, i) => i) : (route.waypoint_order || stops.map((_, i) => i)),
+      legSeconds: legs.map(l => (l.duration && l.duration.value) || 0),
+      // ★ 方角クラスタリング用: 施設と各停留の座標(legsの端点から無追加コストで取得)
+      originCoord: legs[0] && legs[0].start_location ? legs[0].start_location : null,
+      stopCoords: legs.slice(0, Math.max(0, legs.length - 1)).map(l => l.end_location || null),
     });
   } catch (e) {
     return res.status(502).json({ error: 'ルート計算に失敗しました: ' + String((e && e.message) || e) });
