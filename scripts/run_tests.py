@@ -118,18 +118,18 @@ except urllib.error.HTTPError as e:
 except Exception as e:
     check('T-OPS-04', '本番 台帳API応答', False, str(e))
 
-# ---- T-OPS-05 試験版(trial)の生存確認 ----
+# ---- T-OPS-06 試験版(trial)の生存確認 ----
 try:
     st, body = fetch(f'{TRIAL}/update-notes.json?_t=1')
     tj = json.loads(body)
-    check('T-OPS-05', '試験版 update-notes.json 応答', st == 200 and bool(tj.get('version')), f"version={tj.get('version')}")
+    check('T-OPS-06', '試験版 update-notes.json 応答', st == 200 and bool(tj.get('version')), f"version={tj.get('version')}")
 except Exception as e:
-    check('T-OPS-05', '試験版 update-notes.json 応答', False, str(e))
+    check('T-OPS-06', '試験版 update-notes.json 応答', False, str(e))
 try:
     st, body = fetch(TRIAL + '/')
-    check('T-OPS-05', '試験版トップページ応答', st == 200 and b'<div id="root"' in body, f'status={st}')
+    check('T-OPS-06', '試験版トップページ応答', st == 200 and b'<div id="root"' in body, f'status={st}')
 except Exception as e:
-    check('T-OPS-05', '試験版トップページ応答', False, str(e))
+    check('T-OPS-06', '試験版トップページ応答', False, str(e))
 
 # ---- 結果 ----
 fails = [r for r in results if not r[2]]
