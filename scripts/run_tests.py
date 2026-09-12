@@ -7,6 +7,8 @@ import json, re, subprocess, sys, urllib.request
 
 ROOT = subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True).stdout.strip()
 PROD = 'https://tsumugi-ones-style.vercel.app'
+# ★ 2本立て(2026-09-12): 試験版(trialブランチ)の固定URL。安定版デプロイ後の締めで生存確認する。
+TRIAL = 'https://tsumugi-git-trial-ones-style.vercel.app'
 results = []
 
 def check(tid, name, ok, detail=''):
@@ -115,6 +117,19 @@ except urllib.error.HTTPError as e:
     check('T-OPS-04', '本番 台帳API応答(認証保護)', e.code == 401, f'status={e.code}')
 except Exception as e:
     check('T-OPS-04', '本番 台帳API応答', False, str(e))
+
+# ---- T-OPS-05 試験版(trial)の生存確認 ----
+try:
+    st, body = fetch(f'{TRIAL}/update-notes.json?_t=1')
+    tj = json.loads(body)
+    check('T-OPS-05', '試験版 update-notes.json 応答', st == 200 and bool(tj.get('version')), f"version={tj.get('version')}")
+except Exception as e:
+    check('T-OPS-05', '試験版 update-notes.json 応答', False, str(e))
+try:
+    st, body = fetch(TRIAL + '/')
+    check('T-OPS-05', '試験版トップページ応答', st == 200 and b'<div id="root"' in body, f'status={st}')
+except Exception as e:
+    check('T-OPS-05', '試験版トップページ応答', False, str(e))
 
 # ---- 結果 ----
 fails = [r for r in results if not r[2]]
