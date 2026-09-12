@@ -31409,10 +31409,12 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         cum += buf + Math.ceil((legs[k]||0)/60);
         ordered[k] = { ...ordered[k], t: _fmtHM(Math.max(0, target - cum)) };
       }
-      // ★ 同じ住所の方は同じお迎え時間に統一(同じ建物・ご夫婦など。早い方の時間に合わせる)(2026-09-13c)
+      // ★ 同じ住所の方は同じお迎え時間に統一(同じ建物・ご夫婦など。早い方の時間に合わせる)(2026-09-13c/d)
+      //   住所のみで比較(待ち合わせ場所の違いは無視)+全半角・空白の表記ゆれを正規化して比較
       {
+        const _adKey = (pid) => { const pt2 = (appData.patients||[]).find(x=>x.id===pid) || {}; return String(pt2.address||'').normalize('NFKC').replace(/[\s　]/g,'').toLowerCase(); };
         const _tByAddr = {};
-        ordered = ordered.map(m2 => { const a3 = _addrOf(m2.pid); if (!a3) return m2; if (_tByAddr[a3] == null) { _tByAddr[a3] = m2.t; return m2; } return { ...m2, t: _tByAddr[a3] }; });
+        ordered = ordered.map(m2 => { const a3 = _adKey(m2.pid); if (!a3) return m2; if (_tByAddr[a3] == null) { _tByAddr[a3] = m2.t; return m2; } return { ...m2, t: _tByAddr[a3] }; });
       }
       // ★ 出発時刻チェック: 設定より早い出発が必要なら知らせる(組んだ時間はそのまま=自動的に早出)
       if (_departConf != null && ordered.length) {
@@ -31477,50 +31479,70 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   // ==== 印刷(A4横・1週間・午前+午後) ====
   const buildPrintHtml = () => {
     const esc = (t) => String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
-    // ★ 2026-09-13c(店舗要望): 文字を大きく(名前11px)・列見出し(氏名/時間/次回)・定員分の固定行で車名の位置が日をまたいで揃うように
-    const COLG = '<colgroup><col/><col style="width:48px;"/><col style="width:26px;"/></colgroup>';
+    // ★ 2026-09-13d(店舗指摘): 行数からフォントサイズを自動計算して必ずA4横1枚に収める(車2台/3台・定員違いの店舗でも見切れない)。車名ヘッダは簡素化(定員表記は外し、定員は行数そのもので表現)
+    const _nRowsOf = (c, pl) => Math.max(((pl.cars||{})[c.id]||[]).length, Math.min(Number(c.cap)||0, 8), 1);
+    const unitsOf = (iso, sl) => {
+      const pl = getPlan(iso, sl);
+      let u = 1.6; // 列見出し+車ブロック間の余白ぶん
+      cars.forEach(c => { u += 1 + _nRowsOf(c, pl); });
+      if ((pl.walkers||[]).length) u += 1;
+      if ((pl.others||[]).length) u += 1;
+      if ([ ...Object.values(pl.cars||{}).flat(), ...(pl.walkers||[]), ...(pl.others||[]) ].some(m => _isFirstVisit(m.pid, iso))) u += 1;
+      if (pl.dropMode === 'custom' && pl.drop) u += 2;
+      if (pl.memo) u += 1;
+      if ((pl.un||[]).length) u += 1;
+      return u;
+    };
+    const uAM = Math.max(...days.map(d => unitsOf(_iso(d), 'AM')));
+    const uPM = Math.max(...days.map(d => unitsOf(_iso(d), 'PM')));
+    const totalU = Math.max(uAM + uPM, 6);
+    const availPx = 620; // 本文の有効高さ(A4横209mm−余白/題字/日付見出し/凡例のpx換算・安全マージン込み)
+    let fz = 12;
+    while (fz > 7) { const uh = Math.ceil(fz * 1.3) + (fz >= 10 ? 2 : 0) + 1; if (totalU * uh <= availPx) break; fz--; }
+    const fzS = Math.max(7, fz - 2);
+    const padTd = fz >= 10 ? '1px 4px' : '0 3px';
+    const COLG = `<colgroup><col/><col style="width:${Math.round(fz*4.2)}px;"/><col style="width:${Math.round(fz*2.2)}px;"/></colgroup>`;
     const cell = (m, iso, sl) => {
       const fk = _isFurikae(iso, sl, m.pid);
       const fv = !fk && _isFirstVisit(m.pid, iso);
       return `<tr>
-        <td style="border:1px solid #333;padding:1px 4px;font-size:11px;overflow:hidden;${fk?'background:#a7f3d0;':(fv?'background:#bae6fd;':'')}">${esc(_pname(m.pid))}</td>
-        <td style="border:1px solid #333;padding:1px 2px;font-size:11px;text-align:center;white-space:nowrap;">${m.mark?'<span style="color:#dc2626;font-weight:bold;">●</span>':''}${esc(m.t)}</td>
-        <td style="border:1px solid #333;padding:1px 2px;font-size:10px;text-align:center;">${esc(_nextDow(iso, m.pid))}</td>
+        <td style="border:1px solid #333;padding:${padTd};font-size:${fz}px;line-height:1.25;overflow:hidden;white-space:nowrap;${fk?'background:#a7f3d0;':(fv?'background:#bae6fd;':'')}">${esc(_pname(m.pid))}</td>
+        <td style="border:1px solid #333;padding:1px 2px;font-size:${fz}px;line-height:1.25;text-align:center;white-space:nowrap;">${m.mark?'<span style="color:#dc2626;font-weight:bold;">●</span>':''}${esc(m.t)}</td>
+        <td style="border:1px solid #333;padding:1px 2px;font-size:${fzS}px;line-height:1.25;text-align:center;">${esc(_nextDow(iso, m.pid))}</td>
       </tr>`;
     };
-    const emptyRow = `<tr><td style="border:1px solid #333;padding:1px 4px;font-size:11px;">&nbsp;</td><td style="border:1px solid #333;font-size:11px;">&nbsp;</td><td style="border:1px solid #333;font-size:11px;">&nbsp;</td></tr>`;
+    const emptyRow = `<tr><td style="border:1px solid #333;padding:${padTd};font-size:${fz}px;line-height:1.25;">&nbsp;</td><td style="border:1px solid #333;font-size:${fz}px;line-height:1.25;">&nbsp;</td><td style="border:1px solid #333;font-size:${fz}px;line-height:1.25;">&nbsp;</td></tr>`;
     const dayBlock = (iso, sl) => {
       const pl = getPlan(iso, sl);
       let h = `<table style="border-collapse:collapse;width:100%;table-layout:fixed;margin-bottom:2px;">${COLG}
-        <tr><td style="border:1px solid #333;background:#f8fafc;font-size:9px;font-weight:bold;color:#475569;padding:0 4px;">氏名</td><td style="border:1px solid #333;background:#f8fafc;font-size:9px;font-weight:bold;color:#475569;text-align:center;">時間</td><td style="border:1px solid #333;background:#f8fafc;font-size:9px;font-weight:bold;color:#475569;text-align:center;">次回</td></tr></table>`;
+        <tr><td style="border:1px solid #333;background:#f8fafc;font-size:${Math.max(7,fz-3)}px;font-weight:bold;color:#475569;padding:0 4px;">氏名</td><td style="border:1px solid #333;background:#f8fafc;font-size:${Math.max(7,fz-3)}px;font-weight:bold;color:#475569;text-align:center;">時間</td><td style="border:1px solid #333;background:#f8fafc;font-size:${Math.max(7,fz-3)}px;font-weight:bold;color:#475569;text-align:center;">次回</td></tr></table>`;
       cars.forEach(c => {
         const rows = (pl.cars?.[c.id]||[]);
         const _drv = (pl.driver||{})[c.id] || '';
-        const _cap = Number(c.cap) || 0;
-        const nRows = Math.max(rows.length, Math.min(_cap, 8), 1);
+        const nRows = _nRowsOf(c, pl);
         const body = Array.from({length: nRows}, (_, i) => rows[i] ? cell(rows[i], iso, sl) : emptyRow).join('');
-        h += `<div style="margin-bottom:3px;"><div style="font-size:10px;font-weight:bold;background:#e2e8f0;padding:1px 4px;border:1px solid #333;border-bottom:none;">${esc(c.name)}${_cap?`（定員${_cap}名）`:''}${_drv?`　運転: ${esc(_drv)}`:''}</div>
+        h += `<div style="margin-bottom:2px;"><div style="font-size:${fz-1}px;line-height:1.25;font-weight:bold;background:#e2e8f0;padding:1px 4px;border:1px solid #333;border-bottom:none;white-space:nowrap;overflow:hidden;">${esc(c.name)}${_drv?`<span style="font-weight:normal;">　運転:${esc(_drv)}</span>`:''}</div>
           <table style="border-collapse:collapse;width:100%;table-layout:fixed;">${COLG}
           ${body}</table></div>`;
       });
       const wk = (pl.walkers||[]);
-      if (wk.length) h += `<div style="font-size:9px;">${wk.map(m=>`${esc(_pname(m.pid))} 徒歩`).join(' / ')}</div>`;
+      if (wk.length) h += `<div style="font-size:${fzS}px;">${wk.map(m=>`${esc(_pname(m.pid))} 徒歩`).join(' / ')}</div>`;
       const ot = (pl.others||[]);
-      if (ot.length) h += `<div style="font-size:9px;color:#6d28d9;">その他: ${ot.map(m=>esc(_pname(m.pid))).join('、')}</div>`;
+      if (ot.length) h += `<div style="font-size:${fzS}px;color:#6d28d9;">その他: ${ot.map(m=>esc(_pname(m.pid))).join('、')}</div>`;
       // ★ 初回の方は備考へ自動記入(2026-09-12d)
       const _firsts = [ ...Object.values(pl.cars||{}).flat(), ...(pl.walkers||[]), ...(pl.others||[]) ].filter(m => _isFirstVisit(m.pid, iso)).map(m => _pname(m.pid));
-      if (_firsts.length) h += `<div style="font-size:9px;color:#0369a1;font-weight:bold;">初回: ${_firsts.map(esc).join('様、')}様</div>`;
+      if (_firsts.length) h += `<div style="font-size:${fzS}px;color:#0369a1;font-weight:bold;">初回: ${_firsts.map(esc).join('様、')}様</div>`;
       if (pl.dropMode === 'custom' && pl.drop) {
         const dparts = cars.map(c => { const ms=(pl.drop.cars?.[c.id]||[]); return ms.length ? `${esc(c.name)}=${ms.map(m=>esc(_pname(m.pid))).join('、')}` : ''; }).filter(Boolean);
         const dw3 = (pl.drop.walkers||[]).map(m=>esc(_pname(m.pid)));
-        if (dparts.length || dw3.length) h += `<div style="font-size:9px;color:#4338ca;border-top:1px dashed #999;margin-top:2px;"><b>送り別</b>: ${dparts.join(' / ')}${dw3.length?` / 徒歩=${dw3.join('、')}`:''}</div>`;
+        if (dparts.length || dw3.length) h += `<div style="font-size:${fzS}px;color:#4338ca;border-top:1px dashed #999;margin-top:2px;"><b>送り別</b>: ${dparts.join(' / ')}${dw3.length?` / 徒歩=${dw3.join('、')}`:''}</div>`;
       }
-      if (pl.memo) h += `<div style="font-size:9px;color:#b91c1c;font-weight:bold;border-top:1px dashed #999;margin-top:2px;">備考: ${esc(pl.memo)}</div>`;
-      if ((pl.un||[]).length) h += `<div style="font-size:9px;color:#b45309;">未割当: ${(pl.un||[]).map(m=>esc(_pname(m.pid))).join('、')}</div>`;
+      if (pl.memo) h += `<div style="font-size:${fzS}px;color:#b91c1c;font-weight:bold;border-top:1px dashed #999;margin-top:2px;">備考: ${esc(pl.memo)}</div>`;
+      if ((pl.un||[]).length) h += `<div style="font-size:${fzS}px;color:#b45309;">未割当: ${(pl.un||[]).map(m=>esc(_pname(m.pid))).join('、')}</div>`;
       return h;
     };
     const header = days.map(d => `<th style="border:1px solid #333;background:#f1f5f9;font-size:11px;padding:2px;">${d.getMonth()+1}/${d.getDate()}（${DOWJ[d.getDay()]}）</th>`).join('');
-    const row = (sl, label) => `<tr style="height:50%;"><td style="border:1px solid #333;writing-mode:vertical-rl;text-align:center;font-weight:bold;font-size:11px;width:16px;background:#f8fafc;">${label}</td>
+    const row = (sl, label) => `<tr style="height:${Math.round((sl==='AM'?uAM:uPM)/totalU*100)}%;"><td style="border:1px solid #333;writing-mode:vertical-rl;text-align:center;font-weight:bold;font-size:11px;width:16px;background:#f8fafc;">${label}</td>
       ${days.map(d => `<td style="border:1px solid #333;vertical-align:top;padding:2px;background:#fff;">${dayBlock(_iso(d), sl)}</td>`).join('')}</tr>`;
     // ★ 2026-09-12e(店舗指摘): 白背景+A4横全面に高さ配分(午前/午後50%ずつ・上詰め)で「左上に寄る」を解消
     return `<div id="transport-print-inner" style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#111;background:#fff;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
