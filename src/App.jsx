@@ -31186,13 +31186,27 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     onPointerLeave: () => { if (!dragMv) clearTimeout(_dragTimerRef.current); },
     onContextMenu: (e) => e.preventDefault(),
   });
-  // ★ 曜日/時間帯またぎドロップ=振替登録(2026-09-12k): 月間スケジュール・提供記録・送迎表の3点へ反映
+  // ★ 曜日/時間帯またぎドロップ=振替登録(2026-09-12k): 月間スケジュール・提供記録・送迎表の3点へ反映。
+  //   2026-09-13: 振替理由の入力モーダルを追加(元の日に欠席理由が入力済みなら引き継いでプレフィル=再入力不要)
+  const [fkMove, setFkMove] = useState(null); // {pid, fromIso, fromSl, toIso, toSl, destZone, beforePid, cat, detail}
   const performFurikaeMove = (pid, fromIso, fromSl, toIso, toSl, destZone, beforePid) => {
+    const pt = (appData.patients||[]).find(x => x.id === pid); if (!pt) return;
+    const fD = new Date(fromIso);
+    const srcLabel = `${fD.getMonth()+1}月${fD.getDate()}日`;
+    // 既存の欠席理由(振替リンク以外)を引き継ぎ
+    let cat = '', detail = '';
+    const srcRec = (appData.ticketRecords||[]).find(r => r.patientId === pid && r.date === srcLabel && (r.year ? r.year === fD.getFullYear() : true));
+    if (srcRec && srcRec.status === '欠席' && String(srcRec.tokki||'').trim() && !/へ振替/.test(srcRec.tokki)) {
+      const pr = parseAbsReason(String(srcRec.tokki).trim()); cat = pr.cat || ''; detail = pr.cat ? (pr.detail || '') : String(srcRec.tokki).trim();
+    }
+    setFkMove({ pid, fromIso, fromSl, toIso, toSl, destZone, beforePid, cat, detail });
+  };
+  const executeFurikaeMove = (mv, reasonText) => {
+    const { pid, fromIso, fromSl, toIso, toSl, destZone, beforePid } = mv;
     const pt = (appData.patients||[]).find(x => x.id === pid); if (!pt) return;
     const fD = new Date(fromIso), tD = new Date(toIso);
     const dayNames = ['日','月','火','水','木','金','土'];
     const srcLabel = `${fD.getMonth()+1}月${fD.getDate()}日`, destLabel = `${tD.getMonth()+1}月${tD.getDate()}日`;
-    if (!window.confirm(`${pt.name}様を【振替】として登録します。\n\n${srcLabel}（${dayNames[fD.getDay()]}・${fromSl==='AM'?'午前':'午後'}） → ${destLabel}（${dayNames[tD.getDay()]}・${toSl==='AM'?'午前':'午後'}）\n\n・${srcLabel}は「欠席（振替）」になります\n・月間スケジュールと提供記録にも反映されます\nよろしいですか？`)) return;
     const shifts = JSON.parse(JSON.stringify(appData.monthlyShifts||{}));
     const setShift2 = (dObj, slX, val) => { const mk = `${dObj.getFullYear()}-${String(dObj.getMonth()+1).padStart(2,'0')}`; const k = `${dObj.getDate()}_${slX}`; shifts[mk] = shifts[mk]||{}; shifts[mk][pid] = shifts[mk][pid]||{}; shifts[mk][pid][k] = val; };
     setShift2(fD, fromSl, '欠席'); setShift2(tD, toSl, '振替');
@@ -31202,7 +31216,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       if (idx >= 0) recs[idx] = { ...recs[idx], ...patch, _savedAt: syncNow() };
       else recs.push({ id: `tr_${pid}_${dObj.getFullYear()}_${dObj.getMonth()+1}_${dObj.getDate()}`, patientId: pid, name: pt.name, kana: pt.kana||'', date: dateStr, year: dObj.getFullYear(), dayOfWeek: dayNames[dObj.getDay()], temp:'',bpUpSt:'',bpDnSt:'',plSt:'',bpUpEn:'',bpDnEn:'',plEn:'',massage:'',exercises:{},actualTime:'', kibunArrival:'',kibunArrivalReason:'',kibunDeparture:'',kibunDepartureReason:'',done:false, ...patch, _savedAt: syncNow() });
     };
-    upsert(fD, srcLabel, { status: '欠席', tokki: `${destLabel}${toSl}へ振替` });
+    upsert(fD, srcLabel, { status: '欠席', tokki: `${destLabel}${toSl}へ振替${reasonText ? '（'+reasonText+'）' : ''}` });
     upsert(tD, destLabel, { status: '振替', furikaeAmpm: toSl, tokki: `${srcLabel}${fromSl}分振替` });
     const tp = { ...plans };
     const strip = (entry) => { if (!entry) return entry; const e2 = JSON.parse(JSON.stringify(entry)); Object.keys(e2.cars||{}).forEach(cid => { e2.cars[cid] = (e2.cars[cid]||[]).filter(m => m.pid !== pid); }); ['walkers','others','un'].forEach(k => { if (e2[k]) e2[k] = e2[k].filter(m => m.pid !== pid); }); if (e2.drop) { Object.keys(e2.drop.cars||{}).forEach(cid => { e2.drop.cars[cid] = (e2.drop.cars[cid]||[]).filter(m => m.pid !== pid); }); ['walkers','others'].forEach(k => { if (e2.drop[k]) e2.drop[k] = e2.drop[k].filter(m => m.pid !== pid); }); } e2._savedAt = syncNow(); return e2; };
@@ -31674,6 +31688,37 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         );
       })(), document.body)}
       {/* ★ 送迎表の設定(2026-09-12b): 到着目標時刻(逆算の基準)と車の定員をここで編集 */}
+      {/* ★ ドラッグ振替の理由入力(2026-09-13): 既存の欠席理由があればプレフィル済み */}
+      {fkMove && ReactDOM.createPortal((() => {
+        const pt = (appData.patients||[]).find(x => x.id === fkMove.pid);
+        if (!pt) return null;
+        const fD = new Date(fkMove.fromIso), tD = new Date(fkMove.toIso);
+        const dayNames = ['日','月','火','水','木','金','土'];
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 flex items-start justify-center p-4 pt-20" style={{zIndex:10000}}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5">
+              <div className="font-bold text-slate-800 text-lg mb-1">{pt.name} 様を振替として登録</div>
+              <div className="text-sm font-bold text-slate-600 mb-3 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                {fD.getMonth()+1}/{fD.getDate()}（{dayNames[fD.getDay()]}・{fkMove.fromSl==='AM'?'午前':'午後'}） → {tD.getMonth()+1}/{tD.getDate()}（{dayNames[tD.getDay()]}・{fkMove.toSl==='AM'?'午前':'午後'}）
+                <div className="text-[11px] font-normal text-slate-500 mt-1">元の日は「欠席（振替）」になり、月間スケジュール・提供記録にも反映されます。</div>
+              </div>
+              <label className="block text-xs font-bold text-slate-600 mb-1">振替の理由（大分類）</label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {ABS_REASON_CATS.map(c2 => (
+                  <button key={c2} onClick={()=>setFkMove(m=>({...m, cat: m.cat===c2?'':c2}))} className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border ${fkMove.cat===c2?'bg-blue-600 text-white border-blue-600':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{c2}</button>
+                ))}
+              </div>
+              <label className="block text-xs font-bold text-slate-600 mb-1">詳細（任意）</label>
+              <input type="text" value={fkMove.detail||''} onChange={e=>setFkMove(m=>({...m, detail:e.target.value}))} placeholder="例: 通院のため" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none mb-1"/>
+              {(fkMove.cat || fkMove.detail) && <div className="text-[11px] text-slate-500 mb-3">記録される理由: {composeAbsReason(fkMove.cat, fkMove.detail) || '（なし）'}</div>}
+              <div className="flex justify-end gap-2 mt-3">
+                <button onClick={()=>setFkMove(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
+                <button onClick={()=>{ const rs = composeAbsReason(fkMove.cat, fkMove.detail); executeFurikaeMove(fkMove, rs); setFkMove(null); }} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm">振替を登録</button>
+              </div>
+            </div>
+          </div>
+        );
+      })(), document.body)}
       {dragMv && ReactDOM.createPortal((
         <div style={{position:'fixed', left: dragMv.x + 10, top: dragMv.y - 14, zIndex: 100002, pointerEvents:'none', background:'#1d4ed8', color:'white', fontWeight:'bold', fontSize:14, padding:'6px 12px', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.35)'}}>
           {dragMv.name} <span style={{fontSize:11, opacity:0.85}}>青い線の位置に入ります</span>
