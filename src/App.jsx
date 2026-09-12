@@ -31141,7 +31141,13 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   });
   useEffect(() => {
     if (!dragMv) return;
-    const mv = (e) => { setDragMv(d => d ? { ...d, x: e.clientX, y: e.clientY } : d); };
+    const mv = (e) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const row = el && el.closest ? el.closest('[data-tprow]') : null;
+      const zone = el && el.closest ? el.closest('[data-tpdrop]') : null;
+      setDragMv(d => d ? { ...d, x: e.clientX, y: e.clientY,
+        over: (zone && zone.getAttribute('data-tpiso') === d.iso) ? { zone: zone.getAttribute('data-tpdrop'), pid: (row && row.getAttribute('data-tpcid') === zone.getAttribute('data-tpdrop')) ? row.getAttribute('data-tppid') : null } : null } : d);
+    };
     const tm = (e) => { e.preventDefault(); }; // ドラッグ中は画面スクロールを止める
     const up = (e) => {
       const el = document.elementFromPoint(e.clientX, e.clientY);
@@ -31176,7 +31182,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   // ★ ルート自動作成(2026-09-12): Google Maps(本部キー・/api/route-plan)で車ごとに
   //   「施設→各利用者→施設」の最短順を計算し、乗車順とお迎え時間を自動で割り振る。
   //   到着目標 = その時間帯のスケジュール先頭時刻の5分前(無ければ AM 9:00 / PM 13:30)。
-  const [routing, setRouting] = useState(false);
+  const [routing, setRouting] = useState(null); // ★ 計算中のキー('iso_slot' | 'week')
   const [tpSettings, setTpSettings] = useState(false); // ★ 送迎表の設定モーダル(到着目標・定員)
   const _facilityAddr = () => { const fi = appData.systemSettings?.facilityInfo || {}; return `${fi.address||''}${fi.addressBuilding?(' '+fi.addressBuilding):''}`.trim(); };
   const _targetArrive = (sl) => {
@@ -31201,6 +31207,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const pl = (() => { const saved = (basePlans||plans)[`${iso}_${sl}`]; if (saved && typeof saved === 'object') { const inPlan = new Set([ ...Object.values(saved.cars||{}).flat().map(m=>m.pid), ...((saved.walkers||[]).map(m=>m.pid)), ...((saved.others||[]).map(m=>m.pid)), ...((saved.un||[]).map(m=>m.pid)) ]); const extra = _attendees(iso, sl).filter(a => !inPlan.has(a.pid)).map(a => ({ pid: a.pid, t: a.time, mark: false })); return { cars: {}, walkers: [], memo: '', ...saved, un: [ ...(saved.un||[]), ...extra ] }; } return _draftPlan(iso, sl); })();
     const target = _targetArrive(sl);
     const _departConf = (() => { const c = String((sl === 'AM' ? ds.departAM : ds.departPM) || '').match(/(\d{1,2})[:時](\d{2})/); return c ? (+c[1])*60 + (+c[2]) : null; })();
+    // ★ 2026-09-12j(店舗要望): 「押した時刻」ではなく出発予定の時間帯の交通状況でルート計算する。
+    //   対象日+出発時刻(未設定なら到着目標-45分)。過去日時になる場合は次の同じ曜日に置き換え(交通予測は未来のみ)。
+    const _departAt = (() => {
+      const mins = _departConf != null ? _departConf : Math.max(0, target - 45);
+      let d0 = new Date(iso); d0.setHours(Math.floor(mins/60), mins%60, 0, 0);
+      while (d0.getTime() <= Date.now()) d0.setDate(d0.getDate() + 7);
+      return Math.floor(d0.getTime()/1000);
+    })();
     const _addrOf = (pid) => { const pt = (appData.patients||[]).find(x=>x.id===pid) || {}; return `${pt.address||''}${pt.pickupPlace?(' '+pt.pickupPlace):''}`.trim(); };
     const _coordMap = {}; let _originCoord = null;
     let nextPlanCars = JSON.parse(JSON.stringify(pl.cars||{}));
@@ -31227,7 +31241,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         try {
           for (let i0 = 0; i0 < okRiders.length; i0 += 23) {
             const chunk = okRiders.slice(i0, i0+23).map(m => _addrOf(m.pid));
-            const r0 = await fetch('/api/route-plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ origin: fac, stops: chunk, keepOrder: true }) });
+            const r0 = await fetch('/api/route-plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ origin: fac, stops: chunk, keepOrder: true, departAt: _departAt }) });
             const j0 = await r0.json().catch(()=>({}));
             if (j0.error || !Array.isArray(j0.stopCoords)) throw new Error(j0.error || '座標取得に失敗');
             if (!originC) originC = j0.originCoord;
@@ -31238,24 +31252,34 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           // ★ 各利用者の座標を控える(車内ルートで「最遠の方」を特定するため・2026-09-12i)
           okRiders.forEach((m, i) => { _coordMap[m.pid] = coords[i]; });
           _originCoord = originC;
-          // 方角(施設基準)でソート→最大の空き角で切って一列に→均等サイズ(定員厳守)で分割→車順に割り当て
+          // ★ 2026-09-12j(精度改良): 方角の輪切りだと境目で「近い家同士が別の車」になる(澤栗/飯塚の事例)。
+          //   「最も遠い方を種にして、その近所を近い順に集める」貪欲クラスタリングへ変更(台数で均等・定員厳守)。
           const latR = originC.lat * Math.PI / 180;
-          const bearing = (c) => Math.atan2((c.lng - originC.lng) * Math.cos(latR), c.lat - originC.lat);
-          const arr = okRiders.map((m, i) => ({ m, b: bearing(coords[i]) })).sort((x, y) => x.b - y.b);
-          let cut = 0, maxGap = -1;
-          for (let i = 0; i < arr.length; i++) { const nb = arr[(i+1)%arr.length].b + (i+1>=arr.length ? Math.PI*2 : 0); const g = nb - arr[i].b; if (g > maxGap) { maxGap = g; cut = (i+1)%arr.length; } }
-          const seq = [...arr.slice(cut), ...arr.slice(0, cut)].map(x => x.m);
+          const _dist2 = (c1, c2) => { const dx = (c1.lng - c2.lng) * Math.cos(latR), dy = c1.lat - c2.lat; return dx*dx + dy*dy; };
+          const pool = okRiders.map((m, i) => ({ m, c: coords[i] }));
           const nCars = cars.length;
           const caps = cars.map(c => Number(c.cap) || Infinity);
-          const base = Math.floor(seq.length / nCars), extraN = seq.length % nCars;
+          const base = Math.floor(pool.length / nCars), extraN = pool.length % nCars;
           const sizes = cars.map((_, i) => Math.min(caps[i], base + (i < extraN ? 1 : 0)));
-          // 定員で入りきらない分は後続の車へ回す
-          let deficit = seq.length - sizes.reduce((a,b)=>a+b,0);
+          let deficit = pool.length - sizes.reduce((a,b)=>a+b,0);
           for (let i = 0; i < nCars && deficit > 0; i++) { const room = (caps[i] === Infinity ? deficit : Math.max(0, caps[i] - sizes[i])); const add = Math.min(room, deficit); sizes[i] += add; deficit -= add; }
           nextPlanCars = {}; cars.forEach(c => { nextPlanCars[c.id] = []; });
-          let idx = 0;
-          cars.forEach((c, i) => { for (let k = 0; k < sizes[i] && idx < seq.length; k++) nextPlanCars[c.id].push({ ...seq[idx++] }); });
-          while (idx < seq.length) remainUn.push(seq[idx++]);
+          cars.forEach((c, i) => {
+            if (!pool.length || sizes[i] <= 0) return;
+            // 種=施設から最も遠い残り
+            let seedIdx = 0, farD = -1;
+            pool.forEach((x, k) => { const d = _dist2(x.c, originC); if (d > farD) { farD = d; seedIdx = k; } });
+            const cluster = [pool.splice(seedIdx, 1)[0]];
+            while (cluster.length < sizes[i] && pool.length) {
+              // クラスタの重心に最も近い残りを追加(近所をまとめる)
+              const cx = cluster.reduce((a,x)=>a+x.c.lng,0)/cluster.length, cy = cluster.reduce((a,x)=>a+x.c.lat,0)/cluster.length;
+              let ni = 0, nd = Infinity;
+              pool.forEach((x, k) => { const d = _dist2(x.c, {lng:cx, lat:cy}); if (d < nd) { nd = d; ni = k; } });
+              cluster.push(pool.splice(ni, 1)[0]);
+            }
+            nextPlanCars[c.id] = cluster.map(x => ({ ...x.m }));
+          });
+          pool.forEach(x => remainUn.push(x.m));
           if (remainUn.length > noAddr.length) msgs.push(`${iso} ${sl}: 定員不足で${remainUn.length - noAddr.length}名を割り当てできませんでした`);
           changed = true;
         } else {
@@ -31281,7 +31305,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       let ordered, legs, facToFirstSec = 0;
       if (keepOrder) {
         // 「時間」モード: 施設→現順→施設の輪で区間時間だけ取得(順番そのまま)
-        const r = await fetch('/api/route-plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ origin: fac, stops: addrs, keepOrder: true }) });
+        const r = await fetch('/api/route-plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ origin: fac, stops: addrs, keepOrder: true, departAt: _departAt }) });
         const j = await r.json().catch(()=>({}));
         if (j.error || !Array.isArray(j.order)) { msgs.push(`${iso} ${sl} ${cname}: ${j.error||'計算に失敗'}`); continue; }
         ordered = members.slice();
@@ -31301,9 +31325,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         const rest = members.filter((_, i) => i !== farIdx);
         const restAddrs = addrs.filter((_, i) => i !== farIdx);
         // 施設→最遠(出発チェック用の所要)
-        try { const r0 = await fetch('/api/route-plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ origin: fac, stops: [farAddr], keepOrder: true }) }); const j0 = await r0.json().catch(()=>({})); facToFirstSec = (j0.legSeconds||[])[0] || 0; } catch {}
+        try { const r0 = await fetch('/api/route-plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ origin: fac, stops: [farAddr], keepOrder: true, departAt: _departAt }) }); const j0 = await r0.json().catch(()=>({})); facToFirstSec = (j0.legSeconds||[])[0] || 0; } catch {}
         if (rest.length) {
-          const r = await fetch('/api/route-plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ origin: farAddr, destination: fac, stops: restAddrs }) });
+          const r = await fetch('/api/route-plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ origin: farAddr, destination: fac, stops: restAddrs, departAt: _departAt }) });
           const j = await r.json().catch(()=>({}));
           if (j.error || !Array.isArray(j.order)) { msgs.push(`${iso} ${sl} ${cname}: ${j.error||'計算に失敗'}`); continue; }
           ordered = [members[farIdx], ...j.order.map(ix => rest[ix])];
@@ -31325,7 +31349,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       // ★ 出発時刻チェック: 設定より早い出発が必要なら知らせる(組んだ時間はそのまま=自動的に早出)
       if (_departConf != null && ordered.length) {
         const fm = String(ordered[0].t||'').match(/(\d{1,2})[:時](\d{1,2})/);
-        if (fm) { const need = (+fm[1])*60 + (+fm[2]) - Math.ceil(facToFirstSec/60); if (need < _departConf) msgs.push(`${iso} ${sl} ${cname}: 設定の出発${_fmtHM(_departConf)}では間に合いません → ${_fmtHM(Math.max(0,need))}出発が必要です`); }
+        if (fm) { const need = (+fm[1])*60 + (+fm[2]) - Math.ceil(facToFirstSec/60); if (need < _departConf) msgs.push(`${iso} ${sl} ${cname}: 最初の${_pname(ordered[0].pid)}様のお迎え(${ordered[0].t})に向かうには、施設を${_fmtHM(Math.max(0,need))}に出る必要があります（設定の出発${_fmtHM(_departConf)}より${_departConf - need}分早め）`); }
       }
       nextPlanCars[cid] = ordered;
       changed = true;
@@ -31344,32 +31368,32 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   };
   const recalcTimes = async (iso, sl) => {
     if (!window.confirm('車の組み合わせと順番はそのままで、Googleマップの移動時間からお迎え時間だけを計算し直します。\nよろしいですか？')) return;
-    setRouting(true);
+    setRouting(`${iso}_${sl}`);
     try {
-      if (!(await _probeMaps())) { setRouting(false); return; }
+      if (!(await _probeMaps())) { setRouting(null); return; }
       const { msgs, changed, entry } = await _autoRouteCore(iso, sl, plans, { keepOrder: true });
       if (changed && entry) onSave({ ...appData, transportPlans: { ...plans, [`${iso}_${sl}`]: entry } }, { silent: true });
       alert((changed ? 'この順番のまま時間を再計算しました。' : '乗車のある車がありませんでした。') + (msgs.length ? '\n\n' + msgs.join('\n') : ''));
     } catch (e) { alert('計算に失敗しました: ' + String(e && e.message || e)); }
-    setRouting(false);
+    setRouting(null);
   };
   const autoRoute = async (iso, sl) => {
     if (!window.confirm('Googleマップで方角ごとに利用者をまとめ、使う車の台数で均等に組み直します。\n各車の乗車順とお迎え時間も自動計算します(遠い方から乗せて施設へ近づく順)。\n※車の組み合わせも作り直されます。手で組んだ組み合わせを保ちたい場合は「時間」ボタンを使ってください。\nよろしいですか？')) return;
-    setRouting(true);
+    setRouting(`${iso}_${sl}`);
     try {
-      if (!(await _probeMaps())) { setRouting(false); return; }
+      if (!(await _probeMaps())) { setRouting(null); return; }
       const { msgs, changed, entry } = await _autoRouteCore(iso, sl, plans);
       if (changed && entry) onSave({ ...appData, transportPlans: { ...plans, [`${iso}_${sl}`]: entry } }, { silent: true });
       alert((changed ? 'ルートを割り振りました。時間・順番は手で直せます。' : '乗車のある車がありませんでした。') + (msgs.length ? '\n\n' + msgs.join('\n') : ''));
     } catch (e) { alert('ルート計算に失敗しました: ' + String(e && e.message || e)); }
-    setRouting(false);
+    setRouting(null);
   };
   // ★ 週間一括(2026-09-12b): 表示中の週の全営業日×午前/午後をまとめて計算
   const autoRouteWeek = async () => {
     if (!window.confirm(`表示中の週(${days.length}日分)の午前・午後すべてについて、未割当の方の自動割り当て→\nルートと時間の一括計算を行います。\n(各日の時間・順番は上書きされます)\nよろしいですか？`)) return;
-    setRouting(true);
+    setRouting('week');
     try {
-      if (!(await _probeMaps())) { setRouting(false); return; }
+      if (!(await _probeMaps())) { setRouting(null); return; }
       const allMsgs = []; let nChanged = 0;
       const acc = { ...plans };
       for (const d of days) { for (const sl of ['AM','PM']) {
@@ -31379,7 +31403,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       if (nChanged) onSave({ ...appData, transportPlans: acc }, { silent: true });
       alert(`週間ルートの一括作成が完了しました（${nChanged}コマ更新）。` + (allMsgs.length ? '\n\n' + allMsgs.join('\n') : ''));
     } catch (e) { alert('ルート計算に失敗しました: ' + String(e && e.message || e)); }
-    setRouting(false);
+    setRouting(null);
   };
 
   // ==== 印刷(A4横・1週間・午前+午後) ====
@@ -31473,7 +31497,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             if (n) onSave({ ...appData, transportPlans: np }, { silent: true });
             alert(n ? `前週から${n}コマをコピーしました。` : '前の週に保存済みの送迎表がありませんでした。');
           }} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="前の週の割り当て・時間・運転者・備考をこの週へ複製">前週コピー</button>
-          <button onClick={autoRouteWeek} disabled={routing} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-sm disabled:opacity-50" title="未割当の自動割り当て+ルートと時間をGoogleマップで週まとめて作成">{routing?'計算中…':'週間ルート一括'}</button>
+          <button onClick={autoRouteWeek} disabled={!!routing} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-sm disabled:opacity-50" title="未割当の自動割り当て+ルートと時間をGoogleマップで週まとめて作成">{routing==='week'?'計算中…':'週間ルート一括'}</button>
           <button onClick={()=>setTpSettings(true)} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="到着目標時刻・車の定員の設定">設定</button>
           <button onClick={doPrint} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-1.5"><Printer size={15}/>印刷(A4横・週間)</button>
         </div>
@@ -31489,14 +31513,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 <div className={`px-2 py-1.5 text-sm font-bold flex items-center justify-between ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-800 text-white'}`}>
                   <span>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）</span>
                   <span className="flex items-center gap-1">
-                    <button onClick={()=>autoRoute(iso, slot)} disabled={routing} title="方角ごとに車を組み直し+最短ルート+お迎え時間を自動計算" className="text-[9px] bg-white/20 hover:bg-white/30 rounded px-1.5 py-0.5 disabled:opacity-50">{routing?'計算中…':'ルート'}</button>
-                    <button onClick={()=>recalcTimes(iso, slot)} disabled={routing} title="車の組み合わせ・順番はそのままで、お迎え時間だけ再計算" className="text-[9px] bg-white/20 hover:bg-white/30 rounded px-1.5 py-0.5 disabled:opacity-50">時間</button>
+                    <button onClick={()=>autoRoute(iso, slot)} disabled={!!routing} title="方角ごとに車を組み直し+最短ルート+お迎え時間を自動計算" className="text-[9px] bg-white/20 hover:bg-white/30 rounded px-1.5 py-0.5 disabled:opacity-50">{(routing===`${iso}_${slot}`||routing==='week')?'計算中…':'ルート'}</button>
+                    <button onClick={()=>recalcTimes(iso, slot)} disabled={!!routing} title="車の組み合わせ・順番はそのままで、お迎え時間だけ再計算" className="text-[9px] bg-white/20 hover:bg-white/30 rounded px-1.5 py-0.5 disabled:opacity-50">時間</button>
                     {pl._draft ? <span className="text-[9px] bg-white/20 rounded px-1 py-0.5">下書き</span> : <span className="text-[9px] bg-emerald-500 rounded px-1 py-0.5">保存済</span>}
                   </span>
                 </div>
                 <div className="p-2 space-y-2">
                   {cars.map(c => (
-                    <div key={c.id} data-tpdrop={c.id} data-tpiso={iso} className={`border rounded-lg overflow-hidden ${dragMv&&dragMv.iso===iso?'border-blue-400 ring-1 ring-blue-200':'border-slate-300'}`}>
+                    <div key={c.id} data-tpdrop={c.id} data-tpiso={iso} className={`border rounded-lg overflow-hidden ${dragMv&&dragMv.over&&dragMv.over.zone===c.id?'border-blue-600 ring-2 ring-blue-300':(dragMv&&dragMv.iso===iso?'border-blue-400 ring-1 ring-blue-200':'border-slate-300')}`}>
                       <div className="bg-slate-200 px-2 py-1 text-[12px] font-bold text-slate-800 flex items-center gap-1">
                         <span className="truncate">{c.name}</span>
                         <select value={(pl.driver||{})[c.id]||''} onChange={e=>setDriver(iso, slot, c.id, e.target.value)} title="運転者" className="text-[10px] border border-slate-300 rounded bg-white px-0.5 py-0 max-w-[72px]">
@@ -31507,7 +31531,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                         <span className={`ml-auto ${(Number(c.cap)>0 && (pl.cars?.[c.id]||[]).length>Number(c.cap))?'text-red-600 font-extrabold':'text-slate-400'}`}>{(pl.cars?.[c.id]||[]).length}名{Number(c.cap)>0?`/${c.cap}名`:''}{(Number(c.cap)>0 && (pl.cars?.[c.id]||[]).length>Number(c.cap))?' 超過':''}</span>
                       </div>
                       {(pl.cars?.[c.id]||[]).map((m, i) => (
-                        <div key={m.pid} data-tprow data-tppid={m.pid} data-tpcid={c.id} className={`flex items-center gap-1.5 px-1.5 py-1.5 border-t border-slate-100 ${dragMv&&String(dragMv.pid)===String(m.pid)?'opacity-40':''} ${_isFurikae(iso, slot, m.pid)?'bg-emerald-100':(_isFirstVisit(m.pid, iso)?'bg-sky-100':'')}`}>
+                        <div key={m.pid} data-tprow data-tppid={m.pid} data-tpcid={c.id}
+                          style={dragMv && dragMv.over && dragMv.over.zone===c.id && String(dragMv.over.pid)===String(m.pid) && String(dragMv.pid)!==String(m.pid) ? {boxShadow:'inset 0 3px 0 #3b82f6', paddingTop:14, transition:'padding-top 0.12s'} : {transition:'padding-top 0.12s'}}
+                          className={`flex items-center gap-1.5 px-1.5 py-1.5 border-t border-slate-100 ${dragMv&&String(dragMv.pid)===String(m.pid)?'opacity-40':''} ${_isFurikae(iso, slot, m.pid)?'bg-emerald-100':(_isFirstVisit(m.pid, iso)?'bg-sky-100':'')}`}>
                           <button onClick={()=>toggleMark(iso, slot, m.pid)} title="お迎え時間変更の印(TEL)" className={`shrink-0 w-4 h-4 rounded-full border text-[9px] leading-none font-bold ${m.mark?'bg-red-600 border-red-600 text-white':'border-slate-300 text-transparent hover:border-red-400'}`}>●</button>
                           <button onClick={()=>{ if (!dragMv) setEditP({pid:m.pid}); }} {..._dragHandlers(m.pid, iso)} title="タップ=場所・乗車時間の編集 / 長押し=つかんで別の車へ移動" className="text-[13px] font-bold text-slate-800 flex-1 min-w-0 text-left leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{overflowWrap:"anywhere", touchAction:'pan-y'}}>{_pname(m.pid)}</button>
                           <input type="text" value={m.t||''} onChange={e=>setTime(iso, slot, m.pid, e.target.value)} placeholder="—:—" className={`w-14 text-center text-[13px] font-bold border rounded px-0.5 py-0.5 outline-none ${m.mark?'border-red-400 text-red-600':'border-slate-300'}`}/>
@@ -31638,7 +31664,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       {/* ★ 送迎表の設定(2026-09-12b): 到着目標時刻(逆算の基準)と車の定員をここで編集 */}
       {dragMv && ReactDOM.createPortal((
         <div style={{position:'fixed', left: dragMv.x + 10, top: dragMv.y - 14, zIndex: 100002, pointerEvents:'none', background:'#1d4ed8', color:'white', fontWeight:'bold', fontSize:14, padding:'6px 12px', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.35)'}}>
-          {dragMv.name} <span style={{fontSize:11, opacity:0.85}}>← 行きたい車の上で指を離す</span>
+          {dragMv.name} <span style={{fontSize:11, opacity:0.85}}>青い線の位置に入ります</span>
         </div>
       ), document.body)}
       {tpSettings && ReactDOM.createPortal((

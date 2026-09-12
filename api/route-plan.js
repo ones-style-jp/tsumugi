@@ -27,6 +27,7 @@ export default async function handler(req, res) {
   // ★ 2026-09-12h: 上限を23停留へ(Directions APIの上限25waypoint内)。keepOrder=trueで順番を変えずに区間時間だけ取得
   const stops = Array.isArray(body.stops) ? body.stops.map(x => String(x || '').trim()).filter(Boolean).slice(0, 23) : [];
   const keepOrder = !!body.keepOrder;
+  const departAt = Number(body.departAt) || 0; // ★ 2026-09-12j: 出発予定時刻(epoch秒)。指定時はその時間帯の交通状況で計算
   if (!origin || stops.length < 1) return res.status(400).json({ error: 'origin と stops は必須です' });
 
   try {
@@ -35,6 +36,7 @@ export default async function handler(req, res) {
       waypoints: (keepOrder ? '' : 'optimize:true|') + stops.join('|'),
       key, language: 'ja', region: 'jp',
     });
+    if (departAt > Math.floor(Date.now()/1000)) { params.set('departure_time', String(departAt)); params.set('traffic_model', 'best_guess'); }
     const r = await fetch('https://maps.googleapis.com/maps/api/directions/json?' + params.toString());
     const j = await r.json();
     if (j.status !== 'OK' || !j.routes || !j.routes[0]) {
@@ -44,7 +46,7 @@ export default async function handler(req, res) {
     const legs = route.legs || [];
     return res.status(200).json({
       order: keepOrder ? stops.map((_, i) => i) : (route.waypoint_order || stops.map((_, i) => i)),
-      legSeconds: legs.map(l => (l.duration && l.duration.value) || 0),
+      legSeconds: legs.map(l => (l.duration_in_traffic && l.duration_in_traffic.value) || (l.duration && l.duration.value) || 0),
       // ★ 方角クラスタリング用: 施設と各停留の座標(legsの端点から無追加コストで取得)
       originCoord: legs[0] && legs[0].start_location ? legs[0].start_location : null,
       stopCoords: legs.slice(0, Math.max(0, legs.length - 1)).map(l => l.end_location || null),
