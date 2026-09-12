@@ -31272,20 +31272,22 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       return h;
     };
     const header = days.map(d => `<th style="border:1px solid #333;background:#f1f5f9;font-size:10px;padding:2px;">${d.getMonth()+1}/${d.getDate()}（${DOWJ[d.getDay()]}）</th>`).join('');
-    const row = (sl, label) => `<tr><td style="border:1px solid #333;writing-mode:vertical-rl;text-align:center;font-weight:bold;font-size:11px;width:16px;background:#f8fafc;">${label}</td>
-      ${days.map(d => `<td style="border:1px solid #333;vertical-align:top;padding:2px;">${dayBlock(_iso(d), sl)}</td>`).join('')}</tr>`;
-    return `<div id="transport-print-inner" style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#111;">
-      <div style="text-align:center;font-size:16px;font-weight:bold;letter-spacing:8px;margin:2mm 0;">運　行　表</div>
-      <table style="border-collapse:collapse;width:100%;table-layout:fixed;">
-        <thead><tr><th style="border:1px solid #333;width:16px;"></th>${header}</tr></thead>
+    const row = (sl, label) => `<tr style="height:50%;"><td style="border:1px solid #333;writing-mode:vertical-rl;text-align:center;font-weight:bold;font-size:11px;width:16px;background:#f8fafc;">${label}</td>
+      ${days.map(d => `<td style="border:1px solid #333;vertical-align:top;padding:2px;background:#fff;">${dayBlock(_iso(d), sl)}</td>`).join('')}</tr>`;
+    // ★ 2026-09-12e(店舗指摘): 白背景+A4横全面に高さ配分(午前/午後50%ずつ・上詰め)で「左上に寄る」を解消
+    return `<div id="transport-print-inner" style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#111;background:#fff;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
+      <div style="text-align:center;font-size:16px;font-weight:bold;letter-spacing:8px;margin:0 0 2mm;flex:none;">運　行　表</div>
+      <table style="border-collapse:collapse;width:100%;table-layout:fixed;flex:1;height:100%;">
+        <thead><tr style="height:7mm;"><th style="border:1px solid #333;width:16px;background:#f1f5f9;"></th>${header}</tr></thead>
         <tbody>${row('AM','午前')}${row('PM','午後')}</tbody>
       </table>
-      <div style="font-size:8px;color:#475569;margin-top:2mm;">緑=振替　水色=初回利用　●=お迎え時間の変更(要TEL)　（）内=次回利用曜日</div>
+      <div style="font-size:8px;color:#475569;margin-top:1.5mm;flex:none;">緑=振替　水色=初回利用　●=お迎え時間の変更(要TEL)　（）内=次回利用曜日</div>
     </div>`;
   };
   const doPrint = () => {
     const html = buildPrintHtml();
-    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `<div style="width:277mm;">${html}</div>`, elementId: null } }));
+    // ★ A4横1枚の実寸枠(白背景・四辺余白)に収めて中央配置(2026-09-12e)
+    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `<div style="width:297mm;height:209mm;box-sizing:border-box;padding:6mm 8mm;background:#fff;overflow:hidden;">${html}</div>`, elementId: null } }));
   };
 
   // ==== 画面 ====
