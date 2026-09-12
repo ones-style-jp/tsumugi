@@ -31007,6 +31007,18 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     Object.keys(pl.cars||{}).forEach(cid => (pl.cars[cid]||[]).forEach(m => { if (m.pid === pid) m.mark = !m.mark; }));
   });
   const setMemo = (iso, sl, val) => mutate(iso, sl, (pl) => { pl.memo = val; });
+  const setDriver = (iso, sl, cid, name) => mutate(iso, sl, (pl) => { pl.driver = { ...(pl.driver||{}), [cid]: name }; });
+  // ★ ナビ起動(2026-09-12c): 車の乗車順どおりにGoogleマップの経路案内を開く(APIコスト0・運転者のスマホ向け)
+  const openNavi = (iso, sl, cid) => {
+    const fac = _facilityAddr();
+    if (!fac) { alert('各種設定→事業所情報の「住所」が未入力です。'); return; }
+    const pl = getPlan(iso, sl);
+    const members = pl.cars?.[cid] || [];
+    const addrs = members.map(m => { const pt = (appData.patients||[]).find(x=>x.id===m.pid) || {}; return `${pt.address||''}`.trim(); }).filter(Boolean);
+    if (!addrs.length) { alert('住所の入っている乗車者がいません。'); return; }
+    const u = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(fac)}&destination=${encodeURIComponent(fac)}&waypoints=${encodeURIComponent(addrs.join('|'))}&travelmode=driving`;
+    window.open(u, '_blank');
+  };
   // ★ 利用者名タップで待ち合わせ場所・所要時間を編集(利用者マスタと同じ項目に保存・2026-09-12)
   const [editP, setEditP] = useState(null); // {pid}
   const savePatientPickup = (pid, place, minutes) => {
@@ -31033,11 +31045,26 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const msgs = [];
     const fac = _facilityAddr();
     const pl = getPlan(iso, sl);
-    const carIds = cars.map(c=>c.id).filter(cid => (pl.cars?.[cid]||[]).length >= 2);
-    if (!carIds.length) return { msgs: [], changed: false };
     const target = _targetArrive(sl);
     const nextPlanCars = JSON.parse(JSON.stringify(pl.cars||{}));
+    cars.forEach(c => { nextPlanCars[c.id] = nextPlanCars[c.id] || []; });
     let changed = false;
+    // ★ 2026-09-12c(店舗要望): 未割当の方を空き定員の多い車へ自動で割り当ててからルート計算する。
+    //   定員(運転者除く)を超える割り当てはせず、乗り切らない場合は未割当に残して報告。
+    let remainUn = [];
+    {
+      const unArr = JSON.parse(JSON.stringify(pl.un||[]));
+      const freeOf = (cid) => { const cap = Number(cars.find(c=>c.id===cid)?.cap) || Infinity; return cap - (nextPlanCars[cid]||[]).length; };
+      unArr.forEach(m => {
+        let best = null, bestFree = 0;
+        cars.forEach(c => { const f = freeOf(c.id); if (f > bestFree) { bestFree = f; best = c.id; } });
+        if (best) { nextPlanCars[best].push({ ...m }); changed = true; }
+        else remainUn.push(m);
+      });
+      if (remainUn.length) msgs.push(`${iso} ${sl}: 定員不足で${remainUn.length}名を割り当てできませんでした（${remainUn.map(m=>_pname(m.pid)).join('、')}）`);
+    }
+    const carIds = cars.map(c=>c.id).filter(cid => (nextPlanCars[cid]||[]).length >= 2);
+    if (!carIds.length && !changed) return { msgs, changed: false };
     for (const cid of carIds) {
       const cname = cars.find(c=>c.id===cid)?.name || cid;
       const members = nextPlanCars[cid] || [];
@@ -31059,7 +31086,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       nextPlanCars[cid] = ordered;
       changed = true;
     }
-    if (changed) mutate(iso, sl, (npl) => { npl.cars = nextPlanCars; });
+    if (changed) mutate(iso, sl, (npl) => { npl.cars = nextPlanCars; npl.un = remainUn; });
     return { msgs, changed };
   };
   const _probeMaps = async () => {
@@ -31070,7 +31097,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     return true;
   };
   const autoRoute = async (iso, sl) => {
-    if (!window.confirm('Googleマップで各車の最短ルートを計算し、乗車順とお迎え時間を自動で割り振ります。\n(この日の時間・順番は上書きされます)\nよろしいですか？')) return;
+    if (!window.confirm('未割当の方を空いている車へ自動で割り当てたうえで、Googleマップで各車の最短ルートと\nお迎え時間を自動計算します。\n(この日の時間・順番は上書きされます)\nよろしいですか？')) return;
     setRouting(true);
     try {
       if (!(await _probeMaps())) { setRouting(false); return; }
@@ -31081,7 +31108,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   };
   // ★ 週間一括(2026-09-12b): 表示中の週の全営業日×午前/午後をまとめて計算
   const autoRouteWeek = async () => {
-    if (!window.confirm(`表示中の週(${days.length}日分)の午前・午後すべてのルートと時間を一括で計算します。\n(各日の時間・順番は上書きされます)\nよろしいですか？`)) return;
+    if (!window.confirm(`表示中の週(${days.length}日分)の午前・午後すべてについて、未割当の方の自動割り当て→\nルートと時間の一括計算を行います。\n(各日の時間・順番は上書きされます)\nよろしいですか？`)) return;
     setRouting(true);
     try {
       if (!(await _probeMaps())) { setRouting(false); return; }
@@ -31111,7 +31138,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       let h = '';
       cars.forEach(c => {
         const rows = (pl.cars?.[c.id]||[]);
-        h += `<div style="margin-bottom:3px;"><div style="font-size:8px;font-weight:bold;background:#e2e8f0;padding:0 3px;border:1px solid #333;border-bottom:none;">${esc(c.name)}</div>
+        const _drv = (pl.driver||{})[c.id] || '';
+        h += `<div style="margin-bottom:3px;"><div style="font-size:8px;font-weight:bold;background:#e2e8f0;padding:0 3px;border:1px solid #333;border-bottom:none;">${esc(c.name)}${_drv?`　運転: ${esc(_drv)}`:''}</div>
           <table style="border-collapse:collapse;width:100%;table-layout:fixed;"><colgroup><col/><col style="width:34px;"/><col style="width:20px;"/></colgroup>
           ${rows.map(m=>cell(m, iso, sl)).join('') || '<tr><td style="border:1px solid #333;font-size:8px;color:#94a3b8;padding:1px 3px;" colspan="3">—</td></tr>'}</table></div>`;
       });
@@ -31179,7 +31207,15 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 <div className="p-2 space-y-2">
                   {cars.map(c => (
                     <div key={c.id} className="border border-slate-300 rounded-lg overflow-hidden">
-                      <div className="bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-700 flex justify-between"><span>{c.name}{c.type?`（${c.type}）`:''}</span><span className={(Number(c.cap)>0 && (pl.cars?.[c.id]||[]).length>Number(c.cap))?'text-red-600 font-extrabold':'text-slate-400'}>{(pl.cars?.[c.id]||[]).length}名{Number(c.cap)>0?`/${c.cap}名`:''}{(Number(c.cap)>0 && (pl.cars?.[c.id]||[]).length>Number(c.cap))?' 定員超過':''}</span></div>
+                      <div className="bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                        <span className="truncate">{c.name}{c.type?`（${c.type}）`:''}</span>
+                        <select value={(pl.driver||{})[c.id]||''} onChange={e=>setDriver(iso, slot, c.id, e.target.value)} title="運転者" className="text-[10px] border border-slate-300 rounded bg-white px-0.5 py-0 max-w-[72px]">
+                          <option value="">運転者</option>
+                          {(ds.staff||[]).filter(st=>st.name).map(st=><option key={st.id} value={st.name}>{st.name}</option>)}
+                        </select>
+                        <button onClick={()=>openNavi(iso, slot, c.id)} title="この車の乗車順でGoogleマップの経路案内を開く" className="text-[10px] font-bold text-blue-600 border border-blue-300 rounded px-1 py-0 bg-white hover:bg-blue-50">ナビ</button>
+                        <span className={`ml-auto ${(Number(c.cap)>0 && (pl.cars?.[c.id]||[]).length>Number(c.cap))?'text-red-600 font-extrabold':'text-slate-400'}`}>{(pl.cars?.[c.id]||[]).length}名{Number(c.cap)>0?`/${c.cap}名`:''}{(Number(c.cap)>0 && (pl.cars?.[c.id]||[]).length>Number(c.cap))?' 超過':''}</span>
+                      </div>
                       {(pl.cars?.[c.id]||[]).map((m, i) => (
                         <div key={m.pid} className={`flex items-center gap-1 px-1.5 py-1 border-t border-slate-100 ${_isFurikae(iso, slot, m.pid)?'bg-emerald-100':''}`}>
                           <button onClick={()=>toggleMark(iso, slot, m.pid)} title="お迎え時間変更の印(TEL)" className={`shrink-0 w-4 h-4 rounded-full border text-[9px] leading-none font-bold ${m.mark?'bg-red-600 border-red-600 text-white':'border-slate-300 text-transparent hover:border-red-400'}`}>●</button>
