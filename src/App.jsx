@@ -30926,7 +30926,6 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const ds = appData.diarySettings || {};
   const cars = (ds.cars && ds.cars.length ? ds.cars : [{id:'car1',name:'1号車',type:''},{id:'car2',name:'2号車',type:''}]);
   const plans = appData.transportPlans || {};
-  const [slot, setSlot] = useState('AM');
   // 週の月曜(selectedDate基準)
   const _mon = (() => { const d = new Date(selectedDate || new Date()); const dw = d.getDay(); const diff = (dw === 0 ? -6 : 1 - dw); d.setDate(d.getDate() + diff); d.setHours(0,0,0,0); return d; })();
   const _iso = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -30962,7 +30961,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       // ★ 2026-09-12b: マスタのお迎え時間は「基本の時間帯と一致する時だけ」初期値に使う。
       //   午後へ振替した方に午前の8時が出るのを防ぐ(振替・帯違いは空欄=手入力かルート自動で決める)
       const _tOk = base === sl || (base === '1日' && sl === 'AM');
-      out.push({ pid: p.id, name: p.name, furikae, time: (_tOk && !furikae) ? (getPickupTimeForDow(p, dow, appData) || '') : '' });
+      const _tRaw = (_tOk && !furikae) ? (getPickupTimeForDow(p, dow, appData) || '') : '';
+      // ★ 2026-09-12k: マスタで「徒歩」の方は最初から徒歩枠へ(車に混ざらない)
+      const _isWalk = /徒歩/.test(String(getPickupTimeForDow(p, dow, appData) || '')) || /徒歩/.test(String(p.pickupTimes?.[dow] || ''));
+      out.push({ pid: p.id, name: p.name, furikae, walk: _isWalk, time: _isWalk ? '' : _tRaw });
     });
     return out;
   };
@@ -30979,7 +30981,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const carsMap = {}; cars.forEach(c => { carsMap[c.id] = []; });
     const walkers = []; const others = []; const un = [];
     att.forEach(a => {
-      if (prevWalk.has(a.pid)) { walkers.push({ pid: a.pid, t: '徒歩' }); return; }
+      if (a.walk || prevWalk.has(a.pid)) { walkers.push({ pid: a.pid, t: '徒歩' }); return; }
       if (prevOther.has(a.pid)) { others.push({ pid: a.pid, t: '' }); return; }
       const cid = prevCarOf[a.pid];
       if (cid && carsMap[cid]) carsMap[cid].push({ pid: a.pid, t: a.time, mark: false });
@@ -31146,7 +31148,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const row = el && el.closest ? el.closest('[data-tprow]') : null;
       const zone = el && el.closest ? el.closest('[data-tpdrop]') : null;
       setDragMv(d => d ? { ...d, x: e.clientX, y: e.clientY,
-        over: (zone && zone.getAttribute('data-tpiso') === d.iso) ? { zone: zone.getAttribute('data-tpdrop'), pid: (row && row.getAttribute('data-tpcid') === zone.getAttribute('data-tpdrop')) ? row.getAttribute('data-tppid') : null } : null } : d);
+        over: zone ? { iso: zone.getAttribute('data-tpiso'), slot: zone.getAttribute('data-tpslot')||'AM', zone: zone.getAttribute('data-tpdrop'),
+          pid: (row && row.getAttribute('data-tpcid') === zone.getAttribute('data-tpdrop') && row.getAttribute('data-tpiso') === zone.getAttribute('data-tpiso') && (row.getAttribute('data-tpslot')||'AM') === (zone.getAttribute('data-tpslot')||'AM')) ? row.getAttribute('data-tppid') : null } : null } : d);
     };
     const tm = (e) => { e.preventDefault(); }; // ドラッグ中は画面スクロールを止める
     const up = (e) => {
@@ -31154,10 +31157,18 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const row = el && el.closest ? el.closest('[data-tprow]') : null;
       const zone = el && el.closest ? el.closest('[data-tpdrop]') : null;
       setDragMv(d => {
-        if (d && zone && zone.getAttribute('data-tpiso') === d.iso) {
+        if (d && zone) {
+          const ziso = zone.getAttribute('data-tpiso');
+          const zsl = zone.getAttribute('data-tpslot') || 'AM';
           const dest = zone.getAttribute('data-tpdrop');
-          const before = (row && row.getAttribute('data-tpcid') === dest) ? row.getAttribute('data-tppid') : null;
-          if (String(before) !== String(d.pid)) moveMemberAt(d.iso, slot, d.pid, dest, before != null ? (isNaN(Number(before)) ? before : Number(before)) : null);
+          const before = (row && row.getAttribute('data-tpcid') === dest && row.getAttribute('data-tpiso') === ziso && (row.getAttribute('data-tpslot')||'AM') === zsl) ? row.getAttribute('data-tppid') : null;
+          const bp = before != null ? (isNaN(Number(before)) ? before : Number(before)) : null;
+          if (ziso === d.iso && zsl === d.slot) {
+            if (String(before) !== String(d.pid)) moveMemberAt(d.iso, d.slot, d.pid, dest, bp);
+          } else {
+            // ★ 2026-09-12k(店舗要望): 別の日/時間帯へドロップ=振替として登録(確認ダイアログ付き)
+            setTimeout(() => performFurikaeMove(d.pid, d.iso, d.slot, ziso, zsl, dest, bp), 0);
+          }
         }
         return null;
       });
@@ -31168,36 +31179,46 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     document.body.style.userSelect = 'none';
     return () => { document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); document.removeEventListener('touchmove', tm); document.body.style.userSelect = ''; };
   }, [dragMv ? dragMv.pid : null]);
-  const _dragHandlers = (pid, iso) => ({
-    onPointerDown: (e) => { const x = e.clientX, y = e.clientY; clearTimeout(_dragTimerRef.current); _dragTimerRef.current = setTimeout(() => { setDragMv({ pid, name: _pname(pid), iso, x, y }); }, 350); },
-    onPointerMove: (e) => { if (!dragMv) { /* 長押し前に動いたらキャンセル(スクロール優先) */ if (_dragTimerRef.current) clearTimeout(_dragTimerRef.current); } },
+  const _dragHandlers = (pid, iso, sl) => ({
+    onPointerDown: (e) => { const x = e.clientX, y = e.clientY; clearTimeout(_dragTimerRef.current); _dragTimerRef.current = setTimeout(() => { setDragMv({ pid, name: _pname(pid), iso, slot: sl, x, y }); }, 350); },
+    onPointerMove: () => { if (!dragMv) { if (_dragTimerRef.current) clearTimeout(_dragTimerRef.current); } },
     onPointerUp: () => { clearTimeout(_dragTimerRef.current); },
     onPointerLeave: () => { if (!dragMv) clearTimeout(_dragTimerRef.current); },
     onContextMenu: (e) => e.preventDefault(),
   });
-  const savePatientPickup = (pid, place, minutes) => {
-    const pats = (appData.patients||[]).map(pt => pt.id === pid ? { ...pt, pickupPlace: place, pickupMinutes: String(minutes||'').replace(/[^0-9]/g,'') } : pt);
-    onSave({ ...appData, patients: pats }, { silent: true });
+  // ★ 曜日/時間帯またぎドロップ=振替登録(2026-09-12k): 月間スケジュール・提供記録・送迎表の3点へ反映
+  const performFurikaeMove = (pid, fromIso, fromSl, toIso, toSl, destZone, beforePid) => {
+    const pt = (appData.patients||[]).find(x => x.id === pid); if (!pt) return;
+    const fD = new Date(fromIso), tD = new Date(toIso);
+    const dayNames = ['日','月','火','水','木','金','土'];
+    const srcLabel = `${fD.getMonth()+1}月${fD.getDate()}日`, destLabel = `${tD.getMonth()+1}月${tD.getDate()}日`;
+    if (!window.confirm(`${pt.name}様を【振替】として登録します。\n\n${srcLabel}（${dayNames[fD.getDay()]}・${fromSl==='AM'?'午前':'午後'}） → ${destLabel}（${dayNames[tD.getDay()]}・${toSl==='AM'?'午前':'午後'}）\n\n・${srcLabel}は「欠席（振替）」になります\n・月間スケジュールと提供記録にも反映されます\nよろしいですか？`)) return;
+    const shifts = JSON.parse(JSON.stringify(appData.monthlyShifts||{}));
+    const setShift2 = (dObj, slX, val) => { const mk = `${dObj.getFullYear()}-${String(dObj.getMonth()+1).padStart(2,'0')}`; const k = `${dObj.getDate()}_${slX}`; shifts[mk] = shifts[mk]||{}; shifts[mk][pid] = shifts[mk][pid]||{}; shifts[mk][pid][k] = val; };
+    setShift2(fD, fromSl, '欠席'); setShift2(tD, toSl, '振替');
+    const recs = JSON.parse(JSON.stringify(appData.ticketRecords||[]));
+    const upsert = (dObj, dateStr, patch) => {
+      const idx = recs.findIndex(r => r.patientId === pid && r.date === dateStr && (r.year ? r.year === dObj.getFullYear() : true));
+      if (idx >= 0) recs[idx] = { ...recs[idx], ...patch, _savedAt: syncNow() };
+      else recs.push({ id: `tr_${pid}_${dObj.getFullYear()}_${dObj.getMonth()+1}_${dObj.getDate()}`, patientId: pid, name: pt.name, kana: pt.kana||'', date: dateStr, year: dObj.getFullYear(), dayOfWeek: dayNames[dObj.getDay()], temp:'',bpUpSt:'',bpDnSt:'',plSt:'',bpUpEn:'',bpDnEn:'',plEn:'',massage:'',exercises:{},actualTime:'', kibunArrival:'',kibunArrivalReason:'',kibunDeparture:'',kibunDepartureReason:'',done:false, ...patch, _savedAt: syncNow() });
+    };
+    upsert(fD, srcLabel, { status: '欠席', tokki: `${destLabel}${toSl}へ振替` });
+    upsert(tD, destLabel, { status: '振替', furikaeAmpm: toSl, tokki: `${srcLabel}${fromSl}分振替` });
+    const tp = { ...plans };
+    const strip = (entry) => { if (!entry) return entry; const e2 = JSON.parse(JSON.stringify(entry)); Object.keys(e2.cars||{}).forEach(cid => { e2.cars[cid] = (e2.cars[cid]||[]).filter(m => m.pid !== pid); }); ['walkers','others','un'].forEach(k => { if (e2[k]) e2[k] = e2[k].filter(m => m.pid !== pid); }); if (e2.drop) { Object.keys(e2.drop.cars||{}).forEach(cid => { e2.drop.cars[cid] = (e2.drop.cars[cid]||[]).filter(m => m.pid !== pid); }); ['walkers','others'].forEach(k => { if (e2.drop[k]) e2.drop[k] = e2.drop[k].filter(m => m.pid !== pid); }); } e2._savedAt = syncNow(); return e2; };
+    const fromKey = `${fromIso}_${fromSl}`;
+    if (tp[fromKey]) tp[fromKey] = strip(tp[fromKey]);
+    const toKey = `${toIso}_${toSl}`;
+    const toEntry = tp[toKey] ? strip(tp[toKey]) : (() => { const { _draft, ...rest } = _draftPlan(toIso, toSl); return strip(rest); })();
+    const item = { pid, t: '', mark: false };
+    if (destZone === 'walk') { toEntry.walkers = [ ...(toEntry.walkers||[]), { ...item, t: '徒歩' } ]; }
+    else if (destZone === 'other') { toEntry.others = [ ...(toEntry.others||[]), item ]; }
+    else if (destZone === 'un' || !destZone || !cars.some(c => c.id === destZone)) { toEntry.un = [ ...(toEntry.un||[]), item ]; }
+    else { toEntry.cars = toEntry.cars || {}; toEntry.cars[destZone] = toEntry.cars[destZone] || []; const bi = beforePid != null ? toEntry.cars[destZone].findIndex(m => String(m.pid) === String(beforePid)) : -1; if (bi >= 0) toEntry.cars[destZone].splice(bi, 0, item); else toEntry.cars[destZone].push(item); }
+    toEntry._savedAt = syncNow();
+    tp[toKey] = toEntry;
+    onSave({ ...appData, monthlyShifts: shifts, ticketRecords: recs, transportPlans: tp }, { manual: true, message: `✓ ${pt.name}様を${destLabel}(${toSl==='AM'?'午前':'午後'})へ振替登録しました` });
   };
-  // ★ ルート自動作成(2026-09-12): Google Maps(本部キー・/api/route-plan)で車ごとに
-  //   「施設→各利用者→施設」の最短順を計算し、乗車順とお迎え時間を自動で割り振る。
-  //   到着目標 = その時間帯のスケジュール先頭時刻の5分前(無ければ AM 9:00 / PM 13:30)。
-  const [routing, setRouting] = useState(null); // ★ 計算中のキー('iso_slot' | 'week')
-  const [tpSettings, setTpSettings] = useState(false); // ★ 送迎表の設定モーダル(到着目標・定員)
-  const _facilityAddr = () => { const fi = appData.systemSettings?.facilityInfo || {}; return `${fi.address||''}${fi.addressBuilding?(' '+fi.addressBuilding):''}`.trim(); };
-  const _targetArrive = (sl) => {
-    // ★ 2026-09-12b: 送迎表の設定(到着目標時刻)を最優先。未設定ならスケジュール先頭-5分→既定値
-    const conf = String((sl === 'AM' ? ds.arriveAM : ds.arrivePM) || '').match(/(\d{1,2})[:時](\d{2})/);
-    if (conf) return (+conf[1])*60 + (+conf[2]);
-    // ★ 2026-09-12h(店舗要望): 既定値=各種設定→事業所情報の「1単位目/2単位目の開始時間」
-    const _svc = String((sl === 'AM' ? appData.systemSettings?.facilityInfo?.serviceTimeAM : appData.systemSettings?.facilityInfo?.serviceTimePM) || '').split(/[～〜]/)[0] || '';
-    const _sm2 = _svc.match(/(\d{1,2}):(\d{2})/);
-    if (_sm2) return (+_sm2[1])*60 + (+_sm2[2]);
-    const sched = sl === 'AM' ? (ds.scheduleAM||[]) : (ds.schedulePM||[]);
-    for (const row of sched) { const m = String(row?.time||'').match(/(\d{1,2})[:時](\d{2})?/); if (m) { let h=+m[1], mi=+(m[2]||0)-5; if (mi<0){h--;mi+=60;} return h*60+mi; } }
-    return sl === 'AM' ? 9*60 - 5 : 13*60 + 30 - 5;
-  };
-  const _fmtHM = (mins) => { const h = Math.floor(mins/60), m2 = mins%60; return `${h}:${String(m2).padStart(2,'0')}`; };
   // ★ ルート計算のコア(1日分・時間帯1つ): 保存はせず計算後のプランを返す。
   //   呼び出し側が1回のonSaveへまとめる(2026-09-12d: 週間一括で「後の日の保存が前の日を消す」バグの修正)。
   const _autoRouteCore = async (iso, sl, basePlans, opts) => {
@@ -31222,6 +31243,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     let remainUn = [];
     let changed = false;
 
+    // ★ 2026-09-12k: 未割当のうちマスタ徒歩の方は徒歩枠へ寄せる(車の配車対象にしない)
+    {
+      const att = _attendees(iso, sl);
+      const walkSet = new Set(att.filter(a=>a.walk).map(a=>a.pid));
+      const stayUn = [];
+      (pl.un||[]).forEach(m => { if (walkSet.has(m.pid)) { pl.walkers = pl.walkers || []; if (!pl.walkers.some(w=>w.pid===m.pid)) pl.walkers.push({ pid: m.pid, t: '徒歩' }); changed = true; } else stayUn.push(m); });
+      pl.un = stayUn;
+    }
     if (keepOrder) {
       // ★「時間」モード(2026-09-12h): 手で組んだ車・順番はそのまま、区間時間だけ取り直して時刻を再計算
       remainUn = JSON.parse(JSON.stringify(pl.un||[]));
@@ -31342,7 +31371,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       let cum = 0;
       for (let k = ordered.length - 1; k >= 0; k--) {
         const pt = (appData.patients||[]).find(x=>x.id===ordered[k].pid) || {};
-        const buf = Math.max(1, Number(pt.pickupMinutes) || 2);
+        const buf = Math.max(1, Number(pt.pickupMinutes) || 1);
         cum += buf + Math.ceil((legs[k]||0)/60);
         ordered[k] = { ...ordered[k], t: _fmtHM(Math.max(0, target - cum)) };
       }
@@ -31475,11 +31504,6 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <span className="text-sm font-bold text-slate-700 px-1 whitespace-nowrap">{_mon.getMonth()+1}/{_mon.getDate()}〜の週</span>
             <button onClick={()=>moveWeek(1)} className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-bold">翌週 ▶</button>
           </div>
-          <div className="flex rounded-xl overflow-hidden border border-slate-300">
-            {['AM','PM'].map(v=>(
-              <button key={v} onClick={()=>setSlot(v)} className={`px-4 py-1.5 text-sm font-bold ${slot===v?'bg-blue-600 text-white':'bg-white text-slate-600'}`}>{v==='AM'?'午前':'午後'}</button>
-            ))}
-          </div>
           <div className="flex-1"/>
           <button onClick={()=>{
             if (!window.confirm('前の週の送迎表(車割り当て・時間・運転者・備考)を、この週へまるごとコピーします。\nこの週に入力済みの内容は上書きされます。よろしいですか？')) return;
@@ -31507,133 +31531,118 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         <div className="grid gap-3" style={{gridTemplateColumns:`repeat(${days.length}, minmax(250px, 1fr))`, overflowX:'auto'}}>
           {days.map(d => {
             const iso = _iso(d);
-            const pl = getPlan(iso, slot);
+            const _today = iso === _iso(new Date());
             return (
               <div key={iso} className="bg-white rounded-xl border border-slate-300 shadow-sm overflow-hidden">
-                <div className={`px-2 py-1.5 text-sm font-bold flex items-center justify-between ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-800 text-white'}`}>
-                  <span>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）</span>
-                  <span className="flex items-center gap-1">
-                    <button onClick={()=>autoRoute(iso, slot)} disabled={!!routing} title="方角ごとに車を組み直し+最短ルート+お迎え時間を自動計算" className="text-[9px] bg-white/20 hover:bg-white/30 rounded px-1.5 py-0.5 disabled:opacity-50">{(routing===`${iso}_${slot}`||routing==='week')?'計算中…':'ルート'}</button>
-                    <button onClick={()=>recalcTimes(iso, slot)} disabled={!!routing} title="車の組み合わせ・順番はそのままで、お迎え時間だけ再計算" className="text-[9px] bg-white/20 hover:bg-white/30 rounded px-1.5 py-0.5 disabled:opacity-50">時間</button>
-                    {pl._draft ? <span className="text-[9px] bg-white/20 rounded px-1 py-0.5">下書き</span> : <span className="text-[9px] bg-emerald-500 rounded px-1 py-0.5">保存済</span>}
-                  </span>
-                </div>
-                <div className="p-2 space-y-2">
-                  {cars.map(c => (
-                    <div key={c.id} data-tpdrop={c.id} data-tpiso={iso} className={`border rounded-lg overflow-hidden ${dragMv&&dragMv.iso===iso&&dragMv.over&&dragMv.over.zone===c.id?'border-blue-600 ring-2 ring-blue-300':(dragMv&&dragMv.iso===iso?'border-blue-400 ring-1 ring-blue-200':'border-slate-300')}`}>
-                      <div className="bg-slate-200 px-2 py-1 text-[12px] font-bold text-slate-800 flex items-center gap-1">
-                        <span className="truncate">{c.name}</span>
-                        <select value={(pl.driver||{})[c.id]||''} onChange={e=>setDriver(iso, slot, c.id, e.target.value)} title="運転者" className="text-[10px] border border-slate-300 rounded bg-white px-0.5 py-0 max-w-[72px]">
-                          <option value="">運転者</option>
-                          {(ds.staff||[]).filter(st=>st.name).map(st=><option key={st.id} value={st.name}>{st.name}</option>)}
-                        </select>
-                        <button onClick={()=>openNavi(iso, slot, c.id)} title="この車の乗車順でGoogleマップの経路案内を開く" className="text-[10px] font-bold text-blue-600 border border-blue-300 rounded px-1 py-0 bg-white hover:bg-blue-50">ナビ</button>
-                        <span className={`ml-auto ${(Number(c.cap)>0 && (pl.cars?.[c.id]||[]).length>Number(c.cap))?'text-red-600 font-extrabold':'text-slate-400'}`}>{(pl.cars?.[c.id]||[]).length}名{Number(c.cap)>0?`/${c.cap}名`:''}{(Number(c.cap)>0 && (pl.cars?.[c.id]||[]).length>Number(c.cap))?' 超過':''}</span>
+                <div className={`px-2 py-1.5 text-sm font-bold text-white ${_today?'bg-blue-600':'bg-slate-800'}`}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）</div>
+                {['AM','PM'].map(sl => {
+                  const pl = getPlan(iso, sl);
+                  const _dropRing = dragMv && !(dragMv.iso===iso && dragMv.slot===sl);
+                  return (
+                    <div key={sl} className="border-t border-slate-200">
+                      <div className={`px-2 py-1 flex items-center gap-1.5 ${sl==='AM'?'bg-amber-50':'bg-indigo-50'}`}>
+                        <span className={`text-[12px] font-bold ${sl==='AM'?'text-amber-700':'text-indigo-700'}`}>{sl==='AM'?'午前':'午後'}</span>
+                        <button onClick={()=>autoRoute(iso, sl)} disabled={!!routing} title="方角ごとに車を組み直し+最短ルート+お迎え時間を自動計算" className="text-[10px] font-bold bg-white border border-slate-300 hover:bg-slate-100 rounded px-1.5 py-0.5 disabled:opacity-50">{(routing===`${iso}_${sl}`||routing==='week')?'計算中…':'ルート'}</button>
+                        <button onClick={()=>recalcTimes(iso, sl)} disabled={!!routing} title="車の組み合わせ・順番はそのままで、お迎え時間だけ再計算" className="text-[10px] font-bold bg-white border border-slate-300 hover:bg-slate-100 rounded px-1.5 py-0.5 disabled:opacity-50">時間</button>
+                        <span className="ml-auto">{pl._draft ? <span className="text-[9px] text-slate-500 bg-slate-200 rounded px-1 py-0.5">下書き</span> : <span className="text-[9px] text-white bg-emerald-500 rounded px-1 py-0.5">保存済</span>}</span>
                       </div>
-                      {(pl.cars?.[c.id]||[]).map((m, i) => (
-                        <div key={m.pid} data-tprow data-tppid={m.pid} data-tpcid={c.id}
-                          style={dragMv && dragMv.iso===iso && dragMv.over && dragMv.over.zone===c.id && String(dragMv.over.pid)===String(m.pid) && String(dragMv.pid)!==String(m.pid) ? {boxShadow:'inset 0 3px 0 #3b82f6', paddingTop:14, transition:'padding-top 0.12s'} : {transition:'padding-top 0.12s'}}
-                          className={`flex items-center gap-1.5 px-1.5 py-1.5 border-t border-slate-100 ${dragMv&&dragMv.iso===iso&&String(dragMv.pid)===String(m.pid)?'opacity-40':''} ${_isFurikae(iso, slot, m.pid)?'bg-emerald-100':(_isFirstVisit(m.pid, iso)?'bg-sky-100':'')}`}>
-                          <button onClick={()=>toggleMark(iso, slot, m.pid)} title="お迎え時間変更の印(TEL)" className={`shrink-0 w-4 h-4 rounded-full border text-[9px] leading-none font-bold ${m.mark?'bg-red-600 border-red-600 text-white':'border-slate-300 text-transparent hover:border-red-400'}`}>●</button>
-                          <button onClick={()=>{ if (!dragMv) setEditP({pid:m.pid}); }} {..._dragHandlers(m.pid, iso)} title="タップ=場所・乗車時間の編集 / 長押し=つかんで別の車へ移動" className="text-[13px] font-bold text-slate-800 flex-1 min-w-0 text-left leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{overflowWrap:"anywhere", touchAction:'pan-y'}}>{_pname(m.pid)}</button>
-                          <input type="text" value={m.t||''} onChange={e=>setTime(iso, slot, m.pid, e.target.value)} placeholder="—:—" className={`w-14 text-center text-[13px] font-bold border rounded px-0.5 py-0.5 outline-none ${m.mark?'border-red-400 text-red-600':'border-slate-300'}`}/>
-                          <span className="text-[10px] text-slate-500 w-4 text-center shrink-0">{_nextDow(iso, m.pid)}</span>
-                          <div className="flex flex-col shrink-0">
-                            <button onClick={()=>reorder(iso, slot, c.id, i, -1)} className="text-slate-400 hover:text-slate-700 leading-none text-[9px]">▲</button>
-                            <button onClick={()=>reorder(iso, slot, c.id, i, 1)} className="text-slate-400 hover:text-slate-700 leading-none text-[9px]">▼</button>
-                          </div>
-                          <select value={c.id} onChange={e=>moveMember(iso, slot, m.pid, e.target.value)} className="shrink-0 text-[11px] font-bold border border-slate-300 rounded px-0.5 py-0.5 bg-white max-w-[86px]">
-                            {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name}</option>)}
-                            <option value="walk">徒歩</option><option value="other">その他</option><option value="un">外す</option>
-                          </select>
-                        </div>
-                      ))}
-                      {!(pl.cars?.[c.id]||[]).length && <div className="px-2 py-1 text-[10px] text-slate-400">なし</div>}
-                    </div>
-                  ))}
-                  {!!(pl.others||[]).length && (
-                    <div data-tpdrop="other" data-tpiso={iso} className="border border-violet-200 bg-violet-50 rounded-lg px-2 py-1">
-                      <div className="text-[11px] font-bold text-violet-700 mb-0.5">その他（家族送迎・遅れて来所など）</div>
-                      {(pl.others||[]).map(m => (
-                        <div key={m.pid} className="flex items-center gap-1 text-[13px] font-bold text-slate-700 py-0.5">
-                          <span className="flex-1 leading-tight" style={{overflowWrap:'anywhere'}}>{_pname(m.pid)}</span>
-                          <select value="other" onChange={e=>moveMember(iso, slot, m.pid, e.target.value)} className="text-[11px] font-bold border border-slate-300 rounded bg-white max-w-[86px]">
-                            <option value="other">その他</option>
-                            {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name}</option>)}
-                            <option value="walk">徒歩</option><option value="un">外す</option>
-                          </select>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {!!(pl.walkers||[]).length && (
-                    <div data-tpdrop="walk" data-tpiso={iso} className="border border-emerald-200 bg-emerald-50 rounded-lg px-2 py-1">
-                      <div className="text-[10px] font-bold text-emerald-700 mb-0.5">徒歩</div>
-                      {(pl.walkers||[]).map(m => (
-                        <div key={m.pid} className="flex items-center gap-1 text-[13px] font-bold text-slate-700 py-0.5">
-                          <span className="flex-1 leading-tight" style={{overflowWrap:'anywhere'}}>{_pname(m.pid)}</span>
-                          <select value="walk" onChange={e=>moveMember(iso, slot, m.pid, e.target.value)} className="text-[11px] font-bold border border-slate-300 rounded bg-white max-w-[86px]">
-                            <option value="walk">徒歩</option>
-                            {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name}</option>)}
-                            <option value="other">その他</option><option value="un">外す</option>
-                          </select>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {!!(pl.un||[]).length && (
-                    <div data-tpdrop="un" data-tpiso={iso} className="border border-amber-300 bg-amber-50 rounded-lg px-2 py-1">
-                      <div className="text-[10px] font-bold text-amber-700 mb-0.5">未割当（車を選んでください）</div>
-                      {(pl.un||[]).map(m => (
-                        <div key={m.pid} className="flex items-center gap-1 text-[13px] font-bold text-slate-700 py-0.5">
-                          <span className={`flex-1 leading-tight ${_isFurikae(iso, slot, m.pid)?'bg-emerald-100 px-1 rounded':(_isFirstVisit(m.pid, iso)?'bg-sky-100 px-1 rounded':'')}`} style={{overflowWrap:'anywhere'}}>{_pname(m.pid)}</span>
-                          <span className="text-[11px] text-slate-500">{m.t}</span>
-                          <select value="un" onChange={e=>moveMember(iso, slot, m.pid, e.target.value)} className="text-[11px] font-bold border border-slate-300 rounded bg-white max-w-[86px]">
-                            <option value="un">未割当</option>
-                            {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name}</option>)}
-                            <option value="walk">徒歩</option><option value="other">その他</option>
-                          </select>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {/* ★ 送り(帰り)の別割り当て(2026-09-12d) */}
-                  <div className="flex items-center gap-1">
-                    <button onClick={()=>toggleDropMode(iso, slot)} className={`text-[10px] font-bold rounded px-2 py-1 border ${pl.dropMode==='custom'?'bg-indigo-600 text-white border-indigo-600':'bg-white text-slate-500 border-slate-300 hover:bg-slate-50'}`}>
-                      {pl.dropMode==='custom' ? '送り: 別に設定中' : '送り: 迎えと同じ（タップで別に）'}
-                    </button>
-                  </div>
-                  {pl.dropMode==='custom' && pl.drop && (
-                    <div className="border border-indigo-200 bg-indigo-50/40 rounded-lg p-1.5 space-y-1.5">
-                      <div className="text-[10px] font-bold text-indigo-700">送り（帰り）の車</div>
-                      {cars.map(c => (
-                        <div key={c.id} className="border border-slate-200 rounded bg-white overflow-hidden">
-                          <div className="bg-slate-50 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 flex justify-between"><span>{c.name}</span><span className={(Number(c.cap)>0 && (pl.drop.cars?.[c.id]||[]).length>Number(c.cap))?'text-red-600 font-extrabold':'text-slate-400'}>{(pl.drop.cars?.[c.id]||[]).length}名{Number(c.cap)>0?`/${c.cap}名`:''}</span></div>
-                          {(pl.drop.cars?.[c.id]||[]).map((m, i) => (
-                            <div key={m.pid} className="flex items-center gap-1 px-1.5 py-0.5 border-t border-slate-100">
-                              <span className="text-[11px] font-bold text-slate-700 flex-1 min-w-0 leading-tight" style={{overflowWrap:'anywhere'}}>{_pname(m.pid)}</span>
-                              <div className="flex flex-col shrink-0">
-                                <button onClick={()=>reorderDrop(iso, slot, c.id, i, -1)} className="text-slate-400 hover:text-slate-700 leading-none text-[8px]">▲</button>
-                                <button onClick={()=>reorderDrop(iso, slot, c.id, i, 1)} className="text-slate-400 hover:text-slate-700 leading-none text-[8px]">▼</button>
-                              </div>
-                              <select value={c.id} onChange={e=>moveMemberDrop(iso, slot, m.pid, e.target.value)} className="shrink-0 text-[11px] font-bold border border-slate-300 rounded px-0.5 py-0 bg-white max-w-[86px]">
-                                {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name}</option>)}
-                                <option value="walk">徒歩</option><option value="other">その他</option>
+                      <div className="p-2 space-y-2">
+                        {cars.map(c => (
+                          <div key={c.id} data-tpdrop={c.id} data-tpiso={iso} data-tpslot={sl} className={`border rounded-lg overflow-hidden ${dragMv&&dragMv.over&&dragMv.over.zone===c.id&&dragMv.over.iso===iso&&dragMv.over.slot===sl?'border-blue-600 ring-2 ring-blue-300':(dragMv?'border-blue-300':'border-slate-300')}`}>
+                            <div className="bg-slate-200 px-2 py-1 text-[12px] font-bold text-slate-800 flex items-center gap-1">
+                              <span className="truncate">{c.name}</span>
+                              <select value={(pl.driver||{})[c.id]||''} onChange={e=>setDriver(iso, sl, c.id, e.target.value)} title="運転者" className="text-[12px] font-bold border border-slate-300 rounded bg-white px-1 py-1 min-w-[84px]">
+                                <option value="">運転者</option>
+                                {(ds.staff||[]).filter(st=>st.name).map(st=><option key={st.id} value={st.name}>{st.name}</option>)}
                               </select>
+                              <button onClick={()=>openNavi(iso, sl, c.id)} title="この車の乗車順でGoogleマップの経路案内を開く" className="text-[10px] font-bold text-blue-600 border border-blue-300 rounded px-1 py-0 bg-white hover:bg-blue-50">ナビ</button>
+                              <span className={`ml-auto ${(Number(c.cap)>0 && (pl.cars?.[c.id]||[]).length>Number(c.cap))?'text-red-600 font-extrabold':'text-slate-500'}`}>{(pl.cars?.[c.id]||[]).length}名{Number(c.cap)>0?`/${c.cap}名`:''}{(Number(c.cap)>0 && (pl.cars?.[c.id]||[]).length>Number(c.cap))?' 超過':''}</span>
                             </div>
-                          ))}
-                          {!(pl.drop.cars?.[c.id]||[]).length && <div className="px-1.5 py-0.5 text-[9px] text-slate-400">なし</div>}
+                            {(pl.cars?.[c.id]||[]).map((m) => (
+                              <div key={m.pid} data-tprow data-tppid={m.pid} data-tpcid={c.id} data-tpiso={iso} data-tpslot={sl}
+                                style={dragMv && dragMv.over && dragMv.over.iso===iso && dragMv.over.slot===sl && dragMv.over.zone===c.id && String(dragMv.over.pid)===String(m.pid) && !(dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)) ? {boxShadow:'inset 0 3px 0 #3b82f6', paddingTop:14, transition:'padding-top 0.12s'} : {transition:'padding-top 0.12s'}}
+                                className={`flex items-center gap-1.5 px-1.5 py-1.5 border-t border-slate-100 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''} ${_isFurikae(iso, sl, m.pid)?'bg-emerald-100':(_isFirstVisit(m.pid, iso)?'bg-sky-100':'')}`}>
+                                <button onClick={()=>toggleMark(iso, sl, m.pid)} title="お迎え時間変更の印(TEL)" className={`shrink-0 w-4 h-4 rounded-full border text-[9px] leading-none font-bold ${m.mark?'bg-red-600 border-red-600 text-white':'border-slate-300 text-transparent hover:border-red-400'}`}>●</button>
+                                <button onClick={()=>{ if (!dragMv) setEditP({pid:m.pid}); }} {..._dragHandlers(m.pid, iso, sl)} title="タップ=場所・乗車時間の編集 / 長押し=つかんで移動(別の日に落とすと振替)" className="text-[13px] font-bold text-slate-800 flex-1 min-w-0 text-left leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{overflowWrap:"anywhere", touchAction:'pan-y'}}>{_pname(m.pid)}</button>
+                                <input type="text" value={m.t||''} onChange={e=>setTime(iso, sl, m.pid, e.target.value)} placeholder="—:—" className={`w-14 text-center text-[13px] font-bold border rounded px-0.5 py-0.5 outline-none ${m.mark?'border-red-400 text-red-600':'border-slate-300'}`}/>
+                              </div>
+                            ))}
+                            {!(pl.cars?.[c.id]||[]).length && <div className="px-2 py-1 text-[10px] text-slate-400">{dragMv?'ここにドロップ':'なし'}</div>}
+                          </div>
+                        ))}
+                        {(!!(pl.walkers||[]).length || dragMv) && (
+                          <div data-tpdrop="walk" data-tpiso={iso} data-tpslot={sl} className={`border rounded-lg px-2 py-1 ${dragMv&&dragMv.over&&dragMv.over.zone==='walk'&&dragMv.over.iso===iso&&dragMv.over.slot===sl?'border-emerald-600 ring-2 ring-emerald-300 bg-emerald-50':'border-emerald-200 bg-emerald-50'}`}>
+                            <div className="text-[11px] font-bold text-emerald-700 mb-0.5">徒歩</div>
+                            {(pl.walkers||[]).map(m => (
+                              <div key={m.pid} className={`flex items-center gap-1 text-[13px] font-bold text-slate-700 py-0.5 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''}`}>
+                                <span className="flex-1 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{overflowWrap:'anywhere', touchAction:'pan-y'}} {..._dragHandlers(m.pid, iso, sl)}>{_pname(m.pid)}</span>
+                              </div>
+                            ))}
+                            {!(pl.walkers||[]).length && <div className="text-[10px] text-emerald-500">ここにドロップで徒歩</div>}
+                          </div>
+                        )}
+                        {(!!(pl.others||[]).length || dragMv) && (
+                          <div data-tpdrop="other" data-tpiso={iso} data-tpslot={sl} className={`border rounded-lg px-2 py-1 ${dragMv&&dragMv.over&&dragMv.over.zone==='other'&&dragMv.over.iso===iso&&dragMv.over.slot===sl?'border-violet-600 ring-2 ring-violet-300 bg-violet-50':'border-violet-200 bg-violet-50'}`}>
+                            <div className="text-[11px] font-bold text-violet-700 mb-0.5">その他（家族送迎・遅れて来所など）</div>
+                            {(pl.others||[]).map(m => (
+                              <div key={m.pid} className={`flex items-center gap-1 text-[13px] font-bold text-slate-700 py-0.5 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''}`}>
+                                <span className="flex-1 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{overflowWrap:'anywhere', touchAction:'pan-y'}} {..._dragHandlers(m.pid, iso, sl)}>{_pname(m.pid)}</span>
+                              </div>
+                            ))}
+                            {!(pl.others||[]).length && <div className="text-[10px] text-violet-500">ここにドロップでその他</div>}
+                          </div>
+                        )}
+                        {(!!(pl.un||[]).length || dragMv) && (
+                          <div data-tpdrop="un" data-tpiso={iso} data-tpslot={sl} className={`border rounded-lg px-2 py-1 ${dragMv&&dragMv.over&&dragMv.over.zone==='un'&&dragMv.over.iso===iso&&dragMv.over.slot===sl?'border-amber-600 ring-2 ring-amber-300 bg-amber-50':'border-amber-300 bg-amber-50'}`}>
+                            <div className="text-[11px] font-bold text-amber-700 mb-0.5">未割当</div>
+                            {(pl.un||[]).map(m => (
+                              <div key={m.pid} className={`flex items-center gap-1 text-[13px] font-bold text-slate-700 py-0.5 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''} ${_isFurikae(iso, sl, m.pid)?'bg-emerald-100 rounded':(_isFirstVisit(m.pid, iso)?'bg-sky-100 rounded':'')}`}>
+                                <span className="flex-1 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2 px-1" style={{overflowWrap:'anywhere', touchAction:'pan-y'}} {..._dragHandlers(m.pid, iso, sl)}>{_pname(m.pid)}</span>
+                                <span className="text-[11px] text-slate-500">{m.t}</span>
+                              </div>
+                            ))}
+                            {!(pl.un||[]).length && <div className="text-[10px] text-amber-600">ここにドロップで未割当へ</div>}
+                          </div>
+                        )}
+                        <div className="flex items-center gap-1">
+                          <button onClick={()=>toggleDropMode(iso, sl)} className={`text-[10px] font-bold rounded px-2 py-1 border ${pl.dropMode==='custom'?'bg-indigo-600 text-white border-indigo-600':'bg-white text-slate-500 border-slate-300 hover:bg-slate-50'}`}>
+                            {pl.dropMode==='custom' ? '送り: 別に設定中' : '送り: 迎えと同じ（タップで別に）'}
+                          </button>
                         </div>
-                      ))}
-                      {!!(pl.drop.walkers||[]).length && (
-                        <div className="text-[10px] font-bold text-emerald-700">徒歩: {(pl.drop.walkers||[]).map(m=>(
-                          <span key={m.pid} className="mr-2">{_pname(m.pid)}<select value="walk" onChange={e=>moveMemberDrop(iso, slot, m.pid, e.target.value)} className="ml-0.5 text-[10px] font-bold border border-slate-300 rounded bg-white max-w-[80px]"><option value="walk">徒歩</option>{cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name}</option>)}<option value="other">その他</option></select></span>
-                        ))}</div>
-                      )}
+                        {pl.dropMode==='custom' && pl.drop && (
+                          <div className="border border-indigo-200 bg-indigo-50/40 rounded-lg p-1.5 space-y-1.5">
+                            <div className="text-[10px] font-bold text-indigo-700">送り（帰り）の車</div>
+                            {cars.map(c => (
+                              <div key={c.id} className="border border-slate-200 rounded bg-white overflow-hidden">
+                                <div className="bg-slate-50 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 flex justify-between"><span>{c.name}</span><span className={(Number(c.cap)>0 && (pl.drop.cars?.[c.id]||[]).length>Number(c.cap))?'text-red-600 font-extrabold':'text-slate-400'}>{(pl.drop.cars?.[c.id]||[]).length}名{Number(c.cap)>0?`/${c.cap}名`:''}</span></div>
+                                {(pl.drop.cars?.[c.id]||[]).map((m, i) => (
+                                  <div key={m.pid} className="flex items-center gap-1 px-1.5 py-0.5 border-t border-slate-100">
+                                    <span className="text-[11px] font-bold text-slate-700 flex-1 min-w-0 leading-tight" style={{overflowWrap:'anywhere'}}>{_pname(m.pid)}</span>
+                                    <div className="flex flex-col shrink-0">
+                                      <button onClick={()=>reorderDrop(iso, sl, c.id, i, -1)} className="text-slate-400 hover:text-slate-700 leading-none text-[8px]">▲</button>
+                                      <button onClick={()=>reorderDrop(iso, sl, c.id, i, 1)} className="text-slate-400 hover:text-slate-700 leading-none text-[8px]">▼</button>
+                                    </div>
+                                    <select value={c.id} onChange={e=>moveMemberDrop(iso, sl, m.pid, e.target.value)} className="shrink-0 text-[11px] font-bold border border-slate-300 rounded px-0.5 py-0 bg-white max-w-[86px]">
+                                      {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name}</option>)}
+                                      <option value="walk">徒歩</option><option value="other">その他</option>
+                                    </select>
+                                  </div>
+                                ))}
+                                {!(pl.drop.cars?.[c.id]||[]).length && <div className="px-1.5 py-0.5 text-[9px] text-slate-400">なし</div>}
+                              </div>
+                            ))}
+                            {!!(pl.drop.walkers||[]).length && (
+                              <div className="text-[10px] font-bold text-emerald-700">徒歩: {(pl.drop.walkers||[]).map(m=>(
+                                <span key={m.pid} className="mr-2">{_pname(m.pid)}<select value="walk" onChange={e=>moveMemberDrop(iso, sl, m.pid, e.target.value)} className="ml-0.5 text-[10px] font-bold border border-slate-300 rounded bg-white max-w-[80px]"><option value="walk">徒歩</option>{cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name}</option>)}<option value="other">その他</option></select></span>
+                              ))}</div>
+                            )}
+                          </div>
+                        )}
+                        <input type="text" value={pl.memo||''} onChange={e=>setMemo(iso, sl, e.target.value)} placeholder="備考（TEL・初回など）" className="w-full text-[11px] border border-slate-200 rounded-lg px-2 py-1 outline-none placeholder:text-slate-300"/>
+                      </div>
                     </div>
-                  )}
-                  <input type="text" value={pl.memo||''} onChange={e=>setMemo(iso, slot, e.target.value)} placeholder="備考（TEL・初回など）" className="w-full text-[11px] border border-slate-200 rounded-lg px-2 py-1 outline-none placeholder:text-slate-300"/>
-                </div>
+                  );
+                })}
               </div>
             );
           })}
@@ -31652,7 +31661,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               <input type="text" defaultValue={pt.pickupPlace||''} id="tp-edit-place" placeholder="例: 自宅前 / ○○マンション入口" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none mb-3"/>
               <label className="block text-xs font-bold text-slate-600 mb-1">乗車にかかる時間（分）＝車を停めてから乗せ終わるまで</label>
               <select defaultValue={String(pt.pickupMinutes||'')} id="tp-edit-min" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none mb-4 bg-white">
-                <option value="">未設定（2分として計算）</option>
+                <option value="">未設定（1分として計算）</option>
                 {Array.from({length:15},(_,i)=>i+1).map(v=><option key={v} value={v}>{v}分</option>)}
               </select>
               <div className="flex justify-end gap-2">
@@ -34415,11 +34424,11 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                         <div>
                           <label className="block text-xs font-bold text-slate-600 mb-1">乗車にかかる時間（分）</label>
                           <select disabled={isOff} value={String(localPatient.pickupMinutes || '')} onChange={e=>updateLP('pickupMinutes', e.target.value)} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none disabled:opacity-60">
-                            <option value="">未設定（2分として計算）</option>
+                            <option value="">未設定（1分として計算）</option>
                             {Array.from({length:15},(_,i)=>i+1).map(v=><option key={v} value={v}>{v}分</option>)}
                           </select>
                         </div>
-                        <div className="col-span-2 text-[11px] text-slate-500">乗車にかかる時間=車を停めてから（マンション1階等）お部屋へお迎えに行き、車に乗せ終わるまでの時間。送迎表のルート自動作成で移動時間に上乗せして逆算に使います（未入力は2分）。</div>
+                        <div className="col-span-2 text-[11px] text-slate-500">乗車にかかる時間=車を停めてから（マンション1階等）お部屋へお迎えに行き、車に乗せ終わるまでの時間。送迎表のルート自動作成で移動時間に上乗せして逆算に使います（未入力は1分）。</div>
                       </div>
                     </div>
                   </div>
