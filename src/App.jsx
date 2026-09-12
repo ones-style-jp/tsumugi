@@ -31343,10 +31343,22 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           //   住所グループを1つの塊として扱い、必ず同じ車に乗るように変更(定員に入り切らない場合のみ分割)。
           const latR = originC.lat * Math.PI / 180;
           const _dist2 = (c1, c2) => { const dx = (c1.lng - c2.lng) * Math.cos(latR), dy = c1.lat - c2.lat; return dx*dx + dy*dy; };
-          const _gKey = (pid) => { const pt2 = (appData.patients||[]).find(x=>x.id===pid) || {}; const a = String(pt2.address||'').normalize('NFKC').replace(/[\s　]/g,'').toLowerCase(); return a || `_solo_${pid}`; };
-          const _gMap = {};
-          okRiders.forEach((m, i) => { const k = _gKey(m.pid); (_gMap[k] = _gMap[k] || []).push({ m, c: coords[i] }); });
-          let gPool = Object.values(_gMap).map(ms => ({ ms, c: ms[0].c, w: ms.length }));
+          // ★ 2026-09-13f(店舗再指摘): 完全一致比較では「同じマンションで部屋番号違い」(千石1-7-10-315/504/514/615・全角混在)が別住所扱いだった。
+          //   建物キー(丁目/番/号→ハイフン正規化+数字3ブロックまで=部屋番号や建物名を除去)一致、または座標がほぼ同一地点(約30m以内)なら同じグループ。
+          const _gKey = (pid) => {
+            const pt2 = (appData.patients||[]).find(x=>x.id===pid) || {};
+            let a = String(pt2.address||'').normalize('NFKC').replace(/[\s　]/g,'').replace(/[－ー‐−–—]/g,'-').replace(/丁目|番地|号室|番|号/g,'-').replace(/-+/g,'-').toLowerCase();
+            const mm = a.match(/^(.*?\d+(?:-\d+){0,2})/);
+            return (mm ? mm[1] : a).replace(/-+$/,'');
+          };
+          const TH2 = 1.0e-7; // 度^2 ≒ 約30m四方(同じ建物・同じ乗車地点とみなす)
+          let gPool = [];
+          okRiders.forEach((m, i) => {
+            const k = _gKey(m.pid); const c0 = coords[i];
+            const g = gPool.find(g2 => (k && g2.k === k) || _dist2(g2.c, c0) <= TH2);
+            if (g) { g.ms.push({ m, c: c0 }); g.w++; }
+            else gPool.push({ k, c: c0, ms: [{ m, c: c0 }], w: 1 });
+          });
           const nCars = cars.length;
           const caps = cars.map(c => Number(c.cap) || Infinity);
           nextPlanCars = {}; cars.forEach(c => { nextPlanCars[c.id] = []; });
@@ -31454,7 +31466,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       // ★ 同じ住所の方は同じお迎え時間に統一(同じ建物・ご夫婦など。早い方の時間に合わせる)(2026-09-13c/d)
       //   住所のみで比較(待ち合わせ場所の違いは無視)+全半角・空白の表記ゆれを正規化して比較
       {
-        const _adKey = (pid) => { const pt2 = (appData.patients||[]).find(x=>x.id===pid) || {}; return String(pt2.address||'').normalize('NFKC').replace(/[\s　]/g,'').toLowerCase(); };
+        // 建物キーで比較(部屋番号・建物名・丁目/番/号や全角の表記ゆれを吸収) — 同じマンションの方は同じ時間に(2026-09-13f)
+        const _adKey = (pid) => { const pt2 = (appData.patients||[]).find(x=>x.id===pid) || {}; let a = String(pt2.address||'').normalize('NFKC').replace(/[\s　]/g,'').replace(/[－ー‐−–—]/g,'-').replace(/丁目|番地|号室|番|号/g,'-').replace(/-+/g,'-').toLowerCase(); const mm = a.match(/^(.*?\d+(?:-\d+){0,2})/); return (mm ? mm[1] : a).replace(/-+$/,''); };
         const _tByAddr = {};
         ordered = ordered.map(m2 => { const a3 = _adKey(m2.pid); if (!a3) return m2; if (_tByAddr[a3] == null) { _tByAddr[a3] = m2.t; return m2; } return { ...m2, t: _tByAddr[a3] }; });
       }
