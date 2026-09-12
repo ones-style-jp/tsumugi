@@ -30969,6 +30969,28 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     return out;
   };
 
+  // ★ 2026-09-13e(店舗要望): その日お休みの方(基本利用日なのに欠席・振替・休止で来ない方)を下部に表示するためのリスト
+  const _absentees = (iso, sl) => {
+    const d = new Date(iso); const dow = d.getDay(); const dayNum = d.getDate();
+    const mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const _hol = (appData.holidays||[]).find(h => (h && (h.date||h)) === iso);
+    if (_hol && (!_hol.ampm || _hol.ampm === '1日' || _hol.ampm === sl)) return [];
+    const out = [];
+    (appData.patients||[]).forEach(p => {
+      if (isPatientResigned(p)) return;
+      const base = getScheduleOnDate(p, iso)?.[dow] || '';
+      const baseHit = base === sl || (base === '1日' && sl === 'AM');
+      if (!baseHit) return;
+      const ov = appData.monthlyShifts?.[mk]?.[p.id]?.[`${dayNum}_${sl}`];
+      let attending;
+      if (ov !== undefined && ov !== '') attending = (ov === '〇' || ov === '出席' || ov === '臨時' || String(ov).startsWith('振'));
+      else attending = p.status !== '休止';
+      if (attending && !getPauseReasonOnDate(p, iso)) return;
+      out.push({ pid: p.id, name: p.name });
+    });
+    return out;
+  };
+
   // 表示用プラン: 保存済みがあればそれ、無ければ自動下書き(前週同曜日の車割りをコピー)
   const _draftPlan = (iso, sl) => {
     const att = _attendees(iso, sl);
@@ -31317,32 +31339,52 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           _originCoord = originC;
           // ★ 2026-09-12j(精度改良): 方角の輪切りだと境目で「近い家同士が別の車」になる(澤栗/飯塚の事例)。
           //   「最も遠い方を種にして、その近所を近い順に集める」貪欲クラスタリングへ変更(台数で均等・定員厳守)。
+          // ★ 2026-09-13e(店舗指摘): 同じ住所の方(ご家族・同じ建物)が均等割りの境目で別の車に割れていた(千石1-7-10の4名)。
+          //   住所グループを1つの塊として扱い、必ず同じ車に乗るように変更(定員に入り切らない場合のみ分割)。
           const latR = originC.lat * Math.PI / 180;
           const _dist2 = (c1, c2) => { const dx = (c1.lng - c2.lng) * Math.cos(latR), dy = c1.lat - c2.lat; return dx*dx + dy*dy; };
-          const pool = okRiders.map((m, i) => ({ m, c: coords[i] }));
+          const _gKey = (pid) => { const pt2 = (appData.patients||[]).find(x=>x.id===pid) || {}; const a = String(pt2.address||'').normalize('NFKC').replace(/[\s　]/g,'').toLowerCase(); return a || `_solo_${pid}`; };
+          const _gMap = {};
+          okRiders.forEach((m, i) => { const k = _gKey(m.pid); (_gMap[k] = _gMap[k] || []).push({ m, c: coords[i] }); });
+          let gPool = Object.values(_gMap).map(ms => ({ ms, c: ms[0].c, w: ms.length }));
           const nCars = cars.length;
           const caps = cars.map(c => Number(c.cap) || Infinity);
-          const base = Math.floor(pool.length / nCars), extraN = pool.length % nCars;
-          const sizes = cars.map((_, i) => Math.min(caps[i], base + (i < extraN ? 1 : 0)));
-          let deficit = pool.length - sizes.reduce((a,b)=>a+b,0);
-          for (let i = 0; i < nCars && deficit > 0; i++) { const room = (caps[i] === Infinity ? deficit : Math.max(0, caps[i] - sizes[i])); const add = Math.min(room, deficit); sizes[i] += add; deficit -= add; }
           nextPlanCars = {}; cars.forEach(c => { nextPlanCars[c.id] = []; });
+          let remainCnt = okRiders.length;
           cars.forEach((c, i) => {
-            if (!pool.length || sizes[i] <= 0) return;
-            // 種=施設から最も遠い残り
-            let seedIdx = 0, farD = -1;
-            pool.forEach((x, k) => { const d = _dist2(x.c, originC); if (d > farD) { farD = d; seedIdx = k; } });
-            const cluster = [pool.splice(seedIdx, 1)[0]];
-            while (cluster.length < sizes[i] && pool.length) {
-              // クラスタの重心に最も近い残りを追加(近所をまとめる)
-              const cx = cluster.reduce((a,x)=>a+x.c.lng,0)/cluster.length, cy = cluster.reduce((a,x)=>a+x.c.lat,0)/cluster.length;
-              let ni = 0, nd = Infinity;
-              pool.forEach((x, k) => { const d = _dist2(x.c, {lng:cx, lat:cy}); if (d < nd) { nd = d; ni = k; } });
-              cluster.push(pool.splice(ni, 1)[0]);
+            if (!gPool.length) return;
+            const carsLeft = nCars - i;
+            let room = Math.min(caps[i], Math.max(1, Math.ceil(remainCnt / carsLeft)));
+            if (i === nCars - 1) room = (caps[i] === Infinity) ? remainCnt : Math.min(caps[i], remainCnt); // 最後の車は乗れるだけ
+            // 種=施設から最も遠い残りグループ(この車に収まるもの)
+            const fits = gPool.filter(g => g.w <= room);
+            if (!fits.length) return; // 収まるグループ無し→次の車へ(残りは後段の詰め込みで処理)
+            let seed = null, farD = -1;
+            fits.forEach(g => { const d2 = _dist2(g.c, originC); if (d2 > farD) { farD = d2; seed = g; } });
+            const cluster = [seed]; let cnt = seed.w;
+            gPool = gPool.filter(g => g !== seed);
+            while (cnt < room && gPool.length) {
+              // クラスタの重心(人数重み付き)に最も近い残りグループを追加(近所をまとめる)
+              const cx = cluster.reduce((a,g)=>a+g.c.lng*g.w,0)/cnt, cy = cluster.reduce((a,g)=>a+g.c.lat*g.w,0)/cnt;
+              let ni = -1, nd = Infinity;
+              gPool.forEach((g, k) => { if (g.w > room - cnt) return; const d2 = _dist2(g.c, {lng:cx, lat:cy}); if (d2 < nd) { nd = d2; ni = k; } });
+              if (ni < 0) break; // 残り枠に収まるグループが無い
+              const g = gPool.splice(ni, 1)[0]; cluster.push(g); cnt += g.w;
             }
-            nextPlanCars[c.id] = cluster.map(x => ({ ...x.m }));
+            nextPlanCars[c.id] = cluster.flatMap(g => g.ms.map(x => ({ ...x.m })));
+            remainCnt -= cnt;
           });
-          pool.forEach(x => remainUn.push(x.m));
+          // 残ったグループ: 空きの大きい車へ(できれば分けずに・定員に入り切らない場合のみ分割)
+          gPool.sort((a,b)=>b.w-a.w).forEach(g => {
+            let ms = g.ms.slice();
+            while (ms.length) {
+              let best = null, bestFree = 0;
+              cars.forEach(c => { const cap = Number(c.cap) || Infinity; const free = cap - (nextPlanCars[c.id]||[]).length; if (free > bestFree) { bestFree = free; best = c.id; } });
+              if (!best) { ms.forEach(x => remainUn.push(x.m)); break; }
+              const take = ms.splice(0, (bestFree === Infinity) ? ms.length : Math.min(bestFree, ms.length));
+              take.forEach(x => nextPlanCars[best].push({ ...x.m }));
+            }
+          });
           if (remainUn.length > noAddr.length) msgs.push(`${iso} ${sl}: 定員不足で${remainUn.length - noAddr.length}名を割り当てできませんでした`);
           changed = true;
         } else {
@@ -31491,6 +31533,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       if (pl.dropMode === 'custom' && pl.drop) u += 2;
       if (pl.memo) u += 1;
       if ((pl.un||[]).length) u += 1;
+      if (_absentees(iso, sl).length) u += 1;
       return u;
     };
     const uAM = Math.max(...days.map(d => unitsOf(_iso(d), 'AM')));
@@ -31539,6 +31582,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       }
       if (pl.memo) h += `<div style="font-size:${fzS}px;color:#b91c1c;font-weight:bold;border-top:1px dashed #999;margin-top:2px;">備考: ${esc(pl.memo)}</div>`;
       if ((pl.un||[]).length) h += `<div style="font-size:${fzS}px;color:#b45309;">未割当: ${(pl.un||[]).map(m=>esc(_pname(m.pid))).join('、')}</div>`;
+      // ★ お休みの方を下部に記載(2026-09-13e)
+      const _abs2 = _absentees(iso, sl);
+      if (_abs2.length) h += `<div style="font-size:${fzS}px;color:#64748b;border-top:1px dashed #999;margin-top:2px;">休み: ${_abs2.map(a=>esc(a.name)).join('、')}</div>`;
       return h;
     };
     const header = days.map(d => `<th style="border:1px solid #333;background:#f1f5f9;font-size:11px;padding:2px;">${d.getMonth()+1}/${d.getDate()}（${DOWJ[d.getDay()]}）</th>`).join('');
@@ -31720,6 +31766,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                           </div>
                         )}
                         <input type="text" value={pl.memo||''} onChange={e=>setMemo(iso, sl, e.target.value)} placeholder="備考（TEL・初回など）" className="w-full text-[11px] border border-slate-200 rounded-lg px-2 py-1 outline-none placeholder:text-slate-300"/>
+                        {/* ★ お休みの方(基本利用日なのに欠席/振替で不在)を下部に表示(2026-09-13e) */}
+                        {(() => { const _abs = _absentees(iso, sl); return _abs.length ? (
+                          <div className="text-[10px] font-bold text-slate-400 leading-snug border-t border-dashed border-slate-200 pt-1">休み: {_abs.map(a=>a.name).join('、')}</div>
+                        ) : null; })()}
                       </div>
                     </div>
                   );
