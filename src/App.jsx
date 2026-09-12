@@ -31279,7 +31279,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <div className="space-y-2 mb-4">
               {cars.map((c, i) => (
                 <div key={c.id} className="flex items-center gap-2">
-                  <span className="text-sm font-bold text-slate-700 w-28 truncate">{c.name}{c.type?`（${c.type}）`:''}</span>
+                  {/* ★ 2026-09-12c: 車名が「シエン…」と見切れないよう幅固定をやめて折返し表示 */}
+                  <span className="text-sm font-bold text-slate-700 flex-1 min-w-0 break-words leading-tight">{c.name}{c.type?`（${c.type}）`:''}</span>
                   <input type="text" inputMode="numeric" defaultValue={c.cap||''} id={`tp-set-cap-${c.id}`} placeholder="定員" className="w-20 px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none text-center"/>
                   <span className="text-xs text-slate-500">名（運転者を除く）</span>
                 </div>

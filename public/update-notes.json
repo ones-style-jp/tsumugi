@@ -1,7 +1,15 @@
 {
-  "version": "upd-2026-0912-trial3",
+  "version": "upd-2026-0912-trial4",
   "updatedAt": "2026-09-08",
   "notes": [
+    {
+      "id": "upd-2026-0912-transport-namefix",
+      "date": "2026-09-12",
+      "type": "improve",
+      "title": "【試験版】送迎表の設定画面で車名が見切れないようにしました",
+      "body": "送迎表の設定画面で「1号車（シエン…」のように車名が途中で切れていたのを、全文表示(折返し)に修正しました。",
+      "prompt": "all"
+    },
     {
       "id": "upd-2026-0912-transport-v12",
       "date": "2026-09-12",
