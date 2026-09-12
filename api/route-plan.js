@@ -23,6 +23,7 @@ export default async function handler(req, res) {
   if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
   body = body || {};
   const origin = String(body.origin || '').trim();
+  const destination = String(body.destination || body.origin || '').trim();  // ★ 片道ルート用(既定=originへ戻る輪)
   // ★ 2026-09-12h: 上限を23停留へ(Directions APIの上限25waypoint内)。keepOrder=trueで順番を変えずに区間時間だけ取得
   const stops = Array.isArray(body.stops) ? body.stops.map(x => String(x || '').trim()).filter(Boolean).slice(0, 23) : [];
   const keepOrder = !!body.keepOrder;
@@ -30,7 +31,7 @@ export default async function handler(req, res) {
 
   try {
     const params = new URLSearchParams({
-      origin, destination: origin,
+      origin, destination,
       waypoints: (keepOrder ? '' : 'optimize:true|') + stops.join('|'),
       key, language: 'ja', region: 'jp',
     });

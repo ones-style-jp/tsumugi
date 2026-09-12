@@ -31202,6 +31202,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const target = _targetArrive(sl);
     const _departConf = (() => { const c = String((sl === 'AM' ? ds.departAM : ds.departPM) || '').match(/(\d{1,2})[:時](\d{2})/); return c ? (+c[1])*60 + (+c[2]) : null; })();
     const _addrOf = (pid) => { const pt = (appData.patients||[]).find(x=>x.id===pid) || {}; return `${pt.address||''}${pt.pickupPlace?(' '+pt.pickupPlace):''}`.trim(); };
+    const _coordMap = {}; let _originCoord = null;
     let nextPlanCars = JSON.parse(JSON.stringify(pl.cars||{}));
     cars.forEach(c => { nextPlanCars[c.id] = nextPlanCars[c.id] || []; });
     let remainUn = [];
@@ -31234,6 +31235,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           }
         } catch (e) { msgs.push(`${iso} ${sl}: 方向分けの座標取得に失敗(${String(e && e.message || e)})→町名グループで割り振ります`); }
         if (originC && coords.length === okRiders.length && coords.every(Boolean)) {
+          // ★ 各利用者の座標を控える(車内ルートで「最遠の方」を特定するため・2026-09-12i)
+          okRiders.forEach((m, i) => { _coordMap[m.pid] = coords[i]; });
+          _originCoord = originC;
           // 方角(施設基準)でソート→最大の空き角で切って一列に→均等サイズ(定員厳守)で分割→車順に割り当て
           const latR = originC.lat * Math.PI / 180;
           const bearing = (c) => Math.atan2((c.lng - originC.lng) * Math.cos(latR), c.lat - originC.lat);
@@ -31274,25 +31278,54 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const members = nextPlanCars[cid] || [];
       const addrs = members.map(m => _addrOf(m.pid));
       if (addrs.some(a2 => !a2)) { const missing = members.filter((m,i)=>!addrs[i]).map(m=>_pname(m.pid)).join('、'); msgs.push(`${iso} ${sl} ${cname}: 住所未入力のためスキップ（${missing}）`); continue; }
-      const r = await fetch('/api/route-plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ origin: fac, stops: addrs, keepOrder }) });
-      const j = await r.json().catch(()=>({}));
-      if (j.error || !Array.isArray(j.order)) { msgs.push(`${iso} ${sl} ${cname}: ${j.error||'計算に失敗'}`); continue; }
-      let ordered = j.order.map(ix => members[ix]);
-      let legs = (j.legSeconds || []).slice();
-      // ★ お迎えは「遠くから施設へ近づく」向きに統一(送りのルート計算を将来入れる時は近→遠)。順番維持モードでは反転しない
-      if (!keepOrder && ordered.length >= 2 && (legs[0]||0) < (legs[legs.length-1]||0)) { ordered = ordered.slice().reverse(); legs = legs.reverse(); }
+      let ordered, legs, facToFirstSec = 0;
+      if (keepOrder) {
+        // 「時間」モード: 施設→現順→施設の輪で区間時間だけ取得(順番そのまま)
+        const r = await fetch('/api/route-plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ origin: fac, stops: addrs, keepOrder: true }) });
+        const j = await r.json().catch(()=>({}));
+        if (j.error || !Array.isArray(j.order)) { msgs.push(`${iso} ${sl} ${cname}: ${j.error||'計算に失敗'}`); continue; }
+        ordered = members.slice();
+        const lg = (j.legSeconds || []).slice();   // [施設→1人目, 1→2, ..., 最後→施設]
+        facToFirstSec = lg[0] || 0;
+        legs = lg.slice(1);                        // [1→2, ..., 最後→施設] = 各人から次へ
+      } else {
+        // ★ 2026-09-12i(店舗要望): 「輪」ではなく片道方式。最も遠い方へ直行→帰りながら順に拾う。
+        //   これで近い方が先頭に来ることがなくなる(途中で拾う形にもならない)。
+        let farIdx = 0;
+        const oc = _originCoord;
+        if (oc && members.every(m => _coordMap[m.pid])) {
+          let best = -1;
+          members.forEach((m, i) => { const c2 = _coordMap[m.pid]; const dx = (c2.lng - oc.lng) * Math.cos(oc.lat * Math.PI/180), dy = c2.lat - oc.lat; const d2 = dx*dx + dy*dy; if (d2 > best) { best = d2; farIdx = i; } });
+        }
+        const farAddr = addrs[farIdx];
+        const rest = members.filter((_, i) => i !== farIdx);
+        const restAddrs = addrs.filter((_, i) => i !== farIdx);
+        // 施設→最遠(出発チェック用の所要)
+        try { const r0 = await fetch('/api/route-plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ origin: fac, stops: [farAddr], keepOrder: true }) }); const j0 = await r0.json().catch(()=>({})); facToFirstSec = (j0.legSeconds||[])[0] || 0; } catch {}
+        if (rest.length) {
+          const r = await fetch('/api/route-plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ origin: farAddr, destination: fac, stops: restAddrs }) });
+          const j = await r.json().catch(()=>({}));
+          if (j.error || !Array.isArray(j.order)) { msgs.push(`${iso} ${sl} ${cname}: ${j.error||'計算に失敗'}`); continue; }
+          ordered = [members[farIdx], ...j.order.map(ix => rest[ix])];
+          legs = (j.legSeconds || []).slice();     // [最遠→次, ..., 最後→施設] = 各人から次へ
+        } else {
+          ordered = [members[farIdx]];
+          legs = [facToFirstSec ? facToFirstSec : 0];
+          // 1名: 本人→施設の帰路 ≒ 施設→本人と同等とみなす
+        }
+      }
+      // 時刻の逆算: 施設到着=到着目標。t[k] = 目標 - Σ(k以降の乗車バッファ+次への移動)
       let cum = 0;
       for (let k = ordered.length - 1; k >= 0; k--) {
         const pt = (appData.patients||[]).find(x=>x.id===ordered[k].pid) || {};
         const buf = Math.max(1, Number(pt.pickupMinutes) || 2);
-        cum += Math.ceil((legs[k+1]||0)/60) + buf;
+        cum += buf + Math.ceil((legs[k]||0)/60);
         ordered[k] = { ...ordered[k], t: _fmtHM(Math.max(0, target - cum)) };
       }
-      // ★ 出発時刻チェック(2026-09-12h): 設定より早い出発が必要なら知らせる(組んだ時間はそのまま=自動的に早出)
+      // ★ 出発時刻チェック: 設定より早い出発が必要なら知らせる(組んだ時間はそのまま=自動的に早出)
       if (_departConf != null && ordered.length) {
-        const firstM = ordered[0];
-        const fm = String(firstM.t||'').match(/(\d{1,2})[:時](\d{1,2})/);
-        if (fm) { const need = (+fm[1])*60 + (+fm[2]) - Math.ceil((legs[0]||0)/60); if (need < _departConf) msgs.push(`${iso} ${sl} ${cname}: 設定の出発${_fmtHM(_departConf)}では間に合いません → ${_fmtHM(Math.max(0,need))}出発が必要です`); }
+        const fm = String(ordered[0].t||'').match(/(\d{1,2})[:時](\d{1,2})/);
+        if (fm) { const need = (+fm[1])*60 + (+fm[2]) - Math.ceil(facToFirstSec/60); if (need < _departConf) msgs.push(`${iso} ${sl} ${cname}: 設定の出発${_fmtHM(_departConf)}では間に合いません → ${_fmtHM(Math.max(0,need))}出発が必要です`); }
       }
       nextPlanCars[cid] = ordered;
       changed = true;
