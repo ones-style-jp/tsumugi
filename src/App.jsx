@@ -1154,7 +1154,7 @@ const appendDocUpdate = (patient, by, byName, items) => {
 const FS_FIELD_LABELS = {
   // ★ フェイスシートで編集できる本人基本情報・連絡先・被保険者番号・留意点(利用者本体へ反映する項目)。
   name:'お名前', kana:'フリガナ', birthDate:'生年月日', gender:'性別',
-  zipCode:'郵便番号', address:'住所', addressBuilding:'建物名', phone:'電話番号', phoneMobile:'電話番号(携帯)', email:'メールアドレス',
+  zipCode:'郵便番号', address:'住所', addressBuilding:'建物名', addressRoom:'部屋番号', phone:'電話番号', phoneMobile:'電話番号(携帯)', email:'メールアドレス',
   insuranceNo:'被保険者番号', ryui:'留意点', relatedParties:'その他関係者',
   receptionDate:'受付日', receptionMethod:'受付方法', receptionMethodOther:'受付方法', receptionStaff:'受付者', receptionStaffOther:'受付者',
   creator:'作成者', creatorOther:'作成者', createdDate:'作成日',
@@ -1393,7 +1393,7 @@ function KanaInput({ value, onChangeText, ...rest }) {
 //   失敗時は null を返す (ネットワークエラー等)
 const lookupZipAddress = async (zipCode) => {
   if (!zipCode) return null;
-  const digits = String(zipCode).replace(/[^0-9]/g, '');
+  const digits = String(zipCode).replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).replace(/[^0-9]/g, '');
   if (digits.length !== 7) return null;
   try {
     const resp = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${digits}`);
@@ -1619,7 +1619,9 @@ const formatJpPhone = (s) => {
 
 // 郵便番号フォーマッタ: ハイフン無しの数字 → 3-4
 const formatJpZip = (s) => {
-  const digits = (s || '').replace(/[^0-9]/g, '').slice(0, 7);
+  // ★ 全角数字も受け付けて半角へ変換(2026-09-14 フェイスシート整形対応)
+  const half = String(s ?? '').replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  const digits = half.replace(/[^0-9]/g, '').slice(0, 7);
   if (!digits) return '';
   if (digits.length <= 3) return digits;
   return `${digits.slice(0,3)}-${digits.slice(3)}`;
@@ -15042,7 +15044,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
             const _mir = (k) => (fsData[k] !== undefined ? fsData[k] : patient[k]);
             const newPatient = { ...patient,
               kiou: (fsData.kiou ?? patient.kiou ?? ''),
-              name:_mir('name'), kana:_mir('kana'), birthDate:_mir('birthDate'), gender:_mir('gender'), zipCode:_mir('zipCode'), address:_mir('address'), addressBuilding:_mir('addressBuilding'), phone:_mir('phone'), phoneMobile:_mir('phoneMobile'), email:_mir('email'), insuranceNo:_mir('insuranceNo'), ryui:_mir('ryui'), relatedParties:(Array.isArray(fsData.relatedParties)?fsData.relatedParties:(patient.relatedParties||[])),
+              name:_mir('name'), kana:_mir('kana'), birthDate:_mir('birthDate'), gender:_mir('gender'), zipCode:_mir('zipCode'), address:_mir('address'), addressBuilding:_mir('addressBuilding'), addressRoom:_mir('addressRoom'), phone:_mir('phone'), phoneMobile:_mir('phoneMobile'), email:_mir('email'), insuranceNo:_mir('insuranceNo'), ryui:_mir('ryui'), relatedParties:(Array.isArray(fsData.relatedParties)?fsData.relatedParties:(patient.relatedParties||[])),
               doctor:(fsData.chronicDiseases ?? patient.doctor), medicalInstitution:(fsData.medicalInstitution ?? patient.medicalInstitution), medicalContact:(fsData.medicalContact ?? patient.medicalContact),
               docUpdates: appendDocUpdate(patient, 'caremanager', _by, (()=>{ const d = diffFaceSheetFields(pf.faceSheet || {}, newFs); return d.length ? [`フェイスシートの編集（${d.join('・')}）`] : ['フェイスシートの編集']; })()), personalFile: { ...pf, faceSheet: newFs, faceSheetHistory: hist } };
             const updated = { ...data, patients: (data.patients||[]).map(p => p.id === patient.id ? newPatient : p) };
@@ -33168,7 +33170,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   {!isOff && <button type="button" onClick={()=>setPersonalFileModal({patient:localPatient, initialTab:'cat_1', focus:'facesheet'})} className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs font-bold whitespace-nowrap active:scale-95 flex items-center gap-1"><BookOpen size={13}/>フェイスシートで編集</button>}
                 </div>
                 <div className="border border-slate-200 rounded-lg overflow-hidden">
-                  <InfoRow label="住所">{(localPatient.zipCode||localPatient.address||localPatient.addressBuilding) ? `${localPatient.zipCode?`〒${localPatient.zipCode} `:''}${localPatient.address||''}${localPatient.addressBuilding?` ${localPatient.addressBuilding}`:''}` : ''}</InfoRow>
+                  <InfoRow label="住所">{(localPatient.zipCode||localPatient.address||localPatient.addressBuilding||localPatient.addressRoom) ? `${localPatient.zipCode?`〒${localPatient.zipCode} `:''}${localPatient.address||''}${localPatient.addressBuilding?` ${localPatient.addressBuilding}`:''}${localPatient.addressRoom?` ${localPatient.addressRoom}`:''}` : ''}</InfoRow>
                   <InfoRow label="電話（固定）">{localPatient.phone}</InfoRow>
                   <InfoRow label="電話（携帯）">{localPatient.phoneMobile}</InfoRow>
                   <InfoRow label="メール">{localPatient.email}</InfoRow>
@@ -47547,7 +47549,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
             // ★ ケアマネ画面へ「フェイスシート更新」の新着通知(docUpdates by=office)。 連絡先(contactPatch)＋かかりつけ医(doctor)も同時に患者へ書き戻す(双方向連携)
             savePatientTop({ docUpdates: withOfficeDocUpdate(faceSheetUpdateItems(faceSheet, newFs)), ...(contactPatch||{}), kiou: (newFs.kiou||''), doctor: (newFs.chronicDiseases||''), medicalInstitution: (newFs.medicalInstitution||''), medicalContact: (newFs.medicalContact||''),
               // ★ 一本化: 本人基本情報・連絡先・被保険者番号・留意点も patient 本体へ反映
-              name: (newFs.name||''), kana: (newFs.kana||''), birthDate: (newFs.birthDate||''), gender: (newFs.gender||''), zipCode: (newFs.zipCode||''), address: (newFs.address||''), addressBuilding: (newFs.addressBuilding||''), phone: (newFs.phone||''), phoneMobile: (newFs.phoneMobile||''), email: (newFs.email||''), insuranceNo: (newFs.insuranceNo||''), ryui: (newFs.ryui||''), relatedParties: (Array.isArray(newFs.relatedParties)?newFs.relatedParties:[]) }, undefined, {
+              name: (newFs.name||''), kana: (newFs.kana||''), birthDate: (newFs.birthDate||''), gender: (newFs.gender||''), zipCode: (newFs.zipCode||''), address: (newFs.address||''), addressBuilding: (newFs.addressBuilding||''), addressRoom: (newFs.addressRoom||''), phone: (newFs.phone||''), phoneMobile: (newFs.phoneMobile||''), email: (newFs.email||''), insuranceNo: (newFs.insuranceNo||''), ryui: (newFs.ryui||''), relatedParties: (Array.isArray(newFs.relatedParties)?newFs.relatedParties:[]) }, undefined, {
               faceSheet: newFs,
               faceSheetHistory: hist,
               ...(trashAdds.length ? { trash: [...(personalFile.trash||[]), ...trashAdds] } : {}),
@@ -48108,6 +48110,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
     zipCode: (patient?.zipCode ?? initial?.zipCode ?? ''),
     address: (patient?.address ?? initial?.address ?? ''),
     addressBuilding: (patient?.addressBuilding ?? initial?.addressBuilding ?? ''),
+    addressRoom: (patient?.addressRoom ?? initial?.addressRoom ?? ''), // ★ 部屋番号(2026-09-14 追加)
     phone: (patient?.phone ?? initial?.phone ?? ''),
     phoneMobile: (patient?.phoneMobile ?? initial?.phoneMobile ?? ''),
     email: (patient?.email ?? initial?.email ?? ''),
@@ -48341,16 +48344,23 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
                   <input type="date" value={fs.birthDate} onChange={e=>update('birthDate', e.target.value)} className={inputCls}/>
                   <WarekiBirthInput iso={fs.birthDate||''} onChange={(v)=>update('birthDate', v)} />
                 </Field>
-                <Field label="郵便番号"><input value={fs.zipCode} onChange={e=>update('zipCode', e.target.value)} placeholder="000-0000" className={inputCls}/></Field>
-                <Field label="住所"><input value={fs.address} onChange={e=>update('address', e.target.value)} className={inputCls}/></Field>
-                <Field label="建物名"><input value={fs.addressBuilding} onChange={e=>update('addressBuilding', e.target.value)} className={inputCls}/></Field>
-                <Field label="電話（固定）"><input value={fs.phone} onChange={e=>update('phone', e.target.value)} placeholder="03-XXXX-XXXX" className={inputCls}/></Field>
-                <Field label="電話（携帯）"><input value={fs.phoneMobile} onChange={e=>update('phoneMobile', e.target.value)} placeholder="090-XXXX-XXXX" className={inputCls}/></Field>
+                {/* ★ 2026-09-14: 郵便番号→住所検索ボタン+全角→半角・自動ハイフン(郵便番号/電話/FAX)・部屋番号欄を追加 */}
+                <Field label="郵便番号">
+                  <div className="flex gap-1.5">
+                    <input value={fs.zipCode} onChange={e=>update('zipCode', formatJpZip(e.target.value))} placeholder="000-0000" inputMode="numeric" className={`${inputCls} flex-1 min-w-0`}/>
+                    <button type="button" onClick={async ()=>{ const r = await lookupZipAddress(fs.zipCode); if (r && r.full) update('address', r.full); else alert('住所が見つかりませんでした。郵便番号をご確認ください。'); }} className="shrink-0 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-bold text-xs active:scale-95">検索</button>
+                  </div>
+                </Field>
+                <Field label="住所"><input value={fs.address} onChange={e=>update('address', e.target.value)} placeholder="郵便番号から検索すると町名まで自動入力" className={inputCls}/></Field>
+                <Field label="建物名"><input value={fs.addressBuilding} onChange={e=>update('addressBuilding', e.target.value)} placeholder="例: コーポ白子" className={inputCls}/></Field>
+                <Field label="部屋番号"><input value={fs.addressRoom} onChange={e=>update('addressRoom', e.target.value)} placeholder="例: 101" className={inputCls}/></Field>
+                <Field label="電話（固定）"><input value={fs.phone} onChange={e=>update('phone', formatJpPhone(e.target.value))} placeholder="03-XXXX-XXXX" className={inputCls}/></Field>
+                <Field label="電話（携帯）"><input value={fs.phoneMobile} onChange={e=>update('phoneMobile', formatJpPhone(e.target.value))} placeholder="090-XXXX-XXXX" className={inputCls}/></Field>
                 <Field label="メールアドレス"><input type="email" value={fs.email} onChange={e=>update('email', e.target.value)} placeholder="example@xxx.com" className={inputCls}/></Field>
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Field label="FAX"><input value={fs.fax} onChange={e=>update('fax', e.target.value)} placeholder="03-XXXX-XXXX" className={inputCls}/></Field>
+              <Field label="FAX"><input value={fs.fax} onChange={e=>update('fax', formatJpPhone(e.target.value))} placeholder="03-XXXX-XXXX" className={inputCls}/></Field>
               <Field label="世帯区分">
                 <select value={fs.householdType} onChange={e=>update('householdType', e.target.value)} className={inputCls}>
                   <option value="">— 選択 —</option>
@@ -48689,7 +48699,7 @@ function FaceSheetPdfPreview({ patient, faceSheet, onClose }) {
               <Row label="フリガナ" value={patient.kana}/>
               <Row label="性別" value={patient.gender}/>
               <Row label="生年月日" value={patient.birthDate}/>
-              <Row label="住所" value={patient.address}/>
+              <Row label="住所" value={[patient.address, patient.addressBuilding, patient.addressRoom].filter(Boolean).join(' ')}/>
               <Row label="電話" value={patient.phone}/>
               <Row label="FAX" value={fs.fax}/>
               <Row label="世帯区分" value={fs.householdType === 'その他' ? (fs.householdTypeOther || 'その他') : fs.householdType}/>
