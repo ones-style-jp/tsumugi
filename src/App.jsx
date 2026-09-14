@@ -38867,7 +38867,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
               const _cPre = _useId ? _pid : i;
               if(_wm[_wKey]) return [{label:'徒歩', name:''}];
               const checked = ds.cars.filter(c=>_sm[_cPre+'_'+c.id]);
-              return checked.map(c => ({label: c.name || '', name: c.type || ''}));
+              // ★ 2026-09-14b: 車名と車種が同じ(または車種空)なら1段のみ(シエンタ/シエンタの二重表示対策・利用者行側)
+              return checked.map(c => ({label: c.name || '', name: (c.type && c.type !== c.name) ? c.type : ''}));
             };
             const CarCell = ({prefix}) => {
               // ★ 欠席/休業の場合は送迎なし → 選択されていても空白表示にする
@@ -46485,7 +46486,16 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
   const _exItems = appData.systemSettings?.exerciseItems || [];
   const _exText = (() => {
     const ex = _ft?.exercises || {};
-    const parts = _exItems.map(it => { const v = ex[it.id]; return (v && String(v).trim() && String(v).trim()!=='ー') ? `${it.name}: ${v}` : null; }).filter(Boolean);
+    // ★ 2026-09-14c(店舗要望): 記録が「○」だけだとケアマネにどれくらい実施したか伝わらないため、
+    //   ○は初回通所日時点の運動基準値(目安)に置き換えて表示。数値・自由文の入力があればそのまま表示。
+    const _base = getPlannedExercisesForDate(patient, _firstKey || '');
+    const parts = _exItems.map(it => {
+      let v = ex[it.id];
+      if (!(v && String(v).trim() && String(v).trim() !== 'ー')) return null;
+      const vs = String(v).trim();
+      if (/^[○◯〇]$/.test(vs)) { const b = String((_base || {})[it.id] || '').trim(); if (b && b !== 'ー') v = b; }
+      return `${it.name}: ${v}`;
+    }).filter(Boolean);
     return parts.join('\n');
   })();
   // ★ 報告者の既定 = スタッフ切替で選択中の人。 プルダウン候補 = 各種設定の従業員。
