@@ -40109,7 +40109,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             const _gy = {backgroundColor:'#e2e8f0',color:'#94a3b8'};
             return (
               <tr key={car.id} style={{height:_carRowH,minHeight:_carRowH}}>
-                <td title={_rowUnused?'この車は迎え・送りとも割り当てがありません（割り当てると入力できます）':undefined} style={{...cs(60),textAlign:'center',fontWeight:'bold',fontSize:8,lineHeight:1.2,verticalAlign:'middle', ...(_rowUnused?_gy:{})}}><div style={{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{car.name}</div><div style={{fontSize:7,fontWeight:'normal',color:_rowUnused?'#94a3b8':'#000',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{car.type}</div></td>
+                <td title={_rowUnused?'この車は迎え・送りとも割り当てがありません（割り当てると入力できます）':undefined} style={{...cs(60),textAlign:'center',fontWeight:'bold',fontSize:8,lineHeight:1.2,verticalAlign:'middle', ...(_rowUnused?_gy:{})}}><div style={{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{car.name}</div>{(car.type && car.type !== car.name) ? <div style={{fontSize:7,fontWeight:'normal',color:_rowUnused?'#94a3b8':'#000',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{car.type}</div> : null}</td>
                 <td title={_pickUnused?'迎えの割り当てが無いため入力できません（割り当てると入力できます）':undefined}
                   style={{...cs(44),textAlign:'center',cursor:_pickUnused?'not-allowed':'pointer',fontSize:11,fontWeight:'bold',color:ct.arrive?'#1d4ed8':'#aaa', ...(_pickUnused?_gy:{})}}
                   onClick={()=>{ if(_pickUnused) return; openTimeKeypad(car.id,'arrive',ct.arrive); }}>
@@ -40266,7 +40266,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
                     onChange={e=>setCarAssignSelections(prev=>({...prev,[String(i)]:e.target.value}))}
                     className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded-lg outline-none bg-white font-bold">
                     <option value="">未設定</option>
-                    {ds.cars.map(c=><option key={c.id} value={c.id}>{c.name}{c.type?`（${c.type}）`:''}</option>)}
+                    {ds.cars.map(c=><option key={c.id} value={c.id}>{c.name}{(c.type && c.type !== c.name) ? `（${c.type}）` : ''}</option>)}
                     <option value="walk">徒歩</option>
                     <option value="other">その他（家族送迎など）</option>
                   </select>
