@@ -31694,10 +31694,86 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       <div style="font-size:9px;color:#3f4b43;margin-top:1.5mm;flex:none;display:flex;justify-content:space-between;"><span><span style="color:#c82c35;font-weight:bold;">●</span> 時間変更・要TEL　<span style="background:#a7f3d0;padding:0 3px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 3px;">水色</span>=初回　次回=次の利用曜日</span><span>空欄=空席</span></div>
     </div>`;
   };
+  // ==== 連絡先一覧(週間の2枚目・2026-09-16 店舗要望) ====
+  const _escP = (t) => String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const _weekPids = () => {
+    const s = new Set();
+    days.forEach(d => ['AM','PM'].forEach(sl => { const pl = getPlan(_iso(d), sl);
+      [...Object.values(pl.cars||{}).flat(), ...(pl.walkers||[]), ...(pl.others||[]), ...(pl.un||[])].forEach(m => { if (m && m.pid != null) s.add(m.pid); }); }));
+    return [...s];
+  };
+  const buildContactsPageHtml = () => {
+    const pts = _weekPids().map(pid => (appData.patients||[]).find(x=>x.id===pid)).filter(Boolean)
+      .sort((a,b)=>String(a.kana||a.name||'').localeCompare(String(b.kana||b.name||''),'ja'));
+    let fz = 12;
+    while (fz > 8 && (pts.length + 2) * (Math.ceil(fz * 1.35) + 5) > 640) fz--;
+    const rows = pts.map(pt => `<tr>
+      <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fz}px;font-weight:600;white-space:nowrap;">${_escP(pt.name)}</td>
+      <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fz}px;">${_escP([pt.address, pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' '))}</td>
+      <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fz}px;white-space:nowrap;font-variant-numeric:tabular-nums;">${_escP(pt.phone||'')}</td>
+      <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fz}px;white-space:nowrap;font-variant-numeric:tabular-nums;">${_escP(pt.phoneMobile||'')}</td>
+      <td style="border:1px solid #66756b;padding:2px 6px;font-size:${Math.max(8,fz-1)}px;">${_escP(pt.pickupPlace||'')}</td>
+    </tr>`).join('');
+    return `<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
+      <div style="text-align:center;font-size:15px;font-weight:bold;letter-spacing:6px;margin-bottom:2mm;flex:none;">利用者連絡先一覧（${_mon.getMonth()+1}/${_mon.getDate()}週・五十音順）</div>
+      <table style="border-collapse:collapse;width:100%;table-layout:fixed;">
+        <colgroup><col style="width:110px"/><col/><col style="width:105px"/><col style="width:105px"/><col style="width:150px"/></colgroup>
+        <thead><tr>${['氏名','住所','電話（固定）','電話（携帯）','待ち合わせ場所'].map(h2=>`<th style="border:1px solid #66756b;background:#eef0ed;font-size:${Math.max(9,fz-1)}px;padding:2px;">${h2}</th>`).join('')}</tr></thead>
+        <tbody>${rows || `<tr><td colspan="5" style="border:1px solid #66756b;padding:6px;font-size:11px;color:#94a3b8;">この週に乗車予定の利用者がいません</td></tr>`}</tbody>
+      </table>
+      <div style="font-size:9px;color:#64748b;margin-top:1.5mm;">※ この一覧には個人情報が含まれます。取り扱い・保管にご注意ください。</div>
+    </div>`;
+  };
+  // ==== 日別印刷(A4縦・大きな字・住所/電話つき・2026-09-16 店舗要望: 毎日1日分を印刷する店舗向け) ====
+  const buildDailyPrintHtml = (iso) => {
+    const d = new Date(iso);
+    const _pt = (pid) => (appData.patients||[]).find(x=>x.id===pid) || {};
+    // 行数からフォント自動計算(A4縦・本文約950px)
+    const rowsOf = (sl) => { const pl = getPlan(iso, sl);
+      return cars.reduce((a,c)=>a+Math.max(((pl.cars||{})[c.id]||[]).length,1)+2,0) + ((pl.walkers||[]).length?1:0) + ((pl.others||[]).length?1:0) + ((pl.un||[]).length?1:0) + (_absentees(iso,sl).length?1:0) + (pl.memo?1:0) + 1; };
+    const totalU = rowsOf('AM') + rowsOf('PM') + 3;
+    let fz = 15; while (fz > 9 && totalU * (Math.ceil(fz*1.4)+3) > 950) fz--;
+    const fzS = Math.max(9, fz - 2);
+    const row = (m, sl) => { const pt = _pt(m.pid); const fk = _isFurikae(iso, sl, m.pid); const fv = !fk && _isFirstVisit(m.pid, iso); const bg = fk?'#a7f3d0':(fv?'#bae6fd':'#fff');
+      return `<tr style="background:${bg};">
+        <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;">${m.mark?'<span style="color:#c82c35;">●</span>':''}${_escP(_pname(m.pid))}</td>
+        <td style="border:1px solid #66756b;padding:2px 4px;font-size:${fz}px;font-weight:700;text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums;">${_escP(m.t||'')}</td>
+        <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fzS}px;">${_escP([pt.address, pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' '))}${pt.pickupPlace?`<span style="color:#475569;">（${_escP(pt.pickupPlace)}）</span>`:''}</td>
+        <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fzS}px;white-space:nowrap;font-variant-numeric:tabular-nums;">${_escP(pt.phone || pt.phoneMobile || '')}</td>
+      </tr>`; };
+    const slotBlock = (sl, label) => { const pl = getPlan(iso, sl);
+      let h = `<div style="font-size:${fz}px;font-weight:800;background:${sl==='AM'?'#faf0d9':'#e8edf7'};border:1px solid #66756b;padding:2px 8px;margin-top:3mm;">${label}</div>`;
+      cars.forEach(c => { const rows2 = (pl.cars?.[c.id]||[]); const drv = (pl.driver||{})[c.id] || '';
+        h += `<div style="border:1px solid #66756b;border-top:none;">
+          <div style="background:#eef0ed;padding:1px 8px;font-size:${fzS+1}px;font-weight:800;border-bottom:1px solid #9aa79e;">${_escP(c.name)}${drv?`<span style="float:right;font-weight:400;">運転者 ${_escP(drv)}</span>`:''}</div>
+          <table style="border-collapse:collapse;width:100%;table-layout:fixed;"><colgroup><col style="width:25%"/><col style="width:11%"/><col/><col style="width:18%"/></colgroup>
+          <tr>${['氏名','時間','住所（待ち合わせ）','電話'].map(x=>`<td style="border:1px solid #66756b;background:#f8faf6;font-size:${Math.max(8,fz-4)}px;color:#4e5f53;padding:0 6px;text-align:center;">${x}</td>`).join('')}</tr>
+          ${rows2.map(m=>row(m, sl)).join('') || `<tr><td colspan="4" style="border:1px solid #66756b;font-size:${fzS}px;color:#94a3b8;padding:2px 6px;">—</td></tr>`}</table></div>`; });
+      const parts = [];
+      const wk = (pl.walkers||[]); if (wk.length) parts.push(`徒歩: ${wk.map(m=>_escP(_pname(m.pid))).join('、')}`);
+      const ot = (pl.others||[]); if (ot.length) parts.push(`<span style="color:#6d28d9;">その他: ${ot.map(m=>_escP(_pname(m.pid))).join('、')}</span>`);
+      const un = (pl.un||[]); if (un.length) parts.push(`<span style="color:#b45309;">未割当: ${un.map(m=>_escP(_pname(m.pid))).join('、')}</span>`);
+      const ab = _absentees(iso, sl); if (ab.length) parts.push(`<span style="color:#64748b;">休み: ${ab.map(a=>_escP(a.name)).join('、')}</span>`);
+      if (parts.length) h += `<div style="font-size:${fzS}px;margin-top:1mm;line-height:1.5;">${parts.join('　')}</div>`;
+      if (pl.memo) h += `<div style="font-size:${fzS}px;color:#b91c1c;font-weight:700;">備考: ${_escP(pl.memo)}</div>`;
+      return h; };
+    return `<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
+      <div style="position:relative;text-align:center;flex:none;"><span style="position:absolute;left:0;top:4px;font-size:10px;">${_escP(String(appData.systemSettings?.facilityInfo?.name||'つむぎ'))}</span><span style="font-size:18px;font-weight:bold;letter-spacing:8px;">運行表</span><span style="position:absolute;right:0;top:2px;font-size:14px;font-weight:700;">${d.getMonth()+1}/${d.getDate()}（${DOWJ[d.getDay()]}）</span></div>
+      ${slotBlock('AM','午前')}
+      ${slotBlock('PM','午後')}
+      <div style="margin-top:auto;font-size:9px;color:#3f4b43;display:flex;justify-content:space-between;flex:none;"><span><span style="color:#c82c35;font-weight:bold;">●</span> 時間変更・要TEL　<span style="background:#a7f3d0;padding:0 3px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 3px;">水色</span>=初回</span><span>※個人情報を含みます。取り扱いにご注意ください</span></div>
+    </div>`;
+  };
+  const doPrintDay = (iso) => {
+    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${iso}`, pageSize: '210mm 297mm', html: `<div style="width:210mm;height:296mm;box-sizing:border-box;padding:8mm 10mm;background:#fff;overflow:hidden;">${buildDailyPrintHtml(iso)}</div>`, elementId: null } }));
+  };
   const doPrint = () => {
     const html = buildPrintHtml();
+    // ★ 2枚目に連絡先一覧を付けるか選択(2026-09-16 店舗要望)
+    const withContacts = window.confirm('2枚目に「利用者連絡先一覧（住所・電話・五十音順）」も付けて印刷しますか？\n（キャンセル＝運行表1枚のみ）');
+    const page2 = withContacts ? `<div style="page-break-before:always;width:297mm;height:209mm;box-sizing:border-box;padding:6mm 8mm;background:#fff;overflow:hidden;">${buildContactsPageHtml()}</div>` : '';
     // ★ A4横1枚の実寸枠(白背景・四辺余白)に収めて中央配置(2026-09-12e)
-    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `<div style="width:297mm;height:209mm;box-sizing:border-box;padding:6mm 8mm;background:#fff;overflow:hidden;">${html}</div>`, elementId: null } }));
+    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `<div style="width:297mm;height:209mm;box-sizing:border-box;padding:6mm 8mm;background:#fff;overflow:hidden;">${html}</div>${page2}`, elementId: null } }));
   };
 
   // ==== 画面 ====
@@ -31763,7 +31839,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             const _today = iso === _iso(new Date());
             return (
               <div key={iso} style={{display:'contents'}}>
-                <div id={`tpday-${iso}`} className={`px-2 py-1.5 text-sm font-bold text-white rounded-t-xl ${_today?'bg-blue-600':'bg-slate-800'}`} style={{scrollMarginLeft:12}}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）</div>
+                <div id={`tpday-${iso}`} className={`px-2 py-1.5 text-sm font-bold text-white rounded-t-xl flex items-center ${_today?'bg-blue-600':'bg-slate-800'}`} style={{scrollMarginLeft:12}}>
+                  <span>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）</span>
+                  {/* ★ 日別印刷(A4縦・住所/電話つき・大きな字)(2026-09-16 店舗要望: 毎日1日分を刷る店舗向け) */}
+                  <button onClick={()=>doPrintDay(iso)} title="この日の運行表を印刷(A4縦・住所と電話番号つき・大きな文字)" className="ml-auto text-[10px] font-bold bg-white/20 hover:bg-white/35 rounded px-1.5 py-0.5">この日を印刷</button>
+                </div>
                 {['AM','PM'].map(sl => {
                   const pl = getPlan(iso, sl);
                   const _dropRing = dragMv && !(dragMv.iso===iso && dragMv.slot===sl);
