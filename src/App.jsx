@@ -17547,6 +17547,18 @@ export default function App() {
         //   (実測: boot-merge prev:0 = 端末内保存が容量超過で毎回失敗していた事象の対策)
         try {
           syncLog('persist-fail', { err: String((e2 && e2.name) || e2).slice(0, 40) });
+          // ★ 2026-09-15 診断強化(Surface/iPadの慢性Quota調査): 何が容量を食っているかキー別サイズ上位5件を記録。
+          //   洪水防止に10分に1回だけ。キー名とサイズのみで個人情報は含まない。
+          try {
+            if (!window.__quotaDiagAt || Date.now() - window.__quotaDiagAt > 10 * 60 * 1000) {
+              window.__quotaDiagAt = Date.now();
+              const _sizes = [];
+              for (let _i = 0; _i < localStorage.length; _i++) { const _k = localStorage.key(_i); _sizes.push([_k, (localStorage.getItem(_k) || '').length]); }
+              _sizes.sort((a2, b2) => b2[1] - a2[1]);
+              const _top = _sizes.slice(0, 5).map(([k2, n2]) => `${String(k2).slice(0, 28)}:${Math.round(n2 / 1024)}k`).join(' / ');
+              syncLog('persist-quota', { totalKB: Math.round(_sizes.reduce((a2, x2) => a2 + x2[1], 0) / 1024), top: _top });
+            }
+          } catch {}
           if (TABLE_ENABLED) {
             // ★ 直近45日の記録は残した軽量版を優先し、それでも入らなければ記録なし版へ(2026-09-01)
             // ★ 2026-09-09(扇橋実測): 軽量版2段とも失敗すると外側catchが握り潰して端末に何も残らなかった
@@ -18122,10 +18134,13 @@ export default function App() {
             try {
               const lo = prev.diaryLogs, co = (merged.diaryLogs && typeof merged.diaryLogs === 'object') ? merged.diaryLogs : {};
               const outLogs = { ...co }; let _dlKept = 0;
+              // ★ 2026-09-15 診断強化(扇橋の再pushループ調査): どのキーを・なぜ保持したか(欠落m: or 差分)と、
+              //   最初の差分キーの「どのフィールドが違うか」を記録し、ループの真犯人を特定する
+              const _dlKeys = []; let _dlDf = '';
               Object.keys(lo).forEach(k => {
                 const lv = lo[k], cv = co[k];
                 if (!lv || typeof lv !== 'object') return;
-                if (!cv) { outLogs[k] = lv; _dlKept++; return; } // クラウドに無い=push未達 → 保持
+                if (!cv) { outLogs[k] = lv; _dlKept++; _dlKeys.push('m:' + k); return; } // クラウドに無い=push未達 → 保持
                 const lt = Number(lv._savedAt) || 0, ct = Number(cv._savedAt) || 0;
                 if (!lt && !ct) return; // 時刻なしの旧データは従来どおりクラウド優先
                 const lFts = (lv._fieldTs && typeof lv._fieldTs === 'object') ? lv._fieldTs : {};
@@ -18143,9 +18158,16 @@ export default function App() {
                 if (Object.keys(mf).length) o._fieldTs = mf;
                 o._savedAt = Math.max(lt, ct);
                 let differs; try { differs = JSON.stringify(o) !== JSON.stringify(cv); } catch { differs = true; }
-                if (differs) { outLogs[k] = o; _dlKept++; }
+                if (differs) {
+                  outLogs[k] = o; _dlKept++; _dlKeys.push(k);
+                  if (!_dlDf) { try {
+                    const _fs = [];
+                    new Set([...Object.keys(o), ...Object.keys(cv)]).forEach(fk => { let a2, b2; try { a2 = JSON.stringify(o[fk]); b2 = JSON.stringify(cv[fk]); } catch {} if (a2 !== b2) _fs.push(fk); });
+                    _dlDf = _fs.slice(0, 6).join(',');
+                  } catch {} }
+                }
               });
-              if (_dlKept > 0) { merged.diaryLogs = outLogs; _mergedForPush = merged; syncLog('pull-preserve', { key: 'diaryLogs', kept: _dlKept }); }
+              if (_dlKept > 0) { merged.diaryLogs = outLogs; _mergedForPush = merged; syncLog('pull-preserve', { key: 'diaryLogs', kept: _dlKept, ks: _dlKeys.slice(0, 3).join('|').slice(0, 60), df: _dlDf.slice(0, 80) }); }
             } catch (e) { console.warn('[pull preserve] diaryLogs failed', e); }
           }
           // ★ 休み連絡の状態(faxDataStore)・各種連絡の下書き(generalFaxDraft)・勤務表(workSchedule)も
