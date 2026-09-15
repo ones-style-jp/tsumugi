@@ -18131,7 +18131,10 @@ export default function App() {
                 const mF = {};
                 new Set([...Object.keys(lFts), ...Object.keys(cFts)]).forEach(f => { const t = Math.max(Number(lFts[f]) || 0, Number(cFts[f]) || 0); if (t) mF[f] = t; });
                 out._fieldTs = mF; out._updatedAt = Math.max(lT, cT);
-                let differs; try { differs = JSON.stringify(out) !== JSON.stringify(co); } catch { differs = false; }
+                // ★ 2026-09-15 第3段(扇橋ループ対策): キーの並び順だけが違う「偽差分」で保持→再pushが
+                //   無限に往復していたため、キーをソートした安定比較で判定する(値が同じなら差分なし)
+                const _stb = (x) => JSON.stringify((function f(v){ if (Array.isArray(v)) return v.map(f); if (v && typeof v === 'object') { const r = {}; Object.keys(v).sort().forEach(k2 => { r[k2] = f(v[k2]); }); return r; } return v; })(x));
+                let differs; try { differs = _stb(out) !== _stb(co); } catch { differs = false; }
                 if (differs) { merged[_k] = out; _mergedForPush = merged; }
               });
             } catch (e) { console.warn('[pull preserve] settings failed', e); }
@@ -18149,6 +18152,10 @@ export default function App() {
               // ★ 2026-09-15 診断強化(扇橋の再pushループ調査): どのキーを・なぜ保持したか(欠落m: or 差分)と、
               //   最初の差分キーの「どのフィールドが違うか」を記録し、ループの真犯人を特定する
               const _dlKeys = []; let _dlDf = '';
+              // ★ 2026-09-15 第3段(実ログ 2026-09-15_PM df=pick,drop,staff,driver,_fieldTs で特定):
+              //   pick/drop等のオブジェクトはキーの並び順だけ違っても JSON.stringify で差分扱いになり、
+              //   保持→再push→受信→また保持…の無限往復の原因になっていた。キーソートの安定比較で判定する。
+              const _stb2 = (x) => JSON.stringify((function f(v){ if (Array.isArray(v)) return v.map(f); if (v && typeof v === 'object') { const r = {}; Object.keys(v).sort().forEach(k2 => { r[k2] = f(v[k2]); }); return r; } return v; })(x));
               Object.keys(lo).forEach(k => {
                 const lv = lo[k], cv = co[k];
                 if (!lv || typeof lv !== 'object') return;
@@ -18169,17 +18176,28 @@ export default function App() {
                 new Set([...Object.keys(lFts), ...Object.keys(cFts)]).forEach(fk => { const t = Math.max(Number(lFts[fk]) || 0, Number(cFts[fk]) || 0); if (t) mf[fk] = t; });
                 if (Object.keys(mf).length) o._fieldTs = mf;
                 o._savedAt = Math.max(lt, ct);
-                let differs; try { differs = JSON.stringify(o) !== JSON.stringify(cv); } catch { differs = true; }
+                let differs; try { differs = _stb2(o) !== _stb2(cv); } catch { differs = true; }
                 if (differs) {
                   outLogs[k] = o; _dlKept++; _dlKeys.push(k);
                   if (!_dlDf) { try {
                     const _fs = [];
-                    new Set([...Object.keys(o), ...Object.keys(cv)]).forEach(fk => { let a2, b2; try { a2 = JSON.stringify(o[fk]); b2 = JSON.stringify(cv[fk]); } catch {} if (a2 !== b2) _fs.push(fk); });
+                    new Set([...Object.keys(o), ...Object.keys(cv)]).forEach(fk => { let a2, b2; try { a2 = _stb2(o[fk]); b2 = _stb2(cv[fk]); } catch {} if (a2 !== b2) _fs.push(fk); });
                     _dlDf = _fs.slice(0, 6).join(',');
                   } catch {} }
                 }
               });
-              if (_dlKept > 0) { merged.diaryLogs = outLogs; _mergedForPush = merged; syncLog('pull-preserve', { key: 'diaryLogs', kept: _dlKept, ks: _dlKeys.slice(0, 3).join('|').slice(0, 60), df: _dlDf.slice(0, 80) }); }
+              if (_dlKept > 0) {
+                merged.diaryLogs = outLogs;
+                // ★ 2026-09-15 第3段の保険: 同じ内容の保持が5回連続したら、再pushを10分間だけ停止して
+                //   往復ループを断つ(手元の画面の保護=保持はそのまま。手動保存など通常のpushでは送られる)。
+                const _st3 = (window.__dlPreserveStreak = window.__dlPreserveStreak || { sig: '', n: 0, mutedUntil: 0 });
+                const _sigNow = _dlKeys.join('|');
+                _st3.n = (_sigNow && _sigNow === _st3.sig) ? _st3.n + 1 : 1; _st3.sig = _sigNow;
+                if (Date.now() < _st3.mutedUntil) { syncLog('preserve-muted', {}); }
+                else if (_st3.n >= 5) { _st3.mutedUntil = Date.now() + 10 * 60 * 1000; _st3.n = 0; syncLog('preserve-loop-stop', { ks: _sigNow.slice(0, 40) }); }
+                else { _mergedForPush = merged; }
+                syncLog('pull-preserve', { key: 'diaryLogs', kept: _dlKept, ks: _dlKeys.slice(0, 3).join('|').slice(0, 60), df: _dlDf.slice(0, 80) });
+              }
             } catch (e) { console.warn('[pull preserve] diaryLogs failed', e); }
           }
           // ★ 休み連絡の状態(faxDataStore)・各種連絡の下書き(generalFaxDraft)・勤務表(workSchedule)も
