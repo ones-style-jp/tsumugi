@@ -17567,6 +17567,18 @@ export default function App() {
             // ★ 2026-09-10: 旧・写真分離キー(daycarePhotos_v1)が数MBの残骸として容量を食い潰し、
             //   軽量版まで道連れに失敗させることがある。写真はクラウドが正のため、まず残骸を削除して空ける。
             try { localStorage.removeItem('daycarePhotos_v1'); } catch {}
+            // ★ 2026-09-15(扇橋実測): スナップショット(tsumugiRecSnap_v1)が肥大して容量を占拠している場合は
+            //   縮小して空ける。本命の控え(設定・利用者・日誌)の方が優先。スナップは直近2日×3件だけ残す。
+            try {
+              const _rs = localStorage.getItem('tsumugiRecSnap_v1');
+              if (_rs && _rs.length > 500000) {
+                const _all = JSON.parse(_rs);
+                const _ks = Object.keys(_all).sort((a, b) => ((((_all[b] || [])[(_all[b] || []).length-1] || {}).t) || 0) - ((((_all[a] || [])[(_all[a] || []).length-1] || {}).t) || 0));
+                const _keep = {}; _ks.slice(0, 2).forEach(k => { _keep[k] = (_all[k] || []).slice(-3); });
+                localStorage.setItem('tsumugiRecSnap_v1', JSON.stringify(_keep));
+                syncLog('recsnap-shrink', { fromKB: Math.round(_rs.length / 1024) });
+              }
+            } catch {}
             let _slimOk = false;
             try { localStorage.setItem('daycareAppData_v3', JSON.stringify({ ...appData, familyPhotos: [], ticketRecords: _slimTickets(appData.ticketRecords) })); _slimOk = true; }
             catch { try { localStorage.setItem('daycareAppData_v3', JSON.stringify({ ...appData, familyPhotos: [], ticketRecords: [] })); _slimOk = true; } catch {} }
@@ -21420,7 +21432,23 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       if (last && (Date.now()-last.t) < 20000) list[list.length-1] = snap; // 20秒以内は直近を上書き(スナップ乱立防止)
       else list.push(snap);
       all[sk] = list.slice(-25); // 最新25件保持
-      localStorage.setItem(_RECSNAP_KEY, JSON.stringify(all));
+      // ★ 2026-09-15 Quota恒久対策(扇橋実測): 日付ごとのキーが永遠に溜まり続け(掃除なし)、RecSnapが
+      //   Surfaceで5.1MB/iPadで2.5MBに肥大→localStorageを占拠し、本命の控え(daycareAppData_v3)が
+      //   保存不能(0KB)になっていた。①古い日付(7日超)のスナップを削除 ②全体を約1.5MBまでに制限。
+      const _cut = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      Object.keys(all).forEach(k => { const lst = all[k]; if (!Array.isArray(lst) || !lst.length || ((lst[lst.length-1] || {}).t || 0) < _cut) delete all[k]; });
+      let _payload = JSON.stringify(all);
+      const _MAX = 1500000;
+      if (_payload.length > _MAX) {
+        const _keysByAge = Object.keys(all).sort((a, b) => (((all[a][all[a].length-1] || {}).t) || 0) - (((all[b][all[b].length-1] || {}).t) || 0));
+        for (const k of _keysByAge) { if (_payload.length <= _MAX) break; if (k === sk) continue; delete all[k]; _payload = JSON.stringify(all); }
+        while (_payload.length > _MAX && all[sk] && all[sk].length > 3) { all[sk] = all[sk].slice(-Math.ceil(all[sk].length / 2)); _payload = JSON.stringify(all); }
+      }
+      try { localStorage.setItem(_RECSNAP_KEY, _payload); }
+      catch (e3) {
+        // それでも入らない場合は当日の最新5件だけで再試行(復元機能は縮小しても、動く状態を必ず残す)
+        try { const _solo = {}; _solo[sk] = (all[sk] || []).slice(-5); localStorage.setItem(_RECSNAP_KEY, JSON.stringify(_solo)); } catch {}
+      }
     } catch (e) { console.warn('[recsnap] push failed', e); }
   };
   const _restoreRecSnap = (snap) => {
