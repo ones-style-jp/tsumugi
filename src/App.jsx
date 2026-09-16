@@ -31068,6 +31068,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       if (ov !== undefined && ov !== '') attending = (ov === '〇' || ov === '出席' || ov === '臨時' || String(ov).startsWith('振'));
       else attending = p.status !== '休止';
       if (attending && !getPauseReasonOnDate(p, iso)) return;
+      // ★ 2026-09-16d(店舗指摘): 予定上は欠席等でも、当日の提供記録が出席/振替/臨時なら実際は来所している→休みに出さない
+      if (_recAttendsOnDate(p.id, iso)) return;
       out.push({ pid: p.id, name: p.name });
     });
     return out;
@@ -31114,6 +31116,18 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _isFurikae = (iso, sl, pid) => { const a = _attendees(iso, sl).find(x => x.pid === pid); return !!(a && a.furikae); };
   // ★ 初回利用の自動判定(2026-09-12d): その日より前に出席/振替の記録が1件も無ければ初回。
   //   グレーは「休み」の印象があるとの指摘で水色(空色)を採用。
+  // ★ 2026-09-16d: その日の提供記録が出席/振替/臨時か(予定と実績のズレ対策・休み表示の除外に使用)
+  const _recAttendsOnDate = (pid, iso) => {
+    try {
+      const d0 = new Date(iso);
+      return (appData.ticketRecords||[]).some(r => {
+        if (r.patientId !== pid) return false;
+        if (!(r.status === '出席' || r.status === '振替' || r.status === '臨時')) return false;
+        const m = String(r.date||'').match(/(\d+)月(\d+)日/); if (!m || !r.year) return false;
+        return Number(r.year) === d0.getFullYear() && (+m[1]-1) === d0.getMonth() && (+m[2]) === d0.getDate();
+      });
+    } catch { return false; }
+  };
   const _isFirstVisit = (pid, iso) => {
     try {
       const d0 = new Date(iso); d0.setHours(0,0,0,0);
@@ -31228,8 +31242,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   };
   // ★ 利用者名タップで待ち合わせ場所・所要時間を編集(利用者マスタと同じ項目に保存・2026-09-12)
   const [editP, setEditP] = useState(null); // {pid}
-  // ★ 長押しドラッグ移動(2026-09-12h 店舗要望): 名前を長押し(0.35秒)→そのまま別の車/徒歩/その他/未割当へドロップ。
-  //   行の上に落とすとその位置に割り込み。矢印より直感的に並べ替え・車またぎができる。
+  // ★ 長押しドラッグ移動(2026-09-12h 店舗要望): 名前を長押し(0.2秒)→そのまま別の車/徒歩/その他/未割当へドロップ。
+  //   行の上半分=その行の前に割り込み/下半分=その行の後ろ。矢印より直感的に並べ替え・車またぎができる。
   const [dragMv, setDragMv] = useState(null); // {pid, name, iso, x, y}
   const _dragTimerRef = useRef(null);
   const moveMemberAt = (iso, sl, pid, dest, beforePid) => mutate(iso, sl, (pl) => {
@@ -31245,27 +31259,44 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const bi = beforePid != null ? pl.cars[dest].findIndex(m => m.pid === beforePid) : -1;
     if (bi >= 0) pl.cars[dest].splice(bi, 0, item); else pl.cars[dest].push(item);
   });
+  // ★ 2026-09-16d(店舗指摘): ドロップ先の判定を共通化。行の「下半分」に落とすとその行の"次"へ挿入
+  //   (最後の行の下半分=末尾)。従来は行以外の余白でしか末尾に入れられず、行が詰まっているとシビアだった。
+  const _dropTarget = (e) => {
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const row = el && el.closest ? el.closest('[data-tprow]') : null;
+    const zone = el && el.closest ? el.closest('[data-tpdrop]') : null;
+    if (!zone) return null;
+    const ziso = zone.getAttribute('data-tpiso');
+    const zsl = zone.getAttribute('data-tpslot') || 'AM';
+    const dest = zone.getAttribute('data-tpdrop');
+    const _inZone = (r2) => r2.getAttribute('data-tpcid') === dest && r2.getAttribute('data-tpiso') === ziso && (r2.getAttribute('data-tpslot')||'AM') === zsl;
+    let pid = null;
+    if (row && _inZone(row)) {
+      pid = row.getAttribute('data-tppid');
+      const rc = row.getBoundingClientRect();
+      if (e.clientY > rc.top + rc.height / 2) {
+        const rows = Array.from(zone.querySelectorAll('[data-tprow]')).filter(_inZone);
+        const i = rows.indexOf(row);
+        pid = (i >= 0 && i + 1 < rows.length) ? rows[i+1].getAttribute('data-tppid') : null;
+      }
+    }
+    return { iso: ziso, slot: zsl, zone: dest, pid };
+  };
   useEffect(() => {
     if (!dragMv) return;
     const mv = (e) => {
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      const row = el && el.closest ? el.closest('[data-tprow]') : null;
-      const zone = el && el.closest ? el.closest('[data-tpdrop]') : null;
-      setDragMv(d => d ? { ...d, x: e.clientX, y: e.clientY,
-        over: zone ? { iso: zone.getAttribute('data-tpiso'), slot: zone.getAttribute('data-tpslot')||'AM', zone: zone.getAttribute('data-tpdrop'),
-          pid: (row && row.getAttribute('data-tpcid') === zone.getAttribute('data-tpdrop') && row.getAttribute('data-tpiso') === zone.getAttribute('data-tpiso') && (row.getAttribute('data-tpslot')||'AM') === (zone.getAttribute('data-tpslot')||'AM')) ? row.getAttribute('data-tppid') : null } : null } : d);
+      const t = _dropTarget(e);
+      setDragMv(d => d ? { ...d, x: e.clientX, y: e.clientY, over: t } : d);
     };
     const tm = (e) => { e.preventDefault(); }; // ドラッグ中は画面スクロールを止める
     const up = (e) => {
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      const row = el && el.closest ? el.closest('[data-tprow]') : null;
-      const zone = el && el.closest ? el.closest('[data-tpdrop]') : null;
+      const t = _dropTarget(e);
       setDragMv(d => {
-        if (d && zone) {
-          const ziso = zone.getAttribute('data-tpiso');
-          const zsl = zone.getAttribute('data-tpslot') || 'AM';
-          const dest = zone.getAttribute('data-tpdrop');
-          const before = (row && row.getAttribute('data-tpcid') === dest && row.getAttribute('data-tpiso') === ziso && (row.getAttribute('data-tpslot')||'AM') === zsl) ? row.getAttribute('data-tppid') : null;
+        if (d && t) {
+          const ziso = t.iso;
+          const zsl = t.slot;
+          const dest = t.zone;
+          const before = t.pid;
           const bp = before != null ? (isNaN(Number(before)) ? before : Number(before)) : null;
           if (ziso === d.iso && zsl === d.slot) {
             if (String(before) !== String(d.pid)) moveMemberAt(d.iso, d.slot, d.pid, dest, bp);
@@ -31284,7 +31315,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     return () => { document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); document.removeEventListener('touchmove', tm); document.body.style.userSelect = ''; };
   }, [dragMv ? dragMv.pid : null]);
   const _dragHandlers = (pid, iso, sl) => ({
-    onPointerDown: (e) => { const x = e.clientX, y = e.clientY; clearTimeout(_dragTimerRef.current); _dragTimerRef.current = setTimeout(() => { setDragMv({ pid, name: _pname(pid), iso, slot: sl, x, y }); }, 350); },
+    onPointerDown: (e) => { const x = e.clientX, y = e.clientY; clearTimeout(_dragTimerRef.current); _dragTimerRef.current = setTimeout(() => { setDragMv({ pid, name: _pname(pid), iso, slot: sl, x, y }); }, 200); }, // ★ 2026-09-16d(店舗指摘): 0.35→0.2秒に短縮
     onPointerMove: () => { if (!dragMv) { if (_dragTimerRef.current) clearTimeout(_dragTimerRef.current); } },
     onPointerUp: () => { clearTimeout(_dragTimerRef.current); },
     onPointerLeave: () => { if (!dragMv) clearTimeout(_dragTimerRef.current); },
