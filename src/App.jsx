@@ -1795,20 +1795,23 @@ const KIBUN_MOOD_META = [
   { key: 'bad',       label: 'イマイチ',   emoji: '😞' },
   { key: 'terrible',  label: 'とても悪い', emoji: '😫' },
 ];
+// ★ 2026-09-16(店舗要望): 定型文が多すぎて「いつも同じものをタップするだけ」になっていたため、
+//   既定は大まかな分類4つに絞り、詳しくは自由入力(音声入力可)で書いてもらう形に変更。
+//   各種設定のカスタム(systemSettings.kibunReasons)がある店舗はそちらが優先(従来どおり)。
 const DEFAULT_KIBUN_REASONS = {
   arrival: {
-    excellent: ['よく眠れた','体調がいい','気分がいい','調子がいい','楽しみ','体が軽い','すっきりしている','元気いっぱい','うれしい','ごきげん'],
-    good:      ['よく眠れた','体調はいい','気分はいい','落ち着いている','体が軽い','まあまあ元気','調子はいい','穏やかな気分','痛みはない','気分が明るい'],
-    normal:    ['いつも通り','特に変わりない','まあまあ','ふつう','落ち着いている','可もなく不可もなく','体調はふつう','よく眠れた方','特に問題なし','変わりない'],
-    bad:       ['あまり眠れなかった','少しだるい','体が重い','疲れ気味','痛むところがある','気分が乗らない','少し不安','体調がいまいち','すっきりしない','元気が出ない'],
-    terrible:  ['よく眠れなかった','体調が悪い','痛みがある','体がだるい','つらい','めまいがする','気分が悪い','不安が強い','吐き気がする','起きるのがつらかった'],
+    excellent: ['体調が良い','よく眠れた','楽しみにしていた','気分が明るい'],
+    good:      ['体調が良い','よく眠れた','落ち着いている','気分が明るい'],
+    normal:    ['いつも通り','体調は安定','落ち着いている','特に変わりなし'],
+    bad:       ['体調不良','痛みがある','眠れなかった','気分の落ち込み'],
+    terrible:  ['体調不良','強い痛み','眠れなかった','気分の落ち込み'],
   },
   departure: {
-    excellent: ['とても楽しかった','体操をがんばれた','会話が楽しかった','たくさん体を動かせた','たくさん笑えた','よく動けた','満足した','うれしかった','元気に過ごせた','また来たい'],
-    good:      ['楽しかった','体を動かせた','落ち着いて過ごせた','おしゃべりできた','運動できた','穏やかに過ごせた','よく休めた','まあまあ楽しめた','痛みなく過ごせた','気分よく過ごせた'],
-    normal:    ['いつも通りだった','特に変わりなかった','まあまあだった','ふつうに過ごせた','落ち着いて過ごせた','可もなく不可もなく','問題なく過ごせた','静かに過ごせた','特に問題なし','変わりなかった'],
-    bad:       ['体が動かなかった','痛みがあった','疲れてしまった','あまり楽しめなかった','気分が乗らなかった','少しだるかった','うとうとしてしまった','落ち着かなかった','早く帰りたかった','元気が出なかった'],
-    terrible:  ['力が出なかった','とても痛かった','体調を崩した','つらかった','めまいがした','ぐったりした','気分が悪かった','不安だった','吐き気がした','途中で休んだ'],
+    excellent: ['楽しく過ごせた','よく体を動かせた','おしゃべりできた','体調が良い'],
+    good:      ['楽しく過ごせた','体を動かせた','落ち着いて過ごせた','体調が良い'],
+    normal:    ['いつも通り','問題なく過ごせた','落ち着いて過ごせた','特に変わりなし'],
+    bad:       ['疲れた','痛みがあった','楽しめなかった','体調がいまいち'],
+    terrible:  ['体調を崩した','強い痛み','ぐったりした','気分が悪かった'],
   },
 };
 const getKibunReasonsFrom = (systemSettings, timing, mood) => {
@@ -23574,7 +23577,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   ))}
                 </div>
                 {currentRec?.[moodKey] && (
-                  <button onClick={() => { updateRecord(recId, moodKey, ''); updateRecord(recId, reasonKey, ''); closeKibunModal(); }}
+                  <button onClick={() => { updateRecord(recId, moodKey, ''); updateRecord(recId, reasonKey, '');
+                    // ★ 特記へ転記していた【気分】行も一緒に消す(2026-09-16)
+                    try { const marker = timing === 'arrival' ? '【気分・通所】' : '【気分・帰宅】'; const cur = String(currentRec?.tokki || ''); const nt = cur.split('\n').filter(l => !l.startsWith(marker)).join('\n'); if (nt !== cur) updateRecord(recId, 'tokki', nt); } catch {}
+                    closeKibunModal(); }}
                     className="mt-6 px-8 py-4 bg-slate-200 text-slate-700 rounded-full text-xl font-bold hover:bg-slate-300">記録をクリア</button>
                 )}
               </div>
@@ -23598,21 +23604,38 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   })}
                 </div>
                 <div className="w-full max-w-3xl mt-3">
-                  <div className="text-slate-600 text-xl font-bold mb-2">その他（自由入力）</div>
-                  <input type="text"
+                  <div className="text-slate-600 text-xl font-bold mb-2">くわしく（自由入力・任意）</div>
+                  {/* ★ 2026-09-16: 自由入力を大きな欄に。iPad/スマホはキーボードのマイクで音声入力できる(案内を表示) */}
+                  <textarea rows={2}
                     value={(() => { const cur = currentRec?.[reasonKey]||''; const known = getKibunReasons(timing, kibunTempMood); return cur.split('・').filter(r=>r&&!known.includes(r)).join('・'); })()}
                     onChange={e => {
                       const known = getKibunReasons(timing, kibunTempMood);
                       const cur = currentRec?.[reasonKey]||'';
                       const sel = cur.split('・').filter(r=>r&&known.includes(r));
-                      updateRecord(recId, reasonKey, [...sel, ...(e.target.value?[e.target.value]:[])].join('・'));
+                      updateRecord(recId, reasonKey, [...sel, ...(e.target.value?[e.target.value.replace(/\n/g,' ')]:[])].join('・'));
                     }}
                     onFocus={(e) => { if (Date.now() - _lpLastFireAt < 600) e.target.blur(); }}
-                    placeholder="自由に入力..." className="w-full px-5 py-5 rounded-2xl bg-slate-100 text-slate-800 border-2 border-slate-300 outline-none text-2xl" />
+                    placeholder="例: 昨夜あまり眠れなかったとのこと" className="w-full px-5 py-4 rounded-2xl bg-slate-100 text-slate-800 border-2 border-slate-300 outline-none text-2xl leading-relaxed" />
+                  <div className="text-slate-400 text-base font-bold mt-1">ヒント: iPad・スマホはキーボードのマイクボタンで音声入力できます</div>
                 </div>
                 <div className="flex gap-5 mt-6 pb-6">
                   <button {...longPressTapProps(() => setKibunStep('mood'))} className="px-10 py-5 bg-slate-200 text-slate-700 rounded-full text-2xl font-bold hover:bg-slate-300 active:scale-95">← 戻る</button>
-                  <button {...longPressTapProps(() => { updateRecord(recId, moodKey, kibunTempMood); closeKibunModal(); })}
+                  <button {...longPressTapProps(() => {
+                    updateRecord(recId, moodKey, kibunTempMood);
+                    // ★ 2026-09-16(店舗要望): 理由が入力されていたら特記へ自動転記(【気分・通所/帰宅】行を置換方式で管理)。
+                    //   連絡帳・モニタリングにそのまま活き、二度書きを不要に。
+                    try {
+                      const moodLb = (KIBUN_MOODS.find(m => m.key === kibunTempMood) || {}).label || '';
+                      const reason = String(currentRec?.[reasonKey] || '').trim();
+                      const marker = timing === 'arrival' ? '【気分・通所】' : '【気分・帰宅】';
+                      const cur = String(currentRec?.tokki || '');
+                      const lines = cur.split('\n').filter(l => !l.startsWith(marker) && l.trim() !== '');
+                      if (reason) lines.push(`${marker}${moodLb}（${reason}）`);
+                      const nt = lines.join('\n');
+                      if (nt !== cur) updateRecord(recId, 'tokki', nt);
+                    } catch {}
+                    closeKibunModal();
+                  })}
                     className="px-16 py-5 bg-emerald-500 text-white rounded-full text-2xl font-bold hover:bg-emerald-600 shadow-lg active:scale-95">決定</button>
                 </div>
               </div>
