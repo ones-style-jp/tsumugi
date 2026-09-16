@@ -31613,7 +31613,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const _capOf = (c) => Math.min(Number(c.cap)||0, 8);
     const unitsOf = (sl) => {
       let u = 0;
-      cars.forEach(c => { const nrm = maxOcc[`${sl}_${c.id}`]; const low = Math.max(0, _capOf(c) - nrm); u += 1.7 + nrm + low*0.7; });
+      cars.forEach(c => { u += 1.7 + Math.max(_capOf(c), maxOcc[`${sl}_${c.id}`]); });
       let ex = 0;
       days.forEach(d => { const iso = _iso(d); const pl = getPlan(iso, sl); let e2 = 0;
         if ((pl.walkers||[]).length) e2++;
@@ -31621,7 +31621,6 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         if ([ ...Object.values(pl.cars||{}).flat(), ...(pl.walkers||[]), ...(pl.others||[]) ].some(m => _isFirstVisit(m.pid, iso))) e2++;
         if (pl.dropMode === 'custom' && pl.drop) e2 += 2;
         if (pl.memo) e2++;
-        if ((pl.un||[]).length) e2++;
         if (_absentees(iso, sl).length) e2++;
         ex = Math.max(ex, Math.ceil(e2 * 0.7));
       });
@@ -31629,12 +31628,12 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     };
     const uAM = unitsOf('AM'), uPM = unitsOf('PM');
     const totalU = Math.max(uAM + uPM, 6);
-    const availPx = 630; // 本文の有効高さ(A4横209mm−余白/題字/日付見出し/凡例のpx換算・安全マージン込み)
+    const availPx = 590; // 本文の有効高さ(印字可能域275×190mmに縮小・題字/日付見出し/凡例を差し引き)
     let fz = 14; // ★ 2026-09-14b(店舗指摘): 名前が小さい→上限を14pxへ引き上げ
     while (fz > 8) { const uh = Math.ceil(fz * 1.3) + (fz >= 10 ? 2 : 0) + 1; if (totalU * uh <= availPx) break; fz--; }
     const fzS = Math.max(8, fz - 1); // 下部情報(徒歩/休み等)も一回り大きく
-    const emptyH = Math.max(8, Math.round(fz * 0.95)); // ★ 空席セルの高さは午前/午後・全曜日で同一(統一指摘への対応)
-    const COLG = '<colgroup><col style="width:61%"/><col style="width:25%"/><col style="width:14%"/></colgroup>';
+    // ★ 2026-09-16(店舗指摘): 氏名欄の右余白を詰め、その分文字を大きく(時間25→18%・次回14→11%)
+    const COLG = '<colgroup><col style="width:71%"/><col style="width:18%"/><col style="width:11%"/></colgroup>';
     const cellRow = (m, iso, sl) => {
       const fk = _isFurikae(iso, sl, m.pid);
       const fv = !fk && _isFirstVisit(m.pid, iso);
@@ -31645,7 +31644,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         <td style="border-bottom:1px solid #d7dcd7;border-left:1px solid #e2e6e1;padding:1px 2px;font-size:${fzS}px;line-height:1.25;text-align:center;">${esc(_nextDow(iso, m.pid))}</td>
       </tr>`;
     };
-    const emptyRow = () => `<tr style="height:${emptyH}px;"><td style="border-bottom:1px solid #dfe3de;"></td><td style="border-bottom:1px solid #dfe3de;border-left:1px solid #eaece8;"></td><td style="border-bottom:1px solid #dfe3de;border-left:1px solid #eaece8;"></td></tr>`;
+    // ★ 2026-09-16(店舗指摘): 空席セルも名前入りセルと同じ高さに(後から手書きで追記できるように)
+    const emptyRow = () => `<tr><td style="border-bottom:1px solid #dfe3de;padding:1px 3px;font-size:${fz}px;line-height:1.25;">&nbsp;</td><td style="border-bottom:1px solid #dfe3de;border-left:1px solid #eaece8;">&nbsp;</td><td style="border-bottom:1px solid #dfe3de;border-left:1px solid #eaece8;">&nbsp;</td></tr>`;
     const dayBlock = (iso, sl) => {
       const pl = getPlan(iso, sl);
       let h = '';
@@ -31668,7 +31668,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       if (ot.length) _parts.push(`<span style="color:#6d28d9;">その他: ${ot.map(m=>esc(_pname(m.pid))).join('、')}</span>`);
       const _firsts = [ ...Object.values(pl.cars||{}).flat(), ...(pl.walkers||[]), ...(pl.others||[]) ].filter(m => _isFirstVisit(m.pid, iso)).map(m => _pname(m.pid));
       if (_firsts.length) _parts.push(`<span style="color:#0369a1;font-weight:bold;">初回: ${_firsts.map(esc).join('様、')}様</span>`);
-      if ((pl.un||[]).length) _parts.push(`<span style="color:#b45309;">未割当: ${(pl.un||[]).map(m=>esc(_pname(m.pid))).join('、')}</span>`);
+      // ★ 2026-09-16(店舗指定): 未割当は印刷に出さない(画面のみ)
       const _abs2 = _absentees(iso, sl);
       if (_abs2.length) _parts.push(`<span style="color:#64748b;">休み: ${_abs2.map(a=>esc(a.name)).join('、')}</span>`);
       if (_parts.length) h += `<div style="font-size:${fzS}px;line-height:1.35;margin-top:1px;">${_parts.join('　')}</div>`;
@@ -31703,25 +31703,24 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     return [...s];
   };
   const buildContactsPageHtml = () => {
+    // ★ 2026-09-16(店舗指摘): 住所列が長く右端が見切れる→左右2段組で全員を1枚に。電話は携帯優先(無ければ固定)。
     const pts = _weekPids().map(pid => (appData.patients||[]).find(x=>x.id===pid)).filter(Boolean)
       .sort((a,b)=>String(a.kana||a.name||'').localeCompare(String(b.kana||b.name||''),'ja'));
+    const half = Math.ceil(pts.length / 2) || 1;
     let fz = 12;
-    while (fz > 8 && (pts.length + 2) * (Math.ceil(fz * 1.35) + 5) > 640) fz--;
-    const rows = pts.map(pt => `<tr>
-      <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fz}px;font-weight:600;white-space:nowrap;">${_escP(pt.name)}</td>
-      <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fz}px;">${_escP([pt.address, pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' '))}</td>
-      <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fz}px;white-space:nowrap;font-variant-numeric:tabular-nums;">${_escP(pt.phone||'')}</td>
-      <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fz}px;white-space:nowrap;font-variant-numeric:tabular-nums;">${_escP(pt.phoneMobile||'')}</td>
-      <td style="border:1px solid #66756b;padding:2px 6px;font-size:${Math.max(8,fz-1)}px;">${_escP(pt.pickupPlace||'')}</td>
-    </tr>`).join('');
+    while (fz > 8 && (half * 1.3 + 2) * (Math.ceil(fz * 1.35) + 5) > 600) fz--;
+    const tbl = (list) => `<table style="border-collapse:collapse;width:100%;table-layout:fixed;">
+      <colgroup><col style="width:${Math.round(fz*6.5)}px"/><col/><col style="width:${Math.round(fz*7.8)}px"/></colgroup>
+      <thead><tr>${['氏名','住所','電話'].map(h2=>`<th style="border:1px solid #66756b;background:#eef0ed;font-size:${Math.max(8,fz-1)}px;padding:1px 2px;">${h2}</th>`).join('')}</tr></thead>
+      <tbody>${list.map(pt => `<tr>
+        <td style="border:1px solid #66756b;padding:1px 4px;font-size:${fz}px;font-weight:600;white-space:nowrap;overflow:hidden;">${_escP(pt.name)}</td>
+        <td style="border:1px solid #66756b;padding:1px 4px;font-size:${Math.max(8,fz-1)}px;line-height:1.3;">${_escP([pt.address, pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' '))}</td>
+        <td style="border:1px solid #66756b;padding:1px 4px;font-size:${Math.max(8,fz-1)}px;white-space:nowrap;font-variant-numeric:tabular-nums;">${_escP(pt.phoneMobile || pt.phone || '')}</td>
+      </tr>`).join('')}</tbody></table>`;
     return `<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
-      <div style="text-align:center;font-size:15px;font-weight:bold;letter-spacing:6px;margin-bottom:2mm;flex:none;">利用者連絡先一覧（${_mon.getMonth()+1}/${_mon.getDate()}週・五十音順）</div>
-      <table style="border-collapse:collapse;width:100%;table-layout:fixed;">
-        <colgroup><col style="width:110px"/><col/><col style="width:105px"/><col style="width:105px"/><col style="width:150px"/></colgroup>
-        <thead><tr>${['氏名','住所','電話（固定）','電話（携帯）','待ち合わせ場所'].map(h2=>`<th style="border:1px solid #66756b;background:#eef0ed;font-size:${Math.max(9,fz-1)}px;padding:2px;">${h2}</th>`).join('')}</tr></thead>
-        <tbody>${rows || `<tr><td colspan="5" style="border:1px solid #66756b;padding:6px;font-size:11px;color:#94a3b8;">この週に乗車予定の利用者がいません</td></tr>`}</tbody>
-      </table>
-      <div style="font-size:9px;color:#64748b;margin-top:1.5mm;">※ この一覧には個人情報が含まれます。取り扱い・保管にご注意ください。</div>
+      <div style="text-align:center;font-size:14px;font-weight:bold;letter-spacing:6px;margin-bottom:2mm;flex:none;">利用者連絡先一覧（${_mon.getMonth()+1}/${_mon.getDate()}週・五十音順）</div>
+      ${pts.length ? `<div style="display:flex;gap:5mm;align-items:flex-start;"><div style="flex:1;min-width:0;">${tbl(pts.slice(0, half))}</div><div style="flex:1;min-width:0;">${tbl(pts.slice(half))}</div></div>` : '<div style="font-size:11px;color:#94a3b8;">この週に乗車予定の利用者がいません</div>'}
+      <div style="font-size:9px;color:#64748b;margin-top:auto;flex:none;">※ 電話は携帯優先(無い方は固定)。この一覧には個人情報が含まれます。取り扱い・保管にご注意ください。</div>
     </div>`;
   };
   // ==== 日別印刷(A4縦・大きな字・住所/電話つき・2026-09-16 店舗要望: 毎日1日分を印刷する店舗向け) ====
@@ -31732,14 +31731,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const rowsOf = (sl) => { const pl = getPlan(iso, sl);
       return cars.reduce((a,c)=>a+Math.max(((pl.cars||{})[c.id]||[]).length,1)+2,0) + ((pl.walkers||[]).length?1:0) + ((pl.others||[]).length?1:0) + ((pl.un||[]).length?1:0) + (_absentees(iso,sl).length?1:0) + (pl.memo?1:0) + 1; };
     const totalU = rowsOf('AM') + rowsOf('PM') + 3;
-    let fz = 15; while (fz > 9 && totalU * (Math.ceil(fz*1.4)+3) > 950) fz--;
+    let fz = 15; while (fz > 9 && totalU * (Math.ceil(fz*1.4)+3) > 870) fz--;
     const fzS = Math.max(9, fz - 2);
     const row = (m, sl) => { const pt = _pt(m.pid); const fk = _isFurikae(iso, sl, m.pid); const fv = !fk && _isFirstVisit(m.pid, iso); const bg = fk?'#a7f3d0':(fv?'#bae6fd':'#fff');
       return `<tr style="background:${bg};">
         <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;">${m.mark?'<span style="color:#c82c35;">●</span>':''}${_escP(_pname(m.pid))}</td>
         <td style="border:1px solid #66756b;padding:2px 4px;font-size:${fz}px;font-weight:700;text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums;">${_escP(m.t||'')}</td>
         <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fzS}px;">${_escP([pt.address, pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' '))}${pt.pickupPlace?`<span style="color:#475569;">（${_escP(pt.pickupPlace)}）</span>`:''}</td>
-        <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fzS}px;white-space:nowrap;font-variant-numeric:tabular-nums;">${_escP(pt.phone || pt.phoneMobile || '')}</td>
+        <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fzS}px;white-space:nowrap;font-variant-numeric:tabular-nums;">${_escP(pt.phoneMobile || pt.phone || '')}</td>
       </tr>`; };
     const slotBlock = (sl, label) => { const pl = getPlan(iso, sl);
       let h = `<div style="font-size:${fz}px;font-weight:800;background:${sl==='AM'?'#faf0d9':'#e8edf7'};border:1px solid #66756b;padding:2px 8px;margin-top:3mm;">${label}</div>`;
@@ -31752,7 +31751,6 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const parts = [];
       const wk = (pl.walkers||[]); if (wk.length) parts.push(`徒歩: ${wk.map(m=>_escP(_pname(m.pid))).join('、')}`);
       const ot = (pl.others||[]); if (ot.length) parts.push(`<span style="color:#6d28d9;">その他: ${ot.map(m=>_escP(_pname(m.pid))).join('、')}</span>`);
-      const un = (pl.un||[]); if (un.length) parts.push(`<span style="color:#b45309;">未割当: ${un.map(m=>_escP(_pname(m.pid))).join('、')}</span>`);
       const ab = _absentees(iso, sl); if (ab.length) parts.push(`<span style="color:#64748b;">休み: ${ab.map(a=>_escP(a.name)).join('、')}</span>`);
       if (parts.length) h += `<div style="font-size:${fzS}px;margin-top:1mm;line-height:1.5;">${parts.join('　')}</div>`;
       if (pl.memo) h += `<div style="font-size:${fzS}px;color:#b91c1c;font-weight:700;">備考: ${_escP(pl.memo)}</div>`;
@@ -31765,15 +31763,16 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     </div>`;
   };
   const doPrintDay = (iso) => {
-    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${iso}`, pageSize: '210mm 297mm', html: `<div style="width:210mm;height:296mm;box-sizing:border-box;padding:8mm 10mm;background:#fff;overflow:hidden;">${buildDailyPrintHtml(iso)}</div>`, elementId: null } }));
+    // ★ 2026-09-16(店舗指摘): 実機で左右が見切れる→プリンタの印字可能域(約188×275mm)に縮小して中央配置
+    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${iso}`, pageSize: '210mm 297mm', html: `<div style="width:188mm;height:275mm;box-sizing:border-box;margin:4mm auto 0;background:#fff;overflow:hidden;">${buildDailyPrintHtml(iso)}</div>`, elementId: null } }));
   };
   const doPrint = () => {
     const html = buildPrintHtml();
     // ★ 2枚目に連絡先一覧を付けるか選択(2026-09-16 店舗要望)
     const withContacts = window.confirm('2枚目に「利用者連絡先一覧（住所・電話・五十音順）」も付けて印刷しますか？\n（キャンセル＝運行表1枚のみ）');
-    const page2 = withContacts ? `<div style="page-break-before:always;width:297mm;height:209mm;box-sizing:border-box;padding:6mm 8mm;background:#fff;overflow:hidden;">${buildContactsPageHtml()}</div>` : '';
-    // ★ A4横1枚の実寸枠(白背景・四辺余白)に収めて中央配置(2026-09-12e)
-    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `<div style="width:297mm;height:209mm;box-sizing:border-box;padding:6mm 8mm;background:#fff;overflow:hidden;">${html}</div>${page2}`, elementId: null } }));
+    // ★ 2026-09-16(店舗指摘): 実機で右端(金曜)が見切れる→印字可能域(約275×190mm)に縮小して中央配置
+    const page2 = withContacts ? `<div style="page-break-before:always;width:275mm;height:190mm;box-sizing:border-box;margin:4mm auto 0;background:#fff;overflow:hidden;">${buildContactsPageHtml()}</div>` : '';
+    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `<div style="width:275mm;height:190mm;box-sizing:border-box;margin:4mm auto 0;background:#fff;overflow:hidden;">${html}</div>${page2}`, elementId: null } }));
   };
 
   // ==== 画面 ====
@@ -31913,9 +31912,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                         {/* ★ 未割当: 従来どおり下部に表示(2026-09-14 店舗指定で上部から戻し) */}
                         {(!!(pl.un||[]).length || dragMv) && (
                           <div data-tpdrop="un" data-tpiso={iso} data-tpslot={sl} className={`border rounded-lg px-2 py-1 ${dragMv&&dragMv.over&&dragMv.over.zone==='un'&&dragMv.over.iso===iso&&dragMv.over.slot===sl?'border-amber-600 ring-2 ring-amber-300 bg-amber-50':'border-amber-300 bg-amber-50'}`}>
-                            <div className="text-[11px] font-bold text-amber-700 mb-0.5 flex items-center">未割当 {(pl.un||[]).length}名<span className="ml-auto font-normal text-amber-600 text-[10px]">車へ移動してください</span></div>
+                            <div className="text-[10px] font-bold text-amber-700 flex items-center leading-tight">未割当 {(pl.un||[]).length}名<span className="ml-auto font-normal text-amber-600 text-[9px]">車へ移動してください</span></div>
                             {(pl.un||[]).map(m => (
-                              <div key={m.pid} className={`flex items-center gap-1 text-[15px] font-bold text-slate-700 py-1 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''} ${_isFurikae(iso, sl, m.pid)?'bg-emerald-100 rounded':(_isFirstVisit(m.pid, iso)?'bg-sky-100 rounded':'')}`}>
+                              <div key={m.pid} className={`flex items-center gap-1 text-[15px] font-bold text-slate-700 py-0.5 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''} ${_isFurikae(iso, sl, m.pid)?'bg-emerald-100 rounded':(_isFirstVisit(m.pid, iso)?'bg-sky-100 rounded':'')}`}>
                                 <span className="flex-1 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2 px-1" style={{overflowWrap:'anywhere', touchAction:'pan-y'}} {..._dragHandlers(m.pid, iso, sl)}>{_pname(m.pid)}</span>
                                 <span className="text-[12px] text-slate-500" style={{fontVariantNumeric:'tabular-nums'}}>{m.t}</span>
                               </div>
