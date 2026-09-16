@@ -31657,7 +31657,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       </tr>`;
     };
     // ★ 2026-09-16(店舗指摘): 空席セルも名前入りセルと同じ高さに(後から手書きで追記できるように)
-    const emptyRow = () => `<tr><td style="border-bottom:1px solid #dfe3de;padding:1px 3px;font-size:${fz}px;line-height:1.25;">&nbsp;</td><td style="border-bottom:1px solid #dfe3de;border-left:1px solid #eaece8;">&nbsp;</td><td style="border-bottom:1px solid #dfe3de;border-left:1px solid #eaece8;">&nbsp;</td></tr>`;
+    //   ★ 2026-09-16b(店舗指摘): 2・3列目のフォント未指定で既定16pxになり空席行だけ太る→全セルに名前入り行と同じfont-size/padding/line-heightを指定
+    const emptyRow = () => `<tr><td style="border-bottom:1px solid #dfe3de;padding:1px 3px;font-size:${fz}px;line-height:1.25;">&nbsp;</td><td style="border-bottom:1px solid #dfe3de;border-left:1px solid #eaece8;padding:1px 2px;font-size:${fz}px;line-height:1.25;">&nbsp;</td><td style="border-bottom:1px solid #dfe3de;border-left:1px solid #eaece8;padding:1px 2px;font-size:${fzS}px;line-height:1.25;">&nbsp;</td></tr>`;
     const dayBlock = (iso, sl) => {
       const pl = getPlan(iso, sl);
       let h = '';
@@ -31669,7 +31670,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         for (let i = 0; i < total; i++) body += rows[i] ? cellRow(rows[i], iso, sl) : emptyRow();
         h += `<div style="border:1px solid #66756b;margin-bottom:3px;">
           <div style="background:#eef0ed;padding:1px 4px;font-size:${fz-1}px;line-height:1.35;border-bottom:1px solid #aab5ac;white-space:nowrap;overflow:hidden;"><b>${esc(c.name)}</b>${_drv?`<span style="float:right;font-weight:400;">運転者 ${esc(_drv)}</span>`:''}</div>
-          <div style="display:flex;font-size:${Math.max(8,fz-3)}px;color:#4e5f53;line-height:1.35;border-bottom:1px solid #d7dcd7;"><span style="width:61%;padding-left:3px;">氏名</span><span style="width:25%;text-align:center;">時間</span><span style="width:14%;text-align:center;">次回</span></div>
+          <div style="display:flex;font-size:${Math.max(8,fz-3)}px;color:#4e5f53;line-height:1.35;border-bottom:1px solid #d7dcd7;"><span style="width:71%;padding-left:3px;">氏名</span><span style="width:18%;text-align:center;">時間</span><span style="width:11%;text-align:center;">次回</span></div>
           <table style="border-collapse:collapse;width:100%;table-layout:fixed;">${COLG}${body}</table></div>`;
       });
       // ★ 2026-09-14b(店舗指摘): 下部情報は1行にまとめてスペース圧縮しつつ、文字は一回り大きく(fzS=fz-1)
@@ -31722,12 +31723,12 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     let fz = 12;
     while (fz > 8 && (half * 1.3 + 2) * (Math.ceil(fz * 1.35) + 5) > 600) fz--;
     const tbl = (list) => `<table style="border-collapse:collapse;width:100%;table-layout:fixed;">
-      <colgroup><col style="width:${Math.round(fz*6.5)}px"/><col/><col style="width:${Math.round(fz*7.8)}px"/></colgroup>
+      <colgroup><col style="width:${Math.round(fz*6.5)}px"/><col/><col style="width:${Math.round(fz*8.8)}px"/></colgroup>
       <thead><tr>${['氏名','住所','電話'].map(h2=>`<th style="border:1px solid #66756b;background:#eef0ed;font-size:${Math.max(8,fz-1)}px;padding:1px 2px;">${h2}</th>`).join('')}</tr></thead>
       <tbody>${list.map(pt => `<tr>
         <td style="border:1px solid #66756b;padding:1px 4px;font-size:${fz}px;font-weight:600;white-space:nowrap;overflow:hidden;">${_escP(pt.name)}</td>
         <td style="border:1px solid #66756b;padding:1px 4px;font-size:${Math.max(8,fz-1)}px;line-height:1.3;">${_escP([pt.address, pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' '))}</td>
-        <td style="border:1px solid #66756b;padding:1px 4px;font-size:${Math.max(8,fz-1)}px;white-space:nowrap;font-variant-numeric:tabular-nums;">${_escP(pt.phoneMobile || pt.phone || '')}</td>
+        <td style="border:1px solid #66756b;padding:1px 2px;font-size:${Math.max(8,fz-1)}px;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;">${_escP(pt.phoneMobile || pt.phone || '')}</td>
       </tr>`).join('')}</tbody></table>`;
     return `<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
       <div style="text-align:center;font-size:14px;font-weight:bold;letter-spacing:6px;margin-bottom:2mm;flex:none;">利用者連絡先一覧（${_mon.getMonth()+1}/${_mon.getDate()}週・五十音順）</div>
@@ -31759,7 +31760,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           <div style="background:#eef0ed;padding:1px 8px;font-size:${fzS+1}px;font-weight:800;border-bottom:1px solid #9aa79e;">${_escP(c.name)}${drv?`<span style="float:right;font-weight:400;">運転者 ${_escP(drv)}</span>`:''}</div>
           <table style="border-collapse:collapse;width:100%;table-layout:fixed;"><colgroup><col style="width:25%"/><col style="width:11%"/><col/><col style="width:18%"/></colgroup>
           <tr>${['氏名','時間','住所（待ち合わせ）','電話'].map(x=>`<td style="border:1px solid #66756b;background:#f8faf6;font-size:${Math.max(8,fz-4)}px;color:#4e5f53;padding:0 6px;text-align:center;">${x}</td>`).join('')}</tr>
-          ${rows2.map(m=>row(m, sl)).join('') || `<tr><td colspan="4" style="border:1px solid #66756b;font-size:${fzS}px;color:#94a3b8;padding:2px 6px;">—</td></tr>`}</table></div>`; });
+          ${rows2.map(m=>row(m, sl)).join('') || `<tr><td colspan="4" style="border:1px solid #66756b;font-size:${fz}px;line-height:1.4;color:#94a3b8;padding:2px 6px;">&nbsp;</td></tr>`}</table></div>`; });
       const parts = [];
       const wk = (pl.walkers||[]); if (wk.length) parts.push(`徒歩: ${wk.map(m=>_escP(_pname(m.pid))).join('、')}`);
       const ot = (pl.others||[]); if (ot.length) parts.push(`<span style="color:#6d28d9;">その他: ${ot.map(m=>_escP(_pname(m.pid))).join('、')}</span>`);
