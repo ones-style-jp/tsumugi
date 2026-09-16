@@ -31018,6 +31018,15 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const days = weekDays.slice(0, 6); // 最大6列(通常は月〜金 or 月〜土)
   const moveWeek = (n) => { const d = new Date(_mon); d.setDate(d.getDate() + n * 7); setSelectedDate(_iso(d)); };
 
+  // ★ 2026-09-16e(店舗指摘・真因): その日に休止中かを「期間」で判定する。
+  //   patient.status は休止期間が終わっても '休止' のまま残る(再開操作をするまで書き換わらない)仕様で、
+  //   利用者マスタ/月間スケジュールは getPatientDisplayStatus が終了日を過ぎた休止を「利用中」と扱うため出席表示になる。
+  //   送迎表だけが生の status を見ていたため、期間終了後も送迎表から消え「休み」に出る食い違いが起きていた。
+  const _isPausedOn = (p, iso) => {
+    if (getPauseReasonOnDate(p, iso)) return true;              // 終了日つき履歴の期間内 / 無期限休止で現在休止中
+    if (p.status === '休止' && !(p.pauseHistory||[]).length) return true; // 履歴が無い休止(データ不整合時の保険)
+    return false;
+  };
   // その日のスロットに来る予定の利用者(欠席/休業/休止は除外・振替は含む)
   const _attendees = (iso, sl) => {
     const d = new Date(iso); const dow = d.getDay(); const dayNum = d.getDate();
@@ -31036,10 +31045,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         attending = (ov === '〇' || ov === '出席' || ov === '臨時' || String(ov).startsWith('振'));
         furikae = String(ov).startsWith('振');
       } else {
-        attending = baseHit && p.status !== '休止';
+        attending = baseHit; // ★ 2026-09-16e: 生statusではなく期間ベース(_isPausedOn)で休止判定
       }
       if (!attending) return;
-      if (getPauseReasonOnDate(p, iso)) return;
+      if (_isPausedOn(p, iso)) return;
       // ★ 2026-09-12b: マスタのお迎え時間は「基本の時間帯と一致する時だけ」初期値に使う。
       //   午後へ振替した方に午前の8時が出るのを防ぐ(振替・帯違いは空欄=手入力かルート自動で決める)
       const _tOk = base === sl || (base === '1日' && sl === 'AM');
@@ -31066,8 +31075,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const ov = appData.monthlyShifts?.[mk]?.[p.id]?.[`${dayNum}_${sl}`];
       let attending;
       if (ov !== undefined && ov !== '') attending = (ov === '〇' || ov === '出席' || ov === '臨時' || String(ov).startsWith('振'));
-      else attending = p.status !== '休止';
-      if (attending && !getPauseReasonOnDate(p, iso)) return;
+      else attending = true; // ★ 2026-09-16e: 生statusではなく期間ベース(_isPausedOn)で休止判定
+      if (attending && !_isPausedOn(p, iso)) return;
       // ★ 2026-09-16d(店舗指摘): 予定上は欠席等でも、当日の提供記録が出席/振替/臨時なら実際は来所している→休みに出さない
       if (_recAttendsOnDate(p.id, iso)) return;
       out.push({ pid: p.id, name: p.name });
