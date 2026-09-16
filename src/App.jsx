@@ -23533,7 +23533,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 </div>
                 {currentRec?.[moodKey] && (
                   <button onClick={() => { updateRecord(recId, moodKey, ''); updateRecord(recId, reasonKey, '');
-                    // ★ 特記へ転記していた【気分】行も一緒に消す(2026-09-16)
+                    // ※ 転記済みの【気分】行掃除は転記廃止に伴い不要(2026-09-16)。過去に転記された行があれば消す(移行掃除)。
                     try { const marker = timing === 'arrival' ? '【気分・通所】' : '【気分・帰宅】'; const cur = String(currentRec?.tokki || ''); const nt = cur.split('\n').filter(l => !l.startsWith(marker)).join('\n'); if (nt !== cur) updateRecord(recId, 'tokki', nt); } catch {}
                     closeKibunModal(); }}
                     className="mt-6 px-8 py-4 bg-slate-200 text-slate-700 rounded-full text-xl font-bold hover:bg-slate-300">記録をクリア</button>
@@ -23577,18 +23577,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   <button {...longPressTapProps(() => setKibunStep('mood'))} className="px-10 py-5 bg-slate-200 text-slate-700 rounded-full text-2xl font-bold hover:bg-slate-300 active:scale-95">← 戻る</button>
                   <button {...longPressTapProps(() => {
                     updateRecord(recId, moodKey, kibunTempMood);
-                    // ★ 2026-09-16(店舗要望): 理由が入力されていたら特記へ自動転記(【気分・通所/帰宅】行を置換方式で管理)。
-                    //   連絡帳・モニタリングにそのまま活き、二度書きを不要に。
-                    try {
-                      const moodLb = (KIBUN_MOODS.find(m => m.key === kibunTempMood) || {}).label || '';
-                      const reason = String(currentRec?.[reasonKey] || '').trim();
-                      const marker = timing === 'arrival' ? '【気分・通所】' : '【気分・帰宅】';
-                      const cur = String(currentRec?.tokki || '');
-                      const lines = cur.split('\n').filter(l => !l.startsWith(marker) && l.trim() !== '');
-                      if (reason) lines.push(`${marker}${moodLb}（${reason}）`);
-                      const nt = lines.join('\n');
-                      if (nt !== cur) updateRecord(recId, 'tokki', nt);
-                    } catch {}
+                    // ※ 理由の特記転記は廃止(2026-09-16 店舗指示)。理由はモニタリングAIへ直接渡す。
                     closeKibunModal();
                   })}
                     className="px-16 py-5 bg-emerald-500 text-white rounded-full text-2xl font-bold hover:bg-emerald-600 shadow-lg active:scale-95">決定</button>
@@ -43340,6 +43329,16 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     const moodDist = {};
     attended.forEach(r=>[r.kibunArrival,r.kibunDeparture].forEach(v=>{ if(MOOD_LABEL[v]) moodDist[v]=(moodDist[v]||0)+1; }));
     const moodDistText = ['excellent','good','normal','bad','terrible'].filter(k=>moodDist[k]).map(k=>`${MOOD_LABEL[k]}×${moodDist[k]}`).join('、');
+    // ★ 2026-09-16: 気分の「理由」(kibunArrivalReason/kibunDepartureReason)を日付つきでAIへ直接渡す(特記転記は廃止)。
+    //   同日の通所時→帰宅時を並べるので「通所時は眠れず不調だったが帰宅時は改善」の変化も書ける。
+    const kibunDetail = attended.map(r => {
+      const parts = [];
+      [['kibunArrival','kibunArrivalReason','通所時'],['kibunDeparture','kibunDepartureReason','帰宅時']].forEach(([mk, rk, lb]) => {
+        const rs = String(r[rk]||'').trim();
+        if (rs) parts.push(`${lb}${MOOD_LABEL[r[mk]]||''}（${rs}）`);
+      });
+      return parts.length ? `${r.date}: ${parts.join('／')}` : null;
+    }).filter(Boolean);
     return {
       name: patient.name,
       careLevel: patient.careLevel,
@@ -43351,7 +43350,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
       prevRate,
       avgBp, maxBp, minBp, avgBpDn, highBpDays, avgPulse, avgBp2, prevAvgBp,
       avgTemp, maxTemp,
-      avgMoodKey, avgMoodLabel: avgMoodKey ? MOOD_LABEL[avgMoodKey] : null, moodDistText,
+      avgMoodKey, avgMoodLabel: avgMoodKey ? MOOD_LABEL[avgMoodKey] : null, moodDistText, kibunDetail,
       tokki: tokkiList, tokkiDetail,
       fitnessRecs,
       fitnessItems: appData.systemSettings?.fitnessItems || [],
@@ -43384,6 +43383,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 血圧(開始)平均：${d.avgBp||'不明'}/${d.avgBpDn||'?'}mmHg（範囲${d.minBp||'?'}〜${d.maxBp||'?'}、前月${d.prevAvgBp||'不明'}）${d.highBpDays?`　血圧が高めの日${d.highBpDays}回`:''}${d.avgBp2!=null?`　${secondBpLabel(appData)}時平均${d.avgBp2}`:''}
 脈拍平均：${d.avgPulse||'不明'}回/分　体温平均：${d.avgTemp||'不明'}℃（最高${d.maxTemp||'不明'}℃）
 気分：平均${d.avgMoodLabel||'不明'}${d.moodDistText?`（内訳${d.moodDistText}）`:''}
+気分の理由（本人の様子・日付つき）：${d.kibunDetail&&d.kibunDetail.length?d.kibunDetail.join(' / '):'記録なし'}
 体力測定（直近）：${fitnessText}
 特記事項（日付つき全件）：${d.tokkiDetail&&d.tokkiDetail.length?d.tokkiDetail.join(' / '):'特になし'}
 
@@ -43865,6 +43865,8 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 バイタル(参考): 血圧(開始)平均${d.avgBp||'不明'}/${d.avgBpDn||'?'}mmHg（範囲${d.minBp||'?'}〜${d.maxBp||'?'}、前月平均${d.prevAvgBp||'不明'}）${d.highBpDays?`、血圧が高め(収縮期140/拡張期90以上)の日 ${d.highBpDays}回`:''}${d.avgBp2!=null?`、${secondBpLabel(appData)}時 収縮期平均${d.avgBp2}`:''}
 脈拍: 平均${d.avgPulse||'不明'}回/分　体温: 平均${d.avgTemp||'不明'}℃（最高${d.maxTemp||'不明'}℃）
 通所時の気分: 平均${d.avgMoodLabel||'不明'}${d.moodDistText?`（内訳: ${d.moodDistText}）`:''}
+気分の理由（本人の様子・日付つき。同日の通所時→帰宅時の変化にも注目し、③満足度・④心身の変化・⑤今後の方向性に反映すること）:
+${d.kibunDetail && d.kibunDetail.length ? '・'+d.kibunDetail.join('\n・') : 'なし'}
 体力測定(任意・行わない事業所もあり): ${fitnessText}
 特記（当月の記録・日付つき全件。体調・気分・出来事・ご家族/職員の気づき等。③満足度・④心身の変化・⑤今後の方向性に反映すること）:
 ${d.tokkiDetail && d.tokkiDetail.length ? '・'+d.tokkiDetail.join('\n・') : 'なし'}
