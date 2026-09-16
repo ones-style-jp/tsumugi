@@ -31742,9 +31742,13 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const maxOcc = {};
     ['AM','PM'].forEach(sl => cars.forEach(c => { maxOcc[`${sl}_${c.id}`] = Math.max(1, ...days.map(d => (((getPlan(_iso(d), sl)).cars||{})[c.id]||[]).length)); }));
     const _capOf = (c) => Math.min(Number(c.cap)||0, 8);
+    // ★ 2026-09-16f(店舗指摘「名前や時間が小さい」): 空席枠を常に定員分ではなく「その週の最大乗車数+1行(手書き用)」
+    //   ただし定員は超えない。枠の行数は週内で一定なので曜日間で車の位置はズレない(ガタつき防止の当初要望は維持)。
+    //   空いている週ほど行数が減り、その分フォントが大きくなる。
+    const _seatRows = (sl, c) => { const cap = _capOf(c) || 8; return Math.max(1, Math.min(cap, (maxOcc[`${sl}_${c.id}`]||0) + 1)); };
     const unitsOf = (sl) => {
       let u = 0;
-      cars.forEach(c => { u += 1.7 + Math.max(_capOf(c), maxOcc[`${sl}_${c.id}`]); });
+      cars.forEach(c => { u += 1.65 + _seatRows(sl, c); }); // 1.65=車名ヘッダ+列見出し+枠線/余白(実測値に合わせて補正)
       let ex = 0;
       days.forEach(d => { const iso = _iso(d); const pl = getPlan(iso, sl); let e2 = 0;
         if ((pl.walkers||[]).length) e2++;
@@ -31753,16 +31757,20 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         if (pl.dropMode === 'custom' && pl.drop) e2 += 2;
         if (pl.memo) e2++;
         if (_absentees(iso, sl).length) e2++;
-        ex = Math.max(ex, Math.ceil(e2 * 0.7));
+        ex = Math.max(ex, e2); // ★ 2026-09-16f: 下部情報(休み等)を本文と同じ大きさにしたので1行=1単位で見積る
       });
       return u + ex;
     };
     const uAM = unitsOf('AM'), uPM = unitsOf('PM');
     const totalU = Math.max(uAM + uPM, 6);
-    const availPx = 590; // 本文の有効高さ(印字可能域275×190mmに縮小・題字/日付見出し/凡例を差し引き)
+    // ★ 2026-09-16f: 本文の有効高さを実測に基づいて補正(190mm=718px − 題字28 − 日付見出し6mm − 凡例17 − セル余白12 ≒ 638)。
+    //   従来の590は過小で、その分フォントが必要以上に小さくなっていた。
+    const availPx = 630;
     let fz = 14; // ★ 2026-09-14b(店舗指摘): 名前が小さい→上限を14pxへ引き上げ
-    while (fz > 8) { const uh = Math.ceil(fz * 1.3) + (fz >= 10 ? 2 : 0) + 1; if (totalU * uh <= availPx) break; fz--; }
-    const fzS = Math.max(8, fz - 1); // 下部情報(徒歩/休み等)も一回り大きく
+    // 1行の実高 = 上下padding(2px) + 文字(line-height1.25) + 罫線(1px)
+    while (fz > 8) { const uh = Math.ceil(fz * 1.25) + 3; if (totalU * uh <= availPx) break; fz--; }
+    const fzS = Math.max(8, fz - 1); // 次回列など補助情報
+    const fzB = fz; // ★ 2026-09-16f(店舗指摘): 休み・徒歩など下部情報は本文と同じ大きさに
     // ★ 2026-09-16(店舗指摘): 氏名欄の右余白を詰め、その分文字を大きく(時間25→18%・次回14→11%)
     const COLG = '<colgroup><col style="width:71%"/><col style="width:18%"/><col style="width:11%"/></colgroup>';
     const cellRow = (m, iso, sl) => {
@@ -31784,12 +31792,13 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       cars.forEach(c => {
         const rows = (pl.cars?.[c.id]||[]);
         const _drv = (pl.driver||{})[c.id] || '';
-        const total = Math.max(_capOf(c), rows.length, 1);
+        const total = Math.max(_seatRows(sl, c), rows.length, 1);
         let body = '';
         for (let i = 0; i < total; i++) body += rows[i] ? cellRow(rows[i], iso, sl) : emptyRow();
+        // ★ 2026-09-16f: 見出し2行の行間を詰めて(1.35→1.2/1.1)、浮いた高さを氏名・時間のフォントへ回す
         h += `<div style="border:1px solid #66756b;margin-bottom:3px;">
-          <div style="background:#eef0ed;padding:1px 4px;font-size:${fz-1}px;line-height:1.35;border-bottom:1px solid #aab5ac;white-space:nowrap;overflow:hidden;"><b>${esc(c.name)}</b>${_drv?`<span style="float:right;font-weight:400;">運転者 ${esc(_drv)}</span>`:''}</div>
-          <div style="display:flex;font-size:${Math.max(8,fz-3)}px;color:#4e5f53;line-height:1.35;border-bottom:1px solid #d7dcd7;"><span style="width:71%;padding-left:3px;">氏名</span><span style="width:18%;text-align:center;">時間</span><span style="width:11%;text-align:center;">次回</span></div>
+          <div style="background:#eef0ed;padding:0 4px;font-size:${fz-1}px;line-height:1.2;border-bottom:1px solid #aab5ac;white-space:nowrap;overflow:hidden;"><b>${esc(c.name)}</b>${_drv?`<span style="float:right;font-weight:400;">運転者 ${esc(_drv)}</span>`:''}</div>
+          <div style="display:flex;font-size:${Math.max(7,fz-4)}px;color:#4e5f53;line-height:1.1;border-bottom:1px solid #d7dcd7;"><span style="width:71%;padding-left:3px;">氏名</span><span style="width:18%;text-align:center;">時間</span><span style="width:11%;text-align:center;">次回</span></div>
           <table style="border-collapse:collapse;width:100%;table-layout:fixed;">${COLG}${body}</table></div>`;
       });
       // ★ 2026-09-14b(店舗指摘): 下部情報は1行にまとめてスペース圧縮しつつ、文字は一回り大きく(fzS=fz-1)
@@ -31803,13 +31812,13 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       // ★ 2026-09-16(店舗指定): 未割当は印刷に出さない(画面のみ)
       const _abs2 = _absentees(iso, sl);
       if (_abs2.length) _parts.push(`<span style="color:#64748b;">休み: ${_abs2.map(a=>esc(a.name)).join('、')}</span>`);
-      if (_parts.length) h += `<div style="font-size:${fzS}px;line-height:1.35;margin-top:1px;">${_parts.join('　')}</div>`;
+      if (_parts.length) h += `<div style="font-size:${fzB}px;line-height:1.35;margin-top:1px;">${_parts.join('　')}</div>`;
       if (pl.dropMode === 'custom' && pl.drop) {
         const dparts = cars.map(c => { const ms=(pl.drop.cars?.[c.id]||[]); return ms.length ? `${esc(c.name)}=${ms.map(m=>esc(_pname(m.pid))).join('、')}` : ''; }).filter(Boolean);
         const dw3 = (pl.drop.walkers||[]).map(m=>esc(_pname(m.pid)));
-        if (dparts.length || dw3.length) h += `<div style="font-size:${fzS}px;color:#4338ca;margin-top:1px;"><b>送り別</b>: ${dparts.join(' / ')}${dw3.length?` / 徒歩=${dw3.join('、')}`:''}</div>`;
+        if (dparts.length || dw3.length) h += `<div style="font-size:${fzB}px;color:#4338ca;margin-top:1px;"><b>送り別</b>: ${dparts.join(' / ')}${dw3.length?` / 徒歩=${dw3.join('、')}`:''}</div>`;
       }
-      if (pl.memo) h += `<div style="font-size:${fzS}px;color:#b91c1c;font-weight:bold;margin-top:1px;">備考: ${esc(pl.memo)}</div>`;
+      if (pl.memo) h += `<div style="font-size:${fzB}px;color:#b91c1c;font-weight:bold;margin-top:1px;">備考: ${esc(pl.memo)}</div>`;
       return h;
     };
     const header = days.map(d => `<th style="border:1px solid #65736a;background:#edf0ec;font-size:11px;padding:3px;">${d.getMonth()+1}/${d.getDate()}（${DOWJ[d.getDay()]}）</th>`).join('');
