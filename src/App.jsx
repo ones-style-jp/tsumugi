@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import { 
   Users, CalendarCheck, Activity, ClipboardList, Settings, Search, 
   Printer, CheckCircle2, CloudUpload, Loader2, Plus, Trash2, X, FileText, BarChart3, TrendingUp,
-  ArrowLeft, ArrowRight, Menu, BookOpen, Lock, Unlock, QrCode, MoveUp, MoveDown,
+  ArrowLeft, ArrowRight, Menu, BookOpen, Lock, Unlock, QrCode, MoveUp, MoveDown, GripVertical,
   ChevronLeft, ChevronRight, Save, UserPlus, Clock, CalendarOff, CalendarRange, PenTool, History,
   ChevronDown, ChevronUp, Thermometer, Heart, Copy, Edit3, Edit2, MessageSquare, Briefcase, Car
 } from 'lucide-react';
@@ -10123,6 +10123,87 @@ const longPressTapProps = (fn) => ({
   onContextMenu: (e) => e.preventDefault(),
   style: { WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none', touchAction: 'manipulation' },
 });
+
+// ★ 設定リストの並べ替えを「▲▼ボタン」から「長押しドラッグ」へ(2026-09-16 店舗要望・送迎表と同じ操作感)。
+//   使い方: const dnd = useLongPressReorder(items, setItems);
+//           <div {...dnd.listProps}> … {items.map((it,i) => <div {...dnd.rowProps(i)}> … </div>)}
+//   行を0.2秒長押し→そのまま上下へ運ぶ。行の上半分に落とせばその前、下半分ならその後ろへ入る。
+//   入力欄(input/select/textarea/button)の上から始めた長押しはドラッグにしない(文字入力・削除ボタンを妨げないため)。
+function useLongPressReorder(items, onReorder, opts) {
+  const holdMs = (opts && opts.holdMs) || 200;
+  const [drag, setDrag] = React.useState(null); // {from, to}  to=挿入位置(取り出し前の配列基準)
+  const timerRef = React.useRef(null);
+  const dragRef = React.useRef(null);
+  const itemsRef = React.useRef(items);
+  itemsRef.current = items;
+  const gidRef = React.useRef(null);
+  if (!gidRef.current) gidRef.current = 'lpr-' + Math.random().toString(36).slice(2, 8);
+  const gid = gidRef.current;
+  const _hit = (e) => {
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const row = el && el.closest ? el.closest(`[data-lprg="${gid}"]`) : null;
+    if (!row) return null;
+    const i = Number(row.getAttribute('data-lpri'));
+    if (isNaN(i)) return null;
+    const rc = row.getBoundingClientRect();
+    return e.clientY > rc.top + rc.height / 2 ? i + 1 : i;
+  };
+  React.useEffect(() => {
+    if (!drag) return;
+    const mv = (e) => { const to = _hit(e); if (to != null) setDrag(d => (d && d.to !== to) ? { ...d, to } : d); };
+    const tm = (e) => { e.preventDefault(); };
+    const up = () => {
+      const d = dragRef.current;
+      if (d && d.to != null) {
+        const from = d.from;
+        let to = d.to; if (to > from) to -= 1;
+        if (to !== from && from >= 0) {
+          const arr = [...itemsRef.current];
+          const [it] = arr.splice(from, 1);
+          arr.splice(to, 0, it);
+          onReorder(arr);
+        }
+      }
+      setDrag(null);
+    };
+    document.addEventListener('pointermove', mv);
+    document.addEventListener('pointerup', up);
+    document.addEventListener('touchmove', tm, { passive: false });
+    const prevSel = document.body.style.userSelect;
+    document.body.style.userSelect = 'none';
+    return () => {
+      document.removeEventListener('pointermove', mv);
+      document.removeEventListener('pointerup', up);
+      document.removeEventListener('touchmove', tm);
+      document.body.style.userSelect = prevSel;
+    };
+  }, [drag ? drag.from : null]);
+  React.useEffect(() => { dragRef.current = drag; }, [drag]);
+  React.useEffect(() => () => clearTimeout(timerRef.current), []);
+  const cancel = () => { clearTimeout(timerRef.current); };
+  const rowProps = (i) => ({
+    'data-lprg': gid,
+    'data-lpri': i,
+    onPointerDown: (e) => {
+      if (e.target && e.target.closest && e.target.closest('input,select,textarea,button,a,label')) return;
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setDrag({ from: i, to: i }), holdMs);
+    },
+    onPointerMove: () => { if (!dragRef.current) cancel(); },
+    onPointerUp: cancel,
+    onPointerLeave: () => { if (!dragRef.current) cancel(); },
+    onContextMenu: (e) => { if (dragRef.current) e.preventDefault(); },
+    style: {
+      ...(drag && drag.from === i ? { opacity: 0.45 } : null),
+      ...(drag && drag.to === i && drag.from !== i ? { boxShadow: 'inset 0 3px 0 0 #3b82f6' } : null),
+      ...(drag && drag.to === items.length && i === items.length - 1 && drag.from !== i ? { boxShadow: 'inset 0 -3px 0 0 #3b82f6' } : null),
+      cursor: drag ? 'grabbing' : 'grab',
+      touchAction: drag ? 'none' : 'pan-y',
+      WebkitTouchCallout: 'none',
+    },
+  });
+  return { rowProps, dragging: !!drag, hint: '行を長押しすると、そのままドラッグして並べ替えできます' };
+}
 
 function DigitalKeypad({ isOpen, anchorKey, value, isFirstInput, onInput, onEnter, onTab, onClose, mode, quickButtons, prefixButtons, zoom = 1, unitSep = '', unit2 = '' }) {
   const keypadRef = useRef(null);
@@ -30915,11 +30996,8 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave }) {
       return next;
     })
   }));
-  const moveItem = (index, direction) => {
-    if ((direction === -1 && index === 0) || (direction === 1 && index === localConfig.items.length - 1)) return;
-    const newItems = [...localConfig.items]; const temp = newItems[index]; newItems[index] = newItems[index + direction]; newItems[index + direction] = temp;
-    setLocalConfig(prev => ({ ...prev, items: newItems }));
-  };
+  // ★ 2026-09-16(店舗要望): ▲▼ボタンを廃止し長押しドラッグで並べ替え
+  const itemDnd = useLongPressReorder(localConfig.items, (arr) => setLocalConfig(prev => ({ ...prev, items: arr })));
   const deleteItem = (id) => setLocalConfig(prev => ({ ...prev, items: prev.items.filter(item => item.id !== id) }));
   // ★ 新項目は label を空にして placeholder で「新しい項目」を表示 → そのまま入力可能
   const addItem = () => setLocalConfig(prev => ({ ...prev, items: [...prev.items, { id: `cb${Date.now()}`, label: "", type: "fixed", value: "〇", linkedField: "" }] }));
@@ -30941,11 +31019,12 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave }) {
             </div>
           </div>
           <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
-            <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">表示項目リスト</h3>
+            <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-1">表示項目リスト</h3>
+            <p className="text-xs text-slate-400 mb-3">{itemDnd.hint}</p>
             <div className="space-y-2">
               {localConfig.items.map((item, index) => (
-                <div key={item.id} className={`flex items-center gap-3 border p-3 rounded-xl hover:shadow-md transition-shadow group ${item.visible === false ? 'bg-slate-100 border-slate-200 opacity-60' : 'bg-slate-50 border-slate-200'}`}>
-                  <div className="flex flex-col gap-1 text-slate-300"><button onClick={() => moveItem(index, -1)} disabled={index===0} className="hover:text-blue-500"><MoveUp size={16}/></button><button onClick={() => moveItem(index, 1)} disabled={index===localConfig.items.length-1} className="hover:text-blue-500"><MoveDown size={16}/></button></div>
+                <div key={item.id} {...(() => { const rp = itemDnd.rowProps(index); return { ...rp, className: `flex items-center gap-3 border p-3 rounded-xl hover:shadow-md transition-shadow group ${item.visible === false ? 'bg-slate-100 border-slate-200 opacity-60' : 'bg-slate-50 border-slate-200'}` }; })()}>
+                  <div className="text-slate-300 shrink-0" title="長押しでドラッグして並べ替え"><GripVertical size={18}/></div>
                   {/* 表示/非表示トグル */}
                   <label className="flex flex-col items-center gap-0.5 cursor-pointer select-none" title="チェックを外すと連絡帳に表示しません">
                     <input type="checkbox" checked={item.visible !== false} onChange={e => handleItemChange(item.id, 'visible', e.target.checked)}
@@ -37171,6 +37250,9 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
   //   クラウド同期由来の反映は _set*Sync(生セッター)を使い、dirty を立てない。
   const setExerciseItems = React.useCallback((v) => { if (dirtyRef) dirtyRef.current = true; _setExerciseItemsSync(v); }, [dirtyRef]);
   const setIndividualExerciseItems = React.useCallback((v) => { if (dirtyRef) dirtyRef.current = true; _setIndividualExerciseItemsSync(v); }, [dirtyRef]);
+  // ★ 2026-09-16(店舗要望): ▲▼ボタンを廃止し長押しドラッグで並べ替え(運動メニュー・個別運動メニュー)
+  const exDnd = useLongPressReorder(exerciseItems, setExerciseItems);
+  const indDnd = useLongPressReorder(individualExerciseItems, setIndividualExerciseItems);
   const setExerciseItemsHistory = React.useCallback((v) => { if (dirtyRef) dirtyRef.current = true; _setExerciseItemsHistorySync(v); }, [dirtyRef]);
   const setExerciseQuickButtons = React.useCallback((v) => { if (dirtyRef) dirtyRef.current = true; _setExerciseQuickButtonsSync(v); }, [dirtyRef]);
 
@@ -37922,17 +38004,11 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                 <input type="month" value={exerciseApplyFrom} onChange={e=>setExerciseApplyFrom(e.target.value)} className="px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-sm font-bold outline-none"/>
                 <span className="text-[10px] text-amber-700">この月以降の新規記録に反映 (過去記録は変更前の項目で表示)</span>
               </div>
+              <p className="text-xs text-slate-400 mb-2">{exDnd.hint}</p>
               <div className="space-y-2 mb-3">
                 {exerciseItems.map((item, i) => (
-                  <div key={item.id} className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
-                    <div className="flex flex-col gap-0.5">
-                      <button type="button" disabled={i===0} onClick={()=>{
-                        const arr=[...exerciseItems]; [arr[i-1],arr[i]]=[arr[i],arr[i-1]]; setExerciseItems(arr);
-                      }} className="px-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 text-xs">▲</button>
-                      <button type="button" disabled={i===exerciseItems.length-1} onClick={()=>{
-                        const arr=[...exerciseItems]; [arr[i+1],arr[i]]=[arr[i],arr[i+1]]; setExerciseItems(arr);
-                      }} className="px-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 text-xs">▼</button>
-                    </div>
+                  <div key={item.id} {...(() => { const rp = exDnd.rowProps(i); return { ...rp, className: 'flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200' }; })()}>
+                    <div className="text-slate-300 shrink-0" title="長押しでドラッグして並べ替え"><GripVertical size={18}/></div>
                     <input value={item.name} onChange={e=>{
                       const arr=[...exerciseItems]; arr[i]={...arr[i],name:e.target.value}; setExerciseItems(arr);
                     }} className={`flex-1 px-2 py-1 bg-white border rounded text-sm font-bold outline-none focus:border-blue-400 ${item.type==='individual'?'border-emerald-300 text-emerald-700':'border-slate-200'}`}/>
@@ -38043,17 +38119,11 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
             </SectionCard>
             <SectionCard title="個別運動メニューの項目">
               <p className="text-xs text-slate-500 mb-3">サービス提供記録入力の「個別運動」プルダウンで選択できる項目を管理します（屋外歩行・平行棒・体操 等）。利用者マスタで利用者ごとに使用する項目を選べます（既定: 全選択）。</p>
+              <p className="text-xs text-slate-400 mb-2">{indDnd.hint}</p>
               <div className="space-y-2 mb-3">
                 {individualExerciseItems.map((item, i) => (
-                  <div key={item.id} className="flex items-center gap-2 bg-emerald-50 px-3 py-2 rounded-xl border border-emerald-200">
-                    <div className="flex flex-col gap-0.5">
-                      <button type="button" disabled={i===0} onClick={()=>{
-                        const arr=[...individualExerciseItems]; [arr[i-1],arr[i]]=[arr[i],arr[i-1]]; setIndividualExerciseItems(arr);
-                      }} className="px-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 text-xs">▲</button>
-                      <button type="button" disabled={i===individualExerciseItems.length-1} onClick={()=>{
-                        const arr=[...individualExerciseItems]; [arr[i+1],arr[i]]=[arr[i],arr[i+1]]; setIndividualExerciseItems(arr);
-                      }} className="px-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 text-xs">▼</button>
-                    </div>
+                  <div key={item.id} {...(() => { const rp = indDnd.rowProps(i); return { ...rp, className: 'flex items-center gap-2 bg-emerald-50 px-3 py-2 rounded-xl border border-emerald-200' }; })()}>
+                    <div className="text-emerald-300 shrink-0" title="長押しでドラッグして並べ替え"><GripVertical size={18}/></div>
                     <input value={item.name} onChange={e=>{
                       const arr=[...individualExerciseItems]; arr[i]={...arr[i],name:e.target.value}; setIndividualExerciseItems(arr);
                     }} className="flex-1 px-2 py-1 bg-white border border-emerald-200 rounded text-sm font-bold outline-none focus:border-emerald-500"/>
