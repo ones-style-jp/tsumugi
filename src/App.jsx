@@ -31720,14 +31720,16 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const pts = _weekPids().map(pid => (appData.patients||[]).find(x=>x.id===pid)).filter(Boolean)
       .sort((a,b)=>String(a.kana||a.name||'').localeCompare(String(b.kana||b.name||''),'ja'));
     const half = Math.ceil(pts.length / 2) || 1;
-    let fz = 12;
-    while (fz > 8 && (half * 1.3 + 2) * (Math.ceil(fz * 1.35) + 5) > 600) fz--;
+    // ★ 2026-09-16c(店舗指摘): 下の余白が大きい割に文字が小さい→行高の見積りを実態(fz×1.3+罫線余白5px)に合わせ、
+    //   有効高さ640pxいっぱいまでフォントを拡大(上限16px)。氏名・電話の列を広げ、余りがちな住所列を詰める。
+    let fz = 16;
+    while (fz > 8 && (half + 1) * (Math.ceil(fz * 1.3) + 5) > 640) fz--;
     const tbl = (list) => `<table style="border-collapse:collapse;width:100%;table-layout:fixed;">
-      <colgroup><col style="width:${Math.round(fz*6.5)}px"/><col/><col style="width:${Math.round(fz*8.8)}px"/></colgroup>
+      <colgroup><col style="width:${Math.round(fz*7.5)}px"/><col/><col style="width:${Math.round(fz*9.5)}px"/></colgroup>
       <thead><tr>${['氏名','住所','電話'].map(h2=>`<th style="border:1px solid #66756b;background:#eef0ed;font-size:${Math.max(8,fz-1)}px;padding:1px 2px;">${h2}</th>`).join('')}</tr></thead>
       <tbody>${list.map(pt => `<tr>
         <td style="border:1px solid #66756b;padding:1px 4px;font-size:${fz}px;font-weight:600;white-space:nowrap;overflow:hidden;">${_escP(pt.name)}</td>
-        <td style="border:1px solid #66756b;padding:1px 4px;font-size:${Math.max(8,fz-1)}px;line-height:1.3;">${_escP([pt.address, pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' '))}</td>
+        <td style="border:1px solid #66756b;padding:1px 4px;font-size:${Math.max(8,fz-2)}px;line-height:1.3;">${_escP([pt.address, pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' '))}</td>
         <td style="border:1px solid #66756b;padding:1px 2px;font-size:${Math.max(8,fz-1)}px;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;">${_escP(pt.phoneMobile || pt.phone || '')}</td>
       </tr>`).join('')}</tbody></table>`;
     return `<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
