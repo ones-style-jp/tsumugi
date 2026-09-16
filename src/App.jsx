@@ -31779,15 +31779,19 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   };
   const doPrintDay = (iso) => {
     // ★ 2026-09-16(店舗指摘): 実機で左右が見切れる→プリンタの印字可能域(約188×275mm)に縮小して中央配置
-    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${iso}`, pageSize: '210mm 297mm', html: `<div style="width:188mm;height:275mm;box-sizing:border-box;margin:4mm auto 0;background:#fff;overflow:hidden;">${buildDailyPrintHtml(iso)}</div>`, elementId: null } }));
+    //   ★ 2026-09-16c(店舗指摘): 印刷ホストがbody直下のmargin/paddingを0に強制するためmargin:autoの中央寄せが効かず左上に寄っていた
+    //     →ページ全面ラッパー+flexで上下左右とも中央配置(marginに依存しない)
+    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${iso}`, pageSize: '210mm 297mm', html: `<div style="width:210mm;height:296mm;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden;"><div style="width:188mm;height:275mm;box-sizing:border-box;background:#fff;overflow:hidden;">${buildDailyPrintHtml(iso)}</div></div>`, elementId: null } }));
   };
   const doPrint = () => {
     const html = buildPrintHtml();
     // ★ 2枚目に連絡先一覧を付けるか選択(2026-09-16 店舗要望)
     const withContacts = window.confirm('2枚目に「利用者連絡先一覧（住所・電話・五十音順）」も付けて印刷しますか？\n（キャンセル＝運行表1枚のみ）');
     // ★ 2026-09-16(店舗指摘): 実機で右端(金曜)が見切れる→印字可能域(約275×190mm)に縮小して中央配置
-    const page2 = withContacts ? `<div style="page-break-before:always;width:275mm;height:190mm;box-sizing:border-box;margin:4mm auto 0;background:#fff;overflow:hidden;">${buildContactsPageHtml()}</div>` : '';
-    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `<div style="width:275mm;height:190mm;box-sizing:border-box;margin:4mm auto 0;background:#fff;overflow:hidden;">${html}</div>${page2}`, elementId: null } }));
+    // ★ 2026-09-16c(店舗指摘): margin:autoは印刷ホストのbody>*{margin:0!important}で無効化され左上に寄る→全面ラッパー+flexで中央配置
+    const _wrap = (inner, brk) => `<div style="${brk?'page-break-before:always;':''}width:297mm;height:209mm;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden;"><div style="width:275mm;height:190mm;box-sizing:border-box;background:#fff;overflow:hidden;">${inner}</div></div>`;
+    const page2 = withContacts ? _wrap(buildContactsPageHtml(), true) : '';
+    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `${_wrap(html, false)}${page2}`, elementId: null } }));
   };
 
   // ==== 画面 ====
