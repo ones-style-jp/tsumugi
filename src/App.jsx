@@ -11234,7 +11234,7 @@ const tsumugiCallAi = async (apiKey, body, storeId) => {
     _tsumugiSrvAiProbe = false; try { window.__tsumugiSrvAi = false; } catch {}
   }
   const key = String(apiKey || '').trim();
-  if (!key) throw new Error('AIが未設定です（本部のAI設定が無効で、店舗のAPIキーも未設定です）');
+  if (!key) throw new Error('AIが未設定です。つむぎ管理局の「外部サービス設定」でClaudeのAPIキーを登録してください。');
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type':'application/json', 'x-api-key':key, 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true' },
@@ -16579,90 +16579,143 @@ function GlobalPolicyPanel({ staffSession }) {
     </div>
   );
 }
-// ★ AI設定(全店共通・つむぎ管理局専用) 2026-09-17
-//   本部のClaude APIキーを1つ登録すれば全店のAI機能が動く。各店の「各種設定」にあったAPIキー欄は廃止。
-//   キーはサーバー(Supabaseのapp_secrets・RLSでservice_roleのみ)に保存し、画面へはマスクしか返さない。
-//   ※ app_state(全店共通レコード)には保存しないこと。公開キーで誰でも読めるため、置いた時点で公開される。
+// ★ 外部サービス設定(全店共通・つむぎ管理局専用) 2026-09-17
+//   Claude(AI)・Googleマップ・Brevo(メール)・InterFAX(FAX)など、つむぎが使う外部サービスの
+//   APIキー等をここで一括管理する。各店舗での設定作業は不要。
+//   ・値はサーバー(Supabaseのapp_secrets・RLSでservice_roleのみ)に保存し、画面には末尾しか出さない。
+//   ・Vercelの環境変数が設定されている項目はそちらが優先(画面からは変更不可)。
+//   ・app_state には絶対に置かない(公開キーで誰でも読めるため)。
+//   ・サービスの定義元は api/_services.js。新サービスはそこへ1件足せばこの画面に出る。
 function GlobalAiPanel({ staffSession }) {
   const [open, setOpen] = React.useState(false);
   const [secret, setSecret] = React.useState('');
-  const [keyInput, setKeyInput] = React.useState('');
-  const [st, setSt] = React.useState(null);      // {configured, source, masked, updatedAt, updatedBy}
+  const [services, setServices] = React.useState(null);
+  const [inputs, setInputs] = React.useState({});     // {dbKey: 入力中の値}
   const [busy, setBusy] = React.useState('');
   const [msg, setMsg] = React.useState('');
   const [err, setErr] = React.useState('');
-  const [pub, setPub] = React.useState(null);    // 公開状況(/api/ai-draft のGET)
-  React.useEffect(() => {
-    if (!open) return;
-    (async () => { try { const r = await fetch('/api/ai-draft'); setPub(await r.json()); } catch { setPub(null); } })();
-  }, [open]);
+  const [testMsg, setTestMsg] = React.useState({});   // {serviceId: 結果}
+  const [showPlanned, setShowPlanned] = React.useState(false);
+
   const call = async (action, extra) => {
     if (!secret.trim()) { setErr('合言葉を入力してください'); return null; }
-    setBusy(action); setErr(''); setMsg('');
+    setBusy(action + (extra?.dbKey || extra?.id || '')); setErr(''); setMsg('');
     try {
-      const r = await fetch('/api/admin-ai-key', {
+      const r = await fetch('/api/admin-secrets', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ secret: secret.trim(), action, by: staffSession?.username || '管理局', ...(extra || {}) }),
       });
       const j = await r.json().catch(() => ({}));
       setBusy('');
       if (j.error) { setErr(j.error); return null; }
-      if (j.ok) { setSt({ configured: j.configured, source: j.source, masked: j.masked, updatedAt: j.updatedAt, updatedBy: j.updatedBy }); }
+      if (j.services) setServices(j.services);
       return j;
     } catch (e) { setBusy(''); setErr('通信エラー: ' + (e?.message || '')); return null; }
   };
-  const inp = { width:'100%', padding:'8px 10px', border:'1px solid #cbd5e1', borderRadius:8, fontSize:13, outline:'none', fontWeight:'bold' };
-  const btn = (bg, disabled) => ({ padding:'9px 18px', background: disabled ? '#94a3b8' : bg, color:'white', border:'none', borderRadius:10, fontSize:13, fontWeight:'bold', cursor: disabled ? 'not-allowed' : 'pointer' });
+
+  const inp = { width:'100%', padding:'7px 10px', border:'1px solid #cbd5e1', borderRadius:8, fontSize:13, outline:'none', fontWeight:'bold' };
+  const badge = (svc) => {
+    if (svc.status === 'planned') return <span style={{fontSize:10,fontWeight:'bold',color:'#7c3aed',background:'#f3e8ff',padding:'2px 8px',borderRadius:999}}>導入予定</span>;
+    if (svc.configured) return <span style={{fontSize:10,fontWeight:'bold',color:'#15803d',background:'#dcfce7',padding:'2px 8px',borderRadius:999}}>設定済み</span>;
+    return <span style={{fontSize:10,fontWeight:'bold',color: svc.required ? '#b91c1c' : '#a16207',background: svc.required ? '#fee2e2' : '#fef3c7',padding:'2px 8px',borderRadius:999}}>{svc.required ? '未設定（要対応）' : '未設定'}</span>;
+  };
+
+  const renderService = (svc) => (
+    <div key={svc.id} style={{border:'1px solid #e2e8f0',borderRadius:12,padding:'12px 14px',marginBottom:10,background: svc.status==='planned' ? '#fafaff' : 'white'}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:4}}>
+        <span style={{fontSize:14,fontWeight:'bold',color:'#3d5021'}}>{svc.name}</span>
+        {svc.vendor && <span style={{fontSize:10,color:'#94a3b8'}}>{svc.vendor}</span>}
+        {badge(svc)}
+        {svc.envOnly && <span style={{fontSize:10,color:'#64748b',background:'#f1f5f9',padding:'2px 8px',borderRadius:999}}>Vercelでのみ設定</span>}
+        {svc.test && (
+          <button type="button" onClick={async()=>{ const j = await call('test', { id: svc.id }); setTestMsg(t=>({ ...t, [svc.id]: j?.ok ? `✓ ${j.detail}` : '' })); }}
+            disabled={!!busy} style={{marginLeft:'auto',padding:'5px 12px',background:'#eef2ff',color:'#4338ca',border:'1px solid #c7d2fe',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>
+            {busy===`test${svc.id}`?'テスト中…':'接続テスト'}
+          </button>
+        )}
+      </div>
+      <div style={{fontSize:11.5,color:'#64748b',lineHeight:1.7,marginBottom:8}}>{svc.desc}</div>
+      {testMsg[svc.id] && <div style={{fontSize:12,fontWeight:'bold',color:'#16a34a',marginBottom:8}}>{testMsg[svc.id]}</div>}
+      {(svc.fields||[]).map(f => (
+        <div key={f.env} style={{display:'flex',gap:8,alignItems:'flex-end',flexWrap:'wrap',marginBottom:6}}>
+          <div style={{flex:1,minWidth:220}}>
+            <label style={{fontSize:10,fontWeight:'bold',color:'#64748b'}}>
+              {f.label}
+              {f.configured && <span style={{marginLeft:6,color:'#16a34a'}}>設定済み {f.masked}{f.source==='env'?'（Vercelの環境変数）':f.updatedAt?`（${String(f.updatedAt).slice(0,10)} ${f.updatedBy||''}）`:''}</span>}
+            </label>
+            {f.editable ? (
+              <input type={f.type==='password'?'password':'text'} value={inputs[f.dbKey]||''} onChange={e=>setInputs(v=>({ ...v, [f.dbKey]: e.target.value }))}
+                placeholder={f.configured ? '変更する場合のみ入力' : (f.placeholder||'')} style={inp} autoComplete="off"/>
+            ) : (
+              <div style={{...inp,background:'#f8fafc',color:'#94a3b8',fontWeight:'normal'}}>
+                {f.source==='env' ? 'Vercelの環境変数で設定されています（この画面からは変更できません）' : 'Vercelの環境変数で設定します'}
+              </div>
+            )}
+            {f.note && <div style={{fontSize:10,color:'#94a3b8',marginTop:2}}>{f.note}</div>}
+          </div>
+          {f.editable && (
+            <>
+              <button type="button" disabled={!!busy} onClick={async()=>{ const v = (inputs[f.dbKey]||'').trim(); if(!v){ setErr(`${f.label}を入力してください`); return; } const j = await call('save', { dbKey: f.dbKey, value: v }); if (j?.ok) { setInputs(x=>({ ...x, [f.dbKey]: '' })); setMsg(`✓ ${svc.name}の${f.label}を登録しました（全店へ最大1分で反映）`); } }}
+                style={{padding:'8px 14px',background: busy?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:8,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>
+                {busy===`save${f.dbKey}`?'登録中…':'登録'}
+              </button>
+              {f.configured && f.source==='db' && (
+                <button type="button" disabled={!!busy} onClick={async()=>{ if(!window.confirm(`${svc.name}の${f.label}を削除します。この機能が使えなくなります。よろしいですか?`)) return; const j = await call('delete', { dbKey: f.dbKey }); if (j?.ok) setMsg('削除しました'); }}
+                  style={{padding:'8px 10px',background:'white',color:'#dc2626',border:'1px solid #fecaca',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>削除</button>
+              )}
+            </>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+
+  const active = (services||[]).filter(s => s.status !== 'planned');
+  const planned = (services||[]).filter(s => s.status === 'planned');
+
   return (
     <div style={{background:'white',borderRadius:16,padding:'16px 24px',marginBottom:16,boxShadow:'0 4px 16px rgba(0,0,0,0.06)'}}>
       <button type="button" onClick={()=>setOpen(o=>!o)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',width:'100%',background:'none',border:'none',cursor:'pointer',padding:'4px 0'}}>
-        <span style={{fontSize:16,fontWeight:'bold',color:'#3d5021'}}>AI設定（全店共通・Claude APIキー）</span>
+        <span style={{fontSize:16,fontWeight:'bold',color:'#3d5021'}}>外部サービス設定（全店共通・AI / マップ / メール / FAX）</span>
         <span style={{fontSize:13,color:'#64748b',fontWeight:'bold'}}>{open?'閉じる ▲':'開く ▼'}</span>
       </button>
       {open && (
         <div style={{marginTop:12}}>
           <div style={{fontSize:11,color:'#64748b',lineHeight:1.7,marginBottom:12,background:'#f0f7e0',border:'1px solid #d4e7a5',borderRadius:8,padding:'8px 10px'}}>
-            ここで登録したキーが<b>全店舗のAI機能</b>（モニタリングの下書き・記録の要約など）に使われます。各店舗の「各種設定」にAPIキーを入れる必要はありません。<br/>
-            キーは<b>サーバー側だけが読める場所</b>に保管し、この画面にも末尾しか表示しません。<b>ブラウザには渡りません。</b>
+            つむぎが使う外部サービスのAPIキー等を、<b>ここで一括管理</b>します。登録した内容は<b>全店舗に反映</b>され、各店舗での設定作業は不要です。<br/>
+            入力した値は<b>サーバー側だけが読める場所</b>に保管し、この画面にも末尾しか表示しません（<b>ブラウザには渡りません</b>）。
           </div>
-          <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:12,padding:'10px 12px',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:10}}>
-            <span style={{fontSize:12,fontWeight:'bold',color:'#334155'}}>現在の状態:</span>
-            {pub == null ? <span style={{fontSize:12,color:'#64748b'}}>確認中…</span> : pub.configured ? (
-              <span style={{fontSize:12,fontWeight:'bold',color:'#16a34a'}}>● 稼働中（{pub.source==='env'?'Vercelの環境変数':'この画面で登録したキー'}）</span>
-            ) : (
-              <span style={{fontSize:12,fontWeight:'bold',color:'#dc2626'}}>● 未設定（全店でAI機能が使えません）</span>
-            )}
-            {st?.masked && <span style={{fontSize:11,color:'#64748b'}}>キー: {st.masked}{st.updatedAt?` / 更新 ${String(st.updatedAt).slice(0,10)}`:''}{st.updatedBy?` (${st.updatedBy})`:''}</span>}
-          </div>
-          <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'flex-end',marginBottom:10}}>
-            <div style={{width:220}}>
+          <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'flex-end',marginBottom:14}}>
+            <div style={{width:240}}>
               <label style={{fontSize:10,fontWeight:'bold',color:'#64748b'}}>合言葉（本部のみ）</label>
-              <input type="password" value={secret} onChange={e=>setSecret(e.target.value)} placeholder="ADMIN_API_SECRET" style={inp} autoComplete="off"/>
+              <input type="password" value={secret} onChange={e=>setSecret(e.target.value)} placeholder="ADMIN_API_SECRET" style={inp} autoComplete="off"
+                onKeyDown={e=>{ if(e.key==='Enter') call('list'); }}/>
             </div>
-            <button type="button" onClick={()=>call('status')} disabled={!!busy} style={{...btn('#475569', !!busy)}}>{busy==='status'?'確認中…':'状態を確認'}</button>
-            <button type="button" onClick={async()=>{ const j = await call('test'); if (j?.ok) setMsg(`✓ AIに接続できました（応答: ${j.reply||'OK'}）`); }} disabled={!!busy} style={{...btn('#4338ca', !!busy)}}>{busy==='test'?'テスト中…':'接続テスト'}</button>
+            <button type="button" onClick={()=>call('list')} disabled={!!busy} style={{padding:'9px 18px',background: busy?'#94a3b8':'#475569',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>
+              {busy==='list'?'読込中…':'設定を読み込む'}
+            </button>
           </div>
-          <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'flex-end'}}>
-            <div style={{flex:1,minWidth:260}}>
-              <label style={{fontSize:10,fontWeight:'bold',color:'#64748b'}}>Claude APIキー（sk-ant-… で始まる文字列）</label>
-              <input type="password" value={keyInput} onChange={e=>setKeyInput(e.target.value)} placeholder="sk-ant-api03-..." style={inp} autoComplete="off"/>
-            </div>
-            <button type="button" onClick={async()=>{ if(!keyInput.trim()) { setErr('APIキーを入力してください'); return; } const j = await call('save', { key: keyInput.trim() }); if (j?.ok) { setKeyInput(''); setMsg('✓ 登録しました。全店へ最大1分で反映されます。'); try { const r = await fetch('/api/ai-draft'); setPub(await r.json()); } catch {} } }} disabled={!!busy} style={{...btn('#7daa3d', !!busy)}}>{busy==='save'?'登録中…':'登録・変更'}</button>
-            <button type="button" onClick={async()=>{ if(!window.confirm('登録済みのAPIキーを削除します。全店でAI機能が使えなくなります。よろしいですか?')) return; const j = await call('delete'); if (j?.ok) { setMsg('削除しました'); try { const r = await fetch('/api/ai-draft'); setPub(await r.json()); } catch {} } }} disabled={!!busy} style={{padding:'9px 14px',background:'white',color:'#dc2626',border:'1px solid #fecaca',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>削除</button>
-          </div>
-          {msg && <div style={{marginTop:10,fontSize:12,fontWeight:'bold',color:'#16a34a'}}>{msg}</div>}
-          {err && <div style={{marginTop:10,fontSize:12,fontWeight:'bold',color:'#dc2626',lineHeight:1.6}}>{err}</div>}
+          {msg && <div style={{marginBottom:10,fontSize:12,fontWeight:'bold',color:'#16a34a'}}>{msg}</div>}
+          {err && <div style={{marginBottom:10,fontSize:12,fontWeight:'bold',color:'#dc2626',lineHeight:1.6,background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,padding:'8px 10px'}}>{err}</div>}
+          {services && (
+            <>
+              {active.map(renderService)}
+              <button type="button" onClick={()=>setShowPlanned(p=>!p)} style={{marginTop:6,marginBottom:8,padding:'6px 12px',background:'#f5f3ff',color:'#7c3aed',border:'1px solid #ddd6fe',borderRadius:8,fontSize:11.5,fontWeight:'bold',cursor:'pointer'}}>
+                今後導入予定のサービス {planned.length}件 {showPlanned?'▲':'▼'}
+              </button>
+              {showPlanned && planned.map(renderService)}
+            </>
+          )}
           <details style={{marginTop:14}}>
             <summary style={{fontSize:12,fontWeight:'bold',color:'#4338ca',cursor:'pointer'}}>初めて設定するときの手順</summary>
             <ol style={{fontSize:11.5,color:'#475569',lineHeight:1.9,paddingLeft:'1.2em',marginTop:8}}>
-              <li><b>Anthropic のコンソール</b>(console.anthropic.com)で API キーを作成します。</li>
-              <li><b>Supabase</b> → SQL Editor で <code>docs/sql/app_secrets.sql</code> の内容を1回だけ実行します（キーの保管庫を作る作業）。</li>
+              <li><b>Supabase</b> → SQL Editor で <code>docs/sql/app_secrets.sql</code> を1回だけ実行します（設定の保管庫を作る作業）。</li>
               <li><b>Vercel</b> → Settings → Environment Variables で <code>ADMIN_API_SECRET</code>（本部だけが知る合言葉・自由な文字列）を追加し、再デプロイします。</li>
-              <li>この画面で合言葉とAPIキーを入力し「登録・変更」を押します。以後はこの画面だけで変更できます。</li>
+              <li>この画面で合言葉を入れて「設定を読み込む」を押し、各サービスのキーを登録します。以後はこの画面だけで変更できます。</li>
             </ol>
             <p style={{fontSize:11,color:'#64748b',lineHeight:1.8,marginTop:6}}>
-              ※ Vercel の環境変数に <code>ANTHROPIC_API_KEY</code> を直接設定する方法でも動きます（その場合は2・3の作業は不要で、この画面は状態確認と接続テストのみになります）。<br/>
-              ※ <b>使わなくなったキーは必ず Anthropic のコンソールで無効化(Revoke)</b>してください。
+              ※ Vercel の環境変数に直接設定する方法でも動きます（その項目は「Vercelの環境変数」と表示され、画面からは変更できなくなります）。<br/>
+              ※ <b>使わなくなったキーは必ず発行元のサービスで無効化(Revoke)</b>してください。削除しただけでは、外部に渡ったキーは止まりません。
             </p>
           </details>
         </div>
@@ -17015,7 +17068,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
         </div>
         {/* ★ セクションジャンプ(2026-08-18): 店舗が増えても下の方のパネルへすぐ移動できる */}
         <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:16,position:'sticky',top:8,zIndex:20}}>
-          {[['お知らせ管理',_secNotices],['店舗一覧',_secStores],['AI設定',_secAi],['同意ポリシー',_secPolicy],['傷病名マスタ',_secMaster]].map(([lb,ref])=>(
+          {[['お知らせ管理',_secNotices],['店舗一覧',_secStores],['外部サービス設定',_secAi],['同意ポリシー',_secPolicy],['傷病名マスタ',_secMaster]].map(([lb,ref])=>(
             <button key={lb} onClick={()=>_jump(ref)} style={{padding:'6px 14px',background:'rgba(255,255,255,0.92)',color:'#3d5021',border:'1px solid #94c456',borderRadius:999,fontSize:12,fontWeight:'bold',cursor:'pointer',boxShadow:'0 1px 4px rgba(0,0,0,0.08)'}}>{lb}</button>
           ))}
         </div>
@@ -44784,7 +44837,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const generateOne = async (patient) => {
     const apiKey = ''; // ★ 2026-09-17: 本部(管理局)のキーをサーバー経由で使う
     if (!apiKey && window.__tsumugiSrvAi === false) {
-      setResults(prev => ({...prev, [patient.id]: {text:'', loading:false, error:'AIが未設定です（本部のAI設定が無効で、店舗のAPIキーも未設定）。'}}));
+      setResults(prev => ({...prev, [patient.id]: {text:'', loading:false, error:'AIが未設定です。つむぎ管理局の「外部サービス設定」でClaudeのAPIキーを登録してください。'}}));
       return;
     }
     setResults(prev => ({...prev, [patient.id]: {text:'', loading:true, error:null}}));
@@ -44989,7 +45042,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   // ★ 一覧の1行をAIで下書き (手入力済みの内容は残してAIは空欄のみ補完)。 確定はしない。
   const aiDraftRow = async (patient) => {
     if (_monthLocked) { monAlert('当月分のAI下書きは毎月15日以降にご利用いただけます（AIコスト管理のため）。'); return; }
-    if (window.__tsumugiSrvAi === false) { monAlert('AIが未設定です。つむぎ管理局の「AI設定」でAPIキーを登録してください。'); return; }
+    if (window.__tsumugiSrvAi === false) { monAlert('AIが未設定です。つむぎ管理局の「外部サービス設定」でAPIキーを登録してください。'); return; }
     if (_aiRemaining <= 0) { monAlert(`${tM}月分のAI下書きの上限（利用者${_aiActiveCount}名×2回＝${_aiLimit}回）に達しました。\nこの月の分は手入力でご対応ください。`); return; }
     setResults(prev=>({...prev,[patient.id]:{...(prev[patient.id]||{}), loading:true, error:null}}));
     try {
@@ -45230,7 +45283,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     const apiKey = ''; // ★ 2026-09-17: 本部(管理局)のキーをサーバー経由で使う
     // ★ 2026-09-17: 本部(管理局)のキーをサーバー経由で使うため、ここでキーの有無は問わない
     //   (従来は本部キーが使える場合でもここで落ちていた)
-    if (window.__tsumugiSrvAi === false) throw new Error('AIが未設定です。つむぎ管理局の「AI設定」でAPIキーを登録してください。');
+    if (window.__tsumugiSrvAi === false) throw new Error('AIが未設定です。つむぎ管理局の「外部サービス設定」でAPIキーを登録してください。');
     const d = buildPatientData(patient);
     const fitnessText = (d.fitnessRecs && d.fitnessRecs.length)
       ? d.fitnessRecs.map(r => { const vals=(d.fitnessItems||[]).map(it=> r.values?.[it.id]?`${it.name}:${r.values[it.id]}${it.unit||''}`:null).filter(Boolean).join('、'); return `${r.date}（${vals||'データあり'}）`; }).join(' / ')

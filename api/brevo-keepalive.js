@@ -4,6 +4,7 @@
 // 環境変数: BREVO_API_KEY / BREVO_SENDER_EMAIL (既存と共通)
 //           BREVO_KEEPALIVE_EMAIL (省略時 honbu@ones-style.co.jp)
 //           CRON_SECRET (任意。設定するとVercel Cron以外からの実行を拒否)
+import { getSecret } from './_secrets.js';
 
 export default async function handler(req, res) {
   // Vercel Cron は Authorization: Bearer <CRON_SECRET> を付けて呼び出す (CRON_SECRET 設定時)
@@ -12,8 +13,8 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const apiKey = process.env.BREVO_API_KEY;
-  const senderEmail = process.env.BREVO_SENDER_EMAIL || 'noreply@ones-style.co.jp';
+  const apiKey = await getSecret('BREVO_API_KEY', 'brevo_api_key');
+  const senderEmail = (await getSecret('BREVO_SENDER_EMAIL', 'brevo_sender_email')) || 'noreply@ones-style.co.jp';
   const to = process.env.BREVO_KEEPALIVE_EMAIL || 'honbu@ones-style.co.jp';
   if (!apiKey) return res.status(500).json({ error: 'BREVO_API_KEY が設定されていません' });
 

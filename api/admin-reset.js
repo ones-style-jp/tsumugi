@@ -12,6 +12,7 @@
 // ★ コードはサーバーで生成・保存し、メールでだけ届く。 クライアントはコードを知らない(=本人確認になる)。
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import { getSecret } from './_secrets.js';
 
 const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 
@@ -62,8 +63,8 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'リセット情報の保存に失敗しました', detail: String(e.message||e) });
     }
     // メール送信 (Brevo)
-    const apiKey = process.env.BREVO_API_KEY;
-    const senderEmail = process.env.BREVO_SENDER_EMAIL || 'noreply@ones-style.co.jp';
+    const apiKey = await getSecret('BREVO_API_KEY', 'brevo_api_key');
+    const senderEmail = (await getSecret('BREVO_SENDER_EMAIL', 'brevo_sender_email')) || 'noreply@ones-style.co.jp';
     if (apiKey) {
       const facility = ss.facilityInfo?.name || 'デイサービス';
       const htmlBody = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"></head>

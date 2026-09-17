@@ -6,6 +6,7 @@
 //
 // POST /api/report  { description, context }
 //   context = { facility, storeId, recorder, view, url, userAgent, appVersion, when, errors:[...] }
+import { getSecret } from './_secrets.js';
 const esc = (s) => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>');
 
@@ -22,8 +23,8 @@ export default async function handler(req, res) {
   const description = String(body.description || '').slice(0, 4000);
   const ctx = body.context || {};
 
-  const apiKey = process.env.BREVO_API_KEY;
-  const senderEmail = process.env.BREVO_SENDER_EMAIL || 'noreply@ones-style.co.jp';
+  const apiKey = await getSecret('BREVO_API_KEY', 'brevo_api_key');
+  const senderEmail = (await getSecret('BREVO_SENDER_EMAIL', 'brevo_sender_email')) || 'noreply@ones-style.co.jp';
   const toEmail = process.env.REPORT_TO_EMAIL || 'support@ones-style.co.jp';
   if (!apiKey) return res.status(500).json({ error: 'サーバー設定エラー: BREVO_API_KEY が未設定です' });
 

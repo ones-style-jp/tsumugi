@@ -10,6 +10,7 @@
 // body: { to: "03-1234-5678", html: "<...>", subject?: "..." }
 //   to   … 送信先FAX番号（国内表記でOK。内部で +81 形式に変換）
 //   html … 送信する書類のHTML（InterFAXがFAX画像に変換）
+import { getSecret } from './_secrets.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -18,8 +19,8 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed. Use POST.' });
 
-  const user = process.env.INTERFAX_USER;
-  const pass = process.env.INTERFAX_PASS;
+  const user = await getSecret('INTERFAX_USER', 'interfax_user');
+  const pass = await getSecret('INTERFAX_PASS', 'interfax_pass');
   if (!user || !pass) {
     return res.status(500).json({ error: 'FAX送信が未設定です（INTERFAX_USER / INTERFAX_PASS を Vercel の環境変数に設定してください）', notConfigured: true });
   }
