@@ -146,9 +146,9 @@ revoke all on public.app_secrets from authenticated;</code></pre>
   <thead><tr><th style="width:26%">サービス</th><th style="width:36%">使う場面</th><th>状況</th></tr></thead>
   <tbody>
     <tr><td><b>Claude（AI）</b><br><span class="path">Anthropic</span></td><td>モニタリングの下書き、記録の要約</td><td><span class="tag t-req">要登録</span> 今回の作業対象</td></tr>
-    <tr><td><b>Google マップ</b></td><td>送迎表の自動配車・お迎え時間の計算</td><td><span class="tag t-opt">任意</span> 未設定でも手動入力で使えます</td></tr>
-    <tr><td><b>Brevo</b><br><span class="path">メール送信</span></td><td>ご家族・職員への招待、パスワード通知</td><td><span class="tag t-done">設定済み</span> Vercelの環境変数</td></tr>
-    <tr><td><b>InterFAX</b><br><span class="path">FAX送信</span></td><td>モニタリング表のケアマネFAX送信</td><td><span class="tag t-opt">任意</span> 使う場合に登録</td></tr>
+    <tr><td><b>Google マップ</b></td><td>送迎表の自動配車・お迎え時間の計算</td><td><span class="tag t-done">設定済み</span> Vercelの環境変数（稼働を確認済み）</td></tr>
+    <tr><td><b>Brevo</b><br><span class="path">メール送信</span></td><td>ご家族・職員への招待、パスワード通知</td><td>作業3のあと、画面上で設定状況を確認できます</td></tr>
+    <tr><td><b>InterFAX</b><br><span class="path">FAX送信</span></td><td>モニタリング表のケアマネFAX送信</td><td><span class="tag t-opt">任意</span> 作業3のあと、画面上で設定状況を確認できます</td></tr>
     <tr><td><b>Supabase</b><br><span class="path">データベース</span></td><td>つむぎのデータ保管先</td><td><span class="tag t-done">設定済み</span> Vercelでのみ変更可</td></tr>
     <tr><td><b>LINE通知 / 国保連請求 / 電子同意書</b></td><td>2027年に導入予定</td><td>設定欄だけ用意済み（「今後導入予定のサービス」を開くと表示）</td></tr>
   </tbody>
