@@ -1,23 +1,57 @@
-// Vercel Serverless Function: AI呼び出しの本部一括プロキシ(2026-09-08)
-// 各事業所がAPIキーを個別設定しなくても、本部がVercelの環境変数に1つ設定すれば全店でAIが使える。
+// Vercel Serverless Function: AI呼び出しの本部一括プロキシ(2026-09-08 / 2026-09-17 改修)
+// 各事業所がAPIキーを個別設定しなくても、本部が1つ設定すれば全店でAIが使える。
 //
-// 環境変数（Vercel > Settings > Environment Variables）:
-//   ANTHROPIC_API_KEY - 本部のClaude APIキー(Sensitive)。未設定ならconfigured:falseを返し、
-//                        アプリは従来どおり各店の「各種設定→モニタリング」のAPIキーへフォールバックする。
+// ★ キーの置き場所(優先順)
+//   1) Vercel環境変数 ANTHROPIC_API_KEY (Sensitive)
+//   2) Supabase の app_secrets テーブル(管理局の画面から登録・service_roleでのみ読める)
+//   どちらもサーバー側だけが読む。ブラウザへは絶対に返さない(configured の真偽だけ返す)。
+//   ※ app_state には保存しないこと。app_state は公開キーで誰でも読めるため、キーが実質公開される。
 //
-// GET  /api/ai-draft            → { configured: true/false }（本部キーが設定済みか）
-// POST /api/ai-draft            → Anthropic Messages APIへ転送し、応答をそのまま返す
+// 環境変数:
+//   ANTHROPIC_API_KEY        - 本部のClaude APIキー(任意。あれば最優先)
+//   VITE_SUPABASE_URL        - Supabase URL(app_secrets を使う場合)
+//   SUPABASE_SERVICE_ROLE_KEY- service_role キー(同上)
+//
+// GET  /api/ai-draft → { configured: true/false, source: 'env'|'db'|null }
+// POST /api/ai-draft → Anthropic Messages APIへ転送し、応答をそのまま返す
 //   body: { model, max_tokens, messages, system?, storeId? }
-//   storeId は将来の「料金プランごとのAI利用可否・上限」判定用に受け取っておく(現状は全店許可)。
-//   ★ プラン制御を入れる場合はここで storeId → プラン(app_state等)を照合して 403 を返す設計。
+//   storeId は将来の「料金プランごとのAI利用可否・上限」判定用(現状は全店許可)。
+
+const SB_URL = process.env.VITE_SUPABASE_URL;
+const SB_SRV = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+// サーバーレスの実行環境が使い回される間だけ保持する短期キャッシュ(60秒)。
+// 管理局でキーを差し替えたとき、最大1分で全店に反映される。
+let _cache = { key: null, source: null, at: 0 };
+
+async function loadKey() {
+  const envKey = String(process.env.ANTHROPIC_API_KEY || '').trim();
+  if (envKey) return { key: envKey, source: 'env' };
+  if (Date.now() - _cache.at < 60000) return { key: _cache.key, source: _cache.source };
+  if (!SB_URL || !SB_SRV) { _cache = { key: null, source: null, at: Date.now() }; return { key: null, source: null }; }
+  try {
+    const r = await fetch(`${SB_URL}/rest/v1/app_secrets?key=eq.anthropic_api_key&select=value`, {
+      headers: { apikey: SB_SRV, Authorization: 'Bearer ' + SB_SRV },
+    });
+    if (!r.ok) { _cache = { key: null, source: null, at: Date.now() }; return { key: null, source: null }; }
+    const j = await r.json().catch(() => []);
+    const v = Array.isArray(j) && j[0] ? String(j[0].value || '').trim() : '';
+    _cache = { key: v || null, source: v ? 'db' : null, at: Date.now() };
+    return { key: _cache.key, source: _cache.source };
+  } catch {
+    _cache = { key: null, source: null, at: Date.now() };
+    return { key: null, source: null };
+  }
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (req.method === 'GET') return res.status(200).json({ configured: !!key });
+  const { key, source } = await loadKey();
+  if (req.method === 'GET') return res.status(200).json({ configured: !!key, source: key ? source : null });
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (!key) return res.status(200).json({ notConfigured: true });
 
