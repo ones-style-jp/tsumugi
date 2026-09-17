@@ -16579,6 +16579,97 @@ function GlobalPolicyPanel({ staffSession }) {
     </div>
   );
 }
+// ★ AI設定(全店共通・つむぎ管理局専用) 2026-09-17
+//   本部のClaude APIキーを1つ登録すれば全店のAI機能が動く。各店の「各種設定」にあったAPIキー欄は廃止。
+//   キーはサーバー(Supabaseのapp_secrets・RLSでservice_roleのみ)に保存し、画面へはマスクしか返さない。
+//   ※ app_state(全店共通レコード)には保存しないこと。公開キーで誰でも読めるため、置いた時点で公開される。
+function GlobalAiPanel({ staffSession }) {
+  const [open, setOpen] = React.useState(false);
+  const [secret, setSecret] = React.useState('');
+  const [keyInput, setKeyInput] = React.useState('');
+  const [st, setSt] = React.useState(null);      // {configured, source, masked, updatedAt, updatedBy}
+  const [busy, setBusy] = React.useState('');
+  const [msg, setMsg] = React.useState('');
+  const [err, setErr] = React.useState('');
+  const [pub, setPub] = React.useState(null);    // 公開状況(/api/ai-draft のGET)
+  React.useEffect(() => {
+    if (!open) return;
+    (async () => { try { const r = await fetch('/api/ai-draft'); setPub(await r.json()); } catch { setPub(null); } })();
+  }, [open]);
+  const call = async (action, extra) => {
+    if (!secret.trim()) { setErr('合言葉を入力してください'); return null; }
+    setBusy(action); setErr(''); setMsg('');
+    try {
+      const r = await fetch('/api/admin-ai-key', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ secret: secret.trim(), action, by: staffSession?.username || '管理局', ...(extra || {}) }),
+      });
+      const j = await r.json().catch(() => ({}));
+      setBusy('');
+      if (j.error) { setErr(j.error); return null; }
+      if (j.ok) { setSt({ configured: j.configured, source: j.source, masked: j.masked, updatedAt: j.updatedAt, updatedBy: j.updatedBy }); }
+      return j;
+    } catch (e) { setBusy(''); setErr('通信エラー: ' + (e?.message || '')); return null; }
+  };
+  const inp = { width:'100%', padding:'8px 10px', border:'1px solid #cbd5e1', borderRadius:8, fontSize:13, outline:'none', fontWeight:'bold' };
+  const btn = (bg, disabled) => ({ padding:'9px 18px', background: disabled ? '#94a3b8' : bg, color:'white', border:'none', borderRadius:10, fontSize:13, fontWeight:'bold', cursor: disabled ? 'not-allowed' : 'pointer' });
+  return (
+    <div style={{background:'white',borderRadius:16,padding:'16px 24px',marginBottom:16,boxShadow:'0 4px 16px rgba(0,0,0,0.06)'}}>
+      <button type="button" onClick={()=>setOpen(o=>!o)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',width:'100%',background:'none',border:'none',cursor:'pointer',padding:'4px 0'}}>
+        <span style={{fontSize:16,fontWeight:'bold',color:'#3d5021'}}>AI設定（全店共通・Claude APIキー）</span>
+        <span style={{fontSize:13,color:'#64748b',fontWeight:'bold'}}>{open?'閉じる ▲':'開く ▼'}</span>
+      </button>
+      {open && (
+        <div style={{marginTop:12}}>
+          <div style={{fontSize:11,color:'#64748b',lineHeight:1.7,marginBottom:12,background:'#f0f7e0',border:'1px solid #d4e7a5',borderRadius:8,padding:'8px 10px'}}>
+            ここで登録したキーが<b>全店舗のAI機能</b>（モニタリングの下書き・記録の要約など）に使われます。各店舗の「各種設定」にAPIキーを入れる必要はありません。<br/>
+            キーは<b>サーバー側だけが読める場所</b>に保管し、この画面にも末尾しか表示しません。<b>ブラウザには渡りません。</b>
+          </div>
+          <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:12,padding:'10px 12px',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:10}}>
+            <span style={{fontSize:12,fontWeight:'bold',color:'#334155'}}>現在の状態:</span>
+            {pub == null ? <span style={{fontSize:12,color:'#64748b'}}>確認中…</span> : pub.configured ? (
+              <span style={{fontSize:12,fontWeight:'bold',color:'#16a34a'}}>● 稼働中（{pub.source==='env'?'Vercelの環境変数':'この画面で登録したキー'}）</span>
+            ) : (
+              <span style={{fontSize:12,fontWeight:'bold',color:'#dc2626'}}>● 未設定（全店でAI機能が使えません）</span>
+            )}
+            {st?.masked && <span style={{fontSize:11,color:'#64748b'}}>キー: {st.masked}{st.updatedAt?` / 更新 ${String(st.updatedAt).slice(0,10)}`:''}{st.updatedBy?` (${st.updatedBy})`:''}</span>}
+          </div>
+          <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'flex-end',marginBottom:10}}>
+            <div style={{width:220}}>
+              <label style={{fontSize:10,fontWeight:'bold',color:'#64748b'}}>合言葉（本部のみ）</label>
+              <input type="password" value={secret} onChange={e=>setSecret(e.target.value)} placeholder="ADMIN_API_SECRET" style={inp} autoComplete="off"/>
+            </div>
+            <button type="button" onClick={()=>call('status')} disabled={!!busy} style={{...btn('#475569', !!busy)}}>{busy==='status'?'確認中…':'状態を確認'}</button>
+            <button type="button" onClick={async()=>{ const j = await call('test'); if (j?.ok) setMsg(`✓ AIに接続できました（応答: ${j.reply||'OK'}）`); }} disabled={!!busy} style={{...btn('#4338ca', !!busy)}}>{busy==='test'?'テスト中…':'接続テスト'}</button>
+          </div>
+          <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'flex-end'}}>
+            <div style={{flex:1,minWidth:260}}>
+              <label style={{fontSize:10,fontWeight:'bold',color:'#64748b'}}>Claude APIキー（sk-ant-… で始まる文字列）</label>
+              <input type="password" value={keyInput} onChange={e=>setKeyInput(e.target.value)} placeholder="sk-ant-api03-..." style={inp} autoComplete="off"/>
+            </div>
+            <button type="button" onClick={async()=>{ if(!keyInput.trim()) { setErr('APIキーを入力してください'); return; } const j = await call('save', { key: keyInput.trim() }); if (j?.ok) { setKeyInput(''); setMsg('✓ 登録しました。全店へ最大1分で反映されます。'); try { const r = await fetch('/api/ai-draft'); setPub(await r.json()); } catch {} } }} disabled={!!busy} style={{...btn('#7daa3d', !!busy)}}>{busy==='save'?'登録中…':'登録・変更'}</button>
+            <button type="button" onClick={async()=>{ if(!window.confirm('登録済みのAPIキーを削除します。全店でAI機能が使えなくなります。よろしいですか?')) return; const j = await call('delete'); if (j?.ok) { setMsg('削除しました'); try { const r = await fetch('/api/ai-draft'); setPub(await r.json()); } catch {} } }} disabled={!!busy} style={{padding:'9px 14px',background:'white',color:'#dc2626',border:'1px solid #fecaca',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>削除</button>
+          </div>
+          {msg && <div style={{marginTop:10,fontSize:12,fontWeight:'bold',color:'#16a34a'}}>{msg}</div>}
+          {err && <div style={{marginTop:10,fontSize:12,fontWeight:'bold',color:'#dc2626',lineHeight:1.6}}>{err}</div>}
+          <details style={{marginTop:14}}>
+            <summary style={{fontSize:12,fontWeight:'bold',color:'#4338ca',cursor:'pointer'}}>初めて設定するときの手順</summary>
+            <ol style={{fontSize:11.5,color:'#475569',lineHeight:1.9,paddingLeft:'1.2em',marginTop:8}}>
+              <li><b>Anthropic のコンソール</b>(console.anthropic.com)で API キーを作成します。</li>
+              <li><b>Supabase</b> → SQL Editor で <code>docs/sql/app_secrets.sql</code> の内容を1回だけ実行します（キーの保管庫を作る作業）。</li>
+              <li><b>Vercel</b> → Settings → Environment Variables で <code>ADMIN_API_SECRET</code>（本部だけが知る合言葉・自由な文字列）を追加し、再デプロイします。</li>
+              <li>この画面で合言葉とAPIキーを入力し「登録・変更」を押します。以後はこの画面だけで変更できます。</li>
+            </ol>
+            <p style={{fontSize:11,color:'#64748b',lineHeight:1.8,marginTop:6}}>
+              ※ Vercel の環境変数に <code>ANTHROPIC_API_KEY</code> を直接設定する方法でも動きます（その場合は2・3の作業は不要で、この画面は状態確認と接続テストのみになります）。<br/>
+              ※ <b>使わなくなったキーは必ず Anthropic のコンソールで無効化(Revoke)</b>してください。
+            </p>
+          </details>
+        </div>
+      )}
+    </div>
+  );
+}
 function SystemNoticesPanel({ stores, staffSession }) {
   const [notices, setNotices] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
@@ -16822,7 +16913,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
   // ★ 管理局コンソールの見やすさ改善(2026-08-18): 店舗検索・セクションジャンプ・ガイダンス折りたたみ
   const [storeQuery, setStoreQuery] = useState('');
   const [loginInfoOpen, setLoginInfoOpen] = useState(false);
-  const _secNotices = React.useRef(null), _secStores = React.useRef(null), _secPolicy = React.useRef(null), _secMaster = React.useRef(null);
+  const _secNotices = React.useRef(null), _secStores = React.useRef(null), _secPolicy = React.useRef(null), _secMaster = React.useRef(null), _secAi = React.useRef(null);
   const _jump = (ref) => { try { ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {} };
 
   const handleCreateStore = async (e) => {
@@ -16924,7 +17015,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
         </div>
         {/* ★ セクションジャンプ(2026-08-18): 店舗が増えても下の方のパネルへすぐ移動できる */}
         <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:16,position:'sticky',top:8,zIndex:20}}>
-          {[['お知らせ管理',_secNotices],['店舗一覧',_secStores],['同意ポリシー',_secPolicy],['傷病名マスタ',_secMaster]].map(([lb,ref])=>(
+          {[['お知らせ管理',_secNotices],['店舗一覧',_secStores],['AI設定',_secAi],['同意ポリシー',_secPolicy],['傷病名マスタ',_secMaster]].map(([lb,ref])=>(
             <button key={lb} onClick={()=>_jump(ref)} style={{padding:'6px 14px',background:'rgba(255,255,255,0.92)',color:'#3d5021',border:'1px solid #94c456',borderRadius:999,fontSize:12,fontWeight:'bold',cursor:'pointer',boxShadow:'0 1px 4px rgba(0,0,0,0.08)'}}>{lb}</button>
           ))}
         </div>
@@ -17031,6 +17122,9 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
           )}
         </div>
         {/* ★ J: 全店共通ポリシー編集 (折りたたみ) */}
+        <div ref={_secAi} style={{scrollMarginTop:56}}>
+        <GlobalAiPanel staffSession={staffSession}/>
+        </div>
         <div ref={_secPolicy} style={{scrollMarginTop:56}}>
         <GlobalPolicyPanel staffSession={staffSession}/>
         </div>
@@ -37061,7 +37155,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
   const [holidayYear, setHolidayYear] = useState(() => new Date().getFullYear()); // 施設休業日: 表示中の西暦
   const [holidayEditModal, setHolidayEditModal] = useState(null); // {origDates:[], name, start, end}
   const [massageInput, setMassageInput] = useState((appData.systemSettings?.massageTypes || []).join('、'));
-  const [anthropicApiKey, setAnthropicApiKey] = useState(appData.systemSettings?.anthropicApiKey || '');
+  // ★ 2026-09-17: 店舗ごとのAPIキーは廃止(本部の管理局で1つ登録したキーを全店で使う)
   const [kibunReasonInputs, setKibunReasonInputs] = useState({}); // 気分の理由 追加用入力 (timing_mood → 文字列)
   const [kibunTiming, setKibunTiming] = useState('arrival'); // 気分の理由タブ: 通所時/帰宅時 切替
   // 気分の理由: 既定/カスタムを全moodぶん取得して1つの構造にし、編集して保存する
@@ -37275,15 +37369,15 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
   const _dirtyBaseRef = React.useRef(null); // 基準(=保存済み/同期直後の内容)の署名
   const diarySettingsRef = React.useRef(appData.diarySettings || { staff:[], cars:[], scheduleAM:[], schedulePM:[] });
   const _draftSig = React.useMemo(() => {
-    try { return JSON.stringify({ facilityInfo, massageInput, onyokuInput, massageStaffInput, exerciseItems, exerciseItemsHistory, individualExerciseItems, cmOffices, cmPersons, anthropicApiKey }); }
+    try { return JSON.stringify({ facilityInfo, massageInput, onyokuInput, massageStaffInput, exerciseItems, exerciseItemsHistory, individualExerciseItems, cmOffices, cmPersons }); }
     catch { return null; }
-  }, [facilityInfo, massageInput, onyokuInput, massageStaffInput, exerciseItems, exerciseItemsHistory, individualExerciseItems, cmOffices, cmPersons, anthropicApiKey]);
+  }, [facilityInfo, massageInput, onyokuInput, massageStaffInput, exerciseItems, exerciseItemsHistory, individualExerciseItems, cmOffices, cmPersons]);
   // ★ 未編集判定の基準署名を「上書き値つき」で即計算する(2026-08-17)。 同期追従や保存後に基準を
   //   null(後で取り直す)にすると、その直後の最初の編集が「基準の取り直し」と誤解されて未保存扱いにならず、
   //   次の同期でクラウド値に上書きされて消えるため、基準は常にその場で確定させる。 形は _draftSig と同一。
   const _sigOf = (o = {}) => {
     const pick = (k, cur) => (o[k] !== undefined ? o[k] : cur);
-    try { return JSON.stringify({ facilityInfo: pick('facilityInfo', facilityInfo), massageInput: pick('massageInput', massageInput), onyokuInput: pick('onyokuInput', onyokuInput), massageStaffInput: pick('massageStaffInput', massageStaffInput), exerciseItems: pick('exerciseItems', exerciseItems), exerciseItemsHistory: pick('exerciseItemsHistory', exerciseItemsHistory), individualExerciseItems: pick('individualExerciseItems', individualExerciseItems), cmOffices: pick('cmOffices', cmOffices), cmPersons: pick('cmPersons', cmPersons), anthropicApiKey: pick('anthropicApiKey', anthropicApiKey) }); }
+    try { return JSON.stringify({ facilityInfo: pick('facilityInfo', facilityInfo), massageInput: pick('massageInput', massageInput), onyokuInput: pick('onyokuInput', onyokuInput), massageStaffInput: pick('massageStaffInput', massageStaffInput), exerciseItems: pick('exerciseItems', exerciseItems), exerciseItemsHistory: pick('exerciseItemsHistory', exerciseItemsHistory), individualExerciseItems: pick('individualExerciseItems', individualExerciseItems), cmOffices: pick('cmOffices', cmOffices), cmPersons: pick('cmPersons', cmPersons) }); }
     catch { return null; }
   };
   React.useEffect(() => {
@@ -37303,7 +37397,6 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
     msi: (s.massageStaff || appSettings.massageStaff).join('、'),
     cmo: JSON.stringify(s.cmOffices || []),
     cmp: JSON.stringify(s.careManagers || []),
-    api: s.anthropicApiKey || '',
   });
   if (_setBaseRef.current === null) _setBaseRef.current = _captureSetBase(appData.systemSettings || {});
   // ★★ 恒久対策・第2層: クラウド同期で systemSettings/diarySettings が更新されたら、
@@ -37325,7 +37418,6 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
     setMassageStaffInput((s.massageStaff || appSettings.massageStaff).join('、'));
     setCmOffices(s.cmOffices || []);
     setCmPersons(s.careManagers || []);
-    setAnthropicApiKey(s.anthropicApiKey || '');
     // ★ クラウド同期由来の反映は生セッター(_set*Sync)を使う: dirty を立てない(ユーザー編集と区別)
     _setExerciseItemsSync(effExerciseItems(s));
     _setExerciseItemsHistorySync(s.exerciseItemsHistory || []);
@@ -37345,7 +37437,6 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
       individualExerciseItems: Array.isArray(s.individualExerciseItems) ? s.individualExerciseItems : undefined,
       cmOffices: s.cmOffices || [],
       cmPersons: s.careManagers || [],
-      anthropicApiKey: s.anthropicApiKey || '',
     });
   }, [appData.systemSettings, appData.diarySettings, dirtyRef]);
 
@@ -37479,7 +37570,6 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
     const _massageOut = massageInput !== _sb.mi ? (newMassage.length ? newMassage : ["無し"]) : (_ss0.massageTypes || (newMassage.length ? newMassage : ["無し"]));
     const _onyokuOut = onyokuInput !== _sb.oi ? (newOnyoku.length ? newOnyoku : ["無し"]) : (_ss0.onyokuTypes || (newOnyoku.length ? newOnyoku : ["無し"]));
     const _mstaffOut = massageStaffInput !== _sb.msi ? (newMassageStaff.length ? newMassageStaff : ["ヘルプ"]) : (_ss0.massageStaff || (newMassageStaff.length ? newMassageStaff : ["ヘルプ"]));
-    const _apiOut = anthropicApiKey !== _sb.api ? anthropicApiKey : (_ss0.anthropicApiKey ?? anthropicApiKey ?? '');
     const _nextSS = { ...appData.systemSettings, _updatedAt: syncNow(),
       massageTypes: _massageOut, onyokuTypes: _onyokuOut, massageStaff: _mstaffOut,
       cmOffices: _pickJson(cmOffices, _ss0.cmOffices, _sb.cmo, []),
@@ -37487,7 +37577,6 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
       facilityInfo: _facilityInfo,
       exerciseItems: _exPick(exerciseItems, _ss0.exerciseItems, 'ex'), exerciseItemsHistory: _exPick(exerciseItemsHistory, _ss0.exerciseItemsHistory, 'hist'),
       individualExerciseItems: _exPick(individualExerciseItems, _ss0.individualExerciseItems, 'ind'), exerciseQuickButtons: _exPick(exerciseQuickButtons, _ss0.exerciseQuickButtons, 'qb'),
-      anthropicApiKey: _apiOut,
       serviceItems: _pickJson(serviceItems, _ss0.serviceItems, _sb.si, []) };
     // ★ 運動メニューを「全部削除」した場合は意図的クリアとして記録(表示側が既定/履歴で勝手に復活させない)。
     //   1件でも項目があればフラグ解除。
@@ -38926,22 +39015,8 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                 <AdminSettingsSection appData={appData} onSave={onSave} />
               )}
             </SectionCard>
-            <SectionCard title="モニタリング用APIキー">
-              {(!canAdmin) ? (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-center">
-                  <div className="text-3xl mb-2"></div>
-                  <div className="text-sm font-bold text-amber-800 mb-1">管理者のみ表示・操作できます</div>
-                  <div className="text-xs text-amber-700">サイドバーの「スタッフ切替」で管理者を選択してください{_adminAuth?.passwordHash?'（管理者パスワードの認証が必要です）':''}。</div>
-                </div>
-              ) : (<>
-                <label className="block text-sm font-bold text-slate-600 mb-1.5">APIキー</label>
-                <p className="text-xs text-slate-400 mb-2">モニタリング文章の自動生成に使用します。</p>
-                <input type="password" value={anthropicApiKey} onChange={e => setAnthropicApiKey(e.target.value)}
-                  placeholder="sk-..."
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono text-sm outline-none"/>
-                {anthropicApiKey && <p className="text-xs text-emerald-600 font-bold mt-1">✓ 設定済み（末尾: ...{anthropicApiKey.slice(-6)}）</p>}
-              </>)}
-            </SectionCard>
+            {/* ★ 2026-09-17: 店舗ごとのAPIキー設定は廃止。本部(つむぎ管理局)が1つ登録したキーを全店で使う。
+                キーをここに置くとクラウド上に平文で保存され、公開キーで読めてしまうため、安全面でも廃止した。 */}
             <SectionCard title="データ管理">
               {(() => {
                 // localStorage 使用量を概算
@@ -44707,7 +44782,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   };
 
   const generateOne = async (patient) => {
-    const apiKey = (appData.systemSettings?.anthropicApiKey || '').trim();
+    const apiKey = ''; // ★ 2026-09-17: 本部(管理局)のキーをサーバー経由で使う
     if (!apiKey && window.__tsumugiSrvAi === false) {
       setResults(prev => ({...prev, [patient.id]: {text:'', loading:false, error:'AIが未設定です（本部のAI設定が無効で、店舗のAPIキーも未設定）。'}}));
       return;
@@ -44798,7 +44873,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const generateAllSheets = async () => {
     if (_monthLocked) { monAlert('当月分のAI下書きは毎月15日以降にご利用いただけます（AIコスト管理のため）。過去月はいつでも作成できます。'); return; }
     // ★ 通所がある人はAI下書き、 通所が無い人(一度も来ていない人)はAI不要で「実施できなかった」既定で作成。
-    const noKey = !(appData.systemSettings?.anthropicApiKey||'').trim() && window.__tsumugiSrvAi !== true; // ★ 本部AIが有効ならキー不要
+    const noKey = window.__tsumugiSrvAi === false; // ★ 本部(管理局)のAIキーが未登録のときだけ不可
     // ★ 利用者を選択していない場合は全員生成せず、選択を促す
     const targets = [...attendedPats, ...absentPats].filter(p => checkedIds.has(p.id));
     if (!targets.length) { monAlert('利用者を選択してください（チェックを付けた方のみ下書きします）'); return; }
@@ -44914,7 +44989,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   // ★ 一覧の1行をAIで下書き (手入力済みの内容は残してAIは空欄のみ補完)。 確定はしない。
   const aiDraftRow = async (patient) => {
     if (_monthLocked) { monAlert('当月分のAI下書きは毎月15日以降にご利用いただけます（AIコスト管理のため）。'); return; }
-    if (!(appData.systemSettings?.anthropicApiKey||'').trim() && window.__tsumugiSrvAi === false) { monAlert('AIが未設定です（本部のAI設定が無効で、店舗のAPIキーも未設定です）'); return; }
+    if (window.__tsumugiSrvAi === false) { monAlert('AIが未設定です。つむぎ管理局の「AI設定」でAPIキーを登録してください。'); return; }
     if (_aiRemaining <= 0) { monAlert(`${tM}月分のAI下書きの上限（利用者${_aiActiveCount}名×2回＝${_aiLimit}回）に達しました。\nこの月の分は手入力でご対応ください。`); return; }
     setResults(prev=>({...prev,[patient.id]:{...(prev[patient.id]||{}), loading:true, error:null}}));
     try {
@@ -45152,8 +45227,10 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const fmtJpDate = (ymd) => { if(!ymd) return ''; try { return new Date(ymd).toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'}); } catch { return ymd; } };
   // ★ AIでモニタリング表(プルダウン選択+本文)を一括下書き。 APIキー(各種設定→モニタリング)が必要。
   const aiDraftSheet = async (patient) => {
-    const apiKey = (appData.systemSettings?.anthropicApiKey || '').trim();
-    if (!apiKey) throw new Error('APIキーが未設定です。各種設定 → モニタリング でAPIキーを入力・保存してください。');
+    const apiKey = ''; // ★ 2026-09-17: 本部(管理局)のキーをサーバー経由で使う
+    // ★ 2026-09-17: 本部(管理局)のキーをサーバー経由で使うため、ここでキーの有無は問わない
+    //   (従来は本部キーが使える場合でもここで落ちていた)
+    if (window.__tsumugiSrvAi === false) throw new Error('AIが未設定です。つむぎ管理局の「AI設定」でAPIキーを登録してください。');
     const d = buildPatientData(patient);
     const fitnessText = (d.fitnessRecs && d.fitnessRecs.length)
       ? d.fitnessRecs.map(r => { const vals=(d.fitnessItems||[]).map(it=> r.values?.[it.id]?`${it.name}:${r.values[it.id]}${it.unit||''}`:null).filter(Boolean).join('、'); return `${r.date}（${vals||'データあり'}）`; }).join(' / ')
@@ -45678,7 +45755,7 @@ ${optionsDesc}
             onSave={(sheet)=>saveSheet(patient, sheet)}
             onPrint={(sheet, forFax)=>printSheet(patient, sheet, forFax)}
             onAiDraft={()=>aiDraftSheet(patient)}
-            hasApiKey={!!(appData.systemSettings?.anthropicApiKey||'').trim() || window.__tsumugiSrvAi === true}
+            hasApiKey={window.__tsumugiSrvAi !== false}
           />
         );
       })()}
