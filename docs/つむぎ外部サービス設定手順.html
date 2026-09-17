@@ -5,6 +5,7 @@
   --ink:#1d2a22; --ink2:#44514a; --ink3:#7c8a80; --line:#e3e8dd; --paper:#ffffff; --ground:#f7f8f4;
   --warn-bg:#fff7ed; --warn-line:#fed7aa; --warn-ink:#9a3412;
   --ok-bg:#f0fdf4; --ok-line:#bbf7d0; --ok-ink:#15803d;
+  --info-bg:#eff6ff; --info-line:#bfdbfe; --info-ink:#1d4ed8;
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
@@ -12,6 +13,7 @@
     --ink:#e8ede4; --ink2:#b8c3b4; --ink3:#8b968a; --line:#333c30; --paper:#1a1f18; --ground:#13160f;
     --warn-bg:#2a1f13; --warn-line:#5c3a1a; --warn-ink:#fdba74;
     --ok-bg:#132218; --ok-line:#1f4030; --ok-ink:#86efac;
+    --info-bg:#141d2e; --info-line:#1e3a5f; --info-ink:#93c5fd;
   }
 }
 :root[data-theme="dark"]{
@@ -19,25 +21,26 @@
   --ink:#e8ede4; --ink2:#b8c3b4; --ink3:#8b968a; --line:#333c30; --paper:#1a1f18; --ground:#13160f;
   --warn-bg:#2a1f13; --warn-line:#5c3a1a; --warn-ink:#fdba74;
   --ok-bg:#132218; --ok-line:#1f4030; --ok-ink:#86efac;
+  --info-bg:#141d2e; --info-line:#1e3a5f; --info-ink:#93c5fd;
 }
 *{box-sizing:border-box}
 body{background:var(--ground); color:var(--ink);
   font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic Medium",Meiryo,system-ui,sans-serif;
   line-height:1.85; font-size:15px;}
-.wrap{max-width:820px; margin:0 auto; padding:40px 22px 80px;}
+.wrap{max-width:840px; margin:0 auto; padding:40px 22px 80px;}
 header{border-bottom:3px solid var(--leaf); padding-bottom:18px; margin-bottom:28px;}
 h1{font-size:25px; margin:0 0 6px; color:var(--leaf-deep); letter-spacing:.01em; text-wrap:balance;}
 .sub{color:var(--ink3); font-size:13px; margin:0;}
-h2{font-size:18px; color:var(--leaf-deep); margin:38px 0 12px; padding-left:12px; border-left:5px solid var(--leaf); text-wrap:balance;}
-h3{font-size:15px; color:var(--ink); margin:22px 0 8px;}
+h2{font-size:18px; color:var(--leaf-deep); margin:40px 0 12px; padding-left:12px; border-left:5px solid var(--leaf); text-wrap:balance;}
+h3{font-size:14.5px; color:var(--ink); margin:20px 0 6px; padding-bottom:4px; border-bottom:1px dashed var(--line);}
 p{margin:.5em 0;}
 .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:18px 22px; margin:14px 0;}
-.steps{counter-reset:s; list-style:none; padding:0; margin:12px 0;}
-.steps>li{counter-increment:s; position:relative; padding:14px 0 14px 46px; border-bottom:1px solid var(--line);}
+.steps{counter-reset:s; list-style:none; padding:0; margin:10px 0;}
+.steps>li{counter-increment:s; position:relative; padding:13px 0 13px 44px; border-bottom:1px solid var(--line);}
 .steps>li:last-child{border-bottom:none;}
-.steps>li::before{content:counter(s); position:absolute; left:0; top:13px;
-  width:30px; height:30px; border-radius:50%; background:var(--leaf); color:#fff;
-  display:flex; align-items:center; justify-content:center; font-weight:700; font-size:14px;
+.steps>li::before{content:counter(s); position:absolute; left:0; top:12px;
+  width:28px; height:28px; border-radius:50%; background:var(--leaf); color:#fff;
+  display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px;
   font-variant-numeric:tabular-nums;}
 code{background:var(--leaf-bg); color:var(--leaf-deep); padding:2px 7px; border-radius:5px;
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.88em; word-break:break-all;}
@@ -48,10 +51,13 @@ pre code{background:none; padding:0;}
   border-radius:10px; padding:12px 16px; margin:14px 0; font-size:13.5px;}
 .ok{background:var(--ok-bg); border:1px solid var(--ok-line); color:var(--ok-ink);
   border-radius:10px; padding:12px 16px; margin:14px 0; font-size:13.5px;}
-.note b,.ok b{font-weight:700;}
+.info{background:var(--info-bg); border:1px solid var(--info-line); color:var(--info-ink);
+  border-radius:10px; padding:12px 16px; margin:14px 0; font-size:13.5px;}
+.note b,.ok b,.info b{font-weight:700;}
 table{width:100%; border-collapse:collapse; margin:14px 0; font-size:13.5px;}
 th,td{border:1px solid var(--line); padding:9px 12px; text-align:left; vertical-align:top;}
 th{background:var(--leaf-bg); color:var(--leaf-deep); font-weight:700; font-size:12.5px;}
+td.num{font-variant-numeric:tabular-nums; white-space:nowrap;}
 .tbl-wrap{overflow-x:auto;}
 .path{color:var(--ink2); font-size:13px;}
 .path b{color:var(--ink);}
@@ -62,31 +68,93 @@ ul{padding-left:1.3em;} li{margin:.3em 0;}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .t-req{background:#3a1717;color:#fca5a5}
   :root:not([data-theme="light"]) .t-opt{background:#3a2e12;color:#fcd34d}
   :root:not([data-theme="light"]) .t-done{background:#14301f;color:#86efac}}
+.faq{border:1px solid var(--line); border-radius:10px; padding:10px 16px; margin:8px 0; background:var(--paper);}
+.faq summary{font-weight:700; font-size:13.5px; cursor:pointer; color:var(--ink);}
+.faq p{font-size:13px; color:var(--ink2);}
 footer{margin-top:50px; padding-top:18px; border-top:1px solid var(--line); color:var(--ink3); font-size:12px;}
 </style>
 
 <div class="wrap">
 <header>
   <h1>つむぎ 外部サービス設定手順</h1>
-  <p class="sub">Claude（AI）のAPIキー登録と、Vercel・Supabase の初期設定 ／ 2026年9月17日</p>
+  <p class="sub">Claude（AI）のAPIキー取得から、Vercel・Supabase・管理局の設定まで ／ 2026年9月17日</p>
 </header>
 
 <div class="note">
   <b>いまの状況</b><br>
-  外部サービスを本部で一括管理する仕組みは<b>実装・配信済み</b>です。ただし<b>キーがまだ未登録</b>のため、現在は全店でAI機能が使えません。下の手順で設定すると使えるようになります。所要時間は10〜15分です。
+  外部サービスを本部で一括管理する仕組みは<b>実装・配信済み</b>です。ただし<b>ClaudeのAPIキーがまだ未登録</b>のため、現在は全店でAI機能（モニタリングの下書きなど）が使えません。下の手順で使えるようになります。所要時間は<b>20〜30分</b>です。
 </div>
 
 <h2>全体の流れ</h2>
 <div class="card">
-  <p>設定は<b>3回の作業</b>で終わります。1回目と2回目は最初だけ、3回目以降は<b>つむぎの管理局画面だけ</b>で完結します。</p>
+  <p>作業は<b>4段階</b>です。1〜3は最初だけ、以降のキー変更は<b>つむぎの管理局画面だけ</b>で完結します。</p>
   <ol class="steps">
-    <li><b>Supabase</b>で「キーの保管庫」を作る（SQLを1回貼り付けて実行）</li>
-    <li><b>Vercel</b>で「合言葉」を1つ登録する（管理局画面から設定を変更するための鍵）</li>
-    <li><b>つむぎの管理局</b>で、Claude のAPIキーを登録する</li>
+    <li><b>Anthropic</b>でAPIキーを発行する（支払い設定・使いすぎ防止の上限設定を含む）</li>
+    <li><b>Supabase</b>でキーの保管庫を作る（SQLを1回貼り付けて実行）</li>
+    <li><b>Vercel</b>で合言葉を1つ登録する（管理局から設定を変えるための鍵）</li>
+    <li><b>つむぎの管理局</b>でAPIキーを登録し、接続テストをする</li>
   </ol>
 </div>
 
-<h2>作業1: Supabase でキーの保管庫を作る</h2>
+<h2>作業1: Anthropic でAPIキーを発行する</h2>
+
+<div class="info">
+  <b>最初に大事なこと</b>: いま個人でお使いの <b>Claude Pro / Max などの月額プランと、APIの料金は別</b>です。月額プランに入っていてもAPIは使えません。APIは「使った分だけ」の料金で、<b>前払いでクレジット（残高）を購入</b>して使う仕組みです。
+</div>
+
+<h3>1-1 アカウントにログインする</h3>
+<div class="card">
+  <ol class="steps">
+    <li><a href="https://console.anthropic.com">console.anthropic.com</a> を開きます。<br>
+      <span class="path">※ ふだんチャットで使う claude.ai とは<b>別のサイト</b>です。開発者向けの管理画面です。</span></li>
+    <li>会社のメールアドレス（<code>honbu@ones-style.co.jp</code> など）でログインします。初めてなら <b>Sign up</b> からアカウントを作ります。</li>
+    <li>会社として使うので、組織名（Organization）は<b>株式会社ワンズスタイル</b>など、法人名にしておくと請求書の宛名と揃って分かりやすいです。</li>
+  </ol>
+</div>
+
+<h3>1-2 支払い方法を登録し、クレジットを購入する</h3>
+<div class="card">
+  <ol class="steps">
+    <li>左メニューの下の方にある <b>Billing</b>（請求）を開きます。<br>
+      <span class="path">※ 「Plans &amp; Billing」「Cost」などの名前で並んでいることもあります。</span></li>
+    <li><b>Payment methods</b>（支払い方法）で、会社のクレジットカードを登録します。</li>
+    <li><b>Buy credits</b>（クレジットを購入）から残高を購入します。<b>最初は 5〜20ドル程度で十分</b>です。<br>
+      <span class="path">つむぎが使うのは一番軽いAIのため、後述のとおり月に数千円程度の見込みです。足りなくなれば追加購入できます。</span></li>
+    <li>希望すれば <b>Auto reload</b>（残高が減ったら自動で買い足す）を設定できます。<br>
+      <span class="path">止まると困る場合はONに、使いすぎが心配ならOFFのままにして、残高が減ったら手動で購入してください。</span></li>
+  </ol>
+  <div class="note"><b>残高がゼロになるとAI機能が止まります。</b>止まっても記録・連絡帳・送迎表など他の機能は通常どおり使えます（AIの下書きだけが使えなくなります）。</div>
+</div>
+
+<h3>1-3 使いすぎを防ぐ上限を決める（おすすめ）</h3>
+<div class="card">
+  <p class="path">想定外の請求を防ぐため、先に上限を決めておくと安心です。</p>
+  <ol class="steps">
+    <li>左メニューの <b>Limits</b>（上限）または <b>Settings → Limits</b> を開きます。</li>
+    <li><b>月あたりの上限（Monthly spend limit）</b>を設定します。<b>まずは 5,000円〜10,000円相当</b>にしておき、実際の使用量を見てから調整するのがおすすめです。</li>
+    <li>可能であれば <b>使用量アラート</b>（一定額に達したらメール通知）も設定しておきます。</li>
+  </ol>
+  <div class="ok">つむぎ側にも安全装置を入れてあります。1回のAI呼び出しで生成する文章の長さに上限を設けており、暴走的に費用が膨らまない作りです。</div>
+</div>
+
+<h3>1-4 APIキーを発行する</h3>
+<div class="card">
+  <ol class="steps">
+    <li>左メニューの <b>API keys</b> を開きます。</li>
+    <li><b>Create Key</b>（キーを作成）を押します。</li>
+    <li>キーの名前を入力します。あとで見て分かる名前にしてください。<br>
+      <span class="path">例: <code>tsumugi-honbu</code> （つむぎ本部用、という意味）</span></li>
+    <li><b>Create Key</b> を押すと、<code>sk-ant-api03-…</code> という長い文字列が表示されます。<b>コピー</b>してください。<br>
+      <span class="path"><b>この画面を閉じると二度と表示されません。</b>もし控え忘れたら、そのキーは破棄して作り直せば大丈夫です。</span></li>
+  </ol>
+  <div class="note">
+    <b>コピーしたキーの扱い</b><br>
+    キーは「会社の財布の鍵」です。メール・LINE・チャットに貼ったり、スクリーンショットで共有したりしないでください。作業4でつむぎの画面に直接貼り付ける形で登録します。<br>
+    作業4まで一気に進めるのが安全です（一度どこかに保存する必要がありません）。
+  </div>
+</div>
+
+<h2>作業2: Supabase でキーの保管庫を作る</h2>
 <div class="card">
   <p class="path"><b>なぜ必要か</b>: APIキーを、ブラウザから読めない安全な場所に保管するためです。つむぎの通常のデータ置き場は、アプリを開ける人なら読めてしまうため、キーを置けません。</p>
   <ol class="steps">
@@ -105,11 +173,11 @@ alter table public.app_secrets enable row level security;
 
 revoke all on public.app_secrets from anon;
 revoke all on public.app_secrets from authenticated;</code></pre>
-  <div class="ok"><b>成功の目安</b>: 「Success. No rows returned」と出れば完了です。エラーが出た場合はその文言をお知らせください。</div>
-  <p class="path">※ このSQLは、保管庫を作り「サーバー以外からは一切読めない」鍵をかけるものです。同じファイルは <code>docs/sql/app_secrets.sql</code> にも入っています。</p>
+  <div class="ok"><b>成功の目安</b>: 「Success. No rows returned」と出れば完了です。エラーが出たらその文言をお知らせください。</div>
+  <p class="path">※ 保管庫を作り「サーバー以外からは一切読めない」鍵をかけるSQLです。同じ内容は <code>docs/sql/app_secrets.sql</code> にも入っています。</p>
 </div>
 
-<h2>作業2: Vercel で合言葉を登録する</h2>
+<h2>作業3: Vercel で合言葉を登録する</h2>
 <div class="card">
   <p class="path"><b>なぜ必要か</b>: 管理局の画面からキーを変更するときの本人確認に使います。この合言葉を知っている人だけが設定を変更できます。</p>
   <ol class="steps">
@@ -121,23 +189,37 @@ revoke all on public.app_secrets from authenticated;</code></pre>
     <li><b>Environments</b> は <b>Production・Preview・Development の3つすべて</b>にチェックを入れます。</li>
     <li><b>Save</b> を押します。</li>
     <li>上部の <b>Deployments</b> タブを開き、一番上の行の右端「…」→ <b>Redeploy</b> を押します。<br>
-      <span class="path">※ 環境変数は、再デプロイしないと反映されません。1〜2分で終わります。</span></li>
+      <span class="path">※ 環境変数は再デプロイしないと反映されません。1〜2分で終わります。</span></li>
   </ol>
   <div class="note"><b>決めた合言葉は必ず控えておいてください。</b>紛失した場合は同じ手順で設定し直せます。</div>
 </div>
 
-<h2>作業3: 管理局で Claude のAPIキーを登録する</h2>
+<h2>作業4: 管理局でAPIキーを登録する</h2>
 <div class="card">
   <ol class="steps">
-    <li><a href="https://console.anthropic.com">console.anthropic.com</a> にログインし、左メニューの <b>API keys</b> → <b>Create Key</b> で新しいキーを作ります。<br>
-      <span class="path">表示された <code>sk-ant-api03-...</code> をコピーします。<b>この画面を閉じると二度と表示されません。</b></span></li>
     <li>つむぎに<b>本部アカウント</b>でログインします（店舗を選ぶ前の「つむぎ管理局」の画面です）。</li>
     <li><b>外部サービス設定（全店共通・AI / マップ / メール / FAX）</b> を開きます。</li>
-    <li><b>合言葉</b>の欄に、作業2で決めた文字列を入れて <b>設定を読み込む</b> を押します。</li>
-    <li><b>Claude（AI）</b> の <b>APIキー</b> 欄にコピーしたキーを貼り付け、<b>登録</b> を押します。</li>
+    <li><b>合言葉</b>の欄に、作業3で決めた文字列を入れて <b>設定を読み込む</b> を押します。</li>
+    <li><b>Claude（AI）</b> の <b>APIキー</b> 欄に、作業1でコピーしたキーを貼り付け、<b>登録</b> を押します。</li>
     <li>同じ行の <b>接続テスト</b> を押して「✓ AIが応答しました」と出れば完了です。</li>
   </ol>
-  <div class="ok"><b>反映まで最大1分</b>かかります。その後、全店舗でAI機能（モニタリングの下書きなど）が使えるようになります。</div>
+  <div class="ok"><b>反映まで最大1分</b>かかります。その後、全店舗でAI機能が使えるようになります。扇橋店でモニタリングの下書きを1件作ってみて、実際に動くかご確認ください。</div>
+</div>
+
+<h2>料金の目安</h2>
+<div class="card">
+  <p>つむぎが使っているのは <b>Claude Haiku 4.5</b> という、速くて安いモデルです。文章の下書きや要約には十分な性能で、費用を抑えられます。</p>
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th style="width:38%">規模</th><th style="width:31%">API実費の目安（月）</th><th>備考</th></tr></thead>
+    <tbody>
+      <tr><td>利用者 60名の店舗</td><td class="num">約 4,200円</td><td>モニタリング・要約を通常どおり使った場合</td></tr>
+      <tr><td>利用者 70名（フル稼働）</td><td class="num">約 6,540円</td><td>同上</td></tr>
+      <tr><td>最初のお試し</td><td class="num">5〜20ドル分</td><td>まずはこの範囲で購入して様子を見るのがおすすめ</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="path">※ 以前お出しした原価試算と同じ数字です。実際の額は使用量で変わります。最新の単価は <a href="https://www.anthropic.com/pricing">anthropic.com/pricing</a> でご確認ください。使用実績は Anthropic の <b>Usage</b> / <b>Cost</b> 画面でいつでも見られます。</p>
 </div>
 
 <h2>この画面で管理できるサービス</h2>
@@ -146,9 +228,9 @@ revoke all on public.app_secrets from authenticated;</code></pre>
   <thead><tr><th style="width:26%">サービス</th><th style="width:36%">使う場面</th><th>状況</th></tr></thead>
   <tbody>
     <tr><td><b>Claude（AI）</b><br><span class="path">Anthropic</span></td><td>モニタリングの下書き、記録の要約</td><td><span class="tag t-req">要登録</span> 今回の作業対象</td></tr>
-    <tr><td><b>Google マップ</b></td><td>送迎表の自動配車・お迎え時間の計算</td><td><span class="tag t-opt">任意</span> 未設定でも手動入力で使えます</td></tr>
-    <tr><td><b>Brevo</b><br><span class="path">メール送信</span></td><td>ご家族・職員への招待、パスワード通知</td><td><span class="tag t-done">設定済み</span> Vercelの環境変数</td></tr>
-    <tr><td><b>InterFAX</b><br><span class="path">FAX送信</span></td><td>モニタリング表のケアマネFAX送信</td><td><span class="tag t-opt">任意</span> 使う場合に登録</td></tr>
+    <tr><td><b>Google マップ</b></td><td>送迎表の自動配車・お迎え時間の計算</td><td><span class="tag t-done">設定済み</span> Vercelの環境変数（稼働を確認済み）</td></tr>
+    <tr><td><b>Brevo</b><br><span class="path">メール送信</span></td><td>ご家族・職員への招待、パスワード通知</td><td>作業4のあと、画面上で設定状況を確認できます</td></tr>
+    <tr><td><b>InterFAX</b><br><span class="path">FAX送信</span></td><td>モニタリング表のケアマネFAX送信</td><td><span class="tag t-opt">任意</span> 作業4のあと、画面上で確認できます</td></tr>
     <tr><td><b>Supabase</b><br><span class="path">データベース</span></td><td>つむぎのデータ保管先</td><td><span class="tag t-done">設定済み</span> Vercelでのみ変更可</td></tr>
     <tr><td><b>LINE通知 / 国保連請求 / 電子同意書</b></td><td>2027年に導入予定</td><td>設定欄だけ用意済み（「今後導入予定のサービス」を開くと表示）</td></tr>
   </tbody>
@@ -156,16 +238,30 @@ revoke all on public.app_secrets from authenticated;</code></pre>
 </div>
 <p class="path">Vercelの環境変数で設定済みの項目は、画面上で「Vercelの環境変数」と表示され、誤操作を防ぐため画面からは変更できません。画面で管理したい場合は、Vercel側の項目を削除してから登録してください。</p>
 
-<h2>もうひとつの方法（管理局を使わない場合）</h2>
+<h2>もっと簡単に済ませる方法</h2>
 <div class="card">
-  <p>作業1・2を省いて、<b>Vercelの環境変数に直接キーを入れる</b>方法でも動きます。作業2と同じ手順で、Key を <code>ANTHROPIC_API_KEY</code>、Value を <code>sk-ant-api03-...</code> にして保存し、再デプロイするだけです。</p>
+  <p>作業2・3を省いて、<b>Vercelの環境変数にキーを直接入れる</b>方法でも動きます。作業3と同じ手順で、Key を <code>ANTHROPIC_API_KEY</code>、Value を作業1でコピーしたキーにして保存し、再デプロイするだけです。</p>
   <p>ただしこの場合、<b>キーを変更するたびにVercelでの操作と再デプロイが必要</b>になります。管理局から変えられるようにしておく方が、日々の運用は楽です。</p>
 </div>
+
+<h2>よくあるつまずき</h2>
+<details class="faq"><summary>Claude Pro（月額プラン）に入っているのに、APIが使えない</summary>
+<p>月額プランとAPIは別の契約です。APIを使うには、作業1-2のとおり<b>クレジット（残高）の購入</b>が必要です。月額プランの料金でAPIが使えるわけではありません。</p></details>
+<details class="faq"><summary>キーをコピーし忘れて画面を閉じてしまった</summary>
+<p>問題ありません。API keys の一覧でそのキーを削除（Revoke）し、<b>もう一度 Create Key で作り直して</b>ください。キーは何本でも作れます。</p></details>
+<details class="faq"><summary>管理局の画面で「合言葉が違います」と出る</summary>
+<p>作業3で設定した文字列と一致していません。前後に空白が入っていないか、大文字・小文字が合っているかをご確認ください。Vercelで保存したあと<b>再デプロイをしていない</b>場合も、まだ反映されていないため同じ表示になります。</p></details>
+<details class="faq"><summary>「保存先のテーブル（app_secrets）がまだありません」と出る</summary>
+<p>作業2のSQLがまだ実行されていません。Supabaseの SQL Editor でもう一度実行してください。</p></details>
+<details class="faq"><summary>接続テストで「つながりませんでした」と出る</summary>
+<p>多くの場合、①キーの貼り付けミス（前後に空白や改行が入った）、②Anthropicの残高がゼロ、③キーを無効化済み、のいずれかです。Anthropic の Billing で残高を、API keys でそのキーが有効かをご確認ください。</p></details>
+<details class="faq"><summary>途中で分からなくなった</summary>
+<p>迷った画面のスクリーンショットをお送りください。どこを押せばよいかをその場でお伝えします。<b>ただしAPIキーが写っている画像は送らないでください。</b></p></details>
 
 <h2>安全のためのお願い</h2>
 <div class="note">
   <b>使わなくなったキーは、必ず発行元で無効化（Revoke）してください。</b><br>
-  つむぎ側から削除しても、すでに外部に渡ったキーは止まりません。Anthropicのコンソールでは、API keys の一覧から該当キーの「…」→ Delete で無効化できます。<br><br>
+  つむぎ側から削除しても、すでに外部に渡ったキーは止まりません。Anthropicでは API keys の一覧から該当キーの「…」→ Delete で無効化できます。<br><br>
   <b>キーをメール・チャット・スクリーンショットで送らないでください。</b>登録は、この手順のように画面へ直接貼り付ける形でお願いします。
 </div>
 

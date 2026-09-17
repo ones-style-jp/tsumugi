@@ -11216,10 +11216,19 @@ const diaryPendingItems = (log, iso, cars) => {
 //   これにより各事業所ごとのAPIキー設定が不要になる(本部が1回設定するだけ)。
 //   将来の料金プラン制御(店舗ごとにAI可否)のため storeId をプロキシへ渡しておく。
 let _tsumugiSrvAiProbe = null;
+let _tsumugiSrvAiProbeAt = 0;
+// ★ 2026-09-17(店舗指摘・重要): 「使えない」という判定を起動時に一度キャッシュすると、その後に管理局で
+//   キーを登録しても、画面を再読み込みするまで「AIが未設定」のまま動かなかった(AI下書きが0名で終わる)。
+//   → 「使える」判定だけを持ち続け、「使えない」判定は30秒で捨てて確認し直す。
+//   登録直後に店舗画面へ移っても、待たずに使えるようにするため tsumugiResetAiProbe() も用意する。
+const _SRV_AI_RECHECK_MS = 30 * 1000;
+const tsumugiResetAiProbe = () => { _tsumugiSrvAiProbe = null; _tsumugiSrvAiProbeAt = 0; try { delete window.__tsumugiSrvAi; } catch {} };
 const tsumugiServerAiAvailable = async () => {
-  if (_tsumugiSrvAiProbe != null) return _tsumugiSrvAiProbe;
+  if (_tsumugiSrvAiProbe === true) return true;
+  if (_tsumugiSrvAiProbe === false && (Date.now() - _tsumugiSrvAiProbeAt) < _SRV_AI_RECHECK_MS) return false;
   try { const r = await fetch('/api/ai-draft'); const j = await r.json(); _tsumugiSrvAiProbe = !!j.configured; }
   catch { _tsumugiSrvAiProbe = false; }
+  _tsumugiSrvAiProbeAt = Date.now();
   try { window.__tsumugiSrvAi = _tsumugiSrvAiProbe; } catch {}
   return _tsumugiSrvAiProbe;
 };
@@ -11231,7 +11240,7 @@ const tsumugiCallAi = async (apiKey, body, storeId) => {
       if (!r.ok) throw new Error(data?.error?.message || data?.error || `APIエラー (HTTP ${r.status})`);
       return data;
     }
-    _tsumugiSrvAiProbe = false; try { window.__tsumugiSrvAi = false; } catch {}
+    _tsumugiSrvAiProbe = false; _tsumugiSrvAiProbeAt = Date.now(); try { window.__tsumugiSrvAi = false; } catch {}
   }
   const key = String(apiKey || '').trim();
   if (!key) throw new Error('AIが未設定です。つむぎ管理局の「外部サービス設定」でClaudeのAPIキーを登録してください。');
@@ -16655,12 +16664,12 @@ function GlobalAiPanel({ staffSession }) {
           </div>
           {f.editable && (
             <>
-              <button type="button" disabled={!!busy} onClick={async()=>{ const v = (inputs[f.dbKey]||'').trim(); if(!v){ setErr(`${f.label}を入力してください`); return; } const j = await call('save', { dbKey: f.dbKey, value: v }); if (j?.ok) { setInputs(x=>({ ...x, [f.dbKey]: '' })); setMsg(`✓ ${svc.name}の${f.label}を登録しました（全店へ最大1分で反映）`); } }}
+              <button type="button" disabled={!!busy} onClick={async()=>{ const v = (inputs[f.dbKey]||'').trim(); if(!v){ setErr(`${f.label}を入力してください`); return; } const j = await call('save', { dbKey: f.dbKey, value: v }); if (j?.ok) { setInputs(x=>({ ...x, [f.dbKey]: '' })); tsumugiResetAiProbe(); setMsg(`✓ ${svc.name}の${f.label}を登録しました（全店へ最大1分で反映）`); } }}
                 style={{padding:'8px 14px',background: busy?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:8,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>
                 {busy===`save${f.dbKey}`?'登録中…':'登録'}
               </button>
               {f.configured && f.source==='db' && (
-                <button type="button" disabled={!!busy} onClick={async()=>{ if(!window.confirm(`${svc.name}の${f.label}を削除します。この機能が使えなくなります。よろしいですか?`)) return; const j = await call('delete', { dbKey: f.dbKey }); if (j?.ok) setMsg('削除しました'); }}
+                <button type="button" disabled={!!busy} onClick={async()=>{ if(!window.confirm(`${svc.name}の${f.label}を削除します。この機能が使えなくなります。よろしいですか?`)) return; const j = await call('delete', { dbKey: f.dbKey }); if (j?.ok) { tsumugiResetAiProbe(); setMsg('削除しました'); } }}
                   style={{padding:'8px 10px',background:'white',color:'#dc2626',border:'1px solid #fecaca',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>削除</button>
               )}
             </>
@@ -44942,6 +44951,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     let existing = [...(appData.monitoringRecords||[])];
     const newResults = {};
     let done = 0, ok = 0;
+    const _errs = []; // ★ 2026-09-17: 失敗した利用者と理由(最後にまとめて表示する)
     let aiBudget = _aiRemaining, aiUsedThisRun = 0; // ★ 今月のAI残り回数まで
     const rec = getActiveRecorderName() || '';
     const today = new Date().toISOString().slice(0,10);
@@ -44984,14 +44994,23 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
         existing.push({ id:(prevRec&&prevRec.id)||`${p.id}_${tY}-${String(tM).padStart(2,'0')}`, patientId:p.id, period:monthLabelStr, createdDate:(prevRec&&prevRec.createdDate)||new Date().toLocaleDateString('ja-JP'), createdAt:(prevRec&&prevRec.createdAt)||Date.now(), summary:sm, sheet, confirmed:false });
         newResults[p.id] = { text:sm, loading:false, error:null };
         ok++;
-      } catch(e) { /* この利用者はスキップ */ }
+      } catch(e) {
+        // ★ 2026-09-17(店舗指摘): 従来はここで例外を黙って捨てており、失敗しても「0名作成しました」としか
+        //   出ず原因が分からなかった。失敗した人と理由を集めて、最後に画面へ出す。
+        _errs.push(`${p.name}: ${String((e && e.message) || e)}`);
+      }
       done++; setSheetBatchProg({ done, total:targets.length });
     }
     const _overflowNote = (aiUsedThisRun < _aiRemaining) ? '' : (aiBudget<=0 && !noKey ? '（今月のAI上限に達した分は既定値で作成→手直ししてください）' : '');
-    onSave({ ...appData, monitoringRecords: existing, systemSettings: aiUsedThisRun ? _bumpAiUsage(appData.systemSettings, aiUsedThisRun) : appData.systemSettings }, { manual:true, message:`✓ ${ok}名のモニタリング表を作成・保存しました${_overflowNote}` });
-    setResults(prev => ({ ...prev, ...newResults }));
+    if (ok > 0) {
+      onSave({ ...appData, monitoringRecords: existing, systemSettings: aiUsedThisRun ? _bumpAiUsage(appData.systemSettings, aiUsedThisRun) : appData.systemSettings }, { manual:true, message:`✓ ${ok}名のモニタリング表を作成・保存しました${_overflowNote}` });
+      setResults(prev => ({ ...prev, ...newResults }));
+    }
     setSheetBatchProg(null);
     cancelRef.current = false;
+    if (_errs.length) {
+      await monAlert(`${_errs.length}名分を作成できませんでした。\n\n${_errs.slice(0, 5).join('\n')}${_errs.length > 5 ? `\n…ほか${_errs.length - 5}名` : ''}\n\n同じ表示が続く場合は、この文言をそのまま本部へお知らせください。`);
+    }
   };
 
   // ★ 一覧で直接編集: 既存記録(なければ既定)に1項目だけ反映して保存(個人ファイルへ即格納)
@@ -45356,10 +45375,15 @@ ${optionsDesc}
 
 出力は次のJSONのみ（前後に説明文やコードブロックを付けない）:
 {"s1":{"sel":"","text":""},"goal":{"sel":"","text":""},"s2":{"sel":"","text":""},"s3":{"sel":"","text":""},"s4":{"sel":"","text":""}}`;
-    const data = await tsumugiCallAi(apiKey, { model:'claude-haiku-4-5-20251001', max_tokens:1000, messages:[{role:'user', content:prompt}] }, staffSession?.storeId);
-    let txt = data.content?.[0]?.text?.trim() || '';
-    const m = txt.match(/\{[\s\S]*\}/);
-    let obj; try { obj = JSON.parse(m ? m[0] : txt); } catch { throw new Error('AIの出力を解釈できませんでした。もう一度お試しください。'); }
+    const data = await tsumugiCallAi(apiKey, { model:'claude-haiku-4-5-20251001', max_tokens:1500, messages:[{role:'user', content:prompt}] }, staffSession?.storeId);
+    // ★ 2026-09-17: 応答が複数ブロックに分かれる場合があるため全テキストを連結して読む(先頭ブロックだけ見ると取りこぼす)
+    let txt = (data.content || []).map(c => (c && c.text) || '').join('').trim();
+    if (!txt) throw new Error('AIから空の応答が返りました' + (data?.stop_reason ? `（stop_reason: ${data.stop_reason}）` : ''));
+    // ```json …``` で囲まれて返ることがあるので外す
+    txt = txt.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    const _s = txt.indexOf('{'), _e = txt.lastIndexOf('}');
+    const m = (_s >= 0 && _e > _s) ? [txt.slice(_s, _e + 1)] : null;
+    let obj; try { obj = JSON.parse(m ? m[0] : txt); } catch { throw new Error(`AIの出力を解釈できませんでした（応答の先頭: ${txt.slice(0, 60)}）`); }
     // 選択肢の検証 (候補外なら空に)
     const out = {};
     MON_ITEMS.forEach(it => {
