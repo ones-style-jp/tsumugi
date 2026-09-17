@@ -31298,8 +31298,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     if (pl.dropMode === 'custom') { pl.dropMode = 'same'; delete pl.drop; }
     else {
       pl.dropMode = 'custom';
-      const dc = {}; Object.keys(pl.cars||{}).forEach(cid => { dc[cid] = (pl.cars[cid]||[]).map(m => ({ pid: m.pid })); });
-      pl.drop = { cars: dc, walkers: (pl.walkers||[]).map(m => ({ pid: m.pid })) };
+      // ★ 2026-09-17(店舗要望): 送りの下書きは「迎えの逆順」で作る。
+      //   迎えは施設から遠い方から順に乗せる(最後に乗る人がいちばん近い)ため、
+      //   送りはその逆=近い方から降ろす並びが実態に近く、手直しが減る。
+      const dc = {}; Object.keys(pl.cars||{}).forEach(cid => { dc[cid] = (pl.cars[cid]||[]).map(m => ({ pid: m.pid })).reverse(); });
+      pl.drop = { cars: dc, walkers: (pl.walkers||[]).map(m => ({ pid: m.pid })), others: (pl.others||[]).map(m => ({ pid: m.pid })) };
     }
   });
   const moveMemberDrop = (iso, sl, pid, dest) => mutate(iso, sl, (pl) => {
@@ -32071,7 +32074,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                         )}
                         <div className="flex items-center gap-1">
                           <button onClick={()=>toggleDropMode(iso, sl)} className={`text-[10px] font-bold rounded px-2 py-1 border ${pl.dropMode==='custom'?'bg-indigo-600 text-white border-indigo-600':'bg-white text-slate-500 border-slate-300 hover:bg-slate-50'}`}>
-                            {pl.dropMode==='custom' ? '送り: 別に設定中' : '送り: 迎えと同じ（タップで別に）'}
+                            {pl.dropMode==='custom' ? '送り: 別に設定中（タップで迎えと同じに戻す）' : '送り: 迎えと同じ（タップで別に・迎えの逆順で下書き）'}
                           </button>
                         </div>
                         {pl.dropMode==='custom' && pl.drop && (
