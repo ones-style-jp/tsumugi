@@ -13,6 +13,7 @@
 //   ・コード保存先は店舗 app_state の systemSettings.familyPwResets (adminAuth の自己リセットと同方式)
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import { getSecret } from './_secrets.js';
 
 const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 // クライアント(src/lib/supabase.js の hashPassword)と同一: SHA-256('tsumugi_v1_' + password)
@@ -87,8 +88,8 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'リセット情報の保存に失敗しました', detail: String(e.message || e) });
     }
     // メール送信 (Brevo)
-    const apiKey = process.env.BREVO_API_KEY;
-    const senderEmail = process.env.BREVO_SENDER_EMAIL || 'noreply@ones-style.co.jp';
+    const apiKey = await getSecret('BREVO_API_KEY', 'brevo_api_key');
+    const senderEmail = (await getSecret('BREVO_SENDER_EMAIL', 'brevo_sender_email')) || 'noreply@ones-style.co.jp';
     if (apiKey) {
       const facility = (data.systemSettings || {}).facilityInfo?.name || 'デイサービス';
       const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

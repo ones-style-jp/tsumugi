@@ -5,6 +5,7 @@
 //
 // クライアントから POST /api/send-invite で呼び出し
 // body: { to, toName?, inviteUrl, facilityName?, patientName?, facilityPhone?, expiresAtJp? }
+import { getSecret } from './_secrets.js';
 
 export default async function handler(req, res) {
   // CORS (同一オリジン想定だが念のため)
@@ -17,8 +18,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed. Use POST.' });
   }
 
-  const apiKey = process.env.BREVO_API_KEY;
-  const senderEmail = process.env.BREVO_SENDER_EMAIL || 'noreply@ones-style.co.jp';
+  const apiKey = await getSecret('BREVO_API_KEY', 'brevo_api_key');
+  const senderEmail = (await getSecret('BREVO_SENDER_EMAIL', 'brevo_sender_email')) || 'noreply@ones-style.co.jp';
 
   if (!apiKey) {
     return res.status(500).json({ error: 'BREVO_API_KEY が設定されていません (Vercel の Environment Variables を確認してください)' });

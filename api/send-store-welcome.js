@@ -6,6 +6,7 @@
 //
 // クライアントから POST /api/send-store-welcome で呼び出し
 // body: { to, storeName, orgName?, loginId, loginPw?, loginUrl }
+import { getSecret } from './_secrets.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -14,8 +15,8 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed. Use POST.' });
 
-  const apiKey = process.env.BREVO_API_KEY;
-  const senderEmail = process.env.BREVO_SENDER_EMAIL || 'noreply@ones-style.co.jp';
+  const apiKey = await getSecret('BREVO_API_KEY', 'brevo_api_key');
+  const senderEmail = (await getSecret('BREVO_SENDER_EMAIL', 'brevo_sender_email')) || 'noreply@ones-style.co.jp';
   if (!apiKey) return res.status(500).json({ error: 'BREVO_API_KEY が設定されていません (Vercel の Environment Variables を確認してください)' });
 
   let body = req.body;
