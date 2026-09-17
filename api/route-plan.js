@@ -8,13 +8,14 @@
 // GET  /api/route-plan → { configured: true/false }
 // POST /api/route-plan → { order:[入力stopsのindex順], legSeconds:[区間秒(出発→1人目, 1人目→2人目, …, 最後→施設)] }
 //   body: { origin: "施設住所", stops: ["住所1", "住所2", ...] }  (stopsは最大10件)
+import { getSecret } from './_secrets.js';
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const key = process.env.GOOGLE_MAPS_API_KEY;
+  const key = await getSecret('GOOGLE_MAPS_API_KEY', 'google_maps_api_key');
   if (req.method === 'GET') return res.status(200).json({ configured: !!key });
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (!key) return res.status(200).json({ notConfigured: true });
