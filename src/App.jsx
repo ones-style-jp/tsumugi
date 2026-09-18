@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import { 
   Users, CalendarCheck, Activity, ClipboardList, Settings, Search, 
   Printer, CheckCircle2, CloudUpload, Loader2, Plus, Trash2, X, FileText, BarChart3, TrendingUp,
-  ArrowLeft, ArrowRight, Menu, BookOpen, Lock, Unlock, QrCode, MoveUp, MoveDown, GripVertical,
+  ArrowLeft, ArrowRight, Menu, BookOpen, Lock, Unlock, QrCode, MoveUp, MoveDown, GripVertical, AlertTriangle,
   ChevronLeft, ChevronRight, Save, UserPlus, Clock, CalendarOff, CalendarRange, PenTool, History,
   ChevronDown, ChevronUp, Thermometer, Heart, Copy, Edit3, Edit2, MessageSquare, Briefcase
 } from 'lucide-react';
@@ -12099,6 +12099,162 @@ function ScheduleView({ appData, onSave, navigateTo }) {
   );
 }
 // === 家族関係者閲覧 管理画面 (事業所側) ===
+// ★ 緊急連絡（災害時）2026-09-18 運営推進会議の要望
+//   店舗が件名・本文を入力し、①ご家族(利用中の方の家族アカウント)・②担当ケアマネ(登録メール)へ一斉メール(/api/notify-batch)、
+//   ③家族画面のお知らせ(familyAnnouncements)にも同時掲載。LINEは店舗数×家族数で費用が跳ねるためメール+Webの2経路。
+//   家族アカウントはクラウド同期の対象外(sanitizeForSync)なので、店舗単位でSupabaseから取得する。
+function EmergencyNoticeView({ appData, onSave, staffSession }) {
+  const fi = appData.systemSettings?.facilityInfo || {};
+  const facility = fi.name || 'つむぎ';
+  const _t = new Date();
+  const todayJp = `${_t.getMonth()+1}月${_t.getDate()}日`;
+  const todayIso = `${_t.getFullYear()}-${String(_t.getMonth()+1).padStart(2,'0')}-${String(_t.getDate()).padStart(2,'0')}`;
+  const [subject, setSubject] = useState('');
+  const [text, setText] = useState('');
+  const [place, setPlace] = useState('');
+  const [toFamily, setToFamily] = useState(true);
+  const [toCm, setToCm] = useState(true);
+  const [postNotice, setPostNotice] = useState(true);
+  const [fam, setFam] = useState(null);       // null=取得中
+  const [showList, setShowList] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState(null);
+  const storeId = staffSession?.storeId || appData._sbStoreId || '';
+  useEffect(() => {
+    let alive = true;
+    if (!isSupabaseEnabled || !storeId) { setFam([]); return; }
+    supabaseListFamilyAccountsForStore(storeId).then(rows => { if (alive) setFam(rows || []); }).catch(() => { if (alive) setFam([]); });
+    return () => { alive = false; };
+  }, [storeId]);
+  const pname = (pid) => { const p = (appData.patients || []).find(x => String(x.id) === String(pid)); return p ? p.name : ''; };
+  const activePid = new Set((appData.patients || []).filter(p => p.status === '利用中').map(p => String(p.id)));
+  const isCmRow = (r) => r.kind === 'caremanager' || r.relation === 'ケアマネージャー';
+  const famRows = (fam || []).filter(r => !isCmRow(r) && String(r.email || '').trim() && activePid.has(String(r.patient_id)));
+  const cmAccRows = (fam || []).filter(r => isCmRow(r) && String(r.email || '').trim());
+  const cmMaster = (appData.systemSettings?.careManagers || []).filter(c => String(c.email || '').trim());
+  // 宛先: 同じメールは1件にまとめ、ラベルに利用者名を連結(1人の家族が複数の利用者に紐づく場合)
+  const recipients = (() => {
+    const m = new Map();
+    const add = (email, name, label, kind) => {
+      const k = String(email || '').trim().toLowerCase(); if (!k) return;
+      const cur = m.get(k) || { email: k, name: '', labels: new Set(), kind };
+      if (!cur.name && name) cur.name = String(name).trim();
+      if (label) cur.labels.add(label);
+      m.set(k, cur);
+    };
+    if (toFamily) famRows.forEach(r => add(r.email, r.display_name, pname(r.patient_id) ? `${pname(r.patient_id)}様ご家族` : 'ご家族', 'family'));
+    if (toCm) { cmAccRows.forEach(r => add(r.email, r.display_name, 'ケアマネ', 'cm')); cmMaster.forEach(c => add(c.email, c.name, `ケアマネ${c.office ? `(${c.office})` : ''}`, 'cm')); }
+    return [...m.values()].map(r => ({ email: r.email, name: r.name, label: [...r.labels].join('・'), kind: r.kind }));
+  })();
+  const nFam = recipients.filter(r => r.kind === 'family').length, nCm = recipients.filter(r => r.kind === 'cm').length;
+  const noEmailFam = (appData.patients || []).filter(p => p.status === '利用中' && !famRows.some(r => String(r.patient_id) === String(p.id))).length;
+  const tel = fi.phone || '（電話番号）';
+  const TEMPLATES = [
+    { key: 'safe', label: '避難完了・全員無事', subject: '【重要】避難完了と皆さまの無事のご連絡',
+      body: (pl) => `${todayJp}、災害の発生に伴い、${facility}をご利用中の皆さまは全員無事で、${pl || '（避難場所）'}へ避難しました。\n現在は職員が付き添い、安全を確認しております。\nお迎え・ご帰宅については、状況が落ち着き次第あらためてご連絡いたします。\n\nご不明な点は下記までお電話ください。\n${facility}　TEL ${tel}` },
+    { key: 'status', label: '営業状況のお知らせ', subject: '【重要】本日の営業についてのご連絡',
+      body: () => `${todayJp}の営業について、災害の影響により以下のとおりとさせていただきます。\n\n・営業: （通常どおり／短縮／休業）\n・送迎: （通常どおり／時間変更／中止）\n・ご利用者様の状況: （全員無事／確認中）\n\n最新の状況は、家族画面のお知らせでも随時ご案内します。\nご不明な点は下記までお電話ください。\n${facility}　TEL ${tel}` },
+    { key: 'check', label: '安否確認のお願い', subject: '【お願い】安否確認のご連絡',
+      body: () => `災害の発生を受け、ご利用者様とご家族の皆さまの安否を確認しております。\nお手数ですが、下記までご本人の状況（無事・ケガの有無・避難先）をお知らせください。\n\n${facility}　TEL ${tel}\n\n事業所は（通常どおり営業／休業）しております。` },
+  ];
+  const send = async () => {
+    if (!subject.trim() || !text.trim()) { alert('件名と本文を入力してください'); return; }
+    if (!recipients.length && !postNotice) { alert('送信先がありません（送信先のチェックか、お知らせ掲載を選んでください）'); return; }
+    const parts = [];
+    if (recipients.length) parts.push(`メール送信: ${recipients.length}件（ご家族 ${nFam}件・ケアマネ ${nCm}件）`);
+    if (postNotice) parts.push('家族画面のお知らせに掲載');
+    if (!window.confirm(`緊急連絡を送ります。\n\n件名: ${subject.trim()}\n${parts.join('\n')}\n\nよろしいですか？`)) return;
+    setSending(true); setResult(null);
+    let mail = null;
+    if (recipients.length) {
+      try {
+        const resp = await fetch('/api/notify-batch', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ facility, subject: subject.trim(), text: text.trim(), recipients: recipients.map(r => ({ email: r.email, name: r.name, label: r.label })), replyTo: fi.email || '' }) });
+        const j = await resp.json().catch(() => ({}));
+        mail = resp.ok ? j : { error: j.error || `HTTP ${resp.status}`, sent: 0, failed: [], total: recipients.length };
+      } catch (e) { mail = { error: String(e).slice(0, 120), sent: 0, failed: [], total: recipients.length }; }
+    }
+    let posted = false;
+    if (postNotice) {
+      const ts = Date.now();
+      const item = { id: `news_${ts}`, title: subject.trim(), body: text.trim(), date: todayIso, postedAt: new Date(ts).toISOString(), audience: ['family', 'caremanager', 'related'], photos: [], emergency: true };
+      onSave({ ...appData, familyAnnouncements: [item, ...(appData.familyAnnouncements || [])] }, { manual: true, message: '✓ 緊急連絡を家族画面のお知らせに掲載しました' });
+      posted = true;
+    }
+    setResult({ mail, posted, at: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) });
+    setSending(false);
+  };
+  const inp = 'w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm outline-none focus:border-red-400';
+  return (
+    <div className="flex flex-col h-full">
+      <div className="sticky top-0 z-20 bg-red-50 border-b border-red-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
+        <AlertTriangle size={18} className="text-red-600" />
+        <div className="text-sm font-bold text-red-800">災害時などの緊急連絡を、ご家族・担当ケアマネへ一斉に送ります（メール＋家族画面のお知らせ）</div>
+      </div>
+      <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+        <div className="max-w-4xl mx-auto grid gap-4 md:grid-cols-[1fr_300px]">
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl border border-slate-200 p-4">
+              <div className="text-xs font-bold text-slate-500 mb-2">定型文から始める（あとから自由に直せます）</div>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {TEMPLATES.map(t => (
+                  <button key={t.key} type="button" onClick={() => { setSubject(t.subject); setText(t.body(place)); }} className="px-3 py-2 rounded-xl border border-red-200 bg-red-50 text-red-800 text-sm font-bold hover:bg-red-100">{t.label}</button>
+                ))}
+              </div>
+              <label className="block text-xs font-bold text-slate-600 mb-1">避難場所（「避難完了」の定型文に入ります）</label>
+              <input value={place} onChange={e => setPlace(e.target.value)} placeholder="例: ○○小学校 体育館" className={inp + ' mb-3'} />
+              <label className="block text-xs font-bold text-slate-600 mb-1">件名</label>
+              <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="例: 【重要】避難完了と皆さまの無事のご連絡" className={inp + ' mb-3'} maxLength={100} />
+              <label className="block text-xs font-bold text-slate-600 mb-1">本文</label>
+              <textarea value={text} onChange={e => setText(e.target.value)} rows={10} placeholder="定型文を選ぶか、ここに本文を入力してください" className={inp + ' leading-relaxed'} maxLength={4000} />
+              <div className="text-[11px] text-slate-400 mt-1">メールの冒頭に「{facility} からの緊急連絡」、末尾に事業所への連絡案内が自動で付きます。</div>
+            </div>
+            {result && (
+              <div className={`rounded-2xl border p-4 ${result.mail && (result.mail.error || (result.mail.failed || []).length) ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'}`}>
+                <div className="text-sm font-bold text-slate-800 mb-1">送信結果（{result.at}）</div>
+                {result.mail && !result.mail.error && <div className="text-sm text-slate-700">メール: {result.mail.sent} / {result.mail.total} 件 送信しました。</div>}
+                {result.mail && result.mail.error && <div className="text-sm text-red-700 font-bold">メール送信に失敗しました: {result.mail.error}</div>}
+                {result.mail && (result.mail.failed || []).length > 0 && (
+                  <div className="text-xs text-amber-800 mt-1">届かなかった宛先 {result.mail.failed.length}件: {result.mail.failed.slice(0, 5).map(f => `${f.name || f.email}（${f.err}）`).join('、')}{result.mail.failed.length > 5 ? ' ほか' : ''}</div>
+                )}
+                {result.posted && <div className="text-sm text-slate-700 mt-1">家族画面のお知らせに掲載しました（ご家族・ケアマネがアプリを開くと表示されます）。</div>}
+              </div>
+            )}
+          </div>
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl border border-slate-200 p-4">
+              <div className="text-xs font-bold text-slate-500 mb-2">送信先</div>
+              {fam === null ? <div className="text-sm text-slate-400">宛先を読み込み中…</div> : (
+                <>
+                  <label className="flex items-center gap-2 text-sm font-bold text-slate-700 mb-1 cursor-pointer"><input type="checkbox" checked={toFamily} onChange={e => setToFamily(e.target.checked)} className="accent-red-600" />ご家族（利用中の方）<span className="ml-auto text-xs text-slate-500">{recipients.filter(r => r.kind === 'family').length || (toFamily ? 0 : famRows.length)}件</span></label>
+                  <label className="flex items-center gap-2 text-sm font-bold text-slate-700 mb-1 cursor-pointer"><input type="checkbox" checked={toCm} onChange={e => setToCm(e.target.checked)} className="accent-red-600" />担当ケアマネ（メール登録あり）<span className="ml-auto text-xs text-slate-500">{nCm || (toCm ? 0 : (cmAccRows.length + cmMaster.length))}件</span></label>
+                  <label className="flex items-center gap-2 text-sm font-bold text-slate-700 mb-2 cursor-pointer"><input type="checkbox" checked={postNotice} onChange={e => setPostNotice(e.target.checked)} className="accent-red-600" />家族画面のお知らせにも掲載</label>
+                  {noEmailFam > 0 && <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-2">ご家族のメール登録が無い利用者: {noEmailFam}名（お知らせ掲載と電話で補ってください）</div>}
+                  <button type="button" onClick={() => setShowList(s => !s)} className="text-xs font-bold text-blue-700">{showList ? '宛先を隠す ▲' : `宛先を確認する（${recipients.length}件）▼`}</button>
+                  {showList && (
+                    <div className="mt-2 max-h-64 overflow-y-auto border border-slate-200 rounded-lg divide-y text-xs">
+                      {recipients.map(r => <div key={r.email} className="px-2 py-1"><div className="font-bold text-slate-700">{r.label || r.name || '—'}</div><div className="text-slate-500">{r.email}</div></div>)}
+                      {!recipients.length && <div className="px-2 py-2 text-slate-400">送信先がありません</div>}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+            <button type="button" onClick={send} disabled={sending || fam === null} className={`w-full py-4 rounded-2xl text-white text-base font-bold shadow-lg ${sending || fam === null ? 'bg-slate-400' : 'bg-red-600 hover:bg-red-700'}`}>
+              {sending ? '送信中…' : '緊急連絡を送信する'}
+            </button>
+            <div className="text-[11px] text-slate-500 leading-relaxed">
+              ・送信前に確認画面が出ます。<br/>
+              ・メールは1件ずつ送るため、宛先同士のアドレスは見えません。<br/>
+              ・1回に送れるのは300件までです（メール送信サービスの1日の上限も300通です）。
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function FamilyAdminView({ appData, onSave }) {
   const [tab, setTab] = useState('post');
   // 統合フォーム: お知らせ + 写真を一画面で
@@ -20851,6 +21007,8 @@ export default function App() {
                   <SidebarItem icon={<TrendingUp size={16} />} label="稼働（実績・月次）" active={currentView === 'dash_operation'} onClick={() => navigateTo('dash_operation')} />
                 </SidebarGroup>
                 <SidebarItem icon={<QrCode size={18} />} label="お知らせ・閲覧管理" active={currentView === 'family_admin'} onClick={() => navigateTo('family_admin')} />
+                {/* ★ 2026-09-18 運営推進会議の要望: 災害時にご家族・ケアマネへ一斉メール+家族画面お知らせ */}
+                <SidebarItem icon={<AlertTriangle size={18} />} label="緊急連絡（災害時）" active={currentView === 'emergency'} onClick={() => navigateTo('emergency')} />
                 <SidebarItem icon={<Settings size={18} />} label="各種設定" active={currentView === 'settings'} onClick={() => navigateTo('settings')} />
                 {/* ★ 不具合レポート (管理者のみ) */}
                 {activeRecorder && isMemberAdmin(activeRecorder, appData.systemSettings) && (
@@ -20895,6 +21053,7 @@ export default function App() {
                  currentView === 'dash_personal' ? '分析（個人）' :
                  currentView === 'dash_operation' ? '分析（稼働）' :
                  currentView === 'family_admin' ? '家族関係者閲覧 管理' :
+                 currentView === 'emergency' ? '緊急連絡（災害時）' :
                  currentView === 'cmmaster' ? 'ケアマネ事業所・担当者' :
                  currentView === 'settings' ? '各種設定' : 'システム画面'}
               </h1>
@@ -20987,6 +21146,7 @@ export default function App() {
              currentView === 'settings' ? <SettingsView appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} isSuperAdmin={staffSession?.role === 'super_admin'} isAdmin={staffSession?.role === 'super_admin' || staffSession?.role === 'manager'} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} deviceName={deviceName} updateDeviceName={updateDeviceName} lastSync={appData._lastSync} /> :
              currentView === 'cmmaster' ? <SettingsView cmOnly appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} isSuperAdmin={staffSession?.role === 'super_admin'} isAdmin={staffSession?.role === 'super_admin' || staffSession?.role === 'manager'} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} deviceName={deviceName} updateDeviceName={updateDeviceName} lastSync={appData._lastSync} /> :
              currentView === 'family_admin' ? <FamilyAdminView appData={appData} onSave={handleSaveToCloud} /> :
+             currentView === 'emergency' ? <EmergencyNoticeView appData={appData} onSave={handleSaveToCloud} staffSession={staffSession} /> :
              currentView === 'jisseki' ? <JissekiView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
              currentView === 'diary' ? <DailyLogView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} dirtyRef={diaryDirtyRef} saveFnRef={diarySaveFnRef} /> :
              currentView === 'absence_fax' ? <AbsenceFaxView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?captureElHtmlWithValues(el):null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={absenceDirtyRef} saveFnRef={absenceSaveFnRef} /> :
