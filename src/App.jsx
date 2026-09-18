@@ -37384,12 +37384,19 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
       if (!newName) { alert('事業所名を入力してください'); return; }
       const _renamedOff = newName !== orig.name;
       // ★ 改名時は _addedAt を刻む(旧名の墓石より新しくし、改名後の項目が誤って消えないように)
-      const newOffices = cmOffices.map(o => o===orig ? { ...o, name:newName, phone:formatJpPhone(form.phone), fax:formatJpPhone(form.fax), ...(_renamedOff?{_addedAt:syncNow()}:{}) } : o);
+      // ★ 2026-09-18(店舗指摘・真因): 編集画面に渡す orig は {...o, origIdx} のコピーで、o===orig は決して成立せず
+      //   事業所の電話/FAXが一覧に一切保存されていなかった(担当者・利用者側だけ更新され、一覧は7月のまま)。
+      //   → 添え字(origIdx)または名前で照合する。
+      const _isOrigOff = (o, i) => (orig.origIdx != null ? i === orig.origIdx : (o === orig || o.name === orig.name));
+      const newOffices = cmOffices.map((o, i) => _isOrigOff(o, i) ? { ...o, name:newName, phone:formatJpPhone(form.phone), fax:formatJpPhone(form.fax), ...(_renamedOff?{_addedAt:syncNow()}:{}) } : o);
       // 担当者の所属事業所名・FAXも更新
       const newPersons = cmPersons.map(c => c.office===orig.name ? { ...c, office:newName, fax:formatJpPhone(form.fax), ...(_renamedOff?{_addedAt:syncNow()}:{}) } : c);
       // 各利用者マスタの担当ケアマネ事業所・FAXを更新
       const newPatients = (appData.patients||[]).map(p => p.cmOffice===orig.name ? { ...p, cmOffice:newName, cmFax:formatJpPhone(form.fax) } : p);
       setCmOffices(newOffices); setCmPersons(newPersons);
+      // ★ 2026-09-18: 保存後は未保存判定の基準を更新(persistCmと同じ)。従来は残ったままで「未保存があります」が出続けていた
+      _dirtyBaseRef.current = _sigOf({ cmOffices: newOffices, cmPersons: newPersons }); if (dirtyRef) dirtyRef.current = false;
+      _setBaseRef.current = _captureSetBase({ ...(appData.systemSettings||{}), cmOffices: newOffices, careManagers: newPersons });
       // ★ 改名時は旧名の墓石を刻む(旧名がunionマージで復活しないように。担当者の旧キーも同様)
       const _offTombs = _renamedOff ? _cmTombsWith(_cmTombKeyOffice(orig.name), ...cmPersons.filter(c=>c.office===orig.name).map(c=>_cmTombKeyPerson(orig.name, c.name))) : (appData.systemSettings?.cmTombstones||{});
       onSave({ ...appData, patients:newPatients, systemSettings:{ ...appData.systemSettings, cmTombstones:_offTombs, cmOffices:newOffices, careManagers:newPersons } }, { manual:true, message:'✓ ケアマネ事業所を更新しました' });
@@ -37401,10 +37408,14 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
       const offPhone = cmOffices.find(o=>o.name===form.office)?.phone || '';
       const _kl=(form.kanaLast||'').trim(), _kf=(form.kanaFirst||'').trim();
       const _renamedCm = (form.office !== orig.office) || (newName !== orig.name);
-      const newPersons = cmPersons.map(c => c===orig ? { ...c, office:form.office, name:newName, kanaLast:_kl, kanaFirst:_kf, kana:`${_kl} ${_kf}`.trim(), phone:dir, phoneDirect:dir, fax:offFax, email:(form.email||'').trim(), ...(_renamedCm?{_addedAt:syncNow()}:{}) } : c);
+      // ★ 2026-09-18: 編集中に同期が走ると配列が差し替わり c===orig が外れて直通番号が消えていた → 事業所+氏名でも照合
+      const _isOrigCm = (c) => (c === orig || (c.office === orig.office && c.name === orig.name));
+      const newPersons = cmPersons.map(c => _isOrigCm(c) ? { ...c, office:form.office, name:newName, kanaLast:_kl, kanaFirst:_kf, kana:`${_kl} ${_kf}`.trim(), phone:dir, phoneDirect:dir, fax:offFax, email:(form.email||'').trim(), ...(_renamedCm?{_addedAt:syncNow()}:{}) } : c);
       // 各利用者マスタの担当ケアマネ(旧 office+name 一致)を更新
       const newPatients = (appData.patients||[]).map(p => (p.cmOffice===orig.office && p.cmName===orig.name) ? { ...p, cmOffice:form.office, cmName:newName, cmPhone:offPhone||p.cmPhone, cmFax:offFax } : p);
       setCmPersons(newPersons);
+      _dirtyBaseRef.current = _sigOf({ cmOffices, cmPersons: newPersons }); if (dirtyRef) dirtyRef.current = false;
+      _setBaseRef.current = _captureSetBase({ ...(appData.systemSettings||{}), cmOffices, careManagers: newPersons });
       // ★ 事業所/氏名の変更時は旧キーの墓石を刻む(旧項目がunionマージで復活しないように)
       const _cmTombs = _renamedCm ? _cmTombsWith(_cmTombKeyPerson(orig.office, orig.name)) : (appData.systemSettings?.cmTombstones||{});
       onSave({ ...appData, patients:newPatients, systemSettings:{ ...appData.systemSettings, cmTombstones:_cmTombs, careManagers:newPersons } }, { manual:true, message:'✓ 担当ケアマネを更新しました' });
@@ -37481,6 +37492,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
     if (!changed) return;
     _ssSyncRef.current = appData.systemSettings; _dsSyncRef.current = appData.diarySettings;
     if (dirtyRef && dirtyRef.current) return; // 編集中は触らない(保存時の第3層ガードが守る)
+    if (cmEditModal) return; // ★ 2026-09-18: ケアマネ編集の小窓を開いている間は再同期で配列を差し替えない(編集対象を見失わないため)
     const s = appData.systemSettings || {};
     setFacilityInfo(s.facilityInfo || { name: "", phone: "", fax: "", address: "", manager: "" });
     setServiceItems(s.serviceItems || []);
@@ -39605,6 +39617,11 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
           <input type="checkbox" checked={!!ds.autoCopySougei} onChange={e=>{ const nd={...dsRef.current, autoCopySougei: e.target.checked}; dsRef.current=nd; setRenderKey(k=>k+1); if(onSave) onSave({...appData, diarySettings: nd}, { manual:true, message: e.target.checked?'✓ 1週間前の送迎の自動コピーをONにしました':'自動コピーをOFFにしました' }); }} className="mt-0.5 accent-blue-600"/>
           <span className="text-sm text-slate-700"><b>1週間前の送迎を自動コピー</b><br/><span className="text-xs text-slate-500">日誌を開いたとき、その日の送迎（迎え・送り・運転者・時間）が未入力なら、<b>7日前の同じ時間帯</b>の内容を自動で読み込みます。毎週同じ送迎体制の店舗向け（変わる場合はそのまま上書きできます）。</span></span>
         </label>
+        {/* ★ 2026-09-18(店舗要望): 職員の体温を日誌で扱うかを店舗ごとに切替。OFFの店舗はチェック時の体温入力の小窓が開かず、℃表示も出ない */}
+        <label className="flex items-start gap-2 mt-3 pt-3 border-t border-slate-200 cursor-pointer">
+          <input type="checkbox" checked={!ds.hideStaffTemp} onChange={e=>{ const nd={...dsRef.current, hideStaffTemp: !e.target.checked}; dsRef.current=nd; setRenderKey(k=>k+1); if(onSave) onSave({...appData, diarySettings: nd}, { manual:true, message: e.target.checked?'✓ 日誌で職員の体温を表示・入力します':'✓ 日誌の職員体温を非表示にしました' }); }} className="mt-0.5 accent-blue-600"/>
+          <span className="text-sm text-slate-700"><b>日誌に職員の体温を表示・入力する</b><br/><span className="text-xs text-slate-500">ONのとき、担当職員にチェックを入れると体温入力の小窓が開き、氏名の下に「36.5℃」のように表示・印刷されます。職員の検温を日誌に残さない店舗はOFFにしてください（過去に入力した体温は消えません）。</span></span>
+        </label>
       </SC>
       {['AM','PM'].map(ap=>(
         <SC key={ap} title={`スケジュール（${ap==='AM'?'午前':'午後'}）`}>
@@ -40104,10 +40121,11 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         {list.filter(s=>s.name).map((s)=>(
           <span key={s.id} style={{display:'inline-flex',flexDirection:'column',alignItems:'flex-start',gap:0}}>
             <span style={{display:'inline-flex',alignItems:'center',gap:2}}>
-              {CB({checked:!!(log.staff||{})[s.id], onChange:()=>{ toggle('staff',s.id); if(!(log.staff||{})[s.id]) setTempModal({staffId:s.id,staffName:s.name,value:(log.staffTemp||{})[s.id]||''}); }, sz:11})}
+              {CB({checked:!!(log.staff||{})[s.id], onChange:()=>{ toggle('staff',s.id); if(!(log.staff||{})[s.id] && !appData.diarySettings?.hideStaffTemp) setTempModal({staffId:s.id,staffName:s.name,value:(log.staffTemp||{})[s.id]||''}); }, sz:11})}
               <span style={{fontSize:11}}>{s.name}</span>
             </span>
-            {(log.staffTemp||{})[s.id] && (
+            {/* ★ 2026-09-18: 各種設定→日誌「職員の体温を表示・入力する」がOFFの店舗は非表示(画面・印刷とも同じ描画関数) */}
+            {!appData.diarySettings?.hideStaffTemp && (log.staffTemp||{})[s.id] && (
               <span style={{fontSize:8,fontWeight:'bold',lineHeight:1.2,textAlign:'left',color:'#1d4ed8',display:'block',paddingLeft:13}}>
                 {(log.staffTemp||{})[s.id]}℃
               </span>
@@ -45139,9 +45157,13 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     const checked = [...attendedPats, ...absentPats].filter(p => checkedIds.has(p.id));
     const targets = (checked.length ? checked : [...attendedPats, ...absentPats]).filter(p => getSheetRecord(p.id));
     if (!targets.length) { monAlert('作成済みのモニタリング表がありません。先に作成してください。'); return; }
-    const withFax = targets.filter(p => (p.cmFax||'').trim());
-    const noFax = targets.filter(p => !(p.cmFax||'').trim());
-    if (!withFax.length) { monAlert('担当ケアマネのFAX番号が登録されている利用者がいません。\n利用者マスタの「担当ケアマネ FAX」を設定してください。'); return; }
+    // ★ 2026-09-18(店舗指摘): 利用者側のFAXが空でも、担当ケアマネ事業所の一覧にFAXがあればそれへ送る
+    //   (印刷用の送付状と同じ優先順位。従来は空の利用者を黙って送信対象から外していた=扇橋で61名分が未送信)
+    const _cmOffs = appData.systemSettings?.cmOffices || [];
+    const _faxOf = (p) => ((p.cmFax||'').trim() || String((_cmOffs.find(o => o && o.name === p.cmOffice) || {}).fax || '').trim());
+    const withFax = targets.filter(p => _faxOf(p));
+    const noFax = targets.filter(p => !_faxOf(p));
+    if (!withFax.length) { monAlert('担当ケアマネのFAX番号が登録されている利用者がいません。\n利用者マスタの「担当ケアマネ FAX」、または各種設定→ケアマネ事業所のFAXを設定してください。'); return; }
     let msg = `${withFax.length}名分のモニタリング表を、各担当ケアマネのFAX番号へ【自動送信】します。`;
     if (noFax.length) msg += `\n※ FAX番号 未登録の ${noFax.length}名（${noFax.slice(0,3).map(p=>p.name).join('、')}${noFax.length>3?' ほか':''}）は送信されません。`;
     msg += `\n\n送信は外部FAXサービス（従量課金）の対象です。よろしいですか？`;
@@ -45150,9 +45172,9 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     const results = [];
     for (const p of withFax) {
       const html = `<div style="font-family:'Hiragino Sans','Meiryo','Yu Gothic Medium','MS PGothic',sans-serif;">${buildSheetHtml(p, getSheetRecord(p.id).sheet, true, false)}</div>`;
-      let r0 = { name:p.name, office:p.cmOffice||'', to:p.cmFax, ok:false, err:'' };
+      let r0 = { name:p.name, office:p.cmOffice||'', to:_faxOf(p), ok:false, err:'' };
       try {
-        const resp = await fetch('/api/send-fax', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ to:p.cmFax, html, subject:`${monthLabelStr} 通所介護モニタリング表` }) });
+        const resp = await fetch('/api/send-fax', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ to:_faxOf(p), html, subject:`${monthLabelStr} 通所介護モニタリング表` }) });
         const j = await resp.json().catch(()=>({}));
         if (resp.ok && j.success) { r0.ok = true; r0.faxId = j.faxId; }
         else { r0.err = j.error || `HTTP ${resp.status}`; r0.notConfigured = !!j.notConfigured; }
