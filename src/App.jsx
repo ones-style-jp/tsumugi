@@ -19676,7 +19676,33 @@ export default function App() {
       if (TABLE_ENABLED && _canPush) {
         try {
           const _prevRecs = (appData && appData.ticketRecords) || [];
-          const _rows = diffRecordRows(_prevRecs, newData.ticketRecords);
+          const _rows0 = diffRecordRows(_prevRecs, newData.ticketRecords);
+          // ★ 2026-09-18(店舗指摘「PCで血圧・タブレットで気分を同時入力すると気分が消える」の真因対策):
+          //   差分は「この端末の直前のappData」との比較で作られるため、他端末の気分(good)がpullで届いた後に
+          //   古い下書き(気分='')を自動保存すると、触っていない気分が「''への変更」として差分に載り、
+          //   サーバーへ空で送られて他端末の入力を潰していた(刻印はstamp-gateで止めても、値は送られていた)。
+          //   → 既存行について、提供記録入力が管理する項目(_REC_GATED)のうち「この端末が実編集していない」かつ
+          //     「空(未入力)」のものは差分から外す。実編集済み・非空の値は従来どおり送る(正規の変更を止めない)。
+          const _byId = new Map((newData.ticketRecords || []).map(r => [String(r.id), r]));
+          const _prevIds = new Set(_prevRecs.map(r => String(r && r.id)));
+          let _gateDrop = 0, _gateEx = '';
+          const _rows = _rows0.map(row => {
+            if (!row || !_prevIds.has(String(row.id))) return row;
+            const r = _byId.get(String(row.id)); if (!r) return row;
+            const obs = _recEditObs.map.get(`${r.patientId}|${r.date}|${r.year ?? ''}`) || {};
+            const d = { ...(row.data || {}) }; const ft = d._fieldTs ? { ...d._fieldTs } : null; let drop = 0;
+            Object.keys(d).forEach(k => {
+              if (k === '_fieldTs' || !_REC_GATED(k) || OBS_IGNORE_FIELDS.has(k)) return;
+              const v = d[k]; const emptyish = (v == null || v === '' || v === false || (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0));
+              const edited = obs[k] != null && (Date.now() - obs[k]) < 30*60*1000;
+              if (!edited && emptyish) { delete d[k]; if (ft) delete ft[k]; drop++; }
+            });
+            if (!drop) return row;
+            _gateDrop += drop; if (!_gateEx) _gateEx = `${r.name || r.patientId} ${r.date}`;
+            if (ft && Object.keys(ft).length) d._fieldTs = ft; else delete d._fieldTs;
+            return Object.keys(d).some(k => k !== '_fieldTs') ? { ...row, data: d } : null;
+          }).filter(Boolean);
+          if (_gateDrop) syncLog('rows-gate', { drop: _gateDrop, ex: _gateEx });
           if (_rows.length) upsertTicketRows(staffSession.storeId, _rows);
           // ★ 削除の反映(2026-08-10): 「明示的に指定された記録idだけ」テーブルにも削除(deleted_at)を立てる。
           //   配列差分からの推測削除は誤爆リスクがあるため従来どおり行わない。 これが無いと、振替の
