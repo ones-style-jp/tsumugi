@@ -15606,12 +15606,12 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                       const targets = vres.linkedAccounts || [vres];
                       for (const t of targets) { await supabaseUpdateFamilyAccount(t.id, { password: n1 }); }
                     } else {
-                      const _a = (data.familyAccounts||[]).find(a=>String(a.id)===String(authAccId));
+                      const _a = (data.familyAccounts||[]).find(a=>String(a.id)===String(accountId));
                       if (!_a || _a.password !== cur) { _err('現在のパスワードが違います'); return; }
                     }
                     // ローカルにも反映(自分+同メール・同旧パスワードのリンクアカウント)
                     try {
-                      const updated = { ...data, familyAccounts: (data.familyAccounts||[]).map(a => (String(a.id)===String(authAccId) || (a.email && loggedAcc?.email && a.email===loggedAcc.email && a.password===cur)) ? { ...a, password: n1 } : a) };
+                      const updated = { ...data, familyAccounts: (data.familyAccounts||[]).map(a => (String(a.id)===String(accountId) || (a.email && loggedAcc?.email && a.email===loggedAcc.email && a.password===cur)) ? { ...a, password: n1 } : a) };
                       localStorage.setItem(FAM_LS_KEY, JSON.stringify(updated));
                       setData(updated);
                     } catch {}
@@ -16007,7 +16007,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                       if (_storeId) supabaseAppendDocUpdate(_storeId, patient.id, _invDu).catch(err => console.warn('[supabase] invite notify failed', err));
                     }
                     const baseUrl = window.location.origin + window.location.pathname.replace(/\/+$/, '');
-                    const tk = encodeInviteToken({ c: code, p: patient.id, s: _inviteStoreId||'', e: em, r: inviteFamForm.relation||'', x: newInvite.expiresAt||'', fn: (appData.systemSettings?.facilityInfo?.name)||'', fp: (appData.systemSettings?.facilityInfo?.phone)||'' });
+                    const tk = encodeInviteToken({ c: code, p: patient.id, s: _inviteStoreId||'', e: em, r: inviteFamForm.relation||'', x: newInvite.expiresAt||'', fn: (data.systemSettings?.facilityInfo?.name)||'', fp: (data.systemSettings?.facilityInfo?.phone)||'' });
                     const url = `${baseUrl}/?family&invite=${encodeURIComponent(code)}&t=${tk}`;
                     setInviteFamForm(f=>({...f, createdUrl: url, sending: true, sendError: ''}));
                     // Brevo 経由で自動送信
@@ -18818,6 +18818,13 @@ export default function App() {
   const [showToast, setShowToast] = useState(false);
   // ★ toast 表示文言 (自動保存時は非表示・手動保存時のみ表示)
   const [toastMsg, setToastMsg] = useState('保存されました');
+  // ★ 2026-09-18: 画面部品(MasterView等)からも既存トーストを出せる共通イベント。
+  //   MasterViewが持っていない setShowToast を直接呼んでReferenceErrorになっていた箇所(URL/招待コードのコピー)の受け皿。
+  useEffect(() => {
+    const h = (e) => { setToastMsg(String((e && e.detail && e.detail.msg) || '完了しました')); setShowToast(true); setTimeout(() => setShowToast(false), 2500); };
+    window.addEventListener('tsumugi-toast', h);
+    return () => window.removeEventListener('tsumugi-toast', h);
+  }, []);
   // ★ 同期が止まっていることを必ず画面に出す。 「入力しているのにクラウドへ届いていない」状態が
   //   無表示のまま続くと、他端末に反映されないまま作業を続けて再読み込みで入力を失う。
   const [syncStalled, setSyncStalled] = useState(0); // 0=正常 / >0=未同期の秒数
@@ -33137,6 +33144,8 @@ function InfoRow({ label, children }) {
   );
 }
 function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientChange, dirtyRef, saveFnRef, navFocus, onFocusHandled, exPendingRef, navAfterExRef }) {
+  // ★ 2026-09-18(lint no-undefで検出): この画面に無い setShowToast を呼んでいた3箇所(ログインURL/招待URL/招待コードのコピー)の受け皿
+  const _copyToast = (msg) => { try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: msg || 'コピーしました' } })); } catch {} };
   const [editingPatientId, setEditingPatientId] = useState(targetPatientId || null);
   const scheduleSectionRef = React.useRef(null);
   const [localPatient, setLocalPatient] = useState(null);
@@ -35970,7 +35979,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         const updateField = (accId, field, value) => {
           onSave({ ...appData, familyAccounts: (appData.familyAccounts||[]).map(a => a.id === accId ? {...a, [field]: value} : a) });
         };
-        const copyUrl = () => { navigator.clipboard?.writeText(loginUrl).then(()=>setShowToast(true)); };
+        const copyUrl = () => { navigator.clipboard?.writeText(loginUrl).then(()=>_copyToast()); };
         const printSheet = (acc) => {
           const w = window.open('', '_blank');
           if (!w) return;
@@ -36078,7 +36087,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   };
                   const copyInviteUrl = (inv) => {
                     navigator.clipboard?.writeText(inviteUrlOf(inv));
-                    setShowToast(true);
+                    _copyToast();
                   };
                   const deleteInvite = async (invId) => {
                     if (!window.confirm('この招待を削除しますか？\n未使用の場合は使用できなくなります。')) return;
@@ -36132,7 +36141,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                                   </div>
                                   <div className="flex gap-1 shrink-0">
                                     {showCodeTools && (
-                                      <button onClick={()=>{navigator.clipboard?.writeText(inv.code); setShowToast(true);}} className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-700 rounded text-[10px] font-bold" title="コードをコピー">コード</button>
+                                      <button onClick={()=>{navigator.clipboard?.writeText(inv.code); _copyToast();}} className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-700 rounded text-[10px] font-bold" title="コードをコピー">コード</button>
                                     )}
                                     <button onClick={()=>deleteInvite(inv.id)} className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[10px] font-bold">削除</button>
                                   </div>
