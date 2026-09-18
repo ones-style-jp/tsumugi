@@ -1,7 +1,15 @@
 {
-  "version": "upd-2026-0918-trial29",
+  "version": "upd-2026-0918-trial30",
   "updatedAt": "2026-09-08",
   "notes": [
+    {
+      "id": "upd-2026-0918-ai-fix2",
+      "date": "2026-09-18",
+      "type": "fix",
+      "title": "AI下書きで「staffSession is not defined」と出て作成できない不具合を修正しました",
+      "body": "モニタリングの「AI下書き」で「○○様: staffSession is not defined」と表示されて作成できない不具合を修正しました。AI呼び出しのときに店舗の情報を渡す処理が、モニタリング画面では参照できない作りになっていたことが原因です(9月8日の変更で入り込み、別の不具合に隠れて表面化していませんでした)。今回で作成できるようになります。",
+      "prompt": "all"
+    },
     {
       "id": "upd-2026-0917-ai-fix",
       "date": "2026-09-17",
