@@ -38348,6 +38348,12 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
             </div>
           )}
         </div>
+        {/* ★ 2026-09-18(店舗要望): 職員の体温を日誌で扱うかを店舗ごとに切替。OFFの店舗はチェック時の体温入力の小窓が開かず、℃表示も出ない。
+            職員に関する設定なので「担当職員」の枠に置く(送迎車両の枠に出ていた配置ミスを是正) */}
+        <label className="flex items-start gap-2 mt-4 pt-3 border-t border-slate-200 cursor-pointer">
+          <input type="checkbox" checked={!ds.hideStaffTemp} onChange={e=>{ const nd={...dsRef.current, hideStaffTemp: !e.target.checked}; dsRef.current=nd; setRenderKey(k=>k+1); if(onSave) onSave({...appData, diarySettings: nd}, { manual:true, message: e.target.checked?'✓ 日誌で職員の体温を表示・入力します':'✓ 日誌の職員体温を非表示にしました' }); }} className="mt-0.5 accent-blue-600"/>
+          <span className="text-sm text-slate-700"><b>日誌に職員の体温を表示・入力する</b><br/><span className="text-xs text-slate-500">ONのとき、担当職員にチェックを入れると体温入力の小窓が開き、氏名の下に「36.5℃」のように表示・印刷されます。職員の検温を日誌に残さない店舗はOFFにしてください（過去に入力した体温は消えません）。</span></span>
+        </label>
       </SC>
       <SC title="送迎車両">
         <p className="text-xs text-slate-500 mb-3">送迎に使用する車両を登録します（2〜4台）。</p>
@@ -38365,11 +38371,6 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
         <label className="flex items-start gap-2 mt-4 pt-3 border-t border-slate-200 cursor-pointer">
           <input type="checkbox" checked={!!ds.autoCopySougei} onChange={e=>{ const nd={...dsRef.current, autoCopySougei: e.target.checked}; dsRef.current=nd; setRenderKey(k=>k+1); if(onSave) onSave({...appData, diarySettings: nd}, { manual:true, message: e.target.checked?'✓ 1週間前の送迎の自動コピーをONにしました':'自動コピーをOFFにしました' }); }} className="mt-0.5 accent-blue-600"/>
           <span className="text-sm text-slate-700"><b>1週間前の送迎を自動コピー</b><br/><span className="text-xs text-slate-500">日誌を開いたとき、その日の送迎（迎え・送り・運転者・時間）が未入力なら、<b>7日前の同じ時間帯</b>の内容を自動で読み込みます。毎週同じ送迎体制の店舗向け（変わる場合はそのまま上書きできます）。</span></span>
-        </label>
-        {/* ★ 2026-09-18(店舗要望): 職員の体温を日誌で扱うかを店舗ごとに切替。OFFの店舗はチェック時の体温入力の小窓が開かず、℃表示も出ない */}
-        <label className="flex items-start gap-2 mt-3 pt-3 border-t border-slate-200 cursor-pointer">
-          <input type="checkbox" checked={!ds.hideStaffTemp} onChange={e=>{ const nd={...dsRef.current, hideStaffTemp: !e.target.checked}; dsRef.current=nd; setRenderKey(k=>k+1); if(onSave) onSave({...appData, diarySettings: nd}, { manual:true, message: e.target.checked?'✓ 日誌で職員の体温を表示・入力します':'✓ 日誌の職員体温を非表示にしました' }); }} className="mt-0.5 accent-blue-600"/>
-          <span className="text-sm text-slate-700"><b>日誌に職員の体温を表示・入力する</b><br/><span className="text-xs text-slate-500">ONのとき、担当職員にチェックを入れると体温入力の小窓が開き、氏名の下に「36.5℃」のように表示・印刷されます。職員の検温を日誌に残さない店舗はOFFにしてください（過去に入力した体温は消えません）。</span></span>
         </label>
       </SC>
       {['AM','PM'].map(ap=>(
