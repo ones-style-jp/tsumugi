@@ -46,28 +46,31 @@ export default async function handler(req, res) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { skipped.push({ email, err: 'メールアドレスの形式が正しくありません' }); continue; }
     if (seen.has(email)) continue;
     seen.add(email);
-    recipients.push({ email, name: String((r && r.name) || '').trim().slice(0, 60), label: String((r && r.label) || '').trim().slice(0, 60) });
+    recipients.push({ email, name: String((r && r.name) || '').trim().slice(0, 60), label: String((r && r.label) || '').trim().slice(0, 60),
+      // ★ 宛先ごとの本文(安否の行つき)。無ければ共通本文
+      text: String((r && r.text) || '').trim().slice(0, 4000) });
   }
   if (!recipients.length) return res.status(400).json({ error: '有効な送信先がありません', skipped });
   if (recipients.length > MAX_PER_CALL) {
     return res.status(400).json({ error: `一度に送れるのは${MAX_PER_CALL}件までです(今回 ${recipients.length}件)。送信先を分けてください。` });
   }
 
-  const html = `<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;font-size:15px;line-height:1.8;color:#1d2a22;max-width:640px;">
+  const htmlOf = (body) => `<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;font-size:15px;line-height:1.8;color:#1d2a22;max-width:640px;">
     <div style="background:#f4f8ed;border-left:5px solid #7daa3d;padding:10px 14px;margin-bottom:16px;font-weight:bold;">${esc(facility)} からの緊急連絡</div>
-    <div style="white-space:pre-wrap;">${esc(text)}</div>
+    <div style="white-space:pre-wrap;">${esc(body)}</div>
     <hr style="border:none;border-top:1px solid #e3e8dd;margin:20px 0;">
     <div style="font-size:12px;color:#7c8a80;">このメールは ${esc(facility)} の記録システム「つむぎ」から送信されています。ご返信は事業所へ直接お電話ください。</div>
   </div>`;
 
   const sendOne = async (r) => {
     const toEntry = { email: r.email }; if (r.name) toEntry.name = r.name;
+    const body = r.text || text; // ★ 宛先ごとの本文(安否の行つき)があればそれを使う
     const payload = {
       sender: { email: senderEmail, name: facility.slice(0, 50) },
       to: [toEntry],
       subject: `【${facility}】${subject}`.slice(0, 100),
-      htmlContent: html,
-      textContent: `${facility} からの緊急連絡\n\n${text}`,
+      htmlContent: htmlOf(body),
+      textContent: `${facility} からの緊急連絡\n\n${body}`,
       ...(replyTo && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(replyTo) ? { replyTo: { email: replyTo } } : {}),
     };
     const resp = await fetch('https://api.brevo.com/v3/smtp/email', {

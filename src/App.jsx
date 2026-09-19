@@ -12154,25 +12154,67 @@ function EmergencyNoticeView({ appData, onSave, staffSession }) {
     return () => { alive = false; };
   }, [storeId]);
   const pname = (pid) => { const p = (appData.patients || []).find(x => String(x.id) === String(pid)); return p ? p.name : ''; };
-  const activePid = new Set((appData.patients || []).filter(p => p.status === '利用中').map(p => String(p.id)));
+  const activePats = (appData.patients || []).filter(p => p.status === '利用中');
+  const activePid = new Set(activePats.map(p => String(p.id)));
+  // ★ 2026-09-19(店舗提案): 「今の時間帯に通所中の方」を判定。避難完了などは事業所が無事を保証できる通所中の方の
+  //   ご家族だけに送り、通所していない方には「安否確認のお願い」を別に送れるようにする。
+  //   判定= 本日の提供記録(出席/振替/臨時=通所・欠席/休業/休止=不在)を最優先、無ければ月間スケジュール→基本利用曜日(休止期間は除外)。
+  const _now = new Date();
+  const _slot = _now.getHours() < 13 ? 'AM' : 'PM';
+  const attendingNow = (() => {
+    const dow = _now.getDay(), dayNum = _now.getDate();
+    const mk = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}`;
+    const dateJp = `${_now.getMonth() + 1}月${dayNum}日`;
+    const recToday = new Map((appData.ticketRecords || []).filter(r => r && r.date === dateJp && String(r.year ?? _now.getFullYear()) === String(_now.getFullYear())).map(r => [String(r.patientId), r]));
+    const set = new Set();
+    activePats.forEach(p => {
+      const rec = recToday.get(String(p.id));
+      if (rec && ['欠席', '休業', '休止'].includes(rec.status)) return;
+      if (rec && ['出席', '振替', '臨時'].includes(rec.status)) { set.add(String(p.id)); return; }
+      const ov = appData.monthlyShifts?.[mk]?.[p.id]?.[`${dayNum}_${_slot}`];
+      let att;
+      if (ov !== undefined && ov !== '') att = (ov === '〇' || ov === '出席' || ov === '臨時' || String(ov).startsWith('振'));
+      else { const base = (getScheduleOnDate(p, todayIso) || {})[dow] || ''; att = (base === _slot || base === '1日'); }
+      if (att && !getPauseReasonOnDate(p, todayIso)) set.add(String(p.id));
+    });
+    return set;
+  })();
+  const [scope, setScope] = useState('now'); // 'now'=通所中の方 / 'others'=通所していない方 / 'all'=全員
+  // ★ 2026-09-19(店舗提案): 安否は文章を書かず「名前を見てタップで選ぶ」。選んだ結果からご家族ごとの文面を自動生成する。
+  const SAFETY = [['ok', '無事'], ['evac', '避難済み（無事）'], ['hurt', 'ケガ・体調不良'], ['unknown', '未確認']];
+  const safetyLabel = (k) => (SAFETY.find(x => x[0] === k) || [])[1] || '';
+  const [safety, setSafety] = useState({}); // {pid: 'ok'|'evac'|'hurt'|'unknown'}
+  const statusLine = (pid) => { const st = safety[String(pid)]; if (!st) return ''; const nm = pname(pid) || '利用者'; const pl = (st === 'evac' && place) ? `（避難先: ${place}）` : ''; return `${nm} 様: ${safetyLabel(st)}${pl}`; };
+  const scopedPid = new Set([...activePid].filter(pid => scope === 'all' ? true : scope === 'now' ? attendingNow.has(pid) : !attendingNow.has(pid)));
+  const scopedPats = activePats.filter(p => scopedPid.has(String(p.id)));
   const isCmRow = (r) => r.kind === 'caremanager' || r.relation === 'ケアマネージャー';
-  const famRows = (fam || []).filter(r => !isCmRow(r) && String(r.email || '').trim() && activePid.has(String(r.patient_id)));
-  const cmAccRows = (fam || []).filter(r => isCmRow(r) && String(r.email || '').trim());
-  const cmMaster = (appData.systemSettings?.careManagers || []).filter(c => String(c.email || '').trim());
+  const famRows = (fam || []).filter(r => !isCmRow(r) && String(r.email || '').trim() && scopedPid.has(String(r.patient_id)));
+  // 担当ケアマネ: 範囲内の利用者を担当している方だけ(閲覧アカウント=patient_id / マスタ=事業所名+氏名で利用者と照合)
+  const cmAccRows = (fam || []).filter(r => isCmRow(r) && String(r.email || '').trim() && scopedPid.has(String(r.patient_id)));
+  const cmMaster = (appData.systemSettings?.careManagers || []).filter(c => String(c.email || '').trim() && scopedPats.some(p => (p.cmOffice || '') === (c.office || '') && (p.cmName || '') === (c.name || '')));
   // 宛先: 同じメールは1件にまとめ、ラベルに利用者名を連結(1人の家族が複数の利用者に紐づく場合)
   const recipients = (() => {
     const m = new Map();
-    const add = (email, name, label, kind) => {
+    const add = (email, name, label, kind, pids) => {
       const k = String(email || '').trim().toLowerCase(); if (!k) return;
-      const cur = m.get(k) || { email: k, name: '', labels: new Set(), kind };
+      const cur = m.get(k) || { email: k, name: '', labels: new Set(), kind, pids: new Set() };
       if (!cur.name && name) cur.name = String(name).trim();
       if (label) cur.labels.add(label);
+      (pids || []).forEach(p => cur.pids.add(String(p)));
       m.set(k, cur);
     };
-    if (toFamily) famRows.forEach(r => add(r.email, r.display_name, pname(r.patient_id) ? `${pname(r.patient_id)}様ご家族` : 'ご家族', 'family'));
-    if (toCm) { cmAccRows.forEach(r => add(r.email, r.display_name, 'ケアマネ', 'cm')); cmMaster.forEach(c => add(c.email, c.name, `ケアマネ${c.office ? `(${c.office})` : ''}`, 'cm')); }
-    return [...m.values()].map(r => ({ email: r.email, name: r.name, label: [...r.labels].join('・'), kind: r.kind }));
+    if (toFamily) famRows.forEach(r => add(r.email, r.display_name, pname(r.patient_id) ? `${pname(r.patient_id)}様ご家族` : 'ご家族', 'family', [r.patient_id]));
+    if (toCm) {
+      cmAccRows.forEach(r => add(r.email, r.display_name, 'ケアマネ', 'cm', [r.patient_id]));
+      cmMaster.forEach(c => add(c.email, c.name, `ケアマネ${c.office ? `(${c.office})` : ''}`, 'cm', scopedPats.filter(p => (p.cmOffice || '') === (c.office || '') && (p.cmName || '') === (c.name || '')).map(p => p.id)));
+    }
+    // 安否が選ばれている利用者がいれば、宛先ごとに「○○様: 無事」の行を本文の先頭に付ける(家族=自分の家族分、ケアマネ=担当分)
+    return [...m.values()].map(r => {
+      const lines = [...r.pids].map(statusLine).filter(Boolean);
+      return { email: r.email, name: r.name, label: [...r.labels].join('・'), kind: r.kind, ...(lines.length ? { text: `${r.kind === 'cm' ? '担当利用者様の状況' : 'ご利用者様の状況'}\n${lines.map(l => '・' + l).join('\n')}\n\n${text.trim()}` } : {}) };
+    });
   })();
+  const safetyCount = Object.keys(safety).filter(k => safety[k] && scopedPid.has(k)).length;
   const nFam = recipients.filter(r => r.kind === 'family').length, nCm = recipients.filter(r => r.kind === 'cm').length;
   const noEmailFam = (appData.patients || []).filter(p => p.status === '利用中' && !famRows.some(r => String(r.patient_id) === String(p.id))).length;
   const tel = fi.phone || '（電話番号）';
@@ -12184,19 +12226,26 @@ function EmergencyNoticeView({ appData, onSave, staffSession }) {
     { key: 'check', label: '安否確認のお願い', subject: '【お願い】安否確認のご連絡',
       body: () => `災害の発生を受け、ご利用者様とご家族の皆さまの安否を確認しております。\nお手数ですが、下記までご本人の状況（無事・ケガの有無・避難先）をお知らせください。\n\n${facility}　TEL ${tel}\n\n事業所は（通常どおり営業／休業）しております。` },
   ];
+  // ★ 速報バナーの「緊急連絡」「安否確認」から来たときは定型文と対象を先に入れておく(タップ数を減らす)
+  useEffect(() => {
+    let preset = ''; try { preset = sessionStorage.getItem('tsumugiEmergencyPreset') || ''; sessionStorage.removeItem('tsumugiEmergencyPreset'); } catch {}
+    const t = TEMPLATES.find(x => x.key === preset); if (!t) return;
+    setSubject(t.subject); setText(t.body(place)); setScope(t.key === 'safe' ? 'now' : t.key === 'check' ? 'others' : 'all');
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const send = async () => {
     if (!subject.trim() || !text.trim()) { alert('件名と本文を入力してください'); return; }
     if (!recipients.length && !postNotice) { alert('送信先がありません（送信先のチェックか、お知らせ掲載を選んでください）'); return; }
     const parts = [];
     if (recipients.length) parts.push(`メール送信: ${recipients.length}件（ご家族 ${nFam}件・ケアマネ ${nCm}件）`);
-    if (postNotice) parts.push('家族画面のお知らせに掲載');
+    if (safetyCount) parts.push(`安否を入力した利用者: ${safetyCount}名（ご家族ごとの文面に自動で入ります）`);
+    if (postNotice) parts.push(safetyCount ? '家族画面のお知らせに利用者ごとに掲載' : '家族画面のお知らせに掲載');
     if (!window.confirm(`緊急連絡を送ります。\n\n件名: ${subject.trim()}\n${parts.join('\n')}\n\nよろしいですか？`)) return;
     setSending(true); setResult(null);
     let mail = null;
     if (recipients.length) {
       try {
         const resp = await fetch('/api/notify-batch', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ facility, subject: subject.trim(), text: text.trim(), recipients: recipients.map(r => ({ email: r.email, name: r.name, label: r.label })), replyTo: fi.email || '' }) });
+          body: JSON.stringify({ facility, subject: subject.trim(), text: text.trim(), recipients: recipients.map(r => ({ email: r.email, name: r.name, label: r.label, ...(r.text ? { text: r.text } : {}) })), replyTo: fi.email || '' }) });
         const j = await resp.json().catch(() => ({}));
         mail = resp.ok ? j : { error: j.error || `HTTP ${resp.status}`, sent: 0, failed: [], total: recipients.length };
       } catch (e) { mail = { error: String(e).slice(0, 120), sent: 0, failed: [], total: recipients.length }; }
@@ -12204,8 +12253,17 @@ function EmergencyNoticeView({ appData, onSave, staffSession }) {
     let posted = false;
     if (postNotice) {
       const ts = Date.now();
-      const item = { id: `news_${ts}`, title: subject.trim(), body: text.trim(), date: todayIso, postedAt: new Date(ts).toISOString(), audience: ['family', 'caremanager', 'related'], photos: [], emergency: true };
-      onSave({ ...appData, familyAnnouncements: [item, ...(appData.familyAnnouncements || [])] }, { manual: true, message: '✓ 緊急連絡を家族画面のお知らせに掲載しました' });
+      const iso = new Date(ts).toISOString();
+      const aud = ['family', 'caremanager', 'related'];
+      // 安否を選んだ利用者がいれば「その方のご家族だけに見える個別お知らせ」、無ければ全体お知らせ
+      const withStatus = scopedPats.filter(p => safety[String(p.id)]);
+      if (withStatus.length) {
+        const items = withStatus.map(p => ({ id: `news_${ts}_${p.id}`, patientId: p.id, title: subject.trim(), body: `${statusLine(p.id)}\n\n${text.trim()}`, date: todayIso, postedAt: iso, audience: aud, photos: [], emergency: true }));
+        onSave({ ...appData, familyPersonalAnnouncements: [...items, ...(appData.familyPersonalAnnouncements || [])] }, { manual: true, message: `✓ ${items.length}名分の安否を家族画面のお知らせに掲載しました` });
+      } else {
+        const item = { id: `news_${ts}`, title: subject.trim(), body: text.trim(), date: todayIso, postedAt: iso, audience: aud, photos: [], emergency: true };
+        onSave({ ...appData, familyAnnouncements: [item, ...(appData.familyAnnouncements || [])] }, { manual: true, message: '✓ 緊急連絡を家族画面のお知らせに掲載しました' });
+      }
       posted = true;
     }
     setResult({ mail, posted, at: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) });
@@ -12225,10 +12283,37 @@ function EmergencyNoticeView({ appData, onSave, staffSession }) {
               <div className="text-xs font-bold text-slate-500 mb-2">定型文から始める（あとから自由に直せます）</div>
               <div className="flex flex-wrap gap-2 mb-3">
                 {TEMPLATES.map(t => (
-                  <button key={t.key} type="button" onClick={() => { setSubject(t.subject); setText(t.body(place)); }} className="px-3 py-2 rounded-xl border border-red-200 bg-red-50 text-red-800 text-sm font-bold hover:bg-red-100">{t.label}</button>
+                  <button key={t.key} type="button" onClick={() => { setSubject(t.subject); setText(t.body(place)); setScope(t.key === 'safe' ? 'now' : t.key === 'check' ? 'others' : 'all'); }} className="px-3 py-2 rounded-xl border border-red-200 bg-red-50 text-red-800 text-sm font-bold hover:bg-red-100">{t.label}</button>
                 ))}
               </div>
-              <label className="block text-xs font-bold text-slate-600 mb-1">避難場所（「避難完了」の定型文に入ります）</label>
+              <div className="text-[11px] text-slate-500 mb-3">「避難完了」は通所中の方のご家族へ、「安否確認」は通所していない方のご家族へ、「営業状況」は全員へ、が自動で選ばれます（下の送信先で変更できます）。</div>
+              {/* ★ 安否は名前を見てタップで選ぶ(緊急時に文章を直す時間はない) */}
+              <div className="mb-3 border border-slate-200 rounded-xl overflow-hidden">
+                <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200 flex-wrap">
+                  <span className="text-xs font-bold text-slate-600">安否の入力（対象 {scopedPats.length}名・選択済み {safetyCount}名）</span>
+                  <div className="ml-auto flex gap-1">
+                    <button type="button" onClick={() => setSafety(s => { const n = { ...s }; scopedPats.forEach(p => { n[String(p.id)] = 'ok'; }); return n; })} className="px-2 py-1 rounded-lg bg-emerald-600 text-white text-xs font-bold">全員 無事</button>
+                    <button type="button" onClick={() => setSafety(s => { const n = { ...s }; scopedPats.forEach(p => { n[String(p.id)] = 'evac'; }); return n; })} className="px-2 py-1 rounded-lg bg-sky-600 text-white text-xs font-bold">全員 避難済み</button>
+                    <button type="button" onClick={() => setSafety({})} className="px-2 py-1 rounded-lg bg-white border border-slate-300 text-slate-600 text-xs font-bold">クリア</button>
+                  </div>
+                </div>
+                <div className="max-h-56 overflow-y-auto divide-y divide-slate-100">
+                  {scopedPats.map(p => { const k = String(p.id); const st = safety[k] || ''; return (
+                    <div key={k} className="flex items-center gap-2 px-3 py-1.5 flex-wrap">
+                      <div className="w-28 text-sm font-bold text-slate-800 truncate">{p.name}</div>
+                      <div className="flex gap-1 flex-wrap">
+                        {SAFETY.map(([key, lb]) => (
+                          <button key={key} type="button" onClick={() => setSafety(s => ({ ...s, [k]: s[k] === key ? '' : key }))}
+                            className={`px-2 py-1 rounded-lg text-xs font-bold border ${st === key ? (key === 'ok' ? 'bg-emerald-600 border-emerald-600 text-white' : key === 'evac' ? 'bg-sky-600 border-sky-600 text-white' : key === 'hurt' ? 'bg-red-600 border-red-600 text-white' : 'bg-slate-600 border-slate-600 text-white') : 'bg-white border-slate-300 text-slate-600'}`}>{lb}</button>
+                        ))}
+                      </div>
+                    </div>
+                  ); })}
+                  {!scopedPats.length && <div className="px-3 py-3 text-xs text-slate-400">対象の利用者がいません（右の「対象の利用者」を変更してください）</div>}
+                </div>
+                <div className="px-3 py-1.5 text-[11px] text-slate-500 bg-slate-50 border-t border-slate-200">選んだ方は、ご家族へのメールと家族画面のお知らせに「○○様: 無事（避難先: …）」の行が自動で入ります。ケアマネには担当の方の一覧が入ります。</div>
+              </div>
+              <label className="block text-xs font-bold text-slate-600 mb-1">避難場所（「避難完了」の定型文と「避難済み」の方の状況に入ります）</label>
               <input value={place} onChange={e => setPlace(e.target.value)} placeholder="例: ○○小学校 体育館" className={inp + ' mb-3'} />
               <label className="block text-xs font-bold text-slate-600 mb-1">件名</label>
               <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="例: 【重要】避難完了と皆さまの無事のご連絡" className={inp + ' mb-3'} maxLength={100} />
@@ -12253,10 +12338,18 @@ function EmergencyNoticeView({ appData, onSave, staffSession }) {
               <div className="text-xs font-bold text-slate-500 mb-2">送信先</div>
               {fam === null ? <div className="text-sm text-slate-400">宛先を読み込み中…</div> : (
                 <>
-                  <label className="flex items-center gap-2 text-sm font-bold text-slate-700 mb-1 cursor-pointer"><input type="checkbox" checked={toFamily} onChange={e => setToFamily(e.target.checked)} className="accent-red-600" />ご家族（利用中の方）<span className="ml-auto text-xs text-slate-500">{recipients.filter(r => r.kind === 'family').length || (toFamily ? 0 : famRows.length)}件</span></label>
+                  <div className="text-[11px] font-bold text-slate-500 mb-1">対象の利用者</div>
+                  <div className="grid grid-cols-1 gap-1 mb-3">
+                    {[['now', `今の時間帯（${_slot === 'AM' ? '午前' : '午後'}）に通所中の方`, attendingNow.size], ['others', '通所していない方（在宅）', activePid.size - attendingNow.size], ['all', '利用中の方 全員', activePid.size]].map(([k, lb, n]) => (
+                      <label key={k} className={`flex items-center gap-2 text-sm px-2 py-1.5 rounded-lg border cursor-pointer ${scope === k ? 'bg-red-50 border-red-300 font-bold text-red-800' : 'border-slate-200 text-slate-700'}`}>
+                        <input type="radio" name="emg-scope" checked={scope === k} onChange={() => setScope(k)} className="accent-red-600" />{lb}<span className="ml-auto text-xs text-slate-500">{n}名</span>
+                      </label>
+                    ))}
+                  </div>
+                  <label className="flex items-center gap-2 text-sm font-bold text-slate-700 mb-1 cursor-pointer"><input type="checkbox" checked={toFamily} onChange={e => setToFamily(e.target.checked)} className="accent-red-600" />対象の方のご家族<span className="ml-auto text-xs text-slate-500">{recipients.filter(r => r.kind === 'family').length || (toFamily ? 0 : famRows.length)}件</span></label>
                   <label className="flex items-center gap-2 text-sm font-bold text-slate-700 mb-1 cursor-pointer"><input type="checkbox" checked={toCm} onChange={e => setToCm(e.target.checked)} className="accent-red-600" />担当ケアマネ（メール登録あり）<span className="ml-auto text-xs text-slate-500">{nCm || (toCm ? 0 : (cmAccRows.length + cmMaster.length))}件</span></label>
                   <label className="flex items-center gap-2 text-sm font-bold text-slate-700 mb-2 cursor-pointer"><input type="checkbox" checked={postNotice} onChange={e => setPostNotice(e.target.checked)} className="accent-red-600" />家族画面のお知らせにも掲載</label>
-                  {noEmailFam > 0 && <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-2">ご家族のメール登録が無い利用者: {noEmailFam}名（お知らせ掲載と電話で補ってください）</div>}
+                  {noEmailFam > 0 && <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-2">対象のうちご家族のメール登録が無い利用者: {noEmailFam}名（お知らせ掲載と電話で補ってください）</div>}
                   <button type="button" onClick={() => setShowList(s => !s)} className="text-xs font-bold text-blue-700">{showList ? '宛先を隠す ▲' : `宛先を確認する（${recipients.length}件）▼`}</button>
                   {showList && (
                     <div className="mt-2 max-h-64 overflow-y-auto border border-slate-200 rounded-lg divide-y text-xs">
@@ -17804,6 +17897,35 @@ export default function App() {
   }, [staffSession?.role, staffSession?.storeId, adminStoreDropdownOpen]);
 
   // ★ システムお知らせ (本部 → 全店舗のメンテナンス通知等)
+  // ★ 災害速報ポップアップ(2026-09-19・運営推進会議の要望): 気象庁の公開データ(地震・津波・警報)を /api/alerts 経由で1分ごとに確認し、
+  //   該当があれば画面上部に赤いバナーを出す(ハザードマップ・緊急連絡・安否確認・解除)。"揺れる前"の緊急地震速報は含まれない。
+  //   都道府県は事業所住所から判定(不明時は東京都)。解除したIDは端末に記憶し、同じ速報は再表示しない。
+  const [disasterAlerts, setDisasterAlerts] = React.useState([]);
+  const [dismissedAlertIds, setDismissedAlertIds] = React.useState(() => { try { return JSON.parse(localStorage.getItem('tsumugiAlertDismissed') || '[]'); } catch { return []; } });
+  const _jmaPrefCode = (addr) => {
+    const a = String(addr || '');
+    const T = [['北海道','016000'],['青森','020000'],['岩手','030000'],['宮城','040000'],['秋田','050000'],['山形','060000'],['福島','070000'],['茨城','080000'],['栃木','090000'],['群馬','100000'],['埼玉','110000'],['千葉','120000'],['東京','130000'],['神奈川','140000'],['新潟','150000'],['富山','160000'],['石川','170000'],['福井','180000'],['山梨','190000'],['長野','200000'],['岐阜','210000'],['静岡','220000'],['愛知','230000'],['三重','240000'],['滋賀','250000'],['京都','260000'],['大阪','270000'],['兵庫','280000'],['奈良','290000'],['和歌山','300000'],['鳥取','310000'],['島根','320000'],['岡山','330000'],['広島','340000'],['山口','350000'],['徳島','360000'],['香川','370000'],['愛媛','380000'],['高知','390000'],['福岡','400000'],['佐賀','410000'],['長崎','420000'],['熊本','430000'],['大分','440000'],['宮崎','450000'],['鹿児島','460100'],['沖縄','471000']];
+    const hit = T.find(([nm]) => a.startsWith(nm)); return hit ? hit[1] : '130000';
+  };
+  React.useEffect(() => {
+    if (!staffSession?.storeId) { setDisasterAlerts([]); return; }
+    let stopped = false;
+    const pref = _jmaPrefCode(appData.systemSettings?.facilityInfo?.address);
+    const load = async () => {
+      try {
+        // ★ 表示テスト: URLに ?alerttest を付けると見本の速報を出す(実際の送信は何もしない)
+        if (/[?&]alerttest/.test(window.location.search)) { if (!stopped) setDisasterAlerts([{ id: 'test:demo', kind: 'quake', level: 'critical', title: '【表示テスト】地震情報 東京湾 最大震度5弱（この地域: 震度5弱）', body: 'これは表示の見本です。実際の速報ではありません。', at: new Date().toISOString() }]); return; }
+        const r = await fetch(`/api/alerts?pref=${pref}`, { cache: 'no-store' });
+        const j = await r.json();
+        if (!stopped && j && Array.isArray(j.alerts)) setDisasterAlerts(j.alerts);
+      } catch {}
+    };
+    load();
+    const t = setInterval(load, 60000);
+    return () => { stopped = true; clearInterval(t); };
+  }, [staffSession?.storeId, appData.systemSettings?.facilityInfo?.address]);
+  const dismissAlert = (id) => setDismissedAlertIds(prev => { const n = [...new Set([...prev, id])].slice(-200); try { localStorage.setItem('tsumugiAlertDismissed', JSON.stringify(n)); } catch {} return n; });
+  const visibleAlerts = disasterAlerts.filter(a => a && a.id && !dismissedAlertIds.includes(a.id));
   const [systemNotices, setSystemNotices] = React.useState([]);
   const [dismissedNoticeIds, setDismissedNoticeIds] = React.useState(() => {
     try { return JSON.parse(localStorage.getItem('tsumugiDismissedNotices')||'[]'); } catch { return []; }
@@ -20664,6 +20786,28 @@ export default function App() {
         </div>
       )}
       {/* ★ トーストを Portal で body 直下にレンダリング → 全画面表示時も確実に見える */}
+      {/* ★ 災害速報バナー(2026-09-19): 解除するまで最前面。ハザードマップ(国土地理院)・緊急連絡・安否確認へ */}
+      {visibleAlerts.length > 0 && staffSession?.storeId && ReactDOM.createPortal(
+        <div style={{position:'fixed',top:0,left:0,right:0,zIndex:100000,padding:'10px 12px',background:visibleAlerts.some(a=>a.level==='critical')?'#b91c1c':'#c2410c',color:'white',boxShadow:'0 6px 20px rgba(0,0,0,.35)'}}>
+          <div style={{maxWidth:1100,margin:'0 auto'}}>
+            {visibleAlerts.slice(0,3).map(a => (
+              <div key={a.id} style={{display:'flex',alignItems:'flex-start',gap:10,flexWrap:'wrap',padding:'4px 0'}}>
+                <AlertTriangle size={22} style={{flex:'none',marginTop:2}}/>
+                <div style={{flex:'1 1 320px',minWidth:0}}>
+                  <div style={{fontSize:16,fontWeight:800,lineHeight:1.3}}>{a.title}</div>
+                  <div style={{fontSize:12.5,opacity:.95,lineHeight:1.5,marginTop:2}}>{a.body}</div>
+                </div>
+                <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+                  <a href="https://disaportal.gsi.go.jp/" target="_blank" rel="noopener" style={{padding:'8px 12px',background:'rgba(255,255,255,.18)',color:'white',borderRadius:10,fontSize:13,fontWeight:700,textDecoration:'none'}}>ハザードマップ</a>
+                  <button onClick={()=>{ try{ sessionStorage.setItem('tsumugiEmergencyPreset','safe'); }catch{} navigateTo('emergency'); }} style={{padding:'8px 12px',background:'white',color:'#b91c1c',border:'none',borderRadius:10,fontSize:13,fontWeight:800,cursor:'pointer'}}>緊急連絡</button>
+                  <button onClick={()=>{ try{ sessionStorage.setItem('tsumugiEmergencyPreset','check'); }catch{} navigateTo('emergency'); }} style={{padding:'8px 12px',background:'white',color:'#b91c1c',border:'none',borderRadius:10,fontSize:13,fontWeight:800,cursor:'pointer'}}>安否確認</button>
+                  <button onClick={()=>dismissAlert(a.id)} style={{padding:'8px 12px',background:'transparent',color:'white',border:'1px solid rgba(255,255,255,.7)',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>解除</button>
+                </div>
+              </div>
+            ))}
+            <div style={{fontSize:10.5,opacity:.8,marginTop:2}}>出典: 気象庁（地震情報・津波警報・気象警報）。テレビ・スマホの緊急地震速報より遅れて表示されます。</div>
+          </div>
+        </div>, document.body)}
       {showToast && ReactDOM.createPortal(
         <div style={{position:'fixed',top:24,right:32,zIndex:99999}} className="bg-slate-900 text-white px-6 py-3 rounded-xl shadow-2xl flex items-center animate-bounce">
           <CheckCircle2 className="text-emerald-400 mr-2" />{toastMsg}
