@@ -31816,6 +31816,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const out = [];
     (appData.patients||[]).forEach(p => {
       if (isPatientResigned(p)) return;
+      // ★ 2026-09-19(店舗指摘): 利用開始日より前・利用終了日より後の日には出さない(月間スケジュール・日誌と同じ判定)
+      if (!isPatientActiveOnDate(p, iso)) return;
       const ov = appData.monthlyShifts?.[mk]?.[p.id]?.[`${dayNum}_${sl}`];
       const base = getScheduleOnDate(p, iso)?.[dow] || '';
       // ★ 2026-09-12b: 「1日」の方は午前の便で来るためAMのみ(PMのお迎えには出さない)
@@ -31849,6 +31851,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const out = [];
     (appData.patients||[]).forEach(p => {
       if (isPatientResigned(p)) return;
+      if (!isPatientActiveOnDate(p, iso)) return; // ★ 2026-09-19: 利用開始前・終了後は「休み」にも出さない
       const base = getScheduleOnDate(p, iso)?.[dow] || '';
       const baseHit = base === sl || (base === '1日' && sl === 'AM');
       if (!baseHit) return;
