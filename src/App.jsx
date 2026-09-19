@@ -889,6 +889,23 @@ const _KANA_ROWS = [
   ['ワ行', /^[わ-んワ-ン]/],
 ];
 const _sortKey = (p) => (p.kana || p.name || '').trim();
+// ★ 姓の一般的な読み(並び替え専用・2026-09-19): 担当ケアマネにふりがなが無い場合の五十音順の手がかり。表示には使わない(読みが複数ある姓があるため)。
+const _SURNAME_KANA = {
+  '相澤':'あいざわ','相沢':'あいざわ','青木':'あおき','青山':'あおやま','赤井':'あかい','秋山':'あきやま','浅井':'あさい','浅田':'あさだ','浅野':'あさの','安達':'あだち','阿部':'あべ','安部':'あべ','安藤':'あんどう','飯島':'いいじま','飯田':'いいだ','五十嵐':'いがらし','池田':'いけだ','池上':'いけがみ','石井':'いしい','石川':'いしかわ','石田':'いしだ','石塚':'いしづか','石橋':'いしばし','石原':'いしはら','磯部':'いそべ','市川':'いちかわ','伊藤':'いとう','伊東':'いとう','井上':'いのうえ','今井':'いまい','今村':'いまむら','岩崎':'いわさき','岩田':'いわた','岩本':'いわもと','上野':'うえの','上田':'うえだ','植田':'うえだ','内田':'うちだ','内山':'うちやま','臼倉':'うすくら','宇野':'うの','梅田':'うめだ','江口':'えぐち','遠藤':'えんどう','及川':'おいかわ','大石':'おおいし','大川':'おおかわ','大久保':'おおくぼ','大島':'おおしま','大谷':'おおたに','大塚':'おおつか','大西':'おおにし','大野':'おおの','大橋':'おおはし','大森':'おおもり','大藪':'おおやぶ','岡田':'おかだ','岡本':'おかもと','岡村':'おかむら','小川':'おがわ','沖田':'おきた','奥田':'おくだ','奥村':'おくむら','小倉':'おぐら','小澤':'おざわ','小沢':'おざわ','尾崎':'おざき','小野':'おの','小野寺':'おのでら','笠原':'かさはら','梶原':'かじわら','片山':'かたやま','加藤':'かとう','金子':'かねこ','鎌田':'かまた','神山':'かみやま','亀井':'かめい','川口':'かわぐち','川崎':'かわさき','川島':'かわしま','川村':'かわむら','河野':'こうの','菅野':'かんの','神田':'かんだ','菊池':'きくち','菊地':'きくち','岸本':'きしもと','北川':'きたがわ','北村':'きたむら','木下':'きのした','木村':'きむら','清野':'きよの','工藤':'くどう','久保':'くぼ','久保田':'くぼた','窪田':'くぼた','熊谷':'くまがい','栗原':'くりはら','黒田':'くろだ','桑原':'くわばら','小池':'こいけ','小泉':'こいずみ','小島':'こじま','児玉':'こだま','後藤':'ごとう','小林':'こばやし','小松':'こまつ','小山':'こやま','近藤':'こんどう','斎藤':'さいとう','斉藤':'さいとう','齋藤':'さいとう','齊藤':'さいとう','酒井':'さかい','坂井':'さかい','坂本':'さかもと','坂田':'さかた','桜井':'さくらい','櫻井':'さくらい','櫻田':'さくらだ','桜田':'さくらだ','佐々木':'ささき','佐藤':'さとう','佐野':'さの','澤田':'さわだ','沢田':'さわだ','塩田':'しおた','繁田':'しげた','篠原':'しのはら','柴田':'しばた','渋谷':'しぶや','島田':'しまだ','清水':'しみず','白石':'しらいし','菅原':'すがわら','杉本':'すぎもと','杉山':'すぎやま','鈴木':'すずき','須藤':'すどう','関口':'せきぐち','関根':'せきね','曽我':'そが','高木':'たかぎ','髙木':'たかぎ','高階':'たかしな','高田':'たかだ','高橋':'たかはし','髙橋':'たかはし','高野':'たかの','高村':'たかむら','髙村':'たかむら','高山':'たかやま','竹内':'たけうち','竹田':'たけだ','武田':'たけだ','田口':'たぐち','田島':'たじま','田中':'たなか','谷口':'たにぐち','田辺':'たなべ','田村':'たむら','千葉':'ちば','塚本':'つかもと','辻':'つじ','土屋':'つちや','坪井':'つぼい','手呂内':'てろうち','寺田':'てらだ','徳丸':'とくまる','戸田':'とだ','冨田':'とみた','富田':'とみた','豊田':'とよだ','内藤':'ないとう','永井':'ながい','永江':'ながえ','中川':'なかがわ','中島':'なかじま','中嶋':'なかじま','中里':'なかざと','中野':'なかの','中村':'なかむら','中山':'なかやま','成田':'なりた','西田':'にしだ','西村':'にしむら','西山':'にしやま','丹羽':'にわ','根本':'ねもと','野口':'のぐち','野田':'のだ','野村':'のむら','橋本':'はしもと','長谷川':'はせがわ','服部':'はっとり','浜田':'はまだ','濱田':'はまだ','林':'はやし','早川':'はやかわ','原':'はら','原田':'はらだ','彦根':'ひこね','平井':'ひらい','平田':'ひらた','平野':'ひらの','平山':'ひらやま','広瀬':'ひろせ','福井':'ふくい','福島':'ふくしま','福田':'ふくだ','藤井':'ふじい','藤田':'ふじた','藤本':'ふじもと','藤原':'ふじわら','古川':'ふるかわ','星野':'ほしの','細川':'ほそかわ','堀':'ほり','堀本':'ほりもと','本田':'ほんだ','前田':'まえだ','牧野':'まきの','増田':'ますだ','松井':'まつい','松浦':'まつうら','松岡':'まつおか','松田':'まつだ','松本':'まつもと','的野':'まとの','丸山':'まるやま','三浦':'みうら','水野':'みずの','溝上':'みぞかみ','宮内':'みやうち','宮崎':'みやざき','宮田':'みやた','宮本':'みやもと','村上':'むらかみ','村越':'むらこし','村田':'むらた','望月':'もちづき','森':'もり','森田':'もりた','森本':'もりもと','安田':'やすだ','柳':'やなぎ','矢野':'やの','山内':'やまうち','山口':'やまぐち','山崎':'やまざき','山下':'やました','山田':'やまだ','山中':'やまなか','山本':'やまもと','横田':'よこた','横山':'よこやま','吉川':'よしかわ','吉田':'よしだ','吉武':'よしたけ','吉長':'よしなが','吉村':'よしむら','吉岡':'よしおか','渡辺':'わたなべ','渡邊':'わたなべ','渡邉':'わたなべ','渡部':'わたべ','渡井':'わたい','和田':'わだ',
+};
+// 並び替えキー: 登録ふりがな → 姓の一般的な読み → '' (無い方は末尾に漢字順)
+const _cmSortKana = (c) => {
+  const k = (c && c.kana || '').trim(); if (k) return k;
+  const nm = (c && c.name || '').trim(); const sn = nm.split(/[\s　]+/)[0] || '';
+  if (/^[ぁ-んァ-ヶー]+$/.test(sn)) return nm;
+  return _SURNAME_KANA[sn] ? _SURNAME_KANA[sn] + ' ' + nm : '';
+};
+const sortCareManagersByKana = (list) => [...list].sort((a, b) => {
+  const ka = _cmSortKana(a), kb = _cmSortKana(b);
+  if (ka && kb) return ka.localeCompare(kb, 'ja');
+  if (ka !== kb) return ka ? -1 : 1;
+  return (a.name || '').localeCompare(b.name || '', 'ja');
+});
 const sortPatientsByKana = (list) => [...list].sort((a, b) => _sortKey(a).localeCompare(_sortKey(b), 'ja'));
 const groupPatientsByKanaRow = (list) => {
   const sorted = sortPatientsByKana(list);
@@ -38982,11 +38999,13 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
               if (officesWithMatchingMgr && !officesWithMatchingMgr.has(o.name)) return false;
               return true;
             });
-            const sortedOffices = [...filteredOffices].sort((a,b)=>(a.name||'').localeCompare(b.name||'', 'ja'));
+            const sortedOffices = [...filteredOffices].sort((a,b)=>((a.kana||a.name||'').localeCompare(b.kana||b.name||'', 'ja')));
             // ★ 法人ごとにグループ分け (法人名が空は「その他」)
+            const hasAnyCorp = cmOffices.some(o => (o.corporateName||'').trim());
             const officeGroups = (() => {
+              if (!hasAnyCorp) return [['', sortedOffices]];
               const m = new Map();
-              sortedOffices.forEach(o => { const k = (o.corporateName||'').trim() || '（法人名なし）'; if(!m.has(k)) m.set(k, []); m.get(k).push(o); });
+              sortedOffices.forEach(o => { const k = (o.corporateName||'').trim() || '法人名 未登録'; if(!m.has(k)) m.set(k, []); m.get(k).push(o); });
               return [...m.entries()].sort((a,b)=>a[0].localeCompare(b[0],'ja'));
             })();
             // 担当ケアマネ一覧: 事業所選択/検索で絞り込み + ケアマネ検索
@@ -38998,7 +39017,8 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
               return true;
             });
             // ★ ふりがな(kana)があればそれ優先で五十音順。 無ければ氏名で。
-            const sortedPersons = [...officeFilteredPersons].sort((a,b)=>((a.kana||a.name||'').localeCompare(b.kana||b.name||'', 'ja')));
+            const sortedPersons = sortCareManagersByKana(officeFilteredPersons);
+            const _noKanaN = sortedPersons.filter(p => !(p.kana||'').trim()).length;
             return (
               <div className="grid grid-cols-[40%_minmax(0,1fr)] gap-4 items-start">
                 <SectionCard title="ケアマネ事業所">
@@ -39061,11 +39081,11 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                     options={cmOffices.map((o,i)=>({key:'o'+i, label:o.name, sub:o.corporateName||''}))}
                     wrapStyle={{marginBottom:8}}
                     inputProps={{type:'text', placeholder:'事業所名・カナ・法人名で検索', className:'w-full px-3 py-2 border border-slate-300 rounded-lg outline-none text-sm font-bold focus:border-blue-400'}}/>
-                  <div className="text-xs text-slate-500 mb-2 px-1">{sortedOffices.length}/{cmOffices.length}件・法人ごと {selectedOfficeIdx!==null && <button onClick={()=>setSelectedOfficeIdx(null)} className="ml-2 text-blue-600 hover:underline">× 選択解除</button>}</div>
+                  <div className="text-xs text-slate-500 mb-2 px-1">{sortedOffices.length}/{cmOffices.length}件・あいうえお順{hasAnyCorp ? '・法人ごと' : ''} {selectedOfficeIdx!==null && <button onClick={()=>setSelectedOfficeIdx(null)} className="ml-2 text-blue-600 hover:underline">× 選択解除</button>}</div>
                   {sortedOffices.length === 0 ? <div className="text-slate-400 text-sm font-bold bg-slate-50 p-4 rounded-xl border text-center">{cmOffices.length===0?'登録なし':'該当なし'}</div> : (
                     <div className="space-y-3 max-h-[62vh] overflow-y-auto pr-1">{officeGroups.map(([corp, offices]) => (
                       <div key={corp}>
-                        <div className="text-[11px] font-bold text-slate-400 px-1 pb-1 border-b border-slate-100 mb-1.5 sticky top-0 bg-white">{corp} <span className="text-slate-300">({offices.length})</span></div>
+                        {corp && <div className="text-[11px] font-bold text-slate-400 px-1 pb-1 border-b border-slate-100 mb-1.5 sticky top-0 bg-white">{corp} <span className="text-slate-300">({offices.length})</span></div>}
                         <div className="space-y-1.5">{offices.map(o => {
                           const sel = selectedOfficeIdx === o.origIdx;
                           return (
@@ -39090,7 +39110,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                     options={cmPersons.map((c,i)=>({key:'m'+i, label:c.name, sub:c.office||''}))}
                     wrapStyle={{marginBottom:8}}
                     inputProps={{type:'text', placeholder:'担当者名で検索 (該当者の事業所も左で絞り込み)', className:'w-full px-3 py-2 border border-slate-300 rounded-lg outline-none text-sm font-bold focus:border-blue-400'}}/>
-                  <div className="text-xs text-slate-500 mb-2 px-1">{sortedPersons.length}件{selOffice?`（${selOffice.name}）`:'（全事業所）'}・あいうえお順</div>
+                  <div className="text-xs text-slate-500 mb-2 px-1">{sortedPersons.length}件{selOffice?`（${selOffice.name}）`:'（全事業所）'}・あいうえお順{_noKanaN>0 && <span className="text-amber-600">（ふりがな未登録 {_noKanaN}名は姓の一般的な読みで並べています。編集からふりがなを登録すると正確になります）</span>}</div>
                   {sortedPersons.length === 0 ? <div className="text-slate-400 text-sm font-bold bg-slate-50 p-4 rounded-xl border text-center">登録なし</div> : (
                     <div className="space-y-1.5 max-h-[62vh] overflow-y-auto pr-1">{sortedPersons.map((p,i)=>{
                       const origIdx = cmPersons.findIndex(x => x === p);
@@ -39099,7 +39119,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                         <div key={i} className="bg-white border border-slate-200 shadow-sm p-2.5 rounded-lg">
                           <div className="flex items-center justify-between">
                             <div className="flex-1 min-w-0">
-                              {p.kana && <div className="text-[10px] text-slate-400 truncate leading-tight">{p.kana}</div>}
+                              {p.kana ? <div className="text-[10px] text-slate-400 truncate leading-tight">{p.kana}</div> : <div className="text-[10px] text-amber-600 truncate leading-tight">ふりがな未登録{_cmSortKana(p) ? '' : '（並び順の手がかりなし・末尾に表示）'}</div>}
                               <div className="font-bold text-sm text-slate-800 truncate">{p.name}</div>
                               <div className="text-[11px] text-slate-500 truncate">{p.office} / {p.phone||'-'}</div>
                             </div>
