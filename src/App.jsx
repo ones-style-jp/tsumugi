@@ -12103,7 +12103,205 @@ function ScheduleView({ appData, onSave, navigateTo }) {
 //   店舗が件名・本文を入力し、①ご家族(利用中の方の家族アカウント)・②担当ケアマネ(登録メール)へ一斉メール(/api/notify-batch)、
 //   ③家族画面のお知らせ(familyAnnouncements)にも同時掲載。LINEは店舗数×家族数で費用が跳ねるためメール+Webの2経路。
 //   家族アカウントはクラウド同期の対象外(sanitizeForSync)なので、店舗単位でSupabaseから取得する。
-function EmergencyNoticeView({ appData, onSave, staffSession }) {
+// ★ 「今の時間帯に通所中の方」の判定(緊急連絡・安否一覧で共用)。
+//   本日の提供記録(出席/振替/臨時=通所・欠席/休業/休止=不在)を最優先、無ければ月間スケジュール→基本利用曜日(休止期間は除外)。
+const SAFETY_OPTIONS = [['ok', '無事'], ['evac', '避難済み（無事）'], ['hurt', 'ケガ・体調不良'], ['unknown', '未確認']];
+const computeAttendingNow = (appData) => {
+  const now = new Date();
+  const slot = now.getHours() < 13 ? 'AM' : 'PM';
+  const dow = now.getDay(), dayNum = now.getDate();
+  const iso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+  const mk = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const dateJp = `${now.getMonth() + 1}月${dayNum}日`;
+  const recToday = new Map((appData.ticketRecords || []).filter(r => r && r.date === dateJp && String(r.year ?? now.getFullYear()) === String(now.getFullYear())).map(r => [String(r.patientId), r]));
+  const set = new Set();
+  (appData.patients || []).filter(p => p.status === '利用中').forEach(p => {
+    const rec = recToday.get(String(p.id));
+    if (rec && ['欠席', '休業', '休止'].includes(rec.status)) return;
+    if (rec && ['出席', '振替', '臨時'].includes(rec.status)) { set.add(String(p.id)); return; }
+    const ov = appData.monthlyShifts?.[mk]?.[p.id]?.[`${dayNum}_${slot}`];
+    let att;
+    if (ov !== undefined && ov !== '') att = (ov === '〇' || ov === '出席' || ov === '臨時' || String(ov).startsWith('振'));
+    else { const base = (getScheduleOnDate(p, iso) || {})[dow] || ''; att = (base === slot || base === '1日'); }
+    if (att && !getPauseReasonOnDate(p, iso)) set.add(String(p.id));
+  });
+  return { set, slot };
+};
+// ★ 防災(BCP)設定の既定値: systemSettings.bcp に保存(項目別同期の保護が自動で効く)
+const DEFAULT_BCP = { evacTemp: [], evacMain: [], hazardUrl: '', procedure: '', stocks: [], stockPlaces: '' };
+const getBcp = (appData) => ({ ...DEFAULT_BCP, ...((appData.systemSettings || {}).bcp || {}) });
+
+// ★ 災害時ハブ(2026-09-19 店舗提案): 速報が来なくても、サイドバー「災害時」から 緊急連絡／安否・連絡先一覧／避難場所・ハザードマップ／備蓄 に即アクセス
+function DisasterView({ appData, onSave, staffSession }) {
+  const [tab, setTab] = useState(() => { try { const t = sessionStorage.getItem('tsumugiDisasterTab'); sessionStorage.removeItem('tsumugiDisasterTab'); return t || 'safety'; } catch { return 'safety'; } });
+  const [safety, setSafety] = useState({});
+  const [place, setPlace] = useState('');
+  const [scope, setScope] = useState('now');
+  const bcp = getBcp(appData);
+  const [draft, setDraft] = useState(bcp);
+  const [editing, setEditing] = useState(false);
+  const saveBcp = (next) => { onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), bcp: next } }, { manual: true, message: '✓ 防災の設定を保存しました' }); setEditing(false); };
+  const { set: attendingNow, slot } = computeAttendingNow(appData);
+  const activePats = sortPatientsByKana((appData.patients || []).filter(p => p.status === '利用中'));
+  const pats = activePats.filter(p => scope === 'all' ? true : scope === 'now' ? attendingNow.has(String(p.id)) : !attendingNow.has(String(p.id)));
+  const evacOptions = [...(bcp.evacTemp || []).map(e => ({ ...e, kind: '一時' })), ...(bcp.evacMain || []).map(e => ({ ...e, kind: '指定' }))];
+  const fi = appData.systemSettings?.facilityInfo || {};
+  const esc = (t) => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const contactsOf = (p) => { try { return getAllContacts(p) || []; } catch { return []; } };
+  const printList = () => {
+    const rows = pats.map(p => {
+      const cs = contactsOf(p).slice(0, 2).map(c => `${esc(c.name || '')}${c.relation ? `(${esc(c.relation)})` : ''} ${esc(c.phoneMobile || c.phone || '')}`).join('<br/>');
+      const st = (SAFETY_OPTIONS.find(x => x[0] === safety[String(p.id)]) || [])[1] || '';
+      return `<tr><td>${esc(p.name)}</td><td>${esc(st)}</td><td>${esc([p.address, p.addressBuilding, p.addressRoom].filter(Boolean).join(' '))}</td><td>${esc(p.phoneMobile || p.phone || '')}</td><td>${cs}</td><td>${esc(p.cmOffice || '')}<br/>${esc(p.cmName || '')} ${esc(p.cmPhone || '')}</td></tr>`;
+    }).join('');
+    const html = `<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;width:275mm;margin:4mm auto 0;font-size:11px;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;"><b style="font-size:15px;">災害時 利用者連絡先・安否一覧（${esc(fi.name || '')}）</b><span>${new Date().toLocaleString('ja-JP')} ／ 対象: ${scope === 'now' ? `通所中(${slot === 'AM' ? '午前' : '午後'})` : scope === 'others' ? '在宅' : '全員'} ${pats.length}名</span></div>
+      <table style="border-collapse:collapse;width:100%;table-layout:fixed;"><colgroup><col style="width:13%"/><col style="width:10%"/><col style="width:25%"/><col style="width:12%"/><col style="width:22%"/><col style="width:18%"/></colgroup>
+      <thead><tr style="background:#eef0ed;">${['氏名', '安否', '住所', '電話', '緊急連絡先', '担当ケアマネ'].map(h => `<th style="border:1px solid #999;padding:3px;">${h}</th>`).join('')}</tr></thead>
+      <tbody>${rows.replace(/<td>/g, '<td style="border:1px solid #999;padding:3px;vertical-align:top;">')}</tbody></table>
+      <div style="font-size:9px;color:#555;margin-top:6px;">※ 個人情報を含みます。取り扱いにご注意ください。</div></div>`;
+    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: '災害時_連絡先一覧', pageSize: 'A4 landscape', html, elementId: null } }));
+  };
+  const TabBtn = ({ id, label }) => <button type="button" onClick={() => setTab(id)} className={`px-3 py-2 rounded-xl text-sm font-bold border ${tab === id ? 'bg-red-600 text-white border-red-600' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`}>{label}</button>;
+  const chip = (k) => k === 'ok' ? 'bg-emerald-600 border-emerald-600 text-white' : k === 'evac' ? 'bg-sky-600 border-sky-600 text-white' : k === 'hurt' ? 'bg-red-600 border-red-600 text-white' : 'bg-slate-600 border-slate-600 text-white';
+  const inp = 'w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none';
+  const listEditor = (key, label, hint) => (
+    <div className="mb-4">
+      <div className="text-xs font-bold text-slate-600 mb-1">{label} <span className="font-normal text-slate-400">{hint}</span></div>
+      {(draft[key] || []).map((e, i) => (
+        <div key={e.id || i} className="grid grid-cols-[1fr_1.4fr_1fr_auto] gap-2 mb-1">
+          <input value={e.name || ''} onChange={ev => setDraft(d => ({ ...d, [key]: d[key].map((x, j) => j === i ? { ...x, name: ev.target.value } : x) }))} placeholder="名称(例: ○○公園)" className={inp} />
+          <input value={e.address || ''} onChange={ev => setDraft(d => ({ ...d, [key]: d[key].map((x, j) => j === i ? { ...x, address: ev.target.value } : x) }))} placeholder="住所・場所" className={inp} />
+          <input value={e.note || ''} onChange={ev => setDraft(d => ({ ...d, [key]: d[key].map((x, j) => j === i ? { ...x, note: ev.target.value } : x) }))} placeholder="備考(徒歩○分・開設条件など)" className={inp} />
+          <button type="button" onClick={() => setDraft(d => ({ ...d, [key]: d[key].filter((_, j) => j !== i) }))} className="px-2 text-red-600 text-xs font-bold">削除</button>
+        </div>
+      ))}
+      <button type="button" onClick={() => setDraft(d => ({ ...d, [key]: [...(d[key] || []), { id: `ev${Date.now()}`, name: '', address: '', note: '' }] }))} className="text-xs font-bold text-blue-700">＋ 追加</button>
+    </div>
+  );
+  return (
+    <div className="flex flex-col h-full">
+      <div className="sticky top-0 z-20 bg-red-50 border-b border-red-200 px-4 py-2 flex items-center gap-2 flex-wrap">
+        <AlertTriangle size={18} className="text-red-600" />
+        <TabBtn id="safety" label="安否・連絡先一覧" />
+        <TabBtn id="notice" label="緊急連絡（メール・お知らせ）" />
+        <TabBtn id="evac" label="避難場所・ハザードマップ" />
+        <TabBtn id="stock" label="備蓄" />
+        <span className="ml-auto text-[11px] text-red-800">速報が来なくても、この画面から対応できます</span>
+      </div>
+      {tab === 'notice' && <EmergencyNoticeView appData={appData} onSave={onSave} staffSession={staffSession} safety={safety} setSafety={setSafety} place={place} setPlace={setPlace} evacOptions={evacOptions} />}
+      {tab === 'safety' && (
+        <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+          <div className="max-w-6xl mx-auto">
+            <div className="flex items-center gap-2 flex-wrap mb-3">
+              {[['now', `通所中（${slot === 'AM' ? '午前' : '午後'}）`, attendingNow.size], ['others', '在宅', activePats.length - attendingNow.size], ['all', '全員', activePats.length]].map(([k, lb, n]) => (
+                <button key={k} type="button" onClick={() => setScope(k)} className={`px-3 py-1.5 rounded-lg text-sm font-bold border ${scope === k ? 'bg-red-50 border-red-300 text-red-800' : 'bg-white border-slate-300 text-slate-700'}`}>{lb} {n}名</button>
+              ))}
+              <div className="ml-auto flex gap-1 flex-wrap">
+                <button type="button" onClick={() => setSafety(s => { const n = { ...s }; pats.forEach(p => { n[String(p.id)] = 'ok'; }); return n; })} className="px-2 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold">全員 無事</button>
+                <button type="button" onClick={() => setSafety(s => { const n = { ...s }; pats.forEach(p => { n[String(p.id)] = 'evac'; }); return n; })} className="px-2 py-1.5 rounded-lg bg-sky-600 text-white text-xs font-bold">全員 避難済み</button>
+                <button type="button" onClick={() => setSafety({})} className="px-2 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-600 text-xs font-bold">クリア</button>
+                <button type="button" onClick={printList} className="px-2 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-700 text-xs font-bold">印刷</button>
+                <button type="button" onClick={() => setTab('notice')} className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold">この安否でご家族へ連絡 →</button>
+              </div>
+            </div>
+            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-xs text-slate-600"><tr><th className="text-left px-3 py-2">氏名</th><th className="text-left px-3 py-2">安否</th><th className="text-left px-3 py-2">住所</th><th className="text-left px-3 py-2">電話</th><th className="text-left px-3 py-2">緊急連絡先</th><th className="text-left px-3 py-2">担当ケアマネ</th></tr></thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {pats.map(p => { const k = String(p.id); const st = safety[k] || ''; const cs = contactsOf(p).slice(0, 2); return (
+                      <tr key={k} className="align-top">
+                        <td className="px-3 py-2 font-bold text-slate-800 whitespace-nowrap">{p.name}</td>
+                        <td className="px-3 py-2"><div className="flex gap-1 flex-wrap">{SAFETY_OPTIONS.map(([key, lb]) => <button key={key} type="button" onClick={() => setSafety(s => ({ ...s, [k]: s[k] === key ? '' : key }))} className={`px-2 py-1 rounded-lg text-xs font-bold border ${st === key ? chip(key) : 'bg-white border-slate-300 text-slate-600'}`}>{lb}</button>)}</div></td>
+                        <td className="px-3 py-2 text-xs text-slate-700">{[p.address, p.addressBuilding, p.addressRoom].filter(Boolean).join(' ')}</td>
+                        <td className="px-3 py-2 text-xs whitespace-nowrap">{(p.phoneMobile || p.phone) ? <a href={`tel:${(p.phoneMobile || p.phone).replace(/[^0-9+]/g, '')}`} className="text-blue-700 font-bold">{p.phoneMobile || p.phone}</a> : <span className="text-slate-300">—</span>}</td>
+                        <td className="px-3 py-2 text-xs">{cs.length ? cs.map((c, i) => <div key={i}>{c.name || ''}{c.relation ? `(${c.relation})` : ''} {(c.phoneMobile || c.phone) && <a href={`tel:${String(c.phoneMobile || c.phone).replace(/[^0-9+]/g, '')}`} className="text-blue-700 font-bold">{c.phoneMobile || c.phone}</a>}</div>) : <span className="text-slate-300">—</span>}</td>
+                        <td className="px-3 py-2 text-xs">{p.cmOffice || p.cmName ? <div>{p.cmOffice}<br/>{p.cmName} {p.cmPhone && <a href={`tel:${String(p.cmPhone).replace(/[^0-9+]/g, '')}`} className="text-blue-700 font-bold">{p.cmPhone}</a>}</div> : <span className="text-slate-300">—</span>}</td>
+                      </tr>
+                    ); })}
+                    {!pats.length && <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-400 text-sm">対象の利用者がいません</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div className="text-[11px] text-slate-500 mt-2">電話番号をタップすると発信できます（タブレット・スマホ）。安否をここで選ぶと、「緊急連絡」タブの文面にそのまま入ります。</div>
+          </div>
+        </div>
+      )}
+      {tab === 'evac' && (
+        <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+          <div className="max-w-4xl mx-auto space-y-4">
+            <div className="bg-white rounded-2xl border border-slate-200 p-4">
+              <div className="flex items-center gap-2 mb-3"><div className="text-sm font-bold text-slate-800">避難場所</div><div className="ml-auto flex gap-2">{editing ? <><button type="button" onClick={() => saveBcp(draft)} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold">保存</button><button type="button" onClick={() => { setDraft(bcp); setEditing(false); }} className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-600 text-xs font-bold">やめる</button></> : <button type="button" onClick={() => { setDraft(bcp); setEditing(true); }} className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-700 text-xs font-bold">編集</button>}</div></div>
+              {editing ? (
+                <>
+                  {listEditor('evacTemp', '一時避難場所', '（近くの公園など。学校等の指定避難所は開設されるまで使えないため、まずここへ）')}
+                  {listEditor('evacMain', '指定避難所', '（自治体が開設する学校・公民館など。開設後に移動）')}
+                  <div className="text-xs font-bold text-slate-600 mb-1">ハザードマップのリンク <span className="font-normal text-slate-400">（自治体のページや国土地理院ポータルなど）</span></div>
+                  <input value={draft.hazardUrl || ''} onChange={e => setDraft(d => ({ ...d, hazardUrl: e.target.value }))} placeholder="https://disaportal.gsi.go.jp/" className={inp + ' mb-3'} />
+                  <div className="text-xs font-bold text-slate-600 mb-1">避難の手順・役割分担メモ</div>
+                  <textarea value={draft.procedure || ''} onChange={e => setDraft(d => ({ ...d, procedure: e.target.value }))} rows={6} placeholder={'例:\n1. 揺れが収まるまで机の下・頭を守る\n2. 職員Aが出口確保、職員Bが利用者の点呼\n3. 一時避難場所(○○公園)へ、車いすの方は職員2名で\n4. 本部・ご家族へ緊急連絡'} className={inp + ' leading-relaxed'} />
+                </>
+              ) : (
+                <>
+                  <div className="grid md:grid-cols-2 gap-3">
+                    {[['一時避難場所（まずここへ）', bcp.evacTemp], ['指定避難所（開設後）', bcp.evacMain]].map(([lb, list]) => (
+                      <div key={lb} className="border border-slate-200 rounded-xl p-3">
+                        <div className="text-xs font-bold text-slate-600 mb-1">{lb}</div>
+                        {(list || []).length ? (list || []).map((e, i) => <div key={e.id || i} className="text-sm text-slate-800 mb-1"><b>{e.name}</b>{e.address && <span className="text-slate-600"> — {e.address}</span>}{e.note && <div className="text-xs text-slate-500">{e.note}</div>}</div>) : <div className="text-xs text-slate-400">未登録（「編集」から登録してください）</div>}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex gap-2 flex-wrap">
+                    <a href={bcp.hazardUrl || 'https://disaportal.gsi.go.jp/'} target="_blank" rel="noopener" className="px-3 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold">ハザードマップを開く</a>
+                    {fi.address && <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent('避難所 ' + fi.address)}`} target="_blank" rel="noopener" className="px-3 py-2 rounded-xl bg-white border border-slate-300 text-slate-700 text-sm font-bold">近くの避難所を地図で探す</a>}
+                  </div>
+                  {bcp.procedure && <div className="mt-3 text-sm text-slate-800 whitespace-pre-wrap bg-slate-50 border border-slate-200 rounded-xl p-3">{bcp.procedure}</div>}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {tab === 'stock' && (
+        <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+          <div className="max-w-4xl mx-auto">
+            <div className="bg-white rounded-2xl border border-slate-200 p-4">
+              <div className="flex items-center gap-2 mb-3"><div className="text-sm font-bold text-slate-800">備蓄品と保管場所</div><div className="ml-auto flex gap-2">{editing ? <><button type="button" onClick={() => saveBcp(draft)} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold">保存</button><button type="button" onClick={() => { setDraft(bcp); setEditing(false); }} className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-600 text-xs font-bold">やめる</button></> : <button type="button" onClick={() => { setDraft(bcp); setEditing(true); }} className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-700 text-xs font-bold">編集</button>}</div></div>
+              {editing ? (
+                <>
+                  <div className="text-xs font-bold text-slate-600 mb-1">保管場所の説明 <span className="font-normal text-slate-400">（例: 2階倉庫の右棚／事務所の防災BOX）</span></div>
+                  <input value={draft.stockPlaces || ''} onChange={e => setDraft(d => ({ ...d, stockPlaces: e.target.value }))} className={inp + ' mb-3'} />
+                  <div className="grid grid-cols-[1.4fr_.6fr_.5fr_1fr_.9fr_auto] gap-2 text-[11px] font-bold text-slate-500 mb-1"><div>品名</div><div>数量</div><div>単位</div><div>保管場所</div><div>期限</div><div></div></div>
+                  {(draft.stocks || []).map((s, i) => (
+                    <div key={s.id || i} className="grid grid-cols-[1.4fr_.6fr_.5fr_1fr_.9fr_auto] gap-2 mb-1">
+                      {[['item', '例: 飲料水'], ['qty', '例: 60'], ['unit', '本'], ['place', '例: 2階倉庫'], ['expires', '2027-03']].map(([f, ph]) => <input key={f} value={s[f] || ''} onChange={ev => setDraft(d => ({ ...d, stocks: d.stocks.map((x, j) => j === i ? { ...x, [f]: ev.target.value } : x) }))} placeholder={ph} className={inp} />)}
+                      <button type="button" onClick={() => setDraft(d => ({ ...d, stocks: d.stocks.filter((_, j) => j !== i) }))} className="px-2 text-red-600 text-xs font-bold">削除</button>
+                    </div>
+                  ))}
+                  <button type="button" onClick={() => setDraft(d => ({ ...d, stocks: [...(d.stocks || []), { id: `st${Date.now()}`, item: '', qty: '', unit: '', place: '', expires: '' }] }))} className="text-xs font-bold text-blue-700">＋ 追加</button>
+                </>
+              ) : (
+                <>
+                  {bcp.stockPlaces && <div className="text-sm text-slate-700 mb-2"><b>保管場所:</b> {bcp.stockPlaces}</div>}
+                  {(bcp.stocks || []).length ? (
+                    <table className="w-full text-sm"><thead className="bg-slate-50 text-xs text-slate-600"><tr><th className="text-left px-2 py-1">品名</th><th className="text-right px-2 py-1">数量</th><th className="text-left px-2 py-1">保管場所</th><th className="text-left px-2 py-1">期限</th></tr></thead>
+                      <tbody className="divide-y divide-slate-100">{(bcp.stocks || []).map((s, i) => { const soon = s.expires && (new Date(String(s.expires).length === 7 ? s.expires + '-01' : s.expires) - Date.now()) < 60 * 86400000; return (
+                        <tr key={s.id || i}><td className="px-2 py-1 font-bold text-slate-800">{s.item}</td><td className="px-2 py-1 text-right">{s.qty}{s.unit}</td><td className="px-2 py-1 text-slate-700">{s.place}</td><td className={`px-2 py-1 ${soon ? 'text-red-700 font-bold' : 'text-slate-700'}`}>{s.expires}{soon ? '（要確認）' : ''}</td></tr>
+                      ); })}</tbody></table>
+                  ) : <div className="text-xs text-slate-400">未登録（「編集」から登録してください）</div>}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EmergencyNoticeView({ appData, onSave, staffSession, safety: safetyProp, setSafety: setSafetyProp, place: placeProp, setPlace: setPlaceProp, evacOptions = [] }) {
   const fi = appData.systemSettings?.facilityInfo || {};
   const facility = fi.name || 'つむぎ';
   const _t = new Date();
@@ -12111,7 +12309,8 @@ function EmergencyNoticeView({ appData, onSave, staffSession }) {
   const todayIso = `${_t.getFullYear()}-${String(_t.getMonth()+1).padStart(2,'0')}-${String(_t.getDate()).padStart(2,'0')}`;
   const [subject, setSubject] = useState('');
   const [text, setText] = useState('');
-  const [place, setPlace] = useState('');
+  const [placeLocal, setPlaceLocal] = useState('');
+  const place = placeProp ?? placeLocal; const setPlace = setPlaceProp || setPlaceLocal;
   const [toFamily, setToFamily] = useState(true);
   const [toCm, setToCm] = useState(true);
   const [postNotice, setPostNotice] = useState(true);
@@ -12132,31 +12331,14 @@ function EmergencyNoticeView({ appData, onSave, staffSession }) {
   // ★ 2026-09-19(店舗提案): 「今の時間帯に通所中の方」を判定。避難完了などは事業所が無事を保証できる通所中の方の
   //   ご家族だけに送り、通所していない方には「安否確認のお願い」を別に送れるようにする。
   //   判定= 本日の提供記録(出席/振替/臨時=通所・欠席/休業/休止=不在)を最優先、無ければ月間スケジュール→基本利用曜日(休止期間は除外)。
-  const _now = new Date();
-  const _slot = _now.getHours() < 13 ? 'AM' : 'PM';
-  const attendingNow = (() => {
-    const dow = _now.getDay(), dayNum = _now.getDate();
-    const mk = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}`;
-    const dateJp = `${_now.getMonth() + 1}月${dayNum}日`;
-    const recToday = new Map((appData.ticketRecords || []).filter(r => r && r.date === dateJp && String(r.year ?? _now.getFullYear()) === String(_now.getFullYear())).map(r => [String(r.patientId), r]));
-    const set = new Set();
-    activePats.forEach(p => {
-      const rec = recToday.get(String(p.id));
-      if (rec && ['欠席', '休業', '休止'].includes(rec.status)) return;
-      if (rec && ['出席', '振替', '臨時'].includes(rec.status)) { set.add(String(p.id)); return; }
-      const ov = appData.monthlyShifts?.[mk]?.[p.id]?.[`${dayNum}_${_slot}`];
-      let att;
-      if (ov !== undefined && ov !== '') att = (ov === '〇' || ov === '出席' || ov === '臨時' || String(ov).startsWith('振'));
-      else { const base = (getScheduleOnDate(p, todayIso) || {})[dow] || ''; att = (base === _slot || base === '1日'); }
-      if (att && !getPauseReasonOnDate(p, todayIso)) set.add(String(p.id));
-    });
-    return set;
-  })();
+  const { set: attendingNow, slot: _slot } = computeAttendingNow(appData);
   const [scope, setScope] = useState('now'); // 'now'=通所中の方 / 'others'=通所していない方 / 'all'=全員
   // ★ 2026-09-19(店舗提案): 安否は文章を書かず「名前を見てタップで選ぶ」。選んだ結果からご家族ごとの文面を自動生成する。
-  const SAFETY = [['ok', '無事'], ['evac', '避難済み（無事）'], ['hurt', 'ケガ・体調不良'], ['unknown', '未確認']];
+  //   安否の状態はハブ画面(DisasterView)と共有(安否・連絡先一覧タブで選んだ内容がそのまま使える)。
+  const SAFETY = SAFETY_OPTIONS;
   const safetyLabel = (k) => (SAFETY.find(x => x[0] === k) || [])[1] || '';
-  const [safety, setSafety] = useState({}); // {pid: 'ok'|'evac'|'hurt'|'unknown'}
+  const [safetyLocal, setSafetyLocal] = useState({});
+  const safety = safetyProp || safetyLocal; const setSafety = setSafetyProp || setSafetyLocal; // {pid: 'ok'|'evac'|'hurt'|'unknown'}
   const statusLine = (pid) => { const st = safety[String(pid)]; if (!st) return ''; const nm = pname(pid) || '利用者'; const pl = (st === 'evac' && place) ? `（避難先: ${place}）` : ''; return `${nm} 様: ${safetyLabel(st)}${pl}`; };
   const scopedPid = new Set([...activePid].filter(pid => scope === 'all' ? true : scope === 'now' ? attendingNow.has(pid) : !attendingNow.has(pid)));
   const scopedPats = activePats.filter(p => scopedPid.has(String(p.id)));
@@ -12287,7 +12469,16 @@ function EmergencyNoticeView({ appData, onSave, staffSession }) {
                 <div className="px-3 py-1.5 text-[11px] text-slate-500 bg-slate-50 border-t border-slate-200">選んだ方は、ご家族へのメールと家族画面のお知らせに「○○様: 無事（避難先: …）」の行が自動で入ります。ケアマネには担当の方の一覧が入ります。</div>
               </div>
               <label className="block text-xs font-bold text-slate-600 mb-1">避難場所（「避難完了」の定型文と「避難済み」の方の状況に入ります）</label>
-              <input value={place} onChange={e => setPlace(e.target.value)} placeholder="例: ○○小学校 体育館" className={inp + ' mb-3'} />
+              {/* ★ 避難場所は登録済み(一時避難場所/指定避難所)から選ぶ＋その他は自由記述 */}
+              <div className="flex gap-2 mb-3 flex-wrap">
+                {evacOptions.length > 0 && (
+                  <select value={evacOptions.some(e => e.name === place) ? place : ''} onChange={e => setPlace(e.target.value)} className={inp + ' md:w-1/2'}>
+                    <option value="">（登録済みの避難場所から選ぶ）</option>
+                    {evacOptions.map(e => <option key={e.id || e.name} value={e.name}>{e.kind === '一時' ? '一時避難場所' : '指定避難所'}: {e.name}{e.address ? `（${e.address}）` : ''}</option>)}
+                  </select>
+                )}
+                <input value={place} onChange={e => setPlace(e.target.value)} placeholder={evacOptions.length ? 'その他の場合はここに入力' : '例: ○○公園（登録は「避難場所・ハザードマップ」タブから）'} className={inp + ' flex-1'} />
+              </div>
               <label className="block text-xs font-bold text-slate-600 mb-1">件名</label>
               <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="例: 【重要】避難完了と皆さまの無事のご連絡" className={inp + ' mb-3'} maxLength={100} />
               <label className="block text-xs font-bold text-slate-600 mb-1">本文</label>
@@ -20757,8 +20948,8 @@ export default function App() {
                 </div>
                 <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
                   <a href="https://disaportal.gsi.go.jp/" target="_blank" rel="noopener" style={{padding:'8px 12px',background:'rgba(255,255,255,.18)',color:'white',borderRadius:10,fontSize:13,fontWeight:700,textDecoration:'none'}}>ハザードマップ</a>
-                  <button onClick={()=>{ try{ sessionStorage.setItem('tsumugiEmergencyPreset','safe'); }catch{} navigateTo('emergency'); }} style={{padding:'8px 12px',background:'white',color:'#b91c1c',border:'none',borderRadius:10,fontSize:13,fontWeight:800,cursor:'pointer'}}>緊急連絡</button>
-                  <button onClick={()=>{ try{ sessionStorage.setItem('tsumugiEmergencyPreset','check'); }catch{} navigateTo('emergency'); }} style={{padding:'8px 12px',background:'white',color:'#b91c1c',border:'none',borderRadius:10,fontSize:13,fontWeight:800,cursor:'pointer'}}>安否確認</button>
+                  <button onClick={()=>{ try{ sessionStorage.setItem('tsumugiEmergencyPreset','safe'); sessionStorage.setItem('tsumugiDisasterTab','notice'); }catch{} navigateTo('emergency'); }} style={{padding:'8px 12px',background:'white',color:'#b91c1c',border:'none',borderRadius:10,fontSize:13,fontWeight:800,cursor:'pointer'}}>緊急連絡</button>
+                  <button onClick={()=>{ try{ sessionStorage.setItem('tsumugiDisasterTab','safety'); }catch{} navigateTo('emergency'); }} style={{padding:'8px 12px',background:'white',color:'#b91c1c',border:'none',borderRadius:10,fontSize:13,fontWeight:800,cursor:'pointer'}}>安否確認</button>
                   <button onClick={()=>dismissAlert(a.id)} style={{padding:'8px 12px',background:'transparent',color:'white',border:'1px solid rgba(255,255,255,.7)',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>解除</button>
                 </div>
               </div>
@@ -21152,7 +21343,7 @@ export default function App() {
                 </SidebarGroup>
                 <SidebarItem icon={<QrCode size={18} />} label="お知らせ・閲覧管理" active={currentView === 'family_admin'} onClick={() => navigateTo('family_admin')} />
                 {/* ★ 2026-09-18 運営推進会議の要望: 災害時にご家族・ケアマネへ一斉メール+家族画面お知らせ */}
-                <SidebarItem icon={<AlertTriangle size={18} />} label="緊急連絡（災害時）" active={currentView === 'emergency'} onClick={() => navigateTo('emergency')} />
+                <SidebarItem icon={<AlertTriangle size={18} />} label="災害時" active={currentView === 'emergency'} onClick={() => navigateTo('emergency')} />
                 <SidebarItem icon={<Settings size={18} />} label="各種設定" active={currentView === 'settings'} onClick={() => navigateTo('settings')} />
                 {/* ★ 不具合レポート (管理者のみ) */}
                 {activeRecorder && isMemberAdmin(activeRecorder, appData.systemSettings) && (
@@ -21197,7 +21388,7 @@ export default function App() {
                  currentView === 'dash_personal' ? '分析（個人）' :
                  currentView === 'dash_operation' ? '分析（稼働）' :
                  currentView === 'family_admin' ? '家族関係者閲覧 管理' :
-                 currentView === 'emergency' ? '緊急連絡（災害時）' :
+                 currentView === 'emergency' ? '災害時' :
                  currentView === 'cmmaster' ? 'ケアマネ事業所・担当者' :
                  currentView === 'settings' ? '各種設定' : 'システム画面'}
               </h1>
@@ -21290,7 +21481,7 @@ export default function App() {
              currentView === 'settings' ? <SettingsView appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} isSuperAdmin={staffSession?.role === 'super_admin'} isAdmin={staffSession?.role === 'super_admin' || staffSession?.role === 'manager'} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} deviceName={deviceName} updateDeviceName={updateDeviceName} lastSync={appData._lastSync} /> :
              currentView === 'cmmaster' ? <SettingsView cmOnly appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} isSuperAdmin={staffSession?.role === 'super_admin'} isAdmin={staffSession?.role === 'super_admin' || staffSession?.role === 'manager'} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} deviceName={deviceName} updateDeviceName={updateDeviceName} lastSync={appData._lastSync} /> :
              currentView === 'family_admin' ? <FamilyAdminView appData={appData} onSave={handleSaveToCloud} /> :
-             currentView === 'emergency' ? <EmergencyNoticeView appData={appData} onSave={handleSaveToCloud} staffSession={staffSession} /> :
+             currentView === 'emergency' ? <DisasterView appData={appData} onSave={handleSaveToCloud} staffSession={staffSession} /> :
              currentView === 'jisseki' ? <JissekiView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
              currentView === 'diary' ? <DailyLogView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} dirtyRef={diaryDirtyRef} saveFnRef={diarySaveFnRef} /> :
              currentView === 'absence_fax' ? <AbsenceFaxView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?captureElHtmlWithValues(el):null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={absenceDirtyRef} saveFnRef={absenceSaveFnRef} /> :
