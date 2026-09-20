@@ -17928,6 +17928,7 @@ function StaffLoginGate({ onLogin }) {
         storeName: staff.stores?.name || '',
         storeShortName: staff.stores?.short_name || '',
         displayName: staff.display_name || staff.username,
+        token: staff._token || '', // ★ サーバー認証の署名付きトークン(職員作成・PW変更・一覧で使用)
       };
       sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(session));
       onLogin(session);
@@ -38533,6 +38534,10 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                     <div><label className="block text-xs font-bold text-slate-600 mb-1">保険者番号（6桁・利用者共通の既定）</label><input type="text" inputMode="numeric" value={facilityInfo.insurerNo || ""} onChange={e => setFacilityInfo({...facilityInfo, insurerNo: e.target.value.replace(/[^0-9]/g,'').slice(0,6)})} placeholder="市区町村により異なる" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                     <div><label className="block text-xs font-bold text-slate-600 mb-1">サービス種類コード</label><input type="text" inputMode="numeric" value={facilityInfo.serviceCode || ""} onChange={e => setFacilityInfo({...facilityInfo, serviceCode: e.target.value.replace(/[^0-9]/g,'').slice(0,2)})} placeholder="通所介護=78" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                     <div><label className="block text-xs font-bold text-slate-600 mb-1">CSVバージョン</label><input type="text" value={facilityInfo.lifeCsvVersion || ""} onChange={e => setFacilityInfo({...facilityInfo, lifeCsvVersion: e.target.value.trim()})} placeholder="0310（3.10版の固定値・空欄なら0310）" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
+                    <div><label className="block text-xs font-bold text-slate-600 mb-1">リハ・個別機能／栄養／口腔の一体的取組 <span className="font-normal text-slate-400">（生活機能チェック・個別機能訓練のCSV必須項目）</span></label>
+                      <select value={facilityInfo.lifeTrinity || '0'} onChange={e => setFacilityInfo({...facilityInfo, lifeTrinity: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"><option value="0">0：無し（既定）</option><option value="1">1：有り（一体的取組を実施している）</option></select></div>
+                    <div><label className="block text-xs font-bold text-slate-600 mb-1">記入者の職種の既定値 <span className="font-normal text-slate-400">（生活機能チェックで職種未選択のときに使う）</span></label>
+                      <select value={facilityInfo.lifeDefaultJob || ''} onChange={e => setFacilityInfo({...facilityInfo, lifeDefaultJob: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"><option value="">（未設定）</option>{LIFE_STAFF_JOBS.map(j => <option key={j.c} value={j.n}>{j.n}（{j.c}）</option>)}</select></div>
                   </div>
                   <div className="text-[11px] text-slate-500 mt-2">※ 「LIFE・加算」画面のCSV出力はここの値を使います。保険者番号は利用者ごとに異なる場合、各利用者の画面で個別に上書きできます。参考元では事業所番号等を空欄で運用した実績もありますが、可能なら登録してください。</div>
                 </div>
@@ -44009,9 +44014,9 @@ const buildFunc2024Row = (patient, rec, sci, settings, targetYm) => {
   row.insurer_no = patient?.insurerNo || st.insurerNo || '';
   row.insured_no = lifeZero10(patient?.insuranceNo);
   row.external_system_management_number = lifeMgmtNo(patient?.insuranceNo, targetYm, 'FUNC2024');
-  row.trinity_attempt = '0'; // 一体的取組(既定=なし)
+  row.trinity_attempt = st.trinity === '1' ? '1' : '0'; // 一体的取組(各種設定→事業所情報・既定=なし)
   row.evaluate_date = reiwaToYmd(r.recordDate);
-  row.job_category = lifeJobCode(r.recorderJob) || ''; // ★ 2026-09-21: 公式v0310のNo.8(職種・原則必須)。従来この列が無く以降の列が1つずれていた
+  row.job_category = lifeJobCode(r.recorderJob) || lifeJobCode(st.defaultJob) || ''; // ★ 2026-09-21: 公式v0310のNo.8(職種・原則必須)。記録の職種→事業所情報の既定値の順
   row.care_level = lifeCareLevelCode(patient?.careLevel);
   row.impaired_elderly_independence_degree = LIFE_ADL_LEVEL_CODE[normalizeAdlLevel(patient?.faceSheet?.adlLevel)] || '';
   row.dementia_elderly_independence_degree = LIFE_DEM_LEVEL_CODE[normalizeDemLevel(patient?.faceSheet?.dementiaLevel)] || '';
@@ -44044,7 +44049,7 @@ const validateFunc2024 = (patient, rec, sci, row, today) => {
   else if (rec && adlFilled<adlCols.length) warns.push(`生活機能チェックのADL未入力が${adlCols.length-adlFilled}項目あります`);
   if (!row.insurer_no) warns.push('保険者番号(6桁)が未設定（参考元は空欄運用可・要確認）');
   if (!row.care_facility_id) warns.push('事業所番号が未設定（各種設定→事業所情報で入力）');
-  if (rec && !row.job_category) warns.push('記入者の職種が未選択（3-2の基本情報で選択・原則必須）');
+  if (rec && !row.job_category) warns.push('記入者の職種が未設定（3-2の基本情報で選択、または各種設定→事業所情報の既定値・原則必須）');
   return { errors, warns };
 };
 // ===== 個別機能訓練 IDUA2024 用マスタ(§9)。 元データ=個別機能訓練計画書(3-3 kinouKeikakuRecords) =====
@@ -44119,7 +44124,7 @@ const buildIdua2024Row = (patient, rec, sci, settings, targetYm) => {
   row.insurer_no = patient?.insurerNo || st.insurerNo || '';
   row.insured_no = lifeZero10(patient?.insuranceNo);
   row.external_system_management_number = lifeMgmtNo(patient?.insuranceNo, targetYm, 'IDUA2024');
-  row.trinity_attempt = '0';
+  row.trinity_attempt = st.trinity === '1' ? '1' : '0';
   row.evaluate_date = reiwaToYmd(r.createdDate);
   row.last_date = reiwaToYmd(r.prevDate);
   row.first_date = reiwaToYmd(r.firstDate);
@@ -44300,7 +44305,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
   const [editing, setEditing] = React.useState(null);
   // ★ LIFE連携の事業所情報は「各種設定→事業所情報」(systemSettings.facilityInfo)から読み込む(二重管理を避ける)
   const _fi = appData.systemSettings?.facilityInfo || {};
-  const lifeOfficeCfg = { officeNumber:_fi.officeNumber||'', insurerNo:_fi.insurerNo||'', serviceCode:_fi.serviceCode||LIFE_SERVICE_CODE_DEFAULT, facilityOutpatientCategory:_fi.facilityOutpatientCategory||'2', version:_fi.lifeCsvVersion||LIFE_VERSION_DEFAULT };
+  const lifeOfficeCfg = { officeNumber:_fi.officeNumber||'', insurerNo:_fi.insurerNo||'', serviceCode:_fi.serviceCode||LIFE_SERVICE_CODE_DEFAULT, facilityOutpatientCategory:_fi.facilityOutpatientCategory||'2', version:_fi.lifeCsvVersion||LIFE_VERSION_DEFAULT, trinity:_fi.lifeTrinity==='1'?'1':'0', defaultJob:_fi.lifeDefaultJob||'' };
   // ★ 利用者ごとの保険者番号(6桁) = patient.insurerNo (被保険者番号=insuranceNo とは別)
   const [pInsurer, setPInsurer] = React.useState(patient?.insurerNo||'');
   React.useEffect(()=>{ setPInsurer(patient?.insurerNo||''); }, [pid]);
@@ -45005,7 +45010,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
             <div className="mt-2 flex items-center gap-2 flex-wrap">
               <span className="text-xs font-bold text-slate-500">被保険者番号</span><span className="text-sm font-bold text-slate-700">{patient?.insuranceNo||'（未設定）'}</span>
               <span className="text-xs font-bold text-slate-500 ml-3">保険者番号(6桁)</span>
-              <input value={pInsurer} onChange={e=>setPInsurer(e.target.value.replace(/\D/g,'').slice(0,6))} placeholder="この利用者の保険者番号" className="px-2 py-1 bg-white border border-slate-300 rounded text-sm outline-none w-40"/>
+              <input value={pInsurer} onChange={e=>setPInsurer(e.target.value.normalize('NFKC').replace(/\D/g,'').slice(0,6))} placeholder="この利用者の保険者番号" className="px-2 py-1 bg-white border border-slate-300 rounded text-sm outline-none w-40"/>
               <button type="button" onClick={savePInsurer} disabled={pInsurer===(patient?.insurerNo||'')} className={`px-3 py-1 rounded text-xs font-bold ${pInsurer===(patient?.insurerNo||'')?'bg-slate-100 text-slate-400':'bg-blue-600 text-white hover:bg-blue-700'}`}>保存</button>
             </div>
             <div className="text-[10px] text-slate-400 mt-1">※ 被保険者番号(10桁)はフェイスシートで登録。保険者番号はCSVの insurer_no に使います（利用者ごと・未設定ならLIFE設定の既定を使用）。</div>
@@ -45186,7 +45191,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                   {vr.warns.length>0 && <div className="bg-amber-50 border border-amber-200 rounded-lg p-3"><div className="text-xs font-bold text-amber-700 mb-1">要確認（{vr.warns.length}件）</div><ul className="text-[11px] text-amber-700 list-disc pl-4 space-y-0.5">{vr.warns.map((e,i)=><li key={i}>{e}</li>)}</ul></div>}
                   {vr.errors.length===0 && <div className="text-xs font-bold text-emerald-600">✓ 必須項目は揃っています。出力できます。</div>}
                 </>)}
-                <div className="text-[10px] text-slate-400 leading-relaxed">※ 文字コードUTF-8・改行CR-LF。ファイル名に氏名・被保険者番号は含めません。{f.id==='TIFI2024'?'提出頻度は令和6年度改定で概ね3ヶ月ごと。「帳票印刷」で評価内容を紙様式で出力できます。':f.id==='AINT2024'?'初月と6か月後の評価を「対象月区分」で指定してください。「帳票印刷」でBI一覧を紙様式で出力できます。':f.id==='FUNC2024'?'生活機能チェック(様式3-2)を元に出力します。帳票は生活機能チェックシート画面の「印刷/PDF」から。':f.id==='IDUA2024'?'個別機能訓練計画書(様式3-3)を元に出力します。帳票は計画書画面の「印刷/PDF」から。目標ICF・合併症・職種等のコードは計画書の「LIFE提出用コード」で指定（職種コードは要確認）。':''}事業所番号・保険者番号は各種設定→事業所情報で登録できます。</div>
+                <div className="text-[10px] text-slate-400 leading-relaxed">※ 文字コードUTF-8・改行CR-LF。ファイル名に氏名・被保険者番号は含めません。{f.id==='TIFI2024'?'提出頻度は令和6年度改定で概ね3ヶ月ごと。「帳票印刷」で評価内容を紙様式で出力できます。':f.id==='AINT2024'?'初月と6か月後の評価を「対象月区分」で指定してください。「帳票印刷」でBI一覧を紙様式で出力できます。【経過措置】新LIFE移行に伴い、ADL維持等加算(Ⅰ)(Ⅱ)は令和9年3月提供分まで従前の区分を継続できます（旧LIFEで7か月以上の評価がある場合等・移管Q&A問7〜9）。適用中もADL値の新LIFEへの登録は続ける必要があります。':f.id==='FUNC2024'?'生活機能チェック(様式3-2)を元に出力します。帳票は生活機能チェックシート画面の「印刷/PDF」から。':f.id==='IDUA2024'?'個別機能訓練計画書(様式3-3)を元に出力します。帳票は計画書画面の「印刷/PDF」から。目標ICF・合併症・職種等のコードは計画書の「LIFE提出用コード」で指定（職種コードは要確認）。':''}事業所番号・保険者番号は各種設定→事業所情報で登録できます。</div>
               </div>
             );
           })}
