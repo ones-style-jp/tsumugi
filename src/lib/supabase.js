@@ -1877,9 +1877,31 @@ export async function supabaseSetStoreAdminAuth(storeId, authPatch) {
 // =========================================================
 // スタッフ認証 (本部管理者 / 店舗管理者 / 店舗スタッフ)
 // =========================================================
+// ★ 2026-09-21: staff テーブルへの直接アクセスをやめ、サーバー(/api/staff-auth・service_role)経由にする。
+//   staff は RLS 有効・ポリシー無し(docs/sql/staff_rls.sql)にして、ブラウザからはハッシュ一覧を読めなくする。
+//   サーバーが無い環境(ローカル開発で /api が404)のときだけ、従来の直接アクセスに落とす(RLS適用後は直接アクセスは空になる)。
+const _staffToken = () => { try { return (JSON.parse(sessionStorage.getItem('tsumugiStaffSession') || 'null') || {}).token || ''; } catch { return ''; } };
+async function staffApi(payload) {
+  let r;
+  try { r = await fetch('/api/staff-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); }
+  catch (e) { const err = new Error('サーバーに接続できません。通信状態をご確認ください。'); err.noServer = true; throw err; }
+  if (r.status === 404) { const err = new Error('認証サーバーが見つかりません'); err.noServer = true; throw err; }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { const err = new Error(j.error || `認証に失敗しました (${r.status})`); err.status = r.status; err.expired = !!j.expired; throw err; }
+  return j;
+}
+const _isNoServer = (e) => !!(e && e.noServer) && !!supabase;
+
 export async function supabaseStaffLogin({ username, password }) {
   if (!supabase) throw new Error('Supabase 未接続');
   const password_hash = await hashPassword(password);
+  try {
+    const j = await staffApi({ action: 'login', username: String(username || '').trim(), password_hash });
+    return { ...(j.staff || {}), _token: j.token || '' };
+  } catch (e) {
+    if (!_isNoServer(e)) throw e;
+  }
+  // フォールバック(サーバー無し・開発用)
   const { data, error } = await supabase
     .from('staff')
     .select('*, stores(id, name, short_name)')
@@ -1890,20 +1912,17 @@ export async function supabaseStaffLogin({ username, password }) {
     .maybeSingle();
   if (error) throw error;
   if (!data) throw new Error('IDまたはパスワードが違います');
-  await supabase
-    .from('staff')
-    .update({ last_login: new Date().toISOString() })
-    .eq('id', data.id);
-  return data;
+  await supabase.from('staff').update({ last_login: new Date().toISOString() }).eq('id', data.id);
+  const { password_hash: _ph, ...rest } = data;
+  return rest;
 }
 
 export async function supabaseStaffChangePassword(staffId, newPassword) {
   if (!supabase) throw new Error('Supabase 未接続');
   const password_hash = await hashPassword(newPassword);
-  const { error } = await supabase
-    .from('staff')
-    .update({ password_hash })
-    .eq('id', staffId);
+  try { await staffApi({ action: 'change_password', token: _staffToken(), staff_id: staffId, password_hash }); return true; }
+  catch (e) { if (!_isNoServer(e)) throw e; }
+  const { error } = await supabase.from('staff').update({ password_hash }).eq('id', staffId);
   if (error) throw error;
   return true;
 }
@@ -2049,8 +2068,9 @@ export async function supabaseDeleteStore(storeId) {
   //   削除しないと: 別店舗 (同じ患者ID) で登録した家族と被って違う利用者の情報が漏洩する原因に
   await supabase.from('family_invites').delete().eq('store_id', storeId);
   await supabase.from('family_accounts').delete().eq('store_id', storeId);
-  // 関連スタッフ削除
-  await supabase.from('staff').delete().eq('store_id', storeId);
+  // 関連スタッフ削除(サーバー経由・本部のみ)
+  try { await staffApi({ action: 'delete_store_staff', token: _staffToken(), store_id: storeId }); }
+  catch (e) { if (!_isNoServer(e)) throw e; await supabase.from('staff').delete().eq('store_id', storeId); }
   // app_state 削除
   await supabase.from('app_state').delete().eq('key', storeId);
   // 店舗削除
@@ -2062,6 +2082,8 @@ export async function supabaseDeleteStore(storeId) {
 export async function supabaseCreateStaff({ store_id, username, password, role, last_name, first_name, email, phone }) {
   if (!supabase) throw new Error('Supabase 未接続');
   const password_hash = await hashPassword(password);
+  try { const j = await staffApi({ action: 'create', token: _staffToken(), store_id, username, password_hash, role, last_name, first_name, email, phone }); return j.staff; }
+  catch (e) { if (!_isNoServer(e)) throw e; }
   // 重複チェック
   const { data: exists } = await supabase.from('staff').select('id').eq('username', username).maybeSingle();
   if (exists) throw new Error('このログインIDは既に使用されています');
@@ -2076,8 +2098,10 @@ export async function supabaseCreateStaff({ store_id, username, password, role, 
 
 export async function supabaseListStaff(storeId = null) {
   if (!supabase) return [];
+  try { const j = await staffApi({ action: 'list', token: _staffToken(), store_id: storeId || '' }); return j.staff || []; }
+  catch (e) { if (!_isNoServer(e)) { console.warn('[staff-auth] list failed', e && e.message); return []; } }
   try {
-    let q = supabase.from('staff').select('*').is('deleted_at', null).order('created_at');
+    let q = supabase.from('staff').select('id,store_id,username,role,last_name,first_name,display_name,email,phone,is_active,last_login,created_at').is('deleted_at', null).order('created_at');
     if (storeId) q = q.eq('store_id', storeId);
     const { data } = await q;
     return data || [];

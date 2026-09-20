@@ -3,7 +3,7 @@
 # 対象: テスト項目一覧の【自動】項目(T-OPS-02/03/04, T-SEC-02, T-EXT-01の生存部分, T-SYNC-07の静的部分)
 # 使い方: python3 scripts/run_tests.py [--deployed <rev>]
 #   --deployed を渡すと本番の update-notes.json version が一致するかも確認する(デプロイ後チェック)
-import json, re, subprocess, sys, urllib.request
+import json, re, subprocess, sys, urllib.request, urllib.error
 
 ROOT = subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True).stdout.strip()
 PROD = 'https://tsumugi-ones-style.vercel.app'
@@ -79,6 +79,21 @@ except Exception as e:
 tracked = subprocess.run(['git', 'ls-files'], capture_output=True, text=True, cwd=ROOT).stdout
 bad = [ln for ln in tracked.splitlines() if ln.startswith('restore/') or 'まるっとLIFE' in ln or 'まるっとライフ' in ln]
 check('T-SEC-02', '実利用者データがコミットされていない', not bad, ';'.join(bad[:3]))
+
+# ---- T-SEC-03 staff テーブルが公開キーで読めない(RLS・docs/sql/staff_rls.sql 適用後に PASS) ----
+try:
+    _pub = 'sb_publishable_2IG11GJZUGdf0t-UPg_FhQ_hAn6hin1'
+    _req = urllib.request.Request('https://eopdtcfxfhshzxtqcwmy.supabase.co/rest/v1/staff?select=id&limit=1', headers={'apikey': _pub, 'Authorization': 'Bearer ' + _pub, 'User-Agent': 'tsumugi-test'})
+    try:
+        with urllib.request.urlopen(_req, timeout=15) as _r:
+            _rows = json.loads(_r.read() or b'[]')
+        _ok = isinstance(_rows, list) and len(_rows) == 0
+        _detail = '公開キーで staff が読める(未適用: docs/sql/staff_rls.sql を実行)' if not _ok else '空応答'
+    except urllib.error.HTTPError as _e:
+        _ok = _e.code in (401, 403); _detail = f'HTTP {_e.code}'
+    check('T-SEC-03', 'staff テーブルが公開キーで読めない', _ok, _detail)
+except Exception as e:
+    check('T-SEC-03', 'staff テーブルが公開キーで読めない', False, str(e))
 
 # ---- T-SYNC-07(静的) id無し行を生む push の簡易検査: 主要配列へのpushにid欠落が無いかの目視対象を列挙 ----
 cur = open(f'{ROOT}/src/App.jsx', encoding='utf-8').read()
