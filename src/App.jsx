@@ -12162,12 +12162,17 @@ const computeAttendingNow = (appData) => {
   (appData.patients || []).filter(p => p.status === '利用中').forEach(p => {
     const rec = recToday.get(String(p.id));
     if (rec && ['欠席', '休業', '休止'].includes(rec.status)) return;
-    if (rec && ['出席', '振替', '臨時'].includes(rec.status)) { set.add(String(p.id)); return; }
+    // ★ 2026-09-21(店舗指摘): 提供記録は「日」単位で午前/午後を持たないため、出席の記録があっても
+    //   その方が今の時間帯(AM/PM)に来ているかは 月間スケジュール→基本利用曜日('1日'は両方) で判定する(日誌の _matchG と同じ考え方)。
+    //   以前は出席記録があるだけで通所中にしていたため、午前に午後の方まで含まれていた。
     const ov = appData.monthlyShifts?.[mk]?.[p.id]?.[`${dayNum}_${slot}`];
-    let att;
-    if (ov !== undefined && ov !== '') att = (ov === '〇' || ov === '出席' || ov === '臨時' || String(ov).startsWith('振'));
-    else { const base = (getScheduleOnDate(p, iso) || {})[dow] || ''; att = (base === slot || base === '1日'); }
-    if (att && !getPauseReasonOnDate(p, iso)) set.add(String(p.id));
+    let inSlot;
+    if (ov !== undefined && ov !== '') inSlot = (ov === '〇' || ov === '出席' || ov === '臨時' || String(ov).startsWith('振'));
+    else { const base = (getScheduleOnDate(p, iso) || {})[dow] || ''; inSlot = (base === slot || base === '1日'); }
+    if (rec && rec.status === '振替' && rec.furikaeAmpm) inSlot = (rec.furikaeAmpm === slot || rec.furikaeAmpm === '1日');
+    if (!inSlot) return;
+    if (rec && ['出席', '振替', '臨時'].includes(rec.status)) { set.add(String(p.id)); return; }
+    if (!getPauseReasonOnDate(p, iso)) set.add(String(p.id));
   });
   return { set, slot };
 };
