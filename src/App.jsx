@@ -12177,18 +12177,28 @@ function DisasterView({ appData, onSave, staffSession }) {
   const esc = (t) => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
   const contactsOf = (p) => { try { return (getAllContacts(p) || []).filter(c => c && ((c.name||'').trim() || (c.phoneMobile||c.phone||'').trim())); } catch { return []; } };
   const printList = () => {
-    const rows = pats.map(p => {
+    // ★ 印刷の余白(2026-09-21 店舗指摘): 印刷側は body直下要素の margin/padding を 0 にするため、余白は「外側=用紙要素(297×210mm)・内側=余白用div(padding)」の2段にする。
+    //   複数ページになる一覧は行を分割して1ページずつ用紙要素にし、2ページ目以降にも上下左右の余白と見出し行が付くようにする。
+    const PER_PAGE = 18;
+    const rowList = pats.map(p => {
       const cs = contactsOf(p).slice(0, 2).map(c => `${esc(c.name || '')}${c.relation ? `(${esc(c.relation)})` : ''} ${esc(c.phoneMobile || c.phone || '')}`).join('<br/>');
       const st = (SAFETY_OPTIONS.find(x => x[0] === safety[String(p.id)]) || [])[1] || '';
-      return `<tr><td>${esc(p.name)}</td><td>${esc(st)}</td><td>${esc([p.address, p.addressBuilding, p.addressRoom].filter(Boolean).join(' '))}</td><td>${esc(p.phoneMobile || p.phone || '')}</td><td>${cs}</td><td>${esc(p.cmOffice || '')}<br/>${esc(p.cmName || '')} ${esc(p.cmPhone || '')}</td></tr>`;
-    }).join('');
-    // ★ 印刷プレビューは page-break 指定のあるページ要素にだけ白紙+影を付けるため、A4横1枚のページ要素で包む(2026-09-21 店舗指摘: 全面グレーで表示)
-    const html = `<div data-page-break="1" style="font-family:'Hiragino Sans','Meiryo',sans-serif;background:white;width:297mm;min-height:210mm;padding:8mm 10mm;box-sizing:border-box;font-size:11px;page-break-after:always;">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;"><b style="font-size:15px;">災害時 利用者連絡先・安否一覧（${esc(fi.name || '')}）</b><span>${new Date().toLocaleString('ja-JP')} ／ 対象: ${scope === 'now' ? `通所中(${slot === 'AM' ? '午前' : '午後'})` : scope === 'others' ? '在宅' : '全員'} ${pats.length}名</span></div>
+      return `<tr><td>${esc(p.name)}</td><td>${esc(st)}</td><td>${esc([p.address, p.addressBuilding, p.addressRoom].filter(Boolean).join(' '))}</td><td>${esc(p.phoneMobile || p.phone || '')}</td><td>${cs}</td><td>${esc(p.cmOffice || '')}<br/>${esc(p.cmName || '')} ${esc(p.cmPhone || '')}</td></tr>`.replace(/<td>/g, '<td style="border:1px solid #999;padding:3px 4px;vertical-align:top;height:8.5mm;">');
+    });
+    const pageCount = Math.max(1, Math.ceil(rowList.length / PER_PAGE));
+    const scopeLabel = scope === 'now' ? `通所中(${slot === 'AM' ? '午前' : '午後'})` : scope === 'others' ? '在宅' : '全員';
+    const pagesHtml = Array.from({ length: pageCount }, (_, pi) => {
+      const rows = rowList.slice(pi * PER_PAGE, (pi + 1) * PER_PAGE).join('');
+      return `<div data-page-break="1" style="background:white;width:297mm;height:210mm;box-sizing:border-box;overflow:hidden;${pi < pageCount - 1 ? 'page-break-after:always;' : ''}">
+      <div style="padding:10mm 12mm;font-family:'Hiragino Sans','Meiryo',sans-serif;font-size:11px;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;"><b style="font-size:15px;">災害時 利用者連絡先・安否一覧（${esc(fi.name || '')}）</b><span>${new Date().toLocaleString('ja-JP')} ／ 対象: ${scopeLabel} ${pats.length}名${pageCount > 1 ? ` ／ ${pi + 1}/${pageCount}ページ` : ''}</span></div>
       <table style="border-collapse:collapse;width:100%;table-layout:fixed;"><colgroup><col style="width:13%"/><col style="width:10%"/><col style="width:25%"/><col style="width:12%"/><col style="width:22%"/><col style="width:18%"/></colgroup>
       <thead><tr style="background:#eef0ed;">${['氏名', '安否', '住所', '電話', '緊急連絡先', '担当ケアマネ'].map(h => `<th style="border:1px solid #999;padding:3px;">${h}</th>`).join('')}</tr></thead>
-      <tbody>${rows.replace(/<td>/g, '<td style="border:1px solid #999;padding:3px;vertical-align:top;">')}</tbody></table>
-      <div style="font-size:9px;color:#555;margin-top:6px;">※ 個人情報を含みます。取り扱いにご注意ください。安否の欄は空欄のときは手書きでご記入ください。</div></div>`;
+      <tbody>${rows}</tbody></table>
+      <div style="font-size:9px;color:#555;margin-top:6px;">※ 個人情報を含みます。取り扱いにご注意ください。安否の欄は空欄のときは手書きでご記入ください。</div>
+      </div></div>`;
+    }).join('');
+    const html = pagesHtml;
     window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: '災害時_連絡先一覧', pageSize: 'A4 landscape', html, elementId: null } }));
   };
   const TabBtn = ({ id, label }) => <button type="button" onClick={() => setTab(id)} className={`px-3 py-2 rounded-xl text-sm font-bold border ${tab === id ? 'bg-red-600 text-white border-red-600' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`}>{label}</button>;
@@ -37271,7 +37281,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                     <div><label className="block text-xs font-bold text-slate-600 mb-1">介護保険事業所番号（10桁）</label><input type="text" inputMode="numeric" value={facilityInfo.officeNumber || ""} onChange={e => setFacilityInfo({...facilityInfo, officeNumber: e.target.value.replace(/[^0-9]/g,'').slice(0,10)})} placeholder="例: 1370200001" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                     <div><label className="block text-xs font-bold text-slate-600 mb-1">保険者番号（6桁・利用者共通の既定）</label><input type="text" inputMode="numeric" value={facilityInfo.insurerNo || ""} onChange={e => setFacilityInfo({...facilityInfo, insurerNo: e.target.value.replace(/[^0-9]/g,'').slice(0,6)})} placeholder="市区町村により異なる" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                     <div><label className="block text-xs font-bold text-slate-600 mb-1">サービス種類コード</label><input type="text" inputMode="numeric" value={facilityInfo.serviceCode || ""} onChange={e => setFacilityInfo({...facilityInfo, serviceCode: e.target.value.replace(/[^0-9]/g,'').slice(0,2)})} placeholder="通所介護=78" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
-                    <div><label className="block text-xs font-bold text-slate-600 mb-1">CSVバージョン</label><input type="text" value={facilityInfo.lifeCsvVersion || ""} onChange={e => setFacilityInfo({...facilityInfo, lifeCsvVersion: e.target.value.trim()})} placeholder="0300（最新仕様 v0310 を確認）" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
+                    <div><label className="block text-xs font-bold text-slate-600 mb-1">CSVバージョン</label><input type="text" value={facilityInfo.lifeCsvVersion || ""} onChange={e => setFacilityInfo({...facilityInfo, lifeCsvVersion: e.target.value.trim()})} placeholder="0310（3.10版の固定値・空欄なら0310）" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                   </div>
                   <div className="text-[11px] text-slate-500 mt-2">※ 「LIFE・加算」画面のCSV出力はここの値を使います。保険者番号は利用者ごとに異なる場合、各利用者の画面で個別に上書きできます。参考元では事業所番号等を空欄で運用した実績もありますが、可能なら登録してください。</div>
                 </div>
@@ -41597,6 +41607,13 @@ function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
               <div className="grid grid-cols-2 gap-3">
                 <KKDateField label="作成日" value={editing.recordDate} onChange={v=>upd({recordDate:v})}/>
                 <KKField label="記入者" value={editing.recorder} onChange={v=>upd({recorder:v})}/>
+                <div>
+                  <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:4}}>記入者の職種 <span style={{fontWeight:'normal',color:'#94a3b8'}}>（LIFE提出用・原則必須）</span></label>
+                  <select value={editing.recorderJob||''} onChange={e=>upd({recorderJob:e.target.value})} style={{width:'100%',padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:14,background:'white'}}>
+                    <option value="">選択してください</option>
+                    {LIFE_STAFF_JOBS.map(j=><option key={j.c} value={j.n}>{j.n}（{j.c}）</option>)}
+                  </select>
+                </div>
               </div>
             </div>
             {grpForm('起居動作','kikyo',SEIKATSU_KIKYO,KK_STATUS)}
@@ -42534,12 +42551,15 @@ const seikatsuAdlToBarthel = (adlMap) => {
 //   まるっとLIFEのExcelは複製せず、つむぎの内部データ→LIFE取込CSVへ変換する。
 //   version は設定値(既定 0300)。文字コードUTF-8(BOM無)、改行CR-LF、カンマ/"は "" で囲む。
 // =====================================================================================
-const LIFE_VERSION_DEFAULT = '0300';
+const LIFE_VERSION_DEFAULT = '0310'; // ★ CSV連携仕様書3.10版: 全IFで「0310」固定(2026-09-21 修正・旧0300)
 const LIFE_SERVICE_CODE_DEFAULT = '78'; // 通所介護(サービス種類コード)。設定で変更可
 // 性別 男=1 / 女=2
 const lifeGenderCode = (g) => { const s=String(g||''); if(/男/.test(s)) return '1'; if(/女/.test(s)) return '2'; return ''; };
 // 要介護度
-const LIFE_CARELEVEL_CODE = { '要支援1':'11','要支援2':'12','要介護1':'21','要介護2':'22','要介護3':'23','要介護4':'24','要介護5':'25' };
+// ★ 2026-09-21 修正: 公式コード表(外部IF項目一覧v0310)は 01非該当/06事業対象者/11要支援(経過的要介護)/12要支援1/13要支援2/21〜25要介護1〜5。
+//   従来は要支援1=11・要支援2=12 で1つずれていた(全様式共通の誤り)。
+const LIFE_CARELEVEL_CODE = { '非該当':'01','事業対象者':'06','要支援(経過的要介護)':'11','経過的要介護':'11','要支援1':'12','要支援2':'13','要介護1':'21','要介護2':'22','要介護3':'23','要介護4':'24','要介護5':'25' };
+const lifeCareLevelCode = (v) => LIFE_CARELEVEL_CODE[String(v||'').normalize('NFKC').replace(/[\s　]/g,'').replace(/（/g,'(').replace(/）/g,')')] || '';
 // 障害高齢者の日常生活自立度 自立=1/J1=2/J2=3/A1=4/A2=5/B1=6/B2=7/C1=8/C2=9
 const LIFE_ADL_LEVEL_CODE = { '自立':'1','J1':'2','J2':'3','A1':'4','A2':'5','B1':'6','B2':'7','C1':'8','C2':'9' };
 // 認知症高齢者の日常生活自立度 自立=1/Ⅰ=2/Ⅱa=3/Ⅱb=4/Ⅲa=5/Ⅲb=6/Ⅳ=7/M=8
@@ -42566,7 +42586,7 @@ const LIFE_BI_CODE = {
 const LIFE_BI_ORDER = ['eat','transfer','groom','toilet','bath','walk','stairs','dress','stool','urine'];
 const lifeBiCode = (key, points) => { const m=LIFE_BI_CODE[key]; if(!m) return ''; const v=m[Number(points)]; return v==null?'':v; };
 const lifeYmd = (iso) => String(iso||'').slice(0,10).replace(/-/g,''); // YYYY-MM-DD → YYYYMMDD
-const lifeZero10 = (v) => { const s=String(v||'').replace(/\D/g,''); return s ? s.padStart(10,'0').slice(-10) : ''; };
+const lifeZero10 = (v) => { const s=String(v||'').normalize('NFKC').replace(/[^0-9A-Za-z]/g,'').toUpperCase(); return s ? s.padStart(10,'0').slice(-10) : ''; }; // ★ 英字混じり(H900000001)も可・全角は半角化
 // 管理番号 = 被保険者番号(10桁)+評価年月(YYYYMM)+様式ID
 const lifeMgmtNo = (insuredNo, ym, formId) => { const n=lifeZero10(insuredNo); const m=String(ym||'').replace(/\D/g,'').slice(0,6); return (n && m) ? `${n}${m}${formId}` : ''; };
 // 和暦「令和R年M月D日」→ YYYYMMDD。 ISO(YYYY-MM-DD)ならそのまま整形(生活機能チェックの作成日は和暦文字列で保持されるため)。
@@ -42600,7 +42620,7 @@ const buildTifi2024Row = (patient, adlRec, sci, settings, targetYm) => {
   row.insured_no = lifeZero10(patient?.insuranceNo);
   row.external_system_management_number = lifeMgmtNo(patient?.insuranceNo, targetYm, 'TIFI2024');
   row.facility_outpatient_category = st.facilityOutpatientCategory || '2';
-  row.care_level = LIFE_CARELEVEL_CODE[String(patient?.careLevel||'').trim()] || '';
+  row.care_level = lifeCareLevelCode(patient?.careLevel);
   row.impaired_elderly_independence_degree = LIFE_ADL_LEVEL_CODE[normalizeAdlLevel(patient?.faceSheet?.adlLevel)] || '';
   row.dementia_elderly_independence_degree = LIFE_DEM_LEVEL_CODE[normalizeDemLevel(patient?.faceSheet?.dementiaLevel)] || '';
   row.evaluate_date = lifeYmd(adlRec?.evalDate);
@@ -42656,7 +42676,7 @@ const buildAint2024Row = (patient, adlRec, sci, settings, targetYm) => {
   row.insurer_no = patient?.insurerNo || st.insurerNo || '';
   row.insured_no = lifeZero10(patient?.insuranceNo);
   row.external_system_management_number = lifeMgmtNo(patient?.insuranceNo, targetYm, 'AINT2024');
-  row.care_level = LIFE_CARELEVEL_CODE[String(patient?.careLevel||'').trim()] || '';
+  row.care_level = lifeCareLevelCode(patient?.careLevel);
   row.impaired_elderly_independence_degree = LIFE_ADL_LEVEL_CODE[normalizeAdlLevel(patient?.faceSheet?.adlLevel)] || '';
   row.dementia_elderly_independence_degree = LIFE_DEM_LEVEL_CODE[normalizeDemLevel(patient?.faceSheet?.dementiaLevel)] || '';
   row.evaluate_date = lifeYmd(adlRec?.evalDate);
@@ -42689,7 +42709,7 @@ const validateAint2024 = (patient, adlRec, sci, row, today) => {
 // 生活機能チェック(FUNC2024) 全52列(§6.2)。 元データ=生活機能チェック(様式3-2 seikatsuKinouRecords)。
 //   ADL10項目のstatusはBI段階コード(§6.4)。 IADL/起居動作は 自立=3/見守り=2/一部介助=1/全介助=0。
 //   課題の有無(is_*_assignment)は 自立=無(0)/それ以外=有(1)/未入力=空 の自動判定(ユーザー決定 2026-07-23)。
-const LIFE_FUNC2024_COLUMNS = ['care_facility_id','service_code','insurer_no','insured_no','external_system_management_number','trinity_attempt','evaluate_date','care_level','impaired_elderly_independence_degree','dementia_elderly_independence_degree','meal_status','is_meal_assignment','transfer_bed_chair_status','is_transfer_bed_chair_assignment','personal_hygiene_and_adjustment_status','is_personal_hygiene_and_adjustment_assignment','toilet_behavior_status','is_toilet_behavior_assignment','bathe_status','is_bathe_assignment','walking_status','is_walking_assignment','up_stairs_status','is_up_stairs_assignment','dressing_status','is_dressing_assignment','defecation_status','is_defecation_assignment','urination_status','is_urination_assignment','environment_viewpoint_adl','support_viewpoint_adl','cooking_status','is_cooking_assignment','washing_status','is_washing_assignment','cleaning_status','is_cleaning_assignment','environment_viewpoint_iadl','support_viewpoint_iadl','roll_over_status','is_roll_over_assignment','get_up_status','is_get_up_assignment','sitting_status','is_sitting_assignment','rising_from_chair_status','is_rising_from_chair_assignment','standup_status','is_standup_assignment','support_viewpoint_standup','version'];
+const LIFE_FUNC2024_COLUMNS = ['care_facility_id','service_code','insurer_no','insured_no','external_system_management_number','trinity_attempt','evaluate_date','job_category','care_level','impaired_elderly_independence_degree','dementia_elderly_independence_degree','meal_status','is_meal_assignment','transfer_bed_chair_status','is_transfer_bed_chair_assignment','personal_hygiene_and_adjustment_status','is_personal_hygiene_and_adjustment_assignment','toilet_behavior_status','is_toilet_behavior_assignment','bathe_status','is_bathe_assignment','walking_status','is_walking_assignment','up_stairs_status','is_up_stairs_assignment','dressing_status','is_dressing_assignment','defecation_status','is_defecation_assignment','urination_status','is_urination_assignment','environment_viewpoint_adl','support_viewpoint_adl','cooking_status','is_cooking_assignment','washing_status','is_washing_assignment','cleaning_status','is_cleaning_assignment','environment_viewpoint_iadl','support_viewpoint_iadl','roll_over_status','is_roll_over_assignment','get_up_status','is_get_up_assignment','sitting_status','is_sitting_assignment','rising_from_chair_status','is_rising_from_chair_assignment','standup_status','is_standup_assignment','support_viewpoint_standup','version'];
 // IADL・起居動作の4段階 → §6.4コード(自立=3/見守り=2/一部介助=1/全介助=0)
 const LIFE_FUNC_LEVEL = { '自立':'3','見守り':'2','一部介助':'1','全介助':'0' };
 const lifeFuncLevel = (v) => { const s=String(v||'').trim(); return Object.prototype.hasOwnProperty.call(LIFE_FUNC_LEVEL,s) ? LIFE_FUNC_LEVEL[s] : ''; };
@@ -42709,7 +42729,8 @@ const buildFunc2024Row = (patient, rec, sci, settings, targetYm) => {
   row.external_system_management_number = lifeMgmtNo(patient?.insuranceNo, targetYm, 'FUNC2024');
   row.trinity_attempt = '0'; // 一体的取組(既定=なし)
   row.evaluate_date = reiwaToYmd(r.recordDate);
-  row.care_level = LIFE_CARELEVEL_CODE[String(patient?.careLevel||'').trim()] || '';
+  row.job_category = lifeJobCode(r.recorderJob) || ''; // ★ 2026-09-21: 公式v0310のNo.8(職種・原則必須)。従来この列が無く以降の列が1つずれていた
+  row.care_level = lifeCareLevelCode(patient?.careLevel);
   row.impaired_elderly_independence_degree = LIFE_ADL_LEVEL_CODE[normalizeAdlLevel(patient?.faceSheet?.adlLevel)] || '';
   row.dementia_elderly_independence_degree = LIFE_DEM_LEVEL_CODE[normalizeDemLevel(patient?.faceSheet?.dementiaLevel)] || '';
   // ADL 10項目(生活機能チェックのadl): status=BI段階コード / 課題=自動判定
@@ -42741,6 +42762,7 @@ const validateFunc2024 = (patient, rec, sci, row, today) => {
   else if (rec && adlFilled<adlCols.length) warns.push(`生活機能チェックのADL未入力が${adlCols.length-adlFilled}項目あります`);
   if (!row.insurer_no) warns.push('保険者番号(6桁)が未設定（参考元は空欄運用可・要確認）');
   if (!row.care_facility_id) warns.push('事業所番号が未設定（各種設定→事業所情報で入力）');
+  if (rec && !row.job_category) warns.push('記入者の職種が未選択（3-2の基本情報で選択・原則必須）');
   return { errors, warns };
 };
 // ===== 個別機能訓練 IDUA2024 用マスタ(§9)。 元データ=個別機能訓練計画書(3-3 kinouKeikakuRecords) =====
@@ -42819,7 +42841,7 @@ const buildIdua2024Row = (patient, rec, sci, settings, targetYm) => {
   row.evaluate_date = reiwaToYmd(r.createdDate);
   row.last_date = reiwaToYmd(r.prevDate);
   row.first_date = reiwaToYmd(r.firstDate);
-  row.care_level = LIFE_CARELEVEL_CODE[String(patient?.careLevel||'').trim()] || '';
+  row.care_level = lifeCareLevelCode(patient?.careLevel);
   row.impaired_elderly_independence_degree = LIFE_ADL_LEVEL_CODE[normalizeAdlLevel(patient?.faceSheet?.adlLevel)] || '';
   row.dementia_elderly_independence_degree = LIFE_DEM_LEVEL_CODE[normalizeDemLevel(patient?.faceSheet?.dementiaLevel)] || '';
   row.user_request = r.honninKibou || '';
@@ -42889,19 +42911,85 @@ const validateIdua2024 = (patient, rec, sci, row, today) => {
 };
 
 // LIFE様式の共通定義(ダッシュボード/出力を様式横断で扱う)。 source=元データ('adl'=Barthel adlRecords / 'seikatsu'=生活機能チェック / 'kinou'=個別機能訓練計画書3-3)
+// ★ dataType = CSV1行目に書く「IFの種類を表す物理名」(CSV連携仕様書3.10版 §4.2: 1行目Data type/2行目列名/3行目〜データ)。
+//   2026-09-21 追加: 従来は列名行から始まっており新LIFEの取込形式に合っていなかった。
 const LIFE_FORMS = {
-  TIFI2024: { label:'科学的介護推進', addon:'kasan_kagaku', source:'adl', cols:LIFE_TIFI2024_COLUMNS, build:buildTifi2024Row, validate:validateTifi2024 },
-  AINT2024: { label:'ADL維持等', addon:'kasan_adl', source:'adl', cols:LIFE_AINT2024_COLUMNS, build:buildAint2024Row, validate:validateAint2024 },
-  FUNC2024: { label:'生活機能チェック', addon:'kasan_kinou2', source:'seikatsu', cols:LIFE_FUNC2024_COLUMNS, build:buildFunc2024Row, validate:validateFunc2024 },
-  IDUA2024: { label:'個別機能訓練', addon:'kasan_kinou2', source:'kinou', cols:LIFE_IDUA2024_COLUMNS, build:buildIdua2024Row, validate:validateIdua2024 },
+  TIFI2024: { label:'科学的介護推進', addon:'kasan_kagaku', source:'adl', dataType:'SCIENTIFIC_NURSING_CARE_PROMOTION_2024', cols:LIFE_TIFI2024_COLUMNS, build:buildTifi2024Row, validate:validateTifi2024 },
+  AINT2024: { label:'ADL維持等', addon:'kasan_adl', source:'adl', dataType:'ADL_MAINTENANCE_ADDITION_2024', cols:LIFE_AINT2024_COLUMNS, build:buildAint2024Row, validate:validateAint2024 },
+  FUNC2024: { label:'生活機能チェック', addon:'kasan_kinou2', source:'seikatsu', dataType:'LIFE_FUNCTION_CHECK_SHEET_2024', cols:LIFE_FUNC2024_COLUMNS, build:buildFunc2024Row, validate:validateFunc2024 },
+  IDUA2024: { label:'個別機能訓練', addon:'kasan_kinou2', source:'kinou', dataType:'INDIVIDUAL_FUNCTION_TRAINING_PLAN_2024', cols:LIFE_IDUA2024_COLUMNS, build:buildIdua2024Row, validate:validateIdua2024 },
 };
 
-// CSV文字列生成(RFC4180準拠・改行CR-LF)。 値にカンマ/"/改行があれば "" で囲む。
-const lifeToCsvText = (headers, rows) => {
+// CSV文字列生成(RFC4180準拠・改行CR-LF)。 値にカンマ/"/改行があれば "" で囲む。 dataType があれば1行目に書く(§4.2)。
+const lifeToCsvText = (headers, rows, dataType) => {
   const esc = (v) => { const s=(v==null?'':String(v)); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s; };
-  const lines = [headers.map(esc).join(',')];
+  const lines = dataType ? [String(dataType)] : [];
+  lines.push(headers.map(esc).join(','));
   rows.forEach(r => lines.push(headers.map(h => esc(r[h])).join(',')));
   return lines.join('\r\n');
+};
+
+// ===== 利用者情報 SERVICE_USER_INFO(新LIFEへの利用者登録・v0310 外部IF項目一覧 22列) =====
+//   新LIFEには事業所アカウントしか移行されないため、様式CSVを取り込む前に利用者情報CSVの取込が必須(§4.5)。
+//   保険者番号・被保険者番号・性別・生年月日の4項目は介護情報基盤と照合され(§4.7)、不一致だと紐づく様式も登録不可になる。
+const LIFE_USERINFO_DATATYPE = 'SERVICE_USER_INFO';
+const LIFE_USERINFO_COLUMNS = ['care_facility_id','service_code','external_system_management_number','insurer_no','insured_no','last_name','first_name','last_name_kana','first_name_kana','gender','birthday','certified_date','care_period_start','care_period_end','care_level','impaired_elderly_independence_degree','dementia_elderly_independence_degree','start_date','end_date','death_date','remarks','version'];
+// 全角カタカナ→半角カナ(濁点・半濁点は分離)。 ひらがな・半角カナ入力も toKatakana(NFKC) で一旦全角カタカナに揃える。
+const _HK_BASE = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンァィゥェォャュョッー・';
+const _HK_HALF = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜｦﾝｧｨｩｪｫｬｭｮｯｰ･';
+const _HK_DAKU = { 'ガ':'ｶﾞ','ギ':'ｷﾞ','グ':'ｸﾞ','ゲ':'ｹﾞ','ゴ':'ｺﾞ','ザ':'ｻﾞ','ジ':'ｼﾞ','ズ':'ｽﾞ','ゼ':'ｾﾞ','ゾ':'ｿﾞ','ダ':'ﾀﾞ','ヂ':'ﾁﾞ','ヅ':'ﾂﾞ','デ':'ﾃﾞ','ド':'ﾄﾞ','バ':'ﾊﾞ','ビ':'ﾋﾞ','ブ':'ﾌﾞ','ベ':'ﾍﾞ','ボ':'ﾎﾞ','パ':'ﾊﾟ','ピ':'ﾋﾟ','プ':'ﾌﾟ','ペ':'ﾍﾟ','ポ':'ﾎﾟ','ヴ':'ｳﾞ','ヷ':'ﾜﾞ','ヺ':'ｦﾞ' };
+const lifeHalfKana = (str) => { const t = toKatakana(str).replace(/[\s　]/g,''); let o=''; for (const c of t) { if (_HK_DAKU[c]) { o+=_HK_DAKU[c]; continue; } const i=_HK_BASE.indexOf(c); if (i>=0) { o+=_HK_HALF[i]; continue; } if (/[A-Za-z0-9]/.test(c)) o+=c; } return o; };
+// 氏名を「姓 名」で分割(空白が無ければ姓に全体・名は空)。 全角文字列化(半角英数・空白→全角)
+const lifeSplitName = (v) => { const t=String(v||'').normalize('NFKC').trim().replace(/[\s　]+/g,' '); const i=t.indexOf(' '); return i<0 ? { last:t, first:'' } : { last:t.slice(0,i), first:t.slice(i+1).replace(/ /g,'') }; };
+const lifeZenkaku = (v) => String(v||'').normalize('NFKC').replace(/[A-Za-z0-9]/g, c => String.fromCharCode(c.charCodeAt(0)+0xFEE0)).replace(/ /g,'　');
+// 日付 → YYYYMMDD(ISO/スラッシュ/和暦/全角に対応)
+const lifeDateYmd = (v) => { const t=String(v||'').normalize('NFKC').trim(); if(!t) return ''; const m=t.match(/(\d{4})[-\/.年](\d{1,2})[-\/.月](\d{1,2})/); if(m) return `${m[1]}${m[2].padStart(2,'0')}${m[3].padStart(2,'0')}`; return reiwaToYmd(t); };
+const buildLifeUserInfoRow = (patient, settings) => {
+  const st = settings || {}; const p = patient || {}; const row = {}; LIFE_USERINFO_COLUMNS.forEach(k => { row[k] = ''; });
+  const insured = lifeZero10(p.insuranceNo);
+  row.care_facility_id = String(st.officeNumber||'').normalize('NFKC').toUpperCase();
+  row.service_code = String(st.serviceCode||'').normalize('NFKC').toUpperCase();
+  // 事業所番号×サービス種類コードの中で利用者ごとに一意・再出力しても変わらない番号(同番号なら上書き更新)。被保険者番号をそのまま使う
+  row.external_system_management_number = insured;
+  row.insurer_no = String(p.insurerNo||st.insurerNo||'').normalize('NFKC').replace(/\D/g,'');
+  row.insured_no = insured;
+  const nm = lifeSplitName(p.name); row.last_name = lifeZenkaku(nm.last); row.first_name = lifeZenkaku(nm.first) || (nm.last ? '００' : ''); // 姓名未分割はダミー「００」(公式備考)
+  const kn = lifeSplitName(p.kana); row.last_name_kana = lifeHalfKana(kn.last); row.first_name_kana = lifeHalfKana(kn.first) || (row.last_name_kana ? '00' : '');
+  row.gender = lifeGenderCode(p.gender);
+  row.birthday = lifeDateYmd(p.birthDate);
+  row.certified_date = lifeDateYmd(p.certifiedDate);
+  row.care_period_start = lifeDateYmd(p.careLevelFrom); row.care_period_end = lifeDateYmd(p.careLevelTo);
+  row.care_level = lifeCareLevelCode(p.careLevel);
+  row.impaired_elderly_independence_degree = LIFE_ADL_LEVEL_CODE[normalizeAdlLevel(p.faceSheet?.adlLevel)] || '';
+  row.dementia_elderly_independence_degree = LIFE_DEM_LEVEL_CODE[normalizeDemLevel(p.faceSheet?.dementiaLevel)] || '';
+  row.start_date = lifeDateYmd(p.startDate); row.end_date = lifeDateYmd(p.endDate);
+  row.death_date = ''; row.remarks = '';
+  row.version = st.version || LIFE_VERSION_DEFAULT;
+  return row;
+};
+// 利用者情報の検証(§4.6/4.7)。 errors=出力不可(取込エラーになる) / warns=要確認。 dupInsured=被保険者番号の重複集合
+const validateLifeUserInfo = (patient, row, today, dupInsured) => {
+  const errors=[], warns=[]; const p = patient || {}; const ty = lifeYmd(today||'');
+  if (!/^[0-9A-Z]{10}$/.test(row.care_facility_id)) errors.push('事業所番号(10桁)が未設定（各種設定→事業所情報）');
+  if (!/^[0-9A-Z]{2}$/.test(row.service_code)) errors.push('サービス種類コード(2桁)が未設定（各種設定→事業所情報）');
+  if (!/^\d{6}$/.test(row.insurer_no)) errors.push(`保険者番号は半角数字6桁が必要（${row.insurer_no||'未設定'}）`);
+  if (!/^[0-9A-Z]{10}$/.test(row.insured_no)) errors.push(`被保険者番号は10桁が必要（${p.insuranceNo||'未設定'}）`);
+  else if (dupInsured && dupInsured.has(row.insured_no)) errors.push('被保険者番号が他の利用者と重複しています');
+  if (!row.last_name) errors.push('氏名が未登録');
+  if (!row.last_name_kana) errors.push('ふりがなが未登録（半角カナに変換できません）');
+  if (!row.gender) errors.push(`性別が未設定（${p.gender||'空欄'}）`);
+  if (!/^\d{8}$/.test(row.birthday)) errors.push(`生年月日が未設定・形式不正（${p.birthDate||'空欄'}）`);
+  else { if (row.birthday < '19000101') errors.push('生年月日が1900年より前です'); if (ty && row.birthday > ty) errors.push('生年月日が未来日付です'); }
+  if (!row.care_level) errors.push(`要介護度がコード化できません（${p.careLevel||'未設定'}）`);
+  if (row.care_period_start && row.care_period_end && row.care_period_start > row.care_period_end) errors.push('認定有効期間の開始日が終了日より後です');
+  if (row.start_date && row.end_date && row.start_date > row.end_date) errors.push('利用開始日が利用終了日より後です');
+  ['certified_date','care_period_start','care_period_end','start_date','end_date'].forEach(k => { if (row[k] && !/^\d{8}$/.test(row[k])) errors.push(`${k} の日付形式が不正（${row[k]}）`); });
+  if (ty && row.start_date && row.start_date > ty) errors.push('利用開始日が未来日付です（LIFEは現在日付まで）');
+  if (row.first_name === '００') warns.push('氏名に空白が無いため「名」をダミー（００）で出力します（マスタの氏名を「姓 名」に）');
+  if (!row.care_period_start) warns.push('認定有効期間が未登録（任意）');
+  if (!row.impaired_elderly_independence_degree || !row.dementia_elderly_independence_degree) warns.push('日常生活自立度(フェイスシート)が未設定（任意・様式CSVでは必須）');
+  if (String(p.insuranceNo||'') && String(p.insuranceNo||'').normalize('NFKC') !== String(p.insuranceNo||'')) warns.push('被保険者番号に全角文字があるため半角に補正して出力します');
+  return { errors, warns };
 };
 const lifeDownloadCsv = (filename, text) => {
   try { const blob = new Blob([text], { type:'text/csv;charset=utf-8' }); const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url), 1000); }
@@ -42973,7 +43061,40 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
     const msg = `【${dashForm.label}】提出可能 ${ok.length}名分をまとめて1つのCSVに出力します。`
       + (excluded.length ? `\n\n除外 ${excluded.length}名（この出力には含めません）:\n` + excluded.map(d=>`・${d.p.name}（${d.status==='none'?'未評価':`エラー${d.vr.errors.length}件`}）`).join('\n') : '');
     if (!window.confirm(msg)) return;
-    lifeDownloadCsv(`${dashForm.id}_${submitYm.replace('-','')}.csv`, lifeToCsvText(dashForm.cols, ok.map(d=>d.row)));
+    lifeDownloadCsv(`${dashForm.id}_${submitYm.replace('-','')}.csv`, lifeToCsvText(dashForm.cols, ok.map(d=>d.row), dashForm.dataType));
+  };
+  // ★ 利用者情報(SERVICE_USER_INFO)の一括出力(2026-09-21・新LIFE対応 T1/T2/T3)。 退所済みは対象外。
+  const lifePatients = React.useMemo(() => patients.filter(p => !isPatientResigned(p)), [patients]);
+  const userRows = React.useMemo(() => {
+    const cnt = new Map(); lifePatients.forEach(p => { const k = lifeZero10(p.insuranceNo); if (k) cnt.set(k, (cnt.get(k)||0)+1); });
+    const dup = new Set([...cnt.entries()].filter(([,n]) => n>1).map(([k]) => k));
+    return lifePatients.map(p => { const row = buildLifeUserInfoRow(p, lifeOfficeCfg); const vr = validateLifeUserInfo(p, row, today, dup); return { p, row, vr, status: vr.errors.length ? 'error' : 'ok' }; });
+  }, [lifePatients, appData.systemSettings?.facilityInfo]);
+  const _userInfoCsv = (rows) => lifeToCsvText(LIFE_USERINFO_COLUMNS, rows.map(d=>d.row), LIFE_USERINFO_DATATYPE);
+  const exportUserInfo = () => {
+    const ok = userRows.filter(d=>d.status==='ok'); const ng = userRows.filter(d=>d.status!=='ok');
+    if (!ok.length) { alert('出力できる利用者がいません（エラーを解消してください）。'); return; }
+    const msg = `【利用者情報】${ok.length}名分を 利用者情報_${submitYm.replace('-','')}.csv に出力します。\n新LIFEでは、この利用者情報CSVを先に（または様式CSVと一緒に）取り込んでください。`
+      + (ng.length ? `\n\n除外 ${ng.length}名（エラーあり・この出力には含めません）:\n` + ng.map(d=>`・${d.p.name}（${d.vr.errors[0]}）`).join('\n') : '');
+    if (!window.confirm(msg)) return;
+    lifeDownloadCsv(`利用者情報_${submitYm.replace('-','')}.csv`, _userInfoCsv(ok));
+  };
+  // 利用者情報＋様式をまとめて出力(T3): 様式が提出可の利用者のうち利用者情報も出力可の方を利用者情報CSVに、続けて様式CSVを出力
+  const exportBundle = () => {
+    if (!dashForm) return;
+    const okForm = dashRows.filter(d=>d.status==='ok');
+    if (!okForm.length) { alert('提出できる利用者がいません（未評価またはエラーのため）。'); return; }
+    const uOk = new Map(userRows.filter(d=>d.status==='ok').map(d=>[d.p.id, d]));
+    const both = okForm.filter(d=>uOk.has(d.p.id)); const noUser = okForm.filter(d=>!uOk.has(d.p.id));
+    const excluded = dashRows.filter(d=>d.status!=='ok');
+    const msg = `【利用者情報 ＋ ${dashForm.label}】をまとめて出力します。\n・利用者情報CSV: ${both.length}名\n・${dashForm.label}CSV: ${both.length}名`
+      + (noUser.length ? `\n\n利用者情報にエラーがあるため両方から除外 ${noUser.length}名（利用者情報が登録できないと様式も取り込めません）:\n` + noUser.map(d=>{ const u=userRows.find(x=>x.p.id===d.p.id); return `・${d.p.name}（${u?u.vr.errors[0]:'対象外'}）`; }).join('\n') : '')
+      + (excluded.length ? `\n\n様式が未評価・エラーのため除外 ${excluded.length}名:\n` + excluded.map(d=>`・${d.p.name}`).join('\n') : '');
+    if (!both.length) { alert('利用者情報と様式の両方が出力できる利用者がいません。\n' + msg); return; }
+    if (!window.confirm(msg)) return;
+    const ym = submitYm.replace('-','');
+    lifeDownloadCsv(`利用者情報_${ym}.csv`, _userInfoCsv(both.map(d=>uOk.get(d.p.id))));
+    setTimeout(() => lifeDownloadCsv(`${dashForm.id}_${ym}.csv`, lifeToCsvText(dashForm.cols, both.map(d=>d.row), dashForm.dataType)), 900);
   };
   // ★ LIFE CSV取込(移行・2026-08-19): まるっとLIFE等の他社ソフトが出力する提出用CSV(全国共通仕様v0310)を
   //   読み込み、ADL評価(Barthel)+科学的介護推進の固有項目を評価レコードとして復元する。 TIFI2024/AINT2024対応。
@@ -42995,7 +43116,8 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
   const _lifeImportParseFile = async (f) => {
     const buf = await f.arrayBuffer();
     let text; try { text = new TextDecoder('utf-8',{fatal:true}).decode(buf); } catch { text = new TextDecoder('shift_jis').decode(buf); }
-    const rows = _csvParse(text);
+    let rows = _csvParse(text);
+    if (rows.length && rows[0].length===1 && /^[A-Z][A-Z0-9_]+$/.test(String(rows[0][0]).trim())) rows = rows.slice(1); // ★ v0310形式の1行目(Data type)を読み飛ばす
     if (!rows.length) return [];
     let cols=null, dataRows=rows;
     const h0 = rows[0].map(c=>String(c).trim());
@@ -43498,6 +43620,44 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
             <div className="text-[11px] text-indigo-900 opacity-70 mt-2">※ 下の <b>共通データ（ADL＝Barthel Index）</b> は、上記どの加算にも自動で反映されます。各加算の固有項目は順次追加します。</div>
           </div>
 
+          {/* ★ 利用者情報CSV(SERVICE_USER_INFO・新LIFEへの利用者登録) 2026-09-21 */}
+          <div className="bg-white rounded-xl border border-indigo-200 p-4">
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+              <div>
+                <div className="text-sm font-bold text-indigo-700">利用者情報CSV（新LIFEへの利用者登録・SERVICE_USER_INFO）</div>
+                <div className="text-[11px] text-slate-500 mt-0.5">新LIFEには利用者情報が引き継がれません。様式CSVを取り込む前に、この利用者情報CSVを取り込んでください（同時取込も可）。保険者番号・被保険者番号・性別・生年月日は介護保険証と完全一致が必要です。</div>
+              </div>
+              <button type="button" onClick={exportUserInfo} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">利用者情報CSV出力</button>
+            </div>
+            {(() => { const ok=userRows.filter(d=>d.status==='ok').length, er=userRows.length-ok; return (
+              <div className="flex gap-2 flex-wrap mb-2 text-xs font-bold">
+                <span className="px-2 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">出力可 {ok}</span>
+                <span className="px-2 py-1 rounded bg-red-50 text-red-700 border border-red-200">エラー {er}</span>
+                <span className="px-2 py-1 rounded bg-slate-50 text-slate-400 border border-slate-200">対象 {userRows.length}名（利用中・休止中）</span>
+              </div>
+            ); })()}
+            <div className="overflow-x-auto border border-slate-200 rounded-lg">
+              <table className="w-full text-xs">
+                <thead><tr className="bg-slate-50 text-slate-500"><th className="px-2 py-1.5 text-left">利用者</th><th className="px-2 py-1.5 w-20">保険者</th><th className="px-2 py-1.5 w-24">被保険者</th><th className="px-2 py-1.5 w-10">性別</th><th className="px-2 py-1.5 w-20">生年月日</th><th className="px-2 py-1.5 w-16">介護度</th><th className="px-2 py-1.5 w-20">状態</th><th className="px-2 py-1.5 text-left">確認事項</th></tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  {userRows.length===0 ? <tr><td colSpan={8} className="px-2 py-4 text-center text-slate-400">対象の利用者がいません</td></tr> : userRows.map(d=>(
+                    <tr key={d.p.id} className={`hover:bg-slate-50 cursor-pointer ${d.p.id===pid?'bg-indigo-50':''}`} onClick={()=>{ setEditing(null); setPid(d.p.id); }}>
+                      <td className="px-2 py-1.5 font-bold text-slate-700">{d.p.name}<div className="text-[10px] font-normal text-slate-400">{d.row.last_name_kana}{d.row.first_name_kana?` ${d.row.first_name_kana}`:''}</div></td>
+                      <td className="px-2 py-1.5 text-center font-mono">{d.row.insurer_no||<span className="text-red-500">—</span>}</td>
+                      <td className="px-2 py-1.5 text-center font-mono">{d.row.insured_no||<span className="text-red-500">—</span>}</td>
+                      <td className="px-2 py-1.5 text-center">{d.row.gender==='1'?'男':d.row.gender==='2'?'女':<span className="text-red-500">—</span>}</td>
+                      <td className="px-2 py-1.5 text-center font-mono">{d.row.birthday||<span className="text-red-500">—</span>}</td>
+                      <td className="px-2 py-1.5 text-center">{d.p.careLevel||<span className="text-red-500">—</span>}<span className="text-slate-400 ml-1">{d.row.care_level}</span></td>
+                      <td className="px-2 py-1.5 text-center">{d.status==='ok'?<span className="text-emerald-600 font-bold">✓ 出力可</span>:<span className="text-red-600 font-bold">エラー{d.vr.errors.length}件</span>}</td>
+                      <td className="px-2 py-1.5 text-[11px] text-slate-500">{d.status==='error'?d.vr.errors.slice(0,3).join(' / ')+(d.vr.errors.length>3?' …':''):d.vr.warns.length?<span className="text-amber-600">要確認: {d.vr.warns.join(' / ')}</span>:''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="text-[10px] text-slate-400 mt-2 leading-relaxed">※ 氏名・ふりがなは利用者マスタの「姓 名」（空白区切り）から姓・名に分けて出力します（ふりがなは半角カナに自動変換）。保険者番号は利用者ごとの登録が無ければ事業所情報の既定値を使います。エラーの行は出力から除外されるので、利用者マスタで修正してください。外部システム管理番号には被保険者番号を使うため、再出力しても新LIFE側では同じ利用者として上書きされます。</div>
+          </div>
+
           {/* 提出ダッシュボード + まとめ出力 (様式横断: TIFI2024/AINT2024) */}
           {dashForm && (
             <div className="bg-white rounded-xl border border-purple-200 p-4">
@@ -43514,6 +43674,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                   <label className="text-xs font-bold text-slate-500">提出年月</label>
                   <input type="month" value={submitYm} onChange={e=>setSubmitYm(e.target.value)} className="px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none"/>
                   <button type="button" onClick={exportAllForm} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">まとめてCSV出力</button>
+                  <button type="button" onClick={exportBundle} title="利用者情報CSVと様式CSVを続けて出力します（新LIFEに2ファイルを一括で取り込めます）" className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">利用者情報＋様式をまとめて出力</button>
                 </div>
               </div>
               {(() => { const ok=dashRows.filter(d=>d.status==='ok').length, er=dashRows.filter(d=>d.status==='error').length, no=dashRows.filter(d=>d.status==='none').length; return (
@@ -43724,7 +43885,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
             const vr = latest ? f.validate(patient, latest, sci, row, today) : { errors:[], warns:[] };
             const doExport = () => {
               if (vr.errors.length && !window.confirm(`未入力・エラーが ${vr.errors.length} 件あります。\nこのまま出力しますか？（不足項目は空欄で出力されます）`)) return;
-              lifeDownloadCsv(`${f.id}_${ym}.csv`, lifeToCsvText(f.cols, [row]));
+              lifeDownloadCsv(`${f.id}_${ym}.csv`, lifeToCsvText(f.cols, [row], f.dataType));
             };
             return (
               <div key={f.id} className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
