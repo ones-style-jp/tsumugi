@@ -12175,19 +12175,20 @@ function DisasterView({ appData, onSave, staffSession }) {
   const evacOptions = [...(bcp.evacTemp || []).map(e => ({ ...e, kind: '一時' })), ...(bcp.evacMain || []).map(e => ({ ...e, kind: '指定' }))];
   const fi = appData.systemSettings?.facilityInfo || {};
   const esc = (t) => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
-  const contactsOf = (p) => { try { return getAllContacts(p) || []; } catch { return []; } };
+  const contactsOf = (p) => { try { return (getAllContacts(p) || []).filter(c => c && ((c.name||'').trim() || (c.phoneMobile||c.phone||'').trim())); } catch { return []; } };
   const printList = () => {
     const rows = pats.map(p => {
       const cs = contactsOf(p).slice(0, 2).map(c => `${esc(c.name || '')}${c.relation ? `(${esc(c.relation)})` : ''} ${esc(c.phoneMobile || c.phone || '')}`).join('<br/>');
       const st = (SAFETY_OPTIONS.find(x => x[0] === safety[String(p.id)]) || [])[1] || '';
       return `<tr><td>${esc(p.name)}</td><td>${esc(st)}</td><td>${esc([p.address, p.addressBuilding, p.addressRoom].filter(Boolean).join(' '))}</td><td>${esc(p.phoneMobile || p.phone || '')}</td><td>${cs}</td><td>${esc(p.cmOffice || '')}<br/>${esc(p.cmName || '')} ${esc(p.cmPhone || '')}</td></tr>`;
     }).join('');
-    const html = `<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;width:275mm;margin:4mm auto 0;font-size:11px;">
+    // ★ 印刷プレビューは page-break 指定のあるページ要素にだけ白紙+影を付けるため、A4横1枚のページ要素で包む(2026-09-21 店舗指摘: 全面グレーで表示)
+    const html = `<div data-page-break="1" style="font-family:'Hiragino Sans','Meiryo',sans-serif;background:white;width:297mm;min-height:210mm;padding:8mm 10mm;box-sizing:border-box;font-size:11px;page-break-after:always;">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;"><b style="font-size:15px;">災害時 利用者連絡先・安否一覧（${esc(fi.name || '')}）</b><span>${new Date().toLocaleString('ja-JP')} ／ 対象: ${scope === 'now' ? `通所中(${slot === 'AM' ? '午前' : '午後'})` : scope === 'others' ? '在宅' : '全員'} ${pats.length}名</span></div>
       <table style="border-collapse:collapse;width:100%;table-layout:fixed;"><colgroup><col style="width:13%"/><col style="width:10%"/><col style="width:25%"/><col style="width:12%"/><col style="width:22%"/><col style="width:18%"/></colgroup>
       <thead><tr style="background:#eef0ed;">${['氏名', '安否', '住所', '電話', '緊急連絡先', '担当ケアマネ'].map(h => `<th style="border:1px solid #999;padding:3px;">${h}</th>`).join('')}</tr></thead>
       <tbody>${rows.replace(/<td>/g, '<td style="border:1px solid #999;padding:3px;vertical-align:top;">')}</tbody></table>
-      <div style="font-size:9px;color:#555;margin-top:6px;">※ 個人情報を含みます。取り扱いにご注意ください。</div></div>`;
+      <div style="font-size:9px;color:#555;margin-top:6px;">※ 個人情報を含みます。取り扱いにご注意ください。安否の欄は空欄のときは手書きでご記入ください。</div></div>`;
     window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: '災害時_連絡先一覧', pageSize: 'A4 landscape', html, elementId: null } }));
   };
   const TabBtn = ({ id, label }) => <button type="button" onClick={() => setTab(id)} className={`px-3 py-2 rounded-xl text-sm font-bold border ${tab === id ? 'bg-red-600 text-white border-red-600' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`}>{label}</button>;
