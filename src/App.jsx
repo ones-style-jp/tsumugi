@@ -12123,6 +12123,12 @@ function ScheduleView({ appData, onSave, navigateTo }) {
 // ★ 「今の時間帯に通所中の方」の判定(緊急連絡・安否一覧で共用)。
 //   本日の提供記録(出席/振替/臨時=通所・欠席/休業/休止=不在)を最優先、無ければ月間スケジュール→基本利用曜日(休止期間は除外)。
 const SAFETY_OPTIONS = [['ok', '無事'], ['evac', '避難済み（無事）'], ['hurt', 'ケガ・体調不良'], ['unknown', '未確認']];
+// ★ 災害時の対象者(2026-09-21 店舗指摘: 退所済みの方まで含まれていた): 生の status ではなく期間で判定。
+//   利用終了日を過ぎた方(退所済み)・利用開始前の方は除外。休止中の方は在宅として安否確認の対象に残す。
+const disasterTargetPatients = (appData) => {
+  const t = new Date(); const iso = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+  return (appData.patients || []).filter(p => p && !isPatientResigned(p) && getPatientDisplayStatus(p) !== '退所済み' && !/退所|終了/.test(String(p.status || '')) && isPatientActiveOnDate(p, iso));
+};
 const computeAttendingNow = (appData) => {
   const now = new Date();
   const slot = now.getHours() < 13 ? 'AM' : 'PM';
@@ -12132,7 +12138,7 @@ const computeAttendingNow = (appData) => {
   const dateJp = `${now.getMonth() + 1}月${dayNum}日`;
   const recToday = new Map((appData.ticketRecords || []).filter(r => r && r.date === dateJp && String(r.year ?? now.getFullYear()) === String(now.getFullYear())).map(r => [String(r.patientId), r]));
   const set = new Set();
-  (appData.patients || []).filter(p => p.status === '利用中').forEach(p => {
+  disasterTargetPatients(appData).forEach(p => {
     const rec = recToday.get(String(p.id));
     if (rec && ['欠席', '休業', '休止'].includes(rec.status)) return;
     // ★ 2026-09-21(店舗指摘): 提供記録は「日」単位で午前/午後を持たないため、出席の記録があっても
@@ -12164,7 +12170,7 @@ function DisasterView({ appData, onSave, staffSession }) {
   const [editing, setEditing] = useState(false);
   const saveBcp = (next) => { onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), bcp: next } }, { manual: true, message: '✓ 防災の設定を保存しました' }); setEditing(false); };
   const { set: attendingNow, slot } = computeAttendingNow(appData);
-  const activePats = sortPatientsByKana((appData.patients || []).filter(p => p.status === '利用中'));
+  const activePats = sortPatientsByKana(disasterTargetPatients(appData));
   const pats = activePats.filter(p => scope === 'all' ? true : scope === 'now' ? attendingNow.has(String(p.id)) : !attendingNow.has(String(p.id)));
   const evacOptions = [...(bcp.evacTemp || []).map(e => ({ ...e, kind: '一時' })), ...(bcp.evacMain || []).map(e => ({ ...e, kind: '指定' }))];
   const fi = appData.systemSettings?.facilityInfo || {};
@@ -12348,7 +12354,7 @@ function EmergencyNoticeView({ appData, onSave, staffSession, safety: safetyProp
     return () => { alive = false; };
   }, [storeId]);
   const pname = (pid) => { const p = (appData.patients || []).find(x => String(x.id) === String(pid)); return p ? p.name : ''; };
-  const activePats = (appData.patients || []).filter(p => p.status === '利用中');
+  const activePats = disasterTargetPatients(appData);
   const activePid = new Set(activePats.map(p => String(p.id)));
   // ★ 2026-09-19(店舗提案): 「今の時間帯に通所中の方」を判定。避難完了などは事業所が無事を保証できる通所中の方の
   //   ご家族だけに送り、通所していない方には「安否確認のお願い」を別に送れるようにする。
@@ -12393,7 +12399,7 @@ function EmergencyNoticeView({ appData, onSave, staffSession, safety: safetyProp
   })();
   const safetyCount = Object.keys(safety).filter(k => safety[k] && scopedPid.has(k)).length;
   const nFam = recipients.filter(r => r.kind === 'family').length, nCm = recipients.filter(r => r.kind === 'cm').length;
-  const noEmailFam = (appData.patients || []).filter(p => p.status === '利用中' && !famRows.some(r => String(r.patient_id) === String(p.id))).length;
+  const noEmailFam = activePats.filter(p => !famRows.some(r => String(r.patient_id) === String(p.id))).length;
   const tel = fi.phone || '（電話番号）';
   const TEMPLATES = [
     { key: 'safe', label: '避難完了・全員無事', subject: '【重要】避難完了と皆さまの無事のご連絡',
