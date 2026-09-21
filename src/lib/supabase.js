@@ -1047,7 +1047,15 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData) {
       // ★ 操作ログ方式へ移行済みのデータは、巨大JSON側では一切書き換えない(スナップショットとして凍結)。
       //   ここで書き換えると、操作ログと巨大JSONが同じデータを奪い合い、以前と同じ消失事故になる。
       //   実効状態 = このスナップショット + __snapRevision より新しい操作ログ。
-      if (isOplogFrozen(k)) { merged[k] = Array.isArray(cloud[k]) ? cloud[k] : (Array.isArray(localData[k]) ? localData[k] : []); return; }
+      if (isOplogFrozen(k)) {
+        // ★ 2026-09-21 軽量化(店舗指摘の「同期に失敗」頻発の根本対策): ticket_records テーブルが唯一の正のとき、
+        //   巨大JSON側の凍結スナップショット(7/30時点・扇橋で734件=1.37MB)はどの端末も読まない死荷重なのに、
+        //   push(読む→書く)と60秒ごとの pull で毎回往復していた。→ 凍結キーは空配列で保存し、app_state を軽くする。
+        //   ・テーブル読込に失敗した端末(tableFailed)は凍結が外れて従来マージに戻るため、この分岐には来ない。
+        //   ・家族アプリは app_state 読込後にテーブルの行を重ねる(fetchTicketRecordsSince)ので影響なし。
+        merged[k] = (k === 'ticketRecords') ? [] : (Array.isArray(cloud[k]) ? cloud[k] : (Array.isArray(localData[k]) ? localData[k] : []));
+        return;
+      }
       const tomb = mergedTomb[k] || {};
       const arr = FIELD_MERGE_KEYS.has(k) ? mergeByIdFieldLevel(localData[k], cloud[k]) : mergeById(localData[k], cloud[k]);
       let _m = arr.filter(r => !(r && r.id != null && tomb[String(r.id)]));
