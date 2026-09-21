@@ -44914,6 +44914,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
               <div>
                 <div className="text-sm font-bold text-indigo-700">利用者情報CSV（新LIFEへの利用者登録・SERVICE_USER_INFO）</div>
                 <div className="text-[11px] text-slate-500 mt-0.5">新LIFEには利用者情報が引き継がれません。様式CSVを取り込む前に、この利用者情報CSVを取り込んでください（同時取込も可）。保険者番号・被保険者番号・性別・生年月日は介護保険証と完全一致が必要です。</div>
+                <div className="text-[11px] text-red-700 mt-0.5 font-bold">注意: カイポケ（まるっとLIFE）など他のソフトで新LIFEに登録済みの利用者には取り込まないでください（管理番号が異なるため二重登録になります）。新規の利用者や、他ソフトから完全に切り替えた店舗で使います。</div>
               </div>
               <button type="button" onClick={exportUserInfo} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">利用者情報CSV出力</button>
             </div>

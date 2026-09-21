@@ -1,7 +1,14 @@
 {
-  "version": "upd-2026-0921-trial45",
+  "version": "upd-2026-0921-trial46",
   "updatedAt": "2026-09-08",
   "notes": [
+    {
+      "id": "upd-2026-0921-life-userinfo-caution",
+      "date": "2026-09-21",
+      "type": "improvement",
+      "title": "LIFE・加算: 利用者情報CSVの注意書き（他ソフトで登録済みの利用者には取り込まない）",
+      "body": "カイポケ（まるっとLIFE）など他のソフトで新LIFEに登録済みの利用者に、つむぎの利用者情報CSVを取り込むと二重登録になるため、画面に注意を表示しました。様式CSVは管理番号の方式がまるっとLIFEと同じなので、同じ方・同じ月なら上書きになります（切り替えは月単位で）。"
+    },
     {
       "id": "upd-2026-0921-life-insured-len",
       "date": "2026-09-21",
