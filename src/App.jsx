@@ -31380,6 +31380,8 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
       const info = getNextVisitInfo(patient, selectedDate, appData.monthlyShifts, appData);
       nextDateDisplay = info.date;
   }
+  // ★ 2026-09-22(店舗指摘): 連絡帳には「未定」を印字しない。日付が決まっていない(未定・空)ときは手書き用の空欄「　月　日（　）」にする。
+  if (!_isBlankFace && (!nextDateDisplay || String(nextDateDisplay).trim() === '未定' || !/\d/.test(String(nextDateDisplay)))) nextDateDisplay = "　月　日（　）";
   // 時間: 次回が【振替/臨時】の場合、過去の手入力残骸(通常日向けの時刻)は無視して自動計算(8時/13時)。
   //   ★ 2026-09-08: ただし「この振替日向け」と分かる手入力(nextTimeOverrideForが表示中の次回日付と一致)は
   //     表示に採用する(振替の方のお迎え時間を入力しても表示されなかった問題の修正)。
