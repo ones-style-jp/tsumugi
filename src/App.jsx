@@ -33735,6 +33735,18 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     else ns[mKey][pid][k] = fs;
     return ns;
   };
+  // ★ 2026-09-21(店舗指摘): 振替先のセルから「振替元」を選んだとき、その日が既に欠席で理由入力済みなら 大分類/詳細 を自動で入れる
+  const _furiSrcReason = (isoDate) => {
+    try {
+      const d = new Date(isoDate); if (isNaN(d.getTime()) || !localPatient) return null;
+      const lbl = `${d.getMonth()+1}月${d.getDate()}日`;
+      const ex = effTickets.find(t => t.patientId === localPatient.id && recMatchesDateYear(t, lbl, d.getFullYear()) && t.status === '欠席' && absReasonFromTokki(t.tokki));
+      if (!ex) return null;
+      const pr = parseAbsReason(absReasonFromTokki(ex.tokki));
+      return { reasonCat: pr.cat || '', reason: pr.cat ? (pr.detail || '') : absReasonFromTokki(ex.tokki) };
+    } catch { return null; }
+  };
+  const _pickFuriFrom = (patch) => setFurikaeModal(m => { const nm = { ...m, ...patch }; if ((nm.mode || 'forward') === 'backward') { const r = _furiSrcReason(nm.fromDate); if (r) return { ...nm, ...r }; } return nm; });
   const subFuri = () => {
     // モーダル値をスナップショット (closure経由で参照、setFurikaeModal を最初に呼んでも有効)
     const _fromDate = furikaeModal.fromDate;
@@ -36337,7 +36349,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               </div>
               {isFwd ? (
                 <>
-                  <div><label className="text-xs font-bold text-slate-500 block mb-1">{otherLabel}の日付</label><input type="date" value={furikaeModal.fromDate} onChange={e => setFurikaeModal({ ...furikaeModal, fromDate: e.target.value })} className="w-full p-3 bg-white border border-slate-300 rounded-xl font-bold outline-none" /></div>
+                  <div><label className="text-xs font-bold text-slate-500 block mb-1">{otherLabel}の日付</label><input type="date" value={furikaeModal.fromDate} onChange={e => _pickFuriFrom({ fromDate: e.target.value })} className="w-full p-3 bg-white border border-slate-300 rounded-xl font-bold outline-none" /></div>
                   <div><label className="text-xs font-bold text-slate-500 block mb-1">{otherLabel}の時間帯</label>
                     <div className="flex gap-2">{[['AM','午前'],['PM','午後']].map(([val,label])=>(
                       <button key={val} type="button" onClick={()=>setFurikaeModal({...furikaeModal, furikaeAmpm: val})}
@@ -36355,7 +36367,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                       {basicUsageDays.map((opt, i) => {
                         const selected = furikaeModal.fromDate === opt.dateStr && (furikaeModal.furikaeAmpm||'AM') === opt.ampm;
                         return (
-                          <button key={i} type="button" onClick={() => setFurikaeModal({...furikaeModal, fromDate: opt.dateStr, furikaeAmpm: opt.ampm})}
+                          <button key={i} type="button" onClick={() => _pickFuriFrom({ fromDate: opt.dateStr, furikaeAmpm: opt.ampm })}
                             className={`w-full px-3 py-2 rounded-lg text-left text-sm font-bold border transition-all ${selected ? 'bg-emerald-600 text-white border-emerald-700' : 'bg-white text-slate-700 border-slate-200 hover:bg-emerald-50 hover:border-emerald-300'}`}>
                             {opt.label}
                           </button>
