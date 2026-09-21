@@ -42994,6 +42994,7 @@ const validateLifeUserInfo = (patient, row, today, dupInsured) => {
   if (!row.care_period_start) warns.push('認定有効期間が未登録（任意）');
   if (!row.impaired_elderly_independence_degree || !row.dementia_elderly_independence_degree) warns.push('日常生活自立度(フェイスシート)が未設定（任意・様式CSVでは必須）');
   if (String(p.insuranceNo||'') && String(p.insuranceNo||'').normalize('NFKC') !== String(p.insuranceNo||'')) warns.push('被保険者番号に全角文字があるため半角に補正して出力します');
+  { const rawLen = String(p.insuranceNo||'').normalize('NFKC').replace(/[^0-9A-Za-z]/g,'').length; if (rawLen > 0 && rawLen < 10) warns.push(`被保険者番号がマスタでは${rawLen}桁のため先頭ゼロで10桁にして出力します（被保険者証と照合してください）`); }
   return { errors, warns };
 };
 const lifeDownloadCsv = (filename, text) => {
