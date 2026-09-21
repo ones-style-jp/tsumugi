@@ -30446,9 +30446,17 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     const ampmFilter = sharedAmpm === 'all' || !sharedAmpm ? null : sharedAmpm; // 'AM' | 'PM' | null
 
     // ticketRecordsから出席・振替（欠席は除外）
-    const _rawRecs = (appData.ticketRecords || []).filter(r =>
-      recMatchesDateYear(r, targetDateStr, targetYear) && (r.status === '出席' || (r.status && r.status.startsWith('振')))
-    );
+    // ★ 2026-09-22(店舗指摘): 休止を設定する前に先行して作られていた空の「出席」記録(seedが基本利用日に作る枠)が、
+    //   休止期間中もそのまま拾われて次回予定の変更に出ていた(小糸様)。記録の生statusではなく休止期間で除外する。
+    //   利用開始前・終了後・退所済みも同様に除外(ガードレール: 判定は期間ベース)。
+    const _pById = new Map((appData.patients || []).map(p => [p.id, p]));
+    const _rawRecs = (appData.ticketRecords || []).filter(r => {
+      if (!recMatchesDateYear(r, targetDateStr, targetYear)) return false;
+      if (!(r.status === '出席' || (r.status && r.status.startsWith('振')))) return false;
+      const _p = _pById.get(r.patientId);
+      if (_p && (getPauseReasonOnDate(_p, selectedDate) || isPatientResigned(_p) || !isPatientActiveOnDate(_p, selectedDate))) return false;
+      return true;
+    });
     // ★ 同一利用者・同一日に複数記録(振替の重複など)がある場合は1件に絞る(データの多い方を優先)。 二重表示を防ぐ。
     const _byPat = new Map();
     _rawRecs.forEach(r => { const ex = _byPat.get(r.patientId); const sc = (x) => Object.keys(x).filter(k => k[0] !== '_' && x[k] !== '' && x[k] != null).length; if (!ex || sc(r) > sc(ex)) _byPat.set(r.patientId, r); });
