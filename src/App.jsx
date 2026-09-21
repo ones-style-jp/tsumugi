@@ -40653,7 +40653,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   const _rpMap = new Map();
   _recordedRaw.forEach(r => { const ex=_rpMap.get(r.patientId); const sc=(x)=>Object.keys(x).filter(k=>k[0]!=='_'&&x[k]!==''&&x[k]!=null).length; if(!ex || sc(r)>sc(ex)) _rpMap.set(r.patientId, r); });
   const recordedPatients = [..._rpMap.values()]
-    .map(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId)||{}; const _st=_applyKyugyo(r.status, r.patientId, selectedDate, dow); /* ★ 2026-09-21(店舗指摘): 休止は記録の特記が空なら利用者マスタの休止履歴の理由を表示 */ const _pr=(_st==='休止' && !(r.tokki||'')) ? getPauseReasonOnDate(p, selectedDate) : null; const _tk=(r.tokki||'') || (_pr && _pr.reason ? `休止理由: ${_pr.reason}` : ''); return {id:r.id,patientId:r.patientId,name:p.name||r.name||'',kana:p.kana||'',careLevel:p.careLevel||'',tokki:_tk,status:_st}; });
+    .map(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId)||{}; const _st=_applyKyugyo(r.status, r.patientId, selectedDate, dow); /* ★ 2026-09-21(店舗指摘): 休止は記録の特記が空なら利用者マスタの休止履歴の理由を表示 */ const _pr=(_st==='休止' && !(r.tokki||'')) ? getPauseReasonOnDate(p, selectedDate) : null; const _tk=(r.tokki||'') || (_pr && _pr.reason ? String(_pr.reason) : ''); return {id:r.id,patientId:r.patientId,name:p.name||r.name||'',kana:p.kana||'',careLevel:p.careLevel||'',tokki:_tk,status:_st}; });
   const recordedPids = new Set(recordedPatients.map(r=>r.patientId));
   // ★ ticketRecords にまだ記録が無くても、当日の曜日スケジュールに該当する利用者を表示
   //   (体温などを入力しなくても日誌に名前が出るように)
@@ -40888,7 +40888,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     const _dmap = new Map();
     _rawRecs.forEach(r => { const ex=_dmap.get(r.patientId); const sc=(x)=>Object.keys(x).filter(k=>k[0]!=='_'&&x[k]!==''&&x[k]!=null).length; if(!ex || sc(r)>sc(ex)) _dmap.set(r.patientId, r); });
     const _recd = [..._dmap.values()]
-      .map(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId)||{}; const _st=_applyKyugyo(r.status, r.patientId, selectedDate, dow); /* ★ 2026-09-21(店舗指摘): 休止は記録の特記が空なら利用者マスタの休止履歴の理由を表示 */ const _pr=(_st==='休止' && !(r.tokki||'')) ? getPauseReasonOnDate(p, selectedDate) : null; const _tk=(r.tokki||'') || (_pr && _pr.reason ? `休止理由: ${_pr.reason}` : ''); return {id:r.id,patientId:r.patientId,name:p.name||r.name||'',kana:p.kana||'',careLevel:p.careLevel||'',tokki:_tk,status:_st}; });
+      .map(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId)||{}; const _st=_applyKyugyo(r.status, r.patientId, selectedDate, dow); /* ★ 2026-09-21(店舗指摘): 休止は記録の特記が空なら利用者マスタの休止履歴の理由を表示 */ const _pr=(_st==='休止' && !(r.tokki||'')) ? getPauseReasonOnDate(p, selectedDate) : null; const _tk=(r.tokki||'') || (_pr && _pr.reason ? String(_pr.reason) : ''); return {id:r.id,patientId:r.patientId,name:p.name||r.name||'',kana:p.kana||'',careLevel:p.careLevel||'',tokki:_tk,status:_st}; });
     const _recdIds = new Set(_recd.map(r=>r.patientId));
     const _extras = (appData.patients||[])
       .filter(p => {
@@ -41139,7 +41139,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
                     <td style={{...tdH, border:'1px solid #555', fontSize: fs, color:'#333',
                                 whiteSpace:'normal', wordBreak:'break-word', overflowWrap:'anywhere',
                                 lineHeight: 1.15, padding:'1px 4px'}}>
-                      {pt ? <span style={{color:isAbsent?'#dc2626':'inherit'}}>{tk}</span> : null}
+                      {pt ? <span style={{color:'inherit'}}>{tk}</span> : null}
                     </td>
                   );
                 })()}
