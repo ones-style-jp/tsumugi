@@ -17958,6 +17958,16 @@ function StaffLoginGate({ onLogin }) {
   );
 }
 
+// ★ 保存失敗の再送キュー(2026-09-21 店舗指摘: 振替後に「同期に失敗しました」→再読み込みで振替が消える)。
+//   app_state の push が3回とも失敗(遅い回線・2MB超の店舗データ)したとき、その内容を IndexedDB に控え、
+//   再読み込み後／オンライン復帰後に自動で再送する(マージは時刻ベースなので古い控えを流しても新しい入力を壊さない)。
+//   従来は端末側に控えが無く、再読み込みでその変更(月間スケジュールの振替・欠席など app_state 側)が失われていた。
+const _pendIdb = {
+  open: () => new Promise((res, rej) => { try { const r = indexedDB.open('tsumugi-pending', 1); r.onupgradeneeded = () => { try { r.result.createObjectStore('push'); } catch {} }; r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); } catch (e) { rej(e); } }),
+  put: async (storeId, data) => { try { const db = await _pendIdb.open(); await new Promise((res, rej) => { const tx = db.transaction('push', 'readwrite'); tx.objectStore('push').put({ storeId, data, at: Date.now() }, String(storeId)); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); db.close(); return true; } catch { return false; } },
+  get: async (storeId) => { try { const db = await _pendIdb.open(); const v = await new Promise((res, rej) => { const tx = db.transaction('push', 'readonly'); const q = tx.objectStore('push').get(String(storeId)); q.onsuccess = () => res(q.result || null); q.onerror = () => rej(q.error); }); db.close(); return v; } catch { return null; } },
+  del: async (storeId) => { try { const db = await _pendIdb.open(); await new Promise((res, rej) => { const tx = db.transaction('push', 'readwrite'); tx.objectStore('push').delete(String(storeId)); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); db.close(); } catch {} },
+};
 export default function App() {
   // 家族用閲覧モード判定: ?family が含まれていれば家族用ログイン画面に遷移
   const isFamilyMode = React.useMemo(()=>{
@@ -18237,6 +18247,26 @@ export default function App() {
   //   実行中は最新データだけ控えて直列に流す。タイムアウト(20秒)で必ず決着させ、失敗は通知に到達させる。
   const _pushBusyRef = React.useRef(false);
   const _pushNextRef = React.useRef(null);
+  const _pendPushRef = React.useRef(false); // 直近の push 失敗を IndexedDB に控えているか
+  React.useEffect(() => {
+    if (!isSupabaseEnabled || !staffSession?.storeId) return;
+    const sid = staffSession.storeId; let stopped = false, busy = false;
+    const tryResend = async () => {
+      if (stopped || busy) return; busy = true;
+      try {
+        const p = await _pendIdb.get(sid); if (!p || !p.data || stopped) return;
+        if (p.data._sbStoreId && p.data._sbStoreId !== sid) { await _pendIdb.del(sid); return; } // 別店舗の控えは捨てる(店舗ゲート)
+        syncLog('pend-resend', { age: Math.round((Date.now() - (p.at || Date.now())) / 1000) });
+        let ok = false; try { ok = (await supabaseMergeAndSyncStateForStore(sid, p.data)) !== false; } catch {}
+        if (ok) { await _pendIdb.del(sid); _pendPushRef.current = false; syncLog('pend-resend-ok', {}); setToastMsg('前回保存できなかった変更をクラウドへ送信しました（数秒後に画面に反映されます）'); setShowToast(true); setTimeout(() => setShowToast(false), 5000); }
+        else syncLog('pend-resend-fail', {});
+      } finally { busy = false; }
+    };
+    const t = setTimeout(tryResend, 5000);
+    const onOnline = () => setTimeout(tryResend, 1500);
+    window.addEventListener('online', onOnline);
+    return () => { stopped = true; clearTimeout(t); window.removeEventListener('online', onOnline); };
+  }, [staffSession?.storeId]);
   // ★ 軽量保存でも「直近45日の提供記録」は残す(2026-09-01 扇橋の再読み込み空欄対策)。
   //   従来はticketRecordsを丸ごと除外していたため、容量超過店舗では boot-merge prev:0 =
   //   再読み込みのたびに全欄が空→テーブル全量(997行)到着まで数秒〜十数秒の空白が生じ、
@@ -20230,13 +20260,16 @@ export default function App() {
         //   以前はその都度「同期に失敗しました」と出していたが、実際は少し待てば通ることが多い。
         //   → 失敗したら自動で最大2回やり直し、それでも駄目なときだけ通知する。
         const _retryPush = async (dataToPush) => {
+          // ★ 2026-09-21: タイムアウトを容量に応じて延長(20秒 + 1MBあたり15秒・上限80秒)。扇橋は app_state が2.5MB あり、
+          //   遅いWi-Fiでは20秒固定だと毎回タイムアウト→3回失敗→「同期に失敗」になっていた(診断ログに give-up 124回)。
+          let _tmo = 20000; try { _tmo = Math.min(80000, 20000 + Math.round(JSON.stringify(dataToPush).length / 1e6 * 15000)); } catch {}
           for (let i = 0; i < 3; i++) {
             try {
-              // ★ 20秒で必ず決着(2026-09-09): 遅いWi-Fiでpushが宙吊りになると、リトライも通知も永遠に
+              // ★ 一定時間で必ず決着(2026-09-09): 遅いWi-Fiでpushが宙吊りになると、リトライも通知も永遠に
               //   走らないまま端末を閉じられて消える。タイムアウトは失敗扱い→リトライ→最終的に通知へ。
               const ok = await Promise.race([
                 supabaseMergeAndSyncStateForStore(staffSession.storeId, dataToPush),
-                new Promise(res => setTimeout(() => res('__timeout__'), 20000)),
+                new Promise(res => setTimeout(() => res('__timeout__'), _tmo)),
               ]);
               if (ok === '__timeout__') { syncLog('push-timeout', { attempt: i + 1 }); }
               else if (ok !== false) return true;
@@ -20258,9 +20291,11 @@ export default function App() {
               const ok = await _retryPush(cur);
               if (!ok) {
                 syncLog('push-give-up', {});
-                setToastMsg('⚠ 同期に失敗しました（通信不良の可能性）。入力は端末に保持しています。通信を確認して、もう一度保存してください');
-                setShowToast(true); setTimeout(()=>setShowToast(false),6000);
-              }
+                // ★ 失敗した内容を IndexedDB に控える → 再読み込み後・オンライン復帰後に自動再送(2026-09-21)
+                const _kept = await _pendIdb.put(staffSession.storeId, cur); _pendPushRef.current = !!_kept;
+                setToastMsg(_kept ? '⚠ 同期に失敗しました（通信不良の可能性）。変更は端末に控えました。通信が回復すると自動で送信します（再読み込みしても消えません）' : '⚠ 同期に失敗しました（通信不良の可能性）。入力は端末に保持しています。通信を確認して、もう一度保存してください');
+                setShowToast(true); setTimeout(()=>setShowToast(false),8000);
+              } else if (_pendPushRef.current) { _pendPushRef.current = false; _pendIdb.del(staffSession.storeId); }
               cur = _pushNextRef.current; _pushNextRef.current = null;
             }
           } finally { _pushBusyRef.current = false; }
@@ -33463,6 +33498,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   //   monthlyShifts に明示的な値が無くても、その日の ticketRecord が欠席/休業なら補完表示。
   //   (以前は monthlyShifts しか見ておらず、提供記録で欠席にした過去の日が「出席」のまま見えていた)
   const _mSchedRecStatus = {};
+  const _mSchedRecFuri = {};
   const _mSchedRecReason = {}; // ★ 2026-09-21: 日ごとの理由(欠席/休業=特記、振替先=振替元の欠席理由)。セルのツールチップと状態モーダルに表示
   (appData.ticketRecords || []).forEach(r => {
     if (!localPatient || r.patientId !== localPatient.id) return;
@@ -33471,6 +33507,13 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     const ry = r.year || currentMonth.getFullYear();
     if (ry !== currentMonth.getFullYear()) return;
     if (r.status === '欠席' || r.status === '休業') _mSchedRecStatus[parseInt(dm[2])] = r.status;
+    // ★ 2026-09-21: 振替の提供記録があるのに monthlyShifts に「振(m/d)」が無い(保存失敗の残骸)場合も、記録から振替表示を出す
+    if (r.status === '振替') {
+      const _sm2 = String(r.tokki||'').match(/(\d+)月(\d+)日(?:AM|PM|1日)?分振替/);
+      const _lbl = _sm2 ? `振(${parseInt(_sm2[1])}/${parseInt(_sm2[2])})` : '振替';
+      const _fa = r.furikaeAmpm || '1日';
+      _mSchedRecFuri[parseInt(dm[2])] = { AM: (_fa === 'AM' || _fa === '1日') ? _lbl : undefined, PM: (_fa === 'PM' || _fa === '1日') ? _lbl : undefined };
+    }
     if (r.status === '欠席' || r.status === '休業') {
       const _rs = absReasonFromTokki(r.tokki); const _fm = String(r.tokki||'').match(/^(\d+月\d+日(?:AM|PM|1日)?へ振替(?:予定)?)/);
       _mSchedRecReason[parseInt(dm[2])] = `${r.status}理由: ${_rs || '（未入力）'}${_fm ? `　※${_fm[1]}` : ''}`;
@@ -34422,7 +34465,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               <div><label className="block text-sm font-bold text-slate-600 mb-3">基本利用曜日</label><div className="grid grid-cols-7 gap-2">{['日', '月', '火', '水', '木', '金', '土'].map((d, i) => { const v = localPatient.scheduleAmPm?.[i] || ""; const isClosed = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(i); const colorCls = isClosed ? 'bg-slate-100 border-slate-200 text-slate-400' : v === 'AM' ? 'bg-red-50 border-red-300 text-red-700' : v === 'PM' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-400'; return (<div key={d} className="flex flex-col"><span className={`text-center text-[13px] font-bold mb-1 ${i===0?'text-red-400':i===6?'text-blue-400':'text-slate-500'}`}>{d}</span>{isClosed ? (<div className={`w-full h-[42px] flex items-center justify-center text-[14px] font-bold text-center border rounded-xl box-border bg-slate-100 border-slate-200 text-slate-400`}>定休</div>) : (<select disabled={isOff} value={v} onChange={e => updateSched(i, e.target.value)} className={`w-full h-[42px] text-[14px] font-bold text-center border rounded-xl box-border outline-none cursor-pointer disabled:opacity-60 ${colorCls}`}><option value="">無</option><option value="AM">AM</option><option value="PM">PM</option></select>)}</div>); })}</div></div>
               {/* 月間スケジュール */}
               <div ref={scheduleSectionRef} className="scroll-mt-20"><div className="flex items-center justify-between mb-2"><label className="text-sm font-bold text-slate-600 flex items-center gap-1.5"><CalendarCheck size={16} />月間スケジュール</label><div className="flex items-center gap-2"><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronLeft size={16} /></button><span className="text-base font-bold text-slate-700 tabular-nums w-28 text-center">{currentMonth.getFullYear()}年{currentMonth.getMonth() + 1}月</span><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronRight size={16} /></button></div></div>
-                <div className="flex border border-slate-200 rounded-xl bg-slate-50 p-1 gap-0.5">{allD.map(d => { const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d); const dow = dO.getDay(); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; const cl = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow); const hl = appData.holidays?.some(h => (h.date || h) === ds); const base = getScheduleOnDate(localPatient, ds)?.[dow] || ""; const bAM = base === "AM" || base === "1日"; const bPM = base === "PM" || base === "1日"; const sh = effShifts?.[mKey]?.[localPatient.id] || {}; const pi = getPauseReasonOnDate(localPatient, ds); const _inactive = !!localPatient && !isPatientActiveOnDate(localPatient, ds); /* ★ 利用開始日より前・利用終了日より後は「空欄(非利用日)」にして、どこで終了したか一目で分かるようにする。利用中に戻せば再表示。 */ /* 休止中: 基本利用日 (bAM/bPM=true) の枠だけ「休止」表示。それ以外は通常空欄 */ const _shAM = sh[`${d}_AM`] !== undefined ? sh[`${d}_AM`] : (bAM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined); const _shPM = sh[`${d}_PM`] !== undefined ? sh[`${d}_PM`] : (bPM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined); const cA = _inactive ? sSt("空欄", cl, hl) : (pi ? (bAM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shAM, bAM), cl, hl)); const cP = _inactive ? sSt("空欄", cl, hl) : (pi ? (bPM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shPM, bPM), cl, hl)); const ok = !cl && !hl && !pi && !isOff && !_inactive; return (<div key={d} className="flex-1 min-w-0 flex flex-col items-stretch bg-white border border-slate-200 rounded overflow-hidden"><div className={`w-full text-center text-[11px] font-bold py-1 bg-slate-100 border-b border-slate-200 leading-tight ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{d}<br/><span className="text-[9px] font-normal">{dN[dow]}</span></div><button disabled={!ok} title={_mSchedRecReason[d] || (cA.sub ? `${cA.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "AM")} className={`h-9 flex items-center justify-center border-b border-slate-100 text-[10px] leading-none whitespace-pre-wrap ${cA.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cA.t}</button><button disabled={!ok} title={_mSchedRecReason[d] || (cP.sub ? `${cP.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "PM")} className={`h-9 flex items-center justify-center text-[10px] leading-none whitespace-pre-wrap ${cP.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cP.t}</button></div>); })}</div>
+                <div className="flex border border-slate-200 rounded-xl bg-slate-50 p-1 gap-0.5">{allD.map(d => { const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d); const dow = dO.getDay(); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; const cl = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow); const hl = appData.holidays?.some(h => (h.date || h) === ds); const base = getScheduleOnDate(localPatient, ds)?.[dow] || ""; const bAM = base === "AM" || base === "1日"; const bPM = base === "PM" || base === "1日"; const sh = effShifts?.[mKey]?.[localPatient.id] || {}; const pi = getPauseReasonOnDate(localPatient, ds); const _inactive = !!localPatient && !isPatientActiveOnDate(localPatient, ds); /* ★ 利用開始日より前・利用終了日より後は「空欄(非利用日)」にして、どこで終了したか一目で分かるようにする。利用中に戻せば再表示。 */ /* 休止中: 基本利用日 (bAM/bPM=true) の枠だけ「休止」表示。それ以外は通常空欄 */ const _shAM = sh[`${d}_AM`] !== undefined ? sh[`${d}_AM`] : (_mSchedRecFuri[d]?.AM || (bAM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const _shPM = sh[`${d}_PM`] !== undefined ? sh[`${d}_PM`] : (_mSchedRecFuri[d]?.PM || (bPM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const cA = _inactive ? sSt("空欄", cl, hl) : (pi ? (bAM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shAM, bAM), cl, hl)); const cP = _inactive ? sSt("空欄", cl, hl) : (pi ? (bPM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shPM, bPM), cl, hl)); const ok = !cl && !hl && !pi && !isOff && !_inactive; return (<div key={d} className="flex-1 min-w-0 flex flex-col items-stretch bg-white border border-slate-200 rounded overflow-hidden"><div className={`w-full text-center text-[11px] font-bold py-1 bg-slate-100 border-b border-slate-200 leading-tight ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{d}<br/><span className="text-[9px] font-normal">{dN[dow]}</span></div><button disabled={!ok} title={_mSchedRecReason[d] || (cA.sub ? `${cA.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "AM")} className={`h-9 flex items-center justify-center border-b border-slate-100 text-[10px] leading-none whitespace-pre-wrap ${cA.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cA.t}</button><button disabled={!ok} title={_mSchedRecReason[d] || (cP.sub ? `${cP.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "PM")} className={`h-9 flex items-center justify-center text-[10px] leading-none whitespace-pre-wrap ${cP.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cP.t}</button></div>); })}</div>
                 <div className="flex gap-2 mt-2 text-[11px] text-slate-400 font-bold flex-wrap items-center"><span>上段:AM/下段:PM</span><span className="text-blue-600 bg-blue-50 px-1 rounded">出席</span><span className="text-red-500 bg-red-50 px-1 rounded">欠席</span><span className="text-emerald-600 bg-emerald-50 px-1 rounded">振替</span><span className="text-cyan-700 bg-cyan-50 px-1 rounded">臨時</span><span className="text-white bg-slate-600 px-1 rounded">休業</span><span>空欄=非利用日</span></div></div>
               {/* お迎え時間: 基本利用曜日に設定がある日のみ表示 */}
               {(() => {
@@ -39356,7 +39399,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   const _rpMap = new Map();
   _recordedRaw.forEach(r => { const ex=_rpMap.get(r.patientId); const sc=(x)=>Object.keys(x).filter(k=>k[0]!=='_'&&x[k]!==''&&x[k]!=null).length; if(!ex || sc(r)>sc(ex)) _rpMap.set(r.patientId, r); });
   const recordedPatients = [..._rpMap.values()]
-    .map(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId)||{}; return {id:r.id,patientId:r.patientId,name:p.name||r.name||'',kana:p.kana||'',careLevel:p.careLevel||'',tokki:r.tokki||'',status:_applyKyugyo(r.status, r.patientId, selectedDate, dow)}; });
+    .map(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId)||{}; const _st=_applyKyugyo(r.status, r.patientId, selectedDate, dow); /* ★ 2026-09-21(店舗指摘): 休止は記録の特記が空なら利用者マスタの休止履歴の理由を表示 */ const _pr=(_st==='休止' && !(r.tokki||'')) ? getPauseReasonOnDate(p, selectedDate) : null; const _tk=(r.tokki||'') || (_pr && _pr.reason ? `休止理由: ${_pr.reason}` : ''); return {id:r.id,patientId:r.patientId,name:p.name||r.name||'',kana:p.kana||'',careLevel:p.careLevel||'',tokki:_tk,status:_st}; });
   const recordedPids = new Set(recordedPatients.map(r=>r.patientId));
   // ★ ticketRecords にまだ記録が無くても、当日の曜日スケジュールに該当する利用者を表示
   //   (体温などを入力しなくても日誌に名前が出るように)
@@ -39591,7 +39634,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     const _dmap = new Map();
     _rawRecs.forEach(r => { const ex=_dmap.get(r.patientId); const sc=(x)=>Object.keys(x).filter(k=>k[0]!=='_'&&x[k]!==''&&x[k]!=null).length; if(!ex || sc(r)>sc(ex)) _dmap.set(r.patientId, r); });
     const _recd = [..._dmap.values()]
-      .map(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId)||{}; return {id:r.id,patientId:r.patientId,name:p.name||r.name||'',kana:p.kana||'',careLevel:p.careLevel||'',tokki:r.tokki||'',status:_applyKyugyo(r.status, r.patientId, selectedDate, dow)}; });
+      .map(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId)||{}; const _st=_applyKyugyo(r.status, r.patientId, selectedDate, dow); /* ★ 2026-09-21(店舗指摘): 休止は記録の特記が空なら利用者マスタの休止履歴の理由を表示 */ const _pr=(_st==='休止' && !(r.tokki||'')) ? getPauseReasonOnDate(p, selectedDate) : null; const _tk=(r.tokki||'') || (_pr && _pr.reason ? `休止理由: ${_pr.reason}` : ''); return {id:r.id,patientId:r.patientId,name:p.name||r.name||'',kana:p.kana||'',careLevel:p.careLevel||'',tokki:_tk,status:_st}; });
     const _recdIds = new Set(_recd.map(r=>r.patientId));
     const _extras = (appData.patients||[])
       .filter(p => {
