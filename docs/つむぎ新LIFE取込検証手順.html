@@ -1,0 +1,129 @@
+<title>新LIFE取込検証 手順書</title>
+<style>
+  :root{
+    --bg:#f6f7f4; --panel:#ffffff; --ink:#1d2419; --ink-2:#4f5a48; --ink-3:#8a9282;
+    --line:#dfe4d8; --accent:#2f6b3a; --accent-soft:#e6f1e6; --warn:#a0561a; --warn-soft:#fbeede; --bad:#b0332f; --bad-soft:#fae6e4; --ok:#2f6b3a; --ok-soft:#e6f1e6;
+    --jp:"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP","Meiryo",system-ui,sans-serif;
+    --mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){ --bg:#141712; --panel:#1c211a; --ink:#e8ece3; --ink-2:#b4bcab; --ink-3:#7d857a; --line:#2c3329; --accent:#8fca9a; --accent-soft:#213325; --warn:#e2a56a; --warn-soft:#3a2a18; --bad:#ef8b86; --bad-soft:#3b1f1e; --ok:#8fca9a; --ok-soft:#213325; } }
+  :root[data-theme="dark"]{ --bg:#141712; --panel:#1c211a; --ink:#e8ece3; --ink-2:#b4bcab; --ink-3:#7d857a; --line:#2c3329; --accent:#8fca9a; --accent-soft:#213325; --warn:#e2a56a; --warn-soft:#3a2a18; --bad:#ef8b86; --bad-soft:#3b1f1e; --ok:#8fca9a; --ok-soft:#213325; }
+  body{background:var(--bg);color:var(--ink);font-family:var(--jp);font-size:15px;line-height:1.75;margin:0;}
+  .wrap{max-width:900px;margin:0 auto;padding:32px 20px 80px;}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:.01em;text-wrap:balance;}
+  .sub{color:var(--ink-2);margin:0 0 24px;font-size:14px;}
+  h2{font-size:18px;margin:36px 0 10px;padding-left:12px;border-left:4px solid var(--accent);}
+  h3{font-size:15.5px;margin:20px 0 6px;color:var(--ink);}
+  p{margin:6px 0 10px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:12px 0;}
+  .note{background:var(--warn-soft);border:1px solid var(--warn);border-radius:10px;padding:10px 14px;color:var(--ink);margin:10px 0;}
+  .note b{color:var(--warn);}
+  .bad{background:var(--bad-soft);border:1px solid var(--bad);border-radius:10px;padding:10px 14px;margin:10px 0;}
+  .ok{background:var(--ok-soft);border:1px solid var(--ok);border-radius:10px;padding:10px 14px;margin:10px 0;}
+  ol,ul{padding-left:1.4em;margin:6px 0 10px;}
+  li{margin:4px 0;}
+  li::marker{color:var(--accent);font-weight:bold;}
+  code{font-family:var(--mono);font-size:13px;background:var(--accent-soft);padding:1px 6px;border-radius:5px;}
+  table{border-collapse:collapse;width:100%;font-size:14px;margin:8px 0 12px;}
+  th,td{border:1px solid var(--line);padding:7px 9px;vertical-align:top;text-align:left;}
+  th{background:var(--accent-soft);font-weight:bold;white-space:nowrap;}
+  .tbl{overflow-x:auto;}
+  .check{list-style:none;padding-left:0;}
+  .check li{padding-left:1.8em;position:relative;}
+  .check li::before{content:"";position:absolute;left:0;top:.5em;width:14px;height:14px;border:2px solid var(--accent);border-radius:4px;}
+  .muted{color:var(--ink-3);font-size:13px;}
+  .tag{display:inline-block;font-size:12px;font-weight:bold;padding:1px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent);margin-right:6px;}
+  .num{font-variant-numeric:tabular-nums;}
+  @media print{ body{background:white;color:black;font-size:12.5px;} .wrap{max-width:none;padding:0;} .card,.note,.bad,.ok{break-inside:avoid;} h2{margin-top:22px;} }
+</style>
+
+<div class="wrap">
+  <h1>新LIFE取込検証 手順書</h1>
+  <p class="sub">つむぎ → 新LIFE（国保中央会）へのCSV取込を、扇橋店の実データで確認する当日用の手順。Windows 11＋電子証明書のPCで実施。作成 2026-09-21</p>
+
+  <div class="note"><b>大事な前提</b>　介護ソフトベンダ向けの「検証環境」は申請制（LIFE問い合わせフォームから申込→ヘルプデスクがアカウント発行）で、今日・明日には使えません。そのため<b>新LIFEの本番に「まず利用者情報だけ」→「次に1名分の様式」の順で少しずつ入れて確認</b>します。利用者情報の登録はどのみち移行に必須の作業なので、無駄にはなりません。同じ管理番号で再取込すると上書きされるので、やり直しもできます。</div>
+
+  <h2>0. 前日までに（つむぎ側・扇橋店で）</h2>
+  <div class="card">
+    <h3>A. 各種設定 → 事業所情報 → LIFE連携の欄（本日時点で扇橋は3つとも未設定）</h3>
+    <div class="tbl"><table>
+      <tr><th>項目</th><th>入れる値</th><th>どこで分かるか</th></tr>
+      <tr><td>介護保険事業所番号（10桁）</td><td>指定通知書の事業所番号</td><td>指定通知書／国保連請求の事業所番号。新LIFEのログイン後の事業所情報と<b>一字一句同じ</b>である必要があります</td></tr>
+      <tr><td>サービス種類コード（2桁）</td><td><code>15</code>＝通所介護 ／ <code>78</code>＝地域密着型通所介護</td><td>指定を受けたサービス種別。定員18名以下なら地域密着型（78）が一般的。新LIFE側の事業所のサービス種類と一致させます</td></tr>
+      <tr><td>保険者番号（6桁・既定）</td><td>利用者の被保険者証の「保険者番号」</td><td>江東区の方が大半なら江東区の番号。別の保険者の方（住所地特例など）は、LIFE・加算画面の利用者ごとの欄で個別に上書き</td></tr>
+      <tr><td>CSVバージョン</td><td>空欄のまま（自動で 0310）</td><td>—</td></tr>
+      <tr><td>一体的取組</td><td>該当しなければ「0：無し」</td><td>口腔・栄養・機能訓練の一体的取組加算を算定していれば「1」</td></tr>
+      <tr><td>記入者の職種の既定値</td><td>生活機能チェックを主に書く職員の職種</td><td>例: 介護福祉士（170）・理学療法士（080）など</td></tr>
+    </table></div>
+    <h3>B. 利用者マスタの不足分を直す（LIFE・加算 → 「利用者情報CSV」の表にエラー行が赤く出ます）</h3>
+    <p>本日時点の扇橋（利用中・休止 75名）で不足していたもの: <span class="tag">被保険者番号 2名</span><span class="tag">生年月日 3名</span><span class="tag">性別 1名</span><span class="tag">要介護度 2名</span><span class="tag">認定有効期間 2名（任意）</span></p>
+    <p class="muted">被保険者番号・生年月日・性別・保険者番号は介護保険証と照合されます（正確性チェック）。1文字でも違うと、その方の様式CSVもすべて登録できません。被保険者証を見ながら入力してください。</p>
+    <div class="note"><b>被保険者番号の桁数</b>　扇橋75名のうち、マスタの被保険者番号が10桁の方は36名、<b>6〜7桁の方が37名</b>（Excel取り込みで先頭のゼロが落ちた可能性が高い）、未登録が2名です。つむぎは10桁未満を先頭ゼロで10桁にして出力し、その方の行に「要確認: 先頭ゼロで10桁にして出力します」と表示します。当日、<b>6〜7桁の方を2〜3名、被保険者証の番号と見比べて</b>、ゼロ埋めで一致するか確認してください（一致しない形式なら、その場で教えてください）。</div>
+    <h3>B′. 他店舗の状況（参考・2026-09-21時点）</h3>
+    <p class="muted">事業所番号・サービス種類コード・保険者番号は全店未設定。被保険者番号は 江古田（59名中6名未登録）以外の店舗はほぼ全員未登録（東小岩50/54・池上86/86・南水元46/49・水元67/72・西馬込60/62・柴又71/71・立石57/57）。評価記録（ADL・生活機能・機能訓練）は全店0件。扇橋で手順が固まってから、各店に「事業所情報の設定」と「被保険者番号の入力」を依頼する流れになります。</p>
+    <h3>C. 様式テスト用に1名分の評価を入れる（扇橋はまだ評価記録が0件）</h3>
+    <ol>
+      <li>LIFE・加算 → 利用者を1名選ぶ → 「一括評価」。</li>
+      <li>評価日・評価者、Barthel Index 10項目、身長・体重、口腔4項目（義歯／むせ／歯の汚れ／歯ぐき）を入力して保存。</li>
+      <li>その方のフェイスシートで「障害高齢者の日常生活自立度」「認知症高齢者の日常生活自立度」を選んでおく（様式CSVの必須項目）。</li>
+      <li>提出ダッシュボードで「科学的介護推進」を選び、その方が<b>✓ 提出可</b>になっていることを確認。</li>
+    </ol>
+  </div>
+
+  <h2>1. 当日：つむぎでCSVを出す</h2>
+  <div class="card">
+    <ol>
+      <li>Windows PCでつむぎにログイン → 「LIFE・加算」。</li>
+      <li>「利用者情報CSV」の欄で <b>エラー 0</b> を確認（残っていればマスタで修正）。→ <b>「利用者情報CSV出力」</b>。ファイル名は <code>利用者情報_YYYYMM.csv</code>。</li>
+      <li>提出ダッシュボードで様式「科学的介護推進」を選び、<b>「利用者情報＋様式をまとめて出力」</b>。提出可の方（まずは評価を入れた1名）の <code>利用者情報_YYYYMM.csv</code> と <code>TIFI2024_YYYYMM.csv</code> が続けて保存されます。</li>
+      <li>ダウンロード先（通常は「ダウンロード」フォルダ）にファイルがあることを確認。</li>
+    </ol>
+    <p class="muted">CSVはメモ帳で開けますが、<b>Excelで開いて保存しないでください</b>（先頭のゼロが消え、被保険者番号が壊れます）。中身を見たいときはメモ帳で。</p>
+  </div>
+
+  <h2>2. 当日：新LIFEに取り込む</h2>
+  <div class="card">
+    <ol>
+      <li>Edge または Chrome で <code>https://top.life-kkh.jp/</code> を開く → 電子証明書の選択画面で事業所の証明書を選ぶ → ログイン。</li>
+      <li>メニューから CSV取込（画面上の名称は「CSV取込」「一括登録」「外部データ取込」等）を開く。</li>
+      <li><b>まず利用者情報CSVだけ</b>を選んで取込を実行 → 結果画面（登録件数・エラー一覧）を<b>スクリーンショット</b>。</li>
+      <li>エラーが無ければ、<b>様式CSV（TIFI2024）</b>を選んで取込 → 同じく結果画面をスクリーンショット。</li>
+      <li>利用者一覧・様式一覧で、その方が登録されているか目視で確認。</li>
+    </ol>
+    <div class="note"><b>順番の理由</b>　新LIFEは利用者情報が登録されていない方の様式を受け付けません（仕様書4.5）。2つ同時に選んでも内部で利用者情報が先に処理されますが、切り分けのため分けて取り込みます。</div>
+  </div>
+
+  <h2>3. 結果の見方と、そのとき私に送ってほしいもの</h2>
+  <div class="card">
+    <div class="tbl"><table>
+      <tr><th>画面の状態</th><th>意味</th><th>対応</th></tr>
+      <tr><td>登録件数が出て、エラー0</td><td>成功</td><td>そのまま「4」へ</td></tr>
+      <tr><td>「正確性チェック」「介護情報基盤」「被保険者証と不一致」等のエラー</td><td>保険者番号・被保険者番号・性別・生年月日のどれかが証と違う</td><td>該当の方の被保険者証を見て利用者マスタを修正 → 利用者情報CSVを出し直して再取込</td></tr>
+      <tr><td>「利用者情報が存在しません」（様式側）</td><td>利用者情報の登録が先に通っていない、または事業所番号／サービス種類コード／被保険者番号が利用者情報と一致していない</td><td>利用者情報の取込結果を先に確認。事業所情報の設定値をLIFEの事業所情報と照合</td></tr>
+      <tr><td>「ファイル形式」「データ種別」「1行目」に関するエラー</td><td>CSVの1行目（データ種別名）が合っていない可能性</td><td><b>私に連絡</b>（特にADL維持等のCSV。公式資料内で名称が2通り表記されているため、すぐ切り替えます）</td></tr>
+      <tr><td>「要介護度」「コード値」に関するエラー</td><td>コード表の不一致</td><td><b>私に連絡</b>（エラー文をそのまま）</td></tr>
+      <tr><td>事業所番号／サービス種類コードに関するエラー</td><td>つむぎの事業所情報がLIFE側の事業所と違う</td><td>新LIFEの事業所情報画面の値をつむぎに合わせる</td></tr>
+    </table></div>
+    <p><b>送ってほしいもの</b>：①結果画面のスクリーンショット（成功でも） ②エラー文の全文（コピーでも写真でも） ③取り込んだファイル名。エラーの文面が分かれば、その場で直して出し直せます。</p>
+  </div>
+
+  <h2>4. 成功したら（同日中でも可）</h2>
+  <div class="card">
+    <ul class="check">
+      <li>扇橋の利用者情報CSVを<b>全員分</b>取り込む（もう一度「利用者情報CSV出力」→取込）。</li>
+      <li>評価が済んでいる方から順に、様式ごとに「まとめてCSV出力」→取込。</li>
+      <li>他店舗も同じ手順（各店の事業所情報の設定→利用者情報→様式）。</li>
+      <li>ADL維持等加算を出す店舗は、ADL維持等のCSVも1名分先に試す（データ種別名の確認のため）。</li>
+    </ul>
+  </div>
+
+  <h2>参考</h2>
+  <div class="card">
+    <ul>
+      <li>ログイン: <code>https://top.life-kkh.jp/</code>（Windows 11／Edge・Chrome／電子証明書。旧ランチャーは廃止）</li>
+      <li>電子証明書の手引き: 介護情報基盤ポータル（各種資料 → 導入準備 → セットアップ手順書（電子証明書））</li>
+      <li>問い合わせ: LIFEシステム内の事業所別問合せ機能、または <code>https://top.life-kkh.jp/common-inquiry</code></li>
+      <li>仕様: CSV連携仕様書3.10版（利用者情報は§4.5〜4.7）／外部インターフェース項目一覧v0310（まるっとLIFEフォルダに保存済み）</li>
+    </ul>
+  </div>
+</div>
