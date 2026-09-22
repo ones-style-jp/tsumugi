@@ -31938,6 +31938,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   };
 
   // 表示用プラン: 保存済みがあればそれ、無ければ自動下書き(前週同曜日の車割りをコピー)
+  // ★ 2026-09-22(店舗要望): 送迎表の時刻表示は「13時25分」ではなく「13:25」。保存値は従来形式のままでも表示で統一する。
+  const _fmtT = (t) => { const v = String(t ?? '').trim(); if (!v) return ''; const m = v.match(/^(\d{1,2})時(?:(\d{1,2})分?)?$/); if (m) return `${m[1]}:${String(m[2] || '0').padStart(2, '0')}`; return v; };
+  const _tMin = (t) => { const m = _fmtT(t).match(/^(\d{1,2}):(\d{1,2})/); return m ? (+m[1]) * 60 + (+m[2]) : (/徒歩/.test(String(t||'')) ? 99999 : 99998); };
   const _draftPlan = (iso, sl) => {
     const att = _attendees(iso, sl);
     const prevD = new Date(iso); prevD.setDate(prevD.getDate() - 7);
@@ -31955,7 +31958,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       if (cid && carsMap[cid]) carsMap[cid].push({ pid: a.pid, t: a.time, mark: false });
       else un.push({ pid: a.pid, t: a.time, mark: false });
     });
-    Object.keys(carsMap).forEach(cid => carsMap[cid].sort((x,y) => String(x.t).localeCompare(String(y.t))));
+    Object.keys(carsMap).forEach(cid => carsMap[cid].sort((x,y) => _tMin(x.t) - _tMin(y.t) || String(x.t).localeCompare(String(y.t))));
     return { cars: carsMap, walkers, others, un, memo: '', _draft: true };
   };
   const getPlan = (iso, sl) => {
@@ -32556,7 +32559,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const bg = fk ? '#a7f3d0' : (fv ? '#bae6fd' : '#fff');
       return `<tr style="background:${bg};">
         <td style="border-bottom:1px solid #d7dcd7;padding:1px 3px;font-size:${fz}px;line-height:1.25;white-space:nowrap;overflow:hidden;font-weight:600;">${m.mark?'<span style="color:#c82c35;font-weight:bold;">●</span>':''}${esc(_pname(m.pid))}</td>
-        <td style="border-bottom:1px solid #d7dcd7;border-left:1px solid #e2e6e1;padding:1px 2px;font-size:${fz}px;line-height:1.25;text-align:center;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;">${esc(m.t||'')}</td>
+        <td style="border-bottom:1px solid #d7dcd7;border-left:1px solid #e2e6e1;padding:1px 2px;font-size:${fz}px;line-height:1.25;text-align:center;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;">${esc(_fmtT(m.t))}</td>
         <td style="border-bottom:1px solid #d7dcd7;border-left:1px solid #e2e6e1;padding:1px 2px;font-size:${fzS}px;line-height:1.25;text-align:center;">${esc(_nextDow(iso, m.pid))}</td>
       </tr>`;
     };
@@ -32656,7 +32659,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const row = (m, sl) => { const pt = _pt(m.pid); const fk = _isFurikae(iso, sl, m.pid); const fv = !fk && _isFirstVisit(m.pid, iso); const bg = fk?'#a7f3d0':(fv?'#bae6fd':'#fff');
       return `<tr style="background:${bg};">
         <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;">${m.mark?'<span style="color:#c82c35;">●</span>':''}${_escP(_pname(m.pid))}</td>
-        <td style="border:1px solid #66756b;padding:2px 4px;font-size:${fz}px;font-weight:700;text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums;">${_escP(m.t||'')}</td>
+        <td style="border:1px solid #66756b;padding:2px 4px;font-size:${fz}px;font-weight:700;text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums;">${_escP(_fmtT(m.t))}</td>
         <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fzS}px;">${_escP([pt.address, pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' '))}${pt.pickupPlace?`<span style="color:#475569;">（${_escP(pt.pickupPlace)}）</span>`:''}</td>
         <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fzS}px;white-space:nowrap;font-variant-numeric:tabular-nums;">${_escP(pt.phoneMobile || pt.phone || '')}</td>
       </tr>`; };
@@ -32805,7 +32808,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                                   <span className={`w-4 h-4 rounded-full border text-[9px] leading-4 text-center font-bold ${m.mark?'bg-red-600 border-red-600 text-white':'border-slate-300 text-transparent'}`}>●</span>
                                 </button>
                                 <button onClick={()=>{ if (!dragMv) setEditP({pid:m.pid}); }} {..._dragHandlers(m.pid, iso, sl)} title="タップ=場所・乗車時間の編集 / 長押し=つかんで移動(別の日に落とすと振替)" className="text-[16px] font-bold text-slate-800 flex-1 min-w-0 text-left leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{overflowWrap:"anywhere", touchAction:'pan-y'}}>{_pname(m.pid)}</button>
-                                <input type="text" value={m.t||''} onChange={e=>setTime(iso, sl, m.pid, e.target.value)} placeholder="—:—" className={`w-16 text-center text-[17px] font-bold border rounded px-0.5 py-1 outline-none shrink-0 ${m.mark?'border-red-400 text-red-600':'border-slate-300'}`} style={{fontVariantNumeric:'tabular-nums'}}/>
+                                <input type="text" value={_fmtT(m.t)} onChange={e=>setTime(iso, sl, m.pid, e.target.value)} placeholder="—:—" className={`w-16 text-center text-[17px] font-bold border rounded px-0.5 py-1 outline-none shrink-0 ${m.mark?'border-red-400 text-red-600':'border-slate-300'}`} style={{fontVariantNumeric:'tabular-nums'}}/>
                               </div>
                             ))}
                             {!(pl.cars?.[c.id]||[]).length && <div className="px-2 py-1 text-[10px] text-slate-400">{dragMv?'ここにドロップ':'なし'}</div>}
@@ -32840,7 +32843,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                             {(pl.un||[]).map(m => (
                               <div key={m.pid} className={`flex items-center gap-1 text-[15px] font-bold text-slate-700 py-0.5 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''} ${_isFurikae(iso, sl, m.pid)?'bg-emerald-100 rounded':(_isFirstVisit(m.pid, iso)?'bg-sky-100 rounded':'')}`}>
                                 <span className="flex-1 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2 px-1" style={{overflowWrap:'anywhere', touchAction:'pan-y'}} {..._dragHandlers(m.pid, iso, sl)}>{_pname(m.pid)}</span>
-                                <span className="text-[12px] text-slate-500" style={{fontVariantNumeric:'tabular-nums'}}>{m.t}</span>
+                                <span className="text-[12px] text-slate-500" style={{fontVariantNumeric:'tabular-nums'}}>{_fmtT(m.t)}</span>
                               </div>
                             ))}
                             {!(pl.un||[]).length && <div className="text-[10px] text-amber-600">ここにドロップで未割当へ</div>}
