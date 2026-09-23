@@ -32727,7 +32727,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     if (!editingPatientId) return; // 利用者詳細が開いてから
     setActiveDetailTab('service');
     const t = setTimeout(() => {
-      try { scheduleSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {}
+      // ★ スクロールに加えて月間スケジュール枠を数秒ハイライト(振替・休止はここで、基本利用曜日は触らない案内)
+      focusMonthlySchedule();
       onFocusHandled && onFocusHandled();
     }, 250);
     return () => clearTimeout(t);
@@ -32755,6 +32756,18 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     // 月を切り替えたら保留はクリアして混乱を避ける。
   }, []);
   const [schedModal, setSchedModal] = useState(null); // {dayIndex, newVal, oldVal, applyFrom}
+  // ★ 月間スケジュール枠のハイライト(2026-09-23): 基本利用日の変更モーダルから「月間スケジュールへ移動」した時や
+  //   提供記録の振替/休止からジャンプしてきた時に、数秒間だけ枠を目立たせて「1回だけの変更はここ」を示す。
+  const [monthlyHl, setMonthlyHl] = useState(false);
+  const _monthlyHlTimer = React.useRef(null);
+  const focusMonthlySchedule = React.useCallback(() => {
+    setSchedModal(null);
+    try { scheduleSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {}
+    setMonthlyHl(true);
+    if (_monthlyHlTimer.current) clearTimeout(_monthlyHlTimer.current);
+    _monthlyHlTimer.current = setTimeout(() => setMonthlyHl(false), 6000);
+  }, []);
+  React.useEffect(() => () => { if (_monthlyHlTimer.current) clearTimeout(_monthlyHlTimer.current); }, []);
   const [plannedExModal, setPlannedExModal] = useState(null); // {pat, next, fromY, fromM} 運動メニュー値変更の適用開始月
   const [autoDeleteModal, setAutoDeleteModal] = useState(null); // {endDate, years} 利用終了日設定時の自動削除選択
   const endDateFocusRef = React.useRef(''); // 利用終了日: フォーカス時の値。確定(blur)時に変化があればモーダル表示
@@ -33301,16 +33314,27 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     // ★ 同じ曜日で「applyFrom 以降に予約された古い変更履歴」は、この再設定で上書きするため除去する。
     //   (基本利用曜日を なし→PM 等と何度か変更した時に、古い履歴が累積して getScheduleOnDate が
     //    その曜日を空欄へ巻き戻し、月間スケジュールが空欄になる不具合の対策)。
-    const hist = [...(localPatient.scheduleChangeHistory||[])].filter(h => !(h && h.dayIndex === dayIndex && h.date && String(h.date) >= String(applyFrom)));
-    hist.push({date:applyFrom, dayIndex, oldVal, newVal, label:`${dN2[dayIndex]}曜日 ${oldVal||'無'}→${newVal||'無'}`});
-    const changeTypeLabel = isAdd?'増回':isRemove?'減回':'変更';
-    const changeLogEntry = {date: new Date().toISOString().slice(0,10), label:`基本利用日${changeTypeLabel}`, oldValue:null, newValue:`${dN2[dayIndex]}曜日 ${oldVal||'無'}→${newVal||'無'}（${applyFrom}〜適用）`, note:changeTypeLabel};
+    const hist0 = [...(localPatient.scheduleChangeHistory||[])];
+    const removedHist = hist0.filter(h => h && h.dayIndex === dayIndex && h.date && String(h.date) >= String(applyFrom)).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+    const hist = hist0.filter(h => !(h && h.dayIndex === dayIndex && h.date && String(h.date) >= String(applyFrom)));
+    // ★ 取り消し(net-zero)判定(2026-09-23): 「水PM→木PM に間違えて変更 → すぐ元に戻す」のような同日の往復では、
+    //   除去した旧entry群を巻き戻した“変更前の値”が今回の newVal と一致する。 その場合は履歴を残さず
+    //   (残すと getScheduleOnDate が過去の木曜を PM に巻き戻して、過去の提供記録一覧に木曜が現れる)、
+    //   その曜日の算法override('〇'/'空欄'/'出席')も全月で掃除して“何もなかった”状態に戻す。
+    let baselineVal = oldVal || '';
+    removedHist.forEach(h => { baselineVal = h.oldVal || ''; });
+    const netZero = removedHist.length > 0 && baselineVal === (newVal || '');
+    if (!netZero) hist.push({date:applyFrom, dayIndex, oldVal, newVal, label:`${dN2[dayIndex]}曜日 ${oldVal||'無'}→${newVal||'無'}`});
+    const changeTypeLabel = netZero?'取り消し':isAdd?'増回':isRemove?'減回':'変更';
+    const changeLogEntry = {date: new Date().toISOString().slice(0,10), label:netZero?'基本利用日の変更取り消し':`基本利用日${changeTypeLabel}`, oldValue:null, newValue:`${dN2[dayIndex]}曜日 ${oldVal||'無'}→${newVal||'無'}（${applyFrom}〜適用）`, note:changeTypeLabel};
 
     // 3. シフトデータ更新
     const newShifts = JSON.parse(JSON.stringify(effShifts));
     const closedDays = appData.systemSettings?.facilityInfo?.closedDays||[0];
 
-    if(!closedDays.includes(dayIndex)) {
+    if (netZero) {
+      _cleanSchedOverrides(newShifts, localPatient.id, dayIndex);
+    } else if(!closedDays.includes(dayIndex)) {
       // 該当 AP が指定 schedule で基本利用日か
       const isBaseAp = (sched, ap) => sched === '1日' || sched === ap;
 
@@ -33391,6 +33415,10 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     const changeLog=[...(localPatient.changeLog||[]),changeLogEntry];
     // ★ withLatestFiles で status/pauseHistory(=休止)を最新appData優先に = 古いスナップショットで休止が利用中に戻るのを防ぐ
     const newPat = withLatestFiles({...localPatient, scheduleAmPm:newSched, scheduleChangeHistory:hist, changeLog});
+    _saveSchedResult(newPat, newShifts, netZero ? '✓ 基本利用日の変更を取り消しました' : '✓ 基本利用日を保存しました');
+  };
+  // ★ 基本利用日の変更結果(利用者+月間シフト)を即クラウド保存する共通部(applySchedChange / removeSchedHistory)
+  const _saveSchedResult = (newPat, newShifts, message) => {
     setLocalPatient(newPat);
     setPendingShifts(null);
     const nextData = {
@@ -33402,7 +33430,45 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     if (pendingTickets) setPendingTickets(null);
     if (dirtyRef) dirtyRef.current = false;
     _justSavedMasterRef.current = Date.now(); // ★ 保存直後ガード(基本利用日が一瞬で戻る競合を防ぐ)
-    onSave(nextData, { manual: true, message: '✓ 基本利用日を保存しました' });
+    onSave(nextData, { manual: true, message });
+  };
+  // ★ 指定曜日の「算法由来のoverride」('〇'/'空欄'/'出席')を全月から削除する。
+  //   欠席/休業/臨時/振替 など、人が付けた印は残す。 表示は getScheduleOnDate(履歴から逆算)に任せる。
+  const _cleanSchedOverrides = (shifts, pid, dayIndex) => {
+    Object.keys(shifts || {}).forEach(mk => {
+      const rec = shifts[mk] && shifts[mk][pid];
+      if (!rec) return;
+      const [yr, mn1] = mk.split('-').map(Number);
+      if (!yr || !mn1) return;
+      Object.keys(rec).forEach(k => {
+        const m = /^(\d{1,2})_(AM|PM)$/.exec(k);
+        if (!m) return;
+        if (new Date(yr, mn1 - 1, Number(m[1])).getDay() !== dayIndex) return;
+        const cur = rec[k];
+        if (cur === '〇' || cur === '空欄' || cur === '出席') delete rec[k];
+      });
+      if (Object.keys(rec).length === 0) delete shifts[mk][pid];
+      if (Object.keys(shifts[mk]).length === 0) delete shifts[mk];
+    });
+  };
+  // ★ 基本利用曜日の変更履歴を1件削除する(2026-09-23)。
+  //   用途: 間違えて変えた基本利用日を手で戻した後に残った履歴(例: 木曜日 PM→無)が、過去の月間スケジュール・
+  //   提供記録一覧にその曜日を出し続ける時の復旧。 今の基本利用曜日はそのまま、「この曜日は以前から今の設定だった」扱いにする。
+  const removeSchedHistory = (entry) => {
+    if (!localPatient || !entry) return;
+    const dN2=['日','月','火','水','木','金','土'];
+    const hist0 = localPatient.scheduleChangeHistory || [];
+    const idx = hist0.findIndex(h => h && h.date === entry.date && h.dayIndex === entry.dayIndex && (h.oldVal||'') === (entry.oldVal||'') && (h.newVal||'') === (entry.newVal||''));
+    if (idx < 0) return;
+    const lbl = entry.label || `${dN2[entry.dayIndex]}曜日 ${entry.oldVal||'無'}→${entry.newVal||'無'}`;
+    if (!window.confirm(`「${lbl}（${entry.date}〜）」の変更履歴を削除します。\n\n今の基本利用曜日（${dN2[entry.dayIndex]}曜日＝${localPatient.scheduleAmPm?.[entry.dayIndex]||'無'}）はそのままで、この曜日は以前から今の設定だったものとして、過去の月間スケジュールと提供記録一覧の表示を直します。\n\nよろしいですか？`)) return;
+    const hist = hist0.filter((_, i) => i !== idx);
+    const newShifts = JSON.parse(JSON.stringify(effShifts));
+    _cleanSchedOverrides(newShifts, localPatient.id, entry.dayIndex);
+    const changeLogEntry = {date: new Date().toISOString().slice(0,10), label:'基本利用日の履歴削除', oldValue:null, newValue:`${lbl}（${entry.date}〜適用）の履歴を削除`, note:'履歴削除'};
+    const changeLog=[...(localPatient.changeLog||[]),changeLogEntry];
+    const newPat = withLatestFiles({...localPatient, scheduleChangeHistory:hist, changeLog});
+    _saveSchedResult(newPat, newShifts, '✓ 基本利用日の履歴を削除しました');
   };
   const handleKpInput = (nv) => { setKeypad(p => ({ ...p, value: nv, isFirstInput: false }));
     if (keypad.field === 'plannedExercise' && localPatient) updateLP('plannedExercises', { ...(localPatient.plannedExercises || {}), [keypad.exerciseId]: nv });
@@ -34472,9 +34538,26 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 );
               })()}
               <div><label className="block text-sm font-bold text-slate-600 mb-1.5">留意点（スタッフへの申し送り）</label><textarea disabled={isOff} value={localPatient.ryui || ""} onChange={e => updateLP('ryui', e.target.value)} rows={2} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl outline-none resize-none text-base disabled:opacity-60 leading-relaxed" /></div>
-              <div><label className="block text-sm font-bold text-slate-600 mb-3">基本利用曜日</label><div className="grid grid-cols-7 gap-2">{['日', '月', '火', '水', '木', '金', '土'].map((d, i) => { const v = localPatient.scheduleAmPm?.[i] || ""; const isClosed = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(i); const colorCls = isClosed ? 'bg-slate-100 border-slate-200 text-slate-400' : v === 'AM' ? 'bg-red-50 border-red-300 text-red-700' : v === 'PM' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-400'; return (<div key={d} className="flex flex-col"><span className={`text-center text-[13px] font-bold mb-1 ${i===0?'text-red-400':i===6?'text-blue-400':'text-slate-500'}`}>{d}</span>{isClosed ? (<div className={`w-full h-[42px] flex items-center justify-center text-[14px] font-bold text-center border rounded-xl box-border bg-slate-100 border-slate-200 text-slate-400`}>定休</div>) : (<select disabled={isOff} value={v} onChange={e => updateSched(i, e.target.value)} className={`w-full h-[42px] text-[14px] font-bold text-center border rounded-xl box-border outline-none cursor-pointer disabled:opacity-60 ${colorCls}`}><option value="">無</option><option value="AM">AM</option><option value="PM">PM</option></select>)}</div>); })}</div></div>
+              <div><label className="block text-sm font-bold text-slate-600 mb-3">基本利用曜日</label><div className="grid grid-cols-7 gap-2">{['日', '月', '火', '水', '木', '金', '土'].map((d, i) => { const v = localPatient.scheduleAmPm?.[i] || ""; const isClosed = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(i); const colorCls = isClosed ? 'bg-slate-100 border-slate-200 text-slate-400' : v === 'AM' ? 'bg-red-50 border-red-300 text-red-700' : v === 'PM' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-400'; return (<div key={d} className="flex flex-col"><span className={`text-center text-[13px] font-bold mb-1 ${i===0?'text-red-400':i===6?'text-blue-400':'text-slate-500'}`}>{d}</span>{isClosed ? (<div className={`w-full h-[42px] flex items-center justify-center text-[14px] font-bold text-center border rounded-xl box-border bg-slate-100 border-slate-200 text-slate-400`}>定休</div>) : (<select disabled={isOff} value={v} onChange={e => updateSched(i, e.target.value)} className={`w-full h-[42px] text-[14px] font-bold text-center border rounded-xl box-border outline-none cursor-pointer disabled:opacity-60 ${colorCls}`}><option value="">無</option><option value="AM">AM</option><option value="PM">PM</option></select>)}</div>); })}</div>
+                <p className="text-[11px] text-slate-500 mt-1.5">毎週の決まった利用日です。振替・欠席・休業・休止など「その日だけ」の変更は下の月間スケジュールで行ってください。</p>
+                {/* ★ 基本利用曜日の変更履歴(最新5件)と「削除」(2026-09-23): 誤って変えて手で戻した後に残った履歴の復旧用 */}
+                {(() => {
+                  const dN=['日','月','火','水','木','金','土'];
+                  const hs=[...(localPatient.scheduleChangeHistory||[])].filter(h=>h&&typeof h.dayIndex==='number').sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,5);
+                  if(!hs.length) return null;
+                  return (<div className="mt-2 border border-slate-200 rounded-xl bg-slate-50 px-3 py-2">
+                    <div className="text-[11px] font-bold text-slate-500 mb-1">基本利用曜日の変更履歴（最新5件）　間違えた変更は「削除」で、今の設定のまま過去の表示を直せます</div>
+                    {hs.map((h,i)=>(<div key={`${h.date}_${h.dayIndex}_${i}`} className="flex items-center justify-between gap-2 text-xs py-1 border-t border-slate-200 first:border-t-0">
+                      <span className="text-slate-700"><span className="tabular-nums text-slate-500 mr-2">{h.date}〜</span>{h.label || `${dN[h.dayIndex]}曜日 ${h.oldVal||'無'}→${h.newVal||'無'}`}</span>
+                      {!isOff && <button onClick={()=>removeSchedHistory(h)} className="shrink-0 px-2 py-0.5 rounded-md text-[11px] font-bold text-red-600 bg-white border border-red-200 hover:bg-red-50 active:scale-95">削除</button>}
+                    </div>))}
+                  </div>);
+                })()}
+              </div>
               {/* 月間スケジュール */}
-              <div ref={scheduleSectionRef} className="scroll-mt-20"><div className="flex items-center justify-between mb-2"><label className="text-sm font-bold text-slate-600 flex items-center gap-1.5"><CalendarCheck size={16} />月間スケジュール</label><div className="flex items-center gap-2"><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronLeft size={16} /></button><span className="text-base font-bold text-slate-700 tabular-nums w-28 text-center">{currentMonth.getFullYear()}年{currentMonth.getMonth() + 1}月</span><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronRight size={16} /></button></div></div>
+              <div ref={scheduleSectionRef} className={`scroll-mt-20 rounded-xl transition-all duration-500 ${monthlyHl ? 'ring-4 ring-amber-400 ring-offset-4 ring-offset-white' : ''}`}>
+                {monthlyHl && (<div className="mb-2 px-3 py-2 rounded-lg bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold">振替・欠席・休業・休止など「その日だけ」の変更はここ（月間スケジュール）の日付をタップして行います。上の基本利用曜日は変えないでください。</div>)}
+                <div className="flex items-center justify-between mb-2"><label className="text-sm font-bold text-slate-600 flex items-center gap-1.5"><CalendarCheck size={16} />月間スケジュール</label><div className="flex items-center gap-2"><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronLeft size={16} /></button><span className="text-base font-bold text-slate-700 tabular-nums w-28 text-center">{currentMonth.getFullYear()}年{currentMonth.getMonth() + 1}月</span><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronRight size={16} /></button></div></div>
                 <div className="flex border border-slate-200 rounded-xl bg-slate-50 p-1 gap-0.5">{allD.map(d => { const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d); const dow = dO.getDay(); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; const cl = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow); const hl = appData.holidays?.some(h => (h.date || h) === ds); const base = getScheduleOnDate(localPatient, ds)?.[dow] || ""; const bAM = base === "AM" || base === "1日"; const bPM = base === "PM" || base === "1日"; const sh = effShifts?.[mKey]?.[localPatient.id] || {}; const pi = getPauseReasonOnDate(localPatient, ds); const _inactive = !!localPatient && !isPatientActiveOnDate(localPatient, ds); /* ★ 利用開始日より前・利用終了日より後は「空欄(非利用日)」にして、どこで終了したか一目で分かるようにする。利用中に戻せば再表示。 */ /* 休止中: 基本利用日 (bAM/bPM=true) の枠だけ「休止」表示。それ以外は通常空欄 */ const _shAM = sh[`${d}_AM`] !== undefined ? sh[`${d}_AM`] : (_mSchedRecFuri[d]?.AM || (bAM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const _shPM = sh[`${d}_PM`] !== undefined ? sh[`${d}_PM`] : (_mSchedRecFuri[d]?.PM || (bPM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const cA = _inactive ? sSt("空欄", cl, hl) : (pi ? (bAM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shAM, bAM), cl, hl)); const cP = _inactive ? sSt("空欄", cl, hl) : (pi ? (bPM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shPM, bPM), cl, hl)); const ok = !cl && !hl && !pi && !isOff && !_inactive; return (<div key={d} className="flex-1 min-w-0 flex flex-col items-stretch bg-white border border-slate-200 rounded overflow-hidden"><div className={`w-full text-center text-[11px] font-bold py-1 bg-slate-100 border-b border-slate-200 leading-tight ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{d}<br/><span className="text-[9px] font-normal">{dN[dow]}</span></div><button disabled={!ok} title={_mSchedRecReason[d] || (cA.sub ? `${cA.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "AM")} className={`h-9 flex items-center justify-center border-b border-slate-100 text-[10px] leading-none whitespace-pre-wrap ${cA.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cA.t}</button><button disabled={!ok} title={_mSchedRecReason[d] || (cP.sub ? `${cP.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "PM")} className={`h-9 flex items-center justify-center text-[10px] leading-none whitespace-pre-wrap ${cP.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cP.t}</button></div>); })}</div>
                 <div className="flex gap-2 mt-2 text-[11px] text-slate-400 font-bold flex-wrap items-center"><span>上段:AM/下段:PM</span><span className="text-blue-600 bg-blue-50 px-1 rounded">出席</span><span className="text-red-500 bg-red-50 px-1 rounded">欠席</span><span className="text-emerald-600 bg-emerald-50 px-1 rounded">振替</span><span className="text-cyan-700 bg-cyan-50 px-1 rounded">臨時</span><span className="text-white bg-slate-600 px-1 rounded">休業</span><span>空欄=非利用日</span></div></div>
               {/* お迎え時間: 基本利用曜日に設定がある日のみ表示 */}
@@ -34825,6 +34908,13 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6">
             <h3 className="text-base font-bold text-slate-800 mb-1">基本利用日の変更</h3>
+            {/* ★ 誤操作防止(2026-09-23): 振替のつもりで基本利用曜日を変えると過去の記録まで曜日が変わる。
+                その日だけの変更は月間スケジュールで行うよう案内し、ワンタップでそこへ移動させる。 */}
+            <div className="bg-amber-50 border border-amber-300 rounded-xl px-3 py-2.5 mb-3 text-xs text-amber-900">
+              <div className="font-bold mb-1">毎週の決まった利用日を変えるときだけ使います</div>
+              <div className="leading-relaxed">振替・欠席・休業・休止など「その日だけ」の変更はここではなく、月間スケジュールで行ってください。基本利用日を変えると、適用開始日より前の月間スケジュールや提供記録一覧の表示にも影響します。</div>
+              <button onClick={focusMonthlySchedule} className="mt-2 w-full py-2 rounded-lg font-bold text-amber-900 bg-white border border-amber-400 hover:bg-amber-100 active:scale-95 text-sm">その日だけの変更なので、月間スケジュールへ移動する</button>
+            </div>
             <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mb-4 text-sm">
               <span className="text-slate-500">変更内容：</span>
               <span className="font-bold text-slate-800 ml-1">
@@ -34876,7 +34966,13 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             <div className="flex gap-3">
               <button onClick={()=>setSchedModal(null)} className="flex-1 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">キャンセル</button>
               <button disabled={!schedModal.applyFrom}
-                onClick={()=>applySchedChange(schedModal.dayIndex, schedModal.newVal, schedModal.oldVal, schedModal.applyFrom)}
+                onClick={()=>{
+                  // ★ 適用開始日が60日以上前なら、過去の表示が変わることを確認してから適用する
+                  const _n=new Date(); const _lim=new Date(_n.getFullYear(), _n.getMonth(), _n.getDate()-60);
+                  const _limS=`${_lim.getFullYear()}-${String(_lim.getMonth()+1).padStart(2,'0')}-${String(_lim.getDate()).padStart(2,'0')}`;
+                  if (schedModal.applyFrom < _limS && !window.confirm(`適用開始日（${schedModal.applyFrom}）が2か月以上前です。\nその日以降の月間スケジュールと提供記録一覧の表示が変わります。\n\n「その日だけ」の変更なら、キャンセルして月間スケジュールで行ってください。\n\nこのまま基本利用日を変更しますか？`)) return;
+                  applySchedChange(schedModal.dayIndex, schedModal.newVal, schedModal.oldVal, schedModal.applyFrom);
+                }}
                 className="flex-1 py-2.5 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 shadow-lg active:scale-95">適用する</button>
             </div>
           </div>
