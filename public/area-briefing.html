@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>つむぎ エリア担当者 説明資料</title>
+<style>
+  :root{--ink:#1f2a1a;--sub:#5b6650;--line:#dfe5d6;--green:#4f7a2a;--green-l:#eef5e4;--green-d:#2f4a1a;--amber:#b7791f;--amber-l:#fbf3df;--blue:#2b5fb3;--blue-l:#eaf1fb;--red:#b3362f;--red-l:#fbe9e7;--paper:#fff;}
+  *{box-sizing:border-box}
+  body{margin:0;background:#e9ece4;font-family:'Hiragino Kaku Gothic ProN','Hiragino Sans','Yu Gothic','Noto Sans JP','Meiryo',sans-serif;color:var(--ink);line-height:1.6;font-size:14px}
+  .page{width:297mm;min-height:210mm;background:var(--paper);margin:10mm auto;padding:12mm 14mm 11mm;box-shadow:0 6px 24px rgba(0,0,0,.12);position:relative;page-break-after:always;display:flex;flex-direction:column}
+  .page:last-child{page-break-after:auto}
+  .eyebrow{font-size:11px;letter-spacing:.2em;color:var(--green);font-weight:700;text-transform:uppercase}
+  h1{font-size:30px;margin:6px 0 4px;color:var(--green-d);letter-spacing:.02em}
+  h2{font-size:22px;margin:0 0 10px;color:var(--green-d);padding-bottom:6px;border-bottom:3px solid var(--green)}
+  h3{font-size:15px;margin:12px 0 6px;color:var(--green-d)}
+  p{margin:6px 0}
+  .lead{font-size:15px;color:var(--sub)}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .cols3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  .card{border:1px solid var(--line);border-radius:10px;padding:10px 14px;background:#fff}
+  .card.g{background:var(--green-l);border-color:#cfe0bb}.card.a{background:var(--amber-l);border-color:#ecd9a8}.card.b{background:var(--blue-l);border-color:#c5d6f2}.card.r{background:var(--red-l);border-color:#efc3bf}
+  .card h3{margin-top:0}
+  ul{margin:4px 0 4px 1.2em;padding:0}li{margin:3px 0}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{border:1px solid var(--line);padding:6px 8px;vertical-align:top;text-align:left}
+  th{background:var(--green-l);white-space:nowrap}
+  .num{font-variant-numeric:tabular-nums}
+  .foot{margin-top:auto;padding-top:8px;border-top:1px solid var(--line);font-size:10px;color:var(--sub);display:flex;justify-content:space-between}
+  .shot{border:1px solid var(--line);border-radius:8px;max-width:100%;height:auto;background:#fff}
+  .shot.sp{max-height:140mm;width:auto}
+  .pill{display:inline-block;padding:1px 9px;border-radius:999px;font-size:11px;font-weight:700;background:var(--green-l);color:var(--green-d);margin-right:4px}
+  .pill.t{background:var(--amber-l);color:var(--amber)}
+  .flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0}
+  .flow .box{border:2px solid var(--green);border-radius:8px;padding:6px 12px;font-weight:700;background:#fff}
+  .flow .arr{font-size:20px;color:var(--green)}
+  .big{font-size:40px;font-weight:700;color:var(--green-d);line-height:1.1}
+  .mail{background:#fff;border:1px dashed #94a3b8;border-radius:8px;padding:8px 12px;font-size:12px;line-height:1.6}
+  .kbd{display:inline-block;background:#fff;border:1.5px solid var(--green);color:var(--green-d);border-radius:6px;padding:0 7px;font-weight:700;font-size:12px}
+  .check li{list-style:none;position:relative;padding-left:22px}.check li::before{content:'';position:absolute;left:0;top:5px;width:12px;height:12px;border:2px solid var(--green);border-radius:3px}
+  .gantt{display:grid;grid-template-columns:150px repeat(7,1fr);gap:2px;font-size:10px;align-items:center}
+  .gantt .h{font-weight:700;text-align:center;background:var(--green-l);padding:3px 0;border-radius:4px}
+  .gantt .lb{font-weight:700;padding-right:6px}
+  .gantt .bar{height:12px;border-radius:4px;background:var(--green);opacity:.85}
+  .gantt .bar.t{background:var(--amber)}.gantt .bar.b{background:var(--blue)}
+  .gantt .e{height:12px}
+  .dense{font-size:12px}.dense table{font-size:11.5px}.dense th,.dense td{padding:4px 6px}.dense .card{padding:8px 10px}.dense h3{margin:8px 0 4px;font-size:14px}.dense ul{margin:2px 0 2px 1.1em}.dense li{margin:2px 0}
+  @media print{body{background:#fff}.page{margin:0;box-shadow:none;width:auto;min-height:0;height:210mm;overflow:hidden}}
+  @page{size:A4 landscape;margin:0}
+</style>
+</head>
+<body>
+
+<!-- 1 表紙 -->
+<div class="page" style="justify-content:center;align-items:center;text-align:center">
+  <img src="/preview/tsumugi-logo-full-transparent.png" alt="つむぎ" width="260" style="height:auto">
+  <div class="eyebrow" style="margin-top:24px">AREA MANAGER BRIEFING</div>
+  <h1 style="font-size:36px">つむぎ エリア担当者 説明資料</h1>
+  <p class="lead">アプリでできること・操作方法／これからの流れとスケジュール／3人の役割分担</p>
+  <p style="margin-top:20px;color:var(--sub)">2026年9月23日　ワンズスタイル本部（髙橋）<br>出席：髙橋・山口・山田</p>
+  <div class="foot" style="width:100%"><span>つむぎ エリア担当者 説明資料</span><span>2026-09-23</span></div>
+</div>
+
+<!-- 2 今日の目的と役割 -->
+<div class="page">
+  <h2>1. 今日のミーティングの目的と、3人の役割</h2>
+  <div class="cols">
+    <div class="card g"><h3>目的</h3><ul>
+      <li>これからの流れ（10月1日の正式リリース〜1月の全面移管）を共有する</li>
+      <li>エリア担当者の2人に、つむぎの<b>全機能と操作方法</b>を髙橋と同じレベルで覚えてもらう</li>
+      <li>店舗との連絡の流れ（下り・上り）を決め、髙橋が開発に集中できる体制にする</li>
+    </ul></div>
+    <div class="card b"><h3>資料の使い方</h3><ul>
+      <li>この資料：全体像・役割・スケジュール</li>
+      <li>操作マニュアル（事業所向け・ご家族向け・ケアマネ向け）：全画面の操作の詳細。今日以降の学習の教科書</li>
+      <li>各店舗への説明は、マニュアルの該当ページを一緒に開いて行う</li>
+    </ul></div>
+  </div>
+  <h3>役割分担（導入体制図 第3版 2026-09-01 をもとに）</h3>
+  <table>
+    <tr><th style="width:120px">担当</th><th style="width:170px">担当店舗</th><th>役割</th></tr>
+    <tr><td><b>髙橋</b><br><span class="pill">本部・開発</span></td><td>本部直轄：扇橋店（試作）</td><td>バージョン計画・開発・最終判断。新機能を作ったら<b>エリア担当者へ渡す</b>（配信のお知らせ＋説明ポイント）。データ消失・ログイン不可・個人情報事故などの緊急連絡を直接受ける</td></tr>
+    <tr><td><b>山口</b><br><span class="pill">エリア担当</span></td><td>葛飾区：南水元（第1陣 10/1）・水元（第2陣 10/13）・柴又・立石（第3陣 11〜12月）</td><td rowspan="2">① 髙橋から受け取った新機能・更新内容を<b>担当店舗に伝える</b>（管理者へ説明・研修・マニュアル配布）<br>② 各店舗の<b>不具合・要望を集めて髙橋へ報告</b>（報告テンプレで、まとめて）<br>③ 店舗の<b>相談役</b>：「この方法が分からない」「こういう時どうする」に一次回答できるレベルになる<br>④ 月次スモークテスト（約30分）を店舗と一緒に回す</td></tr>
+    <tr><td><b>山田</b><br><span class="pill">エリア担当</span></td><td>江戸川・大田・練馬：東小岩・江古田（第1陣 10/1）・西馬込（第2陣 10/13）・池上（第3陣 11〜12月）</td></tr>
+  </table>
+  <div class="card a" style="margin-top:10px"><b>移管の条件（2027年1月目安）</b>：エリア担当者が「管理者研修を完了」「月次スモークテストを自走」「一次回答ができる」の3条件を満たしたら、技術直結ライン（扇橋・西馬込・江古田の不具合を髙橋へ直接）をエリア担当者へ全面移管します。</div>
+  <div class="foot"><span>1. 目的と役割</span><span>2</span></div>
+</div>
+
+<!-- 3 情報の流れ -->
+<div class="page">
+  <h2>2. 情報の流れ ― 下り（伝達）と上り（相談・報告）</h2>
+  <div class="cols">
+    <div class="card g"><h3>下り：新機能・更新の伝達</h3>
+      <div class="flow"><span class="box">髙橋</span><span class="arr">→</span><span class="box">エリア担当</span><span class="arr">→</span><span class="box">店舗管理者</span><span class="arr">→</span><span class="box">スタッフ</span></div>
+      <ul>
+        <li>髙橋は配信のたびに「ホーム→つむぎ運営からのお知らせ」に更新内容を載せ、エリア担当へ<b>説明ポイント</b>を送る</li>
+        <li>エリア担当は担当店舗の管理者に、<b>何が変わったか・どこを押すか・注意点</b>を伝える（必要なら実機で一緒に操作）</li>
+        <li>マニュアルは機能追加のたびに画像ごと更新される。店舗には「マニュアルの○章」で案内する</li>
+      </ul>
+    </div>
+    <div class="card b"><h3>上り：質問・要望・不具合</h3>
+      <div class="flow"><span class="box">スタッフ</span><span class="arr">→</span><span class="box">店舗管理者</span><span class="arr">→</span><span class="box">エリア担当</span><span class="arr">→</span><span class="box">髙橋</span></div>
+      <ul>
+        <li>操作の質問はエリア担当が<b>その場で回答</b>（分からなければマニュアルのQ&Aで探す）</li>
+        <li>要望・軽微な不具合は<b>週1回まとめて</b>髙橋へ（報告テンプレ）</li>
+        <li>緊急（データが消えた・ログインできない・個人情報事故）は<b>管理者から髙橋へ直接</b>。エリアを飛ばしてよい</li>
+      </ul>
+    </div>
+  </div>
+  <h3>不具合・要望の報告テンプレ（これだけ集めれば髙橋が調査できます）</h3>
+  <table>
+    <tr><th>項目</th><th>書き方の例</th></tr>
+    <tr><td>店舗・日時</td><td>扇橋店 9/21 15:50ごろ</td></tr>
+    <tr><td>端末</td><td>iPad（Safari）／店舗PC（Chrome）／スマホ</td></tr>
+    <tr><td>画面名</td><td>利用者マスタ管理 → 月間スケジュール</td></tr>
+    <tr><td>何をしたら</td><td>Aさんを欠席にして、続けてBさんを欠席にした</td></tr>
+    <tr><td>何が起きたか</td><td>Bさんの欠席理由にAさんの理由が入った。Aさんの欠席が空欄になった</td></tr>
+    <tr><td>画面写真</td><td>スクリーンショット（個人名はそのままで可。本部だけが見る）</td></tr>
+    <tr><td>種類</td><td>不具合／要望／質問 のどれか。急ぎ度（今日中・今週・いつでも）</td></tr>
+  </table>
+  <p style="color:var(--sub);font-size:12px">※ 本部の変更管理台帳（450件超）は、店舗からの指摘がそのまま修正の起点になっています。写真と「何をしたら何が起きたか」があると、多くはその日のうちに直せます。</p>
+  <div class="foot"><span>2. 情報の流れ</span><span>3</span></div>
+</div>
+
+<!-- 4 安定版と試験版 -->
+<div class="page dense">
+  <h2>3. 2本立ての開発 ― 安定版と試験版</h2>
+  <div class="cols">
+    <div class="card g"><h3><span class="pill">安定版</span>全店舗が使う本番</h3>
+      <p><b>tsumugi-ones-style.vercel.app</b></p>
+      <ul><li>不具合修正と、試験を終えた機能だけを配信</li><li>版数：<span class="num">upd-2026-0922b</span> のように日付＋英字</li><li>第1陣〜第3陣の全店舗はこちら</li></ul>
+    </div>
+    <div class="card a"><h3><span class="pill t">試験版</span>新機能を先に試す版</h3>
+      <p><b>tsumugi-git-trial-ones-style.vercel.app</b></p>
+      <ul><li>扇橋店（＋個別運動は江古田店）で先に使い、問題がなければ安定版へ</li><li>版数：<span class="num">upd-2026-0922-trial53</span> のように「trial」が付く</li><li>今の試験中機能：<b>送迎表</b>（12月の V1.1 で安定版へ）</li></ul>
+    </div>
+  </div>
+  <div class="card" style="margin-top:12px"><h3>大事な点</h3>
+    <ul>
+      <li><b>データ（クラウド）は両方で共通</b>。試験版で入れた記録は安定版でも見える。URLが違うだけ</li>
+      <li>安定版の不具合修正は自動で試験版にも入る（コードは1本）。逆に試験版の新機能は、安定版には入っていない</li>
+      <li>店舗から「その画面が無い」と言われたら、まず<b>どちらのURLを開いているか</b>と<b>版数（ホームのお知らせ／画面下）</b>を確認する</li>
+      <li>版が古いときは<b>再読み込み</b>。それでも古い場合は髙橋へ</li>
+    </ul>
+  </div>
+  <div class="cols" style="margin-top:8px">
+    <div><img class="shot" style="max-height:58mm;width:auto;display:block;margin:0 auto" src="/manual/img/staff_home.jpg" alt="安定版ホーム"><p style="font-size:11px;color:var(--sub);text-align:center">ホーム：運営からのお知らせに更新内容と版数が届く</p></div>
+    <div><img class="shot" style="max-height:58mm;width:auto;display:block;margin:0 auto" src="/manual/img/staff_transport.jpg" alt="試験版 送迎表"><p style="font-size:11px;color:var(--sub);text-align:center">試験版だけにある「送迎表」（12月に全店へ）</p></div>
+  </div>
+  <div class="foot"><span>3. 安定版と試験版</span><span>4</span></div>
+</div>
+
+<!-- 5 スケジュール -->
+<div class="page dense">
+  <h2>4. これからのスケジュール（計画書 第5版）</h2>
+  <div class="gantt">
+    <div class="lb"></div><div class="h">9月</div><div class="h">10月</div><div class="h">11月</div><div class="h">12月</div><div class="h">1月</div><div class="h">2月</div><div class="h">3月</div>
+    <div class="lb">V1.0 正式リリース 10/1</div><div class="bar"></div><div class="bar" style="opacity:.4"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div>
+    <div class="lb">第1陣 南水元・東小岩・江古田</div><div class="e"></div><div class="bar"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div>
+    <div class="lb">第2陣 西馬込・水元（研修→10/13）</div><div class="bar" style="opacity:.5"></div><div class="bar"></div><div class="bar"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div>
+    <div class="lb">第3陣 柴又・立石・池上</div><div class="e"></div><div class="e"></div><div class="bar"></div><div class="bar"></div><div class="e"></div><div class="e"></div><div class="e"></div>
+    <div class="lb">新LIFE対応（扇橋で試験）</div><div class="bar t"></div><div class="bar t"></div><div class="bar t"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div>
+    <div class="lb">送迎表（扇橋で試験中）</div><div class="bar t"></div><div class="bar t"></div><div class="bar t"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div>
+    <div class="lb">V1.1 配信（LIFE・送迎表・FAX統合）</div><div class="e"></div><div class="e"></div><div class="e"></div><div class="bar b"></div><div class="e"></div><div class="e"></div><div class="e"></div>
+    <div class="lb">電子契約・同意書／メール通知</div><div class="e"></div><div class="e"></div><div class="bar t"></div><div class="bar t"></div><div class="bar b"></div><div class="e"></div><div class="e"></div>
+    <div class="lb">定着フォロー／エリア移管</div><div class="e"></div><div class="e"></div><div class="e"></div><div class="bar" style="opacity:.5"></div><div class="bar"></div><div class="bar"></div><div class="e"></div>
+  </div>
+  <p style="font-size:11px;color:var(--sub);margin-top:4px">緑＝安定版・店舗展開　橙＝試験版で先行試験　青＝安定版への配信</p>
+  <div class="cols" style="margin-top:8px">
+    <div class="card"><h3>日付の一覧</h3>
+      <table>
+        <tr><td class="num">9/30</td><td>V1 機能凍結・扇橋店 受入確認完了・第2陣 研修完了・新LIFE実装完了（済）</td></tr>
+        <tr><td class="num">10/1</td><td><b>v1.0 正式リリース</b>：南水元・東小岩・江古田が正式運用</td></tr>
+        <tr><td class="num">10/13</td><td>第2陣 西馬込・水元 運用開始</td></tr>
+        <tr><td class="num">10/24</td><td>送迎表（基本版）実装完了 → 扇橋試験（10/27〜11/28）</td></tr>
+        <tr><td class="num">11/2〜12/26</td><td>第3陣 柴又・立石・池上（月2店舗ペース）</td></tr>
+        <tr><td class="num">11/10</td><td>扇橋 LIFE試験 第2サイクル提出</td></tr>
+        <tr><td class="num">12/1</td><td><b>V1.1 配信</b>：LIFE・送迎表・モニタリングFAX統合（全店へ12/20まで）</td></tr>
+        <tr><td class="num">2027/1/13</td><td><b>V1.2 配信</b>：電子契約・同意書・メール通知</td></tr>
+        <tr><td class="num">2027/1月</td><td>技術直結ライン（扇橋・西馬込・江古田）をエリア担当者へ全面移管</td></tr>
+      </table>
+    </div>
+    <div class="card a"><h3>エリア担当者がこの1か月でやること</h3>
+      <ul class="check">
+        <li>マニュアル（事業所向け）を通読し、自分の端末で全画面を操作する</li>
+        <li>第1陣3店舗の管理者に、10/1の「正式版への切替」を案内（変わるのはURLではなく運用ルール）</li>
+        <li>第2陣（西馬込・水元）の初期設定・研修（9/24〜10/10）：事業所情報・利用者マスタのCSV取り込み・スタッフ登録・ご家族招待の練習</li>
+        <li>各店舗の「事業所情報」「送迎車両・担当職員」「ケアマネ事業所のFAX番号」が入っているか点検</li>
+        <li>週1回、担当店舗の不具合・要望をまとめて髙橋へ</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>4. スケジュール</span><span>5</span></div>
+</div>
+
+<!-- 6 機能一覧 -->
+<div class="page">
+  <h2>5. つむぎでできること ― サイドバーの全項目</h2>
+  <div class="cols">
+    <div>
+      <table>
+        <tr><th>メニュー</th><th>何ができるか</th><th>マニュアル</th></tr>
+        <tr><td>ホーム</td><td>今日の予定・未確認の日誌・運営からのお知らせ・各画面へのタイル</td><td>4章</td></tr>
+        <tr><td>カレンダー</td><td>担当者会議・行事の予定。利用者を選ぶとご家族・ケアマネへ【予定】として配信</td><td>6章</td></tr>
+        <tr><td>サービス提供記録 入力</td><td>体温・血圧・脈・運動・気分・特記・出欠（欠席理由・振替）。テンキー／キーボード入力</td><td>7章</td></tr>
+        <tr><td>連絡帳</td><td>ご家族向け連絡帳の作成・印刷（B5/B6）。次回予定・連絡事項・定型文</td><td>8章</td></tr>
+        <tr><td>日誌</td><td>出欠・送迎車・担当職員・申し送り。未入力は赤い数字で通知</td><td>9章</td></tr>
+        <tr><td>送迎表（試験版）</td><td>週間運行表の自動下書き・長押しドラッグ・印刷・ナビ共有</td><td>10章</td></tr>
+        <tr><td>体力測定</td><td>測定値の記録・推移。個人ファイルと分析に連動</td><td>11章</td></tr>
+        <tr><td>連絡（FAX）</td><td>休み連絡・各種連絡の送付状。ケアマネFAXは自動で宛先</td><td>12章</td></tr>
+        <tr><td>実績・モニタリング</td><td>勤務表／利用者実績（月次実績表・CSV）／モニタリング表（AI下書き・FAX）</td><td>13〜15章</td></tr>
+      </table>
+    </div>
+    <div>
+      <table>
+        <tr><th>メニュー</th><th>何ができるか</th><th>マニュアル</th></tr>
+        <tr><td>利用者マスタ管理</td><td>基本情報・サービス提供内容・月間スケジュール・変更履歴・個人ファイル（計画書・書類・支援経過表）</td><td>16章</td></tr>
+        <tr><td>ケアマネ事業所・担当者</td><td>事業所とケアマネの一覧・FAX番号・閲覧アカウント</td><td>17章</td></tr>
+        <tr><td>分析</td><td>個人（バイタル推移・気分）／稼働（出欠・稼働率・月次）</td><td>18章</td></tr>
+        <tr><td>お知らせ・閲覧管理</td><td>ご家族・ケアマネの招待・アカウント管理・お知らせ投稿</td><td>19章</td></tr>
+        <tr><td>災害時</td><td>安否・連絡先一覧／緊急連絡（一斉メール）／避難場所／備蓄</td><td>20章</td></tr>
+        <tr><td>各種設定</td><td>事業所情報・提供内容（運動メニュー）・日誌・体力測定・気分の理由・アドオン・システム</td><td>21章</td></tr>
+        <tr><td>計画書（アドオン）</td><td>個別機能訓練計画書・生活機能チェック・興味関心・通所介護計画書・LIFE・加算</td><td>22章</td></tr>
+      </table>
+      <div class="card g" style="margin-top:10px"><b>覚え方のコツ</b>：毎日使うのは上の5つ（提供記録・連絡帳・日誌・送迎表・カレンダー）。月に1回が実績・モニタリング。最初に整えるのが利用者マスタ・ケアマネ・各種設定。</div>
+    </div>
+  </div>
+  <div class="foot"><span>5. 機能一覧</span><span>6</span></div>
+</div>
+
+<!-- 7 毎日の流れ（画面） -->
+<div class="page">
+  <h2>6. 1日の流れで見る主要画面</h2>
+  <div class="cols3">
+    <div><img class="shot" src="/manual/img/staff_record.jpg" alt="提供記録入力"><p style="font-size:12px"><b>① 提供記録入力</b>：来所したらバイタル・運動・気分。欠席は「状態」から理由つきで</p></div>
+    <div><img class="shot" src="/manual/img/staff_renraku.jpg" alt="連絡帳"><p style="font-size:12px"><b>② 連絡帳</b>：帰りに印刷。次回お迎え時間は自動、未定なら空欄で手書き</p></div>
+    <div><img class="shot" src="/manual/img/staff_diary.jpg" alt="日誌"><p style="font-size:12px"><b>③ 日誌</b>：午前・午後の出欠と送迎車・担当職員。欠席理由は自動で入る</p></div>
+  </div>
+  <div class="cols3" style="margin-top:8px">
+    <div><img class="shot" src="/manual/img/staff_master_monthly.jpg" alt="月間スケジュール"><p style="font-size:12px"><b>④ 月間スケジュール</b>：翌月の予定・振替・休止。セルに理由が表示される</p></div>
+    <div><img class="shot" src="/manual/img/staff_absence_fax.jpg" alt="休み連絡"><p style="font-size:12px"><b>⑤ 休み連絡（FAX）</b>：欠席理由と振替予定が文面に自動で入る</p></div>
+    <div><img class="shot" src="/manual/img/staff_monitoring.jpg" alt="モニタリング"><p style="font-size:12px"><b>⑥ モニタリング（月1回）</b>：AI下書き→確認→個人ファイル保存→ケアマネへFAX</p></div>
+  </div>
+  <div class="foot"><span>6. 1日の流れ</span><span>7</span></div>
+</div>
+
+<!-- 8 各種設定 -->
+<div class="page dense">
+  <h2>7. 各種設定 ― 店舗を立ち上げるときに最初に整える項目</h2>
+  <div class="cols">
+    <div>
+      <table>
+        <tr><th>タブ</th><th>設定する内容</th><th>影響する画面</th></tr>
+        <tr><td>事業所情報</td><td>事業所名・住所・電話・FAX・メール・管理者・提供時間・定員・休業日／LIFE連携（事業所番号・サービス種類コード・保険者番号）</td><td>連絡帳・FAX送付状・災害時・LIFE</td></tr>
+        <tr><td>サービス提供内容</td><td>運動メニュー・単位・個別運動（適用開始月）・テンキー表示</td><td>提供記録入力・月表</td></tr>
+        <tr><td>日誌</td><td>送迎車両（車名・定員）・担当職員・職員体温の表示・1週間前の送迎コピー</td><td>日誌・勤務表・送迎表</td></tr>
+        <tr><td>体力測定</td><td>測定項目・測定周期</td><td>体力測定・分析</td></tr>
+        <tr><td>気分の理由</td><td>通所時／帰宅時の理由候補</td><td>提供記録入力・モニタリングAI</td></tr>
+        <tr><td>ケアマネ事業所・担当者</td><td>（サイドバーからも開ける）事業所・担当者・FAX</td><td>休み連絡・モニタリングFAX・利用者マスタ</td></tr>
+        <tr><td>アドオン</td><td>本部がON/OFF（店舗は表示のみ）：計画書・LIFE等</td><td>サイドバーの計画書グループ</td></tr>
+        <tr><td>システム（管理者）</td><td>ZIP一括エクスポート・一括削除・端末名</td><td>—</td></tr>
+      </table>
+      <div class="card a" style="margin-top:8px"><b>新店舗の立ち上げ順</b>：① 事業所情報 → ② 日誌（車両・職員）→ ③ サービス提供内容（運動メニュー）→ ④ 利用者マスタ（CSV取り込み）→ ⑤ ケアマネ事業所（FAX）→ ⑥ スタッフ切替の担当者 → ⑦ ご家族・ケアマネ招待</div>
+    </div>
+    <div>
+      <img class="shot" style="max-height:78mm;width:auto;display:block;margin:0 auto" src="/manual/img/staff_settings_facility.jpg" alt="事業所情報">
+      <img class="shot" src="/manual/img/staff_settings_diary.jpg" alt="日誌設定" style="margin-top:6px;max-height:78mm;width:auto;display:block;margin-left:auto;margin-right:auto">
+    </div>
+  </div>
+  <div class="foot"><span>7. 各種設定</span><span>8</span></div>
+</div>
+
+<!-- 9 家族・ケアマネ登録 -->
+<div class="page dense">
+  <h2>8. ご家族・ケアマネの登録 ― 店舗が一番つまずくところ</h2>
+  <div class="cols">
+    <div>
+      <h3>流れ（店舗 → 相手 → 自動反映）</h3>
+      <div class="flow"><span class="box">① 店舗：招待を発行</span><span class="arr">→</span><span class="box">② 相手：メールの「登録ページを開く」</span><span class="arr">→</span><span class="box">③ ID・PW・氏名・続柄を入力して登録</span></div>
+      <ul>
+        <li>店舗側の操作：<b>お知らせ・閲覧管理</b> → 利用者を選ぶ → <b>メール招待</b>（メールアドレス＋続柄）。メールが使えない相手には<b>招待コード（7桁）／QRコード</b>を紙で</li>
+        <li>相手が登録した氏名・電話は、その利用者の<b>緊急連絡先</b>（ご家族）／<b>担当ケアマネ・ケアマネ事業所マスタ</b>（ケアマネ）に自動で入る</li>
+        <li>以後のログインは「?family」の付いたログインページから。パスワードは本人がメールのコードで再設定できる</li>
+        <li><b>ご家族は代表者＋2名まで</b>（代表者がご家族側から追加）。ケアマネ・その他関係者は店舗が招待</li>
+        <li><b>ケアマネは担当者単位</b>：1人1アカウントで、担当利用者を自動で閲覧。担当が変わればマスタの担当ケアマネを変えるだけ</li>
+      </ul>
+      <h3>相手に届くメール（原文）</h3>
+      <div class="mail"><b>件名：【○○デイサービス】△△ 様のご家族専用ページへのご招待</b><br>いつもお世話になっております。○○デイサービス より、ご家族専用ページのご招待をお送りいたします。下記のボタンから登録ページを開き、ID・パスワード等を設定してください。<span class="kbd">登録ページを開く</span><br>・このURLは ○月○日まで 有効です（14日）・1回のご登録でのみ使用できます・URLは個人情報を含みますので、第三者にお伝えしないでください<br>○○デイサービス / TEL … 　心当たりがない場合はこのメールを破棄してください</div>
+      <p style="font-size:12px;color:var(--sub)">ケアマネには「関係者専用ページへのご招待」。パスワード再設定は「【○○】パスワード再設定コード」（6桁・10分有効）。店舗アカウント発行時は「【つむぎ】アカウントが発行されました」（ログインURL・ID・初期PW）。</p>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:center;align-items:flex-start">
+      <img class="shot sp" src="/manual/img/family_sp_signup_full.jpg" alt="家族登録画面">
+      <img class="shot sp" src="/manual/img/family_sp_home_full.jpg" alt="家族ホーム">
+    </div>
+  </div>
+  <div class="foot"><span>8. ご家族・ケアマネの登録</span><span>9</span></div>
+</div>
+
+<!-- 10 よくある質問 -->
+<div class="page">
+  <h2>9. 店舗から必ず聞かれること ― 一次回答集</h2>
+  <div class="cols">
+    <table>
+      <tr><th>質問</th><th>答え</th></tr>
+      <tr><td>招待メールが届かないと言われた</td><td>迷惑メール・携帯キャリアの受信拒否を確認。届かなければ招待コード（7桁）かQRを紙で。マニュアル 19章</td></tr>
+      <tr><td>ケアマネがログインしても利用者が出ない</td><td>利用者マスタの担当ケアマネ（事業所名＋氏名）がその人になっているか。ケアマネ一覧に二重登録がないか。17章</td></tr>
+      <tr><td>欠席にしたのに日誌・FAXに理由が出ない</td><td>状態を欠席にするときに理由を選ぶ。提供記録入力で状態を押し直して入力。7章</td></tr>
+      <tr><td>「同期に失敗しました」が出た</td><td>通信が遅いだけ。変更は端末に控えられ、通信が戻ると自動再送。再読み込みしても消えない。23章</td></tr>
+      <tr><td>印刷が左に寄る／余白がない</td><td>9月に修正済み。まだ起きる画面は印刷ダイアログの写真を添えて報告。24章</td></tr>
+      <tr><td>AI下書きが動かない</td><td>利用者にチェックを入れてから押す。それでもダメなら失敗理由の表示を報告（AIの設定は本部）。15章</td></tr>
+    </table>
+    <table>
+      <tr><th>質問</th><th>答え</th></tr>
+      <tr><td>その画面が無い（送迎表・計画書・LIFE）</td><td>送迎表は試験版のみ（12月に全店）。計画書・LIFEはアドオン（本部でON）。3章・22章</td></tr>
+      <tr><td>古い画面のまま</td><td>再読み込み。ホームの版数と運営からのお知らせの版数を照合。1章</td></tr>
+      <tr><td>管理者パスワードを忘れた</td><td>「管理者パスワードの再設定」→登録メールのコード。未登録なら本部でリセット。2章</td></tr>
+      <tr><td>休止中の人が一覧に出る／出席者が休みに出る</td><td>月間スケジュール・基本利用曜日・休止の開始終了日を確認。24章</td></tr>
+      <tr><td>連絡帳の次回お迎えが「未定」</td><td>今は空欄で印字（手書き）。確定なら「次回予定の変更」で入力。8章</td></tr>
+      <tr><td>データが消えた・ログインできない</td><td><b>緊急：管理者から髙橋へ直接連絡</b>。触らずに画面写真。2章</td></tr>
+    </table>
+  </div>
+  <div class="card b" style="margin-top:10px"><b>答え方の基本</b>：①まずマニュアルの該当章を一緒に開く → ②その場で直せることは直す（設定・マスタの確認） → ③直らないものは報告テンプレで髙橋へ。「分からない」で止めず、必ず「確認して折り返す」と伝える。</div>
+  <div class="foot"><span>9. 一次回答集</span><span>10</span></div>
+</div>
+
+<!-- 11 学習チェックリスト -->
+<div class="page">
+  <h2>10. エリア担当者の学習チェックリスト（髙橋と同じレベルを目指す）</h2>
+  <div class="cols3">
+    <div class="card"><h3>基本（1週目）</h3><ul class="check">
+      <li>店舗ログインとスタッフ切替・管理者パスワード</li>
+      <li>サイドバー全項目を一度ずつ開く（安定版・試験版の両方）</li>
+      <li>提供記録入力：テンキー／キーボード入力、気分、欠席理由、振替</li>
+      <li>連絡帳：用紙向き・次回予定・連絡事項・定型文・印刷</li>
+      <li>日誌：送迎車・担当職員・未確認の消し方</li>
+      <li>カレンダー：予定追加・繰り返し・【予定】配信</li>
+    </ul></div>
+    <div class="card"><h3>管理（2週目）</h3><ul class="check">
+      <li>利用者マスタ：新規登録・CSV取り込み・休止／退所・重複統合・変更履歴</li>
+      <li>月間スケジュール：欠席・振替・休止・基本利用曜日の変更（いつから）</li>
+      <li>個人ファイル：フェイスシート・保険証・支援経過表・提供記録月表・全期間PDF</li>
+      <li>ケアマネ事業所・担当者：FAX番号・閲覧アカウント</li>
+      <li>各種設定の全タブ（新店舗の立ち上げ順で一通り）</li>
+      <li>お知らせ・閲覧管理：メール招待→自分のメールで登録して家族画面・ケアマネ画面を体験</li>
+    </ul></div>
+    <div class="card"><h3>月次・応用（3週目〜）</h3><ul class="check">
+      <li>モニタリング：AI下書き→保存→FAX（15日以降）</li>
+      <li>利用者実績（月次実績表）・分析（稼働）の見方</li>
+      <li>休み連絡・各種連絡のFAX送付状（担当・マーク・定型文）</li>
+      <li>災害時：避難場所・備蓄の登録、安否一覧、緊急連絡の送り方</li>
+      <li>送迎表（試験版）：下書き・長押し並べ替え・印刷・ナビ</li>
+      <li>計画書・LIFE（アドオン店舗）：一括評価・CSV出力の流れ</li>
+      <li>月次スモークテスト（26項目・30分）を扇橋店で一度体験</li>
+    </ul></div>
+  </div>
+  <div class="cols" style="margin-top:10px">
+    <div class="card g"><h3>確認方法</h3><p>チェックが全部付いたら、髙橋と30分の口頭確認（店舗から来た質問を3つ出すので、その場で答えてもらう）。合格でその店舗群の一次対応を正式に任せます。</p></div>
+    <div class="card a"><h3>練習に使うもの</h3><p>試作店舗「試作運用」のアカウント（本部から発行）で、実データを触らずに全操作を練習できます。ご家族・ケアマネ画面は、本部の管理者IDで「管理者プレビュー」（架空データ）を使えます。</p></div>
+  </div>
+  <div class="foot"><span>10. 学習チェックリスト</span><span>11</span></div>
+</div>
+
+</body>
+</html>
