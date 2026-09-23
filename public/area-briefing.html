@@ -28,7 +28,8 @@
   .num{font-variant-numeric:tabular-nums}
   .foot{margin-top:auto;padding-top:8px;border-top:1px solid var(--line);font-size:10px;color:var(--sub);display:flex;justify-content:space-between}
   .shot{border:1px solid var(--line);border-radius:8px;max-width:100%;height:auto;background:#fff}
-  .shot.sp{max-height:140mm;width:auto}
+  .shot.sp{max-height:140mm;width:auto;max-width:calc(50% - 4px);object-fit:contain;flex:0 1 auto}
+  .cols>*{min-width:0}
   .pill{display:inline-block;padding:1px 9px;border-radius:999px;font-size:11px;font-weight:700;background:var(--green-l);color:var(--green-d);margin-right:4px}
   .pill.t{background:var(--amber-l);color:var(--amber)}
   .flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0}
@@ -307,6 +308,7 @@
       <tr><td>ケアマネがログインしても利用者が出ない</td><td>利用者マスタの担当ケアマネ（事業所名＋氏名）がその人になっているか。ケアマネ一覧に二重登録がないか。17章</td></tr>
       <tr><td>欠席にしたのに日誌・FAXに理由が出ない</td><td>状態を欠席にするときに理由を選ぶ。提供記録入力で状態を押し直して入力。7章</td></tr>
       <tr><td>「同期に失敗しました」が出た</td><td>通信が遅いだけ。変更は端末に控えられ、通信が戻ると自動再送。再読み込みしても消えない。23章</td></tr>
+      <tr><td>振替のつもりで基本利用曜日を変えてしまった</td><td>すぐ元に戻せば履歴は残らない。過去の曜日がおかしいままなら、基本利用曜日の下の変更履歴で「削除」。その日だけの変更は月間スケジュールで。16章</td></tr>
       <tr><td>印刷が左に寄る／余白がない</td><td>9月に修正済み。まだ起きる画面は印刷ダイアログの写真を添えて報告。24章</td></tr>
       <tr><td>AI下書きが動かない</td><td>利用者にチェックを入れてから押す。それでもダメなら失敗理由の表示を報告（AIの設定は本部）。15章</td></tr>
     </table>

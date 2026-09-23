@@ -155,6 +155,33 @@ async function staffShots(browser) {
       for (const [tab, key] of [['サービス提供内容','staff_master_service'],['月間スケジュール','staff_master_monthly'],['変更履歴','staff_master_history'],['個人ファイル','staff_master_file'],['基本情報','staff_master_basic']]) {
         if (await tryClick(page, tab, { timeout: 2500 })) { await page.waitForTimeout(600); await shot(page, key); }
       }
+      // ★ 基本利用曜日の変更モーダル(案内つき)・月間スケジュールのハイライト・変更履歴一覧(2026-09-23)
+      try {
+        if (await tryClick(page, 'サービス提供内容', { timeout: 2500 })) {
+          await page.waitForTimeout(500);
+          const daySel = page.locator('select:has(option[value="AM"]):has(option[value="PM"])');
+          const openModal = async () => {
+            const n = await daySel.count();
+            for (let i = 0; i < n; i++) { const v = await daySel.nth(i).inputValue(); if (v !== 'PM') { await daySel.nth(i).selectOption('PM'); return true; } }
+            return false;
+          };
+          if (await openModal()) {
+            await page.waitForTimeout(500); await shot(page, 'staff_master_sched_modal');
+            if (await tryClick(page, /月間スケジュールへ移動する/, { exact: false, timeout: 2500 })) { await page.waitForTimeout(900); await shot(page, 'staff_master_monthly_hl'); }
+            await page.waitForTimeout(6500); // ハイライト消灯を待つ
+            if (await openModal()) {
+              await page.waitForTimeout(400);
+              await tryClick(page, '今日から（すぐ反映）', { timeout: 2500 });
+              if (await tryClick(page, '適用する', { timeout: 2500 })) {
+                await page.waitForTimeout(900);
+                const hist = page.getByText('基本利用曜日の変更履歴', { exact: false }).first();
+                try { await hist.scrollIntoViewIfNeeded(); } catch {}
+                await shot(page, 'staff_master_sched_history');
+              }
+            }
+          }
+        }
+      } catch (e) { log('sched modal skipped', e.message); }
     }
   } catch (e) { log('master detail skipped', e.message); }
   // 提供記録入力: 状態モーダル(出席セルをタップ)
