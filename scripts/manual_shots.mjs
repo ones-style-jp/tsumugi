@@ -152,12 +152,18 @@ async function staffShots(browser) {
     await nav('利用者マスタ管理');
     if (await tryClick(page, '青木 和子', { exact: false })) {
       await page.waitForTimeout(800); await shot(page, 'staff_master_detail');
-      for (const [tab, key] of [['サービス提供内容','staff_master_service'],['月間スケジュール','staff_master_monthly'],['変更履歴','staff_master_history'],['個人ファイル','staff_master_file'],['基本情報','staff_master_basic']]) {
+      // ※ 「個人ファイル」はモーダルを開くので最後に撮り、Escape で閉じる(閉じ忘れると以降のクリックが全て失敗する)
+      for (const [tab, key] of [['サービス提供内容','staff_master_service'],['月間スケジュール','staff_master_monthly'],['変更履歴','staff_master_history'],['基本情報','staff_master_basic'],['個人ファイル','staff_master_file']]) {
         if (await tryClick(page, tab, { timeout: 2500 })) { await page.waitForTimeout(600); await shot(page, key); }
       }
+      // 個人ファイルモーダルは Escape では閉じない → 右上の × (lucide X アイコン) を押す
+      try { const xb = page.locator('button:has(svg.lucide-x)').last(); if (await xb.isVisible().catch(() => false)) await xb.click(); } catch {}
+      await page.keyboard.press('Escape'); await page.waitForTimeout(500);
       // ★ 基本利用曜日の変更モーダル(案内つき)・月間スケジュールのハイライト・変更履歴一覧(2026-09-23)
       try {
-        if (await tryClick(page, 'サービス提供内容', { timeout: 2500 })) {
+        const okTab = await tryClick(page, 'サービス提供内容', { timeout: 2500 });
+        if (!okTab) log('sched: サービス提供内容 タブが押せない');
+        if (okTab) {
           await page.waitForTimeout(500);
           const daySel = page.locator('select:has(option[value="AM"]):has(option[value="PM"])');
           const openModal = async () => {
