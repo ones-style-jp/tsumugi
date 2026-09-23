@@ -5,42 +5,50 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>つむぎ ご利用ガイド｜ケアマネ・関係者向け</title>
 <style>
-  :root{--green:#7daa3d;--green-d:#3d5021;--green-l:#eef6e0;--green-m:#94c456;--ink:#1e293b;--sub:#64748b;--line:#e2e8f0;--bg:#f6f8f1;--cyan:#0891b2;--cyan-l:#e0f2fe;--amber-l:#fef3c7;}
+  :root{--green:#7daa3d;--green-d:#3d5021;--green-l:#eef6e0;--green-m:#94c456;--ink:#1e293b;--sub:#64748b;--line:#e2e8f0;--bg:#f6f8f1;--blue:#2563eb;--blue-l:#eff6ff;--amber:#f59e0b;--amber-l:#fef3c7;--red:#dc2626;--cyan:#0e7490;}
   *{box-sizing:border-box}
-  body{margin:0;font-family:'Hiragino Maru Gothic ProN','Hiragino Kaku Gothic ProN','Yu Gothic',sans-serif;color:var(--ink);background:var(--bg);line-height:1.9;font-size:16.5px;-webkit-text-size-adjust:100%}
-  .wrap{max-width:840px;margin:0 auto;padding:0 18px 80px}
-  .cover{background:linear-gradient(160deg,#f0fbff,#e0f2fe);border-radius:0 0 32px 32px;padding:48px 24px 40px;text-align:center;box-shadow:0 6px 24px rgba(8,145,178,.12)}
+  body{margin:0;font-family:'Hiragino Maru Gothic ProN','Hiragino Kaku Gothic ProN','Yu Gothic',sans-serif;color:var(--ink);background:var(--bg);line-height:1.85;font-size:16px;-webkit-text-size-adjust:100%}
+  .wrap{max-width:900px;margin:0 auto;padding:0 18px 80px}
+  .cover{background:linear-gradient(160deg,#fbfdf6,#e6f4f6);border-radius:0 0 32px 32px;padding:48px 24px 40px;text-align:center;box-shadow:0 6px 24px rgba(14,116,144,.10);margin-bottom:8px}
   .badge{display:inline-block;background:var(--cyan);color:#fff;font-weight:700;font-size:13px;padding:6px 16px;border-radius:999px;letter-spacing:2px;margin-bottom:18px}
-  .cover h1{font-size:29px;margin:6px 0 2px;color:var(--green-d);letter-spacing:2px}
-  .cover .sub{color:var(--sub);font-size:15px;margin-top:6px}
+  .cover h1{font-size:30px;margin:6px 0 2px;color:var(--green-d);letter-spacing:2px}
+  .cover .sub{color:var(--sub);font-size:14px;margin-top:6px}
+  .cover .ver{color:var(--sub);font-size:12px;margin-top:10px}
   .toc{background:#fff;border:1px solid var(--line);border-radius:18px;padding:20px 24px;margin:24px 0 8px}
   .toc h2{font-size:15px;color:var(--green-d);margin:0 0 10px;letter-spacing:1px}
   .toc ol{margin:0;padding-left:0;list-style:none;counter-reset:toc}
-  .toc li{counter-increment:toc;padding:8px 0;border-bottom:1px dashed var(--line);font-weight:700;font-size:16px}
-  .toc li:last-child{border-bottom:none}
+  .toc li{counter-increment:toc;padding:6px 0;font-weight:700;font-size:14.5px}
   .toc li a{color:var(--ink);text-decoration:none}
-  .toc li::before{content:counter(toc);display:inline-flex;width:28px;height:28px;border-radius:50%;background:var(--cyan-l);color:var(--cyan);font-size:14px;align-items:center;justify-content:center;margin-right:10px;vertical-align:middle}
+  .toc li::before{content:counter(toc);display:inline-flex;width:24px;height:24px;border-radius:50%;background:var(--green-l);color:var(--green-d);font-size:12px;align-items:center;justify-content:center;margin-right:8px;vertical-align:middle}
   section{background:#fff;border:1px solid var(--line);border-radius:20px;padding:26px 26px 30px;margin:22px 0;box-shadow:0 2px 10px rgba(0,0,0,.03)}
   h2.sec{font-size:21px;color:var(--green-d);margin:0 0 6px;display:flex;align-items:center;gap:10px}
   h2.sec .n{display:inline-flex;width:34px;height:34px;border-radius:10px;background:var(--cyan);color:#fff;font-size:17px;align-items:center;justify-content:center;flex:none}
   .lead{color:var(--sub);font-size:14.5px;margin:2px 0 18px;padding-bottom:14px;border-bottom:1px solid var(--line)}
-  h3{font-size:17px;color:var(--green-d);margin:24px 0 8px;padding-left:12px;border-left:5px solid var(--cyan)}
-  p{margin:9px 0}
+  h3{font-size:17px;color:var(--green-d);margin:26px 0 8px;padding-left:12px;border-left:5px solid var(--green-m)}
+  p{margin:8px 0}
   .steps{counter-reset:st;margin:14px 0;padding:0;list-style:none}
-  .steps>li{counter-increment:st;position:relative;padding:15px 14px 15px 56px;margin:11px 0;background:#f0fbff;border:1px solid #cfeefb;border-radius:14px;font-size:16px}
-  .steps>li::before{content:counter(st);position:absolute;left:14px;top:14px;width:30px;height:30px;border-radius:50%;background:var(--cyan);color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:15px}
-  .steps>li b{color:#075985}
-  .note,.tip,.warn{border-radius:14px;padding:14px 16px 14px 48px;position:relative;margin:16px 0;font-size:15px}
-  .note{background:var(--cyan-l);border:1px solid #7dd3fc}.tip{background:var(--green-l);border:1px solid #d4e7a5}.warn{background:var(--amber-l);border:1px solid #fcd34d}
+  .steps>li{counter-increment:st;position:relative;padding:14px 14px 14px 56px;margin:10px 0;background:#fbfdf6;border:1px solid var(--green-l);border-radius:14px}
+  .steps>li::before{content:counter(st);position:absolute;left:14px;top:13px;width:30px;height:30px;border-radius:50%;background:var(--cyan);color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:15px}
+  .steps>li b{color:var(--green-d)}
+  .note,.tip,.warn{border-radius:14px;padding:14px 16px 14px 48px;position:relative;margin:16px 0;font-size:14.5px}
+  .note{background:var(--blue-l);border:1px solid #bfdbfe}.tip{background:var(--green-l);border:1px solid #d4e7a5}.warn{background:var(--amber-l);border:1px solid #fcd34d}
   .note::before,.tip::before,.warn::before{position:absolute;left:14px;top:12px;font-size:20px}
   .note::before{content:'💡'}.tip::before{content:'✅'}.warn::before{content:'⚠️'}
+  .note b,.tip b,.warn b{display:block;margin-bottom:2px}
   .fig{margin:18px 0;text-align:center}
-  .fig svg{max-width:100%;height:auto;border-radius:14px;background:#fff;border:1px solid var(--line);box-shadow:0 4px 14px rgba(0,0,0,.06)}
+  .fig img{max-width:100%;height:auto;border-radius:14px;border:1px solid var(--line);box-shadow:0 4px 14px rgba(0,0,0,.08);background:#fff}
   .cap{font-size:12.5px;color:var(--sub);margin-top:8px}
-  .kbd{display:inline-block;background:#fff;border:1.5px solid var(--cyan);color:#075985;border-radius:8px;padding:1px 9px;font-weight:700;font-size:13.5px;margin:0 2px}
+  .kbd{display:inline-block;background:#fff;border:1.5px solid var(--green-m);color:var(--green-d);border-radius:8px;padding:1px 9px;font-weight:700;font-size:13.5px;margin:0 2px}
+  .mail{background:#fff;border:1px dashed #94a3b8;border-radius:12px;padding:14px 18px;font-size:14px;line-height:1.8;margin:12px 0}
+  .mail .subj{font-weight:700;color:var(--green-d);border-bottom:1px solid var(--line);padding-bottom:6px;margin-bottom:8px}
+  .qa{border:1px solid var(--line);border-radius:14px;margin:12px 0;overflow:hidden}
+  .qa .q{background:#fbfdf6;padding:12px 16px;font-weight:700;color:var(--green-d)}
+  .qa .q::before{content:'Q. ';color:var(--cyan)}
+  .qa .a{padding:12px 16px;font-size:14.5px}
+  .qa .a::before{content:'A. ';font-weight:700;color:var(--blue)}
   .foot{text-align:center;color:var(--sub);font-size:13px;margin-top:30px;line-height:2}
-  a.link{color:var(--cyan);font-weight:700}
-  @media print{body{background:#fff}section,.toc{box-shadow:none;break-inside:avoid}.cover{box-shadow:none}}
+  @media (max-width:640px){section{padding:20px 16px}}
+  @media print{body{background:#fff;font-size:13px}section,.toc{box-shadow:none;break-inside:avoid;border-radius:8px}.cover{box-shadow:none;border-radius:0}.fig img{max-height:150mm;box-shadow:none}}
 </style>
 </head>
 <body>
@@ -49,125 +57,190 @@
   <div class="badge">ケアマネ・関係者向け</div>
   <h1>ご利用ガイド</h1>
   <div class="sub">担当ご利用者の様子を、いつでも確認。<br>訪問看護など関係機関の方もご利用いただけます</div>
+  <div class="ver">2026年9月版（画面は見本データです）</div>
 </div>
 
 <div class="wrap">
   <div class="toc">
-    <h2>📖 もくじ</h2>
+    <h2>もくじ</h2>
     <ol>
-      <li><a href="#about">「つむぎ」とは（名前の由来）</a></li>
-      <li><a href="#login">招待からの登録・ログイン</a></li>
-      <li><a href="#look">ご利用者の記録を見る</a></li>
-      <li><a href="#switch">複数のご利用者を切り替える</a></li>
-      <li><a href="#info">ご自身・所属事業所の情報</a></li>
-      <li><a href="#facesheet">フェイスシートの登録・更新（ケアマネ）</a></li>
-      <li><a href="#docs">保険証・負担割合証・アセスメントの共有</a></li>
+      <li><a href="#about">「つむぎ」とは</a></li>
+      <li><a href="#invite">招待メールが届いたら（はじめての登録）</a></li>
+      <li><a href="#login">2回目以降のログイン</a></li>
+      <li><a href="#home">画面の見方</a></li>
+      <li><a href="#record">ご利用者の記録を見る</a></li>
+      <li><a href="#switch">複数のご利用者を切り替える（担当者単位のアカウント）</a></li>
+      <li><a href="#myinfo">ご自身・所属事業所の情報</a></li>
+      <li><a href="#facesheet">フェイスシートの登録・更新（ケアマネの方）</a></li>
+      <li><a href="#docs">保険証・負担割合証・アセスメントの共有（ケアマネの方）</a></li>
+      <li><a href="#monitoring">モニタリング表・休み連絡が届く（FAX）</a></li>
+      <li><a href="#password">パスワードを忘れたとき</a></li>
+      <li><a href="#qa">よくある質問</a></li>
       <li><a href="#help">困ったときは</a></li>
     </ol>
   </div>
 
   <section id="about">
-    <h2 class="sec"><span class="n">1</span>つむぎとは</h2>
+    <h2 class="sec"><span class="n">1</span>「つむぎ」とは</h2>
     <div class="lead">デイサービスの記録を、関係機関の方が確認・共有できるアプリです。</div>
-    <p><b>「つむぎ」は、デイサービス（通所介護）の記録を、ケアマネジャーや訪問看護などの関係者が確認できるアプリです。</b>担当ご利用者の体温・血圧・運動・気分・体力測定などを、いつでもスマホやパソコンで確認できます。</p>
+    <p>「つむぎ」は、デイサービス（通所介護）の記録を、<b>ケアマネジャーや訪問看護などの関係者</b>が確認できるアプリです。担当ご利用者の体温・血圧・運動・気分・体力測定などを、いつでもスマホやパソコンで確認できます。担当ケアマネの方は、<b>フェイスシート・介護保険証・負担割合証・アセスメント</b>を事業所と相互に共有できます。</p>
+    <div class="note"><b>閲覧専用です</b>関係者の画面は記録の閲覧が中心です（ご自身の連絡先・所属情報、フェイスシート・書類の登録のみ可能）。お知らせは、事業所が関係者向けに送ったものだけが表示されます。</div>
+  </section>
+
+  <section id="invite">
+    <h2 class="sec"><span class="n">2</span>招待メールが届いたら（はじめての登録）</h2>
+    <div class="lead">事業所からの「ご招待」メールを開き、ご自身のID・パスワードを決めて登録します。</div>
+    <h3>届くメールはこんな内容です</h3>
+    <div class="mail">
+      <div class="subj">件名：【○○デイサービス】△△ 様の関係者専用ページへのご招待</div>
+      いつもお世話になっております。<br>○○デイサービス より、関係者専用ページのご招待をお送りいたします。<br>下記のボタンから登録ページを開き、ID・パスワード等を設定してください。<br><span class="kbd">登録ページを開く</span><br>
+      <small>・このURLは ○月○日まで 有効です　・1回のご登録でのみ使用できます　・URLは第三者にお伝えしないでください</small>
+    </div>
+    <h3>登録の手順</h3>
+    <ol class="steps">
+      <li>メールの <span class="kbd">登録ページを開く</span> を押します。</li>
+      <li><b>ログインID</b>と<b>パスワード</b>を、ご自身で決めて入力します。</li>
+      <li>続柄で <b>「ケアマネージャー」</b> または <b>「その他関係者（訪問看護 等）」</b> を選びます。</li>
+      <li>お名前・フリガナ・<b>個人の電話番号</b>（ケアマネの方は直通電話・任意）・メールアドレスを入力します。</li>
+      <li><b>事業所情報</b>を入力します。<br>・ケアマネ…一覧から事業所を選択（無ければ新規作成し、固定電話・FAXを入力）。<br>・その他関係者…事業所名・電話・FAXを自由記述（任意）。</li>
+      <li>利用規約に同意して <span class="kbd">登録</span>。そのままログインした状態になります。</li>
+    </ol>
+    <div class="fig"><img src="/manual/img/cm_pc_signup_full.jpg" alt="登録画面（パソコン）"><div class="cap">招待URLを開いたときの登録画面（パソコン）。スマホでも同じ項目です。</div></div>
+    <div class="tip"><b>担当者欄はありません</b>担当ケアマネは「ご登録者情報」のお名前・電話がそのまま使われ、ご利用者のケアマネ情報（事業所側の利用者マスタ・ケアマネ事業所マスタ）に自動で反映されます。</div>
+    <div class="warn"><b>招待URLには期限があります（発行から14日）</b>切れた場合は事業所へ再発行をご依頼ください。</div>
   </section>
 
   <section id="login">
-    <h2 class="sec"><span class="n">2</span>招待からの登録・ログイン</h2>
-    <div class="lead">事業所から届いた招待から、はじめの登録をします。</div>
-    <h3>はじめての登録</h3>
+    <h2 class="sec"><span class="n">3</span>2回目以降のログイン</h2>
+    <div class="lead">ご家族・関係者共通のログインページから、ID・パスワードで入ります。</div>
     <ol class="steps">
-      <li>事業所から届いた<b>招待のURL</b>（メール等）を開きます。</li>
-      <li>ご自身で決めた<b>ログインID</b>と<b>パスワード</b>を入力。</li>
-      <li>続柄で <b>「ケアマネージャー」</b> または <b>「その他関係者（訪問看護 等）」</b> を選びます。</li>
-      <li><b>お名前・フリガナ・個人の電話番号</b>（ご登録者情報）を入力。</li>
-      <li>事業所情報を入力します：
-        <br>・<b>ケアマネ</b>… 一覧から<b>事業所を選択</b>（無ければ新規作成し、固定電話・FAXを入力）。
-        <br>・<b>その他関係者</b>… <b>事業所名・電話・FAX</b>を自由記述（任意）。</li>
-      <li>利用規約に同意して <span class="kbd">登録</span>。そのままログインされます。</li>
+      <li>事業所から案内された<b>ログインページ</b>（URLの最後に「?family」が付いたページ）を開きます。</li>
+      <li>登録した<b>ログインID</b>と<b>パスワード</b>を入力して <span class="kbd">ログイン</span>。</li>
     </ol>
-    <div class="note"><b>担当者欄はありません</b>担当ケアマネは「ご登録者情報」のお名前・電話がそのまま使われ、ご利用者の<b>ケアマネ情報に自動反映</b>されます。</div>
-    <h3>2回目以降</h3>
-    <ol class="steps">
-      <li>ログインページで、登録した<b>ID・パスワード</b>を入力して <span class="kbd">ログイン</span>。</li>
-    </ol>
-    <div class="warn"><b>招待URLには期限があります</b>切れた場合は事業所へ再発行をご依頼ください。</div>
+    <div class="fig"><img src="/manual/img/cm_pc_login.jpg" alt="ログイン画面"><div class="cap">ログイン画面（ご家族と共通です）</div></div>
+    <div class="note"><b>利用規約が改定されたとき</b>ログイン直後に「最新の利用規約・プライバシーポリシーへの同意」画面が出ることがあります。内容を確認してチェックを入れ、<span class="kbd">同意して進む</span> を押すと続けて使えます。</div>
   </section>
 
-  <section id="look">
-    <h2 class="sec"><span class="n">3</span>ご利用者の記録を見る</h2>
-    <div class="lead">ログインすると、担当ご利用者の記録が確認できます。</div>
-    <ol class="steps">
-      <li>ログイン後、上部に<b>「今回の様子」</b>（その日の特記）、続いて<b>気分（絵文字＋理由）・体温・血圧・今回の運動メニュー</b>（前回比つき）・体力測定が表示されます。</li>
-      <li>下にスクロールで、お知らせ・写真などを確認。</li>
-      <li>日付や期間を変えると過去の記録・推移グラフもさかのぼれます。<b>グラフの点をタップ</b>すると数値が出ます。運動後（終了時）の血圧も測っている事業所では<b>「通所時／終了時／両方」</b>を切り替えられます。</li>
-      <li><b>気分トレンド</b>… 期間中に<b>いちばん多かった気分の絵文字</b>を「🏢通所時 最多／🏠帰宅時 最多」として、体温などの平均・最高・最低と同じ場所に表示します。</li>
-    </ol>
-    <div class="tip"><b>「今回の様子」に注目</b>その日に特に伝えたいことは画面上部の「今回の様子」に集約して表示されます（下の記録に同じ内容が重複しないよう一本化しています）。</div>
-    <div class="note"><b>閲覧専用</b>関係者の画面は記録の閲覧が中心です（ご自身の連絡先・所属情報の編集のみ可能）。お知らせは事業所の設定により、関係者向けに送られたもののみ表示されます。</div>
-    <div class="tip"><b>担当者会議などの「【予定】…」のお知らせ</b>… 事業所が予定を日時入りでお知らせすることがあります（例：「【予定】担当者会議 ／ 7月10日(金) 14:00〜15:00」）。ケアマネジャーの方は、担当利用者に関する会議日程などのご確認にお使いください。</div>
-    <div class="note"><b>📖 ご利用ガイドはいつでも</b>ログイン後の画面<b>いちばん下</b>に「<b>ケアマネ・関係者向けご利用ガイド</b>」ボタンがあり、このガイドをいつでも開けます。</div>
+  <section id="home">
+    <h2 class="sec"><span class="n">4</span>画面の見方</h2>
+    <div class="lead">上部のメニューから、お知らせ・通所記録・フェイスシート・書類などに移動します。</div>
+    <div class="fig"><img src="/manual/img/cm_pc_home.jpg" alt="ケアマネ画面（パソコン）"><div class="cap">ケアマネ画面（パソコン）。上部の緑色の帯がメニューです。</div></div>
+    <ul>
+      <li><b>お知らせ／通所記録</b>…事業所からのお知らせと、体温・血圧などの記録の切り替え。</li>
+      <li><b>期間</b>…見たい期間（日別・1ヶ月など）を変えられます。</li>
+      <li><b>利用者・登録者情報</b>…ご利用者の基本情報と、ご自身（登録者）・所属事業所の情報。</li>
+      <li><b>フェイスシート</b>（ケアマネの方）…フェイスシートの登録・編集（→ 8章）。</li>
+      <li><b>保険証・アセスメント</b>（ケアマネの方）…介護保険証・負担割合証・アセスメントの共有（→ 9章）。</li>
+      <li><b>関係者一覧</b>…同じご利用者を見ている関係者の一覧。</li>
+      <li>画面のいちばん下に <span class="kbd">ケアマネ・関係者向けご利用ガイド</span>（このガイド）・<span class="kbd">ログアウト</span>・<span class="kbd">不具合・ご意見を運営に報告</span> があります。</li>
+    </ul>
+  </section>
+
+  <section id="record">
+    <h2 class="sec"><span class="n">5</span>ご利用者の記録を見る</h2>
+    <div class="lead">「通所記録」を押すと、担当ご利用者の記録が確認できます。</div>
+    <div class="fig"><img src="/manual/img/cm_pc_record.jpg" alt="通所記録"><div class="cap">通所記録の画面</div></div>
+    <ul>
+      <li>上部に<b>「今回の様子」</b>（その日の特記）、続いて<b>気分（絵文字＋理由）・体温・血圧・脈拍・今回の運動メニュー（前回比つき）・体力測定</b>が表示されます。</li>
+      <li>期間を変えると、過去の記録・推移グラフをさかのぼれます。グラフの点をタップするとその日の数値が出ます。運動後（終了時）の血圧も測っている事業所では「通所時／終了時／両方」を切り替えられます。</li>
+      <li><b>気分トレンド</b>…期間中にいちばん多かった気分を「通所時 最多／帰宅時 最多」として表示します。</li>
+      <li><b>「【予定】…」</b>のお知らせは、担当者会議などの予定を日時入りでお知らせするものです。</li>
+    </ul>
   </section>
 
   <section id="switch">
-    <h2 class="sec"><span class="n">4</span>複数のご利用者を切り替える</h2>
-    <div class="lead">複数のご利用者を担当している場合の切り替え方です。</div>
-    <p>同じ<b>メールアドレス・パスワード</b>で複数のご利用者ぶんの招待を登録すると、1回のログインで切り替えて閲覧できます。</p>
+    <h2 class="sec"><span class="n">6</span>複数のご利用者を切り替える（担当者単位のアカウント）</h2>
+    <div class="lead">1つのアカウントで、担当しているご利用者全員を切り替えて見られます。</div>
+    <p>2026年9月から、ケアマネのアカウントは<b>「担当者単位」</b>になりました。事業所の利用者マスタで<b>あなたが担当ケアマネとして登録されているご利用者</b>は、追加の招待なしで自動的に閲覧できます。担当が変わると閲覧できる方も自動で切り替わります。</p>
     <ol class="steps">
-      <li>ログインすると、まず<b>そのIDのご利用者</b>の画面に入ります。</li>
+      <li>ログインすると、担当ご利用者のうち1人の画面に入ります。</li>
       <li>画面の <span class="kbd">利用者切替</span> から、他の担当ご利用者へ切り替えます。</li>
     </ol>
-    <div class="tip"><b>正しいご利用者に入ります</b>ログインしたIDのご利用者へ必ず直接入るようになっています。別の方の閲覧は「利用者切替」から行ってください。</div>
+    <div class="note"><b>担当のご利用者が表示されないとき</b>事業所側の利用者マスタで「担当ケアマネ」の事業所名・氏名があなたの登録内容と一致していない可能性があります。事業所にご確認ください（事業所側で担当者を選び直すと反映されます）。</div>
   </section>
 
-  <section id="info">
-    <h2 class="sec"><span class="n">5</span>ご自身・所属事業所の情報</h2>
+  <section id="myinfo">
+    <h2 class="sec"><span class="n">7</span>ご自身・所属事業所の情報</h2>
     <div class="lead">電話番号や所属事業所が変わったら、ご自身で更新できます。</div>
     <ol class="steps">
-      <li><span class="kbd">利用者・登録者情報</span> → <span class="kbd">登録者基本情報</span> を開く。</li>
-      <li><b>姓・名・フリガナ・続柄・電話番号・所属事業所名</b>を確認・修正。</li>
-      <li><span class="kbd">💾 保存</span> を押すと、事業所側にも反映されます。</li>
+      <li><span class="kbd">利用者・登録者情報</span> → <b>登録者基本情報</b> を開きます。</li>
+      <li>姓・名・フリガナ・続柄・電話番号・所属事業所名（電話・FAX）を確認・修正します。</li>
+      <li><span class="kbd">保存</span> を押すと、事業所側にも反映されます。</li>
     </ol>
-    <div class="note"><b>続柄</b>「ケアマネージャー」「その他関係者」から選べます。一覧に無い関係（例: 訪問看護・地域包括 等）は「その他」で自由に入力できます。</div>
+    <div class="tip"><b>続柄</b>「ケアマネージャー」「その他関係者」から選べます。一覧に無い関係（例: 訪問看護・地域包括 等）は「その他」で自由に入力できます。</div>
   </section>
 
   <section id="facesheet">
-    <h2 class="sec"><span class="n">6</span>フェイスシートの登録・更新（ケアマネの方）</h2>
-    <div class="lead">担当ケアマネの方は、ご利用者のフェイスシート（基本情報の書式）を登録・更新できます。入力内容は<b>事業所の個人ファイルに自動で反映</b>されます。</div>
+    <h2 class="sec"><span class="n">8</span>フェイスシートの登録・更新（ケアマネの方）</h2>
+    <div class="lead">担当ケアマネの方は、ご利用者のフェイスシートを登録・更新できます。入力内容は事業所の個人ファイルに自動で反映されます。</div>
+    <div class="fig"><img src="/manual/img/cm_pc_facesheet.jpg" alt="フェイスシート"><div class="cap">フェイスシートの画面</div></div>
     <ol class="steps">
-      <li>画面上部の <span class="kbd">📝 フェイスシート</span> を押します。</li>
+      <li>画面上部の <span class="kbd">フェイスシート</span> を押します。</li>
       <li>受付・家族構成・介護保険・医療（主治医・服薬・アレルギー等）・生活歴・ニーズ・その他などを入力します。</li>
-      <li><b>ジェノグラム・自宅見取り図・送迎経路</b>などは<b>写真やPDFを添付</b>できます。</li>
-      <li><span class="kbd">保存</span> を押すと、<b>事業所側の個人ファイル（フェイスシート）に反映</b>されます。</li>
+      <li>ジェノグラム・自宅見取り図・送迎経路などは写真やPDFを添付できます。</li>
+      <li><span class="kbd">保存</span> を押すと、事業所側の個人ファイル（フェイスシート）に反映されます。</li>
     </ol>
-    <div class="note"><b>変更履歴（版）</b>… 保存するたびに<b>版（バージョン）が記録</b>されます。事業所側にも「最終更新者・版番号・ケアマネ更新あり」が表示されるので、いつ・誰が更新したかが分かります。事業所側でも追記・修正できます。</div>
-    <div class="tip">保存した内容は事業所と共有されます。個人情報の取り扱いにご注意ください。</div>
+    <div class="note"><b>変更履歴（版）</b>保存するたびに版（バージョン）が記録されます。事業所側にも「最終更新者・版番号・ケアマネ更新あり」が表示されるので、いつ・誰が更新したかが分かります。事業所側でも追記・修正できます。</div>
   </section>
 
   <section id="docs">
-    <h2 class="sec"><span class="n">7</span>保険証・負担割合証・アセスメントの共有（ケアマネの方）</h2>
-    <div class="lead">介護保険証・負担割合証・アセスメントシートを、<b>事業所と相互に共有</b>できます。ケアマネが添付すると事業所の個人ファイルに反映され、事業所が更新するとケアマネ画面に<b>新着通知</b>が届きます。</div>
+    <h2 class="sec"><span class="n">9</span>保険証・負担割合証・アセスメントの共有（ケアマネの方）</h2>
+    <div class="lead">介護保険証・負担割合証・アセスメントシートを、事業所と相互に共有できます。</div>
+    <div class="fig"><img src="/manual/img/cm_pc_docs.jpg" alt="保険証・アセスメント"><div class="cap">保険証・アセスメントの画面</div></div>
     <ol class="steps">
-      <li>画面上部の <span class="kbd">📎 保険証・アセスメント</span> を押します。</li>
-      <li><b>介護保険証</b>・<b>負担割合証</b>は <span class="kbd">＋ 写真・PDFを追加</span> から添付します（複数可）。</li>
-      <li>保険証の内容として <b>介護度・認定有効期間・負担割合</b> を入力できます。入力した内容は<b>事業所の利用者マスタに自動で反映</b>され、<b>変更履歴にも記録</b>されます（各項目の下に履歴が表示されます）。</li>
-      <li><b>アセスメントシート</b>は文章を手入力でき、写真・PDFの添付もできます。</li>
-      <li><span class="kbd">保存して事業所に反映</span> を押すと、事業所側の個人ファイル・利用者マスタに反映されます。</li>
+      <li>画面上部の <span class="kbd">保険証・アセスメント</span> を押します。</li>
+      <li>介護保険証・負担割合証は <span class="kbd">＋ 写真・PDFを追加</span> から添付します（複数可）。</li>
+      <li>保険証の内容として <b>介護度・認定有効期間・負担割合</b> を入力できます。入力した内容は事業所の利用者マスタに自動で反映され、変更履歴にも記録されます。</li>
+      <li>アセスメントシートは文章を手入力でき、写真・PDFの添付もできます。</li>
+      <li><span class="kbd">保存して事業所に反映</span> を押します。</li>
     </ol>
-    <div class="note"><b>お互いに最新を共有</b>… 既存の書類は<b>上書きされず追記</b>されます。事業所が保険証・負担割合証・フェイスシート・アセスメントを更新すると、画面上部に <b>🔔「事業所から書類の更新があります」</b> と表示されます。<span class="kbd">確認</span> を押すと消えます。</div>
-    <div class="tip">保険証・負担割合証などは個人情報です。取り扱いにご注意ください。</div>
+    <div class="tip"><b>お互いに最新を共有</b>既存の書類は上書きされず追記されます。事業所が保険証・負担割合証・フェイスシート・アセスメントを更新すると、画面上部に「事業所から書類の更新があります」と表示されます。<span class="kbd">確認</span> を押すと消えます。</div>
+    <div class="warn"><b>個人情報の取り扱い</b>保険証・負担割合証などは個人情報です。取り扱いにご注意ください。</div>
+  </section>
+
+  <section id="monitoring">
+    <h2 class="sec"><span class="n">10</span>モニタリング表・休み連絡が届く（FAX）</h2>
+    <div class="lead">事業所からは、アプリのほかにFAXでも書類が届きます。</div>
+    <ul>
+      <li><b>通所介護モニタリング表</b>…毎月、事業所が作成したモニタリング表（①サービスの実施状況〜⑤今後の方向性）が、事業所マスタに登録されたFAX番号へ送られます。</li>
+      <li><b>休み連絡</b>…ご利用者が欠席・休止されたとき、理由と振替予定を記載した連絡がFAXで届きます。</li>
+      <li>FAX番号が変わったときは、事業所へ連絡するか、7章の所属事業所情報を更新してください（事業所側のケアマネ事業所マスタに反映されます）。</li>
+    </ul>
+  </section>
+
+  <section id="password">
+    <h2 class="sec"><span class="n">11</span>パスワードを忘れたとき</h2>
+    <div class="lead">登録したメールアドレスに「再設定コード」を送って、ご自身で新しいパスワードにできます。</div>
+    <ol class="steps">
+      <li>ログイン画面の <b>「パスワードを忘れた方」</b> を押します。</li>
+      <li><b>ログインID</b>と、登録した<b>メールアドレス</b>を入力して送信します。</li>
+      <li>メールで<b>6桁のコード</b>が届きます（有効期限10分）。コードと新しいパスワードを入力して確定します。</li>
+    </ol>
+    <div class="note"><b>メールが届かないとき</b>迷惑メールフォルダをご確認ください。分からない場合は事業所へご連絡ください（事業所側で新しいパスワードを設定できます）。</div>
+  </section>
+
+  <section id="qa">
+    <h2 class="sec"><span class="n">12</span>よくある質問</h2>
+    <div class="qa"><div class="q">複数の事業所（デイサービス）から招待が届きました。まとめられますか。</div><div class="a">事業所ごとに別のアカウントになります。同じID・パスワードで登録すれば、ログイン後に「利用者切替」で事業所をまたいで切り替えられます。</div></div>
+    <div class="qa"><div class="q">担当が変わった利用者が、まだ表示されます／新しい担当の方が表示されません。</div><div class="a">事業所側の利用者マスタの「担当ケアマネ」の登録で切り替わります。事業所に担当者の更新を依頼してください。</div></div>
+    <div class="qa"><div class="q">フェイスシートを保存したのに事業所側に反映されません。</div><div class="a">通信が不安定なときに保存が完了していないことがあります。ページを再読み込みして内容が残っているか確認し、残っていなければもう一度保存してください。事業所側の個人ファイルに「ケアマネ更新あり」と出れば反映されています。</div></div>
+    <div class="qa"><div class="q">お知らせが何も表示されません。</div><div class="a">事業所は、お知らせごとに「ご家族／ケアマネ／その他関係者」の送付先を選んでいます。関係者向けに送られたものだけが表示されます。</div></div>
+    <div class="qa"><div class="q">招待URLが期限切れと出ます。</div><div class="a">招待は発行から14日で期限が切れます。事業所へ再発行をご依頼ください。</div></div>
+    <div class="qa"><div class="q">ログインできません。</div><div class="a">IDは半角英数字で大文字・小文字も区別されます。パスワードが分からないときは11章の再設定をお使いください。</div></div>
   </section>
 
   <section id="help">
-    <h2 class="sec"><span class="n">8</span>困ったときは</h2>
+    <h2 class="sec"><span class="n">13</span>困ったときは</h2>
     <ul>
-      <li><b>ログインできない</b> … ID・パスワードをご確認のうえ、事業所へ。</li>
-      <li><b>別のご利用者に入ってしまう</b> … 「利用者切替」で正しい方を選んでください。</li>
-      <li><b>招待URLが切れた</b> … 事業所へ再発行をご依頼ください。</li>
+      <li><b>ログインできない</b>…ID・パスワードをご確認のうえ、11章の再設定または事業所へ。</li>
+      <li><b>別のご利用者に入ってしまう</b>…「利用者切替」で正しい方を選んでください。</li>
+      <li><b>招待URLが切れた</b>…事業所へ再発行をご依頼ください。</li>
+      <li><b>不具合・ご意見</b>…画面いちばん下の <span class="kbd">不具合・ご意見を運営に報告</span> から送れます。</li>
     </ul>
-    <div class="note"><b>まずは担当事業所へ</b>ご不明な点は、ご利用のデイサービス事業所へお問い合わせください。<br>アプリ自体のお問い合わせ：<a class="link" href="mailto:support@ones-style.co.jp">📧 support@ones-style.co.jp</a></div>
-    <div class="foot">つむぎ（Tsumugi）<br>ご家族・ケアマネ・事業所・関係者が、ご利用者を支え、やさしく紡ぐ。<br>© ones-style</div>
+    <div class="tip"><b>まずは担当事業所へ</b>ご不明な点は、ご利用のデイサービス事業所へお問い合わせください。アプリ自体のお問い合わせ：support@ones-style.co.jp</div>
   </section>
+
+  <div class="foot">つむぎ（Tsumugi）<br>ご家族・ケアマネ・事業所・関係者が、ご利用者を支え、やさしく紡ぐ。<br>© ones-style</div>
 </div>
 </body>
 </html>
