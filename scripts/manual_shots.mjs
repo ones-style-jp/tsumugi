@@ -198,6 +198,36 @@ async function staffShots(browser) {
       } catch (e) { log('sched modal skipped', e.message); }
     }
   } catch (e) { log('master detail skipped', e.message); }
+  // 連絡帳の「印刷設定」ポップアップ (2026-09-24)
+  try {
+    await nav('連絡帳');
+    if (await tryClick(page, '印刷設定', { timeout: 2500 })) { await page.waitForTimeout(600); await shot(page, 'staff_renraku_print_settings'); await page.keyboard.press('Escape'); await tryClick(page, '×', { timeout: 1000 }); }
+  } catch (e) { log('renraku print settings skipped', e.message); }
+  // 月間スケジュールの日付ポップアップ(臨時利用が出る=基本利用日以外の日) (2026-09-24)
+  try {
+    await nav('利用者マスタ管理');
+    if (await tryClick(page, '例示 花子', { exact: false })) {
+      await page.waitForTimeout(700);
+      if (await tryClick(page, 'サービス提供内容', { timeout: 2500 })) {
+        await page.waitForTimeout(500);
+        const grid = page.locator('div.flex.border.border-slate-200.rounded-xl.bg-slate-50').first();
+        const cols = grid.locator('> div');
+        const n = Math.min(await cols.count(), 20);
+        let done = false;
+        for (let i = 0; i < n && !done; i++) {
+          const cell = cols.nth(i).locator('button').last(); // PM側のセル(button)
+          try { await cell.click({ timeout: 1500 }); } catch { continue; }
+          await page.waitForTimeout(400);
+          const modal = page.getByText('状態を選択', { exact: true });
+          if (await modal.isVisible().catch(() => false)) {
+            if (await page.getByText(/臨時利用/).first().isVisible().catch(() => false)) { await shot(page, 'staff_master_shift_modal'); done = true; }
+            await tryClick(page, 'キャンセル', { timeout: 1500 }); await page.waitForTimeout(300);
+          }
+        }
+        if (!done) log('shift modal: 臨時利用 のある日が見つからない');
+      }
+    }
+  } catch (e) { log('shift modal skipped', e.message); }
   // ケアマネ担当者の招待メール(担当者カードの拡大)と「担当者を追加」ポップアップ (2026-09-24 資料用)
   try {
     await nav('ケアマネ事業所・担当者');
