@@ -1,406 +1,192 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>デイケア管理アプリ — クラウド連携 ご検討資料</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>つむぎ 導入状況と計画改訂のご報告</title>
 <style>
-  @page { size: A4 portrait; margin: 14mm; }
-  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  body {
-    margin: 0;
-    padding: 0;
-    font-family: "Hiragino Sans", "Yu Gothic", "Noto Sans JP", sans-serif;
-    color: #1e293b;
-    background: #f8fafc;
-    line-height: 1.6;
-  }
-  .page {
-    width: 210mm;
-    min-height: 297mm;
-    padding: 14mm 16mm;
-    margin: 0 auto 20px;
-    background: white;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.08);
-    box-sizing: border-box;
-    page-break-after: always;
-  }
-  .page:last-child { page-break-after: auto; }
-  @media print {
-    body { background: white; }
-    .page { box-shadow: none; margin: 0; padding: 0; }
-    .no-print { display: none !important; }
-  }
-  .header-bar {
-    background: linear-gradient(135deg, #1e3a8a, #3b82f6);
-    color: white;
-    padding: 20px 24px;
-    border-radius: 12px;
-    margin-bottom: 24px;
-  }
-  .header-bar h1 { font-size: 22px; margin: 0; letter-spacing: 1px; }
-  .header-bar .sub { font-size: 12px; opacity: 0.9; margin-top: 6px; }
-  h2 {
-    font-size: 17px;
-    color: #1e3a8a;
-    border-left: 4px solid #3b82f6;
-    padding-left: 12px;
-    margin: 22px 0 12px;
-  }
-  h3 { font-size: 14px; color: #1e293b; margin: 16px 0 8px; }
-  p, li { font-size: 12px; line-height: 1.8; }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    margin: 10px 0;
-    font-size: 11px;
-  }
-  th, td {
-    border: 1px solid #cbd5e1;
-    padding: 8px 10px;
-    text-align: left;
-    vertical-align: top;
-  }
-  th {
-    background: #eff6ff;
-    color: #1e3a8a;
-    font-weight: bold;
-  }
-  td.amount { text-align: right; font-weight: bold; color: #0f766e; }
-  td.recommend { background: #fef3c7; }
-  .callout {
-    background: #fef9c3;
-    border-left: 4px solid #f59e0b;
-    padding: 12px 16px;
-    border-radius: 0 8px 8px 0;
-    margin: 12px 0;
-    font-size: 12px;
-  }
-  .callout-info {
-    background: #eff6ff;
-    border-left: 4px solid #3b82f6;
-    padding: 12px 16px;
-    border-radius: 0 8px 8px 0;
-    margin: 12px 0;
-    font-size: 12px;
-  }
-  .callout-success {
-    background: #f0fdf4;
-    border-left: 4px solid #10b981;
-    padding: 12px 16px;
-    border-radius: 0 8px 8px 0;
-    margin: 12px 0;
-    font-size: 12px;
-  }
-  .summary-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-    margin: 14px 0;
-  }
-  .summary-card {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 12px 14px;
-  }
-  .summary-card .label { font-size: 11px; color: #64748b; font-weight: bold; }
-  .summary-card .value { font-size: 22px; color: #1e3a8a; font-weight: bold; margin-top: 2px; }
-  .summary-card .unit { font-size: 12px; color: #64748b; font-weight: normal; }
-  .arrow-flow {
-    display: flex;
-    justify-content: space-around;
-    align-items: center;
-    margin: 16px 0;
-    gap: 8px;
-  }
-  .arrow-flow .step {
-    background: #eff6ff;
-    border: 2px solid #3b82f6;
-    border-radius: 8px;
-    padding: 10px 12px;
-    font-size: 11px;
-    text-align: center;
-    flex: 1;
-  }
-  .arrow-flow .arrow { color: #3b82f6; font-size: 18px; font-weight: bold; }
-  .print-btn {
-    position: fixed;
-    top: 16px;
-    right: 16px;
-    background: #2563eb;
-    color: white;
-    border: none;
-    padding: 12px 24px;
-    border-radius: 10px;
-    font-size: 14px;
-    font-weight: bold;
-    cursor: pointer;
-    box-shadow: 0 4px 12px rgba(37,99,235,0.4);
-    z-index: 9999;
-  }
-  .footer-note {
-    margin-top: 16px;
-    padding: 10px;
-    background: #f1f5f9;
-    border-radius: 6px;
-    font-size: 10px;
-    color: #64748b;
-    text-align: center;
-  }
-  .price-emphasis { font-size: 18px; font-weight: bold; color: #dc2626; }
-  .stamp {
-    display: inline-block;
-    padding: 2px 8px;
-    border: 2px solid #10b981;
-    color: #10b981;
-    border-radius: 4px;
-    font-size: 10px;
-    font-weight: bold;
-    margin-left: 6px;
+  :root{--ink:#1f2937;--sub:#5b6472;--line:#d9dee6;--green:#5b8c2a;--green-d:#3f6a1a;--green-l:#eef5e6;--amber:#b7791f;--amber-l:#fdf4e1;--blue:#2f5fa8;--blue-l:#e8eff9;--red-l:#fbeae8;--gray-l:#f3f4f6}
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:#e9ebef;color:var(--ink);font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",Meiryo,sans-serif;font-size:13px;line-height:1.55}
+  .page{width:210mm;height:297mm;margin:10mm auto;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.12);position:relative;overflow:hidden;display:flex;flex-direction:column}
+  .in{padding:16mm 16mm 12mm;flex:1;display:flex;flex-direction:column}
+  h1{font-size:26px;margin:0 0 8px;color:var(--green-d);line-height:1.3}
+  h2{font-size:19px;margin:0 0 10px;color:var(--green-d);padding-bottom:6px;border-bottom:3px solid var(--green)}
+  h3{font-size:14px;margin:12px 0 6px;color:var(--green-d)}
+  p{margin:6px 0}
+  .lead{font-size:14px;color:var(--sub)}
+  ul{margin:4px 0 4px 1.2em;padding:0}li{margin:3px 0}
+  table{border-collapse:collapse;width:100%;font-size:12px}
+  th,td{border:1px solid var(--line);padding:5px 7px;vertical-align:top;text-align:left}
+  th{background:var(--green-l);white-space:nowrap}
+  .num{font-variant-numeric:tabular-nums;white-space:nowrap}
+  .card{border:1px solid var(--line);border-radius:10px;padding:10px 14px;background:#fff;margin:8px 0}
+  .card.g{background:var(--green-l);border-color:#cfe0bb}.card.a{background:var(--amber-l);border-color:#ecd9a8}.card.b{background:var(--blue-l);border-color:#c5d6f2}.card.r{background:var(--red-l);border-color:#efc3bf}
+  .card h3{margin-top:0}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}.cols>*{min-width:0}
+  .pill{display:inline-block;padding:1px 9px;border-radius:999px;font-size:11px;font-weight:700;background:var(--green-l);color:var(--green-d)}
+  .pill.t{background:var(--amber-l);color:var(--amber)}.pill.n{background:var(--gray-l);color:var(--sub)}.pill.b{background:var(--blue-l);color:var(--blue)}
+  .foot{margin-top:auto;padding-top:8px;border-top:1px solid var(--line);font-size:10px;color:var(--sub);display:flex;justify-content:space-between}
+  .gantt{display:grid;grid-template-columns:150px repeat(7,1fr);gap:2px;font-size:11px;margin:6px 0}
+  .gantt .h{background:var(--green-l);text-align:center;font-weight:700;padding:3px 0;border-radius:4px}
+  .gantt .lb{padding:3px 4px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .gantt .bar{background:var(--green);border-radius:4px;min-height:16px}
+  .gantt .bar.t{background:#e0a94a}.gantt .bar.b{background:var(--blue)}.gantt .e{min-height:16px}
+  .flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0}
+  .box{border:1.5px solid var(--green);border-radius:8px;padding:5px 10px;font-weight:700;font-size:12px;background:#fff}
+  .arr{color:var(--sub);font-weight:700}
+  .kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:10px 0}
+  .kpi div{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--gray-l)}
+  .kpi b{display:block;font-size:24px;color:var(--green-d);line-height:1.1}
+  .kpi span{font-size:11px;color:var(--sub)}
+  @media print{
+    @page{size:A4 portrait;margin:0}
+    html,body{background:#fff}
+    .page{margin:0;box-shadow:none;page-break-after:always;height:297mm}
+    .page:last-child{page-break-after:auto}
   }
 </style>
 </head>
 <body>
 
-<button class="print-btn no-print" onclick="window.print()">🖨 印刷 / PDF保存</button>
-
-<!-- ============ PAGE 1: 概要 ============ -->
-<div class="page">
-  <div class="header-bar">
-    <h1>デイケア管理アプリ — クラウド連携 ご検討資料</h1>
-    <div class="sub">作成日: 2026年6月 / 対象: 経営層向け / 推定読了時間 5分</div>
+<!-- 1 表紙・要旨 -->
+<div class="page"><div class="in">
+  <p class="pill">経営層・コンサルタント向け</p>
+  <h1>介護記録アプリ「つむぎ」<br>導入状況と計画改訂のご報告</h1>
+  <p class="lead">2026年9月24日　ワンズスタイル本部（髙橋）</p>
+  <div class="kpi">
+    <div><b>5<span style="font-size:14px">店舗</span></b><span>安定版で利用中（南水元・東小岩・江古田・西馬込・水元）</span></div>
+    <div><b>1<span style="font-size:14px">店舗</span></b><span>試験版で新機能を先行試験（扇橋）</span></div>
+    <div><b>3<span style="font-size:14px">店舗</span></b><span>未導入（柴又・立石・池上）― 導入意欲が低く、個別に相談</span></div>
   </div>
+  <h2>要旨（3点）</h2>
+  <div class="card g"><h3>1. 導入は計画より前倒しで進んでいます</h3>
+    <p>第1陣（10/1）と第2陣（10/13）の5店舗は、正式運用日を待たずにすでに安定版で日々の記録を行っています。10月の日付は「運用ルールの切替日」となり、店舗にとっての負担はありません。</p></div>
+  <div class="card b"><h3>2. 不具合・要望の連絡は、当面「店舗から本部（髙橋）へ直接」とします</h3>
+    <p>間にエリア担当者を挟まない方が修正までが速いためです（9月の修正の多くは店舗の指摘から当日中に配信）。エリア担当者（山口・山田）は「新機能の伝達・研修・店舗の相談役」に専念し、フランチャイズ店舗が増えた段階で連絡の集約を任せる可能性があります。</p></div>
+  <div class="card a"><h3>3. スケジュールを一部改訂します（計画書 第5版 → 改訂案）</h3>
+    <ul>
+      <li><b>送迎表</b>：扇橋で近日試用開始。問題がなければ12月のV1.1を待たず<b>10月中旬</b>（第2陣の正式運用と同時期）に全店の安定版へ</li>
+      <li><b>第3陣（柴又・立石・池上）</b>：11〜12月に月2店舗の決め打ちではなく、<b>店舗ごとの意欲に応じて個別に日程を決める</b>（ご相談事項）</li>
+      <li><b>エリア担当者への移管</b>：2027年1月の固定日程ではなく、<b>フランチャイズ店舗が増えたとき</b>に切り替え</li>
+    </ul></div>
+  <div class="foot"><span>つむぎ 導入状況と計画改訂のご報告</span><span>1</span></div>
+</div></div>
 
-  <h2>1. 現状の課題と導入のメリット</h2>
-
-  <h3>現状 (ブラウザ内データ保存)</h3>
+<!-- 2 店舗別の状況 -->
+<div class="page"><div class="in">
+  <h2>1. 店舗別の導入状況（2026年9月24日時点）</h2>
   <table>
-    <thead><tr><th width="40%">課題</th><th>影響</th></tr></thead>
-    <tbody>
-      <tr><td>PC・iPhone で データ共有不可</td><td>家族画面を見るには各端末で別アカウント作成が必要</td></tr>
-      <tr><td>5MB 容量制限</td><td>写真を多数登録すると保存できなくなる</td></tr>
-      <tr><td>バックアップなし</td><td>ブラウザ初期化で全データ消失のリスク</td></tr>
-      <tr><td>複数スタッフ同時編集不可</td><td>1台のPCに依存する運用</td></tr>
-      <tr><td>個人情報保護対応が不十分</td><td>監査・コンプライアンス上の懸念</td></tr>
-    </tbody>
+    <tr><th>店舗</th><th>区・エリア担当</th><th>状況</th><th>次の節目</th><th>備考</th></tr>
+    <tr><td><b>南水元</b></td><td>葛飾・山口</td><td><span class="pill">安定版 利用中</span></td><td class="num">10/1 正式運用</td><td>第1陣。2026年8月のデータ復旧以降、安定稼働</td></tr>
+    <tr><td><b>東小岩</b></td><td>江戸川・山田</td><td><span class="pill">安定版 利用中</span></td><td class="num">10/1 正式運用</td><td>第1陣</td></tr>
+    <tr><td><b>江古田</b></td><td>練馬・山田</td><td><span class="pill">安定版 利用中</span></td><td class="num">10/1 正式運用</td><td>第1陣。個別運動メニューの先行試験にも協力</td></tr>
+    <tr><td><b>西馬込</b></td><td>大田・山田</td><td><span class="pill">安定版 利用中</span></td><td class="num">10/13 正式運用</td><td>第2陣。研修期間を待たず利用開始済み</td></tr>
+    <tr><td><b>水元</b></td><td>葛飾・山口</td><td><span class="pill">安定版 利用中</span></td><td class="num">10/13 正式運用</td><td>第2陣。同上</td></tr>
+    <tr><td><b>扇橋</b></td><td>江東・本部直轄</td><td><span class="pill t">試験版</span></td><td class="num">9/30 受入確認</td><td>新機能（送迎表・LIFE提出）の先行試験店。データは安定版と共通</td></tr>
+    <tr><td><b>柴又</b></td><td>葛飾・山口</td><td><span class="pill n">未導入</span></td><td>個別に相談</td><td>導入意欲が低い。使っている店舗の効果を示しながら時期を決める</td></tr>
+    <tr><td><b>立石</b></td><td>葛飾・山口</td><td><span class="pill n">未導入</span></td><td>個別に相談</td><td>同上</td></tr>
+    <tr><td><b>池上</b></td><td>大田・山田</td><td><span class="pill n">未導入</span></td><td>個別に相談</td><td>同上</td></tr>
   </table>
+  <h3>直近1か月の主な改善（店舗の指摘が起点）</h3>
+  <ul>
+    <li><b>同期の安定化</b>：保存に失敗した入力を端末に控えて自動で再送する仕組み。扇橋で続いていた「同期に失敗しました」を解消</li>
+    <li><b>災害時ハブ</b>：通所中の方の安否一覧・緊急連絡先・避難場所・備蓄を1画面に。緊急地震速報（EEW）の費用比較も整理</li>
+    <li><b>LIFE提出支援</b>：新様式（令和6年度改定）に対応したCSV出力。既存システム（まるっとLIFE）との併用を前提に、本番には書き込まない方針で検証</li>
+    <li><b>職員アカウントのサーバー認証化</b>：職員情報をブラウザから直接触れない構成に変更（個人情報保護）</li>
+    <li><b>操作ミス対策</b>：基本利用曜日の誤変更の取り消し・案内、欠席理由の引き継ぎ、休止中の方の表示除外 など</li>
+    <li><b>マニュアル刷新</b>：事業所向け・ご家族向け・ケアマネ向けの3種を実画面で全面改訂。エリア担当者向け説明資料を作成</li>
+  </ul>
+  <p style="font-size:11px;color:var(--sub)">※ 本部の変更管理台帳には2026年7月中旬からの修正・改善が458件記録されています。</p>
+  <div class="foot"><span>1. 店舗別の導入状況</span><span>2</span></div>
+</div></div>
 
-  <h3>クラウド連携後</h3>
+<!-- 3 体制と連絡 -->
+<div class="page"><div class="in">
+  <h2>2. 体制と連絡の流れ（当面の方針）</h2>
+  <div class="cols">
+    <div class="card g"><h3>新機能・更新の伝達（下り）</h3>
+      <div class="flow"><span class="box">本部（髙橋）</span><span class="arr">→</span><span class="box">エリア担当者</span><span class="arr">→</span><span class="box">店舗管理者</span><span class="arr">→</span><span class="box">スタッフ</span></div>
+      <ul><li>配信のたびにアプリ内の「運営からのお知らせ」に更新内容を掲載</li><li>エリア担当者が担当店舗へ説明・研修（マニュアルの該当章を一緒に開く）</li></ul></div>
+    <div class="card b"><h3>不具合・要望・緊急連絡（上り）</h3>
+      <div class="flow"><span class="box">スタッフ</span><span class="arr">→</span><span class="box">店舗管理者</span><span class="arr">→</span><span class="box"><b>本部（髙橋）へ直接</b></span></div>
+      <ul><li><b>当面はエリア担当者を介さず直接</b>。間に人を挟まない方が修正が速い</li><li>エリア担当者は把握のためCCに入る</li><li>フランチャイズ店舗が増えたら、集約をエリア担当者へ移管する可能性あり</li></ul></div>
+  </div>
+  <h3>役割分担</h3>
   <table>
-    <thead><tr><th width="40%">改善点</th><th>効果</th></tr></thead>
-    <tbody>
-      <tr><td>全端末で同じデータ表示</td><td>PC / iPad / iPhone どこからでも同じ画面</td></tr>
-      <tr><td>100GB ストレージ</td><td>写真・記録を年単位で蓄積可能</td></tr>
-      <tr><td>自動バックアップ + 7日間復元</td><td>誤操作・破損からも復旧可</td></tr>
-      <tr><td>リアルタイム同期</td><td>複数スタッフが同時編集</td></tr>
-      <tr><td>SOC2 Type 2 / ISO 27001 取得済</td><td>個人情報保護法対応</td></tr>
-    </tbody>
+    <tr><th style="width:110px">担当</th><th>担当店舗</th><th>役割</th></tr>
+    <tr><td><b>髙橋</b>（本部）</td><td>全店舗の不具合・要望の窓口／扇橋（試験版）</td><td>計画・開発・最終判断。新機能をエリア担当者へ渡す。緊急連絡（データ消失・ログイン不可・個人情報事故）を直接受ける</td></tr>
+    <tr><td><b>山口</b>（エリア）</td><td>南水元・水元（利用中）／柴又・立石（未導入）</td><td rowspan="2">新機能の伝達・研修・マニュアル配布、店舗の相談役（一次回答）、月次スモークテストの立ち会い、未導入店舗の意欲づくり</td></tr>
+    <tr><td><b>山田</b>（エリア）</td><td>東小岩・江古田・西馬込（利用中）／池上（未導入）</td></tr>
   </table>
+  <div class="card a"><h3>将来の移管条件</h3>
+    <p>エリア担当者が「管理者研修を完了」「月次スモークテストを自走」「一次回答ができる」の3条件を満たし、かつフランチャイズ店舗が増えて本部直接では回らなくなった段階で、不具合・要望の集約をエリア担当者へ移管します。それまでは店舗→本部の直接連絡を続けます。</p></div>
+  <div class="card"><h3>安定版と試験版（2本立て）</h3>
+    <ul>
+      <li><b>安定版</b>（全店舗の本番）：不具合修正と、試験を終えた機能だけを配信</li>
+      <li><b>試験版</b>（扇橋）：新機能を先に使い、問題がなければ安定版へ。データは両方で共通</li>
+    </ul></div>
+  <div class="foot"><span>2. 体制と連絡の流れ</span><span>3</span></div>
+</div></div>
 
-  <div class="callout-success">
-    <strong>💰 試験運用コスト: 月額 ¥6,750</strong>（Supabase Pro + Vercel Pro）<br>
-    全店舗 9 店舗 / 利用者 630 名規模で稼働時: 月額 ¥97,500<br>
-    <strong style="font-size:14px">→ 利用者 1 人あたり月 ¥65</strong>（フランチャイズ拡大でさらに低下）
+<!-- 4 スケジュール改訂 -->
+<div class="page"><div class="in">
+  <h2>3. スケジュールの改訂（計画書 第5版 → 改訂案）</h2>
+  <div class="gantt">
+    <div class="lb"></div><div class="h">9月</div><div class="h">10月</div><div class="h">11月</div><div class="h">12月</div><div class="h">1月</div><div class="h">2月</div><div class="h">3月</div>
+    <div class="lb">V1.0 正式リリース 10/1</div><div class="bar"></div><div class="bar" style="opacity:.4"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div>
+    <div class="lb">第1陣 南水元・東小岩・江古田</div><div class="bar" style="opacity:.6"></div><div class="bar"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div>
+    <div class="lb">第2陣 西馬込・水元（利用中）</div><div class="bar" style="opacity:.6"></div><div class="bar"></div><div class="bar"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div>
+    <div class="lb">第3陣 柴又・立石・池上（個別）</div><div class="e"></div><div class="e"></div><div class="bar" style="opacity:.35"></div><div class="bar" style="opacity:.35"></div><div class="bar" style="opacity:.35"></div><div class="bar" style="opacity:.35"></div><div class="e"></div>
+    <div class="lb">新LIFE対応（扇橋で試験）</div><div class="bar t"></div><div class="bar t"></div><div class="bar t"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div>
+    <div class="lb">送迎表（扇橋試用→全店）</div><div class="bar t"></div><div class="bar b"></div><div class="bar"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div>
+    <div class="lb">V1.1 配信（LIFE・FAX統合）</div><div class="e"></div><div class="e"></div><div class="e"></div><div class="bar b"></div><div class="e"></div><div class="e"></div><div class="e"></div>
+    <div class="lb">電子契約・同意書／メール通知</div><div class="e"></div><div class="e"></div><div class="bar t"></div><div class="bar t"></div><div class="bar b"></div><div class="e"></div><div class="e"></div>
+    <div class="lb">定着フォロー</div><div class="e"></div><div class="e"></div><div class="e"></div><div class="bar" style="opacity:.5"></div><div class="bar"></div><div class="bar"></div><div class="e"></div>
   </div>
-
-  <h2>2. 必要サービスの全体像</h2>
-
-  <div class="arrow-flow">
-    <div class="step"><strong>① Supabase</strong><br/>データ保存<br/>認証</div>
-    <div class="arrow">→</div>
-    <div class="step"><strong>② Vercel</strong><br/>アプリ公開<br/>サーバー</div>
-    <div class="arrow">→</div>
-    <div class="step"><strong>③ ドメイン</strong><br/>会社既存<br/>(追加なし)</div>
-    <div class="arrow">→</div>
-    <div class="step"><strong>④ 複合機</strong><br/>FAX送信<br/>(既存利用)</div>
-  </div>
-
-  <div class="footer-note">
-    本資料は経営判断のための概算です。実際の費用はご契約時にご確認ください。
-  </div>
-</div>
-
-<!-- ============ PAGE 2: 各サービスの詳細 ============ -->
-<div class="page">
-  <div class="header-bar" style="background:linear-gradient(135deg,#7c3aed,#a855f7)">
-    <h1>各サービスの詳細と必要性</h1>
-  </div>
-
-  <h2>① Supabase（データベース + 認証 + ストレージ）<span class="stamp">必須</span></h2>
-  <p><strong>役割:</strong> 利用者情報、提供記録、家族アカウント、写真などの全データを安全に保管。複数端末からアクセス可能にする中核サービス。</p>
-
+  <p style="font-size:11px;color:var(--sub);margin-top:2px">緑＝安定版・店舗展開　橙＝試験版で先行試験　青＝安定版への配信　薄い緑＝店舗ごとに個別調整</p>
+  <h3>変更点の一覧</h3>
   <table>
-    <thead><tr><th width="22%">プラン</th><th>月額</th><th>容量</th><th>適合規模</th></tr></thead>
-    <tbody>
-      <tr><td>Free</td><td class="amount">¥0</td><td>500MB DB / 1GB ストレージ</td><td>動作確認のみ</td></tr>
-      <tr class="recommend"><td><strong>Pro</strong> ← 試験開始</td><td class="amount">¥3,750/月</td><td>8GB DB / 100GB ストレージ / 7日復元</td><td>〜200名</td></tr>
-      <tr><td><strong>Team</strong></td><td class="amount">¥90,000/月</td><td>同上 + Point-In-Time Recovery + SLA</td><td>200〜1500名 / 商用</td></tr>
-      <tr><td>Enterprise</td><td class="amount">要相談</td><td>無制限</td><td>1500名超</td></tr>
-    </tbody>
+    <tr><th>項目</th><th>第5版</th><th>改訂案</th><th>理由</th></tr>
+    <tr><td>第2陣（西馬込・水元）</td><td>9/24〜10/10 研修 → 10/13 運用開始</td><td>すでに利用中。10/13は運用ルールの切替日</td><td>両店舗が前倒しで利用を開始したため</td></tr>
+    <tr><td>送迎表</td><td>10月実装 → 扇橋試験 → 12/1 V1.1で全店</td><td>扇橋で近日試用 → 問題なければ<b>10月中旬</b>に全店の安定版へ</td><td>店舗要望が多く、実装が先行して完了したため</td></tr>
+    <tr><td>第3陣（柴又・立石・池上）</td><td>11/2〜12/26 月2店舗ペース</td><td>店舗ごとの意欲に応じて<b>個別に日程を決定</b></td><td>3店舗とも導入意欲が低く、決め打ちでは定着しないため</td></tr>
+    <tr><td>エリア担当者への移管</td><td>2027年1月に技術直結ラインを全面移管</td><td>フランチャイズ店舗が増えた段階で移管</td><td>当面は本部直接の方が対応が速いため</td></tr>
+    <tr><td>V1.1（12/1）の内容</td><td>LIFE・送迎表・モニタリングFAX統合</td><td>LIFE・モニタリングFAX統合（送迎表は前倒し済み）</td><td>上記</td></tr>
   </table>
-
-  <div class="callout">
-    <strong>料金が上がるタイミング:</strong><br>
-    試験 → 利用者 200 名超 → 自動的に Team へ昇格推奨（事前メール通知あり）
-  </div>
-
-  <h2>② Vercel（アプリ公開サーバー）<span class="stamp">必須</span></h2>
-  <p><strong>役割:</strong> 作成したアプリをインターネット上に公開し、PC / iPad / iPhone のブラウザからアクセス可能にする。</p>
-
+  <h3>変わらない日付</h3>
   <table>
-    <thead><tr><th>プラン</th><th>月額</th><th>説明</th></tr></thead>
-    <tbody>
-      <tr><td>Hobby</td><td class="amount">¥0</td><td>商用利用禁止（規約違反のリスク）</td></tr>
-      <tr class="recommend"><td><strong>Pro</strong> ← 推奨</td><td class="amount">¥3,000/月</td><td>商用OK / SLA 99.99% / メールサポート</td></tr>
-    </tbody>
+    <tr><td class="num">9/30</td><td>V1 機能凍結・扇橋 受入確認完了・新LIFE対応 実装完了</td></tr>
+    <tr><td class="num">10/1</td><td><b>v1.0 正式リリース</b>（南水元・東小岩・江古田）</td></tr>
+    <tr><td class="num">10/13</td><td>第2陣 正式運用（西馬込・水元）</td></tr>
+    <tr><td class="num">12/1</td><td><b>V1.1 配信</b>（全店へ12/20まで）</td></tr>
+    <tr><td class="num">2027/1/13</td><td><b>V1.2 配信</b>：電子契約・同意書・メール通知</td></tr>
   </table>
+  <div class="foot"><span>3. スケジュールの改訂</span><span>4</span></div>
+</div></div>
 
-  <h2>③ ドメイン<span class="stamp" style="border-color:#94a3b8;color:#94a3b8">既存</span></h2>
-  <p>会社既存のドメイン（例: yourcompany.com）を使用。追加コストなし。</p>
-
-  <h2>④ メール送信（Resend）<span class="stamp" style="border-color:#94a3b8;color:#94a3b8">無料</span></h2>
-  <p><strong>役割:</strong> 新規登録時の URL 自動送信。将来ケアマネとのメール連絡にも使用可能。</p>
-  <table>
-    <thead><tr><th>プラン</th><th>月額</th><th>送信上限</th></tr></thead>
-    <tbody>
-      <tr class="recommend"><td><strong>Free</strong></td><td class="amount">¥0</td><td>月 3,000 通まで（御社想定は数百通 → 永久無料）</td></tr>
-      <tr><td>Pro</td><td class="amount">¥3,000/月</td><td>月 50,000 通まで</td></tr>
-    </tbody>
-  </table>
-
-  <h2>⑤ FAX 送信 — <strong style="color:#dc2626">既存複合機を活用 = ¥0</strong></h2>
-  <p>全 9 店舗に既存の複合機があるため、<strong>追加契約は不要</strong>。</p>
-
-  <div class="callout-success">
-    <strong>仕組み:</strong> 同じ Wi-Fi に接続された PC / iPad から、アプリで PDF を生成 → 複合機の FAX 機能を選択して送信。<br>
-    複合機通信費（電話回線）は契約済みのため、<strong>追加月額 ¥0</strong>。
-  </div>
-</div>
-
-<!-- ============ PAGE 3: 料金推移と総額 ============ -->
-<div class="page">
-  <div class="header-bar" style="background:linear-gradient(135deg,#0f766e,#10b981)">
-    <h1>料金推移シミュレーション</h1>
-  </div>
-
-  <h2>規模別の月額試算</h2>
-
-  <h3>📍 試験運用フェーズ（1店舗 70名）</h3>
-  <table>
-    <thead><tr><th>サービス</th><th width="20%">月額</th><th>備考</th></tr></thead>
-    <tbody>
-      <tr><td>Supabase Pro</td><td class="amount">¥3,750</td><td>200名まで対応</td></tr>
-      <tr><td>Vercel Pro</td><td class="amount">¥3,000</td><td>商用利用ライセンス</td></tr>
-      <tr><td>Resend (メール)</td><td class="amount">¥0</td><td>月 3,000 通まで無料</td></tr>
-      <tr><td>FAX (既存複合機)</td><td class="amount">¥0</td><td>追加契約なし</td></tr>
-      <tr><td>ドメイン (既存)</td><td class="amount">¥0</td><td>会社既存ドメイン使用</td></tr>
-      <tr style="background:#fef3c7"><td><strong>合計</strong></td><td class="amount price-emphasis">¥6,750/月</td><td><strong>利用者 70 名 → 1 人 ¥96/月</strong></td></tr>
-    </tbody>
-  </table>
-
-  <h3>📍 全店稼働フェーズ（9 店舗 / 630名）</h3>
-  <table>
-    <thead><tr><th>サービス</th><th width="20%">月額</th><th>備考</th></tr></thead>
-    <tbody>
-      <tr><td>Supabase Team</td><td class="amount">¥90,000</td><td>SLA + コンプライアンス + バックアップ強化</td></tr>
-      <tr><td>Vercel Pro</td><td class="amount">¥3,000</td><td>同左</td></tr>
-      <tr><td>Resend (メール)</td><td class="amount">¥0〜¥3,000</td><td>件数次第</td></tr>
-      <tr><td>FAX (既存複合機)</td><td class="amount">¥0</td><td>追加契約なし</td></tr>
-      <tr style="background:#fef3c7"><td><strong>合計</strong></td><td class="amount price-emphasis">¥93,000〜¥96,000/月</td><td><strong>利用者 630 名 → 1 人 ¥150/月</strong></td></tr>
-    </tbody>
-  </table>
-
-  <h3>📍 フランチャイズ展開後（1500名規模）</h3>
-  <table>
-    <thead><tr><th>サービス</th><th width="20%">月額</th></tr></thead>
-    <tbody>
-      <tr><td>Supabase Team + 追加ストレージ</td><td class="amount">¥100,000〜120,000</td></tr>
-      <tr><td>その他</td><td class="amount">¥3,000〜¥6,000</td></tr>
-      <tr style="background:#fef3c7"><td><strong>合計</strong></td><td class="amount price-emphasis">約 ¥110,000/月</td></tr>
-    </tbody>
-  </table>
-
-  <div class="callout-success">
-    <strong>規模拡大での効率向上:</strong> 利用者 1 人あたり<br>
-    試験 70名: ¥96/月 → 全店 630名: ¥150/月 → 拡大 1500名: ¥73/月
-  </div>
-
-  <h2>料金変更時の通知と挙動</h2>
-  <table>
-    <thead><tr><th width="25%">タイミング</th><th>通知</th><th>挙動</th></tr></thead>
-    <tbody>
-      <tr><td>容量 80% 到達</td><td>Supabase からメール通知</td><td>使用は継続可</td></tr>
-      <tr><td>容量 90% 到達</td><td>再度メール通知 + ダッシュボード警告</td><td>使用は継続可</td></tr>
-      <tr><td>容量 100% 到達</td><td>メール通知</td><td>新規書き込み停止<br/>(既存データの閲覧は継続)</td></tr>
-      <tr><td>プラン昇格後</td><td>—</td><td><strong>数分以内に書き込み再開</strong><br/>ダウンタイムなし</td></tr>
-    </tbody>
-  </table>
-
-  <div class="callout">
-    <strong>突然停止のリスクなし:</strong> 必ず事前に 80% / 90% で通知が来るため、対応する時間があります。
-  </div>
-</div>
-
-<!-- ============ PAGE 4: セキュリティと検討事項 ============ -->
-<div class="page">
-  <div class="header-bar" style="background:linear-gradient(135deg,#be185d,#ec4899)">
-    <h1>セキュリティ & 導入スケジュール</h1>
-  </div>
-
-  <h2>データ保護・セキュリティ対策</h2>
-  <table>
-    <thead><tr><th width="30%">項目</th><th>内容</th></tr></thead>
-    <tbody>
-      <tr><td><strong>通信暗号化</strong></td><td>全データ SSL/TLS で暗号化通信</td></tr>
-      <tr><td><strong>保存暗号化</strong></td><td>データベース AES-256 暗号化</td></tr>
-      <tr><td><strong>自動バックアップ</strong></td><td>Pro: 7日間 / Team: 14日間 + Point-In-Time Recovery</td></tr>
-      <tr><td><strong>冗長化</strong></td><td>複数データセンターにレプリケーション (AWS インフラ)</td></tr>
-      <tr><td><strong>個人情報保護</strong></td><td>SOC2 Type 2 / ISO 27001 / HIPAA 認証取得済</td></tr>
-      <tr><td><strong>アクセス制御</strong></td><td>Row Level Security で店舗ごとデータ分離</td></tr>
-      <tr><td><strong>監査ログ</strong></td><td>全アクセス・変更履歴を記録</td></tr>
-    </tbody>
-  </table>
-
-  <h2>導入スケジュール (想定)</h2>
-  <table>
-    <thead><tr><th width="20%">フェーズ</th><th width="20%">期間</th><th>内容</th></tr></thead>
-    <tbody>
-      <tr><td><strong>準備</strong></td><td>1〜2 日</td><td>Supabase アカウント作成 / プロジェクト設定</td></tr>
-      <tr><td><strong>認証移行</strong></td><td>3〜5 日</td><td>ログイン機能を Supabase Auth に移行</td></tr>
-      <tr><td><strong>データ移行</strong></td><td>5〜7 日</td><td>利用者・記録・写真データを Supabase に移行</td></tr>
-      <tr><td><strong>動作確認</strong></td><td>3〜5 日</td><td>1 店舗で試験運用</td></tr>
-      <tr><td><strong>本番展開</strong></td><td>1〜2 週間</td><td>全 9 店舗に順次展開</td></tr>
-    </tbody>
-  </table>
-
-  <h2>導入の判断ポイント</h2>
-  <ol>
-    <li><strong>試験開始:</strong> Supabase Pro + Vercel Pro = 月額 ¥6,750</li>
-    <li><strong>全店展開時の判断:</strong> 利用者 200 名超時に Team プラン昇格を検討</li>
-    <li><strong>FAX 連携:</strong> 既存複合機で対応 → 追加コストなし</li>
-    <li><strong>ご準備いただくもの:</strong> Supabase アカウント (代表者 or 担当者のメールで作成)</li>
-  </ol>
-
-  <h2>よくあるご質問</h2>
-
-  <h3>Q. PC / iPhone で同じデータが見られるようになるのですか？</h3>
-  <p>A. はい。Supabase 導入後は、どの端末からログインしても同じデータが表示されます。</p>
-
-  <h3>Q. もしクラウドサービスが終了したら？</h3>
-  <p>A. 全データを CSV / JSON 形式でエクスポート可能。他サービスへの移行も可能です。</p>
-
-  <h3>Q. 月額が急に上がることは？</h3>
-  <p>A. ありません。容量 80% / 90% で事前通知があり、対応時間が確保されています。</p>
-
-  <h3>Q. 個人情報保護法に対応していますか？</h3>
-  <p>A. Supabase は SOC2 Type 2 / ISO 27001 / HIPAA 認証取得済。日本の個人情報保護法にも対応可能です。</p>
-
-  <div class="footer-note" style="margin-top:30px;font-size:11px">
-    本資料に関するお問い合わせは、システム担当者まで<br>
-    最終更新: 2026年6月
-  </div>
-</div>
+<!-- 5 ご相談・依頼 -->
+<div class="page"><div class="in">
+  <h2>4. ご相談・ご依頼事項</h2>
+  <div class="card r"><h3>① 未導入3店舗（柴又・立石・池上）の進め方</h3>
+    <p>3店舗とも導入への意欲が低い状況です。本部としては次の順で進めたいと考えています。ご意見をいただけますと幸いです。</p>
+    <ul>
+      <li>まず利用中5店舗の効果（記録時間の短縮・FAX送信の自動化・ご家族への情報共有）を数字と店舗の声でまとめ、エリア担当者から各店舗へ伝える</li>
+      <li>店舗ごとに「いつから・どの機能から」を相談して決める（全機能を一度に入れない）</li>
+      <li>それでも進まない場合は、社長から導入の方針を示していただく</li>
+    </ul></div>
+  <div class="card a"><h3>② 送迎表の全店導入の判断（10月中旬）</h3>
+    <p>扇橋での試用結果（1〜2週間）をもとに、10月中旬に安定版へ配信するかを本部で判断します。配信時は各店舗の送迎車両・担当職員の登録が必要なため、エリア担当者が事前点検を行います。</p></div>
+  <div class="card b"><h3>③ LIFE提出支援（9/30まで）</h3>
+    <p>新様式のCSV出力は実装済みです。実際の提出は既存システム（まるっとLIFE）を継続し、つむぎ側は「本番に書き込まない」方針で並行検証します。国の検証環境の申請と、各店舗の事業所番号・被保険者番号の登録を本部で進めます。</p></div>
+  <div class="card g"><h3>④ 費用について</h3>
+    <p>クラウド・メール・FAX・AI下書きの月額原価と料金案は、別紙「料金設計資料」のとおりです（変更ありません）。</p></div>
+  <h3>この資料の位置づけ</h3>
+  <p>計画書第5版（2026年9月）を置き換えるものではなく、第5版からの<b>変更点と現状</b>をお伝えするための報告です。次回の計画書改訂（第6版）に反映します。詳細な操作説明は「操作マニュアル（事業所向け・ご家族向け・ケアマネ向け）」、エリア担当者向けの運用説明は「エリア担当者説明資料」をご参照ください。</p>
+  <p style="font-size:11px;color:var(--sub)">お問い合わせ：ワンズスタイル本部 髙橋</p>
+  <div class="foot"><span>4. ご相談・ご依頼事項</span><span>5</span></div>
+</div></div>
 
 </body>
 </html>

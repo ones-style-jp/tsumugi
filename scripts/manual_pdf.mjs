@@ -10,7 +10,7 @@ const jobs = [
   ['manual-kazoku.html', 'つむぎご利用ガイド_ご家族向け.pdf'],
   ['manual-kankeisha.html', 'つむぎご利用ガイド_ケアマネ関係者向け.pdf'],
 ];
-const extra = arg('--extra', ''); if (extra) { const [src, name, land] = extra.split(','); jobs.push([src, name, land === 'landscape']); }
+const extra = arg('--extra', ''); if (extra) { for (const one of extra.split(';')) { if (!one.trim()) continue; const [src, name, land] = one.split(','); jobs.push([src.trim(), name.trim(), (land||'').trim() === 'landscape']); } } // 複数は ; 区切り
 const browser = await chromium.launch();
 const page = await browser.newPage();
 for (const [src, name, landscape] of jobs) {
