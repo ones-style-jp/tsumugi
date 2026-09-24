@@ -36681,6 +36681,12 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
   //   「消える問題」対策の同期追従・即保存(persistCm)ロジックを共有するため、タブ抽出はせず同一コンポーネントをモード分けで再利用。
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const [activeTab, setActiveTab] = useState(cmOnly ? 'cm' : 'facility');
+  // ★ 各種設定→ケアマネ事業所・担当者(またはその逆)へ移ると、React が同じ SettingsView を使い回すため activeTab が前の画面のまま残り
+  //   「ケアマネ事業所・担当者を押しても事業所情報のまま」になる(2026-09-24 扇橋報告)。cmOnly の切替時にタブを合わせる。
+  React.useEffect(() => {
+    if (cmOnly && activeTab !== 'cm') setActiveTab('cm');
+    if (!cmOnly && activeTab === 'cm') setActiveTab('facility');
+  }, [cmOnly]);
   // ★ この端末の名前(端末ごと・localStorage)。 下書き→保存で updateDeviceName を呼ぶ。
   const [deviceNameDraft, setDeviceNameDraft] = useState(deviceName || '');
   const [deviceNameSaved, setDeviceNameSaved] = useState(false);
