@@ -7,7 +7,7 @@
 <title>つむぎ 導入状況と計画改訂のご報告</title>
 <style>
   :root{--ink:#1f2937;--sub:#5b6472;--line:#d9dee6;--green:#5b8c2a;--green-d:#3f6a1a;--green-l:#eef5e6;--amber:#b7791f;--amber-l:#fdf4e1;--blue:#2f5fa8;--blue-l:#e8eff9;--red-l:#fbeae8;--gray-l:#f3f4f6}
-  *{box-sizing:border-box}
+  *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   html,body{margin:0;padding:0;background:#e9ebef;color:var(--ink);font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",Meiryo,sans-serif;font-size:13px;line-height:1.55}
   .page{width:210mm;height:297mm;margin:10mm auto;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.12);position:relative;overflow:hidden;display:flex;flex-direction:column}
   .in{padding:16mm 16mm 12mm;flex:1;display:flex;flex-direction:column}
@@ -28,10 +28,10 @@
   .pill{display:inline-block;padding:1px 9px;border-radius:999px;font-size:11px;font-weight:700;background:var(--green-l);color:var(--green-d)}
   .pill.t{background:var(--amber-l);color:var(--amber)}.pill.n{background:var(--gray-l);color:var(--sub)}.pill.b{background:var(--blue-l);color:var(--blue)}
   .foot{margin-top:auto;padding-top:8px;border-top:1px solid var(--line);font-size:10px;color:var(--sub);display:flex;justify-content:space-between}
-  .gantt{display:grid;grid-template-columns:150px repeat(7,1fr);gap:2px;font-size:11px;margin:6px 0}
+  .gantt{display:grid;grid-template-columns:200px repeat(7,1fr);gap:2px;font-size:11px;margin:6px 0}
   .gantt .h{background:var(--green-l);text-align:center;font-weight:700;padding:3px 0;border-radius:4px}
-  .gantt .lb{padding:3px 4px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .gantt .bar{background:var(--green);border-radius:4px;min-height:16px}
+  .gantt .lb{padding:3px 4px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:10.5px}
+  .gantt .bar{background:var(--green);border-radius:4px;min-height:16px;border:1px solid rgba(0,0,0,.15)}
   .gantt .bar.t{background:#e0a94a}.gantt .bar.b{background:var(--blue)}.gantt .e{min-height:16px}
   .flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0}
   .box{border:1.5px solid var(--green);border-radius:8px;padding:5px 10px;font-weight:700;font-size:12px;background:#fff}
