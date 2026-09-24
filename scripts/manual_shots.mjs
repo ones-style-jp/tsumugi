@@ -143,14 +143,14 @@ async function staffShots(browser) {
   // 各種設定のタブ
   try {
     await nav('各種設定');
-    for (const [tab, key] of [['事業所情報','staff_settings_facility'],['サービス提供内容','staff_settings_record'],['日誌','staff_settings_diary'],['体力測定','staff_settings_fitness'],['気分の理由','staff_settings_kibun'],['アドオン','staff_settings_addon'],['システム','staff_settings_system'],['ケアマネ事業所・担当者','staff_settings_cm']]) {
+    for (const [tab, key] of [['事業所情報','staff_settings_facility'],['LIFE連携','staff_settings_life'],['サービス提供内容','staff_settings_record'],['日誌','staff_settings_diary'],['体力測定','staff_settings_fitness'],['気分の理由','staff_settings_kibun'],['アドオン','staff_settings_addon'],['システム','staff_settings_system'],['ケアマネ事業所・担当者','staff_settings_cm']]) {
       if (await tryClick(page, tab)) await shot(page, key);
     }
   } catch (e) { log('settings tabs skipped', e.message); }
   // 利用者マスタ: 1人目を開く
   try {
     await nav('利用者マスタ管理');
-    if (await tryClick(page, '青木 和子', { exact: false })) {
+    if (await tryClick(page, '例示 花子', { exact: false })) {
       await page.waitForTimeout(800); await shot(page, 'staff_master_detail');
       // ※ 「個人ファイル」はモーダルを開くので最後に撮り、Escape で閉じる(閉じ忘れると以降のクリックが全て失敗する)
       for (const [tab, key] of [['サービス提供内容','staff_master_service'],['月間スケジュール','staff_master_monthly'],['変更履歴','staff_master_history'],['基本情報','staff_master_basic'],['個人ファイル','staff_master_file']]) {
@@ -159,6 +159,14 @@ async function staffShots(browser) {
       // 個人ファイルモーダルは Escape では閉じない → 右上の × (lucide X アイコン) を押す
       try { const xb = page.locator('button:has(svg.lucide-x)').last(); if (await xb.isVisible().catch(() => false)) await xb.click(); } catch {}
       await page.keyboard.press('Escape'); await page.waitForTimeout(500);
+      // ★ ご家族のアカウント発行は 利用者マスタ→「アカウント管理」(2026-09-24 資料用)
+      try {
+        if (await tryClick(page, 'アカウント管理', { timeout: 2500 })) {
+          await page.waitForTimeout(900); await shot(page, 'staff_master_account');
+          try { const xb = page.locator('button:has(svg.lucide-x)').last(); if (await xb.isVisible().catch(() => false)) await xb.click(); } catch {}
+          await page.keyboard.press('Escape'); await page.waitForTimeout(400);
+        }
+      } catch (e) { log('master account skipped', e.message); }
       // ★ 基本利用曜日の変更モーダル(案内つき)・月間スケジュールのハイライト・変更履歴一覧(2026-09-23)
       try {
         const okTab = await tryClick(page, 'サービス提供内容', { timeout: 2500 });
@@ -190,6 +198,16 @@ async function staffShots(browser) {
       } catch (e) { log('sched modal skipped', e.message); }
     }
   } catch (e) { log('master detail skipped', e.message); }
+  // ケアマネ担当者の招待メール(担当者カードの拡大)と「担当者を追加」ポップアップ (2026-09-24 資料用)
+  try {
+    await nav('ケアマネ事業所・担当者');
+    const inv = page.getByText(/招待メール/).first();
+    if (await inv.isVisible().catch(() => false)) {
+      const card = inv.locator('xpath=ancestor::div[3]');
+      await card.screenshot({ path: path.join(OUT, 'staff_cm_invite.jpg'), type: 'jpeg', quality: 82 }); log('saved staff_cm_invite');
+    }
+    if (await tryClick(page, /担当者を追加/, { exact: false, timeout: 2500 })) { await page.waitForTimeout(600); await shot(page, 'staff_cm_add_person'); await tryClick(page, 'キャンセル', { timeout: 2000 }); }
+  } catch (e) { log('cm invite skipped', e.message); }
   // 提供記録入力: 状態モーダル(出席セルをタップ)
   try {
     await nav('サービス提供記録 入力');
