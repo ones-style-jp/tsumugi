@@ -45402,10 +45402,11 @@ ${optionsDesc}
                                 <option value="">— 選択 —</option>
                                 {it.options.map(o=> <option key={o} value={o}>{o}</option>)}
                               </select>
-                              {_exp && <button type="button" title="この項目をコピー" onClick={()=>copyText(copyId, `${it.no}${it.title}：${c.sel}${c.text?` / ${c.text}`:''}`)}
+                              {/* ★ 折りたたみ中でもワンクリックでコピーできるよう常時表示(2026-09-24 ユーザー要望) */}
+                              <button type="button" title="この項目をコピー" onClick={()=>copyText(copyId, `${it.no}${it.title}：${c.sel}${c.text?` / ${c.text}`:''}`)}
                                 style={{background:copiedId===copyId?'#d1fae5':'#f8fafc',border:'1px solid #e2e8f0',color:copiedId===copyId?'#059669':'#94a3b8',borderRadius:6,padding:'2px 6px',fontSize:10,fontWeight:'bold',cursor:'pointer',display:'flex',alignItems:'center',gap:2}}>
                                 {copiedId===copyId?'✓':<Copy size={9}/>}
-                              </button>}
+                              </button>
                               {/* ★ コンパクト時: 本文を同じ行に1行省略表示(クリックで編集=自動展開) */}
                               {!_exp && (
                                 <div onClick={()=>{ if(!confirmed) { toggleMonExpand(patient.id); setEditTextCell(cellId); } else toggleMonExpand(patient.id); }}
