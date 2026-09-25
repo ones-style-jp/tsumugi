@@ -31982,8 +31982,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   // ★ 2026-09-22(店舗要望): 送迎表の時刻表示は「13時25分」ではなく「13:25」。保存値は従来形式のままでも表示で統一する。
   // ★ 2026-09-25(扇橋指摘): マスタで「時」だけ登録(分が空)の値は "8:--"／"8時　　分" で来る。空白を除いて解釈し「8:--」に統一する。
   const _fmtT = (t) => {
-    const v = String(t ?? '').replace(/[\s　]+/g, '').trim(); if (!v) return '';
-    let m = v.match(/^(\d{1,2})時(?:(\d{1,2})分?|分)?$/); if (m) return `${m[1]}:${m[2] != null ? String(m[2]).padStart(2, '0') : '--'}`;
+    const v = String(t ?? '').replace(/[\s　]+/g, '').trim(); if (!v || v === '時分' || v === '時') return '';
+    // 「8時30分」→8:30 ／「8時　分」(分が空欄)→8:-- ／「8時」(自動算出の時のみ)→8:00
+    let m = v.match(/^(\d{1,2})時(?:(\d{1,2})分?|(分))?$/); if (m) return `${m[1]}:${m[2] != null ? String(m[2]).padStart(2, '0') : (m[3] ? '--' : '00')}`;
     m = v.match(/^(\d{1,2}):(\d{1,2}|--)$/); if (m) return `${m[1]}:${m[2] === '--' ? '--' : String(m[2]).padStart(2, '0')}`;
     return String(t ?? '').trim();
   };
