@@ -2036,6 +2036,7 @@ const effExerciseItems = (systemSettings) => {
 const appSettings = {
   statusOptions: [
     { label: "出席", color: "bg-blue-600", lightColor: "bg-blue-50", textColor: "text-blue-700", ring: "ring-blue-300" },
+    { label: "臨時", color: "bg-cyan-600", lightColor: "bg-cyan-50", textColor: "text-cyan-700", ring: "ring-cyan-300" }, // ★ 臨時利用(2026-09-25): 扱いは出席と同じ・表記だけ区別
     { label: "欠席", color: "bg-red-600", lightColor: "bg-red-50", textColor: "text-red-700", ring: "ring-red-300" },
     { label: "振替", color: "bg-emerald-600", lightColor: "bg-emerald-50", textColor: "text-emerald-700", ring: "ring-emerald-300" },
     { label: "休止", color: "bg-orange-500", lightColor: "bg-orange-50", textColor: "text-orange-700", ring: "ring-orange-300" },
@@ -22235,6 +22236,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                  pData.tokki = '';
              }
          }
+         // ★ 月間スケジュールで「臨時利用」の日は状態を「臨時」と表記する(2026-09-25 ユーザー指示。扱いは出席と同じ)。
+         //   休止残骸→出席の正規化より後に置く(先に置くと '休止' のまま条件に掛からず、後で出席に戻されて臨時が消える)。
+         { const _shR = appData.monthlyShifts?.[monthKey]?.[p.id] || {};
+           if ((_shR[`${dayNum}_AM`] === '臨時' || _shR[`${dayNum}_PM`] === '臨時') && (!pData.status || pData.status === '出席')) pData.status = '臨時'; }
          // ★ 施設の休業日は状態を自動で「休業」にする(2026-08-11)。 休止中の人は休止のまま。
          //   バイタル等の実データが入力済みの記録は触らない(休業日設定の誤りで入力を隠さない保護)。
          if (_isHolidaySel && pData.status !== '休止' && pData.status !== '休業' && !ticketHasClinicalData(pData)) {
@@ -23159,7 +23164,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
 
   // ★ 本日分の人数集計 (出席/欠席/休止/振替/休業)。表に列は足さず、ヘッダーにチップ表示。検索の影響を受けないよう検索前に集計。
   const attCounts = (filterMode === 'single')
-    ? displayRecords.reduce((c,p)=>{ const s=(p.status||'出席'); if(['出席','欠席','休止','振替','休業'].includes(s)) c[s]=(c[s]||0)+1; c._total=(c._total||0)+1; return c; }, {})
+    ? displayRecords.reduce((c,p)=>{ const s=(p.status||'出席'); if(['出席','臨時','欠席','休止','振替','休業'].includes(s)) c[s]=(c[s]||0)+1; c._total=(c._total||0)+1; return c; }, {})
     : null;
 
   if (searchQuery) {
@@ -23211,7 +23216,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
 
   const attCountChips = attCounts ? (() => {
     // 出席=青 / 欠席=赤 / 休止=橙 / 振替=緑 / 休業=灰。 人数が0の状態は表示しない(いる状態だけ)。
-    const defs = [['出席','#1e40af','#dbeafe'],['欠席','#991b1b','#fee2e2'],['休止','#9a3412','#ffedd5'],['振替','#166534','#dcfce7'],['休業','#475569','#f1f5f9']];
+    const defs = [['出席','#1e40af','#dbeafe'],['臨時','#155e75','#cffafe'],['欠席','#991b1b','#fee2e2'],['休止','#9a3412','#ffedd5'],['振替','#166534','#dcfce7'],['休業','#475569','#f1f5f9']];
     const shown = defs.filter(([label]) => (attCounts[label]||0) > 0);
     if (!shown.length) return null;
     return (
@@ -31580,8 +31585,9 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
 
           {/* ヘッダー（名前・日付） */}
           <div className="flex justify-between items-end mb-2 shrink-0">
-            <div className="text-3xl font-bold tracking-widest"><span style={{display:'inline-block',minWidth:'5.5em'}}>{patient.name}</span> <span className="text-xl font-normal ml-2">様</span></div>
-            <div className="text-2xl font-bold tracking-widest">{dateStr}</div>
+            {/* ★ 長い氏名でも1行(2026-09-25 ユーザー指示): 名前は枠に合わせて縮小し、「様」は折り返さない */}
+            <div className="text-3xl font-bold tracking-widest flex items-baseline min-w-0" style={{whiteSpace:'nowrap',flex:'1 1 auto',marginRight:'0.75em'}}><AutoFitLine style={{minWidth:'5.5em',maxWidth:'calc(100% - 2.6em)'}}>{patient.name}</AutoFitLine><span className="text-xl font-normal ml-2 shrink-0">様</span></div>
+            <div className="text-2xl font-bold tracking-widest shrink-0" style={{whiteSpace:'nowrap'}}>{dateStr}</div>
           </div>
 
           {/* バイタル（行高・フォント大きめ） — 1.2倍に拡大 */}
@@ -40815,7 +40821,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     return sh[`${_d.getDate()}_AM`] === '休業' || sh[`${_d.getDate()}_PM`] === '休業';
   };
   // 記録の状態を休業設定で上書き(欠席/休止は本人事由なのでそのまま)
-  const _applyKyugyo = (st, pid, iso, dw) => ((st === '出席' || st === '振替' || !st) && (_dayIsKyugyo(iso, dw) || _shiftKyugyo(pid, iso))) ? '休業' : st;
+  const _applyKyugyo = (st, pid, iso, dw) => ((st === '出席' || st === '振替' || st === '臨時' || !st) && (_dayIsKyugyo(iso, dw) || _shiftKyugyo(pid, iso))) ? '休業' : st;
   // 既存の ticketRecords から該当者を抽出
   const _recordedRaw = (appData.ticketRecords||[])
     .filter(r=>r.date===dateStr)
@@ -41245,7 +41251,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             const isAbsent = pt ? (pt.status==='欠席'||pt.status==='休業') : false;
             const statusLabel = pt ? pt.status : '';
             // ★ 月間スケジュールの状態色に統一(2026-09-07 店舗要望): 出席=青/欠席=赤/振替=緑/休止=オレンジ/休業=グレー
-            const statusColor = statusLabel==='出席'?'#2563eb':statusLabel==='欠席'?'#dc2626':statusLabel==='振替'?'#059669':statusLabel==='休止'?'#f97316':statusLabel==='休業'?'#64748b':statusLabel==='予定'?'#999':'#555';
+            const statusColor = statusLabel==='出席'?'#2563eb':statusLabel==='臨時'?'#0e7490':statusLabel==='欠席'?'#dc2626':statusLabel==='振替'?'#059669':statusLabel==='休止'?'#f97316':statusLabel==='休業'?'#64748b':statusLabel==='予定'?'#999':'#555';
             // 介護度を略称変換
             const abbrCare = (cl) => {
               if(!cl) return '';
