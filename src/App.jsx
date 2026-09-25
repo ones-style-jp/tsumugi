@@ -30983,13 +30983,14 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                 {/* ★ 印刷位置の微調整(2026-09-24 店舗報告: B5で右下にずれて右面の日付・下の事業所名が見切れる) */}
                 {(()=>{ const ox=Number(ss.renrakuOffsetX)||0, oy=Number(ss.renrakuOffsetY)||0; const step=(k,d)=>setSS({[k]:Math.max(-10,Math.min(10,(Number(ss[k])||0)+d))}); const nb='w-7 h-7 rounded-lg border border-slate-300 bg-white text-slate-700 font-bold text-sm hover:bg-slate-50 active:scale-95'; return (
                   <div>
-                    <div className="text-[11px] font-bold text-slate-500 mb-1">印刷位置の微調整（mm）</div>
-                    <div className="flex items-center gap-3 text-xs text-slate-700">
-                      <span className="flex items-center gap-1">横 <button onClick={()=>step('renrakuOffsetX',-1)} className={nb}>−</button><b className="w-8 text-center tabular-nums">{ox>0?`+${ox}`:ox}</b><button onClick={()=>step('renrakuOffsetX',1)} className={nb}>＋</button></span>
-                      <span className="flex items-center gap-1">縦 <button onClick={()=>step('renrakuOffsetY',-1)} className={nb}>−</button><b className="w-8 text-center tabular-nums">{oy>0?`+${oy}`:oy}</b><button onClick={()=>step('renrakuOffsetY',1)} className={nb}>＋</button></span>
-                      {(ox||oy) ? <button onClick={()=>setSS({renrakuOffsetX:0,renrakuOffsetY:0})} className="text-[11px] text-blue-600 underline">戻す</button> : null}
+                    <div className="text-[11px] font-bold text-slate-500 mb-1">印刷位置の微調整（1押し＝1mm）</div>
+                    {/* ★ どちらへ動くか分かるよう矢印＋方向名で表示(2026-09-25 ユーザー指示)。内部値: 横は右が＋、縦は下が＋ */}
+                    <div className="flex flex-col gap-1.5 text-xs text-slate-700">
+                      <span className="flex items-center gap-1.5"><span className="w-7 font-bold text-slate-500">横</span><button onClick={()=>step('renrakuOffsetX',-1)} className={nb+' w-auto px-2'} title="左へ1mm">← 左</button><b className="w-16 text-center tabular-nums">{ox===0?'0（中央）':ox>0?`右 +${ox}`:`左 ${ox}`}</b><button onClick={()=>step('renrakuOffsetX',1)} className={nb+' w-auto px-2'} title="右へ1mm">右 →</button></span>
+                      <span className="flex items-center gap-1.5"><span className="w-7 font-bold text-slate-500">縦</span><button onClick={()=>step('renrakuOffsetY',-1)} className={nb+' w-auto px-2'} title="上へ1mm">↑ 上</button><b className="w-16 text-center tabular-nums">{oy===0?'0（中央）':oy>0?`下 +${oy}`:`上 ${oy}`}</b><button onClick={()=>step('renrakuOffsetY',1)} className={nb+' w-auto px-2'} title="下へ1mm">↓ 下</button></span>
+                      {(ox||oy) ? <button onClick={()=>setSS({renrakuOffsetX:0,renrakuOffsetY:0})} className="text-[11px] text-blue-600 underline self-start">0に戻す</button> : null}
                     </div>
-                    <div className="text-[10px] text-slate-400 mt-1">印刷が右下にずれて見切れるときは横・縦を「−」に（例: −3）。複合機ごとに違うので、1枚試し刷りして合わせてください。</div>
+                    <div className="text-[10px] text-slate-400 mt-1">印刷が右下にずれて見切れるときは「← 左」「↑ 上」を押します（例: 左 −3・上 −2）。複合機ごとに違うので、1枚試し刷りして合わせてください。動くのは連絡帳の中身だけで、中央のカット線は動きません。</div>
                   </div>
                 ); })()}
                 <label className="flex items-center gap-2 text-xs text-slate-700 py-0.5 cursor-pointer"><input type="checkbox" checked={ss.renrakuShowQr !== false} onChange={e=>setSS({renrakuShowQr:e.target.checked})}/>ご家族専用ページのQRコードを連絡帳に印字する</label>
