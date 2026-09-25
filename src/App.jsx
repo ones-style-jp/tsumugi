@@ -31034,13 +31034,14 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                 {/* ★ 印刷位置の微調整(2026-09-24 店舗報告: B5で右下にずれて右面の日付・下の事業所名が見切れる) */}
                 {(()=>{ const ox=Number(ss.renrakuOffsetX)||0, oy=Number(ss.renrakuOffsetY)||0; const step=(k,d)=>setSS({[k]:Math.max(-10,Math.min(10,(Number(ss[k])||0)+d))}); const nb='w-7 h-7 rounded-lg border border-slate-300 bg-white text-slate-700 font-bold text-sm hover:bg-slate-50 active:scale-95'; return (
                   <div>
-                    <div className="text-[11px] font-bold text-slate-500 mb-1">印刷位置の微調整（mm）</div>
-                    <div className="flex items-center gap-3 text-xs text-slate-700">
-                      <span className="flex items-center gap-1">横 <button onClick={()=>step('renrakuOffsetX',-1)} className={nb}>−</button><b className="w-8 text-center tabular-nums">{ox>0?`+${ox}`:ox}</b><button onClick={()=>step('renrakuOffsetX',1)} className={nb}>＋</button></span>
-                      <span className="flex items-center gap-1">縦 <button onClick={()=>step('renrakuOffsetY',-1)} className={nb}>−</button><b className="w-8 text-center tabular-nums">{oy>0?`+${oy}`:oy}</b><button onClick={()=>step('renrakuOffsetY',1)} className={nb}>＋</button></span>
-                      {(ox||oy) ? <button onClick={()=>setSS({renrakuOffsetX:0,renrakuOffsetY:0})} className="text-[11px] text-blue-600 underline">戻す</button> : null}
+                    <div className="text-[11px] font-bold text-slate-500 mb-1">印刷位置の微調整（1押し＝1mm）</div>
+                    {/* ★ どちらへ動くか分かるよう矢印＋方向名で表示(2026-09-25 ユーザー指示)。内部値: 横は右が＋、縦は下が＋ */}
+                    <div className="flex flex-col gap-1.5 text-xs text-slate-700">
+                      <span className="flex items-center gap-1.5"><span className="w-7 font-bold text-slate-500">横</span><button onClick={()=>step('renrakuOffsetX',-1)} className={nb+' w-auto px-2'} title="左へ1mm">← 左</button><b className="w-16 text-center tabular-nums">{ox===0?'0（中央）':ox>0?`右 +${ox}`:`左 ${ox}`}</b><button onClick={()=>step('renrakuOffsetX',1)} className={nb+' w-auto px-2'} title="右へ1mm">右 →</button></span>
+                      <span className="flex items-center gap-1.5"><span className="w-7 font-bold text-slate-500">縦</span><button onClick={()=>step('renrakuOffsetY',-1)} className={nb+' w-auto px-2'} title="上へ1mm">↑ 上</button><b className="w-16 text-center tabular-nums">{oy===0?'0（中央）':oy>0?`下 +${oy}`:`上 ${oy}`}</b><button onClick={()=>step('renrakuOffsetY',1)} className={nb+' w-auto px-2'} title="下へ1mm">↓ 下</button></span>
+                      {(ox||oy) ? <button onClick={()=>setSS({renrakuOffsetX:0,renrakuOffsetY:0})} className="text-[11px] text-blue-600 underline self-start">0に戻す</button> : null}
                     </div>
-                    <div className="text-[10px] text-slate-400 mt-1">印刷が右下にずれて見切れるときは横・縦を「−」に（例: −3）。複合機ごとに違うので、1枚試し刷りして合わせてください。</div>
+                    <div className="text-[10px] text-slate-400 mt-1">印刷が右下にずれて見切れるときは「← 左」「↑ 上」を押します（例: 左 −3・上 −2）。複合機ごとに違うので、1枚試し刷りして合わせてください。動くのは連絡帳の中身だけで、中央のカット線は動きません。</div>
                   </div>
                 ); })()}
                 <label className="flex items-center gap-2 text-xs text-slate-700 py-0.5 cursor-pointer"><input type="checkbox" checked={ss.renrakuShowQr !== false} onChange={e=>setSS({renrakuShowQr:e.target.checked})}/>ご家族専用ページのQRコードを連絡帳に印字する</label>
@@ -31979,8 +31980,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
 
   // 表示用プラン: 保存済みがあればそれ、無ければ自動下書き(前週同曜日の車割りをコピー)
   // ★ 2026-09-22(店舗要望): 送迎表の時刻表示は「13時25分」ではなく「13:25」。保存値は従来形式のままでも表示で統一する。
-  const _fmtT = (t) => { const v = String(t ?? '').trim(); if (!v) return ''; const m = v.match(/^(\d{1,2})時(?:(\d{1,2})分?)?$/); if (m) return `${m[1]}:${String(m[2] || '0').padStart(2, '0')}`; return v; };
-  const _tMin = (t) => { const m = _fmtT(t).match(/^(\d{1,2}):(\d{1,2})/); return m ? (+m[1]) * 60 + (+m[2]) : (/徒歩/.test(String(t||'')) ? 99999 : 99998); };
+  // ★ 2026-09-25(扇橋指摘): マスタで「時」だけ登録(分が空)の値は "8:--"／"8時　　分" で来る。空白を除いて解釈し「8:--」に統一する。
+  const _fmtT = (t) => {
+    const v = String(t ?? '').replace(/[\s　]+/g, '').trim(); if (!v) return '';
+    let m = v.match(/^(\d{1,2})時(?:(\d{1,2})分?|分)?$/); if (m) return `${m[1]}:${m[2] != null ? String(m[2]).padStart(2, '0') : '--'}`;
+    m = v.match(/^(\d{1,2}):(\d{1,2}|--)$/); if (m) return `${m[1]}:${m[2] === '--' ? '--' : String(m[2]).padStart(2, '0')}`;
+    return String(t ?? '').trim();
+  };
+  const _tMin = (t) => { const m = _fmtT(t).match(/^(\d{1,2}):(\d{1,2}|--)/); return m ? (+m[1]) * 60 + (m[2] === '--' ? 0 : +m[2]) : (/徒歩/.test(String(t||'')) ? 99999 : 99998); };
   const _draftPlan = (iso, sl) => {
     const att = _attendees(iso, sl);
     const prevD = new Date(iso); prevD.setDate(prevD.getDate() - 7);
@@ -32787,19 +32794,12 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             </div>
           )}
         </div>
-        {/* ★ 日付ジャンプ(2026-09-14 デザイン刷新): タップでその曜日の列へ横スクロール */}
-        <div className="w-full flex items-center gap-1 pt-1 overflow-x-auto">
-          {days.map(d => { const iso2 = _iso(d); const _t2 = iso2 === _iso(new Date()); return (
-            <button key={iso2} onClick={()=>{ const el = document.getElementById(`tpday-${iso2}`); if (el) el.scrollIntoView({ behavior:'smooth', inline:'start', block:'nearest' }); }}
-              className={`text-[12px] font-bold rounded px-2 py-1 whitespace-nowrap ${_t2?'bg-blue-600 text-white':'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）</button>
-          ); })}
-          <span className="ml-auto text-[10px] text-slate-400 whitespace-nowrap hidden md:inline pr-1">横にスクロールして各曜日を確認 →</span>
-        </div>
       </div>
-      <div className="p-3 sm:p-4">
+      <div className="p-2 sm:p-3">
         <div className="max-w-[1500px] mx-auto">
         {/* ★ 2026-09-13c(店舗要望): 午前/午後を「段」として揃える(どの曜日も午後が同じ高さから始まる)。日付/午前/午後を行に持つグリッドへ変更 */}
-        <div className="grid" style={{gridTemplateColumns:`repeat(${days.length}, minmax(280px, 1fr))`, gridAutoFlow:'column', gridTemplateRows:'auto auto auto', columnGap:12, rowGap:0, alignItems:'stretch', overflowX:'auto'}}>
+        {/* ★ 2026-09-25(ユーザー指示): 列を詰めてサイドバーを閉じれば月〜金が1画面に収まる幅(5列×236px+隙間≈1220px) */}
+        <div className="grid" style={{gridTemplateColumns:`repeat(${days.length}, minmax(236px, 1fr))`, gridAutoFlow:'column', gridTemplateRows:'auto auto auto', columnGap:8, rowGap:0, alignItems:'stretch', overflowX:'auto'}}>
           {days.map(d => {
             const iso = _iso(d);
             const _today = iso === _iso(new Date());
@@ -32844,11 +32844,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                               <div key={m.pid} data-tprow data-tppid={m.pid} data-tpcid={c.id} data-tpiso={iso} data-tpslot={sl}
                                 style={dragMv && dragMv.over && dragMv.over.iso===iso && dragMv.over.slot===sl && dragMv.over.zone===c.id && String(dragMv.over.pid)===String(m.pid) && !(dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)) ? {boxShadow:'inset 0 3px 0 #3b82f6', paddingTop:14, transition:'padding-top 0.12s'} : {transition:'padding-top 0.12s'}}
                                 className={`flex items-center gap-1 px-1 py-1 min-h-[44px] border-t border-slate-100 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''} ${_isFurikae(iso, sl, m.pid)?'bg-emerald-100':(_isFirstVisit(m.pid, iso)?'bg-sky-100':'')}`}>
-                                <button onClick={()=>toggleMark(iso, sl, m.pid)} title="お迎え時間変更の印(TEL)" className="shrink-0 w-8 h-8 flex items-center justify-center">
+                                <button onClick={()=>toggleMark(iso, sl, m.pid)} title="お迎え時間変更の印(TEL)" className="shrink-0 w-6 h-8 flex items-center justify-center">
                                   <span className={`w-4 h-4 rounded-full border text-[9px] leading-4 text-center font-bold ${m.mark?'bg-red-600 border-red-600 text-white':'border-slate-300 text-transparent'}`}>●</span>
                                 </button>
                                 <button onClick={()=>{ if (!dragMv) setEditP({pid:m.pid}); }} {..._dragHandlers(m.pid, iso, sl)} title="タップ=場所・乗車時間の編集 / 長押し=つかんで移動(別の日に落とすと振替)" className="text-[16px] font-bold text-slate-800 flex-1 min-w-0 text-left leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{overflowWrap:"anywhere", touchAction:'pan-y'}}>{_pname(m.pid)}</button>
-                                <input type="text" value={_fmtT(m.t)} onChange={e=>setTime(iso, sl, m.pid, e.target.value)} placeholder="—:—" className={`w-16 text-center text-[17px] font-bold border rounded px-0.5 py-1 outline-none shrink-0 ${m.mark?'border-red-400 text-red-600':'border-slate-300'}`} style={{fontVariantNumeric:'tabular-nums'}}/>
+                                <input type="text" value={_fmtT(m.t)} onChange={e=>setTime(iso, sl, m.pid, e.target.value)} placeholder="—:—" className={`w-[58px] text-center text-[16px] font-bold border rounded px-0.5 py-1 outline-none shrink-0 ${m.mark?'border-red-400 text-red-600':'border-slate-300'}`} style={{fontVariantNumeric:'tabular-nums'}}/>
                               </div>
                             ))}
                             {!(pl.cars?.[c.id]||[]).length && <div className="px-2 py-1 text-[10px] text-slate-400">{dragMv?'ここにドロップ':'なし'}</div>}
