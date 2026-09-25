@@ -23093,8 +23093,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       const shiftPM = appData.monthlyShifts?.[monthKey2]?.[p.id]?.[`${dayNum2}_PM`];
       const stateAM = shiftAM !== undefined ? shiftAM : (base==='AM'||base==='1日' ? '〇' : '空欄');
       const statePM = shiftPM !== undefined ? shiftPM : (base==='PM'||base==='1日' ? '〇' : '空欄');
-      const comingAM = stateAM==='〇'||stateAM==='出席'||stateAM.startsWith('振');
-      const comingPM = statePM==='〇'||statePM==='出席'||statePM.startsWith('振');
+      const comingAM = stateAM==='〇'||stateAM==='出席'||stateAM==='臨時'||stateAM.startsWith('振'); // ★ 臨時も来所(2026-09-25 店舗報告: 臨時にした人が提供記録入力に出ない)
+      const comingPM = statePM==='〇'||statePM==='出席'||statePM==='臨時'||statePM.startsWith('振');
       // ★ 欠席/休業/休止 でも、その人が属する時間帯(AM/PM)のみに表示する。
       //   (午前のみの人を欠席にした時、午後にも出てしまう不具合の対策)。 所属枠は 基本利用日(base) と当日シフト状態から判定。
       const isAbsentLike = p.status==='欠席'||p.status==='休業'||p.status==='休止'||stateAM==='欠席'||statePM==='欠席'||stateAM==='休業'||statePM==='休業';
@@ -30637,16 +30637,16 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       const marginTop = punchTop ? 14 : (pageH - wrapH) / 2; // 縦中央(上穴あけは上に14mm)
       const marginLeft = (half - wrapW) / 2;         // ★ 各面の横中央(2026-09-24: 右端4mmでは複合機の印字不能域で右面の日付が切れたため両側均等≈6mm)
       const face = (h) => `<div style="position:relative;width:${half}mm;height:${pageH}mm;overflow:hidden;flex:0 0 ${half}mm;box-sizing:border-box;">`
-        + `<div style="width:${wrapW}mm;height:${wrapH}mm;margin:${marginTop}mm 0 0 ${marginLeft}mm;overflow:hidden;">`
+        + `<div style="width:${wrapW}mm;height:${wrapH}mm;margin:${marginTop}mm 0 0 ${marginLeft}mm;overflow:hidden;${(offX||offY)?`transform:translate(${offX}mm,${offY}mm);`:''}">` /* ★ 微調整は中身だけ。カット線・穴あけ目印は用紙の中央/端に固定(2026-09-25 ユーザー指示) */
         + `<div style="width:182mm;height:257mm;transform:scale(${scale});transform-origin:top left;">${h || ''}</div>`
         + `</div>`
         + (guidePunch ? (punchTop
-            ? `<div style="position:absolute;top:2mm;left:calc(50% - 40mm);transform:translateX(-50%);font-size:3.4mm;line-height:1;color:#333;">▼</div><div style="position:absolute;top:2mm;left:calc(50% + 40mm);transform:translateX(-50%);font-size:3.4mm;line-height:1;color:#333;">▼</div>`
+            ? `<div style="position:absolute;top:2mm;left:50%;transform:translateX(-50%);font-size:3.4mm;line-height:1;color:#333;">▼</div>` /* ★ 上綴じは各面の上中央に1つ(2026-09-25 ユーザー指示) */
             : `<div style="position:absolute;left:3.5mm;top:50%;transform:translateY(-50%);font-size:3.4mm;line-height:1;color:#333;">◀</div>`) : '')
         + `</div>`;
       const pages = [];
       for (let i = 0; i < parts.length; i += 2) {
-        pages.push(`<div style="position:relative;page-break-after:${i < parts.length-2 ? 'always':'auto'};width:${pageW}mm;height:${pageH}mm;display:flex;overflow:hidden;${(offX||offY)?`transform:translate(${offX}mm,${offY}mm);`:''}">`
+        pages.push(`<div style="position:relative;page-break-after:${i < parts.length-2 ? 'always':'auto'};width:${pageW}mm;height:${pageH}mm;display:flex;overflow:hidden;">`
           + face(parts[i]) + face(parts[i+1])
           + (guideCut ? `<div style="position:absolute;left:50%;top:0;bottom:0;border-left:1px dashed #888;"></div>` : '')
           + `</div>`);
@@ -33834,6 +33834,14 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         ['status','tokki'].forEach(f=>obsMarkRecEditRec(_ex,f));
         setPendingTickets(effTickets.map(t => t === _ex ? { ...t, status: '出席', tokki: '', _savedAt: syncNow() } : t));
       }
+    }
+    if (_forceRinji) {
+      // ★ 臨時利用は振替・欠席と同じく「その場で保存」(2026-09-25 店舗報告: 保存を押すまで提供記録入力・日誌に出なかった)
+      setPendingShifts(null);
+      onSave({ ...appData, monthlyShifts: ns2, ...(pendingTickets ? { ticketRecords: pendingTickets } : {}) }, { manual: true, message: '✓ 臨時利用を保存しました' });
+      if (pendingTickets) setPendingTickets(null);
+      if (dirtyRef) dirtyRef.current = false;
+      return;
     }
     markDirty();
   };
@@ -39534,7 +39542,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     return [ampm,'1日'].includes(p.scheduleAmPm?.[dow]);
   };
   // ソート: 出席 → 振替 → 欠席 → 休止 → 休業 → その他
-  const _statusRank = (st) => st === '出席' ? 0 : st === '振替' ? 1 : st === '欠席' ? 2 : st === '休止' ? 3 : st === '休業' ? 4 : 5;
+  const _statusRank = (st) => st === '出席' ? 0 : (st === '振替' || st === '臨時') ? 1 : st === '欠席' ? 2 : st === '休止' ? 3 : st === '休業' ? 4 : 5;
   // ★ 休業日の連動(2026-08-27 店舗要望): 各種設定の休業日・定休日、月間スケジュールの「休業」を日誌にも反映。
   //   これまで日誌は ticketRecords と基本曜日だけで行を作っていたため、休業設定した日(8/12-14等)でも
   //   「出席」で表示され、送迎の自動コピーまで入っていた。
@@ -39563,6 +39571,16 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   const recordedPids = new Set(recordedPatients.map(r=>r.patientId));
   // ★ ticketRecords にまだ記録が無くても、当日の曜日スケジュールに該当する利用者を表示
   //   (体温などを入力しなくても日誌に名前が出るように)
+  // ★ その日の月間スケジュールのセル(表示中の時間帯)が 臨時/振…/出席 なら種別を返す(2026-09-25)
+  const _monthlyComingKind = (pid) => {
+    try {
+      const _d = new Date(selectedDate); if (isNaN(_d.getTime())) return '';
+      const sh = appData.monthlyShifts?.[`${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}`]?.[pid] || {};
+      const keys = ampm === '1日' ? [`${_d.getDate()}_AM`, `${_d.getDate()}_PM`] : [`${_d.getDate()}_${ampm}`];
+      for (const k of keys) { const v = String(sh[k] || ''); if (v === '臨時') return '臨時'; if (v.startsWith('振')) return '振替'; if (v === '出席' || v === '〇') return '出席'; }
+    } catch {}
+    return '';
+  };
   const scheduledExtras = (appData.patients||[])
     .filter(p => {
       if (recordedPids.has(p.id)) return false;
@@ -39570,10 +39588,12 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
       if (!isPatientActiveOnDate(p, selectedDate)) return false;
       if (getPatientDisplayStatus && getPatientDisplayStatus(p) !== '利用中') return false;
       const slot = getScheduleOnDate(p, selectedDate)?.[dow] || '';
-      if (ampm === '1日') return ['AM','PM','1日'].includes(slot);
-      return slot === ampm || slot === '1日';
+      const _baseHit = (ampm === '1日') ? ['AM','PM','1日'].includes(slot) : (slot === ampm || slot === '1日');
+      if (_baseHit) return true;
+      // ★ 基本利用日でなくても、月間スケジュールに 臨時/振替/出席 の印があれば日誌に載せる(2026-09-25 店舗報告: 臨時にした人が日誌に出ない)
+      return !!_monthlyComingKind(p.id);
     })
-    .map(p => ({ id:`auto-${p.id}`, patientId:p.id, name:p.name||'', kana:p.kana||'', careLevel:p.careLevel||'', tokki:'', status:_applyKyugyo('出席', p.id, selectedDate, dow) }));
+    .map(p => { const _k = _monthlyComingKind(p.id); const _st0 = _k === '臨時' ? '臨時' : _k === '振替' ? '振替' : '出席'; return { id:`auto-${p.id}`, patientId:p.id, name:p.name||'', kana:p.kana||'', careLevel:p.careLevel||'', tokki:'', status:_applyKyugyo(_st0, p.id, selectedDate, dow) }; });
   // ★ 状態ランク→同状態内はかな順(提供記録入力・プレビューと同じ並び)
   const patients = [...recordedPatients, ...scheduledExtras]
     .sort((a, b) => (_statusRank(a.status) - _statusRank(b.status)) || String(a.kana||a.name||'').localeCompare(String(b.kana||b.name||''), 'ja'));
@@ -40020,8 +40040,9 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             return (
               <tr key={i} style={{backgroundColor:i%2===0?'white':'#f8f8fc',height:_patientRowH}}>
                 <td style={{...tdH,border:'1px solid #555',width:28,textAlign:'center',fontSize:_statusFontSize,padding:'0 2px',color:i<capacity?'#000':'#ea580c'}}>{i+1}</td>
-                <td style={{...tdH,border:'1px solid #555',fontWeight:pt?'bold':'normal',fontSize:_nameFontSize,textAlign:'center',textOverflow:'ellipsis'}}>
-                  {pt?pt.name:''}
+                <td style={{...tdH,border:'1px solid #555',fontWeight:pt?'bold':'normal',fontSize:_nameFontSize,textAlign:'center'}}>
+                  {/* ★ 長い氏名は「…」で切らず、枠に収まるまで縮小して全文表示(2026-09-25 ユーザー指示) */}
+                  <AutoFitLine style={{display:'block',width:'100%',textAlign:'center'}}>{pt?pt.name:''}</AutoFitLine>
                 </td>
                 <td style={{...tdH,border:'1px solid #555',width:32,textAlign:'center',fontSize:_statusFontSize}}>
                   {pt?abbrCare(pt.careLevel):''}
