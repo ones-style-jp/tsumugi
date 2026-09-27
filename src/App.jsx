@@ -11804,7 +11804,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
         </div>
       </div>
       <div style={{flex:1,overflow:'auto',padding:16}}>
-        <div style={{maxWidth:1000,margin:'0 auto',display:'flex',flexDirection:'column',gap:16}}>
+        <div style={{maxWidth:1480,margin:'0 auto',display:'flex',flexDirection:'column',gap:16}}>{/* ★ 2026-09-27: 月表示の横幅を広げ、予定の内容が読めるように(1000→1480) */}
           {/* ★ 「今日の予定」はホームと重複のため削除(2026-08-21)。 選択日(既定=今日)の予定で確認できる */}
           {/* カレンダー + 選択日 */}
           <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr)',gap:16}}>
@@ -11846,7 +11846,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                     <div key={dstr} onClick={()=>setSelDay(dstr)}
                       onDragOver={dragEvId?ev=>ev.preventDefault():undefined}
                       onDrop={dragEvId?()=>{ const be=events.find(x=>x.id===dragEvId); if(be) moveEvent(be,dstr); setDragEvId(null); }:undefined}
-                      style={{minHeight:78,opacity:d.other?0.62:1,textAlign:'left',background:bg,border:`1px solid ${isSel?'#818cf8':(dragEvId?'#c7d2fe':'#e2e8f0')}`,borderRadius:8,padding:'3px 4px',cursor:'pointer',display:'flex',flexDirection:'column',gap:2,overflow:'hidden'}}>
+                      style={{minHeight:96,opacity:d.other?0.62:1,textAlign:'left',background:bg,border:`1px solid ${isSel?'#818cf8':(dragEvId?'#c7d2fe':'#e2e8f0')}`,borderRadius:8,padding:'3px 4px',cursor:'pointer',display:'flex',flexDirection:'column',gap:2,overflow:'hidden'}}>
                       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                         <span style={{fontSize:12,fontWeight:'bold',width:20,height:20,lineHeight:'20px',textAlign:'center',borderRadius:'50%',background:isToday?'#6366f1':'transparent',color:isToday?'white':(holi?'#ef4444':(i%7===0?'#ef4444':i%7===6?'#3b82f6':'#334155'))}}>{d.other?`${parseInt(dstr.slice(5,7))}/${d.d}`:d.d}</span>
                         <div style={{display:'flex',alignItems:'center',gap:1}}>
@@ -11856,12 +11856,12 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                         </div>
                       </div>
                       {holi && holidayName(dstr) && <span style={{fontSize:8,fontWeight:'bold',color:'#ef4444',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{holidayName(dstr)}</span>}
-                      {evs.slice(0,3).map(e=>{ const drg = !e._occ && (!e.repeat||e.repeat==='none'); return (
+                      {evs.slice(0,4).map(e=>{ const drg = !e._occ && (!e.repeat||e.repeat==='none'); return (
                         <div key={e.id+(e._occ?'_o':'')} draggable={drg} onDragStart={drg?ev=>{setDragEvId(e.id);}:undefined} onDragEnd={()=>setDragEvId(null)} onClick={ev=>{ev.stopPropagation(); setEvDetail(e);}}
                           title={`${e.title}${patName(e)?'／'+patName(e):''}`}
-                          style={{fontSize:9.5,fontWeight:'bold',color:'white',background:e.color||'#6366f1',borderRadius:4,padding:'1px 4px',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',maxWidth:'100%',cursor:drg?'grab':'pointer'}}>{e.repeat&&e.repeat!=='none'?'[繰]':''}{e.start?`${e.start} `:''}{e.title}{patName(e)?`／${patName(e)}`:''}</div>
+                          style={{fontSize:10,fontWeight:'bold',color:'white',background:e.color||'#6366f1',borderRadius:4,padding:'1px 4px',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden',overflowWrap:'anywhere',lineHeight:1.25,maxWidth:'100%',cursor:drg?'grab':'pointer'}}>{e.repeat&&e.repeat!=='none'?'[繰]':''}{e.start?`${e.start} `:''}{e.title}{patName(e)?`／${patName(e)}`:''}</div>
                       );})}
-                      {evs.length>3 && <span style={{fontSize:9,color:'#64748b',fontWeight:'bold'}}>他{evs.length-3}件</span>}
+                      {evs.length>4 && <span style={{fontSize:9,color:'#64748b',fontWeight:'bold'}}>他{evs.length-4}件</span>}
                     </div>
                   );
                 })}
@@ -11892,17 +11892,19 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                     <div style={{display:'grid',gridTemplateColumns:cols,borderBottom:'1px solid #e2e8f0'}}>
                       <div style={{fontSize:8,color:'#64748b',textAlign:'right',padding:'3px 4px'}}>終日</div>
                       {wd.map(ds=>{ const alld=evOf(ds).filter(e=>!e.start); return (
-                        <div key={ds} onClick={()=>openNew(ds)} {...dropCell(ds)} style={{minHeight:20,padding:2,borderLeft:'1px solid #f1f5f9',cursor:'pointer',display:'flex',flexDirection:'column',gap:2}}>
-                          {alld.map(e=>{ const drg=!e._occ&&(!e.repeat||e.repeat==='none'); return <div key={e.id+(e._occ?'_o':'')} draggable={drg} onDragStart={drg?()=>setDragEvId(e.id):undefined} onDragEnd={()=>setDragEvId(null)} onClick={ev=>{ev.stopPropagation();setEvDetail(e);}} title={e.title} style={{fontSize:9,fontWeight:'bold',color:'white',background:e.color||'#6366f1',borderRadius:3,padding:'1px 3px',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',cursor:drg?'grab':'pointer'}}>{e.repeat&&e.repeat!=='none'?'[繰]':''}{e.title}{patName(e)?`／${patName(e)}`:''}</div>; })}
+                        <div key={ds} onClick={()=>openNew(ds)} {...dropCell(ds)} style={{minHeight:20,padding:2,borderLeft:'1px solid #e2e8f0',cursor:'pointer',display:'flex',flexDirection:'column',gap:2}}>
+                          {alld.map(e=>{ const drg=!e._occ&&(!e.repeat||e.repeat==='none'); return <div key={e.id+(e._occ?'_o':'')} draggable={drg} onDragStart={drg?()=>setDragEvId(e.id):undefined} onDragEnd={()=>setDragEvId(null)} onClick={ev=>{ev.stopPropagation();setEvDetail(e);}} title={e.title} style={{fontSize:9.5,fontWeight:'bold',color:'white',background:e.color||'#6366f1',borderRadius:3,padding:'2px 4px',whiteSpace:'normal',overflowWrap:'anywhere',lineHeight:1.3,cursor:drg?'grab':'pointer'}}>{e.repeat&&e.repeat!=='none'?'[繰]':''}{e.title}{patName(e)?`／${patName(e)}`:''}</div>; })}
                         </div>); })}
                     </div>
                     <div style={{display:'grid',gridTemplateColumns:cols}}>
-                      <div style={{position:'relative',height:gridH}}>
+                      <div style={{position:'relative',height:gridH,borderRight:'1px solid #e2e8f0'}}>
                         {Array.from({length:HEnd-HStart},(_,h)=>(<div key={h} style={{position:'absolute',top:h*hourH-6,right:3,fontSize:9,color:'#64748b',fontWeight:'bold'}}>{HStart+h}:00</div>))}
                       </div>
                       {wd.map(ds=>{ const timed=evOf(ds).filter(e=>e.start); const closed=isClosedDate(ds); return (
                         <div key={ds} {...dropCell(ds)} onClick={(ev)=>{ const rect=ev.currentTarget.getBoundingClientRect(); const y=ev.clientY-rect.top; let mins=HStart*60+Math.round((y/hourH*60)/15)*15; mins=Math.max(HStart*60,Math.min(HEnd*60-15,mins)); const hh=String(Math.floor(mins/60)).padStart(2,'0'),mm=String(mins%60).padStart(2,'0'); setModal({date:ds,start:`${hh}:${mm}`,end:addMin(`${hh}:${mm}`,60),title:'',note:'',color:COLORS[0]}); }}
-                          style={{position:'relative',height:gridH,borderLeft:'1px solid #f1f5f9',cursor:'pointer',background:closed?'#f8fafc':(isHolidayDate(ds)?'#fef2f2':'white')}}>
+                          style={{position:'relative',height:gridH,borderLeft:'1px solid #e2e8f0',cursor:'pointer',background:closed?'#f8fafc':(isHolidayDate(ds)?'#fef2f2':'white')}}>
+                          {/* ★ 時間の区切り線(2026-09-27 ユーザー要望: 時間と日付の区切りが分かるように) */}
+                          {Array.from({length:HEnd-HStart},(_,h)=>(<div key={'hl'+h} style={{position:'absolute',left:0,right:0,top:h*hourH,borderTop:'1px solid #e2e8f0',pointerEvents:'none'}}/>))}
                           {Array.from({length:HEnd-HStart},(_,h)=>(<div key={h} style={{position:'absolute',top:h*hourH,left:0,right:0,borderTop:'1px solid #f1f5f9'}}/>))}
                           {timed.map(e=>{ const drg=!e._occ&&(!e.repeat||e.repeat==='none'); return (
                             <div key={e.id+(e._occ?'_o':'')} draggable={drg} onDragStart={drg?()=>setDragEvId(e.id):undefined} onDragEnd={()=>setDragEvId(null)} onClick={ev=>{ev.stopPropagation();setEvDetail(e);}} title={`${timeLabel(e)} ${e.title}`}
