@@ -106,8 +106,14 @@ async function staffShots(browser) {
   const page = await ctx.newPage();
   await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' });
   await page.getByText('利用者マスタ管理', { exact: true }).first().waitFor({ timeout: 30000 });
+  // ★ サイドバーのスタッフ切替を撮るため、担当者を選んだ状態にする(見本の職員)
+  await page.evaluate(() => { try { sessionStorage.setItem('tsumugiActiveRecorder', JSON.stringify({ id: 'demo_rec', name: '見本 職員', roleLabel: '介護職員' })); } catch {} });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByText('利用者マスタ管理', { exact: true }).first().waitFor({ timeout: 30000 });
   await page.waitForTimeout(1200);
   await shot(page, 'staff_home');
+  // ★ サイドバーのスタッフ切替(職種別・2026-09-27)
+  try { if (await tryClick(page, /スタッフ切替/, { exact: false, timeout: 2500 })) { await page.waitForTimeout(600); await shot(page, 'staff_switch'); await tryClick(page, /スタッフ切替/, { exact: false, timeout: 1500 }); await page.waitForTimeout(300); } } catch (e) { log('staff switch skipped', e.message); }
   const nav = async (label, group) => {
     const item = page.getByText(label, { exact: true }).first();
     if (group && !(await item.isVisible().catch(() => false))) {
