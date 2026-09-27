@@ -40025,17 +40025,18 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   const StaffBox = ({label, list, flexWeight}) => (
     <div style={{border:'1px solid #888',borderRadius:3,padding:0,flex:flexWeight||'1 1 0',minWidth:0,overflow:'hidden',display:'flex',flexDirection:'column'}}>
       <div style={{backgroundColor:'#dde',fontSize:7.5,color:'#000',fontWeight:'bold',padding:'1px 4px',textAlign:'left',borderBottom:'1px solid #aab',whiteSpace:'nowrap'}}>{label}</div>
-      <div style={{display:'flex',flexWrap:'wrap',gap:'2px 10px',justifyContent:'flex-start',alignItems:'flex-start',padding:'2px 4px',minWidth:0,minHeight:30,maxHeight:30,overflow:'hidden'}}>
+      {/* ★ 画面では人数・資格に応じて高さを伸ばす(副役職の2人目が隠れていた・2026-09-28)。印刷プレビューは従来どおり30pxに固定 */}
+      <div style={{display:'flex',flexWrap:'wrap',gap:'2px 10px',justifyContent:'flex-start',alignItems:'flex-start',padding:'2px 4px',minWidth:0,minHeight:30,maxHeight:isPrintPreview?30:'none',overflow:'hidden'}}>
         {list.filter(s=>s.name).map((s, si)=>(
           <span key={`${s.id}_${s._sub?'sub':'main'}`} style={{display:'inline-flex',flexDirection:'column',alignItems:'flex-start',gap:0, borderLeft: si>0 ? '1px solid #c5c9d3' : 'none', paddingLeft: si>0 ? 6 : 0}}>
-            <span style={{display:'inline-flex',alignItems:'center',gap:3}}>
+            <span style={{display:'inline-flex',alignItems:'center',gap:3,whiteSpace:'nowrap'}}>
               {CB({checked:!!(log.staff||{})[s.id], onChange:()=>{ toggle('staff',s.id); if(!(log.staff||{})[s.id] && !appData.diarySettings?.hideStaffTemp) setTempModal({staffId:s.id,staffName:s.name,value:(log.staffTemp||{})[s.id]||''}); }, sz:11})}
-              <span style={{fontSize:11}}>{s.name}</span>
+              <span style={{fontSize:11,whiteSpace:'nowrap'}}>{s.name}</span>
               {/* ★ 副役職で載っている人は「不在時」の印(画面・印刷とも) */}
-              {s._sub && <span style={{fontSize:7.5,color:'#7c2d12',background:'#ffedd5',border:'1px solid #fdba74',borderRadius:3,padding:'0 3px',lineHeight:1.4}}>不在時</span>}
-              {/* ★ 保有資格は画面(PC)では名前の右に薄く表示。印刷には出さない(no-print) */}
-              {(s.quals||[]).filter(Boolean).length>0 && <span className="no-print" style={{fontSize:8,color:'#475569',borderLeft:'1px solid #cbd5e1',paddingLeft:4,marginLeft:2,whiteSpace:'nowrap'}}>{(s.quals||[]).filter(Boolean).join('・')}</span>}
+              {s._sub && <span style={{fontSize:7.5,color:'#7c2d12',background:'#ffedd5',border:'1px solid #fdba74',borderRadius:3,padding:'0 3px',lineHeight:1.4,whiteSpace:'nowrap'}}>不在時</span>}
             </span>
+            {/* ★ 保有資格は画面(PC)では氏名の下に小さく表示(枠が狭くても名前を崩さない)。印刷には出さない(no-print) */}
+            {(s.quals||[]).filter(Boolean).length>0 && !isPrintPreview && <span className="no-print" style={{fontSize:7.5,color:'#64748b',lineHeight:1.2,paddingLeft:13,maxWidth:'100%',whiteSpace:'normal',wordBreak:'break-all'}}>{(s.quals||[]).filter(Boolean).join('・')}</span>}
             {/* ★ 2026-09-18: 各種設定→日誌「職員の体温を表示・入力する」がOFFの店舗は非表示(画面・印刷とも同じ描画関数) */}
             {!appData.diarySettings?.hideStaffTemp && (log.staffTemp||{})[s.id] && (
               <span style={{fontSize:8,fontWeight:'bold',lineHeight:1.2,textAlign:'left',color:'#1d4ed8',display:'block',paddingLeft:13}}>
@@ -40276,7 +40277,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
       <div style={{border:'1px solid #555',marginBottom:4,borderRadius:2}}>
         <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 6px'}}>担当職員</div>
         <div style={{display:'flex',gap:3,padding:'3px 5px 0 5px'}}>
-          {StaffBox({label:'管理者', list:managers, flexWeight:'1 1 0'})}
+          {StaffBox({label:'管理者', list:managers, flexWeight: managers.length>1 ? '1.6 1 0' : '1 1 0'})}
           {StaffBox({label:'生活相談員', list:seikatsu, flexWeight:'2 1 0'})}
           {StaffBox({label:'機能訓練指導員', list:kinou, flexWeight:'2 1 0'})}
         </div>
