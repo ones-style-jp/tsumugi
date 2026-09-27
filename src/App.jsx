@@ -1710,7 +1710,7 @@ const buildInviteSheetHtml = (o) => {
     .memo{margin-top:14px;border:1px solid #cbd5e1;border-radius:10px;padding:10px 14px}.memo .t{font-size:12px;font-weight:bold;color:#475569;margin-bottom:6px}.row{display:flex;align-items:flex-end;gap:10px;margin:8px 0;font-size:13px}.row .ln{flex:1;border-bottom:1.5px solid #64748b;height:22px}
     .foot{margin-top:12px;font-size:12px;color:#475569;line-height:1.7;border-top:1px solid #e2e8f0;padding-top:8px}
     .pbtn{position:fixed;right:14px;top:14px;padding:10px 22px;font-size:14px;font-weight:bold;background:#7daa3d;color:#fff;border:none;border-radius:10px;cursor:pointer}@media print{.pbtn{display:none}}
-  </style></head><body><button class="pbtn" onclick="window.print()">印刷する</button><div class="page">
+  </style></head><body><button class="pbtn" onclick="(function(){try{window.opener&&window.opener.postMessage({type:'tsumugiInvitePrinted',code:'${_escH(String(o.code||'')).replace(/'/g,'')}'},'*')}catch(e){};window.print();})()">印刷する</button><div class="page">
     <div class="fac">${_escH(o.facilityName||'')}</div>
     <h1>${pageLabel} 登録のご案内</h1>
     ${who?`<div class="who">${who}</div>`:'<div class="who">（どなたにもお渡しできる共通のご案内です）</div>'}
@@ -1722,7 +1722,20 @@ const buildInviteSheetHtml = (o) => {
     <div class="foot">${_escH(o.facilityName||'')}${o.facilityPhone?`　TEL ${_escH(o.facilityPhone)}`:''}<br>登録がうまくいかない場合、期限が切れた場合は事業所までご連絡ください。</div>
   </div></body></html>`;
 };
-const openInviteSheet = (o) => { const w = window.open('', '_blank'); if (!w) { alert('印刷用の画面を開けませんでした。ポップアップの許可をご確認ください。'); return; } w.document.write(buildInviteSheetHtml(o)); w.document.close(); setTimeout(()=>{ try { w.focus(); } catch {} }, 100); };
+// ★ 用紙の「印刷する」が押された時だけ「紙で招待済み」にする(2026-09-27 ユーザー指示: 開いただけでは招待済みにしない)。
+//   用紙ウィンドウ→postMessage→ここで code ごとの onPrinted を呼ぶ。
+const _invitePrintHandlers = new Map();
+if (typeof window !== 'undefined' && !window.__tsumugiInvitePrintedBound) {
+  window.__tsumugiInvitePrintedBound = true;
+  window.addEventListener('message', (e) => { try { const d = e && e.data; if (d && d.type === 'tsumugiInvitePrinted' && d.code) { const h = _invitePrintHandlers.get(String(d.code)); if (h) { _invitePrintHandlers.delete(String(d.code)); h(); } } } catch {} });
+}
+const openInviteSheet = (o, onPrinted) => {
+  const w = window.open('', '_blank'); if (!w) { alert('印刷用の画面を開けませんでした。ポップアップの許可をご確認ください。'); return; }
+  if (onPrinted && o.code) _invitePrintHandlers.set(String(o.code), onPrinted);
+  w.document.write(buildInviteSheetHtml(o)); w.document.close(); setTimeout(()=>{ try { w.focus(); } catch {} }, 100);
+};
+// 招待の経路ラベル(一覧・担当者カード用)
+const inviteChannelLabel = (inv) => { const ch = inv?.channel || (inv?.email ? 'mail' : 'code'); if (ch === 'paper') return inv.printedAt ? '紙（印刷済）' : '紙（印刷待ち）'; if (ch === 'mail') return 'メール'; return 'コード'; };
 
 // URL-safe base64 (招待データを URL に埋め込んで端末越しに動作させるため)
 // encodeInviteToken / decodeInviteToken / normalizeInviteCode は ./lib/logic.js に移動 (自動テスト対象)
@@ -11968,7 +11981,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
         </div>
       ); })()}
       {modal && (
-        <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.55)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={()=>setModal(null)}>
+        <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.55)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>{/* ★ 外側タップでは閉じない(入力が消えるため・キャンセルのみ) 2026-09-27 */}
           <div className="tsu-cap-dvh" onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:16,width:440,maxWidth:'100%',maxHeight:'90vh',overflow:'auto',padding:20,boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
             {/* ★ Googleカレンダー風(2026-08-21): タイトルを最上部の大きな下線入力に、日付と時刻を1行に */}
             <div style={{fontSize:11,fontWeight:'bold',color:'#94a3b8',marginBottom:6}}>{modal.id?'予定を編集':'予定を追加'}</div>
@@ -19396,7 +19409,8 @@ export default function App() {
         setAppData(prev => {
           // 家族側で変わりうる 3 キーのみ取り込み (それ以外は事業所側を尊重)
           const inFA = Array.isArray(incoming.familyAccounts) ? incoming.familyAccounts : (prev.familyAccounts||[]);
-          const inFI = Array.isArray(incoming.familyInvites)  ? incoming.familyInvites  : (prev.familyInvites||[]);
+          // ★ 2026-09-27(チラつき対策): 招待は置換せず code で和集合(別タブの古い一覧で発行直後の招待が消え、10秒後に復活…を繰り返していた)
+          const inFI = (() => { if (!Array.isArray(incoming.familyInvites)) return (prev.familyInvites||[]); const cur = prev.familyInvites||[]; const codes = new Set(cur.map(i => i && i.code)); const add = incoming.familyInvites.filter(i => i && !codes.has(i.code)); if (!add.length) return cur; return [...cur, ...add]; })();
           // emergencyContacts の差分を取り込み
           const inPatients = Array.isArray(incoming.patients) ? incoming.patients : [];
           const mergedPatients = (prev.patients||[]).map(p => {
@@ -21689,7 +21703,7 @@ export default function App() {
           </div></div></main>
       {/* ★ サイドバーのスタッフ追加モーダル */}
       {staffAddModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={()=>setStaffAddModal(false)}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">{/* ★ 外側タップでは閉じない 2026-09-27 */}
           <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md" onClick={e=>e.stopPropagation()}>
             <div className="flex items-center gap-2 mb-1">
               <span className="text-xl"></span>
@@ -32736,13 +32750,19 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         const _cur0 = _famAppDataRef.current || {};
         const localInv = (_cur0.familyInvites||[]).filter(i => i.patientId !== pat.id);
         const localAcc = (_cur0.familyAccounts||[]).filter(a => a.patientId !== pat.id);
-        const mappedInv = invites.map(i => ({
-          id: i.id, code: i.code, patientId: pat.id,
-          email: i.email||'', relation: i.relation||'',
-          createdAt: i.created_at, expiresAt: i.expires_at,
-          usedBy: i.used_by||null, usedAt: i.used_at||null,
-          _fromSupabase: true,
-        }));
+        // ★ 2026-09-27(チラつき対策): クラウドの招待は「code」でローカルと突き合わせ、ローカルの id/経路/印刷済み等を保持する。
+        //   クラウドに無いローカルの招待(発行直後・紙の印刷待ち・登録失敗)は消さない(消す→再取得で復活、の往復が画面のチラつきになっていた)。
+        const _curInvAll = (_cur0.familyInvites||[]).filter(i => i.patientId === pat.id);
+        const mappedInv = invites.map(i => {
+          const ex = _curInvAll.find(l => l.code === i.code);
+          return { ...(ex||{}), id: ex ? ex.id : i.id, code: i.code, patientId: pat.id,
+            email: i.email || ex?.email || '', relation: i.relation || ex?.relation || '',
+            createdAt: i.created_at || ex?.createdAt, expiresAt: i.expires_at || ex?.expiresAt,
+            usedBy: i.used_by||null, usedAt: i.used_at||null,
+            _fromSupabase: true, _cloud: true };
+        });
+        const _cloudCodes = new Set(invites.map(i => i.code));
+        const _localOnlyInv = _curInvAll.filter(l => !_cloudCodes.has(l.code));
         const mappedAcc = accounts
           .filter(a => !deletingAccIdsRef.current.has(a.id)) // ★ 削除中/削除済みは復活させない
           .map(a => ({
@@ -32759,12 +32779,12 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         //   毎回「不一致」と判定され、10秒ごとに全体保存→全画面再描画→他端末/家族ポータルまで
         //   チカチカするループになっていた。 共有項目だけをid順に射影して比較し、保存時もローカルの
         //   追加項目を保持したままサーバー値を重ねる(cm招待の追跡情報や実パスワードを消さない)。
-        const _byId = (arr) => [...arr].sort((a,b)=>String(a.id).localeCompare(String(b.id)));
-        const _projInv = (i) => ({ id:String(i.id), code:i.code||'', email:i.email||'', relation:i.relation||'', usedBy:i.usedBy||null });
+        const _byId = (arr) => [...arr].sort((a,b)=>String(a.code||a.id).localeCompare(String(b.code||b.id)));
+        const _projInv = (i) => ({ code:i.code||'', email:i.email||'', relation:i.relation||'', usedBy:i.usedBy||null, cloud: !!i._cloud });
         const _projAcc = (a) => ({ id:String(a.id), username:a.username||'', kind:a.kind||'family', relation:a.relation||'', displayName:a.displayName||'', email:a.email||'', role:a.role||'member', lastLogin:a.lastLogin||null });
         const _curInvSlice = (_cur0.familyInvites||[]).filter(i => i.patientId === pat.id);
         const _curAccSlice = (_cur0.familyAccounts||[]).filter(a => a.patientId === pat.id);
-        const _same = JSON.stringify(_byId(_curInvSlice).map(_projInv)) === JSON.stringify(_byId(mappedInv).map(_projInv))
+        const _same = JSON.stringify(_byId(_curInvSlice).map(_projInv)) === JSON.stringify(_byId([...mappedInv, ..._localOnlyInv]).map(_projInv))
                    && JSON.stringify(_byId(_curAccSlice).map(_projAcc)) === JSON.stringify(_byId(mappedAcc).map(_projAcc));
         if (_same) return;
         const _mergeKeep = (locals, mapped, keepRealPw) => _byId(mapped).map(m => {
@@ -32775,7 +32795,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
           return out;
         });
         onSave({ ..._cur0,
-          familyInvites: [...localInv, ..._mergeKeep(_curInvSlice, mappedInv, false)],
+          familyInvites: [...localInv, ...mappedInv, ..._localOnlyInv],
           familyAccounts: [...localAcc, ..._mergeKeep(_curAccSlice, mappedAcc, true)],
         });
       } catch (e) { console.warn('[supabase] refresh invites failed', e); }
@@ -34947,7 +34967,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
       {pauseModal.isOpen && (<div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"><div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden"><div className="px-6 py-4 bg-orange-50 border-b border-orange-200 flex justify-between items-center"><h2 className="text-lg font-bold text-orange-800 flex items-center"><CalendarOff size={20} className="mr-2" />休止理由の登録</h2><button onClick={cancelPause} className="p-2 text-slate-400 hover:bg-slate-200 rounded-full"><X size={20} /></button></div><div className="p-6 space-y-5">{localPatient?.pauseHistory?.length > 0 && (<div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs"><span className="font-bold text-slate-500">前回: </span><span className="font-bold text-slate-700">{latPause(localPatient)?.reason}</span><span className="text-slate-400 ml-2">{fD(latPause(localPatient)?.fromDate)}〜</span></div>)}<div><label className="text-xs font-bold text-slate-500 block mb-1">休止の理由</label><input type="text" value={pauseModal.reason} onChange={e => setPauseModal({ ...pauseModal, reason: e.target.value })} placeholder="例: 入院、自宅療養" className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl font-bold outline-none" /></div><div><label className="text-xs font-bold text-slate-500 block mb-1">開始日</label><input type="date" value={pauseModal.fromDate} onChange={e => setPauseModal({ ...pauseModal, fromDate: e.target.value })} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl font-bold outline-none" /></div></div><div className="px-6 py-4 bg-slate-50 border-t flex justify-end gap-3"><button onClick={cancelPause} className="px-5 py-2 rounded-xl font-bold text-slate-600 hover:bg-slate-200">キャンセル</button><button onClick={submitPause} className="px-8 py-2 bg-orange-600 text-white rounded-xl font-bold shadow-lg active:scale-95">確定</button></div></div></div>)}
       {/* ★ 休止履歴の編集 */}
       {pauseEditModal && (
-        <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-center justify-center p-0 sm:p-4" onClick={()=>setPauseEditModal(null)}>
+        <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-center justify-center p-0 sm:p-4">{/* ★ 外側タップでは閉じない 2026-09-27 */}
           <div className="bg-white sm:rounded-3xl shadow-2xl w-full h-full sm:h-auto sm:max-w-md overflow-hidden flex flex-col" onClick={e=>e.stopPropagation()}>
             <div className="px-6 py-4 bg-orange-50 border-b border-orange-200 flex justify-between items-center shrink-0">
               <h2 className="text-lg font-bold text-orange-800 flex items-center"><CalendarOff size={20} className="mr-2"/>休止履歴の編集</h2>
@@ -35677,11 +35697,12 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                       email: opts.email || '',
                       relation: opts.relation || '',
                       note: opts.note || '',
+                      channel: opts.channel || (opts.email ? 'mail' : 'code'), // ★ 経路: mail / paper / code (2026-09-27)
                       expiresAt: opts.expiresAt || inviteExpiresAtIso(),
                     };
                     onSave({...appData, familyInvites: [...(appData.familyInvites||[]), newInvite]});
-                    // ★ Supabase 同期 (家族が別端末から登録できるように)
-                    if (isSupabaseEnabled) {
+                    // ★ Supabase 同期 (家族が別端末から登録できるように)。 紙の招待は「印刷する」が押された時に登録する(deferCloud)
+                    if (isSupabaseEnabled && !opts.deferCloud) {
                       const _staffSess = (()=>{ try { return JSON.parse(sessionStorage.getItem('tsumugiStaffSession')||'null'); } catch { return null; } })();
                       supabaseCreateInvite({
                         patientId: pat.id,
@@ -35743,14 +35764,25 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     await _dispatchInviteMail(inv, email.trim(), relation.trim());
                   };
                   // ★ 紙で招待(2026-09-27 ユーザー決定): 招待を発行してA4の案内用紙(QR+コード+注意書き+ID/PW控え欄)を印刷
+                  // ★ 用紙の「印刷する」が押されたら: 印刷済みにし、クラウド未登録なら登録(紙の招待はここで初めて有効化)
+                  const _markPrinted = (inv) => {
+                    const cur = _famAppDataRef.current || appData;
+                    const target = (cur.familyInvites||[]).find(i => i.code === inv.code) || inv;
+                    const next = { ...target, channel: 'paper', printedAt: new Date().toISOString() };
+                    onSave({ ...cur, familyInvites: (cur.familyInvites||[]).map(i => i.code === inv.code ? next : i) });
+                    if (isSupabaseEnabled && !target._cloud) {
+                      const _staffSess = (()=>{ try { return JSON.parse(sessionStorage.getItem('tsumugiStaffSession')||'null'); } catch { return null; } })();
+                      supabaseCreateInvite({ patientId: pat.id, storeId: _staffSess?.storeId || null, code: inv.code, email: target.email || '', relation: target.relation || '', facilityName: appData.systemSettings?.facilityInfo?.name || '', patientName: pat.name || '', facilityPhone: appData.systemSettings?.facilityInfo?.phone || '', expiresAt: target.expiresAt }).catch(err => console.warn('[supabase] invite push failed', err));
+                    }
+                  };
                   const printInviteSheet = (inv) => {
                     const facility = appData.systemSettings?.facilityInfo || {};
-                    openInviteSheet({ kind: 'family', title: `ご家族専用ページ 登録のご案内 ${pat.name}`, facilityName: facility.name||'', facilityPhone: facility.phone||'', patientName: pat.name||'', code: inv.code, expiresAt: inv.expiresAt, url: inviteUrlOf(inv), loginUrl });
+                    openInviteSheet({ kind: 'family', title: `ご家族専用ページ 登録のご案内 ${pat.name}`, facilityName: facility.name||'', facilityPhone: facility.phone||'', patientName: pat.name||'', code: inv.code, expiresAt: inv.expiresAt, url: inviteUrlOf(inv), loginUrl }, () => _markPrinted(inv));
                   };
                   const issuePaperInvite = () => {
-                    const relation = window.prompt('続柄を入力してください (例: 配偶者、長男、長女 など。空欄可)\n※ この用紙で登録できるのは1人・1回です:') ;
+                    const relation = window.prompt('続柄を入力してください (例: 配偶者、長男、長女 など。空欄可)\n※ この用紙で登録できるのは1人・1回です。用紙の「印刷する」を押した時点で招待が有効になります:') ;
                     if (relation === null) return;
-                    const inv = issueNewInvite({ relation: (relation||'').trim() });
+                    const inv = issueNewInvite({ relation: (relation||'').trim(), channel: 'paper', deferCloud: true });
                     printInviteSheet(inv);
                   };
                   // ★ 期限切れ・未使用の招待を同じ宛先で再発行(旧コードは無効化)。メール宛先があれば再送、無ければ用紙を印刷
@@ -35809,6 +35841,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                                       <div className="text-base font-bold text-amber-900 tracking-widest" style={{fontFamily:'Menlo,monospace'}}>{inv.code}</div>
                                       {inv.email && <div className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">{inv.email}</div>}
                                       {inv.relation && <div className="text-[10px] font-bold text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded">{inv.relation}</div>}
+                                      {!inv.usedBy && <div className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${(inv.channel==='paper'&&!inv.printedAt)?'text-slate-500 bg-slate-100':'text-emerald-700 bg-emerald-50'}`}>{inviteChannelLabel(inv)}</div>}
                                     </div>
                                     <div className="text-[9px] text-amber-700 mt-0.5">
                                       発行: {new Date(inv.createdAt).toLocaleString('ja-JP',{year:'2-digit',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
@@ -37059,6 +37092,8 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
   //   端末ローカルのfamilyAccountsだけでは別端末/家族側で登録されたアカウントが見えず「閲覧登録なし」に誤表示されるため。
   const [sbCmAccounts, setSbCmAccounts] = useState(null); // null=未取得
   const [sbCmInvites, setSbCmInvites] = useState(null); // ★ クラウドの招待(送信済み表示用・2026-09-04)
+  // ★ 印刷用紙からの通知(postMessage)は後から届くため、クリック時の閉包(古い appData)ではなく最新の appData で保存する(2026-09-27)
+  const _cmAppDataRef = React.useRef(appData); _cmAppDataRef.current = appData;
   React.useEffect(() => {
     if (activeTab !== 'cm' || sbCmAccounts !== null || !isSupabaseEnabled) return;
     const _sess = (()=>{ try { return JSON.parse(sessionStorage.getItem('tsumugiStaffSession')||'null'); } catch { return null; } })();
@@ -37860,7 +37895,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
             </SectionCard>
             </div>
             {holidayEditModal && (
-              <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4" onClick={()=>setHolidayEditModal(null)}>
+              <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4">{/* ★ 外側タップでは閉じない 2026-09-27 */}
                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={e=>e.stopPropagation()}>
                   <h3 className="text-base font-bold text-slate-800 mb-4">休業の編集</h3>
                   <div className="space-y-3">
@@ -38334,36 +38369,55 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                             const _sbAccs = (sbCmAccounts||[]).map(a => ({ displayName:a.display_name, email:a.email, cmOffice:'', lastLogin:a.last_login, kind:a.kind, relation:a.relation }));
                             const _allAccs = [...(appData.familyAccounts||[]).filter(a=>a.kind==='caremanager'||a.relation==='ケアマネージャー'), ..._sbAccs];
                             const accs = _allAccs.filter(a => ((p.email && a.email && String(a.email).toLowerCase()===String(p.email).toLowerCase()) || (_nameLoose(a.displayName, p.name) && (!a.cmOffice || _nrm(a.cmOffice)===_nrm(p.office)))));
-                            const invs = (appData.familyInvites||[]).filter(iv => !iv.usedBy && iv.cmName && _nrm(iv.cmOffice)===_nrm(p.office) && _nrm(iv.cmName)===_nrm(p.name) && (!iv.expiresAt || new Date(iv.expiresAt) > new Date()));
-                            // ★ 2026-09-04: クラウドの招待も参照(送信した端末以外でも「招待メール済み」が見えるように)。メール一致で特定
-                            const sbInvs = (sbCmInvites||[]).filter(iv => !iv.used_by && p.email && iv.email && String(iv.email).toLowerCase()===String(p.email).toLowerCase() && (!iv.expires_at || new Date(iv.expires_at) > new Date()));
-                            const _sentAt = invs[0]?.createdAt || sbInvs[0]?.created_at || '';
+                            // ★ 紙の招待は「印刷する」が押されるまで“招待済み”に数えない(2026-09-27)
+                            const invs = (appData.familyInvites||[]).filter(iv => !iv.usedBy && iv.cmName && _nrm(iv.cmOffice)===_nrm(p.office) && _nrm(iv.cmName)===_nrm(p.name) && (!iv.expiresAt || new Date(iv.expiresAt) > new Date()) && !(iv.channel==='paper' && !iv.printedAt));
+                            // ★ 2026-09-04: クラウドの招待も参照(送信した端末以外・再読み込み後でも見えるように)。メール一致 or 担当者タグ(patient_name「担当者招待: 事業所/氏名」)で特定
+                            const _cmTag = `担当者招待: ${p.office}/${p.name}`;
+                            const sbInvs = (sbCmInvites||[]).filter(iv => !iv.used_by && (!iv.expires_at || new Date(iv.expires_at) > new Date()) && ((p.email && iv.email && String(iv.email).toLowerCase()===String(p.email).toLowerCase()) || (iv.patient_name && _nrm(iv.patient_name)===_nrm(_cmTag))));
+                            const _sentAt = invs[0]?.printedAt || invs[0]?.createdAt || sbInvs[0]?.created_at || '';
+                            const _sentVia = invs[0] ? (invs[0].channel || (invs[0].email ? 'mail' : 'code')) : (sbInvs[0] ? (sbInvs[0].email ? 'mail' : 'paper') : '');
                             const st = accs.length ? 'ok' : (invs.length || sbInvs.length) ? 'sent' : 'none';
+                            // ★ 招待の取り消し(間違えて印刷/送信した時用・2026-09-27): この担当者の未使用招待をローカル・クラウドとも削除
+                            const cancelCmInvites = async () => {
+                              if (!window.confirm(`${p.name} さんへの招待を取り消します（お渡し済みの用紙・メールのコードは使えなくなります）。よろしいですか？`)) return;
+                              const codes = new Set([...invs.map(i=>i.code), ...sbInvs.map(i=>i.code)].filter(Boolean));
+                              if (isSupabaseEnabled) { for (const c of codes) { try { await supabaseDeleteInviteByCode(c); } catch {} } }
+                              const cur = _cmAppDataRef.current || appData;
+                              onSave({ ...cur, familyInvites: (cur.familyInvites||[]).filter(iv => !codes.has(iv.code) && !(iv.cmName && _nrm(iv.cmOffice)===_nrm(p.office) && _nrm(iv.cmName)===_nrm(p.name) && !iv.usedBy)) });
+                              setSbCmInvites(prev => (prev||[]).filter(iv => !codes.has(iv.code)));
+                            };
                             // ★ 担当者向け招待の発行(メール・紙の共通部・2026-09-27)
-                            const _issueCmInvite = (email) => {
+                            const _issueCmInvite = (email, opts = {}) => {
                               if (cmPats.length === 0) { alert(`${p.name} さんが担当ケアマネに設定されている利用者がまだいません。\n先に利用者マスタ管理の「担当を変更」でこの担当者を設定してください。`); return null; }
                               const target = cmPats[0];
                               const existingCodes = new Set((appData.familyInvites||[]).map(iv=>iv.code));
                               let code = generateOneTimeInviteCode(); let retry=0;
                               while (existingCodes.has(code) && retry<10) { code = generateOneTimeInviteCode(); retry++; }
                               const _staffSess = (()=>{ try { return JSON.parse(sessionStorage.getItem('tsumugiStaffSession')||'null'); } catch { return null; } })();
-                              const newInvite = { id:`inv_${Date.now()}`, code, patientId: target.id, createdAt:new Date().toISOString(), usedBy:null, usedAt:null, email: email||'', relation:'ケアマネージャー', note:`担当者招待: ${p.office}/${p.name}`, cmOffice:p.office, cmName:p.name, expiresAt: inviteExpiresAtIso() };
+                              const newInvite = { id:`inv_${Date.now()}`, code, patientId: target.id, createdAt:new Date().toISOString(), usedBy:null, usedAt:null, email: email||'', relation:'ケアマネージャー', note:`担当者招待: ${p.office}/${p.name}`, cmOffice:p.office, cmName:p.name, channel: opts.channel || (email ? 'mail' : 'code'), expiresAt: inviteExpiresAtIso() };
                               onSave({ ...appData, familyInvites: [...(appData.familyInvites||[]), newInvite] });
-                              if (isSupabaseEnabled) {
-                                supabaseCreateInvite({ patientId: target.id, storeId: _staffSess?.storeId || null, code, email: email||'', relation:'ケアマネージャー', facilityName: appData.systemSettings?.facilityInfo?.name || '', patientName: target.name || '', facilityPhone: appData.systemSettings?.facilityInfo?.phone || '', expiresAt: newInvite.expiresAt }).catch(err => console.warn('[supabase] cm invite push failed', err));
-                              }
+                              // ★ クラウド登録(patient_name に担当者タグを入れ、再読み込み後も「招待済み」を判定できるようにする)。紙は印刷時に登録
+                              const _pushCloud = () => { if (!isSupabaseEnabled) return; supabaseCreateInvite({ patientId: target.id, storeId: _staffSess?.storeId || null, code, email: email||'', relation:'ケアマネージャー', facilityName: appData.systemSettings?.facilityInfo?.name || '', patientName: `担当者招待: ${p.office}/${p.name}`, facilityPhone: appData.systemSettings?.facilityInfo?.phone || '', expiresAt: newInvite.expiresAt }).then(row => { if (row) setSbCmInvites(prev => [...(prev||[]).filter(x => x.code !== row.code), row]); }).catch(err => console.warn('[supabase] cm invite push failed', err)); };
+                              if (!opts.deferCloud) _pushCloud();
                               const _fi = appData.systemSettings?.facilityInfo || {};
                               const _base = window.location.origin + window.location.pathname.replace(/\/+$/, '');
                               // ★ 担当者マスタの氏名・ふりがな・事業所もトークンに同梱し、登録フォームへ自動入力する(2026-09-02 店舗要望)
                               const _nmp = String(p.name||'').split(/[\s　]+/);
                               const tk = encodeInviteToken({ c: code, p: target.id, s: _staffSess?.storeId || '', e: email||'', r: 'ケアマネージャー', x: newInvite.expiresAt, fn: _fi.name||'', fp: _fi.phone||'', cl: _nmp[0]||'', cf: _nmp.slice(1).join(' ')||'', kl: p.kanaLast||'', kf: p.kanaFirst||'', co: p.office||'' });
                               const inviteUrl = `${_base}/?family&invite=${encodeURIComponent(code)}&t=${tk}`;
-                              return { newInvite, inviteUrl, _fi, _base };
+                              return { newInvite, inviteUrl, _fi, _base, _pushCloud };
                             };
                             const printCmInvite = () => {
-                              const m = _issueCmInvite((p.email||'').trim());
+                              const m = _issueCmInvite((p.email||'').trim(), { channel: 'paper', deferCloud: true });
                               if (!m) return;
-                              openInviteSheet({ kind: 'cm', title: `ご関係者専用ページ 登録のご案内 ${p.name}`, facilityName: m._fi.name||'', facilityPhone: m._fi.phone||'', personName: p.name||'', officeName: p.office||'', code: m.newInvite.code, expiresAt: m.newInvite.expiresAt, url: m.inviteUrl, loginUrl: `${m._base}/?family` });
+                              openInviteSheet({ kind: 'cm', title: `ご関係者専用ページ 登録のご案内 ${p.name}`, facilityName: m._fi.name||'', facilityPhone: m._fi.phone||'', personName: p.name||'', officeName: p.office||'', code: m.newInvite.code, expiresAt: m.newInvite.expiresAt, url: m.inviteUrl, loginUrl: `${m._base}/?family` },
+                                () => { // 「印刷する」が押された → 印刷済みにしてクラウド登録(=招待が有効に)。最新 appData 基準(発行直後の招待を落とさない)
+                                  const cur = _cmAppDataRef.current || appData;
+                                  const has = (cur.familyInvites||[]).some(iv => iv.code === m.newInvite.code);
+                                  const stamped = { ...m.newInvite, channel: 'paper', printedAt: new Date().toISOString() };
+                                  onSave({ ...cur, familyInvites: has ? (cur.familyInvites||[]).map(iv => iv.code === m.newInvite.code ? { ...iv, ...stamped } : iv) : [...(cur.familyInvites||[]), stamped] });
+                                  m._pushCloud();
+                                });
                             };
                             const sendCmInviteMail = async () => {
                               let email = (p.email||'').trim();
@@ -38393,7 +38447,8 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                             return (
                               <div className="mt-1.5 pt-1.5 border-t border-slate-100 flex items-center gap-2 flex-wrap">
                                 {st==='ok' && <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">登録済み{accs[0]?.lastLogin?`（最終ログイン ${String(accs[0].lastLogin).slice(0,10)}）`:''}</span>}
-                                {st==='sent' && <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-300 rounded-full px-2 py-0.5">招待メール済み・登録待ち{_sentAt?`（${String(_sentAt).slice(0,10)} 送信）`:''}</span>}
+                                {st==='sent' && <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-300 rounded-full px-2 py-0.5">{_sentVia==='paper'?'紙で招待済み・登録待ち':_sentVia==='code'?'コード発行済み・登録待ち':'招待メール済み・登録待ち'}{_sentAt?`（${String(_sentAt).slice(0,10)} ${_sentVia==='paper'?'印刷':_sentVia==='code'?'発行':'送信'}）`:''}</span>}
+                                {st==='sent' && <button type="button" onClick={cancelCmInvites} className="px-2 py-0.5 rounded-lg text-[10px] font-bold text-red-600 bg-white border border-red-200 hover:bg-red-50 active:scale-95" title="間違えて印刷・送信した招待を無効にする">取り消し</button>}
                                 {st==='none' && <span className="text-[10px] font-bold text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5">閲覧登録なし</span>}
                                 <span className="text-[10px] text-slate-500">担当利用者 {cmPats.length}名{cmPats.length?`（${cmPats.slice(0,3).map(x=>x.name).join('・')}${cmPats.length>3?` 他${cmPats.length-3}名`:''}）`:''}</span>
                                 {st==='ok' && <span className="text-[10px] font-bold text-emerald-600">閲覧は担当割当に自動同期</span>}
