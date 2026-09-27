@@ -1665,13 +1665,64 @@ const verifyInviteCode = (code7) => {
   return six;
 };
 
-// 使い捨て招待コード生成 (FAM-XXXX-XXXX 形式)
-// 紛らわしい文字 (0/O/1/I/L/U/V) を除いた英数字
-const _INV_CHARS = 'ABCDEFGHJKMNPQRSTWXYZ23456789';
+// 使い捨て招待コード生成
+// ★ 2026-09-27(ユーザー決定): 打ちやすさ優先で「数字8桁(4-4区切り・先頭は1〜9)」に変更。旧形式 FAM-XXXX-XXXX のコードもそのまま有効。
+//   安全性は 1回限り・有効期限3日・連続失敗ロック(inviteLock*) で担保する。
 const generateOneTimeInviteCode = () => {
-  const part = (n) => Array.from({length:n}, () => _INV_CHARS[Math.floor(Math.random()*_INV_CHARS.length)]).join('');
-  return `FAM-${part(4)}-${part(4)}`;
+  const d = () => String(Math.floor(Math.random()*10));
+  const first = String(1 + Math.floor(Math.random()*9));
+  return `${first}${d()}${d()}${d()}-${d()}${d()}${d()}${d()}`;
 };
+// 招待の有効期限(日)。メール・紙とも一律(2026-09-27 ユーザー決定: 14日→3日)
+const INVITE_VALID_DAYS = 3;
+const inviteExpiresAtIso = () => new Date(Date.now() + INVITE_VALID_DAYS*24*60*60*1000).toISOString();
+const inviteExpiresJp = () => `${INVITE_VALID_DAYS}日後`;
+// ★ 招待コードの連続失敗ロック(端末単位・localStorage): 5回失敗で15分。総当たり対策の第一段(サーバー側の制限は別途)
+const _INV_LOCK_KEY = 'tsumugiInviteLock_v1';
+const inviteLockRemainingMin = () => { try { const o = JSON.parse(localStorage.getItem(_INV_LOCK_KEY)||'{}'); if (o.until && o.until > Date.now()) return Math.ceil((o.until - Date.now())/60000); } catch {} return 0; };
+const inviteLockFail = () => { try { const o = JSON.parse(localStorage.getItem(_INV_LOCK_KEY)||'{}'); const n = (o.n||0) + 1; const next = { n }; if (n >= 5) { next.n = 0; next.until = Date.now() + 15*60000; } localStorage.setItem(_INV_LOCK_KEY, JSON.stringify(next)); return n >= 5; } catch { return false; } };
+const inviteLockReset = () => { try { localStorage.removeItem(_INV_LOCK_KEY); } catch {} };
+// ★ 招待の案内用紙(印刷): 個別(利用者ごと/ケアマネ担当者ごと)と共通(コードは職員が手書き)の2種(2026-09-27 ユーザー決定)
+const _escH = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const _fmtExpJp = (iso) => { const d = new Date(iso||''); if (isNaN(d.getTime())) return ''; return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日 ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
+const buildInviteSheetHtml = (o) => {
+  const isCm = o.kind === 'cm', isCommon = o.kind === 'common';
+  const pageLabel = isCm ? 'ご関係者専用ページ' : 'ご家族専用ページ';
+  const qr = `https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=6&data=${encodeURIComponent(o.url||'')}`;
+  const who = isCommon ? '' : (isCm ? `${_escH(o.personName)} 様（${_escH(o.officeName||'')}）` : `${_escH(o.patientName)} 様 のご家族`);
+  const codeHtml = isCommon
+    ? `<div class="code blank">招待コード：<span class="box"></span> - <span class="box"></span><div class="sub">（職員が記入します）</div></div>`
+    : `<div class="code">${_escH(o.code)}</div>`;
+  const steps = isCommon
+    ? `<li>スマートフォンのカメラで<b>QRコード</b>を読み取ります（読み取れない場合は下のURLを入力）</li><li>画面の「<b>招待コードをお持ちの方はこちら</b>」を押し、上の<b>招待コード</b>を入力します</li><li>ご自身で<b>ログインID・パスワード</b>を決め、お名前・続柄・電話番号を入力して登録します</li>`
+    : `<li>スマートフォンのカメラで<b>QRコード</b>を読み取ります（読み取れない場合は下のURLを開き、招待コードを入力）</li><li>ご自身で<b>ログインID・パスワード</b>を決め、お名前・続柄・電話番号を入力して登録します</li><li>次回からは「<b>${_escH(o.loginUrl||'')}</b>」を開き、ID・パスワードでログインします</li>`;
+  return `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>${_escH(o.title)}</title><style>
+    @page{size:A4 portrait;margin:0}*{box-sizing:border-box}body{margin:0;font-family:'Hiragino Sans','Hiragino Kaku Gothic ProN','Yu Gothic','Noto Sans JP',Meiryo,sans-serif;color:#1e293b;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .page{width:210mm;min-height:297mm;padding:16mm 18mm;margin:0 auto;background:#fff}
+    .fac{font-size:12px;color:#5e8030;font-weight:bold;letter-spacing:2px}h1{font-size:22px;margin:4px 0 2px}.who{font-size:15px;font-weight:bold;margin:0 0 10px}
+    .lead{font-size:13px;line-height:1.7;background:#f4f8ed;border:1px solid #cfe39f;border-radius:10px;padding:10px 14px}
+    .qrwrap{display:flex;gap:18px;align-items:center;margin:14px 0}.qrwrap img{width:62mm;height:62mm;border:1px solid #e2e8f0;border-radius:10px;padding:4px;background:#fff}
+    .code{font-family:Menlo,Consolas,monospace;font-size:34px;font-weight:bold;letter-spacing:4px;color:#1e293b;background:#fff7ed;border:2px solid #f59e0b;border-radius:12px;padding:10px 16px;text-align:center}
+    .code.blank{font-size:20px;letter-spacing:1px;font-family:inherit}.code .box{display:inline-block;width:34mm;height:12mm;border-bottom:2px solid #1e293b;vertical-align:bottom}.code .sub{font-size:11px;color:#92400e;margin-top:6px;font-weight:normal}
+    .exp{font-size:12px;color:#b45309;margin-top:6px;font-weight:bold}.url{font-family:Menlo,Consolas,monospace;font-size:11px;color:#475569;background:#f8fafc;border-radius:8px;padding:8px 10px;word-break:break-all;margin-top:8px}
+    ol{font-size:13px;line-height:1.8;padding-left:1.4em;margin:8px 0}
+    .warn{border:2px solid #dc2626;border-radius:10px;padding:10px 14px;background:#fef2f2;font-size:12.5px;line-height:1.7;margin-top:10px}.warn b{color:#b91c1c}
+    .memo{margin-top:14px;border:1px solid #cbd5e1;border-radius:10px;padding:10px 14px}.memo .t{font-size:12px;font-weight:bold;color:#475569;margin-bottom:6px}.row{display:flex;align-items:flex-end;gap:10px;margin:8px 0;font-size:13px}.row .ln{flex:1;border-bottom:1.5px solid #64748b;height:22px}
+    .foot{margin-top:12px;font-size:12px;color:#475569;line-height:1.7;border-top:1px solid #e2e8f0;padding-top:8px}
+    .pbtn{position:fixed;right:14px;top:14px;padding:10px 22px;font-size:14px;font-weight:bold;background:#7daa3d;color:#fff;border:none;border-radius:10px;cursor:pointer}@media print{.pbtn{display:none}}
+  </style></head><body><button class="pbtn" onclick="window.print()">印刷する</button><div class="page">
+    <div class="fac">${_escH(o.facilityName||'')}</div>
+    <h1>${pageLabel} 登録のご案内</h1>
+    ${who?`<div class="who">${who}</div>`:'<div class="who">（どなたにもお渡しできる共通のご案内です）</div>'}
+    <div class="lead">「つむぎ」の${pageLabel}では、通所の記録・連絡帳・お知らせ・写真などをスマートフォンやパソコンでご覧いただけます。下の手順でご登録ください。</div>
+    <div class="qrwrap"><img src="${qr}" alt="QR"><div style="flex:1">${codeHtml}${isCommon?'':`<div class="exp">有効期限：${_escH(_fmtExpJp(o.expiresAt))} まで（期限が過ぎた場合は事業所にご連絡ください）</div>`}<div class="url">${_escH(o.url||'')}</div></div></div>
+    <ol>${steps}</ol>
+    <div class="warn"><b>大切なお願い</b><br>・この用紙で登録できるのは<b>1人・1回（1アカウント）</b>です。ご家族はお一人ずつ別の用紙が必要です。<br>・招待コード・QRコードは<b>第三者に渡さないでください</b>。ご本人の記録を閲覧できる鍵になります。<br>・登録後はこの用紙を大切に保管するか、破棄してください。</div>
+    <div class="memo"><div class="t">登録したログイン情報の控え（ご自身で記入）</div><div class="row">ログインID<span class="ln"></span></div><div class="row">パスワード<span class="ln"></span></div><div class="row">登録日<span class="ln" style="max-width:60mm"></span>　登録者名<span class="ln"></span></div></div>
+    <div class="foot">${_escH(o.facilityName||'')}${o.facilityPhone?`　TEL ${_escH(o.facilityPhone)}`:''}<br>登録がうまくいかない場合、期限が切れた場合は事業所までご連絡ください。</div>
+  </div></body></html>`;
+};
+const openInviteSheet = (o) => { const w = window.open('', '_blank'); if (!w) { alert('印刷用の画面を開けませんでした。ポップアップの許可をご確認ください。'); return; } w.document.write(buildInviteSheetHtml(o)); w.document.close(); setTimeout(()=>{ try { w.focus(); } catch {} }, 100); };
 
 // URL-safe base64 (招待データを URL に埋め込んで端末越しに動作させるため)
 // encodeInviteToken / decodeInviteToken / normalizeInviteCode は ./lib/logic.js に移動 (自動テスト対象)
@@ -13625,7 +13676,45 @@ function FamilyView() {
     }
     return {};
   })();
-  const [mode, setMode] = useState(_urlInvite ? 'signup' : 'login'); // 'login' | 'signup'
+  // ★ 共通の登録用紙(QR)から来た場合 ?family&join=1 → 招待コード入力ステップから開始(2026-09-27)
+  const _urlJoin = (() => { try { return new URLSearchParams(window.location.search).get('join') === '1'; } catch { return false; } })();
+  const [mode, setMode] = useState((_urlInvite || _urlJoin) ? 'signup' : 'login'); // 'login' | 'signup'
+  // 手入力の招待コード確認ステップ: 'code'(コードだけ入力) → ローカル/クラウドで照合 → 'form'(通常の登録フォーム)
+  const [joinStep, setJoinStep] = useState('code');
+  const [joinCode, setJoinCode] = useState('');
+  const [joinBusy, setJoinBusy] = useState(false);
+  const [joinErr, setJoinErr] = useState('');
+  const _facTel = () => { const t = (_inviteInfo.facilityPhone || data.systemSettings?.facilityInfo?.phone || '').trim(); return t ? `（TEL ${t}）` : ''; };
+  const resolveJoinCode = async () => {
+    const code = normalizeInviteCode(toHalfWidth(joinCode));
+    if (!code) { setJoinErr('招待コードを入力してください'); return; }
+    const lk = inviteLockRemainingMin();
+    if (lk) { setJoinErr(`入力の失敗が続いたため、あと約${lk}分お待ちください`); return; }
+    // 1. この端末に招待があればそのまま登録フォームへ
+    let latest = null; try { latest = JSON.parse(localStorage.getItem(FAM_LS_KEY)||'null'); } catch {}
+    const local = ((latest||data).familyInvites||[]).find(i => i.code === code);
+    if (local) {
+      if (local.usedBy) { inviteLockFail(); setJoinErr('この招待コードは既に使用されています'); return; }
+      if (local.expiresAt && new Date(local.expiresAt) < new Date()) { inviteLockFail(); setJoinErr(`招待の有効期限が切れています。事業所${_facTel()}にご連絡ください`); return; }
+      inviteLockReset();
+      setSignupForm(f => ({ ...f, inviteCode: code, email: f.email || local.email || '', ecRelation: f.ecRelation || local.relation || '', error: '' }));
+      setJoinStep('form'); return;
+    }
+    // 2. クラウドの招待を照合 → 見つかれば招待URL(トークン付き)へ移動し、通常の招待フローに合流(店舗データの取得・自動入力もそこで行う)
+    if (!isSupabaseEnabled) { const locked = inviteLockFail(); setJoinErr(locked ? '入力の失敗が続いたため、15分間お待ちください' : `招待コードが見つかりません。事業所${_facTel()}までお問い合わせください`); return; }
+    setJoinBusy(true); setJoinErr('');
+    let sb = null;
+    try { sb = await Promise.race([ supabaseGetInviteByCode(code), new Promise(res => setTimeout(() => res(null), 8000)) ]); } catch { sb = null; }
+    setJoinBusy(false);
+    if (!sb) { const locked = inviteLockFail(); setJoinErr(locked ? '入力の失敗が続いたため、15分間お待ちください' : `招待コードが見つかりません。事業所${_facTel()}までお問い合わせください`); return; }
+    if (sb.used_by) { inviteLockFail(); setJoinErr('この招待コードは既に使用されています'); return; }
+    if (sb.expires_at && new Date(sb.expires_at) < new Date()) { inviteLockFail(); setJoinErr(`招待の有効期限（発行から${INVITE_VALID_DAYS}日）が切れています。事業所${sb.facility_phone?`（TEL ${sb.facility_phone}）`:''}にご連絡ください`); return; }
+    inviteLockReset();
+    const pid = /^\d+$/.test(String(sb.patient_id||'')) ? Number(sb.patient_id) : sb.patient_id;
+    const tk = encodeInviteToken({ c: sb.code, p: pid, s: sb.store_id || '', e: sb.email || '', r: sb.relation || '', x: sb.expires_at || '', fn: sb.facility_name || '', fp: sb.facility_phone || '' });
+    const base = window.location.origin + window.location.pathname.replace(/\/+$/, '');
+    window.location.href = `${base}/?family&invite=${encodeURIComponent(sb.code)}&t=${tk}`;
+  };
   // ★ 招待URLが「登録済み」なら、再登録させずログインへ誘導する (URLを保存して再訪しても登録画面を出さない)
   const _inviteUsedLocal = (() => {
     if (!_urlInvite) return false;
@@ -14008,6 +14097,22 @@ function FamilyView() {
                 </button>
               </div>
             </div>
+          ) : (mode === 'signup' && !_urlInvite && joinStep === 'code') ? (
+            <div style={{background:'white',borderRadius:24,padding:28,boxShadow:'0 20px 60px rgba(0,0,0,0.25)'}}>
+              {/* ★ 共通QR/ログイン画面からの新規登録: まず招待コードだけ確認する(2026-09-27) */}
+              <div style={{textAlign:'center',marginBottom:16}}>
+                <div style={{fontSize:18,fontWeight:'bold',color:'#1e293b'}}>新規登録（招待コードの確認）</div>
+                <div style={{fontSize:11,color:'#64748b',marginTop:4,lineHeight:1.7}}>事業所からお渡しした用紙・メールの<b>招待コード（数字8桁）</b>を入力してください</div>
+              </div>
+              <form onSubmit={(e)=>{ e.preventDefault(); resolveJoinCode(); }}>
+                <input value={joinCode} onChange={e=>{ setJoinCode(normalizeInviteCode(toHalfWidth(e.target.value))); setJoinErr(''); }} placeholder="1234-5678" autoFocus inputMode="numeric" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
+                  style={{width:'100%',padding:'14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:20,fontWeight:'bold',outline:'none',boxSizing:'border-box',fontFamily:'Menlo,monospace',letterSpacing:3,textAlign:'center'}}/>
+                <div style={{fontSize:10,color:'#94a3b8',marginTop:6,textAlign:'center'}}>ハイフンや空白は無くても構いません。以前の英字入りコード（FAM-…）もそのまま使えます</div>
+                {joinErr && <div style={{color:'#ef4444',fontSize:12,fontWeight:'bold',marginTop:10,textAlign:'center',lineHeight:1.6}}>{joinErr}</div>}
+                <button type="submit" disabled={joinBusy} style={{width:'100%',padding:'13px',background:'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',marginTop:14,opacity:joinBusy?0.6:1}}>{joinBusy?'確認中...':'次へ'}</button>
+                <button type="button" onClick={()=>{ setMode('login'); setJoinErr(''); }} style={{display:'block',width:'100%',padding:'10px',marginTop:10,background:'transparent',color:'#64748b',border:'none',fontSize:12,fontWeight:'bold',cursor:'pointer'}}>ログイン画面に戻る</button>
+              </form>
+            </div>
           ) : mode === 'signup' ? (
             <div style={{background:'white',borderRadius:24,padding:28,boxShadow:'0 20px 60px rgba(0,0,0,0.25)'}}>
               <div style={{textAlign:'center',marginBottom:18}}>
@@ -14105,11 +14210,11 @@ function FamilyView() {
                   try { latest = JSON.parse(localStorage.getItem(FAM_LS_KEY)||'null'); } catch { latest = null; }
                   if (!latest) latest = data;
                   const invite = (latest.familyInvites||[]).find(i => i.code === code);
-                  if (!invite) { setSignupForm(f=>({...f, error:'招待コードが見つかりません。事業所までお問い合わせください'})); return; }
+                  if (!invite) { setSignupForm(f=>({...f, error:`招待コードが見つかりません。事業所${_facTel()}までお問い合わせください`})); return; }
                   if (invite.usedBy) { setSignupForm(f=>({...f, error:'この招待コードは既に使用されています'})); return; }
                   // 期限切れチェック
                   if (invite.expiresAt && new Date(invite.expiresAt) < new Date()) {
-                    setSignupForm(f=>({...f, error:'招待の有効期限が切れています。事業所にお問い合わせください'})); return;
+                    setSignupForm(f=>({...f, error:`招待の有効期限（発行から${INVITE_VALID_DAYS}日）が切れています。事業所${_facTel()}にご連絡ください。新しい招待を発行します`})); return;
                   }
                   // 3. ID重複チェック
                   //   ★ Supabase有効時は上のSupabase判定を唯一の正とする。 ローカル(latest)は他端末での削除が届かず
@@ -14334,9 +14439,9 @@ function FamilyView() {
                   setSignupForm(f=>({...f, done:true, error:''}));
                 }}>
                   <div style={{marginBottom:12}}>
-                    <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>招待コード (FAM-XXXX-XXXX)</label>
+                    <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>招待コード（数字8桁）</label>
                     <input value={signupForm.inviteCode} onChange={e=>setSignupForm(f=>({...f,inviteCode:normalizeInviteCode(toHalfWidth(e.target.value)),error:''}))}
-                      placeholder="FAM-XXXX-XXXX" autoFocus lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
+                      placeholder="1234-5678" autoFocus lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
                       style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:15,fontWeight:'bold',outline:'none',boxSizing:'border-box',fontFamily:'Menlo,monospace',letterSpacing:2,textAlign:'center'}}/>
                   </div>
                   <div style={{marginBottom:12}}>
@@ -14621,7 +14726,11 @@ function FamilyView() {
               <button type="button" onClick={()=>setFamReset({step:1, username:(loginForm.username||'').trim(), email:'', code:'', n1:'', n2:'', busy:false, err:'', masked:'', done:false})}
                 style={{background:'none',border:'none',color:'#5e8030',fontSize:12,fontWeight:'bold',cursor:'pointer',textDecoration:'underline'}}>パスワードをお忘れですか？（メールで再設定）</button>
             </div>
-            {/* 新規アカウント作成ボタンは非表示 (登録は招待 URL 経由のみ) */}
+            {/* ★ 招待コードを手入力して新規登録(共通の登録用紙・口頭でコードを受け取った方向け・2026-09-27) */}
+            <div style={{textAlign:'center',marginTop:14,paddingTop:12,borderTop:'1px dashed #e2e8f0'}}>
+              <button type="button" onClick={()=>{ setJoinStep('code'); setJoinErr(''); setMode('signup'); }}
+                style={{background:'#f4f8ed',border:'1px solid #cfe39f',color:'#3d5021',borderRadius:12,padding:'10px 16px',fontSize:13,fontWeight:'bold',cursor:'pointer',width:'100%'}}>招待コードをお持ちの方（新規登録）はこちら</button>
+            </div>
           </form>
           )}
           {/* ★ 高齢者にも分かりやすいヘルプ: ホーム画面追加の手順 / ログインできない時のQ&A */}
@@ -16343,7 +16452,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
               return (
                 <div style={{fontSize:11,color:'#64748b',marginBottom:14,lineHeight:1.6}}>
                   他の{relLabel}のメールアドレスを入力してください。<br/>
-                  ボタンをタップすると <b>自動的に招待メールが届きます</b> (有効期限 14日)。<br/>
+                  ボタンをタップすると <b>自動的に招待メールが届きます</b> (有効期限 3日)。<br/>
                   <span style={{color:remainingMail===0?'#dc2626':'#64748b',fontWeight:'bold'}}>本日のメール送信残り: {remainingMail} / 3 通</span>
                 </div>
               );
@@ -16373,7 +16482,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                 <div style={{display:'flex',gap:8}}>
                   <button onClick={()=>{navigator.clipboard?.writeText(inviteFamForm.createdUrl); alert('URLをコピーしました');}}
                     style={{flex:1,padding:'10px',background:'#5e8030',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>コピー</button>
-                  <a href={`mailto:${encodeURIComponent(inviteFamForm.email||'')}?subject=${encodeURIComponent(`【${facility.name||'デイサービス'}】家族専用ページへのご招待`)}&body=${encodeURIComponent(`下記URLからご家族専用ページにご登録ください (有効期限 14日)\n\n${inviteFamForm.createdUrl}\n\n${facility.name||''}`)}`}
+                  <a href={`mailto:${encodeURIComponent(inviteFamForm.email||'')}?subject=${encodeURIComponent(`【${facility.name||'デイサービス'}】家族専用ページへのご招待`)}&body=${encodeURIComponent(`下記URLからご家族専用ページにご登録ください (有効期限 3日)\n\n${inviteFamForm.createdUrl}\n\n${facility.name||''}`)}`}
                     style={{flex:1,padding:'10px',background:'#10b981',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer',textDecoration:'none',textAlign:'center'}}>メール送信</a>
                 </div>
                 <div style={{display:'flex',gap:8,marginTop:8}}>
@@ -16437,7 +16546,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                       createdByAccountId: loggedAcc?.id || null,
                       usedBy: null, usedAt: null,
                       email: em, relation: inviteFamForm.relation || '',
-                      expiresAt: new Date(Date.now() + 14*24*60*60*1000).toISOString(),
+                      expiresAt: inviteExpiresAtIso(),
                     };
                     // ★ 事業所へ通知(招待発行)。 同じ id をローカル・クラウド双方で使い、二重通知を防ぐ(冪等)。
                     const _invDu = { id: `du_${Date.now()}_${Math.round(Math.random()*1e6)}`, at: new Date().toISOString(), by: (loggedAcc?.kind==='caremanager'?'caremanager':'family'), byName: (loggedAcc?.displayName||''), items: [`家族・関係者を招待（${inviteFamForm.relation||'続柄未設定'}）`], readOffice:false, readCm:true };
@@ -16479,7 +16588,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                           facilityName: facility.name || '',
                           patientName: patient.name || '',
                           facilityPhone: facility.phone || '',
-                          expiresAtJp: '14日後',
+                          expiresAtJp: inviteExpiresJp(),
                           relation: inviteFamForm.relation || '',
                         }),
                       });
@@ -35568,7 +35677,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                       email: opts.email || '',
                       relation: opts.relation || '',
                       note: opts.note || '',
-                      expiresAt: opts.expiresAt || new Date(Date.now() + 14*24*60*60*1000).toISOString(),
+                      expiresAt: opts.expiresAt || inviteExpiresAtIso(),
                     };
                     onSave({...appData, familyInvites: [...(appData.familyInvites||[]), newInvite]});
                     // ★ Supabase 同期 (家族が別端末から登録できるように)
@@ -35588,15 +35697,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     }
                     return newInvite;
                   };
-                  const sendMailInvite = async () => {
-                    const email = window.prompt(`${pat.name} 様のご家族に送る招待メールアドレスを入力してください:`);
-                    if (!email) return;
-                    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { alert('メールアドレスの形式が正しくありません'); return; }
-                    // 既存アカウントの重複チェック
-                    // メール重複は許容 (夫婦の子・複数利用者担当ケアマネ等のため)
-                    // 未使用招待の重複は許容
-                    const relation = window.prompt('続柄を入力してください (例: 本人、配偶者、長男、長女 など。空欄可)\n※「本人」にすると緊急連絡先には登録されません（ご本人閲覧用）\n※ ケアマネの招待はサイドバー「ケアマネ事業所・担当者」から送ってください:') || '';
-                    const inv = issueNewInvite({ email: email.trim(), relation: relation.trim() });
+                  // ★ 招待メールの送信部(再発行からも使う・2026-09-27)
+                  const _dispatchInviteMail = async (inv, email, relation) => {
                     // URL に招待データを埋め込み (端末越し用)
                     const tk = encodeInviteToken({ c: inv.code, p: inv.patientId, e: inv.email||'', r: inv.relation||'', x: inv.expiresAt||'', fn: (appData.systemSettings?.facilityInfo?.name)||'', fp: (appData.systemSettings?.facilityInfo?.phone)||'' });
                     const inviteUrl = `${baseUrlLocal}/?family&invite=${encodeURIComponent(inv.code)}&t=${tk}`;
@@ -35612,7 +35714,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                           facilityName: facility.name || '',
                           patientName: pat.name || '',
                           facilityPhone: facility.phone || '',
-                          expiresAtJp: '14日後',
+                          expiresAtJp: inviteExpiresJp(),
                           relation: relation.trim() || '',
                         }),
                       });
@@ -35628,8 +35730,37 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     }
                     // フォールバック: mailto
                     const subject = `【${facility.name||'デイサービス'}】ご家族専用ページのご招待`;
-                    const body = `${pat.name} 様のご家族のみなさま\n\n下記URLからご家族専用ページにご登録ください (有効期限 14日)\n\n${inviteUrl}\n\n${facility.name||''}${facility.phone?` / TEL ${facility.phone}`:''}`;
+                    const body = `${pat.name} 様のご家族のみなさま\n\n下記URLからご家族専用ページにご登録ください (有効期限 3日)\n\n${inviteUrl}\n\n${facility.name||''}${facility.phone?` / TEL ${facility.phone}`:''}`;
                     window.location.href = `mailto:${encodeURIComponent(email.trim())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+                  };
+                  const sendMailInvite = async () => {
+                    const email = window.prompt(`${pat.name} 様のご家族に送る招待メールアドレスを入力してください:`);
+                    if (!email) return;
+                    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { alert('メールアドレスの形式が正しくありません'); return; }
+                    // メール重複・未使用招待の重複は許容 (夫婦の子・複数利用者担当ケアマネ等のため)
+                    const relation = window.prompt('続柄を入力してください (例: 本人、配偶者、長男、長女 など。空欄可)\n※「本人」にすると緊急連絡先には登録されません（ご本人閲覧用）\n※ ケアマネの招待はサイドバー「ケアマネ事業所・担当者」から送ってください:') || '';
+                    const inv = issueNewInvite({ email: email.trim(), relation: relation.trim() });
+                    await _dispatchInviteMail(inv, email.trim(), relation.trim());
+                  };
+                  // ★ 紙で招待(2026-09-27 ユーザー決定): 招待を発行してA4の案内用紙(QR+コード+注意書き+ID/PW控え欄)を印刷
+                  const printInviteSheet = (inv) => {
+                    const facility = appData.systemSettings?.facilityInfo || {};
+                    openInviteSheet({ kind: 'family', title: `ご家族専用ページ 登録のご案内 ${pat.name}`, facilityName: facility.name||'', facilityPhone: facility.phone||'', patientName: pat.name||'', code: inv.code, expiresAt: inv.expiresAt, url: inviteUrlOf(inv), loginUrl });
+                  };
+                  const issuePaperInvite = () => {
+                    const relation = window.prompt('続柄を入力してください (例: 配偶者、長男、長女 など。空欄可)\n※ この用紙で登録できるのは1人・1回です:') ;
+                    if (relation === null) return;
+                    const inv = issueNewInvite({ relation: (relation||'').trim() });
+                    printInviteSheet(inv);
+                  };
+                  // ★ 期限切れ・未使用の招待を同じ宛先で再発行(旧コードは無効化)。メール宛先があれば再送、無ければ用紙を印刷
+                  const reissueInvite = async (old) => {
+                    if (!window.confirm(`この招待を再発行します（新しいコード・有効期限${INVITE_VALID_DAYS}日）。古いコードは使えなくなります。よろしいですか？`)) return;
+                    if (isSupabaseEnabled && old?.code) { try { await supabaseDeleteInviteByCode(old.code); } catch (e) { console.warn('[invite] supabase delete failed', e); } }
+                    const inv = issueNewInvite({ email: old.email||'', relation: old.relation||'', note: old.note||'' });
+                    // issueNewInvite は appData に追加保存するので、旧招待の除去は次の保存で行う
+                    onSave({ ...appData, familyInvites: [...(appData.familyInvites||[]).filter(i => i.id !== old.id), inv] });
+                    if (old.email) await _dispatchInviteMail(inv, old.email, old.relation||''); else printInviteSheet(inv);
                   };
                   const inviteUrlOf = (inv) => {
                     const tk = encodeInviteToken({ c: inv.code, p: inv.patientId, e: inv.email||'', r: inv.relation||'', x: inv.expiresAt||'', fn: (appData.systemSettings?.facilityInfo?.name)||'', fp: (appData.systemSettings?.facilityInfo?.phone)||'' });
@@ -35654,12 +35785,13 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                         <div className="text-xs font-bold text-amber-800">家族登録用 招待 (使い捨て・1招待=1人)</div>
                         <div className="flex gap-1">
                           <button onClick={sendMailInvite} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow active:scale-95">メール招待</button>
+                          <button onClick={issuePaperInvite} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow active:scale-95">紙で招待（印刷）</button>
                           <button onClick={()=>issueNewInvite()} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow active:scale-95"><Plus size={12}/>コード発行</button>
                         </div>
                       </div>
                       <div className="text-[10px] text-amber-700 mb-2 leading-relaxed">
-                        メール招待: ご家族のメールに招待URLを送ります (推奨)<br/>
-                        + コード発行: 対面で招待コードを伝える場合 (URLは家族の操作で要入力)
+                        メール招待: ご家族のメールに招待URLを送ります／紙で招待: QRと招待コード入りの案内用紙を印刷して手渡し（1枚＝1人）<br/>
+                        コード発行: 口頭で招待コードを伝える場合。いずれも有効期限は{INVITE_VALID_DAYS}日・1回限りです
                       </div>
                       {invitesForPat.length === 0 ? (
                         <div className="text-[11px] text-amber-700 text-center py-3 bg-white/40 rounded-lg">未発行</div>
@@ -35693,6 +35825,12 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                                     {showCodeTools && (
                                       <button onClick={()=>{navigator.clipboard?.writeText(inv.code); _copyToast();}} className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-700 rounded text-[10px] font-bold" title="コードをコピー">コード</button>
                                     )}
+                                    {showCodeTools && (
+                                      <button onClick={()=>printInviteSheet(inv)} className="px-2 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded text-[10px] font-bold" title="案内用紙を印刷">印刷</button>
+                                    )}
+                                    {isExpired && (
+                                      <button onClick={()=>reissueInvite(inv)} className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[10px] font-bold" title="新しいコードで再発行">再発行</button>
+                                    )}
                                     <button onClick={()=>deleteInvite(inv.id)} className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[10px] font-bold">削除</button>
                                   </div>
                                 </div>
@@ -35706,7 +35844,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                                         <input readOnly value={inviteUrlOf(inv)} onClick={e=>e.target.select()} className="flex-1 min-w-0 px-2 py-1 bg-white border border-amber-200 rounded text-[10px] font-mono outline-none"/>
                                         <button onClick={()=>copyInviteUrl(inv)} className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold whitespace-nowrap">URLコピー</button>
                                       </div>
-                                      <div className="text-[9px] text-slate-500">メールが無いご家族には、この<b>QR</b>を見せて読み取ってもらうか、<b>コード</b>と<b>共通ログインURL</b>をお伝えください。</div>
+                                      <div className="text-[9px] text-slate-500">メールが無いご家族には「印刷」で案内用紙を渡すか、<b>コード</b>を口頭で伝えてください（ログイン画面の「招待コードをお持ちの方」から登録できます）。有効期限 {inv.expiresAt ? _fmtExpJp(inv.expiresAt) : '—'}</div>
                                     </div>
                                   </div>
                                 )}
@@ -35731,6 +35869,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                           w.document.write(`<html><head><title>家族共通ログインURL ${pat.name}</title><style>body{font-family:'Hiragino Sans','Yu Gothic',sans-serif;padding:40px 30px;max-width:600px;margin:0 auto;color:#1e293b;text-align:center;}h1{font-size:22px;margin:0 0 8px;}h2{font-size:14px;color:#5e8030;margin:0 0 28px;font-weight:normal;}.qr-area{margin:30px 0;}img{border:1px solid #e2e8f0;border-radius:12px;padding:8px;background:white;}.url{font-family:Menlo,monospace;font-size:12px;color:#475569;background:#f8fafc;padding:12px;border-radius:8px;word-break:break-all;margin:16px 0;}.note{font-size:11px;color:#64748b;line-height:1.7;background:#fef3c7;border:1px solid #fbbf24;border-radius:10px;padding:14px;margin-top:20px;text-align:left;}@media print{button{display:none;}}</style></head><body><h1>${pat.name} 様 家族共通ログイン</h1><h2>下記QRコードを読み取って、家族専用ページへアクセスしてください</h2><div class="qr-area"><img src="${qrSrc.replace('size=240x240','size=320x320')}" width="280" height="280"/></div><div class="url">${loginUrl}</div><div class="note"><b>ご利用方法</b><br/>1. QRコードを読み取るか、URL を入力してログイン画面を開いてください<br/>2. 別途お渡しした ID とパスワードでログインしてください<br/>3. パスワードを忘れた場合は事業所までご連絡ください</div><button onclick="window.print()" style="margin-top:24px;padding:10px 28px;font-size:14px;font-weight:bold;background:#7daa3d;color:white;border:none;border-radius:10px;cursor:pointer;">印刷する</button></body></html>`);
                           setTimeout(()=>w.focus(),100);
                         }} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] whitespace-nowrap">印刷</button>
+                        <button onClick={()=>{ const facility = appData.systemSettings?.facilityInfo || {}; openInviteSheet({ kind: 'common', title: '登録のご案内（共通）', facilityName: facility.name||'', facilityPhone: facility.phone||'', url: `${baseUrl}/?family&join=1`, loginUrl }); }} className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-bold text-[11px] whitespace-nowrap" title="全利用者共通の登録用紙。招待コードは渡すときに職員が手書き">共通の登録用紙</button>
                       </div>
                       <div className="text-[10px] text-slate-600 leading-relaxed">
                         家族はこのQRを読み取ってログイン画面に行き、下記のID・パスワードを入力します。<br/>
@@ -38200,6 +38339,32 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                             const sbInvs = (sbCmInvites||[]).filter(iv => !iv.used_by && p.email && iv.email && String(iv.email).toLowerCase()===String(p.email).toLowerCase() && (!iv.expires_at || new Date(iv.expires_at) > new Date()));
                             const _sentAt = invs[0]?.createdAt || sbInvs[0]?.created_at || '';
                             const st = accs.length ? 'ok' : (invs.length || sbInvs.length) ? 'sent' : 'none';
+                            // ★ 担当者向け招待の発行(メール・紙の共通部・2026-09-27)
+                            const _issueCmInvite = (email) => {
+                              if (cmPats.length === 0) { alert(`${p.name} さんが担当ケアマネに設定されている利用者がまだいません。\n先に利用者マスタ管理の「担当を変更」でこの担当者を設定してください。`); return null; }
+                              const target = cmPats[0];
+                              const existingCodes = new Set((appData.familyInvites||[]).map(iv=>iv.code));
+                              let code = generateOneTimeInviteCode(); let retry=0;
+                              while (existingCodes.has(code) && retry<10) { code = generateOneTimeInviteCode(); retry++; }
+                              const _staffSess = (()=>{ try { return JSON.parse(sessionStorage.getItem('tsumugiStaffSession')||'null'); } catch { return null; } })();
+                              const newInvite = { id:`inv_${Date.now()}`, code, patientId: target.id, createdAt:new Date().toISOString(), usedBy:null, usedAt:null, email: email||'', relation:'ケアマネージャー', note:`担当者招待: ${p.office}/${p.name}`, cmOffice:p.office, cmName:p.name, expiresAt: inviteExpiresAtIso() };
+                              onSave({ ...appData, familyInvites: [...(appData.familyInvites||[]), newInvite] });
+                              if (isSupabaseEnabled) {
+                                supabaseCreateInvite({ patientId: target.id, storeId: _staffSess?.storeId || null, code, email: email||'', relation:'ケアマネージャー', facilityName: appData.systemSettings?.facilityInfo?.name || '', patientName: target.name || '', facilityPhone: appData.systemSettings?.facilityInfo?.phone || '', expiresAt: newInvite.expiresAt }).catch(err => console.warn('[supabase] cm invite push failed', err));
+                              }
+                              const _fi = appData.systemSettings?.facilityInfo || {};
+                              const _base = window.location.origin + window.location.pathname.replace(/\/+$/, '');
+                              // ★ 担当者マスタの氏名・ふりがな・事業所もトークンに同梱し、登録フォームへ自動入力する(2026-09-02 店舗要望)
+                              const _nmp = String(p.name||'').split(/[\s　]+/);
+                              const tk = encodeInviteToken({ c: code, p: target.id, s: _staffSess?.storeId || '', e: email||'', r: 'ケアマネージャー', x: newInvite.expiresAt, fn: _fi.name||'', fp: _fi.phone||'', cl: _nmp[0]||'', cf: _nmp.slice(1).join(' ')||'', kl: p.kanaLast||'', kf: p.kanaFirst||'', co: p.office||'' });
+                              const inviteUrl = `${_base}/?family&invite=${encodeURIComponent(code)}&t=${tk}`;
+                              return { newInvite, inviteUrl, _fi, _base };
+                            };
+                            const printCmInvite = () => {
+                              const m = _issueCmInvite((p.email||'').trim());
+                              if (!m) return;
+                              openInviteSheet({ kind: 'cm', title: `ご関係者専用ページ 登録のご案内 ${p.name}`, facilityName: m._fi.name||'', facilityPhone: m._fi.phone||'', personName: p.name||'', officeName: p.office||'', code: m.newInvite.code, expiresAt: m.newInvite.expiresAt, url: m.inviteUrl, loginUrl: `${m._base}/?family` });
+                            };
                             const sendCmInviteMail = async () => {
                               let email = (p.email||'').trim();
                               if (!email) {
@@ -38209,25 +38374,11 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                                 if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert('メールアドレスの形式が正しくありません'); return; }
                                 persistCm(null, cmPersons.map((c,j)=>j===origIdx?{...c,email}:c), '✓ メールアドレスを保存しました');
                               }
-                              if (cmPats.length === 0) { alert(`${p.name} さんが担当ケアマネに設定されている利用者がまだいません。\n先に利用者マスタ管理の「担当を変更」でこの担当者を設定してください。`); return; }
-                              const target = cmPats[0];
-                              const existingCodes = new Set((appData.familyInvites||[]).map(iv=>iv.code));
-                              let code = generateOneTimeInviteCode(); let retry=0;
-                              while (existingCodes.has(code) && retry<10) { code = generateOneTimeInviteCode(); retry++; }
-                              const _staffSess = (()=>{ try { return JSON.parse(sessionStorage.getItem('tsumugiStaffSession')||'null'); } catch { return null; } })();
-                              const newInvite = { id:`inv_${Date.now()}`, code, patientId: target.id, createdAt:new Date().toISOString(), usedBy:null, usedAt:null, email, relation:'ケアマネージャー', note:`担当者招待: ${p.office}/${p.name}`, cmOffice:p.office, cmName:p.name, expiresAt:new Date(Date.now()+14*24*60*60*1000).toISOString() };
-                              onSave({ ...appData, familyInvites: [...(appData.familyInvites||[]), newInvite] });
-                              if (isSupabaseEnabled) {
-                                supabaseCreateInvite({ patientId: target.id, storeId: _staffSess?.storeId || null, code, email, relation:'ケアマネージャー', facilityName: appData.systemSettings?.facilityInfo?.name || '', patientName: target.name || '', facilityPhone: appData.systemSettings?.facilityInfo?.phone || '', expiresAt: newInvite.expiresAt }).catch(err => console.warn('[supabase] cm invite push failed', err));
-                              }
-                              const _fi = appData.systemSettings?.facilityInfo || {};
-                              const _base = window.location.origin + window.location.pathname.replace(/\/+$/, '');
-                              // ★ 担当者マスタの氏名・ふりがな・事業所もトークンに同梱し、登録フォームへ自動入力する(2026-09-02 店舗要望)
-                              const _nmp = String(p.name||'').split(/[\s　]+/);
-                              const tk = encodeInviteToken({ c: code, p: target.id, s: _staffSess?.storeId || '', e: email, r: 'ケアマネージャー', x: newInvite.expiresAt, fn: _fi.name||'', fp: _fi.phone||'', cl: _nmp[0]||'', cf: _nmp.slice(1).join(' ')||'', kl: p.kanaLast||'', kf: p.kanaFirst||'', co: p.office||'' });
-                              const inviteUrl = `${_base}/?family&invite=${encodeURIComponent(code)}&t=${tk}`;
+                              const _made = _issueCmInvite(email);
+                              if (!_made) return;
+                              const { newInvite, inviteUrl, _fi } = _made;
                               try {
-                                const resp = await fetch('/api/send-invite', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ to: email, toName: p.name, inviteUrl, facilityName: _fi.name||'', patientName: '', facilityPhone: _fi.phone||'', expiresAtJp: '14日後', relation: 'ケアマネージャー' }) });
+                                const resp = await fetch('/api/send-invite', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ to: email, toName: p.name, inviteUrl, facilityName: _fi.name||'', patientName: '', facilityPhone: _fi.phone||'', expiresAtJp: inviteExpiresJp(), relation: 'ケアマネージャー' }) });
                                 if (resp.ok) { alert(`✓ 招待メールを ${email} に送信しました\n（${p.name} さんが登録すると、担当利用者の閲覧ができるようになります）`); return; }
                                 const err = await resp.json().catch(()=>({}));
                                 const detail = [err.error, err.brevoMessage, err.hint].filter(Boolean).join('\n');
@@ -38236,7 +38387,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                                 if (!window.confirm(`自動送信エラー: ${String(e).slice(0,120)}\n\n代わりにメールクライアントを開いて手動送信しますか？`)) return;
                               }
                               const subject = `【${_fi.name||'デイサービス'}】ご関係者専用ページのご招待`;
-                              const body = `${p.name} 様\n\n下記URLからご関係者専用ページにご登録ください (有効期限 14日)\n\n${inviteUrl}\n\n${_fi.name||''}${_fi.phone?` / TEL ${_fi.phone}`:''}`;
+                              const body = `${p.name} 様\n\n下記URLからご関係者専用ページにご登録ください (有効期限 3日)\n\n${inviteUrl}\n\n${_fi.name||''}${_fi.phone?` / TEL ${_fi.phone}`:''}`;
                               window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
                             };
                             return (
@@ -38247,7 +38398,8 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                                 <span className="text-[10px] text-slate-500">担当利用者 {cmPats.length}名{cmPats.length?`（${cmPats.slice(0,3).map(x=>x.name).join('・')}${cmPats.length>3?` 他${cmPats.length-3}名`:''}）`:''}</span>
                                 {st==='ok' && <span className="text-[10px] font-bold text-emerald-600">閲覧は担当割当に自動同期</span>}
                                 {p.email && <span className="text-[10px] text-slate-400 break-all">{p.email}</span>}
-                                {st!=='ok' && <button type="button" onClick={sendCmInviteMail} className="ml-auto px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold shadow active:scale-95 shrink-0">{st==='sent'?'招待メールを再送':'招待メール'}</button>}
+                                {st!=='ok' && <button type="button" onClick={printCmInvite} className="ml-auto px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold shadow active:scale-95" title="QRと招待コード入りの案内用紙を印刷して手渡し">紙で招待（印刷）</button>}
+                                {st!=='ok' && <button type="button" onClick={sendCmInviteMail} className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold shadow active:scale-95 shrink-0">{st==='sent'?'招待メールを再送':'招待メール'}</button>}
                               </div>
                             );
                           })()}

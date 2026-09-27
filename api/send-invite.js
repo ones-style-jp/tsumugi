@@ -43,7 +43,7 @@ export default async function handler(req, res) {
 
   const safeFacility = facilityName || 'デイサービス';
   const safePatient = patientName || '';
-  const safeExpires = expiresAtJp || '14日後';
+  const safeExpires = expiresAtJp || '3日後';
   // ★ 続柄が ケアマネージャー の場合は「ご関係者専用ページ」表記に切替
   const isCaremanager = /ケアマネ/.test(relation || '');
   const pageLabel = isCaremanager ? 'ご関係者専用ページ' : 'ご家族専用ページ';

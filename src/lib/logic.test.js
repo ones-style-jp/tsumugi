@@ -28,6 +28,13 @@ describe('normalizeInviteCode', () => {
     expect(normalizeInviteCode('FAM-1234-5678')).toBe('FAM-1234-5678');
     expect(normalizeInviteCode('ab')).toBe('AB');
   });
+  it('数字だけの入力は 1234-5678 形に整形(全角・空白・ハイフン混じりも)', () => {
+    expect(normalizeInviteCode('12345678')).toBe('1234-5678');
+    expect(normalizeInviteCode('1234-5678')).toBe('1234-5678');
+    expect(normalizeInviteCode('1234 5678')).toBe('1234-5678');
+    expect(normalizeInviteCode('123')).toBe('123');
+    expect(normalizeInviteCode('123456789')).toBe('1234-5678');
+  });
 });
 
 describe('resolveIndividualExerciseValue (個別運動 ○→基準値)', () => {
