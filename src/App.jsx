@@ -16828,6 +16828,18 @@ function AdminAuthModal({ mode, adminName, existingHash, onSuccess, onCancel, on
   );
 }
 
+// ★ スタッフを職種別に分ける(2026-09-27 ユーザー要望: ログインの「どなたですか」とサイドバーのスタッフ切替を登録順でなく職種別に)
+//   並び: 管理者 → 機能訓練指導員 → 生活相談員 → 介護職員 → 看護職員 → その他。各グループ内は登録順のまま。
+const STAFF_ROLE_GROUPS = ['管理者','機能訓練指導員','生活相談員','介護職員','看護師'];
+const staffRoleGroupLabel = (r) => r === '看護師' ? '看護職員' : (r || 'その他');
+const groupStaffByRole = (members) => {
+  const list = Array.isArray(members) ? members.filter(Boolean) : [];
+  const groups = [];
+  STAFF_ROLE_GROUPS.forEach(r => { const ms = list.filter(m => (m.roleLabel||'') === r || (r === '管理者' && m.isAdmin && !(m.roleLabel||''))); if (ms.length) groups.push({ role: r, label: staffRoleGroupLabel(r), members: ms }); });
+  const rest = list.filter(m => !STAFF_ROLE_GROUPS.includes(m.roleLabel||'') && !(m.isAdmin && !(m.roleLabel||'')));
+  if (rest.length) groups.push({ role: '', label: 'その他', members: rest });
+  return groups;
+};
 function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdmin, onSelect, onAddMember, onRemoveMember, onTransferAdmin, onLogout, onBackToStores, adminAuth, onSetAdminAuth, loading }) {
   const [pendingAdmin, setPendingAdmin] = React.useState(null); // 管理者選択 → 認証待ち
   // 管理者メンバーを選んだ時はパスワード認証を挟む。 ★ つむぎ管理局(super_admin)は本部認証済みなので店舗のPINを省略して入れる
@@ -16888,8 +16900,11 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
             </div>
           ) : (
             <>
-              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))',gap:10,marginBottom:16}}>
-                {members.map(m => (
+              {groupStaffByRole(members).map(g => (
+              <div key={g.label} style={{marginBottom:14}}>
+                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}><span style={{fontSize:12,fontWeight:'bold',color:'#3d5021',background:'#e9f2d6',borderRadius:8,padding:'3px 10px'}}>{g.label}</span><span style={{fontSize:10,color:'#7a8f5a'}}>{g.members.length}名</span><span style={{flex:1,height:1,background:'#dbe7c4'}}/></div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))',gap:10}}>
+                {g.members.map(m => (
                   <div key={m.id} style={{position:'relative'}}>
                     <button onClick={()=>selectMember(m)} style={{width:'100%',padding:'18px 12px',background:'#f4f8ed',color:'#3d5021',border:'2px solid #94c456',borderRadius:14,fontSize:14,fontWeight:'bold',cursor:'pointer',textAlign:'center',transition:'all 0.15s'}}
                       onMouseEnter={e=>{e.currentTarget.style.background='#94c456';e.currentTarget.style.color='white';}}
@@ -16905,6 +16920,8 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
                   </div>
                 ))}
               </div>
+              </div>
+              ))}
               {canManage && (
                 <button onClick={()=>setShowAdd(true)} style={{width:'100%',padding:'10px',background:'transparent',color:'#5e8030',border:'1.5px dashed #94c456',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>+ 新しいメンバーを追加</button>
               )}
@@ -21452,7 +21469,9 @@ export default function App() {
                       {members.length === 0 ? (
                         <div className="px-4 py-3 text-[10px] text-emerald-300/70">登録メンバーがいません</div>
                       ) : (
-                        members.map(m => {
+                        groupStaffByRole(members).flatMap(g => [
+                          <div key={`grp-${g.label}`} className="px-3 py-1 text-[9px] font-bold text-emerald-200 bg-emerald-950/40 border-b border-emerald-700/30 tracking-wider">{g.label}</div>,
+                          ...g.members.map(m => {
                           const isCurrent = _nn(m.name)===_nn(activeRecorder.name) && (m.roleLabel||'')===(activeRecorder.roleLabel||'');
                           return (
                             <div key={m.id} className={`flex items-stretch border-b border-emerald-700/20 ${isCurrent ? 'bg-emerald-700/60' : 'hover:bg-emerald-800/60'}`}>
@@ -21486,6 +21505,7 @@ export default function App() {
                             </div>
                           );
                         })
+                        ])
                       )}
                       {/* ★ スタッフを追加: モーダル形式で姓・名・役職を分けて入力 */}
                       <button onClick={() => {
