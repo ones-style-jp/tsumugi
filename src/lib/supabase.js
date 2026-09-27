@@ -471,7 +471,7 @@ export async function supabaseListCmInvitesForStore(storeId) {
   try {
     const { data, error } = await supabase
       .from('family_invites')
-      .select('id, email, relation, created_at, expires_at, used_by')
+      .select('id, code, email, relation, created_at, expires_at, used_by, patient_name') // ★ code(取り消し用)・patient_name(担当者タグ)を追加 2026-09-27
       .eq('store_id', storeId)
       .eq('relation', 'ケアマネージャー');
     if (error) { console.warn('[supabase] listCmInvitesForStore error', error); return []; }
