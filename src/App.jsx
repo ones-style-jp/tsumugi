@@ -11654,6 +11654,30 @@ function ScheduleView({ appData, onSave, navigateTo }) {
   const [mgrDates, setMgrDates] = useState({}); // {eventId: 'YYYY-MM-DD'} 指定日以降削除用
   const [iconPopup, setIconPopup] = useState(null); // {date, birthdays:[], expiries:[]}
   const [viewMode, setViewMode] = useState('month'); // 'month' | 'week'
+  // ★ 週表示の日付行を固定する位置＝上の紫ヘッダーの高さ(2026-09-27: 固定行がヘッダーの下に潜り、予定が透けて見えた)
+  //   ヘッダーがスクロール領域の内側にある環境(iPad等)と外側にある環境の両方で正しく効くよう、
+  //   「ヘッダー下端 − スクロール領域の上端」を実測して sticky の top にする(外側なら 0)。
+  const _schHdrRef = React.useRef(null);
+  const _schStickyRef = React.useRef(null);
+  const [_schHdrH, _setSchHdrH] = useState(0);
+  React.useEffect(() => {
+    let sp = null;
+    const findSp = (el) => { let n = el && el.parentElement; while (n) { const o = getComputedStyle(n).overflowY; if (o === 'auto' || o === 'scroll') return n; n = n.parentElement; } return null; };
+    const m = () => { try {
+      const h = _schHdrRef.current; if (!h) return;
+      if (!sp) sp = findSp(_schStickyRef.current) || findSp(h);
+      const spTop = sp ? sp.getBoundingClientRect().top : 0;
+      const spPad = sp ? (parseFloat(getComputedStyle(sp).paddingTop) || 0) : 0; // sticky はスクロール領域の「内側の余白」の分だけ下がるので差し引く(Chrome実測)
+      const hb = h.getBoundingClientRect().bottom;
+      const v = Math.round(hb - spTop - spPad);
+      _setSchHdrH(prev => (Math.abs(prev - v) > 1 ? v : prev));
+    } catch {} };
+    m(); const t = setTimeout(m, 300);
+    window.addEventListener('resize', m);
+    const spEl = findSp(_schStickyRef.current) || findSp(_schHdrRef.current);
+    if (spEl) spEl.addEventListener('scroll', m, { passive: true });
+    return () => { clearTimeout(t); window.removeEventListener('resize', m); if (spEl) spEl.removeEventListener('scroll', m); };
+  }, [viewMode]);
   const [dragEvId, setDragEvId] = useState(null); // ドラッグ移動中の予定ID
   const [evDetail, setEvDetail] = useState(null); // ★ 予定クリック時の確認ポップアップ(Googleカレンダー方式・2026-08-21)
   const events = appData.scheduleEvents || [];
@@ -11792,7 +11816,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
   const fmtJp = (dstr) => { const [y,m,dd]=dstr.split('-').map(Number); const w=new Date(y,m-1,dd).getDay(); return `${m}月${dd}日(${dow[w]})`; };
   return (
     <div style={{height:'100%',display:'flex',flexDirection:'column',background:'#f0f4f9'}}>
-      <div className="no-print" style={{position:'sticky',top:0,zIndex:20,background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
+      <div ref={_schHdrRef} className="no-print" style={{position:'sticky',top:0,zIndex:20,background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <CalendarRange size={20}/>
           <span style={{fontSize:17,fontWeight:'bold'}}>スケジュール</span>
@@ -11850,8 +11874,8 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                         <span style={{fontSize:12,fontWeight:'bold',width:20,height:20,lineHeight:'20px',textAlign:'center',borderRadius:'50%',background:isToday?'#6366f1':'transparent',color:isToday?'white':(holi?'#ef4444':(i%7===0?'#ef4444':i%7===6?'#3b82f6':'#334155'))}}>{d.other?`${parseInt(dstr.slice(5,7))}/${d.d}`:d.d}</span>
                         <div style={{display:'flex',alignItems:'center',gap:1}}>
-                          {bdays.length>0 && <span onClick={ev=>{ev.stopPropagation();setIconPopup({date:dstr,birthdays:bdays,expiries:[]});}} title="お誕生日" style={{fontSize:12,cursor:'pointer',lineHeight:1}}>👑</span>}
-                          {exps.length>0 && <span onClick={ev=>{ev.stopPropagation();setIconPopup({date:dstr,birthdays:[],expiries:exps});}} title="要注意（認定満了など）" style={{fontSize:11,cursor:'pointer',lineHeight:1}}>⚠️</span>}
+                          {bdays.length>0 && <span onClick={ev=>{ev.stopPropagation();setIconPopup({date:dstr,birthdays:bdays,expiries:[]});}} title="お誕生日（タップで一覧）" style={{fontSize:8,fontWeight:'bold',color:'#a16207',background:'#fefce8',border:'1px solid #fde68a',borderRadius:4,padding:'0 3px',cursor:'pointer',lineHeight:1.4}}>誕</span>}
+                          {exps.length>0 && <span onClick={ev=>{ev.stopPropagation();setIconPopup({date:dstr,birthdays:[],expiries:exps});}} title="要注意（認定満了など・タップで一覧）" style={{fontSize:8,fontWeight:'bold',color:'#b91c1c',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:4,padding:'0 3px',cursor:'pointer',lineHeight:1.4}}>注</span>}
                           {closed && <span style={{fontSize:8,fontWeight:'bold',color:'#64748b'}}>定休</span>}
                         </div>
                       </div>
@@ -11877,7 +11901,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                 return (
                   <div>
                     {/* ★ 2026-09-27 ユーザー要望: スクロールしても日付の行が固定されるように(横スクロールの入れ物を外し、日付＋終日の行を sticky に) */}
-                    <div style={{position:'sticky',top:0,zIndex:5,background:'white',paddingTop:2}}>
+                    <div ref={_schStickyRef} style={{position:'sticky',top:_schHdrH,zIndex:15,background:'white',paddingTop:2,boxShadow:'0 2px 0 #fff'}}>
                     <div style={{display:'grid',gridTemplateColumns:cols}}>
                       <div/>
                       {wd.map((ds,i)=>{ const dd=ds.split('-').map(Number)[2]; const isT=ds===todayStr; const holi=isHolidayDate(ds); const closed=isClosedDate(ds); const bdays=birthdaysOn(ds); const exps=expiriesOn(ds); return (
@@ -11885,8 +11909,8 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                           <div style={{fontSize:11,fontWeight:'bold',color:(i===0||holi)?'#ef4444':i===6?'#3b82f6':'#64748b'}}>{dow[i]}</div>
                           <div style={{fontSize:15,fontWeight:'bold',color:isT?'#4338ca':'#1e293b'}}>{dd}</div>
                           <div style={{display:'flex',justifyContent:'center',alignItems:'center',gap:2,minHeight:12}}>
-                            {bdays.length>0 && <span onClick={ev=>{ev.stopPropagation();setIconPopup({date:ds,birthdays:bdays,expiries:[]});}} title="お誕生日" style={{fontSize:12,cursor:'pointer'}}>👑</span>}
-                            {exps.length>0 && <span onClick={ev=>{ev.stopPropagation();setIconPopup({date:ds,birthdays:[],expiries:exps});}} title="要注意" style={{fontSize:11,cursor:'pointer'}}>⚠️</span>}
+                            {bdays.length>0 && <span onClick={ev=>{ev.stopPropagation();setIconPopup({date:ds,birthdays:bdays,expiries:[]});}} title="お誕生日（タップで一覧）" style={{fontSize:9,fontWeight:'bold',color:'#a16207',background:'#fefce8',border:'1px solid #fde68a',borderRadius:4,padding:'0 4px',cursor:'pointer'}}>誕生日</span>}
+                            {exps.length>0 && <span onClick={ev=>{ev.stopPropagation();setIconPopup({date:ds,birthdays:[],expiries:exps});}} title="要注意（タップで一覧）" style={{fontSize:9,fontWeight:'bold',color:'#b91c1c',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:4,padding:'0 4px',cursor:'pointer'}}>要注意</span>}
                             {closed && <span style={{fontSize:8,color:'#64748b',fontWeight:'bold'}}>定休</span>}
                           </div>
                         </div>); })}
@@ -12174,7 +12198,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
             )}
             {iconPopup.expiries.length>0 && (
               <div>
-                <div style={{fontSize:13,fontWeight:'bold',color:'#b91c1c',marginBottom:6}}>⚠️ 要注意</div>
+                <div style={{fontSize:13,fontWeight:'bold',color:'#b91c1c',marginBottom:6}}>要注意</div>
                 {iconPopup.expiries.map((x,i)=>(<div key={i} style={{fontSize:13,color:'#334155',padding:'3px 0'}}>{x.name} 様：<b>{x.kind}</b>{x.careLevel?`（${x.careLevel}）`:''}</div>))}
               </div>
             )}
@@ -16460,7 +16484,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
             {inviteMode === 'new' && (<>
             {!canAddMore && !inviteFamForm.createdUrl && (
               <div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:10,padding:'10px 12px',marginBottom:12,fontSize:12,color:'#991b1b'}}>
-                ⚠️ これ以上の {memberLabel} は追加できません。
+                これ以上の {memberLabel} は追加できません。
               </div>
             )}
             {canAddMore && (() => {
@@ -17440,7 +17464,7 @@ function SystemNoticesPanel({ stores, staffSession }) {
                 <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>重要度</label>
                 <select value={form.severity} onChange={e=>setForm({...form,severity:e.target.value})} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}>
                   <option value="info">通常 (青)</option>
-                  <option value="warning">⚠️ 注意 (黄)</option>
+                  <option value="warning">注意 (黄)</option>
                   <option value="critical">重要 (赤)</option>
                 </select>
               </div>
@@ -21844,7 +21868,7 @@ export default function App() {
             <div className="w-14 h-14 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-4">
               <CloudUpload size={28} />
             </div>
-            <h3 className="text-lg font-bold text-slate-800 text-center mb-2">⚠️ 未保存のデータがあります</h3>
+            <h3 className="text-lg font-bold text-slate-800 text-center mb-2">未保存のデータがあります</h3>
             <p className="text-sm text-slate-500 text-center mb-6">保存しますか？</p>
             <div className="flex flex-col gap-2">
               <button onClick={() => {
@@ -30401,7 +30425,7 @@ function RenrakuModal({ appData, patientId, dayPatientIds, onClose, onSave }) {
               </select>
             )
           })}
-          {warn && <div className="text-xs font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">⚠️ {warn}</div>}
+          {warn && <div className="text-xs font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{warn}</div>}
           {/* 定型文: 登録 / 一覧 */}
           <div className="rounded-xl border border-slate-200 p-3">
             <div className="flex items-center gap-2 flex-wrap">
@@ -36144,7 +36168,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             <div className="w-14 h-14 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-4">
               <CloudUpload size={28} />
             </div>
-            <h3 className="text-lg font-bold text-slate-800 text-center mb-2">⚠️ 未保存の変更があります</h3>
+            <h3 className="text-lg font-bold text-slate-800 text-center mb-2">未保存の変更があります</h3>
             <p className="text-sm text-slate-500 text-center mb-1">
               <b>{localPatient?.name || '現在の利用者'}</b> の編集内容を
             </p>
@@ -36214,7 +36238,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 text-center border-4 border-red-500">
             <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse"><Trash2 size={40} /></div>
-            <h3 className="text-xl font-bold text-red-700 mb-3">⚠️ 本当によろしいですか？</h3>
+            <h3 className="text-xl font-bold text-red-700 mb-3">本当によろしいですか？</h3>
             <p className="text-sm text-slate-700 mb-2 font-bold">この操作は取り消せません。</p>
             <p className="text-xs text-slate-500 mb-6">{localPatient?.name} 様の全データが完全に消去されます。</p>
             <div className="flex flex-col gap-2">
@@ -39032,10 +39056,10 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                       <div className="text-[11px] text-slate-500 leading-relaxed mb-2">
                         この店舗の <b>利用者・記録・お知らせ・メンバー</b> をすべて消去します。<br/>
                         実行すると <b>全端末</b> (PC / iPad / スマホ) のローカルキャッシュも自動で消えます (~30秒)。<br/>
-                        ⚠️ 元には戻せません。試験運用の準備や、本番開始前の初期化に使用してください。
+                        元には戻せません。試験運用の準備や、本番開始前の初期化に使用してください。
                       </div>
                       <button onClick={async ()=>{
-                        if (!window.confirm('⚠️ この店舗の全データ (利用者・記録・お知らせ・メンバー・各種設定) を完全消去します。\n\n本当に実行しますか?')) return;
+                        if (!window.confirm('この店舗の全データ (利用者・記録・お知らせ・メンバー・各種設定) を完全消去します。\n\n本当に実行しますか?')) return;
                         if (!window.confirm('もう一度確認: 元に戻せません。実行しますか?')) return;
                         try {
                           // 真っさらな初期状態 + リセットマーカー
