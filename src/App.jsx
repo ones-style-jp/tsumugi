@@ -32146,7 +32146,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const _tOk = base === sl || (base === '1日' && sl === 'AM');
       const _tRaw = (_tOk && !furikae) ? (getPickupTimeForDow(p, dow, appData) || '') : '';
       // ★ 2026-09-12k: マスタで「徒歩」の方は最初から徒歩枠へ(車に混ざらない)
-      const _isWalk = /徒歩/.test(String(getPickupTimeForDow(p, dow, appData) || '')) || /徒歩/.test(String(p.pickupTimes?.[dow] || ''));
+      const _isWalk = /徒歩/.test(String(getPickupTimeForDow(p, dow, appData) || '')) || /徒歩/.test(String(p.pickupTimes?.[dow] || '')) || String(p.pickupMinutes||'') === 'walk'; // ★ 2026-09-28: 乗車時間「徒歩」も徒歩欄へ
       out.push({ pid: p.id, name: p.name, furikae, walk: _isWalk, time: _isWalk ? '' : _tRaw });
     });
     return out;
@@ -32213,8 +32213,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     if (saved && typeof saved === 'object') {
       // 保存後に増えた利用者(振替追加等)は未割当に補充して見落としを防ぐ
       const inPlan = new Set([ ...Object.values(saved.cars||{}).flat().map(m=>m.pid), ...((saved.walkers||[]).map(m=>m.pid)), ...((saved.others||[]).map(m=>m.pid)), ...((saved.un||[]).map(m=>m.pid)) ]);
-      const extra = _attendees(iso, sl).filter(a => !inPlan.has(a.pid)).map(a => ({ pid: a.pid, t: a.time, mark: false }));
-      return { cars: {}, walkers: [], memo: '', ...saved, un: [ ...(saved.un||[]), ...extra ] };
+      const extraAll = _attendees(iso, sl).filter(a => !inPlan.has(a.pid));
+      const extra = extraAll.filter(a => !a.walk).map(a => ({ pid: a.pid, t: a.time, mark: false }));
+      const extraWalk = extraAll.filter(a => a.walk).map(a => ({ pid: a.pid, t: '徒歩' })); // ★ 2026-09-28: 徒歩の方は補充時も徒歩欄へ
+      return { cars: {}, memo: '', ...saved, walkers: [ ...(saved.walkers||[]), ...extraWalk ], un: [ ...(saved.un||[]), ...extra ] };
     }
     return _draftPlan(iso, sl);
   };
@@ -32491,8 +32493,22 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   //   呼び出し側が1回のonSaveへまとめる(2026-09-12d: 週間一括で「後の日の保存が前の日を消す」バグの修正)。
   // ★ 復元(2026-09-13 修正): v2.0のスライス置換で誤って消えた宣言群(routing/tpSettings/施設住所/到着目標/時刻整形/場所保存)
   const savePatientPickup = (pid, place, minutes) => {
-    const pats = (appData.patients||[]).map(pt => pt.id === pid ? { ...pt, pickupPlace: place, pickupMinutes: String(minutes||'').replace(/[^0-9]/g,'') } : pt);
-    onSave({ ...appData, patients: pats }, { silent: true });
+    // ★ 2026-09-28: 'walk'(徒歩)は文字列のまま保存。数値計算側は Number()||1 で従来どおり1分扱い
+    const isWalk = String(minutes||'') === 'walk';
+    const pats = (appData.patients||[]).map(pt => pt.id === pid ? { ...pt, pickupPlace: place, pickupMinutes: isWalk ? 'walk' : String(minutes||'').replace(/[^0-9]/g,'') } : pt);
+    let tp = plans;
+    if (isWalk) {
+      // 今日以降の保存済みプランで車・未割当にいる場合は徒歩欄へ(過去の実績は触らない)
+      const today = _iso(new Date()); let changed = false; tp = { ...plans };
+      Object.keys(tp).forEach(k => { const iso = k.slice(0, 10); if (iso < today) return; const pl0 = tp[k]; if (!pl0 || typeof pl0 !== 'object') return;
+        const pl = JSON.parse(JSON.stringify(pl0)); let hit = false;
+        Object.keys(pl.cars||{}).forEach(cid => { const i = (pl.cars[cid]||[]).findIndex(m => m.pid === pid); if (i >= 0) { pl.cars[cid].splice(i,1); hit = true; } });
+        const iu = (pl.un||[]).findIndex(m => m.pid === pid); if (iu >= 0) { pl.un.splice(iu,1); hit = true; }
+        if (hit && !(pl.walkers||[]).some(w => w.pid === pid)) { pl.walkers = pl.walkers || []; pl.walkers.push({ pid, t: '徒歩' }); }
+        if (hit) { tp[k] = { ...pl, _savedAt: syncNow() }; changed = true; } });
+      if (!changed) tp = plans;
+    }
+    onSave({ ...appData, patients: pats, ...(tp !== plans ? { transportPlans: tp } : {}) }, { silent: true });
   };
   const [routing, setRouting] = useState(null); // ★ 計算中のキー('iso_slot' | 'week')
   const [tpSettings, setTpSettings] = useState(false); // ★ 送迎表の設定モーダル(到着目標・出発・定員)
@@ -32885,10 +32901,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     while (fz > 8 && (half + 1) * (Math.ceil(fz * 1.3) + 5) > 640) fz--;
     const tbl = (list) => `<table style="border-collapse:collapse;width:100%;table-layout:fixed;">
       <colgroup><col style="width:${Math.round(fz*7.5)}px"/><col/><col style="width:${Math.round(fz*9.5)}px"/></colgroup>
-      <thead><tr>${['氏名','住所','電話'].map(h2=>`<th style="border:1px solid #66756b;background:#eef0ed;font-size:${Math.max(8,fz-1)}px;padding:1px 2px;">${h2}</th>`).join('')}</tr></thead>
+      <thead><tr>${['氏名','住所（待ち合わせ場所）','電話'].map(h2=>`<th style="border:1px solid #66756b;background:#eef0ed;font-size:${Math.max(8,fz-1)}px;padding:1px 2px;">${h2}</th>`).join('')}</tr></thead>
       <tbody>${list.map(pt => `<tr>
         <td style="border:1px solid #66756b;padding:1px 4px;font-size:${fz}px;font-weight:600;white-space:nowrap;overflow:hidden;">${_escP(pt.name)}</td>
-        <td style="border:1px solid #66756b;padding:1px 4px;font-size:${Math.max(8,fz-2)}px;line-height:1.3;">${_escP([pt.address, pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' '))}</td>
+        <td style="border:1px solid #66756b;padding:1px 4px;font-size:${Math.max(8,fz-2)}px;line-height:1.3;">${_escP([pt.address, pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' '))}${pt.pickupPlace?`<span style="color:#475569;">（${_escP(pt.pickupPlace)}）</span>`:''}${String(pt.pickupMinutes||'')==='walk'?`<span style="color:#047857;font-weight:700;">［徒歩］</span>`:''}</td>
         <td style="border:1px solid #66756b;padding:1px 2px;font-size:${Math.max(8,fz-1)}px;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;">${_escP(pt.phoneMobile || pt.phone || '')}</td>
       </tr>`).join('')}</tbody></table>`;
     return `<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
@@ -32940,21 +32956,25 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     // ★ 2026-09-16(店舗指摘): 実機で左右が見切れる→プリンタの印字可能域(約188×275mm)に縮小して中央配置
     //   ★ 2026-09-16c(店舗指摘): 印刷ホストがbody直下のmargin/paddingを0に強制するためmargin:autoの中央寄せが効かず左上に寄っていた
     //     →ページ全面ラッパー+flexで上下左右とも中央配置(marginに依存しない)
-    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${iso}`, pageSize: '210mm 297mm', html: `<div style="width:210mm;height:296mm;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden;"><div style="width:188mm;height:275mm;box-sizing:border-box;background:#fff;overflow:hidden;">${buildDailyPrintHtml(iso)}</div></div>`, elementId: null } }));
+    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${iso}`, pageSize: '210mm 297mm', html: `<div data-page-break="1" style="width:210mm;height:296mm;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden;"><div style="width:188mm;height:275mm;box-sizing:border-box;background:#fff;overflow:hidden;">${buildDailyPrintHtml(iso)}</div></div>`, elementId: null } }));
   };
   // ★ 日ごとの運行表(A4縦)を複数日まとめて印刷(2026-09-28)
   const doPrintDays = (isos) => {
-    const pages = (isos||[]).map((iso, i) => `<div style="${i>0?'page-break-before:always;':''}width:210mm;height:296mm;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden;"><div style="width:188mm;height:275mm;box-sizing:border-box;background:#fff;overflow:hidden;">${buildDailyPrintHtml(iso)}</div></div>`).join('');
+    const pages = (isos||[]).map((iso, i) => `<div data-page-break="1" style="${i>0?'page-break-before:always;':''}width:210mm;height:296mm;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden;"><div style="width:188mm;height:275mm;box-sizing:border-box;background:#fff;overflow:hidden;">${buildDailyPrintHtml(iso)}</div></div>`).join('');
     if (!pages) return;
     window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${isos[0]}${isos.length>1?`_他${isos.length-1}日`:''}`, pageSize: '210mm 297mm', html: pages, elementId: null } }));
   };
-  const doPrint = () => {
+  const doPrint = (content = 'sheet') => {
+    // ★ 2026-09-28: 内容は印刷モーダルで選択(sheet=運行表のみ / both=運行表+連絡先一覧 / contacts=連絡先一覧のみ)。confirm は廃止
     const html = buildPrintHtml();
-    // ★ 2枚目に連絡先一覧を付けるか選択(2026-09-16 店舗要望)
-    const withContacts = window.confirm('2枚目に「利用者連絡先一覧（住所・電話・五十音順）」も付けて印刷しますか？\n（キャンセル＝運行表1枚のみ）');
+    const withContacts = content === 'both' || content === 'contacts';
     // ★ 2026-09-16(店舗指摘): 実機で右端(金曜)が見切れる→印字可能域(約275×190mm)に縮小して中央配置
     // ★ 2026-09-16c(店舗指摘): margin:autoは印刷ホストのbody>*{margin:0!important}で無効化され左上に寄る→全面ラッパー+flexで中央配置
-    const _wrap = (inner, brk) => `<div style="${brk?'page-break-before:always;':''}width:297mm;height:209mm;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden;"><div style="width:275mm;height:190mm;box-sizing:border-box;background:#fff;overflow:hidden;">${inner}</div></div>`;
+    const _wrap = (inner, brk) => `<div data-page-break="1" style="${brk?'page-break-before:always;':''}width:297mm;height:209mm;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden;"><div style="width:275mm;height:190mm;box-sizing:border-box;background:#fff;overflow:hidden;">${inner}</div></div>`;
+    if (content === 'contacts') {
+      window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `利用者連絡先一覧_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: _wrap(buildContactsPageHtml(), false), elementId: null } }));
+      return;
+    }
     const page2 = withContacts ? _wrap(buildContactsPageHtml(), true) : '';
     window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `${_wrap(html, false)}${page2}`, elementId: null } }));
   };
@@ -32994,7 +33014,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           }} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="前の週の割り当て・時間・運転者・備考をこの週へ複製">前週コピー</button>
           <button onClick={autoRouteWeek} disabled={!!routing} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-sm disabled:opacity-50" title="未割当の自動割り当て+配車とお迎え時間をGoogleマップで週まとめて作成">{routing==='week'?'計算中…':'週間の配車＋時間計算'}</button>
           <button onClick={()=>setTpSettings(true)} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="到着目標時刻・車の定員の設定">設定</button>
-          <button onClick={()=>setPrintModal({ mode:'week', days:new Set(days.map(d=>_iso(d))) })} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-1.5"><Printer size={15}/>印刷</button>
+          <button onClick={()=>setPrintModal({ mode:'week', weekContent:'sheet', days:new Set(days.map(d=>_iso(d))) })} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">印刷</button>
         {/* ★ 使い方の説明: ホバーまたはタップで表示(2026-09-13c) */}
         <div className="relative" onMouseEnter={()=>setTpHelp(true)} onMouseLeave={()=>setTpHelp(false)}>
           <button onClick={()=>setTpHelp(v=>!v)} title="使い方の説明" className="w-9 h-9 rounded-full border border-slate-300 bg-white hover:bg-slate-50 text-slate-600 font-bold text-base leading-none">?</button>
@@ -33158,10 +33178,23 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               <button onClick={()=>setPrintModal(m=>({...m, mode:'week'}))} className={`flex-1 py-2 rounded-xl text-sm font-bold border ${printModal.mode==='week'?'bg-blue-600 text-white border-blue-600':'bg-white border-slate-300 text-slate-600'}`}>週間（A4横・1枚）</button>
               <button onClick={()=>setPrintModal(m=>({...m, mode:'days'}))} className={`flex-1 py-2 rounded-xl text-sm font-bold border ${printModal.mode==='days'?'bg-blue-600 text-white border-blue-600':'bg-white border-slate-300 text-slate-600'}`}>日ごと（A4縦・1日1枚）</button>
             </div>
+            {printModal.mode==='week' && (
+              <div className="border border-slate-200 rounded-xl p-3 mb-3">
+                <div className="text-xs font-bold text-slate-600 mb-1.5">印刷する内容</div>
+                <div className="flex flex-col gap-1.5">
+                  {[['sheet','運行表のみ（1枚）'],['both','運行表 ＋ 利用者連絡先一覧（2枚）'],['contacts','利用者連絡先一覧のみ（1枚）']].map(([k,l]) => (
+                    <label key={k} className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-bold cursor-pointer ${printModal.weekContent===k?'bg-blue-50 border-blue-300 text-blue-800':'bg-white border-slate-200 text-slate-600'}`}>
+                      <input type="radio" name="tp-week-content" checked={printModal.weekContent===k} onChange={()=>setPrintModal(m=>({...m, weekContent:k}))} className="accent-blue-600"/>{l}
+                    </label>
+                  ))}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1.5">連絡先一覧＝その週に利用する方の氏名・住所（待ち合わせ場所）・電話を五十音順で1枚に。</div>
+              </div>
+            )}
             {printModal.mode==='days' && (
               <div className="border border-slate-200 rounded-xl p-3 mb-3">
                 <div className="flex items-center justify-between mb-1.5"><span className="text-xs font-bold text-slate-600">印刷する日にチェック</span><span className="flex gap-2"><button onClick={()=>setPrintModal(m=>({...m, days:new Set(days.map(d=>_iso(d)))}))} className="text-[11px] text-blue-600 underline">すべて</button><button onClick={()=>setPrintModal(m=>({...m, days:new Set()}))} className="text-[11px] text-blue-600 underline">解除</button></span></div>
-                <div className="grid grid-cols-3 gap-1.5">
+                <div className="flex flex-col gap-1.5">
                   {days.map(d => { const iso = _iso(d); const on = printModal.days.has(iso); return (
                     <label key={iso} className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg border text-sm font-bold cursor-pointer ${on?'bg-blue-50 border-blue-300 text-blue-800':'bg-white border-slate-200 text-slate-600'}`}>
                       <input type="checkbox" checked={on} onChange={e=>setPrintModal(m=>{ const nd=new Set(m.days); if(e.target.checked) nd.add(iso); else nd.delete(iso); return {...m, days:nd}; })} className="accent-blue-600"/>
@@ -33174,7 +33207,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             )}
             <div className="flex gap-2">
               <button onClick={()=>setPrintModal(null)} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
-              <button onClick={()=>{ const pm = printModal; setPrintModal(null); if (pm.mode==='week') doPrint(); else doPrintDays(days.map(d=>_iso(d)).filter(iso=>pm.days.has(iso))); }} disabled={printModal.mode==='days' && printModal.days.size===0} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm disabled:opacity-40">印刷へ進む</button>
+              <button onClick={()=>{ const pm = printModal; setPrintModal(null); if (pm.mode==='week') doPrint(pm.weekContent||'sheet'); else doPrintDays(days.map(d=>_iso(d)).filter(iso=>pm.days.has(iso))); }} disabled={printModal.mode==='days' && printModal.days.size===0} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm disabled:opacity-40">印刷へ進む</button>
             </div>
           </div>
         </div>
@@ -33193,6 +33226,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               <select defaultValue={String(pt.pickupMinutes||'')} id="tp-edit-min" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none mb-4 bg-white">
                 <option value="">未設定（1分として計算）</option>
                 {Array.from({length:15},(_,i)=>i+1).map(v=><option key={v} value={v}>{v}分</option>)}
+                <option value="walk">徒歩（車を使わない・運行表は徒歩欄へ）</option>
               </select>
               <div className="flex justify-end gap-2">
                 <button onClick={()=>setEditP(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">閉じる</button>
@@ -36131,9 +36165,10 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                           <select disabled={isOff} value={String(localPatient.pickupMinutes || '')} onChange={e=>updateLP('pickupMinutes', e.target.value)} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none disabled:opacity-60">
                             <option value="">未設定（1分として計算）</option>
                             {Array.from({length:15},(_,i)=>i+1).map(v=><option key={v} value={v}>{v}分</option>)}
+                            <option value="walk">徒歩（車を使わない・運行表は徒歩欄へ）</option>
                           </select>
                         </div>
-                        <div className="col-span-2 text-[11px] text-slate-500">乗車にかかる時間=車を停めてから（マンション1階等）お部屋へお迎えに行き、車に乗せ終わるまでの時間。送迎表のルート自動作成で移動時間に上乗せして逆算に使います（未入力は1分）。</div>
+                        <div className="col-span-2 text-[11px] text-slate-500">乗車にかかる時間=車を停めてから（マンション1階等）お部屋へお迎えに行き、車に乗せ終わるまでの時間。送迎表のルート自動作成で移動時間に上乗せして逆算に使います（未入力は1分）。「徒歩」を選ぶと送迎表（運行表）では最初から徒歩欄に入り、車の配車対象になりません。</div>
                       </div>
                     </div>
                   </div>
