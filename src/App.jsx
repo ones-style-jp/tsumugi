@@ -11869,10 +11869,10 @@ function ScheduleView({ appData, onSave, navigateTo }) {
               )}
               {viewMode==='week' && (() => {
                 const wd = weekDaysOf(selDay);
-                const HStart=8, HEnd=19, hourH=42; const gridH=(HEnd-HStart)*hourH;
+                const HStart=8, HEnd=19, hourH=64; const gridH=(HEnd-HStart)*hourH; // ★ 2026-09-27: 30分の予定でも2行(件名＋利用者名)が入るよう 42→64px/時
                 const cols = `40px repeat(7,minmax(92px,1fr))`;
                 const toTop = (t) => { const a=String(t).split(':'); const mins=(Number(a[0])||0)*60+(Number(a[1])||0); return Math.max(0,(mins-HStart*60)/60*hourH); };
-                const durH = (e) => { if(!e.start) return hourH*0.5; const s=e.start.split(':'),en=(e.end||'').split(':'); const sm=(Number(s[0])||0)*60+(Number(s[1])||0); const em=en.length>=2?(Number(en[0])||0)*60+(Number(en[1])||0):sm+30; return Math.max(18,(Math.max(20,em-sm))/60*hourH); };
+                const durH = (e) => { if(!e.start) return hourH*0.5; const s=e.start.split(':'),en=(e.end||'').split(':'); const sm=(Number(s[0])||0)*60+(Number(s[1])||0); const em=en.length>=2?(Number(en[0])||0)*60+(Number(en[1])||0):sm+30; return Math.max(28,(Math.max(20,em-sm))/60*hourH); };
                 const dropCell = (ds) => dragEvId ? { onDragOver:ev=>ev.preventDefault(), onDrop:()=>{ const be=events.find(x=>x.id===dragEvId); if(be) moveEvent(be,ds); setDragEvId(null); } } : {};
                 return (
                   <div style={{overflowX:'auto'}}>
