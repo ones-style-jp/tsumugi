@@ -32357,6 +32357,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   };
   // ★ 利用者名タップで待ち合わせ場所・所要時間を編集(利用者マスタと同じ項目に保存・2026-09-12)
   const [editP, setEditP] = useState(null); // {pid}
+  // ★ 運転者候補: 日誌の担当職員から。役職が違うだけの同名は1件に(2026-09-28 ユーザー指摘)
+  const _driverNames = React.useMemo(() => { const seen = new Set(); const out = []; (ds.staff||[]).forEach(st => { const n = String(st?.name||'').trim(); if (!n || st._tempHelp) return; const k = normalizeName(n).replace(/[\s　]/g,''); if (seen.has(k)) return; seen.add(k); out.push(n); }); return out; }, [ds.staff]);
+  // ★ 印刷の選択(週間／日ごと・チェックした日だけ)(2026-09-28 ユーザー要望: 日ごとに5回押すのが手間)
+  const [printModal, setPrintModal] = useState(null); // {mode:'week'|'days', days:Set<iso>}
   // ★ 長押しドラッグ移動(2026-09-12h 店舗要望): 名前を長押し(0.2秒)→そのまま別の車/徒歩/その他/未割当へドロップ。
   //   行の上半分=その行の前に割り込み/下半分=その行の後ろ。矢印より直感的に並べ替え・車またぎができる。
   const [dragMv, setDragMv] = useState(null); // {pid, name, iso, x, y}
@@ -32938,6 +32942,12 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     //     →ページ全面ラッパー+flexで上下左右とも中央配置(marginに依存しない)
     window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${iso}`, pageSize: '210mm 297mm', html: `<div style="width:210mm;height:296mm;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden;"><div style="width:188mm;height:275mm;box-sizing:border-box;background:#fff;overflow:hidden;">${buildDailyPrintHtml(iso)}</div></div>`, elementId: null } }));
   };
+  // ★ 日ごとの運行表(A4縦)を複数日まとめて印刷(2026-09-28)
+  const doPrintDays = (isos) => {
+    const pages = (isos||[]).map((iso, i) => `<div style="${i>0?'page-break-before:always;':''}width:210mm;height:296mm;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden;"><div style="width:188mm;height:275mm;box-sizing:border-box;background:#fff;overflow:hidden;">${buildDailyPrintHtml(iso)}</div></div>`).join('');
+    if (!pages) return;
+    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${isos[0]}${isos.length>1?`_他${isos.length-1}日`:''}`, pageSize: '210mm 297mm', html: pages, elementId: null } }));
+  };
   const doPrint = () => {
     const html = buildPrintHtml();
     // ★ 2枚目に連絡先一覧を付けるか選択(2026-09-16 店舗要望)
@@ -32984,7 +32994,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           }} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="前の週の割り当て・時間・運転者・備考をこの週へ複製">前週コピー</button>
           <button onClick={autoRouteWeek} disabled={!!routing} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-sm disabled:opacity-50" title="未割当の自動割り当て+配車とお迎え時間をGoogleマップで週まとめて作成">{routing==='week'?'計算中…':'週間の配車＋時間計算'}</button>
           <button onClick={()=>setTpSettings(true)} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="到着目標時刻・車の定員の設定">設定</button>
-          <button onClick={doPrint} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-1.5"><Printer size={15}/>印刷(A4横・週間)</button>
+          <button onClick={()=>setPrintModal({ mode:'week', days:new Set(days.map(d=>_iso(d))) })} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-1.5"><Printer size={15}/>印刷</button>
         {/* ★ 使い方の説明: ホバーまたはタップで表示(2026-09-13c) */}
         <div className="relative" onMouseEnter={()=>setTpHelp(true)} onMouseLeave={()=>setTpHelp(false)}>
           <button onClick={()=>setTpHelp(v=>!v)} title="使い方の説明" className="w-9 h-9 rounded-full border border-slate-300 bg-white hover:bg-slate-50 text-slate-600 font-bold text-base leading-none">?</button>
@@ -33026,17 +33036,15 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                           <div key={c.id} data-tpdrop={c.id} data-tpiso={iso} data-tpslot={sl} className={`border rounded-lg overflow-hidden ${dragMv&&dragMv.over&&dragMv.over.zone===c.id&&dragMv.over.iso===iso&&dragMv.over.slot===sl?'border-blue-600 ring-2 ring-blue-300':(dragMv?'border-blue-300':'border-slate-300')}`}>
                             {/* ★ 2026-09-14 デザイン刷新: 車名(太字)を1段目・運転者/ナビを2段目に。人数/定員の常時表示は廃止(超過時のみ警告)。氏名/時間の列見出しを追加 */}
                             <div className="bg-slate-100 px-2 pt-1.5 pb-1 border-b border-slate-300">
-                              <div className="flex items-center gap-2">
-                                <span className="font-bold text-[16px] text-slate-800 truncate">{c.name}</span>
+                              {/* ★ 2026-09-28(ユーザー要望): 車名の右に運転者・ナビを1行で。運転者候補は役職違いの同名を1件に集約 */}
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-bold text-[15px] text-slate-800 truncate shrink-0 max-w-[45%]">{c.name}</span>
                                 {(Number(c.cap)>0 && (pl.cars?.[c.id]||[]).length>Number(c.cap)) && <span className="text-[10px] font-extrabold text-white bg-red-600 rounded px-1.5 py-0.5 shrink-0">定員超過</span>}
-                              </div>
-                              <div className="flex items-center gap-1.5 mt-1">
-                                <label className="text-[10px] text-slate-500 shrink-0">運転者</label>
-                                <select value={(pl.driver||{})[c.id]||''} onChange={e=>setDriver(iso, sl, c.id, e.target.value)} title="運転者" className="text-[13px] font-bold border border-slate-300 rounded bg-white px-1 py-1.5 flex-1 min-w-0">
-                                  <option value="">未選択</option>
-                                  {(ds.staff||[]).filter(st=>st.name).map(st=><option key={st.id} value={st.name}>{st.name}</option>)}
+                                <select value={(pl.driver||{})[c.id]||''} onChange={e=>setDriver(iso, sl, c.id, e.target.value)} title="運転者" className="text-[12px] font-bold border border-slate-300 rounded bg-white px-1 py-1 flex-1 min-w-0">
+                                  <option value="">運転者: 未選択</option>
+                                  {_driverNames.map(n=><option key={n} value={n}>{n}</option>)}
                                 </select>
-                                <button onClick={()=>openNavi(iso, sl, c.id)} title="この車の乗車順でGoogleマップの経路案内を開く" className="text-[11px] font-bold text-blue-600 border border-blue-300 rounded px-2 py-1.5 bg-white hover:bg-blue-50 shrink-0">ナビ</button>
+                                <button onClick={()=>openNavi(iso, sl, c.id)} title="この車の乗車順でGoogleマップの経路案内を開く" className="text-[11px] font-bold text-blue-600 border border-blue-300 rounded px-2 py-1 bg-white hover:bg-blue-50 shrink-0">ナビ</button>
                               </div>
                             </div>
                             <div className="flex items-center justify-between px-2 py-0.5 text-[10px] text-slate-400 font-bold border-b border-slate-100"><span className="pl-6">氏名</span><span className="w-16 text-center shrink-0">時間</span></div>
@@ -33047,7 +33055,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                                 <button onClick={()=>toggleMark(iso, sl, m.pid)} title="お迎え時間変更の印(TEL)" className="shrink-0 w-6 h-8 flex items-center justify-center">
                                   <span className={`w-4 h-4 rounded-full border text-[9px] leading-4 text-center font-bold ${m.mark?'bg-red-600 border-red-600 text-white':'border-slate-300 text-transparent'}`}>●</span>
                                 </button>
-                                <button onClick={()=>{ if (!dragMv) setEditP({pid:m.pid}); }} {..._dragHandlers(m.pid, iso, sl)} title="タップ=場所・乗車時間の編集 / 長押し=つかんで移動(別の日に落とすと振替)" className="text-[16px] font-bold text-slate-800 flex-1 min-w-0 text-left leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{overflowWrap:"anywhere", touchAction:'pan-y'}}>{_pname(m.pid)}</button>
+                                <button onClick={()=>{ if (!dragMv) setEditP({pid:m.pid}); }} {..._dragHandlers(m.pid, iso, sl)} title="タップ=場所・乗車時間の編集 / 長押し=つかんで移動(別の日に落とすと振替)" className="text-[16px] font-bold text-slate-800 flex-1 min-w-0 text-left leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{touchAction:'pan-y'}}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></button>
                                 <input type="text" value={_fmtT(m.t)} onChange={e=>setTime(iso, sl, m.pid, e.target.value)} placeholder="—:—" className={`w-[58px] text-center text-[16px] font-bold border rounded px-0.5 py-1 outline-none shrink-0 ${m.mark?'border-red-400 text-red-600':'border-slate-300'}`} style={{fontVariantNumeric:'tabular-nums'}}/>
                               </div>
                             ))}
@@ -33059,7 +33067,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                             <div className="text-[11px] font-bold text-emerald-700 mb-0.5">徒歩</div>
                             {(pl.walkers||[]).map(m => (
                               <div key={m.pid} className={`flex items-center gap-1 text-[15px] font-bold text-slate-700 py-1 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''}`}>
-                                <span className="flex-1 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{overflowWrap:'anywhere', touchAction:'pan-y'}} {..._dragHandlers(m.pid, iso, sl)}>{_pname(m.pid)}</span>
+                                <span className="flex-1 min-w-0 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{touchAction:'pan-y'}} {..._dragHandlers(m.pid, iso, sl)}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></span>
                               </div>
                             ))}
                             {!(pl.walkers||[]).length && <div className="text-[10px] text-emerald-500">ここにドロップで徒歩</div>}
@@ -33070,7 +33078,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                             <div className="text-[11px] font-bold text-violet-700 mb-0.5">その他（家族送迎・遅れて来所など）</div>
                             {(pl.others||[]).map(m => (
                               <div key={m.pid} className={`flex items-center gap-1 text-[15px] font-bold text-slate-700 py-1 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''}`}>
-                                <span className="flex-1 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{overflowWrap:'anywhere', touchAction:'pan-y'}} {..._dragHandlers(m.pid, iso, sl)}>{_pname(m.pid)}</span>
+                                <span className="flex-1 min-w-0 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{touchAction:'pan-y'}} {..._dragHandlers(m.pid, iso, sl)}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></span>
                               </div>
                             ))}
                             {!(pl.others||[]).length && <div className="text-[10px] text-violet-500">ここにドロップでその他</div>}
@@ -33082,7 +33090,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                             <div className="text-[10px] font-bold text-amber-700 flex items-center leading-tight">未割当 {(pl.un||[]).length}名<span className="ml-auto font-normal text-amber-600 text-[9px]">車へ移動してください</span></div>
                             {(pl.un||[]).map(m => (
                               <div key={m.pid} className={`flex items-center gap-1 text-[15px] font-bold text-slate-700 py-0 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''} ${_isFurikae(iso, sl, m.pid)?'bg-emerald-100 rounded':(_isFirstVisit(m.pid, iso)?'bg-sky-100 rounded':'')}`}>
-                                <span className="flex-1 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2 px-1" style={{overflowWrap:'anywhere', touchAction:'pan-y'}} {..._dragHandlers(m.pid, iso, sl)}>{_pname(m.pid)}</span>
+                                <span className="flex-1 min-w-0 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2 px-1" style={{touchAction:'pan-y'}} {..._dragHandlers(m.pid, iso, sl)}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></span>
                                 <span className="text-[12px] text-slate-500" style={{fontVariantNumeric:'tabular-nums'}}>{_fmtT(m.t)}</span>
                               </div>
                             ))}
@@ -33142,6 +33150,35 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         </div>
       </div>
       {/* ★ 利用者名タップ: 待ち合わせ場所・所要時間の編集(利用者マスタと共通の項目・2026-09-12) */}
+      {printModal && (
+        <div className="fixed inset-0 bg-slate-900/60 z-[70] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5" onClick={e=>e.stopPropagation()}>
+            <div className="text-base font-bold text-slate-800 mb-3">送迎表を印刷</div>
+            <div className="flex gap-2 mb-3">
+              <button onClick={()=>setPrintModal(m=>({...m, mode:'week'}))} className={`flex-1 py-2 rounded-xl text-sm font-bold border ${printModal.mode==='week'?'bg-blue-600 text-white border-blue-600':'bg-white border-slate-300 text-slate-600'}`}>週間（A4横・1枚）</button>
+              <button onClick={()=>setPrintModal(m=>({...m, mode:'days'}))} className={`flex-1 py-2 rounded-xl text-sm font-bold border ${printModal.mode==='days'?'bg-blue-600 text-white border-blue-600':'bg-white border-slate-300 text-slate-600'}`}>日ごと（A4縦・1日1枚）</button>
+            </div>
+            {printModal.mode==='days' && (
+              <div className="border border-slate-200 rounded-xl p-3 mb-3">
+                <div className="flex items-center justify-between mb-1.5"><span className="text-xs font-bold text-slate-600">印刷する日にチェック</span><span className="flex gap-2"><button onClick={()=>setPrintModal(m=>({...m, days:new Set(days.map(d=>_iso(d)))}))} className="text-[11px] text-blue-600 underline">すべて</button><button onClick={()=>setPrintModal(m=>({...m, days:new Set()}))} className="text-[11px] text-blue-600 underline">解除</button></span></div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {days.map(d => { const iso = _iso(d); const on = printModal.days.has(iso); return (
+                    <label key={iso} className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg border text-sm font-bold cursor-pointer ${on?'bg-blue-50 border-blue-300 text-blue-800':'bg-white border-slate-200 text-slate-600'}`}>
+                      <input type="checkbox" checked={on} onChange={e=>setPrintModal(m=>{ const nd=new Set(m.days); if(e.target.checked) nd.add(iso); else nd.delete(iso); return {...m, days:nd}; })} className="accent-blue-600"/>
+                      {d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）
+                    </label>
+                  ); })}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1.5">住所・電話番号つき・大きな文字の運行表を、チェックした日の分だけ続けて印刷します。</div>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button onClick={()=>setPrintModal(null)} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
+              <button onClick={()=>{ const pm = printModal; setPrintModal(null); if (pm.mode==='week') doPrint(); else doPrintDays(days.map(d=>_iso(d)).filter(iso=>pm.days.has(iso))); }} disabled={printModal.mode==='days' && printModal.days.size===0} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm disabled:opacity-40">印刷へ進む</button>
+            </div>
+          </div>
+        </div>
+      )}
       {editP && ReactDOM.createPortal((() => {
         const pt = (appData.patients||[]).find(x => x.id === editP.pid);
         if (!pt) return null;
