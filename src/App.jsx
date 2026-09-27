@@ -16858,6 +16858,18 @@ function AdminAuthModal({ mode, adminName, existingHash, onSuccess, onCancel, on
 // ★ スタッフを職種別に分ける(2026-09-27 ユーザー要望: ログインの「どなたですか」とサイドバーのスタッフ切替を登録順でなく職種別に)
 //   並び: 管理者 → 機能訓練指導員 → 生活相談員 → 介護職員 → 看護職員 → その他。各グループ内は登録順のまま。
 const STAFF_ROLE_GROUPS = ['管理者','機能訓練指導員','生活相談員','介護職員','看護師'];
+// ★ 職員の保有資格(2026-09-27 ユーザー要望): 役職に合った資格だけをプルダウンに出す(介護職員に看護資格は出さない等)。
+//   全役職共通のものは STAFF_QUALS_COMMON。1人につき2つまで。役職も主・副の2つまで(管理者不在時の代行など)。
+const STAFF_QUALS_COMMON = ['介護支援専門員（ケアマネジャー）','主任介護支援専門員','認知症介護基礎研修','認知症介護実践者研修','認知症介護実践リーダー研修','認知症介護指導者養成研修','認知症ケア専門士','福祉用具専門相談員','介護予防運動指導員','レクリエーション介護士','防火管理者','普通自動車免許（送迎）'];
+const STAFF_QUALS_BY_ROLE = {
+  '管理者': ['介護福祉士','社会福祉士','精神保健福祉士','社会福祉主事任用資格','介護福祉士実務者研修','介護職員初任者研修','看護師','准看護師','理学療法士','作業療法士','言語聴覚士','柔道整復師'],
+  '生活相談員': ['社会福祉士','精神保健福祉士','社会福祉主事任用資格','介護福祉士','介護福祉士実務者研修','介護職員初任者研修','保育士（自治体要件）'],
+  '機能訓練指導員': ['理学療法士','作業療法士','言語聴覚士','看護師','准看護師','柔道整復師','あん摩マッサージ指圧師','はり師（実務経験6か月以上）','きゅう師（実務経験6か月以上）'],
+  '看護師': ['看護師','准看護師','保健師','助産師','認定看護師','特定行為研修修了'],
+  '介護職員': ['介護福祉士','認定介護福祉士','介護福祉士実務者研修','介護職員初任者研修','旧ホームヘルパー1級','旧ホームヘルパー2級','旧介護職員基礎研修','生活援助従事者研修','喀痰吸引等研修（第1号・第2号）','喀痰吸引等研修（第3号）','介護事務'],
+};
+const staffQualOptions = (role, role2) => { const out = []; [role, role2].forEach(r => (STAFF_QUALS_BY_ROLE[r] || []).forEach(q => { if (!out.includes(q)) out.push(q); })); STAFF_QUALS_COMMON.forEach(q => { if (!out.includes(q)) out.push(q); }); return out; };
+const staffRoleText = (m) => { const r1 = m?.roleLabel || m?.role || ''; const r2 = m?.role2 || ''; return r2 && r2 !== r1 ? `${r1}／${r2}` : r1; };
 const staffRoleGroupLabel = (r) => r === '看護師' ? '看護職員' : (r || 'その他');
 const groupStaffByRole = (members) => {
   const list = Array.isArray(members) ? members.filter(Boolean) : [];
@@ -16938,7 +16950,7 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
                       onMouseLeave={e=>{e.currentTarget.style.background='#f4f8ed';e.currentTarget.style.color='#3d5021';}}>
                       <div style={{fontSize:24,marginBottom:6}}></div>
                       <div style={{lineHeight:1.3}}>{m.name}</div>
-                      {m.roleLabel && <div style={{fontSize:10,opacity:0.7,marginTop:3,fontWeight:'normal'}}>{m.roleLabel}</div>}
+                      {m.roleLabel && <div style={{fontSize:10,opacity:0.7,marginTop:3,fontWeight:'normal'}}>{staffRoleText(m)}</div>}
                     </button>
                     {canManage && (
                       <button onClick={()=>{ if(window.confirm(`「${m.name}」を削除しますか？`)) onRemoveMember(m.id); }}
@@ -21529,7 +21541,7 @@ export default function App() {
                                 className={`flex-1 min-w-0 text-left px-4 py-2 text-[11px] font-bold flex items-center justify-between ${isCurrent ? 'text-white cursor-default' : 'text-emerald-100'}`}>
                                 <span className="flex items-center gap-1.5 truncate">
                                   <span></span>
-                                  <span className="truncate">{m.name}{m.roleLabel && <span className="text-[9px] opacity-70 ml-1">({m.roleLabel})</span>}</span>
+                                  <span className="truncate">{m.name}{m.roleLabel && <span className="text-[9px] opacity-70 ml-1">({staffRoleText(m)})</span>}</span>
                                 </span>
                                 <span className="text-[9px] opacity-70 ml-1 whitespace-nowrap">
                                   {isCurrent ? '✓ 現在' : '切替 →'}
@@ -38663,17 +38675,22 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
         _staff = _staff.map(s => _nm(s.name)===_nm(_adminName) ? { ...s, role:'管理者' } : s);
       }
     }
+    // ★ 副役職が主役職と同じなら空に(管理者名の自動正規化で主が管理者に変わった場合など・2026-09-28)
+    _staff = _staff.map(s => (s && s.role2 && s.role2 === s.role) ? { ...s, role2: '' } : s);
     diarySettings = { ...diarySettings, staff: _staff };
     // ★ 担当職員(diarySettings.staff)を master としてスタッフ切替(storeMembers)を同期。
     //   担当職員から削除した人はスタッフ切替からも消え、残った人は維持(相互反映・重複は集約)。
     const _staffKeys = new Set((diarySettings.staff||[]).filter(s=>s&&s.name&&s.name.trim()).map(s => `${normalizeName(s.name||'').trim()}|${s.role||''}`));
-    let _syncedStoreMembers = (appData.storeMembers||[]).filter(m => m && m.name && _staffKeys.has(`${normalizeName(m.name||'').trim()}|${m.roleLabel||''}`));
+    let _syncedStoreMembers = (appData.storeMembers||[]).filter(m => m && m.name && _staffKeys.has(`${normalizeName(m.name||'').trim()}|${m.roleLabel||''}`))
+      .map(m => { const ds = (diarySettings.staff||[]).find(x => x && normalizeName(x.name||'').trim()===normalizeName(m.name||'').trim() && (x.role||'')===(m.roleLabel||'')); return ds ? { ...m, role2: ds.role2||'', quals: (ds.quals||[]).filter(Boolean) } : m; }); // ★ 副役職・資格をスタッフ切替にも反映(2026-09-27)
     // ★ 管理者はスタッフ切替(storeMembers)にも「管理者」として確実に反映
     if (_adminName) {
+      const _dsAdm = _staff.find(x => x && _nm(x.name)===_nm(_adminName) && x.role==='管理者') || _staff.find(x => x && _nm(x.name)===_nm(_adminName));
+      const _admExtra = { role2: _dsAdm?.role2 || '', quals: (_dsAdm?.quals || []).filter(Boolean) };
       if (_syncedStoreMembers.some(m=>_nm(m.name)===_nm(_adminName))) {
-        _syncedStoreMembers = _syncedStoreMembers.map(m => _nm(m.name)===_nm(_adminName) ? { ...m, roleLabel:'管理者', isAdmin:true } : m);
+        _syncedStoreMembers = _syncedStoreMembers.map(m => _nm(m.name)===_nm(_adminName) ? { ...m, roleLabel:'管理者', isAdmin:true, ..._admExtra } : m);
       } else {
-        _syncedStoreMembers = [..._syncedStoreMembers, { id:`mem_admin_${Date.now()}`, name:_adminName, roleLabel:'管理者', isAdmin:true, addedAt:new Date().toISOString() }];
+        _syncedStoreMembers = [..._syncedStoreMembers, { id:`mem_admin_${Date.now()}`, name:_adminName, roleLabel:'管理者', isAdmin:true, addedAt:new Date().toISOString(), ..._admExtra }];
       }
     }
     // ★ 同意ポリシーは全店共通(管理局コンソールで編集)へ移設したため、ここでは保存しない。
@@ -40625,7 +40642,7 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
   return (
     <div className="space-y-6">
       <SC title="担当職員">
-        <p className="text-xs text-slate-500 mb-3">役職と名前を設定します。 (同名+同役職の重複は自動的に1件にまとめて表示)</p>
+        <p className="text-xs text-slate-500 mb-3">役職・名前・保有資格を設定します。役職は主と副の2つまで（管理者不在時に生活相談員が代行する等）、資格は役職に合ったものから2つまで選べます。 (同名+同役職の重複は自動的に1件にまとめて表示)</p>
         <div className="space-y-2">
           {/* ★ 同じ姓名 + 役職の重複を表示時に排除 (既存データの重複も画面上は 1 件に) */}
           {(() => {
@@ -40638,13 +40655,18 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
               return true;
             }).map((s, _ri) => ({s, i: ds.staff.indexOf(s)}));
           })().map(({s, i})=>(
-            <div key={s.id} className="flex items-center gap-2">
-              <select defaultValue={s.role} onChange={e=>onBlurStaff(i,'role',e.target.value)} className="w-[160px] px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400">
+            <div key={s.id} className="bg-white border border-slate-200 rounded-xl p-2 space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <select value={s.role||''} onChange={e=>{ onBlurStaff(i,'role',e.target.value); setRenderKey(k=>k+1); }} title="役職（主）" className="w-[150px] px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400">
                 <option value="管理者">管理者</option>
                 <option value="生活相談員">生活相談員</option>
                 <option value="機能訓練指導員">機能訓練指導員</option>
                 <option value="看護師">看護師</option>
                 <option value="介護職員">介護職員</option>
+              </select>
+              <select value={s.role2||''} onChange={e=>{ onBlurStaff(i,'role2',e.target.value); setRenderKey(k=>k+1); }} title="役職（副・兼務）" className="w-[150px] px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none focus:border-blue-400 text-slate-600">
+                <option value="">副の役職: なし</option>
+                {['管理者','生活相談員','機能訓練指導員','看護師','介護職員'].filter(r=>r!==s.role).map(r=><option key={r} value={r}>副: {r}</option>)}
               </select>
               {/* ★ 姓・名を分割入力。 onBlur で結合した name フィールドも同時に更新 (既存表示と互換) */}
               <input defaultValue={s.lastName ?? ((s.name||'').split(/[ 　]+/)[0]||'')}
@@ -40668,6 +40690,18 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
                 placeholder="名"
                 className="w-[110px] px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
               <button onClick={()=>mutate({...dsRef.current,staff:dsRef.current.staff.filter((_,j)=>j!==i)})} className="text-red-400 hover:text-red-600 shrink-0"><X size={16}/></button>
+            </div>
+            {/* ★ 保有資格(2つまで・役職に合ったものだけ) */}
+            <div className="flex items-center gap-2 flex-wrap pl-1">
+              <span className="text-[11px] font-bold text-slate-500 w-[64px]">保有資格</span>
+              {[0,1].map(qi => { const opts = staffQualOptions(s.role, s.role2); const cur = (s.quals||[])[qi] || ''; const other = (s.quals||[])[qi===0?1:0] || ''; return (
+                <select key={qi} value={cur} onChange={e=>{ const q=[...(s.quals||['',''])]; q[qi]=e.target.value; onBlurStaff(i,'quals',q); setRenderKey(k=>k+1); }} className="w-[230px] px-2 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-400">
+                  <option value="">— 資格{qi+1}（任意）—</option>
+                  {opts.filter(o=>o!==other || o===cur).map(o=><option key={o} value={o}>{o}</option>)}
+                  {cur && !opts.includes(cur) && <option value={cur}>{cur}</option>}
+                </select>
+              ); })}
+            </div>
             </div>
           ))}
           <button onClick={()=>{
