@@ -704,8 +704,8 @@ HTML ファイルをブラウザで開き、
     <div className="bg-blue-50 border-2 border-blue-300 rounded-xl p-4 mt-4">
       <h4 className="text-sm font-bold text-blue-800 mb-2 flex items-center gap-2">データ一括エクスポート (ZIP)</h4>
       <p className="text-xs text-slate-700 mb-3 leading-relaxed">
-        期間を指定して、利用者情報・提供記録・連絡帳・モニタリング・体力測定・日誌・お知らせ・写真などを 1 つの ZIP ファイルにまとめてダウンロードします。<br/>
-        ローカル PC（デスクトップ等）に保存しておけば、アプリ側のデータを安心して削除して空き容量を確保できます。
+        利用者基本情報（緊急連絡先・ケアマネ事業所/担当者を含む）を CSV にまとめ、1 つの ZIP ファイルでダウンロードします。<br/>
+        提供記録・連絡帳・モニタリング・体力測定・日誌などの記録は、それぞれの画面の印刷・PDF から出力してください（この一括エクスポートには含まれません）。
       </p>
       <div className="bg-white border border-slate-200 rounded-lg p-3 space-y-3">
         {/* 期間選択 */}
