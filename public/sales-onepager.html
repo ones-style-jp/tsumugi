@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>つむぎ ご案内（ご家族向け・ケアマネジャー向け）</title>
+<style>
+  :root{--ink:#1f2a1a;--sub:#5b6650;--line:#dfe5d6;--green:#4f7a2a;--green-l:#eef5e4;--green-d:#2f4a1a;--amber:#b7791f;--amber-l:#fbf3df;--blue:#2b5fb3;--blue-l:#eaf1fb;--paper:#fff;}
+  *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{margin:0;background:#e9ece4;font-family:'Hiragino Kaku Gothic ProN','Hiragino Sans','Yu Gothic','Noto Sans JP','Meiryo',sans-serif;color:var(--ink);line-height:1.5;font-size:11.5px}
+  .page{width:210mm;height:297mm;background:var(--paper);margin:8mm auto;padding:10mm 11mm 8mm;box-shadow:0 6px 24px rgba(0,0,0,.12);position:relative;page-break-after:always;display:flex;flex-direction:column;overflow:hidden}
+  .page:last-child{page-break-after:auto}
+  .head{display:flex;align-items:flex-end;gap:10px;border-bottom:3px solid var(--green);padding-bottom:6px}
+  .head img{width:120px;height:auto}
+  .head .t{flex:1}
+  .eyebrow{font-size:10px;letter-spacing:.18em;color:var(--green);font-weight:700}
+  h1{font-size:21px;margin:2px 0 0;color:var(--green-d);letter-spacing:.02em;line-height:1.25}
+  .lead{font-size:12.5px;color:var(--sub);margin:6px 0 0;font-weight:700}
+  .hero{display:grid;grid-template-columns:52mm 1fr;gap:6mm;margin-top:4mm}
+  .phone{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+  .phone img{width:100%;height:auto;display:block}
+  .stack{display:flex;flex-direction:column;gap:3mm}
+  .shot{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
+  .shot img{width:100%;display:block;height:auto}
+  .shot.h{height:36mm}.shot.h img{height:100%;object-fit:cover;object-position:top}
+  .shot.h1{height:41mm}.shot.h2{height:35mm}.shot.h3{height:25mm}
+  .shot.h1 img,.shot.h2 img,.shot.h3 img{height:100%;object-fit:cover;object-position:top}
+  .shot.modal{height:62mm}.shot.modal img{width:160%;margin-left:-30%;height:100%;object-fit:cover;object-position:center top}
+  .cap{font-size:10px;color:var(--sub);text-align:center;margin-top:2px}
+  h2{font-size:14px;margin:4.5mm 0 2.5mm;color:var(--green-d);display:flex;align-items:center;gap:8px}
+  h2::after{content:'';flex:1;height:1px;background:var(--line)}
+  .feat{display:grid;grid-template-columns:1fr 1fr 1fr;gap:3mm}
+  .card{border:1px solid var(--line);border-radius:8px;padding:6px 9px;background:#fff}
+  .card.g{background:var(--green-l);border-color:#cfe0bb}
+  .card b{display:block;color:var(--green-d);font-size:12px;margin-bottom:2px}
+  .card p{margin:0;font-size:10.5px;color:var(--ink)}
+  .flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:stretch;gap:4px;margin-top:2mm}
+  .step{border:2px solid var(--green);border-radius:8px;padding:5px 9px;background:#fff}
+  .step b{display:block;color:var(--green-d);font-size:11.5px}
+  .step span{font-size:10px;color:var(--sub)}
+  .arr{align-self:center;color:var(--green);font-size:18px;font-weight:700}
+  .foot{margin-top:auto;padding-top:6px;border-top:1px solid var(--line);font-size:9.5px;color:var(--sub);display:flex;justify-content:space-between;align-items:flex-end;gap:10px}
+  .contact{border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:11px;min-width:88mm;color:var(--ink)}
+  .contact .l{display:inline-block;width:14mm;color:var(--sub);font-size:10px}
+  .contact .u{display:inline-block;border-bottom:1px solid #94a3b8;min-width:66mm;height:14px;vertical-align:bottom}
+  .pill{display:inline-block;padding:0 7px;border-radius:999px;font-size:9.5px;font-weight:700;background:var(--amber-l);color:var(--amber);margin-left:6px;vertical-align:middle}
+  @media print{body{background:#fff}.page{margin:0;box-shadow:none}}
+  @page{size:A4 portrait;margin:0}
+</style>
+</head>
+<body>
+
+<!-- ご家族向け -->
+<div class="page">
+  <div class="head">
+    <img src="/preview/tsumugi-logo-full-transparent.png" alt="つむぎ">
+    <div class="t">
+      <div class="eyebrow">ご家族向けご案内</div>
+      <h1>デイサービスでの様子を、その日のうちにスマホで。</h1>
+      <p class="lead">「つむぎ」は、ご利用者ご本人の通所記録・体調・お知らせを、ご家族がいつでも見られる専用ページです。</p>
+    </div>
+  </div>
+
+  <div class="hero">
+    <div>
+      <div class="phone"><img src="/manual/img/sales_family_sp_today.jpg" alt="スマホでその日の記録を見る"></div>
+      <div class="cap">スマホ画面（その日の記録）</div>
+    </div>
+    <div class="stack">
+      <div class="shot h1"><img src="/manual/img/sales_family_pc_today.jpg" alt="今回の様子・今回の記録"></div>
+      <div class="cap" style="margin-top:-1px">「今回の様子」と、気分・体温・血圧・運動メニュー（前回との比較つき）</div>
+      <div class="shot h2"><img src="/manual/img/sales_family_pc_bp.jpg" alt="血圧の日別グラフ"></div>
+      <div class="cap" style="margin-top:-1px">血圧・体温・脈拍は日別グラフで。平均・最高・最低も一目で</div>
+      <div class="shot h3"><img src="/manual/img/sales_family_pc_notice_open.jpg" alt="お知らせ"></div>
+      <div class="cap" style="margin-top:-1px">行事や担当者会議などのお知らせ</div>
+    </div>
+  </div>
+
+  <h2>ご家族ができること</h2>
+  <div class="feat">
+    <div class="card g"><b>その日の様子がわかる</b><p>職員が記録した「今回の様子」、来所時と帰宅時の気分、体温・血圧・脈拍、行った運動メニューを、通所したその日に確認できます。</p></div>
+    <div class="card"><b>変化がグラフで見える</b><p>血圧・体温・脈拍の日別グラフ、気分の推移、通所率（出席・欠席）を期間を選んで表示。受診時の説明にも使えます。</p></div>
+    <div class="card"><b>お知らせが届く</b><p>行事のご案内、予防接種、担当者会議の予定など、事業所からの全体・個別のお知らせをまとめて読めます。</p></div>
+    <div class="card"><b>ご家族で共有できる</b><p>代表者のほか2名まで登録でき、離れて暮らすご家族も同じ画面を見られます。ご自身の連絡先はいつでも変更できます。</p></div>
+    <div class="card"><b>いつでも、どこでも</b><p>スマホ・タブレット・パソコンのブラウザで利用できます。「ホーム画面に追加」すればアプリのようにワンタップで開けます。</p></div>
+    <div class="card"><b>安心の設計</b><p>閲覧はご本人（またはご家族）の同意のもと、ご家族ごとのIDでログイン。通信は暗号化され、閲覧専用のため記録が書き換わることはありません。</p></div>
+  </div>
+
+  <h2>はじめかた<span class="pill">登録は3分</span></h2>
+  <div class="flow">
+    <div class="step"><b>1. 事業所から招待</b><span>招待メール、または紙の「登録のご案内」（QRコードと8桁の招待コード）をお渡しします。</span></div>
+    <div class="arr">→</div>
+    <div class="step"><b>2. お名前と連絡先を登録</b><span>案内の手順どおりに、お名前・続柄・電話番号・ログインID・パスワードを入力します。招待コードは3日間有効です。</span></div>
+    <div class="arr">→</div>
+    <div class="step"><b>3. ログインして閲覧</b><span>次回からはIDとパスワードでログイン。「ホーム画面に追加」でアプリのように使えます。パスワードを忘れてもメールで再設定できます。</span></div>
+  </div>
+
+  <div class="foot">
+    <div>画面はすべて見本（架空）データです。実際の表示は事業所の設定・記録内容により異なります。</div>
+    <div class="contact"><span class="l">事業所</span><span class="u"></span><br><span class="l">電話</span><span class="u"></span></div>
+  </div>
+</div>
+
+<!-- ケアマネジャー向け -->
+<div class="page">
+  <div class="head">
+    <img src="/preview/tsumugi-logo-full-transparent.png" alt="つむぎ">
+    <div class="t">
+      <div class="eyebrow">ケアマネジャー・関係者向けご案内</div>
+      <h1>担当のご利用者の通所状況を、電話をかけずに確認。</h1>
+      <p class="lead">「つむぎ」は、通所記録の閲覧から、フェイスシート・保険証・アセスメントの共有まで、事業所とのやりとりをオンラインでまとめる専用ページです。</p>
+    </div>
+  </div>
+
+  <div class="hero" style="grid-template-columns:1fr 1fr">
+    <div class="stack">
+      <div class="shot modal"><img src="/manual/img/sales_cm_pc_docs.jpg" alt="保険証・負担割合証・アセスメントの共有"></div>
+      <div class="cap" style="margin-top:-1px">保険証・負担割合証・アセスメントを写真/PDFで共有。介護度・認定期間は事業所の利用者マスタに自動反映</div>
+      <div class="shot"><img src="/manual/img/sales_family_pc_rate.jpg" alt="通所率"></div>
+      <div class="cap" style="margin-top:-1px">通所率（出席・欠席）</div>
+    </div>
+    <div class="stack">
+      <div class="shot modal"><img src="/manual/img/sales_cm_pc_facesheet.jpg" alt="フェイスシート"></div>
+      <div class="cap" style="margin-top:-1px">フェイスシートの登録・更新。事業所側の個人ファイルに反映されます</div>
+      <div class="shot"><img src="/manual/img/sales_family_pc_bp.jpg" alt="血圧の日別グラフ"></div>
+      <div class="cap" style="margin-top:-1px">血圧・体温・脈拍の日別グラフ、気分の推移</div>
+    </div>
+  </div>
+
+  <h2>ケアマネジャーができること</h2>
+  <div class="feat">
+    <div class="card g"><b>通所記録をいつでも確認</b><p>その日の様子、気分、体温・血圧・脈拍、運動メニュー、通所率。モニタリングや担当者会議の前に、電話やFAXで問い合わせずに把握できます。</p></div>
+    <div class="card"><b>担当のご利用者をまとめて</b><p>ケアマネジャーご自身のアカウント1つで、担当している複数のご利用者を切り替えて閲覧できます（事業所が担当者として登録します）。</p></div>
+    <div class="card"><b>フェイスシートの登録・更新</b><p>受付情報、基本情報、既往歴、ADL・認知症の状況などを入力すると、事業所の利用者マスタに反映。二重入力がなくなります。</p></div>
+    <div class="card"><b>保険証・アセスメントの共有</b><p>介護保険証・負担割合証は写真やPDFで添付。介護度・認定有効期間・負担割合を入力すると事業所側に自動反映されます。</p></div>
+    <div class="card"><b>モニタリング表・休み連絡が届く</b><p>事業所が作成したモニタリング表や休み連絡は、これまでどおりFAXでも受け取れます。内容の確認は画面でも可能です。</p></div>
+    <div class="card"><b>お知らせ・関係者の管理</b><p>担当者会議の予定などのお知らせを受け取れます。関係者一覧から、同じ事業所の担当者を追加で招待することもできます。</p></div>
+  </div>
+
+  <h2>はじめかた<span class="pill">担当者単位で1アカウント</span></h2>
+  <div class="flow">
+    <div class="step"><b>1. 事業所から招待</b><span>事業所が「ケアマネ事業所・担当者」に登録し、招待メール、または紙の「登録のご案内」をお渡しします。</span></div>
+    <div class="arr">→</div>
+    <div class="step"><b>2. ご自身の情報を登録</b><span>お名前・所属事業所・連絡先・ログインID・パスワードを入力します。招待コードは3日間有効です。</span></div>
+    <div class="arr">→</div>
+    <div class="step"><b>3. ログインして閲覧</b><span>担当のご利用者が増えたときは事業所が追加するだけ。次回以降は同じIDで切り替えて閲覧できます。</span></div>
+  </div>
+
+  <div class="foot">
+    <div>画面はすべて見本（架空）データです。閲覧はご利用者ご本人（またはご家族）の同意のもとで行われ、職務上知り得た情報は守秘の対象です。</div>
+    <div class="contact"><span class="l">事業所</span><span class="u"></span><br><span class="l">電話</span><span class="u"></span></div>
+  </div>
+</div>
+
+</body>
+</html>
