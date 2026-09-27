@@ -22,6 +22,8 @@ export const decodeInviteToken = (token) => {
 // 入力コード正規化: 半角化・大文字化・ハイフン自動補完 (FAM-XXXX-XXXX)
 export const normalizeInviteCode = (raw) => {
   const s = (raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  // ★ 2026-09-27: 数字8桁コード(1234-5678)。数字だけの入力は 4-4 区切りに整形(9桁以上は末尾を切る)
+  if (/^[0-9]+$/.test(s)) { const d = s.slice(0, 8); return d.length <= 4 ? d : `${d.slice(0, 4)}-${d.slice(4)}`; }
   if (s.length <= 3) return s;
   if (s.length <= 7) return `${s.slice(0, 3)}-${s.slice(3)}`;
   return `${s.slice(0, 3)}-${s.slice(3, 7)}-${s.slice(7, 11)}`;
