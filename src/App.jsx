@@ -9855,7 +9855,8 @@ const getNextVisitInfo = (patient, currentDateStr, monthlyShifts, appData) => {
             // ★ 次回が振替/臨時なら isFurikae=true。 表示側は振替の送迎時間を「常に自動計算」にし、
             //   過去に手入力した値が残って別区分でも同じ時刻になる事故を防ぐ。
             const isFurikae = (_recStatus === '振替' || _recStatus === '臨時');
-            return { date: `${nextDate.getMonth()+1}月${nextDate.getDate()}日（${dayNames[dayOfWeek]}）`, time: timeStr, isFurikae };
+            const _isoNext = `${nextDate.getFullYear()}-${String(nextDate.getMonth()+1).padStart(2,'0')}-${String(nextDate.getDate()).padStart(2,'0')}`;
+            return { date: `${nextDate.getMonth()+1}月${nextDate.getDate()}日（${dayNames[dayOfWeek]}）`, time: timeStr, isFurikae, iso: _isoNext, ampm: ampmStr };
         }
     }
     return { date: "未定", time: "　時　分", isFurikae: false };
@@ -25830,8 +25831,34 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             // ★ モード別の項目セット
             //   - 事業所モード: 利用者名 + 年齢 (生年月日 + (n歳)) + 利用開始日 + 経過日数
             //   - ご家族/ケアマネ: 利用者名なし。 生年月日 (改行で(n歳)) + 利用開始日 + 経過日数
+            // ★ 2026-09-28(ユーザー要望): ご家族・ケアマネ画面に次回の利用日とお迎え時間を出す。
+            //   送迎表(transportPlans)にその日のコマが保存済みなら車の時刻／徒歩を優先し、無ければマスタの送迎時間(自動計算含む)。
+            const nextVisit = (() => {
+              try {
+                const today = new Date(); const tstr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+                const info = getNextVisitInfo(selectedPatient, tstr, appData.monthlyShifts, appData);
+                if (!info || !info.iso) return { date: info?.date || '未定', time: '' };
+                let t = info.time || '';
+                const pl = (appData.transportPlans || {})[`${info.iso}_${info.ampm || 'AM'}`];
+                if (pl && typeof pl === 'object') {
+                  let hit = null;
+                  Object.keys(pl.cars || {}).forEach(cid => (pl.cars[cid] || []).forEach(m => { if (m.pid === selectedPatient.id) hit = m; }));
+                  if (hit) { const raw = String(hit.t || '').replace(/\s/g, ''); const mm = raw.match(/^(\d{1,2})[:：](\d{2}|--)/); if (mm) t = `${mm[1]}時${mm[2] === '--' ? '' : mm[2] + '分'}`; else if (/時/.test(raw)) t = raw; }
+                  else if ((pl.walkers || []).some(m => m.pid === selectedPatient.id)) t = '徒歩';
+                }
+                const tt = String(t || '').replace(/^　時　分$/, '').trim();
+                return { date: info.date, time: tt, isFurikae: !!info.isFurikae };
+              } catch { return null; }
+            })();
+            const nextVisitValue = nextVisit ? (
+              <span style={{display:'flex',flexDirection:'column',lineHeight:1.25}}>
+                <span>{nextVisit.date}{nextVisit.isFurikae ? <span style={{fontSize:'0.75em',color:'#059669',marginLeft:6}}>振替</span> : null}</span>
+                <span style={{fontSize:'0.82em',color:'#475569',marginTop:2}}>{nextVisit.time ? (nextVisit.time === '徒歩' ? '徒歩でご来所' : `お迎え ${nextVisit.time} 頃`) : 'お迎え時間は事業所にご確認ください'}</span>
+              </span>
+            ) : '—';
             const items = compactMode
               ? [
+                  {label:'次回のご利用予定', value: nextVisitValue},
                   {label:'生年月日', value: birthWithAge},
                   {label:'利用開始日', value: startLabel},
                   {label:'経過日数', value: elapsedLabel},
