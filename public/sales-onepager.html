@@ -7,50 +7,67 @@
 <style>
   :root{--ink:#1f2a1a;--sub:#5b6650;--line:#dfe5d6;--green:#4f7a2a;--green-l:#eef5e4;--green-d:#2f4a1a;--amber:#b7791f;--amber-l:#fbf3df;--blue:#2b5fb3;--blue-l:#eaf1fb;--paper:#fff;}
   *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  body{margin:0;background:#e9ece4;font-family:'Hiragino Kaku Gothic ProN','Hiragino Sans','Yu Gothic','Noto Sans JP','Meiryo',sans-serif;color:var(--ink);line-height:1.5;font-size:11.5px}
-  .page{width:210mm;height:297mm;background:var(--paper);margin:8mm auto;padding:10mm 11mm 8mm;box-shadow:0 6px 24px rgba(0,0,0,.12);position:relative;page-break-after:always;display:flex;flex-direction:column;overflow:hidden}
+  body{margin:0;background:#e9ece4;font-family:'Hiragino Kaku Gothic ProN','Hiragino Sans','Yu Gothic','Noto Sans JP','Meiryo',sans-serif;color:var(--ink);line-height:1.55;font-size:12.5px}
+  .page{width:210mm;height:297mm;background:var(--paper);margin:8mm auto;padding:11mm 12mm 9mm;box-shadow:0 6px 24px rgba(0,0,0,.12);position:relative;page-break-after:always;display:flex;flex-direction:column;overflow:hidden}
   .page:last-child{page-break-after:auto}
-  .head{display:flex;align-items:flex-end;gap:10px;border-bottom:3px solid var(--green);padding-bottom:6px}
-  .head img{width:120px;height:auto}
+  .head{display:flex;align-items:flex-end;gap:12px;border-bottom:3px solid var(--green);padding-bottom:7px}
+  .head img{width:130px;height:auto}
   .head .t{flex:1}
-  .eyebrow{font-size:10px;letter-spacing:.18em;color:var(--green);font-weight:700}
-  h1{font-size:21px;margin:2px 0 0;color:var(--green-d);letter-spacing:.02em;line-height:1.25}
-  .lead{font-size:12.5px;color:var(--sub);margin:6px 0 0;font-weight:700}
-  .hero{display:grid;grid-template-columns:52mm 1fr;gap:6mm;margin-top:4mm}
+  .eyebrow{font-size:10.5px;letter-spacing:.18em;color:var(--green);font-weight:700}
+  h1{font-size:20.5px;margin:2px 0 0;color:var(--green-d);letter-spacing:.02em;line-height:1.25}
+  .lead{font-size:13px;color:var(--sub);margin:6px 0 0;font-weight:700}
+  .sub{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--green);padding-bottom:5px}
+  .sub h1{font-size:17px}
+  .sub .who{font-size:11px;color:var(--sub);font-weight:700}
+  .hero{display:grid;grid-template-columns:46mm 1fr;gap:6mm;margin-top:3.5mm}
   .phone{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
   .phone img{width:100%;height:auto;display:block}
   .stack{display:flex;flex-direction:column;gap:3mm}
   .shot{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
   .shot img{width:100%;display:block;height:auto}
-  .shot.h{height:36mm}.shot.h img{height:100%;object-fit:cover;object-position:top}
-  .shot.h1{height:41mm}.shot.h2{height:35mm}.shot.h3{height:25mm}
-  .shot.h1 img,.shot.h2 img,.shot.h3 img{height:100%;object-fit:cover;object-position:top}
-  .shot.modal{height:62mm}.shot.modal img{width:160%;margin-left:-30%;height:100%;object-fit:cover;object-position:center top}
-  .cap{font-size:10px;color:var(--sub);text-align:center;margin-top:2px}
-  h2{font-size:14px;margin:4.5mm 0 2.5mm;color:var(--green-d);display:flex;align-items:center;gap:8px}
+  .shot.fx img{height:100%;object-fit:cover;object-position:top}
+  .shot.modal img{width:160%;margin-left:-30%;height:100%;object-fit:cover;object-position:center top}
+  .shot.modal.c img{object-position:center 42%}
+  .gallery .shot.nat{height:auto}
+  .cap{font-size:10.5px;color:var(--sub);text-align:center;margin-top:2px;line-height:1.35}
+  .cap b{color:var(--green-d)}
+  h2{font-size:15px;margin:4mm 0 2mm;color:var(--green-d);display:flex;align-items:center;gap:8px}
   h2::after{content:'';flex:1;height:1px;background:var(--line)}
   .feat{display:grid;grid-template-columns:1fr 1fr 1fr;gap:3mm}
-  .card{border:1px solid var(--line);border-radius:8px;padding:6px 9px;background:#fff}
+  .feat.two{grid-template-columns:1fr 1fr}
+  .card{border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:#fff}
   .card.g{background:var(--green-l);border-color:#cfe0bb}
-  .card b{display:block;color:var(--green-d);font-size:12px;margin-bottom:2px}
-  .card p{margin:0;font-size:10.5px;color:var(--ink)}
-  .flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:stretch;gap:4px;margin-top:2mm}
-  .step{border:2px solid var(--green);border-radius:8px;padding:5px 9px;background:#fff}
-  .step b{display:block;color:var(--green-d);font-size:11.5px}
-  .step span{font-size:10px;color:var(--sub)}
-  .arr{align-self:center;color:var(--green);font-size:18px;font-weight:700}
-  .foot{margin-top:auto;padding-top:6px;border-top:1px solid var(--line);font-size:9.5px;color:var(--sub);display:flex;justify-content:space-between;align-items:flex-end;gap:10px}
-  .contact{border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:11px;min-width:88mm;color:var(--ink)}
-  .contact .l{display:inline-block;width:14mm;color:var(--sub);font-size:10px}
-  .contact .u{display:inline-block;border-bottom:1px solid #94a3b8;min-width:66mm;height:14px;vertical-align:bottom}
-  .pill{display:inline-block;padding:0 7px;border-radius:999px;font-size:9.5px;font-weight:700;background:var(--amber-l);color:var(--amber);margin-left:6px;vertical-align:middle}
+  .card b{display:block;color:var(--green-d);font-size:13px;margin-bottom:2px}
+  .card p{margin:0;font-size:11px;color:var(--ink)}
+  .flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:stretch;gap:5px;margin-top:2mm}
+  .step{border:2px solid var(--green);border-radius:8px;padding:6px 10px;background:#fff}
+  .step b{display:block;color:var(--green-d);font-size:12.5px}
+  .step span{font-size:11px;color:var(--sub)}
+  .arr{align-self:center;color:var(--green);font-size:20px;font-weight:700}
+  .gallery{display:grid;grid-template-columns:1fr 1fr;gap:3mm 5mm;margin-top:1mm}
+  .gallery .shot{height:50mm}
+  .gallery.s .shot{height:39mm}
+  .faq{display:grid;grid-template-columns:1fr 1fr;gap:2mm 6mm}
+  .qa{font-size:11px}
+  .qa b{display:block;color:var(--green-d)}
+  .qa b::before{content:'Q. ';color:var(--amber)}
+  .qa p{margin:1px 0 0;color:var(--ink)}
+  .qa p::before{content:'A. ';color:var(--green);font-weight:700}
+  .note{border:1px solid var(--line);background:#fafbf8;border-radius:8px;padding:7px 10px;font-size:11px;color:var(--ink)}
+  .note b{color:var(--green-d)}
+  .foot{margin-top:auto;padding-top:6px;border-top:1px solid var(--line);font-size:10px;color:var(--sub);display:flex;justify-content:space-between;align-items:flex-end;gap:10px}
+  .contact{border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:11.5px;min-width:90mm;color:var(--ink)}
+  .contact .l{display:inline-block;width:15mm;color:var(--sub);font-size:10.5px}
+  .contact .u{display:inline-block;border-bottom:1px solid #94a3b8;min-width:66mm;height:15px;vertical-align:bottom}
+  .pill{display:inline-block;padding:0 8px;border-radius:999px;font-size:10px;font-weight:700;background:var(--amber-l);color:var(--amber);margin-left:6px;vertical-align:middle}
+  .pn{position:absolute;bottom:5mm;right:12mm;font-size:9.5px;color:var(--sub)}
   @media print{body{background:#fff}.page{margin:0;box-shadow:none}}
   @page{size:A4 portrait;margin:0}
 </style>
 </head>
 <body>
 
-<!-- ご家族向け -->
+<!-- ===== ご家族向け 表 ===== -->
 <div class="page">
   <div class="head">
     <img src="/preview/tsumugi-logo-full-transparent.png" alt="つむぎ">
@@ -64,23 +81,21 @@
   <div class="hero">
     <div>
       <div class="phone"><img src="/manual/img/sales_family_sp_today.jpg" alt="スマホでその日の記録を見る"></div>
-      <div class="cap">スマホ画面（その日の記録）</div>
+      <div class="cap"><b>スマホ画面</b>：その日の記録（気分・体温・血圧・運動）</div>
     </div>
     <div class="stack">
-      <div class="shot h1"><img src="/manual/img/sales_family_pc_today.jpg" alt="今回の様子・今回の記録"></div>
-      <div class="cap" style="margin-top:-1px">「今回の様子」と、気分・体温・血圧・運動メニュー（前回との比較つき）</div>
-      <div class="shot h2"><img src="/manual/img/sales_family_pc_bp.jpg" alt="血圧の日別グラフ"></div>
-      <div class="cap" style="margin-top:-1px">血圧・体温・脈拍は日別グラフで。平均・最高・最低も一目で</div>
-      <div class="shot h3"><img src="/manual/img/sales_family_pc_notice_open.jpg" alt="お知らせ"></div>
-      <div class="cap" style="margin-top:-1px">行事や担当者会議などのお知らせ</div>
+      <div class="shot fx" style="height:47mm"><img src="/manual/img/sales_family_pc_today.jpg" alt="今回の様子・今回の記録"></div>
+      <div class="cap"><b>今回の様子</b>：職員が書いたその日のひとこと。気分は来所時と帰宅時、運動メニューは前回との比較つき</div>
+      <div class="shot fx" style="height:41mm"><img src="/manual/img/sales_family_pc_bp.jpg" alt="血圧の日別グラフ"></div>
+      <div class="cap"><b>血圧（日別）</b>：平均・最高・最低と正常範囲を表示。体温・脈拍も同じグラフで</div>
     </div>
   </div>
 
   <h2>ご家族ができること</h2>
   <div class="feat">
     <div class="card g"><b>その日の様子がわかる</b><p>職員が記録した「今回の様子」、来所時と帰宅時の気分、体温・血圧・脈拍、行った運動メニューを、通所したその日に確認できます。</p></div>
-    <div class="card"><b>変化がグラフで見える</b><p>血圧・体温・脈拍の日別グラフ、気分の推移、通所率（出席・欠席）を期間を選んで表示。受診時の説明にも使えます。</p></div>
-    <div class="card"><b>お知らせが届く</b><p>行事のご案内、予防接種、担当者会議の予定など、事業所からの全体・個別のお知らせをまとめて読めます。</p></div>
+    <div class="card"><b>変化がグラフで見える</b><p>血圧・体温・脈拍の日別グラフ、気分の推移、通所率（出席・欠席）を、期間（1か月・3か月など）を選んで表示。受診時の説明にも使えます。</p></div>
+    <div class="card"><b>お知らせが届く</b><p>行事のご案内、予防接種、担当者会議の予定など、事業所からの全体・個別のお知らせをまとめて読めます。新着には印が付きます。</p></div>
     <div class="card"><b>ご家族で共有できる</b><p>代表者のほか2名まで登録でき、離れて暮らすご家族も同じ画面を見られます。ご自身の連絡先はいつでも変更できます。</p></div>
     <div class="card"><b>いつでも、どこでも</b><p>スマホ・タブレット・パソコンのブラウザで利用できます。「ホーム画面に追加」すればアプリのようにワンタップで開けます。</p></div>
     <div class="card"><b>安心の設計</b><p>閲覧はご本人（またはご家族）の同意のもと、ご家族ごとのIDでログイン。通信は暗号化され、閲覧専用のため記録が書き換わることはありません。</p></div>
@@ -96,12 +111,48 @@
   </div>
 
   <div class="foot">
-    <div>画面はすべて見本（架空）データです。実際の表示は事業所の設定・記録内容により異なります。</div>
+    <div>画面はすべて見本（架空）データです。実際の表示は事業所の設定・記録内容により異なります。裏面に画面の見方とよくある質問があります。</div>
     <div class="contact"><span class="l">事業所</span><span class="u"></span><br><span class="l">電話</span><span class="u"></span></div>
   </div>
 </div>
 
-<!-- ケアマネジャー向け -->
+<!-- ===== ご家族向け 裏 ===== -->
+<div class="page">
+  <div class="sub"><h1>画面の見方とよくある質問</h1><div class="who">つむぎ ご家族向けご案内（裏面）</div></div>
+
+  <h2>画面の見方</h2>
+  <div class="gallery">
+    <div><div class="shot nat"><img src="/manual/img/sales_family_pc_mood.jpg" alt="気分トレンド"></div><div class="cap"><b>気分トレンド</b>：来所時（青）と帰宅時（橙）の気分を折れ線で。いちばん多かった気分も表示</div></div>
+    <div><div class="shot nat"><img src="/manual/img/sales_family_pc_temp.jpg" alt="体温（日別）"></div><div class="cap"><b>体温（日別）</b>：平均・最高・最低と、その日付。血圧・脈拍も同じ形式です</div></div>
+    <div><div class="shot fx"><img src="/manual/img/sales_family_pc_notice_open.jpg" alt="お知らせ"></div><div class="cap"><b>お知らせ</b>：「全体」は事業所全体向け、「個別」はご本人向け。新着には NEW が付きます</div></div>
+    <div><div class="shot modal c"><img src="/manual/img/sales_family_pc_members.jpg" alt="家族一覧"></div><div class="cap"><b>家族一覧</b>：代表者がご家族を2名まで招待できます。「利用者・登録者情報」ではご自身の連絡先を変更できます</div></div>
+  </div>
+
+  <h2>よくある質問</h2>
+  <div class="faq">
+    <div class="qa"><b>招待メールが届きません。</b><p>迷惑メールフォルダをご確認ください。携帯会社のメールはパソコンからのメールを受信拒否している場合があります。紙のQRコードでの招待もできますので、事業所にお申し出ください。</p></div>
+    <div class="qa"><b>招待URLを開いたら「期限切れ」と出ました。</b><p>招待は発行から3日で期限が切れます。事業所に再発行を依頼してください。</p></div>
+    <div class="qa"><b>今日通所したはずなのに記録が出ません。</b><p>事業所がその日の記録を保存すると表示されます。多くの事業所は当日中〜翌日に入力しています。</p></div>
+    <div class="qa"><b>ログインできません。</b><p>IDは半角英数字で、大文字・小文字も区別されます。スマホの自動入力で末尾に空白が入ることがあります。パスワードは「パスワードを忘れた方」からメールで再設定できます。</p></div>
+    <div class="qa"><b>家族がもう一人見たいのですが。</b><p>代表者の方が「家族一覧」から2名まで招待できます（合計3名）。それ以上は事業所へご相談ください。</p></div>
+    <div class="qa"><b>ケアマネジャーにも見てもらいたい。</b><p>ケアマネジャーや訪問看護などの関係者は、事業所側で招待を発行します。事業所にお申し出ください。</p></div>
+    <div class="qa"><b>写真や画面が表示されません。</b><p>通信が不安定なときに起きることがあります。ページを一度閉じて開き直すか、再読み込みしてください。</p></div>
+    <div class="qa"><b>退会したい・アカウントを削除したい。</b><p>事業所の窓口へお申し出ください。事業所側でアカウントを削除できます。</p></div>
+  </div>
+
+  <h2>ご利用にあたって</h2>
+  <div class="feat two">
+    <div class="note"><b>個人情報の取り扱い</b><br>閲覧はご利用者ご本人（またはご家族）の同意のもとで行います。画面・写真・記録の内容をSNS等へ転載したり、第三者へ提供することはできません。アカウント（ID・パスワード）はご本人のみが使用し、譲渡・共有はできません。</div>
+    <div class="note"><b>困ったときは</b><br>まずはご利用の事業所へお問い合わせください。画面いちばん下の「不具合・ご意見を運営に報告」からも送れます。アプリ自体のお問い合わせ：support@ones-style.co.jp</div>
+  </div>
+
+  <div class="foot">
+    <div>つむぎ（Tsumugi）— ご家族・ケアマネ・事業所・関係者が、ご利用者を支え、やさしく紡ぐ。画面はすべて見本データです。</div>
+    <div class="contact"><span class="l">事業所</span><span class="u"></span><br><span class="l">電話</span><span class="u"></span></div>
+  </div>
+</div>
+
+<!-- ===== ケアマネジャー向け 表 ===== -->
 <div class="page">
   <div class="head">
     <img src="/preview/tsumugi-logo-full-transparent.png" alt="つむぎ">
@@ -114,16 +165,16 @@
 
   <div class="hero" style="grid-template-columns:1fr 1fr">
     <div class="stack">
-      <div class="shot modal"><img src="/manual/img/sales_cm_pc_docs.jpg" alt="保険証・負担割合証・アセスメントの共有"></div>
-      <div class="cap" style="margin-top:-1px">保険証・負担割合証・アセスメントを写真/PDFで共有。介護度・認定期間は事業所の利用者マスタに自動反映</div>
-      <div class="shot"><img src="/manual/img/sales_family_pc_rate.jpg" alt="通所率"></div>
-      <div class="cap" style="margin-top:-1px">通所率（出席・欠席）</div>
+      <div class="shot modal" style="height:64mm"><img src="/manual/img/sales_cm_pc_docs.jpg" alt="保険証・負担割合証・アセスメントの共有"></div>
+      <div class="cap"><b>保険証・負担割合証・アセスメント</b>：写真やPDFで共有。介護度・認定有効期間・負担割合を入力すると事業所の利用者マスタに自動反映</div>
+      <div class="shot"><img src="/manual/img/sales_family_pc_mood.jpg" alt="気分トレンド"></div>
+      <div class="cap"><b>気分トレンド</b>：来所時・帰宅時の気分の推移。通所率（出席・欠席）も同じ画面に</div>
     </div>
     <div class="stack">
-      <div class="shot modal"><img src="/manual/img/sales_cm_pc_facesheet.jpg" alt="フェイスシート"></div>
-      <div class="cap" style="margin-top:-1px">フェイスシートの登録・更新。事業所側の個人ファイルに反映されます</div>
-      <div class="shot"><img src="/manual/img/sales_family_pc_bp.jpg" alt="血圧の日別グラフ"></div>
-      <div class="cap" style="margin-top:-1px">血圧・体温・脈拍の日別グラフ、気分の推移</div>
+      <div class="shot modal" style="height:64mm"><img src="/manual/img/sales_cm_pc_facesheet.jpg" alt="フェイスシート"></div>
+      <div class="cap"><b>フェイスシート</b>：受付情報・基本情報・既往歴・ADLなどを登録・更新。事業所側の個人ファイルに反映されます</div>
+      <div class="shot fx" style="height:20mm"><img src="/manual/img/sales_cm_pc_home.jpg" alt="ケアマネ画面の上部メニュー"></div>
+      <div class="cap"><b>上部メニュー</b>：お知らせ／通所記録／フェイスシート／保険証・アセスメント／関係者一覧</div>
     </div>
   </div>
 
@@ -147,7 +198,47 @@
   </div>
 
   <div class="foot">
-    <div>画面はすべて見本（架空）データです。閲覧はご利用者ご本人（またはご家族）の同意のもとで行われ、職務上知り得た情報は守秘の対象です。</div>
+    <div>画面はすべて見本（架空）データです。閲覧はご利用者ご本人（またはご家族）の同意のもとで行われます。裏面に画面の見方とよくある質問があります。</div>
+    <div class="contact"><span class="l">事業所</span><span class="u"></span><br><span class="l">電話</span><span class="u"></span></div>
+  </div>
+</div>
+
+<!-- ===== ケアマネジャー向け 裏 ===== -->
+<div class="page">
+  <div class="sub"><h1>画面の見方とよくある質問</h1><div class="who">つむぎ ケアマネジャー・関係者向けご案内（裏面）</div></div>
+
+  <h2>画面の見方</h2>
+  <div class="gallery s">
+    <div><div class="shot fx"><img src="/manual/img/sales_family_pc_today.jpg" alt="今回の様子・今回の記録"></div><div class="cap"><b>通所記録</b>：「今回の様子」と、気分・体温・血圧・脈拍・運動メニュー（前回比つき）。期間を変えて過去の記録も見られます</div></div>
+    <div><div class="shot fx"><img src="/manual/img/sales_family_pc_bp.jpg" alt="血圧の日別グラフ"></div><div class="cap"><b>血圧・体温・脈拍（日別）</b>：平均・最高・最低と正常範囲を表示。通所時のみ／終了時のみ／両方を切り替え</div></div>
+    <div><div class="shot nat"><img src="/manual/img/sales_family_pc_mood.jpg" alt="気分トレンド"></div><div class="cap"><b>気分トレンド</b>：来所時と帰宅時の気分の推移。モニタリングの「本人の様子」の裏付けに</div></div>
+    <div><div class="shot modal c"><img src="/manual/img/sales_cm_pc_related.jpg" alt="関係者一覧"></div><div class="cap"><b>関係者一覧</b>：登録メンバーと招待中の状況。同じ事業所の担当者を2名まで追加で招待できます</div></div>
+  </div>
+
+  <h2>事業所との情報のやりとり</h2>
+  <div class="feat">
+    <div class="card"><b>ケアマネ → 事業所</b><p>フェイスシート、保険証・負担割合証・アセスメントの画像とPDF、介護度・認定有効期間・負担割合。保存すると事業所の個人ファイルに「ケアマネ更新あり」と表示されます。</p></div>
+    <div class="card"><b>事業所 → ケアマネ</b><p>通所記録（毎回）、モニタリング表、休み連絡、担当者会議などのお知らせ。モニタリング表と休み連絡は従来どおりFAXでも届きます。</p></div>
+    <div class="card"><b>担当の切り替え</b><p>担当が変わったときは事業所側の利用者マスタで担当ケアマネを更新すると、閲覧できるご利用者が自動で切り替わります。退所後は閲覧できなくなります。</p></div>
+  </div>
+
+  <h2>よくある質問</h2>
+  <div class="faq">
+    <div class="qa"><b>複数の事業所（デイサービス）から招待が届きました。</b><p>事業所ごとに別のアカウントになります。同じID・パスワードで登録すれば、ログイン後に「利用者切替」で事業所をまたいで切り替えられます。</p></div>
+    <div class="qa"><b>担当が変わった利用者がまだ表示されます。</b><p>事業所側の利用者マスタの「担当ケアマネ」の登録で切り替わります。事業所に担当者の更新を依頼してください。</p></div>
+    <div class="qa"><b>フェイスシートを保存したのに反映されません。</b><p>通信が不安定なときに保存が完了していないことがあります。再読み込みして内容が残っているか確認し、残っていなければもう一度保存してください。</p></div>
+    <div class="qa"><b>お知らせが何も表示されません。</b><p>事業所はお知らせごとに送付先（ご家族／ケアマネ／その他関係者）を選んでいます。関係者向けに送られたものだけが表示されます。</p></div>
+    <div class="qa"><b>招待URLが期限切れと出ます。</b><p>招待は発行から3日で期限が切れます。事業所へ再発行をご依頼ください。</p></div>
+    <div class="qa"><b>ログインできません。</b><p>IDは半角英数字で大文字・小文字も区別されます。パスワードは「パスワードを忘れた方」からメールで再設定できます。</p></div>
+  </div>
+
+  <div class="feat two" style="margin-top:2mm">
+    <div class="note"><b>守秘と同意</b><br>閲覧はご利用者ご本人（またはご家族）の同意のもとで行われます。職務上知り得た情報は守秘の対象で、ケアマネジメント等の目的以外には利用できません。アカウントの共有・譲渡はできません。</div>
+    <div class="note"><b>困ったときは</b><br>まずはご利用のデイサービス事業所へお問い合わせください。画面いちばん下の「不具合・ご意見を運営に報告」からも送れます。アプリ自体のお問い合わせ：support@ones-style.co.jp</div>
+  </div>
+
+  <div class="foot">
+    <div>つむぎ（Tsumugi）— ご家族・ケアマネ・事業所・関係者が、ご利用者を支え、やさしく紡ぐ。画面はすべて見本データです。</div>
     <div class="contact"><span class="l">事業所</span><span class="u"></span><br><span class="l">電話</span><span class="u"></span></div>
   </div>
 </div>
