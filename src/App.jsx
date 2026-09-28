@@ -1810,7 +1810,7 @@ const computePlanDues = (appData, baseDate, opts) => {
     if (!_includeFuture && daysLeft > PLAN_DUE_LEAD_DAYS) return; // まだ先 → 出さない(月別ブラウズ時は返す)
     out.push({ patient, kind, label, due, view, note, daysLeft, overdue: daysLeft < 0, ym: ymKey(due) });
   };
-  (appData?.patients || []).filter(p => p && (p.status === '利用中' || p.status === '休止')).forEach(p => {
+  (appData?.patients || []).filter(p => p && (p.status === '利用中' || p.status === '休止') && isPatientListable(p)).forEach(p => {
     // --- 通所介護計画書 ---
     // ★ 一時保存(draft)対応(2026-09-08 店舗要望): 期日の計算は完成版(draftでない)だけで行い、
     //   最新が一時保存中なら「作成予定」に残して続きから作成できるようにする。
@@ -9941,6 +9941,10 @@ const isPatientResigned = (p) => {
     return end < today; 
 };
 
+// ★ 2026-09-28(ユーザー指摘): 退所済み(利用終了日を過ぎた／status が退所・終了)は、利用者マスタの「退所済み」タブ以外の
+//   一覧(モニタリング・LIFE・記録系・ご家族プレビュー等)に出さない。休止は各画面の判定に任せる。
+const isPatientListable = (p) => !!p && !isPatientResigned(p) && !/退所|終了/.test(String(p.status || ''));
+const isPatientStartedByToday = (p) => { if (!p || !p.startDate) return true; const t = new Date(); const today = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`; return String(p.startDate).slice(0,10) <= today; };
 const isPatientActiveOnDate = (p, targetDateStr) => {
     if (!p || !targetDateStr) return true;
     // ★ 日付文字列(YYYY-MM-DD)同士で比較する。 new Date('2026-06-23') は UTC0時=JST午前9時に
@@ -10580,7 +10584,7 @@ function SignupCompleteView({ context, appData, onSave }) {
     storeNumbers:[''], // 事業所番号 (複数可)
     done:false, matchedPatientId:null
   });
-  const patients = (appData?.patients||[]).filter(p => p.status === '利用中');
+  const patients = (appData?.patients||[]).filter(p => p.status === '利用中' && isPatientListable(p));
   const isFamily = context.kind === 'family';
   const facility = appData?.systemSettings?.facilityInfo || {};
   // 利用者照合: 氏名+生年月日 または 7桁招待コード (6桁 + チェックデジット) で利用者マスタを検索
@@ -12687,7 +12691,7 @@ function FamilyAdminView({ appData, onSave }) {
   const [previewPid, setPreviewPid] = useState(null); // プレビュータブで選択中の利用者
   const [copied, setCopied] = useState(false);
   const [postCmOffice, setPostCmOffice] = useState(''); // 個別(ケアマネ): 選択中の事業所
-  const patients = sortPatientsByKana((appData.patients||[]).filter(p => p.status === '利用中'));
+  const patients = sortPatientsByKana((appData.patients||[]).filter(p => p.status === '利用中' && isPatientListable(p)));
   const allAnnouncements = appData.familyAnnouncements || [];
   const personalAnnouncements = appData.familyPersonalAnnouncements || [];
   const photos = appData.familyPhotos || [];
@@ -13850,7 +13854,7 @@ function FamilyView() {
   const facility = data.systemSettings?.facilityInfo || {};
   // ★ 事業所管理者プレビュー: 利用者を選んで「ご家族画面 / ケアマネ画面」をデモ確認
   if (adminPreview && !authPid) {
-    const previewList = sortPatientsByKana((data.patients||[]).filter(p => p.status === '利用中' || p.status === '休止'));
+    const previewList = sortPatientsByKana((data.patients||[]).filter(p => (p.status === '利用中' || p.status === '休止') && isPatientListable(p)));
     const openPreview = (pid, kind) => {
       const accId = `preview_${kind}_${pid}`;
       setData(prev => {
@@ -16850,7 +16854,8 @@ const staffRoleText = (m) => { const r1 = m?.roleLabel || m?.role || ''; const r
 const staffRoleGroupLabel = (r) => r === '看護師' ? '看護職員' : (r || 'その他');
 // ★ この端末で「担当者を選んだら自動で全画面」(2026-09-28・PC向け・localStorage)。ブラウザの制約でクリック等の操作の中でしか全画面にできないため、担当者選択のクリック時に実行する。
 const AUTO_FS_KEY = 'tsumugiAutoFullscreen';
-const isAutoFullscreenOn = () => { try { return localStorage.getItem(AUTO_FS_KEY) === '1'; } catch { return false; } };
+// ★ 2026-09-28(ユーザー要望): Windows/Mac の PC ではログイン→担当者選択で自動的に全画面に(既定ON)。iPad/iPhone は「ホーム画面に追加」で代替するため既定OFF。設定で明示的に OFF('0') にもできる
+const isAutoFullscreenOn = () => { try { const v = localStorage.getItem(AUTO_FS_KEY); if (v === '1') return true; if (v === '0') return false; const ua = navigator.userAgent || ''; const ios = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); return !ios; } catch { return false; } };
 const tsumugiMaybeAutoFullscreen = () => { try { if (!isAutoFullscreenOn()) return; if (document.fullscreenElement || document.webkitFullscreenElement) return; const el = document.documentElement; const req = el.requestFullscreen || el.webkitRequestFullscreen; if (!req) return; const r = req.call(el); if (r && r.catch) r.catch(()=>{}); } catch {} };
 const groupStaffByRole = (members) => {
   const list = Array.isArray(members) ? members.filter(Boolean) : [];
@@ -38911,7 +38916,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
           {activeTab === 'system' && (<>
             <SectionCard title="この端末の表示">
               <label className="flex items-start gap-2 cursor-pointer">
-                <input type="checkbox" defaultChecked={isAutoFullscreenOn()} onChange={e=>{ try { if (e.target.checked) localStorage.setItem(AUTO_FS_KEY,'1'); else localStorage.removeItem(AUTO_FS_KEY); } catch {} }} className="mt-1 accent-blue-600"/>
+                <input type="checkbox" defaultChecked={isAutoFullscreenOn()} onChange={e=>{ try { localStorage.setItem(AUTO_FS_KEY, e.target.checked ? '1' : '0'); } catch {} }} className="mt-1 accent-blue-600"/>
                 <span className="text-sm text-slate-700"><b>ログイン後に担当者を選んだら自動で全画面にする（この端末だけ・パソコン向け）</b><br/><span className="text-xs text-slate-500">ブラウザのタブ・URL欄を隠して広く使えます。Esc または右上の「全画面」で戻せます。iPad・iPhone では効かないため、Safari の共有 →「ホーム画面に追加」から開くと常に全画面になります。</span></span>
               </label>
             </SectionCard>
@@ -41594,7 +41599,7 @@ function LifeDiseaseSearch({ onPick }) {
 // === 個別機能訓練計画書 (アドオン: kinou_keikaku) ===
 function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId, navFocus, onFocusHandled }) {
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
-  const patients = sortPatientsByKana((appData.patients||[]).filter(p => p.status==='利用中' || p.status==='休止'));
+  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
   const [pid, setPid] = React.useState((targetPatientId!=null && (appData.patients||[]).some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
   const [editing, setEditing] = React.useState(null); // 編集中レコード or null
   const patient = (appData.patients||[]).find(p => p.id === pid);
@@ -42259,7 +42264,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
 // === 生活機能チェックシート (別紙様式3-2 / アドオン: kinou_keikaku) ===
 function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId }) {
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
-  const patients = sortPatientsByKana((appData.patients||[]).filter(p => p.status==='利用中' || p.status==='休止'));
+  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
   const [pid, setPid] = React.useState((targetPatientId!=null && (appData.patients||[]).some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
   const [editing, setEditing] = React.useState(null);
   const patient = (appData.patients||[]).find(p => p.id === pid);
@@ -42387,7 +42392,7 @@ function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
 // === 興味・関心チェックシート (別紙様式3-1 / アドオン: kinou_keikaku) ===
 function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId }) {
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
-  const patients = sortPatientsByKana((appData.patients||[]).filter(p => p.status==='利用中' || p.status==='休止'));
+  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
   const [pid, setPid] = React.useState((targetPatientId!=null && (appData.patients||[]).some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
   const [editing, setEditing] = React.useState(null);
   const [newItem, setNewItem] = React.useState('');
@@ -42523,7 +42528,7 @@ const TK_MARU    = ['①','②','③','④','⑤'];
 const TK_UMU     = ['有','無'];
 function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId, navFocus, onFocusHandled }) {
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
-  const patients = sortPatientsByKana((appData.patients||[]).filter(p => p.status==='利用中' || p.status==='休止'));
+  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
   const [pid, setPid] = React.useState((targetPatientId!=null && (appData.patients||[]).some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
   const [editing, setEditing] = React.useState(null);
   const patient = (appData.patients||[]).find(p => p.id === pid);
@@ -43718,7 +43723,7 @@ const DEM_SCALE_QUESTIONS = [
 ];
 function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, onFocusHandled, dirtyRef, saveFnRef, onShowPrintPreview }) {
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
-  const patients = sortPatientsByKana((appData.patients||[]).filter(p => p.status==='利用中' || p.status==='休止'));
+  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
   const [pid, setPid] = React.useState((targetPatientId!=null && (appData.patients||[]).some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
   const patient = (appData.patients||[]).find(p => p.id === pid);
   const addons = appData.systemSettings?.addons || {};
@@ -44880,7 +44885,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   //   対象月ごとに使用回数を記録するので、月を越しても「その月の上限の残り」は変わらない
   //   (上限に達していない月は、いつ開いてもAIを使える)。
   const _aiMonthKey = `${tY}-${String(tM).padStart(2,'0')}`;
-  const _aiActiveCount = (appData.patients||[]).filter(p => p.status === '利用中').length;
+  const _aiActiveCount = (appData.patients||[]).filter(p => p.status === '利用中' && isPatientListable(p)).length;
   const _aiLimit = _aiActiveCount * 2;
   const _aiUsed = (appData.systemSettings?.aiUsage?.[_aiMonthKey]) || 0;
   const _aiRemaining = Math.max(0, _aiLimit - _aiUsed);
@@ -44888,7 +44893,8 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const _bumpAiUsage = (ss, n) => ({ ...(ss||{}), aiUsage: { ...((ss||{}).aiUsage||{}), [_aiMonthKey]: ((ss||{}).aiUsage?.[_aiMonthKey]||0) + n } });
 
   // 全利用中患者を通所有無で分類
-  const allActive = (appData.patients||[]).filter(p => p.status === '利用中');
+  // ★ 2026-09-28(ユーザー指摘): 退所済みが「一度も来ていない」欄に残っていた → 退所済み・利用開始前は対象外(休止は従来どおり対象外)
+  const allActive = (appData.patients||[]).filter(p => p.status === '利用中' && isPatientListable(p) && isPatientStartedByToday(p));
   const hasAttendance = (patient) => {
     return (appData.ticketRecords||[]).some(r => {
       const m = r.date?.match(/(\d+)月/);
