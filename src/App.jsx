@@ -14147,7 +14147,7 @@ function FamilyView() {
                 <div style={{fontSize:11,color:'#64748b',marginTop:4,lineHeight:1.7}}>事業所からお渡しした用紙・メールの<b>招待コード（数字8桁）</b>を入力してください</div>
               </div>
               <form onSubmit={(e)=>{ e.preventDefault(); resolveJoinCode(); }}>
-                <input value={joinCode} onChange={e=>{ setJoinCode(normalizeInviteCode(toHalfWidth(e.target.value))); setJoinErr(''); }} placeholder="1234-5678" autoFocus inputMode="numeric" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
+                <input value={joinCode} onChange={e=>{ setJoinCode(normalizeInviteCode(toHalfWidth(e.target.value))); setJoinErr(''); }} placeholder="1234-5678" autoFocus={!_tsumugiIsIOSLike()} inputMode="numeric" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
                   style={{width:'100%',padding:'14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:20,fontWeight:'bold',outline:'none',boxSizing:'border-box',fontFamily:'Menlo,monospace',letterSpacing:3,textAlign:'center'}}/>
                 <div style={{fontSize:10,color:'#94a3b8',marginTop:6,textAlign:'center'}}>ハイフンや空白は無くても構いません。以前の英字入りコード（FAM-…）もそのまま使えます</div>
                 {joinErr && <div style={{color:'#ef4444',fontSize:12,fontWeight:'bold',marginTop:10,textAlign:'center',lineHeight:1.6}}>{joinErr}</div>}
@@ -14483,7 +14483,7 @@ function FamilyView() {
                   <div style={{marginBottom:12}}>
                     <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>招待コード（数字8桁）</label>
                     <input value={signupForm.inviteCode} onChange={e=>setSignupForm(f=>({...f,inviteCode:normalizeInviteCode(toHalfWidth(e.target.value)),error:''}))}
-                      placeholder="1234-5678" autoFocus lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
+                      placeholder="1234-5678" autoFocus={!_tsumugiIsIOSLike()} lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
                       style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:15,fontWeight:'bold',outline:'none',boxSizing:'border-box',fontFamily:'Menlo,monospace',letterSpacing:2,textAlign:'center'}}/>
                   </div>
                   <div style={{marginBottom:12}}>
@@ -14736,7 +14736,7 @@ function FamilyView() {
             <div style={{marginBottom:14}}>
               <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>ログインID</label>
               <input value={loginForm.username} onChange={e=>{try{sessionStorage.removeItem('tsumugiIdleLogout')}catch{}; setLoginForm(f=>({...f,username:toHalfWidth(e.target.value),error:''}));}} autoComplete="username"
-                placeholder="例: inoue_family" autoFocus
+                placeholder="例: inoue_family" autoFocus={!_tsumugiIsIOSLike()}
                 style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
             </div>
             <div style={{marginBottom:8}}>
