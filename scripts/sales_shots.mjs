@@ -50,6 +50,12 @@ const block = (page, text) => page.locator(`[data-shot="${text}"]`);
   await shotBlock(page, '脈拍（日別）', 'family_pc_pulse', 500);
   for (const [k, n] of [['体温', 'family_pc_temp'], ['血圧', 'family_pc_bp'], ['運動', 'family_pc_exercise'], ['記録一覧', 'family_pc_list'], ['特記', 'family_pc_tokki']]) { const c = await page.getByText(k, { exact: false }).count(); console.log(k, c); }
   await page.screenshot({ path: `${IMG}/family_pc_record_top.png` });
+  await shotBlock(page, '体力測定', 'family_pc_fitness', 500);
+  for (const [t, n] of [['利用者・登録者情報', 'family_pc_myinfo'], ['家族一覧', 'family_pc_members']]) {
+    const btn = page.locator('button', { hasText: t }).first();
+    if (await btn.click({ timeout: 3000 }).then(() => true).catch(() => false)) { await page.waitForTimeout(900); await page.screenshot({ path: `${IMG}/${n}.png` }); console.log('ok', n);
+      for (let k = 0; k < 3; k++) { const x = page.locator('button:has(svg.lucide-x)').last(); if (await x.isVisible().catch(() => false)) { await x.click().catch(() => {}); await page.waitForTimeout(300); } const c = page.locator('button', { hasText: /^(閉じる|キャンセル)$/ }).last(); if (await c.isVisible().catch(() => false)) { await c.click().catch(() => {}); await page.waitForTimeout(300); } }
+      await page.keyboard.press('Escape'); await page.waitForTimeout(400); } }
   await ctx.close(); }
 // ---- 家族 スマホ ----
 { const ctx = await b.newContext({ ...devices['iPhone 13'], locale: 'ja-JP', timezoneId: 'Asia/Tokyo' }); const page = await ctx.newPage();
