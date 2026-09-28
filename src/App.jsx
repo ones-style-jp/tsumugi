@@ -18062,8 +18062,22 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
 // ===========================================
 // スタッフログイン画面 (本部/店舗管理者/店舗スタッフ)
 // ===========================================
+// ★ 2026-09-28(iPad 報告): 「ホーム画面に追加」から開いた直後にログイン画面のどこも押せない → 原因切り分けのため
+//   iOS/スタンドアロンでは autoFocus をやめ(起動直後の自動フォーカスが WKWebView で固着する事例がある)、
+//   スタンドアロン起動時だけ画面下に「アプリ版・OS・タッチ検知回数」を出して、タッチがJSに届いているか確認できるようにする
+const _tsumugiIsIOSLike = () => { try { return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); } catch { return false; } };
+const _tsumugiIsStandalone = () => { try { return navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches); } catch { return false; } };
+const _tsumugiOsLabel = () => { try { const ua = navigator.userAgent; const m = ua.match(/OS (\d+)[_.](\d+)/); if (m && /iPhone|iPad/.test(ua)) return `iOS ${m[1]}.${m[2]}`; const v = ua.match(/Version\/(\d+\.\d+)/); return v ? `Safari ${v[1]}` : ''; } catch { return ''; } };
 function StaffLoginGate({ onLogin }) {
   const [form, setForm] = useState({ username:'', password:'', error:'', loading:false, showPw:false });
+  const _ios = _tsumugiIsIOSLike(); const _sa = _tsumugiIsStandalone();
+  const [touchN, setTouchN] = useState(0);
+  useEffect(() => {
+    if (!_sa) return;
+    const h = () => setTouchN(n => n + 1);
+    document.addEventListener('pointerdown', h, true); document.addEventListener('touchstart', h, true);
+    return () => { document.removeEventListener('pointerdown', h, true); document.removeEventListener('touchstart', h, true); };
+  }, [_sa]);
   // デバッグ用: Supabase 接続情報
   const sbUrl = import.meta.env.VITE_SUPABASE_URL || '';
   const sbUrlShort = sbUrl ? sbUrl.replace('https://','').slice(0,30) + '...' : '(未設定)';
@@ -18110,7 +18124,7 @@ function StaffLoginGate({ onLogin }) {
         <form onSubmit={handleSubmit}>
           <div style={{marginBottom:14}}>
             <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>ログインID</label>
-            <input value={form.username} onChange={e=>setForm(f=>({...f,username:toHalfWidth(e.target.value),error:''}))} autoFocus autoComplete="username" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
+            <input value={form.username} onChange={e=>setForm(f=>({...f,username:toHalfWidth(e.target.value),error:''}))} autoFocus={!_ios} autoComplete="username" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
               style={{width:'100%',padding:'12px 14px',border:'1px solid #cbd5e1',borderRadius:12,fontSize:15,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
           </div>
           <div style={{marginBottom:18}}>
@@ -18136,7 +18150,7 @@ function StaffLoginGate({ onLogin }) {
           <a href="mailto:support@ones-style.co.jp" style={{color:'#5e8030',fontWeight:'bold',textDecoration:'underline'}}>support@ones-style.co.jp</a>
         </div>
         <div style={{marginTop:10,fontSize:9,color:'#cbd5e1',textAlign:'center',fontFamily:'monospace'}}>
-          接続: {sbUrlShort}
+          接続: {sbUrlShort}{_sa ? ` ／ アプリ版(ホーム画面) ${_tsumugiOsLabel()} ／ タッチ検知 ${touchN}回` : ''}
         </div>
       </div>
     </div>
