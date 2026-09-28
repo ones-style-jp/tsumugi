@@ -24846,6 +24846,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
 function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatientChange, isSidebarOpen, onShowPrintPreview, familyMode = false, cmViewerMode = false, selfMode = false, hidePatientSelector = false, stickyTopOffset = null, externalPeriod = null, externalDisplayMode = null, externalCustomFrom = null, externalCustomTo = null }) {
   // ★ ケアマネ閲覧モード = 事業所と同じフルセット内容を読取専用で表示。 縦型 (スマホ) でも見やすく縦並びに
   const compactMode = familyMode || cmViewerMode; // 基本指標を縦並びにする判定
+  const [basicOpen, setBasicOpen] = useState(false); // ★ 2026-09-28: ご家族/ケアマネでは基本情報を折りたたみ(既定は閉)
   // familyMode 時の sticky top 既定値: stickyTopOffset 未指定なら 56 (FamilyView 内)
   const stickyTop = familyMode ? (stickyTopOffset != null ? stickyTopOffset : 56) : 0;
   // familyMode: 利用者家族・ケアマネ向け表示。一部セクション (詳細記録/欠席/休止) を非表示にし、印刷ボタンも隠す
@@ -25210,6 +25211,26 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
 
   // ★ スタッフ表示では自前スクロール土台(height+overflow)にして、iPad(iOS)で上部バーの sticky が
   //   効かない不具合を解消。 家族/ケアマネ表示(familyMode)は親側でスクロールするため従来どおり。
+  // ★ 2026-09-28(ユーザー要望): ご家族・ケアマネ画面に次回の利用日とお迎え時間を出す(基本情報とは別に「今回の記録」の上)。
+  //   送迎表(transportPlans)にその日のコマが保存済みなら車の時刻／徒歩を優先し、無ければマスタの送迎時間(自動計算含む)。
+  const nextVisit = (() => {
+    if (!compactMode || !selectedPatient) return null;
+    try {
+      const today = new Date(); const tstr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+      const info = getNextVisitInfo(selectedPatient, tstr, appData.monthlyShifts, appData);
+      if (!info || !info.iso) return { date: info?.date || '未定', time: '' };
+      let t = info.time || '';
+      const pl = (appData.transportPlans || {})[`${info.iso}_${info.ampm || 'AM'}`];
+      if (pl && typeof pl === 'object') {
+        let hit = null;
+        Object.keys(pl.cars || {}).forEach(cid => (pl.cars[cid] || []).forEach(m => { if (m.pid === selectedPatient.id) hit = m; }));
+        if (hit) { const raw = String(hit.t || '').replace(/\s/g, ''); const mm = raw.match(/^(\d{1,2})[:：](\d{2}|--)/); if (mm) t = `${mm[1]}時${mm[2] === '--' ? '' : mm[2] + '分'}`; else if (/時/.test(raw)) t = raw; }
+        else if ((pl.walkers || []).some(m => m.pid === selectedPatient.id)) t = '徒歩';
+      }
+      const tt = String(t || '').replace(/^　時　分$/, '').trim();
+      return { date: info.date, time: tt, isFurikae: !!info.isFurikae };
+    } catch { return null; }
+  })();
   return (
     <div className="w-full" style={{backgroundColor:'#f0f4f9', ...(familyMode ? {minHeight:'100%'} : {height:'100%', overflowY:'auto'})}}>
       {/* ヘッダーバー（固定） — scroll container 内で sticky */}
@@ -25794,8 +25815,14 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
         {/*   事業所モード: 利用者名 / 年齢 (生年月日+(n歳)) / 利用開始日 / 経過日数 / 既往歴 / 留意点 */}
         {/*   ご家族/ケアマネ: 利用者名なし / 生年月日 / 利用開始日 / 経過日数 / 既往歴 / 留意点 */}
         <div id="sec-basicinfo" style={{marginBottom:16,scrollMarginTop:170}}>
-          <div style={{fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:10,paddingBottom:6,borderBottom:'2px solid #e2e8f0'}}>基本情報</div>
-          {selectedPatient && (()=>{
+          {compactMode ? (
+            <button type="button" onClick={()=>setBasicOpen(v=>!v)} aria-expanded={basicOpen} style={{width:'100%',display:'flex',alignItems:'center',justifyContent:'space-between',background:'transparent',border:'none',borderBottom:'2px solid #e2e8f0',padding:'2px 0 6px',marginBottom:basicOpen?10:0,cursor:'pointer',fontSize:14,fontWeight:'bold',color:'#475569',textAlign:'left'}}>
+              <span>基本情報</span><span style={{fontSize:12,color:'#64748b',fontWeight:'normal'}}>{basicOpen ? '▲ 閉じる' : '▼ タップで開く'}</span>
+            </button>
+          ) : (
+            <div style={{fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:10,paddingBottom:6,borderBottom:'2px solid #e2e8f0'}}>基本情報</div>
+          )}
+          {(basicOpen || !compactMode) && selectedPatient && (()=>{
             const age = calcAge(selectedPatient.birthDate);
             const birthDispBase = selectedPatient.birthDate
               ? new Date(selectedPatient.birthDate).toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'})
@@ -25831,34 +25858,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             // ★ モード別の項目セット
             //   - 事業所モード: 利用者名 + 年齢 (生年月日 + (n歳)) + 利用開始日 + 経過日数
             //   - ご家族/ケアマネ: 利用者名なし。 生年月日 (改行で(n歳)) + 利用開始日 + 経過日数
-            // ★ 2026-09-28(ユーザー要望): ご家族・ケアマネ画面に次回の利用日とお迎え時間を出す。
-            //   送迎表(transportPlans)にその日のコマが保存済みなら車の時刻／徒歩を優先し、無ければマスタの送迎時間(自動計算含む)。
-            const nextVisit = (() => {
-              try {
-                const today = new Date(); const tstr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-                const info = getNextVisitInfo(selectedPatient, tstr, appData.monthlyShifts, appData);
-                if (!info || !info.iso) return { date: info?.date || '未定', time: '' };
-                let t = info.time || '';
-                const pl = (appData.transportPlans || {})[`${info.iso}_${info.ampm || 'AM'}`];
-                if (pl && typeof pl === 'object') {
-                  let hit = null;
-                  Object.keys(pl.cars || {}).forEach(cid => (pl.cars[cid] || []).forEach(m => { if (m.pid === selectedPatient.id) hit = m; }));
-                  if (hit) { const raw = String(hit.t || '').replace(/\s/g, ''); const mm = raw.match(/^(\d{1,2})[:：](\d{2}|--)/); if (mm) t = `${mm[1]}時${mm[2] === '--' ? '' : mm[2] + '分'}`; else if (/時/.test(raw)) t = raw; }
-                  else if ((pl.walkers || []).some(m => m.pid === selectedPatient.id)) t = '徒歩';
-                }
-                const tt = String(t || '').replace(/^　時　分$/, '').trim();
-                return { date: info.date, time: tt, isFurikae: !!info.isFurikae };
-              } catch { return null; }
-            })();
-            const nextVisitValue = nextVisit ? (
-              <span style={{display:'flex',flexDirection:'column',lineHeight:1.25}}>
-                <span>{nextVisit.date}{nextVisit.isFurikae ? <span style={{fontSize:'0.75em',color:'#059669',marginLeft:6}}>振替</span> : null}</span>
-                <span style={{fontSize:'0.82em',color:'#475569',marginTop:2}}>{nextVisit.time ? (nextVisit.time === '徒歩' ? '徒歩でご来所' : `お迎え ${nextVisit.time} 頃`) : 'お迎え時間は事業所にご確認ください'}</span>
-              </span>
-            ) : '—';
             const items = compactMode
               ? [
-                  {label:'次回のご利用予定', value: nextVisitValue},
                   {label:'生年月日', value: birthWithAge},
                   {label:'利用開始日', value: startLabel},
                   {label:'経過日数', value: elapsedLabel},
@@ -25900,6 +25901,15 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           })()}
         </div>
 
+        {/* ★ 次回のご利用予定(2026-09-28 ユーザー要望: 基本情報とは別に、時間は日付の横に大きく) */}
+        {compactMode && nextVisit && (
+          <div id="sec-next" style={{border:'2px solid #86efac',background:'#f0fdf4',borderRadius:14,padding:'10px 16px',marginBottom:12,display:'flex',alignItems:'baseline',gap:14,flexWrap:'wrap'}}>
+            <span style={{fontSize:13,fontWeight:'bold',color:'#166534'}}>次回のご利用予定</span>
+            <span style={{fontSize:22,fontWeight:'bold',color:'#14532d',letterSpacing:0.5}}>{nextVisit.date}</span>
+            {nextVisit.isFurikae && <span style={{fontSize:12,fontWeight:'bold',color:'#059669',background:'#d1fae5',borderRadius:6,padding:'1px 8px'}}>振替</span>}
+            <span style={{fontSize:22,fontWeight:'bold',color:'#14532d'}}>{nextVisit.time ? (nextVisit.time === '徒歩' ? '徒歩でご来所' : <>お迎え <span style={{fontSize:26}}>{nextVisit.time}</span> 頃</>) : <span style={{fontSize:14,color:'#475569',fontWeight:'normal'}}>お迎え時間は事業所にご確認ください</span>}</span>
+          </div>
+        )}
         {/* ★ 今回の様子＋今回の記録 を1つの枠で囲む (ご家族にわかりやすいよう枠色を変える)。 順序: 様子 → 記録 */}
         {records.length > 0 && (
         <div style={{border:'2.5px solid #60a5fa',borderRadius:18,padding:'14px 16px 4px',marginBottom:16,background:'#f5f9ff',boxShadow:'0 2px 8px rgba(59,130,246,0.12)'}}>
