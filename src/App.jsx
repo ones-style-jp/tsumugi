@@ -30765,7 +30765,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     const _pById = new Map((appData.patients || []).map(p => [p.id, p]));
     const _rawRecs = (appData.ticketRecords || []).filter(r => {
       if (!recMatchesDateYear(r, targetDateStr, targetYear)) return false;
-      if (!(r.status === '出席' || (r.status && r.status.startsWith('振')))) return false;
+      if (!(r.status === '出席' || r.status === '臨時' || (r.status && r.status.startsWith('振')))) return false; // ★ 2026-09-28: 臨時利用も連絡帳の対象
       const _p = _pById.get(r.patientId);
       if (_p && (getPauseReasonOnDate(_p, selectedDate) || isPatientResigned(_p) || !isPatientActiveOnDate(_p, selectedDate))) return false;
       return true;
@@ -30801,20 +30801,26 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     const filteredRecs = ampmFilter ? recs.filter(r => {
       const p = (appData.patients||[]).find(pt=>pt.id===r.patientId);
       if(!p) return true;
+      // ★ 2026-09-28(ユーザー指摘): 提供記録入力で振替/臨時にした人は、基本利用曜日でも月間シフトでもなく
+      //   記録そのものの区分(furikaeAmpm)で午前/午後を判定する(基本曜日以外の日は shifts が空欄で消えていた)
+      const _ap = (r.status === '臨時' || (r.status && r.status.startsWith('振'))) ? String(r.furikaeAmpm || r.ampm || '') : '';
+      if (_ap === 'AM' || _ap === 'PM') return _ap === ampmFilter;
+      // 区分が無い振替/臨時(基本利用日の人が状態だけ振替にした等)は、従来どおり基本曜日・月間シフトで判定し、どちらでも無ければ両方に出す
       const base = getScheduleOnDate(p, selectedDate)?.[dow] || '';
       const shiftAM = appData.monthlyShifts?.[monthKey]?.[p.id]?.[`${dayNum}_AM`];
       const shiftPM = appData.monthlyShifts?.[monthKey]?.[p.id]?.[`${dayNum}_PM`];
       const stAM = shiftAM !== undefined ? shiftAM : (base==='AM'||base==='1日'?'〇':'空欄');
       const stPM = shiftPM !== undefined ? shiftPM : (base==='PM'||base==='1日'?'〇':'空欄');
-      const comingAM = stAM==='〇'||stAM==='出席'||stAM.startsWith('振');
-      const comingPM = stPM==='〇'||stPM==='出席'||stPM.startsWith('振');
+      const comingAM = stAM==='〇'||stAM==='出席'||stAM==='臨時'||stAM.startsWith('振');
+      const comingPM = stPM==='〇'||stPM==='出席'||stPM==='臨時'||stPM.startsWith('振');
+      if (_ap !== '' || (r.status === '臨時' || (r.status && r.status.startsWith('振')))) { if (!comingAM && !comingPM) return true; }
       if(ampmFilter === 'AM') return comingAM;
       if(ampmFilter === 'PM') return comingPM;
       return true;
     }) : recs;
 
     // RecordView と並び順を一致させる: 出席→振替→欠席→休止→休業→その他, 同ステータス内は kana 順
-    const rank = (s) => s === '出席' ? 0 : s === '振替' ? 1 : s === '欠席' ? 2 : s === '休止' ? 3 : s === '休業' ? 4 : 5;
+    const rank = (s) => s === '出席' ? 0 : (s === '振替' || s === '臨時') ? 1 : s === '欠席' ? 2 : s === '休止' ? 3 : s === '休業' ? 4 : 5;
     const kanaOf = (r) => {
       const pid = r.patientId;
       const p = (appData.patients||[]).find(p => p.id === pid);
