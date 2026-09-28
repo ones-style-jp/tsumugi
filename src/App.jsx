@@ -19837,7 +19837,21 @@ export default function App() {
     if (!updateAvailable) return;
     // ★ タブを離れた(背景化)時に、編集中でなければ自動リロードして最新プログラムへ更新(復帰時には更新済み)。
     //   未保存入力は下の別effectが背景化時に自動保存するため、少し待ってからリロードする。
-    const onVis = () => { if (document.visibilityState === 'hidden' && !_isEditingNow()) { setTimeout(() => { try { if (document.visibilityState === 'hidden' && !_isEditingNow()) window.location.reload(); } catch {} }, 1800); } };
+    // ★ 2026-09-28(iPad 報告): 「ホーム画面に追加」したアプリ(スタンドアロン)や iOS Safari では、背景中に reload を始めると
+    //   iOS がページを一時停止したまま復帰し、画面のどこも押せない状態になることがある。
+    //   → iOS／スタンドアロンでは背景中は reload せず「復帰(visible)した瞬間」に行う(画面が動いている時だけ更新する)。
+    const _ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+    const _iosLike = /iPad|iPhone|iPod/.test(_ua) || (typeof navigator !== 'undefined' && navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const _standalone = (typeof navigator !== 'undefined' && navigator.standalone === true) || (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+    let _pendingReload = false;
+    const onVis = () => {
+      if (_iosLike || _standalone) {
+        if (document.visibilityState === 'hidden') { if (!_isEditingNow()) _pendingReload = true; return; }
+        if (document.visibilityState === 'visible' && _pendingReload) { _pendingReload = false; setTimeout(() => { try { if (document.visibilityState === 'visible' && !_isEditingNow()) window.location.reload(); } catch {} }, 400); }
+        return;
+      }
+      if (document.visibilityState === 'hidden' && !_isEditingNow()) { setTimeout(() => { try { if (document.visibilityState === 'hidden' && !_isEditingNow()) window.location.reload(); } catch {} }, 1800); }
+    };
     document.addEventListener('visibilitychange', onVis);
     return () => document.removeEventListener('visibilitychange', onVis);
   }, [updateAvailable, _isEditingNow]);
@@ -21117,6 +21131,37 @@ export default function App() {
             // ★ iOS Safari: 自動印刷(programmatic print)は「このWebサイトから自動的に印刷～」でブロックされ、
             //   本体ページ印刷だとプレビュー画面ごと写ってしまう。 → PCと同じく「表だけのクリーンな別タブ」を開き、
             //   そのタブ内の印刷ボタン(=ユーザー操作)で印刷/PDF保存してもらう(ダイアログも出ず、背景グレー等も無し)。
+            const _standalone = (typeof navigator !== 'undefined' && navigator.standalone === true) || (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+            if (isIOS && _standalone) {
+              // ★ 2026-09-28(iPad 報告): ホーム画面に追加したアプリでは window.open の別画面から戻った後に
+              //   アプリ全体が押せなくなることがある → 別窓を開かず、この画面の上に印刷用の表示を重ねて window.print() する。
+              //   印刷時は @media print でこの表示以外(#root 等)を非表示にするので、プレビュー画面は写らない。
+              try { const old = document.getElementById('tsumugi-ios-print'); if (old) old.remove(); } catch {}
+              const isB5w = Math.round(pageW)===257, isB6w = Math.round(pageW)===128, isB5pw = Math.round(pageW)===182, isLand = pageW > pageH;
+              const orient = isB6w ? '用紙サイズ「B6」' : isB5w ? '用紙「B5」＋「横向き」' : isLand ? '「横向き」' : '';
+              const hint = isB5pw ? '用紙「B5」＋「縦向き」で印刷してください' : orient ? `印刷オプションで ${orient} を選ぶと、はみ出さずにきれいに印刷できます` : '印刷オプションで用紙サイズ・向きを選べます';
+              const bodyM = docHtml.match(/<body[^>]*>([\s\S]*)<\/body>/i); const inner = bodyM ? bodyM[1] : '';
+              // 印刷文書側の style(最後の <style>: @page・用紙幅・余白ゼロ等)を、この画面全体に効かないよう #tsumugi-ios-print 配下へ限定して取り込む
+              const styles = docHtml.match(/<style>([\s\S]*?)<\/style>/g) || []; let own = styles.length ? styles[styles.length - 1].replace(/^<style>|<\/style>$/g, '') : '';
+              own = own.replace(/body>\*>\*\+\*/g, '.tsumugi-ios-doc>*>*+*').replace(/body>\*/g, '.tsumugi-ios-doc>*').replace(/html,body/g, '.tsumugi-ios-doc').replace(/(^|\}|;)\*\{/g, '$1#tsumugi-ios-print *{').replace(/(^|\})svg\{/g, '$1#tsumugi-ios-print svg{');
+              const host = document.createElement('div'); host.id = 'tsumugi-ios-print';
+              host.style.cssText = 'position:fixed;inset:0;z-index:2000001;background:#525659;overflow:auto;-webkit-overflow-scrolling:touch;';
+              host.innerHTML = `<style>${own}</style><style>
+                #tsumugi-ios-print .tsumugi-ios-doc{background:#fff;width:${pageW}mm;max-width:100%;margin:112px auto 40px;box-shadow:0 4px 18px rgba(0,0,0,.35);}
+                @media print{ body>*:not(#tsumugi-ios-print){display:none !important;} #tsumugi-ios-print{position:static !important;inset:auto !important;background:#fff !important;overflow:visible !important;} #tsumugi-ios-print .tsumugi-ios-bar{display:none !important;} #tsumugi-ios-print .tsumugi-ios-doc{margin:0 !important;box-shadow:none !important;max-width:none !important;} }
+              </style>
+              <div class="tsumugi-ios-bar no-print" style="position:fixed;top:0;left:0;right:0;background:#1e293b;color:#fff;padding:12px 16px;text-align:center;font-family:-apple-system,sans-serif;z-index:5;box-shadow:0 2px 10px rgba(0,0,0,0.35);">
+                <button type="button" data-act="print" style="font-size:17px;font-weight:bold;padding:11px 28px;background:#2563eb;color:#fff;border:none;border-radius:10px;cursor:pointer;">印刷 / PDF保存</button>
+                <button type="button" data-act="close" style="font-size:15px;font-weight:bold;padding:11px 20px;margin-left:10px;background:#475569;color:#fff;border:none;border-radius:10px;cursor:pointer;">閉じる</button>
+                <div style="font-size:12px;margin-top:7px;color:#cbd5e1;">${hint}</div>
+                <div style="font-size:11px;margin-top:5px;color:#fbbf24;font-weight:bold;">印刷画面で「PDF」として保存すると、URL・日付は付きません。</div>
+              </div>
+              <div class="tsumugi-ios-doc">${inner}</div>`;
+              host.querySelector('[data-act="print"]').onclick = () => { try { window.print(); } catch (e) { alert('印刷画面を開けませんでした。'); } };
+              host.querySelector('[data-act="close"]').onclick = () => { try { host.remove(); } catch {} };
+              document.body.appendChild(host);
+              return;
+            }
             if (isIOS) {
               const isB5w = Math.round(pageW)===257, isB6w = Math.round(pageW)===128, isB5pw = Math.round(pageW)===182, isLand = pageW > pageH;
               const orient = isB6w ? '用紙サイズ「B6」' : isB5w ? '用紙「B5」＋「横向き」' : isLand ? '「横向き」' : '';
