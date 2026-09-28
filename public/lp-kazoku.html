@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>つむぎのご案内（ご家族向け）</title>
+<style>
+  :root{--ink:#22301c;--sub:#5b6650;--line:#dfe5d6;--green:#4f7a2a;--green-l:#eef5e4;--green-d:#2f4a1a;--amber:#b7791f;--amber-l:#fbf3df;--paper:#fff}
+  *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{margin:0;background:#e9ece4;font-family:'Hiragino Kaku Gothic ProN','Hiragino Sans','Yu Gothic','Noto Sans JP','Meiryo',sans-serif;color:var(--ink);line-height:1.6;font-size:13px}
+  .page{width:210mm;height:297mm;background:var(--paper);margin:8mm auto;padding:11mm 12mm 9mm;box-shadow:0 6px 24px rgba(0,0,0,.12);position:relative;page-break-after:always;display:flex;flex-direction:column;overflow:hidden}
+  .page:last-child{page-break-after:auto}
+  img{max-width:100%;height:auto;display:block}
+  .hero{display:grid;grid-template-columns:1fr 72mm;gap:6mm;align-items:center;background:linear-gradient(180deg,#eef5e4,#fff);border-radius:14px;padding:8mm 8mm 7mm;border:1px solid #cfe0bb}
+  .eyebrow{font-size:10.5px;letter-spacing:.18em;color:var(--green);font-weight:700}
+  h1{font-size:27px;line-height:1.3;margin:4px 0 8px;color:var(--green-d)}
+  .lead{font-size:13.5px;color:var(--sub);margin:0;font-weight:700}
+  .illust{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .illust svg{width:100%;height:auto;display:block}
+  h2{font-size:16px;margin:4.5mm 0 2.5mm;color:var(--green-d);display:flex;align-items:center;gap:8px}
+  h2::after{content:'';flex:1;height:1px;background:var(--line)}
+  .pain{display:grid;grid-template-columns:repeat(3,1fr);gap:3mm}
+  .pain .card{border:1px solid var(--line);border-radius:10px;padding:8px 11px;background:#fff;font-size:12px}
+  .pain .card b{display:block;color:var(--green-d);font-size:13px;margin-bottom:2px}
+  .feat{display:grid;grid-template-columns:1fr 1fr;gap:4mm 6mm}
+  .feat .item{display:flex;flex-direction:column}
+  .feat .shot{border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff}
+  .feat .shot.fx{height:42mm}.feat .shot.fx img{height:100%;object-fit:cover;object-position:left top}
+  .feat .shot.modal{height:42mm}.feat .shot.modal img{width:160%;max-width:none;margin-left:-30%;height:100%;object-fit:cover;object-position:center 42%}
+  .feat b{display:block;color:var(--green-d);font-size:13.5px;margin:4px 0 1px}
+  .feat p{margin:0;font-size:11.5px}
+  .band{display:grid;grid-template-columns:1fr 1fr 1fr;gap:3mm}
+  .band .card{background:var(--green-l);border:1px solid #cfe0bb;border-radius:10px;padding:8px 11px;font-size:11.5px}
+  .band .card b{display:block;color:var(--green-d);font-size:13px;margin-bottom:2px}
+  .saigai{background:linear-gradient(180deg,#fbf3df,#fff);border:1px solid #ecd9a8;border-radius:12px;padding:5mm 7mm}
+  .saigai .in{display:grid;grid-template-columns:54mm 1fr;gap:6mm;align-items:center}
+  .saigai h3{margin:0 0 4px;font-size:15px;color:#7c5a12}
+  .saigai p{margin:0 0 4px;font-size:12px}
+  .saigai ol{margin:4px 0 0 1.3em;padding:0;font-size:12px}
+  .saigai li{margin:2px 0}
+  .flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:stretch;gap:5px}
+  .step{border:2px solid var(--green);border-radius:10px;padding:6px 10px;background:#fff}
+  .step b{display:block;color:var(--green-d);font-size:13px}
+  .step span{font-size:11.5px;color:var(--sub)}
+  .arr{align-self:center;color:var(--green);font-size:20px;font-weight:700}
+  .faq{display:grid;grid-template-columns:1fr 1fr;gap:2mm 6mm}
+  .qa{font-size:11.5px}.qa b{display:block;color:var(--green-d)}.qa b::before{content:'Q. ';color:var(--amber)}.qa p{margin:1px 0 0}.qa p::before{content:'A. ';color:var(--green);font-weight:700}
+  .note{border:1px solid var(--line);background:#fafbf8;border-radius:10px;padding:8px 11px;font-size:11.5px}
+  .note b{color:var(--green-d)}
+  .foot{margin-top:auto;padding-top:6px;border-top:1px solid var(--line);font-size:10px;color:var(--sub);display:flex;justify-content:space-between;align-items:flex-end;gap:10px}
+  .contact{border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:11.5px;min-width:90mm;color:var(--ink)}
+  .contact .l{display:inline-block;width:15mm;color:var(--sub);font-size:10.5px}
+  .contact .u{display:inline-block;border-bottom:1px solid #94a3b8;min-width:66mm;height:15px;vertical-align:bottom}
+  .cta{background:var(--green-d);color:#fff;border-radius:12px;padding:6mm 7mm;text-align:center}
+  .cta b{display:block;font-size:17px;margin-bottom:3px}
+  .cta span{font-size:12px;opacity:.9}
+  .pill{display:inline-block;padding:0 8px;border-radius:999px;font-size:10px;font-weight:700;background:var(--amber-l);color:var(--amber);margin-left:6px;vertical-align:middle}
+  @media print{body{background:#fff}.page{margin:0;box-shadow:none}}
+  @page{size:A4 portrait;margin:0}
+</style>
+</head>
+<body>
+
+<!-- 表 -->
+<div class="page">
+  <div class="hero">
+    <div>
+      <div class="eyebrow">ご家族向けご案内</div>
+      <h1>離れていても、<br>今日の様子がわかる。</h1>
+      <p class="lead">「つむぎ」は、デイサービスでのご本人の毎日を、ご家族のスマホにその日のうちに届ける専用ページです。登録は3分、料金はかかりません。</p>
+    </div>
+    <div class="illust" data-illust="hero">
+      <svg viewBox="0 0 600 450" xmlns="http://www.w3.org/2000/svg" aria-label="スマホを見て安心するご家族">
+        <rect width="600" height="450" fill="#f4f8ec"/><circle cx="470" cy="110" r="60" fill="#fbf3df"/>
+        <path d="M40 330 Q150 250 300 330 T560 330 L560 450 L40 450Z" fill="#e3edd3"/>
+        <rect x="100" y="150" width="150" height="260" rx="22" fill="#1f2a1a"/><rect x="110" y="165" width="130" height="230" rx="14" fill="#fff"/><rect x="110" y="165" width="130" height="34" rx="14" fill="#b8d48a"/>
+        <rect x="122" y="212" width="106" height="52" rx="8" fill="#eef5e4"/><rect x="122" y="274" width="106" height="60" rx="8" fill="#fff8dc"/>
+        <polyline points="128,322 150,300 172,310 194,290 216,298" fill="none" stroke="#2b5fb3" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="175" cy="238" r="10" fill="#f4c04d"/><path d="M169 240 q6 6 12 0" stroke="#7c5a12" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <circle cx="380" cy="230" r="44" fill="#f7d9c4"/><path d="M336 232 q44 -70 88 0" fill="#7a5230"/><path d="M368 240 q12 12 24 0" stroke="#7a3b2e" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <circle cx="366" cy="226" r="3" fill="#3b2a1a"/><circle cx="394" cy="226" r="3" fill="#3b2a1a"/>
+        <path d="M320 300 q60 -40 120 0 L450 400 L310 400Z" fill="#4f7a2a"/><path d="M300 250 q-30 40 0 80" stroke="#f7d9c4" stroke-width="16" fill="none" stroke-linecap="round"/>
+        <text x="300" y="60" font-size="18" fill="#4f7a2a" font-weight="700" text-anchor="middle">今日も元気に体操していました</text>
+      </svg>
+    </div>
+  </div>
+
+  <h2>こんな思いはありませんか</h2>
+  <div class="pain">
+    <div class="card"><b>遠くに住んでいて、様子がわからない</b>今日はどう過ごしたのか、元気だったのか。電話ではなかなか聞けない。</div>
+    <div class="card"><b>血圧や体温の変化が気になる</b>連絡帳の数字は見るけれど、先月と比べてどうなのか、先生にどう伝えればよいのか。</div>
+    <div class="card"><b>災害のとき、無事かすぐ知りたい</b>通所中に何かあったら、どこに避難したのか。電話がつながらない時間がいちばん不安。</div>
+  </div>
+
+  <h2>つむぎがあると、こう変わります<span class="pill">画面はすべて見本データ</span></h2>
+  <div class="feat">
+    <div class="item"><div class="shot fx"><img src="/manual/img/sales_family_pc_today.jpg" alt="今回の様子と記録"></div><b>「今日はどうだった？」が、その日のうちにわかる</b><p>職員の書いた「今回の様子」、来所時と帰宅時の気分、体温・血圧・脈拍、運動メニュー（前回比つき）。次回のご利用日とお迎え時間も表示されます。</p></div>
+    <div class="item"><div class="shot fx"><img src="/manual/img/sales_family_pc_bp.jpg" alt="血圧の日別グラフ"></div><b>血圧・体温・気分の変化が、グラフでわかる</b><p>平均・最高・最低と正常範囲が一緒に出るので変化に気づきやすく、受診のときに先生へ見せる資料にもなります。期間は1か月・3か月などから選べます。</p></div>
+    <div class="item"><div class="shot fx"><img src="/manual/img/sales_family_pc_notice_open.jpg" alt="お知らせ"></div><b>行事のお知らせや写真が、まとめて届く</b><p>夏祭りや遠足、予防接種、担当者会議の予定。ご本人あての個別のお知らせも同じ場所に、新着順で並びます。</p></div>
+    <div class="item"><div class="shot modal"><img src="/manual/img/sales_family_pc_members.jpg" alt="家族一覧"></div><b>離れて暮らす兄弟姉妹とも、同じ画面を</b><p>代表のご家族のほか2名まで登録。それぞれ自分のIDでログインし、見るだけなので記録を消してしまう心配はありません。</p></div>
+  </div>
+
+  <div class="foot">
+    <div>画面はすべて見本（架空）データです。実際の表示は事業所の設定・記録内容により異なります。裏面に「災害のとき」「登録のながれ」「よくあるご質問」があります。</div>
+    <div class="contact"><span class="l">事業所</span><span class="u"></span><br><span class="l">電話</span><span class="u"></span></div>
+  </div>
+</div>
+
+<!-- 裏 -->
+<div class="page">
+  <div class="saigai">
+    <div class="in">
+      <div class="illust" data-illust="saigai">
+        <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" aria-label="避難先で職員と一緒にいるご本人と、スマホで確認するご家族">
+          <rect width="720" height="300" fill="#fffaf0"/><path d="M60 240 h300 v50 h-300z" fill="#e9dcc0"/><path d="M80 240 l100 -90 l100 90z" fill="#d9c59a"/><rect x="160" y="190" width="40" height="50" fill="#fff"/>
+          <text x="180" y="225" font-size="12" text-anchor="middle" fill="#7c5a12" font-weight="700">避難所</text>
+          <circle cx="280" cy="200" r="16" fill="#f7d9c4"/><rect x="266" y="216" width="28" height="40" rx="8" fill="#4f7a2a"/><circle cx="320" cy="205" r="14" fill="#f7d9c4"/><rect x="308" y="219" width="24" height="36" rx="8" fill="#2b5fb3"/>
+          <path d="M400 150 q60 -60 120 0" stroke="#b7791f" stroke-width="3" fill="none" stroke-dasharray="6 6"/>
+          <rect x="520" y="90" width="110" height="190" rx="18" fill="#1f2a1a"/><rect x="528" y="102" width="94" height="166" rx="10" fill="#fff"/><rect x="536" y="112" width="78" height="46" rx="6" fill="#fbf3df"/>
+          <text x="575" y="132" font-size="10" text-anchor="middle" fill="#7c5a12" font-weight="700">避難完了のお知らせ</text><text x="575" y="148" font-size="9" text-anchor="middle" fill="#3b2a1a">無事・○○小学校に避難</text>
+          <rect x="536" y="166" width="78" height="10" rx="3" fill="#eef5e4"/><rect x="536" y="182" width="60" height="10" rx="3" fill="#eef5e4"/>
+          <circle cx="470" cy="230" r="20" fill="#f7d9c4"/><rect x="452" y="250" width="36" height="40" rx="10" fill="#b3362f" opacity=".8"/>
+        </svg>
+      </div>
+      <div>
+        <h3>災害のとき、いちばん知りたい「無事かどうか」が届く</h3>
+        <p>地震・台風などの際、事業所は通所中の方の安否と避難先を、ご家族ごとにメールでお知らせします。同じ内容がアプリの「お知らせ」にも載ります。</p>
+        <ol><li>事業所が、通所中の方の無事・避難済み・体調不良と避難先を登録</li><li>「避難完了のお知らせ」がご家族ごとに一斉送信</li><li>在宅の日には「安否確認のお願い」が届き、電話がつながりにくいときも連絡先がわかります</li></ol>
+      </div>
+    </div>
+  </div>
+
+  <h2>スマホが苦手でも、だいじょうぶ</h2>
+  <div class="band">
+    <div class="card"><b>操作は「お知らせ」と「通所記録」の2つだけ</b>画面の上の2つのボタンを押すだけ。入力するところはなく、間違って何かを消してしまうことはありません。</div>
+    <div class="card"><b>ホーム画面に置けば、アプリと同じ</b>スマホの「ホーム画面に追加」で、アイコンをひとつ押すだけで開きます。パソコン・タブレットでも同じ画面です。</div>
+    <div class="card"><b>パスワードを忘れても、メールで再設定</b>登録したメールに届く確認コードで自分で直せます。困ったときは事業所にお声がけください。</div>
+  </div>
+
+  <h2>登録は3ステップ、3分で終わります</h2>
+  <div class="flow">
+    <div class="step"><b>1. 事業所からご案内</b><span>招待メール、または紙の「登録のご案内」（QRコードと8桁の番号）をお渡しします。番号は3日間有効です。</span></div>
+    <div class="arr">→</div>
+    <div class="step"><b>2. お名前と連絡先を入力</b><span>お名前・続柄・電話番号と、ご自身で決めるログインID・パスワードを入力します。</span></div>
+    <div class="arr">→</div>
+    <div class="step"><b>3. その日から見られます</b><span>登録が終わるとすぐに画面が開きます。次回からはIDとパスワードでログインします。</span></div>
+  </div>
+
+  <h2>よくあるご質問</h2>
+  <div class="faq">
+    <div class="qa"><b>料金はかかりますか。</b><p>ご家族に料金はかかりません。事業所がご利用者のために用意している専用ページです。</p></div>
+    <div class="qa"><b>スマホを持っていません。</b><p>パソコンやタブレットでも同じ画面が見られます。ご家族の中でスマホをお持ちの方を代表者にしても構いません。</p></div>
+    <div class="qa"><b>今日通所したのに、記録がまだ出ません。</b><p>事業所がその日の記録を保存すると表示されます。多くの事業所は当日中から翌日に入力しています。</p></div>
+    <div class="qa"><b>登録した情報は誰に見られますか。</b><p>ご家族と事業所、そして事業所が招待した担当ケアマネジャーだけです。第三者に提供することはありません。</p></div>
+    <div class="qa"><b>家族がもう一人見たいのですが。</b><p>代表者の方が「家族一覧」から2名まで招待できます（合計3名）。</p></div>
+    <div class="qa"><b>やめたいときは。</b><p>事業所の窓口にお申し出ください。事業所側でアカウントを削除できます。</p></div>
+  </div>
+
+  <div class="note" style="margin-top:3mm"><b>安心してお使いいただくために</b>　閲覧はご利用者ご本人（またはご家族）の同意のもとで行います。ご家族ごとのIDでログインし、通信は暗号化されます。画面・写真・記録の内容をSNS等へ転載したり、第三者へ提供することはできません。</div>
+
+  <div class="cta" style="margin-top:4mm"><b>まずは、ご利用中の事業所にひとこと</b><span>「つむぎに登録したい」とお伝えください。招待のご案内をお渡しします。登録は3分、料金はかかりません。</span></div>
+
+  <div class="foot">
+    <div>つむぎ（Tsumugi）— ご家族・ケアマネ・事業所・関係者が、ご利用者を支え、やさしく紡ぐ。画面はすべて見本データです。</div>
+    <div class="contact"><span class="l">事業所</span><span class="u"></span><br><span class="l">電話</span><span class="u"></span></div>
+  </div>
+</div>
+
+</body>
+</html>
