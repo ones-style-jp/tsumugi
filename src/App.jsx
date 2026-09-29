@@ -33644,11 +33644,17 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                         {/* ★ 未割当: 従来どおり下部に表示(2026-09-14 店舗指定で上部から戻し) */}
                         {(!!(pl.un||[]).length || dragMv) && (
                           <div data-tpdrop="un" data-tpiso={iso} data-tpslot={sl} className={`border rounded-lg px-2 py-1 ${dragMv&&dragMv.over&&dragMv.over.zone==='un'&&dragMv.over.iso===iso&&dragMv.over.slot===sl?'border-amber-600 ring-2 ring-amber-300 bg-amber-50':'border-amber-300 bg-amber-50'}`}>
-                            <div className="text-[10px] font-bold text-amber-700 flex items-center leading-tight">未割当 {(pl.un||[]).length}名<span className="ml-auto font-normal text-amber-600 text-[9px]">車へ移動してください</span></div>
+                            <div className="text-[10px] font-bold text-amber-700 flex items-center leading-tight">未割当 {(pl.un||[]).length}名<span className="ml-auto font-normal text-amber-600 text-[9px]">右の「移動先」で車・徒歩を選ぶか、名前を長押しして移動</span></div>
                             {(pl.un||[]).map(m => (
                               <div key={m.pid} className={`flex items-center gap-1 text-[15px] font-bold text-slate-700 py-0 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''} ${_isFurikae(iso, sl, m.pid)?'bg-emerald-100 rounded':(_isFirstVisit(m.pid, iso)?'bg-sky-100 rounded':'')}`}>
                                 <span className="flex-1 min-w-0 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2 px-1" style={{touchAction:'pan-y'}} {..._dragHandlers(m.pid, iso, sl)}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></span>
                                 <span className="text-[12px] text-slate-500" style={{fontVariantNumeric:'tabular-nums'}}>{_fmtT(m.t)}</span>
+                                {/* ★ 2026-09-29 ユーザー要望: 未割当の方はドラッグだけでなく、プルダウンで車・徒歩・その他を自由に選べる */}
+                                <select value="" data-testid={`tp-un-sel-${m.pid}`} onChange={e=>{ if (e.target.value) moveMember(iso, sl, m.pid, e.target.value); }} className="shrink-0 text-[11px] font-bold border border-amber-400 rounded px-0.5 py-0 bg-white max-w-[92px] text-amber-800">
+                                  <option value="">移動先…</option>
+                                  {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name}</option>)}
+                                  <option value="walk">徒歩</option><option value="other">その他</option>
+                                </select>
                               </div>
                             ))}
                             {!(pl.un||[]).length && <div className="text-[10px] text-amber-600">ここにドロップで未割当へ</div>}
