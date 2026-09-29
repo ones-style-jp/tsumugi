@@ -23500,7 +23500,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     autoSaveRecTimerRef.current = setTimeout(() => { try { _recSaveRef.current && _recSaveRef.current(true); } catch (e) { console.warn('[autosave] record failed', e); } }, 1200);
     return () => { if (autoSaveRecTimerRef.current) clearTimeout(autoSaveRecTimerRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localPatients, localTicketRecords, pendingCancellations, pendingFurikaeShifts, pendingFurikaeRecords]);
+  }, [localPatients, localTicketRecords, pendingCancellations, pendingFurikaeShifts, pendingFurikaeRecords, kinouDefault]);
   // ★ 再読み込み/離脱/バックグラウンド化する直前に、入力中の欄を確定(blur)してから即保存。
   //   デバウンス待ちや onBlur 未確定で、再読み込み時にデータが消えるのを防ぐ。
   React.useEffect(() => {
@@ -23697,7 +23697,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             {_kinouOn && (
               <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-xl px-2 py-1" title="個別機能訓練を実施した機能訓練指導員。全員に適用され、利用者ごとに特記欄の横で変えられます。提供記録の印刷に「個別: ○○」と出ます">
                 <span className="text-[11px] font-bold text-emerald-800 whitespace-nowrap">個別機能訓練 実施</span>
-                <select data-testid="kinou-default" value={_kinouEff} onChange={e=>setKinouDefault(e.target.value)} className="text-sm font-bold bg-white border border-emerald-300 rounded-lg px-2 py-1 outline-none">
+                <select data-testid="kinou-default" value={_kinouEff} onChange={e=>{ setKinouDefault(e.target.value); if (dirtyRef) dirtyRef.current = true; /* ★ 2026-09-29: 血圧などと同じく自動保存で反映 */ }} className="text-sm font-bold bg-white border border-emerald-300 rounded-lg px-2 py-1 outline-none">
                   {_kinouList.map(n => <option key={n} value={n}>{n}</option>)}
                   <option value="未算定">未算定</option>
                   {!_kinouList.length && <option value="">（機能訓練指導員が未登録）</option>}
@@ -30565,7 +30565,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                               {r.recorder && (
                                 <div style={{marginTop:2,textAlign:'center',padding:'0 1px',width:'100%',overflow:'hidden'}}><AutoFitText text={`記録: ${r.recorder}`} max={9} min={5} bold color="#475569"/></div>
                               )}
-                              {r.kinouStaff && (
+                              {r.kinouStaff && !isA && !mt && (
                                 <div style={{marginTop:1,textAlign:'center',padding:'0 1px',width:'100%',overflow:'hidden'}}><AutoFitText text={`個別: ${r.kinouStaff}`} max={9} min={5} bold color="#047857"/></div>
                               )}
                             </div>
