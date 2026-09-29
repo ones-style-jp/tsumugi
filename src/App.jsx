@@ -23644,13 +23644,14 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
 
   const attCountChips = attCounts ? (() => {
     // 出席=青 / 欠席=赤 / 休止=橙 / 振替=緑 / 休業=灰。 人数が0の状態は表示しない(いる状態だけ)。
-    const defs = [['出席','#1e40af','#dbeafe'],['臨時','#155e75','#cffafe'],['欠席','#991b1b','#fee2e2'],['休止','#9a3412','#ffedd5'],['振替','#166534','#dcfce7'],['休業','#475569','#f1f5f9']];
+    // ★ 2026-09-29 ユーザー指示: 優先順位 出席→欠席→振替→臨時→休止→休業、1列に横並びではなく2行で縦に詰めて表示
+    const defs = [['出席','#1e40af','#dbeafe'],['欠席','#991b1b','#fee2e2'],['振替','#166534','#dcfce7'],['臨時','#155e75','#cffafe'],['休止','#9a3412','#ffedd5'],['休業','#475569','#f1f5f9']];
     const shown = defs.filter(([label]) => (attCounts[label]||0) > 0);
     if (!shown.length) return null;
     return (
-      <div className="flex items-center gap-1 flex-wrap" title="本日（選択中のAM/PM）の人数">
+      <div data-testid="att-chips" style={{display:'grid',gridTemplateRows:'repeat(2, auto)',gridAutoFlow:'column',gap:'2px 4px',alignItems:'center'}} title="本日（選択中のAM/PM）の人数">
         {shown.map(([label,fg,bg])=>(
-          <span key={label} style={{background:bg,color:fg,borderRadius:8,padding:'3px 9px',fontSize:12,fontWeight:'bold',whiteSpace:'nowrap'}}>{label} {attCounts[label]}</span>
+          <span key={label} style={{background:bg,color:fg,borderRadius:6,padding:'1px 7px',fontSize:11,fontWeight:'bold',whiteSpace:'nowrap',lineHeight:1.3}}>{label} {attCounts[label]}</span>
         ))}
       </div>
     );
@@ -23707,11 +23708,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 </button>
               </div>
             )}
-            <div className="relative flex items-center bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
-              <Search size={18} className="text-slate-400 mr-2" />
-              <input type="text" value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} placeholder="氏名で検索" className="bg-transparent outline-none text-sm w-24 font-bold text-slate-700" />
-              {searchQuery && <button onClick={() => setSearchQuery('')} className="text-slate-400 hover:text-slate-600 ml-1"><X size={16} /></button>}
-            </div>
+            {/* ★ 2026-09-29 ユーザー指示: 「氏名で検索」は使わないため非表示(検索の仕組み自体は残す) */}
             {_kinouOn && (
               <div className="relative flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-xl px-2 py-1" title="個別機能訓練を実施した機能訓練指導員。ここで選ぶと表示中の区分(AM/PM)の全員に適用。利用者ごとに変えるときは「利用者ごと」。提供記録の印刷に「個別: ○○」と出ます">
                 <span className="text-[11px] font-bold text-emerald-800 whitespace-nowrap">個別機能訓練 実施</span>
