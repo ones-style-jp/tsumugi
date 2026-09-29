@@ -31025,7 +31025,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   const handlePrintBlank = () => {
     const v = window.prompt('空の連絡帳を何枚印刷しますか？（用紙の枚数・印刷設定の用紙と面数で出ます）', '1');
     if (v === null) return;
-    doPrintBlank(v);
+    doPrintBlank(toHankaku(v).replace(/[^0-9]/g, '')); // ★ 全角数字でも可(2026-09-29)
   };
   const doPrint = (idsToprint) => {
     setPrintModeModal(false);
@@ -31292,6 +31292,10 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         <div className="flex-1" />
         {/* ★ 提供記録入力への相互ジャンプ(2026-08-21): 提供記録側の「連絡帳」ボタンと対 */}
         {navigateTo && <button onClick={()=>navigateTo('record')} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shadow"><ClipboardList size={15} className="mr-1"/>提供記録</button>}
+        {/* ★ 並び順(2026-09-29 ユーザー指示): 項目 → 連絡事項 → 次回予定 → 印刷設定 → 空印刷 → プレビュー */}
+        <button onClick={() => setIsConfigOpen(true)} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0">
+          項目
+        </button>
         <button onClick={() => setRenrakuModal({ patientId: null })} className="border px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0 bg-white border-slate-300 hover:bg-slate-50 text-slate-700">
           連絡事項
         </button>
@@ -31299,9 +31303,6 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
           次回予定
           {/* ★ 未入力人数バッジ(2026-09-09 店舗要望): 印刷で空欄になる人数をひと目で */}
           {missingNextList.length > 0 && <span className="ml-1.5 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">未入力{missingNextList.length}名</span>}
-        </button>
-        <button onClick={() => setIsConfigOpen(true)} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0">
-          項目
         </button>
         {/* ★ 詳細設定: 面数(1面/2面)・用紙・補助線(カット線/パンチ点)をここで選ぶ */}
         <div className="relative shrink-0">
@@ -31379,11 +31380,11 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
             );
           })()}
         </div>
-        <button onClick={handlePrint} className="bg-slate-900 hover:bg-black text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0">
-          プレビュー
-        </button>
         <button onClick={handlePrintBlank} title="氏名・記録が空欄の連絡帳を、印刷設定の用紙(B5横2面／B6など)で印刷します。表示されない方がいた時の手書き用" className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm whitespace-nowrap shrink-0">
           空印刷
+        </button>
+        <button onClick={handlePrint} className="bg-slate-900 hover:bg-black text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0">
+          プレビュー
         </button>
       </div>
       <div className="max-w-[800px] mx-auto space-y-8 pb-32 pt-6">
@@ -31974,7 +31975,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
 
           {/* 運動テーブル — ★ セル高さ統一 + 行高に上限あり
               項目少ない時に巨大化しないよう max-height、 増減で揺れないよう全行均等 */}
-          <div ref={exBoxRef} className="mb-2 border-2 border-black overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all" style={{flex:'1 1 0', minHeight:0, maxHeight:360}} onClick={onOpenConfig}>
+          <div ref={exBoxRef} className="mb-2 border-2 border-black overflow-hidden" style={{flex:'1 1 0', minHeight:0, maxHeight:360}} title="項目の変更は上部の「項目」ボタンから">
             <table className="w-full border-collapse text-center table-fixed" style={{height:'100%'}}>
               <tbody>
                 {rows.map((row, idx) => {
@@ -32114,7 +32115,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
           </div>
 
           {/* フッター */}
-          <div className="text-center font-bold shrink-0 cursor-pointer hover:text-blue-600 transition-colors" style={{paddingBottom:"24px"}} onClick={onOpenConfig}>
+          <div className="text-center font-bold shrink-0" style={{paddingBottom:"24px"}}>
             <span style={{fontSize:24,fontWeight:"bold"}}>{config.facilityName}</span>
             <span style={{marginLeft:16,letterSpacing:"0.1em",fontFamily:"monospace",fontSize:28,fontWeight:"bold"}}>{config.facilityPhone}</span>
           </div>
