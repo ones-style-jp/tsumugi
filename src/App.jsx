@@ -537,7 +537,7 @@ ${body}</body></html>`;
                       <th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:48px;">体温</th>
                       <th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:58px;">開始 血圧(脈)</th>
                       <th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:58px;">終了 血圧(脈)</th>
-                      ${exerciseItems.map(it => `<th style="border:1px solid #475569;padding:3px 1px;font-size:9px;line-height:1.1;">${it.name}</th>`).join('')}
+                      ${exerciseItems.map(it => `<th style="border:1px solid #475569;padding:2px 1px;font-size:${String(it.name||'').length>10?7:String(it.name||'').length>7?8:9}px;line-height:1.1;white-space:normal;word-break:break-all;vertical-align:middle;">${it.name}</th>`).join('')}
                       <th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:42px;">介護整体</th>
                     </tr>
                   </thead>
@@ -1245,19 +1245,19 @@ const secondBpVisible = (appData, recs) => (appData?.systemSettings?.secondBpMod
 const bpReList = (r, ampm) => (Array.isArray(r?.bpRe) ? r.bpRe : []).filter(e => e && (!ampm || !e.ampm || e.ampm === ampm));
 const bpReHas = (r, phase, ampm) => bpReList(r, ampm).some(e => e.phase === phase);
 // ★ 血圧セルの下に出す再測定ログ(2026-09-29 ユーザー決定): 「n回目 時刻 上/下 脈 [削除]」を詰めて縦に。既定は最新1件だけ、残りは折りたたみ
-function BpReMini({ entries, canEdit, onDelete }) {
+function BpReMini({ entries, canEdit, onDelete, big = false }) {
   const [open, setOpen] = React.useState(false);
   if (!entries || !entries.length) return null;
   const list = open ? entries : entries.slice(-1);
   return (
     <div className="mt-0.5 flex flex-col items-start" style={{lineHeight:1.1}} data-testid="bp-re-mini">
       {list.map(e => (
-        <div key={e.at || e.n} className="text-[9px] font-bold text-amber-800 whitespace-nowrap flex items-center gap-1" data-testid="bp-re-row">
+        <div key={e.at || e.n} className={`${big ? 'text-[15px] gap-2 mt-1' : 'text-[9px] gap-1'} font-bold text-amber-800 whitespace-nowrap flex items-center`} data-testid="bp-re-row">
           <span>{e.n || 1}回目</span><span>{e.time || ''}</span><span>{e.up || '－'}/{e.dn || '－'}</span><span>脈{e.pl || '－'}</span>
-          {canEdit && <button type="button" data-testid="bp-re-del" onClick={() => onDelete(e.at)} className="text-[9px] font-bold text-red-600 border border-red-300 bg-white rounded px-1 leading-tight">削除</button>}
+          {canEdit && <button type="button" data-testid="bp-re-del" onClick={() => onDelete(e.at)} className={`${big ? 'text-[13px] px-2 py-0.5' : 'text-[9px] px-1'} font-bold text-red-600 border border-red-300 bg-white rounded leading-tight`}>削除</button>}
         </div>
       ))}
-      {entries.length > 1 && <button type="button" data-testid="bp-re-toggle" onClick={() => setOpen(o => !o)} className="text-[9px] font-bold text-blue-700 underline leading-tight">{open ? '閉じる' : `他${entries.length - 1}件`}</button>}
+      {entries.length > 1 && <button type="button" data-testid="bp-re-toggle" onClick={() => setOpen(o => !o)} className={`${big ? 'text-[13px]' : 'text-[9px]'} font-bold text-blue-700 underline leading-tight`}>{open ? '閉じる' : `他${entries.length - 1}件`}</button>}
     </div>
   );
 }
@@ -1265,21 +1265,32 @@ const bpReLines = (r, ampm) => bpReList(r, ampm).map(e => `${e.phase === 'En' ? 
 
 
 // セル幅に収まる最大フォントで表示し、はみ出す場合は自動縮小する (折り返さない)
-function AutoFitText({ text, max = 13, min = 6, bold, color }) {
+function AutoFitText({ text, max = 13, min = 6, bold, color, wrap = false }) {
   const ref = React.useRef(null);
   const [fs, setFs] = React.useState(max);
   // ★ 内容/サイズが変わった時だけ計測してフォントを確定 (状態保持。 毎レンダリングでは再計算しない=UIを固めない)
   React.useLayoutEffect(() => {
     const el = ref.current; if (!el) return;
     const parent = el.parentElement; if (!parent) return;
-    let size = max; el.style.fontSize = size + 'px';
-    let guard = 0;
-    while (size > min && el.scrollWidth > (parent.clientWidth - 2) && guard < 40) {
-      size -= 0.5; el.style.fontSize = size + 'px'; guard++;
-    }
-    setFs(size);
-  }, [text, max, min]);
-  return <span ref={ref} style={{ display: 'inline-block', whiteSpace: 'nowrap', fontWeight: bold ? 'bold' : 'normal', color: color || 'inherit', fontSize: fs, lineHeight: 1.05 }}>{text}</span>;
+    const fit = () => {
+      if (!parent.clientWidth) return; // まだレイアウトされていない(非表示など)ときは測らない(最小まで縮んで固定される事故の防止)
+      let size = max; el.style.fontSize = size + 'px';
+      let guard = 0;
+      // ★ wrap=true(2026-09-29): 最大2行に折り返し、2行に収まるまで縮小(提供記録印刷の運動メニュー名など)
+      //   wrap のときは display:block で scrollWidth が常に親幅と同じになるため、高さ(2行分)だけで判定する
+      const over = () => wrap ? (el.scrollHeight > size * 1.05 * 2 + 2) : (el.scrollWidth > (parent.clientWidth - 2));
+      while (size > min && over() && guard < 60) {
+        size -= 0.5; el.style.fontSize = size + 'px'; guard++;
+      }
+      setFs(size);
+    };
+    fit();
+    // ★ 親の幅が後から決まる(印刷プレビューの表など)場合に追従して測り直す
+    let ro = null;
+    try { if (typeof ResizeObserver !== 'undefined') { ro = new ResizeObserver(() => fit()); ro.observe(parent); } } catch {}
+    return () => { try { ro && ro.disconnect(); } catch {} };
+  }, [text, max, min, wrap]);
+  return <span ref={ref} style={{ display: wrap ? 'block' : 'inline-block', whiteSpace: wrap ? 'normal' : 'nowrap', wordBreak: wrap ? 'break-all' : undefined, fontWeight: bold ? 'bold' : 'normal', color: color || 'inherit', fontSize: fs, lineHeight: 1.05 }}>{text}</span>;
 }
 
 // 利用者の予定運動メニューを「指定年月」時点の値で返す (月別バージョン対応)
@@ -10175,6 +10186,7 @@ const generateMonthlySchedule = (patients, year, month, monthlyShifts, ticketRec
         status: existing?.status || status,
         temp: existing?.temp || "",
         bpRe: Array.isArray(existing?.bpRe) ? existing.bpRe : [],   // ★ 再測定ログ(印刷の特記に「開始 1回目 …」を出す・2026-09-29)
+        kinouStaff: existing?.kinouStaff || "",                       // ★ 個別機能訓練の実施担当(印刷の日付欄「個別: ○○」)
         bpUpSt: existing?.bpUpSt || "",
         bpDnSt: existing?.bpDnSt || "",
         plSt: existing?.plSt || "",
@@ -22282,6 +22294,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const timeFilter = (sharedAmpm === 'all' || !sharedAmpm) ? 'AM' : sharedAmpm;
   const setTimeFilter = (v) => setSharedAmpm && setSharedAmpm(v);
   const [keypad, setKeypad] = useState({ isOpen: false, recordId: null, field: null, value: "", isFirstInput: false });
+  const [kinouDefault, setKinouDefault] = useState(''); // ★ 個別機能訓練の実施担当(この画面の既定・空=最初の機能訓練指導員)
   // ★ 拡大入力ビュー(2026-09-09 店舗要望): 高齢のスタッフでも見やすいよう、1名分のバイタル・運動・特記を大きな字で表示・入力
   const [zoomPid, setZoomPid] = useState(null);
   const kpConfirmRef = React.useRef(false); // ★ PC Enter: 1回目=確定 / 2回目=右のセルへ移動
@@ -22492,6 +22505,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
              pData.massage = existingRecord.massage || "";
              pData.exercises = existingRecord.exercises || {};
              pData.tokki = existingRecord.tokki || "";
+             pData.kinouStaff = existingRecord.kinouStaff || "";
              pData.bpRe = Array.isArray(existingRecord.bpRe) ? existingRecord.bpRe : [];
              // ★ actualTime(提供時間)を復元。 これが無いと保存時に必ず "" で再構築され(19051)、
              //   保存済みの提供時間を全端末で消してしまっていた(空欄=施設の既定時間を使う意味)。
@@ -22508,6 +22522,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
              pData.bpUpEn_AM = ""; pData.bpUpEn_PM = ""; pData.bpDnEn_AM = ""; pData.bpDnEn_PM = "";
              pData.plEn_AM = ""; pData.plEn_PM = "";
              pData.bpRe = [];
+             pData.kinouStaff = "";
              pData.massage = "";
              pData.tokki = ""; pData.exercises = {}; pData.kibunArrival = ""; pData.kibunArrivalReason = "";
              pData.kibunDeparture = ""; pData.kibunDepartureReason = ""; pData.done = false;
@@ -22614,6 +22629,12 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const _reOn = (appData.systemSettings?.secondBpMode || 'end') !== 'recheckStart';
   // ★ 気分(通所/帰宅)の入力欄を出すか(各種設定・2026-09-29 ユーザー要望: 事業所ごとの自己判断)
   const _kibunOn = appData.systemSettings?.kibunDisabled !== true;
+  // ★ 個別機能訓練の実施担当(2026-09-29 ユーザー要望): 運動を回すフロア担当がスタッフ切替で記録者になる運用のため、
+  //   記録者とは別に「個別機能訓練の実施担当(機能訓練指導員)」を持つ。既定=各種設定の担当職員で最初に登録された機能訓練指導員。
+  //   行ごとに変えることもでき(2人が別々の利用者を担当する場合)、「未算定」も選べる。提供記録の印刷に「個別: ○○」と出る。
+  const _kinouOn = !!appData.systemSettings?.facilityInfo?.kobetsuKinouAddon;
+  const _kinouList = Array.from(new Set((appData.diarySettings?.staff || []).filter(st => st && st.name && !st._tempHelp && (st.role === '機能訓練指導員' || st.role2 === '機能訓練指導員')).map(st => String(st.name).trim()).filter(Boolean)));
+  const _kinouEff = kinouDefault || _kinouList[0] || '';
   // ★ 再測定(2026-09-29 ユーザー指示: 入力方法は通常と同じ=テンキーで「/」も自分で打つ): 今の値を bpRe に n回目 として残し、
   //   入力欄(上/下/脈)を空にして、通常どおり血圧のセルに入力を開く。間違えて押した場合は removeBpRemeasure で前の値に戻す
   const applyBpRemeasure = (id, phase) => {
@@ -23246,22 +23267,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       if (!auto && !_checkRecName) {
         if (!window.confirm('⚠ 担当者 (スタッフ切替で選んだ人) が設定されていません。\n\nサイドバーの「スタッフ切替」から担当者を選んでから保存することをおすすめします。\n\nこのまま保存を続行しますか？')) return;
       }
-      // ★ 個別機能訓練加算 取得時: 担当者が機能訓練指導員でなければ警告 (自動保存では出さない)
-      if (!auto && appData.systemSettings?.facilityInfo?.kobetsuKinouAddon) {
-        const _activeRecName = getRecorderName();
-        // 機能訓練指導員リスト + 同名重複排除
-        const _kinouNamesAll = (appData.diarySettings?.staff || [])
-          .filter(s => s.role === '機能訓練指導員')
-          .map(s => s.name);
-        const _kinouNames = Array.from(new Set(_kinouNamesAll.map(n => normalizeName(n).trim()))).filter(Boolean);
-        if (_activeRecName && _kinouNames.length > 0 && !_kinouNames.includes(_activeRecName)) {
-          const ok = window.confirm(
-            `⚠ 個別機能訓練加算 取得中ですが、 現在の担当者「${_activeRecName}」は機能訓練指導員ではありません。\n\n` +
-            `登録されている機能訓練指導員: ${_kinouNames.join('、 ')}\n\n` +
-            `このまま保存しますか？\n(キャンセルしてサイドバーの「スタッフ切替」から機能訓練指導員に切り替えることもできます)`
-          );
-          if (!ok) return;
-        }
+      // ★ 個別機能訓練の実施担当(2026-09-29): 記録者が機能訓練指導員かどうかは問わない(フロア担当が記録する運用)。
+      //   加算ありの店舗で実施担当が決まっていない(機能訓練指導員が未登録で既定も空)ときだけ確認する
+      if (!auto && _kinouOn && !_kinouEff) {
+        if (!window.confirm('⚠ 個別機能訓練加算を取得中ですが、実施担当の機能訓練指導員が選ばれていません。\n各種設定 → 担当職員 に機能訓練指導員を登録すると自動で選ばれます。\n\nこのまま保存しますか？')) return;
       }
       let updatedTicketRecords = [...(appData.ticketRecords || [])];
       let newShifts = JSON.parse(JSON.stringify(appData.monthlyShifts || {}));
@@ -23349,6 +23358,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   // ★ 担当者: スタッフ切替で選んでいるアクティブ記録者を保存
                   //   未選択の場合は 既存値を維持 (それ以外のフォールバックは使わない)
                   recorder: getRecorderName() || existing?.recorder || '',
+                  // ★ 個別機能訓練の実施担当(2026-09-29): 加算ありの店舗は 行の選択 → 画面の既定 の順。欠席等は既存値のまま
+                  kinouStaff: (_kinouOn && !(p.status === '欠席' || p.status === '休業' || p.status === '休止')) ? (p.kinouStaff || _kinouEff || '') : (existing?.kinouStaff || ''),
                   done: p.done || false,
               };
               // ★ 複数端末マージ対策: _savedAt は「実際にデータがある／変更があった」時だけ新しくする。
@@ -23638,6 +23649,16 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               <input type="text" value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)} placeholder="氏名で検索" className="bg-transparent outline-none text-sm w-24 font-bold text-slate-700" />
               {searchQuery && <button onClick={() => setSearchQuery('')} className="text-slate-400 hover:text-slate-600 ml-1"><X size={16} /></button>}
             </div>
+            {_kinouOn && (
+              <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-xl px-2 py-1" title="個別機能訓練を実施した機能訓練指導員。全員に適用され、利用者ごとに特記欄の横で変えられます。提供記録の印刷に「個別: ○○」と出ます">
+                <span className="text-[11px] font-bold text-emerald-800 whitespace-nowrap">個別機能訓練 実施</span>
+                <select data-testid="kinou-default" value={_kinouEff} onChange={e=>setKinouDefault(e.target.value)} className="text-sm font-bold bg-white border border-emerald-300 rounded-lg px-2 py-1 outline-none">
+                  {_kinouList.map(n => <option key={n} value={n}>{n}</option>)}
+                  <option value="未算定">未算定</option>
+                  {!_kinouList.length && <option value="">（機能訓練指導員が未登録）</option>}
+                </select>
+              </div>
+            )}
             <div className="sm:ml-auto flex items-center gap-2 flex-wrap">
               {/* ★ 連絡帳は一番左(全画面の左)に配置(2026-08-28 店舗要望) */}
               <button onClick={() => { handleSaveClick(); navigateTo('print'); }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap">連絡帳</button>
@@ -23947,6 +23968,13 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     );})}
                 </div>}
                 <input type="text" disabled={isReadOnly} value={p.tokki||''} onChange={e=>updateRecord(p.id,'tokki',e.target.value)} placeholder={isReadOnly?'':(isAbsent?'欠席理由...':(isPause?'休止中の特記...':'特記...'))} className="mt-2 w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-50"/>
+                {_kinouOn && !isAbsent && !isPause && (
+                  <select data-testid={`kinou-row-${p.id}`} disabled={isReadOnly} value={p.kinouStaff||''} onChange={e=>updateRecord(p.id,'kinouStaff',e.target.value)} className="mt-1 text-[11px] font-bold bg-white border border-emerald-300 text-emerald-900 rounded-lg px-2 py-1 disabled:opacity-60">
+                    <option value="">個別機能訓練 実施: {_kinouEff || '—'}</option>
+                    {_kinouList.filter(n => n !== _kinouEff).map(n => <option key={n} value={n}>個別機能訓練 実施: {n}</option>)}
+                    {_kinouEff !== '未算定' && <option value="未算定">未算定</option>}
+                  </select>
+                )}
               </div>
             );
           })}
@@ -24373,6 +24401,13 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                             className={`flex-1 px-2 border rounded-lg text-xs bg-transparent outline-none disabled:opacity-80 resize-none ${isReadOnly ? 'border-transparent' : 'border-slate-300 shadow-inner bg-white'}`}
                             style={{fontSize:14,lineHeight:1.4,padding:'2px 6px',height:'100%'}}
                             placeholder={isReadOnly ? "" : (isAbsent ? "欠席理由等..." : "特記事項...")} />
+                          {_kinouOn && !isAbsent && !isPause && (
+                            <select data-testid={`kinou-row-${p.id}`} disabled={isReadOnly} value={p.kinouStaff||''} onChange={e=>updateRecord(p.id,'kinouStaff',e.target.value)} title="この方の個別機能訓練の実施担当（空欄=上の既定）" className="shrink-0 self-end text-[10px] font-bold bg-white border border-emerald-300 text-emerald-900 rounded px-1 py-0.5 max-w-[96px] disabled:opacity-60">
+                              <option value="">個別: {_kinouEff || '—'}</option>
+                              {_kinouList.filter(n => n !== _kinouEff).map(n => <option key={n} value={n}>個別: {n}</option>)}
+                              {_kinouEff !== '未算定' && <option value="未算定">未算定</option>}
+                            </select>
+                          )}
                         </div>
                       );
                     })()}
@@ -24590,7 +24625,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   <div style={{fontSize:16,fontWeight:'bold',color:'#0f172a',marginBottom:8}}>バイタル（開始）</div>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
                     {_cell('体温', `temp_${tf}`, _vals.temp, '℃', getTempColorClass(_vals.temp))}
-                    <div className="flex flex-col">{_cell('血圧', `bpSt_combo_${tf}`, (_vals.buSt&&_vals.bdSt)?`${_vals.buSt}/${_vals.bdSt}`:(_vals.buSt||''), '', null, {up:_vals.buSt, dn:_vals.bdSt})}<BpReMini entries={bpReList(p, tf).filter(e => e.phase === 'St')} canEdit={!dis} onDelete={(at) => removeBpRemeasureAt(p.id, at)} /></div>
+                    <div className="flex flex-col">{_cell('血圧', `bpSt_combo_${tf}`, (_vals.buSt&&_vals.bdSt)?`${_vals.buSt}/${_vals.bdSt}`:(_vals.buSt||''), '', null, {up:_vals.buSt, dn:_vals.bdSt})}<BpReMini big entries={bpReList(p, tf).filter(e => e.phase === 'St')} canEdit={!dis} onDelete={(at) => removeBpRemeasureAt(p.id, at)} /></div>
                     {_cell('脈拍', `plSt_${tf}`, _vals.plSt, '', getPulseColorClass(_vals.plSt))}
                   </div>
                 </div>
@@ -24599,7 +24634,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   <div style={{fontSize:16,fontWeight:'bold',color:'#0f172a',marginBottom:8}}>バイタル（終了）</div>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
                     <div/>
-                    <div className="flex flex-col">{_cell('血圧', `bpEn_combo_${tf}`, (_vals.buEn&&_vals.bdEn)?`${_vals.buEn}/${_vals.bdEn}`:(_vals.buEn||''), '', null, {up:_vals.buEn, dn:_vals.bdEn})}<BpReMini entries={bpReList(p, tf).filter(e => e.phase === 'En')} canEdit={!dis} onDelete={(at) => removeBpRemeasureAt(p.id, at)} /></div>
+                    <div className="flex flex-col">{_cell('血圧', `bpEn_combo_${tf}`, (_vals.buEn&&_vals.bdEn)?`${_vals.buEn}/${_vals.bdEn}`:(_vals.buEn||''), '', null, {up:_vals.buEn, dn:_vals.bdEn})}<BpReMini big entries={bpReList(p, tf).filter(e => e.phase === 'En')} canEdit={!dis} onDelete={(at) => removeBpRemeasureAt(p.id, at)} /></div>
                     {_cell('脈拍', `plEn_${tf}`, _vals.plEn, '', getPulseColorClass(_vals.plEn))}
                   </div>
                 </div>}
@@ -30112,7 +30147,7 @@ function buildAllPeriodTicketHtml(appData, patient) {
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;"><div><div style="font-size:17px;font-weight:bold;letter-spacing:0.1em;line-height:1.1;">${tY}年${tM}月 サービス提供記録</div><div style="font-size:26px;font-weight:bold;margin-top:8px;line-height:1.1;">${patient.name} <span style="font-size:18px;font-weight:normal;">様</span></div></div><div style="font-size:10px;color:#475569;text-align:right;line-height:1.5;"><div>提供責任者: <b>${facility.serviceResponsible||'—'}</b>　　実施時間: <b>${jisshiTime}</b></div><div style="color:#1d4ed8;font-weight:bold;margin-top:2px;">通所曜日: ${schedText||'—'}</div></div></div>
         <table style="width:100%;border-collapse:collapse;margin-bottom:0;table-layout:fixed;"><colgroup><col style="width:5%;"/><col style="width:45%;"/><col style="width:5%;"/><col style="width:45%;"/></colgroup><tbody><tr><th style="border:1px solid #475569;background:white;color:black;font-size:10px;font-weight:normal;padding:1px 4px;text-align:center;">既往歴</th><td style="border:1px solid #475569;font-size:10px;padding:1px 6px;vertical-align:top;">${patient.kiou||''}</td><th style="border:1px solid #475569;background:white;color:black;font-size:10px;font-weight:normal;padding:1px 4px;text-align:center;">留意点</th><td style="border:1px solid #475569;font-size:10px;padding:1px 6px;vertical-align:top;">${patient.ryui||''}</td></tr></tbody></table>
         <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:4px;table-layout:fixed;"><tbody><tr><th style="border:1px solid #475569;background:white;color:black;font-size:10px;font-weight:normal;padding:1px 4px;text-align:center;width:8%;">マッサージ</th><td style="border:1px solid #475569;font-size:11px;font-weight:bold;padding:1px 6px;width:42%;">${patient.massageNeed||'—'}</td><th style="border:1px solid #475569;background:white;color:black;font-size:10px;font-weight:normal;padding:1px 4px;text-align:center;width:8%;">温浴時電療</th><td style="border:1px solid #475569;font-size:11px;font-weight:bold;padding:1px 6px;width:42%;">${patient.onyokuDenryo||'—'}</td></tr></tbody></table>
-        <table style="width:100%;border-collapse:collapse;table-layout:fixed;flex:1;"><thead><tr style="background:#1e293b;color:white;"><th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:50px;">日付</th><th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:34px;">状態</th>${_kOnP ? '<th style="border:1px solid #475569;padding:3px 1px;font-size:9px;width:60px;">気分</th>' : ''}<th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:48px;">体温</th><th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:58px;">開始 血圧(脈)</th>${_showEnP ? `<th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:58px;">${secondBpLabel(appData)} 血圧(脈)</th>` : ''}${exerciseItems.map(it => `<th style="border:1px solid #475569;padding:3px 1px;font-size:9px;line-height:1.1;">${it.name}</th>`).join('')}<th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:42px;">介護整体</th></tr></thead><tbody>${tableRows}${emptyRowsHtml}</tbody></table>
+        <table style="width:100%;border-collapse:collapse;table-layout:fixed;flex:1;"><thead><tr style="background:#1e293b;color:white;"><th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:50px;">日付</th><th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:34px;">状態</th>${_kOnP ? '<th style="border:1px solid #475569;padding:3px 1px;font-size:9px;width:60px;">気分</th>' : ''}<th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:48px;">体温</th><th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:58px;">開始 血圧(脈)</th>${_showEnP ? `<th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:58px;">${secondBpLabel(appData)} 血圧(脈)</th>` : ''}${exerciseItems.map(it => `<th style="border:1px solid #475569;padding:2px 1px;font-size:${String(it.name||'').length>10?7:String(it.name||'').length>7?8:9}px;line-height:1.1;white-space:normal;word-break:break-all;vertical-align:middle;">${it.name}</th>`).join('')}<th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:42px;">介護整体</th></tr></thead><tbody>${tableRows}${emptyRowsHtml}</tbody></table>
       </div>`;
     };
     allPages += pageGroups.map(renderPage).join('');
@@ -30380,9 +30415,9 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                 {ex.map(it=><col key={it.id}/>)}
               </colgroup>
               <tbody>
-                <tr style={{height:25}} className="bg-slate-700 text-white">
+                <tr style={{height:30}} className="bg-slate-700 text-white">
                   <th className="border border-slate-600 px-0 text-center overflow-hidden" style={{background:'#334155',color:'#fff'}}><AutoFitText text="運動メニュー" max={11} bold color="#fff"/></th>
-                  {ex.map(it=>(<th key={it.id} className="border border-slate-600 px-0 text-center overflow-hidden" style={{background:'#334155',color:'#fff'}}><AutoFitText text={it.name} max={12} bold color="#fff"/></th>))}
+                  {ex.map(it=>(<th key={it.id} className="border border-slate-600 px-0 text-center overflow-hidden" style={{background:'#334155',color:'#fff'}}><AutoFitText text={it.name} max={11} min={6} bold color="#fff" wrap/></th>))}
                 </tr>
                 <tr style={{height:30}}>
                   <td className="border border-slate-600 px-0 text-center overflow-hidden" style={{background:'#f1f5f9'}}><AutoFitText text="設定数値" max={11} bold/></td>
@@ -30445,7 +30480,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
               `}</style>
               <table className="w-full border-collapse" style={{tableLayout:'fixed',width:'100%'}}>
                 <thead className="shrink-0">
-                  <tr className="bg-slate-800 text-white text-[10px]" style={{height:30}}>
+                  <tr className="bg-slate-800 text-white text-[10px]" style={{height:36}}>
                     <th className="border border-slate-600 py-1 overflow-hidden" style={{width:50}}><AutoFitText text="日付" max={13} bold color="#fff"/></th>
                     <th className="border border-slate-600 py-1 overflow-hidden" style={{width:34}}><AutoFitText text="状態" max={13} bold color="#fff"/></th>
                     {_kOnR && <th className="border border-slate-600 py-1 overflow-hidden" style={{width:34}}><AutoFitText text="気分" max={13} bold color="#fff"/></th>}
@@ -30456,7 +30491,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                       // 運動メニュー項目数に応じて統一列幅を計算 (個別運動も介護整体も同じ幅)
                       const unifiedW = ex.length > 12 ? 32 : ex.length > 8 ? 36 : 42;
                       return ex.map(it => (
-                        <th key={it.id} className="border border-slate-600 py-1 leading-tight px-0 overflow-hidden" style={{width: unifiedW}}><AutoFitText text={it.name} max={11} bold color="#fff"/></th>
+                        <th key={it.id} className="border border-slate-600 py-1 leading-tight px-0 overflow-hidden" style={{width: unifiedW}}><AutoFitText text={it.name} max={11} min={6} bold color="#fff" wrap/></th>
                       ));
                     })()}
                     <th className="border border-slate-600 py-1 overflow-hidden" style={{width: ex.length > 12 ? 32 : ex.length > 8 ? 36 : 42}}><AutoFitText text="介護整体" max={11} bold color="#fff"/></th>
@@ -30479,10 +30514,13 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                           <td rowSpan={2} className={`border border-slate-400 px-1 text-center ${rc}`} style={{verticalAlign:'middle',overflow:'hidden',maxWidth:80,padding:0,height:82}}>
                             <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:'2px 0'}}>
                               <div className="font-bold leading-tight" style={{fontSize:24}}>{r.dayNum}</div>
-                              <div className="font-normal leading-tight" style={{fontSize:13,color:'#475569',marginTop:2}}>（{r.dayOfWeek}）</div>
-                              {/* ★ 担当者: r.recorder のみで表示 (古い記録 = recorder 空 は表示なし) */}
+                              <div className="font-normal leading-tight" style={{fontSize:12,color:'#475569',marginTop:1}}>（{r.dayOfWeek}）</div>
+                              {/* ★ 記録者: r.recorder (古い記録 = recorder 空 は表示なし)。2026-09-29 ユーザー指示で「担当」→「記録」、その下に「個別: 実施担当」 */}
                               {r.recorder && (
-                                <div className="font-bold" style={{fontSize:9,color:'#475569',marginTop:3,lineHeight:1.15,whiteSpace:'normal',wordBreak:'keep-all',textAlign:'center',padding:'0 1px',maxWidth:'100%'}}>担当: {r.recorder}</div>
+                                <div className="font-bold" style={{fontSize:9,color:'#475569',marginTop:2,lineHeight:1.1,whiteSpace:'normal',wordBreak:'keep-all',textAlign:'center',padding:'0 1px',maxWidth:'100%'}}>記録: {r.recorder}</div>
+                              )}
+                              {r.kinouStaff && (
+                                <div className="font-bold" style={{fontSize:9,color:'#047857',marginTop:1,lineHeight:1.1,whiteSpace:'normal',wordBreak:'keep-all',textAlign:'center',padding:'0 1px',maxWidth:'100%'}}>個別: {r.kinouStaff}</div>
                               )}
                             </div>
                           </td>
@@ -39878,80 +39916,132 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
   return (
     <div className="space-y-6">
       <SC title="担当職員">
-        <p className="text-xs text-slate-500 mb-3">役職・名前・保有資格を設定します。役職は主と副の2つまで（管理者不在時に生活相談員が代行する等）、資格は役職に合ったものから2つまで選べます。 (同名+同役職の重複は自動的に1件にまとめて表示)</p>
+        <p className="text-xs text-slate-500 mb-3">役職ごとの枠に職員を登録します。枠の「○○を追加」で追加すると役職は自動で決まり、副の役職（管理者不在時に生活相談員が代行する等）と保有資格（役職に合ったものから2つまで）を選べます。（同名+同役職の重複は自動的に1件にまとめて表示。日誌で追加した「この日だけ」の担当はここには出ません）</p>
         <div className="space-y-2">
-          {/* ★ 同じ姓名 + 役職の重複を表示時に排除 (既存データの重複も画面上は 1 件に) */}
+          {/* ★ 役職ごとのグループ表示(2026-09-29 ユーザー指示): 枠の「○○を追加」で追加すると役職は自動、副の役職だけ選ぶ */}
           {(() => {
             const seen = new Set();
-            return ds.staff.filter((s, _i) => {
-              if (s._tempHelp) return false; // ★ 1日ヘルプ(日誌で追加)は日付限定のためここには出さない(2026-09-03)
-              const key = `${(s.role||'')}__${normalizeName(s.name||'').trim()}`;
-              if (seen.has(key)) return false;
-              seen.add(key);
-              return true;
-            }).map((s, _ri) => ({s, i: ds.staff.indexOf(s)}));
-          })().map(({s, i})=>(
-            <div key={s.id} className="bg-white border border-slate-200 rounded-xl p-2">
-            {/* ★ 2026-09-28 ユーザー指示: 役職 ｜ 氏名 ｜ 資格(右側) を縦線で区切って1行に */}
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex items-center gap-1.5 pr-2.5 mr-1 border-r-2 border-slate-300">
-              <select value={s.role||''} onChange={e=>{ onBlurStaff(i,'role',e.target.value); setRenderKey(k=>k+1); }} title="役職（主）" className="w-[122px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400">
-                {[...STAFF_BASE_ROLES, ...((ds.customRoles||[]).filter(r=>r&&!STAFF_BASE_ROLES.includes(r)))].map(r=><option key={r} value={r}>{r}</option>)}
-                {s.role && !STAFF_BASE_ROLES.includes(s.role) && !(ds.customRoles||[]).includes(s.role) && <option value={s.role}>{s.role}</option>}
-              </select>
-              <select value={s.role2||''} onChange={e=>{ onBlurStaff(i,'role2',e.target.value); setRenderKey(k=>k+1); }} title="役職（副・兼務）" className="w-[116px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none focus:border-blue-400 text-slate-600">
-                <option value="">副の役職: なし</option>
-                {[...STAFF_BASE_ROLES, ...((ds.customRoles||[]).filter(r=>r&&!STAFF_BASE_ROLES.includes(r)))].filter(r=>r!==s.role).map(r=><option key={r} value={r}>副: {r}</option>)}
-              </select>
-              </div>
-              <div className="flex items-center gap-1.5 pr-2.5 mr-1 border-r-2 border-slate-300">
-              {/* ★ 姓・名を分割入力。 onBlur で結合した name フィールドも同時に更新 (既存表示と互換) */}
-              <input defaultValue={s.lastName ?? ((s.name||'').split(/[ 　]+/)[0]||'')}
-                onBlur={e=>{
-                  const last = e.target.value.trim();
-                  const cur = dsRef.current.staff[i] || {};
-                  const first = cur.firstName ?? ((cur.name||'').split(/[ 　]+/).slice(1).join(' ')||'');
-                  const combined = [last, first].filter(Boolean).join(' ');
-                  _markEd('staff'); const a=[...dsRef.current.staff]; a[i]={...a[i], lastName: last, name: combined}; dsRef.current={...dsRef.current,staff:a}; _md();
-                }}
-                placeholder="姓"
-                className="w-[84px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
-              <input defaultValue={s.firstName ?? ((s.name||'').split(/[ 　]+/).slice(1).join(' ')||'')}
-                onBlur={e=>{
-                  const first = e.target.value.trim();
-                  const cur = dsRef.current.staff[i] || {};
-                  const last = cur.lastName ?? ((cur.name||'').split(/[ 　]+/)[0]||'');
-                  const combined = [last, first].filter(Boolean).join(' ');
-                  _markEd('staff'); const a=[...dsRef.current.staff]; a[i]={...a[i], firstName: first, name: combined}; dsRef.current={...dsRef.current,staff:a}; _md();
-                }}
-                placeholder="名"
-                className="w-[84px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
-              </div>
-              {/* ★ 保有資格(2つまで・役職に合ったものだけ)は右側 */}
-              <span className="text-[11px] font-bold text-slate-500">資格</span>
-              {[0,1].map(qi => { const opts = staffQualOptions(s.role, s.role2, ds.customQuals); const cur = (s.quals||[])[qi] || ''; const other = (s.quals||[])[qi===0?1:0] || ''; return (
-                <select key={qi} value={cur} onChange={e=>{ const q=[...(s.quals||['',''])]; q[qi]=e.target.value; onBlurStaff(i,'quals',q); setRenderKey(k=>k+1); }} className="w-[150px] px-1.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-400">
-                  <option value="">— 資格{qi+1}（任意）—</option>
-                  {opts.filter(o=>o!==other || o===cur).map(o=><option key={o} value={o}>{o}</option>)}
-                  {cur && !opts.includes(cur) && <option value={cur}>{cur}</option>}
-                </select>
-              ); })}
-              <button onClick={()=>mutate({...dsRef.current,staff:dsRef.current.staff.filter((_,j)=>j!==i)})} className="text-red-400 hover:text-red-600 shrink-0 ml-auto"><X size={16}/></button>
-            </div>
-            </div>
-          ))}
-          <button onClick={()=>{
-            const existingStaff = dsRef.current.staff || [];
-            // ★ 最初の職員は「管理者」固定 (店舗運用の責任者を必ず1人設定)
-            const isFirst = existingStaff.length === 0;
-            const newRole = isFirst ? '管理者' : '介護職員';
-            mutate({...dsRef.current,staff:[...existingStaff,{id:`ds${Date.now()}`,role:newRole,name:''}]});
-          }} className="text-sm font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1"><Plus size={14}/>職員を追加</button>
-          {(dsRef.current.staff || []).length === 0 && (
-            <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5 mt-2">
-              <b>最初の職員は自動的に「管理者」</b>として登録されます。役職は後から変更可能です。
-            </div>
-          )}
+            const _rows = ds.staff.filter((s) => { if (s._tempHelp) return false; const key = `${(s.role||'')}__${normalizeName(s.name||'').trim()}`; if (seen.has(key)) return false; seen.add(key); return true; }).map((s) => ({s, i: ds.staff.indexOf(s)}));
+            const _roles = [...STAFF_BASE_ROLES, ...((ds.customRoles||[]).filter(r=>r&&!STAFF_BASE_ROLES.includes(r)))];
+            const _other = _rows.filter(x => !_roles.includes(x.s.role||''));
+            const _addStaff = (role) => { const existingStaff = dsRef.current.staff || []; mutate({...dsRef.current,staff:[...existingStaff,{id:`ds${Date.now()}`,role,name:''}]}); };
+            return (<>
+              {_roles.map(role => (
+                <div key={role} className="rounded-xl border border-slate-200 bg-slate-50/60 p-2" data-testid={`staff-group-${role}`}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-sm font-bold text-slate-700">{role}<span className="ml-2 text-[11px] font-normal text-slate-400">{_rows.filter(x=>(x.s.role||'')===role).length}名</span></span>
+                    <button type="button" onClick={()=>_addStaff(role)} className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1"><Plus size={13}/>{role}を追加</button>
+                  </div>
+                  <div className="space-y-2">
+                    {_rows.filter(x=>(x.s.role||'')===role).map(({s, i}) => (
+                <div key={s.id} className="bg-white border border-slate-200 rounded-xl p-2">
+                {/* ★ 2026-09-28 ユーザー指示: 役職 ｜ 氏名 ｜ 資格(右側) を縦線で区切って1行に */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-1.5 pr-2.5 mr-1 border-r-2 border-slate-300">
+                  <span className="w-[122px] px-2 py-2 text-sm font-bold text-slate-800 truncate" title="役職は枠で決まります（変えるときは削除して別の枠で追加）">{s.role||'（役職なし）'}</span>
+                  <select value={s.role2||''} onChange={e=>{ onBlurStaff(i,'role2',e.target.value); setRenderKey(k=>k+1); }} title="役職（副・兼務）" className="w-[116px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none focus:border-blue-400 text-slate-600">
+                    <option value="">副の役職: なし</option>
+                    {[...STAFF_BASE_ROLES, ...((ds.customRoles||[]).filter(r=>r&&!STAFF_BASE_ROLES.includes(r)))].filter(r=>r!==s.role).map(r=><option key={r} value={r}>副: {r}</option>)}
+                  </select>
+                  </div>
+                  <div className="flex items-center gap-1.5 pr-2.5 mr-1 border-r-2 border-slate-300">
+                  {/* ★ 姓・名を分割入力。 onBlur で結合した name フィールドも同時に更新 (既存表示と互換) */}
+                  <input defaultValue={s.lastName ?? ((s.name||'').split(/[ 　]+/)[0]||'')}
+                    onBlur={e=>{
+                      const last = e.target.value.trim();
+                      const cur = dsRef.current.staff[i] || {};
+                      const first = cur.firstName ?? ((cur.name||'').split(/[ 　]+/).slice(1).join(' ')||'');
+                      const combined = [last, first].filter(Boolean).join(' ');
+                      _markEd('staff'); const a=[...dsRef.current.staff]; a[i]={...a[i], lastName: last, name: combined}; dsRef.current={...dsRef.current,staff:a}; _md();
+                    }}
+                    placeholder="姓"
+                    className="w-[84px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
+                  <input defaultValue={s.firstName ?? ((s.name||'').split(/[ 　]+/).slice(1).join(' ')||'')}
+                    onBlur={e=>{
+                      const first = e.target.value.trim();
+                      const cur = dsRef.current.staff[i] || {};
+                      const last = cur.lastName ?? ((cur.name||'').split(/[ 　]+/)[0]||'');
+                      const combined = [last, first].filter(Boolean).join(' ');
+                      _markEd('staff'); const a=[...dsRef.current.staff]; a[i]={...a[i], firstName: first, name: combined}; dsRef.current={...dsRef.current,staff:a}; _md();
+                    }}
+                    placeholder="名"
+                    className="w-[84px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
+                  </div>
+                  {/* ★ 保有資格(2つまで・役職に合ったものだけ)は右側 */}
+                  <span className="text-[11px] font-bold text-slate-500">資格</span>
+                  {[0,1].map(qi => { const opts = staffQualOptions(s.role, s.role2, ds.customQuals); const cur = (s.quals||[])[qi] || ''; const other = (s.quals||[])[qi===0?1:0] || ''; return (
+                    <select key={qi} value={cur} onChange={e=>{ const q=[...(s.quals||['',''])]; q[qi]=e.target.value; onBlurStaff(i,'quals',q); setRenderKey(k=>k+1); }} className="w-[150px] px-1.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-400">
+                      <option value="">— 資格{qi+1}（任意）—</option>
+                      {opts.filter(o=>o!==other || o===cur).map(o=><option key={o} value={o}>{o}</option>)}
+                      {cur && !opts.includes(cur) && <option value={cur}>{cur}</option>}
+                    </select>
+                  ); })}
+                  <button onClick={()=>mutate({...dsRef.current,staff:dsRef.current.staff.filter((_,j)=>j!==i)})} className="text-red-400 hover:text-red-600 shrink-0 ml-auto"><X size={16}/></button>
+                </div>
+                </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {_other.length > 0 && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-2">
+                  <div className="text-sm font-bold text-slate-700 mb-1.5">その他の役職 <span className="text-[11px] font-normal text-slate-400">（役職を選び直してください）</span></div>
+                  <div className="space-y-2">
+                    {_other.map(({s, i}) => (
+                <div key={s.id} className="bg-white border border-slate-200 rounded-xl p-2">
+                {/* ★ 2026-09-28 ユーザー指示: 役職 ｜ 氏名 ｜ 資格(右側) を縦線で区切って1行に */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-1.5 pr-2.5 mr-1 border-r-2 border-slate-300">
+                  <select value={s.role||''} onChange={e=>{ onBlurStaff(i,'role',e.target.value); setRenderKey(k=>k+1); }} title="役職（主）" className="w-[122px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400">
+                    {[...STAFF_BASE_ROLES, ...((ds.customRoles||[]).filter(r=>r&&!STAFF_BASE_ROLES.includes(r)))].map(r=><option key={r} value={r}>{r}</option>)}
+                    {s.role && !STAFF_BASE_ROLES.includes(s.role) && !(ds.customRoles||[]).includes(s.role) && <option value={s.role}>{s.role}</option>}
+                  </select>
+                  <select value={s.role2||''} onChange={e=>{ onBlurStaff(i,'role2',e.target.value); setRenderKey(k=>k+1); }} title="役職（副・兼務）" className="w-[116px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none focus:border-blue-400 text-slate-600">
+                    <option value="">副の役職: なし</option>
+                    {[...STAFF_BASE_ROLES, ...((ds.customRoles||[]).filter(r=>r&&!STAFF_BASE_ROLES.includes(r)))].filter(r=>r!==s.role).map(r=><option key={r} value={r}>副: {r}</option>)}
+                  </select>
+                  </div>
+                  <div className="flex items-center gap-1.5 pr-2.5 mr-1 border-r-2 border-slate-300">
+                  {/* ★ 姓・名を分割入力。 onBlur で結合した name フィールドも同時に更新 (既存表示と互換) */}
+                  <input defaultValue={s.lastName ?? ((s.name||'').split(/[ 　]+/)[0]||'')}
+                    onBlur={e=>{
+                      const last = e.target.value.trim();
+                      const cur = dsRef.current.staff[i] || {};
+                      const first = cur.firstName ?? ((cur.name||'').split(/[ 　]+/).slice(1).join(' ')||'');
+                      const combined = [last, first].filter(Boolean).join(' ');
+                      _markEd('staff'); const a=[...dsRef.current.staff]; a[i]={...a[i], lastName: last, name: combined}; dsRef.current={...dsRef.current,staff:a}; _md();
+                    }}
+                    placeholder="姓"
+                    className="w-[84px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
+                  <input defaultValue={s.firstName ?? ((s.name||'').split(/[ 　]+/).slice(1).join(' ')||'')}
+                    onBlur={e=>{
+                      const first = e.target.value.trim();
+                      const cur = dsRef.current.staff[i] || {};
+                      const last = cur.lastName ?? ((cur.name||'').split(/[ 　]+/)[0]||'');
+                      const combined = [last, first].filter(Boolean).join(' ');
+                      _markEd('staff'); const a=[...dsRef.current.staff]; a[i]={...a[i], firstName: first, name: combined}; dsRef.current={...dsRef.current,staff:a}; _md();
+                    }}
+                    placeholder="名"
+                    className="w-[84px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
+                  </div>
+                  {/* ★ 保有資格(2つまで・役職に合ったものだけ)は右側 */}
+                  <span className="text-[11px] font-bold text-slate-500">資格</span>
+                  {[0,1].map(qi => { const opts = staffQualOptions(s.role, s.role2, ds.customQuals); const cur = (s.quals||[])[qi] || ''; const other = (s.quals||[])[qi===0?1:0] || ''; return (
+                    <select key={qi} value={cur} onChange={e=>{ const q=[...(s.quals||['',''])]; q[qi]=e.target.value; onBlurStaff(i,'quals',q); setRenderKey(k=>k+1); }} className="w-[150px] px-1.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-400">
+                      <option value="">— 資格{qi+1}（任意）—</option>
+                      {opts.filter(o=>o!==other || o===cur).map(o=><option key={o} value={o}>{o}</option>)}
+                      {cur && !opts.includes(cur) && <option value={cur}>{cur}</option>}
+                    </select>
+                  ); })}
+                  <button onClick={()=>mutate({...dsRef.current,staff:dsRef.current.staff.filter((_,j)=>j!==i)})} className="text-red-400 hover:text-red-600 shrink-0 ml-auto"><X size={16}/></button>
+                </div>
+                </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>);
+          })()}
         </div>
         {/* ★ 役職・資格の追加(2026-09-28 ユーザー要望): 一覧に無い役職・資格を店舗で追加できる */}
         <div className="mt-4 pt-3 border-t border-slate-200">
@@ -40589,8 +40679,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     if (!nameVal) return;
     // ★ 2026-09-03: 既定は「この日だけ(ヘルプ)」。日誌のその日にだけ表示され、スタッフ切替や
     //   各種設定の担当職員には出ない(ヘルプ勤務が恒久リストに残る問題の対策)。
-    const staffEntry = { id: `s${Date.now()}`, name: nameVal, role: newStaff.role, ampm: newStaff.ampm || 'both',
-      ...(newStaff.oneDay !== false ? { _tempHelp: true, _helpDate: _diaryIsoDate } : {}) };
+    const staffEntry = { id: `s${Date.now()}`, name: nameVal, role: newStaff.role, ampm: newStaff.ampm || 'both', _tempHelp: true, _helpDate: _diaryIsoDate };
     const _cut = new Date(Date.now() - 35*86400000);
     const _cutIso = `${_cut.getFullYear()}-${String(_cut.getMonth()+1).padStart(2,'0')}-${String(_cut.getDate()).padStart(2,'0')}`;
     setPendingStaff([...ds.staff.filter(x=>!(x._tempHelp && x._helpDate && x._helpDate < _cutIso)), staffEntry]);
@@ -41304,11 +41393,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
               <input type="text" ref={nameInputRef} defaultValue="" placeholder="名前を入力"
                 style={{width:'100%',padding:'8px 12px',border:'1px solid #ddd',borderRadius:8,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
             </div>
-            {/* ★ 2026-09-03: ヘルプ勤務は既定で「この日だけ」。恒常スタッフはチェックを外すと従来どおり全体に登録される */}
-            <label style={{display:'flex',alignItems:'flex-start',gap:8,marginBottom:20,cursor:'pointer',background:'#f0f9ff',border:'1px solid #bae6fd',borderRadius:8,padding:'8px 10px'}}>
-              <input type="checkbox" checked={newStaff.oneDay !== false} onChange={e=>setNewStaff({...newStaff, oneDay: e.target.checked})} style={{marginTop:2}}/>
-              <span style={{fontSize:11,color:'#0c4a6e',lineHeight:1.5}}><b>この日だけの担当（ヘルプなど）</b><br/>この日の日誌にだけ表示され、スタッフ切替や各種設定の担当職員には追加されません。店舗のスタッフとして今後も使う場合はチェックを外してください。</span>
-            </label>
+            {/* ★ 2026-09-29 ユーザー指示: ここからの追加は常に「この日だけ」。恒常スタッフは各種設定の担当職員で登録 */}
+            <div style={{fontSize:11,color:'#0c4a6e',background:'#f0f9ff',border:'1px solid #bae6fd',borderRadius:8,padding:'8px 10px',marginBottom:16,lineHeight:1.5}}>ここで追加した担当者は<b>この日の日誌だけ</b>に表示されます（ヘルプなど）。今後も使うスタッフは「各種設定 → 担当職員」で登録してください。</div>
             {ds.staff.filter(s=>s.name&&!s.id.startsWith('ds')&&(!s._tempHelp||s._helpDate===_diaryIsoDate)).length > 0 && (
               <div style={{marginBottom:16,maxHeight:140,overflowY:'auto',border:'1px solid #eee',borderRadius:8,padding:'4px 0'}}>
                 <div style={{fontSize:11,fontWeight:'bold',color:'#888',padding:'4px 10px 2px'}}>追加済み（削除可）</div>
