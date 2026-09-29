@@ -30900,29 +30900,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   const selectAllPrint = () => setPrintSelectedIds(displayRecords.map(r => r.patientId));
   const clearAllPrint = () => setPrintSelectedIds([]);
 
-  const doPrint = (idsToprint) => {
-    setPrintModeModal(false);
-    if(!idsToprint || !idsToprint.length){ alert('印刷する利用者を1人以上選択してください'); return; }
-    // ★ 印刷用の隠しカードは普段は描画していないので、まず「印刷対象だけ」描画してから(描画完了後)取得する
-    const needRender = idsToprint.filter(id => !document.getElementById(`print-content-cb-${id}`));
-    if (needRender.length) {
-      setPrintingIds(idsToprint);
-      setShowPrintCards(true);
-      setTimeout(() => doPrint(idsToprint), 250);
-      return;
-    }
-    const title = `連絡帳_${selectedDate}`;
-    const targets = displayRecords.filter(r => idsToprint.includes(r.patientId));
-    if(!targets || !targets.length){ alert('対象が見つかりませんでした'); return; }
-    const htmlParts = targets.map(r => {
-      const eid = `print-content-cb-${r.patientId}`;
-      const el = document.getElementById(eid);
-      if(!el) return '';
-      let h = el.outerHTML;
-      h = h.replace(/display:\s*none[^;"\']*/g,'display:block');
-      return h;
-    }).filter(Boolean);
-    if(!htmlParts.length){ alert('印刷データが見つかりません。'); return; }
+  // ★ 連絡帳のページ組み(2面/1面・B5横/B6・微調整)を1か所に(2026-09-29: 空印刷でも同じ組みを使う)
+  const _layoutRenraku = (htmlParts) => {
     // ★ 用紙向き設定:
     //   'b5port' = B5縦(182×257)ページに【B6実寸】を中央配置。 複合機のB5トレイにB6用紙を入れている運用向け(中央給紙でB6に乗る)。
     //             ページが縦なので Windows(Edge)/iPad でも回転・見切れせず、出力はB6サイズ。
@@ -30978,6 +30957,49 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         + `</div>`
       ).join('');
     }
+    return { combinedHtml, pageSizeStr };
+  };
+  // ★ 空の連絡帳を印刷(2026-09-29 ユーザー要望: 振替の方が連絡帳に出ない等のアクシデントに備え、手書き用の空欄連絡帳を印刷設定どおりの用紙で出す)
+  const doPrintBlank = (sheets) => {
+    const be = document.getElementById('print-content-cb-blank');
+    if (!be) { setShowPrintCards(true); setTimeout(() => doPrintBlank(sheets), 250); return; }
+    const n = Math.max(1, Math.min(20, Number(sheets) || 1));
+    const h = be.outerHTML.replace(/display:\s*none[^;"\']*/g,'display:block');
+    const _ss = appData.systemSettings || {};
+    const faces = (_ss.renrakuMode === '1' ? 1 : 2) * n; // 2面なら1枚に2面
+    const { combinedHtml, pageSizeStr } = _layoutRenraku(Array.from({ length: faces }, () => h));
+    window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title:`連絡帳(空)_${selectedDate}`,pageSize:pageSizeStr,html:combinedHtml,elementId:null}}));
+    setTimeout(() => setShowPrintCards(false), 800);
+  };
+  const handlePrintBlank = () => {
+    const v = window.prompt('空の連絡帳を何枚印刷しますか？（用紙の枚数・印刷設定の用紙と面数で出ます）', '1');
+    if (v === null) return;
+    doPrintBlank(v);
+  };
+  const doPrint = (idsToprint) => {
+    setPrintModeModal(false);
+    if(!idsToprint || !idsToprint.length){ alert('印刷する利用者を1人以上選択してください'); return; }
+    // ★ 印刷用の隠しカードは普段は描画していないので、まず「印刷対象だけ」描画してから(描画完了後)取得する
+    const needRender = idsToprint.filter(id => !document.getElementById(`print-content-cb-${id}`));
+    if (needRender.length) {
+      setPrintingIds(idsToprint);
+      setShowPrintCards(true);
+      setTimeout(() => doPrint(idsToprint), 250);
+      return;
+    }
+    const title = `連絡帳_${selectedDate}`;
+    const targets = displayRecords.filter(r => idsToprint.includes(r.patientId));
+    if(!targets || !targets.length){ alert('対象が見つかりませんでした'); return; }
+    const htmlParts = targets.map(r => {
+      const eid = `print-content-cb-${r.patientId}`;
+      const el = document.getElementById(eid);
+      if(!el) return '';
+      let h = el.outerHTML;
+      h = h.replace(/display:\s*none[^;"\']*/g,'display:block');
+      return h;
+    }).filter(Boolean);
+    if(!htmlParts.length){ alert('印刷データが見つかりません。'); return; }
+    const { combinedHtml, pageSizeStr } = _layoutRenraku(htmlParts);
     // ★ iPadで確実に開くよう、null→遅延イベントの2段階をやめ、HTML付きイベントを即時発火 (1段階で表示)
     window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:pageSizeStr,html:combinedHtml,elementId:null}}));
     // ★ 取得後は隠しカードを解放してメモリを戻す
@@ -31308,6 +31330,9 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         </div>
         <button onClick={handlePrint} className="bg-slate-900 hover:bg-black text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0">
           プレビュー
+        </button>
+        <button onClick={handlePrintBlank} title="氏名・記録が空欄の連絡帳を、印刷設定の用紙(B5横2面／B6など)で印刷します。表示されない方がいた時の手書き用" className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm whitespace-nowrap shrink-0">
+          空印刷
         </button>
       </div>
       <div className="max-w-[800px] mx-auto space-y-8 pb-32 pt-6">
