@@ -11262,7 +11262,10 @@ const diaryStaffMissing = (log, iso, appData) => {
     const staff = (appData.diarySettings?.staff || []).filter(st => st && st.name);
     if (!staff.length) return [];
     const sel = log.staff || {};
-    const has = (role) => staff.some(st => sel[st.id] && (st.role === role || st.role2 === role));
+    // ★ 兼務(2026-09-29): log.kenmu[役職]=その日に兼務する職員id。その職員が担当職員に選ばれていれば充足
+    //   (例: 生活相談員が2人出勤しても介護職員は別に必要。1人が介護職員を兼務するなら「兼務」で記録)
+    const kenmu = log.kenmu || {};
+    const has = (role) => staff.some(st => sel[st.id] && (st.role === role || st.role2 === role || String(kenmu[role] ?? '') === String(st.id)));
     const gensan = log.gensan || {};
     return diaryRequiredRoles(appData).filter(role => !has(role) && !gensan[role]);
   } catch { return []; }
@@ -21147,6 +21150,8 @@ export default function App() {
           };
           const openPrintWindow = (autoClose=true) => {
             if(!printPreviewContent.html) return;
+            // ★ 2026-09-29: 印刷/PDF を実行したことを画面側(休み連絡など)に知らせる(休み連絡は「連絡済」に更新)
+            try { window.dispatchEvent(new CustomEvent('tsumugi:printed', { detail: { title: printPreviewContent.title || '' } })); } catch {}
             const docHtml = buildDocHtml();
             // ★ iOS Safari: 自動印刷(programmatic print)は「このWebサイトから自動的に印刷～」でブロックされ、
             //   本体ページ印刷だとプレビュー画面ごと写ってしまう。 → PCと同じく「表だけのクリーンな別タブ」を開き、
@@ -25230,6 +25235,21 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   //   開始時刻を過ぎたら次回(翌日以降)に切り替える(2026-09-29 ユーザー要望)
   const _isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const _recHasData = (r) => !!r && !!(r.temp || r.bpUpSt || r.bpDnSt || r.plSt || r.bpUpEn || r.kibunArrival || r.kibunDeparture || (r.tokki && String(r.tokki).trim()) || (r.exercises && Object.values(r.exercises).some(v => v !== '' && v != null)));
+  // ★ お迎え時間(2026-09-29 ユーザー指示: 提供開始時刻ではなく「お迎え時間」を出す): 送迎表(transportPlans)にその日の
+  //   乗車時間があればそれを優先、無ければ getNextVisitInfo の時間(曜日の送迎時間→提供開始10分前)。徒歩は '徒歩'
+  const _pickupOf = (info) => {
+    let t = (info && info.time) || '';
+    try {
+      const pl = (appData.transportPlans || {})[`${info.iso}_${info.ampm || 'AM'}`];
+      if (pl && typeof pl === 'object') {
+        let hit = null;
+        Object.keys(pl.cars || {}).forEach(cid => (pl.cars[cid] || []).forEach(m => { if (m.pid === selectedPatient.id) hit = m; }));
+        if (hit) { const raw = String(hit.t || '').replace(/\s/g, ''); const mm = raw.match(/^(\d{1,2})[:：](\d{2}|--)/); if (mm) t = `${mm[1]}時${mm[2] === '--' ? '' : mm[2] + '分'}`; else if (/時/.test(raw)) t = raw; }
+        else if ((pl.walkers || []).some(m => m.pid === selectedPatient.id)) t = '徒歩';
+      }
+    } catch {}
+    return String(t || '').replace(/^　時　分$/, '').trim();
+  };
   const todayVisit = (() => {
     if (!compactMode || !selectedPatient) return null;
     try {
@@ -25241,7 +25261,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
       const m = String(raw).split(/[～〜]/)[0].trim().match(/(\d{1,2}):(\d{2})/);
       const startMin = m ? (parseInt(m[1],10)*60 + parseInt(m[2],10)) : (info.ampm === 'PM' ? 13*60+20 : 9*60);
       const nowMin = now.getHours()*60 + now.getMinutes();
-      return { iso: _isoOf(now), ampm: info.ampm, startMin, startLabel: `${Math.floor(startMin/60)}時${String(startMin%60).padStart(2,'0')}分`, before: nowMin < startMin, dateLabel: info.date, time: info.time, isFurikae: !!info.isFurikae };
+      return { iso: _isoOf(now), ampm: info.ampm, startMin, startLabel: `${Math.floor(startMin/60)}時${String(startMin%60).padStart(2,'0')}分`, before: nowMin < startMin, dateLabel: info.date, time: _pickupOf(info), isFurikae: !!info.isFurikae };
     } catch { return null; }
   })();
   const nextVisit = (() => {
@@ -25250,16 +25270,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
       const today = new Date(); const tstr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
       const info = getNextVisitInfo(selectedPatient, tstr, appData.monthlyShifts, appData);
       if (!info || !info.iso) return { date: info?.date || '未定', time: '' };
-      let t = info.time || '';
-      const pl = (appData.transportPlans || {})[`${info.iso}_${info.ampm || 'AM'}`];
-      if (pl && typeof pl === 'object') {
-        let hit = null;
-        Object.keys(pl.cars || {}).forEach(cid => (pl.cars[cid] || []).forEach(m => { if (m.pid === selectedPatient.id) hit = m; }));
-        if (hit) { const raw = String(hit.t || '').replace(/\s/g, ''); const mm = raw.match(/^(\d{1,2})[:：](\d{2}|--)/); if (mm) t = `${mm[1]}時${mm[2] === '--' ? '' : mm[2] + '分'}`; else if (/時/.test(raw)) t = raw; }
-        else if ((pl.walkers || []).some(m => m.pid === selectedPatient.id)) t = '徒歩';
-      }
-      const tt = String(t || '').replace(/^　時　分$/, '').trim();
-      return { date: info.date, time: tt, isFurikae: !!info.isFurikae };
+      return { date: info.date, time: _pickupOf(info), isFurikae: !!info.isFurikae };
     } catch { return null; }
   })();
   return (
@@ -25935,16 +25946,16 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
         {/* ★ 次回のご利用予定(2026-09-28 ユーザー要望: 基本情報とは別に、時間は日付の横に大きく) */}
         {compactMode && todayVisit && todayVisit.before && (
           <div id="sec-today" style={{border:'2px solid #93c5fd',background:'#eff6ff',borderRadius:14,padding:'10px 16px',marginBottom:12,display:'flex',alignItems:'baseline',gap:14,flexWrap:'wrap'}}>
-            <span style={{fontSize:13,fontWeight:'bold',color:'#1e40af'}}>本日のご利用予定</span>
+            <span style={{fontSize:13,fontWeight:'bold',color:'#1e40af'}}>本日のお迎え時間</span>
             <span style={{fontSize:22,fontWeight:'bold',color:'#1e3a8a',letterSpacing:0.5}}>{todayVisit.dateLabel}</span>
             {todayVisit.isFurikae && <span style={{fontSize:12,fontWeight:'bold',color:'#059669',background:'#d1fae5',borderRadius:6,padding:'1px 8px'}}>振替</span>}
-            <span style={{fontSize:22,fontWeight:'bold',color:'#1e3a8a'}}><span style={{fontSize:26}}>{todayVisit.startLabel}</span> からご利用予定</span>
+            <span style={{fontSize:22,fontWeight:'bold',color:'#1e3a8a'}}>{todayVisit.time ? (todayVisit.time === '徒歩' ? '徒歩でご来所' : <>お迎え <span style={{fontSize:26}}>{todayVisit.time}</span> 頃</>) : <span style={{fontSize:14,color:'#475569',fontWeight:'normal'}}>お迎え時間は事業所にご確認ください</span>}</span>
             <span style={{fontSize:13,color:'#475569'}}>記録は利用後に表示されます</span>
           </div>
         )}
         {compactMode && nextVisit && !(todayVisit && todayVisit.before) && (
           <div id="sec-next" style={{border:'2px solid #86efac',background:'#f0fdf4',borderRadius:14,padding:'10px 16px',marginBottom:12,display:'flex',alignItems:'baseline',gap:14,flexWrap:'wrap'}}>
-            <span style={{fontSize:13,fontWeight:'bold',color:'#166534'}}>次回のご利用予定</span>
+            <span style={{fontSize:13,fontWeight:'bold',color:'#166534'}}>次回のお迎え時間</span>
             <span style={{fontSize:22,fontWeight:'bold',color:'#14532d',letterSpacing:0.5}}>{nextVisit.date}</span>
             {nextVisit.isFurikae && <span style={{fontSize:12,fontWeight:'bold',color:'#059669',background:'#d1fae5',borderRadius:6,padding:'1px 8px'}}>振替</span>}
             <span style={{fontSize:22,fontWeight:'bold',color:'#14532d'}}>{nextVisit.time ? (nextVisit.time === '徒歩' ? '徒歩でご来所' : <>お迎え <span style={{fontSize:26}}>{nextVisit.time}</span> 頃</>) : <span style={{fontSize:14,color:'#475569',fontWeight:'normal'}}>お迎え時間は事業所にご確認ください</span>}</span>
@@ -39855,6 +39866,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   const [timeKeypad, setTimeKeypad] = useState(null);
   const [timeInput, setTimeInput] = useState('');
   const [carAssignModal, setCarAssignModal] = useState(null); // {prefix:'pick'|'drop'}
+  const [kenmuModal, setKenmuModal] = useState(null); // ★ 兼務する役職名(2026-09-29)
   const [carAssignCar, setCarAssignCar] = useState('');
   const [carAssignSelections, setCarAssignSelections] = useState({}); // patIdx 
   const [tempModal, setTempModal] = useState(null); // {staffId, staffName, value}
@@ -41404,6 +41416,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
                 <button type="button" title={it.prefix?'クリックで送迎車割り当てを開く':'クリックで該当箇所へ移動'}
                   onClick={()=>{ if(it.prefix){ setCarAssignModal({prefix:it.prefix}); setCarAssignSelections({}); return; } const el=it.aid&&document.getElementById(it.aid); if(!el) return; el.scrollIntoView({behavior:'smooth',block:'center'}); const _o=el.style.outline; el.style.outline='3px solid #f59e0b'; el.style.outlineOffset='3px'; setTimeout(()=>{ el.style.outline=_o||''; el.style.outlineOffset=''; },1800); }}
                   className="inline-flex items-center px-2 py-0.5 bg-white border border-amber-400 text-amber-800 rounded-full text-xs font-bold cursor-pointer hover:bg-amber-50">{it.label}</button>
+                {it.gensanRole && !isReadOnly && <button type="button" data-testid={`kenmu-btn-${it.gensanRole}`} title={`担当職員のうち別の役職の人が「${it.gensanRole}」を兼務する場合に記録します（例: 生活相談員が介護職員を兼務）`} onClick={()=>setKenmuModal(it.gensanRole)} className="inline-flex items-center px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded-full text-xs font-bold">兼務</button>}
                 {it.gensanRole && !isReadOnly && DIARY_GENSAN_ROLES.includes(it.gensanRole) && <button type="button" title={it.gensanRole==='機能訓練指導員' ? '機能訓練指導員が不在＝この日の個別機能訓練加算は算定できません。記録してこの警告を消します（下の「取消」で戻せます）' : `${it.gensanRole}が不在＝人員基準欠如の減算として記録し、この警告を消します（下の「取消」で戻せます）`} onClick={()=>updateLog({ gensan: { ...(log.gensan||{}), [it.gensanRole]: true } })} className="inline-flex items-center px-2 py-0.5 bg-red-600 text-white rounded-full text-xs font-bold cursor-pointer hover:bg-red-700">{it.gensanRole==='機能訓練指導員' ? '加算なし' : '減算'}</button>}
               </span>))}
               <span className="text-xs font-normal text-amber-700">…すべて入力・確認すると完成します</span>
@@ -41423,6 +41436,47 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             <span className="text-xs font-normal text-red-700">…日誌の印刷には載りません。カレンダーに「減」印が付きます</span>
           </div>
         )}
+        {/* ★ 兼務の記録(2026-09-29): 日誌本体(印刷)には載せない。担当職員から外れた人の兼務は自動的に無効 */}
+        {(() => {
+          const km = log.kenmu || {}; const stl = (appData.diarySettings?.staff || []);
+          const rows = Object.keys(km).map(role => ({ role, st: stl.find(st => st && String(st.id) === String(km[role])) })).filter(x => x.st && (log.staff||{})[x.st.id]);
+          if (!rows.length || _dayIsKyugyo(selectedDate, dow)) return null;
+          return (
+            <div style={{flexBasis:'100%'}} data-testid="kenmu-bar" className="w-full bg-blue-50 border-2 border-blue-300 text-blue-900 rounded-xl px-3 py-2 text-sm font-bold flex items-center gap-2 flex-wrap">
+              <span>兼務の記録:</span>
+              {rows.map(x => (
+                <span key={x.role} className="inline-flex items-center gap-1.5 bg-white border border-blue-300 rounded-full px-2.5 py-0.5 text-xs">
+                  {x.st.name}{x.st.role ? `（${x.st.role}）` : ''} が {x.role} を兼務
+                  {!isReadOnly && <button type="button" title="この兼務を取り消す(警告に戻ります)" onClick={()=>{ const g={...(log.kenmu||{})}; delete g[x.role]; updateLog({ kenmu: g }); }} className="text-[10px] font-bold text-blue-700 underline">取消</button>}
+                </span>
+              ))}
+              <span className="text-xs font-normal text-blue-700">…日誌の印刷には載りません</span>
+            </div>
+          );
+        })()}
+        {kenmuModal && (() => {
+          const stl = (appData.diarySettings?.staff || []).filter(st => st && st.name && (log.staff||{})[st.id] && st.role !== kenmuModal && st.role2 !== kenmuModal);
+          return (
+            <div className="fixed inset-0 z-[70] bg-slate-900/50 flex items-center justify-center p-4" onClick={()=>setKenmuModal(null)}>
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5" onClick={e=>e.stopPropagation()} data-testid="kenmu-modal">
+                <div className="text-base font-bold text-slate-800 mb-1">「{kenmuModal}」を兼務する職員</div>
+                <div className="text-xs text-slate-500 mb-3">この日の担当職員に選ばれている人から選びます。兼務は同じ時間帯に1人1役として数えられるため、その人の本来の役職の人数が基準を下回らないかご確認ください。</div>
+                {stl.length === 0 ? (
+                  <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3">先に担当職員欄で出勤者を選んでください（兼務できるのは別の役職の人です）。</div>
+                ) : (
+                  <div className="flex flex-col gap-2 max-h-[50vh] overflow-y-auto">
+                    {stl.map(st => (
+                      <button key={st.id} type="button" onClick={()=>{ updateLog({ kenmu: { ...(log.kenmu||{}), [kenmuModal]: st.id } }); setKenmuModal(null); }} className="text-left px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-blue-50 hover:border-blue-300 text-sm font-bold text-slate-800 flex items-center justify-between">
+                        <span>{st.name}</span><span className="text-xs font-normal text-slate-500">{st.role || ''}{st.role2 ? `・${st.role2}` : ''}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="flex justify-end mt-4"><button type="button" onClick={()=>setKenmuModal(null)} className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold">閉じる</button></div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
       {isReadOnly && (
         <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-800 text-sm font-bold flex items-center gap-2">
@@ -46856,6 +46910,22 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     onSave({ ...appData, faxDataStore: faxData });
     markClean();
   };
+  // ★ 2026-09-29(店舗報告: 複合機で FAX/印刷しても連絡済にならない): 送付状のツールバーには「プレビュー」しか無く、
+  //   status を printed にする handlePrint は使われていなかった。プレビュー画面の「印刷 / PDF保存」で
+  //   window に 'tsumugi:printed' が飛ぶので、開いている送付状(selectedEntry)を「連絡済」にする。
+  const _printedRef = React.useRef(null);
+  _printedRef.current = () => {
+    if (!selectedEntry) return;
+    const key = getKey(selectedEntry.date, selectedEntry.patient.id);
+    const cur = getFax(selectedEntry.date, selectedEntry.patient.id);
+    if (cur.status === 'faxed' || cur.status === 'both') return;
+    updateFax(key, { status: cur.status === 'pdf' ? 'both' : 'printed' }, { autoSave: true });
+  };
+  React.useEffect(() => {
+    const h = (e) => { try { if (String(e?.detail?.title || '').startsWith('休み連絡')) _printedRef.current && _printedRef.current(); } catch {} };
+    window.addEventListener('tsumugi:printed', h);
+    return () => window.removeEventListener('tsumugi:printed', h);
+  }, []);
   if (saveFnRef) saveFnRef.current = flushSave;
   React.useEffect(() => () => { if (saveFnRef) saveFnRef.current = null; }, []);
 
@@ -47009,6 +47079,16 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
             }} style={{background:'#2563eb',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
               <Save size={13}/> 保存
             </button>
+            {/* ★ 手動の連絡済(2026-09-29): 手書きで送った・複合機から直接送ったなど、アプリから印刷していない場合用 */}
+            {['printed','pdf','both','faxed'].includes(fax.status) ? (
+              <button type="button" data-testid="abs-done-toggle" onClick={()=>{ if(!window.confirm('「連絡済」を取り消して「編集済」に戻しますか？')) return; updateFax(key, { status: 'edited' }, { autoSave: true }); }} title="連絡済を取り消す" style={{background:'#dcfce7',border:'1px solid #86efac',color:'#166534',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
+                ✓ 連絡済（取消）
+              </button>
+            ) : (
+              <button type="button" data-testid="abs-done-toggle" onClick={()=>updateFax(key, { status: 'printed' }, { autoSave: true })} title="アプリから印刷せずに連絡した場合はこちらで連絡済にできます（プレビューから印刷/PDF保存すると自動で連絡済になります）" style={{background:'#f0fdf4',border:'1px solid #86efac',color:'#166534',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
+                連絡済にする
+              </button>
+            )}
           </div>
         </div>
 
@@ -48572,8 +48652,8 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col" onClick={e=>e.stopPropagation()}>
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-3">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-[1700px] h-[calc(100vh-16px)] sm:h-[calc(100vh-24px)] flex flex-col" onClick={e=>e.stopPropagation()}>
         {/* ヘッダー */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 shrink-0">
           <div>
