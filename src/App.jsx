@@ -10925,6 +10925,11 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
             </>
           )}
         </div>
+        {/* ★ 検索欄を同じ行に(2026-09-29 ユーザー指示: 利用者を選択 → 検索 → ログイン画面を開く の順) */}
+        {!patient && (
+          <input type="text" placeholder="氏名・フリガナ・ID で検索" value={patSearch} onChange={e=>setPatSearch(e.target.value)}
+            className="flex-1 min-w-[180px] px-4 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-emerald-400" />
+        )}
         {/* 内部タブ切替を同じ行に (利用者選択時のみ) */}
         {patient && (
           <div className="flex gap-1 shrink-0">
@@ -10953,9 +10958,6 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
               <div className="text-sm font-bold text-slate-700">利用者を選択してプレビュー</div>
               <div className="text-xs text-slate-400 font-bold">利用中 {allPats.length}名</div>
             </div>
-            <input type="text" placeholder="氏名・フリガナ・ID で検索" value={patSearch}
-              onChange={e=>setPatSearch(e.target.value)}
-              className="w-full mb-3 px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-base font-bold outline-none focus:border-emerald-400" />
             <div className="flex flex-wrap gap-1 mb-3 pb-3 border-b border-slate-100">
               {kanaRows.map(row => {
                 const cnt = allPats.filter(p => getRowFromKana(p.kana) === row).length;
@@ -11272,6 +11274,10 @@ const diarySlotKyugyo = (appData, iso, dw, ap) => {
 //   看護師(看護職員)は各種設定の定員が10名を超える事業所で必須。担当職員に該当する役職(主/副)の人が1人も選ばれていなければ
 //   日誌を未完成扱いにする。不在で減算する場合は「減算」ボタンで log.gensan[役職]=true にすると警告が消え、画面とカレンダーに「減算」印が出る。
 const DIARY_STAFF_CUTOFF = '2026-09-29'; // これより前の日誌には遡って適用しない
+// ★ 減算(または加算不可)として記録できる役職: 看護師・介護職員=人員基準欠如減算、機能訓練指導員=個別機能訓練加算が算定不可。
+//   管理者・生活相談員は減算の仕組みが無い(運営基準)ので警告だけ出し、必ず選択してもらう(2026-09-29 ユーザー確認)
+const DIARY_GENSAN_ROLES = ['機能訓練指導員', '看護師', '介護職員'];
+const diaryGensanLabel = (role) => role === '機能訓練指導員' ? '機能訓練指導員が不在（個別機能訓練加算は算定不可）' : `${role}が不在のため減算`;
 const diaryRequiredRoles = (appData) => {
   const cap = Number(appData?.systemSettings?.facilityInfo?.capacity) || 10;
   return ['管理者', '生活相談員', '機能訓練指導員', '介護職員', ...(cap > 10 ? ['看護師'] : [])];
@@ -12734,7 +12740,7 @@ function FamilyAdminView({ appData, onSave }) {
   const [editingAnn, setEditingAnn] = useState(null); // {id, kind, patientId} お知らせ編集中
   const [patientFilter, setPatientFilter] = useState({ days:[], ampm:'' });
   const [photoFilter, setPhotoFilter] = useState('');
-  const [historyFilter, setHistoryFilter] = useState({ year:'', month:'', kind:'all' });
+  const [historyFilter, setHistoryFilter] = useState({ year:'', month:'', kind:'all', scope:'all', q:'' }); // ★ 2026-09-29: 全体/個別・写真PDF・キーワード
   const [historyDetail, setHistoryDetail] = useState(null);
   const [previewPid, setPreviewPid] = useState(null); // プレビュータブで選択中の利用者
   const [copied, setCopied] = useState(false);
@@ -13009,13 +13015,24 @@ function FamilyAdminView({ appData, onSave }) {
     ...photos.map(p => ({ ...p, _kind: 'photo' })),
   ];
   const histYears = Array.from(new Set(historyEntries.map(e => (e.date||'').slice(0,4)).filter(Boolean))).sort().reverse();
+  // ★ 2026-09-29(ユーザー要望): 写真・PDF は「写真の投稿」に加えて「写真/PDFが添付されたお知らせ」も対象(写真だけ絞ると何も出ない報告)。
+  //   キーワードはタイトル・本文・キャプション・ファイル名を部分一致(大文字小文字/全角半角の差は NFKC で吸収)
+  const _hNorm = (v) => String(v || '').normalize('NFKC').toLowerCase();
+  const _hQ = _hNorm(historyFilter.q).trim();
+  const _hText = (e) => _hNorm([e.title, e.body, e.content, e.caption, e.name, ...((e.photos||[]).map(ph => ph && (ph.caption || ph.name)))].filter(Boolean).join(' '));
   const filteredHistory = historyEntries.filter(e => {
     if (historyFilter.kind === 'news' && !e._kind.startsWith('news')) return false;
-    if (historyFilter.kind === 'photos' && e._kind !== 'photo') return false;
+    if (historyFilter.kind === 'photos' && !(e._kind === 'photo' || (e.photos || []).length > 0)) return false;
+    if (historyFilter.scope === 'all_only' && e._kind === 'news_personal') return false;
+    if (historyFilter.scope === 'personal' && !(e._kind === 'news_personal' || (e._kind === 'photo' && e.patientId != null))) return false;
+    if (_hQ && !_hText(e).includes(_hQ)) return false;
     if (historyFilter.year && !(e.date||'').startsWith(historyFilter.year)) return false;
     if (historyFilter.month && (e.date||'').slice(5,7) !== historyFilter.month.padStart(2,'0')) return false;
     return true;
   }).sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  // ★ 検索語のハイライト(2026-09-29)
+  const _hl = (text) => { const t = String(text || ''); if (!_hQ) return t; const nt = t.normalize('NFKC'); const lower = nt.toLowerCase(); const out = []; let i = 0, k = 0; while (i < lower.length) { const j = lower.indexOf(_hQ, i); if (j < 0) break; if (j > i) out.push(nt.slice(i, j)); out.push(<mark key={k++} style={{background:'#fde047',color:'#1e293b',borderRadius:2,padding:'0 1px'}}>{nt.slice(j, j + _hQ.length)}</mark>); i = j + _hQ.length; } if (i < lower.length) out.push(nt.slice(i)); return out.length ? out : t; };
+  const _hExcerpt = (body) => { const t = String(body || '').replace(/\s+/g, ' '); const j = _hNorm(t).indexOf(_hQ); const st = Math.max(0, j - 12); return (st > 0 ? '…' : '') + t.slice(st, st + 60) + (st + 60 < t.length ? '…' : ''); };
   const FilterPanel = () => (
     <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
       <div className="flex items-center gap-2 flex-wrap">
@@ -13232,9 +13249,13 @@ function FamilyAdminView({ appData, onSave }) {
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-bold text-slate-500">絞り込み:</span>
-                <select value={historyFilter.kind} onChange={e=>setHistoryFilter(f=>({...f,kind:e.target.value}))} className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none">
-                  <option value="all">全て</option><option value="news">お知らせ</option><option value="photos">写真</option>
+                <select value={historyFilter.scope} onChange={e=>setHistoryFilter(f=>({...f,scope:e.target.value}))} className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none">
+                  <option value="all">全体＋個別</option><option value="all_only">全体のみ</option><option value="personal">個別のみ</option>
                 </select>
+                <select value={historyFilter.kind} onChange={e=>setHistoryFilter(f=>({...f,kind:e.target.value}))} className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none">
+                  <option value="all">全て</option><option value="news">お知らせ</option><option value="photos">写真・PDF</option>
+                </select>
+                <input type="search" value={historyFilter.q} onChange={e=>setHistoryFilter(f=>({...f,q:e.target.value}))} placeholder="キーワード（タイトル・本文）" className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none min-w-[180px] flex-1"/>
                 <select value={historyFilter.year} onChange={e=>setHistoryFilter(f=>({...f,year:e.target.value,month:''}))} className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none">
                   <option value="">全期間</option>
                   {histYears.map(y => <option key={y} value={y}>{y}年</option>)}
@@ -13260,12 +13281,12 @@ function FamilyAdminView({ appData, onSave }) {
                         </span>
                         <span className="text-[11px] text-slate-400 w-24 shrink-0">{e.date}</span>
                         {e._kind === 'photo' ? (
-                          <><StoredImage file={e} alt="" className="w-10 h-10 object-cover rounded shrink-0"/><span className="text-sm text-slate-700 truncate flex-1">{e.caption || e.name || '(キャプションなし)'}</span>{e.class && <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{e.class}</span>}</>
+                          <><StoredImage file={e} alt="" className="w-10 h-10 object-cover rounded shrink-0"/><span className="text-sm text-slate-700 truncate flex-1">{_hl(e.caption || e.name || '(キャプションなし)')}</span>{e.class && <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{e.class}</span>}</>
                         ) : (
                           <>
                             {/* お知らせに紐付いた写真があれば先頭1枚をサムネ表示 */}
                             {(e.photos || []).length > 0 && <StoredImage file={e.photos[0]} alt="" className="w-10 h-10 object-cover rounded shrink-0"/>}
-                            <span className="text-sm font-bold text-slate-800 truncate flex-1">{e.title || '(タイトルなし)'}</span>
+                            <span className="text-sm font-bold text-slate-800 truncate flex-1">{_hl(e.title || '(タイトルなし)')}{_hQ && _hNorm(e.body||e.content||'').includes(_hQ) && <span className="block text-[11px] font-normal text-slate-500 truncate">{_hl(_hExcerpt(e.body||e.content||''))}</span>}</span>
                             {(e.photos || []).length > 0 && <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded shrink-0">×{e.photos.length}</span>}
                             {pat && <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">{pat.name}</span>}
                           </>
@@ -25250,6 +25271,24 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   //   効かない不具合を解消。 家族/ケアマネ表示(familyMode)は親側でスクロールするため従来どおり。
   // ★ 2026-09-28(ユーザー要望): ご家族・ケアマネ画面に次回の利用日とお迎え時間を出す(基本情報とは別に「今回の記録」の上)。
   //   送迎表(transportPlans)にその日のコマが保存済みなら車の時刻／徒歩を優先し、無ければマスタの送迎時間(自動計算含む)。
+  // ★ 本日が利用日で、まだ提供時間(各種設定の午前/午後の開始時刻)になっていない間は「本日 ○時○分からご利用予定」を出し、
+  //   開始時刻を過ぎたら次回(翌日以降)に切り替える(2026-09-29 ユーザー要望)
+  const _isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const _recHasData = (r) => !!r && !!(r.temp || r.bpUpSt || r.bpDnSt || r.plSt || r.bpUpEn || r.kibunArrival || r.kibunDeparture || (r.tokki && String(r.tokki).trim()) || (r.exercises && Object.values(r.exercises).some(v => v !== '' && v != null)));
+  const todayVisit = (() => {
+    if (!compactMode || !selectedPatient) return null;
+    try {
+      const now = new Date(); const y = new Date(now); y.setDate(y.getDate() - 1);
+      const info = getNextVisitInfo(selectedPatient, _isoOf(y), appData.monthlyShifts, appData);
+      if (!info || info.iso !== _isoOf(now)) return null;
+      const fi = appData.systemSettings?.facilityInfo || {};
+      const raw = info.ampm === 'PM' ? (fi.serviceTimePM || '') : (fi.serviceTimeAM || '');
+      const m = String(raw).split(/[～〜]/)[0].trim().match(/(\d{1,2}):(\d{2})/);
+      const startMin = m ? (parseInt(m[1],10)*60 + parseInt(m[2],10)) : (info.ampm === 'PM' ? 13*60+20 : 9*60);
+      const nowMin = now.getHours()*60 + now.getMinutes();
+      return { iso: _isoOf(now), ampm: info.ampm, startMin, startLabel: `${Math.floor(startMin/60)}時${String(startMin%60).padStart(2,'0')}分`, before: nowMin < startMin, dateLabel: info.date, time: info.time, isFurikae: !!info.isFurikae };
+    } catch { return null; }
+  })();
   const nextVisit = (() => {
     if (!compactMode || !selectedPatient) return null;
     try {
@@ -25939,7 +25978,16 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
         </div>
 
         {/* ★ 次回のご利用予定(2026-09-28 ユーザー要望: 基本情報とは別に、時間は日付の横に大きく) */}
-        {compactMode && nextVisit && (
+        {compactMode && todayVisit && todayVisit.before && (
+          <div id="sec-today" style={{border:'2px solid #93c5fd',background:'#eff6ff',borderRadius:14,padding:'10px 16px',marginBottom:12,display:'flex',alignItems:'baseline',gap:14,flexWrap:'wrap'}}>
+            <span style={{fontSize:13,fontWeight:'bold',color:'#1e40af'}}>本日のご利用予定</span>
+            <span style={{fontSize:22,fontWeight:'bold',color:'#1e3a8a',letterSpacing:0.5}}>{todayVisit.dateLabel}</span>
+            {todayVisit.isFurikae && <span style={{fontSize:12,fontWeight:'bold',color:'#059669',background:'#d1fae5',borderRadius:6,padding:'1px 8px'}}>振替</span>}
+            <span style={{fontSize:22,fontWeight:'bold',color:'#1e3a8a'}}><span style={{fontSize:26}}>{todayVisit.startLabel}</span> からご利用予定</span>
+            <span style={{fontSize:13,color:'#475569'}}>記録は利用後に表示されます</span>
+          </div>
+        )}
+        {compactMode && nextVisit && !(todayVisit && todayVisit.before) && (
           <div id="sec-next" style={{border:'2px solid #86efac',background:'#f0fdf4',borderRadius:14,padding:'10px 16px',marginBottom:12,display:'flex',alignItems:'baseline',gap:14,flexWrap:'wrap'}}>
             <span style={{fontSize:13,fontWeight:'bold',color:'#166534'}}>次回のご利用予定</span>
             <span style={{fontSize:22,fontWeight:'bold',color:'#14532d',letterSpacing:0.5}}>{nextVisit.date}</span>
@@ -25969,7 +26017,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             if (mm > _today.getMonth()+1 || (mm === _today.getMonth()+1 && dd > _today.getDate())) year--;
             return new Date(year, mm - 1, dd);
           };
-          const _withDates = records.map(r => ({ r, d: _recordToDate(r) })).filter(x => x.d);
+          const _emptyToday = (x) => todayVisit && todayVisit.before && x.d && _isoOf(x.d) === todayVisit.iso && !_recHasData(x.r);
+          const _withDates = records.map(r => ({ r, d: _recordToDate(r) })).filter(x => x.d).filter(x => !_emptyToday(x));
           _withDates.sort((a, b) => b.d.getTime() - a.d.getTime());
           const _latest = _withDates[0]?.r;
           if (!_latest) return null;
@@ -26022,7 +26071,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             return new Date(year, mm - 1, dd);
           };
           // どの状態(出席/振替/欠席/休止)でも最新の記録を取得 (年も考慮した日付でソート)
-          const withDates = records.map(r => ({ r, d: recordToDate(r) })).filter(x => x.d);
+          const withDates = records.map(r => ({ r, d: recordToDate(r) })).filter(x => x.d).filter(x => !(todayVisit && todayVisit.before && _isoOf(x.d) === todayVisit.iso && !_recHasData(x.r)));
           withDates.sort((a, b) => b.d.getTime() - a.d.getTime());
           const latestPair = withDates[0];
           const latest = latestPair?.r;
@@ -31109,7 +31158,14 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     // ★ 取得後は隠しカードを解放してメモリを戻す
     setTimeout(() => setShowPrintCards(false), 800);
   };
-  const handleSaveConfig = (newConfig) => { markClean(); onSave({ ...appData, contactBookConfig: newConfig }); setIsConfigOpen(false); };
+  const handleSaveConfig = (newConfig, pv) => {
+    markClean();
+    // ★ 項目設定内で入力した利用者ごとの値(変更分のみ)を contactBookValues に反映(2026-09-29)
+    const _pv = pv || {};
+    const patients = Object.keys(_pv).length ? (appData.patients||[]).map(pt => _pv[pt.id] ? { ...pt, contactBookValues: { ...(pt.contactBookValues||{}), ..._pv[pt.id] } } : pt) : appData.patients;
+    onSave({ ...appData, contactBookConfig: newConfig, ...(patients !== appData.patients ? { patients } : {}) });
+    setIsConfigOpen(false);
+  };
 
   const handleLocalOverrideChange = (recordId, field, value) => {
       setLocalOverrides(prev => ({ ...prev, [recordId]: { ...prev[recordId], [field]: value } }));
@@ -31765,7 +31821,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       </div>
       
       <DigitalKeypad isOpen={keypad.isOpen} anchorKey={`${keypad.recordId}-${keypad.field}`} value={keypad.value} isFirstInput={keypad.isFirstInput} mode={keypad.mode} onClose={() => { handleOverrideBlur(keypad.recordId, keypad.field, keypad.value); setKeypad({...keypad, isOpen: false}); }} onInput={handleKeypadInput} onEnter={handleKeypadEnter} onTab={handleKeypadTab} />
-      {isConfigOpen && <ContactBookConfigModal config={appData.contactBookConfig} exerciseItems={effExerciseItems(appData.systemSettings)} onClose={() => setIsConfigOpen(false)} onSave={handleSaveConfig} />}
+      {isConfigOpen && <ContactBookConfigModal config={appData.contactBookConfig} exerciseItems={effExerciseItems(appData.systemSettings)} onClose={() => setIsConfigOpen(false)} onSave={handleSaveConfig} patients={sortPatientsByKana((appData.patients||[]).filter(pt => pt.status === '利用中' && isPatientListable(pt)))} />}
       {renrakuModal && <RenrakuModal appData={appData} patientId={renrakuModal.patientId} dayPatientIds={displayRecords.map(r=>r.patientId)} onClose={()=>setRenrakuModal(null)} onSave={(d)=>{ markClean(); onSave(d, { manual: true, message: '✓ 連絡事項を保存しました' }); }} />}
     </div>
   );
@@ -32180,8 +32236,13 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
   );
 }
 
-function ContactBookConfigModal({ config, exerciseItems, onClose, onSave }) {
+function ContactBookConfigModal({ config, exerciseItems, onClose, onSave, patients = [] }) {
   const [localConfig, setLocalConfig] = useState(JSON.parse(JSON.stringify(config)));
+  // ★ 2026-09-29(ユーザー: 利用者ごとの値はどこで設定するのか): この画面で項目ごとに利用者の一覧を開いて入力できる(保存で利用者マスタの contactBookValues に反映)
+  const [pv, setPv] = useState({}); // {patientId: {itemId: value}} 変更分のみ
+  const [openPv, setOpenPv] = useState(null); // 展開中の itemId
+  const [pvQ, setPvQ] = useState('');
+  const pvVal = (pt, item) => { const c = pv[pt.id] && pv[pt.id][item.id]; if (c !== undefined) return c; const o = (pt.contactBookValues||{})[item.id]; return o !== undefined ? o : ''; };
   // ★ 連動先の実効値: 空/無効なら先頭の運動項目に繋ぐ(未選択という状態を作らない)
   const effLinkedField = (item) => (exerciseItems.some(ex => ex.id === item.linkedField) ? item.linkedField : (exerciseItems[0]?.id || ''));
   // ★ type を 'linked' に変えたとき、 linkedField が空なら先頭の運動項目を自動セット
@@ -32224,7 +32285,8 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave }) {
             <p className="text-xs text-slate-400 mb-3">{itemDnd.hint}</p>
             <div className="space-y-2">
               {localConfig.items.map((item, index) => (
-                <div key={item.id} {...(() => { const rp = itemDnd.rowProps(index); return { ...rp, className: `flex items-center gap-3 border p-3 rounded-xl hover:shadow-md transition-shadow group ${item.visible === false ? 'bg-slate-100 border-slate-200 opacity-60' : 'bg-slate-50 border-slate-200'}` }; })()}>
+                <React.Fragment key={item.id}>
+                <div {...(() => { const rp = itemDnd.rowProps(index); return { ...rp, className: `flex items-center gap-3 border p-3 rounded-xl hover:shadow-md transition-shadow group ${item.visible === false ? 'bg-slate-100 border-slate-200 opacity-60' : 'bg-slate-50 border-slate-200'}` }; })()}>
                   <div className="text-slate-300 shrink-0" title="長押しでドラッグして並べ替え"><GripVertical size={18}/></div>
                   {/* 表示/非表示トグル */}
                   <label className="flex flex-col items-center gap-0.5 cursor-pointer select-none" title="チェックを外すと連絡帳に表示しません">
@@ -32255,6 +32317,27 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave }) {
                   </div>
                   <button onClick={() => deleteItem(item.id)} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg ml-2"><Trash2 size={18}/></button>
                 </div>
+                {item.type !== 'linked' && item.perPatient && patients.length > 0 && (
+                  <div className="ml-12 mb-3 -mt-1">
+                    <button type="button" onClick={()=>{ setOpenPv(openPv===item.id ? null : item.id); setPvQ(''); }} className="text-xs font-bold text-violet-700 bg-violet-50 border border-violet-200 rounded-lg px-3 py-1.5 hover:bg-violet-100">
+                      {openPv===item.id ? '▲ 利用者ごとの値を閉じる' : `▼ 利用者ごとの値を設定（${patients.filter(pt => ((pt.contactBookValues||{})[item.id] ?? '') !== '' || (pv[pt.id] && pv[pt.id][item.id] !== undefined && pv[pt.id][item.id] !== '')).length}名 設定済）`}
+                    </button>
+                    {openPv===item.id && (
+                      <div className="mt-2 bg-violet-50 border border-violet-200 rounded-xl p-3">
+                        <div className="flex items-center gap-2 mb-2"><input type="search" value={pvQ} onChange={e=>setPvQ(e.target.value)} placeholder="氏名で絞り込み" className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold outline-none flex-1"/><span className="text-[11px] text-slate-500">空欄＝共通の表示文字「{item.value || '—'}」</span></div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 max-h-72 overflow-y-auto pr-1">
+                          {patients.filter(pt => !pvQ || (pt.name||'').includes(pvQ) || (pt.kana||'').includes(pvQ)).map(pt => (
+                            <div key={pt.id} className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-2 py-1">
+                              <span className="text-xs font-bold text-slate-700 w-24 truncate" title={pt.name}>{pt.name}</span>
+                              <input type="text" value={pvVal(pt, item)} onChange={e=>setPv(prev => ({ ...prev, [pt.id]: { ...(prev[pt.id]||{}), [item.id]: e.target.value } }))} placeholder={item.value || ''} className="flex-1 px-2 py-1 bg-white border border-slate-300 rounded text-sm outline-none focus:border-violet-400"/>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                </React.Fragment>
               ))}
             </div>
             <button onClick={addItem} className="mt-3 w-full px-4 py-2.5 bg-blue-50 text-blue-600 hover:bg-blue-100 font-bold text-sm rounded-xl flex items-center justify-center border-2 border-dashed border-blue-200"><Plus size={16} className="mr-1"/> 項目を追加</button>
@@ -32262,7 +32345,7 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave }) {
         </div>
         <div className="px-6 py-4 bg-white border-t border-slate-200 flex justify-end gap-3 flex-shrink-0">
           <button onClick={onClose} className="px-6 py-2.5 rounded-xl font-bold text-slate-600 hover:bg-slate-100 transition-colors">キャンセル</button>
-          <button onClick={() => onSave(localConfig)} className="px-8 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg transition-all active:scale-95">保存</button>
+          <button onClick={() => onSave(localConfig, pv)} className="px-8 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg transition-all active:scale-95">保存</button>
         </div>
       </div>
     </div>,
@@ -41842,17 +41925,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
       {/* 担当職員 — 横一列ボックス（pageInfo の showStaff が true の場合のみ） */}
       {_showStaff && (
       <div style={{border:'1px solid #555',marginBottom:4,borderRadius:2}}>
-        <div id="diary-sec-staff" style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 6px',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
-          <span>担当職員</span>
-          {/* ★ 減算の表示(2026-09-29): 画面だけに出し、印刷(日誌)には載せない */}
-          {Object.keys(log.gensan||{}).filter(r=>(log.gensan||{})[r]).map(r => (
-            <span key={r} className="no-print" style={{background:'#dc2626',color:'#fff',borderRadius:4,padding:'1px 6px',fontSize:9,display:'inline-flex',alignItems:'center',gap:6}}>
-              {r}が不在のため減算
-              {!isReadOnly && <button type="button" title="減算の記録を取り消す" onClick={()=>{ const g={...(log.gensan||{})}; delete g[r]; updateLog({ gensan: g }); }} style={{background:'transparent',border:'1px solid rgba(255,255,255,.7)',color:'#fff',borderRadius:3,padding:'0 4px',fontSize:8,cursor:'pointer'}}>取消</button>}
-            </span>
-          ))}
-          {!isPrintPreview && (()=>{ const cap = Number(appData.systemSettings?.facilityInfo?.capacity)||10; return <span style={{marginLeft:'auto',fontWeight:'normal',fontSize:8,color:'#cbd5e1'}}>必須: {diaryRequiredRoles(appData).join('・')}（定員{cap}名{cap>10?'・看護師必須':'・看護師は任意'}）</span>; })()}
-        </div>
+        <div id="diary-sec-staff" style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 6px'}}>担当職員</div>
         <div style={{display:'flex',gap:3,padding:'3px 5px 0 5px'}}>
           {StaffBox({label:'管理者', list:managers, flexWeight: managers.length>1 ? '1.6 1 0' : '1 1 0'})}
           {StaffBox({label:'生活相談員', list:seikatsu, flexWeight:'2 1 0'})}
@@ -42600,6 +42673,103 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           ))}
         </div>
 
+        {/* 送迎車割り当て */}
+        <button disabled={isReadOnly} onClick={()=>{setCarAssignModal({prefix:'pick'});setCarAssignSelections({});}}
+          className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
+          <span></span> 迎え
+        </button>
+        <button disabled={isReadOnly} onClick={()=>{setCarAssignModal({prefix:'drop'});setCarAssignSelections({});}}
+          className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
+          <span></span> 送り
+        </button>
+        <button disabled={isReadOnly} onClick={()=>{
+          const isFirst = (ds.staff||[]).length === 0;
+          setNewStaff({role: isFirst ? '管理者' : '介護職員', name:''});
+          setAddStaffModal(true);
+        }} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap">
+          担当者追加
+        </button>
+        <div className="hidden sm:block flex-1"/>
+        <div className="flex gap-2 shrink-0">
+        <button onClick={()=>{
+          const _d=new Date(selectedDate);
+          const DOW=['日','月','火','水','木','金','土'];
+          const title=`業務日誌_${_d.getFullYear()}年${_d.getMonth()+1}月${_d.getDate()}日（${DOW[_d.getDay()]}）`;
+          document.title=title;
+          // AM + PM の 2 ページを含む隠しコンテナをグローバル印刷モーダルに渡す
+          if (onShowPrintPreview) onShowPrintPreview(title, 'A4 portrait', 'diary-print-content-both');
+          else setIsPrintPreview('both');
+        }} className="bg-slate-900 text-white px-5 py-2 rounded-xl font-bold text-sm hover:bg-black transition-all whitespace-nowrap">
+          プレビュー
+        </button>
+        {isReadOnly ? (
+          <button onClick={()=>setForceEdit(true)} title="過去日です。クリックで編集モードへ" className="bg-amber-500 hover:bg-amber-600 text-white px-5 py-2 rounded-xl font-bold text-sm transition-all active:scale-95 whitespace-nowrap">
+            編集
+          </button>
+        ) : (
+          <button onClick={saveLog} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-bold text-sm transition-all active:scale-95 whitespace-nowrap">
+            保存
+          </button>
+        )}
+        </div>
+        {/* ★ 送迎表(運行表)からの取り込み(2026-09-12 試験版): 車割り当てを日誌の迎え/送りへ一括反映 */}
+        <button disabled={isReadOnly} onClick={()=>{
+          const plan = (appData.transportPlans||{})[`${selectedDate}_${ampm}`];
+          if (!plan) { alert('この日の送迎表がまだ保存されていません。\n送迎表の画面で車割り当てを編集すると保存されます。'); return; }
+          if (!window.confirm('送迎表の車割り当てを、この日誌の「迎え」「送り」へ取り込みます。\n既存の迎え/送りの割り当ては上書きされます。よろしいですか？\n（送りの車が迎えと違う場合は、取り込み後に送りだけ調整してください）')) return;
+          const _pk = {}, _dp = {}, _pw = {}, _dw2 = {}, _po = {}, _do2 = {};
+          Object.keys(plan.cars||{}).forEach(cid => (plan.cars[cid]||[]).forEach(m => { _pk[`${m.pid}_${cid}`] = true; }));
+          (plan.walkers||[]).forEach(m => { _pw[String(m.pid)] = true; });
+          (plan.others||[]).forEach(m => { _po[String(m.pid)] = true; });
+          // ★ 送り別割り当てがある日は送りをそちらから反映(2026-09-12d)
+          const _dropSrc = (plan.dropMode === 'custom' && plan.drop) ? plan.drop : { cars: plan.cars, walkers: plan.walkers, others: plan.others };
+          Object.keys(_dropSrc.cars||{}).forEach(cid => (_dropSrc.cars[cid]||[]).forEach(m => { _dp[`${m.pid}_${cid}`] = true; }));
+          (_dropSrc.walkers||[]).forEach(m => { _dw2[String(m.pid)] = true; });
+          (_dropSrc.others||[]).forEach(m => { _do2[String(m.pid)] = true; });
+          updateLog({ pick: _pk, drop: _dp, pick_walk: _pw, drop_walk: _dw2, pick_other: _po, drop_other: _do2, _sougeiPending: { ...(log._sougeiPending||{}), '迎え': false, '送り': false } });
+        }}
+          className="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed" title="送迎表(運行表)で決めた車割り当てを、この日の迎え/送りへ一括反映します">
+          送迎表取込
+        </button>
+        {/* 送迎車割り当て */}
+        <button disabled={isReadOnly} onClick={()=>{setCarAssignModal({prefix:'pick'});setCarAssignSelections({});}}
+          className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
+          <span></span> 迎え
+        </button>
+        <button disabled={isReadOnly} onClick={()=>{setCarAssignModal({prefix:'drop'});setCarAssignSelections({});}}
+          className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
+          <span></span> 送り
+        </button>
+        <button disabled={isReadOnly} onClick={()=>{
+          const isFirst = (ds.staff||[]).length === 0;
+          setNewStaff({role: isFirst ? '管理者' : '介護職員', name:''});
+          setAddStaffModal(true);
+        }} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap">
+          担当者追加
+        </button>
+        <div className="hidden sm:block flex-1"/>
+        <div className="flex gap-2 shrink-0">
+        <button onClick={()=>{
+          const _d=new Date(selectedDate);
+          const DOW=['日','月','火','水','木','金','土'];
+          const title=`業務日誌_${_d.getFullYear()}年${_d.getMonth()+1}月${_d.getDate()}日（${DOW[_d.getDay()]}）`;
+          document.title=title;
+          // AM + PM の 2 ページを含む隠しコンテナをグローバル印刷モーダルに渡す
+          if (onShowPrintPreview) onShowPrintPreview(title, 'A4 portrait', 'diary-print-content-both');
+          else setIsPrintPreview('both');
+        }} className="bg-slate-900 text-white px-5 py-2 rounded-xl font-bold text-sm hover:bg-black transition-all whitespace-nowrap">
+          プレビュー
+        </button>
+        {isReadOnly ? (
+          <button onClick={()=>setForceEdit(true)} title="過去日です。クリックで編集モードへ" className="bg-amber-500 hover:bg-amber-600 text-white px-5 py-2 rounded-xl font-bold text-sm transition-all active:scale-95 whitespace-nowrap">
+            編集
+          </button>
+        ) : (
+          <button onClick={saveLog} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-bold text-sm transition-all active:scale-95 whitespace-nowrap">
+            保存
+          </button>
+        )}
+        </div>
         {/* ★ 未完了バッジ(2026-09-10 店舗要望で刷新): 「これをやらないと日誌が完成しない」項目を一覧。
             迎え/送り=未選択の人数を一本化(コピー未確認・全体未記入も同じチップ)。送迎者=使う車に運転者チェックなし。
             ヒント括弧は廃止・チップ名に情報を含める。 */}
@@ -42668,70 +42838,25 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
                 <button type="button" title={it.prefix?'クリックで送迎車割り当てを開く':'クリックで該当箇所へ移動'}
                   onClick={()=>{ if(it.prefix){ setCarAssignModal({prefix:it.prefix}); setCarAssignSelections({}); return; } const el=it.aid&&document.getElementById(it.aid); if(!el) return; el.scrollIntoView({behavior:'smooth',block:'center'}); const _o=el.style.outline; el.style.outline='3px solid #f59e0b'; el.style.outlineOffset='3px'; setTimeout(()=>{ el.style.outline=_o||''; el.style.outlineOffset=''; },1800); }}
                   className="inline-flex items-center px-2 py-0.5 bg-white border border-amber-400 text-amber-800 rounded-full text-xs font-bold cursor-pointer hover:bg-amber-50">{it.label}</button>
-                {it.gensanRole && !isReadOnly && <button type="button" title={`${it.gensanRole}が不在のため減算として記録し、この警告を消します（担当職員欄の「減算」から取り消せます）`} onClick={()=>updateLog({ gensan: { ...(log.gensan||{}), [it.gensanRole]: true } })} className="inline-flex items-center px-2 py-0.5 bg-red-600 text-white rounded-full text-xs font-bold cursor-pointer hover:bg-red-700">減算</button>}
+                {it.gensanRole && !isReadOnly && DIARY_GENSAN_ROLES.includes(it.gensanRole) && <button type="button" title={it.gensanRole==='機能訓練指導員' ? '機能訓練指導員が不在＝この日の個別機能訓練加算は算定できません。記録してこの警告を消します（下の「取消」で戻せます）' : `${it.gensanRole}が不在＝人員基準欠如の減算として記録し、この警告を消します（下の「取消」で戻せます）`} onClick={()=>updateLog({ gensan: { ...(log.gensan||{}), [it.gensanRole]: true } })} className="inline-flex items-center px-2 py-0.5 bg-red-600 text-white rounded-full text-xs font-bold cursor-pointer hover:bg-red-700">{it.gensanRole==='機能訓練指導員' ? '加算なし' : '減算'}</button>}
               </span>))}
               <span className="text-xs font-normal text-amber-700">…すべて入力・確認すると完成します</span>
             </div>
           );
         })()}
-        {/* ★ 送迎表(運行表)からの取り込み(2026-09-12 試験版): 車割り当てを日誌の迎え/送りへ一括反映 */}
-        <button disabled={isReadOnly} onClick={()=>{
-          const plan = (appData.transportPlans||{})[`${selectedDate}_${ampm}`];
-          if (!plan) { alert('この日の送迎表がまだ保存されていません。\n送迎表の画面で車割り当てを編集すると保存されます。'); return; }
-          if (!window.confirm('送迎表の車割り当てを、この日誌の「迎え」「送り」へ取り込みます。\n既存の迎え/送りの割り当ては上書きされます。よろしいですか？\n（送りの車が迎えと違う場合は、取り込み後に送りだけ調整してください）')) return;
-          const _pk = {}, _dp = {}, _pw = {}, _dw2 = {}, _po = {}, _do2 = {};
-          Object.keys(plan.cars||{}).forEach(cid => (plan.cars[cid]||[]).forEach(m => { _pk[`${m.pid}_${cid}`] = true; }));
-          (plan.walkers||[]).forEach(m => { _pw[String(m.pid)] = true; });
-          (plan.others||[]).forEach(m => { _po[String(m.pid)] = true; });
-          // ★ 送り別割り当てがある日は送りをそちらから反映(2026-09-12d)
-          const _dropSrc = (plan.dropMode === 'custom' && plan.drop) ? plan.drop : { cars: plan.cars, walkers: plan.walkers, others: plan.others };
-          Object.keys(_dropSrc.cars||{}).forEach(cid => (_dropSrc.cars[cid]||[]).forEach(m => { _dp[`${m.pid}_${cid}`] = true; }));
-          (_dropSrc.walkers||[]).forEach(m => { _dw2[String(m.pid)] = true; });
-          (_dropSrc.others||[]).forEach(m => { _do2[String(m.pid)] = true; });
-          updateLog({ pick: _pk, drop: _dp, pick_walk: _pw, drop_walk: _dw2, pick_other: _po, drop_other: _do2, _sougeiPending: { ...(log._sougeiPending||{}), '迎え': false, '送り': false } });
-        }}
-          className="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed" title="送迎表(運行表)で決めた車割り当てを、この日の迎え/送りへ一括反映します">
-          送迎表取込
-        </button>
-        {/* 送迎車割り当て */}
-        <button disabled={isReadOnly} onClick={()=>{setCarAssignModal({prefix:'pick'});setCarAssignSelections({});}}
-          className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
-          <span></span> 迎え
-        </button>
-        <button disabled={isReadOnly} onClick={()=>{setCarAssignModal({prefix:'drop'});setCarAssignSelections({});}}
-          className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
-          <span></span> 送り
-        </button>
-        <button disabled={isReadOnly} onClick={()=>{
-          const isFirst = (ds.staff||[]).length === 0;
-          setNewStaff({role: isFirst ? '管理者' : '介護職員', name:''});
-          setAddStaffModal(true);
-        }} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap">
-          担当者追加
-        </button>
-        <div className="hidden sm:block flex-1"/>
-        <div className="flex gap-2 shrink-0">
-        <button onClick={()=>{
-          const _d=new Date(selectedDate);
-          const DOW=['日','月','火','水','木','金','土'];
-          const title=`業務日誌_${_d.getFullYear()}年${_d.getMonth()+1}月${_d.getDate()}日（${DOW[_d.getDay()]}）`;
-          document.title=title;
-          // AM + PM の 2 ページを含む隠しコンテナをグローバル印刷モーダルに渡す
-          if (onShowPrintPreview) onShowPrintPreview(title, 'A4 portrait', 'diary-print-content-both');
-          else setIsPrintPreview('both');
-        }} className="bg-slate-900 text-white px-5 py-2 rounded-xl font-bold text-sm hover:bg-black transition-all whitespace-nowrap">
-          プレビュー
-        </button>
-        {isReadOnly ? (
-          <button onClick={()=>setForceEdit(true)} title="過去日です。クリックで編集モードへ" className="bg-amber-500 hover:bg-amber-600 text-white px-5 py-2 rounded-xl font-bold text-sm transition-all active:scale-95 whitespace-nowrap">
-            編集
-          </button>
-        ) : (
-          <button onClick={saveLog} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-bold text-sm transition-all active:scale-95 whitespace-nowrap">
-            保存
-          </button>
+        {/* ★ 減算・加算不可の記録(2026-09-29): 日誌本体(印刷)には載せず、ここ(日誌の外)に表示。取消もここから */}
+        {Object.keys(log.gensan||{}).filter(r=>(log.gensan||{})[r]).length > 0 && !_dayIsKyugyo(selectedDate, dow) && (
+          <div style={{flexBasis:'100%'}} className="w-full bg-red-50 border-2 border-red-300 text-red-800 rounded-xl px-3 py-2 text-sm font-bold flex items-center gap-2 flex-wrap">
+            <span>減算の記録:</span>
+            {Object.keys(log.gensan||{}).filter(r=>(log.gensan||{})[r]).map(r => (
+              <span key={r} className="inline-flex items-center gap-1.5 bg-white border border-red-300 rounded-full px-2.5 py-0.5 text-xs">
+                {diaryGensanLabel(r)}
+                {!isReadOnly && <button type="button" title="この記録を取り消す(警告に戻ります)" onClick={()=>{ const g={...(log.gensan||{})}; delete g[r]; updateLog({ gensan: g }); }} className="text-[10px] font-bold text-red-600 underline">取消</button>}
+              </span>
+            ))}
+            <span className="text-xs font-normal text-red-700">…日誌の印刷には載りません。カレンダーに「減」印が付きます</span>
+          </div>
         )}
-        </div>
       </div>
       {isReadOnly && (
         <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-800 text-sm font-bold flex items-center gap-2">
