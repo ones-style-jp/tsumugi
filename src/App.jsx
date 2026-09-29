@@ -24917,6 +24917,9 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   // familyMode: 必ず targetPatientId が来る前提で 1 番目にフォールバック
   // 通常モード: targetPatientId 未指定なら null (利用者選択画面を表示)
   const [selectedPatientId, setSelectedPatientId] = useState(targetPatientId || (familyMode ? ((appData.patients||[])[0]?.id || null) : null));
+  // ★ 2026-09-29(店舗報告: お知らせの家族画面プレビューで利用者を切り替えても画面が変わらない): 初期値でしか
+  //   targetPatientId を見ていなかった。親が別の利用者を渡してきたら追従する(null は「選択解除」なので追従しない)
+  React.useEffect(() => { if (targetPatientId != null && targetPatientId !== selectedPatientId) setSelectedPatientId(targetPatientId); }, [targetPatientId]);
   const [patientSearch, setPatientSearch] = useState('');
   // 3ヶ月超の場合の表示モード: 'auto'=自動(月平均)、'daily'=毎日表示
   const [displayMode, setDisplayMode] = useState(externalDisplayMode || 'auto');
@@ -25282,9 +25285,33 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   const _recHasData = (r) => !!r && !!(r.temp || r.bpUpSt || r.bpDnSt || r.plSt || r.bpUpEn || r.kibunArrival || r.kibunDeparture || (r.tokki && String(r.tokki).trim()) || (r.exercises && Object.values(r.exercises).some(v => v !== '' && v != null)));
   // ★ お迎え時間(2026-09-29 ユーザー指示: 提供開始時刻ではなく「お迎え時間」を出す): 送迎表(transportPlans)にその日の
   //   乗車時間があればそれを優先、無ければ getNextVisitInfo の時間(曜日の送迎時間→提供開始10分前)。徒歩は '徒歩'
-  const _pickupOf = (info) => {
-    let t = (info && info.time) || '';
+  // ★ 「13時　　分」(分が未定の送迎時間)は「13時」に整える。「　時　分」(全部未定)は空
+  const _normT = (t) => String(t || '').replace(/^[　\s]*時[　\s]*分$/, '').replace(/時[　\s]*分$/, '時').replace(/^[　\s]+/, '').trim();
+  // ★ 連絡帳の「次回予定」(2026-09-29 ユーザー指示: 9/25 の連絡帳に 13時10分 と書いたならそれを出す):
+  //   その日より前(45日以内)の来所記録のうち、次回日付が info の日付を指していて nextTimeOverride に数字がある最新のもの
+  const _cbNextTime = (info) => {
     try {
+      if (!info || !info.iso) return '';
+      const target = new Date(info.iso + 'T00:00:00'); const tM = target.getMonth() + 1, tD = target.getDate();
+      let best = null, bestD = null;
+      (appData.ticketRecords || []).forEach(r => {
+        if (!r || r.patientId !== selectedPatient.id || !/\d/.test(String(r.nextTimeOverride || ''))) return;
+        const m = String(r.date || '').match(/(\d+)月(\d+)日/); if (!m) return;
+        const d = new Date(r.year || target.getFullYear(), parseInt(m[1], 10) - 1, parseInt(m[2], 10));
+        if (!(d < target) || (target - d) > 45 * 86400000) return;
+        const nd = String(r.nextDateOverride || '').replace(/\s/g, '').match(/^(\d+)月(\d+)日/);
+        let match = false;
+        if (nd) match = parseInt(nd[1], 10) === tM && parseInt(nd[2], 10) === tD;
+        else { const a = getNextVisitInfo(selectedPatient, _isoOf(d), appData.monthlyShifts, appData); match = !!a && a.iso === info.iso; }
+        if (match && (!bestD || d > bestD)) { best = r; bestD = d; }
+      });
+      return best ? _normT(best.nextTimeOverride) : '';
+    } catch { return ''; }
+  };
+  const _pickupOf = (info) => {
+    let t = '';
+    try {
+      // 1) 送迎表(確定した乗車時間)があれば最優先
       const pl = (appData.transportPlans || {})[`${info.iso}_${info.ampm || 'AM'}`];
       if (pl && typeof pl === 'object') {
         let hit = null;
@@ -25292,11 +25319,15 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
         if (hit) { const raw = String(hit.t || '').replace(/\s/g, ''); const mm = raw.match(/^(\d{1,2})[:：](\d{2}|--)/); if (mm) t = `${mm[1]}時${mm[2] === '--' ? '' : mm[2] + '分'}`; else if (/時/.test(raw)) t = raw; }
         else if ((pl.walkers || []).some(m => m.pid === selectedPatient.id)) t = '徒歩';
       }
+      // 2) 連絡帳の次回予定(前回来所時にスタッフが書いたお迎え時間)
+      if (!t) t = _cbNextTime(info);
+      // 3) 曜日の送迎時間(→提供開始10分前)
+      if (!t) t = _normT(info && info.time);
     } catch {}
-    return String(t || '').replace(/^　時　分$/, '').trim();
+    return _normT(t);
   };
   const todayVisit = (() => {
-    if (!compactMode || !selectedPatient) return null;
+    if (!selectedPatient) return null;
     try {
       const now = new Date(); const y = new Date(now); y.setDate(y.getDate() - 1);
       const info = getNextVisitInfo(selectedPatient, _isoOf(y), appData.monthlyShifts, appData);
@@ -25310,7 +25341,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
     } catch { return null; }
   })();
   const nextVisit = (() => {
-    if (!compactMode || !selectedPatient) return null;
+    if (!selectedPatient) return null;
     try {
       const today = new Date(); const tstr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
       const info = getNextVisitInfo(selectedPatient, tstr, appData.monthlyShifts, appData);
@@ -25989,7 +26020,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
         </div>
 
         {/* ★ 次回のご利用予定(2026-09-28 ユーザー要望: 基本情報とは別に、時間は日付の横に大きく) */}
-        {compactMode && todayVisit && todayVisit.before && (
+        {/* ★ 2026-09-29: スタッフ側の分析個人にも同じ枠を出す(ご家族・ケアマネ・ご本人と同じ表示) */}
+        {todayVisit && todayVisit.before && (
           <div id="sec-today" style={{border:'2px solid #93c5fd',background:'#eff6ff',borderRadius:14,padding:'10px 16px',marginBottom:12,display:'flex',alignItems:'baseline',gap:14,flexWrap:'wrap'}}>
             <span style={{fontSize:13,fontWeight:'bold',color:'#1e40af'}}>本日のお迎え時間</span>
             <span style={{fontSize:22,fontWeight:'bold',color:'#1e3a8a',letterSpacing:0.5}}>{todayVisit.dateLabel}</span>
@@ -25998,7 +26030,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             <span style={{fontSize:13,color:'#475569'}}>記録は利用後に表示されます</span>
           </div>
         )}
-        {compactMode && nextVisit && !(todayVisit && todayVisit.before) && (
+        {nextVisit && !(todayVisit && todayVisit.before) && (
           <div id="sec-next" style={{border:'2px solid #86efac',background:'#f0fdf4',borderRadius:14,padding:'10px 16px',marginBottom:12,display:'flex',alignItems:'baseline',gap:14,flexWrap:'wrap'}}>
             <span style={{fontSize:13,fontWeight:'bold',color:'#166534'}}>次回のお迎え時間</span>
             <span style={{fontSize:22,fontWeight:'bold',color:'#14532d',letterSpacing:0.5}}>{nextVisit.date}</span>
