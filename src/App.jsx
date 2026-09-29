@@ -23744,7 +23744,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         <th className="px-1 py-2 font-bold text-center border border-slate-700 whitespace-nowrap">開始 血圧/脈</th>
                         {_showEn && <th className="px-1 py-2 font-bold text-center border border-slate-700 whitespace-nowrap">{secondBpLabel(appData)} 血圧/脈</th>}
                         {(effExerciseItems(appData.systemSettings)).map(item => (
-                          <th key={item.id} className={`px-0.5 py-2 font-bold text-center border text-[11px] truncate ${item.type==='individual' ? 'bg-emerald-800 text-emerald-50 border-emerald-700' : 'border-slate-700'}`}>{item.name}</th>
+                          <th key={item.id} className={`px-0.5 py-2 font-bold text-center border text-[11px] leading-tight ${item.type==='individual' ? 'bg-emerald-800 text-emerald-50 border-emerald-700' : 'border-slate-700'}`} style={{maxWidth:76,whiteSpace:'normal',wordBreak:'break-all'}}>{item.name}</th>
                         ))}
                         <th className="px-1 py-2 font-bold text-center border border-slate-700 whitespace-nowrap text-xs">介護整体</th>
                         <th className="px-2 py-2 font-bold text-center border border-slate-700 whitespace-nowrap">特記</th>
@@ -23963,7 +23963,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">開始 血圧/脈</th>
               {_showEn && <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">{secondBpLabel(appData)} 血圧/脈</th>}
               {(effExerciseItems(appData.systemSettings)).map((item) => (
-                <th key={item.id} className={`px-1 py-3 font-medium text-center border whitespace-nowrap sticky top-0 z-40 text-xs ${item.type==='individual' ? 'bg-emerald-800 text-emerald-50 border-emerald-700' : 'bg-slate-800 border-slate-700 text-white'}`}>
+                <th key={item.id} className={`px-1 py-2 font-medium text-center border leading-tight sticky top-0 z-40 text-xs ${item.type==='individual' ? 'bg-emerald-800 text-emerald-50 border-emerald-700' : 'bg-slate-800 border-slate-700 text-white'}`} style={{maxWidth:76,whiteSpace:'normal',wordBreak:'break-all'}}>
                   {item.name}
                 </th>
               ))}
@@ -24190,12 +24190,14 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       // ★ 規定値(グレー数値)は「選択日時点」の設定値を使用 (日付単位のサービス内容変更に連動・翌月から切替)
                       const _datedInd = getIndividualExercisesForDate(targetPatient, selectedDate);
                       const patDefault = selItem ? (((_datedInd.find(x => x.itemId === selItem.id)?.defaultValue) ?? (patSettings.find(x => x.itemId === selItem.id)?.defaultValue)) || '') : '';
+                      // ★ 2026-09-29(店舗報告: 500gg/15回回): 規定値は設定時点で単位付きなので applyExUnits(冪等)で整える。単位を後ろから足さない
+                      const _indPh = selItem ? (patDefault ? applyExUnits(patDefault, selItem) : '') : '未選択';
                       // ★ 種目名はセル幅(60px)に合わせて可変フォント: 短い名前は大きく、3〜4文字以上は縮小して収める
                       const _indName = selItem?.name || '';
-                      const _indNameFs = !_indName ? 11 : _indName.length<=2 ? 15 : _indName.length===3 ? 13 : _indName.length===4 ? 11 : _indName.length<=6 ? 10 : 9;
-                      // ★ 値の表示フォント: ○ は大きく太く、数値は桁数で縮小
+                      const _indNameFs = !_indName ? 11 : _indName.length<=2 ? 15 : _indName.length===3 ? 13 : _indName.length===4 ? 11 : _indName.length<=6 ? 10 : _indName.length<=8 ? 9 : 8;
+                      // ★ 値の表示フォント: ○ は大きく太く、数値は桁数で縮小。値が空のときは規定値(プレースホルダー)の長さで判定(見切れ防止)
                       const _indIsCircle = cur.value==='○'||cur.value==='◯';
-                      const _indValLen = String(cur.value||'').length;
+                      const _indValLen = String(cur.value||'').length || String(_indPh||'').length;
                       const _indValFs = _indIsCircle ? 21 : (_indValLen>=8 ? 7 : _indValLen>=6 ? 8 : _indValLen>=5 ? 9 : _indValLen>=4 ? 11 : _indValLen>=3 ? 12 : 15);
                       return (
                         <td key={item.id} data-ind-cell className={`px-1 py-0 align-middle border border-emerald-200 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-emerald-50/40'}`}>
@@ -24211,7 +24213,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                             onClick={()=>{ if(!_keypadOn) return; if(isAbsent||isReadOnly||isPause||!selItem) return; if(!cur.itemId && effItemId) updateExercise(p.id, item.id, {...cur, itemId: effItemId}); openKeypad(p.id, item.id, cur.value||'', isAbsent); setActiveCell(`${p.id}-${item.id}`); }}
                             onChange={_keypadOn ? undefined : (e)=>updateExercise(p.id, item.id, {...cur, itemId: cur.itemId||effItemId, value: e.target.value})}
                             onBlur={_keypadOn ? undefined : (e)=>updateExercise(p.id, item.id, {...cur, itemId: cur.itemId||effItemId, value: applyExUnits(e.target.value, selItem)})}
-                            placeholder={selItem?`${patDefault||''}${(patDefault && selItem.defaultUnit)?`${exUnitLabel(selItem)}`:''}`:'未選択'}
+                            placeholder={_indPh}
                             style={{fontSize:_indValFs,padding:'0 1px',height:31,boxSizing:'border-box',letterSpacing:'-0.3px',fontWeight: _indIsCircle ? 900 : 'bold', WebkitTextStroke: _indIsCircle ? '1.1px currentColor' : undefined, lineHeight:1, cursor: selItem?'pointer':'default'}}
                             className={`w-full text-center border rounded bg-white outline-none disabled:opacity-40 placeholder-slate-400 ${activeCell===`${p.id}-${item.id}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-emerald-300 focus:border-emerald-500'}`}/>
                         </td>
@@ -24589,6 +24591,31 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   <div style={{fontSize:16,fontWeight:'bold',color:'#0f172a',marginBottom:8}}>運動メニュー <span style={{fontSize:13,fontWeight:'normal',color:'#334155'}}>（うすい字は本日の目安。タップで入力）</span></div>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:10}}>
                     {exItems.map(item => {
+                      // ★ 2026-09-29(店舗要望): 個別運動は「個別運動①／ー」ではなく、選んでいる種目名と規定値を表示
+                      if (item.type === 'individual') {
+                        const _pid = p.patientId || p.id; const _tp = (appData.patients||[]).find(pp => pp.id === _pid);
+                        const _all = appData.systemSettings?.individualExerciseItems || [];
+                        const _cur = (p.exercises && typeof p.exercises[item.id] === 'object') ? p.exercises[item.id] : { itemId:'', value:'' };
+                        const _effId = _cur.itemId || _tp?.individualExerciseSlotDefaults?.[item.id] || '';
+                        const _sel = _all.find(it => it.id === _effId);
+                        const _raw = _tp?.individualExercises;
+                        const _ps = (_raw === undefined || _raw === null) ? _all.map(it => ({itemId: it.id, defaultValue: ''})) : _raw;
+                        const _dated = getIndividualExercisesForDate(_tp, selectedDate) || [];
+                        const _def = _sel ? (((_dated.find(x => x.itemId === _sel.id)?.defaultValue) ?? (_ps.find(x => x.itemId === _sel.id)?.defaultValue)) || '') : '';
+                        const _ph = (_sel && _def) ? applyExUnits(_def, _sel) : '';
+                        const _disp = _sel ? applyExUnits(_cur.value || '', _sel) : '';
+                        const _act = keypad.isOpen && keypad.recordId === p.id && keypad.field === item.id;
+                        return (
+                          <button key={item.id} type="button" disabled={dis || !_sel} data-testid={`zoom-ind-${item.id}`}
+                            onClick={()=>{ if(!_cur.itemId && _effId) updateExercise(p.id, item.id, {..._cur, itemId: _effId}); openKeypad(p.id, item.id, _cur.value||'', isAbsent, true); setActiveCell(`${p.id}-${item.id}`); }}
+                            className={`rounded-2xl border-2 p-3 flex flex-col items-center gap-1 disabled:opacity-40 active:scale-95 ${_act?'border-blue-500 ring-2 ring-blue-300 bg-blue-50':'border-emerald-500 bg-emerald-50/40'}`}>
+                            <span style={{fontSize:11,fontWeight:'bold',color:'#047857'}}>{item.name}</span>
+                            <span style={{fontSize:15,fontWeight:'bold',color:'#1e293b',textAlign:'center',lineHeight:1.3}}>{_sel ? _sel.name : '未選択'}</span>
+                            <span style={{fontSize: /^[○×〇ー－-]+$/.test(String(_disp).trim()) ? 32 : 28, fontWeight: /^[○×〇ー－-]+$/.test(String(_disp).trim()) ? 900 : 'bold', color: _disp?'#0f172a':'#64748b', lineHeight:1.15, textAlign:'center'}}>{_disp || (_ph ? _ph : 'ー')}</span>
+                            {_disp && _ph && <span style={{fontSize:12,color:'#475569'}}>目安: {_ph}</span>}
+                          </button>
+                        );
+                      }
                       const v = p.exercises?.[item.id];
                       const vs = String((typeof v==='object'?'':v) ?? '');
                       const disp = applyExUnits(vs, item);
@@ -35256,7 +35283,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 return(<div key={si.id} className="flex-1 min-w-[120px]"><label className="block text-sm font-bold text-slate-600 mb-1">{si.label}</label><select disabled={isOff} value={localPatient[fkey]||''} onChange={e=>updateLP(fkey,e.target.value)} className="w-full px-3 py-3 bg-slate-50 border border-slate-300 rounded-xl font-bold text-base outline-none cursor-pointer disabled:opacity-60">{opts.map(o=><option key={o} value={o}>{o}</option>)}</select></div>);
               })}</div>
               {/* ★ 個別運動(type:'individual')のスロットはここに基準値を持たせない。 基準値は下の「個別運動メニュー」で管理(重複解消)。 */}
-              <div><h3 className="text-sm font-bold text-slate-600 mb-3">運動メニュー</h3><div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">{(effExerciseItems(appData.systemSettings)).filter(item => item.type !== 'individual').map(item => { const isActive = keypad.isOpen && keypad.exerciseId === item.id; return (<div key={item.id} className={`p-2.5 rounded-xl border ${isActive ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-300' : 'bg-slate-50 border-slate-200'}`}><label className="block text-[12px] font-bold text-slate-500 mb-1 text-center truncate">{item.name}{(item.defaultUnit || item.defaultUnit2) && item.type !== 'individual' && <span className="text-[9px] text-slate-400 font-normal ml-1">({[item.defaultUnit, item.defaultUnit2].filter(Boolean).join('/')})</span>}</label><input type="text" inputMode="text" readOnly={_mKeypadOn} disabled={isOff} value={(localPatient.plannedExercises && localPatient.plannedExercises[item.id]) || ""}
+              <div><h3 className="text-sm font-bold text-slate-600 mb-3">運動メニュー</h3><div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">{(effExerciseItems(appData.systemSettings)).filter(item => item.type !== 'individual').map(item => { const isActive = keypad.isOpen && keypad.exerciseId === item.id; return (<div key={item.id} className={`p-2.5 rounded-xl border ${isActive ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-300' : 'bg-slate-50 border-slate-200'}`}><label className="block text-[12px] font-bold text-slate-500 mb-1 text-center leading-tight" style={{wordBreak:'break-all'}}>{item.name}{(item.defaultUnit || item.defaultUnit2) && item.type !== 'individual' && <span className="text-[9px] text-slate-400 font-normal ml-1 whitespace-nowrap">({[item.defaultUnit, item.defaultUnit2].filter(Boolean).join('/')})</span>}</label><input type="text" inputMode="text" readOnly={_mKeypadOn} disabled={isOff} value={(localPatient.plannedExercises && localPatient.plannedExercises[item.id]) || ""}
                 onClick={() => { if (!isOff && _mKeypadOn) setKeypad({ isOpen: true, field: 'plannedExercise', exerciseId: item.id, value: (localPatient.plannedExercises && localPatient.plannedExercises[item.id]) || "", isFirstInput: true, mode: 'exercise' }); }}
                 onChange={_mKeypadOn ? undefined : (e)=>updateLP('plannedExercises', { ...(localPatient.plannedExercises || {}), [item.id]: e.target.value })}
                 onBlur={_mKeypadOn ? undefined : (e)=>{ let v=(e.target.value||'').trim(); if(v && item.defaultUnit && /[0-9０-９]/.test(v) && !v.endsWith(item.defaultUnit)) updateLP('plannedExercises', { ...(localPatient.plannedExercises || {}), [item.id]: `${v}${item.defaultUnit}` }); }}
