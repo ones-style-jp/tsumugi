@@ -11268,7 +11268,27 @@ const diarySlotKyugyo = (appData, iso, dw, ap) => {
   if (_h) { const ha = _h.ampm; if (!ha || ha === '1日') return true; return ha === ap; }
   return (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dw);
 };
-const diaryPendingItems = (log, iso, cars) => {
+// ★ 必須職員(2026-09-29 ユーザー要望): 通所介護の人員基準に合わせ、管理者・生活相談員・機能訓練指導員・介護職員は常に、
+//   看護師(看護職員)は各種設定の定員が10名を超える事業所で必須。担当職員に該当する役職(主/副)の人が1人も選ばれていなければ
+//   日誌を未完成扱いにする。不在で減算する場合は「減算」ボタンで log.gensan[役職]=true にすると警告が消え、画面とカレンダーに「減算」印が出る。
+const DIARY_STAFF_CUTOFF = '2026-09-29'; // これより前の日誌には遡って適用しない
+const diaryRequiredRoles = (appData) => {
+  const cap = Number(appData?.systemSettings?.facilityInfo?.capacity) || 10;
+  return ['管理者', '生活相談員', '機能訓練指導員', '介護職員', ...(cap > 10 ? ['看護師'] : [])];
+};
+const diaryStaffMissing = (log, iso, appData) => {
+  try {
+    if (!log || !appData) return [];
+    if (iso && iso < DIARY_STAFF_CUTOFF) return [];
+    const staff = (appData.diarySettings?.staff || []).filter(st => st && st.name);
+    if (!staff.length) return [];
+    const sel = log.staff || {};
+    const has = (role) => staff.some(st => sel[st.id] && (st.role === role || st.role2 === role));
+    const gensan = log.gensan || {};
+    return diaryRequiredRoles(appData).filter(role => !has(role) && !gensan[role]);
+  } catch { return []; }
+};
+const diaryPendingItems = (log, iso, cars, appData) => {
   if (!log || Object.keys(log).length === 0) return null;
   const sp = (iso && iso < DIARY_SP_LEGACY_CUTOFF) ? {} : (log._sougeiPending || {});
   const items = [];
@@ -11295,6 +11315,7 @@ const diaryPendingItems = (log, iso, cars) => {
   } else if (!Object.values(log.carTimes||{}).some(t => t && (t.arrive || t.depart))) items.push('送迎時間');
   if (!Object.keys(log.recorder||{}).some(k => (log.recorder||{})[k])) items.push('記録者');
   if (!log.managerConfirmed) items.push('管理者確認');
+  diaryStaffMissing(log, iso, appData).forEach(r => items.push(`必須職員:${r}`)); // ★ 必須職員の未選択(減算済みは除く)
   return items;
 };
 
@@ -11507,7 +11528,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
               const _dw = _t.getDay();
               // ★ 半日休業(ampm指定)の日は休業スロットだけを対象外にする(2026-09-04)
               if (diarySlotKyugyo(appData, _iso, _dw, 'AM') && diarySlotKyugyo(appData, _iso, _dw, 'PM')) return null;
-              const _seg = (ap) => { if (diarySlotKyugyo(appData, _iso, _dw, ap)) return { ap: ap==='AM'?'午前':'午後', missing: false, items: [] }; const l = (appData.diaryLogs||{})[`${_iso}_${ap}`]; const it = diaryPendingItems(l, _iso, appData.diarySettings?.cars); return { ap: ap==='AM'?'午前':'午後', missing: it === null, items: it || [] }; };
+              const _seg = (ap) => { if (diarySlotKyugyo(appData, _iso, _dw, ap)) return { ap: ap==='AM'?'午前':'午後', missing: false, items: [] }; const l = (appData.diaryLogs||{})[`${_iso}_${ap}`]; const it = diaryPendingItems(l, _iso, appData.diarySettings?.cars, appData); return { ap: ap==='AM'?'午前':'午後', missing: it === null, items: it || [] }; };
               const _segs = [_seg('AM'), _seg('PM')].filter(s => s.missing || s.items.length);
               if (!_segs.length) return null;
               // ★ スケジュールの邪魔にならないよう1行のスリム表示(2026-08-28)
@@ -19602,7 +19623,7 @@ export default function App() {
       const closed = ((appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dw)) || ((appData.holidays||[]).some(h => (h && (h.date||h)) === iso && (!h.ampm || h.ampm === '1日')));
       if (closed) return 0;
       // ★ 半日休業のスロットは対象外(2026-09-04)
-      const bad = ['AM','PM'].filter(ap => !diarySlotKyugyo(appData, iso, dw, ap)).some(ap => { const it = diaryPendingItems((appData.diaryLogs||{})[`${iso}_${ap}`], iso, appData.diarySettings?.cars); return it === null || it.length > 0; });
+      const bad = ['AM','PM'].filter(ap => !diarySlotKyugyo(appData, iso, dw, ap)).some(ap => { const it = diaryPendingItems((appData.diaryLogs||{})[`${iso}_${ap}`], iso, appData.diarySettings?.cars, appData); return it === null || it.length > 0; });
       return bad ? 1 : 0;
     } catch { return 0; }
   }, [appData.diaryLogs, appData.holidays, appData.systemSettings?.facilityInfo?.closedDays]);
@@ -30633,7 +30654,7 @@ function RenrakuModal({ appData, patientId, dayPatientIds, onClose, onSave }) {
             title:"個別の連絡事項", sub:"選んだ方の連絡帳のみ", st:pat, set:setPat, editorKey:curPid, onRegister:(fn)=>{patInsertRef.current=fn;},
             headerExtra: (
               <select value={curPid} onChange={e=>setCurPid(Number(e.target.value)||e.target.value)} className="ml-auto px-2 py-1 rounded-lg border border-slate-300 text-xs font-bold text-slate-700 outline-none bg-white cursor-pointer max-w-[180px]">
-                {patientList.map(p => <option key={p.id} value={p.id}>{p.name}{renrakuHasText(patMap[p.id])?' ●':''}</option>)}
+                {[...patientList].sort((a,b)=>(renrakuHasText(patMap[b.id])?1:0)-(renrakuHasText(patMap[a.id])?1:0)).map(p => <option key={p.id} value={p.id}>{renrakuHasText(patMap[p.id])?'● ':'　'}{p.name}{renrakuHasText(patMap[p.id])?'（入力済）':''}</option>)}
               </select>
             )
           })}
@@ -31330,6 +31351,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         </button>
         <button onClick={() => setRenrakuModal({ patientId: null })} className="border px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0 bg-white border-slate-300 hover:bg-slate-50 text-slate-700">
           連絡事項
+          {/* ★ 入力済み人数(2026-09-29 ユーザー要望: 下の方の人の入力・削除忘れ防止)。この日に表示される個別連絡事項の人数＋全員共通 */}
+          {(() => { const _inR = (o) => !!o && (!o.from || selectedDate >= o.from) && (!o.until || selectedDate <= o.until); const _ids = new Set(displayRecords.map(r=>r.patientId)); const n = (appData.patients||[]).filter(p => _ids.has(p.id) && renrakuHasText(p.contactBookRenraku) && _inR(p.contactBookRenraku)).length; const allOn = renrakuHasText(appData.contactBookConfig?.renrakuAll) && _inR(appData.contactBookConfig?.renrakuAll); return (n>0 || allOn) ? <span className="ml-1.5 bg-emerald-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">{allOn ? '全員' : ''}{allOn && n>0 ? '+' : ''}{n>0 ? `個別${n}名` : ''}</span> : null; })()}
         </button>
         <button onClick={() => setIsScheduleModalOpen(true)} className="border px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0 bg-white border-slate-300 hover:bg-slate-50 text-slate-700">
           次回予定
@@ -32048,7 +32071,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
             <div className="shrink-0 mb-2">
               <div className="font-bold text-slate-800" style={{fontSize:16,marginBottom:3}}>連絡事項</div>
               {/* ★ 連絡事項は 8〜9 行分を固定確保(運動テーブルはその分自動で縮む)。 文字も少し大きく。 */}
-              <div onClick={()=>onEditRenraku&&onEditRenraku(patient)} className={`border-2 border-black bg-white ${onEditRenraku?'cursor-pointer hover:bg-violet-50 transition-colors':''}`} style={{height:'15.5rem',padding:'8px 10px',overflow:'hidden',whiteSpace:'pre-wrap',wordBreak:'break-word',fontSize:16.5,lineHeight:1.5,boxSizing:'border-box'}}>
+              <div title="連絡事項の編集は上部の「連絡事項」ボタンから" className="border-2 border-black bg-white" style={{height:'15.5rem',padding:'8px 10px',overflow:'hidden',whiteSpace:'pre-wrap',wordBreak:'break-word',fontSize:16.5,lineHeight:1.5,boxSizing:'border-box'}}>
                 {_showAll && <div style={{marginBottom:6}} dangerouslySetInnerHTML={{__html: renrakuToHtml(_all)}}/>}
                 {_showPat && <div dangerouslySetInnerHTML={{__html: renrakuToHtml(_pat)}}/>}
               </div>
@@ -32210,15 +32233,13 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave }) {
                     <span className="text-[10px] font-bold text-slate-500">表示</span>
                   </label>
                   {/* 利用者ごと設定トグル（fixed型のみ意味を持つ） */}
-                  <label className={`flex flex-col items-center gap-0.5 cursor-pointer select-none ${item.type==='linked'?'opacity-30 cursor-not-allowed':''}`}
-                         title={item.type==='linked' ? '提供記録連動の項目は利用者ごとに設定できません' : '各利用者の連絡帳カードをクリックして個別の値を設定できるようになります'}>
-                    <input type="checkbox"
-                           disabled={item.type==='linked'}
-                           checked={item.type!=='linked' && !!item.perPatient}
-                           onChange={e => handleItemChange(item.id, 'perPatient', e.target.checked)}
-                           className="w-5 h-5 cursor-pointer accent-violet-500"/>
-                    <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap">利用者ごと</span>
-                  </label>
+                  {/* ★ 2026-09-29: iPad でタップしても反応しない報告があったため、label+checkbox ではなく明示的なボタンで切替 */}
+                  <button type="button" disabled={item.type==='linked'} onClick={()=>handleItemChange(item.id, 'perPatient', !item.perPatient)}
+                          title={item.type==='linked' ? '提供記録連動の項目は利用者ごとに設定できません' : 'ON にすると、保存後に各利用者の連絡帳カードの値をタップして個別の値を入力できます'}
+                          className={`flex flex-col items-center gap-0.5 select-none rounded-lg border px-2 py-1 ${item.type==='linked'?'opacity-30 cursor-not-allowed border-slate-200':(item.perPatient?'bg-violet-600 border-violet-600 text-white':'bg-white border-slate-300 text-slate-500')}`}>
+                    <span className="text-[11px] font-bold whitespace-nowrap">利用者ごと</span>
+                    <span className="text-[10px] font-bold whitespace-nowrap">{item.type!=='linked' && item.perPatient ? 'ON' : 'OFF'}</span>
+                  </button>
                   <div className="flex-1 grid grid-cols-12 gap-3 items-center">
                     <div className="col-span-4"><label className="block text-[12px] font-bold text-slate-500 mb-0.5">項目名</label><input type="text" value={item.label || ""} onChange={e => handleItemChange(item.id, 'label', e.target.value)} placeholder="新しい項目" className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none placeholder-slate-300" /></div>
                     <div className="col-span-3"><label className="block text-[12px] font-bold text-slate-500 mb-0.5">反映方法</label><select value={item.type || "fixed"} onChange={e => handleItemChange(item.id, 'type', e.target.value)} className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"><option value="fixed">自由入力</option><option value="linked">提供記録連動</option></select></div>
@@ -41821,7 +41842,17 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
       {/* 担当職員 — 横一列ボックス（pageInfo の showStaff が true の場合のみ） */}
       {_showStaff && (
       <div style={{border:'1px solid #555',marginBottom:4,borderRadius:2}}>
-        <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 6px'}}>担当職員</div>
+        <div id="diary-sec-staff" style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 6px',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+          <span>担当職員</span>
+          {/* ★ 減算の表示(2026-09-29): 画面だけに出し、印刷(日誌)には載せない */}
+          {Object.keys(log.gensan||{}).filter(r=>(log.gensan||{})[r]).map(r => (
+            <span key={r} className="no-print" style={{background:'#dc2626',color:'#fff',borderRadius:4,padding:'1px 6px',fontSize:9,display:'inline-flex',alignItems:'center',gap:6}}>
+              {r}が不在のため減算
+              {!isReadOnly && <button type="button" title="減算の記録を取り消す" onClick={()=>{ const g={...(log.gensan||{})}; delete g[r]; updateLog({ gensan: g }); }} style={{background:'transparent',border:'1px solid rgba(255,255,255,.7)',color:'#fff',borderRadius:3,padding:'0 4px',fontSize:8,cursor:'pointer'}}>取消</button>}
+            </span>
+          ))}
+          {!isPrintPreview && (()=>{ const cap = Number(appData.systemSettings?.facilityInfo?.capacity)||10; return <span style={{marginLeft:'auto',fontWeight:'normal',fontSize:8,color:'#cbd5e1'}}>必須: {diaryRequiredRoles(appData).join('・')}（定員{cap}名{cap>10?'・看護師必須':'・看護師は任意'}）</span>; })()}
+        </div>
         <div style={{display:'flex',gap:3,padding:'3px 5px 0 5px'}}>
           {StaffBox({label:'管理者', list:managers, flexWeight: managers.length>1 ? '1.6 1 0' : '1 1 0'})}
           {StaffBox({label:'生活相談員', list:seikatsu, flexWeight:'2 1 0'})}
@@ -42465,6 +42496,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           for (let i=0; i<firstDow; i++) cells.push(null);
           for (let d2=1; d2<=daysInMonth; d2++) cells.push(d2);
           const pad = (n) => String(n).padStart(2,'0');
+          const _gensanDays = new Set(); // ★ 減算のある日(getStatus 内で収集)
           const getStatus = (d2) => {
             if (!d2) return null;
             const ds = `${y}-${pad(m+1)}-${pad(d2)}`;
@@ -42475,7 +42507,10 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             //   (以前は何かキーがあれば付いたため、入力して消しただけの空ログでもAM印が残っていた)
             //   休業のスロットは入力対象外扱い: 終日休業=印なし、半日休業=残りの営業スロット完了で●。
             const _kyu = (ap) => diarySlotKyugyo(appData, ds, dw2, ap);
-            const _done = (l) => { const it = diaryPendingItems(l, ds, appData.diarySettings?.cars); return !!it && it.length === 0; };
+            const _done = (l) => { const it = diaryPendingItems(l, ds, appData.diarySettings?.cars, appData); return !!it && it.length === 0; };
+            // ★ 減算(必須職員の不在)がある日は「減」印(2026-09-29)
+            const _gensanDay = (l) => !!l && Object.values(l.gensan || {}).some(Boolean);
+            if (_gensanDay(amLog) || _gensanDay(pmLog)) _gensanDays.add(ds);
             const amKyu = _kyu('AM'), pmKyu = _kyu('PM');
             if (amKyu && pmKyu) return null;
             const amDone = !amKyu && _done(amLog);
@@ -42499,6 +42534,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
                   {getStatus(base.getDate()) && <span style={{fontSize:9,marginLeft:2}}>
                     {getStatus(base.getDate())==='both'&&<span style={{color:'#16a34a'}}>●</span>}
                     {getStatus(base.getDate())==='am'&&<span style={{color:'#d97706',fontWeight:'bold',fontSize:8}}>AM</span>}
+                    {_gensanDays.has(`${base.getFullYear()}-${String(base.getMonth()+1).padStart(2,'0')}-${String(base.getDate()).padStart(2,'0')}`)&&<span title="必須職員が不在で減算" style={{color:'#fff',background:'#dc2626',borderRadius:3,fontWeight:'bold',fontSize:8,padding:'0 3px',marginLeft:2}}>減</span>}
                     {getStatus(base.getDate())==='pm'&&<span style={{color:'#2563eb',fontWeight:'bold',fontSize:8}}>PM</span>}
                   </span>}
                 </summary>
@@ -42531,6 +42567,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
                           {d2&&<span>{d2}</span>}
                           {d2&&st==='both'&&<span style={{fontSize:7,color:isSelected?'#bbf7d0':'#16a34a',marginTop:1}}>●</span>}
                           {d2&&st==='am'&&<span style={{fontSize:6,color:isSelected?'#fde68a':'#d97706',marginTop:1,fontWeight:'bold'}}>AM</span>}
+                          {d2&&_gensanDays.has(ds)&&<span title="必須職員が不在で減算" style={{fontSize:6,color:'#fff',background:'#dc2626',borderRadius:3,padding:'0 2px',marginTop:1,fontWeight:'bold'}}>減</span>}
                           {d2&&st==='pm'&&<span style={{fontSize:6,color:isSelected?'#bfdbfe':'#2563eb',marginTop:1,fontWeight:'bold'}}>PM</span>}
                         </button>
                       );
@@ -42620,16 +42657,19 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           if (!_strict && !Object.values(log.carTimes||{}).some(t => t && (t.arrive || t.depart))) items.push({ key:'送迎時間', label:'送迎時間', aid:'diary-sec-cars' });
           if (!Object.keys(log.recorder||{}).some(k => (log.recorder||{})[k])) items.push({ key:'記録者', label:'記録者', aid:'diary-sec-recorder' });
           if (!log.managerConfirmed) items.push({ key:'管理者確認', label:'管理者確認', aid:'diary-sec-manager' });
+          // ★ 必須職員(定員連動)の未選択(2026-09-29): 「減算」を押すと log.gensan[役職]=true になり警告が消える
+          diaryStaffMissing(log, selectedDate, appData).forEach(r => items.push({ key:`必須職員:${r}`, label:`必須職員未選択: ${r}`, aid:'diary-sec-staff', gensanRole: r }));
           if (!items.length) return null;
           return (
             <div style={{flexBasis:'100%'}} className="w-full bg-amber-100 border-2 border-amber-400 text-amber-900 rounded-xl px-3 py-2 text-sm font-bold flex items-center gap-2 flex-wrap">
               <span className="text-lg">⚠</span>
               <span>日誌が未完成です:</span>
-              {items.map(it=>(
-                <button key={it.key} type="button" title={it.prefix?'クリックで送迎車割り当てを開く':'クリックで該当箇所へ移動'}
+              {items.map(it=>(<span key={it.key} className="inline-flex items-center gap-1">
+                <button type="button" title={it.prefix?'クリックで送迎車割り当てを開く':'クリックで該当箇所へ移動'}
                   onClick={()=>{ if(it.prefix){ setCarAssignModal({prefix:it.prefix}); setCarAssignSelections({}); return; } const el=it.aid&&document.getElementById(it.aid); if(!el) return; el.scrollIntoView({behavior:'smooth',block:'center'}); const _o=el.style.outline; el.style.outline='3px solid #f59e0b'; el.style.outlineOffset='3px'; setTimeout(()=>{ el.style.outline=_o||''; el.style.outlineOffset=''; },1800); }}
                   className="inline-flex items-center px-2 py-0.5 bg-white border border-amber-400 text-amber-800 rounded-full text-xs font-bold cursor-pointer hover:bg-amber-50">{it.label}</button>
-              ))}
+                {it.gensanRole && !isReadOnly && <button type="button" title={`${it.gensanRole}が不在のため減算として記録し、この警告を消します（担当職員欄の「減算」から取り消せます）`} onClick={()=>updateLog({ gensan: { ...(log.gensan||{}), [it.gensanRole]: true } })} className="inline-flex items-center px-2 py-0.5 bg-red-600 text-white rounded-full text-xs font-bold cursor-pointer hover:bg-red-700">減算</button>}
+              </span>))}
               <span className="text-xs font-normal text-amber-700">…すべて入力・確認すると完成します</span>
             </div>
           );
