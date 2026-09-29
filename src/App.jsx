@@ -1057,6 +1057,12 @@ const applyExUnits = (raw, item) => {
   return (u1 && !s.endsWith(u1)) ? `${s}${u1}` : s;
 };
 // 単位ラベル表示用 (「kg×回」など。設定画面の見出し等に使用)。 2単位は × 表記で示す
+// ★ セル幅に収まる最大の文字サイズ(2026-09-29): 全角=1・半角=0.55 文字幅で概算し avail px に収める
+const _exFitFs = (str, cap = 15, min = 8, avail = 70) => {
+  const w = [...String(str || '')].reduce((a, c) => a + (/[\x20-\x7e]/.test(c) ? 0.55 : 1), 0);
+  if (!w) return cap;
+  return Math.max(min, Math.min(cap, Math.floor(avail / w)));
+};
 const exUnitLabel = (item) => {
   const u1 = (item && item.defaultUnit) || '';
   const u2 = (item && item.defaultUnit2) || '';
@@ -24256,11 +24262,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       const _indPh = selItem ? (patDefault ? applyExUnits(patDefault, selItem) : '') : '未選択';
                       // ★ 種目名はセル幅(60px)に合わせて可変フォント: 短い名前は大きく、3〜4文字以上は縮小して収める
                       const _indName = selItem?.name || '';
-                      const _indNameFs = !_indName ? 11 : _indName.length<=3 ? 15 : _indName.length<=5 ? 13 : _indName.length<=7 ? 11 : _indName.length<=9 ? 10 : 9;
+                      const _indNameFs = !_indName ? 11 : _exFitFs(_indName, 15, 8, 74);
                       // ★ 値の表示フォント: ○ は大きく太く、数値は桁数で縮小。値が空のときは規定値(プレースホルダー)の長さで判定(見切れ防止)
                       const _indIsCircle = cur.value==='○'||cur.value==='◯';
-                      const _indValLen = String(cur.value||'').length || String(_indPh||'').length;
-                      const _indValFs = _indIsCircle ? 21 : (_indValLen>=8 ? 7 : _indValLen>=6 ? 8 : _indValLen>=5 ? 9 : _indValLen>=4 ? 11 : _indValLen>=3 ? 12 : 15);
+                      const _indValFs = _indIsCircle ? 21 : _exFitFs(String(cur.value||'') || String(_indPh||''), 15, 8, 72);
                       return (
                         <td key={item.id} data-ind-cell className={`px-1 py-0 align-middle border border-emerald-200 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-emerald-50/40'}`}>
                           <select value={effItemId} disabled={isAbsent || isReadOnly || isPause}
@@ -24332,7 +24337,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                             updateExercise(p.id, item.id, e.target.value);
                           }}
                           onBlur={(e) => { if (item.useKeypad && _keypadOn) return; updateExercise(p.id, item.id, applyExUnits(e.target.value, item)); }}
-                          style={{width:78,height:42,boxSizing:'border-box',padding:'0 1px',textAlign:'center',fontSize: _isCircle ? 25 : _isCross ? 18 : _isDash ? 20 : (_fitLen > 9 ? 8 : _fitLen > 7 ? 9 : _fitLen > 5 ? 10 : _fitLen > 3 ? 12 : 14), fontWeight: _isCircle ? 900 : _isSym ? 400 : 'bold', WebkitTextStroke: _isCircle ? (_ghost ? '1.1px rgba(59,130,246,0.28)' : '1.1px currentColor') : undefined, color: _ghost ? 'rgba(59,130,246,0.28)' : (_isDash ? '#94a3b8' : undefined), lineHeight: 1}}
+                          style={{width:78,height:42,boxSizing:'border-box',padding:'0 1px',textAlign:'center',fontSize: _isCircle ? 25 : _isCross ? 18 : _isDash ? 20 : _exFitFs(displayVal || String(placeholderText || ''), 14, 8, 70), fontWeight: _isCircle ? 900 : _isSym ? 400 : 'bold', WebkitTextStroke: _isCircle ? (_ghost ? '1.1px rgba(59,130,246,0.28)' : '1.1px currentColor') : undefined, color: _ghost ? 'rgba(59,130,246,0.28)' : (_isDash ? '#94a3b8' : undefined), lineHeight: 1}}
                           className={`border rounded-lg outline-none placeholder-slate-300 disabled:bg-transparent disabled:opacity-60 ${item.useKeypad && _keypadOn && !isReadOnly ? 'cursor-pointer' : ''} ${isReadOnly ? 'border-transparent shadow-none' : isActive ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'bg-white border-slate-300 shadow-inner'}`}
                           placeholder={placeholderText} />
                         {_ghost && <span style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none',fontSize:12,fontWeight:'bold',color:'#64748b'}}>{placeholderText}</span>}
@@ -30101,6 +30106,7 @@ function buildAllPeriodTicketHtml(appData, patient) {
   let allPages = '';
   months.forEach(({y:tY, m:tM}) => {
     const exerciseItems = getExerciseItemsForDate(appData.systemSettings, `${tY}-${String(tM).padStart(2,'0')}-01`, tY) || [];
+    const _kOnP = appData.systemSettings?.kibunDisabled !== true; // ★ 気分OFFなら印刷にも気分列を出さない(2026-09-29)
     const dayRecords = generateMonthlySchedule([patient], tY, tM, appData.monthlyShifts, appData.ticketRecords || [], appData.holidays, closedDays).sort((a,b)=>a.dayNum-b.dayNum);
     if (dayRecords.length === 0) return;
     const PER_PAGE = 8;
@@ -30133,22 +30139,22 @@ function buildAllPeriodTicketHtml(appData, patient) {
         return `<tr style="height:38px;background:${rowBg};">
             <td rowspan="2" style="border:1px solid #475569;text-align:center;vertical-align:middle;background:#f8fafc;padding:2px;height:74px;"><div style="font-size:22px;font-weight:bold;line-height:1;">${r.dayNum}</div><div style="font-size:11px;color:#475569;margin-top:2px;">（${r.dayOfWeek}）</div></td>
             <td style="border:1px solid #94a3b8;text-align:center;font-size:11px;font-weight:${slWeight};color:${slColor};padding:1px;">${sl}</td>
-            <td style="border:1px solid #94a3b8;text-align:center;padding:1px;">${kibunHtml}</td>
+            ${_kOnP ? `<td style="border:1px solid #94a3b8;text-align:center;padding:1px;">${kibunHtml}</td>` : ''}
             <td style="border:1px solid #94a3b8;text-align:center;font-size:12px;font-weight:bold;padding:1px;">${v(r.temp) ? `${r.temp}℃` : ''}</td>
             <td style="border:1px solid #94a3b8;text-align:center;font-size:11px;font-weight:bold;padding:1px;line-height:1.15;">${v(r.bpUpSt) ? `${r.bpUpSt}/${r.bpDnSt}${v(r.plSt)?`<br/><span style='color:#475569;font-size:10px;'>(${r.plSt})</span>`:''}` : ''}</td>
             <td style="border:1px solid #94a3b8;text-align:center;font-size:11px;font-weight:bold;padding:1px;line-height:1.15;">${v(r.bpUpEn) ? `${r.bpUpEn}/${r.bpDnEn}${v(r.plEn)?`<br/><span style='color:#475569;font-size:10px;'>(${r.plEn})</span>`:''}` : ''}</td>
             ${exCells}
             <td style="border:1px solid #94a3b8;text-align:center;font-size:11px;font-weight:bold;padding:1px;">${v(r.massage)}</td>
           </tr>
-          <tr style="height:30px;background:${rowBg};"><td style="border:1px solid #94a3b8;background:#f1f5f9;text-align:center;font-size:10px;font-weight:bold;color:#64748b;padding:1px;">特記</td><td colspan="${5 + exerciseItems.length + 1}" style="border:1px solid #94a3b8;text-align:left;font-size:10px;color:#1e293b;padding:1px 4px;background:${rowBg};">${((isA||mt) ? '' : [v(r.tokki)||'', ...bpReLines(r)].filter(Boolean).join('\n')).replace(/</g,'&lt;').replace(/\n/g,'<br/>')}</td></tr>`;
+          <tr style="height:30px;background:${rowBg};"><td style="border:1px solid #94a3b8;background:#f1f5f9;text-align:center;font-size:10px;font-weight:bold;color:#64748b;padding:1px;">特記</td><td colspan="${(_kOnP ? 5 : 4) + exerciseItems.length + 1}" style="border:1px solid #94a3b8;text-align:left;font-size:10px;color:#1e293b;padding:1px 4px;background:${rowBg};">${((isA||mt) ? '' : [v(r.tokki)||'', ...bpReLines(r)].filter(Boolean).join('\n')).replace(/</g,'&lt;').replace(/\n/g,'<br/>')}</td></tr>`;
       }).join('');
       const emptyRows = Math.max(0, PER_PAGE - rows.length);
-      const emptyRowsHtml = Array.from({length: emptyRows}).map(() => `<tr style="height:38px;"><td rowspan="2" style="border:1px solid #475569;background:#f8fafc;height:74px;"></td>${Array.from({length: 5 + exerciseItems.length + 1}).map(() => '<td style="border:1px solid #94a3b8;"></td>').join('')}</tr><tr style="height:30px;"><td style="border:1px solid #94a3b8;background:#f1f5f9;text-align:center;font-size:10px;color:#cbd5e1;padding:1px;">特記</td><td colspan="${5 + exerciseItems.length + 1}" style="border:1px solid #94a3b8;"></td></tr>`).join('');
+      const emptyRowsHtml = Array.from({length: emptyRows}).map(() => `<tr style="height:38px;"><td rowspan="2" style="border:1px solid #475569;background:#f8fafc;height:74px;"></td>${Array.from({length: 5 + exerciseItems.length + 1}).map(() => '<td style="border:1px solid #94a3b8;"></td>').join('')}</tr><tr style="height:30px;"><td style="border:1px solid #94a3b8;background:#f1f5f9;text-align:center;font-size:10px;color:#cbd5e1;padding:1px;">特記</td><td colspan="${(_kOnP ? 5 : 4) + exerciseItems.length + 1}" style="border:1px solid #94a3b8;"></td></tr>`).join('');
       return `<div class="tp" style="width:297mm;min-height:210mm;box-sizing:border-box;padding:4mm 6mm;page-break-after:always;display:flex;flex-direction:column;">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;"><div><div style="font-size:17px;font-weight:bold;letter-spacing:0.1em;line-height:1.1;">${tY}年${tM}月 サービス提供記録</div><div style="font-size:26px;font-weight:bold;margin-top:8px;line-height:1.1;">${patient.name} <span style="font-size:18px;font-weight:normal;">様</span></div></div><div style="font-size:10px;color:#475569;text-align:right;line-height:1.5;"><div>提供責任者: <b>${facility.serviceResponsible||'—'}</b>　　実施時間: <b>${jisshiTime}</b></div><div style="color:#1d4ed8;font-weight:bold;margin-top:2px;">通所曜日: ${schedText||'—'}</div></div></div>
         <table style="width:100%;border-collapse:collapse;margin-bottom:0;table-layout:fixed;"><colgroup><col style="width:5%;"/><col style="width:45%;"/><col style="width:5%;"/><col style="width:45%;"/></colgroup><tbody><tr><th style="border:1px solid #475569;background:white;color:black;font-size:10px;font-weight:normal;padding:1px 4px;text-align:center;">既往歴</th><td style="border:1px solid #475569;font-size:10px;padding:1px 6px;vertical-align:top;">${patient.kiou||''}</td><th style="border:1px solid #475569;background:white;color:black;font-size:10px;font-weight:normal;padding:1px 4px;text-align:center;">留意点</th><td style="border:1px solid #475569;font-size:10px;padding:1px 6px;vertical-align:top;">${patient.ryui||''}</td></tr></tbody></table>
         <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:4px;table-layout:fixed;"><tbody><tr><th style="border:1px solid #475569;background:white;color:black;font-size:10px;font-weight:normal;padding:1px 4px;text-align:center;width:8%;">マッサージ</th><td style="border:1px solid #475569;font-size:11px;font-weight:bold;padding:1px 6px;width:42%;">${patient.massageNeed||'—'}</td><th style="border:1px solid #475569;background:white;color:black;font-size:10px;font-weight:normal;padding:1px 4px;text-align:center;width:8%;">温浴時電療</th><td style="border:1px solid #475569;font-size:11px;font-weight:bold;padding:1px 6px;width:42%;">${patient.onyokuDenryo||'—'}</td></tr></tbody></table>
-        <table style="width:100%;border-collapse:collapse;table-layout:fixed;flex:1;"><thead><tr style="background:#1e293b;color:white;"><th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:50px;">日付</th><th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:34px;">状態</th><th style="border:1px solid #475569;padding:3px 1px;font-size:9px;width:60px;">気分</th><th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:48px;">体温</th><th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:58px;">開始 血圧(脈)</th><th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:58px;">${secondBpLabel(appData)} 血圧(脈)</th>${exerciseItems.map(it => `<th style="border:1px solid #475569;padding:3px 1px;font-size:9px;line-height:1.1;">${it.name}</th>`).join('')}<th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:42px;">介護整体</th></tr></thead><tbody>${tableRows}${emptyRowsHtml}</tbody></table>
+        <table style="width:100%;border-collapse:collapse;table-layout:fixed;flex:1;"><thead><tr style="background:#1e293b;color:white;"><th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:50px;">日付</th><th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:34px;">状態</th>${_kOnP ? '<th style="border:1px solid #475569;padding:3px 1px;font-size:9px;width:60px;">気分</th>' : ''}<th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:48px;">体温</th><th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:58px;">開始 血圧(脈)</th><th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:58px;">${secondBpLabel(appData)} 血圧(脈)</th>${exerciseItems.map(it => `<th style="border:1px solid #475569;padding:3px 1px;font-size:9px;line-height:1.1;">${it.name}</th>`).join('')}<th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:42px;">介護整体</th></tr></thead><tbody>${tableRows}${emptyRowsHtml}</tbody></table>
       </div>`;
     };
     allPages += pageGroups.map(renderPage).join('');
@@ -30241,7 +30247,8 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
   // ★ 設定数値(運動メニューの予定値・その月の値)。 数値だけなら単位を自動付与。
   const plannedM = getPlannedExercisesForMonth(sp, tY, tM);
   const _planUnit = (v, unit) => { const s = String(v ?? '').trim(); if (!s) return ''; return (/^[0-9０-９.]+$/.test(s) && unit) ? s + unit : s; };
-  const tc = 6 + ex.length + 1;
+  const _kOnR = appData.systemSettings?.kibunDisabled !== true; // ★ 気分OFFなら気分列を出さない(2026-09-29)
+  const tc = (_kOnR ? 6 : 5) + ex.length + 1;
   // ★ 描画対象の月リスト。 通常は当月のみ。 全期間モードでは患者の記録がある全月を、各月「当時の運動項目」で描画
   const closedDaysTV = appData.systemSettings?.facilityInfo?.closedDays || [0];
   const renderList = (() => {
@@ -30482,7 +30489,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                   <tr className="bg-slate-800 text-white text-[10px]" style={{height:30}}>
                     <th className="border border-slate-600 py-1 overflow-hidden" style={{width:50}}><AutoFitText text="日付" max={13} bold color="#fff"/></th>
                     <th className="border border-slate-600 py-1 overflow-hidden" style={{width:34}}><AutoFitText text="状態" max={13} bold color="#fff"/></th>
-                    <th className="border border-slate-600 py-1 overflow-hidden" style={{width:34}}><AutoFitText text="気分" max={13} bold color="#fff"/></th>
+                    {_kOnR && <th className="border border-slate-600 py-1 overflow-hidden" style={{width:34}}><AutoFitText text="気分" max={13} bold color="#fff"/></th>}
                     <th className="border border-slate-600 py-1 overflow-hidden" style={{width:48}}><AutoFitText text="体温" max={13} bold color="#fff"/></th>
                     <th className="border border-slate-600 py-1 overflow-hidden" style={{width:58}}><AutoFitText text="開始 血圧（脈）" max={11} bold color="#fff"/></th>
                     <th className="border border-slate-600 py-1 overflow-hidden" style={{width:58}}><AutoFitText text={`${secondBpLabel(appData)} 血圧（脈）`} max={11} bold color="#fff"/></th>
@@ -30521,6 +30528,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                             </div>
                           </td>
                           <td className={`border border-slate-400 px-0.5 text-center text-[9px] ${sc}`} ><div className="cell-wrap" style={{justifyContent:'center'}}>{sl}</div></td>
+                          {_kOnR && (
                           <td className="border border-slate-400 px-0 text-center overflow-hidden" style={{fontSize:9,verticalAlign:'middle'}}>
                             {(() => {
                               // ★ 気分は絵文字だけをコンパクトに表示し、理由はホバー(title)で見せる。
@@ -30547,6 +30555,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                               </div>);
                             })()}
                           </td>
+                          )}
                           <td className="border border-slate-400 px-0.5 text-center font-bold text-[12px]" ><div className="cell-wrap" style={{justifyContent:'center'}}>{v(r.temp)?`${r.temp}℃`:''}</div></td>
                           <td className="border border-slate-400 px-1 text-center font-bold text-[12px]" style={{wordBreak:'break-all',lineHeight:1.2}}>
                             <div className="cell-wrap" style={{justifyContent:'center'}}>{v(r.bpUpSt) ? <><span>{r.bpUpSt}/{r.bpDnSt}</span>{v(r.plSt)?<span className="text-slate-700">（{r.plSt}）</span>:''}</> : ''}</div>
