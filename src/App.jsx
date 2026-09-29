@@ -30108,14 +30108,15 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
                     <div key={reason} style={{padding:'2px 0',borderBottom:'1px solid #f8fafc',minWidth:0}}>
                       <div style={{display:'flex',alignItems:'baseline'}}>
                         <span style={{fontSize:11,fontWeight:'bold',color:'#64748b',width:24,textAlign:'right',flexShrink:0,marginRight:6}}>{`${idx+1}.`}</span>
-                        <span style={{fontSize:12,fontWeight:'bold',color:'#334155',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1,minWidth:0}}>{reason}</span>
+                        <span style={{fontSize:12,fontWeight:'bold',color:'#334155',whiteSpace:'normal',wordBreak:'break-all',lineHeight:1.3,flex:1,minWidth:0}}>{reason}</span>
                         <span style={{fontSize:12,fontWeight:'bold',color:'#1e293b',flexShrink:0,marginLeft:4}}>{count}件</span>
                       </div>
                       {/* ★ 詳細内訳(2026-09-07): 「大分類（詳細）」入力の括弧内・旧自由文を件数付きで表示(上位3件・ホバーで全件) */}
                       {details && details.length > 0 && (
                         <div title={details.map(([d,c])=>`${d}×${c}`).join(' / ')}
-                          style={{fontSize:10,color:'#94a3b8',paddingLeft:30,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                          {details.slice(0,3).map(([d,c])=>c>1?`${d}×${c}`:d).join('・')}{details.length>3?' …':''}
+                          style={{fontSize:10,color:'#94a3b8',paddingLeft:30,whiteSpace:'normal',wordBreak:'break-all',lineHeight:1.35}}>
+                          {/* ★ 2026-09-30 ユーザー指示: 見切れずに全部表示 */}
+                          {details.map(([d,c])=>c>1?`${d}×${c}`:d).join('・')}
                         </div>
                       )}
                     </div>
@@ -32082,6 +32083,21 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
 }
 
 function ContactBookCard({ record, patient, selectedDate, config, appData, onOpenConfig, onEditPatientValue, onEditRenraku }) {
+  // ★ 血圧の表示(2026-09-30 ユーザー指示):
+  //   開始時＋終了時(end)   … 開始/終了とも最新の値(再測定後の値)
+  //   開始時のみ(startOnly) … 1行目「開始時」=1回目の測定値、2行目「再測定」=最新の値(再測定が無ければ空欄)。3回測ったら開始=1回目・再測定=3回目
+  //   開始時＋再測定(旧方式)  … 従来どおり2列目(bpUpEn等)を「再測定」として表示
+  const _bpMode = appData?.systemSettings?.secondBpMode || 'end';
+  const _cbBp = (() => {
+    const cur = { up: record.bpUpSt || '', dn: record.bpDnSt || '', pl: record.plSt || '' };
+    const en = { up: record.bpUpEn || '', dn: record.bpDnEn || '', pl: record.plEn || '' };
+    if (_bpMode !== 'startOnly') return { row1: cur, row1Re: bpReHas(record, 'St'), label2: _bpMode === 'recheckStart' ? '再測定' : '終了時', row2: en, row2Re: _bpMode !== 'recheckStart' && bpReHas(record, 'En') };
+    let st = (Array.isArray(record.bpRe) ? record.bpRe : []).filter(e => e && e.phase === 'St');
+    const ams = [...new Set(st.map(e => e.ampm).filter(Boolean))];
+    if (ams.length > 1) { const hit = ams.find(a => String(record[`bpUpSt_${a}`] || '') === String(record.bpUpSt || '')); if (hit) st = st.filter(e => e.ampm === hit); }
+    if (st.length) { const first = [...st].sort((a, b) => (a.n || 0) - (b.n || 0))[0]; return { row1: { up: first.up || '', dn: first.dn || '', pl: first.pl || '' }, row1Re: false, label2: '再測定', row2: cur, row2Re: false }; }
+    return { row1: cur, row1Re: false, label2: '再測定', row2: en, row2Re: false }; // 旧方式から切り替えた過去記録は2列目の値を再測定として表示
+  })();
   // ★ defensive: config が undefined / items が undefined の場合のフォールバック
   config = config || { facilityName:'', facilityPhone:'', items: [] };
   // ★ 運動テーブルの実際の高さを計測し、○/項目名のフォントを行高に合わせてスケールする。
@@ -32298,7 +32314,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
               <tr className="border-b border-black" style={{height:58}}>
                 <td className="p-0" colSpan={2}>
                   <div className="flex items-center h-full px-3">
-                    <span className="font-normal" style={{fontSize:18,marginRight:'0.4em'}}>体温</span>
+                    <span className="font-normal" style={{fontSize:18,marginRight:'0.4em',whiteSpace:'nowrap',flexShrink:0}}>体温</span>
                     <span className="font-bold" style={{fontSize:29,display:'inline-block',minWidth:'2.8em',textAlign:'right',fontVariantNumeric:'tabular-nums'}}>{record.temp || ''}</span>
                     <span className="font-normal" style={{fontSize:17,marginLeft:'0.15em'}}>℃</span>
                     <span style={{display:'inline-block', width:'4em', fontSize:18}} />
@@ -32307,9 +32323,9 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                       <tbody>
                         <tr>
                           <td style={{fontSize:17, whiteSpace:'nowrap', paddingRight:4}}>開始時　血圧</td>
-                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap', paddingRight:0, minWidth:'6em'}}>{record.bpUpSt ? `${record.bpUpSt} / ${record.bpDnSt}` : "　"}{bpReHas(record,'St') && <span style={{fontSize:11,fontWeight:'normal',marginLeft:2}}>（再測定）</span>}</td>
+                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap', paddingRight:0, minWidth:'6em'}}>{_cbBp.row1.up ? `${_cbBp.row1.up} / ${_cbBp.row1.dn}` : "　"}{_cbBp.row1Re && <span style={{fontSize:11,fontWeight:'normal',marginLeft:2}}>（再測定）</span>}</td>
                           <td style={{fontSize:17, whiteSpace:'nowrap', paddingLeft:24, paddingRight:26}}>脈拍</td>
-                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap'}}>{record.plSt || "　"}</td>
+                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap'}}>{_cbBp.row1.pl || "　"}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -32325,10 +32341,10 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                     <table style={{borderCollapse:'collapse', flex:'none'}}>
                       <tbody>
                         <tr>
-                          <td style={{fontSize:17, whiteSpace:'nowrap', paddingRight:4}}>{secondBpLabel(appData)==='終了'?'終了時':secondBpLabel(appData)}　血圧</td>
-                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap', paddingRight:0, minWidth:'6em'}}>{record.bpUpEn ? `${record.bpUpEn} / ${record.bpDnEn}` : "　"}{bpReHas(record,'En') && <span style={{fontSize:11,fontWeight:'normal',marginLeft:2}}>（再測定）</span>}</td>
+                          <td style={{fontSize:17, whiteSpace:'nowrap', paddingRight:4}}>{_cbBp.label2}　血圧</td>
+                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap', paddingRight:0, minWidth:'6em'}}>{_cbBp.row2.up ? `${_cbBp.row2.up} / ${_cbBp.row2.dn}` : "　"}{_cbBp.row2Re && <span style={{fontSize:11,fontWeight:'normal',marginLeft:2}}>（再測定）</span>}</td>
                           <td style={{fontSize:17, whiteSpace:'nowrap', paddingLeft:24, paddingRight:26}}>脈拍</td>
-                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap'}}>{record.plEn || "　"}</td>
+                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap'}}>{_cbBp.row2.pl || "　"}</td>
                         </tr>
                       </tbody>
                     </table>
