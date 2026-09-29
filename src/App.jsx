@@ -22688,10 +22688,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   // ★ 2026-09-29 ユーザー指示: 上部の値は画面の state ではなく各行(kinouStaff_AM/PM)から求める(他画面から戻っても・AM/PMを切り替えても正しく出る)。
   //   上部で選ぶ=その区分の全員に適用、「利用者ごと」パネルで個別に変更。既定(未入力)は最初の機能訓練指導員。
   const _kinouField = `kinouStaff_${(timeFilter === 'PM') ? 'PM' : 'AM'}`;
-  const _kinouRows = (filterMode === 'single' ? localPatients : localTicketRecords) || [];
   const _kinouAbs = (p) => !p || p.status === '欠席' || p.status === '休業' || p.status === '休止';
-  const _kinouEff = (() => { const cnt = {}; _kinouRows.forEach(p => { if (_kinouAbs(p)) return; const v = p[_kinouField]; if (v) cnt[v] = (cnt[v] || 0) + 1; }); const top = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0]; return top || _kinouList[0] || ''; })();
-  const applyKinouAll = (name) => { _kinouRows.forEach(p => { if (_kinouAbs(p)) return; updateRecord(p.id, _kinouField, name); }); };
   // ★ 再測定(2026-09-29 ユーザー指示: 入力方法は通常と同じ=テンキーで「/」も自分で打つ): 今の値を bpRe に n回目 として残し、
   //   入力欄(上/下/脈)を空にして、通常どおり血圧のセルに入力を開く。間違えて押した場合は removeBpRemeasure で前の値に戻す
   const applyBpRemeasure = (id, phase) => {
@@ -23419,8 +23416,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   ...(() => {
                     if (!_kinouOn) return { kinouStaff: existing?.kinouStaff || '', kinouStaff_AM: existing?.kinouStaff_AM || '', kinouStaff_PM: existing?.kinouStaff_PM || '' };
                     const _abs = (p.status === '欠席' || p.status === '休業' || p.status === '休止');
-                    const am = p.kinouStaff_AM || ((timeFilter !== 'PM' && !_abs) ? _kinouEff : '') || '';
-                    const pm = p.kinouStaff_PM || ((timeFilter === 'PM' && !_abs) ? _kinouEff : '') || '';
+                    const _shown = _kinouShownIds.has(p.id);
+                    const am = p.kinouStaff_AM || ((timeFilter !== 'PM' && !_abs && _shown) ? _kinouEff : '') || '';
+                    const pm = p.kinouStaff_PM || ((timeFilter === 'PM' && !_abs && _shown) ? _kinouEff : '') || '';
                     return { kinouStaff_AM: am, kinouStaff_PM: pm, kinouStaff: (timeFilter === 'PM' ? (pm || am) : (am || pm)) || '' };
                   })(),
                   done: p.done || false,
@@ -23599,6 +23597,11 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     const query = searchQuery.toLowerCase();
     displayRecords = displayRecords.filter(r => r.name && (r.name.includes(query) || (r.kana && r.kana.includes(query))));
   }
+  // ★ 2026-09-30(店舗報告: 午前なのに午後の人も選べる): 実施担当の対象は「表示中の区分(AM/PM)の利用者」だけ
+  const _kinouRows = displayRecords || [];
+  const _kinouShownIds = new Set(_kinouRows.map(p => p.id));
+  const _kinouEff = (() => { const cnt = {}; _kinouRows.forEach(p => { if (_kinouAbs(p)) return; const v = p[_kinouField]; if (v) cnt[v] = (cnt[v] || 0) + 1; }); const top = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0]; return top || _kinouList[0] || ''; })();
+  const applyKinouAll = (name) => { _kinouRows.forEach(p => { if (_kinouAbs(p)) return; updateRecord(p.id, _kinouField, name); }); };
 
   // ★ 氏名検索時は「その月の利用日を全て」一覧表示する(当日ロスターに縛られない)。
   //   各日はタップで当日入力へジャンプ。 月モードの一括保存は他月を消す危険があるため使わず、
