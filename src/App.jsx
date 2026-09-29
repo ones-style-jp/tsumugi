@@ -21192,6 +21192,15 @@ export default function App() {
                   <div style={{color:'white',fontWeight:'bold',fontSize:15,marginTop:2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{printPreviewContent.title}</div>
                 </div>
                 <div style={{display:'flex',gap:10,rowGap:8,alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end',marginLeft:'auto'}}>
+                  {/* ★ 連絡帳の印刷位置をプレビュー内で微調整(2026-09-29 ユーザー要望: 設定画面では動いた量が見えない)。1押し=1mm・±10mm・押すと設定に保存されプレビューが動く */}
+                  {printPreviewContent.adjust && (() => { const a = printPreviewContent.adjust; const bs = {background:'#334155',color:'#fff',border:'1px solid #64748b',borderRadius:8,padding:'6px 10px',fontWeight:'bold',fontSize:13,cursor:'pointer',whiteSpace:'nowrap'}; const lb = {fontSize:12,fontWeight:'bold',color:'#cbd5e1',whiteSpace:'nowrap'}; const vv = (v) => v === 0 ? '0(中央)' : (v > 0 ? `+${v}` : `${v}`); return (
+                    <div title="1押し=1mm。押すと連絡帳の印刷設定に保存され、プレビューがその位置で組み直されます（カット線・穴あけ目印は動きません）" style={{display:'flex',alignItems:'center',gap:6,background:'#0f172a',border:'1px solid #475569',borderRadius:10,padding:'6px 10px',flexWrap:'wrap'}}>
+                      <span style={lb}>印刷位置</span>
+                      <span style={lb}>横</span><button onClick={()=>a.apply(a.x-1,a.y)} style={bs}>← 左</button><span style={{...lb,minWidth:52,textAlign:'center',color:'#fff'}}>{vv(a.x)}</span><button onClick={()=>a.apply(a.x+1,a.y)} style={bs}>右 →</button>
+                      <span style={{...lb,marginLeft:6}}>縦</span><button onClick={()=>a.apply(a.x,a.y-1)} style={bs}>↑ 上</button><span style={{...lb,minWidth:52,textAlign:'center',color:'#fff'}}>{vv(a.y)}</span><button onClick={()=>a.apply(a.x,a.y+1)} style={bs}>↓ 下</button>
+                      {(a.x||a.y) ? <button onClick={()=>a.apply(0,0)} style={{...bs,background:'transparent',textDecoration:'underline',border:'none',color:'#93c5fd'}}>0に戻す</button> : null}
+                    </div>
+                  ); })()}
                   {/* ★ 氏名マスキングは印刷ボタンの横に大きく表示(2026-09-08 店舗要望: 左上の小さい表示は見づらい) */}
                   <label title="利用者の氏名・ふりがなを1文字おきに○へ置き換えて印刷/FAXできます(例: 髙橋正樹→髙○正○・全印刷画面で共通)" style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',background:printMaskNames?'#fef3c7':'#f1f5f9',border:printMaskNames?'2px solid #f59e0b':'2px solid #cbd5e1',borderRadius:10,padding:'9px 16px'}}>
                     <input type="checkbox" checked={printMaskNames} onChange={e=>setPrintMaskNames(e.target.checked)} style={{width:18,height:18}}/>
@@ -27955,15 +27964,22 @@ function AttrSection({appData, tY, tM, baseMonth, attrMonth, setAttrMonth, perio
     const rest = clCountsRaw.filter(c => c.label !== '事業対象者' && c.label !== '要支援1');
     return [merged, ...rest];
   })();
+  // ★ 2026-09-29(ユーザー指摘: 介護度内訳の合計が100%にならない): ①介護度が未設定/一覧外の方を「未設定」として数える(以前は円にも表にも出ず、その分だけ合計が欠けていた)
+  //   ②割合は各項目を四捨五入すると合計が98〜102%になるため、最大剰余法で合計100%に揃える(計の%は項目の%の合計)
+  const _clOtherF = (p) => !careLevelOrder.includes(p.careLevel);
+  const _clOther = activePats.filter(_clOtherF).length;
+  const clCountsAll = _clOther > 0 ? [...clCounts, { label:'未設定', color:'#94a3b8', count:_clOther, males: males.filter(_clOtherF).length, females: females.filter(_clOtherF).length }] : clCounts;
+  const clPct = (() => { const raw = clCountsAll.map(c => c.count / total * 100); const fl = raw.map(v => Math.floor(v)); let rem = 100 - fl.reduce((a,b)=>a+b,0); const order = raw.map((v,i)=>[v-Math.floor(v),i]).sort((a,b)=>b[0]-a[0]); for (const [,i] of order) { if (rem<=0) break; if (clCountsAll[i].count>0) { fl[i]++; rem--; } } const m = {}; clCountsAll.forEach((c,i)=>{ m[c.label] = c.count ? fl[i] : 0; }); return m; })();
+  const _pctSum = (labels) => labels.reduce((s,l)=>s+(clPct[l]||0),0);
   const ages = activePats.map(p=>calcAge(p.birthDate)).filter(a=>a!==null);
   const maleAges = males.map(p=>calcAge(p.birthDate)).filter(a=>a!==null);
   const femaleAges = females.map(p=>calcAge(p.birthDate)).filter(a=>a!==null);
   const avg = arr=>arr.length?Math.round(arr.reduce((s,a)=>s+a,0)/arr.length*10)/10:'-';
   const PIE=160,pr=68,pcx=80,pcy=80;
   let cum=0;
-  const piePaths = clCounts.map((c,i)=>{const pct=c.count/total;if(!pct)return null;const a1=cum*2*Math.PI-Math.PI/2,a2=(cum+pct)*2*Math.PI-Math.PI/2;cum+=pct;const x1=pcx+pr*Math.cos(a1),y1=pcy+pr*Math.sin(a1),x2=pcx+pr*Math.cos(a2),y2=pcy+pr*Math.sin(a2);return <path key={i} d={`M${pcx},${pcy} L${x1},${y1} A${pr},${pr} 0 ${pct>0.5?1:0},1 ${x2},${y2} Z`} fill={c.color} opacity={0.88}/>;});
+  const piePaths = clCountsAll.map((c,i)=>{const pct=c.count/total;if(!pct)return null;const a1=cum*2*Math.PI-Math.PI/2,a2=(cum+pct)*2*Math.PI-Math.PI/2;cum+=pct;const x1=pcx+pr*Math.cos(a1),y1=pcy+pr*Math.sin(a1),x2=pcx+pr*Math.cos(a2),y2=pcy+pr*Math.sin(a2);return <path key={i} d={`M${pcx},${pcy} L${x1},${y1} A${pr},${pr} 0 ${pct>0.5?1:0},1 ${x2},${y2} Z`} fill={c.color} opacity={0.88}/>;});
   let cum2=0;
-  const sliceAngles = clCounts.map(c=>{const pct=c.count/total;const a1=cum2*2*Math.PI-Math.PI/2,a2=(cum2+pct)*2*Math.PI-Math.PI/2;cum2+=pct;return{label:c.label,a1,a2,pct};});
+  const sliceAngles = clCountsAll.map(c=>{const pct=c.count/total;const a1=cum2*2*Math.PI-Math.PI/2,a2=(cum2+pct)*2*Math.PI-Math.PI/2;cum2+=pct;return{label:c.label,a1,a2,pct};});
   const supportSlices=sliceAngles.filter(s=>s.label==='事業対象者'||s.label.includes('要支援'));
   const careSlices=sliceAngles.filter(s=>s.label.includes('要介護'));
   const makeArc=(slices,r,color)=>{if(!slices.length)return null;const a1=slices[0].a1,a2=slices[slices.length-1].a2;const gap=0.08;const sa=a1+gap,ea=a2-gap;const x1=pcx+r*Math.cos(sa),y1=pcy+r*Math.sin(sa),x2=pcx+r*Math.cos(ea),y2=pcy+r*Math.sin(ea);return <path d={`M${x1},${y1} A${r},${r} 0 ${(ea-sa)>Math.PI?1:0},1 ${x2},${y2}`} fill="none" stroke={color} strokeWidth={3} strokeLinecap="round" strokeDasharray="5 3" opacity={0.8}/>;};
@@ -27987,18 +28003,19 @@ function AttrSection({appData, tY, tM, baseMonth, attrMonth, setAttrMonth, perio
             <svg width={PIE+90} height={PIE+90} style={{flexShrink:0,overflow:'visible',margin:'-45px -45px -45px 0',marginLeft:3}} viewBox={`-45 -45 ${PIE+90} ${PIE+90}`}>
               {makeArc(supportSlices,pr+10,'#818cf8')}
               {makeArc(careSlices,pr+10,'#ef4444')}
-              {(()=>{if(!supportSlices.length)return null;const a1=supportSlices[0].a1,a2=supportSlices[supportSlices.length-1].a2;const midA=(a1+a2)/2;const r2=pr+22;const cnt=supportSlices.reduce((s,sl)=>s+(clCounts.find(c=>c.label===sl.label)?.count||0),0);return <text x={pcx+r2*Math.cos(midA)} y={pcy+r2*Math.sin(midA)+4} textAnchor="middle" fontSize={10} fontWeight="bold" fill="#6d28d9">{Math.round(cnt/total*100)}%</text>;})()}
-              {(()=>{if(!careSlices.length)return null;const a1=careSlices[0].a1,a2=careSlices[careSlices.length-1].a2;const midA=(a1+a2)/2;const r2=pr+22;const cnt2=careSlices.reduce((s,sl)=>s+(clCounts.find(c=>c.label===sl.label)?.count||0),0);return <text x={pcx+r2*Math.cos(midA)} y={pcy+r2*Math.sin(midA)+4} textAnchor="middle" fontSize={10} fontWeight="bold" fill="#dc2626">{Math.round(cnt2/total*100)}%</text>;})()}
+              {(()=>{if(!supportSlices.length)return null;const a1=supportSlices[0].a1,a2=supportSlices[supportSlices.length-1].a2;const midA=(a1+a2)/2;const r2=pr+22;const cnt=supportSlices.reduce((s,sl)=>s+(clCounts.find(c=>c.label===sl.label)?.count||0),0);return <text x={pcx+r2*Math.cos(midA)} y={pcy+r2*Math.sin(midA)+4} textAnchor="middle" fontSize={10} fontWeight="bold" fill="#6d28d9">{_pctSum(supportSlices.map(sl=>sl.label))}%</text>;})()}
+              {(()=>{if(!careSlices.length)return null;const a1=careSlices[0].a1,a2=careSlices[careSlices.length-1].a2;const midA=(a1+a2)/2;const r2=pr+22;const cnt2=careSlices.reduce((s,sl)=>s+(clCounts.find(c=>c.label===sl.label)?.count||0),0);return <text x={pcx+r2*Math.cos(midA)} y={pcy+r2*Math.sin(midA)+4} textAnchor="middle" fontSize={10} fontWeight="bold" fill="#dc2626">{_pctSum(careSlices.map(sl=>sl.label))}%</text>;})()}
               {piePaths}
-              {(()=>{let ca=0;return clCounts.map((c,i)=>{const pct=c.count/total;const midA=(ca+pct/2)*2*Math.PI-Math.PI/2;ca+=pct;if(pct<0.05)return null;const tr=pr*0.65;const tx=pcx+tr*Math.cos(midA),ty=pcy+tr*Math.sin(midA)+3;return <text key={i} x={tx} y={ty} textAnchor="middle" fontSize={9} fontWeight="bold" fill="white" style={{pointerEvents:'none'}}>{Math.round(pct*100)}%</text>;});})()}
+              {(()=>{let ca=0;return clCountsAll.map((c,i)=>{const pct=c.count/total;const midA=(ca+pct/2)*2*Math.PI-Math.PI/2;ca+=pct;if(pct<0.05)return null;const tr=pr*0.65;const tx=pcx+tr*Math.cos(midA),ty=pcy+tr*Math.sin(midA)+3;return <text key={i} x={tx} y={ty} textAnchor="middle" fontSize={9} fontWeight="bold" fill="white" style={{pointerEvents:'none'}}>{clPct[c.label]}%</text>;});})()}
             </svg>
             <div style={{minWidth:0,marginLeft:28}}>
               {clCounts.some(c=>c.label==='事業対象者'||c.label.includes('要支援'))&&<div style={{fontSize:11,fontWeight:'bold',color:'#818cf8',marginBottom:3,display:'flex',alignItems:'center',gap:4}}><span style={{width:20,borderTop:'2px dashed #818cf8',display:'inline-block'}}/> 事業対象者・要支援</div>}
-              {clCounts.filter(c=>c.label==='事業対象者'||c.label.includes('要支援')).map(c=>(<div key={c.label} style={{display:'flex',alignItems:'center',gap:3,marginBottom:4,paddingLeft:4}}><span style={{width:9,height:9,borderRadius:'50%',background:c.color,flexShrink:0}}/><span style={{fontSize:11,fontWeight:'bold',color:'#334155',flex:1}}>{c.label}</span><span style={{fontSize:12,fontWeight:'bold',color:'#1e293b'}}>{c.count}名</span><span style={{fontSize:12,fontWeight:'bold',color:'#475569'}}>{Math.round(c.count/total*100)}%</span></div>))}
-              {(()=>{const sC=clCounts.filter(c=>c.label==='事業対象者'||c.label.includes('要支援')).reduce((s,c)=>s+c.count,0);return sC>0&&<div style={{display:'flex',justifyContent:'flex-end',gap:8,paddingRight:4,marginBottom:3,borderTop:'1px solid #e0d9f7',paddingTop:2}}><span style={{fontSize:11,fontWeight:'bold',color:'#6d28d9'}}>計 {sC}名 {Math.round(sC/total*100)}%</span></div>;})()}
+              {clCounts.filter(c=>c.label==='事業対象者'||c.label.includes('要支援')).map(c=>(<div key={c.label} style={{display:'flex',alignItems:'center',gap:3,marginBottom:4,paddingLeft:4}}><span style={{width:9,height:9,borderRadius:'50%',background:c.color,flexShrink:0}}/><span style={{fontSize:11,fontWeight:'bold',color:'#334155',flex:1}}>{c.label}</span><span style={{fontSize:12,fontWeight:'bold',color:'#1e293b'}}>{c.count}名</span><span style={{fontSize:12,fontWeight:'bold',color:'#475569'}}>{clPct[c.label]}%</span></div>))}
+              {(()=>{const sC=clCounts.filter(c=>c.label==='事業対象者'||c.label.includes('要支援')).reduce((s,c)=>s+c.count,0);return sC>0&&<div style={{display:'flex',justifyContent:'flex-end',gap:8,paddingRight:4,marginBottom:3,borderTop:'1px solid #e0d9f7',paddingTop:2}}><span style={{fontSize:11,fontWeight:'bold',color:'#6d28d9'}}>計 {sC}名 {_pctSum(clCounts.filter(c=>c.label==='事業対象者'||c.label.includes('要支援')).map(c=>c.label))}%</span></div>;})()}
               {clCounts.some(c=>c.label.includes('要介護'))&&<div style={{fontSize:11,fontWeight:'bold',color:'#ef4444',marginBottom:3,marginTop:5,display:'flex',alignItems:'center',gap:4}}><span style={{width:20,borderTop:'2px dashed #ef4444',display:'inline-block'}}/> 要介護</div>}
-              {clCounts.filter(c=>c.label.includes('要介護')).map(c=>(<div key={c.label} style={{display:'flex',alignItems:'center',gap:3,marginBottom:4,paddingLeft:4}}><span style={{width:9,height:9,borderRadius:'50%',background:c.color,flexShrink:0}}/><span style={{fontSize:11,fontWeight:'bold',color:'#334155',flex:1}}>{c.label}</span><span style={{fontSize:12,fontWeight:'bold',color:'#1e293b'}}>{c.count}名</span><span style={{fontSize:12,fontWeight:'bold',color:'#475569'}}>{Math.round(c.count/total*100)}%</span></div>))}
-              {(()=>{const cC=clCounts.filter(c=>c.label.includes('要介護')).reduce((s,c)=>s+c.count,0);return cC>0&&<div style={{display:'flex',justifyContent:'flex-end',gap:8,paddingRight:4,marginTop:2,borderTop:'1px solid #fecaca',paddingTop:2}}><span style={{fontSize:11,fontWeight:'bold',color:'#dc2626'}}>計 {cC}名 {Math.round(cC/total*100)}%</span></div>;})()}
+              {clCounts.filter(c=>c.label.includes('要介護')).map(c=>(<div key={c.label} style={{display:'flex',alignItems:'center',gap:3,marginBottom:4,paddingLeft:4}}><span style={{width:9,height:9,borderRadius:'50%',background:c.color,flexShrink:0}}/><span style={{fontSize:11,fontWeight:'bold',color:'#334155',flex:1}}>{c.label}</span><span style={{fontSize:12,fontWeight:'bold',color:'#1e293b'}}>{c.count}名</span><span style={{fontSize:12,fontWeight:'bold',color:'#475569'}}>{clPct[c.label]}%</span></div>))}
+              {(()=>{const cC=clCounts.filter(c=>c.label.includes('要介護')).reduce((s,c)=>s+c.count,0);return cC>0&&<div style={{display:'flex',justifyContent:'flex-end',gap:8,paddingRight:4,marginTop:2,borderTop:'1px solid #fecaca',paddingTop:2}}><span style={{fontSize:11,fontWeight:'bold',color:'#dc2626'}}>計 {cC}名 {_pctSum(clCounts.filter(c=>c.label.includes('要介護')).map(c=>c.label))}%</span></div>;})()}
+              {_clOther>0 && (<div style={{display:'flex',alignItems:'center',gap:3,marginTop:6,paddingLeft:4,borderTop:'1px dashed #cbd5e1',paddingTop:4}}><span style={{width:9,height:9,borderRadius:'50%',background:'#94a3b8',flexShrink:0}}/><span style={{fontSize:11,fontWeight:'bold',color:'#64748b',flex:1}}>未設定（介護度が未入力）</span><span style={{fontSize:12,fontWeight:'bold',color:'#1e293b'}}>{_clOther}名</span><span style={{fontSize:12,fontWeight:'bold',color:'#475569'}}>{clPct['未設定']}%</span></div>)}
             </div>
           </div>
         </div>
@@ -30901,7 +30918,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   const clearAllPrint = () => setPrintSelectedIds([]);
 
   // ★ 連絡帳のページ組み(2面/1面・B5横/B6・微調整)を1か所に(2026-09-29: 空印刷でも同じ組みを使う)
-  const _layoutRenraku = (htmlParts) => {
+  const _layoutRenraku = (htmlParts, ov) => {
     // ★ 用紙向き設定:
     //   'b5port' = B5縦(182×257)ページに【B6実寸】を中央配置。 複合機のB5トレイにB6用紙を入れている運用向け(中央給紙でB6に乗る)。
     //             ページが縦なので Windows(Edge)/iPad でも回転・見切れせず、出力はB6サイズ。
@@ -30909,7 +30926,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     //   'b5land' = B5横(257×182, 既定)。 連絡帳の中身は常に縦(182×257)、縮率0.70で約B6(128×182)になる。
     // ★ 用紙: 'b6port'=B6縦(128×182)用紙いっぱい / それ以外='横(B5)'=B5横(257×182)用紙の中央に連絡帳(縦182×257を縮小)を配置。
     //   連絡帳の中身は常に縦。 用紙だけ横。
-    const _ss = appData.systemSettings || {};
+    const _ss = { ...(appData.systemSettings || {}), ...(ov || {}) }; // ★ ov: プレビュー内の微調整で位置だけ上書き(2026-09-29)
     const _mode = _ss.renrakuMode === '1' ? '1' : '2'; // 既定はB5横2面
     let combinedHtml, pageSizeStr;
     if (_mode === '2') {
@@ -30959,6 +30976,18 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     }
     return { combinedHtml, pageSizeStr };
   };
+  // ★ プレビュー内で印刷位置(横/縦 ±10mm)を動かす(2026-09-29 ユーザー要望: 設定画面では動いた量が見えない)。
+  //   矢印を押すと設定を保存し、同じ内容を新しい位置で組み直してプレビューを差し替える
+  const _mkAdjust = (parts, title, x, y) => ({
+    x, y,
+    apply: (nx, ny) => {
+      const cx = Math.max(-10, Math.min(10, Number(nx) || 0)), cy = Math.max(-10, Math.min(10, Number(ny) || 0));
+      onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), renrakuOffsetX: cx, renrakuOffsetY: cy } }, { silent: true });
+      const { combinedHtml, pageSizeStr } = _layoutRenraku(parts, { renrakuOffsetX: cx, renrakuOffsetY: cy });
+      window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title, pageSize: pageSizeStr, html: combinedHtml, elementId: null, adjust: _mkAdjust(parts, title, cx, cy) } }));
+    },
+  });
+  const _curOff = () => { const ss = appData.systemSettings || {}; return [Math.max(-10, Math.min(10, Number(ss.renrakuOffsetX) || 0)), Math.max(-10, Math.min(10, Number(ss.renrakuOffsetY) || 0))]; };
   // ★ 空の連絡帳を印刷(2026-09-29 ユーザー要望: 振替の方が連絡帳に出ない等のアクシデントに備え、手書き用の空欄連絡帳を印刷設定どおりの用紙で出す)
   const doPrintBlank = (sheets) => {
     const be = document.getElementById('print-content-cb-blank');
@@ -30967,8 +30996,10 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     const h = be.outerHTML.replace(/display:\s*none[^;"\']*/g,'display:block');
     const _ss = appData.systemSettings || {};
     const faces = (_ss.renrakuMode === '1' ? 1 : 2) * n; // 2面なら1枚に2面
-    const { combinedHtml, pageSizeStr } = _layoutRenraku(Array.from({ length: faces }, () => h));
-    window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title:`連絡帳(空)_${selectedDate}`,pageSize:pageSizeStr,html:combinedHtml,elementId:null}}));
+    const _parts = Array.from({ length: faces }, () => h);
+    const { combinedHtml, pageSizeStr } = _layoutRenraku(_parts);
+    const [_ox, _oy] = _curOff();
+    window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title:`連絡帳(空)_${selectedDate}`,pageSize:pageSizeStr,html:combinedHtml,elementId:null,adjust:_mkAdjust(_parts, `連絡帳(空)_${selectedDate}`, _ox, _oy)}}));
     setTimeout(() => setShowPrintCards(false), 800);
   };
   const handlePrintBlank = () => {
@@ -31000,8 +31031,9 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     }).filter(Boolean);
     if(!htmlParts.length){ alert('印刷データが見つかりません。'); return; }
     const { combinedHtml, pageSizeStr } = _layoutRenraku(htmlParts);
+    const [_ox, _oy] = _curOff();
     // ★ iPadで確実に開くよう、null→遅延イベントの2段階をやめ、HTML付きイベントを即時発火 (1段階で表示)
-    window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:pageSizeStr,html:combinedHtml,elementId:null}}));
+    window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:pageSizeStr,html:combinedHtml,elementId:null,adjust:_mkAdjust(htmlParts, title, _ox, _oy)}}));
     // ★ 取得後は隠しカードを解放してメモリを戻す
     setTimeout(() => setShowPrintCards(false), 800);
   };
