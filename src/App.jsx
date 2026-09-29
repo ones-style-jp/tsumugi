@@ -30561,11 +30561,12 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                               <div className="font-bold leading-tight" style={{fontSize:24}}>{r.dayNum}</div>
                               <div className="font-normal leading-tight" style={{fontSize:12,color:'#475569',marginTop:1}}>（{r.dayOfWeek}）</div>
                               {/* ★ 記録者: r.recorder (古い記録 = recorder 空 は表示なし)。2026-09-29 ユーザー指示で「担当」→「記録」、その下に「個別: 実施担当」 */}
+                              {/* ★ 2026-09-29 ユーザー指示: 名前が長くても1行(幅に合わせて縮小) */}
                               {r.recorder && (
-                                <div className="font-bold" style={{fontSize:9,color:'#475569',marginTop:2,lineHeight:1.1,whiteSpace:'normal',wordBreak:'keep-all',textAlign:'center',padding:'0 1px',maxWidth:'100%'}}>記録: {r.recorder}</div>
+                                <div style={{marginTop:2,textAlign:'center',padding:'0 1px',width:'100%',overflow:'hidden'}}><AutoFitText text={`記録: ${r.recorder}`} max={9} min={5} bold color="#475569"/></div>
                               )}
                               {r.kinouStaff && (
-                                <div className="font-bold" style={{fontSize:9,color:'#047857',marginTop:1,lineHeight:1.1,whiteSpace:'normal',wordBreak:'keep-all',textAlign:'center',padding:'0 1px',maxWidth:'100%'}}>個別: {r.kinouStaff}</div>
+                                <div style={{marginTop:1,textAlign:'center',padding:'0 1px',width:'100%',overflow:'hidden'}}><AutoFitText text={`個別: ${r.kinouStaff}`} max={9} min={5} bold color="#047857"/></div>
                               )}
                             </div>
                           </td>
