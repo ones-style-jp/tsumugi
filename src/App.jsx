@@ -10174,6 +10174,7 @@ const generateMonthlySchedule = (patients, year, month, monthlyShifts, ticketRec
         isBaseDay: isBaseAM || isBasePM,
         status: existing?.status || status,
         temp: existing?.temp || "",
+        bpRe: Array.isArray(existing?.bpRe) ? existing.bpRe : [],   // ★ 再測定ログ(印刷の特記に「開始 1回目 …」を出す・2026-09-29)
         bpUpSt: existing?.bpUpSt || "",
         bpDnSt: existing?.bpDnSt || "",
         plSt: existing?.plSt || "",
@@ -24589,18 +24590,19 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   <div style={{fontSize:16,fontWeight:'bold',color:'#0f172a',marginBottom:8}}>バイタル（開始）</div>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
                     {_cell('体温', `temp_${tf}`, _vals.temp, '℃', getTempColorClass(_vals.temp))}
-                    {_cell('血圧', `bpSt_combo_${tf}`, (_vals.buSt&&_vals.bdSt)?`${_vals.buSt}/${_vals.bdSt}`:(_vals.buSt||''), '', null, {up:_vals.buSt, dn:_vals.bdSt})}
+                    <div className="flex flex-col">{_cell('血圧', `bpSt_combo_${tf}`, (_vals.buSt&&_vals.bdSt)?`${_vals.buSt}/${_vals.bdSt}`:(_vals.buSt||''), '', null, {up:_vals.buSt, dn:_vals.bdSt})}<BpReMini entries={bpReList(p, tf).filter(e => e.phase === 'St')} canEdit={!dis} onDelete={(at) => removeBpRemeasureAt(p.id, at)} /></div>
                     {_cell('脈拍', `plSt_${tf}`, _vals.plSt, '', getPulseColorClass(_vals.plSt))}
                   </div>
                 </div>
-                <div>
+                {/* ★ 「開始時のみ」の店舗は終了バイタルを出さない(2026-09-29) */}
+                {_showEn && <div>
                   <div style={{fontSize:16,fontWeight:'bold',color:'#0f172a',marginBottom:8}}>バイタル（終了）</div>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
                     <div/>
-                    {_cell('血圧', `bpEn_combo_${tf}`, (_vals.buEn&&_vals.bdEn)?`${_vals.buEn}/${_vals.bdEn}`:(_vals.buEn||''), '', null, {up:_vals.buEn, dn:_vals.bdEn})}
+                    <div className="flex flex-col">{_cell('血圧', `bpEn_combo_${tf}`, (_vals.buEn&&_vals.bdEn)?`${_vals.buEn}/${_vals.bdEn}`:(_vals.buEn||''), '', null, {up:_vals.buEn, dn:_vals.bdEn})}<BpReMini entries={bpReList(p, tf).filter(e => e.phase === 'En')} canEdit={!dis} onDelete={(at) => removeBpRemeasureAt(p.id, at)} /></div>
                     {_cell('脈拍', `plEn_${tf}`, _vals.plEn, '', getPulseColorClass(_vals.plEn))}
                   </div>
-                </div>
+                </div>}
                 <div>
                   <div style={{fontSize:16,fontWeight:'bold',color:'#0f172a',marginBottom:8}}>運動メニュー <span style={{fontSize:13,fontWeight:'normal',color:'#334155'}}>（うすい字は本日の目安。タップで入力）</span></div>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:10}}>
@@ -30063,6 +30065,7 @@ function buildAllPeriodTicketHtml(appData, patient) {
     const exerciseItems = getExerciseItemsForDate(appData.systemSettings, `${tY}-${String(tM).padStart(2,'0')}-01`, tY) || [];
     const _kOnP = appData.systemSettings?.kibunDisabled !== true; // ★ 気分OFFなら印刷にも気分列を出さない(2026-09-29)
     const dayRecords = generateMonthlySchedule([patient], tY, tM, appData.monthlyShifts, appData.ticketRecords || [], appData.holidays, closedDays).sort((a,b)=>a.dayNum-b.dayNum);
+    const _showEnP = secondBpVisible(appData, dayRecords); // ★ 「開始時のみ」なら終了列を出さない
     if (dayRecords.length === 0) return;
     const PER_PAGE = 8;
     const pageGroups = []; for (let i=0;i<dayRecords.length;i+=PER_PAGE) pageGroups.push(dayRecords.slice(i,i+PER_PAGE));
@@ -30097,19 +30100,19 @@ function buildAllPeriodTicketHtml(appData, patient) {
             ${_kOnP ? `<td style="border:1px solid #94a3b8;text-align:center;padding:1px;">${kibunHtml}</td>` : ''}
             <td style="border:1px solid #94a3b8;text-align:center;font-size:12px;font-weight:bold;padding:1px;">${v(r.temp) ? `${r.temp}℃` : ''}</td>
             <td style="border:1px solid #94a3b8;text-align:center;font-size:11px;font-weight:bold;padding:1px;line-height:1.15;">${v(r.bpUpSt) ? `${r.bpUpSt}/${r.bpDnSt}${v(r.plSt)?`<br/><span style='color:#475569;font-size:10px;'>(${r.plSt})</span>`:''}` : ''}</td>
-            <td style="border:1px solid #94a3b8;text-align:center;font-size:11px;font-weight:bold;padding:1px;line-height:1.15;">${v(r.bpUpEn) ? `${r.bpUpEn}/${r.bpDnEn}${v(r.plEn)?`<br/><span style='color:#475569;font-size:10px;'>(${r.plEn})</span>`:''}` : ''}</td>
+            ${_showEnP ? `            <td style="border:1px solid #94a3b8;text-align:center;font-size:11px;font-weight:bold;padding:1px;line-height:1.15;">${v(r.bpUpEn) ? `${r.bpUpEn}/${r.bpDnEn}${v(r.plEn)?`<br/><span style='color:#475569;font-size:10px;'>(${r.plEn})</span>`:''}` : ''}</td>` : ''}
             ${exCells}
             <td style="border:1px solid #94a3b8;text-align:center;font-size:11px;font-weight:bold;padding:1px;">${v(r.massage)}</td>
           </tr>
-          <tr style="height:30px;background:${rowBg};"><td style="border:1px solid #94a3b8;background:#f1f5f9;text-align:center;font-size:10px;font-weight:bold;color:#64748b;padding:1px;">特記</td><td colspan="${(_kOnP ? 5 : 4) + exerciseItems.length + 1}" style="border:1px solid #94a3b8;text-align:left;font-size:10px;color:#1e293b;padding:1px 4px;background:${rowBg};">${((isA||mt) ? '' : [v(r.tokki)||'', ...bpReLines(r)].filter(Boolean).join('\n')).replace(/</g,'&lt;').replace(/\n/g,'<br/>')}</td></tr>`;
+          <tr style="height:30px;background:${rowBg};"><td style="border:1px solid #94a3b8;background:#f1f5f9;text-align:center;font-size:10px;font-weight:bold;color:#64748b;padding:1px;">特記</td><td colspan="${(_kOnP ? 5 : 4) - (_showEnP ? 0 : 1) + exerciseItems.length + 1}" style="border:1px solid #94a3b8;text-align:left;font-size:10px;color:#1e293b;padding:1px 4px;background:${rowBg};">${((isA||mt) ? '' : [v(r.tokki)||'', ...bpReLines(r)].filter(Boolean).join('\n')).replace(/</g,'&lt;').replace(/\n/g,'<br/>')}</td></tr>`;
       }).join('');
       const emptyRows = Math.max(0, PER_PAGE - rows.length);
-      const emptyRowsHtml = Array.from({length: emptyRows}).map(() => `<tr style="height:38px;"><td rowspan="2" style="border:1px solid #475569;background:#f8fafc;height:74px;"></td>${Array.from({length: 5 + exerciseItems.length + 1}).map(() => '<td style="border:1px solid #94a3b8;"></td>').join('')}</tr><tr style="height:30px;"><td style="border:1px solid #94a3b8;background:#f1f5f9;text-align:center;font-size:10px;color:#cbd5e1;padding:1px;">特記</td><td colspan="${(_kOnP ? 5 : 4) + exerciseItems.length + 1}" style="border:1px solid #94a3b8;"></td></tr>`).join('');
+      const emptyRowsHtml = Array.from({length: emptyRows}).map(() => `<tr style="height:38px;"><td rowspan="2" style="border:1px solid #475569;background:#f8fafc;height:74px;"></td>${Array.from({length: 5 + exerciseItems.length + 1}).map(() => '<td style="border:1px solid #94a3b8;"></td>').join('')}</tr><tr style="height:30px;"><td style="border:1px solid #94a3b8;background:#f1f5f9;text-align:center;font-size:10px;color:#cbd5e1;padding:1px;">特記</td><td colspan="${(_kOnP ? 5 : 4) - (_showEnP ? 0 : 1) + exerciseItems.length + 1}" style="border:1px solid #94a3b8;"></td></tr>`).join('');
       return `<div class="tp" style="width:297mm;min-height:210mm;box-sizing:border-box;padding:4mm 6mm;page-break-after:always;display:flex;flex-direction:column;">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;"><div><div style="font-size:17px;font-weight:bold;letter-spacing:0.1em;line-height:1.1;">${tY}年${tM}月 サービス提供記録</div><div style="font-size:26px;font-weight:bold;margin-top:8px;line-height:1.1;">${patient.name} <span style="font-size:18px;font-weight:normal;">様</span></div></div><div style="font-size:10px;color:#475569;text-align:right;line-height:1.5;"><div>提供責任者: <b>${facility.serviceResponsible||'—'}</b>　　実施時間: <b>${jisshiTime}</b></div><div style="color:#1d4ed8;font-weight:bold;margin-top:2px;">通所曜日: ${schedText||'—'}</div></div></div>
         <table style="width:100%;border-collapse:collapse;margin-bottom:0;table-layout:fixed;"><colgroup><col style="width:5%;"/><col style="width:45%;"/><col style="width:5%;"/><col style="width:45%;"/></colgroup><tbody><tr><th style="border:1px solid #475569;background:white;color:black;font-size:10px;font-weight:normal;padding:1px 4px;text-align:center;">既往歴</th><td style="border:1px solid #475569;font-size:10px;padding:1px 6px;vertical-align:top;">${patient.kiou||''}</td><th style="border:1px solid #475569;background:white;color:black;font-size:10px;font-weight:normal;padding:1px 4px;text-align:center;">留意点</th><td style="border:1px solid #475569;font-size:10px;padding:1px 6px;vertical-align:top;">${patient.ryui||''}</td></tr></tbody></table>
         <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:4px;table-layout:fixed;"><tbody><tr><th style="border:1px solid #475569;background:white;color:black;font-size:10px;font-weight:normal;padding:1px 4px;text-align:center;width:8%;">マッサージ</th><td style="border:1px solid #475569;font-size:11px;font-weight:bold;padding:1px 6px;width:42%;">${patient.massageNeed||'—'}</td><th style="border:1px solid #475569;background:white;color:black;font-size:10px;font-weight:normal;padding:1px 4px;text-align:center;width:8%;">温浴時電療</th><td style="border:1px solid #475569;font-size:11px;font-weight:bold;padding:1px 6px;width:42%;">${patient.onyokuDenryo||'—'}</td></tr></tbody></table>
-        <table style="width:100%;border-collapse:collapse;table-layout:fixed;flex:1;"><thead><tr style="background:#1e293b;color:white;"><th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:50px;">日付</th><th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:34px;">状態</th>${_kOnP ? '<th style="border:1px solid #475569;padding:3px 1px;font-size:9px;width:60px;">気分</th>' : ''}<th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:48px;">体温</th><th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:58px;">開始 血圧(脈)</th><th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:58px;">${secondBpLabel(appData)} 血圧(脈)</th>${exerciseItems.map(it => `<th style="border:1px solid #475569;padding:3px 1px;font-size:9px;line-height:1.1;">${it.name}</th>`).join('')}<th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:42px;">介護整体</th></tr></thead><tbody>${tableRows}${emptyRowsHtml}</tbody></table>
+        <table style="width:100%;border-collapse:collapse;table-layout:fixed;flex:1;"><thead><tr style="background:#1e293b;color:white;"><th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:50px;">日付</th><th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:34px;">状態</th>${_kOnP ? '<th style="border:1px solid #475569;padding:3px 1px;font-size:9px;width:60px;">気分</th>' : ''}<th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:48px;">体温</th><th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:58px;">開始 血圧(脈)</th>${_showEnP ? `<th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:58px;">${secondBpLabel(appData)} 血圧(脈)</th>` : ''}${exerciseItems.map(it => `<th style="border:1px solid #475569;padding:3px 1px;font-size:9px;line-height:1.1;">${it.name}</th>`).join('')}<th style="border:1px solid #475569;padding:3px 1px;font-size:10px;width:42px;">介護整体</th></tr></thead><tbody>${tableRows}${emptyRowsHtml}</tbody></table>
       </div>`;
     };
     allPages += pageGroups.map(renderPage).join('');
@@ -30203,7 +30206,8 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
   const plannedM = getPlannedExercisesForMonth(sp, tY, tM);
   const _planUnit = (v, unit) => { const s = String(v ?? '').trim(); if (!s) return ''; return (/^[0-9０-９.]+$/.test(s) && unit) ? s + unit : s; };
   const _kOnR = appData.systemSettings?.kibunDisabled !== true; // ★ 気分OFFなら気分列を出さない(2026-09-29)
-  const tc = (_kOnR ? 6 : 5) + ex.length + 1;
+  const _showEnT = secondBpVisible(appData, records); // ★ 「開始時のみ」の店舗は終了列を出さない(その月に値があれば出す)
+  const tc = (_kOnR ? 6 : 5) - (_showEnT ? 0 : 1) + ex.length + 1;
   // ★ 描画対象の月リスト。 通常は当月のみ。 全期間モードでは患者の記録がある全月を、各月「当時の運動項目」で描画
   const closedDaysTV = appData.systemSettings?.facilityInfo?.closedDays || [0];
   const renderList = (() => {
@@ -30447,7 +30451,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                     {_kOnR && <th className="border border-slate-600 py-1 overflow-hidden" style={{width:34}}><AutoFitText text="気分" max={13} bold color="#fff"/></th>}
                     <th className="border border-slate-600 py-1 overflow-hidden" style={{width:48}}><AutoFitText text="体温" max={13} bold color="#fff"/></th>
                     <th className="border border-slate-600 py-1 overflow-hidden" style={{width:58}}><AutoFitText text="開始 血圧（脈）" max={11} bold color="#fff"/></th>
-                    <th className="border border-slate-600 py-1 overflow-hidden" style={{width:58}}><AutoFitText text={`${secondBpLabel(appData)} 血圧（脈）`} max={11} bold color="#fff"/></th>
+                    {_showEnT && <th className="border border-slate-600 py-1 overflow-hidden" style={{width:58}}><AutoFitText text={`${secondBpLabel(appData)} 血圧（脈）`} max={11} bold color="#fff"/></th>}
                     {(()=>{
                       // 運動メニュー項目数に応じて統一列幅を計算 (個別運動も介護整体も同じ幅)
                       const unifiedW = ex.length > 12 ? 32 : ex.length > 8 ? 36 : 42;
@@ -30515,9 +30519,11 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                           <td className="border border-slate-400 px-1 text-center font-bold text-[12px]" style={{wordBreak:'break-all',lineHeight:1.2}}>
                             <div className="cell-wrap" style={{justifyContent:'center'}}>{v(r.bpUpSt) ? <><span>{r.bpUpSt}/{r.bpDnSt}</span>{v(r.plSt)?<span className="text-slate-700">（{r.plSt}）</span>:''}</> : ''}</div>
                           </td>
+                          {_showEnT && (
                           <td className="border border-slate-400 px-1 text-center font-bold text-[12px]" style={{wordBreak:'break-all',lineHeight:1.2}}>
                             <div className="cell-wrap" style={{justifyContent:'center'}}>{v(r.bpUpEn) ? <><span>{r.bpUpEn}/{r.bpDnEn}</span>{v(r.plEn)?<span className="text-slate-700">（{r.plEn}）</span>:''}</> : ''}</div>
                           </td>
+                          )}
                           {(()=>{
                             // 列幅に応じてフォントサイズも調整 (運動メニューが増えても見やすく)
                             const baseExFs = ex.length > 12 ? 9 : ex.length > 8 ? 10 : 12;
@@ -30561,11 +30567,11 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                     <Fragment key={`e${i}`}>
                       <tr className="data-row" style={{height:44}}>
                         <td rowSpan={2} className="border border-slate-400 px-1" style={{height:82}}></td>
-                        <td className="border border-slate-400" style={{height:44}}></td>
-                        <td className="border border-slate-400" style={{height:44}}></td>
-                        <td className="border border-slate-400" style={{height:44}}></td>
-                        <td className="border border-slate-400" style={{height:44}}></td>
-                        <td className="border border-slate-400" style={{height:44}}></td>
+                        <td className="border border-slate-400" style={{height:44}}></td>{/* 状態 */}
+                        {_kOnR && <td className="border border-slate-400" style={{height:44}}></td>}{/* 気分 ★ 見出しと同じ条件(2026-09-29: 余分な列で表が崩れていた) */}
+                        <td className="border border-slate-400" style={{height:44}}></td>{/* 体温 */}
+                        <td className="border border-slate-400" style={{height:44}}></td>{/* 開始 */}
+                        {_showEnT && <td className="border border-slate-400" style={{height:44}}></td>}{/* 終了 */}
                         {ex.map(it=><td key={it.id} className="border border-slate-400" style={{height:44}}></td>)}
                         <td className="border border-slate-400" style={{height:44}}></td>
                       </tr>
