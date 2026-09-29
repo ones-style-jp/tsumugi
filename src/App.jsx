@@ -1226,7 +1226,47 @@ const upsertContactByName = (list, contact) => {
   return arr;
 };
 // ★ 血圧2列目の意味を店舗設定で切替: 'end'(終了時=標準) / 'recheckStart'(開始の再検査)。ラベルのみ変更（データ列は共通）。
-const secondBpLabel = (appData) => (appData?.systemSettings?.secondBpMode === 'recheckStart') ? '再測定' : '終了';
+// ★ 2026-09-29: 設定は「開始時＋終了時」(end) / 「開始時のみ」(startOnly)。旧方式 recheckStart(2列目=再測定)は
+//   選び直すまでそのまま。旧方式から「開始時のみ」に切り替えた店舗は secondBpLegacyRecheck=true で、
+//   過去の記録に残っている2列目の値を「再測定」として表示し続ける(データは消さない)。
+const secondBpLabel = (appData) => { const m = appData?.systemSettings?.secondBpMode; return (m === 'recheckStart' || (m === 'startOnly' && appData?.systemSettings?.secondBpLegacyRecheck)) ? '再測定' : '終了'; };
+const _recHasEn = (r) => !!r && !!(r.bpUpEn_AM || r.bpUpEn_PM || r.bpUpEn || r.bpDnEn_AM || r.bpDnEn_PM || r.bpDnEn || r.plEn_AM || r.plEn_PM || r.plEn);
+// 2列目(終了/再測定)を表示するか: 「開始時のみ」の店舗では、表示中の記録に2列目の値が無ければ列ごと隠す(過去データは残す)
+const secondBpVisible = (appData, recs) => (appData?.systemSettings?.secondBpMode || 'end') !== 'startOnly' || (Array.isArray(recs) ? recs : [recs]).some(_recHasEn);
+// ★ 再測定ログ(2026-09-29): record.bpRe = [{phase:'St'|'En', ampm:'AM'|'PM', n:回数, up, dn, pl, time:'HH:MM', at}]。
+//   「再」ボタンで再測定すると、それまでの値が n回目 としてここに残り、入力欄は再測定の値に置き換わる。
+//   特記(tokki)には書かない: 特記はご家族画面の「今回の様子」に出るため。スタッフ向けの画面・印刷でこのログを表示する。
+const bpReList = (r, ampm) => (Array.isArray(r?.bpRe) ? r.bpRe : []).filter(e => e && (!ampm || !e.ampm || e.ampm === ampm));
+const bpReHas = (r, phase, ampm) => bpReList(r, ampm).some(e => e.phase === phase);
+const bpReLines = (r, ampm) => bpReList(r, ampm).map(e => `${e.phase === 'En' ? '終了時' : '開始時'}${e.n || 1}回目 ${e.up || '－'}/${e.dn || '－'}${e.pl ? ` 脈${e.pl}` : ''}（再測定 ${e.time || ''}）`);
+
+// ★ 血圧・脈の再測定モーダル(2026-09-29 ユーザー指示: 開始時・終了時それぞれの横に「再」ボタン)
+function BpRemeasureModal({ phase, current, count, onSave, onClose }) {
+  const [up, setUp] = React.useState(''); const [dn, setDn] = React.useState(''); const [pl, setPl] = React.useState('');
+  const _now = new Date(); const [time, setTime] = React.useState(`${_now.getHours()}:${String(_now.getMinutes()).padStart(2, '0')}`);
+  const lbl = phase === 'En' ? '終了時' : '開始時';
+  const num = (v) => String(v || '').replace(/[^0-9０-９]/g, '').replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).slice(0, 3);
+  const curTxt = `${current.up || '－'}/${current.dn || '－'}${current.pl ? ` 脈${current.pl}` : ''}`;
+  const inp = 'w-full text-center text-xl font-bold border-2 border-slate-300 rounded-xl py-2 outline-none focus:border-blue-500';
+  return (
+    <div className="fixed inset-0 z-[9500] bg-slate-900/50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" data-testid="bp-re-modal">
+        <div className="text-base font-bold text-slate-800">{lbl}の血圧・脈を再測定</div>
+        <div className="text-xs text-slate-600 mt-1 mb-3">今の値「{curTxt}」は<b>「{lbl}{count + 1}回目」</b>として記録に残り、入力欄は再測定の値に置き換わります（特記には書きません）。</div>
+        <div className="grid grid-cols-3 gap-2">
+          <label className="flex flex-col gap-1 text-xs font-bold text-slate-500">血圧 上<input inputMode="numeric" autoFocus={!_tsumugiIsIOSLike()} value={up} onChange={e => setUp(num(e.target.value))} placeholder="－" className={inp} data-testid="bp-re-up" /></label>
+          <label className="flex flex-col gap-1 text-xs font-bold text-slate-500">血圧 下<input inputMode="numeric" value={dn} onChange={e => setDn(num(e.target.value))} placeholder="－" className={inp} data-testid="bp-re-dn" /></label>
+          <label className="flex flex-col gap-1 text-xs font-bold text-slate-500">脈<input inputMode="numeric" value={pl} onChange={e => setPl(num(e.target.value))} placeholder="－" className={inp} data-testid="bp-re-pl" /></label>
+        </div>
+        <label className="flex items-center gap-2 mt-3 text-xs font-bold text-slate-500">再測定した時刻<input type="text" value={time} onChange={e => setTime(e.target.value)} className="w-24 text-center text-sm font-bold border border-slate-300 rounded-lg py-1 outline-none" /></label>
+        <div className="flex justify-end gap-2 mt-4">
+          <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold">キャンセル</button>
+          <button type="button" disabled={!up && !dn && !pl} onClick={() => onSave({ up, dn, pl }, time.trim())} className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm font-bold" data-testid="bp-re-save">記録する</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // セル幅に収まる最大フォントで表示し、はみ出す場合は自動縮小する (折り返さない)
 function AutoFitText({ text, max = 13, min = 6, bold, color }) {
@@ -22290,6 +22330,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const timeFilter = (sharedAmpm === 'all' || !sharedAmpm) ? 'AM' : sharedAmpm;
   const setTimeFilter = (v) => setSharedAmpm && setSharedAmpm(v);
   const [keypad, setKeypad] = useState({ isOpen: false, recordId: null, field: null, value: "", isFirstInput: false });
+  const [bpReModal, setBpReModal] = useState(null); // ★ 再測定(2026-09-29) {recordId, phase:'St'|'En'}
   // ★ 拡大入力ビュー(2026-09-09 店舗要望): 高齢のスタッフでも見やすいよう、1名分のバイタル・運動・特記を大きな字で表示・入力
   const [zoomPid, setZoomPid] = useState(null);
   const kpConfirmRef = React.useRef(false); // ★ PC Enter: 1回目=確定 / 2回目=右のセルへ移動
@@ -22500,6 +22541,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
              pData.massage = existingRecord.massage || "";
              pData.exercises = existingRecord.exercises || {};
              pData.tokki = existingRecord.tokki || "";
+             pData.bpRe = Array.isArray(existingRecord.bpRe) ? existingRecord.bpRe : [];
              // ★ actualTime(提供時間)を復元。 これが無いと保存時に必ず "" で再構築され(19051)、
              //   保存済みの提供時間を全端末で消してしまっていた(空欄=施設の既定時間を使う意味)。
              pData.actualTime = existingRecord.actualTime || "";
@@ -22514,6 +22556,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
              pData.plSt_AM = ""; pData.plSt_PM = "";
              pData.bpUpEn_AM = ""; pData.bpUpEn_PM = ""; pData.bpDnEn_AM = ""; pData.bpDnEn_PM = "";
              pData.plEn_AM = ""; pData.plEn_PM = "";
+             pData.bpRe = [];
              pData.massage = "";
              pData.tokki = ""; pData.exercises = {}; pData.kibunArrival = ""; pData.kibunArrivalReason = "";
              pData.kibunDeparture = ""; pData.kibunDepartureReason = ""; pData.done = false;
@@ -22614,6 +22657,21 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     if (dirtyRef) dirtyRef.current = true;
   };
 
+  // ★ 血圧2列目(終了/再測定)の表示(2026-09-29): 「開始時のみ」の店舗では、その日の記録に2列目の値が無ければ列ごと隠す
+  const _showEn = secondBpVisible(appData, filterMode === 'single' ? localPatients : localTicketRecords);
+  // ★ 再測定を記録: それまでの値を bpRe に n回目 として残し、入力欄を再測定の値に置き換える
+  const applyBpRemeasure = (id, phase, vals, time) => {
+    const tf = timeFilter || 'AM';
+    const rec = (filterMode === 'single' ? localPatients : localTicketRecords).find(x => x.id === id); if (!rec) return;
+    const fBu = `bpUp${phase}_${tf}`, fBd = `bpDn${phase}_${tf}`, fPl = `pl${phase}_${tf}`;
+    const log = [...(Array.isArray(rec.bpRe) ? rec.bpRe : [])];
+    const n = log.filter(e => e && e.phase === phase && e.ampm === tf).length + 1;
+    log.push({ phase, ampm: tf, n, up: rec[fBu] || '', dn: rec[fBd] || '', pl: rec[fPl] || '', time: time || '', at: new Date().toISOString() });
+    updateRecord(id, 'bpRe', log);
+    if (vals.up || vals.dn) { updateRecord(id, fBu, vals.up || ''); updateRecord(id, fBd, vals.dn || ''); }
+    if (vals.pl) updateRecord(id, fPl, vals.pl);
+    setBpReModal(null);
+  };
   const updateExercise = (id, field, value) => {
     if (filterMode === 'single') { obsMarkRecEdit(id, selectedDate, 'exercises'); setLocalPatients(prev => prev.map(p => p.id === id ? { ...p, exercises: { ...(p.exercises || {}), [field]: value } } : p)); }
     else { obsMarkRecEditRec((localTicketRecords||[]).find(x=>x.id===id), 'exercises'); setLocalTicketRecords(prev => prev.map(p => p.id === id ? { ...p, exercises: { ...(p.exercises || {}), [field]: value } } : p)); }
@@ -23187,7 +23245,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     // 現在の timeFilter に合わせて ampm 別フィールドで Tab 巡回
     const _ampm = timeFilter || 'AM';
     // ★ 血圧は統合フィールド bpSt_combo / bpEn_combo で巡回
-    const baseFields = [`temp_${_ampm}`, `bpSt_combo_${_ampm}`, `plSt_${_ampm}`, `bpEn_combo_${_ampm}`, `plEn_${_ampm}`];
+    const baseFields = [`temp_${_ampm}`, `bpSt_combo_${_ampm}`, `plSt_${_ampm}`, `bpEn_combo_${_ampm}`, `plEn_${_ampm}`].filter(f => _showEn || !(f.startsWith('bpEn') || f.startsWith('plEn')));
     const exFields = (effExerciseItems(appData.systemSettings)).filter(item => item.useKeypad).map(item => item.id);
     const allFields = [...baseFields, ...exFields];
     let currentArray = filterMode === 'single' ? localPatients : localTicketRecords;
@@ -23299,6 +23357,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   bpUpEn_AM: p.bpUpEn_AM ?? "", bpUpEn_PM: p.bpUpEn_PM ?? "",
                   bpDnEn_AM: p.bpDnEn_AM ?? "", bpDnEn_PM: p.bpDnEn_PM ?? "",
                   plEn_AM: p.plEn_AM ?? "", plEn_PM: p.plEn_PM ?? "",
+                  ...(Array.isArray(p.bpRe) && p.bpRe.length ? { bpRe: p.bpRe } : {}),
                   // ★ 旧形式互換 (plain) フィールド: 分析・グラフ・家族画面などが参照する。
                   //   現 timeFilter の値を優先しつつ、空なら もう一方(AM/PM)の値を使う。
                   //   こうしないと「AMで血圧入力→保存(表示OK)→PM保存(PM血圧は空)」で plain が空に上書きされ、
@@ -23728,9 +23787,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         <th className="px-2 py-2 font-bold text-center border border-slate-700 whitespace-nowrap">気分</th>
                         <th className="px-1 py-2 font-bold text-center border border-slate-700 whitespace-nowrap">体温</th>
                         <th className="px-1 py-2 font-bold text-center border border-slate-700 whitespace-nowrap">開始 血圧/脈</th>
-                        <th className="px-1 py-2 font-bold text-center border border-slate-700 whitespace-nowrap">{secondBpLabel(appData)} 血圧/脈</th>
+                        {_showEn && <th className="px-1 py-2 font-bold text-center border border-slate-700 whitespace-nowrap">{secondBpLabel(appData)} 血圧/脈</th>}
                         {(effExerciseItems(appData.systemSettings)).map(item => (
-                          <th key={item.id} className={`px-0.5 py-2 font-bold text-center border text-[11px] truncate ${item.type==='individual' ? 'bg-emerald-800 text-emerald-50 border-emerald-700' : 'border-slate-700'}`}>{item.name}</th>
+                          <th key={item.id} className={`px-0.5 py-2 font-bold text-center border text-[11px] leading-tight ${item.type==='individual' ? 'bg-emerald-800 text-emerald-50 border-emerald-700' : 'border-slate-700'}`} style={{maxWidth:76,whiteSpace:'normal',wordBreak:'break-all'}}>{item.name}</th>
                         ))}
                         <th className="px-1 py-2 font-bold text-center border border-slate-700 whitespace-nowrap text-xs">介護整体</th>
                         <th className="px-2 py-2 font-bold text-center border border-slate-700 whitespace-nowrap">特記</th>
@@ -23849,7 +23908,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     ['開始 脈',`plSt_${tf}`,vPlSt,getPulseColorClass(vPlSt,true),vPlSt?`${vPlSt}`:'＋'],
                     [`${secondBpLabel(appData)} 血圧`,`bpEn_combo_${tf}`,(vBuEn||vBdEn)?`${vBuEn}${vBdEn?`/${vBdEn}`:''}`:'','text-slate-800',(vBuEn||vBdEn)?`${vBuEn}${vBdEn?`/${vBdEn}`:''}`:'＋'],
                     ['終了 脈',`plEn_${tf}`,vPlEn,getPulseColorClass(vPlEn,true),vPlEn?`${vPlEn}`:'＋']
-                  ]; })().map(([lbl,field,cur,colorCls,shown])=>{
+                  ]; })().filter(([,field]) => _showEn || !(String(field).startsWith('bpEn') || String(field).startsWith('plEn'))).map(([lbl,field,cur,colorCls,shown])=>{
                     const isBp = typeof field==='string' && field.includes('_combo_');
                     if(!_keypadOn){
                       return (
@@ -23874,6 +23933,14 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     );
                   })}
                 </div>
+                {/* ★ 再測定(2026-09-29): 開始時・終了時それぞれ。今の値は n回目 として残り、入力欄は再測定の値に */}
+                {!dis && (
+                  <div className="flex gap-1.5 mb-2">
+                    {['St', ...(_showEn ? ['En'] : [])].map(ph => { const cnt = bpReList(p, tf).filter(e => e.phase === ph).length; return (
+                      <button key={ph} type="button" data-testid={`bp-re-${ph}-${p.id}`} onClick={()=>setBpReModal({ recordId: p.id, phase: ph })} className={`text-[11px] font-bold rounded-lg px-2 py-1 border ${cnt ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-white border-slate-300 text-slate-600'}`}>{ph === 'St' ? '開始時' : '終了時'}を再測定{cnt ? `（${cnt}回）` : ''}</button>
+                    ); })}
+                  </div>
+                )}
                 {!isAbsent && <div className="grid grid-cols-3 gap-1.5">
                   {exItems.map(item=>{ const v=p.exercises?.[item.id]; const vs=String((typeof v==='object'?'':v)??''); const unit=item.defaultUnit||''; const disp=applyExUnits(vs, item); const ph=plannedEx[item.id]||'';
                     if(!_keypadOn){
@@ -23903,6 +23970,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     </button>
                     );})}
                 </div>}
+                {bpReLines(p, tf).length > 0 && <div className="text-[10px] font-bold text-amber-800 mb-0.5" data-testid="bp-re-lines">{bpReLines(p, tf).join('　')}</div>}
                 <input type="text" disabled={isReadOnly} value={p.tokki||''} onChange={e=>updateRecord(p.id,'tokki',e.target.value)} placeholder={isReadOnly?'':(isAbsent?'欠席理由...':(isPause?'休止中の特記...':'特記...'))} className="mt-2 w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-50"/>
               </div>
             );
@@ -23938,9 +24006,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800 text-xs">気分<div className="text-[8px] font-normal text-slate-400">通所/帰宅</div></th>
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800 text-xs">体温</th>
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">開始 血圧/脈</th>
-              <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">{secondBpLabel(appData)} 血圧/脈</th>
+              {_showEn && <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">{secondBpLabel(appData)} 血圧/脈</th>}
               {(effExerciseItems(appData.systemSettings)).map((item) => (
-                <th key={item.id} className={`px-1 py-3 font-medium text-center border whitespace-nowrap sticky top-0 z-40 text-xs ${item.type==='individual' ? 'bg-emerald-800 text-emerald-50 border-emerald-700' : 'bg-slate-800 border-slate-700 text-white'}`}>
+                <th key={item.id} className={`px-1 py-2 font-medium text-center border leading-tight sticky top-0 z-40 text-xs ${item.type==='individual' ? 'bg-emerald-800 text-emerald-50 border-emerald-700' : 'bg-slate-800 border-slate-700 text-white'}`} style={{maxWidth:76,whiteSpace:'normal',wordBreak:'break-all'}}>
                   {item.name}
                 </th>
               ))}
@@ -24106,9 +24174,11 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         </div>
                       )}
                       <input type="text" inputMode="numeric" readOnly={_keypadOn} disabled={isAbsent || isReadOnly || isPause} value={vPl} onClick={() => { if(_keypadOn){ openKeypad(p.id, fPl, vPl, isAbsent); setActiveCell(`${p.id}-${fPl}`); } }} onChange={_keypadOn ? undefined : (e)=>updateRecord(p.id, fPl, e.target.value)} style={{fontSize:14,padding:'0 1px',width:55,height:42,boxSizing:'border-box'}} className={`border rounded-lg text-center ${_keypadOn?'cursor-pointer':''} ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(vPl, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-${fPl}` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
+                      {!(isAbsent || isReadOnly || isPause) && <button type="button" data-testid={`bp-re-St-${p.id}`} title="血圧・脈を再測定して記録します（今の値は○回目として残ります）" onClick={()=>setBpReModal({ recordId: p.id, phase: 'St' })} className={`shrink-0 text-[10px] font-bold rounded px-1 py-0.5 border ${bpReHas(p,'St',timeFilter) ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-slate-50 border-slate-300 text-slate-600 hover:bg-blue-50'}`}>再{bpReHas(p,'St',timeFilter) ? bpReList(p,timeFilter).filter(e=>e.phase==='St').length : ''}</button>}
                     </div>
                     );})()}
                   </td>
+                  {_showEn && (
                   <td className={`px-1 py-1 border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`}>
                     {(() => { const fBu=`bpUpEn_${timeFilter}`, fBd=`bpDnEn_${timeFilter}`, fPl=`plEn_${timeFilter}`; const vBu=p[fBu]||"", vBd=p[fBd]||"", vPl=p[fPl]||"";
                     const fBpCombo = `bpEn_combo_${timeFilter}`;
@@ -24137,9 +24207,11 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         </div>
                       )}
                       <input type="text" inputMode="numeric" readOnly={_keypadOn} disabled={isAbsent || isReadOnly || isPause} value={vPl} onClick={() => { if(_keypadOn){ openKeypad(p.id, fPl, vPl, isAbsent); setActiveCell(`${p.id}-${fPl}`); } }} onChange={_keypadOn ? undefined : (e)=>updateRecord(p.id, fPl, e.target.value)} style={{fontSize:14,padding:'0 1px',width:55,height:42,boxSizing:'border-box'}} className={`border rounded-lg text-center ${_keypadOn?'cursor-pointer':''} ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(vPl, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-${fPl}` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
+                      {!(isAbsent || isReadOnly || isPause) && <button type="button" data-testid={`bp-re-En-${p.id}`} title="血圧・脈を再測定して記録します（今の値は○回目として残ります）" onClick={()=>setBpReModal({ recordId: p.id, phase: 'En' })} className={`shrink-0 text-[10px] font-bold rounded px-1 py-0.5 border ${bpReHas(p,'En',timeFilter) ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-slate-50 border-slate-300 text-slate-600 hover:bg-blue-50'}`}>再{bpReHas(p,'En',timeFilter) ? bpReList(p,timeFilter).filter(e=>e.phase==='En').length : ''}</button>}
                     </div>
                     );})()}
                   </td>
+                  )}
 
                   {(effExerciseItems(appData.systemSettings)).map((item) => {
                     // type='individual' の場合はプルダウン+入力の特殊セル
@@ -24163,12 +24235,14 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       // ★ 規定値(グレー数値)は「選択日時点」の設定値を使用 (日付単位のサービス内容変更に連動・翌月から切替)
                       const _datedInd = getIndividualExercisesForDate(targetPatient, selectedDate);
                       const patDefault = selItem ? (((_datedInd.find(x => x.itemId === selItem.id)?.defaultValue) ?? (patSettings.find(x => x.itemId === selItem.id)?.defaultValue)) || '') : '';
+                      // ★ 2026-09-29(店舗報告: 500gg/15回回): 規定値は設定時点で単位付きなので applyExUnits(冪等)で整える。単位を後ろから足さない
+                      const _indPh = selItem ? (patDefault ? applyExUnits(patDefault, selItem) : '') : '未選択';
                       // ★ 種目名はセル幅(60px)に合わせて可変フォント: 短い名前は大きく、3〜4文字以上は縮小して収める
                       const _indName = selItem?.name || '';
-                      const _indNameFs = !_indName ? 11 : _indName.length<=2 ? 15 : _indName.length===3 ? 13 : _indName.length===4 ? 11 : _indName.length<=6 ? 10 : 9;
-                      // ★ 値の表示フォント: ○ は大きく太く、数値は桁数で縮小
+                      const _indNameFs = !_indName ? 11 : _indName.length<=2 ? 15 : _indName.length===3 ? 13 : _indName.length===4 ? 11 : _indName.length<=6 ? 10 : _indName.length<=8 ? 9 : 8;
+                      // ★ 値の表示フォント: ○ は大きく太く、数値は桁数で縮小。値が空のときは規定値(プレースホルダー)の長さで判定(見切れ防止)
                       const _indIsCircle = cur.value==='○'||cur.value==='◯';
-                      const _indValLen = String(cur.value||'').length;
+                      const _indValLen = String(cur.value||'').length || String(_indPh||'').length;
                       const _indValFs = _indIsCircle ? 21 : (_indValLen>=8 ? 7 : _indValLen>=6 ? 8 : _indValLen>=5 ? 9 : _indValLen>=4 ? 11 : _indValLen>=3 ? 12 : 15);
                       return (
                         <td key={item.id} data-ind-cell className={`px-1 py-0 align-middle border border-emerald-200 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-emerald-50/40'}`}>
@@ -24184,7 +24258,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                             onClick={()=>{ if(!_keypadOn) return; if(isAbsent||isReadOnly||isPause||!selItem) return; if(!cur.itemId && effItemId) updateExercise(p.id, item.id, {...cur, itemId: effItemId}); openKeypad(p.id, item.id, cur.value||'', isAbsent); setActiveCell(`${p.id}-${item.id}`); }}
                             onChange={_keypadOn ? undefined : (e)=>updateExercise(p.id, item.id, {...cur, itemId: cur.itemId||effItemId, value: e.target.value})}
                             onBlur={_keypadOn ? undefined : (e)=>updateExercise(p.id, item.id, {...cur, itemId: cur.itemId||effItemId, value: applyExUnits(e.target.value, selItem)})}
-                            placeholder={selItem?`${patDefault||''}${(patDefault && selItem.defaultUnit)?`${exUnitLabel(selItem)}`:''}`:'未選択'}
+                            placeholder={_indPh}
                             style={{fontSize:_indValFs,padding:'0 1px',height:31,boxSizing:'border-box',letterSpacing:'-0.3px',fontWeight: _indIsCircle ? 900 : 'bold', WebkitTextStroke: _indIsCircle ? '1.1px currentColor' : undefined, lineHeight:1, cursor: selItem?'pointer':'default'}}
                             className={`w-full text-center border rounded bg-white outline-none disabled:opacity-40 placeholder-slate-400 ${activeCell===`${p.id}-${item.id}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-emerald-300 focus:border-emerald-500'}`}/>
                         </td>
@@ -24317,6 +24391,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                                 : <span style={{fontSize:8.5,whiteSpace:'nowrap'}}>非表示中</span>}
                             </button>
                           )}
+                          {bpReLines(p, timeFilter).length > 0 && <div className="text-[10px] font-bold text-amber-800 whitespace-nowrap" data-testid="bp-re-lines" title={bpReLines(p, timeFilter).join('\n')}>{bpReLines(p, timeFilter).join('　')}</div>}
                           <textarea disabled={isReadOnly} value={p.tokki || ""} onChange={(e) => updateRecord(p.id, 'tokki', e.target.value)} rows={2}
                             className={`flex-1 px-2 border rounded-lg text-xs bg-transparent outline-none disabled:opacity-80 resize-none ${isReadOnly ? 'border-transparent' : 'border-slate-300 shadow-inner bg-white'}`}
                             style={{fontSize:14,lineHeight:1.4,padding:'2px 6px',height:'100%'}}
@@ -24470,6 +24545,13 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           <span>⚠ {vitalWarn}</span>
           <button onClick={()=>setVitalWarn(null)} style={{background:'rgba(255,255,255,0.2)',border:'none',color:'white',borderRadius:8,padding:'4px 10px',fontWeight:'bold',cursor:'pointer',fontSize:12}}>閉じる</button>
         </div>, document.body)}
+      {bpReModal && (() => {
+        const tf = timeFilter || 'AM';
+        const rec = (filterMode === 'single' ? localPatients : localTicketRecords).find(x => x.id === bpReModal.recordId);
+        if (!rec) return null;
+        const ph = bpReModal.phase;
+        return <BpRemeasureModal phase={ph} current={{ up: rec[`bpUp${ph}_${tf}`] || '', dn: rec[`bpDn${ph}_${tf}`] || '', pl: rec[`pl${ph}_${tf}`] || '' }} count={bpReList(rec, tf).filter(e => e.phase === ph).length} onSave={(vals, time) => applyBpRemeasure(rec.id, ph, vals, time)} onClose={() => setBpReModal(null)} />;
+      })()}
       <DigitalKeypad isOpen={keypad.isOpen} anchorKey={`${keypad.recordId}-${keypad.field}`} zoom={isFullscreen ? 1.2 : 1} value={keypad.value} isFirstInput={keypad.isFirstInput} mode={keypad.mode} onClose={() => { _checkVitalRange(keypad.field, keypad.value); setKeypad({...keypad, isOpen: false}); }} onInput={handleKeypadInput} onEnter={handleKeypadEnter} onTab={handleTab} quickButtons={appData.systemSettings?.exerciseQuickButtons} prefixButtons={String(keypad.field||'').startsWith('temp') ? ['35.','36.','37.'] : null}
         unitSep={(()=>{ const _ei=(appData.systemSettings?.exerciseItems||appSettings.exerciseItems).find(i=>i.id===keypad.field); if(_ei && _ei.type!=='individual') return _ei.unitSep||''; const _rec=(filterMode==='single'?localPatients:localTicketRecords).find(x=>x.id===keypad.recordId); const _cur=_rec&&_rec.exercises&&_rec.exercises[keypad.field]; const _iid=(_cur&&typeof _cur==='object')?_cur.itemId:null; if(_iid){ const _ii=(appData.systemSettings?.individualExerciseItems||appSettings.individualExerciseItems||[]).find(x=>x.id===_iid); return (_ii&&_ii.unitSep)||''; } return ''; })()}/>
 
@@ -24554,6 +24636,31 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   <div style={{fontSize:16,fontWeight:'bold',color:'#0f172a',marginBottom:8}}>運動メニュー <span style={{fontSize:13,fontWeight:'normal',color:'#334155'}}>（うすい字は本日の目安。タップで入力）</span></div>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:10}}>
                     {exItems.map(item => {
+                      // ★ 2026-09-29(店舗要望): 個別運動は「個別運動①／ー」ではなく、選んでいる種目名と規定値を表示
+                      if (item.type === 'individual') {
+                        const _pid = p.patientId || p.id; const _tp = (appData.patients||[]).find(pp => pp.id === _pid);
+                        const _all = appData.systemSettings?.individualExerciseItems || [];
+                        const _cur = (p.exercises && typeof p.exercises[item.id] === 'object') ? p.exercises[item.id] : { itemId:'', value:'' };
+                        const _effId = _cur.itemId || _tp?.individualExerciseSlotDefaults?.[item.id] || '';
+                        const _sel = _all.find(it => it.id === _effId);
+                        const _raw = _tp?.individualExercises;
+                        const _ps = (_raw === undefined || _raw === null) ? _all.map(it => ({itemId: it.id, defaultValue: ''})) : _raw;
+                        const _dated = getIndividualExercisesForDate(_tp, selectedDate) || [];
+                        const _def = _sel ? (((_dated.find(x => x.itemId === _sel.id)?.defaultValue) ?? (_ps.find(x => x.itemId === _sel.id)?.defaultValue)) || '') : '';
+                        const _ph = (_sel && _def) ? applyExUnits(_def, _sel) : '';
+                        const _disp = _sel ? applyExUnits(_cur.value || '', _sel) : '';
+                        const _act = keypad.isOpen && keypad.recordId === p.id && keypad.field === item.id;
+                        return (
+                          <button key={item.id} type="button" disabled={dis || !_sel} data-testid={`zoom-ind-${item.id}`}
+                            onClick={()=>{ if(!_cur.itemId && _effId) updateExercise(p.id, item.id, {..._cur, itemId: _effId}); openKeypad(p.id, item.id, _cur.value||'', isAbsent, true); setActiveCell(`${p.id}-${item.id}`); }}
+                            className={`rounded-2xl border-2 p-3 flex flex-col items-center gap-1 disabled:opacity-40 active:scale-95 ${_act?'border-blue-500 ring-2 ring-blue-300 bg-blue-50':'border-emerald-500 bg-emerald-50/40'}`}>
+                            <span style={{fontSize:11,fontWeight:'bold',color:'#047857'}}>{item.name}</span>
+                            <span style={{fontSize:15,fontWeight:'bold',color:'#1e293b',textAlign:'center',lineHeight:1.3}}>{_sel ? _sel.name : '未選択'}</span>
+                            <span style={{fontSize: /^[○×〇ー－-]+$/.test(String(_disp).trim()) ? 32 : 28, fontWeight: /^[○×〇ー－-]+$/.test(String(_disp).trim()) ? 900 : 'bold', color: _disp?'#0f172a':'#64748b', lineHeight:1.15, textAlign:'center'}}>{_disp || (_ph ? _ph : 'ー')}</span>
+                            {_disp && _ph && <span style={{fontSize:12,color:'#475569'}}>目安: {_ph}</span>}
+                          </button>
+                        );
+                      }
                       const v = p.exercises?.[item.id];
                       const vs = String((typeof v==='object'?'':v) ?? '');
                       const disp = applyExUnits(vs, item);
@@ -25286,7 +25393,10 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   // ★ お迎え時間(2026-09-29 ユーザー指示: 提供開始時刻ではなく「お迎え時間」を出す): 送迎表(transportPlans)にその日の
   //   乗車時間があればそれを優先、無ければ getNextVisitInfo の時間(曜日の送迎時間→提供開始10分前)。徒歩は '徒歩'
   // ★ 「13時　　分」(分が未定の送迎時間)は「13時」に整える。「　時　分」(全部未定)は空
-  const _normT = (t) => String(t || '').replace(/^[　\s]*時[　\s]*分$/, '').replace(/時[　\s]*分$/, '時').replace(/^[　\s]+/, '').trim();
+  // ★ 2026-09-29 ユーザー指示: 分が未定の「13時　分」は「13時」にしない(13時ちょうどと誤解されるため)。「　時　分」(全部未定)だけ空にする
+  const _normT = (t) => String(t || '').replace(/^[　\s]*時[　\s]*分$/, '').replace(/時[　\s]{2,}分$/, '時　分').replace(/^[　\s]+/, '').trim();
+  const _minUnset = (t) => /\d時[　\s]*分$/.test(String(t || ''));
+  const _isoTomorrowOrToday = (iso) => { try { const d = new Date(iso + 'T00:00:00'); const t0 = new Date(); t0.setHours(0,0,0,0); const diff = d - t0; return diff >= 0 && diff <= 86400000; } catch { return false; } };
   // ★ 連絡帳の「次回予定」(2026-09-29 ユーザー指示: 9/25 の連絡帳に 13時10分 と書いたならそれを出す):
   //   その日より前(45日以内)の来所記録のうち、次回日付が info の日付を指していて nextTimeOverride に数字がある最新のもの
   const _cbNextTime = (info) => {
@@ -25308,6 +25418,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
       return best ? _normT(best.nextTimeOverride) : '';
     } catch { return ''; }
   };
+  const _showEn2 = secondBpVisible(appData, records);
   const _pickupOf = (info) => {
     let t = '';
     try {
@@ -25346,7 +25457,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
       const today = new Date(); const tstr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
       const info = getNextVisitInfo(selectedPatient, tstr, appData.monthlyShifts, appData);
       if (!info || !info.iso) return { date: info?.date || '未定', time: '' };
-      return { date: info.date, time: _pickupOf(info), isFurikae: !!info.isFurikae };
+      return { date: info.date, time: _pickupOf(info), isFurikae: !!info.isFurikae, iso: info.iso };
     } catch { return null; }
   })();
   return (
@@ -26027,6 +26138,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             <span style={{fontSize:22,fontWeight:'bold',color:'#1e3a8a',letterSpacing:0.5}}>{todayVisit.dateLabel}</span>
             {todayVisit.isFurikae && <span style={{fontSize:12,fontWeight:'bold',color:'#059669',background:'#d1fae5',borderRadius:6,padding:'1px 8px'}}>振替</span>}
             <span style={{fontSize:22,fontWeight:'bold',color:'#1e3a8a'}}>{todayVisit.time ? (todayVisit.time === '徒歩' ? '徒歩でご来所' : <>お迎え <span style={{fontSize:26}}>{todayVisit.time}</span> 頃</>) : <span style={{fontSize:14,color:'#475569',fontWeight:'normal'}}>お迎え時間は事業所にご確認ください</span>}</span>
+            {_minUnset(todayVisit.time) && <span data-testid="min-unset" style={{fontSize:12,color:'#b45309',fontWeight:'bold'}}>お迎え時間の「分」が未設定です。事業所にお問い合わせください</span>}
             <span style={{fontSize:13,color:'#475569'}}>記録は利用後に表示されます</span>
           </div>
         )}
@@ -26036,6 +26148,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             <span style={{fontSize:22,fontWeight:'bold',color:'#14532d',letterSpacing:0.5}}>{nextVisit.date}</span>
             {nextVisit.isFurikae && <span style={{fontSize:12,fontWeight:'bold',color:'#059669',background:'#d1fae5',borderRadius:6,padding:'1px 8px'}}>振替</span>}
             <span style={{fontSize:22,fontWeight:'bold',color:'#14532d'}}>{nextVisit.time ? (nextVisit.time === '徒歩' ? '徒歩でご来所' : <>お迎え <span style={{fontSize:26}}>{nextVisit.time}</span> 頃</>) : <span style={{fontSize:14,color:'#475569',fontWeight:'normal'}}>お迎え時間は事業所にご確認ください</span>}</span>
+            {_minUnset(nextVisit.time) && nextVisit.iso && _isoTomorrowOrToday(nextVisit.iso) && <span data-testid="min-unset" style={{fontSize:12,color:'#b45309',fontWeight:'bold'}}>お迎え時間の「分」が未設定です。事業所にお問い合わせください</span>}
           </div>
         )}
         {/* ★ 今回の様子＋今回の記録 を1つの枠で囲む (ご家族にわかりやすいよう枠色を変える)。 順序: 様子 → 記録 */}
@@ -26200,16 +26313,18 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                         <div style={{fontWeight:'bold',color:'#1e293b',fontSize:18,lineHeight:1.2,marginTop:2,display:'flex',alignItems:'baseline',gap:10,flexWrap:'wrap'}}>
                           {latest.bpUpSt ? <span>{latest.bpUpSt}/{latest.bpDnSt}<span style={{fontSize:10,color:'#64748b',marginLeft:2}}>mmHg</span></span> : <span style={{color:'#cbd5e1',fontSize:14}}>—</span>}
                           {latest.plSt && <span>{latest.plSt}<span style={{fontSize:10,color:'#64748b',marginLeft:2}}>回</span></span>}
+                          {!compactMode && bpReHas(latest,'St') && <span style={{fontSize:10,color:'#b45309',fontWeight:'normal',flexBasis:'100%'}}>{bpReLines(latest).filter(l=>l.startsWith('開始')).join(' / ')}</span>}
                         </div>
                       </div>
-                      {/* 血圧+脈 終了 (右下) */}
-                      <div>
+                      {/* 血圧+脈 終了 (右下) ★ 「開始時のみ」の店舗で値が無ければ出さない */}
+                      {secondBpVisible(appData, latest) && <div>
                         <span style={{color:'#64748b',fontSize:10,fontWeight:'bold'}}>血圧 / 脈 ({secondBpLabel(appData)})</span>
                         <div style={{fontWeight:'bold',color:'#1e293b',fontSize:18,lineHeight:1.2,marginTop:2,display:'flex',alignItems:'baseline',gap:10,flexWrap:'wrap'}}>
                           {latest.bpUpEn ? <span>{latest.bpUpEn}/{latest.bpDnEn}<span style={{fontSize:10,color:'#64748b',marginLeft:2}}>mmHg</span></span> : <span style={{color:'#cbd5e1',fontSize:14}}>—</span>}
                           {latest.plEn && <span>{latest.plEn}<span style={{fontSize:10,color:'#64748b',marginLeft:2}}>回</span></span>}
+                          {!compactMode && bpReHas(latest,'En') && <span style={{fontSize:10,color:'#b45309',fontWeight:'normal',flexBasis:'100%'}}>{bpReLines(latest).filter(l=>l.startsWith('終了')).join(' / ')}</span>}
                         </div>
-                      </div>
+                      </div>}
                       {/* 旧 気分位置 (削除済) */}
                       {false && (
                       <div>
@@ -27761,7 +27876,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
               <thead>
                 <tr style={{backgroundColor:'#f8fafc',borderBottom:'1px solid #94a3b8'}}>
                   {/* ★ 項目名を中央配置 (左寄せ → center) */}
-                  {['日付','状態','気分(通)','気分(帰)','体温','開始 血圧/脈',`${secondBpLabel(appData)} 血圧/脈`,...(effExerciseItems(appData.systemSettings)).map(e=>e.name),'介護整体','特記'].map(h=>(
+                  {['日付','状態','気分(通)','気分(帰)','体温','開始 血圧/脈',...(_showEn2 ? [`${secondBpLabel(appData)} 血圧/脈`] : []),...(effExerciseItems(appData.systemSettings)).map(e=>e.name),'介護整体','特記'].map(h=>(
                     <th key={h} style={{padding:'8px 10px',textAlign:'center',fontWeight:'bold',color:'#1e293b',whiteSpace:'nowrap',fontSize:14}}>{h}</th>
                   ))}
                 </tr>
@@ -27790,9 +27905,9 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                       <td style={{padding:'8px 10px',textAlign:'center',fontWeight:'bold',color:bpW?'#dc2626':'#475569',whiteSpace:'nowrap'}}>
                         {r.bpUpSt?`${r.bpUpSt}/${r.bpDnSt}`:'-'}{r.plSt&&<span style={{color:'#334155',marginLeft:3,fontSize:14}}>({r.plSt})</span>}{bpW&&'⚠'}
                       </td>
-                      <td style={{padding:'8px 10px',textAlign:'center',fontWeight:'bold',color:'#475569',whiteSpace:'nowrap'}}>
+                      {_showEn2 && <td style={{padding:'8px 10px',textAlign:'center',fontWeight:'bold',color:'#475569',whiteSpace:'nowrap'}}>
                         {r.bpUpEn?`${r.bpUpEn}/${r.bpDnEn}`:'-'}{r.plEn&&<span style={{color:'#334155',marginLeft:3,fontSize:14}}>({r.plEn})</span>}
-                      </td>
+                      </td>}
                       {(effExerciseItems(appData.systemSettings)).map(ex=>{
                         let rawV = r.exercises?.[ex.id];
                         // ★ 個別運動スロット {itemId,value}: value を取り出す(そのまま String すると [object Object] になる)。
@@ -30009,7 +30124,7 @@ function buildAllPeriodTicketHtml(appData, patient) {
             ${exCells}
             <td style="border:1px solid #94a3b8;text-align:center;font-size:11px;font-weight:bold;padding:1px;">${v(r.massage)}</td>
           </tr>
-          <tr style="height:30px;background:${rowBg};"><td style="border:1px solid #94a3b8;background:#f1f5f9;text-align:center;font-size:10px;font-weight:bold;color:#64748b;padding:1px;">特記</td><td colspan="${5 + exerciseItems.length + 1}" style="border:1px solid #94a3b8;text-align:left;font-size:10px;color:#1e293b;padding:1px 4px;background:${rowBg};">${(v(r.tokki)||'').replace(/</g,'&lt;').replace(/\n/g,'<br/>')}</td></tr>`;
+          <tr style="height:30px;background:${rowBg};"><td style="border:1px solid #94a3b8;background:#f1f5f9;text-align:center;font-size:10px;font-weight:bold;color:#64748b;padding:1px;">特記</td><td colspan="${5 + exerciseItems.length + 1}" style="border:1px solid #94a3b8;text-align:left;font-size:10px;color:#1e293b;padding:1px 4px;background:${rowBg};">${((isA||mt) ? '' : [v(r.tokki)||'', ...bpReLines(r)].filter(Boolean).join('\n')).replace(/</g,'&lt;').replace(/\n/g,'<br/>')}</td></tr>`;
       }).join('');
       const emptyRows = Math.max(0, PER_PAGE - rows.length);
       const emptyRowsHtml = Array.from({length: emptyRows}).map(() => `<tr style="height:38px;"><td rowspan="2" style="border:1px solid #475569;background:#f8fafc;height:74px;"></td>${Array.from({length: 5 + exerciseItems.length + 1}).map(() => '<td style="border:1px solid #94a3b8;"></td>').join('')}</tr><tr style="height:30px;"><td style="border:1px solid #94a3b8;background:#f1f5f9;text-align:center;font-size:10px;color:#cbd5e1;padding:1px;">特記</td><td colspan="${5 + exerciseItems.length + 1}" style="border:1px solid #94a3b8;"></td></tr>`).join('');
@@ -30456,7 +30571,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                         {/* 特記行 */}
                         <tr className={`tokki-row ${rc}`} style={{height:36}}>
                           <td className="border-l border-b border-slate-400 px-1 py-0 bg-slate-100 text-center text-[9px] text-slate-500 font-bold" ><div className="cell-wrap">特記</div></td>
-                          <td colSpan={tc - 2} className="border-r border-b border-slate-400 px-1.5 py-0 text-[10px] text-slate-700" ><div className="cell-wrap" style={{overflow:'hidden'}}>{r.tokki||''}</div></td>
+                          <td colSpan={tc - 2} className="border-r border-b border-slate-400 px-1.5 py-0 text-[10px] text-slate-700" ><div className="cell-wrap" style={{overflow:'hidden'}}>{[r.tokki||'', ...bpReLines(r)].filter(Boolean).join('　')}</div></td>
                         </tr>
                       </Fragment>
                     );
@@ -32096,7 +32211,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                       <tbody>
                         <tr>
                           <td style={{fontSize:17, whiteSpace:'nowrap', paddingRight:4}}>開始時　血圧</td>
-                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap', paddingRight:0, minWidth:'6em'}}>{record.bpUpSt ? `${record.bpUpSt} / ${record.bpDnSt}` : "　"}</td>
+                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap', paddingRight:0, minWidth:'6em'}}>{record.bpUpSt ? `${record.bpUpSt} / ${record.bpDnSt}` : "　"}{bpReHas(record,'St') && <span style={{fontSize:11,fontWeight:'normal',marginLeft:2}}>（再測定）</span>}</td>
                           <td style={{fontSize:17, whiteSpace:'nowrap', paddingLeft:24, paddingRight:26}}>脈拍</td>
                           <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap'}}>{record.plSt || "　"}</td>
                         </tr>
@@ -32115,7 +32230,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                       <tbody>
                         <tr>
                           <td style={{fontSize:17, whiteSpace:'nowrap', paddingRight:4}}>{secondBpLabel(appData)==='終了'?'終了時':secondBpLabel(appData)}　血圧</td>
-                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap', paddingRight:0, minWidth:'6em'}}>{record.bpUpEn ? `${record.bpUpEn} / ${record.bpDnEn}` : "　"}</td>
+                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap', paddingRight:0, minWidth:'6em'}}>{record.bpUpEn ? `${record.bpUpEn} / ${record.bpDnEn}` : "　"}{bpReHas(record,'En') && <span style={{fontSize:11,fontWeight:'normal',marginLeft:2}}>（再測定）</span>}</td>
                           <td style={{fontSize:17, whiteSpace:'nowrap', paddingLeft:24, paddingRight:26}}>脈拍</td>
                           <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap'}}>{record.plEn || "　"}</td>
                         </tr>
@@ -36532,7 +36647,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 return(<div key={si.id} className="flex-1 min-w-[120px]"><label className="block text-sm font-bold text-slate-600 mb-1">{si.label}</label><select disabled={isOff} value={localPatient[fkey]||''} onChange={e=>updateLP(fkey,e.target.value)} className="w-full px-3 py-3 bg-slate-50 border border-slate-300 rounded-xl font-bold text-base outline-none cursor-pointer disabled:opacity-60">{opts.map(o=><option key={o} value={o}>{o}</option>)}</select></div>);
               })}</div>
               {/* ★ 個別運動(type:'individual')のスロットはここに基準値を持たせない。 基準値は下の「個別運動メニュー」で管理(重複解消)。 */}
-              <div><h3 className="text-sm font-bold text-slate-600 mb-3">運動メニュー</h3><div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">{(effExerciseItems(appData.systemSettings)).filter(item => item.type !== 'individual').map(item => { const isActive = keypad.isOpen && keypad.exerciseId === item.id; return (<div key={item.id} className={`p-2.5 rounded-xl border ${isActive ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-300' : 'bg-slate-50 border-slate-200'}`}><label className="block text-[12px] font-bold text-slate-500 mb-1 text-center truncate">{item.name}{(item.defaultUnit || item.defaultUnit2) && item.type !== 'individual' && <span className="text-[9px] text-slate-400 font-normal ml-1">({[item.defaultUnit, item.defaultUnit2].filter(Boolean).join('/')})</span>}</label><input type="text" inputMode="text" readOnly={_mKeypadOn} disabled={isOff} value={(localPatient.plannedExercises && localPatient.plannedExercises[item.id]) || ""}
+              <div><h3 className="text-sm font-bold text-slate-600 mb-3">運動メニュー</h3><div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">{(effExerciseItems(appData.systemSettings)).filter(item => item.type !== 'individual').map(item => { const isActive = keypad.isOpen && keypad.exerciseId === item.id; return (<div key={item.id} className={`p-2.5 rounded-xl border ${isActive ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-300' : 'bg-slate-50 border-slate-200'}`}><label className="block text-[12px] font-bold text-slate-500 mb-1 text-center leading-tight" style={{wordBreak:'break-all'}}>{item.name}{(item.defaultUnit || item.defaultUnit2) && item.type !== 'individual' && <span className="text-[9px] text-slate-400 font-normal ml-1 whitespace-nowrap">({[item.defaultUnit, item.defaultUnit2].filter(Boolean).join('/')})</span>}</label><input type="text" inputMode="text" readOnly={_mKeypadOn} disabled={isOff} value={(localPatient.plannedExercises && localPatient.plannedExercises[item.id]) || ""}
                 onClick={() => { if (!isOff && _mKeypadOn) setKeypad({ isOpen: true, field: 'plannedExercise', exerciseId: item.id, value: (localPatient.plannedExercises && localPatient.plannedExercises[item.id]) || "", isFirstInput: true, mode: 'exercise' }); }}
                 onChange={_mKeypadOn ? undefined : (e)=>updateLP('plannedExercises', { ...(localPatient.plannedExercises || {}), [item.id]: e.target.value })}
                 onBlur={_mKeypadOn ? undefined : (e)=>{ let v=(e.target.value||'').trim(); if(v && item.defaultUnit && /[0-9０-９]/.test(v) && !v.endsWith(item.defaultUnit)) updateLP('plannedExercises', { ...(localPatient.plannedExercises || {}), [item.id]: `${v}${item.defaultUnit}` }); }}
@@ -39861,12 +39976,12 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                 <span className="text-sm font-bold text-slate-700">テンキー（点キー）を表示する{ss.keypadDisabled===true && <span className="ml-2 text-xs font-normal text-amber-600">現在OFF：通常キーボードで入力します</span>}</span>
               </label>
             </SectionCard>
-            <SectionCard title="血圧の測定項目（2列目）">
-              <p className="text-xs text-slate-500 mb-3">提供記録入力の血圧2列目を、店舗の運用に合わせて選べます。どちらも血圧は<b>2列（開始＋2列目）</b>のままで、表の幅は変わりません。再検査などの補足は<b>特記</b>にも記入できます（分析個人の「今日の内容」に表示されます）。</p>
+            <SectionCard title="血圧・脈の測定">
+              <p className="text-xs text-slate-500 mb-3">提供記録入力で測る血圧・脈の列を店舗の運用に合わせて選べます。「開始時のみ」にすると終了時の列は表示されません（過去に入力した値がある日は表示されます）。測り直しは各列の<b>「再」ボタン</b>で記録します（それまでの値は「○回目」として記録に残り、入力欄は再測定の値に置き換わります）。</p>
               <div className="flex flex-col gap-2">
-                {[['end','開始時血圧 ＋ 終了時血圧（標準）'],['recheckStart','開始時血圧 ＋ 再測定血圧（終了時を測らない店舗向け）']].map(([v,label])=>(
+                {[['end','開始時 ＋ 終了時（標準）'],['startOnly','開始時のみ（終了時は測らない）'],...((ss.secondBpMode==='recheckStart') ? [['recheckStart','開始時 ＋ 再測定（旧方式・2列目に再測定値を入力）']] : [])].map(([v,label])=>(
                   <label key={v} className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl p-3 cursor-pointer">
-                    <input type="radio" name="secondBpMode" checked={(ss.secondBpMode||'end')===v} onChange={()=>saveSS({ secondBpMode: v }, '✓ 血圧2列目の設定を変更しました')} className="w-5 h-5" style={{accentColor:'#2563eb'}}/>
+                    <input type="radio" name="secondBpMode" checked={(ss.secondBpMode||'end')===v} onChange={()=>saveSS({ secondBpMode: v, ...((v==='startOnly' && (ss.secondBpMode==='recheckStart' || ss.secondBpLegacyRecheck)) ? { secondBpLegacyRecheck: true } : {}) }, '✓ 血圧・脈の測定設定を変更しました')} className="w-5 h-5" style={{accentColor:'#2563eb'}}/>
                     <span className="text-sm font-bold text-slate-700">{label}</span>
                   </label>
                 ))}
