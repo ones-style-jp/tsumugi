@@ -10213,7 +10213,7 @@ const generateMonthlySchedule = (patients, year, month, monthlyShifts, ticketRec
         status: existing?.status || status,
         temp: existing?.temp || "",
         bpRe: Array.isArray(existing?.bpRe) ? existing.bpRe : [],   // ★ 再測定ログ(印刷の特記に「開始 1回目 …」を出す・2026-09-29)
-        kinouStaff: existing?.kinouStaff || "",                       // ★ 個別機能訓練の実施担当(印刷の日付欄「個別: ○○」)
+        kinouStaff: existing?.kinouStaff || existing?.kinouStaff_AM || existing?.kinouStaff_PM || "",   // ★ 個別機能訓練の実施担当(印刷の日付欄「個別: ○○」)
         bpUpSt: existing?.bpUpSt || "",
         bpDnSt: existing?.bpDnSt || "",
         plSt: existing?.plSt || "",
@@ -20823,6 +20823,7 @@ export default function App() {
   }, []);
 
   const navigateTo = (view, patientId = null, focus = null) => {
+    if (view !== 'master' && view !== 'ticket') { try { sessionStorage.removeItem('tsumugiPFOrigin'); } catch {} }
     const isDirty = (currentView === 'record' && recordDirtyRef.current) ||
                    (currentView === 'master' && masterDirtyRef.current) ||
                    (currentView === 'settings' && settingsDirtyRef.current) ||
@@ -20861,6 +20862,10 @@ export default function App() {
     setNavFocus(focus || null);
     setCurrentView(view);
   };
+  // ★ 1つ前の画面(2026-09-29 ユーザー指示): 提供記録などの「戻る」は固定の画面ではなく直前の画面へ
+  const prevViewRef = useRef(null); const lastViewRef = useRef(currentView);
+  React.useEffect(() => { if (lastViewRef.current !== currentView) { prevViewRef.current = lastViewRef.current; lastViewRef.current = currentView; } }, [currentView]);
+  const navigateBack = (fallback = 'master') => navigateTo(prevViewRef.current && prevViewRef.current !== currentView ? prevViewRef.current : fallback);
 
   const formatDateDisplay = (dateString) => {
     if (!dateString) return '';
@@ -21968,7 +21973,7 @@ export default function App() {
             <div style={isMobileLayout ? {width:'100%',minWidth:0} : (currentView==='dashboard' || currentView==='print' || currentView==='master' || currentView==='diary') ? {width:'100%',minWidth:0,height:'100%'} : {minWidth:DESIGN_WIDTH, zoom: contentScale<1 ? contentScale : 1, width: contentScale<1 ? `${100/contentScale}%` : '100%', height: contentScale<1 ? `${100/contentScale}%` : '100%'}}>
             {currentView === 'dashboard' ? <DashboardView appData={appData} navigateTo={navigateTo} activeRecorder={activeRecorder} notices={visibleNotices} devNotes={devUpdateNotes} isNoticeRead={isNoticeRead} markNoticeRead={markNoticeRead} /> :
              currentView === 'record' ? <RecordView appData={appData} activeRecorder={activeRecorder} onSave={handleSaveToCloud} navigateTo={navigateTo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={recordDirtyRef} saveFnRef={recordSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} showTip={showTip} hideTip={hideTip} isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} deviceName={deviceName} /> :
-             currentView === 'ticket' ? <TicketView appData={appData} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  onSave={handleSaveToCloud} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={ticketDirtyRef} saveFnRef={ticketSaveFnRef} /> :
+             currentView === 'ticket' ? <TicketView appData={appData} targetPatientId={targetPatientId} onBack={()=>navigateBack('master')} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  onSave={handleSaveToCloud} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={ticketDirtyRef} saveFnRef={ticketSaveFnRef} /> :
              currentView === 'print' ? <ContactBookView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={printDirtyRef} saveFnRef={printSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} /> :
              currentView === 'master' ? <MasterView appData={appData} onSave={handleSaveToCloud} targetPatientId={targetPatientId} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={masterDirtyRef} saveFnRef={masterSaveFnRef} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} exPendingRef={masterExPendingRef} navAfterExRef={masterNavAfterExRef} /> :
              currentView === 'dash_personal' ? <PersonalDashboardView appData={appData} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  navigateTo={navigateTo} onPatientChange={setTargetPatientId} isSidebarOpen={isSidebarOpen} /> :
@@ -22339,7 +22344,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const timeFilter = (sharedAmpm === 'all' || !sharedAmpm) ? 'AM' : sharedAmpm;
   const setTimeFilter = (v) => setSharedAmpm && setSharedAmpm(v);
   const [keypad, setKeypad] = useState({ isOpen: false, recordId: null, field: null, value: "", isFirstInput: false });
-  const [kinouDefault, setKinouDefault] = useState(''); // ★ 個別機能訓練の実施担当(この画面の既定・空=最初の機能訓練指導員)
+  const [kinouPanel, setKinouPanel] = useState(false); // ★ 個別機能訓練の実施担当を利用者ごとに設定するパネル(2026-09-29)
   // ★ 拡大入力ビュー(2026-09-09 店舗要望): 高齢のスタッフでも見やすいよう、1名分のバイタル・運動・特記を大きな字で表示・入力
   const [zoomPid, setZoomPid] = useState(null);
   const kpConfirmRef = React.useRef(false); // ★ PC Enter: 1回目=確定 / 2回目=右のセルへ移動
@@ -22550,7 +22555,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
              pData.massage = existingRecord.massage || "";
              pData.exercises = existingRecord.exercises || {};
              pData.tokki = existingRecord.tokki || "";
-             pData.kinouStaff = existingRecord.kinouStaff || "";
+             pData.kinouStaff_AM = existingRecord.kinouStaff_AM ?? existingRecord.kinouStaff ?? "";
+             pData.kinouStaff_PM = existingRecord.kinouStaff_PM ?? existingRecord.kinouStaff ?? "";
              pData.bpRe = Array.isArray(existingRecord.bpRe) ? existingRecord.bpRe : [];
              // ★ actualTime(提供時間)を復元。 これが無いと保存時に必ず "" で再構築され(19051)、
              //   保存済みの提供時間を全端末で消してしまっていた(空欄=施設の既定時間を使う意味)。
@@ -22567,7 +22573,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
              pData.bpUpEn_AM = ""; pData.bpUpEn_PM = ""; pData.bpDnEn_AM = ""; pData.bpDnEn_PM = "";
              pData.plEn_AM = ""; pData.plEn_PM = "";
              pData.bpRe = [];
-             pData.kinouStaff = "";
+             pData.kinouStaff_AM = ""; pData.kinouStaff_PM = "";
              pData.massage = "";
              pData.tokki = ""; pData.exercises = {}; pData.kibunArrival = ""; pData.kibunArrivalReason = "";
              pData.kibunDeparture = ""; pData.kibunDepartureReason = ""; pData.done = false;
@@ -22679,7 +22685,13 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   //   行ごとに変えることもでき(2人が別々の利用者を担当する場合)、「未算定」も選べる。提供記録の印刷に「個別: ○○」と出る。
   const _kinouOn = !!appData.systemSettings?.facilityInfo?.kobetsuKinouAddon;
   const _kinouList = Array.from(new Set((appData.diarySettings?.staff || []).filter(st => st && st.name && !st._tempHelp && (st.role === '機能訓練指導員' || st.role2 === '機能訓練指導員')).map(st => String(st.name).trim()).filter(Boolean)));
-  const _kinouEff = kinouDefault || _kinouList[0] || '';
+  // ★ 2026-09-29 ユーザー指示: 上部の値は画面の state ではなく各行(kinouStaff_AM/PM)から求める(他画面から戻っても・AM/PMを切り替えても正しく出る)。
+  //   上部で選ぶ=その区分の全員に適用、「利用者ごと」パネルで個別に変更。既定(未入力)は最初の機能訓練指導員。
+  const _kinouField = `kinouStaff_${(timeFilter === 'PM') ? 'PM' : 'AM'}`;
+  const _kinouRows = (filterMode === 'single' ? localPatients : localTicketRecords) || [];
+  const _kinouAbs = (p) => !p || p.status === '欠席' || p.status === '休業' || p.status === '休止';
+  const _kinouEff = (() => { const cnt = {}; _kinouRows.forEach(p => { if (_kinouAbs(p)) return; const v = p[_kinouField]; if (v) cnt[v] = (cnt[v] || 0) + 1; }); const top = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0]; return top || _kinouList[0] || ''; })();
+  const applyKinouAll = (name) => { _kinouRows.forEach(p => { if (_kinouAbs(p)) return; updateRecord(p.id, _kinouField, name); }); };
   // ★ 再測定(2026-09-29 ユーザー指示: 入力方法は通常と同じ=テンキーで「/」も自分で打つ): 今の値を bpRe に n回目 として残し、
   //   入力欄(上/下/脈)を空にして、通常どおり血圧のセルに入力を開く。間違えて押した場合は removeBpRemeasure で前の値に戻す
   const applyBpRemeasure = (id, phase) => {
@@ -23403,8 +23415,14 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   // ★ 担当者: スタッフ切替で選んでいるアクティブ記録者を保存
                   //   未選択の場合は 既存値を維持 (それ以外のフォールバックは使わない)
                   recorder: getRecorderName() || existing?.recorder || '',
-                  // ★ 個別機能訓練の実施担当(2026-09-29): 加算ありの店舗は 行の選択 → 画面の既定 の順。欠席等は既存値のまま
-                  kinouStaff: (_kinouOn && !(p.status === '欠席' || p.status === '休業' || p.status === '休止')) ? (p.kinouStaff || _kinouEff || '') : (existing?.kinouStaff || ''),
+                  // ★ 個別機能訓練の実施担当(2026-09-29): AM/PM 別に保存(行の値 → 表示中区分は上部の既定)。plain は表示中区分を優先。欠席等は既存値のまま
+                  ...(() => {
+                    if (!_kinouOn) return { kinouStaff: existing?.kinouStaff || '', kinouStaff_AM: existing?.kinouStaff_AM || '', kinouStaff_PM: existing?.kinouStaff_PM || '' };
+                    const _abs = (p.status === '欠席' || p.status === '休業' || p.status === '休止');
+                    const am = p.kinouStaff_AM || ((timeFilter !== 'PM' && !_abs) ? _kinouEff : '') || '';
+                    const pm = p.kinouStaff_PM || ((timeFilter === 'PM' && !_abs) ? _kinouEff : '') || '';
+                    return { kinouStaff_AM: am, kinouStaff_PM: pm, kinouStaff: (timeFilter === 'PM' ? (pm || am) : (am || pm)) || '' };
+                  })(),
                   done: p.done || false,
               };
               // ★ 複数端末マージ対策: _savedAt は「実際にデータがある／変更があった」時だけ新しくする。
@@ -23500,7 +23518,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     autoSaveRecTimerRef.current = setTimeout(() => { try { _recSaveRef.current && _recSaveRef.current(true); } catch (e) { console.warn('[autosave] record failed', e); } }, 1200);
     return () => { if (autoSaveRecTimerRef.current) clearTimeout(autoSaveRecTimerRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localPatients, localTicketRecords, pendingCancellations, pendingFurikaeShifts, pendingFurikaeRecords, kinouDefault]);
+  }, [localPatients, localTicketRecords, pendingCancellations, pendingFurikaeShifts, pendingFurikaeRecords]);
   // ★ 再読み込み/離脱/バックグラウンド化する直前に、入力中の欄を確定(blur)してから即保存。
   //   デバウンス待ちや onBlur 未確定で、再読み込み時にデータが消えるのを防ぐ。
   React.useEffect(() => {
@@ -23695,13 +23713,32 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               {searchQuery && <button onClick={() => setSearchQuery('')} className="text-slate-400 hover:text-slate-600 ml-1"><X size={16} /></button>}
             </div>
             {_kinouOn && (
-              <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-xl px-2 py-1" title="個別機能訓練を実施した機能訓練指導員。全員に適用され、利用者ごとに特記欄の横で変えられます。提供記録の印刷に「個別: ○○」と出ます">
+              <div className="relative flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-xl px-2 py-1" title="個別機能訓練を実施した機能訓練指導員。ここで選ぶと表示中の区分(AM/PM)の全員に適用。利用者ごとに変えるときは「利用者ごと」。提供記録の印刷に「個別: ○○」と出ます">
                 <span className="text-[11px] font-bold text-emerald-800 whitespace-nowrap">個別機能訓練 実施</span>
-                <select data-testid="kinou-default" value={_kinouEff} onChange={e=>{ setKinouDefault(e.target.value); if (dirtyRef) dirtyRef.current = true; /* ★ 2026-09-29: 血圧などと同じく自動保存で反映 */ }} className="text-sm font-bold bg-white border border-emerald-300 rounded-lg px-2 py-1 outline-none">
+                <select data-testid="kinou-default" value={_kinouEff} disabled={!isEditMode} onChange={e=>applyKinouAll(e.target.value)} className="text-sm font-bold bg-white border border-emerald-300 rounded-lg px-2 py-1 outline-none disabled:opacity-60">
+                  {!_kinouList.includes(_kinouEff) && _kinouEff && _kinouEff !== '未算定' && <option value={_kinouEff}>{_kinouEff}</option>}
                   {_kinouList.map(n => <option key={n} value={n}>{n}</option>)}
                   <option value="未算定">未算定</option>
-                  {!_kinouList.length && <option value="">（機能訓練指導員が未登録）</option>}
+                  {!_kinouList.length && !_kinouEff && <option value="">（機能訓練指導員が未登録）</option>}
                 </select>
+                <button type="button" data-testid="kinou-panel-btn" onClick={()=>setKinouPanel(v=>!v)} className={`text-[11px] font-bold rounded-lg px-2 py-1 border ${kinouPanel ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-emerald-800 border-emerald-300'}`}>利用者ごと</button>
+                {kinouPanel && (
+                  <div data-testid="kinou-panel" className="absolute left-0 top-full mt-1 z-40 bg-white border border-emerald-300 rounded-xl shadow-xl p-2 w-[340px] max-h-[60vh] overflow-y-auto">
+                    <div className="text-[11px] font-bold text-emerald-800 mb-1">利用者ごとの実施担当（{timeFilter === 'PM' ? '午後' : '午前'}）</div>
+                    {_kinouRows.filter(p => !_kinouAbs(p)).map(p => (
+                      <div key={p.id} className="flex items-center gap-2 py-0.5 border-b border-slate-100 last:border-0">
+                        <span className="flex-1 min-w-0 truncate text-sm font-bold text-slate-800">{p.name}</span>
+                        <select data-testid={`kinou-row-${p.id}`} disabled={!isEditMode} value={p[_kinouField] || ''} onChange={e=>updateRecord(p.id, _kinouField, e.target.value)} className="shrink-0 text-[12px] font-bold bg-white border border-emerald-300 text-emerald-900 rounded px-1 py-0.5 max-w-[150px] disabled:opacity-60">
+                          <option value="">（{_kinouEff || '—'}）</option>
+                          {_kinouList.map(n => <option key={n} value={n}>{n}</option>)}
+                          <option value="未算定">未算定</option>
+                        </select>
+                      </div>
+                    ))}
+                    {!_kinouRows.filter(p => !_kinouAbs(p)).length && <div className="text-xs text-slate-500">対象の利用者がいません</div>}
+                    <div className="flex justify-end mt-1"><button type="button" onClick={()=>setKinouPanel(false)} className="text-[11px] font-bold text-slate-600 border border-slate-300 rounded px-2 py-0.5">閉じる</button></div>
+                  </div>
+                )}
               </div>
             )}
             <div className="sm:ml-auto flex items-center gap-2 flex-wrap">
@@ -24013,13 +24050,6 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     );})}
                 </div>}
                 <input type="text" disabled={isReadOnly} value={p.tokki||''} onChange={e=>updateRecord(p.id,'tokki',e.target.value)} placeholder={isReadOnly?'':(isAbsent?'欠席理由...':(isPause?'休止中の特記...':'特記...'))} className="mt-2 w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-50"/>
-                {_kinouOn && !isAbsent && !isPause && (
-                  <select data-testid={`kinou-row-${p.id}`} disabled={isReadOnly} value={p.kinouStaff||''} onChange={e=>updateRecord(p.id,'kinouStaff',e.target.value)} className="mt-1 text-[11px] font-bold bg-white border border-emerald-300 text-emerald-900 rounded-lg px-2 py-1 disabled:opacity-60">
-                    <option value="">個別機能訓練 実施: {_kinouEff || '—'}</option>
-                    {_kinouList.filter(n => n !== _kinouEff).map(n => <option key={n} value={n}>個別機能訓練 実施: {n}</option>)}
-                    {_kinouEff !== '未算定' && <option value="未算定">未算定</option>}
-                  </select>
-                )}
               </div>
             );
           })}
@@ -24446,13 +24476,6 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                             className={`flex-1 px-2 border rounded-lg text-xs bg-transparent outline-none disabled:opacity-80 resize-none ${isReadOnly ? 'border-transparent' : 'border-slate-300 shadow-inner bg-white'}`}
                             style={{fontSize:14,lineHeight:1.4,padding:'2px 6px',height:'100%'}}
                             placeholder={isReadOnly ? "" : (isAbsent ? "欠席理由等..." : "特記事項...")} />
-                          {_kinouOn && !isAbsent && !isPause && (
-                            <select data-testid={`kinou-row-${p.id}`} disabled={isReadOnly} value={p.kinouStaff||''} onChange={e=>updateRecord(p.id,'kinouStaff',e.target.value)} title="この方の個別機能訓練の実施担当（空欄=上の既定）" className="shrink-0 self-end text-[10px] font-bold bg-white border border-emerald-300 text-emerald-900 rounded px-1 py-0.5 max-w-[96px] disabled:opacity-60">
-                              <option value="">個別: {_kinouEff || '—'}</option>
-                              {_kinouList.filter(n => n !== _kinouEff).map(n => <option key={n} value={n}>個別: {n}</option>)}
-                              {_kinouEff !== '未算定' && <option value="未算定">未算定</option>}
-                            </select>
-                          )}
                         </div>
                       );
                     })()}
@@ -25014,7 +25037,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               // ★ 個人ファイルを直接開く: マスタ画面が起動時に読む sessionStorage 経由でファイルを開かせる
               const _goFile = () => {
                 setPatientInfoModal(null);
-                try { sessionStorage.setItem('tsumugiReopenPF', JSON.stringify({ patientId: _pid, tab: 'cat_1' })); } catch {}
+                try { sessionStorage.setItem('tsumugiReopenPF', JSON.stringify({ patientId: _pid, tab: 'cat_1' })); sessionStorage.setItem('tsumugiPFOrigin', 'record'); /* ★ 2026-09-29: 提供記録の「戻る」でここへ戻すため */ } catch {}
                 navigateTo && navigateTo('master', _pid);
               };
               const _navs = [
@@ -30229,7 +30252,7 @@ function computeServiceChangeBikou(patient, y, m, appData) {
   return changes.map(c => { const d = new Date(c.date); return `${d.getMonth()+1}/${d.getDate()} ${c.text||''}`.trim(); }).join('　/　');
 }
 // === TicketView (サービス提供記録) ===
-function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientChange, dirtyRef, onShowPrintPreview }) {
+function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientChange, dirtyRef, onShowPrintPreview, onBack }) {
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
   const [selId, setSelId] = useState(targetPatientId || (((appData.patients||[]).length) > 0 ? (appData.patients||[])[0].id : null));
@@ -30262,7 +30285,12 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
     if (cameFromPFRef.current) {
       try { sessionStorage.setItem('tsumugiReopenPF', JSON.stringify({ patientId: openedPatientRef.current != null ? openedPatientRef.current : selId, tab: 'cat_6' })); } catch {}
     }
-    navigateTo && navigateTo('master');
+    if (cameFromPFRef.current) {
+      let origin = ''; try { origin = sessionStorage.getItem('tsumugiPFOrigin') || ''; sessionStorage.removeItem('tsumugiPFOrigin'); } catch {}
+      if (origin === 'record') { try { sessionStorage.removeItem('tsumugiReopenPF'); } catch {} navigateTo && navigateTo('record'); return; } // ★ 提供記録入力 → 個人ファイル → 提供記録 と来た場合は提供記録入力へ
+      navigateTo && navigateTo('master'); return;
+    }
+    if (onBack) onBack(); else navigateTo && navigateTo('master'); // ★ 2026-09-29: 1つ前の画面へ戻る
   };
   const ticketHistory = (appData.faxHistory||[]).filter(h => h.type === 'ticket');
   const deleteFaxHist = (id) => onSave({...appData, faxHistory: (appData.faxHistory||[]).filter(h => h.id !== id), deletedIds: addTombstone(appData,'faxHistory',id)});
@@ -30562,11 +30590,12 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                               <div className="font-normal leading-tight" style={{fontSize:12,color:'#475569',marginTop:1}}>（{r.dayOfWeek}）</div>
                               {/* ★ 記録者: r.recorder (古い記録 = recorder 空 は表示なし)。2026-09-29 ユーザー指示で「担当」→「記録」、その下に「個別: 実施担当」 */}
                               {/* ★ 2026-09-29 ユーザー指示: 名前が長くても1行(幅に合わせて縮小) */}
+                              {/* ★ 2026-09-29 ユーザー指示: 行間を詰めて左詰め(行の高さ82pxを変えない) */}
                               {r.recorder && (
-                                <div style={{marginTop:2,textAlign:'center',padding:'0 1px',width:'100%',overflow:'hidden'}}><AutoFitText text={`記録: ${r.recorder}`} max={9} min={5} bold color="#475569"/></div>
+                                <div style={{marginTop:1,textAlign:'left',padding:'0 1px',width:'100%',overflow:'hidden',lineHeight:1}}><AutoFitText text={`記録: ${r.recorder}`} max={9} min={5} bold color="#475569"/></div>
                               )}
                               {r.kinouStaff && !isA && !mt && (
-                                <div style={{marginTop:1,textAlign:'center',padding:'0 1px',width:'100%',overflow:'hidden'}}><AutoFitText text={`個別: ${r.kinouStaff}`} max={9} min={5} bold color="#047857"/></div>
+                                <div style={{marginTop:0,textAlign:'left',padding:'0 1px',width:'100%',overflow:'hidden',lineHeight:1}}><AutoFitText text={`個別: ${r.kinouStaff}`} max={9} min={5} bold color="#047857"/></div>
                               )}
                             </div>
                           </td>
