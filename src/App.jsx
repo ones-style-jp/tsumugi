@@ -22345,6 +22345,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const setTimeFilter = (v) => setSharedAmpm && setSharedAmpm(v);
   const [keypad, setKeypad] = useState({ isOpen: false, recordId: null, field: null, value: "", isFirstInput: false });
   const [kinouPanel, setKinouPanel] = useState(false); // ★ 個別機能訓練の実施担当を利用者ごとに設定するパネル(2026-09-29)
+  const [kinouGroupPanel, setKinouGroupPanel] = useState(false); // ★ 個別機能訓練のグループ設定パネル(2026-09-30)
+  const [kinouGroupSel, setKinouGroupSel] = useState(''); // ★ 上に集めて表示するグループ('' = 通常の並び)
   // ★ 拡大入力ビュー(2026-09-09 店舗要望): 高齢のスタッフでも見やすいよう、1名分のバイタル・運動・特記を大きな字で表示・入力
   const [zoomPid, setZoomPid] = useState(null);
   const kpConfirmRef = React.useRef(false); // ★ PC Enter: 1回目=確定 / 2回目=右のセルへ移動
@@ -22557,6 +22559,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
              pData.tokki = existingRecord.tokki || "";
              pData.kinouStaff_AM = existingRecord.kinouStaff_AM ?? existingRecord.kinouStaff ?? "";
              pData.kinouStaff_PM = existingRecord.kinouStaff_PM ?? existingRecord.kinouStaff ?? "";
+             pData.kinouGroup_AM = existingRecord.kinouGroup_AM || ""; pData.kinouGroup_PM = existingRecord.kinouGroup_PM || "";
              pData.bpRe = Array.isArray(existingRecord.bpRe) ? existingRecord.bpRe : [];
              // ★ actualTime(提供時間)を復元。 これが無いと保存時に必ず "" で再構築され(19051)、
              //   保存済みの提供時間を全端末で消してしまっていた(空欄=施設の既定時間を使う意味)。
@@ -22574,6 +22577,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
              pData.plEn_AM = ""; pData.plEn_PM = "";
              pData.bpRe = [];
              pData.kinouStaff_AM = ""; pData.kinouStaff_PM = "";
+             pData.kinouGroup_AM = ""; pData.kinouGroup_PM = "";
              pData.massage = "";
              pData.tokki = ""; pData.exercises = {}; pData.kibunArrival = ""; pData.kibunArrivalReason = "";
              pData.kibunDeparture = ""; pData.kibunDepartureReason = ""; pData.done = false;
@@ -23419,7 +23423,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     const _shown = _kinouShownIds.has(p.id);
                     const am = p.kinouStaff_AM || ((timeFilter !== 'PM' && !_abs && _shown) ? _kinouEff : '') || '';
                     const pm = p.kinouStaff_PM || ((timeFilter === 'PM' && !_abs && _shown) ? _kinouEff : '') || '';
-                    return { kinouStaff_AM: am, kinouStaff_PM: pm, kinouStaff: (timeFilter === 'PM' ? (pm || am) : (am || pm)) || '' };
+                    return { kinouStaff_AM: am, kinouStaff_PM: pm, kinouStaff: (timeFilter === 'PM' ? (pm || am) : (am || pm)) || '', kinouGroup_AM: p.kinouGroup_AM || '', kinouGroup_PM: p.kinouGroup_PM || '' };
                   })(),
                   done: p.done || false,
               };
@@ -23600,6 +23604,20 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   // ★ 2026-09-30(店舗報告: 午前なのに午後の人も選べる): 実施担当の対象は「表示中の区分(AM/PM)の利用者」だけ
   const _kinouRows = displayRecords || [];
   const _kinouShownIds = new Set(_kinouRows.map(p => p.id));
+  // ★ 個別機能訓練のグループ(2026-09-30 店舗要望): 1グループ最大5名(個別機能訓練はグループで実施する場合5人以下)。
+  //   記録に kinouGroup_AM/PM(A,B,C…)を保存。選んだグループは表の一番上にまとめて表示し、グループ単位で実施担当を選べる。
+  const KINOU_GROUP_MAX = 5;
+  const _kinouGField = `kinouGroup_${(timeFilter === 'PM') ? 'PM' : 'AM'}`;
+  const _kinouGroupsUsed = [...new Set(_kinouRows.map(p => p[_kinouGField]).filter(Boolean))].sort();
+  const _kinouGroupLetters = (() => { const n = Math.max(3, _kinouGroupsUsed.length + 1, Math.ceil(_kinouRows.filter(p => !_kinouAbs(p)).length / KINOU_GROUP_MAX)); return 'ABCDEFGHIJ'.slice(0, Math.min(10, n)).split(''); })();
+  const _kinouGroupCount = (g) => _kinouRows.filter(p => p[_kinouGField] === g).length;
+  const _kinouGroupOf = (p) => p[_kinouGField] || '';
+  const setKinouGroup = (pid, g) => { if (g && _kinouGroupCount(g) >= KINOU_GROUP_MAX) { alert(`グループ${g}は${KINOU_GROUP_MAX}名までです。`); return; } updateRecord(pid, _kinouGField, g); };
+  const applyKinouGroup = (g, name) => { _kinouRows.forEach(p => { if (_kinouAbs(p) || p[_kinouGField] !== g) return; updateRecord(p.id, _kinouField, name); }); };
+  if (kinouGroupSel && filterMode === 'single') {
+    const _in = displayRecords.filter(p => p[_kinouGField] === kinouGroupSel), _out = displayRecords.filter(p => p[_kinouGField] !== kinouGroupSel);
+    displayRecords = [..._in, ..._out];
+  }
   const _kinouEff = (() => { const cnt = {}; _kinouRows.forEach(p => { if (_kinouAbs(p)) return; const v = p[_kinouField]; if (v) cnt[v] = (cnt[v] || 0) + 1; }); const top = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0]; return top || _kinouList[0] || ''; })();
   const applyKinouAll = (name) => { _kinouRows.forEach(p => { if (_kinouAbs(p)) return; updateRecord(p.id, _kinouField, name); }); };
 
@@ -23721,7 +23739,43 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   <option value="未算定">未算定</option>
                   {!_kinouList.length && !_kinouEff && <option value="">（機能訓練指導員が未登録）</option>}
                 </select>
-                <button type="button" data-testid="kinou-panel-btn" onClick={()=>setKinouPanel(v=>!v)} className={`text-[11px] font-bold rounded-lg px-2 py-1 border ${kinouPanel ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-emerald-800 border-emerald-300'}`}>利用者ごと</button>
+                <button type="button" data-testid="kinou-panel-btn" onClick={()=>{ setKinouPanel(v=>!v); setKinouGroupPanel(false); }} className={`text-[11px] font-bold rounded-lg px-2 py-1 border ${kinouPanel ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-emerald-800 border-emerald-300'}`}>利用者ごと</button>
+                <button type="button" data-testid="kinou-group-btn" onClick={()=>{ setKinouGroupPanel(v=>!v); setKinouPanel(false); }} className={`text-[11px] font-bold rounded-lg px-2 py-1 border ${kinouGroupPanel ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-emerald-800 border-emerald-300'}`}>グループ</button>
+                <select data-testid="kinou-group-sel" value={kinouGroupSel} onChange={e=>setKinouGroupSel(e.target.value)} title="選んだグループの利用者を表の一番上にまとめて表示します" className="text-[11px] font-bold bg-white border border-emerald-300 text-emerald-900 rounded-lg px-1 py-1">
+                  <option value="">上に表示: なし</option>
+                  {_kinouGroupsUsed.map(g => <option key={g} value={g}>上に表示: グループ{g}（{_kinouGroupCount(g)}名）</option>)}
+                </select>
+                {kinouGroupPanel && (
+                  <div data-testid="kinou-group-panel" className="absolute left-0 top-full mt-1 z-40 bg-white border border-emerald-300 rounded-xl shadow-xl p-2 w-[420px] max-h-[65vh] overflow-y-auto">
+                    <div className="text-[11px] font-bold text-emerald-800 mb-1">グループ（{timeFilter === 'PM' ? '午後' : '午前'}・1グループ最大{KINOU_GROUP_MAX}名）</div>
+                    {_kinouGroupsUsed.length > 0 && (
+                      <div className="mb-2 flex flex-col gap-1">
+                        {_kinouGroupsUsed.map(g => { const mem = _kinouRows.filter(p => p[_kinouGField] === g); const cur = (() => { const c = {}; mem.forEach(p => { const v = p[_kinouField]; if (v) c[v] = (c[v]||0)+1; }); return Object.keys(c).sort((a,b)=>c[b]-c[a])[0] || _kinouEff; })(); return (
+                          <div key={g} className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1" data-testid={`kinou-group-row-${g}`}>
+                            <span className="text-sm font-bold text-emerald-900 whitespace-nowrap">グループ{g}</span>
+                            <span className="text-[11px] text-slate-500 whitespace-nowrap">{mem.length}/{KINOU_GROUP_MAX}名</span>
+                            <select disabled={!isEditMode} value={cur} onChange={e=>applyKinouGroup(g, e.target.value)} data-testid={`kinou-group-staff-${g}`} className="ml-auto text-[12px] font-bold bg-white border border-emerald-300 rounded px-1 py-0.5 disabled:opacity-60">
+                              {_kinouList.map(n => <option key={n} value={n}>実施: {n}</option>)}
+                              {!_kinouList.includes(cur) && cur && cur !== '未算定' && <option value={cur}>実施: {cur}</option>}
+                              <option value="未算定">未算定</option>
+                            </select>
+                          </div>
+                        ); })}
+                      </div>
+                    )}
+                    {_kinouRows.filter(p => !_kinouAbs(p)).map(p => (
+                      <div key={p.id} className="flex items-center gap-2 py-0.5 border-b border-slate-100 last:border-0">
+                        <span className="flex-1 min-w-0 truncate text-sm font-bold text-slate-800">{p.name}</span>
+                        <select data-testid={`kinou-group-of-${p.id}`} disabled={!isEditMode} value={_kinouGroupOf(p)} onChange={e=>setKinouGroup(p.id, e.target.value)} className="shrink-0 text-[12px] font-bold bg-white border border-emerald-300 text-emerald-900 rounded px-1 py-0.5 disabled:opacity-60">
+                          <option value="">グループなし</option>
+                          {_kinouGroupLetters.map(g => <option key={g} value={g} disabled={g !== _kinouGroupOf(p) && _kinouGroupCount(g) >= KINOU_GROUP_MAX}>グループ{g}（{_kinouGroupCount(g)}/{KINOU_GROUP_MAX}）</option>)}
+                        </select>
+                      </div>
+                    ))}
+                    {!_kinouRows.filter(p => !_kinouAbs(p)).length && <div className="text-xs text-slate-500">対象の利用者がいません</div>}
+                    <div className="flex justify-end mt-1"><button type="button" onClick={()=>setKinouGroupPanel(false)} className="text-[11px] font-bold text-slate-600 border border-slate-300 rounded px-2 py-0.5">閉じる</button></div>
+                  </div>
+                )}
                 {kinouPanel && (
                   <div data-testid="kinou-panel" className="absolute left-0 top-full mt-1 z-40 bg-white border border-emerald-300 rounded-xl shadow-xl p-2 w-[340px] max-h-[60vh] overflow-y-auto">
                     <div className="text-[11px] font-bold text-emerald-800 mb-1">利用者ごとの実施担当（{timeFilter === 'PM' ? '午後' : '午前'}）</div>
@@ -24153,6 +24207,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                           )}
                           <div className={`flex flex-row items-center justify-center w-full gap-1 whitespace-nowrap truncate cursor-pointer hover:text-blue-600 ${(isAbsent || isPause) ? 'text-slate-400' : 'text-slate-800'}`}
                             onClick={()=>setPatientInfoModal(masterData)}>
+                            {_kinouOn && p[_kinouGField] && <span data-testid={`kinou-group-badge-${p.id}`} className={`text-[10px] font-bold rounded px-1 leading-tight ${kinouGroupSel === p[_kinouGField] ? 'bg-emerald-600 text-white' : 'bg-emerald-100 text-emerald-800'}`}>{p[_kinouGField]}</span>}
                             <span className="text-sm">{nameParts[0]}</span>
                             {nameParts[1] && <span className="text-sm">{nameParts[1]}</span>}
                             {/* ★ 拡大入力(2026-09-09 店舗要望→09-09改善: 行高を増やさないよう名前と同じ行のアイコンに) */}
