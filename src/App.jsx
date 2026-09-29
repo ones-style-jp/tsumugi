@@ -22503,7 +22503,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
          // ★ 月間スケジュールで「臨時利用」の日は状態を「臨時」と表記する(2026-09-25 ユーザー指示。扱いは出席と同じ)。
          //   休止残骸→出席の正規化より後に置く(先に置くと '休止' のまま条件に掛からず、後で出席に戻されて臨時が消える)。
          { const _shR = appData.monthlyShifts?.[monthKey]?.[p.id] || {};
-           if ((_shR[`${dayNum}_AM`] === '臨時' || _shR[`${dayNum}_PM`] === '臨時') && (!pData.status || pData.status === '出席')) pData.status = '臨時'; }
+           if ((_shR[`${dayNum}_AM`] === '臨時' || _shR[`${dayNum}_PM`] === '臨時') && (!pData.status || pData.status === '出席')) pData.status = '臨時';
+           // ★ 2026-09-29: 月間スケジュールの振替先セル('振替')も「振替」と表記(振替元の「振(M/D)」タグは欠席なので対象外)
+           if ((_shR[`${dayNum}_AM`] === '振替' || _shR[`${dayNum}_PM`] === '振替') && (!pData.status || pData.status === '出席')) pData.status = '振替'; }
          // ★ 施設の休業日は状態を自動で「休業」にする(2026-08-11)。 休止中の人は休止のまま。
          //   バイタル等の実データが入力済みの記録は触らない(休業日設定の誤りで入力を隠さない保護)。
          if (_isHolidaySel && pData.status !== '休止' && pData.status !== '休業' && !ticketHasClinicalData(pData)) {
@@ -23393,7 +23395,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     displayRecords = displayRecords.filter(p => {
       // 振替の record があれば furikaeAmpm を優先（普段の曜日に来なくても表示する）
       const rec = (appData.ticketRecords||[]).find(r=>r.patientId===p.id && recMatchesDateYear(r, targetDateStr3, _selYear4));
-      if (rec && rec.status === '振替') {
+      if (rec && (rec.status === '振替' || rec.status === '臨時')) {
         const fa = rec.furikaeAmpm;
         if (fa) return fa === timeFilter || fa === '1日';
         if (typeof rec.tokki === 'string') {
@@ -41335,7 +41337,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   // furikaeAmpm が無い旧データは tokki から推定 ("...AM分振替"/"...PM分振替"/"...1日分振替")。
   const _matchesAmpm = (r, p) => {
     if (ampm === '1日') return true;
-    if (r.status === '振替') {
+    if (r.status === '振替' || r.status === '臨時') {
       const fa = r.furikaeAmpm;
       if (fa) return fa === ampm || fa === '1日';
       if (typeof r.tokki === 'string') {
