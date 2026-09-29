@@ -1238,7 +1238,7 @@ const secondBpVisible = (appData, recs) => (appData?.systemSettings?.secondBpMod
 //   特記(tokki)には書かない: 特記はご家族画面の「今回の様子」に出るため。スタッフ向けの画面・印刷でこのログを表示する。
 const bpReList = (r, ampm) => (Array.isArray(r?.bpRe) ? r.bpRe : []).filter(e => e && (!ampm || !e.ampm || e.ampm === ampm));
 const bpReHas = (r, phase, ampm) => bpReList(r, ampm).some(e => e.phase === phase);
-const bpReLines = (r, ampm) => bpReList(r, ampm).map(e => `${e.phase === 'En' ? '終了時' : '開始時'}${e.n || 1}回目 ${e.up || '－'}/${e.dn || '－'}${e.pl ? ` 脈${e.pl}` : ''}（再測定 ${e.time || ''}）`);
+const bpReLines = (r, ampm) => bpReList(r, ampm).map(e => `${e.phase === 'En' ? '終了' : '開始'} ${e.n || 1}回目 ${e.time || ''} ${e.up || '－'}/${e.dn || '－'} 脈${e.pl || '－'}`);
 
 
 // セル幅に収まる最大フォントで表示し、はみ出す場合は自動縮小する (折り返さない)
@@ -22586,6 +22586,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
 
   // ★ 血圧2列目(終了/再測定)の表示(2026-09-29): 「開始時のみ」の店舗では、その日の記録に2列目の値が無ければ列ごと隠す
   const _showEn = secondBpVisible(appData, filterMode === 'single' ? localPatients : localTicketRecords);
+  // ★ 旧方式「開始時＋再測定」(2列目に再測定値を入力)の店舗では「再」ボタンと内容が重なるので出さない(2026-09-29 ユーザー指摘)
+  const _reOn = (appData.systemSettings?.secondBpMode || 'end') !== 'recheckStart';
+  // ★ 気分(通所/帰宅)の入力欄を出すか(各種設定・2026-09-29 ユーザー要望: 事業所ごとの自己判断)
+  const _kibunOn = appData.systemSettings?.kibunDisabled !== true;
   // ★ 再測定(2026-09-29 ユーザー指示: 入力方法は通常と同じ=テンキーで「/」も自分で打つ): 今の値を bpRe に n回目 として残し、
   //   入力欄(上/下/脈)を空にして、通常どおり血圧のセルに入力を開く。間違えて押した場合は removeBpRemeasure で前の値に戻す
   const applyBpRemeasure = (id, phase) => {
@@ -22602,17 +22606,20 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     if (_keypadOn) { openKeypad(id, combo, '', _abs); setActiveCell(`${id}-${combo}`); }
     else { const _focus = () => { try { const els = [...document.querySelectorAll(`[data-bp-input="${id}-${combo}"]`)].filter(e => e.offsetParent !== null); const el = els[0]; if (el) { el.value = ''; el.focus(); } } catch {} }; setTimeout(_focus, 120); setTimeout(_focus, 400); }
   };
-  const removeBpRemeasure = (id, phase) => {
+  const removeBpRemeasureAt = (id, at) => {
     const tf = timeFilter || 'AM';
     const rec = (filterMode === 'single' ? localPatients : localTicketRecords).find(x => x.id === id); if (!rec) return;
-    const log = [...(Array.isArray(rec.bpRe) ? rec.bpRe : [])];
-    let idx = -1; log.forEach((e, k) => { if (e && e.phase === phase && e.ampm === tf) idx = k; });
-    if (idx < 0) return;
+    const log = (Array.isArray(rec.bpRe) ? rec.bpRe : []).map(e => ({ ...e }));
+    const idx = log.findIndex(e => e && e.at === at); if (idx < 0) return;
     const e = log[idx];
-    if (!window.confirm(`${phase === 'En' ? '終了時' : '開始時'}の最後の再測定を削除して、その前の値（${e.up || '－'}/${e.dn || '－'}${e.pl ? ` 脈${e.pl}` : ''}）に戻しますか？`)) return;
+    const same = log.filter(x => x && x.phase === e.phase && x.ampm === e.ampm);
+    const isLast = same[same.length - 1] === e;
+    const lbl = e.phase === 'En' ? '終了' : '開始';
+    if (!window.confirm(isLast ? `${lbl} ${e.n || 1}回目の再測定を削除して、その前の値（${e.up || '－'}/${e.dn || '－'} 脈${e.pl || '－'}）に入力欄を戻しますか？` : `${lbl} ${e.n || 1}回目の記録を削除しますか？（入力欄の値はそのままです）`)) return;
     log.splice(idx, 1);
-    updateRecord(id, 'bpRe', log);
-    updateRecord(id, `bpUp${phase}_${tf}`, e.up || ''); updateRecord(id, `bpDn${phase}_${tf}`, e.dn || ''); updateRecord(id, `pl${phase}_${tf}`, e.pl || '');
+    const cnt = {}; log.forEach(x => { const k = `${x.phase}_${x.ampm}`; cnt[k] = (cnt[k] || 0) + 1; x.n = cnt[k]; });
+    updateRecord(id, 'bpRe', log); // ★ 空でも [] を保存する(保存時に省略すると同期で元のログが戻ってしまう)
+    if (isLast) { updateRecord(id, `bpUp${e.phase}_${tf}`, e.up || ''); updateRecord(id, `bpDn${e.phase}_${tf}`, e.dn || ''); updateRecord(id, `pl${e.phase}_${tf}`, e.pl || ''); }
   };
   const updateExercise = (id, field, value) => {
     if (filterMode === 'single') { obsMarkRecEdit(id, selectedDate, 'exercises'); setLocalPatients(prev => prev.map(p => p.id === id ? { ...p, exercises: { ...(p.exercises || {}), [field]: value } } : p)); }
@@ -23299,7 +23306,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   bpUpEn_AM: p.bpUpEn_AM ?? "", bpUpEn_PM: p.bpUpEn_PM ?? "",
                   bpDnEn_AM: p.bpDnEn_AM ?? "", bpDnEn_PM: p.bpDnEn_PM ?? "",
                   plEn_AM: p.plEn_AM ?? "", plEn_PM: p.plEn_PM ?? "",
-                  ...(Array.isArray(p.bpRe) && p.bpRe.length ? { bpRe: p.bpRe } : {}),
+                  bpRe: Array.isArray(p.bpRe) ? p.bpRe : [],   // ★ 空でも書く: 省略すると端末間マージで削除前のログが復活する(2026-09-29)
                   // ★ 旧形式互換 (plain) フィールド: 分析・グラフ・家族画面などが参照する。
                   //   現 timeFilter の値を優先しつつ、空なら もう一方(AM/PM)の値を使う。
                   //   こうしないと「AMで血圧入力→保存(表示OK)→PM保存(PM血圧は空)」で plain が空に上書きされ、
@@ -23717,8 +23724,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       <col style={{width:'70px'}}/>{/* 気分 */}
                       <col style={{width:'58px'}}/>{/* 体温 */}
                       <col style={{width:'120px'}}/>{/* 開始 血圧+脈 */}
-                      <col style={{width:'120px'}}/>{/* 終了 血圧+脈 */}
-                      {(effExerciseItems(appData.systemSettings)).map(item => <col key={item.id} style={{width:'58px'}}/>)}
+                      {_showEn && <col style={{width:'120px'}}/>}{/* 終了 血圧+脈 */}
+                      {(effExerciseItems(appData.systemSettings)).map(item => <col key={item.id} style={{width: item.type==='individual' ? '84px' : '58px'}}/>)}
                       <col style={{width:'62px'}}/>{/* 介護整体 */}
                       <col style={{width:'260px'}}/>{/* 特記 */}
                     </colgroup>
@@ -23833,13 +23840,13 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         </>);
                       })()}</select>}
                 </div>
-                <div className="grid grid-cols-2 gap-2 mb-2">
+                {_kibunOn && <div className="grid grid-cols-2 gap-2 mb-2">
                   {['arrival','departure'].map(t=>{ const mo=KIBUN_MOODS.find(m=>m.key===p[t==='arrival'?'kibunArrival':'kibunDeparture']); return (
                     <button key={t} disabled={dis} onClick={()=>openKibunModal(p.id,t)} className={`rounded-lg py-2 flex items-center justify-center gap-2 disabled:opacity-40 ${mo?mo.color+' font-bold':'bg-slate-100 text-slate-400'}`}>
                       <span className="text-xs font-bold text-slate-700">{t==='arrival'?'通所':'帰宅'}</span><span className="text-2xl leading-none">{mo?mo.emoji:'＋'}</span>
                     </button>
                   );})}
-                </div>
+                </div>}
                 <div className="grid grid-cols-3 gap-2 mb-2">
                   {(() => { const vPlSt=p[`plSt_${tf}`]||'', vPlEn=p[`plEn_${tf}`]||''; return [
                     ['体温',`temp_${tf}`,vT,getTempColorClass(vT),vT?`${vT}℃`:'＋'],
@@ -23876,7 +23883,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   })}
                 </div>
                 {/* ★ 再測定(2026-09-29): 開始時・終了時それぞれ。今の値は n回目 として残り、入力欄は再測定の値に */}
-                {!dis && (
+                {_reOn && !dis && (
                   <div className="flex gap-1.5 mb-2">
                     {['St', ...(_showEn ? ['En'] : [])].map(ph => { const cnt = bpReList(p, tf).filter(e => e.phase === ph).length; return (
                       <button key={ph} type="button" data-testid={`bp-re-${ph}-${p.id}`} onClick={()=>applyBpRemeasure(p.id, ph)} className={`text-[11px] font-bold rounded-lg px-2 py-1 border ${cnt ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-white border-slate-300 text-slate-600'}`}>{ph === 'St' ? '開始時' : '終了時'}を再測定{cnt ? `（${cnt}回）` : ''}</button>
@@ -23912,7 +23919,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     </button>
                     );})}
                 </div>}
-                {bpReLines(p, tf).length > 0 && <div className="text-[10px] font-bold text-amber-800 mb-0.5 flex items-center gap-1.5 flex-wrap" data-testid="bp-re-lines"><span>{bpReLines(p, tf).join('　')}</span>{!dis && ['St','En'].filter(ph => bpReHas(p, ph, tf)).map(ph => <button key={ph} type="button" data-testid={`bp-re-del-${ph}-${p.id}`} onClick={()=>removeBpRemeasure(p.id, ph)} className="text-[10px] font-bold text-red-600 border border-red-300 bg-white rounded px-1.5 py-0.5">{ph === 'En' ? '終了時' : '開始時'}の再測定を削除</button>)}</div>}
+                {bpReList(p, tf).length > 0 && <div className="mb-0.5 flex flex-col gap-0.5" data-testid="bp-re-lines">{bpReList(p, tf).map((e, i) => (
+                  <div key={e.at || i} className="text-[10px] font-bold text-amber-800 flex items-center gap-2"><span>{e.phase === 'En' ? '終了' : '開始'} {e.n || 1}回目</span><span>{e.time || ''}</span><span>{e.up || '－'}/{e.dn || '－'}</span><span>脈{e.pl || '－'}</span>{!dis && <button type="button" data-testid={`bp-re-del-${e.phase}-${p.id}`} onClick={()=>removeBpRemeasureAt(p.id, e.at)} className="text-[10px] font-bold text-red-600 border border-red-300 bg-white rounded px-1.5 py-0.5">削除</button>}</div>
+                ))}</div>}
                 <input type="text" disabled={isReadOnly} value={p.tokki||''} onChange={e=>updateRecord(p.id,'tokki',e.target.value)} placeholder={isReadOnly?'':(isAbsent?'欠席理由...':(isPause?'休止中の特記...':'特記...'))} className="mt-2 w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-50"/>
               </div>
             );
@@ -23929,12 +23938,12 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             {filterMode === 'month' && <col style={{width:'80px'}} />}
             <col style={{width:'130px'}} />{/* 利用者名 */}
             <col style={{width:'72px'}} />{/* 状態 */}
-            <col style={{width:'78px'}} />{/* 気分 */}
+            {_kibunOn && <col style={{width:'78px'}} />}{/* 気分(各種設定で非表示可) */}
             <col style={{width:'60px'}} />{/* 体温 */}
             <col style={{width:'145px'}} />{/* 開始 血圧 + 脈 (75+60+gap) */}
-            <col style={{width:'145px'}} />{/* 終了 血圧 + 脈 */}
+            {_showEn && <col style={{width:'145px'}} />}{/* 終了 血圧 + 脈 ★ 列を隠すときは col も外す(2026-09-29: 列ズレで①の列が広がっていた) */}
             {(effExerciseItems(appData.systemSettings)).map(item => (
-              <col key={item.id} style={{width:'60px'}} />/* 体温と同じ幅 */
+              <col key={item.id} style={{width: item.type==='individual' ? '84px' : '60px'}} />/* 個別運動は種目名が入るよう広め */
             ))}
             <col style={{width:'60px'}} />
             <col style={{width:'500px'}} />
@@ -23945,7 +23954,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               {filterMode === 'month' && <th className="px-2 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 left-0 z-50 bg-slate-900">日付</th>}
               <th className={`px-2 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-50 bg-slate-900 ${filterMode === 'month' ? 'left-[80px]' : 'left-0'}`}>利用者名</th>
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">状態</th>
-              <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800 text-xs">気分<div className="text-[8px] font-normal text-slate-400">通所/帰宅</div></th>
+              {_kibunOn && <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800 text-xs">気分<div className="text-[8px] font-normal text-slate-400">通所/帰宅</div></th>}
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800 text-xs">体温</th>
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">開始 血圧/脈</th>
               {_showEn && <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">{secondBpLabel(appData)} 血圧/脈</th>}
@@ -24054,6 +24063,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       </select>
                     )}
                   </td>
+                  {_kibunOn && (
                   <td className={`px-0.5 py-0 text-center border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`} style={{height:32,maxHeight:32,overflow:'visible',padding:'1px'}}>
                     <div style={{display:'flex',flexDirection:'row',height:'100%',gap:1}}>
                     {(['arrival','departure']).map((timing, ti) => {
@@ -24077,6 +24087,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     })}
                     </div>
                   </td>
+                  )}
                   <td className={`px-1 py-1 text-center border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`}>
                     {(() => { const fT=`temp_${timeFilter}`, fBu=`bpUpSt_${timeFilter}`, fBd=`bpDnSt_${timeFilter}`, fPl=`plSt_${timeFilter}`; const vT=p[fT]||"";
                     return (
@@ -24116,7 +24127,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         </div>
                       )}
                       <input type="text" inputMode="numeric" readOnly={_keypadOn} disabled={isAbsent || isReadOnly || isPause} value={vPl} onClick={() => { if(_keypadOn){ openKeypad(p.id, fPl, vPl, isAbsent); setActiveCell(`${p.id}-${fPl}`); } }} onChange={_keypadOn ? undefined : (e)=>updateRecord(p.id, fPl, e.target.value)} style={{fontSize:14,padding:'0 1px',width:55,height:42,boxSizing:'border-box'}} className={`border rounded-lg text-center ${_keypadOn?'cursor-pointer':''} ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(vPl, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-${fPl}` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
-                      {!(isAbsent || isReadOnly || isPause) && <button type="button" data-testid={`bp-re-St-${p.id}`} title="再測定: 今の値を○回目として残し、入力欄を空にして測り直した値を入力します（血圧は上/下、脈は隣の欄）" onClick={()=>applyBpRemeasure(p.id, 'St')} className={`shrink-0 text-[10px] font-bold rounded px-1 py-0.5 border ${bpReHas(p,'St',timeFilter) ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-slate-50 border-slate-300 text-slate-600 hover:bg-blue-50'}`}>再{bpReHas(p,'St',timeFilter) ? bpReList(p,timeFilter).filter(e=>e.phase==='St').length : ''}</button>}
+                      {_reOn && !(isAbsent || isReadOnly || isPause) && <button type="button" data-testid={`bp-re-St-${p.id}`} title="再測定: 今の値を○回目として残し、入力欄を空にして測り直した値を入力します（血圧は上/下、脈は隣の欄）" onClick={()=>applyBpRemeasure(p.id, 'St')} className={`shrink-0 text-[10px] font-bold rounded px-1 py-0.5 border ${bpReHas(p,'St',timeFilter) ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-slate-50 border-slate-300 text-slate-600 hover:bg-blue-50'}`}>再{bpReHas(p,'St',timeFilter) ? bpReList(p,timeFilter).filter(e=>e.phase==='St').length : ''}</button>}
                     </div>
                     );})()}
                   </td>
@@ -24149,7 +24160,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         </div>
                       )}
                       <input type="text" inputMode="numeric" readOnly={_keypadOn} disabled={isAbsent || isReadOnly || isPause} value={vPl} onClick={() => { if(_keypadOn){ openKeypad(p.id, fPl, vPl, isAbsent); setActiveCell(`${p.id}-${fPl}`); } }} onChange={_keypadOn ? undefined : (e)=>updateRecord(p.id, fPl, e.target.value)} style={{fontSize:14,padding:'0 1px',width:55,height:42,boxSizing:'border-box'}} className={`border rounded-lg text-center ${_keypadOn?'cursor-pointer':''} ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(vPl, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-${fPl}` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
-                      {!(isAbsent || isReadOnly || isPause) && <button type="button" data-testid={`bp-re-En-${p.id}`} title="再測定: 今の値を○回目として残し、入力欄を空にして測り直した値を入力します（血圧は上/下、脈は隣の欄）" onClick={()=>applyBpRemeasure(p.id, 'En')} className={`shrink-0 text-[10px] font-bold rounded px-1 py-0.5 border ${bpReHas(p,'En',timeFilter) ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-slate-50 border-slate-300 text-slate-600 hover:bg-blue-50'}`}>再{bpReHas(p,'En',timeFilter) ? bpReList(p,timeFilter).filter(e=>e.phase==='En').length : ''}</button>}
+                      {_reOn && !(isAbsent || isReadOnly || isPause) && <button type="button" data-testid={`bp-re-En-${p.id}`} title="再測定: 今の値を○回目として残し、入力欄を空にして測り直した値を入力します（血圧は上/下、脈は隣の欄）" onClick={()=>applyBpRemeasure(p.id, 'En')} className={`shrink-0 text-[10px] font-bold rounded px-1 py-0.5 border ${bpReHas(p,'En',timeFilter) ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-slate-50 border-slate-300 text-slate-600 hover:bg-blue-50'}`}>再{bpReHas(p,'En',timeFilter) ? bpReList(p,timeFilter).filter(e=>e.phase==='En').length : ''}</button>}
                     </div>
                     );})()}
                   </td>
@@ -24181,7 +24192,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       const _indPh = selItem ? (patDefault ? applyExUnits(patDefault, selItem) : '') : '未選択';
                       // ★ 種目名はセル幅(60px)に合わせて可変フォント: 短い名前は大きく、3〜4文字以上は縮小して収める
                       const _indName = selItem?.name || '';
-                      const _indNameFs = !_indName ? 11 : _indName.length<=2 ? 15 : _indName.length===3 ? 13 : _indName.length===4 ? 11 : _indName.length<=6 ? 10 : _indName.length<=8 ? 9 : 8;
+                      const _indNameFs = !_indName ? 11 : _indName.length<=3 ? 15 : _indName.length<=5 ? 13 : _indName.length<=7 ? 11 : _indName.length<=9 ? 10 : 9;
                       // ★ 値の表示フォント: ○ は大きく太く、数値は桁数で縮小。値が空のときは規定値(プレースホルダー)の長さで判定(見切れ防止)
                       const _indIsCircle = cur.value==='○'||cur.value==='◯';
                       const _indValLen = String(cur.value||'').length || String(_indPh||'').length;
@@ -24333,7 +24344,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                                 : <span style={{fontSize:8.5,whiteSpace:'nowrap'}}>非表示中</span>}
                             </button>
                           )}
-                          {bpReLines(p, timeFilter).length > 0 && <div className="text-[10px] font-bold text-amber-800 whitespace-nowrap flex items-center gap-1.5" data-testid="bp-re-lines" title={bpReLines(p, timeFilter).join('\n')}><span className="truncate" style={{maxWidth:260}}>{bpReLines(p, timeFilter).join('　')}</span>{!(isAbsent || isReadOnly || isPause) && ['St','En'].filter(ph => bpReHas(p, ph, timeFilter)).map(ph => <button key={ph} type="button" data-testid={`bp-re-del-${ph}-${p.id}`} onClick={()=>removeBpRemeasure(p.id, ph)} className="shrink-0 text-[10px] font-bold text-red-600 border border-red-300 bg-white rounded px-1.5 py-0.5">{ph === 'En' ? '終了時' : '開始時'}の再測定を削除</button>)}</div>}
+                          {bpReList(p, timeFilter).length > 0 && <div className="flex flex-col gap-0.5" data-testid="bp-re-lines">{bpReList(p, timeFilter).map((e, i) => (
+                            <div key={e.at || i} className="text-[10px] font-bold text-amber-800 whitespace-nowrap flex items-center gap-2"><span>{e.phase === 'En' ? '終了' : '開始'} {e.n || 1}回目</span><span>{e.time || ''}</span><span>{e.up || '－'}/{e.dn || '－'}</span><span>脈{e.pl || '－'}</span>{!(isAbsent || isReadOnly || isPause) && <button type="button" data-testid={`bp-re-del-${e.phase}-${p.id}`} onClick={()=>removeBpRemeasureAt(p.id, e.at)} className="shrink-0 text-[10px] font-bold text-red-600 border border-red-300 bg-white rounded px-1.5 py-0.5">削除</button>}</div>
+                          ))}</div>}
                           <textarea disabled={isReadOnly} value={p.tokki || ""} onChange={(e) => updateRecord(p.id, 'tokki', e.target.value)} rows={2}
                             className={`flex-1 px-2 border rounded-lg text-xs bg-transparent outline-none disabled:opacity-80 resize-none ${isReadOnly ? 'border-transparent' : 'border-slate-300 shadow-inner bg-white'}`}
                             style={{fontSize:14,lineHeight:1.4,padding:'2px 6px',height:'100%'}}
@@ -24542,7 +24555,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     <span style={{fontSize:15,fontWeight:'bold',color:'#1e293b'}}>状態</span>
                     <span style={{fontSize:26,fontWeight:'bold',lineHeight:1.1,color:({'出席':'#2563eb','欠席':'#dc2626','振替':'#059669','休止':'#f97316','休業':'#64748b'})[p.status||'出席']||'#2563eb'}}>{p.status||'出席'}</span>
                   </div>
-                  {['arrival','departure'].map(t=>{ const mo=KIBUN_MOODS.find(m=>m.key===p[t==='arrival'?'kibunArrival':'kibunDeparture']); return (
+                  {_kibunOn && ['arrival','departure'].map(t=>{ const mo=KIBUN_MOODS.find(m=>m.key===p[t==='arrival'?'kibunArrival':'kibunDeparture']); return (
                     <button key={t} type="button" disabled={dis} onClick={()=>openKibunModal(p.id,t)}
                       className={`disabled:opacity-40 active:scale-95 ${mo?mo.color:''}`}
                       style={{borderRadius:16,border:'2px solid #94a3b8',background:mo?undefined:'white',padding:'10px 6px',display:'flex',flexDirection:'column',alignItems:'center',gap:4,cursor:'pointer'}}>
@@ -38590,6 +38603,13 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
               <label className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl p-3 cursor-pointer">
                 <input type="checkbox" checked={ss.keypadDisabled !== true} onChange={e=>saveSS({ keypadDisabled: !e.target.checked }, e.target.checked ? '✓ テンキーを表示します' : '✓ テンキーを非表示にしました（通常キーボードで入力）')} className="w-5 h-5" style={{accentColor:'#2563eb'}}/>
                 <span className="text-sm font-bold text-slate-700">テンキー（点キー）を表示する{ss.keypadDisabled===true && <span className="ml-2 text-xs font-normal text-amber-600">現在OFF：通常キーボードで入力します</span>}</span>
+              </label>
+            </SectionCard>
+            <SectionCard title="気分の入力（通所時・帰宅時）">
+              <p className="text-xs text-slate-500 mb-3">提供記録入力の「気分」欄（通所時・帰宅時）を使うかどうかを事業所ごとに選べます。OFFにすると提供記録入力（一覧・カード・拡大表示）から気分の欄が消えます。入力済みの気分は消えません（ONに戻すと表示されます）。ケアマネからは「あると分かりやすい」との声があります。</p>
+              <label className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl p-3 cursor-pointer">
+                <input type="checkbox" data-testid="kibun-toggle" checked={ss.kibunDisabled !== true} onChange={e=>saveSS({ kibunDisabled: !e.target.checked }, e.target.checked ? '✓ 気分の入力欄を表示します' : '✓ 気分の入力欄を非表示にしました')} className="w-5 h-5" style={{accentColor:'#2563eb'}}/>
+                <span className="text-sm font-bold text-slate-700">通所時・帰宅時の気分を入力する{ss.kibunDisabled===true && <span className="ml-2 text-xs font-normal text-amber-600">現在OFF：気分の欄は表示されません</span>}</span>
               </label>
             </SectionCard>
             <SectionCard title="血圧・脈の測定">
