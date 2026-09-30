@@ -11416,6 +11416,29 @@ const diaryStaffMissing = (log, iso, appData) => {
     return diaryRequiredRoles(appData).filter(role => !has(role) && !gensan[role]);
   } catch { return []; }
 };
+// ★ 2026-09-30(不具合修正・扇橋 9/29午後): 欠席などで送迎しない方に割り当てが残っていると、その車が「使う車」と判定され、
+//   送りに誰もいない車がグレーアウトされず、送迎者・出発時間が必須になって日誌が未完成のままだった。
+//   車を使うかは、当日 欠席/休止/休業 ではない方の割り当てだけで数える。
+const diaryAbsentPids = (appData, iso) => {
+  const out = new Set();
+  try {
+    const d = new Date(iso); if (!iso || isNaN(d.getTime())) return out;
+    const ds = `${d.getMonth()+1}月${d.getDate()}日`, y = d.getFullYear();
+    (appData?.ticketRecords || []).forEach(r => { if (r && recMatchesDateYear(r, ds, y) && (r.status === '欠席' || r.status === '休止' || r.status === '休業')) out.add(String(r.patientId)); });
+  } catch {}
+  return out;
+};
+// 割り当てのキー(利用者ID_車ID)から、送迎する方の割り当てがあるか。activePids を渡せばその方だけ、absentPids を渡せばその方を除く
+const diaryCarUsed = (log, dirKey, carId, opts = {}) => {
+  const m = log && log[dirKey]; if (!m) return false;
+  return Object.keys(m).some(k => {
+    if (!m[k] || !k.endsWith('_' + carId)) return false;
+    const pid = k.slice(0, k.length - String(carId).length - 1);
+    if (opts.activePids) return opts.activePids.has(String(pid));
+    if (opts.absentPids) return !opts.absentPids.has(String(pid));
+    return true;
+  });
+};
 const diaryPendingItems = (log, iso, cars, appData) => {
   if (!log || Object.keys(log).length === 0) return null;
   const sp = (iso && iso < DIARY_SP_LEGACY_CUTOFF) ? {} : (log._sougeiPending || {});
@@ -11428,14 +11451,14 @@ const diaryPendingItems = (log, iso, cars, appData) => {
   //   過去日(境界日より前)は旧基準のまま(遡って未完成にしない)。
   const _strict = !iso || iso >= DIARY_STRICT_CUTOFF;
   if (_strict && Array.isArray(cars) && cars.length) {
-    const _used = (dirKey) => cars.filter(c => { const m = log[dirKey]; return !!m && Object.keys(m).some(k => k.endsWith('_'+c.id) && m[k]); });
+    const _abs = (iso && iso >= DIARY_PIDKEY_CUTOFF) ? diaryAbsentPids(appData, iso) : null;
+    const _used = (dirKey) => cars.filter(c => diaryCarUsed(log, dirKey, c.id, _abs ? { absentPids: _abs } : {}));
     if (_used('pick').some(c => !(((log.carTimes||{})[c.id]||{}).arrive))) items.push('到着時間');
     if (_used('drop').some(c => !(((log.carTimes||{})[c.id]||{}).depart))) items.push('出発時間');
     // ★ 送迎者: 迎え/送りで使う車に運転者チェックが無ければ未完了
     const _drv = log.driver || {};
     const _miss = (dirKey, dpre) => cars.some(c => {
-      const m = log[dirKey];
-      const used = !!m && Object.keys(m).some(k => k.endsWith('_'+c.id) && m[k]);
+      const used = diaryCarUsed(log, dirKey, c.id, _abs ? { absentPids: _abs } : {});
       if (!used) return false;
       return !Object.keys(_drv).some(k => k.startsWith(dpre+c.id+'_') && _drv[k]);
     });
@@ -42320,6 +42343,9 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
 
   // 各種設定の定員数 (capacity) を基準にしつつ、欠席を含む全員が必ず表示されるよう
   // totalRows は patients.length と capacity の max を採用
+  // ★ 2026-09-30: 車を使うか(グレーアウト・未完成の判定)は、この一覧で送迎する方の割り当てだけで数える
+  const _sougeiPids = new Set(patients.filter(r => !(r.status==='欠席'||r.status==='休業'||r.status==='休止')).map(r => String(r.patientId)));
+  const _carUseOpts = selectedDate >= DIARY_PIDKEY_CUTOFF ? { activePids: _sougeiPids } : {};
   const attended = patients.filter(r=>r.status==='出席'||r.status==='振替'||r.status==='臨時').length; // ★ 振替・臨時も出席(2026-09-24 ユーザー指摘: 日誌の出席数に振替が入っていなかった)
   const absent   = patients.filter(r=>r.status==='欠席'||r.status==='休業'||r.status==='休止').length; // 休止も欠席扱い
   const planned  = patients.length;
@@ -42744,8 +42770,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
               return checked.map(c => ({label: c.name || '', name: (c.type && c.type !== c.name) ? c.type : ''}));
             };
             const CarCell = ({prefix}) => {
-              // ★ 欠席/休業の場合は送迎なし → 選択されていても空白表示にする
-              if (isAbsent) {
+              // ★ 欠席/休業/休止の場合は送迎なし → 選択されていても空白表示にする(2026-09-30: 休止も追加)
+              if (isAbsent || pt?.status === '休止') {
                 return <div style={{fontSize:8,textAlign:'center',color:'#bbb',fontWeight:'normal',lineHeight:_compact?'16px':'20px'}}>—</div>;
               }
               const sel = getSelectedCar(prefix);
@@ -42862,9 +42888,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             // ★ 2026-09-10(店舗要望): グレーアウトは迎え/送りで別々に。迎えで未使用なら「到着+迎えの送迎者」、
             //   送りで未使用なら「出発+送りの送迎者」だけを塗りつぶして入力不可(誤タップ防止)。
             //   両方未使用なら車両名もグレー。割り当てると解除。時間が既に入っている側はロックしない。
-            const _carHasAny = (m) => !!m && Object.keys(m).some(k => k.endsWith('_'+car.id) && m[k]);
-            const _pickUnused = !data && !_carHasAny(_log.pick) && !ct.arrive;
-            const _dropUnused = !data && !_carHasAny(_log.drop) && !ct.depart;
+            const _pickUnused = !data && !diaryCarUsed(_log, 'pick', car.id, _carUseOpts) && !ct.arrive;
+            const _dropUnused = !data && !diaryCarUsed(_log, 'drop', car.id, _carUseOpts) && !ct.depart;
             const _rowUnused = _pickUnused && _dropUnused;
             const _gy = {backgroundColor:'#e2e8f0',color:'#94a3b8'};
             return (
@@ -43552,8 +43577,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           // ★ 送迎者(2026-09-10 店舗要望): 迎え/送りで使う車に運転者チェックが1人も無ければ未完了
           const _drv = log.driver || {};
           const _drvMissing = (dirKey, dpre) => ds.cars.some(c => {
-            const m = log[dirKey];
-            const used = !!m && Object.keys(m).some(k => k.endsWith('_'+c.id) && m[k]);
+            const used = diaryCarUsed(log, dirKey, c.id, _carUseOpts);
             if (!used) return false;
             return !Object.keys(_drv).some(k => k.startsWith(dpre+c.id+'_') && _drv[k]);
           });
@@ -43561,7 +43585,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           if (_strict && _drvMissing('drop','d_')) items.push({ key:'送りの送迎者', label:'送りの送迎者', aid:'diary-sec-cars' });
           // ★ 2026-09-10(店舗要望): 時間の必須は方向別。到着=迎えで使う車すべて・出発=送りで使う車すべて。
           //   使わない方向の車は動かないので、その時間は未入力でも必須にしない。
-          const _usedCars = (dirKey) => ds.cars.filter(c => { const m = log[dirKey]; return !!m && Object.keys(m).some(k => k.endsWith('_'+c.id) && m[k]); });
+          const _usedCars = (dirKey) => ds.cars.filter(c => diaryCarUsed(log, dirKey, c.id, _carUseOpts));
           if (_strict && _usedCars('pick').some(c => !(((log.carTimes||{})[c.id]||{}).arrive))) items.push({ key:'到着時間', label:'到着時間', aid:'diary-sec-cars' });
           if (_strict && _usedCars('drop').some(c => !(((log.carTimes||{})[c.id]||{}).depart))) items.push({ key:'出発時間', label:'出発時間', aid:'diary-sec-cars' });
           if (!_strict && !Object.values(log.carTimes||{}).some(t => t && (t.arrive || t.depart))) items.push({ key:'送迎時間', label:'送迎時間', aid:'diary-sec-cars' });
