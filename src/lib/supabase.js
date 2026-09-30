@@ -894,9 +894,20 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData) {
     const _PLAIN_VITALS = ['temp','bpUpSt','bpDnSt','plSt','bpUpEn','bpDnEn','plEn'];
     const _nonEmpty = (v) => v != null && String(v) !== '';
     if (_PLAIN_VITALS.some(f => (`${f}_AM` in out) || (`${f}_PM` in out))) {
+      // ★ 2026-09-30(不具合修正): 午前・午後の両方に値があるときは、振替の時間帯 → 後から入力した方(_fieldTs が新しい方) → 午前 の順で選ぶ。
+      //   従来は常に午前を優先したため、午後に来た方の記録に午前の入力途中の値(例: 36.)が残っていると、連絡帳などにそちらが出ていた。
+      const _fts = (out._fieldTs && typeof out._fieldTs === 'object') ? out._fieldTs : {};
+      const _fa = (out.furikaeAmpm === 'AM' || out.furikaeAmpm === 'PM') ? out.furikaeAmpm : '';
       _PLAIN_VITALS.forEach(f => {
         const am = out[`${f}_AM`], pm = out[`${f}_PM`];
         if (am === undefined && pm === undefined) return; // AM/PM が無い項目は旧データなので触らない
+        if (_nonEmpty(am) && _nonEmpty(pm)) {
+          let pick = 'AM';
+          if (_fa) pick = _fa;
+          else if ((Number(_fts[`${f}_PM`]) || 0) > (Number(_fts[`${f}_AM`]) || 0)) pick = 'PM';
+          out[f] = pick === 'PM' ? pm : am;
+          return;
+        }
         out[f] = _nonEmpty(am) ? am : (_nonEmpty(pm) ? pm : '');
       });
     }

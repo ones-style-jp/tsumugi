@@ -32555,9 +32555,21 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
   //   開始時のみ(startOnly) … 1行目「開始時」=1回目の測定値、2行目「再測定」=最新の値(再測定が無ければ空欄)。3回測ったら開始=1回目・再測定=3回目
   //   開始時＋再測定(旧方式)  … 従来どおり2列目(bpUpEn等)を「再測定」として表示
   const _bpMode = appData?.systemSettings?.secondBpMode || 'end';
+  // ★ 2026-09-30(不具合修正・扇橋 浅野様): 体温・血圧は「この方が来た時間帯(振替の時間帯→基本の時間帯)」の値を出す。
+  //   旧来のまとめ値(temp 等)は午前優先で作られるため、午後の方に午前の入力途中の値(36.)が出ていた。時間帯が分からない時は従来のまとめ値。
+  const _cbSlot = (() => {
+    try {
+      const fa = record && record.furikaeAmpm;
+      if (record && (record.status === '振替' || record.status === '臨時') && (fa === 'AM' || fa === 'PM')) return fa;
+      if (!patient || patient.id === '__blank__' || !selectedDate) return '';
+      const s = getScheduleOnDate(patient, selectedDate)?.[new Date(selectedDate).getDay()] || '';
+      return (s === 'AM' || s === 'PM') ? s : '';
+    } catch { return ''; }
+  })();
+  const _cbV = (f) => { if (!record) return ''; if (_cbSlot) { const x = record[`${f}_${_cbSlot}`]; if (x != null && String(x) !== '') return x; } return record[f] || ''; };
   const _cbBp = (() => {
-    const cur = { up: record.bpUpSt || '', dn: record.bpDnSt || '', pl: record.plSt || '' };
-    const en = { up: record.bpUpEn || '', dn: record.bpDnEn || '', pl: record.plEn || '' };
+    const cur = { up: _cbV('bpUpSt'), dn: _cbV('bpDnSt'), pl: _cbV('plSt') };
+    const en = { up: _cbV('bpUpEn'), dn: _cbV('bpDnEn'), pl: _cbV('plEn') };
     if (_bpMode !== 'startOnly') return { row1: cur, row1Re: bpReHas(record, 'St'), label2: _bpMode === 'recheckStart' ? '再測定' : '終了時', row2: en, row2Re: _bpMode !== 'recheckStart' && bpReHas(record, 'En') };
     let st = (Array.isArray(record.bpRe) ? record.bpRe : []).filter(e => e && e.phase === 'St');
     const ams = [...new Set(st.map(e => e.ampm).filter(Boolean))];
@@ -32778,46 +32790,28 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
               <colgroup><col style={{width:"25%"}}/><col style={{width:"75%"}}/></colgroup>
             <tbody>
               {/* ★ 2026-09-11(iOS印刷調査): 行高はrem指定だと環境で解釈差が出るためpx固定 */}
-              <tr className="border-b border-black" style={{height:58}}>
+              {/* ★ 2026-09-30(不具合修正・印刷のずれ): 1行目と2行目を同じ列幅のグリッドにそろえる(従来は文字の空白で位置を合わせており、
+                  1行目が約20px右へずれ、脈拍が枠からはみ出していた)。列=体温｜余白｜開始時/終了時｜血圧｜脈拍｜値 */}
+              {[1, 2].map(rowNo => { const _r = rowNo === 1 ? _cbBp.row1 : _cbBp.row2; const _re = rowNo === 1 ? _cbBp.row1Re : _cbBp.row2Re; return (
+              <tr key={rowNo} className={rowNo === 1 ? 'border-b border-black' : ''} style={{height:58}}>
                 <td className="p-0" colSpan={2}>
-                  <div className="flex items-center h-full px-3">
-                    <span className="font-normal" style={{fontSize:18,marginRight:'0.4em',whiteSpace:'nowrap',flexShrink:0}}>体温</span>
-                    <span className="font-bold" style={{fontSize:29,display:'inline-block',minWidth:'2.8em',textAlign:'right',fontVariantNumeric:'tabular-nums'}}>{record.temp || ''}</span>
-                    <span className="font-normal" style={{fontSize:17,marginLeft:'0.15em'}}>℃</span>
-                    <span style={{display:'inline-block', width:'4em', fontSize:18}} />
-                    <span style={{fontSize:29}}>　</span>
-                    <table style={{borderCollapse:'collapse', flex:'none'}}>
-                      <tbody>
-                        <tr>
-                          <td style={{fontSize:17, whiteSpace:'nowrap', paddingRight:4}}>開始時　血圧</td>
-                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap', paddingRight:0, minWidth:'6em'}}>{_cbBp.row1.up ? `${_cbBp.row1.up} / ${_cbBp.row1.dn}` : "　"}{_cbBp.row1Re && <span style={{fontSize:11,fontWeight:'normal',marginLeft:2}}>（再測定）</span>}</td>
-                          <td style={{fontSize:17, whiteSpace:'nowrap', paddingLeft:24, paddingRight:26}}>脈拍</td>
-                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap'}}>{_cbBp.row1.pl || "　"}</td>
-                        </tr>
-                      </tbody>
-                    </table>
+                  <div data-testid={`cb-vitals-row${rowNo}`} className="h-full px-3" style={{display:'grid', gridTemplateColumns:'136px minmax(4px,1fr) 106px 165px 54px 50px', alignItems:'center', columnGap:0}}>
+                    <div style={{display:'flex', alignItems:'baseline', whiteSpace:'nowrap'}}>
+                      {rowNo === 1 && <>
+                        <span className="font-normal" style={{fontSize:18,marginRight:'0.35em'}}>体温</span>
+                        <span className="font-bold" style={{fontSize:29,fontVariantNumeric:'tabular-nums'}}>{_cbV('temp')}</span>
+                        <span className="font-normal" style={{fontSize:17,marginLeft:'0.15em'}}>℃</span>
+                      </>}
+                    </div>
+                    <div />
+                    <div style={{fontSize:17, whiteSpace:'nowrap', textAlign:'left'}}>{rowNo === 1 ? '開始時' : _cbBp.label2}　血圧</div>
+                    <div style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap', textAlign:'center'}}>{_r.up ? `${_r.up} / ${_r.dn}` : '　'}{_re && <span style={{fontSize:11,fontWeight:'normal',marginLeft:2}}>（再測定）</span>}</div>
+                    <div style={{fontSize:17, whiteSpace:'nowrap', textAlign:'center'}}>脈拍</div>
+                    <div style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap', textAlign:'right', fontVariantNumeric:'tabular-nums'}}>{_r.pl || '　'}</div>
                   </div>
                 </td>
               </tr>
-              <tr style={{height:58}}>
-                <td className="p-0" colSpan={2}>
-                  <div className="flex items-center h-full px-3">
-                    <span style={{fontSize:18, visibility:'hidden'}}>体温　00.0℃</span>
-                    <span style={{display:'inline-block', width:'4em', fontSize:18}} />
-                    <span style={{fontSize:29}}>　　</span>
-                    <table style={{borderCollapse:'collapse', flex:'none'}}>
-                      <tbody>
-                        <tr>
-                          <td style={{fontSize:17, whiteSpace:'nowrap', paddingRight:4}}>{_cbBp.label2}　血圧</td>
-                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap', paddingRight:0, minWidth:'6em'}}>{_cbBp.row2.up ? `${_cbBp.row2.up} / ${_cbBp.row2.dn}` : "　"}{_cbBp.row2Re && <span style={{fontSize:11,fontWeight:'normal',marginLeft:2}}>（再測定）</span>}</td>
-                          <td style={{fontSize:17, whiteSpace:'nowrap', paddingLeft:24, paddingRight:26}}>脈拍</td>
-                          <td style={{fontSize:29, fontWeight:'bold', whiteSpace:'nowrap'}}>{_cbBp.row2.pl || "　"}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </td>
-              </tr>
+              ); })}
             </tbody>
           </table>
 
