@@ -1170,16 +1170,19 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData) {
           new Set([...Object.keys(_lt), ...Object.keys(_ct)]).forEach(k2 => { const t = Math.max(Number(_lt[k2]) || 0, Number(_ct[k2]) || 0); if (t) cmTombs[k2] = t; });
           if (Object.keys(cmTombs).length) out.cmTombstones = cmTombs;
           // ★ 追加を失わない配列は union(両端末の追加を保持。 同一キーはローカル優先)。
-          const unionBy = (k, keyFn) => {
+          const unionBy = (k, keyFn, combine) => {
             const a = Array.isArray(ls[k]) ? ls[k] : [], b = Array.isArray(cs[k]) ? cs[k] : [];
             if (!a.length && !b.length) return;
             const m = new Map();
             b.forEach(x => { const kk = keyFn(x); if (kk != null) m.set(kk, x); });
-            a.forEach(x => { const kk = keyFn(x); if (kk != null) m.set(kk, x); });
+            a.forEach(x => { const kk = keyFn(x); if (kk != null) m.set(kk, (combine && m.has(kk)) ? combine(x, m.get(kk)) : x); });
             out[k] = [...m.values()].filter(x => { const kk = keyFn(x); const tt = kk != null ? (cmTombs[kk] || 0) : 0; return !tt || (Number(x && x._addedAt) || 0) > tt; });
           };
           unionBy('cmOffices', o => (o && o.name != null) ? `off|${String(o.name).trim()}` : null);
-          unionBy('careManagers', o => (o && (o.office != null || o.name != null)) ? `cm|${String(o.office||'').trim()}|${String(o.name||'').trim()}` : null);
+          // ★ 2026-09-30(試験版): 同じ担当者は従来どおり端末側優先だが、メールだけは「書いた時刻(_emailTs)」の新しい方を採る。
+          //   ケアマネ本人の登録や自動補完でクラウドに入ったメールが、古い端末の保存で消えないようにする(画面での変更・削除も時刻を刻む)。
+          unionBy('careManagers', o => (o && (o.office != null || o.name != null)) ? `cm|${String(o.office||'').trim()}|${String(o.name||'').trim()}` : null,
+            (l, c) => { const lt = Number(l && l._emailTs) || 0, ct = Number(c && c._emailTs) || 0; return ct > lt ? { ...l, email: (c && c.email) || '', _emailTs: ct } : l; });
           merged.systemSettings = out;
         }
       }
@@ -1689,10 +1692,15 @@ export async function supabaseMergePatientFromFamily(storeId, patientId, patient
       }
       if (Array.isArray(extra.careManagers)) {
         const exist = nextSettings.careManagers || [];
-        const key = c => `${(c.office||'').trim()}|${(c.name||'').trim()}`;
+        // ★ 2026-09-30(試験版): 空白の違い(全角/半角)は同じ担当者とみなす。既存の担当者でメールが空なら、登録で入ったメールを補う(時刻付き)。
+        const _n = s => String(s || '').normalize('NFKC').replace(/[\s　]/g, '');
+        const key = c => `${_n(c.office)}|${_n(c.name)}`;
         const keys = new Set(exist.map(key));
         const add = extra.careManagers.filter(c => c && c.name && !keys.has(key(c)));
-        if (add.length) nextSettings.careManagers = [...exist, ...add];
+        const fill = new Map(extra.careManagers.filter(c => c && c.name && String(c.email || '').trim()).map(c => [key(c), c]));
+        let filled = false;
+        const merged = exist.map(c => { const f = fill.get(key(c)); if (f && !String(c.email || '').trim()) { filled = true; return { ...c, email: String(f.email).trim(), _emailTs: Number(f._emailTs) || Date.now() }; } return c; });
+        if (add.length || filled) nextSettings.careManagers = [...merged, ...add];
       }
     }
     const updatedData = { ...currentData, patients, systemSettings: nextSettings };
@@ -1912,6 +1920,30 @@ export async function supabaseMarkDocUpdatesRead(storeId, patientId, side = 'cm'
 //     (アドオンを続けて複数ONにすると最後の1個しか残らない)
 //   ②_fieldTs.addons が古いままなので、店舗側の端末が次に保存した時にフィールド単位マージで
 //     「ローカル(古いaddons)が新しい」と判定され、管理局の変更が巻き戻る
+// ★ ケアマネ担当者マスタのメール補完(2026-09-30 試験版): fills=[{office,name,email}]。マスタのメールが空の担当者だけ補い、時刻(_emailTs)を刻む。
+export async function supabaseFillCareManagerEmails(storeId, fills) {
+  if (!supabase || !storeId || !Array.isArray(fills) || !fills.length) return false;
+  const _n = s => String(s || '').normalize('NFKC').replace(/[\s　]/g, '');
+  try {
+    const res = await supabaseCasUpdate(storeId, (cloud) => {
+      const data = cloud || {};
+      const ss = data.systemSettings || {};
+      const now = syncNow();
+      let changed = false;
+      const next = (ss.careManagers || []).map(c => {
+        if (String(c.email || '').trim()) return c;
+        const f = fills.find(x => x && x.email && _n(x.office) === _n(c.office) && _n(x.name) === _n(c.name));
+        if (!f) return c;
+        changed = true;
+        return { ...c, email: String(f.email).trim(), _emailTs: now };
+      });
+      if (!changed) return null;
+      return { ...data, systemSettings: { ...ss, careManagers: next, _updatedAt: now } };
+    });
+    return !!(res && res.ok);
+  } catch (e) { console.warn('[supabase] fillCareManagerEmails failed', e); return false; }
+}
+
 export async function supabaseSetStoreAddon(storeId, key, value) {
   if (!supabase || !storeId || !key) return false;
   try {

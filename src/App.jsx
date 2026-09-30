@@ -27,6 +27,7 @@ import {
   supabaseFamilyUsernameExists, // ★ import 漏れ: ログインIDの重複チェックが常に失敗(catchで握り潰し)していた
   supabaseGetInviteByCode,
   supabaseLookupInvite,
+  supabaseFillCareManagerEmails,
   supabaseLoadState,
   supabaseSubscribeState,
   supabaseSubscribeStoreRealtime,
@@ -14568,9 +14569,15 @@ function FamilyView() {
                       nextCmOffices = [...nextCmOffices, { name: cmOfficeName, phone: cmOfficePhone, fax: cmOfficeFax, _addedAt: Date.now() }];
                     }
                     const cmFullName = `${cmManagerLast} ${cmManagerFirst}`.trim();
-                    if (!nextCareManagers.some(c => c.office === cmOfficeName && c.name === cmFullName)) {
+                    // ★ 2026-09-30(試験版): 登録したメールを「ケアマネ事業所・担当者」のメール欄へ自動反映(空欄のときだけ・時刻付き)。
+                    //   空白の違い(全角/半角)は同じ担当者とみなし、重複して追加しない。
+                    const _cmN = (s) => String(s||'').normalize('NFKC').replace(/[\s　]/g,'');
+                    const _cmHit = nextCareManagers.find(c => _cmN(c.office) === _cmN(cmOfficeName) && _cmN(c.name) === _cmN(cmFullName));
+                    if (_cmHit) {
+                      if (email && !String(_cmHit.email||'').trim()) nextCareManagers = nextCareManagers.map(c => c === _cmHit ? { ...c, email, _emailTs: Date.now() } : c);
+                    } else {
                       // ★ ふりがな(登録者本人=担当ケアマネ)も保存し、一覧のふりがな順ソート/表示に反映する。
-                      nextCareManagers = [...nextCareManagers, { office: cmOfficeName, name: cmFullName, phone: cmOfficePhone, phoneDirect: cmManagerDirect, lastName: cmManagerLast, firstName: cmManagerFirst, kana: `${ecKanaLast} ${ecKanaFirst}`.trim(), kanaLast: ecKanaLast, kanaFirst: ecKanaFirst, _addedAt: Date.now() }];
+                      nextCareManagers = [...nextCareManagers, { office: cmOfficeName, name: cmFullName, phone: cmOfficePhone, phoneDirect: cmManagerDirect, lastName: cmManagerLast, firstName: cmManagerFirst, kana: `${ecKanaLast} ${ecKanaFirst}`.trim(), kanaLast: ecKanaLast, kanaFirst: ecKanaFirst, ...(email ? { email, _emailTs: Date.now() } : {}), _addedAt: Date.now() }];
                     }
                   }
                   const updated = {
@@ -20148,6 +20155,7 @@ export default function App() {
           const persons = appData.systemSettings?.careManagers || [];
           const pats = appData.patients || [];
           const nameLoose = (a,b) => { const x=_nrm(a), y=_nrm(b); if(!x||!y) return false; if(x===y) return true; return x.length>=2 && y.length>=2 && (x.includes(y)||y.includes(x)); };
+          const _emailFills = []; // ★ 2026-09-30(試験版): マスタのメールが空の担当者に、登録アカウントのメールを補う
           for (const grp of groups.values()) {
             const em = String(grp[0].email||'').toLowerCase();
             // ★ 2026-09-30(不具合修正): 事業所の共有メールなど、同じメールを複数のケアマネが使うと、メールだけの判定で
@@ -20179,6 +20187,7 @@ export default function App() {
             //   複製を作らず、残っている複製も停止する(削除済みテストアカウント由来の誤生成が実際に起きた)。
             const _liveBase = live.filter(r => !_isClone(r));
             if (!_liveBase.length) { for (const r of live) { await supabaseSetFamilyAccountDeleted(r.id, true); } continue; }
+            if (!String(person.email||'').trim() && String(grp[0].email||'').trim()) _emailFills.push({ office: person.office, name: person.name, email: String(grp[0].email).trim() });
             // 1) 担当から外れた利用者ぶんを停止(複製行のみ)。基点行は停止するとログインID自体が死ぬため、
             //    現担当の利用者へ付け替える(担当0なら停止=閲覧の全面失効)
             for (const r of live) {
@@ -20213,6 +20222,7 @@ export default function App() {
               });
             }
           }
+          if (_emailFills.length) await supabaseFillCareManagerEmails(storeId, _emailFills);
         }
         _cmReconLastSigRef.current = sig; // 成功時のみ確定(失敗時は次の変化検知で再試行)
       } catch (e) {
@@ -39380,6 +39390,14 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
   // ★ ケアマネ事業所/担当者の追加・削除は保存ボタンを待たず即クラウド保存する(2026-08-17)。
   //   ローカルstateだけの変更は、4秒同期の追従処理との競合で「追加したのにすぐ消える」原因だった。
   const persistCm = (nextOffices, nextPersons, msg, extraSettings) => {
+    // ★ 2026-09-30(試験版): メール欄を変えた・消した担当者に「書いた時刻(_emailTs)」を刻む。
+    //   同期では同じ担当者のメールは時刻の新しい方を採る(ケアマネ登録で自動反映したメールが古い端末で消えないように)。
+    if (nextPersons) {
+      const _k = c => `${String(c.office||'').trim()}|${String(c.name||'').trim()}`;
+      const _prev = new Map((appData.systemSettings?.careManagers||[]).map(c => [_k(c), c]));
+      const _ts = syncNow();
+      nextPersons = nextPersons.map(c => { const o = _prev.get(_k(c)); const ce = String(c.email||'').trim(), oe = String(o?.email||'').trim(); return (o ? ce !== oe : !!ce) ? { ...c, _emailTs: _ts } : c; });
+    }
     if (nextOffices) setCmOffices(nextOffices);
     if (nextPersons) setCmPersons(nextPersons);
     onSave({ ...appData, systemSettings: { ...appData.systemSettings,
@@ -52579,6 +52597,8 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
                         <input type="tel" inputMode="numeric" value={formatJpPhone(c.phone||'')} onChange={e=>setContact(i,{phone:toHankaku(e.target.value).replace(/[^0-9]/g,'')})} placeholder="電話(固定)" className="px-2 py-1 border border-slate-300 rounded text-[13px] outline-none"/>
                         <input type="tel" inputMode="numeric" value={formatJpPhone(c.phoneMobile||'')} onChange={e=>setContact(i,{phoneMobile:toHankaku(e.target.value).replace(/[^0-9]/g,'')})} placeholder="電話(携帯)" className="px-2 py-1 border border-slate-300 rounded text-[13px] outline-none"/>
                       </div>
+                      {/* ★ 2026-09-30(試験版): ご家族がアプリ登録したメールもフェイスシートに表示・編集(基本情報と双方向) */}
+                      <input type="email" inputMode="email" autoCapitalize="none" value={c.email||''} onChange={e=>setContact(i,{email:toHankaku(e.target.value).trim()})} placeholder="メールアドレス" data-testid="fs-contact-email" className="mt-2 w-full px-2 py-1 border border-slate-300 rounded text-[13px] outline-none"/>
                     </div>
                   ))}
                 </div>
@@ -52590,7 +52610,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
                 <div className="text-[12px]">
                   {getAllContacts(patient).length === 0 && <div className="italic text-slate-500">未登録</div>}
                   {getAllContacts(patient).slice(0,6).map((c,i) => (
-                    <div key={i} className="mb-1">{i+1}. {c.name} {c.relation?`(${c.relation})`:''} / {c.phone || c.phoneMobile || '-'}{c._primary?' 〔代表〕':''}</div>
+                    <div key={i} className="mb-1">{i+1}. {c.name} {c.relation?`(${c.relation})`:''} / {c.phone || c.phoneMobile || '-'}{c.email?` / メール: ${c.email}`:''}{c._primary?' 〔代表〕':''}</div>
                   ))}
                 </div>
               </div>
@@ -52879,7 +52899,7 @@ function FaceSheetPdfPreview({ patient, faceSheet, onClose }) {
               <div style={{fontSize:13,fontWeight:'bold',color:'#92400e',background:'#fef3c7',padding:'6px 10px',marginBottom:8}}>③ 家族・連絡先情報</div>
               <Row label="家族構成" value={fs.familyMembers}/>
               <Row label="ジェノグラム" value={fs.genogram}/>
-              <Row label="緊急連絡先" value={getAllContacts(patient).map((c,i)=>`${i+1}.${c.name}${c.relation?`(${c.relation})`:''} ${c.phone||c.phoneMobile||'-'}${c._primary?' 〔代表〕':''}`).join('\n') || '－'}/>
+              <Row label="緊急連絡先" value={getAllContacts(patient).map((c,i)=>`${i+1}.${c.name}${c.relation?`(${c.relation})`:''} ${c.phone||c.phoneMobile||'-'}${c.email?` メール:${c.email}`:''}${c._primary?' 〔代表〕':''}`).join('\n') || '－'}/>
               <Row label="キーパーソン" value={fs.keyPerson}/>
             </div>
             <div style={{marginBottom:14}}>
