@@ -33975,7 +33975,6 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           <span className="text-sm font-bold text-slate-700 px-1 whitespace-nowrap">{_mon.getMonth()+1}/{_mon.getDate()}〜の週</span>
           <button onClick={()=>moveWeek(1)} className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-bold">翌週 ▶</button>
         </div>
-        <span className="text-[10px] font-bold text-white bg-violet-600 rounded px-1.5 py-0.5">試験版</span>
         <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 whitespace-nowrap">
           <span className="border border-slate-200 rounded px-1.5 py-0.5"><span className="text-red-600">●</span>=時間変更(要TEL)</span>
           <button onClick={()=>setTpLegend(v=>!v)} className="text-slate-500 underline decoration-dotted underline-offset-2 px-1 py-0.5">凡例{tpLegend?' −':' ＋'}</button>
