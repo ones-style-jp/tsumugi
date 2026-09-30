@@ -33961,21 +33961,24 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     // 各車の行数は週内で同じにする(曜日の列の間で車の位置を揃え、左端の車名とも揃える)
     const _carRows = {};
     ['AM','PM'].forEach(sl => { _carRows[sl] = {}; cars.forEach(c => { _carRows[sl][c.id] = Math.max(1, _seatRows(sl, c), ...days.map(d => ((getPlan(_iso(d), sl).cars||{})[c.id]||[]).length)); }); });
+    // ★ 2026-10-01c(ユーザー要望): 徒歩の方も車と同じく枠で囲い、左端の車名の欄に「徒歩」。1人1行で「氏名 到着時刻(クラスの開始) 次回」
+    const _walkRows = {};
+    ['AM','PM'].forEach(sl => { _walkRows[sl] = Math.max(0, ...days.map(d => (getPlan(_iso(d), sl).walkers||[]).length)); });
     let _maxNameEm = 3;
     ['AM','PM'].forEach(sl => days.forEach(d => { const iso = _iso(d); const pl0 = getPlan(iso, sl);
-      Object.values(pl0.cars||{}).forEach(ms => (ms||[]).forEach(m => { const mk = (m.mark || _chgOf(plans[`${iso}_${sl}`], m.pid)) ? 1 : 0; _maxNameEm = Math.max(_maxNameEm, _emW(_pname(m.pid)) + mk); })); }));
+      [ ...Object.values(pl0.cars||{}), pl0.walkers||[] ].forEach(ms => (ms||[]).forEach(m => { const mk = (m.mark || _chgOf(plans[`${iso}_${sl}`], m.pid)) ? 1 : 0; _maxNameEm = Math.max(_maxNameEm, _emW(_pname(m.pid)) + mk); })); }));
     const _hasDrv = ['AM','PM'].some(sl => days.some(d => Object.values(getPlan(_iso(d), sl).driver||{}).some(Boolean)));
-    const _carColW = (f) => Math.ceil(Math.min(f, 14) * 1.25) + 8;      // 左端の車名の列(縦書き1列＋余白)
-    const _drvW = (f) => _hasDrv ? Math.ceil(Math.min(f, 11) * 1.2) + 3 : 0; // 各日の運転者の細い欄
-    const _dayPx = (f) => (1039 - 19 - _carColW(f)) / Math.max(1, days.length) - 9 - 2 - _drvW(f); // 275mm≒1039px − 午前午後 − 車名列 − 余白・罫線
+    const _carColW = (f) => Math.ceil(Math.min(f, 14) * 1.25) + 16;     // 左端の車名の列(縦書き1列＋余白)
+    const _drvW = (f) => _hasDrv ? Math.ceil(Math.min(f, 11) * 1.2) + 9 : 0; // 各日の運転者の細い欄
+    const _slW = 24; // 午前・午後の列
+    const _dayPx = (f) => (1039 - _slW - 2 - _carColW(f)) / Math.max(1, days.length) - 9 - 2 - _drvW(f); // 275mm≒1039px − 午前午後 − 車名列 − 余白・罫線
     const _fzS = (f) => Math.max(8, Math.round(f * 0.78));               // 次回(曜日)は補助情報なので小さめ
-    const _fzB = (f) => Math.max(8, Math.min(12, Math.round(f * 0.72))); // 休み・初回・その他など
+    const _fzB = (f) => Math.max(8, Math.round(f * 2 / 3)); // 休み・初回・その他など(2026-10-01c: 名前の約2/3)
     const _nameW = (f) => Math.ceil(_maxNameEm * f * 1.04) + 5;
     const _timeW = (f) => Math.ceil(f * 2.9) + 6;
     const _nextW = (f) => Math.ceil(_fzS(f) * 1.15) + 6;
     // 下部情報(徒歩・完成後に外れた・その他・初回・休み・送り別)の文言。折り返し行数の見積りに使う
     const _bottomTexts = (iso, sl) => { const pl = getPlan(iso, sl); const out = [];
-      const wk = pl.walkers||[]; if (wk.length) out.push({ t: `徒歩（到着 ${_classStart(sl)}）: ${wk.map(m => '●' + _pname(m.pid)).join('、')}`, big: true });
       const rm = _removedSince(plans[`${iso}_${sl}`]); if (rm.length) out.push({ t: `完成後に外れた: ${rm.map(pid => _pname(pid)).join('、')}` });
       const ot = pl.others||[]; if (ot.length) out.push({ t: `その他: ${ot.map(m => _pname(m.pid)).join('、')}` });
       const fv = [ ...Object.values(pl.cars||{}).flat(), ...(pl.walkers||[]), ...(pl.others||[]) ].filter(m => _isFirstVisit(m.pid, iso)); if (fv.length) out.push({ t: `初回: ${fv.map(m => _pname(m.pid) + '様、').join('')}` });
@@ -33987,6 +33990,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const uh = Math.ceil(f * 1.25) + 3, fb = _fzB(f), dw = Math.max(40, _dayPx(f) + _drvW(f));
       let u = 0;
       cars.forEach(c => { u += 5 / uh + _carRows[sl][c.id]; }); // 5px = 車の枠線2＋下の間隔3
+      if (_walkRows[sl]) u += 5 / uh + _walkRows[sl]; // 徒歩の枠
       let ex = 0;
       days.forEach(d => { let px = 0;
         _bottomTexts(_iso(d), sl).forEach(x => { const ff = x.big ? f : fb; const lines = x.lines || Math.max(1, Math.ceil(_emW(x.t) * ff / dw)); px += lines * Math.ceil(ff * 1.35); });
@@ -34019,7 +34023,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     };
     // ★ 2026-09-16(店舗指摘): 空席セルも名前入りセルと同じ高さに(後から手書きで追記できるように)
     const emptyRow = () => `<tr style="${_rowStyle}"><td style="border-bottom:1px solid #dfe3de;padding:1px 3px;font-size:${fz}px;line-height:1.25;">&nbsp;</td><td style="border-bottom:1px solid #dfe3de;border-left:1px solid #eaece8;padding:1px 2px;font-size:${fz}px;line-height:1.25;">&nbsp;</td><td style="border-bottom:1px solid #dfe3de;border-left:1px solid #eaece8;border-right:1px solid #eaece8;padding:1px 2px;font-size:${fzS}px;line-height:1.25;">&nbsp;</td>${_padTd('#dfe3de')}</tr>`;
-    const _vBox = (hpx, inner, extra) => `<div style="height:${hpx}px;box-sizing:border-box;writing-mode:vertical-rl;text-orientation:upright;display:flex;align-items:center;justify-content:center;overflow:hidden;${extra||''}">${inner}</div>`;
+    const _vBox = (hpx, inner, extra) => `<div style="height:${hpx}px;width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:center;overflow:hidden;${extra||''}"><span style="writing-mode:vertical-rl;text-orientation:upright;display:inline-block;">${inner}</span></div>`;
     const dayBlock = (iso, sl) => {
       const pl = getPlan(iso, sl);
       let h = '';
@@ -34035,11 +34039,15 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         h += `<div style="border:1px solid #66756b;margin-bottom:3px;display:flex;height:${hp}px;box-sizing:border-box;overflow:hidden;">${drvCol}
           <div style="flex:1;min-width:0;"><table style="border-collapse:collapse;width:100%;table-layout:fixed;">${COLG}${body}</table></div></div>`;
       });
+      if (_walkRows[sl]) {
+        const wk0 = (pl.walkers||[]); const hp = _walkRows[sl] * _rowH + 2; const cs = _classStart(sl);
+        let body = ''; for (let i = 0; i < _walkRows[sl]; i++) body += wk0[i] ? cellRow({ ...wk0[i], t: cs }, iso, sl) : emptyRow();
+        h += `<div style="border:1px solid #66756b;margin-bottom:3px;display:flex;height:${hp}px;box-sizing:border-box;overflow:hidden;">${_hasDrv ? `<div style="flex:none;width:${_drvW(fz)}px;background:#f4f6f3;border-right:1px solid #cfd6d0;"></div>` : ''}
+          <div style="flex:1;min-width:0;"><table style="border-collapse:collapse;width:100%;table-layout:fixed;">${COLG}${body}</table></div></div>`;
+      }
       // ★ 2026-09-14b(店舗指摘): 下部情報は1行にまとめてスペース圧縮
       const _parts = [];
-      const wk = (pl.walkers||[]);
-      // ★ 2026-09-30: 徒歩の行は乗車の方と同じ大きさ・太さ(名前は太字)で、クラスの開始時間を添える。徒歩・その他・休みは行を分ける
-      if (wk.length) _parts.push(`<span style="font-size:${fz}px;font-weight:600;">徒歩${_classStart(sl)?`（到着 ${_classStart(sl)}）`:''}: ${wk.map(m=>`${_chgOf(plans[`${iso}_${sl}`], m.pid)?'<span style="color:#c82c35;font-weight:bold;">●</span>':''}<b style="font-weight:800;white-space:nowrap;">${esc(_pname(m.pid))}</b>`).join('、')}</span>`);
+      // ★ 2026-10-01c: 徒歩は下部の1行ではなく上の「徒歩」の枠に1人1行で表示(時間=到着=クラスの開始)
       { const rm = _removedSince(plans[`${iso}_${sl}`]); if (rm.length) _parts.push(`<span style="color:#c82c35;">完成後に外れた: ${rm.map(pid=>esc(_pname(pid))).join('、')}</span>`); }
       const ot = (pl.others||[]);
       if (ot.length) _parts.push(`<span style="color:#6d28d9;">その他: ${ot.map(m=>esc(_pname(m.pid))).join('、')}</span>`);
@@ -34058,9 +34066,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     };
     // 左端の車名(縦書き・各日の車の枠と同じ高さ)
     const carLabels = (sl) => cars.map(c => { const hp = _blkPx(sl, c); const lf = Math.max(7, Math.min(14, fz, Math.floor((hp - 10) / _vEm(c.name) / 1.05)));
-      return `<div style="margin-bottom:3px;border:1px solid #66756b;background:#eef0ed;box-sizing:border-box;height:${hp}px;overflow:hidden;">${_vBox(hp - 2, `<b style="font-size:${lf}px;line-height:1.1;white-space:nowrap;">${_vt(c.name)}</b>`)}</div>`; }).join('');
+      return `<div style="margin-bottom:3px;border:1px solid #66756b;background:#eef0ed;box-sizing:border-box;height:${hp}px;overflow:hidden;">${_vBox(hp - 2, `<b style="font-size:${lf}px;line-height:1.1;white-space:nowrap;">${_vt(c.name)}</b>`)}</div>`; }).join('')
+      + (_walkRows[sl] ? (() => { const hp = _walkRows[sl] * _rowH + 2; const lfV = Math.floor((hp - 6) / 2 / 1.05); const lfH = Math.floor((_carColW(fz) - 10) / 2);
+        // 枠が低い(1〜2行)ときは横書き、高いときは車名と同じ縦書き
+        const inner = lfV >= Math.min(12, lfH) ? _vBox(hp - 2, `<b style="font-size:${Math.max(7, Math.min(14, fz, lfV))}px;line-height:1.1;white-space:nowrap;color:#9a4a0b;">徒歩</b>`)
+          : `<div style="height:${hp - 2}px;display:flex;align-items:center;justify-content:center;"><b style="font-size:${Math.max(7, Math.min(13, lfH))}px;white-space:nowrap;color:#9a4a0b;">徒歩</b></div>`;
+        return `<div style="margin-bottom:3px;border:1px solid #66756b;background:#fdf1e3;box-sizing:border-box;height:${hp}px;overflow:hidden;">${inner}</div>`; })() : '');
     const header = days.map(d => `<th style="border:1px solid #65736a;background:#edf0ec;font-size:11px;padding:3px;">${d.getMonth()+1}/${d.getDate()}（${DOWJ[d.getDay()]}）</th>`).join('');
-    const row = (sl, label) => `<tr style="height:${Math.round((sl==='AM'?uAM:uPM)/totalU*100)}%;"><td style="border:1px solid #65736a;writing-mode:vertical-rl;text-align:center;font-weight:bold;font-size:12px;width:17px;background:${sl==='AM'?'#faf0d9':'#e8edf7'};">${label}</td>
+    const row = (sl, label) => `<tr style="height:${Math.round((sl==='AM'?uAM:uPM)/totalU*100)}%;"><td style="border:1px solid #65736a;padding:0;background:${sl==='AM'?'#faf0d9':'#e8edf7'};"><div style="display:flex;align-items:center;justify-content:center;height:100%;"><span style="writing-mode:vertical-rl;font-weight:bold;font-size:13px;letter-spacing:2px;">${label}</span></div></td>
       <td style="border:1px solid #89958c;vertical-align:top;padding:3px 2px;background:#fafbf9;">${carLabels(sl)}</td>
       ${days.map(d => `<td style="border:1px solid #89958c;vertical-align:top;padding:3px;background:#fff;">${dayBlock(_iso(d), sl)}</td>`).join('')}</tr>`;
     const _last = days[days.length-1] || _mon;
@@ -34068,11 +34081,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     return `<div id="transport-print-inner" style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;background:#fff;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
       <div style="position:relative;text-align:center;flex:none;margin:0 0 2mm;"><span style="position:absolute;left:0;top:4px;font-size:10px;">${esc(fname)}</span><span style="font-size:17px;font-weight:bold;letter-spacing:10px;">運行表</span><span style="position:absolute;right:0;top:4px;font-size:10px;">${_mon.getMonth()+1}/${_mon.getDate()}（${DOWJ[_mon.getDay()]}）〜${_last.getMonth()+1}/${_last.getDate()}（${DOWJ[_last.getDay()]}）</span></div>
       <table style="border-collapse:collapse;width:100%;table-layout:fixed;flex:1;height:100%;">
-        <colgroup><col style="width:17px"/><col style="width:${_carColW(fz)}px"/>${days.map(() => '<col/>').join('')}</colgroup>
+        <colgroup><col style="width:${_slW}px"/><col style="width:${_carColW(fz)}px"/>${days.map(() => '<col/>').join('')}</colgroup>
         <thead><tr style="height:6mm;"><th style="border:1px solid #65736a;background:#edf0ec;"></th><th style="border:1px solid #65736a;background:#edf0ec;font-size:9px;font-weight:normal;">車</th>${header}</tr></thead>
         <tbody>${row('AM','午前')}${row('PM','午後')}</tbody>
       </table>
-      <div style="font-size:9px;color:#3f4b43;margin-top:1.5mm;flex:none;display:flex;justify-content:space-between;"><span><span style="color:#c82c35;font-weight:bold;">●</span> 時間変更・要TEL　<span style="background:#a7f3d0;padding:0 3px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 3px;">水色</span>=初回　左端=車名${_hasDrv?'　各枠の左の細い欄=運転者':''}　時間=お迎え　次回=次の利用曜日</span><span>空欄=空席</span></div>
+      <div style="font-size:9px;color:#3f4b43;margin-top:1.5mm;flex:none;display:flex;justify-content:space-between;"><span><span style="color:#c82c35;font-weight:bold;">●</span> 時間変更・要TEL　<span style="background:#a7f3d0;padding:0 3px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 3px;">水色</span>=初回　左端=車名${_hasDrv?'　各枠の左の細い欄=運転者':''}　時間=お迎え　徒歩の時間=到着（クラスの開始）　次回=次の利用曜日</span><span>空欄=空席</span></div>
     </div>`;
   };
   // ==== 連絡先一覧(週間の2枚目・2026-09-16 店舗要望) ====
@@ -34104,7 +34117,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const addrText = (pt) => `${[_addrDisp(pt.address), pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' ')}${pt.pickupPlace?`（${PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace}）`:''}${String(pt.pickupMinutes||'')==='walk'?'［徒歩］':''}`;
     const FMAX = 18, FMIN = 11, AVAIL = 640, HALF = 505; // AVAIL=本文の高さ(px)・HALF=片側の表の幅(px)
     const maxNameEm = Math.max(4, ...pts.map(pt => _emW2(pt.name)));
-    const colW = (f) => { const ini = Math.ceil(f * 1.5) + 6, name = Math.ceil(maxNameEm * f * 1.05) + 10, tel = Math.ceil((f - 1) * 7.2) + 10; return { ini, name, tel, addr: Math.max(80, HALF - ini - name - tel) }; };
+    const colW = (f) => { const ini = Math.ceil(f * 1.5) + 6, name = Math.ceil(maxNameEm * f * 1.05) + 10, tel = Math.ceil(Math.max(8, f - 1) * 8.4) + 12; /* ★ 2026-10-01c: 電話が見切れた→広く(住所の欄が狭くなる) */ return { ini, name, tel, addr: Math.max(80, HALF - ini - name - tel) }; };
     const fa = (f) => Math.max(9, f - 2); // 住所の文字
     const rowH = (pt, f) => { const w = colW(f); const lines = Math.min(3, Math.max(1, Math.ceil(_emW2(addrText(pt)) * fa(f) / Math.max(40, w.addr - 8)))); return Math.max(Math.ceil(f * 1.3) + 6, lines * Math.ceil(fa(f) * 1.3) + 6); };
     const headH = (f) => Math.ceil((f - 1) * 1.3) + 6;
