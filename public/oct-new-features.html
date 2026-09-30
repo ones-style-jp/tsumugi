@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>つむぎ 10月からの新機能</title>
+<style>
+  :root{--ink:#1f2937;--sub:#5b6472;--line:#d9dee6;--green:#5b8c2a;--green-d:#3f6a1a;--green-l:#eef5e6;--amber:#9a6412;--amber-l:#fdf4e1;--blue:#2f5fa8;--blue-l:#e8eff9;--red:#b42318;--red-l:#fbeae8;--gray-l:#f3f4f6}
+  *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  html,body{margin:0;padding:0;background:#e9ebef;color:var(--ink);font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",Meiryo,sans-serif;font-size:12.5px;line-height:1.55}
+  .page{width:210mm;height:297mm;margin:10mm auto;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.12);position:relative;overflow:hidden;display:flex;flex-direction:column}
+  .in{padding:14mm 15mm 10mm;flex:1;display:flex;flex-direction:column;min-height:0}
+  h1{font-size:30px;margin:4px 0 6px;color:var(--green-d);line-height:1.25;text-wrap:balance}
+  h2{font-size:19px;margin:0 0 8px;color:var(--green-d);padding-bottom:5px;border-bottom:3px solid var(--green);display:flex;align-items:center;gap:10px}
+  h3{font-size:13.5px;margin:10px 0 4px;color:var(--green-d)}
+  p{margin:5px 0}
+  .lead{font-size:14px;color:var(--sub)}
+  ul{margin:3px 0 3px 1.2em;padding:0}li{margin:2px 0}
+  b.k{color:var(--green-d)}
+  table{border-collapse:collapse;width:100%;font-size:11.5px}
+  th,td{border:1px solid var(--line);padding:4px 6px;vertical-align:top;text-align:left}
+  th{background:var(--green-l);white-space:nowrap}
+  td.d{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--sub)}
+  td.s{white-space:nowrap;font-weight:700}
+  .card{border:1px solid var(--line);border-radius:8px;padding:8px 12px;background:#fff;margin:6px 0}
+  .card.g{background:var(--green-l);border-color:#cfe0bb}.card.a{background:var(--amber-l);border-color:#ecd9a8}.card.b{background:var(--blue-l);border-color:#c5d6f2}.card.r{background:var(--red-l);border-color:#efc3bf}
+  .card h3{margin-top:0}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}.cols>*{min-width:0}
+  .cols.w{grid-template-columns:42% 1fr}.cols.w2{grid-template-columns:56% 1fr}
+  .pill{display:inline-block;padding:1px 9px;border-radius:999px;font-size:11px;font-weight:700;background:var(--green-l);color:var(--green-d);border:1px solid #cfe0bb;white-space:nowrap}
+  .pill.t{background:var(--amber-l);color:var(--amber);border-color:#ecd9a8}
+  .pill.n{background:var(--gray-l);color:var(--sub);border-color:var(--line)}
+  h2 .pill{font-size:11.5px;font-weight:700}
+  figure{margin:6px 0 4px}
+  figure img{display:block;width:100%;height:auto;border:1px solid #c9ced8;border-radius:6px}
+  figure.sp img{border-radius:14px}
+  figcaption{font-size:10.5px;color:var(--sub);margin-top:3px;line-height:1.45}
+  .note{font-size:10.5px;color:var(--sub)}
+  .foot{margin-top:auto;padding-top:6px;border-top:1px solid var(--line);font-size:10px;color:var(--sub);display:flex;justify-content:space-between}
+  .ov td:first-child{white-space:nowrap;font-weight:700}
+  .qa dt{font-weight:700;color:var(--green-d);margin-top:9px}
+  .qa dt::before{content:"Q. ";color:var(--green)}
+  .qa dd{margin:2px 0 0 1.4em}
+  .qa dd::before{content:"A. ";font-weight:700;color:var(--sub);margin-left:-1.4em}
+  .red{color:var(--red);font-weight:700}
+  @media print{
+    @page{size:A4 portrait;margin:0}
+    html,body{background:#fff}
+    .page{margin:0;box-shadow:none;page-break-after:always;height:297mm}
+    .page:last-child{page-break-after:auto}
+  }
+</style>
+</head>
+<body>
+
+<!-- 1 表紙・使い方・一覧 -->
+<div class="page"><div class="in">
+  <p><span class="pill">エリア担当者向け</span></p>
+  <h1>つむぎ<br>10月からの新機能</h1>
+  <p class="lead">9月29日・30日の更新分のまとめ　／　2026年9月30日　ワンズスタイル本部（髙橋）</p>
+
+  <div class="card g">
+    <h3>この資料の使い方</h3>
+    <ul>
+      <li><span class="pill">全店</span>　安定版に入った機能です。<b>10月1日から全店で使えます。</b>アプリを開き直すと自動で最新になります（店舗の操作は不要）。</li>
+      <li><span class="pill t">試験版</span>　扇橋店（試験版）で使い勝手を確認している機能です。確認が済みしだい、本部から全店へ配信します。店舗から聞かれたら「近日中に全店へ入ります」とご案内ください。</li>
+      <li>画面の写真はすべて<b>見本データ（架空の利用者・職員）</b>です。</li>
+      <li>不具合・要望は、これまでどおり<b>店舗から本部（髙橋）へ直接</b>ご連絡いただく運用です。</li>
+    </ul>
+  </div>
+
+  <h3 style="margin-top:12px">主な新機能の一覧</h3>
+  <table class="ov">
+    <tr><th>画面</th><th>変わったこと</th><th>配信</th><th>ページ</th></tr>
+    <tr><td>送迎表</td><td>「この週を完成にする」と完成後の変更の赤丸（●）／未割当の方の「移動先」選択／前週コピー・提供記録の振替の反映／お迎え時間の計算の精度</td><td><span class="pill">全店</span></td><td>2</td></tr>
+    <tr><td>お迎え時間の表示</td><td>ご家族・ケアマネ画面に「本日／次回のお迎え時間」、完成後の変更のお知らせ</td><td><span class="pill">全店</span></td><td>3</td></tr>
+    <tr><td>災害速報</td><td>事業所の地域に関係する速報だけを表示</td><td><span class="pill">全店</span></td><td>3</td></tr>
+    <tr><td>サービス提供記録入力</td><td>血圧・脈の「再」測定／個別機能訓練の実施担当とグループ分け</td><td><span class="pill">全店</span></td><td>4</td></tr>
+    <tr><td>日誌</td><td>必須職員の未選択チェック（兼務・減算）／送迎表取込／ボタンの並び</td><td><span class="pill">全店</span></td><td>5</td></tr>
+    <tr><td>連絡帳</td><td>空印刷／印刷位置の微調整／利用者ごとの値</td><td><span class="pill">全店</span></td><td>6</td></tr>
+    <tr><td>モニタリング</td><td>確定したらすぐケアマネ画面へ／ケアマネ閲覧済の表示とFAXの省略</td><td><span class="pill">全店</span></td><td>7</td></tr>
+    <tr><td>ご家族・ケアマネの登録</td><td>画面プレビュー／招待コードの安全対策／登録メールの反映</td><td><span class="pill">全店</span></td><td>8</td></tr>
+    <tr><td>各種設定</td><td>担当職員を役職ごとの枠に／気分の入力ON/OFF／血圧・脈の測り方</td><td><span class="pill">全店</span></td><td>8</td></tr>
+    <tr><td>送迎表の画面整理ほか</td><td>自動計算の選択式・完成のリマインド・待ち合わせ場所の選択式 など</td><td><span class="pill t">試験版</span></td><td>9</td></tr>
+    <tr><td>不具合の修正</td><td>9/29・9/30に直した主な不具合</td><td><span class="pill">全店</span></td><td>10</td></tr>
+    <tr><td>店舗から聞かれそうなこと</td><td>Q&amp;A</td><td></td><td>11</td></tr>
+  </table>
+  <div class="foot"><span>つむぎ 10月からの新機能（エリア担当者向け）</span><span>1</span></div>
+</div></div>
+
+<!-- 2 送迎表 -->
+<div class="page"><div class="in">
+  <h2>送迎表 <span class="pill">全店</span></h2>
+  <figure>
+    <img src="manual/img/oct_tp_final.jpg" alt="送迎表の週画面。完成後に時間を変えた方に赤丸、上部に完成日時と変更1件">
+    <figcaption>「この週を完成にする」を押した後で1名の時間を変えた例。変わった方に赤丸（●）、上部に「完成 10/1 10:00 変更1」、その日の枠に「完成後の変更 1件」が付きます。水・木の枠には未割当の方と「移動先…」の選択が見えます（見本データ）。</figcaption>
+  </figure>
+  <h3>できるようになったこと</h3>
+  <ul>
+    <li><b class="k">「この週を完成にする」</b>：週の送迎表を確定します。完成後に車・乗車順・時間・運転者を変えると、その方に<span class="red">赤丸（●）</span>が付き、変更の件数が出ます。赤丸は「ご家族へ電話連絡が必要か」の目印です（凡例：●＝時間変更（要TEL））。</li>
+    <li><b class="k">未割当の方の「移動先…」</b>：名前の右の選択から、車・徒歩・その他へ移せます（長押しで動かす操作も使えます）。</li>
+    <li><b class="k">週間の配車＋時間計算</b>：近所ごとに車を分け、Googleマップでお迎え時間を計算します。お迎え時間は<b>到着目標の時刻から逆算</b>します（出発時刻の設定は使わないことにしました）。</li>
+    <li><b class="k">時間の精度</b>：待ち合わせ場所（玄関前など）が入っている方も、Googleには<b>住所だけ</b>を送ります。住所に都道府県が無いときは事業所の都道府県・区市町村を補います。</li>
+    <li><b class="k">前週コピー</b>：前の週に振替で来た方、この週にお休みの方はコピーしません。</li>
+    <li><b class="k">提供記録との連動</b>：サービス提供記録で「振替」「臨時」にした方も送迎表に出ます（月間スケジュールに印が無くても）。欠席・休止も反映されます。</li>
+    <li><b class="k">日誌へ取り込み</b>：日誌の「送迎表取込」で、送迎表の車の割り当てを日誌の迎え・送りに入れられます。</li>
+  </ul>
+  <div class="card a">
+    <h3>店舗へのひと言</h3>
+    <p>9月30日より前に計算した週でお迎え時間が早すぎる方がいたら、その日の<b>「時間のみ計算」</b>を押し直してもらってください（待ち合わせ場所の影響で移動時間が長く出ていた不具合を直しました）。</p>
+  </div>
+  <div class="foot"><span>つむぎ 10月からの新機能（エリア担当者向け）</span><span>2</span></div>
+</div></div>
+
+<!-- 3 お迎え時間・災害速報 -->
+<div class="page"><div class="in">
+  <h2>ご家族・ケアマネ画面の「お迎え時間」 <span class="pill">全店</span></h2>
+  <div class="cols w">
+    <figure class="sp">
+      <img src="manual/img/oct_fam_pickup.jpg" alt="ご家族の画面。次回のお迎え時間 10月2日 お迎え9時15分頃、お迎え時間が変更されました">
+      <figcaption>ご家族の画面（通所記録）。送迎表の完成後に時間が変わったため、赤字でお知らせが出ています（見本データ）。</figcaption>
+    </figure>
+    <div>
+      <h3 style="margin-top:4px">表示のしかた</h3>
+      <ul>
+        <li>ご家族・ケアマネ・ご本人の画面の「通所記録」の上部に、<b>「本日のお迎え時間」</b>（利用日の開始前）または<b>「次回のお迎え時間」</b>を大きく表示します。分析（個人）にも同じ枠が出ます。</li>
+        <li>時間は次の順で決まります：<br>① 送迎表の乗車時間 → ② 前回の連絡帳の「次回予定」 → ③ 利用者マスタの曜日ごとの送迎時間</li>
+        <li>送迎表を完成にした後で時間や送迎方法（車／徒歩）が変わると、<span class="red">「お迎え時間が変更されました（9時00分 → 9時15分）」</span>と表示します。</li>
+        <li>送迎表の「分」が空欄のときは「13時　分」と表示します（「13時頃」とは出しません）。前日・当日なのに分が未設定のときは、ご家族に事業所へ確認していただく案内が出ます。</li>
+        <li>利用日の開始前は「本日のご利用予定　○時○分から」も表示します。</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2 style="margin-top:14px">災害速報 <span class="pill">全店</span></h2>
+  <ul>
+    <li>ホームの災害速報を、<b>事業所の住所（区市町村・沿岸の予報区）に関係するものだけ</b>に絞りました。</li>
+    <li>遠い地域の「津波予報（若干の海面変動）」、他の地域の地震、都内の島しょ部の警報などは出ません。</li>
+    <li>事業所の住所は「各種設定 → 事業所情報」の住所を使います。<b>住所が正しく入っているか</b>店舗でご確認ください。</li>
+  </ul>
+
+  <h2 style="margin-top:14px">分析 <span class="pill">全店</span></h2>
+  <ul>
+    <li>分析（稼働）の介護度内訳：介護度が未入力の方を「未設定」として表示し、割合の合計が100％になるようにしました。</li>
+    <li>欠席理由ランキング：理由と内訳を省略せず、全文を折り返して表示します。</li>
+  </ul>
+  <div class="foot"><span>つむぎ 10月からの新機能（エリア担当者向け）</span><span>3</span></div>
+</div></div>
+
+<!-- 4 サービス提供記録入力 -->
+<div class="page"><div class="in">
+  <h2>サービス提供記録入力 <span class="pill">全店</span></h2>
+  <figure>
+    <img src="manual/img/oct_rec_top.jpg" alt="サービス提供記録入力。開始時の血圧の下に1回目の測定値、上部に個別機能訓練の実施担当">
+    <figcaption>1行目の方は開始時の血圧を測り直した例。欄は新しい値（132/80）になり、下に「1回目 09:35 158/92 脈78」が残ります。上部には個別機能訓練の実施担当とグループのボタン（見本データ）。</figcaption>
+  </figure>
+  <h3>血圧・脈の「再」ボタン</h3>
+  <ul>
+    <li>測り直したときは血圧欄の横の<b>「再」</b>を押します。それまでの値が「1回目」として欄の下に残り、欄が空になるので、いつもどおり新しい値を入力します。</li>
+    <li>残した値は1件ずつ削除できます。印刷の特記にも「開始 1回目 …」として残ります。</li>
+  </ul>
+  <h3>個別機能訓練の実施担当（個別機能訓練加算の設定がある店舗）</h3>
+  <ul>
+    <li>上部の選択で、表示中の午前／午後の全員の実施担当をまとめて設定します。人ごとに変えるときは「利用者ごと」で。既定は担当職員の最初の機能訓練指導員です。自動保存されます。</li>
+    <li>印刷の日付欄に「記録：○○　個別：○○」と1行で出ます。</li>
+  </ul>
+  <figure>
+    <img src="manual/img/oct_rec_group.jpg" alt="個別機能訓練のグループ画面。グループA・B・Cに利用者を分け、グループごとに実施担当を選ぶ">
+    <figcaption>「グループ」を押した画面。名前を長押しで動かす（タップ → 移動先をタップでも可）。1グループ最大5名、グループごとに実施担当を選べます。</figcaption>
+  </figure>
+  <ul>
+    <li><b class="k">先週の割り振りをコピー</b>（同じ曜日・同じ午前／午後）と、<b class="k">リセット</b>（全員を「グループなし」へ戻す。実施担当はそのまま）があります。</li>
+    <li>上部の人数表示は「出席 → 欠席 → 振替 → 臨時 → 休止 → 休業」の順に2行でまとめました。</li>
+  </ul>
+  <div class="foot"><span>つむぎ 10月からの新機能（エリア担当者向け）</span><span>4</span></div>
+</div></div>
+
+<!-- 5 日誌 -->
+<div class="page"><div class="in">
+  <h2>日誌 <span class="pill">全店</span></h2>
+  <figure>
+    <img src="manual/img/oct_diary.jpg" alt="日誌の画面。上部のボタン、日誌が未完成ですの帯に必須職員未選択と兼務・減算・加算なしのボタン">
+    <figcaption>担当職員を選ぶ前の日誌。「日誌が未完成です」の帯に「必須職員未選択：○○」と、その横に「兼務」「減算」「加算なし」のボタンが出ます（見本データ）。</figcaption>
+  </figure>
+  <h3>必須職員のチェック</h3>
+  <ul>
+    <li>定員に応じて必要な職員（管理者・生活相談員・機能訓練指導員・看護職員・介護職員）が担当職員に選ばれていないと、「必須職員未選択：○○」と表示し、日誌は未完成のままになります。</li>
+    <li><b class="k">兼務</b>：担当職員の中から、別の役職の人がその役職を兼ねたことにします（例：看護師が機能訓練指導員を兼務）。警告が消えます。</li>
+    <li><b class="k">減算</b>（看護職員・介護職員）／<b class="k">加算なし</b>（機能訓練指導員）：その職員が不在だった日を記録して警告を消します。記録は日誌の外（赤い帯）に表示され、<b>印刷には出ません</b>。</li>
+  </ul>
+  <h3>そのほか</h3>
+  <ul>
+    <li>上部のボタンを<b>「担当者追加 → 送迎表取込 → 迎え → 送り → プレビュー → 保存」</b>の順に並べました。</li>
+    <li>「送迎表取込」で、送迎表の車の割り当てを迎え・送りに取り込めます。</li>
+    <li>欠席・休止の方に車の割り当てが残っていても、送りで誰も乗らない車はグレーアウトされ、未完成扱いになりません。</li>
+    <li>日誌の「担当者追加」は、いつも<b>その日だけ</b>の追加です（各種設定の担当職員は変わりません）。</li>
+  </ul>
+  <div class="card b">
+    <h3>店舗へのひと言</h3>
+    <p>「必須職員未選択」が出たら、まず担当職員のチェック漏れがないかを確認し、本当に不在だった日だけ「減算」「加算なし」を押すようお伝えください。</p>
+  </div>
+  <div class="foot"><span>つむぎ 10月からの新機能（エリア担当者向け）</span><span>5</span></div>
+</div></div>
+
+<!-- 6 連絡帳 -->
+<div class="page"><div class="in">
+  <h2>連絡帳 <span class="pill">全店</span></h2>
+  <figure>
+    <img src="manual/img/oct_cb_bar.jpg" alt="連絡帳の上部のボタン。提供記録、項目、連絡事項、次回予定、印刷設定、空印刷、プレビュー">
+    <figcaption>ボタンは「項目 → 連絡事項 → 次回予定 → 印刷設定 → 空印刷 → プレビュー」の順です。</figcaption>
+  </figure>
+  <figure>
+    <img src="manual/img/oct_cb_preview.jpg" alt="連絡帳の印刷プレビュー。上部に印刷位置の横・縦の調整ボタン">
+    <figcaption>印刷プレビュー。上部の「印刷位置　横 ←左／右→　縦 ↑上／↓下」で位置を直せます（見本データ）。</figcaption>
+  </figure>
+  <ul>
+    <li><b class="k">空印刷</b>：氏名・記録・次回予定が空欄の連絡帳を、印刷設定の用紙（B5横2面／B6縦／B5横1面）と位置のとおり、指定の枚数だけ印刷します（手書き用）。</li>
+    <li><b class="k">印刷位置の微調整</b>：プレビューの矢印を1回押すと1mm動きます。押すと設定に保存され、その場でプレビューが組み直されます。</li>
+    <li><b class="k">利用者ごとの値</b>：項目設定で「利用者ごと」をONにした項目は、その画面で利用者一覧に直接入力できます（空欄の方は共通の値）。</li>
+    <li><b class="k">連絡事項</b>：ボタンに入力済みの人数（個別○名／全員）を表示し、利用者の選択では入力済みの方を先頭に「● 氏名（入力済）」と出します。</li>
+    <li>血圧の設定が「開始時のみ」の店舗は、2行目が「終了時」ではなく<b>「再測定」</b>になります（開始時＝1回目、再測定＝最新の値）。</li>
+  </ul>
+  <div class="foot"><span>つむぎ 10月からの新機能（エリア担当者向け）</span><span>6</span></div>
+</div></div>
+
+<!-- 7 モニタリング -->
+<div class="page"><div class="in">
+  <h2>モニタリング <span class="pill">全店</span></h2>
+  <figure>
+    <img src="manual/img/oct_mon_row.jpg" alt="モニタリング画面。確定済、ケアマネ閲覧済 10/1 10:01、実施日">
+    <figcaption>確定したモニタリング。ケアマネがつむぎで表を見ると「ケアマネ閲覧済 10/1 10:01」と出ます。実施日は確定した日です（見本データ）。</figcaption>
+  </figure>
+  <ul>
+    <li><b class="k">確定したらすぐ反映</b>：「確定」を押した時点で、分析（個人）とケアマネの画面に反映します（これまでは対象月の最終日18時以降）。確定を解除すると取り下げます。</li>
+    <li><b class="k">ケアマネへのお知らせ</b>：担当ケアマネのお知らせに「モニタリング（○月）を作成しました」を自動で出します。</li>
+    <li><b class="k">ケアマネ閲覧済とFAXの省略</b>：「担当ケアマネへFAX」「自動FAX送信」のとき、つむぎで閲覧済みの方を省くか確認が出ます（FAX代の節約）。</li>
+    <li><b class="k">実施日</b>：確定した日を実施日にします（これまでは下書きを作った日のままでした）。</li>
+    <li><b class="k">休止中の方</b>：月の途中で休止にした方も一覧に出ます。その月に通所があれば「通所あり」、なければ「通所なし」に「休止中」の印付きで出ます。</li>
+  </ul>
+  <figure style="width:90%;margin-left:auto;margin-right:auto">
+    <img src="manual/img/oct_cm_sheet.jpg" alt="ケアマネの画面で表示されるモニタリング表。FAXと同じ用紙の見た目">
+    <figcaption>「家族・ケアマネ画面プレビュー」で見たケアマネの画面（通所記録）。FAXと同じモニタリング表を用紙の見た目のまま表示し、タップで拡大・印刷・PDF保存ができます（見本データ）。</figcaption>
+  </figure>
+  <div class="cols">
+    <figure>
+      <img src="manual/img/oct_cm_news.jpg" alt="ケアマネの画面のお知らせ。モニタリングを作成しました">
+      <figcaption>同じくケアマネの画面のお知らせ。</figcaption>
+    </figure>
+    <div>
+      <div class="card b">
+        <h3>店舗へのひと言</h3>
+        <p>つむぎに登録済みのケアマネには、確定と同時に表が届きます。閲覧済みになった方はFAXを省けますが、まだ見ていない方には従来どおりFAXを送ってください。</p>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>つむぎ 10月からの新機能（エリア担当者向け）</span><span>7</span></div>
+</div></div>
+
+<!-- 8 ご家族・ケアマネの登録／各種設定 -->
+<div class="page"><div class="in">
+  <h2>ご家族・ケアマネの登録と画面 <span class="pill">全店</span></h2>
+  <div class="cols w2">
+    <figure>
+      <img src="manual/img/oct_acct.jpg" alt="アカウント管理の下部。ご家族の画面を見る、ケアマネの画面を見る">
+      <figcaption>利用者マスタ → アカウント管理の下部。「ご家族の画面を見る」「ケアマネの画面を見る」で、相手に見えている画面を確認できます。</figcaption>
+    </figure>
+    <ul style="margin-top:6px">
+      <li>「お知らせ・閲覧管理」のプレビューは<b>「家族・ケアマネ画面プレビュー」</b>になり、ご家族／ケアマネを切り替えて確認できます。</li>
+      <li>ケアマネが交代したら、アカウント管理には<b>今の担当ケアマネだけ</b>を表示します（前任は件数のみ）。</li>
+    </ul>
+  </div>
+  <ul>
+    <li><b class="k">登録メールの反映</b>：ご家族が登録したメールアドレスをフェイスシートの連絡先に表示します。ケアマネが登録したメールは「ケアマネ事業所・担当者」のメール欄へ自動で入ります（空欄のときだけ）。</li>
+    <li><b class="k">招待コードの安全対策</b>：招待コードの確認をサーバーで行い、間違いが続くと一時的に入力できなくなります（同じ回線で15分に5回まちがえると15分停止、など）。偽の招待URLで登録できる穴もふさぎました。</li>
+    <li>招待コードの有効期限は3日・1回限りです（これまでどおり）。</li>
+  </ul>
+
+  <h2 style="margin-top:12px">各種設定 <span class="pill">全店</span></h2>
+  <figure>
+    <img src="manual/img/oct_set_staff.jpg" alt="各種設定 日誌 担当職員。役職ごとの枠と追加ボタン">
+    <figcaption>各種設定 → 日誌 → 担当職員。役職ごとの枠の「○○を追加」で追加すると役職は自動で決まります（見本データ）。</figcaption>
+  </figure>
+  <ul>
+    <li><b class="k">担当職員</b>：管理者・生活相談員・機能訓練指導員・看護師・介護職員（＋店舗で追加した役職）の枠に分けました。副の役職（兼務）と資格を2つまで選べます。</li>
+  </ul>
+  <div class="cols">
+    <figure>
+      <img src="manual/img/oct_set_kibun.jpg" alt="各種設定 サービス提供内容。気分の入力と血圧・脈の測定">
+      <figcaption>各種設定 → サービス提供内容。</figcaption>
+    </figure>
+    <ul style="margin-top:6px">
+    <li><b class="k">気分の入力</b>：OFFにすると、提供記録入力・印刷・分析・ご家族画面から気分の欄が消えます（入力済みの気分は消えません）。</li>
+    <li><b class="k">血圧・脈の測定</b>：「開始時＋終了時」「開始時のみ」を選べます。開始時のみの店舗は終了時の列を出しません。</li>
+    </ul>
+  </div>
+  <ul>
+    <li>利用者マスタの個人ファイルは、画面いっぱいの大きさで開くようにしました。</li>
+  </ul>
+  <div class="foot"><span>つむぎ 10月からの新機能（エリア担当者向け）</span><span>8</span></div>
+</div></div>
+
+<!-- 9 試験版 -->
+<div class="page"><div class="in">
+  <h2>試験版で確認中の機能 <span class="pill t">試験版</span></h2>
+  <p class="note">扇橋店で確認中です。全店への配信日は本部からご連絡します。</p>
+  <figure>
+    <img src="manual/img/oct_tr_tp.jpg" alt="試験版の送迎表。上部に自動計算と完成のボタン、未完成の注意、日付を上に固定、午前を左に縦表示">
+    <figcaption>試験版の送迎表。上部は「自動計算」「完成」の2つに整理。「この週は完成されていません」「1週間後の週（10/5〜）が未完成」の案内が出ます（見本データ）。</figcaption>
+  </figure>
+  <div class="cols w">
+    <figure>
+      <img src="manual/img/oct_tr_modal.jpg" alt="自動計算の選択画面。配車と時間のチェック、曜日、午前午後">
+      <figcaption>「自動計算」の選択画面。配車は最初チェックなし（時間だけ計算）。</figcaption>
+    </figure>
+    <div>
+      <h3 style="margin-top:4px">送迎表</h3>
+      <ul>
+        <li>日ごとの計算ボタンと「この日を印刷」をやめ、上部の<b>「自動計算」</b>1つに。日・午前／午後と、配車・時間を選んで計算します（両方も可）。</li>
+        <li>下へスクロールしても日付が上に残ります。午前／午後は左に縦に表示。</li>
+        <li><b>「完成」</b>ボタン。1週間後の週が未完成なら、送迎表とホームに赤い案内が毎日出ます（下の写真）。</li>
+        <li>ご家族・ケアマネ画面のお迎え時間に「予定（確定前）／確定」を表示します。</li>
+        <li>待ち合わせ場所を選択式に（自宅前・玄関前・マンション入口外・エントランス・ロビー・その他は自由記述）。</li>
+        <li>印刷で徒歩・その他・休みを行で分け、徒歩は乗車の方と同じ大きさ・名前太字・クラスの開始時間つき。徒歩の枠はオレンジ（振替の緑と区別）。</li>
+      </ul>
+      <h3>そのほか</h3>
+      <ul>
+        <li>フェイスシートから緊急連絡先を削除できます。アカウント管理で登録者を削除するとき、緊急連絡先からも消すか確認が出ます。</li>
+        <li>日誌で兼務した場合、日誌本体（印刷）の担当職員欄にも書かれます。</li>
+        <li>ケアマネ画面のモニタリング表をA4横の大きさで表示します。</li>
+      </ul>
+    </div>
+  </div>
+  <figure>
+    <img src="manual/img/oct_tr_home.jpg" alt="ホームの案内。1週間後の週の送迎表がまだ完成していません">
+    <figcaption>ホームに出る案内（試験版）。</figcaption>
+  </figure>
+  <div class="foot"><span>つむぎ 10月からの新機能（エリア担当者向け）</span><span>9</span></div>
+</div></div>
+
+<!-- 10 不具合修正 -->
+<div class="page"><div class="in">
+  <h2>9/29・9/30に直した主な不具合 <span class="pill">全店</span></h2>
+  <table>
+    <tr><th>日付</th><th>画面</th><th>内容（→ 直したこと）</th></tr>
+    <tr><td class="d">9/30</td><td class="s">送迎表</td><td>待ち合わせ場所（玄関前など）が入っている方の移動時間が大きく狂い、お迎え時間が早すぎた → Googleへは住所だけを送る</td></tr>
+    <tr><td class="d">9/30</td><td class="s">送迎表</td><td>「前週コピー」で前の週に振替で来た方までコピーされた → コピー先に来る方だけ残す</td></tr>
+    <tr><td class="d">9/30</td><td class="s">送迎表</td><td>提供記録で振替・臨時にした方が、月間スケジュールに印が無いと出なかった → 提供記録の振替・臨時・欠席・休止を反映</td></tr>
+    <tr><td class="d">9/30</td><td class="s">連絡帳</td><td>午後の方の体温・血圧に午前の値（入力途中の「36.」など）が出た／印刷でバイタル欄の1行目が右にずれた → 修正</td></tr>
+    <tr><td class="d">9/30</td><td class="s">利用者マスタ</td><td>緊急連絡先で同じ方が2回表示された → 氏名で1件にまとめて表示</td></tr>
+    <tr><td class="d">9/30</td><td class="s">日誌</td><td>欠席・休止の方に車の割り当てが残ると、送りの車がグレーアウトされず「未完成」になった → 修正</td></tr>
+    <tr><td class="d">9/30</td><td class="s">モニタリング</td><td>実施日が下書きを作った日のままだった → 確定した日に／月の途中で休止にした方が一覧に出なかった → 修正</td></tr>
+    <tr><td class="d">9/30</td><td class="s">災害速報</td><td>事業所の地域に関係のない速報が全店に出ていた → 地域で絞り込み</td></tr>
+    <tr><td class="d">9/30</td><td class="s">お迎え時間</td><td>送迎表の「分」が空欄のとき「13時頃」と出た → 「13時　分」と表示</td></tr>
+    <tr><td class="d">9/30</td><td class="s">ご家族・ケアマネ</td><td>初めてログインした端末で、登録前のお知らせまで未読（「お知らせ 3」など）になった → 修正</td></tr>
+    <tr><td class="d">9/30</td><td class="s">ケアマネ連携</td><td>交代後も前任ケアマネのアカウントが残った／同じメールを使うケアマネ同士で担当を取り違えた → 修正</td></tr>
+    <tr><td class="d">9/30</td><td class="s">ご家族の登録</td><td>アカウント管理から出した招待のQRで登録すると「データを取得中」から進まなかった／新しい端末で登録すると続柄・電話が事業所に届かなかった → 修正</td></tr>
+    <tr><td class="d">9/30</td><td class="s">ケアマネの登録</td><td>招待で事業所が決まっているのに「事業所を選択してください」で登録できなかった → 修正</td></tr>
+    <tr><td class="d">9/30</td><td class="s">ホーム画面のアプリ</td><td>招待用紙などの印刷画面から元の画面に戻れなかった → 画面の上に重ねて表示し「← 閉じる」で戻れるように</td></tr>
+    <tr><td class="d">9/29</td><td class="s">休み連絡</td><td>プレビューから印刷・FAX・PDFをしてもカレンダーが「連絡済」にならなかった → 修正（送付状に「連絡済にする／取消」ボタン）</td></tr>
+    <tr><td class="d">9/29</td><td class="s">提供記録の印刷</td><td>月間表（A4横）の上と左右が見切れた → 用紙の内側に余白／個別運動の単位が二重（500gg など）→ 修正</td></tr>
+    <tr><td class="d">9/29</td><td class="s">分析</td><td>介護度内訳の合計が100％にならなかった → 未設定を表示し合計100％に</td></tr>
+    <tr><td class="d">9/29</td><td class="s">家族画面プレビュー</td><td>利用者を切り替えても最初の利用者のままだった → 修正</td></tr>
+    <tr><td class="d">9/29</td><td class="s">月間スケジュール</td><td>月間スケジュールと提供記録入力の連動（振替・臨時・欠席 × 午前/午後）を総当たりで確認し、振替先の表示などを修正</td></tr>
+  </table>
+  <div class="foot"><span>つむぎ 10月からの新機能（エリア担当者向け）</span><span>10</span></div>
+</div></div>
+
+<!-- 11 Q&A -->
+<div class="page"><div class="in">
+  <h2>店舗から聞かれそうなこと</h2>
+  <dl class="qa">
+    <dt>新しいボタンが出てこない</dt>
+    <dd>アプリを一度閉じて開き直してもらってください（ホーム画面に追加したアプリは、完全に終了してから開く）。それでも出ない場合は本部へ。なお<span class="pill t">試験版</span>の機能は、扇橋店以外ではまだ出ません。</dd>
+
+    <dt>送迎表の赤丸（●）は何ですか</dt>
+    <dd>「この週を完成にする」を押した後で、時間・車・乗車順・運転者が変わった方の目印です。ご家族への電話連絡が必要かどうかの確認に使ってください。</dd>
+
+    <dt>お迎え時間が早すぎる（遅すぎる）方がいる</dt>
+    <dd>まず利用者マスタの住所が番地まで正しいか確認し、その日の「時間のみ計算」を押し直してください。待ち合わせ場所（玄関前など）は時間の計算には使いません。</dd>
+
+    <dt>ご家族の画面のお迎え時間が「13時　分」になっている</dt>
+    <dd>送迎表の「分」が空欄です。送迎表で分まで入れれば、ご家族の画面も直ります。</dd>
+
+    <dt>ご家族の画面に「お迎え時間が変更されました」と出た</dt>
+    <dd>送迎表の完成後に時間や送迎方法が変わったためです。念のためご家族へお電話でもお伝えください。</dd>
+
+    <dt>モニタリングのFAXはもう送らなくてよいですか</dt>
+    <dd>つむぎに登録済みで「ケアマネ閲覧済」になった方は省けます（FAX送信のときに確認が出ます）。未登録・未閲覧のケアマネには従来どおりFAXを送ってください。</dd>
+
+    <dt>日誌に「必須職員未選択」と出て完成しない</dt>
+    <dd>担当職員のチェック漏れがないか確認してください。別の役職の人が兼ねた日は「兼務」、本当に不在だった日は「減算」「加算なし」で記録すると警告が消えます。</dd>
+
+    <dt>ご家族が招待コードを入れたら入力できなくなった</dt>
+    <dd>まちがいが続いたための安全対策です。15分ほど待ってから、正しいコードで入れてもらってください。有効期限（3日）が切れている場合は新しいコードを発行します。</dd>
+
+    <dt>災害速報が前より出なくなった</dt>
+    <dd>事業所の地域に関係するものだけにしたためです。各種設定 → 事業所情報の住所が正しいか確認してください。</dd>
+
+    <dt>気分の欄を使っていない</dt>
+    <dd>各種設定 → サービス提供内容 →「気分の入力」をOFFにすると欄が消えます。入力済みの気分は消えません。</dd>
+  </dl>
+  <div class="card g" style="margin-top:14px">
+    <h3>連絡先</h3>
+    <p>不具合・要望は、店舗から本部（髙橋）へ直接ご連絡ください。画面の写真を添えていただくと早く直せます。</p>
+  </div>
+  <div class="foot"><span>つむぎ 10月からの新機能（エリア担当者向け）</span><span>11</span></div>
+</div></div>
+
+</body>
+</html>
