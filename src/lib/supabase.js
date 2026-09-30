@@ -133,10 +133,41 @@ export async function hashPassword(password) {
 }
 
 // =========================================================
-// 招待発行 (スタッフ側 / 親アカウント側で呼び出し)
+// ★ 招待コードはサーバー(/api/family-invite)経由で扱う(2026-09-30 試験版・総当たり対策)
+//   照合・登録は回線ごと/全体の失敗回数で止まる。作成・一覧・削除は職員トークン(またはご家族アカウントID)で確認。
+//   サーバーが無い環境(開発・E2E)や、職員トークンが無い古いログインでは従来の直接アクセスに戻る
+//   (family_invites をRLSで閉じた後は直接アクセスは失敗するだけ = 安全側)。
 // =========================================================
-export async function supabaseCreateInvite(invite) {
+async function inviteApi(payload) {
+  let r;
+  try { r = await fetch('/api/family-invite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); }
+  catch (e) { const err = new Error('サーバーに接続できません。通信状態をご確認ください。'); err.noServer = true; throw err; }
+  // JSON 以外(ルートが無い404・開発用サーバーの501 等)はサーバー無しとして扱う
+  if (!String(r.headers.get('content-type') || '').includes('json')) { const err = new Error('招待サーバーが見つかりません'); err.noServer = true; throw err; }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { const err = new Error(j.error || `処理に失敗しました (${r.status})`); err.status = r.status; err.reason = j.reason || ''; err.lockMin = j.lock_min || 0; err.facilityPhone = j.facility_phone || ''; err.expired = !!j.expired; throw err; }
+  return j;
+}
+const _inviteAuth = (opts) => (opts && opts.famId) ? { fam_id: String(opts.famId) } : { token: _staffToken() };
+// サーバーに届かない/職員トークンが無い(古いログイン)ときだけ従来の直接アクセスへ
+const _inviteFallbackOk = (e) => !!supabase && !!(e && (e.noServer || e.status === 401));
+
+// =========================================================
+// 招待発行 (スタッフ側 / 親アカウント側で呼び出し)
+//   opts.famId: ご家族(親アカウント)が発行する場合のアカウントID
+// =========================================================
+export async function supabaseCreateInvite(invite, opts) {
   if (!supabase) return null;
+  try {
+    const j = await inviteApi({ action: 'create', ..._inviteAuth(opts), invite: {
+      patient_id: String(invite.patientId || ''), store_id: invite.storeId || null, code: invite.code,
+      email: invite.email || null, relation: invite.relation || null, facility_name: invite.facilityName || null,
+      patient_name: invite.patientName || null, facility_phone: invite.facilityPhone || null, expires_at: invite.expiresAt || null,
+    } });
+    return j.invite || null;
+  } catch (e) {
+    if (!_inviteFallbackOk(e)) { console.warn('[invite-api] create failed', e?.message); return null; }
+  }
   try {
     const { data, error } = await supabase
       .from('family_invites')
@@ -170,36 +201,27 @@ export async function supabaseCreateInvite(invite) {
 export async function supabaseSignupFamily({
   inviteCode, username, password, email, relation, displayName, kind, role,
   facilityName, patientName,
-  inviteFallback, // {patientId, expiresAt} - Supabase に招待が無い場合 (旧版で作成された招待) のフォールバック
 }) {
   if (!supabase) throw new Error('Supabase 未接続');
-  // 1. 招待検索 (URL token から仮登録されているはず)
+  // ★ 2026-09-30(試験版): 登録はサーバーで行う(回数制限・招待が無い場合の作り直しは行わない)。
+  //   従来の「URLの中身から招待を作り直す」処理は、偽造したURLで任意の利用者の招待を作れたため廃止。
+  const password_hash = await hashPassword(password);
+  try {
+    const j = await inviteApi({ action: 'signup', code: inviteCode, username, password_hash, email: email || '', relation: relation || '',
+      display_name: displayName || '', kind: kind || 'family', role: role || 'member', facility_name: facilityName || '', patient_name: patientName || '' });
+    return { account: j.account, invite: j.invite };
+  } catch (e) {
+    if (!(e && e.noServer)) throw e;
+  }
+  // 以下はサーバーが無い環境(開発)用の従来処理
+  // 1. 招待検索
   const { data: inv, error: invErr } = await supabase
     .from('family_invites')
     .select('*')
     .eq('code', inviteCode)
     .maybeSingle();
   if (invErr) throw invErr;
-  // 招待が Supabase に無い → URL token のフォールバックがあれば自動作成
-  let invite = inv;
-  if (!invite && inviteFallback?.patientId) {
-    const { data: created, error: cErr } = await supabase
-      .from('family_invites')
-      .insert({
-        patient_id: String(inviteFallback.patientId),
-        store_id: inviteFallback.storeId || null,  // ★ 店舗 ID を継承 (家族アカウントが正しい店舗に紐付くように)
-        code: inviteCode,
-        email: email || null,
-        relation: relation || null,
-        facility_name: facilityName || null,
-        patient_name: patientName || null,
-        expires_at: inviteFallback.expiresAt || null,
-      })
-      .select()
-      .single();
-    if (cErr) throw cErr;
-    invite = created;
-  }
+  const invite = inv;
   if (!invite) throw new Error('招待コードが見つかりません');
   // ★ inv は元クエリ結果で、フォールバック作成時は null になりうる。
   //   used_by / expires_at の判定は実際に使う invite を見る (null 参照クラッシュ防止)。
@@ -216,7 +238,6 @@ export async function supabaseSignupFamily({
   //    別ユーザー名で同じメールアドレスで複数アカウント作成可能
   // (ログイン後にメール+パスワード一致するアカウントを集約して複数利用者を選択可能にする)
   // 4. 家族アカウント作成 (★ invite.store_id を継承 → 家族側で店舗データを pull できるように)
-  const password_hash = await hashPassword(password);
   const { data: acc, error: accErr } = await supabase
     .from('family_accounts')
     .insert({
@@ -305,6 +326,18 @@ export async function supabaseLoginFamily({ username, password }) {
 // =========================================================
 // 招待コードから事前情報取得 (家族登録画面で URL token と合わせて使う)
 // =========================================================
+// ★ 2026-09-30(試験版): サーバーで照合(回数制限あり)。戻り値 { invite } または { error, reason, lockMin, facilityPhone }
+export async function supabaseLookupInvite(code) {
+  if (!supabase) return { error: '招待コードが見つかりません', reason: 'not_found' };
+  try {
+    const j = await inviteApi({ action: 'lookup', code });
+    return { invite: j.invite || null };
+  } catch (e) {
+    if (!(e && e.noServer)) return { error: e?.message || '招待コードを確認できませんでした', reason: e?.reason || (e?.status ? 'error' : 'network'), lockMin: e?.lockMin || 0, facilityPhone: e?.facilityPhone || '' };
+  }
+  const inv = await supabaseGetInviteByCode(code);
+  return inv ? { invite: inv } : { error: '招待コードが見つかりません', reason: 'not_found' };
+}
 export async function supabaseGetInviteByCode(code) {
   if (!supabase) return null;
   try {
@@ -336,8 +369,12 @@ export async function supabaseListInvitesAndAccountsForPatient(patientId, storeI
       console.warn('[supabase] listInvitesAndAccountsForPatient called without storeId');
       return null;
     }
+    // ★ 招待はサーバー経由(2026-09-30 試験版)。サーバー無し/トークン無しのときだけ直接読む
+    const _invP = inviteApi({ action: 'list_patient', token: _staffToken(), patient_id: String(patientId), store_id: storeId })
+      .then(j => ({ data: (j.invites || []).slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))), error: null }))
+      .catch(e => _inviteFallbackOk(e) ? invQ.order('created_at', { ascending: false }) : { data: null, error: e });
     const [inv, acc] = await Promise.all([
-      invQ.order('created_at', { ascending: false }),
+      _invP,
       accQ.order('created_at', { ascending: false }),
     ]);
     if (inv.error || acc.error) { console.warn('[supabase] listInvitesAndAccounts query error', inv.error || acc.error); return null; }
@@ -468,6 +505,12 @@ export async function supabaseSelfProvisionCm(acc, password) {
 //   招待レコードは送信端末のローカルにしか無く、別端末では「閲覧登録なし」に見えていたため。
 export async function supabaseListCmInvitesForStore(storeId) {
   if (!supabase || !storeId) return [];
+  try {
+    const j = await inviteApi({ action: 'list_cm_store', token: _staffToken(), store_id: storeId });
+    return j.invites || [];
+  } catch (e) {
+    if (!_inviteFallbackOk(e)) { console.warn('[invite-api] listCmInvitesForStore failed', e?.message); return []; }
+  }
   try {
     const { data, error } = await supabase
       .from('family_invites')
@@ -1127,16 +1170,19 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData) {
           new Set([...Object.keys(_lt), ...Object.keys(_ct)]).forEach(k2 => { const t = Math.max(Number(_lt[k2]) || 0, Number(_ct[k2]) || 0); if (t) cmTombs[k2] = t; });
           if (Object.keys(cmTombs).length) out.cmTombstones = cmTombs;
           // ★ 追加を失わない配列は union(両端末の追加を保持。 同一キーはローカル優先)。
-          const unionBy = (k, keyFn) => {
+          const unionBy = (k, keyFn, combine) => {
             const a = Array.isArray(ls[k]) ? ls[k] : [], b = Array.isArray(cs[k]) ? cs[k] : [];
             if (!a.length && !b.length) return;
             const m = new Map();
             b.forEach(x => { const kk = keyFn(x); if (kk != null) m.set(kk, x); });
-            a.forEach(x => { const kk = keyFn(x); if (kk != null) m.set(kk, x); });
+            a.forEach(x => { const kk = keyFn(x); if (kk != null) m.set(kk, (combine && m.has(kk)) ? combine(x, m.get(kk)) : x); });
             out[k] = [...m.values()].filter(x => { const kk = keyFn(x); const tt = kk != null ? (cmTombs[kk] || 0) : 0; return !tt || (Number(x && x._addedAt) || 0) > tt; });
           };
           unionBy('cmOffices', o => (o && o.name != null) ? `off|${String(o.name).trim()}` : null);
-          unionBy('careManagers', o => (o && (o.office != null || o.name != null)) ? `cm|${String(o.office||'').trim()}|${String(o.name||'').trim()}` : null);
+          // ★ 2026-09-30(試験版): 同じ担当者は従来どおり端末側優先だが、メールだけは「書いた時刻(_emailTs)」の新しい方を採る。
+          //   ケアマネ本人の登録や自動補完でクラウドに入ったメールが、古い端末の保存で消えないようにする(画面での変更・削除も時刻を刻む)。
+          unionBy('careManagers', o => (o && (o.office != null || o.name != null)) ? `cm|${String(o.office||'').trim()}|${String(o.name||'').trim()}` : null,
+            (l, c) => { const lt = Number(l && l._emailTs) || 0, ct = Number(c && c._emailTs) || 0; return ct > lt ? { ...l, email: (c && c.email) || '', _emailTs: ct } : l; });
           merged.systemSettings = out;
         }
       }
@@ -1219,6 +1265,22 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData) {
           else outLogs[k] = (JSON.stringify(lv).length >= JSON.stringify(cv).length) ? lv : cv; // 旧データ(時刻なし)のみ従来判定
         });
         merged.diaryLogs = outLogs;
+      }
+    }
+    // ★ 送迎表(transportPlans)も「日付_AMPM」キーのオブジェクト(2026-09-12 試験版・送迎表基本版)。
+    //   日誌と同様にキー単位で統合し、同じキーは _savedAt が新しい方を丸ごと採用する(項目単位分割はしない)。
+    {
+      const lTp = (localData.transportPlans && typeof localData.transportPlans === 'object') ? localData.transportPlans : null;
+      const cTp = (cloud.transportPlans && typeof cloud.transportPlans === 'object') ? cloud.transportPlans : null;
+      if (lTp || cTp) {
+        const out = { ...(cTp || {}) };
+        Object.keys(lTp || {}).forEach(k => {
+          const lv = lTp[k], cv = (cTp || {})[k];
+          if (!cv) { out[k] = lv; return; }
+          const lt = Number(lv && lv._savedAt) || 0, ct = Number(cv && cv._savedAt) || 0;
+          out[k] = (lt >= ct) ? lv : cv;
+        });
+        merged.transportPlans = out;
       }
     }
     // ★ 月別シフト(monthlyShifts)は { 月キー: { 利用者ID: シフト } } の入れ子。 端末間で別々の月/利用者を
@@ -1630,10 +1692,15 @@ export async function supabaseMergePatientFromFamily(storeId, patientId, patient
       }
       if (Array.isArray(extra.careManagers)) {
         const exist = nextSettings.careManagers || [];
-        const key = c => `${(c.office||'').trim()}|${(c.name||'').trim()}`;
+        // ★ 2026-09-30(試験版): 空白の違い(全角/半角)は同じ担当者とみなす。既存の担当者でメールが空なら、登録で入ったメールを補う(時刻付き)。
+        const _n = s => String(s || '').normalize('NFKC').replace(/[\s　]/g, '');
+        const key = c => `${_n(c.office)}|${_n(c.name)}`;
         const keys = new Set(exist.map(key));
         const add = extra.careManagers.filter(c => c && c.name && !keys.has(key(c)));
-        if (add.length) nextSettings.careManagers = [...exist, ...add];
+        const fill = new Map(extra.careManagers.filter(c => c && c.name && String(c.email || '').trim()).map(c => [key(c), c]));
+        let filled = false;
+        const merged = exist.map(c => { const f = fill.get(key(c)); if (f && !String(c.email || '').trim()) { filled = true; return { ...c, email: String(f.email).trim(), _emailTs: Number(f._emailTs) || Date.now() }; } return c; });
+        if (add.length || filled) nextSettings.careManagers = [...merged, ...add];
       }
     }
     const updatedData = { ...currentData, patients, systemSettings: nextSettings };
@@ -1661,8 +1728,12 @@ export async function supabaseAppendDocUpdate(storeId, patientId, entry) {
       by: entry.by || 'family',
       byName: entry.byName || '',
       items: [...new Set(entry.items || [])],
-      readOffice: false,
+      // ★ 2026-09-30(試験版): 閲覧記録(kind='monView')など、事業所の新着にしないものは readOffice:true で送れる
+      readOffice: entry.readOffice === true,
       readCm: true,
+      ...(entry.kind ? { kind: entry.kind } : {}),
+      ...(entry.monRecId != null ? { monRecId: entry.monRecId } : {}),
+      ...(entry.period ? { period: entry.period } : {}),
     };
     const res = await supabaseCasUpdate(storeId, (cloud) => {
       const currentData = cloud;
@@ -1853,6 +1924,30 @@ export async function supabaseMarkDocUpdatesRead(storeId, patientId, side = 'cm'
 //     (アドオンを続けて複数ONにすると最後の1個しか残らない)
 //   ②_fieldTs.addons が古いままなので、店舗側の端末が次に保存した時にフィールド単位マージで
 //     「ローカル(古いaddons)が新しい」と判定され、管理局の変更が巻き戻る
+// ★ ケアマネ担当者マスタのメール補完(2026-09-30 試験版): fills=[{office,name,email}]。マスタのメールが空の担当者だけ補い、時刻(_emailTs)を刻む。
+export async function supabaseFillCareManagerEmails(storeId, fills) {
+  if (!supabase || !storeId || !Array.isArray(fills) || !fills.length) return false;
+  const _n = s => String(s || '').normalize('NFKC').replace(/[\s　]/g, '');
+  try {
+    const res = await supabaseCasUpdate(storeId, (cloud) => {
+      const data = cloud || {};
+      const ss = data.systemSettings || {};
+      const now = syncNow();
+      let changed = false;
+      const next = (ss.careManagers || []).map(c => {
+        if (String(c.email || '').trim()) return c;
+        const f = fills.find(x => x && x.email && _n(x.office) === _n(c.office) && _n(x.name) === _n(c.name));
+        if (!f) return c;
+        changed = true;
+        return { ...c, email: String(f.email).trim(), _emailTs: now };
+      });
+      if (!changed) return null;
+      return { ...data, systemSettings: { ...ss, careManagers: next, _updatedAt: now } };
+    });
+    return !!(res && res.ok);
+  } catch (e) { console.warn('[supabase] fillCareManagerEmails failed', e); return false; }
+}
+
 export async function supabaseSetStoreAddon(storeId, key, value) {
   if (!supabase || !storeId || !key) return false;
   try {
@@ -2009,11 +2104,8 @@ export async function supabaseDeletePatientFamily(storeId, patientId) {
   if (!supabase || !storeId || !patientId) return false;
   try {
     // 1. 該当 family_invites を削除 (store_id AND patient_id でフィルタ)
-    await supabase
-      .from('family_invites')
-      .delete()
-      .eq('store_id', storeId)
-      .eq('patient_id', String(patientId));
+    await _inviteDelete({ by: 'patient', patient_id: String(patientId), store_id: storeId },
+      () => supabase.from('family_invites').delete().eq('store_id', storeId).eq('patient_id', String(patientId)));
     // 2. 該当 family_accounts を削除
     await supabase
       .from('family_accounts')
@@ -2027,12 +2119,23 @@ export async function supabaseDeletePatientFamily(storeId, patientId) {
   }
 }
 
-export async function supabaseDeleteFamilyAccount(accountId) {
+// 招待の削除(サーバー経由・サーバー無し/トークン無しは直接)。 失敗は例外
+async function _inviteDelete(cond, direct, opts) {
+  try { await inviteApi({ action: 'delete', ..._inviteAuth(opts), ...cond }); return true; }
+  catch (e) {
+    if (!_inviteFallbackOk(e)) throw e;
+    const r = await direct();
+    if (r && r.error) throw r.error;
+    return true;
+  }
+}
+
+export async function supabaseDeleteFamilyAccount(accountId, opts) {
   if (!supabase) return false;
   try {
     // ★ 関連 invite を物理削除 (used_by の解除ではなく、 招待自体を削除して
     //    同じメールアドレス/コードでの再使用を阻害しないようにする)
-    await supabase.from('family_invites').delete().eq('used_by', accountId);
+    await _inviteDelete({ by: 'used_by', used_by: accountId }, () => supabase.from('family_invites').delete().eq('used_by', accountId), opts);
     // アカウント自体を物理削除
     const { error } = await supabase.from('family_accounts').delete().eq('id', accountId);
     if (error) throw error;
@@ -2048,8 +2151,7 @@ export async function supabaseDeleteFamilyAccount(accountId) {
 export async function supabaseDeleteInvite(inviteId) {
   if (!supabase || !inviteId) return false;
   try {
-    const { error } = await supabase.from('family_invites').delete().eq('id', inviteId);
-    if (error) throw error;
+    await _inviteDelete({ by: 'id', id: inviteId }, () => supabase.from('family_invites').delete().eq('id', inviteId));
     return true;
   } catch (e) {
     console.warn('[supabase] deleteInvite failed', e);
@@ -2058,11 +2160,10 @@ export async function supabaseDeleteInvite(inviteId) {
 }
 
 // ★ 招待コード指定の削除 (code 指定) — local の招待 id しかない場合の fallback
-export async function supabaseDeleteInviteByCode(code) {
+export async function supabaseDeleteInviteByCode(code, opts) {
   if (!supabase || !code) return false;
   try {
-    const { error } = await supabase.from('family_invites').delete().eq('code', code);
-    if (error) throw error;
+    await _inviteDelete({ by: 'code', code }, () => supabase.from('family_invites').delete().eq('code', code), opts);
     return true;
   } catch (e) {
     console.warn('[supabase] deleteInviteByCode failed', e);
@@ -2074,7 +2175,7 @@ export async function supabaseDeleteStore(storeId) {
   if (!supabase) throw new Error('Supabase 未接続');
   // ★ 関連する家族アカウント・招待を完全削除 (この店舗 store_id で紐づくもの)
   //   削除しないと: 別店舗 (同じ患者ID) で登録した家族と被って違う利用者の情報が漏洩する原因に
-  await supabase.from('family_invites').delete().eq('store_id', storeId);
+  try { await _inviteDelete({ by: 'store', store_id: storeId }, () => supabase.from('family_invites').delete().eq('store_id', storeId)); } catch (e) { console.warn('[invite-api] delete store invites failed', e?.message); }
   await supabase.from('family_accounts').delete().eq('store_id', storeId);
   // 関連スタッフ削除(サーバー経由・本部のみ)
   try { await staffApi({ action: 'delete_store_staff', token: _staffToken(), store_id: storeId }); }
