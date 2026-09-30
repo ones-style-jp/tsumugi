@@ -34078,8 +34078,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         </span>
           <div className="flex-1"/>
           <button onClick={()=>{
-            if (!window.confirm('前の週の送迎表(車割り当て・時間・運転者・備考)を、この週へまるごとコピーします。\nこの週に入力済みの内容は上書きされます。よろしいですか？')) return;
-            let n = 0;
+            if (!window.confirm('前の週の送迎表(車割り当て・時間・運転者・備考)を、この週へコピーします。\n前の週に振替で来た方や、この週にお休みの方はコピーしません(この週に振替で来る方は未割当に入ります)。\nこの週に入力済みの内容は上書きされます。よろしいですか？')) return;
+            let n = 0, nSkip = 0;
             const np = { ...plans };
             days.forEach(d => { ['AM','PM'].forEach(sl => {
               const prevD = new Date(d); prevD.setDate(prevD.getDate() - 7);
@@ -34088,11 +34088,16 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               const cp = JSON.parse(JSON.stringify(src));
               // 赤丸(時間変更マーク)はコピーしない
               Object.keys(cp.cars||{}).forEach(cid => (cp.cars[cid]||[]).forEach(m => { m.mark = false; }));
+              // ★ 2026-09-30(不具合修正・ユーザー指摘): 前の週に振替で来た方までコピーされていた。
+              //   コピー先の日・時間帯に来る方(_attendees: 基本曜日・月間スケジュール・提供記録)だけを残す(お休みの方も外れて「休み」に出る)。
+              const _att = new Set(_attendees(_iso(d), sl).map(a => String(a.pid)));
+              const _filt = (pl) => { if (!pl) return; Object.keys(pl.cars||{}).forEach(cid => { const a = pl.cars[cid]||[]; pl.cars[cid] = a.filter(m => _att.has(String(m && m.pid))); nSkip += a.length - pl.cars[cid].length; }); ['walkers','others','un'].forEach(k => { if (Array.isArray(pl[k])) { const a = pl[k]; pl[k] = a.filter(m => _att.has(String(m && m.pid))); nSkip += a.length - pl[k].length; } }); };
+              _filt(cp); if (cp.drop) _filt(cp.drop);
               delete cp._final; delete cp._finalAt; // ★ 完成の控えは週ごと(コピー先は未完成から)
               np[`${_iso(d)}_${sl}`] = { ...cp, _savedAt: syncNow() }; n++;
             }); });
             if (n) onSave({ ...appData, transportPlans: np }, { silent: true });
-            alert(n ? `前週から${n}コマをコピーしました。` : '前の週に保存済みの送迎表がありませんでした。');
+            alert(n ? `前週から${n}コマをコピーしました。${nSkip ? `\n（前の週の振替・この週のお休みなどで、この週に来ない方 のべ${nSkip}名はコピーしていません）` : ''}` : '前の週に保存済みの送迎表がありませんでした。');
           }} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="前の週の割り当て・時間・運転者・備考をこの週へ複製">前週コピー</button>
           <button onClick={()=>setAutoCalc({ haisha: true, jikan: true, days: new Set(days.map(d=>_iso(d))), slots: new Set(['AM','PM']) })} disabled={!!routing} data-testid="tp-autocalc" className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-sm disabled:opacity-50" title="配車・時間を、曜日や午前/午後を選んでGoogleマップで自動計算">{routing?'計算中…':'自動計算'}</button>
           {/* ★ 週の完成確定(2026-09-28): 完成後の変更は赤丸で自動表示 */}
