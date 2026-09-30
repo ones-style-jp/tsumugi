@@ -33120,12 +33120,14 @@ const tpNextWeekReminder = (appData, now = new Date()) => {
 
 // ★ 2026-09-30(ユーザー要望): 送迎の待ち合わせ場所を選択式に(その他は自由記述)。保存は従来どおり文字列(patient.pickupPlace)。
 //   hiddenId を渡すと、同じ id の隠し入力に今の値を入れる(送迎表の名前タップ画面の既存の読み取り方に合わせる)。
-const PICKUP_PLACES = ['自宅前', '玄関前', 'マンション入口', 'エントランス', 'ロビー'];
+const PICKUP_PLACES = ['自宅前', '玄関前', 'マンション入口外', 'エントランス', 'ロビー'];
+// ★ 2026-09-30(ユーザー指示): 「マンション入口」→「マンション入口外」(分かりやすく)。旧表記で保存済みの値は新しい表記として扱う
+const PICKUP_PLACE_ALIAS = { 'マンション入口': 'マンション入口外' };
 function PickupPlaceField({ value, onChange, disabled, hiddenId, className }) {
-  const split = (v) => { const s = String(v || '').trim(); if (!s) return { sel: '', other: '' }; return PICKUP_PLACES.includes(s) ? { sel: s, other: '' } : { sel: 'その他', other: s }; };
+  const split = (v) => { const s0 = String(v || '').trim(); const s = PICKUP_PLACE_ALIAS[s0] || s0; if (!s) return { sel: '', other: '' }; return PICKUP_PLACES.includes(s) ? { sel: s, other: '' } : { sel: 'その他', other: s }; };
   const [st, setSt] = React.useState(() => split(value));
   const composed = st.sel === 'その他' ? st.other.trim() : st.sel;
-  React.useEffect(() => { if (String(value || '').trim() !== composed) setSt(split(value)); }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => { const v0 = String(value || '').trim(); if ((PICKUP_PLACE_ALIAS[v0] || v0) !== composed) setSt(split(value)); }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
   const upd = (next) => { setSt(next); const v = next.sel === 'その他' ? next.other.trim() : next.sel; if (onChange) onChange(v); };
   return (
     <div className={className || ''}>
@@ -33627,7 +33629,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       while (d0.getTime() <= Date.now()) d0.setDate(d0.getDate() + 7);
       return Math.floor(d0.getTime()/1000);
     })();
-    const _addrOf = (pid) => { const pt = (appData.patients||[]).find(x=>x.id===pid) || {}; return `${pt.address||''}${pt.pickupPlace?(' '+pt.pickupPlace):''}`.trim(); };
+    const _addrOf = (pid) => { const pt = (appData.patients||[]).find(x=>x.id===pid) || {}; return `${pt.address||''}${pt.pickupPlace?(' '+(PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace)):''}`.trim(); };
     const _coordMap = {}; let _originCoord = null;
     let nextPlanCars = JSON.parse(JSON.stringify(pl.cars||{}));
     cars.forEach(c => { nextPlanCars[c.id] = nextPlanCars[c.id] || []; });
@@ -34020,7 +34022,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       <thead><tr>${['氏名','住所（待ち合わせ場所）','電話'].map(h2=>`<th style="border:1px solid #66756b;background:#eef0ed;font-size:${Math.max(8,fz-1)}px;padding:1px 2px;">${h2}</th>`).join('')}</tr></thead>
       <tbody>${list.map(pt => `<tr>
         <td style="border:1px solid #66756b;padding:1px 4px;font-size:${fz}px;font-weight:600;white-space:nowrap;overflow:hidden;">${_escP(pt.name)}</td>
-        <td style="border:1px solid #66756b;padding:1px 4px;font-size:${Math.max(8,fz-2)}px;line-height:1.3;">${_escP([pt.address, pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' '))}${pt.pickupPlace?`<span style="color:#475569;">（${_escP(pt.pickupPlace)}）</span>`:''}${String(pt.pickupMinutes||'')==='walk'?`<span style="color:#047857;font-weight:700;">［徒歩］</span>`:''}</td>
+        <td style="border:1px solid #66756b;padding:1px 4px;font-size:${Math.max(8,fz-2)}px;line-height:1.3;">${_escP([pt.address, pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' '))}${pt.pickupPlace?`<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace)}）</span>`:''}${String(pt.pickupMinutes||'')==='walk'?`<span style="color:#047857;font-weight:700;">［徒歩］</span>`:''}</td>
         <td style="border:1px solid #66756b;padding:1px 2px;font-size:${Math.max(8,fz-1)}px;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;">${_escP(pt.phoneMobile || pt.phone || '')}</td>
       </tr>`).join('')}</tbody></table>`;
     return `<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
@@ -34043,7 +34045,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       return `<tr style="background:${bg};">
         <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;">${(m.mark||_chgOf(plans[`${iso}_${sl}`], m.pid))?'<span style="color:#c82c35;">●</span>':''}${_escP(_pname(m.pid))}</td>
         <td style="border:1px solid #66756b;padding:2px 4px;font-size:${fz}px;font-weight:700;text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums;">${_escP(_fmtT(m.t))}</td>
-        <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fzS}px;">${_escP([pt.address, pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' '))}${pt.pickupPlace?`<span style="color:#475569;">（${_escP(pt.pickupPlace)}）</span>`:''}</td>
+        <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fzS}px;">${_escP([pt.address, pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' '))}${pt.pickupPlace?`<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace)}）</span>`:''}</td>
         <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fzS}px;white-space:nowrap;font-variant-numeric:tabular-nums;">${_escP(pt.phoneMobile || pt.phone || '')}</td>
       </tr>`; };
     const slotBlock = (sl, label) => { const pl = getPlan(iso, sl);
@@ -42922,6 +42924,10 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           {StaffBox({label:'看護師', list:kangoFu})}
           {StaffBox({label:'介護職員', list:kaigo, flexWeight:'3 1 0'})}
         </div>
+        {/* ★ 2026-09-30(試験版・ユーザー要望): 兼務した場合は日誌(印刷)にも残す。担当職員に選ばれている人の兼務だけ */}
+        {(() => { const km = _log.kenmu || {}; const stl = ds.staff || []; const rows = Object.keys(km).map(role => ({ role, st: stl.find(st => st && String(st.id) === String(km[role])) })).filter(x => x.st && (_log.staff||{})[x.st.id]); if (!rows.length) return null; return (
+          <div data-testid="diary-kenmu-line" style={{padding:'0 6px 3px 6px',fontSize:9,fontWeight:'bold',color:'#1e3a8a',lineHeight:1.3}}>兼務: {rows.map(x => `${x.st.name}${x.st.role ? `（${x.st.role}）` : ''}が${x.role}を兼務`).join('　')}</div>
+        ); })()}
       </div>
       )}
 
@@ -43802,7 +43808,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             <span className="text-xs font-normal text-red-700">…日誌の印刷には載りません。カレンダーに「減」印が付きます</span>
           </div>
         )}
-        {/* ★ 兼務の記録(2026-09-29): 日誌本体(印刷)には載せない。担当職員から外れた人の兼務は自動的に無効 */}
+        {/* ★ 兼務の記録(2026-09-29): 担当職員から外れた人の兼務は自動的に無効。★ 2026-09-30(試験版): 日誌本体(印刷)の担当職員欄にも記載 */}
         {(() => {
           const km = log.kenmu || {}; const stl = (appData.diarySettings?.staff || []);
           const rows = Object.keys(km).map(role => ({ role, st: stl.find(st => st && String(st.id) === String(km[role])) })).filter(x => x.st && (log.staff||{})[x.st.id]);
@@ -43816,7 +43822,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
                   {!isReadOnly && <button type="button" title="この兼務を取り消す(警告に戻ります)" onClick={()=>{ const g={...(log.kenmu||{})}; delete g[x.role]; updateLog({ kenmu: g }); }} className="text-[10px] font-bold text-blue-700 underline">取消</button>}
                 </span>
               ))}
-              <span className="text-xs font-normal text-blue-700">…日誌の印刷には載りません</span>
+              <span className="text-xs font-normal text-blue-700">…日誌の担当職員欄（印刷）にも記載されます</span>
             </div>
           );
         })()}
