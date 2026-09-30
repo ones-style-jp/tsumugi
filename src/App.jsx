@@ -11560,14 +11560,19 @@ const tsumugiCallAi = async (apiKey, body, storeId) => {
 // ★ 欠席理由の大分類(2026-09-07 店舗要望): 入力は「大分類を選択→詳細を自由記入」の2段構え。
 //   特記には「大分類（詳細）」形式(例: 体調不良（咳がひどい）)で記録され、分析の欠席理由ランキングは
 //   大分類で集計・詳細は内訳表示になる(従来は「発熱、咳がひどいから」等の自由文が1つずつ別枠になっていた)。
-const ABS_REASON_CATS = ['体調不良','通院・受診','入院','本人・家族の都合','冠婚葬祭','天候','その他'];
+// ★ 2026-10-01(ユーザー要望): 「冠婚葬祭」はほぼ使わないため選択肢を「ショートステイ」に変更。
+//   過去に「冠婚葬祭（…）」で記録した分は、分析の欠席理由ランキングでは引き続き「冠婚葬祭」として集計する(ABS_REASON_LEGACY_CATS)。
+const ABS_REASON_CATS = ['体調不良','通院・受診','入院','本人・家族の都合','ショートステイ','天候','その他'];
+const ABS_REASON_LEGACY_CATS = ['冠婚葬祭'];
 const composeAbsReason = (cat, detail) => { const d = String(detail || '').trim(); if (!cat) return d; return d ? `${cat}（${d}）` : cat; };
 // 「大分類（詳細）」を分解。大分類形式でなければ cat='' で全文を detail に返す(旧データ互換)
 // 特記(tokki)から欠席理由の本文だけを取り出す。「○月○日(AM|PM)へ振替（理由）」「…へ振替予定（理由）」の振替印を外す(2026-09-21)
 const absReasonFromTokki = (t) => String(t || '').trim().replace(/^\d+月\d+日(?:AM|PM|1日)?へ振替(?:予定)?/, '').replace(/^[（(]([\s\S]*)[）)]$/, '$1').trim();
-const parseAbsReason = (t) => {
+// withLegacy=true(集計用)のときは、選択肢から外した旧大分類(冠婚葬祭)も大分類として認識する。
+//   入力画面の引き継ぎ(既定)では旧大分類は大分類にせず、全文を詳細に入れる(今の選択肢に無いため)。
+const parseAbsReason = (t, withLegacy) => {
   const s = String(t || '').trim();
-  for (const c of ABS_REASON_CATS) {
+  for (const c of (withLegacy ? [...ABS_REASON_CATS, ...ABS_REASON_LEGACY_CATS] : ABS_REASON_CATS)) {
     if (s === c) return { cat: c, detail: '' };
     if ((s.startsWith(c + '（') && s.endsWith('）')) || (s.startsWith(c + '(') && s.endsWith(')'))) {
       return { cat: c, detail: s.slice(c.length + 1, -1).trim() };
@@ -11581,7 +11586,8 @@ const ABS_CAT_KEYWORDS = {
   '通院・受診': ['通院','受診','診察','検査','病院','外来'],
   '入院': ['入院'],
   '本人・家族の都合': ['家族の都合','家の都合','家庭の事情','家族の事情','私用','不在','用事','所用','都合'],
-  '冠婚葬祭': ['法事','葬儀','冠婚葬祭','葬式','告別式','通夜','結婚式'],
+  'ショートステイ': ['ショートステイ','ショート','短期入所','お泊り','お泊まり'],
+  '冠婚葬祭': ['法事','葬儀','冠婚葬祭','葬式','告別式','通夜','結婚式'], // 旧大分類(過去データの集計用)
   '天候': ['台風','大雪','積雪','悪天候','荒天','天候'],
 };
 
@@ -29821,8 +29827,8 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
     // ① 振替表記なら括弧内の理由を採用 (無ければ「振替」)
     const fm = t.match(/^\d+月\d+日(?:AM|PM|1日)?へ振替(?:（(.+)）|\((.+)\))?$/);
     if (fm) { t = (fm[1] || fm[2] || '').trim(); if (!t) return '振替'; }
-    // ② 新形式「大分類（詳細）」→ 大分類
-    const p = parseAbsReason(t);
+    // ② 新形式「大分類（詳細）」→ 大分類(旧大分類の冠婚葬祭も含む)
+    const p = parseAbsReason(t, true);
     if (p.cat) return p.cat;
     // ③ 旧データ: キーワードで大分類へ。2分類以上にまたがる場合は原文のまま
     const hits = Object.keys(ABS_CAT_KEYWORDS).filter(c => ABS_CAT_KEYWORDS[c].some(k => t.includes(k)));
@@ -29856,7 +29862,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
       }
       if (!key) return;
       // ★ 詳細内訳(2026-09-07): 新形式は括弧内の詳細、旧データで大分類に丸めた場合は原文を詳細として数える
-      const pp = parseAbsReason(raw);
+      const pp = parseAbsReason(raw, true);
       const detail = pp.cat ? pp.detail : (key !== raw ? raw : '');
       if (!m[key]) m[key] = { count: 0, details: {} };
       m[key].count++;
