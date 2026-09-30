@@ -11706,7 +11706,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
         {/* ★ 2026-09-30(ユーザー決定): 木〜日に来週の送迎表が「完成」していなければホームにも知らせる(送迎表を使っている店舗のみ) */}
         {(() => { const r = tpNextWeekReminder(appData); if (!r) return null; return (
           <div data-testid="home-tp-reminder" style={{border:'2px solid #fca5a5',background:'#fef2f2',borderRadius:14,padding:'10px 14px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
-            <span style={{fontSize:14,fontWeight:'bold',color:'#b91c1c'}}>来週（{r.label}）の送迎表がまだ完成していません</span>
+            <span style={{fontSize:14,fontWeight:'bold',color:'#b91c1c'}}>1週間後（{r.targetLabel}）の週の送迎表（{r.label}）がまだ完成していません</span>
             <span style={{fontSize:12,color:'#7f1d1d',flex:'1 1 260px'}}>送迎表で内容を確認して「完成」を押してください。完成するまで、ご家族・ケアマネの画面のお迎え時間は「予定」と表示されます。</span>
             <button onClick={()=>{ try { sessionStorage.setItem('tsumugiTpJump', r.iso); } catch {} navigateTo('transport'); }} style={{fontSize:12,fontWeight:'bold',color:'white',background:'#dc2626',border:'none',borderRadius:8,padding:'6px 12px',cursor:'pointer',whiteSpace:'nowrap'}}>送迎表を開く</button>
           </div>
@@ -33114,13 +33114,39 @@ const tpWeekFinalAt = (appData, monday) => {
 };
 // 直近4週間に送迎表を保存している店舗だけを「送迎表を使っている」とみなす(使っていない店舗には予定表示・リマインドを出さない)
 const tpStoreUsesTransport = (appData) => { try { const lim = tpIsoOf(new Date(Date.now() - 28 * 86400000)); return Object.keys(appData?.transportPlans || {}).some(k => String(k).slice(0, 10) >= lim); } catch { return false; } };
+// ★ 2026-09-30(ユーザー指示で変更): 曜日に関係なく毎日、「今日から1週間後の日」を含む週の送迎表が完成していなければ知らせる
+//   (=今週と来週の2週分を常に完成させておく運用)。
 const tpNextWeekReminder = (appData, now = new Date()) => {
-  if (![4, 5, 6, 0].includes(now.getDay())) return null;
   if (!tpStoreUsesTransport(appData)) return null;
-  const mon = tpMondayOf(now); mon.setDate(mon.getDate() + 7);
+  const target = new Date(now); target.setDate(target.getDate() + 7);
+  const mon = tpMondayOf(target);
   if (tpWeekFinalAt(appData, mon)) return null;
-  return { monday: mon, iso: tpIsoOf(mon), label: `${mon.getMonth()+1}/${mon.getDate()}〜` };
+  return { monday: mon, iso: tpIsoOf(mon), label: `${mon.getMonth()+1}/${mon.getDate()}〜`, targetLabel: `${target.getMonth()+1}/${target.getDate()}` };
 };
+
+// ★ 2026-09-30(ユーザー要望): 送迎の待ち合わせ場所を選択式に(その他は自由記述)。保存は従来どおり文字列(patient.pickupPlace)。
+//   hiddenId を渡すと、同じ id の隠し入力に今の値を入れる(送迎表の名前タップ画面の既存の読み取り方に合わせる)。
+const PICKUP_PLACES = ['自宅前', '玄関前', 'マンション入口', 'エントランス', 'ロビー'];
+function PickupPlaceField({ value, onChange, disabled, hiddenId, className }) {
+  const split = (v) => { const s = String(v || '').trim(); if (!s) return { sel: '', other: '' }; return PICKUP_PLACES.includes(s) ? { sel: s, other: '' } : { sel: 'その他', other: s }; };
+  const [st, setSt] = React.useState(() => split(value));
+  const composed = st.sel === 'その他' ? st.other.trim() : st.sel;
+  React.useEffect(() => { if (String(value || '').trim() !== composed) setSt(split(value)); }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
+  const upd = (next) => { setSt(next); const v = next.sel === 'その他' ? next.other.trim() : next.sel; if (onChange) onChange(v); };
+  return (
+    <div className={className || ''}>
+      <select disabled={disabled} value={st.sel} onChange={e => upd({ sel: e.target.value, other: e.target.value === 'その他' ? st.other : '' })} data-testid="pickup-place-sel"
+        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none disabled:opacity-60">
+        <option value="">未設定</option>
+        {PICKUP_PLACES.map(p => <option key={p} value={p}>{p}</option>)}
+        <option value="その他">その他（自由記述）</option>
+      </select>
+      {st.sel === 'その他' && <input type="text" disabled={disabled} value={st.other} onChange={e => upd({ sel: 'その他', other: e.target.value })} placeholder="例: ○○コンビニ前 / 裏の駐車場" data-testid="pickup-place-other"
+        className="w-full mt-1.5 px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>}
+      {hiddenId && <input type="hidden" id={hiddenId} value={composed} readOnly />}
+    </div>
+  );
+}
 
 function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowPrintPreview }) {
   const ds = appData.diarySettings || {};
@@ -33868,6 +33894,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     setRouting(null);
   };
 
+  // ★ 2026-09-30(ユーザー要望): 徒歩の方はそのクラスの開始時間(各種設定の提供時間の開始)を添える
+  const _classStart = (sl) => { const fi = appData.systemSettings?.facilityInfo || {}; const raw = sl === 'PM' ? (fi.serviceTimePM || '') : (fi.serviceTimeAM || ''); const m = String(raw).split(/[～〜~]/)[0].trim().match(/(\d{1,2})[:：](\d{2})/); return m ? `${Number(m[1])}:${m[2]}` : ''; };
   // ==== 印刷(A4横・1週間・午前+午後) ====
   const buildPrintHtml = () => {
     const esc = (t) => String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
@@ -33939,7 +33967,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       // ★ 2026-09-14b(店舗指摘): 下部情報は1行にまとめてスペース圧縮しつつ、文字は一回り大きく(fzS=fz-1)
       const _parts = [];
       const wk = (pl.walkers||[]);
-      if (wk.length) _parts.push(`徒歩: ${wk.map(m=>`${_chgOf(plans[`${iso}_${sl}`], m.pid)?'<span style="color:#c82c35;font-weight:bold;">●</span>':''}${esc(_pname(m.pid))}`).join('、')}`);
+      // ★ 2026-09-30: 徒歩の行は乗車の方と同じ大きさ・太さ(名前は太字)で、クラスの開始時間を添える。徒歩・その他・休みは行を分ける
+      if (wk.length) _parts.push(`<span style="font-size:${fz}px;font-weight:600;">徒歩${_classStart(sl)?`（開始 ${_classStart(sl)}）`:''}: ${wk.map(m=>`${_chgOf(plans[`${iso}_${sl}`], m.pid)?'<span style="color:#c82c35;font-weight:bold;">●</span>':''}<b style="font-weight:800;">${esc(_pname(m.pid))}</b>`).join('、')}</span>`);
       { const rm = _removedSince(plans[`${iso}_${sl}`]); if (rm.length) _parts.push(`<span style="color:#c82c35;">完成後に外れた: ${rm.map(pid=>esc(_pname(pid))).join('、')}</span>`); }
       const ot = (pl.others||[]);
       if (ot.length) _parts.push(`<span style="color:#6d28d9;">その他: ${ot.map(m=>esc(_pname(m.pid))).join('、')}</span>`);
@@ -33948,7 +33977,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       // ★ 2026-09-16(店舗指定): 未割当は印刷に出さない(画面のみ)
       const _abs2 = _absentees(iso, sl);
       if (_abs2.length) _parts.push(`<span style="color:#64748b;">休み: ${_abs2.map(a=>esc(a.name)).join('、')}</span>`);
-      if (_parts.length) h += `<div style="font-size:${fzB}px;line-height:1.35;margin-top:1px;">${_parts.join('　')}</div>`;
+      if (_parts.length) h += `<div style="font-size:${fzB}px;line-height:1.35;margin-top:1px;">${_parts.map(p => `<div>${p}</div>`).join('')}</div>`;
       if (pl.dropMode === 'custom' && pl.drop) {
         const dparts = cars.map(c => { const ms=(pl.drop.cars?.[c.id]||[]); return ms.length ? `${esc(c.name)}=${ms.map(m=>esc(_pname(m.pid))).join('、')}` : ''; }).filter(Boolean);
         const dw3 = (pl.drop.walkers||[]).map(m=>esc(_pname(m.pid)));
@@ -34028,11 +34057,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           <tr>${['氏名','時間','住所（待ち合わせ）','電話'].map(x=>`<td style="border:1px solid #66756b;background:#f8faf6;font-size:${Math.max(8,fz-4)}px;color:#4e5f53;padding:0 6px;text-align:center;">${x}</td>`).join('')}</tr>
           ${rows2.map(m=>row(m, sl)).join('') || `<tr><td colspan="4" style="border:1px solid #66756b;font-size:${fz}px;line-height:1.4;color:#94a3b8;padding:2px 6px;">&nbsp;</td></tr>`}</table></div>`; });
       const parts = [];
-      const wk = (pl.walkers||[]); if (wk.length) parts.push(`徒歩: ${wk.map(m=>`${_chgOf(plans[`${iso}_${sl}`], m.pid)?'<span style="color:#c82c35;">●</span>':''}${_escP(_pname(m.pid))}`).join('、')}`);
+      const wk = (pl.walkers||[]); if (wk.length) parts.push(`<span style="font-size:${fz}px;font-weight:700;">徒歩${_classStart(sl)?`（開始 ${_classStart(sl)}）`:''}: ${wk.map(m=>`${_chgOf(plans[`${iso}_${sl}`], m.pid)?'<span style="color:#c82c35;">●</span>':''}<b style="font-weight:800;">${_escP(_pname(m.pid))}</b>`).join('、')}</span>`);
       { const rm = _removedSince(plans[`${iso}_${sl}`]); if (rm.length) parts.push(`<span style="color:#c82c35;">完成後に外れた: ${rm.map(pid=>_escP(_pname(pid))).join('、')}</span>`); }
       const ot = (pl.others||[]); if (ot.length) parts.push(`<span style="color:#6d28d9;">その他: ${ot.map(m=>_escP(_pname(m.pid))).join('、')}</span>`);
       const ab = _absentees(iso, sl); if (ab.length) parts.push(`<span style="color:#64748b;">休み: ${ab.map(a=>_escP(a.name)).join('、')}</span>`);
-      if (parts.length) h += `<div style="font-size:${fzS}px;margin-top:1mm;line-height:1.5;">${parts.join('　')}</div>`;
+      if (parts.length) h += `<div style="font-size:${fzS}px;margin-top:1mm;line-height:1.5;">${parts.map(p => `<div>${p}</div>`).join('')}</div>`;
       if (pl.memo) h += `<div style="font-size:${fzS}px;color:#b91c1c;font-weight:700;">備考: ${_escP(pl.memo)}</div>`;
       return h; };
     return `<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
@@ -34153,7 +34182,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           {/* ★ 2026-09-30(ユーザー要望): 完成が押されていない週は注意書き。木〜日は来週が未完成なら知らせる */}
           {!_finalAtOfWeek() && <span data-testid="tp-not-final" className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-300 rounded-lg px-2 py-1 whitespace-nowrap" title="内容を確認したら「完成」を押してください。完成後に変えた箇所には赤丸が付き、ご家族・ケアマネの画面のお迎え時間が「確定」になります">この週は完成されていません</span>}
           {(() => { const r = tpNextWeekReminder(appData); if (!r || tpIsoOf(_mon) === r.iso) return null; return (
-            <button onClick={()=>setSelectedDate(r.iso)} data-testid="tp-next-reminder" className="text-[11px] font-bold text-red-700 bg-red-50 border border-red-300 rounded-lg px-2 py-1 whitespace-nowrap hover:bg-red-100" title="来週の送迎表を開きます">来週（{r.label}）が未完成 ›</button>
+            <button onClick={()=>setSelectedDate(r.iso)} data-testid="tp-next-reminder" className="text-[11px] font-bold text-red-700 bg-red-50 border border-red-300 rounded-lg px-2 py-1 whitespace-nowrap hover:bg-red-100" title="1週間後の日を含む週の送迎表を開きます">1週間後の週（{r.label}）が未完成 ›</button>
           ); })()}
           <button onClick={()=>setTpSettings(true)} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="到着目標時刻・車の定員の設定">設定</button>
           <button onClick={()=>setPrintModal({ mode:'week', weekContent:'sheet', days:new Set(days.map(d=>_iso(d))) })} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">印刷</button>
@@ -34250,7 +34279,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                         )}
                         {(!!(pl.walkers||[]).length || dragMv) && (
                           <div data-tpdrop="walk" data-tpiso={iso} data-tpslot={sl} className={`border rounded-lg px-2 py-1 ${dragMv&&dragMv.over&&dragMv.over.zone==='walk'&&dragMv.over.iso===iso&&dragMv.over.slot===sl?'border-emerald-600 ring-2 ring-emerald-300 bg-emerald-50':'border-emerald-200 bg-emerald-50'}`}>
-                            <div className="text-[11px] font-bold text-emerald-700 mb-0.5">徒歩</div>
+                            <div className="text-[11px] font-bold text-emerald-700 mb-0.5">徒歩{_classStart(sl) ? `（開始 ${_classStart(sl)}）` : ''}</div>
                             {(pl.walkers||[]).map(m => (
                               <div key={m.pid} className={`flex items-center gap-1 text-[15px] font-bold text-slate-700 py-1 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''}`}>
                                 {_chgOf(pl, m.pid) && <span className="shrink-0 text-red-600 text-[10px] font-bold" title={`完成後の変更: ${_chgOf(pl, m.pid)}`}>●</span>}
@@ -34395,7 +34424,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               <div className="font-bold text-slate-800 text-lg mb-1">{pt.name} 様</div>
               <div className="text-xs text-slate-500 mb-3">住所: {pt.address || '（未入力・利用者マスタで入力）'}</div>
               <label className="block text-xs font-bold text-slate-600 mb-1">待ち合わせ場所</label>
-              <input type="text" defaultValue={pt.pickupPlace||''} id="tp-edit-place" placeholder="例: 自宅前 / ○○マンション入口" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none mb-3"/>
+              <PickupPlaceField value={pt.pickupPlace||''} hiddenId="tp-edit-place" className="mb-3" />
               <label className="block text-xs font-bold text-slate-600 mb-1">乗車にかかる時間（分）＝車を停めてから乗せ終わるまで</label>
               <select defaultValue={String(pt.pickupMinutes||'')} id="tp-edit-min" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none mb-4 bg-white">
                 <option value="">未設定（1分として計算）</option>
@@ -37332,7 +37361,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                       <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-slate-200">
                         <div>
                           <label className="block text-xs font-bold text-slate-600 mb-1">待ち合わせ場所（送迎表に表示）</label>
-                          <input type="text" disabled={isOff} value={localPatient.pickupPlace || ''} onChange={e=>updateLP('pickupPlace', e.target.value)} placeholder="例: 自宅前 / ○○マンション入口" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none disabled:opacity-60"/>
+                          <PickupPlaceField disabled={isOff} value={localPatient.pickupPlace || ''} onChange={v=>updateLP('pickupPlace', v)} />
                         </div>
                         <div>
                           <label className="block text-xs font-bold text-slate-600 mb-1">乗車にかかる時間（分）</label>
