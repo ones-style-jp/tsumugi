@@ -15432,9 +15432,20 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
   const photos = (data.familyPhotos||[]).filter(ph => ph.patientId == null || ph.patientId === pid || ph.patientId === patientId);
   // 未読お知らせ管理: localStorage に最終既読時刻を保存
   const readKey = `familyReadAt_${patientId}`;
-  const [lastReadAt, setLastReadAt] = useState(() => {
-    try { return localStorage.getItem(readKey) || ''; } catch { return ''; }
-  });
+  // ★ 2026-09-30(不具合修正): 既読の記録が無い(=初回ログイン・新しい端末)と、登録前の過去のお知らせまで
+  //   すべて未読として数え「お知らせ 3」のように出ていた。記録が無いときは「今」を既読時刻として保存し、以降の新着だけを数える。
+  const _initReadAt = (key) => {
+    try {
+      const v = localStorage.getItem(key);
+      if (v) return v;
+      const now = new Date().toISOString();
+      localStorage.setItem(key, now);
+      return now;
+    } catch { return ''; }
+  };
+  const [lastReadAt, setLastReadAt] = useState(() => _initReadAt(readKey));
+  // 表示中の利用者を切り替えたら、その利用者の既読時刻に読み替える
+  React.useEffect(() => { setLastReadAt(_initReadAt(readKey)); }, [readKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const allAnnouncementsForUser = [...personalAnnouncements, ...announcements];
   const unreadAnnouncements = allAnnouncementsForUser.filter(a => {
     const t = a.postedAt || (a.date ? `${a.date}T00:00:00.000Z` : '');
@@ -20059,12 +20070,26 @@ export default function App() {
           const nameLoose = (a,b) => { const x=_nrm(a), y=_nrm(b); if(!x||!y) return false; if(x===y) return true; return x.length>=2 && y.length>=2 && (x.includes(y)||y.includes(x)); };
           for (const grp of groups.values()) {
             const em = String(grp[0].email||'').toLowerCase();
-            let person = persons.find(c => c.email && String(c.email).toLowerCase() === em) || null;
+            // ★ 2026-09-30(不具合修正): 事業所の共有メールなど、同じメールを複数のケアマネが使うと、メールだけの判定で
+            //   前任者のアカウントを現任者と取り違え、前任者の閲覧が残る上に現任者の担当利用者まで前任者に付与されていた。
+            //   氏名の一致を優先する。メールは「メールと氏名が両方一致」か「アカウントに氏名が無い」ときだけ使う。
+            const byName = persons.filter(c => grp.some(r => nameLoose(r.display_name, c.name)));
+            const byEmail = persons.filter(c => c.email && String(c.email).toLowerCase() === em);
+            const grpHasName = grp.some(r => _nrm(r.display_name));
+            let person = byEmail.find(c => byName.includes(c))
+              || (byName.length === 1 ? byName[0] : null)
+              || (!grpHasName && byEmail.length === 1 ? byEmail[0] : null);
             if (!person) {
-              const matches = persons.filter(c => grp.some(r => nameLoose(r.display_name, c.name)));
-              if (matches.length === 1) person = matches[0];
+              // ★ 担当者マスタで特定できないケアマネ(マスタから消えた前任者など): 利用者の今の担当ケアマネと氏名が違う行は閲覧を止める。
+              //   氏名が無い行・担当ケアマネ未設定の利用者・「その他関係者」は判断できないので触らない(安全側)。
+              for (const r of grp) {
+                if (r.deleted_at || r.relation !== 'ケアマネージャー' || !_nrm(r.display_name)) continue;
+                const p = pats.find(x => String(x.id) === String(r.patient_id));
+                if (!p || !_nrm(p.cmName) || nameLoose(r.display_name, p.cmName)) continue;
+                await supabaseSetFamilyAccountDeleted(r.id, true);
+              }
+              continue;
             }
-            if (!person) continue; // 特定できないアカウントは触らない(安全側)
             const desired = pats.filter(p => getPatientDisplayStatus(p) !== '退所済み' && _nrm(p.cmOffice) === _nrm(person.office) && _nrm(p.cmName) === _nrm(person.name));
             const desiredIds = new Set(desired.map(p => String(p.id)));
             const live = grp.filter(r => !r.deleted_at);
@@ -36769,7 +36794,14 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 </div>
                 {/* 登録済アカウント (家族 + ケアマネ を統合表示) */}
                 {(() => {
-                  const allAccs = allAccountsForPat;
+                  // ★ 2026-09-30(不具合修正): ケアマネが変わっても前任者のアカウントが残って見えていた。
+                  //   ケアマネ(続柄=ケアマネージャー)は、この利用者の今の担当ケアマネと氏名が一致するものだけ表示する。
+                  //   前任者の閲覧はスタッフ端末の自動付け替え(担当者マスタ基準)で止まる。ケアマネの管理は「ケアマネ事業所・担当者」で行う。
+                  const _nmK = (s) => normalizeName(String(s||'')).replace(/[\s　]/g,'');
+                  const _sameCm = (a, b) => { const x=_nmK(a), y=_nmK(b); if(!x||!y) return false; return x===y || (x.length>=2 && y.length>=2 && (x.includes(y)||y.includes(x))); };
+                  const _isCmAcc = (a) => a.relation === 'ケアマネージャー' || (a.kind === 'caremanager' && a.relation !== 'その他関係者' && !a.relatedParty);
+                  const _prevCmAccs = allAccountsForPat.filter(a => _isCmAcc(a) && !_sameCm(a.displayName || a.display_name || [a.lastName, a.firstName].filter(Boolean).join(' '), pat.cmName));
+                  const allAccs = allAccountsForPat.filter(a => !_prevCmAccs.includes(a));
                   // ★ 親判定 (実行時計算): 同じ利用者 + 同じ kind の中で createdAt 最古を 1 人だけ親に
                   //   (過去データで複数 parent でもここで 1 人に絞る)
                   const primaryAccIds = (() => {
@@ -36813,6 +36845,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   return (
                     <div>
                       <div className="text-sm font-bold text-slate-700 mb-2">登録済アカウント ({allAccs.length}件)</div>
+                      {_prevCmAccs.length > 0 && (
+                        <div className="text-[11px] text-slate-500 mb-2 leading-relaxed" data-testid="prev-cm-hidden">担当が変わった前任ケアマネのアカウント {_prevCmAccs.length}件は表示していません（この利用者の閲覧は自動で止まります）。ケアマネのアカウントはサイドバー「ケアマネ事業所・担当者」で確認できます。</div>
+                      )}
                       {allAccs.length === 0 ? (
                         <div className="text-xs text-slate-400 text-center py-6 bg-slate-50 rounded-xl border border-slate-200 leading-relaxed">
                           まだ登録されていません<br/>
