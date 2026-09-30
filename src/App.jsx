@@ -26,6 +26,7 @@ import {
   supabaseLoginFamily,
   supabaseFamilyUsernameExists, // ★ import 漏れ: ログインIDの重複チェックが常に失敗(catchで握り潰し)していた
   supabaseGetInviteByCode,
+  supabaseLookupInvite,
   supabaseLoadState,
   supabaseSubscribeState,
   supabaseSubscribeStoreRealtime,
@@ -1724,6 +1725,10 @@ const generateOneTimeInviteCode = () => {
 const INVITE_VALID_DAYS = 3;
 const inviteExpiresAtIso = () => new Date(Date.now() + INVITE_VALID_DAYS*24*60*60*1000).toISOString();
 const inviteExpiresJp = () => `${INVITE_VALID_DAYS}日後`;
+// ★ ご家族側の招待操作(追加招待・取消・子アカウント削除)でサーバーに渡すクラウドのアカウントID(2026-09-30 試験版)。
+//   登録直後はローカルID(fam_...)でログイン状態になるため、登録時に控えたクラウドIDを優先する。
+//   控えは「ローカルID|クラウドID」の組で持ち、今ログイン中のIDと一致するときだけ使う(別アカウントに切り替えた後に古い控えを使わない)。
+const familyCloudAccountId = () => { try { const a = sessionStorage.getItem('familyAuthAccId') || ''; if (/^[0-9a-f-]{36}$/i.test(a)) return a; const [loc, cloud] = String(sessionStorage.getItem('familyAuthCloudAccId') || '').split('|'); return (loc && loc === a && cloud) ? cloud : ''; } catch { return ''; } };
 // ★ 招待コードの連続失敗ロック(端末単位・localStorage): 5回失敗で15分。総当たり対策の第一段(サーバー側の制限は別途)
 const _INV_LOCK_KEY = 'tsumugiInviteLock_v1';
 const inviteLockRemainingMin = () => { try { const o = JSON.parse(localStorage.getItem(_INV_LOCK_KEY)||'{}'); if (o.until && o.until > Date.now()) return Math.ceil((o.until - Date.now())/60000); } catch {} return 0; };
@@ -1767,7 +1772,7 @@ const buildInviteSheetHtml = (o) => {
     <div class="warn"><b>大切なお願い</b><br>・この用紙で登録できるのは<b>1人・1回（1アカウント）</b>です。ご家族はお一人ずつ別の用紙が必要です。<br>・招待コード・QRコードは<b>第三者に渡さないでください</b>。ご本人の記録を閲覧できる鍵になります。<br>・登録後はこの用紙を大切に保管するか、破棄してください。</div>
     <div class="memo"><div class="t">登録したログイン情報の控え（ご自身で記入）</div><div class="row">ログインID<span class="ln"></span></div><div class="row">パスワード<span class="ln"></span></div><div class="row">登録日<span class="ln" style="max-width:60mm"></span>　登録者名<span class="ln"></span></div></div>
     <div class="foot">${_escH(o.facilityName||'')}${o.facilityPhone?`　TEL ${_escH(o.facilityPhone)}`:''}<br>登録がうまくいかない場合、期限が切れた場合は事業所までご連絡ください。</div>
-  </div></body></html>`;
+  </div><script>/* ★ 2026-09-30: ブラウザの印刷(Ctrl+P・メニュー)で印刷した場合も招待を有効にする */window.addEventListener('beforeprint',function(){try{window.opener&&window.opener.postMessage({type:'tsumugiInvitePrinted',code:'${_escH(String(o.code||'')).replace(/'/g,'')}'},'*')}catch(e){}});</script></body></html>`;
 };
 // ★ 2026-09-30(iPad 報告): ホーム画面に追加したアプリ(URLバーの無い全画面)で window.open の別画面へ行くと、
 //   元の画面に戻る手段がなくアプリを閉じるしかなかった。ホーム画面アプリのときだけ別画面を開かず、
@@ -13931,10 +13936,19 @@ function FamilyView() {
     // 2. クラウドの招待を照合 → 見つかれば招待URL(トークン付き)へ移動し、通常の招待フローに合流(店舗データの取得・自動入力もそこで行う)
     if (!isSupabaseEnabled) { const locked = inviteLockFail(); setJoinErr(locked ? '入力の失敗が続いたため、15分間お待ちください' : `招待コードが見つかりません。事業所${_facTel()}までお問い合わせください`); return; }
     setJoinBusy(true); setJoinErr('');
-    let sb = null;
-    try { sb = await Promise.race([ supabaseGetInviteByCode(code), new Promise(res => setTimeout(() => res(null), 8000)) ]); } catch { sb = null; }
+    // ★ 2026-09-30(試験版): 照合はサーバーで行う(回線ごと・全体の失敗回数で止まる=総当たり対策)
+    let lk2 = null;
+    try { lk2 = await Promise.race([ supabaseLookupInvite(code), new Promise(res => setTimeout(() => res({ reason: 'timeout' }), 10000)) ]); } catch { lk2 = { reason: 'network' }; }
     setJoinBusy(false);
-    if (!sb) { const locked = inviteLockFail(); setJoinErr(locked ? '入力の失敗が続いたため、15分間お待ちください' : `招待コードが見つかりません。事業所${_facTel()}までお問い合わせください`); return; }
+    const sb = lk2 && lk2.invite;
+    if (!sb) {
+      const r = lk2?.reason || '';
+      if (r === 'locked') { setJoinErr(lk2.error || '入力の失敗が続いたため、しばらくお待ちください'); return; }
+      if (r === 'timeout' || r === 'network' || r === 'error') { setJoinErr('通信状態が不安定なため確認できませんでした。電波の良い場所で、もう一度お試しください'); return; }
+      if (r === 'used') { inviteLockFail(); setJoinErr('この招待コードは既に使用されています'); return; }
+      if (r === 'expired') { inviteLockFail(); setJoinErr(`招待の有効期限（発行から${INVITE_VALID_DAYS}日）が切れています。事業所${lk2.facilityPhone?`（TEL ${lk2.facilityPhone}）`:_facTel()}にご連絡ください`); return; }
+      const locked = inviteLockFail(); setJoinErr(locked ? '入力の失敗が続いたため、15分間お待ちください' : `招待コードが見つかりません。事業所${_facTel()}までお問い合わせください`); return;
+    }
     if (sb.used_by) { inviteLockFail(); setJoinErr('この招待コードは既に使用されています'); return; }
     if (sb.expires_at && new Date(sb.expires_at) < new Date()) { inviteLockFail(); setJoinErr(`招待の有効期限（発行から${INVITE_VALID_DAYS}日）が切れています。事業所${sb.facility_phone?`（TEL ${sb.facility_phone}）`:''}にご連絡ください`); return; }
     inviteLockReset();
@@ -14446,6 +14460,26 @@ function FamilyView() {
                   if (!latest) latest = data;
                   const invite = (latest.familyInvites||[]).find(i => i.code === code);
                   if (!invite) { setSignupForm(f=>({...f, error:`招待コードが見つかりません。事業所${_facTel()}までお問い合わせください`})); return; }
+                  // ★ 2026-09-30(試験版・総当たり/偽造対策): 端末のデータを書き換える前に、招待がクラウドに実在し未使用・期限内かをサーバーで確認。
+                  //   URLの中身(トークン)だけの招待では登録できない。利用者・店舗はサーバーの招待の値を正とする。
+                  if (isSupabaseEnabled) {
+                    setSignupForm(f=>({...f, checking:true, error:''}));
+                    let _ck = null;
+                    try { _ck = await Promise.race([ supabaseLookupInvite(code), new Promise(res => setTimeout(() => res({ reason: 'timeout' }), 10000)) ]); } catch { _ck = { reason: 'network' }; }
+                    setSignupForm(f=>({...f, checking:false}));
+                    const _ci = _ck && _ck.invite;
+                    if (!_ci) {
+                      const r = _ck?.reason || '';
+                      const msg = r === 'locked' ? (_ck.error || '入力の失敗が続いたため、しばらくお待ちください')
+                        : r === 'used' ? 'この招待コードは既に使用されています'
+                        : r === 'expired' ? `招待の有効期限（発行から${INVITE_VALID_DAYS}日）が切れています。事業所${_facTel()}にご連絡ください。新しい招待を発行します`
+                        : (r === 'timeout' || r === 'network' || r === 'error') ? '通信状態が不安定なため招待を確認できませんでした。電波の良い場所で、もう一度お試しください'
+                        : `この招待はまだ有効になっていないか、取り消されています。事業所${_facTel()}までお問い合わせください`;
+                      setSignupForm(f=>({...f, error: msg})); return;
+                    }
+                    if (_ci.patient_id != null && String(_ci.patient_id) !== String(invite.patientId)) { setSignupForm(f=>({...f, error:`招待の内容を確認できませんでした。事業所${_facTel()}までお問い合わせください`})); return; }
+                    if (_ci.store_id && !invite.storeId && !invite.store_id) invite.storeId = _ci.store_id;
+                  }
                   // ★ 2026-09-30: 新しい端末(ご家族・ケアマネのスマホ)には利用者データが無く、登録した連絡先が事業所側に届かなかった。
                   //   招待の店舗から該当の利用者・事業所一覧・既存アカウントを取り寄せてから処理する(店舗IDは招待→URLトークンの順)。
                   if (isSupabaseEnabled && !(latest.patients||[]).some(p => String(p.id) === String(invite.patientId))) {
@@ -14627,9 +14661,9 @@ function FamilyView() {
                         role: accRole === 'parent' ? 'parent' : 'member',
                         facilityName: _inviteInfo.facilityName || latest.systemSettings?.facilityInfo?.name || latest.facility?.name || '',
                         patientName: (latest.patients||[]).find(p=>p.id===invite.patientId)?.name || '',
-                        inviteFallback: { patientId: invite.patientId, storeId: invite.storeId || invite.store_id || null, expiresAt: invite.expiresAt },
                       }), new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')), 15000)) ]);
                       _sbStoreId = _sbResult?.account?.store_id || _sbResult?.invite?.store_id || null;
+                      try { if (_sbResult?.account?.id) sessionStorage.setItem('familyAuthCloudAccId', `${newAccId}|${_sbResult.account.id}`); } catch {}
                       // ★ 緊急連絡先を Supabase 側の patient にも反映 (staff 側からも見えるように)。
                       //   invite に storeId が無いケースがあるため、Supabaseが返す確実な店舗ID(_sbStoreId)を最優先。
                       const _storeId = _sbStoreId || invite.storeId || invite.store_id || null;
@@ -14660,6 +14694,10 @@ function FamilyView() {
                     } catch (sbErr) {
                       // Supabase 同期に失敗 → 同一端末ログインは可能だが、他端末からはログインできない
                       console.warn('[supabase] signup sync failed:', sbErr?.message);
+                      if (sbErr && ['used','not_found','expired','locked','username_taken','format'].includes(sbErr.reason)) {
+                        setSignupForm(f=>({...f, submitting:false, error: sbErr.reason === 'not_found' ? `この招待はまだ有効になっていないか、取り消されています。事業所${_facTel()}までお問い合わせください` : (sbErr.message || '登録できませんでした')}));
+                        return;
+                      }
                       setSignupForm(f=>({...f, done:true, error:'', warning:`端末同期に失敗しました (${sbErr?.message||'不明'})。同じ端末からはログイン可能です。`}));
                       return;
                     }
@@ -16594,7 +16632,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
         const handleDeleteChild = async (accId) => {
           if (!window.confirm('この子アカウントを削除します。よろしいですか?\n削除すると、また新しい子を1人追加できるようになります。')) return;
           if (isSupabaseEnabled) {
-            const ok = await supabaseDeleteFamilyAccount(accId);
+            const ok = await supabaseDeleteFamilyAccount(accId, { famId: familyCloudAccountId() });
             if (!ok) { alert('削除に失敗しました。'); return; }
           }
           const updated = {
@@ -16611,7 +16649,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
           const inv = (data.familyInvites || []).find(i => i.id === inviteId);
           if (isSupabaseEnabled && inv) {
             try {
-              if (inv.code) await supabaseDeleteInviteByCode(inv.code);
+              if (inv.code) await supabaseDeleteInviteByCode(inv.code, { famId: familyCloudAccountId() });
             } catch (e) { console.warn('[family] supabase invite delete failed', e); }
           }
           const updated = {
@@ -16826,7 +16864,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                         patientName: patient.name || '',
                         facilityPhone: facility?.phone || '',
                         expiresAt: newInvite.expiresAt,
-                      }).catch(err => console.warn('[supabase] invite push failed', err));
+                      }, { famId: familyCloudAccountId() }).catch(err => console.warn('[supabase] invite push failed', err));
                       // ★ 招待発行の通知を事業所へ確実に同期
                       if (_storeId) supabaseAppendDocUpdate(_storeId, patient.id, _invDu).catch(err => console.warn('[supabase] invite notify failed', err));
                     }
