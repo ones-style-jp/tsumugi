@@ -34175,9 +34175,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const buildDailyPrintHtml = (iso) => {
     const d = new Date(iso);
     const _pt = (pid) => (appData.patients||[]).find(x=>x.id===pid) || {};
+    // ★ 2026-10-01f(ユーザー要望): 日ごとでも車の定員分の行を出す(空いている席は空欄＝手書き用)。定員未設定の車は乗る人数分(最低1行)
+    const _dRows = (pl, c) => Math.max(((pl.cars||{})[c.id]||[]).length, Number(c.cap) > 0 ? Number(c.cap) : 1);
     // 行数からフォント自動計算(A4縦・本文約950px)
     const rowsOf = (sl) => { const pl = getPlan(iso, sl);
-      return cars.reduce((a,c)=>a+Math.max(((pl.cars||{})[c.id]||[]).length,1)+2,0) + ((pl.walkers||[]).length?1:0) + ((pl.others||[]).length?1:0) + ((pl.un||[]).length?1:0) + (_absentees(iso,sl).length?1:0) + 1; };
+      return cars.reduce((a,c)=>a+_dRows(pl, c)+2,0) + ((pl.walkers||[]).length?1:0) + ((pl.others||[]).length?1:0) + ((pl.un||[]).length?1:0) + (_absentees(iso,sl).length?1:0) + 1; };
     const totalU = rowsOf('AM') + rowsOf('PM') + 3;
     // ★ 2026-10-01e(ユーザー要望): 午前と午後の間(8mm)・車と車の間(2mm)をあけた分、本文の高さの見積りを減らす
     const _gapPx = Math.round(8 * 3.78) + cars.length * 2 * Math.round(2 * 3.78);
@@ -34197,7 +34199,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           <div style="background:#eef0ed;padding:1px 8px;font-size:${fzS+1}px;font-weight:800;border-bottom:1px solid #9aa79e;">${_escP(c.name)}${drv?`<span style="float:right;font-weight:400;">運転者 ${_escP(drv)}</span>`:''}</div>
           <table style="border-collapse:collapse;width:100%;table-layout:fixed;"><colgroup><col style="width:25%"/><col style="width:11%"/><col/><col style="width:18%"/></colgroup>
           <tr>${['氏名','時間','住所（待ち合わせ）','電話'].map(x=>`<td style="border:1px solid #66756b;background:#f8faf6;font-size:${Math.max(8,fz-4)}px;color:#4e5f53;padding:0 6px;text-align:center;">${x}</td>`).join('')}</tr>
-          ${rows2.map(m=>row(m, sl)).join('') || `<tr><td colspan="4" style="border:1px solid #66756b;font-size:${fz}px;line-height:1.4;color:#94a3b8;padding:2px 6px;">&nbsp;</td></tr>`}</table></div>`; });
+          ${rows2.map(m=>row(m, sl)).join('')}${Array.from({ length: Math.max(0, _dRows(pl, c) - rows2.length) }, () => `<tr>${[fz, fz, fzS, fzS].map((f2, k2) => `<td style="border:1px solid #66756b;padding:2px ${k2 === 1 ? 4 : 6}px;font-size:${f2}px;${k2 < 2 ? 'font-weight:700;' : ''}">&nbsp;</td>`).join('')}</tr>`).join('')}</table></div>`; });
       const parts = [];
       const wk = (pl.walkers||[]); if (wk.length) parts.push(`<span style="font-size:${fz}px;font-weight:700;">徒歩${_classStart(sl)?`（到着 ${_classStart(sl)}）`:''}: ${wk.map(m=>`${_chgOf(plans[`${iso}_${sl}`], m.pid)?'<span style="color:#c82c35;">●</span>':''}<b style="font-weight:800;">${_escP(_pname(m.pid))}</b>`).join('、')}</span>`);
       { const rm = _removedSince(plans[`${iso}_${sl}`]); if (rm.length) parts.push(`<span style="color:#c82c35;">完成後に外れた: ${rm.map(pid=>_escP(_pname(pid))).join('、')}</span>`); }
