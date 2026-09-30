@@ -33868,11 +33868,15 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const allMsgs = []; let nChanged = 0;
       const acc = { ...plans };
       for (const d of selDays) { for (const sl of selSlots) {
+        const _key = `${_iso(d)}_${sl}`;
+        // 配車のみ(時間は計算しない)のときは、組み直し後に各利用者の元の時間を戻す(無ければ空欄)
+        const _oldT = {}; { const op = acc[_key] || getPlan(_iso(d), sl); Object.values(op.cars || {}).flat().forEach(m => { if (m && m.pid != null) _oldT[m.pid] = m.t || ''; }); (op.un || []).forEach(m => { if (m && m.pid != null && _oldT[m.pid] == null) _oldT[m.pid] = m.t || ''; }); }
         const { msgs, changed, entry } = await _autoRouteCore(_iso(d), sl, acc, opt.haisha ? {} : { keepOrder: true });
-        allMsgs.push(...msgs); if (changed && entry) { acc[`${_iso(d)}_${sl}`] = entry; nChanged++; }
+        if (changed && entry && opt.haisha && !opt.jikan) { Object.keys(entry.cars || {}).forEach(cid => { entry.cars[cid] = (entry.cars[cid] || []).map(m => ({ ...m, t: _oldT[m.pid] != null ? _oldT[m.pid] : '' })); }); }
+        allMsgs.push(...msgs); if (changed && entry) { acc[_key] = entry; nChanged++; }
       } }
       if (nChanged) onSave({ ...appData, transportPlans: acc }, { silent: true });
-      alert(`${opt.haisha ? '配車と時間' : '時間'}の自動計算が終わりました（${nChanged}コマ更新）。時間・順番は手で直せます。` + (allMsgs.length ? '\n\n' + allMsgs.join('\n') : ''));
+      alert(`${opt.haisha && opt.jikan ? '配車と時間' : (opt.haisha ? '配車' : '時間')}の自動計算が終わりました（${nChanged}コマ更新）。時間・順番は手で直せます。` + (allMsgs.length ? '\n\n' + allMsgs.join('\n') : ''));
     } catch (e) { alert('計算に失敗しました: ' + String(e && e.message || e)); }
     setRouting(null);
   };
@@ -34100,18 +34104,20 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
 
   const _autoCalcModal = autoCalc && (
     <div className="fixed inset-0 z-[10060] bg-black/40 flex items-center justify-center p-3">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-4" data-testid="tp-autocalc-modal">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-4 max-h-[92vh] overflow-y-auto" data-testid="tp-autocalc-modal">
         <div className="font-bold text-base text-slate-800 mb-3">自動計算（Googleマップ）</div>
         <div className="text-[12px] font-bold text-slate-500 mb-1">計算するもの</div>
-        <div className="flex flex-col gap-1.5 mb-3">
-          <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={autoCalc.haisha} onChange={e=>setAutoCalc(o=>({...o, haisha:e.target.checked, jikan: e.target.checked ? true : o.jikan}))} className="mt-1"/><span><b>配車</b>（近所ごとに車を組み直し、乗車順も決める。時間も一緒に計算します）</span></label>
-          <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={autoCalc.jikan || autoCalc.haisha} disabled={autoCalc.haisha} onChange={e=>setAutoCalc(o=>({...o, jikan:e.target.checked}))} className="mt-1"/><span><b>時間</b>（車と順番はそのままで、お迎え時間だけ計算）</span></label>
+        {/* ★ 2026-09-30(ユーザー要望): チェックを大きく・配車と時間はそれぞれ選べる(両方=配車と時間を一度に) */}
+        <div className="flex flex-col gap-2 mb-3">
+          <label className="flex items-center gap-3 text-[15px] cursor-pointer py-1"><input type="checkbox" data-testid="ac-haisha" checked={autoCalc.haisha} onChange={e=>setAutoCalc(o=>({...o, haisha:e.target.checked}))} style={{width:26,height:26,flexShrink:0,accentColor:'#059669'}}/><span><b>配車</b>（近所ごとに車を組み直し、乗車順を決める）</span></label>
+          <label className="flex items-center gap-3 text-[15px] cursor-pointer py-1"><input type="checkbox" data-testid="ac-jikan" checked={autoCalc.jikan} onChange={e=>setAutoCalc(o=>({...o, jikan:e.target.checked}))} style={{width:26,height:26,flexShrink:0,accentColor:'#059669'}}/><span><b>時間</b>（お迎え時間を計算）</span></label>
+          <div className="text-[11px] text-slate-500 pl-9">両方＝車の組み直しと時間を一度に／配車だけ＝今の時間はそのまま／時間だけ＝車と順番はそのまま</div>
         </div>
         <div className="text-[12px] font-bold text-slate-500 mb-1">曜日</div>
-        <div className="flex flex-wrap gap-1.5 mb-3">
+        <div className="flex flex-col gap-1.5 mb-3" data-testid="ac-days">
           {days.map(d => { const iso = _iso(d); const on = autoCalc.days.has(iso); return (
             <button key={iso} type="button" onClick={()=>setAutoCalc(o=>{ const s = new Set(o.days); if (s.has(iso)) s.delete(iso); else s.add(iso); return { ...o, days: s }; })}
-              className={`px-2.5 py-1.5 rounded-lg text-sm font-bold border ${on?'bg-emerald-600 text-white border-emerald-600':'bg-white text-slate-500 border-slate-300'}`}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）</button>
+              className={`w-full text-left px-3 py-2 rounded-lg text-sm font-bold border flex items-center gap-2 ${on?'bg-emerald-600 text-white border-emerald-600':'bg-white text-slate-500 border-slate-300'}`}><span className={`inline-flex items-center justify-center w-5 h-5 rounded border ${on?'bg-white text-emerald-700 border-white':'border-slate-300'}`}>{on?'✓':''}</span>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）</button>
           ); })}
         </div>
         <div className="text-[12px] font-bold text-slate-500 mb-1">午前・午後</div>
@@ -34121,10 +34127,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               className={`px-4 py-1.5 rounded-lg text-sm font-bold border ${on?'bg-emerald-600 text-white border-emerald-600':'bg-white text-slate-500 border-slate-300'}`}>{l}</button>
           ); })}
         </div>
-        <div className="text-[11px] text-slate-500 mb-3 leading-relaxed">選んだ日・時間帯の{autoCalc.haisha ? '車の組み合わせ・乗車順・お迎え時間' : 'お迎え時間'}が上書きされます。</div>
+        <div className="text-[11px] text-slate-500 mb-3 leading-relaxed">選んだ日・時間帯の{[autoCalc.haisha ? '車の組み合わせ・乗車順' : '', autoCalc.jikan ? 'お迎え時間' : ''].filter(Boolean).join('と') || '（何も選ばれていません）'}が上書きされます。</div>
         <div className="flex gap-2 justify-end">
           <button type="button" onClick={()=>setAutoCalc(null)} className="px-4 py-2 rounded-xl text-sm font-bold bg-slate-100 text-slate-700">やめる</button>
-          <button type="button" onClick={()=>runAutoCalc({ haisha: autoCalc.haisha, jikan: autoCalc.jikan || autoCalc.haisha, days: autoCalc.days, slots: autoCalc.slots })} className="px-4 py-2 rounded-xl text-sm font-bold bg-emerald-600 text-white">計算する</button>
+          <button type="button" onClick={()=>runAutoCalc({ haisha: autoCalc.haisha, jikan: autoCalc.jikan, days: autoCalc.days, slots: autoCalc.slots })} className="px-4 py-2 rounded-xl text-sm font-bold bg-emerald-600 text-white">計算する</button>
         </div>
       </div>
     </div>
