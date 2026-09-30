@@ -34118,7 +34118,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         <div className="flex flex-col gap-2 mb-3">
           <label className="flex items-center gap-3 text-[15px] cursor-pointer py-1"><input type="checkbox" data-testid="ac-haisha" checked={autoCalc.haisha} onChange={e=>setAutoCalc(o=>({...o, haisha:e.target.checked}))} style={{width:26,height:26,flexShrink:0,accentColor:'#059669'}}/><span><b>配車</b>（近所ごとに車を組み直し、乗車順を決める）</span></label>
           <label className="flex items-center gap-3 text-[15px] cursor-pointer py-1"><input type="checkbox" data-testid="ac-jikan" checked={autoCalc.jikan} onChange={e=>setAutoCalc(o=>({...o, jikan:e.target.checked}))} style={{width:26,height:26,flexShrink:0,accentColor:'#059669'}}/><span><b>時間</b>（お迎え時間を計算）</span></label>
-          <div className="text-[11px] text-slate-500 pl-9">両方＝車の組み直しと時間を一度に／配車だけ＝今の時間はそのまま／時間だけ＝車と順番はそのまま</div>
+          <div className="text-[11px] text-slate-500 pl-9">配車は最初に組むとき用のため、最初はチェックが外れています（時間だけ＝車と順番はそのまま／両方＝車の組み直しと時間を一度に／配車だけ＝今の時間はそのまま）</div>
         </div>
         <div className="text-[12px] font-bold text-slate-500 mb-1">曜日</div>
         <div className="flex flex-col gap-1.5 mb-3" data-testid="ac-days">
@@ -34185,7 +34185,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             if (n) onSave({ ...appData, transportPlans: np }, { silent: true });
             alert(n ? `前週から${n}コマをコピーしました。${nSkip ? `\n（前の週の振替・この週のお休みなどで、この週に来ない方 のべ${nSkip}名はコピーしていません）` : ''}` : '前の週に保存済みの送迎表がありませんでした。');
           }} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="前の週の割り当て・時間・運転者・備考をこの週へ複製">前週コピー</button>
-          <button onClick={()=>setAutoCalc({ haisha: true, jikan: true, days: new Set(days.map(d=>_iso(d))), slots: new Set(['AM','PM']) })} disabled={!!routing} data-testid="tp-autocalc" className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-sm disabled:opacity-50" title="配車・時間を、曜日や午前/午後を選んでGoogleマップで自動計算">{routing?'計算中…':'自動計算'}</button>
+          <button onClick={()=>setAutoCalc({ haisha: false, jikan: true, days: new Set(days.map(d=>_iso(d))), slots: new Set(['AM','PM']) })} disabled={!!routing} data-testid="tp-autocalc" className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-sm disabled:opacity-50" title="配車・時間を、曜日や午前/午後を選んでGoogleマップで自動計算">{routing?'計算中…':'自動計算'}</button>
           {/* ★ 週の完成確定(2026-09-28): 完成後の変更は赤丸で自動表示 */}
           {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return (
             <button onClick={finalizeWeek} className={`px-2.5 py-2 rounded-xl font-bold text-xs border whitespace-nowrap ${fa?'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100':'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`} title={fa?`完成 ${_fmtStamp(fa)}。押すと今の内容で完成を更新(赤丸は付け直し)`:'この週の送迎表を「完成」として確定。以後に変えた箇所に自動で赤丸が付きます'}>
