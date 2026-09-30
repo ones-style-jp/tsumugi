@@ -25821,6 +25821,35 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
     } catch {}
     return _normT(t);
   };
+  // ★ 送迎表を「完成」にした後でお迎えが変わったか(2026-09-30 ユーザー要望「確定後の変更はお迎え時間が変更されました的な文も必要」)。
+  //   完成時の控え(_final)と今の配置を比べ、この方の乗車時間・送迎方法(車/徒歩)が変わっていれば { was, now } を返す。
+  //   乗車順だけの変更・完成後に追加された場合・送迎表から外れた場合は出さない。
+  const _tpJp = (raw) => {
+    const v = String(raw ?? '').replace(/[\s　]+/g, '');
+    let m = v.match(/^(\d{1,2})時(?:(\d{1,2})分?|(分))?$/); if (m) return `${m[1]}時${m[2] != null ? String(m[2]).padStart(2, '0') + '分' : (m[3] ? '　分' : '00分')}`;
+    m = v.match(/^(\d{1,2})[:：](\d{1,2}|--)/); if (m) return `${m[1]}時${m[2] === '--' ? '　分' : String(m[2]).padStart(2, '0') + '分'}`;
+    return v;
+  };
+  const _pickupChgOf = (info) => {
+    try {
+      const pl = (appData.transportPlans || {})[`${info.iso}_${info.ampm || 'AM'}`];
+      const fin = pl && pl._final; if (!fin) return null;
+      const me = String(selectedPatient.id);
+      const locIn = (cars, walkers) => {
+        for (const cid of Object.keys(cars || {})) { const x = (cars[cid] || []).find(m => String(m && m.pid) === me); if (x) return _tpJp(x.t) || '未定'; }
+        if ((walkers || []).some(w => String(w && typeof w === 'object' ? w.pid : w) === me)) return '徒歩';
+        return null;
+      };
+      const was = locIn(fin.cars, fin.walkers), now = locIn(pl.cars, pl.walkers);
+      if (!was || !now || was === now) return null;
+      return { was, now };
+    } catch { return null; }
+  };
+  // 時刻の途中で改行しないよう、変更前・変更後はそれぞれ折り返さない
+  const _chgText = (c) => { if (!c) return null; const nw = (s) => <span style={{whiteSpace:'nowrap'}}>{s}</span>;
+    return c.now === '徒歩' ? <>送迎が変更されました（{nw(`${c.was}のお迎え`)} → {nw('徒歩でご来所')}）</>
+      : c.was === '徒歩' ? <>送迎が変更されました（{nw('徒歩でご来所')} → {nw(`${c.now}頃のお迎え`)}）</>
+      : <>お迎え時間が変更されました（{nw(c.was)} → {nw(c.now)}）</>; };
   const todayVisit = (() => {
     if (!selectedPatient) return null;
     try {
@@ -25832,7 +25861,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
       const m = String(raw).split(/[～〜]/)[0].trim().match(/(\d{1,2}):(\d{2})/);
       const startMin = m ? (parseInt(m[1],10)*60 + parseInt(m[2],10)) : (info.ampm === 'PM' ? 13*60+20 : 9*60);
       const nowMin = now.getHours()*60 + now.getMinutes();
-      return { iso: _isoOf(now), ampm: info.ampm, startMin, startLabel: `${Math.floor(startMin/60)}時${String(startMin%60).padStart(2,'0')}分`, before: nowMin < startMin, dateLabel: info.date, time: _pickupOf(info), isFurikae: !!info.isFurikae };
+      return { iso: _isoOf(now), ampm: info.ampm, startMin, startLabel: `${Math.floor(startMin/60)}時${String(startMin%60).padStart(2,'0')}分`, before: nowMin < startMin, dateLabel: info.date, time: _pickupOf(info), isFurikae: !!info.isFurikae, chg: _pickupChgOf(info) };
     } catch { return null; }
   })();
   const nextVisit = (() => {
@@ -25841,7 +25870,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
       const today = new Date(); const tstr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
       const info = getNextVisitInfo(selectedPatient, tstr, appData.monthlyShifts, appData);
       if (!info || !info.iso) return { date: info?.date || '未定', time: '' };
-      return { date: info.date, time: _pickupOf(info), isFurikae: !!info.isFurikae, iso: info.iso };
+      return { date: info.date, time: _pickupOf(info), isFurikae: !!info.isFurikae, iso: info.iso, chg: _pickupChgOf(info) };
     } catch { return null; }
   })();
   return (
@@ -26524,6 +26553,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             <span style={{fontSize:22,fontWeight:'bold',color:'#1e3a8a'}}>{todayVisit.time ? (todayVisit.time === '徒歩' ? '徒歩でご来所' : <>お迎え <span style={{fontSize:26}}>{todayVisit.time}</span> 頃</>) : <span style={{fontSize:14,color:'#475569',fontWeight:'normal'}}>お迎え時間は事業所にご確認ください</span>}</span>
             {_minUnset(todayVisit.time) && <span data-testid="min-unset" style={{fontSize:12,color:'#b45309',fontWeight:'bold'}}>お迎え時間の「分」が未設定です。事業所にお問い合わせください</span>}
             <span style={{fontSize:13,color:'#475569'}}>記録は利用後に表示されます</span>
+            {todayVisit.chg && <div data-testid="pickup-changed" style={{flexBasis:'100%',fontSize:14,fontWeight:'bold',color:'#b91c1c'}}>{_chgText(todayVisit.chg)}</div>}
           </div>
         )}
         {nextVisit && !(todayVisit && todayVisit.before) && (
@@ -26533,6 +26563,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             {nextVisit.isFurikae && <span style={{fontSize:12,fontWeight:'bold',color:'#059669',background:'#d1fae5',borderRadius:6,padding:'1px 8px'}}>振替</span>}
             <span style={{fontSize:22,fontWeight:'bold',color:'#14532d'}}>{nextVisit.time ? (nextVisit.time === '徒歩' ? '徒歩でご来所' : <>お迎え <span style={{fontSize:26}}>{nextVisit.time}</span> 頃</>) : <span style={{fontSize:14,color:'#475569',fontWeight:'normal'}}>お迎え時間は事業所にご確認ください</span>}</span>
             {_minUnset(nextVisit.time) && nextVisit.iso && _isoTomorrowOrToday(nextVisit.iso) && <span data-testid="min-unset" style={{fontSize:12,color:'#b45309',fontWeight:'bold'}}>お迎え時間の「分」が未設定です。事業所にお問い合わせください</span>}
+            {nextVisit.chg && <div data-testid="pickup-changed" style={{flexBasis:'100%',fontSize:14,fontWeight:'bold',color:'#b91c1c'}}>{_chgText(nextVisit.chg)}</div>}
           </div>
         )}
         {/* ★ 今回の様子＋今回の記録 を1つの枠で囲む (ご家族にわかりやすいよう枠色を変える)。 順序: 様子 → 記録 */}
