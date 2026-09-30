@@ -33976,6 +33976,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const _fzB = (f) => Math.max(8, Math.round(f * 2 / 3)); // 休み・初回・その他など(2026-10-01c: 名前の約2/3)
     const _nameW = (f) => Math.ceil(_maxNameEm * f * 1.04) + 5;
     const _timeW = (f) => Math.ceil(f * 2.9) + 6;
+    const _hdrF = (f) => Math.max(8, Math.round(f * 0.6));      // 見出し(氏名・時間・次回)の文字
+    const _hdrH = (f) => Math.ceil(_hdrF(f) * 1.3) + 2;
     const _nextW = (f) => Math.ceil(_fzS(f) * 1.15) + 6;
     // 下部情報(徒歩・完成後に外れた・その他・初回・休み・送り別)の文言。折り返し行数の見積りに使う
     const _bottomTexts = (iso, sl) => { const pl = getPlan(iso, sl); const out = [];
@@ -33991,6 +33993,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       let u = 0;
       cars.forEach(c => { u += 5 / uh + _carRows[sl][c.id]; }); // 5px = 車の枠線2＋下の間隔3
       if (_walkRows[sl]) u += 5 / uh + _walkRows[sl]; // 徒歩の枠
+      u += (_hdrH(f) + 2) / uh; // 各日の上の見出し(氏名・時間・次回)
       let ex = 0;
       days.forEach(d => { let px = 0;
         _bottomTexts(_iso(d), sl).forEach(x => { const ff = x.big ? f : fb; const lines = x.lines || Math.max(1, Math.ceil(_emW(x.t) * ff / dw)); px += lines * Math.ceil(ff * 1.35); });
@@ -34008,8 +34011,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const fzB = _fzB(fz); // ★ 2026-10-01b: 休み等は一回り小さく(2026-09-16f は本文と同じ大きさだった)
     const _rowH = Math.ceil(fz * 1.25) + 3;
     const _blkPx = (sl, c) => _carRows[sl][c.id] * _rowH + 2; // 車の枠の高さ(左端の車名と各日の枠で共通)
-    const COLG = `<colgroup><col style="width:${_nameW(fz)}px"/><col style="width:${_timeW(fz)}px"/><col style="width:${_nextW(fz)}px"/><col/></colgroup>`;
-    const _padTd = (bc) => `<td style="border-bottom:1px solid ${bc};"></td>`; // 右端の空き(手書き用)
+    // ★ 2026-10-01d(ユーザー要望「次回の右側の無駄なセルを消して」): 右端の空きセルは廃止。余った幅は氏名に5割・時間に3割を足し、次回は残りの幅
+    const _extraW = Math.max(0, Math.floor((_dayPx(fz) - _nameW(fz) - _timeW(fz) - _nextW(fz)) * 0.9));
+    const COLG = `<colgroup><col style="width:${_nameW(fz) + Math.floor(_extraW * 0.5)}px"/><col style="width:${_timeW(fz) + Math.floor(_extraW * 0.3)}px"/><col/></colgroup>`;
+    const _padTd = () => '';
     const _rowStyle = `height:${_rowH}px;`;
     const cellRow = (m, iso, sl) => {
       const fk = _isFurikae(iso, sl, m.pid);
@@ -34018,15 +34023,17 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       return `<tr style="${_rowStyle}background:${bg};">
         <td style="border-bottom:1px solid #d7dcd7;padding:1px 3px;font-size:${fz}px;line-height:1.25;white-space:nowrap;overflow:hidden;font-weight:600;">${(m.mark||_chgOf(plans[`${iso}_${sl}`], m.pid))?'<span style="color:#c82c35;font-weight:bold;">●</span>':''}${esc(_pname(m.pid))}</td>
         <td style="border-bottom:1px solid #d7dcd7;border-left:1px solid #e2e6e1;padding:1px 2px;font-size:${fz}px;line-height:1.25;text-align:center;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;">${esc(_fmtT(m.t))}</td>
-        <td style="border-bottom:1px solid #d7dcd7;border-left:1px solid #e2e6e1;border-right:1px solid #e2e6e1;padding:1px 2px;font-size:${fzS}px;line-height:1.25;text-align:center;">${esc(_nextDow(iso, m.pid))}</td>${_padTd('#d7dcd7')}
+        <td style="border-bottom:1px solid #d7dcd7;border-left:1px solid #e2e6e1;padding:1px 2px;font-size:${fzS}px;line-height:1.25;text-align:center;">${esc(_nextDow(iso, m.pid))}</td>
       </tr>`;
     };
     // ★ 2026-09-16(店舗指摘): 空席セルも名前入りセルと同じ高さに(後から手書きで追記できるように)
-    const emptyRow = () => `<tr style="${_rowStyle}"><td style="border-bottom:1px solid #dfe3de;padding:1px 3px;font-size:${fz}px;line-height:1.25;">&nbsp;</td><td style="border-bottom:1px solid #dfe3de;border-left:1px solid #eaece8;padding:1px 2px;font-size:${fz}px;line-height:1.25;">&nbsp;</td><td style="border-bottom:1px solid #dfe3de;border-left:1px solid #eaece8;border-right:1px solid #eaece8;padding:1px 2px;font-size:${fzS}px;line-height:1.25;">&nbsp;</td>${_padTd('#dfe3de')}</tr>`;
+    const emptyRow = () => `<tr style="${_rowStyle}"><td style="border-bottom:1px solid #dfe3de;padding:1px 3px;font-size:${fz}px;line-height:1.25;">&nbsp;</td><td style="border-bottom:1px solid #dfe3de;border-left:1px solid #eaece8;padding:1px 2px;font-size:${fz}px;line-height:1.25;">&nbsp;</td><td style="border-bottom:1px solid #dfe3de;border-left:1px solid #eaece8;padding:1px 2px;font-size:${fzS}px;line-height:1.25;">&nbsp;</td></tr>`;
     const _vBox = (hpx, inner, extra) => `<div style="height:${hpx}px;width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:center;overflow:hidden;${extra||''}"><span style="writing-mode:vertical-rl;text-orientation:upright;display:inline-block;">${inner}</span></div>`;
+    // ★ 2026-10-01d(ユーザー要望): 車ごとの見出しをやめた代わりに、各日の午前・午後の上に1か所だけ「氏名・時間・次回」
+    const _colHead = () => `<div style="display:flex;height:${_hdrH(fz)}px;margin-bottom:2px;padding:0 1px;box-sizing:border-box;">${_hasDrv ? `<div style="flex:none;width:${_drvW(fz) + 1}px;"></div>` : ''}<div style="flex:1;min-width:0;"><table style="border-collapse:collapse;width:100%;table-layout:fixed;">${COLG}<tr>${['氏名','時間','次回'].map((t2, k2) => `<td style="padding:0 ${k2 ? 1 : 4}px;font-size:${_hdrF(fz)}px;line-height:1.2;color:#4e5f53;text-align:${k2 ? 'center' : 'left'};white-space:nowrap;overflow:hidden;">${t2}</td>`).join('')}</tr></table></div></div>`;
     const dayBlock = (iso, sl) => {
       const pl = getPlan(iso, sl);
-      let h = '';
+      let h = _colHead();
       cars.forEach(c => {
         const rows = (pl.cars?.[c.id]||[]);
         const _drv = (pl.driver||{})[c.id] || '';
@@ -34035,14 +34042,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         for (let i = 0; i < total; i++) body += rows[i] ? cellRow(rows[i], iso, sl) : emptyRow();
         const hp = _blkPx(sl, c);
         const _df = Math.max(6, Math.min(11, Math.floor((hp - 10) / _vEm(_drv) / 1.05)));
-        const drvCol = _hasDrv ? `<div style="flex:none;width:${_drvW(fz)}px;background:#f4f6f3;border-right:1px solid #cfd6d0;">${_drv ? _vBox(hp - 2, `<span style="font-size:${_df}px;line-height:1.1;white-space:nowrap;color:#3f4b43;">${_vt(_drv)}</span>`) : ''}</div>` : '';
+        const drvCol = _hasDrv ? `<div style="flex:none;width:${_drvW(fz)}px;background:#e6effa;border-right:1px solid #b9cbe4;">${_drv ? _vBox(hp - 2, `<span style="font-size:${_df}px;line-height:1.1;white-space:nowrap;color:#1e3a8a;">${_vt(_drv)}</span>`) : ''}</div>` : ''; // ★ 2026-10-01d: 運転者は薄い青(車名の灰緑と区別)
         h += `<div style="border:1px solid #66756b;margin-bottom:3px;display:flex;height:${hp}px;box-sizing:border-box;overflow:hidden;">${drvCol}
           <div style="flex:1;min-width:0;"><table style="border-collapse:collapse;width:100%;table-layout:fixed;">${COLG}${body}</table></div></div>`;
       });
       if (_walkRows[sl]) {
         const wk0 = (pl.walkers||[]); const hp = _walkRows[sl] * _rowH + 2; const cs = _classStart(sl);
         let body = ''; for (let i = 0; i < _walkRows[sl]; i++) body += wk0[i] ? cellRow({ ...wk0[i], t: cs }, iso, sl) : emptyRow();
-        h += `<div style="border:1px solid #66756b;margin-bottom:3px;display:flex;height:${hp}px;box-sizing:border-box;overflow:hidden;">${_hasDrv ? `<div style="flex:none;width:${_drvW(fz)}px;background:#f4f6f3;border-right:1px solid #cfd6d0;"></div>` : ''}
+        h += `<div style="border:1px solid #66756b;margin-bottom:3px;display:flex;height:${hp}px;box-sizing:border-box;overflow:hidden;">${_hasDrv ? `<div style="flex:none;width:${_drvW(fz)}px;background:#fff;border-right:1px solid #e2e6e1;"></div>` : ''}
           <div style="flex:1;min-width:0;"><table style="border-collapse:collapse;width:100%;table-layout:fixed;">${COLG}${body}</table></div></div>`;
       }
       // ★ 2026-09-14b(店舗指摘): 下部情報は1行にまとめてスペース圧縮
@@ -34065,7 +34072,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       return h;
     };
     // 左端の車名(縦書き・各日の車の枠と同じ高さ)
-    const carLabels = (sl) => cars.map(c => { const hp = _blkPx(sl, c); const lf = Math.max(7, Math.min(14, fz, Math.floor((hp - 10) / _vEm(c.name) / 1.05)));
+    const carLabels = (sl) => `<div style="height:${_hdrH(fz)}px;margin-bottom:2px;"></div>` + cars.map(c => { const hp = _blkPx(sl, c); const lf = Math.max(7, Math.min(14, fz, Math.floor((hp - 10) / _vEm(c.name) / 1.05)));
       return `<div style="margin-bottom:3px;border:1px solid #66756b;background:#eef0ed;box-sizing:border-box;height:${hp}px;overflow:hidden;">${_vBox(hp - 2, `<b style="font-size:${lf}px;line-height:1.1;white-space:nowrap;">${_vt(c.name)}</b>`)}</div>`; }).join('')
       + (_walkRows[sl] ? (() => { const hp = _walkRows[sl] * _rowH + 2; const lfV = Math.floor((hp - 6) / 2 / 1.05); const lfH = Math.floor((_carColW(fz) - 10) / 2);
         // 枠が低い(1〜2行)ときは横書き、高いときは車名と同じ縦書き
@@ -34085,7 +34092,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         <thead><tr style="height:6mm;"><th style="border:1px solid #65736a;background:#edf0ec;"></th><th style="border:1px solid #65736a;background:#edf0ec;font-size:9px;font-weight:normal;">車</th>${header}</tr></thead>
         <tbody>${row('AM','午前')}${row('PM','午後')}</tbody>
       </table>
-      <div style="font-size:9px;color:#3f4b43;margin-top:1.5mm;flex:none;display:flex;justify-content:space-between;"><span><span style="color:#c82c35;font-weight:bold;">●</span> 時間変更・要TEL　<span style="background:#a7f3d0;padding:0 3px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 3px;">水色</span>=初回　左端=車名${_hasDrv?'　各枠の左の細い欄=運転者':''}　時間=お迎え　徒歩の時間=到着（クラスの開始）　次回=次の利用曜日</span><span>空欄=空席</span></div>
+      <div style="font-size:9px;color:#3f4b43;margin-top:1.5mm;flex:none;display:flex;justify-content:space-between;"><span><span style="color:#c82c35;font-weight:bold;">●</span> 時間変更・要TEL　<span style="background:#a7f3d0;padding:0 3px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 3px;">水色</span>=初回　左端=車名${_hasDrv?'　各枠の左の青い欄=運転者':''}　時間=お迎え　徒歩の時間=到着（クラスの開始）　次回=次の利用曜日</span><span>空欄=空席</span></div>
     </div>`;
   };
   // ==== 連絡先一覧(週間の2枚目・2026-09-16 店舗要望) ====
@@ -34115,42 +34122,41 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       .sort((a,b)=>String(a.kana||a.name||'').localeCompare(String(b.kana||b.name||''),'ja'));
     const _emW2 = (t) => [...String(t||'')].reduce((a, ch) => a + (ch === '　' ? 1 : (/[ -~]/.test(ch) ? (ch === ' ' ? 0.3 : 0.55) : 1)), 0);
     const addrText = (pt) => `${[_addrDisp(pt.address), pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' ')}${pt.pickupPlace?`（${PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace}）`:''}${String(pt.pickupMinutes||'')==='walk'?'［徒歩］':''}`;
-    const FMAX = 18, FMIN = 11, AVAIL = 640, HALF = 505; // AVAIL=本文の高さ(px)・HALF=片側の表の幅(px)
+    // ★ 2026-10-01d(ユーザー要望): 左25人・右25人(1枚50人)で固定。表は用紙の下まで伸ばし、行の高さをそろえる(下の余白をなくす)。
+    //   25人以下のページは左右に半分ずつ。人がいない行は空欄(手書き用)で25行まで埋める。
+    const ROWS = 25, HALF = 505, BODY_H = 650; // BODY_H=本文の高さの目安(px)
     const maxNameEm = Math.max(4, ...pts.map(pt => _emW2(pt.name)));
-    const colW = (f) => { const ini = Math.ceil(f * 1.5) + 6, name = Math.ceil(maxNameEm * f * 1.05) + 10, tel = Math.ceil(Math.max(8, f - 1) * 8.4) + 12; /* ★ 2026-10-01c: 電話が見切れた→広く(住所の欄が狭くなる) */ return { ini, name, tel, addr: Math.max(80, HALF - ini - name - tel) }; };
-    const fa = (f) => Math.max(9, f - 2); // 住所の文字
-    const rowH = (pt, f) => { const w = colW(f); const lines = Math.min(3, Math.max(1, Math.ceil(_emW2(addrText(pt)) * fa(f) / Math.max(40, w.addr - 8)))); return Math.max(Math.ceil(f * 1.3) + 6, lines * Math.ceil(fa(f) * 1.3) + 6); };
-    const headH = (f) => Math.ceil((f - 1) * 1.3) + 6;
-    const sumH = (list, f) => list.reduce((a, pt) => a + rowH(pt, f), 0);
-    // 1枚に入る最大の文字を探す(左の段に半分・右に残り)
-    let fz = FMAX, onePage = false;
-    for (; fz >= FMIN; fz--) { const half = Math.ceil(pts.length / 2); if (sumH(pts.slice(0, half), fz) + headH(fz) <= AVAIL && sumH(pts.slice(half), fz) + headH(fz) <= AVAIL) { onePage = true; break; } }
-    if (!onePage) fz = FMIN;
-    // ページ・段に割り付け(高さで詰める)
+    const colW = (f) => { const ini = Math.ceil(f * 1.5) + 6, name = Math.ceil(maxNameEm * f * 1.05) + 10, tel = Math.ceil(Math.max(8, f - 1) * 8.4) + 12; return { ini, name, tel, addr: Math.max(80, HALF - ini - name - tel) }; };
+    const headH = 18;
+    // 文字: 1行の高さ(本文÷25)に収まる大きさ・11〜18px。氏名と電話で住所の欄が狭くなりすぎないように
+    let fz = Math.max(11, Math.min(18, Math.floor(((BODY_H - headH) / ROWS - 6) / 1.3)));
+    while (fz > 11 && colW(fz).addr < 150) fz--;
     const cols = [];
-    if (onePage) { const half = Math.ceil(pts.length / 2); cols.push(pts.slice(0, half), pts.slice(half)); }
-    else { let cur = [], h = headH(fz); pts.forEach(pt => { const rh = rowH(pt, fz); if (cur.length && h + rh > AVAIL) { cols.push(cur); cur = []; h = headH(fz); } cur.push(pt); h += rh; }); if (cur.length) cols.push(cur); }
-    // 行の高さ: 1枚に収まるときは下の余白を行へ配分(ただし文字の約2.6倍まで)
-    const stretchOf = (list) => { if (!onePage || !list.length) return 0; const spare = AVAIL - headH(fz) - sumH(list, fz); return Math.max(0, Math.floor(spare / list.length)); };
-    const _stretch = onePage ? Math.min(stretchOf(cols[0]), stretchOf(cols[1] && cols[1].length ? cols[1] : cols[0])) : 0;
-    const w = colW(fz); const fA = fa(fz); const fT = Math.max(8, fz - 1);
+    for (let k = 0; k < Math.max(1, pts.length); k += ROWS * 2) {
+      const chunk = pts.slice(k, k + ROWS * 2);
+      const cut = chunk.length <= ROWS ? Math.ceil(chunk.length / 2) : ROWS;
+      cols.push(chunk.slice(0, cut), chunk.slice(cut));
+    }
+    const w = colW(fz); const fT = Math.max(8, fz - 1); const fA0 = Math.max(9, fz - 2);
     const tbl = (list) => {
       const rows = list.map(pt => ({ pt, ini: _kanaIni(pt) }));
+      while (rows.length < ROWS) rows.push(null);
       let html = '';
       rows.forEach((r, k) => {
-        const h = Math.max(rowH(r.pt, fz), Math.min(rowH(r.pt, fz) + _stretch, Math.ceil(fz * 2.6) + 6)); // 余白の配分は文字の約2.6倍まで
         const bg = k % 2 === 1 ? '#eceeea' : '#ffffff'; // 1行おきに薄いグレー
+        const td = (inner, st) => `<td style="border:1px solid #66756b;background:${bg};${st}">${inner}</td>`;
+        if (!r) { html += `<tr>${td('', '')}${td('&nbsp;', `font-size:${fz}px;`)}${td('', '')}${td('', '')}</tr>`; return; }
         let iniTd = '';
-        if (k === 0 || rows[k-1].ini !== r.ini) { let span = 1; while (k + span < rows.length && rows[k+span].ini === r.ini) span++;
+        if (k === 0 || !rows[k-1] || rows[k-1].ini !== r.ini) { let span = 1; while (k + span < rows.length && rows[k+span] && rows[k+span].ini === r.ini) span++;
           iniTd = `<td rowspan="${span}" style="border:1px solid #66756b;background:#dfe6dc;text-align:center;vertical-align:middle;font-size:${fz}px;font-weight:800;color:#2f4a35;">${_escP(r.ini)}</td>`; }
-        html += `<tr style="height:${h}px;">${iniTd}
-        <td style="border:1px solid #66756b;background:${bg};padding:1px 5px;font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;">${_escP(r.pt.name)}</td>
-        <td style="border:1px solid #66756b;background:${bg};padding:1px 5px;font-size:${fA}px;line-height:1.3;">${_escP([_addrDisp(r.pt.address), r.pt.addressBuilding, r.pt.addressRoom].filter(Boolean).join(' '))}${r.pt.pickupPlace?`<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[r.pt.pickupPlace] || r.pt.pickupPlace)}）</span>`:''}${String(r.pt.pickupMinutes||'')==='walk'?`<span style="color:#047857;font-weight:700;">［徒歩］</span>`:''}</td>
-        <td style="border:1px solid #66756b;background:${bg};padding:1px 4px;font-size:${fT}px;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;">${_escP(r.pt.phoneMobile || r.pt.phone || '')}</td>
-      </tr>`; });
-      return `<table style="border-collapse:collapse;width:100%;table-layout:fixed;">
+        // 住所は1行に収まるよう文字を縮める(9px未満になる長い住所だけ2行)
+        const at = addrText(r.pt); const fitA = Math.floor((w.addr - 10) / Math.max(1, _emW2(at)));
+        const fA = Math.max(9, Math.min(fA0, fitA)); const wrapA = fitA < 9;
+        html += `<tr>${iniTd}${td(_escP(r.pt.name), `padding:0 5px;font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}${td(`${_escP([_addrDisp(r.pt.address), r.pt.addressBuilding, r.pt.addressRoom].filter(Boolean).join(' '))}${r.pt.pickupPlace?`<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[r.pt.pickupPlace] || r.pt.pickupPlace)}）</span>`:''}${String(r.pt.pickupMinutes||'')==='walk'?`<span style="color:#047857;font-weight:700;">［徒歩］</span>`:''}`, `padding:0 5px;font-size:${fA}px;line-height:1.15;${wrapA ? '' : 'white-space:nowrap;'}overflow:hidden;`)}${td(_escP(r.pt.phoneMobile || r.pt.phone || ''), `padding:0 4px;font-size:${fT}px;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;`)}</tr>`;
+      });
+      return `<table style="border-collapse:collapse;width:100%;height:100%;table-layout:fixed;">
       <colgroup><col style="width:${w.ini}px"/><col style="width:${w.name}px"/><col/><col style="width:${w.tel}px"/></colgroup>
-      <thead><tr style="height:${headH(fz)}px;">${['','氏名','住所（待ち合わせ場所）','電話'].map(h2=>`<th style="border:1px solid #66756b;background:#e3e8e1;font-size:${Math.max(8,fz-3)}px;padding:1px 2px;">${h2}</th>`).join('')}</tr></thead>
+      <thead><tr style="height:${headH}px;">${['','氏名','住所（待ち合わせ場所）','電話'].map(h2=>`<th style="border:1px solid #66756b;background:#e3e8e1;font-size:10px;padding:1px 2px;">${h2}</th>`).join('')}</tr></thead>
       <tbody>${html}</tbody></table>`;
     };
     const nPages = Math.max(1, Math.ceil(cols.length / 2));
@@ -34159,8 +34165,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const L = cols[pg * 2] || [], R = cols[pg * 2 + 1] || [];
       pages.push(`<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
       <div style="text-align:center;font-size:14px;font-weight:bold;letter-spacing:6px;margin-bottom:2mm;flex:none;">利用者連絡先一覧（${_mon.getMonth()+1}/${_mon.getDate()}週・五十音順）${nPages > 1 ? `<span style="letter-spacing:1px;font-weight:normal;font-size:11px;">　${pg+1}/${nPages}枚</span>` : ''}</div>
-      ${pts.length ? `<div style="display:flex;gap:5mm;align-items:flex-start;"><div style="flex:1;min-width:0;">${L.length ? tbl(L) : ''}</div><div style="flex:1;min-width:0;">${R.length ? tbl(R) : ''}</div></div>` : '<div style="font-size:11px;color:#94a3b8;">この週に乗車予定の利用者がいません</div>'}
-      <div style="font-size:9px;color:#64748b;margin-top:auto;flex:none;">※ 電話は携帯優先(無い方は固定)。この一覧には個人情報が含まれます。取り扱い・保管にご注意ください。</div>
+      ${pts.length ? `<div style="display:flex;gap:5mm;align-items:stretch;flex:1;min-height:0;"><div style="flex:1;min-width:0;">${tbl(L)}</div><div style="flex:1;min-width:0;">${tbl(R)}</div></div>` : '<div style="font-size:11px;color:#94a3b8;">この週に乗車予定の利用者がいません</div>'}
+      <div style="font-size:9px;color:#64748b;margin-top:1mm;flex:none;">※ 電話は携帯優先(無い方は固定)。この一覧には個人情報が含まれます。取り扱い・保管にご注意ください。</div>
     </div>`);
     }
     return pages;
