@@ -11659,6 +11659,14 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
             </Card>
           );
         })()}
+        {/* ★ 2026-09-30(ユーザー決定): 木〜日に来週の送迎表が「完成」していなければホームにも知らせる(送迎表を使っている店舗のみ) */}
+        {(() => { const r = tpNextWeekReminder(appData); if (!r) return null; return (
+          <div data-testid="home-tp-reminder" style={{border:'2px solid #fca5a5',background:'#fef2f2',borderRadius:14,padding:'10px 14px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+            <span style={{fontSize:14,fontWeight:'bold',color:'#b91c1c'}}>来週（{r.label}）の送迎表がまだ完成していません</span>
+            <span style={{fontSize:12,color:'#7f1d1d',flex:'1 1 260px'}}>送迎表で内容を確認して「完成」を押してください。完成するまで、ご家族・ケアマネの画面のお迎え時間は「予定」と表示されます。</span>
+            <button onClick={()=>{ try { sessionStorage.setItem('tsumugiTpJump', r.iso); } catch {} navigateTo('transport'); }} style={{fontSize:12,fontWeight:'bold',color:'white',background:'#dc2626',border:'none',borderRadius:8,padding:'6px 12px',cursor:'pointer',whiteSpace:'nowrap'}}>送迎表を開く</button>
+          </div>
+        ); })()}
         {/* 本日のスケジュール + お知らせ */}
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:16}}>
           <Card style={{borderColor:'#818cf8',borderWidth:2}}>
@@ -25911,6 +25919,12 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
     return c.now === '徒歩' ? <>送迎が変更されました（{nw(`${c.was}のお迎え`)} → {nw('徒歩でご来所')}）</>
       : c.was === '徒歩' ? <>送迎が変更されました（{nw('徒歩でご来所')} → {nw(`${c.now}頃のお迎え`)}）</>
       : <>お迎え時間が変更されました（{nw(c.was)} → {nw(c.now)}）</>; };
+  // ★ 2026-09-30(ユーザー決定): 送迎表を使っている店舗では、その日の送迎表が「完成」なら確定、まだなら「予定」と表示する
+  const _tpUse = tpStoreUsesTransport(appData);
+  const _pickupFixed = (info) => { try { const pl = (appData.transportPlans || {})[`${info.iso}_${info.ampm || 'AM'}`]; return !!(pl && pl._final); } catch { return false; } };
+  const _fixBadge = (v) => (!_tpUse || !v || !v.time || v.time === '徒歩') ? null : (v.fixed
+    ? <span data-testid="pickup-fixed" style={{fontSize:12,fontWeight:'bold',color:'#166534',background:'#dcfce7',border:'1px solid #86efac',borderRadius:6,padding:'1px 8px'}}>確定</span>
+    : <span data-testid="pickup-planned" style={{fontSize:12,fontWeight:'bold',color:'#92400e',background:'#fef3c7',border:'1px solid #fcd34d',borderRadius:6,padding:'1px 8px'}} title="事業所で送迎表を確定する前のため、時間が変わることがあります">予定（確定前）</span>);
   const todayVisit = (() => {
     if (!selectedPatient) return null;
     try {
@@ -25922,7 +25936,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
       const m = String(raw).split(/[～〜]/)[0].trim().match(/(\d{1,2}):(\d{2})/);
       const startMin = m ? (parseInt(m[1],10)*60 + parseInt(m[2],10)) : (info.ampm === 'PM' ? 13*60+20 : 9*60);
       const nowMin = now.getHours()*60 + now.getMinutes();
-      return { iso: _isoOf(now), ampm: info.ampm, startMin, startLabel: `${Math.floor(startMin/60)}時${String(startMin%60).padStart(2,'0')}分`, before: nowMin < startMin, dateLabel: info.date, time: _pickupOf(info), isFurikae: !!info.isFurikae, chg: _pickupChgOf(info) };
+      return { iso: _isoOf(now), ampm: info.ampm, startMin, startLabel: `${Math.floor(startMin/60)}時${String(startMin%60).padStart(2,'0')}分`, before: nowMin < startMin, dateLabel: info.date, time: _pickupOf(info), isFurikae: !!info.isFurikae, chg: _pickupChgOf(info), fixed: _pickupFixed(info) };
     } catch { return null; }
   })();
   const nextVisit = (() => {
@@ -25931,7 +25945,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
       const today = new Date(); const tstr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
       const info = getNextVisitInfo(selectedPatient, tstr, appData.monthlyShifts, appData);
       if (!info || !info.iso) return { date: info?.date || '未定', time: '' };
-      return { date: info.date, time: _pickupOf(info), isFurikae: !!info.isFurikae, iso: info.iso, chg: _pickupChgOf(info) };
+      return { date: info.date, time: _pickupOf(info), isFurikae: !!info.isFurikae, iso: info.iso, chg: _pickupChgOf(info), fixed: _pickupFixed(info) };
     } catch { return null; }
   })();
   return (
@@ -26612,6 +26626,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             <span style={{fontSize:22,fontWeight:'bold',color:'#1e3a8a',letterSpacing:0.5}}>{todayVisit.dateLabel}</span>
             {todayVisit.isFurikae && <span style={{fontSize:12,fontWeight:'bold',color:'#059669',background:'#d1fae5',borderRadius:6,padding:'1px 8px'}}>振替</span>}
             <span style={{fontSize:22,fontWeight:'bold',color:'#1e3a8a'}}>{todayVisit.time ? (todayVisit.time === '徒歩' ? '徒歩でご来所' : <>お迎え <span style={{fontSize:26}}>{todayVisit.time}</span> 頃</>) : <span style={{fontSize:14,color:'#475569',fontWeight:'normal'}}>お迎え時間は事業所にご確認ください</span>}</span>
+            {_fixBadge(todayVisit)}
             {_minUnset(todayVisit.time) && <span data-testid="min-unset" style={{fontSize:12,color:'#b45309',fontWeight:'bold'}}>お迎え時間の「分」が未設定です。事業所にお問い合わせください</span>}
             <span style={{fontSize:13,color:'#475569'}}>記録は利用後に表示されます</span>
             {todayVisit.chg && <div data-testid="pickup-changed" style={{flexBasis:'100%',fontSize:14,fontWeight:'bold',color:'#b91c1c'}}>{_chgText(todayVisit.chg)}</div>}
@@ -26623,6 +26638,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             <span style={{fontSize:22,fontWeight:'bold',color:'#14532d',letterSpacing:0.5}}>{nextVisit.date}</span>
             {nextVisit.isFurikae && <span style={{fontSize:12,fontWeight:'bold',color:'#059669',background:'#d1fae5',borderRadius:6,padding:'1px 8px'}}>振替</span>}
             <span style={{fontSize:22,fontWeight:'bold',color:'#14532d'}}>{nextVisit.time ? (nextVisit.time === '徒歩' ? '徒歩でご来所' : <>お迎え <span style={{fontSize:26}}>{nextVisit.time}</span> 頃</>) : <span style={{fontSize:14,color:'#475569',fontWeight:'normal'}}>お迎え時間は事業所にご確認ください</span>}</span>
+            {_fixBadge(nextVisit)}
             {_minUnset(nextVisit.time) && nextVisit.iso && _isoTomorrowOrToday(nextVisit.iso) && <span data-testid="min-unset" style={{fontSize:12,color:'#b45309',fontWeight:'bold'}}>お迎え時間の「分」が未設定です。事業所にお問い合わせください</span>}
             {nextVisit.chg && <div data-testid="pickup-changed" style={{flexBasis:'100%',fontSize:14,fontWeight:'bold',color:'#b91c1c'}}>{_chgText(nextVisit.chg)}</div>}
           </div>
@@ -33042,6 +33058,26 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave, patien
 //   - 日誌連動: 日誌側の「送迎表から取り込み」で迎え/送りの車割り当てへ反映
 //   第2段(試験中に追加予定): 連絡帳お迎え時間への反映・AI割り当て
 // ============================================================
+// ★ 2026-09-30(ユーザー決定): 送迎表の週の「完成」判定・来週の未完成リマインド(木〜日)・送迎表を使っている店舗かの判定。
+//   ホーム・送迎表・ご家族/ケアマネ画面のお迎え時間(予定/確定)で共通に使う。
+const tpIsoOf = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const tpMondayOf = (date) => { const d = new Date(date); const dw = d.getDay(); d.setDate(d.getDate() + (dw === 0 ? -6 : 1 - dw)); d.setHours(0,0,0,0); return d; };
+const tpWeekFinalAt = (appData, monday) => {
+  let best = '';
+  for (let i = 0; i < 7; i++) { const d = new Date(monday); d.setDate(monday.getDate() + i); const iso = tpIsoOf(d);
+    ['AM','PM'].forEach(sl => { const f = appData?.transportPlans?.[`${iso}_${sl}`]?._finalAt; if (f && String(f) > best) best = String(f); }); }
+  return best;
+};
+// 直近4週間に送迎表を保存している店舗だけを「送迎表を使っている」とみなす(使っていない店舗には予定表示・リマインドを出さない)
+const tpStoreUsesTransport = (appData) => { try { const lim = tpIsoOf(new Date(Date.now() - 28 * 86400000)); return Object.keys(appData?.transportPlans || {}).some(k => String(k).slice(0, 10) >= lim); } catch { return false; } };
+const tpNextWeekReminder = (appData, now = new Date()) => {
+  if (![4, 5, 6, 0].includes(now.getDay())) return null;
+  if (!tpStoreUsesTransport(appData)) return null;
+  const mon = tpMondayOf(now); mon.setDate(mon.getDate() + 7);
+  if (tpWeekFinalAt(appData, mon)) return null;
+  return { monday: mon, iso: tpIsoOf(mon), label: `${mon.getMonth()+1}/${mon.getDate()}〜` };
+};
+
 function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowPrintPreview }) {
   const ds = appData.diarySettings || {};
   const cars = (ds.cars && ds.cars.length ? ds.cars : [{id:'car1',name:'1号車',type:''},{id:'car2',name:'2号車',type:''}]);
@@ -33495,6 +33531,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     onSave({ ...appData, patients: pats, ...(tp !== plans ? { transportPlans: tp } : {}) }, { silent: true });
   };
   const [routing, setRouting] = useState(null); // ★ 計算中のキー('iso_slot' | 'week')
+  const [autoCalc, setAutoCalc] = useState(null); // ★ 2026-09-30: 自動計算の選択 { haisha, jikan, days:Set(iso), slots:Set('AM'|'PM') }
+  React.useEffect(() => { try { const j = sessionStorage.getItem('tsumugiTpJump'); if (j) { sessionStorage.removeItem('tsumugiTpJump'); setSelectedDate(j); } } catch {} }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [tpSettings, setTpSettings] = useState(false); // ★ 送迎表の設定モーダル(到着目標・出発・定員)
   const [tpHelp, setTpHelp] = useState(false); // ★ 使い方の説明(?ボタン・ホバー/タップで表示・2026-09-13c)
   const [tpLegend, setTpLegend] = useState(false); // ★ 凡例の開閉(●=要TELは常時表示・2026-09-14 デザイン刷新)
@@ -33746,6 +33784,28 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     } catch (e) { alert('ルート計算に失敗しました: ' + String(e && e.message || e)); }
     setRouting(null);
   };
+  // ★ 2026-09-30(ユーザー要望): 上部の「自動計算」で、配車か時間か・曜日・午前/午後を選んでまとめて計算する(各コマのボタンは廃止)
+  //   配車にチェック=近所ごとに車を組み直し+乗車順+お迎え時間(時間も一緒に計算) ／ 時間だけ=車と順番はそのままで時間だけ
+  const runAutoCalc = async (opt) => {
+    const selDays = days.filter(d => opt.days.has(_iso(d)));
+    const selSlots = ['AM','PM'].filter(s => opt.slots.has(s));
+    if (!opt.haisha && !opt.jikan) { alert('「配車」か「時間」のどちらかにチェックを入れてください'); return; }
+    if (!selDays.length || !selSlots.length) { alert('曜日と午前・午後を1つ以上選んでください'); return; }
+    setAutoCalc(null);
+    setRouting('week');
+    try {
+      if (!(await _probeMaps())) { setRouting(null); return; }
+      const allMsgs = []; let nChanged = 0;
+      const acc = { ...plans };
+      for (const d of selDays) { for (const sl of selSlots) {
+        const { msgs, changed, entry } = await _autoRouteCore(_iso(d), sl, acc, opt.haisha ? {} : { keepOrder: true });
+        allMsgs.push(...msgs); if (changed && entry) { acc[`${_iso(d)}_${sl}`] = entry; nChanged++; }
+      } }
+      if (nChanged) onSave({ ...appData, transportPlans: acc }, { silent: true });
+      alert(`${opt.haisha ? '配車と時間' : '時間'}の自動計算が終わりました（${nChanged}コマ更新）。時間・順番は手で直せます。` + (allMsgs.length ? '\n\n' + allMsgs.join('\n') : ''));
+    } catch (e) { alert('計算に失敗しました: ' + String(e && e.message || e)); }
+    setRouting(null);
+  };
   // ★ 週間一括(2026-09-12b): 表示中の週の全営業日×午前/午後をまとめて計算
   const autoRouteWeek = async () => {
     if (!window.confirm(`表示中の週(${days.length}日分)の午前・午後すべてについて、未割当の方の自動割り当て→\nルートと時間の一括計算を行います。\n(各日の時間・順番は上書きされます)\nよろしいですか？`)) return;
@@ -33965,12 +34025,44 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `${_wrap(html, false)}${page2}`, elementId: null } }));
   };
 
+  const _autoCalcModal = autoCalc && (
+    <div className="fixed inset-0 z-[10060] bg-black/40 flex items-center justify-center p-3">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-4" data-testid="tp-autocalc-modal">
+        <div className="font-bold text-base text-slate-800 mb-3">自動計算（Googleマップ）</div>
+        <div className="text-[12px] font-bold text-slate-500 mb-1">計算するもの</div>
+        <div className="flex flex-col gap-1.5 mb-3">
+          <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={autoCalc.haisha} onChange={e=>setAutoCalc(o=>({...o, haisha:e.target.checked, jikan: e.target.checked ? true : o.jikan}))} className="mt-1"/><span><b>配車</b>（近所ごとに車を組み直し、乗車順も決める。時間も一緒に計算します）</span></label>
+          <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={autoCalc.jikan || autoCalc.haisha} disabled={autoCalc.haisha} onChange={e=>setAutoCalc(o=>({...o, jikan:e.target.checked}))} className="mt-1"/><span><b>時間</b>（車と順番はそのままで、お迎え時間だけ計算）</span></label>
+        </div>
+        <div className="text-[12px] font-bold text-slate-500 mb-1">曜日</div>
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {days.map(d => { const iso = _iso(d); const on = autoCalc.days.has(iso); return (
+            <button key={iso} type="button" onClick={()=>setAutoCalc(o=>{ const s = new Set(o.days); if (s.has(iso)) s.delete(iso); else s.add(iso); return { ...o, days: s }; })}
+              className={`px-2.5 py-1.5 rounded-lg text-sm font-bold border ${on?'bg-emerald-600 text-white border-emerald-600':'bg-white text-slate-500 border-slate-300'}`}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）</button>
+          ); })}
+        </div>
+        <div className="text-[12px] font-bold text-slate-500 mb-1">午前・午後</div>
+        <div className="flex gap-1.5 mb-4">
+          {[['AM','午前'],['PM','午後']].map(([k,l]) => { const on = autoCalc.slots.has(k); return (
+            <button key={k} type="button" onClick={()=>setAutoCalc(o=>{ const s = new Set(o.slots); if (s.has(k)) s.delete(k); else s.add(k); return { ...o, slots: s }; })}
+              className={`px-4 py-1.5 rounded-lg text-sm font-bold border ${on?'bg-emerald-600 text-white border-emerald-600':'bg-white text-slate-500 border-slate-300'}`}>{l}</button>
+          ); })}
+        </div>
+        <div className="text-[11px] text-slate-500 mb-3 leading-relaxed">選んだ日・時間帯の{autoCalc.haisha ? '車の組み合わせ・乗車順・お迎え時間' : 'お迎え時間'}が上書きされます。</div>
+        <div className="flex gap-2 justify-end">
+          <button type="button" onClick={()=>setAutoCalc(null)} className="px-4 py-2 rounded-xl text-sm font-bold bg-slate-100 text-slate-700">やめる</button>
+          <button type="button" onClick={()=>runAutoCalc({ haisha: autoCalc.haisha, jikan: autoCalc.jikan || autoCalc.haisha, days: autoCalc.days, slots: autoCalc.slots })} className="px-4 py-2 rounded-xl text-sm font-bold bg-emerald-600 text-white">計算する</button>
+        </div>
+      </div>
+    </div>
+  );
   // ★ 2026-09-30(ユーザー要望): 下へスクロールしても日付を常に表示する(上部の固定帯に日付の行を置き、表の横スクロールと連動)
   const tpHdrRef = React.useRef(null);
-  const _tpCols = `repeat(${days.length}, minmax(236px, 1fr))`;
+  const _tpCols = `26px repeat(${days.length}, minmax(236px, 1fr))`; // 先頭=午前/午後の縦見出し列
   // ==== 画面 ====
   return (
     <div className="h-full overflow-auto w-full bg-slate-100">
+      {_autoCalcModal}
       <div className="sticky top-0 z-30">
       {/* ★ 2026-09-13c(店舗要望): 重複タイトルを削除し週切替を左端へ。バーは画面上部のタイトル帯に密着(スクロール中も固定)。凡例は同じ列に常時表示・操作説明は「?」に格納 */}
       <div className="bg-white px-2 sm:px-3 py-1.5 border-b border-slate-200 shadow-sm flex items-center gap-2 flex-wrap">
@@ -34002,12 +34094,17 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             if (n) onSave({ ...appData, transportPlans: np }, { silent: true });
             alert(n ? `前週から${n}コマをコピーしました。` : '前の週に保存済みの送迎表がありませんでした。');
           }} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="前の週の割り当て・時間・運転者・備考をこの週へ複製">前週コピー</button>
-          <button onClick={autoRouteWeek} disabled={!!routing} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-sm disabled:opacity-50" title="未割当の自動割り当て+配車とお迎え時間をGoogleマップで週まとめて作成">{routing==='week'?'計算中…':'週間の配車＋時間計算'}</button>
+          <button onClick={()=>setAutoCalc({ haisha: true, jikan: true, days: new Set(days.map(d=>_iso(d))), slots: new Set(['AM','PM']) })} disabled={!!routing} data-testid="tp-autocalc" className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-sm disabled:opacity-50" title="配車・時間を、曜日や午前/午後を選んでGoogleマップで自動計算">{routing?'計算中…':'自動計算'}</button>
           {/* ★ 週の完成確定(2026-09-28): 完成後の変更は赤丸で自動表示 */}
           {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return (
             <button onClick={finalizeWeek} className={`px-2.5 py-2 rounded-xl font-bold text-xs border whitespace-nowrap ${fa?'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100':'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`} title={fa?`完成 ${_fmtStamp(fa)}。押すと今の内容で完成を更新(赤丸は付け直し)`:'この週の送迎表を「完成」として確定。以後に変えた箇所に自動で赤丸が付きます'}>
-              {fa ? <>完成 {_fmtStamp(fa)}{tot ? <span className="ml-1 bg-red-600 text-white rounded px-1">変更{tot}</span> : null}</> : 'この週を完成にする'}
+              {fa ? <>完成済 {_fmtStamp(fa)}{tot ? <span className="ml-1 bg-red-600 text-white rounded px-1">変更{tot}</span> : null}</> : '完成'}
             </button>
+          ); })()}
+          {/* ★ 2026-09-30(ユーザー要望): 完成が押されていない週は注意書き。木〜日は来週が未完成なら知らせる */}
+          {!_finalAtOfWeek() && <span data-testid="tp-not-final" className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-300 rounded-lg px-2 py-1 whitespace-nowrap" title="内容を確認したら「完成」を押してください。完成後に変えた箇所には赤丸が付き、ご家族・ケアマネの画面のお迎え時間が「確定」になります">この週は完成されていません</span>}
+          {(() => { const r = tpNextWeekReminder(appData); if (!r || tpIsoOf(_mon) === r.iso) return null; return (
+            <button onClick={()=>setSelectedDate(r.iso)} data-testid="tp-next-reminder" className="text-[11px] font-bold text-red-700 bg-red-50 border border-red-300 rounded-lg px-2 py-1 whitespace-nowrap hover:bg-red-100" title="来週の送迎表を開きます">来週（{r.label}）が未完成 ›</button>
           ); })()}
           <button onClick={()=>setTpSettings(true)} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="到着目標時刻・車の定員の設定">設定</button>
           <button onClick={()=>setPrintModal({ mode:'week', weekContent:'sheet', days:new Set(days.map(d=>_iso(d))) })} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">印刷</button>
@@ -34016,22 +34113,22 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           <button onClick={()=>setTpHelp(v=>!v)} title="使い方の説明" className="w-9 h-9 rounded-full border border-slate-300 bg-white hover:bg-slate-50 text-slate-600 font-bold text-base leading-none">?</button>
           {tpHelp && (
             <div className="absolute right-0 top-10 w-[340px] max-w-[85vw] bg-white border border-slate-300 rounded-xl shadow-2xl p-3 text-[11px] font-bold text-slate-600 leading-relaxed" style={{zIndex:60}}>
-              自動下書き=月間スケジュール+送迎時間マスタ+前週の車割りから作成。名前を長押し→そのまま別の車へドラッグで移動(行の上に落とすと割り込み・別の日に落とすと振替)。名前をタップ=待ち合わせ場所・乗車時間の編集。時間は直接入力。「この週を完成にする」で内容を確定すると、その後に変えた箇所(車・乗車順・時間・運転者)に自動で<span className="text-red-600">●</span>が付き、印刷にも出ます。<span className="text-red-600">●</span>=連絡帳を渡した後にお迎え時間が変わった印(タップで付け外し・TEL忘れ防止)。<span className="bg-emerald-200 px-1">緑</span>=振替、<span className="bg-sky-200 px-1">水色</span>=初回利用の方。編集した日だけ保存されます(自動保存)。
+              自動下書き=月間スケジュール+送迎時間マスタ+前週の車割りから作成。名前を長押し→そのまま別の車へドラッグで移動(行の上に落とすと割り込み・別の日に落とすと振替)。名前をタップ=待ち合わせ場所・乗車時間の編集。時間は直接入力。「完成」で内容を確定すると、その後に変えた箇所(車・乗車順・時間・運転者)に自動で<span className="text-red-600">●</span>が付き、印刷にも出ます。<span className="text-red-600">●</span>=連絡帳を渡した後にお迎え時間が変わった印(タップで付け外し・TEL忘れ防止)。<span className="bg-emerald-200 px-1">緑</span>=振替、<span className="bg-sky-200 px-1">水色</span>=初回利用の方。編集した日だけ保存されます(自動保存)。
             </div>
           )}
         </div>
       </div>
-        <div className="bg-slate-100 px-2 sm:px-3 pt-2" data-testid="tp-date-strip">
+        {/* ★ 2026-09-30: 上の帯と隙間なく詰めて固定(スクロール中に下の内容が透けて見えないよう背景つき)。日付は中央揃え・「この日を印刷」は廃止(印刷ボタンの「日ごと」で印刷) */}
+        <div className="bg-slate-100 px-2 sm:px-3 pt-1 pb-1 border-b border-slate-200" data-testid="tp-date-strip">
           <div className="max-w-[1500px] mx-auto overflow-hidden" ref={tpHdrRef}>
             <div className="grid" style={{gridTemplateColumns:_tpCols, columnGap:8}}>
+              <div />
               {days.map(d => {
                 const iso = _iso(d);
                 const _today = iso === _iso(new Date());
                 return (
-                  <div key={iso} id={`tpday-${iso}`} className={`px-2 py-1.5 text-sm font-bold text-white rounded-t-xl flex items-center ${_today?'bg-blue-600':'bg-slate-800'}`}>
-                    <span>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）</span>
-                    {/* ★ 日別印刷(A4縦・住所/電話つき・大きな字)(2026-09-16 店舗要望: 毎日1日分を刷る店舗向け) */}
-                    <button onClick={()=>doPrintDay(iso)} title="この日の運行表を印刷(A4縦・住所と電話番号つき・大きな文字)" className="ml-auto text-[10px] font-bold bg-white/20 hover:bg-white/35 rounded px-1.5 py-0.5">この日を印刷</button>
+                  <div key={iso} id={`tpday-${iso}`} className={`px-2 py-1.5 text-sm font-bold text-white rounded-lg text-center ${_today?'bg-blue-600':'bg-slate-800'}`}>
+                    {d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）
                   </div>
                 );
               })}
@@ -34039,11 +34136,15 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           </div>
         </div>
       </div>
-      <div className="px-2 sm:px-3 pb-2 sm:pb-3">
+      <div className="px-2 sm:px-3 pt-2 pb-2 sm:pb-3">
         <div className="max-w-[1500px] mx-auto">
         {/* ★ 2026-09-13c(店舗要望): 午前/午後を「段」として揃える(どの曜日も午後が同じ高さから始まる)。日付/午前/午後を行に持つグリッドへ変更 */}
         {/* ★ 2026-09-25(ユーザー指示): 列を詰めてサイドバーを閉じれば月〜金が1画面に収まる幅(5列×236px+隙間≈1220px) */}
-        <div className="grid" onScroll={e => { if (tpHdrRef.current) tpHdrRef.current.scrollLeft = e.currentTarget.scrollLeft; }} style={{gridTemplateColumns:_tpCols, gridAutoFlow:'column', gridTemplateRows:'auto auto', columnGap:8, rowGap:0, alignItems:'stretch', overflowX:'auto'}}>
+        <div className="grid" onScroll={e => { if (tpHdrRef.current) tpHdrRef.current.scrollLeft = e.currentTarget.scrollLeft; }} style={{gridTemplateColumns:_tpCols, gridAutoFlow:'column', gridTemplateRows:'auto auto', columnGap:8, rowGap:12, alignItems:'stretch', overflowX:'auto'}}>
+          {/* ★ 2026-09-30: 午前/午後は左端に縦にまとめて1回だけ表示 */}
+          {['AM','PM'].map(sl => (
+            <div key={`lbl-${sl}`} className={`rounded-lg flex items-center justify-start font-bold text-[13px] ${sl==='AM'?'bg-amber-100 text-amber-800':'bg-indigo-100 text-indigo-800'}`} style={{writingMode:'vertical-rl', letterSpacing:4, paddingTop:10}}>{sl==='AM'?'午前':'午後'}</div>
+          ))}
           {days.map(d => {
             const iso = _iso(d);
             const _today = iso === _iso(new Date());
@@ -34054,15 +34155,13 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                   const pl = getPlan(iso, sl);
                   const _dropRing = dragMv && !(dragMv.iso===iso && dragMv.slot===sl);
                   return (
-                    <div key={sl} className={`bg-white border-slate-300 ${sl==='AM' ? 'border-x' : 'border-x border-b rounded-b-xl border-t border-t-slate-200'}`}>
-                      <div className={`px-2 py-1 flex items-center gap-1.5 ${sl==='AM'?'bg-amber-50':'bg-indigo-50'}`}>
-                        <span className={`text-[12px] font-bold ${sl==='AM'?'text-amber-700':'text-indigo-700'}`}>{sl==='AM'?'午前':'午後'}</span>
-                        <button onClick={()=>autoRoute(iso, sl)} disabled={!!routing} title="近所ごとに車を組み直し+乗車順+お迎え時間をGoogleマップで自動計算" className="text-[10px] font-bold bg-white border border-slate-300 hover:bg-slate-100 rounded px-1.5 py-1 disabled:opacity-50">{(routing===`${iso}_${sl}`||routing==='week')?'計算中…':'配車＋時間計算'}</button>
-                        <button onClick={()=>recalcTimes(iso, sl)} disabled={!!routing} title="車の組み合わせ・順番はそのままで、お迎え時間だけ再計算" className="text-[10px] font-bold bg-white border border-slate-300 hover:bg-slate-100 rounded px-1.5 py-1 disabled:opacity-50">時間のみ計算</button>
-                        <span className="ml-auto flex items-center gap-1">{pl._draft ? <span className="text-[9px] text-slate-500 bg-slate-200 rounded px-1 py-0.5">下書き</span> : <span className="text-[9px] text-white bg-emerald-500 rounded px-1 py-0.5">保存済</span>}
+                    <div key={sl} className={`bg-white border rounded-xl overflow-hidden ${sl==='AM' ? 'border-amber-300' : 'border-indigo-300'}`}>
+                      {/* ★ 2026-09-30: 各コマの見出し(午前/午後・計算ボタン)は廃止。状態(下書き・完成後の変更)だけ小さく表示 */}
+                      <div className={`px-2 pt-1 flex items-center gap-1 justify-end ${sl==='AM'?'bg-amber-50/60':'bg-indigo-50/60'}`} style={{minHeight:18}}>
+                        <span className="flex items-center gap-1">{pl._draft ? <span className="text-[9px] text-slate-500 bg-slate-200 rounded px-1 py-0.5">下書き</span> : null}
                           {pl._final && (() => { const n = _chgCount(pl); const rm = _removedSince(pl); const dc = _driverChg(pl); return n
                             ? <span className="text-[9px] text-white bg-red-600 rounded px-1 py-0.5" title={[ ...rm.map(pid=>`${_pname(pid)}: 完成後に外れた`), ...dc.map(cid=>`${(cars.find(c=>c.id===cid)||{}).name||cid}: 運転者が変更`) ].join('\n')||'完成後に変更あり'}>完成後の変更 {n}件</span>
-                            : <span className="text-[9px] text-amber-800 bg-amber-100 rounded px-1 py-0.5" title={`完成 ${_fmtStamp(pl._finalAt)}`}>完成</span>; })()}
+                            : null; })()}
                         </span>
                       </div>
                       <div className="p-2 space-y-2">
@@ -47122,7 +47221,8 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
 // ★ 2026-09-30(試験版): ケアマネ画面・分析個人の「モニタリング」に、FAXと同じモニタリング表を用紙の見た目のまま表示する。
 //   横幅に合わせて縮小し、タップで拡大(画面内に重ねて表示・印刷 / PDF保存)。
 function MonSheetPreview({ patient, rec, facility, onViewed }) {
-  const PAGE_W = 1000;
+  // ★ 2026-09-30(ユーザー要望): 白い用紙をA4横(297×210mm ≒ 1123×794px)の大きさに合わせる
+  const PAGE_W = 1123, PAGE_H = 794;
   const boxRef = React.useRef(null);
   const pageRef = React.useRef(null);
   const [scale, setScale] = React.useState(1);
@@ -47145,11 +47245,13 @@ function MonSheetPreview({ patient, rec, facility, onViewed }) {
     io.observe(boxRef.current);
     return () => { io.disconnect(); if (timer) clearTimeout(timer); };
   }, [rec.id, !!onViewed]); // eslint-disable-line react-hooks/exhaustive-deps
-  const openFull = () => { _markViewed(); tsumugiShowHtmlInPage(`<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>通所介護モニタリング表_${_escMon(patient?.name || '')}_${_escMon(rec.period || '')}</title><style>@page{size:A4 landscape;margin:10mm}body{margin:0;padding:10mm;box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body><div style="width:940px;margin:0 auto;background:#fff;">${html}</div></body></html>`); }; // 拡大表示でも用紙の横向きレイアウトのまま(スマホは横スクロール)
+  const openFull = () => { _markViewed(); tsumugiShowHtmlInPage(`<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>通所介護モニタリング表_${_escMon(patient?.name || '')}_${_escMon(rec.period || '')}</title><style>@page{size:A4 landscape;margin:10mm}body{margin:0;padding:10mm;box-sizing:border-box;width:297mm;min-height:210mm;-webkit-print-color-adjust:exact;print-color-adjust:exact}@media print{ body{width:auto;min-height:0;padding:0}}</style></head><body><div style="width:940px;margin:0 auto;background:#fff;">${html}</div></body></html>`); }; // 拡大表示でも用紙の横向きレイアウトのまま(スマホは横スクロール)
   return (
     <div data-testid="mon-sheet-preview">
       <div ref={boxRef} onClick={openFull} role="button" title="タップで拡大" style={{cursor:'zoom-in',overflow:'hidden',height: boxH || 'auto',border:'1px solid #cbd5e1',borderRadius:6,background:'#fff',boxShadow:'0 1px 4px rgba(0,0,0,0.08)'}}>
-        <div ref={pageRef} style={{width:PAGE_W,padding:28,boxSizing:'border-box',transform:`scale(${scale})`,transformOrigin:'top left',background:'#fff'}} dangerouslySetInnerHTML={{__html: html}} />
+        <div ref={pageRef} style={{width:PAGE_W,minHeight:PAGE_H,padding:'38px 0',boxSizing:'border-box',transform:`scale(${scale})`,transformOrigin:'top left',background:'#fff'}}>
+          <div style={{width:940,margin:'0 auto'}} dangerouslySetInnerHTML={{__html: html}} />
+        </div>
       </div>
       <div style={{display:'flex',justifyContent:'flex-end',marginTop:8}}>
         <button type="button" onClick={openFull} style={{padding:'6px 12px',fontSize:13,fontWeight:'bold',color:'#065f46',background:'#ecfdf5',border:'1px solid #a7f3d0',borderRadius:8,cursor:'pointer'}}>拡大して見る・印刷 / PDF保存</button>
