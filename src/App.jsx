@@ -25718,7 +25718,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
       if (pl && typeof pl === 'object') {
         let hit = null;
         Object.keys(pl.cars || {}).forEach(cid => (pl.cars[cid] || []).forEach(m => { if (m.pid === selectedPatient.id) hit = m; }));
-        if (hit) { const raw = String(hit.t || '').replace(/\s/g, ''); const mm = raw.match(/^(\d{1,2})[:：](\d{2}|--)/); if (mm) t = `${mm[1]}時${mm[2] === '--' ? '' : mm[2] + '分'}`; else if (/時/.test(raw)) t = raw; }
+        if (hit) { const raw = String(hit.t || '').replace(/\s/g, ''); const mm = raw.match(/^(\d{1,2})[:：](\d{2}|--)/); if (mm) t = `${mm[1]}時${mm[2] === '--' ? '　分' : mm[2] + '分'}`; /* ★ 2026-09-30: 分が空欄(8:--)は「8時　分」(「8時」だと8時ちょうどと誤解される) */ else if (/時/.test(raw)) t = raw; }
         else if ((pl.walkers || []).some(m => m.pid === selectedPatient.id)) t = '徒歩';
       }
       // 2) 連絡帳の次回予定(前回来所時にスタッフが書いたお迎え時間)
