@@ -34278,15 +34278,16 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                           <div className="text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">完成後に外れた: {_removedSince(pl).map(pid=>_pname(pid)).join('、')}</div>
                         )}
                         {(!!(pl.walkers||[]).length || dragMv) && (
-                          <div data-tpdrop="walk" data-tpiso={iso} data-tpslot={sl} className={`border rounded-lg px-2 py-1 ${dragMv&&dragMv.over&&dragMv.over.zone==='walk'&&dragMv.over.iso===iso&&dragMv.over.slot===sl?'border-emerald-600 ring-2 ring-emerald-300 bg-emerald-50':'border-emerald-200 bg-emerald-50'}`}>
-                            <div className="text-[11px] font-bold text-emerald-700 mb-0.5">徒歩{_classStart(sl) ? `（開始 ${_classStart(sl)}）` : ''}</div>
+                          <div data-tpdrop="walk" data-tpiso={iso} data-tpslot={sl} className={`border rounded-lg px-2 py-1 ${dragMv&&dragMv.over&&dragMv.over.zone==='walk'&&dragMv.over.iso===iso&&dragMv.over.slot===sl?'border-orange-500 ring-2 ring-orange-300 bg-orange-50':'border-orange-300 bg-orange-50'}`}>
+                            {/* ★ 2026-09-30(試験版・ユーザー要望): 徒歩は振替(緑)と見分けやすいようオレンジに */}
+                            <div className="text-[11px] font-bold text-orange-700 mb-0.5">徒歩{_classStart(sl) ? `（開始 ${_classStart(sl)}）` : ''}</div>
                             {(pl.walkers||[]).map(m => (
                               <div key={m.pid} className={`flex items-center gap-1 text-[15px] font-bold text-slate-700 py-1 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''}`}>
                                 {_chgOf(pl, m.pid) && <span className="shrink-0 text-red-600 text-[10px] font-bold" title={`完成後の変更: ${_chgOf(pl, m.pid)}`}>●</span>}
                                 <span className="flex-1 min-w-0 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{touchAction:'pan-y'}} {..._dragHandlers(m.pid, iso, sl)}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></span>
                               </div>
                             ))}
-                            {!(pl.walkers||[]).length && <div className="text-[10px] text-emerald-500">ここにドロップで徒歩</div>}
+                            {!(pl.walkers||[]).length && <div className="text-[10px] text-orange-500">ここにドロップで徒歩</div>}
                           </div>
                         )}
                         {(!!(pl.others||[]).length || dragMv) && (
@@ -34348,7 +34349,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                               </div>
                             ))}
                             {!!(pl.drop.walkers||[]).length && (
-                              <div className="text-[10px] font-bold text-emerald-700">徒歩: {(pl.drop.walkers||[]).map(m=>(
+                              <div className="text-[10px] font-bold text-orange-700">徒歩: {(pl.drop.walkers||[]).map(m=>(
                                 <span key={m.pid} className="mr-2">{_pname(m.pid)}<select value="walk" onChange={e=>moveMemberDrop(iso, sl, m.pid, e.target.value)} className="ml-0.5 text-[10px] font-bold border border-slate-300 rounded bg-white max-w-[80px]"><option value="walk">徒歩</option>{cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name}</option>)}<option value="other">その他</option></select></span>
                               ))}</div>
                             )}
