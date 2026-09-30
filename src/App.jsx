@@ -33631,7 +33631,16 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       while (d0.getTime() <= Date.now()) d0.setDate(d0.getDate() + 7);
       return Math.floor(d0.getTime()/1000);
     })();
-    const _addrOf = (pid) => { const pt = (appData.patients||[]).find(x=>x.id===pid) || {}; return `${pt.address||''}${pt.pickupPlace?(' '+(PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace)):''}`.trim(); };
+    // ★ 2026-09-30(不具合修正・扇橋 上野様 8:31): Googleマップへは「住所だけ」を送る。待ち合わせ場所(玄関前・マンション入口外 等)を付けると
+    //   Googleがそれを地名として別の場所を探し、2分の距離が24分になるなど移動時間が大きく狂っていた(待ち合わせ場所は表示・印刷用)。
+    //   住所に都道府県が無い場合(「江東区…」「扇橋…」など)は、Googleが別の地域と取り違えないよう事業所の都道府県(と区市町村)を補う。
+    const _facPrefCity = (() => { const fa = String(_facilityAddr() || '').replace(/[\s　]/g, ''); const m = fa.match(/^(東京都|北海道|(?:京都|大阪)府|.{2,3}県)(.+?[市区町村])?/); return m ? { pref: m[1], city: m[2] || '' } : { pref: '', city: '' }; })();
+    const _addrOf = (pid) => {
+      const pt = (appData.patients||[]).find(x=>x.id===pid) || {};
+      const a = String(pt.address||'').trim(); if (!a) return '';
+      if (/^(東京都|北海道|(?:京都|大阪)府|.{2,3}県)/.test(a) || !_facPrefCity.pref) return a;
+      return /^.{1,5}?[市区町村]/.test(a) ? `${_facPrefCity.pref}${a}` : `${_facPrefCity.pref}${_facPrefCity.city}${a}`;
+    };
     const _coordMap = {}; let _originCoord = null;
     let nextPlanCars = JSON.parse(JSON.stringify(pl.cars||{}));
     cars.forEach(c => { nextPlanCars[c.id] = nextPlanCars[c.id] || []; });
