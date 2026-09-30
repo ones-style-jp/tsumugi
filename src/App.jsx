@@ -47050,7 +47050,9 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   };
   // ★ 2026-09-30(店舗報告: 休止にした成田さん等が出ない): 休止中などの方も、その月に1回でも通所していれば対象に含める
   //   (その月のモニタリングは必要なため)。退所済み・利用開始前は従来どおり対象外。
-  const allActive = (appData.patients||[]).filter(p => isPatientListable(p) && isPatientStartedByToday(p) && (p.status === '利用中' || hasAttendance(p)));
+  // ★ 2026-09-30 追加(ユーザー指示: 茂木さんのように休止中で今月来ていない方も「通所なし」に表示): 休止中の方は通所の有無にかかわらず対象
+  const _monPaused = (p) => p.status === '休止' || p.status === '一時中止' || getPatientDisplayStatus(p) === '休止';
+  const allActive = (appData.patients||[]).filter(p => isPatientListable(p) && isPatientStartedByToday(p) && (p.status === '利用中' || _monPaused(p) || hasAttendance(p)));
   const careLevelOrd = ['事業対象者','要支援1','要支援2','要介護1','要介護2','要介護3','要介護4','要介護5'];
   const dowStr = ['日','月','火','水','木','金','土'];
   // ★ 利用曜日は月曜起点で統一(表示・並び替えとも月→日の順)
@@ -48019,6 +48021,7 @@ ${optionsDesc}
                 <td style={{padding:'8px 4px',verticalAlign:'middle',borderRight:'1px solid #f1f5f9',width:104,textAlign:'center'}}>
                   <div style={{fontWeight:'bold',fontSize:12,color:isAbsent?'#94a3b8':'#1e293b',lineHeight:1.3,wordBreak:'keep-all'}}>
                     {patient.name}
+                    {_monPaused(patient) && <span title="休止中の方" style={{fontSize:9,fontWeight:"bold",color:"#9a3412",background:"#ffedd5",border:"1px solid #fed7aa",borderRadius:4,padding:"0 4px",marginLeft:2}}>休止中</span>}
                     {isBdayMonth(patient) && <span title="今月が誕生月" style={{fontSize:9,fontWeight:"bold",color:"#a16207",background:"#fefce8",border:"1px solid #fde68a",borderRadius:4,padding:"0 4px"}}>誕生月</span>}
                   </div>
                   <div style={{fontSize:10,color:'#64748b',marginTop:2}}>{patient.careLevel||''}</div>
