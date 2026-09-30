@@ -33965,11 +33965,15 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `${_wrap(html, false)}${page2}`, elementId: null } }));
   };
 
+  // ★ 2026-09-30(ユーザー要望): 下へスクロールしても日付を常に表示する(上部の固定帯に日付の行を置き、表の横スクロールと連動)
+  const tpHdrRef = React.useRef(null);
+  const _tpCols = `repeat(${days.length}, minmax(236px, 1fr))`;
   // ==== 画面 ====
   return (
     <div className="h-full overflow-auto w-full bg-slate-100">
+      <div className="sticky top-0 z-30">
       {/* ★ 2026-09-13c(店舗要望): 重複タイトルを削除し週切替を左端へ。バーは画面上部のタイトル帯に密着(スクロール中も固定)。凡例は同じ列に常時表示・操作説明は「?」に格納 */}
-      <div className="bg-white px-2 sm:px-3 py-1.5 border-b border-slate-200 shadow-sm flex items-center gap-2 flex-wrap sticky top-0 z-30">
+      <div className="bg-white px-2 sm:px-3 py-1.5 border-b border-slate-200 shadow-sm flex items-center gap-2 flex-wrap">
         <div className="flex items-center gap-1">
           <button onClick={()=>moveWeek(-1)} className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-bold">◀ 前週</button>
           <span className="text-sm font-bold text-slate-700 px-1 whitespace-nowrap">{_mon.getMonth()+1}/{_mon.getDate()}〜の週</span>
@@ -34018,21 +34022,35 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           )}
         </div>
       </div>
-      <div className="p-2 sm:p-3">
+        <div className="bg-slate-100 px-2 sm:px-3 pt-2" data-testid="tp-date-strip">
+          <div className="max-w-[1500px] mx-auto overflow-hidden" ref={tpHdrRef}>
+            <div className="grid" style={{gridTemplateColumns:_tpCols, columnGap:8}}>
+              {days.map(d => {
+                const iso = _iso(d);
+                const _today = iso === _iso(new Date());
+                return (
+                  <div key={iso} id={`tpday-${iso}`} className={`px-2 py-1.5 text-sm font-bold text-white rounded-t-xl flex items-center ${_today?'bg-blue-600':'bg-slate-800'}`}>
+                    <span>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）</span>
+                    {/* ★ 日別印刷(A4縦・住所/電話つき・大きな字)(2026-09-16 店舗要望: 毎日1日分を刷る店舗向け) */}
+                    <button onClick={()=>doPrintDay(iso)} title="この日の運行表を印刷(A4縦・住所と電話番号つき・大きな文字)" className="ml-auto text-[10px] font-bold bg-white/20 hover:bg-white/35 rounded px-1.5 py-0.5">この日を印刷</button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="px-2 sm:px-3 pb-2 sm:pb-3">
         <div className="max-w-[1500px] mx-auto">
         {/* ★ 2026-09-13c(店舗要望): 午前/午後を「段」として揃える(どの曜日も午後が同じ高さから始まる)。日付/午前/午後を行に持つグリッドへ変更 */}
         {/* ★ 2026-09-25(ユーザー指示): 列を詰めてサイドバーを閉じれば月〜金が1画面に収まる幅(5列×236px+隙間≈1220px) */}
-        <div className="grid" style={{gridTemplateColumns:`repeat(${days.length}, minmax(236px, 1fr))`, gridAutoFlow:'column', gridTemplateRows:'auto auto auto', columnGap:8, rowGap:0, alignItems:'stretch', overflowX:'auto'}}>
+        <div className="grid" onScroll={e => { if (tpHdrRef.current) tpHdrRef.current.scrollLeft = e.currentTarget.scrollLeft; }} style={{gridTemplateColumns:_tpCols, gridAutoFlow:'column', gridTemplateRows:'auto auto', columnGap:8, rowGap:0, alignItems:'stretch', overflowX:'auto'}}>
           {days.map(d => {
             const iso = _iso(d);
             const _today = iso === _iso(new Date());
             return (
               <div key={iso} style={{display:'contents'}}>
-                <div id={`tpday-${iso}`} className={`px-2 py-1.5 text-sm font-bold text-white rounded-t-xl flex items-center ${_today?'bg-blue-600':'bg-slate-800'}`} style={{scrollMarginLeft:12}}>
-                  <span>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）</span>
-                  {/* ★ 日別印刷(A4縦・住所/電話つき・大きな字)(2026-09-16 店舗要望: 毎日1日分を刷る店舗向け) */}
-                  <button onClick={()=>doPrintDay(iso)} title="この日の運行表を印刷(A4縦・住所と電話番号つき・大きな文字)" className="ml-auto text-[10px] font-bold bg-white/20 hover:bg-white/35 rounded px-1.5 py-0.5">この日を印刷</button>
-                </div>
+                {/* 日付の行は上部の固定帯へ移動(2026-09-30) */}
                 {['AM','PM'].map(sl => {
                   const pl = getPlan(iso, sl);
                   const _dropRing = dragMv && !(dragMv.iso===iso && dragMv.slot===sl);
