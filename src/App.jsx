@@ -10971,9 +10971,10 @@ function SignupCompleteView({ context, appData, onSave }) {
 }
 
 // === 家族画面プレビュー & 特記編集 (FamilyAdminView内のタブ) ===
-function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid, familyTokkiOverrides, setTokkiOverride }) {
+function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid, familyTokkiOverrides, setTokkiOverride, initialViewer = 'family' }) {
   const [previewInnerTab, setPreviewInnerTab] = useState('news'); // 'news' | 'records'
-  const [patDropOpen, setPatDropOpen] = useState(false);
+  // ★ 2026-09-30(試験版): 見る人の切り替え(ご家族/ケアマネ)。お知らせは見る人向けのものだけ、通所記録はケアマネ画面(モニタリング表あり)を表示
+  const [viewer, setViewer] = useState(initialViewer === 'caremanager' ? 'caremanager' : 'family');  const [patDropOpen, setPatDropOpen] = useState(false);
   const [patSearch, setPatSearch] = useState('');
   const patient = previewPid ? patients.find(p => p.id === previewPid) : null;
   const accs = patient ? (appData.familyAccounts||[]).filter(a => a.patientId === patient.id) : [];
@@ -11043,6 +11044,14 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
             {[['news','お知らせ'],['records','通所記録']].map(([k,l])=>(
               <button key={k} onClick={()=>setPreviewInnerTab(k)}
                 className={`px-3 py-2 rounded-lg text-sm font-bold ${previewInnerTab===k?'bg-emerald-500 text-white':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{l}</button>
+            ))}
+          </div>
+        )}
+        {patient && (
+          <div className="flex gap-1 shrink-0" data-testid="preview-viewer">
+            {[['family','ご家族'],['caremanager','ケアマネ']].map(([k,l])=>(
+              <button key={k} onClick={()=>setViewer(k)}
+                title={`${l}から見た画面`} className={`px-2.5 py-2 rounded-lg text-sm font-bold border ${viewer===k?(k==='caremanager'?'bg-teal-600 text-white border-teal-600':'bg-violet-600 text-white border-violet-600'):'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}>{l}</button>
             ))}
           </div>
         )}
@@ -11118,8 +11127,9 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
       })()}
       {/* 内部タブは上部枠に統合済 */}
       {patient && previewInnerTab === 'news' && (() => {
-        const announcements = appData.familyAnnouncements || [];
-        const personalAnnouncements = (appData.familyPersonalAnnouncements||[]).filter(a => a.patientId === patient.id);
+        const _audOkP = (a) => !a || !a.audience || !Array.isArray(a.audience) || a.audience.includes(viewer);
+        const announcements = (appData.familyAnnouncements || []).filter(_audOkP);
+        const personalAnnouncements = (appData.familyPersonalAnnouncements||[]).filter(a => a.patientId === patient.id && _audOkP(a));
         const photos = (appData.familyPhotos||[]).filter(ph => ph.patientId == null || ph.patientId === patient.id);
         // 旧データの写真 (お知らせに紐付かない photos) を date+caption でグループ化して仮想お知らせとして表示
         const orphanPhotos = photos.filter(p => !String(p.id||'').startsWith('news_'));
@@ -11139,7 +11149,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
         ].sort((a,b)=>(b.postedAt||b.date||'').localeCompare(a.postedAt||a.date||''));
         return (
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 space-y-3">
-            <div className="text-sm font-bold text-slate-700">お知らせ ({merged.length}件)</div>
+            <div className="text-sm font-bold text-slate-700">{viewer==='caremanager'?'ケアマネ':'ご家族'}の画面のお知らせ ({merged.length}件)</div>
             {merged.length === 0 ? (
               <div className="text-xs text-slate-400 text-center py-6">お知らせはまだ投稿されていません</div>
             ) : (
@@ -11175,7 +11185,9 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
         <PersonalDashboardView
           appData={{...appData, patients: appData.patients, familyTokkiOverrides}}
           targetPatientId={patient.id}
-          familyMode={true}
+          familyMode={viewer !== 'caremanager'}
+          cmViewerMode={viewer === 'caremanager'}
+          cmSheetView={viewer === 'caremanager'}
           hidePatientSelector={true}
           stickyTopOffset={114}
           navigateTo={()=>{}}
@@ -12844,7 +12856,9 @@ function EmergencyNoticeView({ appData, onSave, staffSession, safety: safetyProp
 }
 
 function FamilyAdminView({ appData, onSave }) {
-  const [tab, setTab] = useState('post');
+  // ★ 2026-09-30(試験版): 利用者マスタ→アカウント管理の「ご家族/ケアマネの画面を見る」から来たら、その利用者のプレビューを開く
+  const _pvJump = React.useMemo(() => { try { const v = JSON.parse(sessionStorage.getItem('tsumugiPreviewJump') || 'null'); sessionStorage.removeItem('tsumugiPreviewJump'); return v; } catch { return null; } }, []);
+  const [tab, setTab] = useState(_pvJump ? 'preview' : 'post');
   // 統合フォーム: お知らせ + 写真を一画面で
   const [postForm, setPostForm] = useState({ scope:'all', patientIds:[], audience:['family','caremanager','related'], title:'', body:'', date: new Date().toISOString().slice(0,10), eventClass:'', files:[], filePreview:[] });
   const [editingAnn, setEditingAnn] = useState(null); // {id, kind, patientId} お知らせ編集中
@@ -12852,7 +12866,7 @@ function FamilyAdminView({ appData, onSave }) {
   const [photoFilter, setPhotoFilter] = useState('');
   const [historyFilter, setHistoryFilter] = useState({ year:'', month:'', kind:'all', scope:'all', q:'' }); // ★ 2026-09-29: 全体/個別・写真PDF・キーワード
   const [historyDetail, setHistoryDetail] = useState(null);
-  const [previewPid, setPreviewPid] = useState(null); // プレビュータブで選択中の利用者
+  const [previewPid, setPreviewPid] = useState(_pvJump ? _pvJump.pid : null); // プレビュータブで選択中の利用者
   const [copied, setCopied] = useState(false);
   const [postCmOffice, setPostCmOffice] = useState(''); // 個別(ケアマネ): 選択中の事業所
   const patients = sortPatientsByKana((appData.patients||[]).filter(p => p.status === '利用中' && isPatientListable(p)));
@@ -13165,7 +13179,7 @@ function FamilyAdminView({ appData, onSave }) {
     <div className={`h-full overflow-auto bg-slate-50 ${tab==='preview'?'p-0':'p-6'}`}>
       <div className={tab==='preview'?'':'max-w-5xl mx-auto'}>
         <div className={`flex items-center gap-2 bg-white shadow-sm border border-slate-200 ${tab==='preview'?'sticky top-0 z-50 border-b p-1.5':'rounded-2xl p-1.5 mb-4'}`}>
-          {[['post','投稿 (お知らせ・写真)'],['preview','家族画面プレビュー'],['history','過去履歴']].map(([k,l])=>(
+          {[['post','投稿 (お知らせ・写真)'],['preview','家族・ケアマネ画面プレビュー'],['history','過去履歴']].map(([k,l])=>(
             <button key={k} onClick={()=>setTab(k)} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors ${tab===k?'bg-emerald-500 text-white shadow':'text-slate-500 hover:bg-slate-100'}`}>{l}</button>
           ))}
         </div>
@@ -13326,7 +13340,7 @@ function FamilyAdminView({ appData, onSave }) {
           </div>
         )}
         {tab === 'preview' && (
-          <FamilyPreviewTab patients={patients} appData={appData} onSave={onSave} previewPid={previewPid} setPreviewPid={setPreviewPid} familyTokkiOverrides={familyTokkiOverrides} setTokkiOverride={setTokkiOverride}/>
+          <FamilyPreviewTab patients={patients} appData={appData} onSave={onSave} previewPid={previewPid} setPreviewPid={setPreviewPid} familyTokkiOverrides={familyTokkiOverrides} setTokkiOverride={setTokkiOverride} initialViewer={_pvJump?.kind || 'family'}/>
         )}
         {tab === 'history' && (
           <div className="space-y-4">
@@ -15778,6 +15792,22 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
             familyMode={!isCmAccount}
             cmViewerMode={isCmAccount}
             cmSheetView={isCmAccount && (_isPreview ? (_previewKind === 'caremanager') : (loggedAcc ? (loggedAcc.relation === 'ケアマネージャー' || loggedAcc.relation === 'ケアマネ') : (_persistedKind === 'caremanager')))}
+            onMonitoringViewed={(!_isPreview && isCmAccount && isSupabaseEnabled) ? (rec) => {
+              // ★ 2026-09-30(試験版): ケアマネがモニタリング表を見たことを事業所へ(モニタリング画面の「ケアマネ閲覧済」・FAX省略の判断に使う)
+              try {
+                const _sid = loggedAcc?.storeId || loggedAcc?.store_id || familyStoreId || sessionStorage.getItem('familyAuthStoreId') || null;
+                if (!_sid || !rec) return;
+                const _acc = familyCloudAccountId() || String(accountId || '');
+                const _cAt = String(rec.monConfirmedAt || rec.monNotifiedAt || '').replace(/[^0-9]/g, '').slice(0, 14);
+                const _id = `monview_${rec.id}_${_cAt}_${_acc}`;
+                const _sent = (window.__tsumugiMonViewSent = window.__tsumugiMonViewSent || new Set());
+                if (_sent.has(_id)) return; _sent.add(_id);
+                const _p = (data.patients || []).find(p => String(p.id) === String(rec.patientId));
+                if ((_p?.docUpdates || []).some(u => u && u.id === _id)) return;
+                supabaseAppendDocUpdate(_sid, rec.patientId, { id: _id, at: new Date().toISOString(), by: 'caremanager', byName: loggedAcc?.displayName || '', items: [`モニタリング表（${rec.period || ''}）を閲覧`], readOffice: true, kind: 'monView', monRecId: rec.id, period: rec.period || '' })
+                  .catch(err => console.warn('[monitoring] view notice failed', err));
+              } catch (e) { console.warn('[monitoring] view notice error', e); }
+            } : null}
             selfMode={isSelfAccount}
             externalPeriod={familyPeriod}
             externalCustomFrom={familyCustomFrom}
@@ -25404,7 +25434,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
 }
 
 // === PersonalDashboardView (簡易版) ===
-function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatientChange, isSidebarOpen, onShowPrintPreview, familyMode = false, cmViewerMode = false, cmSheetView = false, selfMode = false, hidePatientSelector = false, stickyTopOffset = null, externalPeriod = null, externalDisplayMode = null, externalCustomFrom = null, externalCustomTo = null }) {
+function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatientChange, isSidebarOpen, onShowPrintPreview, familyMode = false, cmViewerMode = false, cmSheetView = false, onMonitoringViewed = null, selfMode = false, hidePatientSelector = false, stickyTopOffset = null, externalPeriod = null, externalDisplayMode = null, externalCustomFrom = null, externalCustomTo = null }) {
   // ★ ケアマネ閲覧モード = 事業所と同じフルセット内容を読取専用で表示。 縦型 (スマホ) でも見やすく縦並びに
   const compactMode = familyMode || cmViewerMode; // 基本指標を縦並びにする判定
   const [basicOpen, setBasicOpen] = useState(false); // ★ 2026-09-28: ご家族/ケアマネでは基本情報を折りたたみ(既定は閉)
@@ -28238,7 +28268,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                     </div>
                     {/* ★ 2026-09-30(試験版): ケアマネ・事業所はFAXと同じモニタリング表を表示(その他関係者は従来どおり要約のみ) */}
                     {r.sheet && (!cmViewerMode || cmSheetView)
-                      ? <MonSheetPreview patient={selectedPatient} rec={r} facility={appData.systemSettings?.facilityInfo || {}} />
+                      ? <MonSheetPreview patient={selectedPatient} rec={r} facility={appData.systemSettings?.facilityInfo || {}} onViewed={onMonitoringViewed} />
                       : <div style={{fontSize:14,color:'#475569',lineHeight:1.8,whiteSpace:'pre-wrap'}}>{r.summary}</div>}
                   </div>
               ))}
@@ -38370,7 +38400,13 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     </div>
                   );
                 })()}
-                <a href={loginUrl} target="_blank" rel="noopener noreferrer" className="block text-center py-2.5 rounded-xl font-bold text-sm bg-slate-100 hover:bg-slate-200 text-slate-700">家族画面のプレビューを開く（別タブ）</a>
+                {/* ★ 2026-09-30(試験版): 従来はログイン画面を別タブで開くだけだった → この利用者のご家族/ケアマネの画面をプレビューで開く */}
+                <div className="grid grid-cols-2 gap-2">
+                  {[['family','ご家族の画面を見る','bg-violet-50 hover:bg-violet-100 text-violet-700 border-violet-200'],['caremanager','ケアマネの画面を見る','bg-teal-50 hover:bg-teal-100 text-teal-700 border-teal-200']].map(([k,l,c]) => (
+                    <button key={k} type="button" data-testid={`acct-preview-${k}`} onClick={() => { try { sessionStorage.setItem('tsumugiPreviewJump', JSON.stringify({ pid: pat.id, kind: k })); } catch {} setFamilyShareModal(null); navigateTo('family_admin'); }}
+                      className={`text-center py-2.5 rounded-xl font-bold text-sm border ${c}`}>{l}</button>
+                  ))}
+                </div>
                 <div className="text-[11px] text-slate-500 bg-amber-50 border border-amber-200 rounded-lg p-3 leading-relaxed">
                   <b>ご利用にあたって:</b><br/>
                   ・ ご家族には「ログイン情報シート」を印刷してお渡しください<br/>
@@ -47065,7 +47101,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
 
 // ★ 2026-09-30(試験版): ケアマネ画面・分析個人の「モニタリング」に、FAXと同じモニタリング表を用紙の見た目のまま表示する。
 //   横幅に合わせて縮小し、タップで拡大(画面内に重ねて表示・印刷 / PDF保存)。
-function MonSheetPreview({ patient, rec, facility }) {
+function MonSheetPreview({ patient, rec, facility, onViewed }) {
   const PAGE_W = 1000;
   const boxRef = React.useRef(null);
   const pageRef = React.useRef(null);
@@ -47079,7 +47115,17 @@ function MonSheetPreview({ patient, rec, facility }) {
     let ro = null; try { ro = new ResizeObserver(upd); ro.observe(el); } catch { /* 古い端末は初回の縮小のみ */ }
     return () => { try { ro && ro.disconnect(); } catch {} };
   }, [rec.id, html]);
-  const openFull = () => tsumugiShowHtmlInPage(`<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>通所介護モニタリング表_${_escMon(patient?.name || '')}_${_escMon(rec.period || '')}</title><style>@page{size:A4 landscape;margin:10mm}body{margin:0;padding:10mm;box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body><div style="width:940px;margin:0 auto;background:#fff;">${html}</div></body></html>`); // 拡大表示でも用紙の横向きレイアウトのまま(スマホは横スクロール)
+  // ★ 2026-09-30(試験版): ケアマネが表を見たら(画面に半分以上が1.5秒表示 or 拡大)事業所へ「閲覧済み」を届ける
+  const _viewedRef = React.useRef(false);
+  const _markViewed = () => { if (_viewedRef.current || !onViewed) return; _viewedRef.current = true; try { onViewed(rec); } catch {} };
+  React.useEffect(() => {
+    if (!onViewed || !boxRef.current || typeof IntersectionObserver === 'undefined') return;
+    let timer = null;
+    const io = new IntersectionObserver((ents) => { const vis = ents.some(e => e.isIntersecting && e.intersectionRatio >= 0.5); if (vis) { if (!timer) timer = setTimeout(_markViewed, 1500); } else if (timer) { clearTimeout(timer); timer = null; } }, { threshold: [0, 0.5, 1] });
+    io.observe(boxRef.current);
+    return () => { io.disconnect(); if (timer) clearTimeout(timer); };
+  }, [rec.id, !!onViewed]); // eslint-disable-line react-hooks/exhaustive-deps
+  const openFull = () => { _markViewed(); tsumugiShowHtmlInPage(`<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>通所介護モニタリング表_${_escMon(patient?.name || '')}_${_escMon(rec.period || '')}</title><style>@page{size:A4 landscape;margin:10mm}body{margin:0;padding:10mm;box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body><div style="width:940px;margin:0 auto;background:#fff;">${html}</div></body></html>`); }; // 拡大表示でも用紙の横向きレイアウトのまま(スマホは横スクロール)
   return (
     <div data-testid="mon-sheet-preview">
       <div ref={boxRef} onClick={openFull} role="button" title="タップで拡大" style={{cursor:'zoom-in',overflow:'hidden',height: boxH || 'auto',border:'1px solid #cbd5e1',borderRadius:6,background:'#fff',boxShadow:'0 1px 4px rgba(0,0,0,0.08)'}}>
@@ -47642,15 +47688,15 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
           body: `${monthLabelStr}分のモニタリング表を${_again ? '更新' : '作成'}しました。ご確認ください。`,
           date: `${_now.getFullYear()}-${String(_now.getMonth()+1).padStart(2,'0')}-${String(_now.getDate()).padStart(2,'0')}`,
           postedAt: _now.toISOString(), audience: ['caremanager'], jumpTo: 'sec-monitoring', jumpLabel: 'モニタリング表を見る', photos: [], _savedAt: _ts };
-        existing[_i] = { ..._rec, monAnnId: annId, monNotifiedAt: (prev && prev.monNotifiedAt) || _now.toISOString() };
+        existing[_i] = { ..._rec, monAnnId: annId, monNotifiedAt: (prev && prev.monNotifiedAt) || _now.toISOString(), monConfirmedAt: _now.toISOString() };
         _annPatch = { familyPersonalAnnouncements: [ann, ..._anns] };
       } else if (!conf && _prevConf && prev && prev.monAnnId) {
-        existing[_i] = { ..._rec, monAnnId: null, monNotifiedAt: prev.monNotifiedAt || null };
+        existing[_i] = { ..._rec, monAnnId: null, monNotifiedAt: prev.monNotifiedAt || null, monConfirmedAt: null };
         const _dI = (extra && extra.deletedIds) || appData.deletedIds || {};
         _annPatch = { familyPersonalAnnouncements: _anns.filter(a => a.id !== prev.monAnnId),
           deletedIds: { ..._dI, familyPersonalAnnouncements: { ...(_dI.familyPersonalAnnouncements || {}), [String(prev.monAnnId)]: Date.now() } } };
       } else if (prev) {
-        existing[_i] = { ..._rec, monAnnId: prev.monAnnId || null, monNotifiedAt: prev.monNotifiedAt || null };
+        existing[_i] = { ..._rec, monAnnId: prev.monAnnId || null, monNotifiedAt: prev.monNotifiedAt || null, monConfirmedAt: prev.monConfirmedAt || null };
       }
     }
     onSave({...appData, monitoringRecords: existing, ...(extra||{}), ..._annPatch}, opts);
@@ -47715,11 +47761,29 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     recipientOffice: p.cmOffice||'', recipientName: p.cmName||'', recipientFax: p.cmFax||'',
     memo: (getSheetRecord(p.id)?.summary)||'', timestamp: new Date().toISOString(),
   });
+  // ★ 2026-09-30(試験版): ケアマネがつむぎで今回の確定分のモニタリング表を見たか(患者の docUpdates kind='monView')。見ていれば最初の閲覧を返す
+  const cmViewOf = (patient) => {
+    const rec = getSheetRecord(patient.id);
+    if (!rec || !rec.confirmed) return null;
+    const since = String(rec.monConfirmedAt || '');
+    const vs = (Array.isArray(patient.docUpdates) ? patient.docUpdates : []).filter(u => u && u.kind === 'monView' && String(u.monRecId) === String(rec.id) && (!since || String(u.at || '') >= since));
+    return vs.sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')))[0] || null;
+  };
+  // FAX送付の前に: 閲覧済みの方を省くか確認(OK=省く)。対象が無くなれば null
+  const skipViewedForFax = async (targets) => {
+    const viewed = targets.filter(p => cmViewOf(p));
+    if (!viewed.length) return targets;
+    const skip = await monConfirm(`担当ケアマネがつむぎでモニタリング表を閲覧済みの方が ${viewed.length}名 います（${viewed.slice(0,3).map(p=>p.name).join('、')}${viewed.length>3?' ほか':''}）。\n閲覧済みの方はFAXを省きますか？\n（OK＝省く／キャンセル＝閲覧済みの方も含めて送る）`);
+    const rest = skip ? targets.filter(p => !cmViewOf(p)) : targets;
+    if (!rest.length) { monAlert('全員の担当ケアマネが閲覧済みのため、FAXする対象はありません。'); return null; }
+    return rest;
+  };
   // ★ 担当ケアマネへFAX(一括): 作成済みのモニタリング表を、利用者ごとの担当ケアマネ(cmOffice/cmName)宛てで出力＋送付履歴に記録
   const faxToCareManagers = async () => {
     const checked = [...attendedPats, ...absentPats].filter(p => checkedIds.has(p.id));
-    const targets = (checked.length ? checked : [...attendedPats, ...absentPats]).filter(p => getSheetRecord(p.id));
+    let targets = (checked.length ? checked : [...attendedPats, ...absentPats]).filter(p => getSheetRecord(p.id));
     if (!targets.length) { monAlert('作成済みのモニタリング表がありません。先に「AIで下書き」または「個人ファイルに保存」で作成してください。'); return; }
+    targets = await skipViewedForFax(targets); if (!targets) return;
     const noCm = targets.filter(p => !((p.cmOffice||'').trim()));
     if (noCm.length) {
       if (!await monConfirm(`担当ケアマネ事業所が未設定の方が ${noCm.length}名 います（${noCm.slice(0,3).map(p=>p.name).join('、')}${noCm.length>3?' ほか':''}）。\n宛先を空欄のまま出力しますか？\n（利用者マスタで「居宅介護支援事業所」を設定すると宛先が自動で入ります）`)) return;
@@ -47739,8 +47803,9 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const autoFaxToCareManagers = async () => {
     if (autoFax?.running) return;
     const checked = [...attendedPats, ...absentPats].filter(p => checkedIds.has(p.id));
-    const targets = (checked.length ? checked : [...attendedPats, ...absentPats]).filter(p => getSheetRecord(p.id));
+    let targets = (checked.length ? checked : [...attendedPats, ...absentPats]).filter(p => getSheetRecord(p.id));
     if (!targets.length) { monAlert('作成済みのモニタリング表がありません。先に作成してください。'); return; }
+    targets = await skipViewedForFax(targets); if (!targets) return;
     // ★ 2026-09-18(店舗指摘): 利用者側のFAXが空でも、担当ケアマネ事業所の一覧にFAXがあればそれへ送る
     //   (印刷用の送付状と同じ優先順位。従来は空の利用者を黙って送信対象から外していた=扇橋で61名分が未送信)
     const _cmOffs = appData.systemSettings?.cmOffices || [];
@@ -48314,6 +48379,10 @@ ${optionsDesc}
                       {confirmed ? '✓ 確定済' : '✓ 確定'}
                     </button>
                   )}
+                  {confirmed && (() => { const v = cmViewOf(patient); if (!v) return null; const d = new Date(v.at); return (
+                    <div data-testid="mon-cm-viewed" title={`${v.byName || '担当ケアマネ'}がつむぎでモニタリング表を閲覧しました（FAXを省けます）`} style={{marginTop:4,fontSize:9.5,fontWeight:'bold',color:'#1d4ed8',background:'#dbeafe',border:'1px solid #bfdbfe',borderRadius:6,padding:'2px 3px',lineHeight:1.3}}>
+                      ケアマネ閲覧済<br/>{isNaN(d) ? '' : `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`}
+                    </div>); })()}
                   {!isPrintMode && (
                     <button type="button" className="no-print" onClick={()=>toggleMonExpand(patient.id)} title={monExpanded.has(patient.id)?'各項目を1行の省略表示にたたむ':'全文を表示して編集しやすくする'}
                       style={{marginTop:4,width:'92%',background:'white',border:'1px solid #cbd5e1',color:'#475569',borderRadius:8,padding:'5px 2px',fontSize:10,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>

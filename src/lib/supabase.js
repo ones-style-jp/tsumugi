@@ -1728,8 +1728,12 @@ export async function supabaseAppendDocUpdate(storeId, patientId, entry) {
       by: entry.by || 'family',
       byName: entry.byName || '',
       items: [...new Set(entry.items || [])],
-      readOffice: false,
+      // ★ 2026-09-30(試験版): 閲覧記録(kind='monView')など、事業所の新着にしないものは readOffice:true で送れる
+      readOffice: entry.readOffice === true,
       readCm: true,
+      ...(entry.kind ? { kind: entry.kind } : {}),
+      ...(entry.monRecId != null ? { monRecId: entry.monRecId } : {}),
+      ...(entry.period ? { period: entry.period } : {}),
     };
     const res = await supabaseCasUpdate(storeId, (cloud) => {
       const currentData = cloud;
