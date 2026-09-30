@@ -1135,6 +1135,36 @@ const isSelfContact = (c) => !!(c && String(c.relation||'').includes('本人'));
 //   getAllContactsRaw はまとめる前の一覧(削除の墓石づくり用)。
 const getAllContactsRaw = (p) => { const prim = buildPrimaryContact(p); return [ ...(prim && !isCmContact(prim) && !isSelfContact(prim) ? [prim] : []), ...(((p && p.emergencyContacts) || []).filter(c => !isCmContact(c) && !isSelfContact(c))) ]; };
 const _contactNameKey = (c) => normalizeName(String((c && c.name) || '')).replace(/[\s　]/g, '');
+// ★ 2026-09-30(試験版): 緊急連絡先(代表家族+追加分)から pred に合う方を取り除く患者パッチ。代表を消したら次の方を代表に繰り上げる
+//   (フェイスシートの保存と同じ考え方)。消した分は墓石(_deletedEC)に残し、同期で復活させない。ケアマネ・本人の連絡先は対象外。
+const contactRemovalPatch = (patient, pred) => {
+  if (!patient) return null;
+  const prim = buildPrimaryContact(patient);
+  const primHit = !!(prim && !isCmContact(prim) && !isSelfContact(prim) && pred(prim));
+  const ecs = Array.isArray(patient.emergencyContacts) ? patient.emergencyContacts : [];
+  const ecHit = ecs.filter(c => c && !isCmContact(c) && !isSelfContact(c) && pred(c));
+  if (!primHit && !ecHit.length) return null;
+  let rest = ecs.filter(c => !ecHit.includes(c));
+  const patch = {};
+  if (primHit) {
+    const ni = rest.findIndex(c => c && !isCmContact(c) && !isSelfContact(c) && _contactNameKey(c) !== _contactNameKey(prim));
+    if (ni >= 0) {
+      const n = rest[ni]; rest = rest.filter((_, i) => i !== ni);
+      const parts = String(n.name || '').split(/[\s　]+/).filter(Boolean);
+      Object.assign(patch, { familyName: n.name || '', familyLastName: n.lastName || parts[0] || '', familyFirstName: n.firstName || parts.slice(1).join(' '), familyKana: n.kana || '', familyRelation: n.relation || '', familyPhone: n.phone || '', familyPhoneMobile: n.phoneMobile || '', familyEmail: n.email || '' });
+    } else {
+      Object.assign(patch, { familyName: '', familyLastName: '', familyFirstName: '', familyKana: '', familyRelation: '', familyPhone: '', familyPhoneMobile: '', familyEmail: '' });
+    }
+    // 代表と同じ氏名の重複分も一緒に外す
+    rest = rest.filter(c => !(c && !isCmContact(c) && _contactNameKey(c) === _contactNameKey(prim)));
+  }
+  patch.emergencyContacts = rest;
+  const key = c => `${(c.name||'').trim()}|${(c.relation||'').trim()}|${(c.phone||'').trim()}|${(c.phoneMobile||'').trim()}`;
+  const gone = [...ecHit, ...(primHit ? [prim, ...ecs.filter(c => c && !isCmContact(c) && _contactNameKey(c) === _contactNameKey(prim))] : [])];
+  const tomb = gone.map(key).filter(k => k && k !== '|||');
+  if (tomb.length) patch._deletedEC = [...new Set([...(patient._deletedEC || []), ...tomb])];
+  return { patch, names: [...new Set(gone.map(c => (c.name || '').trim()).filter(Boolean))] };
+};
 const getAllContacts = (p) => {
   const out = []; const at = new Map();
   getAllContactsRaw(p).forEach(c => {
@@ -38182,6 +38212,12 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         };
         const removeAccount = (accId) => {
           if (!window.confirm('このアカウントを削除します。\n紐づく招待コードも削除され、同じIDで再登録できるようになります。\nよろしいですか?')) return;
+          // ★ 2026-09-30(試験版・ユーザー要望): 登録時に緊急連絡先へ入った方(登録したアカウント・同じ氏名)も、フェイスシートの緊急連絡先から消すか確認する
+          const _acc = (appData.familyAccounts||[]).find(a => a.id === accId);
+          const _pat = (appData.patients||[]).find(p => p.id === pat.id) || pat;
+          const _accName = _contactNameKey({ name: (_acc && (_acc.displayName || `${_acc.lastName||''}${_acc.firstName||''}`)) || '' });
+          const _rm = _acc ? contactRemovalPatch(_pat, c => (c.addedByFamilyAccountId && c.addedByFamilyAccountId === accId) || (!!_accName && _contactNameKey(c) === _accName)) : null;
+          const _alsoEc = !!(_rm && window.confirm(`${_rm.names.join('、')} さんは、フェイスシートの緊急連絡先にも登録されています。\n緊急連絡先からも削除しますか？\n\nOK＝緊急連絡先からも削除する\nキャンセル＝緊急連絡先は残す（アカウントだけ削除）`));
           // ★ 削除中IDに登録 → 10秒ごとのSupabase再取得で復活させない
           try { deletingAccIdsRef.current.add(accId); } catch {}
           // ★ まず画面に即時反映 (固まらないように)。 アカウント削除＋紐づく招待コードも削除(unlinkではなく物理削除)。
@@ -38189,7 +38225,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             ...appData,
             familyAccounts: (appData.familyAccounts||[]).filter(a => a.id !== accId),
             familyInvites: (appData.familyInvites||[]).filter(i => i.usedBy !== accId),
-          }, { manual: true, message: '✓ アカウントと招待コードを削除しました' });
+            ...(_alsoEc ? { patients: (appData.patients||[]).map(p => p.id === pat.id ? { ...p, ..._rm.patch } : p) } : {}),
+          }, { manual: true, message: _alsoEc ? '✓ アカウント・招待コードと緊急連絡先を削除しました' : '✓ アカウントと招待コードを削除しました' });
           // ★ Supabase は背景で物理削除 (UIを待たせない)。 失敗時のみ後から通知。
           if (isSupabaseEnabled) {
             supabaseDeleteFamilyAccount(accId)
@@ -52856,7 +52893,12 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
                 <div className="space-y-2">
                   {contacts.map((c,i)=>(
                     <div key={i} className="bg-white border border-blue-100 rounded p-2">
-                      <div className="text-[10px] font-bold text-slate-400 mb-1">{i===0?'代表（1件目）':`${i+1}件目`}</div>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="text-[10px] font-bold text-slate-400">{i===0?'代表（1件目）':`${i+1}件目`}</div>
+                        {/* ★ 2026-09-30(試験版・ユーザー要望): フェイスシートから削除(保存で基本情報の緊急連絡先からも削除) */}
+                        <button type="button" data-testid="fs-contact-del" onClick={()=>{ if (!window.confirm(`${(c.name||'').trim()||'この連絡先'} を緊急連絡先から削除しますか？\n（「保存」を押すと基本情報の緊急連絡先からも削除されます）`)) return; setContacts(prev => prev.filter((_, idx) => idx !== i)); }}
+                          className="text-[11px] font-bold text-red-600 bg-white border border-red-200 px-2 py-0.5 rounded hover:bg-red-50">削除</button>
+                      </div>
                       <div className="grid grid-cols-2 gap-2 mb-1">
                         <input value={c.name} onChange={e=>setContact(i,{name:e.target.value})} placeholder="氏名" className="px-2 py-1 border border-slate-300 rounded text-[13px] outline-none"/>
                         <input value={c.relation} onChange={e=>setContact(i,{relation:e.target.value})} placeholder="続柄(例:長女)" className="px-2 py-1 border border-slate-300 rounded text-[13px] outline-none"/>
@@ -52870,7 +52912,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
                     </div>
                   ))}
                 </div>
-                <div className="text-[10px] text-slate-500 mt-1.5">※ ここで入れた内容は基本情報の緊急連絡先にも反映されます（同名は最新で上書き）。削除は基本情報タブで行えます。</div>
+                <div className="text-[10px] text-slate-500 mt-1.5">※ ここで入れた内容は基本情報の緊急連絡先にも反映されます（同名は最新で上書き）。「削除」で消して保存すると、基本情報からも削除されます。</div>
               </div>
             ) : (
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-2">
