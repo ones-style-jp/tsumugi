@@ -33792,13 +33792,25 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           // 1名: 本人→施設の帰路 ≒ 施設→本人と同等とみなす
         }
       }
-      // 時刻の逆算: 施設到着=到着目標。t[k] = 目標 - Σ(k以降の乗車バッファ+次への移動)
-      let cum = 0;
-      for (let k = ordered.length - 1; k >= 0; k--) {
-        const pt = (appData.patients||[]).find(x=>x.id===ordered[k].pid) || {};
-        const buf = Math.max(1, Number(pt.pickupMinutes) || 1);
-        cum += buf + Math.ceil((legs[k]||0)/60);
-        ordered[k] = { ...ordered[k], t: _fmtHM(Math.max(0, target - cum)) };
+      // ★ 2026-09-30(不具合修正・扇橋指摘「午前が7時台・午後が12時台になる」): 各種設定に出発時刻があるときは「出発から順に」数える。
+      //   お迎え時間=その方の家に着く時間(ピンポンの時間)。1人目=出発＋施設→1人目の移動、次の方=前の方の時間＋乗車にかかる時間＋移動。
+      //   施設への到着が到着目標を過ぎる車は知らせる。(従来は到着目標から逆算していたため、出発時刻より前のお迎え時間が出ていた)
+      //   出発時刻の設定が無い店舗は従来どおり到着目標から逆算: t[k] = 目標 - Σ(k以降の乗車バッファ+次への移動)
+      const _bufOf = (pid) => { const pt = (appData.patients||[]).find(x=>x.id===pid) || {}; return Math.max(1, Number(pt.pickupMinutes) || 1); };
+      let _fwdArrive = null;
+      if (_departConf != null) {
+        let tt = _departConf + Math.ceil((facToFirstSec || 0) / 60);
+        for (let k = 0; k < ordered.length; k++) {
+          ordered[k] = { ...ordered[k], t: _fmtHM(tt) };
+          tt += _bufOf(ordered[k].pid) + Math.ceil((legs[k]||0)/60);
+        }
+        _fwdArrive = tt;
+      } else {
+        let cum = 0;
+        for (let k = ordered.length - 1; k >= 0; k--) {
+          cum += _bufOf(ordered[k].pid) + Math.ceil((legs[k]||0)/60);
+          ordered[k] = { ...ordered[k], t: _fmtHM(Math.max(0, target - cum)) };
+        }
       }
       // ★ 同じ住所の方は同じお迎え時間に統一(同じ建物・ご夫婦など。早い方の時間に合わせる)(2026-09-13c/d)
       //   住所のみで比較(待ち合わせ場所の違いは無視)+全半角・空白の表記ゆれを正規化して比較
@@ -33808,10 +33820,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         const _tByAddr = {};
         ordered = ordered.map(m2 => { const a3 = _adKey(m2.pid); if (!a3) return m2; if (_tByAddr[a3] == null) { _tByAddr[a3] = m2.t; return m2; } return { ...m2, t: _tByAddr[a3] }; });
       }
-      // ★ 出発時刻チェック: 設定より早い出発が必要なら知らせる(組んだ時間はそのまま=自動的に早出)
-      if (_departConf != null && ordered.length) {
-        const fm = String(ordered[0].t||'').match(/(\d{1,2})[:時](\d{1,2})/);
-        if (fm) { const need = (+fm[1])*60 + (+fm[2]) - Math.ceil(facToFirstSec/60); if (need < _departConf) msgs.push(`${iso} ${sl} ${cname}: 最初の${_pname(ordered[0].pid)}様のお迎え(${ordered[0].t})に向かうには、施設を${_fmtHM(Math.max(0,need))}に出る必要があります（設定の出発${_fmtHM(_departConf)}より${_departConf - need}分早め）`); }
+      // ★ 到着チェック(出発から数えたとき): 到着目標を過ぎる車は知らせる(時間はそのまま・配車や出発の見直しの目安)
+      if (_fwdArrive != null && ordered.length && _fwdArrive > target) {
+        msgs.push(`${iso} ${sl} ${cname}: 出発${_fmtHM(_departConf)}で回ると施設到着は${_fmtHM(_fwdArrive)}の見込みで、到着目標(${_fmtHM(target)})より${_fwdArrive - target}分遅れます。配車の見直しか、この車だけ時間を手で早めてください`);
       }
       nextPlanCars[cid] = ordered;
       changed = true;
@@ -34442,7 +34453,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           </div>
         );
       })(), document.body)}
-      {/* ★ 送迎表の設定(2026-09-12b): 到着目標時刻(逆算の基準)と車の定員をここで編集 */}
+      {/* ★ 送迎表の設定(2026-09-12b): 到着目標時刻・出発時刻(2026-09-30〜 出発があれば出発から順に計算)と車の定員をここで編集 */}
       {/* ★ ドラッグ振替の理由入力(2026-09-13): 既存の欠席理由があればプレフィル済み */}
       {fkMove && ReactDOM.createPortal((() => {
         const pt = (appData.patients||[]).find(x => x.id === fkMove.pid);
@@ -34515,7 +34526,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 </>);
               })()}
             </div>
-            <div className="text-[11px] text-slate-500 mb-4">ルート自動作成は「到着目標時刻に施設へ着く」前提でお迎え時間を逆算します（未入力ならスケジュール先頭の5分前）。出発時刻を設定すると、間に合わない車には「◯:◯◯出発が必要」とお知らせします（自動的に早い出発で組みます）。</div>
+            <div className="text-[11px] text-slate-500 mb-4">お迎え時間は「その方の家に着く時間（ピンポンの時間）」です。出発時刻を設定すると、出発から順に「前の方の時間＋乗車にかかる時間＋移動時間」で計算し、施設への到着が到着目標を過ぎる車はお知らせします。出発時刻が未設定のときは、到着目標時刻に施設へ着くように逆算します（到着目標が未入力ならスケジュール先頭の5分前）。</div>
             <div className="font-bold text-sm text-slate-700 mb-2">車の定員（運転者を除く乗車人数）</div>
             <div className="space-y-2 mb-4">
               {cars.map((c, i) => (
