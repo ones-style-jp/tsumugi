@@ -1094,17 +1094,11 @@ const getActiveRecorderName = () => {
 const recMatchesDateYear = (r, dateStr, year) =>
   r && r.date === dateStr && (r.year == null || year == null || r.year === year);
 
-// ★ 確定モニタリングを分析（個人）へ反映してよいか。 対象月(period 例:'2026年8月')の
-//   最終日18:00 を過ぎたら反映する（店舗要望 2026-08: 確定しても対象月内は分析個人に出さず、
-//   月末最終日18時以降に自動反映）。 未確定は反映しない。 対象月不明の古い記録は従来どおり反映。
+// ★ 確定モニタリングを分析（個人）へ反映してよいか。
+//   2026-09-30(試験版・ユーザー指示): 確定した時点で反映する(確定と同時にケアマネのお知らせにも配信)。
+//   それまでは「対象月の最終日18:00以降に反映」(2026-08 店舗要望)だった。未確定は反映しない。
 function monitoringReflectable(rec) {
-  if (!rec || !rec.confirmed) return false;
-  const m = String(rec.period || '').match(/(\d+)年(\d+)月/);
-  if (!m) return true;
-  const y = Number(m[1]), mo = Number(m[2]);
-  const lastDay = new Date(y, mo, 0).getDate();
-  const deadline = new Date(y, mo - 1, lastDay, 18, 0, 0, 0).getTime();
-  return Date.now() >= deadline;
+  return !!(rec && rec.confirmed);
 }
 
 // === アドオン(オプション機能) ===
@@ -15783,6 +15777,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
             targetPatientId={pid}
             familyMode={!isCmAccount}
             cmViewerMode={isCmAccount}
+            cmSheetView={isCmAccount && (_isPreview ? (_previewKind === 'caremanager') : (loggedAcc ? (loggedAcc.relation === 'ケアマネージャー' || loggedAcc.relation === 'ケアマネ') : (_persistedKind === 'caremanager')))}
             selfMode={isSelfAccount}
             externalPeriod={familyPeriod}
             externalCustomFrom={familyCustomFrom}
@@ -15853,6 +15848,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                     </div>
                     {a.title && <div style={{fontSize:15,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>{a.title}</div>}
                     {a.body && <div style={{fontSize:13,color:'#475569',lineHeight:1.7,whiteSpace:'pre-wrap',marginBottom:annPhotos.length>0?10:0}}>{a.body}</div>}
+                    {a.jumpTo && <button type="button" data-testid="ann-jump" onClick={()=>{ setTab('analysis'); setTimeout(()=>{ try { const el = document.getElementById(a.jumpTo); if (el) el.scrollIntoView({ behavior:'smooth', block:'start' }); } catch {} }, 450); }} style={{marginTop:8,padding:'7px 14px',fontSize:13,fontWeight:'bold',color:'white',background:'#10b981',border:'none',borderRadius:8,cursor:'pointer'}}>{a.jumpLabel || '開く'}</button>}
                     {annPhotos.length > 0 && (
                       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6,marginTop:8,maxWidth:360}}>
                         {annPhotos.map((p,pi) => {
@@ -25406,7 +25402,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
 }
 
 // === PersonalDashboardView (簡易版) ===
-function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatientChange, isSidebarOpen, onShowPrintPreview, familyMode = false, cmViewerMode = false, selfMode = false, hidePatientSelector = false, stickyTopOffset = null, externalPeriod = null, externalDisplayMode = null, externalCustomFrom = null, externalCustomTo = null }) {
+function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatientChange, isSidebarOpen, onShowPrintPreview, familyMode = false, cmViewerMode = false, cmSheetView = false, selfMode = false, hidePatientSelector = false, stickyTopOffset = null, externalPeriod = null, externalDisplayMode = null, externalCustomFrom = null, externalCustomTo = null }) {
   // ★ ケアマネ閲覧モード = 事業所と同じフルセット内容を読取専用で表示。 縦型 (スマホ) でも見やすく縦並びに
   const compactMode = familyMode || cmViewerMode; // 基本指標を縦並びにする判定
   const [basicOpen, setBasicOpen] = useState(false); // ★ 2026-09-28: ご家族/ケアマネでは基本情報を折りたたみ(既定は閉)
@@ -28238,7 +28234,10 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                       <span style={{fontSize:14,fontWeight:'bold',color:'#059669'}}>{r.period||'—'}</span>
                       <span style={{fontSize:14,color:'#334155'}}>{r.createdDate||''}</span>
                     </div>
-                    <div style={{fontSize:14,color:'#475569',lineHeight:1.8,whiteSpace:'pre-wrap'}}>{r.summary}</div>
+                    {/* ★ 2026-09-30(試験版): ケアマネ・事業所はFAXと同じモニタリング表を表示(その他関係者は従来どおり要約のみ) */}
+                    {r.sheet && (!cmViewerMode || cmSheetView)
+                      ? <MonSheetPreview patient={selectedPatient} rec={r} facility={appData.systemSettings?.facilityInfo || {}} />
+                      : <div style={{fontSize:14,color:'#475569',lineHeight:1.8,whiteSpace:'pre-wrap'}}>{r.summary}</div>}
                   </div>
               ))}
             </div>
@@ -47062,6 +47061,35 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
   );
 }
 
+// ★ 2026-09-30(試験版): ケアマネ画面・分析個人の「モニタリング」に、FAXと同じモニタリング表を用紙の見た目のまま表示する。
+//   横幅に合わせて縮小し、タップで拡大(画面内に重ねて表示・印刷 / PDF保存)。
+function MonSheetPreview({ patient, rec, facility }) {
+  const PAGE_W = 1000;
+  const boxRef = React.useRef(null);
+  const pageRef = React.useRef(null);
+  const [scale, setScale] = React.useState(1);
+  const [boxH, setBoxH] = React.useState(null);
+  const html = buildMonitoringTableHtml(patient, rec.sheet || {}, facility, rec.period);
+  React.useLayoutEffect(() => {
+    const el = boxRef.current; if (!el) return;
+    const upd = () => { const w = el.clientWidth || PAGE_W; const s = Math.min(1, w / PAGE_W); setScale(s); if (pageRef.current) setBoxH(Math.ceil(pageRef.current.offsetHeight * s)); };
+    upd();
+    let ro = null; try { ro = new ResizeObserver(upd); ro.observe(el); } catch { /* 古い端末は初回の縮小のみ */ }
+    return () => { try { ro && ro.disconnect(); } catch {} };
+  }, [rec.id, html]);
+  const openFull = () => tsumugiShowHtmlInPage(`<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>通所介護モニタリング表_${_escMon(patient?.name || '')}_${_escMon(rec.period || '')}</title><style>@page{size:A4 landscape;margin:10mm}body{margin:0;padding:10mm;box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body><div style="width:940px;margin:0 auto;background:#fff;">${html}</div></body></html>`); // 拡大表示でも用紙の横向きレイアウトのまま(スマホは横スクロール)
+  return (
+    <div data-testid="mon-sheet-preview">
+      <div ref={boxRef} onClick={openFull} role="button" title="タップで拡大" style={{cursor:'zoom-in',overflow:'hidden',height: boxH || 'auto',border:'1px solid #cbd5e1',borderRadius:6,background:'#fff',boxShadow:'0 1px 4px rgba(0,0,0,0.08)'}}>
+        <div ref={pageRef} style={{width:PAGE_W,padding:28,boxSizing:'border-box',transform:`scale(${scale})`,transformOrigin:'top left',background:'#fff'}} dangerouslySetInnerHTML={{__html: html}} />
+      </div>
+      <div style={{display:'flex',justifyContent:'flex-end',marginTop:8}}>
+        <button type="button" onClick={openFull} style={{padding:'6px 12px',fontSize:13,fontWeight:'bold',color:'#065f46',background:'#ecfdf5',border:'1px solid #a7f3d0',borderRadius:8,cursor:'pointer'}}>拡大して見る・印刷 / PDF保存</button>
+      </div>
+    </div>
+  );
+}
+
 function buildMonitoringTableHtml(patient, sheet, facility, monthLabel) {
   const f = facility || {}; const s = sheet || {};
   const cell = (v) => (v && typeof v==='object') ? v : { sel:'', text:(v!=null?String(v):'') };
@@ -47597,7 +47625,33 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     const sm = _monSummary(sheet);
     const conf = (confirmedFlag != null) ? confirmedFlag : !!(prev && prev.confirmed);
     existing.push({ id: (prev&&prev.id) || `${patient.id}_${tY}-${String(tM).padStart(2,'0')}`, patientId:patient.id, period:monthLabelStr, createdDate:(prev&&prev.createdDate)||new Date().toLocaleDateString('ja-JP'), createdAt:(prev&&prev.createdAt)||Date.now(), summary:sm, sheet, confirmed: conf });
-    onSave({...appData, monitoringRecords: existing, ...(extra||{})}, opts);
+    // ★ 2026-09-30(試験版): 確定したら担当ケアマネの画面のお知らせに「モニタリングを作成しました」を配信し、
+    //   確定を解除したらそのお知らせを取り下げる(墓石付き)。お知らせのidは確定ごとに新しくする(取り下げ後の再確定で墓石に当たらない)。
+    let _annPatch = {};
+    {
+      const _i = existing.length - 1, _rec = existing[_i];
+      const _prevConf = !!(prev && prev.confirmed);
+      const _anns = (extra && extra.familyPersonalAnnouncements) || appData.familyPersonalAnnouncements || [];
+      if (conf && !_prevConf) {
+        const _now = new Date(), _ts = syncNow();
+        const _again = !!(prev && prev.monNotifiedAt);
+        const annId = `monann_${_rec.id}_${_ts}`;
+        const ann = { id: annId, patientId: patient.id, title: `モニタリング（${monthLabelStr}）を${_again ? '更新' : '作成'}しました`,
+          body: `${monthLabelStr}分のモニタリング表を${_again ? '更新' : '作成'}しました。ご確認ください。`,
+          date: `${_now.getFullYear()}-${String(_now.getMonth()+1).padStart(2,'0')}-${String(_now.getDate()).padStart(2,'0')}`,
+          postedAt: _now.toISOString(), audience: ['caremanager'], jumpTo: 'sec-monitoring', jumpLabel: 'モニタリング表を見る', photos: [], _savedAt: _ts };
+        existing[_i] = { ..._rec, monAnnId: annId, monNotifiedAt: (prev && prev.monNotifiedAt) || _now.toISOString() };
+        _annPatch = { familyPersonalAnnouncements: [ann, ..._anns] };
+      } else if (!conf && _prevConf && prev && prev.monAnnId) {
+        existing[_i] = { ..._rec, monAnnId: null, monNotifiedAt: prev.monNotifiedAt || null };
+        const _dI = (extra && extra.deletedIds) || appData.deletedIds || {};
+        _annPatch = { familyPersonalAnnouncements: _anns.filter(a => a.id !== prev.monAnnId),
+          deletedIds: { ..._dI, familyPersonalAnnouncements: { ...(_dI.familyPersonalAnnouncements || {}), [String(prev.monAnnId)]: Date.now() } } };
+      } else if (prev) {
+        existing[_i] = { ..._rec, monAnnId: prev.monAnnId || null, monNotifiedAt: prev.monNotifiedAt || null };
+      }
+    }
+    onSave({...appData, monitoringRecords: existing, ...(extra||{}), ..._annPatch}, opts);
     setResults(prev2=>({...prev2,[patient.id]:{text:sm, loading:false, error:null}}));
     if (dirtyRef) dirtyRef.current = false;
   };
@@ -47612,8 +47666,8 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   // ★ 確定/解除トグル (レコードの confirmed を反転)。 未作成なら既定シートを作って確定。
   const toggleConfirm = (patient) => {
     const rec = getSheetRecord(patient.id);
-    if (!rec || !rec.sheet) { const sheet = buildDefaultSheetFor(patient); upsertSheet(patient, sheet, {manual:true, message:'✓ 確定しました（内容未入力のため既定の文章で作成）'}, true); return; }
-    upsertSheet(patient, rec.sheet, {manual:true, message: rec.confirmed ? '確定を解除しました' : '✓ 確定しました'}, !rec.confirmed);
+    if (!rec || !rec.sheet) { const sheet = buildDefaultSheetFor(patient); upsertSheet(patient, sheet, {manual:true, message:'✓ 確定しました（内容未入力のため既定の文章で作成）。担当ケアマネの画面に反映し、お知らせを送りました'}, true); return; }
+    upsertSheet(patient, rec.sheet, {manual:true, message: rec.confirmed ? '確定を解除しました（担当ケアマネの画面からも取り下げました）' : '✓ 確定しました。担当ケアマネの画面に反映し、お知らせを送りました'}, !rec.confirmed);
   };
   // ★ 一覧の1行をAIで下書き (手入力済みの内容は残してAIは空欄のみ補完)。 確定はしない。
   const aiDraftRow = async (patient) => {
