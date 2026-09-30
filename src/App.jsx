@@ -22344,8 +22344,40 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const timeFilter = (sharedAmpm === 'all' || !sharedAmpm) ? 'AM' : sharedAmpm;
   const setTimeFilter = (v) => setSharedAmpm && setSharedAmpm(v);
   const [keypad, setKeypad] = useState({ isOpen: false, recordId: null, field: null, value: "", isFirstInput: false });
-  const [kinouPanel, setKinouPanel] = useState(false); // ★ 個別機能訓練の実施担当を利用者ごとに設定するパネル(2026-09-29)
-  const [kinouGroupPanel, setKinouGroupPanel] = useState(false); // ★ 個別機能訓練のグループ設定パネル(2026-09-30)
+  const [kinouGroupPanel, setKinouGroupPanel] = useState(false); // ★ 個別機能訓練のグループ設定(2026-09-30: ドラッグで振り分けるボード)
+  const [kinouExtraGroups, setKinouExtraGroups] = useState([]); // ★ この画面で追加した空のグループ(D,E…)。利用者が入れば記録から自動で出る
+  const [kgDrag, setKgDrag] = useState(null); // ★ ドラッグ中 {pid, name, x, y, over}
+  const [kgSel, setKgSel] = useState(null);   // ★ タップで選んだ利用者(次にタップしたグループへ移す)
+  const kgPendRef = useRef(null); const kgDropRef = useRef(null); const kgSuppressRef = useRef(0);
+  // ★ 長押し(タッチ)/少し動かす(マウス)でドラッグ開始 → 指を離した場所のグループへ移す
+  React.useEffect(() => {
+    const zoneAt = (x, y) => { try { const el = document.elementFromPoint(x, y); const z = el && el.closest ? el.closest('[data-kgdrop]') : null; return z ? z.getAttribute('data-kgdrop') : null; } catch { return null; } };
+    const move = (e) => {
+      const pd = kgPendRef.current; if (!pd) return;
+      if (!pd.active) {
+        const dist = Math.hypot(e.clientX - pd.x0, e.clientY - pd.y0);
+        if (pd.type === 'mouse' && dist > 5) { pd.active = true; setKgDrag({ pid: pd.pid, name: pd.name, x: e.clientX, y: e.clientY, over: zoneAt(e.clientX, e.clientY) }); }
+        else if (pd.type !== 'mouse' && dist > 12) { clearTimeout(pd.timer); kgPendRef.current = null; }
+        return;
+      }
+      if (e.cancelable) e.preventDefault();
+      const over = zoneAt(e.clientX, e.clientY);
+      setKgDrag(d => d ? { ...d, x: e.clientX, y: e.clientY, over } : d);
+    };
+    const up = (e) => {
+      const pd = kgPendRef.current; kgPendRef.current = null; if (!pd) return;
+      clearTimeout(pd.timer);
+      if (pd.active) {
+        const z = zoneAt(e.clientX, e.clientY);
+        if (z && kgDropRef.current) kgDropRef.current(pd.pid, z);
+        kgSuppressRef.current = Date.now();
+        setKgDrag(null);
+      }
+    };
+    window.addEventListener('pointermove', move, { passive: false });
+    window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+    return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
+  }, []);
   const [kinouGroupSel, setKinouGroupSel] = useState(''); // ★ 上に集めて表示するグループ('' = 通常の並び)
   // ★ 拡大入力ビュー(2026-09-09 店舗要望): 高齢のスタッフでも見やすいよう、1名分のバイタル・運動・特記を大きな字で表示・入力
   const [zoomPid, setZoomPid] = useState(null);
@@ -23609,10 +23641,26 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const KINOU_GROUP_MAX = 5;
   const _kinouGField = `kinouGroup_${(timeFilter === 'PM') ? 'PM' : 'AM'}`;
   const _kinouGroupsUsed = [...new Set(_kinouRows.map(p => p[_kinouGField]).filter(Boolean))].sort();
-  const _kinouGroupLetters = (() => { const n = Math.max(3, _kinouGroupsUsed.length + 1, Math.ceil(_kinouRows.filter(p => !_kinouAbs(p)).length / KINOU_GROUP_MAX)); return 'ABCDEFGHIJ'.slice(0, Math.min(10, n)).split(''); })();
+  // ★ グループは既定で A・B・C。「＋グループ追加」で D・E…(利用者が入ったグループは記録から自動で出る)
+  const _KG_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const _kinouGroupList = [...new Set(['A', 'B', 'C', ...kinouExtraGroups, ..._kinouGroupsUsed])].sort((a, b) => _KG_LETTERS.indexOf(a) - _KG_LETTERS.indexOf(b));
   const _kinouGroupCount = (g) => _kinouRows.filter(p => p[_kinouGField] === g).length;
-  const _kinouGroupOf = (p) => p[_kinouGField] || '';
-  const setKinouGroup = (pid, g) => { if (g && _kinouGroupCount(g) >= KINOU_GROUP_MAX) { alert(`グループ${g}は${KINOU_GROUP_MAX}名までです。`); return; } updateRecord(pid, _kinouGField, g); };
+  const _kinouGroupStaff = (g) => { const c = {}; _kinouRows.filter(p => p[_kinouGField] === g && !_kinouAbs(p)).forEach(p => { const v = p[_kinouField]; if (v) c[v] = (c[v] || 0) + 1; }); return Object.keys(c).sort((a, b) => c[b] - c[a])[0] || _kinouEff || _kinouList[0] || ''; }; // 空のグループは上部の「実施」と同じ
+  const _kinouNextGroup = () => _KG_LETTERS.split('').find(l => !_kinouGroupList.includes(l)) || '';
+  const setKinouGroup = (pid, g) => {
+    if (!isEditMode) return;
+    const rec = _kinouRows.find(p => p.id === pid); if (!rec) return;
+    if ((rec[_kinouGField] || '') === (g || '')) return;
+    if (g && _kinouGroupCount(g) >= KINOU_GROUP_MAX) { alert(`グループ${g}は${KINOU_GROUP_MAX}名までです（個別機能訓練のグループは5名以下）。`); return; }
+    updateRecord(pid, _kinouGField, g || '');
+    // ★ グループに入ったら、そのグループの実施担当に合わせる(グループ単位で担当を決める運用)
+    if (g) { const st = _kinouGroupStaff(g); if (st) updateRecord(pid, _kinouField, st); } // ★ 表示どおりの担当を必ず記録(表示と保存のずれ防止)
+  };
+  kgDropRef.current = (pid, zone) => {
+    if (zone === 'none') return setKinouGroup(pid, '');
+    if (zone === 'new') { const g = _kinouNextGroup(); if (!g) return; setKinouExtraGroups(x => [...x, g]); return setKinouGroup(pid, g); }
+    return setKinouGroup(pid, zone);
+  };
   const applyKinouGroup = (g, name) => { _kinouRows.forEach(p => { if (_kinouAbs(p) || p[_kinouGField] !== g) return; updateRecord(p.id, _kinouField, name); }); };
   if (kinouGroupSel && filterMode === 'single') {
     const _in = displayRecords.filter(p => p[_kinouGField] === kinouGroupSel), _out = displayRecords.filter(p => p[_kinouGField] !== kinouGroupSel);
@@ -23739,60 +23787,70 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   <option value="未算定">未算定</option>
                   {!_kinouList.length && !_kinouEff && <option value="">（機能訓練指導員が未登録）</option>}
                 </select>
-                <button type="button" data-testid="kinou-panel-btn" onClick={()=>{ setKinouPanel(v=>!v); setKinouGroupPanel(false); }} className={`text-[11px] font-bold rounded-lg px-2 py-1 border ${kinouPanel ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-emerald-800 border-emerald-300'}`}>利用者ごと</button>
-                <button type="button" data-testid="kinou-group-btn" onClick={()=>{ setKinouGroupPanel(v=>!v); setKinouPanel(false); }} className={`text-[11px] font-bold rounded-lg px-2 py-1 border ${kinouGroupPanel ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-emerald-800 border-emerald-300'}`}>グループ</button>
+                <button type="button" data-testid="kinou-group-btn" onClick={()=>{ setKinouGroupPanel(true); setKgSel(null); }} className="text-[11px] font-bold rounded-lg px-2 py-1 border bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-100">グループ</button>
+                <span className="text-[11px] font-bold text-emerald-800 whitespace-nowrap">上に</span>
                 <select data-testid="kinou-group-sel" value={kinouGroupSel} onChange={e=>setKinouGroupSel(e.target.value)} title="選んだグループの利用者を表の一番上にまとめて表示します" className="text-[11px] font-bold bg-white border border-emerald-300 text-emerald-900 rounded-lg px-1 py-1">
-                  <option value="">上に表示: なし</option>
-                  {_kinouGroupsUsed.map(g => <option key={g} value={g}>上に表示: グループ{g}（{_kinouGroupCount(g)}名）</option>)}
+                  <option value="">なし</option>
+                  {_kinouGroupsUsed.map(g => <option key={g} value={g}>{g}（{_kinouGroupCount(g)}）</option>)}
                 </select>
-                {kinouGroupPanel && (
-                  <div data-testid="kinou-group-panel" className="absolute left-0 top-full mt-1 z-40 bg-white border border-emerald-300 rounded-xl shadow-xl p-2 w-[420px] max-h-[65vh] overflow-y-auto">
-                    <div className="text-[11px] font-bold text-emerald-800 mb-1">グループ（{timeFilter === 'PM' ? '午後' : '午前'}・1グループ最大{KINOU_GROUP_MAX}名）</div>
-                    {_kinouGroupsUsed.length > 0 && (
-                      <div className="mb-2 flex flex-col gap-1">
-                        {_kinouGroupsUsed.map(g => { const mem = _kinouRows.filter(p => p[_kinouGField] === g); const cur = (() => { const c = {}; mem.forEach(p => { const v = p[_kinouField]; if (v) c[v] = (c[v]||0)+1; }); return Object.keys(c).sort((a,b)=>c[b]-c[a])[0] || _kinouEff; })(); return (
-                          <div key={g} className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1" data-testid={`kinou-group-row-${g}`}>
-                            <span className="text-sm font-bold text-emerald-900 whitespace-nowrap">グループ{g}</span>
-                            <span className="text-[11px] text-slate-500 whitespace-nowrap">{mem.length}/{KINOU_GROUP_MAX}名</span>
-                            <select disabled={!isEditMode} value={cur} onChange={e=>applyKinouGroup(g, e.target.value)} data-testid={`kinou-group-staff-${g}`} className="ml-auto text-[12px] font-bold bg-white border border-emerald-300 rounded px-1 py-0.5 disabled:opacity-60">
-                              {_kinouList.map(n => <option key={n} value={n}>実施: {n}</option>)}
-                              {!_kinouList.includes(cur) && cur && cur !== '未算定' && <option value={cur}>実施: {cur}</option>}
-                              <option value="未算定">未算定</option>
-                            </select>
-                          </div>
-                        ); })}
+                {/* ★ グループ振り分けボード(2026-09-30): 画面の最前面に出す(表の見出しの下に隠れないよう body 直下へ) */}
+                {kinouGroupPanel && ReactDOM.createPortal((
+                  <div className="fixed inset-0 z-[10050] bg-slate-900/40 flex items-start justify-center p-3 sm:p-6" data-testid="kinou-group-panel">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[1200px] max-h-[92vh] flex flex-col" onClick={e=>e.stopPropagation()}>
+                      <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-200 shrink-0">
+                        <div className="min-w-0">
+                          <div className="text-base font-bold text-slate-800">個別機能訓練のグループ（{timeFilter === 'PM' ? '午後' : '午前'}）</div>
+                          <div className="text-xs text-slate-500">名前を長押しして動かすと移動できます（名前をタップ→移動先のグループをタップでも可）。1グループ最大{KINOU_GROUP_MAX}名。「＋グループ追加」に入れると新しいグループができます。</div>
+                        </div>
+                        <button type="button" onClick={()=>{ setKinouGroupPanel(false); setKgSel(null); }} className="ml-auto shrink-0 px-4 py-2 rounded-xl bg-slate-800 text-white text-sm font-bold">閉じる</button>
                       </div>
-                    )}
-                    {_kinouRows.filter(p => !_kinouAbs(p)).map(p => (
-                      <div key={p.id} className="flex items-center gap-2 py-0.5 border-b border-slate-100 last:border-0">
-                        <span className="flex-1 min-w-0 truncate text-sm font-bold text-slate-800">{p.name}</span>
-                        <select data-testid={`kinou-group-of-${p.id}`} disabled={!isEditMode} value={_kinouGroupOf(p)} onChange={e=>setKinouGroup(p.id, e.target.value)} className="shrink-0 text-[12px] font-bold bg-white border border-emerald-300 text-emerald-900 rounded px-1 py-0.5 disabled:opacity-60">
-                          <option value="">グループなし</option>
-                          {_kinouGroupLetters.map(g => <option key={g} value={g} disabled={g !== _kinouGroupOf(p) && _kinouGroupCount(g) >= KINOU_GROUP_MAX}>グループ{g}（{_kinouGroupCount(g)}/{KINOU_GROUP_MAX}）</option>)}
-                        </select>
+                      <div className="p-3 overflow-y-auto" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(190px,1fr))',gap:10,alignItems:'start'}}>
+                        {[{ key: 'none', title: 'グループなし' }, ..._kinouGroupList.map(g => ({ key: g, title: `グループ${g}` })), { key: 'new', title: '＋グループ追加' }].map(col => {
+                          const mem = col.key === 'none' ? _kinouRows.filter(p => !_kinouAbs(p) && !p[_kinouGField]) : col.key === 'new' ? [] : _kinouRows.filter(p => !_kinouAbs(p) && p[_kinouGField] === col.key);
+                          const isGroup = col.key !== 'none' && col.key !== 'new';
+                          const full = isGroup && mem.length >= KINOU_GROUP_MAX;
+                          const over = kgDrag && kgDrag.over === col.key;
+                          const removable = isGroup && !['A','B','C'].includes(col.key) && mem.length === 0 && _kinouGroupCount(col.key) === 0;
+                          return (
+                            <div key={col.key} data-kgdrop={col.key} data-testid={`kg-col-${col.key}`}
+                              onClick={()=>{ if (kgSel != null) { kgDropRef.current && kgDropRef.current(kgSel, col.key); setKgSel(null); } }}
+                              className={`rounded-xl border-2 p-2 min-h-[120px] transition-colors ${col.key === 'new' ? 'border-dashed border-emerald-400 bg-emerald-50/40' : col.key === 'none' ? 'border-slate-200 bg-slate-50' : full ? 'border-amber-300 bg-amber-50/40' : 'border-emerald-200 bg-white'} ${over ? 'ring-4 ring-blue-300 border-blue-500' : ''} ${kgSel != null ? 'cursor-pointer' : ''}`}>
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <span className={`text-sm font-bold ${col.key === 'new' ? 'text-emerald-700' : 'text-slate-800'}`}>{col.title}</span>
+                                {isGroup && <span className={`text-[11px] font-bold ${full ? 'text-amber-700' : 'text-slate-500'}`}>{mem.length}/{KINOU_GROUP_MAX}名</span>}
+                                {col.key === 'none' && <span className="text-[11px] text-slate-500">{mem.length}名</span>}
+                                {removable && <button type="button" title="空のグループを消す" onClick={e=>{ e.stopPropagation(); setKinouExtraGroups(x => x.filter(g => g !== col.key)); }} className="ml-auto text-slate-400 hover:text-red-600 text-xs font-bold">×</button>}
+                              </div>
+                              {isGroup && (
+                                <select data-testid={`kinou-group-staff-${col.key}`} disabled={!isEditMode || !mem.length} value={_kinouGroupStaff(col.key)} onClick={e=>e.stopPropagation()} onChange={e=>applyKinouGroup(col.key, e.target.value)} className="w-full mb-1.5 text-[12px] font-bold bg-white border border-emerald-300 rounded px-1 py-1 disabled:opacity-50">
+                                  {_kinouList.map(n => <option key={n} value={n}>実施: {n}</option>)}
+                                  {!_kinouList.includes(_kinouGroupStaff(col.key)) && _kinouGroupStaff(col.key) && _kinouGroupStaff(col.key) !== '未算定' && <option value={_kinouGroupStaff(col.key)}>実施: {_kinouGroupStaff(col.key)}</option>}
+                                  <option value="未算定">未算定</option>
+                                </select>
+                              )}
+                              <div className="flex flex-col gap-1">
+                                {mem.map(p => (
+                                  <div key={p.id} data-testid={`kg-chip-${p.id}`}
+                                    onPointerDown={e=>{ if (!isEditMode) return; const pd = { pid: p.id, name: p.name, x0: e.clientX, y0: e.clientY, type: e.pointerType, active: false, timer: null };
+                                      if (e.pointerType !== 'mouse') pd.timer = setTimeout(() => { if (kgPendRef.current !== pd) return; pd.active = true; setKgDrag({ pid: p.id, name: p.name, x: pd.x0, y: pd.y0, over: col.key }); try { navigator.vibrate && navigator.vibrate(15); } catch {} }, 250);
+                                      kgPendRef.current = pd; }}
+                                    onClick={e=>{ e.stopPropagation(); if (Date.now() - kgSuppressRef.current < 400) return; if (!isEditMode) return; setKgSel(v => v === p.id ? null : p.id); }}
+                                    style={{touchAction:'none',userSelect:'none',WebkitUserSelect:'none'}}
+                                    className={`px-2 py-1.5 rounded-lg border text-sm font-bold select-none ${isEditMode ? 'cursor-grab' : ''} ${kgSel === p.id ? 'bg-blue-600 text-white border-blue-600' : kgDrag && kgDrag.pid === p.id ? 'opacity-40 bg-white border-slate-300' : 'bg-white text-slate-800 border-slate-300 hover:border-emerald-400'}`}>
+                                    {p.name}
+                                  </div>
+                                ))}
+                                {!mem.length && <div className="text-[11px] text-slate-400 py-2 text-center">{col.key === 'new' ? 'ここに入れると新しいグループ' : 'ここに入れる'}</div>}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    ))}
-                    {!_kinouRows.filter(p => !_kinouAbs(p)).length && <div className="text-xs text-slate-500">対象の利用者がいません</div>}
-                    <div className="flex justify-end mt-1"><button type="button" onClick={()=>setKinouGroupPanel(false)} className="text-[11px] font-bold text-slate-600 border border-slate-300 rounded px-2 py-0.5">閉じる</button></div>
+                      {!_kinouRows.filter(p => !_kinouAbs(p)).length && <div className="text-sm text-slate-500 px-4 pb-4">対象の利用者がいません</div>}
+                    </div>
+                    {kgDrag && <div style={{position:'fixed',left:kgDrag.x+10,top:kgDrag.y+10,zIndex:10060,pointerEvents:'none'}} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-bold shadow-xl">{kgDrag.name}</div>}
                   </div>
-                )}
-                {kinouPanel && (
-                  <div data-testid="kinou-panel" className="absolute left-0 top-full mt-1 z-40 bg-white border border-emerald-300 rounded-xl shadow-xl p-2 w-[340px] max-h-[60vh] overflow-y-auto">
-                    <div className="text-[11px] font-bold text-emerald-800 mb-1">利用者ごとの実施担当（{timeFilter === 'PM' ? '午後' : '午前'}）</div>
-                    {_kinouRows.filter(p => !_kinouAbs(p)).map(p => (
-                      <div key={p.id} className="flex items-center gap-2 py-0.5 border-b border-slate-100 last:border-0">
-                        <span className="flex-1 min-w-0 truncate text-sm font-bold text-slate-800">{p.name}</span>
-                        <select data-testid={`kinou-row-${p.id}`} disabled={!isEditMode} value={p[_kinouField] || ''} onChange={e=>updateRecord(p.id, _kinouField, e.target.value)} className="shrink-0 text-[12px] font-bold bg-white border border-emerald-300 text-emerald-900 rounded px-1 py-0.5 max-w-[150px] disabled:opacity-60">
-                          <option value="">（{_kinouEff || '—'}）</option>
-                          {_kinouList.map(n => <option key={n} value={n}>{n}</option>)}
-                          <option value="未算定">未算定</option>
-                        </select>
-                      </div>
-                    ))}
-                    {!_kinouRows.filter(p => !_kinouAbs(p)).length && <div className="text-xs text-slate-500">対象の利用者がいません</div>}
-                    <div className="flex justify-end mt-1"><button type="button" onClick={()=>setKinouPanel(false)} className="text-[11px] font-bold text-slate-600 border border-slate-300 rounded px-2 py-0.5">閉じる</button></div>
-                  </div>
-                )}
+                ), document.body)}
               </div>
             )}
             <div className="sm:ml-auto flex items-center gap-2 flex-wrap">
