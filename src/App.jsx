@@ -23686,6 +23686,15 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     });
     alert(`${md}（${apLbl}）の割り振りをコピーしました（${moved}名）。` + (none.length ? `\n${md}にグループが無かった方は「グループなし」です: ${none.join('、')}` : ''));
   };
+  // ★ リセット(2026-09-30 ユーザー要望): 表示中の区分(AM/PM)のグループ分けを全員「グループなし」に戻す(実施担当はそのまま)
+  const resetKinouGroups = () => {
+    if (!isEditMode) return;
+    const targets = _kinouRows.filter(p => p[_kinouGField]);
+    if (!targets.length) { setKinouExtraGroups([]); return; }
+    if (!window.confirm(`${timeFilter === 'PM' ? '午後' : '午前'}のグループ分け（${targets.length}名）をすべて「グループなし」に戻しますか？`)) return;
+    targets.forEach(p => updateRecord(p.id, _kinouGField, ''));
+    setKinouExtraGroups([]); setKgSel(null);
+  };
   kgDropRef.current = (pid, zone) => {
     if (zone === 'none') return setKinouGroup(pid, '');
     if (zone === 'new') { const g = _kinouNextGroup(); if (!g) return; setKinouExtraGroups(x => [...x, g]); return setKinouGroup(pid, g); }
@@ -23832,7 +23841,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                           <div className="text-base font-bold text-slate-800">個別機能訓練のグループ（{timeFilter === 'PM' ? '午後' : '午前'}）</div>
                           <div className="text-xs text-slate-500">名前を長押しして動かすと移動できます（名前をタップ→移動先のグループをタップでも可）。1グループ最大{KINOU_GROUP_MAX}名。「＋グループ追加」に入れると新しいグループができます。</div>
                         </div>
-                        <button type="button" data-testid="kg-copy-last-week" disabled={!isEditMode} onClick={copyKinouGroupsFromLastWeek} title="同じ曜日・同じ午前/午後の先週の割り振りをそのまま使います(先週が休みなら最大4週前までさかのぼります)" className="ml-auto shrink-0 px-3 py-2 rounded-xl border border-emerald-400 bg-emerald-50 text-emerald-800 text-sm font-bold hover:bg-emerald-100 disabled:opacity-50">先週の割り振りをコピー</button>
+                        <button type="button" data-testid="kg-reset" disabled={!isEditMode} onClick={resetKinouGroups} title="表示中の午前/午後のグループ分けを全員「グループなし」に戻します" className="ml-auto shrink-0 px-3 py-2 rounded-xl border border-red-300 bg-white text-red-600 text-sm font-bold hover:bg-red-50 disabled:opacity-50">リセット</button>
+                        <button type="button" data-testid="kg-copy-last-week" disabled={!isEditMode} onClick={copyKinouGroupsFromLastWeek} title="同じ曜日・同じ午前/午後の先週の割り振りをそのまま使います(先週が休みなら最大4週前までさかのぼります)" className="shrink-0 px-3 py-2 rounded-xl border border-emerald-400 bg-emerald-50 text-emerald-800 text-sm font-bold hover:bg-emerald-100 disabled:opacity-50">先週の割り振りをコピー</button>
                         <button type="button" onClick={()=>{ setKinouGroupPanel(false); setKgSel(null); }} className="shrink-0 px-4 py-2 rounded-xl bg-slate-800 text-white text-sm font-bold">閉じる</button>
                       </div>
                       <div className="p-3 overflow-y-auto" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(190px,1fr))',gap:10,alignItems:'start'}}>
