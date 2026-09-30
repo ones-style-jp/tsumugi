@@ -18586,6 +18586,7 @@ export default function App() {
   // ★ 災害速報ポップアップ(2026-09-19・運営推進会議の要望): 気象庁の公開データ(地震・津波・警報)を /api/alerts 経由で1分ごとに確認し、
   //   該当があれば画面上部に赤いバナーを出す(ハザードマップ・緊急連絡・安否確認・解除)。"揺れる前"の緊急地震速報は含まれない。
   //   都道府県は事業所住所から判定(不明時は東京都)。解除したIDは端末に記憶し、同じ速報は再表示しない。
+  //   ★ 2026-09-30: 市区町村(住所)で絞る。地震=事業所の市区町村で震度4以上、津波=その沿岸の予報区に注意報以上、警報=その市区町村に発表中。
   const [disasterAlerts, setDisasterAlerts] = React.useState([]);
   const [dismissedAlertIds, setDismissedAlertIds] = React.useState(() => { try { return JSON.parse(localStorage.getItem('tsumugiAlertDismissed') || '[]'); } catch { return []; } });
   const _jmaPrefCode = (addr) => {
@@ -18601,7 +18602,8 @@ export default function App() {
       try {
         // ★ 表示テスト: URLに ?alerttest を付けると見本の速報を出す(実際の送信は何もしない)
         if (/[?&]alerttest/.test(window.location.search)) { if (!stopped) setDisasterAlerts([{ id: 'test:demo', kind: 'quake', level: 'critical', title: '【表示テスト】地震情報 東京湾 最大震度5弱（この地域: 震度5弱）', body: 'これは表示の見本です。実際の速報ではありません。', at: new Date().toISOString() }]); return; }
-        const r = await fetch(`/api/alerts?pref=${pref}`, { cache: 'no-store' });
+        // ★ 2026-09-30: 事業所の住所も渡し、市区町村・沿岸の予報区に合った速報だけを受け取る(全国の津波予報などを出さない)
+        const r = await fetch(`/api/alerts?pref=${pref}&addr=${encodeURIComponent(String(appData.systemSettings?.facilityInfo?.address || '').slice(0, 120))}`, { cache: 'no-store' });
         const j = await r.json();
         if (!stopped && j && Array.isArray(j.alerts)) setDisasterAlerts(j.alerts);
       } catch {}
