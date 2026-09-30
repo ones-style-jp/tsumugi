@@ -28287,7 +28287,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                   <div key={r.id} style={{padding:'14px 20px',borderBottom:'1px solid #f0fdf4',backgroundColor:i%2===0?'white':'#f8fffe'}}>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
                       <span style={{fontSize:14,fontWeight:'bold',color:'#059669'}}>{r.period||'—'}</span>
-                      <span style={{fontSize:14,color:'#334155'}}>{r.createdDate||''}</span>
+                      <span style={{fontSize:14,color:'#334155'}}>{(() => { const d = r.sheet && r.sheet.implDate ? new Date(r.sheet.implDate) : null; return d && !isNaN(d) ? `実施日 ${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}` : (r.createdDate||''); })()}</span>
                     </div>
                     {/* ★ 2026-09-30(試験版): ケアマネ・事業所はFAXと同じモニタリング表を表示(その他関係者は従来どおり要約のみ) */}
                     {r.sheet && (!cmViewerMode || cmSheetView)
@@ -33065,6 +33065,21 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     if (p.status === '休止' && !(p.pauseHistory||[]).length) return true; // 履歴が無い休止(データ不整合時の保険)
     return false;
   };
+  // ★ 2026-09-30(扇橋指摘: 提供記録で振替にした方が送迎表に出ない): 月間スケジュールに印が無くても当日の提供記録を反映する。
+  //   日付(年つき)→その日の記録 の索引。振替/臨時の記録はその時間帯(furikaeAmpm → 特記の午前/午後 → 無ければ午前=日誌と同じ)に出し、
+  //   欠席/休止/休業の記録があれば基本の時間帯には出さない(月間スケジュールに印がある時はそちらを優先)。
+  const _recByDay = React.useMemo(() => {
+    const m = new Map();
+    (appData.ticketRecords || []).forEach(r => {
+      const mm = String(r && r.date || '').match(/(\d+)月(\d+)日/); if (!mm || !r.year) return;
+      const k = `${r.year}-${String(mm[1]).padStart(2,'0')}-${String(mm[2]).padStart(2,'0')}`;
+      if (!m.has(k)) m.set(k, []); m.get(k).push(r);
+    });
+    return m;
+  }, [appData.ticketRecords]);
+  const _recsOn = (pid, iso) => (_recByDay.get(iso) || []).filter(r => r.patientId === pid);
+  const _recSlot = (r) => { const fa = r.furikaeAmpm; if (fa) return fa === '1日' ? 'AM' : fa; const tk = String(r.tokki || ''); if (/午後/.test(tk)) return 'PM'; if (/午前/.test(tk)) return 'AM'; return 'AM'; };
+  const _recAbsent = (pid, iso) => _recsOn(pid, iso).some(r => r.status === '欠席' || r.status === '休止' || r.status === '休業');
   // その日のスロットに来る予定の利用者(欠席/休業/休止は除外・振替は含む)
   const _attendees = (iso, sl) => {
     const d = new Date(iso); const dow = d.getDay(); const dayNum = d.getDate();
@@ -33085,7 +33100,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         attending = (ov === '〇' || ov === '出席' || ov === '臨時' || String(ov).startsWith('振'));
         furikae = String(ov).startsWith('振');
       } else {
-        attending = baseHit; // ★ 2026-09-16e: 生statusではなく期間ベース(_isPausedOn)で休止判定
+        attending = baseHit && !_recAbsent(p.id, iso); // ★ 2026-09-16e: 生statusではなく期間ベース(_isPausedOn)で休止判定 / ★ 2026-09-30: 当日の欠席記録
+        // ★ 2026-09-30: 提供記録の振替/臨時(この時間帯)で来る方
+        if (!attending) { const _ra = _recsOn(p.id, iso).find(r => (r.status === '振替' || r.status === '臨時') && _recSlot(r) === sl); if (_ra) { attending = true; furikae = _ra.status === '振替'; } }
       }
       if (!attending) return;
       if (_isPausedOn(p, iso)) return;
@@ -33116,7 +33133,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const ov = appData.monthlyShifts?.[mk]?.[p.id]?.[`${dayNum}_${sl}`];
       let attending;
       if (ov !== undefined && ov !== '') attending = (ov === '〇' || ov === '出席' || ov === '臨時' || String(ov).startsWith('振'));
-      else attending = true; // ★ 2026-09-16e: 生statusではなく期間ベース(_isPausedOn)で休止判定
+      else attending = !_recAbsent(p.id, iso); // ★ 2026-09-16e: 生statusではなく期間ベース(_isPausedOn)で休止判定 / ★ 2026-09-30: 当日の欠席記録
       if (attending && !_isPausedOn(p, iso)) return;
       // ★ 2026-09-16d(店舗指摘): 予定上は欠席等でも、当日の提供記録が出席/振替/臨時なら実際は来所している→休みに出さない
       if (_recAttendsOnDate(p.id, iso)) return;
@@ -47674,7 +47691,9 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
           body: `${monthLabelStr}分のモニタリング表を${_again ? '更新' : '作成'}しました。ご確認ください。`,
           date: `${_now.getFullYear()}-${String(_now.getMonth()+1).padStart(2,'0')}-${String(_now.getDate()).padStart(2,'0')}`,
           postedAt: _now.toISOString(), audience: ['caremanager'], jumpTo: 'sec-monitoring', jumpLabel: 'モニタリング表を見る', photos: [], _savedAt: _ts };
-        existing[_i] = { ..._rec, monAnnId: annId, monNotifiedAt: (prev && prev.monNotifiedAt) || _now.toISOString(), monConfirmedAt: _now.toISOString() };
+        // ★ 2026-09-30(ユーザー指示): モニタリング表の「実施日」は確定した日にする(下書きを作った日ではなく)
+        const _implToday = `${_now.getFullYear()}-${String(_now.getMonth()+1).padStart(2,'0')}-${String(_now.getDate()).padStart(2,'0')}`;
+        existing[_i] = { ..._rec, sheet: { ...(_rec.sheet || {}), implDate: _implToday }, monAnnId: annId, monNotifiedAt: (prev && prev.monNotifiedAt) || _now.toISOString(), monConfirmedAt: _now.toISOString() };
         _annPatch = { familyPersonalAnnouncements: [ann, ..._anns] };
       } else if (!conf && _prevConf && prev && prev.monAnnId) {
         existing[_i] = { ..._rec, monAnnId: null, monNotifiedAt: prev.monNotifiedAt || null, monConfirmedAt: null };
