@@ -1130,7 +1130,21 @@ const isCmContact = (c) => !!(c && (c.cmOffice || c.officePhone || c.officeFax |
 //   緊急連絡先として表示されるのは不自然なため(登録時は除外済みだが、旧データや登録者情報の
 //   編集経由で入った分もここで一括ガード)。
 const isSelfContact = (c) => !!(c && String(c.relation||'').includes('本人'));
-const getAllContacts = (p) => { const prim = buildPrimaryContact(p); return [ ...(prim && !isCmContact(prim) && !isSelfContact(prim) ? [prim] : []), ...(((p && p.emergencyContacts) || []).filter(c => !isCmContact(c) && !isSelfContact(c))) ]; };
+// ★ 2026-09-30(不具合修正): 同じ方が「代表家族」と「緊急連絡先」の両方に入る・端末ごとに少し違う内容が両方残る等で、
+//   緊急連絡先が重複して表示されていた。表示は氏名(空白・全角半角の違いを無視)で1件にまとめ、空欄の項目は後の方の値で補う。
+//   getAllContactsRaw はまとめる前の一覧(削除の墓石づくり用)。
+const getAllContactsRaw = (p) => { const prim = buildPrimaryContact(p); return [ ...(prim && !isCmContact(prim) && !isSelfContact(prim) ? [prim] : []), ...(((p && p.emergencyContacts) || []).filter(c => !isCmContact(c) && !isSelfContact(c))) ]; };
+const _contactNameKey = (c) => normalizeName(String((c && c.name) || '')).replace(/[\s　]/g, '');
+const getAllContacts = (p) => {
+  const out = []; const at = new Map();
+  getAllContactsRaw(p).forEach(c => {
+    const k = _contactNameKey(c);
+    if (!k) { out.push(c); return; }
+    if (at.has(k)) { const o = out[at.get(k)]; ['relation','phone','phoneMobile','email','kana'].forEach(f => { if (!String(o[f] || '').trim() && String(c[f] || '').trim()) o[f] = c[f]; }); return; }
+    at.set(k, out.length); out.push({ ...c });
+  });
+  return out;
+};
 // ★ 同期の診断パネル (?syncdebug=1 のときだけ表示)。 iPad ではコンソールが見られないため、
 //   保存/受信/競合/失敗の履歴を画面で確認できるようにする。 通常運用では一切描画されない。
 function SyncDebugPanel() {
@@ -52620,7 +52634,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
     patch.emergencyContacts = [...cmContacts, ...rest];
     // ★ 消した家族連絡先は墓石(_deletedEC)に記録し、同期の加算マージで復活しないようにする。
     const cleanKeys = new Set(clean.map(_ecKey));
-    const removedKeys = getAllContacts(patient).map(_ecKey).filter(k => k && k !== '|||' && !cleanKeys.has(k));
+    const removedKeys = getAllContactsRaw(patient).map(_ecKey).filter(k => k && k !== '|||' && !cleanKeys.has(k));
     if (removedKeys.length) patch._deletedEC = [...new Set([...(patient._deletedEC||[]), ...removedKeys])];
     return patch;
   };
