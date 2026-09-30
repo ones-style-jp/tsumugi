@@ -34123,7 +34123,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const _emW2 = (t) => [...String(t||'')].reduce((a, ch) => a + (ch === '　' ? 1 : (/[ -~]/.test(ch) ? (ch === ' ' ? 0.3 : 0.55) : 1)), 0);
     const addrText = (pt) => `${[_addrDisp(pt.address), pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' ')}${pt.pickupPlace?`（${PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace}）`:''}${String(pt.pickupMinutes||'')==='walk'?'［徒歩］':''}`;
     // ★ 2026-10-01d(ユーザー要望): 左25人・右25人(1枚50人)で固定。表は用紙の下まで伸ばし、行の高さをそろえる(下の余白をなくす)。
-    //   25人以下のページは左右に半分ずつ。人がいない行は空欄(手書き用)で25行まで埋める。
+    //   左の段から25人ずつ埋め、人がいない行は空欄(手書き用)で25行まで埋める。
     const ROWS = 25, HALF = 505, BODY_H = 650; // BODY_H=本文の高さの目安(px)
     const maxNameEm = Math.max(4, ...pts.map(pt => _emW2(pt.name)));
     const colW = (f) => { const ini = Math.ceil(f * 1.5) + 6, name = Math.ceil(maxNameEm * f * 1.05) + 10, tel = Math.ceil(Math.max(8, f - 1) * 8.4) + 12; return { ini, name, tel, addr: Math.max(80, HALF - ini - name - tel) }; };
@@ -34134,7 +34134,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const cols = [];
     for (let k = 0; k < Math.max(1, pts.length); k += ROWS * 2) {
       const chunk = pts.slice(k, k + ROWS * 2);
-      const cut = chunk.length <= ROWS ? Math.ceil(chunk.length / 2) : ROWS;
+      const cut = ROWS; // ★ 2026-10-01e(ユーザー要望): 人数に関係なく左の段から25人ずつ埋める(右は残り・足りない行は空欄)
       cols.push(chunk.slice(0, cut), chunk.slice(cut));
     }
     const w = colW(fz); const fT = Math.max(8, fz - 1); const fA0 = Math.max(9, fz - 2);
@@ -34179,7 +34179,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const rowsOf = (sl) => { const pl = getPlan(iso, sl);
       return cars.reduce((a,c)=>a+Math.max(((pl.cars||{})[c.id]||[]).length,1)+2,0) + ((pl.walkers||[]).length?1:0) + ((pl.others||[]).length?1:0) + ((pl.un||[]).length?1:0) + (_absentees(iso,sl).length?1:0) + 1; };
     const totalU = rowsOf('AM') + rowsOf('PM') + 3;
-    let fz = 15; while (fz > 9 && totalU * (Math.ceil(fz*1.4)+3) > 870) fz--;
+    // ★ 2026-10-01e(ユーザー要望): 午前と午後の間(8mm)・車と車の間(2mm)をあけた分、本文の高さの見積りを減らす
+    const _gapPx = Math.round(8 * 3.78) + cars.length * 2 * Math.round(2 * 3.78);
+    let fz = 15; while (fz > 9 && totalU * (Math.ceil(fz*1.4)+3) > 870 - _gapPx) fz--;
     const fzS = Math.max(9, fz - 2);
     const row = (m, sl) => { const pt = _pt(m.pid); const fk = _isFurikae(iso, sl, m.pid); const fv = !fk && _isFirstVisit(m.pid, iso); const bg = fk?'#a7f3d0':(fv?'#bae6fd':'#fff');
       return `<tr style="background:${bg};">
@@ -34189,9 +34191,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         <td style="border:1px solid #66756b;padding:2px 6px;font-size:${fzS}px;white-space:nowrap;font-variant-numeric:tabular-nums;">${_escP(pt.phoneMobile || pt.phone || '')}</td>
       </tr>`; };
     const slotBlock = (sl, label) => { const pl = getPlan(iso, sl);
-      let h = `<div style="font-size:${fz}px;font-weight:800;background:${sl==='AM'?'#faf0d9':'#e8edf7'};border:1px solid #66756b;padding:2px 8px;margin-top:3mm;">${label}</div>`;
+      let h = `<div style="font-size:${fz}px;font-weight:800;background:${sl==='AM'?'#faf0d9':'#e8edf7'};border:1px solid #66756b;padding:2px 8px;margin-top:${sl==='AM'?3:11}mm;">${label}</div>`;
       cars.forEach(c => { const rows2 = (pl.cars?.[c.id]||[]); const drv = (pl.driver||{})[c.id] || '';
-        h += `<div style="border:1px solid #66756b;border-top:none;">
+        h += `<div style="border:1px solid #66756b;margin-top:2mm;">
           <div style="background:#eef0ed;padding:1px 8px;font-size:${fzS+1}px;font-weight:800;border-bottom:1px solid #9aa79e;">${_escP(c.name)}${drv?`<span style="float:right;font-weight:400;">運転者 ${_escP(drv)}</span>`:''}</div>
           <table style="border-collapse:collapse;width:100%;table-layout:fixed;"><colgroup><col style="width:25%"/><col style="width:11%"/><col/><col style="width:18%"/></colgroup>
           <tr>${['氏名','時間','住所（待ち合わせ）','電話'].map(x=>`<td style="border:1px solid #66756b;background:#f8faf6;font-size:${Math.max(8,fz-4)}px;color:#4e5f53;padding:0 6px;text-align:center;">${x}</td>`).join('')}</tr>
