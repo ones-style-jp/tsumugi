@@ -1769,6 +1769,62 @@ const buildInviteSheetHtml = (o) => {
     <div class="foot">${_escH(o.facilityName||'')}${o.facilityPhone?`　TEL ${_escH(o.facilityPhone)}`:''}<br>登録がうまくいかない場合、期限が切れた場合は事業所までご連絡ください。</div>
   </div></body></html>`;
 };
+// ★ 2026-09-30(iPad 報告): ホーム画面に追加したアプリ(URLバーの無い全画面)で window.open の別画面へ行くと、
+//   元の画面に戻る手段がなくアプリを閉じるしかなかった。ホーム画面アプリのときだけ別画面を開かず、
+//   今の画面の上に重ねて表示する(「閉じる」で元の画面へ戻る。印刷は重ねた表示だけを印刷)。PC・通常のブラウザは従来どおり別タブ。
+const _tsumugiInPageMode = () => { try { return navigator.standalone === true || !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches); } catch { return false; } };
+const _tsumugiOverlayHost = (id) => {
+  try { const old = document.getElementById(id); if (old) old.remove(); } catch {}
+  const host = document.createElement('div'); host.id = id;
+  host.style.cssText = 'position:fixed;inset:0;z-index:2000002;background:#525659;overflow:auto;-webkit-overflow-scrolling:touch;';
+  return host;
+};
+const _tsumugiOverlayBar = (withPrint) => `<div class="tsumugi-ios-bar" style="position:sticky;top:0;left:0;right:0;background:#1e293b;color:#fff;padding:10px 12px;text-align:center;font-family:-apple-system,'Hiragino Sans',sans-serif;z-index:5;box-shadow:0 2px 10px rgba(0,0,0,0.35);">
+    <button type="button" data-act="close" style="font-size:16px;font-weight:bold;padding:10px 18px;background:#475569;color:#fff;border:none;border-radius:10px;cursor:pointer;">← 閉じる（元の画面に戻る）</button>
+    ${withPrint ? '<button type="button" data-act="print" style="font-size:16px;font-weight:bold;padding:10px 24px;margin-left:10px;background:#2563eb;color:#fff;border:none;border-radius:10px;cursor:pointer;">印刷 / PDF保存</button>' : ''}
+  </div>`;
+// HTML文書(用紙)を今の画面に重ねて表示する
+const tsumugiShowHtmlInPage = (html, opts = {}) => {
+  const bodyM = String(html).match(/<body[^>]*>([\s\S]*)<\/body>/i);
+  let inner = bodyM ? bodyM[1] : String(html);
+  // 用紙側の印刷ボタン(別画面用・opener へ通知)とスクリプトは使わない(上のバーで印刷する)
+  inner = inner.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<button[^>]*onclick="[^"]*print[^"]*"[^>]*>[\s\S]*?<\/button>/gi, '');
+  const styles = (String(html).match(/<style[^>]*>[\s\S]*?<\/style>/gi) || []).map(t => t.replace(/^<style[^>]*>|<\/style>$/gi, ''));
+  // 用紙の html/body 向けの指定は重ねた表示の中だけに効かせる
+  const scope = (css) => css
+    .replace(/(^|[}\s,])html\s*,\s*body(?=\s*[{,])/g, '$1.tsumugi-ios-doc')
+    .replace(/(^|[}\s,;])(?:html|body)(?=\s*[{,.:#>\[\s])/g, '$1.tsumugi-ios-doc')
+    .replace(/(^|\}|;)\s*\*\s*\{/g, '$1#tsumugi-ios-print *{');
+  const host = _tsumugiOverlayHost('tsumugi-ios-print');
+  host.innerHTML = `<style>${styles.map(scope).join('\n')}</style><style>
+      #tsumugi-ios-print .tsumugi-ios-doc{background:#fff;max-width:100%;margin:16px auto 40px !important;box-shadow:0 4px 18px rgba(0,0,0,.35);box-sizing:border-box;}
+      @media print{ body>*:not(#tsumugi-ios-print){display:none !important;} #tsumugi-ios-print{position:static !important;inset:auto !important;background:#fff !important;overflow:visible !important;} #tsumugi-ios-print .tsumugi-ios-bar{display:none !important;} #tsumugi-ios-print .tsumugi-ios-doc{margin:0 auto !important;box-shadow:none !important;} }
+    </style>${_tsumugiOverlayBar(true)}<div class="tsumugi-ios-doc">${inner}</div>`;
+  host.querySelector('[data-act="print"]').onclick = () => { try { opts.onPrint && opts.onPrint(); } catch {} try { window.print(); } catch (e) { alert('印刷画面を開けませんでした。'); } };
+  host.querySelector('[data-act="close"]').onclick = () => { try { host.remove(); } catch {} };
+  document.body.appendChild(host);
+  return host;
+};
+// window.open('', '_blank') の代わり。ホーム画面アプリでは document.write された内容を今の画面に重ねて表示する窓もどきを返す
+const tsumugiDocWindow = (opts = {}) => {
+  if (!_tsumugiInPageMode()) return window.open('', '_blank');
+  let buf = ''; let shown = false; let timer = null;
+  const show = () => { if (shown) return; shown = true; if (timer) clearTimeout(timer); tsumugiShowHtmlInPage(buf, opts); };
+  return {
+    document: { write: (t) => { buf += String(t); if (!timer) timer = setTimeout(show, 60); }, close: () => show(), open: () => {} },
+    focus: () => show(), print: () => show(), close: () => { try { const h = document.getElementById('tsumugi-ios-print'); if (h) h.remove(); } catch {} },
+  };
+};
+// 画像を大きく表示(ホーム画面アプリでは重ねて表示・通常は別タブ)
+const tsumugiOpenImage = (src) => {
+  if (!_tsumugiInPageMode()) { window.open(src, '_blank'); return; }
+  const host = _tsumugiOverlayHost('tsumugi-img-view');
+  host.innerHTML = `${_tsumugiOverlayBar(false)}<div style="padding:16px;text-align:center;"></div>`;
+  const img = document.createElement('img'); img.src = src; img.alt = ''; img.style.cssText = 'max-width:100%;height:auto;background:#fff;box-shadow:0 4px 18px rgba(0,0,0,.35);';
+  host.lastElementChild.appendChild(img);
+  host.querySelector('[data-act="close"]').onclick = () => { try { host.remove(); } catch {} };
+  document.body.appendChild(host);
+};
 // ★ 用紙の「印刷する」が押された時だけ「紙で招待済み」にする(2026-09-27 ユーザー指示: 開いただけでは招待済みにしない)。
 //   用紙ウィンドウ→postMessage→ここで code ごとの onPrinted を呼ぶ。
 const _invitePrintHandlers = new Map();
@@ -1777,6 +1833,8 @@ if (typeof window !== 'undefined' && !window.__tsumugiInvitePrintedBound) {
   window.addEventListener('message', (e) => { try { const d = e && e.data; if (d && d.type === 'tsumugiInvitePrinted' && d.code) { const h = _invitePrintHandlers.get(String(d.code)); if (h) { _invitePrintHandlers.delete(String(d.code)); h(); } } } catch {} });
 }
 const openInviteSheet = (o, onPrinted) => {
+  // ★ ホーム画面アプリ: 重ねて表示し、上のバーの「印刷」で紙で招待済みにする
+  if (_tsumugiInPageMode()) { tsumugiShowHtmlInPage(buildInviteSheetHtml(o), { onPrint: onPrinted ? () => onPrinted() : null }); return; }
   const w = window.open('', '_blank'); if (!w) { alert('印刷用の画面を開けませんでした。ポップアップの許可をご確認ください。'); return; }
   if (onPrinted && o.code) _invitePrintHandlers.set(String(o.code), onPrinted);
   w.document.write(buildInviteSheetHtml(o)); w.document.close(); setTimeout(()=>{ try { w.focus(); } catch {} }, 100);
@@ -21315,8 +21373,8 @@ export default function App() {
               pf.srcdoc = docHtml;
               document.body.appendChild(pf);
             } catch (e) {
-              // フォールバック: 別タブ
-              const w = window.open('','_blank');
+              // フォールバック: 別タブ(ホーム画面アプリでは重ねて表示)
+              const w = tsumugiDocWindow();
               if (!w) { alert('印刷画面を開けませんでした。ブラウザでポップアップを許可してください。'); return; }
               w.document.write(docHtml); w.document.close();
               setTimeout(()=>{ w.focus(); w.print(); }, 600);
@@ -36569,7 +36627,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                       <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-wrap gap-2">
                         {cards.map((img,ii)=>(
                           <img key={img.id||ii} src={img.data} alt={img.name}
-                            onClick={()=>window.open(img.data,'_blank')}
+                            onClick={()=>tsumugiOpenImage(img.data)}
                             className="rounded-lg border border-slate-200 cursor-pointer"
                             style={{objectFit:'contain',background:'#fff',display:'block',maxHeight:160,maxWidth:'calc(50% - 4px)'}}/>
                         ))}
@@ -36758,7 +36816,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                                 <div key={img.id||ii} className="relative" style={{width:96,height:96}}>
                                   {img.type==='application/pdf' ? (
                                     <div className="w-full h-full bg-red-50 border border-red-200 rounded-lg flex flex-col items-center justify-center cursor-pointer"
-                                      onClick={()=>window.open(img.data,'_blank')}>
+                                      onClick={()=>tsumugiOpenImage(img.data)}>
                                       <span className="text-3xl"></span>
                                       <span className="text-[9px] font-bold text-red-600 text-center px-1 truncate w-full">{img.name}</span>
                                     </div>
@@ -36766,7 +36824,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                                     <img src={img.data} alt={img.name}
                                       className="w-full h-full rounded-lg border border-slate-200 cursor-pointer"
                                       style={{objectFit:'contain',background:'#f8fafc'}}
-                                      onClick={()=>window.open(img.data,'_blank')}/>
+                                      onClick={()=>tsumugiOpenImage(img.data)}/>
                                   )}
                                   {!isOff && (
                                     <button type="button"
@@ -37059,12 +37117,12 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                                   <div key={img.id||ii} className="relative" style={{width:56,height:56}}>
                                     {img.type==='application/pdf' ? (
                                       <div className="w-full h-full bg-red-50 border border-red-200 rounded flex flex-col items-center justify-center cursor-pointer"
-                                        onClick={()=>window.open(img.data,'_blank')}>
+                                        onClick={()=>tsumugiOpenImage(img.data)}>
                                         <span className="text-lg"></span>
                                       </div>
                                     ) : (
                                       <img src={img.data} alt={img.name} className="w-full h-full object-contain rounded border border-slate-200 cursor-pointer bg-slate-50"
-                                        onClick={()=>window.open(img.data,'_blank')}/>
+                                        onClick={()=>tsumugiOpenImage(img.data)}/>
                                     )}
                                     {!isOff && (
                                       <button type="button"
@@ -37804,7 +37862,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         };
         const copyUrl = () => { navigator.clipboard?.writeText(loginUrl).then(()=>_copyToast()); };
         const printSheet = (acc) => {
-          const w = window.open('', '_blank');
+          const w = tsumugiDocWindow();
           if (!w) return;
           w.document.write(`<html><head><title>家族用ログイン情報 ${pat.name}</title><style>body{font-family:'Hiragino Sans','Yu Gothic',sans-serif;padding:40px 30px;max-width:600px;margin:0 auto;color:#1e293b;}h1{font-size:20px;margin:0 0 4px;text-align:center;}h2{font-size:13px;color:#64748b;margin:0 0 28px;text-align:center;font-weight:normal;}.box{border:2px solid #e2e8f0;border-radius:16px;padding:24px;margin:20px 0;}.label{font-size:11px;color:#64748b;font-weight:bold;margin-bottom:4px;}.value{font-size:18px;font-weight:bold;font-family:Menlo,monospace;background:#f8fafc;padding:10px 14px;border-radius:8px;margin-bottom:14px;letter-spacing:1px;}.qr-area{text-align:center;margin:20px 0;}img{border:1px solid #e2e8f0;border-radius:12px;padding:8px;background:white;}.note{font-size:11px;color:#64748b;line-height:1.7;background:#fef3c7;border:1px solid #fbbf24;border-radius:10px;padding:14px;margin-top:20px;}@media print{button{display:none;}}</style></head><body><h1>${pat.name} 様 家族用閲覧 ログイン情報</h1><h2>下記のQRコードを読み取り、IDとパスワードでログインしてください</h2><div class="qr-area"><img src="${qrSrc}" width="200" height="200"/><div style="font-size:10px;color:#94a3b8;margin-top:8px;word-break:break-all;">${loginUrl}</div></div><div class="box"><div class="label">ログインID</div><div class="value">${acc.username}</div><div class="label">パスワード</div><div class="value">${acc.password}</div></div><div class="note"><b>取り扱いについて</b><br/>・この情報は他の方に絶対に共有しないでください<br/>・パスワードを忘れた場合は事業所までご連絡ください<br/>・万一漏れた可能性がある場合も事業所までお知らせください</div><button onclick="window.print()" style="margin-top:24px;padding:10px 28px;font-size:14px;font-weight:bold;background:#6366f1;color:white;border:none;border-radius:10px;cursor:pointer;display:block;margin-left:auto;margin-right:auto;">印刷する</button></body></html>`);
           w.document.close();
@@ -38042,7 +38100,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                         <input readOnly value={loginUrl} className="flex-1 min-w-0 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-[11px] font-mono outline-none"/>
                         <button onClick={copyUrl} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[11px] whitespace-nowrap">コピー</button>
                         <button onClick={()=>{
-                          const w = window.open('', '_blank');
+                          const w = tsumugiDocWindow();
                           w.document.write(`<html><head><title>家族共通ログインURL ${pat.name}</title><style>body{font-family:'Hiragino Sans','Yu Gothic',sans-serif;padding:40px 30px;max-width:600px;margin:0 auto;color:#1e293b;text-align:center;}h1{font-size:22px;margin:0 0 8px;}h2{font-size:14px;color:#5e8030;margin:0 0 28px;font-weight:normal;}.qr-area{margin:30px 0;}img{border:1px solid #e2e8f0;border-radius:12px;padding:8px;background:white;}.url{font-family:Menlo,monospace;font-size:12px;color:#475569;background:#f8fafc;padding:12px;border-radius:8px;word-break:break-all;margin:16px 0;}.note{font-size:11px;color:#64748b;line-height:1.7;background:#fef3c7;border:1px solid #fbbf24;border-radius:10px;padding:14px;margin-top:20px;text-align:left;}@media print{button{display:none;}}</style></head><body><h1>${pat.name} 様 家族共通ログイン</h1><h2>下記QRコードを読み取って、家族専用ページへアクセスしてください</h2><div class="qr-area"><img src="${qrSrc.replace('size=240x240','size=320x320')}" width="280" height="280"/></div><div class="url">${loginUrl}</div><div class="note"><b>ご利用方法</b><br/>1. QRコードを読み取るか、URL を入力してログイン画面を開いてください<br/>2. 別途お渡しした ID とパスワードでログインしてください<br/>3. パスワードを忘れた場合は事業所までご連絡ください</div><button onclick="window.print()" style="margin-top:24px;padding:10px 28px;font-size:14px;font-weight:bold;background:#7daa3d;color:white;border:none;border-radius:10px;cursor:pointer;">印刷する</button></body></html>`);
                           setTimeout(()=>w.focus(),100);
                         }} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] whitespace-nowrap">印刷</button>
@@ -40621,7 +40679,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                               {cards.map((img,ii)=>(
                                 <div key={img.id||ii} className="relative">
                                   <img src={img.data} alt={img.name}
-                                    onClick={()=>window.open(img.data,'_blank')}
+                                    onClick={()=>tsumugiOpenImage(img.data)}
                                     className="rounded border border-slate-200 cursor-pointer"
                                     style={{height:60,width:'auto',background:'#fff'}}/>
                                   <button type="button"
@@ -49952,7 +50010,7 @@ function MediaPreviewModal({ media, onClose }) {
         style={{position:'absolute',top:12,right:12,background:'#dc2626',color:'white',border:'2px solid white',borderRadius:24,width:46,height:46,fontSize:22,fontWeight:'bold',cursor:'pointer',zIndex:5,boxShadow:'0 2px 10px rgba(0,0,0,0.5)',display:'flex',alignItems:'center',justifyContent:'center',lineHeight:1}}>✕</button>
       {url && !isPdf && <a href={url} download={media.name||'file'} onClick={(e)=>e.stopPropagation()}
         style={{position:'absolute',top:12,left:12,background:'#7daa3d',color:'white',padding:'8px 14px',borderRadius:20,fontSize:13,fontWeight:'bold',textDecoration:'none',zIndex:5}}>ダウンロード</a>}
-      {url && isPdf && <button onClick={(e)=>{e.stopPropagation(); window.open(url,'_blank','noopener');}}
+      {url && isPdf && !_tsumugiInPageMode() && <button onClick={(e)=>{e.stopPropagation(); window.open(url,'_blank','noopener');}}
         style={{position:'absolute',top:12,left:12,background:'#2563eb',color:'white',border:'none',padding:'8px 14px',borderRadius:20,fontSize:13,fontWeight:'bold',cursor:'pointer',zIndex:5}}>別タブで開く</button>}
       {!url ? (
         <div style={{color:'white',fontSize:14,fontWeight:'bold'}}>読み込み中...</div>
@@ -50285,7 +50343,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
       body{font-family:'Hiragino Sans','Yu Gothic','Noto Sans JP',sans-serif;color:#1e293b;margin:0;padding:12mm 12mm 14mm;box-sizing:border-box}
       h1{font-size:20px;margin:0;text-align:center;letter-spacing:2px}.sub{font-size:13px;color:#334155;margin:6px 0 10px;text-align:left}.sub .nm{font-size:18px;font-weight:bold;color:#1e293b}tr{page-break-inside:avoid}thead{display:table-header-group}</style></head>
       <body><h1>支援経過表</h1><div class="sub">利用者名：<span class="nm">${esc(patient.name)} 様</span>　　${esc(patient.careLevel||'')}${onlyYear?`　　（${esc(onlyYear)}年）`:''}</div>${sections}</body></html>`;
-    const w = window.open('', '_blank');
+    const w = tsumugiDocWindow();
     if (!w) { alert('ポップアップがブロックされました。ブラウザの設定で許可してください。'); return; }
     w.document.write(html); w.document.close();
     setTimeout(()=>{ try{ w.focus(); w.print(); }catch{} }, 350);
@@ -50509,7 +50567,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
       <div class="box"><b>■ ご利用の様子</b><br>${esc(f.content)||'－'}</div>
       <div class="sign">${esc(fac.name)||''}<br>${fac.phone?('TEL '+esc(fac.phone)):''}　${fac.fax?('FAX '+esc(fac.fax)):''}<br>報告者：${esc(f.reporter)||'　　　　'}</div>
     </body></html>`;
-    const w = window.open('', '_blank');
+    const w = tsumugiDocWindow();
     if (!w) { alert('ポップアップがブロックされました。ブラウザの設定で許可してください。'); return; }
     w.document.write(html); w.document.close();
     setTimeout(()=>{ try{ w.focus(); w.print(); }catch{} }, 350);
@@ -50997,7 +51055,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                 </tr></table>
                 <table style="width:100%;border-collapse:collapse;">${head}${rows}</table>
               </div>`;
-              const w = window.open('', '_blank');
+              const w = tsumugiDocWindow();
               if (!w) { alert('ポップアップがブロックされました。ブラウザの設定で許可してください。'); return; }
               w.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>体力測定の記録_${patient.name}</title><style>@page{size:A4 landscape;margin:10mm}body{margin:0;padding:8mm;box-sizing:border-box}</style></head><body>${html}</body></html>`);
               w.document.close();
@@ -51230,7 +51288,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
             const _fac = appData.systemSettings?.facilityInfo || {};
             const _printMon = (r) => {
               const html = buildMonitoringTableHtml(patient, r.sheet||{}, _fac, r.period);
-              const w = window.open('', '_blank');
+              const w = tsumugiDocWindow();
               if (!w) { alert('ポップアップがブロックされました。ブラウザの設定で許可してください。'); return; }
               w.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>通所介護モニタリング表_${patient.name}_${r.period}</title><style>@page{size:A4 landscape;margin:10mm}body{margin:0;padding:10mm;box-sizing:border-box}</style></head><body>${html}</body></html>`);
               w.document.close();
