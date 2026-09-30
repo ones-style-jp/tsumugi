@@ -1825,7 +1825,7 @@ const _tsumugiOverlayHost = (id) => {
 };
 const _tsumugiOverlayBar = (withPrint) => `<div class="tsumugi-ios-bar" style="position:sticky;top:0;left:0;right:0;background:#1e293b;color:#fff;padding:10px 12px;text-align:center;font-family:-apple-system,'Hiragino Sans',sans-serif;z-index:5;box-shadow:0 2px 10px rgba(0,0,0,0.35);">
     <button type="button" data-act="close" style="font-size:16px;font-weight:bold;padding:10px 18px;background:#475569;color:#fff;border:none;border-radius:10px;cursor:pointer;">← 閉じる（元の画面に戻る）</button>
-    ${withPrint ? '<button type="button" data-act="print" style="font-size:16px;font-weight:bold;padding:10px 24px;margin-left:10px;background:#2563eb;color:#fff;border:none;border-radius:10px;cursor:pointer;">印刷 / PDF保存</button>' : ''}
+    ${withPrint ? '<button type="button" data-act="pdf" style="font-size:16px;font-weight:bold;padding:10px 24px;margin-left:10px;background:#2563eb;color:#fff;border:none;border-radius:10px;cursor:pointer;">PDFにして印刷・保存</button><div data-act="msg" style="font-size:12px;margin-top:6px;color:#cbd5e1;">ホーム画面のアプリでは、PDFを作って共有メニューの「プリント」から印刷します。</div>' : ''}
   </div>`;
 // HTML文書(用紙)を今の画面に重ねて表示する
 const tsumugiShowHtmlInPage = (html, opts = {}) => {
@@ -1844,10 +1844,111 @@ const tsumugiShowHtmlInPage = (html, opts = {}) => {
       #tsumugi-ios-print .tsumugi-ios-doc{background:#fff;max-width:100%;margin:16px auto 40px !important;box-shadow:0 4px 18px rgba(0,0,0,.35);box-sizing:border-box;}
       @media print{ body>*:not(#tsumugi-ios-print){display:none !important;} #tsumugi-ios-print{position:static !important;inset:auto !important;background:#fff !important;overflow:visible !important;} #tsumugi-ios-print .tsumugi-ios-bar{display:none !important;} #tsumugi-ios-print .tsumugi-ios-doc{margin:0 auto !important;box-shadow:none !important;} }
     </style>${_tsumugiOverlayBar(true)}<div class="tsumugi-ios-doc">${inner}</div>`;
-  host.querySelector('[data-act="print"]').onclick = () => { try { opts.onPrint && opts.onPrint(); } catch {} try { window.print(); } catch (e) { alert('印刷画面を開けませんでした。'); } };
+  { const pb = host.querySelector('[data-act="pdf"]'); if (pb) { tsumugiAttachPdfButton(host, pb, { title: opts.title || (String(html).match(/<title>([^<]*)<\/title>/i) || [])[1] || '印刷', pageWmm: 210, pageHmm: 297, statusEl: host.querySelector('[data-act="msg"]') });
+    const _p0 = pb.onclick; pb.onclick = (e) => { try { opts.onPrint && opts.onPrint(); } catch {} return _p0(e); }; } }
   host.querySelector('[data-act="close"]').onclick = () => { try { host.remove(); } catch {} };
   document.body.appendChild(host);
   return host;
+};
+// ★ 2026-10-01(iPad 報告「印刷/PDF保存を押しても反応しない」): ホーム画面に追加したアプリ(全画面)では、iOS の仕様で window.print() が何もしない。
+//   そこで iPad/iPhone では印刷用の表示を用紙ごとに画像にして PDF を作り、共有メニュー(「プリント」「"ファイル"に保存」)を開く。
+//   PDF は用紙の大きさで作るので、プリント時は iOS が印刷できる範囲に自動で縮めてくれる(下が見切れない)。
+//   画像化は SVG の foreignObject でブラウザ自身に描かせる(縦書き・表もそのまま)。CSS は印刷用(@media print)として取り込む。
+const _tsuMmPx = 96 / 25.4;
+const _tsuPrintCss = (cssText) => {
+  // @media print は中身を採用・@media screen は捨てる(画像化は画面扱いのため印刷時の見た目にそろえる)
+  let out = '';
+  try {
+    const st = document.createElement('style'); st.media = 'not all'; st.textContent = cssText; document.head.appendChild(st);
+    const walk = (rules) => { for (const r of Array.from(rules || [])) {
+      if (r.type === 4 /* MEDIA */) { const m = String(r.media && r.media.mediaText || '').toLowerCase(); if (/\bprint\b/.test(m) && !/\bnot\b/.test(m)) walk(r.cssRules); else if (/\bscreen\b/.test(m)) continue; else out += r.cssText + '\n'; }
+      else if (r.type === 6 /* PAGE */) continue;
+      else out += r.cssText + '\n'; } };
+    walk(st.sheet && st.sheet.cssRules); st.remove();
+  } catch { out = cssText; }
+  return out;
+};
+const _tsuAllCss = () => { let css = ''; for (const sh of Array.from(document.styleSheets || [])) { try { if (sh.ownerNode && sh.ownerNode.closest && sh.ownerNode.closest('#tsumugi-ios-print')) continue; for (const r of Array.from(sh.cssRules || [])) css += r.cssText + '\n'; } catch {} } return css; };
+const _tsuRasterize = async (node, wPx, hPx, offY, css, scale) => {
+  const X = 'http://www.w3.org/1999/xhtml';
+  const outer = document.createElementNS(X, 'div'); outer.setAttribute('id', 'tsumugi-ios-print');
+  outer.setAttribute('style', `position:relative;width:${wPx}px;height:${hPx}px;overflow:hidden;background:#fff;margin:0;padding:0;`);
+  const st = document.createElementNS(X, 'style'); st.textContent = css; outer.appendChild(st);
+  const doc = document.createElementNS(X, 'div'); doc.setAttribute('class', 'tsumugi-ios-doc');
+  doc.setAttribute('style', `position:absolute;left:0;top:${-offY}px;width:${wPx}px;margin:0;padding:0;box-shadow:none;background:#fff;`);
+  doc.appendChild(node.cloneNode(true)); outer.appendChild(doc);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${wPx}" height="${hPx}" viewBox="0 0 ${wPx} ${hPx}"><foreignObject x="0" y="0" width="${wPx}" height="${hPx}">${new XMLSerializer().serializeToString(outer)}</foreignObject></svg>`;
+  const img = new Image();
+  await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error('用紙を画像にできませんでした')); img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); });
+  const cv = document.createElement('canvas'); cv.width = Math.round(wPx * scale); cv.height = Math.round(hPx * scale);
+  const cx = cv.getContext('2d'); const draw = () => { cx.setTransform(1, 0, 0, 1, 0, 0); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height); cx.setTransform(scale, 0, 0, scale, 0, 0); cx.drawImage(img, 0, 0, wPx, hPx); };
+  draw(); await new Promise(r => setTimeout(r, 60)); draw(); // Safari は初回に描き切らないことがあるため2回
+  const b64 = cv.toDataURL('image/jpeg', 0.92).split(',')[1]; const bin = atob(b64); const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  cv.width = cv.height = 1;
+  return { bytes, w: Math.round(wPx * scale), h: Math.round(hPx * scale), wPt: wPx * 0.75, hPt: hPx * 0.75 };
+};
+// JPEG の画像だけで PDF を組み立てる(外部ライブラリ不要)
+const _tsuJpegPdf = (pages) => {
+  const enc = new TextEncoder(); const chunks = []; let len = 0; const offs = [];
+  const push = (d) => { const u = typeof d === 'string' ? enc.encode(d) : d; chunks.push(u); len += u.length; };
+  const f = (n) => (Math.round(n * 100) / 100).toString();
+  push('%PDF-1.4\n%âãÏÓ\n');
+  const kids = pages.map((_, i) => `${3 + i * 3} 0 R`).join(' ');
+  offs[1] = len; push('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+  offs[2] = len; push(`2 0 obj\n<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>\nendobj\n`);
+  pages.forEach((pg, i) => { const pid = 3 + i * 3, cid = pid + 1, iid = pid + 2; const content = `q ${f(pg.wPt)} 0 0 ${f(pg.hPt)} 0 0 cm /Im0 Do Q`;
+    offs[pid] = len; push(`${pid} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${f(pg.wPt)} ${f(pg.hPt)}] /Resources << /XObject << /Im0 ${iid} 0 R >> >> /Contents ${cid} 0 R >>\nendobj\n`);
+    offs[cid] = len; push(`${cid} 0 obj\n<< /Length ${content.length} >>\nstream\n${content}\nendstream\nendobj\n`);
+    offs[iid] = len; push(`${iid} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${pg.w} /Height ${pg.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${pg.bytes.length} >>\nstream\n`); push(pg.bytes); push('\nendstream\nendobj\n'); });
+  const n = 3 + pages.length * 3; const xref = len;
+  let x = `xref\n0 ${n}\n0000000000 65535 f \n`; for (let i = 1; i < n; i++) x += `${String(offs[i]).padStart(10, '0')} 00000 n \n`;
+  push(x); push(`trailer\n<< /Size ${n} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+  return new Blob(chunks, { type: 'application/pdf' });
+};
+// 重ねた印刷表示(.tsumugi-ios-doc)を PDF にする。用紙の区切り([data-page-break]/.l-page/.p-page)があれば1枚ずつ、無ければ用紙の高さで切る
+const tsumugiDocToPdf = async (docEl, { pageWmm = 210, pageHmm = 297, onProgress } = {}) => {
+  const hostStyles = Array.from(docEl.closest('#tsumugi-ios-print')?.querySelectorAll('style') || []).map(x => x.textContent || '');
+  const css = _tsuPrintCss(_tsuAllCss() + '\n' + (hostStyles[0] || '')) + '\n*{box-shadow:none !important;}';
+  const scale = 2;
+  let marks = Array.from(docEl.querySelectorAll('[data-page-break], .l-page, .p-page')); marks = marks.filter(el => !marks.some(o => o !== el && o.contains(el)));
+  const out = [];
+  if (marks.length) {
+    for (let i = 0; i < marks.length; i++) { onProgress && onProgress(i + 1, marks.length); const el = marks[i];
+      out.push(await _tsuRasterize(el, Math.max(1, el.offsetWidth), Math.max(1, el.offsetHeight), 0, css, scale)); }
+  } else {
+    const wPx = Math.round(pageWmm * _tsuMmPx), hPx = Math.round(pageHmm * _tsuMmPx); const total = Math.max(hPx, docEl.scrollHeight); const n = Math.max(1, Math.ceil((total - 4) / hPx));
+    const wrap = document.createElement('div'); Array.from(docEl.childNodes).forEach(c => wrap.appendChild(c.cloneNode(true)));
+    for (let i = 0; i < n; i++) { onProgress && onProgress(i + 1, n); out.push(await _tsuRasterize(wrap, wPx, hPx, i * hPx, css, scale)); }
+  }
+  return _tsuJpegPdf(out);
+};
+// 印刷表示の上部バーに「PDFにして印刷・保存」を付ける(iPad/iPhone 用)。1回目のタップで作成、2回目で共有メニュー(タップ直後でないと iOS が開かないため)
+const tsumugiAttachPdfButton = (host, btn, { title = '印刷', pageWmm, pageHmm, statusEl } = {}) => {
+  let file = null; let busy = false;
+  const setMsg = (t) => { if (statusEl) statusEl.textContent = t; };
+  btn.onclick = async () => {
+    if (busy) return;
+    if (file) {
+      try {
+        if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title }); return; }
+      } catch (e) { if (e && e.name === 'AbortError') return; }
+      try { const u = URL.createObjectURL(file); const w = window.open(u, '_blank'); if (!w) location.assign(u); } catch { alert('PDFを開けませんでした。'); }
+      return;
+    }
+    busy = true; const label = btn.textContent; btn.textContent = 'PDFを作成中…'; btn.style.opacity = '0.7';
+    try {
+      const doc = host.querySelector('.tsumugi-ios-doc');
+      const blob = await tsumugiDocToPdf(doc, { pageWmm, pageHmm, onProgress: (i, n) => { btn.textContent = `PDFを作成中… ${i}/${n}枚`; } });
+      const safe = String(title || '印刷').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 60) || '印刷';
+      file = new File([blob], `${safe}.pdf`, { type: 'application/pdf' });
+      try { window.__tsumugiLastPdf = { size: blob.size, name: file.name, blob }; } catch {}
+      btn.textContent = '共有メニューを開く（プリント／"ファイル"に保存）'; btn.style.background = '#16a34a'; btn.style.opacity = '1';
+      setMsg('PDFができました。もう一度押すと共有メニューが開きます。「プリント」で印刷、「"ファイル"に保存」でPDFを保存できます。');
+    } catch (e) {
+      btn.textContent = label; btn.style.opacity = '1';
+      alert('PDFを作成できませんでした。\n' + String(e && e.message || e));
+    } finally { busy = false; }
+  };
 };
 // window.open('', '_blank') の代わり。ホーム画面アプリでは document.write された内容を今の画面に重ねて表示する窓もどきを返す
 const tsumugiDocWindow = (opts = {}) => {
@@ -21546,13 +21647,12 @@ export default function App() {
                 @media print{ body>*:not(#tsumugi-ios-print){display:none !important;} #tsumugi-ios-print{position:static !important;inset:auto !important;background:#fff !important;overflow:visible !important;} #tsumugi-ios-print .tsumugi-ios-bar{display:none !important;} #tsumugi-ios-print .tsumugi-ios-doc{margin:0 !important;box-shadow:none !important;max-width:none !important;} }
               </style>
               <div class="tsumugi-ios-bar no-print" style="position:fixed;top:0;left:0;right:0;background:#1e293b;color:#fff;padding:12px 16px;text-align:center;font-family:-apple-system,sans-serif;z-index:5;box-shadow:0 2px 10px rgba(0,0,0,0.35);">
-                <button type="button" data-act="print" style="font-size:17px;font-weight:bold;padding:11px 28px;background:#2563eb;color:#fff;border:none;border-radius:10px;cursor:pointer;">印刷 / PDF保存</button>
+                <button type="button" data-act="pdf" style="font-size:17px;font-weight:bold;padding:11px 28px;background:#2563eb;color:#fff;border:none;border-radius:10px;cursor:pointer;">PDFにして印刷・保存</button>
                 <button type="button" data-act="close" style="font-size:15px;font-weight:bold;padding:11px 20px;margin-left:10px;background:#475569;color:#fff;border:none;border-radius:10px;cursor:pointer;">閉じる</button>
-                <div style="font-size:12px;margin-top:7px;color:#cbd5e1;">${hint}</div>
-                <div style="font-size:11px;margin-top:5px;color:#fbbf24;font-weight:bold;">印刷画面で「PDF」として保存すると、URL・日付は付きません。</div>
+                <div data-act="msg" style="font-size:12px;margin-top:7px;color:#cbd5e1;">ホーム画面のアプリでは、PDFを作って共有メニューの「プリント」から印刷します（${hint.replace(/^印刷オプションで /, 'プリントの設定で ')}）。</div>
               </div>
               <div class="tsumugi-ios-doc">${inner}</div>`;
-              host.querySelector('[data-act="print"]').onclick = () => { try { window.print(); } catch (e) { alert('印刷画面を開けませんでした。'); } };
+              tsumugiAttachPdfButton(host, host.querySelector('[data-act="pdf"]'), { title: printPreviewContent.title || '印刷', pageWmm: pageW, pageHmm: pageH, statusEl: host.querySelector('[data-act="msg"]') });
               host.querySelector('[data-act="close"]').onclick = () => { try { host.remove(); } catch {} };
               document.body.appendChild(host);
               return;
@@ -21569,7 +21669,9 @@ export default function App() {
               const w = window.open('', '_blank');
               if (!w) { alert('印刷用の画面を開けませんでした。Safari の設定でポップアップの許可をご確認ください。'); return; }
               // ★ iOS Safari は <title>=ヘッダー、URL/日付=フッターに印字する。 タイトルを空にし @page margin:0 で極力消す
-              const iosDoc = docHtml
+              // ★ 2026-10-01(iPad 報告「運行表の下部が見切れる」): iPad は用紙の上下にURL・日付の欄を取るため、用紙いっぱいの表は約88%に縮めて中央に
+              const iosFit = '<style>@media print{body>[data-page-break],body [data-page-break]{zoom:0.88;margin-left:auto!important;margin-right:auto!important;}}</style>';
+              const iosDoc = docHtml.replace('</head>', iosFit + '</head>')
                 .replace(/<title>[^<]*<\/title>/, '<title> </title>')
                 .replace(/@page\s*\{[^}]*\}/g, m => /margin\s*:\s*0/.test(m) ? m : m.replace('}', ';margin:0}'));
               w.document.write(iosDoc.replace('<body>', '<body>' + bar));
@@ -34086,16 +34188,19 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           : `<div style="height:${hp - 2}px;display:flex;align-items:center;justify-content:center;"><b style="font-size:${Math.max(7, Math.min(13, lfH))}px;white-space:nowrap;color:#9a4a0b;">徒歩</b></div>`;
         return `<div style="margin-bottom:3px;border:1px solid #66756b;background:#fdf1e3;box-sizing:border-box;height:${hp}px;overflow:hidden;">${inner}</div>`; })() : '');
     const header = days.map(d => `<th style="border:1px solid #65736a;background:#edf0ec;font-size:11px;padding:3px;">${d.getMonth()+1}/${d.getDate()}（${DOWJ[d.getDay()]}）</th>`).join('');
-    const row = (sl, label) => `<tr style="height:${Math.round((sl==='AM'?uAM:uPM)/totalU*100)}%;"><td style="border:1px solid #65736a;padding:0;background:${sl==='AM'?'#faf0d9':'#e8edf7'};"><div style="display:flex;align-items:center;justify-content:center;height:100%;"><span style="writing-mode:vertical-rl;font-weight:bold;font-size:13px;letter-spacing:2px;">${label}</span></div></td>
+    // ★ 2026-10-01(iPad): 表の高さは px で指定(Safari は flex＋height:100% の表が親いっぱいになり、題字・凡例の分はみ出して凡例が切れていた)
+    //   本文 190mm≒718px − 題字(約30px) − 凡例(約19px) − 余裕3px。日付の見出し 6mm≒23px を除いた残りを午前・午後に行数比で配分
+    const _tblH = 718 - 30 - 19 - 3, _bodyH = _tblH - 23;
+    const row = (sl, label) => `<tr style="height:${Math.round((sl==='AM'?uAM:uPM)/totalU*_bodyH)}px;"><td style="border:1px solid #65736a;padding:0;background:${sl==='AM'?'#faf0d9':'#e8edf7'};"><div style="display:flex;align-items:center;justify-content:center;height:100%;"><span style="writing-mode:vertical-rl;font-weight:bold;font-size:13px;letter-spacing:2px;white-space:nowrap;">${label}</span></div></td>
       <td style="border:1px solid #89958c;vertical-align:top;padding:3px 2px;background:#fafbf9;">${carLabels(sl)}</td>
       ${days.map(d => `<td style="border:1px solid #89958c;vertical-align:top;padding:3px;background:#fff;">${dayBlock(_iso(d), sl)}</td>`).join('')}</tr>`;
     const _last = days[days.length-1] || _mon;
     const fname = String(appData.systemSettings?.facilityInfo?.name || 'つむぎ');
     return `<div id="transport-print-inner" style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;background:#fff;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
       <div style="position:relative;text-align:center;flex:none;margin:0 0 2mm;"><span style="position:absolute;left:0;top:4px;font-size:10px;">${esc(fname)}</span><span style="font-size:17px;font-weight:bold;letter-spacing:10px;">運行表</span><span style="position:absolute;right:0;top:4px;font-size:10px;">${_mon.getMonth()+1}/${_mon.getDate()}（${DOWJ[_mon.getDay()]}）〜${_last.getMonth()+1}/${_last.getDate()}（${DOWJ[_last.getDay()]}）</span></div>
-      <table style="border-collapse:collapse;width:100%;table-layout:fixed;flex:1;height:100%;">
+      <table style="border-collapse:collapse;width:100%;table-layout:fixed;flex:none;height:${_tblH}px;">
         <colgroup><col style="width:${_slW}px"/><col style="width:${_carColW(fz)}px"/>${days.map(() => '<col/>').join('')}</colgroup>
-        <thead><tr style="height:6mm;"><th style="border:1px solid #65736a;background:#edf0ec;"></th><th style="border:1px solid #65736a;background:#edf0ec;font-size:9px;font-weight:normal;">車</th>${header}</tr></thead>
+        <thead><tr style="height:23px;"><th style="border:1px solid #65736a;background:#edf0ec;"></th><th style="border:1px solid #65736a;background:#edf0ec;font-size:9px;font-weight:normal;">車</th>${header}</tr></thead>
         <tbody>${row('AM','午前')}${row('PM','午後')}</tbody>
       </table>
       <div style="font-size:9px;color:#3f4b43;margin-top:1.5mm;flex:none;display:flex;justify-content:space-between;"><span><span style="color:#c82c35;font-weight:bold;">●</span> 時間変更・要TEL　<span style="background:#a7f3d0;padding:0 3px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 3px;">水色</span>=初回　左端=車名${_hasDrv?'　各枠の左の青い欄=運転者':''}　時間=お迎え　徒歩の時間=到着（クラスの開始）　次回=次の利用曜日</span><span>空欄=空席</span></div>
@@ -34160,7 +34265,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         const fA = Math.max(9, Math.min(fA0, fitA)); const wrapA = fitA < 9;
         html += `<tr>${iniTd}${td(_escP(r.pt.name), `padding:0 5px;font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}${td(`${_escP([_addrDisp(r.pt.address), r.pt.addressBuilding, r.pt.addressRoom].filter(Boolean).join(' '))}${r.pt.pickupPlace?`<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[r.pt.pickupPlace] || r.pt.pickupPlace)}）</span>`:''}${String(r.pt.pickupMinutes||'')==='walk'?`<span style="color:#047857;font-weight:700;">［徒歩］</span>`:''}`, `padding:0 5px;font-size:${fA}px;line-height:1.15;${wrapA ? '' : 'white-space:nowrap;'}overflow:hidden;`)}${td(_escP(r.pt.phoneMobile || r.pt.phone || ''), `padding:0 4px;font-size:${fT}px;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;`)}</tr>`;
       });
-      return `<table style="border-collapse:collapse;width:100%;height:100%;table-layout:fixed;">
+      // ★ 2026-10-01(iPad): 高さは px で(Safari・PDF化では height:100% が効かず表が縮んでいた)。本文 718px − 題字 − 注記 − 余裕
+      return `<table style="border-collapse:collapse;width:100%;height:${718 - 26 - 18 - 4}px;table-layout:fixed;">
       <colgroup><col style="width:${w.ini}px"/><col style="width:${w.name}px"/><col/><col style="width:${w.tel}px"/></colgroup>
       <thead><tr style="height:${headH}px;">${['','氏名','住所（待ち合わせ場所）','電話'].map(h2=>`<th style="border:1px solid #66756b;background:#e3e8e1;font-size:10px;padding:1px 2px;">${h2}</th>`).join('')}</tr></thead>
       <tbody>${html}</tbody></table>`;
@@ -34171,7 +34277,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const L = cols[pg * 2] || [], R = cols[pg * 2 + 1] || [];
       pages.push(`<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
       <div style="text-align:center;font-size:14px;font-weight:bold;letter-spacing:6px;margin-bottom:2mm;flex:none;">利用者連絡先一覧（${_mon.getMonth()+1}/${_mon.getDate()}週・五十音順）${nPages > 1 ? `<span style="letter-spacing:1px;font-weight:normal;font-size:11px;">　${pg+1}/${nPages}枚</span>` : ''}</div>
-      ${pts.length ? `<div style="display:flex;gap:5mm;align-items:stretch;flex:1;min-height:0;"><div style="flex:1;min-width:0;">${tbl(L)}</div><div style="flex:1;min-width:0;">${tbl(R)}</div></div>` : '<div style="font-size:11px;color:#94a3b8;">この週に乗車予定の利用者がいません</div>'}
+      ${pts.length ? `<div style="display:flex;gap:5mm;align-items:flex-start;flex:none;"><div style="flex:1;min-width:0;">${tbl(L)}</div><div style="flex:1;min-width:0;">${tbl(R)}</div></div>` : '<div style="font-size:11px;color:#94a3b8;">この週に乗車予定の利用者がいません</div>'}
       <div style="font-size:9px;color:#64748b;margin-top:1mm;flex:none;">※ 電話は携帯優先(無い方は固定)。この一覧には個人情報が含まれます。取り扱い・保管にご注意ください。</div>
     </div>`);
     }
