@@ -33620,7 +33620,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const fac = _facilityAddr();
     const pl = (() => { const saved = (basePlans||plans)[`${iso}_${sl}`]; if (saved && typeof saved === 'object') { const inPlan = new Set([ ...Object.values(saved.cars||{}).flat().map(m=>m.pid), ...((saved.walkers||[]).map(m=>m.pid)), ...((saved.others||[]).map(m=>m.pid)), ...((saved.un||[]).map(m=>m.pid)) ]); const extra = _attendees(iso, sl).filter(a => !inPlan.has(a.pid)).map(a => ({ pid: a.pid, t: a.time, mark: false })); return { cars: {}, walkers: [], memo: '', ...saved, un: [ ...(saved.un||[]), ...extra ] }; } return _draftPlan(iso, sl); })();
     const target = _targetArrive(sl);
-    const _departConf = (() => { const c = String((sl === 'AM' ? ds.departAM : ds.departPM) || '').match(/(\d{1,2})[:時](\d{2})/); return c ? (+c[1])*60 + (+c[2]) : null; })();
+    // ★ 2026-09-30(ユーザー指示): 出発時刻の設定は廃止(出発から数えると到着目標より大幅に遅れるため)。お迎え時間は到着目標から逆算する。
+    //   交通状況の予測に使う時刻は「到着目標の45分前」。
+    const _departConf = null;
     // ★ 2026-09-12j(店舗要望): 「押した時刻」ではなく出発予定の時間帯の交通状況でルート計算する。
     //   対象日+出発時刻(未設定なら到着目標-45分)。過去日時になる場合は次の同じ曜日に置き換え(交通予測は未来のみ)。
     const _departAt = (() => {
@@ -33792,25 +33794,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           // 1名: 本人→施設の帰路 ≒ 施設→本人と同等とみなす
         }
       }
-      // ★ 2026-09-30(不具合修正・扇橋指摘「午前が7時台・午後が12時台になる」): 各種設定に出発時刻があるときは「出発から順に」数える。
-      //   お迎え時間=その方の家に着く時間(ピンポンの時間)。1人目=出発＋施設→1人目の移動、次の方=前の方の時間＋乗車にかかる時間＋移動。
-      //   施設への到着が到着目標を過ぎる車は知らせる。(従来は到着目標から逆算していたため、出発時刻より前のお迎え時間が出ていた)
-      //   出発時刻の設定が無い店舗は従来どおり到着目標から逆算: t[k] = 目標 - Σ(k以降の乗車バッファ+次への移動)
+      // 時刻の逆算: 施設到着=到着目標。お迎え時間=その方の家に着く時間(ピンポンの時間)。
+      //   t[k] = 目標 - Σ(k以降の「乗車にかかる時間」+次への移動)  → 次の方の時間 = 前の方の時間 + 乗車にかかる時間 + 移動
+      //   (2026-09-30: 出発時刻から順に数える方式は、到着目標より大幅に遅れるため廃止・ユーザー指示)
       const _bufOf = (pid) => { const pt = (appData.patients||[]).find(x=>x.id===pid) || {}; return Math.max(1, Number(pt.pickupMinutes) || 1); };
-      let _fwdArrive = null;
-      if (_departConf != null) {
-        let tt = _departConf + Math.ceil((facToFirstSec || 0) / 60);
-        for (let k = 0; k < ordered.length; k++) {
-          ordered[k] = { ...ordered[k], t: _fmtHM(tt) };
-          tt += _bufOf(ordered[k].pid) + Math.ceil((legs[k]||0)/60);
-        }
-        _fwdArrive = tt;
-      } else {
-        let cum = 0;
-        for (let k = ordered.length - 1; k >= 0; k--) {
-          cum += _bufOf(ordered[k].pid) + Math.ceil((legs[k]||0)/60);
-          ordered[k] = { ...ordered[k], t: _fmtHM(Math.max(0, target - cum)) };
-        }
+      let cum = 0;
+      for (let k = ordered.length - 1; k >= 0; k--) {
+        cum += _bufOf(ordered[k].pid) + Math.ceil((legs[k]||0)/60);
+        ordered[k] = { ...ordered[k], t: _fmtHM(Math.max(0, target - cum)) };
       }
       // ★ 同じ住所の方は同じお迎え時間に統一(同じ建物・ご夫婦など。早い方の時間に合わせる)(2026-09-13c/d)
       //   住所のみで比較(待ち合わせ場所の違いは無視)+全半角・空白の表記ゆれを正規化して比較
@@ -33819,10 +33810,6 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         const _adKey = (pid) => { const pt2 = (appData.patients||[]).find(x=>x.id===pid) || {}; let a = String(pt2.address||'').normalize('NFKC').replace(/[\s　]/g,'').replace(/[－ー‐−–—]/g,'-').replace(/丁目|番地|号室|番|号/g,'-').replace(/-+/g,'-').toLowerCase(); const mm = a.match(/^(.*?\d+(?:-\d+){0,2})/); return (mm ? mm[1] : a).replace(/-+$/,''); };
         const _tByAddr = {};
         ordered = ordered.map(m2 => { const a3 = _adKey(m2.pid); if (!a3) return m2; if (_tByAddr[a3] == null) { _tByAddr[a3] = m2.t; return m2; } return { ...m2, t: _tByAddr[a3] }; });
-      }
-      // ★ 到着チェック(出発から数えたとき): 到着目標を過ぎる車は知らせる(時間はそのまま・配車や出発の見直しの目安)
-      if (_fwdArrive != null && ordered.length && _fwdArrive > target) {
-        msgs.push(`${iso} ${sl} ${cname}: 出発${_fmtHM(_departConf)}で回ると施設到着は${_fmtHM(_fwdArrive)}の見込みで、到着目標(${_fmtHM(target)})より${_fwdArrive - target}分遅れます。配車の見直しか、この車だけ時間を手で早めてください`);
       }
       nextPlanCars[cid] = ordered;
       changed = true;
@@ -34453,7 +34440,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           </div>
         );
       })(), document.body)}
-      {/* ★ 送迎表の設定(2026-09-12b): 到着目標時刻・出発時刻(2026-09-30〜 出発があれば出発から順に計算)と車の定員をここで編集 */}
+      {/* ★ 送迎表の設定(2026-09-12b): 到着目標時刻(逆算の基準)と車の定員をここで編集。出発時刻は 2026-09-30 廃止 */}
       {/* ★ ドラッグ振替の理由入力(2026-09-13): 既存の欠席理由があればプレフィル済み */}
       {fkMove && ReactDOM.createPortal((() => {
         const pt = (appData.patients||[]).find(x => x.id === fkMove.pid);
@@ -34521,12 +34508,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 return (<>
                   <TSel label="午前の到着目標時刻" idBase="tp-set-am" val={ds.arriveAM} def={_svcDef('AM')}/>
                   <TSel label="午後の到着目標時刻" idBase="tp-set-pm" val={ds.arrivePM} def={_svcDef('PM')}/>
-                  <TSel label="午前の出発時刻（任意）" idBase="tp-set-dam" val={ds.departAM} def=""/>
-                  <TSel label="午後の出発時刻（任意）" idBase="tp-set-dpm" val={ds.departPM} def=""/>
                 </>);
               })()}
             </div>
-            <div className="text-[11px] text-slate-500 mb-4">お迎え時間は「その方の家に着く時間（ピンポンの時間）」です。出発時刻を設定すると、出発から順に「前の方の時間＋乗車にかかる時間＋移動時間」で計算し、施設への到着が到着目標を過ぎる車はお知らせします。出発時刻が未設定のときは、到着目標時刻に施設へ着くように逆算します（到着目標が未入力ならスケジュール先頭の5分前）。</div>
+            <div className="text-[11px] text-slate-500 mb-4">お迎え時間は「その方の家に着く時間（ピンポンの時間）」です。到着目標時刻に施設へ着くように逆算し、次の方の時間は「前の方の時間＋乗車にかかる時間＋移動時間」になります（到着目標が未入力ならスケジュール先頭の5分前）。</div>
             <div className="font-bold text-sm text-slate-700 mb-2">車の定員（運転者を除く乗車人数）</div>
             <div className="space-y-2 mb-4">
               {cars.map((c, i) => (
@@ -34542,9 +34527,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               <button onClick={()=>setTpSettings(false)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">閉じる</button>
               <button onClick={()=>{
                 const _tv = (b) => { const h = document.getElementById(`${b}-h`)?.value||''; const m = document.getElementById(`${b}-m`)?.value||'0'; return h === '' ? '' : `${h}:${String(+m).padStart(2,'0')}`; };
-                const am = _tv('tp-set-am'), pm = _tv('tp-set-pm'), dam = _tv('tp-set-dam'), dpm = _tv('tp-set-dpm');
+                const am = _tv('tp-set-am'), pm = _tv('tp-set-pm');
                 const newCars = cars.map(c => ({ ...c, cap: (document.getElementById(`tp-set-cap-${c.id}`)?.value||'').replace(/[^0-9]/g,'') }));
-                onSave({ ...appData, diarySettings: { ...(appData.diarySettings||{}), arriveAM: am, arrivePM: pm, departAM: dam, departPM: dpm, cars: newCars } }, { manual: true, message: '✓ 送迎表の設定を保存しました' });
+                onSave({ ...appData, diarySettings: { ...(appData.diarySettings||{}), arriveAM: am, arrivePM: pm, departAM: '', departPM: '', cars: newCars } }, { manual: true, message: '✓ 送迎表の設定を保存しました' });
                 setTpSettings(false);
               }} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm">保存</button>
             </div>
