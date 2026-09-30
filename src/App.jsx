@@ -45457,14 +45457,16 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 
   // 全利用中患者を通所有無で分類
   // ★ 2026-09-28(ユーザー指摘): 退所済みが「一度も来ていない」欄に残っていた → 退所済み・利用開始前は対象外(休止は従来どおり対象外)
-  const allActive = (appData.patients||[]).filter(p => p.status === '利用中' && isPatientListable(p) && isPatientStartedByToday(p));
   const hasAttendance = (patient) => {
     return (appData.ticketRecords||[]).some(r => {
       const m = r.date?.match(/(\d+)月/);
-      return r.patientId === patient.id && m && parseInt(m[1]) === tM &&
+      return r.patientId === patient.id && m && parseInt(m[1]) === tM && (!r.year || Number(r.year) === tY) &&
         (r.status==='出席'||r.status==='振替'||r.status==='臨時');
     });
   };
+  // ★ 2026-09-30(店舗報告: 休止にした成田さん等が出ない): 休止中などの方も、その月に1回でも通所していれば対象に含める
+  //   (その月のモニタリングは必要なため)。退所済み・利用開始前は従来どおり対象外。
+  const allActive = (appData.patients||[]).filter(p => isPatientListable(p) && isPatientStartedByToday(p) && (p.status === '利用中' || hasAttendance(p)));
   const careLevelOrd = ['事業対象者','要支援1','要支援2','要介護1','要介護2','要介護3','要介護4','要介護5'];
   const dowStr = ['日','月','火','水','木','金','土'];
   // ★ 利用曜日は月曜起点で統一(表示・並び替えとも月→日の順)
