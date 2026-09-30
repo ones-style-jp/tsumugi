@@ -43438,15 +43438,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           ))}
         </div>
 
-        {/* 送迎車割り当て */}
-        <button disabled={isReadOnly} onClick={()=>{setCarAssignModal({prefix:'pick'});setCarAssignSelections({});}}
-          className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
-          <span></span> 迎え
-        </button>
-        <button disabled={isReadOnly} onClick={()=>{setCarAssignModal({prefix:'drop'});setCarAssignSelections({});}}
-          className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
-          <span></span> 送り
-        </button>
+        {/* ★ 2026-09-30: ボタンの順番は 担当者追加 → 送迎表取込 → 迎え → 送り → プレビュー → 保存(二重表示を解消) */}
         <button disabled={isReadOnly} onClick={()=>{
           const isFirst = (ds.staff||[]).length === 0;
           setNewStaff({role: isFirst ? '管理者' : '介護職員', name:''});
@@ -43454,29 +43446,6 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         }} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap">
           担当者追加
         </button>
-        <div className="hidden sm:block flex-1"/>
-        <div className="flex gap-2 shrink-0">
-        <button onClick={()=>{
-          const _d=new Date(selectedDate);
-          const DOW=['日','月','火','水','木','金','土'];
-          const title=`業務日誌_${_d.getFullYear()}年${_d.getMonth()+1}月${_d.getDate()}日（${DOW[_d.getDay()]}）`;
-          document.title=title;
-          // AM + PM の 2 ページを含む隠しコンテナをグローバル印刷モーダルに渡す
-          if (onShowPrintPreview) onShowPrintPreview(title, 'A4 portrait', 'diary-print-content-both');
-          else setIsPrintPreview('both');
-        }} className="bg-slate-900 text-white px-5 py-2 rounded-xl font-bold text-sm hover:bg-black transition-all whitespace-nowrap">
-          プレビュー
-        </button>
-        {isReadOnly ? (
-          <button onClick={()=>setForceEdit(true)} title="過去日です。クリックで編集モードへ" className="bg-amber-500 hover:bg-amber-600 text-white px-5 py-2 rounded-xl font-bold text-sm transition-all active:scale-95 whitespace-nowrap">
-            編集
-          </button>
-        ) : (
-          <button onClick={saveLog} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-bold text-sm transition-all active:scale-95 whitespace-nowrap">
-            保存
-          </button>
-        )}
-        </div>
         {/* ★ 送迎表(運行表)からの取り込み(2026-09-12 試験版): 車割り当てを日誌の迎え/送りへ一括反映 */}
         <button disabled={isReadOnly} onClick={()=>{
           const plan = (appData.transportPlans||{})[`${selectedDate}_${ampm}`];
@@ -43504,13 +43473,6 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         <button disabled={isReadOnly} onClick={()=>{setCarAssignModal({prefix:'drop'});setCarAssignSelections({});}}
           className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
           <span></span> 送り
-        </button>
-        <button disabled={isReadOnly} onClick={()=>{
-          const isFirst = (ds.staff||[]).length === 0;
-          setNewStaff({role: isFirst ? '管理者' : '介護職員', name:''});
-          setAddStaffModal(true);
-        }} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap">
-          担当者追加
         </button>
         <div className="hidden sm:block flex-1"/>
         <div className="flex gap-2 shrink-0">
