@@ -13669,6 +13669,7 @@ function FamilyView() {
     const acc = (data.familyAccounts || []).find(a => String(a.id) === String(authAccId));
     return acc?.storeId || acc?.store_id || null;
   })();
+  const [famStoreUnresolved, setFamStoreUnresolved] = useState(false);
   // ★ familyStoreId が null のとき、 全店舗を探索して patient_id がいる店舗を sessionStorage に保存
   //   (招待コードに store_id が無いケースの fallback。 「データ取得中」ループから脱出)
   useEffect(() => {
@@ -13708,6 +13709,7 @@ function FamilyView() {
           return;
         }
         console.warn('[family] auto-store fallback: 店舗を一意に特定できませんでした (候補', candidates.length, ')');
+        setFamStoreUnresolved(true); // ★ 2026-09-30: 「データを取得中」のまま待たせず、招待の発行し直しを案内する
       } catch (e) {
         console.warn('[family] auto-store fallback failed:', e?.message);
       }
@@ -14414,9 +14416,16 @@ function FamilyView() {
                     let _lt;
                     try { _lt = JSON.parse(localStorage.getItem(FAM_LS_KEY)||'null'); } catch { _lt = null; }
                     if (!_lt) _lt = data;
-                    const cmOffices = _lt.systemSettings?.cmOffices || [];
+                    // ★ 2026-09-30(店舗報告: 事業所は自動入力されているのに「事業所を選択してください」): 登録画面が店舗から読み込んだ
+                    //   事業所一覧は画面の state(data)にだけあり、端末の保存領域(_lt)には無い(新しい端末では空)。両方を見る。
+                    const cmOffices = [...(data.systemSettings?.cmOffices || []), ...(_lt.systemSettings?.cmOffices || [])];
                     const careManagers = _lt.systemSettings?.careManagers || [];
-                    if (signupForm.cmOfficeMode === 'select') {
+                    const _invOffice = String(_inviteInfo.cmOffice || '').trim();
+                    if (_invOffice) {
+                      // 招待で事業所が固定されている(画面でも変更不可) → そのまま使う。電話/FAXは一覧にあれば補う
+                      const off = cmOffices.find(o => String(o.name||'').trim() === _invOffice);
+                      cmOfficeName = _invOffice; cmOfficePhone = off?.phone || ''; cmOfficeFax = off?.fax || '';
+                    } else if (signupForm.cmOfficeMode === 'select') {
                       const off = cmOffices.find(o => o.name === signupForm.cmOfficeId);
                       if (!off) { setSignupForm(f=>({...f, error:'事業所を選択してください'})); return; }
                       cmOfficeName = off.name; cmOfficePhone = off.phone||''; cmOfficeFax = off.fax||'';
@@ -14437,6 +14446,24 @@ function FamilyView() {
                   if (!latest) latest = data;
                   const invite = (latest.familyInvites||[]).find(i => i.code === code);
                   if (!invite) { setSignupForm(f=>({...f, error:`招待コードが見つかりません。事業所${_facTel()}までお問い合わせください`})); return; }
+                  // ★ 2026-09-30: 新しい端末(ご家族・ケアマネのスマホ)には利用者データが無く、登録した連絡先が事業所側に届かなかった。
+                  //   招待の店舗から該当の利用者・事業所一覧・既存アカウントを取り寄せてから処理する(店舗IDは招待→URLトークンの順)。
+                  if (isSupabaseEnabled && !(latest.patients||[]).some(p => String(p.id) === String(invite.patientId))) {
+                    const _sid0 = invite.storeId || invite.store_id || (decodeInviteToken(_urlToken)?.s) || null;
+                    if (_sid0) {
+                      try {
+                        const st0 = await Promise.race([ supabaseLoadStateForStore(_sid0), new Promise(res => setTimeout(() => res(null), 10000)) ]);
+                        const p0 = (st0?.patients || []).find(p => String(p.id) === String(invite.patientId));
+                        if (p0) {
+                          const ss0 = st0.systemSettings || {};
+                          latest = { ...latest, patients: [...(latest.patients||[]).filter(p => String(p.id) !== String(p0.id)), p0],
+                            familyAccounts: (latest.familyAccounts||[]).length ? latest.familyAccounts : (st0.familyAccounts || []),
+                            systemSettings: { ...(latest.systemSettings||{}), cmOffices: ss0.cmOffices || latest.systemSettings?.cmOffices || [], careManagers: ss0.careManagers || latest.systemSettings?.careManagers || [], facilityInfo: ss0.facilityInfo || latest.systemSettings?.facilityInfo } };
+                          if (!invite.storeId && !invite.store_id) invite.storeId = _sid0;
+                        }
+                      } catch { /* 取り寄せ失敗時は従来どおり(アカウント作成は行う) */ }
+                    }
+                  }
                   if (invite.usedBy) { setSignupForm(f=>({...f, error:'この招待コードは既に使用されています'})); return; }
                   // 期限切れチェック
                   if (invite.expiresAt && new Date(invite.expiresAt) < new Date()) {
@@ -14598,7 +14625,7 @@ function FamilyView() {
                         displayName: ecName,
                         kind: isCmKind ? 'caremanager' : 'family',
                         role: accRole === 'parent' ? 'parent' : 'member',
-                        facilityName: latest.facility?.name || '',
+                        facilityName: _inviteInfo.facilityName || latest.systemSettings?.facilityInfo?.name || latest.facility?.name || '',
                         patientName: (latest.patients||[]).find(p=>p.id===invite.patientId)?.name || '',
                         inviteFallback: { patientId: invite.patientId, storeId: invite.storeId || invite.store_id || null, expiresAt: invite.expiresAt },
                       }), new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')), 15000)) ]);
@@ -15099,7 +15126,7 @@ function FamilyView() {
       }}
     />;
   }
-  return <FamilyPatientView data={data} setData={setData} patientId={authPid} accountId={authAccId} onLogout={handleLogout} onSwitchPatient={handleSwitchPatient} editingRef={editingRef} familyStoreId={familyStoreId} />;
+  return <FamilyPatientView data={data} setData={setData} patientId={authPid} accountId={authAccId} onLogout={handleLogout} onSwitchPatient={handleSwitchPatient} editingRef={editingRef} familyStoreId={familyStoreId} storeUnresolved={famStoreUnresolved && !familyStoreId} />;
 }
 
 // === 家族画面 - 利用者ごとのコンテンツ ===
@@ -15264,7 +15291,7 @@ function CmDocsModal({ patient, storeId, byName, onSaved, onClose }) {
   );
 }
 
-function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSwitchPatient, editingRef, familyStoreId }) {
+function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSwitchPatient, editingRef, familyStoreId, storeUnresolved = false }) {
   const [tab, setTab] = useState('news');
   // ★ ヘッダの期間セレクター (お知らせ/通所記録の両方を絞り込み)
   const [familyPeriod, setFamilyPeriod] = useState('1'); // '1','3','6','12','all','custom'
@@ -15489,11 +15516,18 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
       <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f4f8ed',fontFamily:'"Hiragino Sans","Meiryo","Yu Gothic Medium","Yu Gothic",sans-serif',padding:24}}>
         <div style={{background:'white',padding:'40px 32px',borderRadius:24,boxShadow:'0 10px 40px rgba(0,0,0,0.08)',textAlign:'center',maxWidth:420,width:'100%'}}>
           
+          {storeUnresolved ? (<>
+          <h1 style={{fontSize:18,fontWeight:'bold',color:'#b45309',marginBottom:8}}>ご利用の事業所を確認できませんでした</h1>
+          <p data-testid="fam-store-unresolved" style={{fontSize:13,color:'#475569',lineHeight:1.8,marginBottom:18,textAlign:'left'}}>
+            このアカウントには事業所の情報が登録されていないため、記録を表示できません。お手数ですが事業所にご連絡いただき、<b>招待を発行し直してもらってから、新しい招待で登録</b>してください。
+          </p>
+          </>) : <>
           <h1 style={{fontSize:18,fontWeight:'bold',color:'#3d5021',marginBottom:8}}>データを取得中...</h1>
           <p style={{fontSize:13,color:'#64748b',lineHeight:1.8,marginBottom:18}}>
             事業所からデータを自動で取得しています。<br/>
             <strong style={{color:'#5e8030'}}>数秒</strong>お待ちください（操作は不要です）。
           </p>
+          </>}
           <div style={{fontSize:11,color:'#64748b',lineHeight:1.7,marginBottom:16,padding:14,background:'#f8fafc',borderRadius:10,textAlign:'left'}}>
             <div style={{fontWeight:'bold',color:'#475569',marginBottom:6}}>表示されない場合:</div>
             ・事業所側でまだ利用者情報が登録されていない可能性があります<br/>
@@ -37923,7 +37957,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   // ★ 招待メールの送信部(再発行からも使う・2026-09-27)
                   const _dispatchInviteMail = async (inv, email, relation) => {
                     // URL に招待データを埋め込み (端末越し用)
-                    const tk = encodeInviteToken({ c: inv.code, p: inv.patientId, e: inv.email||'', r: inv.relation||'', x: inv.expiresAt||'', fn: (appData.systemSettings?.facilityInfo?.name)||'', fp: (appData.systemSettings?.facilityInfo?.phone)||'' });
+                    const tk = encodeInviteToken({ c: inv.code, p: inv.patientId, s: (inv.storeId || (() => { try { return JSON.parse(sessionStorage.getItem('tsumugiStaffSession')||'null')?.storeId || ''; } catch { return ''; } })() || ''), e: inv.email||'', r: inv.relation||'', x: inv.expiresAt||'', fn: (appData.systemSettings?.facilityInfo?.name)||'', fp: (appData.systemSettings?.facilityInfo?.phone)||'' }); // ★ 2026-09-30: 店舗ID(s)が無いと、招待がクラウドに無い時に店舗不明のアカウントになり「データを取得中」から進まなかった
                     const inviteUrl = `${baseUrlLocal}/?family&invite=${encodeURIComponent(inv.code)}&t=${tk}`;
                     const facility = appData.systemSettings?.facilityInfo || {};
                     // Brevo 経由で自動送信を試みる
@@ -37997,7 +38031,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     if (old.email) await _dispatchInviteMail(inv, old.email, old.relation||''); else printInviteSheet(inv);
                   };
                   const inviteUrlOf = (inv) => {
-                    const tk = encodeInviteToken({ c: inv.code, p: inv.patientId, e: inv.email||'', r: inv.relation||'', x: inv.expiresAt||'', fn: (appData.systemSettings?.facilityInfo?.name)||'', fp: (appData.systemSettings?.facilityInfo?.phone)||'' });
+                    const tk = encodeInviteToken({ c: inv.code, p: inv.patientId, s: (inv.storeId || (() => { try { return JSON.parse(sessionStorage.getItem('tsumugiStaffSession')||'null')?.storeId || ''; } catch { return ''; } })() || ''), e: inv.email||'', r: inv.relation||'', x: inv.expiresAt||'', fn: (appData.systemSettings?.facilityInfo?.name)||'', fp: (appData.systemSettings?.facilityInfo?.phone)||'' }); // ★ 2026-09-30: 店舗ID(s)が無いと、招待がクラウドに無い時に店舗不明のアカウントになり「データを取得中」から進まなかった
                     return `${baseUrlLocal}/?family&invite=${encodeURIComponent(inv.code)}&t=${tk}`;
                   };
                   const copyInviteUrl = (inv) => {
