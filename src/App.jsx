@@ -23656,6 +23656,36 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     // ★ グループに入ったら、そのグループの実施担当に合わせる(グループ単位で担当を決める運用)
     if (g) { const st = _kinouGroupStaff(g); if (st) updateRecord(pid, _kinouField, st); } // ★ 表示どおりの担当を必ず記録(表示と保存のずれ防止)
   };
+  // ★ 先週の割り振りをコピー(2026-09-30 ユーザー要望: 毎週同じグループならすぐ用意できるように)。
+  //   同じ曜日・同じ区分(AM/PM)で、7日前→14日前→…最大4週前までさかのぼり、グループの記録がある日を使う。
+  const copyKinouGroupsFromLastWeek = () => {
+    if (!isEditMode) return;
+    const ap = (timeFilter === 'PM') ? 'PM' : 'AM';
+    const d0 = new Date(selectedDate);
+    let src = null, srcDate = null;
+    for (let w = 1; w <= 4 && !src; w++) {
+      const dt = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() - 7 * w);
+      const ds = `${dt.getMonth() + 1}月${dt.getDate()}日`;
+      const map = {};
+      (appData.ticketRecords || []).forEach(r => { if (!recMatchesDateYear(r, ds, dt.getFullYear())) return; const g = r[`kinouGroup_${ap}`]; if (g) map[String(r.patientId)] = { g, st: r[`kinouStaff_${ap}`] || '' }; });
+      if (Object.keys(map).length) { src = map; srcDate = dt; }
+    }
+    const apLbl = ap === 'PM' ? '午後' : '午前';
+    if (!src) { alert(`過去4週間の同じ曜日（${apLbl}）にグループ分けの記録がありません。`); return; }
+    const targets = _kinouRows.filter(p => !_kinouAbs(p));
+    const md = `${srcDate.getMonth() + 1}/${srcDate.getDate()}`;
+    if (targets.some(p => p[_kinouGField]) && !window.confirm(`今のグループ分けを、${md}（${apLbl}）の割り振りで置き換えますか？`)) return;
+    const cnt = {}; let moved = 0; const none = [];
+    targets.forEach(p => {
+      const m = src[String(p.patientId ?? p.id)];
+      if (m && (cnt[m.g] || 0) < KINOU_GROUP_MAX) {
+        cnt[m.g] = (cnt[m.g] || 0) + 1; moved++;
+        updateRecord(p.id, _kinouGField, m.g);
+        if (m.st) updateRecord(p.id, _kinouField, m.st);
+      } else { updateRecord(p.id, _kinouGField, ''); none.push(p.name); }
+    });
+    alert(`${md}（${apLbl}）の割り振りをコピーしました（${moved}名）。` + (none.length ? `\n${md}にグループが無かった方は「グループなし」です: ${none.join('、')}` : ''));
+  };
   kgDropRef.current = (pid, zone) => {
     if (zone === 'none') return setKinouGroup(pid, '');
     if (zone === 'new') { const g = _kinouNextGroup(); if (!g) return; setKinouExtraGroups(x => [...x, g]); return setKinouGroup(pid, g); }
@@ -23802,7 +23832,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                           <div className="text-base font-bold text-slate-800">個別機能訓練のグループ（{timeFilter === 'PM' ? '午後' : '午前'}）</div>
                           <div className="text-xs text-slate-500">名前を長押しして動かすと移動できます（名前をタップ→移動先のグループをタップでも可）。1グループ最大{KINOU_GROUP_MAX}名。「＋グループ追加」に入れると新しいグループができます。</div>
                         </div>
-                        <button type="button" onClick={()=>{ setKinouGroupPanel(false); setKgSel(null); }} className="ml-auto shrink-0 px-4 py-2 rounded-xl bg-slate-800 text-white text-sm font-bold">閉じる</button>
+                        <button type="button" data-testid="kg-copy-last-week" disabled={!isEditMode} onClick={copyKinouGroupsFromLastWeek} title="同じ曜日・同じ午前/午後の先週の割り振りをそのまま使います(先週が休みなら最大4週前までさかのぼります)" className="ml-auto shrink-0 px-3 py-2 rounded-xl border border-emerald-400 bg-emerald-50 text-emerald-800 text-sm font-bold hover:bg-emerald-100 disabled:opacity-50">先週の割り振りをコピー</button>
+                        <button type="button" onClick={()=>{ setKinouGroupPanel(false); setKgSel(null); }} className="shrink-0 px-4 py-2 rounded-xl bg-slate-800 text-white text-sm font-bold">閉じる</button>
                       </div>
                       <div className="p-3 overflow-y-auto" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(190px,1fr))',gap:10,alignItems:'start'}}>
                         {[{ key: 'none', title: 'グループなし' }, ..._kinouGroupList.map(g => ({ key: g, title: `グループ${g}` })), { key: 'new', title: '＋グループ追加' }].map(col => {
