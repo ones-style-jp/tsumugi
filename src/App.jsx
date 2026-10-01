@@ -1566,6 +1566,18 @@ const resolveExerciseValue = (exercises, itemId, exItems, fallbackItems) => {
   return direct;
 };
 
+// ★ 2026-10-01(ユーザー要望): 体力測定で身長・体重から BMI を自動計算し、判定(やせ・普通・肥満)を色分けで表示する。
+//   BMI = 体重(kg) ÷ 身長(m)²。判定は日本肥満学会の基準(18.5未満=低体重/18.5〜25未満=普通体重/25〜30未満=肥満1度/30以上=肥満2度以上)。
+//   65歳以上は厚生労働省「日本人の食事摂取基準」の目標とするBMI 21.5〜24.9 も添える(普通体重でも21.5未満は「目標より低め」)。
+const calcBmi = (h, w) => { const hh = Number(String(h ?? '').trim()), ww = Number(String(w ?? '').trim()); if (!(hh > 50 && hh < 250 && ww > 10 && ww < 300)) return null; return Math.round(ww / ((hh / 100) ** 2) * 10) / 10; };
+const bmiJudge = (bmi, age) => {
+  if (bmi == null || isNaN(bmi)) return null;
+  const elder = age != null && age >= 65;
+  if (bmi < 18.5) return { label: '低体重（やせ）', color: '#1d4ed8', bg: '#dbeafe', border: '#93c5fd' };
+  if (bmi < 25) { if (elder && bmi < 21.5) return { label: '普通体重（目標より低め）', color: '#a16207', bg: '#fef9c3', border: '#fde047' }; return { label: '普通体重', color: '#15803d', bg: '#dcfce7', border: '#86efac' }; }
+  if (bmi < 30) return { label: '肥満（1度）', color: '#c2410c', bg: '#ffedd5', border: '#fdba74' };
+  return { label: bmi < 35 ? '肥満（2度）' : bmi < 40 ? '肥満（3度）' : '肥満（4度）', color: '#b91c1c', bg: '#fee2e2', border: '#fca5a5' };
+};
 // ★ 全角で入力された数値を半角へ直す (体力測定・身長体重など数値入力の共通処理)。
 //   全角数字/全角ピリオド/全角マイナス/読点・句点(テンキー誤入力)を半角に寄せ、数値に使う文字だけ残す。
 //   例: "１６０．５" → "160.5" / "36。5" → "36.5"
@@ -35010,6 +35022,17 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
     if (!vals.length) return null;
     return (vals.reduce((s,v) => s + Number(v), 0) / vals.length).toFixed(1);
   };
+  // ★ BMI(2026-10-01): 今回は入力中の身長・体重(身長が空なら過去の最新の身長)、各記録はその記録の身長(無ければそれ以前の最新)と体重
+  const _patAge = calcAge(selectedPat?.birthDate);
+  const _heightAsOf = (idx) => { for (let i = idx; i < patRecords.length; i++) { const h = patRecords[i]?.values?.height; if (h !== undefined && h !== '' && !isNaN(Number(h))) return h; } return ''; };
+  const _bmiOfRec = (r, idx) => calcBmi((r.values?.height ?? '') !== '' ? r.values.height : _heightAsOf(idx + 1), r.values?.weight);
+  const _curHeight = (values.height ?? '') !== '' ? values.height : _heightAsOf(0);
+  const _curBmi = calcBmi(_curHeight, values.weight);
+  const _curBmiPrevH = (values.height ?? '') === '' && _curBmi != null;
+  const _lastBmi = lastRecord ? _bmiOfRec(lastRecord, 0) : null;
+  const _avgBmi = (() => { const v = patRecords.map((r, i) => _bmiOfRec(r, i)).filter(x => x != null); return v.length ? (Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10) : null; })();
+  const BmiBadge = ({ bmi, small }) => { const j = bmiJudge(bmi, _patAge); if (!j) return <span className="text-slate-300">—</span>;
+    return <span className="inline-flex flex-col items-center leading-tight" data-testid="bmi-badge"><span className={`font-extrabold ${small ? 'text-xs' : 'text-sm'}`} style={{ color: j.color }}>{bmi.toFixed(1)}</span><span className="text-[10px] font-bold rounded px-1.5 mt-0.5 whitespace-nowrap" style={{ color: j.color, background: j.bg, border: `1px solid ${j.border}` }}>{j.label}</span></span>; };
 
   const save = () => {
     if (!selectedPatientId) return;
@@ -35280,7 +35303,22 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                     </div>
                   </div>
                 );
-              })}
+              }).flatMap((row, i) => (fitnessItems[i] && fitnessItems[i].id === 'weight') ? [row, (
+                <div key="__bmi" data-testid="bmi-row" className="grid grid-cols-4 border-b border-slate-100 items-center bg-slate-50/60">
+                  <div className="px-1.5 sm:px-4 py-3 font-bold text-[13px] sm:text-sm text-slate-700 leading-tight">BMI<span className="text-[10px] text-slate-400 ml-1 font-normal">（自動計算）</span></div>
+                  <div className="px-1 sm:px-4 py-2 text-center"><BmiBadge bmi={_curBmi} />{_curBmiPrevH && <div className="text-[9px] text-slate-400 mt-0.5">身長は前回の値</div>}</div>
+                  <div className="px-1 sm:px-4 py-2 text-center"><BmiBadge bmi={_lastBmi} /></div>
+                  <div className="px-1 sm:px-4 py-2 text-center"><BmiBadge bmi={_avgBmi} /></div>
+                </div>
+              )] : [row])}
+              {/* ★ BMI の基準(色分けの見方) */}
+              <div className="px-3 sm:px-4 py-2 text-[10.5px] text-slate-600 leading-relaxed flex flex-wrap items-center gap-x-2 gap-y-1" data-testid="bmi-legend">
+                <span className="font-bold text-slate-500">BMIの基準</span>
+                <span>＝体重(kg)÷身長(m)²</span>
+                {[['18.5未満 低体重（やせ）','#1d4ed8','#dbeafe','#93c5fd'],['18.5〜25未満 普通体重','#15803d','#dcfce7','#86efac'],['25〜30未満 肥満（1度）','#c2410c','#ffedd5','#fdba74'],['30以上 肥満（2度以上）','#b91c1c','#fee2e2','#fca5a5']].map(([t2,c,bg,bd]) => (
+                  <span key={t2} className="font-bold rounded px-1.5 whitespace-nowrap" style={{ color: c, background: bg, border: `1px solid ${bd}` }}>{t2}</span>))}
+                <span className="text-slate-500">65歳以上の目標は 21.5〜24.9（厚生労働省「日本人の食事摂取基準」）。21.5未満は<span className="font-bold rounded px-1 whitespace-nowrap" style={{ color: '#a16207', background: '#fef9c3', border: '1px solid #fde047' }}>目標より低め</span></span>
+              </div>
             </div>
 
             {/* 過去の記録 */}
@@ -35298,9 +35336,10 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200">
                         <th className="px-4 py-2 text-left font-bold text-slate-500 whitespace-nowrap">日付</th>
-                        {fitnessItems.map(item => (
-                          <th key={item.id} className="px-3 py-2 text-center font-bold text-slate-500 whitespace-nowrap">{item.name}<br/><span className="text-slate-400 font-normal">（{item.unit}）</span></th>
-                        ))}
+                        {fitnessItems.flatMap(item => [
+                          <th key={item.id} className="px-3 py-2 text-center font-bold text-slate-500 whitespace-nowrap">{item.name}<br/><span className="text-slate-400 font-normal">（{item.unit}）</span></th>,
+                          ...(item.id === 'weight' ? [<th key="__bmi" className="px-3 py-2 text-center font-bold text-slate-500 whitespace-nowrap">BMI<br/><span className="text-slate-400 font-normal">（自動）</span></th>] : []),
+                        ])}
                         {editPast && <th className="px-2 py-2 text-center font-bold text-slate-500 whitespace-nowrap">削除</th>}
                       </tr>
                     </thead>
@@ -35312,9 +35351,9 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                             <div>{r.date}</div>
                             {r.recorder && <div className="text-[10px] font-normal text-slate-500 mt-0.5">担当: {r.recorder}</div>}
                           </td>
-                          {fitnessItems.map(item => {
+                          {fitnessItems.flatMap(item => {
                             const cur = r.values?.[item.id] ?? '';
-                            return (
+                            const _cell = (
                               <td key={item.id} className="px-2 py-1 text-center">
                                 {editPast ? (
                                   <input type="text" inputMode="decimal" defaultValue={cur}
@@ -35333,6 +35372,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                                 )}
                               </td>
                             );
+                            return item.id === 'weight' ? [_cell, <td key="__bmi" className="px-2 py-1 text-center"><BmiBadge bmi={_bmiOfRec(r, ri)} small /></td>] : [_cell];
                           })}
                           {editPast && (
                             <td className="px-2 py-1 text-center">
