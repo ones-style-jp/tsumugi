@@ -33336,10 +33336,45 @@ function PickupPlaceField({ value, onChange, disabled, hiddenId, className }) {
   );
 }
 
+// ★ 2026-10-01(試験版・ユーザー要望「間違えて自動計算し直しちゃった時用に戻るボタン」): 送迎表の「元に戻す」の履歴。
+//   アプリを開いている間はほかの画面へ移っても残す(再読み込みで消える)。店舗の取り違えを防ぐため事業所名ごとに分ける。
+const _tpUndoMem = {};
 function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowPrintPreview }) {
   const ds = appData.diarySettings || {};
   const cars = (ds.cars && ds.cars.length ? ds.cars : [{id:'car1',name:'1号車',type:''},{id:'car2',name:'2号車',type:''}]);
   const plans = appData.transportPlans || {};
+  //   1件 = 1回の操作で変わったコマ(日付_午前午後)の「操作前の内容」。戻すと、その内容を新しい変更として保存する(他の端末にも反映)。
+  //   手での変更(移動・時間・運転者など)は同じコマを4秒以内に続けて変えたものを1件にまとめる(時間を1文字ずつ打つたびに増えないように)。
+  const _undoKey = String(appData.systemSettings?.facilityInfo?.name || '_');
+  const [, _setUndoTick] = useState(0);
+  const _undoList = () => (_tpUndoMem[_undoKey] = _tpUndoMem[_undoKey] || []);
+  const _planSig = (pl) => { if (!pl) return ''; const { _savedAt, _draft, ...rest } = pl; return JSON.stringify(rest); };
+  const _pushUndo = (label, afters) => { // afters: { key: 保存する内容 }。操作前は保存済みの内容そのまま(未保存なら下書き)を控える
+    const keys = Object.keys(afters).filter(k => _planSig(_shownOf(k)) !== _planSig(afters[k])); if (!keys.length) return;
+    const befores = {}; keys.forEach(k => { befores[k] = _beforeOf(k); });
+    const list = _undoList(); const top = list[list.length - 1]; const now = Date.now();
+    if (label === '手での変更' && top && top.label === label && top.items.length === 1 && keys.length === 1 && top.items[0].k === keys[0] && now - top.at < 4000) { top.items[0].after = _planSig(afters[keys[0]]); top.at = now; return; }
+    list.push({ label, at: now, items: keys.map(k => ({ k, before: JSON.parse(JSON.stringify(befores[k])), after: _planSig(afters[k]) })) });
+    if (list.length > 20) list.shift();
+    _setUndoTick(t => t + 1);
+  };
+  const _shownOf = (k) => { const [iso, sl] = k.split('_'); const { _draft, ...rest } = getPlan(iso, sl); return rest; }; // 画面に出ている内容(変わったかの判定用)
+  const _beforeOf = (k) => { const raw = plans[k]; if (raw) { const { _savedAt, ...rest } = raw; return rest; } return _shownOf(k); };
+  const undoLast = () => {
+    const list = _undoList(); const e = list[list.length - 1]; if (!e) return;
+    const pids = new Set((appData.patients||[]).map(p => String(p.id)));
+    const okStore = e.items.every(it => [ ...Object.values(it.before.cars||{}).flat(), ...(it.before.walkers||[]), ...(it.before.others||[]), ...(it.before.un||[]) ].every(m => !m || pids.has(String(m.pid))));
+    if (!okStore) { alert('この店舗の送迎表ではない操作のため、元に戻せません。'); list.pop(); _setUndoTick(t => t + 1); return; }
+    const later = e.items.some(it => _planSig(plans[it.k]) !== it.after);
+    const _d = new Date(e.at); const when = `${_d.getHours()}:${String(_d.getMinutes()).padStart(2, '0')}`;
+    const where = e.items.slice(0, 3).map(it => { const [iso, sl] = it.k.split('_'); const dd = new Date(iso); return `${dd.getMonth()+1}/${dd.getDate()}（${DOWJ[dd.getDay()]}）${sl === 'AM' ? '午前' : '午後'}`; }).join('、') + (e.items.length > 3 ? ` ほか${e.items.length - 3}コマ` : '');
+    if (!window.confirm(`「${e.label}」（${when}）の前の状態に戻します。\n対象: ${where}${later ? '\n\n※この操作のあとに変えた内容（他の端末での変更を含む）も、このコマは操作の前に戻ります。' : ''}\n\nよろしいですか？`)) return;
+    const np = { ...plans }; const ts = syncNow(); e.items.forEach(it => { np[it.k] = { ...it.before, _savedAt: ts }; });
+    list.pop(); _setUndoTick(t => t + 1);
+    onSave({ ...appData, transportPlans: np }, { manual: true, message: `✓ 「${e.label}」の前に戻しました(${e.items.length}コマ)` });
+  };
+  //   一括の操作(自動計算・前週コピー・完成)は、保存する直前に変わるコマの操作前を控える
+  const _saveBulk = (label, np, opts) => { const afters = {}; Object.keys(np).forEach(k => { if (np[k] !== plans[k] && /^\d{4}-\d{2}-\d{2}_(AM|PM)$/.test(k)) afters[k] = np[k]; }); _pushUndo(label, afters); onSave({ ...appData, transportPlans: np }, opts || { silent: true }); };
   // 週の月曜(selectedDate基準)
   const _mon = (() => { const d = new Date(selectedDate || new Date()); const dw = d.getDay(); const diff = (dw === 0 ? -6 : 1 - dw); d.setDate(d.getDate() + diff); d.setHours(0,0,0,0); return d; })();
   const _iso = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -33500,7 +33535,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const savePlan = (iso, sl, plan) => {
     const { _draft, ...rest } = plan;
     const next = { ...rest, _savedAt: syncNow() };
-    onSave({ ...appData, transportPlans: { ...plans, [`${iso}_${sl}`]: next } }, { silent: true });
+    const k = `${iso}_${sl}`; _pushUndo('手での変更', { [k]: next });
+    onSave({ ...appData, transportPlans: { ...plans, [k]: next } }, { silent: true });
   };
   const mutate = (iso, sl, fn) => { const cur = getPlan(iso, sl); const next = JSON.parse(JSON.stringify({ ...cur })); delete next._draft; fn(next); savePlan(iso, sl, next); };
   const _pname = (pid) => (appData.patients||[]).find(p => p.id === pid)?.name || '';
@@ -33536,7 +33572,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       : `この週(${days.length}日分)の送迎表を、いまの内容で「完成」として確定します。\n以後に変えた箇所(車・乗車順・時間・運転者)には自動で赤丸が付き、印刷にも出ます。よろしいですか？`)) return;
     const np = { ...plans }; const at = syncNow(); let n = 0;
     days.forEach(d => ['AM','PM'].forEach(sl => { const iso = _iso(d); const pl = getPlan(iso, sl); const { _draft, ...rest } = pl; np[`${iso}_${sl}`] = { ...rest, _final: _snapPlan(pl), _finalAt: at, _savedAt: at }; n++; }));
-    onSave({ ...appData, transportPlans: np }, { manual: true, message: `✓ 送迎表 ${_mon.getMonth()+1}/${_mon.getDate()}週を完成にしました(${n}コマ)` });
+    _saveBulk('完成', np, { manual: true, message: `✓ 送迎表 ${_mon.getMonth()+1}/${_mon.getDate()}週を完成にしました(${n}コマ)` });
   };
   const _isFurikae = (iso, sl, pid) => { const a = _attendees(iso, sl).find(x => x.pid === pid); return !!(a && a.furikae); };
   // ★ 初回利用の自動判定(2026-09-12d): その日より前に出席/振替の記録が1件も無ければ初回。
@@ -33850,6 +33886,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     else { toEntry.cars = toEntry.cars || {}; toEntry.cars[destZone] = toEntry.cars[destZone] || []; const bi = beforePid != null ? toEntry.cars[destZone].findIndex(m => String(m.pid) === String(beforePid)) : -1; if (bi >= 0) toEntry.cars[destZone].splice(bi, 0, item); else toEntry.cars[destZone].push(item); }
     toEntry._savedAt = syncNow();
     tp[toKey] = toEntry;
+    // ★ 2026-10-01(試験版): 振替は提供記録・月間スケジュールも変えるため「元に戻す」の対象外。それより前の操作を戻すと振替と食い違うので、元に戻すの履歴は空にする
+    if (_undoList().length) { _undoList().length = 0; _setUndoTick(t => t + 1); }
     onSave({ ...appData, monthlyShifts: shifts, ticketRecords: recs, transportPlans: tp }, { manual: true, message: `✓ ${pt.name}様を${destLabel}(${toSl==='AM'?'午前':'午後'})へ振替登録しました` });
   };
   // ★ ルート計算のコア(1日分・時間帯1つ): 保存はせず計算後のプランを返す。
@@ -34148,7 +34186,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     try {
       if (!(await _probeMaps())) { setRouting(null); return; }
       const { msgs, changed, entry } = await _autoRouteCore(iso, sl, plans, { keepOrder: true });
-      if (changed && entry) onSave({ ...appData, transportPlans: { ...plans, [`${iso}_${sl}`]: entry } }, { silent: true });
+      if (changed && entry) _saveBulk('時間の計算', { ...plans, [`${iso}_${sl}`]: entry });
       alert((changed ? 'この順番のまま時間を再計算しました。' : '乗車のある車がありませんでした。') + (msgs.length ? '\n\n' + msgs.join('\n') : ''));
     } catch (e) { alert('計算に失敗しました: ' + String(e && e.message || e)); }
     setRouting(null);
@@ -34159,7 +34197,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     try {
       if (!(await _probeMaps())) { setRouting(null); return; }
       const { msgs, changed, entry } = await _autoRouteCore(iso, sl, plans);
-      if (changed && entry) onSave({ ...appData, transportPlans: { ...plans, [`${iso}_${sl}`]: entry } }, { silent: true });
+      if (changed && entry) _saveBulk('ルート計算', { ...plans, [`${iso}_${sl}`]: entry });
       alert((changed ? 'ルートを割り振りました。時間・順番は手で直せます。' : '乗車のある車がありませんでした。') + (msgs.length ? '\n\n' + msgs.join('\n') : ''));
     } catch (e) { alert('ルート計算に失敗しました: ' + String(e && e.message || e)); }
     setRouting(null);
@@ -34186,8 +34224,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         if (changed && entry && opt.haisha && !opt.jikan) { Object.keys(entry.cars || {}).forEach(cid => { entry.cars[cid] = (entry.cars[cid] || []).map(m => ({ ...m, t: _oldT[m.pid] != null ? _oldT[m.pid] : '' })); }); }
         allMsgs.push(...msgs); if (changed && entry) { acc[_key] = entry; nChanged++; }
       } }
-      if (nChanged) onSave({ ...appData, transportPlans: acc }, { silent: true });
-      alert(`${opt.haisha && opt.jikan ? '配車と時間' : (opt.haisha ? '配車' : '時間')}の自動計算が終わりました（${nChanged}コマ更新）。時間・順番は手で直せます。` + (allMsgs.length ? '\n\n' + allMsgs.join('\n') : ''));
+      if (nChanged) _saveBulk('自動計算', acc);
+      alert(`${opt.haisha && opt.jikan ? '配車と時間' : (opt.haisha ? '配車' : '時間')}の自動計算が終わりました（${nChanged}コマ更新）。時間・順番は手で直せます。${nChanged ? '\n間違えた場合は「元に戻す」で計算の前に戻せます。' : ''}` + (allMsgs.length ? '\n\n' + allMsgs.join('\n') : ''));
     } catch (e) { alert('計算に失敗しました: ' + String(e && e.message || e)); }
     setRouting(null);
   };
@@ -34203,7 +34241,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         const { msgs, changed, entry } = await _autoRouteCore(_iso(d), sl, acc);
         allMsgs.push(...msgs); if (changed && entry) { acc[`${_iso(d)}_${sl}`] = entry; nChanged++; }
       } }
-      if (nChanged) onSave({ ...appData, transportPlans: acc }, { silent: true });
+      if (nChanged) _saveBulk('自動計算', acc);
       alert(`週間ルートの一括作成が完了しました（${nChanged}コマ更新）。` + (allMsgs.length ? '\n\n' + allMsgs.join('\n') : ''));
     } catch (e) { alert('ルート計算に失敗しました: ' + String(e && e.message || e)); }
     setRouting(null);
@@ -34648,10 +34686,15 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               delete cp._final; delete cp._finalAt; // ★ 完成の控えは週ごと(コピー先は未完成から)
               np[`${_iso(d)}_${sl}`] = { ...cp, _savedAt: syncNow() }; n++;
             }); });
-            if (n) onSave({ ...appData, transportPlans: np }, { silent: true });
+            if (n) _saveBulk('前週コピー', np);
             alert(n ? `前週から${n}コマをコピーしました。${nSkip ? `\n（前の週の振替・この週のお休みなどで、この週に来ない方 のべ${nSkip}名はコピーしていません）` : ''}` : '前の週に保存済みの送迎表がありませんでした。');
           }} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="前の週の割り当て・時間・運転者・備考をこの週へ複製">前週コピー</button>
           <button onClick={()=>setAutoCalc({ haisha: false, jikan: true, days: new Set(days.map(d=>_iso(d))), slots: new Set(['AM','PM']), cars: new Set(cars.map(c=>c.id)) })} disabled={!!routing} data-testid="tp-autocalc" className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-sm disabled:opacity-50" title="配車・時間を、曜日や午前/午後を選んでGoogleマップで自動計算">{routing?'計算中…':'自動計算'}</button>
+          {(() => { const ul = _undoList(); const last = ul[ul.length - 1]; return (
+            <button onClick={undoLast} disabled={!last || !!routing} data-testid="tp-undo" title={last ? `直前の操作「${last.label}」の前に戻す（あと${ul.length}回まで戻せます）` : '元に戻せる操作はありません'} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed">
+              元に戻す{last ? <span className="ml-1 text-[11px] font-normal text-slate-500">（{last.label}）</span> : null}
+            </button>
+          ); })()}
           {/* ★ 週の完成確定(2026-09-28): 完成後の変更は赤丸で自動表示 */}
           {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return (
             <button onClick={finalizeWeek} className={`px-2.5 py-2 rounded-xl font-bold text-xs border whitespace-nowrap ${fa?'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100':'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`} title={fa?`完成 ${_fmtStamp(fa)}。押すと今の内容で完成を更新(赤丸は付け直し)`:'この週の送迎表を「完成」として確定。以後に変えた箇所に自動で赤丸が付きます'}>
