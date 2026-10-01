@@ -33903,7 +33903,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     let changed = false;
 
     // ★ 2026-09-12k: 未割当のうちマスタ徒歩の方は徒歩枠へ寄せる(車の配車対象にしない)
-    {
+    //   ★ 2026-10-01(ユーザー指示「時間の計算では未割当はいじらない」): 「時間」だけの計算では寄せない
+    if (!keepOrder) {
       const att = _attendees(iso, sl);
       const walkSet = new Set(att.filter(a=>a.walk).map(a=>a.pid));
       const stayUn = [];
@@ -33912,20 +33913,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     }
     if (keepOrder) {
       // ★「時間」モード(2026-09-12h): 手で組んだ車・順番はそのまま、区間時間だけ取り直して時刻を再計算
-      // ★ 2026-10-01(ユーザー要望: 休止の終了後は自動計算の対象に): 未割当の方は、以前乗っていた車(最大8週前まで)へ、
-      //   無ければ空きのある車のうち乗車が少ない車へ入れてから時間を計算する(入れた方は知らせる。車・順番は手で直せる)
-      const _put = []; const _stay = [];
-      JSON.parse(JSON.stringify(pl.un||[])).forEach(m => {
-        const h = _histCarOf(m.pid, iso, sl);
-        const _cap = (cid) => { const c = cars.find(x => x.id === cid); return Number(c && c.cap) || 99; };
-        let cid = (h && h.cid && cars.some(c => c.id === h.cid) && (nextPlanCars[h.cid] || []).length < _cap(h.cid)) ? h.cid : null;
-        if (!cid) { const cand = cars.filter(c => (nextPlanCars[c.id] || []).length < _cap(c.id) && (nextPlanCars[c.id] || []).length > 0).sort((a, b) => (nextPlanCars[a.id] || []).length - (nextPlanCars[b.id] || []).length); cid = cand[0] ? cand[0].id : null; }
-        if (!cid || !_addrOf(m.pid)) { _stay.push(m); return; }
-        const arr = nextPlanCars[cid] = nextPlanCars[cid] || []; const at = (h && h.cid === cid) ? Math.min(h.idx, arr.length) : arr.length;
-        arr.splice(at, 0, { ...m, mark: false }); _put.push(`${_pname(m.pid)}→${cars.find(c => c.id === cid)?.name || cid}`); changed = true;
-      });
-      remainUn = _stay;
-      if (_put.length) msgs.push(`${iso} ${sl}: 未割当だった方を車に入れて時間を計算しました（${_put.join('、')}）。車・順番は必要に応じて直してください`);
+      // ★ 2026-10-01(ユーザー指示「誰かが車に1人でも入っていると、時間の計算で配車までされる。時間は今車にいる人だけで計算し、未割当はいじらない」):
+      //   未割当の方はそのまま残す(以前は以前乗っていた車・空きのある車へ入れていた=休止明け対応 1001d)。休止明けの方は
+      //   下書きの時点で以前乗っていた車に入る(_histCarOf)。未割当の方を車へ入れたいときは手で移すか「配車」で計算する。
+      remainUn = JSON.parse(JSON.stringify(pl.un||[]));
+      if (remainUn.length) msgs.push(`${iso} ${sl}: 未割当の${remainUn.length}名はそのままです（時間は車に乗っている方だけ計算しました）`);
     } else {
       // ★「ルート」モード(2026-09-12h 店舗要望): 方角クラスタリングで車の組み合わせから作り直す。
       //   施設から見た方角で全乗車者を並べ、使う台数で均等に分割(定員厳守)→同じ方向は同じ車に。
