@@ -31983,8 +31983,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         + `<div style="width:182mm;height:257mm;transform:scale(${scale});transform-origin:top left;">${h || ''}</div>`
         + `</div>`
         + (guidePunch ? (punchTop
-            ? `<div style="position:absolute;top:2mm;left:50%;transform:translateX(-50%);font-size:3.4mm;line-height:1;color:#333;">▼</div>` /* ★ 上綴じは各面の上中央に1つ(2026-09-25 ユーザー指示) */
-            : `<div style="position:absolute;left:3.5mm;top:50%;transform:translateY(-50%);font-size:3.4mm;line-height:1;color:#333;">◀</div>`) : '')
+            ? `<div style="position:absolute;top:7mm;left:50%;transform:translateX(-50%);font-size:3.4mm;line-height:1;color:#333;">▼</div>` /* ★ 上綴じは各面の上中央に1つ(2026-09-25 ユーザー指示)。★ 2026-10-01(店舗報告: プレビューでは出るが印刷で消える): 用紙の端から2mmはプリンタの印字できない範囲のため7mmへ(中身は14mmから) */
+            : `<div style="position:absolute;left:7mm;top:50%;transform:translateY(-50%);font-size:3.4mm;line-height:1;color:#333;">◀</div>`) : '')
         + `</div>`;
       const pages = [];
       for (let i = 0; i < parts.length; i += 2) {
@@ -34701,7 +34701,13 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                             {(pl.walkers||[]).map(m => (
                               <div key={m.pid} className={`flex items-center gap-1 text-[15px] font-bold text-slate-700 py-1 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''}`}>
                                 {_chgOf(pl, m.pid) && <span className="shrink-0 text-red-600 text-[10px] font-bold" title={`完成後の変更: ${_chgOf(pl, m.pid)}`}>●</span>}
-                                <span className="flex-1 min-w-0 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{touchAction:'pan-y'}} {..._dragHandlers(m.pid, iso, sl)}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></span>
+                                <span className="flex-1 min-w-0 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2 select-none" style={{touchAction:'pan-y', WebkitTouchCallout:'none', WebkitUserSelect:'none'}} onContextMenu={e=>e.preventDefault()} {..._dragHandlers(m.pid, iso, sl)}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></span>
+                                {/* ★ 2026-10-01(店舗報告: 徒歩・その他に入れた方を変更できない): iPad では文字の長押しで選択メニューが出てドラッグが始まらなかった。未割当と同じく「移動先」で選べるように */}
+                                <select value="" data-testid={`tp-walk-sel-${m.pid}`} onChange={e=>{ if (e.target.value) moveMember(iso, sl, m.pid, e.target.value); }} className="shrink-0 text-[11px] font-bold border border-orange-300 text-orange-800 rounded px-0.5 py-0 bg-white max-w-[92px]">
+                                  <option value="">移動先…</option>
+                                  {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name}</option>)}
+                                  {'walk' !== 'walk' && <option value="walk">徒歩</option>}{'walk' !== 'other' && <option value="other">その他</option>}<option value="un">未割当</option>
+                                </select>
                               </div>
                             ))}
                             {!(pl.walkers||[]).length && <div className="text-[10px] text-orange-500">ここにドロップで徒歩</div>}
@@ -34713,7 +34719,12 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                             {(pl.others||[]).map(m => (
                               <div key={m.pid} className={`flex items-center gap-1 text-[15px] font-bold text-slate-700 py-1 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''}`}>
                                 {_chgOf(pl, m.pid) && <span className="shrink-0 text-red-600 text-[10px] font-bold" title={`完成後の変更: ${_chgOf(pl, m.pid)}`}>●</span>}
-                                <span className="flex-1 min-w-0 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{touchAction:'pan-y'}} {..._dragHandlers(m.pid, iso, sl)}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></span>
+                                <span className="flex-1 min-w-0 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2 select-none" style={{touchAction:'pan-y', WebkitTouchCallout:'none', WebkitUserSelect:'none'}} onContextMenu={e=>e.preventDefault()} {..._dragHandlers(m.pid, iso, sl)}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></span>
+                                <select value="" data-testid={`tp-other-sel-${m.pid}`} onChange={e=>{ if (e.target.value) moveMember(iso, sl, m.pid, e.target.value); }} className="shrink-0 text-[11px] font-bold border border-violet-300 text-violet-800 rounded px-0.5 py-0 bg-white max-w-[92px]">
+                                  <option value="">移動先…</option>
+                                  {cars.map(cc=><option key={cc.id} value={cc.id}>{cc.name}</option>)}
+                                  {'other' !== 'walk' && <option value="walk">徒歩</option>}{'other' !== 'other' && <option value="other">その他</option>}<option value="un">未割当</option>
+                                </select>
                               </div>
                             ))}
                             {!(pl.others||[]).length && <div className="text-[10px] text-violet-500">ここにドロップでその他</div>}
@@ -34725,7 +34736,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                             <div className="text-[10px] font-bold text-amber-700 flex items-center leading-tight">未割当 {(pl.un||[]).length}名<span className="ml-auto font-normal text-amber-600 text-[9px]">右の「移動先」で車・徒歩を選ぶか、名前を長押しして移動</span></div>
                             {(pl.un||[]).map(m => (
                               <div key={m.pid} className={`flex items-center gap-1 text-[15px] font-bold text-slate-700 py-0 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''} ${_isFurikae(iso, sl, m.pid)?'bg-emerald-100 rounded':(_isFirstVisit(m.pid, iso)?'bg-sky-100 rounded':'')}`}>
-                                <span className="flex-1 min-w-0 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2 px-1" style={{touchAction:'pan-y'}} {..._dragHandlers(m.pid, iso, sl)}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></span>
+                                <span className="flex-1 min-w-0 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2 px-1 select-none" style={{touchAction:'pan-y', WebkitTouchCallout:'none', WebkitUserSelect:'none'}} onContextMenu={e=>e.preventDefault()} {..._dragHandlers(m.pid, iso, sl)}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></span>
                                 <span className="text-[12px] text-slate-500" style={{fontVariantNumeric:'tabular-nums'}}>{_fmtT(m.t)}</span>
                                 {/* ★ 2026-09-29 ユーザー要望: 未割当の方はドラッグだけでなく、プルダウンで車・徒歩・その他を自由に選べる */}
                                 <select value="" data-testid={`tp-un-sel-${m.pid}`} onChange={e=>{ if (e.target.value) moveMember(iso, sl, m.pid, e.target.value); }} className="shrink-0 text-[11px] font-bold border border-amber-400 rounded px-0.5 py-0 bg-white max-w-[92px] text-amber-800">
