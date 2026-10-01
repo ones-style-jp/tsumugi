@@ -26147,9 +26147,9 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   };
   // 時刻の途中で改行しないよう、変更前・変更後はそれぞれ折り返さない
   const _chgText = (c) => { if (!c) return null; const nw = (s) => <span style={{whiteSpace:'nowrap'}}>{s}</span>;
-    return c.now === '徒歩' ? <>送迎が変更されました（{nw(`${c.was}のお迎え`)} → {nw('徒歩でご来所')}）</>
+    return c.now === '徒歩' ? <>送迎が変更されました（{nw(`${c.was}頃のお迎え`)} → {nw('徒歩でご来所')}）</>
       : c.was === '徒歩' ? <>送迎が変更されました（{nw('徒歩でご来所')} → {nw(`${c.now}頃のお迎え`)}）</>
-      : <>お迎え時間が変更されました（{nw(c.was)} → {nw(c.now)}）</>; };
+      : <>お迎え時間が変更されました（{nw(`${c.was}頃`)} → {nw(`${c.now}頃`)}）</>; }; // ★ 2026-10-01: 分の後に「頃」
   // ★ 2026-09-30(ユーザー決定): 送迎表を使っている店舗では、その日の送迎表が「完成」なら確定、まだなら「予定」と表示する
   const _tpUse = tpStoreUsesTransport(appData);
   const _pickupFixed = (info) => { try { const pl = (appData.transportPlans || {})[`${info.iso}_${info.ampm || 'AM'}`]; return !!(pl && pl._final); } catch { return false; } };
@@ -26856,7 +26856,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             <span style={{fontSize:13,fontWeight:'bold',color:'#1e40af'}}>本日のお迎え時間</span>
             <span style={{fontSize:22,fontWeight:'bold',color:'#1e3a8a',letterSpacing:0.5}}>{todayVisit.dateLabel}</span>
             {todayVisit.isFurikae && <span style={{fontSize:12,fontWeight:'bold',color:'#059669',background:'#d1fae5',borderRadius:6,padding:'1px 8px'}}>振替</span>}
-            <span style={{fontSize:22,fontWeight:'bold',color:'#1e3a8a'}}>{todayVisit.time ? (todayVisit.time === '徒歩' ? '徒歩でご来所' : <>お迎え <span style={{fontSize:26}}>{todayVisit.time}</span> 頃</>) : <span style={{fontSize:14,color:'#475569',fontWeight:'normal'}}>お迎え時間は事業所にご確認ください</span>}</span>
+            <span style={{fontSize:22,fontWeight:'bold',color:'#1e3a8a'}}>{todayVisit.time ? (todayVisit.time === '徒歩' ? '徒歩でご来所' : <>お迎え <span style={{fontSize:26}}>{todayVisit.time}</span>頃</>) : <span style={{fontSize:14,color:'#475569',fontWeight:'normal'}}>お迎え時間は事業所にご確認ください</span>}</span>
             {_fixBadge(todayVisit)}
             {_minUnset(todayVisit.time) && <span data-testid="min-unset" style={{fontSize:12,color:'#b45309',fontWeight:'bold'}}>お迎え時間の「分」が未設定です。事業所にお問い合わせください</span>}
             <span style={{fontSize:13,color:'#475569'}}>記録は利用後に表示されます</span>
@@ -26868,7 +26868,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             <span style={{fontSize:13,fontWeight:'bold',color:'#166534'}}>次回のお迎え時間</span>
             <span style={{fontSize:22,fontWeight:'bold',color:'#14532d',letterSpacing:0.5}}>{nextVisit.date}</span>
             {nextVisit.isFurikae && <span style={{fontSize:12,fontWeight:'bold',color:'#059669',background:'#d1fae5',borderRadius:6,padding:'1px 8px'}}>振替</span>}
-            <span style={{fontSize:22,fontWeight:'bold',color:'#14532d'}}>{nextVisit.time ? (nextVisit.time === '徒歩' ? '徒歩でご来所' : <>お迎え <span style={{fontSize:26}}>{nextVisit.time}</span> 頃</>) : <span style={{fontSize:14,color:'#475569',fontWeight:'normal'}}>お迎え時間は事業所にご確認ください</span>}</span>
+            <span style={{fontSize:22,fontWeight:'bold',color:'#14532d'}}>{nextVisit.time ? (nextVisit.time === '徒歩' ? '徒歩でご来所' : <>お迎え <span style={{fontSize:26}}>{nextVisit.time}</span>頃</>) : <span style={{fontSize:14,color:'#475569',fontWeight:'normal'}}>お迎え時間は事業所にご確認ください</span>}</span>
             {_fixBadge(nextVisit)}
             {_minUnset(nextVisit.time) && nextVisit.iso && _isoTomorrowOrToday(nextVisit.iso) && <span data-testid="min-unset" style={{fontSize:12,color:'#b45309',fontWeight:'bold'}}>お迎え時間の「分」が未設定です。事業所にお問い合わせください</span>}
             {nextVisit.chg && <div data-testid="pickup-changed" style={{flexBasis:'100%',fontSize:14,fontWeight:'bold',color:'#b91c1c'}}>{_chgText(nextVisit.chg)}</div>}
@@ -33120,6 +33120,8 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                     <span style={numStyle(mBlank)}>{mBlank ? '  ' : m.padStart(2, '0')}</span>
                     {' '}
                     <span style={labelStyle}>分</span>
+                    {/* ★ 2026-10-01(ユーザー要望): 次回お迎え時間の分の後に「頃」 */}
+                    <span style={labelStyle}>頃</span>
                   </span>;
                 };
                 return (
@@ -33863,8 +33865,12 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     return sl === 'AM' ? 9*60 - 5 : 13*60 + 30 - 5;
   };
   const _fmtHM = (mins) => { const h = Math.floor(mins/60), m2 = mins%60; return `${h}:${String(m2).padStart(2,'0')}`; };
+  const _carsAll = cars;
   const _autoRouteCore = async (iso, sl, basePlans, opts) => {
     const keepOrder = !!(opts && opts.keepOrder);
+    // ★ 2026-10-01(ユーザー要望): 自動計算で車を選べる。選ばなかった車は乗車の方・順番・時間をそのまま残し、計算の対象にしない
+    const _selCars = (opts && opts.carIds instanceof Set && opts.carIds.size) ? opts.carIds : null;
+    const cars = _selCars ? _carsAll.filter(c => _selCars.has(c.id)) : _carsAll;
     const msgs = [];
     const fac = _facilityAddr();
     const pl = (() => { const saved = (basePlans||plans)[`${iso}_${sl}`]; if (saved && typeof saved === 'object') { const inPlan = new Set([ ...Object.values(saved.cars||{}).flat().map(m=>m.pid), ...((saved.walkers||[]).map(m=>m.pid)), ...((saved.others||[]).map(m=>m.pid)), ...((saved.un||[]).map(m=>m.pid)) ]); const extra = _attendees(iso, sl).filter(a => !inPlan.has(a.pid)).map(a => ({ pid: a.pid, t: a.time, mark: false })); return { cars: {}, walkers: [], memo: '', ...saved, un: [ ...(saved.un||[]), ...extra ] }; } return _draftPlan(iso, sl); })();
@@ -33912,7 +33918,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       JSON.parse(JSON.stringify(pl.un||[])).forEach(m => {
         const h = _histCarOf(m.pid, iso, sl);
         const _cap = (cid) => { const c = cars.find(x => x.id === cid); return Number(c && c.cap) || 99; };
-        let cid = (h && h.cid && (nextPlanCars[h.cid] || []).length < _cap(h.cid)) ? h.cid : null;
+        let cid = (h && h.cid && cars.some(c => c.id === h.cid) && (nextPlanCars[h.cid] || []).length < _cap(h.cid)) ? h.cid : null;
         if (!cid) { const cand = cars.filter(c => (nextPlanCars[c.id] || []).length < _cap(c.id) && (nextPlanCars[c.id] || []).length > 0).sort((a, b) => (nextPlanCars[a.id] || []).length - (nextPlanCars[b.id] || []).length); cid = cand[0] ? cand[0].id : null; }
         if (!cid || !_addrOf(m.pid)) { _stay.push(m); return; }
         const arr = nextPlanCars[cid] = nextPlanCars[cid] || []; const at = (h && h.cid === cid) ? Math.min(h.idx, arr.length) : arr.length;
@@ -33923,7 +33929,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     } else {
       // ★「ルート」モード(2026-09-12h 店舗要望): 方角クラスタリングで車の組み合わせから作り直す。
       //   施設から見た方角で全乗車者を並べ、使う台数で均等に分割(定員厳守)→同じ方向は同じ車に。
-      const riders = [ ...Object.values(nextPlanCars).flat(), ...JSON.parse(JSON.stringify(pl.un||[])) ];
+      const riders = [ ...cars.flatMap(c => nextPlanCars[c.id] || []), ...JSON.parse(JSON.stringify(pl.un||[])) ]; // ★ 選んだ車の方＋未割当だけを組み直す
       if (!riders.length) return { msgs, changed: false, entry: null };
       const addrs = riders.map(m => _addrOf(m.pid));
       const noAddr = riders.filter((m,i)=>!addrs[i]);
@@ -33971,7 +33977,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           });
           const nCars = cars.length;
           const caps = cars.map(c => Number(c.cap) || Infinity);
-          nextPlanCars = {}; cars.forEach(c => { nextPlanCars[c.id] = []; });
+          { const _keepOther = {}; Object.keys(nextPlanCars).forEach(k0 => { if (!cars.some(c => c.id === k0)) _keepOther[k0] = nextPlanCars[k0]; }); nextPlanCars = { ..._keepOther }; } cars.forEach(c => { nextPlanCars[c.id] = []; }); // ★ 選ばなかった車はそのまま
           let remainCnt = okRiders.length;
           cars.forEach((c, i) => {
             if (!gPool.length) return;
@@ -34125,6 +34131,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const selSlots = ['AM','PM'].filter(s => opt.slots.has(s));
     if (!opt.haisha && !opt.jikan) { alert('「配車」か「時間」のどちらかにチェックを入れてください'); return; }
     if (!selDays.length || !selSlots.length) { alert('曜日と午前・午後を1つ以上選んでください'); return; }
+    if (opt.cars && !opt.cars.size) { alert('車を1台以上選んでください'); return; }
     setAutoCalc(null);
     setRouting('week');
     try {
@@ -34135,7 +34142,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         const _key = `${_iso(d)}_${sl}`;
         // 配車のみ(時間は計算しない)のときは、組み直し後に各利用者の元の時間を戻す(無ければ空欄)
         const _oldT = {}; { const op = acc[_key] || getPlan(_iso(d), sl); Object.values(op.cars || {}).flat().forEach(m => { if (m && m.pid != null) _oldT[m.pid] = m.t || ''; }); (op.un || []).forEach(m => { if (m && m.pid != null && _oldT[m.pid] == null) _oldT[m.pid] = m.t || ''; }); }
-        const { msgs, changed, entry } = await _autoRouteCore(_iso(d), sl, acc, opt.haisha ? {} : { keepOrder: true });
+        const { msgs, changed, entry } = await _autoRouteCore(_iso(d), sl, acc, { ...(opt.haisha ? {} : { keepOrder: true }), ...(opt.cars && opt.cars.size < cars.length ? { carIds: opt.cars } : {}) });
         if (changed && entry && opt.haisha && !opt.jikan) { Object.keys(entry.cars || {}).forEach(cid => { entry.cars[cid] = (entry.cars[cid] || []).map(m => ({ ...m, t: _oldT[m.pid] != null ? _oldT[m.pid] : '' })); }); }
         allMsgs.push(...msgs); if (changed && entry) { acc[_key] = entry; nChanged++; }
       } }
@@ -34523,10 +34530,18 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               className={`px-4 py-1.5 rounded-lg text-sm font-bold border ${on?'bg-emerald-600 text-white border-emerald-600':'bg-white text-slate-500 border-slate-300'}`}>{l}</button>
           ); })}
         </div>
-        <div className="text-[11px] text-slate-500 mb-3 leading-relaxed">選んだ日・時間帯の{[autoCalc.haisha ? '車の組み合わせ・乗車順' : '', autoCalc.jikan ? 'お迎え時間' : ''].filter(Boolean).join('と') || '（何も選ばれていません）'}が上書きされます。</div>
+        {/* ★ 2026-10-01(ユーザー要望): 車も選べる(手で時間を直した車は外せば上書きされない) */}
+        <div className="text-[12px] font-bold text-slate-500 mb-1">車</div>
+        <div className="flex gap-1.5 mb-4 flex-wrap" data-testid="ac-cars">
+          {cars.map(c => { const on = autoCalc.cars ? autoCalc.cars.has(c.id) : true; return (
+            <button key={c.id} type="button" onClick={()=>setAutoCalc(o=>{ const s = new Set(o.cars || cars.map(x=>x.id)); if (s.has(c.id)) s.delete(c.id); else s.add(c.id); return { ...o, cars: s }; })}
+              className={`px-4 py-1.5 rounded-lg text-sm font-bold border ${on?'bg-emerald-600 text-white border-emerald-600':'bg-white text-slate-500 border-slate-300'}`}>{c.name}</button>
+          ); })}
+        </div>
+        <div className="text-[11px] text-slate-500 mb-3 leading-relaxed">選んだ日・時間帯{autoCalc.cars && autoCalc.cars.size < cars.length ? `・車（${cars.filter(c=>autoCalc.cars.has(c.id)).map(c=>c.name).join('・') || 'なし'}）` : ''}の{[autoCalc.haisha ? '車の組み合わせ・乗車順' : '', autoCalc.jikan ? 'お迎え時間' : ''].filter(Boolean).join('と') || '（何も選ばれていません）'}が上書きされます。</div>
         <div className="flex gap-2 justify-end">
           <button type="button" onClick={()=>setAutoCalc(null)} className="px-4 py-2 rounded-xl text-sm font-bold bg-slate-100 text-slate-700">やめる</button>
-          <button type="button" onClick={()=>runAutoCalc({ haisha: autoCalc.haisha, jikan: autoCalc.jikan, days: autoCalc.days, slots: autoCalc.slots })} className="px-4 py-2 rounded-xl text-sm font-bold bg-emerald-600 text-white">計算する</button>
+          <button type="button" onClick={()=>runAutoCalc({ haisha: autoCalc.haisha, jikan: autoCalc.jikan, days: autoCalc.days, slots: autoCalc.slots, cars: autoCalc.cars || new Set(cars.map(c=>c.id)) })} className="px-4 py-2 rounded-xl text-sm font-bold bg-emerald-600 text-white">計算する</button>
         </div>
       </div>
     </div>
@@ -34574,7 +34589,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             if (n) onSave({ ...appData, transportPlans: np }, { silent: true });
             alert(n ? `前週から${n}コマをコピーしました。${nSkip ? `\n（前の週の振替・この週のお休みなどで、この週に来ない方 のべ${nSkip}名はコピーしていません）` : ''}` : '前の週に保存済みの送迎表がありませんでした。');
           }} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="前の週の割り当て・時間・運転者・備考をこの週へ複製">前週コピー</button>
-          <button onClick={()=>setAutoCalc({ haisha: false, jikan: true, days: new Set(days.map(d=>_iso(d))), slots: new Set(['AM','PM']) })} disabled={!!routing} data-testid="tp-autocalc" className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-sm disabled:opacity-50" title="配車・時間を、曜日や午前/午後を選んでGoogleマップで自動計算">{routing?'計算中…':'自動計算'}</button>
+          <button onClick={()=>setAutoCalc({ haisha: false, jikan: true, days: new Set(days.map(d=>_iso(d))), slots: new Set(['AM','PM']), cars: new Set(cars.map(c=>c.id)) })} disabled={!!routing} data-testid="tp-autocalc" className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-sm disabled:opacity-50" title="配車・時間を、曜日や午前/午後を選んでGoogleマップで自動計算">{routing?'計算中…':'自動計算'}</button>
           {/* ★ 週の完成確定(2026-09-28): 完成後の変更は赤丸で自動表示 */}
           {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return (
             <button onClick={finalizeWeek} className={`px-2.5 py-2 rounded-xl font-bold text-xs border whitespace-nowrap ${fa?'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100':'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`} title={fa?`完成 ${_fmtStamp(fa)}。押すと今の内容で完成を更新(赤丸は付け直し)`:'この週の送迎表を「完成」として確定。以後に変えた箇所に自動で赤丸が付きます'}>
