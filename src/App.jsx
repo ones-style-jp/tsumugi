@@ -858,13 +858,13 @@ const PickupTimeCell = ({ day, idx, slot, isOff, initial, onCommit }) => {
         <span className={`ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded ${slot==='AM'?'bg-red-100 text-red-700':slot==='PM'?'bg-blue-100 text-blue-700':'bg-violet-100 text-violet-700'}`}>{slot}</span>
       </div>
       <div className="flex items-center justify-center gap-1">
-        <input disabled={isOff} type="text" inputMode="numeric" maxLength={2}
+        <ImeSafeInput disabled={isOff} type="text" inputMode="numeric" maxLength={2}
           value={h}
           onChange={e => { const v = toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,2); setH(v); commit(v, m); }}
           placeholder="9"
           className="w-12 px-1.5 py-1.5 bg-slate-50 border border-slate-300 rounded text-sm font-bold text-center outline-none disabled:opacity-60"/>
         <span className="text-sm font-bold text-slate-400">時</span>
-        <input disabled={isOff} type="text" inputMode="numeric" maxLength={2}
+        <ImeSafeInput disabled={isOff} type="text" inputMode="numeric" maxLength={2}
           value={m}
           onChange={e => { const v = toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,2); setM(v); commit(h, v); }}
           placeholder="30"
@@ -1021,9 +1021,9 @@ function WarekiBirthInput({ iso, disabled, onChange }) {
       <span className="text-[11px] font-bold text-slate-400">和暦</span>
       <select disabled={disabled} value={p.era||''} onChange={e=>upd({era:e.target.value})} className={inC}><option value="">元号</option>{WAREKI_ERAS.map(([n])=><option key={n} value={n}>{n}</option>)}</select>
       {/* ★ type="text"+inputMode=numeric で数字キーは出しつつ、スピナー矢印(数字が隠れる)を消す。 数字のみに整形。 */}
-      <input disabled={disabled} type="text" inputMode="numeric" value={p.ey||''} onChange={e=>upd({ey:e.target.value.replace(/[^0-9]/g,'')})} placeholder="年" className={`${inC} w-11`}/><span className="text-[12px] text-slate-500">年</span>
-      <input disabled={disabled} type="text" inputMode="numeric" value={p.m||''} onChange={e=>upd({m:e.target.value.replace(/[^0-9]/g,'')})} placeholder="月" className={`${inC} w-10`}/><span className="text-[12px] text-slate-500">月</span>
-      <input disabled={disabled} type="text" inputMode="numeric" value={p.day||''} onChange={e=>upd({day:e.target.value.replace(/[^0-9]/g,'')})} placeholder="日" className={`${inC} w-10`}/><span className="text-[12px] text-slate-500">日</span>
+      <ImeSafeInput disabled={disabled} type="text" inputMode="numeric" value={p.ey||''} onChange={e=>upd({ey:e.target.value.replace(/[^0-9]/g,'')})} placeholder="年" className={`${inC} w-11`}/><span className="text-[12px] text-slate-500">年</span>
+      <ImeSafeInput disabled={disabled} type="text" inputMode="numeric" value={p.m||''} onChange={e=>upd({m:e.target.value.replace(/[^0-9]/g,'')})} placeholder="月" className={`${inC} w-10`}/><span className="text-[12px] text-slate-500">月</span>
+      <ImeSafeInput disabled={disabled} type="text" inputMode="numeric" value={p.day||''} onChange={e=>upd({day:e.target.value.replace(/[^0-9]/g,'')})} placeholder="日" className={`${inC} w-10`}/><span className="text-[12px] text-slate-500">日</span>
     </div>
   );
 }
@@ -1578,6 +1578,25 @@ const toHalfWidthNum = (v) => {
   return s;
 };
 
+// ★ 2026-10-01(iPad 第8世代の報告「フェイスシートの電話で 03-6 と打つと 03-306 になる」): 画面のキーボード(日本語入力)は数字も
+//   「変換中(未確定)」として持つため、入力中に欄の中身を書き換える(ハイフン付け・全角→半角・数字以外を消す 等)と、iPad が
+//   変換中の文字をもう一度入れて押していない数字が増える(外付けキーボードの iPad Pro では起きない)。
+//   この入力欄は、フォーカス中は打ったままの文字を表示し、変換中(compositionstart〜end)は親へ渡さない。確定したら親へ渡し、
+//   親で整えた値(ハイフン付き等)は欄を離れたときに表示する。入力中に整える欄は <input> の代わりにこれを使うこと。
+const ImeSafeInput = React.forwardRef(function ImeSafeInput({ value, onChange, onFocus, onBlur, onCompositionStart, onCompositionEnd, ...rest }, ref) {
+  const [draft, setDraft] = React.useState(null);
+  const composing = React.useRef(false);
+  const typed = React.useRef(false); // フォーカス後に打ったか
+  const shown = draft !== null ? draft : (value ?? '');
+  // フォーカス中に親が値を変えたとき: まだ打っていなければ親の値を表示(リンクからの自動入力等)・親が空にしたら空に(送信後のクリア等)
+  React.useEffect(() => { if (draft === null || composing.current) return; if (!typed.current) setDraft(String(value ?? '')); else if ((value === '' || value == null) && draft !== '') setDraft(''); }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
+  return <input ref={ref} {...rest} value={shown}
+    onFocus={(e) => { typed.current = false; setDraft(e.target.value); if (onFocus) onFocus(e); }}
+    onChange={(e) => { typed.current = true; setDraft(e.target.value); if (!composing.current && !(e.nativeEvent && e.nativeEvent.isComposing) && onChange) onChange(e); }}
+    onCompositionStart={(e) => { typed.current = true; composing.current = true; if (onCompositionStart) onCompositionStart(e); }}
+    onCompositionEnd={(e) => { composing.current = false; setDraft(e.target.value); if (onChange) onChange(e); if (onCompositionEnd) onCompositionEnd(e); }}
+    onBlur={(e) => { composing.current = false; setDraft(null); if (onBlur) onBlur(e); }} />;
+});
 // 日本の電話番号フォーマッタ: ハイフン無しの数字 → 自動でハイフン付与 (実装は下部 formatJpPhone)
 // ★ 稼働率/出席率の「予定(分母)」判定。 振替=出席扱い。 振替済みの欠席(tokkiに「へ振替」)は相殺で分母から除外。
 const isPlannedRec = (r) => !!r && (r.status==='出席'||r.status==='振替'||r.status==='臨時'||r.status==='休止'||(r.status==='欠席'&&!(r.tokki||'').includes('へ振替')));
@@ -10207,6 +10226,11 @@ const isPatientActiveOnDate = (p, targetDateStr) => {
     return true;
 };
 
+// ★ 2026-10-01(南水元 報告「9/28に退所した方が日誌に出席と出る」): 利用終了日を入れる前に作られた提供記録(中身は記録者だけ)が
+//   終了日より後に残り、日誌・実績・分析などに出ていた。記録の日付(「○月○日」＋年)が利用期間外なら、どの画面でも扱わない。
+const recIsoOf = (r) => { const m = String(r?.date || '').match(/(\d+)月(\d+)日/); if (!m || !r?.year) return ''; return `${r.year}-${String(m[1]).padStart(2, '0')}-${String(m[2]).padStart(2, '0')}`; };
+const recordWithinPatientPeriod = (r, p) => { if (!p) return true; const iso = recIsoOf(r); return !iso || isPatientActiveOnDate(p, iso); };
+
 // ★ 基本利用曜日(scheduleAmPm)の「その日付時点での有効値」を、変更履歴から逆算して返す。
 //   利用開始の数ヶ月後に増回/減回した場合、その適用開始日(applyFrom)より前の日付には
 //   旧スケジュールを使う (= 後から増やした曜日を過去に遡及表示しない)。
@@ -11012,7 +11036,7 @@ function SignupCompleteView({ context, appData, onSave }) {
               {/* 方法2: 招待コード (7桁: 6桁ID + チェックデジット1桁) */}
               <div style={{background:'white',padding:10,borderRadius:8}}>
                 <div style={{fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:6}}>方法2: 事業所から発行された招待コード (7桁)</div>
-                <input value={form.inviteCode} onChange={e=>setForm(f=>({...f,inviteCode:toHalfWidth(e.target.value).replace(/[^0-9]/g,'').slice(0,7)}))} placeholder="7桁の数字" inputMode="numeric"
+                <ImeSafeInput value={form.inviteCode} onChange={e=>setForm(f=>({...f,inviteCode:toHalfWidth(e.target.value).replace(/[^0-9]/g,'').slice(0,7)}))} placeholder="7桁の数字" inputMode="numeric"
                   style={{width:'100%',padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:14,fontWeight:'bold',letterSpacing:4,outline:'none',boxSizing:'border-box',fontFamily:'Menlo,monospace',textAlign:'center'}}/>
                 {form.inviteCode.length === 7 && !verifyInviteCode(form.inviteCode) && (
                   <div style={{fontSize:10,color:'#dc2626',marginTop:4,fontWeight:'bold'}}>⚠ コードの形式が正しくありません (チェックデジット不一致)</div>
@@ -11070,7 +11094,7 @@ function SignupCompleteView({ context, appData, onSave }) {
                 <div style={{display:'flex',flexDirection:'column',gap:6}}>
                   {form.storeNumbers.map((num, i) => (
                     <div key={i} style={{display:'flex',gap:6}}>
-                      <input value={num} onChange={e=>{const arr=[...form.storeNumbers]; arr[i]=toHankaku(e.target.value).replace(/[^0-9-]/g,''); setForm(f=>({...f,storeNumbers:arr}));}}
+                      <ImeSafeInput value={num} onChange={e=>{const arr=[...form.storeNumbers]; arr[i]=toHankaku(e.target.value).replace(/[^0-9-]/g,''); setForm(f=>({...f,storeNumbers:arr}));}}
                         placeholder={`事業所番号 ${i+1} (例: 1370200001)`}
                         style={{flex:1,padding:'10px 12px',border:'1px solid #bae6fd',borderRadius:8,fontSize:13,outline:'none',boxSizing:'border-box',fontFamily:'Menlo,monospace'}}/>
                       {form.storeNumbers.length > 1 && (
@@ -11089,17 +11113,17 @@ function SignupCompleteView({ context, appData, onSave }) {
           )}
           <div>
             <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>ログインID</label>
-            <input value={form.username} onChange={e=>setForm(f=>({...f,username:toHalfWidth(e.target.value)}))} placeholder="半角英数字 4文字以上"
+            <ImeSafeInput value={form.username} onChange={e=>setForm(f=>({...f,username:toHalfWidth(e.target.value)}))} placeholder="半角英数字 4文字以上"
               style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box',fontFamily:'Menlo,monospace'}}/>
           </div>
           <div>
             <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>パスワード</label>
-            <input type="password" value={form.password} onChange={e=>setForm(f=>({...f,password:toHalfWidth(e.target.value)}))} placeholder="8文字以上 英字と数字を組み合わせ"
+            <ImeSafeInput type="password" value={form.password} onChange={e=>setForm(f=>({...f,password:toHalfWidth(e.target.value)}))} placeholder="8文字以上 英字と数字を組み合わせ"
               style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box',fontFamily:'Menlo,monospace'}}/>
           </div>
           <div>
             <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>パスワード（確認）</label>
-            <input type="password" value={form.password2} onChange={e=>setForm(f=>({...f,password2:toHalfWidth(e.target.value)}))} placeholder="もう一度入力"
+            <ImeSafeInput type="password" value={form.password2} onChange={e=>setForm(f=>({...f,password2:toHalfWidth(e.target.value)}))} placeholder="もう一度入力"
               style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box',fontFamily:'Menlo,monospace'}}/>
           </div>
           <button type="submit"
@@ -14538,7 +14562,7 @@ function FamilyView() {
                 <div style={{fontSize:11,color:'#64748b',marginTop:4,lineHeight:1.7}}>事業所からお渡しした用紙・メールの<b>招待コード（数字8桁）</b>を入力してください</div>
               </div>
               <form onSubmit={(e)=>{ e.preventDefault(); resolveJoinCode(); }}>
-                <input value={joinCode} onChange={e=>{ setJoinCode(normalizeInviteCode(toHalfWidth(e.target.value))); setJoinErr(''); }} placeholder="1234-5678" autoFocus={!_tsumugiIsIOSLike()} inputMode="numeric" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
+                <ImeSafeInput value={joinCode} onChange={e=>{ setJoinCode(normalizeInviteCode(toHalfWidth(e.target.value))); setJoinErr(''); }} placeholder="1234-5678" autoFocus={!_tsumugiIsIOSLike()} inputMode="numeric" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
                   style={{width:'100%',padding:'14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:20,fontWeight:'bold',outline:'none',boxSizing:'border-box',fontFamily:'Menlo,monospace',letterSpacing:3,textAlign:'center'}}/>
                 <div style={{fontSize:10,color:'#94a3b8',marginTop:6,textAlign:'center'}}>ハイフンや空白は無くても構いません。以前の英字入りコード（FAM-…）もそのまま使えます</div>
                 {joinErr && <div style={{color:'#ef4444',fontSize:12,fontWeight:'bold',marginTop:10,textAlign:'center',lineHeight:1.6}}>{joinErr}</div>}
@@ -14928,20 +14952,20 @@ function FamilyView() {
                 }}>
                   <div style={{marginBottom:12}}>
                     <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>招待コード（数字8桁）</label>
-                    <input value={signupForm.inviteCode} onChange={e=>setSignupForm(f=>({...f,inviteCode:normalizeInviteCode(toHalfWidth(e.target.value)),error:''}))}
+                    <ImeSafeInput value={signupForm.inviteCode} onChange={e=>setSignupForm(f=>({...f,inviteCode:normalizeInviteCode(toHalfWidth(e.target.value)),error:''}))}
                       placeholder="1234-5678" autoFocus={!_tsumugiIsIOSLike()} lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
                       style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:15,fontWeight:'bold',outline:'none',boxSizing:'border-box',fontFamily:'Menlo,monospace',letterSpacing:2,textAlign:'center'}}/>
                   </div>
                   <div style={{marginBottom:12}}>
                     <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>メールアドレス <span style={{color:'#dc2626'}}>*</span></label>
-                    <input type="email" value={signupForm.email} onChange={e=>setSignupForm(f=>({...f,email:toHalfWidth(e.target.value),error:''}))}
+                    <ImeSafeInput type="email" value={signupForm.email} onChange={e=>setSignupForm(f=>({...f,email:toHalfWidth(e.target.value),error:''}))}
                       placeholder="例: yamada@example.com"
                       style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
                     <div style={{fontSize:10,color:'#64748b',marginTop:4}}>※ 緊急連絡先のメールアドレスとしても自動登録されます</div>
                   </div>
                   <div style={{marginBottom:12}}>
                     <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>ログインID</label>
-                    <input value={signupForm.username} onChange={e=>setSignupForm(f=>({...f,username:toHalfWidth(e.target.value),error:'',unameStatus:''}))}
+                    <ImeSafeInput value={signupForm.username} onChange={e=>setSignupForm(f=>({...f,username:toHalfWidth(e.target.value),error:'',unameStatus:''}))}
                       onBlur={async (e)=>{
                         const u = (e.target.value||'').trim();
                         if (u.length < 4 || !/^[a-zA-Z0-9_\-]+$/.test(u)) { setSignupForm(f=>({...f, unameStatus:''})); return; }
@@ -14966,13 +14990,13 @@ function FamilyView() {
                         {signupForm.showPw ? '隠す' : '表示'}
                       </button>
                     </label>
-                    <input type={signupForm.showPw?'text':'password'} value={signupForm.password} onChange={e=>setSignupForm(f=>({...f,password:toHalfWidth(e.target.value),error:''}))}
+                    <ImeSafeInput type={signupForm.showPw?'text':'password'} value={signupForm.password} onChange={e=>setSignupForm(f=>({...f,password:toHalfWidth(e.target.value),error:''}))}
                       placeholder="8文字以上、英字+数字" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
                       style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
                   </div>
                   <div style={{marginBottom:12}}>
                     <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>パスワード（確認）</label>
-                    <input type={signupForm.showPw?'text':'password'} value={signupForm.password2} onChange={e=>setSignupForm(f=>({...f,password2:toHalfWidth(e.target.value),error:''}))}
+                    <ImeSafeInput type={signupForm.showPw?'text':'password'} value={signupForm.password2} onChange={e=>setSignupForm(f=>({...f,password2:toHalfWidth(e.target.value),error:''}))}
                       placeholder="もう一度入力" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
                       style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
                   </div>
@@ -15053,7 +15077,7 @@ function FamilyView() {
                       // ★ ケアマネは「直通・個人」の1欄のみ(携帯欄なし)。 直通が無い場合もあるので任意。
                       <div style={{marginBottom:8}}>
                         <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>電話番号（直通・個人） <span style={{color:'#64748b',fontWeight:'normal'}}>(任意・ハイフン不要)</span></label>
-                        <input type="tel" inputMode="numeric" value={signupForm.ecPhone} onChange={e=>{const v=toHalfWidth(e.target.value).replace(/[^0-9]/g,'').slice(0,11); setSignupForm(f=>({...f,ecPhone:v,error:''}));}}
+                        <ImeSafeInput type="tel" inputMode="numeric" value={signupForm.ecPhone} onChange={e=>{const v=toHalfWidth(e.target.value).replace(/[^0-9]/g,'').slice(0,11); setSignupForm(f=>({...f,ecPhone:v,error:''}));}}
                           placeholder="09012345678"
                           style={{width:'100%',maxWidth:240,padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white',letterSpacing:1}}/>
                         <div style={{fontSize:10,color:'#78350f',marginTop:4,lineHeight:1.4}}>※ メールアドレスは上で入力したものが自動で登録されます</div>
@@ -15062,13 +15086,13 @@ function FamilyView() {
                     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
                       <div>
                         <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>固定電話番号 <span style={{color:'#64748b',fontWeight:'normal'}}>(ハイフン不要)</span></label>
-                        <input type="tel" inputMode="numeric" value={signupForm.ecPhone} onChange={e=>{const v=toHalfWidth(e.target.value).replace(/[^0-9]/g,'').slice(0,11); setSignupForm(f=>({...f,ecPhone:v,error:''}));}}
+                        <ImeSafeInput type="tel" inputMode="numeric" value={signupForm.ecPhone} onChange={e=>{const v=toHalfWidth(e.target.value).replace(/[^0-9]/g,'').slice(0,11); setSignupForm(f=>({...f,ecPhone:v,error:''}));}}
                           placeholder="0312345678"
                           style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white',letterSpacing:1}}/>
                       </div>
                       <div>
                         <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>携帯電話番号 <span style={{color:'#64748b',fontWeight:'normal'}}>(ハイフン不要)</span></label>
-                        <input type="tel" inputMode="numeric" value={signupForm.ecMobile} onChange={e=>{const v=toHalfWidth(e.target.value).replace(/[^0-9]/g,'').slice(0,11); setSignupForm(f=>({...f,ecMobile:v,error:''}));}}
+                        <ImeSafeInput type="tel" inputMode="numeric" value={signupForm.ecMobile} onChange={e=>{const v=toHalfWidth(e.target.value).replace(/[^0-9]/g,'').slice(0,11); setSignupForm(f=>({...f,ecMobile:v,error:''}));}}
                           placeholder="09012345678"
                           style={{width:'100%',padding:'10px 12px',border:'1px solid #fcd34d',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',background:'white',letterSpacing:1}}/>
                       </div>
@@ -15117,10 +15141,10 @@ function FamilyView() {
                             <input value={signupForm.cmNewOffice.name} onChange={e=>setSignupForm(f=>({...f, cmNewOffice:{...f.cmNewOffice, name:e.target.value}, error:''}))}
                               placeholder="事業所名 (例: あおぞら居宅介護支援事業所)"
                               style={{width:'100%',padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:12,outline:'none',boxSizing:'border-box',marginBottom:6}}/>
-                            <input type="tel" inputMode="numeric" value={formatJpPhone(signupForm.cmNewOffice.phone)} onChange={e=>setSignupForm(f=>({...f, cmNewOffice:{...f.cmNewOffice, phone:toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11)}, error:''}))}
+                            <ImeSafeInput type="tel" inputMode="numeric" value={formatJpPhone(signupForm.cmNewOffice.phone)} onChange={e=>setSignupForm(f=>({...f, cmNewOffice:{...f.cmNewOffice, phone:toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11)}, error:''}))}
                               placeholder="事業所の固定電話 (ハイフン不要)"
                               style={{width:'100%',padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:12,outline:'none',boxSizing:'border-box',marginBottom:6}}/>
-                            <input type="tel" inputMode="numeric" value={formatJpPhone(signupForm.cmNewOffice.fax)} onChange={e=>setSignupForm(f=>({...f, cmNewOffice:{...f.cmNewOffice, fax:toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11)}, error:''}))}
+                            <ImeSafeInput type="tel" inputMode="numeric" value={formatJpPhone(signupForm.cmNewOffice.fax)} onChange={e=>setSignupForm(f=>({...f, cmNewOffice:{...f.cmNewOffice, fax:toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11)}, error:''}))}
                               placeholder="FAX (ハイフン不要)"
                               style={{width:'100%',padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:12,outline:'none',boxSizing:'border-box'}}/>
                           </div>
@@ -15139,10 +15163,10 @@ function FamilyView() {
                       <input value={signupForm.cmNewOffice.name} onChange={e=>setSignupForm(f=>({...f, cmNewOffice:{...f.cmNewOffice, name:e.target.value}, error:''}))}
                         placeholder="事業所名 (例: ○○訪問看護ステーション)"
                         style={{width:'100%',padding:'9px 11px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,outline:'none',boxSizing:'border-box',marginBottom:6,background:'white'}}/>
-                      <input type="tel" inputMode="numeric" value={formatJpPhone(signupForm.cmNewOffice.phone)} onChange={e=>setSignupForm(f=>({...f, cmNewOffice:{...f.cmNewOffice, phone:toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11)}, error:''}))}
+                      <ImeSafeInput type="tel" inputMode="numeric" value={formatJpPhone(signupForm.cmNewOffice.phone)} onChange={e=>setSignupForm(f=>({...f, cmNewOffice:{...f.cmNewOffice, phone:toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11)}, error:''}))}
                         placeholder="事業所の電話番号 (ハイフン不要)"
                         style={{width:'100%',padding:'9px 11px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,outline:'none',boxSizing:'border-box',marginBottom:6,background:'white'}}/>
-                      <input type="tel" inputMode="numeric" value={formatJpPhone(signupForm.cmNewOffice.fax)} onChange={e=>setSignupForm(f=>({...f, cmNewOffice:{...f.cmNewOffice, fax:toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11)}, error:''}))}
+                      <ImeSafeInput type="tel" inputMode="numeric" value={formatJpPhone(signupForm.cmNewOffice.fax)} onChange={e=>setSignupForm(f=>({...f, cmNewOffice:{...f.cmNewOffice, fax:toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11)}, error:''}))}
                         placeholder="FAX (ハイフン不要)"
                         style={{width:'100%',padding:'9px 11px',border:'1px solid #e2e8f0',borderRadius:8,fontSize:13,outline:'none',boxSizing:'border-box',background:'white'}}/>
                       <div style={{fontSize:10,color:'#64748b',marginTop:6}}>※ 個人の電話番号は上の「ご登録者情報」に入力してください。</div>
@@ -15181,14 +15205,14 @@ function FamilyView() {
           <form onSubmit={handleLogin} style={{background:'white',borderRadius:24,padding:28,boxShadow:'0 20px 60px rgba(0,0,0,0.25)'}}>
             <div style={{marginBottom:14}}>
               <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>ログインID</label>
-              <input value={loginForm.username} onChange={e=>{try{sessionStorage.removeItem('tsumugiIdleLogout')}catch{}; setLoginForm(f=>({...f,username:toHalfWidth(e.target.value),error:''}));}} autoComplete="username"
+              <ImeSafeInput value={loginForm.username} onChange={e=>{try{sessionStorage.removeItem('tsumugiIdleLogout')}catch{}; setLoginForm(f=>({...f,username:toHalfWidth(e.target.value),error:''}));}} autoComplete="username"
                 placeholder="例: inoue_family" autoFocus={!_tsumugiIsIOSLike()}
                 style={{width:'100%',padding:'12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
             </div>
             <div style={{marginBottom:8}}>
               <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>パスワード</label>
               <div style={{position:'relative'}}>
-                <input type={loginForm.showPw?'text':'password'} value={loginForm.password} onChange={e=>setLoginForm(f=>({...f,password:toHalfWidth(e.target.value),error:''}))} autoComplete="current-password"
+                <ImeSafeInput type={loginForm.showPw?'text':'password'} value={loginForm.password} onChange={e=>setLoginForm(f=>({...f,password:toHalfWidth(e.target.value),error:''}))} autoComplete="current-password"
                   placeholder="••••••••"
                   style={{width:'100%',padding:'12px 40px 12px 14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
                 <button type="button" onClick={()=>setLoginForm(f=>({...f,showPw:!f.showPw}))}
@@ -15246,9 +15270,9 @@ function FamilyView() {
                 <>
                   <div style={{fontSize:12,color:'#64748b',lineHeight:1.7,marginBottom:12}}>ログインIDと、アカウントに登録したメールアドレスを入力してください。両方が登録内容と一致した場合のみ、そのメールに6桁の確認コードをお送りします（届かない場合は事業所へご連絡ください）。</div>
                   {famReset.err && <div style={{background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:8,padding:'8px 10px',marginBottom:10,fontSize:12,color:'#dc2626',fontWeight:'bold'}}>{famReset.err}</div>}
-                  <input value={famReset.username} onChange={e=>setFamReset(f=>({...f,username:toHalfWidth(e.target.value),err:''}))} placeholder="ログインID" autoComplete="username"
+                  <ImeSafeInput value={famReset.username} onChange={e=>setFamReset(f=>({...f,username:toHalfWidth(e.target.value),err:''}))} placeholder="ログインID" autoComplete="username"
                     style={{width:'100%',padding:'11px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,outline:'none',boxSizing:'border-box',marginBottom:8}}/>
-                  <input value={famReset.email||''} onChange={e=>setFamReset(f=>({...f,email:toHalfWidth(e.target.value),err:''}))} placeholder="登録したメールアドレス" type="email" inputMode="email" autoComplete="email"
+                  <ImeSafeInput value={famReset.email||''} onChange={e=>setFamReset(f=>({...f,email:toHalfWidth(e.target.value),err:''}))} placeholder="登録したメールアドレス" type="email" inputMode="email" autoComplete="email"
                     style={{width:'100%',padding:'11px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,outline:'none',boxSizing:'border-box',marginBottom:10}}/>
                   <button disabled={famReset.busy} onClick={async ()=>{
                     const u = (famReset.username||'').trim();
@@ -15271,7 +15295,7 @@ function FamilyView() {
                 <>
                   <div style={{fontSize:12,color:'#64748b',lineHeight:1.7,marginBottom:12}}>{famReset.masked ? <>メール（<b>{famReset.masked}</b>）に確認コードを送信しました。</> : <>ID・メールアドレスが登録内容と一致した場合、確認コードが届きます。届かない場合は入力内容をご確認いただくか、事業所へお問い合わせください。</>}<br/>6桁のコードと新しいパスワードを入力してください（コードは<b>10分有効・3回まで</b>入力できます）。</div>
                   {famReset.err && <div style={{background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:8,padding:'8px 10px',marginBottom:10,fontSize:12,color:'#dc2626',fontWeight:'bold'}}>{famReset.err}</div>}
-                  <input value={famReset.code} onChange={e=>setFamReset(f=>({...f,code:toHalfWidth(e.target.value).replace(/[^0-9]/g,'').slice(0,6),err:''}))} placeholder="確認コード（6桁）" inputMode="numeric"
+                  <ImeSafeInput value={famReset.code} onChange={e=>setFamReset(f=>({...f,code:toHalfWidth(e.target.value).replace(/[^0-9]/g,'').slice(0,6),err:''}))} placeholder="確認コード（6桁）" inputMode="numeric"
                     style={{width:'100%',padding:'11px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:16,letterSpacing:4,outline:'none',boxSizing:'border-box',marginBottom:8,textAlign:'center',fontWeight:'bold'}}/>
                   <input type="password" value={famReset.n1} onChange={e=>setFamReset(f=>({...f,n1:e.target.value,err:''}))} placeholder="新しいパスワード（英字と数字を含む6文字以上）" autoComplete="new-password"
                     style={{width:'100%',padding:'11px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',marginBottom:8}}/>
@@ -16525,13 +16549,13 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
               )}
               <div>
                 <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>電話番号 (固定)</label>
-                <input value={myInfoForm.phone} onChange={e=>setMyInfoForm(f=>({...f,phone:toHankaku(e.target.value).replace(/[^0-9-]/g,''),savedMsg:''}))}
+                <ImeSafeInput value={myInfoForm.phone} onChange={e=>setMyInfoForm(f=>({...f,phone:toHankaku(e.target.value).replace(/[^0-9-]/g,''),savedMsg:''}))}
                   placeholder="03-XXXX-XXXX" inputMode="numeric"
                   style={{width:'100%',padding:'10px 12px',border:'1px solid #e2e8f0',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
               </div>
               <div>
                 <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>電話番号 (携帯)</label>
-                <input value={myInfoForm.phoneMobile} onChange={e=>setMyInfoForm(f=>({...f,phoneMobile:toHankaku(e.target.value).replace(/[^0-9-]/g,''),savedMsg:''}))}
+                <ImeSafeInput value={myInfoForm.phoneMobile} onChange={e=>setMyInfoForm(f=>({...f,phoneMobile:toHankaku(e.target.value).replace(/[^0-9-]/g,''),savedMsg:''}))}
                   placeholder="090-XXXX-XXXX" inputMode="numeric"
                   style={{width:'100%',padding:'10px 12px',border:'1px solid #e2e8f0',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
               </div>
@@ -18389,9 +18413,9 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
             ))}
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:16}}>
               <div><label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>電話番号</label>
-                <input value={editStore.phone||''} onChange={e=>setEditStore(s=>({...s,phone:toHankaku(e.target.value).replace(/[^0-9]/g,''),error:''}))} inputMode="numeric" placeholder="0312345678" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/></div>
+                <ImeSafeInput value={editStore.phone||''} onChange={e=>setEditStore(s=>({...s,phone:toHankaku(e.target.value).replace(/[^0-9]/g,''),error:''}))} inputMode="numeric" placeholder="0312345678" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/></div>
               <div><label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>FAX</label>
-                <input value={editStore.fax||''} onChange={e=>setEditStore(s=>({...s,fax:toHankaku(e.target.value).replace(/[^0-9]/g,''),error:''}))} inputMode="numeric" placeholder="0312345679" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/></div>
+                <ImeSafeInput value={editStore.fax||''} onChange={e=>setEditStore(s=>({...s,fax:toHankaku(e.target.value).replace(/[^0-9]/g,''),error:''}))} inputMode="numeric" placeholder="0312345679" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/></div>
             </div>
             <div style={{display:'flex',gap:10}}>
               <button onClick={()=>setEditStore(null)} disabled={editStore.loading} style={{flex:1,padding:'11px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
@@ -18407,7 +18431,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
             <form onSubmit={handleCreateStore}>
               <div style={{marginBottom:12}}>
                 <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>店舗ID <span style={{color:'#dc2626'}}>*</span> <span style={{fontWeight:'normal',color:'#64748b'}}>(半角英数字、例: store_honjo)</span></label>
-                <input value={storeForm.id} onChange={e=>setStoreForm(f=>({...f,id:toHalfWidth(e.target.value).replace(/[^a-zA-Z0-9_-]/g,''),error:''}))} placeholder="store_honjo" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',fontFamily:'monospace'}}/>
+                <ImeSafeInput value={storeForm.id} onChange={e=>setStoreForm(f=>({...f,id:toHalfWidth(e.target.value).replace(/[^a-zA-Z0-9_-]/g,''),error:''}))} placeholder="store_honjo" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',fontFamily:'monospace'}}/>
               </div>
               <div style={{marginBottom:12}}>
                 <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>店舗名 (正式) <span style={{color:'#dc2626'}}>*</span></label>
@@ -18425,7 +18449,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
               <div style={{marginBottom:12}}>
                 <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>郵便番号</label>
                 <div style={{display:'flex',gap:6,alignItems:'center'}}>
-                  <input type="tel" inputMode="numeric" value={formatJpZip(storeForm.zip)} onChange={e=>setStoreForm(f=>({...f,zip:toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,7)}))} placeholder="1350011" style={{width:160,padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+                  <ImeSafeInput type="tel" inputMode="numeric" value={formatJpZip(storeForm.zip)} onChange={e=>setStoreForm(f=>({...f,zip:toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,7)}))} placeholder="1350011" style={{width:160,padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
                   <button type="button" onClick={async ()=>{
                     const result = await lookupZipAddress(storeForm.zip);
                     if (result?.full) setStoreForm(f=>({...f, address: result.full}));
@@ -18444,11 +18468,11 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:16}}>
                 <div>
                   <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>電話番号 <span style={{fontWeight:'normal',color:'#64748b'}}>(ハイフン不要)</span></label>
-                  <input type="tel" inputMode="numeric" value={formatJpPhone(storeForm.phone)} onChange={e=>setStoreForm(f=>({...f,phone:toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11)}))} placeholder="0312345678" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+                  <ImeSafeInput type="tel" inputMode="numeric" value={formatJpPhone(storeForm.phone)} onChange={e=>setStoreForm(f=>({...f,phone:toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11)}))} placeholder="0312345678" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
                 </div>
                 <div>
                   <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>FAX <span style={{fontWeight:'normal',color:'#64748b'}}>(ハイフン不要)</span></label>
-                  <input type="tel" inputMode="numeric" value={formatJpPhone(storeForm.fax)} onChange={e=>setStoreForm(f=>({...f,fax:toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11)}))} placeholder="0312345679" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+                  <ImeSafeInput type="tel" inputMode="numeric" value={formatJpPhone(storeForm.fax)} onChange={e=>setStoreForm(f=>({...f,fax:toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11)}))} placeholder="0312345679" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
                 </div>
               </div>
               {/* ★ 店舗ログイン情報 (店舗作成と同時に発行) */}
@@ -18461,11 +18485,11 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10}}>
                   <div>
                     <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>ログインID <span style={{color:'#dc2626'}}>*</span></label>
-                    <input value={storeForm.login_id} onChange={e=>setStoreForm(f=>({...f,login_id:toHalfWidth(e.target.value).replace(/[^a-zA-Z0-9_-]/g,''),error:''}))} placeholder="例: ougibashi_login" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',fontFamily:'monospace'}}/>
+                    <ImeSafeInput value={storeForm.login_id} onChange={e=>setStoreForm(f=>({...f,login_id:toHalfWidth(e.target.value).replace(/[^a-zA-Z0-9_-]/g,''),error:''}))} placeholder="例: ougibashi_login" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',fontFamily:'monospace'}}/>
                   </div>
                   <div>
                     <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>パスワード <span style={{color:'#dc2626'}}>*</span> <span style={{fontWeight:'normal',color:'#64748b'}}>(8文字以上)</span></label>
-                    <input type="text" value={storeForm.login_pw} onChange={e=>setStoreForm(f=>({...f,login_pw:toHalfWidth(e.target.value),error:''}))} placeholder="8文字以上" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',fontFamily:'monospace'}}/>
+                    <ImeSafeInput type="text" value={storeForm.login_pw} onChange={e=>setStoreForm(f=>({...f,login_pw:toHalfWidth(e.target.value),error:''}))} placeholder="8文字以上" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',fontFamily:'monospace'}}/>
                   </div>
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
@@ -18476,7 +18500,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
                   </div>
                   <div>
                     <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>連絡先電話 <span style={{fontWeight:'normal',color:'#64748b'}}>(任意)</span></label>
-                    <input type="tel" inputMode="numeric" value={formatJpPhone(storeForm.login_phone)} onChange={e=>setStoreForm(f=>({...f,login_phone:toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11)}))} placeholder="0312345678" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+                    <ImeSafeInput type="tel" inputMode="numeric" value={formatJpPhone(storeForm.login_phone)} onChange={e=>setStoreForm(f=>({...f,login_phone:toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11)}))} placeholder="0312345678" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
                   </div>
                 </div>
               </div>
@@ -18519,11 +18543,11 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
               <input type="hidden" value="manager" />
               <div style={{marginBottom:12}}>
                 <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>ログインID <span style={{color:'#dc2626'}}>*</span></label>
-                <input value={staffForm.username} onChange={e=>setStaffForm(f=>({...f,username:toHalfWidth(e.target.value).replace(/[^a-zA-Z0-9_-]/g,''),error:''}))} placeholder="staff_yamada" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',fontFamily:'monospace'}}/>
+                <ImeSafeInput value={staffForm.username} onChange={e=>setStaffForm(f=>({...f,username:toHalfWidth(e.target.value).replace(/[^a-zA-Z0-9_-]/g,''),error:''}))} placeholder="staff_yamada" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',fontFamily:'monospace'}}/>
               </div>
               <div style={{marginBottom:12}}>
                 <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>初期パスワード <span style={{color:'#dc2626'}}>*</span> <span style={{fontWeight:'normal',color:'#64748b'}}>(8文字以上)</span></label>
-                <input type="text" value={staffForm.password} onChange={e=>setStaffForm(f=>({...f,password:toHalfWidth(e.target.value),error:''}))} lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',fontFamily:'monospace'}}/>
+                <ImeSafeInput type="text" value={staffForm.password} onChange={e=>setStaffForm(f=>({...f,password:toHalfWidth(e.target.value),error:''}))} lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false} style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box',fontFamily:'monospace'}}/>
               </div>
               <div style={{marginBottom:16}}>
                 <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>メール</label>
@@ -18607,13 +18631,13 @@ function StaffLoginGate({ onLogin }) {
         <form onSubmit={handleSubmit}>
           <div style={{marginBottom:14}}>
             <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>ログインID</label>
-            <input value={form.username} onChange={e=>setForm(f=>({...f,username:toHalfWidth(e.target.value),error:''}))} autoFocus={!_ios} autoComplete="username" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
+            <ImeSafeInput value={form.username} onChange={e=>setForm(f=>({...f,username:toHalfWidth(e.target.value),error:''}))} autoFocus={!_ios} autoComplete="username" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
               style={{width:'100%',padding:'12px 14px',border:'1px solid #cbd5e1',borderRadius:12,fontSize:15,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
           </div>
           <div style={{marginBottom:18}}>
             <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:6}}>パスワード</label>
             <div style={{position:'relative'}}>
-              <input type={form.showPw?'text':'password'} value={form.password} onChange={e=>setForm(f=>({...f,password:toHalfWidth(e.target.value),error:''}))} autoComplete="current-password" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
+              <ImeSafeInput type={form.showPw?'text':'password'} value={form.password} onChange={e=>setForm(f=>({...f,password:toHalfWidth(e.target.value),error:''}))} autoComplete="current-password" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
                 style={{width:'100%',padding:'12px 14px',paddingRight:60,border:'1px solid #cbd5e1',borderRadius:12,fontSize:15,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
               <button type="button" onClick={()=>setForm(f=>({...f,showPw:!f.showPw}))}
                 style={{position:'absolute',right:8,top:'50%',transform:'translateY(-50%)',background:'transparent',border:'none',fontSize:11,color:'#64748b',cursor:'pointer',padding:6}}>
@@ -21239,7 +21263,19 @@ export default function App() {
   };
   // ★ 1つ前の画面(2026-09-29 ユーザー指示): 提供記録などの「戻る」は固定の画面ではなく直前の画面へ
   const prevViewRef = useRef(null); const lastViewRef = useRef(currentView);
-  React.useEffect(() => { if (lastViewRef.current !== currentView) { prevViewRef.current = lastViewRef.current; lastViewRef.current = currentView; } }, [currentView]);
+  React.useEffect(() => { if (lastViewRef.current !== currentView) {
+    // ★ 2026-10-01(ユーザー要望): 送迎表で来週(10/5 など)を開いたまま提供記録入力・日誌などへ移ると、その日付のまま表示されていた。
+    //   送迎表から別の画面へ移ったときは今日(定休日なら次の営業日)に戻す。
+    if (lastViewRef.current === 'transport' && currentView !== 'transport') {
+      try {
+        const cd = appData?.systemSettings?.facilityInfo?.closedDays || []; const holiSet = new Set((appData.holidays||[]).map(h => (h && h.date) ? h.date : h));
+        const _iso2 = (x) => `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;
+        const d = new Date(); let iso = _iso2(d);
+        if (Array.isArray(cd) && cd.includes(d.getDay())) { for (let i = 0; i < 31; i++) { d.setDate(d.getDate() + 1); if (!cd.includes(d.getDay()) && !holiSet.has(_iso2(d))) { iso = _iso2(d); break; } } }
+        if (selectedDate !== iso) setSelectedDate(iso);
+      } catch {}
+    }
+    prevViewRef.current = lastViewRef.current; lastViewRef.current = currentView; } }, [currentView]); // eslint-disable-line react-hooks/exhaustive-deps
   const navigateBack = (fallback = 'master') => navigateTo(prevViewRef.current && prevViewRef.current !== currentView ? prevViewRef.current : fallback);
 
   const formatDateDisplay = (dateString) => {
@@ -21403,13 +21439,13 @@ export default function App() {
             <form onSubmit={handleLogin}>
               <div style={{marginBottom:16}}>
                 <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#5e8030',marginBottom:6,letterSpacing:'1px'}}>ログインID</label>
-                <input value={loginForm.id} onChange={e=>setLoginForm(f=>({...f,id:toHalfWidth(e.target.value),error:''}))}
+                <ImeSafeInput value={loginForm.id} onChange={e=>setLoginForm(f=>({...f,id:toHalfWidth(e.target.value),error:''}))}
                   placeholder="例: hikari-ogi"
                   style={{width:'100%',padding:'12px 14px',border:'1px solid #d4e7a5',background:'#fdfdf3',borderRadius:10,fontSize:14,fontWeight:'bold',color:'#3d5021',outline:'none',boxSizing:'border-box'}}/>
               </div>
               <div style={{marginBottom:8}}>
                 <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#5e8030',marginBottom:6,letterSpacing:'1px'}}>パスワード</label>
-                <input type="password" value={loginForm.pass} onChange={e=>setLoginForm(f=>({...f,pass:toHalfWidth(e.target.value),error:''}))}
+                <ImeSafeInput type="password" value={loginForm.pass} onChange={e=>setLoginForm(f=>({...f,pass:toHalfWidth(e.target.value),error:''}))}
                   placeholder="••••••••"
                   style={{width:'100%',padding:'12px 14px',border:'1px solid #d4e7a5',background:'#fdfdf3',borderRadius:10,fontSize:14,fontWeight:'bold',color:'#3d5021',outline:'none',boxSizing:'border-box'}}/>
               </div>
@@ -28748,7 +28784,7 @@ function SalesCalendarModal({ initialMonth, appData, setAppData, onClose }) {
                 </div>
                 {isSelected ? (
                   <div onClick={e=>e.stopPropagation()}>
-                    <input
+                    <ImeSafeInput
                       autoFocus
                       type="text"
                       inputMode="numeric"
@@ -29053,6 +29089,7 @@ function JissekiView({ appData, onSave, onShowPrintPreview }) {
   const calcCell = (p, d) => {
     const dm = byPat.get(p.id); const r = dm && dm.get(d); if (!r) return null;
     const ds = `${jy}-${String(jm).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    if (!isPatientActiveOnDate(p, ds)) return null; // ★ 2026-10-01: 利用終了日より後・開始日より前の記録は実績に載せない
     const dow = new Date(jy, jm-1, d).getDay();
     const base = getScheduleOnDate(p, ds)?.[dow] || '';
     const isBase = base==='AM'||base==='PM'||base==='1日';
@@ -29581,7 +29618,9 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
     const _now = new Date();
     const _curY = _now.getFullYear(), _curM = _now.getMonth()+1, _curD = _now.getDate();
     const _dayOf = (r) => { const dm = String(r.date||'').match(/(\d+)月(\d+)日/); return dm ? parseInt(dm[2]) : (/^\d{4}-\d{2}-\d{2}/.test(r.date||'') ? parseInt(String(r.date).slice(8,10)) : null); };
+    const _pmP = new Map((appData.patients||[]).map(p => [p.id, p]));
     return (appData.ticketRecords||[]).filter(r => {
+      if (!recordWithinPatientPeriod(r, _pmP.get(r.patientId))) return false; // ★ 2026-10-01: 利用終了日より後・開始日より前の記録は集計しない
       const mM = r.date ? r.date.match(/(\d+)月/) : null;
       if (!mM) return false;
       const mo = parseInt(mM[1]);
@@ -29597,7 +29636,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
       if (recY === _curY && mo === _curM) { const d = _dayOf(r); if (d != null && d > _curD) return false; }
       return true;
     });
-  }, [appData.ticketRecords, targetMonths]);
+  }, [appData.ticketRecords, appData.patients, targetMonths]);
 
   const recsAP = React.useMemo(() => recs.map(r => {
     const p = patMap[r.patientId];
@@ -32450,12 +32489,12 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                         <div className="flex-1">
                           <div className="text-[10px] font-bold text-slate-400 mb-1">次回利用日</div>
                           <div className={`flex items-center gap-1 p-1.5 border rounded-lg ${/\d|未定/.test(String(r.nextDateOverride ?? '')) ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
-                            <input type="text" inputMode="numeric" value={curMonth} maxLength={2}
+                            <ImeSafeInput type="text" inputMode="numeric" value={curMonth} maxLength={2}
                               onBlur={()=>_skipClosedDate(r.id, r.patientId)}
                               onChange={e=>updateOverride('date', e.target.value.replace(/\D/g,''), curDay, curHour, curMin)}
                               placeholder="—" className="w-9 px-1 py-0.5 text-center bg-transparent border-0 outline-none font-bold text-sm"/>
                             <span className="text-xs font-bold text-slate-500">月</span>
-                            <input type="text" inputMode="numeric" value={curDay} maxLength={2}
+                            <ImeSafeInput type="text" inputMode="numeric" value={curDay} maxLength={2}
                               onBlur={()=>_skipClosedDate(r.id, r.patientId)}
                               onChange={e=>updateOverride('date', curMonth, e.target.value.replace(/\D/g,''), curHour, curMin)}
                               placeholder="—" className="w-9 px-1 py-0.5 text-center bg-transparent border-0 outline-none font-bold text-sm"/>
@@ -32469,11 +32508,11 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                         <div className="flex-1">
                           <div className="text-[10px] font-bold text-slate-400 mb-1">お迎え時間{_auto.isFurikae && !curHour && !curMin && <span className="ml-1 text-amber-600">要入力</span>}</div>
                           <div className={`flex items-center gap-1 p-1.5 border rounded-lg ${_auto.isFurikae && !curHour && !curMin ? 'border-amber-400 bg-amber-50' : /\d/.test(String(r.nextTimeOverride ?? '')) ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
-                            <input type="text" inputMode="numeric" value={curHour} maxLength={2}
+                            <ImeSafeInput type="text" inputMode="numeric" value={curHour} maxLength={2}
                               onChange={e=>updateOverride('time', curMonth, curDay, e.target.value.replace(/\D/g,''), curMin)}
                               placeholder="—" className="w-9 px-1 py-0.5 text-center bg-transparent border-0 outline-none font-bold text-sm"/>
                             <span className="text-xs font-bold text-slate-500">時</span>
-                            <input type="text" inputMode="numeric" value={curMin} maxLength={2}
+                            <ImeSafeInput type="text" inputMode="numeric" value={curMin} maxLength={2}
                               onChange={e=>updateOverride('time', curMonth, curDay, curHour, e.target.value.replace(/\D/g,''))}
                               placeholder="—" className="w-9 px-1 py-0.5 text-center bg-transparent border-0 outline-none font-bold text-sm"/>
                             <span className="text-xs font-bold text-slate-500">分</span>
@@ -33363,6 +33402,17 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     return String(t ?? '').trim();
   };
   const _tMin = (t) => { const m = _fmtT(t).match(/^(\d{1,2}):(\d{1,2}|--)/); return m ? (+m[1]) * 60 + (m[2] === '--' ? 0 : +m[2]) : (/徒歩/.test(String(t||'')) ? 99999 : 99998); };
+  // ★ 2026-10-01(ユーザー報告: 休止の終了後の週で時間の自動計算が反映されない): 休止明けの方は前週の送迎表に居ないため
+  //   未割当になり、「時間」だけの計算の対象外だった。同じ曜日・時間帯の送迎表を最大8週前までさかのぼって、その方が乗っていた車を探す。
+  const _histCarOf = (pid, iso, sl) => {
+    for (let w = 1; w <= 8; w++) {
+      const d0 = new Date(iso); d0.setDate(d0.getDate() - 7 * w); const pl0 = plans[`${_iso(d0)}_${sl}`]; if (!pl0) continue;
+      for (const cid of Object.keys(pl0.cars || {})) { const idx = (pl0.cars[cid] || []).findIndex(m => m && m.pid === pid); if (idx >= 0 && cars.some(c => c.id === cid)) return { cid, idx }; }
+      if ((pl0.walkers || []).some(m => m && m.pid === pid)) return { walk: true };
+      if ((pl0.others || []).some(m => m && m.pid === pid)) return { other: true };
+    }
+    return null;
+  };
   const _draftPlan = (iso, sl) => {
     const att = _attendees(iso, sl);
     const prevD = new Date(iso); prevD.setDate(prevD.getDate() - 7);
@@ -33376,7 +33426,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     att.forEach(a => {
       if (a.walk || prevWalk.has(a.pid)) { walkers.push({ pid: a.pid, t: '徒歩' }); return; }
       if (prevOther.has(a.pid)) { others.push({ pid: a.pid, t: '' }); return; }
-      const cid = prevCarOf[a.pid];
+      let cid = prevCarOf[a.pid];
+      // ★ 前週に居ない方(休止明け・しばらくお休みだった方)は、さらに前の週の車を使う
+      if (!cid) { const h = _histCarOf(a.pid, iso, sl); if (h && h.walk) { walkers.push({ pid: a.pid, t: '徒歩' }); return; } if (h && h.other) { others.push({ pid: a.pid, t: '' }); return; } if (h && h.cid) cid = h.cid; }
       if (cid && carsMap[cid]) carsMap[cid].push({ pid: a.pid, t: a.time, mark: false });
       else un.push({ pid: a.pid, t: a.time, mark: false });
     });
@@ -33384,7 +33436,12 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     return { cars: carsMap, walkers, others, un, memo: '', _draft: true };
   };
   const getPlan = (iso, sl) => {
-    const saved = plans[`${iso}_${sl}`];
+    const _saved0 = plans[`${iso}_${sl}`];
+    // ★ 2026-10-01: 利用終了日より後(開始日より前)の方は、保存済みの送迎表に残っていても外す(車・徒歩・その他・未割当・送り別)
+    const _keepM = (m) => { if (!m) return false; const pt = (appData.patients||[]).find(x => x.id === m.pid); return !pt || isPatientActiveOnDate(pt, iso); };
+    const _clean = (o) => { if (!o || typeof o !== 'object') return o; const cars = {}; Object.keys(o.cars||{}).forEach(c => { cars[c] = (o.cars[c]||[]).filter(_keepM); });
+      return { ...o, cars, ...(o.walkers ? { walkers: o.walkers.filter(_keepM) } : {}), ...(o.others ? { others: o.others.filter(_keepM) } : {}), ...(o.un ? { un: o.un.filter(_keepM) } : {}) }; };
+    const saved = (_saved0 && typeof _saved0 === 'object') ? { ..._clean(_saved0), ...(_saved0.drop ? { drop: _clean(_saved0.drop) } : {}) } : _saved0;
     if (saved && typeof saved === 'object') {
       // 保存後に増えた利用者(振替追加等)は未割当に補充して見落としを防ぐ
       const inPlan = new Set([ ...Object.values(saved.cars||{}).flat().map(m=>m.pid), ...((saved.walkers||[]).map(m=>m.pid)), ...((saved.others||[]).map(m=>m.pid)), ...((saved.un||[]).map(m=>m.pid)) ]);
@@ -33806,7 +33863,20 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     }
     if (keepOrder) {
       // ★「時間」モード(2026-09-12h): 手で組んだ車・順番はそのまま、区間時間だけ取り直して時刻を再計算
-      remainUn = JSON.parse(JSON.stringify(pl.un||[]));
+      // ★ 2026-10-01(ユーザー要望: 休止の終了後は自動計算の対象に): 未割当の方は、以前乗っていた車(最大8週前まで)へ、
+      //   無ければ空きのある車のうち乗車が少ない車へ入れてから時間を計算する(入れた方は知らせる。車・順番は手で直せる)
+      const _put = []; const _stay = [];
+      JSON.parse(JSON.stringify(pl.un||[])).forEach(m => {
+        const h = _histCarOf(m.pid, iso, sl);
+        const _cap = (cid) => { const c = cars.find(x => x.id === cid); return Number(c && c.cap) || 99; };
+        let cid = (h && h.cid && (nextPlanCars[h.cid] || []).length < _cap(h.cid)) ? h.cid : null;
+        if (!cid) { const cand = cars.filter(c => (nextPlanCars[c.id] || []).length < _cap(c.id) && (nextPlanCars[c.id] || []).length > 0).sort((a, b) => (nextPlanCars[a.id] || []).length - (nextPlanCars[b.id] || []).length); cid = cand[0] ? cand[0].id : null; }
+        if (!cid || !_addrOf(m.pid)) { _stay.push(m); return; }
+        const arr = nextPlanCars[cid] = nextPlanCars[cid] || []; const at = (h && h.cid === cid) ? Math.min(h.idx, arr.length) : arr.length;
+        arr.splice(at, 0, { ...m, mark: false }); _put.push(`${_pname(m.pid)}→${cars.find(c => c.id === cid)?.name || cid}`); changed = true;
+      });
+      remainUn = _stay;
+      if (_put.length) msgs.push(`${iso} ${sl}: 未割当だった方を車に入れて時間を計算しました（${_put.join('、')}）。車・順番は必要に応じて直してください`);
     } else {
       // ★「ルート」モード(2026-09-12h 店舗要望): 方角クラスタリングで車の組み合わせから作り直す。
       //   施設から見た方角で全乗車者を並べ、使う台数で均等に分割(定員厳守)→同じ方向は同じ車に。
@@ -35182,7 +35252,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                     <div className="px-1.5 sm:px-4 py-3 font-bold text-[13px] sm:text-sm text-slate-700 leading-tight">{item.name}<span className="text-xs text-slate-400 ml-0.5">（{item.unit}）</span></div>
                     <div className="px-1 sm:px-4 py-2">
                       {/* ★ タップでテンキーを表示。 手入力(OSキーボード)も可能で、全角は半角へ自動変換する */}
-                      <input type="text" inputMode={_fitKpOn ? 'none' : 'decimal'} readOnly={_fitKpOn} value={values[item.id] ?? ''}
+                      <ImeSafeInput type="text" inputMode={_fitKpOn ? 'none' : 'decimal'} readOnly={_fitKpOn} value={values[item.id] ?? ''}
                         onClick={() => { if (_fitKpOn) openFitKeypad(item.id); }}
                         onChange={e => { setValues({...values, [item.id]: toHalfWidthNum(e.target.value)}); markDirty(); }}
                         placeholder="—"
@@ -37422,11 +37492,11 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-bold text-slate-600 mb-1.5">電話番号 (固定)</label>
-                      <input type="tel" inputMode="numeric" disabled={isOff} value={formatJpPhone(localPatient.familyPhone||'')} onChange={e=>updateLP('familyPhone',toHankaku(e.target.value).replace(/[^0-9]/g,''))} placeholder="03-XXXX-XXXX" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/>
+                      <ImeSafeInput type="tel" inputMode="numeric" disabled={isOff} value={formatJpPhone(localPatient.familyPhone||'')} onChange={e=>updateLP('familyPhone',toHankaku(e.target.value).replace(/[^0-9]/g,''))} placeholder="03-XXXX-XXXX" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/>
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-slate-600 mb-1.5">電話番号 (携帯)</label>
-                      <input type="tel" inputMode="numeric" disabled={isOff} value={formatJpPhone(localPatient.familyPhoneMobile||'')} onChange={e=>updateLP('familyPhoneMobile',toHankaku(e.target.value).replace(/[^0-9]/g,''))} placeholder="090-XXXX-XXXX" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/>
+                      <ImeSafeInput type="tel" inputMode="numeric" disabled={isOff} value={formatJpPhone(localPatient.familyPhoneMobile||'')} onChange={e=>updateLP('familyPhoneMobile',toHankaku(e.target.value).replace(/[^0-9]/g,''))} placeholder="090-XXXX-XXXX" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold outline-none disabled:opacity-60 focus:border-blue-400"/>
                     </div>
                   </div>
                   {/* メールアドレス (単独行) */}
@@ -37450,7 +37520,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                         });
                       }} className="text-slate-300 hover:text-red-400 text-xs font-bold">✕</button>}</div>
                       <div className="grid grid-cols-2 gap-3 mb-2"><div><label className="block text-sm font-bold text-slate-600 mb-1.5">氏名</label><input disabled={isOff} value={ec.name} onChange={e=>{const a=[...(localPatient.emergencyContacts||[])];a[ei]={...a[ei],name:e.target.value};updateLP('emergencyContacts',a);}} className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-60" placeholder="氏名"/></div><div><label className="block text-sm font-bold text-slate-600 mb-1.5">続柄</label><input disabled={isOff} value={ec.relation} onChange={e=>{const a=[...(localPatient.emergencyContacts||[])];a[ei]={...a[ei],relation:e.target.value};updateLP('emergencyContacts',a);}} className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-60" placeholder="例: 長男"/></div></div>
-                      <div className="grid grid-cols-3 gap-3"><div><label className="block text-sm font-bold text-slate-600 mb-1.5">電話（固定）</label><input type="tel" disabled={isOff} value={formatJpPhone(ec.phone||'')} onChange={e=>{const a=[...(localPatient.emergencyContacts||[])];a[ei]={...a[ei],phone:toHankaku(e.target.value).replace(/[^0-9]/g,'')};updateLP('emergencyContacts',a);}} inputMode="numeric" className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-60" placeholder="03-XXXX-XXXX"/></div><div><label className="block text-sm font-bold text-slate-600 mb-1.5">電話（携帯）</label><input type="tel" disabled={isOff} value={formatJpPhone(ec.phoneMobile||'')} onChange={e=>{const a=[...(localPatient.emergencyContacts||[])];a[ei]={...a[ei],phoneMobile:toHankaku(e.target.value).replace(/[^0-9]/g,'')};updateLP('emergencyContacts',a);}} inputMode="numeric" className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-60" placeholder="090-XXXX-XXXX"/></div><div><label className="block text-sm font-bold text-slate-600 mb-1.5">メール</label><input type="email" disabled={isOff} value={ec.email||''} onChange={e=>{const a=[...(localPatient.emergencyContacts||[])];a[ei]={...a[ei],email:e.target.value};updateLP('emergencyContacts',a);}} className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-60" placeholder="mail@example.com"/></div></div>
+                      <div className="grid grid-cols-3 gap-3"><div><label className="block text-sm font-bold text-slate-600 mb-1.5">電話（固定）</label><ImeSafeInput type="tel" disabled={isOff} value={formatJpPhone(ec.phone||'')} onChange={e=>{const a=[...(localPatient.emergencyContacts||[])];a[ei]={...a[ei],phone:toHankaku(e.target.value).replace(/[^0-9]/g,'')};updateLP('emergencyContacts',a);}} inputMode="numeric" className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-60" placeholder="03-XXXX-XXXX"/></div><div><label className="block text-sm font-bold text-slate-600 mb-1.5">電話（携帯）</label><ImeSafeInput type="tel" disabled={isOff} value={formatJpPhone(ec.phoneMobile||'')} onChange={e=>{const a=[...(localPatient.emergencyContacts||[])];a[ei]={...a[ei],phoneMobile:toHankaku(e.target.value).replace(/[^0-9]/g,'')};updateLP('emergencyContacts',a);}} inputMode="numeric" className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-60" placeholder="090-XXXX-XXXX"/></div><div><label className="block text-sm font-bold text-slate-600 mb-1.5">メール</label><input type="email" disabled={isOff} value={ec.email||''} onChange={e=>{const a=[...(localPatient.emergencyContacts||[])];a[ei]={...a[ei],email:e.target.value};updateLP('emergencyContacts',a);}} className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-60" placeholder="mail@example.com"/></div></div>
                     </div>
                   ))}
                 </div>
@@ -38909,7 +38979,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                                   </div>
                                   <div className="sm:col-span-3">
                                     <div className="text-[10px] font-bold text-slate-400">ログインID</div>
-                                    <input value={acc.username} disabled={!isEditing} onChange={e=>updateField(acc.id,'username',toHalfWidth(e.target.value))} className={`w-full px-2 py-1 border rounded text-xs font-mono outline-none ${isEditing?'bg-white border-slate-300 focus:border-blue-400':'bg-slate-50 border-slate-100 text-slate-600 cursor-not-allowed'}`}/>
+                                    <ImeSafeInput value={acc.username} disabled={!isEditing} onChange={e=>updateField(acc.id,'username',toHalfWidth(e.target.value))} className={`w-full px-2 py-1 border rounded text-xs font-mono outline-none ${isEditing?'bg-white border-slate-300 focus:border-blue-400':'bg-slate-50 border-slate-100 text-slate-600 cursor-not-allowed'}`}/>
                                   </div>
                                   <div className="sm:col-span-2">
                                     <div className="text-[10px] font-bold text-slate-400">パスワード <span className="text-slate-300 font-normal">(本人のみ)</span></div>
@@ -40506,8 +40576,8 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                 const sp=_sp(newPerson.name);
                 return (<div><label className="block text-xs font-bold text-slate-500 mb-1">担当者名 <span className="text-red-500">*</span></label>
                   <div className="grid grid-cols-2 gap-3">
-                    <input value={sp.sn} onChange={e=>setNewPerson({...newPerson,name:_jn(e.target.value.replace(/[\s　]/g,''),sp.gn)})} placeholder="姓 例: 鈴木" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
-                    <input value={sp.gn} onChange={e=>setNewPerson({...newPerson,name:_jn(sp.sn,e.target.value.replace(/[\s　]/g,''))})} placeholder="名 例: 一郎" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
+                    <ImeSafeInput value={sp.sn} onChange={e=>setNewPerson({...newPerson,name:_jn(e.target.value.replace(/[\s　]/g,''),sp.gn)})} placeholder="姓 例: 鈴木" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
+                    <ImeSafeInput value={sp.gn} onChange={e=>setNewPerson({...newPerson,name:_jn(sp.sn,e.target.value.replace(/[\s　]/g,''))})} placeholder="名 例: 一郎" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
                   </div></div>);
               })()}
               <div><label className="block text-xs font-bold text-slate-500 mb-1">フリガナ（姓 / 名）</label>
@@ -40641,9 +40711,9 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                 <div className="border border-cyan-200 bg-cyan-50/50 rounded-xl p-3">
                   <div className="text-sm font-bold text-cyan-800 mb-2">LIFE連携（科学的介護）用の情報</div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div><label className="block text-xs font-bold text-slate-600 mb-1">介護保険事業所番号（10桁）</label><input type="text" inputMode="numeric" value={facilityInfo.officeNumber || ""} onChange={e => setFacilityInfo({...facilityInfo, officeNumber: e.target.value.replace(/[^0-9]/g,'').slice(0,10)})} placeholder="例: 1370200001" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
-                    <div><label className="block text-xs font-bold text-slate-600 mb-1">保険者番号（6桁・利用者共通の既定）</label><input type="text" inputMode="numeric" value={facilityInfo.insurerNo || ""} onChange={e => setFacilityInfo({...facilityInfo, insurerNo: e.target.value.replace(/[^0-9]/g,'').slice(0,6)})} placeholder="市区町村により異なる" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
-                    <div><label className="block text-xs font-bold text-slate-600 mb-1">サービス種類コード</label><input type="text" inputMode="numeric" value={facilityInfo.serviceCode || ""} onChange={e => setFacilityInfo({...facilityInfo, serviceCode: e.target.value.replace(/[^0-9]/g,'').slice(0,2)})} placeholder="通所介護=78" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
+                    <div><label className="block text-xs font-bold text-slate-600 mb-1">介護保険事業所番号（10桁）</label><ImeSafeInput type="text" inputMode="numeric" value={facilityInfo.officeNumber || ""} onChange={e => setFacilityInfo({...facilityInfo, officeNumber: e.target.value.replace(/[^0-9]/g,'').slice(0,10)})} placeholder="例: 1370200001" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
+                    <div><label className="block text-xs font-bold text-slate-600 mb-1">保険者番号（6桁・利用者共通の既定）</label><ImeSafeInput type="text" inputMode="numeric" value={facilityInfo.insurerNo || ""} onChange={e => setFacilityInfo({...facilityInfo, insurerNo: e.target.value.replace(/[^0-9]/g,'').slice(0,6)})} placeholder="市区町村により異なる" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
+                    <div><label className="block text-xs font-bold text-slate-600 mb-1">サービス種類コード</label><ImeSafeInput type="text" inputMode="numeric" value={facilityInfo.serviceCode || ""} onChange={e => setFacilityInfo({...facilityInfo, serviceCode: e.target.value.replace(/[^0-9]/g,'').slice(0,2)})} placeholder="通所介護=78" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                     <div><label className="block text-xs font-bold text-slate-600 mb-1">CSVバージョン</label><input type="text" value={facilityInfo.lifeCsvVersion || ""} onChange={e => setFacilityInfo({...facilityInfo, lifeCsvVersion: e.target.value.trim()})} placeholder="0310（3.10版の固定値・空欄なら0310）" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                     <div><label className="block text-xs font-bold text-slate-600 mb-1">リハ・個別機能／栄養／口腔の一体的取組 <span className="font-normal text-slate-400">（生活機能チェック・個別機能訓練のCSV必須項目）</span></label>
                       <select value={facilityInfo.lifeTrinity || '0'} onChange={e => setFacilityInfo({...facilityInfo, lifeTrinity: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"><option value="0">0：無し（既定）</option><option value="1">1：有り（一体的取組を実施している）</option></select></div>
@@ -40678,7 +40748,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                 <div>
                   <label className="block text-sm font-bold text-slate-600 mb-1.5">郵便番号</label>
                   <div className="flex gap-2 items-center">
-                    <input type="text" inputMode="numeric" maxLength={8} value={facilityInfo.zipCode || ""} onChange={e=>{const raw=e.target.value.replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/[^0-9]/g,'').slice(0,7);const fmt=raw.length>3?raw.slice(0,3)+'-'+raw.slice(3):raw;setFacilityInfo({...facilityInfo,zipCode:fmt});}} placeholder="例: 135-0011" style={{width:220}} className="px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none tracking-widest"/>
+                    <ImeSafeInput type="text" inputMode="numeric" maxLength={8} value={facilityInfo.zipCode || ""} onChange={e=>{const raw=e.target.value.replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/[^0-9]/g,'').slice(0,7);const fmt=raw.length>3?raw.slice(0,3)+'-'+raw.slice(3):raw;setFacilityInfo({...facilityInfo,zipCode:fmt});}} placeholder="例: 135-0011" style={{width:220}} className="px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none tracking-widest"/>
                     <button type="button" onClick={async ()=>{
                       const result = await lookupZipAddress(facilityInfo.zipCode);
                       if (result?.full) setFacilityInfo({...facilityInfo, address: result.full});
@@ -40689,8 +40759,8 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">住所</label><input type="text" value={facilityInfo.address || ""} onChange={e => setFacilityInfo({...facilityInfo, address: e.target.value})} placeholder="郵便番号から検索すると自動入力されます" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">建物名・部屋番号</label><input type="text" value={facilityInfo.addressBuilding || ""} onChange={e => setFacilityInfo({...facilityInfo, addressBuilding: e.target.value})} placeholder="例: メイゾン白子101" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                 {/* ★ 電話/FAX: ハイフン自動付与 (数字のみ入力 → formatJpPhone で表示) */}
-                <div><label className="block text-sm font-bold text-slate-600 mb-1.5">電話番号</label><input type="tel" inputMode="numeric" value={formatJpPhone(facilityInfo.phone || "")} onChange={e => setFacilityInfo({...facilityInfo, phone: toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11)})} placeholder="0312345678" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
-                <div><label className="block text-sm font-bold text-slate-600 mb-1.5">FAX</label><input type="tel" inputMode="numeric" value={formatJpPhone(facilityInfo.fax || "")} onChange={e => setFacilityInfo({...facilityInfo, fax: toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11)})} placeholder="0312345679" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
+                <div><label className="block text-sm font-bold text-slate-600 mb-1.5">電話番号</label><ImeSafeInput type="tel" inputMode="numeric" value={formatJpPhone(facilityInfo.phone || "")} onChange={e => setFacilityInfo({...facilityInfo, phone: toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11)})} placeholder="0312345678" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
+                <div><label className="block text-sm font-bold text-slate-600 mb-1.5">FAX</label><ImeSafeInput type="tel" inputMode="numeric" value={formatJpPhone(facilityInfo.fax || "")} onChange={e => setFacilityInfo({...facilityInfo, fax: toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11)})} placeholder="0312345679" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">メールアドレス</label><input type="email" value={facilityInfo.email || ""} onChange={e => setFacilityInfo({...facilityInfo, email: e.target.value})} placeholder="store@example.com" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/><div className="text-[11px] text-slate-400 mt-1">つむぎ管理局の店舗登録時に入力されたメールアドレスが初期反映されます。</div></div>
                 <div className="border-t border-slate-200 pt-4"><h4 className="text-sm font-bold text-slate-700 mb-3">サービス提供時間</h4>
                   <div className="grid grid-cols-3 gap-4">
@@ -41440,7 +41510,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                 <div>
                   <label className="block text-sm font-bold text-slate-600 mb-1.5">郵便番号</label>
                   <div className="flex gap-2 items-center">
-                    <input type="tel" inputMode="numeric" value={newOffice.zipCode||''} onChange={e=>{const raw=e.target.value.replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/[^0-9]/g,'').slice(0,7);const fmt=raw.length>3?raw.slice(0,3)+'-'+raw.slice(3):raw;setNewOffice({...newOffice, zipCode: fmt});}} placeholder="1350011" style={{width:200}} className="px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm tracking-widest"/>
+                    <ImeSafeInput type="tel" inputMode="numeric" value={newOffice.zipCode||''} onChange={e=>{const raw=e.target.value.replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/[^0-9]/g,'').slice(0,7);const fmt=raw.length>3?raw.slice(0,3)+'-'+raw.slice(3):raw;setNewOffice({...newOffice, zipCode: fmt});}} placeholder="1350011" style={{width:200}} className="px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm tracking-widest"/>
                     <button type="button" onClick={async ()=>{
                       const r = await lookupZipAddress(newOffice.zipCode);
                       if (r?.full) setNewOffice({...newOffice, address: r.full});
@@ -41474,11 +41544,11 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                       const _jn=(sn,gn)=>{sn=(sn||'').trim();gn=(gn||'').trim();return sn&&gn?`${sn} ${gn}`:(sn||gn||'');};
                       const sp=_sp(newPerson.name);
                       return (<div className="flex gap-2">
-                        <input type="text" value={sp.sn}
+                        <ImeSafeInput type="text" value={sp.sn}
                           onChange={e=>setNewPerson({...newPerson, name:_jn(e.target.value.replace(/[\s　]/g,''),sp.gn)})}
                           placeholder="鈴木"
                           className="flex-1 min-w-0 px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm"/>
-                        <input type="text" value={sp.gn}
+                        <ImeSafeInput type="text" value={sp.gn}
                           onChange={e=>setNewPerson({...newPerson, name:_jn(sp.sn,e.target.value.replace(/[\s　]/g,''))})}
                           placeholder="一郎"
                           className="flex-1 min-w-0 px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm"/>
@@ -41912,7 +41982,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                     <div className="border-t border-slate-200 pt-3">
                       <div className="text-sm font-bold text-slate-700 mb-1.5">日付がおかしい記録（残骸）の検査・削除</div>
                       <div className="text-[11px] text-slate-500 leading-relaxed mb-2">
-                        利用者の<b>基本利用日と一致しない曜日</b>に残ってしまった提供記録（他曜日の複製・過去の誤登録など）を検出します。<br/>
+                        利用者の<b>基本利用日と一致しない曜日</b>に残ってしまった提供記録（他曜日の複製・過去の誤登録など）と、<b>利用終了日より後・利用開始日より前</b>の記録を検出します。<br/>
                         <b>振替・臨時は除外</b>して安全な候補だけを一覧表示します。内容を確認してから削除でき、削除は<b>全端末に同期</b>されます（墓石付きで復活しません）。
                       </div>
                       <div className="flex gap-2 flex-wrap">
@@ -41928,6 +41998,9 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                             const p = patMap.get(String(r.patientId));
                             const d = _recDate(r);
                             if (!p) { stray.push({ id:r.id, name:'（削除済み利用者）', date:r.date||'', year:r.year||'', dow:d?_dowJp[d.getDay()]:'', status:r.status||'', data:_hasData(r), reason:'利用者が存在しない' }); return; }
+                            if (d) { const iso0=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                              // ★ 2026-10-01: 利用終了日より後・利用開始日より前の記録(終了日を入れる前に作られた記録など)も残骸として検出
+                              if (!isPatientActiveOnDate(p, iso0)) { stray.push({ id:r.id, name:p.name, date:r.date||'', year:r.year||d.getFullYear(), dow:_dowJp[d.getDay()], status:r.status||'出席', data:_hasData(r), reason: (p.endDate && String(p.endDate).slice(0,10) < iso0) ? '利用終了日より後' : '利用開始日より前' }); return; } }
                             if (r.status==='振替' || r.status==='臨時') return; // 正当なので対象外
                             if (!d) return;
                             const iso=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -42819,7 +42892,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   // 既存の ticketRecords から該当者を抽出
   const _recordedRaw = (appData.ticketRecords||[])
     .filter(r=>r.date===dateStr)
-    .filter(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId); if(!p) return false; return _matchesAmpm(r, p); });
+    .filter(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId); if(!p) return false; if (!isPatientActiveOnDate(p, selectedDate)) return false; /* ★ 2026-10-01: 利用終了日より後(開始日より前)の記録は日誌に出さない */ return _matchesAmpm(r, p); });
   // ★ 同一利用者・同一日に複数記録(振替の重複など)がある場合は1件に絞る(データの多い方を優先)。 日誌の二重表示を防ぐ。
   const _rpMap = new Map();
   _recordedRaw.forEach(r => { const ex=_rpMap.get(r.patientId); const sc=(x)=>Object.keys(x).filter(k=>k[0]!=='_'&&x[k]!==''&&x[k]!=null).length; if(!ex || sc(r)>sc(ex)) _rpMap.set(r.patientId, r); });
@@ -43076,7 +43149,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     //   並びも同じにする。 patientId が無いと迎え/送りの号車(IDキー保存)がプレビューで引けず空白になっていた。
     const _rawRecs = (appData.ticketRecords||[])
       .filter(r=>r.date===dateStr)
-      .filter(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId); if(!p) return false; return _match(r, p); });
+      .filter(r=>{ const p=(appData.patients||[]).find(pp=>pp.id===r.patientId); if(!p) return false; if (!isPatientActiveOnDate(p, selectedDate)) return false; return _match(r, p); });
     const _dmap = new Map();
     _rawRecs.forEach(r => { const ex=_dmap.get(r.patientId); const sc=(x)=>Object.keys(x).filter(k=>k[0]!=='_'&&x[k]!==''&&x[k]!=null).length; if(!ex || sc(r)>sc(ex)) _dmap.set(r.patientId, r); });
     const _recd = [..._dmap.values()]
@@ -44881,7 +44954,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs font-bold text-slate-600 w-40">傷病名（原則入力）</span>
                       <LifeDiseaseSearch onPick={(c,n)=>setLife({diseaseCode:c, diseaseName:n})}/>
-                      <input value={L.diseaseCode||''} onChange={e=>setLife({diseaseCode:e.target.value.replace(/[^0-9]/g,'').slice(0,7), diseaseName:''})} placeholder="コード直接入力" title="傷病名コード（7桁・未コード化は999）" className="px-2 py-1 bg-white border border-slate-300 rounded text-xs outline-none w-32"/>
+                      <ImeSafeInput value={L.diseaseCode||''} onChange={e=>setLife({diseaseCode:e.target.value.replace(/[^0-9]/g,'').slice(0,7), diseaseName:''})} placeholder="コード直接入力" title="傷病名コード（7桁・未コード化は999）" className="px-2 py-1 bg-white border border-slate-300 rounded text-xs outline-none w-32"/>
                     </div>
                     {L.diseaseCode ? (
                       <div className="text-[11px] text-purple-800 mt-1 ml-[10.5rem] flex items-center gap-2">
@@ -47351,7 +47424,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
             <div className="mt-2 flex items-center gap-2 flex-wrap">
               <span className="text-xs font-bold text-slate-500">被保険者番号</span><span className="text-sm font-bold text-slate-700">{patient?.insuranceNo||'（未設定）'}</span>
               <span className="text-xs font-bold text-slate-500 ml-3">保険者番号(6桁)</span>
-              <input value={pInsurer} onChange={e=>setPInsurer(e.target.value.normalize('NFKC').replace(/\D/g,'').slice(0,6))} placeholder="この利用者の保険者番号" className="px-2 py-1 bg-white border border-slate-300 rounded text-sm outline-none w-40"/>
+              <ImeSafeInput value={pInsurer} onChange={e=>setPInsurer(e.target.value.normalize('NFKC').replace(/\D/g,'').slice(0,6))} placeholder="この利用者の保険者番号" className="px-2 py-1 bg-white border border-slate-300 rounded text-sm outline-none w-40"/>
               <button type="button" onClick={savePInsurer} disabled={pInsurer===(patient?.insurerNo||'')} className={`px-3 py-1 rounded text-xs font-bold ${pInsurer===(patient?.insurerNo||'')?'bg-slate-100 text-slate-400':'bg-blue-600 text-white hover:bg-blue-700'}`}>保存</button>
             </div>
             <div className="text-[10px] text-slate-400 mt-1">※ 被保険者番号(10桁)はフェイスシートで登録。保険者番号はCSVの insurer_no に使います（利用者ごと・未設定ならLIFE設定の既定を使用）。</div>
@@ -53170,20 +53243,20 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
                 {/* ★ 2026-09-14: 郵便番号→住所検索ボタン+全角→半角・自動ハイフン(郵便番号/電話/FAX)・部屋番号欄を追加 */}
                 <Field label="郵便番号">
                   <div className="flex gap-1.5">
-                    <input value={fs.zipCode} onChange={e=>update('zipCode', formatJpZip(e.target.value))} placeholder="000-0000" inputMode="numeric" className={`${inputCls} flex-1 min-w-0`}/>
+                    <ImeSafeInput value={fs.zipCode} onChange={e=>update('zipCode', formatJpZip(e.target.value))} placeholder="000-0000" inputMode="numeric" className={`${inputCls} flex-1 min-w-0`}/>
                     <button type="button" onClick={async ()=>{ const r = await lookupZipAddress(fs.zipCode); if (r && r.full) update('address', r.full); else alert('住所が見つかりませんでした。郵便番号をご確認ください。'); }} className="shrink-0 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-bold text-xs active:scale-95">検索</button>
                   </div>
                 </Field>
                 <Field label="住所"><input value={fs.address} onChange={e=>update('address', e.target.value)} placeholder="郵便番号から検索すると町名まで自動入力" className={inputCls}/></Field>
                 <Field label="建物名"><input value={fs.addressBuilding} onChange={e=>update('addressBuilding', e.target.value)} placeholder="例: コーポ白子" className={inputCls}/></Field>
                 <Field label="部屋番号"><input value={fs.addressRoom} onChange={e=>update('addressRoom', e.target.value)} placeholder="例: 101" className={inputCls}/></Field>
-                <Field label="電話（固定）"><input value={fs.phone} onChange={e=>update('phone', formatJpPhone(e.target.value))} placeholder="03-XXXX-XXXX" className={inputCls}/></Field>
-                <Field label="電話（携帯）"><input value={fs.phoneMobile} onChange={e=>update('phoneMobile', formatJpPhone(e.target.value))} placeholder="090-XXXX-XXXX" className={inputCls}/></Field>
+                <Field label="電話（固定）"><ImeSafeInput value={fs.phone} onChange={e=>update('phone', formatJpPhone(e.target.value))} placeholder="03-XXXX-XXXX" className={inputCls}/></Field>
+                <Field label="電話（携帯）"><ImeSafeInput value={fs.phoneMobile} onChange={e=>update('phoneMobile', formatJpPhone(e.target.value))} placeholder="090-XXXX-XXXX" className={inputCls}/></Field>
                 <Field label="メールアドレス"><input type="email" value={fs.email} onChange={e=>update('email', e.target.value)} placeholder="example@xxx.com" className={inputCls}/></Field>
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Field label="FAX"><input value={fs.fax} onChange={e=>update('fax', formatJpPhone(e.target.value))} placeholder="03-XXXX-XXXX" className={inputCls}/></Field>
+              <Field label="FAX"><ImeSafeInput value={fs.fax} onChange={e=>update('fax', formatJpPhone(e.target.value))} placeholder="03-XXXX-XXXX" className={inputCls}/></Field>
               <Field label="世帯区分">
                 <select value={fs.householdType} onChange={e=>update('householdType', e.target.value)} className={inputCls}>
                   <option value="">— 選択 —</option>
@@ -53233,11 +53306,11 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
                         <input value={c.relation} onChange={e=>setContact(i,{relation:e.target.value})} placeholder="続柄(例:長女)" className="px-2 py-1 border border-slate-300 rounded text-[13px] outline-none"/>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
-                        <input type="tel" inputMode="numeric" value={formatJpPhone(c.phone||'')} onChange={e=>setContact(i,{phone:toHankaku(e.target.value).replace(/[^0-9]/g,'')})} placeholder="電話(固定)" className="px-2 py-1 border border-slate-300 rounded text-[13px] outline-none"/>
-                        <input type="tel" inputMode="numeric" value={formatJpPhone(c.phoneMobile||'')} onChange={e=>setContact(i,{phoneMobile:toHankaku(e.target.value).replace(/[^0-9]/g,'')})} placeholder="電話(携帯)" className="px-2 py-1 border border-slate-300 rounded text-[13px] outline-none"/>
+                        <ImeSafeInput type="tel" inputMode="numeric" value={formatJpPhone(c.phone||'')} onChange={e=>setContact(i,{phone:toHankaku(e.target.value).replace(/[^0-9]/g,'')})} placeholder="電話(固定)" className="px-2 py-1 border border-slate-300 rounded text-[13px] outline-none"/>
+                        <ImeSafeInput type="tel" inputMode="numeric" value={formatJpPhone(c.phoneMobile||'')} onChange={e=>setContact(i,{phoneMobile:toHankaku(e.target.value).replace(/[^0-9]/g,'')})} placeholder="電話(携帯)" className="px-2 py-1 border border-slate-300 rounded text-[13px] outline-none"/>
                       </div>
                       {/* ★ 2026-09-30(試験版): ご家族がアプリ登録したメールもフェイスシートに表示・編集(基本情報と双方向) */}
-                      <input type="email" inputMode="email" autoCapitalize="none" value={c.email||''} onChange={e=>setContact(i,{email:toHankaku(e.target.value).trim()})} placeholder="メールアドレス" data-testid="fs-contact-email" className="mt-2 w-full px-2 py-1 border border-slate-300 rounded text-[13px] outline-none"/>
+                      <ImeSafeInput type="email" inputMode="email" autoCapitalize="none" value={c.email||''} onChange={e=>setContact(i,{email:toHankaku(e.target.value).trim()})} placeholder="メールアドレス" data-testid="fs-contact-email" className="mt-2 w-full px-2 py-1 border border-slate-300 rounded text-[13px] outline-none"/>
                     </div>
                   ))}
                 </div>
@@ -53287,7 +53360,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
             <div className="text-sm font-bold text-amber-800 mb-2">④ 介護保険・制度情報</div>
             <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-3">
               <div className="text-[11px] text-emerald-700 mb-2 font-bold">介護保険・制度情報</div>
-              <Field label="被保険者番号"><input value={fs.insuranceNo} onChange={e=>update('insuranceNo', e.target.value.replace(/[Ａ-Ｚａ-ｚ０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)))} inputMode="numeric" maxLength={10} placeholder="0000000000" className={inputCls}/></Field>
+              <Field label="被保険者番号"><ImeSafeInput value={fs.insuranceNo} onChange={e=>update('insuranceNo', e.target.value.replace(/[Ａ-Ｚａ-ｚ０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)))} inputMode="numeric" maxLength={10} placeholder="0000000000" className={inputCls}/></Field>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[12px] mt-2">
                 <div><b>要介護度：</b>{patient.careLevel || '-'}</div>
                 <div><b>負担割合：</b>{patient.costBurden || '-'}</div>
