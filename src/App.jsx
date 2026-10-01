@@ -33561,14 +33561,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _locOf = (snap, pid) => { for (const cid of Object.keys(snap?.cars||{})) { const i = (snap.cars[cid]||[]).findIndex(m => m.pid === pid); if (i >= 0) return { zone: cid, idx: i, t: snap.cars[cid][i].t || '' }; } if ((snap?.walkers||[]).includes(pid)) return { zone: 'walk', wt: snap.walkT ? (snap.walkT[pid] || '') : null }; if ((snap?.others||[]).includes(pid)) return { zone: 'other' }; return null; };
   const _chgOf = (pl, pid) => { const fin = pl && pl._final; if (!fin) return ''; const now = _locOf(_snapPlan(pl), pid); if (!now) return ''; const was = _locOf(fin, pid); if (!was) return '完成後に追加'; if (now.zone !== was.zone) return was.zone==='walk'?'徒歩から車へ変更':(was.zone==='other'?'その他から変更':(now.zone==='walk'?'車から徒歩へ変更':(now.zone==='other'?'車からその他へ変更':'車が変更'))); if (now.zone === 'walk' && was.wt != null && now.wt != null && now.wt !== was.wt) return `到着時間が変更（${was.wt||'開始時刻'}→${now.wt||'開始時刻'}）`; if (now.zone !== 'walk' && now.zone !== 'other') { if ((now.t||'') !== (was.t||'')) return `時間が変更（${was.t||'未定'}→${now.t||'未定'}）`; if (now.idx !== was.idx) return '乗車順が変更'; } return ''; };
   const _removedSince = (pl) => { const fin = pl && pl._final; if (!fin) return []; const cur = _snapPlan(pl); const nowIds = new Set([ ...Object.values(cur.cars).flat().map(m=>m.pid), ...cur.walkers, ...cur.others ]); return [ ...Object.values(fin.cars||{}).flat().map(m=>m.pid), ...(fin.walkers||[]), ...(fin.others||[]) ].filter(pid => !nowIds.has(pid)); };
-  const _driverChg = (pl) => { const fin = pl && pl._final; if (!fin) return []; const cur = pl.driver||{}; const was = fin.driver||{}; return Object.keys({ ...cur, ...was }).filter(cid => (cur[cid]||'') !== (was[cid]||'')); };
-  const _chgCount = (pl) => { if (!pl || !pl._final) return 0; const cur = _snapPlan(pl); let n = 0; [ ...Object.values(cur.cars).flat().map(m=>m.pid), ...cur.walkers, ...cur.others ].forEach(pid => { if (_chgOf(pl, pid)) n++; }); return n + _removedSince(pl).length + _driverChg(pl).length; };
+  // ★ 2026-10-01(試験版・ユーザー指示「完成後の変更は利用者の時間をメインに。運転者の変更は含まなくていい」): 運転者の変更は数えない
+  const _chgCount = (pl) => { if (!pl || !pl._final) return 0; const cur = _snapPlan(pl); let n = 0; [ ...Object.values(cur.cars).flat().map(m=>m.pid), ...cur.walkers, ...cur.others ].forEach(pid => { if (_chgOf(pl, pid)) n++; }); return n + _removedSince(pl).length; };
   const _finalAtOfWeek = () => { let best = ''; days.forEach(d => ['AM','PM'].forEach(sl => { const f = plans[`${_iso(d)}_${sl}`]?._finalAt; if (f && String(f) > String(best)) best = f; })); return best; };
   const _fmtStamp = (v) => { try { const d = new Date(v); if (isNaN(d)) return ''; return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; } catch { return ''; } };
   const finalizeWeek = () => {
     const already = !!_finalAtOfWeek();
     if (!window.confirm(already
-      ? `この週(${days.length}日分)の送迎表を、いまの内容で「完成」に更新します。\n完成後の変更の赤丸はいったん消え、これ以降に変えた箇所に付き直します。よろしいですか？`
+      ? `この週(${days.length}日分)の送迎表は ${_fmtStamp(_finalAtOfWeek())} に完成済みです。\nいまの内容で「完成」に更新します。完成後の変更の赤丸はいったん消え、これ以降に変えた箇所に付き直します。よろしいですか？`
       : `この週(${days.length}日分)の送迎表を、いまの内容で「完成」として確定します。\n以後に変えた箇所(車・乗車順・時間・運転者)には自動で赤丸が付き、印刷にも出ます。よろしいですか？`)) return;
     const np = { ...plans }; const at = syncNow(); let n = 0;
     days.forEach(d => ['AM','PM'].forEach(sl => { const iso = _iso(d); const pl = getPlan(iso, sl); const { _draft, ...rest } = pl; np[`${iso}_${sl}`] = { ...rest, _final: _snapPlan(pl), _finalAt: at, _savedAt: at }; n++; }));
@@ -34681,22 +34681,29 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             if (n) _saveBulk('前週コピー', np);
             alert(n ? `前週から${n}コマをコピーしました。${nSkip ? `\n（前の週の振替・この週のお休みなどで、この週に来ない方 のべ${nSkip}名はコピーしていません）` : ''}` : '前の週に保存済みの送迎表がありませんでした。');
           }} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="前の週の割り当て・時間・運転者・備考をこの週へ複製">前週コピー</button>
-          <button onClick={()=>setAutoCalc({ haisha: false, jikan: true, days: new Set(days.map(d=>_iso(d))), slots: new Set(['AM','PM']), cars: new Set(cars.map(c=>c.id)) })} disabled={!!routing} data-testid="tp-autocalc" className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-sm disabled:opacity-50" title="配車・時間を、曜日や午前/午後を選んでGoogleマップで自動計算">{routing?'計算中…':'自動計算'}</button>
+          <button onClick={()=>setAutoCalc({ haisha: false, jikan: true, days: new Set(days.map(d=>_iso(d))), slots: new Set(['AM','PM']), cars: new Set(cars.map(c=>c.id)) })} disabled={!!routing} data-testid="tp-autocalc" className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-sm disabled:opacity-50" title="配車・時間を、曜日や午前/午後を選んでGoogleマップで自動計算">{routing ? (
+            // ★ 2026-10-01(試験版・ユーザー要望): 計算中が分かるよう、回る輪と「…」の点滅で動きを付ける
+            <span data-testid="tp-calculating" className="inline-flex items-center gap-1.5 whitespace-nowrap"><span aria-hidden="true" style={{width:14,height:14,border:'2.5px solid rgba(255,255,255,0.35)',borderTopColor:'#fff',borderRadius:'50%',display:'inline-block',animation:'tsumugiSpin 0.8s linear infinite'}}/>計算中<span aria-hidden="true" className="inline-flex">{[0,1,2].map(k => <span key={k} style={{animation:`tsumugiBlink 1.2s ${k*0.2}s infinite both`}}>・</span>)}</span>
+              <style>{`@keyframes tsumugiSpin{to{transform:rotate(360deg)}}@keyframes tsumugiBlink{0%,80%,100%{opacity:.2}40%{opacity:1}}`}</style></span>
+          ) : '自動計算'}</button>
           {(() => { const ul = _undoList(); const last = ul[ul.length - 1]; return (
             <button onClick={undoLast} disabled={!last || !!routing} data-testid="tp-undo" title={last ? `直前の操作「${last.label}」の前に戻す（あと${ul.length}回まで戻せます）` : '元に戻せる操作はありません'} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed">
-              元に戻す{last ? <span className="ml-1 text-[11px] font-normal text-slate-500">（{last.label}）</span> : null}
+              元に戻す
             </button>
           ); })()}
           {/* ★ 週の完成確定(2026-09-28): 完成後の変更は赤丸で自動表示 */}
           {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return (
-            <button onClick={finalizeWeek} className={`px-2.5 py-2 rounded-xl font-bold text-xs border whitespace-nowrap ${fa?'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100':'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`} title={fa?`完成 ${_fmtStamp(fa)}。押すと今の内容で完成を更新(赤丸は付け直し)`:'この週の送迎表を「完成」として確定。以後に変えた箇所に自動で赤丸が付きます'}>
-              {fa ? <>完成済 {_fmtStamp(fa)}{tot ? <span className="ml-1 bg-red-600 text-white rounded px-1">変更{tot}</span> : null}</> : '完成'}
+            <button onClick={finalizeWeek} data-testid="tp-finalize" className={`px-2.5 py-2 rounded-xl font-bold text-xs border whitespace-nowrap ${fa?'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100':'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`} title={fa?`完成 ${_fmtStamp(fa)}。押すと今の内容で完成を更新(赤丸は付け直し)`:'この週の送迎表を「完成」として確定。以後に変えた箇所に自動で赤丸が付きます'}>
+              {fa ? <>完成済{tot ? <span className="ml-1 bg-red-600 text-white rounded px-1">変更{tot}</span> : null}</> : '完成'}
             </button>
           ); })()}
           {/* ★ 2026-09-30(ユーザー要望): 完成が押されていない週は注意書き。木〜日は来週が未完成なら知らせる */}
-          {!_finalAtOfWeek() && <span data-testid="tp-not-final" className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-300 rounded-lg px-2 py-1 whitespace-nowrap" title="内容を確認したら「完成」を押してください。完成後に変えた箇所には赤丸が付き、ご家族・ケアマネの画面のお迎え時間が「確定」になります">この週は完成されていません</span>}
+          {/* ★ 2026-10-01(試験版・ユーザー要望「文が長い」): 週の状態は短く「作成中」／完成を押したら「完成済」(押した日時つき) */}
+          {/*   完成したあとは「完成済」のボタン(押すと今の内容で完成を更新)だけにして、横幅を取らないようにする */}
+          {(() => { const fa = _finalAtOfWeek(); return fa ? null
+            : <span data-testid="tp-not-final" className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-300 rounded-lg px-2 py-1 whitespace-nowrap" title="内容を確認したら「完成」を押してください。完成後に変えた箇所には赤丸が付き、ご家族・ケアマネの画面のお迎え時間が「確定」になります">作成中</span>; })()}
           {(() => { const r = tpNextWeekReminder(appData); if (!r || tpIsoOf(_mon) === r.iso) return null; return (
-            <button onClick={()=>setSelectedDate(r.iso)} data-testid="tp-next-reminder" className="text-[11px] font-bold text-red-700 bg-red-50 border border-red-300 rounded-lg px-2 py-1 whitespace-nowrap hover:bg-red-100" title="1週間後の日を含む週の送迎表を開きます">1週間後の週（{r.label}）が未完成 ›</button>
+            <button onClick={()=>setSelectedDate(r.iso)} data-testid="tp-next-reminder" className="text-[11px] font-bold text-red-700 bg-red-50 border border-red-300 rounded-lg px-2 py-1 whitespace-nowrap hover:bg-red-100" title={`1週間後の日を含む週（${r.label}）の送迎表がまだ完成していません。押すとその週を開きます`}>次週分未完成 ›</button>
           ); })()}
           <button onClick={()=>setTpSettings(true)} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="到着目標時刻・車の定員の設定">設定</button>
           <button onClick={()=>setPrintModal({ mode:'week', weekContent:'sheet', days:new Set(days.map(d=>_iso(d))) })} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">印刷</button>
@@ -34751,8 +34758,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                       {/* ★ 2026-09-30: 各コマの見出し(午前/午後・計算ボタン)は廃止。状態(下書き・完成後の変更)だけ小さく表示 */}
                       <div className={`px-2 pt-1 flex items-center gap-1 justify-end ${sl==='AM'?'bg-amber-50/60':'bg-indigo-50/60'}`} style={{minHeight:18}}>
                         <span className="flex items-center gap-1">{pl._draft ? <span className="text-[9px] text-slate-500 bg-slate-200 rounded px-1 py-0.5">下書き</span> : null}
-                          {pl._final && (() => { const n = _chgCount(pl); const rm = _removedSince(pl); const dc = _driverChg(pl); return n
-                            ? <span className="text-[9px] text-white bg-red-600 rounded px-1 py-0.5" title={[ ...rm.map(pid=>`${_pname(pid)}: 完成後に外れた`), ...dc.map(cid=>`${(cars.find(c=>c.id===cid)||{}).name||cid}: 運転者が変更`) ].join('\n')||'完成後に変更あり'}>完成後の変更 {n}件</span>
+                          {pl._final && (() => { const n = _chgCount(pl); const rm = _removedSince(pl); return n
+                            ? <span className="text-[9px] text-white bg-red-600 rounded px-1 py-0.5" title={rm.map(pid=>`${_pname(pid)}: 完成後に外れた`).join('\n')||'完成後に変更あり'}>完成後の変更 {n}件</span>
                             : null; })()}
                         </span>
                       </div>
