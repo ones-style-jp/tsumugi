@@ -10291,6 +10291,33 @@ const getScheduleOnDate = (patient, dateStr) => {
   return sched;
 };
 
+// ★ 2026-10-01(ユーザー要望「曜日を減らした・退所した後に、その日の記録が残骸にならないように」):
+//   提供記録入力の保存は、その日に来る予定の全員分の記録(中身が空の「出席」)を作る(来所の印として実績等で使うため必要)。
+//   その後で基本利用曜日を減らす・利用終了日を入れると、合わなくなった日の空の記録が残って「残骸」になっていた。
+//   利用者マスタで保存するときに、この変更で合わなくなった「中身が空の出席記録」だけを墓石付きで削除する
+//   (バイタル・特記などが入っている記録、振替・臨時、欠席・休止は残す)。
+const _recValidForPatient = (p, r, shifts) => {
+  const iso = recIsoOf(r); if (!iso) return true;
+  if (!isPatientActiveOnDate(p, iso)) return false;
+  if (r.status === '振替' || r.status === '臨時') return true;
+  const d = new Date(iso); const dow = d.getDay();
+  if (getScheduleOnDate(p, iso)?.[dow]) return true;
+  const mk = iso.slice(0, 7); const day = d.getDate(); const ent = (shifts || {})[mk]?.[p.id] || {};
+  return ['AM', 'PM'].some(ap => { const v = String(ent[`${day}_${ap}`] || ''); return v === '〇' || v === '出席' || v === '臨時' || v.startsWith('振'); });
+};
+const _isEmptyAttendRec = (r) => !!r && (r.status === '出席' || !r.status) && !ticketHasClinicalData(r) && !String(r.tokki || '').trim();
+const cleanupStaleEmptyRecords = (next, prevP, nextP, prevShifts) => {
+  try {
+    if (!next || !prevP || !nextP) return { next, ids: [] };
+    const recs = next.ticketRecords || [];
+    const ids = recs.filter(r => r && r.id != null && r.patientId === nextP.id && _isEmptyAttendRec(r) && _recValidForPatient(prevP, r, prevShifts) && !_recValidForPatient(nextP, r, next.monthlyShifts)).map(r => String(r.id));
+    if (!ids.length) return { next, ids };
+    const idSet = new Set(ids); const now = syncNow();
+    const tomb = { ...(next.deletedIds || {}) }; const m = { ...(tomb.ticketRecords || {}) }; ids.forEach(id => { m[id] = now; }); tomb.ticketRecords = m;
+    return { next: { ...next, ticketRecords: recs.filter(r => !(r && r.id != null && idSet.has(String(r.id)))), deletedIds: tomb }, ids };
+  } catch (e) { console.warn('[cleanupStaleEmptyRecords]', e); return { next, ids: [] }; }
+};
+
 // ★ カレンダーで定休日/休業日を選んだとき、選択できないのではなく「近い営業日」にずらす。
 //   例 (土日定休): 土曜→金曜(後退) / 日曜→月曜(前進)。 距離が同じなら 日曜だけ前進、他は後退。
 //   日誌・提供記録など全カレンダー共通で使う。
@@ -34002,59 +34029,58 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const members = nextPlanCars[cid] || [];
       const addrs = members.map(m => _addrOf(m.pid));
       if (addrs.some(a2 => !a2)) { const missing = members.filter((m,i)=>!addrs[i]).map(m=>_pname(m.pid)).join('、'); msgs.push(`${iso} ${sl} ${cname}: 住所未入力のためスキップ（${missing}）`); continue; }
-      let ordered, legs, facToFirstSec = 0;
+      // ★ 2026-10-01(ユーザー指摘: 同じマンションの4名がそれぞれ乗車5分で計算され、間にも移動1〜2分が入ってお迎えが早すぎた):
+      //   同じ建物(建物キー=部屋番号・建物名・丁目/番/号や全角の表記ゆれを吸収)の方は「1か所」としてまとめて地図に送り、
+      //   乗車にかかる時間はその中でいちばん長い方の時間を1回だけ数える(全員が同じお迎え時間)。
+      const _adKey = (pid) => { const pt2 = (appData.patients||[]).find(x=>x.id===pid) || {}; let a = String(pt2.address||'').normalize('NFKC').replace(/[\s　]/g,'').replace(/[－ー‐−–—]/g,'-').replace(/丁目|番地|号室|番|号/g,'-').replace(/-+/g,'-').toLowerCase(); const mm = a.match(/^(.*?\d+(?:-\d+){0,2})/); return (mm ? mm[1] : a).replace(/-+$/,''); };
+      const groups = []; { const gi = {}; members.forEach(m => { const k = _adKey(m.pid) || `pid:${m.pid}`; if (gi[k] == null) { gi[k] = groups.length; groups.push({ key: k, ms: [m] }); } else groups[gi[k]].ms.push(m); }); }
+      const gAddrs = groups.map(g => _addrOf(g.ms[0].pid));
+      let orderedG, legs, facToFirstSec = 0;
       if (keepOrder) {
-        // 「時間」モード: 施設→現順→施設の輪で区間時間だけ取得(順番そのまま)
-        const r = await fetch('/api/route-plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ origin: fac, stops: addrs, keepOrder: true, departAt: _departAt }) });
+        // 「時間」モード: 施設→現順→施設の輪で区間時間だけ取得(順番そのまま・同じ建物は最初の方の位置でまとめる)
+        const r = await fetch('/api/route-plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ origin: fac, stops: gAddrs, keepOrder: true, departAt: _departAt }) });
         const j = await r.json().catch(()=>({}));
         if (j.error || !Array.isArray(j.order)) { msgs.push(`${iso} ${sl} ${cname}: ${j.error||'計算に失敗'}`); continue; }
-        ordered = members.slice();
-        const lg = (j.legSeconds || []).slice();   // [施設→1人目, 1→2, ..., 最後→施設]
+        orderedG = groups.slice();
+        const lg = (j.legSeconds || []).slice();   // [施設→1か所目, 1→2, ..., 最後→施設]
         facToFirstSec = lg[0] || 0;
-        legs = lg.slice(1);                        // [1→2, ..., 最後→施設] = 各人から次へ
+        legs = lg.slice(1);                        // [1→2, ..., 最後→施設] = 各か所から次へ
       } else {
         // ★ 2026-09-12i(店舗要望): 「輪」ではなく片道方式。最も遠い方へ直行→帰りながら順に拾う。
-        //   これで近い方が先頭に来ることがなくなる(途中で拾う形にもならない)。
         let farIdx = 0;
         const oc = _originCoord;
-        if (oc && members.every(m => _coordMap[m.pid])) {
+        if (oc && groups.every(g => _coordMap[g.ms[0].pid])) {
           let best = -1;
-          members.forEach((m, i) => { const c2 = _coordMap[m.pid]; const dx = (c2.lng - oc.lng) * Math.cos(oc.lat * Math.PI/180), dy = c2.lat - oc.lat; const d2 = dx*dx + dy*dy; if (d2 > best) { best = d2; farIdx = i; } });
+          groups.forEach((g, i) => { const c2 = _coordMap[g.ms[0].pid]; const dx = (c2.lng - oc.lng) * Math.cos(oc.lat * Math.PI/180), dy = c2.lat - oc.lat; const d2 = dx*dx + dy*dy; if (d2 > best) { best = d2; farIdx = i; } });
         }
-        const farAddr = addrs[farIdx];
-        const rest = members.filter((_, i) => i !== farIdx);
-        const restAddrs = addrs.filter((_, i) => i !== farIdx);
+        const farAddr = gAddrs[farIdx];
+        const restG = groups.filter((_, i) => i !== farIdx);
+        const restAddrs = gAddrs.filter((_, i) => i !== farIdx);
         // 施設→最遠(出発チェック用の所要)
         try { const r0 = await fetch('/api/route-plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ origin: fac, stops: [farAddr], keepOrder: true, departAt: _departAt }) }); const j0 = await r0.json().catch(()=>({})); facToFirstSec = (j0.legSeconds||[])[0] || 0; } catch {}
-        if (rest.length) {
+        if (restG.length) {
           const r = await fetch('/api/route-plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ origin: farAddr, destination: fac, stops: restAddrs, departAt: _departAt }) });
           const j = await r.json().catch(()=>({}));
           if (j.error || !Array.isArray(j.order)) { msgs.push(`${iso} ${sl} ${cname}: ${j.error||'計算に失敗'}`); continue; }
-          ordered = [members[farIdx], ...j.order.map(ix => rest[ix])];
-          legs = (j.legSeconds || []).slice();     // [最遠→次, ..., 最後→施設] = 各人から次へ
+          orderedG = [groups[farIdx], ...j.order.map(ix => restG[ix])];
+          legs = (j.legSeconds || []).slice();     // [最遠→次, ..., 最後→施設] = 各か所から次へ
         } else {
-          ordered = [members[farIdx]];
+          orderedG = [groups[farIdx]];
           legs = [facToFirstSec ? facToFirstSec : 0];
-          // 1名: 本人→施設の帰路 ≒ 施設→本人と同等とみなす
+          // 1か所: 本人→施設の帰路 ≒ 施設→本人と同等とみなす
         }
       }
       // 時刻の逆算: 施設到着=到着目標。お迎え時間=その方の家に着く時間(ピンポンの時間)。
       //   t[k] = 目標 - Σ(k以降の「乗車にかかる時間」+次への移動)  → 次の方の時間 = 前の方の時間 + 乗車にかかる時間 + 移動
       //   (2026-09-30: 出発時刻から順に数える方式は、到着目標より大幅に遅れるため廃止・ユーザー指示)
+      //   同じ建物は1か所: 乗車にかかる時間 = その中でいちばん長い方(足し合わせない)
       const _bufOf = (pid) => { const pt = (appData.patients||[]).find(x=>x.id===pid) || {}; return Math.max(1, Number(pt.pickupMinutes) || 1); };
-      let cum = 0;
-      for (let k = ordered.length - 1; k >= 0; k--) {
-        cum += _bufOf(ordered[k].pid) + Math.ceil((legs[k]||0)/60);
-        ordered[k] = { ...ordered[k], t: _fmtHM(Math.max(0, target - cum)) };
+      let cum = 0; const _tOfG = [];
+      for (let k = orderedG.length - 1; k >= 0; k--) {
+        cum += Math.max(...orderedG[k].ms.map(m => _bufOf(m.pid))) + Math.ceil((legs[k]||0)/60);
+        _tOfG[k] = _fmtHM(Math.max(0, target - cum));
       }
-      // ★ 同じ住所の方は同じお迎え時間に統一(同じ建物・ご夫婦など。早い方の時間に合わせる)(2026-09-13c/d)
-      //   住所のみで比較(待ち合わせ場所の違いは無視)+全半角・空白の表記ゆれを正規化して比較
-      {
-        // 建物キーで比較(部屋番号・建物名・丁目/番/号や全角の表記ゆれを吸収) — 同じマンションの方は同じ時間に(2026-09-13f)
-        const _adKey = (pid) => { const pt2 = (appData.patients||[]).find(x=>x.id===pid) || {}; let a = String(pt2.address||'').normalize('NFKC').replace(/[\s　]/g,'').replace(/[－ー‐−–—]/g,'-').replace(/丁目|番地|号室|番|号/g,'-').replace(/-+/g,'-').toLowerCase(); const mm = a.match(/^(.*?\d+(?:-\d+){0,2})/); return (mm ? mm[1] : a).replace(/-+$/,''); };
-        const _tByAddr = {};
-        ordered = ordered.map(m2 => { const a3 = _adKey(m2.pid); if (!a3) return m2; if (_tByAddr[a3] == null) { _tByAddr[a3] = m2.t; return m2; } return { ...m2, t: _tByAddr[a3] }; });
-      }
+      const ordered = orderedG.flatMap((g, k) => g.ms.map(m => ({ ...m, t: _tOfG[k] })));
       nextPlanCars[cid] = ordered;
       changed = true;
     }
@@ -36201,6 +36227,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
       });
       if (pat.changeLog !== localPatient.changeLog) setLocalPatient(pat);
       next.patients = appData.patients.map(p => p.id === pat.id ? pat : p);
+      // ★ 2026-10-01: 曜日の変更・利用終了日などで合わなくなった空の出席記録を片付ける
+      const _cl = cleanupStaleEmptyRecords(next, prev, pat, appData.monthlyShifts);
+      if (_cl.ids.length) { onSave(_cl.next, { silent: true, deleteRecordIds: _cl.ids }); return; }
     }
     onSave(next);
   };
@@ -36345,6 +36374,11 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
       const _ctx = { pat, next, prevPlanned: _b.prevPlanned, prevHistory: _b.prevHistory, prevIndividual: _b.prevIndividual, prevIndHistory: _b.prevIndHistory, fromDate: new Date().toISOString().slice(0,10) };
       if (!plannedExModal) setPlannedExModal(_ctx);
       return 'modal'; // ★ 画面移動の「保存して移動」から呼ばれた場合は移動を中断してモーダルを見せる
+    }
+    { // ★ 2026-10-01: 利用終了日・利用開始日などで合わなくなった空の出席記録を片付ける
+      const _prevP2 = (appData.patients||[]).find(p => p.id === pat.id);
+      const _cl = cleanupStaleEmptyRecords(next, _prevP2, pat, appData.monthlyShifts);
+      if (_cl.ids.length) { onSave(_cl.next, { ...(auto ? { silent: true } : { manual: true, message: `✓ 利用者マスタを保存しました（合わなくなった空の記録${_cl.ids.length}件を片付けました）` }), deleteRecordIds: _cl.ids }); return; }
     }
     onSave(next, auto ? { silent: true } : { manual: true, message: '✓ 利用者マスタを保存しました' });
   };
@@ -36599,6 +36633,10 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     if (pendingTickets) setPendingTickets(null);
     if (dirtyRef) dirtyRef.current = false;
     _justSavedMasterRef.current = Date.now(); // ★ 保存直後ガード(基本利用日が一瞬で戻る競合を防ぐ)
+    // ★ 2026-10-01: 曜日を減らした等で合わなくなった空の出席記録を片付ける(残骸にしない)
+    const _prevP3 = (appData.patients||[]).find(p => p.id === newPat.id);
+    const _cl = cleanupStaleEmptyRecords(nextData, _prevP3, newPat, appData.monthlyShifts);
+    if (_cl.ids.length) { onSave(_cl.next, { manual: true, message: `${message}（合わなくなった空の記録${_cl.ids.length}件を片付けました）`, deleteRecordIds: _cl.ids }); return; }
     onSave(nextData, { manual: true, message });
   };
   // ★ 指定曜日の「算法由来のoverride」('〇'/'空欄'/'出席')を全月から削除する。
