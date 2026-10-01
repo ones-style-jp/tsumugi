@@ -34090,6 +34090,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const _dayPx = (f) => (1039 - _slW - 2 - _carColW(f)) / Math.max(1, days.length) - 9 - 2 - _drvW(f); // 275mm≒1039px − 午前午後 − 車名列 − 余白・罫線
     const _fzS = (f) => Math.max(8, Math.round(f * 0.78));               // 次回(曜日)は補助情報なので小さめ
     const _fzB = (f) => Math.max(8, Math.round(f * 2 / 3)); // 休み・初回・その他など(2026-10-01c: 名前の約2/3)
+    const _fzAb = (f) => Math.max(9, Math.round(f * 0.8)); // ★ 2026-10-01(ユーザー要望「休みをもう少し大きく」): 休みだけ名前の約8割
     const _nameW = (f) => Math.ceil(_maxNameEm * f * 1.04) + 5;
     const _timeW = (f) => Math.ceil(f * 2.9) + 6;
     const _hdrF = (f) => Math.max(8, Math.round(f * 0.6));      // 見出し(氏名・時間・次回)の文字
@@ -34100,7 +34101,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const rm = _removedSince(plans[`${iso}_${sl}`]); if (rm.length) out.push({ t: `完成後に外れた: ${rm.map(pid => _pname(pid)).join('、')}` });
       const ot = pl.others||[]; if (ot.length) out.push({ t: `その他: ${ot.map(m => _pname(m.pid)).join('、')}` });
       const fv = [ ...Object.values(pl.cars||{}).flat(), ...(pl.walkers||[]), ...(pl.others||[]) ].filter(m => _isFirstVisit(m.pid, iso)); if (fv.length) out.push({ t: `初回: ${fv.map(m => _pname(m.pid) + '様、').join('')}` });
-      const ab = _absentees(iso, sl); if (ab.length) out.push({ t: `休み: ${ab.map(a => a.name).join('、')}` });
+      const ab = _absentees(iso, sl); if (ab.length) out.push({ t: `休み: ${ab.map(a => a.name).join('、')}`, ab: true });
       if (pl.dropMode === 'custom' && pl.drop) out.push({ lines: 2 });
       return out; };
     // 行数の見積り(1単位=1行の実高)。1行の実高 = 上下padding(2px) + 文字(line-height1.25) + 罫線(1px)
@@ -34112,7 +34113,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       u += (_hdrH(f) + 2) / uh; // 各日の上の見出し(氏名・時間・次回)
       let ex = 0;
       days.forEach(d => { let px = 0;
-        _bottomTexts(_iso(d), sl).forEach(x => { const ff = x.big ? f : fb; const lines = x.lines || Math.max(1, Math.ceil(_emW(x.t) * ff / dw)); px += lines * Math.ceil(ff * 1.35); });
+        _bottomTexts(_iso(d), sl).forEach(x => { const ff = x.big ? f : (x.ab ? _fzAb(f) : fb); const lines = x.lines || Math.max(1, Math.ceil(_emW(x.t) * ff / dw)); px += lines * Math.ceil(ff * 1.35); });
         ex = Math.max(ex, (px + 2) / uh); // 下部情報は折り返しを含めて高さを見積る(初回・休みが多い日に下が切れないように)
       });
       return u + ex;
@@ -34178,7 +34179,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       if (_firsts.length) _parts.push(`<span style="color:#0369a1;font-weight:bold;">初回: ${_firsts.map(esc).join('様、')}様</span>`);
       // ★ 2026-09-16(店舗指定): 未割当は印刷に出さない(画面のみ)
       const _abs2 = _absentees(iso, sl);
-      if (_abs2.length) _parts.push(`<span style="color:#64748b;">休み: ${_abs2.map(a=>esc(a.name)).join('、')}</span>`);
+      if (_abs2.length) _parts.push(`<span style="color:#475569;font-size:${_fzAb(fz)}px;">休み: ${_abs2.map(a=>esc(a.name)).join('、')}</span>`);
       if (_parts.length) h += `<div style="font-size:${fzB}px;line-height:1.35;margin-top:1px;">${_parts.map(p => `<div>${p}</div>`).join('')}</div>`;
       if (pl.dropMode === 'custom' && pl.drop) {
         const dparts = cars.map(c => { const ms=(pl.drop.cars?.[c.id]||[]); return ms.length ? `${esc(c.name)}=${ms.map(m=>esc(_pname(m.pid))).join('、')}` : ''; }).filter(Boolean);
@@ -34310,21 +34311,21 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const bottom = [];
       { const rm = _removedSince(plans[`${iso}_${sl}`]); if (rm.length) bottom.push({ t: `完成後に外れた: ${rm.map(pid=>_pname(pid)).join('、')}`, color: '#c82c35' }); }
       const ot = (pl.others||[]); if (ot.length) bottom.push({ t: `その他: ${ot.map(m=>_pname(m.pid)).join('、')}`, color: '#6d28d9' });
-      const ab = _absentees(iso, sl); if (ab.length) bottom.push({ t: `休み: ${ab.map(a=>a.name).join('、')}`, color: '#64748b' });
+      const ab = _absentees(iso, sl); if (ab.length) bottom.push({ t: `休み: ${ab.map(a=>a.name).join('、')}`, color: '#475569', ab: true }); // ★ 2026-10-01: 休みは名前の約8割
       return { sl, pl, blocks, bottom }; });
     const allM = slots.flatMap(x => x.blocks.flatMap(b => b.members));
     const maxName = Math.max(4, ...slots.flatMap(x => x.blocks.flatMap(b => b.members.map(m => _em(_pname(m.pid)) + ((m.mark || _chgOf(plans[`${iso}_${x.sl}`], m.pid)) ? 1 : 0)))));
     const maxTel = Math.max(0, ...allM.map(m => _em(telOf(_pt(m.pid)))));
     // 文字の大きさ(行の高さ H から)
-    const F = (H) => { const fz = Math.min(22, Math.floor((H - 5) / 1.25)); return { fz, fzS: Math.max(10, Math.round(fz * 0.9)), fzB: Math.max(9, Math.round(fz * 2 / 3)), fzH: Math.max(10, Math.round(fz * 0.8)), fzC: Math.max(8, Math.round(fz * 0.5)) }; };
+    const F = (H) => { const fz = Math.min(22, Math.floor((H - 5) / 1.25)); return { fz, fzS: Math.max(10, Math.round(fz * 0.9)), fzB: Math.max(9, Math.round(fz * 2 / 3)), fzAb: Math.max(10, Math.round(fz * 0.8)), fzH: Math.max(10, Math.round(fz * 0.8)), fzC: Math.max(8, Math.round(fz * 0.5)) }; };
     const W = (f) => { const name = Math.ceil(maxName * f.fz * 1.04) + 14, time = Math.ceil(f.fz * 3.0) + 10, tel = maxTel ? Math.ceil(maxTel * f.fzS) + 14 : 44; return { name, time, tel, addr: PAGE_W - name - time - tel }; };
     const totalH = (H) => { const f = F(H); let h = 0;
       slots.forEach((x, k) => { h += (k ? 42 : 11) + Math.ceil(f.fz * 1.3) + 6; // 午前11px・午後42px の余白＋見出し
         x.blocks.forEach(b => { h += 8 + 2 + Math.ceil(f.fzH * 1.3) + 4 + Math.ceil(f.fzC * 1.3) + 3 + b.rows * (H + 1); });
-        if (x.bottom.length) { h += 4; x.bottom.forEach(bt => { h += Math.ceil(_em(bt.t) * f.fzB / PAGE_W + 0.01) * Math.ceil(f.fzB * 1.45); }); } });
+        if (x.bottom.length) { h += 4; x.bottom.forEach(bt => { const fb2 = bt.ab ? f.fzAb : f.fzB; h += Math.ceil(_em(bt.t) * fb2 / PAGE_W + 0.01) * Math.ceil(fb2 * 1.45); }); } });
       return h; };
     let H = 38; while (H > 16 && (totalH(H) > PAGE_H || W(F(H)).addr < 180)) H--;
-    const { fz, fzS, fzB, fzH, fzC } = F(H); const w = W(F(H));
+    const { fz, fzS, fzB, fzAb, fzH, fzC } = F(H); const w = W(F(H));
     const td = (inner, st) => `<td style="border:1px solid #66756b;height:${H}px;padding:0 6px;box-sizing:border-box;vertical-align:middle;${st}">${inner}</td>`;
     const row = (m, sl) => { const pt = _pt(m.pid); const fk = _isFurikae(iso, sl, m.pid); const fv = !fk && _isFirstVisit(m.pid, iso); const bg = fk?'#a7f3d0':(fv?'#bae6fd':'#fff');
       const at = addrOf(pt); const fit = Math.floor((w.addr - 12) / Math.max(1, _em(at))); const fA = Math.max(9, Math.min(fz, fit)); // 住所は名前と同じ大きさまで(長い住所は幅に合わせて縮小)
@@ -34347,7 +34348,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           <tr>${['氏名','時間','住所（待ち合わせ）','電話'].map(t2=>`<td style="border:1px solid #66756b;background:#f8faf6;font-size:${fzC}px;line-height:1.3;color:#4e5f53;padding:0 4px;text-align:center;white-space:nowrap;overflow:hidden;">${t2}</td>`).join('')}</tr></table>
           <table style="flex:1 1 auto;border-collapse:collapse;width:100%;table-layout:fixed;">${COLG}
           ${b.members.map(m => row(m, sl)).join('')}${Array.from({ length: Math.max(0, b.rows - b.members.length) }, emptyRow).join('')}</table></div>`; });
-      if (x.bottom.length) h += `<div style="flex:none;font-size:${fzB}px;margin-top:4px;line-height:1.45;">${x.bottom.map(bt => `<div style="color:${bt.color};">${_escP(bt.t)}</div>`).join('')}</div>`;
+      if (x.bottom.length) h += `<div style="flex:none;font-size:${fzB}px;margin-top:4px;line-height:1.45;">${x.bottom.map(bt => `<div style="color:${bt.color};${bt.ab ? `font-size:${fzAb}px;` : ''}">${_escP(bt.t)}</div>`).join('')}</div>`;
       return h; };
     return `<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
       <div style="position:relative;text-align:center;flex:none;"><span style="position:absolute;left:0;top:4px;font-size:10px;">${_escP(String(appData.systemSettings?.facilityInfo?.name||'つむぎ'))}</span><span style="font-size:18px;font-weight:bold;letter-spacing:8px;">運行表</span><span style="position:absolute;right:0;top:2px;font-size:14px;font-weight:700;">${d.getMonth()+1}/${d.getDate()}（${DOWJ[d.getDay()]}）</span></div>
