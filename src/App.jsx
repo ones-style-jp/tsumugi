@@ -33474,6 +33474,17 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const arr = pl.cars?.[cid]; if (!arr) return; const j = idx + dir; if (j < 0 || j >= arr.length) return;
     const t = arr[idx]; arr[idx] = arr[j]; arr[j] = t;
   });
+  // ★ 2026-10-01(ユーザー要望): 時間は全角・半角どちらでも「0810」「１３２０」と4桁で打てば 8:10・13:20 に自動で直す。
+  //   3桁(810)は入力の途中と区別できないため、欄から離れたとき(blur)に 8:10 にする。全角の数字・コロンは半角に。
+  // ★ 2026-10-01(iPad 報告「8:00から消せない・:00を消して打つと8033になる」): 入力途中の「8:0」「8:」は表示で 8:00 に戻さない(下の input)。
+  //   「8」が残ったまま「033」と打った「8033」(80時は無い)は 8:33 と読む。
+  const _normTimeInput = (raw, final) => {
+    const v = String(raw ?? '').replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)).replace(/[：]/g, ':').replace(/[\s　]+/g, '');
+    let m = v.match(/^(\d{2})(\d{2})$/); if (m && +m[1] <= 23 && +m[2] <= 59) return `${+m[1]}:${m[2]}`;
+    m = v.match(/^(\d)0(\d{2})$/); if (m && +m[2] <= 59) return `${+m[1]}:${m[2]}`;
+    if (final) { m = v.match(/^(\d)(\d{2})$/); if (m && +m[2] <= 59) return `${+m[1]}:${m[2]}`; }
+    return v;
+  };
   const setTime = (iso, sl, pid, val) => mutate(iso, sl, (pl) => {
     Object.keys(pl.cars||{}).forEach(cid => (pl.cars[cid]||[]).forEach(m => { if (m.pid === pid) m.t = val; }));
     (pl.un||[]).forEach(m => { if (m.pid === pid) m.t = val; });
@@ -34540,7 +34551,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                                   <span className={`w-4 h-4 rounded-full border text-[9px] leading-4 text-center font-bold ${(m.mark||_ac)?'bg-red-600 border-red-600 text-white':'border-slate-300 text-transparent'}`}>●</span>
                                 </button>); })()}
                                 <button onClick={()=>{ if (!dragMv) setEditP({pid:m.pid}); }} {..._dragHandlers(m.pid, iso, sl)} title="タップ=場所・乗車時間の編集 / 長押し=つかんで移動(別の日に落とすと振替)" className="text-[16px] font-bold text-slate-800 flex-1 min-w-0 text-left leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{touchAction:'pan-y'}}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></button>
-                                <input type="text" value={_fmtT(m.t)} onChange={e=>setTime(iso, sl, m.pid, e.target.value)} placeholder="—:—" className={`w-[58px] text-center text-[16px] font-bold border rounded px-0.5 py-1 outline-none shrink-0 ${m.mark?'border-red-400 text-red-600':'border-slate-300'}`} style={{fontVariantNumeric:'tabular-nums'}}/>
+                                <input type="text" value={/^\d{1,2}:\d?$/.test(String(m.t||'')) ? m.t : _fmtT(m.t)} onChange={e=>setTime(iso, sl, m.pid, _normTimeInput(e.target.value, false))} onBlur={e=>{ const v2 = _normTimeInput(e.target.value, true); if (v2 !== e.target.value) setTime(iso, sl, m.pid, v2); }} placeholder="—:—" className={`w-[58px] text-center text-[16px] font-bold border rounded px-0.5 py-1 outline-none shrink-0 ${m.mark?'border-red-400 text-red-600':'border-slate-300'}`} style={{fontVariantNumeric:'tabular-nums'}}/>
                               </div>
                             ))}
                             {!(pl.cars?.[c.id]||[]).length && <div className="px-2 py-1 text-[10px] text-slate-400">{dragMv&&dragMv.kind!=='drop'?'ここにドロップ':'なし'}</div>}
