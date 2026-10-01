@@ -1224,7 +1224,7 @@ const FS_FIELD_LABELS = {
   fax:'FAX', householdType:'世帯区分', householdTypeOther:'世帯区分',
   familyMembers:'家族構成', genogram:'ジェノグラム', keyPerson:'キーパーソン',
   benefitLimit:'区分支給限度額', otherWelfare:'その他の社会保障制度',
-  chronicDiseases:'主治医・かかりつけ医', medicalInstitution:'医療機関', medicalContact:'医療機関の連絡先',
+  chronicDiseases:'主治医・かかりつけ医', medicalInstitution:'医療機関', medicalContact:'医療機関の連絡先', extraDoctors:'かかりつけ医（2人目以降）',
   kiou:'既往歴・現病歴', medication:'服薬状況', allergies:'アレルギー・感染症',
   adlLevel:'障害高齢者の日常生活自立度', dementiaLevel:'認知症高齢者の日常生活自立度',
   lifeHistory:'通所の経緯', currentSituation:'現在の状況', otherServices:'他サービス・社会資源', needs:'本人・家族の主訴・意向',
@@ -1235,6 +1235,9 @@ const FS_FIELD_LABELS = {
 // ★ 旧/新フェイスシートを比較して「変更された項目名」の配列を返す(最大8件+「ほかN件」)。
 //   updatedAt/updatedBy など内部メタは無視。 添付は件数の増減のみを見る。
 const FS_DIFF_IGNORE = new Set(['updatedAt','updatedBy','version','_attachCounts']);
+// ★ 2026-10-01: かかりつけ医が複数のとき(1人目＋extraDoctors)、計画書の自動読み込みなどで全員分を「、」でつなげる
+const fsDoctorsText = (fs) => [fs?.chronicDiseases, ...((fs?.extraDoctors) || []).map(d => d && d.doctor)].map(x => String(x || '').trim()).filter(Boolean).join('、');
+const fsInstitutionsText = (fs) => [fs?.medicalInstitution, ...((fs?.extraDoctors) || []).map(d => d && d.institution)].map(x => String(x || '').trim()).filter(Boolean).join('、');
 const diffFaceSheetFields = (prev, next, maxLabels = 8) => {
   const a = prev && typeof prev === 'object' ? prev : {};
   const b = next && typeof next === 'object' ? next : {};
@@ -1244,7 +1247,8 @@ const diffFaceSheetFields = (prev, next, maxLabels = 8) => {
     if (FS_DIFF_IGNORE.has(k) || k.startsWith('_')) continue;
     const va = a[k], vb = b[k];
     let changed;
-    if (Array.isArray(va) || Array.isArray(vb)) changed = (Array.isArray(va)?va.length:0) !== (Array.isArray(vb)?vb.length:0);
+    if (k === 'extraDoctors') changed = JSON.stringify(va || []) !== JSON.stringify(vb || []); // ★ 2026-10-01: かかりつけ医の追加分は中身も比べる
+    else if (Array.isArray(va) || Array.isArray(vb)) changed = (Array.isArray(va)?va.length:0) !== (Array.isArray(vb)?vb.length:0);
     else if (typeof va === 'object' || typeof vb === 'object') changed = JSON.stringify(va ?? null) !== JSON.stringify(vb ?? null);
     else changed = String(va ?? '') !== String(vb ?? '');
     if (!changed) continue;
@@ -44656,7 +44660,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
       shakaiSanka: j(fs.hobby && `趣味・楽しみ：${fs.hobby}`, fs.personality && `性格・人柄：${fs.personality}`, fs.otherServices && `他サービスの利用：${fs.otherServices}`),
       kyotakuKankyo: j(fs.floorPlan, fs.householdType && `世帯：${fs.householdType}${fs.householdTypeOther?`（${fs.householdTypeOther}）`:''}`),
       byomei: j((fs.kiou ?? p?.kiou)),
-      gappei: j(fs.chronicDiseases && `主治医：${fs.chronicDiseases}`, fs.medication && `服薬：${fs.medication}`),
+      gappei: j(fsDoctorsText(fs) && `主治医：${fsDoctorsText(fs)}`, fs.medication && `服薬：${fs.medication}`),
       ryuiPoint: j(p?.ryui, fs.allergies && `アレルギー：${fs.allergies}`),
     };
   };
@@ -45639,7 +45643,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
       kazokuKibou: '',
       shakaiSanka: j(fs.hobby && `趣味・楽しみ：${fs.hobby}`, fs.personality && `性格・人柄：${fs.personality}`, fs.otherServices && `他サービスの利用：${fs.otherServices}`),
       kyotakuKankyo: j(fs.floorPlan, fs.householdType && `世帯：${fs.householdType}${fs.householdTypeOther?`（${fs.householdTypeOther}）`:''}`),
-      kenkoJotai: j(fs.chronicDiseases && `主治医：${fs.chronicDiseases}`, fs.medicalInstitution && `医療機関：${fs.medicalInstitution}`, fs.medication && `服薬：${fs.medication}`),
+      kenkoJotai: j(fsDoctorsText(fs) && `主治医：${fsDoctorsText(fs)}`, fsInstitutionsText(fs) && `医療機関：${fsInstitutionsText(fs)}`, fs.medication && `服薬：${fs.medication}`),
       iryoRisk: j(p?.ryui, fs.allergies && `アレルギー：${fs.allergies}`, fs.pickupNotes && `送迎時の注意：${fs.pickupNotes}`),
     };
   };
@@ -53069,6 +53073,8 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
     chronicDiseases: initial?.chronicDiseases || patient?.doctor || '',
     medicalInstitution: initial?.medicalInstitution || patient?.medicalInstitution || '',
     medicalContact: initial?.medicalContact || patient?.medicalContact || '',
+    // ★ 2026-10-01(ユーザー要望): かかりつけ医が複数の方のため、2人目以降を追加できる([{doctor, institution, contact}])。1人目は従来の3項目のまま
+    extraDoctors: Array.isArray(initial?.extraDoctors) ? initial.extraDoctors : [],
     medication: initial?.medication || '',
     allergies: initial?.allergies || '',
     adlLevel: initial?.adlLevel || '',
@@ -53429,6 +53435,26 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
               <input value={fs.medicalContact} onChange={e=>update('medicalContact', e.target.value)}
                 placeholder="例: 03-1234-5678" className={inputCls}/>
             </Field>
+            {/* ★ 2026-10-01: かかりつけ医の2人目以降(追加・削除) */}
+            {(fs.extraDoctors || []).map((d, i) => {
+              const setD = (patch) => setFs(prev => ({ ...prev, extraDoctors: (prev.extraDoctors || []).map((x, j) => j === i ? { ...x, ...patch } : x) }));
+              return (
+                <div key={i} data-testid="fs-extra-doctor" className="border border-amber-200 bg-white rounded-xl p-3 mt-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-amber-800">かかりつけ医（{i + 2}）</span>
+                    <button type="button" data-testid="fs-extra-doctor-del" onClick={() => { if (!window.confirm(`かかりつけ医（${i + 2}）を削除しますか？`)) return; setFs(prev => ({ ...prev, extraDoctors: (prev.extraDoctors || []).filter((_, j) => j !== i) })); }}
+                      className="text-xs font-bold text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 rounded-lg px-2 py-1">削除</button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Field label="主治医・かかりつけ医"><input value={d.doctor || ''} onChange={e => setD({ doctor: e.target.value })} placeholder="例: △△ 医師" className={inputCls}/></Field>
+                    <Field label="医療機関"><input value={d.institution || ''} onChange={e => setD({ institution: e.target.value })} placeholder="例: 〇〇眼科" className={inputCls}/></Field>
+                  </div>
+                  <Field label="連絡先"><input value={d.contact || ''} onChange={e => setD({ contact: e.target.value })} placeholder="例: 03-1234-5678" className={inputCls}/></Field>
+                </div>
+              );
+            })}
+            <button type="button" data-testid="fs-extra-doctor-add" onClick={() => setFs(prev => ({ ...prev, extraDoctors: [ ...(prev.extraDoctors || []), { doctor: '', institution: '', contact: '' } ] }))}
+              className="mt-2 mb-3 w-full sm:w-auto px-4 py-2 text-sm font-bold text-amber-800 bg-amber-50 border border-dashed border-amber-400 rounded-xl hover:bg-amber-100">＋ かかりつけ医を追加</button>
             <Field label="既往歴・現病歴">
               {/* ★ F1: 既往歴はフェイスシートで記入・編集(基本情報からは移設)。 patient.kiou へミラーされ計画書等でも参照される。 */}
               <textarea rows={3} value={fs.kiou} onChange={e=>update('kiou', e.target.value)}
@@ -53668,6 +53694,9 @@ function FaceSheetPdfPreview({ patient, faceSheet, onClose }) {
               <Row label="主治医・かかりつけ医" value={fs.chronicDiseases}/>
               <Row label="医療機関" value={fs.medicalInstitution}/>
               <Row label="連絡先" value={fs.medicalContact}/>
+              {(fs.extraDoctors || []).filter(d => d && (d.doctor || d.institution || d.contact)).map((d, i) => (
+                <Row key={`xd${i}`} label={`かかりつけ医（${i + 2}）`} value={[d.doctor, d.institution, d.contact ? `TEL ${d.contact}` : ''].filter(Boolean).join('　')}/>
+              ))}
               <Row label="既往歴・現病歴" value={patient.kiou}/>
               <Row label="服薬状況" value={fs.medication}/>
               <Row label="アレルギー・感染症" value={fs.allergies}/>
