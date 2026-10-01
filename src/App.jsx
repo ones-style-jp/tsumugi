@@ -807,9 +807,9 @@ HTML ファイルをブラウザで開き、
         <div>
           <button onClick={doExport} disabled={busy}
             className={`w-full py-2 rounded-lg font-bold text-sm ${busy?'bg-slate-300 text-slate-500 cursor-not-allowed':'bg-blue-600 hover:bg-blue-700 text-white shadow active:scale-95'}`}>
-            {busy ? `処理中...` : 'ZIP でダウンロード'}
+            {busy ? <><BusySpin/>{`処理中...`}</> : 'ZIP でダウンロード'}
           </button>
-          {progress && <div className="text-[11px] text-slate-600 mt-2 text-center font-bold">{progress}</div>}
+          {progress && <div className="text-[11px] text-slate-600 mt-2 text-center font-bold">{busy && <BusySpin/>}{progress}</div>}
         </div>
         <div className="text-[10px] text-slate-500 leading-relaxed">
           ・<b>PDF形式</b>: そのまま開ける PDF を生成 (記録数が多いと数十秒〜数分かかります)<br/>
@@ -1613,6 +1613,10 @@ const ImeSafeInput = React.forwardRef(function ImeSafeInput({ value, onChange, o
     onCompositionEnd={(e) => { composing.current = false; setDraft(e.target.value); if (onChange) onChange(e); if (onCompositionEnd) onCompositionEnd(e); }}
     onBlur={(e) => { composing.current = false; setDraft(null); if (onBlur) onBlur(e); }} />;
 });
+// ★ 2026-10-01(試験版・ユーザー要望「再読み込み中や何かの動作で画面が固まっている時は分かりやすくアニメーションを」):
+//   処理中・読み込み中の共通の回る輪。文字の大きさ・色に合わせて回る(見た目は src/index.css の .tsumugi-busy-spin)。
+//   「保存中…」「読み込み中…」など処理中の表示を新しく作るときは、文字の前に <BusySpin/> を付けること。
+const BusySpin = ({ style }) => <span aria-hidden="true" className="tsumugi-busy-spin" style={style} />;
 // 日本の電話番号フォーマッタ: ハイフン無しの数字 → 自動でハイフン付与 (実装は下部 formatJpPhone)
 // ★ 稼働率/出席率の「予定(分母)」判定。 振替=出席扱い。 振替済みの欠席(tokkiに「へ振替」)は相殺で分母から除外。
 const isPlannedRec = (r) => !!r && (r.status==='出席'||r.status==='振替'||r.status==='臨時'||r.status==='休止'||(r.status==='欠席'&&!(r.tokki||'').includes('へ振替')));
@@ -1720,7 +1724,7 @@ function ConsentGateModal({ title, subtitle, policy, facility, tel, agreeLabel, 
           </label>
           <div style={{display:'flex',gap:8}}>
             {onCancel && <button type="button" onClick={onCancel} style={{flex:1,padding:'11px',borderRadius:10,border:'1px solid #cbd5e1',background:'#f1f5f9',color:'#475569',fontWeight:'bold',cursor:'pointer'}}>{cancelLabel||'あとで'}</button>}
-            <button type="button" disabled={!checked||busy} onClick={onAgree} style={{flex:2,padding:'11px',borderRadius:10,border:'none',background:(checked&&!busy)?'#16a34a':'#cbd5e1',color:'white',fontWeight:'bold',cursor:(checked&&!busy)?'pointer':'not-allowed'}}>{busy?'保存中…':(agreeLabel||'同意して進む')}</button>
+            <button type="button" disabled={!checked||busy} onClick={onAgree} style={{flex:2,padding:'11px',borderRadius:10,border:'none',background:(checked&&!busy)?'#16a34a':'#cbd5e1',color:'white',fontWeight:'bold',cursor:(checked&&!busy)?'pointer':'not-allowed'}}>{busy? <><BusySpin/>保存中…</>:(agreeLabel||'同意して進む')}</button>
           </div>
         </div>
       </div>
@@ -1970,10 +1974,11 @@ const tsumugiAttachPdfButton = (host, btn, { title = '印刷', pageWmm, pageHmm,
       try { const u = URL.createObjectURL(file); const w = window.open(u, '_blank'); if (!w) location.assign(u); } catch { alert('PDFを開けませんでした。'); }
       return;
     }
-    busy = true; const label = btn.textContent; btn.textContent = 'PDFを作成中…'; btn.style.opacity = '0.7';
+    // ★ 2026-10-01(試験版): 作成中は回る輪を付ける(画面が止まって見えないように)
+    busy = true; const label = btn.textContent; btn.innerHTML = '<span class="tsumugi-busy-spin" aria-hidden="true"></span>PDFを作成中…'; btn.style.opacity = '0.85';
     try {
       const doc = host.querySelector('.tsumugi-ios-doc');
-      const blob = await tsumugiDocToPdf(doc, { pageWmm, pageHmm, onProgress: (i, n) => { btn.textContent = `PDFを作成中… ${i}/${n}枚`; } });
+      const blob = await tsumugiDocToPdf(doc, { pageWmm, pageHmm, onProgress: (i, n) => { btn.innerHTML = `<span class="tsumugi-busy-spin" aria-hidden="true"></span>PDFを作成中… ${i}/${n}枚`; } });
       const safe = String(title || '印刷').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 60) || '印刷';
       file = new File([blob], `${safe}.pdf`, { type: 'application/pdf' });
       try { window.__tsumugiLastPdf = { size: blob.size, name: file.name, blob }; } catch {}
@@ -13065,7 +13070,7 @@ function EmergencyNoticeView({ appData, onSave, staffSession, safety: safetyProp
           <div className="space-y-4">
             <div className="bg-white rounded-2xl border border-slate-200 p-4">
               <div className="text-xs font-bold text-slate-500 mb-2">送信先</div>
-              {fam === null ? <div className="text-sm text-slate-400">宛先を読み込み中…</div> : (
+              {fam === null ? <div className="text-sm text-slate-400"><BusySpin/>宛先を読み込み中…</div> : (
                 <>
                   <div className="text-[11px] font-bold text-slate-500 mb-1">対象の利用者</div>
                   <div className="grid grid-cols-1 gap-1 mb-3">
@@ -13090,7 +13095,7 @@ function EmergencyNoticeView({ appData, onSave, staffSession, safety: safetyProp
               )}
             </div>
             <button type="button" onClick={send} disabled={sending || fam === null} className={`w-full py-4 rounded-2xl text-white text-base font-bold shadow-lg ${sending || fam === null ? 'bg-slate-400' : 'bg-red-600 hover:bg-red-700'}`}>
-              {sending ? '送信中…' : '緊急連絡を送信する'}
+              {sending ? <><BusySpin/>送信中…</> : '緊急連絡を送信する'}
             </button>
             <div className="text-[11px] text-slate-500 leading-relaxed">
               ・送信前に確認画面が出ます。<br/>
@@ -14609,7 +14614,7 @@ function FamilyView() {
                   style={{width:'100%',padding:'14px',border:'1px solid #e2e8f0',borderRadius:12,fontSize:20,fontWeight:'bold',outline:'none',boxSizing:'border-box',fontFamily:'Menlo,monospace',letterSpacing:3,textAlign:'center'}}/>
                 <div style={{fontSize:10,color:'#94a3b8',marginTop:6,textAlign:'center'}}>ハイフンや空白は無くても構いません。以前の英字入りコード（FAM-…）もそのまま使えます</div>
                 {joinErr && <div style={{color:'#ef4444',fontSize:12,fontWeight:'bold',marginTop:10,textAlign:'center',lineHeight:1.6}}>{joinErr}</div>}
-                <button type="submit" disabled={joinBusy} style={{width:'100%',padding:'13px',background:'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',marginTop:14,opacity:joinBusy?0.6:1}}>{joinBusy?'確認中...':'次へ'}</button>
+                <button type="submit" disabled={joinBusy} style={{width:'100%',padding:'13px',background:'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',marginTop:14,opacity:joinBusy?0.6:1}}>{joinBusy? <><BusySpin/>確認中...</>:'次へ'}</button>
                 <button type="button" onClick={()=>{ setMode('login'); setJoinErr(''); }} style={{display:'block',width:'100%',padding:'10px',marginTop:10,background:'transparent',color:'#64748b',border:'none',fontSize:12,fontWeight:'bold',cursor:'pointer'}}>ログイン画面に戻る</button>
               </form>
             </div>
@@ -15020,7 +15025,7 @@ function FamilyView() {
                       }}
                       placeholder="例: inoue_family (4文字以上、半角英数字)" lang="en" autoCapitalize="off" autoCorrect="off" spellCheck={false}
                       style={{width:'100%',padding:'12px 14px',border:`1px solid ${signupForm.unameStatus==='taken'?'#fca5a5':signupForm.unameStatus==='ok'?'#86efac':'#e2e8f0'}`,borderRadius:12,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
-                    {signupForm.unameStatus==='checking' && <div style={{fontSize:11,color:'#64748b',marginTop:4}}>確認中...</div>}
+                    {signupForm.unameStatus==='checking' && <div style={{fontSize:11,color:'#64748b',marginTop:4}}><BusySpin/>確認中...</div>}
                     {signupForm.unameStatus==='taken' && <div style={{fontSize:11,color:'#dc2626',fontWeight:'bold',marginTop:4}}>このIDは使えません（既に使われています）。別のIDにしてください。</div>}
                     {signupForm.unameStatus==='ok' && <div style={{fontSize:11,color:'#16a34a',fontWeight:'bold',marginTop:4}}>✓ このIDは使えます</div>}
                   </div>
@@ -15238,7 +15243,7 @@ function FamilyView() {
                   {signupForm.error && <div style={{color:'#ef4444',fontSize:12,fontWeight:'bold',marginBottom:10,textAlign:'center',background:'#fef2f2',padding:'8px 10px',borderRadius:8}}>{signupForm.error}</div>}
                   <button type="submit" disabled={!(signupForm.agreedTerms && signupForm.agreedPrivacy) || signupForm.checking || signupForm.submitting}
                     style={{width:'100%',padding:'13px',background: (signupForm.agreedTerms && signupForm.agreedPrivacy && !signupForm.checking && !signupForm.submitting)?'#7daa3d':'#cbd5e1',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:(signupForm.agreedTerms && signupForm.agreedPrivacy)?'pointer':'not-allowed',marginTop:6,boxShadow:'0 4px 12px rgba(125,170,61,0.3)'}}>
-                    {signupForm.checking ? 'ID確認中...' : signupForm.submitting ? '登録中...' : '登録する'}
+                    {signupForm.checking ? <><BusySpin/>ID確認中...</> : signupForm.submitting ? <><BusySpin/>登録中...</> : '登録する'}
                   </button>
                   <button type="button" onClick={()=>setMode('login')} style={{display:'block',width:'100%',padding:'10px',marginTop:10,background:'transparent',color:'#64748b',border:'none',fontSize:12,fontWeight:'bold',cursor:'pointer'}}>← ログイン画面に戻る</button>
                 </form>
@@ -15331,7 +15336,7 @@ function FamilyView() {
                       if (!j.sent) { setFamReset(f=>({...f,busy:false,err:'ログインIDとメールアドレスの組み合わせが登録内容と一致しません。どちらかが間違っています。'})); return; }
                       setFamReset(f=>({...f, step:2, busy:false, err:'', masked:j.masked||''}));
                     } catch { setFamReset(f=>({...f,busy:false,err:'通信エラーです。電波の良いところでお試しください。'})); }
-                  }} style={{width:'100%',padding:'12px',background:famReset.busy?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:14,fontWeight:'bold',cursor:famReset.busy?'not-allowed':'pointer',marginBottom:8}}>{famReset.busy?'送信中...':'確認コードを送信'}</button>
+                  }} style={{width:'100%',padding:'12px',background:famReset.busy?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:14,fontWeight:'bold',cursor:famReset.busy?'not-allowed':'pointer',marginBottom:8}}>{famReset.busy? <><BusySpin/>送信中...</>:'確認コードを送信'}</button>
                   <button onClick={()=>setFamReset(null)} style={{width:'100%',padding:'11px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
                 </>
               ) : (
@@ -15356,7 +15361,7 @@ function FamilyView() {
                       if (!resp.ok) { setFamReset(f=>({...f,busy:false,err:j.error||'再設定に失敗しました'})); return; }
                       setFamReset(f=>({...f,busy:false,err:'',done:true}));
                     } catch { setFamReset(f=>({...f,busy:false,err:'通信エラーです。電波の良いところでお試しください。'})); }
-                  }} style={{width:'100%',padding:'12px',background:famReset.busy?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:14,fontWeight:'bold',cursor:famReset.busy?'not-allowed':'pointer',marginBottom:8}}>{famReset.busy?'再設定中...':'パスワードを再設定する'}</button>
+                  }} style={{width:'100%',padding:'12px',background:famReset.busy?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:14,fontWeight:'bold',cursor:famReset.busy?'not-allowed':'pointer',marginBottom:8}}>{famReset.busy? <><BusySpin/>再設定中...</>:'パスワードを再設定する'}</button>
                   <button onClick={()=>setFamReset(null)} style={{width:'100%',padding:'11px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
                 </>
               )}
@@ -15499,7 +15504,7 @@ function CmDocsModal({ patient, storeId, byName, onSaved, onClose }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <div style={{ fontSize: 13, fontWeight: 'bold', color: '#0f172a' }}>{label} <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 'normal' }}>({list.length})</span></div>
         <label style={{ fontSize: 12, fontWeight: 'bold', color: '#0e7490', background: '#ecfeff', border: '1px solid #a5f3fc', borderRadius: 8, padding: '5px 10px', cursor: busy ? 'wait' : 'pointer' }}>
-          {busy === tag ? 'アップロード中…' : '＋ 写真・PDFを追加'}
+          {busy === tag ? <><BusySpin/>アップロード中…</> : '＋ 写真・PDFを追加'}
           <input type="file" accept={accept} multiple style={{ display: 'none' }} disabled={!!busy} onChange={(e) => { uploadFiles(e.target.files, setter, tag); e.target.value = ''; }} />
         </label>
       </div>
@@ -15585,7 +15590,7 @@ function CmDocsModal({ patient, storeId, byName, onSaved, onClose }) {
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
           <button onClick={onClose} disabled={saving} style={{ flex: 1, padding: '11px', fontSize: 14, fontWeight: 'bold', color: '#475569', background: '#f1f5f9', border: 'none', borderRadius: 10, cursor: 'pointer' }}>閉じる</button>
-          <button onClick={save} disabled={saving || !!busy} style={{ flex: 2, padding: '11px', fontSize: 14, fontWeight: 'bold', color: 'white', background: (saving || busy) ? '#94a3b8' : '#0891b2', border: 'none', borderRadius: 10, cursor: (saving || busy) ? 'wait' : 'pointer' }}>{saving ? '保存中…' : '保存して事業所に反映'}</button>
+          <button onClick={save} disabled={saving || !!busy} style={{ flex: 2, padding: '11px', fontSize: 14, fontWeight: 'bold', color: 'white', background: (saving || busy) ? '#94a3b8' : '#0891b2', border: 'none', borderRadius: 10, cursor: (saving || busy) ? 'wait' : 'pointer' }}>{saving ? <><BusySpin/>保存中…</> : '保存して事業所に反映'}</button>
         </div>
       </div>
       {preview && <MediaPreviewModal media={preview} onClose={() => setPreview(null)} />}
@@ -15835,7 +15840,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
             このアカウントには事業所の情報が登録されていないため、記録を表示できません。お手数ですが事業所にご連絡いただき、<b>招待を発行し直してもらってから、新しい招待で登録</b>してください。
           </p>
           </>) : <>
-          <h1 style={{fontSize:18,fontWeight:'bold',color:'#3d5021',marginBottom:8}}>データを取得中...</h1>
+          <h1 style={{fontSize:18,fontWeight:'bold',color:'#3d5021',marginBottom:8}}><BusySpin style={{color:'#7daa3d'}}/>データを取得中…</h1>
           <p style={{fontSize:13,color:'#64748b',lineHeight:1.8,marginBottom:18}}>
             事業所からデータを自動で取得しています。<br/>
             <strong style={{color:'#5e8030'}}>数秒</strong>お待ちください（操作は不要です）。
@@ -16287,7 +16292,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                     if (!r.ok) { setFamReport(b=>({...b,sending:false,err:j.error||'送信に失敗しました'})); return; }
                     setFamReport(b=>({...b,sending:false,sent:true}));
                   } catch(e){ setFamReport(b=>({...b,sending:false,err:'通信に失敗しました'})); }
-                }} style={{flex:1,padding:'11px',background:famReport.sending?'#94a3b8':'#d97706',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>{famReport.sending?'送信中...':'送信'}</button>
+                }} style={{flex:1,padding:'11px',background:famReport.sending?'#94a3b8':'#d97706',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>{famReport.sending? <><BusySpin/>送信中...</>:'送信'}</button>
               </div>
             </>)}
           </div>
@@ -16510,7 +16515,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                       setPatientForm(p=>({...p, saving:false, savedMsg:'保存しました。事業所側に反映されました。'}));
                     }} disabled={patientForm.saving}
                       style={{flex:1,padding:'11px',background:patientForm.saving?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:patientForm.saving?'not-allowed':'pointer'}}>
-                      {patientForm.saving ? '保存中...' : '保存'}
+                      {patientForm.saving ? <><BusySpin/>保存中...</> : '保存'}
                     </button>
                   )}
                 </div>
@@ -16723,7 +16728,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                 setMyInfoForm(f=>({...f, saving:false, savedMsg: _synced ? '保存しました。事業所側に反映されました。' : '保存しました（端末に保存。通信状況により事業所への反映が遅れる場合があります）。'}));
               }} disabled={myInfoForm.saving}
                 style={{flex:1,padding:'11px',background:myInfoForm.saving?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:myInfoForm.saving?'not-allowed':'pointer'}}>
-                {myInfoForm.saving ? '保存中...' : '保存'}
+                {myInfoForm.saving ? <><BusySpin/>保存中...</> : '保存'}
               </button>
             </div>
             {/* ★ パスワードの変更(2026-08-31): 事業所発行の仮パスワードからの変更や定期変更に使う。
@@ -16776,7 +16781,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                   }
                 }}
                   style={{width:'100%',padding:'11px',background:pwChangeForm.busy?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:pwChangeForm.busy?'not-allowed':'pointer'}}>
-                  {pwChangeForm.busy ? '変更中...' : 'パスワードを変更する'}
+                  {pwChangeForm.busy ? <><BusySpin/>変更中...</> : 'パスワードを変更する'}
                 </button>
               </div>
             </div>
@@ -17218,7 +17223,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                     });
                   }}
                     style={{flex:1,padding:'10px',background:canAddMore?(inviteFamForm.sending?'#94a3b8':'#7daa3d'):'#cbd5e1',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:canAddMore&&!inviteFamForm.sending?'pointer':'not-allowed'}} disabled={!canAddMore || inviteFamForm.sending}>
-                    {inviteFamForm.sending ? '送信中...' : '招待メールを送信'}
+                    {inviteFamForm.sending ? <><BusySpin/>送信中...</> : '招待メールを送信'}
                   </button>
                 </div>
               </div>
@@ -17622,14 +17627,14 @@ function DiseaseMasterPanel() {
       {open && (
         <div style={{marginTop:14}}>
           <div style={{fontSize:12,color:'#475569',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:10,padding:'10px 12px',marginBottom:12,lineHeight:1.7}}>
-            現在: {cur===undefined ? '確認中…' : cur ? <b>取込済みマスタを使用中（{Number(cur.count).toLocaleString()}件／{cur.updatedAt||'日付不明'} 更新{cur.source?`／${cur.source}`:''}）</b> : <b>アプリ同梱マスタを使用中（約2.7万件）</b>}<br/>
+            現在: {cur===undefined ? <><BusySpin/>確認中…</> : cur ? <b>取込済みマスタを使用中（{Number(cur.count).toLocaleString()}件／{cur.updatedAt||'日付不明'} 更新{cur.source?`／${cur.source}`:''}）</b> : <b>アプリ同梱マスタを使用中（約2.7万件）</b>}<br/>
             厚労省の傷病名マスタCSVを取り込むと、<b>個別機能訓練加算のアドオンを有効にしている全店舗の病名検索に自動反映</b>されます。
             取込は<b>置き換え式</b>で古い版は残らないため、繰り返し更新しても容量は増えません。
             過去に計画書へ入力済みのコード・病名は各計画書に保存されているため、マスタを入れ替えても変わらず、エラーにもなりません。
           </div>
           <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
             <input type="file" accept=".csv,.txt" disabled={busy} onChange={e=>{ parseCsv(e.target.files?.[0]); e.target.value=''; }} style={{fontSize:12}}/>
-            {busy && <span style={{fontSize:12,color:'#64748b'}}>処理中…</span>}
+            {busy && <span style={{fontSize:12,color:'#64748b'}}><BusySpin/>処理中…</span>}
           </div>
           {preview && (
             <div style={{marginTop:12,border:'1px solid #cbd5e1',borderRadius:10,padding:'10px 12px',background:'#fefce8'}}>
@@ -17734,8 +17739,8 @@ function GlobalPolicyPanel({ staffSession }) {
       <label style={{fontSize:10,fontWeight:'bold',color:'#64748b'}}>本文（{'{facility}'}=事業所名 / {'{tel}'}=電話番号 に自動置換）</label>
       <textarea value={st.text} onChange={e=>setSt(s=>({...s,text:e.target.value}))} rows={8} style={{...inp,fontWeight:'normal',lineHeight:1.7,resize:'vertical',fontFamily:'inherit'}}/>
       <div style={{display:'flex',gap:8,alignItems:'center',marginTop:8,flexWrap:'wrap'}}>
-        <button type="button" onClick={()=>saveKind(kind)} disabled={busy===`${kind}:save`} style={{padding:'9px 18px',background:busy===`${kind}:save`?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:busy===`${kind}:save`?'not-allowed':'pointer'}}>{busy===`${kind}:save`?'保存中…':'保存'}</button>
-        <button type="button" onClick={()=>publishKind(kind)} disabled={busy===`${kind}:pub`} style={{padding:'9px 18px',background:busy===`${kind}:pub`?'#94a3b8':'white',color:busy===`${kind}:pub`?'white':'#4338ca',border:'1px solid #c7d2fe',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:busy===`${kind}:pub`?'not-allowed':'pointer'}}>{busy===`${kind}:pub`?'掲載中…':'お知らせに掲載'}</button>
+        <button type="button" onClick={()=>saveKind(kind)} disabled={busy===`${kind}:save`} style={{padding:'9px 18px',background:busy===`${kind}:save`?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:busy===`${kind}:save`?'not-allowed':'pointer'}}>{busy===`${kind}:save`? <><BusySpin/>保存中…</>:'保存'}</button>
+        <button type="button" onClick={()=>publishKind(kind)} disabled={busy===`${kind}:pub`} style={{padding:'9px 18px',background:busy===`${kind}:pub`?'#94a3b8':'white',color:busy===`${kind}:pub`?'white':'#4338ca',border:'1px solid #c7d2fe',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:busy===`${kind}:pub`?'not-allowed':'pointer'}}>{busy===`${kind}:pub`? <><BusySpin/>掲載中…</>:'お知らせに掲載'}</button>
         {msg[kind] && <span style={{fontSize:12,fontWeight:'bold',color:'#16a34a'}}>{msg[kind]}</span>}
         {(hist&&hist.length>0) && <button type="button" onClick={()=>setShowHist(h=>({...h,[kind]:!h[kind]}))} style={{marginLeft:'auto',padding:'6px 12px',background:'#eef2ff',color:'#4338ca',border:'1px solid #c7d2fe',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>版の履歴 {hist.length}件 {showHist[kind]?'▲':'▼'}</button>}
       </div>
@@ -17764,7 +17769,7 @@ function GlobalPolicyPanel({ staffSession }) {
         <span style={{fontSize:13,color:'#64748b',fontWeight:'bold'}}>{open?'閉じる ▲':'開く ▼'}</span>
       </button>
       {open && (loading ? (
-        <div style={{textAlign:'center',padding:24,color:'#64748b'}}>読込中...</div>
+        <div style={{textAlign:'center',padding:24,color:'#64748b'}}><BusySpin/>読込中...</div>
       ) : (
         <div style={{marginTop:12}}>
           <div style={{fontSize:11,color:'#64748b',lineHeight:1.6,marginBottom:12,background:'#f0f7e0',border:'1px solid #d4e7a5',borderRadius:8,padding:'8px 10px'}}>
@@ -17828,7 +17833,7 @@ function GlobalAiPanel({ staffSession }) {
         {svc.test && (
           <button type="button" onClick={async()=>{ const j = await call('test', { id: svc.id }); setTestMsg(t=>({ ...t, [svc.id]: j?.ok ? `✓ ${j.detail}` : '' })); }}
             disabled={!!busy} style={{marginLeft:'auto',padding:'5px 12px',background:'#eef2ff',color:'#4338ca',border:'1px solid #c7d2fe',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>
-            {busy===`test${svc.id}`?'テスト中…':'接続テスト'}
+            {busy===`test${svc.id}`? <><BusySpin/>テスト中…</>:'接続テスト'}
           </button>
         )}
       </div>
@@ -17855,7 +17860,7 @@ function GlobalAiPanel({ staffSession }) {
             <>
               <button type="button" disabled={!!busy} onClick={async()=>{ const v = (inputs[f.dbKey]||'').trim(); if(!v){ setErr(`${f.label}を入力してください`); return; } const j = await call('save', { dbKey: f.dbKey, value: v }); if (j?.ok) { setInputs(x=>({ ...x, [f.dbKey]: '' })); tsumugiResetAiProbe(); setMsg(`✓ ${svc.name}の${f.label}を登録しました（全店へ最大1分で反映）`); } }}
                 style={{padding:'8px 14px',background: busy?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:8,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>
-                {busy===`save${f.dbKey}`?'登録中…':'登録'}
+                {busy===`save${f.dbKey}`? <><BusySpin/>登録中…</>:'登録'}
               </button>
               {f.configured && f.source==='db' && (
                 <button type="button" disabled={!!busy} onClick={async()=>{ if(!window.confirm(`${svc.name}の${f.label}を削除します。この機能が使えなくなります。よろしいですか?`)) return; const j = await call('delete', { dbKey: f.dbKey }); if (j?.ok) { tsumugiResetAiProbe(); setMsg('削除しました'); } }}
@@ -17890,7 +17895,7 @@ function GlobalAiPanel({ staffSession }) {
                 onKeyDown={e=>{ if(e.key==='Enter') call('list'); }}/>
             </div>
             <button type="button" onClick={()=>call('list')} disabled={!!busy} style={{padding:'9px 18px',background: busy?'#94a3b8':'#475569',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>
-              {busy==='list'?'読込中…':'設定を読み込む'}
+              {busy==='list'? <><BusySpin/>読込中…</>:'設定を読み込む'}
             </button>
           </div>
           {msg && <div style={{marginBottom:10,fontSize:12,fontWeight:'bold',color:'#16a34a'}}>{msg}</div>}
@@ -17967,7 +17972,7 @@ function SystemNoticesPanel({ stores, staffSession }) {
         <button onClick={()=>setShowForm(true)} style={{padding:'8px 14px',background:'#3b82f6',color:'white',border:'none',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>+ お知らせを追加</button>
       </div>
       {loading ? (
-        <div style={{textAlign:'center',padding:24,color:'#64748b'}}>読込中...</div>
+        <div style={{textAlign:'center',padding:24,color:'#64748b'}}><BusySpin/>読込中...</div>
       ) : notices.length === 0 ? (
         <div style={{textAlign:'center',padding:24,color:'#64748b',background:'#f8fafc',borderRadius:12,fontSize:12}}>
           お知らせはまだありません。「+ お知らせを追加」からメンテナンス通知などを作成できます。
@@ -18283,7 +18288,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
             <button onClick={()=>setShowAddStore(true)} style={{padding:'8px 14px',background:'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>+ 店舗を追加</button>
           </div>
           {loading ? (
-            <div style={{textAlign:'center',padding:32,color:'#64748b'}}>読込中...</div>
+            <div style={{textAlign:'center',padding:32,color:'#64748b'}}><BusySpin/>読込中...</div>
           ) : stores.length === 0 ? (
             <div style={{textAlign:'center',padding:32,color:'#64748b',background:'#f8fafc',borderRadius:12}}>
               まだ店舗が登録されていません。「+ 店舗を追加」から作成してください。
@@ -18462,7 +18467,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
             </div>
             <div style={{display:'flex',gap:10}}>
               <button onClick={()=>setEditStore(null)} disabled={editStore.loading} style={{flex:1,padding:'11px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
-              <button onClick={handleUpdateStore} disabled={editStore.loading} style={{flex:1,padding:'11px',background:editStore.loading?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:editStore.loading?'wait':'pointer'}}>{editStore.loading?'保存中…':'保存'}</button>
+              <button onClick={handleUpdateStore} disabled={editStore.loading} style={{flex:1,padding:'11px',background:editStore.loading?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:editStore.loading?'wait':'pointer'}}>{editStore.loading? <><BusySpin/>保存中…</>:'保存'}</button>
             </div>
           </div>
         </div>
@@ -18550,7 +18555,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
               {storeForm.error && <div style={{color:'#dc2626',fontSize:12,fontWeight:'bold',marginBottom:12,padding:8,background:'#fef2f2',borderRadius:8}}>{storeForm.error}</div>}
               <div style={{display:'flex',gap:8}}>
                 <button type="button" onClick={()=>setShowAddStore(false)} style={{flex:1,padding:'12px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
-                <button type="submit" disabled={storeForm.loading} style={{flex:1,padding:'12px',background:'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>{storeForm.loading?'作成中...':'店舗 + ログイン情報を作成'}</button>
+                <button type="submit" disabled={storeForm.loading} style={{flex:1,padding:'12px',background:'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>{storeForm.loading? <><BusySpin/>作成中...</>:'店舗 + ログイン情報を作成'}</button>
               </div>
             </form>
           </div>
@@ -18599,7 +18604,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
               {staffForm.error && <div style={{color:'#dc2626',fontSize:12,fontWeight:'bold',marginBottom:12,padding:8,background:'#fef2f2',borderRadius:8}}>{staffForm.error}</div>}
               <div style={{display:'flex',gap:8}}>
                 <button type="button" onClick={()=>setShowAddStaff(false)} style={{flex:1,padding:'12px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
-                <button type="submit" disabled={staffForm.loading} style={{flex:1,padding:'12px',background:'#5e8030',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>{staffForm.loading?'作成中...':'スタッフを作成'}</button>
+                <button type="submit" disabled={staffForm.loading} style={{flex:1,padding:'12px',background:'#5e8030',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>{staffForm.loading? <><BusySpin/>作成中...</>:'スタッフを作成'}</button>
               </div>
             </form>
           </div>
@@ -18691,7 +18696,7 @@ function StaffLoginGate({ onLogin }) {
           {form.error && <div style={{color:'#dc2626',fontSize:12,fontWeight:'bold',marginBottom:12,textAlign:'center',padding:'8px 12px',background:'#fef2f2',borderRadius:8}}>{form.error}</div>}
           <button type="submit" disabled={form.loading}
             style={{width:'100%',padding:'14px',background: form.loading ? '#cbd5e1' : '#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor: form.loading ? 'wait' : 'pointer',letterSpacing:1}}>
-            {form.loading ? 'ログイン中...' : 'ログイン'}
+            {form.loading ? <><BusySpin/>ログイン中...</> : 'ログイン'}
           </button>
         </form>
         <div style={{marginTop:18,fontSize:10,color:'#64748b',textAlign:'center',lineHeight:1.7}}>
@@ -21585,7 +21590,7 @@ export default function App() {
                     if (!r.ok) { setBugReport(b=>({...b, sending:false, err: j.error || '送信に失敗しました'})); return; }
                     setBugReport(b=>({...b, sending:false, sent:true}));
                   } catch(e){ setBugReport(b=>({...b, sending:false, err:'通信に失敗しました'})); }
-                }} className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white rounded-xl font-bold text-sm shadow">{bugReport.sending?'送信中...':'本部に送信'}</button>
+                }} className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white rounded-xl font-bold text-sm shadow">{bugReport.sending? <><BusySpin/>送信中...</>:'本部に送信'}</button>
               </div>
             )}
           </div>
@@ -21992,7 +21997,7 @@ export default function App() {
               u.searchParams.set('_v', String(Date.now()));
               window.location.replace(u.toString());
             } catch { try { window.location.reload(); } catch {} }
-          }} style={{background:appUpdating?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:8,padding:'6px 14px',fontSize:13,fontWeight:'bold',cursor:appUpdating?'wait':'pointer',whiteSpace:'nowrap'}}>{appUpdating ? '更新中…（そのままお待ちください）' : '今すぐ更新'}</button>
+          }} style={{background:appUpdating?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:8,padding:'6px 14px',fontSize:13,fontWeight:'bold',cursor:appUpdating?'wait':'pointer',whiteSpace:'nowrap'}}>{appUpdating ? <><BusySpin/>更新中…（そのままお待ちください）</> : '今すぐ更新'}</button>
         </div>,
         document.body
       )}
@@ -22078,7 +22083,7 @@ export default function App() {
                       <span></span><span>つむぎ管理局トップ（店舗一覧）へ戻る</span>
                     </button>
                     {adminStoresList.length === 0 ? (
-                      <div className="px-4 py-3 text-[10px] text-amber-300/70">読込中...</div>
+                      <div className="px-4 py-3 text-[10px] text-amber-300/70"><BusySpin/>読込中...</div>
                     ) : (
                       <>
                         {(() => {
@@ -26299,7 +26304,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                     // 進捗オーバーレイ
                     const overlay = document.createElement('div');
                     overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(15,23,42,0.85);display:flex;align-items:center;justify-content:center;font-family:sans-serif;';
-                    overlay.innerHTML = `<div style="text-align:center;padding:24px 40px;background:#1e293b;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);color:white;"><div style="font-size:18px;font-weight:bold;margin-bottom:6px;">印刷データ準備中...</div><div id="print-progress" style="font-size:12px;color:#94a3b8;">0 / ${chunks.length}</div></div>`;
+                    overlay.innerHTML = `<div style="text-align:center;padding:24px 40px;background:#1e293b;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);color:white;"><div style="font-size:18px;font-weight:bold;margin-bottom:6px;"><span class="tsumugi-busy-spin" aria-hidden="true"></span>印刷データ準備中…</div><div id="print-progress" style="font-size:12px;color:#94a3b8;">0 / ${chunks.length}</div></div>`;
                     document.body.appendChild(overlay);
                     const allPagesHtml = [];
                     try {
@@ -34682,9 +34687,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             alert(n ? `前週から${n}コマをコピーしました。${nSkip ? `\n（前の週の振替・この週のお休みなどで、この週に来ない方 のべ${nSkip}名はコピーしていません）` : ''}` : '前の週に保存済みの送迎表がありませんでした。');
           }} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="前の週の割り当て・時間・運転者・備考をこの週へ複製">前週コピー</button>
           <button onClick={()=>setAutoCalc({ haisha: false, jikan: true, days: new Set(days.map(d=>_iso(d))), slots: new Set(['AM','PM']), cars: new Set(cars.map(c=>c.id)) })} disabled={!!routing} data-testid="tp-autocalc" className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-sm disabled:opacity-50" title="配車・時間を、曜日や午前/午後を選んでGoogleマップで自動計算">{routing ? (
-            // ★ 2026-10-01(試験版・ユーザー要望): 計算中が分かるよう、回る輪と「…」の点滅で動きを付ける
-            <span data-testid="tp-calculating" className="inline-flex items-center gap-1.5 whitespace-nowrap"><span aria-hidden="true" style={{width:14,height:14,border:'2.5px solid rgba(255,255,255,0.35)',borderTopColor:'#fff',borderRadius:'50%',display:'inline-block',animation:'tsumugiSpin 0.8s linear infinite'}}/>計算中<span aria-hidden="true" className="inline-flex">{[0,1,2].map(k => <span key={k} style={{animation:`tsumugiBlink 1.2s ${k*0.2}s infinite both`}}>・</span>)}</span>
-              <style>{`@keyframes tsumugiSpin{to{transform:rotate(360deg)}}@keyframes tsumugiBlink{0%,80%,100%{opacity:.2}40%{opacity:1}}`}</style></span>
+            // ★ 2026-10-01(試験版・ユーザー要望): 計算中が分かるよう回る輪を付ける(点の点滅は「どちらかでいい」との指示で回る輪だけに)
+            <span data-testid="tp-calculating" className="inline-flex items-center whitespace-nowrap"><BusySpin/>計算中…</span>
           ) : '自動計算'}</button>
           {(() => { const ul = _undoList(); const last = ul[ul.length - 1]; return (
             <button onClick={undoLast} disabled={!last || !!routing} data-testid="tp-undo" title={last ? `直前の操作「${last.label}」の前に戻す（あと${ul.length}回まで戻せます）` : '元に戻せる操作はありません'} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed">
@@ -42179,7 +42183,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                           finally { setStampingAll(false); }
                         }, 50);
                       }} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm active:scale-95 disabled:opacity-60">
-                        {stampingAll ? '確定処理中…' : 'この端末のデータを最新として確定'}
+                        {stampingAll ? <><BusySpin/>確定処理中…</> : 'この端末のデータを最新として確定'}
                       </button>
                     </div>
                     {/* ★ 残骸データ(日付が基本利用日と一致しない提供記録)の検査・削除 */}
@@ -44771,7 +44775,7 @@ function LifeDiseaseSearch({ onPick }) {
       {open && (
         <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-slate-300 rounded-lg shadow-xl max-h-56 overflow-auto">
           {commonMode && !loading && hits.length > 0 && <div className="px-3 py-1.5 text-[10px] font-bold text-purple-600 bg-purple-50 sticky top-0">よく使う病名（「脳」「腰」など一文字でも検索できます）</div>}
-          {loading ? <div className="px-3 py-2 text-[11px] text-slate-400">傷病名マスタを読み込み中…（初回のみ）</div>
+          {loading ? <div className="px-3 py-2 text-[11px] text-slate-400"><BusySpin/>傷病名マスタを読み込み中…（初回のみ）</div>
             : hits.length === 0 ? <div className="px-3 py-2 text-[11px] text-slate-400">該当なし（漢字・カタカナ・ひらがなの読みなど別の表記でお試しください）</div>
             : hits.map(([c, n]) => (
               <button key={`${c}_${n}`} type="button" onMouseDown={(e)=>{ e.preventDefault(); onPick(c, n); setQ(''); setOpen(false); }}
@@ -48007,7 +48011,7 @@ function MonitoringSheetModal({ patient, facility, period, record, autoStatus, a
             <div className="text-xs font-bold text-slate-500">【モニタリング結果】各項目をプルダウンで選び、必要に応じて内容を記入します。</div>
             <button onClick={runAi} disabled={aiLoading} title={hasApiKey?'AIで全項目の下書きを生成':'各種設定→モニタリングでAPIキーを設定してください'}
               className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-300 text-white whitespace-nowrap">
-              {aiLoading ? '⟳ 生成中...' : 'AIで下書き'}
+              {aiLoading ? <><BusySpin/>生成中…</> : 'AIで下書き'}
             </button>
           </div>
           {aiErr && <div className="text-xs text-red-600 font-bold bg-red-50 border border-red-200 rounded-lg px-3 py-2">{aiErr}</div>}
@@ -49041,7 +49045,7 @@ ${optionsDesc}
         {sheetBatchProg ? (
           <button type="button" onClick={cancelGenerate}
             style={{padding:'7px 12px',borderRadius:10,fontSize:12,fontWeight:'bold',border:'1px solid #fca5a5',background:'#fef2f2',color:'#dc2626',cursor:'pointer'}}>
-            ⟳ {sheetBatchProg.done}/{sheetBatchProg.total}（中止）
+            <BusySpin/>AI下書き中 {sheetBatchProg.done}/{sheetBatchProg.total}（中止）
           </button>
         ) : (
           <button type="button" onClick={generateAllSheets} title="選んだ(無ければ全員の)モニタリング表をAIで下書きします。編集・確定した内容は自動で個人ファイルに保存されます"
@@ -49057,7 +49061,7 @@ ${optionsDesc}
         </button>
         <button type="button" onClick={autoFaxToCareManagers} disabled={autoFax?.running} title="各利用者のモニタリング表を、それぞれの担当ケアマネのFAX番号へ外部FAX(InterFAX)で自動送信します（送信は従量課金）"
           style={{padding:'7px 12px',borderRadius:10,fontSize:12,fontWeight:'bold',border:'1px solid #6366f1',background:autoFax?.running?'#e0e7ff':'#eef2ff',color:'#4338ca',cursor:autoFax?.running?'wait':'pointer'}}>
-          {autoFax?.running ? `自動送信中… ${autoFax.done}/${autoFax.total}` : '自動FAX'}
+          {autoFax?.running ? <><BusySpin/>{`自動送信中… ${autoFax.done}/${autoFax.total}`}</> : '自動FAX'}
         </button>
 
         <span style={{marginLeft:'auto'}}/>
@@ -49082,7 +49086,7 @@ ${optionsDesc}
             <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:16,width:460,maxWidth:'100%',maxHeight:'86vh',overflow:'auto',padding:20,boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
               <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b',marginBottom:8}}>各ケアマネへ自動FAX送信</div>
               {autoFax.running ? (
-                <div style={{fontSize:13,color:'#4338ca',fontWeight:'bold',marginBottom:10}}>送信中… {autoFax.done}/{autoFax.total}</div>
+                <div style={{fontSize:13,color:'#4338ca',fontWeight:'bold',marginBottom:10}}><BusySpin/>送信中… {autoFax.done}/{autoFax.total}</div>
               ) : (
                 <div style={{fontSize:13,fontWeight:'bold',marginBottom:10}}>完了：<span style={{color:'#16a34a'}}>成功 {okN}件</span> ／ <span style={{color:'#dc2626'}}>失敗 {ngN}件</span>{autoFax.noFaxCount?` ／ FAX未登録スキップ ${autoFax.noFaxCount}件`:''}</div>
               )}
@@ -49098,7 +49102,7 @@ ${optionsDesc}
                 ))}
               </div>
               <div style={{textAlign:'right',marginTop:14}}>
-                <button disabled={autoFax.running} onClick={()=>setAutoFax(null)} style={{background:autoFax.running?'#cbd5e1':'#6366f1',border:'none',color:'white',borderRadius:8,padding:'9px 20px',fontWeight:'bold',fontSize:13,cursor:autoFax.running?'wait':'pointer'}}>{autoFax.running?'送信中…':'閉じる'}</button>
+                <button disabled={autoFax.running} onClick={()=>setAutoFax(null)} style={{background:autoFax.running?'#cbd5e1':'#6366f1',border:'none',color:'white',borderRadius:8,padding:'9px 20px',fontWeight:'bold',fontSize:13,cursor:autoFax.running?'wait':'pointer'}}>{autoFax.running? <><BusySpin/>送信中…</>:'閉じる'}</button>
               </div>
             </div>
           </div>
@@ -49179,7 +49183,7 @@ ${optionsDesc}
                 {/* 内容列 — ★ ①〜⑤を既定表示。 プルダウン変更・本文入力でその場保存。 確定済みは編集不可 */}
                 <td style={{padding:'10px 14px',verticalAlign:'middle'}}>
                   {(() => {
-                    if (res?.loading) return <div style={{display:'flex',alignItems:'center',gap:8,color:'#0284c7',fontSize:12}}><span style={{fontSize:16}}>⟳</span> AI生成中...</div>;
+                    if (res?.loading) return <div style={{display:'flex',alignItems:'center',gap:8,color:'#0284c7',fontSize:12}}><BusySpin style={{marginRight:0}}/> AI生成中…</div>;
                     if (res?.error) return <div style={{color:'#dc2626',fontSize:11}}>{res.error}</div>;
                     const persisted = !!(sheetRec && sheetRec.sheet);
                     const sh = persisted ? sheetRec.sheet : getOrInitSheetFor(patient);
@@ -49514,10 +49518,10 @@ function InsuranceOcrModal({ onApply, onClose }) {
           <div className="flex gap-2 mb-3">
             <button onClick={runOcr} disabled={!file || running}
               className={`flex-1 px-4 py-2.5 rounded-xl font-bold text-sm shadow ${(!file || running) ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}>
-              {running ? `読取中... ${progress}%` : 'OCR で読み取る'}
+              {running ? <><BusySpin/>{`読取中... ${progress}%`}</> : 'OCR で読み取る'}
             </button>
           </div>
-          {progressLabel && <div className="text-[11px] text-slate-500 mb-2">{progressLabel} {running && progress > 0 && `(${progress}%)`}</div>}
+          {progressLabel && <div className="text-[11px] text-slate-500 mb-2">{running && <BusySpin/>}{progressLabel} {running && progress > 0 && `(${progress}%)`}</div>}
 
           {error && <div className="bg-red-50 border border-red-200 text-red-700 text-xs font-bold p-2 rounded-lg mb-3">⚠ {error}</div>}
 
@@ -51080,7 +51084,7 @@ function MediaPreviewModal({ media, onClose }) {
       {url && isPdf && !_tsumugiInPageMode() && <button onClick={(e)=>{e.stopPropagation(); window.open(url,'_blank','noopener');}}
         style={{position:'absolute',top:12,left:12,background:'#2563eb',color:'white',border:'none',padding:'8px 14px',borderRadius:20,fontSize:13,fontWeight:'bold',cursor:'pointer',zIndex:5}}>別タブで開く</button>}
       {!url ? (
-        <div style={{color:'white',fontSize:14,fontWeight:'bold'}}>読み込み中...</div>
+        <div style={{color:'white',fontSize:14,fontWeight:'bold'}}><BusySpin/>読み込み中...</div>
       ) : isPdf ? (
         <iframe src={url} title="PDF" style={{width:'100%',height:'100%',maxWidth:'95vw',maxHeight:'90vh',border:'none',background:'white',borderRadius:8}}/>
       ) : (
@@ -51158,7 +51162,7 @@ function OfficeAssessmentCard({ patientId, assessment, onSaveAssessment }) {
           {text !== savedText && <span className="text-[11px] text-orange-600 font-bold">未保存</span>}
           <button onClick={() => onSaveAssessment({ text, files })} disabled={text === savedText} className={`px-3 py-1.5 rounded-lg text-xs font-bold text-white ${text === savedText ? 'bg-slate-300' : 'bg-sky-600 hover:bg-sky-700'}`}>保存</button>
           <label className={`px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold cursor-pointer flex items-center gap-1 ${busy ? 'opacity-60' : ''}`}>
-            <CloudUpload size={12} />{busy ? '保存中…' : '添付'}
+            <CloudUpload size={12} />{busy ? <><BusySpin/>保存中…</> : '添付'}
             <input type="file" accept="image/*,application/pdf" multiple className="hidden" disabled={busy} onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
           </label>
         </div>
@@ -53023,7 +53027,7 @@ function MeetingPdfPreview({ patient, meeting, onClose }) {
           <div style={{display:'flex',gap:8}}>
             <button onClick={handleDownload} disabled={downloading}
               style={{padding:'8px 14px',background: downloading?'#94a3b8':'#2563eb',color:'white',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor: downloading?'wait':'pointer'}}>
-              {downloading ? '生成中...' : 'ダウンロード'}
+              {downloading ? <><BusySpin/>生成中...</> : 'ダウンロード'}
             </button>
             <button onClick={onClose} style={{padding:'8px 14px',background:'#e2e8f0',color:'#475569',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
           </div>
@@ -53105,7 +53109,7 @@ function MonthlyServicePdfPreview({ patient, snapshot, onClose }) {
           <div style={{display:'flex',gap:8}}>
             <button onClick={handleDownload} disabled={downloading}
               style={{padding:'8px 14px',background: downloading?'#94a3b8':'#2563eb',color:'white',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor: downloading?'wait':'pointer'}}>
-              {downloading ? '生成中...' : 'ダウンロード'}
+              {downloading ? <><BusySpin/>生成中...</> : 'ダウンロード'}
             </button>
             <button onClick={onClose} style={{padding:'8px 14px',background:'#e2e8f0',color:'#475569',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
           </div>
@@ -53806,7 +53810,7 @@ function FaceSheetPdfPreview({ patient, faceSheet, onClose }) {
           <div style={{display:'flex',gap:8}}>
             <button onClick={handleDownload} disabled={downloading}
               style={{padding:'8px 14px',background: downloading?'#94a3b8':'#2563eb',color:'white',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor: downloading?'wait':'pointer'}}>
-              {downloading ? '生成中...' : 'ダウンロード'}
+              {downloading ? <><BusySpin/>生成中...</> : 'ダウンロード'}
             </button>
             <button onClick={onClose} style={{padding:'8px 14px',background:'#e2e8f0',color:'#475569',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
           </div>

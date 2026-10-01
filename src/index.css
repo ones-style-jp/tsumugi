@@ -88,3 +88,14 @@ table { -webkit-touch-callout: none; }
 @media (hover: none) and (pointer: coarse) {
   .overflow-auto, .overflow-x-auto, .overflow-y-auto { overscroll-behavior: none; -webkit-overflow-scrolling: auto; }
 }
+
+/* ★ 2026-10-01(試験版・ユーザー要望「読み込み中や処理中で画面が固まっている時は分かりやすくアニメーションを」):
+   処理中・読み込み中の共通の回る輪(<BusySpin/>)。文字の大きさ・色に合わせて回る */
+@keyframes tsumugiSpin { to { transform: rotate(360deg); } }
+.tsumugi-busy-spin {
+  display: inline-block; flex: none; box-sizing: border-box;
+  width: 1em; height: 1em; margin-right: .4em; vertical-align: -0.15em;
+  border: .15em solid currentColor; border-right-color: transparent; border-radius: 50%;
+  animation: tsumugiSpin .8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) { .tsumugi-busy-spin { animation-duration: 2s; } }
