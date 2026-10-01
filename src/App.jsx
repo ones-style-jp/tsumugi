@@ -33482,9 +33482,12 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   });
   // ★ 2026-10-01(ユーザー要望): 時間は全角・半角どちらでも「0810」「１３２０」と4桁で打てば 8:10・13:20 に自動で直す。
   //   3桁(810)は入力の途中と区別できないため、欄から離れたとき(blur)に 8:10 にする。全角の数字・コロンは半角に。
+  // ★ 2026-10-01(iPad 報告「8:00から消せない・:00を消して打つと8033になる」): 入力途中の「8:0」「8:」は表示で 8:00 に戻さない(下の input)。
+  //   「8」が残ったまま「033」と打った「8033」(80時は無い)は 8:33 と読む。
   const _normTimeInput = (raw, final) => {
     const v = String(raw ?? '').replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)).replace(/[：]/g, ':').replace(/[\s　]+/g, '');
     let m = v.match(/^(\d{2})(\d{2})$/); if (m && +m[1] <= 23 && +m[2] <= 59) return `${+m[1]}:${m[2]}`;
+    m = v.match(/^(\d)0(\d{2})$/); if (m && +m[2] <= 59) return `${+m[1]}:${m[2]}`;
     if (final) { m = v.match(/^(\d)(\d{2})$/); if (m && +m[2] <= 59) return `${+m[1]}:${m[2]}`; }
     return v;
   };
