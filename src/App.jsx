@@ -28776,42 +28776,47 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
 }
 
 // === QuickNav (共通連携バー) ===
+// ★ 2026-10-02(試験版・ユーザー要望): 画面右上に並べていた「サービス提供記録／体力測定／利用者マスタ／分析（個人）／モニタリング」の
+//   ボタンをやめ、「移動」ボタン1つにする。押すと、提供記録入力で利用者の名前を押したときと同じ行き先(個人ファイルを含む)が
+//   一覧で出て、そこから選ぶ。選択中の利用者がいればその方の画面へ、いなければ画面だけ移る。
 function QuickNav({ navigateTo, currentView, patientId, appData }) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('pointerdown', h); return () => document.removeEventListener('pointerdown', h);
+  }, [open]);
   const targetId = patientId || null;
+  const pt = targetId != null ? (appData?.patients || []).find(p => p && p.id === targetId) : null;
+  const goFile = () => { if (targetId == null) { navigateTo('master'); return; } try { sessionStorage.setItem('tsumugiReopenPF', JSON.stringify({ patientId: targetId, tab: 'cat_1' })); sessionStorage.setItem('tsumugiPFOrigin', currentView); } catch {} navigateTo('master', targetId); };
   const items = [
-    { view:'ticket',        icon:'FileText',       label:'サービス提供記録', color:'#3b82f6' },
-    { view:'fitness',       icon:'Activity',       label:'体力測定',         color:'#f59e0b', checkFitness:true },
-    { view:'master',        icon:'Users',          label:'利用者マスタ',     color:'#3b82f6' },
-    { view:'dash_personal', icon:'BarChart3',      label:'分析（個人）',     color:'#3b82f6' },
-    { view:'monitoring',    icon:'ClipboardList',  label:'モニタリング',     color:'#3b82f6' },
-  ];
-  const iconMap = {
-    ClipboardList: (s) => <ClipboardList size={s}/>,
-    FileText: (s) => <FileText size={s}/>,
-    Activity: (s) => <Activity size={s}/>,
-    Users: (s) => <Users size={s}/>,
-    BarChart3: (s) => <BarChart3 size={s}/>,
-  };
+    { view:'master',        label:'利用者マスタ',     icon:<Users size={16}/> },
+    { view:'__file',        label:'個人ファイル',     icon:<BookOpen size={16}/>, onClick: goFile, needPt: true },
+    { view:'ticket',        label:'サービス提供記録', icon:<FileText size={16}/> },
+    { view:'fitness',       label:'体力測定',         icon:<Activity size={16}/> },
+    { view:'dash_personal', label:'分析（個人）',     icon:<BarChart3 size={16}/> },
+    { view:'monitoring',    label:'モニタリング',     icon:<ClipboardList size={16}/> },
+  ].filter(it => it.view !== currentView && !it.hide && !(it.needPt && targetId == null));
   return (
-    <div style={{display:'flex',gap:4,flexWrap:'nowrap',position:'relative',zIndex:50,overflow:'visible'}}>
-      {items.filter(item => {
-        if(item.view === currentView) return false;
-        if(item.checkFitness) {
-          const targets = appData?.systemSettings?.fitnessTargets;
-          // ★ 未定義 = 全員、配列 (空 or 値) = 明示設定
-          return !targets;
-        }
-        return true;
-      }).map(item => (
-        <button key={item.view}
-          onClick={() => navigateTo(item.view, targetId)}
-          data-tip={item.label}
-          style={{display:'flex',alignItems:'center',gap:3,padding:'4px 8px',borderRadius:6,border:'1px solid #94a3b8',background:'white',cursor:'pointer',fontSize:12,fontWeight:'bold',color:'#475569',position:'relative',whiteSpace:'nowrap'}}
-          className="hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 transition-all">
-          <span style={{color:item.view===currentView?item.color:'#64748b'}}>{iconMap[item.icon](12)}</span>
-          {item.label}
-        </button>
-      ))}
+    <div ref={ref} style={{position:'relative',zIndex:50}}>
+      <button type="button" onClick={() => setOpen(o => !o)} data-testid="quicknav-btn" aria-expanded={open}
+        style={{display:'flex',alignItems:'center',gap:4,padding:'4px 10px',borderRadius:8,border:'1px solid #94a3b8',background:open?'#eff6ff':'white',cursor:'pointer',fontSize:12,fontWeight:'bold',color:'#475569',whiteSpace:'nowrap'}}
+        className="hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 transition-all">
+        移動{pt ? <span style={{fontWeight:'normal',color:'#64748b'}}>（{pt.name} 様）</span> : null}<span style={{fontSize:10}}>▼</span>
+      </button>
+      {open && (
+        <div data-testid="quicknav-menu" style={{position:'absolute',right:0,top:'calc(100% + 6px)',background:'white',border:'1px solid #cbd5e1',borderRadius:12,boxShadow:'0 10px 30px rgba(15,23,42,0.15)',padding:6,minWidth:200}}>
+          {pt && <div style={{fontSize:11,color:'#64748b',padding:'4px 10px 6px',borderBottom:'1px solid #e2e8f0',marginBottom:4}}>{pt.name} 様の画面へ</div>}
+          {items.map(it => (
+            <button key={it.view} type="button" onClick={() => { setOpen(false); it.onClick ? it.onClick() : navigateTo(it.view, targetId); }}
+              style={{display:'flex',alignItems:'center',gap:8,width:'100%',textAlign:'left',padding:'8px 10px',borderRadius:8,border:'none',background:'transparent',cursor:'pointer',fontSize:13,fontWeight:'bold',color:'#334155'}}
+              className="hover:bg-blue-50 hover:text-blue-700">
+              <span style={{color:'#64748b'}}>{it.icon}</span>{it.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
