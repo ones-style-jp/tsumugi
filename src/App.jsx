@@ -31135,7 +31135,8 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
   // ★ 2026-10-02: 用紙ごとに中身が縦にはみ出す量を実測し、各日の行(2行=1日)を均等に低くして1枚に収める(--tpShrink)
   React.useLayoutEffect(() => {
     const el = _fitRef.current; if (!el) return;
-    const fit = () => { try { el.querySelectorAll('.tp').forEach(tp => { tp.style.setProperty('--tpShrink', '0px'); const over = tp.scrollHeight - tp.clientHeight; if (over > 1) { const nRows = Number(tp.getAttribute('data-rows') || 10); const per = Math.min(10, Math.ceil(over / nRows)); tp.style.setProperty('--tpShrink', per + 'px'); } }); } catch {} };
+    // ★ 2026-10-02(店舗の印刷で備考が見切れた): 行を縮めても収まらないときは用紙の中身全体の縮尺(--tpZoom)を下げる。画面の余白は印刷と同じ(7mm/9mm)にして判定を揃える
+    const fit = () => { try { el.querySelectorAll('.tp').forEach(tp => { tp.style.setProperty('--tpShrink', '0px'); tp.style.setProperty('--tpZoom', '0.92'); let over = tp.scrollHeight - tp.clientHeight; if (over > 1) { const nRows = Number(tp.getAttribute('data-rows') || 10); const per = Math.min(5, Math.ceil(over / nRows)); tp.style.setProperty('--tpShrink', per + 'px'); } for (let i = 0; i < 3; i++) { over = tp.scrollHeight - tp.clientHeight; if (over <= 1) break; const cur = parseFloat(tp.style.getPropertyValue('--tpZoom')) || 0.92; const z = Math.max(0.6, Math.floor(cur * (tp.clientHeight / tp.scrollHeight) * 0.995 * 1000) / 1000); if (z >= cur) break; tp.style.setProperty('--tpZoom', String(z)); } }); } catch {} };
     const t = setTimeout(fit, 50); return () => clearTimeout(t);
   });
   const pages = []; for (let i = 0; i < records.length; i += PER_PAGE) pages.push(records.slice(i, i + PER_PAGE));
@@ -31177,7 +31178,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
 
   return (
     <div style={{height:'100%',display:'flex',flexDirection:'column',minWidth:0}}>
-      <style>{`@media print{body,html,#root{margin:0!important;padding:0!important;background:white!important;overflow:hidden!important;}.thp{display:none!important;}.ticket-outer{padding:0!important;margin:0!important;zoom:1!important;}.ticket-outer>*+*{margin-top:0!important;}#print-content-ticket{margin:0!important;padding:0!important;}#print-content-ticket>*+*{margin-top:0!important;}.tp{box-shadow:none!important;border:none!important;border-radius:0!important;margin:0!important;padding:7mm 9mm 6mm 9mm!important;page-break-inside:avoid!important;break-inside:avoid!important;overflow:hidden!important;}.tp>*{zoom:0.92;}.tp:not(:last-child){page-break-after:always!important;break-after:page!important;}.tp:last-child{page-break-after:avoid!important;break-after:avoid!important;}@page{size:A4 portrait;margin:0;}}.tp{width:210mm;height:297mm;box-sizing:border-box;overflow:hidden;}`}</style>
+      <style>{`@media print{body,html,#root{margin:0!important;padding:0!important;background:white!important;overflow:hidden!important;}.thp{display:none!important;}.ticket-outer{padding:0!important;margin:0!important;zoom:1!important;}.ticket-outer>*+*{margin-top:0!important;}#print-content-ticket{margin:0!important;padding:0!important;}#print-content-ticket>*+*{margin-top:0!important;}.tp{box-shadow:none!important;border:none!important;border-radius:0!important;margin:0!important;padding:7mm 9mm 6mm 9mm!important;page-break-inside:avoid!important;break-inside:avoid!important;overflow:hidden!important;}.tp>*{zoom:var(--tpZoom,0.92);}.tp:not(:last-child){page-break-after:always!important;break-after:page!important;}.tp:last-child{page-break-after:avoid!important;break-after:avoid!important;}@page{size:A4 portrait;margin:0;}}.tp{width:210mm;height:297mm;box-sizing:border-box;overflow:hidden;}`}</style>
       {/* ヘッダー：スクロールコンテナの外 */}
       <div className="thp bg-white px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-4 shrink-0 sticky top-0 z-30" style={{minWidth:0}}>
         <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -31253,7 +31254,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
           const SP1 = (() => { const st = 1, ki = _kOnR ? 1 : 0, tp = 1, st1 = 1, en = _showEnT ? 1 : 0, rec = 1, kin = 1; const used = st + ki + tp + st1 + en + rec + kin; return { st, ki, tp, st1, en, rec, kin, re: Math.max(1, N - used) }; })();
           const _bikouText = pi === 0 ? computeServiceChangeBikou(sp, tY, tM, appData) : '';
           return (
-          <div key={`${tY}-${tM}-${pi}`} data-rows={(pp || PER_PAGE) * (1 + bands.length)} className="tp bg-white px-5 py-3 shadow-xl border border-slate-300 rounded-xl flex flex-col">
+          <div key={`${tY}-${tM}-${pi}`} data-rows={(pp || PER_PAGE) * (1 + bands.length)} className="tp bg-white shadow-xl border border-slate-300 rounded-xl flex flex-col" style={{padding:'7mm 9mm 6mm 9mm'}}>
             {/* ヘッダー */}
             <div className="flex justify-between items-start mb-1 shrink-0">
               <div>
@@ -31351,7 +31352,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
 
             <div className="flex flex-col" style={{overflow:'visible'}}>
               <style>{`
-                .tp>* { zoom: 0.92; } /* 印刷と同じ縮尺を画面でも(用紙の高さの判定を印刷と揃える) */
+                .tp>* { zoom: var(--tpZoom, 0.92); } /* 印刷と同じ縮尺を画面でも(用紙の高さの判定を印刷と揃える)。収まらない用紙は fit() が --tpZoom を下げる */
                 .tp table { table-layout: fixed; }
                 .tp table tbody tr.hd-row { height:16px!important; max-height:16px!important; }
                 .tp table tbody tr.hd-row th { height:16px!important; max-height:16px!important; overflow:hidden; padding:0 1px; box-sizing:border-box; font-weight:bold; }
