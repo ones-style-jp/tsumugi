@@ -1629,9 +1629,11 @@ const TpTimeInput = ({ value, onCommit, normalize, ...rest }) => {
   const shown = draft !== null ? draft : String(value ?? '');
   return <input type="text" inputMode="numeric" pattern="[0-9]*" enterKeyHint="done" autoComplete="off" {...rest} value={shown}
     onFocus={(e) => { lastSent.current = null; setDraft(e.target.value); }}
-    onChange={(e) => { const v = e.target.value; if (composing.current || (e.nativeEvent && e.nativeEvent.isComposing)) { setDraft(v); return; } const nv = norm(v, false); setDraft(nv); schedule(nv); }}
+    /* ★ 2026-10-02(ユーザー報告「８３０と打ったら308:30になる」): 打っている間は値を一切整えない(全角→半角の置換も変換中の文字が
+       残って二重になる原因)。整えるのは保存するときだけ(1.2秒後の自動保存・欄を離れたとき)。表示は欄を離れたときに整った形になる */
+    onChange={(e) => { const v = e.target.value; setDraft(v); if (composing.current || (e.nativeEvent && e.nativeEvent.isComposing)) return; schedule(v); }}
     onCompositionStart={() => { composing.current = true; }}
-    onCompositionEnd={(e) => { composing.current = false; const nv = norm(e.target.value, false); setDraft(nv); schedule(nv); }}
+    onCompositionEnd={(e) => { composing.current = false; const v = e.target.value; setDraft(v); schedule(v); }}
     onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
     onBlur={(e) => { composing.current = false; const f = norm(e.target.value, true); setDraft(null); commit(f); }} />;
 };
