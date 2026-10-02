@@ -28818,7 +28818,7 @@ function QuickNav({ navigateTo, currentView, patientId, appData }) {
   }, [open]);
   const targetId = patientId || null;
   const pt = targetId != null ? (appData?.patients || []).find(p => p && p.id === targetId) : null;
-  const goFile = () => { if (targetId == null) { navigateTo('master'); return; } try { sessionStorage.setItem('tsumugiReopenPF', JSON.stringify({ patientId: targetId, tab: 'cat_1' })); sessionStorage.setItem('tsumugiPFOrigin', currentView); } catch {} navigateTo('master', targetId); };
+  const goFile = () => { if (targetId == null) { navigateTo('master'); return; } try { sessionStorage.setItem('tsumugiReopenPF', JSON.stringify({ patientId: targetId, tab: 'cat_1' })); sessionStorage.setItem('tsumugiPFOrigin', currentView); } catch {} if (currentView === 'master') { try { window.dispatchEvent(new CustomEvent('tsumugiReopenPF')); } catch {} } else navigateTo('master', targetId); };
   const items = [
     { view:'master',        label:'利用者マスタ',     icon:<Users size={16}/> },
     { view:'__file',        label:'個人ファイル',     icon:<BookOpen size={16}/>, onClick: goFile, needPt: true },
@@ -31083,10 +31083,9 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
     if (!sp) return [];
     return generateMonthlySchedule([sp], tY, tM, appData.monthlyShifts, appData.ticketRecords || [], appData.holidays, (appData.systemSettings?.facilityInfo?.closedDays||[0])).sort((a, b) => a.dayNum - b.dayNum);
   }, [appData, sp, tY, tM]);
-  // ★ 2026-10-02(試験版・ユーザー要望): 運動項目が EX_BAND 列を超える店舗は、運動項目を2段(上段/下段)に折り返して列幅を確保する。
-  //   2段のときは上下に半分ずつ分けて列幅を広くする。1ページの日数は 通常5日(備考は2行)・2段のときは4日。用紙(A4横)に必ず収まる高さで固定し、画面にも用紙内にスクロールを出さない。
-  const EX_BAND = 9;
-  const _perPage = (exLen) => exLen > EX_BAND ? 4 : 5;
+  // ★ 2026-10-02(試験版・ユーザー指示): 提供記録は1日=「バイタル行(状態/気分/体温/血圧/再検)」「運動行(運動すべて+介護整体)」「特記行」の3行。
+  //   列は運動項目の数で均等に割る。1ページ5日(備考2行)。用紙(A4横)に必ず収まる高さで固定し、画面にも用紙内にスクロールを出さない。
+  const _perPage = () => 5; // ★ 1日=3行(バイタル/運動/特記)で5日・備考2行
   const PER_PAGE = _perPage((getExerciseItemsForDate(appData.systemSettings, `${tY}-${String(tM).padStart(2,'0')}-01`, tY) || effExerciseItems(appData.systemSettings) || []).length);
   // ★ 2026-10-02: 画面の幅に合わせた縮小率(用紙 297mm≒1123px + 左右の余白32px)。印刷時は 1
   const _fitRef = React.useRef(null); const [_fitZoom, _setFitZoom] = React.useState(1);
@@ -31207,15 +31206,12 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
 
         {renderList.flatMap(({ mY: tY, mM: tM, ex, plannedM, tc, pages, pp }) => pages.map((pr, pi) => {
           const fill = Math.max(0, (pp || PER_PAGE) - pr.length);
-          // ★ 2026-10-02: 運動項目の2段分割(ex1=上段・ex2=下段)。列数は多い方に合わせ、合計の列数 _tcx を colSpan に使う
-          const _half = ex.length > EX_BAND ? Math.ceil(ex.length / 2) : ex.length; // 2段のときは上下に半分ずつ(列幅を広く)
-          const ex1 = ex.slice(0, _half), ex2 = ex.slice(_half); const exCols = Math.max(ex1.length, ex2.length);
-          const _fixedN = 1 + 1 + (_kOnR ? 1 : 0) + 1 + 1 + (_showEnT ? 1 : 0); // 日付・状態・気分・体温・開始・終了
-          const _tcx = _fixedN + exCols + 1;
-          const _exW = exCols > 8 ? 38 : 44;
+          // ★ 2026-10-02(試験版・ユーザー指示): 2段目に運動すべて(+介護整体)。列数 N は運動項目+1(最低9列)。1段目の欄は列をまたぐ(SP1)
+          const N = Math.max(9, ex.length + 1);
+          const SP1 = (() => { const st = 1, ki = _kOnR ? 1 : 0, tp = 1, st1 = N >= 12 ? 2 : 1, en = _showEnT ? (N >= 12 ? 2 : 1) : 0; const used = st + ki + tp + st1 + en; return { st, ki, tp, st1, en, re: Math.max(1, N - used) }; })();
           const _bikouText = pi === 0 ? computeServiceChangeBikou(sp, tY, tM, appData) : '';
           return (
-          <div key={`${tY}-${tM}-${pi}`} data-rows={(pp || PER_PAGE) * (ex2.length ? 3 : 2)} className="tp bg-white px-5 py-3 shadow-xl border border-slate-300 rounded-xl flex flex-col">
+          <div key={`${tY}-${tM}-${pi}`} data-rows={(pp || PER_PAGE) * 3} className="tp bg-white px-5 py-3 shadow-xl border border-slate-300 rounded-xl flex flex-col">
             {/* ヘッダー */}
             <div className="flex justify-between items-start mb-1 shrink-0">
               <div>
@@ -31274,14 +31270,13 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
               );
             })()}
 
-            {/* ★ 運動メニュー（設定数値）独立表 — 黒ヘッダーの上。 ラベルは日付列と同比率、運動名は残り幅を均等割り */}
-            {(() => { const _uW = _exW; const _mainTotal = 308 + (exCols+1)*_uW; const _labelPct = (50/_mainTotal*100);
-              // ★ 個別運動列の設定値: 患者マスタで設定した「種目名＋規定値」を表示 (通常メニューは planned 値)
+            {/* ★ 2026-10-02(試験版・ユーザー指示): 提供記録の表を「1段目=状態/気分/体温/血圧(+再検)、2段目=運動すべて(+介護整体)」の2段構成に。
+                 列は運動項目の数で均等に割り、1段目の欄は列をまたいで(colSpan)置く。運動名・設定数値は1行(収まるまで縮小)。行は低めに固定し、
+                 はみ出すときは --tpShrink で各日の行を縮める(用紙の中にスクロールは出さない)。 */}
+            {(() => {
               const _indPlanDisp = (it) => {
                 const allInd = appData.systemSettings?.individualExerciseItems || [];
-                // ★ その月時点の規定値 (日付単位のサービス内容変更に連動)
                 const rawIndEx = getIndividualExercisesForDate(sp, `${tY}-${String(tM).padStart(2,'0')}-01`) || [];
-                // ★ そのスロット固有の既定のみ参照 (未設定のスロット2・3に他スロットの種目が波及しないように)
                 const selId = (sp?.individualExerciseSlotDefaults?.[it.id]) || '';
                 if (!selId) return null;
                 const sel = allInd.find(ii => ii.id === selId);
@@ -31289,111 +31284,83 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                 const dv = (rawIndEx.find(x=>x.itemId===selId)?.defaultValue) || '';
                 return { name: sel.name, val: dv ? applyExUnits(dv, sel) : '' };
               };
+              const _dateW = 50;
               return (
-            <table className="w-full border-collapse border border-slate-600 mb-1 shrink-0" style={{tableLayout:'fixed',width:'100%',marginTop:6}}>
+            <table className="w-full border-collapse border border-slate-600 mb-1 shrink-0" style={{tableLayout:'fixed',width:'100%',marginTop:4}}>
               <colgroup>
-                <col style={{width:`${_labelPct}%`}}/>
-                {Array.from({length: exCols}).map((_, i)=><col key={i}/>)}
+                <col style={{width:_dateW}}/>
+                {Array.from({length: N}).map((_, i)=><col key={i}/>)}
               </colgroup>
               <tbody>
-                {[ex1, ex2].filter(b => b.length).map((band, bi) => (<Fragment key={`band${bi}`}>
-                <tr style={{height:30}} className="bg-slate-700 text-white">
-                  <th className="border border-slate-600 px-0 text-center overflow-hidden" style={{background:'#334155',color:'#fff'}}><AutoFitText text={bi ? '運動（続き）' : '運動メニュー'} max={11} bold color="#fff"/></th>
-                  {band.map(it=>(<th key={it.id} className="border border-slate-600 px-0 text-center overflow-hidden" style={{background:'#334155',color:'#fff'}}><AutoFitText text={it.name} max={11} min={6} bold color="#fff" wrap/></th>))}
-                  {Array.from({length: exCols - band.length}).map((_, i)=><th key={`b${i}`} className="border border-slate-600" style={{background:'#334155'}}></th>)}
+                <tr style={{height:22}} className="bg-slate-700 text-white">
+                  <th className="border border-slate-600 px-0 text-center overflow-hidden" style={{background:'#334155',color:'#fff'}}><AutoFitText text="運動" max={10} min={6} bold color="#fff"/></th>
+                  {ex.map(it=>(<th key={it.id} className="border border-slate-600 px-0 text-center overflow-hidden" style={{background:'#334155',color:'#fff'}}><AutoFitText text={it.name} max={10} min={5} bold color="#fff"/></th>))}
+                  {Array.from({length: N - ex.length}).map((_, i)=><th key={`b${i}`} className="border border-slate-600" style={{background:'#334155'}}></th>)}
                 </tr>
-                <tr style={{height:30}}>
-                  <td className="border border-slate-600 px-0 text-center overflow-hidden" style={{background:'#f1f5f9'}}><AutoFitText text="設定数値" max={11} bold/></td>
-                  {band.map(it=>{
+                <tr style={{height:22}}>
+                  <td className="border border-slate-600 px-0 text-center overflow-hidden" style={{background:'#f1f5f9'}}><AutoFitText text="設定数値" max={10} min={6} bold/></td>
+                  {ex.map(it=>{
                     if (it.type === 'individual') {
                       const d = _indPlanDisp(it);
-                      return (
-                        <td key={it.id} className="border border-slate-600 px-0 text-center overflow-hidden">
-                          {d ? (
-                            <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',lineHeight:1.05,height:30,overflow:'hidden',padding:'0 1px'}}>
-                              <span style={{fontSize:8,fontWeight:'bold',color:'#334155',maxWidth:'100%',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{d.name}</span>
-                              {d.val && <span style={{fontSize:9,fontWeight:'bold'}}>{d.val}</span>}
-                            </div>
-                          ) : null}
-                        </td>
-                      );
+                      return (<td key={it.id} className="border border-slate-600 px-0 text-center overflow-hidden">{d ? <AutoFitText text={`${d.name}${d.val ? ' ' + d.val : ''}`} max={10} min={5} bold/> : null}</td>);
                     }
-                    return (<td key={it.id} className="border border-slate-600 px-0 text-center overflow-hidden"><AutoFitText text={_planUnit(plannedM[it.id], it.defaultUnit)} max={13} bold/></td>);
+                    return (<td key={it.id} className="border border-slate-600 px-0 text-center overflow-hidden"><AutoFitText text={_planUnit(plannedM[it.id], it.defaultUnit)} max={12} min={6} bold/></td>);
                   })}
-                  {Array.from({length: exCols - band.length}).map((_, i)=><td key={`c${i}`} className="border border-slate-600"></td>)}
+                  {Array.from({length: N - ex.length}).map((_, i)=><td key={`c${i}`} className="border border-slate-600"></td>)}
                 </tr>
-                </Fragment>))}
               </tbody>
             </table>
             ); })()}
 
-            {/* メインテーブル: print 時の flex 計算問題を避けるためフロー配置。★ 2026-10-02: 用紙の中にスクロールを出さない(はみ出しは用紙側で隠し、行の自動縮小で収める) */}
+            {/* メインテーブル: print 時の flex 計算問題を避けるためフロー配置。用紙の中にスクロールを出さない */}
             <div className="flex flex-col" style={{overflow:'visible'}}>
               <style>{`
-                /* 行高さを完全固定 — 入力内容の有無にかかわらず一定 (6日表示で1日あたりを拡大) */
                 .tp table { table-layout: fixed; }
-                /* ★ 2026-10-02(店舗報告: 運動メニューが多いと用紙の縦に入らず縦スクロール): 見出し・設定数値の行が高くなった分だけ
-                   各日の行を低くして1枚に収める(--tpShrink は下の effect が用紙ごとに実測して入れる。最小 34px/26px) */
-                .tp table tbody tr.data-row { height:max(34px, calc(46px - var(--tpShrink, 0px)))!important; max-height:max(34px, calc(46px - var(--tpShrink, 0px)))!important; }
-                .tp table tbody tr.tokki-row { height:max(26px, calc(36px - var(--tpShrink, 0px)))!important; max-height:max(26px, calc(36px - var(--tpShrink, 0px)))!important; }
-                .tp table tbody tr.bikou-gap td { border:none!important; background:transparent!important; height:14px!important; padding:0!important; }
-                .tp table tbody tr.bikou-row { height:44px!important; max-height:44px!important; } /* ★ 2026-10-02: 備考は2行分 */
-                .tp table tbody tr.ex2-row { height:max(26px, calc(32px - var(--tpShrink, 0px)))!important; max-height:max(26px, calc(32px - var(--tpShrink, 0px)))!important; }
-                .tp table tbody tr.ex2-row td { height:max(26px, calc(32px - var(--tpShrink, 0px)))!important; max-height:max(26px, calc(32px - var(--tpShrink, 0px)))!important; }
-                .tp table tbody tr.ex2-row td>div.cell-wrap { height:max(22px, calc(28px - var(--tpShrink, 0px))); max-height:max(22px, calc(28px - var(--tpShrink, 0px))); overflow:hidden; display:flex; align-items:center; justify-content:center; word-break:break-all; flex-wrap:wrap; text-align:center; line-height:1.15; }
-                .tp table tbody td {
-                  box-sizing:border-box!important;
-                  vertical-align:middle!important;
-                  overflow:hidden!important;
-                }
-                .tp table tbody tr.data-row td { height:max(34px, calc(46px - var(--tpShrink, 0px)))!important; max-height:max(34px, calc(46px - var(--tpShrink, 0px)))!important; }
-                .tp table tbody tr.tokki-row td { height:max(26px, calc(36px - var(--tpShrink, 0px)))!important; max-height:max(26px, calc(36px - var(--tpShrink, 0px)))!important; }
+                .tp table tbody tr.data-row { height:max(26px, calc(32px - var(--tpShrink, 0px)))!important; max-height:max(26px, calc(32px - var(--tpShrink, 0px)))!important; }
+                .tp table tbody tr.ex-row { height:max(26px, calc(32px - var(--tpShrink, 0px)))!important; max-height:max(26px, calc(32px - var(--tpShrink, 0px)))!important; }
+                .tp table tbody tr.tokki-row { height:max(22px, calc(28px - var(--tpShrink, 0px)))!important; max-height:max(22px, calc(28px - var(--tpShrink, 0px)))!important; }
+                .tp table tbody tr.bikou-gap td { border:none!important; background:transparent!important; height:10px!important; padding:0!important; }
+                .tp table tbody tr.bikou-row { height:44px!important; max-height:44px!important; }
+                .tp table tbody td { box-sizing:border-box!important; vertical-align:middle!important; overflow:hidden!important; }
+                .tp table tbody tr.data-row td, .tp table tbody tr.ex-row td { height:max(26px, calc(32px - var(--tpShrink, 0px)))!important; max-height:max(26px, calc(32px - var(--tpShrink, 0px)))!important; }
+                .tp table tbody tr.tokki-row td { height:max(22px, calc(28px - var(--tpShrink, 0px)))!important; max-height:max(22px, calc(28px - var(--tpShrink, 0px)))!important; }
                 .tp table tbody tr.bikou-row td { height:44px!important; max-height:44px!important; }
-                .tp table tbody tr.data-row td>div.cell-wrap {
-                  height:max(30px, calc(42px - var(--tpShrink, 0px))); max-height:max(30px, calc(42px - var(--tpShrink, 0px))); overflow:hidden;
-                  display:flex; align-items:center; justify-content:center;
-                  word-break:break-all; flex-wrap:wrap; text-align:center;
-                  line-height:1.15;
+                .tp table tbody tr.data-row td>div.cell-wrap, .tp table tbody tr.ex-row td>div.cell-wrap {
+                  height:max(22px, calc(28px - var(--tpShrink, 0px))); max-height:max(22px, calc(28px - var(--tpShrink, 0px))); overflow:hidden;
+                  display:flex; align-items:center; justify-content:center; word-break:break-all; flex-wrap:wrap; text-align:center; line-height:1.1;
                 }
                 .tp table tbody tr.tokki-row td>div.cell-wrap {
-                  height:max(22px, calc(32px - var(--tpShrink, 0px))); max-height:max(22px, calc(32px - var(--tpShrink, 0px))); overflow:hidden;
-                  display:flex; align-items:center; justify-content:flex-start;
-                  line-height:1.2; white-space:nowrap; word-break:keep-all;
-                  text-align:left; padding-left:4px;
+                  height:max(18px, calc(24px - var(--tpShrink, 0px))); max-height:max(18px, calc(24px - var(--tpShrink, 0px))); overflow:hidden;
+                  display:flex; align-items:center; justify-content:flex-start; line-height:1.15; white-space:normal; word-break:break-all; text-align:left; padding-left:4px;
                 }
-                .tp table tbody tr.tokki-row td>div.cell-wrap.tokki-fit { white-space:normal; word-break:break-all; line-height:1.15; align-items:center; }
-                .tp table tbody tr.tokki-row td>div.cell-wrap.tokki-fit>span { text-align:left; width:100%; }
+                .tp table tbody tr.tokki-row td>div.cell-wrap>span { text-align:left; width:100%; }
                 .tp table tbody tr.bikou-row td>div.cell-wrap {
-                  height:40px; max-height:40px; overflow:hidden;
-                  display:flex; align-items:center; justify-content:flex-start;
-                  line-height:1.2; white-space:normal; word-break:break-all;
-                  text-align:left; padding-left:4px;
+                  height:40px; max-height:40px; overflow:hidden; display:flex; align-items:center; justify-content:flex-start;
+                  line-height:1.2; white-space:normal; word-break:break-all; text-align:left; padding-left:4px;
                 }
               `}</style>
               <table className="w-full border-collapse" style={{tableLayout:'fixed',width:'100%'}}>
+                <colgroup>
+                  <col style={{width:50}}/>
+                  {Array.from({length: N}).map((_, i)=><col key={i}/>)}
+                </colgroup>
                 <thead className="shrink-0">
-                  <tr className="bg-slate-800 text-white text-[10px]" style={{height:36}}>
-                    <th rowSpan={ex2.length ? 2 : 1} className="border border-slate-600 py-1 overflow-hidden" style={{width:50}}><AutoFitText text="日付" max={13} bold color="#fff"/></th>
-                    <th className="border border-slate-600 py-1 overflow-hidden" style={{width:34}}><AutoFitText text="状態" max={13} bold color="#fff"/></th>
-                    {_kOnR && <th className="border border-slate-600 py-1 overflow-hidden" style={{width:34}}><AutoFitText text="気分" max={13} bold color="#fff"/></th>}
-                    <th className="border border-slate-600 py-1 overflow-hidden" style={{width:48}}><AutoFitText text="体温" max={13} bold color="#fff"/></th>
-                    <th className="border border-slate-600 py-1 overflow-hidden" style={{width:58}}><AutoFitText text="開始 血圧（脈）" max={11} bold color="#fff"/></th>
-                    {_showEnT && <th className="border border-slate-600 py-1 overflow-hidden" style={{width:58}}><AutoFitText text={`${secondBpLabel(appData)} 血圧（脈）`} max={11} bold color="#fff"/></th>}
-                    {ex1.map(it => (
-                      <th key={it.id} className="border border-slate-600 py-1 leading-tight px-0 overflow-hidden" style={{width: _exW}}><AutoFitText text={it.name} max={11} min={6} bold color="#fff" wrap/></th>
-                    ))}
-                    {Array.from({length: exCols - ex1.length}).map((_, i)=><th key={`h${i}`} className="border border-slate-600" style={{width: _exW}}></th>)}
-                    <th className="border border-slate-600 py-1 overflow-hidden" style={{width: _exW}}><AutoFitText text="介護整体" max={11} bold color="#fff"/></th>
+                  <tr className="bg-slate-800 text-white text-[10px]" style={{height:22}}>
+                    <th rowSpan={2} className="border border-slate-600 py-0 overflow-hidden" style={{width:50}}><AutoFitText text="日付" max={12} bold color="#fff"/></th>
+                    <th colSpan={SP1.st} className="border border-slate-600 py-0 overflow-hidden"><AutoFitText text="状態" max={11} min={6} bold color="#fff"/></th>
+                    {_kOnR && <th colSpan={SP1.ki} className="border border-slate-600 py-0 overflow-hidden"><AutoFitText text="気分" max={11} min={6} bold color="#fff"/></th>}
+                    <th colSpan={SP1.tp} className="border border-slate-600 py-0 overflow-hidden"><AutoFitText text="体温" max={11} min={6} bold color="#fff"/></th>
+                    <th colSpan={SP1.st1} className="border border-slate-600 py-0 overflow-hidden"><AutoFitText text="開始 血圧（脈）" max={11} min={6} bold color="#fff"/></th>
+                    {_showEnT && <th colSpan={SP1.en} className="border border-slate-600 py-0 overflow-hidden"><AutoFitText text={`${secondBpLabel(appData)} 血圧（脈）`} max={11} min={6} bold color="#fff"/></th>}
+                    <th colSpan={SP1.re} className="border border-slate-600 py-0 overflow-hidden"><AutoFitText text="再検（開始/終了 ○回目 時刻 血圧 脈）" max={10} min={6} bold color="#fff"/></th>
                   </tr>
-                  {ex2.length > 0 && (
-                  <tr className="bg-slate-800 text-white text-[10px]" style={{height:36}}>
-                    <th colSpan={_fixedN - 1} className="border border-slate-600 py-1 overflow-hidden text-right pr-1" style={{background:'#1e293b'}}><AutoFitText text="運動（続き）" max={10} bold color="#cbd5e1"/></th>
-                    {ex2.map(it => (
-                      <th key={it.id} className="border border-slate-600 py-1 leading-tight px-0 overflow-hidden" style={{width: _exW}}><AutoFitText text={it.name} max={11} min={6} bold color="#fff" wrap/></th>
+                  <tr className="bg-slate-800 text-white text-[10px]" style={{height:22}}>
+                    {ex.map(it => (
+                      <th key={it.id} className="border border-slate-600 py-0 px-0 overflow-hidden"><AutoFitText text={it.name} max={10} min={5} bold color="#fff"/></th>
                     ))}
-                    {Array.from({length: exCols - ex2.length}).map((_, i)=><th key={`h2${i}`} className="border border-slate-600" style={{width: _exW}}></th>)}
-                    <th className="border border-slate-600"></th>
-                  </tr>)}
+                    {Array.from({length: N - ex.length - 1}).map((_, i)=><th key={`h${i}`} className="border border-slate-600"></th>)}
+                    <th className="border border-slate-600 py-0 px-0 overflow-hidden"><AutoFitText text="介護整体" max={10} min={5} bold color="#fff"/></th>
+                  </tr>
                 </thead>
                 <tbody>
                   {pr.map(r => {
@@ -31404,18 +31371,29 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                     const sl=isF?(r.status==='出席'?'予定':r.status):r.status;
                     const sc=sl==='出席'?'text-blue-700 font-bold':sl==='予定'?'text-slate-400':sl==='欠席'?'text-red-600 font-bold':sl==='振替'?'text-violet-700 font-bold':sl==='臨時'?'text-cyan-700 font-bold':'text-slate-500';
                     const rc=isA?'bg-slate-50 text-slate-400':'';
-                    const jisseki=v(r.actualTime)||(isA||mt?'':defTime);
+                    const _reL = (isA||mt) ? [] : bpReLines(r);
+                    const _exCell = (it) => {
+                      const raw = r.exercises?.[it.id];
+                      let display = ''; let isIndividual = false;
+                      if (it.type === 'individual' && raw && typeof raw === 'object') {
+                        isIndividual = true;
+                        const allInd = appData.systemSettings?.individualExerciseItems || [];
+                        const sel = allInd.find(ii => ii.id === raw.itemId);
+                        if (sel && raw.value) display = `${sel.name} ${applyExUnits(raw.value, sel)}`; else if (sel) display = sel.name;
+                      } else if (typeof raw !== 'object') { display = v(raw); }
+                      const baseFs = isIndividual ? 9 : 12;
+                      const len = (display||'').length;
+                      const adjFs = len > 8 ? Math.max(7, baseFs - 3) : len > 5 ? Math.max(8, baseFs - 1) : baseFs;
+                      return (<td key={it.id} className="border border-slate-400 px-0 text-center font-bold"><div className="cell-wrap" style={{justifyContent:'center',fontSize: adjFs, lineHeight:1.1, overflow:'hidden'}}>{isA||mt?'':display}</div></td>);
+                    };
                     return (
                       <Fragment key={r.id}>
-                        {/* データ行 */}
-                        <tr className={`data-row ${rc}`} style={{height:40}}>
-                          <td rowSpan={ex2.length ? 3 : 2} className={`border border-slate-400 px-1 text-center ${rc}`} style={{verticalAlign:'middle',overflow:'hidden',maxWidth:80,padding:0,height:82}}>
-                            <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:'2px 0'}}>
-                              <div className="font-bold leading-tight" style={{fontSize:24}}>{r.dayNum}</div>
-                              <div className="font-normal leading-tight" style={{fontSize:12,color:'#475569',marginTop:1}}>（{r.dayOfWeek}）</div>
-                              {/* ★ 記録者: r.recorder (古い記録 = recorder 空 は表示なし)。2026-09-29 ユーザー指示で「担当」→「記録」、その下に「個別: 実施担当」 */}
-                              {/* ★ 2026-09-29 ユーザー指示: 名前が長くても1行(幅に合わせて縮小) */}
-                              {/* ★ 2026-09-29 ユーザー指示: 行間を詰めて左詰め(行の高さ82pxを変えない) */}
+                        {/* 1段目: 状態・気分・体温・血圧・再検 */}
+                        <tr className={`data-row ${rc}`}>
+                          <td rowSpan={3} className={`border border-slate-400 px-1 text-center ${rc}`} style={{verticalAlign:'middle',overflow:'hidden',maxWidth:80,padding:0}}>
+                            <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:'1px 0'}}>
+                              <div className="font-bold leading-tight" style={{fontSize:22}}>{r.dayNum}</div>
+                              <div className="font-normal leading-tight" style={{fontSize:11,color:'#475569'}}>（{r.dayOfWeek}）</div>
                               {r.recorder && (
                                 <div style={{marginTop:1,textAlign:'left',padding:'0 1px',width:'100%',overflow:'hidden',lineHeight:1}}><AutoFitText text={`記録: ${r.recorder}`} max={9} min={5} bold color="#475569"/></div>
                               )}
@@ -31424,88 +31402,41 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                               )}
                             </div>
                           </td>
-                          <td className={`border border-slate-400 px-0.5 text-center text-[9px] ${sc}`} ><div className="cell-wrap" style={{justifyContent:'center'}}>{sl}</div></td>
+                          <td colSpan={SP1.st} className={`border border-slate-400 px-0.5 text-center text-[10px] ${sc}`}><div className="cell-wrap" style={{justifyContent:'center'}}>{sl}</div></td>
                           {_kOnR && (
-                          <td className="border border-slate-400 px-0 text-center overflow-hidden" style={{fontSize:9,verticalAlign:'middle'}}>
+                          <td colSpan={SP1.ki} className="border border-slate-400 px-0 text-center overflow-hidden" style={{fontSize:9,verticalAlign:'middle'}}>
                             {(() => {
-                              // ★ 気分は絵文字だけをコンパクトに表示し、理由はホバー(title)で見せる。
-                              //   理由の文字数が多いと行が縦に伸びて見づらかったのを解消(行高さを一定に保つ)。
                               const MOODS = {'excellent':'🤩','good':'😊','normal':'😐','bad':'😞','terrible':'😫'};
                               const MLBL = {'excellent':'とても良い','good':'良い','normal':'普通','bad':'イマイチ','terrible':'とても悪い'};
-                              const arr = v(r.kibunArrival);
-                              const dep = v(r.kibunDeparture);
-                              const arrR = v(r.kibunArrivalReason);
-                              const depR = v(r.kibunDepartureReason);
+                              const arr = v(r.kibunArrival); const dep = v(r.kibunDeparture); const arrR = v(r.kibunArrivalReason); const depR = v(r.kibunDepartureReason);
                               if(!arr && !dep) return '';
-                              const renderLine = (label, mood, reason) => {
-                                const tip = `${label}: ${MLBL[mood]||mood}${reason?`（${reason}）`:''}`;
-                                return (
-                                  <div title={tip} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:3,cursor:'default'}}>
-                                    <span style={{fontSize:8,color:'#64748b',fontWeight:'bold',flexShrink:0}}>{label}</span>
-                                    <span style={{fontSize:15,lineHeight:1,flexShrink:0}}>{MOODS[mood]||mood}</span>
-                                  </div>
-                                );
-                              };
-                              return (<div style={{display:'flex',flexDirection:'column',justifyContent:'center',gap:3,padding:'3px 0'}}>
-                                {arr && renderLine('通', arr, arrR)}
-                                {dep && renderLine('帰', dep, depR)}
-                              </div>);
+                              const one = (label, mood, reason) => (<span title={`${label}: ${MLBL[mood]||mood}${reason?`（${reason}）`:''}`} style={{display:'inline-flex',alignItems:'center',gap:2,cursor:'default'}}><span style={{fontSize:8,color:'#64748b',fontWeight:'bold'}}>{label}</span><span style={{fontSize:13,lineHeight:1}}>{MOODS[mood]||mood}</span></span>);
+                              return (<div style={{display:'flex',justifyContent:'center',gap:4}}>{arr && one('通', arr, arrR)}{dep && one('帰', dep, depR)}</div>);
                             })()}
                           </td>
                           )}
-                          <td className="border border-slate-400 px-0.5 text-center font-bold text-[12px]" ><div className="cell-wrap" style={{justifyContent:'center'}}>{v(r.temp)?`${r.temp}℃`:''}</div></td>
-                          <td className="border border-slate-400 px-1 text-center font-bold text-[12px]" style={{wordBreak:'break-all',lineHeight:1.2}}>
+                          <td colSpan={SP1.tp} className="border border-slate-400 px-0.5 text-center font-bold text-[12px]"><div className="cell-wrap" style={{justifyContent:'center'}}>{v(r.temp)?`${r.temp}℃`:''}</div></td>
+                          <td colSpan={SP1.st1} className="border border-slate-400 px-1 text-center font-bold text-[12px]" style={{wordBreak:'break-all',lineHeight:1.1}}>
                             <div className="cell-wrap" style={{justifyContent:'center'}}>{v(r.bpUpSt) ? <><span>{r.bpUpSt}/{r.bpDnSt}</span>{v(r.plSt)?<span className="text-slate-700">（{r.plSt}）</span>:''}</> : ''}</div>
                           </td>
                           {_showEnT && (
-                          <td className="border border-slate-400 px-1 text-center font-bold text-[12px]" style={{wordBreak:'break-all',lineHeight:1.2}}>
+                          <td colSpan={SP1.en} className="border border-slate-400 px-1 text-center font-bold text-[12px]" style={{wordBreak:'break-all',lineHeight:1.1}}>
                             <div className="cell-wrap" style={{justifyContent:'center'}}>{v(r.bpUpEn) ? <><span>{r.bpUpEn}/{r.bpDnEn}</span>{v(r.plEn)?<span className="text-slate-700">（{r.plEn}）</span>:''}</> : ''}</div>
                           </td>
                           )}
-                          {(()=>{
-                            // 列幅に応じてフォントサイズも調整 (運動メニューが増えても見やすく)
-                            const baseExFs = exCols > 8 ? 10 : 12;
-                            const baseIndFs = exCols > 8 ? 8 : 9;
-                            const _exCell = (it) => {
-                              const raw = r.exercises?.[it.id];
-                              let display = '';
-                              let isIndividual = false;
-                              if (it.type === 'individual' && raw && typeof raw === 'object') {
-                                isIndividual = true;
-                                const allInd = appData.systemSettings?.individualExerciseItems || [];
-                                const sel = allInd.find(ii => ii.id === raw.itemId);
-                                if (sel && raw.value) display = `${sel.name}\n${applyExUnits(raw.value, sel)}`;
-                                else if (sel) display = sel.name;
-                              } else if (typeof raw !== 'object') {
-                                display = v(raw);
-                              }
-                              // 値の長さに応じて更に微調整
-                              const baseFs = isIndividual ? baseIndFs : baseExFs;
-                              const len = (display||'').replace(/\n/g,'').length;
-                              const adjFs = len > 8 ? Math.max(7, baseFs - 2) : len > 5 ? Math.max(8, baseFs - 1) : baseFs;
-                              return (
-                                <td key={it.id} className="border border-slate-400 px-0 text-center font-bold">
-                                  <div className="cell-wrap" style={{justifyContent:'center',whiteSpace:'pre-line',fontSize: adjFs, lineHeight:1.15, overflow:'hidden'}}>{isA||mt?'':display}</div>
-                                </td>
-                              );
-                            };
-                            r._exCell = _exCell; // 下段の行でも同じ描画を使う
-                            return <>{ex1.map(_exCell)}{Array.from({length: exCols - ex1.length}).map((_, i)=><td key={`e${i}`} className="border border-slate-400"></td>)}</>;
-                          })()}
+                          {/* ★ 再検: 開始/終了の再測定(bpRe)を「開始 2回目 10:15 130/80 脈70」の形で。多いときは縮小 */}
+                          <td colSpan={SP1.re} className="border border-slate-400 px-1 text-left text-slate-700"><div className="cell-wrap" style={{justifyContent:'flex-start',textAlign:'left',flexWrap:'wrap',gap:'0 8px',fontSize:_reL.length>2?7:_reL.length>1?8:9,lineHeight:1.1}}>{_reL.map((t, i) => <span key={i} style={{whiteSpace:'nowrap'}}>{t}</span>)}</div></td>
+                        </tr>
+                        {/* 2段目: 運動すべて + 介護整体 */}
+                        <tr className={`ex-row ${rc}`}>
+                          {ex.map(_exCell)}
+                          {Array.from({length: N - ex.length - 1}).map((_, i)=><td key={`e${i}`} className="border border-slate-400"></td>)}
                           <td className="border border-slate-400 px-0.5 text-center font-bold"><div className="cell-wrap" style={{justifyContent:'center',whiteSpace:'nowrap',fontSize:(v(r.massage)||'').length>4?9:(v(r.massage)||'').length>3?10:12}}>{v(r.massage)}</div></td>
                         </tr>
-                        {ex2.length > 0 && (
-                        <tr className={`ex2-row ${rc}`}>
-                          <td colSpan={_fixedN - 1} className="border border-slate-400 px-1 py-0 bg-slate-100 text-right text-[9px] text-slate-500 font-bold"><div className="cell-wrap" style={{justifyContent:'flex-end'}}>運動（続き）</div></td>
-                          {ex2.map(r._exCell)}
-                          {Array.from({length: exCols - ex2.length}).map((_, i)=><td key={`e2${i}`} className="border border-slate-400"></td>)}
-                          <td className="border border-slate-400"></td>
-                        </tr>)}
-                        {/* 特記行 */}
-                        <tr className={`tokki-row ${rc}`} style={{height:36}}>
-                          <td className="border-l border-b border-slate-400 px-1 py-0 bg-slate-100 text-center text-[9px] text-slate-500 font-bold" ><div className="cell-wrap">特記</div></td>
-                          {/* ★ 2026-10-02(店舗報告: 特記に長い文を書くと入らない): 2行まで折り返し、収まるまで文字を縮める(10→7px)。それでも入らない分は切れる(行の高さは固定) */}
-                          <td colSpan={_tcx - 2} className="border-r border-b border-slate-400 px-1.5 py-0 text-[10px] text-slate-700" ><div className="cell-wrap tokki-fit" style={{overflow:'hidden',whiteSpace:'normal',alignItems:'flex-start'}}><AutoFitText text={[r.tokki||'', ...bpReLines(r)].filter(Boolean).join('　')} max={10} min={7} wrap/></div></td>
+                        {/* 3段目: 特記 */}
+                        <tr className={`tokki-row ${rc}`}>
+                          <td className="border-l border-b border-slate-400 px-1 py-0 bg-slate-100 text-center text-[9px] text-slate-500 font-bold"><div className="cell-wrap" style={{justifyContent:'center',paddingLeft:0}}>特記</div></td>
+                          <td colSpan={N - 1} className="border-r border-b border-slate-400 px-1.5 py-0 text-[10px] text-slate-700"><div className="cell-wrap" style={{overflow:'hidden'}}><AutoFitText text={r.tokki||''} max={10} min={7} wrap/></div></td>
                         </tr>
                       </Fragment>
                     );
@@ -31513,29 +31444,26 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                   {/* 空行 */}
                   {Array.from({length:fill}).map((_,i)=>(
                     <Fragment key={`e${i}`}>
-                      <tr className="data-row" style={{height:44}}>
-                        <td rowSpan={ex2.length ? 3 : 2} className="border border-slate-400 px-1" style={{height:82}}></td>
-                        <td className="border border-slate-400" style={{height:44}}></td>{/* 状態 */}
-                        {_kOnR && <td className="border border-slate-400" style={{height:44}}></td>}{/* 気分 ★ 見出しと同じ条件(2026-09-29: 余分な列で表が崩れていた) */}
-                        <td className="border border-slate-400" style={{height:44}}></td>{/* 体温 */}
-                        <td className="border border-slate-400" style={{height:44}}></td>{/* 開始 */}
-                        {_showEnT && <td className="border border-slate-400" style={{height:44}}></td>}{/* 終了 */}
-                        {Array.from({length: exCols}).map((_, i)=><td key={i} className="border border-slate-400" style={{height:44}}></td>)}
-                        <td className="border border-slate-400" style={{height:44}}></td>
+                      <tr className="data-row">
+                        <td rowSpan={3} className="border border-slate-400 px-1"></td>
+                        <td colSpan={SP1.st} className="border border-slate-400"></td>
+                        {_kOnR && <td colSpan={SP1.ki} className="border border-slate-400"></td>}
+                        <td colSpan={SP1.tp} className="border border-slate-400"></td>
+                        <td colSpan={SP1.st1} className="border border-slate-400"></td>
+                        {_showEnT && <td colSpan={SP1.en} className="border border-slate-400"></td>}
+                        <td colSpan={SP1.re} className="border border-slate-400"></td>
                       </tr>
-                      {ex2.length > 0 && (<tr className="ex2-row"><td colSpan={_fixedN - 1} className="border border-slate-400 bg-slate-100"></td>{Array.from({length: exCols}).map((_, i)=><td key={i} className="border border-slate-400"></td>)}<td className="border border-slate-400"></td></tr>)}
-                      <tr className="tokki-row" style={{height:38}}>
-                        <td className="border-l border-b border-slate-400 px-1 py-0 bg-slate-100 text-center text-[9px] text-slate-400 font-bold" style={{height:38}}>特記</td>
-                        <td colSpan={_tcx - 2} className="border-r border-b border-slate-400" style={{height:38}}></td>
+                      <tr className="ex-row">{Array.from({length: N}).map((_, k)=><td key={k} className="border border-slate-400"></td>)}</tr>
+                      <tr className="tokki-row">
+                        <td className="border-l border-b border-slate-400 px-1 py-0 bg-slate-100 text-center text-[9px] text-slate-400 font-bold">特記</td>
+                        <td colSpan={N - 1} className="border-r border-b border-slate-400"></td>
                       </tr>
                     </Fragment>
                   ))}
-                  {/* ★ 日付表と備考の間に余白 */}
-                  <tr className="bikou-gap"><td colSpan={_tcx}></td></tr>
-                  {/* ★ 7日目の位置: 備考欄 (基本1行。長い場合は縮小)。 当月にサービス提供内容の変更があれば自動記載、手動編集も可 */}
+                  <tr className="bikou-gap"><td colSpan={N + 1}></td></tr>
                   <tr className="bikou-row">
                     <td className="border border-slate-500 px-1 py-0 bg-amber-50 text-center text-[10px] text-amber-700 font-bold" style={{width:50}}>備考</td>
-                    <td colSpan={_tcx - 1} className="border border-slate-500 px-1.5 py-0 text-slate-800" style={{background:_bikouText?'#fffdf5':'white',fontSize:(_bikouText||'').length>60?8:(_bikouText||'').length>44?9:10}}><div className="cell-wrap">{_bikouText}</div></td>
+                    <td colSpan={N} className="border border-slate-500 px-1.5 py-0 text-slate-800" style={{background:_bikouText?'#fffdf5':'white',fontSize:(_bikouText||'').length>60?8:(_bikouText||'').length>44?9:10}}><div className="cell-wrap">{_bikouText}</div></td>
                   </tr>
                 </tbody>
               </table>
@@ -34104,7 +34032,30 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     if (srcRec && srcRec.status === '欠席' && String(srcRec.tokki||'').trim() && !/へ振替/.test(srcRec.tokki)) {
       const pr = parseAbsReason(String(srcRec.tokki).trim()); cat = pr.cat || ''; detail = pr.cat ? (pr.detail || '') : String(srcRec.tokki).trim();
     }
-    setFkMove({ pid, fromIso, fromSl, toIso, toSl, destZone, beforePid, cat, detail });
+    // ★ 2026-10-02(試験版・ユーザー要望): 動かす方がその日「振替で来る」方なら、振替の日を変える操作として扱う。
+    //   元の休み(例: 金)はそのまま欠席、いまの振替日(例: 木)は休みではなく「外す」、新しい日(例: 水)が振替になる。理由は元の休みの理由を引き継ぐ。
+    let origIso = '', origSl = '';
+    try {
+      const att = _attendees(fromIso, fromSl).find(a => a.pid === pid);
+      const isFk = !!(att && att.furikae) || (srcRec && srcRec.status === '振替');
+      if (isFk) {
+        const mk = `${fD.getFullYear()}-${String(fD.getMonth()+1).padStart(2,'0')}`;
+        const cell = String(appData.monthlyShifts?.[mk]?.[pid]?.[`${fD.getDate()}_${fromSl}`] || '');
+        let m = cell.match(/^振\((\d+)\/(\d+)\)/);
+        if (!m && srcRec) m = String(srcRec.tokki || '').match(/^(\d+)月(\d+)日/) && [null, ...String(srcRec.tokki).match(/^(\d+)月(\d+)日/).slice(1)];
+        if (m) {
+          const oy = (+m[1] > fD.getMonth() + 1) ? fD.getFullYear() - 1 : fD.getFullYear();
+          origIso = `${oy}-${String(+m[1]).padStart(2,'0')}-${String(+m[2]).padStart(2,'0')}`;
+          const oD = new Date(origIso); const oLabel = `${oD.getMonth()+1}月${oD.getDate()}日`;
+          const oRec = (appData.ticketRecords||[]).find(r => r.patientId === pid && r.date === oLabel && (r.year ? r.year === oD.getFullYear() : true));
+          const oTok = String((oRec && oRec.tokki) || ''); const sm = oTok.match(/へ振替（(.+)）\s*$/);
+          const oAmpm = oTok.match(/(AM|PM)へ振替/); origSl = oAmpm ? '' : ''; // 元の休みの時間帯は記録の furikaeAmpm/基本曜日から(下で算出)
+          const oBase = getScheduleOnDate(pt, origIso)?.[oD.getDay()] || ''; origSl = oBase === 'PM' ? 'PM' : 'AM';
+          if (sm) { const pr = parseAbsReason(sm[1].trim()); cat = pr.cat || ''; detail = pr.cat ? (pr.detail || '') : sm[1].trim(); }
+        }
+      }
+    } catch {}
+    setFkMove({ pid, fromIso, fromSl, toIso, toSl, destZone, beforePid, cat, detail, origIso, origSl });
   };
   const executeFurikaeMove = (mv, reasonText) => {
     const { pid, fromIso, fromSl, toIso, toSl, destZone, beforePid } = mv;
@@ -34114,15 +34065,29 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const srcLabel = `${fD.getMonth()+1}月${fD.getDate()}日`, destLabel = `${tD.getMonth()+1}月${tD.getDate()}日`;
     const shifts = JSON.parse(JSON.stringify(appData.monthlyShifts||{}));
     const setShift2 = (dObj, slX, val) => { const mk = `${dObj.getFullYear()}-${String(dObj.getMonth()+1).padStart(2,'0')}`; const k = `${dObj.getDate()}_${slX}`; shifts[mk] = shifts[mk]||{}; shifts[mk][pid] = shifts[mk][pid]||{}; shifts[mk][pid][k] = val; };
-    setShift2(fD, fromSl, '欠席'); setShift2(tD, toSl, '振替');
+    const _delIds = [];
+    if (mv.origIso) {
+      // ★ 振替の日を変える: いまの振替日(from)はセルを消し、その記録は中身(バイタル等)が無ければ削除。元の休み(orig)は欠席のまま理由と振替先を書き換え
+      const mkF = `${fD.getFullYear()}-${String(fD.getMonth()+1).padStart(2,'0')}`;
+      if (shifts[mkF] && shifts[mkF][pid]) { delete shifts[mkF][pid][`${fD.getDate()}_${fromSl}`]; if (!Object.keys(shifts[mkF][pid]).length) delete shifts[mkF][pid]; }
+      const oD = new Date(mv.origIso); setShift2(oD, mv.origSl || 'AM', '欠席'); setShift2(tD, toSl, `振(${oD.getMonth()+1}/${oD.getDate()})`);
+    } else { setShift2(fD, fromSl, '欠席'); setShift2(tD, toSl, '振替'); }
     const recs = JSON.parse(JSON.stringify(appData.ticketRecords||[]));
     const upsert = (dObj, dateStr, patch) => {
       const idx = recs.findIndex(r => r.patientId === pid && r.date === dateStr && (r.year ? r.year === dObj.getFullYear() : true));
       if (idx >= 0) recs[idx] = { ...recs[idx], ...patch, _savedAt: syncNow() };
       else recs.push({ id: `tr_${pid}_${dObj.getFullYear()}_${dObj.getMonth()+1}_${dObj.getDate()}`, patientId: pid, name: pt.name, kana: pt.kana||'', date: dateStr, year: dObj.getFullYear(), dayOfWeek: dayNames[dObj.getDay()], temp:'',bpUpSt:'',bpDnSt:'',plSt:'',bpUpEn:'',bpDnEn:'',plEn:'',massage:'',exercises:{},actualTime:'', kibunArrival:'',kibunArrivalReason:'',kibunDeparture:'',kibunDepartureReason:'',done:false, ...patch, _savedAt: syncNow() });
     };
+    if (mv.origIso) {
+      const oD = new Date(mv.origIso); const oLabel = `${oD.getMonth()+1}月${oD.getDate()}日`;
+      upsert(oD, oLabel, { status: '欠席', tokki: `${destLabel}${toSl}へ振替${reasonText ? '（'+reasonText+'）' : ''}` });
+      upsert(tD, destLabel, { status: '振替', furikaeAmpm: toSl, tokki: `${oLabel}${mv.origSl || ''}分振替` });
+      const fi = recs.findIndex(r => r.patientId === pid && r.date === srcLabel && (r.year ? r.year === fD.getFullYear() : true));
+      if (fi >= 0) { if (!ticketHasClinicalData(recs[fi])) { _delIds.push(String(recs[fi].id)); recs.splice(fi, 1); } }
+    } else {
     upsert(fD, srcLabel, { status: '欠席', tokki: `${destLabel}${toSl}へ振替${reasonText ? '（'+reasonText+'）' : ''}` });
     upsert(tD, destLabel, { status: '振替', furikaeAmpm: toSl, tokki: `${srcLabel}${fromSl}分振替` });
+    }
     const tp = { ...plans };
     const strip = (entry) => { if (!entry) return entry; const e2 = JSON.parse(JSON.stringify(entry)); Object.keys(e2.cars||{}).forEach(cid => { e2.cars[cid] = (e2.cars[cid]||[]).filter(m => m.pid !== pid); }); ['walkers','others','un'].forEach(k => { if (e2[k]) e2[k] = e2[k].filter(m => m.pid !== pid); }); if (e2.drop) { Object.keys(e2.drop.cars||{}).forEach(cid => { e2.drop.cars[cid] = (e2.drop.cars[cid]||[]).filter(m => m.pid !== pid); }); ['walkers','others'].forEach(k => { if (e2.drop[k]) e2.drop[k] = e2.drop[k].filter(m => m.pid !== pid); }); } e2._savedAt = syncNow(); return e2; };
     const fromKey = `${fromIso}_${fromSl}`;
@@ -34138,7 +34103,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     tp[toKey] = toEntry;
     // ★ 2026-10-01(試験版): 振替は提供記録・月間スケジュールも変えるため「元に戻す」の対象外。それより前の操作を戻すと振替と食い違うので、元に戻すの履歴は空にする
     if (_undoList().length) { _undoList().length = 0; _setUndoTick(t => t + 1); }
-    onSave({ ...appData, monthlyShifts: shifts, ticketRecords: recs, transportPlans: tp }, { manual: true, message: `✓ ${pt.name}様を${destLabel}(${toSl==='AM'?'午前':'午後'})へ振替登録しました` });
+    const _tomb = _delIds.length ? (() => { const t = { ...(appData.deletedIds||{}) }; t.ticketRecords = { ...(t.ticketRecords||{}) }; _delIds.forEach(id => { t.ticketRecords[id] = Date.now(); }); return t; })() : null;
+    onSave({ ...appData, monthlyShifts: shifts, ticketRecords: recs, transportPlans: tp, ...(_tomb ? { deletedIds: _tomb } : {}) }, { manual: true, message: mv.origIso ? `✓ ${pt.name}様の振替を${destLabel}(${toSl==='AM'?'午前':'午後'})へ変更しました` : `✓ ${pt.name}様を${destLabel}(${toSl==='AM'?'午前':'午後'})へ振替登録しました`, ...(_delIds.length ? { deleteRecordIds: _delIds } : {}) });
   };
   // ★ ルート計算のコア(1日分・時間帯1つ): 保存はせず計算後のプランを返す。
   //   呼び出し側が1回のonSaveへまとめる(2026-09-12d: 週間一括で「後の日の保存が前の日を消す」バグの修正)。
@@ -35264,10 +35230,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         return (
           <div className="fixed inset-0 bg-slate-900/60 flex items-start justify-center p-4 pt-20" style={{zIndex:10000}}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5">
-              <div className="font-bold text-slate-800 text-lg mb-1">{pt.name} 様を振替として登録</div>
+              <div className="font-bold text-slate-800 text-lg mb-1">{pt.name} 様{fkMove.origIso ? 'の振替の日を変更' : 'を振替として登録'}</div>
               <div className="text-sm font-bold text-slate-600 mb-3 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
                 {fD.getMonth()+1}/{fD.getDate()}（{dayNames[fD.getDay()]}・{fkMove.fromSl==='AM'?'午前':'午後'}） → {tD.getMonth()+1}/{tD.getDate()}（{dayNames[tD.getDay()]}・{fkMove.toSl==='AM'?'午前':'午後'}）
-                <div className="text-[11px] font-normal text-slate-500 mt-1">元の日は「欠席（振替）」になり、月間スケジュール・提供記録にも反映されます。</div>
+                <div className="text-[11px] font-normal text-slate-500 mt-1">{fkMove.origIso ? (() => { const o = new Date(fkMove.origIso); return `元の休み ${o.getMonth()+1}/${o.getDate()}（${dayNames[o.getDay()]}）は欠席のまま。${fD.getMonth()+1}/${fD.getDate()} の振替は取り消し（休みにはしません）、新しい日が振替になります。`; })() : '元の日は「欠席（振替）」になり、月間スケジュール・提供記録にも反映されます。'}</div>
               </div>
               <label className="block text-xs font-bold text-slate-600 mb-1">振替の理由（大分類）</label>
               <div className="flex flex-wrap gap-1.5 mb-2">
@@ -36149,7 +36115,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   const deletingAccIdsRef = useRef(new Set()); // ★ 削除中/削除済みのアカウントID (Supabase再取得で復活させない)
   const [personalFileModal, setPersonalFileModal] = useState(null); // {patient, initialTab}
   // ★ サービス提供記録から「戻る」で戻ってきたとき、元の個人ファイル(サービス提供記録タブ)を再度開く
-  React.useEffect(() => {
+  // ★ 2026-10-02(ユーザー報告「利用者マスタ管理で移動→個人ファイルが開かない」): すでにこの画面にいるときは画面が作り直されず
+  //   起動時の読み取りが走らなかった。右上の「移動」からは合図(tsumugiReopenPF イベント)も送るので、それでも開く
+  const _reopenPF = React.useCallback(() => {
     try {
       const raw = sessionStorage.getItem('tsumugiReopenPF');
       if (raw) {
@@ -36159,7 +36127,10 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         if (pat) { setEditingPatientId(pat.id); onPatientChange && onPatientChange(pat.id); setPersonalFileModal({ patient: pat, initialTab: o.tab || 'cat_6', focus: o.focus }); }
       }
     } catch {}
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appData.patients]);
+  React.useEffect(() => { _reopenPF(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => { window.addEventListener('tsumugiReopenPF', _reopenPF); return () => window.removeEventListener('tsumugiReopenPF', _reopenPF); }, [_reopenPF]);
 
   // ★ アカウント管理モーダルを開いた時 + 10秒ごと、Supabase から最新の家族招待/アカウントを取得
   //   (登録した家族の状態が「未使用」のまま固まらないように)
