@@ -1574,6 +1574,28 @@ const resolveExerciseValue = (exercises, itemId, exItems, fallbackItems) => {
 //   BMI = 体重(kg) ÷ 身長(m)²。判定は日本肥満学会の基準(18.5未満=低体重/18.5〜25未満=普通体重/25〜30未満=肥満1度/30以上=肥満2度以上)。
 //   65歳以上は厚生労働省「日本人の食事摂取基準」の目標とするBMI 21.5〜24.9 も添える(普通体重でも21.5未満は「目標より低め」)。
 const calcBmi = (h, w) => { const hh = Number(String(h ?? '').trim()), ww = Number(String(w ?? '').trim()); if (!(hh > 50 && hh < 250 && ww > 10 && ww < 300)) return null; return Math.round(ww / ((hh / 100) ** 2) * 10) / 10; };
+// ★ 2026-10-03(ユーザー要望「モニタリングの一括確定・締切後の自動確定」): 1件を確定済みにする共通処理(MonitoringView.upsertSheet の確定分岐と同じ)。
+//   acc = { existing:[...monitoringRecords], anns:[...familyPersonalAnnouncements] } を書き換える。既に確定済みなら何もしない。
+//   auto=true は締切後の自動確定(お知らせの id を固定にして、複数端末が同時に自動確定しても二重にならない)。
+const monConfirmInto = (acc, rec, { auto = false, tsNow = Date.now(), sync = tsNow } = {}) => {
+  if (!rec || rec.confirmed) return false;
+  const _now = new Date(tsNow);
+  const _again = !!rec.monNotifiedAt;
+  const annId = auto ? `monann_${rec.id}_auto` : `monann_${rec.id}_${sync}`;
+  const _d = `${_now.getFullYear()}-${String(_now.getMonth()+1).padStart(2,'0')}-${String(_now.getDate()).padStart(2,'0')}`;
+  const ann = { id: annId, patientId: rec.patientId, title: `モニタリング（${rec.period}）を${_again ? '更新' : '作成'}しました`,
+    body: `${rec.period}分のモニタリング表を${_again ? '更新' : '作成'}しました。ご確認ください。`,
+    date: _d, postedAt: _now.toISOString(), audience: ['caremanager'], jumpTo: 'sec-monitoring', jumpLabel: 'モニタリング表を見る', photos: [], _savedAt: sync };
+  const i = acc.existing.findIndex(r => r && r.id === rec.id);
+  const next = { ...rec, confirmed: true, sheet: { ...(rec.sheet || {}), implDate: _d }, monAnnId: annId, monNotifiedAt: rec.monNotifiedAt || _now.toISOString(), monConfirmedAt: _now.toISOString(), ...(auto ? { monAutoConfirmed: true } : {}), _savedAt: sync };
+  if (i >= 0) acc.existing[i] = next; else acc.existing.push(next);
+  if (!acc.anns.some(a => a && a.id === annId)) acc.anns = [ann, ...acc.anns];
+  return true;
+};
+// 締切(その月の末日 18:00)を過ぎた未確定のうち「下書きに記入がある」ものを自動で確定する。戻り値 = 確定した件数(0なら変更なし)
+const monDeadlineOf = (period) => { const m = String(period || '').match(/^(\d{4})年(\d{1,2})月$/); if (!m) return null; return new Date(+m[1], +m[2], 0, 18, 0, 0, 0).getTime(); };
+const monSheetHasContent = (sheet) => { if (!sheet || typeof sheet !== 'object') return false; return ['s1','goal','s2','s3','s4'].some(k => { const c = sheet[k]; return c && typeof c === 'object' ? !!(String(c.text || '').trim()) : !!(c && String(c).trim()); }); };
+const monAutoConfirmDue = (recs, now = Date.now()) => (recs || []).filter(r => r && !r.confirmed && r.sheet && monSheetHasContent(r.sheet) && (() => { const dl = monDeadlineOf(r.period); return dl != null && now > dl; })());
 // ★ 2026-10-02(ユーザー要望「分析個人・体力測定にBMIをグラフ化」): BMIの推移グラフ(共通)。
 //   points=[{date,bmi}](古い順)。普通体重 18.5〜25 を薄い緑の帯、65歳以上は目標 21.5〜24.9 を少し濃い帯で示し、点は判定の色。
 function BmiTrendChart({ points, age, height = 150 }) {
@@ -11270,6 +11292,11 @@ function SignupCompleteView({ context, appData, onSave }) {
 // === 家族画面プレビュー & 特記編集 (FamilyAdminView内のタブ) ===
 function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid, familyTokkiOverrides, setTokkiOverride, initialViewer = 'family' }) {
   const [previewInnerTab, setPreviewInnerTab] = useState('news'); // 'news' | 'records'
+  // ★ 2026-10-03(ユーザー要望「閲覧管理で家族・ケアマネの閲覧期間(当月以外)も選べるように」): 家族・ケアマネ画面と同じ期間の選択
+  const [pvPeriod, setPvPeriod] = useState('1'); // '1','3','6','12','all','custom'
+  const [pvMode, setPvMode] = useState('daily'); // 'daily' | 'auto'
+  const [pvFrom, setPvFrom] = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; });
+  const [pvTo, setPvTo] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; });
   // ★ 2026-09-30(試験版): 見る人の切り替え(ご家族/ケアマネ)。お知らせは見る人向けのものだけ、通所記録はケアマネ画面(モニタリング表あり)を表示
   const [viewer, setViewer] = useState(initialViewer === 'caremanager' ? 'caremanager' : 'family');  const [patDropOpen, setPatDropOpen] = useState(false);
   const [patSearch, setPatSearch] = useState('');
@@ -11342,6 +11369,25 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
               <button key={k} onClick={()=>setPreviewInnerTab(k)}
                 className={`px-3 py-2 rounded-lg text-sm font-bold ${previewInnerTab===k?'bg-emerald-500 text-white':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{l}</button>
             ))}
+          </div>
+        )}
+        {patient && previewInnerTab === 'records' && (
+          <div className="flex items-center gap-1 shrink-0" data-testid="preview-period">
+            <span className="text-[11px] font-bold text-slate-500">期間</span>
+            <select value={`${pvPeriod}:${pvMode}`} onChange={e => { const [p, m] = e.target.value.split(':'); setPvPeriod(p); setPvMode(m); }}
+              className="px-2 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold text-slate-700">
+              <optgroup label="日別で表示">
+                <option value="1:daily">1ヶ月（当月）</option><option value="3:daily">3ヶ月</option><option value="6:daily">半年</option><option value="12:daily">1年</option><option value="all:daily">全期間</option><option value="custom:daily">期間を指定</option>
+              </optgroup>
+              <optgroup label="月平均で表示">
+                <option value="6:auto">半年</option><option value="12:auto">1年</option><option value="all:auto">全期間</option><option value="custom:auto">期間を指定</option>
+              </optgroup>
+            </select>
+            {pvPeriod === 'custom' && (<>
+              <input type="month" value={pvFrom} max={pvTo || '9999-12'} onChange={e => { const v = e.target.value; setPvFrom(v); if (v && pvTo && v > pvTo) setPvTo(v); }} className="px-1 py-1 bg-slate-50 border border-slate-300 rounded-lg text-[11px] font-bold text-slate-700"/>
+              <span className="text-[11px] text-slate-500">〜</span>
+              <input type="month" value={pvTo} min={pvFrom || undefined} onChange={e => { const v = e.target.value; setPvTo(v); if (v && pvFrom && v < pvFrom) setPvFrom(v); }} className="px-1 py-1 bg-slate-50 border border-slate-300 rounded-lg text-[11px] font-bold text-slate-700"/>
+            </>)}
           </div>
         )}
         {patient && (
@@ -11489,6 +11535,10 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
           stickyTopOffset={114}
           navigateTo={()=>{}}
           onShowPrintPreview={()=>{}}
+          externalPeriod={pvPeriod}
+          externalDisplayMode={pvMode}
+          externalCustomFrom={pvFrom}
+          externalCustomTo={pvTo}
         />
       )}
     </div>
@@ -25916,6 +25966,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   });
   // 家族画面・事業所側ともデフォルト「1ヶ月」
   const [period, setPeriod] = useState(externalPeriod || '1');
+  const [monShowOld, setMonShowOld] = useState(false); // ★ 2026-10-03: モニタリングは最新の確定分だけ表示し、前の月は「前の月を見る」で開く
   // ★ 親 (FamilyPatientView) から externalPeriod が来たら同期
   React.useEffect(() => {
     if (externalPeriod && externalPeriod !== period) setPeriod(externalPeriod);
@@ -28720,9 +28771,9 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
               <span style={{width:8,height:8,background:'#10b981',borderRadius:'50%',display:'inline-block'}}/>
               モニタリング
             </div>
-            <span style={{fontSize:14,color:'#059669',fontWeight:'bold',background:'#d1fae5',padding:'2px 8px',borderRadius:6}}>
-              {rangeLabel}
-            </span>
+            {/* ★ 2026-10-03(ユーザー相談「9月分を10月に見るのに切替が要る？」): 期間に関係なく「最新の確定分」を常に表示し、前の月は折りたたみ */}
+            {(() => { const _all = (appData.monitoringRecords||[]).filter(r=>r.patientId===selectedPatientId && monitoringReflectable(r)).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)); const _l = _all[0]; if (!_l) return <span style={{fontSize:12,color:'#64748b'}}>確定済みの記録はありません</span>; const _c = _l.monConfirmedAt ? new Date(_l.monConfirmedAt) : null; return (
+              <span style={{fontSize:13,color:'#059669',fontWeight:'bold',background:'#d1fae5',padding:'2px 8px',borderRadius:6}} data-testid="mon-latest-badge">最新：{_l.period||'—'}分{_c && !isNaN(_c) ? `（${_c.getMonth()+1}/${_c.getDate()} 確定）` : ''}</span>); })()}
           </div>
           {(appData.monitoringRecords||[]).filter(r=>r.patientId===selectedPatientId && monitoringReflectable(r)).length > 0 ? (
             <div style={{padding:'8px 0'}}>
@@ -28730,9 +28781,13 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                 // ★ 同じ月(period)は1件だけ(最新)に絞る。 同月が何個も並ぶのを防ぐ。
                 const _rows = (appData.monitoringRecords||[]).filter(r=>r.patientId===selectedPatientId && monitoringReflectable(r)).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
                 const _seen = new Set();
-                return _rows.filter(r => { const k = String(r.period||r.createdDate||r.id); if(_seen.has(k)) return false; _seen.add(k); return true; });
+                const _uniq = _rows.filter(r => { const k = String(r.period||r.createdDate||r.id); if(_seen.has(k)) return false; _seen.add(k); return true; });
+                // 最新1件＋(開いたときだけ)前の月
+                const _show = monShowOld ? _uniq : _uniq.slice(0, 1);
+                _show._older = _uniq.length - 1;
+                return _show;
               })()
-                .map((r,i)=>(
+                .map((r,i,arr)=>(
                   <div key={r.id} style={{padding:'14px 20px',borderBottom:'1px solid #f0fdf4',backgroundColor:i%2===0?'white':'#f8fffe'}}>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
                       <span style={{fontSize:14,fontWeight:'bold',color:'#059669'}}>{r.period||'—'}</span>
@@ -28742,6 +28797,13 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                     {r.sheet && (!cmViewerMode || cmSheetView)
                       ? <MonSheetPreview patient={selectedPatient} rec={r} facility={appData.systemSettings?.facilityInfo || {}} onViewed={onMonitoringViewed} />
                       : <div style={{fontSize:14,color:'#475569',lineHeight:1.8,whiteSpace:'pre-wrap'}}>{r.summary}</div>}
+                    {i === arr.length - 1 && arr._older > 0 && (
+                      <div style={{textAlign:'center',marginTop:10}}>
+                        <button type="button" data-testid="mon-show-old" onClick={()=>setMonShowOld(v=>!v)} style={{padding:'8px 16px',borderRadius:10,border:'1px solid #a7f3d0',background:'#ecfdf5',color:'#065f46',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>
+                          {monShowOld ? '前の月を閉じる' : `前の月を見る（${arr._older}件）`}
+                        </button>
+                      </div>
+                    )}
                   </div>
               ))}
             </div>
@@ -48913,6 +48975,36 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     if (!rec || !rec.sheet) { const sheet = buildDefaultSheetFor(patient); upsertSheet(patient, sheet, {manual:true, message:'✓ 確定しました（内容未入力のため既定の文章で作成）。担当ケアマネの画面に反映し、お知らせを送りました'}, true); return; }
     upsertSheet(patient, rec.sheet, {manual:true, message: rec.confirmed ? '確定を解除しました（担当ケアマネの画面からも取り下げました）' : '✓ 確定しました。担当ケアマネの画面に反映し、お知らせを送りました'}, !rec.confirmed);
   };
+  // ★ 2026-10-03(ユーザー要望): 選んだ方(全員選択なら全員)をまとめて確定。未作成の方は既定の文章で作成して確定(1件ずつの「確定」と同じ)。
+  const bulkConfirm = async () => {
+    const targets = attendedPats.filter(p => (checkedIds.size ? checkedIds.has(p.id) : true) && !getSheetRecord(p.id)?.confirmed);
+    if (!targets.length) { await monAlert('確定する方がいません（選んだ方はすべて確定済みです）。'); return; }
+    const noSheet = targets.filter(p => !getSheetRecord(p.id)?.sheet).length;
+    if (!await monConfirm(`${targets.length}名のモニタリング（${monthLabelStr}）をまとめて確定します。${noSheet ? `\n（うち${noSheet}名は内容未入力のため既定の文章で作成して確定します）` : ''}\n確定すると担当ケアマネの画面に反映し、お知らせを送ります。よろしいですか？`)) return;
+    const acc = { existing: [...(appData.monitoringRecords || [])], anns: [...(appData.familyPersonalAnnouncements || [])] };
+    const sync = syncNow(); let n = 0;
+    targets.forEach(p => {
+      let rec = acc.existing.find(r => r.patientId === p.id && r.period === monthLabelStr);
+      if (!rec) { const sheet = buildDefaultSheetFor(p); rec = { id: `${p.id}_${tY}-${String(tM).padStart(2,'0')}`, patientId: p.id, period: monthLabelStr, createdDate: new Date().toLocaleDateString('ja-JP'), createdAt: Date.now(), summary: _monSummary(sheet), sheet, confirmed: false }; acc.existing.push(rec); }
+      if (monConfirmInto(acc, rec, { sync })) n++;
+    });
+    onSave({ ...appData, monitoringRecords: acc.existing, familyPersonalAnnouncements: acc.anns }, { manual: true, message: `✓ ${n}名のモニタリングを確定しました。担当ケアマネの画面に反映し、お知らせを送りました` });
+    setResults(prev => { const nx = { ...prev }; targets.forEach(p => { const r = acc.existing.find(x => x.patientId === p.id && x.period === monthLabelStr); nx[p.id] = { text: r ? r.summary : '', confirmed: true, loading: false, error: null, editing: false }; }); return nx; });
+    setCheckedIds(new Set());
+  };
+  // ★ 2026-10-03(ユーザー要望「締切後は自動で確定」): この画面を開いたとき、締切(末日18:00)を過ぎた月の未確定のうち
+  //   「下書きに記入があるもの」だけを自動で確定する(空のまま自動で見せない)。全期間が対象(前月分も)。
+  const _autoConfirmedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (_autoConfirmedRef.current) return; _autoConfirmedRef.current = true;
+    try {
+      const due = monAutoConfirmDue(appData.monitoringRecords || []);
+      if (!due.length) return;
+      const acc = { existing: [...(appData.monitoringRecords || [])], anns: [...(appData.familyPersonalAnnouncements || [])] };
+      const sync = syncNow(); let n = 0; due.forEach(r => { if (monConfirmInto(acc, r, { auto: true, sync })) n++; });
+      if (n) onSave({ ...appData, monitoringRecords: acc.existing, familyPersonalAnnouncements: acc.anns }, { manual: true, message: `✓ 締切を過ぎていたため、記入済みの${n}件のモニタリングを自動で確定しました（担当ケアマネの画面に反映）` });
+    } catch (e) { console.warn('auto confirm failed', e); }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // ★ 一覧の1行をAIで下書き (手入力済みの内容は残してAIは空欄のみ補完)。 確定はしない。
   const aiDraftRow = async (patient) => {
     if (_monthLocked) { monAlert('当月分のAI下書きは毎月15日以降にご利用いただけます（AIコスト管理のため）。'); return; }
@@ -49461,6 +49553,10 @@ ${optionsDesc}
         )}
         {/* ★ 2026-08-30 店舗要望: 「個人ファイルに保存」は編集・確定で自動保存されるため廃止。
             「印刷/複合機FAX用に出力」はプレビュー(ケアマネ宛先つき)で代替できるため廃止し、名称を短縮 */}
+        <button type="button" data-testid="mon-bulk-confirm" onClick={bulkConfirm} title="選んだ方(全員選択なら全員)の未確定のモニタリングをまとめて確定します。未作成の方は既定の文章で作成して確定します"
+          style={{padding:'7px 12px',borderRadius:10,fontSize:12,fontWeight:'bold',border:'none',background:'#10b981',color:'white',cursor:'pointer'}}>
+          {checkedIds.size && !allChecked ? `選んだ${attendedPats.filter(p=>checkedIds.has(p.id)&&!getSheetRecord(p.id)?.confirmed).length}名を確定` : '一括確定'}
+        </button>
         <button type="button" onClick={faxToCareManagers} title="作成済みのモニタリング表をケアマネ宛先つきでプレビュー表示し、送付履歴に記録します(印刷/PDF/複合機FAXはプレビューから)"
           style={{padding:'7px 12px',borderRadius:10,fontSize:12,fontWeight:'bold',border:'1px solid #fdba74',background:'#fff7ed',color:'#c2410c',cursor:'pointer'}}>
           印刷/PDF
@@ -49530,7 +49626,7 @@ ${optionsDesc}
             {attendedPats.length > 0 && (<>
               <span style={{color:'#059669'}}>✓ 確定 {_confN}名</span>
               <span style={{color:_todoN>0?'#d97706':'#94a3b8'}}>● 未確定 {_todoN}名</span>
-              <span style={{color:'#475569',fontWeight:'normal'}}>締切: {tM}月{_lastDay}日 18:00（過ぎると確定分が分析（個人）へ自動反映）</span>
+              <span style={{color:'#475569',fontWeight:'normal'}}>締切: {tM}月{_lastDay}日 18:00（過ぎると記入済みの下書きは自動で確定・確定分は分析（個人）へ反映）</span>
               <span style={{borderLeft:'1px solid #e2e8f0',height:16}}/>
             </>)}
             <span style={{color:_aiRemaining>0?'#1e40af':'#b91c1c',fontWeight:'normal'}}>
