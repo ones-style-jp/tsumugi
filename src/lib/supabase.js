@@ -1,6 +1,7 @@
 // Supabase クライアント (Phase 1: 家族認証のみ)
 // 環境変数が設定されていない場合は null を返し、呼び出し側で localStorage フォールバック
 import { createClient } from '@supabase/supabase-js';
+import { sameStateIgnoringMeta } from './logic.js';
 
 const url = import.meta.env.VITE_SUPABASE_URL || '';
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -682,6 +683,13 @@ async function _casUpdateInner(key, mutate, opts = {}) {
     observeRemoteClock(row.data && row.data.__clock ? row.data.__clock : maxRecordClock(row.data));
     const next = mutate(row.data || null);
     if (next == null) return { ok: true, version: base, noop: true };
+    // ★ 2026-10-02(扇橋で毎秒1回以上の空回りの書き込みを確認): マージした結果がクラウドと「時刻の印(__clock)と
+    //   最後に保存した端末(_lastSync)以外は同じ」なら書かない。書くと版だけが進み、他端末が受信→保存し直す、を
+    //   2台で延々と繰り返し(通信を占有して保存失敗・画面の遅れの原因)、中身は何も変わっていなかった。
+    if (opts.skipIfSame && row.data && sameStateIgnoringMeta(next, row.data)) {
+      try { const _n = Date.now(); if (!_casUpdateInner._noopAt || _n - _casUpdateInner._noopAt > 30000) { _casUpdateInner._noopAt = _n; syncLog('push-noop', { v: base }); } } catch {}
+      return { ok: true, version: base, noop: true, data: row.data };
+    }
     // ★ 書き込むデータに「この時点での最大同期時刻」を刻む (次に読む端末がこれ以上へ時計を進める)
     try { next.__clock = Math.max(Number(row.data && row.data.__clock) || 0, syncNow()); } catch {}
     // ② 原子的CAS: WHERE key AND version=base の1行だけ更新(version+1)。 返り行で成否判定。
@@ -1412,9 +1420,9 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData) {
       }
     }
     return sanitizeForSync(merged);
-    }, { maxRetries: 12 }); // supabaseCasUpdate の mutate 終わり (2台同時編集の競合に耐えるため厚め)
+    }, { maxRetries: 12, skipIfSame: true }); // supabaseCasUpdate の mutate 終わり (2台同時編集の競合に耐えるため厚め・中身が同じなら書かない)
     const _ok = !!(_casRes && _casRes.ok);
-    if (_ok) { syncHealth.lastOkAt = Date.now(); syncLog('push-ok', { v: _casRes.version }); }
+    if (_ok) { syncHealth.lastOkAt = Date.now(); if (!_casRes.noop) syncLog('push-ok', { v: _casRes.version }); }
     else { syncHealth.lastFailAt = Date.now(); syncHealth.lastError = (_casRes && _casRes.reason) || 'unknown'; syncLog('push-fail', { reason: syncHealth.lastError }); }
     return _ok;
   } catch (e) {

@@ -11,7 +11,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
 import __builtUpdateNotes from '../public/update-notes.json';
-import { encodeInviteToken, decodeInviteToken, normalizeInviteCode } from './lib/logic';
+import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows } from './lib/logic';
 import {
   isSupabaseEnabled,
   supabaseCreateInvite,
@@ -1613,6 +1613,28 @@ const ImeSafeInput = React.forwardRef(function ImeSafeInput({ value, onChange, o
     onCompositionEnd={(e) => { composing.current = false; setDraft(e.target.value); if (onChange) onChange(e); if (onCompositionEnd) onCompositionEnd(e); }}
     onBlur={(e) => { composing.current = false; setDraft(null); if (onBlur) onBlur(e); }} />;
 });
+// ★ 2026-10-02(扇橋の同期調査・ユーザー要望「送迎表の時間をタップしたら数字のテンキー」): 送迎表の時間の入力欄。
+//   ・数字のキーボード(inputMode numeric)。日本語入力の変換中は値を整えない(iPadで数字が増える不具合の対策・ImeSafeInput と同じ)
+//   ・打っている間は画面の中だけで持ち、欄から離れたとき(または打つのをやめて約1秒後)に1回だけ保存する。
+//     以前は1文字ごとに保存→店舗データ全体(約1.8MB)を毎回送っており、時間を打つだけで通信が詰まり他端末の保存が失敗していた。
+const TpTimeInput = ({ value, onCommit, normalize, ...rest }) => {
+  const [draft, setDraft] = React.useState(null);
+  const composing = React.useRef(false);
+  const timer = React.useRef(null);
+  const lastSent = React.useRef(null);
+  const norm = (v, fin) => { try { return normalize ? normalize(v, fin) : String(v ?? ''); } catch { return String(v ?? ''); } };
+  const commit = (v) => { if (timer.current) { clearTimeout(timer.current); timer.current = null; } if (v === lastSent.current) return; lastSent.current = v; if (v !== String(value ?? '')) onCommit(v); };
+  const schedule = (v) => { if (timer.current) clearTimeout(timer.current); timer.current = setTimeout(() => { timer.current = null; const f = norm(v, true); if (f === '' || /^\d{1,2}:\d{2}$/.test(f)) commit(f); }, 1200); };
+  React.useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  const shown = draft !== null ? draft : String(value ?? '');
+  return <input type="text" inputMode="numeric" pattern="[0-9]*" enterKeyHint="done" autoComplete="off" {...rest} value={shown}
+    onFocus={(e) => { lastSent.current = null; setDraft(e.target.value); }}
+    onChange={(e) => { const v = e.target.value; if (composing.current || (e.nativeEvent && e.nativeEvent.isComposing)) { setDraft(v); return; } const nv = norm(v, false); setDraft(nv); schedule(nv); }}
+    onCompositionStart={() => { composing.current = true; }}
+    onCompositionEnd={(e) => { composing.current = false; const nv = norm(e.target.value, false); setDraft(nv); schedule(nv); }}
+    onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+    onBlur={(e) => { composing.current = false; const f = norm(e.target.value, true); setDraft(null); commit(f); }} />;
+};
 // ★ 2026-10-01(試験版・ユーザー要望「再読み込み中や何かの動作で画面が固まっている時は分かりやすくアニメーションを」):
 //   処理中・読み込み中の共通の回る輪。文字の大きさ・色に合わせて回る(見た目は src/index.css の .tsumugi-busy-spin)。
 //   「保存中…」「読み込み中…」など処理中の表示を新しく作るときは、文字の前に <BusySpin/> を付けること。
@@ -19186,13 +19208,20 @@ export default function App() {
   //   のに気づけない」状態のときだけ「未同期」を表示する。 lastAppliedAtRef は pull が走るたびに更新されるので、
   //   30秒以上古い＝poll が止まっている合図。 通常の編集中は 4秒毎に pull され更新されるので誤検知しない。
   //   ※ 読み取り専用(既存の値を見るだけ)。 同期の書き込み/マージには一切触れない。
+  const _lastTblPollOkRef = React.useRef(0);     // ★ 2026-10-02: 提供記録テーブルの受信(6秒ごと)が最後に成功した時刻(受信停止の検知用)
   const [syncStale, setSyncStale] = useState(false);
   const [auditLogOpen, setAuditLogOpen] = useState(false); // ★ 変更ログ(監査)ビューア
   const [auditLogCat, setAuditLogCat] = useState('全て');  // 変更ログのカテゴリ絞り込み
   useEffect(() => {
     const check = () => {
       const la = lastAppliedAtRef.current || 0;
-      setSyncStale(!!(isSupabaseEnabled && staffSession?.storeId && la > 0 && (Date.now() - la) > 30000));
+      // ★ 2026-10-02(扇橋 iPad「途中から他端末の記録が反映されなくなった」): 店舗データの受信は動いていても、
+      //   提供記録テーブルの受信(6秒ごと)だけが止まることがある(iPadのスリープ後など)。その場合も「未同期」を出し、
+      //   ホーム画面のアプリ(再読み込みボタンが無い)でもタップで再読み込みできるようにする。
+      const tp = _lastTblPollOkRef.current || 0;
+      const tblStale = !!(TABLE_ENABLED && tp > 0 && (Date.now() - tp) > 45000 && document.visibilityState !== 'hidden');
+      const stale = !!(isSupabaseEnabled && staffSession?.storeId && ((la > 0 && (Date.now() - la) > 30000) || tblStale));
+      setSyncStale(prev => { if (stale && !prev) { try { syncLog('stale-banner', { la: Math.round((Date.now() - la) / 1000), tbl: Math.round((Date.now() - tp) / 1000) }); } catch {} } return stale; });
     };
     const t = setInterval(check, 5000);
     const onF = () => setTimeout(check, 1500);
@@ -19229,6 +19258,14 @@ export default function App() {
   const appDataRef = React.useRef(appData);
   appDataRef.current = appData;
   const _lastTblSyncRef = React.useRef(null);   // 最後に取り込んだ updated_at
+  // ★ 自動テスト(VITE_E2E_DEMO=1 のビルドのみ・本番では空): 他端末の提供記録がテーブルから届いた状況を再現する入口
+  useEffect(() => {
+    if (String(import.meta.env.VITE_E2E_DEMO || '') !== '1') return;
+    try { window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), applyRemoteRecords: (patches) => {
+      applyingRemoteRef.current = true;
+      setAppData(prev => ({ ...prev, ticketRecords: (prev.ticketRecords || []).map(r => { const pt = (patches || []).find(x => String(x.id) === String(r.id)); return pt ? { ...r, ...pt, _fieldTs: { ...(r._fieldTs || {}), ...(pt._fieldTs || {}) } } : r; }) }));
+    } }; } catch {}
+  }, []);
   useEffect(() => {
     if (!TABLE_ENABLED || !isSupabaseEnabled || !staffSession?.storeId) return;
     const storeId = staffSession.storeId;
@@ -19385,19 +19422,24 @@ export default function App() {
         setOpsLoading(false);
       }
       if (stopped) return;
-      unsubscribe = subscribeTicketRecords(storeId, applyRows);
+      unsubscribe = subscribeTicketRecords(storeId, applyRows, (st) => { if (st === 'SUBSCRIBED') syncLog('rt-ok', {}); });
     };
     boot();
 
     // 保険: Realtime が届かない環境でも 6 秒ごとに差分を取りに行く
+    let _pollBusy = false;
     const timer = setInterval(async () => {
-      if (stopped || !opsReadyRef.current) return;
+      if (stopped || !opsReadyRef.current || _pollBusy) return;   // ★ 前の受信が終わるまで重ねない(20秒で打ち切られる)
+      _pollBusy = true;
       try {
         const since = _lastTblSyncRef.current || new Date(Date.now() - 60000).toISOString();
         const items = await fetchTicketRecordsSince(storeId, since);
+        _lastTblPollOkRef.current = Date.now();
         if (items.length) applyRows(items);
-      } catch (e) { /* 次回に任せる */ }
+      } catch (e) { try { syncLog('rows-poll-error', { err: String(e && e.message || e).slice(0, 60) }); } catch {} }
+      finally { _pollBusy = false; }
     }, 6000);
+    _lastTblPollOkRef.current = Date.now();
 
     const onWake = () => { if (document.visibilityState !== 'hidden' && opsReadyRef.current) {
       (async () => { try { const items = await fetchTicketRecordsSince(storeId, _lastTblSyncRef.current || new Date(Date.now()-60000).toISOString()); if (items.length) applyRows(items); } catch {} })();
@@ -20989,7 +21031,20 @@ export default function App() {
         newData = { ...newData, _lastSync: { device: (deviceName || '名称未設定の端末'), at: syncNow() } };
       }
     } catch (e) { /* 失敗しても保存自体は続行 */ }
-    setAppData(newData);
+    // ★ 2026-10-02(扇橋 上野様「Surfaceで欠席にしたのにiPadで出席に戻る」): 保存の内容(newData)は画面が最後に描かれた時点の
+    //   appData から作られる。その後に提供記録テーブルから届いた他端末の変更(applyRows の関数型更新)があると、
+    //   newData で丸ごと置き換えた時点で端末内から消えていた(テーブルの行は変わらないので二度と届かず、
+    //   その端末だけ古い値=出席のまま)。保存で変えていない項目に限り、届いた値を取り込んでから置き換える。
+    { const _baseApp = appData || {}; const _baseRecs = _baseApp.ticketRecords;
+      setAppData(cur => {
+        if (!cur || cur === _baseApp || !Array.isArray(cur.ticketRecords) || cur.ticketRecords === _baseRecs || !Array.isArray(newData.ticketRecords) || newData.ticketRecords === cur.ticketRecords) return newData;
+        try {
+          const { recs, n } = reconcileRemoteRecords(cur.ticketRecords, _baseRecs, newData.ticketRecords);
+          if (!n) return newData;
+          syncLog('save-keep-remote', { n });
+          return { ...newData, ticketRecords: recs };
+        } catch { return newData; }
+      }); }
     // ★★ 恒久対策(2026-09-07): 全ての保存を即時クラウド送信する。従来は options.manual/silent 指定時のみ
     //   送信で、無指定の呼び出し(77箇所: 削除・設定変更・記録操作等)は端末内のみ保存となり、次の
     //   manual/silent保存に相乗りするまでクラウドに届かなかった(日誌データ消失 5a52c5e と同型の穴)。
@@ -22688,6 +22743,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     || appData.systemSettings?.facilityInfo?.manager
     || '';
   const [localPatients, setLocalPatients] = useState([]);
+  // ★ 2026-10-02: 編集中の作り直し(mergeDraftRows)用。いまの画面の行と、前回作り直した時点の行
+  const _localPatientsRef = React.useRef([]); _localPatientsRef.current = localPatients;
+  const _seedBaseRef = React.useRef([]);
   const [localTicketRecords, setLocalTicketRecords] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [patientInfoModal, setPatientInfoModal] = useState(null); // masterData object
@@ -22945,7 +23003,12 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     //     「他端末の更新が下書きに反映されない＝再読込しないと同期しない」「古い下書きが自動保存で新しい時刻付きで
     //     push され他端末の入力を上書き」という重大な同期不具合になったため、dirty のみに戻す。
     //   日付が変わった時は必ず作り直す(前の日の編集中フラグが残って表示人数がおかしくなるのを防ぐ)。
-    if (!_dateChanged && dirtyRef?.current) { if (TABLE_ENABLED) syncLog('seed-skip-dirty', {}); return; }
+    // ★ 2026-10-02(扇橋 上野様の件): 提供記録入力(1日表示)では、編集中でも作り直す。この端末で変えた項目
+    //   (前回作り直した時点 _seedBaseRef と違う項目)だけ画面の値を残し、触っていない方・項目は最新にする(mergeDraftRows)。
+    //   以前は編集中は丸ごと見送っていたため、他端末で付けた欠席などが画面に出ず、その古い画面の自動保存で
+    //   端末内の記録まで古い値に戻っていた。月表示など他の表示は従来どおり見送る。
+    const _mergeDirty = !_dateChanged && !!dirtyRef?.current && filterMode === 'single';
+    if (!_dateChanged && dirtyRef?.current && !_mergeDirty) { if (TABLE_ENABLED) syncLog('seed-skip-dirty', {}); return; }
     const dayOfWeek = new Date(selectedDate).getDay();
     // ★ 施設の休業日(各種設定>休業日)判定(2026-08-11): この日は利用者の状態を自動で「休業」にする
     const _selIsoHd = (() => { const d = new Date(selectedDate); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
@@ -23152,6 +23215,16 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       const _dup = Object.values(_byPid).filter(c=>c>1).length;
       syncLog('seed', { n: filtered.length, rec: _dayRecs.length, dat: _dat, ex: _ex, dup: _dup });
     } catch { syncLog('seed', { n: filtered.length }); } }
+    if (_mergeDirty) {
+      try {
+        const _mg = mergeDraftRows(filtered, _localPatientsRef.current, _seedBaseRef.current);
+        _seedBaseRef.current = _mg.base;
+        setLocalPatients(_mg.rows);
+        if (TABLE_ENABLED) syncLog('seed-merge-dirty', { kept: _mg.kept });
+      } catch { if (TABLE_ENABLED) syncLog('seed-skip-dirty', {}); }
+      return; // 編集中フラグ・月表示用の控えはそのまま(保存で反映)
+    }
+    _seedBaseRef.current = filtered;
     setLocalPatients(filtered);
     // 月全体表示用：選択月のレコードのみ保持してメモリ節約
     const selM2 = new Date(selectedDate).getMonth() + 1;
@@ -23870,6 +23943,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           const targetDateStr = `${dObj.getMonth() + 1}月${dObj.getDate()}日`;
           const selYear = dObj.getFullYear(); // ★ 年対応: 保存する記録の年
           const dayOfWeekStr = ['日', '月', '火', '水', '木', '金', '土'][dObj.getDay()];
+          let _keptUntouched = 0;
           localPatients.forEach(p => {
               if (cancelledIds.has(p.id)) return; // 取り消し対象は書き戻さない
               const recordIndex = updatedTicketRecords.findIndex(r => r.patientId === p.id && recMatchesDateYear(r, targetDateStr, selYear));
@@ -23919,6 +23993,20 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   })(),
                   done: p.done || false,
               };
+              // ★ 2026-10-02(扇橋 上野様「Surfaceで欠席にしたのにiPadで出席に戻る」): 保存は画面の全員分を作り直すため、
+              //   この端末で触っていない方・項目まで画面(下書き)の値で書き戻していた。下書きが古い(編集中で作り直しを
+              //   見送った・受信の直後)と、他端末で変えた欠席などが端末内だけ古い値(出席)に戻り、時刻は付かないので
+              //   サーバーは欠席のまま=端末だけ食い違う状態になっていた。提供記録入力が管理する項目(_REC_GATED)のうち、
+              //   この端末が30分以内に実際に編集していない項目は、端末内の最新の記録の値をそのまま使う。項目ごとの時刻(_fieldTs)も引き継ぐ。
+              if (existing) {
+                const _ob = _recEditObs.map.get(`${p.id}|${targetDateStr}|${selYear}`) || {};
+                Object.keys(newRecord).forEach(k => {
+                  if (k === 'id' || !_REC_GATED(k) || OBS_IGNORE_FIELDS.has(k)) return;
+                  if (_ob[k] != null && (Date.now() - _ob[k]) < 30*60*1000) return;   // この端末で編集した項目 → 画面の値
+                  if (existing[k] !== undefined && !deepSame(existing[k], newRecord[k])) { newRecord[k] = existing[k]; _keptUntouched++; }
+                });
+                if (existing._fieldTs && typeof existing._fieldTs === 'object') newRecord._fieldTs = existing._fieldTs;
+              }
               // ★ 複数端末マージ対策: _savedAt は「実際にデータがある／変更があった」時だけ新しくする。
               //   空欄の出席記録に毎回新しい時刻を付けると、後で空欄保存した端末が、先に入力済みの端末の記録を
               //   上書きしてしまう (= 入力が消える)。 空欄は _savedAt=0 にして、入力済み(時刻>0)を上書きさせない。
@@ -23930,6 +24018,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               if (recordIndex >= 0) updatedTicketRecords[recordIndex] = newRecord;
               else updatedTicketRecords.push(newRecord);
           });
+          if (_keptUntouched) syncLog('save-keep-untouched', { n: _keptUntouched });
       } else {
         // ★ multiple / month モード: 変更があった record にだけ recorder を反映 (他の日付の担当者は変えない)
         //   ★ localTicketRecords は「選択中の月」のレコードしか保持していない (メモリ節約のため)。
@@ -24724,7 +24813,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               const isActiveRow = !!activeCell && String(activeCell).startsWith(`${p.id}-`);
 
               return (
-                <tr key={`${filterMode}-${p.id}`} className={`group transition-colors ${(isAbsent || isPause) ? 'text-slate-400' : isActiveRow ? 'bg-blue-50' : 'hover:bg-blue-50/50'} ${isReadOnly ? 'readonly-row' : ''}`} style={{
+                <tr key={`${filterMode}-${p.id}`} data-rv-pid={p.id} data-rv-status={p.status || ''} className={`group transition-colors ${(isAbsent || isPause) ? 'text-slate-400' : isActiveRow ? 'bg-blue-50' : 'hover:bg-blue-50/50'} ${isReadOnly ? 'readonly-row' : ''}`} style={{
                   // ★ 全画面時: ビューポートを直接基準にして 10 名ぴったり
                   //   100vh - 80px (title bar + scrollbar の最小) / 10
                   //   minHeight も同じ式で「行が縮まない」よう強制
@@ -34793,7 +34882,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                                   <span className={`w-4 h-4 rounded-full border text-[9px] leading-4 text-center font-bold ${(m.mark||_ac)?'bg-red-600 border-red-600 text-white':'border-slate-300 text-transparent'}`}>●</span>
                                 </button>); })()}
                                 <button onClick={()=>{ if (!dragMv) setEditP({pid:m.pid}); }} {..._dragHandlers(m.pid, iso, sl)} title="タップ=場所・乗車時間の編集 / 長押し=つかんで移動(別の日に落とすと振替)" className="text-[16px] font-bold text-slate-800 flex-1 min-w-0 text-left leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{touchAction:'pan-y'}}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></button>
-                                <input type="text" value={/^\d{1,2}:\d?$/.test(String(m.t||'')) ? m.t : _fmtT(m.t)} onChange={e=>setTime(iso, sl, m.pid, _normTimeInput(e.target.value, false))} onBlur={e=>{ const v2 = _normTimeInput(e.target.value, true); if (v2 !== e.target.value) setTime(iso, sl, m.pid, v2); }} placeholder="—:—" className={`w-[58px] text-center text-[16px] font-bold border rounded px-0.5 py-1 outline-none shrink-0 ${m.mark?'border-red-400 text-red-600':'border-slate-300'}`} style={{fontVariantNumeric:'tabular-nums'}}/>
+                                <TpTimeInput value={_fmtT(m.t)} normalize={_normTimeInput} onCommit={v => setTime(iso, sl, m.pid, v)} data-testid={`tp-time-${m.pid}`} placeholder="—:—" className={`w-[58px] text-center text-[16px] font-bold border rounded px-0.5 py-1 outline-none shrink-0 ${m.mark?'border-red-400 text-red-600':'border-slate-300'}`} style={{fontVariantNumeric:'tabular-nums'}}/>
                               </div>
                             ))}
                             {!(pl.cars?.[c.id]||[]).length && <div className="px-2 py-1 text-[10px] text-slate-400">{dragMv&&dragMv.kind!=='drop'?'ここにドロップ':'なし'}</div>}
@@ -34812,9 +34901,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                                 <span className="flex-1 min-w-0 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2 select-none" style={{touchAction:'pan-y', WebkitTouchCallout:'none', WebkitUserSelect:'none'}} onContextMenu={e=>e.preventDefault()} {..._dragHandlers(m.pid, iso, sl)}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></span>
                                 {/* ★ 2026-10-01(店舗報告: 徒歩・その他に入れた方を変更できない): iPad では文字の長押しで選択メニューが出てドラッグが始まらなかった。未割当と同じく「移動先」で選べるように */}
                                 {(() => { const raw = String(m.t ?? ''); const own = /\d/.test(raw); const shown = !own && raw !== '' ? _classStart(sl) : (/^\d{1,2}:\d?$/.test(raw) ? raw : _fmtT(raw));
-                                  return <ImeSafeInput type="text" data-testid={`tp-walk-time-${m.pid}`} value={shown} placeholder={_classStart(sl) || '—:—'} title="到着時間（空にするとクラスの開始時刻）"
-                                    onChange={e=>setWalkTime(iso, sl, m.pid, _normTimeInput(e.target.value, false))}
-                                    onBlur={e=>{ const v2 = _normTimeInput(e.target.value, true); if (!v2) { if (raw !== '徒歩') setWalkTime(iso, sl, m.pid, '徒歩'); return; } if (!own && v2 === _classStart(sl)) return; if (v2 !== raw) setWalkTime(iso, sl, m.pid, v2); }}
+                                  return <TpTimeInput data-testid={`tp-walk-time-${m.pid}`} value={shown} normalize={_normTimeInput} placeholder={_classStart(sl) || '—:—'} title="到着時間（空にするとクラスの開始時刻）"
+                                    onCommit={v2 => { if (!v2) { if (raw !== '徒歩') setWalkTime(iso, sl, m.pid, '徒歩'); return; } if (!own && v2 === _classStart(sl)) return; if (v2 !== raw) setWalkTime(iso, sl, m.pid, v2); }}
                                     className={`w-[54px] text-center text-[15px] font-bold border rounded px-0.5 py-0.5 outline-none shrink-0 ${own && _fmtT(raw) !== _classStart(sl) ? 'border-orange-500 text-orange-800 bg-orange-50' : 'border-orange-200 text-slate-600 bg-white'}`} style={{fontVariantNumeric:'tabular-nums'}}/>; })()}
                               </div>
                             ))}
