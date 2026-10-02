@@ -19027,6 +19027,8 @@ export default function App() {
   const _pushBusyRef = React.useRef(false);
   const _pushNextRef = React.useRef(null);
   const _pendPushRef = React.useRef(false); // 直近の push 失敗を IndexedDB に控えているか
+  const _pushWaitersRef = React.useRef([]);   // ★ 2026-10-02: 保存結果を待つ約束(「保存しました」の判定)
+  const _saveToastSeqRef = React.useRef(0); const _saveToastTimerRef = React.useRef(null);
   React.useEffect(() => {
     if (!isSupabaseEnabled || !staffSession?.storeId) return;
     const sid = staffSession.storeId; let stopped = false, busy = false;
@@ -21071,6 +21073,7 @@ export default function App() {
       syncLog('save', { manual: !!options.manual, silent: !!options.silent, canPush: !!_canPush, recs: (newData.ticketRecords||[]).length,
         // ★ push不許可の理由を必ず残す(2026-09-06 扇橋「保存が届かない」調査): st=店舗切替中 dl=読込済み店舗一致 sm=店舗ID一致 hd=実データあり
         ...( _canPush ? {} : { why: { st: !!storeTransitionRef.current, dl: dataLoadedForStoreRef.current === staffSession?.storeId, sm: !!_storeMatch, hd: !!_hasRealData } }) });
+      let _rowsPromise = null; // ★ 2026-10-02: 提供記録テーブルへの書き込み結果(「保存しました」の判定に使う)
       // ★ テーブル方式のときだけ ticket_records へ書き込む。 巨大JSON方式(TABLE_ENABLED=false)では
       //   下の mergeAndSyncStateForStore が提供記録も含めて保存するので、ここは何もしない。
       if (TABLE_ENABLED && _canPush) {
@@ -21103,7 +21106,7 @@ export default function App() {
             return Object.keys(d).some(k => k !== '_fieldTs') ? { ...row, data: d } : null;
           }).filter(Boolean);
           if (_gateDrop) syncLog('rows-gate', { drop: _gateDrop, ex: _gateEx });
-          if (_rows.length) upsertTicketRows(staffSession.storeId, _rows);
+          if (_rows.length) _rowsPromise = upsertTicketRows(staffSession.storeId, _rows).catch(() => ({ ok: false }));
           // ★ 削除の反映(2026-08-10): 「明示的に指定された記録idだけ」テーブルにも削除(deleted_at)を立てる。
           //   配列差分からの推測削除は誤爆リスクがあるため従来どおり行わない。 これが無いと、振替の
           //   取り消し等で墓石に積んでもテーブルの行が生き残り、数秒後の受信や再読み込みで必ず復活していた
@@ -21141,13 +21144,17 @@ export default function App() {
           return false;
         };
         // ★ 単一実行キュー: 実行中なら最新データだけ控える(同じ端末の状態は常に上位互換のため安全)
-        const _pumpPush = async (dataToPush) => {
+        // ★ 2026-10-02(店舗報告「電波を切って保存しても『保存しました』と出る」): 呼び出しごとに「クラウドに書けたか」を返す約束を用意する。
+        //   後から来た保存はそれまでの内容を含むので、その結果で待っている全員に答える。
+        const _pumpPush = (dataToPush) => new Promise((resolve) => { _pushWaitersRef.current.push(resolve); _pumpPushInner(dataToPush); });
+        const _pumpPushInner = async (dataToPush) => {
           if (_pushBusyRef.current) { _pushNextRef.current = dataToPush; return; }
           _pushBusyRef.current = true;
           try {
             let cur = dataToPush;
             while (cur) {
               const ok = await _retryPush(cur);
+              { const ws = _pushWaitersRef.current.splice(0); ws.forEach(r => { try { r(!!ok); } catch {} }); }
               if (!ok) {
                 syncLog('push-give-up', {});
                 // ★ 失敗した内容を IndexedDB に控える → 再読み込み後・オンライン復帰後に自動再送(2026-09-21)
@@ -21159,11 +21166,23 @@ export default function App() {
             }
           } finally { _pushBusyRef.current = false; }
         };
-        _pumpPush(newData);
+        const _pushDone = _pumpPush(newData);
         if (options.manual) {
-          setToastMsg(options.message || '保存されました');
-          setShowToast(true);
-          setTimeout(() => setShowToast(false), 3000);
+          // ★ 2026-10-02(店舗報告: 電波を切った状態で保存→「保存しました」→アプリを入れ直すと保存されていない):
+          //   「保存しました」はクラウド(店舗データとテーブル)に書けたときだけ出す。それまでは「保存しています…」、
+          //   失敗したら「保存できませんでした」(入力は端末に控えて通信が戻れば自動で送る)。通信が無いときは最初から失敗の案内。
+          const _tid = ++_saveToastSeqRef.current;
+          const _show = (msg, ms) => { if (_saveToastSeqRef.current !== _tid) return; setToastMsg(msg); setShowToast(true); clearTimeout(_saveToastTimerRef.current); _saveToastTimerRef.current = setTimeout(() => { if (_saveToastSeqRef.current === _tid) setShowToast(false); }, ms); };
+          if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+            _show('⚠ 通信がないため保存できませんでした。入力は端末に控えており、通信が戻ると自動で送ります（この画面を閉じないでください）', 8000);
+          } else {
+            _show('クラウドに保存しています…', 60000);
+            Promise.all([_pushDone, _rowsPromise || Promise.resolve({ ok: true })]).then(([okPush, rowsRes]) => {
+              const ok = okPush && !(rowsRes && rowsRes.ok === false);
+              if (ok) _show(options.message || '✓ 保存しました', 3000);
+              else _show('⚠ クラウドに保存できませんでした（通信を確認してください）。入力は端末に控えており、通信が戻ると自動で送ります', 8000);
+            }).catch(() => _show('⚠ クラウドに保存できませんでした（通信を確認してください）。入力は端末に控えています', 8000));
+          }
         }
       } else if (isSupabaseEnabled && staffSession?.storeId && !options.allowEmpty && !_hasRealData) {
         // 利用者0件(未ロード等)で push 抑止 → 端末ローカルのみ。 誤解を避ける表示
@@ -21954,8 +21973,9 @@ export default function App() {
           </div>
         </div>, document.body)}
       {showToast && ReactDOM.createPortal(
-        <div style={{position:'fixed',top:24,right:32,zIndex:99999}} className="bg-slate-900 text-white px-6 py-3 rounded-xl shadow-2xl flex items-center animate-bounce">
-          <CheckCircle2 className="text-emerald-400 mr-2" />{toastMsg}
+        <div style={{position:'fixed',top:24,right:32,zIndex:99999}} className={`bg-slate-900 text-white px-6 py-3 rounded-xl shadow-2xl flex items-center max-w-[min(92vw,560px)] ${/…$/.test(String(toastMsg||'')) ? '' : 'animate-bounce'}`}>
+          {/* ★ 2026-10-02: 保存中は回る輪・失敗(⚠)は赤、成功だけ緑のチェック */}
+          {/^⚠/.test(String(toastMsg||'')) ? <span className="text-red-400 mr-2 font-bold">!</span> : /…$/.test(String(toastMsg||'')) ? <BusySpin style={{marginRight:10,color:'#a7f3d0'}}/> : <CheckCircle2 className="text-emerald-400 mr-2" />}{String(toastMsg||'').replace(/^⚠\s*/, '')}
         </div>,
         document.body
       )}
@@ -28783,10 +28803,12 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
 //   一覧で出て、そこから選ぶ。選択中の利用者がいればその方の画面へ、いなければ画面だけ移る。
 function QuickNav({ navigateTo, currentView, patientId, appData }) {
   const [open, setOpen] = React.useState(false);
-  const ref = React.useRef(null);
+  const ref = React.useRef(null); const menuRef = React.useRef(null); const [pos, setPos] = React.useState(null);
   React.useEffect(() => {
     if (!open) return;
-    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    // ★ 2026-10-02(ユーザー報告「利用者マスタで移動のポップアップが背面に行く」): メニューは document.body に最前面で描く(位置はボタンの右下)
+    try { const r = ref.current.getBoundingClientRect(); setPos({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) }); } catch { setPos({ top: 60, right: 8 }); }
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target) && !(menuRef.current && menuRef.current.contains(e.target))) setOpen(false); };
     document.addEventListener('pointerdown', h); return () => document.removeEventListener('pointerdown', h);
   }, [open]);
   const targetId = patientId || null;
@@ -28807,8 +28829,8 @@ function QuickNav({ navigateTo, currentView, patientId, appData }) {
         className="hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 transition-all">
         移動{pt ? <span style={{fontWeight:'normal',color:'#64748b'}}>（{pt.name} 様）</span> : null}<span style={{fontSize:10}}>▼</span>
       </button>
-      {open && (
-        <div data-testid="quicknav-menu" style={{position:'absolute',right:0,top:'calc(100% + 6px)',background:'white',border:'1px solid #cbd5e1',borderRadius:12,boxShadow:'0 10px 30px rgba(15,23,42,0.15)',padding:6,minWidth:200}}>
+      {open && pos && ReactDOM.createPortal(
+        <div ref={menuRef} data-testid="quicknav-menu" style={{position:'fixed',top:pos.top,right:pos.right,zIndex:2000050,background:'white',border:'1px solid #cbd5e1',borderRadius:12,boxShadow:'0 10px 30px rgba(15,23,42,0.15)',padding:6,minWidth:200}}>
           {pt && <div style={{fontSize:11,color:'#64748b',padding:'4px 10px 6px',borderBottom:'1px solid #e2e8f0',marginBottom:4}}>{pt.name} 様の画面へ</div>}
           {items.map(it => (
             <button key={it.view} type="button" onClick={() => { setOpen(false); it.onClick ? it.onClick() : navigateTo(it.view, targetId); }}
@@ -28817,8 +28839,7 @@ function QuickNav({ navigateTo, currentView, patientId, appData }) {
               <span style={{color:'#64748b'}}>{it.icon}</span>{it.label}
             </button>
           ))}
-        </div>
-      )}
+        </div>, document.body)}
     </div>
   );
 }
@@ -35144,7 +35165,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               <div className="font-bold text-slate-800 text-lg mb-1">{pt.name} 様</div>
               <div className="text-xs text-slate-500 mb-2">住所: {pt.address || '（未入力・利用者マスタで入力）'}</div>
               {/* ★ 2026-10-02(試験版・ユーザー要望): 休み・振替・休止はここから月間スケジュールへ */}
-              {navigateTo && <button type="button" data-testid="tp-edit-schedule" onClick={()=>{ setEditP(null); navigateTo('master', pt.id, 'schedule'); }} className="w-full mb-3 py-2 rounded-xl font-bold text-sm bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100">利用者マスタ管理の月間スケジュールへ移動（休み・振替・休止）</button>}
+              {navigateTo && <button type="button" data-testid="tp-edit-schedule" onClick={()=>{ setEditP(null); navigateTo('master', pt.id, 'schedule'); }} className="w-full mb-3 py-2 rounded-xl font-bold text-sm bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100">月間スケジュールへ移動（休み・振替・休止）</button>}
               <label className="block text-xs font-bold text-slate-600 mb-1">待ち合わせ場所</label>
               <PickupPlaceField value={pt.pickupPlace||''} hiddenId="tp-edit-place" className="mb-3" />
               <label className="block text-xs font-bold text-slate-600 mb-1">乗車にかかる時間（分）＝車を停めてから乗せ終わるまで</label>
