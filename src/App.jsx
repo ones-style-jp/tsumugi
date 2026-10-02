@@ -1634,7 +1634,9 @@ const TpTimeInput = ({ value, onCommit, normalize, ...rest }) => {
     onChange={(e) => { const v = e.target.value; setDraft(v); if (composing.current || (e.nativeEvent && e.nativeEvent.isComposing)) return; schedule(v); }}
     onCompositionStart={() => { composing.current = true; }}
     onCompositionEnd={(e) => { composing.current = false; const v = e.target.value; setDraft(v); schedule(v); }}
-    onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+    /* ★ 2026-10-02(ユーザー報告・PCの全角入力で「８３０」→「8308:30」): 日本語入力の変換を確定する Enter(keyCode 229・変換中)で欄を
+       離れてしまい、整えた値の後ろに確定文字が足されていた。変換中の Enter は無視し、確定後の Enter だけで欄を離れる */
+    onKeyDown={(e) => { if (e.key === 'Enter' && !composing.current && !(e.nativeEvent && e.nativeEvent.isComposing) && e.keyCode !== 229) e.currentTarget.blur(); }}
     onBlur={(e) => { composing.current = false; const f = norm(e.target.value, true); setDraft(null); commit(f); }} />;
 };
 // ★ 2026-10-01(試験版・ユーザー要望「再読み込み中や何かの動作で画面が固まっている時は分かりやすくアニメーションを」):
@@ -33776,7 +33778,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _whySel = (iso, sl, m, isDrop, wide) => { const k = `${iso}_${sl}_${m.pid}_${isDrop ? 'drop' : 'pick'}`; const list = OTHER_WHY[isDrop ? 'drop' : 'pick']; const cur = String(m.why || '');
     if (whyEdit === k) return (
       <input autoFocus type="text" defaultValue={list.includes(cur) ? '' : cur} placeholder="理由を入力" data-testid={`tp-why-input-${isDrop ? 'd-' : ''}${m.pid}`} maxLength={12}
-        onBlur={e => { setOtherWhy(iso, sl, m.pid, e.target.value, isDrop); setWhyEdit(''); }} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setWhyEdit(''); }}
+        onBlur={e => { setOtherWhy(iso, sl, m.pid, e.target.value, isDrop); setWhyEdit(''); }} onKeyDown={e => { if (e.key === 'Enter' && !(e.nativeEvent && e.nativeEvent.isComposing) && e.keyCode !== 229) e.currentTarget.blur(); if (e.key === 'Escape') setWhyEdit(''); }}
         className={`shrink-0 ${wide ? 'w-[140px] text-[12px]' : 'w-[88px] text-[11px]'} font-bold border border-violet-400 rounded px-1 py-0 bg-white text-violet-900`}/>);
     return (
       <select value={cur} data-testid={`tp-why-${isDrop ? 'd-' : ''}${m.pid}`} onChange={e => { const v = e.target.value; if (v === '__edit') { setWhyEdit(k); return; } setOtherWhy(iso, sl, m.pid, v, isDrop); }}
