@@ -34958,10 +34958,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                                 className={`flex items-center gap-1 px-1 py-0 min-h-[28px] border-t border-slate-100 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''} ${_isFurikae(iso, sl, m.pid)?'bg-emerald-100':(_isFirstVisit(m.pid, iso)?'bg-sky-100':'')}`}>
                                 {(() => { const _ac = _chgOf(pl, m.pid); return (
                                 <button onClick={()=>toggleMark(iso, sl, m.pid)} title={_ac ? `確定後の変更: ${_ac}（タップで手動の印も付けられます）` : 'お迎え時間変更の印(TEL)'} className="shrink-0 w-6 h-8 flex items-center justify-center">
-                                  <span className={`w-4 h-4 rounded-full border text-[9px] leading-4 text-center font-bold ${(m.mark||_ac)?'bg-red-600 border-red-600 text-white':'border-slate-300 text-transparent'}`}>●</span>
+                                  {/* ★ 2026-10-02(試験版・ユーザー要望): 印はただの赤丸(中の白い点をやめる)。時間の欄の赤枠も廃止 */}
+                                  <span aria-hidden="true" className={`block w-4 h-4 rounded-full border ${(m.mark||_ac)?'bg-red-600 border-red-600':'border-slate-300 bg-transparent'}`}/>
                                 </button>); })()}
                                 <button onClick={()=>{ if (!dragMv) setEditP({pid:m.pid}); }} {..._dragHandlers(m.pid, iso, sl)} title="タップ=場所・乗車時間の編集 / 長押し=つかんで移動(別の日に落とすと振替)" className="text-[16px] font-bold text-slate-800 flex-1 min-w-0 text-left leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{touchAction:'pan-y'}}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></button>
-                                <TpTimeInput value={_fmtT(m.t)} normalize={_normTimeInput} onCommit={v => setTime(iso, sl, m.pid, v)} data-testid={`tp-time-${m.pid}`} placeholder="—:—" className={`w-[58px] text-center text-[16px] font-bold border rounded px-0.5 py-1 outline-none shrink-0 ${m.mark?'border-red-400 text-red-600':'border-slate-300'}`} style={{fontVariantNumeric:'tabular-nums'}}/>
+                                <TpTimeInput value={_fmtT(m.t)} normalize={_normTimeInput} onCommit={v => setTime(iso, sl, m.pid, v)} data-testid={`tp-time-${m.pid}`} placeholder="—:—" className="w-[58px] text-center text-[16px] font-bold border border-slate-300 rounded px-0.5 py-1 outline-none shrink-0" style={{fontVariantNumeric:'tabular-nums'}}/>
                               </div>
                             ))}
                             {!(pl.cars?.[c.id]||[]).length && <div className="px-2 py-1 text-[10px] text-slate-400">{dragMv&&dragMv.kind!=='drop'?'ここにドロップ':'なし'}</div>}
