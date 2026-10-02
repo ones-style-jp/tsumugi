@@ -31079,6 +31079,14 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
     return generateMonthlySchedule([sp], tY, tM, appData.monthlyShifts, appData.ticketRecords || [], appData.holidays, (appData.systemSettings?.facilityInfo?.closedDays||[0])).sort((a, b) => a.dayNum - b.dayNum);
   }, [appData, sp, tY, tM]);
   const PER_PAGE = 6; // ★ 7日目の位置に「備考欄」を設けるため 7→6日表示に (余白は各日の行高へ均等配分)
+  // ★ 2026-10-02: 画面の幅に合わせた縮小率(用紙 297mm≒1123px + 左右の余白32px)。印刷時は 1
+  const _fitRef = React.useRef(null); const [_fitZoom, _setFitZoom] = React.useState(1);
+  React.useEffect(() => {
+    const el = _fitRef.current; if (!el) return;
+    const calc = () => { try { const w = Math.min(el.clientWidth, window.innerWidth - el.getBoundingClientRect().left); if (!w || w < 100) return; const z = Math.min(1, Math.max(0.45, (w - 34) / 1123)); _setFitZoom(Math.round(z * 1000) / 1000); } catch {} };
+    calc(); let ro = null; try { if (typeof ResizeObserver !== 'undefined') { ro = new ResizeObserver(calc); ro.observe(el); } } catch {}
+    window.addEventListener('resize', calc); return () => { window.removeEventListener('resize', calc); try { ro && ro.disconnect(); } catch {} };
+  }, []);
   const pages = []; for (let i = 0; i < records.length; i += PER_PAGE) pages.push(records.slice(i, i + PER_PAGE));
   if (pages.length === 0) pages.push([]);
   const getDefTime = (p) => { if (!p?.scheduleAmPm) return fi.serviceTimeAM||""; const h=p.scheduleAmPm; if(h.some(s=>s==='1日')||(h.some(s=>s==='AM')&&h.some(s=>s==='PM'))) return fi.serviceTimeFullDay||""; if(h.some(s=>s==='PM')) return fi.serviceTimePM||""; return fi.serviceTimeAM||""; };
@@ -31117,7 +31125,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
 
   return (
     <div style={{height:'100%',display:'flex',flexDirection:'column',minWidth:0}}>
-      <style>{`@media print{body,html,#root{margin:0!important;padding:0!important;background:white!important;overflow:hidden!important;}.thp{display:none!important;}.ticket-outer{padding:0!important;margin:0!important;}.ticket-outer>*+*{margin-top:0!important;}#print-content-ticket{margin:0!important;padding:0!important;}#print-content-ticket>*+*{margin-top:0!important;}.tp{box-shadow:none!important;border:none!important;border-radius:0!important;margin:0!important;padding:7mm 9mm 6mm 9mm!important;page-break-inside:avoid!important;break-inside:avoid!important;overflow:hidden!important;}.tp>*{zoom:0.92;}.tp:not(:last-child){page-break-after:always!important;break-after:page!important;}.tp:last-child{page-break-after:avoid!important;break-after:avoid!important;}@page{size:A4 landscape;margin:0;}}.tp{width:297mm;height:210mm;box-sizing:border-box;overflow:hidden;}`}</style>
+      <style>{`@media print{body,html,#root{margin:0!important;padding:0!important;background:white!important;overflow:hidden!important;}.thp{display:none!important;}.ticket-outer{padding:0!important;margin:0!important;zoom:1!important;}.ticket-outer>*+*{margin-top:0!important;}#print-content-ticket{margin:0!important;padding:0!important;}#print-content-ticket>*+*{margin-top:0!important;}.tp{box-shadow:none!important;border:none!important;border-radius:0!important;margin:0!important;padding:7mm 9mm 6mm 9mm!important;page-break-inside:avoid!important;break-inside:avoid!important;overflow:hidden!important;}.tp>*{zoom:0.92;}.tp:not(:last-child){page-break-after:always!important;break-after:page!important;}.tp:last-child{page-break-after:avoid!important;break-after:avoid!important;}@page{size:A4 landscape;margin:0;}}.tp{width:297mm;height:210mm;box-sizing:border-box;overflow:hidden;}`}</style>
       {/* ヘッダー：スクロールコンテナの外 */}
       <div className="thp bg-white px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-4 shrink-0 sticky top-0 z-30" style={{minWidth:0}}>
         <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -31176,8 +31184,9 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
         </div>
       </div>
       {/* コンテンツ：横スクロール可能 */}
-      <div className="flex-1 overflow-auto bg-slate-200" style={{minWidth:0}}>
-      <div className="space-y-6 pb-32 pt-6 px-4 ticket-outer" style={{minWidth:'max-content'}}>
+      <div className="flex-1 overflow-auto bg-slate-200" style={{minWidth:0}} ref={_fitRef}>
+      {/* ★ 2026-10-02(店舗報告: 運動メニューが多いと提供記録が横にスクロールする): 画面では用紙(A4横=1123px)を画面の幅に合わせて縮小して表示(印刷は等倍のまま) */}
+      <div className="space-y-6 pb-32 pt-6 px-4 ticket-outer" style={{minWidth:0, zoom: _fitZoom}}>
         <div id="print-content-ticket">
 
         {renderList.flatMap(({ mY: tY, mM: tM, ex, plannedM, tc, pages }) => pages.map((pr, pi) => {
@@ -31321,6 +31330,8 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                   line-height:1.2; white-space:nowrap; word-break:keep-all;
                   text-align:left; padding-left:4px;
                 }
+                .tp table tbody tr.tokki-row td>div.cell-wrap.tokki-fit { white-space:normal; word-break:break-all; line-height:1.15; align-items:center; }
+                .tp table tbody tr.tokki-row td>div.cell-wrap.tokki-fit>span { text-align:left; width:100%; }
                 .tp table tbody tr.bikou-row td>div.cell-wrap {
                   height:26px; max-height:26px; overflow:hidden;
                   display:flex; align-items:center; justify-content:flex-start;
@@ -31447,7 +31458,8 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                         {/* 特記行 */}
                         <tr className={`tokki-row ${rc}`} style={{height:36}}>
                           <td className="border-l border-b border-slate-400 px-1 py-0 bg-slate-100 text-center text-[9px] text-slate-500 font-bold" ><div className="cell-wrap">特記</div></td>
-                          <td colSpan={tc - 2} className="border-r border-b border-slate-400 px-1.5 py-0 text-[10px] text-slate-700" ><div className="cell-wrap" style={{overflow:'hidden'}}>{[r.tokki||'', ...bpReLines(r)].filter(Boolean).join('　')}</div></td>
+                          {/* ★ 2026-10-02(店舗報告: 特記に長い文を書くと入らない): 2行まで折り返し、収まるまで文字を縮める(10→7px)。それでも入らない分は切れる(行の高さは固定) */}
+                          <td colSpan={tc - 2} className="border-r border-b border-slate-400 px-1.5 py-0 text-[10px] text-slate-700" ><div className="cell-wrap tokki-fit" style={{overflow:'hidden',whiteSpace:'normal',alignItems:'flex-start'}}><AutoFitText text={[r.tokki||'', ...bpReLines(r)].filter(Boolean).join('　')} max={10} min={7} wrap/></div></td>
                         </tr>
                       </Fragment>
                     );
@@ -34631,7 +34643,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     //   左の段から25人ずつ埋め、人がいない行は空欄(手書き用)で25行まで埋める。
     const ROWS = 25, HALF = 505, BODY_H = 650; // BODY_H=本文の高さの目安(px)
     const maxNameEm = Math.max(4, ...pts.map(pt => _emW2(pt.name)));
-    const colW = (f) => { const ini = Math.ceil(f * 1.5) + 6, name = Math.ceil(maxNameEm * f * 1.05) + 10, tel = Math.ceil(Math.max(8, f - 1) * 8.4) + 12; return { ini, name, tel, addr: Math.max(80, HALF - ini - name - tel) }; };
+    // ★ 2026-10-02(西馬込報告: 電話の前に「奥様」等を付けると電話が見切れる): 電話の幅は「数字12桁ぶん」の固定ではなく、
+    //   いちばん長い電話(文字付きを含む・最大20文字ぶん)に合わせる。さらに長ければ欄に収まるまで文字を縮める(下の tel セル)
+    const telText = (pt) => String(pt.phoneMobile || pt.phone || '');
+    const maxTelEm = Math.min(20, Math.max(8.4, ...pts.map(pt => _emW2(telText(pt)))));
+    const colW = (f) => { const ini = Math.ceil(f * 1.5) + 6, name = Math.ceil(maxNameEm * f * 1.05) + 10, tel = Math.ceil(maxTelEm * Math.max(8, f - 1) * 1.02) + 12; return { ini, name, tel, addr: Math.max(80, HALF - ini - name - tel) }; };
     const headH = 18;
     // 文字: 1行の高さ(本文÷25)に収まる大きさ・11〜18px。氏名と電話で住所の欄が狭くなりすぎないように
     let fz = Math.max(11, Math.min(18, Math.floor(((BODY_H - headH) / ROWS - 6) / 1.3)));
@@ -34657,7 +34673,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         // 住所は1行に収まるよう文字を縮める(9px未満になる長い住所だけ2行)
         const at = addrText(r.pt); const fitA = Math.floor((w.addr - 10) / Math.max(1, _emW2(at)));
         const fA = Math.max(9, Math.min(fA0, fitA)); const wrapA = fitA < 9;
-        html += `<tr>${iniTd}${td(_escP(r.pt.name), `padding:0 5px;font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}${td(`${_escP([_addrDisp(r.pt.address), r.pt.addressBuilding, r.pt.addressRoom].filter(Boolean).join(' '))}${r.pt.pickupPlace?`<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[r.pt.pickupPlace] || r.pt.pickupPlace)}）</span>`:''}${String(r.pt.pickupMinutes||'')==='walk'?`<span style="color:#047857;font-weight:700;">［徒歩］</span>`:''}`, `padding:0 5px;font-size:${fA}px;line-height:1.15;${wrapA ? '' : 'white-space:nowrap;'}overflow:hidden;`)}${td(_escP(r.pt.phoneMobile || r.pt.phone || ''), `padding:0 4px;font-size:${fT}px;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;`)}</tr>`;
+        html += `<tr>${iniTd}${td(_escP(r.pt.name), `padding:0 5px;font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}${td(`${_escP([_addrDisp(r.pt.address), r.pt.addressBuilding, r.pt.addressRoom].filter(Boolean).join(' '))}${r.pt.pickupPlace?`<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[r.pt.pickupPlace] || r.pt.pickupPlace)}）</span>`:''}${String(r.pt.pickupMinutes||'')==='walk'?`<span style="color:#047857;font-weight:700;">［徒歩］</span>`:''}`, `padding:0 5px;font-size:${fA}px;line-height:1.15;${wrapA ? '' : 'white-space:nowrap;'}overflow:hidden;`)}${(() => { const tt = telText(r.pt); const fit = Math.floor((w.tel - 8) / Math.max(1, _emW2(tt))); const fTt = Math.max(8, Math.min(fT, fit)); return td(_escP(tt), `padding:0 4px;font-size:${fTt}px;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;`); })()}</tr>`;
       });
       // ★ 2026-10-01(iPad): 高さは px で(Safari・PDF化では height:100% が効かず表が縮んでいた)。本文 718px − 題字 − 注記 − 余裕
       return `<table style="border-collapse:collapse;width:100%;height:${718 - 26 - 18 - 4}px;table-layout:fixed;">
