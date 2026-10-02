@@ -24062,6 +24062,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   ...(((existing?.nextDateOverride ?? p.nextDateOverride) ?? '') !== '' ? { nextDateOverride: existing?.nextDateOverride ?? p.nextDateOverride } : {}),
                   ...(((existing?.nextTimeOverride ?? p.nextTimeOverride) ?? '') !== '' ? { nextTimeOverride: existing?.nextTimeOverride ?? p.nextTimeOverride } : {}),
                   ...(((existing?.nextTimeOverrideFor ?? p.nextTimeOverrideFor) ?? '') !== '' ? { nextTimeOverrideFor: existing?.nextTimeOverrideFor ?? p.nextTimeOverrideFor } : {}),
+                  // ★ 2026-10-02: 連絡帳を出力した時刻(送迎表の赤丸判定に使う)も提供記録入力では触らず引き継ぐ
+                  ...((existing?.cbPrintedAt_AM ?? p.cbPrintedAt_AM) ? { cbPrintedAt_AM: existing?.cbPrintedAt_AM ?? p.cbPrintedAt_AM } : {}),
+                  ...((existing?.cbPrintedAt_PM ?? p.cbPrintedAt_PM) ? { cbPrintedAt_PM: existing?.cbPrintedAt_PM ?? p.cbPrintedAt_PM } : {}),
                   // ★ 担当者: スタッフ切替で選んでいるアクティブ記録者を保存
                   //   未選択の場合は 既存値を維持 (それ以外のフォールバックは使わない)
                   recorder: getRecorderName() || existing?.recorder || '',
@@ -31164,7 +31167,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
   // ★ 2026-10-02(試験版・ユーザー指示): 提供記録は1日=「バイタル行(状態/気分/体温/血圧/再検)」「運動行(運動すべて+介護整体)」「特記行」の3行。
   //   列は運動項目の数で均等に割る。1ページ5日(備考2行)。用紙(A4横)に必ず収まる高さで固定し、画面にも用紙内にスクロールを出さない。
   const TK_EX_PER_ROW = 10; // ★ 2026-10-02 ユーザー指示: 運動は1行10項目まで、超えた分は2段目(介護整体は数えず、最後の段の右端に付く)
-  const _perPage = (exLen) => (exLen || 0) <= TK_EX_PER_ROW ? 6 : 5; // ★ 運動が1行で収まれば6日、2段なら5日
+  const _perPage = (exLen) => (exLen || 0) <= TK_EX_PER_ROW ? 7 : 5; // ★ 運動が1行で収まれば7日、2段なら5日(2026-10-02 ユーザー: 7日入るか→検証して7日に)
   const PER_PAGE = _perPage((getExerciseItemsForDate(appData.systemSettings, `${tY}-${String(tM).padStart(2,'0')}-01`, tY) || effExerciseItems(appData.systemSettings) || []).length);
   // ★ 2026-10-02: 画面の幅に合わせた縮小率(用紙 297mm≒1123px + 左右の余白32px)。印刷時は 1
   const _fitRef = React.useRef(null); const [_fitZoom, _setFitZoom] = React.useState(1);
@@ -32257,6 +32260,14 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     const [_ox, _oy] = _curOff();
     // ★ iPadで確実に開くよう、null→遅延イベントの2段階をやめ、HTML付きイベントを即時発火 (1段階で表示)
     window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:pageSizeStr,html:combinedHtml,elementId:null,adjust:_mkAdjust(htmlParts, title, _ox, _oy)}}));
+    // ★ 2026-10-02(ユーザー要望・送迎表の赤丸): 連絡帳を出力した時刻を記録(cbPrintedAt_AM/PM)。送迎表は「この時刻より後に変わった分」だけ赤丸にする
+    try {
+      const at = syncNow(); const ids = new Set(targets.map(r => String(r.id)));
+      const _slotOf = (r) => { if (r.furikaeAmpm === 'AM' || r.furikaeAmpm === 'PM') return r.furikaeAmpm; const _af = (sharedAmpm === 'AM' || sharedAmpm === 'PM') ? sharedAmpm : null; if (_af) return _af; const pt = (appData.patients||[]).find(x => x.id === r.patientId); const dow = new Date(selectedDate).getDay(); const v = pt?.scheduleAmPm?.[dow]; return v === 'PM' ? 'PM' : 'AM'; };
+      let n = 0;
+      const list = (appData.ticketRecords || []).map(r => { if (!r || !ids.has(String(r.id))) return r; const k = `cbPrintedAt_${_slotOf(r)}`; n++; return { ...r, [k]: at, _fieldTs: { ...(r._fieldTs || {}), [k]: at }, _savedAt: at }; });
+      if (n) onSave({ ...appData, ticketRecords: list }, { silent: true });
+    } catch (e) { console.warn('cbPrintedAt stamp failed', e); }
     // ★ 取得後は隠しカードを解放してメモリを戻す
     setTimeout(() => setShowPrintCards(false), 800);
   };
@@ -33571,7 +33582,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     onSave({ ...appData, transportPlans: np }, { manual: true, message: `✓ 「${e.label}」の前に戻しました(${e.items.length}コマ)` });
   };
   //   一括の操作(自動計算・前週コピー・完成)は、保存する直前に変わるコマの操作前を控える
-  const _saveBulk = (label, np, opts) => { const afters = {}; Object.keys(np).forEach(k => { if (np[k] !== plans[k] && /^\d{4}-\d{2}-\d{2}_(AM|PM)$/.test(k)) afters[k] = np[k]; }); _pushUndo(label, afters); onSave({ ...appData, transportPlans: np }, opts || { silent: true }); };
+  const _saveBulk = (label, np, opts) => { const afters = {}; Object.keys(np).forEach(k => { if (np[k] !== plans[k] && /^\d{4}-\d{2}-\d{2}_(AM|PM)$/.test(k)) { np[k] = _stampChgRef.current(plans[k], np[k]); afters[k] = np[k]; } }); _pushUndo(label, afters); onSave({ ...appData, transportPlans: np }, opts || { silent: true }); };
+  const _stampChgRef = React.useRef((prev, next) => next); // ★ _stampChg は下で定義(宣言順の都合で ref 経由)
   // 週の月曜(selectedDate基準)
   const _mon = (() => { const d = new Date(selectedDate || new Date()); const dw = d.getDay(); const diff = (dw === 0 ? -6 : 1 - dw); d.setDate(d.getDate() + diff); d.setHours(0,0,0,0); return d; })();
   const _iso = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -33731,8 +33743,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   };
   const savePlan = (iso, sl, plan) => {
     const { _draft, ...rest } = plan;
-    const next = { ...rest, _savedAt: syncNow() };
-    const k = `${iso}_${sl}`; _pushUndo('手での変更', { [k]: next });
+    const k = `${iso}_${sl}`;
+    const next = _stampChg(plans[k], { ...rest, _savedAt: syncNow() });
+    _pushUndo('手での変更', { [k]: next });
     onSave({ ...appData, transportPlans: { ...plans, [k]: next } }, { silent: true });
   };
   const mutate = (iso, sl, fn) => { const cur = getPlan(iso, sl); const next = JSON.parse(JSON.stringify({ ...cur })); delete next._draft; fn(next); savePlan(iso, sl, next); };
@@ -33760,6 +33773,50 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       // ★ 2026-10-02: 乗車順は「今も乗っている方どうしの並び」で比べる(休みで外れた方の分だけ前に詰まったのを変更と数えない)
       const _curSnap = _snapPlan(pl); const _nowIds = new Set((_curSnap.cars[now.zone]||[]).map(m => m.pid)); const _wasOrder = (fin.cars[now.zone]||[]).filter(m => _nowIds.has(m.pid)).map(m => m.pid); const _nowOrder = (_curSnap.cars[now.zone]||[]).map(m => m.pid);
       if (_wasOrder.indexOf(pid) !== _nowOrder.indexOf(pid)) return '乗車順が変更'; } return ''; };
+  // ★ 2026-10-02(ユーザー要望「赤丸は、前の来所日の連絡帳を渡した後に変わった分だけ」):
+  //   確定後の変更ごとに「変えた時刻」を pl._chgAt[pid] に控える(位置が変わるたびに更新・元に戻れば消す)。
+  //   赤丸の判定 _noticeNeeded: 変えた日から送迎日の前日までに本人の来所(午前/午後)があり、その回の連絡帳が
+  //   「変えた後に出力済み(cbPrintedAt_AM/PM)」または「まだ出力していない(今日以降)」なら、次の連絡帳に載るので赤丸なし。
+  //   それ以外(来所がない／連絡帳を出した後に変えた／出力時刻が分からない過去)は赤丸あり(安全側)。
+  const _stampChg = (prev, next) => {
+    try {
+      if (!next || typeof next !== 'object') return next;
+      if (!next._final) { if (next._chgAt) { const { _chgAt, ...rest } = next; return rest; } return next; }
+      const fresh = !prev || !prev._final || prev._finalAt !== next._finalAt; // 確定(更新)直後は控えを白紙に
+      const ca = fresh ? {} : { ...(prev._chgAt || {}) };
+      const curSnap = _snapPlan(next), prevSnap = (prev && !fresh) ? _snapPlan(prev) : null;
+      const _key = (snap, pid) => { const l = _locOf(snap, pid); if (!l) return 'none'; const { idx, ...rest } = l; return JSON.stringify(rest); };
+      const removed = new Set(_removedSince(next).map(String));
+      const ids = new Set([ ...Object.values(curSnap.cars).flat().map(m => m.pid), ...curSnap.walkers, ...curSnap.others, ...Object.values(next._final.cars || {}).flat().map(m => m.pid), ...(next._final.walkers || []), ...(next._final.others || []) ]);
+      const now = syncNow();
+      ids.forEach(pid => { const changed = !!_chgOf(next, pid) || removed.has(String(pid)); if (!changed) { delete ca[pid]; return; } if (!ca[pid] || (prevSnap && _key(curSnap, pid) !== _key(prevSnap, pid))) ca[pid] = now; });
+      return { ...next, _chgAt: ca };
+    } catch { return next; }
+  };
+  const _recIsoMap = React.useMemo(() => { const m = new Map(); (appData.ticketRecords || []).forEach(r => { if (!r || r.patientId == null || !r.year) return; const mm = String(r.date || '').match(/^(\d{1,2})月(\d{1,2})日$/); if (!mm) return; m.set(`${r.patientId}|${r.year}-${String(mm[1]).padStart(2,'0')}-${String(mm[2]).padStart(2,'0')}`, r); }); return m; }, [appData.ticketRecords]);
+  const _attCache = {};
+  const _attSet = (iso, sl) => { const k = `${iso}_${sl}`; if (!_attCache[k]) { try { _attCache[k] = new Set(_attendees(iso, sl).map(a => String(a.pid))); } catch { _attCache[k] = new Set(); } } return _attCache[k]; };
+  const _noticeNeeded = (targetIso, pid, chgAt) => {
+    const t = Number(chgAt); if (!t) return true;
+    const chgIso = _iso(new Date(t)); const todayIso = _iso(new Date());
+    if (chgIso >= targetIso) return true;
+    const d = new Date(chgIso + 'T00:00:00');
+    for (let i = 0; i < 40; i++) {
+      const iso = _iso(d); if (iso >= targetIso) break;
+      for (const sl of ['AM', 'PM']) {
+        if (!_attSet(iso, sl).has(String(pid))) continue;
+        const rec = _recIsoMap.get(`${pid}|${iso}`); const pr = Number(rec && rec[`cbPrintedAt_${sl}`]) || 0;
+        if (pr) { if (pr > t) return false; }
+        else if (iso >= todayIso) return false;
+      }
+      d.setDate(d.getDate() + 1);
+    }
+    return true;
+  };
+  // 赤丸を出すべき変更の理由(出さない変更は '')。title 用に _dotInfo で両方返す
+  const _dotInfo = (pl, iso, pid) => { const ac = _chgOf(pl, pid); if (!ac) return { ac: '', dot: false }; return { ac, dot: _noticeNeeded(iso, pid, pl && pl._chgAt ? pl._chgAt[pid] : 0) }; };
+  const _dotOf = (pl, iso, pid) => { const i = _dotInfo(pl, iso, pid); return i.dot ? i.ac : ''; };
+  _stampChgRef.current = _stampChg;
   const _removedSince = (pl) => { const fin = pl && pl._final; if (!fin) return []; const cur = _snapPlan(pl); const nowIds = new Set([ ...Object.values(cur.cars).flat().map(m=>m.pid), ...cur.walkers, ...cur.others ]); return [ ...Object.values(fin.cars||{}).flat().map(m=>m.pid), ...(fin.walkers||[]), ...(fin.others||[]) ].filter(pid => !nowIds.has(pid)); };
   // ★ 2026-10-01(試験版・ユーザー指示「完成後の変更は利用者の時間をメインに。運転者の変更は含まなくていい」): 運転者の変更は数えない
   const _chgCount = (pl) => { if (!pl || !pl._final) return 0; const cur = _snapPlan(pl); let n = 0; [ ...Object.values(cur.cars).flat().map(m=>m.pid), ...cur.walkers, ...cur.others ].forEach(pid => { if (_chgOf(pl, pid)) n++; }); return n + _removedSince(pl).length; };
@@ -33772,8 +33829,12 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       : `この週(${days.length}日分)の送迎表を、いまの内容で「確定」として確定します。\n以後に変えた箇所(車・乗車順・時間・運転者)には自動で赤丸が付き、印刷にも出ます。よろしいですか？`)) return;
     const np = { ...plans }; const at = syncNow(); let n = 0;
     days.forEach(d => ['AM','PM'].forEach(sl => { const iso = _iso(d); const pl = getPlan(iso, sl); const { _draft, ...rest } = pl; np[`${iso}_${sl}`] = { ...rest, _final: _snapPlan(pl), _finalAt: at, _savedAt: at }; n++; }));
+    _setAfterFinalPreview(true); // ★ 2026-10-02 ユーザー要望: 確定したらそのまま運行表のプレビューへ
     _saveBulk('確定', np, { manual: true, message: `✓ 送迎表 ${_mon.getMonth()+1}/${_mon.getDate()}週を確定にしました(${n}コマ)` });
   };
+  const [_afterFinalPreview, _setAfterFinalPreview] = useState(false);
+  React.useEffect(() => { if (!_afterFinalPreview) return; if (!_finalAtOfWeek()) return; _setAfterFinalPreview(false); try { doPrintRef.current && doPrintRef.current('sheet'); } catch {} }, [plans, _afterFinalPreview]); // eslint-disable-line react-hooks/exhaustive-deps
+  const doPrintRef = React.useRef(null);
   // ★ 2026-10-02(試験版・ユーザー要望「確定を解除できるように」): 確定の控え(_final)を外して「作成中」に戻す。内容はそのまま。
   const [finalMenu, setFinalMenu] = useState(false);
   const unfinalizeWeek = () => {
@@ -34577,7 +34638,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     ['AM','PM'].forEach(sl => { _otherRows[sl] = Math.max(0, ...days.map(d => (getPlan(_iso(d), sl).others||[]).length)); });
     let _maxNameEm = 3, _anyDropTag = false;
     ['AM','PM'].forEach(sl => days.forEach(d => { const iso = _iso(d); const pl0 = getPlan(iso, sl);
-      [ ...Object.values(pl0.cars||{}), pl0.walkers||[], pl0.others||[] ].forEach(ms => (ms||[]).forEach(m => { const mk = (m.mark || _chgOf(plans[`${iso}_${sl}`], m.pid)) ? 1 : 0; const tg = _dropTag(pl0, m.pid); if (tg) _anyDropTag = true; _maxNameEm = Math.max(_maxNameEm, _emW(_pname(m.pid)) + mk + (tg ? _emW(tg) * 0.62 + 0.7 : 0)); })); }));
+      [ ...Object.values(pl0.cars||{}), pl0.walkers||[], pl0.others||[] ].forEach(ms => (ms||[]).forEach(m => { const mk = (m.mark || _dotOf(plans[`${iso}_${sl}`], iso, m.pid)) ? 1 : 0; const tg = _dropTag(pl0, m.pid); if (tg) _anyDropTag = true; _maxNameEm = Math.max(_maxNameEm, _emW(_pname(m.pid)) + mk + (tg ? _emW(tg) * 0.62 + 0.7 : 0)); })); }));
     const _hasDrv = ['AM','PM'].some(sl => days.some(d => Object.values(getPlan(_iso(d), sl).driver||{}).some(Boolean)));
     const _carColW = (f) => Math.ceil(Math.min(f, 14) * 1.25) + 16;     // 左端の車名の列(縦書き1列＋余白)
     const _drvW = (f) => _hasDrv ? Math.ceil(Math.min(f, 11) * 1.2) + 9 : 0; // 各日の運転者の細い欄
@@ -34842,7 +34903,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const at = (b && b.other) ? String(m.why || '') : addrOf(pt); const fit = Math.floor((w.addr - 12) / Math.max(1, _em(at))); const fA = Math.max(9, Math.min(fz, fit)); // 住所は名前と同じ大きさまで(長い住所は幅に合わせて縮小)
       const addrHtml = (b && b.other) ? `<span style="color:#6d28d9;font-weight:700;">${_escP(m.why || '')}</span>` : `${_escP([_addrDisp(pt.address), pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' '))}${pt.pickupPlace?`<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace)}）</span>`:''}`;
       return `<tr style="background:${bg};">
-        ${td(`${(m.mark||_chgOf(plans[`${iso}_${sl}`], m.pid))?'<span style="color:#c82c35;">●</span>':''}${_escP(_pname(m.pid))}${_tagD(_dropTag(pl, m.pid))}`, `font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}
+        ${td(`${(m.mark||_dotOf(plans[`${iso}_${sl}`], iso, m.pid))?'<span style="color:#c82c35;">●</span>':''}${_escP(_pname(m.pid))}${_tagD(_dropTag(pl, m.pid))}`, `font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}
         ${td((b && b.other) ? '' : _escP(_fmtT(m.t)), `font-size:${fz}px;font-weight:700;text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums;padding:0 2px;`)}
         ${td(addrHtml, `font-size:${fA}px;line-height:1.15;${fit >= 9 ? 'white-space:nowrap;' : ''}overflow:hidden;`)}
         ${td(_escP(telOf(pt)), `font-size:${fzS}px;white-space:nowrap;font-variant-numeric:tabular-nums;padding:0 4px;`)}
@@ -34896,6 +34957,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const page2 = withContacts ? buildContactsPages().map(pg => _wrap(pg, true)).join('') : '';
     window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `${_wrap(html, false)}${page2}`, elementId: null } }));
   };
+  doPrintRef.current = doPrint;
 
   const _autoCalcModal = autoCalc && (
     <div className="fixed inset-0 z-[10060] bg-black/40 flex items-center justify-center p-3">
@@ -35110,10 +35172,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                               <div key={m.pid} data-tprow data-tppid={m.pid} data-tpcid={c.id} data-tpiso={iso} data-tpslot={sl}
                                 style={dragMv && dragMv.over && dragMv.over.iso===iso && dragMv.over.slot===sl && dragMv.over.zone===c.id && String(dragMv.over.pid)===String(m.pid) && !(dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)) ? {boxShadow:'inset 0 3px 0 #3b82f6', paddingTop:14, transition:'padding-top 0.12s'} : {transition:'padding-top 0.12s'}}
                                 className={`flex items-center gap-1 px-1 py-0 min-h-[28px] border-t border-slate-100 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''} ${_isFurikae(iso, sl, m.pid)?'bg-emerald-100':(_isFirstVisit(m.pid, iso)?'bg-sky-100':'')}`}>
-                                {(() => { const _ac = _chgOf(pl, m.pid); return (
+                                {(() => { const _di = _dotInfo(pl, iso, m.pid); const _ac = _di.dot ? _di.ac : ''; return (
                                 <button onClick={()=>toggleMark(iso, sl, m.pid)} title={_ac ? `確定後の変更: ${_ac}（タップで手動の印も付けられます）` : 'お迎え時間変更の印(TEL)'} className="shrink-0 w-6 h-8 flex items-center justify-center">
                                   {/* ★ 2026-10-02(試験版・ユーザー要望): 印はただの赤丸(中の白い点をやめる)。時間の欄の赤枠も廃止 */}
-                                  <span aria-hidden="true" className={`block w-4 h-4 rounded-full border ${(m.mark||_ac)?'bg-red-600 border-red-600':'border-slate-300 bg-transparent'}`}/>
+                                  <span aria-hidden="true" data-testid={`tp-dot-${iso}-${sl}-${m.pid}`} data-on={(m.mark||_ac)?'1':'0'} className={`block w-4 h-4 rounded-full border ${(m.mark||_ac)?'bg-red-600 border-red-600':'border-slate-300 bg-transparent'}`}/>
                                 </button>); })()}
                                 <button onClick={()=>{ if (!dragMv) setEditP({pid:m.pid}); }} {..._dragHandlers(m.pid, iso, sl)} title="タップ=場所・乗車時間の編集 / 長押し=つかんで移動(別の日に落とすと振替)" className="text-[16px] font-bold text-slate-800 flex-1 min-w-0 text-left leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{touchAction:'pan-y'}}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></button>
                                 <TpTimeInput value={_fmtT(m.t)} normalize={_normTimeInput} onCommit={v => setTime(iso, sl, m.pid, v)} data-testid={`tp-time-${m.pid}`} placeholder="—:—" className="w-[58px] text-center text-[16px] font-bold border border-slate-300 rounded px-0.5 py-1 outline-none shrink-0" style={{fontVariantNumeric:'tabular-nums'}}/>
@@ -35131,7 +35193,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                             <div className="text-[11px] font-bold text-orange-700 mb-0.5">徒歩（時間＝到着{_classStart(sl) ? `・標準 ${_classStart(sl)}` : ''}）</div>
                             {(pl.walkers||[]).map(m => (
                               <div key={m.pid} className={`flex items-center gap-1 text-[15px] font-bold text-slate-700 py-1 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''}`}>
-                                {_chgOf(pl, m.pid) && <span className="shrink-0 text-red-600 text-[10px] font-bold" title={`確定後の変更: ${_chgOf(pl, m.pid)}`}>●</span>}
+                                {_dotOf(pl, iso, m.pid) && <span className="shrink-0 text-red-600 text-[10px] font-bold" title={`確定後の変更: ${_dotOf(pl, iso, m.pid)}`}>●</span>}
                                 <span className="flex-1 min-w-0 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2 select-none" style={{touchAction:'pan-y', WebkitTouchCallout:'none', WebkitUserSelect:'none'}} onContextMenu={e=>e.preventDefault()} {..._dragHandlers(m.pid, iso, sl)}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></span>
                                 {/* ★ 2026-10-01(店舗報告: 徒歩・その他に入れた方を変更できない): iPad では文字の長押しで選択メニューが出てドラッグが始まらなかった。未割当と同じく「移動先」で選べるように */}
                                 {(() => { const raw = String(m.t ?? ''); const own = /\d/.test(raw); const shown = !own && raw !== '' ? _classStart(sl) : (/^\d{1,2}:\d?$/.test(raw) ? raw : _fmtT(raw));
@@ -35148,7 +35210,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                             <div className="text-[11px] font-bold text-violet-700 mb-0.5">その他（家族送迎・途中参加など）</div>
                             {(pl.others||[]).map(m => (
                               <div key={m.pid} className={`flex flex-wrap items-center gap-1 text-[15px] font-bold text-slate-700 py-1 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''}`}>
-                                {_chgOf(pl, m.pid) && <span className="shrink-0 text-red-600 text-[10px] font-bold" title={`確定後の変更: ${_chgOf(pl, m.pid)}`}>●</span>}
+                                {_dotOf(pl, iso, m.pid) && <span className="shrink-0 text-red-600 text-[10px] font-bold" title={`確定後の変更: ${_dotOf(pl, iso, m.pid)}`}>●</span>}
                                 <span className="flex-1 min-w-0 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2 select-none" style={{touchAction:'pan-y', WebkitTouchCallout:'none', WebkitUserSelect:'none'}} onContextMenu={e=>e.preventDefault()} {..._dragHandlers(m.pid, iso, sl)}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></span>
                                 <div className="order-last w-full flex items-center gap-1 pl-1 text-[10px] font-bold text-violet-600">理由{_whySel(iso, sl, m, false, true)}</div>
                               </div>
