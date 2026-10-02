@@ -20715,7 +20715,7 @@ export default function App() {
     // ★ 20分 無操作で自動ログアウト。 setTimeout はスリープ中に止まり判定漏れするため、
     //   「最終操作時刻(壁時計)」を保持し、 30秒ごと + 復帰時(visibilitychange/focus) に経過をチェックする。
     //   → 画面が暗くなってスリープしても、20分経過後に復帰した時点で必ず強制ログアウトされる。
-    const IDLE_MS = 20 * 60 * 1000; // 20分
+    const IDLE_MS = 30 * 60 * 1000; // ★ 2026-10-02 ユーザー指示: 20分→30分
     const refMap = {
       record: [recordDirtyRef, recordSaveFnRef], master: [masterDirtyRef, masterSaveFnRef],
       settings: [settingsDirtyRef, settingsSaveFnRef], print: [printDirtyRef, printSaveFnRef],
