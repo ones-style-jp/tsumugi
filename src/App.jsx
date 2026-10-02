@@ -20713,10 +20713,10 @@ export default function App() {
   // ★ 無操作が続いたら自動ログアウト (離席時の情報保護)。 ログアウト前に現在の入力画面を自動保存してから閉じる。
   useEffect(() => {
     if (!staffSession) return; // スタッフ/本部ログイン中のみ
-    // ★ 20分 無操作で自動ログアウト。 setTimeout はスリープ中に止まり判定漏れするため、
+    // ★ 30分 無操作で自動ログアウト(2026-10-02 に 20分→30分)。 setTimeout はスリープ中に止まり判定漏れするため、
     //   「最終操作時刻(壁時計)」を保持し、 30秒ごと + 復帰時(visibilitychange/focus) に経過をチェックする。
-    //   → 画面が暗くなってスリープしても、20分経過後に復帰した時点で必ず強制ログアウトされる。
-    const IDLE_MS = 20 * 60 * 1000; // 20分
+    //   → 画面が暗くなってスリープしても、30分経過後に復帰した時点で必ず強制ログアウトされる。
+    const IDLE_MS = 30 * 60 * 1000; // ★ 2026-10-02 ユーザー指示: 20分→30分
     const refMap = {
       record: [recordDirtyRef, recordSaveFnRef], master: [masterDirtyRef, masterSaveFnRef],
       settings: [settingsDirtyRef, settingsSaveFnRef], print: [printDirtyRef, printSaveFnRef],
@@ -24772,7 +24772,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     </button>
                     );})}
                 </div>}
-                <input type="text" disabled={isReadOnly} value={p.tokki||''} onChange={e=>updateRecord(p.id,'tokki',e.target.value)} placeholder={isReadOnly?'':(isAbsent?'欠席理由...':(isPause?'休止中の特記...':'特記...'))} className="mt-2 w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-50"/>
+                <input type="text" disabled={isReadOnly} value={p.tokki||''} maxLength={100} title="100文字まで（それ以上は支援経過表へ）" onChange={e=>updateRecord(p.id,'tokki',e.target.value.slice(0, 100))} placeholder={isReadOnly?'':(isAbsent?'欠席理由...':(isPause?'休止中の特記...':'特記...'))} className="mt-2 w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-50"/>
               </div>
             );
           })}
@@ -25196,7 +25196,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                                 : <span style={{fontSize:8.5,whiteSpace:'nowrap'}}>非表示中</span>}
                             </button>
                           )}
-                          <textarea disabled={isReadOnly} value={p.tokki || ""} onChange={(e) => updateRecord(p.id, 'tokki', e.target.value)} rows={2}
+                          {/* ★ 2026-10-02(ユーザー指示): 特記は100文字まで(印刷の2行に収まる範囲)。それ以上は支援経過表へ */}
+                          <textarea disabled={isReadOnly} value={p.tokki || ""} maxLength={100} title="100文字まで（それ以上は支援経過表へ）" onChange={(e) => updateRecord(p.id, 'tokki', e.target.value.slice(0, 100))} rows={2}
                             className={`flex-1 px-2 border rounded-lg text-xs bg-transparent outline-none disabled:opacity-80 resize-none ${isReadOnly ? 'border-transparent' : 'border-slate-300 shadow-inner bg-white'}`}
                             style={{fontSize:14,lineHeight:1.4,padding:'2px 6px',height:'100%'}}
                             placeholder={isReadOnly ? "" : (isAbsent ? "欠席理由等..." : "特記事項...")} />
@@ -31082,7 +31083,11 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
     if (!sp) return [];
     return generateMonthlySchedule([sp], tY, tM, appData.monthlyShifts, appData.ticketRecords || [], appData.holidays, (appData.systemSettings?.facilityInfo?.closedDays||[0])).sort((a, b) => a.dayNum - b.dayNum);
   }, [appData, sp, tY, tM]);
-  const PER_PAGE = 6; // ★ 7日目の位置に「備考欄」を設けるため 7→6日表示に (余白は各日の行高へ均等配分)
+  // ★ 2026-10-02(試験版・ユーザー要望): 運動項目が EX_BAND 列を超える店舗は、運動項目を2段(上段/下段)に折り返して列幅を確保する。
+  //   2段のときは上下に半分ずつ分けて列幅を広くする。1ページの日数は 通常5日(備考は2行)・2段のときは4日。用紙(A4横)に必ず収まる高さで固定し、画面にも用紙内にスクロールを出さない。
+  const EX_BAND = 9;
+  const _perPage = (exLen) => exLen > EX_BAND ? 4 : 5;
+  const PER_PAGE = _perPage((getExerciseItemsForDate(appData.systemSettings, `${tY}-${String(tM).padStart(2,'0')}-01`, tY) || effExerciseItems(appData.systemSettings) || []).length);
   // ★ 2026-10-02: 画面の幅に合わせた縮小率(用紙 297mm≒1123px + 左右の余白32px)。印刷時は 1
   const _fitRef = React.useRef(null); const [_fitZoom, _setFitZoom] = React.useState(1);
   React.useEffect(() => {
@@ -31094,7 +31099,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
   // ★ 2026-10-02: 用紙ごとに中身が縦にはみ出す量を実測し、各日の行(2行=1日)を均等に低くして1枚に収める(--tpShrink)
   React.useLayoutEffect(() => {
     const el = _fitRef.current; if (!el) return;
-    const fit = () => { try { el.querySelectorAll('.tp').forEach(tp => { tp.style.setProperty('--tpShrink', '0px'); const over = tp.scrollHeight - tp.clientHeight; if (over > 1) { const per = Math.min(10, Math.ceil(over / (2 * PER_PAGE))); tp.style.setProperty('--tpShrink', per + 'px'); } }); } catch {} };
+    const fit = () => { try { el.querySelectorAll('.tp').forEach(tp => { tp.style.setProperty('--tpShrink', '0px'); const over = tp.scrollHeight - tp.clientHeight; if (over > 1) { const nRows = Number(tp.getAttribute('data-rows') || 10); const per = Math.min(10, Math.ceil(over / nRows)); tp.style.setProperty('--tpShrink', per + 'px'); } }); } catch {} };
     const t = setTimeout(fit, 50); return () => clearTimeout(t);
   });
   const pages = []; for (let i = 0; i < records.length; i += PER_PAGE) pages.push(records.slice(i, i + PER_PAGE));
@@ -31114,7 +31119,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
   // ★ 描画対象の月リスト。 通常は当月のみ。 全期間モードでは患者の記録がある全月を、各月「当時の運動項目」で描画
   const closedDaysTV = appData.systemSettings?.facilityInfo?.closedDays || [0];
   const renderList = (() => {
-    if (!periodMode || !periodFrom || !periodTo) return [{ mY: tY, mM: tM, ex, plannedM, tc, pages }];
+    if (!periodMode || !periodFrom || !periodTo) return [{ mY: tY, mM: tM, ex, plannedM, tc, pages, pp: PER_PAGE }];
     // 開始月〜終了月の連続した月リストを生成
     let [fy,fm] = periodFrom.split('-').map(Number);
     const [ty2,tm2] = periodTo.split('-').map(Number);
@@ -31126,9 +31131,10 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
       const mRecords = generateMonthlySchedule([sp], y, m, appData.monthlyShifts, appData.ticketRecords || [], appData.holidays, closedDaysTV).sort((a,b)=>a.dayNum-b.dayNum);
       const mEx = getExerciseItemsForDate(appData.systemSettings, `${y}-${String(m).padStart(2,'0')}-01`, y) || effExerciseItems(appData.systemSettings);
       const mPlanned = getPlannedExercisesForMonth(sp, y, m);
-      const mPages = []; for (let i=0;i<mRecords.length;i+=PER_PAGE) mPages.push(mRecords.slice(i, i+PER_PAGE));
+      const _pp = _perPage((mEx||[]).length);
+      const mPages = []; for (let i=0;i<mRecords.length;i+=_pp) mPages.push(mRecords.slice(i, i+_pp));
       if (mPages.length===0) mPages.push([]);
-      return { mY:y, mM:m, ex:mEx, plannedM:mPlanned, tc: 6 + mEx.length + 1, pages: mPages };
+      return { mY:y, mM:m, ex:mEx, plannedM:mPlanned, tc: 6 + mEx.length + 1, pages: mPages, pp: _pp };
     });
   })();
 
@@ -31199,11 +31205,17 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
       <div className="space-y-6 pb-32 pt-6 px-4 ticket-outer" style={{minWidth:0, zoom: _fitZoom}}>
         <div id="print-content-ticket">
 
-        {renderList.flatMap(({ mY: tY, mM: tM, ex, plannedM, tc, pages }) => pages.map((pr, pi) => {
-          const fill = Math.max(0, PER_PAGE - pr.length);
+        {renderList.flatMap(({ mY: tY, mM: tM, ex, plannedM, tc, pages, pp }) => pages.map((pr, pi) => {
+          const fill = Math.max(0, (pp || PER_PAGE) - pr.length);
+          // ★ 2026-10-02: 運動項目の2段分割(ex1=上段・ex2=下段)。列数は多い方に合わせ、合計の列数 _tcx を colSpan に使う
+          const _half = ex.length > EX_BAND ? Math.ceil(ex.length / 2) : ex.length; // 2段のときは上下に半分ずつ(列幅を広く)
+          const ex1 = ex.slice(0, _half), ex2 = ex.slice(_half); const exCols = Math.max(ex1.length, ex2.length);
+          const _fixedN = 1 + 1 + (_kOnR ? 1 : 0) + 1 + 1 + (_showEnT ? 1 : 0); // 日付・状態・気分・体温・開始・終了
+          const _tcx = _fixedN + exCols + 1;
+          const _exW = exCols > 8 ? 38 : 44;
           const _bikouText = pi === 0 ? computeServiceChangeBikou(sp, tY, tM, appData) : '';
           return (
-          <div key={`${tY}-${tM}-${pi}`} className="tp bg-white px-5 py-3 shadow-xl border border-slate-300 rounded-xl flex flex-col">
+          <div key={`${tY}-${tM}-${pi}`} data-rows={(pp || PER_PAGE) * (ex2.length ? 3 : 2)} className="tp bg-white px-5 py-3 shadow-xl border border-slate-300 rounded-xl flex flex-col">
             {/* ヘッダー */}
             <div className="flex justify-between items-start mb-1 shrink-0">
               <div>
@@ -31263,7 +31275,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
             })()}
 
             {/* ★ 運動メニュー（設定数値）独立表 — 黒ヘッダーの上。 ラベルは日付列と同比率、運動名は残り幅を均等割り */}
-            {(() => { const _uW = ex.length > 12 ? 32 : ex.length > 8 ? 36 : 42; const _mainTotal = 308 + (ex.length+1)*_uW; const _labelPct = (50/_mainTotal*100);
+            {(() => { const _uW = _exW; const _mainTotal = 308 + (exCols+1)*_uW; const _labelPct = (50/_mainTotal*100);
               // ★ 個別運動列の設定値: 患者マスタで設定した「種目名＋規定値」を表示 (通常メニューは planned 値)
               const _indPlanDisp = (it) => {
                 const allInd = appData.systemSettings?.individualExerciseItems || [];
@@ -31281,16 +31293,18 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
             <table className="w-full border-collapse border border-slate-600 mb-1 shrink-0" style={{tableLayout:'fixed',width:'100%',marginTop:6}}>
               <colgroup>
                 <col style={{width:`${_labelPct}%`}}/>
-                {ex.map(it=><col key={it.id}/>)}
+                {Array.from({length: exCols}).map((_, i)=><col key={i}/>)}
               </colgroup>
               <tbody>
+                {[ex1, ex2].filter(b => b.length).map((band, bi) => (<Fragment key={`band${bi}`}>
                 <tr style={{height:30}} className="bg-slate-700 text-white">
-                  <th className="border border-slate-600 px-0 text-center overflow-hidden" style={{background:'#334155',color:'#fff'}}><AutoFitText text="運動メニュー" max={11} bold color="#fff"/></th>
-                  {ex.map(it=>(<th key={it.id} className="border border-slate-600 px-0 text-center overflow-hidden" style={{background:'#334155',color:'#fff'}}><AutoFitText text={it.name} max={11} min={6} bold color="#fff" wrap/></th>))}
+                  <th className="border border-slate-600 px-0 text-center overflow-hidden" style={{background:'#334155',color:'#fff'}}><AutoFitText text={bi ? '運動（続き）' : '運動メニュー'} max={11} bold color="#fff"/></th>
+                  {band.map(it=>(<th key={it.id} className="border border-slate-600 px-0 text-center overflow-hidden" style={{background:'#334155',color:'#fff'}}><AutoFitText text={it.name} max={11} min={6} bold color="#fff" wrap/></th>))}
+                  {Array.from({length: exCols - band.length}).map((_, i)=><th key={`b${i}`} className="border border-slate-600" style={{background:'#334155'}}></th>)}
                 </tr>
                 <tr style={{height:30}}>
                   <td className="border border-slate-600 px-0 text-center overflow-hidden" style={{background:'#f1f5f9'}}><AutoFitText text="設定数値" max={11} bold/></td>
-                  {ex.map(it=>{
+                  {band.map(it=>{
                     if (it.type === 'individual') {
                       const d = _indPlanDisp(it);
                       return (
@@ -31306,13 +31320,15 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                     }
                     return (<td key={it.id} className="border border-slate-600 px-0 text-center overflow-hidden"><AutoFitText text={_planUnit(plannedM[it.id], it.defaultUnit)} max={13} bold/></td>);
                   })}
+                  {Array.from({length: exCols - band.length}).map((_, i)=><td key={`c${i}`} className="border border-slate-600"></td>)}
                 </tr>
+                </Fragment>))}
               </tbody>
             </table>
             ); })()}
 
-            {/* メインテーブル: print 時の flex 計算問題を避けるためフロー配置 */}
-            <div className="flex flex-col" style={{overflowX:'auto'}}>
+            {/* メインテーブル: print 時の flex 計算問題を避けるためフロー配置。★ 2026-10-02: 用紙の中にスクロールを出さない(はみ出しは用紙側で隠し、行の自動縮小で収める) */}
+            <div className="flex flex-col" style={{overflow:'visible'}}>
               <style>{`
                 /* 行高さを完全固定 — 入力内容の有無にかかわらず一定 (6日表示で1日あたりを拡大) */
                 .tp table { table-layout: fixed; }
@@ -31321,7 +31337,10 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                 .tp table tbody tr.data-row { height:max(34px, calc(46px - var(--tpShrink, 0px)))!important; max-height:max(34px, calc(46px - var(--tpShrink, 0px)))!important; }
                 .tp table tbody tr.tokki-row { height:max(26px, calc(36px - var(--tpShrink, 0px)))!important; max-height:max(26px, calc(36px - var(--tpShrink, 0px)))!important; }
                 .tp table tbody tr.bikou-gap td { border:none!important; background:transparent!important; height:14px!important; padding:0!important; }
-                .tp table tbody tr.bikou-row { height:30px!important; max-height:30px!important; }
+                .tp table tbody tr.bikou-row { height:44px!important; max-height:44px!important; } /* ★ 2026-10-02: 備考は2行分 */
+                .tp table tbody tr.ex2-row { height:max(26px, calc(32px - var(--tpShrink, 0px)))!important; max-height:max(26px, calc(32px - var(--tpShrink, 0px)))!important; }
+                .tp table tbody tr.ex2-row td { height:max(26px, calc(32px - var(--tpShrink, 0px)))!important; max-height:max(26px, calc(32px - var(--tpShrink, 0px)))!important; }
+                .tp table tbody tr.ex2-row td>div.cell-wrap { height:max(22px, calc(28px - var(--tpShrink, 0px))); max-height:max(22px, calc(28px - var(--tpShrink, 0px))); overflow:hidden; display:flex; align-items:center; justify-content:center; word-break:break-all; flex-wrap:wrap; text-align:center; line-height:1.15; }
                 .tp table tbody td {
                   box-sizing:border-box!important;
                   vertical-align:middle!important;
@@ -31329,7 +31348,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                 }
                 .tp table tbody tr.data-row td { height:max(34px, calc(46px - var(--tpShrink, 0px)))!important; max-height:max(34px, calc(46px - var(--tpShrink, 0px)))!important; }
                 .tp table tbody tr.tokki-row td { height:max(26px, calc(36px - var(--tpShrink, 0px)))!important; max-height:max(26px, calc(36px - var(--tpShrink, 0px)))!important; }
-                .tp table tbody tr.bikou-row td { height:30px!important; max-height:30px!important; }
+                .tp table tbody tr.bikou-row td { height:44px!important; max-height:44px!important; }
                 .tp table tbody tr.data-row td>div.cell-wrap {
                   height:max(30px, calc(42px - var(--tpShrink, 0px))); max-height:max(30px, calc(42px - var(--tpShrink, 0px))); overflow:hidden;
                   display:flex; align-items:center; justify-content:center;
@@ -31345,30 +31364,36 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                 .tp table tbody tr.tokki-row td>div.cell-wrap.tokki-fit { white-space:normal; word-break:break-all; line-height:1.15; align-items:center; }
                 .tp table tbody tr.tokki-row td>div.cell-wrap.tokki-fit>span { text-align:left; width:100%; }
                 .tp table tbody tr.bikou-row td>div.cell-wrap {
-                  height:26px; max-height:26px; overflow:hidden;
+                  height:40px; max-height:40px; overflow:hidden;
                   display:flex; align-items:center; justify-content:flex-start;
-                  line-height:1.2; white-space:nowrap; word-break:keep-all;
+                  line-height:1.2; white-space:normal; word-break:break-all;
                   text-align:left; padding-left:4px;
                 }
               `}</style>
               <table className="w-full border-collapse" style={{tableLayout:'fixed',width:'100%'}}>
                 <thead className="shrink-0">
                   <tr className="bg-slate-800 text-white text-[10px]" style={{height:36}}>
-                    <th className="border border-slate-600 py-1 overflow-hidden" style={{width:50}}><AutoFitText text="日付" max={13} bold color="#fff"/></th>
+                    <th rowSpan={ex2.length ? 2 : 1} className="border border-slate-600 py-1 overflow-hidden" style={{width:50}}><AutoFitText text="日付" max={13} bold color="#fff"/></th>
                     <th className="border border-slate-600 py-1 overflow-hidden" style={{width:34}}><AutoFitText text="状態" max={13} bold color="#fff"/></th>
                     {_kOnR && <th className="border border-slate-600 py-1 overflow-hidden" style={{width:34}}><AutoFitText text="気分" max={13} bold color="#fff"/></th>}
                     <th className="border border-slate-600 py-1 overflow-hidden" style={{width:48}}><AutoFitText text="体温" max={13} bold color="#fff"/></th>
                     <th className="border border-slate-600 py-1 overflow-hidden" style={{width:58}}><AutoFitText text="開始 血圧（脈）" max={11} bold color="#fff"/></th>
                     {_showEnT && <th className="border border-slate-600 py-1 overflow-hidden" style={{width:58}}><AutoFitText text={`${secondBpLabel(appData)} 血圧（脈）`} max={11} bold color="#fff"/></th>}
-                    {(()=>{
-                      // 運動メニュー項目数に応じて統一列幅を計算 (個別運動も介護整体も同じ幅)
-                      const unifiedW = ex.length > 12 ? 32 : ex.length > 8 ? 36 : 42;
-                      return ex.map(it => (
-                        <th key={it.id} className="border border-slate-600 py-1 leading-tight px-0 overflow-hidden" style={{width: unifiedW}}><AutoFitText text={it.name} max={11} min={6} bold color="#fff" wrap/></th>
-                      ));
-                    })()}
-                    <th className="border border-slate-600 py-1 overflow-hidden" style={{width: ex.length > 12 ? 32 : ex.length > 8 ? 36 : 42}}><AutoFitText text="介護整体" max={11} bold color="#fff"/></th>
+                    {ex1.map(it => (
+                      <th key={it.id} className="border border-slate-600 py-1 leading-tight px-0 overflow-hidden" style={{width: _exW}}><AutoFitText text={it.name} max={11} min={6} bold color="#fff" wrap/></th>
+                    ))}
+                    {Array.from({length: exCols - ex1.length}).map((_, i)=><th key={`h${i}`} className="border border-slate-600" style={{width: _exW}}></th>)}
+                    <th className="border border-slate-600 py-1 overflow-hidden" style={{width: _exW}}><AutoFitText text="介護整体" max={11} bold color="#fff"/></th>
                   </tr>
+                  {ex2.length > 0 && (
+                  <tr className="bg-slate-800 text-white text-[10px]" style={{height:36}}>
+                    <th colSpan={_fixedN - 1} className="border border-slate-600 py-1 overflow-hidden text-right pr-1" style={{background:'#1e293b'}}><AutoFitText text="運動（続き）" max={10} bold color="#cbd5e1"/></th>
+                    {ex2.map(it => (
+                      <th key={it.id} className="border border-slate-600 py-1 leading-tight px-0 overflow-hidden" style={{width: _exW}}><AutoFitText text={it.name} max={11} min={6} bold color="#fff" wrap/></th>
+                    ))}
+                    {Array.from({length: exCols - ex2.length}).map((_, i)=><th key={`h2${i}`} className="border border-slate-600" style={{width: _exW}}></th>)}
+                    <th className="border border-slate-600"></th>
+                  </tr>)}
                 </thead>
                 <tbody>
                   {pr.map(r => {
@@ -31384,7 +31409,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                       <Fragment key={r.id}>
                         {/* データ行 */}
                         <tr className={`data-row ${rc}`} style={{height:40}}>
-                          <td rowSpan={2} className={`border border-slate-400 px-1 text-center ${rc}`} style={{verticalAlign:'middle',overflow:'hidden',maxWidth:80,padding:0,height:82}}>
+                          <td rowSpan={ex2.length ? 3 : 2} className={`border border-slate-400 px-1 text-center ${rc}`} style={{verticalAlign:'middle',overflow:'hidden',maxWidth:80,padding:0,height:82}}>
                             <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:'2px 0'}}>
                               <div className="font-bold leading-tight" style={{fontSize:24}}>{r.dayNum}</div>
                               <div className="font-normal leading-tight" style={{fontSize:12,color:'#475569',marginTop:1}}>（{r.dayOfWeek}）</div>
@@ -31439,9 +31464,9 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                           )}
                           {(()=>{
                             // 列幅に応じてフォントサイズも調整 (運動メニューが増えても見やすく)
-                            const baseExFs = ex.length > 12 ? 9 : ex.length > 8 ? 10 : 12;
-                            const baseIndFs = ex.length > 12 ? 7 : ex.length > 8 ? 8 : 9;
-                            return ex.map(it => {
+                            const baseExFs = exCols > 8 ? 10 : 12;
+                            const baseIndFs = exCols > 8 ? 8 : 9;
+                            const _exCell = (it) => {
                               const raw = r.exercises?.[it.id];
                               let display = '';
                               let isIndividual = false;
@@ -31463,15 +31488,24 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                                   <div className="cell-wrap" style={{justifyContent:'center',whiteSpace:'pre-line',fontSize: adjFs, lineHeight:1.15, overflow:'hidden'}}>{isA||mt?'':display}</div>
                                 </td>
                               );
-                            });
+                            };
+                            r._exCell = _exCell; // 下段の行でも同じ描画を使う
+                            return <>{ex1.map(_exCell)}{Array.from({length: exCols - ex1.length}).map((_, i)=><td key={`e${i}`} className="border border-slate-400"></td>)}</>;
                           })()}
                           <td className="border border-slate-400 px-0.5 text-center font-bold"><div className="cell-wrap" style={{justifyContent:'center',whiteSpace:'nowrap',fontSize:(v(r.massage)||'').length>4?9:(v(r.massage)||'').length>3?10:12}}>{v(r.massage)}</div></td>
                         </tr>
+                        {ex2.length > 0 && (
+                        <tr className={`ex2-row ${rc}`}>
+                          <td colSpan={_fixedN - 1} className="border border-slate-400 px-1 py-0 bg-slate-100 text-right text-[9px] text-slate-500 font-bold"><div className="cell-wrap" style={{justifyContent:'flex-end'}}>運動（続き）</div></td>
+                          {ex2.map(r._exCell)}
+                          {Array.from({length: exCols - ex2.length}).map((_, i)=><td key={`e2${i}`} className="border border-slate-400"></td>)}
+                          <td className="border border-slate-400"></td>
+                        </tr>)}
                         {/* 特記行 */}
                         <tr className={`tokki-row ${rc}`} style={{height:36}}>
                           <td className="border-l border-b border-slate-400 px-1 py-0 bg-slate-100 text-center text-[9px] text-slate-500 font-bold" ><div className="cell-wrap">特記</div></td>
                           {/* ★ 2026-10-02(店舗報告: 特記に長い文を書くと入らない): 2行まで折り返し、収まるまで文字を縮める(10→7px)。それでも入らない分は切れる(行の高さは固定) */}
-                          <td colSpan={tc - 2} className="border-r border-b border-slate-400 px-1.5 py-0 text-[10px] text-slate-700" ><div className="cell-wrap tokki-fit" style={{overflow:'hidden',whiteSpace:'normal',alignItems:'flex-start'}}><AutoFitText text={[r.tokki||'', ...bpReLines(r)].filter(Boolean).join('　')} max={10} min={7} wrap/></div></td>
+                          <td colSpan={_tcx - 2} className="border-r border-b border-slate-400 px-1.5 py-0 text-[10px] text-slate-700" ><div className="cell-wrap tokki-fit" style={{overflow:'hidden',whiteSpace:'normal',alignItems:'flex-start'}}><AutoFitText text={[r.tokki||'', ...bpReLines(r)].filter(Boolean).join('　')} max={10} min={7} wrap/></div></td>
                         </tr>
                       </Fragment>
                     );
@@ -31480,27 +31514,28 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                   {Array.from({length:fill}).map((_,i)=>(
                     <Fragment key={`e${i}`}>
                       <tr className="data-row" style={{height:44}}>
-                        <td rowSpan={2} className="border border-slate-400 px-1" style={{height:82}}></td>
+                        <td rowSpan={ex2.length ? 3 : 2} className="border border-slate-400 px-1" style={{height:82}}></td>
                         <td className="border border-slate-400" style={{height:44}}></td>{/* 状態 */}
                         {_kOnR && <td className="border border-slate-400" style={{height:44}}></td>}{/* 気分 ★ 見出しと同じ条件(2026-09-29: 余分な列で表が崩れていた) */}
                         <td className="border border-slate-400" style={{height:44}}></td>{/* 体温 */}
                         <td className="border border-slate-400" style={{height:44}}></td>{/* 開始 */}
                         {_showEnT && <td className="border border-slate-400" style={{height:44}}></td>}{/* 終了 */}
-                        {ex.map(it=><td key={it.id} className="border border-slate-400" style={{height:44}}></td>)}
+                        {Array.from({length: exCols}).map((_, i)=><td key={i} className="border border-slate-400" style={{height:44}}></td>)}
                         <td className="border border-slate-400" style={{height:44}}></td>
                       </tr>
+                      {ex2.length > 0 && (<tr className="ex2-row"><td colSpan={_fixedN - 1} className="border border-slate-400 bg-slate-100"></td>{Array.from({length: exCols}).map((_, i)=><td key={i} className="border border-slate-400"></td>)}<td className="border border-slate-400"></td></tr>)}
                       <tr className="tokki-row" style={{height:38}}>
                         <td className="border-l border-b border-slate-400 px-1 py-0 bg-slate-100 text-center text-[9px] text-slate-400 font-bold" style={{height:38}}>特記</td>
-                        <td colSpan={tc - 2} className="border-r border-b border-slate-400" style={{height:38}}></td>
+                        <td colSpan={_tcx - 2} className="border-r border-b border-slate-400" style={{height:38}}></td>
                       </tr>
                     </Fragment>
                   ))}
                   {/* ★ 日付表と備考の間に余白 */}
-                  <tr className="bikou-gap"><td colSpan={tc}></td></tr>
+                  <tr className="bikou-gap"><td colSpan={_tcx}></td></tr>
                   {/* ★ 7日目の位置: 備考欄 (基本1行。長い場合は縮小)。 当月にサービス提供内容の変更があれば自動記載、手動編集も可 */}
                   <tr className="bikou-row">
                     <td className="border border-slate-500 px-1 py-0 bg-amber-50 text-center text-[10px] text-amber-700 font-bold" style={{width:50}}>備考</td>
-                    <td colSpan={tc - 1} className="border border-slate-500 px-1.5 py-0 text-slate-800" style={{background:_bikouText?'#fffdf5':'white',fontSize:(_bikouText||'').length>60?8:(_bikouText||'').length>44?9:10}}><div className="cell-wrap">{_bikouText}</div></td>
+                    <td colSpan={_tcx - 1} className="border border-slate-500 px-1.5 py-0 text-slate-800" style={{background:_bikouText?'#fffdf5':'white',fontSize:(_bikouText||'').length>60?8:(_bikouText||'').length>44?9:10}}><div className="cell-wrap">{_bikouText}</div></td>
                   </tr>
                 </tbody>
               </table>
