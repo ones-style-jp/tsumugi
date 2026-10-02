@@ -22456,9 +22456,10 @@ export default function App() {
                   )}
                 </SidebarGroup>
               )}
-              <SidebarGroup icon={<ClipboardList size={18} />} label="実績・モニタリング" activeChild={['roster','jisseki','monitoring'].includes(currentView)}>
+              <SidebarGroup icon={<ClipboardList size={18} />} label="実績・モニタリング" activeChild={['roster','jisseki','monitoring','class_roster'].includes(currentView)}>
                 <SidebarItem icon={<Users size={16} />} label="勤務表" active={currentView === 'roster'} onClick={() => navigateTo('roster')} />
                 <SidebarItem icon={<ClipboardList size={16} />} label="利用者実績" active={currentView === 'jisseki'} onClick={() => navigateTo('jisseki')} />
+                <SidebarItem icon={<Users size={16} />} label="クラス在籍表" active={currentView === 'class_roster'} onClick={() => navigateTo('class_roster')} />
                 <SidebarItem icon={<ClipboardList size={16} />} label="モニタリング" active={currentView === 'monitoring'} onClick={() => navigateTo('monitoring')} />
               </SidebarGroup>
               <div className="pt-4 mt-4 border-t border-slate-800 space-y-1">
@@ -22500,6 +22501,7 @@ export default function App() {
                  currentView === 'diary' ? '日誌' :
                  currentView === 'transport' ? '送迎表（運行表）' :
                  currentView === 'jisseki' ? '実績登録' :
+                 currentView === 'class_roster' ? 'クラス在籍表' :
                  currentView === 'absence_fax' ? '休み連絡' :
                  currentView === 'general_fax' ? '各種連絡' :
                  currentView === 'monitoring' ? 'モニタリング' :
@@ -22624,6 +22626,7 @@ export default function App() {
              currentView === 'cmmaster' ? <SettingsView cmOnly appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} isSuperAdmin={staffSession?.role === 'super_admin'} isAdmin={staffSession?.role === 'super_admin' || staffSession?.role === 'manager'} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} deviceName={deviceName} updateDeviceName={updateDeviceName} lastSync={appData._lastSync} /> :
              currentView === 'family_admin' ? <FamilyAdminView appData={appData} onSave={handleSaveToCloud} /> :
              currentView === 'emergency' ? <DisasterView appData={appData} onSave={handleSaveToCloud} staffSession={staffSession} /> :
+             currentView === 'class_roster' ? <ClassRosterView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
              currentView === 'jisseki' ? <JissekiView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
              currentView === 'transport' ? <TransportView appData={appData} onSave={handleSaveToCloud} selectedDate={selectedDate} setSelectedDate={setSelectedDate} onShowPrintPreview={null} navigateTo={navigateTo} /> :
              currentView === 'diary' ? <DailyLogView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} dirtyRef={diaryDirtyRef} saveFnRef={diarySaveFnRef} /> :
@@ -29322,6 +29325,94 @@ function AttrSection({appData, tY, tM, baseMonth, attrMonth, setAttrMonth, perio
 // 利用者への複数コード割当、CSV出力・印刷(A4横)に対応する。 実績表示は読み取り専用(提供記録は書き換えない)。
 // 書き込みは systemSettings.serviceCodes(コード台帳) と patient.serviceCodes(割当)のみ=どちらも項目単位保護。
 // ※画面構成はつむぎ独自仕様(他社ソフトの複製ではない)。
+// ★ 2026-10-03(ユーザー要望「1週間で午前・午後×曜日に誰が在籍しているかの表。定員+1枠。空きが分かるように」):
+//   クラス在籍表。基本利用曜日(scheduleAmPm・1日は午前と午後の両方)から、曜日×午前/午後の在籍者を定員+1行で並べる。
+//   並び順は介護度(事業対象者→要支援→要介護)→NO。待ち(キャンセル待ち等)は枠ごとの自由入力(systemSettings.classRosterWait)。印刷はA4横。
+function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
+  const fi = appData.systemSettings?.facilityInfo || {};
+  const cap = Math.max(1, Number(fi.capacity) || 10);
+  const rows = cap + 1;
+  const closed = Array.isArray(fi.closedDays) ? fi.closedDays.map(Number) : [0];
+  const DOWJ = ['日','月','火','水','木','金','土'];
+  const days = [1,2,3,4,5,6,0].filter(d => !closed.includes(d));
+  const todayIso = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
+  const order = ['事業対象者','要支援1','要支援2','要介護1','要介護2','要介護3','要介護4','要介護5'];
+  const lv = (p) => { const i = order.indexOf(String(p.careLevel || '')); return i < 0 ? 99 : i; };
+  const short = (c) => String(c || '').replace('要支援', '支援').replace('要介護', '介護').replace('事業対象者', '事業');
+  const pats = (appData.patients || []).filter(p => isPatientListable(p) && (p.status || '利用中') !== '退所');
+  const isPaused = (p) => { try { return !!getPauseReasonOnDate(p, todayIso) || (p.status === '休止' && !(p.pauseHistory || []).length); } catch { return false; } };
+  const members = (dow, sl) => pats.filter(p => { const v = (p.scheduleAmPm || [])[dow]; return v === sl || v === '1日'; }).sort((a, b) => (lv(a) - lv(b)) || (Number(a.id) - Number(b.id)));
+  const wait = appData.systemSettings?.classRosterWait || {};
+  const [waitDraft, setWaitDraft] = React.useState({});
+  const saveWait = (k, v) => { const cur = appData.systemSettings?.classRosterWait || {}; if ((cur[k] || '') === (v || '')) return; const ss = appData.systemSettings || {}; onSave({ ...appData, systemSettings: { ...ss, classRosterWait: { ...cur, [k]: v }, _fieldTs: { ...(ss._fieldTs || {}), classRosterWait: syncNow() } } }, { silent: true }); };
+  const total = (sl) => days.reduce((n, d) => n + members(d, sl).length, 0);
+  const Block = ({ sl, label, print }) => (
+    <table style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed', fontSize: print ? 10 : 12 }}>
+      <colgroup><col style={{ width: print ? 18 : 26 }} />{days.map(d => <React.Fragment key={d}><col style={{ width: print ? 24 : 34 }} /><col /><col style={{ width: print ? 34 : 48 }} /></React.Fragment>)}</colgroup>
+      <tbody>{/* ★ 左端の「午前/午後」は rowSpan で全行をまたぐため、見出し行も tbody に入れる(thead→tbody をまたぐ rowSpan は効かない) */}
+        <tr>
+          <th rowSpan={rows + 4} style={{ border: '1px solid #475569', background: '#fef9c3', fontWeight: 'bold', writingMode: 'vertical-rl', letterSpacing: 4, fontSize: print ? 12 : 14 }}>{label}</th>
+          {days.map(d => <th key={d} colSpan={3} style={{ border: '1px solid #475569', background: '#e0f2fe', fontWeight: 'bold', padding: '2px 0' }}>{DOWJ[d]}曜日</th>)}
+        </tr>
+        <tr>{days.map(d => <React.Fragment key={d}><th style={{ border: '1px solid #475569', background: '#fed7aa', fontWeight: 'bold' }}>NO</th><th style={{ border: '1px solid #475569', background: '#fed7aa', fontWeight: 'bold' }}>氏名</th><th style={{ border: '1px solid #475569', background: '#fed7aa', fontWeight: 'bold' }}>介護度</th></React.Fragment>)}</tr>
+        {Array.from({ length: rows }).map((_, i) => (
+          <tr key={i} style={{ height: print ? 17 : 24 }}>
+            {days.map(d => { const m = members(d, sl)[i]; const over = i >= cap; const sup = m && /支援|事業/.test(String(m.careLevel || '')); return (
+              <React.Fragment key={d}>
+                <td style={{ border: '1px solid #475569', textAlign: 'center', background: over ? '#fffbeb' : 'white', color: '#334155' }}>{m ? m.id : ''}</td>
+                <td style={{ border: '1px solid #475569', textAlign: 'center', background: over ? '#fffbeb' : 'white', whiteSpace: 'nowrap', overflow: 'hidden', fontWeight: 'bold', color: m && isPaused(m) ? '#94a3b8' : '#1e293b' }} title={m && isPaused(m) ? '休止中' : ''}>{m ? `${m.name}${isPaused(m) ? '（休止）' : ''}` : ''}</td>
+                <td style={{ border: '1px solid #475569', textAlign: 'center', background: m ? (sup ? '#fbcfe8' : 'white') : (over ? '#fffbeb' : 'white'), fontSize: print ? 9 : 11 }}>{m ? short(m.careLevel) : ''}</td>
+              </React.Fragment>); })}
+          </tr>
+        ))}
+        <tr style={{ height: print ? 22 : 34 }}>
+          {days.map(d => { const k = `${d}_${sl}`; const v = waitDraft[k] != null ? waitDraft[k] : (wait[k] || ''); return (
+            <td key={d} colSpan={3} style={{ border: '1px solid #475569', padding: '1px 3px', verticalAlign: 'top', background: '#f8fafc' }}>
+              <div style={{ display: 'flex', gap: 3, alignItems: 'flex-start' }}>
+                <span style={{ fontWeight: 'bold', color: '#475569', whiteSpace: 'nowrap', fontSize: print ? 9 : 11 }}>待ち</span>
+                {print ? <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: 9, color: '#1d4ed8' }}>{v}</span>
+                  : <textarea value={v} rows={2} placeholder="（空欄）" onChange={e => setWaitDraft(w => ({ ...w, [k]: e.target.value }))} onBlur={e => { saveWait(k, e.target.value); setWaitDraft(w => { const n = { ...w }; delete n[k]; return n; }); }}
+                      style={{ flex: 1, minWidth: 0, fontSize: 11, color: '#1d4ed8', fontWeight: 'bold', border: '1px dashed #cbd5e1', borderRadius: 4, padding: '1px 3px', background: 'white', resize: 'none', lineHeight: 1.3 }} data-testid={`cr-wait-${k}`} />}
+              </div>
+            </td>); })}
+        </tr>
+        <tr style={{ height: print ? 22 : 30 }}>
+          {days.map(d => { const n = members(d, sl).length; const free = cap - n; return (
+            <td key={d} colSpan={3} style={{ border: '1px solid #475569', textAlign: 'center', fontWeight: 'bold', background: free > 0 ? '#ecfdf5' : free < 0 ? '#fef2f2' : 'white', color: free > 0 ? '#047857' : free < 0 ? '#b91c1c' : '#334155' }} data-testid={`cr-free-${d}_${sl}`}>
+              空き {Math.max(0, free)}{free < 0 ? `（定員超過 ${-free}）` : ''}<span style={{ fontWeight: 'normal', color: '#64748b', marginLeft: 6, fontSize: print ? 9 : 11 }}>{n}/{cap}名</span>
+            </td>); })}
+        </tr>
+      </tbody>
+    </table>
+  );
+  const doPrint = () => { if (onShowPrintPreview) onShowPrintPreview(`クラス在籍表_${todayIso}`, 'A4 landscape', 'print-content-classroster'); else window.print(); };
+  return (
+    <div className="h-full flex flex-col bg-slate-50">
+      <div className="no-print bg-white border-b border-slate-200 px-4 py-2 flex items-center gap-3 flex-wrap shrink-0">
+        <div className="font-bold text-slate-800">クラス在籍表</div>
+        <div className="text-[11px] text-slate-500">基本利用曜日から自動で並びます（介護度→NO順）。定員 {cap}名＋予備1枠。「待ち」は自由入力（空欄のまま保存されます）。利用者の曜日は利用者マスタで変更してください。</div>
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-[11px] text-slate-600">午前 {total('AM')}名 ／ 午後 {total('PM')}名</span>
+          <button type="button" data-testid="cr-print" onClick={doPrint} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">プレビュー / 印刷</button>
+        </div>
+      </div>
+      <div className="flex-1 overflow-auto p-4">
+        <div className="bg-white rounded-xl border border-slate-200 p-3 mb-4" data-testid="cr-am"><Block sl="AM" label="午前" /></div>
+        <div className="bg-white rounded-xl border border-slate-200 p-3" data-testid="cr-pm"><Block sl="PM" label="午後" /></div>
+      </div>
+      {/* 印刷用(A4横・余白は内側のdivで確保: 印刷ホストがbody直下の余白を0にするため) */}
+      <div id="print-content-classroster" style={{ display: 'none' }}>
+        <style>{`@page{size:A4 landscape;margin:0}`}</style>
+        <div style={{ width: '297mm', height: '210mm', boxSizing: 'border-box', background: 'white', overflow: 'hidden' }}>
+          <div style={{ padding: '8mm 10mm', boxSizing: 'border-box', height: '100%', display: 'flex', flexDirection: 'column', gap: 8, fontFamily: '"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","メイリオ",Meiryo,sans-serif', color: '#1e293b' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}><span style={{ fontSize: 14, fontWeight: 'bold' }}>クラス在籍表</span><span style={{ fontSize: 10, color: '#475569' }}>{String(fi.name || '')}　定員 {cap}名／枠　{todayIso.replace(/-/g, '/')} 現在</span></div>
+            <Block sl="AM" label="午前" print /><Block sl="PM" label="午後" print />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 function JissekiView({ appData, onSave, onShowPrintPreview }) {
   const [tab, setTab] = React.useState('month'); // 'month'=月間一覧 | 'patient'=利用者ごと
   const [selPid, setSelPid] = React.useState(null);
@@ -32648,19 +32739,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                     <div className="text-[10px] text-slate-400 mt-1">B5横に2人分を印刷し、中央でカット→B6×2枚。人数が奇数のときは最後の1面が空欄（手書き用）になります。「上」を選ぶと上に余白を取り、各面を少し小さく印刷します。</div>
                   </div>
                 )}
-                {/* ★ 印刷位置の微調整(2026-09-24 店舗報告: B5で右下にずれて右面の日付・下の事業所名が見切れる) */}
-                {(()=>{ const ox=Number(ss.renrakuOffsetX)||0, oy=Number(ss.renrakuOffsetY)||0; const step=(k,d)=>setSS({[k]:Math.max(-10,Math.min(10,(Number(ss[k])||0)+d))}); const nb='w-7 h-7 rounded-lg border border-slate-300 bg-white text-slate-700 font-bold text-sm hover:bg-slate-50 active:scale-95'; return (
-                  <div>
-                    <div className="text-[11px] font-bold text-slate-500 mb-1">印刷位置の微調整（1押し＝1mm）</div>
-                    {/* ★ どちらへ動くか分かるよう矢印＋方向名で表示(2026-09-25 ユーザー指示)。内部値: 横は右が＋、縦は下が＋ */}
-                    <div className="flex flex-col gap-1.5 text-xs text-slate-700">
-                      <span className="flex items-center gap-1.5"><span className="w-7 font-bold text-slate-500">横</span><button onClick={()=>step('renrakuOffsetX',-1)} className={nb+' w-auto px-2'} title="左へ1mm">← 左</button><b className="w-16 text-center tabular-nums">{ox===0?'0（中央）':ox>0?`右 +${ox}`:`左 ${ox}`}</b><button onClick={()=>step('renrakuOffsetX',1)} className={nb+' w-auto px-2'} title="右へ1mm">右 →</button></span>
-                      <span className="flex items-center gap-1.5"><span className="w-7 font-bold text-slate-500">縦</span><button onClick={()=>step('renrakuOffsetY',-1)} className={nb+' w-auto px-2'} title="上へ1mm">↑ 上</button><b className="w-16 text-center tabular-nums">{oy===0?'0（中央）':oy>0?`下 +${oy}`:`上 ${oy}`}</b><button onClick={()=>step('renrakuOffsetY',1)} className={nb+' w-auto px-2'} title="下へ1mm">↓ 下</button></span>
-                      {(ox||oy) ? <button onClick={()=>setSS({renrakuOffsetX:0,renrakuOffsetY:0})} className="text-[11px] text-blue-600 underline self-start">0に戻す</button> : null}
-                    </div>
-                    <div className="text-[10px] text-slate-400 mt-1">印刷が右下にずれて見切れるときは「← 左」「↑ 上」を押します（例: 左 −3・上 −2）。複合機ごとに違うので、1枚試し刷りして合わせてください。動くのは連絡帳の中身だけで、中央のカット線は動きません。</div>
-                  </div>
-                ); })()}
+                {/* ★ 2026-10-03 ユーザー指示: 印刷位置の微調整はプレビュー画面で行えるため、ここの微調整は廃止(保存値 renrakuOffsetX/Y はプレビューの調整で共用) */}
                 <label className="flex items-center gap-2 text-xs text-slate-700 py-0.5 cursor-pointer"><input type="checkbox" checked={ss.renrakuShowQr !== false} onChange={e=>setSS({renrakuShowQr:e.target.checked})}/>ご家族専用ページのQRコードを連絡帳に印字する</label>
               </div>
             );
@@ -33892,6 +33971,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const np = { ...plans }; const at = syncNow(); let n = 0;
     days.forEach(d => ['AM','PM'].forEach(sl => { const iso = _iso(d); const pl = getPlan(iso, sl); const { _draft, ...rest } = pl; np[`${iso}_${sl}`] = { ...rest, _final: _snapPlan(pl), _finalAt: at, _savedAt: at }; n++; }));
     _setAfterFinalPreview(true); // ★ 2026-10-02 ユーザー要望: 確定したらそのまま運行表のプレビューへ
+    setTpEdit(false); // ★ 2026-10-03: 確定後は一覧(確定済み表示)に戻る
     _saveBulk('確定', np, { manual: true, message: `✓ 送迎表 ${_mon.getMonth()+1}/${_mon.getDate()}週を確定にしました(${n}コマ)` });
   };
   const [_afterFinalPreview, _setAfterFinalPreview] = useState(false);
@@ -33899,6 +33979,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const doPrintRef = React.useRef(null);
   // ★ 2026-10-02(試験版・ユーザー要望「確定を解除できるように」): 確定の控え(_final)を外して「作成中」に戻す。内容はそのまま。
   const [finalMenu, setFinalMenu] = useState(false);
+  const [tpEdit, setTpEdit] = useState(false); // ★ 2026-10-03: 確定済みの週で「編集する」を押したとき(週を変えると戻る)
+  React.useEffect(() => { setTpEdit(false); }, [selectedDate]);
   const unfinalizeWeek = () => {
     if (!window.confirm(`この週(${days.length}日分)の送迎表の確定を解除して「作成中」に戻します。\n内容はそのままで、確定後の変更の赤丸は消えます。よろしいですか？`)) return;
     const np = { ...plans }; let n = 0;
@@ -35066,6 +35148,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const tpHdrRef = React.useRef(null);
   const _tpCols = `26px repeat(${days.length}, minmax(236px, 1fr))`; // 先頭=午前/午後の縦見出し列
   // ==== 画面 ====
+  const _finalView = !!_finalAtOfWeek() && !tpEdit;
   return (
     <div className="h-full overflow-auto w-full bg-slate-100">
       {_autoCalcModal}
@@ -35121,6 +35204,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               {fa ? <>確定済{tot ? <span className="ml-1 bg-red-600 text-white rounded px-1">変更{tot}</span> : null}<span className="ml-1 text-[9px]">▼</span></> : '確定'}
             </button>
           ); })()}
+          {!!_finalAtOfWeek() && tpEdit && <button type="button" data-testid="tp-board-mode" onClick={()=>setTpEdit(false)} className="px-2.5 py-2 rounded-xl font-bold text-xs border border-emerald-300 bg-emerald-50 text-emerald-800 whitespace-nowrap">一覧に戻る</button>}
           {finalMenu && ReactDOM.createPortal((
             <div className="fixed inset-0 bg-slate-900/50 flex items-start justify-center p-4 pt-24" style={{zIndex:10000}} onClick={()=>setFinalMenu(false)}>
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={e=>e.stopPropagation()} data-testid="tp-final-menu">
@@ -35185,6 +35269,48 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           </div>
         </div>
       </div>
+      {/* ★ 2026-10-03(ユーザー提案「確定していたら入力画面ではなく一覧を常に表示。午前・午後を一度に見たい」): 確定済みの週は読み取り専用の一覧(午前・午後を同じ画面に)。
+          「編集する」で入力画面へ(確定後の変更は赤丸)。確定を解除すると自動で入力画面に戻る */}
+      {_finalView ? (
+      <div className="px-2 sm:px-3 pt-2 pb-3" data-testid="tp-final-board">
+        <div className="max-w-[1500px] mx-auto">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1">確定済み（{_fmtStamp(_finalAtOfWeek())}）の一覧です</span>
+            <span className="text-[11px] text-slate-500">赤丸＝確定後の変更（連絡帳に載らない分）。</span>
+            <button type="button" data-testid="tp-edit-mode" onClick={()=>setTpEdit(true)} className="ml-auto px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-slate-300 text-slate-700 hover:bg-slate-50">編集する</button>
+          </div>
+          <div className="grid gap-2" style={{gridTemplateColumns:`repeat(${days.length}, minmax(0, 1fr))`}}>
+            {days.map(d => { const iso = _iso(d); const _hol = (appData.holidays||[]).find(h => (h && (h.date||h)) === iso); return (
+              <div key={iso} className="bg-white rounded-xl border border-slate-200 overflow-hidden min-w-0">
+                <div className={`px-2 py-1 text-xs font-bold text-center ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-100 text-slate-700'}`}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{_hol ? <span className="ml-1 text-red-600">休業</span> : null}</div>
+                {['AM','PM'].map(sl => { const pl = getPlan(iso, sl); const abs = _absentees(iso, sl); const anyone = Object.values(pl.cars||{}).some(a => (a||[]).length) || (pl.walkers||[]).length || (pl.others||[]).length || (pl.un||[]).length; return (
+                  <div key={sl} className="border-t border-slate-200">
+                    <div className={`px-2 py-0.5 text-[11px] font-bold ${sl==='AM'?'bg-amber-50 text-amber-800':'bg-indigo-50 text-indigo-800'}`}>{sl==='AM'?'午前':'午後'}</div>
+                    {!anyone ? <div className="px-2 py-1 text-[11px] text-slate-400">—</div> : (
+                      <div className="px-1.5 py-1 space-y-1">
+                        {cars.map(c => { const ms = (pl.cars||{})[c.id] || []; if (!ms.length) return null; const drv = (pl.driver||{})[c.id] || ''; return (
+                          <div key={c.id}>
+                            <div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">{c.name}{drv ? <span className="font-normal ml-1">運転 {drv}</span> : null}</div>
+                            {ms.map(m => { const dot = m.mark || _dotOf(pl, iso, m.pid); const tg = _dropTag(pl, m.pid); return (
+                              <div key={m.pid} className="flex items-center gap-1 text-[12px] leading-tight py-0.5" data-testid={`tp-fb-${iso}-${sl}-${m.pid}`}>
+                                <span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${dot?'bg-red-600':'bg-transparent'}`} aria-hidden="true"/>
+                                <span className="w-9 shrink-0 font-bold text-slate-700 tabular-nums">{_fmtT(m.t)||'—'}</span>
+                                <span className="truncate font-bold text-slate-800">{_pname(m.pid)}</span>
+                                {tg ? <span className="text-[9px] text-slate-500 shrink-0">{tg}</span> : null}
+                              </div>); })}
+                          </div>); })}
+                        {(pl.walkers||[]).length ? <div><div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">徒歩</div>{(pl.walkers||[]).map(m => <div key={m.pid} className="flex items-center gap-1 text-[12px] py-0.5"><span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${(m.mark||_dotOf(pl, iso, m.pid))?'bg-red-600':'bg-transparent'}`}/><span className="w-9 shrink-0 font-bold text-slate-700 tabular-nums">{/\d/.test(String(m.t||''))?_fmtT(m.t):_classStart(sl)}</span><span className="truncate font-bold text-slate-800">{_pname(m.pid)}</span></div>)}</div> : null}
+                        {(pl.others||[]).length ? <div><div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">その他</div>{(pl.others||[]).map(m => <div key={m.pid} className="flex items-center gap-1 text-[12px] py-0.5"><span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${(m.mark||_dotOf(pl, iso, m.pid))?'bg-red-600':'bg-transparent'}`}/><span className="truncate font-bold text-slate-800">{_pname(m.pid)}</span>{m.why ? <span className="text-[10px] text-slate-500 shrink-0">（{m.why}）</span> : null}</div>)}</div> : null}
+                        {(pl.un||[]).length ? <div className="text-[11px] text-amber-700 font-bold">未割当 {(pl.un||[]).map(m => _pname(m.pid)).join('・')}</div> : null}
+                      </div>
+                    )}
+                    {abs.length ? <div className="px-2 pb-1 text-[10px] text-slate-500">休み: {abs.map(a => a.name).join('・')}</div> : null}
+                  </div>); })}
+              </div>); })}
+          </div>
+        </div>
+      </div>
+      ) : (
       <div className="px-2 sm:px-3 pt-2 pb-2 sm:pb-3">
         <div className="max-w-[1500px] mx-auto">
         {/* ★ 2026-09-13c(店舗要望): 午前/午後を「段」として揃える(どの曜日も午後が同じ高さから始まる)。日付/午前/午後を行に持つグリッドへ変更 */}
@@ -35354,6 +35480,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         </div>
         </div>
       </div>
+      )}
       {/* ★ 利用者名タップ: 待ち合わせ場所・所要時間の編集(利用者マスタと共通の項目・2026-09-12) */}
       {printModal && (
         <div className="fixed inset-0 bg-slate-900/60 z-[70] flex items-center justify-center p-4">
