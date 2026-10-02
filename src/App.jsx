@@ -26219,9 +26219,13 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   };
   const _showEn2 = secondBpVisible(appData, records);
   const _kibunOn2 = appData.systemSettings?.kibunDisabled !== true; // ★ 各種設定で気分OFFなら分析・ご家族画面からも気分を消す(2026-09-29)
+  // ★ 2026-10-02(試験版): 連絡帳で「未定（空欄で渡す）」にした次回は、ご家族画面でも時間を出さない(未定)
+  const _cbUndecided = (info) => { try { if (!info || !info.iso) return false; const target = new Date(info.iso + 'T00:00:00'); const tM = target.getMonth() + 1, tD = target.getDate();
+    return (appData.ticketRecords || []).some(r => { if (!r || r.patientId !== selectedPatient.id || String(r.nextTimeOverride || '').trim() !== '未定') return false; const nd = String(r.nextDateOverride || '').replace(/\s/g, '').match(/^(\d+)月(\d+)日/); if (!nd) return false; const m = String(r.date || '').match(/(\d+)月(\d+)日/); if (!m) return false; const d = new Date(r.year || target.getFullYear(), +m[1]-1, +m[2]); return d < target && (target - d) <= 45 * 86400000 && +nd[1] === tM && +nd[2] === tD; }); } catch { return false; } };
   const _pickupOf = (info) => {
     let t = '';
     try {
+      if (_cbUndecided(info)) return '';
       // 1) 送迎表(確定した乗車時間)があれば最優先
       const pl = (appData.transportPlans || {})[`${info.iso}_${info.ampm || 'AM'}`];
       if (pl && typeof pl === 'object') {
@@ -32058,6 +32062,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       const _tf = String(r.nextTimeOverrideFor || '').trim();
       return !(_fullTime(r.nextTimeOverride) && _tf && _tf === _ndS);
     }
+    if (String(r.nextTimeOverride || '').trim() === '未定') return false; // ★ 2026-10-02: 意図的な空欄
     if (_fullTime(r.nextTimeOverride)) return false;
     if (/\d/.test(String(r.nextTimeOverride ?? ''))) return true;  // 時か分の片方だけ→未入力扱い
     const _dm = _ndS.match(/(\d+)月(\d+)日/);
@@ -32311,7 +32316,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         const _pid0 = _r0 ? _r0.patientId : (String(recordId).startsWith('auto-') ? Number(String(recordId).slice(5)) : null);
         finalValue = _skipClosedLabel(formatShortDate(value), _pid0);
       }
-      else if (field === 'nextTimeOverride') finalValue = formatTimeString(value);
+      else if (field === 'nextTimeOverride') finalValue = (String(value ?? '').trim() === '未定') ? '未定' : formatTimeString(value);
       setLocalOverrides(prev => ({ ...prev, [recordId]: { ...prev[recordId], [field]: finalValue } }));
       // ★ 「実際に値が変わった時だけ」記録へ書き込む。 旧実装は欄に触れて閉じただけでも毎回書き込み、
       //   空値/自動計算値が新しい時刻付きで保存され、同期(新しい方が勝つ)で他端末の入力済み時間を
@@ -32683,17 +32688,20 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                           </div>
                         </div>
                         <div className="flex-1">
-                          <div className="text-[10px] font-bold text-slate-400 mb-1">お迎え時間{_auto.isFurikae && !curHour && !curMin && <span className="ml-1 text-amber-600">要入力</span>}</div>
-                          <div className={`flex items-center gap-1 p-1.5 border rounded-lg ${_auto.isFurikae && !curHour && !curMin ? 'border-amber-400 bg-amber-50' : /\d/.test(String(r.nextTimeOverride ?? '')) ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
-                            <ImeSafeInput type="text" inputMode="numeric" value={curHour} maxLength={2}
-                              onChange={e=>updateOverride('time', curMonth, curDay, e.target.value.replace(/\D/g,''), curMin)}
-                              placeholder="—" className="w-9 px-1 py-0.5 text-center bg-transparent border-0 outline-none font-bold text-sm"/>
-                            <span className="text-xs font-bold text-slate-500">時</span>
-                            <ImeSafeInput type="text" inputMode="numeric" value={curMin} maxLength={2}
-                              onChange={e=>updateOverride('time', curMonth, curDay, curHour, e.target.value.replace(/\D/g,''))}
-                              placeholder="—" className="w-9 px-1 py-0.5 text-center bg-transparent border-0 outline-none font-bold text-sm"/>
-                            <span className="text-xs font-bold text-slate-500">分</span>
+                          {/* ★ 2026-10-02(試験版・ユーザー決定「基本は送迎表で変更」): お迎え時間はここでは打たず、送迎表の時間を表示。
+                                 変えるときは「送迎表で変更」でその日の送迎表へ。振替の曜日や時間が未定のときは「未定（空欄で渡す）」で連絡帳を空欄にする */}
+                          {(() => { const _dStr = String(localData.nextDateOverride || '').trim(); const _tp = _dStr ? (getTransportTimeFor(r.patientId, _dStr, r.year, appData) || '') : ''; const _undec = String(localData.nextTimeOverride || '').trim() === '未定';
+                            const _old = /\d/.test(String(r.nextTimeOverride ?? '')) && !_undec ? String(r.nextTimeOverride) : '';
+                            const _goTp = () => { try { const dm = _dStr.match(/(\d+)月(\d+)日/); if (dm) { const y = (() => { const yy = new Date(selectedDate).getFullYear(); const cand = new Date(yy, +dm[1]-1, +dm[2]); const sd = new Date(selectedDate); sd.setHours(0,0,0,0); return cand < sd ? yy + 1 : yy; })(); setSelectedDate(`${y}-${String(+dm[1]).padStart(2,'0')}-${String(+dm[2]).padStart(2,'0')}`); } } catch {} if (navigateTo) navigateTo('transport'); };
+                            return (<>
+                          <div className="text-[10px] font-bold text-slate-400 mb-1">お迎え時間（送迎表）{!_undec && !_tp && _dStr && <span className="ml-1 text-amber-600">送迎表に時間なし</span>}</div>
+                          <div className={`flex items-center gap-2 p-1.5 border rounded-lg ${_undec ? 'border-slate-300 bg-slate-100' : _tp ? 'border-emerald-300 bg-emerald-50' : 'border-amber-400 bg-amber-50'}`}>
+                            <span className={`font-bold text-sm min-w-[52px] whitespace-nowrap ${_undec ? 'text-slate-400' : 'text-slate-800'}`}>{_undec ? '空欄' : (_tp === '徒歩' ? '徒歩' : (_tp || '—'))}</span>
+                            {_old && !_undec && <span className="text-[10px] text-slate-500" title="以前に連絡帳で手入力した時間（送迎表に時間があればそちらを使います）">手入力 {_old}</span>}
+                            <button type="button" onClick={_goTp} disabled={!_dStr} className="ml-auto text-[11px] font-bold text-blue-700 bg-white border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-50 disabled:opacity-40 whitespace-nowrap">送迎表で変更</button>
+                            <label className="flex items-center gap-1 text-[11px] font-bold text-slate-600 whitespace-nowrap"><input type="checkbox" checked={_undec} onChange={e => setLocalOverrides(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), nextTimeOverride: e.target.checked ? '未定' : '' } }))}/>未定（空欄）</label>
                           </div>
+                            </>); })()}
                         </div>
                       </div>
                     );
@@ -32945,19 +32953,23 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
   //   通常の次回は手入力(nextTimeOverride)を優先し、無ければ自動計算。
   if (!_isBlankFace) {
       const info2 = getNextVisitInfo(patient, selectedDate, appData.monthlyShifts, appData);
-      if (info2.isFurikae) {
+      // ★ 2026-10-02(試験版・ユーザー決定): 優先順は 「未定(空欄で渡す)」 > 送迎表の時間 > 以前の手入力 > 自動計算。
+      //   送迎表だけで時間を変える運用にし、連絡帳の古い手入力が送迎表の時間より優先されないようにする
+      const _tpT = getTransportTimeFor(patient.id, nextDateDisplay, record.year, appData);
+      if (String(record.nextTimeOverride || '').trim() === '未定') {
+          nextTimeDisplay = "　時　分";
+      } else if (_tpT && _tpT !== '徒歩') {
+          nextTimeDisplay = _tpT;
+      } else if (info2.isFurikae) {
           const _tf = String(record.nextTimeOverrideFor || '').trim();
           if (/\d/.test(String(record.nextTimeOverride ?? '')) && _tf && _tf === String(nextDateDisplay || '').trim()) {
               nextTimeDisplay = record.nextTimeOverride;
           } else {
-              // ★ 2026-09-09(店舗要望): 振替の自動計算は出さない。★2026-09-12d: 送迎表に時間があればそれを表示。
-              nextTimeDisplay = getTransportTimeFor(patient.id, nextDateDisplay, record.year, appData) || "　時　分";
+              // ★ 2026-09-09(店舗要望): 振替の自動計算は出さない。
+              nextTimeDisplay = "　時　分";
           }
       } else if (/\d/.test(String(record.nextTimeOverride ?? ''))) {
           nextTimeDisplay = record.nextTimeOverride;
-      } else if (getTransportTimeFor(patient.id, nextDateDisplay, record.year, appData)) {
-          // ★ 2026-09-12d(試験版): 送迎表で決めたお迎え時間を優先表示(手入力があればそちらが最優先)
-          nextTimeDisplay = getTransportTimeFor(patient.id, nextDateDisplay, record.year, appData);
       } else {
           // ★ 時間は「表示している次回日付」の曜日に連動(2026-08-17): 日付だけ手修正されている場合、
           //   従来は自動候補日(例: 休止スキップ後の水曜AM)の時間が出てしまい「月曜なのに8時台」になっていた。
@@ -33254,8 +33266,8 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                     <span style={numStyle(mBlank)}>{mBlank ? '  ' : m.padStart(2, '0')}</span>
                     {' '}
                     <span style={labelStyle}>分</span>
-                    {/* ★ 2026-10-01(ユーザー要望): 次回お迎え時間の分の後に「頃」 */}
-                    <span style={labelStyle}>頃</span>
+                    {/* ★ 2026-10-01(ユーザー要望): 次回お迎え時間の分の後に「頃」。★ 2026-10-02: 空欄(未定・手書き用)のときは「頃」も出さない */}
+                    {!(hBlank && mBlank) && <span style={labelStyle}>頃</span>}
                   </span>;
                 };
                 return (
