@@ -1574,6 +1574,58 @@ const resolveExerciseValue = (exercises, itemId, exItems, fallbackItems) => {
 //   BMI = 体重(kg) ÷ 身長(m)²。判定は日本肥満学会の基準(18.5未満=低体重/18.5〜25未満=普通体重/25〜30未満=肥満1度/30以上=肥満2度以上)。
 //   65歳以上は厚生労働省「日本人の食事摂取基準」の目標とするBMI 21.5〜24.9 も添える(普通体重でも21.5未満は「目標より低め」)。
 const calcBmi = (h, w) => { const hh = Number(String(h ?? '').trim()), ww = Number(String(w ?? '').trim()); if (!(hh > 50 && hh < 250 && ww > 10 && ww < 300)) return null; return Math.round(ww / ((hh / 100) ** 2) * 10) / 10; };
+// ★ 2026-10-02(ユーザー要望「分析個人・体力測定にBMIをグラフ化」): BMIの推移グラフ(共通)。
+//   points=[{date,bmi}](古い順)。普通体重 18.5〜25 を薄い緑の帯、65歳以上は目標 21.5〜24.9 を少し濃い帯で示し、点は判定の色。
+function BmiTrendChart({ points, age, height = 150 }) {
+  const [tip, setTip] = React.useState(null);
+  const pts = (points || []).filter(p => p && p.bmi != null && !isNaN(p.bmi));
+  if (!pts.length) return null;
+  const H = height, PAD = 16, LW = 30, step = pts.length <= 14 ? 50 : pts.length <= 30 ? 28 : 14;
+  const W = Math.max(320, pts.length * step + PAD * 2);
+  const xP = (i) => PAD + step / 2 + i * step;
+  const vals = pts.map(p => p.bmi);
+  const yMin = Math.min(17, Math.floor(Math.min(...vals) - 1)), yMax = Math.max(27, Math.ceil(Math.max(...vals) + 1));
+  const yP = (v) => 8 + ((yMax - v) / (yMax - yMin || 1)) * (H - 16);
+  const elder = age != null && age >= 65;
+  const ticks = []; for (let v = Math.ceil(yMin / 2) * 2; v <= yMax; v += 2) ticks.push(v);
+  const showL = (i) => pts.length <= 8 || i === 0 || i === pts.length - 1 || i % Math.ceil(pts.length / 7) === 0;
+  const _yrs = new Set(pts.map(p => (String(p.date || '').match(/^(\d{4})/) || [])[1]).filter(Boolean));
+  // 年をまたぐときは「'25 5/5」のように年も添える
+  const fmtD = (d) => { const m = String(d || '').match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return `${_yrs.size > 1 ? `'${m[1].slice(2)} ` : ''}${+m[2]}/${+m[3]}`; return String(d || '').replace(/(\d+)年(\d+)月(\d+)日/, '$2/$3'); };
+  return (
+    <div data-testid="bmi-trend">
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 11, color: '#64748b', marginBottom: 4 }}>
+        <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#bbf7d0', verticalAlign: 'middle', marginRight: 3 }} />普通体重 18.5〜25</span>
+        {elder && <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#86efac', verticalAlign: 'middle', marginRight: 3 }} />65歳以上の目標 21.5〜24.9</span>}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'flex-start' }}>
+        <div style={{ width: 32, flexShrink: 0, position: 'relative', height: H + 14 }}>
+          {ticks.map(v => <div key={v} style={{ position: 'absolute', right: 4, top: yP(v) - 6, fontSize: 9, color: '#64748b', fontWeight: 'bold' }}>{v}</div>)}
+        </div>
+        <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
+          <svg viewBox={`0 0 ${W + LW} ${H + 14}`} preserveAspectRatio="xMinYMid meet" style={{ width: '100%', height: H + 14, display: 'block' }}>
+            <rect x={0} y={yP(Math.min(25, yMax))} width={W} height={Math.max(0, yP(Math.max(18.5, yMin)) - yP(Math.min(25, yMax)))} fill="#bbf7d0" opacity={0.45} />
+            {elder && <rect x={0} y={yP(Math.min(24.9, yMax))} width={W} height={Math.max(0, yP(Math.max(21.5, yMin)) - yP(Math.min(24.9, yMax)))} fill="#86efac" opacity={0.45} />}
+            {ticks.map(v => <line key={v} x1={0} y1={yP(v)} x2={W} y2={yP(v)} stroke="#e2e8f0" strokeWidth={1} />)}
+            <polyline points={pts.map((p, i) => `${xP(i)},${yP(p.bmi)}`).join(' ')} fill="none" stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+            {pts.map((p, i) => { const j = bmiJudge(p.bmi, age); return <circle key={i} cx={xP(i)} cy={yP(p.bmi)} r={4} fill={j ? j.color : '#6366f1'} stroke="white" strokeWidth={1.5} pointerEvents="none" />; })}
+            {pts.map((p, i) => <text key={`v${i}`} x={xP(i)} y={yP(p.bmi) - 7} textAnchor="middle" fontSize={8} fill="#1e293b" fontWeight="bold">{p.bmi.toFixed(1)}</text>)}
+            {pts.map((p, i) => showL(i) ? <text key={`d${i}`} x={xP(i)} y={H + 11} textAnchor="middle" fontSize={8} fill="#000" fontWeight="bold">{fmtD(p.date)}</text> : null)}
+            <rect x={0} y={0} width={W + LW} height={H + 14} fill="transparent" style={{ cursor: 'pointer' }}
+              onMouseMove={(e) => { const rb = e.currentTarget.getBoundingClientRect(); const sx = (W + LW) / (rb.width || 1); const mx = (e.clientX - rb.left) * sx; let best = -1, bd = Infinity; pts.forEach((p, i) => { const dx = Math.abs(xP(i) - mx); if (dx < bd) { bd = dx; best = i; } }); if (best < 0 || bd > Math.min(18, step / 2 + 2)) { setTip(null); return; } setTip({ px: e.clientX, py: e.clientY, p: pts[best] }); }}
+              onMouseLeave={() => setTip(null)} />
+          </svg>
+          {tip && (() => { const j = bmiJudge(tip.p.bmi, age); return (
+            <div style={{ position: 'fixed', left: tip.px + 12, top: tip.py - 8, background: 'rgba(15,23,42,0.92)', color: 'white', borderRadius: 10, padding: '8px 12px', fontSize: 13, zIndex: 9999, pointerEvents: 'none', minWidth: 120 }}>
+              <div style={{ fontWeight: 'bold', marginBottom: 2, borderBottom: '1px solid rgba(255,255,255,0.2)', paddingBottom: 4 }}>{tip.p.date}</div>
+              <div>BMI {tip.p.bmi.toFixed(1)}{j ? `（${j.label}）` : ''}</div>
+              {tip.p.height && <div style={{ fontSize: 11, color: '#cbd5e1' }}>身長 {tip.p.height}cm ／ 体重 {tip.p.weight}kg</div>}
+            </div>); })()}
+        </div>
+      </div>
+    </div>
+  );
+}
 const bmiJudge = (bmi, age) => {
   if (bmi == null || isNaN(bmi)) return null;
   const elder = age != null && age >= 65;
@@ -28452,10 +28504,17 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
         <div id="sec-fitness" style={{scrollMarginTop:170,marginBottom:16}}>
 <div onClick={()=>toggleSec('sec-fitness')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:8,paddingBottom:6,borderBottom:'2px solid #e2e8f0',cursor:'pointer',userSelect:'none'}}><span>体力測定</span><span style={{fontSize:14,color:'#64748b'}}>{isCol('sec-fitness')?'▶':'▼'}</span></div>
           {!isCol('sec-fitness') && (()=>{
-            const fitnessItems = appData.systemSettings?.fitnessItems || appSettings.fitnessItems;
-            const fitnessRecs = (appData.fitnessRecords||[]).filter(r=>r.patientId===selectedPatientId).sort((a,b)=>a.date.localeCompare(b.date));
+            const fitnessItems0 = appData.systemSettings?.fitnessItems || appSettings.fitnessItems;
+            const fitnessRecs0 = (appData.fitnessRecords||[]).filter(r=>r.patientId===selectedPatientId).sort((a,b)=>a.date.localeCompare(b.date));
+            // ★ 2026-10-02(ユーザー要望): BMI を項目の1つとしてグラフ化。身長が空の回はそれ以前の最新の身長で計算
+            const _hAsOf = (i) => { for (let k = i; k >= 0; k--) { const h = fitnessRecs0[k]?.values?.height; if (h !== undefined && h !== '' && !isNaN(Number(h))) return h; } return ''; };
+            const fitnessRecs = fitnessRecs0.map((r, i) => { const b = calcBmi(_hAsOf(i), r.values?.weight); return b == null ? r : { ...r, values: { ...(r.values || {}), __bmi: b, __bmiH: _hAsOf(i) } }; });
+            const _hasBmi = fitnessRecs.some(r => r.values?.__bmi != null);
+            const fitnessItems = _hasBmi ? [...fitnessItems0, { id: '__bmi', name: 'BMI', unit: '' }] : fitnessItems0;
             if(!fitnessItems.length) return null;
             const _selFitId = selFitId || fitnessItems[0]?.id;
+            const _isBmi = _selFitId === '__bmi';
+            const _ageBmi = calcAge(selectedPatient?.birthDate);
             const selFitItem = fitnessItems.find(i=>i.id===_selFitId);
             const dailyFit = fitnessRecs.filter(r=>r.values?.[_selFitId]!==undefined&&r.values[_selFitId]!=='');
             const vals = dailyFit.map(r=>Number(r.values[_selFitId])).filter(v=>!isNaN(v));
@@ -28488,6 +28547,15 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                 {dailyFit.length === 0 ? (
                   <div style={{background:'white',borderRadius:14,padding:'40px',textAlign:'center',color:'#64748b',fontSize:14,fontWeight:'bold',border:'1px solid #94a3b8'}}>
                     {selFitItem?.name}の記録がありません
+                  </div>
+                ) : _isBmi ? (
+                  <div style={{background:'white',borderRadius:14,padding:'18px 20px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #94a3b8'}}>
+                    <div style={{display:'flex',justifyContent:'flex-start',alignItems:'flex-end',marginBottom:12,flexWrap:'wrap',gap:16}}>
+                      <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b'}}>BMI（体重÷身長²・自動計算）</div>
+                      {(()=>{ const last = dailyFit[dailyFit.length-1]; const j = bmiJudge(Number(last.values.__bmi), _ageBmi); return j ? <span style={{fontSize:12,fontWeight:'bold',color:j.color,background:j.bg,border:`1px solid ${j.border}`,borderRadius:8,padding:'3px 10px'}}>最新 {Number(last.values.__bmi).toFixed(1)}（{j.label}）</span> : null; })()}
+                      {avgV!==null&&<span style={{fontSize:12,color:'#15803d',fontWeight:'bold'}}>平均 {avgV.toFixed(1)}</span>}
+                    </div>
+                    <BmiTrendChart points={dailyFit.map(r=>({date:r.date,bmi:Number(r.values.__bmi),height:r.values.__bmiH,weight:r.values.weight}))} age={_ageBmi}/>
                   </div>
                 ) : (
                   <div style={{background:'white',borderRadius:14,padding:'18px 20px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #94a3b8'}}>
@@ -35736,6 +35804,16 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
               </div>
             </div>
 
+            {/* ★ 2026-10-02(ユーザー要望): BMIの推移グラフ(過去の記録＋入力中の今回) */}
+            {(() => { const pts = [...patRecords].map((r, i) => ({ date: r.date, bmi: _bmiOfRec(r, i), height: (r.values?.height ?? '') !== '' ? r.values.height : _heightAsOf(i + 1), weight: r.values?.weight })).filter(x => x.bmi != null).reverse();
+              if (_curBmi != null && !patRecords.some(r => r.date === date)) pts.push({ date: `${date}（今回）`, bmi: _curBmi, height: _curHeight, weight: values.weight });
+              if (!pts.length) return null;
+              return (
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                  <div className="px-5 py-3 border-b border-slate-200 font-bold text-sm text-slate-700">BMIの推移 <span className="text-xs font-normal text-slate-500">（体重÷身長²・自動計算。点の色は判定）</span></div>
+                  <div className="px-4 py-3"><BmiTrendChart points={pts} age={_patAge} /></div>
+                </div>
+              ); })()}
             {/* 過去の記録 */}
             {patRecords.length > 0 && (
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
