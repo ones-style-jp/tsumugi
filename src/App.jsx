@@ -19026,6 +19026,8 @@ export default function App() {
   const _pushBusyRef = React.useRef(false);
   const _pushNextRef = React.useRef(null);
   const _pendPushRef = React.useRef(false); // 直近の push 失敗を IndexedDB に控えているか
+  const _pushWaitersRef = React.useRef([]);   // ★ 2026-10-02: 保存結果を待つ約束(「保存しました」の判定)
+  const _saveToastSeqRef = React.useRef(0); const _saveToastTimerRef = React.useRef(null);
   React.useEffect(() => {
     if (!isSupabaseEnabled || !staffSession?.storeId) return;
     const sid = staffSession.storeId; let stopped = false, busy = false;
@@ -21070,6 +21072,7 @@ export default function App() {
       syncLog('save', { manual: !!options.manual, silent: !!options.silent, canPush: !!_canPush, recs: (newData.ticketRecords||[]).length,
         // ★ push不許可の理由を必ず残す(2026-09-06 扇橋「保存が届かない」調査): st=店舗切替中 dl=読込済み店舗一致 sm=店舗ID一致 hd=実データあり
         ...( _canPush ? {} : { why: { st: !!storeTransitionRef.current, dl: dataLoadedForStoreRef.current === staffSession?.storeId, sm: !!_storeMatch, hd: !!_hasRealData } }) });
+      let _rowsPromise = null; // ★ 2026-10-02: 提供記録テーブルへの書き込み結果(「保存しました」の判定に使う)
       // ★ テーブル方式のときだけ ticket_records へ書き込む。 巨大JSON方式(TABLE_ENABLED=false)では
       //   下の mergeAndSyncStateForStore が提供記録も含めて保存するので、ここは何もしない。
       if (TABLE_ENABLED && _canPush) {
@@ -21102,7 +21105,7 @@ export default function App() {
             return Object.keys(d).some(k => k !== '_fieldTs') ? { ...row, data: d } : null;
           }).filter(Boolean);
           if (_gateDrop) syncLog('rows-gate', { drop: _gateDrop, ex: _gateEx });
-          if (_rows.length) upsertTicketRows(staffSession.storeId, _rows);
+          if (_rows.length) _rowsPromise = upsertTicketRows(staffSession.storeId, _rows).catch(() => ({ ok: false }));
           // ★ 削除の反映(2026-08-10): 「明示的に指定された記録idだけ」テーブルにも削除(deleted_at)を立てる。
           //   配列差分からの推測削除は誤爆リスクがあるため従来どおり行わない。 これが無いと、振替の
           //   取り消し等で墓石に積んでもテーブルの行が生き残り、数秒後の受信や再読み込みで必ず復活していた
@@ -21140,13 +21143,17 @@ export default function App() {
           return false;
         };
         // ★ 単一実行キュー: 実行中なら最新データだけ控える(同じ端末の状態は常に上位互換のため安全)
-        const _pumpPush = async (dataToPush) => {
+        // ★ 2026-10-02(店舗報告「電波を切って保存しても『保存しました』と出る」): 呼び出しごとに「クラウドに書けたか」を返す約束を用意する。
+        //   後から来た保存はそれまでの内容を含むので、その結果で待っている全員に答える。
+        const _pumpPush = (dataToPush) => new Promise((resolve) => { _pushWaitersRef.current.push(resolve); _pumpPushInner(dataToPush); });
+        const _pumpPushInner = async (dataToPush) => {
           if (_pushBusyRef.current) { _pushNextRef.current = dataToPush; return; }
           _pushBusyRef.current = true;
           try {
             let cur = dataToPush;
             while (cur) {
               const ok = await _retryPush(cur);
+              { const ws = _pushWaitersRef.current.splice(0); ws.forEach(r => { try { r(!!ok); } catch {} }); }
               if (!ok) {
                 syncLog('push-give-up', {});
                 // ★ 失敗した内容を IndexedDB に控える → 再読み込み後・オンライン復帰後に自動再送(2026-09-21)
@@ -21158,11 +21165,23 @@ export default function App() {
             }
           } finally { _pushBusyRef.current = false; }
         };
-        _pumpPush(newData);
+        const _pushDone = _pumpPush(newData);
         if (options.manual) {
-          setToastMsg(options.message || '保存されました');
-          setShowToast(true);
-          setTimeout(() => setShowToast(false), 3000);
+          // ★ 2026-10-02(店舗報告: 電波を切った状態で保存→「保存しました」→アプリを入れ直すと保存されていない):
+          //   「保存しました」はクラウド(店舗データとテーブル)に書けたときだけ出す。それまでは「保存しています…」、
+          //   失敗したら「保存できませんでした」(入力は端末に控えて通信が戻れば自動で送る)。通信が無いときは最初から失敗の案内。
+          const _tid = ++_saveToastSeqRef.current;
+          const _show = (msg, ms) => { if (_saveToastSeqRef.current !== _tid) return; setToastMsg(msg); setShowToast(true); clearTimeout(_saveToastTimerRef.current); _saveToastTimerRef.current = setTimeout(() => { if (_saveToastSeqRef.current === _tid) setShowToast(false); }, ms); };
+          if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+            _show('⚠ 通信がないため保存できませんでした。入力は端末に控えており、通信が戻ると自動で送ります（この画面を閉じないでください）', 8000);
+          } else {
+            _show('クラウドに保存しています…', 60000);
+            Promise.all([_pushDone, _rowsPromise || Promise.resolve({ ok: true })]).then(([okPush, rowsRes]) => {
+              const ok = okPush && !(rowsRes && rowsRes.ok === false);
+              if (ok) _show(options.message || '✓ 保存しました', 3000);
+              else _show('⚠ クラウドに保存できませんでした（通信を確認してください）。入力は端末に控えており、通信が戻ると自動で送ります', 8000);
+            }).catch(() => _show('⚠ クラウドに保存できませんでした（通信を確認してください）。入力は端末に控えています', 8000));
+          }
         }
       } else if (isSupabaseEnabled && staffSession?.storeId && !options.allowEmpty && !_hasRealData) {
         // 利用者0件(未ロード等)で push 抑止 → 端末ローカルのみ。 誤解を避ける表示
@@ -21953,8 +21972,9 @@ export default function App() {
           </div>
         </div>, document.body)}
       {showToast && ReactDOM.createPortal(
-        <div style={{position:'fixed',top:24,right:32,zIndex:99999}} className="bg-slate-900 text-white px-6 py-3 rounded-xl shadow-2xl flex items-center animate-bounce">
-          <CheckCircle2 className="text-emerald-400 mr-2" />{toastMsg}
+        <div style={{position:'fixed',top:24,right:32,zIndex:99999}} className={`bg-slate-900 text-white px-6 py-3 rounded-xl shadow-2xl flex items-center max-w-[min(92vw,560px)] ${/…$/.test(String(toastMsg||'')) ? '' : 'animate-bounce'}`}>
+          {/* ★ 2026-10-02: 保存中は回る輪・失敗(⚠)は赤、成功だけ緑のチェック */}
+          {/^⚠/.test(String(toastMsg||'')) ? <span className="text-red-400 mr-2 font-bold">!</span> : /…$/.test(String(toastMsg||'')) ? <BusySpin style={{marginRight:10,color:'#a7f3d0'}}/> : <CheckCircle2 className="text-emerald-400 mr-2" />}{String(toastMsg||'').replace(/^⚠\s*/, '')}
         </div>,
         document.body
       )}
