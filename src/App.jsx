@@ -10510,6 +10510,7 @@ const generateMonthlySchedule = (patients, year, month, monthlyShifts, ticketRec
         status: existing?.status || status,
         temp: existing?.temp || "",
         bpRe: Array.isArray(existing?.bpRe) ? existing.bpRe : [],   // ★ 再測定ログ(印刷の特記に「開始 1回目 …」を出す・2026-09-29)
+        bpTSt_AM: existing?.bpTSt_AM || "", bpTSt_PM: existing?.bpTSt_PM || "", bpTEn_AM: existing?.bpTEn_AM || "", bpTEn_PM: existing?.bpTEn_PM || "",   // ★ 2026-10-02: 1回目の計測時刻(印刷の血圧欄に小さく)
         kinouStaff: existing?.kinouStaff || existing?.kinouStaff_AM || existing?.kinouStaff_PM || "",   // ★ 個別機能訓練の実施担当(印刷の日付欄「個別: ○○」)
         bpUpSt: existing?.bpUpSt || "",
         bpDnSt: existing?.bpDnSt || "",
@@ -31120,7 +31121,8 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
   }, [appData, sp, tY, tM]);
   // ★ 2026-10-02(試験版・ユーザー指示): 提供記録は1日=「バイタル行(状態/気分/体温/血圧/再検)」「運動行(運動すべて+介護整体)」「特記行」の3行。
   //   列は運動項目の数で均等に割る。1ページ5日(備考2行)。用紙(A4横)に必ず収まる高さで固定し、画面にも用紙内にスクロールを出さない。
-  const _perPage = () => 5; // ★ A4縦・1ページ5日(備考2行)
+  const TK_EX_PER_ROW = 10; // ★ 2026-10-02 ユーザー指示: 運動は1行10項目まで(介護整体を含む)、超えた分は2段目
+  const _perPage = (exLen) => ((exLen || 0) + 1) <= TK_EX_PER_ROW ? 6 : 5; // ★ 1行で収まれば6日、2段なら5日
   const PER_PAGE = _perPage((getExerciseItemsForDate(appData.systemSettings, `${tY}-${String(tM).padStart(2,'0')}-01`, tY) || effExerciseItems(appData.systemSettings) || []).length);
   // ★ 2026-10-02: 画面の幅に合わせた縮小率(用紙 297mm≒1123px + 左右の余白32px)。印刷時は 1
   const _fitRef = React.useRef(null); const [_fitZoom, _setFitZoom] = React.useState(1);
@@ -31243,12 +31245,12 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
           const fill = Math.max(0, (pp || PER_PAGE) - pr.length);
           // ★ 2026-10-02(試験版・ユーザー指示): 2段目に運動すべて(+介護整体)。列数 N は運動項目+1(最低9列)。1段目の欄は列をまたぐ(SP1)
           // ★ 2026-10-02(A4縦): 運動項目+介護整体が EX_PER_ROW 列を超えるときは上段/下段の2組に分ける(列幅を確保)。列数 N は組の最大(最低8)
-          // ★ ユーザー指示: 上段(N列)が埋まるまで上段、超えた分だけ下段。列数 N は11(1段目の血圧2列・再検2列を確保できる数)
+          // ★ ユーザー指示(2026-10-02): 運動は1行10項目(介護整体を含む)。上段が埋まるまで上段、超えた分だけ下段
           const exAll = [...ex, { id: '__massage', name: '介護整体' }];
-          const N = Math.max(11, Math.min(exAll.length, 14));
+          const N = TK_EX_PER_ROW;
           const bands = exAll.length > N ? [exAll.slice(0, N), exAll.slice(N)] : [exAll];
           // 1段目は 状態/気分/体温/開始/終了/再検/記録者/個別 を列をまたいで置く(再検が残り)
-          const SP1 = (() => { const st = 1, ki = _kOnR ? 1 : 0, tp = 1, st1 = 2, en = _showEnT ? 2 : 0, rec = N >= 13 ? 2 : 1, kin = N >= 13 ? 2 : 1; const used = st + ki + tp + st1 + en + rec + kin; return { st, ki, tp, st1, en, rec, kin, re: Math.max(1, N - used) }; })();
+          const SP1 = (() => { const st = 1, ki = _kOnR ? 1 : 0, tp = 1, st1 = 1, en = _showEnT ? 1 : 0, rec = 1, kin = 1; const used = st + ki + tp + st1 + en + rec + kin; return { st, ki, tp, st1, en, rec, kin, re: Math.max(1, N - used) }; })();
           const _bikouText = pi === 0 ? computeServiceChangeBikou(sp, tY, tM, appData) : '';
           return (
           <div key={`${tY}-${tM}-${pi}`} data-rows={(pp || PER_PAGE) * (1 + bands.length)} className="tp bg-white px-5 py-3 shadow-xl border border-slate-300 rounded-xl flex flex-col">
@@ -31354,26 +31356,26 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                 .tp table tbody tr.hd-row { height:16px!important; max-height:16px!important; }
                 .tp table tbody tr.hd-row th { height:16px!important; max-height:16px!important; overflow:hidden; padding:0 1px; box-sizing:border-box; font-weight:bold; }
                 .tp table tbody tr.data-row, .tp table tbody tr.ex-row { height:max(23px, calc(28px - var(--tpShrink, 0px)))!important; max-height:max(23px, calc(28px - var(--tpShrink, 0px)))!important; }
-                .tp table tbody tr.tokki-row { height:max(19px, calc(24px - var(--tpShrink, 0px)))!important; max-height:max(19px, calc(24px - var(--tpShrink, 0px)))!important; }
+                .tp table tbody tr.tokki-row { height:30px!important; max-height:30px!important; } /* ★ 特記は2行分 */
                 .tp table tbody tr.day-gap td { border:none!important; background:transparent!important; height:5px!important; padding:0!important; }
                 .tp table tbody tr.bikou-gap td { border:none!important; background:transparent!important; height:6px!important; padding:0!important; }
-                .tp table tbody tr.bikou-row { height:44px!important; max-height:44px!important; }
+                .tp table tbody tr.bikou-row { height:26px!important; max-height:26px!important; } /* ★ 備考は1行 */
                 .tp table tbody td { box-sizing:border-box!important; vertical-align:middle!important; overflow:hidden!important; }
                 .tp table tbody tr.data-row td, .tp table tbody tr.ex-row td { height:max(23px, calc(28px - var(--tpShrink, 0px)))!important; max-height:max(23px, calc(28px - var(--tpShrink, 0px)))!important; }
-                .tp table tbody tr.tokki-row td { height:max(19px, calc(24px - var(--tpShrink, 0px)))!important; max-height:max(19px, calc(24px - var(--tpShrink, 0px)))!important; }
-                .tp table tbody tr.bikou-row td { height:44px!important; max-height:44px!important; }
+                .tp table tbody tr.tokki-row td { height:30px!important; max-height:30px!important; }
+                .tp table tbody tr.bikou-row td { height:26px!important; max-height:26px!important; }
                 .tp table tbody tr.data-row td>div.cell-wrap, .tp table tbody tr.ex-row td>div.cell-wrap {
                   height:max(19px, calc(24px - var(--tpShrink, 0px))); max-height:max(19px, calc(24px - var(--tpShrink, 0px))); overflow:hidden;
                   display:flex; align-items:center; justify-content:center; word-break:break-all; flex-wrap:wrap; text-align:center; line-height:1.1;
                 }
                 .tp table tbody tr.tokki-row td>div.cell-wrap {
-                  height:max(15px, calc(20px - var(--tpShrink, 0px))); max-height:max(15px, calc(20px - var(--tpShrink, 0px))); overflow:hidden;
+                  height:26px; max-height:26px; overflow:hidden;
                   display:flex; align-items:center; justify-content:flex-start; line-height:1.15; white-space:normal; word-break:break-all; text-align:left; padding-left:4px;
                 }
                 .tp table tbody tr.tokki-row td>div.cell-wrap>span { text-align:left; width:100%; }
                 .tp table tbody tr.bikou-row td>div.cell-wrap {
-                  height:40px; max-height:40px; overflow:hidden; display:flex; align-items:center; justify-content:flex-start;
-                  line-height:1.2; white-space:normal; word-break:break-all; text-align:left; padding-left:4px;
+                  height:22px; max-height:22px; overflow:hidden; display:flex; align-items:center; justify-content:flex-start;
+                  line-height:1.2; white-space:nowrap; text-align:left; padding-left:4px;
                 }
               `}</style>
               <table className="w-full border-collapse" style={{tableLayout:'fixed',width:'100%'}}>
@@ -31434,12 +31436,12 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                           )}
                           <td colSpan={SP1.tp} className="border border-slate-400 px-0.5 text-center font-bold text-[12px]"><div className="cell-wrap" style={{justifyContent:'center'}}>{v(r.temp)?`${r.temp}℃`:''}</div></td>
                           {/* ★ 2026-10-02: 1回目の計測時刻(bpTSt/bpTEn: 血圧を最初に入れた時刻)を小さく添える */}
-                          <td colSpan={SP1.st1} className="border border-slate-400 px-1 text-center font-bold text-[12px]" style={{wordBreak:'break-all',lineHeight:1.1}}>
-                            <div className="cell-wrap" style={{justifyContent:'center',gap:3}}>{v(r.bpUpSt) ? <><span>{r.bpUpSt}/{r.bpDnSt}</span>{v(r.plSt)?<span className="text-slate-700">（{r.plSt}）</span>:''}{_bpT('St') && <span style={{fontSize:8,fontWeight:'normal',color:'#64748b'}}>{_bpT('St')}</span>}</> : ''}</div>
+                          <td colSpan={SP1.st1} className="border border-slate-400 px-0 text-center font-bold text-[10px]" style={{lineHeight:1.05}}>
+                            <div className="cell-wrap" style={{justifyContent:'center',gap:0,rowGap:0,flexWrap:'wrap',alignContent:'center'}}>{v(r.bpUpSt) ? <><span style={{whiteSpace:'nowrap'}}>{r.bpUpSt}/{r.bpDnSt}{v(r.plSt)?<span className="text-slate-700" style={{fontSize:9}}>({r.plSt})</span>:''}</span>{_bpT('St') && <span style={{fontSize:7,fontWeight:'normal',color:'#64748b',width:'100%',lineHeight:1}}>{_bpT('St')}</span>}</> : ''}</div>
                           </td>
                           {_showEnT && (
-                          <td colSpan={SP1.en} className="border border-slate-400 px-1 text-center font-bold text-[12px]" style={{wordBreak:'break-all',lineHeight:1.1}}>
-                            <div className="cell-wrap" style={{justifyContent:'center',gap:3}}>{v(r.bpUpEn) ? <><span>{r.bpUpEn}/{r.bpDnEn}</span>{v(r.plEn)?<span className="text-slate-700">（{r.plEn}）</span>:''}{_bpT('En') && <span style={{fontSize:8,fontWeight:'normal',color:'#64748b'}}>{_bpT('En')}</span>}</> : ''}</div>
+                          <td colSpan={SP1.en} className="border border-slate-400 px-0 text-center font-bold text-[10px]" style={{lineHeight:1.05}}>
+                            <div className="cell-wrap" style={{justifyContent:'center',gap:0,rowGap:0,flexWrap:'wrap',alignContent:'center'}}>{v(r.bpUpEn) ? <><span style={{whiteSpace:'nowrap'}}>{r.bpUpEn}/{r.bpDnEn}{v(r.plEn)?<span className="text-slate-700" style={{fontSize:9}}>({r.plEn})</span>:''}</span>{_bpT('En') && <span style={{fontSize:7,fontWeight:'normal',color:'#64748b',width:'100%',lineHeight:1}}>{_bpT('En')}</span>}</> : ''}</div>
                           </td>
                           )}
                           <td colSpan={SP1.re} className="border border-slate-400 px-1 text-left text-slate-700"><div className="cell-wrap" style={{justifyContent:'flex-start',textAlign:'left',flexWrap:'wrap',gap:'0 6px',fontSize:_reL.length>2?7:_reL.length>1?8:9,lineHeight:1.1}}>{_reL.map((t, i) => <span key={i} style={{whiteSpace:'nowrap'}}>{t}</span>)}</div></td>
@@ -31497,7 +31499,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                   <tr className="bikou-gap"><td colSpan={N + 1}></td></tr>
                   <tr className="bikou-row">
                     <td className="border border-slate-500 px-1 py-0 bg-amber-50 text-center text-[10px] text-amber-700 font-bold" style={{width:44}}>備考</td>
-                    <td colSpan={N} className="border border-slate-500 px-1.5 py-0 text-slate-800" style={{background:_bikouText?'#fffdf5':'white',fontSize:(_bikouText||'').length>60?8:(_bikouText||'').length>44?9:10}}><div className="cell-wrap">{_bikouText}</div></td>
+                    <td colSpan={N} className="border border-slate-500 px-1.5 py-0 text-slate-800" style={{background:_bikouText?'#fffdf5':'white',fontSize:(_bikouText||'').length>84?7:(_bikouText||'').length>60?8:(_bikouText||'').length>44?9:10}}><div className="cell-wrap">{_bikouText}</div></td>
                   </tr>
                 </tbody>
               </table>
@@ -31517,9 +31519,10 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
           <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:16,width:520,maxWidth:'100%',padding:24,boxShadow:'0 10px 40px rgba(0,0,0,0.3)'}}>
             <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b',marginBottom:6}}>備考の編集　<span style={{fontSize:12,color:'#64748b'}}>{tY}年{tM}月 ／ {sp.name} 様</span></div>
             <div style={{fontSize:11,color:'#64748b',marginBottom:12}}>この月の備考欄に表示される内容です。空にして保存すると空欄になります（自動記載に戻したい場合は本文を空にせず「自動に戻す」を押してください）。</div>
-            <textarea value={bikouEdit.text} onChange={e=>setBikouEdit({text:e.target.value})} rows={5}
+            <textarea value={bikouEdit.text} maxLength={70} onChange={e=>setBikouEdit({text:e.target.value.replace(/\n/g,' ').slice(0, 70)})} rows={2}
                       placeholder="例: 6/15 重さ3→4に変更"
-                      style={{width:'100%',boxSizing:'border-box',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:13,outline:'none',resize:'vertical',lineHeight:1.7,marginBottom:14}}/>
+                      style={{width:'100%',boxSizing:'border-box',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:13,outline:'none',resize:'vertical',lineHeight:1.7,marginBottom:4}}/>
+            <div style={{fontSize:11,color:(bikouEdit.text||'').length>=70?'#dc2626':'#64748b',marginBottom:12,textAlign:'right'}}>{(bikouEdit.text||'').length} / 70文字（印刷は1行。長い内容は支援経過表へ）</div>
             <div style={{display:'flex',gap:8}}>
               <button onClick={()=>{
                 const mk=`${tY}-${String(tM).padStart(2,'0')}`;
