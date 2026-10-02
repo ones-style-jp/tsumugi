@@ -31093,8 +31093,8 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
   }, [appData, sp, tY, tM]);
   // ★ 2026-10-02(試験版・ユーザー指示): 提供記録は1日=「バイタル行(状態/気分/体温/血圧/再検)」「運動行(運動すべて+介護整体)」「特記行」の3行。
   //   列は運動項目の数で均等に割る。1ページ5日(備考2行)。用紙(A4横)に必ず収まる高さで固定し、画面にも用紙内にスクロールを出さない。
-  const TK_EX_PER_ROW = 10; // ★ 2026-10-02 ユーザー指示: 運動は1行10項目まで(介護整体を含む)、超えた分は2段目
-  const _perPage = (exLen) => ((exLen || 0) + 1) <= TK_EX_PER_ROW ? 6 : 5; // ★ 1行で収まれば6日、2段なら5日
+  const TK_EX_PER_ROW = 10; // ★ 2026-10-02 ユーザー指示: 運動は1行10項目まで、超えた分は2段目(介護整体は数えず、最後の段の右端に付く)
+  const _perPage = (exLen) => (exLen || 0) <= TK_EX_PER_ROW ? 6 : 5; // ★ 運動が1行で収まれば6日、2段なら5日
   const PER_PAGE = _perPage((getExerciseItemsForDate(appData.systemSettings, `${tY}-${String(tM).padStart(2,'0')}-01`, tY) || effExerciseItems(appData.systemSettings) || []).length);
   // ★ 2026-10-02: 画面の幅に合わせた縮小率(用紙 297mm≒1123px + 左右の余白32px)。印刷時は 1
   const _fitRef = React.useRef(null); const [_fitZoom, _setFitZoom] = React.useState(1);
@@ -31218,10 +31218,10 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
           const fill = Math.max(0, (pp || PER_PAGE) - pr.length);
           // ★ 2026-10-02(試験版・ユーザー指示): 2段目に運動すべて(+介護整体)。列数 N は運動項目+1(最低9列)。1段目の欄は列をまたぐ(SP1)
           // ★ 2026-10-02(A4縦): 運動項目+介護整体が EX_PER_ROW 列を超えるときは上段/下段の2組に分ける(列幅を確保)。列数 N は組の最大(最低8)
-          // ★ ユーザー指示(2026-10-02): 運動は1行10項目(介護整体を含む)。上段が埋まるまで上段、超えた分だけ下段
-          const exAll = [...ex, { id: '__massage', name: '介護整体' }];
-          const N = TK_EX_PER_ROW;
-          const bands = exAll.length > N ? [exAll.slice(0, N), exAll.slice(N)] : [exAll];
+          // ★ ユーザー指示(2026-10-02): 運動は1行10項目。上段が埋まるまで上段、超えた分だけ下段。介護整体は数に入れず最後の段の右端に付ける
+          const _mg = { id: '__massage', name: '介護整体' };
+          const bands = ex.length > TK_EX_PER_ROW ? [ex.slice(0, TK_EX_PER_ROW), [...ex.slice(TK_EX_PER_ROW), _mg]] : [[...ex, _mg]];
+          const N = Math.max(...bands.map(b => b.length)); // 列数(10 or 11)
           // 1段目は 状態/気分/体温/開始/終了/再検/記録者/個別 を列をまたいで置く(再検が残り)
           const SP1 = (() => { const st = 1, ki = _kOnR ? 1 : 0, tp = 1, st1 = 1, en = _showEnT ? 1 : 0, rec = 1, kin = 1; const used = st + ki + tp + st1 + en + rec + kin; return { st, ki, tp, st1, en, rec, kin, re: Math.max(1, N - used) }; })();
           const _bikouText = pi === 0 ? computeServiceChangeBikou(sp, tY, tM, appData) : '';
