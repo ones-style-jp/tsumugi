@@ -22498,7 +22498,7 @@ export default function App() {
              currentView === 'family_admin' ? <FamilyAdminView appData={appData} onSave={handleSaveToCloud} /> :
              currentView === 'emergency' ? <DisasterView appData={appData} onSave={handleSaveToCloud} staffSession={staffSession} /> :
              currentView === 'jisseki' ? <JissekiView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
-             currentView === 'transport' ? <TransportView appData={appData} onSave={handleSaveToCloud} selectedDate={selectedDate} setSelectedDate={setSelectedDate} onShowPrintPreview={null} /> :
+             currentView === 'transport' ? <TransportView appData={appData} onSave={handleSaveToCloud} selectedDate={selectedDate} setSelectedDate={setSelectedDate} onShowPrintPreview={null} navigateTo={navigateTo} /> :
              currentView === 'diary' ? <DailyLogView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} dirtyRef={diaryDirtyRef} saveFnRef={diarySaveFnRef} /> :
              currentView === 'absence_fax' ? <AbsenceFaxView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?captureElHtmlWithValues(el):null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={absenceDirtyRef} saveFnRef={absenceSaveFnRef} /> :
              currentView === 'general_fax' ? <GeneralFaxView appData={appData} onSave={handleSaveToCloud} dirtyRef={generalFaxDirtyRef} saveFnRef={generalFaxSaveFnRef} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?captureElHtmlWithValues(el):null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
@@ -25744,8 +25744,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 try { sessionStorage.setItem('tsumugiReopenPF', JSON.stringify({ patientId: _pid, tab: 'cat_1' })); sessionStorage.setItem('tsumugiPFOrigin', 'record'); /* ★ 2026-09-29: 提供記録の「戻る」でここへ戻すため */ } catch {}
                 navigateTo && navigateTo('master', _pid);
               };
+              // ★ 2026-10-02(試験版・ユーザー要望): ここから利用者マスタへ行くのは休み・欠席の扱いが目的なので、月間スケジュールを開いた状態で表示する
               const _navs = [
-                { view:'master',        label:'利用者マスタ',     icon:<Users size={16}/> },
+                { view:'master',        label:'月間スケジュール', icon:<Users size={16}/>, onClick: () => { setPatientInfoModal(null); navigateTo && navigateTo('master', _pid, 'schedule'); } },
                 { view:'__file',        label:'個人ファイル',     icon:<BookOpen size={16}/>, onClick:_goFile },
                 { view:'ticket',        label:'サービス提供記録', icon:<FileText size={16}/> },
                 { view:'fitness',       label:'体力測定',         icon:<Activity size={16}/> },
@@ -33439,7 +33440,7 @@ function PickupPlaceField({ value, onChange, disabled, hiddenId, className }) {
 // ★ 2026-10-01(試験版・ユーザー要望「間違えて自動計算し直しちゃった時用に戻るボタン」): 送迎表の「元に戻す」の履歴。
 //   アプリを開いている間はほかの画面へ移っても残す(再読み込みで消える)。店舗の取り違えを防ぐため事業所名ごとに分ける。
 const _tpUndoMem = {};
-function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowPrintPreview }) {
+function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowPrintPreview, navigateTo }) {
   const ds = appData.diarySettings || {};
   const cars = (ds.cars && ds.cars.length ? ds.cars : [{id:'car1',name:'1号車',type:''},{id:'car2',name:'2号車',type:''}]);
   const plans = appData.transportPlans || {};
@@ -33524,14 +33525,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const base = getScheduleOnDate(p, iso)?.[dow] || '';
       // ★ 2026-09-12b: 「1日」の方は午前の便で来るためAMのみ(PMのお迎えには出さない)
       const baseHit = base === sl || (base === '1日' && sl === 'AM');
-      let attending, furikae = false;
+      let attending, furikae = false, rinji = false;
       if (ov !== undefined && ov !== '') {
         attending = (ov === '〇' || ov === '出席' || ov === '臨時' || String(ov).startsWith('振'));
-        furikae = String(ov).startsWith('振');
+        furikae = String(ov).startsWith('振'); rinji = ov === '臨時';
       } else {
         attending = baseHit && !_recAbsent(p.id, iso); // ★ 2026-09-16e: 生statusではなく期間ベース(_isPausedOn)で休止判定 / ★ 2026-09-30: 当日の欠席記録
         // ★ 2026-09-30: 提供記録の振替/臨時(この時間帯)で来る方
-        if (!attending) { const _ra = _recsOn(p.id, iso).find(r => (r.status === '振替' || r.status === '臨時') && _recSlot(r) === sl); if (_ra) { attending = true; furikae = _ra.status === '振替'; } }
+        if (!attending) { const _ra = _recsOn(p.id, iso).find(r => (r.status === '振替' || r.status === '臨時') && _recSlot(r) === sl); if (_ra) { attending = true; furikae = _ra.status === '振替'; rinji = _ra.status === '臨時'; } }
       }
       if (!attending) return;
       if (_isPausedOn(p, iso)) return;
@@ -33541,7 +33542,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const _tRaw = (_tOk && !furikae) ? (getPickupTimeForDow(p, dow, appData) || '') : '';
       // ★ 2026-09-12k: マスタで「徒歩」の方は最初から徒歩枠へ(車に混ざらない)
       const _isWalk = /徒歩/.test(String(getPickupTimeForDow(p, dow, appData) || '')) || /徒歩/.test(String(p.pickupTimes?.[dow] || '')) || String(p.pickupMinutes||'') === 'walk'; // ★ 2026-09-28: 乗車時間「徒歩」も徒歩欄へ
-      out.push({ pid: p.id, name: p.name, furikae, walk: _isWalk, time: _isWalk ? '' : _tRaw });
+      out.push({ pid: p.id, name: p.name, furikae, rinji, walk: _isWalk, time: _isWalk ? '' : _tRaw });
     });
     return out;
   };
@@ -33735,6 +33736,20 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _isFirstVisit = (pid, iso) => {
     try {
       const d0 = new Date(iso); d0.setHours(0,0,0,0);
+      // ★ 2026-10-02(試験版・ユーザー要望「前週コピーで次の週も初回の青になる」): 記録がまだ無くても、その日より前に
+      //   来る予定(基本利用曜日・月間スケジュールの出席/臨時/振替)や保存済みの送迎表に乗っている日があれば初回ではない
+      const _pt = (appData.patients||[]).find(x => x.id === pid);
+      if (_pt) {
+        for (let k = 1; k <= 120; k++) {
+          const d = new Date(d0); d.setDate(d0.getDate() - k); const iso2 = tpIsoOf(d);
+          if (!isPatientActiveOnDate(_pt, iso2)) break;   // 利用開始日より前まで戻ったら終わり
+          const mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; const dn = d.getDate();
+          const ov = ['AM','PM'].map(sl => appData.monthlyShifts?.[mk]?.[pid]?.[`${dn}_${sl}`]).filter(v => v !== undefined && v !== '');
+          const come = ov.length ? ov.some(v => v === '〇' || v === '出席' || v === '臨時' || String(v).startsWith('振')) : !!(getScheduleOnDate(_pt, iso2)?.[d.getDay()]);
+          if (come && !_isPausedOn(_pt, iso2)) return false;
+          if (['AM','PM'].some(sl => { const pl = plans[`${iso2}_${sl}`]; return pl && [ ...Object.values(pl.cars||{}).flat(), ...(pl.walkers||[]), ...(pl.others||[]) ].some(m => m && m.pid === pid); })) return false;
+        }
+      }
       const has = (appData.ticketRecords||[]).some(r => {
         if (r.patientId !== pid) return false;
         if (!(r.status === '出席' || r.status === '振替')) return false;
@@ -34819,7 +34834,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               Object.keys(cp.cars||{}).forEach(cid => (cp.cars[cid]||[]).forEach(m => { m.mark = false; }));
               // ★ 2026-09-30(不具合修正・ユーザー指摘): 前の週に振替で来た方までコピーされていた。
               //   コピー先の日・時間帯に来る方(_attendees: 基本曜日・月間スケジュール・提供記録)だけを残す(お休みの方も外れて「休み」に出る)。
-              const _att = new Set(_attendees(_iso(d), sl).map(a => String(a.pid)));
+              // ★ 2026-10-02(試験版・ユーザー要望): 振替だけでなく臨時の方もコピーしない(その週だけの方。来る日は未割当に自動で入る)
+              const _att = new Set(_attendees(_iso(d), sl).filter(a => !a.furikae && !a.rinji).map(a => String(a.pid)));
               const _filt = (pl) => { if (!pl) return; Object.keys(pl.cars||{}).forEach(cid => { const a = pl.cars[cid]||[]; pl.cars[cid] = a.filter(m => _att.has(String(m && m.pid))); nSkip += a.length - pl.cars[cid].length; }); ['walkers','others','un'].forEach(k => { if (Array.isArray(pl[k])) { const a = pl[k]; pl[k] = a.filter(m => _att.has(String(m && m.pid))); nSkip += a.length - pl[k].length; } }); };
               _filt(cp); if (cp.drop) _filt(cp.drop);
               delete cp._final; delete cp._finalAt; // ★ 完成の控えは週ごと(コピー先は未確定から)
@@ -35126,7 +35142,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           <div className="fixed inset-0 bg-slate-900/60 flex items-start justify-center p-4 pt-24" style={{zIndex:10000}} onClick={()=>setEditP(null)}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={e=>e.stopPropagation()}>
               <div className="font-bold text-slate-800 text-lg mb-1">{pt.name} 様</div>
-              <div className="text-xs text-slate-500 mb-3">住所: {pt.address || '（未入力・利用者マスタで入力）'}</div>
+              <div className="text-xs text-slate-500 mb-2">住所: {pt.address || '（未入力・利用者マスタで入力）'}</div>
+              {/* ★ 2026-10-02(試験版・ユーザー要望): 休み・振替・休止はここから月間スケジュールへ */}
+              {navigateTo && <button type="button" data-testid="tp-edit-schedule" onClick={()=>{ setEditP(null); navigateTo('master', pt.id, 'schedule'); }} className="w-full mb-3 py-2 rounded-xl font-bold text-sm bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100">利用者マスタ管理の月間スケジュールへ移動（休み・振替・休止）</button>}
               <label className="block text-xs font-bold text-slate-600 mb-1">待ち合わせ場所</label>
               <PickupPlaceField value={pt.pickupPlace||''} hiddenId="tp-edit-place" className="mb-3" />
               <label className="block text-xs font-bold text-slate-600 mb-1">乗車にかかる時間（分）＝車を停めてから乗せ終わるまで</label>
@@ -37690,7 +37708,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 <div className="bg-white border border-slate-200 rounded-xl p-3">
                   <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
                     <div className="text-[13px] font-bold text-slate-700">氏名・フリガナ・性別・生年月日</div>
-                    {!isOff && <button type="button" onClick={()=>setPersonalFileModal({patient:localPatient, initialTab:'cat_1', focus:'facesheet'})} className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs font-bold whitespace-nowrap active:scale-95 flex items-center gap-1"><BookOpen size={13}/>フェイスシートで編集</button>}
+                    {!isOff && <button type="button" onClick={()=>setPersonalFileModal({patient:localPatient, initialTab:'cat_1', focus:'facesheet:name'})} className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs font-bold whitespace-nowrap active:scale-95 flex items-center gap-1"><BookOpen size={13}/>フェイスシートで編集</button>}
                   </div>
                   <div className="border border-slate-200 rounded-lg overflow-hidden">
                     <InfoRow label="氏名">{localPatient.name}</InfoRow>
@@ -37724,7 +37742,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               <div className="bg-white border border-slate-200 rounded-xl p-3">
                 <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
                   <div className="text-[13px] font-bold text-slate-700">住所・連絡先</div>
-                  {!isOff && <button type="button" onClick={()=>setPersonalFileModal({patient:localPatient, initialTab:'cat_1', focus:'facesheet'})} className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs font-bold whitespace-nowrap active:scale-95 flex items-center gap-1"><BookOpen size={13}/>フェイスシートで編集</button>}
+                  {!isOff && <button type="button" onClick={()=>setPersonalFileModal({patient:localPatient, initialTab:'cat_1', focus:'facesheet:address'})} className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs font-bold whitespace-nowrap active:scale-95 flex items-center gap-1"><BookOpen size={13}/>フェイスシートで編集</button>}
                 </div>
                 <div className="border border-slate-200 rounded-lg overflow-hidden">
                   <InfoRow label="住所">{(localPatient.zipCode||localPatient.address||localPatient.addressBuilding||localPatient.addressRoom) ? `${localPatient.zipCode?`〒${localPatient.zipCode} `:''}${localPatient.address||''}${localPatient.addressBuilding?` ${localPatient.addressBuilding}`:''}${localPatient.addressRoom?` ${localPatient.addressRoom}`:''}` : ''}</InfoRow>
@@ -37792,7 +37810,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 <div className="bg-white border border-slate-200 rounded-xl p-3">
                   <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
                     <div className="text-[13px] font-bold text-slate-700 flex items-center gap-1.5"><Users size={15}/>その他関係者</div>
-                    {!isOff && <button type="button" onClick={()=>setPersonalFileModal({patient:localPatient, initialTab:'cat_1', focus:'facesheet'})} className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs font-bold whitespace-nowrap active:scale-95 flex items-center gap-1"><BookOpen size={13}/>フェイスシートで編集</button>}
+                    {!isOff && <button type="button" onClick={()=>setPersonalFileModal({patient:localPatient, initialTab:'cat_1', focus:'facesheet:related'})} className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs font-bold whitespace-nowrap active:scale-95 flex items-center gap-1"><BookOpen size={13}/>フェイスシートで編集</button>}
                   </div>
                   {(localPatient.relatedParties||[]).length===0 ? (
                     <div className="text-xs text-slate-400 border border-slate-200 rounded-lg px-3 py-3">登録されている関係者はいません（フェイスシートで追加できます。関係者がアカウント登録した場合も自動で追加されます）。</div>
@@ -37819,7 +37837,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   <div className="bg-white border border-slate-200 rounded-xl p-3">
                     <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
                       <div className="text-[13px] font-bold text-slate-700 flex items-center gap-1.5"><Users size={15}/>緊急連絡先</div>
-                      {!isOff && <button type="button" onClick={()=>setPersonalFileModal({patient:localPatient, initialTab:'cat_1', focus:'facesheet'})} className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs font-bold whitespace-nowrap active:scale-95 flex items-center gap-1"><BookOpen size={13}/>フェイスシートで編集</button>}
+                      {!isOff && <button type="button" onClick={()=>setPersonalFileModal({patient:localPatient, initialTab:'cat_1', focus:'facesheet:contacts'})} className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs font-bold whitespace-nowrap active:scale-95 flex items-center gap-1"><BookOpen size={13}/>フェイスシートで編集</button>}
                     </div>
                     {_contacts.length===0 ? <div className="text-xs text-slate-400 border border-slate-200 rounded-lg px-3 py-3">緊急連絡先は未登録です（フェイスシートで登録できます）。</div> : (
                       <div className="space-y-2">
@@ -51823,7 +51841,8 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
   const [faceSheetAttachFocus, setFaceSheetAttachFocus] = useState(false);
   const [pdfPreviewFaceSheet, setPdfPreviewFaceSheet] = useState(false);
   // ★ マスタ基本情報の「フェイスシートで編集」から飛んできたら、フェイスシート入力フォームを自動で開く。
-  React.useEffect(() => { if (focusSection === 'facesheet') { setActiveCat('cat_1'); setFaceSheetAttachFocus(false); setShowFaceSheetForm(true); } }, [focusSection]);
+  const [faceSheetSectionFocus, setFaceSheetSectionFocus] = useState('');
+  React.useEffect(() => { const m = String(focusSection || '').match(/^facesheet(?::(\w+))?$/); if (m) { setActiveCat('cat_1'); setFaceSheetAttachFocus(false); setFaceSheetSectionFocus(m[1] || ''); setShowFaceSheetForm(true); } }, [focusSection]);
   // ★ 本日のスケジュールの担当者会議から飛んできたら、ケアマネジメントタブ(cat_3)を開いて会議記録の新規入力を自動で開く。
   React.useEffect(() => { if (focusSection === 'meeting') { setActiveCat('cat_3'); setEditingMeeting(null); setShowMeetingForm(true); } }, [focusSection]);
   // ★ 任意の月を指定して提供記録を作成/ダウンロードするための選択月 (既定: 先月)
@@ -52811,6 +52830,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
           initial={faceSheet}
           canEditContacts={true}
           attachFocus={faceSheetAttachFocus}
+          sectionFocus={faceSheetSectionFocus}
           onSave={(fsData, removedAtts, contactPatch)=>{
             // ★ 削除された添付は personalFile.trash へ (7日間復元可)
             const now = new Date().toISOString();
@@ -53357,7 +53377,9 @@ const _FSField = ({ label, children, required }) => (
     {children}
   </div>
 );
-function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditContacts, isCmAccount, attachFocus }) {
+// ★ 2026-10-02(試験版・ユーザー要望): 利用者マスタの「フェイスシートで編集」から来たら、押した項目の場所(氏名/住所/関係者/緊急連絡先)へスクロール
+function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditContacts, isCmAccount, attachFocus, sectionFocus }) {
+  React.useEffect(() => { if (!sectionFocus) return; const t = setTimeout(() => { try { const el = document.querySelector(`[data-fs-sec="${sectionFocus}"]`); if (el) { const tgt = (el.childElementCount === 0 && el.nextElementSibling) ? el.nextElementSibling : el; el.style.scrollMarginTop = '16px'; el.scrollIntoView({ behavior: 'smooth', block: 'start' }); tgt.classList.add('ring-2','ring-amber-400','rounded-lg'); setTimeout(() => tgt.classList.remove('ring-2','ring-amber-400','rounded-lg'), 2500); } } catch {} }, 350); return () => clearTimeout(t); }, [sectionFocus]);
   const today = new Date().toISOString().slice(0,10);
   // ★ F2: 「写真・PDFで登録」で開いたら添付エリアへスクロール
   const attachRef = React.useRef(null);
@@ -53608,7 +53630,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
           </div>
           {/* ② 利用者の基本情報 */}
           <div className="border border-slate-200 rounded-xl p-4 bg-slate-50">
-            <div className="text-sm font-bold text-amber-800 mb-2">② 利用者の基本情報</div>
+            <div className="text-sm font-bold text-amber-800 mb-2" data-fs-sec="name">② 利用者の基本情報</div>
             <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-3">
               <div className="text-[11px] text-emerald-700 mb-2 font-bold">利用者の基本情報（ここで編集すると利用者マスタに反映されます）</div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -53630,6 +53652,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
                     <button type="button" onClick={async ()=>{ const r = await lookupZipAddress(fs.zipCode); if (r && r.full) update('address', r.full); else alert('住所が見つかりませんでした。郵便番号をご確認ください。'); }} className="shrink-0 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-bold text-xs active:scale-95">検索</button>
                   </div>
                 </Field>
+                <div data-fs-sec="address"></div>
                 <Field label="住所"><input value={fs.address} onChange={e=>update('address', e.target.value)} placeholder="郵便番号から検索すると町名まで自動入力" className={inputCls}/></Field>
                 <Field label="建物名"><input value={fs.addressBuilding} onChange={e=>update('addressBuilding', e.target.value)} placeholder="例: コーポ白子" className={inputCls}/></Field>
                 <Field label="部屋番号"><input value={fs.addressRoom} onChange={e=>update('addressRoom', e.target.value)} placeholder="例: 101" className={inputCls}/></Field>
@@ -53658,7 +53681,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
           </div>
           {/* ③ 家族・連絡先情報 */}
           <div className="border border-slate-200 rounded-xl p-4 bg-slate-50">
-            <div className="text-sm font-bold text-amber-800 mb-3">③ 家族・連絡先情報</div>
+            <div className="text-sm font-bold text-amber-800 mb-3" data-fs-sec="contacts">③ 家族・連絡先情報</div>
             <Field label="家族構成 (氏名・続柄・同居/別居)">
               <textarea rows={4} value={fs.familyMembers} onChange={e=>update('familyMembers', e.target.value)}
                 placeholder={`例:\n田中 一郎 (長男, 別居)\n田中 花子 (妻, 同居)`}
@@ -53714,6 +53737,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
               <input value={fs.keyPerson} onChange={e=>update('keyPerson', e.target.value)}
                 placeholder="例: 長男 田中一郎" className={inputCls}/>
             </Field>
+            <div data-fs-sec="related"></div>
             <Field label="その他関係者 (訪問看護・かかりつけ以外の連携先 等)">
               <div className="space-y-2">
                 {(fs.relatedParties||[]).length===0 && <div className="text-[12px] text-slate-400">未登録。「＋関係者を追加」から追加できます（関係者がアカウント登録した場合も自動で追加されます）。</div>}
@@ -53740,7 +53764,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
           </div>
           {/* ④ 介護保険・制度情報 */}
           <div className="border border-slate-200 rounded-xl p-4 bg-slate-50">
-            <div className="text-sm font-bold text-amber-800 mb-2">④ 介護保険・制度情報</div>
+            <div className="text-sm font-bold text-amber-800 mb-2" data-fs-sec="insurance">④ 介護保険・制度情報</div>
             <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-3">
               <div className="text-[11px] text-emerald-700 mb-2 font-bold">介護保険・制度情報</div>
               <Field label="被保険者番号"><ImeSafeInput value={fs.insuranceNo} onChange={e=>update('insuranceNo', e.target.value.replace(/[Ａ-Ｚａ-ｚ０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)))} inputMode="numeric" maxLength={10} placeholder="0000000000" className={inputCls}/></Field>
