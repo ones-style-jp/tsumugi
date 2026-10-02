@@ -23286,43 +23286,34 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const _kinouAbs = (p) => !p || p.status === '欠席' || p.status === '休業' || p.status === '休止';
   // ★ 再測定(2026-09-29 ユーザー指示: 入力方法は通常と同じ=テンキーで「/」も自分で打つ): 今の値を bpRe に n回目 として残し、
   //   入力欄(上/下/脈)を空にして、通常どおり血圧のセルに入力を開く。間違えて押した場合は removeBpRemeasure で前の値に戻す
-  // ★ 2026-10-02(試験版・ユーザー指示): 再検は「ポップアップで 時刻(最初は今・編集可)・血圧・脈 をテンキーで入力」。
-  //   1回目の値は通常の欄に残し、ポップアップの値を2回目・3回目…として bpRe に残す(小さく表示・印刷の再検欄)。
-  //   以前は「今の欄の値を○回目として控えて欄を空にする」方式で、1回目の時刻が再検ボタンを押した時刻になっていた。
-  const [bpReModal, setBpReModal] = useState(null); // {id, phase, ampm, time, bp, pl, focus}
+  // ★ 2026-10-02(試験版・ユーザー決定): 再検は「今の欄の値(と1回目の計測時刻 bpT*)を n回目 として下に控え、欄を空にして通常どおり入力」。
+  //   欄に残るのは最後に落ち着いた値(＝分析・印刷の血圧欄もこの値)。控えた値は小さく表示し、印刷の「再検」欄に「開始 1回目 10:15 160/95 脈72」と出る。
+  //   ポップアップ方式(trial177〜179)は撤去。間違えて押した場合は控えを「削除」すると欄に戻る。
   const applyBpRemeasure = (id, phase) => {
     const tf = timeFilter || 'AM';
     const rec = (filterMode === 'single' ? localPatients : localTicketRecords).find(x => x.id === id); if (!rec) return;
+    const fBu = `bpUp${phase}_${tf}`, fBd = `bpDn${phase}_${tf}`, fPl = `pl${phase}_${tf}`, fT = `bpT${phase}_${tf}`;
+    if (!rec[fBu] && !rec[fPl]) return; // 欄が空なら控えるものがない(通常どおり入力してもらう)
+    const log = [...(Array.isArray(rec.bpRe) ? rec.bpRe : [])];
+    const n = log.filter(e => e && e.phase === phase && e.ampm === tf).length + 1;
     const now = new Date();
-    setBpReModal({ id, phase, ampm: tf, time: `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`, bp: '', pl: '', focus: 'bp', name: rec.name || '' });
-  };
-  const saveBpRemeasure = () => {
-    const m = bpReModal; if (!m) return;
-    const rec = (filterMode === 'single' ? localPatients : localTicketRecords).find(x => x.id === m.id); if (!rec) { setBpReModal(null); return; }
-    const [up, dn] = String(m.bp || '').split('/'); const pl = String(m.pl || '');
-    if (!up && !pl) { setBpReModal(null); return; }
-    const fBu = `bpUp${m.phase}_${m.ampm}`, fBd = `bpDn${m.phase}_${m.ampm}`, fPl = `pl${m.phase}_${m.ampm}`;
-    if (!rec[fBu] && !rec[fPl]) {
-      // 1回目がまだ無ければ通常の欄へ(再検ではない)
-      updateRecord(m.id, fBu, up || ''); updateRecord(m.id, fBd, dn || ''); updateRecord(m.id, fPl, pl);
-    } else {
-      const log = [...(Array.isArray(rec.bpRe) ? rec.bpRe : [])];
-      const n = log.filter(e => e && e.phase === m.phase && e.ampm === m.ampm).length + 2; // 通常欄が1回目
-      const tm = String(m.time || '').match(/^(\d{1,2}):?(\d{2})$/); const time = tm ? `${+tm[1]}:${tm[2]}` : String(m.time || '');
-      log.push({ phase: m.phase, ampm: m.ampm, n, up: up || '', dn: dn || '', pl, time, at: new Date().toISOString() });
-      updateRecord(m.id, 'bpRe', log);
-    }
-    setBpReModal(null);
+    const time = String(rec[fT] || `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`);
+    log.push({ phase, ampm: tf, n, up: String(rec[fBu] || ''), dn: String(rec[fBd] || ''), pl: String(rec[fPl] || ''), time, at: `${now.toISOString()}#${Math.random().toString(36).slice(2, 6)}` }); // at は識別子(同じ秒に2回押しても重ならないよう乱数を付ける)
+    updateRecord(id, 'bpRe', log);
+    updateRecord(id, fBu, ''); updateRecord(id, fBd, ''); updateRecord(id, fPl, ''); // bpUp を空に戻すと updateRecord が bpT* も消す → 次に入れた時刻が新しい計測時刻になる
   };
   const removeBpRemeasureAt = (id, at) => {
     const rec = (filterMode === 'single' ? localPatients : localTicketRecords).find(x => x.id === id); if (!rec) return;
     const log = (Array.isArray(rec.bpRe) ? rec.bpRe : []).map(e => ({ ...e }));
     const idx = log.findIndex(e => e && e.at === at); if (idx < 0) return;
     const e = log[idx]; const lbl = e.phase === 'En' ? '終了' : '開始';
-    if (!window.confirm(`${lbl} ${e.n || 2}回目（${e.time || ''} ${e.up || '－'}/${e.dn || '－'} 脈${e.pl || '－'}）を削除しますか？`)) return;
+    const fBu = `bpUp${e.phase}_${e.ampm || 'AM'}`, fBd = `bpDn${e.phase}_${e.ampm || 'AM'}`, fPl = `pl${e.phase}_${e.ampm || 'AM'}`, fT = `bpT${e.phase}_${e.ampm || 'AM'}`;
+    const restore = !rec[fBu] && !rec[fPl]; // 欄が空(＝押した直後)なら値を欄に戻す
+    if (!window.confirm(restore ? `${lbl} ${e.n || 1}回目（${e.time || ''} ${e.up || '－'}/${e.dn || '－'} 脈${e.pl || '－'}）を欄に戻しますか？` : `${lbl} ${e.n || 1}回目（${e.time || ''} ${e.up || '－'}/${e.dn || '－'} 脈${e.pl || '－'}）を削除しますか？`)) return;
     log.splice(idx, 1);
-    const cnt = {}; log.forEach(x => { const k = `${x.phase}_${x.ampm}`; cnt[k] = (cnt[k] || 0) + 1; x.n = cnt[k] + 1; });
+    const cnt = {}; log.forEach(x => { const k = `${x.phase}_${x.ampm}`; cnt[k] = (cnt[k] || 0) + 1; x.n = cnt[k]; });
     updateRecord(id, 'bpRe', log); // ★ 空でも [] を保存する(保存時に省略すると同期で元のログが戻ってしまう)
+    if (restore) { updateRecord(id, fBu, e.up || ''); updateRecord(id, fBd, e.dn || ''); updateRecord(id, fPl, e.pl || ''); if (e.time) updateRecord(id, fT, e.time); }
   };
   const updateExercise = (id, field, value) => {
     if (filterMode === 'single') { obsMarkRecEdit(id, selectedDate, 'exercises'); setLocalPatients(prev => prev.map(p => p.id === id ? { ...p, exercises: { ...(p.exercises || {}), [field]: value } } : p)); }
@@ -24984,7 +24975,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                           style={{width:78,padding:'3px 2px',textAlign:'center',fontSize:14,fontWeight:'bold',height:42,boxSizing:'border-box'}}
                           className={`border rounded-lg cursor-pointer outline-none text-black shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-${fBpCombo}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
                       ) : (
-                        <div onClick={() => { if (isAbsent || isReadOnly || isPause) return; openKeypad(p.id, fBpCombo, (vBu && vBd) ? `${vBu}/${vBd}` : (vBu||''), isAbsent); setActiveCell(`${p.id}-${fBpCombo}`); }}
+                        <div data-testid={`bp-cell-${p.id}-${fBpCombo}`} onClick={() => { if (isAbsent || isReadOnly || isPause) return; openKeypad(p.id, fBpCombo, (vBu && vBd) ? `${vBu}/${vBd}` : (vBu||''), isAbsent); setActiveCell(`${p.id}-${fBpCombo}`); }}
                           style={{width:78,padding:'3px 2px',textAlign:'center',fontSize:14,fontWeight:'bold',display:'flex',alignItems:'center',justifyContent:'center',gap:1,height:42,boxSizing:'border-box'}}
                           className={`border rounded-lg cursor-pointer outline-none shadow-inner ${(isAbsent||isReadOnly||isPause)?'opacity-50':''} ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-${fBpCombo}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`}>
                           {vBu && vBd ? (
@@ -24993,7 +24984,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         </div>
                       )}
                       <input type="text" inputMode="numeric" readOnly={_keypadOn} disabled={isAbsent || isReadOnly || isPause} value={vPl} onClick={() => { if(_keypadOn){ openKeypad(p.id, fPl, vPl, isAbsent); setActiveCell(`${p.id}-${fPl}`); } }} onChange={_keypadOn ? undefined : (e)=>updateRecord(p.id, fPl, e.target.value)} style={{fontSize:14,padding:'0 1px',width:55,height:42,boxSizing:'border-box'}} className={`border rounded-lg text-center ${_keypadOn?'cursor-pointer':''} ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(vPl, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-${fPl}` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
-                      {_reOn && !(isAbsent || isReadOnly || isPause) && <button type="button" data-testid={`bp-re-St-${p.id}`} title="再検: 時刻・血圧・脈をテンキーで入力して2回目以降として残します（1回目は通常の欄のまま）" onClick={()=>applyBpRemeasure(p.id, 'St')} className={`shrink-0 text-[10px] font-bold rounded px-1 py-0.5 border ${bpReHas(p,'St',timeFilter) ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-slate-50 border-slate-300 text-slate-600 hover:bg-blue-50'}`}>再{bpReHas(p,'St',timeFilter) ? bpReList(p,timeFilter).filter(e=>e.phase==='St').length : ''}</button>}
+                      {_reOn && !(isAbsent || isReadOnly || isPause) && <button type="button" data-testid={`bp-re-St-${p.id}`} title="再検: 今の値を○回目として下に控え、欄を空にします（新しく入れた値が最後の値になります）" onClick={()=>applyBpRemeasure(p.id, 'St')} className={`shrink-0 text-[10px] font-bold rounded px-1 py-0.5 border ${bpReHas(p,'St',timeFilter) ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-slate-50 border-slate-300 text-slate-600 hover:bg-blue-50'}`}>再{bpReHas(p,'St',timeFilter) ? bpReList(p,timeFilter).filter(e=>e.phase==='St').length : ''}</button>}
                     </div>
                     <BpReMini entries={bpReList(p, timeFilter).filter(e => e.phase === 'St')} canEdit={!(isAbsent || isReadOnly || isPause)} onDelete={(at) => removeBpRemeasureAt(p.id, at)} />
                     </>);})()}
@@ -25018,7 +25009,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                           style={{width:78,padding:'3px 2px',textAlign:'center',fontSize:14,fontWeight:'bold',height:42,boxSizing:'border-box'}}
                           className={`border rounded-lg cursor-pointer outline-none text-black shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-${fBpCombo}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`} />
                       ) : (
-                        <div onClick={() => { if (isAbsent || isReadOnly || isPause) return; openKeypad(p.id, fBpCombo, (vBu && vBd) ? `${vBu}/${vBd}` : (vBu||''), isAbsent); setActiveCell(`${p.id}-${fBpCombo}`); }}
+                        <div data-testid={`bp-cell-${p.id}-${fBpCombo}`} onClick={() => { if (isAbsent || isReadOnly || isPause) return; openKeypad(p.id, fBpCombo, (vBu && vBd) ? `${vBu}/${vBd}` : (vBu||''), isAbsent); setActiveCell(`${p.id}-${fBpCombo}`); }}
                           style={{width:78,padding:'3px 2px',textAlign:'center',fontSize:14,fontWeight:'bold',display:'flex',alignItems:'center',justifyContent:'center',gap:1,height:42,boxSizing:'border-box'}}
                           className={`border rounded-lg cursor-pointer outline-none shadow-inner ${(isAbsent||isReadOnly||isPause)?'opacity-50':''} ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-${fBpCombo}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`}>
                           {vBu && vBd ? (
@@ -25027,7 +25018,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         </div>
                       )}
                       <input type="text" inputMode="numeric" readOnly={_keypadOn} disabled={isAbsent || isReadOnly || isPause} value={vPl} onClick={() => { if(_keypadOn){ openKeypad(p.id, fPl, vPl, isAbsent); setActiveCell(`${p.id}-${fPl}`); } }} onChange={_keypadOn ? undefined : (e)=>updateRecord(p.id, fPl, e.target.value)} style={{fontSize:14,padding:'0 1px',width:55,height:42,boxSizing:'border-box'}} className={`border rounded-lg text-center ${_keypadOn?'cursor-pointer':''} ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(vPl, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-${fPl}` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
-                      {_reOn && !(isAbsent || isReadOnly || isPause) && <button type="button" data-testid={`bp-re-En-${p.id}`} title="再検: 時刻・血圧・脈をテンキーで入力して2回目以降として残します（1回目は通常の欄のまま）" onClick={()=>applyBpRemeasure(p.id, 'En')} className={`shrink-0 text-[10px] font-bold rounded px-1 py-0.5 border ${bpReHas(p,'En',timeFilter) ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-slate-50 border-slate-300 text-slate-600 hover:bg-blue-50'}`}>再{bpReHas(p,'En',timeFilter) ? bpReList(p,timeFilter).filter(e=>e.phase==='En').length : ''}</button>}
+                      {_reOn && !(isAbsent || isReadOnly || isPause) && <button type="button" data-testid={`bp-re-En-${p.id}`} title="再検: 今の値を○回目として下に控え、欄を空にします（新しく入れた値が最後の値になります）" onClick={()=>applyBpRemeasure(p.id, 'En')} className={`shrink-0 text-[10px] font-bold rounded px-1 py-0.5 border ${bpReHas(p,'En',timeFilter) ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-slate-50 border-slate-300 text-slate-600 hover:bg-blue-50'}`}>再{bpReHas(p,'En',timeFilter) ? bpReList(p,timeFilter).filter(e=>e.phase==='En').length : ''}</button>}
                     </div>
                     <BpReMini entries={bpReList(p, timeFilter).filter(e => e.phase === 'En')} canEdit={!(isAbsent || isReadOnly || isPause)} onDelete={(at) => removeBpRemeasureAt(p.id, at)} />
                     </>);})()}
@@ -25369,27 +25360,6 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
         unitSep={(()=>{ const _ei=(appData.systemSettings?.exerciseItems||appSettings.exerciseItems).find(i=>i.id===keypad.field); if(_ei && _ei.type!=='individual') return _ei.unitSep||''; const _rec=(filterMode==='single'?localPatients:localTicketRecords).find(x=>x.id===keypad.recordId); const _cur=_rec&&_rec.exercises&&_rec.exercises[keypad.field]; const _iid=(_cur&&typeof _cur==='object')?_cur.itemId:null; if(_iid){ const _ii=(appData.systemSettings?.individualExerciseItems||appSettings.individualExerciseItems||[]).find(x=>x.id===_iid); return (_ii&&_ii.unitSep)||''; } return ''; })()}/>
 
       {/* ★ 拡大入力ビュー(2026-09-09 店舗要望): 1名分を大きな文字・濃い色で入力。テンキー等は通常入力と共通 */}
-      {bpReModal && ReactDOM.createPortal((() => {
-        const m = bpReModal; const setF = (patch) => setBpReModal(prev => prev ? { ...prev, ...patch } : prev);
-        const cur = m.focus === 'pl' ? m.pl : m.focus === 'time' ? m.time : m.bp;
-        const put = (v) => setF({ [m.focus === 'pl' ? 'pl' : m.focus === 'time' ? 'time' : 'bp']: v });
-        const key = (k) => { let v = String(cur || ''); if (k === '⌫') v = v.slice(0, -1); else if (k === 'C') v = ''; else v = v + k; if (m.focus === 'bp') v = v.replace(/[^0-9/]/g, '').slice(0, 7); if (m.focus === 'pl') v = v.replace(/\D/g, '').slice(0, 3); if (m.focus === 'time') v = v.replace(/[^0-9:]/g, '').slice(0, 5); put(v); };
-        const keys = m.focus === 'bp' ? ['7','8','9','4','5','6','1','2','3','/','0','⌫'] : m.focus === 'time' ? ['7','8','9','4','5','6','1','2','3',':','0','⌫'] : ['7','8','9','4','5','6','1','2','3','C','0','⌫'];
-        const box = (f, label, val, ph) => <button type="button" onClick={()=>setF({ focus: f })} className={`flex-1 rounded-xl border-2 px-2 py-2 text-left ${m.focus === f ? 'border-blue-500 bg-blue-50' : 'border-slate-300 bg-white'}`}><div className="text-[11px] font-bold text-slate-500">{label}</div><div className="text-2xl font-bold text-slate-800 min-h-[32px]">{val || <span className="text-slate-300">{ph}</span>}</div></button>;
-        return (
-          <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4" style={{zIndex:100001}} onClick={()=>setBpReModal(null)}>
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-4" onClick={e=>e.stopPropagation()} data-testid="bp-re-modal">
-              <div className="font-bold text-slate-800 text-base mb-1">{m.name} 様　{m.phase === 'En' ? '終了' : '開始'}の血圧を再検</div>
-              <div className="text-[11px] text-slate-500 mb-3">1回目は通常の欄のまま。ここで入れた値を2回目以降として残します。時刻は測った時刻に直せます。</div>
-              <div className="flex gap-2 mb-3">{box('time','時刻',m.time,'10:30')}{box('bp','血圧（上/下）',m.bp,'130/80')}{box('pl','脈',m.pl,'70')}</div>
-              <div className="grid grid-cols-3 gap-2 mb-3">{keys.map(k => <button key={k} type="button" onClick={()=>key(k)} className={`py-3 rounded-xl text-xl font-bold border ${/\d/.test(k) ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-slate-100 border-slate-300 text-slate-600'} active:scale-95`}>{k}</button>)}</div>
-              <div className="flex gap-2 justify-end">
-                <button type="button" onClick={()=>setBpReModal(null)} className="px-4 py-2.5 rounded-xl font-bold text-sm bg-slate-100 text-slate-600">キャンセル</button>
-                <button type="button" onClick={()=>{ if (m.focus === 'bp' && !/^\d{2,3}\/\d{2,3}$/.test(String(m.bp||'')) && m.bp) { setF({ focus: 'bp' }); } saveBpRemeasure(); }} data-testid="bp-re-save" className="px-5 py-2.5 rounded-xl font-bold text-sm bg-blue-600 hover:bg-blue-700 text-white">記録する</button>
-              </div>
-            </div>
-          </div>
-        ); })(), document.body)}
       {zoomPid != null && ReactDOM.createPortal((() => {
         const _src = (filterMode==='single' ? localPatients : localTicketRecords) || [];
         const p = _src.find(x => x.id === zoomPid);
@@ -28868,7 +28838,7 @@ function QuickNav({ navigateTo, currentView, patientId, appData }) {
       <button type="button" onClick={() => setOpen(o => !o)} data-testid="quicknav-btn" aria-expanded={open}
         style={{display:'flex',alignItems:'center',gap:4,padding:'4px 10px',borderRadius:8,border:'1px solid #94a3b8',background:open?'#eff6ff':'white',cursor:'pointer',fontSize:12,fontWeight:'bold',color:'#475569',whiteSpace:'nowrap'}}
         className="hover:bg-blue-50 hover:text-blue-600 hover:border-blue-300 transition-all">
-        移動{pt ? <span style={{fontWeight:'normal',color:'#64748b'}}>（{pt.name} 様）</span> : null}<span style={{fontSize:10}}>▼</span>
+        移動<span style={{fontSize:10}}>▼</span>{/* ★ 2026-10-02 ユーザー指示: 名前は画面の左に出ているのでボタンには付けない */}
       </button>
       {open && pos && ReactDOM.createPortal(
         <div ref={menuRef} data-testid="quicknav-menu" style={{position:'fixed',top:pos.top,right:pos.right,zIndex:2000050,background:'white',border:'1px solid #cbd5e1',borderRadius:12,boxShadow:'0 10px 30px rgba(15,23,42,0.15)',padding:6,minWidth:200}}>
