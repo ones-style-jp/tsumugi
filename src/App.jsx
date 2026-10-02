@@ -31091,6 +31091,12 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
     calc(); let ro = null; try { if (typeof ResizeObserver !== 'undefined') { ro = new ResizeObserver(calc); ro.observe(el); } } catch {}
     window.addEventListener('resize', calc); return () => { window.removeEventListener('resize', calc); try { ro && ro.disconnect(); } catch {} };
   }, []);
+  // ★ 2026-10-02: 用紙ごとに中身が縦にはみ出す量を実測し、各日の行(2行=1日)を均等に低くして1枚に収める(--tpShrink)
+  React.useLayoutEffect(() => {
+    const el = _fitRef.current; if (!el) return;
+    const fit = () => { try { el.querySelectorAll('.tp').forEach(tp => { tp.style.setProperty('--tpShrink', '0px'); const over = tp.scrollHeight - tp.clientHeight; if (over > 1) { const per = Math.min(10, Math.ceil(over / (2 * PER_PAGE))); tp.style.setProperty('--tpShrink', per + 'px'); } }); } catch {} };
+    const t = setTimeout(fit, 50); return () => clearTimeout(t);
+  });
   const pages = []; for (let i = 0; i < records.length; i += PER_PAGE) pages.push(records.slice(i, i + PER_PAGE));
   if (pages.length === 0) pages.push([]);
   const getDefTime = (p) => { if (!p?.scheduleAmPm) return fi.serviceTimeAM||""; const h=p.scheduleAmPm; if(h.some(s=>s==='1日')||(h.some(s=>s==='AM')&&h.some(s=>s==='PM'))) return fi.serviceTimeFullDay||""; if(h.some(s=>s==='PM')) return fi.serviceTimePM||""; return fi.serviceTimeAM||""; };
@@ -31310,8 +31316,10 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
               <style>{`
                 /* 行高さを完全固定 — 入力内容の有無にかかわらず一定 (6日表示で1日あたりを拡大) */
                 .tp table { table-layout: fixed; }
-                .tp table tbody tr.data-row { height:46px!important; max-height:46px!important; }
-                .tp table tbody tr.tokki-row { height:36px!important; max-height:36px!important; }
+                /* ★ 2026-10-02(店舗報告: 運動メニューが多いと用紙の縦に入らず縦スクロール): 見出し・設定数値の行が高くなった分だけ
+                   各日の行を低くして1枚に収める(--tpShrink は下の effect が用紙ごとに実測して入れる。最小 34px/26px) */
+                .tp table tbody tr.data-row { height:max(34px, calc(46px - var(--tpShrink, 0px)))!important; max-height:max(34px, calc(46px - var(--tpShrink, 0px)))!important; }
+                .tp table tbody tr.tokki-row { height:max(26px, calc(36px - var(--tpShrink, 0px)))!important; max-height:max(26px, calc(36px - var(--tpShrink, 0px)))!important; }
                 .tp table tbody tr.bikou-gap td { border:none!important; background:transparent!important; height:14px!important; padding:0!important; }
                 .tp table tbody tr.bikou-row { height:30px!important; max-height:30px!important; }
                 .tp table tbody td {
@@ -31319,17 +31327,17 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                   vertical-align:middle!important;
                   overflow:hidden!important;
                 }
-                .tp table tbody tr.data-row td { height:46px!important; max-height:46px!important; }
-                .tp table tbody tr.tokki-row td { height:36px!important; max-height:36px!important; }
+                .tp table tbody tr.data-row td { height:max(34px, calc(46px - var(--tpShrink, 0px)))!important; max-height:max(34px, calc(46px - var(--tpShrink, 0px)))!important; }
+                .tp table tbody tr.tokki-row td { height:max(26px, calc(36px - var(--tpShrink, 0px)))!important; max-height:max(26px, calc(36px - var(--tpShrink, 0px)))!important; }
                 .tp table tbody tr.bikou-row td { height:30px!important; max-height:30px!important; }
                 .tp table tbody tr.data-row td>div.cell-wrap {
-                  height:42px; max-height:42px; overflow:hidden;
+                  height:max(30px, calc(42px - var(--tpShrink, 0px))); max-height:max(30px, calc(42px - var(--tpShrink, 0px))); overflow:hidden;
                   display:flex; align-items:center; justify-content:center;
                   word-break:break-all; flex-wrap:wrap; text-align:center;
                   line-height:1.15;
                 }
                 .tp table tbody tr.tokki-row td>div.cell-wrap {
-                  height:32px; max-height:32px; overflow:hidden;
+                  height:max(22px, calc(32px - var(--tpShrink, 0px))); max-height:max(22px, calc(32px - var(--tpShrink, 0px))); overflow:hidden;
                   display:flex; align-items:center; justify-content:flex-start;
                   line-height:1.2; white-space:nowrap; word-break:keep-all;
                   text-align:left; padding-left:4px;
@@ -34494,7 +34502,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const _drvW = (f) => _hasDrv ? Math.ceil(Math.min(f, 11) * 1.2) + 9 : 0; // 各日の運転者の細い欄
     const _slW = 24; // 午前・午後の列
     const _dayPx = (f) => (1039 - _slW - 2 - _carColW(f)) / Math.max(1, days.length) - 9 - 2 - _drvW(f); // 275mm≒1039px − 午前午後 − 車名列 − 余白・罫線
-    const _fzS = (f) => Math.max(8, Math.round(f * 0.78));               // 次回(曜日)は補助情報なので小さめ
+    const _fzS = (f) => Math.max(9, Math.round(f * 0.95));               // 次回(曜日)。★ 2026-10-02 ユーザー要望「もう少し大きく」(0.78→0.95)
     const _fzB = (f) => Math.max(8, Math.round(f * 2 / 3)); // 休み・初回・その他など(2026-10-01c: 名前の約2/3)
     const _fzAb = (f) => Math.max(9, Math.round(f * 0.8)); // ★ 2026-10-01(ユーザー要望「休みをもう少し大きく」): 休みだけ名前の約8割
     const _nameW = (f) => Math.ceil(_maxNameEm * f * 1.04) + 5;
