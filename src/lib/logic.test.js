@@ -86,3 +86,66 @@ describe('exercisePrimaryNumber', () => {
     expect(exercisePrimaryNumber(null)).toBeNull();
   });
 });
+
+// ★ 2026-10-02 同期の穴の対策(扇橋 上野様の件)
+import { deepSame, sameStateIgnoringMeta, reconcileRemoteRecords, mergeDraftRows } from './logic.js';
+describe('deepSame / sameStateIgnoringMeta', () => {
+  it('キーの順番が違っても同じ・undefined のキーは無いのと同じ', () => {
+    expect(deepSame({ a: 1, b: { c: [1, 2] } }, { b: { c: [1, 2] }, a: 1 })).toBe(true);
+    expect(deepSame({ a: 1, x: undefined }, { a: 1 })).toBe(true);
+    expect(deepSame({ a: '8:10' }, { a: '8:15' })).toBe(false);
+  });
+  it('時刻の印と最後に保存した端末だけ違う店舗データは「同じ」(書かない)', () => {
+    const cloud = { patients: [{ id: 1, name: 'a' }], __clock: 100, _lastSync: { device: 'A', at: 1 } };
+    const next = { _lastSync: { device: 'B', at: 2 }, patients: [{ name: 'a', id: 1 }], __clock: 200 };
+    expect(sameStateIgnoringMeta(next, cloud)).toBe(true);
+    expect(sameStateIgnoringMeta({ ...next, patients: [{ id: 1, name: 'b' }] }, cloud)).toBe(false);
+  });
+});
+describe('reconcileRemoteRecords (保存で、届いたばかりの他端末の変更を消さない)', () => {
+  const base = [{ id: 'tr_75', status: '出席', temp_AM: '', _fieldTs: { status: 1 } }, { id: 'tr_31', kibunArrival: '' }];
+  it('土台の後に届いた欠席は、保存で触っていなければ残る', () => {
+    const cur = [{ id: 'tr_75', status: '欠席', temp_AM: '', _fieldTs: { status: 9 } }, base[1]];
+    const next = [{ id: 'tr_75', status: '出席', temp_AM: '', _fieldTs: { status: 1 } }, { id: 'tr_31', kibunArrival: 'good' }];
+    const { recs, n } = reconcileRemoteRecords(cur, base, next);
+    expect(n).toBe(1);
+    expect(recs[0].status).toBe('欠席');
+    expect(recs[0]._fieldTs.status).toBe(9);
+    expect(recs[1].kibunArrival).toBe('good');
+  });
+  it('保存で変えた項目は保存の値が勝つ', () => {
+    const cur = [{ id: 'tr_75', status: '欠席', temp_AM: '' }, base[1]];
+    const next = [{ id: 'tr_75', status: '振替', temp_AM: '' }, base[1]];
+    expect(reconcileRemoteRecords(cur, base, next).recs[0].status).toBe('振替');
+  });
+  it('手元にだけ届いた新しい記録は足し、この保存で消した記録は戻さない', () => {
+    const cur = [...base, { id: 'tr_new', status: '欠席' }];
+    const next = [base[0]]; // tr_31 はこの保存で削除
+    const { recs } = reconcileRemoteRecords(cur, base, next);
+    expect(recs.map(r => r.id).sort()).toEqual(['tr_75', 'tr_new']);
+  });
+});
+describe('mergeDraftRows (編集中でも、触っていない人・項目は最新に)', () => {
+  it('触っていない上野様の行は最新(欠席)・編集中の方の入力は残る', () => {
+    const base = [{ id: 75, status: '出席', temp_AM: '' }, { id: 31, status: '出席', kibunArrival: '' }];
+    const draft = [{ id: 75, status: '出席', temp_AM: '' }, { id: 31, status: '出席', kibunArrival: 'good' }];
+    const fresh = [{ id: 75, status: '欠席', temp_AM: '' }, { id: 31, status: '出席', kibunArrival: '' }];
+    const { rows, base: nb, kept } = mergeDraftRows(fresh, draft, base);
+    expect(rows[0].status).toBe('欠席');
+    expect(rows[1].kibunArrival).toBe('good');
+    expect(kept).toBe(1);
+    expect(nb[1].kibunArrival).toBe(''); // 次回も「この端末の入力」として残すため base は元のまま
+  });
+});
+describe('mergeDraftRows (外した行・足した行)', () => {
+  it('この端末で外した行は作り直しても戻らない／足した行は残る', () => {
+    const base = [{ id: 1, status: '出席' }, { id: 2, status: '出席' }];
+    const draft = [{ id: 2, status: '出席' }, { id: 3, status: '臨時' }];
+    const fresh = [{ id: 1, status: '出席' }, { id: 2, status: '欠席' }];
+    const r1 = mergeDraftRows(fresh, draft, base);
+    expect(r1.rows.map(r => r.id)).toEqual([2, 3]);
+    expect(r1.rows[0].status).toBe('欠席');
+    const r2 = mergeDraftRows(fresh, r1.rows, r1.base);
+    expect(r2.rows.map(r => r.id)).toEqual([2, 3]);
+  });
+});
