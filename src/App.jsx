@@ -29341,71 +29341,115 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
   const short = (c) => String(c || '').replace('要支援', '支援').replace('要介護', '介護').replace('事業対象者', '事業');
   const pats = (appData.patients || []).filter(p => isPatientListable(p) && (p.status || '利用中') !== '退所');
   const isPaused = (p) => { try { return !!getPauseReasonOnDate(p, todayIso) || (p.status === '休止' && !(p.pauseHistory || []).length); } catch { return false; } };
-  const members = (dow, sl) => pats.filter(p => { const v = (p.scheduleAmPm || [])[dow]; return v === sl || v === '1日'; }).sort((a, b) => (lv(a) - lv(b)) || (Number(a.id) - Number(b.id)));
-  const wait = appData.systemSettings?.classRosterWait || {};
+  const ss = appData.systemSettings || {};
+  const wait = ss.classRosterWait || {};
+  const custom = ss.classRosterOrder || {}; // ★ 枠ごとの手動の並び(ドラッグ)。無い方は介護度→NO順で後ろに
+  const members = (dow, sl) => {
+    const base = pats.filter(p => { const v = (p.scheduleAmPm || [])[dow]; return v === sl || v === '1日'; }).sort((a, b) => (lv(a) - lv(b)) || (Number(a.id) - Number(b.id)));
+    const ord = custom[`${dow}_${sl}`]; if (!Array.isArray(ord) || !ord.length) return base;
+    const idx = new Map(ord.map((id, i) => [String(id), i]));
+    return [...base].sort((a, b) => { const ia = idx.has(String(a.id)) ? idx.get(String(a.id)) : 1e9, ib = idx.has(String(b.id)) ? idx.get(String(b.id)) : 1e9; return ia - ib || (lv(a) - lv(b)) || (Number(a.id) - Number(b.id)); });
+  };
+  const saveSS = (patch, keys) => { const ts = syncNow(); const ft = { ...(ss._fieldTs || {}) }; keys.forEach(k => { ft[k] = ts; }); onSave({ ...appData, systemSettings: { ...ss, ...patch, _fieldTs: ft } }, { silent: true }); };
   const [waitDraft, setWaitDraft] = React.useState({});
-  const saveWait = (k, v) => { const cur = appData.systemSettings?.classRosterWait || {}; if ((cur[k] || '') === (v || '')) return; const ss = appData.systemSettings || {}; onSave({ ...appData, systemSettings: { ...ss, classRosterWait: { ...cur, [k]: v }, _fieldTs: { ...(ss._fieldTs || {}), classRosterWait: syncNow() } } }, { silent: true }); };
+  const saveWait = (k, v) => { if ((wait[k] || '') === (v || '')) return; saveSS({ classRosterWait: { ...wait, [k]: v } }, ['classRosterWait']); };
+  // ★ 同じ枠の中だけドラッグで並べ替え(2026-10-03 ユーザー要望)。NO のセルをつかんで動かし、落とした行の位置に差し込む(順番は classRosterOrder に保存)。
+  //   iPad でも動くよう HTML5 の drag ではなく pointer イベントで実装(つかむセルは touch-action:none)
+  const [drag, setDrag] = React.useState(null); // {k, pid}(表示用)
+  const dragRef = React.useRef(null);
+  const [over, setOver] = React.useState(null); // {k, pid}
+  const _rowAt = (x, y) => { const el = document.elementFromPoint(x, y); const td = el && el.closest ? el.closest('[data-crk]') : null; return td ? { k: td.getAttribute('data-crk'), pid: td.getAttribute('data-crpid') } : null; };
+  const startDrag = (e, k, d, sl, pid) => {
+    if (e.button != null && e.button !== 0) return;
+    e.preventDefault(); dragRef.current = { k, pid, d, sl }; setDrag({ k, pid });
+    const onMove = (ev) => { const r = _rowAt(ev.clientX, ev.clientY); const dr = dragRef.current; if (!dr) return; if (r && r.k === dr.k && String(r.pid) !== String(dr.pid)) setOver({ k: r.k, pid: r.pid }); else setOver(null); };
+    const onUp = (ev) => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); window.removeEventListener('pointercancel', onUp);
+      const dr = dragRef.current; dragRef.current = null; setDrag(null); setOver(null); if (!dr) return;
+      const r = _rowAt(ev.clientX, ev.clientY); if (r && r.k === dr.k && String(r.pid) !== String(dr.pid)) { const toPid = pats.find(p => String(p.id) === String(r.pid))?.id; if (toPid != null) moveTo(dr.k, dr.d, dr.sl, dr.pid, toPid); } };
+    window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', onUp); window.addEventListener('pointercancel', onUp);
+  };
+  const moveTo = (k, dow, sl, fromPid, toPid) => {
+    if (fromPid == null || toPid == null || String(fromPid) === String(toPid)) return;
+    const ids = members(dow, sl).map(p => p.id); const fi2 = ids.indexOf(fromPid), ti = ids.indexOf(toPid); if (fi2 < 0 || ti < 0) return;
+    ids.splice(fi2, 1); ids.splice(ti, 0, fromPid);
+    saveSS({ classRosterOrder: { ...custom, [k]: ids } }, ['classRosterOrder']);
+  };
+  const resetOrder = (k) => { const n = { ...custom }; delete n[k]; saveSS({ classRosterOrder: n }, ['classRosterOrder']); };
   const total = (sl) => days.reduce((n, d) => n + members(d, sl).length, 0);
-  const Block = ({ sl, label, print }) => (
-    <table style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed', fontSize: print ? 10 : 12 }}>
-      <colgroup><col style={{ width: print ? 18 : 26 }} />{days.map(d => <React.Fragment key={d}><col style={{ width: print ? 24 : 34 }} /><col /><col style={{ width: print ? 34 : 48 }} /></React.Fragment>)}</colgroup>
-      <tbody>{/* ★ 左端の「午前/午後」は rowSpan で全行をまたぐため、見出し行も tbody に入れる(thead→tbody をまたぐ rowSpan は効かない) */}
-        <tr>
-          <th rowSpan={rows + 4} style={{ border: '1px solid #475569', background: '#fef9c3', fontWeight: 'bold', writingMode: 'vertical-rl', letterSpacing: 4, fontSize: print ? 12 : 14 }}>{label}</th>
-          {days.map(d => <th key={d} colSpan={3} style={{ border: '1px solid #475569', background: '#e0f2fe', fontWeight: 'bold', padding: '2px 0' }}>{DOWJ[d]}曜日</th>)}
+  // ★ 印刷: 定員が多い店舗でもA4横1枚に収まるよう、行数から行の高さ・文字の大きさを決める(2ブロック×(定員+1+見出し2+待ち1+空き1))
+  const printRowH = Math.max(10, Math.min(17, Math.floor(620 / (2 * (rows + 5)))));
+  const printFs = printRowH >= 15 ? 10 : printRowH >= 13 ? 9 : 8;
+  const scrRowH = rows > 13 ? 21 : 24;
+  const B = '1px solid #cbd5e1', BH = '1px solid #94a3b8';
+  const Block = ({ sl, label, print }) => {
+    const fs = print ? printFs : 12, rh = print ? printRowH : scrRowH;
+    return (
+    <table style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed', fontSize: fs, lineHeight: 1.1 }} data-testid={print ? undefined : `cr-${sl.toLowerCase()}`}>
+      <colgroup><col style={{ width: print ? 16 : 22 }} />{days.map(d => <React.Fragment key={d}><col style={{ width: print ? 24 : 34 }} /><col /><col style={{ width: print ? 32 : 46 }} /></React.Fragment>)}</colgroup>
+      <tbody>{/* 左端の「午前/午後」は rowSpan で全行をまたぐため見出し行も tbody(thead→tbody をまたぐ rowSpan は効かない) */}
+        <tr style={{ height: rh }}>
+          <th rowSpan={rows + 4} style={{ border: BH, background: sl === 'AM' ? '#fef3c7' : '#e0e7ff', color: sl === 'AM' ? '#92400e' : '#3730a3', fontWeight: 'bold', writingMode: 'vertical-rl', letterSpacing: 4, fontSize: print ? 11 : 13 }}>{label}</th>
+          {days.map(d => <th key={d} colSpan={3} style={{ border: BH, background: '#1e293b', color: 'white', fontWeight: 'bold', padding: 0 }}>{DOWJ[d]}曜日</th>)}
         </tr>
-        <tr>{days.map(d => <React.Fragment key={d}><th style={{ border: '1px solid #475569', background: '#fed7aa', fontWeight: 'bold' }}>NO</th><th style={{ border: '1px solid #475569', background: '#fed7aa', fontWeight: 'bold' }}>氏名</th><th style={{ border: '1px solid #475569', background: '#fed7aa', fontWeight: 'bold' }}>介護度</th></React.Fragment>)}</tr>
+        <tr style={{ height: rh }}>{days.map(d => <React.Fragment key={d}><th style={{ border: B, background: '#f1f5f9', color: '#475569', fontWeight: 'bold' }}>NO</th><th style={{ border: B, background: '#f1f5f9', color: '#475569', fontWeight: 'bold' }}>氏名</th><th style={{ border: B, background: '#f1f5f9', color: '#475569', fontWeight: 'bold' }}>介護度</th></React.Fragment>)}</tr>
         {Array.from({ length: rows }).map((_, i) => (
-          <tr key={i} style={{ height: print ? 17 : 24 }}>
-            {days.map(d => { const m = members(d, sl)[i]; const over = i >= cap; const sup = m && /支援|事業/.test(String(m.careLevel || '')); return (
+          <tr key={i} style={{ height: rh }}>
+            {days.map(d => { const k = `${d}_${sl}`; const m = members(d, sl)[i]; const spare = i >= cap; const sup = m && /支援|事業/.test(String(m.careLevel || '')); const paused = m && isPaused(m);
+              const isOver = over && over.k === k && m && String(over.pid) === String(m.id); const isDrag = drag && drag.k === k && m && String(drag.pid) === String(m.id);
+              const bg = spare ? '#fffbeb' : 'white';
+              const dragProps = (!print && m) ? { 'data-crk': k, 'data-crpid': String(m.id) } : {};
+              return (
               <React.Fragment key={d}>
-                <td style={{ border: '1px solid #475569', textAlign: 'center', background: over ? '#fffbeb' : 'white', color: '#334155' }}>{m ? m.id : ''}</td>
-                <td style={{ border: '1px solid #475569', textAlign: 'center', background: over ? '#fffbeb' : 'white', whiteSpace: 'nowrap', overflow: 'hidden', fontWeight: 'bold', color: m && isPaused(m) ? '#94a3b8' : '#1e293b' }} title={m && isPaused(m) ? '休止中' : ''}>{m ? `${m.name}${isPaused(m) ? '（休止）' : ''}` : ''}</td>
-                <td style={{ border: '1px solid #475569', textAlign: 'center', background: m ? (sup ? '#fbcfe8' : 'white') : (over ? '#fffbeb' : 'white'), fontSize: print ? 9 : 11 }}>{m ? short(m.careLevel) : ''}</td>
+                <td {...dragProps} onPointerDown={(m && !print) ? (e) => startDrag(e, k, d, sl, m.id) : undefined} style={{ border: B, textAlign: 'center', background: isOver ? '#dbeafe' : (m && !print ? '#f8fafc' : bg), color: '#64748b', opacity: isDrag ? 0.4 : 1, cursor: m && !print ? 'grab' : 'default', touchAction: m && !print ? 'none' : 'auto', userSelect: 'none' }} title={m && !print ? 'ここをつかんで上下に動かすと同じ枠の中で並べ替え' : ''} data-testid={m && !print ? `cr-row-${k}-${m.id}` : undefined}>{m ? m.id : ''}</td>
+                <td {...dragProps} style={{ border: B, textAlign: 'left', padding: '0 4px', background: isOver ? '#dbeafe' : bg, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 'bold', color: paused ? '#94a3b8' : '#1e293b', opacity: isDrag ? 0.4 : 1, borderTop: isOver ? '2px solid #2563eb' : B }} title={paused ? '休止中' : ''}>{m ? `${m.name}${paused ? '（休止）' : ''}` : ''}</td>
+                <td {...dragProps} style={{ border: B, textAlign: 'center', background: m ? (sup ? '#fce7f3' : '#f8fafc') : bg, color: m ? (sup ? '#9d174d' : '#334155') : '#334155', fontSize: fs - 1, opacity: isDrag ? 0.4 : 1 }}>{m ? short(m.careLevel) : ''}</td>
               </React.Fragment>); })}
           </tr>
         ))}
-        <tr style={{ height: print ? 22 : 34 }}>
+        <tr style={{ height: print ? rh + 4 : 34 }}>
           {days.map(d => { const k = `${d}_${sl}`; const v = waitDraft[k] != null ? waitDraft[k] : (wait[k] || ''); return (
-            <td key={d} colSpan={3} style={{ border: '1px solid #475569', padding: '1px 3px', verticalAlign: 'top', background: '#f8fafc' }}>
+            <td key={d} colSpan={3} style={{ border: B, padding: '1px 3px', verticalAlign: 'top', background: '#f8fafc' }}>
               <div style={{ display: 'flex', gap: 3, alignItems: 'flex-start' }}>
-                <span style={{ fontWeight: 'bold', color: '#475569', whiteSpace: 'nowrap', fontSize: print ? 9 : 11 }}>待ち</span>
-                {print ? <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: 9, color: '#1d4ed8' }}>{v}</span>
+                <span style={{ fontWeight: 'bold', color: '#475569', whiteSpace: 'nowrap', fontSize: fs - 1 }}>待ち</span>
+                {print ? <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: fs - 1, color: '#1d4ed8' }}>{v}</span>
                   : <textarea value={v} rows={2} placeholder="（空欄）" onChange={e => setWaitDraft(w => ({ ...w, [k]: e.target.value }))} onBlur={e => { saveWait(k, e.target.value); setWaitDraft(w => { const n = { ...w }; delete n[k]; return n; }); }}
                       style={{ flex: 1, minWidth: 0, fontSize: 11, color: '#1d4ed8', fontWeight: 'bold', border: '1px dashed #cbd5e1', borderRadius: 4, padding: '1px 3px', background: 'white', resize: 'none', lineHeight: 1.3 }} data-testid={`cr-wait-${k}`} />}
               </div>
             </td>); })}
         </tr>
-        <tr style={{ height: print ? 22 : 30 }}>
-          {days.map(d => { const n = members(d, sl).length; const free = cap - n; return (
-            <td key={d} colSpan={3} style={{ border: '1px solid #475569', textAlign: 'center', fontWeight: 'bold', background: free > 0 ? '#ecfdf5' : free < 0 ? '#fef2f2' : 'white', color: free > 0 ? '#047857' : free < 0 ? '#b91c1c' : '#334155' }} data-testid={`cr-free-${d}_${sl}`}>
-              空き {Math.max(0, free)}{free < 0 ? `（定員超過 ${-free}）` : ''}<span style={{ fontWeight: 'normal', color: '#64748b', marginLeft: 6, fontSize: print ? 9 : 11 }}>{n}/{cap}名</span>
+        <tr style={{ height: rh }}>
+          {days.map(d => { const k = `${d}_${sl}`; const n = members(d, sl).length; const free = cap - n; return (
+            <td key={d} colSpan={3} style={{ border: BH, textAlign: 'center', fontWeight: 'bold', background: free > 0 ? '#ecfdf5' : free < 0 ? '#fef2f2' : '#f8fafc', color: free > 0 ? '#047857' : free < 0 ? '#b91c1c' : '#334155', padding: 0 }} data-testid={print ? undefined : `cr-free-${k}`}>
+              空き {Math.max(0, free)}{free < 0 ? `（定員超過 ${-free}）` : ''}
+              {!print && custom[k] && <button type="button" onClick={() => resetOrder(k)} title="手動の並び替えをやめて介護度→NO順に戻す" style={{ marginLeft: 8, fontSize: 10, fontWeight: 'normal', color: '#2563eb', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer' }}>並び順を戻す</button>}
             </td>); })}
         </tr>
       </tbody>
     </table>
-  );
+    );
+  };
   const doPrint = () => { if (onShowPrintPreview) onShowPrintPreview(`クラス在籍表_${todayIso}`, 'A4 landscape', 'print-content-classroster'); else window.print(); };
   return (
     <div className="h-full flex flex-col bg-slate-50">
       <div className="no-print bg-white border-b border-slate-200 px-4 py-2 flex items-center gap-3 flex-wrap shrink-0">
         <div className="font-bold text-slate-800">クラス在籍表</div>
-        <div className="text-[11px] text-slate-500">基本利用曜日から自動で並びます（介護度→NO順）。定員 {cap}名＋予備1枠。「待ち」は自由入力（空欄のまま保存されます）。利用者の曜日は利用者マスタで変更してください。</div>
+        <span className="text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 rounded-lg px-2 py-1">定員 {cap}名（＋予備1枠）</span>
+        <div className="text-[11px] text-slate-500">基本利用曜日から自動で並びます（介護度→NO順。NOは利用者マスタの利用者ID）。同じ枠の中はドラッグで並べ替えできます。「待ち」は自由入力。曜日の変更は利用者マスタで。</div>
         <div className="ml-auto flex items-center gap-2">
           <span className="text-[11px] text-slate-600">午前 {total('AM')}名 ／ 午後 {total('PM')}名</span>
           <button type="button" data-testid="cr-print" onClick={doPrint} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">プレビュー / 印刷</button>
         </div>
       </div>
-      <div className="flex-1 overflow-auto p-4">
-        <div className="bg-white rounded-xl border border-slate-200 p-3 mb-4" data-testid="cr-am"><Block sl="AM" label="午前" /></div>
-        <div className="bg-white rounded-xl border border-slate-200 p-3" data-testid="cr-pm"><Block sl="PM" label="午後" /></div>
+      <div className="flex-1 overflow-auto p-3">
+        <div className="bg-white rounded-xl border border-slate-200 p-2 mb-3"><Block sl="AM" label="午前" /></div>
+        <div className="bg-white rounded-xl border border-slate-200 p-2"><Block sl="PM" label="午後" /></div>
       </div>
       {/* 印刷用(A4横・余白は内側のdivで確保: 印刷ホストがbody直下の余白を0にするため) */}
       <div id="print-content-classroster" style={{ display: 'none' }}>
         <style>{`@page{size:A4 landscape;margin:0}`}</style>
         <div style={{ width: '297mm', height: '210mm', boxSizing: 'border-box', background: 'white', overflow: 'hidden' }}>
-          <div style={{ padding: '8mm 10mm', boxSizing: 'border-box', height: '100%', display: 'flex', flexDirection: 'column', gap: 8, fontFamily: '"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","メイリオ",Meiryo,sans-serif', color: '#1e293b' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}><span style={{ fontSize: 14, fontWeight: 'bold' }}>クラス在籍表</span><span style={{ fontSize: 10, color: '#475569' }}>{String(fi.name || '')}　定員 {cap}名／枠　{todayIso.replace(/-/g, '/')} 現在</span></div>
+          <div style={{ padding: '7mm 9mm', boxSizing: 'border-box', height: '100%', display: 'flex', flexDirection: 'column', gap: 6, fontFamily: '"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","メイリオ",Meiryo,sans-serif', color: '#1e293b' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}><span style={{ fontSize: 13, fontWeight: 'bold' }}>クラス在籍表　<span style={{ fontSize: 10, fontWeight: 'normal', color: '#475569' }}>定員 {cap}名（＋予備1枠）</span></span><span style={{ fontSize: 10, color: '#475569' }}>{String(fi.name || '')}　{todayIso.replace(/-/g, '/')} 現在</span></div>
             <Block sl="AM" label="午前" print /><Block sl="PM" label="午後" print />
           </div>
         </div>
@@ -35252,7 +35296,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         </div>
       </div>
         {/* ★ 2026-09-30: 上の帯と隙間なく詰めて固定(スクロール中に下の内容が透けて見えないよう背景つき)。日付は中央揃え・「この日を印刷」は廃止(印刷ボタンの「日ごと」で印刷) */}
-        <div className="bg-slate-100 px-2 sm:px-3 pt-1 pb-1 border-b border-slate-200" data-testid="tp-date-strip">
+        {!_finalView && <div className="bg-slate-100 px-2 sm:px-3 pt-1 pb-1 border-b border-slate-200" data-testid="tp-date-strip">
           <div className="max-w-[1500px] mx-auto overflow-hidden" ref={tpHdrRef}>
             <div className="grid" style={{gridTemplateColumns:_tpCols, columnGap:8}}>
               <div />
@@ -35267,7 +35311,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               })}
             </div>
           </div>
-        </div>
+        </div>}
       </div>
       {/* ★ 2026-10-03(ユーザー提案「確定していたら入力画面ではなく一覧を常に表示。午前・午後を一度に見たい」): 確定済みの週は読み取り専用の一覧(午前・午後を同じ画面に)。
           「編集する」で入力画面へ(確定後の変更は赤丸)。確定を解除すると自動で入力画面に戻る */}
@@ -35291,15 +35335,15 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                         {cars.map(c => { const ms = (pl.cars||{})[c.id] || []; if (!ms.length) return null; const drv = (pl.driver||{})[c.id] || ''; return (
                           <div key={c.id}>
                             <div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">{c.name}{drv ? <span className="font-normal ml-1">運転 {drv}</span> : null}</div>
+                            {/* ★ 2026-10-03 ユーザー指示: 運行表と同じく左に名前・右に時間。時間の桁数が違っても名前の開始位置が揃うよう、赤丸→名前(可変)→時間(固定幅・右寄せ) */}
                             {ms.map(m => { const dot = m.mark || _dotOf(pl, iso, m.pid); const tg = _dropTag(pl, m.pid); return (
                               <div key={m.pid} className="flex items-center gap-1 text-[12px] leading-tight py-0.5" data-testid={`tp-fb-${iso}-${sl}-${m.pid}`}>
                                 <span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${dot?'bg-red-600':'bg-transparent'}`} aria-hidden="true"/>
-                                <span className="w-9 shrink-0 font-bold text-slate-700 tabular-nums">{_fmtT(m.t)||'—'}</span>
-                                <span className="truncate font-bold text-slate-800">{_pname(m.pid)}</span>
-                                {tg ? <span className="text-[9px] text-slate-500 shrink-0">{tg}</span> : null}
+                                <span className="truncate font-bold text-slate-800 flex-1 min-w-0">{_pname(m.pid)}{tg ? <span className="text-[9px] text-slate-500 ml-1 font-normal">{tg}</span> : null}</span>
+                                <span className="w-11 shrink-0 text-right font-bold text-slate-700 tabular-nums">{_fmtT(m.t)||'—'}</span>
                               </div>); })}
                           </div>); })}
-                        {(pl.walkers||[]).length ? <div><div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">徒歩</div>{(pl.walkers||[]).map(m => <div key={m.pid} className="flex items-center gap-1 text-[12px] py-0.5"><span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${(m.mark||_dotOf(pl, iso, m.pid))?'bg-red-600':'bg-transparent'}`}/><span className="w-9 shrink-0 font-bold text-slate-700 tabular-nums">{/\d/.test(String(m.t||''))?_fmtT(m.t):_classStart(sl)}</span><span className="truncate font-bold text-slate-800">{_pname(m.pid)}</span></div>)}</div> : null}
+                        {(pl.walkers||[]).length ? <div><div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">徒歩</div>{(pl.walkers||[]).map(m => <div key={m.pid} className="flex items-center gap-1 text-[12px] py-0.5"><span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${(m.mark||_dotOf(pl, iso, m.pid))?'bg-red-600':'bg-transparent'}`}/><span className="truncate font-bold text-slate-800 flex-1 min-w-0">{_pname(m.pid)}</span><span className="w-11 shrink-0 text-right font-bold text-slate-700 tabular-nums">{/\d/.test(String(m.t||''))?_fmtT(m.t):_classStart(sl)}</span></div>)}</div> : null}
                         {(pl.others||[]).length ? <div><div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">その他</div>{(pl.others||[]).map(m => <div key={m.pid} className="flex items-center gap-1 text-[12px] py-0.5"><span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${(m.mark||_dotOf(pl, iso, m.pid))?'bg-red-600':'bg-transparent'}`}/><span className="truncate font-bold text-slate-800">{_pname(m.pid)}</span>{m.why ? <span className="text-[10px] text-slate-500 shrink-0">（{m.why}）</span> : null}</div>)}</div> : null}
                         {(pl.un||[]).length ? <div className="text-[11px] text-amber-700 font-bold">未割当 {(pl.un||[]).map(m => _pname(m.pid)).join('・')}</div> : null}
                       </div>
