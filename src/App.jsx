@@ -1733,13 +1733,14 @@ const tsumugiBuildPrintSrcDoc = (html) => {
 };
 // iPad/iPhone では fetch の後に window.open すると開けない(ユーザー操作の外)ため、クリック時に先に空の窓を開いて渡す
 const tsumugiOpenPdfWindow = () => { if (!tsumugiIsIOS()) return null; try { const w = window.open('', '_blank'); if (w) { try { w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>PDFを作成中…</title></head><body style="font-family:-apple-system,sans-serif;padding:40px;color:#334155;font-size:18px;">PDFを作成しています。しばらくお待ちください…</body></html>'); w.document.close(); } catch {} } return w; } catch { return null; } };
-async function tsumugiServerPdf({ html, pageSize, title, win }) {
+async function tsumugiServerPdf({ html, pageSize, title, win, onReady }) {
   const r = await fetch('/api/pdf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ html, pageSize: pageSize || 'A4 portrait', title: title || 'document' }) });
   if (!r.ok) { let msg = `HTTP ${r.status}`; try { const j = await r.json(); if (j && j.error) msg = j.error; } catch {} if (win) { try { win.close(); } catch {} } throw new Error(msg); }
   const blob = await r.blob();
   const url = URL.createObjectURL(blob);
   const fname = `${String(title || 'document').replace(/[\\/:*?"<>|]+/g, '_')}.pdf`;
-  if (win && !win.closed) { try { win.location.href = url; } catch { win.close(); window.open(url, '_blank'); } }
+  if (onReady) { onReady(url, fname); }
+  else if (win && !win.closed) { try { win.location.href = url; } catch { win.close(); window.open(url, '_blank'); } }
   else if (tsumugiIsIOS()) { const w2 = window.open(url, '_blank'); if (!w2) { const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); } }
   else { const a = document.createElement('a'); a.href = url; a.download = fname; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); }
   setTimeout(() => URL.revokeObjectURL(url), 120000);
@@ -20293,7 +20294,7 @@ export default function App() {
       return { tsusho: dues.filter(d => d.kind === 'tsusho').length, kinou: dues.filter(d => d.kind !== 'tsusho').length };
     } catch { return { tsusho: 0, kinou: 0 }; }
   }, [appData]);
-  const [printPreviewContent, setPrintPreviewContent] = useState(null);
+  const [printPreviewContent, _setPrintPreviewContentRaw] = useState(null);
   // ★ 担当者会議フロートメモ(2026-08-28): {patientId, meetingId}。 画面切替でも消えない小窓。
   const [meetingFloat, setMeetingFloat] = useState(null);
   const [appUpdating, setAppUpdating] = useState(false); // ★ 「今すぐ更新」実行中の表示
@@ -20329,7 +20330,7 @@ export default function App() {
   // ★ 氏名マスキング(2026-08-19): FAX送付など個人情報を伏せたい時に、印刷プレビュー/印刷の
   //   HTML内の利用者氏名・ふりがなを「●●」へ置換する(全印刷・FAX機能で共通)。 既定OFF・開くたびリセット。
   const [printMaskNames, setPrintMaskNames] = useState(false);
-  useEffect(()=>{ setPreviewIfH(900); setShowFaxHelp(false); setShowFaxRecord(false); setPrintMaskNames(false); }, [printPreviewContent?.title]);
+  useEffect(()=>{ setPreviewIfH(900); setShowFaxHelp(false); setShowFaxRecord(false); }, [printPreviewContent?.title]); // ★ 2026-10-04: マスキングはヘッダーの共通スイッチ(開くたびに戻さない)
   const _maskPrintHtml = React.useCallback((html) => {
     try {
       let out = html;
@@ -20347,6 +20348,46 @@ export default function App() {
       return out;
     } catch { return html; }
   }, [appData?.patients]);
+  // ★ 2026-10-04(ユーザー指示「名前は『ダウンロード』に統一・プレビューではなくダウンロード・マスキングはプレビューの外に」):
+  //   書類の出力は原則「直接PDFを作る」(プレビューを出さない)。例外=連絡帳(印刷・微調整があるので従来のプレビュー)と forcePreview。
+  //   氏名マスキングはヘッダーの共通スイッチ(printMaskNames)。連絡帳・日誌には効かせない。
+  const _maskRef = React.useRef({ on: false, fn: (h) => h }); _maskRef.current = { on: printMaskNames, fn: _maskPrintHtml };
+  const [pdfJob, setPdfJob] = useState(null); // null | {status:'busy'|'ready'|'error', title, url?, fname?, error?}
+  const _recordPdfOutput = (title) => {
+    try {
+      const _ft = title.includes('休み連絡') ? 'absence' : title.includes('各種連絡') ? 'general' : title.includes('サービス提供記録') ? 'ticket' : 'other';
+      if (_ft !== 'other') {
+        const _pn = (() => { const m = title.match(/_([^_]+?)(?:様)?$/); return m ? m[1] : ''; })();
+        const entry = { id: `fax_${Date.now()}_${Math.random().toString(36).slice(-4)}`, type: _ft, timestamp: new Date().toISOString(), subject: title, patientName: _pn, recipientName: '', recipientFax: '', note: 'ダウンロード（DL済）', method: 'pdf' };
+        setAppData(prev => ({ ...prev, faxHistory: [entry, ...(prev.faxHistory || [])] }));
+      }
+    } catch {}
+    try { window.dispatchEvent(new CustomEvent('tsumugi:printed', { detail: { title, method: 'pdf' } })); } catch {}
+  };
+  const directPdf = async (detail) => {
+    const title = String(detail.title || 'document');
+    let html = detail.html;
+    if (!html && detail.elementId) { try { const el = document.getElementById(detail.elementId); html = el ? el.outerHTML.replace(/display:\s*none[^;"']*/g, 'display:block').replace(/visibility:\s*hidden/g, 'visibility:visible') : ''; } catch {} }
+    if (!html) { setPdfJob({ status: 'error', title, error: '出力する内容が見つかりません' }); return; }
+    const maskable = !/^連絡帳/.test(title) && !/日誌/.test(title);
+    const masked = (maskable && _maskRef.current.on) ? _maskRef.current.fn(html) : html;
+    setPdfJob({ status: 'busy', title });
+    try {
+      await tsumugiServerPdf({ html: tsumugiBuildPrintSrcDoc(masked), pageSize: detail.pageSize || 'A4 portrait', title, onReady: (url, fname) => {
+        if (tsumugiIsIOS()) setPdfJob({ status: 'ready', title, url, fname }); // iPad: ボタン(ユーザー操作)で新しいタブに開く
+        else { const a = document.createElement('a'); a.href = url; a.download = fname; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); setPdfJob(null); }
+      } });
+      _recordPdfOutput(title);
+    } catch (e) { setPdfJob({ status: 'error', title, error: (e && e.message) || String(e) }); }
+  };
+  const _directPdfRef = React.useRef(directPdf); _directPdfRef.current = directPdf;
+  const setPrintPreviewContent = (detail) => {
+    if (!detail) { _setPrintPreviewContentRaw(null); return; }
+    const title = String(detail.title || '');
+    const keepPreview = detail.forcePreview || detail.autoPrint || !!detail.adjust || /^連絡帳/.test(title);
+    if (keepPreview) { _setPrintPreviewContentRaw(detail); return; }
+    _directPdfRef.current(detail);
+  };
   const printHtmlEff = useMemo(() => {
     if (!printPreviewContent?.html) return '';
     return printMaskNames ? _maskPrintHtml(printPreviewContent.html) : printPreviewContent.html;
@@ -20361,16 +20402,7 @@ export default function App() {
       const _title = String(printPreviewContent?.title || 'document');
       await tsumugiServerPdf({ html: previewSrcDoc, pageSize: printPreviewContent?.pageSize || 'A4 portrait', title: _title, win });
       setPdfDl(null);
-      // ★ 2026-10-04(ユーザー指示「FAX送付履歴はダウンロードしたらDL済にする」): 休み連絡・各種連絡・サービス提供記録は、PDF作成を送付履歴に自動で記録
-      try {
-        const _ft = _title.includes('休み連絡') ? 'absence' : _title.includes('各種連絡') ? 'general' : _title.includes('サービス提供記録') ? 'ticket' : 'other';
-        if (_ft !== 'other') {
-          const _pn = (() => { const m = _title.match(/_([^_]+?)(?:様)?$/); return m ? m[1] : ''; })();
-          const entry = { id: `fax_${Date.now()}_${Math.random().toString(36).slice(-4)}`, type: _ft, timestamp: new Date().toISOString(), subject: _title, patientName: _pn, recipientName: '', recipientFax: '', note: 'PDFをダウンロード（DL済）', method: 'pdf' };
-          setAppData(prev => ({ ...prev, faxHistory: [entry, ...(prev.faxHistory || [])] }));
-        }
-      } catch {}
-      try { window.dispatchEvent(new CustomEvent('tsumugi:printed', { detail: { title: _title, method: 'pdf' } })); } catch {}
+      _recordPdfOutput(_title);
     } catch (e) { setPdfDl({ error: (e && e.message) || String(e) }); setTimeout(() => setPdfDl(null), 6000); }
   };
   // ★ 2026-10-04: プレビューを開いたらサーバーPDFをウォームアップ(Chrome起動・フォント取得を先に済ませ、初回の待ちを短く)。アプリ起動時にも1回
@@ -21871,6 +21903,25 @@ export default function App() {
       })()}
       {/* グローバルプリントプレビュー */}
       {meetingFloat && <MeetingFloatWidget appData={appData} onSave={handleSaveToCloud} float={meetingFloat} onClose={()=>setMeetingFloat(null)} />}
+      {/* ★ 2026-10-04: 直接ダウンロードの進行表示。iPad は「開く」(ユーザー操作)で新しいタブに表示 */}
+      {pdfJob && (
+        <div data-testid="pdf-job" style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',zIndex:9950,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={()=>{ if (pdfJob.status !== 'busy') setPdfJob(null); }}>
+          <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:16,padding:'22px 26px',maxWidth:420,width:'100%',boxShadow:'0 20px 60px rgba(0,0,0,0.35)',textAlign:'center'}}>
+            <div style={{fontSize:12,color:'#64748b',marginBottom:6}}>{pdfJob.title}</div>
+            {pdfJob.status === 'busy' && <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}><BusySpin/>PDFを作成しています…</div>}
+            {pdfJob.status === 'ready' && (<>
+              <div style={{fontSize:16,fontWeight:'bold',color:'#065f46',marginBottom:14}}>PDFができました</div>
+              <button type="button" data-testid="pdf-open" onClick={()=>{ try { const w = window.open(pdfJob.url, '_blank'); if (!w) { const a = document.createElement('a'); a.href = pdfJob.url; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); } } catch {} setPdfJob(null); }}
+                style={{padding:'12px 24px',background:'#0f766e',color:'white',border:'none',borderRadius:12,fontWeight:'bold',fontSize:16,cursor:'pointer',width:'100%'}}>新しいタブで開く（共有・印刷・保存）</button>
+              <button type="button" onClick={()=>setPdfJob(null)} style={{marginTop:10,padding:'8px 16px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
+            </>)}
+            {pdfJob.status === 'error' && (<>
+              <div style={{fontSize:14,fontWeight:'bold',color:'#b91c1c',marginBottom:12,whiteSpace:'pre-wrap'}}>PDFを作成できませんでした{'\n'}{pdfJob.error}</div>
+              <button type="button" onClick={()=>setPdfJob(null)} style={{padding:'8px 16px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
+            </>)}
+          </div>
+        </div>
+      )}
       {printPreviewContent && (() => {
           // ★ PreviewModalを毎回作り直さず、このIIFE内に直接JSXを描く(iframe再マウント=チカチカ防止)。 ifH/srcDocはApp直下のstateを使用
           const ifH = previewIfH, setIfH = setPreviewIfH;
@@ -22064,7 +22115,7 @@ export default function App() {
                   {/* ★ 2026-10-03: サーバーPDF(他社SaaSと同じ「ダウンロード」)。印刷グループの左に独立して置く */}
                   <button onClick={downloadPdfViaServer} disabled={pdfDl==='busy'} data-testid="pv-pdf-download" title="サーバーでPDFファイルを作ります（iPadは新しいタブで開く・PCはダウンロード。ヘッダー・フッター無し）"
                     style={{background: pdfDl==='busy' ? '#94a3b8' : (pdfDl && pdfDl.error ? '#b91c1c' : '#0f766e'),color:'white',border:'none',borderRadius:10,padding:'10px 16px',fontWeight:'bold',fontSize:14,cursor: pdfDl==='busy' ? 'wait' : 'pointer',display:'flex',alignItems:'center',gap:6,marginRight:8,whiteSpace:'nowrap',boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
-                    {pdfDl==='busy' ? <><BusySpin/>PDFを作成中…</> : (pdfDl && pdfDl.error ? `失敗: ${pdfDl.error}` : 'PDFをダウンロード')}
+                    {pdfDl==='busy' ? <><BusySpin/>作成中…</> : (pdfDl && pdfDl.error ? `失敗: ${pdfDl.error}` : 'ダウンロード')}
                   </button>
                   {/* 統合出力ボタン: 印刷/FAX/PDF すべて同じ印刷ダイアログを開くので統合(2026-10-04: 連絡帳だけ) */}
                   {isRenrakuDoc && <button onClick={()=>openPrintWindow(false)}
@@ -22639,6 +22690,11 @@ export default function App() {
               全画面
             </button>
             {/* ★ 変更ログ(監査)ビューアを開くボタン */}
+            {/* ★ 2026-10-04 ユーザー指示: 氏名マスキングはプレビューの外(ヘッダー)に。ケアマネ・ご家族宛の書類のダウンロードに効く(連絡帳・日誌には効かない) */}
+            <label data-testid="hdr-mask" title="ON にすると、ダウンロードする書類の利用者氏名・ふりがなを1文字おきに○へ置き換えます(ケアマネ・ご家族宛の書類向け。連絡帳・日誌には効きません)" className={`hidden md:flex items-center gap-1.5 shrink-0 mr-2 px-2.5 py-1 rounded-full border text-[11px] font-bold cursor-pointer select-none ${printMaskNames ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-white border-slate-300 text-slate-600'}`}>
+              <input type="checkbox" checked={printMaskNames} onChange={e=>setPrintMaskNames(e.target.checked)} className="w-4 h-4"/>
+              <span className="whitespace-nowrap">氏名マスキング</span>
+            </label>
             <button onClick={()=>setAuditLogOpen(true)} title="いつ・どの端末で・何を変更したかの履歴"
               className="hidden md:flex items-center gap-1 shrink-0 mr-2 text-[11px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-full px-2.5 py-1 whitespace-nowrap active:scale-95">
               変更ログ
@@ -26578,7 +26634,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           {!compactMode && (
           <button type="button" onClick={()=>setShowPrintOptionsPopup(true)}
               style={{background:'rgba(255,255,255,0.5)',border:'1px solid rgba(255,255,255,0.7)',color:'#1e293b',borderRadius:8,padding:'6px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
-            プレビュー
+            ダウンロード
           </button>
           )}
           {/* 隠しトリガー: ポップアップから .click() で発火される。既存の生成ロジックを温存。 */}
@@ -26965,10 +27021,10 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           <div onClick={e=>e.stopPropagation()}
                style={{background:'white',borderRadius:16,padding:'24px 28px',width:'100%',maxWidth:520,boxShadow:'0 20px 60px rgba(0,0,0,0.4)'}}>
             <div style={{fontSize:18,fontWeight:'bold',color:'#1e293b',marginBottom:6,display:'flex',alignItems:'center',gap:8}}>
-              <Printer size={20}/>プレビューの設定
+              <Printer size={20}/>ダウンロードの設定
             </div>
             <div style={{fontSize:13,color:'#64748b',marginBottom:18}}>
-              生成する期間と対象を選んでから「プレビューを生成」を押してください（15〜30秒かかります）
+              生成する期間と対象を選んでから「ダウンロード（PDFを生成）」を押してください（15〜30秒かかります）
             </div>
             <div style={{marginBottom:16}}>
               <div style={{fontSize:13,fontWeight:'bold',color:'#475569',marginBottom:6}}>期間</div>
@@ -27009,7 +27065,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
               </button>
               <button onClick={()=>{ setShowPrintOptionsPopup(false); setTimeout(()=>document.getElementById('personal-print-hidden-trigger')?.click(),50); }}
                       style={{background:'linear-gradient(135deg,#2563eb,#1e40af)',color:'white',border:'none',borderRadius:10,padding:'10px 20px',fontWeight:'bold',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',gap:6,boxShadow:'0 2px 8px rgba(37,99,235,0.3)'}}>
-                プレビューを生成
+                ダウンロード（PDFを生成）
               </button>
             </div>
           </div>
@@ -29518,7 +29574,7 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
         <div className="text-[11px] text-slate-500">基本利用曜日から自動で並びます（介護度順）。左端の「⋮」をつかんで動かすと同じ枠の中で並べ替えできます。「待ち」は自由入力。曜日の変更は利用者マスタで。</div>
         <div className="ml-auto flex items-center gap-2">
           <span className="text-[11px] text-slate-600">午前 {total('AM')}名 ／ 午後 {total('PM')}名</span>
-          <button type="button" data-testid="cr-print" onClick={doPrint} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">プレビュー / 印刷</button>
+          <button type="button" data-testid="cr-print" onClick={doPrint} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">ダウンロード</button>
         </div>
       </div>
       <div className="flex-1 overflow-auto p-3">
@@ -29714,7 +29770,7 @@ function JissekiView({ appData, onSave, onShowPrintPreview }) {
             <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b'}}>月次実績表<span style={{fontSize:11,fontWeight:'normal',color:'#64748b',marginLeft:6}}>（カイポケ等への実績転記用）</span></div>
             <div style={{display:'flex',alignItems:'center',gap:6,marginLeft:'auto'}}>
               <button onClick={dlCsv} style={{padding:'4px 12px',background:'#0f766e',color:'white',border:'none',borderRadius:8,fontWeight:'bold',cursor:'pointer',fontSize:12}}>CSV出力</button>
-              {onShowPrintPreview && <button onClick={()=>onShowPrintPreview(`実績表_${jy}年${jm}月`,'A4 landscape','jisseki-print-area')} style={{padding:'4px 12px',background:'#334155',color:'white',border:'none',borderRadius:8,fontWeight:'bold',cursor:'pointer',fontSize:12}}>印刷/PDF</button>}
+              {onShowPrintPreview && <button onClick={()=>onShowPrintPreview(`実績表_${jy}年${jm}月`,'A4 landscape','jisseki-print-area')} style={{padding:'4px 12px',background:'#334155',color:'white',border:'none',borderRadius:8,fontWeight:'bold',cursor:'pointer',fontSize:12}}>ダウンロード</button>}
             </div>
           </div>
           <div style={{fontSize:11,color:'#64748b',marginBottom:8}}>○=出席　<span style={{color:'#059669',fontWeight:'bold'}}>振</span>=振替　<span style={{color:'#0e7490',fontWeight:'bold'}}>臨</span>=臨時　<span style={{color:'#dc2626',fontWeight:'bold'}}>欠</span>=欠席　休=休業　止=休止　※氏名クリックで利用者ごとの詳細へ。実績回数は 出席+振替+臨時 の日数</div>
@@ -30679,7 +30735,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
             </div>
             <div style={{display:'flex',gap:8}}>
               <button onClick={()=>setPrintOptsModal(false)} style={{flex:1,padding:'10px',borderRadius:8,border:'1px solid #94a3b8',background:'#f1f5f9',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>キャンセル</button>
-              <button onClick={()=>{ setPrintOptsModal(false); runOpsPrint(printOpts); }} style={{flex:1,padding:'10px',borderRadius:8,border:'none',background:'#2563eb',color:'white',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>プレビュー表示</button>
+              <button onClick={()=>{ setPrintOptsModal(false); runOpsPrint(printOpts); }} style={{flex:1,padding:'10px',borderRadius:8,border:'none',background:'#2563eb',color:'white',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>ダウンロード</button>
             </div>
           </div>
         </div>
@@ -31556,7 +31612,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
             </div>
           )}
           <button onClick={()=>{ const mk=`${tY}-${String(tM).padStart(2,'0')}`; const cur = (sp.bikouOverrides && sp.bikouOverrides[mk] != null) ? sp.bikouOverrides[mk] : computeServiceChangeBikou(sp, tY, tM, appData); setBikouEdit({ text: cur }); }} className="bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200 px-4 py-2 rounded-xl font-bold flex items-center text-sm whitespace-nowrap" title="この月の備考欄を手動で編集します">備考編集</button>
-          <button onClick={()=>{if(onShowPrintPreview){onShowPrintPreview(periodMode?`サービス提供記録_${periodFrom}〜${periodTo}_${sp?.name||''}`:`サービス提供記録_${tY}年${tM}月_${sp?.name||''}`, 'A4 portrait', 'print-content-ticket')}else{window.print();}}} className="bg-slate-900 text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm">プレビュー</button>
+          <button onClick={()=>{if(onShowPrintPreview){onShowPrintPreview(periodMode?`サービス提供記録_${periodFrom}〜${periodTo}_${sp?.name||''}`:`サービス提供記録_${tY}年${tM}月_${sp?.name||''}`, 'A4 portrait', 'print-content-ticket')}else{window.print();}}} className="bg-slate-900 text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm">ダウンロード</button>
         </div>
       </div>
       {/* コンテンツ：横スクロール可能 */}
@@ -32890,7 +32946,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
           空印刷
         </button>
         <button onClick={()=>handlePrint('pdf')} disabled={cbPdfBusy} data-testid="cb-pdf" title="サーバーでPDFを作ります（印刷設定の用紙サイズのまま。iPadは新しいタブで開く・PCはダウンロード）" className="bg-teal-700 hover:bg-teal-800 disabled:bg-slate-400 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-1 text-sm transition-all active:scale-95 whitespace-nowrap shrink-0">
-          {cbPdfBusy ? <><BusySpin/>作成中…</> : 'PDF'}
+          {cbPdfBusy ? <><BusySpin/>作成中…</> : 'ダウンロード'}
         </button>
         <button onClick={()=>handlePrint('print')} data-testid="cb-print" title="選んだ方の連絡帳をそのまま印刷します（プレビューを経由せず印刷画面へ）" className="bg-slate-900 hover:bg-black text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0">
           印刷
@@ -45705,7 +45761,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
           <button onClick={()=>saveRecord(false)} className="px-4 py-2 bg-white border border-emerald-500 text-emerald-600 hover:bg-emerald-50 rounded-lg text-sm font-bold active:scale-95" title="編集画面を開いたまま保存します">一時保存</button>
           <button onClick={()=>saveRecord(true)} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold shadow active:scale-95">保存して閉じる</button>
         </>}
-        {printRec && <button onClick={()=>onShowPrintPreview('個別機能訓練計画書','A4','kk-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">印刷/PDF</button>}
+        {printRec && <button onClick={()=>onShowPrintPreview('個別機能訓練計画書','A4','kk-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">ダウンロード</button>}
         {printRec && <button onClick={()=>onShowPrintPreview('ケアマネ送付セット（個別機能訓練計画書）','A4','kk-fax-set')} title="送付状(変更点一覧つき)+今回の計画書+前回の計画書(評価入り)をまとめて印刷します" className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">ケアマネ送付セット</button>}
       </div>
 
@@ -46250,7 +46306,7 @@ function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
           <button onClick={()=>saveRecord(false)} className="px-4 py-2 bg-white border border-emerald-500 text-emerald-600 hover:bg-emerald-50 rounded-lg text-sm font-bold active:scale-95" title="編集画面を開いたまま保存します">一時保存</button>
           <button onClick={()=>saveRecord(true)} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold shadow active:scale-95">保存して閉じる</button>
         </>}
-        {printRec && <button onClick={()=>onShowPrintPreview('生活機能チェックシート','A4','sk-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">印刷/PDF</button>}
+        {printRec && <button onClick={()=>onShowPrintPreview('生活機能チェックシート','A4','sk-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">ダウンロード</button>}
       </div>
       <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
         {!pid ? <div className="text-center text-slate-400 py-20 font-bold">利用者を登録してください</div> : editing ? (
@@ -46377,7 +46433,7 @@ function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
           <button onClick={()=>saveRecord(false)} className="px-4 py-2 bg-white border border-emerald-500 text-emerald-600 hover:bg-emerald-50 rounded-lg text-sm font-bold active:scale-95" title="編集画面を開いたまま保存します">一時保存</button>
           <button onClick={()=>saveRecord(true)} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold shadow active:scale-95">保存して閉じる</button>
         </>}
-        {printRec && <button onClick={()=>onShowPrintPreview('興味・関心チェックシート','A4','ki-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">印刷/PDF</button>}
+        {printRec && <button onClick={()=>onShowPrintPreview('興味・関心チェックシート','A4','ki-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">ダウンロード</button>}
       </div>
       <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
         {!pid ? <div className="text-center text-slate-400 py-20 font-bold">利用者を登録してください</div> : editing ? (
@@ -46728,7 +46784,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
           <button onClick={()=>saveRecord(false)} className="px-4 py-2 bg-white border border-emerald-500 text-emerald-600 hover:bg-emerald-50 rounded-lg text-sm font-bold active:scale-95" title="編集画面を開いたまま保存します">一時保存</button>
           <button onClick={()=>saveRecord(true)} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold shadow active:scale-95">保存して閉じる</button>
         </>}
-        {printRec && <button onClick={()=>onShowPrintPreview('通所介護計画書','A4','tk-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">印刷/PDF</button>}
+        {printRec && <button onClick={()=>onShowPrintPreview('通所介護計画書','A4','tk-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">ダウンロード</button>}
         {printRec && <button onClick={()=>onShowPrintPreview('ケアマネ送付セット（通所介護計画書）','A4','tk-fax-set')} title="送付状(変更点一覧つき)+今回の計画書+前回の計画書(評価入り)をまとめて印刷します" className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">ケアマネ送付セット</button>}
       </div>
       <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
@@ -52589,7 +52645,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                     編集・追記
                   </button>
                   <button onClick={()=>setPdfPreviewFaceSheet(true)}
-                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold">PDF</button>
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold">ダウンロード</button>
                 </div>
               </div>
               <div className="text-[11px] text-amber-700 leading-relaxed">
@@ -53131,7 +53187,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                         <div className="text-[10px] text-slate-400">作成: {new Date(s.generatedAt).toLocaleString('ja-JP')}</div>
                       </div>
                       <div className="flex gap-1">
-                        <button onClick={()=>setPdfPreviewMonthly(s)} className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[11px] font-bold">PDF</button>
+                        <button onClick={()=>setPdfPreviewMonthly(s)} className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[11px] font-bold">ダウンロード</button>
                         <button onClick={()=>{ if(window.confirm('この月のスナップショットを削除しますか?')) updatePatient({ monthlyServiceRecords: monthlyServiceRecords.filter(x => x.id !== s.id) }); }}
                           className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[11px] font-bold">削除</button>
                       </div>
@@ -53219,7 +53275,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                         <button onClick={()=>{ window.dispatchEvent(new CustomEvent('tsumugi-meeting-float',{detail:{patientId: patient.id, meetingId: m.id}})); onClose && onClose(); }}
                           title="小窓(フロートメモ)で開く。他の画面を見ながら入力できます"
                           className="px-2 py-1 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded text-[11px] font-bold">小窓</button>
-                        <button onClick={()=>setPdfPreviewMeeting(m)} className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[11px] font-bold">PDF</button>
+                        <button onClick={()=>setPdfPreviewMeeting(m)} className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[11px] font-bold">ダウンロード</button>
                         <button onClick={()=>{ setEditingMeeting(m); setShowMeetingForm(true); }} className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-[11px] font-bold">編集</button>
                         <button onClick={()=>{ if(window.confirm('この会議記録を削除しますか?')) updatePatient({ meetings: meetings.filter(x => x.id !== m.id) }); }}
                           className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[11px] font-bold">削除</button>
@@ -54556,14 +54612,10 @@ function FaceSheetPdfPreview({ patient, faceSheet, onClose }) {
         <div style={{padding:'12px 18px',borderBottom:'1px solid #e2e8f0',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div style={{fontWeight:'bold',color:'#1e293b'}}>フェイスシート プレビュー ({patient.name})</div>
           <div style={{display:'flex',gap:8}}>
-            {/* ★ 2026-10-03(ユーザー相談): 他の書類と同じ印刷プレビュー(印刷/PDF保存)を追加。ダウンロード(PDFファイル)も他社SaaSと同様に残す(両方) */}
-            <button onClick={handleDownload} disabled={downloading} data-testid="fs-download"
-              style={{padding:'8px 14px',background: downloading?'#94a3b8':'#0f766e',color:'white',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor: downloading?'wait':'pointer'}}>
-              {downloading ? <><BusySpin/>生成中...</> : 'PDFをダウンロード'}
-            </button>
+            {/* ★ 2026-10-04(ユーザー指示「名前はダウンロードに統一」): サーバーPDFを直接作る(他の書類と同じ経路 setPrintHtml→直接ダウンロード) */}
             <button data-testid="fs-print" onClick={() => { try { const el = document.getElementById('facesheet-pdf-content'); if (!el) return; const html = `<div style="width:210mm;min-height:297mm;box-sizing:border-box;background:white;"><div style="padding:12mm 14mm;box-sizing:border-box;">${el.innerHTML}</div></div>`; onClose(); setTimeout(() => window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `フェイスシート_${patient.name}`, pageSize: 'A4 portrait', html, elementId: null } })), 50); } catch (e) { console.warn(e); } }}
-              style={{padding:'8px 14px',background:'#2563eb',color:'white',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>
-              印刷 / PDF
+              style={{padding:'8px 14px',background:'#0f766e',color:'white',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>
+              ダウンロード
             </button>
             <button onClick={onClose} style={{padding:'8px 14px',background:'#e2e8f0',color:'#475569',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
           </div>
