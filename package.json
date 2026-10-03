@@ -17,8 +17,8 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "recharts": "^2.13.3",
-    "@sparticuz/chromium": "^131.0.1",
-    "puppeteer-core": "^23.11.1"
+    "@sparticuz/chromium": "^153.0.0",
+    "puppeteer-core": "^25.12.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
@@ -28,5 +28,8 @@
     "vite": "^6.0.3",
     "vitest": "^2.1.8",
     "@playwright/test": "^1.48.0"
+  },
+  "engines": {
+    "node": "22.x"
   }
 }
