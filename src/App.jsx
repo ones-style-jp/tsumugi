@@ -20358,10 +20358,24 @@ export default function App() {
     const win = tsumugiOpenPdfWindow(); // ★ iPad/iPhone はクリック時に新しいタブを開いておき、そこでPDFを表示(アプリの画面内に出さない)
     setPdfDl('busy');
     try {
-      await tsumugiServerPdf({ html: previewSrcDoc, pageSize: printPreviewContent?.pageSize || 'A4 portrait', title: String(printPreviewContent?.title || 'document'), win });
+      const _title = String(printPreviewContent?.title || 'document');
+      await tsumugiServerPdf({ html: previewSrcDoc, pageSize: printPreviewContent?.pageSize || 'A4 portrait', title: _title, win });
       setPdfDl(null);
+      // ★ 2026-10-04(ユーザー指示「FAX送付履歴はダウンロードしたらDL済にする」): 休み連絡・各種連絡・サービス提供記録は、PDF作成を送付履歴に自動で記録
+      try {
+        const _ft = _title.includes('休み連絡') ? 'absence' : _title.includes('各種連絡') ? 'general' : _title.includes('サービス提供記録') ? 'ticket' : 'other';
+        if (_ft !== 'other') {
+          const _pn = (() => { const m = _title.match(/_([^_]+?)(?:様)?$/); return m ? m[1] : ''; })();
+          const entry = { id: `fax_${Date.now()}_${Math.random().toString(36).slice(-4)}`, type: _ft, timestamp: new Date().toISOString(), subject: _title, patientName: _pn, recipientName: '', recipientFax: '', note: 'PDFをダウンロード（DL済）', method: 'pdf' };
+          setAppData(prev => ({ ...prev, faxHistory: [entry, ...(prev.faxHistory || [])] }));
+        }
+      } catch {}
+      try { window.dispatchEvent(new CustomEvent('tsumugi:printed', { detail: { title: _title, method: 'pdf' } })); } catch {}
     } catch (e) { setPdfDl({ error: (e && e.message) || String(e) }); setTimeout(() => setPdfDl(null), 6000); }
   };
+  // ★ 2026-10-04: プレビューを開いたらサーバーPDFをウォームアップ(Chrome起動・フォント取得を先に済ませ、初回の待ちを短く)。アプリ起動時にも1回
+  React.useEffect(() => { if (!printPreviewContent) return; try { fetch('/api/pdf?warm=1', { cache: 'no-store' }).catch(() => {}); } catch {} }, [!!printPreviewContent]); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => { const t = setTimeout(() => { try { fetch('/api/pdf?warm=1', { cache: 'no-store' }).catch(() => {}); } catch {} }, 15000); return () => clearTimeout(t); }, []);
   const _autoPrintRef = React.useRef(false);
   const _lastOpenPrintAt = React.useRef(0);
   const _openPrintWindowRef = React.useRef(null);
@@ -21884,6 +21898,11 @@ export default function App() {
           const _t = printPreviewContent.title || '';
           const faxType = _t.includes('休み連絡') ? 'absence' : _t.includes('各種連絡') ? 'general' : _t.includes('サービス提供記録') ? 'ticket' : 'other';
           const isFaxKind = faxType !== 'other';
+          // ★ 2026-10-04(ユーザー指示): ブラウザ印刷(印刷・FAX・PDF)と印刷位置の微調整は連絡帳だけに残す。氏名マスキングは連絡帳・日誌には出さない
+          //   (ケアマネ・ご家族宛に印刷/FAX/PDFする書類向け)。それ以外の書類は「PDFをダウンロード」が主。
+          const isRenrakuDoc = /^連絡帳/.test(_t);
+          const isNikkiDoc = /日誌/.test(_t);
+          const showMask = !isRenrakuDoc && !isNikkiDoc;
           const extractedPatient = (() => {
             const m = _t.match(/休み連絡_(.+)/) || _t.match(/各種連絡_(.+)/) || _t.match(/サービス提供記録_.*?_(.+)/);
             return m ? m[1].trim() : '';
@@ -22038,24 +22057,24 @@ export default function App() {
                     </div>
                   ); })()}
                   {/* ★ 氏名マスキングは印刷ボタンの横に大きく表示(2026-09-08 店舗要望: 左上の小さい表示は見づらい) */}
-                  <label title="利用者の氏名・ふりがなを1文字おきに○へ置き換えて印刷/FAXできます(例: 髙橋正樹→髙○正○・全印刷画面で共通)" style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',background:printMaskNames?'#fef3c7':'#f1f5f9',border:printMaskNames?'2px solid #f59e0b':'2px solid #cbd5e1',borderRadius:10,padding:'9px 16px'}}>
+                  {showMask && <label title="利用者の氏名・ふりがなを1文字おきに○へ置き換えて印刷/FAXできます(例: 髙橋正樹→髙○正○・全印刷画面で共通)" style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',background:printMaskNames?'#fef3c7':'#f1f5f9',border:printMaskNames?'2px solid #f59e0b':'2px solid #cbd5e1',borderRadius:10,padding:'9px 16px'}}>
                     <input type="checkbox" checked={printMaskNames} onChange={e=>setPrintMaskNames(e.target.checked)} style={{width:18,height:18}}/>
                     <span style={{fontSize:14,fontWeight:'bold',color:printMaskNames?'#b45309':'#475569',whiteSpace:'nowrap'}}>氏名マスキング</span>
-                  </label>
+                  </label>}
                   {/* ★ 2026-10-03: サーバーPDF(他社SaaSと同じ「ダウンロード」)。印刷グループの左に独立して置く */}
                   <button onClick={downloadPdfViaServer} disabled={pdfDl==='busy'} data-testid="pv-pdf-download" title="サーバーでPDFファイルを作ります（iPadは新しいタブで開く・PCはダウンロード。ヘッダー・フッター無し）"
                     style={{background: pdfDl==='busy' ? '#94a3b8' : (pdfDl && pdfDl.error ? '#b91c1c' : '#0f766e'),color:'white',border:'none',borderRadius:10,padding:'10px 16px',fontWeight:'bold',fontSize:14,cursor: pdfDl==='busy' ? 'wait' : 'pointer',display:'flex',alignItems:'center',gap:6,marginRight:8,whiteSpace:'nowrap',boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
                     {pdfDl==='busy' ? <><BusySpin/>PDFを作成中…</> : (pdfDl && pdfDl.error ? `失敗: ${pdfDl.error}` : 'PDFをダウンロード')}
                   </button>
-                  {/* 統合出力ボタン: 印刷/FAX/PDF すべて同じ印刷ダイアログを開くので統合 */}
-                  <button onClick={()=>openPrintWindow(false)}
+                  {/* 統合出力ボタン: 印刷/FAX/PDF すべて同じ印刷ダイアログを開くので統合(2026-10-04: 連絡帳だけ) */}
+                  {isRenrakuDoc && <button onClick={()=>openPrintWindow(false)}
                     style={{background:'#2563eb',color:'white',border:'none',borderRadius:'10px 0 0 10px',padding:'10px 20px',fontWeight:'bold',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',gap:8,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
                     <span style={{whiteSpace:'nowrap'}}>印刷・FAX・PDF</span>
-                  </button>
-                  <button onClick={()=>setShowFaxHelp(true)} title="印刷/FAX/PDF の手順を見る"
+                  </button>}
+                  {isRenrakuDoc && <button onClick={()=>setShowFaxHelp(true)} title="印刷/FAX/PDF の手順を見る"
                     style={{background:'#1d4ed8',color:'white',border:'none',borderLeft:'1px solid rgba(255,255,255,0.25)',borderRadius:'0 10px 10px 0',padding:'10px 12px',fontWeight:'bold',fontSize:16,cursor:'pointer',boxShadow:'0 2px 8px rgba(0,0,0,0.2)',marginLeft:-10}}>
                     ⓘ
-                  </button>
+                  </button>}
                   {isFaxKind && faxType === 'general' && (
                     <button onClick={()=>setShowFaxRecord(true)} title="送付履歴に記録する"
                       style={{background:'#7c3aed',color:'white',border:'none',borderRadius:10,padding:'10px 16px',fontWeight:'bold',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',gap:6,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>

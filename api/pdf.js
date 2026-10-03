@@ -71,7 +71,12 @@ async function getBrowser() {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') { res.setHeader('Allow', 'POST'); return res.status(405).json({ error: 'POST only' }); }
+  // ★ ウォームアップ(GET ?warm=1): 画面がプレビューを開いた時などに呼び、Chrome の起動とフォント取得を先に済ませておく(初回の数秒待ちを減らす)
+  if (req.method === 'GET') {
+    try { const h = String(req.headers.host || ''); const base = h ? `https://${h}` : 'https://tsumugi-ones-style.vercel.app'; await ensureFonts(base); await getBrowser(); res.setHeader('Cache-Control', 'no-store'); return res.status(200).json({ ok: true, warm: true }); }
+    catch (e) { return res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
+  }
+  if (req.method !== 'POST') { res.setHeader('Allow', 'GET, POST'); return res.status(405).json({ error: 'POST only' }); }
   try {
     const origin = String(req.headers.origin || req.headers.referer || '');
     const host = (() => { try { return new URL(origin).hostname; } catch { return ''; } })();
@@ -82,6 +87,10 @@ export default async function handler(req, res) {
     if (!html || html.length > MAX_BODY) return res.status(400).json({ error: html ? 'html too large' : 'html required' });
     const title = String(body.title || 'document').replace(/[\\/:*?"<>|\r\n]+/g, '_').slice(0, 120);
     const size = parsePageSize(body.pageSize);
+    // ★ 用紙サイズは画面から渡された pageSize を最優先にする。アプリ全体のCSSに @page{size:A4} があり、preferCSSPageSize だとそれが勝って
+    //   連絡帳(B5横など)がA4縦になった(2026-10-04 ユーザー報告)。後から書いた @page が勝つので、本文の最後に注入する
+    const sizeCss = size.width ? `${size.width} ${size.height}` : `${size.format} ${size.landscape ? 'landscape' : 'portrait'}`;
+    const htmlSized = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `<style>@page{size:${sizeCss};margin:0;}</style></body>`) : html + `<style>@page{size:${sizeCss};margin:0;}</style>`;
 
     const base = (host && /^(localhost|127\.0\.0\.1)$/.test(host)) ? origin.replace(/\/$/, '') : (host ? `https://${host}` : 'https://tsumugi-ones-style.vercel.app');
     await ensureFonts(base);
@@ -89,7 +98,7 @@ export default async function handler(req, res) {
     const page = await browser.newPage();
     try {
       await page.emulateMediaType('print');
-      await page.setContent(html, { waitUntil: ['load', 'networkidle0'], timeout: 25000 });
+      await page.setContent(htmlSized, { waitUntil: ['load', 'networkidle0'], timeout: 25000 });
       // Web フォントが指定されていても、無い文字は Noto Sans JP に落ちる。全体の既定も Noto に
       await page.addStyleTag({ content: `@font-face{font-family:"Noto Sans JP";font-weight:400;src:url("${base}/fonts/NotoSansJP-Regular.otf") format("opentype");}@font-face{font-family:"Noto Sans JP";font-weight:700;src:url("${base}/fonts/NotoSansJP-Bold.otf") format("opentype");}html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact;} body,body *{font-family:"Noto Sans JP","Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",sans-serif!important;}` });
       try { await page.evaluateHandle('document.fonts && document.fonts.ready'); } catch {}
