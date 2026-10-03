@@ -1720,6 +1720,30 @@ const BusySpin = ({ style }) => <span aria-hidden="true" className="tsumugi-busy
 // ★ 2026-10-03(ユーザー指示「印刷で見切れる恐れのある入力欄は全て文字数制限し、入力中は 現在/最大 を表示。印刷時は非表示」):
 //   文字数の表示(no-print)。上限に達したら赤。入力欄には maxLength を付け、その横にこれを置く。
 const MON_TEXT_MAX = 200, TOKKI_MAX = 100, ROSTER_WAIT_MAX = 40;
+// ★ 2026-10-03: サーバーPDF(/api/pdf)の共通ヘルパー。
+//   tsumugiBuildPrintSrcDoc(html): 画面の全スタイルを添えた印刷用の完全なHTML(プレビューの iframe と同じ)。
+//   tsumugiServerPdf({html,pageSize,title,win}): サーバーでPDFを作り、iPad/iPhone は新しいタブ(win=クリック時に開いておいた窓)で開く、PCはダウンロード。
+const tsumugiIsIOS = () => typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+const tsumugiBuildPrintSrcDoc = (html) => {
+  let head = ''; try {
+    document.querySelectorAll('style').forEach(s => { head += '<style>' + (s.textContent || '') + '</style>'; });
+    document.querySelectorAll('link[rel="stylesheet"]').forEach(l => { if (l.href) head += '<link rel="stylesheet" href="' + l.href + '">'; });
+  } catch {}
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">${head}<style>@page{margin:0;}html,body{margin:0;padding:0;background:white;}</style></head><body>${html || ''}</body></html>`;
+};
+// iPad/iPhone では fetch の後に window.open すると開けない(ユーザー操作の外)ため、クリック時に先に空の窓を開いて渡す
+const tsumugiOpenPdfWindow = () => { if (!tsumugiIsIOS()) return null; try { const w = window.open('', '_blank'); if (w) { try { w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>PDFを作成中…</title></head><body style="font-family:-apple-system,sans-serif;padding:40px;color:#334155;font-size:18px;">PDFを作成しています。しばらくお待ちください…</body></html>'); w.document.close(); } catch {} } return w; } catch { return null; } };
+async function tsumugiServerPdf({ html, pageSize, title, win }) {
+  const r = await fetch('/api/pdf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ html, pageSize: pageSize || 'A4 portrait', title: title || 'document' }) });
+  if (!r.ok) { let msg = `HTTP ${r.status}`; try { const j = await r.json(); if (j && j.error) msg = j.error; } catch {} if (win) { try { win.close(); } catch {} } throw new Error(msg); }
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const fname = `${String(title || 'document').replace(/[\\/:*?"<>|]+/g, '_')}.pdf`;
+  if (win && !win.closed) { try { win.location.href = url; } catch { win.close(); window.open(url, '_blank'); } }
+  else if (tsumugiIsIOS()) { const w2 = window.open(url, '_blank'); if (!w2) { const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); } }
+  else { const a = document.createElement('a'); a.href = url; a.download = fname; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); }
+  setTimeout(() => URL.revokeObjectURL(url), 120000);
+}
 const CharCount = ({ value, max, style }) => { const n = String(value ?? '').length; return <span className="no-print" style={{ fontSize: 10, fontVariantNumeric: 'tabular-nums', color: n >= max ? '#dc2626' : n >= max * 0.9 ? '#d97706' : '#94a3b8', whiteSpace: 'nowrap', ...(style || {}) }}>{n} / {max}</span>; };
 // 日本の電話番号フォーマッタ: ハイフン無しの数字 → 自動でハイフン付与 (実装は下部 formatJpPhone)
 // ★ 稼働率/出席率の「予定(分母)」判定。 振替=出席扱い。 振替済みの欠席(tokkiに「へ振替」)は相殺で分母から除外。
@@ -20292,7 +20316,8 @@ export default function App() {
     return () => window.removeEventListener('tsumugi-meeting-float', h);
   }, []);
   useEffect(()=>{
-    const handler = (e) => setPrintPreviewContent(e.detail);
+    // ★ 2026-10-03(ユーザー要望「連絡帳はまっすぐ印刷画面へ」): detail.autoPrint=true なら、プレビューを出した直後に印刷(PC=隠しiframeで印刷ダイアログ、iPad=印刷用の表示)へ進む
+    const handler = (e) => { if (e.detail && e.detail.autoPrint) _autoPrintRef.current = true; setPrintPreviewContent(e.detail); };
     window.addEventListener('setPrintHtml', handler);
     return ()=>window.removeEventListener('setPrintHtml', handler);
   },[]); // {title, elementId}
@@ -20330,18 +20355,22 @@ export default function App() {
   const [pdfDl, setPdfDl] = useState(null); // null | 'busy' | {error}
   const downloadPdfViaServer = async () => {
     if (!previewSrcDoc || pdfDl === 'busy') return;
+    const win = tsumugiOpenPdfWindow(); // ★ iPad/iPhone はクリック時に新しいタブを開いておき、そこでPDFを表示(アプリの画面内に出さない)
     setPdfDl('busy');
     try {
-      const title = String(printPreviewContent?.title || 'document');
-      const r = await fetch('/api/pdf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ html: previewSrcDoc, pageSize: printPreviewContent?.pageSize || 'A4 portrait', title }) });
-      if (!r.ok) { let msg = `HTTP ${r.status}`; try { const j = await r.json(); if (j && j.error) msg = j.error; } catch {} throw new Error(msg); }
-      const blob = await r.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = `${title.replace(/[\\/:*?"<>|]+/g, '_')}.pdf`; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      await tsumugiServerPdf({ html: previewSrcDoc, pageSize: printPreviewContent?.pageSize || 'A4 portrait', title: String(printPreviewContent?.title || 'document'), win });
       setPdfDl(null);
     } catch (e) { setPdfDl({ error: (e && e.message) || String(e) }); setTimeout(() => setPdfDl(null), 6000); }
   };
+  const _autoPrintRef = React.useRef(false);
+  const _lastOpenPrintAt = React.useRef(0);
+  const _openPrintWindowRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!printPreviewContent || !_autoPrintRef.current) return;
+    _autoPrintRef.current = false;
+    const t = setTimeout(() => { try { _openPrintWindowRef.current && _openPrintWindowRef.current(false); } catch (e) { console.warn('auto print failed', e); } }, 400);
+    return () => clearTimeout(t);
+  }, [printPreviewContent]);
   const previewSrcDoc = useMemo(()=>{
     if(!printHtmlEff) return '';
     let head=''; try{
@@ -21907,6 +21936,7 @@ export default function App() {
           };
           const openPrintWindow = (autoClose=true) => {
             if(!printPreviewContent.html) return;
+            _lastOpenPrintAt.current = Date.now();
             // ★ 2026-09-29: 印刷/PDF を実行したことを画面側(休み連絡など)に知らせる(休み連絡は「連絡済」に更新)
             try { window.dispatchEvent(new CustomEvent('tsumugi:printed', { detail: { title: printPreviewContent.title || '' } })); } catch {}
             const docHtml = buildDocHtml();
@@ -21984,6 +22014,7 @@ export default function App() {
               setTimeout(()=>{ w.focus(); w.print(); }, 600);
             }
           };
+          _openPrintWindowRef.current = openPrintWindow;
 
           return (
             <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:9900,display:'flex',flexDirection:'column'}}>
@@ -22011,14 +22042,15 @@ export default function App() {
                     <input type="checkbox" checked={printMaskNames} onChange={e=>setPrintMaskNames(e.target.checked)} style={{width:18,height:18}}/>
                     <span style={{fontSize:14,fontWeight:'bold',color:printMaskNames?'#b45309':'#475569',whiteSpace:'nowrap'}}>氏名マスキング</span>
                   </label>
+                  {/* ★ 2026-10-03: サーバーPDF(他社SaaSと同じ「ダウンロード」)。印刷グループの左に独立して置く */}
+                  <button onClick={downloadPdfViaServer} disabled={pdfDl==='busy'} data-testid="pv-pdf-download" title="サーバーでPDFファイルを作ります（iPadは新しいタブで開く・PCはダウンロード。ヘッダー・フッター無し）"
+                    style={{background: pdfDl==='busy' ? '#94a3b8' : (pdfDl && pdfDl.error ? '#b91c1c' : '#0f766e'),color:'white',border:'none',borderRadius:10,padding:'10px 16px',fontWeight:'bold',fontSize:14,cursor: pdfDl==='busy' ? 'wait' : 'pointer',display:'flex',alignItems:'center',gap:6,marginRight:8,whiteSpace:'nowrap',boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
+                    {pdfDl==='busy' ? <><BusySpin/>PDFを作成中…</> : (pdfDl && pdfDl.error ? `失敗: ${pdfDl.error}` : 'PDFをダウンロード')}
+                  </button>
                   {/* 統合出力ボタン: 印刷/FAX/PDF すべて同じ印刷ダイアログを開くので統合 */}
                   <button onClick={()=>openPrintWindow(false)}
                     style={{background:'#2563eb',color:'white',border:'none',borderRadius:'10px 0 0 10px',padding:'10px 20px',fontWeight:'bold',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',gap:8,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
                     <span style={{whiteSpace:'nowrap'}}>印刷・FAX・PDF</span>
-                  </button>
-                  <button onClick={downloadPdfViaServer} disabled={pdfDl==='busy'} data-testid="pv-pdf-download" title="サーバーでPDFファイルを作ってダウンロードします（ヘッダー・フッター無し・どの端末でも同じ見た目）"
-                    style={{background: pdfDl==='busy' ? '#94a3b8' : (pdfDl && pdfDl.error ? '#b91c1c' : '#0f766e'),color:'white',border:'none',borderRadius:10,padding:'10px 16px',fontWeight:'bold',fontSize:14,cursor: pdfDl==='busy' ? 'wait' : 'pointer',display:'flex',alignItems:'center',gap:6,marginLeft:6,whiteSpace:'nowrap'}}>
-                    {pdfDl==='busy' ? <><BusySpin/>PDFを作成中…</> : (pdfDl && pdfDl.error ? `失敗: ${pdfDl.error}` : 'PDFをダウンロード')}
                   </button>
                   <button onClick={()=>setShowFaxHelp(true)} title="印刷/FAX/PDF の手順を見る"
                     style={{background:'#1d4ed8',color:'white',border:'none',borderLeft:'1px solid rgba(255,255,255,0.25)',borderRadius:'0 10px 10px 0',padding:'10px 12px',fontWeight:'bold',fontSize:16,cursor:'pointer',boxShadow:'0 2px 8px rgba(0,0,0,0.2)',marginLeft:-10}}>
@@ -25994,7 +26026,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   });
   // 家族画面・事業所側ともデフォルト「1ヶ月」
   const [period, setPeriod] = useState(externalPeriod || '1');
-  const [monShowOld, setMonShowOld] = useState(false); // ★ 2026-10-03: モニタリングは最新の確定分だけ表示し、前の月は「前の月を見る」で開く
+  const [monPick, setMonPick] = useState('recent'); // ★ 2026-10-03: モニタリングは既定で「当月・前月」の2件、他の月は選択して1件表示(全部並べない)
   // ★ 親 (FamilyPatientView) から externalPeriod が来たら同期
   React.useEffect(() => {
     if (externalPeriod && externalPeriod !== period) setPeriod(externalPeriod);
@@ -28810,9 +28842,9 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                 const _rows = (appData.monitoringRecords||[]).filter(r=>r.patientId===selectedPatientId && monitoringReflectable(r)).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
                 const _seen = new Set();
                 const _uniq = _rows.filter(r => { const k = String(r.period||r.createdDate||r.id); if(_seen.has(k)) return false; _seen.add(k); return true; });
-                // 最新1件＋(開いたときだけ)前の月
-                const _show = monShowOld ? _uniq : _uniq.slice(0, 1);
-                _show._older = _uniq.length - 1;
+                // 既定=最新2件(当月・前月)。それ以前は月を選んで1件だけ
+                const _show = monPick === 'recent' ? _uniq.slice(0, 2) : _uniq.filter(r => String(r.period||r.createdDate||r.id) === monPick).slice(0, 1);
+                _show._all = _uniq;
                 return _show;
               })()
                 .map((r,i,arr)=>(
@@ -28825,11 +28857,13 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                     {r.sheet && (!cmViewerMode || cmSheetView)
                       ? <MonSheetPreview patient={selectedPatient} rec={r} facility={appData.systemSettings?.facilityInfo || {}} onViewed={onMonitoringViewed} />
                       : <div style={{fontSize:14,color:'#475569',lineHeight:1.8,whiteSpace:'pre-wrap'}}>{r.summary}</div>}
-                    {i === arr.length - 1 && arr._older > 0 && (
-                      <div style={{textAlign:'center',marginTop:10}}>
-                        <button type="button" data-testid="mon-show-old" onClick={()=>setMonShowOld(v=>!v)} style={{padding:'8px 16px',borderRadius:10,border:'1px solid #a7f3d0',background:'#ecfdf5',color:'#065f46',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>
-                          {monShowOld ? '前の月を閉じる' : `前の月を見る（${arr._older}件）`}
-                        </button>
+                    {i === arr.length - 1 && arr._all.length > 2 && (
+                      <div style={{display:'flex',justifyContent:'center',alignItems:'center',gap:8,marginTop:10}}>
+                        <span style={{fontSize:12,color:'#475569',fontWeight:'bold'}}>表示する月</span>
+                        <select data-testid="mon-pick" value={monPick} onChange={e=>setMonPick(e.target.value)} style={{padding:'6px 10px',borderRadius:8,border:'1px solid #a7f3d0',background:'#ecfdf5',color:'#065f46',fontWeight:'bold',fontSize:13}}>
+                          <option value="recent">最新2か月（当月・前月）</option>
+                          {arr._all.map(x => { const k = String(x.period||x.createdDate||x.id); return <option key={k} value={k}>{k}分</option>; })}
+                        </select>
                       </div>
                     )}
                   </div>
@@ -32359,7 +32393,12 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     setPrintSelectedIds(displayRecords.map(r => r.patientId));
     setPrintModeModal(true);
   };
-  const handlePrint = () => {
+  // ★ 2026-10-03(ユーザー要望「連絡帳は血圧を測ってすぐ渡すので、ダウンロードと印刷でまっすぐ印刷画面へ」):
+  //   出力の種類 cbOut: 'print'=選んだらそのまま印刷(PC=印刷ダイアログ・iPad=印刷用の表示) / 'pdf'=サーバーPDF(iPadは新しいタブ) / 'preview'=従来のプレビュー
+  const [cbOut, setCbOut] = useState('print');
+  const [cbPdfBusy, setCbPdfBusy] = useState(false);
+  const handlePrint = (mode = 'print') => {
+    setCbOut(mode);
     // ★ 2026-09-09(店舗要望): 次回予定が未入力の方がいたら、プレビューへ進む前に確認する
     if (missingNextList.length) { setPrintMissingConfirm({ names: missingNextList.map(r => r.name) }); return; }
     _openPrintSelect();
@@ -32458,15 +32497,17 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     if (v === null) return;
     doPrintBlank(toHankaku(v).replace(/[^0-9]/g, '')); // ★ 全角数字でも可(2026-09-29)
   };
-  const doPrint = (idsToprint) => {
+  const doPrint = (idsToprint, _pdfWin) => {
     setPrintModeModal(false);
     if(!idsToprint || !idsToprint.length){ alert('印刷する利用者を1人以上選択してください'); return; }
+    // ★ PDF のときは iPad 用に、クリック(ユーザー操作)の中で先に新しいタブを開いておく(再入のときは引き継ぐ)
+    const pdfWin = cbOut === 'pdf' ? (_pdfWin === undefined ? tsumugiOpenPdfWindow() : _pdfWin) : null;
     // ★ 印刷用の隠しカードは普段は描画していないので、まず「印刷対象だけ」描画してから(描画完了後)取得する
     const needRender = idsToprint.filter(id => !document.getElementById(`print-content-cb-${id}`));
     if (needRender.length) {
       setPrintingIds(idsToprint);
       setShowPrintCards(true);
-      setTimeout(() => doPrint(idsToprint), 250);
+      setTimeout(() => doPrint(idsToprint, pdfWin), 250);
       return;
     }
     const title = `連絡帳_${selectedDate}`;
@@ -32483,8 +32524,17 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     if(!htmlParts.length){ alert('印刷データが見つかりません。'); return; }
     const { combinedHtml, pageSizeStr } = _layoutRenraku(htmlParts);
     const [_ox, _oy] = _curOff();
-    // ★ iPadで確実に開くよう、null→遅延イベントの2段階をやめ、HTML付きイベントを即時発火 (1段階で表示)
-    window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:pageSizeStr,html:combinedHtml,elementId:null,adjust:_mkAdjust(htmlParts, title, _ox, _oy)}}));
+    if (cbOut === 'pdf') {
+      // ★ サーバーPDF(B5/B6 など印刷設定の用紙サイズのまま)。iPad は先に開いたタブに表示、PC はダウンロード
+      setCbPdfBusy(true);
+      tsumugiServerPdf({ html: tsumugiBuildPrintSrcDoc(combinedHtml), pageSize: pageSizeStr, title, win: pdfWin })
+        .catch(e => alert('PDFの作成に失敗しました: ' + ((e && e.message) || e)))
+        .finally(() => setCbPdfBusy(false));
+    } else {
+      // ★ iPadで確実に開くよう、null→遅延イベントの2段階をやめ、HTML付きイベントを即時発火 (1段階で表示)
+      //   cbOut==='print' のときは autoPrint でそのまま印刷へ(プレビューは背面に残る)
+      window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:pageSizeStr,html:combinedHtml,elementId:null,adjust:_mkAdjust(htmlParts, title, _ox, _oy), autoPrint: cbOut === 'print'}}));
+    }
     // ★ 2026-10-02(ユーザー要望・送迎表の赤丸): 連絡帳を出力した時刻を記録(cbPrintedAt_AM/PM)。送迎表は「この時刻より後に変わった分」だけ赤丸にする
     try {
       const at = syncNow(); const ids = new Set(targets.map(r => String(r.id)));
@@ -32820,8 +32870,11 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         <button onClick={handlePrintBlank} title="氏名・記録が空欄の連絡帳を、印刷設定の用紙(B5横2面／B6など)で印刷します。表示されない方がいた時の手書き用" className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm whitespace-nowrap shrink-0">
           空印刷
         </button>
-        <button onClick={handlePrint} className="bg-slate-900 hover:bg-black text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0">
-          プレビュー
+        <button onClick={()=>handlePrint('pdf')} disabled={cbPdfBusy} data-testid="cb-pdf" title="サーバーでPDFを作ります（印刷設定の用紙サイズのまま。iPadは新しいタブで開く・PCはダウンロード）" className="bg-teal-700 hover:bg-teal-800 disabled:bg-slate-400 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-1 text-sm transition-all active:scale-95 whitespace-nowrap shrink-0">
+          {cbPdfBusy ? <><BusySpin/>作成中…</> : 'PDF'}
+        </button>
+        <button onClick={()=>handlePrint('print')} data-testid="cb-print" title="選んだ方の連絡帳をそのまま印刷します（プレビューを経由せず印刷画面へ）" className="bg-slate-900 hover:bg-black text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0">
+          印刷
         </button>
       </div>
       <div className="max-w-[800px] mx-auto space-y-8 pb-32 pt-6">
@@ -33043,7 +33096,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                 <button onClick={()=>setPrintModeModal(false)} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
                 <button onClick={()=>doPrint(printSelectedIds)} disabled={printSelectedIds.length===0}
                         className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl font-bold text-sm shadow-md flex items-center gap-2">
-                  <Printer size={16}/>選択した{printSelectedIds.length}名を印刷
+                  <Printer size={16}/>選択した{printSelectedIds.length}名を{cbOut === 'pdf' ? 'PDFに' : '印刷'}
                 </button>
               </div>
             </div>
