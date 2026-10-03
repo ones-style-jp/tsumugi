@@ -20326,6 +20326,22 @@ export default function App() {
     if (!printPreviewContent?.html) return '';
     return printMaskNames ? _maskPrintHtml(printPreviewContent.html) : printPreviewContent.html;
   }, [printPreviewContent?.html, printMaskNames, _maskPrintHtml]);
+  // ★ 2026-10-03(ユーザー要望・他社SaaSと同じ「PDFをダウンロード」): プレビューと同じHTMLをサーバー(/api/pdf)へ送り、文字のPDFを受け取る
+  const [pdfDl, setPdfDl] = useState(null); // null | 'busy' | {error}
+  const downloadPdfViaServer = async () => {
+    if (!previewSrcDoc || pdfDl === 'busy') return;
+    setPdfDl('busy');
+    try {
+      const title = String(printPreviewContent?.title || 'document');
+      const r = await fetch('/api/pdf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ html: previewSrcDoc, pageSize: printPreviewContent?.pageSize || 'A4 portrait', title }) });
+      if (!r.ok) { let msg = `HTTP ${r.status}`; try { const j = await r.json(); if (j && j.error) msg = j.error; } catch {} throw new Error(msg); }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `${title.replace(/[\\/:*?"<>|]+/g, '_')}.pdf`; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      setPdfDl(null);
+    } catch (e) { setPdfDl({ error: (e && e.message) || String(e) }); setTimeout(() => setPdfDl(null), 6000); }
+  };
   const previewSrcDoc = useMemo(()=>{
     if(!printHtmlEff) return '';
     let head=''; try{
@@ -21999,6 +22015,10 @@ export default function App() {
                   <button onClick={()=>openPrintWindow(false)}
                     style={{background:'#2563eb',color:'white',border:'none',borderRadius:'10px 0 0 10px',padding:'10px 20px',fontWeight:'bold',fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',gap:8,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
                     <span style={{whiteSpace:'nowrap'}}>印刷・FAX・PDF</span>
+                  </button>
+                  <button onClick={downloadPdfViaServer} disabled={pdfDl==='busy'} data-testid="pv-pdf-download" title="サーバーでPDFファイルを作ってダウンロードします（ヘッダー・フッター無し・どの端末でも同じ見た目）"
+                    style={{background: pdfDl==='busy' ? '#94a3b8' : (pdfDl && pdfDl.error ? '#b91c1c' : '#0f766e'),color:'white',border:'none',borderRadius:10,padding:'10px 16px',fontWeight:'bold',fontSize:14,cursor: pdfDl==='busy' ? 'wait' : 'pointer',display:'flex',alignItems:'center',gap:6,marginLeft:6,whiteSpace:'nowrap'}}>
+                    {pdfDl==='busy' ? <><BusySpin/>PDFを作成中…</> : (pdfDl && pdfDl.error ? `失敗: ${pdfDl.error}` : 'PDFをダウンロード')}
                   </button>
                   <button onClick={()=>setShowFaxHelp(true)} title="印刷/FAX/PDF の手順を見る"
                     style={{background:'#1d4ed8',color:'white',border:'none',borderLeft:'1px solid rgba(255,255,255,0.25)',borderRadius:'0 10px 10px 0',padding:'10px 12px',fontWeight:'bold',fontSize:16,cursor:'pointer',boxShadow:'0 2px 8px rgba(0,0,0,0.2)',marginLeft:-10}}>

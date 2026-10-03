@@ -1,25 +1,44 @@
 {
   "crons": [
-    { "path": "/api/brevo-keepalive", "schedule": "0 21 1 */2 *" }
+    {
+      "path": "/api/brevo-keepalive",
+      "schedule": "0 21 1 */2 *"
+    }
   ],
   "headers": [
     {
       "source": "/",
       "headers": [
-        { "key": "Cache-Control", "value": "no-cache, must-revalidate" }
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, must-revalidate"
+        }
       ]
     },
     {
       "source": "/index.html",
       "headers": [
-        { "key": "Cache-Control", "value": "no-cache, must-revalidate" }
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, must-revalidate"
+        }
       ]
     },
     {
       "source": "/assets/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
       ]
     }
-  ]
+  ],
+  "functions": {
+    "api/pdf.js": {
+      "includeFiles": "api/_fonts/**",
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  }
 }
