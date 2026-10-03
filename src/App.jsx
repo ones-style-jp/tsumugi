@@ -1717,6 +1717,10 @@ const TpTimeInput = ({ value, onCommit, normalize, ...rest }) => {
 //   処理中・読み込み中の共通の回る輪。文字の大きさ・色に合わせて回る(見た目は src/index.css の .tsumugi-busy-spin)。
 //   「保存中…」「読み込み中…」など処理中の表示を新しく作るときは、文字の前に <BusySpin/> を付けること。
 const BusySpin = ({ style }) => <span aria-hidden="true" className="tsumugi-busy-spin" style={style} />;
+// ★ 2026-10-03(ユーザー指示「印刷で見切れる恐れのある入力欄は全て文字数制限し、入力中は 現在/最大 を表示。印刷時は非表示」):
+//   文字数の表示(no-print)。上限に達したら赤。入力欄には maxLength を付け、その横にこれを置く。
+const MON_TEXT_MAX = 200, TOKKI_MAX = 100, ROSTER_WAIT_MAX = 40;
+const CharCount = ({ value, max, style }) => { const n = String(value ?? '').length; return <span className="no-print" style={{ fontSize: 10, fontVariantNumeric: 'tabular-nums', color: n >= max ? '#dc2626' : n >= max * 0.9 ? '#d97706' : '#94a3b8', whiteSpace: 'nowrap', ...(style || {}) }}>{n} / {max}</span>; };
 // 日本の電話番号フォーマッタ: ハイフン無しの数字 → 自動でハイフン付与 (実装は下部 formatJpPhone)
 // ★ 稼働率/出席率の「予定(分母)」判定。 振替=出席扱い。 振替済みの欠席(tokkiに「へ振替」)は相殺で分母から除外。
 const isPlannedRec = (r) => !!r && (r.status==='出席'||r.status==='振替'||r.status==='臨時'||r.status==='休止'||(r.status==='欠席'&&!(r.tokki||'').includes('へ振替')));
@@ -24890,7 +24894,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     </button>
                     );})}
                 </div>}
-                <input type="text" disabled={isReadOnly} value={p.tokki||''} maxLength={100} title="100文字まで（それ以上は支援経過表へ）" onChange={e=>updateRecord(p.id,'tokki',e.target.value.slice(0, 100))} placeholder={isReadOnly?'':(isAbsent?'欠席理由...':(isPause?'休止中の特記...':'特記...'))} className="mt-2 w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-50"/>
+                <input type="text" disabled={isReadOnly} value={p.tokki||''} maxLength={TOKKI_MAX} title="100文字まで（それ以上は支援経過表へ）" onChange={e=>updateRecord(p.id,'tokki',e.target.value.slice(0, TOKKI_MAX))} placeholder={isReadOnly?'':(isAbsent?'欠席理由...':(isPause?'休止中の特記...':'特記...'))} className="mt-2 w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-50"/>{!isReadOnly && <div className="text-right -mt-0.5"><CharCount value={p.tokki} max={TOKKI_MAX}/></div>}
               </div>
             );
           })}
@@ -25315,10 +25319,11 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                             </button>
                           )}
                           {/* ★ 2026-10-02(ユーザー指示): 特記は100文字まで(印刷の2行に収まる範囲)。それ以上は支援経過表へ */}
-                          <textarea disabled={isReadOnly} value={p.tokki || ""} maxLength={100} title="100文字まで（それ以上は支援経過表へ）" onChange={(e) => updateRecord(p.id, 'tokki', e.target.value.slice(0, 100))} rows={2}
+                          <textarea disabled={isReadOnly} value={p.tokki || ""} maxLength={TOKKI_MAX} title="100文字まで（それ以上は支援経過表へ）" onChange={(e) => updateRecord(p.id, 'tokki', e.target.value.slice(0, TOKKI_MAX))} rows={2}
                             className={`flex-1 px-2 border rounded-lg text-xs bg-transparent outline-none disabled:opacity-80 resize-none ${isReadOnly ? 'border-transparent' : 'border-slate-300 shadow-inner bg-white'}`}
                             style={{fontSize:14,lineHeight:1.4,padding:'2px 6px',height:'100%'}}
                             placeholder={isReadOnly ? "" : (isAbsent ? "欠席理由等..." : "特記事項...")} />
+                          {!isReadOnly && <CharCount value={p.tokki} max={TOKKI_MAX} style={{alignSelf:'flex-end'}}/>}
                         </div>
                       );
                     })()}
@@ -29376,22 +29381,25 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
   };
   const resetOrder = (k) => { const n = { ...custom }; delete n[k]; saveSS({ classRosterOrder: n }, ['classRosterOrder']); };
   const total = (sl) => days.reduce((n, d) => n + members(d, sl).length, 0);
-  // ★ 印刷: 定員が多い店舗でもA4横1枚に収まるよう、行数から行の高さ・文字の大きさを決める(2ブロック×(定員+1+見出し2+待ち1+空き1))
-  const printRowH = Math.max(10, Math.min(17, Math.floor(620 / (2 * (rows + 5)))));
-  const printFs = printRowH >= 15 ? 10 : printRowH >= 13 ? 9 : 8;
+  // ★ 印刷: 用紙いっぱいに広げる(2026-10-03 ユーザー指示「下部に空白ができないように」)。2つの表を flex:1 で等分し、表の高さ100%で行を均等に伸ばす。
+  //   行数が多いときは文字を小さく(定員15名=16行×2表でも収まる)
+  const printFs = rows <= 11 ? 10 : rows <= 14 ? 9 : 8;
   const scrRowH = rows > 13 ? 21 : 24;
   const B = '1px solid #cbd5e1', BH = '1px solid #94a3b8';
-  const Block = ({ sl, label, print }) => {
-    const fs = print ? printFs : 12, rh = print ? printRowH : scrRowH;
+  // ★ 2026-10-03: コンポーネントではなく「描画関数」にする(コンポーネントにすると親の再描画のたびに別物として作り直され、
+  //   待ちの入力欄が1文字ごとに作り直されて日本語入力が1文字で確定してしまった)
+  const renderBlock = (sl, label, print) => {
+    const fs = print ? printFs : 12, rh = print ? undefined : scrRowH;
+    const grip = !print; // 画面だけ: 並べ替え用のつまみ列(NO列は廃止・2026-10-03 ユーザー指示)
     return (
-    <table style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed', fontSize: fs, lineHeight: 1.1 }} data-testid={print ? undefined : `cr-${sl.toLowerCase()}`}>
-      <colgroup><col style={{ width: print ? 16 : 22 }} />{days.map(d => <React.Fragment key={d}><col style={{ width: print ? 24 : 34 }} /><col /><col style={{ width: print ? 32 : 46 }} /></React.Fragment>)}</colgroup>
+    <table style={{ borderCollapse: 'collapse', width: '100%', height: print ? '100%' : undefined, tableLayout: 'fixed', fontSize: fs, lineHeight: 1.1 }} data-testid={print ? undefined : `cr-${sl.toLowerCase()}`}>
+      <colgroup><col style={{ width: print ? 16 : 22 }} />{days.map(d => <React.Fragment key={d}>{grip && <col style={{ width: 16 }} />}<col /><col style={{ width: print ? 32 : 46 }} /></React.Fragment>)}</colgroup>
       <tbody>{/* 左端の「午前/午後」は rowSpan で全行をまたぐため見出し行も tbody(thead→tbody をまたぐ rowSpan は効かない) */}
         <tr style={{ height: rh }}>
           <th rowSpan={rows + 4} style={{ border: BH, background: sl === 'AM' ? '#fef3c7' : '#e0e7ff', color: sl === 'AM' ? '#92400e' : '#3730a3', fontWeight: 'bold', writingMode: 'vertical-rl', letterSpacing: 4, fontSize: print ? 11 : 13 }}>{label}</th>
-          {days.map(d => <th key={d} colSpan={3} style={{ border: BH, background: '#1e293b', color: 'white', fontWeight: 'bold', padding: 0 }}>{DOWJ[d]}曜日</th>)}
+          {days.map(d => <th key={d} colSpan={grip ? 3 : 2} style={{ border: BH, background: '#1e293b', color: 'white', fontWeight: 'bold', padding: 0 }}>{DOWJ[d]}曜日</th>)}
         </tr>
-        <tr style={{ height: rh }}>{days.map(d => <React.Fragment key={d}><th style={{ border: B, background: '#f1f5f9', color: '#475569', fontWeight: 'bold' }}>NO</th><th style={{ border: B, background: '#f1f5f9', color: '#475569', fontWeight: 'bold' }}>氏名</th><th style={{ border: B, background: '#f1f5f9', color: '#475569', fontWeight: 'bold' }}>介護度</th></React.Fragment>)}</tr>
+        <tr style={{ height: rh }}>{days.map(d => <React.Fragment key={d}>{grip && <th style={{ border: B, background: '#f1f5f9' }}></th>}<th style={{ border: B, background: '#f1f5f9', color: '#475569', fontWeight: 'bold' }}>氏名</th><th style={{ border: B, background: '#f1f5f9', color: '#475569', fontWeight: 'bold' }}>介護度</th></React.Fragment>)}</tr>
         {Array.from({ length: rows }).map((_, i) => (
           <tr key={i} style={{ height: rh }}>
             {days.map(d => { const k = `${d}_${sl}`; const m = members(d, sl)[i]; const spare = i >= cap; const sup = m && /支援|事業/.test(String(m.careLevel || '')); const paused = m && isPaused(m);
@@ -29400,26 +29408,26 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
               const dragProps = (!print && m) ? { 'data-crk': k, 'data-crpid': String(m.id) } : {};
               return (
               <React.Fragment key={d}>
-                <td {...dragProps} onPointerDown={(m && !print) ? (e) => startDrag(e, k, d, sl, m.id) : undefined} style={{ border: B, textAlign: 'center', background: isOver ? '#dbeafe' : (m && !print ? '#f8fafc' : bg), color: '#64748b', opacity: isDrag ? 0.4 : 1, cursor: m && !print ? 'grab' : 'default', touchAction: m && !print ? 'none' : 'auto', userSelect: 'none' }} title={m && !print ? 'ここをつかんで上下に動かすと同じ枠の中で並べ替え' : ''} data-testid={m && !print ? `cr-row-${k}-${m.id}` : undefined}>{m ? m.id : ''}</td>
+                {grip && <td {...dragProps} onPointerDown={m ? (e) => startDrag(e, k, d, sl, m.id) : undefined} style={{ border: B, textAlign: 'center', background: isOver ? '#dbeafe' : (m ? '#f8fafc' : bg), color: '#94a3b8', opacity: isDrag ? 0.4 : 1, cursor: m ? 'grab' : 'default', touchAction: m ? 'none' : 'auto', userSelect: 'none', fontSize: 11 }} title={m ? 'ここをつかんで上下に動かすと同じ枠の中で並べ替え' : ''} data-testid={m ? `cr-row-${k}-${m.id}` : undefined}>{m ? '⋮' : ''}</td>}
                 <td {...dragProps} style={{ border: B, textAlign: 'left', padding: '0 4px', background: isOver ? '#dbeafe' : bg, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 'bold', color: paused ? '#94a3b8' : '#1e293b', opacity: isDrag ? 0.4 : 1, borderTop: isOver ? '2px solid #2563eb' : B }} title={paused ? '休止中' : ''}>{m ? `${m.name}${paused ? '（休止）' : ''}` : ''}</td>
                 <td {...dragProps} style={{ border: B, textAlign: 'center', background: m ? (sup ? '#fce7f3' : '#f8fafc') : bg, color: m ? (sup ? '#9d174d' : '#334155') : '#334155', fontSize: fs - 1, opacity: isDrag ? 0.4 : 1 }}>{m ? short(m.careLevel) : ''}</td>
               </React.Fragment>); })}
           </tr>
         ))}
-        <tr style={{ height: print ? rh + 4 : 34 }}>
+        <tr style={{ height: print ? undefined : 34 }}>
           {days.map(d => { const k = `${d}_${sl}`; const v = waitDraft[k] != null ? waitDraft[k] : (wait[k] || ''); return (
-            <td key={d} colSpan={3} style={{ border: B, padding: '1px 3px', verticalAlign: 'top', background: '#f8fafc' }}>
+            <td key={d} colSpan={grip ? 3 : 2} style={{ border: B, padding: '1px 3px', verticalAlign: 'top', background: '#f8fafc' }}>
               <div style={{ display: 'flex', gap: 3, alignItems: 'flex-start' }}>
                 <span style={{ fontWeight: 'bold', color: '#475569', whiteSpace: 'nowrap', fontSize: fs - 1 }}>待ち</span>
                 {print ? <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: fs - 1, color: '#1d4ed8' }}>{v}</span>
-                  : <textarea value={v} rows={2} placeholder="（空欄）" onChange={e => setWaitDraft(w => ({ ...w, [k]: e.target.value }))} onBlur={e => { saveWait(k, e.target.value); setWaitDraft(w => { const n = { ...w }; delete n[k]; return n; }); }}
-                      style={{ flex: 1, minWidth: 0, fontSize: 11, color: '#1d4ed8', fontWeight: 'bold', border: '1px dashed #cbd5e1', borderRadius: 4, padding: '1px 3px', background: 'white', resize: 'none', lineHeight: 1.3 }} data-testid={`cr-wait-${k}`} />}
+                  : <><textarea value={v} rows={2} maxLength={ROSTER_WAIT_MAX} placeholder="（空欄）" onChange={e => setWaitDraft(w => ({ ...w, [k]: e.target.value.slice(0, ROSTER_WAIT_MAX) }))} onBlur={e => { saveWait(k, e.target.value.slice(0, ROSTER_WAIT_MAX)); setWaitDraft(w => { const n = { ...w }; delete n[k]; return n; }); }}
+                      style={{ flex: 1, minWidth: 0, fontSize: 11, color: '#1d4ed8', fontWeight: 'bold', border: '1px dashed #cbd5e1', borderRadius: 4, padding: '1px 3px', background: 'white', resize: 'none', lineHeight: 1.3 }} data-testid={`cr-wait-${k}`} /><CharCount value={v} max={ROSTER_WAIT_MAX} style={{ alignSelf: 'flex-end' }}/></>}
               </div>
             </td>); })}
         </tr>
         <tr style={{ height: rh }}>
           {days.map(d => { const k = `${d}_${sl}`; const n = members(d, sl).length; const free = cap - n; return (
-            <td key={d} colSpan={3} style={{ border: BH, textAlign: 'center', fontWeight: 'bold', background: free > 0 ? '#ecfdf5' : free < 0 ? '#fef2f2' : '#f8fafc', color: free > 0 ? '#047857' : free < 0 ? '#b91c1c' : '#334155', padding: 0 }} data-testid={print ? undefined : `cr-free-${k}`}>
+            <td key={d} colSpan={grip ? 3 : 2} style={{ border: BH, textAlign: 'center', fontWeight: 'bold', background: free > 0 ? '#ecfdf5' : free < 0 ? '#fef2f2' : '#f8fafc', color: free > 0 ? '#047857' : free < 0 ? '#b91c1c' : '#334155', padding: 0 }} data-testid={print ? undefined : `cr-free-${k}`}>
               空き {Math.max(0, free)}{free < 0 ? `（定員超過 ${-free}）` : ''}
               {!print && custom[k] && <button type="button" onClick={() => resetOrder(k)} title="手動の並び替えをやめて介護度→NO順に戻す" style={{ marginLeft: 8, fontSize: 10, fontWeight: 'normal', color: '#2563eb', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer' }}>並び順を戻す</button>}
             </td>); })}
@@ -29434,15 +29442,15 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
       <div className="no-print bg-white border-b border-slate-200 px-4 py-2 flex items-center gap-3 flex-wrap shrink-0">
         <div className="font-bold text-slate-800">クラス在籍表</div>
         <span className="text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 rounded-lg px-2 py-1">定員 {cap}名（＋予備1枠）</span>
-        <div className="text-[11px] text-slate-500">基本利用曜日から自動で並びます（介護度→NO順。NOは利用者マスタの利用者ID）。同じ枠の中はドラッグで並べ替えできます。「待ち」は自由入力。曜日の変更は利用者マスタで。</div>
+        <div className="text-[11px] text-slate-500">基本利用曜日から自動で並びます（介護度順）。左端の「⋮」をつかんで動かすと同じ枠の中で並べ替えできます。「待ち」は自由入力。曜日の変更は利用者マスタで。</div>
         <div className="ml-auto flex items-center gap-2">
           <span className="text-[11px] text-slate-600">午前 {total('AM')}名 ／ 午後 {total('PM')}名</span>
           <button type="button" data-testid="cr-print" onClick={doPrint} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">プレビュー / 印刷</button>
         </div>
       </div>
       <div className="flex-1 overflow-auto p-3">
-        <div className="bg-white rounded-xl border border-slate-200 p-2 mb-3"><Block sl="AM" label="午前" /></div>
-        <div className="bg-white rounded-xl border border-slate-200 p-2"><Block sl="PM" label="午後" /></div>
+        <div className="bg-white rounded-xl border border-slate-200 p-2 mb-3">{renderBlock('AM', '午前', false)}</div>
+        <div className="bg-white rounded-xl border border-slate-200 p-2">{renderBlock('PM', '午後', false)}</div>
       </div>
       {/* 印刷用(A4横・余白は内側のdivで確保: 印刷ホストがbody直下の余白を0にするため) */}
       <div id="print-content-classroster" style={{ display: 'none' }}>
@@ -29450,7 +29458,7 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
         <div style={{ width: '297mm', height: '210mm', boxSizing: 'border-box', background: 'white', overflow: 'hidden' }}>
           <div style={{ padding: '7mm 9mm', boxSizing: 'border-box', height: '100%', display: 'flex', flexDirection: 'column', gap: 6, fontFamily: '"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","メイリオ",Meiryo,sans-serif', color: '#1e293b' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}><span style={{ fontSize: 13, fontWeight: 'bold' }}>クラス在籍表　<span style={{ fontSize: 10, fontWeight: 'normal', color: '#475569' }}>定員 {cap}名（＋予備1枠）</span></span><span style={{ fontSize: 10, color: '#475569' }}>{String(fi.name || '')}　{todayIso.replace(/-/g, '/')} 現在</span></div>
-            <Block sl="AM" label="午前" print /><Block sl="PM" label="午後" print />
+            <div style={{ flex: '1 1 0', minHeight: 0 }}>{renderBlock('AM', '午前', true)}</div><div style={{ flex: '1 1 0', minHeight: 0 }}>{renderBlock('PM', '午後', true)}</div>
           </div>
         </div>
       </div>
@@ -35339,11 +35347,13 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                             {ms.map(m => { const dot = m.mark || _dotOf(pl, iso, m.pid); const tg = _dropTag(pl, m.pid); return (
                               <div key={m.pid} className="flex items-center gap-1 text-[12px] leading-tight py-0.5" data-testid={`tp-fb-${iso}-${sl}-${m.pid}`}>
                                 <span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${dot?'bg-red-600':'bg-transparent'}`} aria-hidden="true"/>
-                                <span className="truncate font-bold text-slate-800 flex-1 min-w-0">{_pname(m.pid)}{tg ? <span className="text-[9px] text-slate-500 ml-1 font-normal">{tg}</span> : null}</span>
-                                <span className="w-11 shrink-0 text-right font-bold text-slate-700 tabular-nums">{_fmtT(m.t)||'—'}</span>
+                                {/* 名前は固定幅(約7文字)・時間はその直後(開始位置は全行で同じ)。2026-10-03 ユーザー: 名前と時間の距離を近く */}
+                                <span className="truncate font-bold text-slate-800 shrink-0" style={{width:'7.2em'}}>{_pname(m.pid)}</span>
+                                <span className="shrink-0 font-bold text-slate-700 tabular-nums">{_fmtT(m.t)||'—'}</span>
+                                {tg ? <span className="text-[9px] text-slate-500 truncate">{tg}</span> : null}
                               </div>); })}
                           </div>); })}
-                        {(pl.walkers||[]).length ? <div><div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">徒歩</div>{(pl.walkers||[]).map(m => <div key={m.pid} className="flex items-center gap-1 text-[12px] py-0.5"><span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${(m.mark||_dotOf(pl, iso, m.pid))?'bg-red-600':'bg-transparent'}`}/><span className="truncate font-bold text-slate-800 flex-1 min-w-0">{_pname(m.pid)}</span><span className="w-11 shrink-0 text-right font-bold text-slate-700 tabular-nums">{/\d/.test(String(m.t||''))?_fmtT(m.t):_classStart(sl)}</span></div>)}</div> : null}
+                        {(pl.walkers||[]).length ? <div><div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">徒歩</div>{(pl.walkers||[]).map(m => <div key={m.pid} className="flex items-center gap-1 text-[12px] py-0.5"><span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${(m.mark||_dotOf(pl, iso, m.pid))?'bg-red-600':'bg-transparent'}`}/><span className="truncate font-bold text-slate-800 shrink-0" style={{width:'7.2em'}}>{_pname(m.pid)}</span><span className="shrink-0 font-bold text-slate-700 tabular-nums">{/\d/.test(String(m.t||''))?_fmtT(m.t):_classStart(sl)}</span></div>)}</div> : null}
                         {(pl.others||[]).length ? <div><div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">その他</div>{(pl.others||[]).map(m => <div key={m.pid} className="flex items-center gap-1 text-[12px] py-0.5"><span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${(m.mark||_dotOf(pl, iso, m.pid))?'bg-red-600':'bg-transparent'}`}/><span className="truncate font-bold text-slate-800">{_pname(m.pid)}</span>{m.why ? <span className="text-[10px] text-slate-500 shrink-0">（{m.why}）</span> : null}</div>)}</div> : null}
                         {(pl.un||[]).length ? <div className="text-[11px] text-amber-700 font-bold">未割当 {(pl.un||[]).map(m => _pname(m.pid)).join('・')}</div> : null}
                       </div>
@@ -45200,14 +45210,19 @@ function KKDateField({ label, value, onChange, ph }) {
 }
 // 計画書フォーム用の入力フィールド (モジュールレベルで定義し、入力中のフォーカス喪失を防ぐ)
 // ★ 定型文チップ(suggestions)は2026-08-16に全廃(ユーザー判断: 画面がうるさく不要)。
-function KKField({ label, value, onChange, rows, ph }) {
+function KKField({ label, value, onChange, rows, ph, max }) {
+  // ★ 2026-10-03: 計画書の欄は印刷で見切れないよう文字数制限(既定: 1行=60字・複数行=行数×60字)。右上に 現在/最大
+  const lim = max || (rows ? rows * 60 : 60);
   return (
     <div>
-      {label ? <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:4}}>{label}</label> : null}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',gap:6,marginBottom:4}}>
+        {label ? <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569'}}>{label}</label> : <span/>}
+        <CharCount value={value} max={lim}/>
+      </div>
       {rows ? (
-        <textarea value={value||''} onChange={e=>onChange(e.target.value)} rows={rows} placeholder={ph||''} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none resize-none focus:border-blue-400"/>
+        <textarea value={value||''} maxLength={lim} onChange={e=>onChange(e.target.value.slice(0, lim))} rows={rows} placeholder={ph||''} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none resize-none focus:border-blue-400"/>
       ) : (
-        <input value={value||''} onChange={e=>onChange(e.target.value)} placeholder={ph||''} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-400"/>
+        <input value={value||''} maxLength={lim} onChange={e=>onChange(e.target.value.slice(0, lim))} placeholder={ph||''} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-400"/>
       )}
     </div>
   );
@@ -48665,8 +48680,9 @@ function MonitoringSheetModal({ patient, facility, period, record, autoStatus, a
                 </select>
               </div>
               <div className="px-3 pt-1.5 text-[11px] text-slate-400 leading-snug">{it.explain}</div>
-              <textarea value={vals[it.key].text} onChange={e=>setText(it.key, e.target.value)} rows={3} placeholder="内容（任意・選択に沿って記入）"
+              <textarea value={vals[it.key].text} maxLength={MON_TEXT_MAX} onChange={e=>setText(it.key, e.target.value.slice(0, MON_TEXT_MAX))} rows={3} placeholder="内容（任意・選択に沿って記入）"
                 className="w-full px-3 py-2 text-sm outline-none focus:bg-blue-50/30 leading-relaxed resize-y" />
+              <div className="px-3 pb-1 text-right"><CharCount value={vals[it.key].text} max={MON_TEXT_MAX}/></div>
             </div>
           ))}
         </div>
@@ -49888,9 +49904,13 @@ ${optionsDesc}
                               )}
                             </div>
                             {_exp && ((!confirmed && editing2) ? (
-                              <textarea autoFocus defaultValue={c.text} rows={2}
-                                onBlur={e=>{ updateSheetInline(patient, it.key, 'text', e.target.value); setEditTextCell(null); }}
+                              <div>
+                              <textarea autoFocus defaultValue={c.text} rows={2} maxLength={MON_TEXT_MAX}
+                                onInput={e=>{ const el = e.currentTarget.nextSibling; if (el) el.textContent = `${e.currentTarget.value.length} / ${MON_TEXT_MAX}`; }}
+                                onBlur={e=>{ updateSheetInline(patient, it.key, 'text', e.target.value.slice(0, MON_TEXT_MAX)); setEditTextCell(null); }}
                                 style={{width:'100%',boxSizing:'border-box',fontSize:12,border:'1px solid #93c5fd',borderRadius:6,padding:'4px 6px',outline:'none',fontFamily:'inherit',resize:'vertical'}}/>
+                              <span className="no-print" style={{fontSize:10,color:'#94a3b8',display:'block',textAlign:'right'}}>{String(c.text||'').length} / {MON_TEXT_MAX}</span>
+                              </div>
                             ) : (
                               <div onClick={()=>{ if(!confirmed) setEditTextCell(cellId); }} title={confirmed?'確定済み（編集不可）':'クリックで編集'} style={{color:c.text?'#334155':'#cbd5e1',cursor:confirmed?'default':'text',minHeight:16,paddingLeft:2,whiteSpace:'pre-wrap'}}>{c.text || (confirmed?'—':'（タップで内容を入力）')}</div>
                             ))}
@@ -52781,8 +52801,13 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
           })()}
           {/* 体力測定の記録 (読み取り・横スクロール) */}
           {isRecordsTab && (() => {
-            const fitItems = appData.systemSettings?.fitnessItems || [];
-            const fitRecs = (appData.fitnessRecords||[]).filter(r => r.patientId === patient.id).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+            const fitItems0 = appData.systemSettings?.fitnessItems || [];
+            const fitRecs0 = (appData.fitnessRecords||[]).filter(r => r.patientId === patient.id).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+            // ★ 2026-10-03(ユーザー要望): BMI も列に出す(身長が空の回はそれ以前の最新の身長で計算)。新しい順に並んでいるので「以前」=後ろの行
+            const _hAsOfPF = (i) => { for (let k = i; k < fitRecs0.length; k++) { const h = fitRecs0[k]?.values?.height; if (h !== undefined && h !== '' && !isNaN(Number(h))) return h; } return ''; };
+            const fitRecs = fitRecs0.map((r, i) => { const b = calcBmi(_hAsOfPF(i), r.values?.weight); return b == null ? r : { ...r, values: { ...(r.values || {}), __bmi: b.toFixed(1) } }; });
+            const _hasBmiPF = fitRecs.some(r => r.values?.__bmi != null);
+            const fitItems = _hasBmiPF ? (() => { const out = []; fitItems0.forEach(it => { out.push(it); if (it.id === 'weight') out.push({ id: '__bmi', name: 'BMI', unit: '自動' }); }); if (!out.some(it => it.id === '__bmi')) out.push({ id: '__bmi', name: 'BMI', unit: '自動' }); return out; })() : fitItems0;
             // ★ 体力測定の一覧を印刷/PDF(A4横・全項目・全測定日) (2026-08-25 店舗要望)
             const _printFitness = () => {
               const _fac = appData.systemSettings?.facilityInfo || {};
@@ -53880,6 +53905,11 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
     creator: initial?.creator || (isCmAccount ? 'ケアマネ' : ''),
     creatorOther: initial?.creatorOther || '',
     createdDate: initial?.createdDate || today,
+    // ★ 2026-10-03(ユーザー指示): 作成日は「初回作成日(固定)」と「更新日(保存のたびに今日)」に
+    firstCreatedDate: initial?.firstCreatedDate || initial?.createdDate || today,
+    updatedDate: initial?.updatedDate || initial?.createdDate || '',
+    bikou: initial?.bikou || initial?.otherServices || '',   // ★ 備考(旧: 他サービス・社会資源の内容を引き継ぐ)
+    addendum: initial?.addendum || '',                      // ★ 追記(自由入力)
     // ★ F1: 既往歴(基本情報から移設)。 患者の kiou を初期値にし、保存時に patient.kiou へ書き戻す。
     kiou: (initial?.kiou ?? patient?.kiou ?? ''),
     // ★ 一本化: 本人基本情報・連絡先・被保険者番号・留意点もフェイスシートで編集し patient へ書き戻す。
@@ -53964,7 +53994,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
     if (removedKeys.length) patch._deletedEC = [...new Set([...(patient._deletedEC||[]), ...removedKeys])];
     return patch;
   };
-  const handleSubmit = () => { onSave(fs, removedAtts, canEditContacts ? buildContactPatch() : null); };
+  const handleSubmit = () => { onSave({ ...fs, updatedDate: today, createdDate: today, firstCreatedDate: fs.firstCreatedDate || today }, removedAtts, canEditContacts ? buildContactPatch() : null); };
   // ★ 添付ファイルの追加 (画像/PDF を base64 で保持)
   const addAttach = async (key, e) => {
     const files = rejectVideos(e.target.files);
@@ -54049,17 +54079,17 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
         <div className="flex-1 overflow-auto p-5 space-y-5 text-sm">
           {/* ① 受付・作成情報 */}
           <div className="border border-slate-200 rounded-xl p-4 bg-slate-50">
-            <div className="text-sm font-bold text-amber-800 mb-3">① 受付・作成情報</div>
+            <div className="text-sm font-bold text-amber-800 mb-3">① 見学・作成情報</div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Field label="受付日"><input type="date" value={fs.receptionDate} onChange={e=>update('receptionDate', e.target.value)} className={inputCls}/></Field>
-              <Field label="受付方法">
+              <Field label="見学日"><input type="date" value={fs.receptionDate} onChange={e=>update('receptionDate', e.target.value)} className={inputCls}/></Field>
+              <Field label="見学方法">
                 <select value={fs.receptionMethod} onChange={e=>update('receptionMethod', e.target.value)} className={inputCls}>
                   <option value="">— 選択 —</option>
-                  <option value="来所">来所</option>
-                  <option value="訪問">訪問</option>
+                  <option value="来所">来所（ご本人・ご家族が見学）</option>
+                  <option value="訪問">訪問（職員が自宅等へ）</option>
                   <option value="電話">電話</option>
-                  <option value="メール">メール</option>
-                  <option value="FAX">FAX</option>
+                  <option value="オンライン">オンライン</option>
+                  {['来所','訪問','電話','オンライン','','その他'].includes(fs.receptionMethod) ? null : <option value={fs.receptionMethod}>{fs.receptionMethod}</option>}
                   <option value="その他">その他</option>
                 </select>
                 {fs.receptionMethod === 'その他' && (
@@ -54067,11 +54097,11 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
                     placeholder="自由記述" className={inputCls + ' mt-2'}/>
                 )}
               </Field>
-              <Field label="受付者">
+              <Field label="見学対応者">
                 {/* ★ F3: ケアマネ(関係者)閲覧時は手入力(自由記述)。 事業所側はプルダウン＋その他。 */}
                 {isCmAccount ? (
                   <input value={fs.receptionStaff} onChange={e=>update('receptionStaff', e.target.value)}
-                    placeholder="受付者名を入力" className={inputCls}/>
+                    placeholder="見学対応者名を入力" className={inputCls}/>
                 ) : (<>
                   <select value={fs.receptionStaff} onChange={e=>update('receptionStaff', e.target.value)} className={inputCls}>
                     <option value="">— 選択 —</option>
@@ -54107,7 +54137,8 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
                   )}
                 </>)}
               </Field>
-              <Field label="作成日"><input type="date" value={fs.createdDate} onChange={e=>update('createdDate', e.target.value)} className={inputCls}/></Field>
+              <Field label="初回作成日"><input type="date" value={fs.firstCreatedDate} readOnly className={inputCls + ' bg-slate-100 text-slate-500'} title="最初に作成した日（変わりません）"/></Field>
+              <Field label="更新日"><input type="text" value={fs.updatedDate ? `${fs.updatedDate}（保存すると今日の日付になります）` : '（保存すると今日の日付が入ります）'} readOnly className={inputCls + ' bg-slate-100 text-slate-500'}/></Field>
             </div>
           </div>
           {/* ② 利用者の基本情報 */}
@@ -54160,19 +54191,21 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
                 )}
               </Field>
             </div>
+            {/* ★ 2026-10-03(ユーザー指示): 被保険者番号・介護保険の情報は基本情報(②)の中へ */}
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mt-3">
+              <div className="text-[11px] text-emerald-700 mb-2 font-bold">介護保険</div>
+              <Field label="被保険者番号"><ImeSafeInput value={fs.insuranceNo} onChange={e=>update('insuranceNo', e.target.value.replace(/[Ａ-Ｚａ-ｚ０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)))} inputMode="numeric" maxLength={10} placeholder="0000000000" className={inputCls}/></Field>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[12px] mt-2">
+                <div><b>要介護度：</b>{patient.careLevel || '-'}</div>
+                <div><b>負担割合：</b>{patient.costBurden || '-'}</div>
+                <div className="col-span-2"><b>認定有効期間：</b>{patient.careLevelFrom ? `${warekiStr(patient.careLevelFrom)||patient.careLevelFrom} 〜 ${patient.careLevelTo?(warekiStr(patient.careLevelTo)||patient.careLevelTo):'（終了日なし）'}` : '-'}</div>
+              </div>
+              <div className="text-[10px] text-slate-400 mt-1">※ 介護度・負担割合・認定有効期間は「保険証」「負担割合証」の欄で編集します</div>
+            </div>
           </div>
-          {/* ③ 家族・連絡先情報 */}
+          {/* ③ 連絡先(緊急連絡先・関係者)。家族構成・ジェノグラム・キーパーソンは廃止(緊急連絡先で登録・最初の方がキーパーソン: 2026-10-03 ユーザー指示) */}
           <div className="border border-slate-200 rounded-xl p-4 bg-slate-50">
-            <div className="text-sm font-bold text-amber-800 mb-3" data-fs-sec="contacts">③ 家族・連絡先情報</div>
-            <Field label="家族構成 (氏名・続柄・同居/別居)">
-              <textarea rows={4} value={fs.familyMembers} onChange={e=>update('familyMembers', e.target.value)}
-                placeholder={`例:\n田中 一郎 (長男, 別居)\n田中 花子 (妻, 同居)`}
-                className={textareaCls}/>
-            </Field>
-            <Field label="ジェノグラム (家族関係図)">
-              <textarea rows={3} value={fs.genogram} onChange={e=>update('genogram', e.target.value)}
-                placeholder="家族関係の説明（図は下の「項目を選んで添付」から添付できます）" className={textareaCls}/>
-            </Field>
+            <div className="text-sm font-bold text-amber-800 mb-3" data-fs-sec="contacts">③ 連絡先（緊急連絡先・関係者）</div>
             {canEditContacts ? (
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-2">
                 <div className="flex items-center justify-between mb-2">
@@ -54215,10 +54248,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
                 </div>
               </div>
             )}
-            <Field label="キーパーソン (主たる介護者・意思決定者)">
-              <input value={fs.keyPerson} onChange={e=>update('keyPerson', e.target.value)}
-                placeholder="例: 長男 田中一郎" className={inputCls}/>
-            </Field>
+            <div className="text-[11px] text-slate-500 -mt-1 mb-2">※ 緊急連絡先の1番目の方がキーパーソン（主たる介護者・意思決定者）です</div>
             <div data-fs-sec="related"></div>
             <Field label="その他関係者 (訪問看護・かかりつけ以外の連携先 等)">
               <div className="space-y-2">
@@ -54244,26 +54274,9 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
               </div>
             </Field>
           </div>
-          {/* ④ 介護保険・制度情報 */}
-          <div className="border border-slate-200 rounded-xl p-4 bg-slate-50">
-            <div className="text-sm font-bold text-amber-800 mb-2" data-fs-sec="insurance">④ 介護保険・制度情報</div>
-            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-3">
-              <div className="text-[11px] text-emerald-700 mb-2 font-bold">介護保険・制度情報</div>
-              <Field label="被保険者番号"><ImeSafeInput value={fs.insuranceNo} onChange={e=>update('insuranceNo', e.target.value.replace(/[Ａ-Ｚａ-ｚ０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)))} inputMode="numeric" maxLength={10} placeholder="0000000000" className={inputCls}/></Field>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[12px] mt-2">
-                <div><b>要介護度：</b>{patient.careLevel || '-'}</div>
-                <div><b>負担割合：</b>{patient.costBurden || '-'}</div>
-                <div className="col-span-2"><b>認定有効期間：</b>{patient.careLevelFrom ? `${warekiStr(patient.careLevelFrom)||patient.careLevelFrom} 〜 ${patient.careLevelTo?(warekiStr(patient.careLevelTo)||patient.careLevelTo):'（終了日なし）'}` : '-'}</div>
-              </div>
-              <div className="text-[10px] text-slate-400 mt-1">※ 介護度・負担割合・認定有効期間は「保険証」「負担割合証」の欄で編集します</div>
-            </div>
-            <Field label="区分支給限度額"><input value={fs.benefitLimit} onChange={e=>update('benefitLimit', e.target.value)} placeholder="例: 167,650円" className={inputCls}/></Field>
-            <Field label="その他の社会保障制度の利用状況"><textarea rows={2} value={fs.otherWelfare} onChange={e=>update('otherWelfare', e.target.value)} placeholder="障害福祉 / 生活保護 など" className={textareaCls}/></Field>
-            <Field label="留意点（申し送り）"><textarea rows={2} value={fs.ryui} onChange={e=>update('ryui', e.target.value)} placeholder="送迎・介助・対応上の申し送り事項など（提供記録の画面にも表示されます）" className={textareaCls}/></Field>
-          </div>
           {/* ⑤ 医療・健康情報 */}
           <div className="border border-slate-200 rounded-xl p-4 bg-slate-50">
-            <div className="text-sm font-bold text-amber-800 mb-3">⑤ 医療・健康情報</div>
+            <div className="text-sm font-bold text-amber-800 mb-3" data-fs-sec="insurance">④ 医療・健康情報</div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="主治医・かかりつけ医">
                 <input value={fs.chronicDiseases} onChange={e=>update('chronicDiseases', e.target.value)}
@@ -54300,37 +54313,17 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
               className="mt-2 mb-3 w-full sm:w-auto px-4 py-2 text-sm font-bold text-amber-800 bg-amber-50 border border-dashed border-amber-400 rounded-xl hover:bg-amber-100">＋ かかりつけ医を追加</button>
             <Field label="既往歴・現病歴">
               {/* ★ F1: 既往歴はフェイスシートで記入・編集(基本情報からは移設)。 patient.kiou へミラーされ計画書等でも参照される。 */}
-              <textarea rows={3} value={fs.kiou} onChange={e=>update('kiou', e.target.value)}
-                placeholder="既往歴・現病歴を入力"
+              <textarea rows={3} maxLength={300} value={fs.kiou} onChange={e=>update('kiou', e.target.value.slice(0, 300))}
+                placeholder="既往歴・現病歴を入力（アレルギー・感染症の有無もここに）"
                 className={textareaCls}/>
+              <div className="text-right"><CharCount value={fs.kiou} max={300}/></div>
             </Field>
-            <Field label="服薬状況"><textarea rows={3} value={fs.medication} onChange={e=>update('medication', e.target.value)} placeholder="服薬中の薬名・用法・用量" className={textareaCls}/></Field>
-            <Field label="アレルギー・感染症の有無"><textarea rows={2} value={fs.allergies} onChange={e=>update('allergies', e.target.value)} placeholder="食物アレルギー / 薬物アレルギー / 感染症 など" className={textareaCls}/></Field>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Field label="ADL 自立度 (障害)">
-                <select value={fs.adlLevel} onChange={e=>update('adlLevel', e.target.value)} className={inputCls}>
-                  <option value="">— 選択 —</option>
-                  <option value="自立">自立</option>
-                  <option value="J1">J1</option><option value="J2">J2</option>
-                  <option value="A1">A1</option><option value="A2">A2</option>
-                  <option value="B1">B1</option><option value="B2">B2</option>
-                  <option value="C1">C1</option><option value="C2">C2</option>
-                </select>
-              </Field>
-              <Field label="認知症自立度">
-                <select value={fs.dementiaLevel} onChange={e=>update('dementiaLevel', e.target.value)} className={inputCls}>
-                  <option value="">— 選択 —</option>
-                  <option value="自立">自立</option>
-                  <option value="I">I</option><option value="IIa">IIa</option><option value="IIb">IIb</option>
-                  <option value="IIIa">IIIa</option><option value="IIIb">IIIb</option>
-                  <option value="IV">IV</option><option value="M">M</option>
-                </select>
-              </Field>
-            </div>
+            <Field label="留意点（申し送り）"><textarea rows={2} maxLength={200} value={fs.ryui} onChange={e=>update('ryui', e.target.value.slice(0, 200))} placeholder="送迎・介助・対応上の申し送り事項など（提供記録の画面にも表示されます）" className={textareaCls}/><div className="text-right"><CharCount value={fs.ryui} max={200}/></div></Field>
+            {/* ★ 2026-10-03 ユーザー指示: 服薬状況(お薬手帳のコピーで代替)・アレルギー感染症(既往歴に記載)・ADL/認知症自立度(加算書類で記載)は廃止 */}
           </div>
           {/* ⑥ ケアマネジメント関連 */}
           <div className="border border-slate-200 rounded-xl p-4 bg-slate-50">
-            <div className="text-sm font-bold text-amber-800 mb-2">⑥ ケアマネジメント関連</div>
+            <div className="text-sm font-bold text-amber-800 mb-2">⑤ ケアマネジメント関連</div>
             <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-3">
               <div className="text-[11px] text-emerald-700 mb-2 font-bold">担当ケアマネ (基本情報から自動取得)</div>
               <div className="text-[12px]">
@@ -54340,41 +54333,25 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
               </div>
             </div>
             <Field label="通所の経緯">
-              <textarea rows={4} value={fs.lifeHistory} onChange={e=>update('lifeHistory', e.target.value)}
+              <textarea rows={4} maxLength={400} value={fs.lifeHistory} onChange={e=>update('lifeHistory', e.target.value.slice(0, 400))}
                 placeholder="通所に至った経緯・きっかけ、これまでの生活や家族との関係など" className={textareaCls}/>
+              <div className="text-right"><CharCount value={fs.lifeHistory} max={400}/></div>
             </Field>
-            <Field label="現在の状況">
-              <textarea rows={3} value={fs.currentSituation} onChange={e=>update('currentSituation', e.target.value)} className={textareaCls}/>
-            </Field>
-            <Field label="現在利用している他サービス・社会資源">
-              <textarea rows={2} value={fs.otherServices} onChange={e=>update('otherServices', e.target.value)}
-                placeholder="訪問看護 / 福祉用具レンタル / ボランティア など" className={textareaCls}/>
-            </Field>
-            <Field label="本人・家族の主訴・意向">
-              <textarea rows={3} value={fs.needs} onChange={e=>update('needs', e.target.value)}
-                placeholder="ご本人の希望 / ご家族の希望" className={textareaCls}/>
-            </Field>
+            {/* ★ 2026-10-03 ユーザー指示: 現在の状況・本人家族の意向は計画書で作成するため廃止。他サービス・社会資源は備考へ */}
           </div>
-          {/* ⑦ その他 */}
+          {/* ⑥ 備考・追記(自由入力) */}
           <div className="border border-slate-200 rounded-xl p-4 bg-slate-50">
-            <div className="text-sm font-bold text-amber-800 mb-3">⑦ その他 (実務上あると便利)</div>
-            <Field label="自宅の見取り図">
-              <textarea rows={2} value={fs.floorPlan} onChange={e=>update('floorPlan', e.target.value)} placeholder="自由記述（画像は下の「項目を選んで添付」から添付できます）" className={textareaCls}/>
+            <div className="text-sm font-bold text-amber-800 mb-2">⑥ 備考・追記</div>
+            <Field label="備考（他サービス・社会資源の利用状況など）">
+              <textarea rows={2} maxLength={200} value={fs.bikou} onChange={e=>update('bikou', e.target.value.slice(0, 200))} placeholder="訪問看護 / 福祉用具レンタル / ボランティア など" className={textareaCls}/>
+              <div className="text-right"><CharCount value={fs.bikou} max={200}/></div>
             </Field>
-            <Field label="送迎経路">
-              <textarea rows={2} value={fs.pickupRoute} onChange={e=>update('pickupRoute', e.target.value)} placeholder="自由記述（地図は下の「項目を選んで添付」から添付できます）" className={textareaCls}/>
-            </Field>
-            <Field label="送迎時の留意点">
-              <textarea rows={2} value={fs.pickupNotes} onChange={e=>update('pickupNotes', e.target.value)}
-                placeholder="例: 階段あり / 玄関で介助必要 / 鍵預かり" className={textareaCls}/>
-            </Field>
-            <Field label="趣味・嗜好">
-              <textarea rows={2} value={fs.hobby} onChange={e=>update('hobby', e.target.value)} className={textareaCls}/>
-            </Field>
-            <Field label="性格・ケアに役立つ個別情報">
-              <textarea rows={3} value={fs.personality} onChange={e=>update('personality', e.target.value)} className={textareaCls}/>
+            <Field label="追記（自由入力）">
+              <textarea rows={4} maxLength={500} value={fs.addendum} onChange={e=>update('addendum', e.target.value.slice(0, 500))} placeholder="その他、申し送りや気づきなど自由に" className={textareaCls}/>
+              <div className="text-right"><CharCount value={fs.addendum} max={500}/></div>
             </Field>
           </div>
+          {/* ★ 2026-10-03 ユーザー指示: ⑦その他(見取り図・送迎経路・送迎時の留意点・趣味・性格)は廃止(保存済みの値は残る・添付は引き続き可) */}
           {/* ★ 添付ファイル: フェイスシート原本(1枚) + 項目を選んで添付 */}
           <div ref={attachRef} className="border border-slate-200 rounded-xl p-4 bg-slate-50" style={{scrollMarginTop:12}}>
             <div className="text-sm font-bold text-amber-800 mb-3">添付ファイル</div>
@@ -54487,9 +54464,11 @@ function FaceSheetPdfPreview({ patient, faceSheet, onClose }) {
         <div style={{padding:'12px 18px',borderBottom:'1px solid #e2e8f0',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div style={{fontWeight:'bold',color:'#1e293b'}}>フェイスシート プレビュー ({patient.name})</div>
           <div style={{display:'flex',gap:8}}>
-            <button onClick={handleDownload} disabled={downloading}
-              style={{padding:'8px 14px',background: downloading?'#94a3b8':'#2563eb',color:'white',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor: downloading?'wait':'pointer'}}>
-              {downloading ? <><BusySpin/>生成中...</> : 'ダウンロード'}
+            {/* ★ 2026-10-03(ユーザー相談「ここだけダウンロードで他は印刷/PDF」): 他の書類と同じ印刷プレビュー(印刷/PDF保存)に統一。
+                画像化PDF(html2canvas)のダウンロードは文字がぼやけ検索もできないため廃止 */}
+            <button data-testid="fs-print" onClick={() => { try { const el = document.getElementById('facesheet-pdf-content'); if (!el) return; const html = `<div style="width:210mm;min-height:297mm;box-sizing:border-box;background:white;"><div style="padding:12mm 14mm;box-sizing:border-box;">${el.innerHTML}</div></div>`; onClose(); setTimeout(() => window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `フェイスシート_${patient.name}`, pageSize: 'A4 portrait', html, elementId: null } })), 50); } catch (e) { console.warn(e); } }}
+              style={{padding:'8px 14px',background:'#2563eb',color:'white',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>
+              印刷 / PDF
             </button>
             <button onClick={onClose} style={{padding:'8px 14px',background:'#e2e8f0',color:'#475569',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
           </div>
@@ -54498,12 +54477,13 @@ function FaceSheetPdfPreview({ patient, faceSheet, onClose }) {
           <div id="facesheet-pdf-content" style={{background:'white',padding:'20px',fontFamily:'"Hiragino Sans",sans-serif',fontSize:11,color:'#000',width:'760px',margin:'0 auto'}}>
             <div style={{textAlign:'center',fontSize:22,fontWeight:'bold',marginBottom:18,paddingBottom:8,borderBottom:'2px solid black'}}>フェイスシート</div>
             <div style={{marginBottom:14}}>
-              <div style={{fontSize:13,fontWeight:'bold',color:'#92400e',background:'#fef3c7',padding:'6px 10px',marginBottom:8}}>① 受付・作成情報</div>
-              <Row label="受付日" value={fs.receptionDate}/>
-              <Row label="受付方法" value={fs.receptionMethod === 'その他' ? (fs.receptionMethodOther || 'その他') : fs.receptionMethod}/>
-              <Row label="受付者" value={fs.receptionStaff === 'その他' ? (fs.receptionStaffOther || 'その他') : fs.receptionStaff}/>
+              <div style={{fontSize:13,fontWeight:'bold',color:'#92400e',background:'#fef3c7',padding:'6px 10px',marginBottom:8}}>① 見学・作成情報</div>
+              <Row label="見学日" value={fs.receptionDate}/>
+              <Row label="見学方法" value={fs.receptionMethod === 'その他' ? (fs.receptionMethodOther || 'その他') : fs.receptionMethod}/>
+              <Row label="見学対応者" value={fs.receptionStaff === 'その他' ? (fs.receptionStaffOther || 'その他') : fs.receptionStaff}/>
               <Row label="作成者" value={fs.creator === 'その他' ? (fs.creatorOther || 'その他') : fs.creator}/>
-              <Row label="作成日" value={fs.createdDate}/>
+              <Row label="初回作成日" value={fs.firstCreatedDate || fs.createdDate}/>
+              <Row label="更新日" value={fs.updatedDate || fs.createdDate}/>
             </div>
             <div style={{marginBottom:14}}>
               <div style={{fontSize:13,fontWeight:'bold',color:'#92400e',background:'#fef3c7',padding:'6px 10px',marginBottom:8}}>② 利用者の基本情報</div>
@@ -54515,25 +54495,17 @@ function FaceSheetPdfPreview({ patient, faceSheet, onClose }) {
               <Row label="電話" value={patient.phone}/>
               <Row label="FAX" value={fs.fax}/>
               <Row label="世帯区分" value={fs.householdType === 'その他' ? (fs.householdTypeOther || 'その他') : fs.householdType}/>
-            </div>
-            <div style={{marginBottom:14}}>
-              <div style={{fontSize:13,fontWeight:'bold',color:'#92400e',background:'#fef3c7',padding:'6px 10px',marginBottom:8}}>③ 家族・連絡先情報</div>
-              <Row label="家族構成" value={fs.familyMembers}/>
-              <Row label="ジェノグラム" value={fs.genogram}/>
-              <Row label="緊急連絡先" value={getAllContacts(patient).map((c,i)=>`${i+1}.${c.name}${c.relation?`(${c.relation})`:''} ${c.phone||c.phoneMobile||'-'}${c.email?` メール:${c.email}`:''}${c._primary?' 〔代表〕':''}`).join('\n') || '－'}/>
-              <Row label="キーパーソン" value={fs.keyPerson}/>
-            </div>
-            <div style={{marginBottom:14}}>
-              <div style={{fontSize:13,fontWeight:'bold',color:'#92400e',background:'#fef3c7',padding:'6px 10px',marginBottom:8}}>④ 介護保険・制度情報</div>
               <Row label="被保険者番号" value={patient.insuranceNo}/>
               <Row label="要介護度" value={patient.careLevel}/>
               <Row label="適用期間" value={`${patient.careLevelFrom||'-'} 〜 ${patient.careLevelTo||'-'}`}/>
               <Row label="負担割合" value={patient.costBurden}/>
-              <Row label="区分支給限度額" value={fs.benefitLimit}/>
-              <Row label="その他制度" value={fs.otherWelfare}/>
             </div>
             <div style={{marginBottom:14}}>
-              <div style={{fontSize:13,fontWeight:'bold',color:'#92400e',background:'#fef3c7',padding:'6px 10px',marginBottom:8}}>⑤ 医療・健康情報</div>
+              <div style={{fontSize:13,fontWeight:'bold',color:'#92400e',background:'#fef3c7',padding:'6px 10px',marginBottom:8}}>③ 連絡先（緊急連絡先・関係者）</div>
+              <Row label="緊急連絡先" value={getAllContacts(patient).map((c,i)=>`${i+1}.${c.name}${c.relation?`(${c.relation})`:''} ${c.phone||c.phoneMobile||'-'}${c.email?` メール:${c.email}`:''}${c._primary?' 〔代表〕':''}`).join('\n') || '－'}/>
+            </div>
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:13,fontWeight:'bold',color:'#92400e',background:'#fef3c7',padding:'6px 10px',marginBottom:8}}>④ 医療・健康情報</div>
               <Row label="主治医・かかりつけ医" value={fs.chronicDiseases}/>
               <Row label="医療機関" value={fs.medicalInstitution}/>
               <Row label="連絡先" value={fs.medicalContact}/>
@@ -54541,28 +54513,19 @@ function FaceSheetPdfPreview({ patient, faceSheet, onClose }) {
                 <Row key={`xd${i}`} label={`かかりつけ医（${i + 2}）`} value={[d.doctor, d.institution, d.contact ? `TEL ${d.contact}` : ''].filter(Boolean).join('　')}/>
               ))}
               <Row label="既往歴・現病歴" value={patient.kiou}/>
-              <Row label="服薬状況" value={fs.medication}/>
-              <Row label="アレルギー・感染症" value={fs.allergies}/>
-              <Row label="ADL 自立度" value={fs.adlLevel}/>
-              <Row label="認知症自立度" value={fs.dementiaLevel}/>
+              <Row label="留意点（申し送り）" value={patient.ryui ?? fs.ryui}/>
             </div>
             <div style={{marginBottom:14}}>
-              <div style={{fontSize:13,fontWeight:'bold',color:'#92400e',background:'#fef3c7',padding:'6px 10px',marginBottom:8}}>⑥ ケアマネジメント関連</div>
+              <div style={{fontSize:13,fontWeight:'bold',color:'#92400e',background:'#fef3c7',padding:'6px 10px',marginBottom:8}}>⑤ ケアマネジメント関連</div>
               <Row label="担当事業所" value={patient.cmOffice}/>
               <Row label="担当者" value={patient.cmName}/>
               <Row label="連絡先" value={`TEL ${patient.cmPhone||'-'} / FAX ${patient.cmFax||'-'}`}/>
-              <Row label="生活歴" value={fs.lifeHistory}/>
-              <Row label="現在の状況" value={fs.currentSituation}/>
-              <Row label="他サービス" value={fs.otherServices}/>
-              <Row label="本人・家族の意向" value={fs.needs}/>
+              <Row label="通所の経緯" value={fs.lifeHistory}/>
             </div>
             <div style={{marginBottom:14}}>
-              <div style={{fontSize:13,fontWeight:'bold',color:'#92400e',background:'#fef3c7',padding:'6px 10px',marginBottom:8}}>⑦ その他</div>
-              <Row label="自宅見取り図" value={fs.floorPlan}/>
-              <Row label="送迎経路" value={fs.pickupRoute}/>
-              <Row label="送迎時の留意点" value={fs.pickupNotes}/>
-              <Row label="趣味・嗜好" value={fs.hobby}/>
-              <Row label="性格・個別情報" value={fs.personality}/>
+              <div style={{fontSize:13,fontWeight:'bold',color:'#92400e',background:'#fef3c7',padding:'6px 10px',marginBottom:8}}>⑥ 備考・追記</div>
+              <Row label="備考" value={fs.bikou || fs.otherServices}/>
+              <Row label="追記" value={fs.addendum}/>
             </div>
             {/* ★ 添付資料 (画像のみPDFに埋め込み。 PDF添付は枚数のみ注記) */}
             {['ジェノグラム','自宅の見取り図','送迎経路'].map(g => {
