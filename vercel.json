@@ -36,7 +36,6 @@
   ],
   "functions": {
     "api/pdf.js": {
-      "includeFiles": "api/_fonts/**",
       "maxDuration": 60,
       "memory": 1024
     }

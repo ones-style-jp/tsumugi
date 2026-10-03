@@ -5,7 +5,9 @@
 //   画面側は印刷プレビューの「PDFをダウンロード」ボタンから、プレビューと同じHTMLをこの関数へ送る。
 //
 // 仕組み: @sparticuz/chromium(サーバーレス向けの Chrome) + puppeteer-core で HTML を開き page.pdf()。
-//   日本語フォントは api/_fonts の Noto Sans JP(Regular/Bold)を同梱して登録(サーバーの Chrome には日本語フォントが無い)。
+//   日本語フォントは public/fonts の Noto Sans JP(Regular/Bold)をサイトから取得して登録(サーバーの Chrome には日本語フォントが無い)。
+//   関数バンドルに同梱する方式は Vercel 上でパスが見つからず文字化けしたため、URL 取得(chromium.font(url)・一度取ったら実行環境内で再利用)+
+//   HTML に @font-face も注入する二段構え。
 //   CSS の @page(用紙サイズ・向き)を優先(preferCSSPageSize)。印刷メディア(@media print)で描画するので画面用の影などは入らない。
 //
 // POST /api/pdf  body: { html: "<!DOCTYPE html>…", pageSize?: "A4 portrait"|"297mm 210mm"|…, title?: "ファイル名" }
@@ -14,8 +16,6 @@
 //
 // ローカル確認: CHROME_PATH=/path/to/Chrome node -e "..."(scratchpad/pdf_local.mjs 参照)
 
-import path from 'node:path';
-import fs from 'node:fs';
 
 export const config = { maxDuration: 60 };
 
@@ -45,7 +45,16 @@ function readBody(req) {
   });
 }
 
-let _browserP = null;
+let _browserP = null; let _fontsLoadedFor = '';
+async function ensureFonts(base) {
+  if (process.env.CHROME_PATH) return; // ローカル(システムフォントあり)
+  if (_fontsLoadedFor === base) return;
+  try {
+    const chromium = (await import('@sparticuz/chromium')).default;
+    for (const f of ['NotoSansJP-Regular.otf', 'NotoSansJP-Bold.otf']) await chromium.font(`${base}/fonts/${f}`);
+    _fontsLoadedFor = base;
+  } catch (e) { console.warn('font register failed', e && e.message); }
+}
 async function getBrowser() {
   if (_browserP) { try { const b = await _browserP; if (b && b.connected) return b; } catch {} _browserP = null; }
   _browserP = (async () => {
@@ -55,11 +64,6 @@ async function getBrowser() {
       return puppeteer.launch({ executablePath: local, headless: true, args: ['--no-sandbox', '--disable-gpu', '--font-render-hinting=none'] });
     }
     const chromium = (await import('@sparticuz/chromium')).default;
-    // 日本語フォントを登録(同梱の Noto Sans JP)。無ければ(ローカル等)スキップ
-    try {
-      const dir = path.join(process.cwd(), 'api', '_fonts');
-      for (const f of ['NotoSansJP-Regular.otf', 'NotoSansJP-Bold.otf']) { const p = path.join(dir, f); if (fs.existsSync(p)) await chromium.font(p); }
-    } catch (e) { console.warn('font register failed', e && e.message); }
     const exe = await chromium.executablePath();
     return puppeteer.launch({ executablePath: exe, headless: chromium.headless, args: [...chromium.args, '--font-render-hinting=none'], defaultViewport: { width: 1200, height: 1600 } });
   })();
@@ -79,13 +83,15 @@ export default async function handler(req, res) {
     const title = String(body.title || 'document').replace(/[\\/:*?"<>|\r\n]+/g, '_').slice(0, 120);
     const size = parsePageSize(body.pageSize);
 
+    const base = (host && /^(localhost|127\.0\.0\.1)$/.test(host)) ? origin.replace(/\/$/, '') : (host ? `https://${host}` : 'https://tsumugi-ones-style.vercel.app');
+    await ensureFonts(base);
     const browser = await getBrowser();
     const page = await browser.newPage();
     try {
       await page.emulateMediaType('print');
       await page.setContent(html, { waitUntil: ['load', 'networkidle0'], timeout: 25000 });
       // Web フォントが指定されていても、無い文字は Noto Sans JP に落ちる。全体の既定も Noto に
-      await page.addStyleTag({ content: `html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact;} body{font-family:"Noto Sans JP","Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",sans-serif;}` });
+      await page.addStyleTag({ content: `@font-face{font-family:"Noto Sans JP";font-weight:400;src:url("${base}/fonts/NotoSansJP-Regular.otf") format("opentype");}@font-face{font-family:"Noto Sans JP";font-weight:700;src:url("${base}/fonts/NotoSansJP-Bold.otf") format("opentype");}html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact;} body,body *{font-family:"Noto Sans JP","Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",sans-serif!important;}` });
       try { await page.evaluateHandle('document.fonts && document.fonts.ready'); } catch {}
       const pdf = await page.pdf({ printBackground: true, preferCSSPageSize: true, margin: { top: 0, right: 0, bottom: 0, left: 0 }, ...size, timeout: 30000 });
       res.setHeader('Content-Type', 'application/pdf');
