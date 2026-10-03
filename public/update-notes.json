@@ -1,7 +1,14 @@
 {
-  "version": "upd-2026-1003-trial190",
+  "version": "upd-2026-1003-trial191",
   "updatedAt": "2026-10-03",
   "notes": [
+    {
+      "id": "upd-2026-1003-trial191-fsdl",
+      "date": "2026-10-03",
+      "type": "improve",
+      "title": "【試験版】フェイスシート: 「PDFをダウンロード」と「印刷 / PDF」の両方に",
+      "body": "他社のシステムと同じく PDF ファイルのダウンロードも残し、印刷プレビュー（印刷・PDF保存）と両方使えるようにしました。"
+    },
     {
       "id": "upd-2026-1003-trial190-fs",
       "type": "improve",

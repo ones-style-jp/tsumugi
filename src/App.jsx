@@ -54464,8 +54464,11 @@ function FaceSheetPdfPreview({ patient, faceSheet, onClose }) {
         <div style={{padding:'12px 18px',borderBottom:'1px solid #e2e8f0',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div style={{fontWeight:'bold',color:'#1e293b'}}>フェイスシート プレビュー ({patient.name})</div>
           <div style={{display:'flex',gap:8}}>
-            {/* ★ 2026-10-03(ユーザー相談「ここだけダウンロードで他は印刷/PDF」): 他の書類と同じ印刷プレビュー(印刷/PDF保存)に統一。
-                画像化PDF(html2canvas)のダウンロードは文字がぼやけ検索もできないため廃止 */}
+            {/* ★ 2026-10-03(ユーザー相談): 他の書類と同じ印刷プレビュー(印刷/PDF保存)を追加。ダウンロード(PDFファイル)も他社SaaSと同様に残す(両方) */}
+            <button onClick={handleDownload} disabled={downloading} data-testid="fs-download"
+              style={{padding:'8px 14px',background: downloading?'#94a3b8':'#0f766e',color:'white',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor: downloading?'wait':'pointer'}}>
+              {downloading ? <><BusySpin/>生成中...</> : 'PDFをダウンロード'}
+            </button>
             <button data-testid="fs-print" onClick={() => { try { const el = document.getElementById('facesheet-pdf-content'); if (!el) return; const html = `<div style="width:210mm;min-height:297mm;box-sizing:border-box;background:white;"><div style="padding:12mm 14mm;box-sizing:border-box;">${el.innerHTML}</div></div>`; onClose(); setTimeout(() => window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `フェイスシート_${patient.name}`, pageSize: 'A4 portrait', html, elementId: null } })), 50); } catch (e) { console.warn(e); } }}
               style={{padding:'8px 14px',background:'#2563eb',color:'white',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>
               印刷 / PDF
