@@ -134,6 +134,7 @@ async function staffShots(browser) {
     ['各種連絡', '連絡（FAX）', 'staff_general_fax'],
     ['勤務表', '実績・モニタリング', 'staff_roster'],
     ['利用者実績', '実績・モニタリング', 'staff_jisseki'],
+    ['クラス在籍表', '実績・モニタリング', 'staff_class_roster'],
     ['モニタリング', '実績・モニタリング', 'staff_monitoring'],
     ['利用者マスタ管理', null, 'staff_master'],
     ['ケアマネ事業所・担当者', null, 'staff_cmmaster'],
@@ -262,6 +263,67 @@ async function staffShots(browser) {
       if (await tryClick(page, tab)) await shot(page, key);
     }
   } catch (e) { log('emergency tabs skipped', e.message); }
+  // ★ 2026-10-05(安定版 1005a): 血圧の再検(控えて欄を空にする方式)。テンキーで1回目を入れ→「再」→2回目を入れた行を撮る
+  try {
+    await nav('サービス提供記録 入力');
+    const row = page.locator('tr[data-rv-pid]').first(); const pid = await row.getAttribute('data-rv-pid');
+    const bp = row.locator(`[data-testid="bp-cell-${pid}-bpSt_combo_AM"], input[data-bp-input="${pid}-bpSt_combo_AM"]`).first();
+    const key = async (k) => { await page.locator('button').filter({ hasText: new RegExp('^' + (k === '/' ? '\\/' : k) + '$') }).last().click(); };
+    const typeBp = async (v) => { await bp.click(); await page.waitForTimeout(300); for (const k of v) await key(k); await key('確定'); await page.waitForTimeout(400); };
+    if (await bp.isVisible().catch(() => false)) {
+      await typeBp('162/94');
+      await row.locator(`[data-testid="bp-re-St-${pid}"]`).click(); await page.waitForTimeout(500);
+      await typeBp('138/82');
+      await page.keyboard.press('Escape'); await page.waitForTimeout(400);
+      const bb = await row.boundingBox(); if (bb) { await page.screenshot({ path: path.join(OUT, 'staff_record_bp_recheck.jpg'), type: 'jpeg', quality: 82, clip: { x: bb.x, y: Math.max(0, bb.y - 40), width: Math.min(700, bb.width), height: bb.height + 40 } }); log('saved staff_record_bp_recheck'); }
+    } else log('bp recheck: 血圧のマスが見えない');
+  } catch (e) { log('bp recheck skipped', e.message); }
+  // 画面を開き直してモーダル等を確実に閉じる
+  const resetApp = async () => { await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' }); await page.getByText('利用者マスタ管理', { exact: true }).first().waitFor({ timeout: 30000 }); await page.waitForTimeout(800); };
+  await resetApp();
+  // ★ 2026-10-05: フェイスシート(整理後)と更新履歴
+  try {
+    await nav('利用者マスタ管理');
+    if (await tryClick(page, '例示 花子', { exact: false })) {
+      await page.waitForTimeout(700);
+      if (await tryClick(page, '基本情報', { timeout: 2500 })) {
+        await page.waitForTimeout(400);
+        if (await tryClick(page, 'フェイスシートで編集', { timeout: 2500 })) {
+          await page.waitForTimeout(1200);
+          // 先頭(① 見学・作成情報)が見えるようにモーダル内を一番上へ
+          try { await page.getByText('見学・作成情報', { exact: false }).first().scrollIntoViewIfNeeded(); await page.waitForTimeout(300); } catch {}
+          await shot(page, 'staff_master_facesheet');
+        }
+      }
+    }
+  } catch (e) { log('facesheet skipped', e.message); }
+  await resetApp();
+  // ★ 2026-10-05: モニタリング 全員選択 → 一括確定ボタン
+  try {
+    await nav('モニタリング', '実績・モニタリング');
+    if (await tryClick(page, '全員選択', { timeout: 2500 })) { await page.waitForTimeout(500); await shot(page, 'staff_monitoring_bulk'); }
+  } catch (e) { log('monitoring bulk skipped', e.message); }
+  // ★ 2026-10-05: 送迎表 確定 → 確定済み一覧(見本の配車を今週に入れてから確定。確認ダイアログは自動でOK)
+  try {
+    page.on('dialog', d => d.accept().catch(() => {}));
+    const monday = (() => { const t = new Date(); const d = new Date(t); d.setDate(t.getDate() - ((t.getDay() + 6) % 7)); return d; })();
+    const isos = [0,1,2,3,4].map(i => { const d = new Date(monday); d.setDate(monday.getDate() + i); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; });
+    await page.evaluate((isos) => { const d = JSON.parse(localStorage.getItem('daycareAppData_v3')); const act = d.patients.filter(x => (x.status||'利用中') === '利用中'); const c1 = (d.diarySettings.cars||[{id:'car1'}])[0].id; d.transportPlans = d.transportPlans || {}; isos.forEach((iso, i) => { ['AM','PM'].forEach((sl, j) => { const ps = act.slice((i*2+j)*3, (i*2+j)*3+3); d.transportPlans[`${iso}_${sl}`] = { cars: { [c1]: ps.map((p, k) => ({ pid: p.id, t: `${sl==='AM'?8:13}:${k}0` })) }, walkers: [{ pid: act[40].id, t: '徒歩' }], others: [{ pid: act[41].id, why: '家族送迎' }], un: [], _savedAt: Date.now() }; }); }); localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); }, isos);
+    await resetApp();
+    await nav('送迎表');
+    { const md = page.locator('div.fixed.inset-0.pt-20'); if (await md.count()) { await md.locator('button').last().click().catch(() => {}); await page.waitForTimeout(500); } }
+    await shot(page, 'staff_transport');
+    const fin = page.locator('[data-testid="tp-finalize"]').first();
+    if (await fin.isVisible().catch(() => false)) {
+      await fin.click(); await page.waitForTimeout(1800);
+      // 確定後は運行表のプレビューが開く → 閉じる
+      await page.keyboard.press('Escape'); await page.waitForTimeout(400);
+      try { const cl = page.getByRole('button', { name: /閉じる/ }).first(); if (await cl.isVisible().catch(() => false)) await cl.click(); } catch {}
+      await page.waitForTimeout(600);
+      const board = page.locator('[data-testid="tp-final-board"]').first();
+      if (await board.isVisible().catch(() => false)) await shot(page, 'staff_transport_board'); else log('transport board not visible');
+    }
+  } catch (e) { log('transport board skipped', e.message); }
   await ctx.close();
 }
 
@@ -289,7 +351,7 @@ async function familyShots(browser, kind) {
     await shot(page, `${pre}_home`);
     await shot(page, `${pre}_home_full`, { fullPage: true });
     // 主なタブ・ボタン(存在するものだけ)
-    for (const [t, key] of [['お知らせ', 'notice'], ['写真', 'photo'], ['グラフ', 'graph'], ['記録', 'record'], ['ご自身の情報', 'myinfo'], ['ご家族を追加', 'invite'], ['書類', 'docs'], ['フェイスシート', 'facesheet']]) {
+    for (const [t, key] of [['お知らせ', 'notice'], ['写真', 'photo'], ['グラフ', 'graph'], ['記録', 'record'], ['モニタリング', 'monitoring'], ['利用者基本情報', 'myinfo'], ['ご自身の情報', 'myinfo'], ['ご家族を追加', 'invite'], ['書類', 'docs'], ['フェイスシート', 'facesheet']]) {
       if (await tryClick(page, t, { exact: false, timeout: 1500 })) { await shot(page, `${pre}_${key}`); }
     }
     await ctx.close();
