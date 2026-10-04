@@ -1800,7 +1800,9 @@ export async function supabaseMergeFaceSheetFromCM(storeId, patientId, faceSheet
         const { genogramFiles, floorPlanFiles, pickupRouteFiles, ...textOnly } = newFs;
         const snapshot = { ...textOnly, _attachCounts: { genogram: (genogramFiles || []).length, floorPlan: (floorPlanFiles || []).length, pickupRoute: (pickupRouteFiles || []).length } };
         const hist = [...prevHist, { version, updatedAt: _now, updatedBy: newFs.updatedBy, source: meta.source || 'caremanager', snapshot }].slice(-20);
-        const docUpdates = [...log, { id: _duId, at: _now, by: 'caremanager', byName: newFs.updatedBy, items: ['フェイスシート'], readOffice: false, readCm: true }].slice(-50);
+        // ★ 2026-10-04: 画面側で作った「どこをどう変えたか」(meta.items / meta.changes)を事業所へ届く docUpdates に載せる。by は family/caremanager
+        const _ch = Array.isArray(meta.changes) ? meta.changes.filter(c => c && c.label).map(c => ({ label: String(c.label), before: String(c.before ?? '').slice(0, 200), after: String(c.after ?? '').slice(0, 200) })).slice(0, 40) : [];
+        const docUpdates = [...log, { id: _duId, at: _now, by: (meta.source === 'family' ? 'family' : 'caremanager'), byName: newFs.updatedBy, items: (Array.isArray(meta.items) && meta.items.length ? meta.items : ['フェイスシート']), ...(_ch.length ? { changes: _ch } : {}), readOffice: false, readCm: true }].slice(-200);
         // ★ F1: フェイスシートの既往歴(kiou)を患者トップにもミラー(計画書/CSV/帳票が参照する source of truth)
         return { ...p, kiou: (newFs.kiou ?? p.kiou ?? ''), docUpdates, personalFile: { ...pf, faceSheet: newFs, faceSheetHistory: hist } };
       });
