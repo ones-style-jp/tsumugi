@@ -603,7 +603,7 @@ ${allPagesHtml}
       if (include.absenceFax) {
         const dir = root.folder('05_休み連絡');
         const targetNames = new Set(targetPatients.map(p => p.name));
-        const recs = (appData.faxHistory || []).filter(r => {
+        const recs = tsumugiFaxLog(appData).filter(r => {
           if (r.type !== 'absence' || !inRange(r.timestamp, start, end)) return false;
           if (patientMode === 'select' && r.patientName && !targetNames.has(r.patientName)) return false;
           return true;
@@ -635,7 +635,7 @@ ${allPagesHtml}
       if (include.generalFax) {
         const dir = root.folder('06_各種連絡');
         const targetNames = new Set(targetPatients.map(p => p.name));
-        const recs = (appData.faxHistory || []).filter(r => {
+        const recs = tsumugiFaxLog(appData).filter(r => {
           if (r.type !== 'general' || !inRange(r.timestamp, start, end)) return false;
           if (patientMode === 'select' && r.patientName && !targetNames.has(r.patientName)) return false;
           return true;
@@ -1737,6 +1737,9 @@ const MON_TEXT_MAX = 200, TOKKI_MAX = 100, ROSTER_WAIT_MAX = 40;
 // ★ 2026-10-03: サーバーPDF(/api/pdf)の共通ヘルパー。
 //   tsumugiBuildPrintSrcDoc(html): 画面の全スタイルを添えた印刷用の完全なHTML(プレビューの iframe と同じ)。
 //   tsumugiServerPdf({html,pageSize,title,win}): サーバーでPDFを作り、iPad/iPhone は新しいタブ(win=クリック時に開いておいた窓)で開く、PCはダウンロード。
+// ★ 2026-10-05(ユーザー指示「FAXしない限り送付履歴に入れなくていい」): 試験版 trial198〜199 の数日間に自動追加された
+//   「ダウンロード（DL済）」の記録(method:'pdf')は一覧・出力から除く(データは残るが表示しない)
+const tsumugiFaxLog = (appData) => (appData && Array.isArray(appData.faxHistory) ? appData.faxHistory : []).filter(h => h && h.method !== 'pdf');
 const tsumugiIsIOS = () => typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
 const tsumugiBuildPrintSrcDoc = (html) => {
   let head = ''; try {
@@ -20428,15 +20431,10 @@ export default function App() {
   //   氏名マスキングはヘッダーの共通スイッチ(printMaskNames)。連絡帳・日誌には効かせない。
   const _maskRef = React.useRef({ on: false, fn: (h) => h }); _maskRef.current = { on: printMaskNames, fn: _maskPrintHtml };
   const [pdfJob, setPdfJob] = useState(null); // null | {status:'busy'|'ready'|'error', title, url?, fname?, error?}
+  // ★ 2026-10-05(ユーザー指示「ダウンロードしただけで送付履歴に出る。FAXしない限り送付履歴に入れなくていい」):
+  //   以前はここで faxHistory に「ダウンロード（DL済）」を自動追加していたが廃止。送付履歴は FAX 送信(各種連絡の送信)だけ。
+  //   休み連絡の送付状の「ダウンロード済」状態(tsumugi:printed の method:'pdf')はそのまま
   const _recordPdfOutput = (title) => {
-    try {
-      const _ft = title.includes('休み連絡') ? 'absence' : title.includes('各種連絡') ? 'general' : title.includes('サービス提供記録') ? 'ticket' : 'other';
-      if (_ft !== 'other') {
-        const _pn = (() => { const m = title.match(/_([^_]+?)(?:様)?$/); return m ? m[1] : ''; })();
-        const entry = { id: `fax_${Date.now()}_${Math.random().toString(36).slice(-4)}`, type: _ft, timestamp: new Date().toISOString(), subject: title, patientName: _pn, recipientName: '', recipientFax: '', note: 'ダウンロード（DL済）', method: 'pdf' };
-        setAppData(prev => ({ ...prev, faxHistory: [entry, ...(prev.faxHistory || [])] }));
-      }
-    } catch {}
     try { window.dispatchEvent(new CustomEvent('tsumugi:printed', { detail: { title, method: 'pdf' } })); } catch {}
   };
   const directPdf = async (detail) => {
@@ -31577,7 +31575,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
     }
     if (onBack) onBack(); else navigateTo && navigateTo('master'); // ★ 2026-09-29: 1つ前の画面へ戻る
   };
-  const ticketHistory = (appData.faxHistory||[]).filter(h => h.type === 'ticket');
+  const ticketHistory = tsumugiFaxLog(appData).filter(h => h.type === 'ticket');
   const deleteFaxHist = (id) => onSave({...appData, faxHistory: (appData.faxHistory||[]).filter(h => h.id !== id), deletedIds: addTombstone(appData,'faxHistory',id)});
   const sp = (appData.patients||[]).find(p => p.id === selId) || (appData.patients||[])[0];
   const tY = parseInt(curMonth.split('-')[0]); const tM = parseInt(curMonth.split('-')[1]);
@@ -33726,20 +33724,20 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                     const c = str[i];
                     if (c === '（' || c === '(') {
                       inParen = true;
-                      out.push(<span key={i} style={{fontSize:33, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:36, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                       continue;
                     }
                     if (c === '）' || c === ')') {
                       inParen = false;
-                      out.push(<span key={i} style={{fontSize:33, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:36, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                       continue;
                     }
                     if (inParen) {
-                      out.push(<span key={i} style={{fontSize:33, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:36, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                     } else if (c === '月' || c === '日' || c === '年') {
-                      out.push(<span key={i} style={{fontSize:22, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{' '+c+' '}</span>);
+                      out.push(<span key={i} style={{fontSize:24, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{' '+c+' '}</span>);
                     } else {
-                      out.push(<span key={i} style={{fontSize:33, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:36, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                     }
                   }
                   return out;
@@ -33757,12 +33755,12 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                   const hBlank = !h;
                   const mBlank = !m;
                   const numStyle = (blank) => ({
-                    fontSize:33, fontWeight:'bold', lineHeight:1.1, // ★ 2026-10-04: 「10月12日（月） 13時00分頃」がQRの手前で切れないよう 38→33
+                    fontSize:36, fontWeight:'bold', lineHeight:1.1, // ★ 2026-10-04: 「10月12日（月） 13時00分頃」がQRの手前で切れないよう 38→33 → 10-05 ユーザー「もう少し大きく」で 36(単位 24)
                     display:'inline-block', minWidth:'2ch', textAlign:'right',
                     color: blank ? '#cbd5e1' : '#1e293b',
                     fontVariantNumeric:'tabular-nums'
                   });
-                  const labelStyle = { fontSize:22, fontWeight:'bold', lineHeight:1.1 };
+                  const labelStyle = { fontSize:24, fontWeight:'bold', lineHeight:1.1 };
                   return <span style={{whiteSpace:'pre'}}>
                     <span style={numStyle(hBlank)}>{hBlank ? '  ' : h}</span>
                     {' '}
@@ -49505,7 +49503,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     if (!rest.length) { monAlert('全員の担当ケアマネが閲覧済みのため、FAXする対象はありません。'); return null; }
     return rest;
   };
-  // ★ 担当ケアマネへFAX(一括): 作成済みのモニタリング表を、利用者ごとの担当ケアマネ(cmOffice/cmName)宛てで出力＋送付履歴に記録
+  // ★ 担当ケアマネ宛て(一括ダウンロード): 作成済みのモニタリング表を、利用者ごとの担当ケアマネ(cmOffice/cmName)宛てで1つのPDFに(送付履歴には入れない・FAX自動送信のみ記録)
   const faxToCareManagers = async () => {
     const checked = [...attendedPats, ...absentPats].filter(p => checkedIds.has(p.id));
     let targets = (checked.length ? checked : [...attendedPats, ...absentPats]).filter(p => getSheetRecord(p.id));
@@ -49515,12 +49513,11 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     if (noCm.length) {
       if (!await monConfirm(`担当ケアマネ事業所が未設定の方が ${noCm.length}名 います（${noCm.slice(0,3).map(p=>p.name).join('、')}${noCm.length>3?' ほか':''}）。\n宛先を空欄のまま出力しますか？\n（利用者マスタで「居宅介護支援事業所」を設定すると宛先が自動で入ります）`)) return;
     }
-    if (!await monConfirm(`${targets.length}名のモニタリング表を、それぞれの担当ケアマネ宛て（宛先自動）で出力します。\n送付履歴にも記録します。よろしいですか？`)) return;
+    if (!await monConfirm(`${targets.length}名のモニタリング表を、それぞれの担当ケアマネ宛て（宛先自動）で1つのPDFにしてダウンロードします。よろしいですか？`)) return;
     const pages = targets.map(p => buildSheetHtml(p, getSheetRecord(p.id).sheet, true, true)).join('');
     const html = `<div style="font-family:'Hiragino Sans','Meiryo','Yu Gothic Medium','MS PGothic',sans-serif;">${pages}</div>`;
     const title = `モニタリング表_ケアマネ送付_${monthLabelStr}_${targets.length}名`;
-    const entries = targets.map((p,i) => _monFaxEntry(p, i));
-    onSave({...appData, faxHistory:[...entries, ...(appData.faxHistory||[])]}, {manual:true, message:`✓ ${targets.length}名分を担当ケアマネ宛てで出力し、送付履歴に記録しました`});
+    // ★ 2026-10-05(ユーザー指示): ダウンロードしただけでは送付履歴に入れない(送付履歴は FAX 自動送信=autoFax のみ)
     if (onShowPrintPreview) {
       onShowPrintPreview(title,'A4 landscape',null);
       setTimeout(()=>window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 landscape',html}})),50);
@@ -49567,14 +49564,14 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     }
     setAutoFax(prev => ({ ...prev, running:false, results, noFaxCount: noFax.length }));
   };
-  // ★ 担当ケアマネへFAX(1名): この利用者のモニタリング表を担当ケアマネ宛てで出力＋送付履歴に記録
+  // ★ 担当ケアマネ宛て(1名ダウンロード): この利用者のモニタリング表を担当ケアマネ宛てで出力(送付履歴には入れない)
   const faxRowToCareManager = async (patient) => {
     const rec = getSheetRecord(patient.id);
     const sheet = (rec&&rec.sheet) ? rec.sheet : getOrInitSheetFor(patient);
     if (!((patient.cmOffice||'').trim())) { if(!await monConfirm('この利用者は担当ケアマネ事業所が未設定です。宛先を空欄のまま出力しますか？\n（利用者マスタで「居宅介護支援事業所」を設定すると宛先が自動で入ります）')) return; }
     const html = `<div style="font-family:'Hiragino Sans','Meiryo','Yu Gothic Medium','MS PGothic',sans-serif;">${buildSheetHtml(patient, sheet, true, false)}</div>`;
     const title = `モニタリング表_${patient.name}_${monthLabelStr}`;
-    onSave({...appData, faxHistory:[_monFaxEntry(patient), ...(appData.faxHistory||[])]}, {manual:true, message:`✓ ${patient.name}様のモニタリング表を担当ケアマネ宛てで出力しました`});
+    // ★ 2026-10-05(ユーザー指示): ダウンロードしただけでは送付履歴に入れない
     if (onShowPrintPreview) {
       onShowPrintPreview(title,'A4 landscape',null);
       setTimeout(()=>window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 landscape',html}})),50);
@@ -49997,7 +49994,7 @@ ${optionsDesc}
           {checkedIds.size && !allChecked ? `選んだ${attendedPats.filter(p=>checkedIds.has(p.id)&&!getSheetRecord(p.id)?.confirmed).length}名を確定` : '一括確定'}
         </button>
         <MaskToggle small/>
-        <button type="button" onClick={faxToCareManagers} title="作成済みのモニタリング表をケアマネ宛先つきでプレビュー表示し、送付履歴に記録します(印刷/PDF/複合機FAXはプレビューから)"
+        <button type="button" onClick={faxToCareManagers} title="作成済みのモニタリング表をケアマネ宛先つきで1つのPDFにしてダウンロードします"
           style={{padding:'7px 12px',borderRadius:10,fontSize:12,fontWeight:'bold',border:'1px solid #fdba74',background:'#fff7ed',color:'#c2410c',cursor:'pointer'}}>
           ダウンロード
         </button>
@@ -50798,7 +50795,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     if (v !== absMemoFit) setAbsMemoFit(v);
   });
   const [showFaxHist, setShowFaxHist] = React.useState(false);
-  const absHistory = (appData.faxHistory||[]).filter(h => h.type === 'absence');
+  const absHistory = tsumugiFaxLog(appData).filter(h => h.type === 'absence');
   const deleteAbsHist = (id) => onSave({...appData, faxHistory: (appData.faxHistory||[]).filter(h => h.id !== id), deletedIds: addTombstone(appData,'faxHistory',id)});
   // 担当者プルダウン: 各種設定の従業員から選択。
   // ★ デフォルト優先順位: 1) 現在のアクティブ記録者 → 2) 管理者 → 3) リスト先頭
@@ -51489,7 +51486,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   };
   if (saveFnRef) saveFnRef.current = flushSave;
   React.useEffect(() => () => { if (saveFnRef) saveFnRef.current = null; }, []);
-  const genHistory = (appData.faxHistory||[]).filter(h => h.type === 'general');
+  const genHistory = tsumugiFaxLog(appData).filter(h => h.type === 'general');
   const deleteGenHist = (id) => onSave && onSave({...appData, faxHistory: (appData.faxHistory||[]).filter(h => h.id !== id), deletedIds: addTombstone(appData,'faxHistory',id)});
 
   const facility = appData.systemSettings?.facilityInfo || {};
@@ -52248,7 +52245,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
     const seen = new Set();
     // ★ srcKey で重複排除 (同じ月のモニタリング等が複数あっても1件に集約)
     const push = (srcKey, date, from, content) => { if(!srcKey||!content||seen.has(srcKey)) return; seen.add(srcKey); out.push({ id:srcKey, srcKey, date:String(date||'').slice(0,10), staff:'', from:from||'', content, _auto:true }); };
-    const fh = appData.faxHistory||[];
+    const fh = tsumugiFaxLog(appData);
     // 休み連絡: 欠席日と理由(ticketRecord.tokki)も記載
     fh.filter(h=>h.type==='absence' && (h.patientId===patient.id || h.patientName===patient.name)).forEach(h=>{
       let dl='', reason='';
@@ -52968,7 +52965,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
           )}
           {/* 連絡（休み・各種連絡）(読み取り) */}
           {isRenrakuTab && (() => {
-            const faxOf = (type) => (appData.faxHistory||[]).filter(h => h.type === type && (h.patientName||'') === (patient.name||'')).sort((a,b)=>(b.timestamp||'').localeCompare(a.timestamp||''));
+            const faxOf = (type) => tsumugiFaxLog(appData).filter(h => h.type === type && (h.patientName||'') === (patient.name||'')).sort((a,b)=>(b.timestamp||'').localeCompare(a.timestamp||''));
             const _ts = (t) => { try { return new Date(t).toLocaleDateString('ja-JP'); } catch { return t||''; } };
             // ★ 書類検索: 件名・宛先・内容・日付で絞り込み
             const _q = renrakuSearch.trim().toLowerCase();
