@@ -90,7 +90,12 @@ export default async function handler(req, res) {
     // ★ 用紙サイズは画面から渡された pageSize を最優先にする。アプリ全体のCSSに @page{size:A4} があり、preferCSSPageSize だとそれが勝って
     //   連絡帳(B5横など)がA4縦になった(2026-10-04 ユーザー報告)。後から書いた @page が勝つので、本文の最後に注入する
     const sizeCss = size.width ? `${size.width} ${size.height}` : `${size.format} ${size.landscape ? 'landscape' : 'portrait'}`;
-    const htmlSized = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `<style>@page{size:${sizeCss};margin:0;}</style></body>`) : html + `<style>@page{size:${sizeCss};margin:0;}</style>`;
+    // ★ 2026-10-04(分析個人が1ページしか出ない): アプリ全体のCSS(html,body の overflow:hidden / height 固定)が2ページ目以降を切り捨てていた。
+    //   印刷用に html/body/直下要素を必ず伸ばす(改ページが効くように)
+    // 名前付きの @page(分析個人の縦横混在 p/l など)は、最後に注入する既定サイズに負けないよう後ろに再掲する
+    const namedPages = (html.match(/@page\s+[A-Za-z_][\w-]*\s*\{[^}]*\}/g) || []).join('');
+    const fixCss = `<style>@page{size:${sizeCss};margin:0;}${namedPages}html,body{height:auto!important;max-height:none!important;overflow:visible!important;}body>*{overflow:visible!important;max-height:none!important;}</style>`;
+    const htmlSized = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${fixCss}</body>`) : html + fixCss;
 
     const base = (host && /^(localhost|127\.0\.0\.1)$/.test(host)) ? origin.replace(/\/$/, '') : (host ? `https://${host}` : 'https://tsumugi-ones-style.vercel.app');
     await ensureFonts(base);

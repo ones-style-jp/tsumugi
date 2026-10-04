@@ -1745,6 +1745,19 @@ async function tsumugiServerPdf({ html, pageSize, title, win, onReady }) {
   else { const a = document.createElement('a'); a.href = url; a.download = fname; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); }
   setTimeout(() => URL.revokeObjectURL(url), 120000);
 }
+// ★ 2026-10-04(ユーザー指示): 氏名マスキングは「必要な画面のダウンロードボタンの横」に置く(休み連絡・各種連絡・計画書/送付状・利用者実績・モニタリング・分析個人・フェイスシート)。
+//   画面のスイッチが ON の間だけ直接ダウンロード(directPdf)が氏名を○に置き換える。画面を離れると OFF に戻る
+let _tsumugiMaskOn = false;
+const tsumugiMaskOn = () => _tsumugiMaskOn;
+function MaskToggle({ small }) {
+  const [on, setOn] = React.useState(false);
+  React.useEffect(() => { _tsumugiMaskOn = on; return () => { _tsumugiMaskOn = false; }; }, [on]);
+  return (
+    <label data-testid="mask-toggle" title="ONにすると、ダウンロードする書類の利用者氏名・ふりがなを1文字おきに○へ置き換えます（例: 髙橋正樹→髙○正○）" style={{display:'inline-flex',alignItems:'center',gap:5,padding: small ? '4px 8px' : '6px 10px',borderRadius:8,border:'1px solid',borderColor: on ? '#f59e0b' : '#cbd5e1',background: on ? '#fef3c7' : 'white',color: on ? '#b45309' : '#475569',fontSize: small ? 11 : 12,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap',userSelect:'none'}}>
+      <input type="checkbox" checked={on} onChange={e => setOn(e.target.checked)} style={{width:14,height:14}}/>氏名マスキング
+    </label>
+  );
+}
 const CharCount = ({ value, max, style }) => { const n = String(value ?? '').length; return <span className="no-print" style={{ fontSize: 10, fontVariantNumeric: 'tabular-nums', color: n >= max ? '#dc2626' : n >= max * 0.9 ? '#d97706' : '#94a3b8', whiteSpace: 'nowrap', ...(style || {}) }}>{n} / {max}</span>; };
 // 日本の電話番号フォーマッタ: ハイフン無しの数字 → 自動でハイフン付与 (実装は下部 formatJpPhone)
 // ★ 稼働率/出席率の「予定(分母)」判定。 振替=出席扱い。 振替済みの欠席(tokkiに「へ振替」)は相殺で分母から除外。
@@ -20370,7 +20383,7 @@ export default function App() {
     if (!html && detail.elementId) { try { const el = document.getElementById(detail.elementId); html = el ? el.outerHTML.replace(/display:\s*none[^;"']*/g, 'display:block').replace(/visibility:\s*hidden/g, 'visibility:visible') : ''; } catch {} }
     if (!html) { setPdfJob({ status: 'error', title, error: '出力する内容が見つかりません' }); return; }
     const maskable = !/^連絡帳/.test(title) && !/日誌/.test(title);
-    const masked = (maskable && _maskRef.current.on) ? _maskRef.current.fn(html) : html;
+    const masked = (maskable && tsumugiMaskOn()) ? _maskRef.current.fn(html) : html;
     setPdfJob({ status: 'busy', title });
     try {
       await tsumugiServerPdf({ html: tsumugiBuildPrintSrcDoc(masked), pageSize: detail.pageSize || 'A4 portrait', title, onReady: (url, fname) => {
@@ -20383,6 +20396,7 @@ export default function App() {
   const _directPdfRef = React.useRef(directPdf); _directPdfRef.current = directPdf;
   const setPrintPreviewContent = (detail) => {
     if (!detail) { _setPrintPreviewContentRaw(null); return; }
+    if (!detail.html && !detail.elementId) return; // ★ 「先に枠だけ開いて後から setPrintHtml で中身」の呼び出し(モニタリング等)の1回目は無視
     const title = String(detail.title || '');
     const keepPreview = detail.forcePreview || detail.autoPrint || !!detail.adjust || /^連絡帳/.test(title);
     if (keepPreview) { _setPrintPreviewContentRaw(detail); return; }
@@ -22107,11 +22121,6 @@ export default function App() {
                       {(a.x||a.y) ? <button onClick={()=>a.apply(0,0)} style={{...bs,background:'transparent',textDecoration:'underline',border:'none',color:'#93c5fd'}}>0に戻す</button> : null}
                     </div>
                   ); })()}
-                  {/* ★ 氏名マスキングは印刷ボタンの横に大きく表示(2026-09-08 店舗要望: 左上の小さい表示は見づらい) */}
-                  {showMask && <label title="利用者の氏名・ふりがなを1文字おきに○へ置き換えて印刷/FAXできます(例: 髙橋正樹→髙○正○・全印刷画面で共通)" style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',background:printMaskNames?'#fef3c7':'#f1f5f9',border:printMaskNames?'2px solid #f59e0b':'2px solid #cbd5e1',borderRadius:10,padding:'9px 16px'}}>
-                    <input type="checkbox" checked={printMaskNames} onChange={e=>setPrintMaskNames(e.target.checked)} style={{width:18,height:18}}/>
-                    <span style={{fontSize:14,fontWeight:'bold',color:printMaskNames?'#b45309':'#475569',whiteSpace:'nowrap'}}>氏名マスキング</span>
-                  </label>}
                   {/* ★ 2026-10-03: サーバーPDF(他社SaaSと同じ「ダウンロード」)。印刷グループの左に独立して置く */}
                   <button onClick={downloadPdfViaServer} disabled={pdfDl==='busy'} data-testid="pv-pdf-download" title="サーバーでPDFファイルを作ります（iPadは新しいタブで開く・PCはダウンロード。ヘッダー・フッター無し）"
                     style={{background: pdfDl==='busy' ? '#94a3b8' : (pdfDl && pdfDl.error ? '#b91c1c' : '#0f766e'),color:'white',border:'none',borderRadius:10,padding:'10px 16px',fontWeight:'bold',fontSize:14,cursor: pdfDl==='busy' ? 'wait' : 'pointer',display:'flex',alignItems:'center',gap:6,marginRight:8,whiteSpace:'nowrap',boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
@@ -22690,11 +22699,6 @@ export default function App() {
               全画面
             </button>
             {/* ★ 変更ログ(監査)ビューアを開くボタン */}
-            {/* ★ 2026-10-04 ユーザー指示: 氏名マスキングはプレビューの外(ヘッダー)に。ケアマネ・ご家族宛の書類のダウンロードに効く(連絡帳・日誌には効かない) */}
-            <label data-testid="hdr-mask" title="ON にすると、ダウンロードする書類の利用者氏名・ふりがなを1文字おきに○へ置き換えます(ケアマネ・ご家族宛の書類向け。連絡帳・日誌には効きません)" className={`hidden md:flex items-center gap-1.5 shrink-0 mr-2 px-2.5 py-1 rounded-full border text-[11px] font-bold cursor-pointer select-none ${printMaskNames ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-white border-slate-300 text-slate-600'}`}>
-              <input type="checkbox" checked={printMaskNames} onChange={e=>setPrintMaskNames(e.target.checked)} className="w-4 h-4"/>
-              <span className="whitespace-nowrap">氏名マスキング</span>
-            </label>
             <button onClick={()=>setAuditLogOpen(true)} title="いつ・どの端末で・何を変更したかの履歴"
               className="hidden md:flex items-center gap-1 shrink-0 mr-2 text-[11px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-full px-2.5 py-1 whitespace-nowrap active:scale-95">
               変更ログ
@@ -26631,12 +26635,13 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           {/* 「詳細記録も印刷」チェックボックスはポップアップ側に移動済 */}
           {/* 表示用ボタン: クリックでポップアップを開く（期間/月を選択させる） */}
           {/* ★ 事業所モードのみ表示 (家族・ケアマネ閲覧モードは非表示) */}
-          {!compactMode && (
+          {!compactMode && (<>
+          <MaskToggle small/>
           <button type="button" onClick={()=>setShowPrintOptionsPopup(true)}
               style={{background:'rgba(255,255,255,0.5)',border:'1px solid rgba(255,255,255,0.7)',color:'#1e293b',borderRadius:8,padding:'6px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
             ダウンロード
           </button>
-          )}
+          </>)}
           {/* 隠しトリガー: ポップアップから .click() で発火される。既存の生成ロジックを温存。 */}
           <button type="button" id="personal-print-hidden-trigger" style={{display:'none'}} onClick={async()=>{
                     // 期間設定を保存して 3ヶ月チャンクで連続生成
@@ -29512,7 +29517,7 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
   const total = (sl) => days.reduce((n, d) => n + members(d, sl).length, 0);
   // ★ 印刷: 用紙いっぱいに広げる(2026-10-03 ユーザー指示「下部に空白ができないように」)。2つの表を flex:1 で等分し、表の高さ100%で行を均等に伸ばす。
   //   行数が多いときは文字を小さく(定員15名=16行×2表でも収まる)
-  const printFs = rows <= 11 ? 10 : rows <= 14 ? 9 : 8;
+  const printFs = rows <= 11 ? 10 : 9; // 2列表示(定員11名以上)なら行数が半分になるので9pt
   const scrRowH = rows > 13 ? 21 : 24;
   const B = '1px solid #cbd5e1', BH = '1px solid #94a3b8';
   // ★ 2026-10-03: コンポーネントではなく「描画関数」にする(コンポーネントにすると親の再描画のたびに別物として作り直され、
@@ -29520,32 +29525,45 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
   const renderBlock = (sl, label, print) => {
     const fs = print ? printFs : 12, rh = print ? undefined : scrRowH;
     const grip = !print; // 画面だけ: 並べ替え用のつまみ列(NO列は廃止・2026-10-03 ユーザー指示)
+    // ★ 2026-10-04(ユーザー指示「15人定員だと下が詰まる。名前の右に余白があるので2列に」): 定員11名以上は各曜日を左右2列(例: 8+8)。曜日の境目は太線
+    const twoCol = rows > 11;
+    const per = twoCol ? Math.ceil(rows / 2) : rows;
+    const cols = (twoCol ? 2 : 1) * (grip ? 3 : 2);
+    const DB = '2px solid #334155'; // 曜日の境目
+    const cell = (d, sl2, i, k, first) => {
+      const m = members(d, sl2)[i]; const spare = i >= cap; const sup = m && /支援|事業/.test(String(m.careLevel || '')); const paused = m && isPaused(m);
+      const isOver = over && over.k === k && m && String(over.pid) === String(m.id); const isDrag = drag && drag.k === k && m && String(drag.pid) === String(m.id);
+      const bg = i >= rows ? '#f8fafc' : (spare ? '#fffbeb' : 'white');
+      const dragProps = (!print && m) ? { 'data-crk': k, 'data-crpid': String(m.id) } : {};
+      const bl = first ? { borderLeft: DB } : {};
+      return (
+        <React.Fragment key={`${d}_${first ? 'L' : 'R'}`}>
+          {grip && <td {...dragProps} onPointerDown={m ? (e) => startDrag(e, k, d, sl2, m.id) : undefined} style={{ border: B, ...bl, textAlign: 'center', background: isOver ? '#dbeafe' : (m ? '#f8fafc' : bg), color: '#94a3b8', opacity: isDrag ? 0.4 : 1, cursor: m ? 'grab' : 'default', touchAction: m ? 'none' : 'auto', userSelect: 'none', fontSize: 11 }} title={m ? 'ここをつかんで上下に動かすと同じ枠の中で並べ替え' : ''} data-testid={m ? `cr-row-${k}-${m.id}` : undefined}>{m ? '⋮' : ''}</td>}
+          <td {...dragProps} style={{ border: B, ...(grip ? {} : bl), textAlign: 'left', padding: '0 4px', background: isOver ? '#dbeafe' : bg, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 'bold', color: paused ? '#94a3b8' : '#1e293b', opacity: isDrag ? 0.4 : 1, borderTop: isOver ? '2px solid #2563eb' : B }} title={paused ? '休止中' : ''}>{m ? `${m.name}${paused ? '（休止）' : ''}` : ''}</td>
+          <td {...dragProps} style={{ border: B, textAlign: 'center', background: m ? (sup ? '#fce7f3' : '#f8fafc') : bg, color: m ? (sup ? '#9d174d' : '#334155') : '#334155', fontSize: fs - 1, opacity: isDrag ? 0.4 : 1 }}>{m ? short(m.careLevel) : ''}</td>
+        </React.Fragment>);
+    };
     return (
     <table style={{ borderCollapse: 'collapse', width: '100%', height: print ? '100%' : undefined, tableLayout: 'fixed', fontSize: fs, lineHeight: 1.1 }} data-testid={print ? undefined : `cr-${sl.toLowerCase()}`}>
-      <colgroup><col style={{ width: print ? 16 : 22 }} />{days.map(d => <React.Fragment key={d}>{grip && <col style={{ width: 16 }} />}<col /><col style={{ width: print ? 32 : 46 }} /></React.Fragment>)}</colgroup>
+      <colgroup><col style={{ width: print ? 16 : 22 }} />{days.map(d => <React.Fragment key={d}>{Array.from({ length: twoCol ? 2 : 1 }).map((_, c) => <React.Fragment key={c}>{grip && <col style={{ width: 16 }} />}<col /><col style={{ width: print ? 30 : 44 }} /></React.Fragment>)}</React.Fragment>)}</colgroup>
       <tbody>{/* 左端の「午前/午後」は rowSpan で全行をまたぐため見出し行も tbody(thead→tbody をまたぐ rowSpan は効かない) */}
         <tr style={{ height: rh }}>
-          <th rowSpan={rows + 4} style={{ border: BH, background: sl === 'AM' ? '#fef3c7' : '#e0e7ff', color: sl === 'AM' ? '#92400e' : '#3730a3', fontWeight: 'bold', writingMode: 'vertical-rl', letterSpacing: 4, fontSize: print ? 11 : 13 }}>{label}</th>
-          {days.map(d => <th key={d} colSpan={grip ? 3 : 2} style={{ border: BH, background: '#1e293b', color: 'white', fontWeight: 'bold', padding: 0 }}>{DOWJ[d]}曜日</th>)}
+          <th rowSpan={per + 4} style={{ border: BH, background: sl === 'AM' ? '#fef3c7' : '#e0e7ff', color: sl === 'AM' ? '#92400e' : '#3730a3', fontWeight: 'bold', writingMode: 'vertical-rl', letterSpacing: 4, fontSize: print ? 11 : 13 }}>{label}</th>
+          {days.map(d => { const n = members(d, sl).length; return <th key={d} colSpan={cols} style={{ border: BH, borderLeft: DB, background: '#1e293b', color: 'white', fontWeight: 'bold', padding: 0 }}>{DOWJ[d]}曜日<span style={{ fontWeight: 'normal', marginLeft: 8, fontSize: fs - 1, color: n > cap ? '#fca5a5' : '#cbd5e1' }}>{n}／{cap}名</span></th>; })}
         </tr>
-        <tr style={{ height: rh }}>{days.map(d => <React.Fragment key={d}>{grip && <th style={{ border: B, background: '#f1f5f9' }}></th>}<th style={{ border: B, background: '#f1f5f9', color: '#475569', fontWeight: 'bold' }}>氏名</th><th style={{ border: B, background: '#f1f5f9', color: '#475569', fontWeight: 'bold' }}>介護度</th></React.Fragment>)}</tr>
-        {Array.from({ length: rows }).map((_, i) => (
+        <tr style={{ height: rh }}>{days.map(d => <React.Fragment key={d}>{Array.from({ length: twoCol ? 2 : 1 }).map((_, c) => <React.Fragment key={c}>{grip && <th style={{ border: B, ...(c === 0 ? { borderLeft: DB } : {}), background: '#f1f5f9' }}></th>}<th style={{ border: B, ...(!grip && c === 0 ? { borderLeft: DB } : {}), background: '#f1f5f9', color: '#475569', fontWeight: 'bold' }}>氏名</th><th style={{ border: B, background: '#f1f5f9', color: '#475569', fontWeight: 'bold' }}>介護度</th></React.Fragment>)}</React.Fragment>)}</tr>
+        {Array.from({ length: per }).map((_, i) => (
           <tr key={i} style={{ height: rh }}>
-            {days.map(d => { const k = `${d}_${sl}`; const m = members(d, sl)[i]; const spare = i >= cap; const sup = m && /支援|事業/.test(String(m.careLevel || '')); const paused = m && isPaused(m);
-              const isOver = over && over.k === k && m && String(over.pid) === String(m.id); const isDrag = drag && drag.k === k && m && String(drag.pid) === String(m.id);
-              const bg = spare ? '#fffbeb' : 'white';
-              const dragProps = (!print && m) ? { 'data-crk': k, 'data-crpid': String(m.id) } : {};
-              return (
+            {days.map(d => { const k = `${d}_${sl}`; return (
               <React.Fragment key={d}>
-                {grip && <td {...dragProps} onPointerDown={m ? (e) => startDrag(e, k, d, sl, m.id) : undefined} style={{ border: B, textAlign: 'center', background: isOver ? '#dbeafe' : (m ? '#f8fafc' : bg), color: '#94a3b8', opacity: isDrag ? 0.4 : 1, cursor: m ? 'grab' : 'default', touchAction: m ? 'none' : 'auto', userSelect: 'none', fontSize: 11 }} title={m ? 'ここをつかんで上下に動かすと同じ枠の中で並べ替え' : ''} data-testid={m ? `cr-row-${k}-${m.id}` : undefined}>{m ? '⋮' : ''}</td>}
-                <td {...dragProps} style={{ border: B, textAlign: 'left', padding: '0 4px', background: isOver ? '#dbeafe' : bg, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 'bold', color: paused ? '#94a3b8' : '#1e293b', opacity: isDrag ? 0.4 : 1, borderTop: isOver ? '2px solid #2563eb' : B }} title={paused ? '休止中' : ''}>{m ? `${m.name}${paused ? '（休止）' : ''}` : ''}</td>
-                <td {...dragProps} style={{ border: B, textAlign: 'center', background: m ? (sup ? '#fce7f3' : '#f8fafc') : bg, color: m ? (sup ? '#9d174d' : '#334155') : '#334155', fontSize: fs - 1, opacity: isDrag ? 0.4 : 1 }}>{m ? short(m.careLevel) : ''}</td>
+                {cell(d, sl, i, k, true)}
+                {twoCol && cell(d, sl, i + per, k, false)}
               </React.Fragment>); })}
           </tr>
         ))}
         <tr style={{ height: print ? undefined : 34 }}>
           {days.map(d => { const k = `${d}_${sl}`; const v = waitDraft[k] != null ? waitDraft[k] : (wait[k] || ''); return (
-            <td key={d} colSpan={grip ? 3 : 2} style={{ border: B, padding: '1px 3px', verticalAlign: 'top', background: '#f8fafc' }}>
+            <td key={d} colSpan={cols} style={{ border: B, borderLeft: DB, padding: '1px 3px', verticalAlign: 'top', background: '#f8fafc' }}>
               <div style={{ display: 'flex', gap: 3, alignItems: 'flex-start' }}>
                 <span style={{ fontWeight: 'bold', color: '#475569', whiteSpace: 'nowrap', fontSize: fs - 1 }}>待ち</span>
                 {print ? <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: fs - 1, color: '#1d4ed8' }}>{v}</span>
@@ -29556,7 +29574,7 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
         </tr>
         <tr style={{ height: rh }}>
           {days.map(d => { const k = `${d}_${sl}`; const n = members(d, sl).length; const free = cap - n; return (
-            <td key={d} colSpan={grip ? 3 : 2} style={{ border: BH, textAlign: 'center', fontWeight: 'bold', background: free > 0 ? '#ecfdf5' : free < 0 ? '#fef2f2' : '#f8fafc', color: free > 0 ? '#047857' : free < 0 ? '#b91c1c' : '#334155', padding: 0 }} data-testid={print ? undefined : `cr-free-${k}`}>
+            <td key={d} colSpan={cols} style={{ border: BH, borderLeft: DB, textAlign: 'center', fontWeight: 'bold', background: free > 0 ? '#ecfdf5' : free < 0 ? '#fef2f2' : '#f8fafc', color: free > 0 ? '#047857' : free < 0 ? '#b91c1c' : '#334155', padding: 0 }} data-testid={print ? undefined : `cr-free-${k}`}>
               空き {Math.max(0, free)}{free < 0 ? `（定員超過 ${-free}）` : ''}
               {!print && custom[k] && <button type="button" onClick={() => resetOrder(k)} title="手動の並び替えをやめて介護度→NO順に戻す" style={{ marginLeft: 8, fontSize: 10, fontWeight: 'normal', color: '#2563eb', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer' }}>並び順を戻す</button>}
             </td>); })}
@@ -29770,6 +29788,7 @@ function JissekiView({ appData, onSave, onShowPrintPreview }) {
             <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b'}}>月次実績表<span style={{fontSize:11,fontWeight:'normal',color:'#64748b',marginLeft:6}}>（カイポケ等への実績転記用）</span></div>
             <div style={{display:'flex',alignItems:'center',gap:6,marginLeft:'auto'}}>
               <button onClick={dlCsv} style={{padding:'4px 12px',background:'#0f766e',color:'white',border:'none',borderRadius:8,fontWeight:'bold',cursor:'pointer',fontSize:12}}>CSV出力</button>
+              {onShowPrintPreview && <MaskToggle small/>}
               {onShowPrintPreview && <button onClick={()=>onShowPrintPreview(`実績表_${jy}年${jm}月`,'A4 landscape','jisseki-print-area')} style={{padding:'4px 12px',background:'#334155',color:'white',border:'none',borderRadius:8,fontWeight:'bold',cursor:'pointer',fontSize:12}}>ダウンロード</button>}
             </div>
           </div>
@@ -30684,7 +30703,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         <div style={{display:'flex',gap:6,alignItems:'center'}}>
           <button type="button" onClick={()=>setPrintOptsModal(true)}
             style={{background:'rgba(255,255,255,0.5)',border:'1px solid rgba(255,255,255,0.7)',color:'#1e293b',borderRadius:8,padding:'6px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
-            プレビュー
+            ダウンロード
           </button>
         </div>
       </div>{/* end orange header */}
@@ -35440,7 +35459,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <button onClick={()=>setSelectedDate(r.iso)} data-testid="tp-next-reminder" className="text-[11px] font-bold text-red-700 bg-red-50 border border-red-300 rounded-lg px-2 py-1 whitespace-nowrap hover:bg-red-100" title={`1週間後の日を含む週（${r.label}）の送迎表がまだ確定していません。押すとその週を開きます`}>次週分未確定 ›</button>
           ); })()}
           <button onClick={()=>setTpSettings(true)} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="到着目標時刻・車の定員の設定">設定</button>
-          <button onClick={()=>setPrintModal({ mode:'week', weekContent:'sheet', days:new Set(days.map(d=>_iso(d))) })} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">印刷</button>
+          <button onClick={()=>setPrintModal({ mode:'week', weekContent:'sheet', days:new Set(days.map(d=>_iso(d))) })} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">ダウンロード</button>
         {/* ★ 使い方の説明: ホバーまたはタップで表示(2026-09-13c) */}
         <div className="relative" onMouseEnter={()=>setTpHelp(true)} onMouseLeave={()=>setTpHelp(false)}>
           <button onClick={()=>setTpHelp(v=>!v)} title="使い方の説明" className="w-9 h-9 rounded-full border border-slate-300 bg-white hover:bg-slate-50 text-slate-600 font-bold text-base leading-none">?</button>
@@ -44739,7 +44758,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
               const title = isPrintPreview==='both'?'業務日誌（AM/PM）':'業務日誌';
               window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title,pageSize:'A4 portrait',html:parts}}));
             }} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-bold text-sm flex items-center gap-2">
-            プレビュー
+            ダウンロード
           </button>
         </div>
         {/* A4を96dpi換算でスケール表示 */}
@@ -45081,7 +45100,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           if (onShowPrintPreview) onShowPrintPreview(title, 'A4 portrait', 'diary-print-content-both');
           else setIsPrintPreview('both');
         }} className="bg-slate-900 text-white px-5 py-2 rounded-xl font-bold text-sm hover:bg-black transition-all whitespace-nowrap">
-          プレビュー
+          ダウンロード
         </button>
         {isReadOnly ? (
           <button onClick={()=>setForceEdit(true)} title="過去日です。クリックで編集モードへ" className="bg-amber-500 hover:bg-amber-600 text-white px-5 py-2 rounded-xl font-bold text-sm transition-all active:scale-95 whitespace-nowrap">
@@ -45761,6 +45780,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
           <button onClick={()=>saveRecord(false)} className="px-4 py-2 bg-white border border-emerald-500 text-emerald-600 hover:bg-emerald-50 rounded-lg text-sm font-bold active:scale-95" title="編集画面を開いたまま保存します">一時保存</button>
           <button onClick={()=>saveRecord(true)} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold shadow active:scale-95">保存して閉じる</button>
         </>}
+        {printRec && <MaskToggle/>}
         {printRec && <button onClick={()=>onShowPrintPreview('個別機能訓練計画書','A4','kk-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">ダウンロード</button>}
         {printRec && <button onClick={()=>onShowPrintPreview('ケアマネ送付セット（個別機能訓練計画書）','A4','kk-fax-set')} title="送付状(変更点一覧つき)+今回の計画書+前回の計画書(評価入り)をまとめて印刷します" className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">ケアマネ送付セット</button>}
       </div>
@@ -46784,6 +46804,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
           <button onClick={()=>saveRecord(false)} className="px-4 py-2 bg-white border border-emerald-500 text-emerald-600 hover:bg-emerald-50 rounded-lg text-sm font-bold active:scale-95" title="編集画面を開いたまま保存します">一時保存</button>
           <button onClick={()=>saveRecord(true)} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold shadow active:scale-95">保存して閉じる</button>
         </>}
+        {printRec && <MaskToggle/>}
         {printRec && <button onClick={()=>onShowPrintPreview('通所介護計画書','A4','tk-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">ダウンロード</button>}
         {printRec && <button onClick={()=>onShowPrintPreview('ケアマネ送付セット（通所介護計画書）','A4','tk-fax-set')} title="送付状(変更点一覧つき)+今回の計画書+前回の計画書(評価入り)をまとめて印刷します" className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">ケアマネ送付セット</button>}
       </div>
@@ -49892,9 +49913,10 @@ ${optionsDesc}
           style={{padding:'7px 12px',borderRadius:10,fontSize:12,fontWeight:'bold',border:'none',background:'#10b981',color:'white',cursor:'pointer'}}>
           {checkedIds.size && !allChecked ? `選んだ${attendedPats.filter(p=>checkedIds.has(p.id)&&!getSheetRecord(p.id)?.confirmed).length}名を確定` : '一括確定'}
         </button>
+        <MaskToggle small/>
         <button type="button" onClick={faxToCareManagers} title="作成済みのモニタリング表をケアマネ宛先つきでプレビュー表示し、送付履歴に記録します(印刷/PDF/複合機FAXはプレビューから)"
           style={{padding:'7px 12px',borderRadius:10,fontSize:12,fontWeight:'bold',border:'1px solid #fdba74',background:'#fff7ed',color:'#c2410c',cursor:'pointer'}}>
-          印刷/PDF
+          ダウンロード
         </button>
         <button type="button" onClick={autoFaxToCareManagers} disabled={autoFax?.running} title="各利用者のモニタリング表を、それぞれの担当ケアマネのFAX番号へ外部FAX(InterFAX)で自動送信します（送信は従量課金）"
           style={{padding:'7px 12px',borderRadius:10,fontSize:12,fontWeight:'bold',border:'1px solid #6366f1',background:autoFax?.running?'#e0e7ff':'#eef2ff',color:'#4338ca',cursor:autoFax?.running?'wait':'pointer'}}>
@@ -49904,10 +49926,7 @@ ${optionsDesc}
         <span style={{marginLeft:'auto'}}/>
         <input type="month" value={targetMonth} onChange={e=>setTargetMonth(e.target.value)}
           style={{background:'rgba(255,255,255,0.5)',border:'1px solid rgba(255,255,255,0.7)',color:'#1e293b',borderRadius:10,padding:'6px 10px',fontSize:12,fontWeight:'bold',outline:'none',cursor:'pointer'}}/>
-        <button type="button" onClick={previewSheets} title="選んだ(無ければ全員の)モニタリング表を表形式でプレビュー。この画面から印刷/PDF/FAXできます"
-          style={{background:'rgba(255,255,255,0.5)',border:'1px solid rgba(255,255,255,0.7)',color:'#1e293b',borderRadius:10,padding:'8px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer'}}>
-          プレビュー
-        </button>
+        {/* ★ 2026-10-04 ユーザー指示: 「プレビュー」は「印刷/PDF」と重複していたため統合(ダウンロード) */}
         <button type="button" onClick={()=>{ markClean(); onSave({...appData}, {manual:true, message:'✓ 保存しました'}); }}
           style={{background:'#2563eb',border:'none',color:'white',borderRadius:10,padding:'8px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer'}}>
           保存
@@ -50800,15 +50819,17 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   //   status を printed にする handlePrint は使われていなかった。プレビュー画面の「印刷 / PDF保存」で
   //   window に 'tsumugi:printed' が飛ぶので、開いている送付状(selectedEntry)を「連絡済」にする。
   const _printedRef = React.useRef(null);
-  _printedRef.current = () => {
+  _printedRef.current = (method) => {
     if (!selectedEntry) return;
     const key = getKey(selectedEntry.date, selectedEntry.patient.id);
     const cur = getFax(selectedEntry.date, selectedEntry.patient.id);
     if (cur.status === 'faxed' || cur.status === 'both') return;
+    // ★ 2026-10-04(ユーザー指摘「ダウンロードしても連絡済になる」): ダウンロード(PDF)は status 'pdf' = 「ダウンロード済」。印刷は 'printed' = 「連絡済」
+    if (method === 'pdf') { updateFax(key, { status: cur.status === 'printed' ? 'both' : 'pdf' }, { autoSave: true }); return; }
     updateFax(key, { status: cur.status === 'pdf' ? 'both' : 'printed' }, { autoSave: true });
   };
   React.useEffect(() => {
-    const h = (e) => { try { if (String(e?.detail?.title || '').startsWith('休み連絡')) _printedRef.current && _printedRef.current(); } catch {} };
+    const h = (e) => { try { if (String(e?.detail?.title || '').startsWith('休み連絡')) _printedRef.current && _printedRef.current(e?.detail?.method); } catch {} };
     window.addEventListener('tsumugi:printed', h);
     return () => window.removeEventListener('tsumugi:printed', h);
   }, []);
@@ -50936,8 +50957,9 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                 setIsPrint(false);
               },100);
             }} style={{background:'#0f766e',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
-              プレビュー
+              ダウンロード
             </button>
+            <MaskToggle small/>
             <button type="button" onClick={()=>{
               markClean();
               // faxData で編集された理由(reason)を、対応する ticketRecord.tokki にも反映
@@ -51156,7 +51178,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   // ★ 状態を区別して表示(2026-08-25 店舗要望): 編集しただけ=青、印刷/PDF/送信済み=緑
   // ★ 2026-09-24 ユーザー指示: 印刷/PDF/FAX(将来のAPI送信=faxed)はすべて「連絡済」と表示する(編集済→連絡済の2段階)
   const statusColors = { none:'', edited:'#dbeafe', printed:'#dcfce7', pdf:'#dcfce7', both:'#dcfce7', faxed:'#dcfce7' };
-  const statusLabels = { edited:'編集済', printed:'連絡済', pdf:'連絡済', both:'連絡済', faxed:'連絡済' };
+  const statusLabels = { edited:'編集済', printed:'連絡済', pdf:'ダウンロード済', both:'連絡済', faxed:'連絡済' };
   // fax データが何らかの編集（理由・連絡者・備考・チェック）を含むかどうか
   const isFaxEdited = (fd) => {
     if (!fd) return false;
@@ -51520,9 +51542,10 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                   style={{background:'#0369a1',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
             定型文
           </button>
+          <MaskToggle small/>
           <button type="button" onClick={handlePreview}
                   style={{background:'#0f766e',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
-            プレビュー
+            ダウンロード
           </button>
           <button type="button" onClick={()=>setShowFaxHist(true)}
                   style={{background:'#7c3aed',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
@@ -52644,6 +52667,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                     className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold">
                     編集・追記
                   </button>
+                  <MaskToggle small/>
                   <button onClick={()=>setPdfPreviewFaceSheet(true)}
                     className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold">ダウンロード</button>
                 </div>
