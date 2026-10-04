@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>つむぎ アカウント登録のお願い（ケアマネジャー・居宅介護支援事業所向け）</title>
+<style>
+  :root{--ink:#22301c;--sub:#5b6650;--line:#dfe5d6;--green:#4f7a2a;--green-l:#eef5e4;--green-d:#2f4a1a;--amber:#b7791f;--amber-l:#fbf3df;--blue:#2b5fb3;--blue-l:#eaf1fb;--blue-d:#1e3f7a;--paper:#fff}
+  *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{margin:0;background:#e9ece4;font-family:'Hiragino Kaku Gothic ProN','Hiragino Sans','Yu Gothic','Noto Sans JP','Meiryo',sans-serif;color:var(--ink);line-height:1.6;font-size:13px}
+  .page{width:210mm;height:297mm;background:var(--paper);margin:8mm auto;padding:11mm 12mm 9mm;box-shadow:0 6px 24px rgba(0,0,0,.12);position:relative;page-break-after:always;display:flex;flex-direction:column;overflow:hidden}
+  .page:last-child{page-break-after:auto}
+  img{max-width:100%;height:auto;display:block}
+  .to{display:flex;justify-content:space-between;align-items:flex-end;font-size:12.5px;margin-bottom:3mm}
+  .to .l{font-weight:700;font-size:14px;white-space:nowrap}
+  .to>div:last-child{white-space:nowrap}
+  .to .u{display:inline-block;border-bottom:1px solid #94a3b8;min-width:40mm;height:16px;vertical-align:bottom;margin:0 4px}
+  .hero{display:grid;grid-template-columns:1fr 70mm;gap:6mm;align-items:center;background:linear-gradient(180deg,#eaf1fb,#fff);border-radius:14px;padding:7mm 8mm 6mm;border:1px solid #c5d6f2}
+  .eyebrow{font-size:10.5px;letter-spacing:.18em;color:var(--blue);font-weight:700}
+  h1{font-size:23px;line-height:1.3;margin:4px 0 7px;color:var(--blue-d)}
+  .lead{font-size:12.5px;color:var(--sub);margin:0}
+  .shot{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+  .shot.fx{height:50mm}.shot.fx img{height:100%;object-fit:cover;object-position:left top}
+  h2{font-size:16px;margin:3.2mm 0 2mm;color:var(--blue-d);display:flex;align-items:center;gap:8px}
+  h2::after{content:'';flex:1;height:1px;background:var(--line)}
+  .merit{display:grid;grid-template-columns:1fr 1fr;gap:3mm 4mm}
+  .merit .card{border:1px solid var(--line);border-radius:10px;padding:9px 11px 9px 44px;background:#fff;font-size:12px;position:relative;min-height:24mm}
+  .merit .card b{display:block;color:var(--blue-d);font-size:13.5px;margin-bottom:2px}
+  .merit .card i{position:absolute;left:10px;top:9px;width:26px;height:26px;border-radius:50%;background:var(--blue);color:#fff;font-style:normal;font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center}
+  .flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:stretch;gap:5px}
+  .step{border:2px solid var(--blue);border-radius:10px;padding:6px 10px;background:#fff}
+  .step b{display:block;color:var(--blue-d);font-size:13px}
+  .step span{font-size:11.3px;color:var(--sub)}
+  .arr{align-self:center;color:var(--blue);font-size:20px;font-weight:700}
+  .invite{display:grid;grid-template-columns:1fr 46mm;gap:5mm;align-items:stretch;margin-top:3mm}
+  .invite .box{border:1.5px dashed var(--blue);border-radius:10px;padding:7px 11px;font-size:11.5px;background:var(--blue-l)}
+  .invite .box b{color:var(--blue-d);display:block;font-size:13px;margin-bottom:3px}
+  .invite .code{display:inline-block;border-bottom:1.5px solid #64748b;min-width:60mm;height:22px;vertical-align:bottom;margin-left:6px}
+  .qr{border:1.5px dashed #94a3b8;border-radius:10px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:10.5px;color:var(--sub);padding:6px}
+  .band{display:grid;grid-template-columns:repeat(3,1fr);gap:3mm}
+  .band .card{background:var(--blue-l);border:1px solid #c5d6f2;border-radius:10px;padding:6px 9px;font-size:10.8px;line-height:1.5}
+  .band .card b{display:block;color:var(--blue-d);font-size:13px;margin-bottom:2px}
+  .ask{display:grid;grid-template-columns:1fr 1fr 1fr;gap:3mm}
+  .ask .card{border:1px solid var(--line);border-radius:10px;padding:6px 9px;background:#fff;font-size:10.8px;line-height:1.5}
+  .ask .card b{display:block;color:var(--blue-d);font-size:12.5px;margin-bottom:2px}
+  table.ba{width:100%;border-collapse:collapse;font-size:11.3px}
+  table.ba th,table.ba td{border:1px solid var(--line);padding:3.5px 8px;text-align:left;vertical-align:top}
+  table.ba th{background:var(--blue-l);color:var(--blue-d);font-size:11px;white-space:nowrap}
+  table.ba td.after{background:#f3f8ee}
+  .faq{display:grid;grid-template-columns:1fr 1fr;gap:1.5mm 6mm}
+  .qa{font-size:11px}.qa b{display:block;color:var(--blue-d)}.qa b::before{content:'Q. ';color:var(--amber)}.qa p{margin:1px 0 0}.qa p::before{content:'A. ';color:var(--blue);font-weight:700}
+  .foot{margin-top:auto;padding-top:6px;border-top:1px solid var(--line);font-size:10px;color:var(--sub);display:flex;justify-content:space-between;align-items:flex-end;gap:10px}
+  .contact{border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:11.5px;min-width:92mm;color:var(--ink)}
+  .contact .l{display:inline-block;width:17mm;color:var(--sub);font-size:10.5px}
+  .contact .u{display:inline-block;border-bottom:1px solid #94a3b8;min-width:66mm;height:15px;vertical-align:bottom}
+  .cta{background:var(--blue-d);color:#fff;border-radius:12px;padding:4mm 7mm;text-align:center}
+  .cta b{display:block;font-size:17px;margin-bottom:3px}
+  .cta span{font-size:12px;opacity:.9}
+  .pill{display:inline-block;padding:0 8px;border-radius:999px;font-size:10px;font-weight:700;background:var(--amber-l);color:var(--amber);margin-left:6px;vertical-align:middle}
+  @media print{body{background:#fff}.page{margin:0;box-shadow:none}}
+  @page{size:A4 portrait;margin:0}
+</style>
+</head>
+<body>
+
+<!-- 表: 担当ケアマネジャー様へ -->
+<div class="page">
+  <div class="to">
+    <div class="l">居宅介護支援事業所　ご担当ケアマネジャー様</div>
+    <div>デイサービス <span class="u"></span>　担当 <span class="u" style="min-width:26mm"></span></div>
+  </div>
+  <div class="hero">
+    <div>
+      <div class="eyebrow">ケアマネジャー向け　アカウント登録のお願い</div>
+      <h1>「つむぎ」で、担当のご利用者の<br>通所状況を画面で確認できます。</h1>
+      <p class="lead">当事業所では、通所記録・モニタリング表・休み連絡・フェイスシートのやりとりを、専用ページ「つむぎ」で行っています。担当の方お一人につき1つのアカウントを、無料でご登録いただけますようお願い申し上げます。登録は3分で終わります。</p>
+    </div>
+    <div class="shot fx"><img src="/manual/img/sales_cm_pc_home.jpg" alt="ケアマネ画面（見本データ）"></div>
+  </div>
+
+  <h2>ご登録いただくと<span class="pill">画面はすべて見本データ</span></h2>
+  <div class="merit">
+    <div class="card"><i>1</i><b>電話をかけずに通所状況が分かる</b>その日の様子・気分・体温・血圧・運動・通所率を、通所したその日に確認できます。モニタリング訪問や担当者会議の前に、画面で状況を把握できます。</div>
+    <div class="card"><i>2</i><b>モニタリング表がすぐ届く・探さない</b>毎月のモニタリング表は確定と同時に画面に載り、お知らせが届きます。当月・前月はすぐ、過去分は月を選んで確認できます。FAXの束から探す手間がなくなります。</div>
+    <div class="card"><i>3</i><b>フェイスシート・保険証の二重入力がなくなる</b>フェイスシートの入力、介護保険証・負担割合証・アセスメントの共有ができ、事業所の記録に自動で反映されます。更新したときは「いつ・誰が・どこを」の履歴が残ります。</div>
+    <div class="card"><i>4</i><b>休み連絡・災害時の安否も届く</b>欠席・振替のご連絡や、担当者会議の予定のお知らせ、災害時の安否・避難先のお知らせが届きます。ご家族への連絡状況を電話で確認する必要がありません。</div>
+  </div>
+
+  <h2>登録は3ステップ（所要3分・無料）</h2>
+  <div class="flow">
+    <div class="step"><b>1. 招待を受け取る</b><span>当事業所から、招待メール、またはこの用紙のQRコード・招待コード（3日間有効）をお渡しします。</span></div>
+    <div class="arr">→</div>
+    <div class="step"><b>2. ご自身の情報を登録</b><span>お名前・所属事業所・連絡先と、ログインID・パスワードを入力します。インストールは不要です。</span></div>
+    <div class="arr">→</div>
+    <div class="step"><b>3. ログインして確認</b><span>担当のご利用者が増えたときは当事業所が追加します。次回以降は同じIDで「利用者切替」から確認できます。</span></div>
+  </div>
+  <div class="invite">
+    <div class="box"><b>招待コード（8桁・3日間有効）</b>コード <span class="code"></span><br><span style="font-size:10.5px;color:var(--sub)">登録ページ：当事業所の「つむぎ」ご家族・関係者ページ（右のQRコード）を開き、「招待コード（数字8桁）」にこの番号を入力してください。</span></div>
+    <div class="qr">QRコードを<br>貼り付けてください<br><span style="font-size:9.5px">（招待のご案内に印刷されます）</span></div>
+  </div>
+
+  <div class="foot">
+    <div>裏面：居宅介護支援事業所の管理者様へ（事業所としてのメリット・安心のしくみ・お願いしたいこと・よくあるご質問）</div>
+    <div class="contact"><span class="l">デイサービス</span><span class="u"></span><br><span class="l">電話</span><span class="u"></span></div>
+  </div>
+</div>
+
+<!-- 裏: 居宅介護支援事業所 管理者様へ -->
+<div class="page">
+  <div class="to">
+    <div class="l">居宅介護支援事業所　管理者様</div>
+    <div style="font-size:11.5px;color:var(--sub)">担当ケアマネジャーのアカウント登録に、ご理解とご協力をお願いいたします。</div>
+  </div>
+
+  <h2 style="margin-top:0">事業所としてのメリット</h2>
+  <div class="band">
+    <div class="card"><b>担当者ごとのアカウント</b>担当者お一人に1アカウント。担当のご利用者はすべてそのアカウントで確認でき、担当が変わると閲覧できるご利用者も自動で切り替わります。退所後は閲覧できなくなります。</div>
+    <div class="card"><b>何人でも、何事業所でも</b>同じ居宅介護支援事業所から複数の担当者が登録できます。複数のデイサービスから招待があっても、同じIDでまとめてログインし、切り替えて確認できます。</div>
+    <div class="card"><b>電話・FAXのやりとりが減る</b>通所状況の電話確認、モニタリング表のFAX待ち、保険証コピーの受け渡しが画面で済みます。モニタリング表を画面で閲覧すると事業所側に「閲覧済み」と伝わり、FAXを省けます。</div>
+  </div>
+
+  <h2>導入後に変わること</h2>
+  <table class="ba">
+    <tr><th>場面</th><th>これまで</th><th>つむぎ登録後</th></tr>
+    <tr><td>通所状況の確認</td><td>デイサービスへ電話して聞く</td><td class="after">画面で当日の様子・バイタル・通所率を確認</td></tr>
+    <tr><td>毎月のモニタリング表</td><td>FAXで受け取り、ファイルに綴じる</td><td class="after">確定と同時に画面へ。過去分も月を選んで確認（必要な方には従来どおりFAXも）</td></tr>
+    <tr><td>保険証・負担割合証の更新</td><td>コピーを届ける／FAXする</td><td class="after">画像を共有すると介護度・認定期間が事業所の記録へ自動反映</td></tr>
+    <tr><td>フェイスシート</td><td>紙で渡し、事業所が転記</td><td class="after">画面で入力・更新。事業所の個人ファイルに反映され、更新履歴が残る</td></tr>
+    <tr><td>欠席・振替・災害時</td><td>電話・FAXで個別に連絡</td><td class="after">休み連絡・安否のお知らせが届く</td></tr>
+  </table>
+
+  <h2>安心のしくみ</h2>
+  <div class="band">
+    <div class="card"><b>同意のもとで、守秘の範囲で</b>閲覧はご利用者ご本人（またはご家族）の同意のもとで行われます。職務上知り得た情報は守秘の対象で、ケアマネジメント等の目的以外には利用できません。</div>
+    <div class="card"><b>ひとりずつのID・暗号化</b>担当者ごとに別のIDでログインし、通信は暗号化されます。招待コードは3日で無効になり、1回しか使えません。アカウントの共有・譲渡はできません。</div>
+    <div class="card"><b>端末を選びません</b>PC・タブレット・スマホのブラウザで開くだけ。インストールは不要で、「ホーム画面に追加」するとアプリのように開けます。パスワードはご自身で再設定できます。</div>
+  </div>
+
+  <h2>お願いしたいこと</h2>
+  <div class="ask">
+    <div class="card"><b>① 担当者のお名前・メールアドレス</b>招待メールをお送りするため、担当ケアマネジャーのお名前とメールアドレスをお知らせください（紙の招待でも登録できます）。</div>
+    <div class="card"><b>② FAX番号のご確認</b>モニタリング表・休み連絡をFAXでもお送りする場合に使います。番号が変わったときはお知らせください。</div>
+    <div class="card"><b>③ 担当変更のご連絡</b>担当者が変わったときにご連絡いただくと、閲覧できるご利用者を当事業所で切り替えます。</div>
+  </div>
+
+  <h2>よくあるご質問</h2>
+  <div class="faq">
+    <div class="qa"><b>料金はかかりますか。</b><p>かかりません。デイサービスがご利用者のために用意している専用ページです。</p></div>
+    <div class="qa"><b>登録しないと不利益がありますか。</b><p>ありません。これまでどおり電話・FAXでも対応します。登録いただくと確認が早く、やりとりが減ります。</p></div>
+    <div class="qa"><b>担当者が退職したときは。</b><p>ご連絡いただければ当事業所でアカウントを停止し、後任の方を新たに招待します。</p></div>
+    <div class="qa"><b>個人情報の管理は。</b><p>ご利用者ごとに同意を得て公開し、担当者以外は閲覧できません。モニタリング表を閲覧したことは事業所側で確認できます。</p></div>
+  </div>
+
+  <div class="cta" style="margin-top:2mm;padding:3mm 7mm"><b>ご登録のご依頼・ご質問は、下記の担当までお気軽に</b><span>招待のご案内（QRコード・招待コード）をお渡しします。登録は3分、料金はかかりません。</span></div>
+
+  <div class="foot">
+    <div>つむぎ（Tsumugi）— ご家族・ケアマネ・事業所・関係者が、ご利用者を支え、やさしく紡ぐ。画面はすべて見本データです。</div>
+    <div class="contact"><span class="l">デイサービス</span><span class="u"></span><br><span class="l">担当・電話</span><span class="u"></span></div>
+  </div>
+</div>
+
+</body>
+</html>
