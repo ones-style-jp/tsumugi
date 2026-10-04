@@ -7,6 +7,7 @@ const JOBS = [
   ['lp-kazoku.html', 'つむぎのご案内_ご家族向け.pdf'],
   ['lp-kankeisha.html', 'つむぎのご案内_ケアマネ向け.pdf'],
   ['sales-onepager.html', 'つむぎご案内_ご家族向け・ケアマネ向け.pdf'],
+  ['lp-cm-touroku.html', 'つむぎアカウント登録のお願い_ケアマネ・居宅事業所向け.pdf'],
 ];
 const b = await chromium.launch(); let bad = 0;
 for (const [src, name] of JOBS) {
