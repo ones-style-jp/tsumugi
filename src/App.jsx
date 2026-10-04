@@ -11971,11 +11971,14 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
   const dow = ['日','月','火','水','木','金','土'][now.getDay()];
   const todayEvents = (appData.scheduleEvents||[]).filter(e=>e.date===todayStr).sort((a,b)=>String(a.start||'99').localeCompare(String(b.start||'99')));
   // お知らせ (事業所が投稿したお知らせ) 直近
+  const patName = (pid) => (appData.patients||[]).find(p=>p.id===pid)?.name || '';
+  // ★ 2026-10-04(ユーザー指示「ここのお知らせもグループ化して」): モニタリングの自動お知らせ(monann_)は月ごとに1行にまとめる(詳細に配信先一覧)
+  const _monGrouped = (() => { const g = new Map(); (appData.familyPersonalAnnouncements||[]).forEach(a => { if (!/^monann_/.test(String(a.id||''))) return; const m = String(a.title||'').match(/モニタリング（([^）]+)）/); const key = m ? m[1] : String(a.date||'').slice(0,7); const cur = g.get(key) || { id: `mongrp_${key}`, _kind: '個別', _group: 'mon', period: key, postedAt: '', date: '', members: [], photos: [] }; cur.members.push({ patientId: a.patientId, date: a.date, postedAt: a.postedAt, updated: /更新/.test(a.title||'') }); const ts = String(a.postedAt||a.date||''); if (ts > cur.postedAt) { cur.postedAt = ts; cur.date = a.date || ''; } g.set(key, cur); }); return [...g.values()].map(x => ({ ...x, title: `モニタリング（${x.period}）を ${x.members.length}名のケアマネへ配信`, body: x.members.slice().sort((a,b)=>String(b.postedAt||b.date||'').localeCompare(String(a.postedAt||a.date||''))).map(m => `${m.date || ''}　${patName(m.patientId) || `ID ${m.patientId}`} 様（${m.updated ? '更新' : '作成'}）`).join('\n') })); })();
   const news = [
     ...(appData.familyAnnouncements||[]).map(a=>({...a,_kind:'全体'})),
-    ...(appData.familyPersonalAnnouncements||[]).map(a=>({...a,_kind:'個別'})),
+    ...(appData.familyPersonalAnnouncements||[]).filter(a => !/^monann_/.test(String(a.id||''))).map(a=>({...a,_kind:'個別'})),
+    ..._monGrouped,
   ].filter(a=>a.title||a.body).sort((a,b)=>(b.postedAt||b.date||'').localeCompare(a.postedAt||a.date||'')).slice(0,50);
-  const patName = (pid) => (appData.patients||[]).find(p=>p.id===pid)?.name || '';
   // ★ お知らせの既読管理は App 側で保持(サイドバーの新着バッジと共有)。 見たら薄いグレー(未読は色付き)。
   const isRead = isNoticeRead || (()=>false);
   const markRead = markNoticeRead || (()=>{});
@@ -12180,9 +12183,9 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                 {/* ★ #4: 事業所からのお知らせは既読管理しない(投稿したら表示のみ)。 タップで詳細は見られるが既読は付けない。 */}
                 {/* ★ 1行表示(2026-08-21): バッジ+日付+題名(+写真枚数)。 タップで詳細モーダル(本文・写真) */}
                 {_pageSlice(news, newsPage, 5).map(a=>{ const _c=a._kind==='個別'?'#b45309':'#1d4ed8'; const _ph=(Array.isArray(a.photos)?a.photos.length:0); return (
-                  <button key={a.id} onClick={()=>setNoticeDetail({id:a.id,badge:`${a._kind}${a.patientId?`・${patName(a.patientId)}`:''}`,badgeColor:_c,date:(a.postedAt?String(a.postedAt).slice(0,10):(a.date||'')),title:a.title||'(写真)',body:a.body,patientId:a.patientId,photos:a.photos})}
+                  <button key={a.id} onClick={()=>setNoticeDetail({id:a.id,badge:a._group==='mon' ? `個別・${a.members.length}名` : `${a._kind}${a.patientId?`・${patName(a.patientId)}`:''}`,badgeColor:_c,date:(a.postedAt?String(a.postedAt).slice(0,10):(a.date||'')),title:a.title||'(写真)',body:a.body,patientId:a.patientId,photos:a.photos})}
                     style={{textAlign:'left',width:'100%',cursor:'pointer',background:(a._kind==='個別'?'#fffbeb':'#eff6ff'),border:`1px solid ${_c+'55'}`,borderRadius:8,padding:'6px 10px',display:'flex',alignItems:'center',gap:8,minWidth:0}}>
-                    <span style={{fontSize:9,fontWeight:'bold',color:_c,background:(a._kind==='個別'?'#fef3c7':'#dbeafe'),borderRadius:4,padding:'2px 6px',whiteSpace:'nowrap',flexShrink:0}}>{a._kind}{a.patientId?`・${patName(a.patientId)}`:''}</span>
+                    <span style={{fontSize:9,fontWeight:'bold',color:_c,background:(a._kind==='個別'?'#fef3c7':'#dbeafe'),borderRadius:4,padding:'2px 6px',whiteSpace:'nowrap',flexShrink:0}}>{a._group==='mon' ? `個別・${a.members.length}名` : <>{a._kind}{a.patientId?`・${patName(a.patientId)}`:''}</>}</span>
                     <span style={{fontSize:10,color:'#64748b',whiteSpace:'nowrap',flexShrink:0}}>{a.postedAt ? String(a.postedAt).slice(0,10) : (a.date||'')}</span>
                     <span style={{fontSize:12.5,fontWeight:'bold',color:_c,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',flex:1,minWidth:0}}>{a.title||'(写真)'}</span>
                     {_ph>0 && <span style={{fontSize:9,fontWeight:'bold',color:'#475569',background:'#e2e8f0',borderRadius:999,padding:'2px 7px',whiteSpace:'nowrap',flexShrink:0}}>写真{_ph}枚</span>}
@@ -16199,7 +16202,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
               )}
               <button onClick={()=>setMyInfoOpen(true)} style={hdrBtnStyle}>利用者・登録者情報</button>
               {/* ★ ケアマネ(関係者): フェイスシートの登録・編集 (事業所の個人ファイルへ反映)。 プレビューでも位置確認できるよう表示 */}
-              {(isCmAccount || canEditMyInfo) && !_isPreview && (
+              {(isCmAccount || canEditMyInfo) && (
                 <button onClick={()=>setCmFaceSheetOpen(true)} style={{...hdrBtnStyle, background:'#eef2ff', borderColor:'#c7d2fe', color:'#4338ca'}}>フェイスシート</button>
               )}
               {isCmAccount && (
@@ -16581,12 +16584,13 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
             {myInfoTab === 'patient' && (
               <div style={{display:'grid',gap:8}}>
                 {/* ★ 2026-10-04(ユーザー要望): フェイスシートの内容をそのまま編集できる入口と、更新履歴(だれが・いつ・どこをどう変えたか) */}
-                {(isCmAccount || canEditMyInfo) && !_isPreview && (
+                {(isCmAccount || canEditMyInfo) && (
                   <button type="button" onClick={()=>{ setMyInfoOpen(false); setCmFaceSheetOpen(true); }} data-testid="fam-open-facesheet"
-                    style={{padding:'10px 12px',background:'#eef2ff',border:'1px solid #c7d2fe',color:'#4338ca',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer',textAlign:'left'}}>
-                    フェイスシートを開いて編集（かかりつけ医の追加・緊急連絡先・既往歴など）›
+                    style={{padding:'12px 14px',background:'#4338ca',border:'none',color:'white',borderRadius:10,fontSize:14,fontWeight:'bold',cursor:'pointer',textAlign:'center'}}>
+                    利用者情報を編集する（フェイスシート）
                   </button>
                 )}
+                <div style={{fontSize:11,color:'#64748b',lineHeight:1.5}}>※ 編集はすべてフェイスシートで行います（基本情報・緊急連絡先・かかりつけ医の追加・既往歴・留意点など）。保存すると事業所にも反映されます。</div>
                 {(() => { const log = (Array.isArray(patient?.docUpdates) ? patient.docUpdates : []).slice().reverse().slice(0, 20); if (!log.length) return null;
                   const fmt = (iso) => { try { const d = new Date(iso); return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; } catch { return ''; } };
                   const who = (u) => (u.by === 'caremanager' ? 'ケアマネ' : u.by === 'family' ? 'ご家族' : '事業所') + (u.byName ? `（${u.byName}）` : '');
@@ -16648,7 +16652,8 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                     {editableFields.map(f => (
                       <div key={f.key}>
                         <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:3}}>{f.label}</label>
-                        {!canEditMyInfo ? (
+                        {/* ★ 2026-10-04 ユーザー指示: ここでの直接入力はやめ(二度手間防止)、編集はフェイスシートに一本化。表示のみ */}
+                        {true ? (
                           <div style={{
                             width:'100%', padding:'9px 12px',
                             background:'#f8fafc', border:'1px solid #e2e8f0',
@@ -16672,7 +16677,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                 <div style={{display:'flex',gap:8,marginTop:14}}>
                   <button onClick={()=>setMyInfoOpen(false)} disabled={patientForm.saving}
                     style={{flex:1,padding:'11px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:patientForm.saving?'not-allowed':'pointer'}}>閉じる</button>
-                  {canEditMyInfo && (
+                  {false && canEditMyInfo && ( /* ★ 2026-10-04: 保存はフェイスシートに一本化(この旧フォームの保存は使わない) */
                     <button onClick={async () => {
                       // ★ 保存前に確認ダイアログ
                       if (!window.confirm('この保存した内容は事業所側にも変更されてしまいます。 よろしいでしょうか?')) return;
@@ -29598,7 +29603,7 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
         <React.Fragment key={`${d}_${first ? 'L' : 'R'}`}>
           {grip && <td {...dragProps} onPointerDown={m ? (e) => startDrag(e, k, d, sl2, m.id) : undefined} style={{ border: B, ...bl, textAlign: 'center', background: isOver ? '#dbeafe' : (m ? '#f8fafc' : bg), color: '#94a3b8', opacity: isDrag ? 0.4 : 1, cursor: m ? 'grab' : 'default', touchAction: m ? 'none' : 'auto', userSelect: 'none', fontSize: 11 }} title={m ? 'ここをつかんで上下に動かすと同じ枠の中で並べ替え' : ''} data-testid={m ? `cr-row-${k}-${m.id}` : undefined}>{m ? '⋮' : ''}</td>}
           <td {...dragProps} style={{ border: B, borderRight: PB, ...(grip ? {} : bl), textAlign: 'left', padding: '0 4px', background: isOver ? '#dbeafe' : bg, whiteSpace: 'nowrap', overflow: 'hidden', fontWeight: 'bold', color: paused ? '#94a3b8' : '#1e293b', opacity: isDrag ? 0.4 : 1, borderTop: isOver ? '2px solid #2563eb' : B }} title={paused ? '休止中' : ''}>
-            {m ? <span style={{ position: 'relative', display: 'block', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', paddingTop: paused ? (print ? 5 : 6) : 0, lineHeight: 1.1 }}>{paused && <span style={{ position: 'absolute', top: 0, left: 0, fontSize: print ? 6 : 7, lineHeight: 1, fontWeight: 'bold', color: '#64748b', letterSpacing: 1 }}>休止中</span>}{m.name}</span> : ''}
+            {m ? <span style={{ display: 'block', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', color: paused ? '#9ca3af' : undefined, fontStyle: paused ? 'italic' : 'normal' }}>{m.name}</span> : ''}
           </td>
           <td {...dragProps} style={{ border: B, borderLeft: PB, textAlign: 'center', background: m ? (sup ? '#fce7f3' : '#f8fafc') : bg, color: m ? (sup ? '#9d174d' : '#334155') : '#334155', fontSize: fs - 1, opacity: isDrag ? 0.4 : 1, whiteSpace: 'nowrap' }}>{m ? short(m.careLevel) : ''}</td>
         </React.Fragment>);
@@ -29650,6 +29655,7 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
         <div className="font-bold text-slate-800">クラス在籍表</div>
         <span className="text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 rounded-lg px-2 py-1">定員 {cap}名（＋予備1枠）</span>
         <div className="text-[11px] text-slate-500">基本利用曜日から自動で並びます（介護度順）。左端の「⋮」をつかんで動かすと同じ枠の中で並べ替えできます。「待ち」は自由入力。曜日の変更は利用者マスタで。</div>
+        <span className="text-[11px] text-slate-500 flex items-center gap-1" data-testid="cr-legend"><span style={{display:'inline-block',width:14,height:14,borderRadius:3,background:'#e5e7eb'}}/><span style={{color:'#9ca3af',fontStyle:'italic',fontWeight:'bold'}}>グレー（斜体）</span>＝休止中の方</span>
         <div className="ml-auto flex items-center gap-2">
           <span className="text-[11px] text-slate-600">午前 {total('AM')}名 ／ 午後 {total('PM')}名</span>
           <button type="button" data-testid="cr-print" onClick={doPrint} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">ダウンロード</button>
@@ -29657,15 +29663,17 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
       </div>
       <div className="flex-1 overflow-auto p-3">
         {rows > 11 && <div className="text-[11px] text-slate-500 mb-1">定員が多いため各曜日を2列で表示しています（画面が狭い場合は横にスクロールできます）</div>}
-        <div className="bg-white rounded-xl border border-slate-200 p-2 mb-3 overflow-x-auto">{renderBlock('AM', '午前', false)}</div>
-        <div className="bg-white rounded-xl border border-slate-200 p-2 overflow-x-auto">{renderBlock('PM', '午後', false)}</div>
+        <div className="overflow-x-auto" data-testid="cr-scroll">{/* ★ 2026-10-04: 午前・午後は同じ横スクロール(曜日の列が連動して動く) */}
+          <div className="bg-white rounded-xl border border-slate-200 p-2 mb-3">{renderBlock('AM', '午前', false)}</div>
+          <div className="bg-white rounded-xl border border-slate-200 p-2">{renderBlock('PM', '午後', false)}</div>
+        </div>
       </div>
       {/* 印刷用(A4横・余白は内側のdivで確保: 印刷ホストがbody直下の余白を0にするため) */}
       <div id="print-content-classroster" style={{ display: 'none' }}>
         <style>{`@page{size:A4 landscape;margin:0}`}</style>
         <div style={{ width: '297mm', height: '210mm', boxSizing: 'border-box', background: 'white', overflow: 'hidden' }}>
           <div style={{ padding: '7mm 9mm', boxSizing: 'border-box', height: '100%', display: 'flex', flexDirection: 'column', gap: 6, fontFamily: '"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","メイリオ",Meiryo,sans-serif', color: '#1e293b' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}><span style={{ fontSize: 13, fontWeight: 'bold' }}>クラス在籍表　<span style={{ fontSize: 10, fontWeight: 'normal', color: '#475569' }}>定員 {cap}名（＋予備1枠）</span></span><span style={{ fontSize: 10, color: '#475569' }}>{String(fi.name || '')}　{todayIso.replace(/-/g, '/')} 現在</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}><span style={{ fontSize: 13, fontWeight: 'bold' }}>クラス在籍表　<span style={{ fontSize: 10, fontWeight: 'normal', color: '#475569' }}>定員 {cap}名（＋予備1枠）　<span style={{ color: '#9ca3af', fontStyle: 'italic', fontWeight: 'bold' }}>グレー（斜体）</span>＝休止中</span></span><span style={{ fontSize: 10, color: '#475569' }}>{String(fi.name || '')}　{todayIso.replace(/-/g, '/')} 現在</span></div>
             <div style={{ flex: '1 1 0', minHeight: 0 }}>{renderBlock('AM', '午前', true)}</div><div style={{ flex: '1 1 0', minHeight: 0 }}>{renderBlock('PM', '午後', true)}</div>
           </div>
         </div>
@@ -32115,6 +32123,7 @@ function RenrakuModal({ appData, patientId, dayPatientIds, onClose, onSave }) {
     _tmplSig0Ref.current = JSON.stringify(templates);
   }
   const [warn, setWarn] = React.useState('');
+  const [usage, setUsage] = React.useState(0);
   const [clearN, setClearN] = React.useState({}); // ★ 連絡事項エディタを空で再マウントするための世代カウンタ(クリアボタン用)
   const measureRef = React.useRef(null);
   const allInsertRef = React.useRef(null); // 全員エディタへ挿入
@@ -32136,7 +32145,11 @@ function RenrakuModal({ appData, patientId, dayPatientIds, onClose, onSave }) {
     const el = measureRef.current; if (!el) return;
     const ph = pat?.html || '';
     el.innerHTML = (all.html||'') + ((all.html&&ph)?'<div style="height:6px"></div>':'') + ph;
-    setWarn(el.scrollHeight > RENRAKU_BOX_H ? '連絡帳の欄からはみ出しています（見切れます）。改行や文字を減らすか、文字を小さくしてください。' : '');
+    // ★ 2026-10-04(ユーザー指示「文字数制限を」): 文字の太さ・大きさで変わるため文字数ではなく実測で判定し、欄の92%を超えたら保存できない
+    //   (PDFはサーバーのフォント(Noto Sans JP)で少し幅が広くなるため、8%の余裕を取る)
+    const _ratio = el.scrollHeight / RENRAKU_BOX_H;
+    setUsage(Math.round(_ratio * 100));
+    setWarn(_ratio > 0.92 ? `連絡帳の欄に収まりません（使用 ${Math.round(_ratio*100)}%・上限92%）。改行や文字を減らすか、文字を小さくしてください。保存できません。` : '');
   }, [all.html, pat?.html]);
   const save = () => {
     const clean = (o) => ({ html: renrakuHasText(o) ? o.html : '', from: o?.from||'', until: o?.until||'' });
@@ -32283,7 +32296,8 @@ function RenrakuModal({ appData, patientId, dayPatientIds, onClose, onSave }) {
         </div>
         <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-slate-200">
           <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg font-bold text-slate-500 hover:bg-slate-100 text-sm">キャンセル</button>
-          <button type="button" onClick={save} className="px-7 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow text-sm">保存</button>
+          <span className="text-[11px] self-center mr-2" style={{color: usage > 92 ? '#dc2626' : usage > 80 ? '#d97706' : '#64748b'}}>欄の使用量 {usage}%</span>
+          <button type="button" onClick={save} disabled={!!warn} className="px-7 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-lg font-bold shadow text-sm">保存</button>
         </div>
       </div>
     </div>
@@ -32613,10 +32627,15 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       const pageW = isB6 ? 128 : 257, pageH = 182, scale = isB6 ? 0.70 : 0.66;
       const offX = Math.max(-10, Math.min(10, Number(_ss.renrakuOffsetX) || 0)), offY = Math.max(-10, Math.min(10, Number(_ss.renrakuOffsetY) || 0));
       pageSizeStr = `${pageW}mm ${pageH}mm`;
+      // ★ 2026-10-04(ダウンロードのPDFで下が切れる・2ページになる): 中央寄せ(align-items:center)で 257mm の中身をはみ出させてから縮小すると、
+      //   サーバーのPDF(Chrome)が改ページ扱いにして切れた。2面と同じく「縮小後の実寸の箱(overflow:hidden)」に左上基準で縮めて置き、余白で中央に寄せる
+      const wrapW = 182 * scale, wrapH = 257 * scale;
+      const mL = Math.max(0, (pageW - wrapW) / 2), mT = Math.max(0, (pageH - wrapH) / 2);
       combinedHtml = htmlParts.map((h,i)=>
-        `<div style="page-break-after:${i < htmlParts.length-1 ? 'always' : 'auto'};width:${pageW}mm;height:${pageH}mm;display:flex;justify-content:center;align-items:center;overflow:hidden;${(offX||offY)?`transform:translate(${offX}mm,${offY}mm);`:''}">`
-        + `<div style="transform:scale(${scale});transform-origin:center center;width:182mm;height:257mm;flex-shrink:0;">${h}</div>`
-        + `</div>`
+        `<div style="page-break-after:${i < htmlParts.length-1 ? 'always' : 'auto'};width:${pageW}mm;height:${pageH - 0.5}mm;overflow:hidden;box-sizing:border-box;">`
+        + `<div style="width:${wrapW}mm;height:${wrapH}mm;margin:${mT}mm 0 0 ${mL}mm;overflow:hidden;${(offX||offY)?`transform:translate(${offX}mm,${offY}mm);`:''}">`
+        + `<div style="transform:scale(${scale});transform-origin:top left;width:182mm;height:257mm;">${h}</div>`
+        + `</div></div>`
       ).join('');
     }
     return { combinedHtml, pageSizeStr };
@@ -33268,11 +33287,12 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
               <div className="text-xs text-slate-500 mb-4">
                 <span className="font-bold text-slate-700">{pat?.name || '—'}</span> さんの「<span className="font-bold text-slate-700">{patientValueModal.item.label}</span>」
               </div>
-              <input type="text" value={patientValueModal.value || ''}
-                     onChange={e=>setPatientValueModal({...patientValueModal, value:e.target.value})}
+              <input type="text" value={patientValueModal.value || ''} maxLength={12}
+                     onChange={e=>setPatientValueModal({...patientValueModal, value:e.target.value.slice(0, 12)})}
                      autoFocus
-                     placeholder="例: 〇 / 無 / 任意の文字"
+                     placeholder="例: 〇 / 無 / 任意の文字（12文字まで）"
                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-base outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 mb-3"/>
+              <div className="text-right"><CharCount value={patientValueModal.value} max={12}/></div>
               <div className="text-[11px] text-slate-400 mb-4">全体の既定値: <span className="font-bold text-slate-600">{patientValueModal.item.value || '（空）'}</span></div>
               <div className="flex gap-2">
                 {patientValueModal.hasOverride && (
@@ -33578,6 +33598,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
     if (item.perPatient && Object.prototype.hasOwnProperty.call(patientValues, item.id)) return patientValues[item.id];
     return item.value;
   };
+  const _rawItemText = (item) => { const v = renderItemValue(item); return (typeof v === 'string' || typeof v === 'number') ? String(v) : ''; };
   const handleCellClick = (item, e) => {
     if (!item.perPatient || item.type === 'linked' || !onEditPatientValue) return;
     e.stopPropagation();
@@ -33647,16 +33668,17 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                   const labelFs = Math.max(8, Math.min(18, Math.round(_rowH * 0.48)));
                   // ★ 長いメニュー名は「…」で切らず、文字数に応じて縮小して全文字を出す(2026-09-09 店舗要望)
                   const _lblFs = (lbl) => { const n = String(lbl || '').length; return n > 7 ? Math.max(7, Math.round(labelFs * 7 / n)) : labelFs; };
-                  // ★ 値(○/実施値)は項目名と同じフォントサイズ・太さで表示
+                  // ★ 値(○/実施値)は項目名と同じフォントサイズ・太さで表示。★ 2026-10-04: 長い値(例「棒・ボール・お手玉」)は欄(幅20%)に収まるよう文字数で縮小
                   const valueFs = labelFs;
+                  const _valFs = (item) => { try { const v = String(_rawItemText(item) || ''); const n = v.length; return n > 4 ? Math.max(7, Math.round(labelFs * 4.2 / n)) : labelFs; } catch { return labelFs; } };
                   // ★ 各行の高さを均等に分割 (空セル/値ありセルで揺れない)
                   const rowHeightPct = `${100/rows.length}%`;
                   return (
                   <tr key={idx} className={idx !== rows.length - 1 ? "border-b border-black" : ""} style={{height: rowHeightPct}}>
                     <th className="border-r border-black w-[30%] bg-white px-1" style={{fontWeight:"normal",fontSize:_lblFs(row[0].label),whiteSpace:'nowrap',overflow:'hidden',height: rowHeightPct}}>{row[0].label}</th>
-                    <td className={`border-r-2 border-black w-[20%] ${cellCls(row[0])}`} style={{fontWeight:"normal",fontSize:valueFs,whiteSpace:'nowrap',overflow:'hidden',height: rowHeightPct}} onClick={e=>handleCellClick(row[0], e)}>{renderItemValue(row[0])}</td>
+                    <td className={`border-r-2 border-black w-[20%] ${cellCls(row[0])}`} style={{fontWeight:"normal",fontSize:_valFs(row[0]),whiteSpace:'nowrap',overflow:'hidden',height: rowHeightPct}} onClick={e=>handleCellClick(row[0], e)}>{renderItemValue(row[0])}</td>
                     {row[1]
-                      ? (<><th className="border-r border-black w-[30%] bg-white px-1" style={{fontWeight:"normal",fontSize:_lblFs(row[1].label),whiteSpace:'nowrap',overflow:'hidden',height: rowHeightPct}}>{row[1].label}</th><td className={`w-[20%] ${cellCls(row[1])}`} style={{fontWeight:"normal",fontSize:valueFs,whiteSpace:'nowrap',overflow:'hidden',height: rowHeightPct}} onClick={e=>handleCellClick(row[1], e)}>{renderItemValue(row[1])}</td></>)
+                      ? (<><th className="border-r border-black w-[30%] bg-white px-1" style={{fontWeight:"normal",fontSize:_lblFs(row[1].label),whiteSpace:'nowrap',overflow:'hidden',height: rowHeightPct}}>{row[1].label}</th><td className={`w-[20%] ${cellCls(row[1])}`} style={{fontWeight:"normal",fontSize:_valFs(row[1]),whiteSpace:'nowrap',overflow:'hidden',height: rowHeightPct}} onClick={e=>handleCellClick(row[1], e)}>{renderItemValue(row[1])}</td></>)
                       : (<><th className="border-r border-black w-[30%] bg-white" style={{height: rowHeightPct}}></th><td className="w-[20%]" style={{height: rowHeightPct}}></td></>)}
                   </tr>
                   );
@@ -33704,20 +33726,20 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                     const c = str[i];
                     if (c === '（' || c === '(') {
                       inParen = true;
-                      out.push(<span key={i} style={{fontSize:38, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:33, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                       continue;
                     }
                     if (c === '）' || c === ')') {
                       inParen = false;
-                      out.push(<span key={i} style={{fontSize:38, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:33, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                       continue;
                     }
                     if (inParen) {
-                      out.push(<span key={i} style={{fontSize:38, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:33, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                     } else if (c === '月' || c === '日' || c === '年') {
-                      out.push(<span key={i} style={{fontSize:26, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{' '+c+' '}</span>);
+                      out.push(<span key={i} style={{fontSize:22, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{' '+c+' '}</span>);
                     } else {
-                      out.push(<span key={i} style={{fontSize:38, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:33, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                     }
                   }
                   return out;
@@ -33735,12 +33757,12 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                   const hBlank = !h;
                   const mBlank = !m;
                   const numStyle = (blank) => ({
-                    fontSize:38, fontWeight:'bold', lineHeight:1.1,
+                    fontSize:33, fontWeight:'bold', lineHeight:1.1, // ★ 2026-10-04: 「10月12日（月） 13時00分頃」がQRの手前で切れないよう 38→33
                     display:'inline-block', minWidth:'2ch', textAlign:'right',
                     color: blank ? '#cbd5e1' : '#1e293b',
                     fontVariantNumeric:'tabular-nums'
                   });
-                  const labelStyle = { fontSize:26, fontWeight:'bold', lineHeight:1.1 };
+                  const labelStyle = { fontSize:22, fontWeight:'bold', lineHeight:1.1 };
                   return <span style={{whiteSpace:'pre'}}>
                     <span style={numStyle(hBlank)}>{hBlank ? '  ' : h}</span>
                     {' '}
@@ -33754,7 +33776,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                   </span>;
                 };
                 return (
-                  <div style={{display:'flex',flexDirection:'row',alignItems:'baseline',gap:'0.6em',lineHeight:1.05,minWidth:0,whiteSpace:'nowrap'}}>
+                  <div style={{display:'flex',flexDirection:'row',alignItems:'baseline',gap:'0.45em',lineHeight:1.05,minWidth:0,whiteSpace:'nowrap'}}>
                     <span style={{whiteSpace:"nowrap"}}>{renderDate(nextDateDisplay)}</span>
                     <span style={{whiteSpace:"nowrap"}}>{renderTime(nextTimeDisplay)}</span>
                   </div>

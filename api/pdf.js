@@ -94,7 +94,7 @@ export default async function handler(req, res) {
     //   印刷用に html/body/直下要素を必ず伸ばす(改ページが効くように)
     // 名前付きの @page(分析個人の縦横混在 p/l など)は、最後に注入する既定サイズに負けないよう後ろに再掲する
     const namedPages = (html.match(/@page\s+[A-Za-z_][\w-]*\s*\{[^}]*\}/g) || []).join('');
-    const fixCss = `<style>@page{size:${sizeCss};margin:0;}${namedPages}html,body{height:auto!important;max-height:none!important;overflow:visible!important;}body>*{overflow:visible!important;max-height:none!important;}</style>`;
+    const fixCss = `<style>@page{size:${sizeCss};margin:0;}${namedPages}html,body{height:auto!important;max-height:none!important;overflow:visible!important;}</style>`;
     const htmlSized = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${fixCss}</body>`) : html + fixCss;
 
     const base = (host && /^(localhost|127\.0\.0\.1)$/.test(host)) ? origin.replace(/\/$/, '') : (host ? `https://${host}` : 'https://tsumugi-ones-style.vercel.app');
