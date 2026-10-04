@@ -1213,7 +1213,7 @@ const appendDocUpdate = (patient, by, byName, items, changes) => {
   const now = new Date().toISOString();
   const log = Array.isArray(patient?.docUpdates) ? patient.docUpdates : [];
   const _ch = Array.isArray(changes) ? changes.filter(c => c && c.label).map(c => ({ label: String(c.label), before: String(c.before ?? '').slice(0, 200), after: String(c.after ?? '').slice(0, 200) })).slice(0, 40) : undefined;
-  return [...log, { id: `du_${now}_${Math.round(Math.random()*1e6)}`, at: now, by, byName: byName || '', items: [...new Set(items)], ...(_ch && _ch.length ? { changes: _ch } : {}), readOffice: false, readCm: true }].slice(-50);
+  return [...log, { id: `du_${now}_${Math.round(Math.random()*1e6)}`, at: now, by, byName: byName || '', items: [...new Set(items)], ...(_ch && _ch.length ? { changes: _ch } : {}), readOffice: false, readCm: true }].slice(-200);
 };
 // 変更内容を1行の文にする(「お名前: 旧 → 新」)
 const docUpdateChangesText = (u) => (Array.isArray(u?.changes) && u.changes.length) ? u.changes.map(c => `${c.label}: ${c.before || '（空欄）'} → ${c.after || '（空欄）'}`).join('\n') : '';
@@ -16199,7 +16199,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
               )}
               <button onClick={()=>setMyInfoOpen(true)} style={hdrBtnStyle}>利用者・登録者情報</button>
               {/* ★ ケアマネ(関係者): フェイスシートの登録・編集 (事業所の個人ファイルへ反映)。 プレビューでも位置確認できるよう表示 */}
-              {isCmAccount && (
+              {(isCmAccount || canEditMyInfo) && !_isPreview && (
                 <button onClick={()=>setCmFaceSheetOpen(true)} style={{...hdrBtnStyle, background:'#eef2ff', borderColor:'#c7d2fe', color:'#4338ca'}}>フェイスシート</button>
               )}
               {isCmAccount && (
@@ -16512,27 +16512,31 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
             if (cmFaceSheetSaving) return;
             setCmFaceSheetSaving(true);
             const now = new Date().toISOString();
-            const _by = loggedAcc?.displayName || loggedAcc?.username || patient?.cmName || 'ケアマネ';
+            // ★ 2026-10-04(ユーザー要望): ご家族(代表者)もこのフェイスシートで利用者情報を編集できる(かかりつけ医の追加も)。更新者の種別は family / caremanager
+            const _kind = isCmAccount ? 'caremanager' : 'family';
+            const _by = loggedAcc?.displayName || loggedAcc?.username || (isCmAccount ? (patient?.cmName || 'ケアマネ') : 'ご家族');
             const newFs = { ...fsData, updatedAt: now, updatedBy: _by };
             const pf = patient?.personalFile || {};
             const prevHist = Array.isArray(pf.faceSheetHistory) ? pf.faceSheetHistory : [];
             const version = ((prevHist[prevHist.length-1]||{}).version || 0) + 1;
             const { genogramFiles, floorPlanFiles, pickupRouteFiles, faceSheetFiles, labeledFiles, ...textOnly } = newFs;
             const snapshot = { ...textOnly, _attachCounts:{ genogram:(genogramFiles||[]).length, floorPlan:(floorPlanFiles||[]).length, pickupRoute:(pickupRouteFiles||[]).length, faceSheet:(faceSheetFiles||[]).length, labeled:(labeledFiles||[]).length } };
-            const hist = [...prevHist, { version, updatedAt: now, updatedBy:_by, source:'caremanager', snapshot }].slice(-20);
+            const hist = [...prevHist, { version, updatedAt: now, updatedBy:_by, source:_kind, snapshot }].slice(-20);
+            const _fsItems = (()=>{ const d = diffFaceSheetFields(pf.faceSheet || {}, newFs); return d.length ? [`フェイスシートの編集（${d.join('・')}）`] : ['フェイスシートの編集']; })();
+            const _fsChanges = diffFaceSheetChanges(pf.faceSheet || {}, newFs);
             // ★ 一本化: ケアマネが編集しても患者本体(1箇所)へ反映(氏名・連絡先・被保険者番号・かかりつけ医・留意点 等)。
             const _mir = (k) => (fsData[k] !== undefined ? fsData[k] : patient[k]);
             const newPatient = { ...patient,
               kiou: (fsData.kiou ?? patient.kiou ?? ''),
               name:_mir('name'), kana:_mir('kana'), birthDate:_mir('birthDate'), gender:_mir('gender'), zipCode:_mir('zipCode'), address:_mir('address'), addressBuilding:_mir('addressBuilding'), addressRoom:_mir('addressRoom'), phone:_mir('phone'), phoneMobile:_mir('phoneMobile'), email:_mir('email'), insuranceNo:_mir('insuranceNo'), ryui:_mir('ryui'), relatedParties:(Array.isArray(fsData.relatedParties)?fsData.relatedParties:(patient.relatedParties||[])),
               doctor:(fsData.chronicDiseases ?? patient.doctor), medicalInstitution:(fsData.medicalInstitution ?? patient.medicalInstitution), medicalContact:(fsData.medicalContact ?? patient.medicalContact),
-              docUpdates: appendDocUpdate(patient, 'caremanager', _by, (()=>{ const d = diffFaceSheetFields(pf.faceSheet || {}, newFs); return d.length ? [`フェイスシートの編集（${d.join('・')}）`] : ['フェイスシートの編集']; })(), diffFaceSheetChanges(pf.faceSheet || {}, newFs)), personalFile: { ...pf, faceSheet: newFs, faceSheetHistory: hist } };
+              docUpdates: appendDocUpdate(patient, _kind, _by, _fsItems, _fsChanges), personalFile: { ...pf, faceSheet: newFs, faceSheetHistory: hist } };
             const updated = { ...data, patients: (data.patients||[]).map(p => p.id === patient.id ? newPatient : p) };
             try { localStorage.setItem(FAM_LS_KEY, JSON.stringify(updated)); } catch {}
             setData(updated);
             if (isSupabaseEnabled) {
               const _storeId = loggedAcc?.storeId || loggedAcc?.store_id || familyStoreId || null;
-              if (_storeId) { try { await supabaseMergeFaceSheetFromCM(_storeId, patient.id, fsData, { updatedBy:_by, source:'caremanager' }); } catch(e){ console.warn('[facesheet] cloud sync failed', e); } }
+              if (_storeId) { try { await supabaseMergeFaceSheetFromCM(_storeId, patient.id, fsData, { updatedBy:_by, source:_kind, items:_fsItems, changes:_fsChanges }); } catch(e){ console.warn('[facesheet] cloud sync failed', e); } }
             }
             setCmFaceSheetSaving(false);
             setCmFaceSheetOpen(false);
@@ -16576,6 +16580,29 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
             {/* ===== 利用者基本情報タブ (代表者のみ編集可) ===== */}
             {myInfoTab === 'patient' && (
               <div style={{display:'grid',gap:8}}>
+                {/* ★ 2026-10-04(ユーザー要望): フェイスシートの内容をそのまま編集できる入口と、更新履歴(だれが・いつ・どこをどう変えたか) */}
+                {(isCmAccount || canEditMyInfo) && !_isPreview && (
+                  <button type="button" onClick={()=>{ setMyInfoOpen(false); setCmFaceSheetOpen(true); }} data-testid="fam-open-facesheet"
+                    style={{padding:'10px 12px',background:'#eef2ff',border:'1px solid #c7d2fe',color:'#4338ca',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer',textAlign:'left'}}>
+                    フェイスシートを開いて編集（かかりつけ医の追加・緊急連絡先・既往歴など）›
+                  </button>
+                )}
+                {(() => { const log = (Array.isArray(patient?.docUpdates) ? patient.docUpdates : []).slice().reverse().slice(0, 20); if (!log.length) return null;
+                  const fmt = (iso) => { try { const d = new Date(iso); return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; } catch { return ''; } };
+                  const who = (u) => (u.by === 'caremanager' ? 'ケアマネ' : u.by === 'family' ? 'ご家族' : '事業所') + (u.byName ? `（${u.byName}）` : '');
+                  return (
+                    <details data-testid="fam-history" style={{border:'1px solid #e2e8f0',borderRadius:10,padding:'6px 10px',background:'#f8fafc'}}>
+                      <summary style={{fontSize:12,fontWeight:'bold',color:'#475569',cursor:'pointer'}}>更新履歴（{log.length}件）</summary>
+                      <div style={{display:'grid',gap:6,marginTop:6}}>
+                        {log.map(u => (
+                          <div key={u.id} style={{fontSize:11,background:'white',border:'1px solid #e2e8f0',borderRadius:8,padding:'6px 8px'}}>
+                            <div style={{display:'flex',flexWrap:'wrap',gap:'2px 8px'}}><b style={{color:'#334155'}}>{fmt(u.at)}</b><span style={{color:'#64748b'}}>{who(u)}</span><span style={{color:'#475569'}}>{(u.items||[]).join('・')}</span></div>
+                            {Array.isArray(u.changes) && u.changes.length > 0 && <div style={{marginTop:3,color:'#475569',whiteSpace:'pre-wrap'}}>{u.changes.map(c => `${c.label}: ${c.before || '（空欄）'} → ${c.after || '（空欄）'}`).join('\n')}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  ); })()}
                 <div style={{fontSize:11,color:'#64748b',marginBottom:4,lineHeight:1.5}}>
                   ご利用者ご本人の基本情報です。<br/>
                   {isPrimaryAcc
@@ -29571,7 +29598,7 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
         <React.Fragment key={`${d}_${first ? 'L' : 'R'}`}>
           {grip && <td {...dragProps} onPointerDown={m ? (e) => startDrag(e, k, d, sl2, m.id) : undefined} style={{ border: B, ...bl, textAlign: 'center', background: isOver ? '#dbeafe' : (m ? '#f8fafc' : bg), color: '#94a3b8', opacity: isDrag ? 0.4 : 1, cursor: m ? 'grab' : 'default', touchAction: m ? 'none' : 'auto', userSelect: 'none', fontSize: 11 }} title={m ? 'ここをつかんで上下に動かすと同じ枠の中で並べ替え' : ''} data-testid={m ? `cr-row-${k}-${m.id}` : undefined}>{m ? '⋮' : ''}</td>}
           <td {...dragProps} style={{ border: B, borderRight: PB, ...(grip ? {} : bl), textAlign: 'left', padding: '0 4px', background: isOver ? '#dbeafe' : bg, whiteSpace: 'nowrap', overflow: 'hidden', fontWeight: 'bold', color: paused ? '#94a3b8' : '#1e293b', opacity: isDrag ? 0.4 : 1, borderTop: isOver ? '2px solid #2563eb' : B }} title={paused ? '休止中' : ''}>
-            {m ? <span style={{ display: 'flex', alignItems: 'center', gap: 3, minWidth: 0 }}><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{m.name}</span>{paused && <span style={{ flexShrink: 0, fontSize: fs - 3, fontWeight: 'bold', color: '#64748b', background: '#e2e8f0', borderRadius: 3, padding: '0 3px', lineHeight: 1.4 }}>休止</span>}</span> : ''}
+            {m ? <span style={{ position: 'relative', display: 'block', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', paddingTop: paused ? (print ? 5 : 6) : 0, lineHeight: 1.1 }}>{paused && <span style={{ position: 'absolute', top: 0, left: 0, fontSize: print ? 6 : 7, lineHeight: 1, fontWeight: 'bold', color: '#64748b', letterSpacing: 1 }}>休止中</span>}{m.name}</span> : ''}
           </td>
           <td {...dragProps} style={{ border: B, borderLeft: PB, textAlign: 'center', background: m ? (sup ? '#fce7f3' : '#f8fafc') : bg, color: m ? (sup ? '#9d174d' : '#334155') : '#334155', fontSize: fs - 1, opacity: isDrag ? 0.4 : 1, whiteSpace: 'nowrap' }}>{m ? short(m.careLevel) : ''}</td>
         </React.Fragment>);
@@ -54558,26 +54585,40 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
             </Field>
           </div>
           {/* ★ 2026-10-03 ユーザー指示: ⑦その他(見取り図・送迎経路・送迎時の留意点・趣味・性格)は廃止(保存済みの値は残る・添付は引き続き可) */}
-          {/* ★ 2026-10-04(ユーザー要望): 更新履歴(日時・更新者・どこをどう変えたか)。家族・ケアマネ・事業所の編集(docUpdates)を新しい順に */}
-          {(() => { const log = (Array.isArray(patient?.docUpdates) ? patient.docUpdates : []).slice().reverse().slice(0, 30); if (!log.length) return null;
-            const fmt = (iso) => { try { const d = new Date(iso); return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; } catch { return ''; } };
+          {/* ★ 2026-10-04(ユーザー要望): 更新履歴(日時・更新者・どこをどう変えたか)。折りたたみ・年→月でまとめる(全件を保持・最大200件) */}
+          {(() => { const log = (Array.isArray(patient?.docUpdates) ? patient.docUpdates : []).slice().reverse(); if (!log.length) return null;
+            const fmt = (iso) => { try { const d = new Date(iso); return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; } catch { return ''; } };
             const who = (u) => (u.by === 'caremanager' ? 'ケアマネ' : u.by === 'family' ? 'ご家族' : '事業所') + (u.byName ? `（${u.byName}）` : '');
+            const byYear = new Map(); log.forEach(u => { const d = new Date(u.at); const y = isNaN(d) ? '不明' : String(d.getFullYear()); const m = isNaN(d) ? '' : String(d.getMonth()+1); if (!byYear.has(y)) byYear.set(y, new Map()); const ym = byYear.get(y); if (!ym.has(m)) ym.set(m, []); ym.get(m).push(u); });
+            const latest = log[0];
             return (
-              <div className="border border-slate-200 rounded-xl p-4 bg-slate-50" data-testid="fs-history">
-                <div className="text-sm font-bold text-amber-800 mb-2">更新履歴（最新{log.length}件）</div>
-                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                  {log.map(u => (
-                    <div key={u.id} className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-[12px]">
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5"><span className="font-bold text-slate-700 tabular-nums">{fmt(u.at)}</span><span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${u.by==='caremanager'?'bg-cyan-100 text-cyan-800':u.by==='family'?'bg-violet-100 text-violet-800':'bg-slate-200 text-slate-700'}`}>{who(u)}</span><span className="text-slate-600">{(u.items||[]).join('・')}</span></div>
-                      {Array.isArray(u.changes) && u.changes.length > 0 && (
-                        <table className="mt-1 w-full text-[11px] border-collapse">
-                          <tbody>{u.changes.map((c, i) => <tr key={i}><td className="pr-2 py-0.5 text-slate-500 whitespace-nowrap align-top">{c.label}</td><td className="py-0.5 text-slate-400 align-top" style={{wordBreak:'break-all'}}>{c.before || '（空欄）'}</td><td className="px-1 py-0.5 text-slate-400 align-top">→</td><td className="py-0.5 font-bold text-slate-800 align-top" style={{wordBreak:'break-all'}}>{c.after || '（空欄）'}</td></tr>)}</tbody>
-                        </table>
-                      )}
-                    </div>
+              <details className="border border-slate-200 rounded-xl p-4 bg-slate-50" data-testid="fs-history">
+                <summary className="text-sm font-bold text-amber-800 cursor-pointer">更新履歴（全{log.length}件）<span className="ml-2 text-[11px] font-normal text-slate-500">最新: {fmt(latest.at)} {who(latest)}</span></summary>
+                <div className="mt-2 space-y-2 max-h-96 overflow-y-auto pr-1">
+                  {[...byYear.entries()].map(([y, ym]) => (
+                    <details key={y} open={y === String(new Date().getFullYear())} className="bg-white border border-slate-200 rounded-lg px-3 py-2">
+                      <summary className="text-[12px] font-bold text-slate-700 cursor-pointer">{y}年（{[...ym.values()].reduce((n, a) => n + a.length, 0)}件）</summary>
+                      {[...ym.entries()].map(([m, arr]) => (
+                        <details key={m} open={y === String(new Date().getFullYear()) && m === String(new Date().getMonth()+1)} className="ml-2 mt-1">
+                          <summary className="text-[12px] font-bold text-slate-600 cursor-pointer">{m}月（{arr.length}件）</summary>
+                          <div className="ml-2 mt-1 space-y-1.5">
+                            {arr.map(u => (
+                              <div key={u.id} className="border border-slate-100 rounded-md px-2 py-1.5 text-[12px]">
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5"><span className="font-bold text-slate-700 tabular-nums">{fmt(u.at)}</span><span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${u.by==='caremanager'?'bg-cyan-100 text-cyan-800':u.by==='family'?'bg-violet-100 text-violet-800':'bg-slate-200 text-slate-700'}`}>{who(u)}</span><span className="text-slate-600">{(u.items||[]).join('・')}</span></div>
+                                {Array.isArray(u.changes) && u.changes.length > 0 && (
+                                  <table className="mt-1 w-full text-[11px] border-collapse">
+                                    <tbody>{u.changes.map((c, i) => <tr key={i}><td className="pr-2 py-0.5 text-slate-500 whitespace-nowrap align-top">{c.label}</td><td className="py-0.5 text-slate-400 align-top" style={{wordBreak:'break-all'}}>{c.before || '（空欄）'}</td><td className="px-1 py-0.5 text-slate-400 align-top">→</td><td className="py-0.5 font-bold text-slate-800 align-top" style={{wordBreak:'break-all'}}>{c.after || '（空欄）'}</td></tr>)}</tbody>
+                                  </table>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      ))}
+                    </details>
                   ))}
                 </div>
-              </div>
+              </details>
             ); })()}
           {/* ★ 添付ファイル: フェイスシート原本(1枚) + 項目を選んで添付 */}
           <div ref={attachRef} className="border border-slate-200 rounded-xl p-4 bg-slate-50" style={{scrollMarginTop:12}}>
