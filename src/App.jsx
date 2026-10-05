@@ -61,6 +61,7 @@ import {
   fetchTicketRecords,
   fetchTicketRecordsRecent,
   fetchTicketRecordsSince,
+  fetchTicketRecordsForPatients,
   subscribeTicketRecords,
   flushOps,
   fetchOpsSince,
@@ -14366,19 +14367,34 @@ function FamilyView() {
     }, 15000, familyStoreId);
     return stop;
   }, [familyStoreId]);
+  const [linkedFamilyAccounts, setLinkedFamilyAccounts] = useState(() => {
+    try { const s = sessionStorage.getItem('familyLinkedAccounts'); return s ? JSON.parse(s) : null; } catch { return null; }
+  });
   // ★ 提供記録テーブルの読込(2026-08-10): 家族・ケアマネ閲覧はこれまで巨大JSONしか読んでおらず、
   //   テーブル方式カットオーバー(8/3)以降のバイタル・気分・記録が表示されなかった(グラフが8/3で止まる)。
-  //   テーブルから店舗の記録を取得して重ねる(起動時+60秒ごと)。削除済み(deleted)は除外・手元からも落とす。
+  //   テーブルから記録を取得して重ねる(起動時+60秒ごと)。削除済み(deleted)は除外・手元からも落とす。
+  // ★ 2026-10-05(ユーザー相談「キャパオーバーにならない？」・実測): 以前は店舗全員分を60秒ごとに丸ごと読み直していた
+  //   (扇橋 1528行・約2.3MB/回。スマホの通信量が多く、ほかの利用者の記録まで端末に届く)。
+  //   見られる利用者(ログイン中の方＋同じ店舗の切替先)の分だけを、初回は全期間、以後は「前回より新しく変わった行」だけ取る(1名あたり数十KB)。
+  const _famPids = React.useMemo(() => {
+    const ids = new Set();
+    if (authPid != null && authPid !== '') ids.add(String(authPid));
+    (Array.isArray(linkedFamilyAccounts) ? linkedFamilyAccounts : []).forEach(la => { if (la && la.patientId != null && (!la.storeId || la.storeId === familyStoreId)) ids.add(String(la.patientId)); });
+    return [...ids].sort();
+  }, [authPid, linkedFamilyAccounts, familyStoreId]);
+  const _famPidsKey = _famPids.join(',');
   useEffect(() => {
-    if (!isSupabaseEnabled || !familyStoreId || !TABLE_ENABLED) return;
-    let stopped = false;
+    if (!isSupabaseEnabled || !familyStoreId || !TABLE_ENABLED || !_famPids.length) return;
+    let stopped = false; let since = '1970-01-01T00:00:00+00:00'; let busy = false;
     const load = async () => {
+      if (busy) return; busy = true;
       try {
-        const all = await fetchTicketRecordsSince(familyStoreId, '1970-01-01T00:00:00+00:00');
-        if (stopped || !all || !all.length) return;
+        const got = await fetchTicketRecordsForPatients(familyStoreId, _famPids, since);
+        if (stopped || !got || !got.length) return;
+        got.forEach(x => { if (x && x.updated_at && x.updated_at > since) since = x.updated_at; });
         setData(prev => {
           const map = new Map((Array.isArray(prev.ticketRecords) ? prev.ticketRecords : []).filter(r=>r&&r.id!=null).map(r => [String(r.id), r]));
-          all.forEach(x => {
+          got.forEach(x => {
             if (!x || !x.rec || x.rec.id == null) return;
             if (x.deleted) { map.delete(String(x.rec.id)); return; }
             map.set(String(x.rec.id), x.rec);   // テーブルの行を優先(最新)
@@ -14386,14 +14402,13 @@ function FamilyView() {
           return { ...prev, ticketRecords: [...map.values()] };
         });
       } catch (e) { console.warn('[family] ticket_records fetch failed', e); }
+      finally { busy = false; }
     };
     load();
     const t = setInterval(load, 60000);
     return () => { stopped = true; clearInterval(t); };
-  }, [familyStoreId]);
-  const [linkedFamilyAccounts, setLinkedFamilyAccounts] = useState(() => {
-    try { const s = sessionStorage.getItem('familyLinkedAccounts'); return s ? JSON.parse(s) : null; } catch { return null; }
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [familyStoreId, _famPidsKey]);
   const [loginForm, setLoginForm] = useState({ username:'', password:'', error:'', showPw:false });
   // ★ パスワードのメール自己リセット(2026-08-31 店舗要望): {step:1|2, username, code, n1, n2, busy, err, masked, done}
   //   コードは登録メール宛のみ・有効期限10分・試行5回まで(api/family-reset.js)
@@ -24237,7 +24252,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const [vitalWarn, setVitalWarn] = useState(null);   // 警告文字列
   const _vitalWarnTimerRef = React.useRef(null);
   // ★ 2026-10-05(ユーザー要望「基準値がない運動に○を付けてしまう人がいる。数値がないので『数値を入力してください』と出てほしい」):
-  //   ○＝「基準値(設定数値)どおり実施」の意味なので、基準値の無い運動(○×の項目は除く)には○を入れさせず、上部に赤い案内を出す
+  //   ○＝「基準値(設定数値)どおり実施」の意味なので、基準値の無い運動(○×の項目は除く)には○を入れさせず、上部に赤い案内を出す。
+//   基準値が「ー」「×」(ふだん行わない運動)も数値が無いので同じ扱い(数字を含む基準値のときだけ○可)
   const _exBaselineOf = (recordId, field) => {
     const _srcArr = (filterMode === 'single') ? localPatients : localTicketRecords;
     const rec = (_srcArr || []).find(x => x.id === recordId); if (!rec) return 'x';
@@ -24258,8 +24274,13 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     if (!_isCircleMark(v)) return false;
     const item = (effExerciseItems(appData.systemSettings)).find(i => i.id === field);
     if (!item || item.type === 'toggle') return false;
-    if (_exBaselineOf(recordId, field)) return false;
-    setVitalWarn(`「${item.name || '運動'}」は基準値（設定数値）がないため○は使えません。実施した数値（例: 10分・20回）を入力してください`);
+    // ★ 2026-10-05(ユーザー指示): 基準値が「ー」「×」(=ふだん行わない運動)も、数値が無い扱い。○は数字の入った基準値があるときだけ
+    const _bl = _exBaselineOf(recordId, field);
+    if (/[0-9０-９]/.test(_bl)) return false;
+    const _sym = /^[ー\-－×✕xX]+$/.test(_bl);
+    setVitalWarn(_sym
+      ? `「${item.name || '運動'}」は基準値が「${_bl}」（ふだん行わない運動）のため○は使えません。実施した場合は数値（例: 10分・20回）を入力してください`
+      : `「${item.name || '運動'}」は基準値（設定数値）がないため○は使えません。実施した数値（例: 10分・20回）を入力してください`);
     if (_vitalWarnTimerRef.current) clearTimeout(_vitalWarnTimerRef.current);
     _vitalWarnTimerRef.current = setTimeout(() => setVitalWarn(null), 8000);
     return true;
