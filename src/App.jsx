@@ -20637,6 +20637,16 @@ export default function App() {
     if(contentRef.current?.parentElement) obs.observe(contentRef.current.parentElement);
     return ()=>{ window.removeEventListener('resize', calc); obs.disconnect(); };
   },[isSidebarOpen]);
+  // ★ 2026-10-05(店舗報告: 無印iPad 第8世代(横1080px)で画面が少し大きく、左右に約20pxずれる・上部のボタンが切れる。iPad Pro 11 は正常):
+  //   1100px基準の縮小(zoom)が 98% のようなごくわずかな縮小になると、iPad の Safari/Chrome(WebKit)では幅が縮まず 1100-1080=20px はみ出していた。
+  //   ①縮小が 94% 以上なら縮小せず実際の幅でそのまま表示 ②iPad/iPhone で縮小してもはみ出すときは、自動で縮小をやめる(安全策)
+  const [zoomOff, setZoomOff] = useState(false);
+  const _zoomActive = contentScale < 0.94 && !zoomOff;
+  React.useEffect(() => {
+    if (!_zoomActive || !tsumugiIsIOS()) return;
+    const t = setTimeout(() => { try { const el = contentRef.current; if (el && el.scrollWidth - el.clientWidth > 2) setZoomOff(true); } catch {} }, 600);
+    return () => clearTimeout(t);
+  }, [_zoomActive, contentScale]); // eslint-disable-line react-hooks/exhaustive-deps
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -22890,7 +22900,7 @@ export default function App() {
                 ホーム(dashboard)と同様に zoom 縮小の対象外にし、等倍＋スクロールで表示する。 */}
             {/* ★ 日誌(diary)もzoom例外(2026-08-31): 日誌はシート側でdiaryViewScaleの拡縮を持ち、全体zoomと二重になると
                 iPad Safariでタップ座標がズレてシート内のチェック/時間セルが反応しなくなるため */}
-            <div style={isMobileLayout ? {width:'100%',minWidth:0} : (currentView==='dashboard' || currentView==='print' || currentView==='master' || currentView==='diary') ? {width:'100%',minWidth:0,height:'100%'} : {minWidth:DESIGN_WIDTH, zoom: contentScale<1 ? contentScale : 1, width: contentScale<1 ? `${100/contentScale}%` : '100%', height: contentScale<1 ? `${100/contentScale}%` : '100%'}}>
+            <div style={isMobileLayout ? {width:'100%',minWidth:0} : (currentView==='dashboard' || currentView==='print' || currentView==='master' || currentView==='diary' || !_zoomActive) ? {width:'100%',minWidth:0,height:'100%'} : {minWidth:DESIGN_WIDTH, zoom: contentScale, width: `${100/contentScale}%`, height: `${100/contentScale}%`}}>
             {currentView === 'dashboard' ? <DashboardView appData={appData} navigateTo={navigateTo} activeRecorder={activeRecorder} notices={visibleNotices} devNotes={devUpdateNotes} isNoticeRead={isNoticeRead} markNoticeRead={markNoticeRead} /> :
              currentView === 'record' ? <RecordView appData={appData} activeRecorder={activeRecorder} onSave={handleSaveToCloud} navigateTo={navigateTo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={recordDirtyRef} saveFnRef={recordSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} showTip={showTip} hideTip={hideTip} isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} deviceName={deviceName} /> :
              currentView === 'ticket' ? <TicketView appData={appData} targetPatientId={targetPatientId} onBack={()=>navigateBack('master')} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  onSave={handleSaveToCloud} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={ticketDirtyRef} saveFnRef={ticketSaveFnRef} /> :
