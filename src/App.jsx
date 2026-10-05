@@ -1060,6 +1060,17 @@ const applyExUnits = (raw, item) => {
 };
 // 単位ラベル表示用 (「kg×回」など。設定画面の見出し等に使用)。 2単位は × 表記で示す
 // ★ セル幅に収まる最大の文字サイズ(2026-09-29): 全角=1・半角=0.55 文字幅で概算し avail px に収める
+// ★ 2026-10-05(ユーザー要望): 提供記録入力の運動列は「全列同じ幅」。いまの 84px を最大とし、運動の名前が短い店舗はその分だけ全列そろって細くする。
+//   名前ごとの必要幅(12pxの字で概算・全角12/半角6.6px): 84px以内で1行に収まる名前は1行の幅、収まらない長い名前は2行で収まる幅(1字分の余裕つき)。
+//   列の幅 = その最大値(最大84px・最小60px=「20分×5回」などの値が読める幅)。「ステッパ／ー」のような1字だけの折り返しを作らない
+const EX_COL_MAX = 84, EX_COL_MIN = 60;
+const exColWidthFor = (items) => {
+  const tw = (str) => [...String(str || '')].reduce((a, c) => a + (/[\x20-\x7e\uff61-\uff9f]/.test(c) ? 6.6 : 12), 0);
+  const PAD = 12; // th の左右 padding 8px + 枠線・余裕
+  const needOf = (name) => { const w = tw(name); return (w + PAD <= EX_COL_MAX) ? Math.ceil(w + PAD) : Math.ceil(w / 2) + PAD + 12; };
+  const need = (items || []).reduce((m, it) => Math.max(m, needOf(it && it.name)), 0);
+  return Math.max(EX_COL_MIN, Math.min(EX_COL_MAX, need || EX_COL_MAX));
+};
 const _exFitFs = (str, cap = 15, min = 8, avail = 70) => {
   const w = [...String(str || '')].reduce((a, c) => a + (/[\x20-\x7e]/.test(c) ? 0.55 : 1), 0);
   if (!w) return cap;
@@ -1741,6 +1752,60 @@ const MON_TEXT_MAX = 200, TOKKI_MAX = 100, ROSTER_WAIT_MAX = 40;
 //   「ダウンロード（DL済）」の記録(method:'pdf')は一覧・出力から除く(データは残るが表示しない)
 const tsumugiFaxLog = (appData) => (appData && Array.isArray(appData.faxHistory) ? appData.faxHistory : []).filter(h => h && h.method !== 'pdf');
 const tsumugiIsIOS = () => typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+// ★ 2026-10-05(ユーザー要望「印刷位置が目視でわかるように」): 連絡帳の用紙上の配置(mm)。ContactBookView._layoutRenraku と同じ数値
+//   (あちらを変えたらここも合わせる)。印刷設定の「印刷位置の微調整」の図に使う
+const renrakuSheetGeom = (ss) => {
+  const _ss = ss || {};
+  const offX = Math.max(-10, Math.min(10, Number(_ss.renrakuOffsetX) || 0)), offY = Math.max(-10, Math.min(10, Number(_ss.renrakuOffsetY) || 0));
+  if (_ss.renrakuMode !== '1') {
+    const punchTop = _ss.renrakuPunchPos === 'top';
+    const pageW = 257, pageH = 182, half = pageW / 2, scale = punchTop ? 0.62 : 0.64;
+    const w = 182 * scale, h = 257 * scale, y = punchTop ? 14 : (pageH - h) / 2, x = (half - w) / 2;
+    return { pageW, pageH, offX, offY, faces: [{ x, y, w, h }, { x: half + x, y, w, h }], cut: _ss.renrakuGuideCut !== false ? half : null,
+      punch: _ss.renrakuGuidePunch !== false ? (punchTop ? [{ x: half / 2, y: 7 }, { x: half + half / 2, y: 7 }] : [{ x: 7, y: pageH / 2 }, { x: half + 7, y: pageH / 2 }]) : [],
+      label: 'B5横・2面' };
+  }
+  const isB6 = _ss.renrakuPaper === 'b6port';
+  const pageW = isB6 ? 128 : 257, pageH = 182, scale = isB6 ? 0.70 : 0.66;
+  const w = 182 * scale, h = 257 * scale;
+  return { pageW, pageH, offX, offY, faces: [{ x: Math.max(0, (pageW - w) / 2), y: Math.max(0, (pageH - h) / 2), w, h }], cut: null, punch: [], label: isB6 ? 'B6・1面' : 'B5横・1面（中央）' };
+};
+function RenrakuPositionDiagram({ ss }) {
+  const g = renrakuSheetGeom(ss);
+  const SAFE = 4; // 多くの複合機が印字できない端の幅(目安・mm)
+  const tooClose = g.faces.some(f => f.x + g.offX < SAFE || f.y + g.offY < SAFE || f.x + f.w + g.offX > g.pageW - SAFE || f.y + f.h + g.offY > g.pageH - SAFE);
+  const W = 268, k = W / g.pageW, H = g.pageH * k;
+  return (
+    <div data-testid="cb-pos-diagram">
+      <svg width={W} height={H} viewBox={`0 0 ${g.pageW} ${g.pageH}`} style={{ display: 'block', background: '#fff', border: '1px solid #94a3b8', borderRadius: 2 }}>
+        <rect x={0} y={0} width={g.pageW} height={g.pageH} fill="#fee2e2" />
+        <rect x={SAFE} y={SAFE} width={g.pageW - SAFE * 2} height={g.pageH - SAFE * 2} fill="#ffffff" />
+        {g.cut != null && <line x1={g.cut} y1={0} x2={g.cut} y2={g.pageH} stroke="#64748b" strokeWidth={0.5} strokeDasharray="2 1.5" />}
+        {g.faces.map((f, i) => (
+          <g key={i}>
+            {(g.offX || g.offY) ? <rect x={f.x} y={f.y} width={f.w} height={f.h} fill="none" stroke="#94a3b8" strokeWidth={0.5} strokeDasharray="2 1.5" /> : null}
+            <g transform={`translate(${f.x + g.offX},${f.y + g.offY})`}>
+              <rect x={0} y={0} width={f.w} height={f.h} fill="#ecfdf5" stroke={tooClose ? '#dc2626' : '#059669'} strokeWidth={0.8} />
+              <rect x={f.w * 0.06} y={f.h * 0.03} width={f.w * 0.45} height={f.h * 0.045} fill="#a7f3d0" />
+              <rect x={f.w * 0.62} y={f.h * 0.03} width={f.w * 0.32} height={f.h * 0.045} fill="#a7f3d0" />
+              <rect x={f.w * 0.06} y={f.h * 0.12} width={f.w * 0.88} height={f.h * 0.12} fill="none" stroke="#6ee7b7" strokeWidth={0.5} />
+              <rect x={f.w * 0.06} y={f.h * 0.28} width={f.w * 0.88} height={f.h * 0.28} fill="none" stroke="#6ee7b7" strokeWidth={0.5} />
+              <rect x={f.w * 0.06} y={f.h * 0.60} width={f.w * 0.88} height={f.h * 0.20} fill="none" stroke="#6ee7b7" strokeWidth={0.5} />
+              <rect x={f.w * 0.06} y={f.h * 0.83} width={f.w * 0.88} height={f.h * 0.09} fill="#d1fae5" stroke="#6ee7b7" strokeWidth={0.5} />
+              <rect x={f.w * 0.15} y={f.h * 0.945} width={f.w * 0.70} height={f.h * 0.03} fill="#a7f3d0" />
+            </g>
+          </g>
+        ))}
+        {g.punch.map((pt, i) => <circle key={i} cx={pt.x} cy={pt.y} r={1.6} fill="#334155" stroke="#fff" strokeWidth={0.4} />)}
+      </svg>
+      <div className="flex items-center gap-3 mt-1 text-[10px] text-slate-500 flex-wrap">
+        <span className="inline-flex items-center gap-1"><span style={{ display: 'inline-block', width: 10, height: 10, background: '#fee2e2', border: '1px solid #fecaca' }} />端の約4mm（印字できないことが多い）</span>
+        {(g.offX || g.offY) ? <span className="inline-flex items-center gap-1"><span style={{ display: 'inline-block', width: 12, borderTop: '1px dashed #94a3b8' }} />調整前の位置</span> : null}
+      </div>
+      {tooClose && <div data-testid="cb-pos-warn" className="mt-1 text-[11px] font-bold text-red-600">連絡帳が用紙の端に近すぎます。端の文字が切れる恐れがあります。</div>}
+    </div>
+  );
+}
 const tsumugiBuildPrintSrcDoc = (html) => {
   let head = ''; try {
     document.querySelectorAll('style').forEach(s => { head += '<style>' + (s.textContent || '') + '</style>'; });
@@ -23051,6 +23116,7 @@ export default function App() {
 
 // === RecordView ===
 function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate, setSelectedDate, dirtyRef, saveFnRef, sharedAmpm, setSharedAmpm, showTip, hideTip, isSidebarOpen, setIsSidebarOpen, deviceName }) {
+  const _exW = exColWidthFor(effExerciseItems(appData.systemSettings)); // ★ 運動列の共通幅(2026-10-05)
   // ★ deviceName は「元に戻す」の確認文で使用。 props に無いまま参照しており ReferenceError で
   //   復元処理が restore-click 直後に即死していた(=復元が全く機能しない の根本原因)。
   // ★ 担当者名: 多段階フォールバック で保存時に必ず何か入る
@@ -24888,7 +24954,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       <col style={{width:'58px'}}/>{/* 体温 */}
                       <col style={{width:'120px'}}/>{/* 開始 血圧+脈 */}
                       {_showEn && <col style={{width:'120px'}}/>}{/* 終了 血圧+脈 */}
-                      {(effExerciseItems(appData.systemSettings)).map(item => <col key={item.id} style={{width:'84px'}}/>)}
+                      {(effExerciseItems(appData.systemSettings)).map(item => <col key={item.id} style={{width:`${_exW}px`}}/>)}
                       <col style={{width:'62px'}}/>{/* 介護整体 */}
                       <col style={{width:'260px'}}/>{/* 特記 */}
                     </colgroup>
@@ -24901,7 +24967,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         <th className="px-1 py-2 font-bold text-center border border-slate-700 whitespace-nowrap">開始 血圧/脈</th>
                         {_showEn && <th className="px-1 py-2 font-bold text-center border border-slate-700 whitespace-nowrap">{secondBpLabel(appData)} 血圧/脈</th>}
                         {(effExerciseItems(appData.systemSettings)).map(item => (
-                          <th key={item.id} className={`px-0.5 py-2 font-bold text-center border text-[11px] leading-tight ${item.type==='individual' ? 'bg-emerald-800 text-emerald-50 border-emerald-700' : 'border-slate-700'}`} style={{maxWidth:84,whiteSpace:'normal',wordBreak:'break-all'}}>{item.name}</th>
+                          <th key={item.id} className={`px-0.5 py-2 font-bold text-center border text-[11px] leading-tight ${item.type==='individual' ? 'bg-emerald-800 text-emerald-50 border-emerald-700' : 'border-slate-700'}`} style={{maxWidth:_exW,whiteSpace:'normal',wordBreak:'break-all'}}>{item.name}</th>
                         ))}
                         <th className="px-1 py-2 font-bold text-center border border-slate-700 whitespace-nowrap text-xs">介護整体</th>
                         <th className="px-2 py-2 font-bold text-center border border-slate-700 whitespace-nowrap">特記</th>
@@ -25106,7 +25172,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             <col style={{width:'145px'}} />{/* 開始 血圧 + 脈 (75+60+gap) */}
             {_showEn && <col style={{width:'145px'}} />}{/* 終了 血圧 + 脈 ★ 列を隠すときは col も外す(2026-09-29: 列ズレで①の列が広がっていた) */}
             {(effExerciseItems(appData.systemSettings)).map(item => (
-              <col key={item.id} style={{width:'84px'}} />/* 運動・個別運動とも 84px(2026-09-29 ユーザー指示) */
+              <col key={item.id} style={{width:`${_exW}px`}} />/* 運動・個別運動とも同じ幅(最大84px・名前が短い店舗は全列そろって細く 2026-10-05) */
             ))}
             <col style={{width:'60px'}} />
             <col style={{width:'500px'}} />
@@ -25122,7 +25188,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">開始 血圧/脈</th>
               {_showEn && <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">{secondBpLabel(appData)} 血圧/脈</th>}
               {(effExerciseItems(appData.systemSettings)).map((item) => (
-                <th key={item.id} className={`px-1 py-2 font-medium text-center border leading-tight sticky top-0 z-40 text-xs ${item.type==='individual' ? 'bg-emerald-800 text-emerald-50 border-emerald-700' : 'bg-slate-800 border-slate-700 text-white'}`} style={{maxWidth:84,whiteSpace:'normal',wordBreak:'break-all'}}>
+                <th key={item.id} className={`px-1 py-2 font-medium text-center border leading-tight sticky top-0 z-40 text-xs ${item.type==='individual' ? 'bg-emerald-800 text-emerald-50 border-emerald-700' : 'bg-slate-800 border-slate-700 text-white'}`} style={{maxWidth:_exW,whiteSpace:'normal',wordBreak:'break-all'}}>
                   {item.name}
                 </th>
               ))}
@@ -25358,10 +25424,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       const _indPh = selItem ? (patDefault ? applyExUnits(patDefault, selItem) : '') : '未選択';
                       // ★ 種目名はセル幅(60px)に合わせて可変フォント: 短い名前は大きく、3〜4文字以上は縮小して収める
                       const _indName = selItem?.name || '';
-                      const _indNameFs = !_indName ? 11 : _exFitFs(_indName, 15, 8, 74);
+                      const _indNameFs = !_indName ? 11 : _exFitFs(_indName, 15, 8, _exW - 10);
                       // ★ 値の表示フォント: ○ は大きく太く、数値は桁数で縮小。値が空のときは規定値(プレースホルダー)の長さで判定(見切れ防止)
                       const _indIsCircle = cur.value==='○'||cur.value==='◯';
-                      const _indValFs = _indIsCircle ? 21 : _exFitFs(String(cur.value||'') || String(_indPh||''), 15, 8, 72);
+                      const _indValFs = _indIsCircle ? 21 : _exFitFs(String(cur.value||'') || String(_indPh||''), 15, 8, _exW - 12);
                       return (
                         <td key={item.id} data-ind-cell className={`px-1 py-0 align-middle border border-emerald-200 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-emerald-50/40'}`}>
                           <select value={effItemId} disabled={isAbsent || isReadOnly || isPause}
@@ -25433,7 +25499,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                             updateExercise(p.id, item.id, e.target.value);
                           }}
                           onBlur={(e) => { if (item.useKeypad && _keypadOn) return; updateExercise(p.id, item.id, applyExUnits(e.target.value, item)); }}
-                          style={{width:78,height:42,boxSizing:'border-box',padding:'0 1px',textAlign:'center',fontSize: _isCircle ? 25 : _isCross ? 18 : _isDash ? 20 : _exFitFs(displayVal || String(placeholderText || ''), 14, 8, 70), fontWeight: _isCircle ? 900 : _isSym ? 400 : 'bold', WebkitTextStroke: _isCircle ? (_ghost ? '1.1px rgba(59,130,246,0.28)' : '1.1px currentColor') : undefined, color: _ghost ? 'rgba(59,130,246,0.28)' : (_isDash ? '#94a3b8' : undefined), lineHeight: 1}}
+                          style={{width:_exW - 6,height:42,boxSizing:'border-box',padding:'0 1px',textAlign:'center',fontSize: _isCircle ? 25 : _isCross ? 18 : _isDash ? 20 : _exFitFs(displayVal || String(placeholderText || ''), 14, 8, _exW - 14), fontWeight: _isCircle ? 900 : _isSym ? 400 : 'bold', WebkitTextStroke: _isCircle ? (_ghost ? '1.1px rgba(59,130,246,0.28)' : '1.1px currentColor') : undefined, color: _ghost ? 'rgba(59,130,246,0.28)' : (_isDash ? '#94a3b8' : undefined), lineHeight: 1}}
                           className={`border rounded-lg outline-none placeholder-slate-300 disabled:bg-transparent disabled:opacity-60 ${item.useKeypad && _keypadOn && !isReadOnly ? 'cursor-pointer' : ''} ${isReadOnly ? 'border-transparent shadow-none' : isActive ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'bg-white border-slate-300 shadow-inner'}`}
                           placeholder={placeholderText} />
                         {_ghost && <span style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none',fontSize:12,fontWeight:'bold',color:'#64748b'}}>{placeholderText}</span>}
@@ -32310,6 +32376,13 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   const [showPrintCards, setShowPrintCards] = useState(false); // ★ 印刷用の隠しカードは印刷時だけ描画(スマホのメモリ対策)
   const [printMissingConfirm, setPrintMissingConfirm] = useState(null); // ★ 次回予定未入力の確認 {names:[]}(2026-09-09)
   const [showPrintSettings, setShowPrintSettings] = useState(false); // ★ 右上「詳細設定」パネル(面数/用紙/補助線)
+  const [inputHub, setInputHub] = useState(false); // ★ 2026-10-05(ユーザー要望): 「項目・連絡事項・次回予定」を「各種入力」1つにまとめたパネル
+  const [blankDl, setBlankDl] = useState(null); // ★ 2026-10-05: 空印刷の枚数選択 {n} (押したらそのままダウンロード)
+  // ★ 2026-10-05(扇橋の報告「ダウンロードして印刷すると左上に寄る」): PDFを印刷するとき Chrome は用紙をプリンタの既定(A4)にするため、
+  //   B6のPDFが左上に原寸で出る。ダウンロード直後に「用紙サイズを○○に」を出す(10秒・×で閉じる)
+  const [cbPaperTip, setCbPaperTip] = useState(null);
+  const _paperName = () => { const ss = appData.systemSettings || {}; return ss.renrakuMode === '1' ? (ss.renrakuPaper === 'b6port' ? 'B6（JIS）・縦' : 'B5（JIS）・横') : 'B5（JIS）・横'; };
+  const _showPaperTip = () => { const t = Date.now(); setCbPaperTip({ t, paper: _paperName() }); setTimeout(() => setCbPaperTip(v => (v && v.t === t) ? null : v), 12000); };
   const [mobileCardLimit, setMobileCardLimit] = useState(6); // ★ スマホは重いカードを少しずつ描画(メモリ対策)
   const [mobileOpenCardId, setMobileOpenCardId] = useState(null); // ★ スマホは重いカードを描画せず、開いた1人だけ描画(メモリ対策)
   const [printingIds, setPrintingIds] = useState([]); // ★ 印刷時に描画する利用者ID(全員ではなく印刷対象だけ描画)
@@ -32651,24 +32724,24 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   });
   const _curOff = () => { const ss = appData.systemSettings || {}; return [Math.max(-10, Math.min(10, Number(ss.renrakuOffsetX) || 0)), Math.max(-10, Math.min(10, Number(ss.renrakuOffsetY) || 0))]; };
   // ★ 空の連絡帳を印刷(2026-09-29 ユーザー要望: 振替の方が連絡帳に出ない等のアクシデントに備え、手書き用の空欄連絡帳を印刷設定どおりの用紙で出す)
-  const doPrintBlank = (sheets) => {
+  // ★ 2026-10-05(ユーザー要望「空印刷も押したらプレビューではなくダウンロード」): 印刷設定の用紙・面数・印刷位置のまま、サーバーPDFを直接ダウンロード
+  const doPrintBlank = (sheets, _pdfWin) => {
+    const pdfWin = _pdfWin === undefined ? tsumugiOpenPdfWindow() : _pdfWin; // iPad はクリックの中で先にタブを開く
     const be = document.getElementById('print-content-cb-blank');
-    if (!be) { setShowPrintCards(true); setTimeout(() => doPrintBlank(sheets), 250); return; }
+    if (!be) { setShowPrintCards(true); setTimeout(() => doPrintBlank(sheets, pdfWin), 250); return; }
     const n = Math.max(1, Math.min(20, Number(sheets) || 1));
     const h = be.outerHTML.replace(/display:\s*none[^;"\']*/g,'display:block');
     const _ss = appData.systemSettings || {};
     const faces = (_ss.renrakuMode === '1' ? 1 : 2) * n; // 2面なら1枚に2面
     const _parts = Array.from({ length: faces }, () => h);
     const { combinedHtml, pageSizeStr } = _layoutRenraku(_parts);
-    const [_ox, _oy] = _curOff();
-    window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title:`連絡帳(空)_${selectedDate}`,pageSize:pageSizeStr,html:combinedHtml,elementId:null,adjust:_mkAdjust(_parts, `連絡帳(空)_${selectedDate}`, _ox, _oy)}}));
-    setTimeout(() => setShowPrintCards(false), 800);
+    setCbPdfBusy(true);
+    tsumugiServerPdf({ html: tsumugiBuildPrintSrcDoc(combinedHtml), pageSize: pageSizeStr, title: `連絡帳(空)_${selectedDate}`, win: pdfWin })
+      .then(() => _showPaperTip())
+      .catch(e => alert('PDFの作成に失敗しました: ' + ((e && e.message) || e)))
+      .finally(() => { setCbPdfBusy(false); setTimeout(() => setShowPrintCards(false), 300); });
   };
-  const handlePrintBlank = () => {
-    const v = window.prompt('空の連絡帳を何枚印刷しますか？（用紙の枚数・印刷設定の用紙と面数で出ます）', '1');
-    if (v === null) return;
-    doPrintBlank(toHankaku(v).replace(/[^0-9]/g, '')); // ★ 全角数字でも可(2026-09-29)
-  };
+  const handlePrintBlank = () => setBlankDl({ n: 1 });
   const doPrint = (idsToprint, _pdfWin) => {
     setPrintModeModal(false);
     if(!idsToprint || !idsToprint.length){ alert('印刷する利用者を1人以上選択してください'); return; }
@@ -32700,6 +32773,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       // ★ サーバーPDF(B5/B6 など印刷設定の用紙サイズのまま)。iPad は先に開いたタブに表示、PC はダウンロード
       setCbPdfBusy(true);
       tsumugiServerPdf({ html: tsumugiBuildPrintSrcDoc(combinedHtml), pageSize: pageSizeStr, title, win: pdfWin })
+        .then(() => _showPaperTip())
         .catch(e => alert('PDFの作成に失敗しました: ' + ((e && e.message) || e)))
         .finally(() => setCbPdfBusy(false));
     } else {
@@ -32961,20 +33035,59 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         <div className="flex-1" />
         {/* ★ 提供記録入力への相互ジャンプ(2026-08-21): 提供記録側の「連絡帳」ボタンと対 */}
         {navigateTo && <button onClick={()=>navigateTo('record')} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shadow"><ClipboardList size={15} className="mr-1"/>提供記録</button>}
-        {/* ★ 並び順(2026-09-29 ユーザー指示): 項目 → 連絡事項 → 次回予定 → 印刷設定 → 空印刷 → プレビュー */}
-        <button onClick={() => setIsConfigOpen(true)} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0">
-          項目
-        </button>
-        <button onClick={() => setRenrakuModal({ patientId: null })} className="border px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0 bg-white border-slate-300 hover:bg-slate-50 text-slate-700">
-          連絡事項
-          {/* ★ 入力済み人数(2026-09-29 ユーザー要望: 下の方の人の入力・削除忘れ防止)。この日に表示される個別連絡事項の人数＋全員共通 */}
-          {(() => { const _inR = (o) => !!o && (!o.from || selectedDate >= o.from) && (!o.until || selectedDate <= o.until); const _ids = new Set(displayRecords.map(r=>r.patientId)); const n = (appData.patients||[]).filter(p => _ids.has(p.id) && renrakuHasText(p.contactBookRenraku) && _inR(p.contactBookRenraku)).length; const allOn = renrakuHasText(appData.contactBookConfig?.renrakuAll) && _inR(appData.contactBookConfig?.renrakuAll); return (n>0 || allOn) ? <span className="ml-1.5 bg-emerald-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">{allOn ? '全員' : ''}{allOn && n>0 ? '+' : ''}{n>0 ? `個別${n}名` : ''}</span> : null; })()}
-        </button>
-        <button onClick={() => setIsScheduleModalOpen(true)} className="border px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0 bg-white border-slate-300 hover:bg-slate-50 text-slate-700">
-          次回予定
-          {/* ★ 未入力人数バッジ(2026-09-09 店舗要望): 印刷で空欄になる人数をひと目で */}
-          {missingNextList.length > 0 && <span className="ml-1.5 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">未入力{missingNextList.length}名</span>}
-        </button>
+        {/* ★ 2026-10-05(ユーザー要望): 項目・連絡事項・次回予定を「各種入力」1つにまとめる。並び: 各種入力 → 印刷設定 → 空印刷 → ダウンロード */}
+        {(() => {
+          const _inR = (o) => !!o && (!o.from || selectedDate >= o.from) && (!o.until || selectedDate <= o.until);
+          const _ids = new Set(displayRecords.map(r=>r.patientId));
+          const renN = (appData.patients||[]).filter(p => _ids.has(p.id) && renrakuHasText(p.contactBookRenraku) && _inR(p.contactBookRenraku)).length;
+          const allOn = renrakuHasText(appData.contactBookConfig?.renrakuAll) && _inR(appData.contactBookConfig?.renrakuAll);
+          const miss = missingNextList.length;
+          const open = (fn) => { setInputHub(false); fn(); };
+          const card = (testid, title, desc, badge, onClick) => (
+            <button type="button" data-testid={testid} onClick={onClick} className="w-full text-left bg-white border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50 rounded-xl px-4 py-3 flex items-center gap-3 transition-colors">
+              <div className="flex-1 min-w-0"><div className="font-bold text-slate-800 text-sm">{title}</div><div className="text-[11px] text-slate-500 mt-0.5">{desc}</div></div>
+              {badge}
+              <span className="text-slate-400 text-lg leading-none">›</span>
+            </button>
+          );
+          return (<>
+            <button onClick={() => setInputHub(true)} data-testid="cb-input-hub" className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0">
+              各種入力
+              {miss > 0 && <span className="ml-1.5 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">次回未入力{miss}名</span>}
+            </button>
+            {inputHub && ReactDOM.createPortal((
+              <div className="fixed inset-0 bg-slate-900/50 z-[9999] flex items-start justify-center p-4 pt-20" onClick={() => setInputHub(false)}>
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()} data-testid="cb-input-hub-modal">
+                  <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between">
+                    <div className="font-bold text-slate-800">各種入力 <span className="text-xs font-normal text-slate-500 ml-1">{selectedDate.replace(/-/g,'/')}・{displayRecords.length}名</span></div>
+                    <button onClick={() => setInputHub(false)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"><X size={18}/></button>
+                  </div>
+                  {/* 状況のバナー: 次回予定の未入力 → 連絡事項の入力状況 */}
+                  <div className="px-5 pt-3 space-y-2">
+                    {miss > 0 ? (
+                      <button type="button" data-testid="cb-hub-banner-miss" onClick={() => open(() => setIsScheduleModalOpen(true))} className="w-full text-left bg-red-50 border border-red-200 rounded-xl px-3.5 py-2.5">
+                        <div className="text-sm font-bold text-red-700">次回予定が未入力の方が {miss}名 います</div>
+                        <div className="text-[11px] text-red-600 mt-0.5 truncate">{missingNextList.slice(0, 4).map(r => `${r.name} 様`).join('、')}{miss > 4 ? ` ほか${miss - 4}名` : ''}　→ 押すと入力できます</div>
+                      </button>
+                    ) : (
+                      <div data-testid="cb-hub-banner-ok" className="bg-emerald-50 border border-emerald-200 rounded-xl px-3.5 py-2.5 text-sm font-bold text-emerald-700">次回予定は全員入力済みです</div>
+                    )}
+                    <div className="text-[11px] text-slate-500 px-1">連絡事項：{allOn ? '全員あて あり' : '全員あて なし'}・個別 {renN}名</div>
+                  </div>
+                  <div className="p-5 pt-3 space-y-2">
+                    {card('cb-hub-next', '次回予定', '次回の利用日・お迎え時間（時間は送迎表から入ります）',
+                      miss > 0 ? <span className="bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap">未入力{miss}名</span> : <span className="bg-emerald-100 text-emerald-700 text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap">入力済み</span>,
+                      () => open(() => setIsScheduleModalOpen(true)))}
+                    {card('cb-hub-renraku', '連絡事項', '全員あて・個別の連絡（表示期間つき）',
+                      (renN > 0 || allOn) ? <span className="bg-emerald-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap">{allOn ? '全員' : ''}{allOn && renN>0 ? '+' : ''}{renN>0 ? `個別${renN}名` : ''}</span> : null,
+                      () => open(() => setRenrakuModal({ patientId: null })))}
+                    {card('cb-hub-items', '項目', '連絡帳に載せる項目と、利用者ごとの値', null, () => open(() => setIsConfigOpen(true)))}
+                  </div>
+                </div>
+              </div>
+            ), document.body)}
+          </>);
+        })()}
         {/* ★ 詳細設定: 面数(1面/2面)・用紙・補助線(カット線/パンチ点)をここで選ぶ */}
         <div className="relative shrink-0">
           <button onClick={()=>setShowPrintSettings(v=>!v)} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap">
@@ -32988,7 +33101,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
             const setSS = (patch)=>onSave({ ...appData, systemSettings: { ...ss, ...patch } });
             const tabBtn = (on)=>`flex-1 px-2 py-1.5 rounded-lg text-xs font-bold border ${on?'bg-blue-600 text-white border-blue-600':'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`;
             return (
-              <div className="absolute right-0 top-full mt-1.5 z-30 bg-white border border-slate-300 rounded-xl shadow-xl p-3.5 w-80 text-left space-y-3">
+              <div className="absolute right-0 top-full mt-1.5 z-30 bg-white border border-slate-300 rounded-xl shadow-xl p-3.5 w-80 text-left space-y-3 overflow-y-auto" style={{maxHeight:'calc(100vh - 140px)'}}>
                 <div className="flex items-center justify-between"><span className="text-sm font-bold text-slate-700">印刷設定</span><button onClick={()=>setShowPrintSettings(false)} className="text-slate-400 hover:text-slate-700 text-lg leading-none">×</button></div>
                 <div>
                   <div className="text-[11px] font-bold text-slate-500 mb-1">面数（1枚に何人分）</div>
@@ -33012,7 +33125,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                         <ol className="text-[10px] text-amber-800 leading-relaxed list-decimal ml-4 space-y-0.5">
                           <li>複合機の手差しトレイ（側面の折りたたみトレイ）にB6用紙をセットし、ガイドを用紙の幅に合わせる</li>
                           <li>複合機の画面に用紙サイズの確認が出たら「B6」を選ぶ（一覧に無い機種は「カスタム 128×182mm」で登録）</li>
-                          <li>このアプリの印刷画面で、用紙サイズ「B6」・給紙トレイ「手差し」を選んで印刷</li>
+                          <li>ダウンロードしたPDFを開いて印刷し、印刷画面の「詳細設定」で用紙サイズ「B6（JIS）」・給紙トレイ「手差し」・倍率「実際のサイズ（100%）」を選ぶ（Chromeは次回から覚えます）。<b>用紙サイズがA4のままだと、左上に小さく寄って印刷されます</b></li>
                         </ol>
                         <div className="text-[10px] text-amber-700 mt-1">※ ほとんどの複合機は手差しトレイでB6サイズに対応していますが、機種により手順が異なります。最初は1枚だけテスト印刷してから本番の印刷をおすすめします。</div>
                       </div>
@@ -33033,21 +33146,46 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                     <div className="text-[10px] text-slate-400 mt-1">B5横に2人分を印刷し、中央でカット→B6×2枚。人数が奇数のときは最後の1面が空欄（手書き用）になります。「上」を選ぶと上に余白を取り、各面を少し小さく印刷します。</div>
                   </div>
                 )}
-                {/* ★ 2026-10-03 ユーザー指示: 印刷位置の微調整はプレビュー画面で行えるため、ここの微調整は廃止(保存値 renrakuOffsetX/Y はプレビューの調整で共用) */}
+                {/* ★ 2026-10-05(ユーザー要望): プレビューが無くなったので、印刷位置の微調整をここに戻す。図で用紙のどこに出るかが見える */}
+                {(() => {
+                  const ox = Math.max(-10, Math.min(10, Number(ss.renrakuOffsetX) || 0)), oy = Math.max(-10, Math.min(10, Number(ss.renrakuOffsetY) || 0));
+                  const mv = (dx, dy) => setSS({ renrakuOffsetX: Math.max(-10, Math.min(10, ox + dx)), renrakuOffsetY: Math.max(-10, Math.min(10, oy + dy)) });
+                  const ab = 'w-9 h-8 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-sm active:scale-95';
+                  const desc = [ox ? `${ox < 0 ? '左' : '右'}へ${Math.abs(ox)}mm` : '', oy ? `${oy < 0 ? '上' : '下'}へ${Math.abs(oy)}mm` : ''].filter(Boolean).join('・') || '調整なし（中央）';
+                  return (
+                    <div className="border-t border-slate-100 pt-2.5">
+                      <div className="text-[11px] font-bold text-slate-500 mb-1">印刷位置の微調整（{renrakuSheetGeom(ss).label}）</div>
+                      <RenrakuPositionDiagram ss={ss} />
+                      <div className="flex items-center gap-3 mt-2">
+                        <div className="grid grid-cols-3 gap-1" style={{ width: 'fit-content' }}>
+                          <span /><button type="button" data-testid="cb-pos-up" onClick={() => mv(0, -1)} className={ab} title="上へ1mm">↑</button><span />
+                          <button type="button" data-testid="cb-pos-left" onClick={() => mv(-1, 0)} className={ab} title="左へ1mm">←</button>
+                          <button type="button" data-testid="cb-pos-reset" onClick={() => setSS({ renrakuOffsetX: 0, renrakuOffsetY: 0 })} className="w-9 h-8 rounded-lg border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-500 font-bold text-[10px]" title="中央に戻す">戻す</button>
+                          <button type="button" data-testid="cb-pos-right" onClick={() => mv(1, 0)} className={ab} title="右へ1mm">→</button>
+                          <span /><button type="button" data-testid="cb-pos-down" onClick={() => mv(0, 1)} className={ab} title="下へ1mm">↓</button><span />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div data-testid="cb-pos-value" className="text-xs font-bold text-slate-700">{desc}</div>
+                          <div className="text-[10px] text-slate-400 mt-0.5">1回押すと1mm（最大10mm）。中身だけが動き、カット線・穴あけの目印は動きません。</div>
+                          <button type="button" data-testid="cb-pos-test" onClick={() => doPrintBlank(1)} disabled={cbPdfBusy} className="mt-1.5 px-2.5 py-1 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 font-bold text-[11px] disabled:opacity-50">{cbPdfBusy ? '作成中…' : '試し刷り用（空の連絡帳1枚）をダウンロード'}</button>
+                        </div>
+                      </div>
+                      <div className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 mt-2">複合機で右や下が切れるときに使います。PDFを印刷するときは、印刷画面の「詳細設定」で<b>用紙サイズを「{renrakuSheetGeom(ss).faces.length === 2 || ss.renrakuPaper !== 'b6port' ? 'B5（JIS）・横' : 'B6（JIS）'}」</b>、倍率を<b>「実際のサイズ（100%）」</b>にしてください（A4のままだと左上に寄り、「用紙に合わせる」だと大きさが変わります）。</div>
+                    </div>
+                  );
+                })()}
                 <label className="flex items-center gap-2 text-xs text-slate-700 py-0.5 cursor-pointer"><input type="checkbox" checked={ss.renrakuShowQr !== false} onChange={e=>setSS({renrakuShowQr:e.target.checked})}/>ご家族専用ページのQRコードを連絡帳に印字する</label>
               </div>
             );
           })()}
         </div>
-        <button onClick={handlePrintBlank} title="氏名・記録が空欄の連絡帳を、印刷設定の用紙(B5横2面／B6など)で印刷します。表示されない方がいた時の手書き用" className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm whitespace-nowrap shrink-0">
+        <button onClick={handlePrintBlank} data-testid="cb-blank" title="氏名・記録が空欄の連絡帳を、印刷設定の用紙(B5横2面／B6など)のままPDFでダウンロードします。表示されない方がいた時の手書き用" className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm whitespace-nowrap shrink-0">
           空印刷
         </button>
         <button onClick={()=>handlePrint('pdf')} disabled={cbPdfBusy} data-testid="cb-pdf" title="サーバーでPDFを作ります（印刷設定の用紙サイズのまま。iPadは新しいタブで開く・PCはダウンロード）" className="bg-teal-700 hover:bg-teal-800 disabled:bg-slate-400 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-1 text-sm transition-all active:scale-95 whitespace-nowrap shrink-0">
           {cbPdfBusy ? <><BusySpin/>作成中…</> : 'ダウンロード'}
         </button>
-        <button onClick={()=>handlePrint('print')} data-testid="cb-print" title="選んだ方の連絡帳をそのまま印刷します（プレビューを経由せず印刷画面へ）" className="bg-slate-900 hover:bg-black text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0">
-          印刷
-        </button>
+        {/* ★ 2026-10-05(ユーザー要望「ダウンロードが早いので連絡帳の印刷ボタンも不要」): 「印刷」ボタンは廃止。ダウンロードのPDFから印刷する */}
       </div>
       <div className="max-w-[800px] mx-auto space-y-8 pb-32 pt-6">
 
@@ -33222,7 +33360,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden">
               <div className="px-6 py-4 bg-amber-50 border-b border-amber-200">
                 <div className="font-bold text-slate-800 text-base">次回予定が未入力の方がいます（{printMissingConfirm.names.length}名）</div>
-                <div className="text-xs text-slate-500 mt-1">このまま進むと、連絡帳の「次回お迎え時間」が空欄で印刷されます。</div>
+                <div className="text-xs text-slate-500 mt-1">このまま進むと、連絡帳の「次回お迎え時間」が空欄で出力されます。</div>
               </div>
               <div className="px-6 py-3 max-h-52 overflow-y-auto">
                 {printMissingConfirm.names.map((n,i)=>(<div key={i} className="text-sm font-bold text-slate-700 py-1 border-b border-slate-100 last:border-0">{n} 様</div>))}
@@ -33234,12 +33372,39 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
             </div>
           </div>
         ), document.body)}
+        {cbPaperTip && ReactDOM.createPortal((
+          <div data-testid="cb-paper-tip" className="fixed left-1/2 -translate-x-1/2 bottom-6 z-[9998] bg-slate-900 text-white rounded-xl shadow-2xl px-4 py-3 flex items-start gap-3" style={{ maxWidth: 'min(560px, calc(100vw - 32px))' }}>
+            <div className="text-sm leading-relaxed">
+              <div className="font-bold">PDFを印刷するときは、用紙サイズを「{cbPaperTip.paper}」に</div>
+              <div className="text-[12px] text-slate-300 mt-0.5">印刷画面の「詳細設定」で用紙サイズと倍率「実際のサイズ（100%）」を選んでください。A4のままだと左上に寄って印刷されます（Chromeは次回から覚えます）。</div>
+            </div>
+            <button type="button" onClick={() => setCbPaperTip(null)} className="text-slate-400 hover:text-white text-lg leading-none">×</button>
+          </div>
+        ), document.body)}
+        {/* ★ 2026-10-05: 空印刷の枚数 → そのままダウンロード(プレビューなし) */}
+        {blankDl && ReactDOM.createPortal((
+          <div className="fixed inset-0 bg-slate-900/50 z-[9999] flex items-start justify-center p-4 pt-24" onClick={() => setBlankDl(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()} data-testid="cb-blank-modal">
+              <div className="font-bold text-slate-800">空の連絡帳をダウンロード</div>
+              <div className="text-xs text-slate-500 mt-1">氏名・記録が空欄の連絡帳を、印刷設定の用紙・面数・印刷位置のままPDFにします（表示されない方がいたときの手書き用）。</div>
+              <div className="flex items-center justify-center gap-3 my-4">
+                <button type="button" onClick={() => setBlankDl(v => ({ n: Math.max(1, v.n - 1) }))} className="w-10 h-10 rounded-xl border border-slate-300 bg-white text-xl font-bold text-slate-700">−</button>
+                <div className="text-center"><div data-testid="cb-blank-n" className="text-3xl font-bold text-slate-800 tabular-nums">{blankDl.n}</div><div className="text-[11px] text-slate-500">枚（{(appData.systemSettings?.renrakuMode === '1' ? 1 : 2) * blankDl.n}人分）</div></div>
+                <button type="button" onClick={() => setBlankDl(v => ({ n: Math.min(20, v.n + 1) }))} className="w-10 h-10 rounded-xl border border-slate-300 bg-white text-xl font-bold text-slate-700">＋</button>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setBlankDl(null)} className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm">やめる</button>
+                <button type="button" data-testid="cb-blank-dl" onClick={() => { const n = blankDl.n; setBlankDl(null); doPrintBlank(n); }} className="px-5 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-sm">ダウンロード</button>
+              </div>
+            </div>
+          </div>
+        ), document.body)}
         {/* 印刷対象選択モーダル（チェックされた利用者だけ印刷） */}
         {printModeModal && ReactDOM.createPortal((
           <div className="fixed inset-0 bg-slate-900/50 z-[9999] flex items-center justify-center p-4" onClick={()=>setPrintModeModal(false)}>
             <div className="tsu-cap-dvh bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col" style={{maxHeight:'85vh'}} onClick={e=>e.stopPropagation()}>
               <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between flex-shrink-0">
-                <div className="font-bold text-slate-800 text-base">印刷する利用者を選択</div>
+                <div className="font-bold text-slate-800 text-base">{cbOut === 'pdf' ? 'ダウンロードする利用者を選択' : '印刷する利用者を選択'}</div>
                 <button onClick={()=>setPrintModeModal(false)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"><X size={18}/></button>
               </div>
               <div className="px-4 py-2 border-b border-slate-100 flex items-center gap-2 flex-shrink-0">
@@ -33268,7 +33433,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                 <button onClick={()=>setPrintModeModal(false)} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
                 <button onClick={()=>doPrint(printSelectedIds)} disabled={printSelectedIds.length===0}
                         className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl font-bold text-sm shadow-md flex items-center gap-2">
-                  <Printer size={16}/>選択した{printSelectedIds.length}名を{cbOut === 'pdf' ? 'PDFに' : '印刷'}
+                  選択した{printSelectedIds.length}名を{cbOut === 'pdf' ? 'ダウンロード' : '印刷'}
                 </button>
               </div>
             </div>
@@ -35080,9 +35245,12 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     // ★ 2026-10-01(試験版・ユーザー要望「下部は基本休みのみ」): その他(家族送迎・途中参加など)も徒歩と同じく枠で1人1行。時間・次回の欄に理由
     const _otherRows = {};
     ['AM','PM'].forEach(sl => { _otherRows[sl] = Math.max(0, ...days.map(d => (getPlan(_iso(d), sl).others||[]).length)); });
-    let _maxNameEm = 3, _anyDropTag = false;
+    // ★ 2026-10-05(ユーザー要望「運行表も 氏名・お迎え時間・次回・送り車 の配置に。送りの車が迎えと違う時だけ車名」):
+    //   送りが迎えと違う方がいる週は、名前の横の小さな印をやめて「送り」の列(4列目)に車名(徒歩・早退などはそのまま)を出す。いない週は従来どおり3列
+    const _sendLabel = (tg) => String(tg || '').replace(/^送/, '');
+    let _maxNameEm = 3, _anyDropTag = false, _maxSendEm = 2;
     ['AM','PM'].forEach(sl => days.forEach(d => { const iso = _iso(d); const pl0 = getPlan(iso, sl);
-      [ ...Object.values(pl0.cars||{}), pl0.walkers||[], pl0.others||[] ].forEach(ms => (ms||[]).forEach(m => { const mk = (m.mark || _dotOf(plans[`${iso}_${sl}`], iso, m.pid)) ? 1 : 0; const tg = _dropTag(pl0, m.pid); if (tg) _anyDropTag = true; _maxNameEm = Math.max(_maxNameEm, _emW(_pname(m.pid)) + mk + (tg ? _emW(tg) * 0.62 + 0.7 : 0)); })); }));
+      [ ...Object.values(pl0.cars||{}), pl0.walkers||[], pl0.others||[] ].forEach(ms => (ms||[]).forEach(m => { const mk = (m.mark || _dotOf(plans[`${iso}_${sl}`], iso, m.pid)) ? 1 : 0; const tg = _dropTag(pl0, m.pid); if (tg) { _anyDropTag = true; _maxSendEm = Math.max(_maxSendEm, _emW(_sendLabel(tg))); } _maxNameEm = Math.max(_maxNameEm, _emW(_pname(m.pid)) + mk); })); }));
     const _hasDrv = ['AM','PM'].some(sl => days.some(d => Object.values(getPlan(_iso(d), sl).driver||{}).some(Boolean)));
     const _carColW = (f) => Math.ceil(Math.min(f, 14) * 1.25) + 16;     // 左端の車名の列(縦書き1列＋余白)
     const _drvW = (f) => _hasDrv ? Math.ceil(Math.min(f, 11) * 1.2) + 9 : 0; // 各日の運転者の細い欄
@@ -35096,6 +35264,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const _hdrF = (f) => Math.max(8, Math.round(f * 0.6));      // 見出し(氏名・時間・次回)の文字
     const _hdrH = (f) => Math.ceil(_hdrF(f) * 1.3) + 2;
     const _nextW = (f) => Math.ceil(_fzS(f) * 1.15) + 6;
+    const _sendW = (f) => _anyDropTag ? Math.ceil(_maxSendEm * _fzS(f) * 0.85) + 6 : 0; // 送りの列(送りが迎えと違う方がいる週だけ)
     // 下部情報(徒歩・完成後に外れた・その他・初回・休み・送り別)の文言。折り返し行数の見積りに使う
     const _bottomTexts = (iso, sl) => { const pl = getPlan(iso, sl); const out = [];
       // ★ 2026-10-01(試験版・ユーザー要望「下部は基本休みのみ」): 初回は水色の塗り・その他は枠・送りは名前の右の印で示すので下部に書かない
@@ -35120,7 +35289,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     // ★ 2026-09-16f: 本文の有効高さを実測に基づいて補正(190mm=718px − 題字28 − 日付見出し6mm − 凡例17 − セル余白12 ≒ 638)。
     const availPx = 630;
     let fz = 20; // 上限20px(利用者が少ない店舗で大きくなりすぎないように)
-    while (fz > 8) { const uh = Math.ceil(fz * 1.25) + 3; const tu = Math.max(unitsOf('AM', fz) + unitsOf('PM', fz), 6); if (tu * uh <= availPx && _nameW(fz) + _timeW(fz) + _nextW(fz) <= _dayPx(fz)) break; fz--; }
+    while (fz > 8) { const uh = Math.ceil(fz * 1.25) + 3; const tu = Math.max(unitsOf('AM', fz) + unitsOf('PM', fz), 6); if (tu * uh <= availPx && _nameW(fz) + _timeW(fz) + _nextW(fz) + _sendW(fz) <= _dayPx(fz)) break; fz--; }
     const uAM = unitsOf('AM', fz), uPM = unitsOf('PM', fz);
     const totalU = Math.max(uAM + uPM, 6);
     const fzS = _fzS(fz);
@@ -35128,29 +35297,33 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const _rowH = Math.ceil(fz * 1.25) + 3;
     const _blkPx = (sl, c) => _carRows[sl][c.id] * _rowH + 2; // 車の枠の高さ(左端の車名と各日の枠で共通)
     // ★ 2026-10-01d(ユーザー要望「次回の右側の無駄なセルを消して」): 右端の空きセルは廃止。余った幅は氏名に5割・時間に3割を足し、次回は残りの幅
-    const _extraW = Math.max(0, Math.floor((_dayPx(fz) - _nameW(fz) - _timeW(fz) - _nextW(fz)) * 0.9));
-    const COLG = `<colgroup><col style="width:${_nameW(fz) + Math.floor(_extraW * 0.5)}px"/><col style="width:${_timeW(fz) + Math.floor(_extraW * 0.3)}px"/><col/></colgroup>`;
+    const _extraW = Math.max(0, Math.floor((_dayPx(fz) - _nameW(fz) - _timeW(fz) - _nextW(fz) - _sendW(fz)) * 0.9));
+    const COLG = _anyDropTag
+      ? `<colgroup><col style="width:${_nameW(fz) + Math.floor(_extraW * 0.5)}px"/><col style="width:${_timeW(fz) + Math.floor(_extraW * 0.3)}px"/><col style="width:${_nextW(fz)}px"/><col/></colgroup>`
+      : `<colgroup><col style="width:${_nameW(fz) + Math.floor(_extraW * 0.5)}px"/><col style="width:${_timeW(fz) + Math.floor(_extraW * 0.3)}px"/><col/></colgroup>`;
+    const _sendTd = (m, iso, sl) => _anyDropTag ? `<td style="border-bottom:1px solid #d7dcd7;border-left:1px solid #e2e6e1;padding:1px 2px;font-size:${Math.max(7, Math.min(_fzS(fz), Math.floor((_sendW(fz) - 4) / Math.max(1, _emW(_sendLabel(_dropTag(getPlan(iso, sl), m.pid)))))))}px;line-height:1.25;text-align:center;font-weight:700;color:#3730a3;white-space:nowrap;overflow:hidden;">${esc(_sendLabel(_dropTag(getPlan(iso, sl), m.pid)))}</td>` : '';
+    const _sendEmptyTd = () => _anyDropTag ? `<td style="border-bottom:1px solid #dfe3de;border-left:1px solid #eaece8;padding:1px 2px;font-size:${_fzS(fz)}px;line-height:1.25;">&nbsp;</td>` : '';
     const _padTd = () => '';
     const _rowStyle = `height:${_rowH}px;`;
     const _tagHtml = (tg, f) => tg ? `<span style="display:inline-block;margin-left:3px;padding:0 2px;border:1px solid #6366f1;border-radius:2px;color:#3730a3;background:#fff;font-size:${Math.max(7, Math.round(f * 0.62))}px;line-height:1.15;font-weight:700;vertical-align:middle;">${esc(tg)}</span>` : '';
-    const _nameTd = (m, iso, sl) => `<td style="border-bottom:1px solid #d7dcd7;padding:1px 3px;font-size:${fz}px;line-height:1.25;white-space:nowrap;overflow:hidden;font-weight:600;">${(m.mark||_chgOf(plans[`${iso}_${sl}`], m.pid))?'<span style="color:#c82c35;font-weight:bold;">●</span>':''}${esc(_pname(m.pid))}${_tagHtml(_dropTag(getPlan(iso, sl), m.pid), fz)}</td>`;
+    const _nameTd = (m, iso, sl) => `<td style="border-bottom:1px solid #d7dcd7;padding:1px 3px;font-size:${fz}px;line-height:1.25;white-space:nowrap;overflow:hidden;font-weight:600;">${(m.mark||_chgOf(plans[`${iso}_${sl}`], m.pid))?'<span style="color:#c82c35;font-weight:bold;">●</span>':''}${esc(_pname(m.pid))}${_anyDropTag ? '' : _tagHtml(_dropTag(getPlan(iso, sl), m.pid), fz)}</td>`;
     const _rowBg = (m, iso, sl) => { const fk = _isFurikae(iso, sl, m.pid); const fv = !fk && _isFirstVisit(m.pid, iso); return fk ? '#a7f3d0' : (fv ? '#bae6fd' : '#fff'); };
     // その他の行: 時間・次回の欄をつなげて理由(家族送迎・途中参加など)。長い理由は欄に収まる大きさまで縮める
-    const otherRow = (m, iso, sl) => { const why = String(m.why || ''); const w2 = Math.max(20, _dayPx(fz) - (_nameW(fz) + Math.floor(_extraW * 0.5)) - 6); const fw = Math.max(6, Math.min(fz, Math.floor(w2 / Math.max(1, _emW(why)))));
-      return `<tr style="${_rowStyle}background:${_rowBg(m, iso, sl)};">${_nameTd(m, iso, sl)}<td colspan="2" style="border-bottom:1px solid #d7dcd7;border-left:1px solid #e2e6e1;padding:1px 2px;font-size:${fw}px;line-height:1.25;text-align:center;font-weight:700;color:#6d28d9;white-space:nowrap;overflow:hidden;">${esc(why)}</td></tr>`; };
+    const otherRow = (m, iso, sl) => { const why = String(m.why || ''); const w2 = Math.max(20, _dayPx(fz) - (_nameW(fz) + Math.floor(_extraW * 0.5)) - _sendW(fz) - 6); const fw = Math.max(6, Math.min(fz, Math.floor(w2 / Math.max(1, _emW(why)))));
+      return `<tr style="${_rowStyle}background:${_rowBg(m, iso, sl)};">${_nameTd(m, iso, sl)}<td colspan="2" style="border-bottom:1px solid #d7dcd7;border-left:1px solid #e2e6e1;padding:1px 2px;font-size:${fw}px;line-height:1.25;text-align:center;font-weight:700;color:#6d28d9;white-space:nowrap;overflow:hidden;">${esc(why)}</td>${_sendTd(m, iso, sl)}</tr>`; };
     const cellRow = (m, iso, sl) => {
       const bg = _rowBg(m, iso, sl);
       return `<tr style="${_rowStyle}background:${bg};">
         ${_nameTd(m, iso, sl)}
         <td style="border-bottom:1px solid #d7dcd7;border-left:1px solid #e2e6e1;padding:1px 2px;font-size:${fz}px;line-height:1.25;text-align:center;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;">${esc(_fmtT(m.t))}</td>
-        <td style="border-bottom:1px solid #d7dcd7;border-left:1px solid #e2e6e1;padding:1px 2px;font-size:${fzS}px;line-height:1.25;text-align:center;">${esc(_nextDow(iso, m.pid))}</td>
+        <td style="border-bottom:1px solid #d7dcd7;border-left:1px solid #e2e6e1;padding:1px 2px;font-size:${fzS}px;line-height:1.25;text-align:center;">${esc(_nextDow(iso, m.pid))}</td>${_sendTd(m, iso, sl)}
       </tr>`;
     };
     // ★ 2026-09-16(店舗指摘): 空席セルも名前入りセルと同じ高さに(後から手書きで追記できるように)
-    const emptyRow = () => `<tr style="${_rowStyle}"><td style="border-bottom:1px solid #dfe3de;padding:1px 3px;font-size:${fz}px;line-height:1.25;">&nbsp;</td><td style="border-bottom:1px solid #dfe3de;border-left:1px solid #eaece8;padding:1px 2px;font-size:${fz}px;line-height:1.25;">&nbsp;</td><td style="border-bottom:1px solid #dfe3de;border-left:1px solid #eaece8;padding:1px 2px;font-size:${fzS}px;line-height:1.25;">&nbsp;</td></tr>`;
+    const emptyRow = () => `<tr style="${_rowStyle}"><td style="border-bottom:1px solid #dfe3de;padding:1px 3px;font-size:${fz}px;line-height:1.25;">&nbsp;</td><td style="border-bottom:1px solid #dfe3de;border-left:1px solid #eaece8;padding:1px 2px;font-size:${fz}px;line-height:1.25;">&nbsp;</td><td style="border-bottom:1px solid #dfe3de;border-left:1px solid #eaece8;padding:1px 2px;font-size:${fzS}px;line-height:1.25;">&nbsp;</td>${_sendEmptyTd()}</tr>`;
     const _vBox = (hpx, inner, extra) => `<div style="height:${hpx}px;width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:center;overflow:hidden;${extra||''}"><span style="writing-mode:vertical-rl;text-orientation:upright;display:inline-block;">${inner}</span></div>`;
     // ★ 2026-10-01d(ユーザー要望): 車ごとの見出しをやめた代わりに、各日の午前・午後の上に1か所だけ「氏名・時間・次回」
-    const _colHead = () => `<div style="display:flex;height:${_hdrH(fz)}px;margin-bottom:2px;padding:0 1px;box-sizing:border-box;">${_hasDrv ? `<div style="flex:none;width:${_drvW(fz) + 1}px;"></div>` : ''}<div style="flex:1;min-width:0;"><table style="border-collapse:collapse;width:100%;table-layout:fixed;">${COLG}<tr>${['氏名','時間','次回'].map((t2, k2) => `<td style="padding:0 ${k2 ? 1 : 4}px;font-size:${_hdrF(fz)}px;line-height:1.2;color:#4e5f53;text-align:${k2 ? 'center' : 'left'};white-space:nowrap;overflow:hidden;">${t2}</td>`).join('')}</tr></table></div></div>`;
+    const _colHead = () => `<div style="display:flex;height:${_hdrH(fz)}px;margin-bottom:2px;padding:0 1px;box-sizing:border-box;">${_hasDrv ? `<div style="flex:none;width:${_drvW(fz) + 1}px;"></div>` : ''}<div style="flex:1;min-width:0;"><table style="border-collapse:collapse;width:100%;table-layout:fixed;">${COLG}<tr>${(_anyDropTag ? ['氏名','時間','次回','送り'] : ['氏名','時間','次回']).map((t2, k2) => `<td style="padding:0 ${k2 ? 1 : 4}px;font-size:${_hdrF(fz)}px;line-height:1.2;color:#4e5f53;text-align:${k2 ? 'center' : 'left'};white-space:nowrap;overflow:hidden;">${t2}</td>`).join('')}</tr></table></div></div>`;
     const dayBlock = (iso, sl) => {
       const pl = getPlan(iso, sl);
       let h = _colHead();
@@ -35215,7 +35388,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         <thead><tr style="height:23px;"><th style="border:1px solid #65736a;background:#edf0ec;"></th><th style="border:1px solid #65736a;background:#edf0ec;font-size:9px;font-weight:normal;">車</th>${header}</tr></thead>
         <tbody>${row('AM','午前')}${row('PM','午後')}</tbody>
       </table>
-      <div style="font-size:9px;color:#3f4b43;margin-top:1.5mm;flex:none;display:flex;justify-content:space-between;"><span><span style="color:#c82c35;font-weight:bold;">●</span> 時間変更・要TEL　<span style="background:#a7f3d0;padding:0 3px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 3px;">水色</span>=初回　左端=車名${_hasDrv?'　各枠の左の青い欄=運転者':''}　時間=お迎え　徒歩の時間=到着（指定なしはクラスの開始）　次回=次の利用曜日${_anyDropTag ? '　<span style="border:1px solid #6366f1;color:#3730a3;padding:0 2px;">送○</span>=送りが迎えと違う' : ''}</span><span>空欄=空席</span></div>
+      <div style="font-size:9px;color:#3f4b43;margin-top:1.5mm;flex:none;display:flex;justify-content:space-between;"><span><span style="color:#c82c35;font-weight:bold;">●</span> 時間変更・要TEL　<span style="background:#a7f3d0;padding:0 3px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 3px;">水色</span>=初回　左端=車名${_hasDrv?'　各枠の左の青い欄=運転者':''}　時間=お迎え　徒歩の時間=到着（指定なしはクラスの開始）　次回=次の利用曜日${_anyDropTag ? '　<span style="color:#3730a3;font-weight:bold;">送り</span>=送りの車（迎えと違う方だけ）' : ''}</span><span>空欄=空席</span></div>
     </div>`;
   };
   // ==== 連絡先一覧(週間の2枚目・2026-09-16 店舗要望) ====
