@@ -34430,7 +34430,13 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   //   完成時に各コマの配置(車・乗車順・時刻・徒歩/その他・運転者)を _final に控え、以後の表示/印刷で差分に●を付ける
   const _snapPlan = (pl) => { const cars = {}; Object.keys(pl?.cars||{}).forEach(cid => { cars[cid] = (pl.cars[cid]||[]).map(m => ({ pid: m.pid, t: _fmtT(m.t) })); }); return { cars, walkers: (pl?.walkers||[]).map(m=>m.pid), walkT: Object.fromEntries((pl?.walkers||[]).map(m => [m.pid, /\d/.test(String(m.t||'')) ? _fmtT(m.t) : ''])), others: (pl?.others||[]).map(m=>m.pid), driver: { ...(pl?.driver||{}) } }; };
   const _locOf = (snap, pid) => { for (const cid of Object.keys(snap?.cars||{})) { const i = (snap.cars[cid]||[]).findIndex(m => m.pid === pid); if (i >= 0) return { zone: cid, idx: i, t: snap.cars[cid][i].t || '' }; } if ((snap?.walkers||[]).includes(pid)) return { zone: 'walk', wt: snap.walkT ? (snap.walkT[pid] || '') : null }; if ((snap?.others||[]).includes(pid)) return { zone: 'other' }; return null; };
-  const _chgOf = (pl, pid) => { const fin = pl && pl._final; if (!fin) return ''; const now = _locOf(_snapPlan(pl), pid); if (!now) return ''; const was = _locOf(fin, pid); if (!was) return '確定後に追加'; if (now.zone !== was.zone) return was.zone==='walk'?'徒歩から車へ変更':(was.zone==='other'?'その他から変更':(now.zone==='walk'?'車から徒歩へ変更':(now.zone==='other'?'車からその他へ変更':'車が変更'))); if (now.zone === 'walk' && was.wt != null && now.wt != null && now.wt !== was.wt) return `到着時間が変更（${was.wt||'開始時刻'}→${now.wt||'開始時刻'}）`; if (now.zone !== 'walk' && now.zone !== 'other') { if ((now.t||'') !== (was.t||'')) return `時間が変更（${was.t||'未定'}→${now.t||'未定'}）`;
+  // ★ 2026-10-05(ユーザー報告「確定を解除してから時間を変えたのに赤くならない」・要望「休みの反映で確定を自動解除・変わった車をハイライト」):
+  //   確定を解除しても、その時の控えを _base に残して「確定時からの変更」を比べ続ける(作成中でも赤丸・黄色の枠が出る)。
+  //   もう一度「確定」すると、その控えを基準のまま確定に戻す(解除中に変えた分の赤丸も消えない)。
+  //   比べる基準 = 確定中は _final、解除中は _base。基準の一続きを _finalId / _baseId で見分ける(_stampChg の「白紙に戻すか」の判定)
+  const _baseOf = (pl) => (pl ? (pl._final || pl._base || null) : null);
+  const _baseIdOf = (pl) => (pl ? (pl._final ? (pl._finalId || pl._finalAt || null) : (pl._base ? (pl._baseId || pl._baseAt || null) : null)) : null);
+  const _chgOf = (pl, pid) => { const fin = _baseOf(pl); if (!fin) return ''; const now = _locOf(_snapPlan(pl), pid); if (!now) return ''; const was = _locOf(fin, pid); if (!was) return '確定後に追加'; if (now.zone !== was.zone) return was.zone==='walk'?'徒歩から車へ変更':(was.zone==='other'?'その他から変更':(now.zone==='walk'?'車から徒歩へ変更':(now.zone==='other'?'車からその他へ変更':'車が変更'))); if (now.zone === 'walk' && was.wt != null && now.wt != null && now.wt !== was.wt) return `到着時間が変更（${was.wt||'開始時刻'}→${now.wt||'開始時刻'}）`; if (now.zone !== 'walk' && now.zone !== 'other') { if ((now.t||'') !== (was.t||'')) return `時間が変更（${was.t||'未定'}→${now.t||'未定'}）`;
       // ★ 2026-10-02: 乗車順は「今も乗っている方どうしの並び」で比べる(休みで外れた方の分だけ前に詰まったのを変更と数えない)
       const _curSnap = _snapPlan(pl); const _nowIds = new Set((_curSnap.cars[now.zone]||[]).map(m => m.pid)); const _wasOrder = (fin.cars[now.zone]||[]).filter(m => _nowIds.has(m.pid)).map(m => m.pid); const _nowOrder = (_curSnap.cars[now.zone]||[]).map(m => m.pid);
       if (_wasOrder.indexOf(pid) !== _nowOrder.indexOf(pid)) return '乗車順が変更'; } return ''; };
@@ -34442,13 +34448,13 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _stampChg = (prev, next) => {
     try {
       if (!next || typeof next !== 'object') return next;
-      if (!next._final) { if (next._chgAt) { const { _chgAt, ...rest } = next; return rest; } return next; }
-      const fresh = !prev || !prev._final || prev._finalAt !== next._finalAt; // 確定(更新)直後は控えを白紙に
+      if (!_baseOf(next)) { if (next._chgAt) { const { _chgAt, ...rest } = next; return rest; } return next; }
+      const fresh = !prev || _baseIdOf(prev) == null || _baseIdOf(prev) !== _baseIdOf(next); // 確定(更新)直後は控えを白紙に(解除→再確定は同じ基準なので残す)
       const ca = fresh ? {} : { ...(prev._chgAt || {}) };
       const curSnap = _snapPlan(next), prevSnap = (prev && !fresh) ? _snapPlan(prev) : null;
       const _key = (snap, pid) => { const l = _locOf(snap, pid); if (!l) return 'none'; const { idx, ...rest } = l; return JSON.stringify(rest); };
       const removed = new Set(_removedSince(next).map(String));
-      const ids = new Set([ ...Object.values(curSnap.cars).flat().map(m => m.pid), ...curSnap.walkers, ...curSnap.others, ...Object.values(next._final.cars || {}).flat().map(m => m.pid), ...(next._final.walkers || []), ...(next._final.others || []) ]);
+      const ids = new Set([ ...Object.values(curSnap.cars).flat().map(m => m.pid), ...curSnap.walkers, ...curSnap.others, ...Object.values(_baseOf(next).cars || {}).flat().map(m => m.pid), ...(_baseOf(next).walkers || []), ...(_baseOf(next).others || []) ]);
       const now = syncNow();
       ids.forEach(pid => { const changed = !!_chgOf(next, pid) || removed.has(String(pid)); if (!changed) { delete ca[pid]; return; } if (!ca[pid] || (prevSnap && _key(curSnap, pid) !== _key(prevSnap, pid))) ca[pid] = now; });
       return { ...next, _chgAt: ca };
@@ -34478,18 +34484,25 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _dotInfo = (pl, iso, pid) => { const ac = _chgOf(pl, pid); if (!ac) return { ac: '', dot: false }; return { ac, dot: _noticeNeeded(iso, pid, pl && pl._chgAt ? pl._chgAt[pid] : 0) }; };
   const _dotOf = (pl, iso, pid) => { const i = _dotInfo(pl, iso, pid); return i.dot ? i.ac : ''; };
   _stampChgRef.current = _stampChg;
-  const _removedSince = (pl) => { const fin = pl && pl._final; if (!fin) return []; const cur = _snapPlan(pl); const nowIds = new Set([ ...Object.values(cur.cars).flat().map(m=>m.pid), ...cur.walkers, ...cur.others ]); return [ ...Object.values(fin.cars||{}).flat().map(m=>m.pid), ...(fin.walkers||[]), ...(fin.others||[]) ].filter(pid => !nowIds.has(pid)); };
+  const _removedSince = (pl) => { const fin = _baseOf(pl); if (!fin) return []; const cur = _snapPlan(pl); const nowIds = new Set([ ...Object.values(cur.cars).flat().map(m=>m.pid), ...cur.walkers, ...cur.others ]); return [ ...Object.values(fin.cars||{}).flat().map(m=>m.pid), ...(fin.walkers||[]), ...(fin.others||[]) ].filter(pid => !nowIds.has(pid)); };
   // ★ 2026-10-01(試験版・ユーザー指示「完成後の変更は利用者の時間をメインに。運転者の変更は含まなくていい」): 運転者の変更は数えない
-  const _chgCount = (pl) => { if (!pl || !pl._final) return 0; const cur = _snapPlan(pl); let n = 0; [ ...Object.values(cur.cars).flat().map(m=>m.pid), ...cur.walkers, ...cur.others ].forEach(pid => { if (_chgOf(pl, pid)) n++; }); return n + _removedSince(pl).length; };
+  const _chgCount = (pl) => { if (!pl || !_baseOf(pl)) return 0; const cur = _snapPlan(pl); let n = 0; [ ...Object.values(cur.cars).flat().map(m=>m.pid), ...cur.walkers, ...cur.others ].forEach(pid => { if (_chgOf(pl, pid)) n++; }); return n + _removedSince(pl).length; };
+  // ★ 2026-10-05: この車の中身が基準(確定時)から変わったか(乗る方の増減・順番・時間)。運転者の変更は数えない
+  const _carChanged = (pl, cid) => { const base = _baseOf(pl); if (!base) return false; const cur = (pl.cars && pl.cars[cid]) || []; if (cur.some(m => _chgOf(pl, m.pid))) return true; const now = new Set(cur.map(m => String(m.pid))); return ((base.cars && base.cars[cid]) || []).some(m => !now.has(String(m.pid))); };
   const _finalAtOfWeek = () => { let best = ''; days.forEach(d => ['AM','PM'].forEach(sl => { const f = plans[`${_iso(d)}_${sl}`]?._finalAt; if (f && String(f) > String(best)) best = f; })); return best; };
   const _fmtStamp = (v) => { try { const d = new Date(v); if (isNaN(d)) return ''; return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; } catch { return ''; } };
   const finalizeWeek = () => {
     const already = !!_finalAtOfWeek();
-    if (!window.confirm(already
+    const _hasBase = days.some(d => ['AM','PM'].some(sl => { const pl = plans[`${_iso(d)}_${sl}`]; return pl && !pl._final && pl._base; }));
+    if (!window.confirm(_hasBase && !already
+      ? `この週(${days.length}日分)の送迎表を、いまの内容で「確定」に戻します。\n解除する前の確定から変わった箇所の赤丸・黄色の印はそのまま残ります。よろしいですか？`
+      : already
       ? `この週(${days.length}日分)の送迎表は ${_fmtStamp(_finalAtOfWeek())} に確定済みです。\nいまの内容で「確定」に更新します。確定後の変更の赤丸はいったん消え、これ以降に変えた箇所に付き直します。よろしいですか？`
       : `この週(${days.length}日分)の送迎表を、いまの内容で「確定」として確定します。\n以後に変えた箇所(車・乗車順・時間・運転者)には自動で赤丸が付き、印刷にも出ます。よろしいですか？`)) return;
     const np = { ...plans }; const at = syncNow(); let n = 0;
-    days.forEach(d => ['AM','PM'].forEach(sl => { const iso = _iso(d); const pl = getPlan(iso, sl); const { _draft, ...rest } = pl; np[`${iso}_${sl}`] = { ...rest, _final: _snapPlan(pl), _finalAt: at, _savedAt: at }; n++; }));
+    days.forEach(d => ['AM','PM'].forEach(sl => { const iso = _iso(d); const pl = getPlan(iso, sl); const { _draft, _base, _baseAt, _baseId, ...rest } = pl;
+      // 解除中(控えあり)の再確定は控えを基準のまま戻す。それ以外(初めて・確定の更新)は今の内容を新しい基準にする
+      np[`${iso}_${sl}`] = (_base && !pl._final && !already) ? { ...rest, _final: _base, _finalAt: at, _finalId: _baseId || _baseAt || at, _savedAt: at } : { ...rest, _final: _snapPlan(pl), _finalAt: at, _finalId: at, _savedAt: at }; n++; }));
     _setAfterFinalPreview(true); // ★ 2026-10-02 ユーザー要望: 確定したらそのまま運行表のプレビューへ
     setTpEdit(false); // ★ 2026-10-03: 確定後は一覧(確定済み表示)に戻る
     _saveBulk('確定', np, { manual: true, message: `✓ 送迎表 ${_mon.getMonth()+1}/${_mon.getDate()}週を確定にしました(${n}コマ)` });
@@ -34502,9 +34515,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const [tpEdit, setTpEdit] = useState(false); // ★ 2026-10-03: 確定済みの週で「編集する」を押したとき(週を変えると戻る)
   React.useEffect(() => { setTpEdit(false); }, [selectedDate]);
   const unfinalizeWeek = () => {
-    if (!window.confirm(`この週(${days.length}日分)の送迎表の確定を解除して「作成中」に戻します。\n内容はそのままで、確定後の変更の赤丸は消えます。よろしいですか？`)) return;
+    if (!window.confirm(`この週(${days.length}日分)の送迎表の確定を解除して「作成中」に戻します。\n内容はそのままで、確定のときから変わった箇所は黄色の枠と印（電話が必要な方は赤丸）で表示されます。もう一度「確定」しても残ります。よろしいですか？`)) return;
     const np = { ...plans }; let n = 0;
-    days.forEach(d => ['AM','PM'].forEach(sl => { const k = `${_iso(d)}_${sl}`; const pl = plans[k]; if (pl && (pl._final || pl._finalAt)) { const { _final, _finalAt, ...rest } = pl; np[k] = { ...rest, _savedAt: syncNow() }; n++; } }));
+    days.forEach(d => ['AM','PM'].forEach(sl => { const k = `${_iso(d)}_${sl}`; const pl = plans[k]; if (pl && (pl._final || pl._finalAt)) { const { _final, _finalAt, _finalId, ...rest } = pl; np[k] = { ...rest, ...(_final ? { _base: _final, _baseAt: _finalAt, _baseId: _finalId || _finalAt } : {}), _savedAt: syncNow() }; n++; } }));
     if (n) _saveBulk('確定の解除', np, { manual: true, message: `✓ 送迎表 ${_mon.getMonth()+1}/${_mon.getDate()}週の確定を解除しました` });
     setFinalMenu(false);
   };
@@ -34527,7 +34540,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         return { ...o, cars, ...(o.walkers ? { walkers: o.walkers.filter(m => !rm.has(String(m.pid))) } : {}), ...(o.others ? { others: o.others.filter(m => !rm.has(String(m.pid))) } : {}), ...(o.un ? { un: o.un.filter(m => !rm.has(String(m.pid))) } : {}) }; };
       np[k] = { ...cut(pl), ...(pl.drop ? { drop: cut(pl.drop) } : {}), _savedAt: syncNow() }; });
     const n = list.reduce((a, x) => a + x.ids.length, 0);
-    _saveBulk('休みの反映', np, { manual: true, message: `✓ 休み・休止になった${n}名を送迎表から外しました（「休み」に表示）` });
+    // ★ 2026-10-05(ユーザー要望): 反映したら確定は自動で解除(控えは残す=変わった車が黄色・電話が必要な方は赤丸)
+    let _unf = 0;
+    days.forEach(d => ['AM','PM'].forEach(sl => { const k = `${_iso(d)}_${sl}`; const pl = np[k]; if (pl && pl._final) { const { _final, _finalAt, _finalId, ...rest } = pl; np[k] = { ...rest, _base: _final, _baseAt: _finalAt, _baseId: _finalId || _finalAt, _savedAt: syncNow() }; _unf++; } }));
+    _saveBulk('休みの反映', np, { manual: true, message: `✓ 休み・休止になった${n}名を送迎表から外しました（「休み」に表示）${_unf ? '。確定を解除しました（変わった車は黄色の枠）' : ''}` });
+    if (_unf) setTpEdit(false);
     setStaleModal(null);
   };
   //   週を開いたとき(週が変わったとき)に1回だけ知らせる。「あとで」にしても各コマの注意から反映できる
@@ -35711,7 +35728,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               const _att = new Set(_attendees(_iso(d), sl).filter(a => !a.furikae && !a.rinji).map(a => String(a.pid)));
               const _filt = (pl) => { if (!pl) return; Object.keys(pl.cars||{}).forEach(cid => { const a = pl.cars[cid]||[]; pl.cars[cid] = a.filter(m => _att.has(String(m && m.pid))); nSkip += a.length - pl.cars[cid].length; }); ['walkers','others','un'].forEach(k => { if (Array.isArray(pl[k])) { const a = pl[k]; pl[k] = a.filter(m => _att.has(String(m && m.pid))); nSkip += a.length - pl[k].length; } }); };
               _filt(cp); if (cp.drop) _filt(cp.drop);
-              delete cp._final; delete cp._finalAt; // ★ 完成の控えは週ごと(コピー先は未確定から)
+              delete cp._final; delete cp._finalAt; delete cp._finalId; delete cp._base; delete cp._baseAt; delete cp._baseId; delete cp._chgAt; // ★ 完成の控えは週ごと(コピー先は未確定から)
               np[`${_iso(d)}_${sl}`] = { ...cp, _savedAt: syncNow() }; n++;
             }); });
             if (n) _saveBulk('前週コピー', np);
@@ -35864,19 +35881,20 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                       {/* ★ 2026-09-30: 各コマの見出し(午前/午後・計算ボタン)は廃止。状態(下書き・確定後の変更)だけ小さく表示 */}
                       <div className={`px-2 pt-1 flex items-center gap-1 justify-end ${sl==='AM'?'bg-amber-50/60':'bg-indigo-50/60'}`} style={{minHeight:18}}>
                         <span className="flex items-center gap-1">{pl._draft ? <span className="text-[9px] text-slate-500 bg-slate-200 rounded px-1 py-0.5">下書き</span> : null}
-                          {pl._final && (() => { const n = _chgCount(pl); const rm = _removedSince(pl); return n
-                            ? <span className="text-[9px] text-white bg-red-600 rounded px-1 py-0.5" title={rm.map(pid=>`${_pname(pid)}: 確定後に外れた`).join('\n')||'確定後に変更あり'}>確定後の変更 {n}件</span>
+                          {_baseOf(pl) && (() => { const n = _chgCount(pl); const rm = _removedSince(pl); return n
+                            ? <span data-testid={`tp-chg-chip-${iso}-${sl}`} className="text-[9px] text-white bg-red-600 rounded px-1 py-0.5" title={rm.map(pid=>`${_pname(pid)}: 確定後に外れた`).join('\n')||'確定後に変更あり'}>{pl._final ? '確定後の変更' : '確定時からの変更'} {n}件</span>
                             : null; })()}
                         </span>
                       </div>
                       <div className="p-2 space-y-2">
                         {cars.map(c => (
-                          <div key={c.id} data-tpdrop={c.id} data-tpiso={iso} data-tpslot={sl} className={`border rounded-lg overflow-hidden ${dragMv&&dragMv.over&&dragMv.over.zone===c.id&&dragMv.over.iso===iso&&dragMv.over.slot===sl?'border-blue-600 ring-2 ring-blue-300':(dragMv&&dragMv.kind!=='drop'?'border-blue-300':'border-slate-300')}`}>
+                          <div key={c.id} data-tpdrop={c.id} data-tpiso={iso} data-tpslot={sl} data-tpcarchg={_carChanged(pl, c.id) ? '1' : '0'} className={`border rounded-lg overflow-hidden ${dragMv&&dragMv.over&&dragMv.over.zone===c.id&&dragMv.over.iso===iso&&dragMv.over.slot===sl?'border-blue-600 ring-2 ring-blue-300':(dragMv&&dragMv.kind!=='drop'?'border-blue-300':(_carChanged(pl, c.id)?'border-amber-500 ring-2 ring-amber-300':'border-slate-300'))}`}>
                             {/* ★ 2026-09-14 デザイン刷新: 車名(太字)を1段目・運転者/ナビを2段目に。人数/定員の常時表示は廃止(超過時のみ警告)。氏名/時間の列見出しを追加 */}
                             <div className="bg-slate-100 px-2 pt-1.5 pb-1 border-b border-slate-300">
                               {/* ★ 2026-09-28(ユーザー要望): 車名の右に運転者・ナビを1行で。運転者候補は役職違いの同名を1件に集約 */}
                               <div className="flex items-center gap-1.5">
                                 <span className="font-bold text-[15px] text-slate-800 truncate shrink-0 max-w-[45%]">{c.name}</span>
+                                {_carChanged(pl, c.id) && <span className="text-[10px] font-extrabold text-amber-900 bg-amber-200 rounded px-1.5 py-0.5 shrink-0" title="確定のときから、この車の乗る方・順番・時間が変わっています">変更あり</span>}
                                 {(Number(c.cap)>0 && (pl.cars?.[c.id]||[]).length>Number(c.cap)) && <span className="text-[10px] font-extrabold text-white bg-red-600 rounded px-1.5 py-0.5 shrink-0">定員超過</span>}
                                 <select value={(pl.driver||{})[c.id]||''} onChange={e=>setDriver(iso, sl, c.id, e.target.value)} title="運転者" className="text-[12px] font-bold border border-slate-300 rounded bg-white px-1 py-1 flex-1 min-w-0">
                                   <option value="">運転者: 未選択</option>
@@ -35891,9 +35909,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                                 style={dragMv && dragMv.over && dragMv.over.iso===iso && dragMv.over.slot===sl && dragMv.over.zone===c.id && String(dragMv.over.pid)===String(m.pid) && !(dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)) ? {boxShadow:'inset 0 3px 0 #3b82f6', paddingTop:14, transition:'padding-top 0.12s'} : {transition:'padding-top 0.12s'}}
                                 className={`flex items-center gap-1 px-1 py-0 min-h-[28px] border-t border-slate-100 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''} ${_isFurikae(iso, sl, m.pid)?'bg-emerald-100':(_isFirstVisit(m.pid, iso)?'bg-sky-100':'')}`}>
                                 {(() => { const _di = _dotInfo(pl, iso, m.pid); const _ac = _di.dot ? _di.ac : ''; return (
-                                <button onClick={()=>toggleMark(iso, sl, m.pid)} title={_ac ? `確定後の変更: ${_ac}（タップで手動の印も付けられます）` : 'お迎え時間変更の印(TEL)'} className="shrink-0 w-6 h-8 flex items-center justify-center">
+                                <button onClick={()=>toggleMark(iso, sl, m.pid)} title={_ac ? `確定後の変更: ${_ac}（タップで手動の印も付けられます）` : (_di.ac ? `確定時からの変更: ${_di.ac}（次の連絡帳に載るので電話は不要・黄色）` : 'お迎え時間変更の印(TEL)')} className="shrink-0 w-6 h-8 flex items-center justify-center">
                                   {/* ★ 2026-10-02(試験版・ユーザー要望): 印はただの赤丸(中の白い点をやめる)。時間の欄の赤枠も廃止 */}
-                                  <span aria-hidden="true" data-testid={`tp-dot-${iso}-${sl}-${m.pid}`} data-on={(m.mark||_ac)?'1':'0'} className={`block w-4 h-4 rounded-full border ${(m.mark||_ac)?'bg-red-600 border-red-600':'border-slate-300 bg-transparent'}`}/>
+                                  <span aria-hidden="true" data-testid={`tp-dot-${iso}-${sl}-${m.pid}`} data-on={(m.mark||_ac)?'1':'0'} className={`block w-4 h-4 rounded-full border ${(m.mark||_ac)?'bg-red-600 border-red-600':(_di.ac?'bg-amber-300 border-amber-500':'border-slate-300 bg-transparent')}`} data-chg={_di.ac ? '1' : '0'}/>
                                 </button>); })()}
                                 <button onClick={()=>{ if (!dragMv) setEditP({pid:m.pid}); }} {..._dragHandlers(m.pid, iso, sl)} title="タップ=場所・乗車時間の編集 / 長押し=つかんで移動(別の日に落とすと振替)" className="text-[16px] font-bold text-slate-800 flex-1 min-w-0 text-left leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{touchAction:'pan-y'}}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></button>
                                 <TpTimeInput value={_fmtT(m.t)} normalize={_normTimeInput} onCommit={v => setTime(iso, sl, m.pid, v)} data-testid={`tp-time-${m.pid}`} placeholder="—:—" className="w-[58px] text-center text-[16px] font-bold border border-slate-300 rounded px-0.5 py-1 outline-none shrink-0" style={{fontVariantNumeric:'tabular-nums'}}/>
@@ -35902,8 +35920,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                             {!(pl.cars?.[c.id]||[]).length && <div className="px-2 py-1 text-[10px] text-slate-400">{dragMv&&dragMv.kind!=='drop'?'ここにドロップ':'なし'}</div>}
                           </div>
                         ))}
-                        {pl._final && (_removedSince(pl).length > 0) && (
-                          <div className="text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">確定後に外れた: {_removedSince(pl).map(pid=>_pname(pid)).join('、')}</div>
+                        {_baseOf(pl) && (_removedSince(pl).length > 0) && (
+                          <div className="text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">{pl._final ? '確定後に外れた' : '確定時から外れた'}: {_removedSince(pl).map(pid=>_pname(pid)).join('、')}</div>
                         )}
                         {(!!(pl.walkers||[]).length || (dragMv && dragMv.kind!=='drop')) && (
                           <div data-tpdrop="walk" data-tpiso={iso} data-tpslot={sl} className={`border rounded-lg px-2 py-1 ${dragMv&&dragMv.over&&dragMv.over.zone==='walk'&&dragMv.over.iso===iso&&dragMv.over.slot===sl?'border-orange-500 ring-2 ring-orange-300 bg-orange-50':'border-orange-300 bg-orange-50'}`}>
