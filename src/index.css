@@ -35,6 +35,10 @@ html, body {
   overflow-x: hidden;
   overscroll-behavior: none;
 }
+/* ★ 2026-10-05(無印iPad 第8世代で画面が少し大きく・左右にずれる): iPad の Safari は横向きにすると文字を自動で大きくすることがあり、
+   画面よりはみ出す原因になる。文字の自動拡大を止める。iOS では横のはみ出し自体も切り取る(clip はスクロール領域を作らないので上部の固定バーがずれない) */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html.tsu-ios, html.tsu-ios body, html.tsu-ios #root { overflow-x: clip; width: 100%; max-width: 100%; }
 
 /* ★ 内側のスクロール領域 (スタッフ画面は h-screen flex の中で個別に overflow する)
    - overscroll-behavior:contain で、内側を端までスクロールしても親や背景まで

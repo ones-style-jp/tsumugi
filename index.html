@@ -3,6 +3,22 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
+    <!-- ★ 2026-10-05(店舗報告: 無印iPad 第8世代で画面が少し大きく表示され左右にずれる・上部のボタンがずれる):
+         iPad/iPhone の Safari は文字が16px未満の入力欄を押すと自動で拡大し、戻らないまま画面がはみ出す(768px超のiPadは16px化の対象外だった)。
+         iOS だけ maximum-scale=1 にして自動拡大を止める(iOS は指での拡大は引き続きできる)。PC・Android は従来どおり -->
+    <script>
+      (function () {
+        try {
+          var ua = navigator.userAgent || '';
+          var ios = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+          if (ios) {
+            var m = document.querySelector('meta[name="viewport"]');
+            if (m) m.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover');
+            document.documentElement.classList.add('tsu-ios');
+          }
+        } catch (e) {}
+      })();
+    </script>
     <title>つむぎ｜デイサービス管理</title>
     <!-- ★ favicon: 正式マークPNG(無加工)を淡い緑の角丸チップに載せた合成版。
          白いブックマークバー/タブでも背景に溶けず、ダークモードでも明るいチップで視認できる -->
