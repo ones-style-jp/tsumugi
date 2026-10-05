@@ -1741,6 +1741,60 @@ const MON_TEXT_MAX = 200, TOKKI_MAX = 100, ROSTER_WAIT_MAX = 40;
 //   「ダウンロード（DL済）」の記録(method:'pdf')は一覧・出力から除く(データは残るが表示しない)
 const tsumugiFaxLog = (appData) => (appData && Array.isArray(appData.faxHistory) ? appData.faxHistory : []).filter(h => h && h.method !== 'pdf');
 const tsumugiIsIOS = () => typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+// ★ 2026-10-05(ユーザー要望「印刷位置が目視でわかるように」): 連絡帳の用紙上の配置(mm)。ContactBookView._layoutRenraku と同じ数値
+//   (あちらを変えたらここも合わせる)。印刷設定の「印刷位置の微調整」の図に使う
+const renrakuSheetGeom = (ss) => {
+  const _ss = ss || {};
+  const offX = Math.max(-10, Math.min(10, Number(_ss.renrakuOffsetX) || 0)), offY = Math.max(-10, Math.min(10, Number(_ss.renrakuOffsetY) || 0));
+  if (_ss.renrakuMode !== '1') {
+    const punchTop = _ss.renrakuPunchPos === 'top';
+    const pageW = 257, pageH = 182, half = pageW / 2, scale = punchTop ? 0.62 : 0.64;
+    const w = 182 * scale, h = 257 * scale, y = punchTop ? 14 : (pageH - h) / 2, x = (half - w) / 2;
+    return { pageW, pageH, offX, offY, faces: [{ x, y, w, h }, { x: half + x, y, w, h }], cut: _ss.renrakuGuideCut !== false ? half : null,
+      punch: _ss.renrakuGuidePunch !== false ? (punchTop ? [{ x: half / 2, y: 7 }, { x: half + half / 2, y: 7 }] : [{ x: 7, y: pageH / 2 }, { x: half + 7, y: pageH / 2 }]) : [],
+      label: 'B5横・2面' };
+  }
+  const isB6 = _ss.renrakuPaper === 'b6port';
+  const pageW = isB6 ? 128 : 257, pageH = 182, scale = isB6 ? 0.70 : 0.66;
+  const w = 182 * scale, h = 257 * scale;
+  return { pageW, pageH, offX, offY, faces: [{ x: Math.max(0, (pageW - w) / 2), y: Math.max(0, (pageH - h) / 2), w, h }], cut: null, punch: [], label: isB6 ? 'B6・1面' : 'B5横・1面（中央）' };
+};
+function RenrakuPositionDiagram({ ss }) {
+  const g = renrakuSheetGeom(ss);
+  const SAFE = 4; // 多くの複合機が印字できない端の幅(目安・mm)
+  const tooClose = g.faces.some(f => f.x + g.offX < SAFE || f.y + g.offY < SAFE || f.x + f.w + g.offX > g.pageW - SAFE || f.y + f.h + g.offY > g.pageH - SAFE);
+  const W = 268, k = W / g.pageW, H = g.pageH * k;
+  return (
+    <div data-testid="cb-pos-diagram">
+      <svg width={W} height={H} viewBox={`0 0 ${g.pageW} ${g.pageH}`} style={{ display: 'block', background: '#fff', border: '1px solid #94a3b8', borderRadius: 2 }}>
+        <rect x={0} y={0} width={g.pageW} height={g.pageH} fill="#fee2e2" />
+        <rect x={SAFE} y={SAFE} width={g.pageW - SAFE * 2} height={g.pageH - SAFE * 2} fill="#ffffff" />
+        {g.cut != null && <line x1={g.cut} y1={0} x2={g.cut} y2={g.pageH} stroke="#64748b" strokeWidth={0.5} strokeDasharray="2 1.5" />}
+        {g.faces.map((f, i) => (
+          <g key={i}>
+            {(g.offX || g.offY) ? <rect x={f.x} y={f.y} width={f.w} height={f.h} fill="none" stroke="#94a3b8" strokeWidth={0.5} strokeDasharray="2 1.5" /> : null}
+            <g transform={`translate(${f.x + g.offX},${f.y + g.offY})`}>
+              <rect x={0} y={0} width={f.w} height={f.h} fill="#ecfdf5" stroke={tooClose ? '#dc2626' : '#059669'} strokeWidth={0.8} />
+              <rect x={f.w * 0.06} y={f.h * 0.03} width={f.w * 0.45} height={f.h * 0.045} fill="#a7f3d0" />
+              <rect x={f.w * 0.62} y={f.h * 0.03} width={f.w * 0.32} height={f.h * 0.045} fill="#a7f3d0" />
+              <rect x={f.w * 0.06} y={f.h * 0.12} width={f.w * 0.88} height={f.h * 0.12} fill="none" stroke="#6ee7b7" strokeWidth={0.5} />
+              <rect x={f.w * 0.06} y={f.h * 0.28} width={f.w * 0.88} height={f.h * 0.28} fill="none" stroke="#6ee7b7" strokeWidth={0.5} />
+              <rect x={f.w * 0.06} y={f.h * 0.60} width={f.w * 0.88} height={f.h * 0.20} fill="none" stroke="#6ee7b7" strokeWidth={0.5} />
+              <rect x={f.w * 0.06} y={f.h * 0.83} width={f.w * 0.88} height={f.h * 0.09} fill="#d1fae5" stroke="#6ee7b7" strokeWidth={0.5} />
+              <rect x={f.w * 0.15} y={f.h * 0.945} width={f.w * 0.70} height={f.h * 0.03} fill="#a7f3d0" />
+            </g>
+          </g>
+        ))}
+        {g.punch.map((pt, i) => <circle key={i} cx={pt.x} cy={pt.y} r={1.6} fill="#334155" stroke="#fff" strokeWidth={0.4} />)}
+      </svg>
+      <div className="flex items-center gap-3 mt-1 text-[10px] text-slate-500 flex-wrap">
+        <span className="inline-flex items-center gap-1"><span style={{ display: 'inline-block', width: 10, height: 10, background: '#fee2e2', border: '1px solid #fecaca' }} />端の約4mm（印字できないことが多い）</span>
+        {(g.offX || g.offY) ? <span className="inline-flex items-center gap-1"><span style={{ display: 'inline-block', width: 12, borderTop: '1px dashed #94a3b8' }} />調整前の位置</span> : null}
+      </div>
+      {tooClose && <div data-testid="cb-pos-warn" className="mt-1 text-[11px] font-bold text-red-600">連絡帳が用紙の端に近すぎます。端の文字が切れる恐れがあります。</div>}
+    </div>
+  );
+}
 const tsumugiBuildPrintSrcDoc = (html) => {
   let head = ''; try {
     document.querySelectorAll('style').forEach(s => { head += '<style>' + (s.textContent || '') + '</style>'; });
@@ -32310,6 +32364,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   const [showPrintCards, setShowPrintCards] = useState(false); // ★ 印刷用の隠しカードは印刷時だけ描画(スマホのメモリ対策)
   const [printMissingConfirm, setPrintMissingConfirm] = useState(null); // ★ 次回予定未入力の確認 {names:[]}(2026-09-09)
   const [showPrintSettings, setShowPrintSettings] = useState(false); // ★ 右上「詳細設定」パネル(面数/用紙/補助線)
+  const [inputHub, setInputHub] = useState(false); // ★ 2026-10-05(ユーザー要望): 「項目・連絡事項・次回予定」を「各種入力」1つにまとめたパネル
+  const [blankDl, setBlankDl] = useState(null); // ★ 2026-10-05: 空印刷の枚数選択 {n} (押したらそのままダウンロード)
   const [mobileCardLimit, setMobileCardLimit] = useState(6); // ★ スマホは重いカードを少しずつ描画(メモリ対策)
   const [mobileOpenCardId, setMobileOpenCardId] = useState(null); // ★ スマホは重いカードを描画せず、開いた1人だけ描画(メモリ対策)
   const [printingIds, setPrintingIds] = useState([]); // ★ 印刷時に描画する利用者ID(全員ではなく印刷対象だけ描画)
@@ -32651,24 +32707,23 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   });
   const _curOff = () => { const ss = appData.systemSettings || {}; return [Math.max(-10, Math.min(10, Number(ss.renrakuOffsetX) || 0)), Math.max(-10, Math.min(10, Number(ss.renrakuOffsetY) || 0))]; };
   // ★ 空の連絡帳を印刷(2026-09-29 ユーザー要望: 振替の方が連絡帳に出ない等のアクシデントに備え、手書き用の空欄連絡帳を印刷設定どおりの用紙で出す)
-  const doPrintBlank = (sheets) => {
+  // ★ 2026-10-05(ユーザー要望「空印刷も押したらプレビューではなくダウンロード」): 印刷設定の用紙・面数・印刷位置のまま、サーバーPDFを直接ダウンロード
+  const doPrintBlank = (sheets, _pdfWin) => {
+    const pdfWin = _pdfWin === undefined ? tsumugiOpenPdfWindow() : _pdfWin; // iPad はクリックの中で先にタブを開く
     const be = document.getElementById('print-content-cb-blank');
-    if (!be) { setShowPrintCards(true); setTimeout(() => doPrintBlank(sheets), 250); return; }
+    if (!be) { setShowPrintCards(true); setTimeout(() => doPrintBlank(sheets, pdfWin), 250); return; }
     const n = Math.max(1, Math.min(20, Number(sheets) || 1));
     const h = be.outerHTML.replace(/display:\s*none[^;"\']*/g,'display:block');
     const _ss = appData.systemSettings || {};
     const faces = (_ss.renrakuMode === '1' ? 1 : 2) * n; // 2面なら1枚に2面
     const _parts = Array.from({ length: faces }, () => h);
     const { combinedHtml, pageSizeStr } = _layoutRenraku(_parts);
-    const [_ox, _oy] = _curOff();
-    window.dispatchEvent(new CustomEvent('setPrintHtml',{detail:{title:`連絡帳(空)_${selectedDate}`,pageSize:pageSizeStr,html:combinedHtml,elementId:null,adjust:_mkAdjust(_parts, `連絡帳(空)_${selectedDate}`, _ox, _oy)}}));
-    setTimeout(() => setShowPrintCards(false), 800);
+    setCbPdfBusy(true);
+    tsumugiServerPdf({ html: tsumugiBuildPrintSrcDoc(combinedHtml), pageSize: pageSizeStr, title: `連絡帳(空)_${selectedDate}`, win: pdfWin })
+      .catch(e => alert('PDFの作成に失敗しました: ' + ((e && e.message) || e)))
+      .finally(() => { setCbPdfBusy(false); setTimeout(() => setShowPrintCards(false), 300); });
   };
-  const handlePrintBlank = () => {
-    const v = window.prompt('空の連絡帳を何枚印刷しますか？（用紙の枚数・印刷設定の用紙と面数で出ます）', '1');
-    if (v === null) return;
-    doPrintBlank(toHankaku(v).replace(/[^0-9]/g, '')); // ★ 全角数字でも可(2026-09-29)
-  };
+  const handlePrintBlank = () => setBlankDl({ n: 1 });
   const doPrint = (idsToprint, _pdfWin) => {
     setPrintModeModal(false);
     if(!idsToprint || !idsToprint.length){ alert('印刷する利用者を1人以上選択してください'); return; }
@@ -32961,20 +33016,59 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         <div className="flex-1" />
         {/* ★ 提供記録入力への相互ジャンプ(2026-08-21): 提供記録側の「連絡帳」ボタンと対 */}
         {navigateTo && <button onClick={()=>navigateTo('record')} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shadow"><ClipboardList size={15} className="mr-1"/>提供記録</button>}
-        {/* ★ 並び順(2026-09-29 ユーザー指示): 項目 → 連絡事項 → 次回予定 → 印刷設定 → 空印刷 → プレビュー */}
-        <button onClick={() => setIsConfigOpen(true)} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0">
-          項目
-        </button>
-        <button onClick={() => setRenrakuModal({ patientId: null })} className="border px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0 bg-white border-slate-300 hover:bg-slate-50 text-slate-700">
-          連絡事項
-          {/* ★ 入力済み人数(2026-09-29 ユーザー要望: 下の方の人の入力・削除忘れ防止)。この日に表示される個別連絡事項の人数＋全員共通 */}
-          {(() => { const _inR = (o) => !!o && (!o.from || selectedDate >= o.from) && (!o.until || selectedDate <= o.until); const _ids = new Set(displayRecords.map(r=>r.patientId)); const n = (appData.patients||[]).filter(p => _ids.has(p.id) && renrakuHasText(p.contactBookRenraku) && _inR(p.contactBookRenraku)).length; const allOn = renrakuHasText(appData.contactBookConfig?.renrakuAll) && _inR(appData.contactBookConfig?.renrakuAll); return (n>0 || allOn) ? <span className="ml-1.5 bg-emerald-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">{allOn ? '全員' : ''}{allOn && n>0 ? '+' : ''}{n>0 ? `個別${n}名` : ''}</span> : null; })()}
-        </button>
-        <button onClick={() => setIsScheduleModalOpen(true)} className="border px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0 bg-white border-slate-300 hover:bg-slate-50 text-slate-700">
-          次回予定
-          {/* ★ 未入力人数バッジ(2026-09-09 店舗要望): 印刷で空欄になる人数をひと目で */}
-          {missingNextList.length > 0 && <span className="ml-1.5 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">未入力{missingNextList.length}名</span>}
-        </button>
+        {/* ★ 2026-10-05(ユーザー要望): 項目・連絡事項・次回予定を「各種入力」1つにまとめる。並び: 各種入力 → 印刷設定 → 空印刷 → ダウンロード */}
+        {(() => {
+          const _inR = (o) => !!o && (!o.from || selectedDate >= o.from) && (!o.until || selectedDate <= o.until);
+          const _ids = new Set(displayRecords.map(r=>r.patientId));
+          const renN = (appData.patients||[]).filter(p => _ids.has(p.id) && renrakuHasText(p.contactBookRenraku) && _inR(p.contactBookRenraku)).length;
+          const allOn = renrakuHasText(appData.contactBookConfig?.renrakuAll) && _inR(appData.contactBookConfig?.renrakuAll);
+          const miss = missingNextList.length;
+          const open = (fn) => { setInputHub(false); fn(); };
+          const card = (testid, title, desc, badge, onClick) => (
+            <button type="button" data-testid={testid} onClick={onClick} className="w-full text-left bg-white border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50 rounded-xl px-4 py-3 flex items-center gap-3 transition-colors">
+              <div className="flex-1 min-w-0"><div className="font-bold text-slate-800 text-sm">{title}</div><div className="text-[11px] text-slate-500 mt-0.5">{desc}</div></div>
+              {badge}
+              <span className="text-slate-400 text-lg leading-none">›</span>
+            </button>
+          );
+          return (<>
+            <button onClick={() => setInputHub(true)} data-testid="cb-input-hub" className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0">
+              各種入力
+              {miss > 0 && <span className="ml-1.5 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">次回未入力{miss}名</span>}
+            </button>
+            {inputHub && ReactDOM.createPortal((
+              <div className="fixed inset-0 bg-slate-900/50 z-[9999] flex items-start justify-center p-4 pt-20" onClick={() => setInputHub(false)}>
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()} data-testid="cb-input-hub-modal">
+                  <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between">
+                    <div className="font-bold text-slate-800">各種入力 <span className="text-xs font-normal text-slate-500 ml-1">{selectedDate.replace(/-/g,'/')}・{displayRecords.length}名</span></div>
+                    <button onClick={() => setInputHub(false)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"><X size={18}/></button>
+                  </div>
+                  {/* 状況のバナー: 次回予定の未入力 → 連絡事項の入力状況 */}
+                  <div className="px-5 pt-3 space-y-2">
+                    {miss > 0 ? (
+                      <button type="button" data-testid="cb-hub-banner-miss" onClick={() => open(() => setIsScheduleModalOpen(true))} className="w-full text-left bg-red-50 border border-red-200 rounded-xl px-3.5 py-2.5">
+                        <div className="text-sm font-bold text-red-700">次回予定が未入力の方が {miss}名 います</div>
+                        <div className="text-[11px] text-red-600 mt-0.5 truncate">{missingNextList.slice(0, 4).map(r => `${r.name} 様`).join('、')}{miss > 4 ? ` ほか${miss - 4}名` : ''}　→ 押すと入力できます</div>
+                      </button>
+                    ) : (
+                      <div data-testid="cb-hub-banner-ok" className="bg-emerald-50 border border-emerald-200 rounded-xl px-3.5 py-2.5 text-sm font-bold text-emerald-700">次回予定は全員入力済みです</div>
+                    )}
+                    <div className="text-[11px] text-slate-500 px-1">連絡事項：{allOn ? '全員あて あり' : '全員あて なし'}・個別 {renN}名</div>
+                  </div>
+                  <div className="p-5 pt-3 space-y-2">
+                    {card('cb-hub-next', '次回予定', '次回の利用日・お迎え時間（時間は送迎表から入ります）',
+                      miss > 0 ? <span className="bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap">未入力{miss}名</span> : <span className="bg-emerald-100 text-emerald-700 text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap">入力済み</span>,
+                      () => open(() => setIsScheduleModalOpen(true)))}
+                    {card('cb-hub-renraku', '連絡事項', '全員あて・個別の連絡（表示期間つき）',
+                      (renN > 0 || allOn) ? <span className="bg-emerald-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap">{allOn ? '全員' : ''}{allOn && renN>0 ? '+' : ''}{renN>0 ? `個別${renN}名` : ''}</span> : null,
+                      () => open(() => setRenrakuModal({ patientId: null })))}
+                    {card('cb-hub-items', '項目', '連絡帳に載せる項目と、利用者ごとの値', null, () => open(() => setIsConfigOpen(true)))}
+                  </div>
+                </div>
+              </div>
+            ), document.body)}
+          </>);
+        })()}
         {/* ★ 詳細設定: 面数(1面/2面)・用紙・補助線(カット線/パンチ点)をここで選ぶ */}
         <div className="relative shrink-0">
           <button onClick={()=>setShowPrintSettings(v=>!v)} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap">
@@ -32988,7 +33082,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
             const setSS = (patch)=>onSave({ ...appData, systemSettings: { ...ss, ...patch } });
             const tabBtn = (on)=>`flex-1 px-2 py-1.5 rounded-lg text-xs font-bold border ${on?'bg-blue-600 text-white border-blue-600':'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`;
             return (
-              <div className="absolute right-0 top-full mt-1.5 z-30 bg-white border border-slate-300 rounded-xl shadow-xl p-3.5 w-80 text-left space-y-3">
+              <div className="absolute right-0 top-full mt-1.5 z-30 bg-white border border-slate-300 rounded-xl shadow-xl p-3.5 w-80 text-left space-y-3 overflow-y-auto" style={{maxHeight:'calc(100vh - 140px)'}}>
                 <div className="flex items-center justify-between"><span className="text-sm font-bold text-slate-700">印刷設定</span><button onClick={()=>setShowPrintSettings(false)} className="text-slate-400 hover:text-slate-700 text-lg leading-none">×</button></div>
                 <div>
                   <div className="text-[11px] font-bold text-slate-500 mb-1">面数（1枚に何人分）</div>
@@ -33033,21 +33127,46 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                     <div className="text-[10px] text-slate-400 mt-1">B5横に2人分を印刷し、中央でカット→B6×2枚。人数が奇数のときは最後の1面が空欄（手書き用）になります。「上」を選ぶと上に余白を取り、各面を少し小さく印刷します。</div>
                   </div>
                 )}
-                {/* ★ 2026-10-03 ユーザー指示: 印刷位置の微調整はプレビュー画面で行えるため、ここの微調整は廃止(保存値 renrakuOffsetX/Y はプレビューの調整で共用) */}
+                {/* ★ 2026-10-05(ユーザー要望): プレビューが無くなったので、印刷位置の微調整をここに戻す。図で用紙のどこに出るかが見える */}
+                {(() => {
+                  const ox = Math.max(-10, Math.min(10, Number(ss.renrakuOffsetX) || 0)), oy = Math.max(-10, Math.min(10, Number(ss.renrakuOffsetY) || 0));
+                  const mv = (dx, dy) => setSS({ renrakuOffsetX: Math.max(-10, Math.min(10, ox + dx)), renrakuOffsetY: Math.max(-10, Math.min(10, oy + dy)) });
+                  const ab = 'w-9 h-8 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-sm active:scale-95';
+                  const desc = [ox ? `${ox < 0 ? '左' : '右'}へ${Math.abs(ox)}mm` : '', oy ? `${oy < 0 ? '上' : '下'}へ${Math.abs(oy)}mm` : ''].filter(Boolean).join('・') || '調整なし（中央）';
+                  return (
+                    <div className="border-t border-slate-100 pt-2.5">
+                      <div className="text-[11px] font-bold text-slate-500 mb-1">印刷位置の微調整（{renrakuSheetGeom(ss).label}）</div>
+                      <RenrakuPositionDiagram ss={ss} />
+                      <div className="flex items-center gap-3 mt-2">
+                        <div className="grid grid-cols-3 gap-1" style={{ width: 'fit-content' }}>
+                          <span /><button type="button" data-testid="cb-pos-up" onClick={() => mv(0, -1)} className={ab} title="上へ1mm">↑</button><span />
+                          <button type="button" data-testid="cb-pos-left" onClick={() => mv(-1, 0)} className={ab} title="左へ1mm">←</button>
+                          <button type="button" data-testid="cb-pos-reset" onClick={() => setSS({ renrakuOffsetX: 0, renrakuOffsetY: 0 })} className="w-9 h-8 rounded-lg border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-500 font-bold text-[10px]" title="中央に戻す">戻す</button>
+                          <button type="button" data-testid="cb-pos-right" onClick={() => mv(1, 0)} className={ab} title="右へ1mm">→</button>
+                          <span /><button type="button" data-testid="cb-pos-down" onClick={() => mv(0, 1)} className={ab} title="下へ1mm">↓</button><span />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div data-testid="cb-pos-value" className="text-xs font-bold text-slate-700">{desc}</div>
+                          <div className="text-[10px] text-slate-400 mt-0.5">1回押すと1mm（最大10mm）。中身だけが動き、カット線・穴あけの目印は動きません。</div>
+                          <button type="button" data-testid="cb-pos-test" onClick={() => doPrintBlank(1)} disabled={cbPdfBusy} className="mt-1.5 px-2.5 py-1 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 font-bold text-[11px] disabled:opacity-50">{cbPdfBusy ? '作成中…' : '試し刷り用（空の連絡帳1枚）をダウンロード'}</button>
+                        </div>
+                      </div>
+                      <div className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 mt-2">複合機で右や下が切れるときに使います。PDFを印刷するときは倍率を<b>「実際のサイズ（100%）」</b>にしてください（「用紙に合わせる」だと位置と大きさが変わります）。</div>
+                    </div>
+                  );
+                })()}
                 <label className="flex items-center gap-2 text-xs text-slate-700 py-0.5 cursor-pointer"><input type="checkbox" checked={ss.renrakuShowQr !== false} onChange={e=>setSS({renrakuShowQr:e.target.checked})}/>ご家族専用ページのQRコードを連絡帳に印字する</label>
               </div>
             );
           })()}
         </div>
-        <button onClick={handlePrintBlank} title="氏名・記録が空欄の連絡帳を、印刷設定の用紙(B5横2面／B6など)で印刷します。表示されない方がいた時の手書き用" className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm whitespace-nowrap shrink-0">
+        <button onClick={handlePrintBlank} data-testid="cb-blank" title="氏名・記録が空欄の連絡帳を、印刷設定の用紙(B5横2面／B6など)のままPDFでダウンロードします。表示されない方がいた時の手書き用" className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm whitespace-nowrap shrink-0">
           空印刷
         </button>
         <button onClick={()=>handlePrint('pdf')} disabled={cbPdfBusy} data-testid="cb-pdf" title="サーバーでPDFを作ります（印刷設定の用紙サイズのまま。iPadは新しいタブで開く・PCはダウンロード）" className="bg-teal-700 hover:bg-teal-800 disabled:bg-slate-400 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-1 text-sm transition-all active:scale-95 whitespace-nowrap shrink-0">
           {cbPdfBusy ? <><BusySpin/>作成中…</> : 'ダウンロード'}
         </button>
-        <button onClick={()=>handlePrint('print')} data-testid="cb-print" title="選んだ方の連絡帳をそのまま印刷します（プレビューを経由せず印刷画面へ）" className="bg-slate-900 hover:bg-black text-white px-5 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shrink-0">
-          印刷
-        </button>
+        {/* ★ 2026-10-05(ユーザー要望「ダウンロードが早いので連絡帳の印刷ボタンも不要」): 「印刷」ボタンは廃止。ダウンロードのPDFから印刷する */}
       </div>
       <div className="max-w-[800px] mx-auto space-y-8 pb-32 pt-6">
 
@@ -33222,7 +33341,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden">
               <div className="px-6 py-4 bg-amber-50 border-b border-amber-200">
                 <div className="font-bold text-slate-800 text-base">次回予定が未入力の方がいます（{printMissingConfirm.names.length}名）</div>
-                <div className="text-xs text-slate-500 mt-1">このまま進むと、連絡帳の「次回お迎え時間」が空欄で印刷されます。</div>
+                <div className="text-xs text-slate-500 mt-1">このまま進むと、連絡帳の「次回お迎え時間」が空欄で出力されます。</div>
               </div>
               <div className="px-6 py-3 max-h-52 overflow-y-auto">
                 {printMissingConfirm.names.map((n,i)=>(<div key={i} className="text-sm font-bold text-slate-700 py-1 border-b border-slate-100 last:border-0">{n} 様</div>))}
@@ -33234,12 +33353,30 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
             </div>
           </div>
         ), document.body)}
+        {/* ★ 2026-10-05: 空印刷の枚数 → そのままダウンロード(プレビューなし) */}
+        {blankDl && ReactDOM.createPortal((
+          <div className="fixed inset-0 bg-slate-900/50 z-[9999] flex items-start justify-center p-4 pt-24" onClick={() => setBlankDl(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()} data-testid="cb-blank-modal">
+              <div className="font-bold text-slate-800">空の連絡帳をダウンロード</div>
+              <div className="text-xs text-slate-500 mt-1">氏名・記録が空欄の連絡帳を、印刷設定の用紙・面数・印刷位置のままPDFにします（表示されない方がいたときの手書き用）。</div>
+              <div className="flex items-center justify-center gap-3 my-4">
+                <button type="button" onClick={() => setBlankDl(v => ({ n: Math.max(1, v.n - 1) }))} className="w-10 h-10 rounded-xl border border-slate-300 bg-white text-xl font-bold text-slate-700">−</button>
+                <div className="text-center"><div data-testid="cb-blank-n" className="text-3xl font-bold text-slate-800 tabular-nums">{blankDl.n}</div><div className="text-[11px] text-slate-500">枚（{(appData.systemSettings?.renrakuMode === '1' ? 1 : 2) * blankDl.n}人分）</div></div>
+                <button type="button" onClick={() => setBlankDl(v => ({ n: Math.min(20, v.n + 1) }))} className="w-10 h-10 rounded-xl border border-slate-300 bg-white text-xl font-bold text-slate-700">＋</button>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setBlankDl(null)} className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm">やめる</button>
+                <button type="button" data-testid="cb-blank-dl" onClick={() => { const n = blankDl.n; setBlankDl(null); doPrintBlank(n); }} className="px-5 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-sm">ダウンロード</button>
+              </div>
+            </div>
+          </div>
+        ), document.body)}
         {/* 印刷対象選択モーダル（チェックされた利用者だけ印刷） */}
         {printModeModal && ReactDOM.createPortal((
           <div className="fixed inset-0 bg-slate-900/50 z-[9999] flex items-center justify-center p-4" onClick={()=>setPrintModeModal(false)}>
             <div className="tsu-cap-dvh bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col" style={{maxHeight:'85vh'}} onClick={e=>e.stopPropagation()}>
               <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between flex-shrink-0">
-                <div className="font-bold text-slate-800 text-base">印刷する利用者を選択</div>
+                <div className="font-bold text-slate-800 text-base">{cbOut === 'pdf' ? 'ダウンロードする利用者を選択' : '印刷する利用者を選択'}</div>
                 <button onClick={()=>setPrintModeModal(false)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"><X size={18}/></button>
               </div>
               <div className="px-4 py-2 border-b border-slate-100 flex items-center gap-2 flex-shrink-0">
@@ -33268,7 +33405,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                 <button onClick={()=>setPrintModeModal(false)} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
                 <button onClick={()=>doPrint(printSelectedIds)} disabled={printSelectedIds.length===0}
                         className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl font-bold text-sm shadow-md flex items-center gap-2">
-                  <Printer size={16}/>選択した{printSelectedIds.length}名を{cbOut === 'pdf' ? 'PDFに' : '印刷'}
+                  選択した{printSelectedIds.length}名を{cbOut === 'pdf' ? 'ダウンロード' : '印刷'}
                 </button>
               </div>
             </div>
