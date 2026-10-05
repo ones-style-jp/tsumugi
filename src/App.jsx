@@ -1060,6 +1060,17 @@ const applyExUnits = (raw, item) => {
 };
 // 単位ラベル表示用 (「kg×回」など。設定画面の見出し等に使用)。 2単位は × 表記で示す
 // ★ セル幅に収まる最大の文字サイズ(2026-09-29): 全角=1・半角=0.55 文字幅で概算し avail px に収める
+// ★ 2026-10-05(ユーザー要望): 提供記録入力の運動列は「全列同じ幅」。いまの 84px を最大とし、運動の名前が短い店舗はその分だけ全列そろって細くする。
+//   名前ごとの必要幅(12pxの字で概算・全角12/半角6.6px): 84px以内で1行に収まる名前は1行の幅、収まらない長い名前は2行で収まる幅(1字分の余裕つき)。
+//   列の幅 = その最大値(最大84px・最小60px=「20分×5回」などの値が読める幅)。「ステッパ／ー」のような1字だけの折り返しを作らない
+const EX_COL_MAX = 84, EX_COL_MIN = 60;
+const exColWidthFor = (items) => {
+  const tw = (str) => [...String(str || '')].reduce((a, c) => a + (/[\x20-\x7e\uff61-\uff9f]/.test(c) ? 6.6 : 12), 0);
+  const PAD = 12; // th の左右 padding 8px + 枠線・余裕
+  const needOf = (name) => { const w = tw(name); return (w + PAD <= EX_COL_MAX) ? Math.ceil(w + PAD) : Math.ceil(w / 2) + PAD + 12; };
+  const need = (items || []).reduce((m, it) => Math.max(m, needOf(it && it.name)), 0);
+  return Math.max(EX_COL_MIN, Math.min(EX_COL_MAX, need || EX_COL_MAX));
+};
 const _exFitFs = (str, cap = 15, min = 8, avail = 70) => {
   const w = [...String(str || '')].reduce((a, c) => a + (/[\x20-\x7e]/.test(c) ? 0.55 : 1), 0);
   if (!w) return cap;
@@ -23105,6 +23116,7 @@ export default function App() {
 
 // === RecordView ===
 function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate, setSelectedDate, dirtyRef, saveFnRef, sharedAmpm, setSharedAmpm, showTip, hideTip, isSidebarOpen, setIsSidebarOpen, deviceName }) {
+  const _exW = exColWidthFor(effExerciseItems(appData.systemSettings)); // ★ 運動列の共通幅(2026-10-05)
   // ★ deviceName は「元に戻す」の確認文で使用。 props に無いまま参照しており ReferenceError で
   //   復元処理が restore-click 直後に即死していた(=復元が全く機能しない の根本原因)。
   // ★ 担当者名: 多段階フォールバック で保存時に必ず何か入る
@@ -24942,7 +24954,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       <col style={{width:'58px'}}/>{/* 体温 */}
                       <col style={{width:'120px'}}/>{/* 開始 血圧+脈 */}
                       {_showEn && <col style={{width:'120px'}}/>}{/* 終了 血圧+脈 */}
-                      {(effExerciseItems(appData.systemSettings)).map(item => <col key={item.id} style={{width:'84px'}}/>)}
+                      {(effExerciseItems(appData.systemSettings)).map(item => <col key={item.id} style={{width:`${_exW}px`}}/>)}
                       <col style={{width:'62px'}}/>{/* 介護整体 */}
                       <col style={{width:'260px'}}/>{/* 特記 */}
                     </colgroup>
@@ -24955,7 +24967,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         <th className="px-1 py-2 font-bold text-center border border-slate-700 whitespace-nowrap">開始 血圧/脈</th>
                         {_showEn && <th className="px-1 py-2 font-bold text-center border border-slate-700 whitespace-nowrap">{secondBpLabel(appData)} 血圧/脈</th>}
                         {(effExerciseItems(appData.systemSettings)).map(item => (
-                          <th key={item.id} className={`px-0.5 py-2 font-bold text-center border text-[11px] leading-tight ${item.type==='individual' ? 'bg-emerald-800 text-emerald-50 border-emerald-700' : 'border-slate-700'}`} style={{maxWidth:84,whiteSpace:'normal',wordBreak:'break-all'}}>{item.name}</th>
+                          <th key={item.id} className={`px-0.5 py-2 font-bold text-center border text-[11px] leading-tight ${item.type==='individual' ? 'bg-emerald-800 text-emerald-50 border-emerald-700' : 'border-slate-700'}`} style={{maxWidth:_exW,whiteSpace:'normal',wordBreak:'break-all'}}>{item.name}</th>
                         ))}
                         <th className="px-1 py-2 font-bold text-center border border-slate-700 whitespace-nowrap text-xs">介護整体</th>
                         <th className="px-2 py-2 font-bold text-center border border-slate-700 whitespace-nowrap">特記</th>
@@ -25160,7 +25172,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             <col style={{width:'145px'}} />{/* 開始 血圧 + 脈 (75+60+gap) */}
             {_showEn && <col style={{width:'145px'}} />}{/* 終了 血圧 + 脈 ★ 列を隠すときは col も外す(2026-09-29: 列ズレで①の列が広がっていた) */}
             {(effExerciseItems(appData.systemSettings)).map(item => (
-              <col key={item.id} style={{width:'84px'}} />/* 運動・個別運動とも 84px(2026-09-29 ユーザー指示) */
+              <col key={item.id} style={{width:`${_exW}px`}} />/* 運動・個別運動とも同じ幅(最大84px・名前が短い店舗は全列そろって細く 2026-10-05) */
             ))}
             <col style={{width:'60px'}} />
             <col style={{width:'500px'}} />
@@ -25176,7 +25188,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">開始 血圧/脈</th>
               {_showEn && <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">{secondBpLabel(appData)} 血圧/脈</th>}
               {(effExerciseItems(appData.systemSettings)).map((item) => (
-                <th key={item.id} className={`px-1 py-2 font-medium text-center border leading-tight sticky top-0 z-40 text-xs ${item.type==='individual' ? 'bg-emerald-800 text-emerald-50 border-emerald-700' : 'bg-slate-800 border-slate-700 text-white'}`} style={{maxWidth:84,whiteSpace:'normal',wordBreak:'break-all'}}>
+                <th key={item.id} className={`px-1 py-2 font-medium text-center border leading-tight sticky top-0 z-40 text-xs ${item.type==='individual' ? 'bg-emerald-800 text-emerald-50 border-emerald-700' : 'bg-slate-800 border-slate-700 text-white'}`} style={{maxWidth:_exW,whiteSpace:'normal',wordBreak:'break-all'}}>
                   {item.name}
                 </th>
               ))}
@@ -25412,10 +25424,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       const _indPh = selItem ? (patDefault ? applyExUnits(patDefault, selItem) : '') : '未選択';
                       // ★ 種目名はセル幅(60px)に合わせて可変フォント: 短い名前は大きく、3〜4文字以上は縮小して収める
                       const _indName = selItem?.name || '';
-                      const _indNameFs = !_indName ? 11 : _exFitFs(_indName, 15, 8, 74);
+                      const _indNameFs = !_indName ? 11 : _exFitFs(_indName, 15, 8, _exW - 10);
                       // ★ 値の表示フォント: ○ は大きく太く、数値は桁数で縮小。値が空のときは規定値(プレースホルダー)の長さで判定(見切れ防止)
                       const _indIsCircle = cur.value==='○'||cur.value==='◯';
-                      const _indValFs = _indIsCircle ? 21 : _exFitFs(String(cur.value||'') || String(_indPh||''), 15, 8, 72);
+                      const _indValFs = _indIsCircle ? 21 : _exFitFs(String(cur.value||'') || String(_indPh||''), 15, 8, _exW - 12);
                       return (
                         <td key={item.id} data-ind-cell className={`px-1 py-0 align-middle border border-emerald-200 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-emerald-50/40'}`}>
                           <select value={effItemId} disabled={isAbsent || isReadOnly || isPause}
@@ -25487,7 +25499,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                             updateExercise(p.id, item.id, e.target.value);
                           }}
                           onBlur={(e) => { if (item.useKeypad && _keypadOn) return; updateExercise(p.id, item.id, applyExUnits(e.target.value, item)); }}
-                          style={{width:78,height:42,boxSizing:'border-box',padding:'0 1px',textAlign:'center',fontSize: _isCircle ? 25 : _isCross ? 18 : _isDash ? 20 : _exFitFs(displayVal || String(placeholderText || ''), 14, 8, 70), fontWeight: _isCircle ? 900 : _isSym ? 400 : 'bold', WebkitTextStroke: _isCircle ? (_ghost ? '1.1px rgba(59,130,246,0.28)' : '1.1px currentColor') : undefined, color: _ghost ? 'rgba(59,130,246,0.28)' : (_isDash ? '#94a3b8' : undefined), lineHeight: 1}}
+                          style={{width:_exW - 6,height:42,boxSizing:'border-box',padding:'0 1px',textAlign:'center',fontSize: _isCircle ? 25 : _isCross ? 18 : _isDash ? 20 : _exFitFs(displayVal || String(placeholderText || ''), 14, 8, _exW - 14), fontWeight: _isCircle ? 900 : _isSym ? 400 : 'bold', WebkitTextStroke: _isCircle ? (_ghost ? '1.1px rgba(59,130,246,0.28)' : '1.1px currentColor') : undefined, color: _ghost ? 'rgba(59,130,246,0.28)' : (_isDash ? '#94a3b8' : undefined), lineHeight: 1}}
                           className={`border rounded-lg outline-none placeholder-slate-300 disabled:bg-transparent disabled:opacity-60 ${item.useKeypad && _keypadOn && !isReadOnly ? 'cursor-pointer' : ''} ${isReadOnly ? 'border-transparent shadow-none' : isActive ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'bg-white border-slate-300 shadow-inner'}`}
                           placeholder={placeholderText} />
                         {_ghost && <span style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none',fontSize:12,fontWeight:'bold',color:'#64748b'}}>{placeholderText}</span>}
@@ -32366,6 +32378,11 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   const [showPrintSettings, setShowPrintSettings] = useState(false); // ★ 右上「詳細設定」パネル(面数/用紙/補助線)
   const [inputHub, setInputHub] = useState(false); // ★ 2026-10-05(ユーザー要望): 「項目・連絡事項・次回予定」を「各種入力」1つにまとめたパネル
   const [blankDl, setBlankDl] = useState(null); // ★ 2026-10-05: 空印刷の枚数選択 {n} (押したらそのままダウンロード)
+  // ★ 2026-10-05(扇橋の報告「ダウンロードして印刷すると左上に寄る」): PDFを印刷するとき Chrome は用紙をプリンタの既定(A4)にするため、
+  //   B6のPDFが左上に原寸で出る。ダウンロード直後に「用紙サイズを○○に」を出す(10秒・×で閉じる)
+  const [cbPaperTip, setCbPaperTip] = useState(null);
+  const _paperName = () => { const ss = appData.systemSettings || {}; return ss.renrakuMode === '1' ? (ss.renrakuPaper === 'b6port' ? 'B6（JIS）・縦' : 'B5（JIS）・横') : 'B5（JIS）・横'; };
+  const _showPaperTip = () => { const t = Date.now(); setCbPaperTip({ t, paper: _paperName() }); setTimeout(() => setCbPaperTip(v => (v && v.t === t) ? null : v), 12000); };
   const [mobileCardLimit, setMobileCardLimit] = useState(6); // ★ スマホは重いカードを少しずつ描画(メモリ対策)
   const [mobileOpenCardId, setMobileOpenCardId] = useState(null); // ★ スマホは重いカードを描画せず、開いた1人だけ描画(メモリ対策)
   const [printingIds, setPrintingIds] = useState([]); // ★ 印刷時に描画する利用者ID(全員ではなく印刷対象だけ描画)
@@ -32720,6 +32737,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     const { combinedHtml, pageSizeStr } = _layoutRenraku(_parts);
     setCbPdfBusy(true);
     tsumugiServerPdf({ html: tsumugiBuildPrintSrcDoc(combinedHtml), pageSize: pageSizeStr, title: `連絡帳(空)_${selectedDate}`, win: pdfWin })
+      .then(() => _showPaperTip())
       .catch(e => alert('PDFの作成に失敗しました: ' + ((e && e.message) || e)))
       .finally(() => { setCbPdfBusy(false); setTimeout(() => setShowPrintCards(false), 300); });
   };
@@ -32755,6 +32773,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       // ★ サーバーPDF(B5/B6 など印刷設定の用紙サイズのまま)。iPad は先に開いたタブに表示、PC はダウンロード
       setCbPdfBusy(true);
       tsumugiServerPdf({ html: tsumugiBuildPrintSrcDoc(combinedHtml), pageSize: pageSizeStr, title, win: pdfWin })
+        .then(() => _showPaperTip())
         .catch(e => alert('PDFの作成に失敗しました: ' + ((e && e.message) || e)))
         .finally(() => setCbPdfBusy(false));
     } else {
@@ -33106,7 +33125,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                         <ol className="text-[10px] text-amber-800 leading-relaxed list-decimal ml-4 space-y-0.5">
                           <li>複合機の手差しトレイ（側面の折りたたみトレイ）にB6用紙をセットし、ガイドを用紙の幅に合わせる</li>
                           <li>複合機の画面に用紙サイズの確認が出たら「B6」を選ぶ（一覧に無い機種は「カスタム 128×182mm」で登録）</li>
-                          <li>このアプリの印刷画面で、用紙サイズ「B6」・給紙トレイ「手差し」を選んで印刷</li>
+                          <li>ダウンロードしたPDFを開いて印刷し、印刷画面の「詳細設定」で用紙サイズ「B6（JIS）」・給紙トレイ「手差し」・倍率「実際のサイズ（100%）」を選ぶ（Chromeは次回から覚えます）。<b>用紙サイズがA4のままだと、左上に小さく寄って印刷されます</b></li>
                         </ol>
                         <div className="text-[10px] text-amber-700 mt-1">※ ほとんどの複合機は手差しトレイでB6サイズに対応していますが、機種により手順が異なります。最初は1枚だけテスト印刷してから本番の印刷をおすすめします。</div>
                       </div>
@@ -33151,7 +33170,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                           <button type="button" data-testid="cb-pos-test" onClick={() => doPrintBlank(1)} disabled={cbPdfBusy} className="mt-1.5 px-2.5 py-1 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 font-bold text-[11px] disabled:opacity-50">{cbPdfBusy ? '作成中…' : '試し刷り用（空の連絡帳1枚）をダウンロード'}</button>
                         </div>
                       </div>
-                      <div className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 mt-2">複合機で右や下が切れるときに使います。PDFを印刷するときは倍率を<b>「実際のサイズ（100%）」</b>にしてください（「用紙に合わせる」だと位置と大きさが変わります）。</div>
+                      <div className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 mt-2">複合機で右や下が切れるときに使います。PDFを印刷するときは、印刷画面の「詳細設定」で<b>用紙サイズを「{renrakuSheetGeom(ss).faces.length === 2 || ss.renrakuPaper !== 'b6port' ? 'B5（JIS）・横' : 'B6（JIS）'}」</b>、倍率を<b>「実際のサイズ（100%）」</b>にしてください（A4のままだと左上に寄り、「用紙に合わせる」だと大きさが変わります）。</div>
                     </div>
                   );
                 })()}
@@ -33351,6 +33370,15 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                 <button onClick={()=>{ setPrintMissingConfirm(null); _openPrintSelect(); }} className="px-5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl font-bold text-sm">このまま進む</button>
               </div>
             </div>
+          </div>
+        ), document.body)}
+        {cbPaperTip && ReactDOM.createPortal((
+          <div data-testid="cb-paper-tip" className="fixed left-1/2 -translate-x-1/2 bottom-6 z-[9998] bg-slate-900 text-white rounded-xl shadow-2xl px-4 py-3 flex items-start gap-3" style={{ maxWidth: 'min(560px, calc(100vw - 32px))' }}>
+            <div className="text-sm leading-relaxed">
+              <div className="font-bold">PDFを印刷するときは、用紙サイズを「{cbPaperTip.paper}」に</div>
+              <div className="text-[12px] text-slate-300 mt-0.5">印刷画面の「詳細設定」で用紙サイズと倍率「実際のサイズ（100%）」を選んでください。A4のままだと左上に寄って印刷されます（Chromeは次回から覚えます）。</div>
+            </div>
+            <button type="button" onClick={() => setCbPaperTip(null)} className="text-slate-400 hover:text-white text-lg leading-none">×</button>
           </div>
         ), document.body)}
         {/* ★ 2026-10-05: 空印刷の枚数 → そのままダウンロード(プレビューなし) */}
