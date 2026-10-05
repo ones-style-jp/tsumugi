@@ -3,7 +3,7 @@
 # 対象: テスト項目一覧の【自動】項目(T-OPS-02/03/04, T-SEC-02, T-EXT-01の生存部分, T-SYNC-07の静的部分)
 # 使い方: python3 scripts/run_tests.py [--deployed <rev>]
 #   --deployed を渡すと本番の update-notes.json version が一致するかも確認する(デプロイ後チェック)
-import json, re, subprocess, sys, urllib.request, urllib.error
+import json, os, re, subprocess, sys, urllib.request, urllib.error
 
 ROOT = subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True).stdout.strip()
 PROD = 'https://tsumugi-ones-style.vercel.app'
@@ -99,6 +99,17 @@ except Exception as e:
 cur = open(f'{ROOT}/src/App.jsx', encoding='utf-8').read()
 suspicious = len(re.findall(r'ticketRecords:\s*\[\.\.\.', cur))
 check('T-SYNC-07', 'ticketRecords直結合の箇所数が急増していない(目視基準<=20)', suspicious <= 20, f'{suspicious}箇所')
+
+# ---- T-SYNC-08 提供記録の取得は1000行ずつ最後まで取り切る(2026-10-05 扇橋でケアマネ画面に9/4以降が届かなかった事故の再発防止) ----
+# サーバー(PostgREST)は1回の応答を最大1000行にするため、.limit(5000) の1回取得では1000行で切れる
+try:
+    so = open(os.path.join(ROOT, 'src/lib/syncOps.js'), encoding='utf-8').read()
+    i = so.find('export async function fetchTicketRecordsSince'); j = so.find('export function subscribeTicketRecords', i)
+    body = so[i:j] if i >= 0 and j > i else ''
+    ok = bool(body) and ('chunk.length < PAGE' in body) and ('.limit(5000)' not in body)
+    check('T-SYNC-08', 'fetchTicketRecordsSince が1000行ずつ最後まで取得する(ページ送りあり)', ok, f'found={bool(body)}')
+except Exception as e:
+    check('T-SYNC-08', 'fetchTicketRecordsSince が1000行ずつ最後まで取得する(ページ送りあり)', False, str(e))
 
 # ---- T-OPS-04 本番生存確認 ----
 def fetch(url, timeout=15):
