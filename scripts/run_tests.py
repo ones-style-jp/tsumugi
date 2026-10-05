@@ -146,6 +146,22 @@ try:
 except Exception as e:
     check('T-OPS-06', '試験版トップページ応答', False, str(e))
 
+# ---- T-OPS-07 書類のPDFダウンロード(/api/pdf)が各URLから使える(2026-10-05 独自ドメインで403だった事故の再発防止) ----
+# 店舗が使う独自ドメイン・vercel本番・試験版の3つの Origin から小さなHTMLを送り、PDFが返ることを確認する
+CUSTOM = 'https://tsumugi.ones-style.co.jp'
+for label, base in [('独自ドメイン', CUSTOM), ('本番(vercel)', PROD), ('試験版', TRIAL)]:
+    try:
+        req = urllib.request.Request(f'{base}/api/pdf', method='POST',
+            data=json.dumps({'html': '<!DOCTYPE html><html><body>tsumugi test</body></html>', 'pageSize': 'A4 portrait', 'title': 'test'}).encode(),
+            headers={'Content-Type': 'application/json', 'Origin': base, 'User-Agent': 'tsumugi-test'})
+        with urllib.request.urlopen(req, timeout=90) as r:
+            b = r.read()
+            check('T-OPS-07', f'PDFダウンロード({label})', r.status == 200 and b[:4] == b'%PDF', f'status={r.status} bytes={len(b)}')
+    except urllib.error.HTTPError as e:
+        check('T-OPS-07', f'PDFダウンロード({label})', False, f'status={e.code} {e.read()[:80]!r}')
+    except Exception as e:
+        check('T-OPS-07', f'PDFダウンロード({label})', False, str(e))
+
 # ---- 結果 ----
 fails = [r for r in results if not r[2]]
 print()

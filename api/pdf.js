@@ -20,7 +20,10 @@
 export const config = { maxDuration: 60 };
 
 const MAX_BODY = 3 * 1024 * 1024;
-const ALLOWED_HOSTS = ['tsumugi-ones-style.vercel.app', 'tsumugi-git-trial-ones-style.vercel.app', 'localhost', '127.0.0.1'];
+// ★ 2026-10-05(店舗報告「安定版でPDFのダウンロードができない」): 店舗は独自ドメイン tsumugi.ones-style.co.jp で使っており、
+//   ここに無かったため 403 forbidden origin になっていた。ones-style.co.jp 配下(サブドメイン含む)を許可する
+const ALLOWED_HOSTS = ['tsumugi.ones-style.co.jp', 'tsumugi-ones-style.vercel.app', 'tsumugi-git-trial-ones-style.vercel.app', 'localhost', '127.0.0.1'];
+const ALLOWED_HOST_RE = /(^|\.)ones-style\.co\.jp$|\.vercel\.app$/;
 
 function parsePageSize(ps) {
   const s = String(ps || 'A4 portrait').trim();
@@ -80,7 +83,7 @@ export default async function handler(req, res) {
   try {
     const origin = String(req.headers.origin || req.headers.referer || '');
     const host = (() => { try { return new URL(origin).hostname; } catch { return ''; } })();
-    const okHost = !origin || ALLOWED_HOSTS.includes(host) || /\.vercel\.app$/.test(host);
+    const okHost = !origin || ALLOWED_HOSTS.includes(host) || ALLOWED_HOST_RE.test(host);
     if (!okHost) return res.status(403).json({ error: 'forbidden origin' });
     const body = await readBody(req);
     const html = String(body.html || '');
