@@ -24177,6 +24177,12 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
 
   const handleKeypadInput = (newValue, isFirst) => {
     kpConfirmRef.current = false; // 入力があれば未確定に戻す(次のEnterは確定)
+    // ★ 2026-10-05: 基準値の無い運動の○は入れない(テンキーの○ボタンは押すと閉じるので、同じセルで開き直して数値を打てるように)
+    if (_circleBlocked(keypad.recordId, keypad.field, newValue)) {
+      const _r = keypad.recordId, _f = keypad.field, _v = keypad.openedValue || '';
+      setTimeout(() => { openKeypad(_r, _f, _v, false); setActiveCell(`${_r}-${_f}`); }, 60);
+      return;
+    }
     let formatted = newValue;
     // temp / temp_AM / temp_PM のいずれも体温として扱う
     if (keypad.field === 'temp' || keypad.field === 'temp_AM' || keypad.field === 'temp_PM') {
@@ -24230,6 +24236,34 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   //   入力は止めない(記録の自由は保つ)が、範囲外なら画面上部に赤い警告を数秒表示して気付けるようにする。
   const [vitalWarn, setVitalWarn] = useState(null);   // 警告文字列
   const _vitalWarnTimerRef = React.useRef(null);
+  // ★ 2026-10-05(ユーザー要望「基準値がない運動に○を付けてしまう人がいる。数値がないので『数値を入力してください』と出てほしい」):
+  //   ○＝「基準値(設定数値)どおり実施」の意味なので、基準値の無い運動(○×の項目は除く)には○を入れさせず、上部に赤い案内を出す
+  const _exBaselineOf = (recordId, field) => {
+    const _srcArr = (filterMode === 'single') ? localPatients : localTicketRecords;
+    const rec = (_srcArr || []).find(x => x.id === recordId); if (!rec) return 'x';
+    const master = (appData.patients || []).find(pt => pt.id === rec.patientId || pt.id === rec.id || pt.name === rec.name) || {};
+    const item = (effExerciseItems(appData.systemSettings)).find(i => i.id === field); if (!item) return 'x';
+    if (item.type === 'individual') {
+      const cur = (rec.exercises && typeof rec.exercises[field] === 'object') ? rec.exercises[field] : { itemId: '' };
+      const effItemId = cur.itemId || master.individualExerciseSlotDefaults?.[field] || '';
+      if (!effItemId) return '';
+      const raw = master.individualExercises;
+      const dated = getIndividualExercisesForDate(master, selectedDate) || [];
+      return String((dated.find(x => x.itemId === effItemId)?.defaultValue) ?? ((Array.isArray(raw) ? raw : []).find(x => x.itemId === effItemId)?.defaultValue) ?? '').trim();
+    }
+    return String((getPlannedExercisesForDate(master, selectedDate) || {})[field] || '').trim();
+  };
+  const _isCircleMark = (v) => /^[○◯〇]$/.test(String(v || '').trim());
+  const _circleBlocked = (recordId, field, v) => {
+    if (!_isCircleMark(v)) return false;
+    const item = (effExerciseItems(appData.systemSettings)).find(i => i.id === field);
+    if (!item || item.type === 'toggle') return false;
+    if (_exBaselineOf(recordId, field)) return false;
+    setVitalWarn(`「${item.name || '運動'}」は基準値（設定数値）がないため○は使えません。実施した数値（例: 10分・20回）を入力してください`);
+    if (_vitalWarnTimerRef.current) clearTimeout(_vitalWarnTimerRef.current);
+    _vitalWarnTimerRef.current = setTimeout(() => setVitalWarn(null), 8000);
+    return true;
+  };
   const _checkVitalRange = (field, value) => {
     try {
       const f = String(field || '');
@@ -25129,7 +25163,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         <div key={item.id} className="rounded-lg border border-slate-200 bg-slate-50 py-1 px-1 flex flex-col items-center min-w-0">
                           <span className="text-[10px] font-bold text-slate-500 truncate w-full text-center">{item.name}</span>
                           <input type="text" inputMode="text" disabled={dis} placeholder={ph||'—'} key={`mke-${p.id}-${item.id}-${vs}`} defaultValue={vs}
-                            onBlur={(e)=>{ updateExercise(p.id,item.id, applyExUnits(e.target.value, item)); }}
+                            onBlur={(e)=>{ if (_circleBlocked(p.id, item.id, e.target.value)) { e.target.value=''; updateExercise(p.id,item.id,''); return; } updateExercise(p.id,item.id, applyExUnits(e.target.value, item)); }}
                             className="w-full text-center text-sm font-bold text-blue-700 outline-none border border-slate-200 rounded mt-0.5 bg-white disabled:opacity-40 placeholder:text-slate-500 placeholder:font-bold" style={{height:30}} />
                         </div>
                       );
@@ -25441,7 +25475,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                           <input type="text" readOnly={_keypadOn} value={cur.value || ''} disabled={isAbsent || isReadOnly || isPause || !selItem}
                             onClick={()=>{ if(!_keypadOn) return; if(isAbsent||isReadOnly||isPause||!selItem) return; if(!cur.itemId && effItemId) updateExercise(p.id, item.id, {...cur, itemId: effItemId}); openKeypad(p.id, item.id, cur.value||'', isAbsent); setActiveCell(`${p.id}-${item.id}`); }}
                             onChange={_keypadOn ? undefined : (e)=>updateExercise(p.id, item.id, {...cur, itemId: cur.itemId||effItemId, value: e.target.value})}
-                            onBlur={_keypadOn ? undefined : (e)=>updateExercise(p.id, item.id, {...cur, itemId: cur.itemId||effItemId, value: applyExUnits(e.target.value, selItem)})}
+                            onBlur={_keypadOn ? undefined : (e)=>{ if (_circleBlocked(p.id, item.id, e.target.value)) { updateExercise(p.id, item.id, {...cur, itemId: cur.itemId||effItemId, value: ''}); return; } updateExercise(p.id, item.id, {...cur, itemId: cur.itemId||effItemId, value: applyExUnits(e.target.value, selItem)}); }}
                             placeholder={_indPh}
                             style={{fontSize:_indValFs,padding:'0 1px',height:31,boxSizing:'border-box',letterSpacing:'-0.3px',fontWeight: _indIsCircle ? 900 : 'bold', WebkitTextStroke: _indIsCircle ? '1.1px currentColor' : undefined, lineHeight:1, cursor: selItem?'pointer':'default'}}
                             className={`w-full text-center border rounded bg-white outline-none disabled:opacity-40 placeholder-slate-400 ${activeCell===`${p.id}-${item.id}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-emerald-300 focus:border-emerald-500'}`}/>
@@ -25498,7 +25532,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                             // ★ 入力中は生値のまま保存。 単位(1〜2単位)は onBlur で付与する
                             updateExercise(p.id, item.id, e.target.value);
                           }}
-                          onBlur={(e) => { if (item.useKeypad && _keypadOn) return; updateExercise(p.id, item.id, applyExUnits(e.target.value, item)); }}
+                          onBlur={(e) => { if (item.useKeypad && _keypadOn) return; if (_circleBlocked(p.id, item.id, e.target.value)) { updateExercise(p.id, item.id, ''); return; } updateExercise(p.id, item.id, applyExUnits(e.target.value, item)); }}
                           style={{width:_exW - 6,height:42,boxSizing:'border-box',padding:'0 1px',textAlign:'center',fontSize: _isCircle ? 25 : _isCross ? 18 : _isDash ? 20 : _exFitFs(displayVal || String(placeholderText || ''), 14, 8, _exW - 14), fontWeight: _isCircle ? 900 : _isSym ? 400 : 'bold', WebkitTextStroke: _isCircle ? (_ghost ? '1.1px rgba(59,130,246,0.28)' : '1.1px currentColor') : undefined, color: _ghost ? 'rgba(59,130,246,0.28)' : (_isDash ? '#94a3b8' : undefined), lineHeight: 1}}
                           className={`border rounded-lg outline-none placeholder-slate-300 disabled:bg-transparent disabled:opacity-60 ${item.useKeypad && _keypadOn && !isReadOnly ? 'cursor-pointer' : ''} ${isReadOnly ? 'border-transparent shadow-none' : isActive ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'bg-white border-slate-300 shadow-inner'}`}
                           placeholder={placeholderText} />
