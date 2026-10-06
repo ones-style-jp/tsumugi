@@ -6,6 +6,7 @@ import {
   resolveIndividualExerciseValue,
   monitoringStatusFromRate,
   exercisePrimaryNumber,
+  mergeTpTelDone,
 } from './logic.js';
 
 describe('invite token', () => {
@@ -147,5 +148,24 @@ describe('mergeDraftRows (外した行・足した行)', () => {
     expect(r1.rows[0].status).toBe('欠席');
     const r2 = mergeDraftRows(fresh, r1.rows, r1.base);
     expect(r2.rows.map(r => r.id)).toEqual([2, 3]);
+  });
+});
+
+describe('送迎表の連絡済の同期(mergeTpTelDone)', () => {
+  it('新しい方のコマを採用しても、もう一方で付けた連絡済は残る', () => {
+    const a = { cars: {}, _savedAt: 200, _telDone: { 1: { ck: '10', on: true, t: 100 } } };
+    const b = { cars: {}, _savedAt: 150, _telDone: { 2: { ck: '20', on: true, t: 140 } } };
+    const m = mergeTpTelDone(a, b);
+    expect(m._savedAt).toBe(200);
+    expect(m._telDone[1].on).toBe(true);
+    expect(m._telDone[2].on).toBe(true);
+  });
+  it('同じ方は時刻(t)が新しい方(外した操作も)を残し、変化が無ければ同じ参照を返す', () => {
+    const a = { _savedAt: 200, _telDone: { 1: { ck: '10', on: true, t: 100 } } };
+    const b = { _savedAt: 150, _telDone: { 1: { ck: '10', on: false, t: 180 } } };
+    expect(mergeTpTelDone(a, b)._telDone[1].on).toBe(false);
+    const c = { _savedAt: 150, _telDone: { 1: { ck: '10', on: false, t: 50 } } };
+    expect(mergeTpTelDone(a, c)).toBe(a);
+    expect(mergeTpTelDone(a, { _savedAt: 1 })).toBe(a);
   });
 });

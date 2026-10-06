@@ -175,3 +175,20 @@ export const mergeDraftRows = (freshRows, draftRows, baseRows) => {
   draft.forEach(d => { if (!d || d.id == null) return; const id = String(d.id); if (seen.has(id)) return; const b = bMap.get(id); if (b && deepSame(d, b)) return; rows.push(d); if (b) nextBase.push(b); kept++; });
   return { rows, base: nextBase, kept };
 };
+
+// ★ 2026-10-07: 送迎表のコマ(transportPlans["日付_AM|PM"])の同期は _savedAt が新しい方を丸ごと採用するが、
+//   要連絡の「連絡済」(_telDone: { pid: { ck, on, t } })だけは方ごとに t が新しい方を残す
+//   (2台がほぼ同時に同じコマを保存しても、もう一方で付けた/外した連絡済が消えない)。
+//   win=採用する側, lose=もう一方。変える必要が無ければ win をそのまま返す(同じ参照)
+export const mergeTpTelDone = (win, lose) => {
+  const b = lose && lose._telDone;
+  if (!win || !b || typeof b !== 'object') return win;
+  const out = { ...((win._telDone && typeof win._telDone === 'object') ? win._telDone : {}) };
+  let changed = false;
+  Object.keys(b).forEach(pid => {
+    const y = b[pid], x = out[pid];
+    const ty = (y && typeof y === 'object' && Number(y.t)) || 0, tx = (x && typeof x === 'object' && Number(x.t)) || 0;
+    if (y && typeof y === 'object' && (!x || ty > tx)) { out[pid] = y; changed = true; }
+  });
+  return changed ? { ...win, _telDone: out } : win;
+};

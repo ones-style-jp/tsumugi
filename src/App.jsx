@@ -11,7 +11,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
 import __builtUpdateNotes from '../public/update-notes.json';
-import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows } from './lib/logic';
+import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone } from './lib/logic';
 import {
   isSupabaseEnabled,
   supabaseCreateInvite,
@@ -20220,7 +20220,9 @@ export default function App() {
                 if (!lv || typeof lv !== 'object') return;
                 if (!cv) { out[k] = lv; _tpKept++; return; }
                 const lt = Number(lv._savedAt) || 0, ct = Number(cv._savedAt) || 0;
-                if (lt > ct) { out[k] = lv; _tpKept++; }
+                // ★ 2026-10-07: 要連絡の「連絡済」だけは方ごとに新しい方を残す(コマ丸ごとの採用で消さない)
+                if (lt > ct) { out[k] = mergeTpTelDone(lv, cv); _tpKept++; }
+                else { const w = mergeTpTelDone(cv, lv); if (w !== cv) { out[k] = w; _tpKept++; } }
               });
               if (_tpKept > 0) { merged.transportPlans = out; _mergedForPush = merged; syncLog('pull-preserve', { key: 'transportPlans', kept: _tpKept }); }
             } catch (e) { console.warn('[pull preserve] transportPlans failed', e); }
@@ -34709,8 +34711,16 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _chgListOfWeek = () => { const out = []; days.forEach(d => ['AM','PM'].forEach(sl => { const iso = _iso(d); const pl = plans[`${iso}_${sl}`]; if (!pl || !_baseOf(pl)) return; const cur = _snapPlan(pl), fin = _baseOf(pl);
     [ ...Object.values(cur.cars).flat().map(m=>m.pid), ...cur.walkers, ...cur.others ].forEach(pid => { let ac = _chgOf(pl, pid); if (!ac) return;
       if (ac === '車が変更') { const w = _locOf(fin, pid), n = _locOf(cur, pid); ac = `車が変更（${_carNmOf(w && w.zone)}→${_carNmOf(n && n.zone)}）`; }
-      out.push({ iso, sl, pid, ac, tel: !!_dotOf(pl, iso, pid) }); });
+      const _ck = String(((pl._chgAt || {})[pid]) || '0'); const _td = (pl._telDone || {})[pid];
+      out.push({ iso, sl, pid, ac, tel: !!_dotOf(pl, iso, pid), done: !!(_td && typeof _td === 'object' && _td.on && String(_td.ck) === _ck) }); });
     _removedSince(pl).forEach(pid => out.push({ iso, sl, pid, ac: '確定後に外れた（休みなど）', tel: false })); })); return out; };
+  // ★ 2026-10-07(ユーザー要望): 要連絡の「連絡済」を送迎表のコマに保存(全端末で共有)。値はその変更の時刻(_chgAt)=同じ方がまた変わったら未連絡に戻る
+  const setTelDone = (iso, sl, pid, on) => {
+    const k = `${iso}_${sl}`; const pl = plans[k]; if (!pl) return;
+    // { ck=その変更の時刻, on=連絡済か, t=付けた/外した時刻 }。外したときも消さずに on:false を残す(他の端末の「付けた」と時刻で比べるため)
+    const td = { ...(pl._telDone || {}), [pid]: { ck: String(((pl._chgAt || {})[pid]) || '0'), on: !!on, t: syncNow() } };
+    onSave({ ...appData, transportPlans: { ...plans, [k]: { ...pl, _telDone: td, _savedAt: syncNow() } } }, { silent: true });
+  };
   const _finalAtOfWeek = () => { let best = ''; days.forEach(d => ['AM','PM'].forEach(sl => { const f = plans[`${_iso(d)}_${sl}`]?._finalAt; if (f && String(f) > String(best)) best = f; })); return best; };
   const _fmtStamp = (v) => { try { const d = new Date(v); if (isNaN(d)) return ''; return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; } catch { return ''; } };
   const finalizeWeek = () => {
@@ -34734,6 +34744,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const doPrintRef = React.useRef(null);
   // ★ 2026-10-02(試験版・ユーザー要望「確定を解除できるように」): 確定の控え(_final)を外して「作成中」に戻す。内容はそのまま。
   const [finalMenu, setFinalMenu] = useState(false);
+  const [tpFocus, setTpFocus] = useState(null); // ★ 2026-10-07: 変更の一覧で押した方を表でハイライト { iso, sl, pid, removed }
+  const [chgOpen, setChgOpen] = useState(null); // 変更の帯: null=自動(未連絡の要連絡があれば開く)
+  React.useEffect(() => { setTpFocus(null); setChgOpen(null); }, [selectedDate]);
   const [tpEdit, setTpEdit] = useState(false); // ★ 2026-10-03: 確定済みの週で「編集する」を押したとき(週を変えると戻る)
   React.useEffect(() => { setTpEdit(false); }, [selectedDate]);
   const unfinalizeWeek = () => {
@@ -35952,7 +35965,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               const _att = new Set(_attendees(_iso(d), sl).filter(a => !a.furikae && !a.rinji).map(a => String(a.pid)));
               const _filt = (pl) => { if (!pl) return; Object.keys(pl.cars||{}).forEach(cid => { const a = pl.cars[cid]||[]; pl.cars[cid] = a.filter(m => _att.has(String(m && m.pid))); nSkip += a.length - pl.cars[cid].length; }); ['walkers','others','un'].forEach(k => { if (Array.isArray(pl[k])) { const a = pl[k]; pl[k] = a.filter(m => _att.has(String(m && m.pid))); nSkip += a.length - pl[k].length; } }); };
               _filt(cp); if (cp.drop) _filt(cp.drop);
-              delete cp._final; delete cp._finalAt; delete cp._finalId; delete cp._base; delete cp._baseAt; delete cp._baseId; delete cp._chgAt; // ★ 完成の控えは週ごと(コピー先は未確定から)
+              delete cp._final; delete cp._finalAt; delete cp._finalId; delete cp._base; delete cp._baseAt; delete cp._baseId; delete cp._chgAt; delete cp._telDone; // ★ 完成の控えは週ごと(コピー先は未確定から)
               np[`${_iso(d)}_${sl}`] = { ...cp, _savedAt: syncNow() }; n++;
             }); });
             if (n) _saveBulk('前週コピー', np);
@@ -36051,6 +36064,36 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           </div>
         </div>}
       </div>
+      {/* ★ 2026-10-07(ユーザー要望「変更内容は常に見れるように」「要連絡に連絡済」「押したら確定していてもハイライト」): 確定後の変更の帯 */}
+      {(() => { const cl = _chgListOfWeek(); if (!cl.length) return null; const tel = cl.filter(x => x.tel), left = tel.filter(x => !x.done); const open = chgOpen == null ? left.length > 0 : chgOpen;
+        const _sel = tpFocus ? (tpFocus.removed ? `[data-tpcell="${tpFocus.iso}_${tpFocus.sl}"]` : `[data-tprow][data-tpiso="${tpFocus.iso}"][data-tpslot="${tpFocus.sl}"][data-tppid="${tpFocus.pid}"], [data-tpfb="${tpFocus.iso}_${tpFocus.sl}_${tpFocus.pid}"]`) : '';
+        const focus = (x) => { const removed = /外れた/.test(x.ac); const same = tpFocus && tpFocus.iso === x.iso && tpFocus.sl === x.sl && String(tpFocus.pid) === String(x.pid); if (same) { setTpFocus(null); return; } setTpFocus({ iso: x.iso, sl: x.sl, pid: x.pid, removed });
+          setTimeout(() => { try { const sel = removed ? `[data-tpcell="${x.iso}_${x.sl}"]` : `[data-tprow][data-tpiso="${x.iso}"][data-tpslot="${x.sl}"][data-tppid="${x.pid}"], [data-tpfb="${x.iso}_${x.sl}_${x.pid}"]`; const el = document.querySelector(sel); if (el) el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' }); } catch {} }, 60); };
+        return (
+        <div className="px-2 sm:px-3 pt-2" data-testid="tp-chg-banner">
+          {_sel && <style>{`${_sel}{background:#fef08a !important;outline:3px solid #f59e0b;outline-offset:-2px;border-radius:6px;}`}</style>}
+          <div className="max-w-[1500px] mx-auto bg-white border border-amber-300 rounded-xl overflow-hidden">
+            <button type="button" data-testid="tp-chg-toggle" onClick={() => setChgOpen(!open)} className="w-full flex items-center gap-2 px-3 py-1.5 bg-amber-50 text-left">
+              <span className="text-xs font-bold text-amber-900">確定後の変更 {cl.length}件</span>
+              {tel.length > 0 && <span className={`text-[11px] font-bold rounded px-1.5 py-0.5 ${left.length ? 'text-red-700 border border-red-400 bg-white' : 'text-emerald-700 border border-emerald-300 bg-white'}`} data-testid="tp-chg-tel-left">{left.length ? `要連絡 ${left.length}件` : '要連絡はすべて連絡済'}</span>}
+              {tpFocus && <span className="text-[11px] text-amber-800">押した方を表で黄色く表示中</span>}
+              <span className="ml-auto text-[11px] font-bold text-amber-800">{open ? '閉じる' : '開く'}</span>
+            </button>
+            {open && <div className="max-h-56 overflow-auto divide-y divide-slate-100" data-testid="tp-chg-banner-list">
+              {cl.map((x, i) => { const d = new Date(x.iso + 'T00:00:00'); const on = tpFocus && tpFocus.iso === x.iso && tpFocus.sl === x.sl && String(tpFocus.pid) === String(x.pid); return (
+                <div key={i} className={`flex items-center gap-2 px-3 py-1.5 text-xs ${on ? 'bg-yellow-100' : ''} ${x.tel && x.done ? 'opacity-60' : ''}`} data-testid="tp-chg-row">
+                  <button type="button" onClick={() => focus(x)} className="flex-1 min-w-0 text-left leading-snug" title="押すと表のこの方を黄色く表示します（もう一度押すと消えます）" data-testid="tp-chg-focus">
+                    <span className="font-bold text-slate-600 tabular-nums whitespace-nowrap">{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{x.sl==='AM'?'午前':'午後'}</span>
+                    <span className={`font-bold text-slate-800 ml-1.5 ${x.tel && x.done ? 'line-through' : ''}`}>{_pname(x.pid)}</span>
+                    <span className="text-slate-700 ml-1.5">{x.ac}</span>
+                  </button>
+                  {x.tel && <span className="text-[10px] font-bold text-red-700 border border-red-400 rounded px-1 whitespace-nowrap">要連絡</span>}
+                  {x.tel && <label className="flex items-center gap-1 text-[11px] font-bold text-slate-700 whitespace-nowrap cursor-pointer" data-testid="tp-chg-done">
+                    <input type="checkbox" checked={!!x.done} onChange={e => setTelDone(x.iso, x.sl, x.pid, e.target.checked)} className="w-4 h-4"/>連絡済</label>}
+                </div>); })}
+            </div>}
+          </div>
+        </div>); })()}
       {/* ★ 2026-10-03(ユーザー提案「確定していたら入力画面ではなく一覧を常に表示。午前・午後を一度に見たい」): 確定済みの週は読み取り専用の一覧(午前・午後を同じ画面に)。
           「編集する」で入力画面へ(確定後の変更は赤丸)。確定を解除すると自動で入力画面に戻る */}
       {_finalView ? (
@@ -36068,7 +36111,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               <React.Fragment key={iso}>
                 <div className={`px-2 py-1 text-xs font-bold text-center rounded-t-xl border border-b-0 border-slate-200 min-w-0 ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-100 text-slate-700'}`}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{_hol ? <span className="ml-1 text-red-600">休業</span> : null}</div>
                 {['AM','PM'].map(sl => { const pl = getPlan(iso, sl); const abs = _absentees(iso, sl); const anyone = Object.values(pl.cars||{}).some(a => (a||[]).length) || (pl.walkers||[]).length || (pl.others||[]).length || (pl.un||[]).length; return (
-                  <div key={sl} data-testid={`tp-fb-cell-${iso}-${sl}`} className={`bg-white border-x border-t border-slate-200 min-w-0 ${sl==='PM' ? 'border-b rounded-b-xl mb-1' : ''}`}>
+                  <div key={sl} data-testid={`tp-fb-cell-${iso}-${sl}`} data-tpcell={`${iso}_${sl}`} className={`bg-white border-x border-t border-slate-200 min-w-0 ${sl==='PM' ? 'border-b rounded-b-xl mb-1' : ''}`}>
                     <div className={`px-2 py-0.5 text-[11px] font-bold ${sl==='AM'?'bg-amber-50 text-amber-800':'bg-indigo-50 text-indigo-800'}`}>{sl==='AM'?'午前':'午後'}</div>
                     {!anyone ? <div className="px-2 py-1 text-[11px] text-slate-400">—</div> : (
                       <div className="px-1.5 py-1 space-y-1">
@@ -36077,15 +36120,15 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                             <div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">{c.name}{drv ? <span className="font-normal ml-1">運転 {drv}</span> : null}</div>
                             {/* ★ 2026-10-03 ユーザー指示: 運行表と同じく左に名前・右に時間。時間の桁数が違っても名前の開始位置が揃うよう、赤丸→名前(可変)→時間(固定幅・右寄せ) */}
                             {ms.map(m => { const dot = m.mark || _dotOf(pl, iso, m.pid); const tg = _dropTag(pl, m.pid); return (
-                              <div key={m.pid} className="flex items-center gap-1 text-[12px] leading-tight py-0.5" data-testid={`tp-fb-${iso}-${sl}-${m.pid}`}>
+                              <div key={m.pid} className="flex items-center gap-1 text-[12px] leading-tight py-0.5" data-testid={`tp-fb-${iso}-${sl}-${m.pid}`} data-tpfb={`${iso}_${sl}_${m.pid}`}>
                                 {/* 名前は固定幅(約7文字)・時間はその直後(開始位置は全行で同じ)。2026-10-03 ユーザー: 名前と時間の距離を近く */}
                                 <span className="truncate font-bold text-slate-800 shrink-0" style={{width:'7.2em'}}>{_pname(m.pid)}</span>
                                 <span data-tel={dot ? '1' : '0'} className={`shrink-0 font-bold tabular-nums text-slate-800 border-2 rounded px-1 -my-0.5 ${dot ? 'border-red-600' : 'border-transparent'}`}>{_fmtT(m.t)||'—'}</span>
                                 {tg ? <span className="text-[9px] text-slate-500 truncate">{tg}</span> : null}
                               </div>); })}
                           </div>); })}
-                        {(pl.walkers||[]).length ? <div><div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">徒歩</div>{(pl.walkers||[]).map(m => <div key={m.pid} className="flex items-center gap-1 text-[12px] py-0.5"><span className="truncate font-bold text-slate-800 shrink-0" style={{width:'7.2em'}}>{_pname(m.pid)}</span><span className={`shrink-0 font-bold text-slate-800 tabular-nums border-2 rounded px-1 -my-0.5 ${(m.mark||_dotOf(pl, iso, m.pid)) ? 'border-red-600' : 'border-transparent'}`}>{/\d/.test(String(m.t||''))?_fmtT(m.t):_classStart(sl)}</span></div>)}</div> : null}
-                        {(pl.others||[]).length ? <div><div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">その他</div>{(pl.others||[]).map(m => <div key={m.pid} className="flex items-center gap-1 text-[12px] py-0.5"><span className={`truncate font-bold text-slate-800 border-2 rounded px-1 -my-0.5 ${(m.mark||_dotOf(pl, iso, m.pid)) ? 'border-red-600' : 'border-transparent'}`}>{_pname(m.pid)}</span>{m.why ? <span className="text-[10px] text-slate-500 shrink-0">（{m.why}）</span> : null}</div>)}</div> : null}
+                        {(pl.walkers||[]).length ? <div><div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">徒歩</div>{(pl.walkers||[]).map(m => <div key={m.pid} data-tpfb={`${iso}_${sl}_${m.pid}`} className="flex items-center gap-1 text-[12px] py-0.5"><span className="truncate font-bold text-slate-800 shrink-0" style={{width:'7.2em'}}>{_pname(m.pid)}</span><span className={`shrink-0 font-bold text-slate-800 tabular-nums border-2 rounded px-1 -my-0.5 ${(m.mark||_dotOf(pl, iso, m.pid)) ? 'border-red-600' : 'border-transparent'}`}>{/\d/.test(String(m.t||''))?_fmtT(m.t):_classStart(sl)}</span></div>)}</div> : null}
+                        {(pl.others||[]).length ? <div><div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">その他</div>{(pl.others||[]).map(m => <div key={m.pid} data-tpfb={`${iso}_${sl}_${m.pid}`} className="flex items-center gap-1 text-[12px] py-0.5"><span className={`truncate font-bold text-slate-800 border-2 rounded px-1 -my-0.5 ${(m.mark||_dotOf(pl, iso, m.pid)) ? 'border-red-600' : 'border-transparent'}`}>{_pname(m.pid)}</span>{m.why ? <span className="text-[10px] text-slate-500 shrink-0">（{m.why}）</span> : null}</div>)}</div> : null}
                         {(pl.un||[]).length ? <div className="text-[11px] text-amber-700 font-bold">未割当 {(pl.un||[]).map(m => _pname(m.pid)).join('・')}</div> : null}
                       </div>
                     )}
@@ -36159,14 +36202,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                           </div>
                         ))}
                         {_baseOf(pl) && (_removedSince(pl).length > 0) && (
-                          <div className="text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">{pl._final ? '確定後に外れた' : '確定時から外れた'}: {_removedSince(pl).map(pid=>_pname(pid)).join('、')}</div>
+                          <div data-tpcell={`${iso}_${sl}`} className="text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">{pl._final ? '確定後に外れた' : '確定時から外れた'}: {_removedSince(pl).map(pid=>_pname(pid)).join('、')}</div>
                         )}
                         {(!!(pl.walkers||[]).length || (dragMv && dragMv.kind!=='drop')) && (
                           <div data-tpdrop="walk" data-tpiso={iso} data-tpslot={sl} className={`border rounded-lg px-2 py-1 ${dragMv&&dragMv.over&&dragMv.over.zone==='walk'&&dragMv.over.iso===iso&&dragMv.over.slot===sl?'border-orange-500 ring-2 ring-orange-300 bg-orange-50':'border-orange-300 bg-orange-50'}`}>
                             {/* ★ 2026-09-30(試験版・ユーザー要望): 徒歩は振替(緑)と見分けやすいようオレンジに */}
                             <div className="text-[11px] font-bold text-orange-700 mb-0.5">徒歩（時間＝到着{_classStart(sl) ? `・標準 ${_classStart(sl)}` : ''}）</div>
                             {(pl.walkers||[]).map(m => (
-                              <div key={m.pid} className={`flex items-center gap-1 text-[15px] font-bold text-slate-700 py-1 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''}`}>
+                              <div key={m.pid} data-tprow data-tppid={m.pid} data-tpiso={iso} data-tpslot={sl} className={`flex items-center gap-1 text-[15px] font-bold text-slate-700 py-1 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''}`}>
                                 
                                 <span className="flex-1 min-w-0 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2 select-none" style={{touchAction:'pan-y', WebkitTouchCallout:'none', WebkitUserSelect:'none'}} onContextMenu={e=>e.preventDefault()} {..._dragHandlers(m.pid, iso, sl)}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></span>
                                 {/* ★ 2026-10-01(店舗報告: 徒歩・その他に入れた方を変更できない): iPad では文字の長押しで選択メニューが出てドラッグが始まらなかった。未割当と同じく「移動先」で選べるように */}
@@ -36183,7 +36226,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                           <div data-tpdrop="other" data-tpiso={iso} data-tpslot={sl} className={`border rounded-lg px-2 py-1 ${dragMv&&dragMv.over&&dragMv.over.zone==='other'&&dragMv.over.iso===iso&&dragMv.over.slot===sl?'border-violet-600 ring-2 ring-violet-300 bg-violet-50':'border-violet-200 bg-violet-50'}`}>
                             <div className="text-[11px] font-bold text-violet-700 mb-0.5">その他（家族送迎・途中参加など）</div>
                             {(pl.others||[]).map(m => (
-                              <div key={m.pid} className={`flex flex-wrap items-center gap-1 text-[15px] font-bold text-slate-700 py-1 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''}`}>
+                              <div key={m.pid} data-tprow data-tppid={m.pid} data-tpiso={iso} data-tpslot={sl} className={`flex flex-wrap items-center gap-1 text-[15px] font-bold text-slate-700 py-1 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''}`}>
                                 
                                 <span className="flex-1 min-w-0 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2 select-none" style={{touchAction:'pan-y', WebkitTouchCallout:'none', WebkitUserSelect:'none'}} onContextMenu={e=>e.preventDefault()} {..._dragHandlers(m.pid, iso, sl)}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></span>
                                 <div className="order-last w-full flex items-center gap-1 pl-1 text-[10px] font-bold text-violet-600">理由{_whySel(iso, sl, m, false, true)}</div>

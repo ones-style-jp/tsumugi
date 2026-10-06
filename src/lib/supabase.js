@@ -1,7 +1,7 @@
 // Supabase クライアント (Phase 1: 家族認証のみ)
 // 環境変数が設定されていない場合は null を返し、呼び出し側で localStorage フォールバック
 import { createClient } from '@supabase/supabase-js';
-import { sameStateIgnoringMeta } from './logic.js';
+import { sameStateIgnoringMeta, mergeTpTelDone } from './logic.js';
 
 const url = import.meta.env.VITE_SUPABASE_URL || '';
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -1297,7 +1297,7 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData) {
           const lv = lTp[k], cv = (cTp || {})[k];
           if (!cv) { out[k] = lv; return; }
           const lt = Number(lv && lv._savedAt) || 0, ct = Number(cv && cv._savedAt) || 0;
-          out[k] = (lt >= ct) ? lv : cv;
+          out[k] = (lt >= ct) ? mergeTpTelDone(lv, cv) : mergeTpTelDone(cv, lv); // ★ 連絡済だけは方ごとに新しい方
         });
         merged.transportPlans = out;
       }
