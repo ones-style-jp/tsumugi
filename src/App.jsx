@@ -36508,9 +36508,29 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
   };
   if (saveFnRef) saveFnRef.current = flushSave;
   React.useEffect(() => () => { if (saveFnRef) saveFnRef.current = null; }, []);
+  // ★ 2026-10-06(ユーザー要望): 入力したまま別の利用者や「当月/来月/その他」を選ぶと、保存されないまま入力が消えていた。
+  //   画面の外へ移るとき(App の未保存の確認)と同じように、「保存しますか？」を出してから切り替える
+  const [fitSwitchAsk, setFitSwitchAsk] = useState(null); // { go }
+  const _fitHasUnsaved = () => !!selectedPatientId && Object.values(values).some(v => v !== '' && v != null);
+  const guardFitSwitch = (go) => { if (_fitHasUnsaved()) { setFitSwitchAsk({ go }); return; } go(); };
 
   return (
     <div className="flex h-full w-full gap-0 sm:gap-4 p-0 sm:p-4 bg-slate-100 overflow-hidden">
+      {fitSwitchAsk && ReactDOM.createPortal((
+        <div className="fixed inset-0 bg-slate-900/50 flex items-start justify-center p-4 pt-24" style={{zIndex:10000}} data-testid="fit-switch-ask">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5">
+            <div className="font-bold text-slate-800 mb-1">体力測定が保存されていません</div>
+            <div className="text-sm text-slate-600 mb-4">{(allPats.find(x => x.id === selectedPatientId) || {}).name || ''} 様（測定日 {date}）の入力を保存しますか？</div>
+            <div className="space-y-2">
+              <button data-testid="fit-switch-save" onClick={() => { const go = fitSwitchAsk.go; flushSave(); setValues({}); setFitSwitchAsk(null); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: '体力測定を保存しました' } })); } catch {} go(); }}
+                className="w-full py-3 rounded-xl text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 active:scale-95">保存して移る</button>
+              <button data-testid="fit-switch-discard" onClick={() => { const go = fitSwitchAsk.go; markClean(); setValues({}); setFitSwitchAsk(null); go(); }}
+                className="w-full py-2.5 rounded-xl text-sm font-bold bg-white border border-red-300 text-red-700 hover:bg-red-50">保存しないで移る（入力は消えます）</button>
+              <button data-testid="fit-switch-cancel" onClick={() => setFitSwitchAsk(null)}
+                className="w-full py-2 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200">キャンセル（入力に戻る）</button>
+            </div>
+          </div>
+        </div>), document.body)}
       {mobileRosterOpen && <div onClick={() => setMobileRosterOpen(false)} className="md:hidden fixed inset-0 bg-black/50 z-40" aria-hidden="true" />}
       {/* サイドバー */}
       <div className={`bg-white shadow-md border border-slate-300 flex flex-col overflow-hidden
@@ -36552,7 +36572,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
           </div>
           <div className="flex border-b border-slate-200 bg-white shrink-0">
             {['当月', '来月', 'その他'].map(s => (
-              <button key={s} onClick={() => { setStatusFilter(s); setSelectedPatientId(null); }}
+              <button key={s} onClick={() => guardFitSwitch(() => { setStatusFilter(s); setSelectedPatientId(null); })}
                 className={`flex-1 py-3 text-[13px] font-bold border-b-2 transition-colors ${statusFilter === s ? (s === '来月' ? 'border-orange-500 text-orange-600' : s === 'その他' ? 'border-slate-500 text-slate-600' : 'border-blue-600 text-blue-600') : 'border-transparent text-slate-400 hover:bg-slate-50'}`}>
                 {s}
               </button>
@@ -36561,7 +36581,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
           {statusFilter === 'その他' && (
             <div className="px-2 py-1.5 border-b border-slate-200 bg-slate-50 shrink-0 flex flex-wrap gap-1">
               {sonoTaMonths.map(m => (
-                <button key={m.offset} onClick={() => { setSonoTaMonth(m.offset); setSelectedPatientId(null); }}
+                <button key={m.offset} onClick={() => guardFitSwitch(() => { setSonoTaMonth(m.offset); setSelectedPatientId(null); })}
                   className={`px-2 py-0.5 rounded-full text-[9px] font-bold transition-colors ${activeSonoTa === m.offset ? 'bg-slate-700 text-white' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-100'}`}>
                   {m.month+1}月
                 </button>
@@ -36634,7 +36654,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                 const dueStr = due ? `${due.getMonth()+1}/${due.getDate()}` : '未測定';
                 return (
                   <div key={p.id} className="relative">
-                    <button onClick={() => { setSelectedPatientId(p.id); onPatientChange&&onPatientChange(p.id); setValues({}); setMobileRosterOpen(false); }}
+                    <button onClick={() => { if (p.id === selectedPatientId) { setMobileRosterOpen(false); return; } guardFitSwitch(() => { setSelectedPatientId(p.id); onPatientChange&&onPatientChange(p.id); setValues({}); setMobileRosterOpen(false); }); }}
                       className={`w-full text-left px-3 py-3 rounded-xl flex items-center justify-between border gap-2 transition-all ${selectedPatientId === p.id ? 'bg-blue-50 border-blue-200 shadow-sm' : isOver ? 'bg-red-50 border-red-100 hover:bg-red-100' : 'border-transparent hover:bg-white'}`}>
                       <div className="flex flex-col min-w-0 flex-1">
                                                 <span className="font-bold text-sm text-slate-800 truncate">{p.name}</span>
