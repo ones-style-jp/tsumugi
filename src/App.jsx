@@ -22687,7 +22687,7 @@ export default function App() {
             )}
             <div className="flex-1 py-6 px-4 space-y-1 overflow-y-auto">
               <SidebarItem icon={<CalendarCheck size={18} />} label="ホーム" active={currentView === 'dashboard'} onClick={() => navigateTo('dashboard')} badge={_homeUnreadCount||null} />
-              <SidebarItem icon={<CalendarRange size={18} />} label="カレンダー" active={currentView === 'schedule'} onClick={() => navigateTo('schedule')} />
+              {tsumugiSideShown(appData, 'schedule') && <SidebarItem icon={<CalendarRange size={18} />} label="カレンダー" active={currentView === 'schedule'} onClick={() => navigateTo('schedule')} />}
               <SidebarItem icon={<ClipboardList size={18} />} label="サービス提供記録 入力" active={currentView === 'record'} onClick={() => navigateTo('record')} />
               <SidebarItem icon={<Printer size={18} />} label="連絡帳" active={currentView === 'print'} onClick={() => navigateTo('print')} />
               {/* ★ サービス提供記録はサイドバーから削除し、各利用者の個人ファイル内で年月を選んで開く形に集約 */}
@@ -22728,10 +22728,11 @@ export default function App() {
                 return <SidebarItem icon={<Activity size={18} />} label="体力測定" active={currentView === 'fitness'} onClick={() => navigateTo('fitness')} badge={_fitnessBadge||null} />;
               })()}
               {/* ★ サイドバー整理(2026-08-21): 使用頻度が近いペアは計画書と同じ開閉グループに集約 */}
+              {(tsumugiSideShown(appData, 'absence_fax') || tsumugiSideShown(appData, 'general_fax')) && (
               <SidebarGroup icon={<FileText size={18} />} label="連絡（FAX）" activeChild={['absence_fax','general_fax'].includes(currentView)}>
-                <SidebarItem icon={<FileText size={16} />} label="休み連絡" active={currentView === 'absence_fax'} onClick={() => navigateTo('absence_fax')} />
-                <SidebarItem icon={<FileText size={16} />} label="各種連絡" active={currentView === 'general_fax'} onClick={() => navigateTo('general_fax')} />
-              </SidebarGroup>
+                {tsumugiSideShown(appData, 'absence_fax') && <SidebarItem icon={<FileText size={16} />} label="休み連絡" active={currentView === 'absence_fax'} onClick={() => navigateTo('absence_fax')} />}
+                {tsumugiSideShown(appData, 'general_fax') && <SidebarItem icon={<FileText size={16} />} label="各種連絡" active={currentView === 'general_fax'} onClick={() => navigateTo('general_fax')} />}
+              </SidebarGroup>)}
               {/* ★ 2ハブ構成(2026-08-19): 通所介護計画書(全利用者) / 個別機能訓練・LIFE(加算アドオン店舗のみ)。
                   3-2/3-1/ADL/LIFE提出は機能訓練ハブ内のタブへ集約。 ラベルの数字=作成予定(期限内+超過)件数 */}
               {(hasAddon(appData,'kinou_keikaku') || hasAddon(appData,'tsusho_keikaku') || hasAnyLifeAddon(appData)) && (
@@ -22744,22 +22745,24 @@ export default function App() {
                   )}
                 </SidebarGroup>
               )}
+              {['roster','jisseki','class_roster','monitoring'].some(k => tsumugiSideShown(appData, k)) && (
               <SidebarGroup icon={<ClipboardList size={18} />} label="実績・モニタリング" activeChild={['roster','jisseki','monitoring','class_roster'].includes(currentView)}>
-                <SidebarItem icon={<Users size={16} />} label="勤務表" active={currentView === 'roster'} onClick={() => navigateTo('roster')} />
-                <SidebarItem icon={<ClipboardList size={16} />} label="利用者実績" active={currentView === 'jisseki'} onClick={() => navigateTo('jisseki')} />
-                <SidebarItem icon={<Users size={16} />} label="クラス在籍表" active={currentView === 'class_roster'} onClick={() => navigateTo('class_roster')} />
-                <SidebarItem icon={<ClipboardList size={16} />} label="モニタリング" active={currentView === 'monitoring'} onClick={() => navigateTo('monitoring')} />
-              </SidebarGroup>
+                {tsumugiSideShown(appData, 'roster') && <SidebarItem icon={<Users size={16} />} label="勤務表" active={currentView === 'roster'} onClick={() => navigateTo('roster')} />}
+                {tsumugiSideShown(appData, 'jisseki') && <SidebarItem icon={<ClipboardList size={16} />} label="利用者実績" active={currentView === 'jisseki'} onClick={() => navigateTo('jisseki')} />}
+                {tsumugiSideShown(appData, 'class_roster') && <SidebarItem icon={<Users size={16} />} label="クラス在籍表" active={currentView === 'class_roster'} onClick={() => navigateTo('class_roster')} />}
+                {tsumugiSideShown(appData, 'monitoring') && <SidebarItem icon={<ClipboardList size={16} />} label="モニタリング" active={currentView === 'monitoring'} onClick={() => navigateTo('monitoring')} />}
+              </SidebarGroup>)}
               <div className="pt-4 mt-4 border-t border-slate-800 space-y-1">
                 <SidebarItem icon={<Users size={18} />} label="利用者マスタ管理" active={currentView === 'master'} onClick={() => navigateTo('master')} />
                 <SidebarItem icon={<Briefcase size={18} />} label="ケアマネ事業所・担当者" active={currentView === 'cmmaster'} onClick={() => navigateTo('cmmaster')} />
+                {(tsumugiSideShown(appData, 'dash_personal') || tsumugiSideShown(appData, 'dash_operation')) && (
                 <SidebarGroup icon={<BarChart3 size={18} />} label="分析" activeChild={['dash_personal','dash_operation'].includes(currentView)}>
-                  <SidebarItem icon={<BarChart3 size={16} />} label="個人（バイタル・記録）" active={currentView === 'dash_personal'} onClick={() => navigateTo('dash_personal')} />
-                  <SidebarItem icon={<TrendingUp size={16} />} label="稼働（実績・月次）" active={currentView === 'dash_operation'} onClick={() => navigateTo('dash_operation')} />
-                </SidebarGroup>
-                <SidebarItem icon={<QrCode size={18} />} label="お知らせ・閲覧管理" active={currentView === 'family_admin'} onClick={() => navigateTo('family_admin')} />
+                  {tsumugiSideShown(appData, 'dash_personal') && <SidebarItem icon={<BarChart3 size={16} />} label="個人（バイタル・記録）" active={currentView === 'dash_personal'} onClick={() => navigateTo('dash_personal')} />}
+                  {tsumugiSideShown(appData, 'dash_operation') && <SidebarItem icon={<TrendingUp size={16} />} label="稼働（実績・月次）" active={currentView === 'dash_operation'} onClick={() => navigateTo('dash_operation')} />}
+                </SidebarGroup>)}
+                {tsumugiSideShown(appData, 'family_admin') && <SidebarItem icon={<QrCode size={18} />} label="お知らせ・閲覧管理" active={currentView === 'family_admin'} onClick={() => navigateTo('family_admin')} />}
                 {/* ★ 2026-09-18 運営推進会議の要望: 災害時にご家族・ケアマネへ一斉メール+家族画面お知らせ */}
-                <SidebarItem icon={<AlertTriangle size={18} />} label="災害時" active={currentView === 'emergency'} onClick={() => navigateTo('emergency')} />
+                {tsumugiSideShown(appData, 'emergency') && <SidebarItem icon={<AlertTriangle size={18} />} label="災害時" active={currentView === 'emergency'} onClick={() => navigateTo('emergency')} />}
                 <SidebarItem icon={<Settings size={18} />} label="各種設定" active={currentView === 'settings'} onClick={() => navigateTo('settings')} />
                 {/* ★ 不具合レポート (管理者のみ) */}
                 {activeRecorder && isMemberAdmin(activeRecorder, appData.systemSettings) && (
@@ -22916,7 +22919,7 @@ export default function App() {
              currentView === 'emergency' ? <DisasterView appData={appData} onSave={handleSaveToCloud} staffSession={staffSession} /> :
              currentView === 'class_roster' ? <ClassRosterView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
              currentView === 'jisseki' ? <JissekiView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
-             (currentView === 'transport' && !tsumugiTransportOn(appData)) ? <div className="p-6"><div className="max-w-xl mx-auto bg-white border border-slate-200 rounded-2xl p-6 text-center"><div className="font-bold text-slate-800">送迎表は「使わない」設定です</div><div className="text-sm text-slate-500 mt-2">各種設定 → 事業所情報 の「送迎表を使う」で切り替えられます。</div></div></div> :
+             (currentView === 'transport' && !tsumugiTransportOn(appData)) ? <div className="p-6"><div className="max-w-xl mx-auto bg-white border border-slate-200 rounded-2xl p-6 text-center"><div className="font-bold text-slate-800">送迎表は「使わない」設定です</div><div className="text-sm text-slate-500 mt-2">各種設定 → サイドバー の「送迎表」で切り替えられます。</div></div></div> :
              currentView === 'transport' ? <TransportView appData={appData} onSave={handleSaveToCloud} selectedDate={selectedDate} setSelectedDate={setSelectedDate} onShowPrintPreview={null} navigateTo={navigateTo} /> :
              currentView === 'diary' ? <DailyLogView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} dirtyRef={diaryDirtyRef} saveFnRef={diarySaveFnRef} /> :
              currentView === 'absence_fax' ? <AbsenceFaxView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?captureElHtmlWithValues(el):null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={absenceDirtyRef} saveFnRef={absenceSaveFnRef} /> :
@@ -26677,8 +26680,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
     let t = '';
     try {
       if (_cbUndecided(info)) return '';
-      // 1) 送迎表(確定した乗車時間)があれば最優先
-      const pl = (appData.transportPlans || {})[`${info.iso}_${info.ampm || 'AM'}`];
+      // 1) 送迎表(確定した乗車時間)があれば最優先 ★ 2026-10-06: 送迎表を使わない店舗は見ない(連絡帳の次回予定→サービス提供内容の時間)
+      const pl = tsumugiTransportOn(appData) ? (appData.transportPlans || {})[`${info.iso}_${info.ampm || 'AM'}`] : null;
       if (pl && typeof pl === 'object') {
         let hit = null;
         Object.keys(pl.cars || {}).forEach(cid => (pl.cars[cid] || []).forEach(m => { if (m.pid === selectedPatient.id) hit = m; }));
@@ -29306,7 +29309,7 @@ function QuickNav({ navigateTo, currentView, patientId, appData }) {
     { view:'fitness',       label:'体力測定',         icon:<Activity size={16}/> },
     { view:'dash_personal', label:'分析（個人）',     icon:<BarChart3 size={16}/> },
     { view:'monitoring',    label:'モニタリング',     icon:<ClipboardList size={16}/> },
-  ].filter(it => it.view !== currentView && !it.hide && !(it.needPt && targetId == null));
+  ].filter(it => it.view !== currentView && !it.hide && !(it.needPt && targetId == null) && (!['fitness','dash_personal','monitoring'].includes(it.view) || tsumugiSideShown(appData, it.view)));
   return (
     <div ref={ref} style={{position:'relative',zIndex:50}}>
       <button type="button" onClick={() => setOpen(o => !o)} data-testid="quicknav-btn" aria-expanded={open}
@@ -34198,6 +34201,29 @@ const tpWeekFinalAt = (appData, monday) => {
 //   使わない店舗は サイドバーの送迎表・ホームの未確定の知らせ・ご家族画面の「予定（確定前）」を出さず、
 //   連絡帳の次回お迎え時間は 手入力 > 利用者マスタ(サービス提供内容)の送迎時間 で決める(送迎表の時間は使わない)
 const tsumugiTransportOn = (appData) => (appData?.systemSettings?.transportEnabled !== false);
+// ★ 2026-10-06(ユーザー要望「各種設定にサイドバーを新設して、送迎表や体力測定の表示・非表示を選べるように」):
+//   送迎表=transportEnabled、体力測定=fitnessCycle.disabled(「体力測定を実施しない」と同じ)、それ以外=systemSettings.sidebarHidden[キー]
+const SIDEBAR_OPTIONAL = [
+  { key: 'schedule', label: 'カレンダー' },
+  { key: 'transport', label: '送迎表', note: '使わない店舗は、ホームの「送迎表が未確定」のお知らせ・日誌の「送迎表取込」・ご家族／ケアマネ画面の「予定（確定前）」も出ません。連絡帳とご家族画面のお迎え時間は、利用者マスタ（サービス提供内容）の時間になり、連絡帳の「次回予定」でその回だけの時間も入れられます。作った送迎表は消えません。' },
+  { key: 'fitness', label: '体力測定', note: '表示しないと「体力測定を実施しない」と同じになり、測定予定（当月・来月）にも出なくなります。' },
+  { key: 'absence_fax', label: '休み連絡', group: '連絡（FAX）' },
+  { key: 'general_fax', label: '各種連絡', group: '連絡（FAX）' },
+  { key: 'roster', label: '勤務表', group: '実績・モニタリング' },
+  { key: 'jisseki', label: '利用者実績', group: '実績・モニタリング' },
+  { key: 'class_roster', label: 'クラス在籍表', group: '実績・モニタリング' },
+  { key: 'monitoring', label: 'モニタリング', group: '実績・モニタリング' },
+  { key: 'dash_personal', label: '個人（バイタル・記録）', group: '分析' },
+  { key: 'dash_operation', label: '稼働（実績・月次）', group: '分析' },
+  { key: 'family_admin', label: 'お知らせ・閲覧管理' },
+  { key: 'emergency', label: '災害時' },
+];
+const tsumugiSideShown = (appData, key) => {
+  const ss = appData?.systemSettings || {};
+  if (key === 'transport') return ss.transportEnabled !== false;
+  if (key === 'fitness') return !(ss.fitnessCycle?.disabled || ss.fitnessCycle?.unit === '実施しない');
+  return !((ss.sidebarHidden || {})[key]);
+};
 const tpStoreUsesTransport = (appData) => { if (!tsumugiTransportOn(appData)) return false; try { const lim = tpIsoOf(new Date(Date.now() - 28 * 86400000)); return Object.keys(appData?.transportPlans || {}).some(k => String(k).slice(0, 10) >= lim); } catch { return false; } };
 // ★ 2026-09-30(ユーザー指示で変更): 曜日に関係なく毎日、「今日から1週間後の日」を含む週の送迎表が完成していなければ知らせる
 //   (=今週と来週の2週分を常に完成させておく運用)。
@@ -41866,6 +41892,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
     { id: 'cm', label: 'ケアマネ事業所・担当者' },
   ] : [
     { id: 'facility', label: '事業所情報' },
+    { id: 'sidebar', label: 'サイドバー' },
     { id: 'life', label: 'LIFE連携' },
     { id: 'record', label: 'サービス提供内容' },
     { id: 'diary', label: '日誌' },
@@ -42109,17 +42136,31 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
               </div>
             </SectionCard>
           </>)}
-          {activeTab === 'facility' && (<>
-            {/* ★ 2026-10-06(ユーザー要望): 送迎表を使う/使わない */}
-            <SectionCard title="送迎表">
-              <label data-testid="set-transport-enabled" className="flex items-start gap-3 cursor-pointer">
-                <input type="checkbox" className="mt-1 w-5 h-5" checked={(appData.systemSettings || {}).transportEnabled !== false} onChange={e => saveSS({ transportEnabled: e.target.checked }, e.target.checked ? '✓ 送迎表を使う設定にしました' : '✓ 送迎表を使わない設定にしました')}/>
-                <span>
-                  <span className="block text-sm font-bold text-slate-700">送迎表を使う</span>
-                  <span className="block text-[11px] text-slate-500 mt-0.5 leading-relaxed">チェックを外すと、サイドバーの送迎表・ホームの「送迎表が未確定」のお知らせ・ご家族／ケアマネ画面の「予定（確定前）」の表示が出なくなります。連絡帳の次回お迎え時間は、利用者マスタ（サービス提供内容）の「お迎え時間」が入り、連絡帳の「次回予定」でその回だけの時間も入れられます。作った送迎表のデータは消えません（もう一度チェックすると元に戻ります）。</span>
-                </span>
-              </label>
+          {activeTab === 'sidebar' && (
+            <SectionCard title="サイドバーに表示する画面">
+              <div className="text-xs text-slate-500 mb-3 leading-relaxed">使わない画面はチェックを外すと、サイドバー（と画面右上の「移動」）に出なくなります。店舗の全端末で同じになります。データは消えません（チェックを戻すと元どおり）。ホーム・サービス提供記録・連絡帳・日誌・利用者マスタ・ケアマネ事業所・各種設定はいつも表示します。計画書は「アドオン」で切り替えます。</div>
+              <div className="space-y-2" data-testid="set-sidebar-list">
+                {(() => { let lastGroup = null; return SIDEBAR_OPTIONAL.map(it => { const on = tsumugiSideShown(appData, it.key); const head = it.group && it.group !== lastGroup ? it.group : null; lastGroup = it.group || null;
+                  const toggle = (v) => {
+                    const ssx = appData.systemSettings || {};
+                    if (it.key === 'transport') return saveSS({ transportEnabled: v }, v ? '✓ 送迎表を表示します' : '✓ 送迎表を使わない設定にしました');
+                    if (it.key === 'fitness') { const fc = { sameForAll: true, jigyo: '3', kaigo: '3', unit: 'ヶ月', ...(ssx.fitnessCycle || {}) }; return saveSS({ fitnessCycle: { ...fc, disabled: !v, ...(v && fc.unit === '実施しない' ? { unit: 'ヶ月' } : {}) } }, v ? '✓ 体力測定を表示します' : '✓ 体力測定を表示しない設定にしました'); }
+                    saveSS({ sidebarHidden: { ...(ssx.sidebarHidden || {}), [it.key]: !v } }, v ? `✓ ${it.label}を表示します` : `✓ ${it.label}を表示しない設定にしました`);
+                  };
+                  return (<React.Fragment key={it.key}>
+                    {head && <div className="text-[11px] font-bold text-slate-500 pt-2">{head}</div>}
+                    <label data-testid={it.key === 'transport' ? 'set-transport-enabled' : `set-side-${it.key}`} className={`flex items-start gap-3 cursor-pointer rounded-xl border px-3 py-2 ${on ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-200'} ${it.group ? 'ml-4' : ''}`}>
+                      <input type="checkbox" className="mt-0.5 w-5 h-5 shrink-0" checked={on} onChange={e => toggle(e.target.checked)}/>
+                      <span className="min-w-0">
+                        <span className={`block text-sm font-bold ${on ? 'text-slate-800' : 'text-slate-400'}`}>{it.label}{!on && <span className="ml-2 text-[10px] font-bold text-slate-500 bg-slate-200 rounded px-1.5 py-0.5">表示しない</span>}</span>
+                        {it.note && <span className="block text-[11px] text-slate-500 mt-0.5 leading-relaxed">{it.note}</span>}
+                      </span>
+                    </label>
+                  </React.Fragment>); }); })()}
+              </div>
             </SectionCard>
+          )}
+          {activeTab === 'facility' && (<>
             <SectionCard title="事業所情報">
               {/* ★ 縦並びレイアウトに変更 (項目ごとに行を分けて見やすく) */}
               <div className="space-y-4">
