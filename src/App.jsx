@@ -2307,13 +2307,64 @@ const tsumugiDocWindow = (opts = {}) => {
   };
 };
 // 画像を大きく表示(ホーム画面アプリでは重ねて表示・通常は別タブ)
-const tsumugiOpenImage = (src) => {
-  if (!_tsumugiInPageMode()) { window.open(src, '_blank'); return; }
+// ★ 2026-10-07(ユーザー要望「写真をタップすると画面いっぱいに表示されて見づらい。写真の形に合わせて全体がスクロールせず見えるように。
+//   小さければピンチで拡大すればいい」): 写真は画面に収まる大きさ(縦横とも)で表示し、ピンチ・ダブルタップ・ホイールで拡大/移動できるビューア。
+//   別タブで画像だけを開くと横幅に合わせて表示され、縦長の書類はスクロールしないと全体が見えなかった。
+//   img 要素に拡大・移動の操作を付ける(React の画面でも使う)。 戻り値は後片付けの関数
+const _tsuAttachPinch = (box, img) => {
+  let sc = 1, tx = 0, ty = 0, start = null, lastTap = 0, lastTouch = 0;
+  const apply = () => { img.style.transform = `translate(${tx}px, ${ty}px) scale(${sc})`; img.setAttribute('data-scale', String(Math.round(sc * 100) / 100)); };
+  const clamp = () => { sc = Math.min(6, Math.max(1, sc)); if (sc === 1) { tx = 0; ty = 0; } };
+  const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  const onTS = (e) => {
+    lastTouch = Date.now();
+    if (e.touches.length === 2) { start = { d: dist(e.touches), sc, tx, ty, mx: (e.touches[0].clientX + e.touches[1].clientX) / 2, my: (e.touches[0].clientY + e.touches[1].clientY) / 2 }; }
+    else if (e.touches.length === 1) {
+      const now = Date.now();
+      if (now - lastTap < 300) { sc = sc > 1 ? 1 : 2.5; clamp(); apply(); lastTap = 0; start = null; return; }
+      lastTap = now; start = { x: e.touches[0].clientX, y: e.touches[0].clientY, tx, ty };
+    }
+  };
+  const onTM = (e) => {
+    if (!start) return; e.preventDefault();
+    if (e.touches.length === 2 && start.d) { const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2, my = (e.touches[0].clientY + e.touches[1].clientY) / 2; sc = start.sc * dist(e.touches) / start.d; tx = start.tx + (mx - start.mx); ty = start.ty + (my - start.my); clamp(); apply(); }
+    else if (e.touches.length === 1 && start.x != null && sc > 1) { tx = start.tx + (e.touches[0].clientX - start.x); ty = start.ty + (e.touches[0].clientY - start.y); apply(); }
+  };
+  const onTE = (e) => { if (!e.touches || e.touches.length === 0) start = null; };
+  const onWheel = (e) => { e.preventDefault(); sc = sc * (e.deltaY < 0 ? 1.15 : 1 / 1.15); clamp(); apply(); };
+  let drag = null;
+  const onMD = (e) => { if (sc > 1) { drag = { x: e.clientX, y: e.clientY, tx, ty }; e.preventDefault(); } };
+  const onMM = (e) => { if (!drag) return; tx = drag.tx + (e.clientX - drag.x); ty = drag.ty + (e.clientY - drag.y); apply(); };
+  const onMU = () => { drag = null; };
+  const onDbl = () => { if (Date.now() - lastTouch < 800) return; sc = sc > 1 ? 1 : 2.5; clamp(); apply(); }; // タッチのダブルタップは onTS で処理済み
+  box.addEventListener('touchstart', onTS, { passive: true }); box.addEventListener('touchmove', onTM, { passive: false }); box.addEventListener('touchend', onTE);
+  box.addEventListener('wheel', onWheel, { passive: false }); box.addEventListener('mousedown', onMD); window.addEventListener('mousemove', onMM); window.addEventListener('mouseup', onMU); box.addEventListener('dblclick', onDbl);
+  apply();
+  return () => { box.removeEventListener('touchstart', onTS); box.removeEventListener('touchmove', onTM); box.removeEventListener('touchend', onTE); box.removeEventListener('wheel', onWheel); box.removeEventListener('mousedown', onMD); window.removeEventListener('mousemove', onMM); window.removeEventListener('mouseup', onMU); box.removeEventListener('dblclick', onDbl); };
+};
+const tsumugiOpenImage = (src, name) => {
+  if (!src) return;
   const host = _tsumugiOverlayHost('tsumugi-img-view');
-  host.innerHTML = `${_tsumugiOverlayBar(false)}<div style="padding:16px;text-align:center;"></div>`;
-  const img = document.createElement('img'); img.src = src; img.alt = ''; img.style.cssText = 'max-width:100%;height:auto;background:#fff;box-shadow:0 4px 18px rgba(0,0,0,.35);';
-  host.lastElementChild.appendChild(img);
-  host.querySelector('[data-act="close"]').onclick = () => { try { host.remove(); } catch {} };
+  host.setAttribute('data-testid', 'tsu-img-view');
+  host.style.cssText = 'position:fixed;inset:0;z-index:2000002;background:#0f172a;display:flex;flex-direction:column;overflow:hidden;touch-action:none;font-family:-apple-system,"Hiragino Sans","Meiryo",sans-serif;';
+  host.innerHTML = `<div style="flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px;background:#1e293b;color:#fff;">
+      <button type="button" data-act="close" style="font-size:15px;font-weight:bold;padding:9px 16px;background:#475569;color:#fff;border:none;border-radius:10px;cursor:pointer;">閉じる</button>
+      <div data-act="name" style="flex:1;min-width:0;font-size:12px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+      <div style="font-size:11px;color:#94a3b8;white-space:nowrap;">ピンチ・ダブルタップで拡大</div>
+    </div>
+    <div data-act="box" style="flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;padding:10px;overflow:hidden;touch-action:none;"></div>`;
+  host.querySelector('[data-act="name"]').textContent = name || '';
+  const box = host.querySelector('[data-act="box"]');
+  const img = document.createElement('img'); img.src = src; img.alt = name || '';
+  img.setAttribute('data-testid', 'tsu-img-view-img'); img.draggable = false;
+  // 縦横とも画面に収める(写真の形のまま・スクロールなし)
+  img.style.cssText = 'max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;background:#fff;box-shadow:0 4px 18px rgba(0,0,0,.4);transform-origin:center center;user-select:none;-webkit-user-select:none;';
+  box.appendChild(img);
+  const off = _tsuAttachPinch(box, img);
+  const close = () => { try { off(); } catch {} try { host.remove(); } catch {} document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  host.querySelector('[data-act="close"]').onclick = close;
   document.body.appendChild(host);
 };
 // ★ 用紙の「印刷する」が押された時だけ「紙で招待済み」にする(2026-09-27 ユーザー指示: 開いただけでは招待済みにしない)。
@@ -52632,7 +52683,9 @@ function StoredImage({ file, alt, className, style, onClick }) {
 // 開く/ダウンロード リンク (署名URL対応)
 function StoredFileLink({ file, className, children }) {
   const url = useSignedUrl(file);
-  return <a href={url||'#'} download={file?.name} target="_blank" rel="noreferrer" className={className} onClick={e=>{ if(!url) e.preventDefault(); }}>{children}</a>;
+  // ★ 2026-10-07: 画像は画面に収まるビューアで開く(別タブだと横幅に合わせて大きく表示され、縦長の書類はスクロールが必要だった)。PDFは従来どおり
+  const _isPdf = (((file?.type)||'')+''+((file?.mimeType)||'')).includes('pdf') || /\.pdf(\?|$)/i.test(file?.name || file?.storagePath || file?.url || '');
+  return <a href={url||'#'} download={file?.name} target="_blank" rel="noreferrer" className={className} onClick={e=>{ if(!url) { e.preventDefault(); return; } if (!_isPdf) { e.preventDefault(); tsumugiOpenImage(url, file?.title || file?.name || ''); } }}>{children}</a>;
 }
 // 写真/PDF 全画面プレビュー (署名URL対応)。 media = { file?, url?, name, type }
 function MediaPreviewModal({ media, onClose }) {
@@ -52650,6 +52703,9 @@ function MediaPreviewModal({ media, onClose }) {
     return () => { if (u) URL.revokeObjectURL(u); };
   }, [isPdf, rawUrl]);
   const url = (isPdf && rawUrl.startsWith('data:')) ? pdfBlobUrl : rawUrl;
+  // ★ 2026-10-07: 写真は画面に収めたうえで、ピンチ・ダブルタップで拡大/移動できる
+  const _pinchBoxRef = React.useRef(null), _pinchImgRef = React.useRef(null);
+  useEffect(() => { if (isPdf || !url || !_pinchBoxRef.current || !_pinchImgRef.current) return; return _tsuAttachPinch(_pinchBoxRef.current, _pinchImgRef.current); }, [isPdf, url]);
   return (
     <div onClick={onClose}
       style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.92)',zIndex:10000,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:8}}>
@@ -52664,8 +52720,10 @@ function MediaPreviewModal({ media, onClose }) {
       ) : isPdf ? (
         <iframe src={url} title="PDF" style={{width:'100%',height:'100%',maxWidth:'95vw',maxHeight:'90vh',border:'none',background:'white',borderRadius:8}}/>
       ) : (
-        <img src={url} alt={media.name||''} onClick={(e)=>e.stopPropagation()}
-          style={{maxWidth:'95vw',maxHeight:'90vh',objectFit:'contain',borderRadius:6}}/>
+        <div ref={_pinchBoxRef} onClick={(e)=>e.stopPropagation()} style={{width:'95vw',height:'86vh',display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',touchAction:'none'}}>
+          <img ref={_pinchImgRef} src={url} alt={media.name||''} draggable={false}
+            style={{maxWidth:'100%',maxHeight:'100%',objectFit:'contain',borderRadius:6,transformOrigin:'center center',userSelect:'none'}}/>
+        </div>
       )}
       {media.name && (
         <div style={{position:'absolute',bottom:14,left:14,right:14,textAlign:'center',color:'white',fontSize:13,fontWeight:'bold',textShadow:'0 1px 4px rgba(0,0,0,0.7)'}}>
