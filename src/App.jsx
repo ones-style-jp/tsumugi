@@ -15830,12 +15830,13 @@ function CmDocsModal({ patient, storeId, byName, onSaved, onClose }) {
   const uploadFiles = async (fileList, setter, tag) => {
     const files = rejectVideos(fileList);
     if (!files.length) return;
+    const _rot = await tsumugiAskRotations(files); if (!_rot) return; // ★ 写真の向きを確認(キャンセルで登録しない)
     setBusy(tag);
     const added = [];
     for (const f of files) {
       try {
         const isPdf = /\.pdf$/i.test(f.name) || f.type === 'application/pdf';
-        const { blob, dataUrl, contentType } = await processUploadFile(f);
+        const { blob, dataUrl, contentType } = await processUploadFile(f, undefined, undefined, _rot.get(f) || 0);
         let stored = null;
         if (isSupabaseEnabled) stored = await supabaseUploadFile(blob, { name: f.name, contentType, prefix: `pf/${patient.id}` });
         const rec = { id: `cm_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, name: f.name, title: f.name.replace(/\.[^.]+$/, ''), fileDate: new Date().toISOString().slice(0, 10), type: isPdf ? 'pdf' : 'image', mimeType: contentType, uploadedAt: new Date().toISOString(), uploadedBy: byName, source: 'caremanager' };
@@ -52439,7 +52440,8 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 // ★ アップロード用にファイルを準備:
 //   画像は長辺 maxDim 以内・JPEG品質 quality に圧縮し、 { blob(保存用), dataUrl(フォールバック), contentType } を返す。
 //   PDF 等はそのまま。 Supabase Storage には blob を、 未接続/失敗時は dataUrl(base64) を保存する。
-const processUploadFile = (file, maxDim = 1600, quality = 0.7) => new Promise((resolve) => {
+const processUploadFile = (file, maxDim = 1600, quality = 0.7, rotateDeg = 0) => new Promise((resolve) => {
+  const _rot = ((Number(rotateDeg) || 0) % 360 + 360) % 360;
   const isImage = /^image\//.test(file.type || '');
   const reader = new FileReader();
   reader.onerror = () => resolve({ blob: file, dataUrl: null, contentType: file.type || 'application/octet-stream' });
@@ -52456,13 +52458,17 @@ const processUploadFile = (file, maxDim = 1600, quality = 0.7) => new Promise((r
           else { width = Math.round(width * maxDim / height); height = maxDim; }
         }
         const canvas = document.createElement('canvas');
-        canvas.width = width; canvas.height = height;
+        const _side = (_rot === 90 || _rot === 270);
+        canvas.width = _side ? height : width; canvas.height = _side ? width : height;
         const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, width, height); // 透過PNG対策の白背景
-        ctx.drawImage(img, 0, 0, width, height);
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height); // 透過PNG対策の白背景
+        // ★ 2026-10-07: 登録前に選んだ向き(90度単位)で回転して保存
+        if (_rot) { ctx.translate(canvas.width / 2, canvas.height / 2); ctx.rotate(_rot * Math.PI / 180); ctx.drawImage(img, -width / 2, -height / 2, width, height); }
+        else ctx.drawImage(img, 0, 0, width, height);
         const dataUrl = canvas.toDataURL('image/jpeg', quality);
         canvas.toBlob((blob) => {
-          resolve({ blob: blob || file, dataUrl: (dataUrl && dataUrl.length < srcDataUrl.length) ? dataUrl : srcDataUrl, contentType: 'image/jpeg' });
+          // 回転したときは元の画像(srcDataUrl)に戻さない
+          resolve({ blob: blob || file, dataUrl: (dataUrl && (_rot || dataUrl.length < srcDataUrl.length)) ? dataUrl : srcDataUrl, contentType: 'image/jpeg' });
         }, 'image/jpeg', quality);
       } catch { resolve({ blob: file, dataUrl: srcDataUrl, contentType: file.type }); }
     };
@@ -52471,6 +52477,92 @@ const processUploadFile = (file, maxDim = 1600, quality = 0.7) => new Promise((r
   reader.readAsDataURL(file);
 });
 
+// ★ 2026-10-07(ユーザー要望「書類に合わせて縦や横で撮影・添付する。載せたあとか反映前に回転して保存したい」):
+//   写真の向きを確認・回転する画面。 items=[{ key, src, name }] → Promise<Map(key→度) | null(キャンセル)>
+const _isImageFile = (f) => /^image\//.test((f && f.type) || '') || /\.(png|jpe?g|heic|heif|webp|gif|bmp)$/i.test((f && f.name) || '');
+const tsumugiRotateDialog = (items, opts = {}) => new Promise((resolve) => {
+  const list = (items || []).filter(Boolean);
+  if (!list.length) { resolve(new Map()); return; }
+  const deg = new Map(list.map(it => [it.key, 0]));
+  const host = document.createElement('div');
+  host.setAttribute('data-testid', 'tsu-rotate');
+  host.style.cssText = 'position:fixed;inset:0;z-index:2000003;background:rgba(15,23,42,0.6);display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow:auto;font-family:-apple-system,"Hiragino Sans","Meiryo",sans-serif;';
+  const panel = document.createElement('div');
+  panel.style.cssText = 'background:#fff;border-radius:16px;box-shadow:0 20px 50px rgba(0,0,0,0.35);width:100%;max-width:760px;padding:18px;box-sizing:border-box;';
+  const title = opts.title || '写真の向きを確認';
+  const note = opts.note || '書類が横向き・逆さまのときは回転してから保存してください。そのままでよければ「' + (opts.okLabel || 'この向きで登録') + '」を押してください。';
+  panel.innerHTML = `<div style="font-weight:bold;font-size:16px;color:#1e293b;margin-bottom:4px;">${title}</div><div style="font-size:12px;color:#475569;margin-bottom:12px;line-height:1.6;">${note}</div>`;
+  const grid = document.createElement('div');
+  grid.style.cssText = `display:grid;grid-template-columns:repeat(auto-fill,minmax(${list.length === 1 ? 300 : 170}px,1fr));gap:12px;max-height:62vh;overflow:auto;`;
+  const btnCss = 'flex:1;padding:8px 4px;border-radius:10px;border:1px solid #cbd5e1;background:#fff;color:#334155;font-weight:bold;font-size:12px;cursor:pointer;';
+  list.forEach((it, i) => {
+    const card = document.createElement('div');
+    card.style.cssText = 'border:1px solid #e2e8f0;border-radius:12px;padding:8px;background:#f8fafc;display:flex;flex-direction:column;gap:6px;';
+    const box = document.createElement('div');
+    box.style.cssText = `width:100%;aspect-ratio:1/1;background:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;`;
+    const img = document.createElement('img'); img.src = it.src; img.alt = '';
+    img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;transition:transform .2s;';
+    img.setAttribute('data-testid', 'tsu-rotate-img');
+    box.appendChild(img); card.appendChild(box);
+    const nm = document.createElement('div'); nm.textContent = it.name || `写真 ${i + 1}`;
+    nm.style.cssText = 'font-size:10px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+    card.appendChild(nm);
+    const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:6px;';
+    const apply = () => { const d = deg.get(it.key) || 0; img.style.transform = `rotate(${d}deg)`; img.setAttribute('data-deg', String(d)); };
+    const mk = (label, delta, tid) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.style.cssText = btnCss; b.setAttribute('data-testid', tid);
+      b.onclick = () => { deg.set(it.key, (((deg.get(it.key) || 0) + delta) % 360 + 360) % 360); apply(); }; return b; };
+    row.appendChild(mk('左に回転', -90, 'tsu-rotate-left')); row.appendChild(mk('右に回転', 90, 'tsu-rotate-right'));
+    card.appendChild(row); apply();
+    grid.appendChild(card);
+  });
+  panel.appendChild(grid);
+  const foot = document.createElement('div'); foot.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap;';
+  const done = (v) => { try { host.remove(); } catch {} resolve(v); };
+  const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = 'キャンセル'; cancel.setAttribute('data-testid', 'tsu-rotate-cancel');
+  cancel.style.cssText = 'padding:10px 18px;border-radius:12px;border:none;background:#f1f5f9;color:#475569;font-weight:bold;font-size:14px;cursor:pointer;';
+  cancel.onclick = () => done(null);
+  const ok = document.createElement('button'); ok.type = 'button'; ok.textContent = opts.okLabel || 'この向きで登録'; ok.setAttribute('data-testid', 'tsu-rotate-ok');
+  ok.style.cssText = 'padding:10px 22px;border-radius:12px;border:none;background:#2563eb;color:#fff;font-weight:bold;font-size:14px;cursor:pointer;';
+  ok.onclick = () => done(deg);
+  foot.appendChild(cancel); foot.appendChild(ok); panel.appendChild(foot);
+  host.appendChild(panel); document.body.appendChild(host);
+});
+// 選んだファイルのうち画像の向きを確認 → Map(File→度)。 画像が無ければ確認なしで空の Map。キャンセルは null
+const tsumugiAskRotations = async (files) => {
+  const imgs = (files || []).filter(_isImageFile);
+  if (!imgs.length) return new Map();
+  const urls = imgs.map(f => { try { return URL.createObjectURL(f); } catch { return ''; } });
+  try { return await tsumugiRotateDialog(imgs.map((f, i) => ({ key: f, src: urls[i], name: f.name }))); }
+  finally { setTimeout(() => urls.forEach(u => { try { u && URL.revokeObjectURL(u); } catch {} }), 1000); }
+};
+// 登録済みの画像(storagePath / data / url)を回転した新しい画像にする → { patch, oldPath } (失敗は null)
+const tsumugiRotateStoredImage = async (file, deg, prefix) => {
+  const r = ((Number(deg) || 0) % 360 + 360) % 360; if (!r || !file) return null;
+  let src = file.data || file.url || '';
+  if (file.storagePath && isSupabaseEnabled) src = (await supabaseGetSignedUrl(file.storagePath)) || supabaseGetPublicUrl(file.storagePath) || src;
+  if (!src) return null;
+  const blob0 = await (await fetch(src)).blob();
+  const f = new File([blob0], file.name || 'image.jpg', { type: blob0.type || 'image/jpeg' });
+  const { blob, dataUrl, contentType } = await processUploadFile(f, 2000, 0.85, r);
+  let stored = null;
+  if (isSupabaseEnabled) { try { stored = await supabaseUploadFile(blob, { name: (file.name || 'image').replace(/\.[^.]+$/, '') + '.jpg', contentType, prefix }); } catch {} }
+  const patch = { mimeType: contentType, rotatedAt: new Date().toISOString() };
+  if (stored && stored.path) { patch.storagePath = stored.path; patch.data = undefined; patch.url = undefined; }
+  else if (dataUrl) { patch.data = dataUrl; patch.storagePath = undefined; patch.url = undefined; }
+  else return null;
+  return { patch, oldPath: file.storagePath || null };
+};
+// 一覧の画像を回転: 向きを選ぶ画面 → 回転した画像を保存 → 結果を返す(呼び出し側で保存)
+const tsumugiRotateExisting = async (file, prefix) => {
+  let src = file.data || file.url || '';
+  if (file.storagePath && isSupabaseEnabled) src = (await supabaseGetSignedUrl(file.storagePath)) || supabaseGetPublicUrl(file.storagePath) || src;
+  if (!src) { alert('画像を読み込めませんでした。'); return null; }
+  const m = await tsumugiRotateDialog([{ key: 'one', src, name: file.title || file.name || '' }], { title: '画像を回転', okLabel: '回転して保存', note: '向きを選んで「回転して保存」を押してください。回転前の画像はゴミ箱に移ります（7日間は元に戻せます）。' });
+  const d = m && m.get('one'); if (!d) return null;
+  try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: '回転して保存しています…' } })); } catch {}
+  try { const res = await tsumugiRotateStoredImage(file, d, prefix); if (!res) alert('回転できませんでした。通信状態をご確認のうえ、もう一度お試しください。'); return res; }
+  catch (e) { alert('回転できませんでした: ' + (e && e.message || e)); return null; }
+};
 // 削除時に、その項目に紐づく Storage 実体ファイルも削除する (storagePath / photos[].storagePath)
 const purgeStorageFiles = (item) => {
   if (!item) return;
@@ -52622,12 +52714,14 @@ function OfficeAssessmentCard({ patientId, assessment, onSaveAssessment }) {
   const [preview, setPreview] = useState(null);
   const savedText = assessment?.text || '';
   const addFiles = async (fl) => {
-    const list = rejectVideos(fl); if (!list.length) return; setBusy(true);
+    const list = rejectVideos(fl); if (!list.length) return;
+    const _rot = await tsumugiAskRotations(list); if (!_rot) return; // ★ 写真の向きを確認
+    setBusy(true);
     const added = [];
     for (const f of list) {
       try {
         const isPdf = /\.pdf$/i.test(f.name) || f.type === 'application/pdf';
-        const { blob, dataUrl, contentType } = await processUploadFile(f);
+        const { blob, dataUrl, contentType } = await processUploadFile(f, undefined, undefined, _rot.get(f) || 0);
         let stored = null; if (isSupabaseEnabled) stored = await supabaseUploadFile(blob, { name: f.name, contentType, prefix: `pf/${patientId}` });
         const rec = { id: `as_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, name: f.name, type: isPdf ? 'pdf' : 'image', mimeType: contentType, fileDate: new Date().toISOString().slice(0, 10), uploadedAt: new Date().toISOString() };
         if (stored?.path) rec.storagePath = stored.path; else if (dataUrl) rec.data = dataUrl;
@@ -52914,10 +53008,11 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
     files = files.filter(_supported);
     if (_skipped.length) alert(`対応していない形式のため ${_skipped.length} 件をスキップしました（画像とPDFのみ登録できます）`);
     if (files.length === 0) return;
+    const _rot = await tsumugiAskRotations(files); if (!_rot) return; // ★ 写真の向きを確認(キャンセルで登録しない)
     const newFiles = [];
     for (const f of files) {
       const isPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
-      const { blob, dataUrl, contentType } = await processUploadFile(f); // ★ 画像は圧縮、PDFはそのまま
+      const { blob, dataUrl, contentType } = await processUploadFile(f, undefined, undefined, _rot.get(f) || 0); // ★ 画像は圧縮(選んだ向きに回転)、PDFはそのまま
       const rec = {
         id: `pf_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,
         categoryId: activeCat,
@@ -53020,6 +53115,19 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
   // ★ ファイルのタイトル/日付を編集
   const updateFile = (fileId, patch) => {
     updatePatient({ files: (personalFile.files || []).map(f => f.id === fileId ? { ...f, ...patch } : f) });
+  };
+  // ★ 2026-10-07: 登録済みの画像を回転して保存(回転前の画像はゴミ箱へ。7日後に自動で完全削除)
+  const [rotatingId, setRotatingId] = useState(null);
+  const rotateFile = async (f) => {
+    if (rotatingId) return; setRotatingId(f.id);
+    try {
+      const res = await tsumugiRotateExisting(f, `pf/${patient.id}`); if (!res) return;
+      const cur = personalFile.files || [];
+      updatePatient({
+        files: cur.map(x => x.id === f.id ? { ...x, ...res.patch } : x),
+        trash: [...(personalFile.trash || []), { ...f, id: `${f.id}_rot${Date.now()}`, title: `${f.title ?? f.name ?? ''}（回転前）`, _deletedAt: new Date().toISOString(), _kind: 'file', _rotatedOriginal: true }],
+      }, { manual: true, message: '✓ 画像を回転して保存しました' });
+    } finally { setRotatingId(null); }
   };
 
   const handleAddCustomCategory = () => {
@@ -53329,9 +53437,10 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                           if (files.length === 0) { e.target.value=''; return; }
                           const today = new Date().toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
                           const cur = [...(patient[key]||[])];
+                          const _rot = await tsumugiAskRotations(files); if (!_rot) { e.target.value=''; return; } // ★ 写真の向きを確認
                           for (const f of files) {
                             // ★ 非公開Storageへ保存 (保険証等は個人情報のため)。 失敗時 base64 フォールバック。
-                            const { blob, dataUrl, contentType } = await processUploadFile(f);
+                            const { blob, dataUrl, contentType } = await processUploadFile(f, undefined, undefined, _rot.get(f) || 0);
                             const item = { id: Date.now()+Math.random(), name: f.name, type: f.type||'image/jpeg', uploadedAt: today };
                             const stored = isSupabaseEnabled ? await supabaseUploadFile(blob, { name: f.name, contentType, prefix: `pf/${patient.id}` }) : null;
                             if (stored?.path) item.storagePath = stored.path;
@@ -53990,6 +54099,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                           {/* 操作 */}
                           <div className="flex flex-col gap-1 shrink-0">
                             <StoredFileLink file={f} className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[10px] font-bold text-center">開く</StoredFileLink>
+                            {f.type === 'image' && <button type="button" data-testid="pf-rotate" disabled={!!rotatingId} onClick={()=>rotateFile(f)} className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[10px] font-bold disabled:opacity-50">{rotatingId === f.id ? '保存中…' : '回転'}</button>}
                             <button onClick={()=>handleDeleteFile(f.id)} className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[10px] font-bold">削除</button>
                           </div>
                         </div>
@@ -54795,10 +54905,11 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
     const files = rejectVideos(e.target.files);
     e.target.value = '';
     if (files.length === 0) return;
+    const _rot = await tsumugiAskRotations(files); if (!_rot) return; // ★ 写真の向きを確認
     const added = [];
     for (const f of files) {
       const isPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
-      const { blob, dataUrl, contentType } = await processUploadFile(f); // ★ 画像は圧縮、PDFはそのまま
+      const { blob, dataUrl, contentType } = await processUploadFile(f, undefined, undefined, _rot.get(f) || 0); // ★ 画像は圧縮(選んだ向きに回転)、PDFはそのまま
       const att = { id: `fsf_${Date.now()}_${Math.random().toString(36).slice(2,7)}`, name: f.name, type: isPdf ? 'pdf' : 'image' };
       let stored = null;
       if (isSupabaseEnabled) { try { stored = await supabaseUploadFile(blob, { name: f.name, contentType, prefix: `fs/${patient.id}` }); } catch (err) { console.warn('[fs] upload failed → inline fallback', err); } }
@@ -54814,10 +54925,11 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
     const files = rejectVideos(e.target.files);
     e.target.value = '';
     if (files.length === 0) return;
+    const _rot = await tsumugiAskRotations(files); if (!_rot) return; // ★ 写真の向きを確認
     const added = [];
     for (const f of files) {
       const isPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
-      const { blob, dataUrl, contentType } = await processUploadFile(f);
+      const { blob, dataUrl, contentType } = await processUploadFile(f, undefined, undefined, _rot.get(f) || 0);
       const att = { id: `fsl_${Date.now()}_${Math.random().toString(36).slice(2,7)}`, name: f.name, type: isPdf ? 'pdf' : 'image', label: attachLabel };
       let stored = null;
       if (isSupabaseEnabled) { try { stored = await supabaseUploadFile(blob, { name: f.name, contentType, prefix: `fs/${patient.id}` }); } catch (err) { console.warn('[fs] upload failed → inline fallback', err); } }
@@ -54826,6 +54938,16 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
       added.push(att);
     }
     if (added.length) setFs(prev => ({ ...prev, labeledFiles: [...(prev.labeledFiles||[]), ...added] }));
+  };
+  // ★ 2026-10-07: 添付した画像を回転(回転前はゴミ箱予定へ。フォームの保存で確定)
+  const [fsRotating, setFsRotating] = useState(null);
+  const rotateAttach = async (key, att) => {
+    if (fsRotating) return; setFsRotating(att.id);
+    try {
+      const res = await tsumugiRotateExisting(att, `fs/${patient.id}`); if (!res) return;
+      setRemovedAtts(r => [...r, { ...att, id: `${att.id}_rot${Date.now()}`, name: `${att.name || ''}（回転前）`, _field: key, _rotatedOriginal: true }]);
+      setFs(prev => ({ ...prev, [key]: (prev[key] || []).map(x => x.id === att.id ? { ...x, ...res.patch } : x) }));
+    } finally { setFsRotating(null); }
   };
   const removeAttach = (key, id) => {
     setFs(prev => {
@@ -54853,6 +54975,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
               </StoredFileLink>
               <button type="button" onClick={()=>removeAttach(fieldKey, att.id)}
                 className="absolute top-0.5 right-0.5 w-5 h-5 bg-red-600 text-white rounded-full text-[10px] font-bold flex items-center justify-center">×</button>
+              {att.type === 'image' && <button type="button" data-testid="fs-rotate" disabled={!!fsRotating} onClick={()=>rotateAttach(fieldKey, att)} className="w-full py-0.5 text-[10px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border-t border-slate-200 disabled:opacity-50">{fsRotating === att.id ? '保存中…' : '回転'}</button>}
             </div>
           ))}
         </div>
@@ -55203,6 +55326,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
                         {att.type==='image' ? <StoredImage file={att} alt={att.name} className="w-20 h-20 object-cover"/> : <div className="w-20 h-20 flex flex-col items-center justify-center"><div className="text-[9px] font-bold text-slate-500">PDF</div></div>}
                       </StoredFileLink>
                       <div className="text-[8px] text-center text-slate-500 px-0.5 truncate" title={att.label||''}>{att.label||''}</div>
+                      {att.type==='image' && <button type="button" data-testid="fs-rotate" disabled={!!fsRotating} onClick={()=>rotateAttach('labeledFiles', att)} className="w-full py-0.5 text-[10px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border-t border-slate-200 disabled:opacity-50">{fsRotating === att.id ? '保存中…' : '回転'}</button>}
                       <button type="button" onClick={()=>removeAttach('labeledFiles', att.id)} className="absolute top-0.5 right-0.5 w-5 h-5 bg-red-600 text-white rounded-full text-[10px] font-bold flex items-center justify-center">×</button>
                     </div>
                   ))}
