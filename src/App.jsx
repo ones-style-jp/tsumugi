@@ -10486,6 +10486,7 @@ const recordWithinPatientPeriod = (r, p) => { if (!p) return true; const iso = r
 // ★ 送迎表(transportPlans)のお迎え時間を連絡帳の「次回お迎え時間」へ反映(2026-09-12d 試験版)。
 //   優先順: 手入力(nextTimeOverride) > 送迎表 > 従来の自動計算。表示形式は「H時MM分」。
 const getTransportTimeFor = (patientId, nextDateDisplay, yearHint, appData) => {
+  if (!tsumugiTransportOn(appData)) return '';
   try {
     const m = String(nextDateDisplay || '').match(/(\d+)月(\d+)日/);
     if (!m) return '';
@@ -22691,7 +22692,7 @@ export default function App() {
               <SidebarItem icon={<Printer size={18} />} label="連絡帳" active={currentView === 'print'} onClick={() => navigateTo('print')} />
               {/* ★ サービス提供記録はサイドバーから削除し、各利用者の個人ファイル内で年月を選んで開く形に集約 */}
               <SidebarItem icon={<PenTool size={18} />} label="日誌" active={currentView === 'diary'} onClick={() => navigateTo('diary')} badge={diaryTodayBadge || undefined} />
-              <SidebarItem icon={<Car size={18} />} label="送迎表" active={currentView === 'transport'} onClick={() => navigateTo('transport')} />
+              {tsumugiTransportOn(appData) && <SidebarItem icon={<Car size={18} />} label="送迎表" active={currentView === 'transport'} onClick={() => navigateTo('transport')} />}
               {!(appData.systemSettings?.fitnessCycle?.disabled || appData.systemSettings?.fitnessCycle?.unit==='実施しない') && (()=>{
                 // 体力測定バッジ: 当日出席 かつ 当月測定対象の利用者数
                 const _now = new Date(); _now.setHours(0,0,0,0);
@@ -22915,6 +22916,7 @@ export default function App() {
              currentView === 'emergency' ? <DisasterView appData={appData} onSave={handleSaveToCloud} staffSession={staffSession} /> :
              currentView === 'class_roster' ? <ClassRosterView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
              currentView === 'jisseki' ? <JissekiView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
+             (currentView === 'transport' && !tsumugiTransportOn(appData)) ? <div className="p-6"><div className="max-w-xl mx-auto bg-white border border-slate-200 rounded-2xl p-6 text-center"><div className="font-bold text-slate-800">送迎表は「使わない」設定です</div><div className="text-sm text-slate-500 mt-2">各種設定 → 事業所情報 の「送迎表を使う」で切り替えられます。</div></div></div> :
              currentView === 'transport' ? <TransportView appData={appData} onSave={handleSaveToCloud} selectedDate={selectedDate} setSelectedDate={setSelectedDate} onShowPrintPreview={null} navigateTo={navigateTo} /> :
              currentView === 'diary' ? <DailyLogView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} dirtyRef={diaryDirtyRef} saveFnRef={diarySaveFnRef} /> :
              currentView === 'absence_fax' ? <AbsenceFaxView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?captureElHtmlWithValues(el):null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={absenceDirtyRef} saveFnRef={absenceSaveFnRef} /> :
@@ -33142,7 +33144,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                     <div className="text-[11px] text-slate-500 px-1">連絡事項：{allOn ? '全員あて あり' : '全員あて なし'}・個別 {renN}名</div>
                   </div>
                   <div className="p-5 pt-3 space-y-2">
-                    {card('cb-hub-next', '次回予定', '次回の利用日・お迎え時間（時間は送迎表から入ります）',
+                    {card('cb-hub-next', '次回予定', tsumugiTransportOn(appData) ? '次回の利用日・お迎え時間（時間は送迎表から入ります）' : '次回の利用日・お迎え時間',
                       miss > 0 ? <span className="bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap">未入力{miss}名</span> : <span className="bg-emerald-100 text-emerald-700 text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap">入力済み</span>,
                       () => open(() => setIsScheduleModalOpen(true)))}
                     {card('cb-hub-renraku', '連絡事項', '全員あて・個別の連絡（表示期間つき）',
@@ -33399,6 +33401,17 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                             const _old = /\d/.test(String(r.nextTimeOverride ?? '')) && !_undec ? String(r.nextTimeOverride) : '';
                             const _goTp = () => { try { const dm = _dStr.match(/(\d+)月(\d+)日/); if (dm) { const y = (() => { const yy = new Date(selectedDate).getFullYear(); const cand = new Date(yy, +dm[1]-1, +dm[2]); const sd = new Date(selectedDate); sd.setHours(0,0,0,0); return cand < sd ? yy + 1 : yy; })(); setSelectedDate(`${y}-${String(+dm[1]).padStart(2,'0')}-${String(+dm[2]).padStart(2,'0')}`); } } catch {} if (navigateTo) navigateTo('transport'); };
                             return (<>
+                          {!tsumugiTransportOn(appData) ? (<>
+                          {/* ★ 2026-10-06: 送迎表を使わない店舗は、ここで時間を入れる(空なら利用者マスタのお迎え時間) */}
+                          <div className="text-[10px] font-bold text-slate-400 mb-1">お迎え時間{(() => { const _dm = _dStr.match(/(\d+)月(\d+)日/); if (!_dm || !_rp) return null; const _y = new Date().getFullYear(); const _c = new Date(_y, +_dm[1]-1, +_dm[2]); const _base = getPickupTimeForDow(_rp, _c.getDay(), appData); return _base ? <span className="ml-1 font-normal text-slate-500">（空欄なら利用者マスタの {_base}）</span> : null; })()}</div>
+                          <div className={`flex items-center gap-1 p-1.5 border rounded-lg ${_undec ? 'border-slate-300 bg-slate-100' : 'border-slate-300 bg-white'}`} data-testid={`cb-next-time-${r.patientId}`}>
+                            <ImeSafeInput type="text" inputMode="numeric" value={_undec ? '' : curHour} maxLength={2} disabled={_undec} onChange={e=>updateOverride('time', curMonth, curDay, e.target.value.replace(/\D/g,''), curMin)} placeholder="—" className="w-9 px-1 py-0.5 text-center bg-transparent border-0 outline-none font-bold text-sm"/>
+                            <span className="text-xs font-bold text-slate-500">時</span>
+                            <ImeSafeInput type="text" inputMode="numeric" value={_undec ? '' : curMin} maxLength={2} disabled={_undec} onChange={e=>updateOverride('time', curMonth, curDay, curHour, e.target.value.replace(/\D/g,''))} placeholder="—" className="w-9 px-1 py-0.5 text-center bg-transparent border-0 outline-none font-bold text-sm"/>
+                            <span className="text-xs font-bold text-slate-500">分</span>
+                            <label className="ml-auto flex items-center gap-1 text-[11px] font-bold text-slate-600 whitespace-nowrap"><input type="checkbox" checked={_undec} onChange={e => setLocalOverrides(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), nextTimeOverride: e.target.checked ? '未定' : '' } }))}/>未定（空欄で渡す）</label>
+                          </div>
+                          </>) : (<>
                           <div className="text-[10px] font-bold text-slate-400 mb-1">お迎え時間（送迎表）{!_undec && !_tp && _dStr && <span className="ml-1 text-amber-600">送迎表に時間なし</span>}</div>
                           <div className={`flex items-center gap-2 p-1.5 border rounded-lg ${_undec ? 'border-slate-300 bg-slate-100' : _tp ? 'border-emerald-300 bg-emerald-50' : 'border-amber-400 bg-amber-50'}`}>
                             <span className={`font-bold text-sm min-w-[52px] whitespace-nowrap ${_undec ? 'text-slate-400' : 'text-slate-800'}`}>{_undec ? '空欄' : (_tp === '徒歩' ? '徒歩' : (_tp || '—'))}</span>
@@ -33406,6 +33419,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                             <button type="button" onClick={_goTp} disabled={!_dStr} className="ml-auto text-[11px] font-bold text-blue-700 bg-white border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-50 disabled:opacity-40 whitespace-nowrap">送迎表で変更</button>
                             <label className="flex items-center gap-1 text-[11px] font-bold text-slate-600 whitespace-nowrap"><input type="checkbox" checked={_undec} onChange={e => setLocalOverrides(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), nextTimeOverride: e.target.checked ? '未定' : '' } }))}/>未定（空欄）</label>
                           </div>
+                          </>)}
                             </>); })()}
                         </div>
                       </div>
@@ -34180,7 +34194,11 @@ const tpWeekFinalAt = (appData, monday) => {
   return best;
 };
 // 直近4週間に送迎表を保存している店舗だけを「送迎表を使っている」とみなす(使っていない店舗には予定表示・リマインドを出さない)
-const tpStoreUsesTransport = (appData) => { try { const lim = tpIsoOf(new Date(Date.now() - 28 * 86400000)); return Object.keys(appData?.transportPlans || {}).some(k => String(k).slice(0, 10) >= lim); } catch { return false; } };
+// ★ 2026-10-06(ユーザー要望「送迎表を使わない店舗もある。各種設定で使う/使わないを選べるように」): systemSettings.transportEnabled===false で送迎表を使わない。
+//   使わない店舗は サイドバーの送迎表・ホームの未確定の知らせ・ご家族画面の「予定（確定前）」を出さず、
+//   連絡帳の次回お迎え時間は 手入力 > 利用者マスタ(サービス提供内容)の送迎時間 で決める(送迎表の時間は使わない)
+const tsumugiTransportOn = (appData) => (appData?.systemSettings?.transportEnabled !== false);
+const tpStoreUsesTransport = (appData) => { if (!tsumugiTransportOn(appData)) return false; try { const lim = tpIsoOf(new Date(Date.now() - 28 * 86400000)); return Object.keys(appData?.transportPlans || {}).some(k => String(k).slice(0, 10) >= lim); } catch { return false; } };
 // ★ 2026-09-30(ユーザー指示で変更): 曜日に関係なく毎日、「今日から1週間後の日」を含む週の送迎表が完成していなければ知らせる
 //   (=今週と来週の2週分を常に完成させておく運用)。
 const tpNextWeekReminder = (appData, now = new Date()) => {
@@ -39070,7 +39088,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 if (activeDays.length === 0) return null;
                 return (
                   <div>
-                    <label className="block text-sm font-bold text-slate-600 mb-2 flex items-center gap-1.5">お迎え時間（基本利用日のみ）</label>
+                    <label className="block text-sm font-bold text-slate-600 mb-2 flex items-center gap-1.5">{tsumugiTransportOn(appData) ? '基本のお迎え時間（送迎表の初期値・基本利用日のみ）' : 'お迎え時間（基本利用日のみ）'}</label>
                     <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                       <div className="grid gap-2" style={{gridTemplateColumns:`repeat(${Math.min(activeDays.length, 7)}, 1fr)`}}>
                         {activeDays.map(({d, i, slot}) => (
@@ -39087,7 +39105,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                       <div className="text-[11px] text-slate-500 mt-2 leading-relaxed">
                         ・基本利用日に設定した曜日のみ表示されます<br/>
                         ・時間が決まっていない場合は「時」だけ入力（例: 9 → 9:--、後で 30 を追加すると 9:30）<br/>
-                        ・連絡帳のお迎え時間欄にもこの時刻が反映されます
+                        {tsumugiTransportOn(appData) ? '・毎週の決まった時間です。その週の実際の時間（休み・振替で動いた分）は送迎表で直します。連絡帳には送迎表の時間が入ります' : '・連絡帳のお迎え時間欄にもこの時刻が反映されます（連絡帳の次回予定で、その回だけの時間も入れられます）'}
                       </div>
                       {/* ★ 送迎表連動(2026-09-12 試験版): 待ち合わせ場所・所要時間。送迎表の利用者名タップでも編集可 */}
                       <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-slate-200">
@@ -42092,6 +42110,16 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
             </SectionCard>
           </>)}
           {activeTab === 'facility' && (<>
+            {/* ★ 2026-10-06(ユーザー要望): 送迎表を使う/使わない */}
+            <SectionCard title="送迎表">
+              <label data-testid="set-transport-enabled" className="flex items-start gap-3 cursor-pointer">
+                <input type="checkbox" className="mt-1 w-5 h-5" checked={(appData.systemSettings || {}).transportEnabled !== false} onChange={e => saveSS({ transportEnabled: e.target.checked }, e.target.checked ? '✓ 送迎表を使う設定にしました' : '✓ 送迎表を使わない設定にしました')}/>
+                <span>
+                  <span className="block text-sm font-bold text-slate-700">送迎表を使う</span>
+                  <span className="block text-[11px] text-slate-500 mt-0.5 leading-relaxed">チェックを外すと、サイドバーの送迎表・ホームの「送迎表が未確定」のお知らせ・ご家族／ケアマネ画面の「予定（確定前）」の表示が出なくなります。連絡帳の次回お迎え時間は、利用者マスタ（サービス提供内容）の「お迎え時間」が入り、連絡帳の「次回予定」でその回だけの時間も入れられます。作った送迎表のデータは消えません（もう一度チェックすると元に戻ります）。</span>
+                </span>
+              </label>
+            </SectionCard>
             <SectionCard title="事業所情報">
               {/* ★ 縦並びレイアウトに変更 (項目ごとに行を分けて見やすく) */}
               <div className="space-y-4">
@@ -45404,7 +45432,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           担当者追加
         </button>
         {/* ★ 送迎表(運行表)からの取り込み(2026-09-12 試験版): 車割り当てを日誌の迎え/送りへ一括反映 */}
-        <button disabled={isReadOnly} onClick={()=>{
+        {tsumugiTransportOn(appData) && (<button disabled={isReadOnly} onClick={()=>{
           const plan = (appData.transportPlans||{})[`${selectedDate}_${ampm}`];
           if (!plan) { alert('この日の送迎表がまだ保存されていません。\n送迎表の画面で車割り当てを編集すると保存されます。'); return; }
           if (!window.confirm('送迎表の車割り当てを、この日誌の「迎え」「送り」へ取り込みます。\n既存の迎え/送りの割り当ては上書きされます。よろしいですか？\n（送りの車が迎えと違う場合は、取り込み後に送りだけ調整してください）')) return;
@@ -45421,7 +45449,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         }}
           className="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed" title="送迎表(運行表)で決めた車割り当てを、この日の迎え/送りへ一括反映します">
           送迎表取込
-        </button>
+        </button>)}
         {/* 送迎車割り当て */}
         <button disabled={isReadOnly} onClick={()=>{setCarAssignModal({prefix:'pick'});setCarAssignSelections({});}}
           className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
