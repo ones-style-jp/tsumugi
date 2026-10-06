@@ -381,23 +381,25 @@ ${body}</body></html>`;
       // 利用者一覧 (CSV のみ — 一覧データなので CSV 十分)
       if (include.patients) {
         setProgress('利用者一覧をエクスポート中...');
-        const headers = ['ID','氏名','ふりがな','性別','生年月日','電話','郵便番号','住所','被保険者番号','介護度','適用期間開始','適用期間終了','負担割合','ケアマネ事業所','ケアマネ名','ケアマネ電話','ケアマネFAX','利用開始日','利用終了日','状態','留意点'];
-        const rows = targetPatients.map(p => [p.id,p.name,p.kana,p.gender,p.birthDate,p.phone,p.zipCode,p.address,p.insuranceNo,p.careLevel,p.careLevelFrom,p.careLevelTo,p.costBurden,p.cmOffice,p.cmName,p.cmPhone,p.cmFax,p.startDate,p.endDate,p.status,p.ryui]);
+        // ★ 2026-10-07: 住所は建物名・部屋番号も、ケアマネの電話/FAXは事業所・担当者マスタでも補う。携帯電話は末尾の列に追加(既存の列の並びは変えない)
+        const headers = ['ID','氏名','ふりがな','性別','生年月日','電話','郵便番号','住所','被保険者番号','介護度','適用期間開始','適用期間終了','負担割合','ケアマネ事業所','ケアマネ名','ケアマネ電話','ケアマネFAX','利用開始日','利用終了日','状態','留意点','電話(携帯)'];
+        const rows = targetPatients.map(p => { const _c = tsumugiCmContact(p, appData); return [p.id,p.name,p.kana,p.gender,p.birthDate,p.phone,p.zipCode,[p.address, p.addressBuilding, p.addressRoom].filter(Boolean).join(' '),p.insuranceNo,p.careLevel,p.careLevelFrom,p.careLevelTo,p.costBurden,p.cmOffice,p.cmName,_c.phone,_c.fax,p.startDate,p.endDate,p.status,p.ryui,p.phoneMobile]; });
         root.file('01_利用者一覧.csv', toCsv(headers, rows));
         const ecHeaders = ['利用者ID','利用者名','続柄','氏名','電話(固定)','電話(携帯)','メール'];
         const ecRows = [];
-        targetPatients.forEach(p => (p.emergencyContacts||[]).forEach(c => ecRows.push([p.id,p.name,c.relation,c.name,c.phone,c.phoneMobile,c.email])));
+        // ★ 2026-10-07: 代表の連絡先(familyName/familyPhone…)も含める(getAllContacts=フェイスシート・家族画面と同じ一覧)
+        targetPatients.forEach(p => getAllContacts(p).forEach(c => ecRows.push([p.id,p.name,c.relation,c.name,c.phone,c.phoneMobile,c.email])));
         if (ecRows.length > 0) root.file('01_緊急連絡先.csv', toCsv(ecHeaders, ecRows));
         // 事業所情報: ケアマネ事業所 + 担当者 (各種設定のマスタ)
         const cmOffices = appData.systemSettings?.cmOffices || [];
-        if (cmOffices.length > 0) root.file('01_ケアマネ事業所.csv', toCsv(['事業所名','電話','FAX'], cmOffices.map(o=>[o.name,o.phone,o.fax])));
+        if (cmOffices.length > 0) root.file('01_ケアマネ事業所.csv', toCsv(['事業所名','電話','FAX','郵便番号','住所','建物名'], cmOffices.map(o=>[o.name,o.phone,o.fax,o.zipCode,o.address,o.addressBuilding])));
         const careMgrs = appData.systemSettings?.careManagers || [];
-        if (careMgrs.length > 0) root.file('01_ケアマネ担当者.csv', toCsv(['事業所名','担当者名','電話'], careMgrs.map(c=>[c.office,c.name,c.phone])));
+        if (careMgrs.length > 0) root.file('01_ケアマネ担当者.csv', toCsv(['事業所名','担当者名','電話','直通電話','FAX','メール'], careMgrs.map(c=>[c.office,c.name,c.phone,c.phoneDirect,c.fax,c.email])));
       }
       // 提供記録: 利用者×月ごとに HTML — TicketView の画面表示と同じ全日リスト
       if (include.tickets) {
         setProgress('提供記録をエクスポート中...');
-        const facility = appData.systemSettings?.facilityInfo || {};
+        const facility = tsumugiFacilityInfo(appData);
         const exerciseItems = effExerciseItems(appData.systemSettings);
         const dowJp = ['日','月','火','水','木','金','土'];
         const moodLabel = { excellent:'🤩', good:'😊', normal:'😐', bad:'😞', terrible:'😫' };
@@ -609,7 +611,7 @@ ${allPagesHtml}
           if (patientMode === 'select' && r.patientName && !targetNames.has(r.patientName)) return false;
           return true;
         });
-        const facility = appData.systemSettings?.facilityInfo || {};
+        const facility = tsumugiFacilityInfo(appData);
         for (let i = 0; i < recs.length; i++) {
           const r = recs[i];
           setProgress(`休み連絡 ${i+1}/${recs.length} を生成中...`);
@@ -641,7 +643,7 @@ ${allPagesHtml}
           if (patientMode === 'select' && r.patientName && !targetNames.has(r.patientName)) return false;
           return true;
         });
-        const facility = appData.systemSettings?.facilityInfo || {};
+        const facility = tsumugiFacilityInfo(appData);
         for (let i = 0; i < recs.length; i++) {
           const r = recs[i];
           setProgress(`各種連絡 ${i+1}/${recs.length} を生成中...`);
@@ -1792,6 +1794,41 @@ const MON_TEXT_MAX = 200, TOKKI_MAX = 100, ROSTER_WAIT_MAX = 40;
 //   tsumugiServerPdf({html,pageSize,title,win}): サーバーでPDFを作り、iPad/iPhone は新しいタブ(win=クリック時に開いておいた窓)で開く、PCはダウンロード。
 // ★ 2026-10-05(ユーザー指示「FAXしない限り送付履歴に入れなくていい」): 試験版 trial198〜199 の数日間に自動追加された
 //   「ダウンロード（DL済）」の記録(method:'pdf')は一覧・出力から除く(データは残るが表示しない)
+// ★ 2026-10-07(店舗報告: フェイスシートをダウンロードするとケアマネのFAX番号が入っていない):
+//   ケアマネの連絡先は 利用者の控え(cmFax/cmPhone) が空のことがあり、事業所マスタ(cmOffices)・担当者マスタ(careManagers)にだけ入っている。
+//   書類・送付先はこの関数で 利用者の控え → 事業所/担当者マスタ の順に引く(画面の送付状 effFax と同じ優先順)。
+const tsumugiCmContact = (p, appData) => {
+  const ss = (appData && appData.systemSettings) || {};
+  const on = String((p && p.cmOffice) || '').trim(), nm = String((p && p.cmName) || '').trim();
+  const off = on ? ((ss.cmOffices || []).find(o => o && String(o.name || '').trim() === on) || null) : null;
+  const cm = (on && nm) ? ((ss.careManagers || []).find(c => c && String(c.office || '').trim() === on && String(c.name || '').trim() === nm) || null) : null;
+  const pick = (...vs) => { for (const v of vs) { const t = String(v ?? '').trim(); if (t) return t; } return ''; };
+  return {
+    office: on, name: nm,
+    fax: pick(p && p.cmFax, off && off.fax, cm && cm.fax),
+    phone: pick(p && p.cmPhone, cm && cm.phoneDirect, cm && cm.phone, off && off.phone), // 担当者への連絡先
+    officePhone: pick(off && off.phone, p && p.cmOfficePhone, p && p.cmPhone),
+    directPhone: pick(cm && cm.phoneDirect),
+    email: pick(cm && cm.email),
+    address: [off && off.address, off && off.addressBuilding].map(v => String(v || '').trim()).filter(Boolean).join(' '),
+  };
+};
+const tsumugiCmFaxFor = (p, appData, officeName) => {
+  const on = String(officeName || '').trim();
+  if (on && on !== String((p && p.cmOffice) || '').trim()) return String((((appData && appData.systemSettings && appData.systemSettings.cmOffices) || []).find(o => o && String(o.name || '').trim() === on) || {}).fax || '').trim();
+  return tsumugiCmContact(p, appData).fax;
+};
+// ★ 2026-10-07(書類の反映漏れ調査): 各種設定の事業所情報は zipCode / officeNumber / address+addressBuilding に保存されるが、
+//   書類の一部が 店舗作成時だけ入る zip、存在しない jigyoshoNo/officeNo、建物名なしの address を読んでいた(郵便番号が古い・事業所番号が 000000000 のまま)。
+//   書類はこの関数で読む(読み取り専用。保存には使わない)
+const tsumugiFacilityInfo = (appData) => {
+  const fi = (appData && appData.systemSettings && appData.systemSettings.facilityInfo) || {};
+  return { ...fi,
+    zip: String(fi.zipCode || fi.zip || '').trim(),
+    officeNo: String(fi.officeNumber || fi.jigyoshoNo || fi.officeNo || '').trim(),
+    addressFull: [fi.address, fi.addressBuilding].map(v => String(v || '').trim()).filter(Boolean).join(' '),
+  };
+};
 const tsumugiFaxLog = (appData) => (appData && Array.isArray(appData.faxHistory) ? appData.faxHistory : []).filter(h => h && h.method !== 'pdf');
 const tsumugiIsIOS = () => typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
 // ★ 2026-10-05(ユーザー要望「印刷位置が目視でわかるように」): 連絡帳の用紙上の配置(mm)。ContactBookView._layoutRenraku と同じ数値
@@ -12779,7 +12816,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
             </select>
             {modal.patientId && (()=>{ const p=(appData.patients||[]).find(x=>x.id===modal.patientId); if(!p) return null; return (
               <div style={{fontSize:11,color:'#475569',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:8,padding:'6px 10px',marginBottom:12}}>
-                担当ケアマネ：<b>{p.cmOffice||'（事業所未登録）'}</b>{p.cmName?` / ${p.cmName} 様`:''}{p.cmFax?`　FAX ${p.cmFax}`:''}
+                担当ケアマネ：<b>{p.cmOffice||'（事業所未登録）'}</b>{p.cmName?` / ${p.cmName} 様`:''}{(() => { const _f = tsumugiCmContact(p, appData).fax; return _f ? `　FAX ${_f}` : ''; })()}
               </div>
             ); })()}
             {modal.patientId && (
@@ -13017,7 +13054,7 @@ function DisasterView({ appData, onSave, staffSession }) {
     const rowList = pats.map(p => {
       const cs = contactsOf(p).slice(0, 2).map(c => `${esc(c.name || '')}${c.relation ? `(${esc(c.relation)})` : ''} ${esc(c.phoneMobile || c.phone || '')}`).join('<br/>');
       const st = (SAFETY_OPTIONS.find(x => x[0] === safety[String(p.id)]) || [])[1] || '';
-      return `<tr><td>${esc(p.name)}</td><td>${esc(st)}</td><td>${esc([p.address, p.addressBuilding, p.addressRoom].filter(Boolean).join(' '))}</td><td>${esc(p.phoneMobile || p.phone || '')}</td><td>${cs}</td><td>${esc(p.cmOffice || '')}<br/>${esc(p.cmName || '')} ${esc(p.cmPhone || '')}</td></tr>`.replace(/<td>/g, '<td style="border:1px solid #999;padding:3px 4px;vertical-align:top;height:8.5mm;">');
+      return `<tr><td>${esc(p.name)}</td><td>${esc(st)}</td><td>${esc([p.address, p.addressBuilding, p.addressRoom].filter(Boolean).join(' '))}</td><td>${esc(p.phoneMobile || p.phone || '')}</td><td>${cs}</td><td>${esc(p.cmOffice || '')}<br/>${esc(p.cmName || '')} ${esc(tsumugiCmContact(p, appData).phone)}</td></tr>`.replace(/<td>/g, '<td style="border:1px solid #999;padding:3px 4px;vertical-align:top;height:8.5mm;">');
     });
     const pageCount = Math.max(1, Math.ceil(rowList.length / PER_PAGE));
     const scopeLabel = scope === 'now' ? `通所中(${slot === 'AM' ? '午前' : '午後'})` : scope === 'others' ? '在宅' : '全員';
@@ -13090,7 +13127,7 @@ function DisasterView({ appData, onSave, staffSession }) {
                         <td className="px-3 py-2 text-xs text-slate-700">{[p.address, p.addressBuilding, p.addressRoom].filter(Boolean).join(' ')}</td>
                         <td className="px-3 py-2 text-xs whitespace-nowrap">{(p.phoneMobile || p.phone) ? <a href={`tel:${(p.phoneMobile || p.phone).replace(/[^0-9+]/g, '')}`} className="text-blue-700 font-bold">{p.phoneMobile || p.phone}</a> : <span className="text-slate-300">—</span>}</td>
                         <td className="px-3 py-2 text-xs">{cs.length ? cs.map((c, i) => <div key={i}>{c.name || ''}{c.relation ? `(${c.relation})` : ''} {(c.phoneMobile || c.phone) && <a href={`tel:${String(c.phoneMobile || c.phone).replace(/[^0-9+]/g, '')}`} className="text-blue-700 font-bold">{c.phoneMobile || c.phone}</a>}</div>) : <span className="text-slate-300">—</span>}</td>
-                        <td className="px-3 py-2 text-xs">{p.cmOffice || p.cmName ? <div>{p.cmOffice}<br/>{p.cmName} {p.cmPhone && <a href={`tel:${String(p.cmPhone).replace(/[^0-9+]/g, '')}`} className="text-blue-700 font-bold">{p.cmPhone}</a>}</div> : <span className="text-slate-300">—</span>}</td>
+                        <td className="px-3 py-2 text-xs">{p.cmOffice || p.cmName ? <div>{p.cmOffice}<br/>{p.cmName} {(() => { const _t = tsumugiCmContact(p, appData).phone; return _t ? <a href={`tel:${String(_t).replace(/[^0-9+]/g, '')}`} className="text-blue-700 font-bold">{_t}</a> : null; })()}</div> : <span className="text-slate-300">—</span>}</td>
                       </tr>
                     ); })}
                     {!pats.length && <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-400 text-sm">対象の利用者がいません</td></tr>}
@@ -29203,7 +29240,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                     </div>
                     {/* ★ 2026-09-30(試験版): ケアマネ・事業所はFAXと同じモニタリング表を表示(その他関係者は従来どおり要約のみ) */}
                     {r.sheet && (!cmViewerMode || cmSheetView)
-                      ? <MonSheetPreview patient={selectedPatient} rec={r} facility={appData.systemSettings?.facilityInfo || {}} onViewed={onMonitoringViewed} />
+                      ? <MonSheetPreview patient={selectedPatient} rec={r} facility={tsumugiFacilityInfo(appData)} onViewed={onMonitoringViewed} />
                       : <div style={{fontSize:14,color:'#475569',lineHeight:1.8,whiteSpace:'pre-wrap'}}>{r.summary}</div>}
                     {i === arr.length - 1 && arr._all.length > 2 && (
                       <div style={{display:'flex',justifyContent:'center',alignItems:'center',gap:8,marginTop:10}}>
@@ -31636,7 +31673,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
 // 全期間の提供記録を1つの印刷用HTML(複数ページ)で生成 → 別タブで開いて一括PDF化。
 // ★ 各月は「その月に有効だった運動項目」で描画 (項目変更があっても過去月が崩れない)
 function buildAllPeriodTicketHtml(appData, patient) {
-  const facility = appData.systemSettings?.facilityInfo || {};
+  const facility = tsumugiFacilityInfo(appData);
   const dowJp = ['日','月','火','水','木','金','土'];
   const moodLabel = { excellent:'🤩', good:'😊', normal:'😐', bad:'😞', terrible:'😫' };
   const closedDays = appData.systemSettings?.facilityInfo?.closedDays || [0];
@@ -38924,8 +38961,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 {(() => {
                   const _off = (appData.systemSettings?.cmOffices||[]).find(o=>o.name===localPatient.cmOffice);
                   const _cm = (appData.systemSettings?.careManagers||[]).find(c=>c.office===localPatient.cmOffice && c.name===localPatient.cmName);
-                  const officePhone = _off?.phone || localPatient.cmPhone || '';
-                  const directPhone = _cm?.phoneDirect || '';
+                  const _cmc = tsumugiCmContact(localPatient, appData);
+                  const officePhone = _cmc.officePhone;
+                  const directPhone = _cmc.directPhone;
                   const _lbl = (t)=><label className="block text-sm font-bold text-slate-600 mb-1.5">{t}</label>;
                   const _ro = (v)=><div className="px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-sm font-bold text-slate-700">{v||'ー'}</div>;
                   return (
@@ -38934,7 +38972,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     <div className="border border-slate-200 rounded-lg overflow-hidden">
                       <InfoRow label="事業所名">{localPatient.cmOffice}</InfoRow>
                       <InfoRow label="事業所電話">{officePhone}</InfoRow>
-                      <InfoRow label="FAX">{localPatient.cmFax}</InfoRow>
+                      <InfoRow label="FAX">{tsumugiCmContact(localPatient, appData).fax}</InfoRow>
                       <InfoRow label="担当者名">{localPatient.cmName}</InfoRow>
                       <InfoRow label="担当者 直通電話">{directPhone}</InfoRow>
                     </div>
@@ -39760,22 +39798,34 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
           const ecTel  = p.familyPhone || ec.phone || '';
           const ecMob  = p.familyPhoneMobile || ec.phoneMobile || '';
           const ecMail = p.familyEmail || ec.email || '';
+          // ★ 2026-10-07: 住所は「今の住所(address・建物名・部屋番号)」を出す。CSV取込時の分割(prefecture/city/addressLine/building)は
+          //   取込後に画面で住所を直しても更新されないため、今の住所がその分割で始まるときだけ都道府県/市区町村に分ける
+          const _csvAddrCols = (pp) => {
+            const full = String(pp.address || '').trim(), pref = String(pp.prefecture || ''), city = String(pp.city || ''), bld0 = String(pp.building || '');
+            let line = full, pr = '', ct = '';
+            if (!full) { pr = pref; ct = city; line = String(pp.addressLine || ''); }
+            else if (pref || city) { const pc = pref + city; if (full.startsWith(pc)) { pr = pref; ct = city; line = full.slice(pc.length); } }
+            let bld = String(pp.addressBuilding || '').trim();
+            if (!bld && bld0 && line.endsWith(bld0)) { line = line.slice(0, -bld0.length); bld = bld0; }
+            return [pr, ct, line.trim(), [bld, String(pp.addressRoom || '').trim()].filter(Boolean).join(' ')];
+          };
           // ケアマネ事業所電話/FAX は cmOffices マスタから引く (無ければ patient 値)
           const _off = (appData.systemSettings?.cmOffices||[]).find(o=>o.name===p.cmOffice);
-          const cmOfficeTel = _off?.phone || p.cmOfficePhone || '';
-          const cmOfficeFax = _off?.fax || p.cmFax || '';
+          const _cmc = tsumugiCmContact(p, appData);
+          const cmOfficeTel = _cmc.officePhone;
+          const cmOfficeFax = _cmc.fax;
           return [
             p.id ?? '',
             p.name || `${p.lastName||''} ${p.firstName||''}`.trim(),
             p.kana || `${p.kanaLast||''} ${p.kanaFirst||''}`.trim(),
             p.gender||'', p.birthDate||'', p.zipCode||'',
-            p.prefecture||'', p.city||'', (p.addressLine||p.address||''), p.building||'',
+            ..._csvAddrCols(p),
             p.phone||'', p.phoneMobile||'',
             ecName, ecRel, ecTel, ecMob, ecMail,
             p.insuranceNo||'', p.careLevel||'', p.startDate||'', p.endDate||'', p.status||'',
-            p.kiou||'', p.ryui||'', (p.personalFile?.faceSheet?.chronicDiseases)||'',
+            p.kiou||'', p.ryui||'', (fsDoctorsText(p.personalFile?.faceSheet) || p.doctor || ''),
             p.email||'', p.careLevelFrom||'', p.careLevelTo||'', p.costBurden||'',
-            p.cmOffice||'', cmOfficeTel, cmOfficeFax, p.cmName||'', p.cmPhone||'',
+            p.cmOffice||'', cmOfficeTel, cmOfficeFax, p.cmName||'', _cmc.phone,
           ];
         };
         const buildCsv = () => [HEADERS.join(','), ...(appData.patients||[]).map(p => patientToRow(p).map(escCell).join(','))].join('\n');
@@ -40264,7 +40314,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     // URL に招待データを埋め込み (端末越し用)
                     const tk = encodeInviteToken({ c: inv.code, p: inv.patientId, s: (inv.storeId || (() => { try { return JSON.parse(sessionStorage.getItem('tsumugiStaffSession')||'null')?.storeId || ''; } catch { return ''; } })() || ''), e: inv.email||'', r: inv.relation||'', x: inv.expiresAt||'', fn: (appData.systemSettings?.facilityInfo?.name)||'', fp: (appData.systemSettings?.facilityInfo?.phone)||'' }); // ★ 2026-09-30: 店舗ID(s)が無いと、招待がクラウドに無い時に店舗不明のアカウントになり「データを取得中」から進まなかった
                     const inviteUrl = `${baseUrlLocal}/?family&invite=${encodeURIComponent(inv.code)}&t=${tk}`;
-                    const facility = appData.systemSettings?.facilityInfo || {};
+                    const facility = tsumugiFacilityInfo(appData);
                     // Brevo 経由で自動送信を試みる
                     try {
                       const resp = await fetch('/api/send-invite', {
@@ -40317,7 +40367,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     }
                   };
                   const printInviteSheet = (inv) => {
-                    const facility = appData.systemSettings?.facilityInfo || {};
+                    const facility = tsumugiFacilityInfo(appData);
                     openInviteSheet({ kind: 'family', title: `ご家族専用ページ 登録のご案内 ${pat.name}`, facilityName: facility.name||'', facilityPhone: facility.phone||'', patientName: pat.name||'', code: inv.code, expiresAt: inv.expiresAt, url: inviteUrlOf(inv), loginUrl }, () => _markPrinted(inv));
                   };
                   const issuePaperInvite = () => {
@@ -40443,7 +40493,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                           w.document.write(`<html><head><title>家族共通ログインURL ${pat.name}</title><style>body{font-family:'Hiragino Sans','Yu Gothic',sans-serif;padding:40px 30px;max-width:600px;margin:0 auto;color:#1e293b;text-align:center;}h1{font-size:22px;margin:0 0 8px;}h2{font-size:14px;color:#5e8030;margin:0 0 28px;font-weight:normal;}.qr-area{margin:30px 0;}img{border:1px solid #e2e8f0;border-radius:12px;padding:8px;background:white;}.url{font-family:Menlo,monospace;font-size:12px;color:#475569;background:#f8fafc;padding:12px;border-radius:8px;word-break:break-all;margin:16px 0;}.note{font-size:11px;color:#64748b;line-height:1.7;background:#fef3c7;border:1px solid #fbbf24;border-radius:10px;padding:14px;margin-top:20px;text-align:left;}@media print{button{display:none;}}</style></head><body><h1>${pat.name} 様 家族共通ログイン</h1><h2>下記QRコードを読み取って、家族専用ページへアクセスしてください</h2><div class="qr-area"><img src="${qrSrc.replace('size=240x240','size=320x320')}" width="280" height="280"/></div><div class="url">${loginUrl}</div><div class="note"><b>ご利用方法</b><br/>1. QRコードを読み取るか、URL を入力してログイン画面を開いてください<br/>2. 別途お渡しした ID とパスワードでログインしてください<br/>3. パスワードを忘れた場合は事業所までご連絡ください</div><button onclick="window.print()" style="margin-top:24px;padding:10px 28px;font-size:14px;font-weight:bold;background:#7daa3d;color:white;border:none;border-radius:10px;cursor:pointer;">印刷する</button></body></html>`);
                           setTimeout(()=>w.focus(),100);
                         }} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] whitespace-nowrap">印刷</button>
-                        <button onClick={()=>{ const facility = appData.systemSettings?.facilityInfo || {}; openInviteSheet({ kind: 'common', title: '登録のご案内（共通）', facilityName: facility.name||'', facilityPhone: facility.phone||'', url: `${baseUrl}/?family&join=1`, loginUrl }); }} className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-bold text-[11px] whitespace-nowrap" title="全利用者共通の登録用紙。招待コードは渡すときに職員が手書き">共通の登録用紙</button>
+                        <button onClick={()=>{ const facility = tsumugiFacilityInfo(appData); openInviteSheet({ kind: 'common', title: '登録のご案内（共通）', facilityName: facility.name||'', facilityPhone: facility.phone||'', url: `${baseUrl}/?family&join=1`, loginUrl }); }} className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-bold text-[11px] whitespace-nowrap" title="全利用者共通の登録用紙。招待コードは渡すときに職員が手書き">共通の登録用紙</button>
                       </div>
                       <div className="text-[10px] text-slate-600 leading-relaxed">
                         家族はこのQRを読み取ってログイン画面に行き、下記のID・パスワードを入力します。<br/>
@@ -46182,7 +46232,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
   const [editing, setEditing] = React.useState(null); // 編集中レコード or null
   const patient = (appData.patients||[]).find(p => p.id === pid);
   const exItems = appData.systemSettings?.exerciseItems || [];
-  const facility = appData.systemSettings?.facilityInfo || {};
+  const facility = tsumugiFacilityInfo(appData);
   const records = (appData.kinouKeikakuRecords||[]).filter(r => r.patientId === pid)
     .sort((a,b) => (b.createdDate||'').localeCompare(a.createdDate||''));
   // ★ 前回計画書の評価を新しい計画書の編集中に一緒に入力できるようにする(2026-08-13)。
@@ -46208,8 +46258,8 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
       honninKibou: j(fs.needs),
       shakaiSanka: j(fs.hobby && `趣味・楽しみ：${fs.hobby}`, fs.personality && `性格・人柄：${fs.personality}`, fs.otherServices && `他サービスの利用：${fs.otherServices}`),
       kyotakuKankyo: j(fs.floorPlan, fs.householdType && `世帯：${fs.householdType}${fs.householdTypeOther?`（${fs.householdTypeOther}）`:''}`),
-      byomei: j((fs.kiou ?? p?.kiou)),
-      gappei: j(fsDoctorsText(fs) && `主治医：${fsDoctorsText(fs)}`, fs.medication && `服薬：${fs.medication}`),
+      byomei: j((p?.kiou ?? fs.kiou)),
+      gappei: j((fsDoctorsText(fs) || p?.doctor) && `主治医：${fsDoctorsText(fs) || p?.doctor}`, fs.medication && `服薬：${fs.medication}`),
       ryuiPoint: j(p?.ryui, fs.allergies && `アレルギー：${fs.allergies}`),
     };
   };
@@ -46778,7 +46828,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
           <div className="kkfix" style={{fontSize:'8px',color:'#333',margin:'1px 0 0'}}>※実施結果等をふまえ、目標の見直しや訓練項目の変更等を行った場合は計画書の再作成又は更新等を行うこと。初回作成時にはⅢについては記載不要である。</div>
 
           <table className="kkfix" style={{width:'100%',borderCollapse:'collapse',marginTop:'4px'}}><tbody>
-            <tr><td style={cell}>{/要支援|事業対象者/.test(String(patient?.careLevel||''))?'（総合事業）通所型サービス':'（地域密着型）通所介護'}　{facility.name||'○○○'}　事業所No.{facility.jigyoshoNo||facility.officeNo||'000000000'}<br/>住所{facility.address||'○○○'}　電話番号{facility.phone||'○○○'}</td><td style={{...cell,width:'40%'}}>説明日：{pr.setsumeiDate||'令和　年　月　日'}<br/>説明者：{pr.setsumeisha||''}</td></tr>
+            <tr><td style={cell}>{/要支援|事業対象者/.test(String(patient?.careLevel||''))?'（総合事業）通所型サービス':'（地域密着型）通所介護'}　{facility.name||'○○○'}　事業所No.{facility.officeNo||'　　　　　　　　　　'}<br/>住所{facility.addressFull||'○○○'}　電話番号{facility.phone||'○○○'}</td><td style={{...cell,width:'40%'}}>説明日：{pr.setsumeiDate||'令和　年　月　日'}<br/>説明者：{pr.setsumeisha||''}</td></tr>
           </tbody></table>
         </div>
         );
@@ -46799,8 +46849,8 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
           <div className="kk-sheet" style={{background:'white',color:'#000',width:'210mm',minHeight:'296mm',padding:'14mm 16mm',boxSizing:'border-box',fontFamily:'"Hiragino Sans","Meiryo","Yu Gothic Medium","Yu Gothic",sans-serif',lineHeight:1.6,fontSize:'12px'}}>
             <div style={{textAlign:'right',fontSize:'11px'}}>{_wk}</div>
             <div style={{fontSize:'13px',marginTop:'8mm',fontWeight:'bold'}}>{patient?.cmOffice||'居宅介護支援事業所'}<br/>{patient?.cmName?`${patient.cmName} 様`:'ご担当者 様'}</div>
-            {patient?.cmFax && <div style={{fontSize:'11px',color:'#333'}}>FAX: {patient.cmFax}</div>}
-            <div style={{textAlign:'right',fontSize:'11px',marginTop:'6mm'}}>{facility.name||''}<br/>{facility.address||''}<br/>TEL: {facility.phone||''}{facility.fax?`　FAX: ${facility.fax}`:''}</div>
+            {(() => { const _f = tsumugiCmContact(patient, appData).fax; return _f ? <div style={{fontSize:'11px',color:'#333'}}>FAX: {_f}</div> : null; })()}
+            <div style={{textAlign:'right',fontSize:'11px',marginTop:'6mm'}}>{facility.name||''}<br/>{facility.addressFull||''}<br/>TEL: {facility.phone||''}{facility.fax?`　FAX: ${facility.fax}`:''}</div>
             <div style={{textAlign:'center',fontSize:'16px',fontWeight:'bold',margin:'10mm 0 6mm',borderBottom:'2px solid #000',paddingBottom:'2mm'}}>個別機能訓練計画書 送付のご案内</div>
             <div>いつもお世話になっております。<b>{patient?.name} 様</b>の個別機能訓練計画書を{prevForSet?'見直し・更新':'作成'}いたしましたので、下記のとおり送付いたします。ご査収のほどよろしくお願いいたします。</div>
             <div style={{marginTop:'6mm',fontWeight:'bold'}}>【送付書類】</div>
@@ -46847,7 +46897,7 @@ function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
   const [pid, setPid] = React.useState((targetPatientId!=null && (appData.patients||[]).some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
   const [editing, setEditing] = React.useState(null);
   const patient = (appData.patients||[]).find(p => p.id === pid);
-  const facility = appData.systemSettings?.facilityInfo || {};
+  const facility = tsumugiFacilityInfo(appData);
   const toReiwa = (iso) => { if(!iso) return ''; const d=new Date(iso); if(isNaN(d.getTime())) return iso; return `令和${d.getFullYear()-2018}年${d.getMonth()+1}月${d.getDate()}日`; };
   const records = (appData.seikatsuKinouRecords||[]).filter(r => r.patientId === pid).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   const newRecord = () => ({ id:`sk_${pid}_${Date.now()}`, patientId:pid, createdAt:Date.now(), recordDate:toReiwa(new Date().toISOString().slice(0,10)), recorder:'', adl:{}, kikyo:{}, iadl:{}, shinshin:{}, ninchi:'', kadai:patient?.ryui||'', bikou:'' });
@@ -46976,7 +47026,7 @@ function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
   const [editing, setEditing] = React.useState(null);
   const [newItem, setNewItem] = React.useState('');
   const patient = (appData.patients||[]).find(p => p.id === pid);
-  const facility = appData.systemSettings?.facilityInfo || {};
+  const facility = tsumugiFacilityInfo(appData);
   const toReiwa = (iso) => { if(!iso) return ''; const d=new Date(iso); if(isNaN(d.getTime())) return iso; return `令和${d.getFullYear()-2018}年${d.getMonth()+1}月${d.getDate()}日`; };
   const records = (appData.kyomiKanshinRecords||[]).filter(r => r.patientId === pid).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   const newRecord = () => ({ id:`ki_${pid}_${Date.now()}`, patientId:pid, createdAt:Date.now(), recordDate:toReiwa(new Date().toISOString().slice(0,10)), recorder:'', items:{}, custom:[], bikou:'' });
@@ -47111,7 +47161,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
   const [pid, setPid] = React.useState((targetPatientId!=null && (appData.patients||[]).some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
   const [editing, setEditing] = React.useState(null);
   const patient = (appData.patients||[]).find(p => p.id === pid);
-  const facility = appData.systemSettings?.facilityInfo || {};
+  const facility = tsumugiFacilityInfo(appData);
   const records = (appData.tsushoKeikakuRecords||[]).filter(r => r.patientId === pid).sort((a,b)=>(b.createdDate||'').localeCompare(a.createdDate||''));
   // ★ 前回計画書の評価を新しい計画書の編集中に一緒に入力(2026-08-13)。 保存先は前回レコード側。
   const [prevEvalPatch, setPrevEvalPatch] = React.useState(null);
@@ -47188,12 +47238,12 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
     return {
       // ★ 自立度はフェイスシートを正とする。 認知症自立度は半角(I/IIa)保存のため全角(Ⅰ/Ⅱa)へ正規化して○を合わせる
       adlLevel: normalizeAdlLevel(fs.adlLevel), demLevel: normalizeDemLevel(fs.dementiaLevel),
-      keii: j(fs.lifeHistory, (fs.kiou ?? p?.kiou), fs.currentSituation),
+      keii: j(fs.lifeHistory, (p?.kiou ?? fs.kiou), fs.currentSituation),
       honninKibou: j(fs.needs),
       kazokuKibou: '',
       shakaiSanka: j(fs.hobby && `趣味・楽しみ：${fs.hobby}`, fs.personality && `性格・人柄：${fs.personality}`, fs.otherServices && `他サービスの利用：${fs.otherServices}`),
       kyotakuKankyo: j(fs.floorPlan, fs.householdType && `世帯：${fs.householdType}${fs.householdTypeOther?`（${fs.householdTypeOther}）`:''}`),
-      kenkoJotai: j(fsDoctorsText(fs) && `主治医：${fsDoctorsText(fs)}`, fsInstitutionsText(fs) && `医療機関：${fsInstitutionsText(fs)}`, fs.medication && `服薬：${fs.medication}`),
+      kenkoJotai: j((fsDoctorsText(fs) || p?.doctor) && `主治医：${fsDoctorsText(fs) || p?.doctor}`, (fsInstitutionsText(fs) || p?.medicalInstitution) && `医療機関：${fsInstitutionsText(fs) || p?.medicalInstitution}`, fs.medication && `服薬：${fs.medication}`),
       iryoRisk: j(p?.ryui, fs.allergies && `アレルギー：${fs.allergies}`, fs.pickupNotes && `送迎時の注意：${fs.pickupNotes}`),
     };
   };
@@ -47731,8 +47781,8 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
           +`<td style="${cs}"><span style="${cap}">実施後の変化(総括)　　再評価日：　${esc(rec.saihyokaDate)||'　　　年　　月　　日'}</span>${esc(rec.soukatsu)}</td>`
           +`<td style="padding:0;vertical-align:bottom;">${douiTbl}</td>`
           +`</tr></table>`;
-        const _fzip=facility.zip||facility.zipCode||'';
-        const _fno=facility.jigyoshoNo||facility.officeNo||'';
+        const _fzip=facility.zip||'';
+        const _fno=facility.officeNo||'';
         const _fmgr=facility.manager||[facility.managerLast,facility.managerFirst].filter(Boolean).join(' ')||'';
         const _faddr=[facility.address,facility.addressBuilding].filter(Boolean).join('');
         const footer=`<div style="flex:0 0 auto;border:${B};padding:2px 5px;font-size:8.5px;line-height:1.55;margin-top:1mm;">`
@@ -47769,8 +47819,8 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
         const coverHtml = `<div style="page-break-after:always;break-after:page;background:#fff;color:#000;width:210mm;min-height:296mm;padding:14mm 16mm;box-sizing:border-box;font-family:'Hiragino Sans','Yu Gothic',sans-serif;line-height:1.6;font-size:12px;">`
           +`<div style="text-align:right;font-size:11px;">${esc2(_wk)}</div>`
           +`<div style="font-size:13px;margin-top:8mm;font-weight:bold;">${esc2(patient?.cmOffice||'居宅介護支援事業所')}<br>${patient?.cmName?esc2(patient.cmName)+' 様':'ご担当者 様'}</div>`
-          +(patient?.cmFax?`<div style="font-size:11px;color:#333;">FAX: ${esc2(patient.cmFax)}</div>`:'')
-          +`<div style="text-align:right;font-size:11px;margin-top:6mm;">${esc2(facility.name||'')}<br>${esc2(facility.address||'')}<br>TEL: ${esc2(facility.phone||'')}${facility.fax?'　FAX: '+esc2(facility.fax):''}</div>`
+          +((() => { const _f = tsumugiCmContact(patient, appData).fax; return _f ? `<div style="font-size:11px;color:#333;">FAX: ${esc2(_f)}</div>` : ''; })())
+          +`<div style="text-align:right;font-size:11px;margin-top:6mm;">${esc2(facility.name||'')}<br>${esc2(facility.addressFull||'')}<br>TEL: ${esc2(facility.phone||'')}${facility.fax?'　FAX: '+esc2(facility.fax):''}</div>`
           +`<div style="text-align:center;font-size:16px;font-weight:bold;margin:10mm 0 6mm;border-bottom:2px solid #000;padding-bottom:2mm;">通所介護計画書 送付のご案内</div>`
           +`<div>いつもお世話になっております。<b>${esc2(patient?.name||'')} 様</b>の通所介護計画書を${prevForSet?'見直し・更新':'作成'}いたしましたので、下記のとおり送付いたします。ご査収のほどよろしくお願いいたします。</div>`
           +`<div style="margin-top:6mm;font-weight:bold;">【送付書類】</div>`
@@ -49340,7 +49390,7 @@ function buildMonitoringTableHtml(patient, sheet, facility, monthLabel) {
       ${rows}
     </table></div>`;
 }
-function MonitoringSheetModal({ patient, facility, period, record, autoStatus, autoChange, autoSel, noAttendance, defaultRecorder, defaultDate, onClose, onSave, onPrint, onAiDraft, hasApiKey }) {
+function MonitoringSheetModal({ patient, cmFax: cmFaxProp, facility, period, record, autoStatus, autoChange, autoSel, noAttendance, defaultRecorder, defaultDate, onClose, onSave, onPrint, onAiDraft, hasApiKey }) {
   const init = record?.sheet || {};
   const hasRec = !!record;
   const [implDate, setImplDate] = React.useState(init.implDate || defaultDate || '');
@@ -49381,7 +49431,7 @@ function MonitoringSheetModal({ patient, facility, period, record, autoStatus, a
           <div className="bg-sky-50 border border-sky-200 rounded-lg px-3 py-2 text-xs text-slate-600 leading-relaxed">
             <div><span className="font-bold">利用者:</span> {patient.name} 様（被保険者番号: {patient.insuranceNo||'—'}）</div>
             <div><span className="font-bold">事業所名:</span> {facility.name||'—'}</div>
-            <div><span className="font-bold">居宅介護支援事業者:</span> {patient.cmOffice||'—'}　<span className="font-bold">担当ケアマネ:</span> {patient.cmName||'—'} 様{patient.cmFax?`（FAX ${patient.cmFax}）`:''}{!patient.cmFax && patient.cmOffice ? <span className="text-red-500 font-bold ml-1">※FAX番号 未登録</span>:''}</div>
+            <div><span className="font-bold">居宅介護支援事業者:</span> {patient.cmOffice||'—'}　<span className="font-bold">担当ケアマネ:</span> {patient.cmName||'—'} 様{(() => { const _f = cmFaxProp != null ? cmFaxProp : patient.cmFax; return <>{_f?`（FAX ${_f}）`:''}{!_f && patient.cmOffice ? <span className="text-red-500 font-bold ml-1">※FAX番号 未登録</span>:''}</>; })()}</div>
             {noAttendance && <div className="text-red-600 font-bold mt-1">⚠ 当月は通所(利用)がありません → ①は「実施できなかった」を初期選択しています。</div>}
           </div>
           <div className="flex gap-3 flex-wrap">
@@ -49966,7 +50016,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     id: `mon_${p.id}_${tY}-${String(tM).padStart(2,'0')}_${Date.now()}${idx!=null?'_'+idx:''}`,
     type: 'monitoring', patientId: p.id, patientName: p.name||'',
     subject: `${monthLabelStr} 通所介護モニタリング表`,
-    recipientOffice: p.cmOffice||'', recipientName: p.cmName||'', recipientFax: p.cmFax||'',
+    recipientOffice: p.cmOffice||'', recipientName: p.cmName||'', recipientFax: tsumugiCmContact(p, appData).fax,
     memo: (getSheetRecord(p.id)?.summary)||'', timestamp: new Date().toISOString(),
   });
   // ★ 2026-09-30(試験版): ケアマネがつむぎで今回の確定分のモニタリング表を見たか(患者の docUpdates kind='monView')。見ていれば最初の閲覧を返す
@@ -50016,7 +50066,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     // ★ 2026-09-18(店舗指摘): 利用者側のFAXが空でも、担当ケアマネ事業所の一覧にFAXがあればそれへ送る
     //   (印刷用の送付状と同じ優先順位。従来は空の利用者を黙って送信対象から外していた=扇橋で61名分が未送信)
     const _cmOffs = appData.systemSettings?.cmOffices || [];
-    const _faxOf = (p) => ((p.cmFax||'').trim() || String((_cmOffs.find(o => o && o.name === p.cmOffice) || {}).fax || '').trim());
+    const _faxOf = (p) => tsumugiCmContact(p, appData).fax;
     const withFax = targets.filter(p => _faxOf(p));
     const noFax = targets.filter(p => !_faxOf(p));
     if (!withFax.length) { monAlert('担当ケアマネのFAX番号が登録されている利用者がいません。\n利用者マスタの「担当ケアマネ FAX」、または各種設定→ケアマネ事業所のFAXを設定してください。'); return; }
@@ -50304,7 +50354,7 @@ ${optionsDesc}
     const infoLab = `style="${bd}background:#f2f2f2;padding:5px 8px;font-weight:bold;font-size:11.5px;white-space:nowrap;"`;
     const infoVal = `style="${bd}padding:5px 8px;font-size:11.5px;"`;
     const faxLine = forFax && patient.cmOffice
-      ? `<div style="border:1.5px solid #000;padding:6px 10px;margin-bottom:8px;font-size:12px;font-weight:bold;">FAX送付先：${escSheet(patient.cmOffice)} 御中${patient.cmName?`　ご担当 ${escSheet(patient.cmName)} 様`:''}${patient.cmFax?`　FAX: ${escSheet(patient.cmFax)}`:''}</div>`
+      ? `<div style="border:1.5px solid #000;padding:6px 10px;margin-bottom:8px;font-size:12px;font-weight:bold;">FAX送付先：${escSheet(patient.cmOffice)} 御中${patient.cmName?`　ご担当 ${escSheet(patient.cmName)} 様`:''}${(() => { const _f = tsumugiCmContact(patient, appData).fax; return _f ? `　FAX: ${escSheet(_f)}` : ''; })()}</div>`
       : '';
     // 各必須項目を「項目 | 結果(選択) | 内容」の行で出力 (運営基準の必須事項)
     const itemRows = MON_ITEMS.map(it => {
@@ -50720,7 +50770,8 @@ ${optionsDesc}
         return (
           <MonitoringSheetModal
             patient={patient}
-            facility={appData.systemSettings?.facilityInfo || {}}
+            cmFax={tsumugiCmContact(patient, appData).fax}
+            facility={tsumugiFacilityInfo(appData)}
             period={monthLabelStr}
             record={getSheetRecord(patient.id)}
             autoStatus={buildAutoStatus(patient)}
@@ -51288,7 +51339,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const defaultManagerKey = _mgrKey(_defMgr);
   const [selectedManager, setSelectedManager] = React.useState(defaultManagerKey);
 
-  const facility = appData.systemSettings?.facilityInfo || {};
+  const facility = tsumugiFacilityInfo(appData);
   const patients = appData.patients || [];
   const tickets = appData.ticketRecords || [];
 
@@ -51504,7 +51555,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                 patientId: selectedEntry?.patient?.id ?? null,
                 dateIso: selectedEntry?.date || '',
                 recipientName: selectedEntry?.patient?.cmName || '',
-                recipientFax: selectedEntry?.patient?.cmFax || '',
+                recipientFax: tsumugiCmContact(selectedEntry?.patient, appData).fax,
                 recipientOffice: selectedEntry?.patient?.cmOffice || '',
                 note: '自動記録',
               };
@@ -51606,7 +51657,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                 </div>
                 {(() => {
                   const cmOffices = appData.systemSettings?.cmOffices || [];
-                  const effFax = patient.cmFax || (cmOffices.find(o => o && o.name === patient.cmOffice)?.fax) || '';
+                  const effFax = tsumugiCmContact(patient, appData).fax;
                   return effFax ? (
                     <div style={{fontSize:14,color:'#475569',marginTop:6,display:'flex',alignItems:'center',flexWrap:'wrap'}}>
                       <span>FAX：{effFax}</span>
@@ -51620,7 +51671,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
               <div style={{width:280,border:'2px solid black',padding:'12px 16px',fontSize:16,lineHeight:1.7,textAlign:'left'}}>
                 <AutoFitLine style={{fontWeight:'bold',fontSize:19,marginBottom:6,display:'block',width:'100%',textAlign:'left'}}>{facility.name || ''}</AutoFitLine>
                 <AutoFitLine style={{display:'block',width:'100%',textAlign:'left'}}>{facility.zip ? `〒${facility.zip}` : ''}</AutoFitLine>
-                <AutoFitLine style={{display:'block',width:'100%',textAlign:'left'}}>{facility.address||''}</AutoFitLine>
+                <AutoFitLine style={{display:'block',width:'100%',textAlign:'left'}}>{facility.addressFull||''}</AutoFitLine>
                 <AutoFitLine style={{display:'block',width:'100%',textAlign:'left'}}>{facility.phone ? `TEL：${facility.phone}` : ''}</AutoFitLine>
                 <AutoFitLine style={{display:'block',width:'100%',textAlign:'left'}}>{facility.fax ? `FAX：${facility.fax}` : ''}</AutoFitLine>
                 {/* ★ 担当: 他の TEL/FAX 行と同じ display:block + textAlign:'left' で左詰め統一 */}
@@ -51975,7 +52026,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const genHistory = tsumugiFaxLog(appData).filter(h => h.type === 'general');
   const deleteGenHist = (id) => onSave && onSave({...appData, faxHistory: (appData.faxHistory||[]).filter(h => h.id !== id), deletedIds: addTombstone(appData,'faxHistory',id)});
 
-  const facility = appData.systemSettings?.facilityInfo || {};
+  const facility = tsumugiFacilityInfo(appData);
   const patients = appData.patients || [];
   const patient = patients.find(p => p.id === selectedPatientId);
 
@@ -52023,7 +52074,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
       patientName: patient?.name || customPatientName || '',
       recipientName: recipientName || '',
       recipientOffice: recipientOffice || '',
-      recipientFax: patient?.cmFax || '',
+      recipientFax: tsumugiCmFaxFor(patient, appData, recipientOffice),
       memo: memo || '',
       note: '自動記録',
     };
@@ -52236,7 +52287,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
               </div>
               {(() => {
                 const cmOffices = appData.systemSettings?.cmOffices || [];
-                const effFax = patient?.cmFax || (cmOffices.find(o => o && o.name === (recipientOffice || patient?.cmOffice))?.fax) || '';
+                const effFax = patient ? tsumugiCmFaxFor(patient, appData, recipientOffice) : String((cmOffices.find(o => o && o.name === recipientOffice) || {}).fax || '').trim();
                 return effFax ? (
                   <div style={{fontSize:14,color:'#475569',marginTop:6,display:'flex',alignItems:'center',flexWrap:'wrap'}}>
                     <span>FAX：{effFax}</span>
@@ -52248,7 +52299,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
             <div style={{width:280,border:'2px solid black',padding:'12px 16px',fontSize:16,lineHeight:1.7,textAlign:'left'}}>
               <AutoFitLine style={{fontWeight:'bold',fontSize:19,marginBottom:6,display:'block',width:'100%',textAlign:'left'}}>{facility.name || ''}</AutoFitLine>
               <AutoFitLine style={{display:'block',width:'100%',textAlign:'left'}}>{facility.zip ? `〒${facility.zip}` : ''}</AutoFitLine>
-              <AutoFitLine style={{display:'block',width:'100%',textAlign:'left'}}>{facility.address||''}</AutoFitLine>
+              <AutoFitLine style={{display:'block',width:'100%',textAlign:'left'}}>{facility.addressFull||''}</AutoFitLine>
               <AutoFitLine style={{display:'block',width:'100%',textAlign:'left'}}>{facility.phone ? `TEL：${facility.phone}` : ''}</AutoFitLine>
               <AutoFitLine style={{display:'block',width:'100%',textAlign:'left'}}>{facility.fax ? `FAX：${facility.fax}` : ''}</AutoFitLine>
               {/* ★ 担当: 他の TEL/FAX 行と同じ display:block + textAlign:'left' で左詰め統一 */}
@@ -54110,6 +54161,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
       {pdfPreviewFaceSheet && (
         <FaceSheetPdfPreview
           patient={patient}
+          appData={appData}
           faceSheet={faceSheet}
           onClose={()=>setPdfPreviewFaceSheet(false)}
         />
@@ -54654,7 +54706,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
     bikou: initial?.bikou || initial?.otherServices || '',   // ★ 備考(旧: 他サービス・社会資源の内容を引き継ぐ)
     addendum: initial?.addendum || '',                      // ★ 追記(自由入力)
     // ★ F1: 既往歴(基本情報から移設)。 患者の kiou を初期値にし、保存時に patient.kiou へ書き戻す。
-    kiou: (initial?.kiou ?? patient?.kiou ?? ''),
+    kiou: (patient?.kiou ?? initial?.kiou ?? ''), // ★ 2026-10-07: 家族画面・CSV取込は patient.kiou だけを更新するため patient を優先(古い控えで巻き戻さない)
     // ★ 一本化: 本人基本情報・連絡先・被保険者番号・留意点もフェイスシートで編集し patient へ書き戻す。
     //   patient を正とするため initial より patient を優先(古いフェイスシート値で本体を巻き戻さない)。
     name: (patient?.name ?? initial?.name ?? ''),
@@ -55072,7 +55124,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
               <div className="text-[12px]">
                 <div><b>事業所：</b>{patient.cmOffice || '-'}</div>
                 <div><b>担当者：</b>{patient.cmName || '-'}</div>
-                <div><b>連絡先：</b>{patient.cmPhone || '-'} / FAX: {patient.cmFax || '-'}</div>
+                {(() => { const _c = tsumugiCmContact(patient, appData); return <div data-testid="fs-cm-contact"><b>連絡先：</b>{_c.phone || '-'} / FAX: {_c.fax || '-'}</div>; })()}
               </div>
             </div>
             <Field label="通所の経緯">
@@ -55171,8 +55223,9 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
 // ===========================================
 // フェイスシート PDF プレビュー
 // ===========================================
-function FaceSheetPdfPreview({ patient, faceSheet, onClose }) {
+function FaceSheetPdfPreview({ patient, appData, faceSheet, onClose }) {
   const fs = faceSheet || {};
+  const _cmc = tsumugiCmContact(patient, appData);
   const [downloading, setDownloading] = useState(false);
   // ★ 添付資料 (ジェノグラム/見取り図/送迎経路) を PDF に載せる。 署名URLを事前解決。
   const allAtts = [
@@ -55268,8 +55321,11 @@ function FaceSheetPdfPreview({ patient, faceSheet, onClose }) {
               <Row label="フリガナ" value={patient.kana}/>
               <Row label="性別" value={patient.gender}/>
               <Row label="生年月日" value={patient.birthDate}/>
+              <Row label="郵便番号" value={patient.zipCode ? `〒${patient.zipCode}` : ''}/>
               <Row label="住所" value={[patient.address, patient.addressBuilding, patient.addressRoom].filter(Boolean).join(' ')}/>
-              <Row label="電話" value={patient.phone}/>
+              <Row label="電話（固定）" value={patient.phone}/>
+              <Row label="電話（携帯）" value={patient.phoneMobile}/>
+              <Row label="メールアドレス" value={patient.email}/>
               <Row label="FAX" value={fs.fax}/>
               <Row label="世帯区分" value={fs.householdType === 'その他' ? (fs.householdTypeOther || 'その他') : fs.householdType}/>
               <Row label="被保険者番号" value={patient.insuranceNo}/>
@@ -55279,13 +55335,17 @@ function FaceSheetPdfPreview({ patient, faceSheet, onClose }) {
             </div>
             <div style={{marginBottom:14}}>
               <div style={{fontSize:13,fontWeight:'bold',color:'#92400e',background:'#fef3c7',padding:'6px 10px',marginBottom:8}}>③ 連絡先（緊急連絡先・関係者）</div>
-              <Row label="緊急連絡先" value={getAllContacts(patient).map((c,i)=>`${i+1}.${c.name}${c.relation?`(${c.relation})`:''} ${c.phone||c.phoneMobile||'-'}${c.email?` メール:${c.email}`:''}${c._primary?' 〔代表〕':''}`).join('\n') || '－'}/>
+              <Row label="緊急連絡先" value={getAllContacts(patient).map((c,i)=>`${i+1}.${c.name}${c.relation?`(${c.relation})`:''} ${[c.phone, c.phoneMobile].filter(Boolean).map(x => formatJpPhone(x)).join(' / ') || '-'}${c.email?` メール:${c.email}`:''}${c._primary?' 〔代表〕':''}`).join('\n') || '－'}/>
+              {/* ★ 2026-10-07: フォームの「その他関係者」(訪問看護など)がPDFに出ていなかった */}
+              {(() => { const rps = (Array.isArray(patient.relatedParties) ? patient.relatedParties : (Array.isArray(fs.relatedParties) ? fs.relatedParties : [])).filter(r => r && (r.name || r.office || r.phone || r.fax)); return rps.length ? (
+                <Row label="その他関係者" value={rps.map((r, i) => `${i+1}.${[r.office, r.name].filter(Boolean).join(' ')}${r.relation ? `(${r.relation})` : ''}${r.phone ? ` TEL ${r.phone}` : ''}${r.fax ? ` FAX ${r.fax}` : ''}`).join('\n')}/>) : null; })()}
             </div>
             <div style={{marginBottom:14}}>
               <div style={{fontSize:13,fontWeight:'bold',color:'#92400e',background:'#fef3c7',padding:'6px 10px',marginBottom:8}}>④ 医療・健康情報</div>
-              <Row label="主治医・かかりつけ医" value={fs.chronicDiseases}/>
-              <Row label="医療機関" value={fs.medicalInstitution}/>
-              <Row label="連絡先" value={fs.medicalContact}/>
+              {/* ★ フォームと同じく、フェイスシートに無ければ基本情報(家族アプリ/CSV)のかかりつけ医で補う */}
+              <Row label="主治医・かかりつけ医" value={fs.chronicDiseases || patient.doctor}/>
+              <Row label="医療機関" value={fs.medicalInstitution || patient.medicalInstitution}/>
+              <Row label="連絡先" value={fs.medicalContact || patient.medicalContact}/>
               {(fs.extraDoctors || []).filter(d => d && (d.doctor || d.institution || d.contact)).map((d, i) => (
                 <Row key={`xd${i}`} label={`かかりつけ医（${i + 2}）`} value={[d.doctor, d.institution, d.contact ? `TEL ${d.contact}` : ''].filter(Boolean).join('　')}/>
               ))}
@@ -55296,7 +55356,7 @@ function FaceSheetPdfPreview({ patient, faceSheet, onClose }) {
               <div style={{fontSize:13,fontWeight:'bold',color:'#92400e',background:'#fef3c7',padding:'6px 10px',marginBottom:8}}>⑤ ケアマネジメント関連</div>
               <Row label="担当事業所" value={patient.cmOffice}/>
               <Row label="担当者" value={patient.cmName}/>
-              <Row label="連絡先" value={`TEL ${patient.cmPhone||'-'} / FAX ${patient.cmFax||'-'}`}/>
+              <Row label="連絡先" value={`TEL ${_cmc.phone||'-'} / FAX ${_cmc.fax||'-'}`}/>
               <Row label="通所の経緯" value={fs.lifeHistory}/>
             </div>
             <div style={{marginBottom:14}}>
