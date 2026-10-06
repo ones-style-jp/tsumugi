@@ -1812,7 +1812,8 @@ const tsumugiBuildPrintSrcDoc = (html) => {
     document.querySelectorAll('style').forEach(s => { head += '<style>' + (s.textContent || '') + '</style>'; });
     document.querySelectorAll('link[rel="stylesheet"]').forEach(l => { if (l.href) head += '<link rel="stylesheet" href="' + l.href + '">'; });
   } catch {}
-  return `<!DOCTYPE html><html><head><meta charset="utf-8">${head}<style>@page{margin:0;}html,body{margin:0;padding:0;background:white;}</style></head><body>${html || ''}</body></html>`;
+  // ★ 2026-10-06(ユーザー報告「送付状のFAX番号の横の『コピー』がダウンロードしたPDFに出る」): 画面だけの部品(no-print)はPDFでも必ず隠す
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">${head}<style>@page{margin:0;}html,body{margin:0;padding:0;background:white;}.no-print,.fax-no-print{display:none!important;}</style></head><body>${html || ''}</body></html>`;
 };
 // iPad/iPhone では fetch の後に window.open すると開けない(ユーザー操作の外)ため、クリック時に先に空の窓を開いて渡す
 const tsumugiOpenPdfWindow = () => { if (!tsumugiIsIOS()) return null; try { const w = window.open('', '_blank'); if (w) { try { w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>PDFを作成中…</title></head><body style="font-family:-apple-system,sans-serif;padding:40px;color:#334155;font-size:18px;">PDFを作成しています。しばらくお待ちください…</body></html>'); w.document.close(); } catch {} } return w; } catch { return null; } };
@@ -20643,11 +20644,18 @@ export default function App() {
   // ★ 2026-10-05(店舗報告: 無印iPad 第8世代(横1080px)で画面が少し大きく、左右に約20pxずれる・上部のボタンが切れる。iPad Pro 11 は正常):
   //   1100px基準の縮小(zoom)が 98% のようなごくわずかな縮小になると、iPad の Safari/Chrome(WebKit)では幅が縮まず 1100-1080=20px はみ出していた。
   //   ①縮小が 94% 以上なら縮小せず実際の幅でそのまま表示 ②iPad/iPhone で縮小してもはみ出すときは、自動で縮小をやめる(安全策)
+  // ★ 2026-10-06(ユーザー報告「縦向きやサイドバーを出すと、画面が縮小されずに左右から押しつぶされ、文字が切れる」):
+  //   ②の安全策で縮小をやめたとき、実際の幅のまま並べていたため列が詰まって文字が切れていた。
+  //   縮小が効かないときは 1100px のまま(文字の大きさを変えず)横スクロールで見る。縮小の幅指定も % ではなく px にする(iPad の WebKit で効きやすい)
   const [zoomOff, setZoomOff] = useState(false);
-  const _zoomActive = contentScale < 0.94 && !zoomOff;
+  const _zoomNear1 = contentScale >= 0.94;
+  const _zoomActive = !_zoomNear1 && !zoomOff;
+  const _zoomScroll = !_zoomNear1 && zoomOff;
+  // 縮小は 72% まで(iPad縦でサイドバーを開くと50%になり文字が小さすぎる)。それより狭い分は横スクロールで見る
+  const _zoomVal = Math.max(contentScale, 0.72);
   React.useEffect(() => {
     if (!_zoomActive || !tsumugiIsIOS()) return;
-    const t = setTimeout(() => { try { const el = contentRef.current; if (el && el.scrollWidth - el.clientWidth > 2) setZoomOff(true); } catch {} }, 600);
+    const t = setTimeout(() => { try { const el = contentRef.current; const expect = Math.ceil(DESIGN_WIDTH * Math.max(contentScale, 0.72)); if (el && el.scrollWidth > Math.max(el.clientWidth, expect) + 2) setZoomOff(true); } catch {} }, 600);
     return () => clearTimeout(t);
   }, [_zoomActive, contentScale]); // eslint-disable-line react-hooks/exhaustive-deps
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -22832,7 +22840,7 @@ export default function App() {
               const isSelf = ls.device === thisName;
               return (
                 <div
-                  className="hidden md:flex items-center gap-1.5 shrink-0 mr-3 text-[11px] text-slate-400 whitespace-nowrap cursor-pointer hover:text-slate-600"
+                  className="hidden lg:flex items-center gap-1.5 shrink-0 mr-3 text-[11px] text-slate-400 whitespace-nowrap cursor-pointer hover:text-slate-600"
                   title={isSelf ? 'この端末で最後に更新しました（最新です）' : `最新の更新は「${ls.device || '名称未設定の端末'}」で行われました。この端末にも反映されています。設定＞システムで端末名を変更できます。`}
                   onClick={() => navigateTo && navigateTo('settings', null, 'device')}>
                   <span className={`inline-block w-1.5 h-1.5 rounded-full ${isSelf ? 'bg-emerald-400' : 'bg-blue-400'}`}></span>
@@ -22859,9 +22867,9 @@ export default function App() {
               className="hidden md:flex items-center gap-1 shrink-0 mr-2 text-[11px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-full px-2.5 py-1 whitespace-nowrap active:scale-95">
               変更ログ
             </button>
-            {/* ジャンプナビをヘッダー右側に配置。 ★ 狭い画面(スマホ/iPad縦)ではタイトルと重なるため非表示(サイドバーで移動可)。 横長(lg〜)のみ表示 */}
+            {/* ジャンプナビをヘッダー右側に配置。 ★ 2026-10-06(ユーザー要望「iPad縦でも移動を出して」): md(768px〜)から表示。タイトルは省略されて縮むのでボタンは切れない */}
             {['ticket','fitness','master','dash_personal','monitoring'].includes(currentView) && (
-              <div className="hidden lg:flex items-center shrink-0">
+              <div className="hidden md:flex items-center shrink-0">
                 <QuickNav navigateTo={navigateTo} currentView={currentView} patientId={targetPatientId} appData={appData}/>
               </div>
             )}
@@ -22906,7 +22914,7 @@ export default function App() {
                 ホーム(dashboard)と同様に zoom 縮小の対象外にし、等倍＋スクロールで表示する。 */}
             {/* ★ 日誌(diary)もzoom例外(2026-08-31): 日誌はシート側でdiaryViewScaleの拡縮を持ち、全体zoomと二重になると
                 iPad Safariでタップ座標がズレてシート内のチェック/時間セルが反応しなくなるため */}
-            <div style={isMobileLayout ? {width:'100%',minWidth:0} : (currentView==='dashboard' || currentView==='print' || currentView==='master' || currentView==='diary' || !_zoomActive) ? {width:'100%',minWidth:0,height:'100%'} : {minWidth:DESIGN_WIDTH, zoom: contentScale, width: `${100/contentScale}%`, height: `${100/contentScale}%`}}>
+            <div style={isMobileLayout ? {width:'100%',minWidth:0} : (currentView==='dashboard' || currentView==='print' || currentView==='master' || currentView==='diary' || _zoomNear1) ? {width:'100%',minWidth:0,height:'100%'} : _zoomScroll ? {width:`${DESIGN_WIDTH}px`, minWidth:DESIGN_WIDTH, height:'100%'} : {width:`${DESIGN_WIDTH}px`, minWidth:DESIGN_WIDTH, zoom: _zoomVal, height: `${100/_zoomVal}%`}}>
             {currentView === 'dashboard' ? <DashboardView appData={appData} navigateTo={navigateTo} activeRecorder={activeRecorder} notices={visibleNotices} devNotes={devUpdateNotes} isNoticeRead={isNoticeRead} markNoticeRead={markNoticeRead} /> :
              currentView === 'record' ? <RecordView appData={appData} activeRecorder={activeRecorder} onSave={handleSaveToCloud} navigateTo={navigateTo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={recordDirtyRef} saveFnRef={recordSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} showTip={showTip} hideTip={hideTip} isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} deviceName={deviceName} /> :
              currentView === 'ticket' ? <TicketView appData={appData} targetPatientId={targetPatientId} onBack={()=>navigateBack('master')} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  onSave={handleSaveToCloud} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={ticketDirtyRef} saveFnRef={ticketSaveFnRef} /> :
