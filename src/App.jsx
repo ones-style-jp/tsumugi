@@ -749,7 +749,7 @@ HTML ファイルをブラウザで開き、
             const patients = (appData.patients||[]).filter(p => {
               const q = patientSearchQ.trim().toLowerCase();
               if (!q) return true;
-              return (p.name||'').toLowerCase().includes(q) || (p.kana||'').toLowerCase().includes(q) || String(p.id).includes(q);
+              return tsuSearchHit(q, p.name, p.kana, String(p.id));
             });
             const allSelected = patients.length > 0 && patients.every(p => selectedPatientIds.includes(p.id));
             return (
@@ -1459,15 +1459,19 @@ const toKatakana = (s) => (s||'')
   .normalize('NFKC')                                    // 半角カナ等を全角化
   .replace(/[ぁ-ゖ]/g, c => String.fromCharCode(c.charCodeAt(0) + 0x60)); // ひらがな→カタカナ
 
+// ★ 検索の表記ゆれ吸収(2026-10-06 ユーザー要望: ひらがなで打っても利用者が出るように・全ての検索欄)。
+//   全角半角(NFKC)・ひらがな→カタカナ・大文字小文字・空白をそろえてから部分一致。 「しさく」でフリガナ「シサク キヨシ」に一致
+const tsuSearchNorm = (s) => toKatakana(String(s ?? '')).toLowerCase().replace(/[\s\u3000]+/g, '');
+const tsuSearchHit = (q, ...fields) => { const nq = tsuSearchNorm(q); if (!nq) return true; return fields.some(f => f != null && tsuSearchNorm(f).includes(nq)); };
+
 // ★ 候補表示つき検索入力: 入力に応じて候補(利用者名など)をドロップダウン表示し、選ぶと確定できる。
 //   options: [{key, label, sub}] / onSelect(option) で選択時の挙動を指定 (省略時は label を入力欄へ)。
 function SuggestInput({ value, onChangeText, options = [], onSelect, maxItems = 8, wrapStyle, inputProps = {} }) {
   const [open, setOpen] = React.useState(false);
   const [hi, setHi] = React.useState(-1);
   const q = String(value || '').trim().toLowerCase();
-  const norm = (s) => String(s || '').toLowerCase();
   const matches = q
-    ? options.filter(o => norm(o.label).includes(q) || norm(o.sub).includes(q) || norm(o.key).includes(q)).slice(0, maxItems)
+    ? options.filter(o => tsuSearchHit(q, o.label, o.sub, o.key, o.kana)).slice(0, maxItems)
     : [];
   const pick = (o) => { if (onSelect) onSelect(o); else onChangeText(o.label); setOpen(false); setHi(-1); };
   return (
@@ -1671,6 +1675,43 @@ function BmiTrendChart({ points, age, height = 150 }) {
             </div>); })()}
         </div>
       </div>
+    </div>
+  );
+}
+// ★ 体力測定の各項目の推移(2026-10-06 ユーザー要望: BMIと同じように全ての項目で推移を出す)。
+//   points: [{date, v}] (古い順)。 縦軸は記録の最小〜最大に少し余白、点の上に値、タップ/ホバーで日付と値。
+function FitTrendChart({ points, unit, height = 110 }) {
+  const [tip, setTip] = React.useState(null);
+  const pts = (points || []).filter(p => p && p.v != null && !isNaN(p.v));
+  if (!pts.length) return null;
+  const H = height, PAD = 14, LW = 26, step = pts.length <= 14 ? 44 : pts.length <= 30 ? 26 : 14;
+  const W = Math.max(260, pts.length * step + PAD * 2);
+  const xP = (i) => PAD + step / 2 + i * step;
+  const vals = pts.map(p => p.v);
+  const lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || Math.max(1, Math.abs(hi) * 0.1);
+  const yMin = lo - span * 0.25, yMax = hi + span * 0.25;
+  const yP = (v) => 12 + ((yMax - v) / (yMax - yMin || 1)) * (H - 20);
+  const fmtV = (v) => (Math.round(v * 10) / 10).toString();
+  const showL = (i) => pts.length <= 7 || i === 0 || i === pts.length - 1 || i % Math.ceil(pts.length / 6) === 0;
+  const _yrs = new Set(pts.map(p => (String(p.date || '').match(/^(\d{4})/) || [])[1]).filter(Boolean));
+  const fmtD = (d) => { const m = String(d || '').match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return `${_yrs.size > 1 ? `'${m[1].slice(2)} ` : ''}${+m[2]}/${+m[3]}`; return String(d || ''); };
+  const pick = (e) => { const rb = e.currentTarget.getBoundingClientRect(); const mx = (e.clientX - rb.left) * ((W + LW) / (rb.width || 1)); let best = -1, bd = Infinity; pts.forEach((p, i) => { const dx = Math.abs(xP(i) - mx); if (dx < bd) { bd = dx; best = i; } }); if (best < 0 || bd > Math.min(18, step)) { setTip(null); return; } setTip({ p: pts[best], px: e.clientX, py: e.clientY }); };
+  return (
+    <div data-testid="fit-trend" style={{ position: 'relative' }}>
+      <svg viewBox={`0 0 ${W + LW} ${H + 14}`} preserveAspectRatio="xMinYMid meet" style={{ width: '100%', height: H + 14, display: 'block' }}>
+        <line x1={0} y1={yP(lo)} x2={W} y2={yP(lo)} stroke="#e2e8f0" strokeWidth={1} />
+        <line x1={0} y1={yP(hi)} x2={W} y2={yP(hi)} stroke="#e2e8f0" strokeWidth={1} />
+        {pts.length > 1 && <polyline points={pts.map((p, i) => `${xP(i)},${yP(p.v)}`).join(' ')} fill="none" stroke="#2563eb" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />}
+        {pts.map((p, i) => <circle key={i} cx={xP(i)} cy={yP(p.v)} r={3.5} fill={p.cur ? '#f59e0b' : '#2563eb'} stroke="white" strokeWidth={1.5} pointerEvents="none" />)}
+        {pts.map((p, i) => <text key={`v${i}`} x={xP(i)} y={yP(p.v) - 6} textAnchor="middle" fontSize={8} fill="#1e293b" fontWeight="bold">{fmtV(p.v)}</text>)}
+        {pts.map((p, i) => showL(i) ? <text key={`d${i}`} x={xP(i)} y={H + 11} textAnchor="middle" fontSize={8} fill="#000" fontWeight="bold">{p.cur ? '今回' : fmtD(p.date)}</text> : null)}
+        <rect x={0} y={0} width={W + LW} height={H + 14} fill="transparent" style={{ cursor: 'pointer' }} onMouseMove={pick} onClick={pick} onMouseLeave={() => setTip(null)} />
+      </svg>
+      {tip && (
+        <div style={{ position: 'fixed', left: tip.px + 12, top: tip.py - 8, background: 'rgba(15,23,42,0.92)', color: 'white', borderRadius: 10, padding: '6px 10px', fontSize: 13, zIndex: 9999, pointerEvents: 'none' }}>
+          <div style={{ fontWeight: 'bold' }}>{tip.p.cur ? `${tip.p.date}（今回の入力）` : tip.p.date}</div>
+          <div>{fmtV(tip.p.v)}{unit || ''}</div>
+        </div>)}
     </div>
   );
 }
@@ -11432,7 +11473,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
   const patient = previewPid ? patients.find(p => p.id === previewPid) : null;
   const accs = patient ? (appData.familyAccounts||[]).filter(a => a.patientId === patient.id) : [];
   const filteredPatients = patSearch.trim()
-    ? patients.filter(p => (p.name||'').includes(patSearch) || (p.kana||'').includes(patSearch))
+    ? patients.filter(p => tsuSearchHit(patSearch, p.name, p.kana))
     : patients;
   const baseUrl = typeof window !== 'undefined' ? (window.location.origin + window.location.pathname.replace(/\/+$/, '')) : '';
   const familyLoginUrl = `${baseUrl}/?family`;
@@ -11537,7 +11578,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
       {!patient && (() => {
         const q = patSearch.trim().toLowerCase();
         const allPats = sortPatientsByKana(patients);
-        const list = q ? allPats.filter(p => (p.name||'').toLowerCase().includes(q) || (p.kana||'').toLowerCase().includes(q) || String(p.id).includes(q)) : allPats;
+        const list = q ? allPats.filter(p => tsuSearchHit(q, p.name, p.kana, String(p.id))) : allPats;
         const kanaRows = ['あ','か','さ','た','な','は','ま','や','ら','わ','その他'];
         const groups = q ? null : kanaRows.map(row => ({ row, items: list.filter(p => getRowFromKana(p.kana) === row) })).filter(g => g.items.length > 0);
         return (
@@ -13661,7 +13702,7 @@ function FamilyAdminView({ appData, onSave }) {
   const histYears = Array.from(new Set(historyEntries.map(e => (e.date||'').slice(0,4)).filter(Boolean))).sort().reverse();
   // ★ 2026-09-29(ユーザー要望): 写真・PDF は「写真の投稿」に加えて「写真/PDFが添付されたお知らせ」も対象(写真だけ絞ると何も出ない報告)。
   //   キーワードはタイトル・本文・キャプション・ファイル名を部分一致(大文字小文字/全角半角の差は NFKC で吸収)
-  const _hNorm = (v) => String(v || '').normalize('NFKC').toLowerCase();
+  const _hNorm = (v) => toKatakana(String(v || '')).toLowerCase();
   const _hQ = _hNorm(historyFilter.q).trim();
   const _hText = (e) => _hNorm([e.title, e.body, e.content, e.caption, e.name, ...((e.photos||[]).map(ph => ph && (ph.caption || ph.name)))].filter(Boolean).join(' '));
   const filteredHistory = historyEntries.filter(e => {
@@ -18619,7 +18660,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
               {(() => {
                 // ★ 検索フィルタ(法人名・事業所名・短縮名) → 法人 (org_name) ごとにグループ分け
                 const _q = storeQuery.trim().toLowerCase();
-                const _fs = _q ? stores.filter(s => [s.name, s.short_name, s.org_name].some(v => String(v||'').toLowerCase().includes(_q))) : stores;
+                const _fs = _q ? stores.filter(s => tsuSearchHit(_q, s.name, s.short_name, s.org_name)) : stores;
                 if (_q && !_fs.length) return <div style={{textAlign:'center',padding:24,color:'#64748b',background:'#f8fafc',borderRadius:12}}>「{storeQuery}」に一致する店舗はありません</div>;
                 const m = new Map();
                 _fs.forEach(s => { const k = (s.org_name||'').trim() || '（法人名なし）'; if(!m.has(k)) m.set(k, []); m.get(k).push(s); });
@@ -24660,7 +24701,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
 
   if (searchQuery) {
     const query = searchQuery.toLowerCase();
-    displayRecords = displayRecords.filter(r => r.name && (r.name.includes(query) || (r.kana && r.kana.includes(query))));
+    const _kanaById = new Map((appData.patients||[]).map(p => [p.id, p.kana]));
+    displayRecords = displayRecords.filter(r => r.name && tsuSearchHit(query, r.name, r.kana, _kanaById.get(r.patientId)));
   }
   // ★ 2026-09-30(店舗報告: 午前なのに午後の人も選べる): 実施担当の対象は「表示中の区分(AM/PM)の利用者」だけ
   const _kinouRows = displayRecords || [];
@@ -24744,7 +24786,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const searchDaysGroups = React.useMemo(() => {
     if (!searchActive) return [];
     const q = searchQuery.trim().toLowerCase();
-    const matched = (appData.patients||[]).filter(p => p && p.status!=='退所' && ((p.name&&p.name.toLowerCase().includes(q)) || (p.kana&&String(p.kana).includes(q))));
+    const matched = (appData.patients||[]).filter(p => p && p.status!=='退所' && tsuSearchHit(q, p.name, p.kana));
     const d0 = new Date(selectedDate);
     const y = d0.getFullYear(), mo = d0.getMonth();
     const monthKey = `${y}-${String(mo+1).padStart(2,'0')}`;
@@ -26299,9 +26341,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
     const q = patientSearch.trim().toLowerCase();
     if (!q) return appData.patients||[];
     return (appData.patients||[]).filter(p =>
-      (p.name||'').toLowerCase().includes(q) ||
-      (p.kana||'').toLowerCase().includes(q) ||
-      String(p.id).includes(q)
+      tsuSearchHit(q, p.name, p.kana, String(p.id))
     );
   }, [appData.patients, patientSearch]);
   // baseMonth デフォルトは「今日の月」(YYYY-MM)
@@ -26566,7 +26606,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   if (!selectedPatientId && !familyMode) {
     const allPats = sortPatientsByKana((appData.patients||[]).filter(p => getPatientDisplayStatus(p) === '利用中'));
     const q = patientSearch.trim().toLowerCase();
-    const list = q ? allPats.filter(p => (p.name||'').toLowerCase().includes(q) || (p.kana||'').toLowerCase().includes(q) || String(p.id).includes(q)) : allPats;
+    const list = q ? allPats.filter(p => tsuSearchHit(q, p.name, p.kana, String(p.id))) : allPats;
     // 行 (あ/か/さ...) でグループ化 — 検索中はグループ表示せず全件
     const kanaRows = ['あ','か','さ','た','な','は','ま','や','ら','わ','その他'];
     const groups = q ? null : kanaRows.map(row => ({ row, items: list.filter(p => getRowFromKana(p.kana) === row) })).filter(g => g.items.length > 0);
@@ -31810,7 +31850,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                   </div>
                 </div>
                 <div style={{overflowY:'auto',flex:1}}>
-                  {[...appData.patients].filter(p=>getPatientDisplayStatus(p)==='利用中'&&(!patSearch||p.name.includes(patSearch)||(p.kana&&p.kana.includes(patSearch)))).sort((a,b)=>(a.kana||a.name||'').localeCompare(b.kana||b.name||'','ja')).map(p=>(
+                  {[...appData.patients].filter(p=>getPatientDisplayStatus(p)==='利用中'&&tsuSearchHit(patSearch, p.name, p.kana)).sort((a,b)=>(a.kana||a.name||'').localeCompare(b.kana||b.name||'','ja')).map(p=>(
                     <button key={p.id} onClick={()=>{const id=p.id;setSelId(id);onPatientChange&&onPatientChange(id);setPatDropOpen(false);setPatSearch('');}}
                       style={{width:'100%',padding:'8px 14px',display:'flex',alignItems:'center',gap:10,textAlign:'left',background:p.id===selId?'#eff6ff':'transparent',cursor:'pointer',border:'none',fontSize:14,fontWeight:'bold',color:p.id===selId?'#1d4ed8':'#1e293b'}}
                       className="hover:bg-slate-50">
@@ -31822,7 +31862,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                       {p.careLevel && <span style={{fontSize:10,fontWeight:'bold',color:'#3b82f6',background:'#eff6ff',padding:'1px 5px',borderRadius:4,flexShrink:0}}>{p.careLevel}</span>}
                     </button>
                   ))}
-                  {[...appData.patients].filter(p=>getPatientDisplayStatus(p)==='利用中'&&(!patSearch||p.name.includes(patSearch)||(p.kana&&p.kana.includes(patSearch)))).length===0 && (
+                  {[...appData.patients].filter(p=>getPatientDisplayStatus(p)==='利用中'&&tsuSearchHit(patSearch, p.name, p.kana)).length===0 && (
                     <div style={{padding:'16px',textAlign:'center',fontSize:12,color:'#64748b'}}>見つかりません</div>
                   )}
                 </div>
@@ -34155,7 +34195,7 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave, patien
                       <div className="mt-2 bg-violet-50 border border-violet-200 rounded-xl p-3">
                         <div className="flex items-center gap-2 mb-2"><input type="search" value={pvQ} onChange={e=>setPvQ(e.target.value)} placeholder="氏名で絞り込み" className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold outline-none flex-1"/><span className="text-[11px] text-slate-500">空欄＝共通の表示文字「{item.value || '—'}」</span></div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 max-h-72 overflow-y-auto pr-1">
-                          {patients.filter(pt => !pvQ || (pt.name||'').includes(pvQ) || (pt.kana||'').includes(pvQ)).map(pt => (
+                          {patients.filter(pt => tsuSearchHit(pvQ, pt.name, pt.kana)).map(pt => (
                             <div key={pt.id} className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-2 py-1">
                               <span className="text-xs font-bold text-slate-700 w-24 truncate" title={pt.name}>{pt.name}</span>
                               <input type="text" value={pvVal(pt, item)} onChange={e=>setPv(prev => ({ ...prev, [pt.id]: { ...(prev[pt.id]||{}), [item.id]: e.target.value } }))} placeholder={item.value || ''} className="flex-1 px-2 py-1 bg-white border border-slate-300 rounded text-sm outline-none focus:border-violet-400"/>
@@ -36355,12 +36395,14 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
   };
 
   const allPats = (appData.patients || []).filter(p => getPatientDisplayStatus(p) !== '退所済み');
+  // ★ 2026-10-06(ユーザー要望): 検索中は 当月/来月/その他 の区切りに関係なく全員から探す(当月以外の人も出る)
+  const _fitSearching = !!tsuSearchNorm(nameSearch);
   const filtered = allPats.filter(p => {
+    if (_fitSearching) return tsuSearchHit(nameSearch, p.name, p.kana);
     const offset = getPatientMonthOffset(p);
     if (statusFilter === '当月' && offset !== 0) return false;
     if (statusFilter === '来月' && offset !== 1) return false;
     if (statusFilter === 'その他' && offset !== activeSonoTa) return false;
-    if (nameSearch && !p.name.includes(nameSearch) && !(p.kana && p.kana.includes(nameSearch))) return false;
     return true;
   });
 
@@ -36483,6 +36525,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                 className="w-full pl-7 pr-6 py-2 bg-slate-100 border border-slate-200 rounded-lg text-[14px] font-bold outline-none" />
               {nameSearch && <button onClick={() => setNameSearch('')} className="absolute right-1.5 top-1.5 text-slate-400"><X size={12} /></button>}
             </div>
+            {_fitSearching && <div className="text-[10px] text-slate-500 font-bold mt-1" data-testid="fit-search-all">月の区切りに関係なく全員から検索しています</div>}
           </div>
           <div className="flex-1 overflow-y-auto bg-slate-50">
             {(()=>{
@@ -36680,6 +36723,28 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                   <div className="px-5 py-3 border-b border-slate-200 font-bold text-sm text-slate-700">BMIの推移 <span className="text-xs font-normal text-slate-500">（体重÷身長²・自動計算。点の色は判定）</span></div>
                   <div className="px-4 py-3"><BmiTrendChart points={pts} age={_patAge} /></div>
+                </div>
+              ); })()}
+            {/* ★ 2026-10-06(ユーザー要望): BMIと同じように、全ての測定項目の推移(過去の記録＋入力中の今回) */}
+            {(() => { const _num = (v) => (v !== undefined && v !== null && v !== '' && !isNaN(Number(v))) ? Number(v) : null;
+              const _cards = fitnessItems.map(item => { const pts = [...patRecords].reverse().map(r => ({ date: r.date, v: _num(r.values?.[item.id]) })).filter(x => x.v != null);
+                const cv = _num(values[item.id]); if (cv != null && !patRecords.some(r => r.date === date)) pts.push({ date, v: cv, cur: true });
+                return { item, pts }; }).filter(c => c.pts.length > 0);
+              if (!_cards.length) return null;
+              return (
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden" data-testid="fit-trends">
+                  <div className="px-5 py-3 border-b border-slate-200 font-bold text-sm text-slate-700">各項目の推移 <span className="text-xs font-normal text-slate-500">（過去の記録と今回の入力。オレンジの点は今回の入力）</span></div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-slate-100">
+                    {_cards.map(({ item, pts }) => { const last = pts[pts.length - 1], first = pts[0];
+                      return (
+                        <div key={item.id} className="bg-white px-4 py-3">
+                          <div className="flex items-baseline justify-between gap-2 mb-1">
+                            <span className="font-bold text-sm text-slate-700">{item.name}<span className="text-xs text-slate-400 font-normal ml-0.5">（{item.unit}）</span></span>
+                            <span className="text-[11px] text-slate-500 tabular-nums">{pts.length}回{pts.length > 1 && <> ／ 初回 {first.v} → 最新 {last.v}{item.unit}</>}</span>
+                          </div>
+                          <FitTrendChart points={pts} unit={item.unit} />
+                        </div>); })}
+                  </div>
                 </div>
               ); })()}
             {/* 過去の記録 */}
@@ -38070,7 +38135,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   const dPats = (appData.patients||[]).filter(p => {
     const s = getPatientDisplayStatus(p);
     if (patientStatusFilter !== s) return false;
-    if (nameSearchQuery && !p.name.includes(nameSearchQuery) && !(p.kana && p.kana.includes(nameSearchQuery))) return false;
+    if (nameSearchQuery && !tsuSearchHit(nameSearchQuery, p.name, p.kana)) return false;
     // ★ 基本利用日(曜日×AM/PM)絞り込み(2026-08-31 店舗要望)。1日利用の方はAM/PMどちらの選択でも該当
     if (masterDowFilter.length) {
       const ok = masterDowFilter.some(t => { const [d, slot] = t.split('_'); const v = (p.scheduleAmPm||[])[+d]; return v && (v === slot || v === '1日'); });
@@ -42660,11 +42725,11 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
             const selOffice = selectedOfficeIdx !== null && selectedOfficeIdx < cmOffices.length ? cmOffices[selectedOfficeIdx] : null;
             const _oq = officeSearch.trim(), _mq = managerSearch.trim();
             // ★ ケアマネで検索 → そのケアマネが所属する事業所名の集合
-            const officesWithMatchingMgr = _mq ? new Set(cmPersons.filter(p => (p.name||'').includes(_mq)).map(p => p.office)) : null;
+            const officesWithMatchingMgr = _mq ? new Set(cmPersons.filter(p => tsuSearchHit(_mq, p.name, p.kana)).map(p => p.office)) : null;
             // 事業所一覧: 事業所検索 + (ケアマネ検索があれば該当ケアマネの事業所のみ)
             const allOfficesIdx = cmOffices.map((o, origIdx) => ({...o, origIdx}));
             const filteredOffices = allOfficesIdx.filter(o => {
-              if (_oq && !((o.name||'').includes(_oq) || (o.kana||'').includes(_oq) || (o.corporateName||'').includes(_oq))) return false;
+              if (_oq && !tsuSearchHit(_oq, o.name, o.kana, o.corporateName)) return false;
               if (officesWithMatchingMgr && !officesWithMatchingMgr.has(o.name)) return false;
               return true;
             });
@@ -42681,7 +42746,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
             const officeNameSet = (_oq || officesWithMatchingMgr) ? new Set(filteredOffices.map(o=>o.name)) : null;
             const officeFilteredPersons = cmPersons.filter(p => {
               if (selOffice && p.office !== selOffice.name) return false;
-              if (_mq && !(p.name||'').includes(_mq)) return false;
+              if (_mq && !tsuSearchHit(_mq, p.name, p.kana)) return false;
               if (!selOffice && officeNameSet && !officeNameSet.has(p.office)) return false;
               return true;
             });
@@ -42747,7 +42812,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                     )}
                   </div>
                   <SuggestInput value={officeSearch} onChangeText={setOfficeSearch}
-                    options={cmOffices.map((o,i)=>({key:'o'+i, label:o.name, sub:o.corporateName||''}))}
+                    options={cmOffices.map((o,i)=>({key:'o'+i, label:o.name, sub:o.corporateName||'', kana:o.kana||''}))}
                     wrapStyle={{marginBottom:8}}
                     inputProps={{type:'text', placeholder:'事業所名・カナ・法人名で検索', className:'w-full px-3 py-2 border border-slate-300 rounded-lg outline-none text-sm font-bold focus:border-blue-400'}}/>
                   <div className="text-xs text-slate-500 mb-2 px-1">{sortedOffices.length}/{cmOffices.length}件・あいうえお順{hasAnyCorp ? '・法人ごと' : ''} {selectedOfficeIdx!==null && <button onClick={()=>setSelectedOfficeIdx(null)} className="ml-2 text-blue-600 hover:underline">× 選択解除</button>}</div>
@@ -42776,7 +42841,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                   {/* ★ 常設フォームを廃止し、ボタン→ポップアップで登録(2026-08-31 店舗要望)。 事業所を選択中ならその事業所を初期値に */}
                   <button type="button" onClick={()=>{setNewPerson({office:selOffice?.name||"",name:"",phone:"",kanaLast:"",kanaFirst:"",email:""});setAddPersonModal(true);}} className="w-full py-2 mb-3 bg-slate-800 text-white rounded-lg font-bold text-sm active:scale-95 flex items-center justify-center"><Plus size={14} className="mr-1"/>担当者を追加</button>
                   <SuggestInput value={managerSearch} onChangeText={setManagerSearch}
-                    options={cmPersons.map((c,i)=>({key:'m'+i, label:c.name, sub:c.office||''}))}
+                    options={cmPersons.map((c,i)=>({key:'m'+i, label:c.name, sub:c.office||'', kana:c.kana||''}))}
                     wrapStyle={{marginBottom:8}}
                     inputProps={{type:'text', placeholder:'担当者名で検索 (該当者の事業所も左で絞り込み)', className:'w-full px-3 py-2 border border-slate-300 rounded-lg outline-none text-sm font-bold focus:border-blue-400'}}/>
                   <div className="text-xs text-slate-500 mb-2 px-1">{sortedPersons.length}件{selOffice?`（${selOffice.name}）`:'（全事業所）'}・あいうえお順{_noKanaN>0 && <span className="text-amber-600">（フリガナ未登録 {_noKanaN}名は姓の一般的な読みで並べています。編集からフリガナを登録すると正確になります）</span>}</div>
@@ -49400,7 +49465,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     if (c === 0 && monitorSort !== 'kana') c = (a.kana||a.name||'').localeCompare(b.kana||b.name||'','ja');
     return monitorSortDir==='desc' ? -c : c;
   });
-  const filterBySearch = (p) => !searchQuery || p.name.includes(searchQuery) || (p.kana||'').includes(searchQuery);
+  const filterBySearch = (p) => tsuSearchHit(searchQuery, p.name, p.kana);
   const filterByDow = (p) => monitorDowFilter.length===0 || monitorDowFilter.some(i => (p.scheduleAmPm||[])[i]);
   const filterByStatus = (p) => monitorStatusFilter==='all' ? true
     : monitorStatusFilter==='unentered' ? !results[p.id]?.text
@@ -50885,12 +50950,7 @@ function FaxHistoryListModal({ history, typeLabel, onDelete, onClose }) {
   const [search, setSearch] = useState('');
   const filtered = (history||[]).filter(h => {
     if (!search.trim()) return true;
-    const q = search.toLowerCase();
-    return (h.recipientName||'').toLowerCase().includes(q)
-      || (h.recipientFax||'').includes(q)
-      || (h.subject||'').toLowerCase().includes(q)
-      || (h.patientName||'').includes(q)
-      || (h.note||'').includes(q);
+    return tsuSearchHit(search, h.recipientName, h.recipientFax, h.subject, h.patientName, h.note);
   }).sort((a,b) => (b.timestamp||'').localeCompare(a.timestamp||''));
   return (
     <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.7)',zIndex:10000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={onClose}>
@@ -53318,7 +53378,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
             const _ts = (t) => { try { return new Date(t).toLocaleDateString('ja-JP'); } catch { return t||''; } };
             // ★ 書類検索: 件名・宛先・内容・日付で絞り込み
             const _q = renrakuSearch.trim().toLowerCase();
-            const _match = (h) => { if(!_q) return true; const hay = [h.subject,h.recipientOffice,h.recipientName,h.memo,h.body,h.content,h.note,h.dateIso,_ts(h.timestamp)].map(x=>String(x||'').toLowerCase()).join(' '); return hay.includes(_q); };
+            const _match = (h) => { if(!_q) return true; return tsuSearchHit(_q, h.subject,h.recipientOffice,h.recipientName,h.memo,h.body,h.content,h.note,h.dateIso,_ts(h.timestamp)); };
             const absHist = faxOf('absence').filter(_match); const genHist = faxOf('general').filter(_match);
             const monHist = faxOf('monitoring').filter(_match);
             // ★ 休み連絡の「下書き(編集済・未送付)」も表示(2026-08-25)。 カレンダーで「編集済」なのに
