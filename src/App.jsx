@@ -1832,9 +1832,11 @@ async function tsumugiServerPdf({ html, pageSize, title, win, onReady }) {
 //   画面のスイッチが ON の間だけ直接ダウンロード(directPdf)が氏名を○に置き換える。画面を離れると OFF に戻る
 let _tsumugiMaskOn = false;
 const tsumugiMaskOn = () => _tsumugiMaskOn;
-function MaskToggle({ small }) {
-  const [on, setOn] = React.useState(false);
-  React.useEffect(() => { _tsumugiMaskOn = on; return () => { _tsumugiMaskOn = false; }; }, [on]);
+// ★ 2026-10-06(ユーザー要望「その画面でマスキングにしたら次回開いた時もマスキングされているように」): 画面ごと(storeKey)に端末へ記憶する
+const tsumugiMaskStored = (key) => { try { return !!key && localStorage.getItem(`tsumugiMask:${key}`) === '1'; } catch { return false; } };
+function MaskToggle({ small, storeKey, onChange }) {
+  const [on, setOn] = React.useState(() => tsumugiMaskStored(storeKey));
+  React.useEffect(() => { _tsumugiMaskOn = on; try { if (storeKey) localStorage.setItem(`tsumugiMask:${storeKey}`, on ? '1' : '0'); } catch {} if (onChange) onChange(on); return () => { _tsumugiMaskOn = false; }; }, [on]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <label data-testid="mask-toggle" title="ONにすると、ダウンロードする書類の利用者氏名・ふりがなを1文字おきに○へ置き換えます（例: 髙橋正樹→髙○正○）" style={{display:'inline-flex',alignItems:'center',gap:5,padding: small ? '4px 8px' : '6px 10px',borderRadius:8,border:'1px solid',borderColor: on ? '#f59e0b' : '#cbd5e1',background: on ? '#fef3c7' : 'white',color: on ? '#b45309' : '#475569',fontSize: small ? 11 : 12,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap',userSelect:'none'}}>
       <input type="checkbox" checked={on} onChange={e => setOn(e.target.checked)} style={{width:14,height:14}}/>氏名マスキング
@@ -26827,7 +26829,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           {/* 表示用ボタン: クリックでポップアップを開く（期間/月を選択させる） */}
           {/* ★ 事業所モードのみ表示 (家族・ケアマネ閲覧モードは非表示) */}
           {!compactMode && (<>
-          <MaskToggle small/>
+          <MaskToggle small storeKey="personal"/>
           <button type="button" onClick={()=>setShowPrintOptionsPopup(true)}
               style={{background:'rgba(255,255,255,0.5)',border:'1px solid rgba(255,255,255,0.7)',color:'#1e293b',borderRadius:8,padding:'6px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
             ダウンロード
@@ -29986,7 +29988,7 @@ function JissekiView({ appData, onSave, onShowPrintPreview }) {
             <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b'}}>月次実績表<span style={{fontSize:11,fontWeight:'normal',color:'#64748b',marginLeft:6}}>（カイポケ等への実績転記用）</span></div>
             <div style={{display:'flex',alignItems:'center',gap:6,marginLeft:'auto'}}>
               <button onClick={dlCsv} style={{padding:'4px 12px',background:'#0f766e',color:'white',border:'none',borderRadius:8,fontWeight:'bold',cursor:'pointer',fontSize:12}}>CSV出力</button>
-              {onShowPrintPreview && <MaskToggle small/>}
+              {onShowPrintPreview && <MaskToggle small storeKey="jisseki"/>}
               {onShowPrintPreview && <button onClick={()=>onShowPrintPreview(`実績表_${jy}年${jm}月`,'A4 landscape','jisseki-print-area')} style={{padding:'4px 12px',background:'#334155',color:'white',border:'none',borderRadius:8,fontWeight:'bold',cursor:'pointer',fontSize:12}}>ダウンロード</button>}
             </div>
           </div>
@@ -46120,7 +46122,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
           <button onClick={()=>saveRecord(false)} className="px-4 py-2 bg-white border border-emerald-500 text-emerald-600 hover:bg-emerald-50 rounded-lg text-sm font-bold active:scale-95" title="編集画面を開いたまま保存します">一時保存</button>
           <button onClick={()=>saveRecord(true)} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold shadow active:scale-95">保存して閉じる</button>
         </>}
-        {printRec && <MaskToggle/>}
+        {printRec && <MaskToggle storeKey="kinou"/>}
         {printRec && <button onClick={()=>onShowPrintPreview('個別機能訓練計画書','A4','kk-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">ダウンロード</button>}
         {printRec && <button onClick={()=>onShowPrintPreview('ケアマネ送付セット（個別機能訓練計画書）','A4','kk-fax-set')} title="送付状(変更点一覧つき)+今回の計画書+前回の計画書(評価入り)をまとめて印刷します" className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">ケアマネ送付セット</button>}
       </div>
@@ -47144,7 +47146,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
           <button onClick={()=>saveRecord(false)} className="px-4 py-2 bg-white border border-emerald-500 text-emerald-600 hover:bg-emerald-50 rounded-lg text-sm font-bold active:scale-95" title="編集画面を開いたまま保存します">一時保存</button>
           <button onClick={()=>saveRecord(true)} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold shadow active:scale-95">保存して閉じる</button>
         </>}
-        {printRec && <MaskToggle/>}
+        {printRec && <MaskToggle storeKey="tsusho"/>}
         {printRec && <button onClick={()=>onShowPrintPreview('通所介護計画書','A4','tk-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">ダウンロード</button>}
         {printRec && <button onClick={()=>onShowPrintPreview('ケアマネ送付セット（通所介護計画書）','A4','tk-fax-set')} title="送付状(変更点一覧つき)+今回の計画書+前回の計画書(評価入り)をまとめて印刷します" className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">ケアマネ送付セット</button>}
       </div>
@@ -50252,7 +50254,7 @@ ${optionsDesc}
           style={{padding:'7px 12px',borderRadius:10,fontSize:12,fontWeight:'bold',border:'none',background:'#10b981',color:'white',cursor:'pointer'}}>
           {checkedIds.size && !allChecked ? `選んだ${attendedPats.filter(p=>checkedIds.has(p.id)&&!getSheetRecord(p.id)?.confirmed).length}名を確定` : '一括確定'}
         </button>
-        <MaskToggle small/>
+        <MaskToggle small storeKey="monitoring"/>
         <button type="button" onClick={faxToCareManagers} title="作成済みのモニタリング表をケアマネ宛先つきで1つのPDFにしてダウンロードします"
           style={{padding:'7px 12px',borderRadius:10,fontSize:12,fontWeight:'bold',border:'1px solid #fdba74',background:'#fff7ed',color:'#c2410c',cursor:'pointer'}}>
           ダウンロード
@@ -51087,7 +51089,9 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 
   // ★ 休み連絡はマスキングしない(2026-09-24 ユーザー指示: FAX先のケアマネに氏名がそのまま伝わる方がよい)。
   //   印刷プレビューの「氏名を伏せる」トグルは従来どおり使える。
-  const maskName = (name) => String(name || '');
+  // ★ 2026-10-06(ユーザー要望): 氏名マスキングにチェックしたら、画面の送付状もマスクする(前回の状態を記憶)
+  const [maskOn, setMaskOn] = useState(() => tsumugiMaskStored('absence'));
+  const maskName = (name) => { const n = String(name || ''); if (!maskOn) return n; return n.trim().split(/\s+/).map(w => String(w).split('').map((c, i) => i % 2 === 0 ? c : '○').join('')).join(' '); };
 
   const cY = currentMonth.getFullYear(), cM = currentMonth.getMonth()+1;
   const daysInMonth = new Date(cY, cM, 0).getDate();
@@ -51298,7 +51302,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
             }} style={{background:'#0f766e',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
               ダウンロード
             </button>
-            <MaskToggle small/>
+            <MaskToggle small storeKey="absence" onChange={setMaskOn}/>
             <button type="button" onClick={()=>{
               markClean();
               // faxData で編集された理由(reason)を、対応する ticketRecord.tokki にも反映
@@ -51516,8 +51520,8 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 
   // ★ 状態を区別して表示(2026-08-25 店舗要望): 編集しただけ=青、印刷/PDF/送信済み=緑
   // ★ 2026-09-24 ユーザー指示: 印刷/PDF/FAX(将来のAPI送信=faxed)はすべて「連絡済」と表示する(編集済→連絡済の2段階)
-  const statusColors = { none:'', edited:'#dbeafe', printed:'#dcfce7', pdf:'#dcfce7', both:'#dcfce7', faxed:'#dcfce7' };
-  const statusLabels = { edited:'編集済', printed:'連絡済', pdf:'ダウンロード済', both:'連絡済', faxed:'連絡済' };
+  const statusColors = { none:'', edited:'#dbeafe', printed:'#dcfce7', pdf:'#ccfbf1', both:'#dcfce7', faxed:'#dcfce7' }; // DL済は薄い青緑(連絡済と見分ける)
+  const statusLabels = { edited:'編集済', printed:'連絡済', pdf:'DL済', both:'連絡済', faxed:'連絡済' }; // ★ 2026-10-06: 「ダウンロード済」→「DL済」
   // fax データが何らかの編集（理由・連絡者・備考・チェック）を含むかどうか
   const isFaxEdited = (fd) => {
     if (!fd) return false;
@@ -51550,7 +51554,11 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
           </span>
           <span style={{display:'flex',alignItems:'center',gap:4}}>
             <span style={{width:12,height:12,borderRadius:3,background:'#dcfce7',border:'1px solid #64748b',display:'inline-block'}}/>
-            <span style={{color:'#cbd5e1'}}>連絡済（印刷・PDF・FAX）</span>
+            <span style={{color:'#cbd5e1'}}>連絡済</span>
+          </span>
+          <span style={{display:'flex',alignItems:'center',gap:4}}>
+            <span style={{width:12,height:12,borderRadius:3,background:'#ccfbf1',border:'1px solid #64748b',display:'inline-block'}}/>
+            <span style={{color:'#cbd5e1'}}>DL（ダウンロード）済</span>
           </span>
           <button type="button" onClick={()=>setShowFaxHist(true)}
             style={{background:'#7c3aed',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5,marginLeft:8}}>
@@ -51753,8 +51761,11 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const patient = patients.find(p => p.id === selectedPatientId);
 
   // AbsenceFaxView と同じマスキング
+  // ★ 2026-10-06(ユーザー要望「各種連絡は送付状が最初からマスキングされている → 既定はマスクなし・チェックで切替」): 前回の状態を記憶
+  const [maskOn, setMaskOn] = useState(() => tsumugiMaskStored('general'));
   const maskName = (name) => {
     if (!name) return '●●';
+    if (!maskOn) return String(name);
     // ★ 1文字おきマスク(2026-09-08 店舗要望): 偶数番目の文字を残し奇数番目を○に(髙橋正樹→髙○正○)
     const maskWord = (word) => String(word||'').split('').map((c,i)=> i % 2 === 0 ? c : '○').join('');
     return name.trim().split(/\s+/).map(maskWord).join(' ');
@@ -51881,7 +51892,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                   style={{background:'#0369a1',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
             定型文
           </button>
-          <MaskToggle small/>
+          <MaskToggle small storeKey="general" onChange={setMaskOn}/>
           <button type="button" onClick={handlePreview}
                   style={{background:'#0f766e',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
             ダウンロード
@@ -52800,12 +52811,14 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
   const _activeRec = getActiveRecorderName();
   const _savedIR = personalFile.initialReport || null;
   const [irMode, setIrMode] = useState(null); // ★ null=状態に応じて自動(選択画面/完了ビュー) | 'form'=手入力フォーム表示
-  const [irForm, setIrForm] = useState(() => _savedIR ? {exercise:'', ..._savedIR} : {
+  // ★ 2026-10-06(ユーザー要望): 「ご利用の様子」は初回の提供記録の特記を最初から入れる(ここで直しても特記には戻さない)
+  const _ftTokki = String((_ft && _ft.tokki) || '').trim();
+  const [irForm, setIrForm] = useState(() => _savedIR ? {exercise:'', ..._savedIR, content: _savedIR.content || _ftTokki} : {
     date: _firstKey || new Date().toISOString().slice(0,10),
     recipientOffice: patient.cmOffice||'', recipientName: patient.cmName||'',
     temp:_av.temp||'', bpUpSt:_av.bpUpSt||'', bpDnSt:_av.bpDnSt||'', plSt:_av.plSt||'',
     bpUpEn:_av.bpUpEn||'', bpDnEn:_av.bpDnEn||'', plEn:_av.plEn||'',
-    exercise:_exText, content:'', reporter:_activeRec||'',
+    exercise:_exText, content:_ftTokki, reporter:_activeRec||'',
   });
   const saveInitialReport = () => {
     const createdAt = new Date().toISOString();
@@ -53006,7 +53019,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                     className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold">
                     編集・追記
                   </button>
-                  <MaskToggle small/>
+                  <MaskToggle small storeKey="facesheet"/>
                   <button onClick={()=>setPdfPreviewFaceSheet(true)}
                     className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold">ダウンロード</button>
                 </div>
