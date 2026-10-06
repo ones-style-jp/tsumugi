@@ -20663,6 +20663,15 @@ export default function App() {
     }, 330); // サイドバーの transition(300ms)完了後
     return () => clearTimeout(id);
   }, [isSidebarOpen]);
+  // ★ 2026-10-06(ユーザー報告: 再読み込みした直後は上部のボタンが出ず、サイドバーを開閉すると出る): iPad の WebKit で
+  //   縮小(zoom)の切替や回転のあと上部のバーが描かれないことがある。サイドバー開閉と同じ強制 reflow を、画面の切替・回転のあとにも行う
+  const [_repaintTick, _setRepaintTick] = useState(0);
+  useEffect(() => {
+    if (!tsumugiIsIOS()) return;
+    const on = () => _setRepaintTick(t => t + 1);
+    window.addEventListener('orientationchange', on);
+    return () => window.removeEventListener('orientationchange', on);
+  }, []);
   const DESIGN_WIDTH = 1100;
   const contentRef = useRef(null);
   // ★ スマホ幅(<768px)では「1100px基準の縮小表示」をやめ、実物大でモバイルレイアウトを使う。
@@ -20692,13 +20701,24 @@ export default function App() {
   const _zoomNear1 = contentScale >= 0.94;
   const _zoomActive = !_zoomNear1 && !zoomOff;
   const _zoomScroll = !_zoomNear1 && zoomOff;
-  // 縮小は 72% まで(iPad縦でサイドバーを開くと50%になり文字が小さすぎる)。それより狭い分は横スクロールで見る
-  const _zoomVal = Math.max(contentScale, 0.72);
+  // ★ 2026-10-06: 一度 72% を下限にしたが、上部のボタン(ダウンロード等)が右へはみ出して見えなくなるため、下限なしで幅に合わせる
+  const _zoomVal = contentScale;
   React.useEffect(() => {
     if (!_zoomActive || !tsumugiIsIOS()) return;
-    const t = setTimeout(() => { try { const el = contentRef.current; const expect = Math.ceil(DESIGN_WIDTH * Math.max(contentScale, 0.72)); if (el && el.scrollWidth > Math.max(el.clientWidth, expect) + 2) setZoomOff(true); } catch {} }, 600);
+    const t = setTimeout(() => { try { const el = contentRef.current; if (el && el.scrollWidth - el.clientWidth > 2) setZoomOff(true); } catch {} }, 600);
     return () => clearTimeout(t);
   }, [_zoomActive, contentScale]); // eslint-disable-line react-hooks/exhaustive-deps
+  const _zoomMode = _zoomNear1 ? 'near1' : _zoomActive ? 'zoom' : 'scroll';
+  useEffect(() => {
+    if (!tsumugiIsIOS()) return;
+    const id = setTimeout(() => { try {
+      const el = document.getElementById('appMainArea'); if (!el) return;
+      const sc = contentRef.current; const st = sc ? [sc.scrollTop, sc.scrollLeft] : null;
+      const prev = el.style.display; el.style.display = 'none'; void el.offsetHeight; el.style.display = prev || '';
+      if (sc && st) { sc.scrollTop = st[0]; sc.scrollLeft = st[1]; }
+    } catch {} }, 450);
+    return () => clearTimeout(id);
+  }, [currentView, _zoomMode, _repaintTick]);
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -22953,9 +22973,11 @@ export default function App() {
             {/* ★ 連絡帳(print)は高さの flex 配分でレイアウトするため、zoom + height:% だと iPad Safari で
                 高さが解決できず運動テーブル(flex:1 1 0)が潰れて切れる(サイドバーを開くと縮率が下がり顕在化)。
                 ホーム(dashboard)と同様に zoom 縮小の対象外にし、等倍＋スクロールで表示する。 */}
+            {/* ★ 提供記録(ticket)もzoom例外(2026-10-06 ユーザー報告「縦で表示したら潰れている・上部のダウンロードが消える」):
+                用紙を画面の幅に合わせる縮小(_fitZoom)を自前で持つため、全体の zoom と二重になると iPad で用紙の中が潰れていた */}
             {/* ★ 日誌(diary)もzoom例外(2026-08-31): 日誌はシート側でdiaryViewScaleの拡縮を持ち、全体zoomと二重になると
                 iPad Safariでタップ座標がズレてシート内のチェック/時間セルが反応しなくなるため */}
-            <div style={isMobileLayout ? {width:'100%',minWidth:0} : (currentView==='dashboard' || currentView==='print' || currentView==='master' || currentView==='diary' || _zoomNear1) ? {width:'100%',minWidth:0,height:'100%'} : _zoomScroll ? {width:`${DESIGN_WIDTH}px`, minWidth:DESIGN_WIDTH, height:'100%'} : {width:`${DESIGN_WIDTH}px`, minWidth:DESIGN_WIDTH, zoom: _zoomVal, height: `${100/_zoomVal}%`}}>
+            <div style={isMobileLayout ? {width:'100%',minWidth:0} : (currentView==='dashboard' || currentView==='print' || currentView==='master' || currentView==='diary' || currentView==='ticket' || _zoomNear1) ? {width:'100%',minWidth:0,height:'100%'} : _zoomScroll ? {width:`${DESIGN_WIDTH}px`, minWidth:DESIGN_WIDTH, height:'100%'} : {width:`${DESIGN_WIDTH}px`, minWidth:DESIGN_WIDTH, zoom: _zoomVal, height: `${100/_zoomVal}%`}}>
             {currentView === 'dashboard' ? <DashboardView appData={appData} navigateTo={navigateTo} activeRecorder={activeRecorder} notices={visibleNotices} devNotes={devUpdateNotes} isNoticeRead={isNoticeRead} markNoticeRead={markNoticeRead} /> :
              currentView === 'record' ? <RecordView appData={appData} activeRecorder={activeRecorder} onSave={handleSaveToCloud} navigateTo={navigateTo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={recordDirtyRef} saveFnRef={recordSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} showTip={showTip} hideTip={hideTip} isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} deviceName={deviceName} /> :
              currentView === 'ticket' ? <TicketView appData={appData} targetPatientId={targetPatientId} onBack={()=>navigateBack('master')} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  onSave={handleSaveToCloud} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={ticketDirtyRef} saveFnRef={ticketSaveFnRef} /> :
@@ -31831,8 +31853,8 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
     <div style={{height:'100%',display:'flex',flexDirection:'column',minWidth:0}}>
       <style>{`@media print{body,html,#root{margin:0!important;padding:0!important;background:white!important;overflow:hidden!important;}.thp{display:none!important;}.ticket-outer{padding:0!important;margin:0!important;zoom:1!important;}.ticket-outer>*+*{margin-top:0!important;}#print-content-ticket{margin:0!important;padding:0!important;}#print-content-ticket>*+*{margin-top:0!important;}.tp{box-shadow:none!important;border:none!important;border-radius:0!important;margin:0!important;padding:7mm 9mm 6mm 9mm!important;page-break-inside:avoid!important;break-inside:avoid!important;overflow:hidden!important;}.tp>*{zoom:var(--tpZoom,0.92);}.tp:not(:last-child){page-break-after:always!important;break-after:page!important;}.tp:last-child{page-break-after:avoid!important;break-after:avoid!important;}@page{size:A4 portrait;margin:0;}}.tp{width:210mm;height:297mm;box-sizing:border-box;overflow:hidden;}`}</style>
       {/* ヘッダー：スクロールコンテナの外 */}
-      <div className="thp bg-white px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-4 shrink-0 sticky top-0 z-30" style={{minWidth:0}}>
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+      <div className="thp bg-white px-4 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 shrink-0 sticky top-0 z-30" style={{minWidth:0}}>
+        <div className="flex flex-wrap items-center gap-3">
           {navigateTo && <button onClick={goBackFromTicket} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm flex items-center gap-1 shrink-0" title="戻る"><ArrowLeft size={16}/>戻る</button>}
           <div style={{position:'relative'}}>
             <button onClick={()=>{setPatDropOpen(v=>!v);setPatSearch('');}} className="bg-slate-50 border border-slate-300 hover:border-blue-400 px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 min-w-[160px] max-w-[220px]">
@@ -31872,7 +31894,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
           </div>
           <input type="month" value={curMonth} onChange={e=>setCurMonth(e.target.value)} className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold outline-none cursor-pointer text-slate-700"/>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center justify-end gap-2 shrink-0 ml-auto">
           <button onClick={()=>{ setPeriodMode(p=>{ const np=!p; if(np && (!periodFrom||!periodTo)){ // 既定: 最古の記録月〜当月
             const set=new Set(); (appData.ticketRecords||[]).forEach(r=>{ if(r.patientId!==sp.id) return; const m=(r.date||'').match(/(\d+)月/); if(!m) return; let y=r.year; if(!y){ y=(typeof r.id==='number'&&r.id>1e12)?new Date(r.id).getFullYear():new Date().getFullYear(); } set.add(`${y}-${String(+m[1]).padStart(2,'0')}`); });
             const arr=[...set].sort(); setPeriodFrom(arr[0]||curMonth); setPeriodTo(curMonth); } return np; }); }} className={`px-4 py-2 rounded-xl font-bold flex items-center text-sm whitespace-nowrap active:scale-95 ${periodMode?'bg-violet-700 text-white':'bg-violet-100 text-violet-700 border border-violet-300 hover:bg-violet-200'}`} title="選んだ開始月〜終了月の提供記録を、この画面と同じ形式で並べて表示します。プレビューでまとめてPDF保存できます">{periodMode?'期間出力 中':'期間出力'}</button>
@@ -32165,7 +32187,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
 
 
       </div>{/* end scroll container */}
-      {showFaxHist && <FaxHistoryListModal history={ticketHistory} typeLabel="サービス提供記録" onDelete={deleteFaxHist} onClose={()=>setShowFaxHist(false)}/>}
+      {showFaxHist && <FaxHistoryListModal history={ticketHistory} typeLabel="サービス提供記録" patients={appData.patients} onDelete={deleteFaxHist} onClose={()=>setShowFaxHist(false)}/>}
       {bikouEdit && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={()=>setBikouEdit(null)}>
           <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:16,width:520,maxWidth:'100%',padding:24,boxShadow:'0 10px 40px rgba(0,0,0,0.3)'}}>
@@ -34593,6 +34615,13 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _chgCount = (pl) => { if (!pl || !_baseOf(pl)) return 0; const cur = _snapPlan(pl); let n = 0; [ ...Object.values(cur.cars).flat().map(m=>m.pid), ...cur.walkers, ...cur.others ].forEach(pid => { if (_chgOf(pl, pid)) n++; }); return n + _removedSince(pl).length; };
   // ★ 2026-10-05: この車の中身が基準(確定時)から変わったか(乗る方の増減・順番・時間)。運転者の変更は数えない
   const _carChanged = (pl, cid) => { const base = _baseOf(pl); if (!base) return false; const cur = (pl.cars && pl.cars[cid]) || []; if (cur.some(m => _chgOf(pl, m.pid))) return true; const now = new Set(cur.map(m => String(m.pid))); return ((base.cars && base.cars[cid]) || []).some(m => !now.has(String(m.pid))); };
+  // ★ 2026-10-06(ユーザー要望「変更2 などのところで変更内容が表示されると尚いい」): 週の確定後の変更を一覧にする(_chgCount と同じ数え方)
+  const _carNmOf = (zone) => zone === 'walk' ? '徒歩' : zone === 'other' ? 'その他' : ((cars.find(c => String(c.id) === String(zone)) || {}).name || '車');
+  const _chgListOfWeek = () => { const out = []; days.forEach(d => ['AM','PM'].forEach(sl => { const iso = _iso(d); const pl = plans[`${iso}_${sl}`]; if (!pl || !_baseOf(pl)) return; const cur = _snapPlan(pl), fin = _baseOf(pl);
+    [ ...Object.values(cur.cars).flat().map(m=>m.pid), ...cur.walkers, ...cur.others ].forEach(pid => { let ac = _chgOf(pl, pid); if (!ac) return;
+      if (ac === '車が変更') { const w = _locOf(fin, pid), n = _locOf(cur, pid); ac = `車が変更（${_carNmOf(w && w.zone)}→${_carNmOf(n && n.zone)}）`; }
+      out.push({ iso, sl, pid, ac, tel: !!_dotOf(pl, iso, pid) }); });
+    _removedSince(pl).forEach(pid => out.push({ iso, sl, pid, ac: '確定後に外れた（休みなど）', tel: false })); })); return out; };
   const _finalAtOfWeek = () => { let best = ''; days.forEach(d => ['AM','PM'].forEach(sl => { const f = plans[`${_iso(d)}_${sl}`]?._finalAt; if (f && String(f) > String(best)) best = f; })); return best; };
   const _fmtStamp = (v) => { try { const d = new Date(v); if (isNaN(d)) return ''; return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; } catch { return ''; } };
   const finalizeWeek = () => {
@@ -35852,7 +35881,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           {/* ★ 週の完成確定(2026-09-28): 確定後の変更は赤丸で自動表示 */}
           {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return (
             <button onClick={() => fa ? setFinalMenu(v => !v) : finalizeWeek()} data-testid="tp-finalize" className={`px-2.5 py-2 rounded-xl font-bold text-xs border whitespace-nowrap ${fa?'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100':'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`} title={fa?`確定 ${_fmtStamp(fa)}。押すと今の内容で確定を更新(赤丸は付け直し)`:'この週の送迎表を「確定」として確定。以後に変えた箇所に自動で赤丸が付きます'}>
-              {fa ? <>確定済{tot ? <span className="ml-1 bg-red-600 text-white rounded px-1">変更{tot}</span> : null}<span className="ml-1 text-[9px]">▼</span></> : '確定'}
+              {fa ? <>確定済{tot ? <span className="ml-1 bg-red-600 text-white rounded px-1" data-testid="tp-chg-badge">変更{tot}</span> : null}<span className="ml-1 text-[9px]">▼</span></> : '確定'}
             </button>
           ); })()}
           {!!_finalAtOfWeek() && tpEdit && <button type="button" data-testid="tp-board-mode" onClick={()=>setTpEdit(false)} className="px-2.5 py-2 rounded-xl font-bold text-xs border border-emerald-300 bg-emerald-50 text-emerald-800 whitespace-nowrap">一覧に戻る</button>}
@@ -35860,7 +35889,20 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <div className="fixed inset-0 bg-slate-900/50 flex items-start justify-center p-4 pt-24" style={{zIndex:10000}} onClick={()=>setFinalMenu(false)}>
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={e=>e.stopPropagation()} data-testid="tp-final-menu">
                 <div className="font-bold text-slate-800 mb-1">この週は確定済みです</div>
-                <div className="text-[11px] text-slate-500 mb-4">確定 {_fmtStamp(_finalAtOfWeek())}。確定後に変えた箇所には赤丸が付いています。</div>
+                <div className="text-[11px] text-slate-500 mb-3">確定 {_fmtStamp(_finalAtOfWeek())}。ご家族への連絡が必要な変更は、時間が赤い枠になっています。</div>
+                {(() => { const cl = _chgListOfWeek(); if (!cl.length) return <div className="text-xs text-slate-500 mb-4" data-testid="tp-chg-none">確定後の変更はありません。</div>; return (
+                  <div className="mb-4" data-testid="tp-chg-list">
+                    <div className="text-xs font-bold text-slate-700 mb-1">確定後の変更（{cl.length}件）</div>
+                    <div className="max-h-64 overflow-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+                      {cl.map((x, i) => { const d = new Date(x.iso + 'T00:00:00'); return (
+                        <div key={i} className="px-2.5 py-1.5 text-xs leading-snug" data-testid="tp-chg-item">
+                          <span className="font-bold text-slate-600 tabular-nums whitespace-nowrap">{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{x.sl==='AM'?'午前':'午後'}</span>
+                          <span className="font-bold text-slate-800 ml-1.5">{_pname(x.pid)}</span>
+                          <span className="text-slate-700 ml-1.5">{x.ac}</span>
+                          {x.tel && <span className="ml-1.5 text-[10px] font-bold text-red-700 border border-red-400 rounded px-1 whitespace-nowrap">要連絡</span>}
+                        </div>); })}
+                    </div>
+                  </div>); })()}
                 <div className="space-y-2">
                   <button onClick={()=>{ setFinalMenu(false); finalizeWeek(); }} className="w-full py-2.5 rounded-xl font-bold text-sm bg-emerald-600 hover:bg-emerald-700 text-white">確定を更新（今の内容で確定し直す）</button>
                   <button onClick={unfinalizeWeek} data-testid="tp-unfinalize" className="w-full py-2.5 rounded-xl font-bold text-sm bg-white border border-amber-300 text-amber-800 hover:bg-amber-50">確定を解除（作成中に戻す）</button>
@@ -36410,6 +36452,14 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
   const patRecords = records.filter(r => r.patientId === selectedPatientId).sort((a,b) => b.date.localeCompare(a.date));
   const lastRecord = patRecords[0] || null;
 
+  // ★ 2026-10-06(ユーザー要望「平均以外に最高と最低も表示して。日付つきで」): 過去の記録(保存済み)の最高・最低と、その測定日
+  const _fitDateLbl = (iso) => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); if (!m) return String(iso || ''); return `${+m[1] === new Date().getFullYear() ? '' : `${m[1]}/`}${+m[2]}/${+m[3]}`; };
+  const _extOfVals = (arr) => { let mx = null, mn = null; arr.forEach(x => { if (x.v == null || isNaN(x.v)) return; if (!mx || x.v > mx.v) mx = x; if (!mn || x.v < mn.v) mn = x; }); return { mx, mn }; };
+  const extVal = (itemId) => _extOfVals(patRecords.map(r => { const v = r.values?.[itemId]; return { v: (v !== undefined && v !== '' && v !== null && !isNaN(Number(v))) ? Number(v) : null, date: r.date }; }));
+  const ExtCell = ({ x, unit, color, children }) => (
+    <div className="px-1 sm:px-2 py-2 text-center leading-tight">
+      {x ? <><div className="font-bold" style={{ color }}>{children || x.v}{!children && unit ? <span className="text-xs opacity-70 ml-0.5">{unit}</span> : null}</div><div className="text-[10px] text-slate-400 tabular-nums">{_fitDateLbl(x.date)}</div></> : <span className="text-slate-300">—</span>}
+    </div>);
   const avgVal = (itemId) => {
     const vals = patRecords.map(r => r.values?.[itemId]).filter(v => v !== undefined && v !== '' && !isNaN(Number(v)));
     if (!vals.length) return null;
@@ -36655,17 +36705,19 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
 
             {/* 入力フォーム */}
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="grid grid-cols-4 bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500">
+              <div className="grid bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500" style={{gridTemplateColumns:'1.35fr 1.1fr 1fr 0.9fr 1fr 1fr'}}>
                 <div className="px-1.5 sm:px-4 py-2">項目</div>
                 <div className="px-1.5 sm:px-4 py-2 text-center">今回入力</div>
-                <div className="px-1.5 sm:px-4 py-2 text-center">前回{lastRecord && <span className="font-normal text-slate-400 ml-1">({lastRecord.date})</span>}</div>
+                <div className="px-1.5 sm:px-4 py-2 text-center">前回{lastRecord && <span className="font-normal text-slate-400 ml-1">({_fitDateLbl(lastRecord.date)})</span>}</div>
                 <div className="px-1.5 sm:px-4 py-2 text-center">平均</div>
+                <div className="px-1 sm:px-2 py-2 text-center">最高<span className="font-normal text-slate-400 ml-0.5">(日付)</span></div>
+                <div className="px-1 sm:px-2 py-2 text-center">最低<span className="font-normal text-slate-400 ml-0.5">(日付)</span></div>
               </div>
               {fitnessItems.map(item => {
                 const prev = lastRecord?.values?.[item.id];
                 const avg = avgVal(item.id);
                 return (
-                  <div key={item.id} className="grid grid-cols-4 border-b border-slate-100 items-center hover:bg-slate-50">
+                  <div key={item.id} className="grid border-b border-slate-100 items-center hover:bg-slate-50" style={{gridTemplateColumns:'1.35fr 1.1fr 1fr 0.9fr 1fr 1fr'}}>
                     <div className="px-1.5 sm:px-4 py-3 font-bold text-[13px] sm:text-sm text-slate-700 leading-tight">{item.name}<span className="text-xs text-slate-400 ml-0.5">（{item.unit}）</span></div>
                     <div className="px-1 sm:px-4 py-2">
                       {/* ★ タップでテンキーを表示。 手入力(OSキーボード)も可能で、全角は半角へ自動変換する */}
@@ -36695,14 +36747,22 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                     <div className="px-1 sm:px-4 py-2 text-center">
                       {avg !== null ? <span className="font-bold text-green-700">{avg}<span className="text-xs text-green-500 ml-0.5">{item.unit}</span></span> : <span className="text-slate-300">—</span>}
                     </div>
+                    {(() => { const e = extVal(item.id); return <>
+                      <div data-testid={`fit-max-${item.id}`} className="contents"><ExtCell x={e.mx} unit={item.unit} color="#b45309" /></div>
+                      <div data-testid={`fit-min-${item.id}`} className="contents"><ExtCell x={e.mn} unit={item.unit} color="#1d4ed8" /></div>
+                    </>; })()}
                   </div>
                 );
               }).flatMap((row, i) => (fitnessItems[i] && fitnessItems[i].id === 'weight') ? [row, (
-                <div key="__bmi" data-testid="bmi-row" className="grid grid-cols-4 border-b border-slate-100 items-center bg-slate-50/60">
+                <div key="__bmi" data-testid="bmi-row" className="grid border-b border-slate-100 items-center bg-slate-50/60" style={{gridTemplateColumns:'1.35fr 1.1fr 1fr 0.9fr 1fr 1fr'}}>
                   <div className="px-1.5 sm:px-4 py-3 font-bold text-[13px] sm:text-sm text-slate-700 leading-tight">BMI<span className="text-[10px] text-slate-400 ml-1 font-normal">（自動計算）</span></div>
                   <div className="px-1 sm:px-4 py-2 text-center"><BmiBadge bmi={_curBmi} />{_curBmiPrevH && <div className="text-[9px] text-slate-400 mt-0.5">身長は前回の値</div>}</div>
                   <div className="px-1 sm:px-4 py-2 text-center"><BmiBadge bmi={_lastBmi} /></div>
                   <div className="px-1 sm:px-4 py-2 text-center"><BmiBadge bmi={_avgBmi} /></div>
+                  {(() => { const e = _extOfVals(patRecords.map((r, i) => ({ v: _bmiOfRec(r, i), date: r.date }))); return <>
+                    <ExtCell x={e.mx}>{e.mx ? <BmiBadge bmi={e.mx.v} small /> : null}</ExtCell>
+                    <ExtCell x={e.mn}>{e.mn ? <BmiBadge bmi={e.mn.v} small /> : null}</ExtCell>
+                  </>; })()}
                 </div>
               )] : [row])}
               {/* ★ BMI の基準(色分けの見方) */}
@@ -50946,12 +51006,14 @@ function FaxHistoryRecordModal({ defaultRecord, onSave, onClose }) {
 }
 
 // === FAX送付履歴一覧モーダル ===
-function FaxHistoryListModal({ history, typeLabel, onDelete, onClose }) {
+function FaxHistoryListModal({ history, typeLabel, patients, onDelete, onClose }) {
   const [search, setSearch] = useState('');
   const filtered = (history||[]).filter(h => {
     if (!search.trim()) return true;
-    return tsuSearchHit(search, h.recipientName, h.recipientFax, h.subject, h.patientName, h.note);
-  }).sort((a,b) => (b.timestamp||'').localeCompare(a.timestamp||''));
+    // ★ 利用者名は漢字だけ持っているので、利用者マスタのフリガナも引いて ひらがな/カタカナ でも一致させる
+    const _pt = (patients||[]).find(p => p && ((h.patientId != null && String(p.id) === String(h.patientId)) || (h.patientName && p.name === h.patientName)));
+    return tsuSearchHit(search, h.recipientName, h.recipientFax, h.subject, h.patientName, _pt?.kana, h.note);
+  }).sort((a,b) => String(b.timestamp||'').localeCompare(String(a.timestamp||'')));
   return (
     <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.7)',zIndex:10000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={onClose}>
       <div className="tsu-cap-dvh" style={{background:'white',borderRadius:16,maxWidth:720,width:'100%',maxHeight:'85vh',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}} onClick={e=>e.stopPropagation()}>
@@ -51764,7 +51826,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
           ))}
         </div>
       </div>
-      {showFaxHist && <FaxHistoryListModal history={absHistory} typeLabel="休み連絡" onDelete={deleteAbsHist} onClose={()=>setShowFaxHist(false)}/>}
+      {showFaxHist && <FaxHistoryListModal history={absHistory} typeLabel="休み連絡" patients={appData.patients} onDelete={deleteAbsHist} onClose={()=>setShowFaxHist(false)}/>}
     </div>
   );
 }
@@ -52225,7 +52287,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
           </div>
         </div>
       </div>
-      {showFaxHist && <FaxHistoryListModal history={genHistory} typeLabel="各種連絡" onDelete={deleteGenHist} onClose={()=>setShowFaxHist(false)}/>}
+      {showFaxHist && <FaxHistoryListModal history={genHistory} typeLabel="各種連絡" patients={appData.patients} onDelete={deleteGenHist} onClose={()=>setShowFaxHist(false)}/>}
       {showTemplates && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}
              onClick={()=>{setShowTemplates(false);setTplEdit(null);}}>
