@@ -11379,11 +11379,11 @@ function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = 
   const tog = () => setOpen(v => { const nv = !v; try { localStorage.setItem('tsuFold_' + storageKey, nv ? '1' : '0'); } catch {} return nv; });
   return (
     <div data-testid={`fold-${storageKey}`} className={`${sticky ? 'sticky top-0 z-30' : ''} bg-white border-b border-slate-200 shadow-sm ${className}`}>
-      <div className="flex items-center gap-2 px-2 py-1.5" style={{minHeight:48}}>
-        <div className="flex-1 min-w-0 flex items-center gap-2 overflow-hidden">{summary}</div>
+      <div className="flex items-center gap-1.5 px-2 py-1.5" style={{minHeight:48}}>
+        <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden">{summary}</div>
         <button type="button" data-testid={`fold-btn-${storageKey}`} onClick={tog} aria-expanded={open}
-          className={`shrink-0 h-10 px-3 rounded-xl text-sm font-bold border whitespace-nowrap ${open ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-700 border-slate-300'}`}>
-          {open ? '操作 ▲' : '操作 ▼'}
+          className={`shrink-0 h-10 px-2.5 rounded-xl text-sm font-bold border whitespace-nowrap ${open ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-700 border-slate-300'}`}>
+          {open ? '操作▲' : '操作▼'}
         </button>
       </div>
       {/* 閉じているときも中身は消さずに高さ0で隠す(中にある確認の小窓=画面全体に出る窓 が開けなくならないように) */}
@@ -11394,6 +11394,64 @@ function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = 
 
 // 保存の時間切れ(容量に応じて20〜80秒)の控え。測るのは5分に1回(App の _retryPush で使う)
 const _tsuPushTmo = { at: 0, tmo: 20000 };
+
+// ★ 2026-10-08(ユーザー要望「スマホでも連絡帳の全体を常に表示。横・縦とも左右はぴったり、上下はスクロール」):
+//   スマホ(縦=幅768未満、または横向きのスマホ)かどうか。回転にも追従する。
+function useTsuIsPhoneDevice() {
+  const calc = () => { try { const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches; const small = Math.min(window.screen.width || 9999, window.screen.height || 9999) < 600; return window.innerWidth < 768 || (coarse && small); } catch { return false; } };
+  const [on, setOn] = React.useState(calc);
+  React.useEffect(() => { const h = () => setOn(calc()); window.addEventListener('resize', h); window.addEventListener('orientationchange', h); return () => { window.removeEventListener('resize', h); window.removeEventListener('orientationchange', h); }; }, []);
+  return on;
+}
+// 中身(用紙)を枠の幅にぴったり合うよう縮小(拡大はしない)。transform なので中身の作りは変えない。縮めた分の高さは外枠で詰める。回転などで幅が変われば追従
+function TsuFitWidth({ children }) {
+  const outerRef = React.useRef(null);
+  const innerRef = React.useRef(null);
+  const [fit, setFit] = React.useState({ s: 1, h: null });
+  React.useLayoutEffect(() => {
+    const calc = () => {
+      const o = outerRef.current, i = innerRef.current; if (!o || !i) return;
+      const iw = i.offsetWidth, ih = i.offsetHeight, ow = o.clientWidth;
+      if (!iw || !ow) return;
+      const sc = Math.min(1, ow / iw);
+      setFit(prev => (Math.abs(prev.s - sc) < 0.001 && prev.h === Math.ceil(ih * sc)) ? prev : { s: sc, h: Math.ceil(ih * sc) });
+    };
+    calc();
+    let ro = null;
+    try { ro = new ResizeObserver(calc); ro.observe(outerRef.current); ro.observe(innerRef.current); } catch { window.addEventListener('resize', calc); }
+    return () => { if (ro) ro.disconnect(); else window.removeEventListener('resize', calc); };
+  }, []);
+  return (
+    <div ref={outerRef} data-fit-scale={fit.s.toFixed(3)} style={{ width: '100%', overflow: 'hidden', height: fit.h == null ? undefined : fit.h }}>
+      <div ref={innerRef} style={{ width: 'max-content', transform: fit.s < 1 ? `scale(${fit.s})` : undefined, transformOrigin: 'top left', margin: fit.s < 1 ? 0 : '0 auto' }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+// 画面に近いときだけ中身を描く(離れたら片付けて、測った高さの空枠に戻す)。重い用紙をたくさん並べてもメモリを使い過ぎない
+function TsuLazyMount({ estHeight = 600, margin = 900, children, testId }) {
+  const ref = React.useRef(null);
+  const [vis, setVis] = React.useState(false);
+  const [h, setH] = React.useState(estHeight);
+  React.useEffect(() => {
+    const el = ref.current; if (!el) return;
+    let io = null;
+    // 実際にスクロールしている枠を基準にする(画面全体を基準にすると、枠の外の用紙は余白を見込んでも「見えていない」扱いになる)
+    let root = el.parentElement;
+    while (root && root !== document.body) { const oy = getComputedStyle(root).overflowY; if ((oy === 'auto' || oy === 'scroll') && root.clientHeight <= window.innerHeight + 1) break; root = root.parentElement; }
+    if (!root || root === document.body) root = null;
+    try { io = new IntersectionObserver(es => { es.forEach(e => setVis(e.isIntersecting)); }, { root, rootMargin: `${margin}px 0px` }); io.observe(el); } catch { setVis(true); }
+    return () => { try { io && io.disconnect(); } catch {} };
+  }, [margin]);
+  React.useEffect(() => {
+    if (!vis) return; const el = ref.current; if (!el) return;
+    let ro = null; const m = () => { const hh = el.firstChild ? el.firstChild.offsetHeight : 0; if (hh > 0) setH(hh); };
+    m(); try { ro = new ResizeObserver(m); el.firstChild && ro.observe(el.firstChild); } catch {}
+    return () => { try { ro && ro.disconnect(); } catch {} };
+  }, [vis]);
+  return <div ref={ref} data-testid={testId} data-mounted={vis ? '1' : '0'} style={vis ? undefined : { height: h }}>{vis ? <div>{children}</div> : null}</div>;
+}
 
 function SidebarItem({ icon, label, active, onClick, badge }) {
   return (
@@ -25197,6 +25255,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           {['AM','PM'].map(v=>(<button key={v} type="button" onClick={()=>setTimeFilter(v)} className={`px-2.5 h-10 text-sm font-bold ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600'}`}>{v}</button>))}
         </div>
         <button type="button" data-testid="rec-fold-save" onClick={()=>handleSaveClick(false)} className="shrink-0 h-10 px-3 rounded-xl bg-blue-600 text-white text-sm font-bold">保存</button>
+        {/* ★ 2026-10-08(ユーザー要望): よく使う連絡帳も1行目に */}
+        <button type="button" data-testid="rec-fold-renraku" onClick={()=>{ handleSaveClick(); navigateTo('print'); }} className="shrink-0 h-10 px-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold whitespace-nowrap">連絡帳</button>
       </>); })()}>
       <>
       <div data-testid="rec-toolbar" className="bg-white px-2 py-2 sm:px-4 sm:py-3 rounded-2xl shadow-sm border border-slate-200 flex flex-row items-center gap-2 sm:gap-3 flex-wrap flex-shrink-0 sticky top-0 z-30 mb-2 sm:mb-4">
@@ -25212,7 +25272,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   const closed=(appData.systemSettings?.facilityInfo?.closedDays||[0]);
                   setSelectedDate(nearestOpenDate(e.target.value, closed, []));
                 }} className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold outline-none cursor-pointer text-slate-700 flex-1 sm:flex-none sm:shrink-0" style={{minHeight:40,minWidth:150}} />
-                  <div className="flex rounded-xl overflow-hidden border border-slate-300 shrink-0">
+                  {/* ★ 2026-10-08(ユーザー指示): スマホは1行目(要約)に AM/PM・保存・連絡帳があるので、開いた中には出さない */}
+                  <div className="hidden sm:flex rounded-xl overflow-hidden border border-slate-300 shrink-0">
                     {['AM','PM'].map(v=>(
                       <button key={v} type="button" onClick={()=>setTimeFilter(v)}
                         className={`px-4 py-2 text-sm font-bold transition-all shrink-0 ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-50'}`}>{v}</button>
@@ -25320,16 +25381,16 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 ), document.body)}
               </div>
             )}
-            <div data-testid="rec-actions" className="w-full sm:w-auto sm:ml-auto grid grid-cols-4 sm:flex items-center gap-1.5 sm:gap-2 sm:flex-wrap">
+            <div data-testid="rec-actions" className="w-full sm:w-auto sm:ml-auto grid grid-cols-2 sm:flex items-center gap-1.5 sm:gap-2 sm:flex-wrap">
               {/* ★ 連絡帳は一番左(全画面の左)に配置(2026-08-28 店舗要望) */}
-              <button onClick={() => { handleSaveClick(); navigateTo('print'); }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 sm:px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap">連絡帳</button>
+              <button onClick={() => { handleSaveClick(); navigateTo('print'); }} className="hidden sm:block bg-emerald-600 hover:bg-emerald-700 text-white px-2 sm:px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap">連絡帳</button>
               <button onClick={()=>setIsFullscreen(v=>!v)} className="bg-slate-700 hover:bg-slate-800 text-white px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title={isFullscreen?'通常表示':'全画面表示'}>
                 {isFullscreen ? '通常表示' : '全画面'}
               </button>
               <button onClick={()=>setRestoreModal(true)} className="bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="保存した記録を丸ごと復元(元に戻す)">元に戻す</button>
               {/* ★ onClick={handleSaveClick} だとクリックイベントが第1引数(auto)に渡り auto=truthy(自動保存扱い)になり、
                   「保存しました」が出ず担当者チェックも飛ばされていた。 明示的に auto=false で呼ぶ。 */}
-              <button onClick={()=>handleSaveClick(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-2 sm:px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap">保存</button>
+              <button onClick={()=>handleSaveClick(false)} className="hidden sm:block bg-blue-600 hover:bg-blue-700 text-white px-2 sm:px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap">保存</button>
             </div>
       </div>
       {_vitalPanel}
@@ -32854,6 +32915,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [renrakuModal, setRenrakuModal] = useState(null); // {patientId} 連絡事項の編集
+  const _renPhone = useTsuIsPhoneDevice(); // ★ 2026-10-08: スマホ(縦・横)は用紙を画面幅に合わせて全員分を表示
   const [showPrintCards, setShowPrintCards] = useState(false); // ★ 印刷用の隠しカードは印刷時だけ描画(スマホのメモリ対策)
   const [printMissingConfirm, setPrintMissingConfirm] = useState(null); // ★ 次回予定未入力の確認 {names:[]}(2026-09-09)
   const [showPrintSettings, setShowPrintSettings] = useState(false); // ★ 右上「詳細設定」パネル(面数/用紙/補助線)
@@ -33982,27 +34044,32 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         )}
 
         {(() => {
-          // ★ スマホ(<768px)は重い連絡帳カードを描画するとメモリ不足で落ちる(Safariが「問題が起きた」で再読込)。
-          //   そのため スマホでは カードを描画せず軽い一覧にし、「開く」を押した1人だけカードを描画する。
-          const isNarrow = typeof window !== 'undefined' && window.innerWidth < 768;
-          if (isNarrow) {
+          // ★ スマホ(<768px)は重い連絡帳カードを全員分描画するとメモリ不足で落ちる(Safariが「問題が起きた」で再読込)。
+          // ★ 2026-10-08(ユーザー要望): スマホでも連絡帳の全体を常に表示する。用紙は画面の幅にぴったり縮小(縦・横とも)、上下はスクロール。
+          //   メモリ対策として、画面に近い用紙だけを描き、離れた用紙は片付ける(TsuLazyMount)。
+          if (_renPhone) {
             return (
-              <div className="flex flex-col gap-2 px-1 pb-8">
+              <div className="flex flex-col gap-3 px-1 pb-8" data-testid="renraku-phone-list">
                 {displayRecords.length === 0 && <div className="text-center text-slate-500 font-bold py-12 w-full">選択された日付の出席記録がありません。</div>}
-                <div className="text-[12px] text-slate-500 font-bold bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-1">スマホでは一覧表示です。連絡事項の入力と印刷はここからできます（連絡帳の全体はタブレット・パソコンで確認できます）。</div>
                 {displayRecords.map((record) => {
                   const patient = (appData.patients||[]).find(p => p.id === record.patientId);
                   if (!patient) return null;
                   return (
                     <div key={record.id} className="bg-white rounded-xl border border-slate-300 shadow-sm overflow-hidden">
-                      <div className="flex items-center justify-between gap-2 px-3 py-2.5">
+                      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-slate-200">
                         <span className="font-bold text-slate-800 truncate">{patient.name} <span className="text-slate-400 font-normal text-sm">様</span></span>
                         <div className="flex items-center gap-1.5 shrink-0">
-                          <button onClick={()=>setRenrakuModal({ patientId: patient.id })} className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-100 text-emerald-700">連絡事項</button>
-                          <button onClick={()=>doPrint([record.patientId])} className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-blue-100 text-blue-700">印刷</button>
+                          <button onClick={()=>setRenrakuModal({ patientId: patient.id })} className="min-h-[40px] px-3 rounded-lg text-sm font-bold bg-emerald-100 text-emerald-700">連絡事項</button>
+                          <button onClick={()=>doPrint([record.patientId])} className="min-h-[40px] px-3 rounded-lg text-sm font-bold bg-blue-100 text-blue-700">印刷</button>
                         </div>
                       </div>
-                      {/* ★ 2026-10-08(ユーザー指示): スマホの「開く」(連絡帳の用紙をその場で表示)は廃止 */}
+                      <div className="p-1">
+                        <TsuLazyMount estHeight={Math.round((typeof window !== 'undefined' ? window.innerWidth : 390) * 1.35)} testId={`renraku-lazy-${record.patientId}`}>
+                          <TsuFitWidth>
+                            <ContactBookCard record={record} patient={patient} selectedDate={selectedDate} config={appData.contactBookConfig} appData={appData} onOpenConfig={() => setIsConfigOpen(true)} onEditPatientValue={openPatientValueEdit} onEditRenraku={(p)=>setRenrakuModal({ patientId: p.id })} />
+                          </TsuFitWidth>
+                        </TsuLazyMount>
+                      </div>
                     </div>
                   );
                 })}
@@ -46224,8 +46291,41 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
               <div className="text-[13px] font-bold text-slate-600 mb-1">記録者</div>
               <div className="flex flex-wrap gap-2">{recList.map(x => chip(!!_rc[x.id], x.name, () => toggle('recorder', x.id), `rec_${x.id}`, `dpc-rec-${x.id}`))}</div>
             </div>}
+            {/* ★ 2026-10-08(ユーザー報告「日誌の送迎のボタンも小さくて押しづらい」): 車ごとに 迎え・送り の時刻と送迎者を大きなボタンで(用紙と同じ項目・同じ動き)。
+                割り当てのない側は押せない(用紙のグレーと同じ) */}
+            {(ds.cars || []).length > 0 && <div data-testid="dpc-cars">
+              <div className="text-[13px] font-bold text-slate-600 mb-1">送迎（車ごと）</div>
+              <div className="space-y-2">
+                {ds.cars.map(car => {
+                  const ct = (log.carTimes || {})[car.id] || {};
+                  const _drv = log.driver || {};
+                  const cand = (prefix) => { const seen = new Set(); return ds.staff.filter(x => x.name && _staffOk(x) && (!_anySt || _st[x.id] || _drv[prefix + x.id])).filter(x => { const k = normalizeName(x.name).trim(); if (seen.has(k)) return false; seen.add(k); return true; }); };
+                  const side = (kind) => {
+                    const isPick = kind === 'pick';
+                    const prefix = (isPick ? 'a_' : 'd_') + car.id + '_';
+                    const unused = !diaryCarUsed(log, kind, car.id, _carUseOpts) && !(isPick ? ct.arrive : ct.depart);
+                    const tv = isPick ? ct.arrive : ct.depart;
+                    return (
+                      <div className={`rounded-lg px-2 py-1.5 ${unused ? 'bg-slate-100 opacity-60' : 'bg-slate-50'}`}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[13px] font-bold text-slate-700 w-8">{isPick ? '迎え' : '送り'}</span>
+                          <button type="button" disabled={unused} data-testid={`dpc-time-${kind}-${car.id}`} onClick={() => openTimeKeypad(car.id, isPick ? 'arrive' : 'depart', tv)} className="min-h-[40px] px-3 rounded-lg border-2 border-slate-300 bg-white text-[15px] font-bold text-blue-700 disabled:opacity-50">{isPick ? '到着' : '出発'} {tv || '__:__'}</button>
+                          {unused && <span className="text-[11px] text-slate-500">割り当てなし</span>}
+                        </div>
+                        {!unused && <div className="flex flex-wrap gap-2">{cand(prefix).map(x => chip(!!_drv[prefix + x.id], x.name, () => toggle('driver', prefix + x.id), `${prefix}${x.id}`, `dpc-drv-${prefix}${x.id}`))}</div>}
+                      </div>
+                    );
+                  };
+                  return (
+                    <div key={car.id} className="border border-slate-200 rounded-xl p-2">
+                      <div className="text-[14px] font-bold text-slate-800 mb-1">{car.name}</div>
+                      <div className="space-y-1.5">{side('pick')}{side('drop')}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>}
             <div>{chip(!!log.managerConfirmed, `${managerName}は上記記録を確認しました`, () => updateLog({ managerConfirmed: !log.managerConfirmed }), 'mgr', 'dpc-mgr')}</div>
-            <div className="text-[11px] text-slate-500">送迎者（迎え・送り）は下の用紙で選べます（氏名を押してもチェックできます）。</div>
           </div>
         );
       })()}
