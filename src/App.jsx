@@ -2374,15 +2374,27 @@ if (typeof window !== 'undefined' && !window.__tsumugiInvitePrintedBound) {
   window.__tsumugiInvitePrintedBound = true;
   window.addEventListener('message', (e) => { try { const d = e && e.data; if (d && d.type === 'tsumugiInvitePrinted' && d.code) { const h = _invitePrintHandlers.get(String(d.code)); if (h) { _invitePrintHandlers.delete(String(d.code)); h(); } } } catch {} });
 }
+// ★ 2026-10-07(ユーザー指示「紙で招待の印刷はダウンロードに」): 案内用紙は他の書類と同じく PDF を直接ダウンロードする。
+//   ダウンロードできた時点で「紙で招待済み」にし、招待を有効化(onPrinted)する
 const openInviteSheet = (o, onPrinted) => {
-  // ★ ホーム画面アプリ: 重ねて表示し、上のバーの「印刷」で紙で招待済みにする
-  if (_tsumugiInPageMode()) { tsumugiShowHtmlInPage(buildInviteSheetHtml(o), { onPrint: onPrinted ? () => onPrinted() : null }); return; }
-  const w = window.open('', '_blank'); if (!w) { alert('印刷用の画面を開けませんでした。ポップアップの許可をご確認ください。'); return; }
-  if (onPrinted && o.code) _invitePrintHandlers.set(String(o.code), onPrinted);
-  w.document.write(buildInviteSheetHtml(o)); w.document.close(); setTimeout(()=>{ try { w.focus(); } catch {} }, 100);
+  const html = buildInviteSheetHtml(o).replace(/<button class="pbtn"[\s\S]*?<\/button>/, '').replace(/<script>[\s\S]*?<\/script>/g, '');
+  const win = tsumugiOpenPdfWindow();
+  try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: '案内用紙のPDFを作成しています…' } })); } catch {}
+  tsumugiServerPdf({ html, pageSize: 'A4 portrait', title: o.title || '登録のご案内', win })
+    .then(() => { if (onPrinted) { try { onPrinted(); } catch (e) { console.warn(e); } } })
+    .catch(e => alert('案内用紙のPDFを作成できませんでした: ' + (e && e.message || e) + '\n通信状態を確認して、もう一度お試しください。'));
 };
+// ★ 2026-10-07(店舗報告「紙で招待した招待を削除しても消えない・ちらつく」): 削除した招待コードを端末に控える(14日)。
+//   削除の最中に10秒ごとのクラウド再取得が「削除前の一覧」を持ってくると招待が戻り、手元にしか無い招待として居座っていた。
+//   控えにあるコードはクラウドの一覧・手元の一覧のどちらからも表示しない
+const _TSU_INV_TOMB_KEY = 'tsumugiInviteTomb';
+const _tsuInvTombLoad = () => { try { const o = JSON.parse(localStorage.getItem(_TSU_INV_TOMB_KEY) || '{}'); const now = Date.now(); Object.keys(o).forEach(k => { if (now - Number(o[k] || 0) > 14 * 86400000) delete o[k]; }); return o; } catch { return {}; } };
+let _tsuInvTombMem = null; const _tsuInvTomb = () => (_tsuInvTombMem || (_tsuInvTombMem = _tsuInvTombLoad()));
+const tsuInvTombAdd = (codes) => { const o = _tsuInvTomb(); (codes || []).filter(Boolean).forEach(c => { o[String(c).toUpperCase()] = Date.now(); }); try { localStorage.setItem(_TSU_INV_TOMB_KEY, JSON.stringify(o)); } catch {} };
+const tsuInvTombDel = (codes) => { const o = _tsuInvTomb(); (codes || []).filter(Boolean).forEach(c => { delete o[String(c).toUpperCase()]; }); try { localStorage.setItem(_TSU_INV_TOMB_KEY, JSON.stringify(o)); } catch {} };
+const tsuInvTombHas = (code) => !!code && !!_tsuInvTomb()[String(code).toUpperCase()];
 // 招待の経路ラベル(一覧・担当者カード用)
-const inviteChannelLabel = (inv) => { const ch = inv?.channel || (inv?.email ? 'mail' : 'code'); if (ch === 'paper') return inv.printedAt ? '紙（印刷済）' : '紙（印刷待ち）'; if (ch === 'mail') return 'メール'; return 'コード'; };
+const inviteChannelLabel = (inv) => { const ch = inv?.channel || (inv?.email ? 'mail' : 'code'); if (ch === 'paper') return inv.printedAt ? '紙（DL済）' : '紙（DL待ち）'; if (ch === 'mail') return 'メール'; return 'コード'; };
 
 // URL-safe base64 (招待データを URL に埋め込んで端末越しに動作させるため)
 // encodeInviteToken / decodeInviteToken / normalizeInviteCode は ./lib/logic.js に移動 (自動テスト対象)
@@ -37433,7 +37445,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
       try {
         const _res = await supabaseListInvitesAndAccountsForPatient(pat.id, _storeId);
         if (!_res) return; // ★ 取得失敗(null)は何もしない: 空で上書きして消える/点滅するのを防ぐ(2026-08-11)
-        const { invites, accounts } = _res;
+        const { invites: _invAll, accounts } = _res;
+        // ★ 削除済み(控え)の招待はクラウドに残っていても表示しない。残っていればもう一度削除を試みる
+        const invites = (_invAll || []).filter(i => { if (!tsuInvTombHas(i.code)) return true; try { supabaseDeleteInviteByCode(i.code).catch(() => {}); } catch {} return false; });
         // 該当 patient の invites/accounts をローカルにマージ (他患者のは保持・最新appData基準)
         const _cur0 = _famAppDataRef.current || {};
         const localInv = (_cur0.familyInvites||[]).filter(i => i.patientId !== pat.id);
@@ -37450,7 +37464,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             _fromSupabase: true, _cloud: true };
         });
         const _cloudCodes = new Set(invites.map(i => i.code));
-        const _localOnlyInv = _curInvAll.filter(l => !_cloudCodes.has(l.code));
+        const _localOnlyInv = _curInvAll.filter(l => !_cloudCodes.has(l.code) && !tsuInvTombHas(l.code));
         const mappedAcc = accounts
           .filter(a => !deletingAccIdsRef.current.has(a.id)) // ★ 削除中/削除済みは復活させない
           .map(a => ({
@@ -40516,7 +40530,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     openInviteSheet({ kind: 'family', title: `ご家族専用ページ 登録のご案内 ${pat.name}`, facilityName: facility.name||'', facilityPhone: facility.phone||'', patientName: pat.name||'', code: inv.code, expiresAt: inv.expiresAt, url: inviteUrlOf(inv), loginUrl }, () => _markPrinted(inv));
                   };
                   const issuePaperInvite = () => {
-                    const relation = window.prompt('続柄を入力してください (例: 配偶者、長男、長女 など。空欄可)\n※ この用紙で登録できるのは1人・1回です。用紙の「印刷する」を押した時点で招待が有効になります:') ;
+                    const relation = window.prompt('続柄を入力してください (例: 配偶者、長男、長女 など。空欄可)\n※ この用紙で登録できるのは1人・1回です。案内用紙のPDFをダウンロードした時点で招待が有効になります:') ;
                     if (relation === null) return;
                     const inv = issueNewInvite({ relation: (relation||'').trim(), channel: 'paper', deferCloud: true });
                     printInviteSheet(inv);
@@ -40524,6 +40538,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   // ★ 期限切れ・未使用の招待を同じ宛先で再発行(旧コードは無効化)。メール宛先があれば再送、無ければ用紙を印刷
                   const reissueInvite = async (old) => {
                     if (!window.confirm(`この招待を再発行します（新しいコード・有効期限${INVITE_VALID_DAYS}日）。古いコードは使えなくなります。よろしいですか？`)) return;
+                    if (old?.code) tsuInvTombAdd([old.code]);
                     if (isSupabaseEnabled && old?.code) { try { await supabaseDeleteInviteByCode(old.code); } catch (e) { console.warn('[invite] supabase delete failed', e); } }
                     const inv = issueNewInvite({ email: old.email||'', relation: old.relation||'', note: old.note||'' });
                     // issueNewInvite は appData に追加保存するので、旧招待の除去は次の保存で行う
@@ -40540,12 +40555,15 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   };
                   const deleteInvite = async (invId) => {
                     if (!window.confirm('この招待を削除しますか？\n未使用の場合は使用できなくなります。')) return;
-                    // ★ Supabase の招待コードも物理削除 (削除残り防止)
-                    const inv = (appData.familyInvites||[]).find(i => i.id === invId);
+                    // ★ 2026-10-07: 削除済みとして控えてから、最新の内容で画面から消し、クラウドの招待コードも物理削除する
+                    const _c0 = _famAppDataRef.current || appData;
+                    const inv = (_c0.familyInvites||[]).find(i => i.id === invId);
+                    if (inv?.code) tsuInvTombAdd([inv.code]);
+                    onSave({ ..._c0, familyInvites: (_c0.familyInvites||[]).filter(i => i.id !== invId && !(inv?.code && i.code === inv.code)) });
                     if (isSupabaseEnabled && inv?.code) {
-                      try { await supabaseDeleteInviteByCode(inv.code); } catch (e) { console.warn('[invite] supabase delete failed', e); }
+                      const ok = await supabaseDeleteInviteByCode(inv.code).catch(() => false);
+                      if (!ok) { tsuInvTombDel([inv.code]); alert('クラウド側の招待の削除に失敗しました（招待はまだ使える状態です）。\n通信状況を確認のうえ、もう一度「削除」を押してください。'); }
                     }
-                    onSave({...appData, familyInvites: (appData.familyInvites||[]).filter(i => i.id !== invId)});
                   };
                   return (
                     <div className="bg-amber-50 border border-amber-300 rounded-xl p-3">
@@ -40553,12 +40571,12 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                         <div className="text-xs font-bold text-amber-800">家族登録用 招待 (使い捨て・1招待=1人)</div>
                         <div className="flex gap-1">
                           <button onClick={sendMailInvite} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow active:scale-95">メール招待</button>
-                          <button onClick={issuePaperInvite} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow active:scale-95">紙で招待（印刷）</button>
+                          <button onClick={issuePaperInvite} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow active:scale-95">紙で招待（ダウンロード）</button>
                           <button onClick={()=>issueNewInvite()} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow active:scale-95"><Plus size={12}/>コード発行</button>
                         </div>
                       </div>
                       <div className="text-[10px] text-amber-700 mb-2 leading-relaxed">
-                        メール招待: ご家族のメールに招待URLを送ります／紙で招待: QRと招待コード入りの案内用紙を印刷して手渡し（1枚＝1人）<br/>
+                        メール招待: ご家族のメールに招待URLを送ります／紙で招待: QRと招待コード入りの案内用紙をダウンロードし、印刷して手渡し（1枚＝1人）<br/>
                         コード発行: 口頭で招待コードを伝える場合。いずれも有効期限は{INVITE_VALID_DAYS}日・1回限りです
                       </div>
                       {invitesForPat.length === 0 ? (
@@ -40595,7 +40613,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                                       <button onClick={()=>{navigator.clipboard?.writeText(inv.code); _copyToast();}} className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-700 rounded text-[10px] font-bold" title="コードをコピー">コード</button>
                                     )}
                                     {showCodeTools && (
-                                      <button onClick={()=>printInviteSheet(inv)} className="px-2 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded text-[10px] font-bold" title="案内用紙を印刷">印刷</button>
+                                      <button onClick={()=>printInviteSheet(inv)} className="px-2 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded text-[10px] font-bold" title="案内用紙のPDFをダウンロード">ダウンロード</button>
                                     )}
                                     {isExpired && (
                                       <button onClick={()=>reissueInvite(inv)} className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[10px] font-bold" title="新しいコードで再発行">再発行</button>
@@ -40613,7 +40631,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                                         <input readOnly value={inviteUrlOf(inv)} onClick={e=>e.target.select()} className="flex-1 min-w-0 px-2 py-1 bg-white border border-amber-200 rounded text-[10px] font-mono outline-none"/>
                                         <button onClick={()=>copyInviteUrl(inv)} className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold whitespace-nowrap">URLコピー</button>
                                       </div>
-                                      <div className="text-[9px] text-slate-500">メールが無いご家族には「印刷」で案内用紙を渡すか、<b>コード</b>を口頭で伝えてください（ログイン画面の「招待コードをお持ちの方」から登録できます）。有効期限 {inv.expiresAt ? _fmtExpJp(inv.expiresAt) : '—'}</div>
+                                      <div className="text-[9px] text-slate-500">メールが無いご家族には「ダウンロード」した案内用紙を渡すか、<b>コード</b>を口頭で伝えてください（ログイン画面の「招待コードをお持ちの方」から登録できます）。有効期限 {inv.expiresAt ? _fmtExpJp(inv.expiresAt) : '—'}</div>
                                     </div>
                                   </div>
                                 )}
@@ -41862,7 +41880,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
       .then(rows => setSbCmAccounts((rows||[]).filter(r => r.kind === 'caremanager' || r.relation === 'ケアマネージャー')))
       .catch(() => setSbCmAccounts([]));
     supabaseListCmInvitesForStore(_sess.storeId)
-      .then(rows => setSbCmInvites(rows || []))
+      .then(rows => setSbCmInvites((rows || []).filter(iv => !tsuInvTombHas(iv && iv.code))))
       .catch(() => setSbCmInvites([]));
   }, [activeTab, sbCmAccounts]);
   // ケアマネ事業所タブ: 選択中の事業所インデックス (左サイド一覧で選択 → 右の担当者をフィルタ)
@@ -43169,10 +43187,10 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                             const _allAccs = [...(appData.familyAccounts||[]).filter(a=>a.kind==='caremanager'||a.relation==='ケアマネージャー'), ..._sbAccs];
                             const accs = _allAccs.filter(a => ((p.email && a.email && String(a.email).toLowerCase()===String(p.email).toLowerCase()) || (_nameLoose(a.displayName, p.name) && (!a.cmOffice || _nrm(a.cmOffice)===_nrm(p.office)))));
                             // ★ 紙の招待は「印刷する」が押されるまで“招待済み”に数えない(2026-09-27)
-                            const invs = (appData.familyInvites||[]).filter(iv => !iv.usedBy && iv.cmName && _nrm(iv.cmOffice)===_nrm(p.office) && _nrm(iv.cmName)===_nrm(p.name) && (!iv.expiresAt || new Date(iv.expiresAt) > new Date()) && !(iv.channel==='paper' && !iv.printedAt));
+                            const invs = (appData.familyInvites||[]).filter(iv => !iv.usedBy && !tsuInvTombHas(iv.code) && iv.cmName && _nrm(iv.cmOffice)===_nrm(p.office) && _nrm(iv.cmName)===_nrm(p.name) && (!iv.expiresAt || new Date(iv.expiresAt) > new Date()) && !(iv.channel==='paper' && !iv.printedAt));
                             // ★ 2026-09-04: クラウドの招待も参照(送信した端末以外・再読み込み後でも見えるように)。メール一致 or 担当者タグ(patient_name「担当者招待: 事業所/氏名」)で特定
                             const _cmTag = `担当者招待: ${p.office}/${p.name}`;
-                            const sbInvs = (sbCmInvites||[]).filter(iv => !iv.used_by && (!iv.expires_at || new Date(iv.expires_at) > new Date()) && ((p.email && iv.email && String(iv.email).toLowerCase()===String(p.email).toLowerCase()) || (iv.patient_name && _nrm(iv.patient_name)===_nrm(_cmTag))));
+                            const sbInvs = (sbCmInvites||[]).filter(iv => !iv.used_by && !tsuInvTombHas(iv.code) && (!iv.expires_at || new Date(iv.expires_at) > new Date()) && ((p.email && iv.email && String(iv.email).toLowerCase()===String(p.email).toLowerCase()) || (iv.patient_name && _nrm(iv.patient_name)===_nrm(_cmTag))));
                             const _sentAt = invs[0]?.printedAt || invs[0]?.createdAt || sbInvs[0]?.created_at || '';
                             const _sentVia = invs[0] ? (invs[0].channel || (invs[0].email ? 'mail' : 'code')) : (sbInvs[0] ? (sbInvs[0].email ? 'mail' : 'paper') : '');
                             const st = accs.length ? 'ok' : (invs.length || sbInvs.length) ? 'sent' : 'none';
@@ -43180,7 +43198,10 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                             const cancelCmInvites = async () => {
                               if (!window.confirm(`${p.name} さんへの招待を取り消します（お渡し済みの用紙・メールのコードは使えなくなります）。よろしいですか？`)) return;
                               const codes = new Set([...invs.map(i=>i.code), ...sbInvs.map(i=>i.code)].filter(Boolean));
-                              if (isSupabaseEnabled) { for (const c of codes) { try { await supabaseDeleteInviteByCode(c); } catch {} } }
+                              tsuInvTombAdd([...codes]); // ★ 2026-10-07: 取り直しで戻らないように控える
+                              let _fail = 0;
+                              if (isSupabaseEnabled) { for (const c of codes) { const ok = await supabaseDeleteInviteByCode(c).catch(() => false); if (!ok) { _fail++; tsuInvTombDel([c]); } } }
+                              if (_fail) alert(`クラウド側の招待 ${_fail}件 の取り消しに失敗しました（その招待はまだ使える状態です）。\n通信状況を確認のうえ、もう一度「取り消し」を押してください。`);
                               const cur = _cmAppDataRef.current || appData;
                               onSave({ ...cur, familyInvites: (cur.familyInvites||[]).filter(iv => !codes.has(iv.code) && !(iv.cmName && _nrm(iv.cmOffice)===_nrm(p.office) && _nrm(iv.cmName)===_nrm(p.name) && !iv.usedBy)) });
                               setSbCmInvites(prev => (prev||[]).filter(iv => !codes.has(iv.code)));
@@ -43247,12 +43268,12 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                               <div className="mt-1.5 pt-1.5 border-t border-slate-100 flex items-center gap-2 flex-wrap">
                                 {st==='ok' && <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">登録済み{accs[0]?.lastLogin?`（最終ログイン ${String(accs[0].lastLogin).slice(0,10)}）`:''}</span>}
                                 {st==='sent' && <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-300 rounded-full px-2 py-0.5">{_sentVia==='paper'?'紙で招待済み・登録待ち':_sentVia==='code'?'コード発行済み・登録待ち':'招待メール済み・登録待ち'}{_sentAt?`（${String(_sentAt).slice(0,10)} ${_sentVia==='paper'?'印刷':_sentVia==='code'?'発行':'送信'}）`:''}</span>}
-                                {st==='sent' && <button type="button" onClick={cancelCmInvites} className="px-2 py-0.5 rounded-lg text-[10px] font-bold text-red-600 bg-white border border-red-200 hover:bg-red-50 active:scale-95" title="間違えて印刷・送信した招待を無効にする">取り消し</button>}
+                                {st==='sent' && <button type="button" onClick={cancelCmInvites} className="px-2 py-0.5 rounded-lg text-[10px] font-bold text-red-600 bg-white border border-red-200 hover:bg-red-50 active:scale-95" title="間違えてダウンロード・送信した招待を無効にする">取り消し</button>}
                                 {st==='none' && <span className="text-[10px] font-bold text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5">閲覧登録なし</span>}
                                 <span className="text-[10px] text-slate-500">担当利用者 {cmPats.length}名{cmPats.length?`（${cmPats.slice(0,3).map(x=>x.name).join('・')}${cmPats.length>3?` 他${cmPats.length-3}名`:''}）`:''}</span>
                                 {st==='ok' && <span className="text-[10px] font-bold text-emerald-600">閲覧は担当割当に自動同期</span>}
                                 {p.email && <span className="text-[10px] text-slate-400 break-all">{p.email}</span>}
-                                {st!=='ok' && <button type="button" onClick={printCmInvite} className="ml-auto px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold shadow active:scale-95" title="QRと招待コード入りの案内用紙を印刷して手渡し">紙で招待（印刷）</button>}
+                                {st!=='ok' && <button type="button" onClick={printCmInvite} className="ml-auto px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold shadow active:scale-95" title="QRと招待コード入りの案内用紙のPDFをダウンロード(印刷して手渡し)">紙で招待（ダウンロード）</button>}
                                 {st!=='ok' && <button type="button" onClick={sendCmInviteMail} className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold shadow active:scale-95 shrink-0">{st==='sent'?'招待メールを再送':'招待メール'}</button>}
                               </div>
                             );

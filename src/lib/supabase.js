@@ -2142,7 +2142,12 @@ export async function supabaseDeletePatientFamily(storeId, patientId) {
 
 // 招待の削除(サーバー経由・サーバー無し/トークン無しは直接)。 失敗は例外
 async function _inviteDelete(cond, direct, opts) {
-  try { await inviteApi({ action: 'delete', ..._inviteAuth(opts), ...cond }); return true; }
+  try {
+    const j = await inviteApi({ action: 'delete', ..._inviteAuth(opts), ...cond });
+    // ★ 2026-10-07: 対象はあったのに消せなかった(権限外として飛ばされた)ときは失敗にする(画面だけ消えて次の取得で復活するのを防ぐ)
+    if (j && Number(j.deleted) === 0 && Number(j.skipped) > 0) throw new Error('招待を削除する権限がありません');
+    return true;
+  }
   catch (e) {
     if (!_inviteFallbackOk(e)) throw e;
     const r = await direct();
