@@ -8,9 +8,13 @@ const JOBS = [
   ['lp-kankeisha.html', 'つむぎのご案内_ケアマネ向け.pdf'],
   ['sales-onepager.html', 'つむぎご案内_ご家族向け・ケアマネ向け.pdf'],
   ['lp-cm-touroku.html', 'つむぎアカウント登録のお願い_ケアマネ・居宅事業所向け.pdf'],
+  ['guide-kazoku.html', 'つむぎのご紹介_ご家族向け.pdf'],
+  ['guide-kankeisha.html', 'つむぎのご紹介_ケアマネ・関係者向け.pdf'],
 ];
+// --only guide で一部だけ作る(部分一致)
+const ONLY = arg('--only', '');
 const b = await chromium.launch(); let bad = 0;
-for (const [src, name] of JOBS) {
+for (const [src, name] of JOBS.filter(([s]) => !ONLY || s.includes(ONLY))) {
   const page = await b.newPage({ viewport: { width: 1000, height: 1400 } });
   await page.goto(`${BASE}/${src}`, { waitUntil: 'networkidle' }); await page.waitForTimeout(600);
   await page.emulateMedia({ media: 'print' });
