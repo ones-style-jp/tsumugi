@@ -25093,7 +25093,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             {/* ★ 2026-09-29 ユーザー指示: 「氏名で検索」は使わないため非表示(検索の仕組み自体は残す) */}
             {_kinouOn && (
               <div className="relative flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-xl px-2 py-1" title="個別機能訓練を実施した機能訓練指導員。ここで選ぶと表示中の区分(AM/PM)の全員に適用。利用者ごとに変えるときは「利用者ごと」。提供記録の印刷に「個別: ○○」と出ます">
-                <span className="text-[11px] font-bold text-emerald-800 whitespace-nowrap">個別機能訓練 実施</span>
+                <span className="text-[11px] font-bold text-emerald-800 whitespace-nowrap leading-tight text-center">個別機能訓練<br/>実施者</span>
                 <select data-testid="kinou-default" value={_kinouEff} disabled={!isEditMode} onChange={e=>applyKinouAll(e.target.value)} className="text-sm font-bold bg-white border border-emerald-300 rounded-lg px-2 py-1 outline-none disabled:opacity-60">
                   {!_kinouList.includes(_kinouEff) && _kinouEff && _kinouEff !== '未算定' && <option value={_kinouEff}>{_kinouEff}</option>}
                   {_kinouList.map(n => <option key={n} value={n}>{n}</option>)}
@@ -25101,11 +25101,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   {!_kinouList.length && !_kinouEff && <option value="">（機能訓練指導員が未登録）</option>}
                 </select>
                 <button type="button" data-testid="kinou-group-btn" onClick={()=>{ setKinouGroupPanel(true); setKgSel(null); }} className="text-[11px] font-bold rounded-lg px-2 py-1 border bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-100">グループ</button>
-                <span className="text-[11px] font-bold text-emerald-800 whitespace-nowrap">上に</span>
-                <select data-testid="kinou-group-sel" value={kinouGroupSel} onChange={e=>setKinouGroupSel(e.target.value)} title="選んだグループの利用者を表の一番上にまとめて表示します" className="text-[11px] font-bold bg-white border border-emerald-300 text-emerald-900 rounded-lg px-1 py-1">
-                  <option value="">なし</option>
-                  {_kinouGroupsUsed.map(g => <option key={g} value={g}>{g}（{_kinouGroupCount(g)}）</option>)}
-                </select>
+                {kinouGroupSel && <button type="button" data-testid="kinou-group-top-chip" onClick={() => setKinouGroupSel('')} title="押すと上にまとめる表示をやめます" className="text-[11px] font-bold rounded-lg px-2 py-1 border bg-emerald-600 text-white border-emerald-600 whitespace-nowrap">{kinouGroupSel}を上に表示中 ×</button>}
                 {/* ★ グループ振り分けボード(2026-09-30): 画面の最前面に出す(表の見出しの下に隠れないよう body 直下へ) */}
                 {kinouGroupPanel && ReactDOM.createPortal((
                   <div className="fixed inset-0 z-[10050] bg-slate-900/40 flex items-start justify-center p-3 sm:p-6" data-testid="kinou-group-panel">
@@ -25134,6 +25130,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                                 <span className={`text-sm font-bold ${col.key === 'new' ? 'text-emerald-700' : 'text-slate-800'}`}>{col.title}</span>
                                 {isGroup && <span className={`text-[11px] font-bold ${full ? 'text-amber-700' : 'text-slate-500'}`}>{mem.length}/{KINOU_GROUP_MAX}名</span>}
                                 {col.key === 'none' && <span className="text-[11px] text-slate-500">{mem.length}名</span>}
+                                {/* ★ 2026-10-07(ユーザー要望): 表の一番上にまとめて表示するグループはここで選ぶ(上部の「上に」は廃止) */}
+                                {isGroup && mem.length > 0 && <button type="button" data-testid={`kg-top-${col.key}`} onClick={e=>{ e.stopPropagation(); setKinouGroupSel(v => v === col.key ? '' : col.key); }} title="このグループの方を、提供記録の表の一番上にまとめて表示します" className={`ml-auto text-[10px] font-bold rounded-full px-2 py-0.5 border whitespace-nowrap ${kinouGroupSel === col.key ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-50'}`}>{kinouGroupSel === col.key ? '上に表示中' : '上に表示'}</button>}
                                 {removable && <button type="button" title="空のグループを消す" onClick={e=>{ e.stopPropagation(); setKinouExtraGroups(x => x.filter(g => g !== col.key)); }} className="ml-auto text-slate-400 hover:text-red-600 text-xs font-bold">×</button>}
                               </div>
                               {isGroup && (
@@ -44687,7 +44685,9 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
       }
       return ampm === 'AM';
     }
-    return [ampm,'1日'].includes(p.scheduleAmPm?.[dow]);
+    // ★ 2026-10-07: その日時点の基本利用曜日で判定(曜日を変えた方の過去の日誌から欠席などの記録が抜けないように)
+    const _slotD = (getScheduleOnDate(p, selectedDate) || p.scheduleAmPm || [])[dow];
+    return [ampm,'1日'].includes(_slotD);
   };
   // ソート: 出席 → 振替 → 欠席 → 休止 → 休業 → その他
   const _statusRank = (st) => st === '出席' ? 0 : (st === '振替' || st === '臨時') ? 1 : st === '欠席' ? 2 : st === '休止' ? 3 : st === '休業' ? 4 : 5;
@@ -44729,19 +44729,34 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     } catch {}
     return '';
   };
+  // ★ 2026-10-07(ユーザー指示「基本利用日の利用者は、欠席があっても必ず日誌に記載。欠席・休止・休業は必ず残す」):
+  //   提供記録がまだ無い方でも、月間スケジュールの 欠席/休止 はその状態で載せる(従来は「出席」で表示していた)
+  const _monthlyAbsKind = (pid) => {
+    try {
+      const _d = new Date(selectedDate); if (isNaN(_d.getTime())) return '';
+      const sh = appData.monthlyShifts?.[`${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}`]?.[pid] || {};
+      const keys = ampm === '1日' ? [`${_d.getDate()}_AM`, `${_d.getDate()}_PM`] : [`${_d.getDate()}_${ampm}`];
+      for (const k of keys) { const v = String(sh[k] || ''); if (v === '欠席' || v === '欠') return '欠席'; if (v === '休止') return '休止'; }
+    } catch {}
+    return '';
+  };
   const scheduledExtras = (appData.patients||[])
     .filter(p => {
       if (recordedPids.has(p.id)) return false;
       // ★ 提供記録入力と同じ日付基準(2026-08-27): 利用開始日前/終了日後は載せない・基本曜日はその日付時点の値
       if (!isPatientActiveOnDate(p, selectedDate)) return false;
-      if (getPatientDisplayStatus && getPatientDisplayStatus(p) !== '利用中') return false;
+      // ★ 2026-10-07: 休止中の方も基本利用日なら記録として載せる(従来は「利用中」の方だけで、休止中の方が日誌から抜けていた)
+      if (getPatientDisplayStatus && getPatientDisplayStatus(p) === '退所済み') return false;
       const slot = getScheduleOnDate(p, selectedDate)?.[dow] || '';
       const _baseHit = (ampm === '1日') ? ['AM','PM','1日'].includes(slot) : (slot === ampm || slot === '1日');
       if (_baseHit) return true;
       // ★ 基本利用日でなくても、月間スケジュールに 臨時/振替/出席 の印があれば日誌に載せる(2026-09-25 店舗報告: 臨時にした人が日誌に出ない)
       return !!_monthlyComingKind(p.id);
     })
-    .map(p => { const _k = _monthlyComingKind(p.id); const _st0 = _k === '臨時' ? '臨時' : _k === '振替' ? '振替' : '出席'; return { id:`auto-${p.id}`, patientId:p.id, name:p.name||'', kana:p.kana||'', careLevel:p.careLevel||'', tokki:'', status:_applyKyugyo(_st0, p.id, selectedDate, dow) }; });
+    .map(p => { const _k = _monthlyComingKind(p.id); const _pz = getPauseReasonOnDate(p, selectedDate); const _paused = !!_pz || (getPatientDisplayStatus && getPatientDisplayStatus(p) === '休止');
+      const _ab = _monthlyAbsKind(p.id);
+      const _st0 = _paused ? '休止' : _ab ? _ab : _k === '臨時' ? '臨時' : _k === '振替' ? '振替' : '出席';
+      return { id:`auto-${p.id}`, patientId:p.id, name:p.name||'', kana:p.kana||'', careLevel:p.careLevel||'', tokki: _paused ? ((_pz && _pz.reason) || '') : '', status:_applyKyugyo(_st0, p.id, selectedDate, dow) }; });
   // ★ 状態ランク→同状態内はかな順(提供記録入力・プレビューと同じ並び)
   const patients = [...recordedPatients, ...scheduledExtras]
     .sort((a, b) => (_statusRank(a.status) - _statusRank(b.status)) || String(a.kana||a.name||'').localeCompare(String(b.kana||b.name||''), 'ja'));
