@@ -10899,6 +10899,51 @@ const longPressTapProps = (fn) => ({
 //           <div {...dnd.listProps}> … {items.map((it,i) => <div {...dnd.rowProps(i)}> … </div>)}
 //   行を0.2秒長押し→そのまま上下へ運ぶ。行の上半分に落とせばその前、下半分ならその後ろへ入る。
 //   入力欄(input/select/textarea/button)の上から始めた長押しはドラッグにしない(文字入力・削除ボタンを妨げないため)。
+// ★ 2026-10-07(店舗要望: 定員15名などで運動をするとき、グループ分けとは別に利用者を自由な順に並べたい):
+//   サービス提供記録 入力の「並び替え」。 表示中(午前/午後)の利用者を長押しドラッグ(または上へ/下へ)で並べ替えて保存。
+//   並び順は店舗の設定 systemSettings.recordOrder(利用者IDの並び・全端末で共有)。 記録の中身は利用者IDで紐づくので、並べ替えても日誌・連絡帳などとずれない
+function RecordOrderModal({ rows, onSave, onClose }) {
+  const [list, setList] = React.useState(() => rows.map(r => ({ id: r.id, name: r.name, kana: r.kana, status: r.status || '出席' })));
+  const dnd = useLongPressReorder(list, setList);
+  const mv = (i, d) => setList(prev => { const j = i + d; if (j < 0 || j >= prev.length) return prev; const a = [...prev]; [a[i], a[j]] = [a[j], a[i]]; return a; });
+  const absent = (st) => st === '欠席' || st === '休止' || st === '休業';
+  return ReactDOM.createPortal((
+    <div className="fixed inset-0 z-[10050] bg-slate-900/40 flex items-start justify-center p-3 sm:p-6" data-testid="rec-order-modal">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="px-4 py-3 border-b border-slate-200">
+          <div className="text-base font-bold text-slate-800">利用者の並び替え</div>
+          <div className="text-xs text-slate-500 mt-0.5 leading-relaxed">名前を長押しして上下に動かすか、「上へ」「下へ」で並べ替えて「この順で保存」を押してください。表の並び(利用者名・状態・運動など)がこの順になります。欠席・休止の方はこれまでどおり下にまとめて表示します。</div>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3 space-y-1.5" data-testid="rec-order-list">
+          {list.map((r, i) => (
+            <div key={r.id} {...dnd.rowProps(i)} data-testid="rec-order-row" className={`flex items-center gap-2 border rounded-xl px-2.5 py-2 bg-white ${absent(r.status) ? 'opacity-60' : ''}`} style={{ ...dnd.rowProps(i).style }}>
+              <div className="text-slate-300 shrink-0" title="長押しでドラッグして並べ替え"><GripVertical size={18}/></div>
+              <span className="w-6 text-right text-xs font-bold text-slate-400 tabular-nums shrink-0">{i + 1}</span>
+              <span className="flex-1 min-w-0 truncate font-bold text-slate-800" data-testid="rec-order-name">{r.name}</span>
+              {r.status && r.status !== '出席' && <span className="text-[10px] font-bold text-slate-500 border border-slate-300 rounded px-1 shrink-0">{r.status}</span>}
+              <button type="button" onClick={() => mv(i, -1)} disabled={i === 0} className="px-2 py-1 rounded-lg border border-slate-300 text-[11px] font-bold text-slate-600 disabled:opacity-30 shrink-0">上へ</button>
+              <button type="button" onClick={() => mv(i, 1)} disabled={i === list.length - 1} className="px-2 py-1 rounded-lg border border-slate-300 text-[11px] font-bold text-slate-600 disabled:opacity-30 shrink-0">下へ</button>
+            </div>))}
+        </div>
+        <div className="px-4 py-3 border-t border-slate-200 flex items-center gap-2 flex-wrap">
+          <button type="button" data-testid="rec-order-kana" onClick={() => setList(prev => [...prev].sort((a, b) => String(a.kana || a.name || '').localeCompare(String(b.kana || b.name || ''), 'ja')))} className="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-600">あいうえお順に戻す</button>
+          <button type="button" onClick={onClose} className="ml-auto px-4 py-2 rounded-xl bg-slate-100 text-sm font-bold text-slate-600">キャンセル</button>
+          <button type="button" data-testid="rec-order-save" onClick={() => onSave(list.map(r => r.id))} className="px-5 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold">この順で保存</button>
+        </div>
+      </div>
+    </div>), document.body);
+}
+// 並び順(利用者IDの配列)の中で、表示中の利用者だけを新しい順に入れ替える(ほかの方どうしの順番はそのまま)
+const tsumugiMergeRecordOrder = (patients, curOrder, subsetNewOrder) => {
+  const idx = new Map((Array.isArray(curOrder) ? curOrder : []).map((id, i) => [String(id), i]));
+  const all = (patients || []).filter(p => p && p.id != null).slice().sort((a, b) => {
+    const ia = idx.has(String(a.id)) ? idx.get(String(a.id)) : Infinity, ib = idx.has(String(b.id)) ? idx.get(String(b.id)) : Infinity;
+    if (ia !== ib) return ia - ib; return String(a.kana || a.name || '').localeCompare(String(b.kana || b.name || ''), 'ja');
+  }).map(p => p.id);
+  const sub = new Set(subsetNewOrder.map(String));
+  const queue = [...subsetNewOrder];
+  return all.map(id => sub.has(String(id)) ? queue.shift() : id);
+};
 function useLongPressReorder(items, onReorder, opts) {
   const holdMs = (opts && opts.holdMs) || 200;
   const [drag, setDrag] = React.useState(null); // {from, to}  to=挿入位置(取り出し前の配列基準)
@@ -23483,6 +23528,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
   }, []);
   const [kinouGroupSel, setKinouGroupSel] = useState(''); // ★ 上に集めて表示するグループ('' = 通常の並び)
+  const [recOrderOpen, setRecOrderOpen] = useState(false); // ★ 2026-10-07: 利用者の並び替え
   // ★ 拡大入力ビュー(2026-09-09 店舗要望): 高齢のスタッフでも見やすいよう、1名分のバイタル・運動・特記を大きな字で表示・入力
   const [zoomPid, setZoomPid] = useState(null);
   const kpConfirmRef = React.useRef(false); // ★ PC Enter: 1回目=確定 / 2回目=右のセルへ移動
@@ -24807,6 +24853,22 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     });
   }
 
+  // ★ 2026-10-07: 店舗の並び順(systemSettings.recordOrder)で表示。状態の順(出席→振替→欠席→休止→休業)は従来どおり先
+  const _recOrder = appData.systemSettings?.recordOrder;
+  const _recOrderOn = Array.isArray(_recOrder) && _recOrder.length > 0;
+  if (filterMode === 'single' && _recOrderOn) {
+    const _oi = new Map(_recOrder.map((id, i) => [String(id), i]));
+    const _rk = (s) => s === '出席' ? 0 : (s === '振替' || s === '臨時') ? 1 : s === '欠席' ? 2 : s === '休止' ? 3 : s === '休業' ? 4 : 5;
+    displayRecords = [...displayRecords].sort((a, b) => (_rk(a.status || '出席') - _rk(b.status || '出席'))
+      || ((_oi.has(String(a.id)) ? _oi.get(String(a.id)) : Infinity) - (_oi.has(String(b.id)) ? _oi.get(String(b.id)) : Infinity))
+      || String(a.kana || '').localeCompare(String(b.kana || ''), 'ja'));
+  }
+  const _recOrderRows = filterMode === 'single' ? displayRecords : [];
+  const saveRecordOrder = (subset) => {
+    const next = tsumugiMergeRecordOrder(appData.patients, _recOrder, subset);
+    onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), recordOrder: next } }, { manual: true, message: '✓ 利用者の並び順を保存しました' });
+    setRecOrderOpen(false);
+  };
   // ★ 本日分の人数集計 (出席/欠席/休止/振替/休業)。表に列は足さず、ヘッダーにチップ表示。検索の影響を受けないよう検索前に集計。
   const attCounts = (filterMode === 'single')
     ? displayRecords.reduce((c,p)=>{ const s=(p.status||'出席'); if(['出席','臨時','欠席','休止','振替','休業'].includes(s)) c[s]=(c[s]||0)+1; c._total=(c._total||0)+1; return c; }, {})
@@ -24976,6 +25038,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         className={`px-4 py-2 text-sm font-bold transition-all shrink-0 ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-50'}`}>{v}</button>
                     ))}
                   </div>
+                  <button type="button" data-testid="rec-order-btn" onClick={() => setRecOrderOpen(true)} title="表示中の利用者の並び順を変えます(長押しドラッグ)" className={`px-3 py-2 rounded-xl text-sm font-bold border shrink-0 ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}>並び替え</button>
+                  {recOrderOpen && <RecordOrderModal rows={_recOrderRows} onSave={saveRecordOrder} onClose={() => setRecOrderOpen(false)}/>}
                   {attCountChips}
               </div>
             )}
