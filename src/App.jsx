@@ -34747,6 +34747,15 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const [tpFocus, setTpFocus] = useState(null); // ★ 2026-10-07: 変更の一覧で押した方を表でハイライト { iso, sl, pid, removed }
   const [chgOpen, setChgOpen] = useState(null); // 変更の帯: null=自動(未連絡の要連絡があれば開く)
   React.useEffect(() => { setTpFocus(null); setChgOpen(null); }, [selectedDate]);
+  const _tpSelOf = (f) => f ? (f.removed ? `[data-tpcell="${f.iso}_${f.sl}"]` : `[data-tprow][data-tpiso="${f.iso}"][data-tpslot="${f.sl}"][data-tppid="${f.pid}"], [data-tpfb="${f.iso}_${f.sl}_${f.pid}"]`) : '';
+  // 変更の項目を押す → 表のその方を黄色く表示してその位置へ(もう一度押すと消える)。keep=true は消さずに表示(確定済みメニューから)
+  const focusChg = (x, keep) => {
+    const removed = /外れた/.test(x.ac);
+    const same = tpFocus && tpFocus.iso === x.iso && tpFocus.sl === x.sl && String(tpFocus.pid) === String(x.pid);
+    if (same && !keep) { setTpFocus(null); return; }
+    const f = { iso: x.iso, sl: x.sl, pid: x.pid, removed }; setTpFocus(f);
+    setTimeout(() => { try { const el = document.querySelector(_tpSelOf(f)); if (el) el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' }); } catch {} }, 80);
+  };
   const [tpEdit, setTpEdit] = useState(false); // ★ 2026-10-03: 確定済みの週で「編集する」を押したとき(週を変えると戻る)
   React.useEffect(() => { setTpEdit(false); }, [selectedDate]);
   const unfinalizeWeek = () => {
@@ -35994,14 +36003,19 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 <div className="text-[11px] text-slate-500 mb-3">確定 {_fmtStamp(_finalAtOfWeek())}。ご家族への連絡が必要な変更は、時間が赤い枠になっています。</div>
                 {(() => { const cl = _chgListOfWeek(); if (!cl.length) return <div className="text-xs text-slate-500 mb-4" data-testid="tp-chg-none">確定後の変更はありません。</div>; return (
                   <div className="mb-4" data-testid="tp-chg-list">
-                    <div className="text-xs font-bold text-slate-700 mb-1">確定後の変更（{cl.length}件）</div>
+                    <div className="text-xs font-bold text-slate-700 mb-1">確定後の変更（{cl.length}件）<span className="font-normal text-slate-500 ml-1">押すと表で黄色く表示</span></div>
                     <div className="max-h-64 overflow-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
                       {cl.map((x, i) => { const d = new Date(x.iso + 'T00:00:00'); return (
-                        <div key={i} className="px-2.5 py-1.5 text-xs leading-snug" data-testid="tp-chg-item">
-                          <span className="font-bold text-slate-600 tabular-nums whitespace-nowrap">{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{x.sl==='AM'?'午前':'午後'}</span>
-                          <span className="font-bold text-slate-800 ml-1.5">{_pname(x.pid)}</span>
-                          <span className="text-slate-700 ml-1.5">{x.ac}</span>
-                          {x.tel && <span className="ml-1.5 text-[10px] font-bold text-red-700 border border-red-400 rounded px-1 whitespace-nowrap">要連絡</span>}
+                        <div key={i} className={`flex items-center gap-2 px-2.5 py-1.5 text-xs leading-snug ${x.tel && x.done ? 'opacity-60' : ''}`} data-testid="tp-chg-item">
+                          {/* ★ 2026-10-07(ユーザー要望): 押すとメニューを閉じて送迎表のその方を黄色く表示 */}
+                          <button type="button" data-testid="tp-chg-item-focus" onClick={() => { setFinalMenu(false); focusChg(x, true); }} className="flex-1 min-w-0 text-left" title="押すと送迎表でこの方を黄色く表示します">
+                            <span className="font-bold text-slate-600 tabular-nums whitespace-nowrap">{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{x.sl==='AM'?'午前':'午後'}</span>
+                            <span className={`font-bold text-slate-800 ml-1.5 ${x.tel && x.done ? 'line-through' : ''}`}>{_pname(x.pid)}</span>
+                            <span className="text-slate-700 ml-1.5">{x.ac}</span>
+                            {x.tel && <span className="ml-1.5 text-[10px] font-bold text-red-700 border border-red-400 rounded px-1 whitespace-nowrap">要連絡</span>}
+                          </button>
+                          {x.tel && <label className="flex items-center gap-1 text-[11px] font-bold text-slate-700 whitespace-nowrap cursor-pointer shrink-0" data-testid="tp-chg-item-done">
+                            <input type="checkbox" checked={!!x.done} onChange={e => setTelDone(x.iso, x.sl, x.pid, e.target.checked)} className="w-4 h-4"/>連絡済</label>}
                         </div>); })}
                     </div>
                   </div>); })()}
@@ -36066,9 +36080,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       </div>
       {/* ★ 2026-10-07(ユーザー要望「変更内容は常に見れるように」「要連絡に連絡済」「押したら確定していてもハイライト」): 確定後の変更の帯 */}
       {(() => { const cl = _chgListOfWeek(); if (!cl.length) return null; const tel = cl.filter(x => x.tel), left = tel.filter(x => !x.done); const open = chgOpen == null ? left.length > 0 : chgOpen;
-        const _sel = tpFocus ? (tpFocus.removed ? `[data-tpcell="${tpFocus.iso}_${tpFocus.sl}"]` : `[data-tprow][data-tpiso="${tpFocus.iso}"][data-tpslot="${tpFocus.sl}"][data-tppid="${tpFocus.pid}"], [data-tpfb="${tpFocus.iso}_${tpFocus.sl}_${tpFocus.pid}"]`) : '';
-        const focus = (x) => { const removed = /外れた/.test(x.ac); const same = tpFocus && tpFocus.iso === x.iso && tpFocus.sl === x.sl && String(tpFocus.pid) === String(x.pid); if (same) { setTpFocus(null); return; } setTpFocus({ iso: x.iso, sl: x.sl, pid: x.pid, removed });
-          setTimeout(() => { try { const sel = removed ? `[data-tpcell="${x.iso}_${x.sl}"]` : `[data-tprow][data-tpiso="${x.iso}"][data-tpslot="${x.sl}"][data-tppid="${x.pid}"], [data-tpfb="${x.iso}_${x.sl}_${x.pid}"]`; const el = document.querySelector(sel); if (el) el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' }); } catch {} }, 60); };
+        const _sel = _tpSelOf(tpFocus);
+        const focus = (x) => focusChg(x);
         return (
         <div className="px-2 sm:px-3 pt-2" data-testid="tp-chg-banner">
           {_sel && <style>{`${_sel}{background:#fef08a !important;outline:3px solid #f59e0b;outline-offset:-2px;border-radius:6px;}`}</style>}
