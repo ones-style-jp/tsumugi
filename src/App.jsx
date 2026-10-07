@@ -11046,11 +11046,15 @@ function DigitalKeypad({ isOpen, anchorKey, value, isFirstInput, onInput, onEnte
   const screenW = vv?.width || (typeof window !== 'undefined' ? window.innerWidth : 1024);
   const screenH = vv?.height || (typeof window !== 'undefined' ? window.innerHeight : 768);
   const isSmall = screenW < 768; // iPhone等
-  const baseBtnSize = isSmall ? 58 : screenW < 1024 ? 68 : 60; // iPad: 68px
+  // ★ 2026-10-07(店舗報告「スマホでテンキーがタップした項目にかぶって出る」): スマホ(幅768未満のタッチ端末)は
+  //   浮かせる位置が足りず、どこに出しても入力中の項目にかぶることがあった。スマホではテンキーを画面の下に固定し(スマホの文字入力と同じ)、
+  //   入力中の項目がテンキーの上に見えるように、その一覧を自動でスクロールする。
+  const dock = isSmall && typeof window !== 'undefined' && !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+  const baseBtnSize = dock ? 50 : isSmall ? 58 : screenW < 1024 ? 68 : 60; // iPad: 68px
   const btnSize = Math.round(baseBtnSize * scale);
   const baseFontSize = isSmall ? 20 : screenW < 1024 ? 22 : 18;
   const fontSize = Math.round(baseFontSize * scale);
-  const padW = btnSize * 4 + 12 * 3 + 24; // 4列 + gap3 + padding
+  const padW = dock ? Math.round(screenW) : btnSize * 4 + 12 * 3 + 24; // 4列 + gap3 + padding (スマホは画面幅いっぱい)
   // ★ 運動モードは ○/×/ー 行 + クイック(+分/+回/+kg/+ー)行が増えるので高さに加算。 quickButtons があればさらに加算
   const _extraRows = (mode === 'exercise' ? 2 : 0) + ((quickButtons && quickButtons.length) ? 1 : 0) + ((prefixButtons && prefixButtons.length) ? 1 : 0);
   const padH = btnSize * 4 + 140 + _extraRows * (Math.round(btnSize * 0.66) + 12); // 4行 + ヘッダー/フッター + 追加行
@@ -11088,10 +11092,38 @@ function DigitalKeypad({ isOpen, anchorKey, value, isFirstInput, onInput, onEnte
 
   // ★ タップ/移動したセル(アクティブセル=.ring-blue-300)にキーパッドが「かぶる」ときだけ、
   //   反対側の隅へ自動で逃がす。 かぶっていなければ動かさない(無用な移動を避ける)。
+  // ★ スマホ(下に固定): 入力中の項目がテンキーの上に見えるよう、項目のある一覧をスクロールする。
+  //   一覧の一番下の項目でも上げられるよう、開いている間だけ一覧の下に余白(テンキーの高さ分)を足す。
   React.useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !dock) return;
+    let padded = null, prevPad = '';
     const t = setTimeout(() => {
-      const cells = document.querySelectorAll('.ring-blue-300');
+      try {
+        // 画面に見えている項目だけ(スマホでは隠れているPC用の表にも同じ印が付くため)。
+        // 入力中の印は ring-2(出席などの状態欄の ring-1 の色と同じ ring-blue-300 を拾わないように)
+        const cells = [...document.querySelectorAll('.ring-2.ring-blue-300')].filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
+        const cell = cells[cells.length - 1];
+        const kp = keypadRef.current;
+        if (!cell || !kp) return;
+        let sc = cell.parentElement;
+        // 実際にスクロールしている枠(高さが画面に収まっている枠)まで上る
+        while (sc && sc !== document.body) { const oy = getComputedStyle(sc).overflowY; if ((oy === 'auto' || oy === 'scroll') && sc.clientHeight <= window.innerHeight + 1) break; sc = sc.parentElement; }
+        if (!sc || sc === document.body) return;
+        const kh = kp.getBoundingClientRect().height;
+        if (sc.dataset.tsuKpPad !== '1') { prevPad = sc.style.paddingBottom; sc.style.paddingBottom = `${Math.round(kh + 24)}px`; sc.dataset.tsuKpPad = '1'; padded = sc; }
+        const kTop = kp.getBoundingClientRect().top;
+        const r = cell.getBoundingClientRect(); const sr = sc.getBoundingClientRect();
+        if (r.bottom > kTop - 10) sc.scrollTop += (r.bottom - kTop + 18);
+        else if (r.top < sr.top + 6) sc.scrollTop -= (sr.top - r.top + 18);
+      } catch {}
+    }, 60);
+    return () => { clearTimeout(t); if (padded) { padded.style.paddingBottom = prevPad; delete padded.dataset.tsuKpPad; } };
+  }, [isOpen, anchorKey, dock]);
+
+  React.useEffect(() => {
+    if (!isOpen || dock) return;
+    const t = setTimeout(() => {
+      const cells = [...document.querySelectorAll('.ring-2.ring-blue-300')].filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; }); // ★ 2026-10-07: 隠れている表のセルは除く
       const cell = cells[cells.length - 1]; // 最後=最新のアクティブセル
       if (!cell) return;
       const r0 = cell.getBoundingClientRect();
@@ -11125,7 +11157,7 @@ function DigitalKeypad({ isOpen, anchorKey, value, isFirstInput, onInput, onEnte
       });
     }, 40);
     return () => clearTimeout(t);
-  }, [isOpen, anchorKey, padW, padH, zoom]);
+  }, [isOpen, anchorKey, padW, padH, zoom, dock]);
 
   // ドラッグ開始
   const onDragStart = (e) => {
@@ -11224,7 +11256,14 @@ function DigitalKeypad({ isOpen, anchorKey, value, isFirstInput, onInput, onEnte
   // ★ body 直下に Portal でレンダリング。 全画面でない時に親要素の transform で
   //   position:fixed が閉じ込められ、テンキーが見切れて出てこない不具合を防ぐ。
   return ReactDOM.createPortal((
-    <div ref={keypadRef} style={{
+    <div ref={keypadRef} data-testid="digital-keypad" data-dock={dock ? '1' : undefined} style={dock ? {
+      position:'fixed', left:0, right:0, bottom:0, zIndex:99999,
+      transform:'translateZ(0)', WebkitTransform:'translateZ(0)',
+      background:'white', borderTopLeftRadius:16, borderTopRightRadius:16, borderTop:'2px solid #1e293b',
+      boxShadow:'0 -6px 24px rgba(0,0,0,0.25)',
+      padding:'8px 8px calc(8px + env(safe-area-inset-bottom, 0px))', userSelect:'none', touchAction:'none',
+      maxHeight:'62vh', overflowY:'auto'
+    } : {
       position:'fixed', left:pos.x, top:pos.y, zIndex:99999,
       // ★ iOS Safari 対策: body直下の position:fixed が単独だと描画されず透明になる不具合を、
       //   独自コンポジットレイヤー化 (translateZ) で強制的に描画させる。
@@ -11318,10 +11357,42 @@ function DigitalKeypad({ isOpen, anchorKey, value, isFirstInput, onInput, onEnte
 }
 
 
+// ★ 2026-10-07: 中身(用紙など)が画面より広いとき、幅に収まるよう縮小して全体を表示する(スマホの連絡帳など)。
+//   transform で縮めるため中身の作りは変えない。縮めた分の高さは外枠で詰める。中身の大きさが変わっても追従する。
+// 保存の時間切れ(容量に応じて20〜80秒)の控え。測るのは5分に1回(App の _retryPush で使う)
+const _tsuPushTmo = { at: 0, tmo: 20000 };
+
+function TsuFitWidth({ children }) {
+  const outerRef = React.useRef(null);
+  const innerRef = React.useRef(null);
+  const [fit, setFit] = React.useState({ s: 1, h: null });
+  React.useLayoutEffect(() => {
+    const calc = () => {
+      const o = outerRef.current, i = innerRef.current; if (!o || !i) return;
+      const iw = i.offsetWidth, ih = i.offsetHeight, ow = o.clientWidth;
+      if (!iw || !ow) return;
+      const sc = Math.min(1, ow / iw);
+      setFit(prev => (Math.abs(prev.s - sc) < 0.001 && prev.h === Math.ceil(ih * sc)) ? prev : { s: sc, h: Math.ceil(ih * sc) });
+    };
+    calc();
+    let ro = null;
+    try { ro = new ResizeObserver(calc); ro.observe(outerRef.current); ro.observe(innerRef.current); } catch { window.addEventListener('resize', calc); }
+    return () => { if (ro) ro.disconnect(); else window.removeEventListener('resize', calc); };
+  }, []);
+  return (
+    <div ref={outerRef} data-fit-scale={fit.s.toFixed(3)} style={{ width: '100%', overflow: 'hidden', height: fit.h == null ? undefined : fit.h }}>
+      <div ref={innerRef} style={{ width: 'max-content', transform: fit.s < 1 ? `scale(${fit.s})` : undefined, transformOrigin: 'top left', margin: fit.s < 1 ? 0 : '0 auto' }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function SidebarItem({ icon, label, active, onClick, badge }) {
   return (
-    <button onClick={onClick} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 ${active ? 'bg-blue-600 text-white shadow-lg font-bold' : 'hover:bg-slate-800 hover:text-white font-medium'}`}>
-      {icon}<span className="text-sm whitespace-nowrap flex-1">{label}</span>
+    // ★ 2026-10-07(スマホでサイドバーが大きく見える): スマホ幅は行の高さを少し詰め(44px=押しやすさの目安は確保)、文字は左寄せ。iPad・PCは従来どおり
+    <button onClick={onClick} className={`w-full flex items-center space-x-3 px-4 py-2.5 md:py-3 rounded-xl transition-all duration-200 ${active ? 'bg-blue-600 text-white shadow-lg font-bold' : 'hover:bg-slate-800 hover:text-white font-medium'}`}>
+      {icon}<span className="text-sm whitespace-nowrap flex-1 text-left md:text-center">{label}</span>
       {badge != null && badge > 0 && <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${active ? 'bg-white text-blue-600' : 'bg-red-500 text-white'}`}>{badge}</span>}
     </button>
   );
@@ -11332,8 +11403,8 @@ function SidebarGroup({ icon, label, activeChild, children }) {
   React.useEffect(() => { if (activeChild) setOpen(true); }, [activeChild]);
   return (
     <div>
-      <button onClick={() => setOpen(o => !o)} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 ${activeChild && !open ? 'bg-blue-600/20 text-white font-bold' : 'hover:bg-slate-800 hover:text-white font-medium'}`}>
-        {icon}<span className="text-sm whitespace-nowrap flex-1">{label}</span>
+      <button onClick={() => setOpen(o => !o)} className={`w-full flex items-center space-x-3 px-4 py-2.5 md:py-3 rounded-xl transition-all duration-200 ${activeChild && !open ? 'bg-blue-600/20 text-white font-bold' : 'hover:bg-slate-800 hover:text-white font-medium'}`}>
+        {icon}<span className="text-sm whitespace-nowrap flex-1 text-left md:text-center">{label}</span>
         {open ? <ChevronDown size={16} className="shrink-0"/> : <ChevronRight size={16} className="shrink-0"/>}
       </button>
       {open && <div className="mt-1 ml-4 pl-2 border-l border-slate-700 space-y-1">{children}</div>}
@@ -19513,6 +19584,9 @@ export default function App() {
   const lastAppliedSigRef = React.useRef(null);
   // ★ 最後に実際にクラウド反映した時刻。 updated_at 判定が万一取りこぼしても、一定時間経過で必ず再取得する安全網。
   const lastAppliedAtRef = React.useRef(0);
+  // ★ 2026-10-07: クラウドの確認(軽い更新時刻の確認を含む)が最後に成功した時刻。「未同期」の判定はこちらも見る
+  //   (変化が無いときの全量の取り直しを5分に1回へ減らしたため、反映時刻だけでは30秒で止まったと誤判定する)
+  const lastPullCheckOkAtRef = React.useRef(0);
   // ★ 容量超過を一度検知したら10分間はフル保存を試みず軽量版へ直行する(2026-08-30)。
   //   従来は保存のたびに フル→写真分離→軽量 と巨大JSONの変換を3回行ってから失敗しており、
   //   CPUの無駄と persist-fail ログの洪水になっていた(動作自体は軽量版成功で問題なし)。
@@ -19713,7 +19787,7 @@ export default function App() {
   const [auditLogCat, setAuditLogCat] = useState('全て');  // 変更ログのカテゴリ絞り込み
   useEffect(() => {
     const check = () => {
-      const la = lastAppliedAtRef.current || 0;
+      const la = Math.max(lastAppliedAtRef.current || 0, lastPullCheckOkAtRef.current || 0);
       // ★ 2026-10-02(扇橋 iPad「途中から他端末の記録が反映されなくなった」): 店舗データの受信は動いていても、
       //   提供記録テーブルの受信(6秒ごと)だけが止まることがある(iPadのスリープ後など)。その場合も「未同期」を出し、
       //   ホーム画面のアプリ(再読み込みボタンが無い)でもタップで再読み込みできるようにする。
@@ -19999,7 +20073,10 @@ export default function App() {
           try {
             const _meta = await supabaseLoadStateMetaForStore(newStoreId);
             const _msig = _meta && _meta.updated_at ? String(_meta.updated_at) : null;
-            if (_msig && lastAppliedSigRef.current === _msig && (Date.now() - (lastAppliedAtRef.current || 0)) < 60000) {
+            // ★ 2026-10-07(エラーコード5の再発): 変化が無いときの安全網の全量取り直しを 60秒→5分 に(全データの取得・解析・画面の作り直しを減らす)。
+            //   他端末が保存すれば更新時刻が変わるので、これまでどおり数秒で反映される。
+            if (_msig) lastPullCheckOkAtRef.current = Date.now();
+            if (_msig && lastAppliedSigRef.current === _msig && (Date.now() - (lastAppliedAtRef.current || 0)) < 300000) {
               return; // クラウドに変化なし → 何もしない(フル取得もsetAppDataもしない)
             }
           } catch { /* メタ取得失敗時は従来どおりフル取得へ */ }
@@ -20068,7 +20145,8 @@ export default function App() {
         const _sig = row.updated_at || null;
         // ★ 2026-08-30: 取りこぼし対策の強制反映は4秒→60秒に。 4秒だとポーリング毎にほぼ必ず
         //   全再構築(setAppData)が走り、メモリ肥大クラッシュの主因になっていた。
-        const _stale = (Date.now() - (lastAppliedAtRef.current || 0)) > 60000;
+        const _stale = (Date.now() - (lastAppliedAtRef.current || 0)) > 300000;
+        if (_sig) lastPullCheckOkAtRef.current = Date.now();
         if (!forcePull && !_stale && _sig && lastAppliedSigRef.current === _sig) {
           dataLoadedForStoreRef.current = newStoreId;
           storeTransitionRef.current = false;
@@ -20599,7 +20677,9 @@ export default function App() {
         if (!incoming) return;
         setAppData(prev => {
           // 家族側で変わりうる 3 キーのみ取り込み (それ以外は事業所側を尊重)
-          const inFA = Array.isArray(incoming.familyAccounts) ? incoming.familyAccounts : (prev.familyAccounts||[]);
+          // ★ 2026-10-07(エラーコード5の対策): 中身が同じなら前の配列のまま(毎回「変わった」と判定され、別タブとの間で
+          //   全データの取り込み→保存→相手のタブが取り込み…が往復し続け、数MBの解析・保存を繰り返していた)
+          const inFA = (() => { if (!Array.isArray(incoming.familyAccounts)) return (prev.familyAccounts||[]); try { if (JSON.stringify(incoming.familyAccounts) === JSON.stringify(prev.familyAccounts||[])) return prev.familyAccounts; } catch {} return incoming.familyAccounts; })();
           // ★ 2026-09-27(チラつき対策): 招待は置換せず code で和集合(別タブの古い一覧で発行直後の招待が消え、10秒後に復活…を繰り返していた)
           const inFI = (() => { if (!Array.isArray(incoming.familyInvites)) return (prev.familyInvites||[]); const cur0 = prev.familyInvites||[];
             // ★ 2026-10-07(店舗報告「削除しても一瞬消えて復活する・ちらつく」): 同じブラウザの別タブが古い一覧を保存すると、和集合で削除済みの招待が戻っていた。削除済み(控え)は取り込まない
@@ -20607,7 +20687,7 @@ export default function App() {
             const codes = new Set(cur.map(i => i && i.code)); const add = incoming.familyInvites.filter(i => i && !codes.has(i.code) && !tsuInvTombHas(i.code)); if (!add.length) return cur; return [...cur, ...add]; })();
           // emergencyContacts の差分を取り込み
           const inPatients = Array.isArray(incoming.patients) ? incoming.patients : [];
-          const mergedPatients = (prev.patients||[]).map(p => {
+          const _mp = (prev.patients||[]).map(p => {
             const inp = inPatients.find(x => x.id === p.id);
             if (!inp) return p;
             // emergencyContacts が増えていれば取り込み (重複防止)
@@ -20622,6 +20702,7 @@ export default function App() {
             if (newOnes.length === 0) return p;
             return {...p, emergencyContacts: [...prevEC, ...newOnes]};
           });
+          const mergedPatients = _mp.some((x, i) => x !== (prev.patients||[])[i]) ? _mp : prev.patients;
           // 何も変わってなければ state 更新しない (autosave ループ防止)
           const same = inFA === prev.familyAccounts && inFI === prev.familyInvites && mergedPatients === prev.patients;
           if (same) return prev;
@@ -21724,7 +21805,9 @@ export default function App() {
         const _retryPush = async (dataToPush) => {
           // ★ 2026-09-21: タイムアウトを容量に応じて延長(20秒 + 1MBあたり15秒・上限80秒)。扇橋は app_state が2.5MB あり、
           //   遅いWi-Fiでは20秒固定だと毎回タイムアウト→3回失敗→「同期に失敗」になっていた(診断ログに give-up 124回)。
-          let _tmo = 20000; try { _tmo = Math.min(80000, 20000 + Math.round(JSON.stringify(dataToPush).length / 1e6 * 15000)); } catch {}
+          // ★ 2026-10-07(メモリ不足で落ちる対策): 容量を測るための全量の文字列化(数MB)を保存のたびに行わない。5分に1回だけ測り直す
+          let _tmo = _tsuPushTmo.tmo;
+          if (Date.now() - _tsuPushTmo.at > 300000) { try { _tmo = Math.min(80000, 20000 + Math.round(JSON.stringify(dataToPush).length / 1e6 * 15000)); _tsuPushTmo.tmo = _tmo; _tsuPushTmo.at = Date.now(); } catch {} }
           for (let i = 0; i < 3; i++) {
             try {
               // ★ 一定時間で必ず決着(2026-09-09): 遅いWi-Fiでpushが宙吊りになると、リトライも通知も永遠に
@@ -23406,7 +23489,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const [localTicketRecords, setLocalTicketRecords] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [patientInfoModal, setPatientInfoModal] = useState(null); // masterData object
-  const [vitalCollapsed, setVitalCollapsed] = useState(false);
+  // ★ 2026-10-07(店舗報告: スマホ縦で基準値の欄が大きく、入力欄が狭くなる): スマホ幅は最初から「正常範囲だけの1行」にする(押すと詳しく開く)
+  const [vitalCollapsed, setVitalCollapsed] = useState(() => { try { return window.innerWidth < 640; } catch { return false; } });
   const [isFullscreen, setIsFullscreen] = useState(false);
   // ★ 画面の高さに応じて行高を動的計算
   //   利用者数が 10 名以上なら "10 名がぴったり" になるサイズ
@@ -25048,17 +25132,19 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       } : {}),
     }}>
       {!isFullscreen ? (
-      <div className="bg-white px-4 py-3 rounded-2xl shadow-sm border border-slate-200 flex flex-row items-center gap-3 flex-wrap flex-shrink-0 sticky top-0 z-30 mb-4">
+      <div data-testid="rec-toolbar" className="bg-white px-2 py-2 sm:px-4 sm:py-3 rounded-2xl shadow-sm border border-slate-200 flex flex-row items-center gap-2 sm:gap-3 flex-wrap flex-shrink-0 sticky top-0 z-30 mb-2 sm:mb-4">
             {/* ★ 「本日/月全体」トグルは廃止。 月全体は「提供記録(月次)」で確認できるため、当日のみ表示。 */}
+            {/* ★ 2026-10-07(店舗報告: スマホ縦で上部のボタンが2段にずれて並ぶ): スマホ幅は 1段目=日付(残りの幅いっぱい)+AM/PM、
+                2段目=並び替え+人数、3段目=個別機能訓練、4段目=連絡帳/全画面/元に戻す/保存 を同じ幅の4つ並びにそろえる。iPad・PCは従来どおり */}
             {filterMode === 'single' && (
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
                   <input type="date" value={selectedDate} onChange={(e) => {
                   if(!e.target.value) return;
                   // ★ 定休日だけ近い営業日にずらす。 休業日(臨時休業)は選択・閲覧可能にする(店舗要望:
                   //   休業日の記録確認や事後入力ができないと困るため)。
                   const closed=(appData.systemSettings?.facilityInfo?.closedDays||[0]);
                   setSelectedDate(nearestOpenDate(e.target.value, closed, []));
-                }} className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold outline-none cursor-pointer text-slate-700 shrink-0" />
+                }} className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold outline-none cursor-pointer text-slate-700 flex-1 sm:flex-none sm:shrink-0" style={{minHeight:40,minWidth:150}} />
                   <div className="flex rounded-xl overflow-hidden border border-slate-300 shrink-0">
                     {['AM','PM'].map(v=>(
                       <button key={v} type="button" onClick={()=>setTimeFilter(v)}
@@ -25093,9 +25179,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             )}
             {/* ★ 2026-09-29 ユーザー指示: 「氏名で検索」は使わないため非表示(検索の仕組み自体は残す) */}
             {_kinouOn && (
-              <div className="relative flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-xl px-2 py-1" title="個別機能訓練を実施した機能訓練指導員。ここで選ぶと表示中の区分(AM/PM)の全員に適用。利用者ごとに変えるときは「利用者ごと」。提供記録の印刷に「個別: ○○」と出ます">
+              <div className="relative flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-xl px-2 py-1 w-full sm:w-auto" title="個別機能訓練を実施した機能訓練指導員。ここで選ぶと表示中の区分(AM/PM)の全員に適用。利用者ごとに変えるときは「利用者ごと」。提供記録の印刷に「個別: ○○」と出ます">
                 <span className="text-[11px] font-bold text-emerald-800 whitespace-nowrap leading-tight text-center">個別機能訓練<br/>実施者</span>
-                <select data-testid="kinou-default" value={_kinouEff} disabled={!isEditMode} onChange={e=>applyKinouAll(e.target.value)} className="text-sm font-bold bg-white border border-emerald-300 rounded-lg px-2 py-1 outline-none disabled:opacity-60">
+                <select data-testid="kinou-default" value={_kinouEff} disabled={!isEditMode} onChange={e=>applyKinouAll(e.target.value)} className="text-sm font-bold bg-white border border-emerald-300 rounded-lg px-2 py-1 outline-none disabled:opacity-60 min-w-0 flex-1 sm:flex-none">
                   {!_kinouList.includes(_kinouEff) && _kinouEff && _kinouEff !== '未算定' && <option value={_kinouEff}>{_kinouEff}</option>}
                   {_kinouList.map(n => <option key={n} value={n}>{n}</option>)}
                   <option value="未算定">未算定</option>
@@ -25167,16 +25253,16 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 ), document.body)}
               </div>
             )}
-            <div className="sm:ml-auto flex items-center gap-2 flex-wrap">
+            <div data-testid="rec-actions" className="w-full sm:w-auto sm:ml-auto grid grid-cols-4 sm:flex items-center gap-1.5 sm:gap-2 sm:flex-wrap">
               {/* ★ 連絡帳は一番左(全画面の左)に配置(2026-08-28 店舗要望) */}
-              <button onClick={() => { handleSaveClick(); navigateTo('print'); }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap">連絡帳</button>
-              <button onClick={()=>setIsFullscreen(v=>!v)} className="bg-slate-700 hover:bg-slate-800 text-white px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title={isFullscreen?'通常表示':'全画面表示'}>
+              <button onClick={() => { handleSaveClick(); navigateTo('print'); }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 sm:px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap">連絡帳</button>
+              <button onClick={()=>setIsFullscreen(v=>!v)} className="bg-slate-700 hover:bg-slate-800 text-white px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title={isFullscreen?'通常表示':'全画面表示'}>
                 {isFullscreen ? '通常表示' : '全画面'}
               </button>
-              <button onClick={()=>setRestoreModal(true)} className="bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="保存した記録を丸ごと復元(元に戻す)">元に戻す</button>
+              <button onClick={()=>setRestoreModal(true)} className="bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="保存した記録を丸ごと復元(元に戻す)">元に戻す</button>
               {/* ★ onClick={handleSaveClick} だとクリックイベントが第1引数(auto)に渡り auto=truthy(自動保存扱い)になり、
                   「保存しました」が出ず担当者チェックも飛ばされていた。 明示的に auto=false で呼ぶ。 */}
-              <button onClick={()=>handleSaveClick(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap">保存</button>
+              <button onClick={()=>handleSaveClick(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-2 sm:px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap">保存</button>
             </div>
       </div>
       ) : (
@@ -25195,10 +25281,12 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       {/* 厚労省バイタルサイン基準値パネル（折りたたみ可能・全画面時は非表示・コンパクト表示） */}
       {!isFullscreen && (
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 px-3 py-1 flex-shrink-0 mb-2 text-[11px]">
-        <button onClick={()=>setVitalCollapsed(v=>!v)} className="font-bold text-slate-500 text-[11px] flex items-center gap-1 w-full hover:text-slate-700">
-          <Activity size={11} className="text-blue-500"/>
-          バイタルサイン 基準値（厚労省ガイドライン）
-          <span className="ml-auto text-slate-400">{vitalCollapsed?'▼ 開く':'▲ 閉じる'}</span>
+        <button onClick={()=>setVitalCollapsed(v=>!v)} data-testid="vital-ref-toggle" className="font-bold text-slate-500 text-[11px] flex items-center gap-1 w-full hover:text-slate-700 text-left">
+          <Activity size={11} className="text-blue-500 shrink-0"/>
+          <span className="shrink-0"><span className="sm:hidden">基準値</span><span className="hidden sm:inline">バイタルサイン 基準値（厚労省ガイドライン）</span></span>
+          {/* ★ 閉じているときも正常範囲だけは1行で見えるように(2026-10-07) */}
+          {vitalCollapsed && <span data-testid="vital-ref-compact" className="min-w-0 flex flex-wrap gap-x-2 text-slate-700 font-bold ml-1"><span>体温 36.0〜37.0℃</span><span>血圧 100〜129/60〜84</span><span>脈 60〜100</span></span>}
+          <span className="ml-auto text-slate-400 shrink-0 pl-1">{vitalCollapsed?'▼ 詳しく':'▲ 閉じる'}</span>
         </button>
         {!vitalCollapsed && <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1">
           <div className="flex items-start gap-1.5 min-w-[180px]">
@@ -25415,7 +25503,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     if(!_keypadOn){
                       return (
                         <div key={field} className="rounded-lg border border-slate-300 bg-white py-1 px-1 flex flex-col items-center">
-                          <span className="text-[10px] font-bold text-slate-500">{lbl}</span>
+                          <span className="text-[12px] font-bold text-slate-600">{lbl}</span>
                           <input type="text" inputMode={isBp?'text':'decimal'} placeholder={isBp?'上/下':'—'} disabled={dis} data-bp-input={isBp ? `${p.id}-${field}` : undefined}
                             key={`mk-${p.id}-${field}-${cur}`} defaultValue={cur||''}
                             onBlur={(e)=>{ const val=e.target.value; if(isBp){ const c=(val||'').replace(/[^0-9/]/g,''); const parts=c.split('/'); const isStart=field.startsWith('bpSt'); const fBu=`${isStart?'bpUpSt':'bpUpEn'}_${tf}`, fBd=`${isStart?'bpDnSt':'bpDnEn'}_${tf}`; updateRecord(p.id,fBu,(parts[0]||'').trim()); updateRecord(p.id,fBd,(parts[1]||'').trim()); } else { updateRecord(p.id, field, (val||'').trim()); } }}
@@ -25429,7 +25517,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     // ★ 選択中セルのハイライト(2026-08-11): PC版と同じ青枠リングでどこを入力中か分かるように
                     return (
                     <button key={field} disabled={dis} onClick={()=>{openKeypad(p.id,field,cur,isAbsent);setActiveCell(`${p.id}-${field}`);}} className={`rounded-lg border py-1.5 px-1 disabled:opacity-40 flex flex-col items-center ${activeCell===`${p.id}-${field}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white'}`}>
-                      <span className="text-[10px] font-bold text-slate-500">{lbl}</span>
+                      <span className="text-[12px] font-bold text-slate-600">{lbl}</span>
                       <span className={`text-base font-bold ${colorCls}`}>{_shown2}</span>
                     </button>
                     );
@@ -25447,11 +25535,51 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   </div>
                 )}
                 {!isAbsent && <div className="grid grid-cols-3 gap-1.5">
-                  {exItems.map(item=>{ const v=p.exercises?.[item.id]; const vs=String((typeof v==='object'?'':v)??''); const unit=item.defaultUnit||''; const disp=applyExUnits(vs, item); const ph=plannedEx[item.id]||'';
+                  {exItems.map(item=>{
+                    // ★ 2026-10-07(店舗報告「スマホ縦で個別運動を入力しても反映されない」): 個別運動は {itemId,value} の形で保存されるのに、
+                    //   このカードは通常の運動と同じ扱い(値がオブジェクトなら空表示)で、種目も選べず、入れた値が表示されなかった。
+                    //   一覧(表)・拡大入力と同じく、種目の選択(利用者マスタの既定を初期値)+値の入力にする。
+                    if (item.type === 'individual') {
+                      const _pid = p.patientId || p.id; const _tp = (appData.patients||[]).find(pp => pp.id === _pid);
+                      const _all = appData.systemSettings?.individualExerciseItems || [];
+                      const _raw = _tp?.individualExercises;
+                      const _enIds = (_raw === undefined || _raw === null) ? _all.map(it => it.id) : _raw.map(x => x.itemId);
+                      const _enItems = _all.filter(it => _enIds.includes(it.id));
+                      const _ps = (_raw === undefined || _raw === null) ? _all.map(it => ({itemId: it.id, defaultValue: ''})) : _raw;
+                      const _cur = (p.exercises && typeof p.exercises[item.id] === 'object' && p.exercises[item.id]) ? p.exercises[item.id] : { itemId:'', value:'' };
+                      const _effId = _cur.itemId || _tp?.individualExerciseSlotDefaults?.[item.id] || '';
+                      const _sel = _all.find(it => it.id === _effId);
+                      const _dated = getIndividualExercisesForDate(_tp, selectedDate) || [];
+                      const _def = _sel ? (((_dated.find(x => x.itemId === _sel.id)?.defaultValue) ?? (_ps.find(x => x.itemId === _sel.id)?.defaultValue)) || '') : '';
+                      const _ph = (_sel && _def) ? applyExUnits(_def, _sel) : '';
+                      const _disp = _sel ? applyExUnits(_cur.value || '', _sel) : '';
+                      const _ak = `${p.id}-${item.id}`;
+                      return (
+                        <div key={item.id} data-testid={`m-ind-${item.id}-${p.id}`} className={`rounded-lg border py-1 px-1 flex flex-col items-center min-w-0 ${activeCell===_ak ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-emerald-300 bg-emerald-50/50'}`}>
+                          <select value={_effId} disabled={dis} aria-label={`${item.name}の種目`} onChange={e=>updateExercise(p.id, item.id, {..._cur, itemId: e.target.value})}
+                            className="w-full text-center font-bold text-emerald-800 bg-transparent outline-none truncate disabled:opacity-60 appearance-none" style={{textAlignLast:'center',WebkitAppearance:'none',backgroundImage:'none',padding:0,height:22,lineHeight:1}}>
+                            <option value="">{item.name}</option>
+                            {_enItems.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
+                          </select>
+                          {!_keypadOn ? (
+                            <input type="text" inputMode="text" disabled={dis || !_sel} placeholder={_sel ? (_ph || '—') : '種目を選ぶ'} key={`mki-${p.id}-${item.id}-${_cur.value||''}`} defaultValue={_cur.value || ''}
+                              onBlur={(e)=>{ if (_circleBlocked(p.id, item.id, e.target.value)) { e.target.value=''; updateExercise(p.id, item.id, {..._cur, itemId: _cur.itemId||_effId, value: ''}); return; } updateExercise(p.id, item.id, {..._cur, itemId: _cur.itemId||_effId, value: applyExUnits(e.target.value, _sel)}); }}
+                              className="w-full text-center text-sm font-bold text-blue-700 outline-none border border-slate-200 rounded mt-0.5 bg-white disabled:opacity-40 placeholder:text-slate-500 placeholder:font-bold" style={{height:30}} />
+                          ) : (
+                            <button type="button" disabled={dis || !_sel} data-testid={`m-ind-btn-${item.id}-${p.id}`}
+                              onClick={()=>{ if (!_cur.itemId && _effId) updateExercise(p.id, item.id, {..._cur, itemId: _effId}); openKeypad(p.id, item.id, _cur.value || '', isAbsent); setActiveCell(_ak); }}
+                              className="w-full text-sm font-bold text-blue-700 disabled:opacity-60" style={{minHeight:26}}>
+                              {_disp || <span className="text-slate-500">{_sel ? (_ph || '＋') : '種目を選ぶ'}</span>}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    }
+                    const v=p.exercises?.[item.id]; const vs=String((typeof v==='object'?'':v)??''); const unit=item.defaultUnit||''; const disp=applyExUnits(vs, item); const ph=plannedEx[item.id]||'';
                     if(!_keypadOn){
                       return (
                         <div key={item.id} className="rounded-lg border border-slate-200 bg-slate-50 py-1 px-1 flex flex-col items-center min-w-0">
-                          <span className="text-[10px] font-bold text-slate-500 truncate w-full text-center">{item.name}</span>
+                          <span className="text-[12px] font-bold text-slate-600 truncate w-full text-center">{item.name}</span>
                           <input type="text" inputMode="text" disabled={dis} placeholder={ph||'—'} key={`mke-${p.id}-${item.id}-${vs}`} defaultValue={vs}
                             onBlur={(e)=>{ if (_circleBlocked(p.id, item.id, e.target.value)) { e.target.value=''; updateExercise(p.id,item.id,''); return; } updateExercise(p.id,item.id, applyExUnits(e.target.value, item)); }}
                             className="w-full text-center text-sm font-bold text-blue-700 outline-none border border-slate-200 rounded mt-0.5 bg-white disabled:opacity-40 placeholder:text-slate-500 placeholder:font-bold" style={{height:30}} />
@@ -25460,7 +25588,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     }
                     return (
                     <button key={item.id} disabled={dis} onClick={()=>{openKeypad(p.id,item.id,(typeof v==='object'?'':v)||'',isAbsent);setActiveCell(`${p.id}-${item.id}`);}} className={`rounded-lg border py-1.5 px-1 disabled:opacity-40 flex flex-col items-center min-w-0 ${activeCell===`${p.id}-${item.id}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-200 bg-slate-50'}`}>
-                      <span className="text-[10px] font-bold text-slate-500 truncate w-full text-center">{item.name}</span>
+                      <span className="text-[12px] font-bold text-slate-600 truncate w-full text-center">{item.name}</span>
                       {/* ★ ○/×/－のセルを選択中だけ、記号を薄くして基準値を透かし表示(2026-08-11)。
                           未選択時は従来どおり記号のみ。記号を消さなくても基準値を確認できる。 */}
                       {(() => {
@@ -33846,9 +33974,12 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                           <button onClick={()=>setMobileOpenCardId(opened?null:record.patientId)} className={`px-2.5 py-1.5 rounded-lg text-xs font-bold ${opened?'bg-slate-200 text-slate-600':'bg-slate-700 text-white'}`}>{opened?'閉じる':'開く'}</button>
                         </div>
                       </div>
+                      {/* ★ 2026-10-07(店舗要望): スマホで開いた連絡帳は用紙の原寸で左右が切れていた → 画面の幅に合わせて縮小して全体を表示 */}
                       {opened && (
-                        <div className="border-t border-slate-200 p-2 overflow-x-auto flex justify-center">
-                          <ContactBookCard record={record} patient={patient} selectedDate={selectedDate} config={appData.contactBookConfig} appData={appData} onOpenConfig={() => setIsConfigOpen(true)} onEditPatientValue={openPatientValueEdit} onEditRenraku={(p)=>setRenrakuModal({ patientId: p.id })} />
+                        <div className="border-t border-slate-200 p-1.5" data-testid="renraku-fit">
+                          <TsuFitWidth>
+                            <ContactBookCard record={record} patient={patient} selectedDate={selectedDate} config={appData.contactBookConfig} appData={appData} onOpenConfig={() => setIsConfigOpen(true)} onEditPatientValue={openPatientValueEdit} onEditRenraku={(p)=>setRenrakuModal({ patientId: p.id })} />
+                          </TsuFitWidth>
                         </div>
                       )}
                     </div>
@@ -43167,18 +43298,18 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                                 const today=new Date().toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
                                 const cur=[...(p.businessCard||[])];
                                 let loaded=0;
+                                // ★ 2026-10-07(メモリ不足で落ちる対策): 名刺の写真を元の大きさのまま店舗データに入れていた(1枚数MB)。
+                                //   他の写真と同じく縮小(長辺1600px・JPEG)してから保存する。PDFはそのまま
                                 files.forEach(f=>{
-                                  const r=new FileReader();
-                                  r.onload=ev=>{
-                                    cur.push({id:Date.now()+Math.random(),data:ev.target.result,name:f.name,type:f.type||'image/jpeg',uploadedAt:today});
+                                  processUploadFile(f, 1600, 0.7).then(res=>{
+                                    cur.push({id:Date.now()+Math.random(),data:res.dataUrl,name:f.name,type:res.contentType||f.type||'image/jpeg',uploadedAt:today});
                                     loaded++;
                                     if(loaded===files.length) {
                                       const newPersons=[...cmPersons];
                                       newPersons[origIdx]={...newPersons[origIdx], businessCard:cur};
                                       setCmPersons(newPersons);
                                     }
-                                  };
-                                  r.readAsDataURL(f);
+                                  });
                                 });
                                 e.target.value='';
                               }}/>
@@ -51121,7 +51252,8 @@ function InsuranceOcrModal({ onApply, onClose }) {
     if (!f) return;
     if (isVideoFile(f)) { alert('動画はアップロードできません（写真・PDFのみ対応）。'); e.target.value=''; return; }
     setFile(f);
-    setPreviewUrl(URL.createObjectURL(f));
+    // ★ 2026-10-07: 前のプレビュー画像を解放してから差し替える(読み込み直すたびに画像がメモリに残っていた)
+    setPreviewUrl(prevU => { try { if (prevU && String(prevU).startsWith('blob:')) URL.revokeObjectURL(prevU); } catch {} return URL.createObjectURL(f); });
     setRawText(''); setFields({}); setError(''); setProgress(0);
   };
 
@@ -53492,19 +53624,18 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-3">
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-[1700px] h-[calc(100vh-16px)] sm:h-[calc(100vh-24px)] flex flex-col" onClick={e=>e.stopPropagation()}>
         {/* ヘッダー */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 shrink-0">
-          <div>
-            <div className="flex items-center gap-2 text-base font-bold text-slate-800">
+        {/* ★ 2026-10-07(店舗報告「右上の×とゴミ箱が近くて押し間違える」): ゴミ箱は左の見出しの横へ移し、×(閉じる)は右端に単独で大きめに */}
+        <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200 shrink-0">
+          <div className="min-w-0">
+            <div className="flex items-center gap-3 text-base font-bold text-slate-800">
               個人ファイル
+              <button data-testid="pf-trash-btn" onClick={()=>setShowTrash(s=>!s)} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${showTrash?'bg-slate-700 text-white':'bg-slate-100 hover:bg-slate-200 text-slate-600'}`}>
+                ゴミ箱{trashItems.length>0?` (${trashItems.length})`:''}
+              </button>
             </div>
-            <div className="text-xs text-slate-500 mt-0.5">{patient.name} 様 ({patient.kana || ''})</div>
+            <div className="text-xs text-slate-500 mt-0.5 truncate">{patient.name} 様 ({patient.kana || ''})</div>
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={()=>setShowTrash(s=>!s)} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${showTrash?'bg-slate-700 text-white':'bg-slate-100 hover:bg-slate-200 text-slate-600'}`}>
-              ゴミ箱{trashItems.length>0?` (${trashItems.length})`:''}
-            </button>
-            <button onClick={onClose} className="p-2 text-slate-400 hover:bg-slate-200 rounded-full"><X size={20}/></button>
-          </div>
+          <button data-testid="pf-close-btn" onClick={onClose} aria-label="閉じる" title="閉じる" className="shrink-0 w-11 h-11 flex items-center justify-center text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-full"><X size={22}/></button>
         </div>
         {/* ゴミ箱 (削除後7日間は復元可能) */}
         {showTrash && (

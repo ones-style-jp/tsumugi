@@ -30,6 +30,29 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+// ★ 2026-10-07(店舗報告「スマホで連続して操作した後、しばらくするとタップの反応する位置がずれる」):
+//   iPhone は文字入力のキーボードを出すと画面全体(本来は動かない外枠)を上へずらし、キーボードを閉じても戻らないことがある。
+//   すると見た目と押した位置が食い違う。外枠がスクロールしない作り(内側の枠だけがスクロール)のときに限り、
+//   キーボードが閉じた後・入力欄から離れた後に外枠のずれを0に戻す。拡大表示中(ピンチ)や入力中は触らない。
+if (typeof window !== 'undefined') {
+  let _vvT = null;
+  const _resetShift = () => {
+    clearTimeout(_vvT);
+    _vvT = setTimeout(() => {
+      try {
+        const ae = document.activeElement;
+        if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;
+        const vv = window.visualViewport;
+        if (vv && vv.scale > 1.01) return;
+        const se = document.scrollingElement || document.documentElement;
+        if ((window.scrollY || 0) !== 0 && se.scrollHeight <= window.innerHeight + 2) window.scrollTo(0, 0);
+      } catch (_e) { /* noop */ }
+    }, 250);
+  };
+  try { window.visualViewport && window.visualViewport.addEventListener('resize', _resetShift); } catch (_e) { /* noop */ }
+  document.addEventListener('focusout', _resetShift);
+}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ErrorBoundary>

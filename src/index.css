@@ -107,3 +107,18 @@ table { -webkit-touch-callout: none; }
 /* ★ 2026-10-02(試験版・ユーザー要望): 送迎表の長押しドラッグで iPad の文字の範囲選択・長押しメニューを出さない */
 [data-tpdrag], [data-tpdrag] * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 body.tsumugi-dragging, body.tsumugi-dragging * { -webkit-user-select: none !important; user-select: none !important; -webkit-touch-callout: none !important; }
+
+/* ★ 2026-10-07(店舗報告「スマホで連続して操作すると、しばらくしてタップの反応する位置がずれる」):
+   続けて素早く2回タップすると、スマホ(特にiPhone)は「ダブルタップで拡大」と判断して画面を拡大し、
+   見た目と押す位置が食い違う。ダブルタップでの拡大だけを止める(2本指での拡大・スクロールはそのまま)。 */
+html, body { touch-action: manipulation; }
+button, a, input, select, textarea, label, [role="button"] { touch-action: manipulation; }
+
+
+/* ★ 2026-10-07(ユーザー要望「スマホの文字・ボタンの大きさを一般的な基準に」): スマホ幅の基準
+   参考: デジタル庁デザインシステム(本文16px以上・ボタンの押せる範囲44px以上)/Apple(44pt)/Google(48dp)。
+   - 入力欄の文字は16px(上の iOS 対策で適用済み)
+   - 画面上部の操作ボタン・入力欄は高さ44px以上(提供記録 入力の上部) */
+@media (max-width: 639px) {
+  [data-testid="rec-toolbar"] button, [data-testid="rec-toolbar"] input, [data-testid="rec-toolbar"] select { min-height: 44px; }
+}
