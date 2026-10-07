@@ -34824,13 +34824,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     days.forEach(d => ['AM','PM'].forEach(sl => { const iso = _iso(d); const pl = getPlan(iso, sl); const { _draft, _base, _baseAt, _baseId, ...rest } = pl;
       // 解除中(控えあり)の再確定は控えを基準のまま戻す。それ以外(初めて・確定の更新)は今の内容を新しい基準にする
       np[`${iso}_${sl}`] = (_base && !pl._final && !already) ? { ...rest, _final: _base, _finalAt: at, _finalId: _baseId || _baseAt || at, _savedAt: at } : { ...rest, _final: _snapPlan(pl), _finalAt: at, _finalId: at, _savedAt: at }; n++; }));
-    _setAfterFinalPreview(true); // ★ 2026-10-02 ユーザー要望: 確定したらそのまま運行表のプレビューへ
+    // ★ 2026-10-07(ユーザー要望「確定したら自動でダウンロードする機能はなくていい」): 確定後の運行表の自動ダウンロードは廃止。必要なときは「ダウンロード」から
     setTpEdit(false); // ★ 2026-10-03: 確定後は一覧(確定済み表示)に戻る
     _saveBulk('確定', np, { manual: true, message: `✓ 送迎表 ${_mon.getMonth()+1}/${_mon.getDate()}週を確定にしました(${n}コマ)` });
   };
-  const [_afterFinalPreview, _setAfterFinalPreview] = useState(false);
-  React.useEffect(() => { if (!_afterFinalPreview) return; if (!_finalAtOfWeek()) return; _setAfterFinalPreview(false); try { doPrintRef.current && doPrintRef.current('sheet'); } catch {} }, [plans, _afterFinalPreview]); // eslint-disable-line react-hooks/exhaustive-deps
-  const doPrintRef = React.useRef(null);
   // ★ 2026-10-02(試験版・ユーザー要望「確定を解除できるように」): 確定の控え(_final)を外して「作成中」に戻す。内容はそのまま。
   const [finalMenu, setFinalMenu] = useState(false);
   const [tpFocus, setTpFocus] = useState(null); // ★ 2026-10-07: 変更の一覧で押した方を表でハイライト { iso, sl, pid, removed }
@@ -35980,7 +35977,6 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const page2 = withContacts ? buildContactsPages().map(pg => _wrap(pg, true)).join('') : '';
     window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `${_wrap(html, false)}${page2}`, elementId: null } }));
   };
-  doPrintRef.current = doPrint;
 
   const _autoCalcModal = autoCalc && (
     <div className="fixed inset-0 z-[10060] bg-black/40 flex items-center justify-center p-3">
@@ -36423,7 +36419,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             )}
             <div className="flex gap-2">
               <button onClick={()=>setPrintModal(null)} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
-              <button onClick={()=>{ const pm = printModal; setPrintModal(null); if (pm.mode==='week') doPrint(pm.weekContent||'sheet'); else doPrintDays(days.map(d=>_iso(d)).filter(iso=>pm.days.has(iso))); }} disabled={printModal.mode==='days' && printModal.days.size===0} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm disabled:opacity-40">印刷へ進む</button>
+              <button onClick={()=>{ const pm = printModal; setPrintModal(null); if (pm.mode==='week') doPrint(pm.weekContent||'sheet'); else doPrintDays(days.map(d=>_iso(d)).filter(iso=>pm.days.has(iso))); }} disabled={printModal.mode==='days' && printModal.days.size===0} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm disabled:opacity-40">ダウンロード</button>
             </div>
           </div>
         </div>
