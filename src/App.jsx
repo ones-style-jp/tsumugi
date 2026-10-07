@@ -10912,6 +10912,51 @@ const longPressTapProps = (fn) => ({
 //           <div {...dnd.listProps}> … {items.map((it,i) => <div {...dnd.rowProps(i)}> … </div>)}
 //   行を0.2秒長押し→そのまま上下へ運ぶ。行の上半分に落とせばその前、下半分ならその後ろへ入る。
 //   入力欄(input/select/textarea/button)の上から始めた長押しはドラッグにしない(文字入力・削除ボタンを妨げないため)。
+// ★ 2026-10-07(店舗要望: 定員15名などで運動をするとき、グループ分けとは別に利用者を自由な順に並べたい):
+//   サービス提供記録 入力の「並び替え」。 表示中(午前/午後)の利用者を長押しドラッグ(または上へ/下へ)で並べ替えて保存。
+//   並び順は店舗の設定 systemSettings.recordOrder(利用者IDの並び・全端末で共有)。 記録の中身は利用者IDで紐づくので、並べ替えても日誌・連絡帳などとずれない
+function RecordOrderModal({ rows, onSave, onClose }) {
+  const [list, setList] = React.useState(() => rows.map(r => ({ id: r.id, name: r.name, kana: r.kana, status: r.status || '出席' })));
+  const dnd = useLongPressReorder(list, setList);
+  const mv = (i, d) => setList(prev => { const j = i + d; if (j < 0 || j >= prev.length) return prev; const a = [...prev]; [a[i], a[j]] = [a[j], a[i]]; return a; });
+  const absent = (st) => st === '欠席' || st === '休止' || st === '休業';
+  return ReactDOM.createPortal((
+    <div className="fixed inset-0 z-[10050] bg-slate-900/40 flex items-start justify-center p-3 sm:p-6" data-testid="rec-order-modal">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="px-4 py-3 border-b border-slate-200">
+          <div className="text-base font-bold text-slate-800">利用者の並び替え</div>
+          <div className="text-xs text-slate-500 mt-0.5 leading-relaxed">名前を長押しして上下に動かすか、「上へ」「下へ」で並べ替えて「この順で保存」を押してください。表の並び(利用者名・状態・運動など)がこの順になります。欠席・休止の方はこれまでどおり下にまとめて表示します。</div>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3 space-y-1.5" data-testid="rec-order-list">
+          {list.map((r, i) => (
+            <div key={r.id} {...dnd.rowProps(i)} data-testid="rec-order-row" className={`flex items-center gap-2 border rounded-xl px-2.5 py-2 bg-white ${absent(r.status) ? 'opacity-60' : ''}`} style={{ ...dnd.rowProps(i).style }}>
+              <div className="text-slate-300 shrink-0" title="長押しでドラッグして並べ替え"><GripVertical size={18}/></div>
+              <span className="w-6 text-right text-xs font-bold text-slate-400 tabular-nums shrink-0">{i + 1}</span>
+              <span className="flex-1 min-w-0 truncate font-bold text-slate-800" data-testid="rec-order-name">{r.name}</span>
+              {r.status && r.status !== '出席' && <span className="text-[10px] font-bold text-slate-500 border border-slate-300 rounded px-1 shrink-0">{r.status}</span>}
+              <button type="button" onClick={() => mv(i, -1)} disabled={i === 0} className="px-2 py-1 rounded-lg border border-slate-300 text-[11px] font-bold text-slate-600 disabled:opacity-30 shrink-0">上へ</button>
+              <button type="button" onClick={() => mv(i, 1)} disabled={i === list.length - 1} className="px-2 py-1 rounded-lg border border-slate-300 text-[11px] font-bold text-slate-600 disabled:opacity-30 shrink-0">下へ</button>
+            </div>))}
+        </div>
+        <div className="px-4 py-3 border-t border-slate-200 flex items-center gap-2 flex-wrap">
+          <button type="button" data-testid="rec-order-kana" onClick={() => setList(prev => [...prev].sort((a, b) => String(a.kana || a.name || '').localeCompare(String(b.kana || b.name || ''), 'ja')))} className="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-600">あいうえお順に戻す</button>
+          <button type="button" onClick={onClose} className="ml-auto px-4 py-2 rounded-xl bg-slate-100 text-sm font-bold text-slate-600">キャンセル</button>
+          <button type="button" data-testid="rec-order-save" onClick={() => onSave(list.map(r => r.id))} className="px-5 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold">この順で保存</button>
+        </div>
+      </div>
+    </div>), document.body);
+}
+// 並び順(利用者IDの配列)の中で、表示中の利用者だけを新しい順に入れ替える(ほかの方どうしの順番はそのまま)
+const tsumugiMergeRecordOrder = (patients, curOrder, subsetNewOrder) => {
+  const idx = new Map((Array.isArray(curOrder) ? curOrder : []).map((id, i) => [String(id), i]));
+  const all = (patients || []).filter(p => p && p.id != null).slice().sort((a, b) => {
+    const ia = idx.has(String(a.id)) ? idx.get(String(a.id)) : Infinity, ib = idx.has(String(b.id)) ? idx.get(String(b.id)) : Infinity;
+    if (ia !== ib) return ia - ib; return String(a.kana || a.name || '').localeCompare(String(b.kana || b.name || ''), 'ja');
+  }).map(p => p.id);
+  const sub = new Set(subsetNewOrder.map(String));
+  const queue = [...subsetNewOrder];
+  return all.map(id => sub.has(String(id)) ? queue.shift() : id);
+};
 function useLongPressReorder(items, onReorder, opts) {
   const holdMs = (opts && opts.holdMs) || 200;
   const [drag, setDrag] = React.useState(null); // {from, to}  to=挿入位置(取り出し前の配列基準)
@@ -23509,6 +23554,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
   }, []);
   const [kinouGroupSel, setKinouGroupSel] = useState(''); // ★ 上に集めて表示するグループ('' = 通常の並び)
+  const [recOrderOpen, setRecOrderOpen] = useState(false); // ★ 2026-10-07: 利用者の並び替え
   // ★ 拡大入力ビュー(2026-09-09 店舗要望): 高齢のスタッフでも見やすいよう、1名分のバイタル・運動・特記を大きな字で表示・入力
   const [zoomPid, setZoomPid] = useState(null);
   const kpConfirmRef = React.useRef(false); // ★ PC Enter: 1回目=確定 / 2回目=右のセルへ移動
@@ -24833,6 +24879,22 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     });
   }
 
+  // ★ 2026-10-07: 店舗の並び順(systemSettings.recordOrder)で表示。状態の順(出席→振替→欠席→休止→休業)は従来どおり先
+  const _recOrder = appData.systemSettings?.recordOrder;
+  const _recOrderOn = Array.isArray(_recOrder) && _recOrder.length > 0;
+  if (filterMode === 'single' && _recOrderOn) {
+    const _oi = new Map(_recOrder.map((id, i) => [String(id), i]));
+    const _rk = (s) => s === '出席' ? 0 : (s === '振替' || s === '臨時') ? 1 : s === '欠席' ? 2 : s === '休止' ? 3 : s === '休業' ? 4 : 5;
+    displayRecords = [...displayRecords].sort((a, b) => (_rk(a.status || '出席') - _rk(b.status || '出席'))
+      || ((_oi.has(String(a.id)) ? _oi.get(String(a.id)) : Infinity) - (_oi.has(String(b.id)) ? _oi.get(String(b.id)) : Infinity))
+      || String(a.kana || '').localeCompare(String(b.kana || ''), 'ja'));
+  }
+  const _recOrderRows = filterMode === 'single' ? displayRecords : [];
+  const saveRecordOrder = (subset) => {
+    const next = tsumugiMergeRecordOrder(appData.patients, _recOrder, subset);
+    onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), recordOrder: next } }, { manual: true, message: '✓ 利用者の並び順を保存しました' });
+    setRecOrderOpen(false);
+  };
   // ★ 本日分の人数集計 (出席/欠席/休止/振替/休業)。表に列は足さず、ヘッダーにチップ表示。検索の影響を受けないよう検索前に集計。
   const attCounts = (filterMode === 'single')
     ? displayRecords.reduce((c,p)=>{ const s=(p.status||'出席'); if(['出席','臨時','欠席','休止','振替','休業'].includes(s)) c[s]=(c[s]||0)+1; c._total=(c._total||0)+1; return c; }, {})
@@ -25002,6 +25064,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         className={`px-4 py-2 text-sm font-bold transition-all shrink-0 ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-50'}`}>{v}</button>
                     ))}
                   </div>
+                  <button type="button" data-testid="rec-order-btn" onClick={() => setRecOrderOpen(true)} title="表示中の利用者の並び順を変えます(長押しドラッグ)" className={`px-3 py-2 rounded-xl text-sm font-bold border shrink-0 ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}>並び替え</button>
+                  {recOrderOpen && <RecordOrderModal rows={_recOrderRows} onSave={saveRecordOrder} onClose={() => setRecOrderOpen(false)}/>}
                   {attCountChips}
               </div>
             )}
@@ -25029,7 +25093,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             {/* ★ 2026-09-29 ユーザー指示: 「氏名で検索」は使わないため非表示(検索の仕組み自体は残す) */}
             {_kinouOn && (
               <div className="relative flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-xl px-2 py-1" title="個別機能訓練を実施した機能訓練指導員。ここで選ぶと表示中の区分(AM/PM)の全員に適用。利用者ごとに変えるときは「利用者ごと」。提供記録の印刷に「個別: ○○」と出ます">
-                <span className="text-[11px] font-bold text-emerald-800 whitespace-nowrap">個別機能訓練 実施</span>
+                <span className="text-[11px] font-bold text-emerald-800 whitespace-nowrap leading-tight text-center">個別機能訓練<br/>実施者</span>
                 <select data-testid="kinou-default" value={_kinouEff} disabled={!isEditMode} onChange={e=>applyKinouAll(e.target.value)} className="text-sm font-bold bg-white border border-emerald-300 rounded-lg px-2 py-1 outline-none disabled:opacity-60">
                   {!_kinouList.includes(_kinouEff) && _kinouEff && _kinouEff !== '未算定' && <option value={_kinouEff}>{_kinouEff}</option>}
                   {_kinouList.map(n => <option key={n} value={n}>{n}</option>)}
@@ -25037,11 +25101,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   {!_kinouList.length && !_kinouEff && <option value="">（機能訓練指導員が未登録）</option>}
                 </select>
                 <button type="button" data-testid="kinou-group-btn" onClick={()=>{ setKinouGroupPanel(true); setKgSel(null); }} className="text-[11px] font-bold rounded-lg px-2 py-1 border bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-100">グループ</button>
-                <span className="text-[11px] font-bold text-emerald-800 whitespace-nowrap">上に</span>
-                <select data-testid="kinou-group-sel" value={kinouGroupSel} onChange={e=>setKinouGroupSel(e.target.value)} title="選んだグループの利用者を表の一番上にまとめて表示します" className="text-[11px] font-bold bg-white border border-emerald-300 text-emerald-900 rounded-lg px-1 py-1">
-                  <option value="">なし</option>
-                  {_kinouGroupsUsed.map(g => <option key={g} value={g}>{g}（{_kinouGroupCount(g)}）</option>)}
-                </select>
+                {kinouGroupSel && <button type="button" data-testid="kinou-group-top-chip" onClick={() => setKinouGroupSel('')} title="押すと上にまとめる表示をやめます" className="text-[11px] font-bold rounded-lg px-2 py-1 border bg-emerald-600 text-white border-emerald-600 whitespace-nowrap">{kinouGroupSel}を上に表示中 ×</button>}
                 {/* ★ グループ振り分けボード(2026-09-30): 画面の最前面に出す(表の見出しの下に隠れないよう body 直下へ) */}
                 {kinouGroupPanel && ReactDOM.createPortal((
                   <div className="fixed inset-0 z-[10050] bg-slate-900/40 flex items-start justify-center p-3 sm:p-6" data-testid="kinou-group-panel">
@@ -25070,6 +25130,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                                 <span className={`text-sm font-bold ${col.key === 'new' ? 'text-emerald-700' : 'text-slate-800'}`}>{col.title}</span>
                                 {isGroup && <span className={`text-[11px] font-bold ${full ? 'text-amber-700' : 'text-slate-500'}`}>{mem.length}/{KINOU_GROUP_MAX}名</span>}
                                 {col.key === 'none' && <span className="text-[11px] text-slate-500">{mem.length}名</span>}
+                                {/* ★ 2026-10-07(ユーザー要望): 表の一番上にまとめて表示するグループはここで選ぶ(上部の「上に」は廃止) */}
+                                {isGroup && mem.length > 0 && <button type="button" data-testid={`kg-top-${col.key}`} onClick={e=>{ e.stopPropagation(); setKinouGroupSel(v => v === col.key ? '' : col.key); }} title="このグループの方を、提供記録の表の一番上にまとめて表示します" className={`ml-auto text-[10px] font-bold rounded-full px-2 py-0.5 border whitespace-nowrap ${kinouGroupSel === col.key ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-50'}`}>{kinouGroupSel === col.key ? '上に表示中' : '上に表示'}</button>}
                                 {removable && <button type="button" title="空のグループを消す" onClick={e=>{ e.stopPropagation(); setKinouExtraGroups(x => x.filter(g => g !== col.key)); }} className="ml-auto text-slate-400 hover:text-red-600 text-xs font-bold">×</button>}
                               </div>
                               {isGroup && (
@@ -44623,7 +44685,9 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
       }
       return ampm === 'AM';
     }
-    return [ampm,'1日'].includes(p.scheduleAmPm?.[dow]);
+    // ★ 2026-10-07: その日時点の基本利用曜日で判定(曜日を変えた方の過去の日誌から欠席などの記録が抜けないように)
+    const _slotD = (getScheduleOnDate(p, selectedDate) || p.scheduleAmPm || [])[dow];
+    return [ampm,'1日'].includes(_slotD);
   };
   // ソート: 出席 → 振替 → 欠席 → 休止 → 休業 → その他
   const _statusRank = (st) => st === '出席' ? 0 : (st === '振替' || st === '臨時') ? 1 : st === '欠席' ? 2 : st === '休止' ? 3 : st === '休業' ? 4 : 5;
@@ -44665,19 +44729,34 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     } catch {}
     return '';
   };
+  // ★ 2026-10-07(ユーザー指示「基本利用日の利用者は、欠席があっても必ず日誌に記載。欠席・休止・休業は必ず残す」):
+  //   提供記録がまだ無い方でも、月間スケジュールの 欠席/休止 はその状態で載せる(従来は「出席」で表示していた)
+  const _monthlyAbsKind = (pid) => {
+    try {
+      const _d = new Date(selectedDate); if (isNaN(_d.getTime())) return '';
+      const sh = appData.monthlyShifts?.[`${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}`]?.[pid] || {};
+      const keys = ampm === '1日' ? [`${_d.getDate()}_AM`, `${_d.getDate()}_PM`] : [`${_d.getDate()}_${ampm}`];
+      for (const k of keys) { const v = String(sh[k] || ''); if (v === '欠席' || v === '欠') return '欠席'; if (v === '休止') return '休止'; }
+    } catch {}
+    return '';
+  };
   const scheduledExtras = (appData.patients||[])
     .filter(p => {
       if (recordedPids.has(p.id)) return false;
       // ★ 提供記録入力と同じ日付基準(2026-08-27): 利用開始日前/終了日後は載せない・基本曜日はその日付時点の値
       if (!isPatientActiveOnDate(p, selectedDate)) return false;
-      if (getPatientDisplayStatus && getPatientDisplayStatus(p) !== '利用中') return false;
+      // ★ 2026-10-07: 休止中の方も基本利用日なら記録として載せる(従来は「利用中」の方だけで、休止中の方が日誌から抜けていた)
+      if (getPatientDisplayStatus && getPatientDisplayStatus(p) === '退所済み') return false;
       const slot = getScheduleOnDate(p, selectedDate)?.[dow] || '';
       const _baseHit = (ampm === '1日') ? ['AM','PM','1日'].includes(slot) : (slot === ampm || slot === '1日');
       if (_baseHit) return true;
       // ★ 基本利用日でなくても、月間スケジュールに 臨時/振替/出席 の印があれば日誌に載せる(2026-09-25 店舗報告: 臨時にした人が日誌に出ない)
       return !!_monthlyComingKind(p.id);
     })
-    .map(p => { const _k = _monthlyComingKind(p.id); const _st0 = _k === '臨時' ? '臨時' : _k === '振替' ? '振替' : '出席'; return { id:`auto-${p.id}`, patientId:p.id, name:p.name||'', kana:p.kana||'', careLevel:p.careLevel||'', tokki:'', status:_applyKyugyo(_st0, p.id, selectedDate, dow) }; });
+    .map(p => { const _k = _monthlyComingKind(p.id); const _pz = getPauseReasonOnDate(p, selectedDate); const _paused = !!_pz || (getPatientDisplayStatus && getPatientDisplayStatus(p) === '休止');
+      const _ab = _monthlyAbsKind(p.id);
+      const _st0 = _paused ? '休止' : _ab ? _ab : _k === '臨時' ? '臨時' : _k === '振替' ? '振替' : '出席';
+      return { id:`auto-${p.id}`, patientId:p.id, name:p.name||'', kana:p.kana||'', careLevel:p.careLevel||'', tokki: _paused ? ((_pz && _pz.reason) || '') : '', status:_applyKyugyo(_st0, p.id, selectedDate, dow) }; });
   // ★ 状態ランク→同状態内はかな順(提供記録入力・プレビューと同じ並び)
   const patients = [...recordedPatients, ...scheduledExtras]
     .sort((a, b) => (_statusRank(a.status) - _statusRank(b.status)) || String(a.kana||a.name||'').localeCompare(String(b.kana||b.name||''), 'ja'));
