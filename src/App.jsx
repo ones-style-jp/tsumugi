@@ -933,7 +933,7 @@ function PrintPreviewModal({ children, title, onClose, onPrint }) {
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:9000,display:'flex',flexDirection:'column'}}>
       <div style={{background:'#2d3748',padding:'8px 16px',display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
         <span style={{color:'white',fontWeight:'bold',fontSize:14}}>印刷プレビュー — {title}</span>
-        <div style={{marginLeft:'auto',display:'flex',gap:8}}>
+        <div style={{marginLeft:'auto',display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end',whiteSpace:'nowrap'}}>
           <button onClick={onPrint} style={{background:'#2563eb',color:'white',border:'none',borderRadius:8,padding:'6px 16px',fontWeight:'bold',fontSize:13,cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>
             印刷 / PDF保存
           </button>
@@ -23011,17 +23011,17 @@ export default function App() {
                   const r = req.call(el); if (r && r.catch) r.catch(()=>alert('全画面にできませんでした。iPad/iPhone は「ホーム画面に追加」から開くと全画面で使えます。'));
                 } catch { alert('全画面にできませんでした。iPad/iPhone は「ホーム画面に追加」から開くと全画面で使えます。'); }
               }} title="ブラウザのタブ・URL欄を隠して全画面で表示（もう一度押す／Escで戻る）"
-              className="hidden md:flex items-center gap-1 shrink-0 mr-2 text-[11px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-full px-2.5 py-1 whitespace-nowrap active:scale-95">
+              className="flex items-center gap-1 shrink-0 mr-1 md:mr-2 text-[10px] md:text-[11px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-full px-2 md:px-2.5 py-1 whitespace-nowrap active:scale-95">
               全画面
             </button>
             {/* ★ 変更ログ(監査)ビューアを開くボタン */}
             <button onClick={()=>setAuditLogOpen(true)} title="いつ・どの端末で・何を変更したかの履歴"
-              className="hidden md:flex items-center gap-1 shrink-0 mr-2 text-[11px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-full px-2.5 py-1 whitespace-nowrap active:scale-95">
+              className="flex items-center gap-1 shrink-0 mr-1 md:mr-2 text-[10px] md:text-[11px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-full px-2 md:px-2.5 py-1 whitespace-nowrap active:scale-95">
               変更ログ
             </button>
-            {/* ジャンプナビをヘッダー右側に配置。 ★ 2026-10-06(ユーザー要望「iPad縦でも移動を出して」): md(768px〜)から表示。タイトルは省略されて縮むのでボタンは切れない */}
+            {/* ジャンプナビをヘッダー右側に配置。 ★ 2026-10-06(ユーザー要望「iPad縦でも移動を出して」)・2026-10-07(スマホ縦でも): 常に表示。タイトルは省略されて縮むのでボタンは切れない */}
             {['ticket','fitness','master','dash_personal','monitoring'].includes(currentView) && (
-              <div className="hidden md:flex items-center shrink-0">
+              <div className="flex items-center shrink-0">
                 <QuickNav navigateTo={navigateTo} currentView={currentView} patientId={targetPatientId} appData={appData}/>
               </div>
             )}
@@ -51888,17 +51888,17 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     // ★ 分析稼働と同じ「ルート自体がスクロール(height:100%+overflow)」方式。 ヘッダと曜日行を sticky で固定。
     <div style={{height:'100%',overflowY:'auto',background:'#f0f4f9'}}>
       {/* ヘッダー（スクロール時も上部に固定） */}
-      <div style={{position:'sticky',top:0,zIndex:30,background:'linear-gradient(135deg,#1e293b,#334155)',color:'white',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
-        <div style={{display:'flex',alignItems:'center',gap:10}}>
+      <div style={{position:'sticky',top:0,zIndex:30,background:'linear-gradient(135deg,#1e293b,#334155)',color:'white',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',rowGap:8,columnGap:12,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,whiteSpace:'nowrap'}}>
           <FileText size={20}/>
           <span style={{fontSize:17,fontWeight:'bold'}}>休み連絡</span>
         </div>
-        <div style={{display:'flex',alignItems:'center',gap:8}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,whiteSpace:'nowrap'}}>
           <button type="button" onClick={()=>setCurrentMonth(new Date(cY,cM-2,1))} style={{background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',color:'white',borderRadius:8,padding:'5px 12px',fontWeight:'bold',cursor:'pointer'}}>←</button>
           <span style={{fontSize:15,fontWeight:'bold',minWidth:100,textAlign:'center'}}>{cY}年{cM}月</span>
           <button type="button" onClick={()=>setCurrentMonth(new Date(cY,cM,1))} style={{background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',color:'white',borderRadius:8,padding:'5px 12px',fontWeight:'bold',cursor:'pointer'}}>→</button>
         </div>
-        <div style={{display:'flex',gap:10,fontSize:11,alignItems:'center'}}>
+        <div style={{display:'flex',gap:10,rowGap:6,fontSize:11,alignItems:'center',flexWrap:'wrap',whiteSpace:'nowrap'}}>
           <span style={{display:'flex',alignItems:'center',gap:4}}>
             <span style={{width:12,height:12,borderRadius:3,background:'#dbeafe',border:'1px solid #64748b',display:'inline-block'}}/>
             <span style={{color:'#cbd5e1'}}>編集済</span>
@@ -52224,7 +52224,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                   style={{width:24,height:26,border:'1px solid rgba(255,255,255,0.25)',borderRadius:6,background:'rgba(255,255,255,0.1)',color:'white',fontWeight:'bold',fontSize:14,cursor:'pointer'}}>+</button>
           <span style={{fontSize:12,fontWeight:'bold',color:'#cbd5e1'}}>枚</span>
         </label>
-        <div style={{marginLeft:'auto',display:'flex',gap:8}}>
+        <div style={{marginLeft:'auto',display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end',whiteSpace:'nowrap'}}>
           {/* ★ 連絡事項の書式(文字サイズ/下線)。 FAXなので色は無し(店舗要望) */}
           <div style={{display:'flex',alignItems:'center',gap:4,marginRight:4}}>
             {[['std','標準'],['lg','大'],['xl','特大']].map(([v,l])=>(
