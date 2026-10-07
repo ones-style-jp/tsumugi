@@ -10925,7 +10925,7 @@ function RecordOrderModal({ rows, onSave, onClose }) {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="px-4 py-3 border-b border-slate-200">
           <div className="text-base font-bold text-slate-800">利用者の並び替え</div>
-          <div className="text-xs text-slate-500 mt-0.5 leading-relaxed">名前を長押しして上下に動かすか、「上へ」「下へ」で並べ替えて「この順で保存」を押してください。表の並び(利用者名・状態・運動など)がこの順になります。欠席・休止の方はこれまでどおり下にまとめて表示します。</div>
+          <div className="text-xs text-slate-500 mt-0.5 leading-relaxed">名前を長押しして上下に動かすか、「上へ」「下へ」で並べ替えて「この順で保存」を押してください。表の並び(利用者名・状態・運動など)がこの順になります。振替・臨時の方もこの順に並びます。欠席・休止の方はこれまでどおり下にまとめて表示します。</div>
         </div>
         <div className="flex-1 overflow-y-auto p-3 space-y-1.5" data-testid="rec-order-list">
           {list.map((r, i) => (
@@ -24884,7 +24884,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const _recOrderOn = Array.isArray(_recOrder) && _recOrder.length > 0;
   if (filterMode === 'single' && _recOrderOn) {
     const _oi = new Map(_recOrder.map((id, i) => [String(id), i]));
-    const _rk = (s) => s === '出席' ? 0 : (s === '振替' || s === '臨時') ? 1 : s === '欠席' ? 2 : s === '休止' ? 3 : s === '休業' ? 4 : 5;
+    // ★ 2026-10-07(店舗報告「振替の人が並び替えしても反映されない」): 並び順があるときは 来所する方(出席・振替・臨時)を同じ段にして並び順どおりに。欠席・休止・休業は従来どおり下
+    const _rk = (s) => (s === '出席' || s === '振替' || s === '臨時') ? 0 : s === '欠席' ? 2 : s === '休止' ? 3 : s === '休業' ? 4 : 5;
     displayRecords = [...displayRecords].sort((a, b) => (_rk(a.status || '出席') - _rk(b.status || '出席'))
       || ((_oi.has(String(a.id)) ? _oi.get(String(a.id)) : Infinity) - (_oi.has(String(b.id)) ? _oi.get(String(b.id)) : Infinity))
       || String(a.kana || '').localeCompare(String(b.kana || ''), 'ja'));
