@@ -2393,6 +2393,7 @@ let _tsuInvTombMem = null; const _tsuInvTomb = () => (_tsuInvTombMem || (_tsuInv
 const tsuInvTombAdd = (codes) => { const o = _tsuInvTomb(); (codes || []).filter(Boolean).forEach(c => { o[String(c).toUpperCase()] = Date.now(); }); try { localStorage.setItem(_TSU_INV_TOMB_KEY, JSON.stringify(o)); } catch {} };
 const tsuInvTombDel = (codes) => { const o = _tsuInvTomb(); (codes || []).filter(Boolean).forEach(c => { delete o[String(c).toUpperCase()]; }); try { localStorage.setItem(_TSU_INV_TOMB_KEY, JSON.stringify(o)); } catch {} };
 const tsuInvTombHas = (code) => !!code && !!_tsuInvTomb()[String(code).toUpperCase()];
+if (typeof window !== 'undefined' && !window.__tsuInvTombBound) { window.__tsuInvTombBound = true; window.addEventListener('storage', (e) => { if (e && e.key === _TSU_INV_TOMB_KEY) _tsuInvTombMem = null; }); }
 // 招待の経路ラベル(一覧・担当者カード用)
 const inviteChannelLabel = (inv) => { const ch = inv?.channel || (inv?.email ? 'mail' : 'code'); if (ch === 'paper') return inv.printedAt ? '紙（DL済）' : '紙（DL待ち）'; if (ch === 'mail') return 'メール'; return 'コード'; };
 
@@ -11997,6 +11998,16 @@ const DIARY_SP_LEGACY_CUTOFF = '2026-08-28';
 // ★ 2026-07-14 のコミットで送迎キーが行番号→利用者IDに変わった。この日以降の日誌は行番号フォールバック禁止
 //   (利用者IDは連番の小さい整数のため、行番号と衝突して他人の車/徒歩を誤読する)。
 const DIARY_PIDKEY_CUTOFF = '2026-07-15';
+// ★ 2026-10-07(店舗報告「利用者名がない行に車が選ばれていて変更も削除もできない」):
+//   利用者のいない行(空の行・手書きの行)は行番号をそのままキーにしていたため、利用者IDと同じ番号の方の車を表示していた
+//   (例: 15行目=行番号14 が、利用者ID14 の方の「青フリード」を表示)。ID化以降の日誌では、利用者のいない行は 'r行番号' をキーにする。
+//   利用者の行は利用者ID。7/15より前の日誌は旧方式(行番号)のまま読む
+const diaryRowCarKey = (pt, i, iso, idHas) => {
+  const pid = _diaryPtKey(pt);
+  if (pid != null && (idHas || (iso && iso >= DIARY_PIDKEY_CUTOFF))) return String(pid);
+  if (pid == null && iso && iso >= DIARY_PIDKEY_CUTOFF) return 'r' + i;
+  return String(i);
+};
 // ★ 2026-09-10導入の厳格チェック(車ごとの到着/出発時間・送迎者・利用者ごとの車未選択)はこの日以降の日誌のみ。
 //   過去の完成済み日誌に遡って未完成が付く(カレンダーの完成印が消える)のを防ぐ。
 const DIARY_STRICT_CUTOFF = '2026-09-10';
@@ -20545,7 +20556,10 @@ export default function App() {
           // 家族側で変わりうる 3 キーのみ取り込み (それ以外は事業所側を尊重)
           const inFA = Array.isArray(incoming.familyAccounts) ? incoming.familyAccounts : (prev.familyAccounts||[]);
           // ★ 2026-09-27(チラつき対策): 招待は置換せず code で和集合(別タブの古い一覧で発行直後の招待が消え、10秒後に復活…を繰り返していた)
-          const inFI = (() => { if (!Array.isArray(incoming.familyInvites)) return (prev.familyInvites||[]); const cur = prev.familyInvites||[]; const codes = new Set(cur.map(i => i && i.code)); const add = incoming.familyInvites.filter(i => i && !codes.has(i.code)); if (!add.length) return cur; return [...cur, ...add]; })();
+          const inFI = (() => { if (!Array.isArray(incoming.familyInvites)) return (prev.familyInvites||[]); const cur0 = prev.familyInvites||[];
+            // ★ 2026-10-07(店舗報告「削除しても一瞬消えて復活する・ちらつく」): 同じブラウザの別タブが古い一覧を保存すると、和集合で削除済みの招待が戻っていた。削除済み(控え)は取り込まない
+            const cur = cur0.some(i => i && tsuInvTombHas(i.code)) ? cur0.filter(i => !(i && tsuInvTombHas(i.code))) : cur0;
+            const codes = new Set(cur.map(i => i && i.code)); const add = incoming.familyInvites.filter(i => i && !codes.has(i.code) && !tsuInvTombHas(i.code)); if (!add.length) return cur; return [...cur, ...add]; })();
           // emergencyContacts の差分を取り込み
           const inPatients = Array.isArray(incoming.patients) ? incoming.patients : [];
           const mergedPatients = (prev.patients||[]).map(p => {
@@ -40366,7 +40380,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 </div>
                 {/* 家族登録用 招待 (メール招待 or 招待コード手渡し) */}
                 {(() => {
-                  const invitesForPat = (appData.familyInvites || []).filter(i => i.patientId === pat.id).sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
+                  const invitesForPat = (appData.familyInvites || []).filter(i => i.patientId === pat.id && !tsuInvTombHas(i.code)).sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
                   const baseUrlLocal = typeof window !== 'undefined' ? (window.location.origin + window.location.pathname.replace(/\/+$/, '')) : '';
                   const issueNewInvite = (opts = {}) => {
                     const existingCodes = new Set((appData.familyInvites||[]).map(i => i.code));
@@ -44672,6 +44686,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   // totalRows は patients.length と capacity の max を採用
   // ★ 2026-09-30: 車を使うか(グレーアウト・未完成の判定)は、この一覧で送迎する方の割り当てだけで数える
   const _sougeiPids = new Set(patients.filter(r => !(r.status==='欠席'||r.status==='休業'||r.status==='休止')).map(r => String(r.patientId)));
+  // ★ 2026-10-07: 利用者のいない行のうち名前を手書きした行('r行番号'キー)も送迎する方として数える
+  (log.patientRows||[]).forEach((sr, i) => { if (sr && String(sr.name||'').trim() && !patients[i]) _sougeiPids.add('r' + i); });
   const _carUseOpts = selectedDate >= DIARY_PIDKEY_CUTOFF ? { activePids: _sougeiPids } : {};
   const attended = patients.filter(r=>r.status==='出席'||r.status==='振替'||r.status==='臨時').length; // ★ 振替・臨時も出席(2026-09-24 ユーザー指摘: 日誌の出席数に振替が入っていなかった)
   const absent   = patients.filter(r=>r.status==='欠席'||r.status==='休業'||r.status==='休止').length; // 休止も欠席扱い
@@ -45090,9 +45106,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
               const _pid = _diaryPtKey(pt);
               const _wm = _log[prefix+'_walk']||{}, _sm = _log[prefix]||{};
               const _idHas = _pid != null && (_wm[String(_pid)] !== undefined || ds.cars.some(c=>_sm[_pid+'_'+c.id] !== undefined));
-              const _useId = _idHas || (_pid != null && selectedDate >= DIARY_PIDKEY_CUTOFF);
-              const _wKey = _useId ? String(_pid) : String(i);
-              const _cPre = _useId ? _pid : i;
+              const _wKey = diaryRowCarKey(pt, i, selectedDate, _idHas);
+              const _cPre = _wKey;
               if(_wm[_wKey]) return [{label:'徒歩', name:''}];
               const _om2 = _log[prefix+'_other']||{};
               if(_om2[_wKey]) return [{label:'その他', name:''}];
@@ -45306,8 +45321,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         if (!logUpdates[targetKey]) logUpdates[targetKey] = { ...(appData.diaryLogs||{})[targetKey] || {} };
         // ★ キーは患者ID基準(振替で並びが変わっても別人にズレない)
         const _pid = _diaryPtKey(pt);
-        const _key = _pid != null ? String(_pid) : String(i);
-        const _cPre = _pid != null ? _pid : i;
+        const _key = diaryRowCarKey(patients[i], i, selectedDate, true);
+        const _cPre = _key;
         const cleared = {};
         ds.cars.forEach(c => { cleared[_cPre+'_'+c.id] = false; });
         logUpdates[targetKey][prefix] = { ...(logUpdates[targetKey][prefix]||{}), ...cleared };
@@ -45328,8 +45343,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
       Object.entries(carAssignSelections).forEach(([idx, val]) => {
         const i = parseInt(idx);
         const _pid = _diaryPtKey(patients[i]);
-        const _key = _pid != null ? String(_pid) : String(i);
-        const _cPre = _pid != null ? _pid : i;
+        const _key = diaryRowCarKey(patients[i], i, selectedDate, true);
+        const _cPre = _key;
         ds.cars.forEach(c => { _slot[_cPre+'_'+c.id] = false; });
         _walk[_key] = false;
         _oth[_key] = false;
@@ -45367,9 +45382,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
                 const _wm = log[carAssignModal.prefix+'_walk']||{}, _sm = log[carAssignModal.prefix]||{}, _om = log[carAssignModal.prefix+'_other']||{};
                 const _idHas = _pid != null && (_wm[String(_pid)] !== undefined || ds.cars.some(c=>_sm[_pid+'_'+c.id] !== undefined));
                 // ★ 2026-09-04: ID化以降は行番号フォールバック禁止(帳票側 getSelectedCar と同じ理由)
-                const _useId = _idHas || (_pid != null && selectedDate >= DIARY_PIDKEY_CUTOFF);
-                const _wKey = _useId ? String(_pid) : String(i);
-                const _cPre = _useId ? _pid : i;
+                const _wKey = diaryRowCarKey(pt, i, selectedDate, _idHas);
+                const _cPre = _wKey;
                 if(_wm[_wKey]) return 'walk';
                 if(_om[_wKey]) return 'other';
                 const found = ds.cars.find(c=>_sm[_cPre+'_'+c.id]);
@@ -45849,9 +45863,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
               if (pt && (pt.status==='欠席'||pt.status==='休業'||pt.status==='休止')) return;
               const _pid = _diaryPtKey(pt);
               const _idHas = _pid != null && (_wm[String(_pid)] !== undefined || ds.cars.some(c=>_sm[_pid+'_'+c.id] !== undefined));
-              const _useId = _idHas || (_pid != null && selectedDate >= DIARY_PIDKEY_CUTOFF);
-              const _wKey = _useId ? String(_pid) : String(i);
-              const _cPre = _useId ? _pid : i;
+              const _wKey = diaryRowCarKey(pt, i, selectedDate, _idHas);
+              const _cPre = _wKey;
               if (_wm[_wKey] || _om3[_wKey]) return;
               if (!ds.cars.some(c=>_sm[_cPre+'_'+c.id])) out.push(name);
             });
