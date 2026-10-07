@@ -652,12 +652,25 @@ function _casBackoff(attempt) {
 //   関門をここ1箇所に絞り、前のCASが完了してから次を実行することで自己衝突を根絶する。
 //   各CASは実行時に最新versionを取り直して再mutateするので、直列化しても内容は最新・正しい。
 const _casChain = new Map(); // key -> Promise(直近CASの完了)
+// ★ 2026-10-07(店舗報告「ずっと表示していると『問題が発生しました エラーコード5』で落ちる」=メモリ不足):
+//   通信が途中で止まる(iPadのスリープ後・電波の切替など)と CAS の取得/書き込みがいつまでも終わらず、鎖の後ろに並んだ保存が
+//   それぞれ店舗データ全体(数MB→画面上では数十MB)を抱えたまま溜まり続けていた。1回の通信に上限時間を付けて必ず決着させる。
+//   (上限を過ぎた保存は失敗扱い → 呼び出し側の再試行・端末への控え(再送キュー)に乗るので内容は失われない)
+const CAS_NET_TIMEOUT_MS = 90000;
+function _casSignal() {
+  try { if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) return AbortSignal.timeout(CAS_NET_TIMEOUT_MS); } catch {}
+  try { const c = new AbortController(); setTimeout(() => { try { c.abort(); } catch {} }, CAS_NET_TIMEOUT_MS); return c.signal; } catch {}
+  return undefined;
+}
+function _withSignal(q) { const sg = _casSignal(); return sg && q && typeof q.abortSignal === 'function' ? q.abortSignal(sg) : q; }
 async function supabaseCasUpdate(key, mutate, opts = {}) {
   if (!supabase || !key) return { ok: false, reason: 'no-supabase' };
   const prev = _casChain.get(key) || Promise.resolve();
   const next = prev.then(() => _casUpdateInner(key, mutate, opts),
                          () => _casUpdateInner(key, mutate, opts)); // 前が失敗しても次は必ず実行
-  _casChain.set(key, next.catch(() => {}));   // 鎖として保持(未処理rejectを出さない)。呼び出し側へは next をそのまま返す
+  // 鎖として保持(未処理rejectを出さない)。呼び出し側へは next をそのまま返す。
+  // ★ 2026-10-07: 鎖には「終わったこと」だけを残す(結果のデータ=店舗データ全体を鎖が持ち続けないように)
+  _casChain.set(key, next.then(() => {}, () => {}));
   return next;
 }
 async function _casUpdateInner(key, mutate, opts = {}) {
@@ -665,15 +678,15 @@ async function _casUpdateInner(key, mutate, opts = {}) {
   const MAX = (opts.maxRetries != null) ? opts.maxRetries : 5;
   for (let attempt = 0; attempt <= MAX; attempt++) {
     // ① 最新の {data, version} を取得 (読めない=通信/RLSエラーは throw して呼び出し側で保存中止=既存データを守る)
-    const { data: row, error: selErr } = await supabase
-      .from('app_state').select('data, version').eq('key', key).maybeSingle();
+    const { data: row, error: selErr } = await _withSignal(supabase
+      .from('app_state').select('data, version').eq('key', key)).maybeSingle();
     if (selErr) throw new Error('cas select failed: ' + (selErr.message || selErr.code || 'unknown'));
     if (!row) {
       // 行が無い=新規作成 (唯一の非CAS経路: version 0 で insert のみ。 version を巻き戻さない)。
       const initData = mutate(null);
       if (initData == null) return { ok: true, version: 0, noop: true };
-      const { data: ins, error: insErr } = await supabase
-        .from('app_state').insert({ key, data: initData, version: 0 }).select('version');
+      const { data: ins, error: insErr } = await _withSignal(supabase
+        .from('app_state').insert({ key, data: initData, version: 0 }).select('version'));
       if (!insErr && ins && ins.length) return { ok: true, data: initData, version: 0, created: true };
       // insert 失敗(別端末が同時に作成=一意制約) → 再取得して update 経路へ
       await _casBackoff(attempt); continue;
@@ -693,9 +706,9 @@ async function _casUpdateInner(key, mutate, opts = {}) {
     // ★ 書き込むデータに「この時点での最大同期時刻」を刻む (次に読む端末がこれ以上へ時計を進める)
     try { next.__clock = Math.max(Number(row.data && row.data.__clock) || 0, syncNow()); } catch {}
     // ② 原子的CAS: WHERE key AND version=base の1行だけ更新(version+1)。 返り行で成否判定。
-    const { data: upd, error: updErr } = await supabase
+    const { data: upd, error: updErr } = await _withSignal(supabase
       .from('app_state').update({ data: next, version: base + 1 })
-      .eq('key', key).eq('version', base).select('version');
+      .eq('key', key).eq('version', base).select('version'));
     if (updErr) throw new Error('cas update failed: ' + (updErr.message || updErr.code || 'unknown'));
     if (upd && upd.length > 0) return { ok: true, data: next, version: base + 1 };
     // ③ 0件=競合(他端末が先に version を進めた) → バックオフして再取得・再mutate・再試行
