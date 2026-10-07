@@ -11,7 +11,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
 import __builtUpdateNotes from '../public/update-notes.json';
-import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows } from './lib/logic';
+import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone } from './lib/logic';
 import {
   isSupabaseEnabled,
   supabaseCreateInvite,
@@ -751,7 +751,7 @@ HTML ファイルをブラウザで開き、
             const patients = (appData.patients||[]).filter(p => {
               const q = patientSearchQ.trim().toLowerCase();
               if (!q) return true;
-              return (p.name||'').toLowerCase().includes(q) || (p.kana||'').toLowerCase().includes(q) || String(p.id).includes(q);
+              return tsuSearchHit(q, p.name, p.kana, String(p.id));
             });
             const allSelected = patients.length > 0 && patients.every(p => selectedPatientIds.includes(p.id));
             return (
@@ -933,7 +933,7 @@ function PrintPreviewModal({ children, title, onClose, onPrint }) {
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:9000,display:'flex',flexDirection:'column'}}>
       <div style={{background:'#2d3748',padding:'8px 16px',display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
         <span style={{color:'white',fontWeight:'bold',fontSize:14}}>印刷プレビュー — {title}</span>
-        <div style={{marginLeft:'auto',display:'flex',gap:8}}>
+        <div style={{marginLeft:'auto',display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end',whiteSpace:'nowrap'}}>
           <button onClick={onPrint} style={{background:'#2563eb',color:'white',border:'none',borderRadius:8,padding:'6px 16px',fontWeight:'bold',fontSize:13,cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>
             印刷 / PDF保存
           </button>
@@ -1461,15 +1461,19 @@ const toKatakana = (s) => (s||'')
   .normalize('NFKC')                                    // 半角カナ等を全角化
   .replace(/[ぁ-ゖ]/g, c => String.fromCharCode(c.charCodeAt(0) + 0x60)); // ひらがな→カタカナ
 
+// ★ 検索の表記ゆれ吸収(2026-10-06 ユーザー要望: ひらがなで打っても利用者が出るように・全ての検索欄)。
+//   全角半角(NFKC)・ひらがな→カタカナ・大文字小文字・空白をそろえてから部分一致。 「しさく」でフリガナ「シサク キヨシ」に一致
+const tsuSearchNorm = (s) => toKatakana(String(s ?? '')).toLowerCase().replace(/[\s\u3000]+/g, '');
+const tsuSearchHit = (q, ...fields) => { const nq = tsuSearchNorm(q); if (!nq) return true; return fields.some(f => f != null && tsuSearchNorm(f).includes(nq)); };
+
 // ★ 候補表示つき検索入力: 入力に応じて候補(利用者名など)をドロップダウン表示し、選ぶと確定できる。
 //   options: [{key, label, sub}] / onSelect(option) で選択時の挙動を指定 (省略時は label を入力欄へ)。
 function SuggestInput({ value, onChangeText, options = [], onSelect, maxItems = 8, wrapStyle, inputProps = {} }) {
   const [open, setOpen] = React.useState(false);
   const [hi, setHi] = React.useState(-1);
   const q = String(value || '').trim().toLowerCase();
-  const norm = (s) => String(s || '').toLowerCase();
   const matches = q
-    ? options.filter(o => norm(o.label).includes(q) || norm(o.sub).includes(q) || norm(o.key).includes(q)).slice(0, maxItems)
+    ? options.filter(o => tsuSearchHit(q, o.label, o.sub, o.key, o.kana)).slice(0, maxItems)
     : [];
   const pick = (o) => { if (onSelect) onSelect(o); else onChangeText(o.label); setOpen(false); setHi(-1); };
   return (
@@ -1676,6 +1680,43 @@ function BmiTrendChart({ points, age, height = 150 }) {
     </div>
   );
 }
+// ★ 体力測定の各項目の推移(2026-10-06 ユーザー要望: BMIと同じように全ての項目で推移を出す)。
+//   points: [{date, v}] (古い順)。 縦軸は記録の最小〜最大に少し余白、点の上に値、タップ/ホバーで日付と値。
+function FitTrendChart({ points, unit, height = 110 }) {
+  const [tip, setTip] = React.useState(null);
+  const pts = (points || []).filter(p => p && p.v != null && !isNaN(p.v));
+  if (!pts.length) return null;
+  const H = height, PAD = 14, LW = 26, step = pts.length <= 14 ? 44 : pts.length <= 30 ? 26 : 14;
+  const W = Math.max(260, pts.length * step + PAD * 2);
+  const xP = (i) => PAD + step / 2 + i * step;
+  const vals = pts.map(p => p.v);
+  const lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || Math.max(1, Math.abs(hi) * 0.1);
+  const yMin = lo - span * 0.25, yMax = hi + span * 0.25;
+  const yP = (v) => 12 + ((yMax - v) / (yMax - yMin || 1)) * (H - 20);
+  const fmtV = (v) => (Math.round(v * 10) / 10).toString();
+  const showL = (i) => pts.length <= 7 || i === 0 || i === pts.length - 1 || i % Math.ceil(pts.length / 6) === 0;
+  const _yrs = new Set(pts.map(p => (String(p.date || '').match(/^(\d{4})/) || [])[1]).filter(Boolean));
+  const fmtD = (d) => { const m = String(d || '').match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return `${_yrs.size > 1 ? `'${m[1].slice(2)} ` : ''}${+m[2]}/${+m[3]}`; return String(d || ''); };
+  const pick = (e) => { const rb = e.currentTarget.getBoundingClientRect(); const mx = (e.clientX - rb.left) * ((W + LW) / (rb.width || 1)); let best = -1, bd = Infinity; pts.forEach((p, i) => { const dx = Math.abs(xP(i) - mx); if (dx < bd) { bd = dx; best = i; } }); if (best < 0 || bd > Math.min(18, step)) { setTip(null); return; } setTip({ p: pts[best], px: e.clientX, py: e.clientY }); };
+  return (
+    <div data-testid="fit-trend" style={{ position: 'relative' }}>
+      <svg viewBox={`0 0 ${W + LW} ${H + 14}`} preserveAspectRatio="xMinYMid meet" style={{ width: '100%', height: H + 14, display: 'block' }}>
+        <line x1={0} y1={yP(lo)} x2={W} y2={yP(lo)} stroke="#e2e8f0" strokeWidth={1} />
+        <line x1={0} y1={yP(hi)} x2={W} y2={yP(hi)} stroke="#e2e8f0" strokeWidth={1} />
+        {pts.length > 1 && <polyline points={pts.map((p, i) => `${xP(i)},${yP(p.v)}`).join(' ')} fill="none" stroke="#2563eb" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />}
+        {pts.map((p, i) => <circle key={i} cx={xP(i)} cy={yP(p.v)} r={3.5} fill={p.cur ? '#f59e0b' : '#2563eb'} stroke="white" strokeWidth={1.5} pointerEvents="none" />)}
+        {pts.map((p, i) => <text key={`v${i}`} x={xP(i)} y={yP(p.v) - 6} textAnchor="middle" fontSize={8} fill="#1e293b" fontWeight="bold">{fmtV(p.v)}</text>)}
+        {pts.map((p, i) => showL(i) ? <text key={`d${i}`} x={xP(i)} y={H + 11} textAnchor="middle" fontSize={8} fill="#000" fontWeight="bold">{p.cur ? '今回' : fmtD(p.date)}</text> : null)}
+        <rect x={0} y={0} width={W + LW} height={H + 14} fill="transparent" style={{ cursor: 'pointer' }} onMouseMove={pick} onClick={pick} onMouseLeave={() => setTip(null)} />
+      </svg>
+      {tip && (
+        <div style={{ position: 'fixed', left: tip.px + 12, top: tip.py - 8, background: 'rgba(15,23,42,0.92)', color: 'white', borderRadius: 10, padding: '6px 10px', fontSize: 13, zIndex: 9999, pointerEvents: 'none' }}>
+          <div style={{ fontWeight: 'bold' }}>{tip.p.cur ? `${tip.p.date}（今回の入力）` : tip.p.date}</div>
+          <div>{fmtV(tip.p.v)}{unit || ''}</div>
+        </div>)}
+    </div>
+  );
+}
 const bmiJudge = (bmi, age) => {
   if (bmi == null || isNaN(bmi)) return null;
   const elder = age != null && age >= 65;
@@ -1849,7 +1890,8 @@ const tsumugiBuildPrintSrcDoc = (html) => {
     document.querySelectorAll('style').forEach(s => { head += '<style>' + (s.textContent || '') + '</style>'; });
     document.querySelectorAll('link[rel="stylesheet"]').forEach(l => { if (l.href) head += '<link rel="stylesheet" href="' + l.href + '">'; });
   } catch {}
-  return `<!DOCTYPE html><html><head><meta charset="utf-8">${head}<style>@page{margin:0;}html,body{margin:0;padding:0;background:white;}</style></head><body>${html || ''}</body></html>`;
+  // ★ 2026-10-06(ユーザー報告「送付状のFAX番号の横の『コピー』がダウンロードしたPDFに出る」): 画面だけの部品(no-print)はPDFでも必ず隠す
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">${head}<style>@page{margin:0;}html,body{margin:0;padding:0;background:white;}.no-print,.fax-no-print{display:none!important;}</style></head><body>${html || ''}</body></html>`;
 };
 // iPad/iPhone では fetch の後に window.open すると開けない(ユーザー操作の外)ため、クリック時に先に空の窓を開いて渡す
 const tsumugiOpenPdfWindow = () => { if (!tsumugiIsIOS()) return null; try { const w = window.open('', '_blank'); if (w) { try { w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>PDFを作成中…</title></head><body style="font-family:-apple-system,sans-serif;padding:40px;color:#334155;font-size:18px;">PDFを作成しています。しばらくお待ちください…</body></html>'); w.document.close(); } catch {} } return w; } catch { return null; } };
@@ -1869,9 +1911,11 @@ async function tsumugiServerPdf({ html, pageSize, title, win, onReady }) {
 //   画面のスイッチが ON の間だけ直接ダウンロード(directPdf)が氏名を○に置き換える。画面を離れると OFF に戻る
 let _tsumugiMaskOn = false;
 const tsumugiMaskOn = () => _tsumugiMaskOn;
-function MaskToggle({ small }) {
-  const [on, setOn] = React.useState(false);
-  React.useEffect(() => { _tsumugiMaskOn = on; return () => { _tsumugiMaskOn = false; }; }, [on]);
+// ★ 2026-10-06(ユーザー要望「その画面でマスキングにしたら次回開いた時もマスキングされているように」): 画面ごと(storeKey)に端末へ記憶する
+const tsumugiMaskStored = (key) => { try { return !!key && localStorage.getItem(`tsumugiMask:${key}`) === '1'; } catch { return false; } };
+function MaskToggle({ small, storeKey, onChange }) {
+  const [on, setOn] = React.useState(() => tsumugiMaskStored(storeKey));
+  React.useEffect(() => { _tsumugiMaskOn = on; try { if (storeKey) localStorage.setItem(`tsumugiMask:${storeKey}`, on ? '1' : '0'); } catch {} if (onChange) onChange(on); return () => { _tsumugiMaskOn = false; }; }, [on]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <label data-testid="mask-toggle" title="ONにすると、ダウンロードする書類の利用者氏名・ふりがなを1文字おきに○へ置き換えます（例: 髙橋正樹→髙○正○）" style={{display:'inline-flex',alignItems:'center',gap:5,padding: small ? '4px 8px' : '6px 10px',borderRadius:8,border:'1px solid',borderColor: on ? '#f59e0b' : '#cbd5e1',background: on ? '#fef3c7' : 'white',color: on ? '#b45309' : '#475569',fontSize: small ? 11 : 12,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap',userSelect:'none'}}>
       <input type="checkbox" checked={on} onChange={e => setOn(e.target.checked)} style={{width:14,height:14}}/>氏名マスキング
@@ -2263,13 +2307,64 @@ const tsumugiDocWindow = (opts = {}) => {
   };
 };
 // 画像を大きく表示(ホーム画面アプリでは重ねて表示・通常は別タブ)
-const tsumugiOpenImage = (src) => {
-  if (!_tsumugiInPageMode()) { window.open(src, '_blank'); return; }
+// ★ 2026-10-07(ユーザー要望「写真をタップすると画面いっぱいに表示されて見づらい。写真の形に合わせて全体がスクロールせず見えるように。
+//   小さければピンチで拡大すればいい」): 写真は画面に収まる大きさ(縦横とも)で表示し、ピンチ・ダブルタップ・ホイールで拡大/移動できるビューア。
+//   別タブで画像だけを開くと横幅に合わせて表示され、縦長の書類はスクロールしないと全体が見えなかった。
+//   img 要素に拡大・移動の操作を付ける(React の画面でも使う)。 戻り値は後片付けの関数
+const _tsuAttachPinch = (box, img) => {
+  let sc = 1, tx = 0, ty = 0, start = null, lastTap = 0, lastTouch = 0;
+  const apply = () => { img.style.transform = `translate(${tx}px, ${ty}px) scale(${sc})`; img.setAttribute('data-scale', String(Math.round(sc * 100) / 100)); };
+  const clamp = () => { sc = Math.min(6, Math.max(1, sc)); if (sc === 1) { tx = 0; ty = 0; } };
+  const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  const onTS = (e) => {
+    lastTouch = Date.now();
+    if (e.touches.length === 2) { start = { d: dist(e.touches), sc, tx, ty, mx: (e.touches[0].clientX + e.touches[1].clientX) / 2, my: (e.touches[0].clientY + e.touches[1].clientY) / 2 }; }
+    else if (e.touches.length === 1) {
+      const now = Date.now();
+      if (now - lastTap < 300) { sc = sc > 1 ? 1 : 2.5; clamp(); apply(); lastTap = 0; start = null; return; }
+      lastTap = now; start = { x: e.touches[0].clientX, y: e.touches[0].clientY, tx, ty };
+    }
+  };
+  const onTM = (e) => {
+    if (!start) return; e.preventDefault();
+    if (e.touches.length === 2 && start.d) { const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2, my = (e.touches[0].clientY + e.touches[1].clientY) / 2; sc = start.sc * dist(e.touches) / start.d; tx = start.tx + (mx - start.mx); ty = start.ty + (my - start.my); clamp(); apply(); }
+    else if (e.touches.length === 1 && start.x != null && sc > 1) { tx = start.tx + (e.touches[0].clientX - start.x); ty = start.ty + (e.touches[0].clientY - start.y); apply(); }
+  };
+  const onTE = (e) => { if (!e.touches || e.touches.length === 0) start = null; };
+  const onWheel = (e) => { e.preventDefault(); sc = sc * (e.deltaY < 0 ? 1.15 : 1 / 1.15); clamp(); apply(); };
+  let drag = null;
+  const onMD = (e) => { if (sc > 1) { drag = { x: e.clientX, y: e.clientY, tx, ty }; e.preventDefault(); } };
+  const onMM = (e) => { if (!drag) return; tx = drag.tx + (e.clientX - drag.x); ty = drag.ty + (e.clientY - drag.y); apply(); };
+  const onMU = () => { drag = null; };
+  const onDbl = () => { if (Date.now() - lastTouch < 800) return; sc = sc > 1 ? 1 : 2.5; clamp(); apply(); }; // タッチのダブルタップは onTS で処理済み
+  box.addEventListener('touchstart', onTS, { passive: true }); box.addEventListener('touchmove', onTM, { passive: false }); box.addEventListener('touchend', onTE);
+  box.addEventListener('wheel', onWheel, { passive: false }); box.addEventListener('mousedown', onMD); window.addEventListener('mousemove', onMM); window.addEventListener('mouseup', onMU); box.addEventListener('dblclick', onDbl);
+  apply();
+  return () => { box.removeEventListener('touchstart', onTS); box.removeEventListener('touchmove', onTM); box.removeEventListener('touchend', onTE); box.removeEventListener('wheel', onWheel); box.removeEventListener('mousedown', onMD); window.removeEventListener('mousemove', onMM); window.removeEventListener('mouseup', onMU); box.removeEventListener('dblclick', onDbl); };
+};
+const tsumugiOpenImage = (src, name) => {
+  if (!src) return;
   const host = _tsumugiOverlayHost('tsumugi-img-view');
-  host.innerHTML = `${_tsumugiOverlayBar(false)}<div style="padding:16px;text-align:center;"></div>`;
-  const img = document.createElement('img'); img.src = src; img.alt = ''; img.style.cssText = 'max-width:100%;height:auto;background:#fff;box-shadow:0 4px 18px rgba(0,0,0,.35);';
-  host.lastElementChild.appendChild(img);
-  host.querySelector('[data-act="close"]').onclick = () => { try { host.remove(); } catch {} };
+  host.setAttribute('data-testid', 'tsu-img-view');
+  host.style.cssText = 'position:fixed;inset:0;z-index:2000002;background:#0f172a;display:flex;flex-direction:column;overflow:hidden;touch-action:none;font-family:-apple-system,"Hiragino Sans","Meiryo",sans-serif;';
+  host.innerHTML = `<div style="flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px;background:#1e293b;color:#fff;">
+      <button type="button" data-act="close" style="font-size:15px;font-weight:bold;padding:9px 16px;background:#475569;color:#fff;border:none;border-radius:10px;cursor:pointer;">閉じる</button>
+      <div data-act="name" style="flex:1;min-width:0;font-size:12px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+      <div style="font-size:11px;color:#94a3b8;white-space:nowrap;">ピンチ・ダブルタップで拡大</div>
+    </div>
+    <div data-act="box" style="flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;padding:10px;overflow:hidden;touch-action:none;"></div>`;
+  host.querySelector('[data-act="name"]').textContent = name || '';
+  const box = host.querySelector('[data-act="box"]');
+  const img = document.createElement('img'); img.src = src; img.alt = name || '';
+  img.setAttribute('data-testid', 'tsu-img-view-img'); img.draggable = false;
+  // 縦横とも画面に収める(写真の形のまま・スクロールなし)
+  img.style.cssText = 'max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;background:#fff;box-shadow:0 4px 18px rgba(0,0,0,.4);transform-origin:center center;user-select:none;-webkit-user-select:none;';
+  box.appendChild(img);
+  const off = _tsuAttachPinch(box, img);
+  const close = () => { try { off(); } catch {} try { host.remove(); } catch {} document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  host.querySelector('[data-act="close"]').onclick = close;
   document.body.appendChild(host);
 };
 // ★ 用紙の「印刷する」が押された時だけ「紙で招待済み」にする(2026-09-27 ユーザー指示: 開いただけでは招待済みにしない)。
@@ -10521,6 +10616,7 @@ const recordWithinPatientPeriod = (r, p) => { if (!p) return true; const iso = r
 // ★ 送迎表(transportPlans)のお迎え時間を連絡帳の「次回お迎え時間」へ反映(2026-09-12d 試験版)。
 //   優先順: 手入力(nextTimeOverride) > 送迎表 > 従来の自動計算。表示形式は「H時MM分」。
 const getTransportTimeFor = (patientId, nextDateDisplay, yearHint, appData) => {
+  if (!tsumugiTransportOn(appData)) return '';
   try {
     const m = String(nextDateDisplay || '').match(/(\d+)月(\d+)日/);
     if (!m) return '';
@@ -11465,7 +11561,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
   const patient = previewPid ? patients.find(p => p.id === previewPid) : null;
   const accs = patient ? (appData.familyAccounts||[]).filter(a => a.patientId === patient.id) : [];
   const filteredPatients = patSearch.trim()
-    ? patients.filter(p => (p.name||'').includes(patSearch) || (p.kana||'').includes(patSearch))
+    ? patients.filter(p => tsuSearchHit(patSearch, p.name, p.kana))
     : patients;
   const baseUrl = typeof window !== 'undefined' ? (window.location.origin + window.location.pathname.replace(/\/+$/, '')) : '';
   const familyLoginUrl = `${baseUrl}/?family`;
@@ -11570,7 +11666,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
       {!patient && (() => {
         const q = patSearch.trim().toLowerCase();
         const allPats = sortPatientsByKana(patients);
-        const list = q ? allPats.filter(p => (p.name||'').toLowerCase().includes(q) || (p.kana||'').toLowerCase().includes(q) || String(p.id).includes(q)) : allPats;
+        const list = q ? allPats.filter(p => tsuSearchHit(q, p.name, p.kana, String(p.id))) : allPats;
         const kanaRows = ['あ','か','さ','た','な','は','ま','や','ら','わ','その他'];
         const groups = q ? null : kanaRows.map(row => ({ row, items: list.filter(p => getRowFromKana(p.kana) === row) })).filter(g => g.items.length > 0);
         return (
@@ -13694,7 +13790,7 @@ function FamilyAdminView({ appData, onSave }) {
   const histYears = Array.from(new Set(historyEntries.map(e => (e.date||'').slice(0,4)).filter(Boolean))).sort().reverse();
   // ★ 2026-09-29(ユーザー要望): 写真・PDF は「写真の投稿」に加えて「写真/PDFが添付されたお知らせ」も対象(写真だけ絞ると何も出ない報告)。
   //   キーワードはタイトル・本文・キャプション・ファイル名を部分一致(大文字小文字/全角半角の差は NFKC で吸収)
-  const _hNorm = (v) => String(v || '').normalize('NFKC').toLowerCase();
+  const _hNorm = (v) => toKatakana(String(v || '')).toLowerCase();
   const _hQ = _hNorm(historyFilter.q).trim();
   const _hText = (e) => _hNorm([e.title, e.body, e.content, e.caption, e.name, ...((e.photos||[]).map(ph => ph && (ph.caption || ph.name)))].filter(Boolean).join(' '));
   const filteredHistory = historyEntries.filter(e => {
@@ -15785,12 +15881,13 @@ function CmDocsModal({ patient, storeId, byName, onSaved, onClose }) {
   const uploadFiles = async (fileList, setter, tag) => {
     const files = rejectVideos(fileList);
     if (!files.length) return;
+    const _rot = await tsumugiAskRotations(files); if (!_rot) return; // ★ 写真の向きを確認(キャンセルで登録しない)
     setBusy(tag);
     const added = [];
     for (const f of files) {
       try {
         const isPdf = /\.pdf$/i.test(f.name) || f.type === 'application/pdf';
-        const { blob, dataUrl, contentType } = await processUploadFile(f);
+        const { blob, dataUrl, contentType } = await processUploadFile(f, undefined, undefined, _rot.get(f) || 0);
         let stored = null;
         if (isSupabaseEnabled) stored = await supabaseUploadFile(blob, { name: f.name, contentType, prefix: `pf/${patient.id}` });
         const rec = { id: `cm_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, name: f.name, title: f.name.replace(/\.[^.]+$/, ''), fileDate: new Date().toISOString().slice(0, 10), type: isPdf ? 'pdf' : 'image', mimeType: contentType, uploadedAt: new Date().toISOString(), uploadedBy: byName, source: 'caremanager' };
@@ -18652,7 +18749,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
               {(() => {
                 // ★ 検索フィルタ(法人名・事業所名・短縮名) → 法人 (org_name) ごとにグループ分け
                 const _q = storeQuery.trim().toLowerCase();
-                const _fs = _q ? stores.filter(s => [s.name, s.short_name, s.org_name].some(v => String(v||'').toLowerCase().includes(_q))) : stores;
+                const _fs = _q ? stores.filter(s => tsuSearchHit(_q, s.name, s.short_name, s.org_name)) : stores;
                 if (_q && !_fs.length) return <div style={{textAlign:'center',padding:24,color:'#64748b',background:'#f8fafc',borderRadius:12}}>「{storeQuery}」に一致する店舗はありません</div>;
                 const m = new Map();
                 _fs.forEach(s => { const k = (s.org_name||'').trim() || '（法人名なし）'; if(!m.has(k)) m.set(k, []); m.get(k).push(s); });
@@ -20123,7 +20220,9 @@ export default function App() {
                 if (!lv || typeof lv !== 'object') return;
                 if (!cv) { out[k] = lv; _tpKept++; return; }
                 const lt = Number(lv._savedAt) || 0, ct = Number(cv._savedAt) || 0;
-                if (lt > ct) { out[k] = lv; _tpKept++; }
+                // ★ 2026-10-07: 要連絡の「連絡済」だけは方ごとに新しい方を残す(コマ丸ごとの採用で消さない)
+                if (lt > ct) { out[k] = mergeTpTelDone(lv, cv); _tpKept++; }
+                else { const w = mergeTpTelDone(cv, lv); if (w !== cv) { out[k] = w; _tpKept++; } }
               });
               if (_tpKept > 0) { merged.transportPlans = out; _mergedForPush = merged; syncLog('pull-preserve', { key: 'transportPlans', kept: _tpKept }); }
             } catch (e) { console.warn('[pull preserve] transportPlans failed', e); }
@@ -20655,6 +20754,15 @@ export default function App() {
     }, 330); // サイドバーの transition(300ms)完了後
     return () => clearTimeout(id);
   }, [isSidebarOpen]);
+  // ★ 2026-10-06(ユーザー報告: 再読み込みした直後は上部のボタンが出ず、サイドバーを開閉すると出る): iPad の WebKit で
+  //   縮小(zoom)の切替や回転のあと上部のバーが描かれないことがある。サイドバー開閉と同じ強制 reflow を、画面の切替・回転のあとにも行う
+  const [_repaintTick, _setRepaintTick] = useState(0);
+  useEffect(() => {
+    if (!tsumugiIsIOS()) return;
+    const on = () => _setRepaintTick(t => t + 1);
+    window.addEventListener('orientationchange', on);
+    return () => window.removeEventListener('orientationchange', on);
+  }, []);
   const DESIGN_WIDTH = 1100;
   const contentRef = useRef(null);
   // ★ スマホ幅(<768px)では「1100px基準の縮小表示」をやめ、実物大でモバイルレイアウトを使う。
@@ -20677,13 +20785,31 @@ export default function App() {
   // ★ 2026-10-05(店舗報告: 無印iPad 第8世代(横1080px)で画面が少し大きく、左右に約20pxずれる・上部のボタンが切れる。iPad Pro 11 は正常):
   //   1100px基準の縮小(zoom)が 98% のようなごくわずかな縮小になると、iPad の Safari/Chrome(WebKit)では幅が縮まず 1100-1080=20px はみ出していた。
   //   ①縮小が 94% 以上なら縮小せず実際の幅でそのまま表示 ②iPad/iPhone で縮小してもはみ出すときは、自動で縮小をやめる(安全策)
+  // ★ 2026-10-06(ユーザー報告「縦向きやサイドバーを出すと、画面が縮小されずに左右から押しつぶされ、文字が切れる」):
+  //   ②の安全策で縮小をやめたとき、実際の幅のまま並べていたため列が詰まって文字が切れていた。
+  //   縮小が効かないときは 1100px のまま(文字の大きさを変えず)横スクロールで見る。縮小の幅指定も % ではなく px にする(iPad の WebKit で効きやすい)
   const [zoomOff, setZoomOff] = useState(false);
-  const _zoomActive = contentScale < 0.94 && !zoomOff;
+  const _zoomNear1 = contentScale >= 0.94;
+  const _zoomActive = !_zoomNear1 && !zoomOff;
+  const _zoomScroll = !_zoomNear1 && zoomOff;
+  // ★ 2026-10-06: 一度 72% を下限にしたが、上部のボタン(ダウンロード等)が右へはみ出して見えなくなるため、下限なしで幅に合わせる
+  const _zoomVal = contentScale;
   React.useEffect(() => {
     if (!_zoomActive || !tsumugiIsIOS()) return;
     const t = setTimeout(() => { try { const el = contentRef.current; if (el && el.scrollWidth - el.clientWidth > 2) setZoomOff(true); } catch {} }, 600);
     return () => clearTimeout(t);
   }, [_zoomActive, contentScale]); // eslint-disable-line react-hooks/exhaustive-deps
+  const _zoomMode = _zoomNear1 ? 'near1' : _zoomActive ? 'zoom' : 'scroll';
+  useEffect(() => {
+    if (!tsumugiIsIOS()) return;
+    const id = setTimeout(() => { try {
+      const el = document.getElementById('appMainArea'); if (!el) return;
+      const sc = contentRef.current; const st = sc ? [sc.scrollTop, sc.scrollLeft] : null;
+      const prev = el.style.display; el.style.display = 'none'; void el.offsetHeight; el.style.display = prev || '';
+      if (sc && st) { sc.scrollTop = st[0]; sc.scrollLeft = st[1]; }
+    } catch {} }, 450);
+    return () => clearTimeout(id);
+  }, [currentView, _zoomMode, _repaintTick]);
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -22721,12 +22847,12 @@ export default function App() {
             )}
             <div className="flex-1 py-6 px-4 space-y-1 overflow-y-auto">
               <SidebarItem icon={<CalendarCheck size={18} />} label="ホーム" active={currentView === 'dashboard'} onClick={() => navigateTo('dashboard')} badge={_homeUnreadCount||null} />
-              <SidebarItem icon={<CalendarRange size={18} />} label="カレンダー" active={currentView === 'schedule'} onClick={() => navigateTo('schedule')} />
+              {tsumugiSideShown(appData, 'schedule') && <SidebarItem icon={<CalendarRange size={18} />} label="カレンダー" active={currentView === 'schedule'} onClick={() => navigateTo('schedule')} />}
               <SidebarItem icon={<ClipboardList size={18} />} label="サービス提供記録 入力" active={currentView === 'record'} onClick={() => navigateTo('record')} />
               <SidebarItem icon={<Printer size={18} />} label="連絡帳" active={currentView === 'print'} onClick={() => navigateTo('print')} />
               {/* ★ サービス提供記録はサイドバーから削除し、各利用者の個人ファイル内で年月を選んで開く形に集約 */}
               <SidebarItem icon={<PenTool size={18} />} label="日誌" active={currentView === 'diary'} onClick={() => navigateTo('diary')} badge={diaryTodayBadge || undefined} />
-              <SidebarItem icon={<Car size={18} />} label="送迎表" active={currentView === 'transport'} onClick={() => navigateTo('transport')} />
+              {tsumugiTransportOn(appData) && <SidebarItem icon={<Car size={18} />} label="送迎表" active={currentView === 'transport'} onClick={() => navigateTo('transport')} />}
               {!(appData.systemSettings?.fitnessCycle?.disabled || appData.systemSettings?.fitnessCycle?.unit==='実施しない') && (()=>{
                 // 体力測定バッジ: 当日出席 かつ 当月測定対象の利用者数
                 const _now = new Date(); _now.setHours(0,0,0,0);
@@ -22762,10 +22888,11 @@ export default function App() {
                 return <SidebarItem icon={<Activity size={18} />} label="体力測定" active={currentView === 'fitness'} onClick={() => navigateTo('fitness')} badge={_fitnessBadge||null} />;
               })()}
               {/* ★ サイドバー整理(2026-08-21): 使用頻度が近いペアは計画書と同じ開閉グループに集約 */}
+              {(tsumugiSideShown(appData, 'absence_fax') || tsumugiSideShown(appData, 'general_fax')) && (
               <SidebarGroup icon={<FileText size={18} />} label="連絡（FAX）" activeChild={['absence_fax','general_fax'].includes(currentView)}>
-                <SidebarItem icon={<FileText size={16} />} label="休み連絡" active={currentView === 'absence_fax'} onClick={() => navigateTo('absence_fax')} />
-                <SidebarItem icon={<FileText size={16} />} label="各種連絡" active={currentView === 'general_fax'} onClick={() => navigateTo('general_fax')} />
-              </SidebarGroup>
+                {tsumugiSideShown(appData, 'absence_fax') && <SidebarItem icon={<FileText size={16} />} label="休み連絡" active={currentView === 'absence_fax'} onClick={() => navigateTo('absence_fax')} />}
+                {tsumugiSideShown(appData, 'general_fax') && <SidebarItem icon={<FileText size={16} />} label="各種連絡" active={currentView === 'general_fax'} onClick={() => navigateTo('general_fax')} />}
+              </SidebarGroup>)}
               {/* ★ 2ハブ構成(2026-08-19): 通所介護計画書(全利用者) / 個別機能訓練・LIFE(加算アドオン店舗のみ)。
                   3-2/3-1/ADL/LIFE提出は機能訓練ハブ内のタブへ集約。 ラベルの数字=作成予定(期限内+超過)件数 */}
               {(hasAddon(appData,'kinou_keikaku') || hasAddon(appData,'tsusho_keikaku') || hasAnyLifeAddon(appData)) && (
@@ -22778,22 +22905,24 @@ export default function App() {
                   )}
                 </SidebarGroup>
               )}
+              {['roster','jisseki','class_roster','monitoring'].some(k => tsumugiSideShown(appData, k)) && (
               <SidebarGroup icon={<ClipboardList size={18} />} label="実績・モニタリング" activeChild={['roster','jisseki','monitoring','class_roster'].includes(currentView)}>
-                <SidebarItem icon={<Users size={16} />} label="勤務表" active={currentView === 'roster'} onClick={() => navigateTo('roster')} />
-                <SidebarItem icon={<ClipboardList size={16} />} label="利用者実績" active={currentView === 'jisseki'} onClick={() => navigateTo('jisseki')} />
-                <SidebarItem icon={<Users size={16} />} label="クラス在籍表" active={currentView === 'class_roster'} onClick={() => navigateTo('class_roster')} />
-                <SidebarItem icon={<ClipboardList size={16} />} label="モニタリング" active={currentView === 'monitoring'} onClick={() => navigateTo('monitoring')} />
-              </SidebarGroup>
+                {tsumugiSideShown(appData, 'roster') && <SidebarItem icon={<Users size={16} />} label="勤務表" active={currentView === 'roster'} onClick={() => navigateTo('roster')} />}
+                {tsumugiSideShown(appData, 'jisseki') && <SidebarItem icon={<ClipboardList size={16} />} label="利用者実績" active={currentView === 'jisseki'} onClick={() => navigateTo('jisseki')} />}
+                {tsumugiSideShown(appData, 'class_roster') && <SidebarItem icon={<Users size={16} />} label="クラス在籍表" active={currentView === 'class_roster'} onClick={() => navigateTo('class_roster')} />}
+                {tsumugiSideShown(appData, 'monitoring') && <SidebarItem icon={<ClipboardList size={16} />} label="モニタリング" active={currentView === 'monitoring'} onClick={() => navigateTo('monitoring')} />}
+              </SidebarGroup>)}
               <div className="pt-4 mt-4 border-t border-slate-800 space-y-1">
                 <SidebarItem icon={<Users size={18} />} label="利用者マスタ管理" active={currentView === 'master'} onClick={() => navigateTo('master')} />
                 <SidebarItem icon={<Briefcase size={18} />} label="ケアマネ事業所・担当者" active={currentView === 'cmmaster'} onClick={() => navigateTo('cmmaster')} />
+                {(tsumugiSideShown(appData, 'dash_personal') || tsumugiSideShown(appData, 'dash_operation')) && (
                 <SidebarGroup icon={<BarChart3 size={18} />} label="分析" activeChild={['dash_personal','dash_operation'].includes(currentView)}>
-                  <SidebarItem icon={<BarChart3 size={16} />} label="個人（バイタル・記録）" active={currentView === 'dash_personal'} onClick={() => navigateTo('dash_personal')} />
-                  <SidebarItem icon={<TrendingUp size={16} />} label="稼働（実績・月次）" active={currentView === 'dash_operation'} onClick={() => navigateTo('dash_operation')} />
-                </SidebarGroup>
-                <SidebarItem icon={<QrCode size={18} />} label="お知らせ・閲覧管理" active={currentView === 'family_admin'} onClick={() => navigateTo('family_admin')} />
+                  {tsumugiSideShown(appData, 'dash_personal') && <SidebarItem icon={<BarChart3 size={16} />} label="個人（バイタル・記録）" active={currentView === 'dash_personal'} onClick={() => navigateTo('dash_personal')} />}
+                  {tsumugiSideShown(appData, 'dash_operation') && <SidebarItem icon={<TrendingUp size={16} />} label="稼働（実績・月次）" active={currentView === 'dash_operation'} onClick={() => navigateTo('dash_operation')} />}
+                </SidebarGroup>)}
+                {tsumugiSideShown(appData, 'family_admin') && <SidebarItem icon={<QrCode size={18} />} label="お知らせ・閲覧管理" active={currentView === 'family_admin'} onClick={() => navigateTo('family_admin')} />}
                 {/* ★ 2026-09-18 運営推進会議の要望: 災害時にご家族・ケアマネへ一斉メール+家族画面お知らせ */}
-                <SidebarItem icon={<AlertTriangle size={18} />} label="災害時" active={currentView === 'emergency'} onClick={() => navigateTo('emergency')} />
+                {tsumugiSideShown(appData, 'emergency') && <SidebarItem icon={<AlertTriangle size={18} />} label="災害時" active={currentView === 'emergency'} onClick={() => navigateTo('emergency')} />}
                 <SidebarItem icon={<Settings size={18} />} label="各種設定" active={currentView === 'settings'} onClick={() => navigateTo('settings')} />
                 {/* ★ 不具合レポート (管理者のみ) */}
                 {activeRecorder && isMemberAdmin(activeRecorder, appData.systemSettings) && (
@@ -22863,7 +22992,7 @@ export default function App() {
               const isSelf = ls.device === thisName;
               return (
                 <div
-                  className="hidden md:flex items-center gap-1.5 shrink-0 mr-3 text-[11px] text-slate-400 whitespace-nowrap cursor-pointer hover:text-slate-600"
+                  className="hidden lg:flex items-center gap-1.5 shrink-0 mr-3 text-[11px] text-slate-400 whitespace-nowrap cursor-pointer hover:text-slate-600"
                   title={isSelf ? 'この端末で最後に更新しました（最新です）' : `最新の更新は「${ls.device || '名称未設定の端末'}」で行われました。この端末にも反映されています。設定＞システムで端末名を変更できます。`}
                   onClick={() => navigateTo && navigateTo('settings', null, 'device')}>
                   <span className={`inline-block w-1.5 h-1.5 rounded-full ${isSelf ? 'bg-emerald-400' : 'bg-blue-400'}`}></span>
@@ -22882,17 +23011,17 @@ export default function App() {
                   const r = req.call(el); if (r && r.catch) r.catch(()=>alert('全画面にできませんでした。iPad/iPhone は「ホーム画面に追加」から開くと全画面で使えます。'));
                 } catch { alert('全画面にできませんでした。iPad/iPhone は「ホーム画面に追加」から開くと全画面で使えます。'); }
               }} title="ブラウザのタブ・URL欄を隠して全画面で表示（もう一度押す／Escで戻る）"
-              className="hidden md:flex items-center gap-1 shrink-0 mr-2 text-[11px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-full px-2.5 py-1 whitespace-nowrap active:scale-95">
+              className="flex items-center gap-1 shrink-0 mr-1 md:mr-2 text-[10px] md:text-[11px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-full px-2 md:px-2.5 py-1 whitespace-nowrap active:scale-95">
               全画面
             </button>
             {/* ★ 変更ログ(監査)ビューアを開くボタン */}
             <button onClick={()=>setAuditLogOpen(true)} title="いつ・どの端末で・何を変更したかの履歴"
-              className="hidden md:flex items-center gap-1 shrink-0 mr-2 text-[11px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-full px-2.5 py-1 whitespace-nowrap active:scale-95">
+              className="flex items-center gap-1 shrink-0 mr-1 md:mr-2 text-[10px] md:text-[11px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-full px-2 md:px-2.5 py-1 whitespace-nowrap active:scale-95">
               変更ログ
             </button>
-            {/* ジャンプナビをヘッダー右側に配置。 ★ 狭い画面(スマホ/iPad縦)ではタイトルと重なるため非表示(サイドバーで移動可)。 横長(lg〜)のみ表示 */}
+            {/* ジャンプナビをヘッダー右側に配置。 ★ 2026-10-06(ユーザー要望「iPad縦でも移動を出して」)・2026-10-07(スマホ縦でも): 常に表示。タイトルは省略されて縮むのでボタンは切れない */}
             {['ticket','fitness','master','dash_personal','monitoring'].includes(currentView) && (
-              <div className="hidden lg:flex items-center shrink-0">
+              <div className="flex items-center shrink-0">
                 <QuickNav navigateTo={navigateTo} currentView={currentView} patientId={targetPatientId} appData={appData}/>
               </div>
             )}
@@ -22935,9 +23064,11 @@ export default function App() {
             {/* ★ 連絡帳(print)は高さの flex 配分でレイアウトするため、zoom + height:% だと iPad Safari で
                 高さが解決できず運動テーブル(flex:1 1 0)が潰れて切れる(サイドバーを開くと縮率が下がり顕在化)。
                 ホーム(dashboard)と同様に zoom 縮小の対象外にし、等倍＋スクロールで表示する。 */}
+            {/* ★ 提供記録(ticket)もzoom例外(2026-10-06 ユーザー報告「縦で表示したら潰れている・上部のダウンロードが消える」):
+                用紙を画面の幅に合わせる縮小(_fitZoom)を自前で持つため、全体の zoom と二重になると iPad で用紙の中が潰れていた */}
             {/* ★ 日誌(diary)もzoom例外(2026-08-31): 日誌はシート側でdiaryViewScaleの拡縮を持ち、全体zoomと二重になると
                 iPad Safariでタップ座標がズレてシート内のチェック/時間セルが反応しなくなるため */}
-            <div style={isMobileLayout ? {width:'100%',minWidth:0} : (currentView==='dashboard' || currentView==='print' || currentView==='master' || currentView==='diary' || !_zoomActive) ? {width:'100%',minWidth:0,height:'100%'} : {minWidth:DESIGN_WIDTH, zoom: contentScale, width: `${100/contentScale}%`, height: `${100/contentScale}%`}}>
+            <div style={isMobileLayout ? {width:'100%',minWidth:0} : (currentView==='dashboard' || currentView==='print' || currentView==='master' || currentView==='diary' || currentView==='ticket' || _zoomNear1) ? {width:'100%',minWidth:0,height:'100%'} : _zoomScroll ? {width:`${DESIGN_WIDTH}px`, minWidth:DESIGN_WIDTH, height:'100%'} : {width:`${DESIGN_WIDTH}px`, minWidth:DESIGN_WIDTH, zoom: _zoomVal, height: `${100/_zoomVal}%`}}>
             {currentView === 'dashboard' ? <DashboardView appData={appData} navigateTo={navigateTo} activeRecorder={activeRecorder} notices={visibleNotices} devNotes={devUpdateNotes} isNoticeRead={isNoticeRead} markNoticeRead={markNoticeRead} /> :
              currentView === 'record' ? <RecordView appData={appData} activeRecorder={activeRecorder} onSave={handleSaveToCloud} navigateTo={navigateTo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={recordDirtyRef} saveFnRef={recordSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} showTip={showTip} hideTip={hideTip} isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} deviceName={deviceName} /> :
              currentView === 'ticket' ? <TicketView appData={appData} targetPatientId={targetPatientId} onBack={()=>navigateBack('master')} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  onSave={handleSaveToCloud} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={ticketDirtyRef} saveFnRef={ticketSaveFnRef} /> :
@@ -22950,6 +23081,7 @@ export default function App() {
              currentView === 'emergency' ? <DisasterView appData={appData} onSave={handleSaveToCloud} staffSession={staffSession} /> :
              currentView === 'class_roster' ? <ClassRosterView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
              currentView === 'jisseki' ? <JissekiView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
+             (currentView === 'transport' && !tsumugiTransportOn(appData)) ? <div className="p-6"><div className="max-w-xl mx-auto bg-white border border-slate-200 rounded-2xl p-6 text-center"><div className="font-bold text-slate-800">送迎表は「使わない」設定です</div><div className="text-sm text-slate-500 mt-2">各種設定 → サイドバー の「送迎表」で切り替えられます。</div></div></div> :
              currentView === 'transport' ? <TransportView appData={appData} onSave={handleSaveToCloud} selectedDate={selectedDate} setSelectedDate={setSelectedDate} onShowPrintPreview={null} navigateTo={navigateTo} /> :
              currentView === 'diary' ? <DailyLogView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} dirtyRef={diaryDirtyRef} saveFnRef={diarySaveFnRef} /> :
              currentView === 'absence_fax' ? <AbsenceFaxView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?captureElHtmlWithValues(el):null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={absenceDirtyRef} saveFnRef={absenceSaveFnRef} /> :
@@ -24682,7 +24814,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
 
   if (searchQuery) {
     const query = searchQuery.toLowerCase();
-    displayRecords = displayRecords.filter(r => r.name && (r.name.includes(query) || (r.kana && r.kana.includes(query))));
+    const _kanaById = new Map((appData.patients||[]).map(p => [p.id, p.kana]));
+    displayRecords = displayRecords.filter(r => r.name && tsuSearchHit(query, r.name, r.kana, _kanaById.get(r.patientId)));
   }
   // ★ 2026-09-30(店舗報告: 午前なのに午後の人も選べる): 実施担当の対象は「表示中の区分(AM/PM)の利用者」だけ
   const _kinouRows = displayRecords || [];
@@ -24766,7 +24899,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const searchDaysGroups = React.useMemo(() => {
     if (!searchActive) return [];
     const q = searchQuery.trim().toLowerCase();
-    const matched = (appData.patients||[]).filter(p => p && p.status!=='退所' && ((p.name&&p.name.toLowerCase().includes(q)) || (p.kana&&String(p.kana).includes(q))));
+    const matched = (appData.patients||[]).filter(p => p && p.status!=='退所' && tsuSearchHit(q, p.name, p.kana));
     const d0 = new Date(selectedDate);
     const y = d0.getFullYear(), mo = d0.getMonth();
     const monthKey = `${y}-${String(mo+1).padStart(2,'0')}`;
@@ -26321,9 +26454,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
     const q = patientSearch.trim().toLowerCase();
     if (!q) return appData.patients||[];
     return (appData.patients||[]).filter(p =>
-      (p.name||'').toLowerCase().includes(q) ||
-      (p.kana||'').toLowerCase().includes(q) ||
-      String(p.id).includes(q)
+      tsuSearchHit(q, p.name, p.kana, String(p.id))
     );
   }, [appData.patients, patientSearch]);
   // baseMonth デフォルトは「今日の月」(YYYY-MM)
@@ -26588,7 +26719,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   if (!selectedPatientId && !familyMode) {
     const allPats = sortPatientsByKana((appData.patients||[]).filter(p => getPatientDisplayStatus(p) === '利用中'));
     const q = patientSearch.trim().toLowerCase();
-    const list = q ? allPats.filter(p => (p.name||'').toLowerCase().includes(q) || (p.kana||'').toLowerCase().includes(q) || String(p.id).includes(q)) : allPats;
+    const list = q ? allPats.filter(p => tsuSearchHit(q, p.name, p.kana, String(p.id))) : allPats;
     // 行 (あ/か/さ...) でグループ化 — 検索中はグループ表示せず全件
     const kanaRows = ['あ','か','さ','た','な','は','ま','や','ら','わ','その他'];
     const groups = q ? null : kanaRows.map(row => ({ row, items: list.filter(p => getRowFromKana(p.kana) === row) })).filter(g => g.items.length > 0);
@@ -26710,8 +26841,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
     let t = '';
     try {
       if (_cbUndecided(info)) return '';
-      // 1) 送迎表(確定した乗車時間)があれば最優先
-      const pl = (appData.transportPlans || {})[`${info.iso}_${info.ampm || 'AM'}`];
+      // 1) 送迎表(確定した乗車時間)があれば最優先 ★ 2026-10-06: 送迎表を使わない店舗は見ない(連絡帳の次回予定→サービス提供内容の時間)
+      const pl = tsumugiTransportOn(appData) ? (appData.transportPlans || {})[`${info.iso}_${info.ampm || 'AM'}`] : null;
       if (pl && typeof pl === 'object') {
         let hit = null;
         Object.keys(pl.cars || {}).forEach(cid => (pl.cars[cid] || []).forEach(m => { if (m.pid === selectedPatient.id) hit = m; }));
@@ -26864,7 +26995,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           {/* 表示用ボタン: クリックでポップアップを開く（期間/月を選択させる） */}
           {/* ★ 事業所モードのみ表示 (家族・ケアマネ閲覧モードは非表示) */}
           {!compactMode && (<>
-          <MaskToggle small/>
+          <MaskToggle small storeKey="personal"/>
           <button type="button" onClick={()=>setShowPrintOptionsPopup(true)}
               style={{background:'rgba(255,255,255,0.5)',border:'1px solid rgba(255,255,255,0.7)',color:'#1e293b',borderRadius:8,padding:'6px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
             ダウンロード
@@ -29339,7 +29470,7 @@ function QuickNav({ navigateTo, currentView, patientId, appData }) {
     { view:'fitness',       label:'体力測定',         icon:<Activity size={16}/> },
     { view:'dash_personal', label:'分析（個人）',     icon:<BarChart3 size={16}/> },
     { view:'monitoring',    label:'モニタリング',     icon:<ClipboardList size={16}/> },
-  ].filter(it => it.view !== currentView && !it.hide && !(it.needPt && targetId == null));
+  ].filter(it => it.view !== currentView && !it.hide && !(it.needPt && targetId == null) && (!['fitness','dash_personal','monitoring'].includes(it.view) || tsumugiSideShown(appData, it.view)));
   return (
     <div ref={ref} style={{position:'relative',zIndex:50}}>
       <button type="button" onClick={() => setOpen(o => !o)} data-testid="quicknav-btn" aria-expanded={open}
@@ -30023,7 +30154,7 @@ function JissekiView({ appData, onSave, onShowPrintPreview }) {
             <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b'}}>月次実績表<span style={{fontSize:11,fontWeight:'normal',color:'#64748b',marginLeft:6}}>（カイポケ等への実績転記用）</span></div>
             <div style={{display:'flex',alignItems:'center',gap:6,marginLeft:'auto'}}>
               <button onClick={dlCsv} style={{padding:'4px 12px',background:'#0f766e',color:'white',border:'none',borderRadius:8,fontWeight:'bold',cursor:'pointer',fontSize:12}}>CSV出力</button>
-              {onShowPrintPreview && <MaskToggle small/>}
+              {onShowPrintPreview && <MaskToggle small storeKey="jisseki"/>}
               {onShowPrintPreview && <button onClick={()=>onShowPrintPreview(`実績表_${jy}年${jm}月`,'A4 landscape','jisseki-print-area')} style={{padding:'4px 12px',background:'#334155',color:'white',border:'none',borderRadius:8,fontWeight:'bold',cursor:'pointer',fontSize:12}}>ダウンロード</button>}
             </div>
           </div>
@@ -31813,8 +31944,8 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
     <div style={{height:'100%',display:'flex',flexDirection:'column',minWidth:0}}>
       <style>{`@media print{body,html,#root{margin:0!important;padding:0!important;background:white!important;overflow:hidden!important;}.thp{display:none!important;}.ticket-outer{padding:0!important;margin:0!important;zoom:1!important;}.ticket-outer>*+*{margin-top:0!important;}#print-content-ticket{margin:0!important;padding:0!important;}#print-content-ticket>*+*{margin-top:0!important;}.tp{box-shadow:none!important;border:none!important;border-radius:0!important;margin:0!important;padding:7mm 9mm 6mm 9mm!important;page-break-inside:avoid!important;break-inside:avoid!important;overflow:hidden!important;}.tp>*{zoom:var(--tpZoom,0.92);}.tp:not(:last-child){page-break-after:always!important;break-after:page!important;}.tp:last-child{page-break-after:avoid!important;break-after:avoid!important;}@page{size:A4 portrait;margin:0;}}.tp{width:210mm;height:297mm;box-sizing:border-box;overflow:hidden;}`}</style>
       {/* ヘッダー：スクロールコンテナの外 */}
-      <div className="thp bg-white px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-4 shrink-0 sticky top-0 z-30" style={{minWidth:0}}>
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+      <div className="thp bg-white px-4 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 shrink-0 sticky top-0 z-30" style={{minWidth:0}}>
+        <div className="flex flex-wrap items-center gap-3">
           {navigateTo && <button onClick={goBackFromTicket} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm flex items-center gap-1 shrink-0" title="戻る"><ArrowLeft size={16}/>戻る</button>}
           <div style={{position:'relative'}}>
             <button onClick={()=>{setPatDropOpen(v=>!v);setPatSearch('');}} className="bg-slate-50 border border-slate-300 hover:border-blue-400 px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 min-w-[160px] max-w-[220px]">
@@ -31832,7 +31963,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                   </div>
                 </div>
                 <div style={{overflowY:'auto',flex:1}}>
-                  {[...appData.patients].filter(p=>getPatientDisplayStatus(p)==='利用中'&&(!patSearch||p.name.includes(patSearch)||(p.kana&&p.kana.includes(patSearch)))).sort((a,b)=>(a.kana||a.name||'').localeCompare(b.kana||b.name||'','ja')).map(p=>(
+                  {[...appData.patients].filter(p=>getPatientDisplayStatus(p)==='利用中'&&tsuSearchHit(patSearch, p.name, p.kana)).sort((a,b)=>(a.kana||a.name||'').localeCompare(b.kana||b.name||'','ja')).map(p=>(
                     <button key={p.id} onClick={()=>{const id=p.id;setSelId(id);onPatientChange&&onPatientChange(id);setPatDropOpen(false);setPatSearch('');}}
                       style={{width:'100%',padding:'8px 14px',display:'flex',alignItems:'center',gap:10,textAlign:'left',background:p.id===selId?'#eff6ff':'transparent',cursor:'pointer',border:'none',fontSize:14,fontWeight:'bold',color:p.id===selId?'#1d4ed8':'#1e293b'}}
                       className="hover:bg-slate-50">
@@ -31844,7 +31975,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                       {p.careLevel && <span style={{fontSize:10,fontWeight:'bold',color:'#3b82f6',background:'#eff6ff',padding:'1px 5px',borderRadius:4,flexShrink:0}}>{p.careLevel}</span>}
                     </button>
                   ))}
-                  {[...appData.patients].filter(p=>getPatientDisplayStatus(p)==='利用中'&&(!patSearch||p.name.includes(patSearch)||(p.kana&&p.kana.includes(patSearch)))).length===0 && (
+                  {[...appData.patients].filter(p=>getPatientDisplayStatus(p)==='利用中'&&tsuSearchHit(patSearch, p.name, p.kana)).length===0 && (
                     <div style={{padding:'16px',textAlign:'center',fontSize:12,color:'#64748b'}}>見つかりません</div>
                   )}
                 </div>
@@ -31854,7 +31985,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
           </div>
           <input type="month" value={curMonth} onChange={e=>setCurMonth(e.target.value)} className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold outline-none cursor-pointer text-slate-700"/>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center justify-end gap-2 shrink-0 ml-auto">
           <button onClick={()=>{ setPeriodMode(p=>{ const np=!p; if(np && (!periodFrom||!periodTo)){ // 既定: 最古の記録月〜当月
             const set=new Set(); (appData.ticketRecords||[]).forEach(r=>{ if(r.patientId!==sp.id) return; const m=(r.date||'').match(/(\d+)月/); if(!m) return; let y=r.year; if(!y){ y=(typeof r.id==='number'&&r.id>1e12)?new Date(r.id).getFullYear():new Date().getFullYear(); } set.add(`${y}-${String(+m[1]).padStart(2,'0')}`); });
             const arr=[...set].sort(); setPeriodFrom(arr[0]||curMonth); setPeriodTo(curMonth); } return np; }); }} className={`px-4 py-2 rounded-xl font-bold flex items-center text-sm whitespace-nowrap active:scale-95 ${periodMode?'bg-violet-700 text-white':'bg-violet-100 text-violet-700 border border-violet-300 hover:bg-violet-200'}`} title="選んだ開始月〜終了月の提供記録を、この画面と同じ形式で並べて表示します。プレビューでまとめてPDF保存できます">{periodMode?'期間出力 中':'期間出力'}</button>
@@ -32147,7 +32278,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
 
 
       </div>{/* end scroll container */}
-      {showFaxHist && <FaxHistoryListModal history={ticketHistory} typeLabel="サービス提供記録" onDelete={deleteFaxHist} onClose={()=>setShowFaxHist(false)}/>}
+      {showFaxHist && <FaxHistoryListModal history={ticketHistory} typeLabel="サービス提供記録" patients={appData.patients} onDelete={deleteFaxHist} onClose={()=>setShowFaxHist(false)}/>}
       {bikouEdit && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={()=>setBikouEdit(null)}>
           <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:16,width:520,maxWidth:'100%',padding:24,boxShadow:'0 10px 40px rgba(0,0,0,0.3)'}}>
@@ -33177,7 +33308,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                     <div className="text-[11px] text-slate-500 px-1">連絡事項：{allOn ? '全員あて あり' : '全員あて なし'}・個別 {renN}名</div>
                   </div>
                   <div className="p-5 pt-3 space-y-2">
-                    {card('cb-hub-next', '次回予定', '次回の利用日・お迎え時間（時間は送迎表から入ります）',
+                    {card('cb-hub-next', '次回予定', tsumugiTransportOn(appData) ? '次回の利用日・お迎え時間（時間は送迎表から入ります）' : '次回の利用日・お迎え時間',
                       miss > 0 ? <span className="bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap">未入力{miss}名</span> : <span className="bg-emerald-100 text-emerald-700 text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap">入力済み</span>,
                       () => open(() => setIsScheduleModalOpen(true)))}
                     {card('cb-hub-renraku', '連絡事項', '全員あて・個別の連絡（表示期間つき）',
@@ -33434,6 +33565,17 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                             const _old = /\d/.test(String(r.nextTimeOverride ?? '')) && !_undec ? String(r.nextTimeOverride) : '';
                             const _goTp = () => { try { const dm = _dStr.match(/(\d+)月(\d+)日/); if (dm) { const y = (() => { const yy = new Date(selectedDate).getFullYear(); const cand = new Date(yy, +dm[1]-1, +dm[2]); const sd = new Date(selectedDate); sd.setHours(0,0,0,0); return cand < sd ? yy + 1 : yy; })(); setSelectedDate(`${y}-${String(+dm[1]).padStart(2,'0')}-${String(+dm[2]).padStart(2,'0')}`); } } catch {} if (navigateTo) navigateTo('transport'); };
                             return (<>
+                          {!tsumugiTransportOn(appData) ? (<>
+                          {/* ★ 2026-10-06: 送迎表を使わない店舗は、ここで時間を入れる(空なら利用者マスタのお迎え時間) */}
+                          <div className="text-[10px] font-bold text-slate-400 mb-1">お迎え時間{(() => { const _dm = _dStr.match(/(\d+)月(\d+)日/); if (!_dm || !_rp) return null; const _y = new Date().getFullYear(); const _c = new Date(_y, +_dm[1]-1, +_dm[2]); const _base = getPickupTimeForDow(_rp, _c.getDay(), appData); return _base ? <span className="ml-1 font-normal text-slate-500">（空欄なら利用者マスタの {_base}）</span> : null; })()}</div>
+                          <div className={`flex items-center gap-1 p-1.5 border rounded-lg ${_undec ? 'border-slate-300 bg-slate-100' : 'border-slate-300 bg-white'}`} data-testid={`cb-next-time-${r.patientId}`}>
+                            <ImeSafeInput type="text" inputMode="numeric" value={_undec ? '' : curHour} maxLength={2} disabled={_undec} onChange={e=>updateOverride('time', curMonth, curDay, e.target.value.replace(/\D/g,''), curMin)} placeholder="—" className="w-9 px-1 py-0.5 text-center bg-transparent border-0 outline-none font-bold text-sm"/>
+                            <span className="text-xs font-bold text-slate-500">時</span>
+                            <ImeSafeInput type="text" inputMode="numeric" value={_undec ? '' : curMin} maxLength={2} disabled={_undec} onChange={e=>updateOverride('time', curMonth, curDay, curHour, e.target.value.replace(/\D/g,''))} placeholder="—" className="w-9 px-1 py-0.5 text-center bg-transparent border-0 outline-none font-bold text-sm"/>
+                            <span className="text-xs font-bold text-slate-500">分</span>
+                            <label className="ml-auto flex items-center gap-1 text-[11px] font-bold text-slate-600 whitespace-nowrap"><input type="checkbox" checked={_undec} onChange={e => setLocalOverrides(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), nextTimeOverride: e.target.checked ? '未定' : '' } }))}/>未定（空欄で渡す）</label>
+                          </div>
+                          </>) : (<>
                           <div className="text-[10px] font-bold text-slate-400 mb-1">お迎え時間（送迎表）{!_undec && !_tp && _dStr && <span className="ml-1 text-amber-600">送迎表に時間なし</span>}</div>
                           <div className={`flex items-center gap-2 p-1.5 border rounded-lg ${_undec ? 'border-slate-300 bg-slate-100' : _tp ? 'border-emerald-300 bg-emerald-50' : 'border-amber-400 bg-amber-50'}`}>
                             <span className={`font-bold text-sm min-w-[52px] whitespace-nowrap ${_undec ? 'text-slate-400' : 'text-slate-800'}`}>{_undec ? '空欄' : (_tp === '徒歩' ? '徒歩' : (_tp || '—'))}</span>
@@ -33441,6 +33583,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                             <button type="button" onClick={_goTp} disabled={!_dStr} className="ml-auto text-[11px] font-bold text-blue-700 bg-white border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-50 disabled:opacity-40 whitespace-nowrap">送迎表で変更</button>
                             <label className="flex items-center gap-1 text-[11px] font-bold text-slate-600 whitespace-nowrap"><input type="checkbox" checked={_undec} onChange={e => setLocalOverrides(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), nextTimeOverride: e.target.checked ? '未定' : '' } }))}/>未定（空欄）</label>
                           </div>
+                          </>)}
                             </>); })()}
                         </div>
                       </div>
@@ -34165,7 +34308,7 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave, patien
                       <div className="mt-2 bg-violet-50 border border-violet-200 rounded-xl p-3">
                         <div className="flex items-center gap-2 mb-2"><input type="search" value={pvQ} onChange={e=>setPvQ(e.target.value)} placeholder="氏名で絞り込み" className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold outline-none flex-1"/><span className="text-[11px] text-slate-500">空欄＝共通の表示文字「{item.value || '—'}」</span></div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 max-h-72 overflow-y-auto pr-1">
-                          {patients.filter(pt => !pvQ || (pt.name||'').includes(pvQ) || (pt.kana||'').includes(pvQ)).map(pt => (
+                          {patients.filter(pt => tsuSearchHit(pvQ, pt.name, pt.kana)).map(pt => (
                             <div key={pt.id} className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-2 py-1">
                               <span className="text-xs font-bold text-slate-700 w-24 truncate" title={pt.name}>{pt.name}</span>
                               <input type="text" value={pvVal(pt, item)} onChange={e=>setPv(prev => ({ ...prev, [pt.id]: { ...(prev[pt.id]||{}), [item.id]: e.target.value } }))} placeholder={item.value || ''} className="flex-1 px-2 py-1 bg-white border border-slate-300 rounded text-sm outline-none focus:border-violet-400"/>
@@ -34215,7 +34358,34 @@ const tpWeekFinalAt = (appData, monday) => {
   return best;
 };
 // 直近4週間に送迎表を保存している店舗だけを「送迎表を使っている」とみなす(使っていない店舗には予定表示・リマインドを出さない)
-const tpStoreUsesTransport = (appData) => { try { const lim = tpIsoOf(new Date(Date.now() - 28 * 86400000)); return Object.keys(appData?.transportPlans || {}).some(k => String(k).slice(0, 10) >= lim); } catch { return false; } };
+// ★ 2026-10-06(ユーザー要望「送迎表を使わない店舗もある。各種設定で使う/使わないを選べるように」): systemSettings.transportEnabled===false で送迎表を使わない。
+//   使わない店舗は サイドバーの送迎表・ホームの未確定の知らせ・ご家族画面の「予定（確定前）」を出さず、
+//   連絡帳の次回お迎え時間は 手入力 > 利用者マスタ(サービス提供内容)の送迎時間 で決める(送迎表の時間は使わない)
+const tsumugiTransportOn = (appData) => (appData?.systemSettings?.transportEnabled !== false);
+// ★ 2026-10-06(ユーザー要望「各種設定にサイドバーを新設して、送迎表や体力測定の表示・非表示を選べるように」):
+//   送迎表=transportEnabled、体力測定=fitnessCycle.disabled(「体力測定を実施しない」と同じ)、それ以外=systemSettings.sidebarHidden[キー]
+const SIDEBAR_OPTIONAL = [
+  { key: 'schedule', label: 'カレンダー' },
+  { key: 'transport', label: '送迎表', note: '使わない店舗は、ホームの「送迎表が未確定」のお知らせ・日誌の「送迎表取込」・ご家族／ケアマネ画面の「予定（確定前）」も出ません。連絡帳とご家族画面のお迎え時間は、利用者マスタ（サービス提供内容）の時間になり、連絡帳の「次回予定」でその回だけの時間も入れられます。作った送迎表は消えません。' },
+  { key: 'fitness', label: '体力測定', note: '表示しないと「体力測定を実施しない」と同じになり、測定予定（当月・来月）にも出なくなります。' },
+  { key: 'absence_fax', label: '休み連絡', group: '連絡（FAX）' },
+  { key: 'general_fax', label: '各種連絡', group: '連絡（FAX）' },
+  { key: 'roster', label: '勤務表', group: '実績・モニタリング' },
+  { key: 'jisseki', label: '利用者実績', group: '実績・モニタリング' },
+  { key: 'class_roster', label: 'クラス在籍表', group: '実績・モニタリング' },
+  { key: 'monitoring', label: 'モニタリング', group: '実績・モニタリング' },
+  { key: 'dash_personal', label: '個人（バイタル・記録）', group: '分析' },
+  { key: 'dash_operation', label: '稼働（実績・月次）', group: '分析' },
+  { key: 'family_admin', label: 'お知らせ・閲覧管理' },
+  { key: 'emergency', label: '災害時' },
+];
+const tsumugiSideShown = (appData, key) => {
+  const ss = appData?.systemSettings || {};
+  if (key === 'transport') return ss.transportEnabled !== false;
+  if (key === 'fitness') return !(ss.fitnessCycle?.disabled || ss.fitnessCycle?.unit === '実施しない');
+  return !((ss.sidebarHidden || {})[key]);
+};
+const tpStoreUsesTransport = (appData) => { if (!tsumugiTransportOn(appData)) return false; try { const lim = tpIsoOf(new Date(Date.now() - 28 * 86400000)); return Object.keys(appData?.transportPlans || {}).some(k => String(k).slice(0, 10) >= lim); } catch { return false; } };
 // ★ 2026-09-30(ユーザー指示で変更): 曜日に関係なく毎日、「今日から1週間後の日」を含む週の送迎表が完成していなければ知らせる
 //   (=今週と来週の2週分を常に完成させておく運用)。
 const tpNextWeekReminder = (appData, now = new Date()) => {
@@ -34536,6 +34706,21 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _chgCount = (pl) => { if (!pl || !_baseOf(pl)) return 0; const cur = _snapPlan(pl); let n = 0; [ ...Object.values(cur.cars).flat().map(m=>m.pid), ...cur.walkers, ...cur.others ].forEach(pid => { if (_chgOf(pl, pid)) n++; }); return n + _removedSince(pl).length; };
   // ★ 2026-10-05: この車の中身が基準(確定時)から変わったか(乗る方の増減・順番・時間)。運転者の変更は数えない
   const _carChanged = (pl, cid) => { const base = _baseOf(pl); if (!base) return false; const cur = (pl.cars && pl.cars[cid]) || []; if (cur.some(m => _chgOf(pl, m.pid))) return true; const now = new Set(cur.map(m => String(m.pid))); return ((base.cars && base.cars[cid]) || []).some(m => !now.has(String(m.pid))); };
+  // ★ 2026-10-06(ユーザー要望「変更2 などのところで変更内容が表示されると尚いい」): 週の確定後の変更を一覧にする(_chgCount と同じ数え方)
+  const _carNmOf = (zone) => zone === 'walk' ? '徒歩' : zone === 'other' ? 'その他' : ((cars.find(c => String(c.id) === String(zone)) || {}).name || '車');
+  const _chgListOfWeek = () => { const out = []; days.forEach(d => ['AM','PM'].forEach(sl => { const iso = _iso(d); const pl = plans[`${iso}_${sl}`]; if (!pl || !_baseOf(pl)) return; const cur = _snapPlan(pl), fin = _baseOf(pl);
+    [ ...Object.values(cur.cars).flat().map(m=>m.pid), ...cur.walkers, ...cur.others ].forEach(pid => { let ac = _chgOf(pl, pid); if (!ac) return;
+      if (ac === '車が変更') { const w = _locOf(fin, pid), n = _locOf(cur, pid); ac = `車が変更（${_carNmOf(w && w.zone)}→${_carNmOf(n && n.zone)}）`; }
+      const _ck = String(((pl._chgAt || {})[pid]) || '0'); const _td = (pl._telDone || {})[pid];
+      out.push({ iso, sl, pid, ac, tel: !!_dotOf(pl, iso, pid), done: !!(_td && typeof _td === 'object' && _td.on && String(_td.ck) === _ck) }); });
+    _removedSince(pl).forEach(pid => out.push({ iso, sl, pid, ac: '確定後に外れた（休みなど）', tel: false })); })); return out; };
+  // ★ 2026-10-07(ユーザー要望): 要連絡の「連絡済」を送迎表のコマに保存(全端末で共有)。値はその変更の時刻(_chgAt)=同じ方がまた変わったら未連絡に戻る
+  const setTelDone = (iso, sl, pid, on) => {
+    const k = `${iso}_${sl}`; const pl = plans[k]; if (!pl) return;
+    // { ck=その変更の時刻, on=連絡済か, t=付けた/外した時刻 }。外したときも消さずに on:false を残す(他の端末の「付けた」と時刻で比べるため)
+    const td = { ...(pl._telDone || {}), [pid]: { ck: String(((pl._chgAt || {})[pid]) || '0'), on: !!on, t: syncNow() } };
+    onSave({ ...appData, transportPlans: { ...plans, [k]: { ...pl, _telDone: td, _savedAt: syncNow() } } }, { silent: true });
+  };
   const _finalAtOfWeek = () => { let best = ''; days.forEach(d => ['AM','PM'].forEach(sl => { const f = plans[`${_iso(d)}_${sl}`]?._finalAt; if (f && String(f) > String(best)) best = f; })); return best; };
   const _fmtStamp = (v) => { try { const d = new Date(v); if (isNaN(d)) return ''; return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; } catch { return ''; } };
   const finalizeWeek = () => {
@@ -34559,6 +34744,17 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const doPrintRef = React.useRef(null);
   // ★ 2026-10-02(試験版・ユーザー要望「確定を解除できるように」): 確定の控え(_final)を外して「作成中」に戻す。内容はそのまま。
   const [finalMenu, setFinalMenu] = useState(false);
+  const [tpFocus, setTpFocus] = useState(null); // ★ 2026-10-07: 変更の一覧で押した方を表でハイライト { iso, sl, pid, removed }
+  React.useEffect(() => { setTpFocus(null); }, [selectedDate]);
+  const _tpSelOf = (f) => f ? (f.removed ? `[data-tpcell="${f.iso}_${f.sl}"]` : `[data-tprow][data-tpiso="${f.iso}"][data-tpslot="${f.sl}"][data-tppid="${f.pid}"], [data-tpfb="${f.iso}_${f.sl}_${f.pid}"]`) : '';
+  // 変更の項目を押す → 表のその方を黄色く表示してその位置へ(もう一度押すと消える)。keep=true は消さずに表示(確定済みメニューから)
+  const focusChg = (x, keep) => {
+    const removed = /外れた/.test(x.ac);
+    const same = tpFocus && tpFocus.iso === x.iso && tpFocus.sl === x.sl && String(tpFocus.pid) === String(x.pid);
+    if (same && !keep) { setTpFocus(null); return; }
+    const f = { iso: x.iso, sl: x.sl, pid: x.pid, removed }; setTpFocus(f);
+    setTimeout(() => { try { const el = document.querySelector(_tpSelOf(f)); if (el) el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' }); } catch {} }, 80);
+  };
   const [tpEdit, setTpEdit] = useState(false); // ★ 2026-10-03: 確定済みの週で「編集する」を押したとき(週を変えると戻る)
   React.useEffect(() => { setTpEdit(false); }, [selectedDate]);
   const unfinalizeWeek = () => {
@@ -35777,7 +35973,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               const _att = new Set(_attendees(_iso(d), sl).filter(a => !a.furikae && !a.rinji).map(a => String(a.pid)));
               const _filt = (pl) => { if (!pl) return; Object.keys(pl.cars||{}).forEach(cid => { const a = pl.cars[cid]||[]; pl.cars[cid] = a.filter(m => _att.has(String(m && m.pid))); nSkip += a.length - pl.cars[cid].length; }); ['walkers','others','un'].forEach(k => { if (Array.isArray(pl[k])) { const a = pl[k]; pl[k] = a.filter(m => _att.has(String(m && m.pid))); nSkip += a.length - pl[k].length; } }); };
               _filt(cp); if (cp.drop) _filt(cp.drop);
-              delete cp._final; delete cp._finalAt; delete cp._finalId; delete cp._base; delete cp._baseAt; delete cp._baseId; delete cp._chgAt; // ★ 完成の控えは週ごと(コピー先は未確定から)
+              delete cp._final; delete cp._finalAt; delete cp._finalId; delete cp._base; delete cp._baseAt; delete cp._baseId; delete cp._chgAt; delete cp._telDone; // ★ 完成の控えは週ごと(コピー先は未確定から)
               np[`${_iso(d)}_${sl}`] = { ...cp, _savedAt: syncNow() }; n++;
             }); });
             if (n) _saveBulk('前週コピー', np);
@@ -35795,15 +35991,34 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           {/* ★ 週の完成確定(2026-09-28): 確定後の変更は赤丸で自動表示 */}
           {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return (
             <button onClick={() => fa ? setFinalMenu(v => !v) : finalizeWeek()} data-testid="tp-finalize" className={`px-2.5 py-2 rounded-xl font-bold text-xs border whitespace-nowrap ${fa?'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100':'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`} title={fa?`確定 ${_fmtStamp(fa)}。押すと今の内容で確定を更新(赤丸は付け直し)`:'この週の送迎表を「確定」として確定。以後に変えた箇所に自動で赤丸が付きます'}>
-              {fa ? <>確定済{tot ? <span className="ml-1 bg-red-600 text-white rounded px-1">変更{tot}</span> : null}<span className="ml-1 text-[9px]">▼</span></> : '確定'}
+              {fa ? <>確定済{tot ? <span className="ml-1 bg-red-600 text-white rounded px-1" data-testid="tp-chg-badge">変更{tot}</span> : null}<span className="ml-1 text-[9px]">▼</span></> : '確定'}
             </button>
           ); })()}
+          {tpFocus && <button type="button" data-testid="tp-focus-clear" onClick={() => setTpFocus(null)} className="px-2.5 py-2 rounded-xl font-bold text-xs border border-amber-300 bg-yellow-100 text-amber-900 whitespace-nowrap">黄色の表示を消す</button>}
           {!!_finalAtOfWeek() && tpEdit && <button type="button" data-testid="tp-board-mode" onClick={()=>setTpEdit(false)} className="px-2.5 py-2 rounded-xl font-bold text-xs border border-emerald-300 bg-emerald-50 text-emerald-800 whitespace-nowrap">一覧に戻る</button>}
           {finalMenu && ReactDOM.createPortal((
             <div className="fixed inset-0 bg-slate-900/50 flex items-start justify-center p-4 pt-24" style={{zIndex:10000}} onClick={()=>setFinalMenu(false)}>
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={e=>e.stopPropagation()} data-testid="tp-final-menu">
                 <div className="font-bold text-slate-800 mb-1">この週は確定済みです</div>
-                <div className="text-[11px] text-slate-500 mb-4">確定 {_fmtStamp(_finalAtOfWeek())}。確定後に変えた箇所には赤丸が付いています。</div>
+                <div className="text-[11px] text-slate-500 mb-3">確定 {_fmtStamp(_finalAtOfWeek())}。ご家族への連絡が必要な変更は、時間が赤い枠になっています。</div>
+                {(() => { const cl = _chgListOfWeek(); if (!cl.length) return <div className="text-xs text-slate-500 mb-4" data-testid="tp-chg-none">確定後の変更はありません。</div>; return (
+                  <div className="mb-4" data-testid="tp-chg-list">
+                    <div className="text-xs font-bold text-slate-700 mb-1">確定後の変更（{cl.length}件）<span className="font-normal text-slate-500 ml-1">押すと表で黄色く表示</span></div>
+                    <div className="max-h-64 overflow-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+                      {cl.map((x, i) => { const d = new Date(x.iso + 'T00:00:00'); return (
+                        <div key={i} className={`flex items-center gap-2 px-2.5 py-1.5 text-xs leading-snug ${x.tel && x.done ? 'opacity-60' : ''}`} data-testid="tp-chg-item">
+                          {/* ★ 2026-10-07(ユーザー要望): 押すとメニューを閉じて送迎表のその方を黄色く表示 */}
+                          <button type="button" data-testid="tp-chg-item-focus" onClick={() => { setFinalMenu(false); focusChg(x); }} className="flex-1 min-w-0 text-left" title="押すと送迎表でこの方を黄色く表示します（もう一度押すと消えます）">
+                            <span className="font-bold text-slate-600 tabular-nums whitespace-nowrap">{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{x.sl==='AM'?'午前':'午後'}</span>
+                            <span className={`font-bold text-slate-800 ml-1.5 ${x.tel && x.done ? 'line-through' : ''}`}>{_pname(x.pid)}</span>
+                            <span className="text-slate-700 ml-1.5">{x.ac}</span>
+                            {x.tel && <span className="ml-1.5 text-[10px] font-bold text-red-700 border border-red-400 rounded px-1 whitespace-nowrap">要連絡</span>}
+                          </button>
+                          {x.tel && <label className="flex items-center gap-1 text-[11px] font-bold text-slate-700 whitespace-nowrap cursor-pointer shrink-0" data-testid="tp-chg-item-done">
+                            <input type="checkbox" checked={!!x.done} onChange={e => setTelDone(x.iso, x.sl, x.pid, e.target.checked)} className="w-4 h-4"/>連絡済</label>}
+                        </div>); })}
+                    </div>
+                  </div>); })()}
                 <div className="space-y-2">
                   <button onClick={()=>{ setFinalMenu(false); finalizeWeek(); }} className="w-full py-2.5 rounded-xl font-bold text-sm bg-emerald-600 hover:bg-emerald-700 text-white">確定を更新（今の内容で確定し直す）</button>
                   <button onClick={unfinalizeWeek} data-testid="tp-unfinalize" className="w-full py-2.5 rounded-xl font-bold text-sm bg-white border border-amber-300 text-amber-800 hover:bg-amber-50">確定を解除（作成中に戻す）</button>
@@ -35863,6 +36078,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           </div>
         </div>}
       </div>
+      {/* ★ 2026-10-07: 確定後の変更の帯は廃止(ユーザー指示「確定済 変更○ のメニューで連絡済・ハイライトができるので不要」)。ハイライトの表示だけ残す */}
+      {tpFocus && <style>{`${_tpSelOf(tpFocus)}{background:#fef08a !important;outline:3px solid #f59e0b;outline-offset:-2px;border-radius:6px;}`}</style>}
       {/* ★ 2026-10-03(ユーザー提案「確定していたら入力画面ではなく一覧を常に表示。午前・午後を一度に見たい」): 確定済みの週は読み取り専用の一覧(午前・午後を同じ画面に)。
           「編集する」で入力画面へ(確定後の変更は赤丸)。確定を解除すると自動で入力画面に戻る */}
       {_finalView ? (
@@ -35880,7 +36097,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               <React.Fragment key={iso}>
                 <div className={`px-2 py-1 text-xs font-bold text-center rounded-t-xl border border-b-0 border-slate-200 min-w-0 ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-100 text-slate-700'}`}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{_hol ? <span className="ml-1 text-red-600">休業</span> : null}</div>
                 {['AM','PM'].map(sl => { const pl = getPlan(iso, sl); const abs = _absentees(iso, sl); const anyone = Object.values(pl.cars||{}).some(a => (a||[]).length) || (pl.walkers||[]).length || (pl.others||[]).length || (pl.un||[]).length; return (
-                  <div key={sl} data-testid={`tp-fb-cell-${iso}-${sl}`} className={`bg-white border-x border-t border-slate-200 min-w-0 ${sl==='PM' ? 'border-b rounded-b-xl mb-1' : ''}`}>
+                  <div key={sl} data-testid={`tp-fb-cell-${iso}-${sl}`} data-tpcell={`${iso}_${sl}`} className={`bg-white border-x border-t border-slate-200 min-w-0 ${sl==='PM' ? 'border-b rounded-b-xl mb-1' : ''}`}>
                     <div className={`px-2 py-0.5 text-[11px] font-bold ${sl==='AM'?'bg-amber-50 text-amber-800':'bg-indigo-50 text-indigo-800'}`}>{sl==='AM'?'午前':'午後'}</div>
                     {!anyone ? <div className="px-2 py-1 text-[11px] text-slate-400">—</div> : (
                       <div className="px-1.5 py-1 space-y-1">
@@ -35889,15 +36106,15 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                             <div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">{c.name}{drv ? <span className="font-normal ml-1">運転 {drv}</span> : null}</div>
                             {/* ★ 2026-10-03 ユーザー指示: 運行表と同じく左に名前・右に時間。時間の桁数が違っても名前の開始位置が揃うよう、赤丸→名前(可変)→時間(固定幅・右寄せ) */}
                             {ms.map(m => { const dot = m.mark || _dotOf(pl, iso, m.pid); const tg = _dropTag(pl, m.pid); return (
-                              <div key={m.pid} className="flex items-center gap-1 text-[12px] leading-tight py-0.5" data-testid={`tp-fb-${iso}-${sl}-${m.pid}`}>
+                              <div key={m.pid} className="flex items-center gap-1 text-[12px] leading-tight py-0.5" data-testid={`tp-fb-${iso}-${sl}-${m.pid}`} data-tpfb={`${iso}_${sl}_${m.pid}`}>
                                 {/* 名前は固定幅(約7文字)・時間はその直後(開始位置は全行で同じ)。2026-10-03 ユーザー: 名前と時間の距離を近く */}
                                 <span className="truncate font-bold text-slate-800 shrink-0" style={{width:'7.2em'}}>{_pname(m.pid)}</span>
                                 <span data-tel={dot ? '1' : '0'} className={`shrink-0 font-bold tabular-nums text-slate-800 border-2 rounded px-1 -my-0.5 ${dot ? 'border-red-600' : 'border-transparent'}`}>{_fmtT(m.t)||'—'}</span>
                                 {tg ? <span className="text-[9px] text-slate-500 truncate">{tg}</span> : null}
                               </div>); })}
                           </div>); })}
-                        {(pl.walkers||[]).length ? <div><div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">徒歩</div>{(pl.walkers||[]).map(m => <div key={m.pid} className="flex items-center gap-1 text-[12px] py-0.5"><span className="truncate font-bold text-slate-800 shrink-0" style={{width:'7.2em'}}>{_pname(m.pid)}</span><span className={`shrink-0 font-bold text-slate-800 tabular-nums border-2 rounded px-1 -my-0.5 ${(m.mark||_dotOf(pl, iso, m.pid)) ? 'border-red-600' : 'border-transparent'}`}>{/\d/.test(String(m.t||''))?_fmtT(m.t):_classStart(sl)}</span></div>)}</div> : null}
-                        {(pl.others||[]).length ? <div><div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">その他</div>{(pl.others||[]).map(m => <div key={m.pid} className="flex items-center gap-1 text-[12px] py-0.5"><span className={`truncate font-bold text-slate-800 border-2 rounded px-1 -my-0.5 ${(m.mark||_dotOf(pl, iso, m.pid)) ? 'border-red-600' : 'border-transparent'}`}>{_pname(m.pid)}</span>{m.why ? <span className="text-[10px] text-slate-500 shrink-0">（{m.why}）</span> : null}</div>)}</div> : null}
+                        {(pl.walkers||[]).length ? <div><div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">徒歩</div>{(pl.walkers||[]).map(m => <div key={m.pid} data-tpfb={`${iso}_${sl}_${m.pid}`} className="flex items-center gap-1 text-[12px] py-0.5"><span className="truncate font-bold text-slate-800 shrink-0" style={{width:'7.2em'}}>{_pname(m.pid)}</span><span className={`shrink-0 font-bold text-slate-800 tabular-nums border-2 rounded px-1 -my-0.5 ${(m.mark||_dotOf(pl, iso, m.pid)) ? 'border-red-600' : 'border-transparent'}`}>{/\d/.test(String(m.t||''))?_fmtT(m.t):_classStart(sl)}</span></div>)}</div> : null}
+                        {(pl.others||[]).length ? <div><div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">その他</div>{(pl.others||[]).map(m => <div key={m.pid} data-tpfb={`${iso}_${sl}_${m.pid}`} className="flex items-center gap-1 text-[12px] py-0.5"><span className={`truncate font-bold text-slate-800 border-2 rounded px-1 -my-0.5 ${(m.mark||_dotOf(pl, iso, m.pid)) ? 'border-red-600' : 'border-transparent'}`}>{_pname(m.pid)}</span>{m.why ? <span className="text-[10px] text-slate-500 shrink-0">（{m.why}）</span> : null}</div>)}</div> : null}
                         {(pl.un||[]).length ? <div className="text-[11px] text-amber-700 font-bold">未割当 {(pl.un||[]).map(m => _pname(m.pid)).join('・')}</div> : null}
                       </div>
                     )}
@@ -35971,14 +36188,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                           </div>
                         ))}
                         {_baseOf(pl) && (_removedSince(pl).length > 0) && (
-                          <div className="text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">{pl._final ? '確定後に外れた' : '確定時から外れた'}: {_removedSince(pl).map(pid=>_pname(pid)).join('、')}</div>
+                          <div data-tpcell={`${iso}_${sl}`} className="text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">{pl._final ? '確定後に外れた' : '確定時から外れた'}: {_removedSince(pl).map(pid=>_pname(pid)).join('、')}</div>
                         )}
                         {(!!(pl.walkers||[]).length || (dragMv && dragMv.kind!=='drop')) && (
                           <div data-tpdrop="walk" data-tpiso={iso} data-tpslot={sl} className={`border rounded-lg px-2 py-1 ${dragMv&&dragMv.over&&dragMv.over.zone==='walk'&&dragMv.over.iso===iso&&dragMv.over.slot===sl?'border-orange-500 ring-2 ring-orange-300 bg-orange-50':'border-orange-300 bg-orange-50'}`}>
                             {/* ★ 2026-09-30(試験版・ユーザー要望): 徒歩は振替(緑)と見分けやすいようオレンジに */}
                             <div className="text-[11px] font-bold text-orange-700 mb-0.5">徒歩（時間＝到着{_classStart(sl) ? `・標準 ${_classStart(sl)}` : ''}）</div>
                             {(pl.walkers||[]).map(m => (
-                              <div key={m.pid} className={`flex items-center gap-1 text-[15px] font-bold text-slate-700 py-1 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''}`}>
+                              <div key={m.pid} data-tprow data-tppid={m.pid} data-tpiso={iso} data-tpslot={sl} className={`flex items-center gap-1 text-[15px] font-bold text-slate-700 py-1 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''}`}>
                                 
                                 <span className="flex-1 min-w-0 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2 select-none" style={{touchAction:'pan-y', WebkitTouchCallout:'none', WebkitUserSelect:'none'}} onContextMenu={e=>e.preventDefault()} {..._dragHandlers(m.pid, iso, sl)}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></span>
                                 {/* ★ 2026-10-01(店舗報告: 徒歩・その他に入れた方を変更できない): iPad では文字の長押しで選択メニューが出てドラッグが始まらなかった。未割当と同じく「移動先」で選べるように */}
@@ -35995,7 +36212,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                           <div data-tpdrop="other" data-tpiso={iso} data-tpslot={sl} className={`border rounded-lg px-2 py-1 ${dragMv&&dragMv.over&&dragMv.over.zone==='other'&&dragMv.over.iso===iso&&dragMv.over.slot===sl?'border-violet-600 ring-2 ring-violet-300 bg-violet-50':'border-violet-200 bg-violet-50'}`}>
                             <div className="text-[11px] font-bold text-violet-700 mb-0.5">その他（家族送迎・途中参加など）</div>
                             {(pl.others||[]).map(m => (
-                              <div key={m.pid} className={`flex flex-wrap items-center gap-1 text-[15px] font-bold text-slate-700 py-1 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''}`}>
+                              <div key={m.pid} data-tprow data-tppid={m.pid} data-tpiso={iso} data-tpslot={sl} className={`flex flex-wrap items-center gap-1 text-[15px] font-bold text-slate-700 py-1 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''}`}>
                                 
                                 <span className="flex-1 min-w-0 leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2 select-none" style={{touchAction:'pan-y', WebkitTouchCallout:'none', WebkitUserSelect:'none'}} onContextMenu={e=>e.preventDefault()} {..._dragHandlers(m.pid, iso, sl)}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></span>
                                 <div className="order-last w-full flex items-center gap-1 pl-1 text-[10px] font-bold text-violet-600">理由{_whySel(iso, sl, m, false, true)}</div>
@@ -36338,12 +36555,14 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
   };
 
   const allPats = (appData.patients || []).filter(p => getPatientDisplayStatus(p) !== '退所済み');
+  // ★ 2026-10-06(ユーザー要望): 検索中は 当月/来月/その他 の区切りに関係なく全員から探す(当月以外の人も出る)
+  const _fitSearching = !!tsuSearchNorm(nameSearch);
   const filtered = allPats.filter(p => {
+    if (_fitSearching) return tsuSearchHit(nameSearch, p.name, p.kana);
     const offset = getPatientMonthOffset(p);
     if (statusFilter === '当月' && offset !== 0) return false;
     if (statusFilter === '来月' && offset !== 1) return false;
     if (statusFilter === 'その他' && offset !== activeSonoTa) return false;
-    if (nameSearch && !p.name.includes(nameSearch) && !(p.kana && p.kana.includes(nameSearch))) return false;
     return true;
   });
 
@@ -36351,6 +36570,14 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
   const patRecords = records.filter(r => r.patientId === selectedPatientId).sort((a,b) => b.date.localeCompare(a.date));
   const lastRecord = patRecords[0] || null;
 
+  // ★ 2026-10-06(ユーザー要望「平均以外に最高と最低も表示して。日付つきで」): 過去の記録(保存済み)の最高・最低と、その測定日
+  const _fitDateLbl = (iso) => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); if (!m) return String(iso || ''); return `${+m[1] === new Date().getFullYear() ? '' : `${m[1]}/`}${+m[2]}/${+m[3]}`; };
+  const _extOfVals = (arr) => { let mx = null, mn = null; arr.forEach(x => { if (x.v == null || isNaN(x.v)) return; if (!mx || x.v > mx.v) mx = x; if (!mn || x.v < mn.v) mn = x; }); return { mx, mn }; };
+  const extVal = (itemId) => _extOfVals(patRecords.map(r => { const v = r.values?.[itemId]; return { v: (v !== undefined && v !== '' && v !== null && !isNaN(Number(v))) ? Number(v) : null, date: r.date }; }));
+  const ExtCell = ({ x, unit, color, children }) => (
+    <div className="px-1 sm:px-2 py-2 text-center leading-tight">
+      {x ? <><div className="font-bold" style={{ color }}>{children || x.v}{!children && unit ? <span className="text-xs opacity-70 ml-0.5">{unit}</span> : null}</div><div className="text-[10px] text-slate-400 tabular-nums">{_fitDateLbl(x.date)}</div></> : <span className="text-slate-300">—</span>}
+    </div>);
   const avgVal = (itemId) => {
     const vals = patRecords.map(r => r.values?.[itemId]).filter(v => v !== undefined && v !== '' && !isNaN(Number(v)));
     if (!vals.length) return null;
@@ -36399,9 +36626,29 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
   };
   if (saveFnRef) saveFnRef.current = flushSave;
   React.useEffect(() => () => { if (saveFnRef) saveFnRef.current = null; }, []);
+  // ★ 2026-10-06(ユーザー要望): 入力したまま別の利用者や「当月/来月/その他」を選ぶと、保存されないまま入力が消えていた。
+  //   画面の外へ移るとき(App の未保存の確認)と同じように、「保存しますか？」を出してから切り替える
+  const [fitSwitchAsk, setFitSwitchAsk] = useState(null); // { go }
+  const _fitHasUnsaved = () => !!selectedPatientId && Object.values(values).some(v => v !== '' && v != null);
+  const guardFitSwitch = (go) => { if (_fitHasUnsaved()) { setFitSwitchAsk({ go }); return; } go(); };
 
   return (
     <div className="flex h-full w-full gap-0 sm:gap-4 p-0 sm:p-4 bg-slate-100 overflow-hidden">
+      {fitSwitchAsk && ReactDOM.createPortal((
+        <div className="fixed inset-0 bg-slate-900/50 flex items-start justify-center p-4 pt-24" style={{zIndex:10000}} data-testid="fit-switch-ask">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5">
+            <div className="font-bold text-slate-800 mb-1">体力測定が保存されていません</div>
+            <div className="text-sm text-slate-600 mb-4">{(allPats.find(x => x.id === selectedPatientId) || {}).name || ''} 様（測定日 {date}）の入力を保存しますか？</div>
+            <div className="space-y-2">
+              <button data-testid="fit-switch-save" onClick={() => { const go = fitSwitchAsk.go; flushSave(); setValues({}); setFitSwitchAsk(null); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: '体力測定を保存しました' } })); } catch {} go(); }}
+                className="w-full py-3 rounded-xl text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 active:scale-95">保存して移る</button>
+              <button data-testid="fit-switch-discard" onClick={() => { const go = fitSwitchAsk.go; markClean(); setValues({}); setFitSwitchAsk(null); go(); }}
+                className="w-full py-2.5 rounded-xl text-sm font-bold bg-white border border-red-300 text-red-700 hover:bg-red-50">保存しないで移る（入力は消えます）</button>
+              <button data-testid="fit-switch-cancel" onClick={() => setFitSwitchAsk(null)}
+                className="w-full py-2 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200">キャンセル（入力に戻る）</button>
+            </div>
+          </div>
+        </div>), document.body)}
       {mobileRosterOpen && <div onClick={() => setMobileRosterOpen(false)} className="md:hidden fixed inset-0 bg-black/50 z-40" aria-hidden="true" />}
       {/* サイドバー */}
       <div className={`bg-white shadow-md border border-slate-300 flex flex-col overflow-hidden
@@ -36443,7 +36690,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
           </div>
           <div className="flex border-b border-slate-200 bg-white shrink-0">
             {['当月', '来月', 'その他'].map(s => (
-              <button key={s} onClick={() => { setStatusFilter(s); setSelectedPatientId(null); }}
+              <button key={s} onClick={() => guardFitSwitch(() => { setStatusFilter(s); setSelectedPatientId(null); })}
                 className={`flex-1 py-3 text-[13px] font-bold border-b-2 transition-colors ${statusFilter === s ? (s === '来月' ? 'border-orange-500 text-orange-600' : s === 'その他' ? 'border-slate-500 text-slate-600' : 'border-blue-600 text-blue-600') : 'border-transparent text-slate-400 hover:bg-slate-50'}`}>
                 {s}
               </button>
@@ -36452,7 +36699,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
           {statusFilter === 'その他' && (
             <div className="px-2 py-1.5 border-b border-slate-200 bg-slate-50 shrink-0 flex flex-wrap gap-1">
               {sonoTaMonths.map(m => (
-                <button key={m.offset} onClick={() => { setSonoTaMonth(m.offset); setSelectedPatientId(null); }}
+                <button key={m.offset} onClick={() => guardFitSwitch(() => { setSonoTaMonth(m.offset); setSelectedPatientId(null); })}
                   className={`px-2 py-0.5 rounded-full text-[9px] font-bold transition-colors ${activeSonoTa === m.offset ? 'bg-slate-700 text-white' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-100'}`}>
                   {m.month+1}月
                 </button>
@@ -36466,6 +36713,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                 className="w-full pl-7 pr-6 py-2 bg-slate-100 border border-slate-200 rounded-lg text-[14px] font-bold outline-none" />
               {nameSearch && <button onClick={() => setNameSearch('')} className="absolute right-1.5 top-1.5 text-slate-400"><X size={12} /></button>}
             </div>
+            {_fitSearching && <div className="text-[10px] text-slate-500 font-bold mt-1" data-testid="fit-search-all">月の区切りに関係なく全員から検索しています</div>}
           </div>
           <div className="flex-1 overflow-y-auto bg-slate-50">
             {(()=>{
@@ -36524,7 +36772,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                 const dueStr = due ? `${due.getMonth()+1}/${due.getDate()}` : '未測定';
                 return (
                   <div key={p.id} className="relative">
-                    <button onClick={() => { setSelectedPatientId(p.id); onPatientChange&&onPatientChange(p.id); setValues({}); setMobileRosterOpen(false); }}
+                    <button onClick={() => { if (p.id === selectedPatientId) { setMobileRosterOpen(false); return; } guardFitSwitch(() => { setSelectedPatientId(p.id); onPatientChange&&onPatientChange(p.id); setValues({}); setMobileRosterOpen(false); }); }}
                       className={`w-full text-left px-3 py-3 rounded-xl flex items-center justify-between border gap-2 transition-all ${selectedPatientId === p.id ? 'bg-blue-50 border-blue-200 shadow-sm' : isOver ? 'bg-red-50 border-red-100 hover:bg-red-100' : 'border-transparent hover:bg-white'}`}>
                       <div className="flex flex-col min-w-0 flex-1">
                                                 <span className="font-bold text-sm text-slate-800 truncate">{p.name}</span>
@@ -36595,17 +36843,19 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
 
             {/* 入力フォーム */}
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="grid grid-cols-4 bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500">
+              <div className="grid bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500" style={{gridTemplateColumns:'1.35fr 1.1fr 1fr 0.9fr 1fr 1fr'}}>
                 <div className="px-1.5 sm:px-4 py-2">項目</div>
                 <div className="px-1.5 sm:px-4 py-2 text-center">今回入力</div>
-                <div className="px-1.5 sm:px-4 py-2 text-center">前回{lastRecord && <span className="font-normal text-slate-400 ml-1">({lastRecord.date})</span>}</div>
+                <div className="px-1.5 sm:px-4 py-2 text-center">前回{lastRecord && <span className="font-normal text-slate-400 ml-1">({_fitDateLbl(lastRecord.date)})</span>}</div>
                 <div className="px-1.5 sm:px-4 py-2 text-center">平均</div>
+                <div className="px-1 sm:px-2 py-2 text-center">最高<span className="font-normal text-slate-400 ml-0.5">(日付)</span></div>
+                <div className="px-1 sm:px-2 py-2 text-center">最低<span className="font-normal text-slate-400 ml-0.5">(日付)</span></div>
               </div>
               {fitnessItems.map(item => {
                 const prev = lastRecord?.values?.[item.id];
                 const avg = avgVal(item.id);
                 return (
-                  <div key={item.id} className="grid grid-cols-4 border-b border-slate-100 items-center hover:bg-slate-50">
+                  <div key={item.id} className="grid border-b border-slate-100 items-center hover:bg-slate-50" style={{gridTemplateColumns:'1.35fr 1.1fr 1fr 0.9fr 1fr 1fr'}}>
                     <div className="px-1.5 sm:px-4 py-3 font-bold text-[13px] sm:text-sm text-slate-700 leading-tight">{item.name}<span className="text-xs text-slate-400 ml-0.5">（{item.unit}）</span></div>
                     <div className="px-1 sm:px-4 py-2">
                       {/* ★ タップでテンキーを表示。 手入力(OSキーボード)も可能で、全角は半角へ自動変換する */}
@@ -36635,14 +36885,22 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                     <div className="px-1 sm:px-4 py-2 text-center">
                       {avg !== null ? <span className="font-bold text-green-700">{avg}<span className="text-xs text-green-500 ml-0.5">{item.unit}</span></span> : <span className="text-slate-300">—</span>}
                     </div>
+                    {(() => { const e = extVal(item.id); return <>
+                      <div data-testid={`fit-max-${item.id}`} className="contents"><ExtCell x={e.mx} unit={item.unit} color="#b45309" /></div>
+                      <div data-testid={`fit-min-${item.id}`} className="contents"><ExtCell x={e.mn} unit={item.unit} color="#1d4ed8" /></div>
+                    </>; })()}
                   </div>
                 );
               }).flatMap((row, i) => (fitnessItems[i] && fitnessItems[i].id === 'weight') ? [row, (
-                <div key="__bmi" data-testid="bmi-row" className="grid grid-cols-4 border-b border-slate-100 items-center bg-slate-50/60">
+                <div key="__bmi" data-testid="bmi-row" className="grid border-b border-slate-100 items-center bg-slate-50/60" style={{gridTemplateColumns:'1.35fr 1.1fr 1fr 0.9fr 1fr 1fr'}}>
                   <div className="px-1.5 sm:px-4 py-3 font-bold text-[13px] sm:text-sm text-slate-700 leading-tight">BMI<span className="text-[10px] text-slate-400 ml-1 font-normal">（自動計算）</span></div>
                   <div className="px-1 sm:px-4 py-2 text-center"><BmiBadge bmi={_curBmi} />{_curBmiPrevH && <div className="text-[9px] text-slate-400 mt-0.5">身長は前回の値</div>}</div>
                   <div className="px-1 sm:px-4 py-2 text-center"><BmiBadge bmi={_lastBmi} /></div>
                   <div className="px-1 sm:px-4 py-2 text-center"><BmiBadge bmi={_avgBmi} /></div>
+                  {(() => { const e = _extOfVals(patRecords.map((r, i) => ({ v: _bmiOfRec(r, i), date: r.date }))); return <>
+                    <ExtCell x={e.mx}>{e.mx ? <BmiBadge bmi={e.mx.v} small /> : null}</ExtCell>
+                    <ExtCell x={e.mn}>{e.mn ? <BmiBadge bmi={e.mn.v} small /> : null}</ExtCell>
+                  </>; })()}
                 </div>
               )] : [row])}
               {/* ★ BMI の基準(色分けの見方) */}
@@ -36663,6 +36921,28 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                   <div className="px-5 py-3 border-b border-slate-200 font-bold text-sm text-slate-700">BMIの推移 <span className="text-xs font-normal text-slate-500">（体重÷身長²・自動計算。点の色は判定）</span></div>
                   <div className="px-4 py-3"><BmiTrendChart points={pts} age={_patAge} /></div>
+                </div>
+              ); })()}
+            {/* ★ 2026-10-06(ユーザー要望): BMIと同じように、全ての測定項目の推移(過去の記録＋入力中の今回) */}
+            {(() => { const _num = (v) => (v !== undefined && v !== null && v !== '' && !isNaN(Number(v))) ? Number(v) : null;
+              const _cards = fitnessItems.map(item => { const pts = [...patRecords].reverse().map(r => ({ date: r.date, v: _num(r.values?.[item.id]) })).filter(x => x.v != null);
+                const cv = _num(values[item.id]); if (cv != null && !patRecords.some(r => r.date === date)) pts.push({ date, v: cv, cur: true });
+                return { item, pts }; }).filter(c => c.pts.length > 0);
+              if (!_cards.length) return null;
+              return (
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden" data-testid="fit-trends">
+                  <div className="px-5 py-3 border-b border-slate-200 font-bold text-sm text-slate-700">各項目の推移 <span className="text-xs font-normal text-slate-500">（過去の記録と今回の入力。オレンジの点は今回の入力）</span></div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-slate-100">
+                    {_cards.map(({ item, pts }) => { const last = pts[pts.length - 1], first = pts[0];
+                      return (
+                        <div key={item.id} className="bg-white px-4 py-3">
+                          <div className="flex items-baseline justify-between gap-2 mb-1">
+                            <span className="font-bold text-sm text-slate-700">{item.name}<span className="text-xs text-slate-400 font-normal ml-0.5">（{item.unit}）</span></span>
+                            <span className="text-[11px] text-slate-500 tabular-nums">{pts.length}回{pts.length > 1 && <> ／ 初回 {first.v} → 最新 {last.v}{item.unit}</>}</span>
+                          </div>
+                          <FitTrendChart points={pts} unit={item.unit} />
+                        </div>); })}
+                  </div>
                 </div>
               ); })()}
             {/* 過去の記録 */}
@@ -38053,7 +38333,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   const dPats = (appData.patients||[]).filter(p => {
     const s = getPatientDisplayStatus(p);
     if (patientStatusFilter !== s) return false;
-    if (nameSearchQuery && !p.name.includes(nameSearchQuery) && !(p.kana && p.kana.includes(nameSearchQuery))) return false;
+    if (nameSearchQuery && !tsuSearchHit(nameSearchQuery, p.name, p.kana)) return false;
     // ★ 基本利用日(曜日×AM/PM)絞り込み(2026-08-31 店舗要望)。1日利用の方はAM/PMどちらの選択でも該当
     if (masterDowFilter.length) {
       const ok = masterDowFilter.some(t => { const [d, slot] = t.split('_'); const v = (p.scheduleAmPm||[])[+d]; return v && (v === slot || v === '1日'); });
@@ -39106,7 +39386,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 if (activeDays.length === 0) return null;
                 return (
                   <div>
-                    <label className="block text-sm font-bold text-slate-600 mb-2 flex items-center gap-1.5">お迎え時間（基本利用日のみ）</label>
+                    <label className="block text-sm font-bold text-slate-600 mb-2 flex items-center gap-1.5">{tsumugiTransportOn(appData) ? '基本のお迎え時間（送迎表の初期値・基本利用日のみ）' : 'お迎え時間（基本利用日のみ）'}</label>
                     <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                       <div className="grid gap-2" style={{gridTemplateColumns:`repeat(${Math.min(activeDays.length, 7)}, 1fr)`}}>
                         {activeDays.map(({d, i, slot}) => (
@@ -39123,7 +39403,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                       <div className="text-[11px] text-slate-500 mt-2 leading-relaxed">
                         ・基本利用日に設定した曜日のみ表示されます<br/>
                         ・時間が決まっていない場合は「時」だけ入力（例: 9 → 9:--、後で 30 を追加すると 9:30）<br/>
-                        ・連絡帳のお迎え時間欄にもこの時刻が反映されます
+                        {tsumugiTransportOn(appData) ? '・毎週の決まった時間です。その週の実際の時間（休み・振替で動いた分）は送迎表で直します。連絡帳には送迎表の時間が入ります' : '・連絡帳のお迎え時間欄にもこの時刻が反映されます（連絡帳の次回予定で、その回だけの時間も入れられます）'}
                       </div>
                       {/* ★ 送迎表連動(2026-09-12 試験版): 待ち合わせ場所・所要時間。送迎表の利用者名タップでも編集可 */}
                       <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-slate-200">
@@ -41896,6 +42176,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
     { id: 'cm', label: 'ケアマネ事業所・担当者' },
   ] : [
     { id: 'facility', label: '事業所情報' },
+    { id: 'sidebar', label: 'サイドバー' },
     { id: 'life', label: 'LIFE連携' },
     { id: 'record', label: 'サービス提供内容' },
     { id: 'diary', label: '日誌' },
@@ -42139,6 +42420,30 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
               </div>
             </SectionCard>
           </>)}
+          {activeTab === 'sidebar' && (
+            <SectionCard title="サイドバーに表示する画面">
+              <div className="text-xs text-slate-500 mb-3 leading-relaxed">使わない画面はチェックを外すと、サイドバー（と画面右上の「移動」）に出なくなります。店舗の全端末で同じになります。データは消えません（チェックを戻すと元どおり）。ホーム・サービス提供記録・連絡帳・日誌・利用者マスタ・ケアマネ事業所・各種設定はいつも表示します。計画書は「アドオン」で切り替えます。</div>
+              <div className="space-y-2" data-testid="set-sidebar-list">
+                {(() => { let lastGroup = null; return SIDEBAR_OPTIONAL.map(it => { const on = tsumugiSideShown(appData, it.key); const head = it.group && it.group !== lastGroup ? it.group : null; lastGroup = it.group || null;
+                  const toggle = (v) => {
+                    const ssx = appData.systemSettings || {};
+                    if (it.key === 'transport') return saveSS({ transportEnabled: v }, v ? '✓ 送迎表を表示します' : '✓ 送迎表を使わない設定にしました');
+                    if (it.key === 'fitness') { const fc = { sameForAll: true, jigyo: '3', kaigo: '3', unit: 'ヶ月', ...(ssx.fitnessCycle || {}) }; return saveSS({ fitnessCycle: { ...fc, disabled: !v, ...(v && fc.unit === '実施しない' ? { unit: 'ヶ月' } : {}) } }, v ? '✓ 体力測定を表示します' : '✓ 体力測定を表示しない設定にしました'); }
+                    saveSS({ sidebarHidden: { ...(ssx.sidebarHidden || {}), [it.key]: !v } }, v ? `✓ ${it.label}を表示します` : `✓ ${it.label}を表示しない設定にしました`);
+                  };
+                  return (<React.Fragment key={it.key}>
+                    {head && <div className="text-[11px] font-bold text-slate-500 pt-2">{head}</div>}
+                    <label data-testid={it.key === 'transport' ? 'set-transport-enabled' : `set-side-${it.key}`} className={`flex items-start gap-3 cursor-pointer rounded-xl border px-3 py-2 ${on ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-200'} ${it.group ? 'ml-4' : ''}`}>
+                      <input type="checkbox" className="mt-0.5 w-5 h-5 shrink-0" checked={on} onChange={e => toggle(e.target.checked)}/>
+                      <span className="min-w-0">
+                        <span className={`block text-sm font-bold ${on ? 'text-slate-800' : 'text-slate-400'}`}>{it.label}{!on && <span className="ml-2 text-[10px] font-bold text-slate-500 bg-slate-200 rounded px-1.5 py-0.5">表示しない</span>}</span>
+                        {it.note && <span className="block text-[11px] text-slate-500 mt-0.5 leading-relaxed">{it.note}</span>}
+                      </span>
+                    </label>
+                  </React.Fragment>); }); })()}
+              </div>
+            </SectionCard>
+          )}
           {activeTab === 'facility' && (<>
             <SectionCard title="事業所情報">
               {/* ★ 縦並びレイアウトに変更 (項目ごとに行を分けて見やすく) */}
@@ -42631,11 +42936,11 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
             const selOffice = selectedOfficeIdx !== null && selectedOfficeIdx < cmOffices.length ? cmOffices[selectedOfficeIdx] : null;
             const _oq = officeSearch.trim(), _mq = managerSearch.trim();
             // ★ ケアマネで検索 → そのケアマネが所属する事業所名の集合
-            const officesWithMatchingMgr = _mq ? new Set(cmPersons.filter(p => (p.name||'').includes(_mq)).map(p => p.office)) : null;
+            const officesWithMatchingMgr = _mq ? new Set(cmPersons.filter(p => tsuSearchHit(_mq, p.name, p.kana)).map(p => p.office)) : null;
             // 事業所一覧: 事業所検索 + (ケアマネ検索があれば該当ケアマネの事業所のみ)
             const allOfficesIdx = cmOffices.map((o, origIdx) => ({...o, origIdx}));
             const filteredOffices = allOfficesIdx.filter(o => {
-              if (_oq && !((o.name||'').includes(_oq) || (o.kana||'').includes(_oq) || (o.corporateName||'').includes(_oq))) return false;
+              if (_oq && !tsuSearchHit(_oq, o.name, o.kana, o.corporateName)) return false;
               if (officesWithMatchingMgr && !officesWithMatchingMgr.has(o.name)) return false;
               return true;
             });
@@ -42652,7 +42957,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
             const officeNameSet = (_oq || officesWithMatchingMgr) ? new Set(filteredOffices.map(o=>o.name)) : null;
             const officeFilteredPersons = cmPersons.filter(p => {
               if (selOffice && p.office !== selOffice.name) return false;
-              if (_mq && !(p.name||'').includes(_mq)) return false;
+              if (_mq && !tsuSearchHit(_mq, p.name, p.kana)) return false;
               if (!selOffice && officeNameSet && !officeNameSet.has(p.office)) return false;
               return true;
             });
@@ -42718,7 +43023,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                     )}
                   </div>
                   <SuggestInput value={officeSearch} onChangeText={setOfficeSearch}
-                    options={cmOffices.map((o,i)=>({key:'o'+i, label:o.name, sub:o.corporateName||''}))}
+                    options={cmOffices.map((o,i)=>({key:'o'+i, label:o.name, sub:o.corporateName||'', kana:o.kana||''}))}
                     wrapStyle={{marginBottom:8}}
                     inputProps={{type:'text', placeholder:'事業所名・カナ・法人名で検索', className:'w-full px-3 py-2 border border-slate-300 rounded-lg outline-none text-sm font-bold focus:border-blue-400'}}/>
                   <div className="text-xs text-slate-500 mb-2 px-1">{sortedOffices.length}/{cmOffices.length}件・あいうえお順{hasAnyCorp ? '・法人ごと' : ''} {selectedOfficeIdx!==null && <button onClick={()=>setSelectedOfficeIdx(null)} className="ml-2 text-blue-600 hover:underline">× 選択解除</button>}</div>
@@ -42747,7 +43052,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                   {/* ★ 常設フォームを廃止し、ボタン→ポップアップで登録(2026-08-31 店舗要望)。 事業所を選択中ならその事業所を初期値に */}
                   <button type="button" onClick={()=>{setNewPerson({office:selOffice?.name||"",name:"",phone:"",kanaLast:"",kanaFirst:"",email:""});setAddPersonModal(true);}} className="w-full py-2 mb-3 bg-slate-800 text-white rounded-lg font-bold text-sm active:scale-95 flex items-center justify-center"><Plus size={14} className="mr-1"/>担当者を追加</button>
                   <SuggestInput value={managerSearch} onChangeText={setManagerSearch}
-                    options={cmPersons.map((c,i)=>({key:'m'+i, label:c.name, sub:c.office||''}))}
+                    options={cmPersons.map((c,i)=>({key:'m'+i, label:c.name, sub:c.office||'', kana:c.kana||''}))}
                     wrapStyle={{marginBottom:8}}
                     inputProps={{type:'text', placeholder:'担当者名で検索 (該当者の事業所も左で絞り込み)', className:'w-full px-3 py-2 border border-slate-300 rounded-lg outline-none text-sm font-bold focus:border-blue-400'}}/>
                   <div className="text-xs text-slate-500 mb-2 px-1">{sortedPersons.length}件{selOffice?`（${selOffice.name}）`:'（全事業所）'}・あいうえお順{_noKanaN>0 && <span className="text-amber-600">（フリガナ未登録 {_noKanaN}名は姓の一般的な読みで並べています。編集からフリガナを登録すると正確になります）</span>}</div>
@@ -45452,7 +45757,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           担当者追加
         </button>
         {/* ★ 送迎表(運行表)からの取り込み(2026-09-12 試験版): 車割り当てを日誌の迎え/送りへ一括反映 */}
-        <button disabled={isReadOnly} onClick={()=>{
+        {tsumugiTransportOn(appData) && (<button disabled={isReadOnly} onClick={()=>{
           const plan = (appData.transportPlans||{})[`${selectedDate}_${ampm}`];
           if (!plan) { alert('この日の送迎表がまだ保存されていません。\n送迎表の画面で車割り当てを編集すると保存されます。'); return; }
           if (!window.confirm('送迎表の車割り当てを、この日誌の「迎え」「送り」へ取り込みます。\n既存の迎え/送りの割り当ては上書きされます。よろしいですか？\n（送りの車が迎えと違う場合は、取り込み後に送りだけ調整してください）')) return;
@@ -45469,7 +45774,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         }}
           className="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed" title="送迎表(運行表)で決めた車割り当てを、この日の迎え/送りへ一括反映します">
           送迎表取込
-        </button>
+        </button>)}
         {/* 送迎車割り当て */}
         <button disabled={isReadOnly} onClick={()=>{setCarAssignModal({prefix:'pick'});setCarAssignSelections({});}}
           className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
@@ -46170,7 +46475,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
           <button onClick={()=>saveRecord(false)} className="px-4 py-2 bg-white border border-emerald-500 text-emerald-600 hover:bg-emerald-50 rounded-lg text-sm font-bold active:scale-95" title="編集画面を開いたまま保存します">一時保存</button>
           <button onClick={()=>saveRecord(true)} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold shadow active:scale-95">保存して閉じる</button>
         </>}
-        {printRec && <MaskToggle/>}
+        {printRec && <MaskToggle storeKey="kinou"/>}
         {printRec && <button onClick={()=>onShowPrintPreview('個別機能訓練計画書','A4','kk-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">ダウンロード</button>}
         {printRec && <button onClick={()=>onShowPrintPreview('ケアマネ送付セット（個別機能訓練計画書）','A4','kk-fax-set')} title="送付状(変更点一覧つき)+今回の計画書+前回の計画書(評価入り)をまとめて印刷します" className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">ケアマネ送付セット</button>}
       </div>
@@ -47194,7 +47499,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
           <button onClick={()=>saveRecord(false)} className="px-4 py-2 bg-white border border-emerald-500 text-emerald-600 hover:bg-emerald-50 rounded-lg text-sm font-bold active:scale-95" title="編集画面を開いたまま保存します">一時保存</button>
           <button onClick={()=>saveRecord(true)} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold shadow active:scale-95">保存して閉じる</button>
         </>}
-        {printRec && <MaskToggle/>}
+        {printRec && <MaskToggle storeKey="tsusho"/>}
         {printRec && <button onClick={()=>onShowPrintPreview('通所介護計画書','A4','tk-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">ダウンロード</button>}
         {printRec && <button onClick={()=>onShowPrintPreview('ケアマネ送付セット（通所介護計画書）','A4','tk-fax-set')} title="送付状(変更点一覧つき)+今回の計画書+前回の計画書(評価入り)をまとめて印刷します" className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">ケアマネ送付セット</button>}
       </div>
@@ -49371,7 +49676,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     if (c === 0 && monitorSort !== 'kana') c = (a.kana||a.name||'').localeCompare(b.kana||b.name||'','ja');
     return monitorSortDir==='desc' ? -c : c;
   });
-  const filterBySearch = (p) => !searchQuery || p.name.includes(searchQuery) || (p.kana||'').includes(searchQuery);
+  const filterBySearch = (p) => tsuSearchHit(searchQuery, p.name, p.kana);
   const filterByDow = (p) => monitorDowFilter.length===0 || monitorDowFilter.some(i => (p.scheduleAmPm||[])[i]);
   const filterByStatus = (p) => monitorStatusFilter==='all' ? true
     : monitorStatusFilter==='unentered' ? !results[p.id]?.text
@@ -50302,7 +50607,7 @@ ${optionsDesc}
           style={{padding:'7px 12px',borderRadius:10,fontSize:12,fontWeight:'bold',border:'none',background:'#10b981',color:'white',cursor:'pointer'}}>
           {checkedIds.size && !allChecked ? `選んだ${attendedPats.filter(p=>checkedIds.has(p.id)&&!getSheetRecord(p.id)?.confirmed).length}名を確定` : '一括確定'}
         </button>
-        <MaskToggle small/>
+        <MaskToggle small storeKey="monitoring"/>
         <button type="button" onClick={faxToCareManagers} title="作成済みのモニタリング表をケアマネ宛先つきで1つのPDFにしてダウンロードします"
           style={{padding:'7px 12px',borderRadius:10,fontSize:12,fontWeight:'bold',border:'1px solid #fdba74',background:'#fff7ed',color:'#c2410c',cursor:'pointer'}}>
           ダウンロード
@@ -50853,17 +51158,14 @@ function FaxHistoryRecordModal({ defaultRecord, onSave, onClose }) {
 }
 
 // === FAX送付履歴一覧モーダル ===
-function FaxHistoryListModal({ history, typeLabel, onDelete, onClose }) {
+function FaxHistoryListModal({ history, typeLabel, patients, onDelete, onClose }) {
   const [search, setSearch] = useState('');
   const filtered = (history||[]).filter(h => {
     if (!search.trim()) return true;
-    const q = search.toLowerCase();
-    return (h.recipientName||'').toLowerCase().includes(q)
-      || (h.recipientFax||'').includes(q)
-      || (h.subject||'').toLowerCase().includes(q)
-      || (h.patientName||'').includes(q)
-      || (h.note||'').includes(q);
-  }).sort((a,b) => (b.timestamp||'').localeCompare(a.timestamp||''));
+    // ★ 利用者名は漢字だけ持っているので、利用者マスタのフリガナも引いて ひらがな/カタカナ でも一致させる
+    const _pt = (patients||[]).find(p => p && ((h.patientId != null && String(p.id) === String(h.patientId)) || (h.patientName && p.name === h.patientName)));
+    return tsuSearchHit(search, h.recipientName, h.recipientFax, h.subject, h.patientName, _pt?.kana, h.note);
+  }).sort((a,b) => String(b.timestamp||'').localeCompare(String(a.timestamp||'')));
   return (
     <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.7)',zIndex:10000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={onClose}>
       <div className="tsu-cap-dvh" style={{background:'white',borderRadius:16,maxWidth:720,width:'100%',maxHeight:'85vh',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}} onClick={e=>e.stopPropagation()}>
@@ -51138,7 +51440,9 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 
   // ★ 休み連絡はマスキングしない(2026-09-24 ユーザー指示: FAX先のケアマネに氏名がそのまま伝わる方がよい)。
   //   印刷プレビューの「氏名を伏せる」トグルは従来どおり使える。
-  const maskName = (name) => String(name || '');
+  // ★ 2026-10-06(ユーザー要望): 氏名マスキングにチェックしたら、画面の送付状もマスクする(前回の状態を記憶)
+  const [maskOn, setMaskOn] = useState(() => tsumugiMaskStored('absence'));
+  const maskName = (name) => { const n = String(name || ''); if (!maskOn) return n; return n.trim().split(/\s+/).map(w => String(w).split('').map((c, i) => i % 2 === 0 ? c : '○').join('')).join(' '); };
 
   const cY = currentMonth.getFullYear(), cM = currentMonth.getMonth()+1;
   const daysInMonth = new Date(cY, cM, 0).getDate();
@@ -51349,7 +51653,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
             }} style={{background:'#0f766e',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
               ダウンロード
             </button>
-            <MaskToggle small/>
+            <MaskToggle small storeKey="absence" onChange={setMaskOn}/>
             <button type="button" onClick={()=>{
               markClean();
               // faxData で編集された理由(reason)を、対応する ticketRecord.tokki にも反映
@@ -51567,8 +51871,8 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 
   // ★ 状態を区別して表示(2026-08-25 店舗要望): 編集しただけ=青、印刷/PDF/送信済み=緑
   // ★ 2026-09-24 ユーザー指示: 印刷/PDF/FAX(将来のAPI送信=faxed)はすべて「連絡済」と表示する(編集済→連絡済の2段階)
-  const statusColors = { none:'', edited:'#dbeafe', printed:'#dcfce7', pdf:'#dcfce7', both:'#dcfce7', faxed:'#dcfce7' };
-  const statusLabels = { edited:'編集済', printed:'連絡済', pdf:'ダウンロード済', both:'連絡済', faxed:'連絡済' };
+  const statusColors = { none:'', edited:'#dbeafe', printed:'#dcfce7', pdf:'#ccfbf1', both:'#dcfce7', faxed:'#dcfce7' }; // DL済は薄い青緑(連絡済と見分ける)
+  const statusLabels = { edited:'編集済', printed:'連絡済', pdf:'DL済', both:'連絡済', faxed:'連絡済' }; // ★ 2026-10-06: 「ダウンロード済」→「DL済」
   // fax データが何らかの編集（理由・連絡者・備考・チェック）を含むかどうか
   const isFaxEdited = (fd) => {
     if (!fd) return false;
@@ -51584,24 +51888,28 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     // ★ 分析稼働と同じ「ルート自体がスクロール(height:100%+overflow)」方式。 ヘッダと曜日行を sticky で固定。
     <div style={{height:'100%',overflowY:'auto',background:'#f0f4f9'}}>
       {/* ヘッダー（スクロール時も上部に固定） */}
-      <div style={{position:'sticky',top:0,zIndex:30,background:'linear-gradient(135deg,#1e293b,#334155)',color:'white',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
-        <div style={{display:'flex',alignItems:'center',gap:10}}>
+      <div style={{position:'sticky',top:0,zIndex:30,background:'linear-gradient(135deg,#1e293b,#334155)',color:'white',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',rowGap:8,columnGap:12,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,whiteSpace:'nowrap'}}>
           <FileText size={20}/>
           <span style={{fontSize:17,fontWeight:'bold'}}>休み連絡</span>
         </div>
-        <div style={{display:'flex',alignItems:'center',gap:8}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,whiteSpace:'nowrap'}}>
           <button type="button" onClick={()=>setCurrentMonth(new Date(cY,cM-2,1))} style={{background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',color:'white',borderRadius:8,padding:'5px 12px',fontWeight:'bold',cursor:'pointer'}}>←</button>
           <span style={{fontSize:15,fontWeight:'bold',minWidth:100,textAlign:'center'}}>{cY}年{cM}月</span>
           <button type="button" onClick={()=>setCurrentMonth(new Date(cY,cM,1))} style={{background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',color:'white',borderRadius:8,padding:'5px 12px',fontWeight:'bold',cursor:'pointer'}}>→</button>
         </div>
-        <div style={{display:'flex',gap:10,fontSize:11,alignItems:'center'}}>
+        <div style={{display:'flex',gap:10,rowGap:6,fontSize:11,alignItems:'center',flexWrap:'wrap',whiteSpace:'nowrap'}}>
           <span style={{display:'flex',alignItems:'center',gap:4}}>
             <span style={{width:12,height:12,borderRadius:3,background:'#dbeafe',border:'1px solid #64748b',display:'inline-block'}}/>
             <span style={{color:'#cbd5e1'}}>編集済</span>
           </span>
           <span style={{display:'flex',alignItems:'center',gap:4}}>
             <span style={{width:12,height:12,borderRadius:3,background:'#dcfce7',border:'1px solid #64748b',display:'inline-block'}}/>
-            <span style={{color:'#cbd5e1'}}>連絡済（印刷・PDF・FAX）</span>
+            <span style={{color:'#cbd5e1'}}>連絡済</span>
+          </span>
+          <span style={{display:'flex',alignItems:'center',gap:4}}>
+            <span style={{width:12,height:12,borderRadius:3,background:'#ccfbf1',border:'1px solid #64748b',display:'inline-block'}}/>
+            <span style={{color:'#cbd5e1'}}>DL（ダウンロード）済</span>
           </span>
           <button type="button" onClick={()=>setShowFaxHist(true)}
             style={{background:'#7c3aed',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5,marginLeft:8}}>
@@ -51670,7 +51978,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
           ))}
         </div>
       </div>
-      {showFaxHist && <FaxHistoryListModal history={absHistory} typeLabel="休み連絡" onDelete={deleteAbsHist} onClose={()=>setShowFaxHist(false)}/>}
+      {showFaxHist && <FaxHistoryListModal history={absHistory} typeLabel="休み連絡" patients={appData.patients} onDelete={deleteAbsHist} onClose={()=>setShowFaxHist(false)}/>}
     </div>
   );
 }
@@ -51804,8 +52112,11 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const patient = patients.find(p => p.id === selectedPatientId);
 
   // AbsenceFaxView と同じマスキング
+  // ★ 2026-10-06(ユーザー要望「各種連絡は送付状が最初からマスキングされている → 既定はマスクなし・チェックで切替」): 前回の状態を記憶
+  const [maskOn, setMaskOn] = useState(() => tsumugiMaskStored('general'));
   const maskName = (name) => {
     if (!name) return '●●';
+    if (!maskOn) return String(name);
     // ★ 1文字おきマスク(2026-09-08 店舗要望): 偶数番目の文字を残し奇数番目を○に(髙橋正樹→髙○正○)
     const maskWord = (word) => String(word||'').split('').map((c,i)=> i % 2 === 0 ? c : '○').join('');
     return name.trim().split(/\s+/).map(maskWord).join(' ');
@@ -51913,7 +52224,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                   style={{width:24,height:26,border:'1px solid rgba(255,255,255,0.25)',borderRadius:6,background:'rgba(255,255,255,0.1)',color:'white',fontWeight:'bold',fontSize:14,cursor:'pointer'}}>+</button>
           <span style={{fontSize:12,fontWeight:'bold',color:'#cbd5e1'}}>枚</span>
         </label>
-        <div style={{marginLeft:'auto',display:'flex',gap:8}}>
+        <div style={{marginLeft:'auto',display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end',whiteSpace:'nowrap'}}>
           {/* ★ 連絡事項の書式(文字サイズ/下線)。 FAXなので色は無し(店舗要望) */}
           <div style={{display:'flex',alignItems:'center',gap:4,marginRight:4}}>
             {[['std','標準'],['lg','大'],['xl','特大']].map(([v,l])=>(
@@ -51932,7 +52243,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                   style={{background:'#0369a1',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
             定型文
           </button>
-          <MaskToggle small/>
+          <MaskToggle small storeKey="general" onChange={setMaskOn}/>
           <button type="button" onClick={handlePreview}
                   style={{background:'#0f766e',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
             ダウンロード
@@ -52128,7 +52439,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
           </div>
         </div>
       </div>
-      {showFaxHist && <FaxHistoryListModal history={genHistory} typeLabel="各種連絡" onDelete={deleteGenHist} onClose={()=>setShowFaxHist(false)}/>}
+      {showFaxHist && <FaxHistoryListModal history={genHistory} typeLabel="各種連絡" patients={appData.patients} onDelete={deleteGenHist} onClose={()=>setShowFaxHist(false)}/>}
       {showTemplates && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}
              onClick={()=>{setShowTemplates(false);setTplEdit(null);}}>
@@ -52209,7 +52520,8 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 // ★ アップロード用にファイルを準備:
 //   画像は長辺 maxDim 以内・JPEG品質 quality に圧縮し、 { blob(保存用), dataUrl(フォールバック), contentType } を返す。
 //   PDF 等はそのまま。 Supabase Storage には blob を、 未接続/失敗時は dataUrl(base64) を保存する。
-const processUploadFile = (file, maxDim = 1600, quality = 0.7) => new Promise((resolve) => {
+const processUploadFile = (file, maxDim = 1600, quality = 0.7, rotateDeg = 0) => new Promise((resolve) => {
+  const _rot = ((Number(rotateDeg) || 0) % 360 + 360) % 360;
   const isImage = /^image\//.test(file.type || '');
   const reader = new FileReader();
   reader.onerror = () => resolve({ blob: file, dataUrl: null, contentType: file.type || 'application/octet-stream' });
@@ -52226,13 +52538,17 @@ const processUploadFile = (file, maxDim = 1600, quality = 0.7) => new Promise((r
           else { width = Math.round(width * maxDim / height); height = maxDim; }
         }
         const canvas = document.createElement('canvas');
-        canvas.width = width; canvas.height = height;
+        const _side = (_rot === 90 || _rot === 270);
+        canvas.width = _side ? height : width; canvas.height = _side ? width : height;
         const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, width, height); // 透過PNG対策の白背景
-        ctx.drawImage(img, 0, 0, width, height);
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height); // 透過PNG対策の白背景
+        // ★ 2026-10-07: 登録前に選んだ向き(90度単位)で回転して保存
+        if (_rot) { ctx.translate(canvas.width / 2, canvas.height / 2); ctx.rotate(_rot * Math.PI / 180); ctx.drawImage(img, -width / 2, -height / 2, width, height); }
+        else ctx.drawImage(img, 0, 0, width, height);
         const dataUrl = canvas.toDataURL('image/jpeg', quality);
         canvas.toBlob((blob) => {
-          resolve({ blob: blob || file, dataUrl: (dataUrl && dataUrl.length < srcDataUrl.length) ? dataUrl : srcDataUrl, contentType: 'image/jpeg' });
+          // 回転したときは元の画像(srcDataUrl)に戻さない
+          resolve({ blob: blob || file, dataUrl: (dataUrl && (_rot || dataUrl.length < srcDataUrl.length)) ? dataUrl : srcDataUrl, contentType: 'image/jpeg' });
         }, 'image/jpeg', quality);
       } catch { resolve({ blob: file, dataUrl: srcDataUrl, contentType: file.type }); }
     };
@@ -52241,6 +52557,92 @@ const processUploadFile = (file, maxDim = 1600, quality = 0.7) => new Promise((r
   reader.readAsDataURL(file);
 });
 
+// ★ 2026-10-07(ユーザー要望「書類に合わせて縦や横で撮影・添付する。載せたあとか反映前に回転して保存したい」):
+//   写真の向きを確認・回転する画面。 items=[{ key, src, name }] → Promise<Map(key→度) | null(キャンセル)>
+const _isImageFile = (f) => /^image\//.test((f && f.type) || '') || /\.(png|jpe?g|heic|heif|webp|gif|bmp)$/i.test((f && f.name) || '');
+const tsumugiRotateDialog = (items, opts = {}) => new Promise((resolve) => {
+  const list = (items || []).filter(Boolean);
+  if (!list.length) { resolve(new Map()); return; }
+  const deg = new Map(list.map(it => [it.key, 0]));
+  const host = document.createElement('div');
+  host.setAttribute('data-testid', 'tsu-rotate');
+  host.style.cssText = 'position:fixed;inset:0;z-index:2000003;background:rgba(15,23,42,0.6);display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow:auto;font-family:-apple-system,"Hiragino Sans","Meiryo",sans-serif;';
+  const panel = document.createElement('div');
+  panel.style.cssText = 'background:#fff;border-radius:16px;box-shadow:0 20px 50px rgba(0,0,0,0.35);width:100%;max-width:760px;padding:18px;box-sizing:border-box;';
+  const title = opts.title || '写真の向きを確認';
+  const note = opts.note || '書類が横向き・逆さまのときは回転してから保存してください。そのままでよければ「' + (opts.okLabel || 'この向きで登録') + '」を押してください。';
+  panel.innerHTML = `<div style="font-weight:bold;font-size:16px;color:#1e293b;margin-bottom:4px;">${title}</div><div style="font-size:12px;color:#475569;margin-bottom:12px;line-height:1.6;">${note}</div>`;
+  const grid = document.createElement('div');
+  grid.style.cssText = `display:grid;grid-template-columns:repeat(auto-fill,minmax(${list.length === 1 ? 300 : 170}px,1fr));gap:12px;max-height:62vh;overflow:auto;`;
+  const btnCss = 'flex:1;padding:8px 4px;border-radius:10px;border:1px solid #cbd5e1;background:#fff;color:#334155;font-weight:bold;font-size:12px;cursor:pointer;';
+  list.forEach((it, i) => {
+    const card = document.createElement('div');
+    card.style.cssText = 'border:1px solid #e2e8f0;border-radius:12px;padding:8px;background:#f8fafc;display:flex;flex-direction:column;gap:6px;';
+    const box = document.createElement('div');
+    box.style.cssText = `width:100%;aspect-ratio:1/1;background:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;`;
+    const img = document.createElement('img'); img.src = it.src; img.alt = '';
+    img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;transition:transform .2s;';
+    img.setAttribute('data-testid', 'tsu-rotate-img');
+    box.appendChild(img); card.appendChild(box);
+    const nm = document.createElement('div'); nm.textContent = it.name || `写真 ${i + 1}`;
+    nm.style.cssText = 'font-size:10px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+    card.appendChild(nm);
+    const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:6px;';
+    const apply = () => { const d = deg.get(it.key) || 0; img.style.transform = `rotate(${d}deg)`; img.setAttribute('data-deg', String(d)); };
+    const mk = (label, delta, tid) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.style.cssText = btnCss; b.setAttribute('data-testid', tid);
+      b.onclick = () => { deg.set(it.key, (((deg.get(it.key) || 0) + delta) % 360 + 360) % 360); apply(); }; return b; };
+    row.appendChild(mk('左に回転', -90, 'tsu-rotate-left')); row.appendChild(mk('右に回転', 90, 'tsu-rotate-right'));
+    card.appendChild(row); apply();
+    grid.appendChild(card);
+  });
+  panel.appendChild(grid);
+  const foot = document.createElement('div'); foot.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap;';
+  const done = (v) => { try { host.remove(); } catch {} resolve(v); };
+  const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = 'キャンセル'; cancel.setAttribute('data-testid', 'tsu-rotate-cancel');
+  cancel.style.cssText = 'padding:10px 18px;border-radius:12px;border:none;background:#f1f5f9;color:#475569;font-weight:bold;font-size:14px;cursor:pointer;';
+  cancel.onclick = () => done(null);
+  const ok = document.createElement('button'); ok.type = 'button'; ok.textContent = opts.okLabel || 'この向きで登録'; ok.setAttribute('data-testid', 'tsu-rotate-ok');
+  ok.style.cssText = 'padding:10px 22px;border-radius:12px;border:none;background:#2563eb;color:#fff;font-weight:bold;font-size:14px;cursor:pointer;';
+  ok.onclick = () => done(deg);
+  foot.appendChild(cancel); foot.appendChild(ok); panel.appendChild(foot);
+  host.appendChild(panel); document.body.appendChild(host);
+});
+// 選んだファイルのうち画像の向きを確認 → Map(File→度)。 画像が無ければ確認なしで空の Map。キャンセルは null
+const tsumugiAskRotations = async (files) => {
+  const imgs = (files || []).filter(_isImageFile);
+  if (!imgs.length) return new Map();
+  const urls = imgs.map(f => { try { return URL.createObjectURL(f); } catch { return ''; } });
+  try { return await tsumugiRotateDialog(imgs.map((f, i) => ({ key: f, src: urls[i], name: f.name }))); }
+  finally { setTimeout(() => urls.forEach(u => { try { u && URL.revokeObjectURL(u); } catch {} }), 1000); }
+};
+// 登録済みの画像(storagePath / data / url)を回転した新しい画像にする → { patch, oldPath } (失敗は null)
+const tsumugiRotateStoredImage = async (file, deg, prefix) => {
+  const r = ((Number(deg) || 0) % 360 + 360) % 360; if (!r || !file) return null;
+  let src = file.data || file.url || '';
+  if (file.storagePath && isSupabaseEnabled) src = (await supabaseGetSignedUrl(file.storagePath)) || supabaseGetPublicUrl(file.storagePath) || src;
+  if (!src) return null;
+  const blob0 = await (await fetch(src)).blob();
+  const f = new File([blob0], file.name || 'image.jpg', { type: blob0.type || 'image/jpeg' });
+  const { blob, dataUrl, contentType } = await processUploadFile(f, 2000, 0.85, r);
+  let stored = null;
+  if (isSupabaseEnabled) { try { stored = await supabaseUploadFile(blob, { name: (file.name || 'image').replace(/\.[^.]+$/, '') + '.jpg', contentType, prefix }); } catch {} }
+  const patch = { mimeType: contentType, rotatedAt: new Date().toISOString() };
+  if (stored && stored.path) { patch.storagePath = stored.path; patch.data = undefined; patch.url = undefined; }
+  else if (dataUrl) { patch.data = dataUrl; patch.storagePath = undefined; patch.url = undefined; }
+  else return null;
+  return { patch, oldPath: file.storagePath || null };
+};
+// 一覧の画像を回転: 向きを選ぶ画面 → 回転した画像を保存 → 結果を返す(呼び出し側で保存)
+const tsumugiRotateExisting = async (file, prefix) => {
+  let src = file.data || file.url || '';
+  if (file.storagePath && isSupabaseEnabled) src = (await supabaseGetSignedUrl(file.storagePath)) || supabaseGetPublicUrl(file.storagePath) || src;
+  if (!src) { alert('画像を読み込めませんでした。'); return null; }
+  const m = await tsumugiRotateDialog([{ key: 'one', src, name: file.title || file.name || '' }], { title: '画像を回転', okLabel: '回転して保存', note: '向きを選んで「回転して保存」を押してください。回転前の画像はゴミ箱に移ります（7日間は元に戻せます）。' });
+  const d = m && m.get('one'); if (!d) return null;
+  try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: '回転して保存しています…' } })); } catch {}
+  try { const res = await tsumugiRotateStoredImage(file, d, prefix); if (!res) alert('回転できませんでした。通信状態をご確認のうえ、もう一度お試しください。'); return res; }
+  catch (e) { alert('回転できませんでした: ' + (e && e.message || e)); return null; }
+};
 // 削除時に、その項目に紐づく Storage 実体ファイルも削除する (storagePath / photos[].storagePath)
 const purgeStorageFiles = (item) => {
   if (!item) return;
@@ -52310,7 +52712,9 @@ function StoredImage({ file, alt, className, style, onClick }) {
 // 開く/ダウンロード リンク (署名URL対応)
 function StoredFileLink({ file, className, children }) {
   const url = useSignedUrl(file);
-  return <a href={url||'#'} download={file?.name} target="_blank" rel="noreferrer" className={className} onClick={e=>{ if(!url) e.preventDefault(); }}>{children}</a>;
+  // ★ 2026-10-07: 画像は画面に収まるビューアで開く(別タブだと横幅に合わせて大きく表示され、縦長の書類はスクロールが必要だった)。PDFは従来どおり
+  const _isPdf = (((file?.type)||'')+''+((file?.mimeType)||'')).includes('pdf') || /\.pdf(\?|$)/i.test(file?.name || file?.storagePath || file?.url || '');
+  return <a href={url||'#'} download={file?.name} target="_blank" rel="noreferrer" className={className} onClick={e=>{ if(!url) { e.preventDefault(); return; } if (!_isPdf) { e.preventDefault(); tsumugiOpenImage(url, file?.title || file?.name || ''); } }}>{children}</a>;
 }
 // 写真/PDF 全画面プレビュー (署名URL対応)。 media = { file?, url?, name, type }
 function MediaPreviewModal({ media, onClose }) {
@@ -52328,6 +52732,9 @@ function MediaPreviewModal({ media, onClose }) {
     return () => { if (u) URL.revokeObjectURL(u); };
   }, [isPdf, rawUrl]);
   const url = (isPdf && rawUrl.startsWith('data:')) ? pdfBlobUrl : rawUrl;
+  // ★ 2026-10-07: 写真は画面に収めたうえで、ピンチ・ダブルタップで拡大/移動できる
+  const _pinchBoxRef = React.useRef(null), _pinchImgRef = React.useRef(null);
+  useEffect(() => { if (isPdf || !url || !_pinchBoxRef.current || !_pinchImgRef.current) return; return _tsuAttachPinch(_pinchBoxRef.current, _pinchImgRef.current); }, [isPdf, url]);
   return (
     <div onClick={onClose}
       style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.92)',zIndex:10000,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:8}}>
@@ -52342,8 +52749,10 @@ function MediaPreviewModal({ media, onClose }) {
       ) : isPdf ? (
         <iframe src={url} title="PDF" style={{width:'100%',height:'100%',maxWidth:'95vw',maxHeight:'90vh',border:'none',background:'white',borderRadius:8}}/>
       ) : (
-        <img src={url} alt={media.name||''} onClick={(e)=>e.stopPropagation()}
-          style={{maxWidth:'95vw',maxHeight:'90vh',objectFit:'contain',borderRadius:6}}/>
+        <div ref={_pinchBoxRef} onClick={(e)=>e.stopPropagation()} style={{width:'95vw',height:'86vh',display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',touchAction:'none'}}>
+          <img ref={_pinchImgRef} src={url} alt={media.name||''} draggable={false}
+            style={{maxWidth:'100%',maxHeight:'100%',objectFit:'contain',borderRadius:6,transformOrigin:'center center',userSelect:'none'}}/>
+        </div>
       )}
       {media.name && (
         <div style={{position:'absolute',bottom:14,left:14,right:14,textAlign:'center',color:'white',fontSize:13,fontWeight:'bold',textShadow:'0 1px 4px rgba(0,0,0,0.7)'}}>
@@ -52392,12 +52801,14 @@ function OfficeAssessmentCard({ patientId, assessment, onSaveAssessment }) {
   const [preview, setPreview] = useState(null);
   const savedText = assessment?.text || '';
   const addFiles = async (fl) => {
-    const list = rejectVideos(fl); if (!list.length) return; setBusy(true);
+    const list = rejectVideos(fl); if (!list.length) return;
+    const _rot = await tsumugiAskRotations(list); if (!_rot) return; // ★ 写真の向きを確認
+    setBusy(true);
     const added = [];
     for (const f of list) {
       try {
         const isPdf = /\.pdf$/i.test(f.name) || f.type === 'application/pdf';
-        const { blob, dataUrl, contentType } = await processUploadFile(f);
+        const { blob, dataUrl, contentType } = await processUploadFile(f, undefined, undefined, _rot.get(f) || 0);
         let stored = null; if (isSupabaseEnabled) stored = await supabaseUploadFile(blob, { name: f.name, contentType, prefix: `pf/${patientId}` });
         const rec = { id: `as_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, name: f.name, type: isPdf ? 'pdf' : 'image', mimeType: contentType, fileDate: new Date().toISOString().slice(0, 10), uploadedAt: new Date().toISOString() };
         if (stored?.path) rec.storagePath = stored.path; else if (dataUrl) rec.data = dataUrl;
@@ -52684,10 +53095,11 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
     files = files.filter(_supported);
     if (_skipped.length) alert(`対応していない形式のため ${_skipped.length} 件をスキップしました（画像とPDFのみ登録できます）`);
     if (files.length === 0) return;
+    const _rot = await tsumugiAskRotations(files); if (!_rot) return; // ★ 写真の向きを確認(キャンセルで登録しない)
     const newFiles = [];
     for (const f of files) {
       const isPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
-      const { blob, dataUrl, contentType } = await processUploadFile(f); // ★ 画像は圧縮、PDFはそのまま
+      const { blob, dataUrl, contentType } = await processUploadFile(f, undefined, undefined, _rot.get(f) || 0); // ★ 画像は圧縮(選んだ向きに回転)、PDFはそのまま
       const rec = {
         id: `pf_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,
         categoryId: activeCat,
@@ -52791,6 +53203,19 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
   const updateFile = (fileId, patch) => {
     updatePatient({ files: (personalFile.files || []).map(f => f.id === fileId ? { ...f, ...patch } : f) });
   };
+  // ★ 2026-10-07: 登録済みの画像を回転して保存(回転前の画像はゴミ箱へ。7日後に自動で完全削除)
+  const [rotatingId, setRotatingId] = useState(null);
+  const rotateFile = async (f) => {
+    if (rotatingId) return; setRotatingId(f.id);
+    try {
+      const res = await tsumugiRotateExisting(f, `pf/${patient.id}`); if (!res) return;
+      const cur = personalFile.files || [];
+      updatePatient({
+        files: cur.map(x => x.id === f.id ? { ...x, ...res.patch } : x),
+        trash: [...(personalFile.trash || []), { ...f, id: `${f.id}_rot${Date.now()}`, title: `${f.title ?? f.name ?? ''}（回転前）`, _deletedAt: new Date().toISOString(), _kind: 'file', _rotatedOriginal: true }],
+      }, { manual: true, message: '✓ 画像を回転して保存しました' });
+    } finally { setRotatingId(null); }
+  };
 
   const handleAddCustomCategory = () => {
     const name = window.prompt('カテゴリ名を入力 (例: 7. 加算算定関係)');
@@ -52851,12 +53276,14 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
   const _activeRec = getActiveRecorderName();
   const _savedIR = personalFile.initialReport || null;
   const [irMode, setIrMode] = useState(null); // ★ null=状態に応じて自動(選択画面/完了ビュー) | 'form'=手入力フォーム表示
-  const [irForm, setIrForm] = useState(() => _savedIR ? {exercise:'', ..._savedIR} : {
+  // ★ 2026-10-06(ユーザー要望): 「ご利用の様子」は初回の提供記録の特記を最初から入れる(ここで直しても特記には戻さない)
+  const _ftTokki = String((_ft && _ft.tokki) || '').trim();
+  const [irForm, setIrForm] = useState(() => _savedIR ? {exercise:'', ..._savedIR, content: _savedIR.content || _ftTokki} : {
     date: _firstKey || new Date().toISOString().slice(0,10),
     recipientOffice: patient.cmOffice||'', recipientName: patient.cmName||'',
     temp:_av.temp||'', bpUpSt:_av.bpUpSt||'', bpDnSt:_av.bpDnSt||'', plSt:_av.plSt||'',
     bpUpEn:_av.bpUpEn||'', bpDnEn:_av.bpDnEn||'', plEn:_av.plEn||'',
-    exercise:_exText, content:'', reporter:_activeRec||'',
+    exercise:_exText, content:_ftTokki, reporter:_activeRec||'',
   });
   const saveInitialReport = () => {
     const createdAt = new Date().toISOString();
@@ -53057,7 +53484,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                     className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold">
                     編集・追記
                   </button>
-                  <MaskToggle small/>
+                  <MaskToggle small storeKey="facesheet"/>
                   <button onClick={()=>setPdfPreviewFaceSheet(true)}
                     className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold">ダウンロード</button>
                 </div>
@@ -53097,9 +53524,10 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                           if (files.length === 0) { e.target.value=''; return; }
                           const today = new Date().toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
                           const cur = [...(patient[key]||[])];
+                          const _rot = await tsumugiAskRotations(files); if (!_rot) { e.target.value=''; return; } // ★ 写真の向きを確認
                           for (const f of files) {
                             // ★ 非公開Storageへ保存 (保険証等は個人情報のため)。 失敗時 base64 フォールバック。
-                            const { blob, dataUrl, contentType } = await processUploadFile(f);
+                            const { blob, dataUrl, contentType } = await processUploadFile(f, undefined, undefined, _rot.get(f) || 0);
                             const item = { id: Date.now()+Math.random(), name: f.name, type: f.type||'image/jpeg', uploadedAt: today };
                             const stored = isSupabaseEnabled ? await supabaseUploadFile(blob, { name: f.name, contentType, prefix: `pf/${patient.id}` }) : null;
                             if (stored?.path) item.storagePath = stored.path;
@@ -53279,7 +53707,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
             const _ts = (t) => { try { return new Date(t).toLocaleDateString('ja-JP'); } catch { return t||''; } };
             // ★ 書類検索: 件名・宛先・内容・日付で絞り込み
             const _q = renrakuSearch.trim().toLowerCase();
-            const _match = (h) => { if(!_q) return true; const hay = [h.subject,h.recipientOffice,h.recipientName,h.memo,h.body,h.content,h.note,h.dateIso,_ts(h.timestamp)].map(x=>String(x||'').toLowerCase()).join(' '); return hay.includes(_q); };
+            const _match = (h) => { if(!_q) return true; return tsuSearchHit(_q, h.subject,h.recipientOffice,h.recipientName,h.memo,h.body,h.content,h.note,h.dateIso,_ts(h.timestamp)); };
             const absHist = faxOf('absence').filter(_match); const genHist = faxOf('general').filter(_match);
             const monHist = faxOf('monitoring').filter(_match);
             // ★ 休み連絡の「下書き(編集済・未送付)」も表示(2026-08-25)。 カレンダーで「編集済」なのに
@@ -53758,6 +54186,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                           {/* 操作 */}
                           <div className="flex flex-col gap-1 shrink-0">
                             <StoredFileLink file={f} className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[10px] font-bold text-center">開く</StoredFileLink>
+                            {f.type === 'image' && <button type="button" data-testid="pf-rotate" disabled={!!rotatingId} onClick={()=>rotateFile(f)} className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[10px] font-bold disabled:opacity-50">{rotatingId === f.id ? '保存中…' : '回転'}</button>}
                             <button onClick={()=>handleDeleteFile(f.id)} className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[10px] font-bold">削除</button>
                           </div>
                         </div>
@@ -54563,10 +54992,11 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
     const files = rejectVideos(e.target.files);
     e.target.value = '';
     if (files.length === 0) return;
+    const _rot = await tsumugiAskRotations(files); if (!_rot) return; // ★ 写真の向きを確認
     const added = [];
     for (const f of files) {
       const isPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
-      const { blob, dataUrl, contentType } = await processUploadFile(f); // ★ 画像は圧縮、PDFはそのまま
+      const { blob, dataUrl, contentType } = await processUploadFile(f, undefined, undefined, _rot.get(f) || 0); // ★ 画像は圧縮(選んだ向きに回転)、PDFはそのまま
       const att = { id: `fsf_${Date.now()}_${Math.random().toString(36).slice(2,7)}`, name: f.name, type: isPdf ? 'pdf' : 'image' };
       let stored = null;
       if (isSupabaseEnabled) { try { stored = await supabaseUploadFile(blob, { name: f.name, contentType, prefix: `fs/${patient.id}` }); } catch (err) { console.warn('[fs] upload failed → inline fallback', err); } }
@@ -54582,10 +55012,11 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
     const files = rejectVideos(e.target.files);
     e.target.value = '';
     if (files.length === 0) return;
+    const _rot = await tsumugiAskRotations(files); if (!_rot) return; // ★ 写真の向きを確認
     const added = [];
     for (const f of files) {
       const isPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
-      const { blob, dataUrl, contentType } = await processUploadFile(f);
+      const { blob, dataUrl, contentType } = await processUploadFile(f, undefined, undefined, _rot.get(f) || 0);
       const att = { id: `fsl_${Date.now()}_${Math.random().toString(36).slice(2,7)}`, name: f.name, type: isPdf ? 'pdf' : 'image', label: attachLabel };
       let stored = null;
       if (isSupabaseEnabled) { try { stored = await supabaseUploadFile(blob, { name: f.name, contentType, prefix: `fs/${patient.id}` }); } catch (err) { console.warn('[fs] upload failed → inline fallback', err); } }
@@ -54594,6 +55025,16 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
       added.push(att);
     }
     if (added.length) setFs(prev => ({ ...prev, labeledFiles: [...(prev.labeledFiles||[]), ...added] }));
+  };
+  // ★ 2026-10-07: 添付した画像を回転(回転前はゴミ箱予定へ。フォームの保存で確定)
+  const [fsRotating, setFsRotating] = useState(null);
+  const rotateAttach = async (key, att) => {
+    if (fsRotating) return; setFsRotating(att.id);
+    try {
+      const res = await tsumugiRotateExisting(att, `fs/${patient.id}`); if (!res) return;
+      setRemovedAtts(r => [...r, { ...att, id: `${att.id}_rot${Date.now()}`, name: `${att.name || ''}（回転前）`, _field: key, _rotatedOriginal: true }]);
+      setFs(prev => ({ ...prev, [key]: (prev[key] || []).map(x => x.id === att.id ? { ...x, ...res.patch } : x) }));
+    } finally { setFsRotating(null); }
   };
   const removeAttach = (key, id) => {
     setFs(prev => {
@@ -54621,6 +55062,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
               </StoredFileLink>
               <button type="button" onClick={()=>removeAttach(fieldKey, att.id)}
                 className="absolute top-0.5 right-0.5 w-5 h-5 bg-red-600 text-white rounded-full text-[10px] font-bold flex items-center justify-center">×</button>
+              {att.type === 'image' && <button type="button" data-testid="fs-rotate" disabled={!!fsRotating} onClick={()=>rotateAttach(fieldKey, att)} className="w-full py-0.5 text-[10px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border-t border-slate-200 disabled:opacity-50">{fsRotating === att.id ? '保存中…' : '回転'}</button>}
             </div>
           ))}
         </div>
@@ -54971,6 +55413,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
                         {att.type==='image' ? <StoredImage file={att} alt={att.name} className="w-20 h-20 object-cover"/> : <div className="w-20 h-20 flex flex-col items-center justify-center"><div className="text-[9px] font-bold text-slate-500">PDF</div></div>}
                       </StoredFileLink>
                       <div className="text-[8px] text-center text-slate-500 px-0.5 truncate" title={att.label||''}>{att.label||''}</div>
+                      {att.type==='image' && <button type="button" data-testid="fs-rotate" disabled={!!fsRotating} onClick={()=>rotateAttach('labeledFiles', att)} className="w-full py-0.5 text-[10px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border-t border-slate-200 disabled:opacity-50">{fsRotating === att.id ? '保存中…' : '回転'}</button>}
                       <button type="button" onClick={()=>removeAttach('labeledFiles', att.id)} className="absolute top-0.5 right-0.5 w-5 h-5 bg-red-600 text-white rounded-full text-[10px] font-bold flex items-center justify-center">×</button>
                     </div>
                   ))}
