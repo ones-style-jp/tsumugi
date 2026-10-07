@@ -34745,8 +34745,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   // ★ 2026-10-02(試験版・ユーザー要望「確定を解除できるように」): 確定の控え(_final)を外して「作成中」に戻す。内容はそのまま。
   const [finalMenu, setFinalMenu] = useState(false);
   const [tpFocus, setTpFocus] = useState(null); // ★ 2026-10-07: 変更の一覧で押した方を表でハイライト { iso, sl, pid, removed }
-  const [chgOpen, setChgOpen] = useState(null); // 変更の帯: null=自動(未連絡の要連絡があれば開く)
-  React.useEffect(() => { setTpFocus(null); setChgOpen(null); }, [selectedDate]);
+  React.useEffect(() => { setTpFocus(null); }, [selectedDate]);
   const _tpSelOf = (f) => f ? (f.removed ? `[data-tpcell="${f.iso}_${f.sl}"]` : `[data-tprow][data-tpiso="${f.iso}"][data-tpslot="${f.sl}"][data-tppid="${f.pid}"], [data-tpfb="${f.iso}_${f.sl}_${f.pid}"]`) : '';
   // 変更の項目を押す → 表のその方を黄色く表示してその位置へ(もう一度押すと消える)。keep=true は消さずに表示(確定済みメニューから)
   const focusChg = (x, keep) => {
@@ -35995,6 +35994,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               {fa ? <>確定済{tot ? <span className="ml-1 bg-red-600 text-white rounded px-1" data-testid="tp-chg-badge">変更{tot}</span> : null}<span className="ml-1 text-[9px]">▼</span></> : '確定'}
             </button>
           ); })()}
+          {tpFocus && <button type="button" data-testid="tp-focus-clear" onClick={() => setTpFocus(null)} className="px-2.5 py-2 rounded-xl font-bold text-xs border border-amber-300 bg-yellow-100 text-amber-900 whitespace-nowrap">黄色の表示を消す</button>}
           {!!_finalAtOfWeek() && tpEdit && <button type="button" data-testid="tp-board-mode" onClick={()=>setTpEdit(false)} className="px-2.5 py-2 rounded-xl font-bold text-xs border border-emerald-300 bg-emerald-50 text-emerald-800 whitespace-nowrap">一覧に戻る</button>}
           {finalMenu && ReactDOM.createPortal((
             <div className="fixed inset-0 bg-slate-900/50 flex items-start justify-center p-4 pt-24" style={{zIndex:10000}} onClick={()=>setFinalMenu(false)}>
@@ -36008,7 +36008,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                       {cl.map((x, i) => { const d = new Date(x.iso + 'T00:00:00'); return (
                         <div key={i} className={`flex items-center gap-2 px-2.5 py-1.5 text-xs leading-snug ${x.tel && x.done ? 'opacity-60' : ''}`} data-testid="tp-chg-item">
                           {/* ★ 2026-10-07(ユーザー要望): 押すとメニューを閉じて送迎表のその方を黄色く表示 */}
-                          <button type="button" data-testid="tp-chg-item-focus" onClick={() => { setFinalMenu(false); focusChg(x, true); }} className="flex-1 min-w-0 text-left" title="押すと送迎表でこの方を黄色く表示します">
+                          <button type="button" data-testid="tp-chg-item-focus" onClick={() => { setFinalMenu(false); focusChg(x); }} className="flex-1 min-w-0 text-left" title="押すと送迎表でこの方を黄色く表示します（もう一度押すと消えます）">
                             <span className="font-bold text-slate-600 tabular-nums whitespace-nowrap">{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{x.sl==='AM'?'午前':'午後'}</span>
                             <span className={`font-bold text-slate-800 ml-1.5 ${x.tel && x.done ? 'line-through' : ''}`}>{_pname(x.pid)}</span>
                             <span className="text-slate-700 ml-1.5">{x.ac}</span>
@@ -36078,35 +36078,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           </div>
         </div>}
       </div>
-      {/* ★ 2026-10-07(ユーザー要望「変更内容は常に見れるように」「要連絡に連絡済」「押したら確定していてもハイライト」): 確定後の変更の帯 */}
-      {(() => { const cl = _chgListOfWeek(); if (!cl.length) return null; const tel = cl.filter(x => x.tel), left = tel.filter(x => !x.done); const open = chgOpen == null ? left.length > 0 : chgOpen;
-        const _sel = _tpSelOf(tpFocus);
-        const focus = (x) => focusChg(x);
-        return (
-        <div className="px-2 sm:px-3 pt-2" data-testid="tp-chg-banner">
-          {_sel && <style>{`${_sel}{background:#fef08a !important;outline:3px solid #f59e0b;outline-offset:-2px;border-radius:6px;}`}</style>}
-          <div className="max-w-[1500px] mx-auto bg-white border border-amber-300 rounded-xl overflow-hidden">
-            <button type="button" data-testid="tp-chg-toggle" onClick={() => setChgOpen(!open)} className="w-full flex items-center gap-2 px-3 py-1.5 bg-amber-50 text-left">
-              <span className="text-xs font-bold text-amber-900">確定後の変更 {cl.length}件</span>
-              {tel.length > 0 && <span className={`text-[11px] font-bold rounded px-1.5 py-0.5 ${left.length ? 'text-red-700 border border-red-400 bg-white' : 'text-emerald-700 border border-emerald-300 bg-white'}`} data-testid="tp-chg-tel-left">{left.length ? `要連絡 ${left.length}件` : '要連絡はすべて連絡済'}</span>}
-              {tpFocus && <span className="text-[11px] text-amber-800">押した方を表で黄色く表示中</span>}
-              <span className="ml-auto text-[11px] font-bold text-amber-800">{open ? '閉じる' : '開く'}</span>
-            </button>
-            {open && <div className="max-h-56 overflow-auto divide-y divide-slate-100" data-testid="tp-chg-banner-list">
-              {cl.map((x, i) => { const d = new Date(x.iso + 'T00:00:00'); const on = tpFocus && tpFocus.iso === x.iso && tpFocus.sl === x.sl && String(tpFocus.pid) === String(x.pid); return (
-                <div key={i} className={`flex items-center gap-2 px-3 py-1.5 text-xs ${on ? 'bg-yellow-100' : ''} ${x.tel && x.done ? 'opacity-60' : ''}`} data-testid="tp-chg-row">
-                  <button type="button" onClick={() => focus(x)} className="flex-1 min-w-0 text-left leading-snug" title="押すと表のこの方を黄色く表示します（もう一度押すと消えます）" data-testid="tp-chg-focus">
-                    <span className="font-bold text-slate-600 tabular-nums whitespace-nowrap">{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{x.sl==='AM'?'午前':'午後'}</span>
-                    <span className={`font-bold text-slate-800 ml-1.5 ${x.tel && x.done ? 'line-through' : ''}`}>{_pname(x.pid)}</span>
-                    <span className="text-slate-700 ml-1.5">{x.ac}</span>
-                  </button>
-                  {x.tel && <span className="text-[10px] font-bold text-red-700 border border-red-400 rounded px-1 whitespace-nowrap">要連絡</span>}
-                  {x.tel && <label className="flex items-center gap-1 text-[11px] font-bold text-slate-700 whitespace-nowrap cursor-pointer" data-testid="tp-chg-done">
-                    <input type="checkbox" checked={!!x.done} onChange={e => setTelDone(x.iso, x.sl, x.pid, e.target.checked)} className="w-4 h-4"/>連絡済</label>}
-                </div>); })}
-            </div>}
-          </div>
-        </div>); })()}
+      {/* ★ 2026-10-07: 確定後の変更の帯は廃止(ユーザー指示「確定済 変更○ のメニューで連絡済・ハイライトができるので不要」)。ハイライトの表示だけ残す */}
+      {tpFocus && <style>{`${_tpSelOf(tpFocus)}{background:#fef08a !important;outline:3px solid #f59e0b;outline-offset:-2px;border-radius:6px;}`}</style>}
       {/* ★ 2026-10-03(ユーザー提案「確定していたら入力画面ではなく一覧を常に表示。午前・午後を一度に見たい」): 確定済みの週は読み取り専用の一覧(午前・午後を同じ画面に)。
           「編集する」で入力画面へ(確定後の変更は赤丸)。確定を解除すると自動で入力画面に戻る */}
       {_finalView ? (
