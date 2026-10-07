@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>つむぎのご紹介 ご家族向け</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  /* つむぎ ご家族向けのご紹介(A4縦・4ページ=2枚の表裏)。画面はすべて見本(架空)データ */
+  :root {
+    --ink: #1d2a16; --ink-2: #44513b; --ink-3: #6b7562;
+    --primary: #4f7a28; --primary-2: #6c9a3a; --accent: #a7cf62;
+    --mist: #f2f6ea; --mist-2: #e6efd6; --line: #d6e0c4; --paper: #ffffff; --warn: #b4521f; --warn-bg: #fdf1e8;
+  }
+  @page { size: A4 portrait; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #e9ece4; color: var(--ink); font-family: 'Noto Sans JP', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', Meiryo, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .page { width: 210mm; height: 297mm; margin: 8mm auto; background: var(--paper); position: relative; overflow: hidden; padding: 13mm 15mm 12mm; display: flex; flex-direction: column; gap: 5mm; }
+  @media print { html, body { background: #fff; } .page { margin: 0; break-after: page; } .page:last-child { break-after: auto; } }
+  h1, h2, h3, .disp { font-family: 'Zen Maru Gothic', 'Hiragino Maru Gothic ProN', 'Noto Sans JP', sans-serif; font-weight: 700; margin: 0; text-wrap: balance; }
+  p { margin: 0; }
+  .run { display: flex; align-items: center; justify-content: space-between; font-size: 9.5pt; color: var(--ink-3); border-bottom: 1px solid var(--line); padding-bottom: 2.2mm; }
+  .run b { color: var(--primary); font-family: 'Zen Maru Gothic', sans-serif; letter-spacing: .06em; }
+  .foot { margin-top: auto; font-size: 8pt; color: var(--ink-3); display: flex; justify-content: space-between; border-top: 1px solid var(--line); padding-top: 2mm; }
+  .eyebrow { font-size: 10pt; font-weight: 700; color: var(--primary); letter-spacing: .08em; }
+  h1 { font-size: 25pt; line-height: 1.32; letter-spacing: .01em; }
+  h2 { font-size: 16.5pt; line-height: 1.35; display: flex; align-items: baseline; gap: 3mm; }
+  h2 .no { font-size: 11pt; color: #fff; background: var(--primary); border-radius: 999px; padding: .6mm 3mm; letter-spacing: .04em; }
+  h3 { font-size: 12.5pt; line-height: 1.4; color: var(--ink); }
+  .lead { font-size: 11pt; line-height: 1.85; color: var(--ink-2); max-width: 172mm; }
+  .txt { font-size: 10pt; line-height: 1.8; color: var(--ink-2); }
+  .small { font-size: 8.6pt; line-height: 1.65; color: var(--ink-3); }
+  /* スマホの枠 */
+  .phone { background: var(--ink); border-radius: 6.5mm; padding: 1.8mm; box-shadow: 0 2mm 5mm rgba(29,42,22,.18); flex: 0 0 auto; }
+  .phone img { display: block; width: 100%; border-radius: 4.8mm; }
+  .phone.crop { padding: 1.6mm; border-radius: 4.5mm; }
+  .phone.crop img { border-radius: 3mm; }
+  .cap { font-size: 8.4pt; color: var(--ink-3); margin-top: 1.6mm; text-align: center; line-height: 1.5; }
+  .shot { display: flex; flex-direction: column; }
+  /* 1ページ目 */
+  .hero { display: grid; grid-template-columns: 1fr 1fr 1.25fr; gap: 6mm; align-items: start; }
+  .can { display: flex; flex-direction: column; gap: 3.2mm; }
+  .can .it { display: grid; grid-template-columns: 9mm 1fr; gap: 2.5mm; align-items: start; }
+  .can .ic { width: 9mm; height: 9mm; border-radius: 3mm; background: var(--mist-2); color: var(--primary); display: flex; align-items: center; justify-content: center; font-family: 'Zen Maru Gothic', sans-serif; font-weight: 700; font-size: 11pt; }
+  .can .t { font-size: 11pt; font-weight: 700; line-height: 1.4; }
+  .can .d { font-size: 9pt; line-height: 1.6; color: var(--ink-2); margin-top: .5mm; }
+  .badges { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4mm; }
+  .badge { background: var(--mist); border: 1px solid var(--line); border-radius: 4mm; padding: 3.5mm 4mm; }
+  .badge .k { font-family: 'Zen Maru Gothic', sans-serif; font-weight: 700; font-size: 12.5pt; color: var(--primary); }
+  .badge .v { font-size: 9pt; line-height: 1.6; color: var(--ink-2); margin-top: 1mm; }
+  /* 説明つきの並び */
+  .row { display: grid; gap: 6mm; align-items: start; }
+  .r2 { grid-template-columns: 64mm 1fr; }
+  .r2b { grid-template-columns: 1fr 60mm; }
+  .points { margin: 2mm 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2.4mm; }
+  .points li { font-size: 10pt; line-height: 1.7; color: var(--ink-2); padding-left: 5mm; position: relative; }
+  .points li::before { content: ''; position: absolute; left: 0; top: 2.2mm; width: 2.2mm; height: 2.2mm; border-radius: 999px; background: var(--accent); }
+  .points li b { color: var(--ink); }
+  .panel { background: var(--mist); border: 1px solid var(--line); border-radius: 5mm; padding: 5mm 6mm; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5mm; }
+  .note { background: var(--warn-bg); border: 1px solid #f1cdb3; border-radius: 4mm; padding: 4mm 5mm; }
+  .note h3 { color: var(--warn); }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4mm; }
+  .step { border: 1px solid var(--line); border-radius: 4mm; padding: 4mm; background: #fff; }
+  .step .n { font-family: 'Zen Maru Gothic', sans-serif; font-weight: 700; font-size: 10pt; color: #fff; background: var(--primary); border-radius: 999px; display: inline-block; padding: .4mm 2.8mm; margin-bottom: 1.8mm; }
+  .step .t { font-weight: 700; font-size: 10.5pt; margin-bottom: 1mm; }
+  .step .d { font-size: 9pt; line-height: 1.65; color: var(--ink-2); }
+  .qa { display: grid; grid-template-columns: 1fr 1fr; gap: 3mm 6mm; }
+  .qa .q { font-weight: 700; font-size: 9.8pt; color: var(--ink); line-height: 1.5; }
+  .qa .q::before { content: 'Q. '; color: var(--primary); }
+  .qa .a { font-size: 9pt; line-height: 1.65; color: var(--ink-2); margin-top: .6mm; }
+  .contact { display: grid; grid-template-columns: 1.3fr 1fr; gap: 4mm; border: 1.5px solid var(--primary); border-radius: 4mm; padding: 4mm 5mm; }
+  .contact .l { font-size: 9pt; color: var(--ink-3); }
+  .contact .line { border-bottom: 1px solid var(--ink-3); height: 8mm; }
+  .tag { display: inline-block; font-size: 8pt; font-weight: 700; color: var(--primary); background: var(--mist-2); border-radius: 999px; padding: .3mm 2.4mm; margin-right: 1.2mm; vertical-align: middle; }
+</style>
+</head>
+<body>
+
+<!-- ===================== 1ページ目 ===================== -->
+<section class="page">
+  <div class="run"><b>つむぎ</b><span>ご家族向けのご紹介　1 / 4</span></div>
+  <div style="display:flex;flex-direction:column;gap:3mm">
+    <div class="eyebrow">ご家族専用ページ「つむぎ」</div>
+    <h1>離れていても、<br>デイサービスでの毎日がわかる。</h1>
+    <p class="lead">「つむぎ」は、デイサービスで過ごしたご本人の様子を、ご家族のスマートフォンやパソコンでご覧いただける専用ページです。職員の記録は、その日のうちに届きます。</p>
+  </div>
+  <div class="hero">
+    <div class="shot"><div class="phone"><img src="/manual/img/guide_fam_news.jpg" alt="お知らせの画面"></div><div class="cap">お知らせ・行事の写真</div></div>
+    <div class="shot"><div class="phone"><img src="/manual/img/guide_fam_record_top.jpg" alt="通所記録の画面"></div><div class="cap">通所記録（次回のお迎え・様子）</div></div>
+    <div class="can">
+      <h3>つむぎでできること</h3>
+      <div class="it"><div class="ic">1</div><div><div class="t">その日の様子がわかる</div><div class="d">職員が書いた「今回の様子」、来所時と帰宅時の気分、体温・血圧・脈拍、運動の内容。</div></div></div>
+      <div class="it"><div class="ic">2</div><div><div class="t">次回の予定がわかる</div><div class="d">次のご利用日とお迎えの時間が、いつでも確認できます。</div></div></div>
+      <div class="it"><div class="ic">3</div><div><div class="t">変化をグラフで確認</div><div class="d">血圧・体温・気分の移り変わりを、最高・最低・平均と一緒に表示します。</div></div></div>
+      <div class="it"><div class="ic">4</div><div><div class="t">お知らせと写真が届く</div><div class="d">行事のご案内や活動の写真、ご本人あての個別のお知らせが、新しい順に並びます。</div></div></div>
+      <div class="it"><div class="ic">5</div><div><div class="t">ご家族みんなで見られる</div><div class="d">代表の方のほか2名まで。離れて暮らすご兄弟とも、同じ画面を共有できます。</div></div></div>
+      <div class="it"><div class="ic">6</div><div><div class="t">災害のときも安心</div><div class="d">通所中に地震などがあったとき、無事かどうかと避難先をお知らせします。</div></div></div>
+    </div>
+  </div>
+  <div class="badges">
+    <div class="badge"><div class="k">料金はかかりません</div><div class="v">事業所がご利用者のために用意している専用ページです。</div></div>
+    <div class="badge"><div class="k">見るだけなので安心</div><div class="v">入力するところはほとんどなく、間違って記録を消してしまう心配はありません。</div></div>
+    <div class="badge"><div class="k">スマホでもパソコンでも</div><div class="v">アプリの入れ方は不要。「ホーム画面に追加」でワンタップで開けます。</div></div>
+  </div>
+  <div class="foot"><span>画面はすべて見本（架空）データです。実際の表示は事業所の設定や記録の内容によって異なります。</span><span>裏面へ</span></div>
+</section>
+
+<!-- ===================== 2ページ目 ===================== -->
+<section class="page">
+  <div class="run"><b>つむぎ</b><span>ご家族向けのご紹介　2 / 4</span></div>
+  <h2><span class="no">通所記録</span>その日の様子が、その日のうちに</h2>
+  <p class="txt">デイサービスから帰ってきたご本人に「今日はどうだった？」と聞く前に、職員の記録をご覧いただけます。画面上の「通所記録」を押すと開きます。</p>
+  <div class="row r2">
+    <div class="shot"><div class="phone crop"><img src="/manual/img/guide_fam_today.jpg" alt="今回の記録"></div><div class="cap">今回の記録（気分・体温・血圧・運動）</div></div>
+    <div>
+      <h3>今回の記録</h3>
+      <ul class="points">
+        <li><b>今回の様子</b>　職員がその日のご様子を一言で記録します。「体操に意欲的に取り組まれました」など、ご本人との会話のきっかけにもなります。</li>
+        <li><b>気分</b>　来所したときと帰るときの気分を、表情のマークで記録します。</li>
+        <li><b>体温・血圧・脈拍</b>　来所時と帰る前の血圧を測っています。数字はそのまま受診のときの参考にもなります。</li>
+        <li><b>運動メニュー</b>　自転車こぎや足の運動など、その日に行った運動と時間・回数。前回と比べた増減も表示します。</li>
+      </ul>
+      <div class="panel" style="margin-top:5mm">
+        <h3>次回のお迎え時間</h3>
+        <p class="txt" style="margin-top:1.5mm">通所記録のいちばん上に、次のご利用日とお迎えの時間を表示します。お休みや時間の変更があったときも、ここで確認できます。</p>
+      </div>
+    </div>
+  </div>
+  <div class="row r2b">
+    <div>
+      <h3>運動の内容も、前回と比べて</h3>
+      <p class="txt" style="margin-top:1.5mm">その日の運動メニューを、項目ごとに表示します。前回より回数や時間が増えたかどうかもひと目でわかるので、「今日は自転車を10分こいだんだね」と、会話が広がります。</p>
+      <ul class="points">
+        <li>体力測定（握力・立ち上がりなど）を行った月は、その結果も表示します。</li>
+        <li>欠席・お休みの日は、その旨が記録に残ります。</li>
+      </ul>
+    </div>
+    <div class="shot"><div class="phone crop"><img src="/manual/img/guide_fam_exercise.jpg" alt="運動メニュー"></div><div class="cap">運動メニュー（前回比つき）</div></div>
+  </div>
+  <div class="foot"><span>画面はすべて見本（架空）データです。</span><span>つむぎ（Tsumugi）</span></div>
+</section>
+
+<!-- ===================== 3ページ目 ===================== -->
+<section class="page">
+  <div class="run"><b>つむぎ</b><span>ご家族向けのご紹介　3 / 4</span></div>
+  <h2><span class="no">グラフ</span>体調の変化に、気づきやすく</h2>
+  <p class="txt">記録はグラフでもご覧いただけます。期間は「1か月」「3か月」「半年」などから選べます。いちばん高かった日・低かった日には印が付くので、変化に気づきやすくなります。</p>
+  <div class="grid3">
+    <div class="shot"><div class="phone crop"><img src="/manual/img/guide_fam_bp.jpg" alt="血圧のグラフ"></div><div class="cap">血圧（正常の範囲に色が付きます）</div></div>
+    <div class="shot"><div class="phone crop"><img src="/manual/img/guide_fam_mood.jpg" alt="気分のグラフ"></div><div class="cap">気分（来所時・帰宅時）</div></div>
+    <div class="shot"><div class="phone crop"><img src="/manual/img/guide_fam_fitness.jpg" alt="体力測定の推移"></div><div class="cap">体力測定の推移（握力など）</div></div>
+  </div>
+  <p class="small">平均・最高・最低もあわせて表示します。かかりつけの先生に見せる資料としてもお使いいただけます。</p>
+  <h2 style="margin-top:2mm"><span class="no">お知らせ</span>行事のご案内や写真も、ここに届きます</h2>
+  <div class="row r2b">
+    <div>
+      <ul class="points">
+        <li><b>全体のお知らせ</b>　行事のご案内、予防接種、お休みの予定など。</li>
+        <li><b>個別のお知らせ</b>　担当者会議の日程など、ご本人あてのご連絡。</li>
+        <li><b>活動の写真</b>　遠足や体操、手作りの作品など。写真を押すと、画面に収まる大きさで大きく表示され、指で広げるとさらに拡大できます。</li>
+      </ul>
+      <div class="panel" style="margin-top:4mm">
+        <p class="txt">ご本人あての個別のお知らせは、そのご家族と担当のケアマネジャーにだけ表示されます。</p>
+      </div>
+      <div class="note" style="margin-top:4mm">
+        <h3>災害のとき、いちばん知りたい「無事かどうか」</h3>
+        <p class="txt" style="margin-top:1.5mm">地震や台風などのとき、事業所は通所中の方の安否（無事・避難済みなど）と避難先を登録し、ご家族にメールで一斉にお知らせします。同じ内容が「お知らせ」にも載るので、電話がつながりにくいときも確認できます。</p>
+      </div>
+    </div>
+    <div class="shot"><div class="phone"><img src="/manual/img/guide_fam_photo.jpg" alt="写真を大きく表示"></div><div class="cap">写真を押すと大きく表示</div></div>
+  </div>
+  <div class="foot"><span>画面はすべて見本（架空）データです。写真も見本のイラストです。</span><span>つむぎ（Tsumugi）</span></div>
+</section>
+
+<!-- ===================== 4ページ目 ===================== -->
+<section class="page" style="gap:3.8mm">
+  <div class="run"><b>つむぎ</b><span>ご家族向けのご紹介　4 / 4</span></div>
+  <div class="row" style="grid-template-columns: 50mm 1fr">
+    <div class="shot"><div class="phone"><img src="/manual/img/guide_fam_members.jpg" alt="家族一覧"></div><div class="cap">家族一覧（2名まで招待できます）</div></div>
+    <div style="display:flex;flex-direction:column;gap:4mm">
+      <div>
+        <h2><span class="no">ご家族で</span>みんなで見守る</h2>
+        <ul class="points">
+          <li>代表のご家族のほか、<b>2名まで</b>登録できます（合計3名）。代表の方が「家族一覧」から招待します。</li>
+          <li>それぞれご自身のIDとパスワードでログインします。</li>
+          <li>代表の方は「利用者・登録者情報」から、かかりつけ医や連絡先などを更新できます。変更は事業所にも反映されます。</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+  <div>
+    <h2 style="margin-bottom:3mm"><span class="no">登録</span>3つのステップ、約3分で終わります</h2>
+    <div class="steps">
+      <div class="step"><span class="n">1</span><div class="t">事業所からご案内</div><div class="d">招待メール、または紙の「登録のご案内」（QRコードと招待コード）をお渡しします。招待コードは3日間有効です。</div></div>
+      <div class="step"><span class="n">2</span><div class="t">お名前と連絡先を入力</div><div class="d">QRコードを読み取り、お名前・続柄・電話番号と、ご自身で決めるログインID・パスワードを入力します。</div></div>
+      <div class="step"><span class="n">3</span><div class="t">その日から見られます</div><div class="d">登録が終わるとすぐに画面が開きます。次回からはIDとパスワードでログインします。</div></div>
+    </div>
+  </div>
+  <div>
+    <h3 style="margin-bottom:2.5mm">よくあるご質問</h3>
+    <div class="qa">
+      <div><div class="q">料金はかかりますか。</div><div class="a">ご家族に料金はかかりません。</div></div>
+      <div><div class="q">スマホを持っていません。</div><div class="a">パソコンやタブレットでも同じ画面をご覧いただけます。</div></div>
+      <div><div class="q">今日の記録がまだ出ません。</div><div class="a">事業所が記録を保存すると表示されます。多くは当日中、遅くとも翌日です。</div></div>
+      <div><div class="q">パスワードを忘れました。</div><div class="a">ログイン画面の「パスワードをお忘れですか？」から、登録したメールで再設定できます。</div></div>
+      <div><div class="q">誰が記録を見られますか。</div><div class="a">ご家族と事業所、事業所が招待した担当ケアマネジャーだけです。</div></div>
+      <div><div class="q">やめたいときは。</div><div class="a">事業所の窓口にお申し出ください。アカウントを削除します。</div></div>
+    </div>
+  </div>
+  <p class="small">閲覧はご本人（またはご家族）の同意のもとで行います。通信は暗号化され、ご家族ごとのIDでログインします。画面・写真・記録の内容を、SNSなどへ転載したり第三者に渡したりすることはお控えください。</p>
+  <div class="contact">
+    <div><div class="l">お問い合わせ・ご登録は　事業所名</div><div class="line"></div></div>
+    <div><div class="l">電話</div><div class="line"></div></div>
+  </div>
+  <div class="foot"><span>画面はすべて見本（架空）データです。</span><span>つむぎ（Tsumugi）— ご家族・ケアマネ・事業所が、ご利用者を支え、やさしく紡ぐ。</span></div>
+</section>
+
+</body>
+</html>
