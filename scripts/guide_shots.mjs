@@ -51,7 +51,7 @@ function demo(photos) {
       summary: '週3回、休まず通所されています。体操への参加意欲が高く、血圧も安定して推移しています。引き続き下肢筋力の維持を目標に運動を継続します（見本）。' })),
     familyAnnouncements: [
       { id: 'news_9901', title: '秋の遠足に行ってきました（見本）', body: '近くの公園へ秋の遠足に出かけました。色づいた木々を眺めながら、皆さんで散策を楽しみました。写真をご覧ください。', date: ymd(2), postedAt: new Date(today - 2 * 864e5).toISOString(), audience: ['family', 'caremanager', 'related'], photos: photos.map((data, i) => ({ id: `ph_${i}`, data, caption: ['秋の遠足', '体操の時間', '季節の手作り'][i] })) },
-      { id: 9902, title: 'インフルエンザ予防接種のご案内（見本）', body: '11月中に施設内で予防接種を予定しています。ご希望の方は連絡帳でお知らせください。', date: ymd(6), postedAt: new Date(today - 6 * 864e5).toISOString(), audience: ['family', 'caremanager', 'related'] },
+      { id: 9902, title: '敬老会のご案内（見本）', body: '9月の敬老会では、皆さんで歌や手作りのお菓子を楽しみます。当日の様子は写真でお知らせします。', date: ymd(6), postedAt: new Date(today - 6 * 864e5).toISOString(), audience: ['family', 'caremanager', 'related'] },
     ],
     familyPersonalAnnouncements: [
       { id: 9911, patientId: P1, title: '次回の担当者会議のお知らせ（見本）', body: '来月10日 14時から担当者会議を予定しています。ご都合をお知らせください。', date: ymd(1), postedAt: new Date(today - 864e5).toISOString(), audience: ['family', 'caremanager'] },
@@ -126,7 +126,7 @@ const chip = async (page, label, name, dy = 0) => { const b = page.locator('butt
   for (const [re, n] of [[/家族一覧/, 'guide_fam_members'], [/利用者・登録者情報/, 'guide_fam_myinfo'], [/フェイスシート/, 'guide_fam_facesheet']]) { if (await clickText(page, re)) { await page.waitForTimeout(1000); await shot(page, n); await closeAll(page); } else log('skip', n); }
   await ctx.close(); }
 // ---------- ケアマネ(パソコン) ----------
-{ const ctx = await browser.newContext({ locale: 'ja-JP', timezoneId: 'Asia/Tokyo', viewport: { width: 1280, height: 860 }, deviceScaleFactor: 1.5 }); const page = await ctx.newPage();
+{ const ctx = await browser.newContext({ locale: 'ja-JP', timezoneId: 'Asia/Tokyo', viewport: { width: 980, height: 740 }, deviceScaleFactor: 2 }); const page = await ctx.newPage();
   await prep(page); await page.goto(`${BASE}/?family`, { waitUntil: 'domcontentloaded' }); await page.waitForTimeout(900); await shot(page, 'guide_cm_login');
   await login(page, 'mihon-cm');
   // 複数の利用者を担当している状態(クラウドのアカウント情報から作られる切替一覧)を手元で再現
