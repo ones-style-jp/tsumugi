@@ -11357,36 +11357,43 @@ function DigitalKeypad({ isOpen, anchorKey, value, isFirstInput, onInput, onEnte
 }
 
 
-// ★ 2026-10-07: 中身(用紙など)が画面より広いとき、幅に収まるよう縮小して全体を表示する(スマホの連絡帳など)。
-//   transform で縮めるため中身の作りは変えない。縮めた分の高さは外枠で詰める。中身の大きさが変わっても追従する。
-// 保存の時間切れ(容量に応じて20〜80秒)の控え。測るのは5分に1回(App の _retryPush で使う)
-const _tsuPushTmo = { at: 0, tmo: 20000 };
-
-function TsuFitWidth({ children }) {
-  const outerRef = React.useRef(null);
-  const innerRef = React.useRef(null);
-  const [fit, setFit] = React.useState({ s: 1, h: null });
-  React.useLayoutEffect(() => {
-    const calc = () => {
-      const o = outerRef.current, i = innerRef.current; if (!o || !i) return;
-      const iw = i.offsetWidth, ih = i.offsetHeight, ow = o.clientWidth;
-      if (!iw || !ow) return;
-      const sc = Math.min(1, ow / iw);
-      setFit(prev => (Math.abs(prev.s - sc) < 0.001 && prev.h === Math.ceil(ih * sc)) ? prev : { s: sc, h: Math.ceil(ih * sc) });
-    };
-    calc();
-    let ro = null;
-    try { ro = new ResizeObserver(calc); ro.observe(outerRef.current); ro.observe(innerRef.current); } catch { window.addEventListener('resize', calc); }
-    return () => { if (ro) ro.disconnect(); else window.removeEventListener('resize', calc); };
+const _tsuClipX = (() => { try { return (typeof CSS !== 'undefined' && CSS.supports && CSS.supports('overflow-x', 'clip')) ? 'clip' : 'hidden'; } catch { return 'hidden'; } })();
+// ★ 2026-10-08(ユーザー提案「スマホは上部の項目を折りたたみ、必要なときだけいつでも表示」): スマホ幅(768未満)の画面上部の共通部品。
+//   折りたたみ中は1行の要約(summary=日付・保存など よく使うもの)と「操作」ボタンだけを出し、押すと上部の操作(children)を全部表示する。
+//   開閉は画面ごとに端末へ記憶(storageKey)。iPad・PCでは children をそのまま出す(従来どおり)。
+function useTsuIsPhone() {
+  const q = '(max-width: 767px)';
+  const [on, setOn] = React.useState(() => { try { return window.matchMedia(q).matches; } catch { return false; } });
+  React.useEffect(() => {
+    let m = null; try { m = window.matchMedia(q); } catch { return; }
+    const h = () => setOn(m.matches);
+    try { m.addEventListener('change', h); } catch { try { m.addListener(h); } catch {} }
+    return () => { try { m.removeEventListener('change', h); } catch { try { m.removeListener(h); } catch {} } };
   }, []);
+  return on;
+}
+function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = true }) {
+  const isPhone = useTsuIsPhone();
+  const [open, setOpen] = React.useState(() => { try { return localStorage.getItem('tsuFold_' + storageKey) === '1'; } catch { return false; } });
+  if (!isPhone) return children;
+  const tog = () => setOpen(v => { const nv = !v; try { localStorage.setItem('tsuFold_' + storageKey, nv ? '1' : '0'); } catch {} return nv; });
   return (
-    <div ref={outerRef} data-fit-scale={fit.s.toFixed(3)} style={{ width: '100%', overflow: 'hidden', height: fit.h == null ? undefined : fit.h }}>
-      <div ref={innerRef} style={{ width: 'max-content', transform: fit.s < 1 ? `scale(${fit.s})` : undefined, transformOrigin: 'top left', margin: fit.s < 1 ? 0 : '0 auto' }}>
-        {children}
+    <div data-testid={`fold-${storageKey}`} className={`${sticky ? 'sticky top-0 z-30' : ''} bg-white border-b border-slate-200 shadow-sm ${className}`}>
+      <div className="flex items-center gap-2 px-2 py-1.5" style={{minHeight:48}}>
+        <div className="flex-1 min-w-0 flex items-center gap-2 overflow-hidden">{summary}</div>
+        <button type="button" data-testid={`fold-btn-${storageKey}`} onClick={tog} aria-expanded={open}
+          className={`shrink-0 h-10 px-3 rounded-xl text-sm font-bold border whitespace-nowrap ${open ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-700 border-slate-300'}`}>
+          {open ? '操作 ▲' : '操作 ▼'}
+        </button>
       </div>
+      {/* 閉じているときも中身は消さずに高さ0で隠す(中にある確認の小窓=画面全体に出る窓 が開けなくならないように) */}
+      <div data-testid={`fold-body-${storageKey}`} data-open={open ? '1' : '0'} aria-hidden={!open} className={open ? 'border-t border-slate-200' : ''} style={open ? undefined : { height: 0, overflow: 'hidden' }}>{children}</div>
     </div>
   );
 }
+
+// 保存の時間切れ(容量に応じて20〜80秒)の控え。測るのは5分に1回(App の _retryPush で使う)
+const _tsuPushTmo = { at: 0, tmo: 20000 };
 
 function SidebarItem({ icon, label, active, onClick, badge }) {
   return (
@@ -20906,6 +20913,12 @@ export default function App() {
     }, 330); // サイドバーの transition(300ms)完了後
     return () => clearTimeout(id);
   }, [isSidebarOpen]);
+  // ★ 2026-10-08: iPhone/iPad でサイドバーを開いた後、メニュー(スクロール枠)を一度描き直させる(描かれずに空になることがあった)
+  useEffect(() => {
+    if (!isSidebarOpen || !tsumugiIsIOS()) return;
+    const id = setTimeout(() => { try { const el = document.getElementById('tsuSideNav'); if (!el) return; const st = el.scrollTop; const prev = el.style.display; el.style.display = 'none'; void el.offsetHeight; el.style.display = prev || ''; el.scrollTop = st; } catch {} }, 340);
+    return () => clearTimeout(id);
+  }, [isSidebarOpen]);
   // ★ 2026-10-06(ユーザー報告: 再読み込みした直後は上部のボタンが出ず、サイドバーを開閉すると出る): iPad の WebKit で
   //   縮小(zoom)の切替や回転のあと上部のバーが描かれないことがある。サイドバー開閉と同じ強制 reflow を、画面の切替・回転のあとにも行う
   const [_repaintTick, _setRepaintTick] = useState(0);
@@ -22825,10 +22838,13 @@ export default function App() {
       {isSidebarOpen && (
         <div onClick={()=>setIsSidebarOpen(false)} className="md:hidden fixed inset-0 bg-black/50 z-40" aria-hidden="true"/>
       )}
-      <div className={`no-print bg-slate-900 text-slate-300 flex flex-col shadow-2xl transition-all duration-300 ${
+      {/* ★ 2026-10-08(ユーザー報告「スマホ縦でサイドバーのメニューが消える。横にして縦に戻すと出る」): iPhone の WebKit は、
+          幅0・透明から開く(幅と透明度のアニメーション)と、中のスクロール枠(メニュー)を描かないことがある。
+          スマホ幅は常に幅256pxのまま画面の左外から滑り込ませる(transform)。iPad・PC(md以上)は従来どおり幅の開閉 */}
+      <div data-testid="app-sidebar" className={`no-print bg-slate-900 text-slate-300 flex flex-col shadow-2xl ${
         isSidebarOpen
-          ? 'w-64 opacity-100 fixed md:relative md:flex-shrink-0 inset-y-0 left-0 z-50 md:z-auto'
-          : 'w-0 opacity-0 overflow-hidden flex-shrink-0'
+          ? 'w-64 fixed inset-y-0 left-0 z-50 translate-x-0 transition-transform duration-300 md:transition-all md:transform-none md:relative md:flex-shrink-0 md:z-auto md:opacity-100'
+          : 'w-64 fixed inset-y-0 left-0 z-50 -translate-x-full transition-transform duration-300 md:transition-all md:transform-none md:relative md:translate-x-0 md:w-0 md:opacity-0 md:overflow-hidden md:flex-shrink-0 md:z-auto'
       }`}>
           <div className="w-64 h-full flex flex-col">
             <div className="h-16 flex items-center px-5 border-b" style={{background:'#fafef1',borderColor:'#d4e7a5'}}>
@@ -22999,7 +23015,7 @@ export default function App() {
                 })()}
               </div>
             )}
-            <div className="flex-1 py-6 px-4 space-y-1 overflow-y-auto">
+            <div id="tsuSideNav" className="flex-1 py-6 px-4 space-y-1 overflow-y-auto" style={{WebkitTransform:'translateZ(0)',transform:'translateZ(0)'}}>
               <SidebarItem icon={<CalendarCheck size={18} />} label="ホーム" active={currentView === 'dashboard'} onClick={() => navigateTo('dashboard')} badge={_homeUnreadCount||null} />
               {tsumugiSideShown(appData, 'schedule') && <SidebarItem icon={<CalendarRange size={18} />} label="カレンダー" active={currentView === 'schedule'} onClick={() => navigateTo('schedule')} />}
               <SidebarItem icon={<ClipboardList size={18} />} label="サービス提供記録 入力" active={currentView === 'record'} onClick={() => navigateTo('record')} />
@@ -25122,16 +25138,67 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     );
   })() : null;
 
+  // 厚労省バイタルサイン基準値パネル（折りたたみ可能・全画面時は非表示・コンパクト表示）。スマホは上部の「操作」の中に入る(2026-10-08)
+  const _vitalPanel = (
+
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 px-3 py-1 flex-shrink-0 mb-2 text-[11px]">
+        <button onClick={()=>setVitalCollapsed(v=>!v)} data-testid="vital-ref-toggle" className="font-bold text-slate-500 text-[11px] flex items-center gap-1 w-full hover:text-slate-700 text-left">
+          <Activity size={11} className="text-blue-500 shrink-0"/>
+          <span className="shrink-0"><span className="sm:hidden">基準値</span><span className="hidden sm:inline">バイタルサイン 基準値（厚労省ガイドライン）</span></span>
+          {/* ★ 閉じているときも正常範囲だけは1行で見えるように(2026-10-07) */}
+          {vitalCollapsed && <span data-testid="vital-ref-compact" className="min-w-0 flex flex-wrap gap-x-2 text-slate-700 font-bold ml-1"><span>体温 36.0〜37.0℃</span><span>血圧 100〜129/60〜84</span><span>脈 60〜100</span></span>}
+          <span className="ml-auto text-slate-400 shrink-0 pl-1">{vitalCollapsed?'▼ 詳しく':'▲ 閉じる'}</span>
+        </button>
+        {!vitalCollapsed && <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1">
+          <div className="flex items-start gap-1.5 min-w-[180px]">
+            <span className="font-bold text-slate-600 whitespace-nowrap shrink-0 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">体温</span>
+            <div className="space-y-0 leading-tight">
+              <div><span className="text-black font-bold">正常 36.0〜37.0℃</span></div>
+              <div><span className="text-amber-600 font-bold">微熱 37.1〜38.0℃</span>　<span className="text-red-600 font-bold">高熱 38.1℃以上</span></div>
+              <div><span className="text-blue-600 font-bold">低体温 35.9℃以下</span><span className="text-slate-400 ml-1">（注意）</span></div>
+            </div>
+          </div>
+          <div className="w-px bg-slate-200 self-stretch"/>
+          <div className="flex items-start gap-1.5 min-w-[280px]">
+            <span className="font-bold text-slate-600 whitespace-nowrap shrink-0 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">血圧</span>
+            <div className="space-y-0 leading-tight">
+              <div><span className="text-black font-bold">正常 収縮期 100〜129 / 拡張期 60〜84 mmHg</span></div>
+              <div><span className="text-amber-600 font-bold">高血圧Ⅰ度 130〜139/85〜89</span>　<span className="text-red-600 font-bold">Ⅱ度 140〜159/90〜99</span>　<span className="text-red-700 font-bold">Ⅲ度 160以上/100以上</span></div>
+              <div><span className="text-blue-600 font-bold">低血圧 収縮期 90未満</span><span className="text-slate-400 ml-1">（起立性低血圧に注意）</span></div>
+            </div>
+          </div>
+          <div className="w-px bg-slate-200 self-stretch"/>
+          <div className="flex items-start gap-1.5 min-w-[180px]">
+            <span className="font-bold text-slate-600 whitespace-nowrap shrink-0 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">脈拍</span>
+            <div className="space-y-0 leading-tight">
+              <div><span className="text-black font-bold">正常 60〜100 回/分</span></div>
+              <div><span className="text-red-600 font-bold">頻脈 101回以上</span>　<span className="text-blue-600 font-bold">徐脈 59回以下</span></div>
+              <div className="text-slate-400">高齢者の目安 60〜80回/分。不整脈に注意。</div>
+            </div>
+          </div>
+        </div>}
+      </div>
+      
+  );
   // ★ 全画面時: Portal で body 直下にレンダリングして親 transform の影響を完全に避ける
   const RecordContent = (
     <div className={`flex flex-col w-full mx-auto relative ${isFullscreen?'':'h-full'}`} style={{
-      minWidth:0, overflowX:'hidden',
+      // ★ 2026-10-08: 横のはみ出しは clip で切る(hidden だとスクロール枠扱いになり、スマホで上部の固定(sticky)が効かなかった)。古い端末は hidden
+      minWidth:0, overflowX: _tsuClipX,
       ...(isFullscreen ? {
         position: 'fixed', inset: 0, height: '100dvh', width: '100vw',
         background: 'white', zIndex: 9999,
       } : {}),
     }}>
       {!isFullscreen ? (
+      <TsuPhoneFold storageKey="record" summary={(() => { const _d = new Date(selectedDate + 'T00:00:00'); return (<>
+        <span className="text-[15px] font-bold text-slate-800 whitespace-nowrap">{isNaN(_d) ? '' : `${_d.getMonth()+1}/${_d.getDate()}(${'日月火水木金土'[_d.getDay()]})`}</span>
+        <div className="flex rounded-lg overflow-hidden border border-slate-300 shrink-0">
+          {['AM','PM'].map(v=>(<button key={v} type="button" onClick={()=>setTimeFilter(v)} className={`px-2.5 h-10 text-sm font-bold ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600'}`}>{v}</button>))}
+        </div>
+        <button type="button" data-testid="rec-fold-save" onClick={()=>handleSaveClick(false)} className="shrink-0 h-10 px-3 rounded-xl bg-blue-600 text-white text-sm font-bold">保存</button>
+      </>); })()}>
+      <>
       <div data-testid="rec-toolbar" className="bg-white px-2 py-2 sm:px-4 sm:py-3 rounded-2xl shadow-sm border border-slate-200 flex flex-row items-center gap-2 sm:gap-3 flex-wrap flex-shrink-0 sticky top-0 z-30 mb-2 sm:mb-4">
             {/* ★ 「本日/月全体」トグルは廃止。 月全体は「提供記録(月次)」で確認できるため、当日のみ表示。 */}
             {/* ★ 2026-10-07(店舗報告: スマホ縦で上部のボタンが2段にずれて並ぶ): スマホ幅は 1段目=日付(残りの幅いっぱい)+AM/PM、
@@ -25265,12 +25332,17 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               <button onClick={()=>handleSaveClick(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-2 sm:px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap">保存</button>
             </div>
       </div>
+      {_vitalPanel}
+      </>
+      </TsuPhoneFold>
       ) : (
         // 全画面時: 浮いたボタンではなく、統合された上部ヘッダーバー
-        <div className="bg-slate-800 px-4 py-2 flex items-center gap-3 flex-shrink-0 sticky top-0 z-50 shadow-md">
-          <span className="text-white font-bold text-sm">サービス提供記録 入力 {selectedDate && new Date(selectedDate).toLocaleDateString('ja-JP', {year:'numeric', month:'long', day:'numeric'})}</span>
-          {attCountChips && <div className="ml-2">{attCountChips}</div>}
-          <div className="flex-1"/>
+        // ★ 2026-10-08(ユーザー報告「スマホで全画面表示がおかしい」: 題名が1文字ずつ縦に折れ、ボタンが右にはみ出していた): スマホ幅は折り返して2段に
+        <div data-testid="rec-fs-bar" className="bg-slate-800 px-2 sm:px-4 py-2 flex flex-wrap items-center gap-2 sm:gap-3 flex-shrink-0 sticky top-0 z-50 shadow-md">
+          <span className="text-white font-bold text-sm whitespace-nowrap truncate min-w-0"><span className="hidden sm:inline">サービス提供記録 入力 </span>{selectedDate && new Date(selectedDate).toLocaleDateString('ja-JP', {year:'numeric', month:'long', day:'numeric'})}</span>
+          {attCountChips && <div className="ml-1 sm:ml-2">{attCountChips}</div>}
+          <div className="flex-1 hidden sm:block"/>
+          <div className="basis-full sm:hidden" />
           <button onClick={()=>{ handleSaveClick(); navigateTo('print'); }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap" title="連絡帳の作成・印刷へ"><Printer size={13} className="mr-1"/>連絡帳</button>
           <button onClick={()=>setIsFullscreen(false)} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap">通常表示に戻る</button>
           <button onClick={()=>setRestoreModal(true)} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap" title="保存した記録を丸ごと復元">⟲ 元に戻す</button>
@@ -25278,52 +25350,11 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
         </div>
       )}
 
-      {/* 厚労省バイタルサイン基準値パネル（折りたたみ可能・全画面時は非表示・コンパクト表示） */}
-      {!isFullscreen && (
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 px-3 py-1 flex-shrink-0 mb-2 text-[11px]">
-        <button onClick={()=>setVitalCollapsed(v=>!v)} data-testid="vital-ref-toggle" className="font-bold text-slate-500 text-[11px] flex items-center gap-1 w-full hover:text-slate-700 text-left">
-          <Activity size={11} className="text-blue-500 shrink-0"/>
-          <span className="shrink-0"><span className="sm:hidden">基準値</span><span className="hidden sm:inline">バイタルサイン 基準値（厚労省ガイドライン）</span></span>
-          {/* ★ 閉じているときも正常範囲だけは1行で見えるように(2026-10-07) */}
-          {vitalCollapsed && <span data-testid="vital-ref-compact" className="min-w-0 flex flex-wrap gap-x-2 text-slate-700 font-bold ml-1"><span>体温 36.0〜37.0℃</span><span>血圧 100〜129/60〜84</span><span>脈 60〜100</span></span>}
-          <span className="ml-auto text-slate-400 shrink-0 pl-1">{vitalCollapsed?'▼ 詳しく':'▲ 閉じる'}</span>
-        </button>
-        {!vitalCollapsed && <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1">
-          <div className="flex items-start gap-1.5 min-w-[180px]">
-            <span className="font-bold text-slate-600 whitespace-nowrap shrink-0 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">体温</span>
-            <div className="space-y-0 leading-tight">
-              <div><span className="text-black font-bold">正常 36.0〜37.0℃</span></div>
-              <div><span className="text-amber-600 font-bold">微熱 37.1〜38.0℃</span>　<span className="text-red-600 font-bold">高熱 38.1℃以上</span></div>
-              <div><span className="text-blue-600 font-bold">低体温 35.9℃以下</span><span className="text-slate-400 ml-1">（注意）</span></div>
-            </div>
-          </div>
-          <div className="w-px bg-slate-200 self-stretch"/>
-          <div className="flex items-start gap-1.5 min-w-[280px]">
-            <span className="font-bold text-slate-600 whitespace-nowrap shrink-0 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">血圧</span>
-            <div className="space-y-0 leading-tight">
-              <div><span className="text-black font-bold">正常 収縮期 100〜129 / 拡張期 60〜84 mmHg</span></div>
-              <div><span className="text-amber-600 font-bold">高血圧Ⅰ度 130〜139/85〜89</span>　<span className="text-red-600 font-bold">Ⅱ度 140〜159/90〜99</span>　<span className="text-red-700 font-bold">Ⅲ度 160以上/100以上</span></div>
-              <div><span className="text-blue-600 font-bold">低血圧 収縮期 90未満</span><span className="text-slate-400 ml-1">（起立性低血圧に注意）</span></div>
-            </div>
-          </div>
-          <div className="w-px bg-slate-200 self-stretch"/>
-          <div className="flex items-start gap-1.5 min-w-[180px]">
-            <span className="font-bold text-slate-600 whitespace-nowrap shrink-0 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">脈拍</span>
-            <div className="space-y-0 leading-tight">
-              <div><span className="text-black font-bold">正常 60〜100 回/分</span></div>
-              <div><span className="text-red-600 font-bold">頻脈 101回以上</span>　<span className="text-blue-600 font-bold">徐脈 59回以下</span></div>
-              <div className="text-slate-400">高齢者の目安 60〜80回/分。不整脈に注意。</div>
-            </div>
-          </div>
-        </div>}
-      </div>
-      )}
-
       <style>{`#record-table tbody tr { min-height: 32px !important; } #record-table tbody tr td { min-height: 32px !important; padding-top: 2px !important; padding-bottom: 2px !important; box-sizing: border-box !important; } /* 個別運動列: 他の列と同じ行高に収める (min-height強制を外す) */ #record-table tbody tr td[data-ind-cell] { min-height: 0 !important; height: auto !important; max-height: none !important; overflow: visible !important; vertical-align: middle !important; }  #record-table tr.readonly-row input:disabled, #record-table tr.readonly-row button:disabled, #record-table tr.readonly-row textarea:disabled, #record-table tr.readonly-row select:disabled { opacity: 1 !important; color: #000 !important; -webkit-text-fill-color: #000 !important; } /* 列見出しを縦スクロール時も常に上部固定 + 行高を狭く */ #record-table thead th { position: -webkit-sticky !important; position: sticky !important; top: 0 !important; height: 32px !important; min-height: 32px !important; max-height: 32px !important; padding-top: 4px !important; padding-bottom: 4px !important; line-height: 1.1 !important; font-size: 11px !important; }`}</style>
       {/* ★ 画面上部の横スクロールバー(自前描画・2026-08-11): ネイティブのスクロールバーは
           OS/ブラウザ設定で非表示になり得るため、つまみを自前で描画して常時表示する。
           つまみのドラッグ・レールのクリックで表が横スクロールし、表のスクロールにも追従する。 */}
-      <div className="bg-slate-200 border border-slate-300 rounded-t-xl"
+      <div className="bg-slate-200 border border-slate-300 rounded-t-xl hidden md:block"
            style={{height:11,flexShrink:0,marginBottom:-1,position:'relative',overflow:'hidden',cursor:'pointer'}}
            onPointerDown={(e)=>{ if (e.target !== e.currentTarget) return; const el = tableScrollRef.current; if (!el) return; const r = e.currentTarget.getBoundingClientRect(); el.scrollLeft = ((e.clientX - r.left) / Math.max(1, r.width)) * el.scrollWidth - el.clientWidth / 2; }}>
         <div onPointerDown={_hbarDown} onPointerMove={_hbarMove} onPointerUp={_hbarUp} onPointerCancel={_hbarUp}
@@ -32834,7 +32865,6 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   const _paperName = () => { const ss = appData.systemSettings || {}; return ss.renrakuMode === '1' ? (ss.renrakuPaper === 'b6port' ? 'B6（JIS）・縦' : 'B5（JIS）・横') : 'B5（JIS）・横'; };
   const _showPaperTip = () => { const t = Date.now(); setCbPaperTip({ t, paper: _paperName() }); setTimeout(() => setCbPaperTip(v => (v && v.t === t) ? null : v), 12000); };
   const [mobileCardLimit, setMobileCardLimit] = useState(6); // ★ スマホは重いカードを少しずつ描画(メモリ対策)
-  const [mobileOpenCardId, setMobileOpenCardId] = useState(null); // ★ スマホは重いカードを描画せず、開いた1人だけ描画(メモリ対策)
   const [printingIds, setPrintingIds] = useState([]); // ★ 印刷時に描画する利用者ID(全員ではなく印刷対象だけ描画)
   const [isBulkEditOpen, setIsBulkEditOpen] = useState(false);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
@@ -33959,11 +33989,10 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
             return (
               <div className="flex flex-col gap-2 px-1 pb-8">
                 {displayRecords.length === 0 && <div className="text-center text-slate-500 font-bold py-12 w-full">選択された日付の出席記録がありません。</div>}
-                <div className="text-[11px] text-slate-500 font-bold bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-1">スマホでは動作を軽くするため一覧表示です。詳しく見る/編集は「開く」を押してください。</div>
+                <div className="text-[12px] text-slate-500 font-bold bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-1">スマホでは一覧表示です。連絡事項の入力と印刷はここからできます（連絡帳の全体はタブレット・パソコンで確認できます）。</div>
                 {displayRecords.map((record) => {
                   const patient = (appData.patients||[]).find(p => p.id === record.patientId);
                   if (!patient) return null;
-                  const opened = mobileOpenCardId === record.patientId;
                   return (
                     <div key={record.id} className="bg-white rounded-xl border border-slate-300 shadow-sm overflow-hidden">
                       <div className="flex items-center justify-between gap-2 px-3 py-2.5">
@@ -33971,17 +34000,9 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                         <div className="flex items-center gap-1.5 shrink-0">
                           <button onClick={()=>setRenrakuModal({ patientId: patient.id })} className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-100 text-emerald-700">連絡事項</button>
                           <button onClick={()=>doPrint([record.patientId])} className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-blue-100 text-blue-700">印刷</button>
-                          <button onClick={()=>setMobileOpenCardId(opened?null:record.patientId)} className={`px-2.5 py-1.5 rounded-lg text-xs font-bold ${opened?'bg-slate-200 text-slate-600':'bg-slate-700 text-white'}`}>{opened?'閉じる':'開く'}</button>
                         </div>
                       </div>
-                      {/* ★ 2026-10-07(店舗要望): スマホで開いた連絡帳は用紙の原寸で左右が切れていた → 画面の幅に合わせて縮小して全体を表示 */}
-                      {opened && (
-                        <div className="border-t border-slate-200 p-1.5" data-testid="renraku-fit">
-                          <TsuFitWidth>
-                            <ContactBookCard record={record} patient={patient} selectedDate={selectedDate} config={appData.contactBookConfig} appData={appData} onOpenConfig={() => setIsConfigOpen(true)} onEditPatientValue={openPatientValueEdit} onEditRenraku={(p)=>setRenrakuModal({ patientId: p.id })} />
-                          </TsuFitWidth>
-                        </div>
-                      )}
+                      {/* ★ 2026-10-08(ユーザー指示): スマホの「開く」(連絡帳の用紙をその場で表示)は廃止 */}
                     </div>
                   );
                 })}
@@ -35413,7 +35434,6 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const [autoCalc, setAutoCalc] = useState(null); // ★ 2026-09-30: 自動計算の選択 { haisha, jikan, days:Set(iso), slots:Set('AM'|'PM') }
   React.useEffect(() => { try { const j = sessionStorage.getItem('tsumugiTpJump'); if (j) { sessionStorage.removeItem('tsumugiTpJump'); setSelectedDate(j); } } catch {} }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [tpSettings, setTpSettings] = useState(false); // ★ 送迎表の設定モーダル(到着目標・出発・定員)
-  const [tpHelp, setTpHelp] = useState(false); // ★ 使い方の説明(?ボタン・ホバー/タップで表示・2026-09-13c)
   const [tpLegend, setTpLegend] = useState(false); // ★ 凡例の開閉(●=要TELは常時表示・2026-09-14 デザイン刷新)
   const _facilityAddr = () => { const fi = appData.systemSettings?.facilityInfo || {}; return `${fi.address||''}${fi.addressBuilding?(' '+fi.addressBuilding):''}`.trim(); };
   // ★ 2026-10-01(試験版・ユーザー要望): 地域密着型は事業所と同じ区市町村の方が利用するので、運行表・連絡先一覧の住所は
@@ -36266,15 +36286,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           ); })()}
           <button onClick={()=>setTpSettings(true)} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="到着目標時刻・車の定員の設定">設定</button>
           <button onClick={()=>setPrintModal({ mode:'week', weekContent:'sheet', days:new Set(days.map(d=>_iso(d))) })} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">ダウンロード</button>
-        {/* ★ 使い方の説明: ホバーまたはタップで表示(2026-09-13c) */}
-        <div className="relative" onMouseEnter={()=>setTpHelp(true)} onMouseLeave={()=>setTpHelp(false)}>
-          <button onClick={()=>setTpHelp(v=>!v)} title="使い方の説明" className="w-9 h-9 rounded-full border border-slate-300 bg-white hover:bg-slate-50 text-slate-600 font-bold text-base leading-none">?</button>
-          {tpHelp && (
-            <div className="absolute right-0 top-10 w-[340px] max-w-[85vw] bg-white border border-slate-300 rounded-xl shadow-2xl p-3 text-[11px] font-bold text-slate-600 leading-relaxed" style={{zIndex:60}}>
-              自動下書き=月間スケジュール+送迎時間マスタ+前週の車割りから作成。名前を長押し→そのまま別の車へドラッグで移動(行の上に落とすと割り込み・別の日に落とすと振替)。名前をタップ=待ち合わせ場所・乗車時間の編集。時間は直接入力。「確定」で内容を確定すると、その後に変えた箇所(車・乗車順・時間・運転者)に自動で<span className="text-red-600">●</span>が付き、印刷にも出ます。<span className="text-red-600">●</span>=連絡帳を渡した後にお迎え時間が変わった印(タップで付け外し・TEL忘れ防止)。<span className="bg-emerald-200 px-1">緑</span>=振替、<span className="bg-sky-200 px-1">水色</span>=初回利用の方。編集した日だけ保存されます(自動保存)。
-            </div>
-          )}
-        </div>
+        {/* ★ 2026-10-08(ユーザー指示): 上部の「?」(使い方の説明)は削除 */}
       </div>
         {/* ★ 2026-09-30: 上の帯と隙間なく詰めて固定(スクロール中に下の内容が透けて見えないよう背景つき)。日付は中央揃え・「この日を印刷」は廃止(印刷ボタンの「日ごと」で印刷) */}
         {!_finalView && <div className="bg-slate-100 px-2 sm:px-3 pt-1 pb-1 border-b border-slate-200" data-testid="tp-date-strip">
@@ -44493,6 +44505,7 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
 }
 // === 日誌画面 ===
 function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAmpm, setSharedAmpm, dirtyRef, saveFnRef, onShowPrintPreview }) {
+  const _isPhoneDiary = useTsuIsPhone(); // ★ 2026-10-08: スマホは上部を折りたたみ(未完成の一覧は外に出す)
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
 
@@ -44989,11 +45002,16 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     return () => window.removeEventListener('keydown', h);
   });
 
-  const CB = ({checked, onChange, sz=12}) => (
-    <div onClick={onChange} style={{width:sz,height:sz,border:'1.5px solid #444',borderRadius:2,display:'inline-flex',alignItems:'center',justifyContent:'center',cursor:'pointer',flexShrink:0,backgroundColor:checked?'#2563eb':'white',verticalAlign:'middle'}}>
-      {checked&&<svg width={sz-3} height={sz-3} viewBox="0 0 10 10"><polyline points="2,5 4,8 8,2" stroke="white" strokeWidth="2.5" fill="none" strokeLinecap="round"/></svg>}
+  // ★ 2026-10-08(ユーザー報告「日誌のチェックボックスが小さすぎて押しづらい」): タッチ端末では見た目を少し大きく(1.3倍)し、
+  //   周りに見えない余白(押せる範囲)を足す(負の余白で用紙の並びは変えない)。氏名を押してもチェックできる(各行の onClick)。
+  const _cbCoarse = (() => { try { return !isPrintPreview && window.matchMedia('(pointer: coarse)').matches; } catch { return false; } })();
+  const CB = ({checked, onChange, sz=12}) => { const z = _cbCoarse ? Math.round(sz * 1.3) : sz; return (
+    <div onClick={(e)=>{ e.stopPropagation(); onChange(); }} data-diary-cb="1" style={{display:'inline-flex',padding:_cbCoarse?7:0,margin:_cbCoarse?-7:0,cursor:'pointer',flexShrink:0,verticalAlign:'middle'}}>
+      <div style={{width:z,height:z,border:'1.5px solid #444',borderRadius:2,display:'inline-flex',alignItems:'center',justifyContent:'center',backgroundColor:checked?'#2563eb':'white'}}>
+        {checked&&<svg width={z-3} height={z-3} viewBox="0 0 10 10"><polyline points="2,5 4,8 8,2" stroke="white" strokeWidth="2.5" fill="none" strokeLinecap="round"/></svg>}
+      </div>
     </div>
-  );
+  ); };
 
   const StaffBox = ({label, list, flexWeight}) => (
     <div style={{border:'1px solid #888',borderRadius:3,padding:0,flex:flexWeight||'1 1 0',minWidth:0,overflow:'hidden',display:'flex',flexDirection:'column'}}>
@@ -45005,7 +45023,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             {/* ★ 2026-09-28 ユーザー指示: 日誌は氏名だけ(「不在時」印・資格表示は出さない)。副役職の人も該当欄に並ぶのは維持 */}
             <span style={{display:'inline-flex',alignItems:'center',gap:2,whiteSpace:'nowrap'}}>
               {CB({checked:!!(log.staff||{})[s.id], onChange:()=>{ toggle('staff',s.id); if(!(log.staff||{})[s.id] && !appData.diarySettings?.hideStaffTemp) setTempModal({staffId:s.id,staffName:s.name,value:(log.staffTemp||{})[s.id]||''}); }, sz:11})}
-              <span style={{fontSize:11,whiteSpace:'nowrap'}}>{s.name}</span>
+              <span style={{fontSize:11,whiteSpace:'nowrap',cursor:'pointer'}} onClick={()=>{ toggle('staff',s.id); if(!(log.staff||{})[s.id] && !appData.diarySettings?.hideStaffTemp) setTempModal({staffId:s.id,staffName:s.name,value:(log.staffTemp||{})[s.id]||''}); }}>{s.name}</span>
             </span>
             {/* ★ 2026-09-18: 各種設定→日誌「職員の体温を表示・入力する」がOFFの店舗は非表示(画面・印刷とも同じ描画関数) */}
             {!appData.diarySettings?.hideStaffTemp && (log.staffTemp||{})[s.id] && (
@@ -45047,7 +45065,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           return (
           <span key={s.id} style={{display:'inline-flex',alignItems:'center',gap:1,minWidth:0}}>
             {CB({checked:!!(log.driver||{})[prefix+s.id], onChange:()=>toggle('driver',prefix+s.id), sz:10})}
-            <span style={{fontSize:_nfs,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{s.name}</span>
+            <span style={{fontSize:_nfs,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',cursor:'pointer'}} onClick={()=>toggle('driver',prefix+s.id)}>{s.name}</span>
           </span>
           );
         })}
@@ -45489,7 +45507,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
               <React.Fragment key={s.id}>
                 <span style={{display:'inline-flex',alignItems:'center',gap:2}}>
                   {CB({checked:!!(_log.recorder||{})[s.id], onChange:()=>_toggle('recorder',s.id), sz:11})}
-                  <span style={{fontSize:11,fontWeight:'bold'}}>{s.name}</span>
+                  <span style={{fontSize:11,fontWeight:'bold',cursor:'pointer'}} onClick={()=>_toggle('recorder',s.id)}>{s.name}</span>
                 </span>
                 {si < arr.length-1 && <span style={{fontSize:11}}>　</span>}
               </React.Fragment>
@@ -45500,7 +45518,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           <div style={{backgroundColor:'#445',color:'white',fontSize:9,fontWeight:'bold',padding:'2px 8px'}}>管理者確認</div>
           <div style={{padding:'5px 8px',display:'flex',alignItems:'center',gap:4,minHeight:38}}>
             {CB({checked:!!(_log.managerConfirmed), onChange:()=>_updateLog({managerConfirmed:!_log.managerConfirmed}), sz:12})}
-            <span style={{fontSize:11,fontWeight:'bold',lineHeight:1.4}}>{managerName}は上記記録を確認しました。</span>
+            <span style={{fontSize:11,fontWeight:'bold',lineHeight:1.4,cursor:'pointer'}} onClick={()=>_updateLog({managerConfirmed:!_log.managerConfirmed})}>{managerName}は上記記録を確認しました。</span>
           </div>
         </div>
       </div>
@@ -45759,8 +45777,81 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     );
   }
 
+  // ★ 未完了バッジ(2026-09-10 店舗要望で刷新・2026-10-08 スマホでは上部の折りたたみの外に出すため変数に): 「これをやらないと日誌が完成しない」項目を一覧。
+  //   迎え/送り=未選択の人数を一本化(コピー未確認・全体未記入も同じチップ)。送迎者=使う車に運転者チェックなし。ヒント括弧は廃止・チップ名に情報を含める。
+  const _diaryBadge = (() => {
+          // ★ 休業のスロットは担当職員も送迎も無いため出さない(2026-09-04 店舗要望)
+          if (_dayIsKyugyo(selectedDate, dow)) return null;
+          // ★ 2026-08-27以前の保存分はコピー未確認フラグの残骸があるため無視(diaryPendingItemsと同じ基準)
+          const sp = selectedDate < DIARY_SP_LEGACY_CUTOFF ? {} : (log._sougeiPending || {});
+          const _hasAny = (o) => !!o && Object.values(o).some(v => Array.isArray(v) ? v.length : (v && typeof v === 'object' ? Object.keys(v).length : String(v ?? '').trim() !== ''));
+          // 車未選択の利用者(判定は送迎車割り当てモーダルと同一・徒歩=選択済み・欠席/休止/休業は対象外)
+          const _unassignedFor = (prefix) => {
+            const _wm = log[prefix+'_walk']||{}, _sm = log[prefix]||{}, _om3 = log[prefix+'_other']||{};
+            const out = [];
+            Array.from({length: totalRows}).forEach((_, i) => {
+              const pt = patients[i];
+              const sr = (log.patientRows||[])[i]||{};
+              const name = pt?.name || sr.name || '';
+              if (!name) return;
+              if (pt && (pt.status==='欠席'||pt.status==='休業'||pt.status==='休止')) return;
+              const _pid = _diaryPtKey(pt);
+              const _idHas = _pid != null && (_wm[String(_pid)] !== undefined || ds.cars.some(c=>_sm[_pid+'_'+c.id] !== undefined));
+              const _wKey = diaryRowCarKey(pt, i, selectedDate, _idHas);
+              const _cPre = _wKey;
+              if (_wm[_wKey] || _om3[_wKey]) return;
+              if (!ds.cars.some(c=>_sm[_cPre+'_'+c.id])) out.push(name);
+            });
+            return out;
+          };
+          // ★ 過去日(2026-09-10より前)は厳格チェック導入前の基準で判定(遡って未完成にしない)
+          const _strict = selectedDate >= DIARY_STRICT_CUTOFF;
+          const _upk = _strict ? _unassignedFor('pick') : [];
+          const _udr = _strict ? _unassignedFor('drop') : [];
+          const items = [];
+          // 迎え/送り: 「未選択◯名」に一本化(全体未記入=全員未選択として人数に含まれる)
+          if (_upk.length) items.push({ key:'迎え', label:`迎え 未選択${_upk.length}名`, prefix:'pick' });
+          else if (sp['迎え'] || (!_hasAny(log.pick) && !_hasAny(log.pick_walk) && !_hasAny(log.pick_other))) items.push({ key:'迎え', label:'迎え', prefix:'pick' });
+          if (_udr.length) items.push({ key:'送り', label:`送り 未選択${_udr.length}名`, prefix:'drop' });
+          else if (sp['送り'] || (!_hasAny(log.drop) && !_hasAny(log.drop_walk) && !_hasAny(log.drop_other))) items.push({ key:'送り', label:'送り', prefix:'drop' });
+          // ★ 送迎者(2026-09-10 店舗要望): 迎え/送りで使う車に運転者チェックが1人も無ければ未完了
+          const _drv = log.driver || {};
+          const _drvMissing = (dirKey, dpre) => ds.cars.some(c => {
+            const used = diaryCarUsed(log, dirKey, c.id, _carUseOpts);
+            if (!used) return false;
+            return !Object.keys(_drv).some(k => k.startsWith(dpre+c.id+'_') && _drv[k]);
+          });
+          if (_strict && _drvMissing('pick','a_')) items.push({ key:'迎えの送迎者', label:'迎えの送迎者', aid:'diary-sec-cars' });
+          if (_strict && _drvMissing('drop','d_')) items.push({ key:'送りの送迎者', label:'送りの送迎者', aid:'diary-sec-cars' });
+          // ★ 2026-09-10(店舗要望): 時間の必須は方向別。到着=迎えで使う車すべて・出発=送りで使う車すべて。
+          //   使わない方向の車は動かないので、その時間は未入力でも必須にしない。
+          const _usedCars = (dirKey) => ds.cars.filter(c => diaryCarUsed(log, dirKey, c.id, _carUseOpts));
+          if (_strict && _usedCars('pick').some(c => !(((log.carTimes||{})[c.id]||{}).arrive))) items.push({ key:'到着時間', label:'到着時間', aid:'diary-sec-cars' });
+          if (_strict && _usedCars('drop').some(c => !(((log.carTimes||{})[c.id]||{}).depart))) items.push({ key:'出発時間', label:'出発時間', aid:'diary-sec-cars' });
+          if (!_strict && !Object.values(log.carTimes||{}).some(t => t && (t.arrive || t.depart))) items.push({ key:'送迎時間', label:'送迎時間', aid:'diary-sec-cars' });
+          if (!Object.keys(log.recorder||{}).some(k => (log.recorder||{})[k])) items.push({ key:'記録者', label:'記録者', aid:'diary-sec-recorder' });
+          if (!log.managerConfirmed) items.push({ key:'管理者確認', label:'管理者確認', aid:'diary-sec-manager' });
+          // ★ 必須職員(定員連動)の未選択(2026-09-29): 「減算」を押すと log.gensan[役職]=true になり警告が消える
+          diaryStaffMissing(log, selectedDate, appData).forEach(r => items.push({ key:`必須職員:${r}`, label:`必須職員未選択: ${r}`, aid:'diary-sec-staff', gensanRole: r }));
+          if (!items.length) return null;
+          return (
+            <div style={{flexBasis:'100%'}} className="w-full bg-amber-100 border-2 border-amber-400 text-amber-900 rounded-xl px-3 py-2 text-sm font-bold flex items-center gap-2 flex-wrap">
+              <span className="text-lg">⚠</span>
+              <span>日誌が未完成です:</span>
+              {items.map(it=>(<span key={it.key} className="inline-flex items-center gap-1">
+                <button type="button" title={it.prefix?'クリックで送迎車割り当てを開く':'クリックで該当箇所へ移動'}
+                  onClick={()=>{ if(it.prefix){ setCarAssignModal({prefix:it.prefix}); setCarAssignSelections({}); return; } const el=it.aid&&document.getElementById(it.aid); if(!el) return; el.scrollIntoView({behavior:'smooth',block:'center'}); const _o=el.style.outline; el.style.outline='3px solid #f59e0b'; el.style.outlineOffset='3px'; setTimeout(()=>{ el.style.outline=_o||''; el.style.outlineOffset=''; },1800); }}
+                  className="inline-flex items-center px-2 py-0.5 bg-white border border-amber-400 text-amber-800 rounded-full text-xs font-bold cursor-pointer hover:bg-amber-50">{it.label}</button>
+                {it.gensanRole && !isReadOnly && <button type="button" data-testid={`kenmu-btn-${it.gensanRole}`} title={`担当職員のうち別の役職の人が「${it.gensanRole}」を兼務する場合に記録します（例: 生活相談員が介護職員を兼務）`} onClick={()=>setKenmuModal(it.gensanRole)} className="inline-flex items-center px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded-full text-xs font-bold">兼務</button>}
+                {it.gensanRole && !isReadOnly && DIARY_GENSAN_ROLES.includes(it.gensanRole) && <button type="button" title={it.gensanRole==='機能訓練指導員' ? '機能訓練指導員が不在＝この日の個別機能訓練加算は算定できません。記録してこの警告を消します（下の「取消」で戻せます）' : `${it.gensanRole}が不在＝人員基準欠如の減算として記録し、この警告を消します（下の「取消」で戻せます）`} onClick={()=>updateLog({ gensan: { ...(log.gensan||{}), [it.gensanRole]: true } })} className="inline-flex items-center px-2 py-0.5 bg-red-600 text-white rounded-full text-xs font-bold cursor-pointer hover:bg-red-700">{it.gensanRole==='機能訓練指導員' ? '加算なし' : '減算'}</button>}
+              </span>))}
+              <span className="text-xs font-normal text-amber-700">…すべて入力・確認すると完成します</span>
+            </div>
+          );
+  })();
   return (
-    <div ref={diaryScrollRef} className="h-full overflow-auto w-full bg-slate-100">
+    // ★ 2026-10-08: スマホ幅はこの枠をスクロール枠にしない(外側がスクロールするため、上部の折りたたみの固定が効かなかった)
+    <div ref={diaryScrollRef} className="h-full md:overflow-auto w-full bg-slate-100" style={_isPhoneDiary ? { overflowX: _tsuClipX } : undefined}>
       <style>{`
         @media print {
           body, html, #root { height: auto !important; overflow: visible !important; background: white !important; }
@@ -45875,6 +45966,10 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           </div>
         );
       })()}
+      <TsuPhoneFold storageKey="diary" summary={(() => { const _d = new Date(selectedDate + 'T00:00:00'); return (<>
+        <span className="text-[15px] font-bold text-slate-800 whitespace-nowrap">{isNaN(_d) ? '' : `${_d.getMonth()+1}/${_d.getDate()}(${'日月火水木金土'[_d.getDay()]})`} {ampm}</span>
+        {isReadOnly ? null : <button type="button" data-testid="diary-fold-save" onClick={saveLog} className="shrink-0 h-10 px-3 rounded-xl bg-blue-600 text-white text-sm font-bold ml-auto">保存</button>}
+      </>); })()}>
       <div className="bg-white px-4 py-3 border-b border-slate-200 flex items-center gap-3 sticky top-0 z-30 flex-wrap">
         {/* カスタムカレンダー（折りたたみ） */}
         {(() => {
@@ -46049,79 +46144,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           </button>
         )}
         </div>
-        {/* ★ 未完了バッジ(2026-09-10 店舗要望で刷新): 「これをやらないと日誌が完成しない」項目を一覧。
-            迎え/送り=未選択の人数を一本化(コピー未確認・全体未記入も同じチップ)。送迎者=使う車に運転者チェックなし。
-            ヒント括弧は廃止・チップ名に情報を含める。 */}
-        {(() => {
-          // ★ 休業のスロットは担当職員も送迎も無いため出さない(2026-09-04 店舗要望)
-          if (_dayIsKyugyo(selectedDate, dow)) return null;
-          // ★ 2026-08-27以前の保存分はコピー未確認フラグの残骸があるため無視(diaryPendingItemsと同じ基準)
-          const sp = selectedDate < DIARY_SP_LEGACY_CUTOFF ? {} : (log._sougeiPending || {});
-          const _hasAny = (o) => !!o && Object.values(o).some(v => Array.isArray(v) ? v.length : (v && typeof v === 'object' ? Object.keys(v).length : String(v ?? '').trim() !== ''));
-          // 車未選択の利用者(判定は送迎車割り当てモーダルと同一・徒歩=選択済み・欠席/休止/休業は対象外)
-          const _unassignedFor = (prefix) => {
-            const _wm = log[prefix+'_walk']||{}, _sm = log[prefix]||{}, _om3 = log[prefix+'_other']||{};
-            const out = [];
-            Array.from({length: totalRows}).forEach((_, i) => {
-              const pt = patients[i];
-              const sr = (log.patientRows||[])[i]||{};
-              const name = pt?.name || sr.name || '';
-              if (!name) return;
-              if (pt && (pt.status==='欠席'||pt.status==='休業'||pt.status==='休止')) return;
-              const _pid = _diaryPtKey(pt);
-              const _idHas = _pid != null && (_wm[String(_pid)] !== undefined || ds.cars.some(c=>_sm[_pid+'_'+c.id] !== undefined));
-              const _wKey = diaryRowCarKey(pt, i, selectedDate, _idHas);
-              const _cPre = _wKey;
-              if (_wm[_wKey] || _om3[_wKey]) return;
-              if (!ds.cars.some(c=>_sm[_cPre+'_'+c.id])) out.push(name);
-            });
-            return out;
-          };
-          // ★ 過去日(2026-09-10より前)は厳格チェック導入前の基準で判定(遡って未完成にしない)
-          const _strict = selectedDate >= DIARY_STRICT_CUTOFF;
-          const _upk = _strict ? _unassignedFor('pick') : [];
-          const _udr = _strict ? _unassignedFor('drop') : [];
-          const items = [];
-          // 迎え/送り: 「未選択◯名」に一本化(全体未記入=全員未選択として人数に含まれる)
-          if (_upk.length) items.push({ key:'迎え', label:`迎え 未選択${_upk.length}名`, prefix:'pick' });
-          else if (sp['迎え'] || (!_hasAny(log.pick) && !_hasAny(log.pick_walk) && !_hasAny(log.pick_other))) items.push({ key:'迎え', label:'迎え', prefix:'pick' });
-          if (_udr.length) items.push({ key:'送り', label:`送り 未選択${_udr.length}名`, prefix:'drop' });
-          else if (sp['送り'] || (!_hasAny(log.drop) && !_hasAny(log.drop_walk) && !_hasAny(log.drop_other))) items.push({ key:'送り', label:'送り', prefix:'drop' });
-          // ★ 送迎者(2026-09-10 店舗要望): 迎え/送りで使う車に運転者チェックが1人も無ければ未完了
-          const _drv = log.driver || {};
-          const _drvMissing = (dirKey, dpre) => ds.cars.some(c => {
-            const used = diaryCarUsed(log, dirKey, c.id, _carUseOpts);
-            if (!used) return false;
-            return !Object.keys(_drv).some(k => k.startsWith(dpre+c.id+'_') && _drv[k]);
-          });
-          if (_strict && _drvMissing('pick','a_')) items.push({ key:'迎えの送迎者', label:'迎えの送迎者', aid:'diary-sec-cars' });
-          if (_strict && _drvMissing('drop','d_')) items.push({ key:'送りの送迎者', label:'送りの送迎者', aid:'diary-sec-cars' });
-          // ★ 2026-09-10(店舗要望): 時間の必須は方向別。到着=迎えで使う車すべて・出発=送りで使う車すべて。
-          //   使わない方向の車は動かないので、その時間は未入力でも必須にしない。
-          const _usedCars = (dirKey) => ds.cars.filter(c => diaryCarUsed(log, dirKey, c.id, _carUseOpts));
-          if (_strict && _usedCars('pick').some(c => !(((log.carTimes||{})[c.id]||{}).arrive))) items.push({ key:'到着時間', label:'到着時間', aid:'diary-sec-cars' });
-          if (_strict && _usedCars('drop').some(c => !(((log.carTimes||{})[c.id]||{}).depart))) items.push({ key:'出発時間', label:'出発時間', aid:'diary-sec-cars' });
-          if (!_strict && !Object.values(log.carTimes||{}).some(t => t && (t.arrive || t.depart))) items.push({ key:'送迎時間', label:'送迎時間', aid:'diary-sec-cars' });
-          if (!Object.keys(log.recorder||{}).some(k => (log.recorder||{})[k])) items.push({ key:'記録者', label:'記録者', aid:'diary-sec-recorder' });
-          if (!log.managerConfirmed) items.push({ key:'管理者確認', label:'管理者確認', aid:'diary-sec-manager' });
-          // ★ 必須職員(定員連動)の未選択(2026-09-29): 「減算」を押すと log.gensan[役職]=true になり警告が消える
-          diaryStaffMissing(log, selectedDate, appData).forEach(r => items.push({ key:`必須職員:${r}`, label:`必須職員未選択: ${r}`, aid:'diary-sec-staff', gensanRole: r }));
-          if (!items.length) return null;
-          return (
-            <div style={{flexBasis:'100%'}} className="w-full bg-amber-100 border-2 border-amber-400 text-amber-900 rounded-xl px-3 py-2 text-sm font-bold flex items-center gap-2 flex-wrap">
-              <span className="text-lg">⚠</span>
-              <span>日誌が未完成です:</span>
-              {items.map(it=>(<span key={it.key} className="inline-flex items-center gap-1">
-                <button type="button" title={it.prefix?'クリックで送迎車割り当てを開く':'クリックで該当箇所へ移動'}
-                  onClick={()=>{ if(it.prefix){ setCarAssignModal({prefix:it.prefix}); setCarAssignSelections({}); return; } const el=it.aid&&document.getElementById(it.aid); if(!el) return; el.scrollIntoView({behavior:'smooth',block:'center'}); const _o=el.style.outline; el.style.outline='3px solid #f59e0b'; el.style.outlineOffset='3px'; setTimeout(()=>{ el.style.outline=_o||''; el.style.outlineOffset=''; },1800); }}
-                  className="inline-flex items-center px-2 py-0.5 bg-white border border-amber-400 text-amber-800 rounded-full text-xs font-bold cursor-pointer hover:bg-amber-50">{it.label}</button>
-                {it.gensanRole && !isReadOnly && <button type="button" data-testid={`kenmu-btn-${it.gensanRole}`} title={`担当職員のうち別の役職の人が「${it.gensanRole}」を兼務する場合に記録します（例: 生活相談員が介護職員を兼務）`} onClick={()=>setKenmuModal(it.gensanRole)} className="inline-flex items-center px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded-full text-xs font-bold">兼務</button>}
-                {it.gensanRole && !isReadOnly && DIARY_GENSAN_ROLES.includes(it.gensanRole) && <button type="button" title={it.gensanRole==='機能訓練指導員' ? '機能訓練指導員が不在＝この日の個別機能訓練加算は算定できません。記録してこの警告を消します（下の「取消」で戻せます）' : `${it.gensanRole}が不在＝人員基準欠如の減算として記録し、この警告を消します（下の「取消」で戻せます）`} onClick={()=>updateLog({ gensan: { ...(log.gensan||{}), [it.gensanRole]: true } })} className="inline-flex items-center px-2 py-0.5 bg-red-600 text-white rounded-full text-xs font-bold cursor-pointer hover:bg-red-700">{it.gensanRole==='機能訓練指導員' ? '加算なし' : '減算'}</button>}
-              </span>))}
-              <span className="text-xs font-normal text-amber-700">…すべて入力・確認すると完成します</span>
-            </div>
-          );
-        })()}
+        {!_isPhoneDiary && _diaryBadge}
         {/* ★ 減算・加算不可の記録(2026-09-29): 日誌本体(印刷)には載せず、ここ(日誌の外)に表示。取消もここから */}
         {Object.keys(log.gensan||{}).filter(r=>(log.gensan||{})[r]).length > 0 && !_dayIsKyugyo(selectedDate, dow) && (
           <div style={{flexBasis:'100%'}} className="w-full bg-red-50 border-2 border-red-300 text-red-800 rounded-xl px-3 py-2 text-sm font-bold flex items-center gap-2 flex-wrap">
@@ -46177,6 +46200,35 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           );
         })()}
       </div>
+      </TsuPhoneFold>
+      {_isPhoneDiary && _diaryBadge && <div className="px-2 py-2 bg-white border-b border-slate-200">{_diaryBadge}</div>}
+      {/* ★ 2026-10-08(ユーザー報告「日誌のチェックボックスが小さすぎて押しづらい」): スマホは用紙が縮小表示で印が数pxになる。
+          用紙の上に 担当職員・記録者・管理者確認 を大きなボタンで出す(用紙のチェックと同じ項目・同じ動き)。 */}
+      {_isPhoneDiary && !isReadOnly && !_dayIsKyugyo(selectedDate, dow) && (() => {
+        const _st = log.staff || {}; const _rc = log.recorder || {};
+        const groups = [['管理者', managers], ['生活相談員', seikatsu], ['機能訓練指導員', kinou], ['看護師', kangoFu], ['介護職員', kaigo]].filter(([, l]) => l.filter(x => x.name).length);
+        const _anySt = Object.keys(_st).some(k => _st[k]);
+        const recSeen = new Set();
+        const recList = ds.staff.filter(x => x.name && _staffOk(x) && (!_anySt || _st[x.id] || _rc[x.id])).filter(x => { const k = normalizeName(x.name).trim(); if (recSeen.has(k)) return false; recSeen.add(k); return true; });
+        const chip = (on, label, onClick, key, tid) => (<button key={key} type="button" data-testid={tid} onClick={onClick} className={`min-h-[44px] px-3 rounded-xl border-2 text-[15px] font-bold flex items-center gap-2 ${on ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-300 text-slate-700'}`}><span className={`inline-flex w-5 h-5 rounded border-2 items-center justify-center text-xs ${on ? 'bg-white text-blue-600 border-white' : 'border-slate-400'}`}>{on ? '✓' : ''}</span>{label}</button>);
+        return (
+          <div data-testid="diary-phone-checks" className="px-2 py-2 bg-white border-b border-slate-200 space-y-2">
+            <div className="text-[13px] font-bold text-slate-600">担当職員（出勤した人を押す）</div>
+            {groups.map(([role, l]) => (
+              <div key={role}>
+                <div className="text-[12px] font-bold text-slate-500 mb-1">{role}</div>
+                <div className="flex flex-wrap gap-2">{l.filter(x => x.name).map(x => chip(!!_st[x.id], x.name, () => { toggle('staff', x.id); if (!_st[x.id] && !appData.diarySettings?.hideStaffTemp) setTempModal({ staffId: x.id, staffName: x.name, value: (log.staffTemp || {})[x.id] || '' }); }, `${role}_${x.id}_${x._sub ? 's' : 'm'}`, `dpc-staff-${x.id}`))}</div>
+              </div>
+            ))}
+            {recList.length > 0 && <div>
+              <div className="text-[13px] font-bold text-slate-600 mb-1">記録者</div>
+              <div className="flex flex-wrap gap-2">{recList.map(x => chip(!!_rc[x.id], x.name, () => toggle('recorder', x.id), `rec_${x.id}`, `dpc-rec-${x.id}`))}</div>
+            </div>}
+            <div>{chip(!!log.managerConfirmed, `${managerName}は上記記録を確認しました`, () => updateLog({ managerConfirmed: !log.managerConfirmed }), 'mgr', 'dpc-mgr')}</div>
+            <div className="text-[11px] text-slate-500">送迎者（迎え・送り）は下の用紙で選べます（氏名を押してもチェックできます）。</div>
+          </div>
+        );
+      })()}
       {isReadOnly && (
         <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-800 text-sm font-bold flex items-center gap-2">
           <span>過去の日誌のため読み取り専用です。右上の「編集」ボタンで一時的に編集できます。</span>
@@ -50737,6 +50789,12 @@ ${optionsDesc}
       {/* ヘッダー固定（スクロール時も上部にとどまる） */}
       {/* ★ モニタリングヘッダ: 淡い水色、 文字は黒で読みやすく */}
       {/* ★ 2026-08-30 店舗要望: 題名行を廃止し、絞り込み/並び替えはポップアップ化して1行に集約(画面領域の拡大) */}
+      {/* ★ 2026-10-08(ユーザー報告「スマホでモニタリングがおかしい」): スマホは上部を折りたたみ(要約=月・人数・保存) */}
+      <TsuPhoneFold storageKey="monitoring" className="no-print" summary={<>
+        <span className="text-[15px] font-bold text-slate-800 whitespace-nowrap">{String(targetMonth||'').replace(/^(\d{4})-(\d{2})$/, (m0, y, mo) => `${y}年${Number(mo)}月`)}</span>
+        <span className="text-xs font-bold text-slate-500 whitespace-nowrap">{attendedPats.length+absentPats.length}名</span>
+        <button type="button" data-testid="mon-fold-save" onClick={()=>{ markClean(); onSave({...appData}, {manual:true, message:'✓ 保存しました'}); }} className="shrink-0 h-10 px-3 rounded-xl bg-blue-600 text-white text-sm font-bold ml-auto">保存</button>
+      </>}>
       <div className="no-print" style={{position:'sticky',top:0,zIndex:30,flexShrink:0,background:'linear-gradient(135deg,#bae6fd,#7dd3fc)',color:'#1e293b',padding:'7px 14px',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',boxShadow:'0 2px 8px rgba(0,0,0,0.15)'}}>
         {/* 絞り込みポップアップ */}
         <div style={{position:'relative'}}>
@@ -50867,6 +50925,7 @@ ${optionsDesc}
           保存
         </button>
       </div>
+      </TsuPhoneFold>
       <style>{`.mon-search::placeholder{color:rgba(255,255,255,0.75)!important;} @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
       {autoFax && (() => {
         const okN = (autoFax.results||[]).filter(r=>r.ok).length;
@@ -50936,7 +50995,7 @@ ${optionsDesc}
             return (
               <tr key={patient.id} style={{borderBottom:'2px solid #cbd5e1',background:confirmed?'#f0fdf4':isAbsent?'#fafafa':i%2===0?'white':'#f8fafc'}}>
                 {/* チェック列 */}
-                <td style={{padding:'10px 8px',textAlign:'center',verticalAlign:'middle',width:36}}>
+                <td className="tsu-mon-ck" style={{padding:'10px 8px',textAlign:'center',verticalAlign:'middle',width:36}}>
                   {!isAbsent && (
                     <input type="checkbox" checked={checked} onChange={()=>toggleCheck(patient.id)}
                       style={{width:16,height:16,cursor:'pointer',accentColor:'#0284c7'}}/>
@@ -50944,7 +51003,7 @@ ${optionsDesc}
                 </td>
                 {/* 名前列 */}
                 {/* ★ 名前列は幅を縮小し、確定ボタンも名前の下に配置(2026-08-30 店舗要望) */}
-                <td style={{padding:'8px 4px',verticalAlign:'middle',borderRight:'1px solid #f1f5f9',width:104,textAlign:'center'}}>
+                <td className="tsu-mon-name" style={{padding:'8px 4px',verticalAlign:'middle',borderRight:'1px solid #f1f5f9',width:104,textAlign:'center'}}>
                   <div style={{fontWeight:'bold',fontSize:12,color:isAbsent?'#94a3b8':'#1e293b',lineHeight:1.3,wordBreak:'keep-all'}}>
                     {patient.name}
                     {_monPaused(patient) && <span title="休止中の方" style={{fontSize:9,fontWeight:"bold",color:"#9a3412",background:"#ffedd5",border:"1px solid #fed7aa",borderRadius:4,padding:"0 4px",marginLeft:2}}>休止中</span>}
@@ -50972,7 +51031,7 @@ ${optionsDesc}
                   )}
                 </td>
                 {/* 内容列 — ★ ①〜⑤を既定表示。 プルダウン変更・本文入力でその場保存。 確定済みは編集不可 */}
-                <td style={{padding:'10px 14px',verticalAlign:'middle'}}>
+                <td className="tsu-mon-body" style={{padding:'10px 14px',verticalAlign:'middle'}}>
                   {(() => {
                     if (res?.loading) return <div style={{display:'flex',alignItems:'center',gap:8,color:'#0284c7',fontSize:12}}><BusySpin style={{marginRight:0}}/> AI生成中…</div>;
                     if (res?.error) return <div style={{color:'#dc2626',fontSize:11}}>{res.error}</div>;
@@ -50983,10 +51042,10 @@ ${optionsDesc}
                         {!persisted && <div style={{fontSize:10,color:'#64748b',marginBottom:4}}>（未作成。プルダウンや本文を変更すると保存されます）</div>}
                         {MON_ITEMS.map((it,ii) => { const c=_monCell(sh[it.key]); const cellId=`${patient.id}:${it.key}`; const editing2 = editTextCell===cellId; const copyId=`${patient.id}:${it.key}`; const _exp = monExpanded.has(patient.id) || editing2; return (
                           <div key={it.key} style={_exp ? {marginBottom:6,paddingBottom:6,borderBottom: ii<MON_ITEMS.length-1?'1px dashed #d7e3ec':'none'} : {marginBottom:3}}>
-                            <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:_exp?'wrap':'nowrap',marginBottom:_exp?2:0,minWidth:0}}>
+                            <div className="tsu-mon-line" style={{display:'flex',alignItems:'center',gap:6,flexWrap:_exp?'wrap':'nowrap',marginBottom:_exp?2:0,minWidth:0}}>
                               {/* ★ ラベルを固定幅にして、選択・本文の開始位置を①〜⑤で揃える(2026-09-07 店舗要望: 凹凸解消) */}
-                              <span title={`${it.no}${it.title}`} style={{fontWeight:'bold',color:'#0c4a6e',background:'#e0f2fe',borderRadius:5,padding:'1px 7px',fontSize:11,flexShrink:0,whiteSpace:'nowrap',width:212,boxSizing:'border-box',overflow:'hidden',textOverflow:'ellipsis'}}>{it.no}{it.title}</span>
-                              <select value={c.sel} disabled={confirmed} onChange={e=>updateSheetInline(patient, it.key, 'sel', e.target.value)}
+                              <span className="tsu-mon-label" title={`${it.no}${it.title}`} style={{fontWeight:'bold',color:'#0c4a6e',background:'#e0f2fe',borderRadius:5,padding:'1px 7px',fontSize:11,flexShrink:0,whiteSpace:'nowrap',width:212,boxSizing:'border-box',overflow:'hidden',textOverflow:'ellipsis'}}>{it.no}{it.title}</span>
+                              <select className="tsu-mon-sel" value={c.sel} disabled={confirmed} onChange={e=>updateSheetInline(patient, it.key, 'sel', e.target.value)}
                                 style={{fontSize:11,fontWeight:'bold',border:'1px solid #7dd3fc',borderRadius:6,padding:'2px 4px',background:confirmed?'#f1f5f9':'white',color:'#0369a1',flexShrink:0,width:150,boxSizing:'border-box'}}>
                                 <option value="">— 選択 —</option>
                                 {it.options.map(o=> <option key={o} value={o}>{o}</option>)}
@@ -51032,7 +51091,7 @@ ${optionsDesc}
             <>
               {/* 通所あり */}
               <div style={{background:'white',borderRadius:14,boxShadow:'0 1px 6px rgba(0,0,0,0.08)',border:'1px solid #e2e8f0',marginBottom:16}}>
-                <table style={{width:'100%',borderCollapse:'collapse',tableLayout:'fixed'}}>
+                <table className="tsu-mon-table" style={{width:'100%',borderCollapse:'collapse',tableLayout:'fixed'}}>
                   <colgroup><col style={{width:36}}/><col style={{width:104}}/><col/></colgroup>
                   <thead>
                     <tr style={{background:'#0284c7',color:'white'}} className="thp">
@@ -51057,7 +51116,7 @@ ${optionsDesc}
                   <div style={{background:'#f8fafc',padding:'8px 16px',fontSize:12,fontWeight:'bold',color:'#64748b',borderBottom:'1px solid #f1f5f9'}}>
                     今月の通所なし（{absentPats.length}名）— 必要な場合のみ手入力・生成
                   </div>
-                  <table style={{width:'100%',borderCollapse:'collapse',tableLayout:'fixed'}}>
+                  <table className="tsu-mon-table" style={{width:'100%',borderCollapse:'collapse',tableLayout:'fixed'}}>
                     <colgroup><col style={{width:36}}/><col style={{width:104}}/><col/></colgroup>
                     <thead>
                       <tr style={{background:'#94a3b8',color:'white'}}>
