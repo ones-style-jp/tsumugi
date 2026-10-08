@@ -11378,6 +11378,17 @@ function tsuNudgeRepaint(sc) {
     requestAnimationFrame(() => requestAnimationFrame(() => { try { targets.forEach((t, i) => { t.style.backgroundColor = prev[i]; }); } catch {} }));
   } catch {}
 }
+// ★ 2026-10-08(ユーザー要望「上部1行目の日付は押せない。押したら日付を選べるように」): 見た目は「10/8(木) ▼」の短い表示のまま、
+//   押すと端末の日付(月)の選択が開く(透明な入力欄を重ねる)。type='date' | 'month'
+function TsuDatePick({ type = 'date', value, onChange, label, testId }) {
+  return (
+    <label data-testid={testId} className="relative shrink-0 inline-flex items-center gap-0.5 h-10 px-1.5 rounded-xl border border-slate-300 bg-white text-[14px] font-bold text-slate-800 whitespace-nowrap cursor-pointer">
+      <span>{label}</span><span className="text-[10px] text-slate-500">▼</span>
+      <input type={type} value={value || ''} onChange={e => { if (e.target.value) onChange(e.target.value); }} aria-label={type === 'month' ? '月を選ぶ' : '日付を選ぶ'}
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer', fontSize: 16 }} />
+    </label>
+  );
+}
 function useTsuIsPhone() {
   const q = '(max-width: 767px)';
   const [on, setOn] = React.useState(() => { try { return window.matchMedia(q).matches; } catch { return false; } });
@@ -11400,7 +11411,7 @@ function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = 
       <div className="flex items-center gap-1.5 px-2 py-1.5" style={{minHeight:48}}>
         <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden">{summary}</div>
         <button type="button" data-testid={`fold-btn-${storageKey}`} onClick={tog} aria-expanded={open}
-          className={`shrink-0 h-10 px-2.5 rounded-xl text-sm font-bold border whitespace-nowrap ${open ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-700 border-slate-300'}`}>
+          className={`shrink-0 h-10 px-2 rounded-xl text-sm font-bold border whitespace-nowrap ${open ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-700 border-slate-300'}`}>
           {open ? '操作▲' : '操作▼'}
         </button>
       </div>
@@ -21014,6 +21025,12 @@ export default function App() {
     window.addEventListener('pageshow', later); document.addEventListener('visibilitychange', onVis); window.addEventListener('resize', later);
     return () => { ts.forEach(clearTimeout); clearTimeout(rt); window.removeEventListener('pageshow', later); document.removeEventListener('visibilitychange', onVis); window.removeEventListener('resize', later); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // ★ 2026-10-08(店舗報告: しばらく操作してからログアウト→ログインすると白い): ログインした後(店舗が決まった後)にも数回描き直させる
+  useEffect(() => {
+    if (!staffSession?.storeId || typeof window === 'undefined' || window.innerWidth >= 768) return;
+    const ts = [300, 1200, 3000].map(ms => setTimeout(() => { try { tsuNudgeRepaint(contentRef.current || document.querySelector('main')); } catch {} }, ms));
+    return () => ts.forEach(clearTimeout);
+  }, [staffSession?.storeId]); // eslint-disable-line react-hooks/exhaustive-deps
   // ★ データの読み込み・反映で中身が変わった後も描き直させる(起動直後は読み込みで中身が何度も変わり、その時に区画が残っていた)。まとめて0.4秒後に1回
   const _rpDataRef = React.useRef(null);
   useEffect(() => {
@@ -22948,7 +22965,7 @@ export default function App() {
       <div data-testid="app-sidebar" className={`no-print bg-slate-900 text-slate-300 flex flex-col shadow-2xl ${
         isSidebarOpen
           ? 'w-64 fixed inset-y-0 left-0 z-50 translate-x-0 transition-transform duration-300 md:transition-all md:transform-none md:relative md:flex-shrink-0 md:z-auto md:opacity-100'
-          : 'w-64 fixed inset-y-0 left-0 z-50 -translate-x-full transition-transform duration-300 md:transition-all md:transform-none md:relative md:translate-x-0 md:w-0 md:opacity-0 md:overflow-hidden md:flex-shrink-0 md:z-auto'
+          : 'w-64 fixed inset-y-0 left-0 z-50 -translate-x-full invisible md:visible transition-transform duration-300 md:transition-all md:transform-none md:relative md:translate-x-0 md:w-0 md:opacity-0 md:overflow-hidden md:flex-shrink-0 md:z-auto'
       }`}>
           <div className="w-64 h-full flex flex-col">
             <div className="h-16 flex items-center px-5 border-b" style={{background:'#fafef1',borderColor:'#d4e7a5'}}>
@@ -23119,7 +23136,7 @@ export default function App() {
                 })()}
               </div>
             )}
-            <div id="tsuSideNav" className="flex-1 py-6 px-4 space-y-1 overflow-y-auto" style={{WebkitTransform:'translateZ(0)',transform:'translateZ(0)'}}>
+            <div id="tsuSideNav" className="flex-1 py-6 px-4 space-y-1 overflow-y-auto">
               <SidebarItem icon={<CalendarCheck size={18} />} label="ホーム" active={currentView === 'dashboard'} onClick={() => navigateTo('dashboard')} badge={_homeUnreadCount||null} />
               {tsumugiSideShown(appData, 'schedule') && <SidebarItem icon={<CalendarRange size={18} />} label="カレンダー" active={currentView === 'schedule'} onClick={() => navigateTo('schedule')} />}
               <SidebarItem icon={<ClipboardList size={18} />} label="サービス提供記録 入力" active={currentView === 'record'} onClick={() => navigateTo('record')} />
@@ -25305,13 +25322,14 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     }}>
       {!isFullscreen ? (
       <TsuPhoneFold storageKey="record" summary={(() => { const _d = new Date(selectedDate + 'T00:00:00'); return (<>
-        <span className="text-[15px] font-bold text-slate-800 whitespace-nowrap">{isNaN(_d) ? '' : `${_d.getMonth()+1}/${_d.getDate()}(${'日月火水木金土'[_d.getDay()]})`}</span>
+        <TsuDatePick testId="rec-fold-date" value={selectedDate} label={isNaN(_d) ? '日付' : `${_d.getMonth()+1}/${_d.getDate()}(${'日月火水木金土'[_d.getDay()]})`}
+          onChange={v => { const closed=(appData.systemSettings?.facilityInfo?.closedDays||[0]); setSelectedDate(nearestOpenDate(v, closed, [])); }} />
         <div className="flex rounded-lg overflow-hidden border border-slate-300 shrink-0">
-          {['AM','PM'].map(v=>(<button key={v} type="button" onClick={()=>setTimeFilter(v)} className={`px-2.5 h-10 text-sm font-bold ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600'}`}>{v}</button>))}
+          {['AM','PM'].map(v=>(<button key={v} type="button" onClick={()=>setTimeFilter(v)} className={`px-2 h-10 text-sm font-bold ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600'}`}>{v}</button>))}
         </div>
-        <button type="button" data-testid="rec-fold-save" onClick={()=>handleSaveClick(false)} className="shrink-0 h-10 px-3 rounded-xl bg-blue-600 text-white text-sm font-bold">保存</button>
+        <button type="button" data-testid="rec-fold-save" onClick={()=>handleSaveClick(false)} className="shrink-0 h-10 px-2 rounded-xl bg-blue-600 text-white text-sm font-bold">保存</button>
         {/* ★ 2026-10-08(ユーザー要望): よく使う連絡帳も1行目に */}
-        <button type="button" data-testid="rec-fold-renraku" onClick={()=>{ handleSaveClick(); navigateTo('print'); }} className="shrink-0 h-10 px-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold whitespace-nowrap">連絡帳</button>
+        <button type="button" data-testid="rec-fold-renraku" onClick={()=>{ handleSaveClick(); navigateTo('print'); }} className="shrink-0 h-10 px-2 rounded-xl bg-emerald-600 text-white text-[13px] font-bold whitespace-nowrap">連絡帳</button>
       </>); })()}>
       <>
       <div data-testid="rec-toolbar" className="bg-white px-2 py-2 sm:px-4 sm:py-3 rounded-2xl shadow-sm border border-slate-200 flex flex-row items-center gap-2 sm:gap-3 flex-wrap flex-shrink-0 sticky top-0 z-30 mb-2 sm:mb-4">
@@ -25326,7 +25344,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   //   休業日の記録確認や事後入力ができないと困るため)。
                   const closed=(appData.systemSettings?.facilityInfo?.closedDays||[0]);
                   setSelectedDate(nearestOpenDate(e.target.value, closed, []));
-                }} className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold outline-none cursor-pointer text-slate-700 flex-1 sm:flex-none sm:shrink-0" style={{minHeight:40,minWidth:150}} />
+                }} className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold outline-none cursor-pointer text-slate-700 hidden sm:block sm:shrink-0" style={{minHeight:40,minWidth:150}} />
                   {/* ★ 2026-10-08(ユーザー指示): スマホは1行目(要約)に AM/PM・保存・連絡帳があるので、開いた中には出さない */}
                   <div className="hidden sm:flex rounded-xl overflow-hidden border border-slate-300 shrink-0">
                     {['AM','PM'].map(v=>(
@@ -42883,18 +42901,18 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">FAX</label><ImeSafeInput type="tel" inputMode="numeric" value={formatJpPhone(facilityInfo.fax || "")} onChange={e => setFacilityInfo({...facilityInfo, fax: toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11)})} placeholder="0312345679" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">メールアドレス</label><input type="email" value={facilityInfo.email || ""} onChange={e => setFacilityInfo({...facilityInfo, email: e.target.value})} placeholder="store@example.com" className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/><div className="text-[11px] text-slate-400 mt-1">つむぎ管理局の店舗登録時に入力されたメールアドレスが初期反映されます。</div></div>
                 <div className="border-t border-slate-200 pt-4"><h4 className="text-sm font-bold text-slate-700 mb-3">サービス提供時間</h4>
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">{/* ★ 2026-10-08(店舗報告: スマホで時間の欄が重なる): スマホは1項目1行・時間の欄は幅を分け合う */}
                     <div><label className="block text-sm font-bold text-slate-600 mb-1.5">1単位目</label>
                       <div className="flex items-center gap-1">
-                        <input type="time" value={(facilityInfo.serviceTimeAM||'').split(/[～〜]/)[0]||''} onChange={e=>{const end=(facilityInfo.serviceTimeAM||'').split(/[～〜]/)[1]||'';setFacilityInfo({...facilityInfo,serviceTimeAM:e.target.value+'～'+end});}} className="px-2 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
+                        <input type="time" value={(facilityInfo.serviceTimeAM||'').split(/[～〜]/)[0]||''} onChange={e=>{const end=(facilityInfo.serviceTimeAM||'').split(/[～〜]/)[1]||'';setFacilityInfo({...facilityInfo,serviceTimeAM:e.target.value+'～'+end});}} className="tsu-fit flex-1 min-w-0 px-2 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
                         <span className="font-bold text-slate-400 text-sm">〜</span>
-                        <input type="time" value={(facilityInfo.serviceTimeAM||'').split(/[～〜]/)[1]||''} onChange={e=>{const start=(facilityInfo.serviceTimeAM||'').split(/[～〜]/)[0]||'';setFacilityInfo({...facilityInfo,serviceTimeAM:start+'～'+e.target.value});}} className="px-2 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
+                        <input type="time" value={(facilityInfo.serviceTimeAM||'').split(/[～〜]/)[1]||''} onChange={e=>{const start=(facilityInfo.serviceTimeAM||'').split(/[～〜]/)[0]||'';setFacilityInfo({...facilityInfo,serviceTimeAM:start+'～'+e.target.value});}} className="tsu-fit flex-1 min-w-0 px-2 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
                       </div></div>
                     <div><label className="block text-sm font-bold text-slate-600 mb-1.5">2単位目</label>
                       <div className="flex items-center gap-1">
-                        <input type="time" value={(facilityInfo.serviceTimePM||'').split(/[～〜]/)[0]||''} onChange={e=>{const end=(facilityInfo.serviceTimePM||'').split(/[～〜]/)[1]||'';setFacilityInfo({...facilityInfo,serviceTimePM:e.target.value+'～'+end});}} className="px-2 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
+                        <input type="time" value={(facilityInfo.serviceTimePM||'').split(/[～〜]/)[0]||''} onChange={e=>{const end=(facilityInfo.serviceTimePM||'').split(/[～〜]/)[1]||'';setFacilityInfo({...facilityInfo,serviceTimePM:e.target.value+'～'+end});}} className="tsu-fit flex-1 min-w-0 px-2 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
                         <span className="font-bold text-slate-400 text-sm">〜</span>
-                        <input type="time" value={(facilityInfo.serviceTimePM||'').split(/[～〜]/)[1]||''} onChange={e=>{const start=(facilityInfo.serviceTimePM||'').split(/[～〜]/)[0]||'';setFacilityInfo({...facilityInfo,serviceTimePM:start+'～'+e.target.value});}} className="px-2 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
+                        <input type="time" value={(facilityInfo.serviceTimePM||'').split(/[～〜]/)[1]||''} onChange={e=>{const start=(facilityInfo.serviceTimePM||'').split(/[～〜]/)[0]||'';setFacilityInfo({...facilityInfo,serviceTimePM:start+'～'+e.target.value});}} className="tsu-fit flex-1 min-w-0 px-2 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
                       </div></div>
                     <div><label className="block text-sm font-bold text-slate-600 mb-1.5">定員（1〜18名）</label><div className="flex items-center gap-2"><input type="number" min={0} max={18} value={facilityInfo.capacity||''} placeholder="0" onChange={e=>{const v=Math.min(18,Math.max(0,parseInt(e.target.value)||0));setFacilityInfo({...facilityInfo,capacity:v});}} className="w-24 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none focus:border-blue-400 text-center"/><span className="text-sm font-bold text-slate-500">名</span></div></div>
                   </div>
@@ -43068,7 +43086,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
               <p className="text-xs text-slate-400 mb-2">{exDnd.hint}</p>
               <div className="space-y-2 mb-3">
                 {exerciseItems.map((item, i) => (
-                  <div key={item.id} {...(() => { const rp = exDnd.rowProps(i); return { ...rp, className: 'flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200' }; })()}>
+                  <div key={item.id} {...(() => { const rp = exDnd.rowProps(i); return { ...rp, className: 'tsu-exrow flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200' }; })()}>
                     <div className="text-slate-300 shrink-0" title="長押しでドラッグして並べ替え"><GripVertical size={18}/></div>
                     <input value={item.name} onChange={e=>{
                       const arr=[...exerciseItems]; arr[i]={...arr[i],name:e.target.value}; setExerciseItems(arr);
@@ -43183,7 +43201,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
               <p className="text-xs text-slate-400 mb-2">{indDnd.hint}</p>
               <div className="space-y-2 mb-3">
                 {individualExerciseItems.map((item, i) => (
-                  <div key={item.id} {...(() => { const rp = indDnd.rowProps(i); return { ...rp, className: 'flex items-center gap-2 bg-emerald-50 px-3 py-2 rounded-xl border border-emerald-200' }; })()}>
+                  <div key={item.id} {...(() => { const rp = indDnd.rowProps(i); return { ...rp, className: 'tsu-exrow flex items-center gap-2 bg-emerald-50 px-3 py-2 rounded-xl border border-emerald-200' }; })()}>
                     <div className="text-emerald-300 shrink-0" title="長押しでドラッグして並べ替え"><GripVertical size={18}/></div>
                     <input value={item.name} onChange={e=>{
                       const arr=[...individualExerciseItems]; arr[i]={...arr[i],name:e.target.value}; setIndividualExerciseItems(arr);
@@ -44442,9 +44460,10 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
 }
 // === 日誌設定パネル ===
 // セクションカード（DiarySettingsPanel 外で定義し、再レンダリングで再生成されないように）
+// ★ 2026-10-08(店舗報告: スマホで追加ボタン・送迎車両・スケジュールが枠の外に出る): スマホは余白を詰め、中身が枠より広くならないように(min-w-0)
 const _DSPSection = ({title, children}) => (
-  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-    <h3 className="text-base font-bold text-slate-800 mb-4 border-b border-slate-200 pb-2">{title}</h3>
+  <div className="bg-white p-3 sm:p-6 rounded-2xl shadow-sm border border-slate-200 min-w-0 tsu-dsp">
+    <h3 className="text-base font-bold text-slate-800 mb-3 sm:mb-4 border-b border-slate-200 pb-2">{title}</h3>
     {children}
   </div>
 );
@@ -44493,15 +44512,16 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
                     {_rows.filter(x=>(x.s.role||'')===role).map(({s, i}) => (
                 <div key={s.id} className="bg-white border border-slate-200 rounded-xl p-2">
                 {/* ★ 2026-09-28 ユーザー指示: 役職 ｜ 氏名 ｜ 資格(右側) を縦線で区切って1行に */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="flex items-center gap-1.5 pr-2.5 mr-1 border-r-2 border-slate-300">
+                {/* ★ 2026-10-08(ユーザー要望: スマホで「資格」の見出しだけ別の行になり見づらい): スマホは 1行目=役職・副の役職 / 2行目=氏名 / 3行目=資格1・資格2(×は右上) */}
+                <div className="tsu-staffrow flex items-center gap-2 flex-wrap">
+                  <div className="tsu-st-role flex items-center gap-1.5 pr-2.5 mr-1 border-r-2 border-slate-300">
                   <span className="w-[122px] px-2 py-2 text-sm font-bold text-slate-800 truncate" title="役職は枠で決まります（変えるときは削除して別の枠で追加）">{s.role||'（役職なし）'}</span>
                   <select value={s.role2||''} onChange={e=>{ onBlurStaff(i,'role2',e.target.value); setRenderKey(k=>k+1); }} title="役職（副・兼務）" className="w-[116px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none focus:border-blue-400 text-slate-600">
                     <option value="">副の役職: なし</option>
                     {[...STAFF_BASE_ROLES, ...((ds.customRoles||[]).filter(r=>r&&!STAFF_BASE_ROLES.includes(r)))].filter(r=>r!==s.role).map(r=><option key={r} value={r}>副: {r}</option>)}
                   </select>
                   </div>
-                  <div className="flex items-center gap-1.5 pr-2.5 mr-1 border-r-2 border-slate-300">
+                  <div className="tsu-st-name flex items-center gap-1.5 pr-2.5 mr-1 border-r-2 border-slate-300">
                   {/* ★ 姓・名を分割入力。 onBlur で結合した name フィールドも同時に更新 (既存表示と互換) */}
                   <input defaultValue={s.lastName ?? ((s.name||'').split(/[ 　]+/)[0]||'')}
                     onBlur={e=>{
@@ -44525,15 +44545,15 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
                     className="w-[84px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
                   </div>
                   {/* ★ 保有資格(2つまで・役職に合ったものだけ)は右側 */}
-                  <span className="text-[11px] font-bold text-slate-500">資格</span>
+                  <span className="tsu-st-qlbl text-[11px] font-bold text-slate-500">資格</span>
                   {[0,1].map(qi => { const opts = staffQualOptions(s.role, s.role2, ds.customQuals); const cur = (s.quals||[])[qi] || ''; const other = (s.quals||[])[qi===0?1:0] || ''; return (
-                    <select key={qi} value={cur} onChange={e=>{ const q=[...(s.quals||['',''])]; q[qi]=e.target.value; onBlurStaff(i,'quals',q); setRenderKey(k=>k+1); }} className="w-[150px] px-1.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-400">
+                    <select key={qi} value={cur} onChange={e=>{ const q=[...(s.quals||['',''])]; q[qi]=e.target.value; onBlurStaff(i,'quals',q); setRenderKey(k=>k+1); }} className="tsu-st-q w-[150px] px-1.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-400">
                       <option value="">— 資格{qi+1}（任意）—</option>
                       {opts.filter(o=>o!==other || o===cur).map(o=><option key={o} value={o}>{o}</option>)}
                       {cur && !opts.includes(cur) && <option value={cur}>{cur}</option>}
                     </select>
                   ); })}
-                  <button onClick={()=>mutate({...dsRef.current,staff:dsRef.current.staff.filter((_,j)=>j!==i)})} className="text-red-400 hover:text-red-600 shrink-0 ml-auto"><X size={16}/></button>
+                  <button onClick={()=>mutate({...dsRef.current,staff:dsRef.current.staff.filter((_,j)=>j!==i)})} className="tsu-st-del text-red-400 hover:text-red-600 shrink-0 ml-auto" aria-label="削除"><X size={16}/></button>
                 </div>
                 </div>
                     ))}
@@ -44604,16 +44624,16 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
         <div className="mt-4 pt-3 border-t border-slate-200">
           <div className="text-xs font-bold text-slate-600 mb-2">役職・資格の追加（一覧に無いものを店舗で追加できます）</div>
           <div className="grid md:grid-cols-2 gap-3">
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5">
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 min-w-0">
               <div className="text-[11px] font-bold text-slate-500 mb-1">追加した役職</div>
               <div className="flex flex-wrap gap-1 mb-2">{(ds.customRoles||[]).map(r=>(<span key={r} className="inline-flex items-center gap-1 text-[11px] font-bold bg-white border border-slate-300 rounded-full px-2 py-0.5">{r}<button onClick={()=>{ const nd={...dsRef.current, customRoles:(dsRef.current.customRoles||[]).filter(x=>x!==r)}; dsRef.current=nd; _markEd('customRoles'); setRenderKey(k=>k+1); _md(); }} className="text-red-400 hover:text-red-600" title="削除">×</button></span>))}{!(ds.customRoles||[]).length && <span className="text-[11px] text-slate-400">なし</span>}</div>
-              <div className="flex gap-1"><input id="ds-new-role" placeholder="例: 送迎ドライバー、事務" className="flex-1 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-400"/><button onClick={()=>{ const el=document.getElementById('ds-new-role'); const v=(el?.value||'').trim(); if(!v) return; if (STAFF_BASE_ROLES.includes(v) || (dsRef.current.customRoles||[]).includes(v)) { alert('その役職は既にあります'); return; } const nd={...dsRef.current, customRoles:[...(dsRef.current.customRoles||[]), v]}; dsRef.current=nd; _markEd('customRoles'); if(el) el.value=''; setRenderKey(k=>k+1); _md(); }} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold">追加</button></div>
+              <div className="flex gap-1"><input id="ds-new-role" placeholder="例: 送迎ドライバー、事務" className="flex-1 min-w-0 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-400"/><button onClick={()=>{ const el=document.getElementById('ds-new-role'); const v=(el?.value||'').trim(); if(!v) return; if (STAFF_BASE_ROLES.includes(v) || (dsRef.current.customRoles||[]).includes(v)) { alert('その役職は既にあります'); return; } const nd={...dsRef.current, customRoles:[...(dsRef.current.customRoles||[]), v]}; dsRef.current=nd; _markEd('customRoles'); if(el) el.value=''; setRenderKey(k=>k+1); _md(); }} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold">追加</button></div>
               <div className="text-[10px] text-slate-400 mt-1">追加した役職はログイン・スタッフ切替では「その他」の枠に表示されます。</div>
             </div>
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5">
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 min-w-0">
               <div className="text-[11px] font-bold text-slate-500 mb-1">追加した資格</div>
               <div className="flex flex-wrap gap-1 mb-2">{(ds.customQuals||[]).map((q,qi)=>(<span key={qi} className="inline-flex items-center gap-1 text-[11px] font-bold bg-white border border-slate-300 rounded-full px-2 py-0.5">{q.name}<span className="text-[9px] font-normal text-slate-400">（{q.role||'全役職'}）</span><button onClick={()=>{ const nd={...dsRef.current, customQuals:(dsRef.current.customQuals||[]).filter((_,j)=>j!==qi)}; dsRef.current=nd; _markEd('customQuals'); setRenderKey(k=>k+1); _md(); }} className="text-red-400 hover:text-red-600" title="削除">×</button></span>))}{!(ds.customQuals||[]).length && <span className="text-[11px] text-slate-400">なし</span>}</div>
-              <div className="flex gap-1"><input id="ds-new-qual" placeholder="例: 介護福祉士（登録番号あり）" className="flex-1 min-w-0 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-400"/><select id="ds-new-qual-role" className="px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs outline-none"><option value="">全役職</option>{[...STAFF_BASE_ROLES, ...((ds.customRoles||[]))].map(r=><option key={r} value={r}>{r}</option>)}</select><button onClick={()=>{ const el=document.getElementById('ds-new-qual'); const rl=document.getElementById('ds-new-qual-role'); const v=(el?.value||'').trim(); const role=(rl?.value||''); if(!v) return; const nd={...dsRef.current, customQuals:[...(dsRef.current.customQuals||[]), {name:v, role}]}; dsRef.current=nd; _markEd('customQuals'); if(el) el.value=''; setRenderKey(k=>k+1); _md(); }} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold">追加</button></div>
+              <div className="flex gap-1 flex-wrap sm:flex-nowrap"><input id="ds-new-qual" placeholder="例: 介護福祉士（登録番号あり）" className="flex-1 basis-full sm:basis-auto min-w-0 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-400"/><select id="ds-new-qual-role" className="px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs outline-none"><option value="">全役職</option>{[...STAFF_BASE_ROLES, ...((ds.customRoles||[]))].map(r=><option key={r} value={r}>{r}</option>)}</select><button onClick={()=>{ const el=document.getElementById('ds-new-qual'); const rl=document.getElementById('ds-new-qual-role'); const v=(el?.value||'').trim(); const role=(rl?.value||''); if(!v) return; const nd={...dsRef.current, customQuals:[...(dsRef.current.customQuals||[]), {name:v, role}]}; dsRef.current=nd; _markEd('customQuals'); if(el) el.value=''; setRenderKey(k=>k+1); _md(); }} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold">追加</button></div>
               <div className="text-[10px] text-slate-400 mt-1">役職を選ぶとその役職の候補に、「全役職」にするとすべての職員の候補に出ます。</div>
             </div>
           </div>
@@ -44626,15 +44646,15 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
         </label>
       </SC>
       <SC title="送迎車両">
-        <p className="text-xs text-slate-500 mb-3">送迎に使用する車両を登録します（2〜4台）。</p>
+        <p className="text-xs text-slate-500 mb-3">送迎に使用する車両を登録します（2〜4台）。定員は運転者を除いた人数です。</p>
         <div className="space-y-2">
           {ds.cars.map((c,i)=>(
             <div key={c.id} className="flex items-center gap-2">
               {/* ★ 2026-09-12f(店舗要望): 車名は1枠に統一(「シエンタ」「1号車」など自由記載)。旧・車種欄は廃止 */}
-              <input defaultValue={c.name} onBlur={e=>onBlurCar(i,'name',e.target.value)} placeholder="車両名（例: シエンタ / 1号車）" className="flex-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
+              <input defaultValue={c.name} onBlur={e=>onBlurCar(i,'name',e.target.value)} placeholder="車両名（例: シエンタ / 1号車）" className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
               {/* ★ 定員(2026-09-12 試験版・送迎表): 送迎表で定員オーバーを警告するために使用 */}
               <input defaultValue={c.cap || ''} onBlur={e=>onBlurCar(i,'cap',e.target.value.replace(/[^0-9]/g,''))} placeholder="定員" inputMode="numeric" className="w-[64px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none text-center focus:border-blue-400" title="送迎表で超過時に警告します"/>
-              <span className="text-xs text-slate-500 whitespace-nowrap">名<span className="text-slate-400">（運転者を除く）</span></span>
+              <span className="text-xs text-slate-500 whitespace-nowrap">名<span className="text-slate-400 hidden sm:inline">（運転者を除く）</span></span>
               {dsRef.current.cars.length > 2 && <button onClick={()=>mutate({...dsRef.current,cars:dsRef.current.cars.filter((_,j)=>j!==i)})} className="text-red-400 hover:text-red-600"><X size={16}/></button>}
             </div>
           ))}
@@ -44661,8 +44681,8 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
             )}
             {(ds[`schedule${ap}`]||[]).map((item,i)=>(
               <div key={item.id} className="flex items-center gap-2">
-                <input defaultValue={item.time} onChange={e=>onBlurSched(ap,i,'time',e.target.value)} onBlur={e=>onBlurSched(ap,i,'time',e.target.value)} placeholder="時間" className="w-[130px] px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
-                <input defaultValue={item.content} onChange={e=>onBlurSched(ap,i,'content',e.target.value)} onBlur={e=>onBlurSched(ap,i,'content',e.target.value)} placeholder="内容" className="flex-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-400"/>
+                <input defaultValue={item.time} onChange={e=>onBlurSched(ap,i,'time',e.target.value)} onBlur={e=>onBlurSched(ap,i,'time',e.target.value)} placeholder="時間" className="w-[104px] sm:w-[130px] shrink-0 px-2 sm:px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
+                <input defaultValue={item.content} onChange={e=>onBlurSched(ap,i,'content',e.target.value)} onBlur={e=>onBlurSched(ap,i,'content',e.target.value)} placeholder="内容" className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-400"/>
                 <button onClick={()=>mutate({...dsRef.current,[`schedule${ap}`]:dsRef.current[`schedule${ap}`].filter((_,j)=>j!==i)})} className="text-red-400 hover:text-red-600"><X size={16}/></button>
               </div>
             ))}
@@ -46150,7 +46170,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         );
       })()}
       <TsuPhoneFold storageKey="diary" summary={(() => { const _d = new Date(selectedDate + 'T00:00:00'); return (<>
-        <span className="text-[15px] font-bold text-slate-800 whitespace-nowrap">{isNaN(_d) ? '' : `${_d.getMonth()+1}/${_d.getDate()}(${'日月火水木金土'[_d.getDay()]})`}</span>
+        <TsuDatePick testId="diary-fold-date" value={selectedDate} label={isNaN(_d) ? '日付' : `${_d.getMonth()+1}/${_d.getDate()}(${'日月火水木金土'[_d.getDay()]})`}
+          onChange={v => { const _cd=(appData.systemSettings?.facilityInfo?.closedDays||[0]); const _dw=new Date(v+'T00:00:00').getDay(); setSelectedDate(_cd.includes(_dw) ? nearestOpenDate(v, _cd, appData.holidays) : v); }} />
         <div className="flex rounded-lg overflow-hidden border border-slate-300 shrink-0" data-testid="diary-fold-ampm">
           {['AM','PM'].map(v=>(<button key={v} type="button" onClick={()=>_diarySwitchAmpm(v)} className={`px-2.5 h-10 text-sm font-bold ${ampm===v?'bg-blue-600 text-white':'bg-white text-slate-600'}`}>{v}</button>))}
         </div>
@@ -51015,7 +51036,7 @@ ${optionsDesc}
       {/* ★ 2026-10-08(ユーザー報告「スマホでモニタリングがおかしい」): スマホは上部を折りたたみ(要約=月・人数・保存) */}
       <TsuPhoneFold storageKey="monitoring" className="no-print" summary={<>
         {/* ★ 2026-10-08(ユーザー要望): よく使う AI下書き・一括確定 も1行目に(「操作」の中からは外す) */}
-        <span className="text-[15px] font-bold text-slate-800 whitespace-nowrap">{String(targetMonth||'').replace(/^(\d{4})-(\d{2})$/, (m0, y, mo) => `${Number(mo)}月`)}</span>
+        <TsuDatePick type="month" testId="mon-fold-month" value={targetMonth} label={String(targetMonth||'').replace(/^(\d{4})-(\d{2})$/, (m0, y, mo) => `${Number(mo)}月`)} onChange={v => setTargetMonth(v)} />
         {sheetBatchProg
           ? <button type="button" onClick={cancelGenerate} className="shrink-0 h-10 px-2 rounded-xl text-[13px] font-bold border border-red-300 bg-red-50 text-red-600 whitespace-nowrap ml-auto"><BusySpin/>{sheetBatchProg.done}/{sheetBatchProg.total} 中止</button>
           : <button type="button" data-testid="mon-fold-ai" onClick={generateAllSheets} className="shrink-0 h-10 px-2 rounded-xl text-[13px] font-bold border border-violet-300 bg-violet-50 text-violet-700 whitespace-nowrap ml-auto">AI下書き</button>}
@@ -51146,7 +51167,7 @@ ${optionsDesc}
         </button>
 
         <span className="tsu-hide-phone" style={{marginLeft:'auto'}}/>
-        <input type="month" className="tsu-mo-1" value={targetMonth} onChange={e=>setTargetMonth(e.target.value)}
+        <input type="month" className="tsu-mo-1 tsu-hide-phone" value={targetMonth} onChange={e=>setTargetMonth(e.target.value)}
           style={{background:'rgba(255,255,255,0.5)',border:'1px solid rgba(255,255,255,0.7)',color:'#1e293b',borderRadius:10,padding:'6px 10px',fontSize:12,fontWeight:'bold',outline:'none',cursor:'pointer'}}/>
         {/* ★ 2026-10-04 ユーザー指示: 「プレビュー」は「印刷/PDF」と重複していたため統合(ダウンロード) */}
         {/* ★ 2026-10-08: スマホは1行目に保存があるので、ここの保存は出さない(tsu-hide-phone) */}
