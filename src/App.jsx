@@ -11097,6 +11097,11 @@ function useLongPressReorder(items, onReorder, opts) {
   return { rowProps, dragging: !!drag, hint: '行を長押しすると、そのままドラッグして並べ替えできます' };
 }
 
+// ★ 2026-10-08(ユーザー要望): テンキーの数字の並びを端末ごとに選べる。
+//   'calc'=電卓型(上から 7 8 9 / 4 5 6 / 1 2 3・これまでの並び・既定)、'phone'=電話型(上から 1 2 3 / 4 5 6 / 7 8 9・スマホの数字入力と同じ)
+const TSU_KP_LAYOUT_KEY = 'tsumugiKeypadLayout';
+const tsuKpLayout = () => { try { return localStorage.getItem(TSU_KP_LAYOUT_KEY) === 'phone' ? 'phone' : 'calc'; } catch { return 'calc'; } };
+const tsuKpDigits9 = () => tsuKpLayout() === 'phone' ? [1,2,3,4,5,6,7,8,9] : [7,8,9,4,5,6,1,2,3];
 function DigitalKeypad({ isOpen, anchorKey, value, isFirstInput, onInput, onEnter, onTab, onClose, mode, quickButtons, prefixButtons, zoom = 1, unitSep = '', unit2 = '' }) {
   const keypadRef = useRef(null);
   const dragRef = useRef({ dragging: false, startX: 0, startY: 0, origX: 0, origY: 0 });
@@ -11314,7 +11319,8 @@ function DigitalKeypad({ isOpen, anchorKey, value, isFirstInput, onInput, onEnte
   };
 
   const row4col2 = mode === 'time' ? '00' : '.';
-  const keys = ['7','8','9','DEL','4','5','6',rightCol1,'1','2','3',rightCol2,'0',row4col2,rightCol3,'ENTER'];
+  const _kpRow = tsuKpLayout() === 'phone' ? [['1','2','3'],['7','8','9']] : [['7','8','9'],['1','2','3']]; // 1段目と3段目を入れ替えるだけ(右端の列と下の段はそのまま)
+  const keys = [..._kpRow[0],'DEL','4','5','6',rightCol1,..._kpRow[1],rightCol2,'0',row4col2,rightCol3,'ENTER'];
   // ★ 特殊キーは英語だと分かりにくいため日本語表示にする(キー値は英語のままロジックで使用)。 BS は2行表示。
   const KEY_LABEL = { DEL:'全削除', TAB:'次へ', ENTER:'確定' };
   const isJpKey = (k) => k==='DEL' || k==='BS' || k==='TAB' || k==='ENTER';
@@ -42089,6 +42095,7 @@ function AdminSettingsSection({ appData, onSave }) {
 }
 
 function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAdmin, navFocus, onFocusHandled, deviceName, updateDeviceName, lastSync, cmOnly }) {
+  const [, setKpLayoutTick] = useState(0); // テンキーの並びの選択を画面に反映するため(値は端末に保存)
   // ★ cmOnly=true: サイドバー「ケアマネ事業所・担当者」画面の専用モード(2026-08-31 店舗要望で各種設定から完全移設)。
   //   「消える問題」対策の同期追従・即保存(persistCm)ロジックを共有するため、タブ抽出はせず同一コンポーネントをモード分けで再利用。
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
@@ -44023,6 +44030,21 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
           {/* システム */}
           {activeTab === 'system' && (<>
             <SectionCard title="この端末の表示">
+              {/* ★ 2026-10-08(ユーザー要望): テンキーの数字の並び(この端末だけ) */}
+              <div className="mb-4 pb-4 border-b border-slate-200" data-testid="kp-layout-setting">
+                <div className="text-sm font-bold text-slate-700 mb-1">テンキーの数字の並び（この端末だけ）</div>
+                <p className="text-xs text-slate-500 mb-2">提供記録・体力測定・日誌などで出るテンキーの数字の並びです。端末ごとに選べます（他の端末は変わりません）。</p>
+                <div className="flex gap-2 flex-wrap">
+                  {[['calc','電卓型','7 8 9 が上（これまでの並び）'],['phone','電話型','1 2 3 が上（スマホと同じ）']].map(([k,l,sub]) => (
+                    <button key={k} type="button" data-testid={`kp-layout-${k}`} onClick={() => { try { localStorage.setItem(TSU_KP_LAYOUT_KEY, k); } catch {} setKpLayoutTick(t => t + 1); }}
+                      className={`flex-1 min-w-[140px] px-3 py-2 rounded-xl border-2 text-left ${tsuKpLayout() === k ? 'border-blue-600 bg-blue-50' : 'border-slate-200 bg-white'}`}>
+                      <div className={`text-sm font-bold ${tsuKpLayout() === k ? 'text-blue-700' : 'text-slate-700'}`}>{tsuKpLayout() === k ? '● ' : ''}{l}</div>
+                      <div className="text-[11px] text-slate-500">{sub}</div>
+                      <div className="mt-1 inline-grid grid-cols-3 gap-0.5 text-[11px] font-bold text-slate-600">{(k === 'phone' ? [1,2,3,4,5,6,7,8,9] : [7,8,9,4,5,6,1,2,3]).map(n => <span key={n} className="w-5 h-5 flex items-center justify-center rounded bg-slate-100">{n}</span>)}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
               <label className="flex items-start gap-2 cursor-pointer">
                 <input type="checkbox" defaultChecked={isAutoFullscreenOn()} onChange={e=>{ try { localStorage.setItem(AUTO_FS_KEY, e.target.checked ? '1' : '0'); } catch {} }} className="mt-1 accent-blue-600"/>
                 <span className="text-sm text-slate-700"><b>ログイン後に担当者を選んだら自動で全画面にする（この端末だけ・パソコン向け）</b><br/><span className="text-xs text-slate-500">ブラウザのタブ・URL欄を隠して広く使えます。Esc または右上の「全画面」で戻せます。iPad・iPhone では効かないため、Safari の共有 →「ホーム画面に追加」から開くと常に全画面になります。</span></span>
@@ -45993,7 +46015,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           </div>
           <div style={{fontSize:10,color:'#94a3b8',textAlign:'center',marginBottom:8}}>PCのキーボード/テンキーでも入力できます（Enter=決定）</div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginBottom:8}}>
-            {[7,8,9,4,5,6,1,2,3].map(n=>(
+            {tsuKpDigits9().map(n=>(
               <button key={n} onClick={()=>kpInput(String(n))}
                 style={{padding:'10px 0',fontSize:18,fontWeight:'bold',borderRadius:10,border:'1px solid #ddd',cursor:'pointer',backgroundColor:'#f8f9fa',color:'#333'}}>
                 {n}
@@ -46384,7 +46406,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
                 <span className="text-xl ml-1 text-slate-500">℃</span>
               </div>
               <div className="grid grid-cols-3 gap-2 mb-2">
-                {[7,8,9,4,5,6,1,2,3].map(n=>(
+                {tsuKpDigits9().map(n=>(
                   <button key={n} onClick={()=>tempKpInput(String(n))}
                     className="py-3 text-xl font-bold rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 active:scale-95">
                     {n}

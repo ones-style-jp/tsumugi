@@ -316,11 +316,14 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
   /* 外枠は 2026-09-11(旧iPadの文書バウンス対策)で画面に固定(position:fixed・高さ100dvh)している。スマホ幅では固定を外してページを伸ばす */
   .tsu-app-root { position: relative !important; inset: auto !important; height: auto !important; min-height: 100vh; width: 100% !important; overflow: visible !important; }
   #appMainArea { overflow: visible !important; }
-  #appMainArea > header.tsu-app-header { position: sticky; top: 0; z-index: 45; }
+  /* ★ 2026-10-08 追補(ユーザー報告: スクロールすると1行目と見出しの間に隙間が出て上下に揺れる): 見出しはスクロールの影響を受けない「画面に固定」にし、
+     その分ページの上に48pxの余白。1行目などの固定の帯は見出しに1px重ねて(47px)隙間を出さない。重ね順は 帯(30) < 見出し(39) < サイドバーの背景(40) */
+  #appMainArea > header.tsu-app-header { position: fixed; top: 0; left: 0; right: 0; z-index: 39; }
+  #appMainArea { padding-top: 47px; }
   #appMainArea > main.tsu-app-main { overflow: visible !important; }
   #tsuContentScroller { overflow: visible !important; flex: none !important; }
-  #tsuContentScroller .sticky.top-0:not(th):not(thead):not(tr) { top: 48px !important; }
-  #tsuContentScroller [style*="position: sticky"][style*="top: 0px"]:not(th):not(thead):not(tr) { top: 48px !important; }
+  #tsuContentScroller .sticky.top-0:not(th):not(thead):not(tr) { top: 47px !important; }
+  #tsuContentScroller [style*="position: sticky"][style*="top: 0px"]:not(th):not(thead):not(tr) { top: 47px !important; }
 }
 @supports not (overflow-x: clip) {
   @media (max-width: 767px) { body, #root { overflow-x: visible !important; } }
