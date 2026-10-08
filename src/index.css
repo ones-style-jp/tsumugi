@@ -120,5 +120,298 @@ button, a, input, select, textarea, label, [role="button"] { touch-action: manip
    - 入力欄の文字は16px(上の iOS 対策で適用済み)
    - 画面上部の操作ボタン・入力欄は高さ44px以上(提供記録 入力の上部) */
 @media (max-width: 639px) {
-  [data-testid="rec-toolbar"] button, [data-testid="rec-toolbar"] input, [data-testid="rec-toolbar"] select { min-height: 44px; }
+  [data-testid="rec-toolbar"] button, [data-testid="rec-toolbar"] input, [data-testid="rec-toolbar"] select { min-height: 40px; }
+}
+
+/* ★ 2026-10-08(ユーザー報告「スマホでモニタリングがおかしい」=表が画面より広く左右が切れる): スマホ幅は表を縦に積む
+   (チェック+氏名 → その下に①〜⑤ を画面幅いっぱい。項目名の下に選択欄) */
+@media (max-width: 767px) {
+  .tsu-mon-table, .tsu-mon-table tbody, .tsu-mon-table tr { display: block; width: 100%; }
+  .tsu-mon-table colgroup, .tsu-mon-table thead { display: none; }
+  .tsu-mon-table td { display: block; width: auto !important; border-right: none !important; }
+  .tsu-mon-table td.tsu-mon-ck { display: inline-block; vertical-align: middle; padding: 8px 4px 8px 10px !important; }
+  .tsu-mon-table td.tsu-mon-name { display: inline-block; vertical-align: middle; }
+  .tsu-mon-table td.tsu-mon-ck input[type="checkbox"] { width: 22px !important; height: 22px !important; }
+  .tsu-mon-table td.tsu-mon-body { padding: 4px 10px 12px !important; }
+  .tsu-mon-line { flex-wrap: wrap !important; }
+  .tsu-mon-label { width: 100% !important; white-space: normal !important; }
+  .tsu-mon-sel { flex: 1 1 auto !important; width: auto !important; min-width: 0; min-height: 40px; }
+}
+
+/* ★ 2026-10-08(iPhoneで画面の上の方が空白で残る): 折りたたんで隠している上部(高さ0)の中の「固定(sticky)」は止める。
+   見えない固定部品が残ると、iPhone の描画で上の方が描き直されないことがあるため */
+[data-testid^="fold-body-"][data-open="0"] .sticky,
+[data-testid^="fold-body-"][data-open="0"] [style*="position: sticky"] { position: static !important; }
+
+/* ★ 2026-10-08(ユーザー要望): スマホの休み連絡・各種連絡の上部を詰める */
+@media (max-width: 767px) {
+  .tsu-abs-bar { padding: 8px 10px !important; gap: 6px !important; }
+  .tsu-abs-actions { margin-left: 0 !important; width: 100%; flex-wrap: nowrap !important; gap: 4px !important; }
+  .tsu-abs-actions > * { flex: 1 1 auto; min-width: 0; justify-content: center; padding: 8px 4px !important; font-size: 11.5px !important; white-space: nowrap; }
+  .tsu-abs-actions > label { gap: 3px !important; }
+  .tsu-gf-bar { padding: 8px 10px !important; gap: 6px !important; }
+  .tsu-gf-title, .tsu-gf-lbl { display: none !important; }
+  .tsu-gf-pt { flex: 1 1 auto; min-width: 0; }
+  .tsu-gf-pt select { min-width: 0 !important; width: 100%; }
+  .tsu-gf-actions { margin-left: 0 !important; width: 100%; justify-content: flex-start !important; gap: 5px !important; }
+  .tsu-gf-actions button, .tsu-gf-actions > label { padding: 6px 8px !important; }
+}
+
+/* ★ 2026-10-08(ユーザー報告: スマホのモニタリングで上部の部品の大きさ・高さがばらばら、氏名・確定・展開・選択欄が大きすぎる) */
+@media (max-width: 767px) {
+  .tsu-hide-phone { display: none !important; }
+  .tsu-mon-bar { padding: 8px 10px !important; gap: 6px !important; }
+  .tsu-mon-bar > button, .tsu-mon-bar > div > button, .tsu-mon-bar > label, .tsu-mon-bar > input {
+    height: 36px !important; min-height: 36px; box-sizing: border-box; padding-top: 0 !important; padding-bottom: 0 !important;
+    font-size: 13px !important; line-height: 1 !important; display: inline-flex !important; align-items: center; border-radius: 10px !important;
+  }
+  .tsu-mon-bar > input { padding: 0 10px !important; }
+  /* 1人分: チェック・氏名・介護度・確定・展開 を1行に、その下に①〜⑤ */
+  .tsu-mon-table tr { display: flex !important; flex-wrap: wrap; align-items: center; }
+  .tsu-mon-table td.tsu-mon-ck { flex: none; }
+  .tsu-mon-table td.tsu-mon-name { display: flex !important; flex: 1 1 0; min-width: 0; flex-wrap: wrap; align-items: center; gap: 4px 8px; text-align: left !important; padding: 8px 10px 4px 4px !important; }
+  .tsu-mon-table td.tsu-mon-name > div { margin-top: 0 !important; }
+  .tsu-mon-table td.tsu-mon-name > div:first-child { font-size: 15px !important; }
+  .tsu-mon-table td.tsu-mon-name > button { width: auto !important; margin-top: 0 !important; padding: 0 12px !important; height: 32px; font-size: 12px !important; }
+  .tsu-mon-table td.tsu-mon-name > button:first-of-type { margin-left: auto !important; }
+  .tsu-mon-table td.tsu-mon-body { flex: 1 1 100%; }
+  .tsu-mon-sel { min-height: 34px !important; height: 34px; padding: 0 6px !important; }
+}
+
+/* ★ 2026-10-08: スマホで横に広い一覧を「1人ずつの縦並び」にする共通の形(災害時の安否・連絡先など)。
+   各セルに data-label を付けると、その名前を小さく左に出す */
+@media (max-width: 767px) {
+  table.tsu-cards, table.tsu-cards tbody, table.tsu-cards tr, table.tsu-cards td { display: block; width: 100%; box-sizing: border-box; }
+  table.tsu-cards thead { display: none; }
+  table.tsu-cards tr { border-bottom: 2px solid #e2e8f0; padding: 6px 0; }
+  table.tsu-cards td { padding: 3px 12px !important; white-space: normal !important; }
+  table.tsu-cards td[data-label] { display: flex; gap: 8px; align-items: flex-start; }
+  table.tsu-cards td[data-label]::before { content: attr(data-label); flex: none; width: 5.5em; font-size: 11px; font-weight: bold; color: #64748b; padding-top: 2px; }
+  table.tsu-cards td:first-child { font-size: 15px; padding-top: 6px !important; }
+}
+
+/* ★ 2026-10-08(ユーザー報告: スマホで分析(個人)・分析(稼働)の上部が広すぎ・部品の大きさがばらばら): 高さをそろえて詰める */
+@media (max-width: 767px) {
+  .tsu-dash-hdr { padding: 8px 10px !important; gap: 6px !important; row-gap: 6px !important; }
+  .tsu-dash-hdr .tsu-dash-icon, .tsu-dash-hdr .tsu-dash-sub { display: none !important; }
+  .tsu-dash-hdr button, .tsu-dash-hdr select, .tsu-dash-hdr input[type="month"], .tsu-dash-hdr label[data-testid="mask-toggle"] {
+    height: 36px; min-height: 36px; box-sizing: border-box; padding-top: 0 !important; padding-bottom: 0 !important; font-size: 13px !important; line-height: 1 !important;
+  }
+  .tsu-dash-hdr input[type="month"], .tsu-dash-hdr select { padding-left: 8px !important; padding-right: 8px !important; border-radius: 10px !important; }
+  .tsu-dash-hdr > div { gap: 6px !important; }
+}
+@media (max-width: 767px) {
+  .tsu-mon-bar > .tsu-hide-phone { display: none !important; }
+  /* ①〜⑤の選択欄は同じ幅に(横の「(クリックで入力)」の長さで幅がばらばらになっていた)。本文は次の行に */
+  .tsu-mon-sel { flex: 1 1 calc(100% - 48px) !important; }
+  table.tsu-cards td[data-label]::before { width: 6.5em; }
+}
+@media (max-width: 767px) {
+  /* 本文(1行の省略表示・押すと入力)は選択欄の下の行に、幅いっぱいで(同じ行だと幅0に潰れて押せなかった) */
+  .tsu-mon-text { flex: 1 1 100% !important; padding: 2px 4px 4px; }
+}
+
+/* ★ 2026-10-08(店舗報告: iPhoneでお知らせ投稿の「表示日」が枠からはみ出す): iPhone の日付・月の入力欄は中身の幅より狭くならず、
+   幅いっぱい(w-full)を指定しても枠を突き抜ける。スマホでは見た目の部品を外して幅に収める(押すと日付の選択は従来どおり出る) */
+@media (max-width: 767px) {
+  input[type="date"].w-full, input[type="month"].w-full, input[type="time"].w-full {
+    -webkit-appearance: none; appearance: none; min-width: 0; max-width: 100%; display: block; box-sizing: border-box;
+  }
+  input[type="date"]::-webkit-date-and-time-value, input[type="month"]::-webkit-date-and-time-value { text-align: left; }
+}
+
+/* ★ 2026-10-08(ユーザー要望: スマホの分析(個人)4段・分析(稼働)3段 → 2段/1段に) */
+.tsu-period-sel, .tsu-o-break, .tsu-o-ops { display: none; }
+@media (max-width: 767px) {
+  .tsu-dash-hdr { flex-wrap: wrap !important; justify-content: flex-start !important; align-items: center !important; }
+  .tsu-dash-hdr .tsu-period-tabs, .tsu-dash-hdr .tsu-range-dup, .tsu-dash-hdr .tsu-dash-name, .tsu-dash-hdr .tsu-back-txt, .tsu-dash-hdr .tsu-mask-pre { display: none !important; }
+  .tsu-dash-hdr .tsu-period-sel { display: inline-flex; background: rgba(255,255,255,0.6); border: 1px solid rgba(255,255,255,0.8); border-radius: 10px; font-weight: bold; color: #1e293b; }
+  /* 分析(稼働): 期間・月・ダウンロードを1行に(見出しは画面の題名と重複するので出さない) */
+  .tsu-dash-hdr > div { order: 0 !important; flex-basis: auto !important; }
+  /* 分析(個人): 子要素を見出しの行に並べ直して2段に */
+  .tsu-dash-hdr .tsu-ph-contents { display: contents !important; }
+  .tsu-dash-hdr .tsu-o-back { order: 1; padding-left: 10px !important; padding-right: 10px !important; }
+  .tsu-dash-hdr .tsu-o-pt { order: 2; flex: 1 1 0; min-width: 0; }
+  .tsu-dash-hdr .tsu-o-period { order: 3; }
+  .tsu-dash-hdr .tsu-o-ops { display: inline-flex; align-items: center; order: 4; padding: 0 8px !important; }
+  .tsu-dash-hdr .tsu-o-dl { order: 11; }
+  .tsu-dash-hdr .tsu-o-break { display: block; order: 5; flex-basis: 100%; height: 0; }
+  /* 「操作」を閉じている間は 1行目(戻る・利用者・期間・操作)だけ */
+  .tsu-pd-hdr:not(.tsu-pd-open) .tsu-o-break, .tsu-pd-hdr:not(.tsu-pd-open) .tsu-o-month, .tsu-pd-hdr:not(.tsu-pd-open) .tsu-o-range,
+  .tsu-pd-hdr:not(.tsu-pd-open) .tsu-o-dm, .tsu-pd-hdr:not(.tsu-pd-open) .tsu-o-mask, .tsu-pd-hdr:not(.tsu-pd-open) .tsu-o-scope,
+  .tsu-pd-hdr:not(.tsu-pd-open) .tsu-o-dl { display: none !important; }
+  .tsu-dash-hdr .tsu-o-month { order: 6; max-width: 120px; }
+  .tsu-dash-hdr .tsu-o-range { order: 7; }
+  .tsu-dash-hdr .tsu-o-dm { order: 8; }
+  .tsu-dash-hdr .tsu-o-mask { order: 9; }
+  .tsu-dash-hdr .tsu-o-scope { order: 10; padding-left: 8px !important; padding-right: 8px !important; }
+}
+
+/* ★ 2026-10-08: 画面でだけ隠す(折りたたみ)。ダウンロード・印刷では表示する */
+@media screen { .tsu-screen-hide { display: none !important; } }
+@media (max-width: 767px) {
+  .tsu-mstrip { overflow-x: auto; }
+  .tsu-mstrip > * { flex: 0 0 28px !important; min-width: 28px; }
+}
+
+/* ★ 2026-10-08(ユーザー要望: スマホのモニタリング上部 4段→3段): 1段目=絞り込み・並び替え・月 / 2段目=選択(全員・通所なし・選択解除) / 3段目=マスキング・ダウンロード・自動FAX */
+.tsu-mo-break2, .tsu-mo-break3 { display: none; }
+@media (max-width: 767px) {
+  .tsu-mon-bar .tsu-mo-1 { order: 1; margin-left: auto; }
+  .tsu-mon-bar .tsu-mo-break2 { display: block; order: 2; flex-basis: 100%; height: 0; }
+  .tsu-mon-bar .tsu-mo-sel { order: 3; }
+  .tsu-mon-bar .tsu-mo-break3 { display: block; order: 4; flex-basis: 100%; height: 0; }
+  .tsu-mon-bar .tsu-mo-3 { order: 5; }
+  .tsu-mon-bar > .tsu-mo-sel { padding-left: 10px !important; padding-right: 10px !important; }
+  .tsu-mon-bar > .tsu-mo-1 { max-width: 116px; }
+}
+
+/* ★ 2026-10-08(ユーザー要望: スマホの送迎表(1日表示)で名前と時間の間が空きすぎ・文字を大きく): 文字17px・名前の幅は名前に合わせて詰める */
+/* ★ 2026-10-08 追補(ユーザー要望: もう少し大きく・車名と運転者が小さく薄い): 名前・時間19px、車名・運転者15pxで濃く、午前/午後・休み・未割当も大きく */
+.tsu-tp-one [data-tpfb] { font-size: 19px !important; line-height: 1.35 !important; padding-top: 4px; padding-bottom: 4px; gap: 10px !important; }
+.tsu-tp-one [data-tpfb] > span:first-child { width: 6.2em !important; }
+.tsu-tp-one .border-dashed { font-size: 15px !important; color: #0f172a !important; padding-top: 4px; padding-bottom: 2px; }
+.tsu-tp-one .border-dashed > span { font-weight: bold !important; color: #334155 !important; }
+.tsu-tp-one .text-\[11px\] { font-size: 14px !important; }
+
+/* ★ 2026-10-08: iPhone の時刻・日付の欄は中身より狭くならず隣と重なる。.tsu-fit を付けた欄は幅に収める */
+input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="month"] { -webkit-appearance: none; appearance: none; min-width: 0; box-sizing: border-box; }
+
+/* ★ 2026-10-08(店舗報告: スマホで運動メニューの「2単位」の欄が枠の外に出る): スマホは1行目=つまみ・名前、2行目=単位・グラフ・削除 */
+@media (max-width: 767px) {
+  .tsu-exrow { flex-wrap: wrap; }
+  .tsu-exrow > input:first-of-type { flex: 1 1 calc(100% - 40px) !important; min-width: 0; }
+  .tsu-exrow > :not(:first-child):not(input:first-of-type) { margin-left: 0; }
+}
+
+/* ★ 2026-10-08: スマホの担当職員(各種設定)= 左に見出し(役職/氏名/資格)を付けて 1行目 役職・副の役職(×は右端) / 2行目 氏名 / 3行目 資格1・資格2 */
+.tsu-st-lbl { display: none; }
+@media (max-width: 767px) {
+  .tsu-staffrow { display: grid !important; grid-template-columns: 2.9em 1fr 1fr 30px; gap: 6px !important; align-items: center; }
+  .tsu-staffrow .tsu-st-lbl, .tsu-staffrow .tsu-st-qlbl { display: block; width: 2.9em; flex: none; font-size: 11px; font-weight: bold; color: #64748b; }
+  .tsu-staffrow .tsu-st-role { grid-column: 1 / 4; grid-row: 1; border-right: none !important; padding-right: 0 !important; margin-right: 0 !important; min-width: 0; gap: 6px !important; }
+  .tsu-staffrow .tsu-st-role > span:not(.tsu-st-lbl) { width: auto !important; flex: 1 1 0; min-width: 0; padding-left: 0 !important; }
+  .tsu-staffrow .tsu-st-role > select { width: auto !important; flex: 1 1 0; min-width: 0; }
+  .tsu-staffrow .tsu-st-del { grid-column: 4; grid-row: 1; padding: 6px; }
+  .tsu-staffrow .tsu-st-name { grid-column: 1 / 5; grid-row: 2; border-right: none !important; padding-right: 0 !important; margin-right: 0 !important; gap: 6px !important; }
+  .tsu-staffrow .tsu-st-name > input { width: auto !important; flex: 1 1 0; min-width: 0; }
+  .tsu-staffrow .tsu-st-qlbl { grid-column: 1; grid-row: 3; }
+  .tsu-staffrow .tsu-st-q { grid-row: 3; width: 100% !important; min-width: 0; }
+  .tsu-staffrow .tsu-st-q:nth-of-type(1) { grid-column: 2; }
+  .tsu-staffrow .tsu-st-q:nth-of-type(2) { grid-column: 3 / 5; }
+}
+@media (max-width: 767px) {
+  .tsu-exrow input[list] { width: 62px !important; }
+  .tsu-exrow > select { width: 88px !important; }
+}
+
+/* ★ 2026-10-08(ユーザー要望: スマホの日誌の「操作」は 担当者追加・送迎表取込・迎え・送り・ダウンロード を1行に) */
+@media (max-width: 767px) {
+  .tsu-diary-bar { column-gap: 5px !important; }
+  .tsu-diary-bar > button, .tsu-diary-bar > div > button { padding-left: 7px !important; padding-right: 7px !important; font-size: 13px !important; height: 40px; white-space: nowrap; gap: 0 !important; }
+  .tsu-diary-bar > button > span:empty { display: none; }
+}
+
+/* ★★ 2026-10-08(店舗報告: iPhoneで画面の一部が白いまま・スクロールしても戻らない・押すと反応する。固定の帯(各種設定のタブ・提供記録や日誌の1行目)の下で起きる):
+   iPhone のブラウザは「内側の枠のスクロール(2重)」の中に「上に固定する帯(sticky)」があると、その下を描かないことがある。
+   スマホ幅は画面全体(ページ)がスクロールする作りにする(iPhone が一番得意な形)。上の見出しはページの上に固定し、
+   各画面の固定の帯は見出しの下(48px)に付ける。iPad・PC(768以上)は従来どおり内側の枠でスクロール */
+@media (max-width: 767px) {
+  html, body, #root { overflow-x: clip !important; height: auto !important; min-height: 100%; }
+  /* 外枠は 2026-09-11(旧iPadの文書バウンス対策)で画面に固定(position:fixed・高さ100dvh)している。スマホ幅では固定を外してページを伸ばす */
+  .tsu-app-root { position: relative !important; inset: auto !important; height: auto !important; min-height: 100vh; width: 100% !important; overflow: visible !important; }
+  #appMainArea { overflow: visible !important; }
+  /* ★ 2026-10-08 追補(ユーザー報告: スクロールすると1行目と見出しの間に隙間が出て上下に揺れる): 見出しはスクロールの影響を受けない「画面に固定」にし、
+     その分ページの上に48pxの余白。1行目などの固定の帯は見出しに1px重ねて(47px)隙間を出さない。重ね順は 帯(30) < 見出し(39) < サイドバーの背景(40) */
+  #appMainArea > header.tsu-app-header { position: fixed; top: 0; left: 0; right: 0; z-index: 39; }
+  #appMainArea { padding-top: 47px; }
+  #appMainArea > main.tsu-app-main { overflow: visible !important; }
+  #tsuContentScroller { overflow: visible !important; flex: none !important; }
+  /* ページ直下の帯だけ(印 data-tsu-doc は App が付ける)。画面の内側の枠の中の帯は元の位置のまま(2026-10-08 灰色の隙間・被りの修正) */
+  #tsuContentScroller .sticky.top-0[data-tsu-doc]:not(th):not(thead):not(tr) { top: 47px !important; }
+  #tsuContentScroller [style*="position: sticky"][style*="top: 0px"][data-tsu-doc]:not(th):not(thead):not(tr) { top: 47px !important; }
+}
+@supports not (overflow-x: clip) {
+  @media (max-width: 767px) { body, #root { overflow-x: visible !important; } }
+}
+
+/* ★ 2026-10-08(ユーザー要望: 送迎表(スマホの1日表示)で車ごとにもう少し間をあけて分かりやすく): 車ごとに薄い枠の箱にし、箱の間をあける */
+.tsu-tp-one .space-y-1 > div:has(> .border-dashed) { border: 1px solid #cbd5e1; border-radius: 10px; padding: 4px 8px 6px; background: #ffffff; margin-top: 10px !important; }
+.tsu-tp-one .space-y-1 > div:has(> .border-dashed):first-child { margin-top: 2px !important; }
+.tsu-tp-one .space-y-1 > div > .border-dashed { border-bottom: 2px solid #e2e8f0 !important; border-bottom-style: solid !important; margin-bottom: 2px; }
+
+/* ★ 2026-10-08: スマホで画面に固定した帯(.tsu-pin)の中の「止まる(sticky)」は止める(固定の中で二重に動かさない) */
+#tsuContentScroller .tsu-pin .sticky:not(th):not(thead):not(tr):not(td),
+#tsuContentScroller .tsu-pin [style*="position: sticky"]:not(th):not(thead):not(tr):not(td) { position: relative !important; top: auto !important; }
+
+/* ★ 2026-10-08(ユーザー要望): スマホのカレンダー上部を1行に(見出し+ラベル編集・繰り返し設定・予定を追加) */
+@media (max-width: 767px) {
+  .tsu-sch-bar { flex-wrap: nowrap !important; padding: 8px 8px !important; gap: 6px !important; }
+  .tsu-sch-icon { display: none !important; }
+  .tsu-sch-title { font-size: 15px !important; white-space: nowrap; }
+  .tsu-sch-btns { flex-wrap: nowrap !important; gap: 4px !important; }
+  .tsu-sch-btns > button { padding: 7px 7px !important; font-size: 12px !important; white-space: nowrap; }
+  /* 実績登録: タブと月の切替を1行に */
+  .tsu-jm-bar { flex-wrap: nowrap !important; gap: 5px !important; }
+  .tsu-jm-tab { padding: 7px 9px !important; font-size: 12.5px !important; white-space: nowrap; }
+  .tsu-jm-lbl { display: none; }
+  .tsu-jm-month { min-width: 0 !important; font-size: 13px !important; white-space: nowrap; }
+  .tsu-jm-bar > div[style*="margin-left"] > div { gap: 3px !important; }
+  .tsu-jm-bar > div[style*="margin-left"] button { padding: 4px 8px !important; }
+}
+/* クラス在籍表: 高さの低い画面(スマホの横向き)は1行に */
+@media (max-height: 520px) {
+  .tsu-cr-bar { flex-wrap: nowrap !important; padding-top: 4px !important; padding-bottom: 4px !important; }
+  .tsu-cr-desc, .tsu-cr-title { display: none !important; }
+  .tsu-cr-bar button { padding-top: 6px !important; padding-bottom: 6px !important; }
+}
+
+
+/* ★ 2026-10-08(ユーザー要望): スマホの連絡帳「操作」の中 = 提供記録・各種入力・印刷設定・空印刷・ダウンロード を1行に */
+@media (max-width: 767px) {
+  .tsu-cb-bar { flex-wrap: nowrap !important; padding: 8px 6px !important; gap: 4px !important; }
+  .tsu-cb-bar > button, .tsu-cb-bar > div > button { padding: 0 7px !important; height: 40px; font-size: 12px !important; white-space: nowrap; }
+  .tsu-cb-bar > button svg { display: none; }
+  /* ★ 2026-10-09(ユーザー要望): 送迎表の「操作」は日付の帯の「下」に開く(上の固定部分は動かさない・他の画面と同じ)。
+     中は 1行目=週の切替(左に詰める)+色の見本(右・2段)、その下=ボタンを3列にそろえて並べる */
+  .tsu-tp-stick { display: flex; flex-direction: column; }
+  .tsu-tp-stick > [data-testid="tp-phone-daybar"] { order: -1; }
+  [data-testid="tp-ops"]:not(.hidden) { display: flex !important; flex-wrap: wrap; align-items: center; gap: 6px !important; padding: 8px 8px !important; }
+  [data-testid="tp-ops"] .tsu-tpo-week { flex: 0 0 auto; gap: 2px !important; }
+  [data-testid="tp-ops"] .tsu-tpo-week > button { padding: 6px 7px !important; font-size: 12px !important; }
+  [data-testid="tp-ops"] .tsu-tpo-week > span { font-size: 12px !important; padding: 0 2px !important; }
+  [data-testid="tp-ops"] .tsu-tpo-legend { margin-left: auto; display: grid !important; grid-template-columns: auto auto; gap: 3px 4px !important; justify-items: end; font-size: 10.5px !important; }
+  [data-testid="tp-ops"] .tsu-tpo-legend > span { padding: 0 4px !important; line-height: 1.5; }
+  [data-testid="tp-ops"] .tsu-tpo-legend > span:first-child { grid-column: 1 / -1; }
+  [data-testid="tp-ops"] .tsu-tpo-sp, [data-testid="tp-ops"] .tsu-tpo-status { display: none !important; }
+  [data-testid="tp-ops"] > button:not(.hidden) { flex: 0 0 calc((100% - 12px) / 3); width: auto; height: 40px; padding: 0 4px !important; font-size: 12px !important; border-radius: 10px !important; white-space: nowrap; display: flex; align-items: center; justify-content: center; }
+}
+
+/* ★ 2026-10-08: スマホの休み連絡(カレンダー)上部 = 月の切替・印の見本・履歴 を1行 */
+@media (max-width: 767px) {
+  .tsu-abscal-bar { flex-wrap: nowrap !important; padding: 8px 8px !important; gap: 6px !important; }
+  .tsu-abscal-title, .tsu-abscal-y { display: none !important; }
+  .tsu-abscal-bar > div { gap: 4px !important; }
+  .tsu-abscal-bar button { padding: 5px 8px !important; }
+  .tsu-abscal-month { min-width: 0 !important; font-size: 14px !important; }
+  .tsu-abscal-legend { flex-wrap: nowrap !important; gap: 5px !important; }
+  .tsu-abscal-legend button { margin-left: 2px !important; }
+}
+
+/* ★ 2026-10-08: スマホのクラス在籍表 上部 = 1段目 定員・ダウンロード / 2段目 休止中の見本 */
+@media (max-width: 767px) {
+  .tsu-cr-bar .tsu-cr-cap { order: 1; }
+  .tsu-cr-bar .tsu-cr-right { order: 2; }
+  .tsu-cr-bar .tsu-cr-legend { order: 3; flex-basis: 100%; }
+}
+@media (max-width: 767px) {
+  .tsu-em-bar { flex-wrap: nowrap !important; padding: 8px 8px !important; gap: 5px !important; }
+  .tsu-em-bar > button { flex: 1 1 auto; padding: 8px 4px !important; font-size: 13px !important; }
+}
+
+/* ★ 2026-10-09(ユーザー要望): スマホの家族関係者閲覧管理「履歴」の絞り込みは文字を小さくして2行に(タブの下に固定)。
+   キーワード欄は iPhone の拡大を防ぐため 16px のまま(高さだけ詰める) */
+@media (max-width: 767px) {
+  .tsu-fa-hsel { font-size: 13px !important; height: 32px; width: 100%; }
+  .tsu-fa-hq { height: 32px; }
 }
