@@ -1918,7 +1918,7 @@ function MaskToggle({ small, storeKey, onChange }) {
   React.useEffect(() => { _tsumugiMaskOn = on; try { if (storeKey) localStorage.setItem(`tsumugiMask:${storeKey}`, on ? '1' : '0'); } catch {} if (onChange) onChange(on); return () => { _tsumugiMaskOn = false; }; }, [on]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <label data-testid="mask-toggle" title="ONにすると、ダウンロードする書類の利用者氏名・ふりがなを1文字おきに○へ置き換えます（例: 髙橋正樹→髙○正○）" style={{display:'inline-flex',alignItems:'center',gap:5,padding: small ? '4px 8px' : '6px 10px',borderRadius:8,border:'1px solid',borderColor: on ? '#f59e0b' : '#cbd5e1',background: on ? '#fef3c7' : 'white',color: on ? '#b45309' : '#475569',fontSize: small ? 11 : 12,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap',userSelect:'none'}}>
-      <input type="checkbox" checked={on} onChange={e => setOn(e.target.checked)} style={{width:14,height:14}}/>氏名マスキング
+      <input type="checkbox" checked={on} onChange={e => setOn(e.target.checked)} style={{width:14,height:14}}/><span className="tsu-mask-pre">氏名</span>マスキング
     </label>
   );
 }
@@ -13384,7 +13384,7 @@ function DisasterView({ appData, onSave, staffSession }) {
                 <button type="button" onClick={() => setSafety(s => { const n = { ...s }; pats.forEach(p => { n[String(p.id)] = 'ok'; }); return n; })} className="px-2 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold">全員 無事</button>
                 <button type="button" onClick={() => setSafety(s => { const n = { ...s }; pats.forEach(p => { n[String(p.id)] = 'evac'; }); return n; })} className="px-2 py-1.5 rounded-lg bg-sky-600 text-white text-xs font-bold">全員 避難済み</button>
                 <button type="button" onClick={() => setSafety({})} className="px-2 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-600 text-xs font-bold">クリア</button>
-                <button type="button" onClick={printList} className="px-2 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-700 text-xs font-bold">印刷</button>
+                <button type="button" onClick={printList} className="px-2 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-700 text-xs font-bold">ダウンロード</button>
                 <button type="button" onClick={() => setTab('notice')} className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold">この安否でご家族へ連絡 →</button>
               </div>
             </div>
@@ -20851,7 +20851,8 @@ export default function App() {
     // ★ 2026-10-03(ユーザー要望「連絡帳はまっすぐ印刷画面へ」): detail.autoPrint=true なら、プレビューを出した直後に印刷(PC=隠しiframeで印刷ダイアログ、iPad=印刷用の表示)へ進む
     const handler = (e) => { if (e.detail && e.detail.autoPrint) _autoPrintRef.current = true; setPrintPreviewContent(e.detail); };
     window.addEventListener('setPrintHtml', handler);
-    return ()=>window.removeEventListener('setPrintHtml', handler);
+    window.__tsumugiPrintHost = (window.__tsumugiPrintHost || 0) + 1; // ★ 2026-10-08: 事業所の画面に「書類のダウンロード」の受け口があるかの目印(ご家族・ケアマネ画面には無い)
+    return ()=>{ window.removeEventListener('setPrintHtml', handler); window.__tsumugiPrintHost = Math.max(0, (window.__tsumugiPrintHost || 1) - 1); };
   },[]); // {title, elementId}
   // ★ プレビュー iframe の高さ＆srcDoc は App 直下で安定保持 (PreviewModalを毎回作り直すと iframe再読込=チカチカ/QR点滅になるため)
   const [previewIfH, setPreviewIfH] = useState(900);
@@ -27282,33 +27283,35 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
       <div className={(!compactMode && !familyMode) ? 'tsu-dash-hdr' : undefined} style={{background: compactMode ? '#d4e7a5' : 'linear-gradient(135deg,#dbeafe 0%,#93c5fd 100%)',color: compactMode ? '#3d5021' : '#1e293b',padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
         {/* ★ ご家族 / ケアマネ閲覧時 (compactMode) は親ヘッダに利用者名があるため非表示で重複を防ぐ */}
         {!compactMode && (
-          <div style={{display:'flex',alignItems:'center',gap:12}}>
+          <div className="tsu-ph-contents" style={{display:'flex',alignItems:'center',gap:12}}>
             <div className="tsu-dash-icon" style={{width:36,height:36,background:'rgba(255,255,255,0.2)',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center'}}>
               <BarChart3 size={20}/>
             </div>
-            <div>
+            <div className="tsu-dash-name">
               <div className="tsu-dash-sub" style={{fontSize:11,opacity:0.7,fontWeight:'bold'}}>分析・個人</div>
               <div style={{fontSize:18,fontWeight:'bold'}}>{selectedPatient.name} 様</div>
             </div>
             {/* ★ 表示内容ポップアップ(2026-08-28 店舗要望): 本人/家族/ケアマネ・他関係者に何が見えるか。事業所のみ表示 */}
-            <button type="button" onClick={()=>setShowScopeInfo(true)} title="ご本人・ご家族・ケアマネ/他関係者に表示される内容の一覧"
+            <button type="button" className="tsu-o-scope" onClick={()=>setShowScopeInfo(true)} title="ご本人・ご家族・ケアマネ/他関係者に表示される内容の一覧"
               style={{background:'rgba(255,255,255,0.6)',border:'1px solid rgba(255,255,255,0.8)',color:'#1e40af',borderRadius:10,padding:'6px 12px',fontSize:11,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>表示内容</button>
           </div>
         )}
-        <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+        {/* ★ 2026-10-08(ユーザー要望: スマホで上部が4段→2段に): スマホ(事業所の画面)は CSS で並べ替え。1段目=戻る・利用者・ダウンロード、
+            2段目=期間(選択欄)・月・マスキング・表示内容。名前の見出しは利用者の選択欄と同じなので出さない */}
+        <div className="tsu-ph-contents" style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
           {/* 一覧に戻るボタン (familyMode 以外) */}
           {!familyMode && !hidePatientSelector && (
             <button onClick={()=>{ setSelectedPatientId(null); setPatientSearch(''); onPatientChange && onPatientChange(null); }}
-              title="利用者一覧に戻る"
+              title="利用者一覧に戻る" className="tsu-o-back"
               style={{background:'rgba(255,255,255,0.5)',border:'1px solid rgba(255,255,255,0.7)',color:'#1e293b',borderRadius:10,padding:'6px 12px',fontSize:12,fontWeight:'bold',cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
-              ← 一覧に戻る
+              ← <span className="tsu-back-txt">一覧に戻る</span>
             </button>
           )}
           {/* 利用者プルダウン: かな昇順 + ア行/カ行... の optgroup でラベル付け */}
           {!hidePatientSelector && (
             <>
               {/* ★ 利用者の検索欄は廃止 (プルダウンから選択)。 */}
-              <select value={selectedPatientId||""} onChange={e=>{const id=Number(e.target.value);setSelectedPatientId(id);onPatientChange&&onPatientChange(id);}}
+              <select className="tsu-o-pt" value={selectedPatientId||""} onChange={e=>{const id=Number(e.target.value);setSelectedPatientId(id);onPatientChange&&onPatientChange(id);}}
                 style={{background:'rgba(255,255,255,0.5)',border:'1px solid rgba(255,255,255,0.7)',color:'#1e293b',borderRadius:10,padding:'6px 12px',fontSize:13,fontWeight:'bold',outline:'none',cursor:'pointer'}}>
                 {groupPatientsByKanaRow(filteredPatientsForSelector).map(g => (
                   <optgroup key={g.label} label={g.label}>
@@ -27320,7 +27323,11 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           )}
           {/* ★ 期間ボタン: 全部黒文字に統一 (compactMode = 家族/ケアマネ では親ヘッダの期間セレクタを使うので非表示) */}
           {!compactMode && (<>
-          <div style={{display:'flex',background:'rgba(255,255,255,0.4)',borderRadius:10,overflow:'hidden',border:'1px solid rgba(255,255,255,0.5)'}}>
+          <div className="tsu-o-break" />
+          <select className="tsu-period-sel tsu-o-period" value={period} onChange={e=>setPeriod(e.target.value)} aria-label="期間">
+            {[['1','1ヶ月'],['3','3ヶ月'],['6','半年'],['12','1年'],['custom','期間指定']].map(([v,l])=><option key={v} value={v}>{l}</option>)}
+          </select>
+          <div className="tsu-period-tabs" style={{display:'flex',background:'rgba(255,255,255,0.4)',borderRadius:10,overflow:'hidden',border:'1px solid rgba(255,255,255,0.5)'}}>
             {[['1','1ヶ月'],['3','3ヶ月'],['6','半年'],['12','1年'],['custom','期間指定']].map(([v,l])=>(
               <button key={v} onClick={()=>setPeriod(v)} style={{padding:'6px 10px',fontSize:12,fontWeight:'bold',color:period===v?'#1e293b':'#334155',background:period===v?'white':'transparent',border:'none',cursor:'pointer',borderRight:'1px solid rgba(255,255,255,0.4)',transition:'all 0.15s'}}>{l}</button>
             ))}
@@ -27328,23 +27335,23 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           {/* ★ 家族側と同仕様に統一(2026-08-11): 年4桁上限・開始>終了の逆転防止(min/max+相互クランプ)。
               片側未指定の既定(開始=終了の1年前/終了=今月)は共通ロジック(_customRange)で適用済み。 */}
           {period!=='custom'&&
-            <input type="month" max="9999-12" value={baseMonth} onChange={e=>setBaseMonth(e.target.value)}
+            <input type="month" className="tsu-o-month" max="9999-12" value={baseMonth} onChange={e=>setBaseMonth(e.target.value)}
               style={{background:'rgba(255,255,255,0.5)',border:'1px solid rgba(255,255,255,0.6)',color:'#1e293b',borderRadius:10,padding:'6px 10px',fontSize:12,fontWeight:'bold',outline:'none',cursor:'pointer'}}/>}
           {period==='custom'&&<>
-            <input type="month" max={customTo || '9999-12'} value={customFrom} title="開始月(未指定の場合は終了月の1年前から)" onChange={e=>{ const v=e.target.value; setCustomFrom(v); if (v && customTo && v > customTo) setCustomTo(v); }} style={{background:'rgba(255,255,255,0.5)',border:'1px solid rgba(255,255,255,0.6)',color:'#1e293b',borderRadius:10,padding:'6px 10px',fontSize:12,fontWeight:'bold',outline:'none',cursor:'pointer'}}/>
+            <input type="month" className="tsu-o-month" max={customTo || '9999-12'} value={customFrom} title="開始月(未指定の場合は終了月の1年前から)" onChange={e=>{ const v=e.target.value; setCustomFrom(v); if (v && customTo && v > customTo) setCustomTo(v); }} style={{background:'rgba(255,255,255,0.5)',border:'1px solid rgba(255,255,255,0.6)',color:'#1e293b',borderRadius:10,padding:'6px 10px',fontSize:12,fontWeight:'bold',outline:'none',cursor:'pointer'}}/>
             <span style={{color:'#1e293b',fontWeight:'bold'}}>〜</span>
-            <input type="month" min={customFrom || undefined} max="9999-12" value={customTo} title="終了月(未指定の場合は今月まで)" onChange={e=>{ const v=e.target.value; setCustomTo(v); if (v && customFrom && v < customFrom) setCustomFrom(v); }} style={{background:'rgba(255,255,255,0.5)',border:'1px solid rgba(255,255,255,0.6)',color:'#1e293b',borderRadius:10,padding:'6px 10px',fontSize:12,fontWeight:'bold',outline:'none',cursor:'pointer'}}/>
+            <input type="month" className="tsu-o-month" min={customFrom || undefined} max="9999-12" value={customTo} title="終了月(未指定の場合は今月まで)" onChange={e=>{ const v=e.target.value; setCustomTo(v); if (v && customFrom && v < customFrom) setCustomFrom(v); }} style={{background:'rgba(255,255,255,0.5)',border:'1px solid rgba(255,255,255,0.6)',color:'#1e293b',borderRadius:10,padding:'6px 10px',fontSize:12,fontWeight:'bold',outline:'none',cursor:'pointer'}}/>
           </>}
           </>)}
           {/* ★ 期間ラベル: compactMode (家族・ケアマネ) では親ヘッダで持つので非表示 */}
           {!compactMode && (
-            <span style={{background:'white',color:familyMode?'#3d5021':'#1e40af',borderRadius:8,padding:'6px 12px',fontSize:11,fontWeight:'bold',whiteSpace:'nowrap'}}>{rangeLabel}</span>
+            <span className={`tsu-o-range ${period==='1' ? 'tsu-range-dup' : ''}`} style={{background:'white',color:familyMode?'#3d5021':'#1e40af',borderRadius:8,padding:'6px 12px',fontSize:11,fontWeight:'bold',whiteSpace:'nowrap'}}>{rangeLabel}</span>
           )}
           {/* 3ヶ月超の場合、月平均/毎日表示の切替
               ★ 家族・ケアマネ画面(compactMode)では非表示(2026-08-16): 親ヘッダの期間メニューに
                 「日別・○○/月平均・○○」の選択が組み込まれており、このトグルは重複だった。 */}
           {!compactMode && (period==='all' || parseInt(period,10)>=6) && (
-            <div style={{display:'flex',background:'rgba(255,255,255,0.15)',borderRadius:10,overflow:'hidden',border:'1px solid rgba(255,255,255,0.3)'}}>
+            <div className="tsu-o-dm" style={{display:'flex',background:'rgba(255,255,255,0.15)',borderRadius:10,overflow:'hidden',border:'1px solid rgba(255,255,255,0.3)'}}>
               {[['auto','月平均'],['daily','毎日']].map(([v,l])=>(
                 <button key={v} onClick={()=>setDisplayMode(v)}
                   style={{padding:'6px 10px',fontSize:11,fontWeight:'bold',color:displayMode===v?(familyMode?'#3d5021':'#1e40af'):'white',background:displayMode===v?'white':'transparent',border:'none',cursor:'pointer'}}>{l}</button>
@@ -27355,8 +27362,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           {/* 表示用ボタン: クリックでポップアップを開く（期間/月を選択させる） */}
           {/* ★ 事業所モードのみ表示 (家族・ケアマネ閲覧モードは非表示) */}
           {!compactMode && (<>
-          <MaskToggle small storeKey="personal"/>
-          <button type="button" onClick={()=>setShowPrintOptionsPopup(true)}
+          <span className="tsu-o-mask"><MaskToggle small storeKey="personal"/></span>
+          <button type="button" className="tsu-o-dl" onClick={()=>setShowPrintOptionsPopup(true)}
               style={{background:'rgba(255,255,255,0.5)',border:'1px solid rgba(255,255,255,0.7)',color:'#1e293b',borderRadius:8,padding:'6px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
             ダウンロード
           </button>
@@ -27408,6 +27415,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                         const perContainer = document.getElementById('print-content-analysis');
                         if(!perContainer) continue;
                         const perClone = perContainer.cloneNode(true);
+                        // ★ 2026-10-08: 画面で折りたたんで隠している欄(基本情報など)も、ダウンロードの書類には載せる
+                        try { perClone.querySelectorAll('.tsu-screen-hide').forEach(e => e.classList.remove('tsu-screen-hide')); } catch {}
                         // sec-exercise2 を sec-exercise の直後に置く（DOM順と一致させ、後段の extractSection で
                         // 後続セクション（体力測定・欠席一覧・休止一覧・モニタリング・詳細記録）を巻き込まないようにする）
                         const _baseSecIds = ALL_SECTIONS.map(([id])=>id);
@@ -27864,9 +27873,13 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
               <span>基本情報</span><span style={{fontSize:12,color:'#64748b',fontWeight:'normal'}}>{basicOpen ? '▲ 閉じる' : '▼ タップで開く'}</span>
             </button>
           ) : (
-            <div style={{fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:10,paddingBottom:6,borderBottom:'2px solid #e2e8f0'}}>基本情報</div>
+            // ★ 2026-10-08(ユーザー要望「基本情報はあまり見ないので折りたたみ、見たいときに開く」): 事業所の分析(個人)も既定は閉じる。
+            //   画面で隠すだけで中身は残す(ダウンロードの書類には載る=写すときに隠しを外す)
+            <button type="button" data-testid="basic-toggle" onClick={()=>setBasicOpen(v=>!v)} aria-expanded={basicOpen} style={{width:'100%',display:'flex',alignItems:'center',justifyContent:'space-between',fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:10,paddingBottom:6,borderBottom:'2px solid #e2e8f0',background:'transparent',borderTop:'none',borderLeft:'none',borderRight:'none',cursor:'pointer',textAlign:'left'}}>
+              <span>基本情報</span><span className="no-print" style={{fontSize:12,color:'#64748b',fontWeight:'normal'}}>{basicOpen ? '▲ 閉じる' : '▼ タップで開く'}</span>
+            </button>
           )}
-          {(basicOpen || !compactMode) && selectedPatient && (()=>{
+          {(basicOpen || !compactMode) && selectedPatient && <div className={(!compactMode && !basicOpen) ? 'tsu-screen-hide' : undefined}>{(()=>{
             const age = calcAge(selectedPatient.birthDate);
             const birthDispBase = selectedPatient.birthDate
               ? new Date(selectedPatient.birthDate).toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'})
@@ -27942,7 +27955,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                 </div>
               </div>
             );
-          })()}
+          })()}</div>}
         </div>
 
         {/* ★ 次回のご利用予定(2026-09-28 ユーザー要望: 基本情報とは別に、時間は日付の横に大きく) */}
@@ -30193,6 +30206,10 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
   const closed = Array.isArray(fi.closedDays) ? fi.closedDays.map(Number) : [0];
   const DOWJ = ['日','月','火','水','木','金','土'];
   const days = [1,2,3,4,5,6,0].filter(d => !closed.includes(d));
+  // ★ 2026-10-08(店舗報告: スマホ縦で名前が見切れる): スマホは1日ずつ表示(曜日のボタンで切替・最初は今日の曜日)。ダウンロードは従来どおり全曜日
+  const _crPhone = useTsuIsPhone();
+  const [_crDay, setCrDay] = useState(() => { const t = new Date().getDay(); return days.includes(t) ? t : days[0]; });
+  const _crAllDays = days;
   const todayIso = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
   const order = ['事業対象者','要支援1','要支援2','要介護1','要介護2','要介護3','要介護4','要介護5'];
   const lv = (p) => { const i = order.indexOf(String(p.careLevel || '')); return i < 0 ? 99 : i; };
@@ -30242,6 +30259,7 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
   // ★ 2026-10-03: コンポーネントではなく「描画関数」にする(コンポーネントにすると親の再描画のたびに別物として作り直され、
   //   待ちの入力欄が1文字ごとに作り直されて日本語入力が1文字で確定してしまった)
   const renderBlock = (sl, label, print) => {
+    const days = (!print && _crPhone) ? [_crDay] : _crAllDays; // スマホの画面は選んだ曜日だけ
     const fs = print ? printFs : 12, rh = print ? undefined : scrRowH;
     const grip = !print; // 画面だけ: 並べ替え用のつまみ列(NO列は廃止・2026-10-03 ユーザー指示)
     // ★ 2026-10-04(ユーザー指示「15人定員だと下が詰まる。名前の右に余白があるので2列に」): 定員11名以上は各曜日を左右2列(例: 8+8)。曜日の境目は太線
@@ -30311,7 +30329,7 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
       <div className="no-print bg-white border-b border-slate-200 px-4 py-2 flex items-center gap-3 flex-wrap shrink-0">
         <div className="font-bold text-slate-800">クラス在籍表</div>
         <span className="text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 rounded-lg px-2 py-1">定員 {cap}名（＋予備1枠）</span>
-        <div className="text-[11px] text-slate-500">基本利用曜日から自動で並びます（介護度順）。左端の「⋮」をつかんで動かすと同じ枠の中で並べ替えできます。「待ち」は自由入力。曜日の変更は利用者マスタで。</div>
+        <div className="text-[11px] text-slate-500 hidden sm:block">基本利用曜日から自動で並びます（介護度順）。左端の「⋮」をつかんで動かすと同じ枠の中で並べ替えできます。「待ち」は自由入力。曜日の変更は利用者マスタで。</div>
         <span className="text-[11px] text-slate-500 flex items-center gap-1" data-testid="cr-legend"><span style={{display:'inline-block',width:14,height:14,borderRadius:3,background:'#e5e7eb'}}/><span style={{color:'#9ca3af',fontStyle:'italic',fontWeight:'bold'}}>グレー（斜体）</span>＝休止中の方</span>
         <div className="ml-auto flex items-center gap-2">
           <span className="text-[11px] text-slate-600">午前 {total('AM')}名 ／ 午後 {total('PM')}名</span>
@@ -30319,7 +30337,8 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
         </div>
       </div>
       <div className="flex-1 overflow-auto p-3">
-        {rows > 11 && <div className="text-[11px] text-slate-500 mb-1">定員が多いため各曜日を2列で表示しています（画面が狭い場合は横にスクロールできます）</div>}
+        {_crPhone && <div className="flex gap-1.5 mb-2" data-testid="cr-day-tabs">{_crAllDays.map(d => <button key={d} type="button" onClick={() => setCrDay(d)} className={`flex-1 h-10 rounded-xl text-sm font-bold border ${_crDay === d ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300'}`}>{DOWJ[d]}</button>)}</div>}
+        {rows > 11 && !_crPhone && <div className="text-[11px] text-slate-500 mb-1">定員が多いため各曜日を2列で表示しています（画面が狭い場合は横にスクロールできます）</div>}
         <div className="overflow-x-auto" data-testid="cr-scroll">{/* ★ 2026-10-04: 午前・午後は同じ横スクロール(曜日の列が連動して動く) */}
           <div className="bg-white rounded-xl border border-slate-200 p-2 mb-3">{renderBlock('AM', '午前', false)}</div>
           <div className="bg-white rounded-xl border border-slate-200 p-2">{renderBlock('PM', '午後', false)}</div>
@@ -31392,7 +31411,11 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         {/* ★ 2026-10-08: スマホは見出し(画面の題名と重複)を省き、部品の高さをそろえる(CSS tsu-dash-hdr) */}
         <div className="tsu-dash-sub" style={{display:'flex',alignItems:'center',gap:10,flexShrink:0,whiteSpace:'nowrap'}}><TrendingUp size={20}/><span style={{fontSize:17,fontWeight:'bold'}}>分析（稼働）</span></div>
         <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',justifyContent:(typeof window!=='undefined'&&window.innerWidth<768)?'flex-start':'flex-end',order:(typeof window!=='undefined'&&window.innerWidth<768)?3:0,flexBasis:(typeof window!=='undefined'&&window.innerWidth<768)?'100%':'auto',flexGrow:1}}>
-          <div style={{display:'flex',background:'rgba(255,255,255,0.5)',borderRadius:10,overflow:'hidden',border:'1px solid rgba(255,255,255,0.7)'}}>
+          {/* ★ 2026-10-08(ユーザー要望: スマホで3段→少なく): スマホは期間を選択欄に、同じ月の表示(1ヶ月のとき)は出さない */}
+          <select className="tsu-period-sel" value={period} onChange={e=>{setPeriod(e.target.value);setOpenDow(null);}} aria-label="期間">
+            {[['1','1ヶ月'],['3','3ヶ月'],['6','半年'],['12','1年'],['custom','期間指定']].map(([v,l])=><option key={v} value={v}>{l}</option>)}
+          </select>
+          <div className="tsu-period-tabs" style={{display:'flex',background:'rgba(255,255,255,0.5)',borderRadius:10,overflow:'hidden',border:'1px solid rgba(255,255,255,0.7)'}}>
             {[['1','1ヶ月'],['3','3ヶ月'],['6','半年'],['12','1年'],['custom','期間指定']].map(([v,l])=>(
               <button key={v} onClick={()=>{setPeriod(v);setOpenDow(null);}}
                 style={{padding:'6px 10px',fontSize:12,fontWeight:'bold',cursor:'pointer',border:'none',borderRight:'1px solid rgba(255,255,255,0.4)',
@@ -31406,7 +31429,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
             <div style={{display:'flex',alignItems:'center',gap:6}}>
               <input type="month" value={baseMonth} onChange={e=>{setBaseMonth(e.target.value);setOpenDow(null);}}
                 style={{background:'rgba(255,255,255,0.5)',border:'1px solid rgba(255,255,255,0.6)',color:'#1e293b',borderRadius:10,padding:'6px 10px',fontSize:12,fontWeight:'bold',outline:'none',cursor:'pointer'}}/>
-              <span style={{background:'white',color:'#ea580c',borderRadius:8,padding:'6px 12px',fontSize:13,fontWeight:'bold',whiteSpace:'nowrap'}}>
+              <span className={period==='1' ? 'tsu-range-dup' : undefined} style={{background:'white',color:'#ea580c',borderRadius:8,padding:'6px 12px',fontSize:13,fontWeight:'bold',whiteSpace:'nowrap'}}>
                 {(()=>{
                   if(period==='1') return `${tY}年${tM}月`;
                   const n=parseInt(period,10); let sM=tM-n+1,sY=tY; while(sM<=0){sM+=12;sY--;} return `${sY}年${sM}月〜${tY}年${tM}月`;
@@ -36285,7 +36308,16 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   );
   // ★ 2026-09-30(ユーザー要望): 下へスクロールしても日付を常に表示する(上部の固定帯に日付の行を置き、表の横スクロールと連動)
   const tpHdrRef = React.useRef(null);
-  const _tpCols = `26px repeat(${days.length}, minmax(236px, 1fr))`; // 先頭=午前/午後の縦見出し列
+  // ★ 2026-10-08(ユーザー要望「スマホで見るのは主に今日の送迎。スマホは当日の運行表を全体で表示し、上のボタンで1週間分も見られるように」):
+  //   スマホ幅は選んだ日(週の中に無ければ今日・それも無ければ週の最初の日)の1日だけを画面の幅いっぱいに表示。「1週間を見る」で従来の週表示。
+  //   表示だけの切替(確定・保存・ダウンロードは従来どおり週単位)。iPad・PCは従来どおり
+  const _tpPhone = useTsuIsPhone();
+  const [_tpWeekOnPhone, setTpWeekOnPhone] = useState(false);
+  const _tpOneDay = _tpPhone && !_tpWeekOnPhone;
+  const _tpDayIso = days.some(d => _iso(d) === selectedDate) ? selectedDate : (days.some(d => _iso(d) === _iso(new Date())) ? _iso(new Date()) : (days[0] ? _iso(days[0]) : selectedDate));
+  const _tpViewDays = _tpOneDay ? days.filter(d => _iso(d) === _tpDayIso) : days;
+  const _tpStepDay = (n) => { const closed = (appData.systemSettings?.facilityInfo?.closedDays || [0]).map(Number); const d = new Date(_tpDayIso + 'T00:00:00'); for (let i = 0; i < 8; i++) { d.setDate(d.getDate() + n); if (!closed.includes(d.getDay())) break; } setSelectedDate(_iso(d)); };
+  const _tpCols = `26px repeat(${_tpViewDays.length}, minmax(${_tpOneDay ? 0 : 236}px, 1fr))`; // 先頭=午前/午後の縦見出し列
   // ==== 画面 ====
   const _finalView = !!_finalAtOfWeek() && !tpEdit;
   return (
@@ -36401,12 +36433,25 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           <button onClick={()=>setPrintModal({ mode:'week', weekContent:'sheet', days:new Set(days.map(d=>_iso(d))) })} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">ダウンロード</button>
         {/* ★ 2026-10-08(ユーザー指示): 上部の「?」(使い方の説明)は削除 */}
       </div>
+        {_tpPhone && (
+          <div className="bg-white px-2 py-1.5 border-b border-slate-200 flex items-center gap-1.5" data-testid="tp-phone-daybar">
+            {_tpOneDay ? (<>
+              <button type="button" onClick={() => _tpStepDay(-1)} className="h-10 w-10 rounded-xl border border-slate-300 bg-white font-bold text-slate-700" aria-label="前の日">◀</button>
+              {(() => { const d = new Date(_tpDayIso + 'T00:00:00'); return <span className="flex-1 text-center text-[15px] font-bold text-slate-800 whitespace-nowrap">{d.getMonth()+1}/{d.getDate()}({DOWJ[d.getDay()]}){_tpDayIso === _iso(new Date()) ? ' 今日' : ''}</span>; })()}
+              <button type="button" onClick={() => _tpStepDay(1)} className="h-10 w-10 rounded-xl border border-slate-300 bg-white font-bold text-slate-700" aria-label="次の日">▶</button>
+              <button type="button" data-testid="tp-phone-week" onClick={() => setTpWeekOnPhone(true)} className="h-10 px-3 rounded-xl bg-slate-800 text-white text-sm font-bold whitespace-nowrap">1週間を見る</button>
+            </>) : (<>
+              <span className="flex-1 text-[13px] font-bold text-slate-600">1週間の表示（横にスクロール）</span>
+              <button type="button" data-testid="tp-phone-day" onClick={() => setTpWeekOnPhone(false)} className="h-10 px-3 rounded-xl bg-blue-600 text-white text-sm font-bold whitespace-nowrap">1日の表示に戻る</button>
+            </>)}
+          </div>
+        )}
         {/* ★ 2026-09-30: 上の帯と隙間なく詰めて固定(スクロール中に下の内容が透けて見えないよう背景つき)。日付は中央揃え・「この日を印刷」は廃止(印刷ボタンの「日ごと」で印刷) */}
         {!_finalView && <div className="bg-slate-100 px-2 sm:px-3 pt-1 pb-1 border-b border-slate-200" data-testid="tp-date-strip">
           <div className="max-w-[1500px] mx-auto overflow-hidden" ref={tpHdrRef}>
             <div className="grid" style={{gridTemplateColumns:_tpCols, columnGap:8}}>
               <div />
-              {days.map(d => {
+              {_tpViewDays.map(d => {
                 const iso = _iso(d);
                 const _today = iso === _iso(new Date());
                 return (
@@ -36433,8 +36478,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           </div>
           {/* ★ 2026-10-05(ユーザー指示「人数によって午後の位置がカクカクする。横一列で揃えて」): 日付・午前・午後を行に持つグリッドにし、
               どの曜日も午後が同じ高さから始まるようにする(1日=縦に3マス・列の流れは縦) */}
-          <div data-testid="tp-fb-grid" className="grid" style={{gridTemplateColumns:`repeat(${days.length}, minmax(0, 1fr))`, gridTemplateRows:'auto auto auto', gridAutoFlow:'column', columnGap:8, rowGap:0}}>
-            {days.map(d => { const iso = _iso(d); const _hol = (appData.holidays||[]).find(h => (h && (h.date||h)) === iso); return (
+          <div data-testid="tp-fb-grid" className="grid" style={{gridTemplateColumns:`repeat(${_tpViewDays.length}, minmax(0, 1fr))`, gridTemplateRows:'auto auto auto', gridAutoFlow:'column', columnGap:8, rowGap:0}}>
+            {_tpViewDays.map(d => { const iso = _iso(d); const _hol = (appData.holidays||[]).find(h => (h && (h.date||h)) === iso); return (
               <React.Fragment key={iso}>
                 <div className={`px-2 py-1 text-xs font-bold text-center rounded-t-xl border border-b-0 border-slate-200 min-w-0 ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-100 text-slate-700'}`}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{_hol ? <span className="ml-1 text-red-600">休業</span> : null}</div>
                 {['AM','PM'].map(sl => { const pl = getPlan(iso, sl); const abs = _absentees(iso, sl); const anyone = Object.values(pl.cars||{}).some(a => (a||[]).length) || (pl.walkers||[]).length || (pl.others||[]).length || (pl.un||[]).length; return (
@@ -36475,7 +36520,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           {['AM','PM'].map(sl => (
             <div key={`lbl-${sl}`} className={`rounded-lg flex items-center justify-start font-bold text-[13px] ${sl==='AM'?'bg-amber-100 text-amber-800':'bg-indigo-100 text-indigo-800'}`} style={{writingMode:'vertical-rl', letterSpacing:4, paddingTop:10}}>{sl==='AM'?'午前':'午後'}</div>
           ))}
-          {days.map(d => {
+          {_tpViewDays.map(d => {
             const iso = _iso(d);
             const _today = iso === _iso(new Date());
             return (
@@ -39719,7 +39764,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               <div ref={scheduleSectionRef} className={`scroll-mt-20 rounded-xl transition-all duration-500 ${monthlyHl ? 'ring-4 ring-amber-400 ring-offset-4 ring-offset-white' : ''}`}>
                 {monthlyHl && (<div className="mb-2 px-3 py-2 rounded-lg bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold">振替・欠席・休業・休止など「その日だけ」の変更はここ（月間スケジュール）の日付をタップして行います。上の基本利用曜日は変えないでください。</div>)}
                 <div className="flex items-center justify-between mb-2"><label className="text-sm font-bold text-slate-600 flex items-center gap-1.5"><CalendarCheck size={16} />月間スケジュール</label><div className="flex items-center gap-2"><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronLeft size={16} /></button><span className="text-base font-bold text-slate-700 tabular-nums w-28 text-center">{currentMonth.getFullYear()}年{currentMonth.getMonth() + 1}月</span><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronRight size={16} /></button></div></div>
-                <div className="flex border border-slate-200 rounded-xl bg-slate-50 p-1 gap-0.5">{allD.map(d => { const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d); const dow = dO.getDay(); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; const cl = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow); const hl = appData.holidays?.some(h => (h.date || h) === ds); const base = getScheduleOnDate(localPatient, ds)?.[dow] || ""; const bAM = base === "AM" || base === "1日"; const bPM = base === "PM" || base === "1日"; const sh = effShifts?.[mKey]?.[localPatient.id] || {}; const pi = getPauseReasonOnDate(localPatient, ds); const _inactive = !!localPatient && !isPatientActiveOnDate(localPatient, ds); /* ★ 利用開始日より前・利用終了日より後は「空欄(非利用日)」にして、どこで終了したか一目で分かるようにする。利用中に戻せば再表示。 */ /* 休止中: 基本利用日 (bAM/bPM=true) の枠だけ「休止」表示。それ以外は通常空欄 */ const _shAM = sh[`${d}_AM`] !== undefined ? sh[`${d}_AM`] : (_mSchedRecFuri[d]?.AM || (bAM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const _shPM = sh[`${d}_PM`] !== undefined ? sh[`${d}_PM`] : (_mSchedRecFuri[d]?.PM || (bPM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const cA = _inactive ? sSt("空欄", cl, hl) : (pi ? (bAM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shAM, bAM), cl, hl)); const cP = _inactive ? sSt("空欄", cl, hl) : (pi ? (bPM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shPM, bPM), cl, hl)); const ok = !cl && !hl && !pi && !isOff && !_inactive; return (<div key={d} className="flex-1 min-w-0 flex flex-col items-stretch bg-white border border-slate-200 rounded overflow-hidden"><div className={`w-full text-center text-[11px] font-bold py-1 bg-slate-100 border-b border-slate-200 leading-tight ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{d}<br/><span className="text-[9px] font-normal">{dN[dow]}</span></div><button disabled={!ok} title={_mSchedRecReason[d] || (cA.sub ? `${cA.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "AM")} className={`h-9 flex items-center justify-center border-b border-slate-100 text-[10px] leading-none whitespace-pre-wrap ${cA.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cA.t}</button><button disabled={!ok} title={_mSchedRecReason[d] || (cP.sub ? `${cP.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "PM")} className={`h-9 flex items-center justify-center text-[10px] leading-none whitespace-pre-wrap ${cP.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cP.t}</button></div>); })}</div>
+                {/* ★ 2026-10-08(店舗報告: スマホで月間スケジュールの日付が見切れる): スマホは1日あたり28pxの幅で横にスクロール(CSS tsu-mstrip) */}
+                <div className="flex border border-slate-200 rounded-xl bg-slate-50 p-1 gap-0.5 tsu-mstrip">{allD.map(d => { const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d); const dow = dO.getDay(); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; const cl = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow); const hl = appData.holidays?.some(h => (h.date || h) === ds); const base = getScheduleOnDate(localPatient, ds)?.[dow] || ""; const bAM = base === "AM" || base === "1日"; const bPM = base === "PM" || base === "1日"; const sh = effShifts?.[mKey]?.[localPatient.id] || {}; const pi = getPauseReasonOnDate(localPatient, ds); const _inactive = !!localPatient && !isPatientActiveOnDate(localPatient, ds); /* ★ 利用開始日より前・利用終了日より後は「空欄(非利用日)」にして、どこで終了したか一目で分かるようにする。利用中に戻せば再表示。 */ /* 休止中: 基本利用日 (bAM/bPM=true) の枠だけ「休止」表示。それ以外は通常空欄 */ const _shAM = sh[`${d}_AM`] !== undefined ? sh[`${d}_AM`] : (_mSchedRecFuri[d]?.AM || (bAM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const _shPM = sh[`${d}_PM`] !== undefined ? sh[`${d}_PM`] : (_mSchedRecFuri[d]?.PM || (bPM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const cA = _inactive ? sSt("空欄", cl, hl) : (pi ? (bAM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shAM, bAM), cl, hl)); const cP = _inactive ? sSt("空欄", cl, hl) : (pi ? (bPM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shPM, bPM), cl, hl)); const ok = !cl && !hl && !pi && !isOff && !_inactive; return (<div key={d} className="flex-1 min-w-0 flex flex-col items-stretch bg-white border border-slate-200 rounded overflow-hidden"><div className={`w-full text-center text-[11px] font-bold py-1 bg-slate-100 border-b border-slate-200 leading-tight ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{d}<br/><span className="text-[9px] font-normal">{dN[dow]}</span></div><button disabled={!ok} title={_mSchedRecReason[d] || (cA.sub ? `${cA.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "AM")} className={`h-9 flex items-center justify-center border-b border-slate-100 text-[10px] leading-none whitespace-pre-wrap ${cA.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cA.t}</button><button disabled={!ok} title={_mSchedRecReason[d] || (cP.sub ? `${cP.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "PM")} className={`h-9 flex items-center justify-center text-[10px] leading-none whitespace-pre-wrap ${cP.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cP.t}</button></div>); })}</div>
                 <div className="flex gap-2 mt-2 text-[11px] text-slate-400 font-bold flex-wrap items-center"><span>上段:AM/下段:PM</span><span className="text-blue-600 bg-blue-50 px-1 rounded">出席</span><span className="text-red-500 bg-red-50 px-1 rounded">欠席</span><span className="text-emerald-600 bg-emerald-50 px-1 rounded">振替</span><span className="text-cyan-700 bg-cyan-50 px-1 rounded">臨時</span><span className="text-white bg-slate-600 px-1 rounded">休業</span><span>空欄=非利用日</span></div></div>
               {/* お迎え時間: 基本利用曜日に設定がある日のみ表示 */}
               {(() => {
@@ -39749,8 +39795,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                         {tsumugiTransportOn(appData) ? '・毎週の決まった時間です。その週の実際の時間（休み・振替で動いた分）は送迎表で直します。連絡帳には送迎表の時間が入ります' : '・連絡帳のお迎え時間欄にもこの時刻が反映されます（連絡帳の次回予定で、その回だけの時間も入れられます）'}
                       </div>
                       {/* ★ 送迎表連動(2026-09-12 試験版): 待ち合わせ場所・所要時間。送迎表の利用者名タップでも編集可 */}
-                      <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-slate-200">
-                        <div>
+                      {/* ★ 2026-10-08: スマホは1項目1行(2列だと見出しが1文字ずつ縦に折れていた) */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 pt-3 border-t border-slate-200">
+                        <div className="min-w-0">
                           <label className="block text-xs font-bold text-slate-600 mb-1">待ち合わせ場所（送迎表に表示）</label>
                           <PickupPlaceField disabled={isOff} value={localPatient.pickupPlace || ''} onChange={v=>updateLP('pickupPlace', v)} />
                         </div>
@@ -49877,16 +49924,30 @@ function MonSheetPreview({ patient, rec, facility, onViewed }) {
     io.observe(boxRef.current);
     return () => { io.disconnect(); if (timer) clearTimeout(timer); };
   }, [rec.id, !!onViewed]); // eslint-disable-line react-hooks/exhaustive-deps
-  const openFull = () => { _markViewed(); tsumugiShowHtmlInPage(`<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>通所介護モニタリング表_${_escMon(patient?.name || '')}_${_escMon(rec.period || '')}</title><style>@page{size:A4 landscape;margin:10mm}body{margin:0;padding:10mm;box-sizing:border-box;width:297mm;min-height:210mm;-webkit-print-color-adjust:exact;print-color-adjust:exact}@media print{ body{width:auto;min-height:0;padding:0}}</style></head><body><div style="width:940px;margin:0 auto;background:#fff;">${html}</div></body></html>`); }; // 拡大表示でも用紙の横向きレイアウトのまま(スマホは横スクロール)
+  // ★ 2026-10-08(ユーザー指示「モニタリングの『拡大して見る・印刷』は表示がおかしく、PDFも以前の形。ダウンロードだけでよい」):
+  //   拡大表示(画面内の別表示)をやめ、他の書類と同じく PDF を直接ダウンロードする。事業所の画面は共通のダウンロード(氏名マスキングも効く)、
+  //   ご家族・ケアマネ画面はサーバーで PDF を作って開く
+  const _monPdfTitle = `通所介護モニタリング表_${patient?.name || ''}_${rec.period || ''}`;
+  const downloadPdf = () => {
+    _markViewed();
+    const body = `<div style="width:940px;margin:0 auto;background:#fff;">${html}</div>`;
+    if (typeof window !== 'undefined' && window.__tsumugiPrintHost) {
+      window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: _monPdfTitle, pageSize: 'A4 landscape', html: `<div style="width:297mm;min-height:210mm;box-sizing:border-box;padding:10mm;background:#fff;">${body}</div>` } }));
+      return;
+    }
+    const win = tsumugiOpenPdfWindow();
+    tsumugiServerPdf({ html: `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>通所介護モニタリング表_${_escMon(patient?.name || '')}_${_escMon(rec.period || '')}</title><style>@page{size:A4 landscape;margin:10mm}body{margin:0;padding:10mm;box-sizing:border-box;width:297mm;min-height:210mm;-webkit-print-color-adjust:exact;print-color-adjust:exact}@media print{ body{width:auto;min-height:0;padding:0}}</style></head><body><div style="width:940px;margin:0 auto;background:#fff;">${html}</div></body></html>`, pageSize: 'A4 landscape', title: _monPdfTitle, win })
+      .catch(e => alert('モニタリング表のPDFを作成できませんでした: ' + (e && e.message || e) + '\n通信状態を確認して、もう一度お試しください。'));
+  };
   return (
     <div data-testid="mon-sheet-preview">
-      <div ref={boxRef} onClick={openFull} role="button" title="タップで拡大" style={{cursor:'zoom-in',overflow:'hidden',height: boxH || 'auto',border:'1px solid #cbd5e1',borderRadius:6,background:'#fff',boxShadow:'0 1px 4px rgba(0,0,0,0.08)'}}>
+      <div ref={boxRef} style={{overflow:'hidden',height: boxH || 'auto',border:'1px solid #cbd5e1',borderRadius:6,background:'#fff',boxShadow:'0 1px 4px rgba(0,0,0,0.08)'}}>
         <div ref={pageRef} style={{width:PAGE_W,minHeight:PAGE_H,padding:'38px 0',boxSizing:'border-box',transform:`scale(${scale})`,transformOrigin:'top left',background:'#fff'}}>
           <div style={{width:940,margin:'0 auto'}} dangerouslySetInnerHTML={{__html: html}} />
         </div>
       </div>
       <div style={{display:'flex',justifyContent:'flex-end',marginTop:8}}>
-        <button type="button" onClick={openFull} style={{padding:'6px 12px',fontSize:13,fontWeight:'bold',color:'#065f46',background:'#ecfdf5',border:'1px solid #a7f3d0',borderRadius:8,cursor:'pointer'}}>拡大して見る・印刷 / PDF保存</button>
+        <button type="button" data-testid="mon-sheet-download" onClick={downloadPdf} style={{padding:'6px 14px',fontSize:13,fontWeight:'bold',color:'#065f46',background:'#ecfdf5',border:'1px solid #a7f3d0',borderRadius:8,cursor:'pointer'}}>ダウンロード</button>
       </div>
     </div>
   );
@@ -53844,8 +53905,10 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-3">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-[1700px] h-[calc(100vh-16px)] sm:h-[calc(100vh-24px)] flex flex-col" onClick={e=>e.stopPropagation()}>
+    // ★ 2026-10-08(店舗報告: iPhoneで個人ファイルを開くと上部が見切れる): 100vh は iPhone の実際の表示域より大きく、上下に切れていた。
+    //   画面の表示域いっぱい(fixed)の中で高さを決め、上端は時計などの表示(セーフエリア)を避けて置く
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-start sm:items-center justify-center p-2 sm:p-3" style={{paddingTop:'max(8px, env(safe-area-inset-top, 0px))',paddingBottom:'max(8px, env(safe-area-inset-bottom, 0px))'}}>
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-[1700px] h-full flex flex-col" style={{maxHeight:'100%'}} onClick={e=>e.stopPropagation()}>
         {/* ヘッダー */}
         {/* ★ 2026-10-07(店舗報告「右上の×とゴミ箱が近くて押し間違える」): ゴミ箱は左の見出しの横へ移し、×(閉じる)は右端に単独で大きめに */}
         <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200 shrink-0">

@@ -210,3 +210,41 @@ button, a, input, select, textarea, label, [role="button"] { touch-action: manip
   /* 本文(1行の省略表示・押すと入力)は選択欄の下の行に、幅いっぱいで(同じ行だと幅0に潰れて押せなかった) */
   .tsu-mon-text { flex: 1 1 100% !important; padding: 2px 4px 4px; }
 }
+
+/* ★ 2026-10-08(店舗報告: iPhoneでお知らせ投稿の「表示日」が枠からはみ出す): iPhone の日付・月の入力欄は中身の幅より狭くならず、
+   幅いっぱい(w-full)を指定しても枠を突き抜ける。スマホでは見た目の部品を外して幅に収める(押すと日付の選択は従来どおり出る) */
+@media (max-width: 767px) {
+  input[type="date"].w-full, input[type="month"].w-full, input[type="time"].w-full {
+    -webkit-appearance: none; appearance: none; min-width: 0; max-width: 100%; display: block; box-sizing: border-box;
+  }
+  input[type="date"]::-webkit-date-and-time-value, input[type="month"]::-webkit-date-and-time-value { text-align: left; }
+}
+
+/* ★ 2026-10-08(ユーザー要望: スマホの分析(個人)4段・分析(稼働)3段 → 2段/1段に) */
+.tsu-period-sel, .tsu-o-break { display: none; }
+@media (max-width: 767px) {
+  .tsu-dash-hdr { flex-wrap: wrap !important; justify-content: flex-start !important; align-items: center !important; }
+  .tsu-dash-hdr .tsu-period-tabs, .tsu-dash-hdr .tsu-range-dup, .tsu-dash-hdr .tsu-dash-name, .tsu-dash-hdr .tsu-back-txt, .tsu-dash-hdr .tsu-mask-pre { display: none !important; }
+  .tsu-dash-hdr .tsu-period-sel { display: inline-flex; background: rgba(255,255,255,0.6); border: 1px solid rgba(255,255,255,0.8); border-radius: 10px; font-weight: bold; color: #1e293b; }
+  /* 分析(稼働): 期間・月・ダウンロードを1行に(見出しは画面の題名と重複するので出さない) */
+  .tsu-dash-hdr > div { order: 0 !important; flex-basis: auto !important; }
+  /* 分析(個人): 子要素を見出しの行に並べ直して2段に */
+  .tsu-dash-hdr .tsu-ph-contents { display: contents !important; }
+  .tsu-dash-hdr .tsu-o-back { order: 1; padding-left: 10px !important; padding-right: 10px !important; }
+  .tsu-dash-hdr .tsu-o-pt { order: 2; flex: 1 1 0; min-width: 0; }
+  .tsu-dash-hdr .tsu-o-dl { order: 3; }
+  .tsu-dash-hdr .tsu-o-break { display: block; order: 4; flex-basis: 100%; height: 0; }
+  .tsu-dash-hdr .tsu-o-period { order: 5; }
+  .tsu-dash-hdr .tsu-o-month { order: 6; max-width: 120px; }
+  .tsu-dash-hdr .tsu-o-range { order: 7; }
+  .tsu-dash-hdr .tsu-o-dm { order: 8; }
+  .tsu-dash-hdr .tsu-o-mask { order: 9; }
+  .tsu-dash-hdr .tsu-o-scope { order: 3; padding-left: 8px !important; padding-right: 8px !important; }
+}
+
+/* ★ 2026-10-08: 画面でだけ隠す(折りたたみ)。ダウンロード・印刷では表示する */
+@media screen { .tsu-screen-hide { display: none !important; } }
+@media (max-width: 767px) {
+  .tsu-mstrip { overflow-x: auto; }
+  .tsu-mstrip > * { flex: 0 0 28px !important; min-width: 28px; }
+}
