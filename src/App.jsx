@@ -23465,6 +23465,15 @@ export default function App() {
 // === RecordView ===
 function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate, setSelectedDate, dirtyRef, saveFnRef, sharedAmpm, setSharedAmpm, showTip, hideTip, isSidebarOpen, setIsSidebarOpen, deviceName }) {
   const _exW = exColWidthFor(effExerciseItems(appData.systemSettings)); // ★ 運動列の共通幅(2026-10-05)
+  // ★ 2026-10-08(ユーザー要望「個別運動の項目名・基準値が通常画面で見切れる。少しだけ列を広げてもよい」): 運動列の幅は運動メニューの
+  //   名前だけで決めており、個別運動で選ぶ種目の名前(長いものが多い)は見ていなかった。個別運動の列だけ、種目名が約10.5pxの字で
+  //   1行に収まる幅まで広げる(運動列より最大24pxまで)。
+  const _exWInd = (() => {
+    const tw = (str) => [...String(str || '')].reduce((a, c) => a + (/[\x20-\x7e\uff61-\uff9f]/.test(c) ? 5.8 : 10.5), 0);
+    const need = (appData.systemSettings?.individualExerciseItems || []).reduce((m, it) => Math.max(m, Math.ceil(tw(it && it.name) + 14)), 0);
+    return Math.max(_exW, Math.min(_exW + 24, need));
+  })();
+  const _colWOf = (item) => (item && item.type === 'individual') ? _exWInd : _exW;
   // ★ deviceName は「元に戻す」の確認文で使用。 props に無いまま参照しており ReferenceError で
   //   復元処理が restore-click 直後に即死していた(=復元が全く機能しない の根本原因)。
   // ★ 担当者名: 多段階フォールバック で保存時に必ず何か入る
@@ -25366,7 +25375,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       <col style={{width:'58px'}}/>{/* 体温 */}
                       <col style={{width:'120px'}}/>{/* 開始 血圧+脈 */}
                       {_showEn && <col style={{width:'120px'}}/>}{/* 終了 血圧+脈 */}
-                      {(effExerciseItems(appData.systemSettings)).map(item => <col key={item.id} style={{width:`${_exW}px`}}/>)}
+                      {(effExerciseItems(appData.systemSettings)).map(item => <col key={item.id} style={{width:`${_colWOf(item)}px`}}/>)}
                       <col style={{width:'62px'}}/>{/* 介護整体 */}
                       <col style={{width:'260px'}}/>{/* 特記 */}
                     </colgroup>
@@ -25624,7 +25633,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             <col style={{width:'145px'}} />{/* 開始 血圧 + 脈 (75+60+gap) */}
             {_showEn && <col style={{width:'145px'}} />}{/* 終了 血圧 + 脈 ★ 列を隠すときは col も外す(2026-09-29: 列ズレで①の列が広がっていた) */}
             {(effExerciseItems(appData.systemSettings)).map(item => (
-              <col key={item.id} style={{width:`${_exW}px`}} />/* 運動・個別運動とも同じ幅(最大84px・名前が短い店舗は全列そろって細く 2026-10-05) */
+              <col key={item.id} style={{width:`${_colWOf(item)}px`}} />/* 運動列は同じ幅(最大84px・名前が短い店舗は全列そろって細く 2026-10-05)。個別運動は種目名に合わせて少しだけ広い(2026-10-08) */
             ))}
             <col style={{width:'60px'}} />
             <col style={{width:'500px'}} />
@@ -25876,10 +25885,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       const _indPh = selItem ? (patDefault ? applyExUnits(patDefault, selItem) : '') : '未選択';
                       // ★ 種目名はセル幅(60px)に合わせて可変フォント: 短い名前は大きく、3〜4文字以上は縮小して収める
                       const _indName = selItem?.name || '';
-                      const _indNameFs = !_indName ? 11 : _exFitFs(_indName, 15, 8, _exW - 10);
+                      const _indNameFs = !_indName ? 11 : _exFitFs(_indName, 15, 8, _exWInd - 14); // ★ 選択欄の内側の余白ぶん(4px)も引く(2026-10-08)
                       // ★ 値の表示フォント: ○ は大きく太く、数値は桁数で縮小。値が空のときは規定値(プレースホルダー)の長さで判定(見切れ防止)
                       const _indIsCircle = cur.value==='○'||cur.value==='◯';
-                      const _indValFs = _indIsCircle ? 21 : _exFitFs(String(cur.value||'') || String(_indPh||''), 15, 8, _exW - 12);
+                      const _indValFs = _indIsCircle ? 21 : _exFitFs(String(cur.value||'') || String(_indPh||''), 15, 8, _exWInd - 14);
                       return (
                         <td key={item.id} data-ind-cell className={`px-1 py-0 align-middle border border-emerald-200 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-emerald-50/40'}`}>
                           <select value={effItemId} disabled={isAbsent || isReadOnly || isPause}
