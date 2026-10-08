@@ -372,14 +372,19 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
   .tsu-cb-bar { flex-wrap: nowrap !important; padding: 8px 6px !important; gap: 4px !important; }
   .tsu-cb-bar > button, .tsu-cb-bar > div > button { padding: 0 7px !important; height: 40px; font-size: 12px !important; white-space: nowrap; }
   .tsu-cb-bar > button svg { display: none; }
-  /* ★ 2026-10-09(ユーザー要望「操作を開いた時の配置が微妙」): 送迎表の「操作」の中は
-     1行目=週の切替(左右いっぱい)・2行目=色の見本・その下=ボタンを3列にそろえて並べる */
-  [data-testid="tp-ops"]:not(.hidden) { display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px !important; padding: 8px 8px !important; }
-  [data-testid="tp-ops"] .tsu-tpo-week { grid-column: 1 / -1; justify-content: space-between; }
-  [data-testid="tp-ops"] .tsu-tpo-week > button { padding: 6px 12px !important; }
-  [data-testid="tp-ops"] .tsu-tpo-legend { grid-column: 1 / -1; justify-content: center; }
+  /* ★ 2026-10-09(ユーザー要望): 送迎表の「操作」は日付の帯の「下」に開く(上の固定部分は動かさない・他の画面と同じ)。
+     中は 1行目=週の切替(左に詰める)+色の見本(右・2段)、その下=ボタンを3列にそろえて並べる */
+  .tsu-tp-stick { display: flex; flex-direction: column; }
+  .tsu-tp-stick > [data-testid="tp-phone-daybar"] { order: -1; }
+  [data-testid="tp-ops"]:not(.hidden) { display: flex !important; flex-wrap: wrap; align-items: center; gap: 6px !important; padding: 8px 8px !important; }
+  [data-testid="tp-ops"] .tsu-tpo-week { flex: 0 0 auto; gap: 2px !important; }
+  [data-testid="tp-ops"] .tsu-tpo-week > button { padding: 6px 7px !important; font-size: 12px !important; }
+  [data-testid="tp-ops"] .tsu-tpo-week > span { font-size: 12px !important; padding: 0 2px !important; }
+  [data-testid="tp-ops"] .tsu-tpo-legend { margin-left: auto; display: grid !important; grid-template-columns: auto auto; gap: 3px 4px !important; justify-items: end; font-size: 10.5px !important; }
+  [data-testid="tp-ops"] .tsu-tpo-legend > span { padding: 0 4px !important; line-height: 1.5; }
+  [data-testid="tp-ops"] .tsu-tpo-legend > span:first-child { grid-column: 1 / -1; }
   [data-testid="tp-ops"] .tsu-tpo-sp, [data-testid="tp-ops"] .tsu-tpo-status { display: none !important; }
-  [data-testid="tp-ops"] > button:not(.hidden) { width: 100%; height: 40px; padding: 0 4px !important; font-size: 12px !important; border-radius: 10px !important; white-space: nowrap; display: flex; align-items: center; justify-content: center; }
+  [data-testid="tp-ops"] > button:not(.hidden) { flex: 0 0 calc((100% - 12px) / 3); width: auto; height: 40px; padding: 0 4px !important; font-size: 12px !important; border-radius: 10px !important; white-space: nowrap; display: flex; align-items: center; justify-content: center; }
 }
 
 /* ★ 2026-10-08: スマホの休み連絡(カレンダー)上部 = 月の切替・印の見本・履歴 を1行 */

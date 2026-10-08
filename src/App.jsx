@@ -11875,7 +11875,10 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
             ← 一覧
           </button>
         )}
-        <div style={{position:'relative'}} className="shrink-0">
+        {/* ★ 2026-10-09(ユーザー要望「利用者を選択・検索・ログイン画面を開くを1行に。検索はどちらか決めて」):
+             選ぶ前 = 下の一覧から選ぶので「利用者を選択」ボタンは出さず、常に出ている検索欄で一覧を絞る。
+             選んだ後 = 名前のボタンを押すと、検索つきの一覧から別の方に切り替えられる(検索欄は出さない) */}
+        {patient && <div style={{position:'relative'}} className="shrink-0">
           <button onClick={()=>{setPatDropOpen(v=>!v); setPatSearch('');}}
             className="bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 px-3 py-2 rounded-lg font-bold text-base flex items-center gap-2 text-emerald-700">
             <span className="truncate flex-1 text-left" style={{maxWidth:160}}>{patient ? patient.name : '利用者を選択'}</span>
@@ -11912,11 +11915,11 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
               </div>
             </>
           )}
-        </div>
+        </div>}
         {/* ★ 検索欄を同じ行に(2026-09-29 ユーザー指示: 利用者を選択 → 検索 → ログイン画面を開く の順) */}
         {!patient && (
           <input type="text" placeholder="氏名・フリガナ・ID で検索" value={patSearch} onChange={e=>setPatSearch(e.target.value)}
-            className="flex-1 min-w-[180px] px-4 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-emerald-400" />
+            className="flex-1 min-w-0 sm:min-w-[180px] px-3 sm:px-4 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-emerald-400" />
         )}
         {/* 内部タブ切替を同じ行に (利用者選択時のみ) */}
         {patient && (
@@ -11958,7 +11961,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
         {/* 家族共通ログインURL: コピー + ログイン画面を開く (縦2行) */}
         <div className="ml-auto flex items-center gap-2 shrink-0">
           <a href={familyLoginUrl} target="_blank" rel="noopener noreferrer"
-            className="px-3 py-2 text-sm font-bold bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-50 rounded-lg shadow-sm active:scale-95 text-center whitespace-nowrap">ログイン画面を開く</a>
+            className="px-3 py-2 text-sm font-bold bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-50 rounded-lg shadow-sm active:scale-95 text-center whitespace-nowrap">ログイン画面<span className="hidden sm:inline">を開く</span></a>
         </div>
       </div>
       {!patient && (() => {
@@ -14186,12 +14189,13 @@ function FamilyAdminView({ appData, onSave }) {
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 space-y-3">
             <h3 className="text-base font-bold text-slate-800 mb-1">お知らせ・写真を投稿</h3>
             <div className="text-[11px] text-slate-500">タイトル・本文・写真を一度に投稿できます (写真のみ・お知らせのみも可)</div>
+            {/* ★ 2026-10-09(ユーザー要望): スマホでも「全体に表示」「個別に表示」を1行に(文字を少し小さく・個別は「複数可」と短く) */}
             <div className="flex gap-2">
-              <label className={`flex-1 px-4 py-2.5 rounded-xl border-2 cursor-pointer text-center font-bold text-sm ${postForm.scope==='all'?'bg-emerald-50 border-emerald-400 text-emerald-700':'bg-white border-slate-200 text-slate-500'}`}>
+              <label className={`flex-1 px-1.5 sm:px-4 py-2.5 rounded-xl border-2 cursor-pointer text-center font-bold text-[13px] sm:text-sm whitespace-nowrap ${postForm.scope==='all'?'bg-emerald-50 border-emerald-400 text-emerald-700':'bg-white border-slate-200 text-slate-500'}`}>
                 <input type="radio" checked={postForm.scope==='all'} onChange={()=>setPostForm(f=>({...f,scope:'all'}))} className="hidden"/>全体に表示
               </label>
-              <label className={`flex-1 px-4 py-2.5 rounded-xl border-2 cursor-pointer text-center font-bold text-sm ${postForm.scope==='specific'?'bg-emerald-50 border-emerald-400 text-emerald-700':'bg-white border-slate-200 text-slate-500'}`}>
-                <input type="radio" checked={postForm.scope==='specific'} onChange={()=>setPostForm(f=>({...f,scope:'specific'}))} className="hidden"/>個別に表示 (複数選択可)
+              <label className={`flex-1 px-1.5 sm:px-4 py-2.5 rounded-xl border-2 cursor-pointer text-center font-bold text-[13px] sm:text-sm whitespace-nowrap ${postForm.scope==='specific'?'bg-emerald-50 border-emerald-400 text-emerald-700':'bg-white border-slate-200 text-slate-500'}`}>
+                <input type="radio" checked={postForm.scope==='specific'} onChange={()=>setPostForm(f=>({...f,scope:'specific'}))} className="hidden"/>個別に表示<span className="hidden sm:inline"> (複数選択可)</span><span className="sm:hidden">（複数可）</span>
               </label>
             </div>
             {/* ★ 送付先(視聴者種別)の選択: ご家族/ケアマネ/その他関係者を個別トグル + 全員ボタン */}
@@ -22979,8 +22983,12 @@ export default function App() {
       {/* ★ 新バージョン通知バナー (安全時は自動更新するが、すぐ更新したい場合の手動ボタンも出す)。
           update-notes.json の "prompt" が silent または他店限定のときは出さない(背景化時の自動更新のみ) */}
       {updateAvailable && (() => { const sc = updatePromptScope; if (sc === 'silent') return false; if (Array.isArray(sc)) return sc.map(String).includes(String(staffSession?.storeId||'')); return true; })() && ReactDOM.createPortal(
-        <div style={{position:'fixed',left:'50%',bottom:20,transform:'translateX(-50%)',zIndex:2000000,background:'#0f172a',color:'white',padding:'10px 14px',borderRadius:12,boxShadow:'0 8px 30px rgba(0,0,0,0.35)',display:'flex',alignItems:'center',gap:12,maxWidth:'92vw'}}>
-          <span style={{fontSize:13,fontWeight:'bold'}}>⚠ 新しいバージョンがあります。<span style={{color:'#fca5a5'}}>必ず再読み込みしてください</span>（古いままだと同期や表示に不具合が出ることがあります）</span>
+        // ★ 2026-10-09(ユーザー指摘: スマホで文が1文字ずつ縦に並ぶ): left:50% で置くと使える幅が画面の半分になり、ボタンの幅に押されて文が細くなっていた。
+        //   画面の左右いっぱいの枠の中で中央に置き、狭い画面では文を上・ボタンを下の2段に折り返す
+        <div data-testid="update-banner-wrap" style={{position:'fixed',left:0,right:0,bottom:'calc(20px + env(safe-area-inset-bottom, 0px))',zIndex:2000000,display:'flex',justifyContent:'center',padding:'0 12px',pointerEvents:'none'}}>
+        <div data-testid="update-banner" style={{pointerEvents:'auto',background:'#0f172a',color:'white',padding:'10px 14px',borderRadius:12,boxShadow:'0 8px 30px rgba(0,0,0,0.35)',display:'flex',flexWrap:'wrap',alignItems:'center',gap:'8px 12px',maxWidth:1120}}>
+          <span style={{fontSize:13,fontWeight:'bold',lineHeight:1.5,flex:'1 1 240px',minWidth:0}}>⚠ 新しいバージョンがあります。<span style={{color:'#fca5a5'}}>必ず再読み込みしてください</span>（古いままだと同期や表示に不具合が出ることがあります）</span>
+          <div style={{display:'flex',flexWrap:'wrap',justifyContent:'flex-end',gap:8,marginLeft:'auto',flex:'0 1 auto',maxWidth:'100%'}}>
           {/* ★ 何が変わったか分からず更新してよいか迷う、を解消。 押すと今回の更新内容(update-notes.json)を表示 */}
           <button onClick={()=>setShowUpdateNotes(true)} style={{background:'transparent',color:'#e2e8f0',border:'1px solid #64748b',borderRadius:8,padding:'6px 12px',fontSize:13,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>更新内容を確認</button>
           {/* ★ 単なる reload だとブラウザのキャッシュから古いプログラムが読み直されることがあり、
@@ -23020,6 +23028,8 @@ export default function App() {
               window.location.replace(u.toString());
             } catch { try { window.location.reload(); } catch {} }
           }} style={{background:appUpdating?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:8,padding:'6px 14px',fontSize:13,fontWeight:'bold',cursor:appUpdating?'wait':'pointer',whiteSpace:'nowrap'}}>{appUpdating ? <><BusySpin/>更新中…（そのままお待ちください）</> : '今すぐ更新'}</button>
+          </div>
+        </div>
         </div>,
         document.body
       )}
@@ -23028,7 +23038,7 @@ export default function App() {
         <div onClick={()=>setShowUpdateNotes(false)} style={{position:'fixed',inset:0,zIndex:2000001,background:'rgba(15,23,42,0.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
           <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:16,maxWidth:520,width:'100%',maxHeight:'80vh',overflow:'auto',boxShadow:'0 20px 60px rgba(0,0,0,0.4)'}}>
             <div style={{padding:'16px 20px',borderBottom:'1px solid #e2e8f0',display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,background:'white'}}>
-              <div style={{fontSize:15,fontWeight:'bold',color:'#1e293b'}}>🆕 今回の更新内容</div>
+              <div style={{fontSize:15,fontWeight:'bold',color:'#1e293b'}}>今回の更新内容</div>
               <button onClick={()=>setShowUpdateNotes(false)} style={{border:'none',background:'#f1f5f9',borderRadius:8,width:30,height:30,cursor:'pointer',fontSize:16,color:'#64748b'}}>×</button>
             </div>
             <div style={{padding:'16px 20px',display:'flex',flexDirection:'column',gap:12}}>
@@ -36502,7 +36512,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   return (
     <div className="h-full overflow-auto w-full bg-slate-100">
       {_autoCalcModal}
-      <TsuPhonePin testId="pin-transport"><div className="sticky top-0 z-30">
+      <TsuPhonePin testId="pin-transport"><div className={`sticky top-0 z-30 ${_tpPhone ? 'tsu-tp-stick' : ''}`}>
       {/* ★ 2026-09-13c(店舗要望): 重複タイトルを削除し週切替を左端へ。バーは画面上部のタイトル帯に密着(スクロール中も固定)。凡例は同じ列に常時表示・操作説明は「?」に格納 */}
       <div data-testid="tp-ops" className={`bg-white px-2 sm:px-3 py-1.5 border-b border-slate-200 shadow-sm flex items-center gap-2 flex-wrap ${_tpPhone && !_tpOpsOpen ? 'hidden' : ''}`}>
         <div className="tsu-tpo-week flex items-center gap-1">
