@@ -11361,7 +11361,7 @@ const _tsuClipX = (() => { try { return (typeof CSS !== 'undefined' && CSS.suppo
 // ★ 2026-10-08(ユーザー提案「スマホは上部の項目を折りたたみ、必要なときだけいつでも表示」): スマホ幅(768未満)の画面上部の共通部品。
 //   折りたたみ中は1行の要約(summary=日付・保存など よく使うもの)と「操作」ボタンだけを出し、押すと上部の操作(children)を全部表示する。
 //   開閉は画面ごとに端末へ記憶(storageKey)。iPad・PCでは children をそのまま出す(従来どおり)。
-// ★ 2026-10-09(店舗報告: iPhone で画面の上の方が空白のまま=描かれない): 画面全体を一瞬消して描き直させる方法(display:none)は、
+// ★ 2026-10-08(店舗報告: iPhone で画面の上の方が空白のまま=描かれない): 画面全体を一瞬消して描き直させる方法(display:none)は、
 //   iPhone では逆に一部(縦およそ500px分)が描き直されず空白で残ることがあった。スマホ幅ではスクロール位置を1pxだけ動かして戻し、
 //   その枠と中の固定部品を描き直させる(見た目は動かない)。
 function tsuNudgeRepaint(sc) {
@@ -20979,7 +20979,7 @@ export default function App() {
   //   reflow させて sticky を強制再計算させる (同一タスク内なので画面のちらつきは出ない)。
   useEffect(() => {
     const id = setTimeout(() => {
-      // ★ 2026-10-09: スマホ幅は消して描き直す方法を使わない(上の方が空白で残ることがあった)。サイドバーは重ねて出すだけで並びも変わらない
+      // ★ 2026-10-08: スマホ幅は消して描き直す方法を使わない(上の方が空白で残ることがあった)。サイドバーは重ねて出すだけで並びも変わらない
       if (window.innerWidth < 768) { tsuNudgeRepaint(contentRef.current); return; }
       const el = document.getElementById('appMainArea');
       if (!el) return;
@@ -21045,7 +21045,7 @@ export default function App() {
   useEffect(() => {
     if (!tsumugiIsIOS()) return;
     const id = setTimeout(() => { try {
-      if (window.innerWidth < 768) { tsuNudgeRepaint(contentRef.current); return; } // ★ 2026-10-09: スマホ幅は1pxだけ動かして描き直す
+      if (window.innerWidth < 768) { tsuNudgeRepaint(contentRef.current); return; } // ★ 2026-10-08: スマホ幅は1pxだけ動かして描き直す
       const el = document.getElementById('appMainArea'); if (!el) return;
       const sc = contentRef.current; const st = sc ? [sc.scrollTop, sc.scrollLeft] : null;
       const prev = el.style.display; el.style.display = 'none'; void el.offsetHeight; el.style.display = prev || '';
