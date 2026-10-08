@@ -322,8 +322,9 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
   #appMainArea { padding-top: 47px; }
   #appMainArea > main.tsu-app-main { overflow: visible !important; }
   #tsuContentScroller { overflow: visible !important; flex: none !important; }
-  #tsuContentScroller .sticky.top-0:not(th):not(thead):not(tr) { top: 47px !important; }
-  #tsuContentScroller [style*="position: sticky"][style*="top: 0px"]:not(th):not(thead):not(tr) { top: 47px !important; }
+  /* ページ直下の帯だけ(印 data-tsu-doc は App が付ける)。画面の内側の枠の中の帯は元の位置のまま(2026-10-08 灰色の隙間・被りの修正) */
+  #tsuContentScroller .sticky.top-0[data-tsu-doc]:not(th):not(thead):not(tr) { top: 47px !important; }
+  #tsuContentScroller [style*="position: sticky"][style*="top: 0px"][data-tsu-doc]:not(th):not(thead):not(tr) { top: 47px !important; }
 }
 @supports not (overflow-x: clip) {
   @media (max-width: 767px) { body, #root { overflow-x: visible !important; } }
@@ -337,3 +338,26 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
 /* ★ 2026-10-08: スマホで画面に固定した帯(.tsu-pin)の中の「止まる(sticky)」は止める(固定の中で二重に動かさない) */
 #tsuContentScroller .tsu-pin .sticky:not(th):not(thead):not(tr):not(td),
 #tsuContentScroller .tsu-pin [style*="position: sticky"]:not(th):not(thead):not(tr):not(td) { position: relative !important; top: auto !important; }
+
+/* ★ 2026-10-08(ユーザー要望): スマホのカレンダー上部を1行に(見出し+ラベル編集・繰り返し設定・予定を追加) */
+@media (max-width: 767px) {
+  .tsu-sch-bar { flex-wrap: nowrap !important; padding: 8px 8px !important; gap: 6px !important; }
+  .tsu-sch-icon { display: none !important; }
+  .tsu-sch-title { font-size: 15px !important; white-space: nowrap; }
+  .tsu-sch-btns { flex-wrap: nowrap !important; gap: 4px !important; }
+  .tsu-sch-btns > button { padding: 7px 7px !important; font-size: 12px !important; white-space: nowrap; }
+  /* 実績登録: タブと月の切替を1行に */
+  .tsu-jm-bar { flex-wrap: nowrap !important; gap: 5px !important; }
+  .tsu-jm-tab { padding: 7px 9px !important; font-size: 12.5px !important; white-space: nowrap; }
+  .tsu-jm-lbl { display: none; }
+  .tsu-jm-month { min-width: 0 !important; font-size: 13px !important; white-space: nowrap; }
+  .tsu-jm-bar > div[style*="margin-left"] > div { gap: 3px !important; }
+  .tsu-jm-bar > div[style*="margin-left"] button { padding: 4px 8px !important; }
+}
+/* クラス在籍表: 高さの低い画面(スマホの横向き)は1行に */
+@media (max-height: 520px) {
+  .tsu-cr-bar { flex-wrap: nowrap !important; padding-top: 4px !important; padding-bottom: 4px !important; }
+  .tsu-cr-desc, .tsu-cr-title { display: none !important; }
+  .tsu-cr-bar button { padding-top: 6px !important; padding-bottom: 6px !important; }
+}
+

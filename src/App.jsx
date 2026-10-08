@@ -12950,12 +12950,13 @@ function ScheduleView({ appData, onSave, navigateTo }) {
   const fmtJp = (dstr) => { const [y,m,dd]=dstr.split('-').map(Number); const w=new Date(y,m-1,dd).getDay(); return `${m}月${dd}日(${dow[w]})`; };
   return (
     <div style={{height:'100%',display:'flex',flexDirection:'column',background:'#f0f4f9'}}>
-      <TsuPhonePin testId="pin-schedule"><div ref={_schHdrRef} className="no-print" style={{position:'sticky',top:0,zIndex:20,background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
+      {/* ★ 2026-10-08(ユーザー要望: スマホで「スケジュール」とボタンが2段): スマホは見出しの右にボタンを詰めて1行に(CSS tsu-sch-*) */}
+      <TsuPhonePin testId="pin-schedule"><div ref={_schHdrRef} className="no-print tsu-sch-bar" style={{position:'sticky',top:0,zIndex:20,background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
-          <CalendarRange size={20}/>
-          <span style={{fontSize:17,fontWeight:'bold'}}>スケジュール</span>
+          <span className="tsu-sch-icon" style={{display:'inline-flex'}}><CalendarRange size={20}/></span>
+          <span className="tsu-sch-title" style={{fontSize:17,fontWeight:'bold'}}>スケジュール</span>
         </div>
-        <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+        <div className="tsu-sch-btns" style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
           <button onClick={()=>setLabelEditorOpen(true)} style={{background:'rgba(255,255,255,0.18)',color:'white',border:'1px solid rgba(255,255,255,0.5)',borderRadius:10,padding:'8px 14px',fontWeight:'bold',fontSize:13,cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>ラベル編集</button>
           <button onClick={()=>setRepeatMgrOpen(true)} style={{background:'rgba(255,255,255,0.18)',color:'white',border:'1px solid rgba(255,255,255,0.5)',borderRadius:10,padding:'8px 14px',fontWeight:'bold',fontSize:13,cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>繰り返し設定</button>
           <button onClick={()=>openNew(selDay)} style={{background:'white',color:'#6d28d9',border:'none',borderRadius:10,padding:'8px 16px',fontWeight:'bold',fontSize:13,cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>予定を追加</button>
@@ -21094,6 +21095,29 @@ export default function App() {
   // ★ 2026-10-06(ユーザー報告: 再読み込みした直後は上部のボタンが出ず、サイドバーを開閉すると出る): iPad の WebKit で
   //   縮小(zoom)の切替や回転のあと上部のバーが描かれないことがある。サイドバー開閉と同じ強制 reflow を、画面の切替・回転のあとにも行う
   const [_repaintTick, _setRepaintTick] = useState(0);
+  // ★ 2026-10-08(店舗報告: スマホで連絡帳・送迎表・体力測定・休み連絡・分析・プレビューの上部に灰色の隙間があり、その下の名前などに帯が被る):
+  //   止まる帯(sticky)を見出しの下(47px)に下げる指定は、帯がページ直下にあるときだけ正しい。画面の内側の枠(overflow:auto)の中の帯は、
+  //   その枠の上から47px下がって隙間ができ、下の中身に被っていた。ページ直下の帯にだけ印(data-tsu-doc)を付け、47pxはその帯だけにする
+  //   (内側の枠の中の帯は元の位置のまま)。画面の中身が変わったら付け直す
+  useEffect(() => {
+    const root = document.getElementById('tsuContentScroller'); if (!root) return;
+    let t = null;
+    const run = () => {
+      if (window.innerWidth >= 768) return;
+      root.querySelectorAll('.sticky, [style*="sticky"]').forEach(el => {
+        if (/^(TH|TD|TR|THEAD)$/.test(el.tagName) || (el.closest && el.closest('.tsu-pin'))) return;
+        let p = el.parentElement, nested = false;
+        while (p && p !== root) { const cs = getComputedStyle(p); if (!/^(visible|clip)$/.test(cs.overflowY) || !/^(visible|clip)$/.test(cs.overflowX)) { nested = true; break; } p = p.parentElement; }
+        if (nested) { if (el.hasAttribute('data-tsu-doc')) el.removeAttribute('data-tsu-doc'); } else if (!el.hasAttribute('data-tsu-doc')) el.setAttribute('data-tsu-doc', '1');
+      });
+    };
+    run();
+    const mo = new MutationObserver(() => { clearTimeout(t); t = setTimeout(run, 120); });
+    mo.observe(root, { childList: true, subtree: true });
+    const onR = () => { clearTimeout(t); t = setTimeout(run, 200); };
+    window.addEventListener('resize', onR);
+    return () => { mo.disconnect(); clearTimeout(t); window.removeEventListener('resize', onR); };
+  }, [currentView]);
   // ★ 2026-10-08(白画面の対策の整理): スマホ幅は画面全体(ページ)がスクロールする作りに変えた(下の tsu-docscroll)。
   //   それまで試した「描き直させる」工夫(1pxスクロール・背景色の切替・起動後/ログイン後/データ反映後の描き直し)は効かなかったので外した。
   //   画面を切り替えたらページの一番上へ(ページ全体のスクロールは画面をまたいで残るため)
@@ -30437,10 +30461,11 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
   return (
     <div className="h-full flex flex-col bg-slate-50">
       {/* ★ 2026-10-08(ユーザー要望: スマホで上部が3段→2段): スマホは題名(画面の題名と重複)を出さず、1段目=定員・休止の見本 / 2段目=人数・ダウンロード */}
-      <div className="no-print bg-white border-b border-slate-200 px-3 sm:px-4 py-2 flex items-center gap-2 sm:gap-3 flex-wrap shrink-0">
-        <div className="font-bold text-slate-800 hidden sm:block">クラス在籍表</div>
+      {/* ★ 2026-10-08(ユーザー要望: スマホを横にすると上部が画面の3分の1を占める): 高さの低い画面(スマホの横向き)は 説明文と題名を出さず1行に(CSS tsu-cr-*) */}
+      <div className="tsu-cr-bar no-print bg-white border-b border-slate-200 px-3 sm:px-4 py-2 flex items-center gap-2 sm:gap-3 flex-wrap shrink-0">
+        <div className="tsu-cr-title font-bold text-slate-800 hidden sm:block">クラス在籍表</div>
         <span className="text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 rounded-lg px-2 py-1">定員 {cap}名（＋予備1枠）</span>
-        <div className="text-[11px] text-slate-500 hidden sm:block">基本利用曜日から自動で並びます（介護度順）。左端の「⋮」をつかんで動かすと同じ枠の中で並べ替えできます。「待ち」は自由入力。曜日の変更は利用者マスタで。</div>
+        <div className="tsu-cr-desc text-[11px] text-slate-500 hidden sm:block">基本利用曜日から自動で並びます（介護度順）。左端の「⋮」をつかんで動かすと同じ枠の中で並べ替えできます。「待ち」は自由入力。曜日の変更は利用者マスタで。</div>
         <span className="text-[11px] text-slate-500 flex items-center gap-1" data-testid="cr-legend"><span style={{display:'inline-block',width:14,height:14,borderRadius:3,background:'#e5e7eb'}}/><span style={{color:'#9ca3af',fontStyle:'italic',fontWeight:'bold'}}>グレー（斜体）</span>＝休止中の方</span>
         <div className="ml-auto flex items-center gap-2">
           <span className="text-[11px] text-slate-600 whitespace-nowrap">午前 {total('AM')}名 ／ 午後 {total('PM')}名</span>
@@ -30592,18 +30617,19 @@ function JissekiView({ appData, onSave, onShowPrintPreview }) {
   const selRow = selPid != null ? rows.find(r=>r.p.id===selPid) : null;
   const monthNav = (
     <div style={{display:'flex',alignItems:'center',gap:6}}>
-      <button onClick={()=>shiftJM(-1)} style={{padding:'4px 10px',background:'white',border:'1px solid #cbd5e1',borderRadius:8,fontWeight:'bold',cursor:'pointer',fontSize:13}}>← 前月</button>
-      <span style={{fontSize:14,fontWeight:'bold',color:'#1e293b',minWidth:96,textAlign:'center'}}>{jy}年{jm}月</span>
-      <button onClick={()=>shiftJM(1)} style={{padding:'4px 10px',background:'white',border:'1px solid #cbd5e1',borderRadius:8,fontWeight:'bold',cursor:'pointer',fontSize:13}}>翌月 →</button>
+      {/* ★ 2026-10-08(ユーザー要望: スマホで上部が2行): スマホは「←」「→」だけにして、タブと同じ1行に(CSS tsu-jm-*) */}
+      <button onClick={()=>shiftJM(-1)} aria-label="前月" style={{padding:'4px 10px',background:'white',border:'1px solid #cbd5e1',borderRadius:8,fontWeight:'bold',cursor:'pointer',fontSize:13}}>←<span className="tsu-jm-lbl"> 前月</span></button>
+      <span className="tsu-jm-month" style={{fontSize:14,fontWeight:'bold',color:'#1e293b',minWidth:96,textAlign:'center'}}>{jy}年{jm}月</span>
+      <button onClick={()=>shiftJM(1)} aria-label="翌月" style={{padding:'4px 10px',background:'white',border:'1px solid #cbd5e1',borderRadius:8,fontWeight:'bold',cursor:'pointer',fontSize:13}}><span className="tsu-jm-lbl">翌月 </span>→</button>
     </div>
   );
   return (
     <div style={{height:'100%',overflow:'auto',background:'#f0f4f9'}}>
       <div style={{maxWidth:1500,margin:'0 auto',padding:16,display:'flex',flexDirection:'column',gap:12}}>
         {/* タブ */}
-        <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <div className="tsu-jm-bar" style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
           {[['month','月間一覧'],['patient','利用者ごと']].map(([k,lb])=>(
-            <button key={k} onClick={()=>setTab(k)} style={{padding:'8px 18px',borderRadius:10,fontWeight:'bold',fontSize:13,cursor:'pointer',border:'1px solid',...(tab===k?{background:'#0f766e',color:'white',borderColor:'#0f766e'}:{background:'white',color:'#475569',borderColor:'#cbd5e1'})}}>{lb}</button>
+            <button key={k} className="tsu-jm-tab" onClick={()=>setTab(k)} style={{padding:'8px 18px',borderRadius:10,fontWeight:'bold',fontSize:13,cursor:'pointer',border:'1px solid',...(tab===k?{background:'#0f766e',color:'white',borderColor:'#0f766e'}:{background:'white',color:'#475569',borderColor:'#cbd5e1'})}}>{lb}</button>
           ))}
           <div style={{marginLeft:'auto'}}>{monthNav}</div>
         </div>
