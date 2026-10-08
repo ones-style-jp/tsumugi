@@ -21137,10 +21137,14 @@ export default function App() {
   const handleLogout = () => {
     sessionStorage.removeItem('tsumugiStaffSession');
     sessionStorage.removeItem('tsumugiActiveRecorder');
-    setStaffSession(null);
-    setActiveRecorder(null);
-    setSession(null);
-    setLoginForm({id:'', pass:'', error:''});
+    // ★ 2026-10-08(店舗報告: iPhoneでアプリを開いたままログアウト→ログインすると画面の上の方が白いまま。アプリを起動し直すと正常):
+    //   同じ画面のままログイン画面⇔アプリを切り替えると、iPhone の描画が前の画面の区画を残す。ログアウトしたら画面を読み込み直し、
+    //   起動し直したときと同じ状態でログイン画面を出す(店舗切替と同じ方式。メモリも片付く)。
+    //   保存の送信中なら終わるまで待つ(最大8秒。失敗した分はこれまでどおり端末の控えから再送される)
+    const _reload = () => { try { window.location.reload(); } catch { setStaffSession(null); setActiveRecorder(null); setSession(null); setLoginForm({id:'', pass:'', error:''}); } };
+    const t0 = Date.now();
+    const wait = () => { if (_pushBusyRef.current && Date.now() - t0 < 8000) { setTimeout(wait, 250); return; } _reload(); };
+    wait();
   };
 
   const recordDirtyRef = React.useRef(false);
@@ -30260,7 +30264,9 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
   //   待ちの入力欄が1文字ごとに作り直されて日本語入力が1文字で確定してしまった)
   const renderBlock = (sl, label, print) => {
     const days = (!print && _crPhone) ? [_crDay] : _crAllDays; // スマホの画面は選んだ曜日だけ
-    const fs = print ? printFs : 12, rh = print ? undefined : scrRowH;
+    // ★ 2026-10-08(ユーザー要望: スマホで名前と介護度の間が空きすぎ・文字を大きく): スマホの1日表示は文字16px・行32px・氏名列は名前に合う幅(表全体を左に寄せる)
+    const _ph = !print && _crPhone;
+    const fs = print ? printFs : (_ph ? 16 : 12), rh = print ? undefined : (_ph ? 32 : scrRowH);
     const grip = !print; // 画面だけ: 並べ替え用のつまみ列(NO列は廃止・2026-10-03 ユーザー指示)
     // ★ 2026-10-04(ユーザー指示「15人定員だと下が詰まる。名前の右に余白があるので2列に」): 定員11名以上は各曜日を左右2列(例: 8+8)。曜日の境目は太線
     const twoCol = rows > 11;
@@ -30284,8 +30290,8 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
         </React.Fragment>);
     };
     return (
-    <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: (twoCol && !print) ? `${days.length * 2 * 150 + 24}px` : undefined, height: print ? '100%' : undefined, tableLayout: 'fixed', fontSize: fs, lineHeight: 1.1 }} data-testid={print ? undefined : `cr-${sl.toLowerCase()}`}>
-      <colgroup><col style={{ width: print ? 16 : 22 }} />{days.map(d => <React.Fragment key={d}>{Array.from({ length: twoCol ? 2 : 1 }).map((_, c) => <React.Fragment key={c}>{grip && <col style={{ width: 16 }} />}<col /><col style={{ width: print ? (twoCol ? 32 : 42) : 48 }} /></React.Fragment>)}</React.Fragment>)}</colgroup>
+    <table style={{ borderCollapse: 'collapse', width: _ph ? 'auto' : '100%', minWidth: (twoCol && !print && !_ph) ? `${days.length * 2 * 150 + 24}px` : undefined, height: print ? '100%' : undefined, tableLayout: 'fixed', fontSize: fs, lineHeight: 1.1 }} data-testid={print ? undefined : `cr-${sl.toLowerCase()}`}>
+      <colgroup><col style={{ width: print ? 16 : 22 }} />{days.map(d => <React.Fragment key={d}>{Array.from({ length: twoCol ? 2 : 1 }).map((_, c) => <React.Fragment key={c}>{grip && <col style={{ width: 16 }} />}<col style={_ph ? { width: twoCol ? 120 : 170 } : undefined} /><col style={{ width: print ? (twoCol ? 32 : 42) : (_ph ? 56 : 48) }} /></React.Fragment>)}</React.Fragment>)}</colgroup>
       <tbody>{/* 左端の「午前/午後」は rowSpan で全行をまたぐため見出し行も tbody(thead→tbody をまたぐ rowSpan は効かない) */}
         <tr style={{ height: rh }}>
           <th rowSpan={per + 4} style={{ border: BH, background: sl === 'AM' ? '#fef3c7' : '#e0e7ff', color: sl === 'AM' ? '#92400e' : '#3730a3', fontWeight: 'bold', writingMode: 'vertical-rl', letterSpacing: 4, fontSize: print ? 11 : 13 }}>{label}</th>
@@ -30326,14 +30332,15 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
   const doPrint = () => { if (onShowPrintPreview) onShowPrintPreview(`クラス在籍表_${todayIso}`, 'A4 landscape', 'print-content-classroster'); else window.print(); };
   return (
     <div className="h-full flex flex-col bg-slate-50">
-      <div className="no-print bg-white border-b border-slate-200 px-4 py-2 flex items-center gap-3 flex-wrap shrink-0">
-        <div className="font-bold text-slate-800">クラス在籍表</div>
+      {/* ★ 2026-10-08(ユーザー要望: スマホで上部が3段→2段): スマホは題名(画面の題名と重複)を出さず、1段目=定員・休止の見本 / 2段目=人数・ダウンロード */}
+      <div className="no-print bg-white border-b border-slate-200 px-3 sm:px-4 py-2 flex items-center gap-2 sm:gap-3 flex-wrap shrink-0">
+        <div className="font-bold text-slate-800 hidden sm:block">クラス在籍表</div>
         <span className="text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 rounded-lg px-2 py-1">定員 {cap}名（＋予備1枠）</span>
         <div className="text-[11px] text-slate-500 hidden sm:block">基本利用曜日から自動で並びます（介護度順）。左端の「⋮」をつかんで動かすと同じ枠の中で並べ替えできます。「待ち」は自由入力。曜日の変更は利用者マスタで。</div>
         <span className="text-[11px] text-slate-500 flex items-center gap-1" data-testid="cr-legend"><span style={{display:'inline-block',width:14,height:14,borderRadius:3,background:'#e5e7eb'}}/><span style={{color:'#9ca3af',fontStyle:'italic',fontWeight:'bold'}}>グレー（斜体）</span>＝休止中の方</span>
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-[11px] text-slate-600">午前 {total('AM')}名 ／ 午後 {total('PM')}名</span>
-          <button type="button" data-testid="cr-print" onClick={doPrint} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">ダウンロード</button>
+          <span className="text-[11px] text-slate-600 whitespace-nowrap">午前 {total('AM')}名 ／ 午後 {total('PM')}名</span>
+          <button type="button" data-testid="cr-print" onClick={doPrint} className="bg-slate-900 hover:bg-black text-white px-3 sm:px-4 py-2 rounded-xl font-bold text-sm whitespace-nowrap">ダウンロード</button>
         </div>
       </div>
       <div className="flex-1 overflow-auto p-3">
@@ -36478,7 +36485,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           </div>
           {/* ★ 2026-10-05(ユーザー指示「人数によって午後の位置がカクカクする。横一列で揃えて」): 日付・午前・午後を行に持つグリッドにし、
               どの曜日も午後が同じ高さから始まるようにする(1日=縦に3マス・列の流れは縦) */}
-          <div data-testid="tp-fb-grid" className="grid" style={{gridTemplateColumns:`repeat(${_tpViewDays.length}, minmax(0, 1fr))`, gridTemplateRows:'auto auto auto', gridAutoFlow:'column', columnGap:8, rowGap:0}}>
+          <div data-testid="tp-fb-grid" className={`grid ${_tpOneDay ? 'tsu-tp-one' : ''}`} style={{gridTemplateColumns:`repeat(${_tpViewDays.length}, minmax(0, 1fr))`, gridTemplateRows:'auto auto auto', gridAutoFlow:'column', columnGap:8, rowGap:0}}>
             {_tpViewDays.map(d => { const iso = _iso(d); const _hol = (appData.holidays||[]).find(h => (h && (h.date||h)) === iso); return (
               <React.Fragment key={iso}>
                 <div className={`px-2 py-1 text-xs font-bold text-center rounded-t-xl border border-b-0 border-slate-200 min-w-0 ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-100 text-slate-700'}`}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{_hol ? <span className="ml-1 text-red-600">休業</span> : null}</div>
@@ -51007,9 +51014,13 @@ ${optionsDesc}
       {/* ★ 2026-08-30 店舗要望: 題名行を廃止し、絞り込み/並び替えはポップアップ化して1行に集約(画面領域の拡大) */}
       {/* ★ 2026-10-08(ユーザー報告「スマホでモニタリングがおかしい」): スマホは上部を折りたたみ(要約=月・人数・保存) */}
       <TsuPhoneFold storageKey="monitoring" className="no-print" summary={<>
-        <span className="text-[15px] font-bold text-slate-800 whitespace-nowrap">{String(targetMonth||'').replace(/^(\d{4})-(\d{2})$/, (m0, y, mo) => `${y}年${Number(mo)}月`)}</span>
-        <span className="text-xs font-bold text-slate-500 whitespace-nowrap">{attendedPats.length+absentPats.length}名</span>
-        <button type="button" data-testid="mon-fold-save" onClick={()=>{ markClean(); onSave({...appData}, {manual:true, message:'✓ 保存しました'}); }} className="shrink-0 h-10 px-3 rounded-xl bg-blue-600 text-white text-sm font-bold ml-auto">保存</button>
+        {/* ★ 2026-10-08(ユーザー要望): よく使う AI下書き・一括確定 も1行目に(「操作」の中からは外す) */}
+        <span className="text-[15px] font-bold text-slate-800 whitespace-nowrap">{String(targetMonth||'').replace(/^(\d{4})-(\d{2})$/, (m0, y, mo) => `${Number(mo)}月`)}</span>
+        {sheetBatchProg
+          ? <button type="button" onClick={cancelGenerate} className="shrink-0 h-10 px-2 rounded-xl text-[13px] font-bold border border-red-300 bg-red-50 text-red-600 whitespace-nowrap ml-auto"><BusySpin/>{sheetBatchProg.done}/{sheetBatchProg.total} 中止</button>
+          : <button type="button" data-testid="mon-fold-ai" onClick={generateAllSheets} className="shrink-0 h-10 px-2 rounded-xl text-[13px] font-bold border border-violet-300 bg-violet-50 text-violet-700 whitespace-nowrap ml-auto">AI下書き</button>}
+        <button type="button" data-testid="mon-fold-confirm" onClick={bulkConfirm} className="shrink-0 h-10 px-2 rounded-xl text-[13px] font-bold bg-emerald-500 text-white whitespace-nowrap">{checkedIds.size && !allChecked ? `${attendedPats.filter(p=>checkedIds.has(p.id)&&!getSheetRecord(p.id)?.confirmed).length}名確定` : '一括確定'}</button>
+        <button type="button" data-testid="mon-fold-save" onClick={()=>{ markClean(); onSave({...appData}, {manual:true, message:'✓ 保存しました'}); }} className="shrink-0 h-10 px-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold">保存</button>
       </>}>
       <div className="no-print tsu-mon-bar" style={{position:'sticky',top:0,zIndex:30,flexShrink:0,background:'linear-gradient(135deg,#bae6fd,#7dd3fc)',color:'#1e293b',padding:'7px 14px',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',boxShadow:'0 2px 8px rgba(0,0,0,0.15)'}}>
         {/* 絞り込みポップアップ */}
@@ -51077,10 +51088,11 @@ ${optionsDesc}
             </div>
           )}
         </div>
-        <span style={{fontSize:11,fontWeight:'bold',color:'#0c4a6e'}}>{attendedPats.length+absentPats.length}名表示</span>
+        <span className="tsu-hide-phone" style={{fontSize:11,fontWeight:'bold',color:'#0c4a6e'}}>{attendedPats.length+absentPats.length}名表示</span>
+        <div className="tsu-mo-break2" />
         {/* ★ 2026-08-30 店舗要望: 選択チップと一括ボタンも同じ1行に統合 */}
-        <span style={{borderLeft:'1px solid rgba(255,255,255,0.7)',height:18,margin:'0 2px'}}/>
-        <span style={{fontSize:11,fontWeight:'bold',color:'#0369a1',marginRight:2}}>選択：</span>
+        <span className="tsu-hide-phone" style={{borderLeft:'1px solid rgba(255,255,255,0.7)',height:18,margin:'0 2px'}}/>
+        <span className="tsu-mo-sel" style={{fontSize:11,fontWeight:'bold',color:'#0369a1',marginRight:2}}>選択：</span>
         {/* ★「未作成のみ」は絞り込みバーの「未作成」と重複のため撤去(絞り込み後に「全員」で同じ結果) */}
         {/* ★ 選択チップはAI下書き等と同じ大きさに統一(2026-08-30 店舗要望) */}
         {[
@@ -51090,7 +51102,7 @@ ${optionsDesc}
         ].map(([label,key,fn]) => {
           const isAct = activeSelection===key;
           return (
-            <button key={key} type="button" onClick={()=>{fn();setActiveSelection(key);}}
+            <button key={key} type="button" className="tsu-mo-sel" onClick={()=>{fn();setActiveSelection(key);}}
               style={{padding:'7px 12px',borderRadius:10,fontSize:12,fontWeight:'bold',
                 border:`1px solid ${isAct?'#0284c7':'rgba(255,255,255,0.8)'}`,
                 background:isAct?'#0284c7':'rgba(255,255,255,0.6)',
@@ -51100,40 +51112,41 @@ ${optionsDesc}
           );
         })}
         {checkedIds.size > 0 && (
-          <span style={{fontSize:11,fontWeight:'bold',color:'#0284c7',margin:'0 6px'}}>{checkedIds.size}名選択中</span>
+          <span className="tsu-mo-sel" style={{fontSize:11,fontWeight:'bold',color:'#0284c7',margin:'0 6px'}}>{checkedIds.size}名選択中</span>
         )}
-        <span style={{borderLeft:'1px solid #bae6fd',height:18,margin:'0 4px'}}/>
-        <span style={{fontSize:11,fontWeight:'bold',color:'#0369a1',marginRight:2}}>{checkedIds.size>0?`選んだ${checkedIds.size}名を：`:'全員を：'}</span>
+        <span className="tsu-hide-phone" style={{borderLeft:'1px solid #bae6fd',height:18,margin:'0 4px'}}/>
+        <span className="tsu-hide-phone" style={{fontSize:11,fontWeight:'bold',color:'#0369a1',marginRight:2}}>{checkedIds.size>0?`選んだ${checkedIds.size}名を：`:'全員を：'}</span>
         {/* ★ AIで下書き (チェックした人、無ければ全員) */}
         {sheetBatchProg ? (
-          <button type="button" onClick={cancelGenerate}
+          <button type="button" className="tsu-hide-phone" onClick={cancelGenerate}
             style={{padding:'7px 12px',borderRadius:10,fontSize:12,fontWeight:'bold',border:'1px solid #fca5a5',background:'#fef2f2',color:'#dc2626',cursor:'pointer'}}>
             <BusySpin/>AI下書き中 {sheetBatchProg.done}/{sheetBatchProg.total}（中止）
           </button>
         ) : (
-          <button type="button" onClick={generateAllSheets} title="選んだ(無ければ全員の)モニタリング表をAIで下書きします。編集・確定した内容は自動で個人ファイルに保存されます"
+          <button type="button" className="tsu-hide-phone" onClick={generateAllSheets} title="選んだ(無ければ全員の)モニタリング表をAIで下書きします。編集・確定した内容は自動で個人ファイルに保存されます"
             style={{padding:'7px 12px',borderRadius:10,fontSize:12,fontWeight:'bold',border:'1px solid #c4b5fd',background:'#f5f3ff',color:'#6d28d9',cursor:'pointer'}}>
             AI下書き
           </button>
         )}
         {/* ★ 2026-08-30 店舗要望: 「個人ファイルに保存」は編集・確定で自動保存されるため廃止。
             「印刷/複合機FAX用に出力」はプレビュー(ケアマネ宛先つき)で代替できるため廃止し、名称を短縮 */}
-        <button type="button" data-testid="mon-bulk-confirm" onClick={bulkConfirm} title="選んだ方(全員選択なら全員)の未確定のモニタリングをまとめて確定します。未作成の方は既定の文章で作成して確定します"
+        <div className="tsu-mo-break3" />
+        <button type="button" className="tsu-hide-phone" data-testid="mon-bulk-confirm" onClick={bulkConfirm} title="選んだ方(全員選択なら全員)の未確定のモニタリングをまとめて確定します。未作成の方は既定の文章で作成して確定します"
           style={{padding:'7px 12px',borderRadius:10,fontSize:12,fontWeight:'bold',border:'none',background:'#10b981',color:'white',cursor:'pointer'}}>
           {checkedIds.size && !allChecked ? `選んだ${attendedPats.filter(p=>checkedIds.has(p.id)&&!getSheetRecord(p.id)?.confirmed).length}名を確定` : '一括確定'}
         </button>
-        <MaskToggle small storeKey="monitoring"/>
-        <button type="button" onClick={faxToCareManagers} title="作成済みのモニタリング表をケアマネ宛先つきで1つのPDFにしてダウンロードします"
+        <span className="tsu-mo-3"><MaskToggle small storeKey="monitoring"/></span>
+        <button type="button" className="tsu-mo-3" onClick={faxToCareManagers} title="作成済みのモニタリング表をケアマネ宛先つきで1つのPDFにしてダウンロードします"
           style={{padding:'7px 12px',borderRadius:10,fontSize:12,fontWeight:'bold',border:'1px solid #fdba74',background:'#fff7ed',color:'#c2410c',cursor:'pointer'}}>
           ダウンロード
         </button>
-        <button type="button" onClick={autoFaxToCareManagers} disabled={autoFax?.running} title="各利用者のモニタリング表を、それぞれの担当ケアマネのFAX番号へ外部FAX(InterFAX)で自動送信します（送信は従量課金）"
+        <button type="button" className="tsu-mo-3" onClick={autoFaxToCareManagers} disabled={autoFax?.running} title="各利用者のモニタリング表を、それぞれの担当ケアマネのFAX番号へ外部FAX(InterFAX)で自動送信します（送信は従量課金）"
           style={{padding:'7px 12px',borderRadius:10,fontSize:12,fontWeight:'bold',border:'1px solid #6366f1',background:autoFax?.running?'#e0e7ff':'#eef2ff',color:'#4338ca',cursor:autoFax?.running?'wait':'pointer'}}>
           {autoFax?.running ? <><BusySpin/>{`自動送信中… ${autoFax.done}/${autoFax.total}`}</> : '自動FAX'}
         </button>
 
-        <span style={{marginLeft:'auto'}}/>
-        <input type="month" value={targetMonth} onChange={e=>setTargetMonth(e.target.value)}
+        <span className="tsu-hide-phone" style={{marginLeft:'auto'}}/>
+        <input type="month" className="tsu-mo-1" value={targetMonth} onChange={e=>setTargetMonth(e.target.value)}
           style={{background:'rgba(255,255,255,0.5)',border:'1px solid rgba(255,255,255,0.7)',color:'#1e293b',borderRadius:10,padding:'6px 10px',fontSize:12,fontWeight:'bold',outline:'none',cursor:'pointer'}}/>
         {/* ★ 2026-10-04 ユーザー指示: 「プレビュー」は「印刷/PDF」と重複していたため統合(ダウンロード) */}
         {/* ★ 2026-10-08: スマホは1行目に保存があるので、ここの保存は出さない(tsu-hide-phone) */}

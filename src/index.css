@@ -248,3 +248,20 @@ button, a, input, select, textarea, label, [role="button"] { touch-action: manip
   .tsu-mstrip { overflow-x: auto; }
   .tsu-mstrip > * { flex: 0 0 28px !important; min-width: 28px; }
 }
+
+/* ★ 2026-10-08(ユーザー要望: スマホのモニタリング上部 4段→3段): 1段目=絞り込み・並び替え・月 / 2段目=選択(全員・通所なし・選択解除) / 3段目=マスキング・ダウンロード・自動FAX */
+.tsu-mo-break2, .tsu-mo-break3 { display: none; }
+@media (max-width: 767px) {
+  .tsu-mon-bar .tsu-mo-1 { order: 1; margin-left: auto; }
+  .tsu-mon-bar .tsu-mo-break2 { display: block; order: 2; flex-basis: 100%; height: 0; }
+  .tsu-mon-bar .tsu-mo-sel { order: 3; }
+  .tsu-mon-bar .tsu-mo-break3 { display: block; order: 4; flex-basis: 100%; height: 0; }
+  .tsu-mon-bar .tsu-mo-3 { order: 5; }
+  .tsu-mon-bar > .tsu-mo-sel { padding-left: 10px !important; padding-right: 10px !important; }
+  .tsu-mon-bar > .tsu-mo-1 { max-width: 116px; }
+}
+
+/* ★ 2026-10-08(ユーザー要望: スマホの送迎表(1日表示)で名前と時間の間が空きすぎ・文字を大きく): 文字17px・名前の幅は名前に合わせて詰める */
+.tsu-tp-one [data-tpfb] { font-size: 17px !important; line-height: 1.35 !important; padding-top: 3px; padding-bottom: 3px; gap: 10px !important; }
+.tsu-tp-one [data-tpfb] > span:first-child { width: 6.4em !important; }
+.tsu-tp-one .border-dashed { font-size: 12px !important; }
