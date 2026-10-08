@@ -22742,8 +22742,12 @@ export default function App() {
       {/* ★ 新バージョン通知バナー (安全時は自動更新するが、すぐ更新したい場合の手動ボタンも出す)。
           update-notes.json の "prompt" が silent または他店限定のときは出さない(背景化時の自動更新のみ) */}
       {updateAvailable && (() => { const sc = updatePromptScope; if (sc === 'silent') return false; if (Array.isArray(sc)) return sc.map(String).includes(String(staffSession?.storeId||'')); return true; })() && ReactDOM.createPortal(
-        <div style={{position:'fixed',left:'50%',bottom:20,transform:'translateX(-50%)',zIndex:2000000,background:'#0f172a',color:'white',padding:'10px 14px',borderRadius:12,boxShadow:'0 8px 30px rgba(0,0,0,0.35)',display:'flex',alignItems:'center',gap:12,maxWidth:'92vw'}}>
-          <span style={{fontSize:13,fontWeight:'bold'}}>⚠ 新しいバージョンがあります。<span style={{color:'#fca5a5'}}>必ず再読み込みしてください</span>（古いままだと同期や表示に不具合が出ることがあります）</span>
+        // ★ 2026-10-09(ユーザー指摘: スマホで文が1文字ずつ縦に並ぶ): left:50% で置くと使える幅が画面の半分になり、ボタンの幅に押されて文が細くなっていた。
+        //   画面の左右いっぱいの枠の中で中央に置き、狭い画面では文を上・ボタンを下の2段に折り返す
+        <div data-testid="update-banner-wrap" style={{position:'fixed',left:0,right:0,bottom:'calc(20px + env(safe-area-inset-bottom, 0px))',zIndex:2000000,display:'flex',justifyContent:'center',padding:'0 12px',pointerEvents:'none'}}>
+        <div data-testid="update-banner" style={{pointerEvents:'auto',background:'#0f172a',color:'white',padding:'10px 14px',borderRadius:12,boxShadow:'0 8px 30px rgba(0,0,0,0.35)',display:'flex',flexWrap:'wrap',alignItems:'center',gap:'8px 12px',maxWidth:1120}}>
+          <span style={{fontSize:13,fontWeight:'bold',lineHeight:1.5,flex:'1 1 240px',minWidth:0}}>⚠ 新しいバージョンがあります。<span style={{color:'#fca5a5'}}>必ず再読み込みしてください</span>（古いままだと同期や表示に不具合が出ることがあります）</span>
+          <div style={{display:'flex',flexWrap:'wrap',justifyContent:'flex-end',gap:8,marginLeft:'auto',flex:'0 1 auto',maxWidth:'100%'}}>
           {/* ★ 何が変わったか分からず更新してよいか迷う、を解消。 押すと今回の更新内容(update-notes.json)を表示 */}
           <button onClick={()=>setShowUpdateNotes(true)} style={{background:'transparent',color:'#e2e8f0',border:'1px solid #64748b',borderRadius:8,padding:'6px 12px',fontSize:13,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>更新内容を確認</button>
           {/* ★ 単なる reload だとブラウザのキャッシュから古いプログラムが読み直されることがあり、
@@ -22783,6 +22787,8 @@ export default function App() {
               window.location.replace(u.toString());
             } catch { try { window.location.reload(); } catch {} }
           }} style={{background:appUpdating?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:8,padding:'6px 14px',fontSize:13,fontWeight:'bold',cursor:appUpdating?'wait':'pointer',whiteSpace:'nowrap'}}>{appUpdating ? <><BusySpin/>更新中…（そのままお待ちください）</> : '今すぐ更新'}</button>
+          </div>
+        </div>
         </div>,
         document.body
       )}
@@ -22791,7 +22797,7 @@ export default function App() {
         <div onClick={()=>setShowUpdateNotes(false)} style={{position:'fixed',inset:0,zIndex:2000001,background:'rgba(15,23,42,0.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
           <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:16,maxWidth:520,width:'100%',maxHeight:'80vh',overflow:'auto',boxShadow:'0 20px 60px rgba(0,0,0,0.4)'}}>
             <div style={{padding:'16px 20px',borderBottom:'1px solid #e2e8f0',display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,background:'white'}}>
-              <div style={{fontSize:15,fontWeight:'bold',color:'#1e293b'}}>🆕 今回の更新内容</div>
+              <div style={{fontSize:15,fontWeight:'bold',color:'#1e293b'}}>今回の更新内容</div>
               <button onClick={()=>setShowUpdateNotes(false)} style={{border:'none',background:'#f1f5f9',borderRadius:8,width:30,height:30,cursor:'pointer',fontSize:16,color:'#64748b'}}>×</button>
             </div>
             <div style={{padding:'16px 20px',display:'flex',flexDirection:'column',gap:12}}>
