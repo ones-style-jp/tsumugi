@@ -415,3 +415,8 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
   .tsu-fa-hsel { font-size: 13px !important; height: 32px; width: 100%; }
   .tsu-fa-hq { height: 32px; }
 }
+
+/* ★ 2026-10-09: 実績登録の上部(タブ・月の切替)をスマホで画面に固定したとき、PC用の負の余白で左右にはみ出さないように */
+@media (max-width: 767px) {
+  .tsu-pin .tsu-jm-wrap { margin: 0 !important; padding: 8px 10px !important; border-bottom: 1px solid #e2e8f0; }
+}
