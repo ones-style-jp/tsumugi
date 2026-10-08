@@ -19346,6 +19346,17 @@ function StaffLoginGate({ onLogin }) {
         token: staff._token || '', // ★ サーバー認証の署名付きトークン(職員作成・PW変更・一覧で使用)
       };
       sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(session));
+      // ★ 2026-10-08(店舗報告: iPhoneでIDとパスワードを入力してログインした直後、画面の一部が白いまま。スクロールしても戻らず、押すと反応する):
+      //   キーボードが出て表示域が狭いままアプリの画面が作られると、その狭い範囲しか描かれずに残る(iPhoneのブラウザの不具合)と見ている。
+      //   iPhone/iPad は ①キーボードを閉じる ②閉じ終わる(表示域が元の高さに戻る)のを最大1.2秒待つ ③画面の位置を戻して読み込み直す
+      //   → アプリを起動し直したときと同じ状態でアプリの画面を出す(ログイン状態は端末に保存済みなので、読み込み直してもログインしたまま)
+      if (tsumugiIsIOS()) {
+        try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch {}
+        const vv = window.visualViewport; const t0 = Date.now();
+        await new Promise(res => { const tick = () => { const ok = !vv || vv.height >= window.innerHeight - 40; if (ok || Date.now() - t0 > 1200) return res(); setTimeout(tick, 80); }; setTimeout(tick, 120); });
+        try { window.scrollTo(0, 0); } catch {}
+        try { window.location.reload(); return; } catch {}
+      }
       onLogin(session);
     } catch (err) {
       const msg = err?.message || 'ログインに失敗しました';
@@ -25327,9 +25338,12 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
         <div className="flex rounded-lg overflow-hidden border border-slate-300 shrink-0">
           {['AM','PM'].map(v=>(<button key={v} type="button" onClick={()=>setTimeFilter(v)} className={`px-2 h-10 text-sm font-bold ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600'}`}>{v}</button>))}
         </div>
-        <button type="button" data-testid="rec-fold-save" onClick={()=>handleSaveClick(false)} className="shrink-0 h-10 px-2 rounded-xl bg-blue-600 text-white text-sm font-bold">保存</button>
-        {/* ★ 2026-10-08(ユーザー要望): よく使う連絡帳も1行目に */}
-        <button type="button" data-testid="rec-fold-renraku" onClick={()=>{ handleSaveClick(); navigateTo('print'); }} className="shrink-0 h-10 px-2 rounded-xl bg-emerald-600 text-white text-[13px] font-bold whitespace-nowrap">連絡帳</button>
+        {/* ★ 2026-10-08(ユーザー要望): 出席・欠席などの人数も1行目に(小さく2段)。連絡帳は「操作」の中へ */}
+        {attCounts && (() => { const defs = [['出席','#1e40af','#dbeafe'],['欠席','#991b1b','#fee2e2'],['振替','#166534','#dcfce7'],['臨時','#155e75','#cffafe'],['休止','#9a3412','#ffedd5'],['休業','#475569','#f1f5f9']].filter(([l]) => (attCounts[l]||0) > 0); if (!defs.length) return null; return (
+          <div data-testid="rec-fold-att" className="min-w-0 overflow-hidden" style={{display:'grid',gridTemplateRows:'repeat(2, auto)',gridAutoFlow:'column',gap:'1px 3px'}}>
+            {defs.map(([l,fg,bg]) => <span key={l} style={{background:bg,color:fg,borderRadius:5,padding:'0 4px',fontSize:10,fontWeight:'bold',whiteSpace:'nowrap',lineHeight:1.45}}>{l}{attCounts[l]}</span>)}
+          </div>); })()}
+        <button type="button" data-testid="rec-fold-save" onClick={()=>handleSaveClick(false)} className="shrink-0 h-10 px-2 rounded-xl bg-blue-600 text-white text-sm font-bold ml-auto">保存</button>
       </>); })()}>
       <>
       <div data-testid="rec-toolbar" className="bg-white px-2 py-2 sm:px-4 sm:py-3 rounded-2xl shadow-sm border border-slate-200 flex flex-row items-center gap-2 sm:gap-3 flex-wrap flex-shrink-0 sticky top-0 z-30 mb-2 sm:mb-4">
@@ -25337,7 +25351,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             {/* ★ 2026-10-07(店舗報告: スマホ縦で上部のボタンが2段にずれて並ぶ): スマホ幅は 1段目=日付(残りの幅いっぱい)+AM/PM、
                 2段目=並び替え+人数、3段目=個別機能訓練、4段目=連絡帳/全画面/元に戻す/保存 を同じ幅の4つ並びにそろえる。iPad・PCは従来どおり */}
             {filterMode === 'single' && (
-              <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+              <div className="flex items-center gap-2 flex-wrap w-auto">
                   <input type="date" value={selectedDate} onChange={(e) => {
                   if(!e.target.value) return;
                   // ★ 定休日だけ近い営業日にずらす。 休業日(臨時休業)は選択・閲覧可能にする(店舗要望:
@@ -25354,7 +25368,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   </div>
                   <button type="button" data-testid="rec-order-btn" onClick={() => setRecOrderOpen(true)} title="表示中の利用者の並び順を変えます(長押しドラッグ)" className={`px-3 py-2 rounded-xl text-sm font-bold border shrink-0 ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}>並び替え</button>
                   {recOrderOpen && <RecordOrderModal rows={_recOrderRows} onSave={saveRecordOrder} onClose={() => setRecOrderOpen(false)}/>}
-                  {attCountChips}
+                  {attCountChips && <div className="hidden sm:block">{attCountChips}</div>}
               </div>
             )}
             {filterMode === 'month' && (
@@ -25380,9 +25394,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             )}
             {/* ★ 2026-09-29 ユーザー指示: 「氏名で検索」は使わないため非表示(検索の仕組み自体は残す) */}
             {_kinouOn && (
-              <div className="relative flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-xl px-2 py-1 w-full sm:w-auto" title="個別機能訓練を実施した機能訓練指導員。ここで選ぶと表示中の区分(AM/PM)の全員に適用。利用者ごとに変えるときは「利用者ごと」。提供記録の印刷に「個別: ○○」と出ます">
-                <span className="text-[11px] font-bold text-emerald-800 whitespace-nowrap leading-tight text-center">個別機能訓練<br/>実施者</span>
-                <select data-testid="kinou-default" value={_kinouEff} disabled={!isEditMode} onChange={e=>applyKinouAll(e.target.value)} className="text-sm font-bold bg-white border border-emerald-300 rounded-lg px-2 py-1 outline-none disabled:opacity-60 min-w-0 flex-1 sm:flex-none">
+              <div data-testid="kinou-box" className="relative flex items-center gap-1 sm:gap-1.5 bg-emerald-50 border border-emerald-200 rounded-xl px-1.5 sm:px-2 py-1 flex-1 min-w-0 sm:flex-none" title="個別機能訓練を実施した機能訓練指導員。ここで選ぶと表示中の区分(AM/PM)の全員に適用。利用者ごとに変えるときは「利用者ごと」。提供記録の印刷に「個別: ○○」と出ます">
+                <span className="text-[10px] sm:text-[11px] font-bold text-emerald-800 whitespace-nowrap leading-tight text-center shrink-0">個別機能訓練<br/>実施者</span>
+                <select data-testid="kinou-default" value={_kinouEff} disabled={!isEditMode} onChange={e=>applyKinouAll(e.target.value)} className="text-sm font-bold bg-white border border-emerald-300 rounded-lg px-1 sm:px-2 py-1 outline-none disabled:opacity-60 min-w-0 flex-1 sm:flex-none">
                   {!_kinouList.includes(_kinouEff) && _kinouEff && _kinouEff !== '未算定' && <option value={_kinouEff}>{_kinouEff}</option>}
                   {_kinouList.map(n => <option key={n} value={n}>{n}</option>)}
                   <option value="未算定">未算定</option>
@@ -25454,9 +25468,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 ), document.body)}
               </div>
             )}
-            <div data-testid="rec-actions" className="w-full sm:w-auto sm:ml-auto grid grid-cols-2 sm:flex items-center gap-1.5 sm:gap-2 sm:flex-wrap">
+            <div data-testid="rec-actions" className="w-full sm:w-auto sm:ml-auto grid grid-cols-3 sm:flex items-center gap-1.5 sm:gap-2 sm:flex-wrap">
               {/* ★ 連絡帳は一番左(全画面の左)に配置(2026-08-28 店舗要望) */}
-              <button onClick={() => { handleSaveClick(); navigateTo('print'); }} className="hidden sm:block bg-emerald-600 hover:bg-emerald-700 text-white px-2 sm:px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap">連絡帳</button>
+              <button data-testid="rec-act-renraku" onClick={() => { handleSaveClick(); navigateTo('print'); }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 sm:px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap">連絡帳</button>
               <button onClick={()=>setIsFullscreen(v=>!v)} className="bg-slate-700 hover:bg-slate-800 text-white px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title={isFullscreen?'通常表示':'全画面表示'}>
                 {isFullscreen ? '通常表示' : '全画面'}
               </button>
@@ -42606,7 +42620,9 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
   ];
 
   return (
-    <div className="h-full overflow-hidden flex flex-col bg-slate-100">
+    // ★ 2026-10-08(ユーザー要望: スマホで下にスクロールすると上部のタブ(事業所情報・サイドバー…)が消える): スマホは外枠を
+    //   スクロール枠にしない(overflow:hidden だと固定が効かない)で、タブの帯を上に固定する
+    <div className="h-full md:overflow-hidden flex flex-col bg-slate-100" style={{overflowX:_tsuClipX}}>
       {/* ★ ケアマネ事業所/担当者の編集モーダル (確定で各利用者マスタの担当ケアマネも自動更新) */}
       {cmEditModal && (
         <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4">
@@ -42712,7 +42728,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
         </div>
       )}
       {/* 上部タブナビ（横）+ 右側に保存ボタン */}
-      <div className="bg-white border-b border-slate-200 px-4 pt-3 shrink-0 flex items-center gap-3">
+      <div data-testid="settings-tabs" className="bg-white border-b border-slate-200 px-2 sm:px-4 pt-2 sm:pt-3 shrink-0 flex items-center gap-2 sm:gap-3 sticky top-0 z-30">
         <div className="flex gap-1 overflow-x-auto pb-0 flex-nowrap flex-1 min-w-0">
           {tabs.map(tab => (
             <button type="button" key={tab.id} onClick={() => setActiveTab(tab.id)}
@@ -42728,7 +42744,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
       </div>
 
       {/* コンテンツ */}
-      <div className="flex-1 overflow-y-auto p-6 pb-8">
+      <div className="flex-1 md:overflow-y-auto p-3 sm:p-6 pb-8">
         {/* ★ ケアマネタブは2カラムのため広めに取る(表示領域の崩れ対策・2026-08-31) */}
         <div className={`${activeTab === 'cm' ? 'max-w-6xl' : 'max-w-4xl'} mx-auto space-y-6 pb-6`}>
 
@@ -44515,6 +44531,7 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
                 {/* ★ 2026-10-08(ユーザー要望: スマホで「資格」の見出しだけ別の行になり見づらい): スマホは 1行目=役職・副の役職 / 2行目=氏名 / 3行目=資格1・資格2(×は右上) */}
                 <div className="tsu-staffrow flex items-center gap-2 flex-wrap">
                   <div className="tsu-st-role flex items-center gap-1.5 pr-2.5 mr-1 border-r-2 border-slate-300">
+                  <span className="tsu-st-lbl">役職</span>
                   <span className="w-[122px] px-2 py-2 text-sm font-bold text-slate-800 truncate" title="役職は枠で決まります（変えるときは削除して別の枠で追加）">{s.role||'（役職なし）'}</span>
                   <select value={s.role2||''} onChange={e=>{ onBlurStaff(i,'role2',e.target.value); setRenderKey(k=>k+1); }} title="役職（副・兼務）" className="w-[116px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none focus:border-blue-400 text-slate-600">
                     <option value="">副の役職: なし</option>
@@ -44522,6 +44539,7 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
                   </select>
                   </div>
                   <div className="tsu-st-name flex items-center gap-1.5 pr-2.5 mr-1 border-r-2 border-slate-300">
+                  <span className="tsu-st-lbl">氏名</span>
                   {/* ★ 姓・名を分割入力。 onBlur で結合した name フィールドも同時に更新 (既存表示と互換) */}
                   <input defaultValue={s.lastName ?? ((s.name||'').split(/[ 　]+/)[0]||'')}
                     onBlur={e=>{
@@ -46052,6 +46070,107 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             </div>
           );
   })();
+  // ★ 2026-10-08(ユーザー要望「操作の中の日付はいらない。AM/PMの左の日付で選べるように・入力したら緑になる印もそちらに」):
+  //   日誌のカレンダー(完了の●・AM/PM・減の印つき)を部品にして、スマホは1行目(compact)・iPad/PCは従来の位置に出す
+  const renderDiaryCal = (compact) => {
+          const base = new Date(selectedDate);
+          const y = base.getFullYear(), m = base.getMonth();
+          const daysInMonth = new Date(y, m+1, 0).getDate();
+          const firstDow = new Date(y, m, 1).getDay();
+          const cells = [];
+          for (let i=0; i<firstDow; i++) cells.push(null);
+          for (let d2=1; d2<=daysInMonth; d2++) cells.push(d2);
+          const pad = (n) => String(n).padStart(2,'0');
+          const _gensanDays = new Set(); // ★ 減算のある日(getStatus 内で収集)
+          const getStatus = (d2) => {
+            if (!d2) return null;
+            const ds = `${y}-${pad(m+1)}-${pad(d2)}`;
+            const dw2 = new Date(y, m, d2).getDay();
+            const amLog = (appData.diaryLogs||{})[`${ds}_AM`];
+            const pmLog = (appData.diaryLogs||{})[`${ds}_PM`];
+            // ★ 2026-09-04 店舗要望: 印は「要確認バッジが全て解消した状態」でだけ付ける。
+            //   (以前は何かキーがあれば付いたため、入力して消しただけの空ログでもAM印が残っていた)
+            //   休業のスロットは入力対象外扱い: 終日休業=印なし、半日休業=残りの営業スロット完了で●。
+            const _kyu = (ap) => diarySlotKyugyo(appData, ds, dw2, ap);
+            const _done = (l) => { const it = diaryPendingItems(l, ds, appData.diarySettings?.cars, appData); return !!it && it.length === 0; };
+            // ★ 減算(必須職員の不在)がある日は「減」印(2026-09-29)
+            const _gensanDay = (l) => !!l && Object.values(l.gensan || {}).some(Boolean);
+            if (_gensanDay(amLog) || _gensanDay(pmLog)) _gensanDays.add(ds);
+            const amKyu = _kyu('AM'), pmKyu = _kyu('PM');
+            if (amKyu && pmKyu) return null;
+            const amDone = !amKyu && _done(amLog);
+            const pmDone = !pmKyu && _done(pmLog);
+            if ((amKyu || amDone) && (pmKyu || pmDone)) return 'both';
+            if (amDone) return 'am';
+            if (pmDone) return 'pm';
+            return null;
+          };
+          const DOW_LABELS = ['日','月','火','水','木','金','土'];
+          const prevMonth = () => { const d2=new Date(y,m-1,1); setSelectedDate(`${d2.getFullYear()}-${pad(d2.getMonth()+1)}-01`); };
+          const nextMonth = () => { const d2=new Date(y,m+1,1); setSelectedDate(`${d2.getFullYear()}-${pad(d2.getMonth()+1)}-01`); };
+          const selDow = ['日','月','火','水','木','金','土'][base.getDay()];
+          return (
+            <div style={{position:'relative'}}>
+              {/* トリガーボタン */}
+              <details style={{position:'static'}} data-testid={compact ? 'diary-fold-date' : undefined}>
+                <summary style={compact
+                  ? {listStyle:'none',cursor:'pointer',background:'white',border:'1px solid #cbd5e1',borderRadius:12,padding:'0 6px',height:40,fontSize:14,fontWeight:'bold',color:'#1e293b',display:'flex',alignItems:'center',gap:3,userSelect:'none',whiteSpace:'nowrap'}
+                  : {listStyle:'none',cursor:'pointer',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:12,padding:'6px 12px',fontSize:13,fontWeight:'bold',color:'#1e293b',display:'flex',alignItems:'center',gap:6,userSelect:'none'}}>
+                  {!compact && <CalendarCheck size={15} style={{color:'#64748b'}}/>}
+                  {compact ? <span>{m+1}/{base.getDate()}({selDow})</span> : <span>{y}年{m+1}月{base.getDate()}日（{selDow}）</span>}
+                  {getStatus(base.getDate()) && <span style={{fontSize:9,marginLeft:2}}>
+                    {getStatus(base.getDate())==='both'&&<span style={{color:'#16a34a'}}>●</span>}
+                    {getStatus(base.getDate())==='am'&&<span style={{color:'#d97706',fontWeight:'bold',fontSize:8}}>AM</span>}
+                    {_gensanDays.has(`${base.getFullYear()}-${String(base.getMonth()+1).padStart(2,'0')}-${String(base.getDate()).padStart(2,'0')}`)&&<span title="必須職員が不在で減算" style={{color:'#fff',background:'#dc2626',borderRadius:3,fontWeight:'bold',fontSize:8,padding:'0 3px',marginLeft:2}}>減</span>}
+                    {getStatus(base.getDate())==='pm'&&<span style={{color:'#2563eb',fontWeight:'bold',fontSize:8}}>PM</span>}
+                  </span>}
+                  {compact && <span style={{fontSize:10,color:'#64748b'}}>▼</span>}
+                </summary>
+                {/* 浮上カレンダー (スマホの1行目からは画面に固定して出す=1行目の枠で切れないように) */}
+                <div style={compact ? {position:'fixed',top:104,left:8,right:8,zIndex:1000,background:'white',border:'1px solid #e2e8f0',borderRadius:16,padding:'10px 12px',boxShadow:'0 8px 24px rgba(0,0,0,0.2)'} : {position:'absolute',top:'100%',left:0,zIndex:100,background:'white',border:'1px solid #e2e8f0',borderRadius:16,padding:'8px 10px',boxShadow:'0 8px 24px rgba(0,0,0,0.15)',minWidth:214,marginTop:4}}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
+                    <button type="button" onClick={prevMonth} style={{background:'none',border:'none',cursor:'pointer',padding:'2px 6px',borderRadius:6,color:'#475569',fontSize:16,fontWeight:'bold'}}>‹</button>
+                    <span style={{fontSize:13,fontWeight:'bold',color:'#1e293b'}}>{y}年{m+1}月</span>
+                    <button type="button" onClick={nextMonth} style={{background:'none',border:'none',cursor:'pointer',padding:'2px 6px',borderRadius:6,color:'#475569',fontSize:16,fontWeight:'bold'}}>›</button>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:1,marginBottom:2}}>
+                    {DOW_LABELS.map((d2,i)=><div key={i} style={{textAlign:'center',fontSize:9,fontWeight:'bold',color:i===0?'#ef4444':i===6?'#3b82f6':'#94a3b8',padding:'1px 0'}}>{d2}</div>)}
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:1}}>
+                    {cells.map((d2,i)=>{
+                      const ds = d2 ? `${y}-${pad(m+1)}-${pad(d2)}` : null;
+                      const st = getStatus(d2);
+                      const isSelected = ds === selectedDate;
+                      const closed = d2 && (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(new Date(y,m,d2).getDay());
+                      return (
+                        <button key={i} type="button" disabled={!d2}
+                          onClick={(ev)=>{ if(!ds) return; const _cd=(appData.systemSettings?.facilityInfo?.closedDays||[0]); setSelectedDate(closed ? nearestOpenDate(ds, _cd, appData.holidays) : ds); if (compact) { try { ev.currentTarget.closest('details').removeAttribute('open'); } catch {} } }}
+                          style={{
+                            display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
+                            aspectRatio:'1',border:'none',borderRadius:6,cursor:d2?'pointer':'default',padding:'1px',
+                            background:isSelected?'#2563eb':'transparent',
+                            color:isSelected?'white':closed?'#cbd5e1':'#1e293b',
+                            fontSize:compact?15:10,fontWeight:'bold',lineHeight:1,
+                          }}>
+                          {d2&&<span>{d2}</span>}
+                          {d2&&st==='both'&&<span style={{fontSize:7,color:isSelected?'#bbf7d0':'#16a34a',marginTop:1}}>●</span>}
+                          {d2&&st==='am'&&<span style={{fontSize:6,color:isSelected?'#fde68a':'#d97706',marginTop:1,fontWeight:'bold'}}>AM</span>}
+                          {d2&&_gensanDays.has(ds)&&<span title="必須職員が不在で減算" style={{fontSize:6,color:'#fff',background:'#dc2626',borderRadius:3,padding:'0 2px',marginTop:1,fontWeight:'bold'}}>減</span>}
+                          {d2&&st==='pm'&&<span style={{fontSize:6,color:isSelected?'#bfdbfe':'#2563eb',marginTop:1,fontWeight:'bold'}}>PM</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{marginTop:4,paddingTop:4,borderTop:'1px solid #f1f5f9',display:'flex',gap:8,fontSize:8,fontWeight:'bold',color:'#64748b'}}>
+                    <span><span style={{color:'#16a34a'}}>●</span> AM+PM完了</span>
+                    <span><span style={{color:'#d97706'}}>AM</span> AMのみ完了</span>
+                    <span><span style={{color:'#2563eb'}}>PM</span> PMのみ完了</span>
+                  </div>
+                </div>
+              </details>
+            </div>
+          );
+  };
   return (
     // ★ 2026-10-08: スマホ幅はこの枠をスクロール枠にしない(外側がスクロールするため、上部の折りたたみの固定が効かなかった)
     <div ref={diaryScrollRef} className="h-full md:overflow-auto w-full bg-slate-100" style={_isPhoneDiary ? { overflowX: _tsuClipX } : undefined}>
@@ -46170,111 +46289,15 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         );
       })()}
       <TsuPhoneFold storageKey="diary" summary={(() => { const _d = new Date(selectedDate + 'T00:00:00'); return (<>
-        <TsuDatePick testId="diary-fold-date" value={selectedDate} label={isNaN(_d) ? '日付' : `${_d.getMonth()+1}/${_d.getDate()}(${'日月火水木金土'[_d.getDay()]})`}
-          onChange={v => { const _cd=(appData.systemSettings?.facilityInfo?.closedDays||[0]); const _dw=new Date(v+'T00:00:00').getDay(); setSelectedDate(_cd.includes(_dw) ? nearestOpenDate(v, _cd, appData.holidays) : v); }} />
+        {renderDiaryCal(true)}
         <div className="flex rounded-lg overflow-hidden border border-slate-300 shrink-0" data-testid="diary-fold-ampm">
           {['AM','PM'].map(v=>(<button key={v} type="button" onClick={()=>_diarySwitchAmpm(v)} className={`px-2.5 h-10 text-sm font-bold ${ampm===v?'bg-blue-600 text-white':'bg-white text-slate-600'}`}>{v}</button>))}
         </div>
         {isReadOnly ? null : <button type="button" data-testid="diary-fold-save" onClick={saveLog} className="shrink-0 h-10 px-3 rounded-xl bg-blue-600 text-white text-sm font-bold">保存</button>}
       </>); })()}>
-      <div className="bg-white px-4 py-3 border-b border-slate-200 flex items-center gap-3 sticky top-0 z-30 flex-wrap">
-        {/* カスタムカレンダー（折りたたみ） */}
-        {(() => {
-          const base = new Date(selectedDate);
-          const y = base.getFullYear(), m = base.getMonth();
-          const daysInMonth = new Date(y, m+1, 0).getDate();
-          const firstDow = new Date(y, m, 1).getDay();
-          const cells = [];
-          for (let i=0; i<firstDow; i++) cells.push(null);
-          for (let d2=1; d2<=daysInMonth; d2++) cells.push(d2);
-          const pad = (n) => String(n).padStart(2,'0');
-          const _gensanDays = new Set(); // ★ 減算のある日(getStatus 内で収集)
-          const getStatus = (d2) => {
-            if (!d2) return null;
-            const ds = `${y}-${pad(m+1)}-${pad(d2)}`;
-            const dw2 = new Date(y, m, d2).getDay();
-            const amLog = (appData.diaryLogs||{})[`${ds}_AM`];
-            const pmLog = (appData.diaryLogs||{})[`${ds}_PM`];
-            // ★ 2026-09-04 店舗要望: 印は「要確認バッジが全て解消した状態」でだけ付ける。
-            //   (以前は何かキーがあれば付いたため、入力して消しただけの空ログでもAM印が残っていた)
-            //   休業のスロットは入力対象外扱い: 終日休業=印なし、半日休業=残りの営業スロット完了で●。
-            const _kyu = (ap) => diarySlotKyugyo(appData, ds, dw2, ap);
-            const _done = (l) => { const it = diaryPendingItems(l, ds, appData.diarySettings?.cars, appData); return !!it && it.length === 0; };
-            // ★ 減算(必須職員の不在)がある日は「減」印(2026-09-29)
-            const _gensanDay = (l) => !!l && Object.values(l.gensan || {}).some(Boolean);
-            if (_gensanDay(amLog) || _gensanDay(pmLog)) _gensanDays.add(ds);
-            const amKyu = _kyu('AM'), pmKyu = _kyu('PM');
-            if (amKyu && pmKyu) return null;
-            const amDone = !amKyu && _done(amLog);
-            const pmDone = !pmKyu && _done(pmLog);
-            if ((amKyu || amDone) && (pmKyu || pmDone)) return 'both';
-            if (amDone) return 'am';
-            if (pmDone) return 'pm';
-            return null;
-          };
-          const DOW_LABELS = ['日','月','火','水','木','金','土'];
-          const prevMonth = () => { const d2=new Date(y,m-1,1); setSelectedDate(`${d2.getFullYear()}-${pad(d2.getMonth()+1)}-01`); };
-          const nextMonth = () => { const d2=new Date(y,m+1,1); setSelectedDate(`${d2.getFullYear()}-${pad(d2.getMonth()+1)}-01`); };
-          const selDow = ['日','月','火','水','木','金','土'][base.getDay()];
-          return (
-            <div style={{position:'relative'}}>
-              {/* トリガーボタン */}
-              <details style={{position:'static'}}>
-                <summary style={{listStyle:'none',cursor:'pointer',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:12,padding:'6px 12px',fontSize:13,fontWeight:'bold',color:'#1e293b',display:'flex',alignItems:'center',gap:6,userSelect:'none'}}>
-                  <CalendarCheck size={15} style={{color:'#64748b'}}/>
-                  <span>{y}年{m+1}月{base.getDate()}日（{selDow}）</span>
-                  {getStatus(base.getDate()) && <span style={{fontSize:9,marginLeft:2}}>
-                    {getStatus(base.getDate())==='both'&&<span style={{color:'#16a34a'}}>●</span>}
-                    {getStatus(base.getDate())==='am'&&<span style={{color:'#d97706',fontWeight:'bold',fontSize:8}}>AM</span>}
-                    {_gensanDays.has(`${base.getFullYear()}-${String(base.getMonth()+1).padStart(2,'0')}-${String(base.getDate()).padStart(2,'0')}`)&&<span title="必須職員が不在で減算" style={{color:'#fff',background:'#dc2626',borderRadius:3,fontWeight:'bold',fontSize:8,padding:'0 3px',marginLeft:2}}>減</span>}
-                    {getStatus(base.getDate())==='pm'&&<span style={{color:'#2563eb',fontWeight:'bold',fontSize:8}}>PM</span>}
-                  </span>}
-                </summary>
-                {/* 浮上カレンダー */}
-                <div style={{position:'absolute',top:'100%',left:0,zIndex:100,background:'white',border:'1px solid #e2e8f0',borderRadius:16,padding:'8px 10px',boxShadow:'0 8px 24px rgba(0,0,0,0.15)',minWidth:214,marginTop:4}}>
-                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
-                    <button type="button" onClick={prevMonth} style={{background:'none',border:'none',cursor:'pointer',padding:'2px 6px',borderRadius:6,color:'#475569',fontSize:16,fontWeight:'bold'}}>‹</button>
-                    <span style={{fontSize:13,fontWeight:'bold',color:'#1e293b'}}>{y}年{m+1}月</span>
-                    <button type="button" onClick={nextMonth} style={{background:'none',border:'none',cursor:'pointer',padding:'2px 6px',borderRadius:6,color:'#475569',fontSize:16,fontWeight:'bold'}}>›</button>
-                  </div>
-                  <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:1,marginBottom:2}}>
-                    {DOW_LABELS.map((d2,i)=><div key={i} style={{textAlign:'center',fontSize:9,fontWeight:'bold',color:i===0?'#ef4444':i===6?'#3b82f6':'#94a3b8',padding:'1px 0'}}>{d2}</div>)}
-                  </div>
-                  <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:1}}>
-                    {cells.map((d2,i)=>{
-                      const ds = d2 ? `${y}-${pad(m+1)}-${pad(d2)}` : null;
-                      const st = getStatus(d2);
-                      const isSelected = ds === selectedDate;
-                      const closed = d2 && (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(new Date(y,m,d2).getDay());
-                      return (
-                        <button key={i} type="button" disabled={!d2}
-                          onClick={()=>{ if(!ds) return; const _cd=(appData.systemSettings?.facilityInfo?.closedDays||[0]); setSelectedDate(closed ? nearestOpenDate(ds, _cd, appData.holidays) : ds); }}
-                          style={{
-                            display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
-                            aspectRatio:'1',border:'none',borderRadius:6,cursor:d2?'pointer':'default',padding:'1px',
-                            background:isSelected?'#2563eb':'transparent',
-                            color:isSelected?'white':closed?'#cbd5e1':'#1e293b',
-                            fontSize:10,fontWeight:'bold',lineHeight:1,
-                          }}>
-                          {d2&&<span>{d2}</span>}
-                          {d2&&st==='both'&&<span style={{fontSize:7,color:isSelected?'#bbf7d0':'#16a34a',marginTop:1}}>●</span>}
-                          {d2&&st==='am'&&<span style={{fontSize:6,color:isSelected?'#fde68a':'#d97706',marginTop:1,fontWeight:'bold'}}>AM</span>}
-                          {d2&&_gensanDays.has(ds)&&<span title="必須職員が不在で減算" style={{fontSize:6,color:'#fff',background:'#dc2626',borderRadius:3,padding:'0 2px',marginTop:1,fontWeight:'bold'}}>減</span>}
-                          {d2&&st==='pm'&&<span style={{fontSize:6,color:isSelected?'#bfdbfe':'#2563eb',marginTop:1,fontWeight:'bold'}}>PM</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div style={{marginTop:4,paddingTop:4,borderTop:'1px solid #f1f5f9',display:'flex',gap:8,fontSize:8,fontWeight:'bold',color:'#64748b'}}>
-                    <span><span style={{color:'#16a34a'}}>●</span> AM+PM完了</span>
-                    <span><span style={{color:'#d97706'}}>AM</span> AMのみ完了</span>
-                    <span><span style={{color:'#2563eb'}}>PM</span> PMのみ完了</span>
-                  </div>
-                </div>
-              </details>
-            </div>
-          );
-        })()}
+      <div className="tsu-diary-bar bg-white px-2 sm:px-4 py-2 sm:py-3 border-b border-slate-200 flex items-center gap-1.5 sm:gap-3 sticky top-0 z-30 flex-wrap">
+        {/* カスタムカレンダー（折りたたみ） ★ スマホは1行目に出す(2026-10-08) */}
+        {!_isPhoneDiary && renderDiaryCal(false)}
                 {/* ★ 2026-10-08(ユーザー指示): スマホは1行目に AM/PM と保存があるので、開いた中には出さない */}
                 <div className="hidden sm:flex rounded-xl overflow-hidden border border-slate-300">
           {['AM','PM'].map(v=>(
