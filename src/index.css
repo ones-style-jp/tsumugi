@@ -333,3 +333,7 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
 .tsu-tp-one .space-y-1 > div:has(> .border-dashed) { border: 1px solid #cbd5e1; border-radius: 10px; padding: 4px 8px 6px; background: #ffffff; margin-top: 10px !important; }
 .tsu-tp-one .space-y-1 > div:has(> .border-dashed):first-child { margin-top: 2px !important; }
 .tsu-tp-one .space-y-1 > div > .border-dashed { border-bottom: 2px solid #e2e8f0 !important; border-bottom-style: solid !important; margin-bottom: 2px; }
+
+/* ★ 2026-10-08: スマホで画面に固定した帯(.tsu-pin)の中の「止まる(sticky)」は止める(固定の中で二重に動かさない) */
+#tsuContentScroller .tsu-pin .sticky:not(th):not(thead):not(tr):not(td),
+#tsuContentScroller .tsu-pin [style*="position: sticky"]:not(th):not(thead):not(tr):not(td) { position: relative !important; top: auto !important; }

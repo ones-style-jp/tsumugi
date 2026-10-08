@@ -11455,14 +11455,33 @@ function useTsuIsPhone() {
   }, []);
   return on;
 }
+// ★ 2026-10-08(ユーザー報告: スマホで下にスクロールすると上部の帯(1行目・タブなど)が上下に揺れる): 「スクロールしたら止まる(sticky)」は
+//   iPhone ではスクロールの動きに合わせて位置を計算し直すため、アプリの処理が重いと一瞬遅れて揺れる。スマホ幅は帯を「画面に固定(fixed)」にし、
+//   帯の高さぶんの余白(高さは中身に合わせて自動)を元の位置に置く。見出し(画面に固定・0〜48px)のすぐ下(47px=1px重ねて隙間なし)。iPad・PCは従来どおり
+function TsuPhonePin({ children, testId, z = 30 }) {
+  const isPhone = useTsuIsPhone();
+  const ref = React.useRef(null);
+  const [h, setH] = React.useState(0);
+  React.useLayoutEffect(() => {
+    if (!isPhone) return; const el = ref.current; if (!el) return;
+    const m = () => setH(el.offsetHeight); m();
+    let ro = null; try { ro = new ResizeObserver(m); ro.observe(el); } catch { /* 古い端末は最初の高さのみ */ }
+    return () => { try { ro && ro.disconnect(); } catch {} };
+  }, [isPhone]);
+  if (!isPhone) return children;
+  return (<>
+    <div aria-hidden="true" data-pin-spacer="1" style={{ height: h }} />
+    <div ref={ref} data-testid={testId} className="tsu-pin" style={{ position: 'fixed', top: 47, left: 0, right: 0, zIndex: z }}>{children}</div>
+  </>);
+}
 function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = true }) {
   const isPhone = useTsuIsPhone();
   const [open, setOpen] = React.useState(() => { try { return localStorage.getItem('tsuFold_' + storageKey) === '1'; } catch { return false; } });
   const foldRef = React.useRef(null); // ★ 2026-10-08: フックは必ず早期 return より前(向きを変えてスマホ幅⇔それ以外が切り替わると「フックの数が違う」エラーで画面が落ちていた)
   if (!isPhone) return children;
   const tog = () => { setOpen(v => { const nv = !v; try { localStorage.setItem('tsuFold_' + storageKey, nv ? '1' : '0'); } catch {} return nv; }); };
-  return (
-    <div ref={foldRef} data-testid={`fold-${storageKey}`} className={`${sticky ? 'sticky top-0 z-30' : ''} bg-white border-b border-slate-200 shadow-sm ${className}`}>
+  const _inner = (
+    <div ref={foldRef} data-testid={`fold-${storageKey}`} className={`bg-white border-b border-slate-200 shadow-sm ${className}`}>
       <div className="flex items-center gap-1.5 px-2 py-1.5" style={{minHeight:48}}>
         <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden">{summary}</div>
         <button type="button" data-testid={`fold-btn-${storageKey}`} onClick={tog} aria-expanded={open}
@@ -11474,6 +11493,7 @@ function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = 
       <div data-testid={`fold-body-${storageKey}`} data-open={open ? '1' : '0'} aria-hidden={!open} className={open ? 'border-t border-slate-200' : ''} style={open ? undefined : { height: 0, overflow: 'hidden' }}>{children}</div>
     </div>
   );
+  return sticky ? <TsuPhonePin>{_inner}</TsuPhonePin> : _inner;
 }
 
 // 保存の時間切れ(容量に応じて20〜80秒)の控え。測るのは5分に1回(App の _retryPush で使う)
@@ -12930,7 +12950,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
   const fmtJp = (dstr) => { const [y,m,dd]=dstr.split('-').map(Number); const w=new Date(y,m-1,dd).getDay(); return `${m}月${dd}日(${dow[w]})`; };
   return (
     <div style={{height:'100%',display:'flex',flexDirection:'column',background:'#f0f4f9'}}>
-      <div ref={_schHdrRef} className="no-print" style={{position:'sticky',top:0,zIndex:20,background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
+      <TsuPhonePin testId="pin-schedule"><div ref={_schHdrRef} className="no-print" style={{position:'sticky',top:0,zIndex:20,background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <CalendarRange size={20}/>
           <span style={{fontSize:17,fontWeight:'bold'}}>スケジュール</span>
@@ -12940,7 +12960,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
           <button onClick={()=>setRepeatMgrOpen(true)} style={{background:'rgba(255,255,255,0.18)',color:'white',border:'1px solid rgba(255,255,255,0.5)',borderRadius:10,padding:'8px 14px',fontWeight:'bold',fontSize:13,cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>繰り返し設定</button>
           <button onClick={()=>openNew(selDay)} style={{background:'white',color:'#6d28d9',border:'none',borderRadius:10,padding:'8px 16px',fontWeight:'bold',fontSize:13,cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>予定を追加</button>
         </div>
-      </div>
+      </div></TsuPhonePin>
       <div style={{flex:1,overflow:'auto',padding:16}}>
         <div style={{maxWidth:1480,margin:'0 auto',display:'flex',flexDirection:'column',gap:16}}>{/* ★ 2026-09-27: 月表示の横幅を広げ、予定の内容が読めるように(1000→1480) */}
           {/* ★ 「今日の予定」はホームと重複のため削除(2026-08-21)。 選択日(既定=今日)の予定で確認できる */}
@@ -13430,14 +13450,14 @@ function DisasterView({ appData, onSave, staffSession }) {
   );
   return (
     <div className="flex flex-col h-full">
-      <div className="sticky top-0 z-20 bg-red-50 border-b border-red-200 px-4 py-2 flex items-center gap-2 flex-wrap">
+      <TsuPhonePin testId="pin-emergency"><div className="sticky top-0 z-20 bg-red-50 border-b border-red-200 px-4 py-2 flex items-center gap-2 flex-wrap">
         <AlertTriangle size={18} className="text-red-600" />
         <TabBtn id="safety" label="安否・連絡先一覧" />
         <TabBtn id="notice" label="緊急連絡（メール・お知らせ）" />
         <TabBtn id="evac" label="避難場所・ハザードマップ" />
         <TabBtn id="stock" label="備蓄" />
         <span className="ml-auto text-[11px] text-red-800">速報が来なくても、この画面から対応できます</span>
-      </div>
+      </div></TsuPhonePin>
       {tab === 'notice' && <EmergencyNoticeView appData={appData} onSave={onSave} staffSession={staffSession} safety={safety} setSafety={setSafety} place={place} setPlace={setPlace} evacOptions={evacOptions} />}
       {tab === 'safety' && (
         <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
@@ -42824,7 +42844,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
         </div>
       )}
       {/* 上部タブナビ（横）+ 右側に保存ボタン */}
-      <div data-testid="settings-tabs" className="bg-white border-b border-slate-200 px-2 sm:px-4 pt-2 sm:pt-3 shrink-0 flex items-center gap-2 sm:gap-3 sticky top-0 z-30">
+      <TsuPhonePin testId="pin-settings-tabs"><div data-testid="settings-tabs" className="bg-white border-b border-slate-200 px-2 sm:px-4 pt-2 sm:pt-3 shrink-0 flex items-center gap-2 sm:gap-3 sticky top-0 z-30">
         <div className="flex gap-1 overflow-x-auto pb-0 flex-nowrap flex-1 min-w-0">
           {tabs.map(tab => (
             <button type="button" key={tab.id} onClick={() => setActiveTab(tab.id)}
@@ -42837,7 +42857,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
           className="shrink-0 mb-2 px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md active:scale-95 flex items-center gap-1.5 text-sm">
           保存
         </button>
-      </div>
+      </div></TsuPhonePin>
 
       {/* コンテンツ */}
       <div className="flex-1 md:overflow-y-auto p-3 sm:p-6 pb-8">
@@ -52914,7 +52934,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
       <style>{`.fax-inline-input{transition:background 0.15s;}.fax-inline-input:hover{background:#fef9c3 !important;}.fax-inline-input:focus{background:#fef3c7 !important;}`}</style>
       {/* 操作バー: 利用者 / 送付件数 / マーク / プレビュー（スクロール時も上部に固定。他画面と同じサイズに揃え） */}
       {/* ★ 2026-10-08(ユーザー報告: スマホで上部が4段になり画面を占める): スマホは 見出し・「利用者:」「送付件数:」の文字を省き、1段目=利用者+枚数・2段目以降=ボタン(CSS tsu-gf-*) */}
-      <div className="fax-no-print tsu-gf-bar" style={{position:'sticky',top:0,zIndex:30,flexShrink:0,background:'linear-gradient(135deg,#1e293b,#334155)',color:'white',padding:'12px 20px',display:'flex',alignItems:'center',gap:14,flexWrap:'wrap',boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
+      <TsuPhonePin testId="pin-general-fax"><div className="fax-no-print tsu-gf-bar" style={{position:'sticky',top:0,zIndex:30,flexShrink:0,background:'linear-gradient(135deg,#1e293b,#334155)',color:'white',padding:'12px 20px',display:'flex',alignItems:'center',gap:14,flexWrap:'wrap',boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
         <span className="tsu-gf-title" style={{fontSize:17,fontWeight:'bold',whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:6}}><FileText size={20}/>各種連絡</span>
         {/* 利用者 */}
         <label className="tsu-gf-pt" style={{display:'flex',alignItems:'center',gap:6,whiteSpace:'nowrap'}}>
@@ -52970,7 +52990,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
             履歴
           </button>
         </div>
-      </div>
+      </div></TsuPhonePin>
 
       <style>{`
         @page { size: A4 portrait; margin: 0; }
