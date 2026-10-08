@@ -21157,17 +21157,24 @@ export default function App() {
   //   (縮小するとPC画面が小さく表示され、下切れ・文字が小さい・重い等になっていた)
   const [isMobileLayout, setIsMobileLayout] = useState(()=>{ try { return window.innerWidth < 768; } catch { return false; } });
   const [contentScale, setContentScale] = useState(()=>{ try { return Math.min(1, window.innerWidth / 1100); } catch { return 1; } });
+  // ★ 2026-10-09(ユーザー報告「上部で固定されなくなっている」): 縮小表示(zoom)の中身の高さを「100/縮率 %」で指定していたが、
+  //   今のブラウザ(iPad の Safari・PC の Chrome とも)は zoom の中の % を縮小後の座標で計算するため高さが二重に伸び(縮率0.5なら2倍)、
+  //   画面の内側の枠ではなく外側の枠がスクロールして、各画面の上の帯(sticky)が一緒に流れていた。
+  //   外側の枠の実際の高さ(px)を測り、「高さ÷縮率」の px で指定する(px はどのブラウザでも縮率どおりに縮むので、ちょうど画面の高さになる)
+  const [scrollerH, setScrollerH] = useState(0);
   useEffect(()=>{
     const calc = ()=>{
       try { setIsMobileLayout(window.innerWidth < 768); } catch {}
       if(!contentRef.current) return;
       const avail = contentRef.current.parentElement?.clientWidth || window.innerWidth;
       setContentScale(Math.min(1, avail / DESIGN_WIDTH));
+      if (window.innerWidth >= 768) setScrollerH(contentRef.current.clientHeight || 0); // スマホ幅はページ全体のスクロールなので測らない(中身が伸びるたびに描き直さない)
     };
     calc();
     window.addEventListener('resize', calc);
     const obs = new ResizeObserver(calc);
     if(contentRef.current?.parentElement) obs.observe(contentRef.current.parentElement);
+    if(contentRef.current) obs.observe(contentRef.current);
     return ()=>{ window.removeEventListener('resize', calc); obs.disconnect(); };
   },[isSidebarOpen]);
   // ★ 2026-10-05(店舗報告: 無印iPad 第8世代(横1080px)で画面が少し大きく、左右に約20pxずれる・上部のボタンが切れる。iPad Pro 11 は正常):
@@ -23473,7 +23480,7 @@ export default function App() {
                 用紙を画面の幅に合わせる縮小(_fitZoom)を自前で持つため、全体の zoom と二重になると iPad で用紙の中が潰れていた */}
             {/* ★ 日誌(diary)もzoom例外(2026-08-31): 日誌はシート側でdiaryViewScaleの拡縮を持ち、全体zoomと二重になると
                 iPad Safariでタップ座標がズレてシート内のチェック/時間セルが反応しなくなるため */}
-            <div style={isMobileLayout ? {width:'100%',minWidth:0} : (currentView==='dashboard' || currentView==='print' || currentView==='master' || currentView==='diary' || currentView==='ticket' || _zoomNear1) ? {width:'100%',minWidth:0,height:'100%'} : _zoomScroll ? {width:`${DESIGN_WIDTH}px`, minWidth:DESIGN_WIDTH, height:'100%'} : {width:`${DESIGN_WIDTH}px`, minWidth:DESIGN_WIDTH, zoom: _zoomVal, height: `${100/_zoomVal}%`}}>
+            <div style={isMobileLayout ? {width:'100%',minWidth:0} : (currentView==='dashboard' || currentView==='print' || currentView==='master' || currentView==='diary' || currentView==='ticket' || _zoomNear1) ? {width:'100%',minWidth:0,height:'100%'} : _zoomScroll ? {width:`${DESIGN_WIDTH}px`, minWidth:DESIGN_WIDTH, height:'100%'} : {width:`${DESIGN_WIDTH}px`, minWidth:DESIGN_WIDTH, zoom: _zoomVal, height: scrollerH > 0 ? `${Math.floor(scrollerH / _zoomVal)}px` : '100%'}}>
             {currentView === 'dashboard' ? <DashboardView appData={appData} navigateTo={navigateTo} activeRecorder={activeRecorder} notices={visibleNotices} devNotes={devUpdateNotes} isNoticeRead={isNoticeRead} markNoticeRead={markNoticeRead} /> :
              currentView === 'record' ? <RecordView appData={appData} activeRecorder={activeRecorder} onSave={handleSaveToCloud} navigateTo={navigateTo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={recordDirtyRef} saveFnRef={recordSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} showTip={showTip} hideTip={hideTip} isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} deviceName={deviceName} /> :
              currentView === 'ticket' ? <TicketView appData={appData} targetPatientId={targetPatientId} onBack={()=>navigateBack('master')} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  onSave={handleSaveToCloud} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={ticketDirtyRef} saveFnRef={ticketSaveFnRef} /> :
@@ -30666,13 +30673,15 @@ function JissekiView({ appData, onSave, onShowPrintPreview }) {
   return (
     <div style={{height:'100%',overflow:'auto',background:'#f0f4f9'}}>
       <div style={{maxWidth:1500,margin:'0 auto',padding:16,display:'flex',flexDirection:'column',gap:12}}>
-        {/* タブ */}
+        {/* タブ。2026-10-09(ユーザー要望「上部で固定」): タブと月の切替をスクロールしても上に残す(PC・iPad=止まる帯 / スマホ=画面に固定) */}
+        <TsuPhonePin testId="pin-jisseki"><div className="tsu-jm-wrap sticky top-0 z-20" style={{background:'#f0f4f9',margin:'-16px -16px 0',padding:'12px 16px 8px'}}>
         <div className="tsu-jm-bar" style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
           {[['month','月間一覧'],['patient','利用者ごと']].map(([k,lb])=>(
             <button key={k} className="tsu-jm-tab" onClick={()=>setTab(k)} style={{padding:'8px 18px',borderRadius:10,fontWeight:'bold',fontSize:13,cursor:'pointer',border:'1px solid',...(tab===k?{background:'#0f766e',color:'white',borderColor:'#0f766e'}:{background:'white',color:'#475569',borderColor:'#cbd5e1'})}}>{lb}</button>
           ))}
           <div style={{marginLeft:'auto'}}>{monthNav}</div>
         </div>
+        </div></TsuPhonePin>
         {/* サービスコードの登録 */}
         <div style={{background:'white',borderRadius:14,border:'1px solid #e2e8f0',boxShadow:'0 1px 6px rgba(0,0,0,0.06)'}}>
           <button onClick={()=>setCodeOpen(o=>!o)} style={{width:'100%',display:'flex',alignItems:'center',gap:8,padding:'12px 16px',background:'transparent',border:'none',cursor:'pointer',textAlign:'left'}}>
@@ -36264,7 +36273,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         <thead><tr style="height:23px;"><th style="border:1px solid #65736a;background:#edf0ec;"></th><th style="border:1px solid #65736a;background:#edf0ec;font-size:9px;font-weight:normal;">車</th>${header}</tr></thead>
         <tbody>${row('AM','午前')}${row('PM','午後')}</tbody>
       </table>
-      <div style="font-size:9px;color:#3f4b43;margin-top:1.5mm;flex:none;display:flex;justify-content:space-between;"><span><span style="outline:1.5px solid #c82c35;outline-offset:-1px;padding:0 2px;margin-left:2px;">時間の赤枠</span>=時間変更・要TEL　<span style="background:#a7f3d0;padding:0 3px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 3px;">水色</span>=初回　左端=車名${_hasDrv?'　各枠の左の青い欄=運転者':''}　時間=お迎え　徒歩の時間=到着（指定なしはクラスの開始）　次回=次の利用曜日${_anyDropTag ? '　<span style="color:#3730a3;font-weight:bold;">送り</span>=送りの車（迎えと違う方だけ）' : ''}</span><span>空欄=空席</span></div>
+      <div style="font-size:9px;color:#3f4b43;margin-top:1.5mm;flex:none;display:flex;justify-content:space-between;"><span><span style="outline:1.5px solid #c82c35;outline-offset:-1px;padding:0 2px;margin-left:2px;">時間の赤枠</span>=時間変更　<span style="background:#a7f3d0;padding:0 3px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 3px;">水色</span>=初回　左端=車名${_hasDrv?'　各枠の左の青い欄=運転者':''}　時間=お迎え　徒歩の時間=到着（指定なしはクラスの開始）　次回=次の利用曜日${_anyDropTag ? '　<span style="color:#3730a3;font-weight:bold;">送り</span>=送りの車（迎えと違う方だけ）' : ''}</span><span>空欄=空席</span></div>
     </div>`;
   };
   // ==== 連絡先一覧(週間の2枚目・2026-09-16 店舗要望) ====
@@ -36419,7 +36428,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     return `<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
       <div style="position:relative;text-align:center;flex:none;"><span style="position:absolute;left:0;top:4px;font-size:10px;">${_escP(String(appData.systemSettings?.facilityInfo?.name||'つむぎ'))}</span><span style="font-size:18px;font-weight:bold;letter-spacing:8px;">運行表</span><span style="position:absolute;right:0;top:2px;font-size:14px;font-weight:700;">${d.getMonth()+1}/${d.getDate()}（${DOWJ[d.getDay()]}）</span></div>
       <div style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;">${slots.map((x, k) => slotBlock(x, x.sl === 'AM' ? '午前' : '午後', k)).join('')}</div>
-      <div style="margin-top:4px;font-size:9px;color:#3f4b43;display:flex;justify-content:space-between;flex:none;"><span><span style="outline:1.5px solid #c82c35;outline-offset:-1px;padding:0 2px;margin-left:2px;">時間の赤枠</span>=時間変更・要TEL　<span style="background:#a7f3d0;padding:0 3px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 3px;">水色</span>=初回　徒歩の時間=到着（指定なしはクラスの開始）${_anyTagD ? '　<span style="border:1px solid #6366f1;color:#3730a3;padding:0 2px;">送○</span>=送りが迎えと違う' : ''}</span><span>※個人情報を含みます。取り扱いにご注意ください</span></div>
+      <div style="margin-top:4px;font-size:9px;color:#3f4b43;display:flex;justify-content:space-between;flex:none;"><span><span style="outline:1.5px solid #c82c35;outline-offset:-1px;padding:0 2px;margin-left:2px;">時間の赤枠</span>=時間変更　<span style="background:#a7f3d0;padding:0 3px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 3px;">水色</span>=初回　徒歩の時間=到着（指定なしはクラスの開始）${_anyTagD ? '　<span style="border:1px solid #6366f1;color:#3730a3;padding:0 2px;">送○</span>=送りが迎えと違う' : ''}</span><span>※個人情報を含みます。取り扱いにご注意ください</span></div>
     </div>`;
   };
   const _dailyPages = (iso) => { const one = buildDailyPrintHtml(iso); return one != null ? [one] : [buildDailyPrintHtml(iso, 'AM'), buildDailyPrintHtml(iso, 'PM')]; };
@@ -37400,10 +37409,13 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
 
       {/* メインエリア */}
       <div className="flex-1 overflow-auto">
-        {/* ★ スマホ: 常時表示の対象者バー (タップで一覧) */}
+        {/* ★ スマホ: 常時表示の対象者バー (タップで一覧)。2026-10-09(ユーザー報告「上部で固定されなくなっている」): 内側の枠の中の sticky は
+             ページ全体のスクロールでは止まらないため、スマホは画面に固定(TsuPhonePin) */}
+        <TsuPhonePin testId="pin-fitness-bar">
         <button onClick={() => setMobileRosterOpen(true)} className="md:hidden w-full sticky top-0 z-20 bg-blue-600 active:bg-blue-700 text-white px-4 py-3.5 font-bold flex items-center justify-center gap-2 shadow-md">
           <Users size={18} />{selectedPat ? `${selectedPat.name} 様` : '対象者を選ぶ'}<span className="ml-1 text-blue-200 text-sm">▼ 一覧</span>
         </button>
+        </TsuPhonePin>
         {selectedPat ? (
           <div className="space-y-4">
             {/* ヘッダー */}
@@ -39525,8 +39537,10 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
 
       {/* 詳細 */}
       <div className="flex-1 bg-white sm:rounded-2xl shadow-md border border-slate-300 overflow-hidden flex flex-col">
-        {/* ★ スマホ: 常時表示の名簿バー (タップで一覧) */}
+        {/* ★ スマホ: 常時表示の名簿バー (タップで一覧)。2026-10-09: スマホは画面に固定(スクロールしても上に残す) */}
+        <TsuPhonePin testId="pin-master-bar">
         <button onClick={() => setMobileRosterOpen(true)} className="md:hidden w-full bg-blue-600 active:bg-blue-700 text-white px-4 py-3.5 font-bold flex items-center justify-center gap-2 shadow-md shrink-0"><Users size={18} />{localPatient ? `${localPatient.name} 様` : '利用者を選ぶ'}<span className="ml-1 text-blue-200 text-sm">▼ 名簿</span></button>
+        </TsuPhonePin>
         {localPatient ? (<>
           <div className="px-6 py-3 border-b border-slate-200 bg-white flex justify-between items-center shrink-0 z-10 shadow-sm">
             <div className="flex items-center gap-3 flex-wrap"><div><span className="text-[10px] font-bold text-slate-400">ID:{String(localPatient.id).padStart(4, '0')}</span>{localPatient.kana && <span className="text-[11px] font-bold text-slate-500 leading-none block mt-0.5 mb-0.5">{localPatient.kana}</span>}<h2 className="text-xl font-bold text-slate-800 leading-tight">{localPatient.name} <span className="text-base font-normal">様</span>{calcAge(localPatient.birthDate)!==null && <span className="text-sm font-bold text-slate-500 ml-1">（{calcAge(localPatient.birthDate)}）</span>}</h2></div>{localPatient.careLevel && <span className="text-sm font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-lg">{localPatient.careLevel}</span>}
