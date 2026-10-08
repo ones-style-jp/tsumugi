@@ -11458,17 +11458,17 @@ function useTsuIsPhone() {
 // ★ 2026-10-08(ユーザー報告: スマホで下にスクロールすると上部の帯(1行目・タブなど)が上下に揺れる): 「スクロールしたら止まる(sticky)」は
 //   iPhone ではスクロールの動きに合わせて位置を計算し直すため、アプリの処理が重いと一瞬遅れて揺れる。スマホ幅は帯を「画面に固定(fixed)」にし、
 //   帯の高さぶんの余白(高さは中身に合わせて自動)を元の位置に置く。見出し(画面に固定・0〜48px)のすぐ下(47px=1px重ねて隙間なし)。iPad・PCは従来どおり
-function TsuPhonePin({ children, testId, z = 30 }) {
+function TsuPhonePin({ children, testId, z = 30, on = true }) {
   const isPhone = useTsuIsPhone();
   const ref = React.useRef(null);
   const [h, setH] = React.useState(0);
   React.useLayoutEffect(() => {
-    if (!isPhone) return; const el = ref.current; if (!el) return;
+    if (!isPhone || !on) return; const el = ref.current; if (!el) return;
     const m = () => setH(el.offsetHeight); m();
     let ro = null; try { ro = new ResizeObserver(m); ro.observe(el); } catch { /* 古い端末は最初の高さのみ */ }
     return () => { try { ro && ro.disconnect(); } catch {} };
-  }, [isPhone]);
-  if (!isPhone) return children;
+  }, [isPhone, on]);
+  if (!isPhone || !on) return children;
   return (<>
     <div aria-hidden="true" data-pin-spacer="1" style={{ height: h }} />
     <div ref={ref} data-testid={testId} className="tsu-pin" style={{ position: 'fixed', top: 47, left: 0, right: 0, zIndex: z }}>{children}</div>
@@ -13432,7 +13432,7 @@ function DisasterView({ appData, onSave, staffSession }) {
     const html = pagesHtml;
     window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: '災害時_連絡先一覧', pageSize: 'A4 landscape', html, elementId: null } }));
   };
-  const TabBtn = ({ id, label }) => <button type="button" onClick={() => setTab(id)} className={`px-3 py-2 rounded-xl text-sm font-bold border ${tab === id ? 'bg-red-600 text-white border-red-600' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`}>{label}</button>;
+  const TabBtn = ({ id, label, short }) => <button type="button" onClick={() => setTab(id)} className={`px-3 py-2 rounded-xl text-sm font-bold border whitespace-nowrap ${tab === id ? 'bg-red-600 text-white border-red-600' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`}>{short ? <><span className="hidden sm:inline">{label}</span><span className="sm:hidden">{short}</span></> : label}</button>;
   const chip = (k) => k === 'ok' ? 'bg-emerald-600 border-emerald-600 text-white' : k === 'evac' ? 'bg-sky-600 border-sky-600 text-white' : k === 'hurt' ? 'bg-red-600 border-red-600 text-white' : 'bg-slate-600 border-slate-600 text-white';
   const inp = 'w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none';
   const listEditor = (key, label, hint) => (
@@ -13451,13 +13451,14 @@ function DisasterView({ appData, onSave, staffSession }) {
   );
   return (
     <div className="flex flex-col h-full">
-      <TsuPhonePin testId="pin-emergency"><div className="sticky top-0 z-20 bg-red-50 border-b border-red-200 px-4 py-2 flex items-center gap-2 flex-wrap">
-        <AlertTriangle size={18} className="text-red-600" />
-        <TabBtn id="safety" label="安否・連絡先一覧" />
-        <TabBtn id="notice" label="緊急連絡（メール・お知らせ）" />
-        <TabBtn id="evac" label="避難場所・ハザードマップ" />
-        <TabBtn id="stock" label="備蓄" />
-        <span className="ml-auto text-[11px] text-red-800">速報が来なくても、この画面から対応できます</span>
+      {/* ★ 2026-10-08(ユーザー要望: スマホで災害時の上部が3段): スマホは短い名前の4つのタブを1行に(説明文とマークは出さない) */}
+      <TsuPhonePin testId="pin-emergency"><div className="tsu-em-bar sticky top-0 z-20 bg-red-50 border-b border-red-200 px-4 py-2 flex items-center gap-2 flex-wrap">
+        <AlertTriangle size={18} className="text-red-600 tsu-hide-phone" />
+        <TabBtn id="safety" label="安否・連絡先一覧" short="安否" />
+        <TabBtn id="notice" label="緊急連絡（メール・お知らせ）" short="緊急連絡" />
+        <TabBtn id="evac" label="避難場所・ハザードマップ" short="避難場所" />
+        <TabBtn id="stock" label="備蓄" short="備蓄" />
+        <span className="ml-auto text-[11px] text-red-800 tsu-hide-phone">速報が来なくても、この画面から対応できます</span>
       </div></TsuPhonePin>
       {tab === 'notice' && <EmergencyNoticeView appData={appData} onSave={onSave} staffSession={staffSession} safety={safety} setSafety={setSafety} place={place} setPlace={setPlace} evacOptions={evacOptions} />}
       {tab === 'safety' && (
@@ -13811,6 +13812,7 @@ function EmergencyNoticeView({ appData, onSave, staffSession, safety: safetyProp
 }
 
 function FamilyAdminView({ appData, onSave }) {
+  const _faPhone = useTsuIsPhone();
   // ★ 2026-09-30(試験版): 利用者マスタ→アカウント管理の「ご家族/ケアマネの画面を見る」から来たら、その利用者のプレビューを開く
   const _pvJump = React.useMemo(() => { try { const v = JSON.parse(sessionStorage.getItem('tsumugiPreviewJump') || 'null'); sessionStorage.removeItem('tsumugiPreviewJump'); return v; } catch { return null; } }, []);
   const [tab, setTab] = useState(_pvJump ? 'preview' : 'post');
@@ -14135,14 +14137,18 @@ function FamilyAdminView({ appData, onSave }) {
     </div>
   );
   return (
-    <div className={`h-full overflow-auto bg-slate-50 ${tab==='preview'?'p-0':'p-3 sm:p-6'}`}>
+    // ★ 2026-10-08(ユーザー要望: スマホで投稿・履歴のときタブが上に詰まっていない): スマホはどのタブでもタブを上端に詰めて画面に固定
+    <div className={`h-full overflow-auto bg-slate-50 ${tab==='preview'?'p-0':(_faPhone ? 'px-3 pb-3 pt-0' : 'p-3 sm:p-6')}`}>
       <div className={tab==='preview'?'':'max-w-5xl mx-auto'}>
-        <div className={`flex items-center gap-2 bg-white shadow-sm border border-slate-200 ${tab==='preview'?'sticky top-0 z-50 border-b p-1.5':'rounded-2xl p-1.5 mb-4'}`}>
+        <TsuPhonePin testId="pin-family-admin">
+        <div className={`flex items-center gap-2 bg-white shadow-sm border border-slate-200 ${(tab==='preview' || _faPhone)?'sticky top-0 z-50 border-b p-1.5':'rounded-2xl p-1.5 mb-4'}`}>
           {/* ★ 2026-10-08: スマホは短い名前で1行に(投稿/プレビュー/履歴) */}
           {[['post','投稿 (お知らせ・写真)','投稿'],['preview','家族・ケアマネ画面プレビュー','プレビュー'],['history','過去履歴','履歴']].map(([k,l,sh])=>(
             <button key={k} onClick={()=>setTab(k)} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors whitespace-nowrap ${tab===k?'bg-emerald-500 text-white shadow':'text-slate-500 hover:bg-slate-100'}`}><span className="hidden sm:inline">{l}</span><span className="sm:hidden">{sh}</span></button>
           ))}
         </div>
+        </TsuPhonePin>
+        {_faPhone && tab!=='preview' && <div className="h-3" />}
         {tab === 'post' && (
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 space-y-3">
             <h3 className="text-base font-bold text-slate-800 mb-1">お知らせ・写真を投稿</h3>
@@ -23376,7 +23382,8 @@ export default function App() {
               );
             })()}
             {/* ★ 全画面表示(2026-09-28 ユーザー要望): ブラウザのタブ・URL欄を隠して画面を広く使う。iPadのSafariで効かない場合は「ホーム画面に追加」で同等になる */}
-            <button onClick={()=>{
+            {/* ★ 2026-10-08(ユーザー指示): iPhone・iPad では全画面にできないため、このボタンは出さない(ホーム画面に追加したアプリは元から全画面) */}
+            {!tsumugiIsIOS() && <button onClick={()=>{
                 try {
                   const el = document.documentElement;
                   const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
@@ -23388,7 +23395,7 @@ export default function App() {
               }} title="ブラウザのタブ・URL欄を隠して全画面で表示（もう一度押す／Escで戻る）"
               className="flex items-center gap-1 shrink-0 mr-1 md:mr-2 text-[10px] md:text-[11px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-full px-2 md:px-2.5 py-1 whitespace-nowrap active:scale-95">
               全画面
-            </button>
+            </button>}
             {/* ★ 変更ログ(監査)ビューアを開くボタン */}
             <button onClick={()=>setAuditLogOpen(true)} title="いつ・どの端末で・何を変更したかの履歴"
               className="flex items-center gap-1 shrink-0 mr-1 md:mr-2 text-[10px] md:text-[11px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-full px-2 md:px-2.5 py-1 whitespace-nowrap active:scale-95">
@@ -26958,6 +26965,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   const [vitalPhase, setVitalPhase] = useState('start'); // 血圧・脈グラフの表示: 'start'(通所時) / 'end'(終了時) / 'both'(両方)
   const [selExId, setSelExId] = useState(null);
   const [selFitId, setSelFitId] = useState(null);
+  // ★ 2026-10-08(ユーザー要望「分析(個人)の上部が場所を取りすぎ」): スマホは 戻る・利用者・期間 の1行だけを出し、月・マスキング・表示内容・ダウンロードは「操作」で開く
+  const [pdOpsOpen, setPdOpsOpen] = useState(() => { try { return localStorage.getItem('tsuFold_dashPersonal') === '1'; } catch { return false; } });
   const [collapsedSecs, setCollapsedSecs] = useState({});
   const toggleSec = (id) => setCollapsedSecs(p=>({...p,[id]:!p[id]}));
   const isCol = (id) => !!collapsedSecs[id];
@@ -27386,10 +27395,10 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   return (
     <div className="w-full" style={{backgroundColor:'#f0f4f9', ...(familyMode ? {minHeight:'100%'} : {height:'100%', overflowY:'auto'})}}>
       {/* ヘッダーバー（固定） — scroll container 内で sticky */}
-      <div style={{position:'sticky',top: stickyTop, zIndex:familyMode?40:30,background: familyMode ? '#f4f8ed' : '#f0f4f9'}}>
+      {/* ★ 2026-10-08(ユーザー要望): スマホは上部(利用者・期間・ジャンプ)を画面に固定。事業所の画面だけ(ご家族・ケアマネ画面は別の固定) */}<TsuPhonePin testId="pin-dash-personal" on={!familyMode && !compactMode}><div style={{position:'sticky',top: stickyTop, zIndex:familyMode?40:30,background: familyMode ? '#f4f8ed' : '#f0f4f9'}}>
       {/* ★ 分析個人ヘッダ: 淡い青グラデーション、 文字は黒で読みやすく */}
       {/* ★ 2026-10-08(ユーザー報告: スマホで上部が広すぎ・大きさがばらばら): 事業所の画面だけ、スマホは部品の高さをそろえて詰める(CSS tsu-dash-hdr) */}
-      <div className={(!compactMode && !familyMode) ? 'tsu-dash-hdr' : undefined} style={{background: compactMode ? '#d4e7a5' : 'linear-gradient(135deg,#dbeafe 0%,#93c5fd 100%)',color: compactMode ? '#3d5021' : '#1e293b',padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+      <div className={(!compactMode && !familyMode) ? `tsu-dash-hdr tsu-pd-hdr ${pdOpsOpen ? 'tsu-pd-open' : ''}` : undefined} style={{background: compactMode ? '#d4e7a5' : 'linear-gradient(135deg,#dbeafe 0%,#93c5fd 100%)',color: compactMode ? '#3d5021' : '#1e293b',padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
         {/* ★ ご家族 / ケアマネ閲覧時 (compactMode) は親ヘッダに利用者名があるため非表示で重複を防ぐ */}
         {!compactMode && (
           <div className="tsu-ph-contents" style={{display:'flex',alignItems:'center',gap:12}}>
@@ -27432,6 +27441,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           )}
           {/* ★ 期間ボタン: 全部黒文字に統一 (compactMode = 家族/ケアマネ では親ヘッダの期間セレクタを使うので非表示) */}
           {!compactMode && (<>
+          <button type="button" data-testid="pd-ops-btn" className="tsu-o-ops" aria-expanded={pdOpsOpen} onClick={() => setPdOpsOpen(v => { const nv = !v; try { localStorage.setItem('tsuFold_dashPersonal', nv ? '1' : '0'); } catch {} return nv; })}
+            style={{background: pdOpsOpen ? '#334155' : 'rgba(255,255,255,0.6)', color: pdOpsOpen ? 'white' : '#1e293b', border:'1px solid rgba(255,255,255,0.8)', borderRadius:10, fontWeight:'bold', cursor:'pointer', whiteSpace:'nowrap'}}>{pdOpsOpen ? '操作▲' : '操作▼'}</button>
           <div className="tsu-o-break" />
           <select className="tsu-period-sel tsu-o-period" value={period} onChange={e=>setPeriod(e.target.value)} aria-label="期間">
             {[['1','1ヶ月'],['3','3ヶ月'],['6','半年'],['12','1年'],['custom','期間指定']].map(([v,l])=><option key={v} value={v}>{l}</option>)}
@@ -27927,7 +27938,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
         ))}
       </div>
       )}
-      </div>{/* end sticky wrapper */}
+      </div></TsuPhonePin>{/* end sticky wrapper */}
       <div id="print-content-analysis" style={{padding:'20px 24px',maxWidth:1280,margin:'0 auto'}}>
 
         {/* ★ 表示内容ポップアップ(2026-08-28): 事業所のみ。 ご本人/ご家族/ケアマネ・他関係者の閲覧範囲一覧 */}
@@ -30331,6 +30342,10 @@ function AttrSection({appData, tY, tM, baseMonth, attrMonth, setAttrMonth, perio
 // ★ 2026-10-03(ユーザー要望「1週間で午前・午後×曜日に誰が在籍しているかの表。定員+1枠。空きが分かるように」):
 //   クラス在籍表。基本利用曜日(scheduleAmPm・1日は午前と午後の両方)から、曜日×午前/午後の在籍者を定員+1行で並べる。
 //   並び順は介護度(事業対象者→要支援→要介護)→NO。待ち(キャンセル待ち等)は枠ごとの自由入力(systemSettings.classRosterWait)。印刷はA4横。
+// ★ 2026-10-08: クラス在籍表の「休止中」の印(丸囲みの休)。画面・印刷とも同じ
+function CrPauseMark() {
+  return <span title="休止中" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '1.3em', height: '1.3em', borderRadius: '50%', border: '1.5px solid #c2410c', color: '#c2410c', fontSize: '0.72em', fontWeight: 'bold', lineHeight: 1, marginLeft: 3, flex: 'none', fontStyle: 'normal', background: '#fff' }}>休</span>;
+}
 function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
   const fi = appData.systemSettings?.facilityInfo || {};
   const cap = Math.max(1, Number(fi.capacity) || 10);
@@ -30411,8 +30426,9 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
       return (
         <React.Fragment key={`${d}_${first ? 'L' : 'R'}`}>
           {grip && <td {...dragProps} onPointerDown={m ? (e) => startDrag(e, k, d, sl2, m.id) : undefined} style={{ border: B, ...bl, textAlign: 'center', background: isOver ? '#dbeafe' : (m ? '#f8fafc' : bg), color: '#94a3b8', opacity: isDrag ? 0.4 : 1, cursor: m ? 'grab' : 'default', touchAction: m ? 'none' : 'auto', userSelect: 'none', fontSize: 11 }} title={m ? 'ここをつかんで上下に動かすと同じ枠の中で並べ替え' : ''} data-testid={m ? `cr-row-${k}-${m.id}` : undefined}>{m ? '⋮' : ''}</td>}
-          <td {...dragProps} style={{ border: B, borderRight: PB, ...(grip ? {} : bl), textAlign: 'left', padding: '0 4px', background: isOver ? '#dbeafe' : bg, whiteSpace: 'nowrap', overflow: 'hidden', fontWeight: 'bold', color: paused ? '#94a3b8' : '#1e293b', opacity: isDrag ? 0.4 : 1, borderTop: isOver ? '2px solid #2563eb' : B }} title={paused ? '休止中' : ''}>
-            {m ? <span style={{ display: 'block', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', color: paused ? '#9ca3af' : undefined, fontStyle: paused ? 'italic' : 'normal' }}>{m.name}</span> : ''}
+          <td {...dragProps} style={{ border: B, borderRight: PB, ...(grip ? {} : bl), textAlign: 'left', padding: '0 4px', background: isOver ? '#dbeafe' : bg, whiteSpace: 'nowrap', overflow: 'hidden', fontWeight: 'bold', color: '#1e293b', opacity: isDrag ? 0.4 : 1, borderTop: isOver ? '2px solid #2563eb' : B }} title={paused ? '休止中' : ''}>
+            {/* ★ 2026-10-08(ユーザー要望「グレーの斜体は印刷すると見づらい。名前の右に○休で」): 休止中の方は名前の右に丸囲みの「休」(画面・印刷とも) */}
+            {m ? <span style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}><span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</span>{paused && <CrPauseMark />}</span> : ''}
           </td>
           <td {...dragProps} style={{ border: B, borderLeft: PB, textAlign: 'center', background: m ? (sup ? '#fce7f3' : '#f8fafc') : bg, color: m ? (sup ? '#9d174d' : '#334155') : '#334155', fontSize: fs - 1, opacity: isDrag ? 0.4 : 1, whiteSpace: 'nowrap' }}>{m ? short(m.careLevel) : ''}</td>
         </React.Fragment>);
@@ -30462,18 +30478,19 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
     <div className="h-full flex flex-col bg-slate-50">
       {/* ★ 2026-10-08(ユーザー要望: スマホで上部が3段→2段): スマホは題名(画面の題名と重複)を出さず、1段目=定員・休止の見本 / 2段目=人数・ダウンロード */}
       {/* ★ 2026-10-08(ユーザー要望: スマホを横にすると上部が画面の3分の1を占める): 高さの低い画面(スマホの横向き)は 説明文と題名を出さず1行に(CSS tsu-cr-*) */}
-      <div className="tsu-cr-bar no-print bg-white border-b border-slate-200 px-3 sm:px-4 py-2 flex items-center gap-2 sm:gap-3 flex-wrap shrink-0">
+      <TsuPhonePin testId="pin-class-roster"><div><div className="tsu-cr-bar no-print bg-white border-b border-slate-200 px-3 sm:px-4 py-2 flex items-center gap-2 sm:gap-3 flex-wrap shrink-0">
         <div className="tsu-cr-title font-bold text-slate-800 hidden sm:block">クラス在籍表</div>
-        <span className="text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 rounded-lg px-2 py-1">定員 {cap}名（＋予備1枠）</span>
+        <span className="tsu-cr-cap text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 rounded-lg px-2 py-1">定員 {cap}名（＋予備1枠）</span>
         <div className="tsu-cr-desc text-[11px] text-slate-500 hidden sm:block">基本利用曜日から自動で並びます（介護度順）。左端の「⋮」をつかんで動かすと同じ枠の中で並べ替えできます。「待ち」は自由入力。曜日の変更は利用者マスタで。</div>
-        <span className="text-[11px] text-slate-500 flex items-center gap-1" data-testid="cr-legend"><span style={{display:'inline-block',width:14,height:14,borderRadius:3,background:'#e5e7eb'}}/><span style={{color:'#9ca3af',fontStyle:'italic',fontWeight:'bold'}}>グレー（斜体）</span>＝休止中の方</span>
-        <div className="ml-auto flex items-center gap-2">
-          <span className="text-[11px] text-slate-600 whitespace-nowrap">午前 {total('AM')}名 ／ 午後 {total('PM')}名</span>
+        <span className="tsu-cr-legend text-[11px] text-slate-500 flex items-center gap-1" data-testid="cr-legend"><CrPauseMark />＝休止中の方</span>
+        <div className="tsu-cr-right ml-auto flex items-center gap-2">
+          <span className="text-[11px] text-slate-600 whitespace-nowrap hidden sm:inline">午前 {total('AM')}名 ／ 午後 {total('PM')}名</span>
           <button type="button" data-testid="cr-print" onClick={doPrint} className="bg-slate-900 hover:bg-black text-white px-3 sm:px-4 py-2 rounded-xl font-bold text-sm whitespace-nowrap">ダウンロード</button>
         </div>
       </div>
+        {_crPhone && <div className="flex gap-1.5 px-3 py-2 bg-slate-50 border-b border-slate-200" data-testid="cr-day-tabs">{_crAllDays.map(d => <button key={d} type="button" onClick={() => setCrDay(d)} className={`flex-1 h-10 rounded-xl text-sm font-bold border ${_crDay === d ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300'}`}>{DOWJ[d]}</button>)}</div>}
+      </div></TsuPhonePin>
       <div className="flex-1 overflow-auto p-3">
-        {_crPhone && <div className="flex gap-1.5 mb-2" data-testid="cr-day-tabs">{_crAllDays.map(d => <button key={d} type="button" onClick={() => setCrDay(d)} className={`flex-1 h-10 rounded-xl text-sm font-bold border ${_crDay === d ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300'}`}>{DOWJ[d]}</button>)}</div>}
         {rows > 11 && !_crPhone && <div className="text-[11px] text-slate-500 mb-1">定員が多いため各曜日を2列で表示しています（画面が狭い場合は横にスクロールできます）</div>}
         <div className="overflow-x-auto" data-testid="cr-scroll">{/* ★ 2026-10-04: 午前・午後は同じ横スクロール(曜日の列が連動して動く) */}
           <div className="bg-white rounded-xl border border-slate-200 p-2 mb-3">{renderBlock('AM', '午前', false)}</div>
@@ -30485,7 +30502,7 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
         <style>{`@page{size:A4 landscape;margin:0}`}</style>
         <div style={{ width: '297mm', height: '210mm', boxSizing: 'border-box', background: 'white', overflow: 'hidden' }}>
           <div style={{ padding: '7mm 9mm', boxSizing: 'border-box', height: '100%', display: 'flex', flexDirection: 'column', gap: 6, fontFamily: '"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","メイリオ",Meiryo,sans-serif', color: '#1e293b' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}><span style={{ fontSize: 13, fontWeight: 'bold' }}>クラス在籍表　<span style={{ fontSize: 10, fontWeight: 'normal', color: '#475569' }}>定員 {cap}名（＋予備1枠）　<span style={{ color: '#9ca3af', fontStyle: 'italic', fontWeight: 'bold' }}>グレー（斜体）</span>＝休止中</span></span><span style={{ fontSize: 10, color: '#475569' }}>{String(fi.name || '')}　{todayIso.replace(/-/g, '/')} 現在</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}><span style={{ fontSize: 13, fontWeight: 'bold' }}>クラス在籍表　<span style={{ fontSize: 10, fontWeight: 'normal', color: '#475569' }}>定員 {cap}名（＋予備1枠）　<CrPauseMark />＝休止中</span></span><span style={{ fontSize: 10, color: '#475569' }}>{String(fi.name || '')}　{todayIso.replace(/-/g, '/')} 現在</span></div>
             <div style={{ flex: '1 1 0', minHeight: 0 }}>{renderBlock('AM', '午前', true)}</div><div style={{ flex: '1 1 0', minHeight: 0 }}>{renderBlock('PM', '午後', true)}</div>
           </div>
         </div>
@@ -31542,7 +31559,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
 
   try { return (
     <div style={{height:'100%',overflowY:'auto',background:'#f0f4f9'}}>
-      <div style={{position:'sticky',top:0,zIndex:20,boxShadow:'0 2px 8px rgba(0,0,0,0.15)'}}>
+      <TsuPhonePin testId="pin-dash-operation"><div style={{position:'sticky',top:0,zIndex:20,boxShadow:'0 2px 8px rgba(0,0,0,0.15)'}}>
         {/* ★ 分析稼働ヘッダ: 淡いオレンジグラデーション、 文字は黒で読みやすく */}
         <div className="tsu-dash-hdr" style={{background:'linear-gradient(135deg,#fed7aa,#fdba74)',color:'#1e293b',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',rowGap:8,columnGap:8}}>
         {/* ★ 2026-10-08: スマホは見出し(画面の題名と重複)を省き、部品の高さをそろえる(CSS tsu-dash-hdr) */}
@@ -31605,7 +31622,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
             </button>
           ))}
         </div>
-      </div>
+      </div></TsuPhonePin>
 
       {/* 印刷オプションモーダル */}
       {printOptsModal && (
@@ -33764,8 +33781,17 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     <div className="h-full overflow-auto w-full bg-slate-200 relative">
       <style>{`@media print{@page{size:182mm 257mm;margin:0;}body,html,#root{height:auto!important;overflow:visible!important;background:white!important;}.no-print{display:none!important;}.cb-page{border:0!important;box-shadow:none!important;}.cb-page *{box-shadow:none!important;outline:none!important;--tw-ring-shadow:0 0 transparent!important;--tw-ring-color:transparent!important;--tw-ring-offset-shadow:0 0 transparent!important;}}`}</style>
       {/* ツールバー: 横いっぱい・浮かさず上部に固定 */}
-      <div className="bg-white px-6 py-3 border-b border-slate-200 flex flex-row items-center gap-3 sticky top-0 z-30 flex-wrap shadow-sm">
-        <div className="flex items-center bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 shrink-0">
+      {/* ★ 2026-10-08(ユーザー要望): スマホは 日付・AM/PM・人数 を上に固定し、提供記録〜ダウンロードは「操作」の中に1行で */}
+      <TsuPhoneFold storageKey="renraku" summary={(() => { const _d = new Date(selectedDate + 'T00:00:00'); return (<>
+        <TsuDatePick testId="cb-fold-date" value={selectedDate} label={isNaN(_d) ? '日付' : `${_d.getMonth()+1}/${_d.getDate()}(${'日月火水木金土'[_d.getDay()]})`}
+          onChange={v => { const closed=(appData.systemSettings?.facilityInfo?.closedDays||[0]); setSelectedDate(nearestOpenDate(v, closed, [])); }} />
+        {setSharedAmpm && <div className="flex rounded-lg overflow-hidden border border-slate-300 shrink-0">
+          {['AM','PM'].map(v=>(<button key={v} type="button" onClick={()=>setSharedAmpm(v)} className={`px-2.5 h-10 text-sm font-bold ${sharedAmpm===v?'bg-blue-600 text-white':'bg-white text-slate-600'}`}>{v}</button>))}
+        </div>}
+        <span className="shrink-0 text-[13px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-2 h-10 inline-flex items-center">{displayRecords.length}名</span>
+      </>); })()}>
+      <div className="tsu-cb-bar bg-white px-6 py-3 border-b border-slate-200 flex flex-row items-center gap-3 sticky top-0 z-30 flex-wrap shadow-sm">
+        <div className="tsu-hide-phone flex items-center bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 shrink-0">
           <CalendarCheck size={16} className="text-slate-400 mr-2" />
           <input type="date" value={selectedDate} onChange={(e)=>{
                 if(!e.target.value) return;
@@ -33776,17 +33802,17 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         </div>
         {/* ★ AM/PM切替(提供記録・日誌と同じ共有トグル。店舗要望) */}
         {setSharedAmpm && (
-          <div className="flex rounded-xl overflow-hidden border border-slate-300 shrink-0">
+          <div className="tsu-hide-phone flex rounded-xl overflow-hidden border border-slate-300 shrink-0">
             {['AM','PM'].map(v=>(
               <button key={v} type="button" onClick={()=>setSharedAmpm(v)}
                 className={`px-4 py-2 text-sm font-bold transition-all ${sharedAmpm===v?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-50'}`}>{v}</button>
             ))}
           </div>
         )}
-        <div className="bg-emerald-50 px-3 py-2 rounded-xl text-sm font-bold text-emerald-700 border border-emerald-200 flex items-center gap-1.5 shrink-0">
+        <div className="tsu-hide-phone bg-emerald-50 px-3 py-2 rounded-xl text-sm font-bold text-emerald-700 border border-emerald-200 flex items-center gap-1.5 shrink-0">
           <Users size={15} /> {displayRecords.length} 名
         </div>
-        <div className="flex-1" />
+        <div className="flex-1 tsu-hide-phone" />
         {/* ★ 提供記録入力への相互ジャンプ(2026-08-21): 提供記録側の「連絡帳」ボタンと対 */}
         {navigateTo && <button onClick={()=>navigateTo('record')} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-bold flex items-center text-sm transition-all active:scale-95 whitespace-nowrap shadow"><ClipboardList size={15} className="mr-1"/>提供記録</button>}
         {/* ★ 2026-10-05(ユーザー要望): 項目・連絡事項・次回予定を「各種入力」1つにまとめる。並び: 各種入力 → 印刷設定 → 空印刷 → ダウンロード */}
@@ -33941,6 +33967,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         </button>
         {/* ★ 2026-10-05(ユーザー要望「ダウンロードが早いので連絡帳の印刷ボタンも不要」): 「印刷」ボタンは廃止。ダウンロードのPDFから印刷する */}
       </div>
+      </TsuPhoneFold>
       <div className="max-w-[800px] mx-auto space-y-8 pb-32 pt-6">
 
         {/* ★ 次回予定の焼き付き残骸チェック一覧 */}
@@ -36451,6 +36478,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _tpPhone = useTsuIsPhone();
   const [_tpWeekOnPhone, setTpWeekOnPhone] = useState(false);
   const _tpOneDay = _tpPhone && !_tpWeekOnPhone;
+  // ★ 2026-10-08(ユーザー要望): スマホは 日付の切替・1週間・確定済(変更) を上に固定し、週の切替・前週コピー・自動計算・元に戻す・設定・ダウンロードは「操作」の中へ
+  const [_tpOpsOpen, setTpOpsOpen] = useState(() => { try { return localStorage.getItem('tsuFold_transport') === '1'; } catch { return false; } });
+  const _tpTogOps = () => setTpOpsOpen(v => { const nv = !v; try { localStorage.setItem('tsuFold_transport', nv ? '1' : '0'); } catch {} return nv; });
   const _tpDayIso = days.some(d => _iso(d) === selectedDate) ? selectedDate : (days.some(d => _iso(d) === _iso(new Date())) ? _iso(new Date()) : (days[0] ? _iso(days[0]) : selectedDate));
   const _tpViewDays = _tpOneDay ? days.filter(d => _iso(d) === _tpDayIso) : days;
   const _tpStepDay = (n) => { const closed = (appData.systemSettings?.facilityInfo?.closedDays || [0]).map(Number); const d = new Date(_tpDayIso + 'T00:00:00'); for (let i = 0; i < 8; i++) { d.setDate(d.getDate() + n); if (!closed.includes(d.getDay())) break; } setSelectedDate(_iso(d)); };
@@ -36460,9 +36490,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   return (
     <div className="h-full overflow-auto w-full bg-slate-100">
       {_autoCalcModal}
-      <div className="sticky top-0 z-30">
+      <TsuPhonePin testId="pin-transport"><div className="sticky top-0 z-30">
       {/* ★ 2026-09-13c(店舗要望): 重複タイトルを削除し週切替を左端へ。バーは画面上部のタイトル帯に密着(スクロール中も固定)。凡例は同じ列に常時表示・操作説明は「?」に格納 */}
-      <div className="bg-white px-2 sm:px-3 py-1.5 border-b border-slate-200 shadow-sm flex items-center gap-2 flex-wrap">
+      <div data-testid="tp-ops" className={`bg-white px-2 sm:px-3 py-1.5 border-b border-slate-200 shadow-sm flex items-center gap-2 flex-wrap ${_tpPhone && !_tpOpsOpen ? 'hidden' : ''}`}>
         <div className="flex items-center gap-1">
           <button onClick={()=>moveWeek(-1)} className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-bold">◀ 前週</button>
           <span className="text-sm font-bold text-slate-700 px-1 whitespace-nowrap">{_mon.getMonth()+1}/{_mon.getDate()}〜の週</span>
@@ -36508,7 +36538,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           ); })()}
           {/* ★ 週の完成確定(2026-09-28): 確定後の変更は赤丸で自動表示 */}
           {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return (
-            <button onClick={() => fa ? setFinalMenu(v => !v) : finalizeWeek()} data-testid="tp-finalize" className={`px-2.5 py-2 rounded-xl font-bold text-xs border whitespace-nowrap ${fa?'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100':'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`} title={fa?`確定 ${_fmtStamp(fa)}。押すと今の内容で確定を更新(赤丸は付け直し)`:'この週の送迎表を「確定」として確定。以後に変えた箇所に自動で赤丸が付きます'}>
+            <button onClick={() => fa ? setFinalMenu(v => !v) : finalizeWeek()} data-testid="tp-finalize" className={`${_tpPhone ? 'hidden ' : ''}px-2.5 py-2 rounded-xl font-bold text-xs border whitespace-nowrap ${fa?'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100':'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`} title={fa?`確定 ${_fmtStamp(fa)}。押すと今の内容で確定を更新(赤丸は付け直し)`:'この週の送迎表を「確定」として確定。以後に変えた箇所に自動で赤丸が付きます'}>
               {fa ? <>確定済{tot ? <span className="ml-1 bg-red-600 text-white rounded px-1" data-testid="tp-chg-badge">変更{tot}</span> : null}<span className="ml-1 text-[9px]">▼</span></> : '確定'}
             </button>
           ); })()}
@@ -36571,18 +36601,29 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         {/* ★ 2026-10-08(ユーザー指示): 上部の「?」(使い方の説明)は削除 */}
       </div>
         {_tpPhone && (
-          <div className="bg-white px-2 py-1.5 border-b border-slate-200 flex items-center gap-1.5" data-testid="tp-phone-daybar">
+          <div className="bg-white px-1.5 py-1.5 border-b border-slate-200 flex items-center gap-1" data-testid="tp-phone-daybar">
             {_tpOneDay ? (<>
-              <button type="button" onClick={() => _tpStepDay(-1)} className="h-10 w-10 rounded-xl border border-slate-300 bg-white font-bold text-slate-700" aria-label="前の日">◀</button>
-              {(() => { const d = new Date(_tpDayIso + 'T00:00:00'); return <span className="flex-1 text-center text-[15px] font-bold text-slate-800 whitespace-nowrap">{d.getMonth()+1}/{d.getDate()}({DOWJ[d.getDay()]}){_tpDayIso === _iso(new Date()) ? ' 今日' : ''}</span>; })()}
-              <button type="button" onClick={() => _tpStepDay(1)} className="h-10 w-10 rounded-xl border border-slate-300 bg-white font-bold text-slate-700" aria-label="次の日">▶</button>
-              <button type="button" data-testid="tp-phone-week" onClick={() => setTpWeekOnPhone(true)} className="h-10 px-3 rounded-xl bg-slate-800 text-white text-sm font-bold whitespace-nowrap">1週間を見る</button>
+              <button type="button" onClick={() => _tpStepDay(-1)} className="h-10 w-8 shrink-0 rounded-lg border border-slate-300 bg-white font-bold text-slate-700" aria-label="前の日">◀</button>
+              {(() => { const d = new Date(_tpDayIso + 'T00:00:00'); const _td = _tpDayIso === _iso(new Date()); return <span className={`flex-1 min-w-0 text-center text-[14px] font-bold whitespace-nowrap ${_td ? 'text-blue-700' : 'text-slate-800'}`} title={_td ? '今日' : undefined}>{d.getMonth()+1}/{d.getDate()}({DOWJ[d.getDay()]})</span>; })()}
+              <button type="button" onClick={() => _tpStepDay(1)} className="h-10 w-8 shrink-0 rounded-lg border border-slate-300 bg-white font-bold text-slate-700" aria-label="次の日">▶</button>
+              <button type="button" data-testid="tp-phone-week" onClick={() => setTpWeekOnPhone(true)} className="h-10 px-1.5 shrink-0 rounded-lg bg-slate-800 text-white text-[12px] font-bold whitespace-nowrap">1週間</button>
+              {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return (
+                <button type="button" onClick={() => fa ? setFinalMenu(v => !v) : finalizeWeek()} data-testid="tp-finalize-phone" className={`h-10 px-1.5 shrink-0 rounded-lg font-bold text-[12px] border whitespace-nowrap ${fa?'bg-emerald-50 border-emerald-400 text-emerald-800':'bg-white border-slate-300 text-slate-700'}`}>
+                  {fa ? <>確定済{tot ? <span className="ml-0.5 bg-red-600 text-white rounded px-1">変更{tot}</span> : null}<span className="ml-0.5 text-[9px]">▼</span></> : '確定'}
+                </button>); })()}
+              <button type="button" data-testid="tp-ops-btn" onClick={_tpTogOps} aria-expanded={_tpOpsOpen} className={`h-10 px-1.5 shrink-0 rounded-lg text-[12px] font-bold border whitespace-nowrap ${_tpOpsOpen ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-700 border-slate-300'}`}>{_tpOpsOpen ? '操作▲' : '操作▼'}</button>
             </>) : (<>
-              <span className="flex-1 text-[13px] font-bold text-slate-600">1週間の表示（横にスクロール）</span>
-              <button type="button" data-testid="tp-phone-day" onClick={() => setTpWeekOnPhone(false)} className="h-10 px-3 rounded-xl bg-blue-600 text-white text-sm font-bold whitespace-nowrap">1日の表示に戻る</button>
+              <span className="flex-1 min-w-0 text-[12px] font-bold text-slate-600 truncate">1週間（横にスクロール）</span>
+              <button type="button" data-testid="tp-phone-day" onClick={() => setTpWeekOnPhone(false)} className="h-10 px-2 shrink-0 rounded-lg bg-blue-600 text-white text-[12px] font-bold whitespace-nowrap">1日に戻る</button>
+              {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return (
+                <button type="button" onClick={() => fa ? setFinalMenu(v => !v) : finalizeWeek()} data-testid="tp-finalize-phone-w" className={`h-10 px-1.5 shrink-0 rounded-lg font-bold text-[12px] border whitespace-nowrap ${fa?'bg-emerald-50 border-emerald-400 text-emerald-800':'bg-white border-slate-300 text-slate-700'}`}>
+                  {fa ? <>確定済{tot ? <span className="ml-0.5 bg-red-600 text-white rounded px-1">変更{tot}</span> : null}<span className="ml-0.5 text-[9px]">▼</span></> : '確定'}
+                </button>); })()}
+              <button type="button" data-testid="tp-ops-btn-w" onClick={_tpTogOps} aria-expanded={_tpOpsOpen} className={`h-10 px-1.5 shrink-0 rounded-lg text-[12px] font-bold border whitespace-nowrap ${_tpOpsOpen ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-700 border-slate-300'}`}>{_tpOpsOpen ? '操作▲' : '操作▼'}</button>
             </>)}
           </div>
         )}
+        {_tpPhone && tpFocus && !_tpOpsOpen && <div className="bg-yellow-50 border-b border-amber-200 px-2 py-1 flex justify-end"><button type="button" data-testid="tp-focus-clear-phone" onClick={() => setTpFocus(null)} className="px-2.5 py-1.5 rounded-lg font-bold text-xs border border-amber-300 bg-yellow-100 text-amber-900">黄色の表示を消す</button></div>}
         {/* ★ 2026-09-30: 上の帯と隙間なく詰めて固定(スクロール中に下の内容が透けて見えないよう背景つき)。日付は中央揃え・「この日を印刷」は廃止(印刷ボタンの「日ごと」で印刷) */}
         {!_finalView && <div className="bg-slate-100 px-2 sm:px-3 pt-1 pb-1 border-b border-slate-200" data-testid="tp-date-strip">
           <div className="max-w-[1500px] mx-auto overflow-hidden" ref={tpHdrRef}>
@@ -36600,7 +36641,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             </div>
           </div>
         </div>}
-      </div>
+      </div></TsuPhonePin>
       {/* ★ 2026-10-07: 確定後の変更の帯は廃止(ユーザー指示「確定済 変更○ のメニューで連絡済・ハイライトができるので不要」)。ハイライトの表示だけ残す */}
       {tpFocus && <style>{`${_tpSelOf(tpFocus)}{background:#fef08a !important;outline:3px solid #f59e0b;outline-offset:-2px;border-radius:6px;}`}</style>}
       {/* ★ 2026-10-03(ユーザー提案「確定していたら入力画面ではなく一覧を常に表示。午前・午後を一度に見たい」): 確定済みの週は読み取り専用の一覧(午前・午後を同じ画面に)。
@@ -52647,18 +52688,18 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   return (
     // ★ 分析稼働と同じ「ルート自体がスクロール(height:100%+overflow)」方式。 ヘッダと曜日行を sticky で固定。
     <div style={{height:'100%',overflowY:'auto',background:'#f0f4f9'}}>
-      {/* ヘッダー（スクロール時も上部に固定） */}
-      <div style={{position:'sticky',top:0,zIndex:30,background:'linear-gradient(135deg,#1e293b,#334155)',color:'white',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',rowGap:8,columnGap:12,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
-        <div style={{display:'flex',alignItems:'center',gap:10,whiteSpace:'nowrap'}}>
+      {/* ★ 2026-10-08(ユーザー要望: スマホで「休み連絡」が見出しと重複・2段): スマホは題名を出さず 月の切替・印の見本・履歴 を1行にして上に固定 */}
+      <TsuPhonePin testId="pin-abscal"><div className="tsu-abscal-bar" style={{position:'sticky',top:0,zIndex:30,background:'linear-gradient(135deg,#1e293b,#334155)',color:'white',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',rowGap:8,columnGap:12,boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
+        <div className="tsu-abscal-title" style={{display:'flex',alignItems:'center',gap:10,whiteSpace:'nowrap'}}>
           <FileText size={20}/>
           <span style={{fontSize:17,fontWeight:'bold'}}>休み連絡</span>
         </div>
         <div style={{display:'flex',alignItems:'center',gap:8,whiteSpace:'nowrap'}}>
           <button type="button" onClick={()=>setCurrentMonth(new Date(cY,cM-2,1))} style={{background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',color:'white',borderRadius:8,padding:'5px 12px',fontWeight:'bold',cursor:'pointer'}}>←</button>
-          <span style={{fontSize:15,fontWeight:'bold',minWidth:100,textAlign:'center'}}>{cY}年{cM}月</span>
+          <span className="tsu-abscal-month" style={{fontSize:15,fontWeight:'bold',minWidth:100,textAlign:'center'}}><span className="tsu-abscal-y">{cY}年</span>{cM}月</span>
           <button type="button" onClick={()=>setCurrentMonth(new Date(cY,cM,1))} style={{background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',color:'white',borderRadius:8,padding:'5px 12px',fontWeight:'bold',cursor:'pointer'}}>→</button>
         </div>
-        <div style={{display:'flex',gap:10,rowGap:6,fontSize:11,alignItems:'center',flexWrap:'wrap',whiteSpace:'nowrap'}}>
+        <div className="tsu-abscal-legend" style={{display:'flex',gap:10,rowGap:6,fontSize:11,alignItems:'center',flexWrap:'wrap',whiteSpace:'nowrap'}}>
           <span style={{display:'flex',alignItems:'center',gap:4}}>
             <span style={{width:12,height:12,borderRadius:3,background:'#dbeafe',border:'1px solid #64748b',display:'inline-block'}}/>
             <span style={{color:'#cbd5e1'}}>編集済</span>
@@ -52669,14 +52710,14 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
           </span>
           <span style={{display:'flex',alignItems:'center',gap:4}}>
             <span style={{width:12,height:12,borderRadius:3,background:'#ccfbf1',border:'1px solid #64748b',display:'inline-block'}}/>
-            <span style={{color:'#cbd5e1'}}>DL（ダウンロード）済</span>
+            <span style={{color:'#cbd5e1'}}>DL<span className="tsu-abscal-y">（ダウンロード）</span>済</span>
           </span>
           <button type="button" onClick={()=>setShowFaxHist(true)}
             style={{background:'#7c3aed',border:'none',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:5,marginLeft:8}}>
             履歴
           </button>
         </div>
-      </div>
+      </div></TsuPhonePin>
 
       {/* カレンダー (ルートがスクロール。 曜日ヘッダーはメインヘッダーの下に sticky 固定) */}
       <div style={{padding:'0 20px 20px'}}>

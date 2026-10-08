@@ -221,7 +221,7 @@ button, a, input, select, textarea, label, [role="button"] { touch-action: manip
 }
 
 /* ★ 2026-10-08(ユーザー要望: スマホの分析(個人)4段・分析(稼働)3段 → 2段/1段に) */
-.tsu-period-sel, .tsu-o-break { display: none; }
+.tsu-period-sel, .tsu-o-break, .tsu-o-ops { display: none; }
 @media (max-width: 767px) {
   .tsu-dash-hdr { flex-wrap: wrap !important; justify-content: flex-start !important; align-items: center !important; }
   .tsu-dash-hdr .tsu-period-tabs, .tsu-dash-hdr .tsu-range-dup, .tsu-dash-hdr .tsu-dash-name, .tsu-dash-hdr .tsu-back-txt, .tsu-dash-hdr .tsu-mask-pre { display: none !important; }
@@ -232,14 +232,19 @@ button, a, input, select, textarea, label, [role="button"] { touch-action: manip
   .tsu-dash-hdr .tsu-ph-contents { display: contents !important; }
   .tsu-dash-hdr .tsu-o-back { order: 1; padding-left: 10px !important; padding-right: 10px !important; }
   .tsu-dash-hdr .tsu-o-pt { order: 2; flex: 1 1 0; min-width: 0; }
-  .tsu-dash-hdr .tsu-o-dl { order: 3; }
-  .tsu-dash-hdr .tsu-o-break { display: block; order: 4; flex-basis: 100%; height: 0; }
-  .tsu-dash-hdr .tsu-o-period { order: 5; }
+  .tsu-dash-hdr .tsu-o-period { order: 3; }
+  .tsu-dash-hdr .tsu-o-ops { display: inline-flex; align-items: center; order: 4; padding: 0 8px !important; }
+  .tsu-dash-hdr .tsu-o-dl { order: 11; }
+  .tsu-dash-hdr .tsu-o-break { display: block; order: 5; flex-basis: 100%; height: 0; }
+  /* 「操作」を閉じている間は 1行目(戻る・利用者・期間・操作)だけ */
+  .tsu-pd-hdr:not(.tsu-pd-open) .tsu-o-break, .tsu-pd-hdr:not(.tsu-pd-open) .tsu-o-month, .tsu-pd-hdr:not(.tsu-pd-open) .tsu-o-range,
+  .tsu-pd-hdr:not(.tsu-pd-open) .tsu-o-dm, .tsu-pd-hdr:not(.tsu-pd-open) .tsu-o-mask, .tsu-pd-hdr:not(.tsu-pd-open) .tsu-o-scope,
+  .tsu-pd-hdr:not(.tsu-pd-open) .tsu-o-dl { display: none !important; }
   .tsu-dash-hdr .tsu-o-month { order: 6; max-width: 120px; }
   .tsu-dash-hdr .tsu-o-range { order: 7; }
   .tsu-dash-hdr .tsu-o-dm { order: 8; }
   .tsu-dash-hdr .tsu-o-mask { order: 9; }
-  .tsu-dash-hdr .tsu-o-scope { order: 3; padding-left: 8px !important; padding-right: 8px !important; }
+  .tsu-dash-hdr .tsu-o-scope { order: 10; padding-left: 8px !important; padding-right: 8px !important; }
 }
 
 /* ★ 2026-10-08: 画面でだけ隠す(折りたたみ)。ダウンロード・印刷では表示する */
@@ -361,3 +366,36 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
   .tsu-cr-bar button { padding-top: 6px !important; padding-bottom: 6px !important; }
 }
 
+
+/* ★ 2026-10-08(ユーザー要望): スマホの連絡帳「操作」の中 = 提供記録・各種入力・印刷設定・空印刷・ダウンロード を1行に */
+@media (max-width: 767px) {
+  .tsu-cb-bar { flex-wrap: nowrap !important; padding: 8px 6px !important; gap: 4px !important; }
+  .tsu-cb-bar > button, .tsu-cb-bar > div > button { padding: 0 7px !important; height: 40px; font-size: 12px !important; white-space: nowrap; }
+  .tsu-cb-bar > button svg { display: none; }
+  /* 送迎表の「操作」の中も詰めて 2〜3行に収める */
+  [data-testid="tp-ops"] { gap: 5px !important; padding: 6px 8px !important; }
+  [data-testid="tp-ops"] button { padding: 5px 9px !important; font-size: 12px !important; min-height: 0 !important; white-space: nowrap; }
+  [data-testid="tp-ops"] button svg { width: 13px; height: 13px; }
+}
+
+/* ★ 2026-10-08: スマホの休み連絡(カレンダー)上部 = 月の切替・印の見本・履歴 を1行 */
+@media (max-width: 767px) {
+  .tsu-abscal-bar { flex-wrap: nowrap !important; padding: 8px 8px !important; gap: 6px !important; }
+  .tsu-abscal-title, .tsu-abscal-y { display: none !important; }
+  .tsu-abscal-bar > div { gap: 4px !important; }
+  .tsu-abscal-bar button { padding: 5px 8px !important; }
+  .tsu-abscal-month { min-width: 0 !important; font-size: 14px !important; }
+  .tsu-abscal-legend { flex-wrap: nowrap !important; gap: 5px !important; }
+  .tsu-abscal-legend button { margin-left: 2px !important; }
+}
+
+/* ★ 2026-10-08: スマホのクラス在籍表 上部 = 1段目 定員・ダウンロード / 2段目 休止中の見本 */
+@media (max-width: 767px) {
+  .tsu-cr-bar .tsu-cr-cap { order: 1; }
+  .tsu-cr-bar .tsu-cr-right { order: 2; }
+  .tsu-cr-bar .tsu-cr-legend { order: 3; flex-basis: 100%; }
+}
+@media (max-width: 767px) {
+  .tsu-em-bar { flex-wrap: nowrap !important; padding: 8px 8px !important; gap: 5px !important; }
+  .tsu-em-bar > button { flex: 1 1 auto; padding: 8px 4px !important; font-size: 13px !important; }
+}
