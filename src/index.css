@@ -156,3 +156,57 @@ button, a, input, select, textarea, label, [role="button"] { touch-action: manip
   .tsu-gf-actions { margin-left: 0 !important; width: 100%; justify-content: flex-start !important; gap: 5px !important; }
   .tsu-gf-actions button, .tsu-gf-actions > label { padding: 6px 8px !important; }
 }
+
+/* ★ 2026-10-08(ユーザー報告: スマホのモニタリングで上部の部品の大きさ・高さがばらばら、氏名・確定・展開・選択欄が大きすぎる) */
+@media (max-width: 767px) {
+  .tsu-hide-phone { display: none !important; }
+  .tsu-mon-bar { padding: 8px 10px !important; gap: 6px !important; }
+  .tsu-mon-bar > button, .tsu-mon-bar > div > button, .tsu-mon-bar > label, .tsu-mon-bar > input {
+    height: 36px !important; min-height: 36px; box-sizing: border-box; padding-top: 0 !important; padding-bottom: 0 !important;
+    font-size: 13px !important; line-height: 1 !important; display: inline-flex !important; align-items: center; border-radius: 10px !important;
+  }
+  .tsu-mon-bar > input { padding: 0 10px !important; }
+  /* 1人分: チェック・氏名・介護度・確定・展開 を1行に、その下に①〜⑤ */
+  .tsu-mon-table tr { display: flex !important; flex-wrap: wrap; align-items: center; }
+  .tsu-mon-table td.tsu-mon-ck { flex: none; }
+  .tsu-mon-table td.tsu-mon-name { display: flex !important; flex: 1 1 0; min-width: 0; flex-wrap: wrap; align-items: center; gap: 4px 8px; text-align: left !important; padding: 8px 10px 4px 4px !important; }
+  .tsu-mon-table td.tsu-mon-name > div { margin-top: 0 !important; }
+  .tsu-mon-table td.tsu-mon-name > div:first-child { font-size: 15px !important; }
+  .tsu-mon-table td.tsu-mon-name > button { width: auto !important; margin-top: 0 !important; padding: 0 12px !important; height: 32px; font-size: 12px !important; }
+  .tsu-mon-table td.tsu-mon-name > button:first-of-type { margin-left: auto !important; }
+  .tsu-mon-table td.tsu-mon-body { flex: 1 1 100%; }
+  .tsu-mon-sel { min-height: 34px !important; height: 34px; padding: 0 6px !important; }
+}
+
+/* ★ 2026-10-08: スマホで横に広い一覧を「1人ずつの縦並び」にする共通の形(災害時の安否・連絡先など)。
+   各セルに data-label を付けると、その名前を小さく左に出す */
+@media (max-width: 767px) {
+  table.tsu-cards, table.tsu-cards tbody, table.tsu-cards tr, table.tsu-cards td { display: block; width: 100%; box-sizing: border-box; }
+  table.tsu-cards thead { display: none; }
+  table.tsu-cards tr { border-bottom: 2px solid #e2e8f0; padding: 6px 0; }
+  table.tsu-cards td { padding: 3px 12px !important; white-space: normal !important; }
+  table.tsu-cards td[data-label] { display: flex; gap: 8px; align-items: flex-start; }
+  table.tsu-cards td[data-label]::before { content: attr(data-label); flex: none; width: 5.5em; font-size: 11px; font-weight: bold; color: #64748b; padding-top: 2px; }
+  table.tsu-cards td:first-child { font-size: 15px; padding-top: 6px !important; }
+}
+
+/* ★ 2026-10-08(ユーザー報告: スマホで分析(個人)・分析(稼働)の上部が広すぎ・部品の大きさがばらばら): 高さをそろえて詰める */
+@media (max-width: 767px) {
+  .tsu-dash-hdr { padding: 8px 10px !important; gap: 6px !important; row-gap: 6px !important; }
+  .tsu-dash-hdr .tsu-dash-icon, .tsu-dash-hdr .tsu-dash-sub { display: none !important; }
+  .tsu-dash-hdr button, .tsu-dash-hdr select, .tsu-dash-hdr input[type="month"], .tsu-dash-hdr label[data-testid="mask-toggle"] {
+    height: 36px; min-height: 36px; box-sizing: border-box; padding-top: 0 !important; padding-bottom: 0 !important; font-size: 13px !important; line-height: 1 !important;
+  }
+  .tsu-dash-hdr input[type="month"], .tsu-dash-hdr select { padding-left: 8px !important; padding-right: 8px !important; border-radius: 10px !important; }
+  .tsu-dash-hdr > div { gap: 6px !important; }
+}
+@media (max-width: 767px) {
+  .tsu-mon-bar > .tsu-hide-phone { display: none !important; }
+  /* ①〜⑤の選択欄は同じ幅に(横の「(クリックで入力)」の長さで幅がばらばらになっていた)。本文は次の行に */
+  .tsu-mon-sel { flex: 1 1 calc(100% - 48px) !important; }
+  table.tsu-cards td[data-label]::before { width: 6.5em; }
+}
+@media (max-width: 767px) {
+  /* 本文(1行の省略表示・押すと入力)は選択欄の下の行に、幅いっぱいで(同じ行だと幅0に潰れて押せなかった) */
+  .tsu-mon-text { flex: 1 1 100% !important; padding: 2px 4px 4px; }
+}

@@ -11361,23 +11361,21 @@ const _tsuClipX = (() => { try { return (typeof CSS !== 'undefined' && CSS.suppo
 // ★ 2026-10-08(ユーザー提案「スマホは上部の項目を折りたたみ、必要なときだけいつでも表示」): スマホ幅(768未満)の画面上部の共通部品。
 //   折りたたみ中は1行の要約(summary=日付・保存など よく使うもの)と「操作」ボタンだけを出し、押すと上部の操作(children)を全部表示する。
 //   開閉は画面ごとに端末へ記憶(storageKey)。iPad・PCでは children をそのまま出す(従来どおり)。
-// ★ 2026-10-08(店舗報告: iPhone で画面の上の方が空白のまま=描かれない): 画面全体を一瞬消して描き直させる方法(display:none)は、
-//   iPhone では逆に一部(縦およそ500px分)が描き直されず空白で残ることがあった。スマホ幅ではスクロール位置を1pxだけ動かして戻し、
-//   その枠と中の固定部品を描き直させる(見た目は動かない)。
-let _tsuLastScrollAt = 0;
-try { if (typeof document !== 'undefined') document.addEventListener('scroll', () => { _tsuLastScrollAt = Date.now(); }, { capture: true, passive: true }); } catch {}
+// ★ 2026-10-08(店舗報告: iPhone で画面の上の方が空白のまま=描かれない。空白でも押すと反応する=中身はあるが絵が描かれていない):
+//   空白の高さはいつも約512px = iPhone が画面を区切って描く「区画」1つ分。中身が変わったのにその区画だけ描き直されずに残っている。
+//   ・画面全体を一瞬消す(display:none)方法は、iPhone では逆に区画が残ることがあった。
+//   ・1pxスクロールは描いた絵をずらすだけで描き直しにならなかった(trial232)。
+//   → スクロールしている枠の背景色をごくわずかに変えて次の描画で戻す。背景が変わると、その枠の区画がすべて描き直される(見た目は変わらない)。
 function tsuNudgeRepaint(sc) {
   try {
-    if (Date.now() - _tsuLastScrollAt < 700) return; // スクロール中は動かさない(指で動かしている最中の慣性を止めないように)
     // 実際にスクロールしている枠まで上る(なければ渡された枠のまま)
     let e = sc; while (e && e !== document.body && !(e.scrollHeight > e.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(e).overflowY))) e = e.parentElement;
     if (e && e !== document.body) sc = e;
     if (!sc) return;
-    const t = sc.scrollTop;
-    sc.scrollTop = t > 0 ? t - 1 : t + 1;
-    const prevT = sc.style.transform;
-    sc.style.transform = 'translateZ(0)';
-    requestAnimationFrame(() => { try { sc.scrollTop = t; requestAnimationFrame(() => { try { sc.style.transform = prevT; } catch {} }); } catch {} });
+    const targets = [sc, sc.firstElementChild].filter(Boolean);
+    const prev = targets.map(t => t.style.backgroundColor);
+    targets.forEach(t => { const cur = getComputedStyle(t).backgroundColor; t.style.backgroundColor = (!cur || cur === 'rgba(0, 0, 0, 0)' || cur === 'transparent') ? 'rgba(255, 255, 255, 0.003)' : cur.replace(/^rgb\((\d+), (\d+), (\d+)\)$/, (m0, r, g, b) => `rgb(${r}, ${g}, ${Math.max(0, Number(b) - 1)})`); });
+    requestAnimationFrame(() => requestAnimationFrame(() => { try { targets.forEach((t, i) => { t.style.backgroundColor = prev[i]; }); } catch {} }));
   } catch {}
 }
 function useTsuIsPhone() {
@@ -13392,17 +13390,18 @@ function DisasterView({ appData, onSave, staffSession }) {
             </div>
             <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                {/* ★ 2026-10-08(ユーザー報告: スマホで安否のボタンが縦に積まれ、住所が1〜2文字ずつ折れて見づらい): スマホは1人ずつの縦並び(CSS tsu-cards) */}
+                <table className="w-full text-sm tsu-cards">
                   <thead className="bg-slate-50 text-xs text-slate-600"><tr><th className="text-left px-3 py-2">氏名</th><th className="text-left px-3 py-2">安否</th><th className="text-left px-3 py-2">住所</th><th className="text-left px-3 py-2">電話</th><th className="text-left px-3 py-2">緊急連絡先</th><th className="text-left px-3 py-2">担当ケアマネ</th></tr></thead>
                   <tbody className="divide-y divide-slate-100">
                     {pats.map(p => { const k = String(p.id); const st = safety[k] || ''; const cs = contactsOf(p).slice(0, 2); return (
                       <tr key={k} className="align-top">
                         <td className="px-3 py-2 font-bold text-slate-800 whitespace-nowrap">{p.name}</td>
-                        <td className="px-3 py-2"><div className="flex gap-1 flex-wrap">{SAFETY_OPTIONS.map(([key, lb]) => <button key={key} type="button" onClick={() => setSafety(s => ({ ...s, [k]: s[k] === key ? '' : key }))} className={`px-2 py-1 rounded-lg text-xs font-bold border ${st === key ? chip(key) : 'bg-white border-slate-300 text-slate-600'}`}>{lb}</button>)}</div></td>
-                        <td className="px-3 py-2 text-xs text-slate-700">{[p.address, p.addressBuilding, p.addressRoom].filter(Boolean).join(' ')}</td>
-                        <td className="px-3 py-2 text-xs whitespace-nowrap">{(p.phoneMobile || p.phone) ? <a href={`tel:${(p.phoneMobile || p.phone).replace(/[^0-9+]/g, '')}`} className="text-blue-700 font-bold">{p.phoneMobile || p.phone}</a> : <span className="text-slate-300">—</span>}</td>
-                        <td className="px-3 py-2 text-xs">{cs.length ? cs.map((c, i) => <div key={i}>{c.name || ''}{c.relation ? `(${c.relation})` : ''} {(c.phoneMobile || c.phone) && <a href={`tel:${String(c.phoneMobile || c.phone).replace(/[^0-9+]/g, '')}`} className="text-blue-700 font-bold">{c.phoneMobile || c.phone}</a>}</div>) : <span className="text-slate-300">—</span>}</td>
-                        <td className="px-3 py-2 text-xs">{p.cmOffice || p.cmName ? <div>{p.cmOffice}<br/>{p.cmName} {(() => { const _t = tsumugiCmContact(p, appData).phone; return _t ? <a href={`tel:${String(_t).replace(/[^0-9+]/g, '')}`} className="text-blue-700 font-bold">{_t}</a> : null; })()}</div> : <span className="text-slate-300">—</span>}</td>
+                        <td data-label="安否" className="px-3 py-2"><div className="flex gap-1 flex-wrap">{SAFETY_OPTIONS.map(([key, lb]) => <button key={key} type="button" onClick={() => setSafety(s => ({ ...s, [k]: s[k] === key ? '' : key }))} className={`px-2 py-1 rounded-lg text-xs font-bold border ${st === key ? chip(key) : 'bg-white border-slate-300 text-slate-600'}`}>{lb}</button>)}</div></td>
+                        <td data-label="住所" className="px-3 py-2 text-xs text-slate-700">{[p.address, p.addressBuilding, p.addressRoom].filter(Boolean).join(' ')}</td>
+                        <td data-label="電話" className="px-3 py-2 text-xs whitespace-nowrap">{(p.phoneMobile || p.phone) ? <a href={`tel:${(p.phoneMobile || p.phone).replace(/[^0-9+]/g, '')}`} className="text-blue-700 font-bold">{p.phoneMobile || p.phone}</a> : <span className="text-slate-300">—</span>}</td>
+                        <td data-label="緊急連絡先" className="px-3 py-2 text-xs">{cs.length ? cs.map((c, i) => <div key={i}>{c.name || ''}{c.relation ? `(${c.relation})` : ''} {(c.phoneMobile || c.phone) && <a href={`tel:${String(c.phoneMobile || c.phone).replace(/[^0-9+]/g, '')}`} className="text-blue-700 font-bold">{c.phoneMobile || c.phone}</a>}</div>) : <span className="text-slate-300">—</span>}</td>
+                        <td data-label="担当ケアマネ" className="px-3 py-2 text-xs">{p.cmOffice || p.cmName ? <div>{p.cmOffice}<br/>{p.cmName} {(() => { const _t = tsumugiCmContact(p, appData).phone; return _t ? <a href={`tel:${String(_t).replace(/[^0-9+]/g, '')}`} className="text-blue-700 font-bold">{_t}</a> : null; })()}</div> : <span className="text-slate-300">—</span>}</td>
                       </tr>
                     ); })}
                     {!pats.length && <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-400 text-sm">対象の利用者がいません</td></tr>}
@@ -14049,11 +14048,12 @@ function FamilyAdminView({ appData, onSave }) {
     </div>
   );
   return (
-    <div className={`h-full overflow-auto bg-slate-50 ${tab==='preview'?'p-0':'p-6'}`}>
+    <div className={`h-full overflow-auto bg-slate-50 ${tab==='preview'?'p-0':'p-3 sm:p-6'}`}>
       <div className={tab==='preview'?'':'max-w-5xl mx-auto'}>
         <div className={`flex items-center gap-2 bg-white shadow-sm border border-slate-200 ${tab==='preview'?'sticky top-0 z-50 border-b p-1.5':'rounded-2xl p-1.5 mb-4'}`}>
-          {[['post','投稿 (お知らせ・写真)'],['preview','家族・ケアマネ画面プレビュー'],['history','過去履歴']].map(([k,l])=>(
-            <button key={k} onClick={()=>setTab(k)} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors ${tab===k?'bg-emerald-500 text-white shadow':'text-slate-500 hover:bg-slate-100'}`}>{l}</button>
+          {/* ★ 2026-10-08: スマホは短い名前で1行に(投稿/プレビュー/履歴) */}
+          {[['post','投稿 (お知らせ・写真)','投稿'],['preview','家族・ケアマネ画面プレビュー','プレビュー'],['history','過去履歴','履歴']].map(([k,l,sh])=>(
+            <button key={k} onClick={()=>setTab(k)} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors whitespace-nowrap ${tab===k?'bg-emerald-500 text-white shadow':'text-slate-500 hover:bg-slate-100'}`}><span className="hidden sm:inline">{l}</span><span className="sm:hidden">{sh}</span></button>
           ))}
         </div>
         {tab === 'post' && (
@@ -14158,17 +14158,17 @@ function FamilyAdminView({ appData, onSave }) {
                 <div className="text-[10px] text-slate-400 px-1">選択中: 合計 {postForm.patientIds.length}名の利用者に届きます（送付先の種別の方のみ閲覧できます）</div>
               </div>
             )}
-            <div className="grid grid-cols-12 gap-3">
-              <div className="col-span-6">
+            <div className="grid grid-cols-12 gap-3">{/* ★ 2026-10-08(スマホで表示日の欄が枠からはみ出す): スマホは1項目1行 */}
+              <div className="col-span-12 md:col-span-6">
                 <label className="block text-xs font-bold text-slate-500 mb-1">タイトル (写真のみの場合は省略可)</label>
                 <input value={postForm.title} onChange={e=>setPostForm(f=>({...f,title:e.target.value}))} placeholder="例: 8月の誕生会を開催しました" className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
               </div>
-              <div className="col-span-4">
+              <div className="col-span-12 md:col-span-4">
                 <label className="block text-xs font-bold text-slate-500 mb-1">イベント/クラス (任意)</label>
                 <input value={postForm.eventClass} onChange={e=>setPostForm(f=>({...f,eventClass:e.target.value}))} placeholder="例: 7月誕生会" list="event-classes" className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm outline-none"/>
                 <datalist id="event-classes">{photoClasses.map(c=><option key={c} value={c}/>)}</datalist>
               </div>
-              <div className="col-span-2">
+              <div className="col-span-12 md:col-span-2 min-w-0">
                 <label className="block text-xs font-bold text-slate-500 mb-1">表示日</label>
                 <input type="date" value={postForm.date} onChange={e=>setPostForm(f=>({...f,date:e.target.value}))} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
               </div>
@@ -21013,6 +21013,13 @@ export default function App() {
     window.addEventListener('pageshow', later); document.addEventListener('visibilitychange', onVis); window.addEventListener('resize', later);
     return () => { ts.forEach(clearTimeout); clearTimeout(rt); window.removeEventListener('pageshow', later); document.removeEventListener('visibilitychange', onVis); window.removeEventListener('resize', later); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // ★ データの読み込み・反映で中身が変わった後も描き直させる(起動直後は読み込みで中身が何度も変わり、その時に区画が残っていた)。まとめて0.4秒後に1回
+  const _rpDataRef = React.useRef(null);
+  useEffect(() => {
+    if (typeof window === 'undefined' || window.innerWidth >= 768) return;
+    clearTimeout(_rpDataRef.current);
+    _rpDataRef.current = setTimeout(() => { try { tsuNudgeRepaint(contentRef.current || document.querySelector('main')); } catch {} }, 400);
+  }, [appData, currentView]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!tsumugiIsIOS()) return;
     const on = () => _setRepaintTick(t => t + 1);
@@ -27262,15 +27269,16 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
       {/* ヘッダーバー（固定） — scroll container 内で sticky */}
       <div style={{position:'sticky',top: stickyTop, zIndex:familyMode?40:30,background: familyMode ? '#f4f8ed' : '#f0f4f9'}}>
       {/* ★ 分析個人ヘッダ: 淡い青グラデーション、 文字は黒で読みやすく */}
-      <div style={{background: compactMode ? '#d4e7a5' : 'linear-gradient(135deg,#dbeafe 0%,#93c5fd 100%)',color: compactMode ? '#3d5021' : '#1e293b',padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+      {/* ★ 2026-10-08(ユーザー報告: スマホで上部が広すぎ・大きさがばらばら): 事業所の画面だけ、スマホは部品の高さをそろえて詰める(CSS tsu-dash-hdr) */}
+      <div className={(!compactMode && !familyMode) ? 'tsu-dash-hdr' : undefined} style={{background: compactMode ? '#d4e7a5' : 'linear-gradient(135deg,#dbeafe 0%,#93c5fd 100%)',color: compactMode ? '#3d5021' : '#1e293b',padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
         {/* ★ ご家族 / ケアマネ閲覧時 (compactMode) は親ヘッダに利用者名があるため非表示で重複を防ぐ */}
         {!compactMode && (
           <div style={{display:'flex',alignItems:'center',gap:12}}>
-            <div style={{width:36,height:36,background:'rgba(255,255,255,0.2)',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <div className="tsu-dash-icon" style={{width:36,height:36,background:'rgba(255,255,255,0.2)',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center'}}>
               <BarChart3 size={20}/>
             </div>
             <div>
-              <div style={{fontSize:11,opacity:0.7,fontWeight:'bold'}}>分析・個人</div>
+              <div className="tsu-dash-sub" style={{fontSize:11,opacity:0.7,fontWeight:'bold'}}>分析・個人</div>
               <div style={{fontSize:18,fontWeight:'bold'}}>{selectedPatient.name} 様</div>
             </div>
             {/* ★ 表示内容ポップアップ(2026-08-28 店舗要望): 本人/家族/ケアマネ・他関係者に何が見えるか。事業所のみ表示 */}
@@ -31371,8 +31379,9 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
     <div style={{height:'100%',overflowY:'auto',background:'#f0f4f9'}}>
       <div style={{position:'sticky',top:0,zIndex:20,boxShadow:'0 2px 8px rgba(0,0,0,0.15)'}}>
         {/* ★ 分析稼働ヘッダ: 淡いオレンジグラデーション、 文字は黒で読みやすく */}
-        <div style={{background:'linear-gradient(135deg,#fed7aa,#fdba74)',color:'#1e293b',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',rowGap:8,columnGap:8}}>
-        <div style={{display:'flex',alignItems:'center',gap:10,flexShrink:0,whiteSpace:'nowrap'}}><TrendingUp size={20}/><span style={{fontSize:17,fontWeight:'bold'}}>分析（稼働）</span></div>
+        <div className="tsu-dash-hdr" style={{background:'linear-gradient(135deg,#fed7aa,#fdba74)',color:'#1e293b',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',rowGap:8,columnGap:8}}>
+        {/* ★ 2026-10-08: スマホは見出し(画面の題名と重複)を省き、部品の高さをそろえる(CSS tsu-dash-hdr) */}
+        <div className="tsu-dash-sub" style={{display:'flex',alignItems:'center',gap:10,flexShrink:0,whiteSpace:'nowrap'}}><TrendingUp size={20}/><span style={{fontSize:17,fontWeight:'bold'}}>分析（稼働）</span></div>
         <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',justifyContent:(typeof window!=='undefined'&&window.innerWidth<768)?'flex-start':'flex-end',order:(typeof window!=='undefined'&&window.innerWidth<768)?3:0,flexBasis:(typeof window!=='undefined'&&window.innerWidth<768)?'100%':'auto',flexGrow:1}}>
           <div style={{display:'flex',background:'rgba(255,255,255,0.5)',borderRadius:10,overflow:'hidden',border:'1px solid rgba(255,255,255,0.7)'}}>
             {[['1','1ヶ月'],['3','3ヶ月'],['6','半年'],['12','1年'],['custom','期間指定']].map(([v,l])=>(
@@ -41804,8 +41813,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
 // === SettingsView用 SectionCard（外部定義必須 - 内部定義だとIME破壊）===
 function SectionCard({ title, children }) {
   return (
-    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-      <h3 className="text-base font-bold text-slate-800 mb-4 border-b border-slate-200 pb-2">{title}</h3>
+    <div className="bg-white p-3 sm:p-6 rounded-2xl shadow-sm border border-slate-200">
+      <h3 className="text-base font-bold text-slate-800 mb-2 sm:mb-4 border-b border-slate-200 pb-2">{title}</h3>
       {children}
     </div>
   );
@@ -43294,7 +43303,10 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
             const sortedPersons = sortCareManagersByKana(officeFilteredPersons);
             const _noKanaN = sortedPersons.filter(p => !(p.kana||'').trim()).length;
             return (
-              <div className="grid grid-cols-[40%_minmax(0,1fr)] gap-4 items-start">
+              // ★ 2026-10-08(ユーザー報告: スマホで左の事業所が潰れて見えない・担当者も見づらい): スマホは上下に並べる
+              //   (上=事業所・下=担当ケアマネジャー)。事業所の一覧はスマホでは画面の約3分の1の高さでスクロール。どちらも検索できる。
+              //   事業所を押すと下の担当者がその事業所の方だけになる(従来どおり)
+              <div className="grid grid-cols-1 md:grid-cols-[40%_minmax(0,1fr)] gap-3 md:gap-4 items-start">
                 <SectionCard title="ケアマネ事業所">
                   {/* ★ 常設フォームを廃止し、ボタン→ポップアップで登録(2026-08-31 店舗要望) */}
                   <button type="button" onClick={()=>{setNewOffice({name:"",phone:"",fax:""});setAddOfficeModal(true);}} className="w-full py-2 mb-3 bg-slate-800 text-white rounded-lg font-bold text-sm active:scale-95 flex items-center justify-center"><Plus size={14} className="mr-1"/>事業所を追加</button>
@@ -43357,7 +43369,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                     inputProps={{type:'text', placeholder:'事業所名・カナ・法人名で検索', className:'w-full px-3 py-2 border border-slate-300 rounded-lg outline-none text-sm font-bold focus:border-blue-400'}}/>
                   <div className="text-xs text-slate-500 mb-2 px-1">{sortedOffices.length}/{cmOffices.length}件・あいうえお順{hasAnyCorp ? '・法人ごと' : ''} {selectedOfficeIdx!==null && <button onClick={()=>setSelectedOfficeIdx(null)} className="ml-2 text-blue-600 hover:underline">× 選択解除</button>}</div>
                   {sortedOffices.length === 0 ? <div className="text-slate-400 text-sm font-bold bg-slate-50 p-4 rounded-xl border text-center">{cmOffices.length===0?'登録なし':'該当なし'}</div> : (
-                    <div className="space-y-3 max-h-[62vh] overflow-y-auto pr-1">{officeGroups.map(([corp, offices]) => (
+                    <div className="space-y-3 max-h-[34vh] md:max-h-[62vh] overflow-y-auto pr-1">{officeGroups.map(([corp, offices]) => (
                       <div key={corp}>
                         {corp && <div className="text-[11px] font-bold text-slate-400 px-1 pb-1 border-b border-slate-100 mb-1.5 sticky top-0 bg-white">{corp} <span className="text-slate-300">({offices.length})</span></div>}
                         <div className="space-y-1.5">{offices.map(o => {
@@ -50929,7 +50941,7 @@ ${optionsDesc}
         <span className="text-xs font-bold text-slate-500 whitespace-nowrap">{attendedPats.length+absentPats.length}名</span>
         <button type="button" data-testid="mon-fold-save" onClick={()=>{ markClean(); onSave({...appData}, {manual:true, message:'✓ 保存しました'}); }} className="shrink-0 h-10 px-3 rounded-xl bg-blue-600 text-white text-sm font-bold ml-auto">保存</button>
       </>}>
-      <div className="no-print" style={{position:'sticky',top:0,zIndex:30,flexShrink:0,background:'linear-gradient(135deg,#bae6fd,#7dd3fc)',color:'#1e293b',padding:'7px 14px',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',boxShadow:'0 2px 8px rgba(0,0,0,0.15)'}}>
+      <div className="no-print tsu-mon-bar" style={{position:'sticky',top:0,zIndex:30,flexShrink:0,background:'linear-gradient(135deg,#bae6fd,#7dd3fc)',color:'#1e293b',padding:'7px 14px',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',boxShadow:'0 2px 8px rgba(0,0,0,0.15)'}}>
         {/* 絞り込みポップアップ */}
         <div style={{position:'relative'}}>
           <button type="button" onClick={()=>{ setMonFilterPop(v=>!v); setMonSortPop(false); }}
@@ -51054,7 +51066,8 @@ ${optionsDesc}
         <input type="month" value={targetMonth} onChange={e=>setTargetMonth(e.target.value)}
           style={{background:'rgba(255,255,255,0.5)',border:'1px solid rgba(255,255,255,0.7)',color:'#1e293b',borderRadius:10,padding:'6px 10px',fontSize:12,fontWeight:'bold',outline:'none',cursor:'pointer'}}/>
         {/* ★ 2026-10-04 ユーザー指示: 「プレビュー」は「印刷/PDF」と重複していたため統合(ダウンロード) */}
-        <button type="button" onClick={()=>{ markClean(); onSave({...appData}, {manual:true, message:'✓ 保存しました'}); }}
+        {/* ★ 2026-10-08: スマホは1行目に保存があるので、ここの保存は出さない(tsu-hide-phone) */}
+        <button type="button" className="tsu-hide-phone" onClick={()=>{ markClean(); onSave({...appData}, {manual:true, message:'✓ 保存しました'}); }}
           style={{background:'#2563eb',border:'none',color:'white',borderRadius:10,padding:'8px 14px',fontWeight:'bold',fontSize:12,cursor:'pointer'}}>
           保存
         </button>
@@ -51191,7 +51204,7 @@ ${optionsDesc}
                               </button>
                               {/* ★ コンパクト時: 本文を同じ行に1行省略表示(クリックで編集=自動展開) */}
                               {!_exp && (
-                                <div onClick={()=>{ if(!confirmed) { toggleMonExpand(patient.id); setEditTextCell(cellId); } else toggleMonExpand(patient.id); }}
+                                <div className="tsu-mon-text" onClick={()=>{ if(!confirmed) { toggleMonExpand(patient.id); setEditTextCell(cellId); } else toggleMonExpand(patient.id); }}
                                   title={confirmed?'クリックで全文表示':'クリックで展開して編集'}
                                   style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:c.text?'#334155':'#cbd5e1',cursor:'pointer',fontSize:12}}>
                                   {c.text || (confirmed?'—':'（クリックで入力）')}
