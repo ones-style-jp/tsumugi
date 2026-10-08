@@ -14136,6 +14136,38 @@ function FamilyAdminView({ appData, onSave }) {
       </div>
     </div>
   );
+  // ★ 2026-10-09(ユーザー要望): 履歴の絞り込み。スマホはタブのすぐ下にくっつけて一緒に画面に固定し、文字を小さくして2行に収める
+  //   (1行目=全体/個別・種類・年・月、2行目=キーワード・該当件数)。パソコン・iPadは従来どおり履歴の中に置く
+  const _hfSel = _faPhone ? 'tsu-fa-hsel min-w-0 px-1.5 py-1 bg-slate-50 border border-slate-300 rounded-lg font-bold outline-none' : 'px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none';
+  const _histFilterBar = (
+    <div className={_faPhone ? 'bg-white border-b border-slate-200 px-2 pt-1.5 pb-2' : 'bg-white rounded-2xl shadow-sm border border-slate-200 p-4'} data-testid="fa-hist-filter">
+      <div className={_faPhone ? 'grid gap-1.5' : 'flex flex-wrap items-center gap-2'} style={_faPhone ? { gridTemplateColumns: '1.3fr 1.15fr 0.95fr 0.8fr' } : undefined}>
+        {!_faPhone && <span className="text-xs font-bold text-slate-500">絞り込み:</span>}
+        <select value={historyFilter.scope} onChange={e=>setHistoryFilter(f=>({...f,scope:e.target.value}))} className={_hfSel}>
+          <option value="all">全体＋個別</option><option value="all_only">全体のみ</option><option value="personal">個別のみ</option>
+        </select>
+        <select value={historyFilter.kind} onChange={e=>setHistoryFilter(f=>({...f,kind:e.target.value}))} className={_hfSel}>
+          <option value="all">全て</option><option value="news">お知らせ</option><option value="photos">写真・PDF</option>
+        </select>
+        {!_faPhone && <input type="search" value={historyFilter.q} onChange={e=>setHistoryFilter(f=>({...f,q:e.target.value}))} placeholder="キーワード（タイトル・本文）" className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none min-w-[180px] flex-1"/>}
+        <select value={historyFilter.year} onChange={e=>setHistoryFilter(f=>({...f,year:e.target.value,month:''}))} className={_hfSel}>
+          <option value="">全期間</option>
+          {histYears.map(y => <option key={y} value={y}>{y}年</option>)}
+        </select>
+        <select value={historyFilter.month} onChange={e=>setHistoryFilter(f=>({...f,month:e.target.value}))} className={`${_hfSel} disabled:opacity-50`} disabled={!historyFilter.year}>
+          <option value="">全月</option>
+          {Array.from({length:12},(_,i)=>i+1).map(m => <option key={m} value={String(m)}>{m}月</option>)}
+        </select>
+        {!_faPhone && <span className="ml-auto text-xs text-slate-500">該当 {filteredHistory.length}件</span>}
+      </div>
+      {_faPhone && (
+        <div className="flex items-center gap-2 mt-1.5">
+          <input type="search" value={historyFilter.q} onChange={e=>setHistoryFilter(f=>({...f,q:e.target.value}))} placeholder="キーワード（タイトル・本文）" className="tsu-fa-hq flex-1 min-w-0 px-2 py-1 bg-slate-50 border border-slate-300 rounded-lg font-bold outline-none"/>
+          <span className="shrink-0 text-[11px] font-bold text-slate-500 whitespace-nowrap">該当 {filteredHistory.length}件</span>
+        </div>
+      )}
+    </div>
+  );
   return (
     // ★ 2026-10-08(ユーザー要望: スマホで投稿・履歴のときタブが上に詰まっていない): スマホはどのタブでもタブを上端に詰めて画面に固定
     <div className={`h-full overflow-auto bg-slate-50 ${tab==='preview'?'p-0':(_faPhone ? 'px-3 pb-3 pt-0' : 'p-3 sm:p-6')}`}>
@@ -14147,6 +14179,7 @@ function FamilyAdminView({ appData, onSave }) {
             <button key={k} onClick={()=>setTab(k)} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors whitespace-nowrap ${tab===k?'bg-emerald-500 text-white shadow':'text-slate-500 hover:bg-slate-100'}`}><span className="hidden sm:inline">{l}</span><span className="sm:hidden">{sh}</span></button>
           ))}
         </div>
+        {_faPhone && tab==='history' && _histFilterBar}
         </TsuPhonePin>
         {_faPhone && tab!=='preview' && <div className="h-3" />}
         {tab === 'post' && (
@@ -14336,27 +14369,7 @@ function FamilyAdminView({ appData, onSave }) {
                 </div>
               </div>
             )}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-bold text-slate-500">絞り込み:</span>
-                <select value={historyFilter.scope} onChange={e=>setHistoryFilter(f=>({...f,scope:e.target.value}))} className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none">
-                  <option value="all">全体＋個別</option><option value="all_only">全体のみ</option><option value="personal">個別のみ</option>
-                </select>
-                <select value={historyFilter.kind} onChange={e=>setHistoryFilter(f=>({...f,kind:e.target.value}))} className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none">
-                  <option value="all">全て</option><option value="news">お知らせ</option><option value="photos">写真・PDF</option>
-                </select>
-                <input type="search" value={historyFilter.q} onChange={e=>setHistoryFilter(f=>({...f,q:e.target.value}))} placeholder="キーワード（タイトル・本文）" className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none min-w-[180px] flex-1"/>
-                <select value={historyFilter.year} onChange={e=>setHistoryFilter(f=>({...f,year:e.target.value,month:''}))} className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none">
-                  <option value="">全期間</option>
-                  {histYears.map(y => <option key={y} value={y}>{y}年</option>)}
-                </select>
-                <select value={historyFilter.month} onChange={e=>setHistoryFilter(f=>({...f,month:e.target.value}))} className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none disabled:opacity-50" disabled={!historyFilter.year}>
-                  <option value="">全月</option>
-                  {Array.from({length:12},(_,i)=>i+1).map(m => <option key={m} value={String(m)}>{m}月</option>)}
-                </select>
-                <span className="ml-auto text-xs text-slate-500">該当 {filteredHistory.length}件</span>
-              </div>
-            </div>
+            {!_faPhone && _histFilterBar}
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200">
               {filteredHistory.length === 0 ? (
                 <div className="text-xs text-slate-400 text-center py-12">該当する履歴がありません</div>
@@ -35734,7 +35747,6 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const [autoCalc, setAutoCalc] = useState(null); // ★ 2026-09-30: 自動計算の選択 { haisha, jikan, days:Set(iso), slots:Set('AM'|'PM') }
   React.useEffect(() => { try { const j = sessionStorage.getItem('tsumugiTpJump'); if (j) { sessionStorage.removeItem('tsumugiTpJump'); setSelectedDate(j); } } catch {} }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [tpSettings, setTpSettings] = useState(false); // ★ 送迎表の設定モーダル(到着目標・出発・定員)
-  const [tpLegend, setTpLegend] = useState(false); // ★ 凡例の開閉(●=要TELは常時表示・2026-09-14 デザイン刷新)
   const _facilityAddr = () => { const fi = appData.systemSettings?.facilityInfo || {}; return `${fi.address||''}${fi.addressBuilding?(' '+fi.addressBuilding):''}`.trim(); };
   // ★ 2026-10-01(試験版・ユーザー要望): 地域密着型は事業所と同じ区市町村の方が利用するので、運行表・連絡先一覧の住所は
   //   事業所と同じ「都道府県＋区市町村」(例: 東京都江東区)を省いて表示する。別の区市町村の住所はそのまま。
@@ -36493,17 +36505,17 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       <TsuPhonePin testId="pin-transport"><div className="sticky top-0 z-30">
       {/* ★ 2026-09-13c(店舗要望): 重複タイトルを削除し週切替を左端へ。バーは画面上部のタイトル帯に密着(スクロール中も固定)。凡例は同じ列に常時表示・操作説明は「?」に格納 */}
       <div data-testid="tp-ops" className={`bg-white px-2 sm:px-3 py-1.5 border-b border-slate-200 shadow-sm flex items-center gap-2 flex-wrap ${_tpPhone && !_tpOpsOpen ? 'hidden' : ''}`}>
-        <div className="flex items-center gap-1">
+        <div className="tsu-tpo-week flex items-center gap-1">
           <button onClick={()=>moveWeek(-1)} className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-bold">◀ 前週</button>
           <span className="text-sm font-bold text-slate-700 px-1 whitespace-nowrap">{_mon.getMonth()+1}/{_mon.getDate()}〜の週</span>
           <button onClick={()=>moveWeek(1)} className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-bold">翌週 ▶</button>
         </div>
-        <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 whitespace-nowrap">
-          <span className="border border-slate-200 rounded px-1.5 py-0.5"><span className="border-2 border-red-600 rounded px-1 font-bold">時間</span>=時間変更(要TEL)</span>
-          <button onClick={()=>setTpLegend(v=>!v)} className="text-slate-500 underline decoration-dotted underline-offset-2 px-1 py-0.5">凡例{tpLegend?' −':' ＋'}</button>
-          {tpLegend && <><span className="bg-emerald-200 text-emerald-900 rounded px-1.5 py-0.5">緑=振替</span><span className="bg-sky-200 text-sky-900 rounded px-1.5 py-0.5">水色=初回</span><span className="text-slate-500">長押し=移動(別の日へ=振替)</span></>}
+        {/* ★ 2026-10-09(ユーザー要望・全端末): 「(要TEL)」は不要。凡例の開閉もやめ、緑=振替・水色=初回だけを常に表示 */}
+        <span className="tsu-tpo-legend flex items-center gap-1.5 text-[11px] font-bold text-slate-600 whitespace-nowrap" data-testid="tp-legend">
+          <span className="border border-slate-200 rounded px-1.5 py-0.5"><span className="border-2 border-red-600 rounded px-1 font-bold">時間</span>=時間変更</span>
+          <span className="bg-emerald-200 text-emerald-900 rounded px-1.5 py-0.5">緑=振替</span><span className="bg-sky-200 text-sky-900 rounded px-1.5 py-0.5">水色=初回</span>
         </span>
-          <div className="flex-1"/>
+          <div className="tsu-tpo-sp flex-1"/>
           <button onClick={()=>{
             if (!window.confirm('前の週の送迎表(車割り当て・時間・運転者・備考)を、この週へコピーします。\n前の週に振替で来た方や、この週にお休みの方はコピーしません(この週に振替で来る方は未割当に入ります)。\nこの週に入力済みの内容は上書きされます。よろしいですか？')) return;
             let n = 0, nSkip = 0;
@@ -36592,7 +36604,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           {/* ★ 2026-10-01(試験版・ユーザー要望「文が長い」): 週の状態は短く「作成中」／確定を押したら「確定済」(押した日時つき) */}
           {/*   確定したあとは「確定済」のボタン(押すと今の内容で確定を更新)だけにして、横幅を取らないようにする */}
           {(() => { const fa = _finalAtOfWeek(); return fa ? null
-            : <span data-testid="tp-not-final" className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-300 rounded-lg px-2 py-1 whitespace-nowrap" title="内容を確認したら「確定」を押してください。確定後に変えた箇所には赤丸が付き、ご家族・ケアマネの画面のお迎え時間が「確定」になります">作成中</span>; })()}
+            : <span data-testid="tp-not-final" className="tsu-tpo-status text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-300 rounded-lg px-2 py-1 whitespace-nowrap" title="内容を確認したら「確定」を押してください。確定後に変えた箇所には赤丸が付き、ご家族・ケアマネの画面のお迎え時間が「確定」になります">作成中</span>; })()}
           {(() => { const r = tpNextWeekReminder(appData); if (!r || tpIsoOf(_mon) === r.iso) return null; return (
             <button onClick={()=>setSelectedDate(r.iso)} data-testid="tp-next-reminder" className="text-[11px] font-bold text-red-700 bg-red-50 border border-red-300 rounded-lg px-2 py-1 whitespace-nowrap hover:bg-red-100" title={`1週間後の日を含む週（${r.label}）の送迎表がまだ確定していません。押すとその週を開きます`}>次週分未確定 ›</button>
           ); })()}

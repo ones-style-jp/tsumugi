@@ -372,10 +372,14 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
   .tsu-cb-bar { flex-wrap: nowrap !important; padding: 8px 6px !important; gap: 4px !important; }
   .tsu-cb-bar > button, .tsu-cb-bar > div > button { padding: 0 7px !important; height: 40px; font-size: 12px !important; white-space: nowrap; }
   .tsu-cb-bar > button svg { display: none; }
-  /* 送迎表の「操作」の中も詰めて 2〜3行に収める */
-  [data-testid="tp-ops"] { gap: 5px !important; padding: 6px 8px !important; }
-  [data-testid="tp-ops"] button { padding: 5px 9px !important; font-size: 12px !important; min-height: 0 !important; white-space: nowrap; }
-  [data-testid="tp-ops"] button svg { width: 13px; height: 13px; }
+  /* ★ 2026-10-09(ユーザー要望「操作を開いた時の配置が微妙」): 送迎表の「操作」の中は
+     1行目=週の切替(左右いっぱい)・2行目=色の見本・その下=ボタンを3列にそろえて並べる */
+  [data-testid="tp-ops"]:not(.hidden) { display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px !important; padding: 8px 8px !important; }
+  [data-testid="tp-ops"] .tsu-tpo-week { grid-column: 1 / -1; justify-content: space-between; }
+  [data-testid="tp-ops"] .tsu-tpo-week > button { padding: 6px 12px !important; }
+  [data-testid="tp-ops"] .tsu-tpo-legend { grid-column: 1 / -1; justify-content: center; }
+  [data-testid="tp-ops"] .tsu-tpo-sp, [data-testid="tp-ops"] .tsu-tpo-status { display: none !important; }
+  [data-testid="tp-ops"] > button:not(.hidden) { width: 100%; height: 40px; padding: 0 4px !important; font-size: 12px !important; border-radius: 10px !important; white-space: nowrap; display: flex; align-items: center; justify-content: center; }
 }
 
 /* ★ 2026-10-08: スマホの休み連絡(カレンダー)上部 = 月の切替・印の見本・履歴 を1行 */
@@ -398,4 +402,11 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
 @media (max-width: 767px) {
   .tsu-em-bar { flex-wrap: nowrap !important; padding: 8px 8px !important; gap: 5px !important; }
   .tsu-em-bar > button { flex: 1 1 auto; padding: 8px 4px !important; font-size: 13px !important; }
+}
+
+/* ★ 2026-10-09(ユーザー要望): スマホの家族関係者閲覧管理「履歴」の絞り込みは文字を小さくして2行に(タブの下に固定)。
+   キーワード欄は iPhone の拡大を防ぐため 16px のまま(高さだけ詰める) */
+@media (max-width: 767px) {
+  .tsu-fa-hsel { font-size: 13px !important; height: 32px; width: 100%; }
+  .tsu-fa-hq { height: 32px; }
 }
