@@ -1717,6 +1717,69 @@ function FitTrendChart({ points, unit, height = 110 }) {
     </div>
   );
 }
+// ★ 2026-10-08(ユーザー要望「握力など左右を測る項目は、右と左をまとめて1つの項目として入力し、グラフも右と左を一緒に」):
+//   体力測定の項目に「左右の組」(pairGroup・side 'R'|'L')を持たせる。値の保存は今までどおり右・左それぞれの項目ID(書類・LIFE等はそのまま)。
+//   画面では組を1つの単位として並べ、グラフは1つに右(青)・左(橙)の2本で描く
+const fitPairBaseName = (name) => String(name || '').replace(/\s*[（(]\s*[右左]\s*[)）]\s*$/, '').replace(/\s*[右左]\s*$/, '').replace(/^[右左]\s*/, '').trim();
+const fitDisplayUnits = (items) => {
+  const list = items || []; const out = []; const seen = new Set();
+  list.forEach(it => {
+    if (it && it.pairGroup) {
+      if (seen.has(it.pairGroup)) return;
+      const grp = list.filter(x => x && x.pairGroup === it.pairGroup);
+      const R = grp.find(x => x.side === 'R') || grp[0]; const L = grp.find(x => x.side === 'L' && x !== R) || grp.find(x => x !== R);
+      if (!R || !L) { out.push({ type: 'single', key: it.id, item: it }); return; }
+      seen.add(it.pairGroup);
+      out.push({ type: 'pair', key: 'pair_' + it.pairGroup, label: R.pairName || fitPairBaseName(R.name) || fitPairBaseName(L.name), unit: R.unit || L.unit || '', R, L });
+    } else if (it) out.push({ type: 'single', key: it.id, item: it });
+  });
+  return out;
+};
+// 右・左の2本の推移グラフ(日付は両方の記録をまとめて横に並べる)
+function FitPairChart({ ptsR, ptsL, unit, height = 120 }) {
+  const [tip, setTip] = React.useState(null);
+  const ok = (p) => p && p.v != null && !isNaN(p.v);
+  const R = (ptsR || []).filter(ok), L = (ptsL || []).filter(ok);
+  if (!R.length && !L.length) return null;
+  const keyOf = (p) => p.cur ? '__cur' : String(p.date || '');
+  const dates = [...new Set([...R, ...L].filter(p => !p.cur).map(p => String(p.date || '')))].sort();
+  const hasCur = [...R, ...L].some(p => p.cur);
+  const cols = [...dates, ...(hasCur ? ['__cur'] : [])];
+  const H = height, PAD = 14, LW = 26, step = cols.length <= 14 ? 44 : cols.length <= 30 ? 26 : 14;
+  const W = Math.max(260, cols.length * step + PAD * 2);
+  const xP = (k) => PAD + step / 2 + cols.indexOf(k) * step;
+  const vals = [...R, ...L].map(p => p.v);
+  const lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || Math.max(1, Math.abs(hi) * 0.1);
+  const yMin = lo - span * 0.25, yMax = hi + span * 0.3;
+  const yP = (v) => 14 + ((yMax - v) / (yMax - yMin || 1)) * (H - 22);
+  const fmtV = (v) => (Math.round(v * 10) / 10).toString();
+  const _yrs = new Set(dates.map(d => (d.match(/^(\d{4})/) || [])[1]).filter(Boolean));
+  const fmtD = (d) => { if (d === '__cur') return '今回'; const m = String(d || '').match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return `${_yrs.size > 1 ? `'${m[1].slice(2)} ` : ''}${+m[2]}/${+m[3]}`; return String(d || ''); };
+  const showL = (i) => cols.length <= 7 || i === 0 || i === cols.length - 1 || i % Math.ceil(cols.length / 6) === 0;
+  const series = [['右', R, '#2563eb', -7], ['左', L, '#ea580c', 11]];
+  const pick = (e) => { const rb = e.currentTarget.getBoundingClientRect(); const mx = (e.clientX - rb.left) * ((W + LW) / (rb.width || 1)); let best = -1, bd = Infinity; cols.forEach((k, i) => { const dx = Math.abs(xP(k) - mx); if (dx < bd) { bd = dx; best = i; } }); if (best < 0) return; const k = cols[best]; setTip({ k, r: R.find(p => keyOf(p) === k), l: L.find(p => keyOf(p) === k), px: e.clientX, py: e.clientY }); };
+  return (
+    <div data-testid="fit-pair-chart" style={{ position: 'relative' }}>
+      <div style={{ display: 'flex', gap: 12, fontSize: 11, fontWeight: 'bold', marginBottom: 2 }}>
+        <span style={{ color: '#2563eb' }}>● 右</span><span style={{ color: '#ea580c' }}>● 左</span>
+      </div>
+      <svg viewBox={`0 0 ${W + LW} ${H + 14}`} preserveAspectRatio="xMinYMid meet" style={{ width: '100%', height: H + 14, display: 'block' }}>
+        <line x1={0} y1={yP(lo)} x2={W} y2={yP(lo)} stroke="#e2e8f0" strokeWidth={1} />
+        <line x1={0} y1={yP(hi)} x2={W} y2={yP(hi)} stroke="#e2e8f0" strokeWidth={1} />
+        {series.map(([nm, pts, col]) => pts.length > 1 ? <polyline key={`l${nm}`} points={pts.map(p => `${xP(keyOf(p))},${yP(p.v)}`).join(' ')} fill="none" stroke={col} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" /> : null)}
+        {series.map(([nm, pts, col]) => pts.map((p, i) => <circle key={`c${nm}${i}`} cx={xP(keyOf(p))} cy={yP(p.v)} r={3.5} fill={p.cur ? '#f59e0b' : col} stroke="white" strokeWidth={1.5} pointerEvents="none" />))}
+        {series.map(([nm, pts, col, dy]) => pts.map((p, i) => <text key={`v${nm}${i}`} x={xP(keyOf(p))} y={yP(p.v) + dy} textAnchor="middle" fontSize={8} fill={col} fontWeight="bold">{fmtV(p.v)}</text>))}
+        {cols.map((k, i) => showL(i) ? <text key={`d${i}`} x={xP(k)} y={H + 11} textAnchor="middle" fontSize={8} fill="#000" fontWeight="bold">{fmtD(k)}</text> : null)}
+        <rect x={0} y={0} width={W + LW} height={H + 14} fill="transparent" style={{ cursor: 'pointer' }} onMouseMove={pick} onClick={pick} onMouseLeave={() => setTip(null)} />
+      </svg>
+      {tip && (
+        <div style={{ position: 'fixed', left: tip.px + 12, top: tip.py - 8, background: 'rgba(15,23,42,0.92)', color: 'white', borderRadius: 10, padding: '6px 10px', fontSize: 13, zIndex: 9999, pointerEvents: 'none' }}>
+          <div style={{ fontWeight: 'bold' }}>{tip.k === '__cur' ? '今回の入力' : tip.k}</div>
+          <div>右 {tip.r ? `${fmtV(tip.r.v)}${unit || ''}` : '—'}　左 {tip.l ? `${fmtV(tip.l.v)}${unit || ''}` : '—'}</div>
+        </div>)}
+    </div>
+  );
+}
 const bmiJudge = (bmi, age) => {
   if (bmi == null || isNaN(bmi)) return null;
   const elder = age != null && age >= 65;
@@ -11107,14 +11170,17 @@ function DigitalKeypad({ isOpen, anchorKey, value, isFirstInput, onInput, onEnte
         if (!cell || !kp) return;
         let sc = cell.parentElement;
         // 実際にスクロールしている枠(高さが画面に収まっている枠)まで上る
-        while (sc && sc !== document.body) { const oy = getComputedStyle(sc).overflowY; if ((oy === 'auto' || oy === 'scroll') && sc.clientHeight <= window.innerHeight + 1) break; sc = sc.parentElement; }
-        if (!sc || sc === document.body) return;
+        while (sc && sc !== document.body) { const oy = getComputedStyle(sc).overflowY; if ((oy === 'auto' || oy === 'scroll') && sc.clientHeight <= window.innerHeight + 1 && sc.scrollHeight > sc.clientHeight) break; sc = sc.parentElement; }
+        // ★ 2026-10-08: スマホはページ全体がスクロールする作り → 枠が見つからなければページ(余白は body)を動かす
+        const isDoc = !sc || sc === document.body;
+        const scroller = isDoc ? (document.scrollingElement || document.documentElement) : sc;
+        const padEl = isDoc ? document.body : sc;
         const kh = kp.getBoundingClientRect().height;
-        if (sc.dataset.tsuKpPad !== '1') { prevPad = sc.style.paddingBottom; sc.style.paddingBottom = `${Math.round(kh + 24)}px`; sc.dataset.tsuKpPad = '1'; padded = sc; }
+        if (padEl.dataset.tsuKpPad !== '1') { prevPad = padEl.style.paddingBottom; padEl.style.paddingBottom = `${Math.round(kh + 24)}px`; padEl.dataset.tsuKpPad = '1'; padded = padEl; }
         const kTop = kp.getBoundingClientRect().top;
-        const r = cell.getBoundingClientRect(); const sr = sc.getBoundingClientRect();
-        if (r.bottom > kTop - 10) sc.scrollTop += (r.bottom - kTop + 18);
-        else if (r.top < sr.top + 6) sc.scrollTop -= (sr.top - r.top + 18);
+        const r = cell.getBoundingClientRect(); const topEdge = isDoc ? 110 : sc.getBoundingClientRect().top + 6; // ページのときは上の見出し+1行目の下
+        if (r.bottom > kTop - 10) scroller.scrollTop += (r.bottom - kTop + 18);
+        else if (r.top < topEdge) scroller.scrollTop -= (topEdge - r.top + 18);
       } catch {}
     }, 60);
     return () => { clearTimeout(t); if (padded) { padded.style.paddingBottom = prevPad; delete padded.dataset.tsuKpPad; } };
@@ -11361,23 +11427,6 @@ const _tsuClipX = (() => { try { return (typeof CSS !== 'undefined' && CSS.suppo
 // ★ 2026-10-08(ユーザー提案「スマホは上部の項目を折りたたみ、必要なときだけいつでも表示」): スマホ幅(768未満)の画面上部の共通部品。
 //   折りたたみ中は1行の要約(summary=日付・保存など よく使うもの)と「操作」ボタンだけを出し、押すと上部の操作(children)を全部表示する。
 //   開閉は画面ごとに端末へ記憶(storageKey)。iPad・PCでは children をそのまま出す(従来どおり)。
-// ★ 2026-10-08(店舗報告: iPhone で画面の上の方が空白のまま=描かれない。空白でも押すと反応する=中身はあるが絵が描かれていない):
-//   空白の高さはいつも約512px = iPhone が画面を区切って描く「区画」1つ分。中身が変わったのにその区画だけ描き直されずに残っている。
-//   ・画面全体を一瞬消す(display:none)方法は、iPhone では逆に区画が残ることがあった。
-//   ・1pxスクロールは描いた絵をずらすだけで描き直しにならなかった(trial232)。
-//   → スクロールしている枠の背景色をごくわずかに変えて次の描画で戻す。背景が変わると、その枠の区画がすべて描き直される(見た目は変わらない)。
-function tsuNudgeRepaint(sc) {
-  try {
-    // 実際にスクロールしている枠まで上る(なければ渡された枠のまま)
-    let e = sc; while (e && e !== document.body && !(e.scrollHeight > e.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(e).overflowY))) e = e.parentElement;
-    if (e && e !== document.body) sc = e;
-    if (!sc) return;
-    const targets = [sc, sc.firstElementChild].filter(Boolean);
-    const prev = targets.map(t => t.style.backgroundColor);
-    targets.forEach(t => { const cur = getComputedStyle(t).backgroundColor; t.style.backgroundColor = (!cur || cur === 'rgba(0, 0, 0, 0)' || cur === 'transparent') ? 'rgba(255, 255, 255, 0.003)' : cur.replace(/^rgb\((\d+), (\d+), (\d+)\)$/, (m0, r, g, b) => `rgb(${r}, ${g}, ${Math.max(0, Number(b) - 1)})`); });
-    requestAnimationFrame(() => requestAnimationFrame(() => { try { targets.forEach((t, i) => { t.style.backgroundColor = prev[i]; }); } catch {} }));
-  } catch {}
-}
 // ★ 2026-10-08(ユーザー要望「上部1行目の日付は押せない。押したら日付を選べるように」): 見た目は「10/8(木) ▼」の短い表示のまま、
 //   押すと端末の日付(月)の選択が開く(透明な入力欄を重ねる)。type='date' | 'month'
 function TsuDatePick({ type = 'date', value, onChange, label, testId }) {
@@ -11405,7 +11454,7 @@ function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = 
   const [open, setOpen] = React.useState(() => { try { return localStorage.getItem('tsuFold_' + storageKey) === '1'; } catch { return false; } });
   const foldRef = React.useRef(null); // ★ 2026-10-08: フックは必ず早期 return より前(向きを変えてスマホ幅⇔それ以外が切り替わると「フックの数が違う」エラーで画面が落ちていた)
   if (!isPhone) return children;
-  const tog = () => { setOpen(v => { const nv = !v; try { localStorage.setItem('tsuFold_' + storageKey, nv ? '1' : '0'); } catch {} return nv; }); setTimeout(() => tsuNudgeRepaint(foldRef.current), 60); };
+  const tog = () => { setOpen(v => { const nv = !v; try { localStorage.setItem('tsuFold_' + storageKey, nv ? '1' : '0'); } catch {} return nv; }); };
   return (
     <div ref={foldRef} data-testid={`fold-${storageKey}`} className={`${sticky ? 'sticky top-0 z-30' : ''} bg-white border-b border-slate-200 shadow-sm ${className}`}>
       <div className="flex items-center gap-1.5 px-2 py-1.5" style={{minHeight:48}}>
@@ -21005,8 +21054,8 @@ export default function App() {
   //   reflow させて sticky を強制再計算させる (同一タスク内なので画面のちらつきは出ない)。
   useEffect(() => {
     const id = setTimeout(() => {
-      // ★ 2026-10-08: スマホ幅は消して描き直す方法を使わない(上の方が空白で残ることがあった)。サイドバーは重ねて出すだけで並びも変わらない
-      if (window.innerWidth < 768) { tsuNudgeRepaint(contentRef.current); return; }
+      // ★ 2026-10-08: スマホ幅は何もしない(サイドバーは重ねて出すだけで並びは変わらない。消して描き直すと上の方が空白で残ることがあった)
+      if (window.innerWidth < 768) return;
       const el = document.getElementById('appMainArea');
       if (!el) return;
       const prev = el.style.display;
@@ -21016,39 +21065,13 @@ export default function App() {
     }, 330); // サイドバーの transition(300ms)完了後
     return () => clearTimeout(id);
   }, [isSidebarOpen]);
-  // ★ 2026-10-08: iPhone/iPad でサイドバーを開いた後、メニュー(スクロール枠)を一度描き直させる(描かれずに空になることがあった)
-  useEffect(() => {
-    if (!isSidebarOpen || !tsumugiIsIOS()) return;
-    const id = setTimeout(() => { try { tsuNudgeRepaint(document.getElementById('tsuSideNav')); } catch {} }, 340);
-    return () => clearTimeout(id);
-  }, [isSidebarOpen]);
   // ★ 2026-10-06(ユーザー報告: 再読み込みした直後は上部のボタンが出ず、サイドバーを開閉すると出る): iPad の WebKit で
   //   縮小(zoom)の切替や回転のあと上部のバーが描かれないことがある。サイドバー開閉と同じ強制 reflow を、画面の切替・回転のあとにも行う
   const [_repaintTick, _setRepaintTick] = useState(0);
-  // ★ 2026-10-08(店舗報告: ホーム画面のアプリを立ち上げた直後に、画面の上の方が空白のことが多い): iPhone は起動直後や
-  //   アプリに戻ったとき(データの読み込みで中身が何度も変わる間)に、画面の一部を描き直さないことがある。
-  //   スマホ幅では、起動後しばらく(0.3/1/2.5/5秒)・アプリに戻ったとき・画面の大きさが変わったときに、1pxスクロールで描き直させる
-  useEffect(() => {
-    const nudge = () => { try { if (window.innerWidth < 768) tsuNudgeRepaint(contentRef.current || document.querySelector('main')); } catch {} };
-    const ts = [300, 1000, 2500, 5000].map(ms => setTimeout(nudge, ms));
-    let rt = null; const later = () => { clearTimeout(rt); rt = setTimeout(nudge, 350); };
-    const onVis = () => { if (document.visibilityState === 'visible') later(); };
-    window.addEventListener('pageshow', later); document.addEventListener('visibilitychange', onVis); window.addEventListener('resize', later);
-    return () => { ts.forEach(clearTimeout); clearTimeout(rt); window.removeEventListener('pageshow', later); document.removeEventListener('visibilitychange', onVis); window.removeEventListener('resize', later); };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  // ★ 2026-10-08(店舗報告: しばらく操作してからログアウト→ログインすると白い): ログインした後(店舗が決まった後)にも数回描き直させる
-  useEffect(() => {
-    if (!staffSession?.storeId || typeof window === 'undefined' || window.innerWidth >= 768) return;
-    const ts = [300, 1200, 3000].map(ms => setTimeout(() => { try { tsuNudgeRepaint(contentRef.current || document.querySelector('main')); } catch {} }, ms));
-    return () => ts.forEach(clearTimeout);
-  }, [staffSession?.storeId]); // eslint-disable-line react-hooks/exhaustive-deps
-  // ★ データの読み込み・反映で中身が変わった後も描き直させる(起動直後は読み込みで中身が何度も変わり、その時に区画が残っていた)。まとめて0.4秒後に1回
-  const _rpDataRef = React.useRef(null);
-  useEffect(() => {
-    if (typeof window === 'undefined' || window.innerWidth >= 768) return;
-    clearTimeout(_rpDataRef.current);
-    _rpDataRef.current = setTimeout(() => { try { tsuNudgeRepaint(contentRef.current || document.querySelector('main')); } catch {} }, 400);
-  }, [appData, currentView]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ★ 2026-10-08(白画面の対策の整理): スマホ幅は画面全体(ページ)がスクロールする作りに変えた(下の tsu-docscroll)。
+  //   それまで試した「描き直させる」工夫(1pxスクロール・背景色の切替・起動後/ログイン後/データ反映後の描き直し)は効かなかったので外した。
+  //   画面を切り替えたらページの一番上へ(ページ全体のスクロールは画面をまたいで残るため)
+  useEffect(() => { try { if (window.innerWidth < 768) window.scrollTo(0, 0); } catch {} }, [currentView]);
   useEffect(() => {
     if (!tsumugiIsIOS()) return;
     const on = () => _setRepaintTick(t => t + 1);
@@ -21095,7 +21118,7 @@ export default function App() {
   useEffect(() => {
     if (!tsumugiIsIOS()) return;
     const id = setTimeout(() => { try {
-      if (window.innerWidth < 768) { tsuNudgeRepaint(contentRef.current); return; } // ★ 2026-10-08: スマホ幅は1pxだけ動かして描き直す
+      if (window.innerWidth < 768) return; // ★ 2026-10-08: スマホ幅は何もしない(ページ全体のスクロールにしたため)
       const el = document.getElementById('appMainArea'); if (!el) return;
       const sc = contentRef.current; const st = sc ? [sc.scrollTop, sc.scrollLeft] : null;
       const prev = el.style.display; el.style.display = 'none'; void el.offsetHeight; el.style.display = prev || '';
@@ -22434,7 +22457,7 @@ export default function App() {
     );
   }
   return (
-    <div className="flex h-screen bg-slate-100 text-slate-800" style={{fontFamily:'"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","YuGothic","Noto Sans JP","メイリオ",Meiryo,sans-serif',fontSize:15,height:'100dvh',position:'fixed',inset:0,width:'100vw',overflow:'hidden'}}>{/* ★ 2026-09-11(店舗要望): 全画面表示と同じfixed固定を常時適用。旧iPadで表が長押しでずれる(文書バウンス)対策。中身は元々すべて内部スクロール */}
+    <div className="tsu-app-root flex h-screen bg-slate-100 text-slate-800" style={{fontFamily:'"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","YuGothic","Noto Sans JP","メイリオ",Meiryo,sans-serif',fontSize:15,height:'100dvh',position:'fixed',inset:0,width:'100vw',overflow:'hidden'}}>{/* ★ 2026-09-11(店舗要望): 全画面表示と同じfixed固定を常時適用。旧iPadで表が長押しでずれる(文書バウンス)対策。中身は元々すべて内部スクロール */}
       <GlobalStyle />
       {/* ★ スタッフ切替で管理者を選んだ時の認証 */}
       {pendingStaffSwitch && (
@@ -23242,7 +23265,7 @@ export default function App() {
       </div>
 
       <div id="appMainArea" className="flex-1 flex flex-col overflow-hidden bg-slate-50 relative min-w-0">
-          <header className="h-12 bg-white border-b border-slate-200 flex items-center justify-between px-3 md:px-6 z-10 shadow-sm flex-shrink-0">
+          <header className="tsu-app-header h-12 bg-white border-b border-slate-200 flex items-center justify-between px-3 md:px-6 z-10 shadow-sm flex-shrink-0">
             <div className="flex items-center min-w-0 flex-1">
               <button onClick={() => { const nv = !isSidebarOpen; try { localStorage.setItem('tsumugiSidebarOpen', nv ? '1' : '0'); } catch {} setIsSidebarOpen(nv); }} className="p-2 mr-2 md:mr-4 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors outline-none flex-shrink-0"><Menu size={22} /></button>
               <h1 className="text-base md:text-lg font-bold text-slate-700 truncate whitespace-nowrap">
@@ -23329,7 +23352,7 @@ export default function App() {
             )}
           </header>
 
-          <main className="flex-1 overflow-auto relative min-w-0 flex flex-col" style={{padding:0}}>
+          <main className="tsu-app-main flex-1 overflow-auto relative min-w-0 flex flex-col" style={{padding:0}}>
             {/* ★ システムお知らせバナー (本部からのメンテナンス通知等) */}
             {visibleNotices.length > 0 && (
               <div className="flex-shrink-0">
@@ -23359,7 +23382,7 @@ export default function App() {
             {/* ★ 2026-09-11(旧iPad表ずれ最終対策): このメインラッパはインラインoverflowのため一括CSSが当たらず、
                 旧iPadで引っ張り(ラバーバンド)が固着して画面がずれたままになっていた。提供記録の表と同じ
                 WebkitOverflowScrolling:'auto'(旧OSのみ慣性無効化・新OSでは無視される)+overscroll none を直接指定 */}
-            <div ref={contentRef} style={{flex:1,overflow:'auto',padding:0,WebkitOverflowScrolling:'auto',overscrollBehavior:'none'}}>
+            <div ref={contentRef} id="tsuContentScroller" style={{flex:1,overflow:'auto',padding:0,WebkitOverflowScrolling:'auto',overscrollBehavior:'none'}}>
             {/* ★ 縮小は transform:scale ではなく zoom を使う。 transform はレイアウト箱と表示位置がずれ、
                 Chrome等でクリック座標が合わず「押せない/1回だけ押せる」不具合になる。 zoom はレイアウト自体を
                 縮小するので、どのブラウザでもクリック判定が一致する。 ホーム(dashboard)は等倍のまま。 */}
@@ -29476,7 +29499,12 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             const _hasBmi = fitnessRecs.some(r => r.values?.__bmi != null);
             const fitnessItems = _hasBmi ? [...fitnessItems0, { id: '__bmi', name: 'BMI', unit: '' }] : fitnessItems0;
             if(!fitnessItems.length) return null;
-            const _selFitId = selFitId || fitnessItems[0]?.id;
+            // ★ 2026-10-08: 左右の組は1つのボタン・1つのグラフ(右と左の2本)
+            const _fitUnits = fitDisplayUnits(fitnessItems);
+            const _selRaw = selFitId || _fitUnits[0]?.key;
+            const _selUnitOfItem = _fitUnits.find(u => u.type === 'pair' && (u.R.id === _selRaw || u.L.id === _selRaw));
+            const _selFitId = _selUnitOfItem ? _selUnitOfItem.key : _selRaw;
+            const _selPair = _fitUnits.find(u => u.type === 'pair' && u.key === _selFitId) || null;
             const _isBmi = _selFitId === '__bmi';
             const _ageBmi = calcAge(selectedPatient?.birthDate);
             const selFitItem = fitnessItems.find(i=>i.id===_selFitId);
@@ -29501,14 +29529,32 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
               <div>
                 {/* 項目セレクター */}
                 <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
-                  {fitnessItems.map(item=>(
-                    <button key={item.id} onClick={()=>setSelFitId(item.id)}
-                      style={{padding:'4px 12px',borderRadius:20,fontSize:13,fontWeight:'bold',border:'none',cursor:'pointer',background:_selFitId===item.id?'#3b82f6':'#f1f5f9',color:_selFitId===item.id?'white':'#475569'}}>
-                      {item.name}
+                  {_fitUnits.map(u=>(
+                    <button key={u.key} onClick={()=>setSelFitId(u.key)} data-testid={`pd-fit-${u.key}`}
+                      style={{padding:'4px 12px',borderRadius:20,fontSize:13,fontWeight:'bold',border:'none',cursor:'pointer',background:_selFitId===u.key?'#3b82f6':'#f1f5f9',color:_selFitId===u.key?'white':'#475569'}}>
+                      {u.type === 'pair' ? `${u.label}（左右）` : u.item.name}
                     </button>
                   ))}
                 </div>
-                {dailyFit.length === 0 ? (
+                {_selPair ? (() => {
+                  const ptsOf = (it) => fitnessRecs.filter(r => r.values?.[it.id] !== undefined && r.values[it.id] !== '' && !isNaN(Number(r.values[it.id]))).map(r => ({ date: r.date, v: Number(r.values[it.id]) }));
+                  const pR = ptsOf(_selPair.R), pL = ptsOf(_selPair.L);
+                  if (!pR.length && !pL.length) return <div style={{background:'white',borderRadius:14,padding:'40px',textAlign:'center',color:'#64748b',fontSize:14,fontWeight:'bold',border:'1px solid #94a3b8'}}>{_selPair.label}の記録がありません</div>;
+                  const st = (pts) => pts.length ? { avg: (pts.reduce((a, p) => a + p.v, 0) / pts.length).toFixed(1), max: Math.max(...pts.map(p => p.v)), min: Math.min(...pts.map(p => p.v)) } : null;
+                  const sR = st(pR), sL = st(pL);
+                  const box = (nm, col, bg, bd, x) => <div style={{padding:'6px 12px',background:bg,borderRadius:10,border:`1px solid ${bd}`,minWidth:120}}>
+                    <div style={{fontSize:12,color:col,fontWeight:'bold',marginBottom:2}}>{nm}</div>
+                    {x ? <div style={{fontSize:13,color:'#1e293b',fontWeight:'bold',lineHeight:1.5}}>平均 {x.avg} ／ 最高 {x.max} ／ 最低 {x.min}<span style={{fontSize:11,fontWeight:'normal',marginLeft:1}}>{_selPair.unit}</span></div> : <div style={{fontSize:12,color:'#64748b'}}>記録なし</div>}
+                  </div>;
+                  return (
+                    <div data-testid="pd-fit-pair" style={{background:'white',borderRadius:14,padding:'18px 20px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #94a3b8'}}>
+                      <div style={{display:'flex',justifyContent:'flex-start',alignItems:'flex-end',marginBottom:12,flexWrap:'wrap',gap:12}}>
+                        <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b'}}>{_selPair.label}（{_selPair.unit}・左右）</div>
+                        {box('右', '#2563eb', '#eff6ff', '#bfdbfe', sR)}{box('左', '#ea580c', '#fff7ed', '#fed7aa', sL)}
+                      </div>
+                      <FitPairChart ptsR={pR} ptsL={pL} unit={_selPair.unit} height={150} />
+                    </div>);
+                })() : dailyFit.length === 0 ? (
                   <div style={{background:'white',borderRadius:14,padding:'40px',textAlign:'center',color:'#64748b',fontSize:14,fontWeight:'bold',border:'1px solid #94a3b8'}}>
                     {selFitItem?.name}の記録がありません
                   </div>
@@ -37280,8 +37326,16 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                 const prev = lastRecord?.values?.[item.id];
                 const avg = avgVal(item.id);
                 return (
-                  <div key={item.id} className="grid border-b border-slate-100 items-center hover:bg-slate-50" style={{gridTemplateColumns:'1.35fr 1.1fr 1fr 0.9fr 1fr 1fr'}}>
+                  <div key={item.id} data-testid={`fit-row-${item.id}`} className={`grid items-center hover:bg-slate-50 ${item.pairGroup ? (item.side === 'L' ? 'border-b border-slate-100 bg-sky-50/40' : 'bg-sky-50/40') : 'border-b border-slate-100'}`} style={{gridTemplateColumns:'1.35fr 1.1fr 1fr 0.9fr 1fr 1fr'}}>
+                    {/* ★ 2026-10-08: 左右の組は「握力 右」「左」と続けて表示(1つの項目として右・左を入力) */}
+                    {item.pairGroup ? (
+                      <div className="px-1.5 sm:px-4 py-2 font-bold text-[13px] sm:text-sm text-slate-700 leading-tight flex items-center gap-1.5">
+                        {item.side !== 'L' ? <span>{item.pairName || fitPairBaseName(item.name)}<span className="text-xs text-slate-400 ml-0.5">（{item.unit}）</span></span> : <span className="invisible">{item.pairName || fitPairBaseName(item.name)}</span>}
+                        <span className={`shrink-0 text-[11px] font-bold rounded px-1.5 py-0.5 ${item.side === 'L' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{item.side === 'L' ? '左' : '右'}</span>
+                      </div>
+                    ) : (
                     <div className="px-1.5 sm:px-4 py-3 font-bold text-[13px] sm:text-sm text-slate-700 leading-tight">{item.name}<span className="text-xs text-slate-400 ml-0.5">（{item.unit}）</span></div>
+                    )}
                     <div className="px-1 sm:px-4 py-2">
                       {/* ★ タップでテンキーを表示。 手入力(OSキーボード)も可能で、全角は半角へ自動変換する */}
                       <ImeSafeInput type="text" inputMode={_fitKpOn ? 'none' : 'decimal'} readOnly={_fitKpOn} value={values[item.id] ?? ''}
@@ -37350,15 +37404,26 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
               ); })()}
             {/* ★ 2026-10-06(ユーザー要望): BMIと同じように、全ての測定項目の推移(過去の記録＋入力中の今回) */}
             {(() => { const _num = (v) => (v !== undefined && v !== null && v !== '' && !isNaN(Number(v))) ? Number(v) : null;
-              const _cards = fitnessItems.map(item => { const pts = [...patRecords].reverse().map(r => ({ date: r.date, v: _num(r.values?.[item.id]) })).filter(x => x.v != null);
-                const cv = _num(values[item.id]); if (cv != null && !patRecords.some(r => r.date === date)) pts.push({ date, v: cv, cur: true });
-                return { item, pts }; }).filter(c => c.pts.length > 0);
+              const _ptsOf = (item) => { const pts = [...patRecords].reverse().map(r => ({ date: r.date, v: _num(r.values?.[item.id]) })).filter(x => x.v != null);
+                const cv = _num(values[item.id]); if (cv != null && !patRecords.some(r => r.date === date)) pts.push({ date, v: cv, cur: true }); return pts; };
+              // ★ 2026-10-08: 左右の組は1つのグラフ(右・左の2本)
+              const _cards = fitDisplayUnits(fitnessItems).map(u => u.type === 'pair'
+                ? { pair: u, item: { id: u.key, name: u.label, unit: u.unit }, ptsR: _ptsOf(u.R), ptsL: _ptsOf(u.L), pts: [..._ptsOf(u.R), ..._ptsOf(u.L)] }
+                : { item: u.item, pts: _ptsOf(u.item) }).filter(c => c.pts.length > 0);
               if (!_cards.length) return null;
               return (
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden" data-testid="fit-trends">
                   <div className="px-5 py-3 border-b border-slate-200 font-bold text-sm text-slate-700">各項目の推移 <span className="text-xs font-normal text-slate-500">（過去の記録と今回の入力。オレンジの点は今回の入力）</span></div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-slate-100">
-                    {_cards.map(({ item, pts }) => { const last = pts[pts.length - 1], first = pts[0];
+                    {_cards.map(({ item, pts, pair, ptsR, ptsL }) => { const last = pts[pts.length - 1], first = pts[0];
+                      if (pair) { const lr = ptsR[ptsR.length - 1], ll = ptsL[ptsL.length - 1]; return (
+                        <div key={item.id} className="bg-white px-4 py-3" data-testid={`fit-trend-pair-${pair.R.id}`}>
+                          <div className="flex items-baseline justify-between gap-2 mb-1">
+                            <span className="font-bold text-sm text-slate-700">{item.name}<span className="text-xs text-slate-400 font-normal ml-0.5">（{item.unit}・左右）</span></span>
+                            <span className="text-[11px] text-slate-500 tabular-nums">最新 右 {lr ? lr.v : '—'} ／ 左 {ll ? ll.v : '—'}{item.unit}</span>
+                          </div>
+                          <FitPairChart ptsR={ptsR} ptsL={ptsL} unit={item.unit} />
+                        </div>); }
                       return (
                         <div key={item.id} className="bg-white px-4 py-3">
                           <div className="flex items-baseline justify-between gap-2 mb-1">
@@ -42390,7 +42455,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
   const [fitnessItems, setFitnessItems] = useState(
     appData.systemSettings?.fitnessItems || appSettings.fitnessItems
   );
-  const [newFitnessItem, setNewFitnessItem] = useState({ name: '', unit: '' });
+  const [newFitnessItem, setNewFitnessItem] = useState({ name: '', unit: '', pair: false });
   const [showFitnessModal, setShowFitnessModal] = useState(false);
   const allCareLevels = ['事業対象者','要支援1','要支援2','要介護1','要介護2','要介護3','要介護4','要介護5'];
   // ★ 初期は全て未チェック (空配列)。配列が存在する/しないで「未設定」と「全外し」を区別:
@@ -42416,13 +42481,37 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
 
   const addFitnessItem = () => {
     if (!newFitnessItem.name.trim()) return;
-    const item = { id: 'fit_' + Date.now(), name: newFitnessItem.name.trim(), unit: newFitnessItem.unit.trim(), fixed: false };
-    const updated = [...fitnessItems, item];
+    const _t = Date.now(); const _nm = newFitnessItem.name.trim(), _un = newFitnessItem.unit.trim();
+    // ★ 2026-10-08: 「左右に分けて測る」なら右・左の2項目を組にして一度に作る(値は今までどおり項目ごとに保存)
+    const newItems = newFitnessItem.pair
+      ? [{ id: `fit_${_t}_R`, name: `${_nm}（右）`, unit: _un, fixed: false, pairGroup: `pg_${_t}`, side: 'R', pairName: _nm },
+         { id: `fit_${_t}_L`, name: `${_nm}（左）`, unit: _un, fixed: false, pairGroup: `pg_${_t}`, side: 'L', pairName: _nm }]
+      : [{ id: 'fit_' + _t, name: _nm, unit: _un, fixed: false }];
+    const updated = [...fitnessItems, ...newItems];
     setFitnessItems(updated);
     onSave({ ...appData, systemSettings: { ...appData.systemSettings, fitnessItems: updated }});
-    setNewFitnessItem({ name: '', unit: '' });
+    setNewFitnessItem({ name: '', unit: '', pair: false });
     setShowFitnessModal(false);
   };
+  const _saveFitItems = (updated) => { setFitnessItems(updated); onSave({ ...appData, systemSettings: { ...appData.systemSettings, fitnessItems: updated }}); };
+  // ★ 2026-10-08(ユーザー要望): 体力測定の項目も長押しドラッグで並べ替え(左右の組は2つ並べて動かす)
+  const fitDnd = useLongPressReorder(fitnessItems, (arr) => {
+    const out = []; const done = new Set();
+    arr.forEach(it => { if (done.has(it.id)) return; if (it.pairGroup) { arr.filter(x => x.pairGroup === it.pairGroup).sort((a, b) => (a.side === 'R' ? 0 : 1) - (b.side === 'R' ? 0 : 1)).forEach(x => { out.push(x); done.add(x.id); }); } else { out.push(it); done.add(it.id); } });
+    _saveFitItems(out);
+  });
+  // ★ 既にある2つの項目(例: 握力右・握力左)を左右の組にする/解除する。値はそのまま(付け替えない)
+  const [fitPairModal, setFitPairModal] = useState(null); // {id, partner, side}
+  const linkFitPair = (id, partner, side) => {
+    const a = fitnessItems.find(x => x.id === id), b = fitnessItems.find(x => x.id === partner); if (!a || !b) return;
+    const g = `pg_${Date.now()}`; const base = fitPairBaseName(a.name) || fitPairBaseName(b.name) || a.name;
+    const rest = fitnessItems.filter(x => x.id !== id && x.id !== partner);
+    const ai = fitnessItems.findIndex(x => x.id === id);
+    const R = { ...(side === 'R' ? a : b), pairGroup: g, side: 'R', pairName: base }, L = { ...(side === 'R' ? b : a), pairGroup: g, side: 'L', pairName: base };
+    const insertAt = Math.min(ai, rest.length); rest.splice(insertAt, 0, R, L);
+    _saveFitItems(rest);
+  };
+  const unlinkFitPair = (g) => { _saveFitItems(fitnessItems.map(x => x.pairGroup === g ? (({ pairGroup, side, pairName, ...rest }) => rest)(x) : x)); };
   const deleteFitnessItem = (id) => {
     const updated = fitnessItems.filter(i => i.id !== id);
     setFitnessItems(updated);
@@ -43819,17 +43908,22 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                     要支援と要介護で同じ項目にする (チェックを外すと項目ごとに対象を指定)
                   </label>
                 </div>
-                <table className="w-full text-sm border-collapse mb-4">
+                <p className="text-xs text-slate-400 mb-1">{fitDnd.hint}（左端の「⋮⋮」を長押し）。握力など左右を測る項目は「左右の組にする」で1つにまとめられます（入力は右・左を続けて、グラフは1つに2本）。</p>
+                <table className="w-full text-sm border-collapse mb-4" data-testid="fit-items-table">
                   <thead><tr className="border-b border-slate-200 text-xs text-slate-500">
+                    <th className="w-7"></th>
                     <th className="text-left py-2 px-3 w-2/5">項目名</th>
                     <th className="text-left py-2 px-3 w-20">単位</th>
                     {!(appData.systemSettings?.fitnessItemsSync ?? true) && <th className="text-left py-2 px-3 w-28">対象</th>}
                     <th className="py-2 px-3 w-16">操作</th>
                   </tr></thead>
                   <tbody>
-                    {fitnessItems.map(item => (
-                      <tr key={item.id} className="border-b border-slate-100">
+                    {fitnessItems.map((item, fi) => (
+                      <tr key={item.id} {...fitDnd.rowProps(fi)} data-testid={`fit-item-row-${item.id}`} className={`border-b border-slate-100 ${item.pairGroup ? 'bg-sky-50/60' : ''}`}>
+                        <td className="py-2 pl-1 text-slate-300 align-middle" title="長押しでドラッグして並べ替え"><GripVertical size={18}/></td>
                         <td className="py-2 px-3">
+                          {item.pairGroup && <div className="text-[10px] font-bold text-sky-700 mb-0.5">左右の組「{item.pairName || fitPairBaseName(item.name)}」の{item.side === 'L' ? '左' : '右'}{item.side !== 'L' && <button type="button" data-testid={`fit-unpair-${item.id}`} onClick={() => unlinkFitPair(item.pairGroup)} className="ml-2 text-slate-500 underline font-normal">組を解除</button>}</div>}
+                          {!item.fixed && !item.pairGroup && <button type="button" data-testid={`fit-pair-${item.id}`} onClick={() => setFitPairModal({ id: item.id, partner: '', side: /左/.test(item.name) ? 'L' : 'R' })} className="text-[10px] font-bold text-sky-700 mb-0.5 underline">左右の組にする</button>}
                           {item.fixed
                             ? <span className="font-bold text-slate-700">{item.name} <span className="text-xs text-slate-400">（固定）</span></span>
                             : <input defaultValue={item.name} onBlur={e => updateFitnessItem(item.id, 'name', e.target.value)} className="w-full px-2 py-1 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-blue-400" />
@@ -43864,10 +43958,28 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                   </tbody>
                 </table>
                 <div className="border-t border-slate-100 pt-4 flex justify-end">
-                  <button type="button" onClick={() => { setNewFitnessItem({ name: '', unit: '' }); setShowFitnessModal(true); }} className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 flex items-center gap-2">
+                  <button type="button" onClick={() => { setNewFitnessItem({ name: '', unit: '', pair: false }); setShowFitnessModal(true); }} className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 flex items-center gap-2">
                     <span>＋</span> 項目を追加
                   </button>
                 </div>
+                {fitPairModal && (() => { const me = fitnessItems.find(x => x.id === fitPairModal.id); const cands = fitnessItems.filter(x => x.id !== fitPairModal.id && !x.fixed && !x.pairGroup); return (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" data-testid="fit-pair-modal">
+                    <div className="bg-white rounded-2xl shadow-2xl p-5 w-full max-w-sm">
+                      <h4 className="font-bold text-slate-800 mb-1 text-base">左右の組にする</h4>
+                      <p className="text-xs text-slate-500 mb-3">「{me?.name}」と組にする項目を選んでください。これまでの記録はそのまま残ります。</p>
+                      <div className="text-xs font-bold text-slate-500 mb-1">「{me?.name}」は</div>
+                      <div className="flex gap-2 mb-3">{[['R','右'],['L','左']].map(([k,l]) => <button key={k} type="button" onClick={() => setFitPairModal(m => ({ ...m, side: k }))} className={`flex-1 py-2 rounded-xl border-2 font-bold text-sm ${fitPairModal.side === k ? 'bg-sky-600 text-white border-sky-600' : 'bg-white text-slate-700 border-slate-300'}`}>{l}</button>)}</div>
+                      <div className="text-xs font-bold text-slate-500 mb-1">組にする項目（{fitPairModal.side === 'R' ? '左' : '右'}）</div>
+                      <select data-testid="fit-pair-partner" value={fitPairModal.partner} onChange={e => setFitPairModal(m => ({ ...m, partner: e.target.value }))} className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-bold mb-4">
+                        <option value="">— 選んでください —</option>
+                        {cands.map(c => <option key={c.id} value={c.id}>{c.name}{c.unit ? `（${c.unit}）` : ''}</option>)}
+                      </select>
+                      <div className="flex gap-2 justify-end">
+                        <button type="button" onClick={() => setFitPairModal(null)} className="px-4 py-2 rounded-xl font-bold text-sm text-slate-600 hover:bg-slate-100">キャンセル</button>
+                        <button type="button" data-testid="fit-pair-ok" disabled={!fitPairModal.partner} onClick={() => { linkFitPair(fitPairModal.id, fitPairModal.partner, fitPairModal.side); setFitPairModal(null); }} className="px-5 py-2 bg-sky-600 text-white rounded-xl font-bold text-sm disabled:opacity-40">組にする</button>
+                      </div>
+                    </div>
+                  </div>); })()}
                 {showFitnessModal && (
                   <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
                     <div className="bg-white rounded-2xl shadow-2xl p-6 w-80">
@@ -43892,6 +44004,10 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                             className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm outline-none focus:border-blue-400"
                           />
                         </div>
+                        <label className="flex items-start gap-2 cursor-pointer">
+                          <input type="checkbox" data-testid="fit-new-pair" checked={!!newFitnessItem.pair} onChange={e => setNewFitnessItem({...newFitnessItem, pair: e.target.checked})} className="w-4 h-4 mt-0.5 accent-sky-600"/>
+                          <span className="text-xs font-bold text-slate-700">左右に分けて測る（握力など）<br/><span className="font-normal text-slate-500">「{(newFitnessItem.name||'').trim() || '項目名'}（右）」「（左）」の2つを組で作ります。入力は右・左を続けて、グラフは1つに右と左の2本で表示します。</span></span>
+                        </label>
                       </div>
                       <div className="flex gap-2 justify-end">
                         <button type="button" onClick={() => setShowFitnessModal(false)} className="px-4 py-2 rounded-xl font-bold text-sm text-slate-600 hover:bg-slate-100">キャンセル</button>

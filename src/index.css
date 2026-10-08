@@ -306,3 +306,27 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
   .tsu-diary-bar > button, .tsu-diary-bar > div > button { padding-left: 7px !important; padding-right: 7px !important; font-size: 13px !important; height: 40px; white-space: nowrap; gap: 0 !important; }
   .tsu-diary-bar > button > span:empty { display: none; }
 }
+
+/* ★★ 2026-10-08(店舗報告: iPhoneで画面の一部が白いまま・スクロールしても戻らない・押すと反応する。固定の帯(各種設定のタブ・提供記録や日誌の1行目)の下で起きる):
+   iPhone のブラウザは「内側の枠のスクロール(2重)」の中に「上に固定する帯(sticky)」があると、その下を描かないことがある。
+   スマホ幅は画面全体(ページ)がスクロールする作りにする(iPhone が一番得意な形)。上の見出しはページの上に固定し、
+   各画面の固定の帯は見出しの下(48px)に付ける。iPad・PC(768以上)は従来どおり内側の枠でスクロール */
+@media (max-width: 767px) {
+  html, body, #root { overflow-x: clip !important; height: auto !important; min-height: 100%; }
+  /* 外枠は 2026-09-11(旧iPadの文書バウンス対策)で画面に固定(position:fixed・高さ100dvh)している。スマホ幅では固定を外してページを伸ばす */
+  .tsu-app-root { position: relative !important; inset: auto !important; height: auto !important; min-height: 100vh; width: 100% !important; overflow: visible !important; }
+  #appMainArea { overflow: visible !important; }
+  #appMainArea > header.tsu-app-header { position: sticky; top: 0; z-index: 45; }
+  #appMainArea > main.tsu-app-main { overflow: visible !important; }
+  #tsuContentScroller { overflow: visible !important; flex: none !important; }
+  #tsuContentScroller .sticky.top-0:not(th):not(thead):not(tr) { top: 48px !important; }
+  #tsuContentScroller [style*="position: sticky"][style*="top: 0px"]:not(th):not(thead):not(tr) { top: 48px !important; }
+}
+@supports not (overflow-x: clip) {
+  @media (max-width: 767px) { body, #root { overflow-x: visible !important; } }
+}
+
+/* ★ 2026-10-08(ユーザー要望: 送迎表(スマホの1日表示)で車ごとにもう少し間をあけて分かりやすく): 車ごとに薄い枠の箱にし、箱の間をあける */
+.tsu-tp-one .space-y-1 > div:has(> .border-dashed) { border: 1px solid #cbd5e1; border-radius: 10px; padding: 4px 8px 6px; background: #ffffff; margin-top: 10px !important; }
+.tsu-tp-one .space-y-1 > div:has(> .border-dashed):first-child { margin-top: 2px !important; }
+.tsu-tp-one .space-y-1 > div > .border-dashed { border-bottom: 2px solid #e2e8f0 !important; border-bottom-style: solid !important; margin-bottom: 2px; }
