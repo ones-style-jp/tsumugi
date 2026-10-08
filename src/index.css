@@ -142,3 +142,17 @@ button, a, input, select, textarea, label, [role="button"] { touch-action: manip
    見えない固定部品が残ると、iPhone の描画で上の方が描き直されないことがあるため */
 [data-testid^="fold-body-"][data-open="0"] .sticky,
 [data-testid^="fold-body-"][data-open="0"] [style*="position: sticky"] { position: static !important; }
+
+/* ★ 2026-10-08(ユーザー要望): スマホの休み連絡・各種連絡の上部を詰める */
+@media (max-width: 767px) {
+  .tsu-abs-bar { padding: 8px 10px !important; gap: 6px !important; }
+  .tsu-abs-actions { margin-left: 0 !important; width: 100%; flex-wrap: nowrap !important; gap: 4px !important; }
+  .tsu-abs-actions > * { flex: 1 1 auto; min-width: 0; justify-content: center; padding: 8px 4px !important; font-size: 11.5px !important; white-space: nowrap; }
+  .tsu-abs-actions > label { gap: 3px !important; }
+  .tsu-gf-bar { padding: 8px 10px !important; gap: 6px !important; }
+  .tsu-gf-title, .tsu-gf-lbl { display: none !important; }
+  .tsu-gf-pt { flex: 1 1 auto; min-width: 0; }
+  .tsu-gf-pt select { min-width: 0 !important; width: 100%; }
+  .tsu-gf-actions { margin-left: 0 !important; width: 100%; justify-content: flex-start !important; gap: 5px !important; }
+  .tsu-gf-actions button, .tsu-gf-actions > label { padding: 6px 8px !important; }
+}

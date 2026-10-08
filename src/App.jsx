@@ -11364,8 +11364,11 @@ const _tsuClipX = (() => { try { return (typeof CSS !== 'undefined' && CSS.suppo
 // ★ 2026-10-08(店舗報告: iPhone で画面の上の方が空白のまま=描かれない): 画面全体を一瞬消して描き直させる方法(display:none)は、
 //   iPhone では逆に一部(縦およそ500px分)が描き直されず空白で残ることがあった。スマホ幅ではスクロール位置を1pxだけ動かして戻し、
 //   その枠と中の固定部品を描き直させる(見た目は動かない)。
+let _tsuLastScrollAt = 0;
+try { if (typeof document !== 'undefined') document.addEventListener('scroll', () => { _tsuLastScrollAt = Date.now(); }, { capture: true, passive: true }); } catch {}
 function tsuNudgeRepaint(sc) {
   try {
+    if (Date.now() - _tsuLastScrollAt < 700) return; // スクロール中は動かさない(指で動かしている最中の慣性を止めないように)
     // 実際にスクロールしている枠まで上る(なければ渡された枠のまま)
     let e = sc; while (e && e !== document.body && !(e.scrollHeight > e.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(e).overflowY))) e = e.parentElement;
     if (e && e !== document.body) sc = e;
@@ -11391,8 +11394,8 @@ function useTsuIsPhone() {
 function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = true }) {
   const isPhone = useTsuIsPhone();
   const [open, setOpen] = React.useState(() => { try { return localStorage.getItem('tsuFold_' + storageKey) === '1'; } catch { return false; } });
+  const foldRef = React.useRef(null); // ★ 2026-10-08: フックは必ず早期 return より前(向きを変えてスマホ幅⇔それ以外が切り替わると「フックの数が違う」エラーで画面が落ちていた)
   if (!isPhone) return children;
-  const foldRef = React.useRef(null);
   const tog = () => { setOpen(v => { const nv = !v; try { localStorage.setItem('tsuFold_' + storageKey, nv ? '1' : '0'); } catch {} return nv; }); setTimeout(() => tsuNudgeRepaint(foldRef.current), 60); };
   return (
     <div ref={foldRef} data-testid={`fold-${storageKey}`} className={`${sticky ? 'sticky top-0 z-30' : ''} bg-white border-b border-slate-200 shadow-sm ${className}`}>
@@ -20999,6 +21002,17 @@ export default function App() {
   // ★ 2026-10-06(ユーザー報告: 再読み込みした直後は上部のボタンが出ず、サイドバーを開閉すると出る): iPad の WebKit で
   //   縮小(zoom)の切替や回転のあと上部のバーが描かれないことがある。サイドバー開閉と同じ強制 reflow を、画面の切替・回転のあとにも行う
   const [_repaintTick, _setRepaintTick] = useState(0);
+  // ★ 2026-10-08(店舗報告: ホーム画面のアプリを立ち上げた直後に、画面の上の方が空白のことが多い): iPhone は起動直後や
+  //   アプリに戻ったとき(データの読み込みで中身が何度も変わる間)に、画面の一部を描き直さないことがある。
+  //   スマホ幅では、起動後しばらく(0.3/1/2.5/5秒)・アプリに戻ったとき・画面の大きさが変わったときに、1pxスクロールで描き直させる
+  useEffect(() => {
+    const nudge = () => { try { if (window.innerWidth < 768) tsuNudgeRepaint(contentRef.current || document.querySelector('main')); } catch {} };
+    const ts = [300, 1000, 2500, 5000].map(ms => setTimeout(nudge, ms));
+    let rt = null; const later = () => { clearTimeout(rt); rt = setTimeout(nudge, 350); };
+    const onVis = () => { if (document.visibilityState === 'visible') later(); };
+    window.addEventListener('pageshow', later); document.addEventListener('visibilitychange', onVis); window.addEventListener('resize', later);
+    return () => { ts.forEach(clearTimeout); clearTimeout(rt); window.removeEventListener('pageshow', later); document.removeEventListener('visibilitychange', onVis); window.removeEventListener('resize', later); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!tsumugiIsIOS()) return;
     const on = () => _setRepaintTick(t => t + 1);
@@ -34076,13 +34090,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                   if (!patient) return null;
                   return (
                     <div key={record.id} className="bg-white rounded-xl border border-slate-300 shadow-sm overflow-hidden">
-                      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-slate-200">
-                        <span className="font-bold text-slate-800 truncate">{patient.name} <span className="text-slate-400 font-normal text-sm">様</span></span>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button onClick={()=>setRenrakuModal({ patientId: patient.id })} className="min-h-[40px] px-3 rounded-lg text-sm font-bold bg-emerald-100 text-emerald-700">連絡事項</button>
-                          <button onClick={()=>doPrint([record.patientId])} className="min-h-[40px] px-3 rounded-lg text-sm font-bold bg-blue-100 text-blue-700">印刷</button>
-                        </div>
-                      </div>
+                      {/* ★ 2026-10-08(ユーザー指示): 連絡事項・印刷は上部の「各種入力」「ダウンロード」から行うため、利用者ごとのボタンは出さない */}
                       <div className="p-1">
                         <TsuLazyMount estHeight={Math.round((typeof window !== 'undefined' ? window.innerWidth : 390) * 1.35)} testId={`renraku-lazy-${record.patientId}`}>
                           <TsuFitWidth>
@@ -35907,7 +35915,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     // 下部情報(徒歩・完成後に外れた・その他・初回・休み・送り別)の文言。折り返し行数の見積りに使う
     const _bottomTexts = (iso, sl) => { const pl = getPlan(iso, sl); const out = [];
       // ★ 2026-10-01(試験版・ユーザー要望「下部は基本休みのみ」): 初回は水色の塗り・その他は枠・送りは名前の右の印で示すので下部に書かない
-      const rm = _removedSince(plans[`${iso}_${sl}`]); if (rm.length) out.push({ t: `確定後に外れた: ${rm.map(pid => _pname(pid)).join('、')}` });
+      // ★ 2026-10-08(ユーザー指示「確定後に外れた人は不要」): 運行表には載せない(休みの欄に出る)
       const ab = _absentees(iso, sl); if (ab.length) out.push({ t: `休み: ${ab.map(a => a.name).join('、')}`, ab: true });
       return out; };
     // 行数の見積り(1単位=1行の実高)。1行の実高 = 上下padding(2px) + 文字(line-height1.25) + 罫線(1px)
@@ -35995,7 +36003,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       // ★ 2026-10-01(試験版・ユーザー要望「下部は基本休みのみ」): 下部は休み(と、まれな「完成後に外れた」)だけ。
       //   初回=水色の塗り、その他=上の枠、送りの違い=名前の右の印で示す。未割当は印刷に出さない(2026-09-16 店舗指定)
       const _parts = [];
-      { const rm = _removedSince(plans[`${iso}_${sl}`]); if (rm.length) _parts.push(`<span style="color:#c82c35;">確定後に外れた: ${rm.map(pid=>esc(_pname(pid))).join('、')}</span>`); }
+      // ★ 2026-10-08(ユーザー指示): 「確定後に外れた」は運行表に載せない(休みの欄に出る)
       const _abs2 = _absentees(iso, sl);
       if (_abs2.length) _parts.push(`<span style="color:#475569;font-size:${_fzAb(fz)}px;">休み: ${_abs2.map(a=>esc(a.name)).join('、')}</span>`);
       if (_parts.length) h += `<div style="font-size:${fzB}px;line-height:1.35;margin-top:1px;">${_parts.map(p => `<div>${p}</div>`).join('')}</div>`;
@@ -36029,7 +36037,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         <thead><tr style="height:23px;"><th style="border:1px solid #65736a;background:#edf0ec;"></th><th style="border:1px solid #65736a;background:#edf0ec;font-size:9px;font-weight:normal;">車</th>${header}</tr></thead>
         <tbody>${row('AM','午前')}${row('PM','午後')}</tbody>
       </table>
-      <div style="font-size:9px;color:#3f4b43;margin-top:1.5mm;flex:none;display:flex;justify-content:space-between;"><span><span style="outline:1.5px solid #c82c35;padding:0 2px;">時間の赤枠</span>=時間変更・要TEL　<span style="background:#a7f3d0;padding:0 3px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 3px;">水色</span>=初回　左端=車名${_hasDrv?'　各枠の左の青い欄=運転者':''}　時間=お迎え　徒歩の時間=到着（指定なしはクラスの開始）　次回=次の利用曜日${_anyDropTag ? '　<span style="color:#3730a3;font-weight:bold;">送り</span>=送りの車（迎えと違う方だけ）' : ''}</span><span>空欄=空席</span></div>
+      <div style="font-size:9px;color:#3f4b43;margin-top:1.5mm;flex:none;display:flex;justify-content:space-between;"><span><span style="outline:1.5px solid #c82c35;outline-offset:-1px;padding:0 2px;margin-left:2px;">時間の赤枠</span>=時間変更・要TEL　<span style="background:#a7f3d0;padding:0 3px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 3px;">水色</span>=初回　左端=車名${_hasDrv?'　各枠の左の青い欄=運転者':''}　時間=お迎え　徒歩の時間=到着（指定なしはクラスの開始）　次回=次の利用曜日${_anyDropTag ? '　<span style="color:#3730a3;font-weight:bold;">送り</span>=送りの車（迎えと違う方だけ）' : ''}</span><span>空欄=空席</span></div>
     </div>`;
   };
   // ==== 連絡先一覧(週間の2枚目・2026-09-16 店舗要望) ====
@@ -36133,7 +36141,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       // ★ 2026-10-01(試験版・ユーザー要望「下部は基本休みのみ」): その他も枠で1人1行(住所の欄に理由)。送りの違いは名前の右の印(_dropTag)
       if ((pl.others||[]).length) blocks.push({ name: 'その他', other: true, members: (pl.others||[]), rows: (pl.others||[]).length });
       const bottom = [];
-      { const rm = _removedSince(plans[`${iso}_${sl}`]); if (rm.length) bottom.push({ t: `確定後に外れた: ${rm.map(pid=>_pname(pid)).join('、')}`, color: '#c82c35' }); }
+      // ★ 2026-10-08(ユーザー指示): 「確定後に外れた」は運行表に載せない(休みの欄に出る)
       const ab = _absentees(iso, sl); if (ab.length) bottom.push({ t: `休み: ${ab.map(a=>a.name).join('、')}`, color: '#475569', ab: true }); // ★ 2026-10-01: 休みは名前の約8割
       return { sl, pl, blocks, bottom }; });
     const allM = slots.flatMap(x => x.blocks.flatMap(b => b.members));
@@ -36184,7 +36192,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     return `<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
       <div style="position:relative;text-align:center;flex:none;"><span style="position:absolute;left:0;top:4px;font-size:10px;">${_escP(String(appData.systemSettings?.facilityInfo?.name||'つむぎ'))}</span><span style="font-size:18px;font-weight:bold;letter-spacing:8px;">運行表</span><span style="position:absolute;right:0;top:2px;font-size:14px;font-weight:700;">${d.getMonth()+1}/${d.getDate()}（${DOWJ[d.getDay()]}）</span></div>
       <div style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;">${slots.map((x, k) => slotBlock(x, x.sl === 'AM' ? '午前' : '午後', k)).join('')}</div>
-      <div style="margin-top:4px;font-size:9px;color:#3f4b43;display:flex;justify-content:space-between;flex:none;"><span><span style="outline:1.5px solid #c82c35;padding:0 2px;">時間の赤枠</span>=時間変更・要TEL　<span style="background:#a7f3d0;padding:0 3px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 3px;">水色</span>=初回　徒歩の時間=到着（指定なしはクラスの開始）${_anyTagD ? '　<span style="border:1px solid #6366f1;color:#3730a3;padding:0 2px;">送○</span>=送りが迎えと違う' : ''}</span><span>※個人情報を含みます。取り扱いにご注意ください</span></div>
+      <div style="margin-top:4px;font-size:9px;color:#3f4b43;display:flex;justify-content:space-between;flex:none;"><span><span style="outline:1.5px solid #c82c35;outline-offset:-1px;padding:0 2px;margin-left:2px;">時間の赤枠</span>=時間変更・要TEL　<span style="background:#a7f3d0;padding:0 3px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 3px;">水色</span>=初回　徒歩の時間=到着（指定なしはクラスの開始）${_anyTagD ? '　<span style="border:1px solid #6366f1;color:#3730a3;padding:0 2px;">送○</span>=送りが迎えと違う' : ''}</span><span>※個人情報を含みます。取り扱いにご注意ください</span></div>
     </div>`;
   };
   const _dailyPages = (iso) => { const one = buildDailyPrintHtml(iso); return one != null ? [one] : [buildDailyPrintHtml(iso, 'AM'), buildDailyPrintHtml(iso, 'PM')]; };
@@ -36353,7 +36361,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <div className="fixed inset-0 bg-slate-900/50 flex items-start justify-center p-4 pt-20" style={{zIndex:10000}}>
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5" data-testid="tp-stale-modal">
                 <div className="font-bold text-slate-800 mb-1">休み・休止になった方が送迎表に残っています</div>
-                <div className="text-[11px] text-slate-500 mb-3">月間スケジュールや提供記録で休み・休止・振替にした方です。反映すると車から外れて「休み」の欄に出ます（確定後なら赤字の「確定後に外れた」にも出ます）。あとからでも各コマの注意から反映できます。</div>
+                <div className="text-[11px] text-slate-500 mb-3">月間スケジュールや提供記録で休み・休止・振替にした方です。反映すると車から外れて「休み」の欄に出ます（確定後なら入力画面に赤字の「確定後に外れた」も出ます。運行表には載りません）。あとからでも各コマの注意から反映できます。</div>
                 <div className="max-h-60 overflow-auto text-sm space-y-1 mb-4">
                   {staleModal.map(x => { const d = new Date(x.iso); return <div key={`${x.iso}_${x.sl}`}><span className="font-bold text-slate-700">{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{x.sl==='AM'?'午前':'午後'}</span>：{x.ids.map(pid => _pname(pid)).join('、')}</div>; })}
                 </div>
@@ -45866,6 +45874,19 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
 
   // ★ 未完了バッジ(2026-09-10 店舗要望で刷新・2026-10-08 スマホでは上部の折りたたみの外に出すため変数に): 「これをやらないと日誌が完成しない」項目を一覧。
   //   迎え/送り=未選択の人数を一本化(コピー未確認・全体未記入も同じチップ)。送迎者=使う車に運転者チェックなし。ヒント括弧は廃止・チップ名に情報を含める。
+  // AM/PM の切替(切り替える前に、表示中の日誌に未保存の変更があれば保存する)。上部と、スマホの1行目で共通
+  const _diarySwitchAmpm = (v) => {
+    if (v === ampm) return;
+    // 切り替え前に現在の logKey データを保存 (未保存変更があれば)
+    if (dirtyRef?.current) {
+      const updatedLogs = { ...(appData.diaryLogs||{}), [logKey]: localLog };
+      const next = { ...appData, diaryLogs: updatedLogs };
+      if (pendingStaff) next.diarySettings = { ..._baseDs, staff: pendingStaff };
+      onSave(next, { silent: true }); // ★ silent=クラウド送信(無指定は端末内のみ・2026-09-06真因修正)
+      markClean();
+    }
+    setAmpm(v);
+  };
   const _diaryBadge = (() => {
           // ★ 休業のスロットは担当職員も送迎も無いため出さない(2026-09-04 店舗要望)
           if (_dayIsKyugyo(selectedDate, dow)) return null;
@@ -46054,8 +46075,11 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         );
       })()}
       <TsuPhoneFold storageKey="diary" summary={(() => { const _d = new Date(selectedDate + 'T00:00:00'); return (<>
-        <span className="text-[15px] font-bold text-slate-800 whitespace-nowrap">{isNaN(_d) ? '' : `${_d.getMonth()+1}/${_d.getDate()}(${'日月火水木金土'[_d.getDay()]})`} {ampm}</span>
-        {isReadOnly ? null : <button type="button" data-testid="diary-fold-save" onClick={saveLog} className="shrink-0 h-10 px-3 rounded-xl bg-blue-600 text-white text-sm font-bold ml-auto">保存</button>}
+        <span className="text-[15px] font-bold text-slate-800 whitespace-nowrap">{isNaN(_d) ? '' : `${_d.getMonth()+1}/${_d.getDate()}(${'日月火水木金土'[_d.getDay()]})`}</span>
+        <div className="flex rounded-lg overflow-hidden border border-slate-300 shrink-0" data-testid="diary-fold-ampm">
+          {['AM','PM'].map(v=>(<button key={v} type="button" onClick={()=>_diarySwitchAmpm(v)} className={`px-2.5 h-10 text-sm font-bold ${ampm===v?'bg-blue-600 text-white':'bg-white text-slate-600'}`}>{v}</button>))}
+        </div>
+        {isReadOnly ? null : <button type="button" data-testid="diary-fold-save" onClick={saveLog} className="shrink-0 h-10 px-3 rounded-xl bg-blue-600 text-white text-sm font-bold">保存</button>}
       </>); })()}>
       <div className="bg-white px-4 py-3 border-b border-slate-200 flex items-center gap-3 sticky top-0 z-30 flex-wrap">
         {/* カスタムカレンダー（折りたたみ） */}
@@ -46155,20 +46179,10 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             </div>
           );
         })()}
-                <div className="flex rounded-xl overflow-hidden border border-slate-300">
+                {/* ★ 2026-10-08(ユーザー指示): スマホは1行目に AM/PM と保存があるので、開いた中には出さない */}
+                <div className="hidden sm:flex rounded-xl overflow-hidden border border-slate-300">
           {['AM','PM'].map(v=>(
-            <button key={v} onClick={()=>{
-              if (v === ampm) return;
-              // 切り替え前に現在の logKey データを保存 (未保存変更があれば)
-              if (dirtyRef?.current) {
-                const updatedLogs = { ...(appData.diaryLogs||{}), [logKey]: localLog };
-                const next = { ...appData, diaryLogs: updatedLogs };
-                if (pendingStaff) next.diarySettings = { ..._baseDs, staff: pendingStaff };
-                onSave(next, { silent: true }); // ★ silent=クラウド送信(無指定は端末内のみ・2026-09-06真因修正)
-                markClean();
-              }
-              setAmpm(v);
-            }} className={`px-5 py-2 text-sm font-bold transition-all ${ampm===v?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-50'}`}>{v}</button>
+            <button key={v} onClick={()=>_diarySwitchAmpm(v)} className={`px-5 py-2 text-sm font-bold transition-all ${ampm===v?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-50'}`}>{v}</button>
           ))}
         </div>
 
@@ -46226,7 +46240,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             編集
           </button>
         ) : (
-          <button onClick={saveLog} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-bold text-sm transition-all active:scale-95 whitespace-nowrap">
+          <button onClick={saveLog} className="hidden sm:block bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-bold text-sm transition-all active:scale-95 whitespace-nowrap">
             保存
           </button>
         )}
@@ -52036,12 +52050,13 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     return (
       <div style={{height:'100%',display:'flex',flexDirection:'column',background:'#f0f4f9'}}>
         {/* 操作バー（スクロール時も上部に固定） */}
-        <div className="fax-no-print" style={{position:'sticky',top:0,zIndex:30,flexShrink:0,background:'#1e293b',color:'white',padding:'10px 20px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+        <div className="fax-no-print tsu-abs-bar" style={{position:'sticky',top:0,zIndex:30,flexShrink:0,background:'#1e293b',color:'white',padding:'10px 20px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
           <button type="button" onClick={closeFax} style={{background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',color:'white',borderRadius:8,padding:'6px 14px',fontWeight:'bold',fontSize:13,cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>
             ← カレンダーに戻る
           </button>
           <span style={{fontSize:13,fontWeight:'bold',color:'#64748b'}}>{absDate}　{maskedName} 様</span>
-          <div style={{marginLeft:'auto',display:'flex',gap:8,flexWrap:'wrap'}}>
+          {/* ★ 2026-10-08(ユーザー要望): スマホでも ダウンロード・氏名マスキング・保存・連絡済にする を1行に(CSS tsu-abs-actions) */}
+          <div className="tsu-abs-actions" style={{marginLeft:'auto',display:'flex',gap:8,flexWrap:'wrap'}}>
             <button type="button" onClick={()=>{
               // プレビューモーダルへ + 送付履歴を自動記録
               const el = document.getElementById('print-content-fax');
@@ -52407,6 +52422,8 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 
 // === GeneralFaxView (各種連絡) ===
 function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview }) {
+  // ★ 2026-10-08(ユーザー報告: スマホで初回ご利用報告の一覧が縦に長く画面を占める): 一覧は折りたたみ(人数の行だけ)。スマホは最初は閉じる
+  const [initRepOpen, setInitRepOpen] = React.useState(() => { try { return window.innerWidth >= 768; } catch { return true; } });
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
   // 下書き復元
@@ -52618,11 +52635,12 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
       {/* 送付状内インライン入力の視覚ヒント（hover/focus でわずかな黄背景） */}
       <style>{`.fax-inline-input{transition:background 0.15s;}.fax-inline-input:hover{background:#fef9c3 !important;}.fax-inline-input:focus{background:#fef3c7 !important;}`}</style>
       {/* 操作バー: 利用者 / 送付件数 / マーク / プレビュー（スクロール時も上部に固定。他画面と同じサイズに揃え） */}
-      <div className="fax-no-print" style={{position:'sticky',top:0,zIndex:30,flexShrink:0,background:'linear-gradient(135deg,#1e293b,#334155)',color:'white',padding:'12px 20px',display:'flex',alignItems:'center',gap:14,flexWrap:'wrap',boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
-        <span style={{fontSize:17,fontWeight:'bold',whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:6}}><FileText size={20}/>各種連絡</span>
+      {/* ★ 2026-10-08(ユーザー報告: スマホで上部が4段になり画面を占める): スマホは 見出し・「利用者:」「送付件数:」の文字を省き、1段目=利用者+枚数・2段目以降=ボタン(CSS tsu-gf-*) */}
+      <div className="fax-no-print tsu-gf-bar" style={{position:'sticky',top:0,zIndex:30,flexShrink:0,background:'linear-gradient(135deg,#1e293b,#334155)',color:'white',padding:'12px 20px',display:'flex',alignItems:'center',gap:14,flexWrap:'wrap',boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
+        <span className="tsu-gf-title" style={{fontSize:17,fontWeight:'bold',whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:6}}><FileText size={20}/>各種連絡</span>
         {/* 利用者 */}
-        <label style={{display:'flex',alignItems:'center',gap:6,whiteSpace:'nowrap'}}>
-          <span style={{fontSize:12,fontWeight:'bold',color:'#cbd5e1'}}>利用者:</span>
+        <label className="tsu-gf-pt" style={{display:'flex',alignItems:'center',gap:6,whiteSpace:'nowrap'}}>
+          <span className="tsu-gf-lbl" style={{fontSize:12,fontWeight:'bold',color:'#cbd5e1'}}>利用者:</span>
           <select value={selectedPatientId||''} onChange={e=>pickPatient(Number(e.target.value)||null)}
                   style={{padding:'5px 8px',border:'1px solid rgba(255,255,255,0.25)',borderRadius:6,fontSize:13,fontWeight:'bold',outline:'none',background:'rgba(255,255,255,0.1)',color:'white',minWidth:160,textAlign:'center',textAlignLast:'center'}}>
             <option value="" style={{color:'#1e293b'}}>— 利用者なし —</option>
@@ -52635,7 +52653,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
         </label>
         {/* 送付件数 */}
         <label style={{display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
-          <span style={{fontSize:12,fontWeight:'bold',color:'#cbd5e1'}}>送付件数:</span>
+          <span className="tsu-gf-lbl" style={{fontSize:12,fontWeight:'bold',color:'#cbd5e1'}}>送付件数:</span>
           <button type="button" onClick={()=>setPageCount(c=>Math.max(1,c-1))}
                   style={{width:24,height:26,border:'1px solid rgba(255,255,255,0.25)',borderRadius:6,background:'rgba(255,255,255,0.1)',color:'white',fontWeight:'bold',fontSize:14,cursor:'pointer'}}>−</button>
           <input type="text" inputMode="numeric" value={pageCount}
@@ -52645,7 +52663,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                   style={{width:24,height:26,border:'1px solid rgba(255,255,255,0.25)',borderRadius:6,background:'rgba(255,255,255,0.1)',color:'white',fontWeight:'bold',fontSize:14,cursor:'pointer'}}>+</button>
           <span style={{fontSize:12,fontWeight:'bold',color:'#cbd5e1'}}>枚</span>
         </label>
-        <div style={{marginLeft:'auto',display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end',whiteSpace:'nowrap'}}>
+        <div className="tsu-gf-actions" style={{marginLeft:'auto',display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end',whiteSpace:'nowrap'}}>
           {/* ★ 連絡事項の書式(文字サイズ/下線)。 FAXなので色は無し(店舗要望) */}
           <div style={{display:'flex',alignItems:'center',gap:4,marginRight:4}}>
             {[['std','標準'],['lg','大'],['xl','特大']].map(([v,l])=>(
@@ -52697,30 +52715,34 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
         const tickets = (appData.ticketRecords || []).filter(t => t.status === '通所' || t.status === '出席' || t.status === '振替' || t.status === '臨時' || (t.status||'').includes('通所')); // ★ 振替・臨時も通所(2026-09-24)
         const reportedSet = new Set((appData.initialReports || []).map(r => r.patientId));
         // 各利用者の最初の通所記録 (日付昇順で最初)
+        // ★ 2026-10-08: 日付は「10月7日」の形なので、年(year)と合わせて YYYY-MM-DD にしてから比べる(文字のまま比べていたため、
+        //   今日より先の日(10月12日など)も初回として出ていた・最初の日の判定も誤っていた)。利用者マスタの判定と同じ方法
+        const _toKey = (t) => { const d = String(t.date||''); if (/^\d{4}-\d{2}-\d{2}/.test(d)) return d.slice(0,10); const m = d.match(/(\d+)月(\d+)日/); if (m && t.year) return `${t.year}-${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`; return '9999-99-99'; };
         const firstByPatient = new Map();
         tickets.forEach(t => {
           if (!t.patientId || !t.date) return;
           const cur = firstByPatient.get(t.patientId);
-          if (!cur || t.date < cur.date) firstByPatient.set(t.patientId, t);
+          if (!cur || _toKey(t) < _toKey(cur)) firstByPatient.set(t.patientId, t);
         });
         // 未報告の初回通所者だけ抽出 (今月中だけでなく全期間、ただし通所日が今日以前)
-        const todayStr = new Date().toISOString().slice(0,10);
+        const _td = new Date(); const todayStr = `${_td.getFullYear()}-${String(_td.getMonth()+1).padStart(2,'0')}-${String(_td.getDate()).padStart(2,'0')}`;
         const pending = [];
         firstByPatient.forEach((firstTicket, pid) => {
           if (reportedSet.has(pid)) return;
-          if (firstTicket.date > todayStr) return;
+          if (_toKey(firstTicket) > todayStr) return;
           const pt = patients.find(p => p.id === pid);
           if (!pt) return;
           pending.push({ patient: pt, firstTicket });
         });
         if (pending.length === 0) return null;
+        pending.sort((a, b) => _toKey(b.firstTicket).localeCompare(_toKey(a.firstTicket))); // 新しい初回から
         return (
-          <div className="fax-no-print" style={{background:'linear-gradient(135deg,#fef3c7 0%,#fde68a 100%)',borderBottom:'2px solid #f59e0b',padding:'12px 20px',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
-            <div style={{display:'flex',alignItems:'center',gap:8,fontSize:14,fontWeight:'bold',color:'#92400e'}}>
-              <span style={{fontSize:20}}></span>
-              <span>初回ご利用報告が必要な利用者: <span style={{fontSize:16}}>{pending.length}名</span></span>
-            </div>
-            <div style={{display:'flex',gap:8,flexWrap:'wrap',flex:1}}>
+          <div className="fax-no-print" data-testid="initrep-banner" style={{background:'linear-gradient(135deg,#fef3c7 0%,#fde68a 100%)',borderBottom:'2px solid #f59e0b',padding:'6px 12px',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+            <button type="button" data-testid="initrep-toggle" onClick={()=>setInitRepOpen(v=>!v)} style={{display:'flex',alignItems:'center',gap:8,fontSize:13,fontWeight:'bold',color:'#92400e',background:'transparent',border:'none',padding:'4px 0',cursor:'pointer',flexBasis:'100%',textAlign:'left'}}>
+              <span>初回ご利用報告が必要な利用者: <span style={{fontSize:15}}>{pending.length}名</span></span>
+              <span style={{marginLeft:'auto',fontSize:12,border:'1px solid #f59e0b',borderRadius:8,padding:'2px 8px',background:'white'}}>{initRepOpen ? '閉じる ▲' : '一覧 ▼'}</span>
+            </button>
+            {initRepOpen && <div style={{display:'flex',gap:6,flexWrap:'wrap',flex:1,paddingBottom:4}}>
               {pending.slice(0, 10).map(({ patient: pt, firstTicket }) => {
                 const ampm = firstTicket.scheduledAmpm || (firstTicket.temp_PM ? 'PM' : 'AM');
                 const temp = firstTicket[`temp_${ampm}`] || firstTicket.temp || '';
@@ -52745,7 +52767,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                     // pendingInitialReport をマーキング (送付後に initialReports に登録するため)
                     onSave && onSave({ ...appData, _pendingInitialReport: { patientId: pt.id, firstTicketId: firstTicket.id, firstDate: firstTicket.date } });
                   }}
-                  style={{padding:'6px 12px',background:'white',border:'1.5px solid #f59e0b',borderRadius:8,fontSize:12,fontWeight:'bold',color:'#92400e',cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>
+                  style={{padding:'5px 10px',whiteSpace:'nowrap',background:'white',border:'1.5px solid #f59e0b',borderRadius:8,fontSize:12,fontWeight:'bold',color:'#92400e',cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>
                     {pt.name} <span style={{fontSize:10,opacity:0.7}}>({firstTicket.date})</span>
                   </button>
                 );
@@ -52753,7 +52775,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
               {pending.length > 10 && (
                 <span style={{fontSize:11,color:'#92400e',alignSelf:'center'}}>他 {pending.length - 10} 名</span>
               )}
-            </div>
+            </div>}
           </div>
         );
       })()}
