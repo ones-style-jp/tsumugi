@@ -137,3 +137,8 @@ button, a, input, select, textarea, label, [role="button"] { touch-action: manip
   .tsu-mon-label { width: 100% !important; white-space: normal !important; }
   .tsu-mon-sel { flex: 1 1 auto !important; width: auto !important; min-width: 0; min-height: 40px; }
 }
+
+/* ★ 2026-10-09(iPhoneで画面の上の方が空白で残る): 折りたたんで隠している上部(高さ0)の中の「固定(sticky)」は止める。
+   見えない固定部品が残ると、iPhone の描画で上の方が描き直されないことがあるため */
+[data-testid^="fold-body-"][data-open="0"] .sticky,
+[data-testid^="fold-body-"][data-open="0"] [style*="position: sticky"] { position: static !important; }

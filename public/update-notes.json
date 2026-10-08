@@ -1,7 +1,14 @@
 {
-  "version": "upd-2026-1008-trial231",
-  "updatedAt": "2026-10-08",
+  "version": "upd-2026-1009-trial232",
+  "updatedAt": "2026-10-09",
   "notes": [
+    {
+      "id": "upd-2026-1009-trial232-blank",
+      "type": "bugfix",
+      "title": "iPhone：画面の上の方が空白のまま表示されない不具合を修正",
+      "body": "iPhoneで、提供記録や連絡帳などを開いたときに、画面の上の方が空白のまま表示されないことがありました。画面を切り替えた後の描き直しの方法を、iPhoneに合う方法に変えました。",
+      "date": "2026-10-09"
+    },
     {
       "id": "upd-2026-1008-trial231-renraku",
       "type": "improve",

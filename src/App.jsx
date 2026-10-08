@@ -11361,6 +11361,22 @@ const _tsuClipX = (() => { try { return (typeof CSS !== 'undefined' && CSS.suppo
 // ★ 2026-10-08(ユーザー提案「スマホは上部の項目を折りたたみ、必要なときだけいつでも表示」): スマホ幅(768未満)の画面上部の共通部品。
 //   折りたたみ中は1行の要約(summary=日付・保存など よく使うもの)と「操作」ボタンだけを出し、押すと上部の操作(children)を全部表示する。
 //   開閉は画面ごとに端末へ記憶(storageKey)。iPad・PCでは children をそのまま出す(従来どおり)。
+// ★ 2026-10-09(店舗報告: iPhone で画面の上の方が空白のまま=描かれない): 画面全体を一瞬消して描き直させる方法(display:none)は、
+//   iPhone では逆に一部(縦およそ500px分)が描き直されず空白で残ることがあった。スマホ幅ではスクロール位置を1pxだけ動かして戻し、
+//   その枠と中の固定部品を描き直させる(見た目は動かない)。
+function tsuNudgeRepaint(sc) {
+  try {
+    // 実際にスクロールしている枠まで上る(なければ渡された枠のまま)
+    let e = sc; while (e && e !== document.body && !(e.scrollHeight > e.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(e).overflowY))) e = e.parentElement;
+    if (e && e !== document.body) sc = e;
+    if (!sc) return;
+    const t = sc.scrollTop;
+    sc.scrollTop = t > 0 ? t - 1 : t + 1;
+    const prevT = sc.style.transform;
+    sc.style.transform = 'translateZ(0)';
+    requestAnimationFrame(() => { try { sc.scrollTop = t; requestAnimationFrame(() => { try { sc.style.transform = prevT; } catch {} }); } catch {} });
+  } catch {}
+}
 function useTsuIsPhone() {
   const q = '(max-width: 767px)';
   const [on, setOn] = React.useState(() => { try { return window.matchMedia(q).matches; } catch { return false; } });
@@ -11376,9 +11392,10 @@ function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = 
   const isPhone = useTsuIsPhone();
   const [open, setOpen] = React.useState(() => { try { return localStorage.getItem('tsuFold_' + storageKey) === '1'; } catch { return false; } });
   if (!isPhone) return children;
-  const tog = () => setOpen(v => { const nv = !v; try { localStorage.setItem('tsuFold_' + storageKey, nv ? '1' : '0'); } catch {} return nv; });
+  const foldRef = React.useRef(null);
+  const tog = () => { setOpen(v => { const nv = !v; try { localStorage.setItem('tsuFold_' + storageKey, nv ? '1' : '0'); } catch {} return nv; }); setTimeout(() => tsuNudgeRepaint(foldRef.current), 60); };
   return (
-    <div data-testid={`fold-${storageKey}`} className={`${sticky ? 'sticky top-0 z-30' : ''} bg-white border-b border-slate-200 shadow-sm ${className}`}>
+    <div ref={foldRef} data-testid={`fold-${storageKey}`} className={`${sticky ? 'sticky top-0 z-30' : ''} bg-white border-b border-slate-200 shadow-sm ${className}`}>
       <div className="flex items-center gap-1.5 px-2 py-1.5" style={{minHeight:48}}>
         <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden">{summary}</div>
         <button type="button" data-testid={`fold-btn-${storageKey}`} onClick={tog} aria-expanded={open}
@@ -20962,6 +20979,8 @@ export default function App() {
   //   reflow させて sticky を強制再計算させる (同一タスク内なので画面のちらつきは出ない)。
   useEffect(() => {
     const id = setTimeout(() => {
+      // ★ 2026-10-09: スマホ幅は消して描き直す方法を使わない(上の方が空白で残ることがあった)。サイドバーは重ねて出すだけで並びも変わらない
+      if (window.innerWidth < 768) { tsuNudgeRepaint(contentRef.current); return; }
       const el = document.getElementById('appMainArea');
       if (!el) return;
       const prev = el.style.display;
@@ -20974,7 +20993,7 @@ export default function App() {
   // ★ 2026-10-08: iPhone/iPad でサイドバーを開いた後、メニュー(スクロール枠)を一度描き直させる(描かれずに空になることがあった)
   useEffect(() => {
     if (!isSidebarOpen || !tsumugiIsIOS()) return;
-    const id = setTimeout(() => { try { const el = document.getElementById('tsuSideNav'); if (!el) return; const st = el.scrollTop; const prev = el.style.display; el.style.display = 'none'; void el.offsetHeight; el.style.display = prev || ''; el.scrollTop = st; } catch {} }, 340);
+    const id = setTimeout(() => { try { tsuNudgeRepaint(document.getElementById('tsuSideNav')); } catch {} }, 340);
     return () => clearTimeout(id);
   }, [isSidebarOpen]);
   // ★ 2026-10-06(ユーザー報告: 再読み込みした直後は上部のボタンが出ず、サイドバーを開閉すると出る): iPad の WebKit で
@@ -21026,6 +21045,7 @@ export default function App() {
   useEffect(() => {
     if (!tsumugiIsIOS()) return;
     const id = setTimeout(() => { try {
+      if (window.innerWidth < 768) { tsuNudgeRepaint(contentRef.current); return; } // ★ 2026-10-09: スマホ幅は1pxだけ動かして描き直す
       const el = document.getElementById('appMainArea'); if (!el) return;
       const sc = contentRef.current; const st = sc ? [sc.scrollTop, sc.scrollLeft] : null;
       const prev = el.style.display; el.style.display = 'none'; void el.offsetHeight; el.style.display = prev || '';
