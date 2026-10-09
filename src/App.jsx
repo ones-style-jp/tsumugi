@@ -21149,7 +21149,9 @@ export default function App() {
     if (!tsumugiIsIOS()) return;
     const on = () => _setRepaintTick(t => t + 1);
     window.addEventListener('orientationchange', on);
-    return () => window.removeEventListener('orientationchange', on);
+    // ★ 2026-10-09(ユーザー報告: iPad で提供記録の全画面を閉じると、見出しと上部のメニューが白く消えたまま): 画面側から描き直しを頼む合図
+    window.addEventListener('tsu:repaint', on);
+    return () => { window.removeEventListener('orientationchange', on); window.removeEventListener('tsu:repaint', on); };
   }, []);
   const DESIGN_WIDTH = 1100;
   const contentRef = useRef(null);
@@ -21206,6 +21208,24 @@ export default function App() {
     } catch {} }, 450);
     return () => clearTimeout(id);
   }, [currentView, _zoomMode, _repaintTick]);
+  // ★ 2026-10-09(ユーザー報告: iPad でログインしたら、見出しとサイドバーの上の方が白いまま。縦にして横に戻すと直る):
+  //   担当者の選択画面や「最新のデータを取得しています…」(画面全体を覆う白い幕)から本画面に切り替わったとき、iPad の Safari が
+  //   幕の下だった所を描き直さないことがある。回転と同じように、本画面が出た(幕が消えた)あとにアプリ全体(サイドバー含む)を一瞬消して描き直させる。
+  //   iPhone(スマホ幅)はページ全体のスクロールにしたので何もしない(消して描き直すと逆に空白が残ることがあった)
+  const _tsuLoadingOv = !!((((opsLoading && (TABLE_ENABLED || OPLOG_ENABLED)) || (appData?._sbStoreId && staffSession?.storeId && appData._sbStoreId !== staffSession.storeId)) && isSupabaseEnabled && staffSession?.storeId));
+  const _tsuMainShown = !!(activeRecorder || !isSupabaseEnabled) && !_tsuLoadingOv;
+  useEffect(() => {
+    if (!_tsuMainShown || !tsumugiIsIOS()) return;
+    const nudge = () => { try {
+      if (window.innerWidth < 768) return;
+      const el = document.querySelector('.tsu-app-root'); if (!el) return;
+      const sc = contentRef.current; const st = sc ? [sc.scrollTop, sc.scrollLeft] : null;
+      const prev = el.style.display; el.style.display = 'none'; void el.offsetHeight; el.style.display = prev || '';
+      if (sc && st) { sc.scrollTop = st[0]; sc.scrollLeft = st[1]; }
+    } catch {} };
+    const t1 = setTimeout(nudge, 400), t2 = setTimeout(nudge, 1300);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [_tsuMainShown]);
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -23854,6 +23874,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       // ★ 2026-09-28 ユーザー指示: 「通常表示に戻る」でサイドバーは開かない(閉じたまま。必要ならメニューから開く)
       setIsSidebarOpen(false);
       _prevSidebarRef.current = null;
+      // ★ 2026-10-09(ユーザー報告): iPad で全画面を閉じると見出し・上部のメニューの所が白いまま描かれないことがある。
+      //   サイドバーは全画面中から閉じたままで開閉の描き直しが走らないため、App に描き直しを頼む(iPhone/iPad のみ・App 側で判定)
+      try { window.dispatchEvent(new Event('tsu:repaint')); } catch {}
     }
     // unmount/画面遷移時の保険: 全画面ON状態でアンマウントされたら元に戻す
     return () => {
