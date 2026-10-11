@@ -1894,6 +1894,16 @@ const tsumugiFacilityInfo = (appData) => {
 };
 const tsumugiFaxLog = (appData) => (appData && Array.isArray(appData.faxHistory) ? appData.faxHistory : []).filter(h => h && h.method !== 'pdf');
 const tsumugiIsIOS = () => typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+// ★ 2026-10-11(ユーザー報告: iPad でしばらくしてからログインすると、見出し・上部のメニューが白いまま/見出しがぼやけて見える。縦にして横に戻すと直る):
+//   iPad の Safari が画面の一部を古い描画のまま出し続ける。部品を消して出し直す(display)だけでは大きさが同じなので描き直されないことがあるため、
+//   回転と同じように「アプリ全体の高さを 2 フレームだけ 1px 変える」ことで、画面全体を描き直させる。iPad/PC 幅の iPhone・iPad だけ(スマホ幅はページ全体のスクロールなので触らない)
+const tsuForceRepaint = () => { try {
+  if (!tsumugiIsIOS() || window.innerWidth < 768) return;
+  const el = document.querySelector('.tsu-app-root'); if (!el || el.dataset.tsuRp === '1') return;
+  el.dataset.tsuRp = '1'; const prevH = el.style.height;
+  el.style.height = 'calc(100dvh - 1px)';
+  requestAnimationFrame(() => requestAnimationFrame(() => { try { el.style.height = prevH; delete el.dataset.tsuRp; } catch {} }));
+} catch {} };
 // ★ 2026-10-05(ユーザー要望「印刷位置が目視でわかるように」): 連絡帳の用紙上の配置(mm)。ContactBookView._layoutRenraku と同じ数値
 //   (あちらを変えたらここも合わせる)。印刷設定の「印刷位置の微調整」の図に使う
 const renrakuSheetGeom = (ss) => {
@@ -21093,6 +21103,8 @@ export default function App() {
   // ★ iPhone (768px 未満) はサイドバーを初期非表示、それ以外は表示
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     if (typeof window === 'undefined') return true;
+    // ★ 2026-10-09(ユーザー要望・スマホ限定): ログインしたら(起動したら)サイドバーは閉じた状態にし、ホーム画面の全体が見えるように(開閉の記憶は使わない)
+    if (window.innerWidth < 768) return false;
     // ★ ユーザーが開閉ボタンで選んだ状態を記憶して復元(2026-08-11)。 従来は毎回「画面幅>=768」で
     //   自動判定していたため、再読み込みや更新のたびに設定が初期化され「常に表示にしているのに
     //   表示されない」ことがあった。 記憶が無い端末は従来どおり画面幅で判定。
@@ -21112,6 +21124,7 @@ export default function App() {
       el.style.display = 'none';
       void el.offsetHeight; // 強制 reflow
       el.style.display = prev || '';
+      tsuForceRepaint(); // ★ 2026-10-11: 大きさを一瞬変えて画面全体を描き直させる(iPad の見出しがぼやける・白く残る対策)
     }, 330); // サイドバーの transition(300ms)完了後
     return () => clearTimeout(id);
   }, [isSidebarOpen]);
@@ -21205,6 +21218,7 @@ export default function App() {
       const sc = contentRef.current; const st = sc ? [sc.scrollTop, sc.scrollLeft] : null;
       const prev = el.style.display; el.style.display = 'none'; void el.offsetHeight; el.style.display = prev || '';
       if (sc && st) { sc.scrollTop = st[0]; sc.scrollLeft = st[1]; }
+      tsuForceRepaint();
     } catch {} }, 450);
     return () => clearTimeout(id);
   }, [currentView, _zoomMode, _repaintTick]);
@@ -21223,9 +21237,17 @@ export default function App() {
       const prev = el.style.display; el.style.display = 'none'; void el.offsetHeight; el.style.display = prev || '';
       if (sc && st) { sc.scrollTop = st[0]; sc.scrollLeft = st[1]; }
     } catch {} };
-    const t1 = setTimeout(nudge, 400), t2 = setTimeout(nudge, 1300);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
+    const t1 = setTimeout(() => { nudge(); tsuForceRepaint(); }, 400), t2 = setTimeout(() => { nudge(); tsuForceRepaint(); }, 1300), t3 = setTimeout(tsuForceRepaint, 3000);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   }, [_tsuMainShown]);
+  // ★ 2026-10-11: しばらく使わずに戻ってきたとき(スリープ・別アプリから戻る)も、iPad は画面の一部が古い描画のまま残ることがあるので描き直させる
+  useEffect(() => {
+    if (!tsumugiIsIOS()) return;
+    let t = null;
+    const onVis = () => { if (document.visibilityState !== 'visible') return; clearTimeout(t); t = setTimeout(tsuForceRepaint, 600); };
+    document.addEventListener('visibilitychange', onVis); window.addEventListener('pageshow', onVis);
+    return () => { clearTimeout(t); document.removeEventListener('visibilitychange', onVis); window.removeEventListener('pageshow', onVis); };
+  }, []);
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -22295,6 +22317,8 @@ export default function App() {
     }
   }, []);
 
+  // ★ 2026-10-09(ユーザー要望・スマホ限定): サイドバーの項目(連絡帳・日誌など)を押したら、自動でサイドバーを閉じる
+  const _sideNav = (...a) => { try { if (window.innerWidth < 768) setIsSidebarOpen(false); } catch {} navigateTo(...a); };
   const navigateTo = (view, patientId = null, focus = null) => {
     if (view !== 'master' && view !== 'ticket') { try { sessionStorage.removeItem('tsumugiPFOrigin'); } catch {} }
     const isDirty = (currentView === 'record' && recordDirtyRef.current) ||
@@ -23277,13 +23301,13 @@ export default function App() {
               </div>
             )}
             <div id="tsuSideNav" className="flex-1 py-6 px-4 space-y-1 overflow-y-auto">
-              <SidebarItem icon={<CalendarCheck size={18} />} label="ホーム" active={currentView === 'dashboard'} onClick={() => navigateTo('dashboard')} badge={_homeUnreadCount||null} />
-              {tsumugiSideShown(appData, 'schedule') && <SidebarItem icon={<CalendarRange size={18} />} label="カレンダー" active={currentView === 'schedule'} onClick={() => navigateTo('schedule')} />}
-              <SidebarItem icon={<ClipboardList size={18} />} label="サービス提供記録 入力" active={currentView === 'record'} onClick={() => navigateTo('record')} />
-              <SidebarItem icon={<Printer size={18} />} label="連絡帳" active={currentView === 'print'} onClick={() => navigateTo('print')} />
+              <SidebarItem icon={<CalendarCheck size={18} />} label="ホーム" active={currentView === 'dashboard'} onClick={() => _sideNav('dashboard')} badge={_homeUnreadCount||null} />
+              {tsumugiSideShown(appData, 'schedule') && <SidebarItem icon={<CalendarRange size={18} />} label="カレンダー" active={currentView === 'schedule'} onClick={() => _sideNav('schedule')} />}
+              <SidebarItem icon={<ClipboardList size={18} />} label="サービス提供記録 入力" active={currentView === 'record'} onClick={() => _sideNav('record')} />
+              <SidebarItem icon={<Printer size={18} />} label="連絡帳" active={currentView === 'print'} onClick={() => _sideNav('print')} />
               {/* ★ サービス提供記録はサイドバーから削除し、各利用者の個人ファイル内で年月を選んで開く形に集約 */}
-              <SidebarItem icon={<PenTool size={18} />} label="日誌" active={currentView === 'diary'} onClick={() => navigateTo('diary')} badge={diaryTodayBadge || undefined} />
-              {tsumugiTransportOn(appData) && <SidebarItem icon={<Car size={18} />} label="送迎表" active={currentView === 'transport'} onClick={() => navigateTo('transport')} />}
+              <SidebarItem icon={<PenTool size={18} />} label="日誌" active={currentView === 'diary'} onClick={() => _sideNav('diary')} badge={diaryTodayBadge || undefined} />
+              {tsumugiTransportOn(appData) && <SidebarItem icon={<Car size={18} />} label="送迎表" active={currentView === 'transport'} onClick={() => _sideNav('transport')} />}
               {!(appData.systemSettings?.fitnessCycle?.disabled || appData.systemSettings?.fitnessCycle?.unit==='実施しない') && (()=>{
                 // 体力測定バッジ: 当日出席 かつ 当月測定対象の利用者数
                 const _now = new Date(); _now.setHours(0,0,0,0);
@@ -23316,45 +23340,45 @@ export default function App() {
                   const diffMonths = Math.floor((due-_now)/(1000*60*60*24*30));
                   return diffMonths <= 0; // 当月以内（期限超過含む）
                 }).length;
-                return <SidebarItem icon={<Activity size={18} />} label="体力測定" active={currentView === 'fitness'} onClick={() => navigateTo('fitness')} badge={_fitnessBadge||null} />;
+                return <SidebarItem icon={<Activity size={18} />} label="体力測定" active={currentView === 'fitness'} onClick={() => _sideNav('fitness')} badge={_fitnessBadge||null} />;
               })()}
               {/* ★ サイドバー整理(2026-08-21): 使用頻度が近いペアは計画書と同じ開閉グループに集約 */}
               {(tsumugiSideShown(appData, 'absence_fax') || tsumugiSideShown(appData, 'general_fax')) && (
               <SidebarGroup icon={<FileText size={18} />} label="連絡（FAX）" activeChild={['absence_fax','general_fax'].includes(currentView)}>
-                {tsumugiSideShown(appData, 'absence_fax') && <SidebarItem icon={<FileText size={16} />} label="休み連絡" active={currentView === 'absence_fax'} onClick={() => navigateTo('absence_fax')} />}
-                {tsumugiSideShown(appData, 'general_fax') && <SidebarItem icon={<FileText size={16} />} label="各種連絡" active={currentView === 'general_fax'} onClick={() => navigateTo('general_fax')} />}
+                {tsumugiSideShown(appData, 'absence_fax') && <SidebarItem icon={<FileText size={16} />} label="休み連絡" active={currentView === 'absence_fax'} onClick={() => _sideNav('absence_fax')} />}
+                {tsumugiSideShown(appData, 'general_fax') && <SidebarItem icon={<FileText size={16} />} label="各種連絡" active={currentView === 'general_fax'} onClick={() => _sideNav('general_fax')} />}
               </SidebarGroup>)}
               {/* ★ 2ハブ構成(2026-08-19): 通所介護計画書(全利用者) / 個別機能訓練・LIFE(加算アドオン店舗のみ)。
                   3-2/3-1/ADL/LIFE提出は機能訓練ハブ内のタブへ集約。 ラベルの数字=作成予定(期限内+超過)件数 */}
               {(hasAddon(appData,'kinou_keikaku') || hasAddon(appData,'tsusho_keikaku') || hasAnyLifeAddon(appData)) && (
                 <SidebarGroup icon={<FileText size={18} />} label="計画書" activeChild={['keikaku_yotei','kinou_yotei','kinou_keikaku','tsusho_keikaku','seikatsu_kinou','kyomi_kanshin','life_hub'].includes(currentView)}>
                   {hasAddon(appData,'tsusho_keikaku') && (
-                    <SidebarItem icon={<FileText size={16} />} label={_dueCounts.tsusho ? `通所介護計画書 (${_dueCounts.tsusho})` : '通所介護計画書'} active={['keikaku_yotei','tsusho_keikaku'].includes(currentView)} onClick={() => navigateTo('keikaku_yotei')} />
+                    <SidebarItem icon={<FileText size={16} />} label={_dueCounts.tsusho ? `通所介護計画書 (${_dueCounts.tsusho})` : '通所介護計画書'} active={['keikaku_yotei','tsusho_keikaku'].includes(currentView)} onClick={() => _sideNav('keikaku_yotei')} />
                   )}
                   {(hasAddon(appData,'kinou_keikaku') || hasAnyLifeAddon(appData)) && (
-                    <SidebarItem icon={<Activity size={16} />} label={_dueCounts.kinou ? `個別機能訓練・LIFE (${_dueCounts.kinou})` : '個別機能訓練・LIFE'} active={['kinou_yotei','kinou_keikaku','seikatsu_kinou','kyomi_kanshin','life_hub'].includes(currentView)} onClick={() => navigateTo('kinou_yotei')} />
+                    <SidebarItem icon={<Activity size={16} />} label={_dueCounts.kinou ? `個別機能訓練・LIFE (${_dueCounts.kinou})` : '個別機能訓練・LIFE'} active={['kinou_yotei','kinou_keikaku','seikatsu_kinou','kyomi_kanshin','life_hub'].includes(currentView)} onClick={() => _sideNav('kinou_yotei')} />
                   )}
                 </SidebarGroup>
               )}
               {['roster','jisseki','class_roster','monitoring'].some(k => tsumugiSideShown(appData, k)) && (
               <SidebarGroup icon={<ClipboardList size={18} />} label="実績・モニタリング" activeChild={['roster','jisseki','monitoring','class_roster'].includes(currentView)}>
-                {tsumugiSideShown(appData, 'roster') && <SidebarItem icon={<Users size={16} />} label="勤務表" active={currentView === 'roster'} onClick={() => navigateTo('roster')} />}
-                {tsumugiSideShown(appData, 'jisseki') && <SidebarItem icon={<ClipboardList size={16} />} label="利用者実績" active={currentView === 'jisseki'} onClick={() => navigateTo('jisseki')} />}
-                {tsumugiSideShown(appData, 'class_roster') && <SidebarItem icon={<Users size={16} />} label="クラス在籍表" active={currentView === 'class_roster'} onClick={() => navigateTo('class_roster')} />}
-                {tsumugiSideShown(appData, 'monitoring') && <SidebarItem icon={<ClipboardList size={16} />} label="モニタリング" active={currentView === 'monitoring'} onClick={() => navigateTo('monitoring')} />}
+                {tsumugiSideShown(appData, 'roster') && <SidebarItem icon={<Users size={16} />} label="勤務表" active={currentView === 'roster'} onClick={() => _sideNav('roster')} />}
+                {tsumugiSideShown(appData, 'jisseki') && <SidebarItem icon={<ClipboardList size={16} />} label="利用者実績" active={currentView === 'jisseki'} onClick={() => _sideNav('jisseki')} />}
+                {tsumugiSideShown(appData, 'class_roster') && <SidebarItem icon={<Users size={16} />} label="クラス在籍表" active={currentView === 'class_roster'} onClick={() => _sideNav('class_roster')} />}
+                {tsumugiSideShown(appData, 'monitoring') && <SidebarItem icon={<ClipboardList size={16} />} label="モニタリング" active={currentView === 'monitoring'} onClick={() => _sideNav('monitoring')} />}
               </SidebarGroup>)}
               <div className="pt-4 mt-4 border-t border-slate-800 space-y-1">
-                <SidebarItem icon={<Users size={18} />} label="利用者マスタ管理" active={currentView === 'master'} onClick={() => navigateTo('master')} />
-                <SidebarItem icon={<Briefcase size={18} />} label="ケアマネ事業所・担当者" active={currentView === 'cmmaster'} onClick={() => navigateTo('cmmaster')} />
+                <SidebarItem icon={<Users size={18} />} label="利用者マスタ管理" active={currentView === 'master'} onClick={() => _sideNav('master')} />
+                <SidebarItem icon={<Briefcase size={18} />} label="ケアマネ事業所・担当者" active={currentView === 'cmmaster'} onClick={() => _sideNav('cmmaster')} />
                 {(tsumugiSideShown(appData, 'dash_personal') || tsumugiSideShown(appData, 'dash_operation')) && (
                 <SidebarGroup icon={<BarChart3 size={18} />} label="分析" activeChild={['dash_personal','dash_operation'].includes(currentView)}>
-                  {tsumugiSideShown(appData, 'dash_personal') && <SidebarItem icon={<BarChart3 size={16} />} label="個人（バイタル・記録）" active={currentView === 'dash_personal'} onClick={() => navigateTo('dash_personal')} />}
-                  {tsumugiSideShown(appData, 'dash_operation') && <SidebarItem icon={<TrendingUp size={16} />} label="稼働（実績・月次）" active={currentView === 'dash_operation'} onClick={() => navigateTo('dash_operation')} />}
+                  {tsumugiSideShown(appData, 'dash_personal') && <SidebarItem icon={<BarChart3 size={16} />} label="個人（バイタル・記録）" active={currentView === 'dash_personal'} onClick={() => _sideNav('dash_personal')} />}
+                  {tsumugiSideShown(appData, 'dash_operation') && <SidebarItem icon={<TrendingUp size={16} />} label="稼働（実績・月次）" active={currentView === 'dash_operation'} onClick={() => _sideNav('dash_operation')} />}
                 </SidebarGroup>)}
-                {tsumugiSideShown(appData, 'family_admin') && <SidebarItem icon={<QrCode size={18} />} label="お知らせ・閲覧管理" active={currentView === 'family_admin'} onClick={() => navigateTo('family_admin')} />}
+                {tsumugiSideShown(appData, 'family_admin') && <SidebarItem icon={<QrCode size={18} />} label="お知らせ・閲覧管理" active={currentView === 'family_admin'} onClick={() => _sideNav('family_admin')} />}
                 {/* ★ 2026-09-18 運営推進会議の要望: 災害時にご家族・ケアマネへ一斉メール+家族画面お知らせ */}
-                {tsumugiSideShown(appData, 'emergency') && <SidebarItem icon={<AlertTriangle size={18} />} label="災害時" active={currentView === 'emergency'} onClick={() => navigateTo('emergency')} />}
-                <SidebarItem icon={<Settings size={18} />} label="各種設定" active={currentView === 'settings'} onClick={() => navigateTo('settings')} />
+                {tsumugiSideShown(appData, 'emergency') && <SidebarItem icon={<AlertTriangle size={18} />} label="災害時" active={currentView === 'emergency'} onClick={() => _sideNav('emergency')} />}
+                <SidebarItem icon={<Settings size={18} />} label="各種設定" active={currentView === 'settings'} onClick={() => _sideNav('settings')} />
                 {/* ★ 不具合レポート (管理者のみ) */}
                 {activeRecorder && isMemberAdmin(activeRecorder, appData.systemSettings) && (
                   <button onClick={()=>setBugReport({desc:'',sending:false,sent:false,err:''})} className="w-full mt-2 flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] font-bold text-amber-200 hover:bg-amber-900/40 transition-colors">
