@@ -21229,6 +21229,15 @@ export default function App() {
   //   iPhone(スマホ幅)はページ全体のスクロールにしたので何もしない(消して描き直すと逆に空白が残ることがあった)
   const _tsuLoadingOv = !!((((opsLoading && (TABLE_ENABLED || OPLOG_ENABLED)) || (appData?._sbStoreId && staffSession?.storeId && appData._sbStoreId !== staffSession.storeId)) && isSupabaseEnabled && staffSession?.storeId));
   const _tsuMainShown = !!(activeRecorder || !isSupabaseEnabled) && !_tsuLoadingOv;
+  // ★ 2026-10-11(ユーザー報告「iPad でまだ白い」・画面ごとに違う): 白い所は、幕(画面全体の半透明の白)の下の古い描画が残ったもの
+  //   (サイドバーの項目名が白地に薄く透けて見える=幕つきの描画)。幕を一瞬で消すと、その下で変わらない所(見出し・上部の帯・サイドバー)が
+  //   描き直されず幕つきのまま残ることがある。幕は0.3秒かけて薄くしてから外す(薄くなる間ずっと画面が更新されるので古い描画が残らない)
+  const [_ovFading, _setOvFading] = useState(false);
+  const _ovWasRef = React.useRef(_tsuLoadingOv);
+  useEffect(() => {
+    if (_ovWasRef.current && !_tsuLoadingOv) { _setOvFading(true); const t = setTimeout(() => _setOvFading(false), 380); _ovWasRef.current = false; return () => clearTimeout(t); }
+    _ovWasRef.current = _tsuLoadingOv;
+  }, [_tsuLoadingOv]);
   useEffect(() => {
     if (!_tsuMainShown || !tsumugiIsIOS()) return;
     const nudge = () => { try {
@@ -23023,8 +23032,9 @@ export default function App() {
             「再読み込み後の数秒間、データが無いように見える」原因になっていた。 */}
       {/* ★ 2026-09-03追加: 手元データが別店舗のもの(_sbStoreId不一致)の間も必ずゲートする。
           店舗ログイン/切替直後に前店舗の利用者名が一瞬見える(個人情報)のを防ぐ。 */}
-      {((opsLoading && (TABLE_ENABLED || OPLOG_ENABLED)) || (appData._sbStoreId && staffSession?.storeId && appData._sbStoreId !== staffSession.storeId)) && isSupabaseEnabled && staffSession?.storeId && ReactDOM.createPortal(
-        <div style={{position:'fixed',inset:0,zIndex:2000003,background:'rgba(255,255,255,0.92)',
+      {(_tsuLoadingOv || _ovFading) && ReactDOM.createPortal(
+        <div data-testid="loading-overlay" data-fading={_tsuLoadingOv ? '0' : '1'} style={{position:'fixed',inset:0,zIndex:2000003,background:'rgba(255,255,255,0.92)',
+          opacity: _tsuLoadingOv ? 1 : 0, transition: 'opacity 0.3s ease', pointerEvents: _tsuLoadingOv ? 'auto' : 'none',
           display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:14}}>
           <div style={{width:46,height:46,border:'5px solid #d7e3c4',borderTopColor:'#7daa3d',borderRadius:'50%',animation:'tsumugiSpin 0.9s linear infinite'}}/>
           <div style={{fontSize:15,fontWeight:'bold',color:'#475569'}}>最新のデータを取得しています…</div>
@@ -23804,6 +23814,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   // ★ 2026-10-07(店舗報告: スマホ縦で基準値の欄が大きく、入力欄が狭くなる): スマホ幅は最初から「正常範囲だけの1行」にする(押すと詳しく開く)
   const [vitalCollapsed, setVitalCollapsed] = useState(() => { try { return window.innerWidth < 640; } catch { return false; } });
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // ★ 2026-10-11: 全画面(画面全体を覆う)を一瞬で外すと、iPad では下の見出し・上部の帯が古い描画のまま白く残ることがある。0.3秒かけて薄くしてから外す
+  const [fsClosing, setFsClosing] = useState(false);
+  const closeFullscreen = () => { if (fsClosing) return; setFsClosing(true); setTimeout(() => { setIsFullscreen(false); setFsClosing(false); }, 320); };
   // ★ 画面の高さに応じて行高を動的計算
   //   利用者数が 10 名以上なら "10 名がぴったり" になるサイズ
   //   利用者数が 10 名未満なら "全員で画面を埋める" サイズ (空白を作らない)
@@ -25487,6 +25500,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       ...(isFullscreen ? {
         position: 'fixed', inset: 0, height: '100dvh', width: '100vw',
         background: 'white', zIndex: 9999,
+        opacity: fsClosing ? 0 : 1, transition: 'opacity 0.3s ease', pointerEvents: fsClosing ? 'none' : 'auto',
       } : {}),
     }}>
       {!isFullscreen ? (
@@ -25650,7 +25664,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           <div className="flex-1 hidden sm:block"/>
           <div className="basis-full sm:hidden" />
           <button onClick={()=>{ handleSaveClick(); navigateTo('print'); }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap" title="連絡帳の作成・印刷へ"><Printer size={13} className="mr-1"/>連絡帳</button>
-          <button onClick={()=>setIsFullscreen(false)} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap">通常表示に戻る</button>
+          <button onClick={closeFullscreen} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap">通常表示に戻る</button>
           <button onClick={()=>setRestoreModal(true)} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap" title="保存した記録を丸ごと復元">⟲ 元に戻す</button>
           <button onClick={()=>handleSaveClick(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap"><CloudUpload size={13} className="mr-1"/>保存</button>
         </div>
