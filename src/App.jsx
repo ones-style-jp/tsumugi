@@ -1894,6 +1894,16 @@ const tsumugiFacilityInfo = (appData) => {
 };
 const tsumugiFaxLog = (appData) => (appData && Array.isArray(appData.faxHistory) ? appData.faxHistory : []).filter(h => h && h.method !== 'pdf');
 const tsumugiIsIOS = () => typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+// ★ 2026-10-11(ユーザー報告: iPad でしばらくしてからログインすると、見出し・上部のメニューが白いまま/見出しがぼやけて見える。縦にして横に戻すと直る):
+//   iPad の Safari が画面の一部を古い描画のまま出し続ける。部品を消して出し直す(display)だけでは大きさが同じなので描き直されないことがあるため、
+//   回転と同じように「アプリ全体の高さを 2 フレームだけ 1px 変える」ことで、画面全体を描き直させる。iPad/PC 幅の iPhone・iPad だけ(スマホ幅はページ全体のスクロールなので触らない)
+const tsuForceRepaint = () => { try {
+  if (!tsumugiIsIOS() || window.innerWidth < 768) return;
+  const el = document.querySelector('.tsu-app-root'); if (!el || el.dataset.tsuRp === '1') return;
+  el.dataset.tsuRp = '1'; const prevH = el.style.height;
+  el.style.height = 'calc(100dvh - 1px)';
+  requestAnimationFrame(() => requestAnimationFrame(() => { try { el.style.height = prevH; delete el.dataset.tsuRp; } catch {} }));
+} catch {} };
 // ★ 2026-10-05(ユーザー要望「印刷位置が目視でわかるように」): 連絡帳の用紙上の配置(mm)。ContactBookView._layoutRenraku と同じ数値
 //   (あちらを変えたらここも合わせる)。印刷設定の「印刷位置の微調整」の図に使う
 const renrakuSheetGeom = (ss) => {
@@ -21114,6 +21124,7 @@ export default function App() {
       el.style.display = 'none';
       void el.offsetHeight; // 強制 reflow
       el.style.display = prev || '';
+      tsuForceRepaint(); // ★ 2026-10-11: 大きさを一瞬変えて画面全体を描き直させる(iPad の見出しがぼやける・白く残る対策)
     }, 330); // サイドバーの transition(300ms)完了後
     return () => clearTimeout(id);
   }, [isSidebarOpen]);
@@ -21207,6 +21218,7 @@ export default function App() {
       const sc = contentRef.current; const st = sc ? [sc.scrollTop, sc.scrollLeft] : null;
       const prev = el.style.display; el.style.display = 'none'; void el.offsetHeight; el.style.display = prev || '';
       if (sc && st) { sc.scrollTop = st[0]; sc.scrollLeft = st[1]; }
+      tsuForceRepaint();
     } catch {} }, 450);
     return () => clearTimeout(id);
   }, [currentView, _zoomMode, _repaintTick]);
@@ -21225,9 +21237,17 @@ export default function App() {
       const prev = el.style.display; el.style.display = 'none'; void el.offsetHeight; el.style.display = prev || '';
       if (sc && st) { sc.scrollTop = st[0]; sc.scrollLeft = st[1]; }
     } catch {} };
-    const t1 = setTimeout(nudge, 400), t2 = setTimeout(nudge, 1300);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
+    const t1 = setTimeout(() => { nudge(); tsuForceRepaint(); }, 400), t2 = setTimeout(() => { nudge(); tsuForceRepaint(); }, 1300), t3 = setTimeout(tsuForceRepaint, 3000);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   }, [_tsuMainShown]);
+  // ★ 2026-10-11: しばらく使わずに戻ってきたとき(スリープ・別アプリから戻る)も、iPad は画面の一部が古い描画のまま残ることがあるので描き直させる
+  useEffect(() => {
+    if (!tsumugiIsIOS()) return;
+    let t = null;
+    const onVis = () => { if (document.visibilityState !== 'visible') return; clearTimeout(t); t = setTimeout(tsuForceRepaint, 600); };
+    document.addEventListener('visibilitychange', onVis); window.addEventListener('pageshow', onVis);
+    return () => { clearTimeout(t); document.removeEventListener('visibilitychange', onVis); window.removeEventListener('pageshow', onVis); };
+  }, []);
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
