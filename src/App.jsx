@@ -1903,7 +1903,12 @@ const tsuForceRepaint = () => { try {
   // ★ 2026-10-11 追補(ユーザー報告「まだ白い」): 高さだけでは見出し・上部の帯(幅は変わらない)が描き直されなかった。回転と同じく「幅」を変える(全部の幅が変わる)
   el.dataset.tsuRp = '1'; const prevH = el.style.height, prevW = el.style.width;
   el.style.height = 'calc(100dvh - 1px)'; el.style.width = 'calc(100vw - 1px)';
-  requestAnimationFrame(() => requestAnimationFrame(() => { try { el.style.height = prevH; el.style.width = prevW; delete el.dataset.tsuRp; } catch {} }));
+  // ★ 2026-10-11 追補2(ユーザー報告「上部が掠れている」): 見出し・サイドバーは中身が変わらないので幅を変えても描き直されないことがある。
+  //   その2つを一瞬(2フレーム)だけ別の層にし(opacity 0.99)元に戻す=その部分が必ず描き直される
+  const parts = [document.querySelector('header.tsu-app-header'), document.querySelector('[data-testid="app-sidebar"]')].filter(Boolean);
+  parts.forEach(x => { x.dataset.tsuOp = x.style.opacity || ''; x.style.opacity = '0.99'; });
+  requestAnimationFrame(() => requestAnimationFrame(() => { try { el.style.height = prevH; el.style.width = prevW; delete el.dataset.tsuRp;
+    parts.forEach(x => { x.style.opacity = x.dataset.tsuOp || ''; delete x.dataset.tsuOp; }); } catch {} }));
 } catch {} };
 // ★ 2026-10-05(ユーザー要望「印刷位置が目視でわかるように」): 連絡帳の用紙上の配置(mm)。ContactBookView._layoutRenraku と同じ数値
 //   (あちらを変えたらここも合わせる)。印刷設定の「印刷位置の微調整」の図に使う
@@ -21235,7 +21240,7 @@ export default function App() {
   const [_ovFading, _setOvFading] = useState(false);
   const _ovWasRef = React.useRef(_tsuLoadingOv);
   useEffect(() => {
-    if (_ovWasRef.current && !_tsuLoadingOv) { _setOvFading(true); const t = setTimeout(() => _setOvFading(false), 380); _ovWasRef.current = false; return () => clearTimeout(t); }
+    if (_ovWasRef.current && !_tsuLoadingOv) { _setOvFading(true); const t = setTimeout(() => { _setOvFading(false); setTimeout(tsuForceRepaint, 60); setTimeout(tsuForceRepaint, 700); }, 380); _ovWasRef.current = false; return () => clearTimeout(t); }
     _ovWasRef.current = _tsuLoadingOv;
   }, [_tsuLoadingOv]);
   useEffect(() => {
