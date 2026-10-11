@@ -1905,10 +1905,16 @@ const tsuForceRepaint = () => { try {
   el.style.height = 'calc(100dvh - 1px)'; el.style.width = 'calc(100vw - 1px)';
   // ★ 2026-10-11 追補2(ユーザー報告「上部が掠れている」): 見出し・サイドバーは中身が変わらないので幅を変えても描き直されないことがある。
   //   その2つを一瞬(2フレーム)だけ別の層にし(opacity 0.99)元に戻す=その部分が必ず描き直される
+  // ★ 2026-10-11 追補3(ユーザー「全画面表示(ホーム画面に追加したアプリ)にしているから?」): ホーム画面のアプリは iPad が「最後の画面の写し」を持ち、
+  //   しばらく置いて開き直すと写しが上に残ることがある(Web 側の描き直しでは剥がれず、回転=画面の作り直しで消える)。
+  //   回転と同じ作り直しを起こすため、表示設定(viewport)を2フレームだけ切り替えて戻す(見た目は変わらない)。ホーム画面のアプリのときだけ
+  let meta = null, prevMeta = '';
+  try { if (navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)) { meta = document.querySelector('meta[name="viewport"]'); if (meta) { prevMeta = meta.getAttribute('content') || ''; meta.setAttribute('content', prevMeta.replace('viewport-fit=cover', 'viewport-fit=contain')); } } } catch {}
   const parts = [document.querySelector('header.tsu-app-header'), document.querySelector('[data-testid="app-sidebar"]')].filter(Boolean);
   parts.forEach(x => { x.dataset.tsuOp = x.style.opacity || ''; x.style.opacity = '0.99'; });
   requestAnimationFrame(() => requestAnimationFrame(() => { try { el.style.height = prevH; el.style.width = prevW; delete el.dataset.tsuRp;
-    parts.forEach(x => { x.style.opacity = x.dataset.tsuOp || ''; delete x.dataset.tsuOp; }); } catch {} }));
+    parts.forEach(x => { x.style.opacity = x.dataset.tsuOp || ''; delete x.dataset.tsuOp; });
+    if (meta) meta.setAttribute('content', prevMeta); } catch {} }));
 } catch {} };
 // ★ 2026-10-05(ユーザー要望「印刷位置が目視でわかるように」): 連絡帳の用紙上の配置(mm)。ContactBookView._layoutRenraku と同じ数値
 //   (あちらを変えたらここも合わせる)。印刷設定の「印刷位置の微調整」の図に使う
