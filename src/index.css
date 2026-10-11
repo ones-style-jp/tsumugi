@@ -420,3 +420,9 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
 @media (max-width: 767px) {
   .tsu-pin .tsu-jm-wrap { margin: 0 !important; padding: 8px 10px !important; border-bottom: 1px solid #e2e8f0; }
 }
+
+/* ★ 2026-10-11: iPad はサイドバーの開閉をアニメーションなしに(iPad の Safari はアニメーション中に低い解像度で描いた見出しを、
+   終わったあとも使い続けることがあり、見出しが白い/ぼやけたままになる)。App 側で iPhone/iPad のときだけこのクラスを付ける */
+@media (min-width: 768px) {
+  [data-testid="app-sidebar"].md\:transition-none { transition: none !important; }
+}

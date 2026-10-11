@@ -1900,9 +1900,10 @@ const tsumugiIsIOS = () => typeof navigator !== 'undefined' && (/iPad|iPhone|iPo
 const tsuForceRepaint = () => { try {
   if (!tsumugiIsIOS() || window.innerWidth < 768) return;
   const el = document.querySelector('.tsu-app-root'); if (!el || el.dataset.tsuRp === '1') return;
-  el.dataset.tsuRp = '1'; const prevH = el.style.height;
-  el.style.height = 'calc(100dvh - 1px)';
-  requestAnimationFrame(() => requestAnimationFrame(() => { try { el.style.height = prevH; delete el.dataset.tsuRp; } catch {} }));
+  // ★ 2026-10-11 追補(ユーザー報告「まだ白い」): 高さだけでは見出し・上部の帯(幅は変わらない)が描き直されなかった。回転と同じく「幅」を変える(全部の幅が変わる)
+  el.dataset.tsuRp = '1'; const prevH = el.style.height, prevW = el.style.width;
+  el.style.height = 'calc(100dvh - 1px)'; el.style.width = 'calc(100vw - 1px)';
+  requestAnimationFrame(() => requestAnimationFrame(() => { try { el.style.height = prevH; el.style.width = prevW; delete el.dataset.tsuRp; } catch {} }));
 } catch {} };
 // ★ 2026-10-05(ユーザー要望「印刷位置が目視でわかるように」): 連絡帳の用紙上の配置(mm)。ContactBookView._layoutRenraku と同じ数値
 //   (あちらを変えたらここも合わせる)。印刷設定の「印刷位置の微調整」の図に使う
@@ -21237,8 +21238,8 @@ export default function App() {
       const prev = el.style.display; el.style.display = 'none'; void el.offsetHeight; el.style.display = prev || '';
       if (sc && st) { sc.scrollTop = st[0]; sc.scrollLeft = st[1]; }
     } catch {} };
-    const t1 = setTimeout(() => { nudge(); tsuForceRepaint(); }, 400), t2 = setTimeout(() => { nudge(); tsuForceRepaint(); }, 1300), t3 = setTimeout(tsuForceRepaint, 3000);
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+    const t1 = setTimeout(() => { nudge(); tsuForceRepaint(); }, 400), t2 = setTimeout(() => { nudge(); tsuForceRepaint(); }, 1300), t3 = setTimeout(tsuForceRepaint, 3000), t4 = setTimeout(tsuForceRepaint, 6000);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearTimeout(t4); };
   }, [_tsuMainShown]);
   // ★ 2026-10-11: しばらく使わずに戻ってきたとき(スリープ・別アプリから戻る)も、iPad は画面の一部が古い描画のまま残ることがあるので描き直させる
   useEffect(() => {
@@ -23128,8 +23129,8 @@ export default function App() {
           スマホ幅は常に幅256pxのまま画面の左外から滑り込ませる(transform)。iPad・PC(md以上)は従来どおり幅の開閉 */}
       <div data-testid="app-sidebar" className={`no-print bg-slate-900 text-slate-300 flex flex-col shadow-2xl ${
         isSidebarOpen
-          ? 'w-64 fixed inset-y-0 left-0 z-50 translate-x-0 transition-transform duration-300 md:transition-all md:transform-none md:relative md:flex-shrink-0 md:z-auto md:opacity-100'
-          : 'w-64 fixed inset-y-0 left-0 z-50 -translate-x-full invisible md:visible transition-transform duration-300 md:transition-all md:transform-none md:relative md:translate-x-0 md:w-0 md:opacity-0 md:overflow-hidden md:flex-shrink-0 md:z-auto'
+          ? `w-64 fixed inset-y-0 left-0 z-50 translate-x-0 transition-transform duration-300 ${tsumugiIsIOS() ? 'md:transition-none' : 'md:transition-all'} md:transform-none md:relative md:flex-shrink-0 md:z-auto md:opacity-100`
+          : `w-64 fixed inset-y-0 left-0 z-50 -translate-x-full invisible md:visible transition-transform duration-300 ${tsumugiIsIOS() ? 'md:transition-none' : 'md:transition-all'} md:transform-none md:relative md:translate-x-0 md:w-0 md:opacity-0 md:overflow-hidden md:flex-shrink-0 md:z-auto`
       }`}>
           <div className="w-64 h-full flex flex-col">
             <div className="h-16 flex items-center px-5 border-b" style={{background:'#fafef1',borderColor:'#d4e7a5'}}>
