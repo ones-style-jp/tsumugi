@@ -1074,10 +1074,25 @@ const exColWidthFor = (items) => {
   const need = (items || []).reduce((m, it) => Math.max(m, needOf(it && it.name)), 0);
   return Math.max(EX_COL_MIN, Math.min(EX_COL_MAX, need || EX_COL_MAX));
 };
+// ★ 2026-10-12(ユーザー報告「個別運動の 15秒×2 が通常画面で見切れる」): 文字数からの見積もり(半角0.55・全角1)では
+//   「秒」「×」が混ざると実際の幅より小さく見積もられ見切れていた。実際の字(太字・画面と同じ書体)で幅を測って決める。
+//   測れない環境(古い端末)は従来の見積もり。結果は文字列と幅ごとに控えて、毎回測り直さない
+const _exFontFamily = '"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","YuGothic","Noto Sans JP","メイリオ",Meiryo,sans-serif';
+const _exMeasureCache = new Map();
+const _exTextW = (str, px) => {
+  const k = px + '|' + str; const c = _exMeasureCache.get(k); if (c !== undefined) return c;
+  let w = null;
+  // 画面と同じ条件(太字・同じ書体・文字間 -0.3px)の隠し要素で測る(キャンバスの測定は画面より1割ほど小さく出た)
+  try { let sp = _exTextW._sp; if (!sp || !sp.isConnected) { sp = document.createElement('span'); sp.setAttribute('aria-hidden', 'true'); sp.style.cssText = `position:absolute;left:-9999px;top:0;visibility:hidden;white-space:nowrap;font-weight:bold;letter-spacing:-0.3px;font-family:${_exFontFamily}`; document.body.appendChild(sp); _exTextW._sp = sp; }
+    sp.style.fontSize = px + 'px'; sp.textContent = String(str); w = sp.getBoundingClientRect().width; } catch { w = null; }
+  if (w == null || !(w > 0)) w = [...String(str)].reduce((a, c) => a + (/[\x20-\x7e]/.test(c) ? 0.55 : 1), 0) * px;
+  _exMeasureCache.set(k, w); return w;
+};
 const _exFitFs = (str, cap = 15, min = 8, avail = 70) => {
-  const w = [...String(str || '')].reduce((a, c) => a + (/[\x20-\x7e]/.test(c) ? 0.55 : 1), 0);
-  if (!w) return cap;
-  return Math.max(min, Math.min(cap, Math.floor(avail / w)));
+  const t = String(str || ''); if (!t) return cap;
+  // 安全のため 1px の余裕を見る
+  for (let fs = cap; fs > min; fs--) { if (_exTextW(t, fs) <= avail - 1) return fs; }
+  return min;
 };
 const exUnitLabel = (item) => {
   const u1 = (item && item.defaultUnit) || '';
