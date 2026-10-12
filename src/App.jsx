@@ -40579,7 +40579,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
       )}
       {csvModal.isOpen && (() => {
         // ★ テンプレート/出力の列 (店舗独自=介護整体/温浴は含めない。住所は都道府県/市区町村/町名番地/建物名に分割)
-        const HEADERS = ['利用者ID','氏名','フリガナ','性別','生年月日','郵便番号','都道府県','市区町村','町名番地','建物名','電話番号','携帯電話番号','緊急連絡先氏名','続柄','緊急連絡先電話','緊急連絡先電話（携帯）','緊急連絡先メール','被保険者番号','介護度','利用開始日','利用終了日','状態','既往歴','留意点','かかりつけ医','メールアドレス','認定有効期間（開始）','認定有効期間（終了）','負担割合','ケアマネ事業所','ケアマネ事業所電話','ケアマネ事業所FAX','担当ケアマネ','担当ケアマネ電話'];
+        const HEADERS = ['利用者ID','氏名','フリガナ','性別','生年月日','郵便番号','都道府県','市区町村','町名番地','建物名','電話番号','携帯電話番号','緊急連絡先氏名','続柄','緊急連絡先電話','緊急連絡先電話（携帯）','緊急連絡先メール','被保険者番号','介護度','利用開始日','利用終了日','状態','既往歴','留意点','かかりつけ医','メールアドレス','認定有効期間（開始）','認定有効期間（終了）','負担割合','ケアマネ事業所','ケアマネ事業所電話','ケアマネ事業所FAX','担当ケアマネ','担当ケアマネ電話',
+          // ★ 2026-10-12(ユーザー要望「基本情報・フェイスシートの情報は全て取込できるように」): 追加列(空欄は既存を上書きしない)
+          '部屋番号','医療機関','医療機関連絡先','FAX','世帯区分','家族構成','キーパーソン','区分支給限度額','その他の社会保障制度','服薬状況','アレルギー・感染症','障害高齢者の日常生活自立度','認知症高齢者の日常生活自立度','通所の経緯','現在の状況','他サービス・社会資源','本人・家族の主訴・意向','送迎経路','送迎時の留意点','趣味・嗜好','性格・個別情報','備考','追記','基本利用曜日'];
         const escCell = (v) => { const s = String(v??''); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
         // 利用者 → CSV 1行
         const patientToRow = (p) => {
@@ -40618,6 +40620,10 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             p.kiou||'', p.ryui||'', (fsDoctorsText(p.personalFile?.faceSheet) || p.doctor || ''),
             p.email||'', p.careLevelFrom||'', p.careLevelTo||'', p.costBurden||'',
             p.cmOffice||'', cmOfficeTel, cmOfficeFax, p.cmName||'', _cmc.phone,
+            String(p.addressRoom || ''),
+            (fsInstitutionsText(p.personalFile?.faceSheet) || p.medicalInstitution || ''), (p.personalFile?.faceSheet?.medicalContact || p.medicalContact || ''),
+            ...['fax','householdType','familyMembers','keyPerson','benefitLimit','otherWelfare','medication','allergies','adlLevel','dementiaLevel','lifeHistory','currentSituation','otherServices','needs','pickupRoute','pickupNotes','hobby','personality','bikou','addendum'].map(k => String((p.personalFile?.faceSheet || {})[k] || '')),
+            (p.scheduleAmPm || []).map((v, i) => v ? `${['日','月','火','水','木','金','土'][i]}:${v}` : '').filter(Boolean).join(' '),
           ];
         };
         const buildCsv = () => [HEADERS.join(','), ...(appData.patients||[]).map(p => patientToRow(p).map(escCell).join(','))].join('\n');
@@ -40716,7 +40722,37 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               cmPhone:     findCol(header,['担当ケアマネ電話','ケアマネ電話','cm電話','介護支援専門員電話'],['fax','ファックス','事業所']),
               cmFax:       findCol(header,['ケアマネfax','ケアマネファックス','cmfax','ケアマネ事業所fax','事業所fax','居宅fax']),
               cmOfficePhone: findCol(header,['ケアマネ事業所電話','事業所電話','居宅電話','ケアマネ事業所tel'],['担当','fax','ファックス']),
+              // ★ 2026-10-12 追加列
+              emMobile:    findCol(header,['緊急連絡先電話携帯','緊急連絡先携帯','連絡先携帯'],['氏名','カナ']),
+              emEmail:     findCol(header,['緊急連絡先メール','連絡先メール'],[]),
+              room:        findCol(header,['部屋番号','号室'],['緊急','連絡先']),
+              medInst:     findCol(header,['医療機関'],['連絡先','電話']),
+              medContact:  findCol(header,['医療機関連絡先','医療機関電話'],[]),
+              fsFax:       findCol(header,['fax','ファックス'],['緊急','連絡先','ケアマネ','事業所','居宅','cm']),
+              fsHousehold: findCol(header,['世帯区分','世帯構成','世帯']),
+              fsFamily:    findCol(header,['家族構成']),
+              fsKey:       findCol(header,['キーパーソン','キーパースン']),
+              fsBenefit:   findCol(header,['区分支給限度','支給限度']),
+              fsWelfare:   findCol(header,['その他の社会保障','社会保障制度','その他制度']),
+              fsMed:       findCol(header,['服薬']),
+              fsAllergy:   findCol(header,['アレルギー','感染症']),
+              fsAdl:       findCol(header,['障害高齢者','障害高齢者の日常生活自立度','寝たきり度']),
+              fsDem:       findCol(header,['認知症高齢者','認知症高齢者の日常生活自立度','認知症自立度']),
+              fsHistory:   findCol(header,['通所の経緯','生活歴','経緯']),
+              fsCurrent:   findCol(header,['現在の状況','現況']),
+              fsOtherSvc:  findCol(header,['他サービス','社会資源']),
+              fsNeeds:     findCol(header,['主訴','意向','ニーズ']),
+              fsRoute:     findCol(header,['送迎経路'],['留意','注意']),
+              fsPickNote:  findCol(header,['送迎時の留意','送迎時の注意','送迎留意','送迎注意']),
+              fsHobby:     findCol(header,['趣味','嗜好']),
+              fsPersona:   findCol(header,['性格','個別情報']),
+              fsBikou:     findCol(header,['備考'],['送迎','緊急']),
+              fsAddendum:  findCol(header,['追記']),
             };
+            // ★ 2026-10-12(ユーザー要望): 番号の整形。Excel で先頭のゼロが落ちた番号を戻し、全角を半角に
+            const normInsNo = (v) => { let t = _toHalf(String(v||'')).replace(/[\s　\-－]/g, ''); if (/^\d{1,9}$/.test(t) && t.length >= 6) t = t.padStart(10, '0'); return t; };
+            const normTel = (v) => { let t = _toHalf(String(v||'')).trim().replace(/[\s　]/g, '').replace(/[－‐–—ー]/g, '-').replace(/[()（）]/g, ''); const dg = t.replace(/-/g, ''); if (/^\d{9,10}$/.test(dg) && !dg.startsWith('0')) t = '0' + t; return t; };
+            const normLevel = (v) => _toHalf(String(v||'')).trim().replace(/\s/g, '').replace(/^(J|A|B|C)([12])$/i, (m, a, b) => a.toUpperCase() + b).replace(/^(Ⅱ|II)([ab])$/i, (m, a, b) => 'Ⅱ' + b.toLowerCase()).replace(/^(Ⅲ|III)([ab])$/i, (m, a, b) => 'Ⅲ' + b.toLowerCase()).replace(/^(Ⅳ|IV)$/i, 'Ⅳ').replace(/^(Ⅰ|I)$/, 'Ⅰ').replace(/^M$/i, 'M');
             const val = (row,i) => (i>=0 ? String(row[i]||'').trim() : '');
             const existing = [...(appData.patients||[])];
             const existingIds = new Set(existing.map(p=>p.id));
@@ -40747,14 +40783,25 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 return;
               }
             }
-            const applyEx = (p, emName, emRel, emPhone, doctor) => {
+            const applyEx = (p, emName, emRel, emPhone, doctor, emMobile = '', emEmail = '', fsPatch = null) => {
               let np = {...p};
-              if (emName || emRel || emPhone) {
+              if (emName || emRel || emPhone || emMobile || emEmail) {
                 const ec = [...(np.emergencyContacts||[])];
-                ec[0] = { ...(ec[0]||{}), ...(emName?{name:emName}:{}), ...(emRel?{relation:emRel}:{}), ...(emPhone?{phone:emPhone}:{}) };
+                ec[0] = { ...(ec[0]||{}), ...(emName?{name:emName}:{}), ...(emRel?{relation:emRel}:{}), ...(emPhone?{phone:emPhone}:{}), ...(emMobile?{phoneMobile:emMobile}:{}), ...(emEmail?{email:emEmail}:{}) };
                 np.emergencyContacts = ec;
+                // ★ 主要連絡先(family*)にも反映(連絡帳・家族画面はこちらを見る)
+                if (emName) { np.familyName = emName; const sp = splitName(emName); np.familyLastName = sp.last; np.familyFirstName = sp.first; }
+                if (emRel) np.familyRelation = emRel; if (emPhone) np.familyPhone = emPhone; if (emMobile) np.familyPhoneMobile = emMobile; if (emEmail) np.familyEmail = emEmail;
               }
-              if (doctor) { np.doctor = doctor; const pf=np.personalFile||{}; np.personalFile={...pf, faceSheet:{...(pf.faceSheet||{}), chronicDiseases: doctor}}; }
+              if (doctor) np.doctor = doctor;
+              // ★ 2026-10-12: フェイスシートの項目が1つでも入ったら、更新日=今日・最終更新=CSV取込(ユーザー指示「インポートで更新されたらその日を更新日に」)
+              const patch = { ...(doctor ? { chronicDiseases: doctor } : {}), ...(fsPatch || {}) };
+              if (Object.keys(patch).length) {
+                const pf = np.personalFile || {}; const old = pf.faceSheet || {};
+                const changed = Object.keys(patch).some(k => String(old[k] ?? '') !== String(patch[k] ?? ''));
+                if (changed) { const _t = new Date(); const _today = `${_t.getFullYear()}-${String(_t.getMonth()+1).padStart(2,'0')}-${String(_t.getDate()).padStart(2,'0')}`;
+                  np.personalFile = { ...pf, faceSheet: { ...old, ...patch, firstCreatedDate: old.firstCreatedDate || old.createdDate || _today, createdDate: old.createdDate || _today, updatedDate: _today, updatedAt: Date.now(), updatedBy: 'CSV取込' } }; }
+              }
               return np;
             };
             let added=0, updated=0, skipped=0;
@@ -40766,7 +40813,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               const _isExistingIdRow = !isNaN(_idEarly) && existingIds.has(_idEarly);
               if (!name && !_isExistingIdRow) { skipped++; continue; }
               const insNo = val(row,col.insuranceNo);
-              const addr = [val(row,col.prefecture),val(row,col.city),val(row,col.addressLine),val(row,col.building)].filter(Boolean).join('');
+              // ★ 2026-10-12: 住所(address)は建物名を含めない(建物名は addressBuilding・部屋番号は addressRoom に分けて持つ=フェイスシートと同じ)
+              const addr = [val(row,col.prefecture),val(row,col.city),val(row,col.addressLine)].filter(Boolean).join('');
               // ★ 空欄は rec に入れない (既存を上書きしない / 新規はデフォルト)
               const rec = {};
               const set = (k,v) => { if (v !== '') rec[k]=v; };
@@ -40780,9 +40828,13 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               set('addressLine', val(row,col.addressLine));
               set('building', val(row,col.building));
               if (addr) rec.address = addr;
-              set('phone', val(row,col.phone));
-              set('phoneMobile', val(row,col.mobile));
-              set('insuranceNo', insNo);
+              set('phone', normTel(val(row,col.phone)));
+              set('phoneMobile', normTel(val(row,col.mobile)));
+              set('insuranceNo', normInsNo(insNo));
+              set('addressRoom', val(row,col.room));
+              if (val(row,col.building)) rec.addressBuilding = val(row,col.building); // フェイスシートの建物名(新方式)にも
+              set('medicalInstitution', val(row,col.medInst));
+              set('medicalContact', normTel(val(row,col.medContact)));
               set('careLevel', normCare(val(row,col.careLevel)));
               set('startDate', col.startDate>=0 && val(row,col.startDate) ? normDate(val(row,col.startDate)) : '');
               set('endDate', col.endDate>=0 && val(row,col.endDate) ? normDate(val(row,col.endDate)) : '');
@@ -40795,11 +40847,25 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               set('costBurden', normBurden(val(row,col.costBurden)));
               set('cmOffice', val(row,col.cmOffice));
               set('cmName', val(row,col.cmName));
-              set('cmPhone', val(row,col.cmPhone));
-              set('cmFax', val(row,col.cmFax));
-              const _cmOfficePhone = val(row,col.cmOfficePhone);
+              set('cmPhone', normTel(val(row,col.cmPhone)));
+              set('cmFax', normTel(val(row,col.cmFax)));
+              const _cmOfficePhone = normTel(val(row,col.cmOfficePhone));
               if (_cmOfficePhone) rec.cmOfficePhone = _cmOfficePhone;
-              const emName=val(row,col.emName), emRel=val(row,col.emRelation), emPhone=val(row,col.emPhone), doctor=val(row,col.doctor);
+              const emName=val(row,col.emName), emRel=val(row,col.emRelation), emPhone=normTel(val(row,col.emPhone)), doctor=val(row,col.doctor);
+              const emMobile=normTel(val(row,col.emMobile)), emEmail=val(row,col.emEmail);
+              // ★ 2026-10-12: フェイスシートの項目(空欄は上書きしない)。1つでも入れば更新日=今日・最終更新=CSV取込
+              const fsPatch = {};
+              const fsSet = (k, v) => { if (v !== '') fsPatch[k] = v; };
+              fsSet('fax', normTel(val(row,col.fsFax))); fsSet('householdType', val(row,col.fsHousehold)); fsSet('familyMembers', val(row,col.fsFamily)); fsSet('keyPerson', val(row,col.fsKey));
+              fsSet('benefitLimit', val(row,col.fsBenefit)); fsSet('otherWelfare', val(row,col.fsWelfare)); fsSet('medication', val(row,col.fsMed)); fsSet('allergies', val(row,col.fsAllergy));
+              fsSet('adlLevel', normLevel(val(row,col.fsAdl))); fsSet('dementiaLevel', normLevel(val(row,col.fsDem)));
+              fsSet('lifeHistory', val(row,col.fsHistory)); fsSet('currentSituation', val(row,col.fsCurrent)); fsSet('otherServices', val(row,col.fsOtherSvc)); fsSet('needs', val(row,col.fsNeeds));
+              fsSet('pickupRoute', val(row,col.fsRoute)); fsSet('pickupNotes', val(row,col.fsPickNote)); fsSet('hobby', val(row,col.fsHobby)); fsSet('personality', val(row,col.fsPersona));
+              fsSet('bikou', val(row,col.fsBikou)); fsSet('addendum', val(row,col.fsAddendum));
+              if (rec.medicalInstitution) fsPatch.medicalInstitution = rec.medicalInstitution;
+              if (rec.medicalContact) fsPatch.medicalContact = rec.medicalContact;
+              if (doctor) fsPatch.chronicDiseases = doctor;
+              if (rec.kiou) fsPatch.kiou = rec.kiou;
               const idNum = parseInt(val(row,col.id));
               let target = null;
               if (!isNaN(idNum) && existingIds.has(idNum)) target = existing.find(p=>p.id===idNum);
@@ -40815,13 +40881,13 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               }
               if (target) {
                 const idx = existing.findIndex(p=>p.id===target.id);
-                existing[idx] = applyEx({ ...existing[idx], ...rec }, emName, emRel, emPhone, doctor);
+                existing[idx] = applyEx({ ...existing[idx], ...rec }, emName, emRel, emPhone, doctor, emMobile, emEmail, fsPatch);
                 updated++;
               } else {
                 maxId += 1;
                 let np = { kiou:'', ryui:'', scheduleAmPm:['','','','','','',''], pickupType:'fixed', pickupTimes:['','','','','','',''], autoDeleteAfter5Years:false, massageNeed:'通常', onyokuDenryo:'無し', pauseHistory:[], plannedExercises:{}, ...rec, id:maxId };
                 if (!np.status) np.status='利用中';
-                np = applyEx(np, emName, emRel, emPhone, doctor);
+                np = applyEx(np, emName, emRel, emPhone, doctor, emMobile, emEmail, fsPatch);
                 existing.push(np);
                 const k=normName(np.name); if(k) existingByName.set(k,maxId);
                 added++;
@@ -40874,7 +40940,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 </div>
                 <div className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-3">
                   <b>対応列:</b> {HEADERS.join(' / ')}<br/>
-                  <b>ヒント:</b> エクスポートしたCSVをExcelで編集→再インポートで一括変更できます。<b>利用者ID</b> 空欄なら新規追加、既存IDなら更新。
+                  <b>ヒント:</b> エクスポートしたCSVをExcelで編集→再インポートで一括変更できます。<b>利用者ID</b> 空欄なら新規追加、既存IDなら更新。<br/>
+                  <b>番号:</b> 被保険者番号はExcelで先頭のゼロが落ちていても10桁に戻します(6〜9桁の数字のみ)。電話・FAXも先頭のゼロを戻し全角は半角にします。フェイスシートの項目を取り込むと、その方のフェイスシートの更新日が今日になります。<b>基本利用曜日</b>は出力のみ(変更は履歴と連動するため画面から)。
                 </div>
                 {csvModal.mode === 'import' && !csvModal.resolvingDup && (
                   <div className="space-y-2">
@@ -43753,7 +43820,9 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                             const row=rows[r]; if(!row.some(c=>(c||'').trim()))continue;
                             const name=val(row,col.name); if(!name)continue;
                             const addr=[val(row,col.pref),val(row,col.city),val(row,col.addr),val(row,col.building)].filter(Boolean).join('');
-                            const rec={name, corporateName:val(row,col.corporateName), kana:val(row,col.kana), serviceType:val(row,col.serviceType), providerNumber:val(row,col.providerNumber), zipCode:val(row,col.zip), address:addr, phone:val(row,col.phone), fax:val(row,col.fax)};
+                            // ★ 2026-10-12: 電話・FAX は Excel で落ちた先頭のゼロを戻し、全角→半角・空白除去(利用者CSVと同じ整形)
+                            const _tel=(v)=>{ let t=String(v||'').replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).trim().replace(/[\s　]/g,'').replace(/[－‐–—ー]/g,'-').replace(/[()（）]/g,''); const dg=t.replace(/-/g,''); if(/^\d{9,10}$/.test(dg)&&!dg.startsWith('0')) t='0'+t; return t; };
+                            const rec={name, corporateName:val(row,col.corporateName), kana:val(row,col.kana), serviceType:val(row,col.serviceType), providerNumber:val(row,col.providerNumber), zipCode:val(row,col.zip), address:addr, phone:_tel(val(row,col.phone)), fax:_tel(val(row,col.fax))};
                             Object.keys(rec).forEach(k=>{ if(rec[k]==='') delete rec[k]; });
                             if(byName.has(name)){ const idx=byName.get(name); list[idx]={...list[idx],...rec}; updated++; }
                             else { list.push(rec); byName.set(name,list.length-1); added++; }
