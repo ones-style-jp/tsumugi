@@ -40581,7 +40581,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         // ★ テンプレート/出力の列 (店舗独自=介護整体/温浴は含めない。住所は都道府県/市区町村/町名番地/建物名に分割)
         const HEADERS = ['利用者ID','氏名','フリガナ','性別','生年月日','郵便番号','都道府県','市区町村','町名番地','建物名','電話番号','携帯電話番号','緊急連絡先氏名','続柄','緊急連絡先電話','緊急連絡先電話（携帯）','緊急連絡先メール','被保険者番号','介護度','利用開始日','利用終了日','状態','既往歴','留意点','かかりつけ医','メールアドレス','認定有効期間（開始）','認定有効期間（終了）','負担割合','ケアマネ事業所','ケアマネ事業所電話','ケアマネ事業所FAX','担当ケアマネ','担当ケアマネ電話',
           // ★ 2026-10-12(ユーザー要望「基本情報・フェイスシートの情報は全て取込できるように」): 追加列(空欄は既存を上書きしない)
-          '部屋番号','医療機関','医療機関連絡先','FAX','世帯区分','家族構成','キーパーソン','区分支給限度額','その他の社会保障制度','服薬状況','アレルギー・感染症','障害高齢者の日常生活自立度','認知症高齢者の日常生活自立度','通所の経緯','現在の状況','他サービス・社会資源','本人・家族の主訴・意向','送迎経路','送迎時の留意点','趣味・嗜好','性格・個別情報','備考','追記','基本利用曜日'];
+          //   (2026-10-12 ユーザー指示: 今のフェイスシートにある項目だけ。削除済みの趣味・家族構成などは入れない。自立度は計画書・LIFEで使う保存先がフェイスシートのため残す)
+          '部屋番号','医療機関','医療機関連絡先','FAX','世帯区分','障害高齢者の日常生活自立度','認知症高齢者の日常生活自立度','通所の経緯','備考','追記','基本利用曜日'];
         const escCell = (v) => { const s = String(v??''); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
         // 利用者 → CSV 1行
         const patientToRow = (p) => {
@@ -40622,7 +40623,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             p.cmOffice||'', cmOfficeTel, cmOfficeFax, p.cmName||'', _cmc.phone,
             String(p.addressRoom || ''),
             (fsInstitutionsText(p.personalFile?.faceSheet) || p.medicalInstitution || ''), (p.personalFile?.faceSheet?.medicalContact || p.medicalContact || ''),
-            ...['fax','householdType','familyMembers','keyPerson','benefitLimit','otherWelfare','medication','allergies','adlLevel','dementiaLevel','lifeHistory','currentSituation','otherServices','needs','pickupRoute','pickupNotes','hobby','personality','bikou','addendum'].map(k => String((p.personalFile?.faceSheet || {})[k] || '')),
+            ...['fax','householdType','adlLevel','dementiaLevel','lifeHistory','bikou','addendum'].map(k => String((p.personalFile?.faceSheet || {})[k] || '')),
             (p.scheduleAmPm || []).map((v, i) => v ? `${['日','月','火','水','木','金','土'][i]}:${v}` : '').filter(Boolean).join(' '),
           ];
         };
@@ -40730,22 +40731,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               medContact:  findCol(header,['医療機関連絡先','医療機関電話'],[]),
               fsFax:       findCol(header,['fax','ファックス'],['緊急','連絡先','ケアマネ','事業所','居宅','cm']),
               fsHousehold: findCol(header,['世帯区分','世帯構成','世帯']),
-              fsFamily:    findCol(header,['家族構成']),
-              fsKey:       findCol(header,['キーパーソン','キーパースン']),
-              fsBenefit:   findCol(header,['区分支給限度','支給限度']),
-              fsWelfare:   findCol(header,['その他の社会保障','社会保障制度','その他制度']),
-              fsMed:       findCol(header,['服薬']),
-              fsAllergy:   findCol(header,['アレルギー','感染症']),
               fsAdl:       findCol(header,['障害高齢者','障害高齢者の日常生活自立度','寝たきり度']),
               fsDem:       findCol(header,['認知症高齢者','認知症高齢者の日常生活自立度','認知症自立度']),
               fsHistory:   findCol(header,['通所の経緯','生活歴','経緯']),
-              fsCurrent:   findCol(header,['現在の状況','現況']),
-              fsOtherSvc:  findCol(header,['他サービス','社会資源']),
-              fsNeeds:     findCol(header,['主訴','意向','ニーズ']),
-              fsRoute:     findCol(header,['送迎経路'],['留意','注意']),
-              fsPickNote:  findCol(header,['送迎時の留意','送迎時の注意','送迎留意','送迎注意']),
-              fsHobby:     findCol(header,['趣味','嗜好']),
-              fsPersona:   findCol(header,['性格','個別情報']),
               fsBikou:     findCol(header,['備考'],['送迎','緊急']),
               fsAddendum:  findCol(header,['追記']),
             };
@@ -40856,12 +40844,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               // ★ 2026-10-12: フェイスシートの項目(空欄は上書きしない)。1つでも入れば更新日=今日・最終更新=CSV取込
               const fsPatch = {};
               const fsSet = (k, v) => { if (v !== '') fsPatch[k] = v; };
-              fsSet('fax', normTel(val(row,col.fsFax))); fsSet('householdType', val(row,col.fsHousehold)); fsSet('familyMembers', val(row,col.fsFamily)); fsSet('keyPerson', val(row,col.fsKey));
-              fsSet('benefitLimit', val(row,col.fsBenefit)); fsSet('otherWelfare', val(row,col.fsWelfare)); fsSet('medication', val(row,col.fsMed)); fsSet('allergies', val(row,col.fsAllergy));
+              fsSet('fax', normTel(val(row,col.fsFax))); fsSet('householdType', val(row,col.fsHousehold));
               fsSet('adlLevel', normLevel(val(row,col.fsAdl))); fsSet('dementiaLevel', normLevel(val(row,col.fsDem)));
-              fsSet('lifeHistory', val(row,col.fsHistory)); fsSet('currentSituation', val(row,col.fsCurrent)); fsSet('otherServices', val(row,col.fsOtherSvc)); fsSet('needs', val(row,col.fsNeeds));
-              fsSet('pickupRoute', val(row,col.fsRoute)); fsSet('pickupNotes', val(row,col.fsPickNote)); fsSet('hobby', val(row,col.fsHobby)); fsSet('personality', val(row,col.fsPersona));
-              fsSet('bikou', val(row,col.fsBikou)); fsSet('addendum', val(row,col.fsAddendum));
+              fsSet('lifeHistory', val(row,col.fsHistory)); fsSet('bikou', val(row,col.fsBikou)); fsSet('addendum', val(row,col.fsAddendum));
               if (rec.medicalInstitution) fsPatch.medicalInstitution = rec.medicalInstitution;
               if (rec.medicalContact) fsPatch.medicalContact = rec.medicalContact;
               if (doctor) fsPatch.chronicDiseases = doctor;
