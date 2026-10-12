@@ -23579,7 +23579,7 @@ export default function App() {
              currentView === 'diary' ? <DailyLogView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} dirtyRef={diaryDirtyRef} saveFnRef={diarySaveFnRef} /> :
              currentView === 'absence_fax' ? <AbsenceFaxView appData={appData} onSave={handleSaveToCloud} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?captureElHtmlWithValues(el):null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={absenceDirtyRef} saveFnRef={absenceSaveFnRef} /> :
              currentView === 'general_fax' ? <GeneralFaxView appData={appData} onSave={handleSaveToCloud} dirtyRef={generalFaxDirtyRef} saveFnRef={generalFaxSaveFnRef} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?captureElHtmlWithValues(el):null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
-             currentView === 'fitness' ? <FitnessView appData={appData} onSave={handleSaveToCloud} selectedDate={selectedDate} sharedAmpm={sharedAmpm} navigateTo={navigateTo} targetPatientId={targetPatientId} onPatientChange={setTargetPatientId} dirtyRef={fitnessDirtyRef} saveFnRef={fitnessSaveFnRef} /> :
+             currentView === 'fitness' ? <FitnessView appData={appData} onSave={handleSaveToCloud} selectedDate={selectedDate} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} navigateTo={navigateTo} targetPatientId={targetPatientId} onPatientChange={setTargetPatientId} dirtyRef={fitnessDirtyRef} saveFnRef={fitnessSaveFnRef} /> :
              currentView === 'monitoring' ? <MonitoringView appData={appData} onSave={handleSaveToCloud} staffSession={staffSession} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={monitoringDirtyRef} saveFnRef={monitoringSaveFnRef} /> :
              currentView === 'schedule' ? <ScheduleView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} /> :
              currentView === 'roster' ? <RosterView appData={appData} onSave={handleSaveToCloud} /> :
@@ -37155,7 +37155,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   );
 }
 
-function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, targetPatientId, onPatientChange, dirtyRef, saveFnRef }) {
+function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm, navigateTo, targetPatientId, onPatientChange, dirtyRef, saveFnRef }) {
+  // ★ 2026-10-12(ユーザー要望「全ての端末で体力測定も AM/PM を選べるように」): 対象者一覧を「全員 / AM / PM」で絞る。
+  //   AM/PM は選んだ日(selectedDate)の曜日の基本利用(scheduleAmPm・1日は両方)で判定。提供記録・日誌と共通の AM/PM(sharedAmpm)にも反映
+  const [fitAmpm, setFitAmpm] = useState('');
 
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
@@ -37240,8 +37243,11 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
   const allPats = (appData.patients || []).filter(p => getPatientDisplayStatus(p) !== '退所済み');
   // ★ 2026-10-06(ユーザー要望): 検索中は 当月/来月/その他 の区切りに関係なく全員から探す(当月以外の人も出る)
   const _fitSearching = !!tsuSearchNorm(nameSearch);
+  const _fitDow = selectedDate ? new Date(selectedDate + (String(selectedDate).length === 10 ? 'T00:00:00' : '')).getDay() : new Date().getDay();
+  const _fitSlotOk = (p) => { if (!fitAmpm) return true; const sch = (p.scheduleAmPm || [])[_fitDow] || ''; return sch === fitAmpm || sch === '1日'; };
   const filtered = allPats.filter(p => {
     if (_fitSearching) return tsuSearchHit(nameSearch, p.name, p.kana);
+    if (!_fitSlotOk(p)) return false;
     const offset = getPatientMonthOffset(p);
     if (statusFilter === '当月' && offset !== 0) return false;
     if (statusFilter === '来月' && offset !== 1) return false;
@@ -37356,15 +37362,16 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                   if(!mMatch) return false;
                   return parseInt(mMatch[1])===d2.getMonth()+1 && parseInt(mMatch[2])===d2.getDate() && (r.status==='出席'||r.status==='振替'||r.status==='臨時'); // ★ 振替・臨時も出席(2026-09-24)
                 }).filter(r=>{
-                  if(!sharedAmpm||sharedAmpm==='1日') return true;
+                  const _slot = fitAmpm || sharedAmpm;
+                  if(!_slot||_slot==='1日') return true;
                   const pat = (appData.patients||[]).find(p=>p.id===r.patientId);
                   const dow = new Date(selectedDate).getDay();
                   const sch = pat?.scheduleAmPm?.[dow]||'';
-                  return sch===sharedAmpm||sch==='1日';
+                  return sch===_slot||sch==='1日';
                 });
                 return recs.length>0 ? (
                   <div className="text-[9px] text-blue-600 font-bold mt-0.5">
-                    {dateStr} {sharedAmpm&&sharedAmpm!=='1日'?sharedAmpm:''} 出席 {recs.length}名
+                    {dateStr} {(fitAmpm||sharedAmpm)&&(fitAmpm||sharedAmpm)!=='1日'?(fitAmpm||sharedAmpm):''} 出席 {recs.length}名
                   </div>
                 ) : null;
               })()}
@@ -37377,6 +37384,12 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, navigateTo, ta
                 className={`flex-1 py-3 text-[13px] font-bold border-b-2 transition-colors ${statusFilter === s ? (s === '来月' ? 'border-orange-500 text-orange-600' : s === 'その他' ? 'border-slate-500 text-slate-600' : 'border-blue-600 text-blue-600') : 'border-transparent text-slate-400 hover:bg-slate-50'}`}>
                 {s}
               </button>
+            ))}
+          </div>
+          <div className="flex border-b border-slate-200 bg-slate-50 shrink-0" data-testid="fit-ampm">
+            {[['', '全員'], ['AM', 'AM'], ['PM', 'PM']].map(([v, l]) => (
+              <button key={v || 'all'} type="button" onClick={() => { setFitAmpm(v); if (v && setSharedAmpm) setSharedAmpm(v); }}
+                className={`flex-1 py-2 text-[12px] font-bold transition-colors ${fitAmpm === v ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>{l}</button>
             ))}
           </div>
           {statusFilter === 'その他' && (
