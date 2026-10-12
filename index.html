@@ -13,7 +13,10 @@
           var ios = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
           if (ios) {
             var m = document.querySelector('meta[name="viewport"]');
-            if (m) m.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover');
+            // ★ 2026-10-12(ユーザー要望): スマホ(短い辺が768px未満)はピンチで拡大・縮小できるように(ホーム画面のアプリは maximum-scale が効くため)。
+            //   iPad は従来どおり拡大なし(2026-10-05 無印iPadの横向きで画面が勝手に大きくなる対策)
+            var phone = Math.min(window.screen.width || 9999, window.screen.height || 9999) < 768;
+            if (m) m.setAttribute('content', phone ? 'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=4.0, user-scalable=yes, viewport-fit=cover' : 'width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover');
             document.documentElement.classList.add('tsu-ios');
           }
         } catch (e) {}
