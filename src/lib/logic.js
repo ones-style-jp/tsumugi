@@ -35,8 +35,10 @@ export const normalizeInviteCode = (raw) => {
 //   - value が ×・✕・x・ー・- ・空 : null (実施なし)
 //   - それ以外(数値等): その値
 //   mode='circle' のときは「実施なら'○'」を返す(連絡帳用)。
-export const resolveIndividualExerciseValue = (slotVal, individualExercises, mode) => {
-  if (!slotVal || typeof slotVal !== 'object') return undefined; // 個別運動でない
+export const IND_NONE = '__none__'; // ★ 2026-10-13: 提供記録で「—(なし)」を明示した印(App.jsx の IND_NONE と同じ値)
+export const resolveIndividualExerciseValue = (slotVal0, individualExercises, mode) => {
+  if (!slotVal0 || typeof slotVal0 !== 'object') return undefined; // 個別運動でない
+  const slotVal = slotVal0.itemId === IND_NONE ? { ...slotVal0, itemId: '' } : slotVal0; // 「—」は割当なし扱い
   const val = String(slotVal.value == null ? '' : slotVal.value).trim();
   const NONE = ['', '×', '✕', 'x', 'ー', '-'];
   if (mode === 'circle') {
