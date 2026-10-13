@@ -431,6 +431,7 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
 @media (max-width: 767px) {
   /* 個人ファイル: ボタンの文字は折らない(「編集・追記」「ダウンロード」「小窓」などが1文字ずつ縦になっていた) */
   .tsu-pf button { white-space: nowrap; }
+  .tsu-pf button > div { white-space: normal; } /* 大きな選択カード(初回報告の「手入力で作成」等)の説明文は折り返す */
   .tsu-pf .tsu-pf-btns > * { white-space: nowrap; }
   .tsu-pf .tsu-pf-btns label { white-space: nowrap; }
   /* 支援経過表の表は小さく(全体が見えるように) */

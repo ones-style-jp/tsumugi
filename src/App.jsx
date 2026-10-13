@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, Fragment } from 'react';
 import ReactDOM from 'react-dom';
 import { 
-  Users, CalendarCheck, Activity, ClipboardList, Settings, Search, 
+  Users, CalendarCheck, Activity, ClipboardList, Settings, Search, MapPin, 
   Printer, CheckCircle2, CloudUpload, Loader2, Plus, Trash2, X, FileText, BarChart3, TrendingUp,
   ArrowLeft, ArrowRight, Menu, BookOpen, Lock, Unlock, QrCode, MoveUp, MoveDown, GripVertical, AlertTriangle,
   ChevronLeft, ChevronRight, Save, UserPlus, Clock, CalendarOff, CalendarRange, PenTool, History,
@@ -36861,16 +36861,17 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         const Row = ({ m, pl, sl, rm, walk }) => { const pt = _pt(m.pid); const dot = !rm && (m.mark || _dotOf(pl, iso, m.pid)); const tg = rm ? '' : _dropTag(pl, m.pid); const calls = tsumugiPickupCalls(pt); const addr = _addr(pt); const place = _place(pt); return (
           <div data-testid={`tp-dl-${iso}-${sl}-${m.pid}`} data-rm={rm ? '1' : '0'} className={`px-3 py-1.5 border-b border-slate-100 ${rm ? 'opacity-50' : ''}`}>
             {/* ★ 2026-10-13(ユーザー指示): 時間が凹凸にならないよう名前を固定幅(約6.5文字)にして時間を縦1列にそろえる */}
+            {/* ★ 2026-10-13(ユーザー指示): 1行目=名前・時間(一番目立つ)・待ち合わせ場所(ピンの印・文字だけ)、2行目=住所(大きめ)・電話 */}
             <div className="flex items-baseline gap-x-2 gap-y-0 flex-wrap">
-              <span className={`shrink-0 truncate font-bold text-[17px] text-slate-900 ${rm ? 'line-through' : ''}`} style={{width:'6.6em'}}>{_pname(m.pid)}</span>
-              <span data-tel={dot ? '1' : '0'} className={`shrink-0 font-bold tabular-nums text-[18px] text-slate-900 border-2 rounded px-1 ${dot ? 'border-red-600' : 'border-transparent'} ${rm ? 'line-through' : ''}`} style={{minWidth:'3.2em', textAlign:'center'}}>{walk ? (/\d/.test(String(m.t||'')) ? `${_fmtT(m.t)} 着` : '到着') : (_fmtT(m.t) || '—')}</span>
+              <span className={`shrink-0 truncate font-bold text-[18px] text-slate-900 ${rm ? 'line-through' : ''}`} style={{width:'6.6em'}}>{_pname(m.pid)}</span>
+              <span data-tel={dot ? '1' : '0'} className={`shrink-0 font-bold tabular-nums text-[19px] text-slate-900 border-2 rounded px-1 ${dot ? 'border-red-600' : 'border-transparent'} ${rm ? 'line-through' : ''}`} style={{minWidth:'3.2em', textAlign:'center'}}>{walk ? (/\d/.test(String(m.t||'')) ? `${_fmtT(m.t)} 着` : '到着') : (_fmtT(m.t) || '—')}</span>
               {tg ? <span className="shrink-0 text-[11px] text-slate-500">{tg}</span> : null}
-              {!rm && (addr ? <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([pt.address, pt.addressBuilding].filter(Boolean).join(' '))}`} target="_blank" rel="noopener noreferrer" className="min-w-0 text-[13px] text-slate-700 underline decoration-dotted underline-offset-2 leading-snug">{addr}</a> : <span className="text-[12px] text-slate-400">住所未登録</span>)}
+              {!rm && place ? <span className="min-w-0 inline-flex items-center gap-0.5 text-[12px] text-slate-600 leading-snug" title="待ち合わせ場所"><MapPin size={12} className="shrink-0" />{place}</span> : null}
             </div>
             {rm ? <div className="text-[12px] text-red-700 font-bold">{_absReasonOfPid(m.pid, iso, sl)}</div> : (
               <div className="flex items-baseline gap-x-3 gap-y-0 flex-wrap text-[13px] leading-snug">
-                {place ? <span className="font-bold text-emerald-800">待ち合わせ: {place}</span> : null}
-                {calls.length ? calls.map((c, i) => <a key={c.phone} href={`tel:${c.phone.replace(/[^0-9+]/g, '')}`} className={`whitespace-nowrap tabular-nums ${i === 0 ? 'text-slate-800 font-bold' : 'text-slate-500'}`}>{c.label !== '本人' || i > 0 ? `${c.label} ` : ''}{c.phone}</a>) : <span className="text-[12px] text-slate-400">電話未登録</span>}
+                {addr ? <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([pt.address, pt.addressBuilding].filter(Boolean).join(' '))}`} target="_blank" rel="noopener noreferrer" className="min-w-0 text-[14px] text-slate-800 underline decoration-dotted underline-offset-2">{addr}</a> : <span className="text-[12px] text-slate-400">住所未登録</span>}
+                {calls.length ? calls.map((c, i) => <a key={c.phone} href={`tel:${c.phone.replace(/[^0-9+]/g, '')}`} className={`whitespace-nowrap tabular-nums ${i === 0 ? 'text-slate-700' : 'text-slate-500'}`}>{c.label !== '本人' || i > 0 ? `${c.label} ` : ''}{c.phone}</a>) : <span className="text-[12px] text-slate-400">電話未登録</span>}
               </div>)}
           </div>); };
         return (
@@ -36881,7 +36882,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <div key={sl} data-testid={`tp-dl-slot-${sl}`} className="mt-2 mx-2 bg-white rounded-xl border border-slate-200 overflow-hidden">
               <div className={`px-3 py-1.5 flex items-center gap-2 text-[14px] font-bold ${sl==='AM'?'bg-amber-50 text-amber-800':'bg-indigo-50 text-indigo-800'}`}>{sl==='AM'?'午前':'午後'}
                 {pl._draft ? <span className="text-[10px] text-slate-500 bg-slate-200 rounded px-1 py-0.5 font-normal">下書き</span> : null}
-                {_baseOf(pl) && n ? <span className="text-[10px] text-white bg-red-600 rounded px-1 py-0.5 font-normal">{pl._final ? '確定後の変更' : '確定時からの変更'} {n}件</span> : null}
+                {_baseOf(pl) && n ? <button type="button" data-testid={`tp-dl-chg-${sl}`} onClick={() => setFinalMenu(true)} className="text-[10px] text-white bg-red-600 rounded px-1.5 py-0.5 font-normal" title="押すと変更の一覧">{pl._final ? '確定後の変更' : '確定時からの変更'} {n}件 ▼</button> : null}
               </div>
               {!anyone ? <div className="px-3 py-2 text-[13px] text-slate-400">—</div> : (<>
                 {cars.map(c => { const ms = (pl.cars||{})[c.id] || []; const rmHere = ((_fin.cars||{})[c.id] || []).filter(m => m && _rmSet.has(String(m.pid)) && !ms.some(x => String(x.pid) === String(m.pid))); if (!ms.length && !rmHere.length) return null; const drv = (pl.driver||{})[c.id] || '';
@@ -36973,7 +36974,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                       <div className={`px-2 pt-1 flex items-center gap-1 justify-end ${sl==='AM'?'bg-amber-50/60':'bg-indigo-50/60'}`} style={{minHeight:18}}>
                         <span className="flex items-center gap-1">{pl._draft ? <span className="text-[9px] text-slate-500 bg-slate-200 rounded px-1 py-0.5">下書き</span> : null}
                           {_baseOf(pl) && (() => { const n = _chgCount(pl); const rm = _removedSince(pl); return n
-                            ? <span data-testid={`tp-chg-chip-${iso}-${sl}`} className="text-[9px] text-white bg-red-600 rounded px-1 py-0.5" title={rm.map(pid=>`${_pname(pid)}: 確定後に外れた`).join('\n')||'確定後に変更あり'}>{pl._final ? '確定後の変更' : '確定時からの変更'} {n}件</span>
+                            ? <button type="button" data-testid={`tp-chg-chip-${iso}-${sl}`} onClick={() => setFinalMenu(true)} className="text-[9px] text-white bg-red-600 rounded px-1 py-0.5" title={(rm.map(pid=>`${_pname(pid)}: 確定後に外れた`).join('\n')||'確定後に変更あり') + '\n押すと変更の一覧'}>{pl._final ? '確定後の変更' : '確定時からの変更'} {n}件 ▼</button>
                             : null; })()}
                         </span>
                       </div>
@@ -54142,23 +54143,26 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
   // ★ 支援経過表 (カテゴリ9)。 既存データを自動でマージ表示し、手動編集・追加もできる。
   //   保存構造: personalFile.supportProgress = [手動行 or 自動行の上書き(srcKey付)], supportProgressHidden = [削除した自動行のsrcKey]
   const _spActiveRec = (()=>{ try { return (JSON.parse(sessionStorage.getItem('tsumugiActiveRecorder')||'null')||{}).name || ''; } catch { return ''; } })();
+  const _pfPhone = useTsuIsPhone(); // ★ 2026-10-13: スマホ幅の判定(支援経過表の詰めた一覧)
+  const [spEditId, setSpEditId] = useState(null); // スマホの一覧で編集中の行
   const [spYear, setSpYear] = useState(null); // 支援経過表: 選択中の年
   // 既存データから自動生成される行(srcKey付き)
   const spAutoEvents = () => {
     const out = [];
     const seen = new Set();
     // ★ srcKey で重複排除 (同じ月のモニタリング等が複数あっても1件に集約)
-    const push = (srcKey, date, from, content) => { if(!srcKey||!content||seen.has(srcKey)) return; seen.add(srcKey); out.push({ id:srcKey, srcKey, date:String(date||'').slice(0,10), staff:'', from:from||'', content, _auto:true }); };
+    // ★ 2026-10-13(ユーザー要望): 担当者は元の記録の担当者(記録者)があればそれを入れる(無ければ空=編集したときにログイン中の担当者が入る)
+    const push = (srcKey, date, from, content, staff) => { if(!srcKey||!content||seen.has(srcKey)) return; seen.add(srcKey); out.push({ id:srcKey, srcKey, date:String(date||'').slice(0,10), staff:String(staff||''), from:from||'', content, _auto:true }); };
     const fh = tsumugiFaxLog(appData);
     // 休み連絡: 欠席日と理由(ticketRecord.tokki)も記載
     fh.filter(h=>h.type==='absence' && (h.patientId===patient.id || h.patientName===patient.name)).forEach(h=>{
       let dl='', reason='';
       if (h.dateIso) { const d=new Date(h.dateIso); dl=`${d.getMonth()+1}/${d.getDate()}`; const lbl=`${d.getMonth()+1}月${d.getDate()}日`; const rec=(appData.ticketRecords||[]).find(r=>r.patientId===patient.id && r.date===lbl && r.status==='欠席'); reason=(rec&&rec.tokki)||''; }
-      push(`fax_abs_${h.id}`, (h.dateIso||h.timestamp), 'ご家族/ご本人', `休み連絡${dl?`（${dl}）`:''}${reason?`　理由: ${reason}`:''}`);
+      push(`fax_abs_${h.id}`, (h.dateIso||h.timestamp), 'ご家族/ご本人', `休み連絡${dl?`（${dl}）`:''}${reason?`　理由: ${reason}`:''}`, h.by || h.recorder || h.staff);
     });
     // 各種連絡: 件名+本文も記載
     fh.filter(h=>h.type==='general' && (h.patientId===patient.id || h.patientName===patient.name)).forEach(h=>push(`fax_gen_${h.id}`, h.timestamp, '当事業所', `各種連絡${h.subject?`：${h.subject}`:''}${h.memo?`　${String(h.memo).replace(/\s+/g,' ').trim()}`:''}`));
-    (appData.fitnessRecords||[]).filter(r=>r.patientId===patient.id).forEach(r=>push(`fit_${r.date}`, r.date, '当事業所', '体力測定を実施'));
+    (appData.fitnessRecords||[]).filter(r=>r.patientId===patient.id).forEach(r=>push(`fit_${r.date}`, r.date, '当事業所', '体力測定を実施', r.recorder));
     // モニタリング: 同じ月(period)が複数あっても最新1件に集約
     [...(appData.monitoringRecords||[])].filter(r=>r.patientId===patient.id).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).forEach(r=>push(`mon_${r.period}`, (r.createdAt?new Date(r.createdAt).toISOString().slice(0,10):''), '当事業所', `モニタリング（${r.period}）を実施`));
     (personalFile.meetings||[]).forEach(m=>push(`mtg_${m.id}`, (m.date||''), '当事業所', `サービス担当者会議${m.location?`（${m.location}）`:''}`));
@@ -54186,14 +54190,14 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
         const _tk = String(r.tokki||'').replace(/\s+/g,' ').trim();
         if (r.status==='欠席') {
           if (_faxAbsDates.has(iso)) return; // 休み連絡の行があるので重複させない
-          push(`st_${r.id}`, iso, 'ご家族/ご本人', `欠席${_tk?`　理由: ${_tk}`:''}`);
+          push(`st_${r.id}`, iso, 'ご家族/ご本人', `欠席${_tk?`　理由: ${_tk}`:''}`, r.recorder);
         } else if (r.status==='休止' || r.status==='休業') {
           const prev = _prevByStatus[r.status]; _prevByStatus[r.status] = iso;
           // 8日以内に同じ状態が続く場合は同じ期間とみなし開始日のみ記載(週1利用でも繋がるように)
           if (prev && (new Date(iso) - new Date(prev)) / 86400000 <= 8) return;
           push(`st_${r.id}`, iso, r.status==='休止'?'ご家族/ケアマネ':'当事業所', `${r.status==='休止'?'利用休止':'施設休業'}${_tk?`（${_tk}）`:''}`);
         } else if ((r.status==='出席'||r.status==='振替'||r.status==='臨時') && _tk) {
-          push(`st_${r.id}`, iso, '当事業所', `特記：${_tk}`);
+          push(`st_${r.id}`, iso, '当事業所', `特記：${_tk}`, r.recorder);
         }
       });
     }
@@ -54212,6 +54216,8 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
   };
   // 行の編集: 自動行は srcKey で上書き保存、手動行は id で更新
   const spEditRow = (row, patch) => {
+    // ★ 2026-10-13: 担当者が空の行を編集したら、ログイン時に選んだ担当者を自動で入れる(あとから変更可)
+    if (!patch.staff && !String(row.staff || '').trim() && _spActiveRec) patch = { ...patch, staff: _spActiveRec };
     const stored = personalFile.supportProgress || [];
     if (row.srcKey) {
       const exists = stored.some(e=>e.srcKey===row.srcKey);
@@ -55059,7 +55065,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <button onClick={()=>setIrMode('form')} className="bg-amber-50 border-2 border-amber-300 hover:border-amber-500 rounded-2xl p-5 text-left active:scale-95">
                     <div className="text-base font-bold text-amber-900 mb-1">手入力で作成</div>
-                    <div className="text-xs text-amber-700">バイタル・運動・様子を入力して報告書を作成します（初回通所の記録があれば自動で入ります）。印刷/PDFでケアマネへ送付できます。</div>
+                    <div className="text-xs text-amber-700 whitespace-normal break-words">バイタル・運動・様子を入力して報告書を作成します（初回通所の記録があれば自動で入ります）。印刷/PDFでケアマネへ送付できます。</div>
                   </button>
                   <label className="bg-emerald-50 border-2 border-emerald-300 hover:border-emerald-500 rounded-2xl p-5 text-left cursor-pointer active:scale-95 block">
                     <div className="text-base font-bold text-emerald-900 mb-1">書類を添付して完了</div>
@@ -55414,13 +55420,33 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                 </div>
                 {rows.length===0 ? (
                   <div className="text-xs text-slate-400 py-3 text-center">{sel}年の記録はありません。「＋ 行を追加」で追記できます（既存データがあれば自動で表示されます）。</div>
+                ) : _pfPhone ? (
+                  /* ★ 2026-10-13(ユーザー指摘「スマホで支援経過表の文字が大きい・連絡元が見切れる」): スマホは表ではなく詰めた一覧。行を押すと編集欄が開く */
+                  <div className="divide-y divide-slate-200 border border-slate-200 rounded-lg" data-testid="sp-phone-list">
+                    {rows.map(e => { const editing = spEditId === (e.srcKey||e.id); return (
+                      <div key={e.srcKey||e.id} className="px-2 py-1.5">
+                        {!editing ? (
+                          <button type="button" className="w-full text-left" onClick={()=>setSpEditId(e.srcKey||e.id)}>
+                            <div className="flex items-baseline gap-2 text-[11px] text-slate-500"><span className="font-bold text-slate-800 tabular-nums">{String(e.date||'').replace(/-/g,'/')}</span><span>{e.staff || <span className="text-slate-300">担当者なし</span>}</span><span className="ml-auto whitespace-nowrap">{e.from||''}</span></div>
+                            <div className="text-[12px] text-slate-800 leading-snug whitespace-pre-wrap break-words">{e.content||''}</div>
+                          </button>
+                        ) : (
+                          <div className="space-y-1.5">
+                            <div className="flex gap-1.5"><input type="date" defaultValue={e.date} onBlur={ev=>ev.target.value!==e.date&&spEditRow(e,{date:ev.target.value})} className="flex-1 min-w-0 px-2 py-1.5 border border-slate-300 rounded"/><input defaultValue={e.staff} placeholder="担当者" onBlur={ev=>ev.target.value!==(e.staff||'')&&spEditRow(e,{staff:ev.target.value})} className="w-28 px-2 py-1.5 border border-slate-300 rounded"/></div>
+                            <input defaultValue={e.from} placeholder="連絡元" onBlur={ev=>ev.target.value!==(e.from||'')&&spEditRow(e,{from:ev.target.value})} className="w-full px-2 py-1.5 border border-slate-300 rounded"/>
+                            <textarea defaultValue={e.content} placeholder="内容・特記事項" rows={3} onBlur={ev=>ev.target.value!==(e.content||'')&&spEditRow(e,{content:ev.target.value})} className="w-full px-2 py-1.5 border border-slate-300 rounded"/>
+                            <div className="flex justify-between"><button type="button" onClick={()=>spDel(e)} className="px-2 py-1 text-red-600 text-xs font-bold">削除</button><button type="button" onClick={()=>setSpEditId(null)} className="px-3 py-1 bg-slate-100 rounded text-xs font-bold">閉じる</button></div>
+                          </div>
+                        )}
+                      </div>); })}
+                  </div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full border-collapse text-xs tsu-sp-table" style={{minWidth: (typeof window !== 'undefined' && window.innerWidth < 768) ? 520 : 640}}>
                       <thead><tr className="bg-slate-50">
                         <th className="border border-slate-300 px-1 py-1 font-bold" style={{width:120}}>日付</th>
                         <th className="border border-slate-300 px-1 py-1 font-bold" style={{width:90}}>担当者</th>
-                        <th className="border border-slate-300 px-1 py-1 font-bold" style={{width:100}}>連絡元</th>
+                        <th className="border border-slate-300 px-1 py-1 font-bold whitespace-nowrap" style={{width:118}}>連絡元</th>
                         <th className="border border-slate-300 px-1 py-1 font-bold">内容・特記事項</th>
                         <th className="border border-slate-300 px-1 py-1" style={{width:34}}></th>
                       </tr></thead>
