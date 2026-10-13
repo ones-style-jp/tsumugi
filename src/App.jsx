@@ -35062,6 +35062,36 @@ const tpNextWeekReminder = (appData, now = new Date()) => {
 const PICKUP_PLACES = ['自宅前', '玄関前', 'マンション入口外', 'エントランス', 'ロビー'];
 // ★ 2026-09-30(ユーザー指示): 「マンション入口」→「マンション入口外」(分かりやすく)。旧表記で保存済みの値は新しい表記として扱う
 const PICKUP_PLACE_ALIAS = { 'マンション入口': 'マンション入口外' };
+// ★ 2026-10-13(ユーザー要望「耳が聞こえづらい方は娘さんに電話する等、送迎の連絡先を人ごとに決めたい」):
+//   送迎時にかける番号の一覧(先頭=かける相手)。patient.pickupCallTo = '' (本人: 携帯→固定) / 'family' (緊急連絡先) / 'other' (pickupCallName / pickupCallPhone)。
+//   本人の番号も後ろに残す(運転手が状況で選べる)。番号は重複を除く
+const tsumugiPickupCalls = (p) => {
+  const out = []; const add = (label, phone) => { const t = String(phone || '').trim(); if (t && !out.some(x => x.phone === t)) out.push({ label, phone: t }); };
+  const fam = () => { const nm = [p.familyRelation, p.familyName].filter(Boolean).join(' ') || 'ご家族'; add(nm, p.familyPhoneMobile); add(nm, p.familyPhone); };
+  const self = () => { add('本人', p.phoneMobile); add('本人', p.phone); };
+  const mode = String(p?.pickupCallTo || '');
+  if (mode === 'family') { fam(); self(); } else if (mode === 'other') { add(String(p.pickupCallName || '').trim() || '連絡先', p.pickupCallPhone); self(); } else { self(); }
+  return out;
+};
+// 送迎時の連絡先を選ぶ部品(利用者マスタと送迎表の名前タップで共通)。value={callTo,name,phone}
+function PickupCallField({ value, onChange, disabled, patient }) {
+  const v = value || {}; const fam = [patient?.familyRelation, patient?.familyName].filter(Boolean).join(' ');
+  return (
+    <div className="space-y-1.5">
+      <select disabled={disabled} value={v.callTo || ''} onChange={e => onChange({ ...v, callTo: e.target.value })} data-testid="pickup-call-to" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none">
+        <option value="">本人の番号（携帯があれば携帯、無ければ固定）</option>
+        <option value="family">緊急連絡先{fam ? `（${fam}）` : ''}にかける</option>
+        <option value="other">別の相手・番号を指定</option>
+      </select>
+      {v.callTo === 'other' && (
+        <div className="flex gap-2">
+          <input disabled={disabled} value={v.name || ''} onChange={e => onChange({ ...v, name: e.target.value })} placeholder="相手（例: 長女）" data-testid="pickup-call-name" className="w-2/5 px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none" />
+          <input disabled={disabled} value={v.phone || ''} onChange={e => onChange({ ...v, phone: e.target.value })} placeholder="電話番号" inputMode="tel" data-testid="pickup-call-phone" className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none" />
+        </div>
+      )}
+    </div>
+  );
+}
 function PickupPlaceField({ value, onChange, disabled, hiddenId, className }) {
   const split = (v) => { const s0 = String(v || '').trim(); const s = PICKUP_PLACE_ALIAS[s0] || s0; if (!s) return { sel: '', other: '' }; return PICKUP_PLACES.includes(s) ? { sel: s, other: '' } : { sel: 'その他', other: s }; };
   const [st, setSt] = React.useState(() => split(value));
@@ -35214,10 +35244,19 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       if (attending && !_isPausedOn(p, iso)) return;
       // ★ 2026-09-16d(店舗指摘): 予定上は欠席等でも、当日の提供記録が出席/振替/臨時なら実際は来所している→休みに出さない
       if (_recAttendsOnDate(p.id, iso)) return;
-      out.push({ pid: p.id, name: p.name });
+      out.push({ pid: p.id, name: p.name, reason: _absReasonOf(p, iso, ov) });
     });
     return out;
   };
+  // ★ 2026-10-13(ユーザー要望「確定後に外れた方(休みなど)の理由を表示」): 休みの理由。提供記録の欠席/休止/休業(特記=理由)→休止期間の理由→月間スケジュールの印、の順
+  const _absReasonOf = (p, iso, ov) => {
+    const r = _recsOn(p.id, iso).find(x => x && (x.status === '欠席' || x.status === '休止' || x.status === '休業'));
+    if (r) { const t = absReasonFromTokki(r.tokki); return `${r.status}${t ? '・' + t : ''}`; }
+    const pz = getPauseReasonOnDate(p, iso); if (pz) return `休止${pz.reason ? '・' + pz.reason : ''}`;
+    if (ov !== undefined && ov !== '' && !(ov === '〇' || ov === '出席' || ov === '臨時' || String(ov).startsWith('振'))) return `休み（月間スケジュール${/^[×x✕休]$/.test(String(ov)) ? '' : ': ' + ov}）`;
+    return '休み';
+  };
+  const _absReasonOfPid = (pid, iso, sl) => { const p = (appData.patients||[]).find(x => x.id === pid); if (!p) return ''; const d = new Date(iso); const mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; const ov = appData.monthlyShifts?.[mk]?.[p.id]?.[`${d.getDate()}_${sl}`]; return _absReasonOf(p, iso, ov); };
 
   // 表示用プラン: 保存済みがあればそれ、無ければ自動下書き(前週同曜日の車割りをコピー)
   // ★ 2026-09-22(店舗要望): 送迎表の時刻表示は「13時25分」ではなく「13:25」。保存値は従来形式のままでも表示で統一する。
@@ -35650,6 +35689,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   };
   // ★ 利用者名タップで待ち合わせ場所・所要時間を編集(利用者マスタと同じ項目に保存・2026-09-12)
   const [editP, setEditP] = useState(null); // {pid}
+  const [editCall, setEditCall] = useState(null); // ★ 2026-10-13: 名前タップの小窓の「送迎時の連絡先」(開くときに利用者の値を入れる)
   // ★ 運転者候補: 日誌の担当職員から。役職が違うだけの同名は1件に(2026-09-28 ユーザー指摘)
   const _driverNames = React.useMemo(() => { const seen = new Set(); const out = []; (ds.staff||[]).forEach(st => { const n = String(st?.name||'').trim(); if (!n || st._tempHelp) return; const k = normalizeName(n).replace(/[\s　]/g,''); if (seen.has(k)) return; seen.add(k); out.push(n); }); return out; }, [ds.staff]);
   // ★ 印刷の選択(週間／日ごと・チェックした日だけ)(2026-09-28 ユーザー要望: 日ごとに5回押すのが手間)
@@ -35832,10 +35872,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   // ★ ルート計算のコア(1日分・時間帯1つ): 保存はせず計算後のプランを返す。
   //   呼び出し側が1回のonSaveへまとめる(2026-09-12d: 週間一括で「後の日の保存が前の日を消す」バグの修正)。
   // ★ 復元(2026-09-13 修正): v2.0のスライス置換で誤って消えた宣言群(routing/tpSettings/施設住所/到着目標/時刻整形/場所保存)
-  const savePatientPickup = (pid, place, minutes) => {
+  const savePatientPickup = (pid, place, minutes, call) => {
     // ★ 2026-09-28: 'walk'(徒歩)は文字列のまま保存。数値計算側は Number()||1 で従来どおり1分扱い
     const isWalk = String(minutes||'') === 'walk';
-    const pats = (appData.patients||[]).map(pt => pt.id === pid ? { ...pt, pickupPlace: place, pickupMinutes: isWalk ? 'walk' : String(minutes||'').replace(/[^0-9]/g,'') } : pt);
+    const _callPatch = call ? { pickupCallTo: call.callTo || '', pickupCallName: call.name || '', pickupCallPhone: call.phone || '' } : {};
+    const pats = (appData.patients||[]).map(pt => pt.id === pid ? { ...pt, pickupPlace: place, pickupMinutes: isWalk ? 'walk' : String(minutes||'').replace(/[^0-9]/g,''), ..._callPatch } : pt);
     let tp = plans;
     if (isWalk) {
       // 今日以降の保存済みプランで車・未割当にいる場合は徒歩欄へ(過去の実績は触らない)
@@ -36397,7 +36438,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const maxNameEm = Math.max(4, ...pts.map(pt => _emW2(pt.name)));
     // ★ 2026-10-02(西馬込報告: 電話の前に「奥様」等を付けると電話が見切れる): 電話の幅は「数字12桁ぶん」の固定ではなく、
     //   いちばん長い電話(文字付きを含む・最大20文字ぶん)に合わせる。さらに長ければ欄に収まるまで文字を縮める(下の tel セル)
-    const telText = (pt) => String(pt.phoneMobile || pt.phone || '');
+    // ★ 2026-10-13: 「送迎時の連絡先」をご家族などにしている方は、その相手と番号を出す(例: 長女 090-…)
+    const telText = (pt) => { const c = tsumugiPickupCalls(pt)[0]; return c ? (c.label !== '本人' ? `${c.label} ${c.phone}` : c.phone) : ''; };
     const maxTelEm = Math.min(20, Math.max(8.4, ...pts.map(pt => _emW2(telText(pt)))));
     const colW = (f) => { const ini = Math.ceil(f * 1.5) + 6, name = Math.ceil(maxNameEm * f * 1.05) + 10, tel = Math.ceil(maxTelEm * Math.max(8, f - 1) * 1.02) + 12; return { ini, name, tel, addr: Math.max(80, HALF - ini - name - tel) }; };
     const headH = 18;
@@ -36773,20 +36815,20 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         const _addr = (pt) => [_addrDisp(pt.address), pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' ');
         const _place = (pt) => pt.pickupPlace ? (PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace) : '';
         const _mins = (t) => { const m = String(_fmtT(t) || '').match(/(\d+):(\d+)/); return m ? (+m[1]) * 60 + (+m[2]) : 9999; };
-        const Row = ({ m, pl, sl, rm, walk }) => { const pt = _pt(m.pid); const dot = !rm && (m.mark || _dotOf(pl, iso, m.pid)); const tg = rm ? '' : _dropTag(pl, m.pid); const tels = _tel(pt); const addr = _addr(pt); const place = _place(pt); return (
-          <div data-testid={`tp-dl-${iso}-${sl}-${m.pid}`} data-rm={rm ? '1' : '0'} className={`px-3 py-2 border-b border-slate-100 ${rm ? 'opacity-50' : ''}`}>
-            <div className="flex items-center gap-2">
-              <span className={`flex-1 min-w-0 truncate font-bold text-[17px] text-slate-900 ${rm ? 'line-through' : ''}`}>{_pname(m.pid)}</span>
+        // ★ 2026-10-13(ユーザー指示): 1行目=名前・時間(近く)・住所、2行目=待ち合わせ場所・電話(横並び)。電話は枠で目立たせず文字だけ(携帯優先・固定はその次)。
+        //   「送迎時の連絡先」をご家族などにしている方は、その相手と番号を先頭に(本人の番号はその後ろ)
+        const Row = ({ m, pl, sl, rm, walk }) => { const pt = _pt(m.pid); const dot = !rm && (m.mark || _dotOf(pl, iso, m.pid)); const tg = rm ? '' : _dropTag(pl, m.pid); const calls = tsumugiPickupCalls(pt); const addr = _addr(pt); const place = _place(pt); return (
+          <div data-testid={`tp-dl-${iso}-${sl}-${m.pid}`} data-rm={rm ? '1' : '0'} className={`px-3 py-1.5 border-b border-slate-100 ${rm ? 'opacity-50' : ''}`}>
+            <div className="flex items-baseline gap-x-2 gap-y-0 flex-wrap">
+              <span className={`shrink-0 font-bold text-[17px] text-slate-900 ${rm ? 'line-through' : ''}`}>{_pname(m.pid)}</span>
+              <span data-tel={dot ? '1' : '0'} className={`shrink-0 font-bold tabular-nums text-[18px] text-slate-900 border-2 rounded px-1 ${dot ? 'border-red-600' : 'border-transparent'} ${rm ? 'line-through' : ''}`}>{walk ? (/\d/.test(String(m.t||'')) ? `${_fmtT(m.t)} 着` : '到着') : (_fmtT(m.t) || '—')}</span>
               {tg ? <span className="shrink-0 text-[11px] text-slate-500">{tg}</span> : null}
-              <span data-tel={dot ? '1' : '0'} className={`shrink-0 font-bold tabular-nums text-[19px] text-slate-900 border-2 rounded px-1.5 ${dot ? 'border-red-600' : 'border-transparent'} ${rm ? 'line-through' : ''}`}>{walk ? (/\d/.test(String(m.t||'')) ? `${_fmtT(m.t)} 着` : '到着') : (_fmtT(m.t) || '—')}</span>
+              {!rm && (addr ? <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([pt.address, pt.addressBuilding].filter(Boolean).join(' '))}`} target="_blank" rel="noopener noreferrer" className="min-w-0 text-[13px] text-slate-700 underline decoration-dotted underline-offset-2 leading-snug">{addr}</a> : <span className="text-[12px] text-slate-400">住所未登録</span>)}
             </div>
-            {rm ? <div className="text-[12px] text-red-700 font-bold">確定後に外れた方（休みなど）</div> : (
-              <div className="mt-1 flex items-start gap-2">
-                <div className="flex-1 min-w-0 text-[13px] text-slate-700 leading-snug">
-                  {addr ? <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([pt.address, pt.addressBuilding].filter(Boolean).join(' '))}`} target="_blank" rel="noopener noreferrer" className="underline decoration-dotted underline-offset-2 text-slate-700">{addr}</a> : <span className="text-slate-400">住所未登録</span>}
-                  {place ? <div className="text-[13px] font-bold text-emerald-800">待ち合わせ: {place}</div> : null}
-                </div>
-                {tels.length ? <div className="shrink-0 flex flex-col gap-1">{tels.map(t => <a key={t} href={`tel:${t.replace(/[^0-9+]/g, '')}`} className="inline-flex items-center justify-center h-9 px-3 rounded-lg bg-blue-600 text-white text-[13px] font-bold whitespace-nowrap">{t}</a>)}</div> : <span className="shrink-0 text-[12px] text-slate-400">電話未登録</span>}
+            {rm ? <div className="text-[12px] text-red-700 font-bold">確定後に外れた方: {_absReasonOfPid(m.pid, iso, sl)}</div> : (
+              <div className="flex items-baseline gap-x-3 gap-y-0 flex-wrap text-[13px] leading-snug">
+                {place ? <span className="font-bold text-emerald-800">待ち合わせ: {place}</span> : null}
+                {calls.length ? calls.map((c, i) => <a key={c.phone} href={`tel:${c.phone.replace(/[^0-9+]/g, '')}`} className={`whitespace-nowrap tabular-nums ${i === 0 ? 'text-slate-800 font-bold' : 'text-slate-500'}`}>{c.label !== '本人' || i > 0 ? `${c.label} ` : ''}{c.phone}</a>) : <span className="text-[12px] text-slate-400">電話未登録</span>}
               </div>)}
           </div>); };
         return (
@@ -36810,7 +36852,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 {(pl.others||[]).length ? <div><div className="px-3 py-1 text-[13px] font-bold text-slate-700 bg-slate-100 border-y border-slate-200">その他</div>{(pl.others||[]).map(m => <Row key={m.pid} m={m} pl={pl} sl={sl} />)}</div> : null}
                 {(pl.un||[]).length ? <div className="px-3 py-2 text-[13px] text-amber-800 font-bold bg-amber-50">未割当: {(pl.un||[]).map(m => _pname(m.pid)).join('・')}</div> : null}
               </>)}
-              {abs.length ? <div className="px-3 py-2 text-[13px] text-slate-600 bg-slate-50 border-t border-slate-200">休み: {abs.map(a => a.name).join('・')}</div> : null}
+              {abs.length ? <div className="px-3 py-2 text-[13px] text-slate-600 bg-slate-50 border-t border-slate-200">休み: {abs.map(a => `${a.name}${a.reason && a.reason !== '休み' ? `（${a.reason}）` : ''}`).join('・')}</div> : null}
             </div>); })}
         </div>); })() : _finalView ? (
       <div className="px-2 sm:px-3 pt-2 pb-3" data-testid="tp-final-board">
@@ -36841,7 +36883,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                             <div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">{c.name}{drv ? <span className="font-normal ml-1">運転 {drv}</span> : null}</div>
                             {/* ★ 2026-10-03 ユーザー指示: 運行表と同じく左に名前・右に時間。時間の桁数が違っても名前の開始位置が揃うよう、赤丸→名前(可変)→時間(固定幅・右寄せ) */}
                             {rows.map(m => { if (m._rm) return (
-                              <div key={`rm-${m.pid}`} className="flex items-center gap-1 text-[12px] leading-tight py-0.5 opacity-50" data-testid={`tp-fb-rm-${iso}-${sl}-${m.pid}`} data-tpfb={`${iso}_${sl}_${m.pid}`} title="確定後に外れた方（休みなど）">
+                              <div key={`rm-${m.pid}`} className="flex items-center gap-1 text-[12px] leading-tight py-0.5 opacity-50" data-testid={`tp-fb-rm-${iso}-${sl}-${m.pid}`} data-tpfb={`${iso}_${sl}_${m.pid}`} title={`確定後に外れた方: ${_absReasonOfPid(m.pid, iso, sl)}`}>
                                 <span className="truncate font-bold text-slate-600 shrink-0 line-through" style={{width:'7.2em'}}>{_pname(m.pid)}</span>
                                 <span className="shrink-0 font-bold tabular-nums text-slate-600 border-2 border-transparent rounded px-1 -my-0.5 line-through">{_fmtT(m.t)||'—'}</span>
                               </div>);
@@ -36858,7 +36900,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                         {(pl.un||[]).length ? <div className="text-[11px] text-amber-700 font-bold">未割当 {(pl.un||[]).map(m => _pname(m.pid)).join('・')}</div> : null}
                       </div>
                     )}
-                    {abs.length ? <div className="px-2 pb-1 text-[10px] text-slate-500">休み: {abs.map(a => a.name).join('・')}</div> : null}
+                    {abs.length ? <div className="px-2 pb-1 text-[10px] text-slate-500">休み: {abs.map(a => `${a.name}${a.reason && a.reason !== '休み' ? `（${a.reason}）` : ''}`).join('・')}</div> : null}
                   </div>); })}
               </React.Fragment>); })}
           </div>
@@ -37092,14 +37134,16 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               <label className="block text-xs font-bold text-slate-600 mb-1">待ち合わせ場所</label>
               <PickupPlaceField value={pt.pickupPlace||''} hiddenId="tp-edit-place" className="mb-3" />
               <label className="block text-xs font-bold text-slate-600 mb-1">乗車にかかる時間（分）＝車を停めてから乗せ終わるまで</label>
-              <select defaultValue={String(pt.pickupMinutes||'')} id="tp-edit-min" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none mb-4 bg-white">
+              <select defaultValue={String(pt.pickupMinutes||'')} id="tp-edit-min" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none mb-3 bg-white">
                 <option value="">未設定（1分として計算）</option>
                 {Array.from({length:15},(_,i)=>i+1).map(v=><option key={v} value={v}>{v}分</option>)}
                 <option value="walk">徒歩（車を使わない・運行表は徒歩欄へ）</option>
               </select>
+              <label className="block text-xs font-bold text-slate-600 mb-1">送迎時の連絡先</label>
+              <div className="mb-4"><PickupCallField patient={pt} value={editCall || { callTo: pt.pickupCallTo || '', name: pt.pickupCallName || '', phone: pt.pickupCallPhone || '' }} onChange={setEditCall} /></div>
               <div className="flex justify-end gap-2">
-                <button onClick={()=>setEditP(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">閉じる</button>
-                <button onClick={()=>{ const pv=document.getElementById('tp-edit-place')?.value||''; const mv=document.getElementById('tp-edit-min')?.value||''; savePatientPickup(pt.id, pv, mv); setEditP(null); }} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm">保存</button>
+                <button onClick={()=>{ setEditP(null); setEditCall(null); }} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">閉じる</button>
+                <button onClick={()=>{ const pv=document.getElementById('tp-edit-place')?.value||''; const mv=document.getElementById('tp-edit-min')?.value||''; savePatientPickup(pt.id, pv, mv, editCall || { callTo: pt.pickupCallTo || '', name: pt.pickupCallName || '', phone: pt.pickupCallPhone || '' }); setEditP(null); setEditCall(null); }} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm">保存</button>
               </div>
               <div className="text-[10px] text-slate-400 mt-3">利用者マスタの「待ち合わせ場所・乗車にかかる時間」と同じ項目に保存されます。</div>
             </div>
@@ -40235,6 +40279,11 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                             {Array.from({length:15},(_,i)=>i+1).map(v=><option key={v} value={v}>{v}分</option>)}
                             <option value="walk">徒歩（車を使わない・運行表は徒歩欄へ）</option>
                           </select>
+                        </div>
+                        <div className="col-span-2 min-w-0">
+                          <label className="block text-xs font-bold text-slate-600 mb-1">送迎時の連絡先（送迎表のスマホ表示・連絡先一覧に出ます）</label>
+                          <PickupCallField disabled={isOff} patient={localPatient} value={{ callTo: localPatient.pickupCallTo || '', name: localPatient.pickupCallName || '', phone: localPatient.pickupCallPhone || '' }} onChange={v => { setLocalPatient(prev => ({ ...(prev || localPatient), pickupCallTo: v.callTo || '', pickupCallName: v.name || '', pickupCallPhone: v.phone || '' })); if (dirtyRef) dirtyRef.current = true; }} />
+                          <div className="text-[11px] text-slate-500 mt-1">耳が聞こえづらい方など、送迎のときはご家族にかける場合に選びます。本人の番号は後ろに続けて表示されます。</div>
                         </div>
                         <div className="col-span-2 text-[11px] text-slate-500">乗車にかかる時間=車を停めてから（マンション1階等）お部屋へお迎えに行き、車に乗せ終わるまでの時間。送迎表のルート自動作成で移動時間に上乗せして逆算に使います（未入力は1分）。「徒歩」を選ぶと送迎表（運行表）では最初から徒歩欄に入り、車の配車対象になりません。</div>
                       </div>
