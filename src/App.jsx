@@ -1332,16 +1332,12 @@ const secondBpVisible = (appData, recs) => (appData?.systemSettings?.secondBpMod
 //   特記(tokki)には書かない: 特記はご家族画面の「今回の様子」に出るため。スタッフ向けの画面・印刷でこのログを表示する。
 const bpReList = (r, ampm) => (Array.isArray(r?.bpRe) ? r.bpRe : []).filter(e => e && (!ampm || !e.ampm || e.ampm === ampm));
 const bpReHas = (r, phase, ampm) => bpReList(r, ampm).some(e => e.phase === phase);
-// ★ 待ち合わせ場所の印(2026-10-13 ユーザー要望「人が手を上げてタクシーを待っているようなもの」): lucide に無いので自前の線画。
-//   左=手を上げた人、右=車の正面(屋根に小さな表示灯)。色は文字色(currentColor)に従う。
+// ★ 待ち合わせ場所の印(2026-10-13 ユーザー要望「手を挙げた人だけでいい」): lucide に無いので自前の線画(手を上げて待つ人・currentColor)。
 function TsuHailIcon({ size = 12, className = '' }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-      <circle cx="6" cy="4.5" r="1.8" />
-      <path d="M6 7v6M6 13l-2 6M6 13l2 6M6 9L2.5 4M6 9l2.5 2.5" />
-      <path d="M12.5 14l1.3-3.5a1.5 1.5 0 0 1 1.4-1h3.6a1.5 1.5 0 0 1 1.4 1L21.5 14" />
-      <rect x="11.5" y="14" width="11" height="4.5" rx="1" />
-      <path d="M13 18.5v1.8M21 18.5v1.8M14 16.3h.5M19.5 16.3h.5M16 9.5V8h2v1.5" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <circle cx="13" cy="4.8" r="2.2" />
+      <path d="M12.5 8v7M12.5 15l-3.5 6M12.5 15l3.5 6M12.5 10.5L6 3.5M12.5 10.5l4 3" />
     </svg>
   );
 }

@@ -1,7 +1,14 @@
 {
-  "version": "upd-2026-1013-trial266",
+  "version": "upd-2026-1013-trial267",
   "updatedAt": "2026-10-13",
   "notes": [
+    {
+      "id": "upd-2026-1013-trial267-hail",
+      "type": "improve",
+      "title": "送迎表（スマホ）：待ち合わせ場所の印を「手を挙げた人」だけに",
+      "body": "運転手向け一覧の待ち合わせ場所の前の印から車を外し、手を挙げて待つ人の線画だけにしました。",
+      "date": "2026-10-13"
+    },
     {
       "id": "upd-2026-1013-trial266-hail",
       "type": "improve",
