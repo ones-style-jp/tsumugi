@@ -426,3 +426,28 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
 @media (min-width: 768px) {
   [data-testid="app-sidebar"].md\:transition-none { transition: none !important; }
 }
+
+/* ★ 2026-10-13(ユーザー指摘: スマホ縦で文字が縦に折れる・見切れる): 個人ファイルの小窓と利用者マスタ */
+@media (max-width: 767px) {
+  /* 個人ファイル: ボタンの文字は折らない(「編集・追記」「ダウンロード」「小窓」などが1文字ずつ縦になっていた) */
+  .tsu-pf button { white-space: nowrap; }
+  .tsu-pf button > div { white-space: normal; } /* 大きな選択カード(初回報告の「手入力で作成」等)の説明文は折り返す */
+  .tsu-pf .tsu-pf-btns > * { white-space: nowrap; }
+  .tsu-pf .tsu-pf-btns label { white-space: nowrap; }
+  /* 支援経過表の表は小さく(全体が見えるように) */
+  .tsu-pf .tsu-sp-table { font-size: 11px !important; }
+  .tsu-pf .tsu-sp-table th, .tsu-pf .tsu-sp-table td { padding: 3px 4px !important; font-size: 11px !important; line-height: 1.35; }
+  .tsu-pf .tsu-sp-table input, .tsu-pf .tsu-sp-table select, .tsu-pf .tsu-sp-table textarea { font-size: 12px !important; padding: 2px 4px !important; }
+  /* 利用者マスタ: 基本利用曜日は7列のまま(詳細の grid を1列にする指定の例外)・小さく */
+  .master-detail-content div.tsu-sched7.grid { grid-template-columns: repeat(7, minmax(0, 1fr)) !important; gap: 3px !important; }
+  .master-detail-content .tsu-sched7 span { font-size: 11px !important; margin-bottom: 2px !important; }
+  .master-detail-content .tsu-sched7 select, .master-detail-content .tsu-sched7 > div > div { font-size: 12px !important; padding: 0 !important; height: 36px !important; border-radius: 8px !important; }
+  /* 狭い欄では矢印を出さず「AM」「PM」「無」が切れないように */
+  .master-detail-content .tsu-sched7 select { -webkit-appearance: none !important; appearance: none !important; background-image: none !important; text-align: center; text-align-last: center; }
+  /* 送迎時の連絡先など、長い選択肢は折り返さず欄に収める */
+  .master-detail-content select { max-width: 100%; text-overflow: ellipsis; }
+}
+
+/* ★ 2026-10-13(ユーザー要望「サイドバーがあると設定・ダウンロードが2行目に落ちて左に寄る」):
+   右寄せのための空白(flex-1 の空の div)や ml-auto を持つ折返しバーは、2行目以降も右寄せにする(1行目は空白が伸びるので従来どおり) */
+.flex.flex-wrap:has(> .flex-1:empty), .flex.flex-wrap:has(> .ml-auto) { justify-content: flex-end; }
