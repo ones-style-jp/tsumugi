@@ -37284,6 +37284,21 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
   const BmiBadge = ({ bmi, small }) => { const j = bmiJudge(bmi, _patAge); if (!j) return <span className="text-slate-300">—</span>;
     return <span className="inline-flex flex-col items-center leading-tight" data-testid="bmi-badge"><span className={`font-extrabold ${small ? 'text-xs' : 'text-sm'}`} style={{ color: j.color }}>{bmi.toFixed(1)}</span><span className="text-[10px] font-bold rounded px-1.5 mt-0.5 whitespace-nowrap" style={{ color: j.color, background: j.bg, border: `1px solid ${j.border}` }}>{j.label}</span></span>; };
 
+  // ★ 2026-10-13(店舗要望「別の人を誤って編集すると前のデータが消えて戻せない」): 記録を上書きするとき、直前の値を記録の中(_hist・最大10件)に控える。
+  //   「元に戻す」で1つ前の値に戻せる(新しく作った記録は削除で取り消し)。控えは記録と一緒に同期されるので別の端末でも戻せる
+  const _fitHistPush = (prevRec, by) => [{ at: Date.now(), by: by || prevRec.recorder || '', date: prevRec.date, values: { ...(prevRec.values || {}) } }, ...((prevRec._hist || []).slice(0, 9))];
+  const [fitUndoOpen, setFitUndoOpen] = useState(false);
+  const fitUndoOne = (rec) => {
+    const h = (rec._hist || [])[0]; if (!h) return;
+    if (!window.confirm(`${rec.date} の記録を、${new Date(h.at).toLocaleString('ja-JP')} に保存する前の値に戻します。よろしいですか？`)) return;
+    const newRecords = records.map(rr => rr.id === rec.id ? { ...rr, values: { ...(h.values || {}) }, _hist: (rr._hist || []).slice(1), _savedAt: syncNow() } : rr);
+    markClean(); onSave({ ...appData, fitnessRecords: newRecords }, { manual: true, message: '✓ 1つ前の値に戻しました' });
+  };
+  const fitUndoDelete = (rec) => {
+    if (!window.confirm(`${rec.date} の記録(新しく作られたもの)を削除して取り消します。よろしいですか？`)) return;
+    const _td = { ...(appData.deletedIds||{}), fitnessRecords: { ...((appData.deletedIds||{}).fitnessRecords||{}), [String(rec.id)]: Date.now() } };
+    markClean(); onSave({ ...appData, fitnessRecords: records.filter(rr => rr.id !== rec.id), deletedIds: _td }, { manual: true, message: '記録を削除しました' });
+  };
   const save = () => {
     if (!selectedPatientId) return;
     // ★ 担当者名: スタッフ切替の現在のアクティブ記録者を保存
@@ -37291,7 +37306,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
     const existing = records.find(r => r.patientId === selectedPatientId && r.date === date);
     let newRecords;
     if (existing) {
-      newRecords = records.map(r => r.id === existing.id ? { ...r, values: { ...r.values, ...values }, recorder: recorderName || r.recorder, _savedAt: syncNow() } : r);
+      newRecords = records.map(r => r.id === existing.id ? { ...r, values: { ...r.values, ...values }, recorder: recorderName || r.recorder, _hist: _fitHistPush(r, recorderName), _savedAt: syncNow() } : r);
     } else {
       newRecords = [...records, { id: Date.now(), patientId: selectedPatientId, date, values, recorder: recorderName, _savedAt: syncNow() }];
     }
@@ -37307,7 +37322,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
     const existing = records.find(r => r.patientId === selectedPatientId && r.date === date);
     let newRecords;
     if (existing) {
-      newRecords = records.map(r => r.id === existing.id ? { ...r, values: { ...r.values, ...values }, recorder: recorderName || r.recorder, _savedAt: syncNow() } : r);
+      newRecords = records.map(r => r.id === existing.id ? { ...r, values: { ...r.values, ...values }, recorder: recorderName || r.recorder, _hist: _fitHistPush(r, recorderName), _savedAt: syncNow() } : r);
     } else {
       newRecords = [...records, { id: Date.now(), patientId: selectedPatientId, date, values, recorder: recorderName, _savedAt: syncNow() }];
     }
@@ -37537,8 +37552,29 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                     className="px-3 py-2 border border-slate-300 rounded-xl font-bold text-sm outline-none" />
                 </div>
                 <button onClick={save} className="mt-4 px-6 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 shadow active:scale-95">保存</button>
+                <button type="button" data-testid="fit-undo-btn" onClick={() => setFitUndoOpen(true)} title="保存した記録を1つ前の値に戻す／誤って作った記録を取り消す" className="mt-4 px-3 py-2 bg-white border border-slate-300 text-slate-700 rounded-xl font-bold text-sm hover:bg-slate-50 whitespace-nowrap">⟲ 元に戻す</button>
               </div>
             </div>
+            {fitUndoOpen && ReactDOM.createPortal((
+              <div className="fixed inset-0 bg-slate-900/50 flex items-start justify-center p-4 pt-16" style={{zIndex:100000}} onClick={() => setFitUndoOpen(false)}>
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-5" onClick={e => e.stopPropagation()} data-testid="fit-undo-modal">
+                  <div className="font-bold text-slate-800 mb-1">{selectedPat?.name} 様の体力測定を元に戻す</div>
+                  <div className="text-[11px] text-slate-500 mb-3">保存のたびに直前の値を控えています(各記録10回まで)。「1つ前に戻す」で上書き前の値に戻ります。新しく作ってしまった記録は「削除」で取り消せます。</div>
+                  <div className="max-h-72 overflow-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+                    {patRecords.length === 0 && <div className="p-4 text-xs text-slate-500">記録がありません</div>}
+                    {patRecords.slice().sort((a, b) => (Number(b._savedAt) || 0) - (Number(a._savedAt) || 0)).map(r => { const h = (r._hist || [])[0]; return (
+                      <div key={r.id} className="flex items-center gap-2 px-3 py-2 text-xs" data-testid="fit-undo-row">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold text-slate-800">{r.date}<span className="ml-2 font-normal text-slate-500">{r.recorder ? `保存: ${r.recorder}` : ''}{r._savedAt ? ` ${new Date(Number(r._savedAt)).toLocaleString('ja-JP')}` : ''}</span></div>
+                          <div className="text-[11px] text-slate-500">{h ? `1つ前: ${new Date(h.at).toLocaleString('ja-JP')} に保存する前の値（控え ${(r._hist||[]).length} 回分）` : '上書きの控えはありません（新しく作った記録）'}</div>
+                        </div>
+                        {h ? <button type="button" onClick={() => fitUndoOne(r)} className="shrink-0 px-2.5 py-1.5 rounded-lg font-bold text-xs bg-amber-500 hover:bg-amber-600 text-white whitespace-nowrap">1つ前に戻す</button>
+                           : <button type="button" onClick={() => fitUndoDelete(r)} className="shrink-0 px-2.5 py-1.5 rounded-lg font-bold text-xs bg-white border border-red-300 text-red-700 hover:bg-red-50 whitespace-nowrap">削除</button>}
+                      </div>); })}
+                  </div>
+                  <button type="button" onClick={() => setFitUndoOpen(false)} className="w-full mt-3 py-2 rounded-xl font-bold text-sm bg-slate-100 text-slate-600 hover:bg-slate-200">閉じる</button>
+                </div>
+              </div>), document.body)}
 
             {/* 入力フォーム */}
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -37703,7 +37739,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                                       // ★ 全角で入力されても半角に直して保存する
                                       const v = toHalfWidthNum(e.target.value); e.target.value = v;
                                       if (String(cur) === v) return;
-                                      const newRecords = records.map(rr => rr.id === r.id ? {...rr, values: {...rr.values, [item.id]: v}} : rr);
+                                      const newRecords = records.map(rr => rr.id === r.id ? {...rr, values: {...rr.values, [item.id]: v}, _hist: _fitHistPush(rr, getActiveRecorderName()), _savedAt: syncNow()} : rr);
                                       onSave({...appData, fitnessRecords: newRecords});
                                     }}
                                     placeholder="—"
