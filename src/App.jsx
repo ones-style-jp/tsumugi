@@ -30546,18 +30546,21 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
   const total = (sl) => days.reduce((n, d) => n + members(d, sl).length, 0);
   // ★ 印刷: 用紙いっぱいに広げる(2026-10-03 ユーザー指示「下部に空白ができないように」)。2つの表を flex:1 で等分し、表の高さ100%で行を均等に伸ばす。
   //   行数が多いときは文字を小さく(定員15名=16行×2表でも収まる)
-  const printFs = rows <= 11 ? 10 : 9; // 2列表示(定員11名以上)なら行数が半分になるので9pt
   const scrRowH = rows > 13 ? 21 : 24;
   // ★ 2026-10-13(ユーザー指摘「ダウンロードで11人目が潰れる・氏名の幅が午前と午後で違う・氏名と介護度が離れている」):
   //   印刷は表を用紙いっぱいに伸ばす(height:100%)のをやめ、行の高さと氏名の列幅を計算して午前・午後で同じ値にする。
   //   名前の行は均等(空の行が潰れない)。氏名の列は一番長い名前に合わせた幅(介護度が隣に来る)。
   const _prTwo = rows > 11, _prPer = _prTwo ? Math.ceil(rows / 2) : rows;
+  // ★ 2026-10-13(ユーザー指摘「詰めすぎて左に寄る。全体的に表示して」): 表は用紙の幅いっぱい(各曜日は等分)。
+  //   文字は「一番長い名前が氏名の列に収まる大きさ」まで大きくして(9〜14px)、名前と介護度の間の空きを減らす
+  const _prNameEm = Math.max(5, ...pats.map(p => String(p.name || '').length + (isPaused(p) ? 1.6 : 0)));
+  const _prDayW = Math.floor((1055 - 16) / (_crAllDays.length * (_prTwo ? 2 : 1)));
+  let printFs = 14, _prCareW = 0, _prNameW = 0;
+  while (printFs > 9) { _prCareW = Math.ceil(printFs * 3.2) + 6; _prNameW = _prDayW - _prCareW; if (Math.ceil(_prNameEm * printFs * 1.05) + 8 <= _prNameW) break; printFs--; }
+  _prCareW = Math.ceil(printFs * 3.2) + 6; _prNameW = _prDayW - _prCareW;
   const _prHdr = Math.ceil(printFs * 1.3) + 6, _prWait = Math.ceil((printFs - 1) * 1.25 * 2) + 6, _prFree = Math.ceil(printFs * 1.3) + 6;
   const _prBodyH = 741 - 22 - 10; // 210mm − 余白7mm×2 ≒ 741px − 題名 − 表の間
-  const _prRowH = Math.max(14, Math.min(30, Math.floor((_prBodyH - 3 * _prHdr - 2 * (_prWait + _prFree)) / (2 * _prPer))));
-  const _prNameEm = Math.max(5, ...pats.map(p => String(p.name || '').length + (isPaused(p) ? 1.6 : 0)));
-  const _prCareW = _prTwo ? 30 : 36;
-  const _prNameW = Math.min(Math.max(48, Math.ceil(_prNameEm * printFs * 1.08) + 8), Math.floor((1055 - 16) / (_crAllDays.length * (_prTwo ? 2 : 1))) - _prCareW);
+  const _prRowH = Math.max(14, Math.min(40, Math.floor((_prBodyH - 3 * _prHdr - 2 * (_prWait + _prFree)) / (2 * _prPer)))); // 上限40px(定員が少ない店舗でも用紙の下まで使う)
   const B = '1px solid #cbd5e1', BH = '1px solid #94a3b8';
   // ★ 2026-10-03: コンポーネントではなく「描画関数」にする(コンポーネントにすると親の再描画のたびに別物として作り直され、
   //   待ちの入力欄が1文字ごとに作り直されて日本語入力が1文字で確定してしまった)
@@ -30590,7 +30593,7 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
         </React.Fragment>);
     };
     return (
-    <table style={{ borderCollapse: 'collapse', width: 'auto', tableLayout: 'fixed', fontSize: fs, lineHeight: 1.1 }} data-testid={print ? undefined : `cr-${sl.toLowerCase()}`}>
+    <table style={{ borderCollapse: 'collapse', width: print ? '100%' : 'auto', tableLayout: 'fixed', fontSize: fs, lineHeight: 1.1 }} data-testid={print ? undefined : `cr-${sl.toLowerCase()}`}>
       <colgroup><col style={{ width: print ? 16 : 22 }} />{days.map(d => <React.Fragment key={d}>{Array.from({ length: twoCol ? 2 : 1 }).map((_, c) => <React.Fragment key={c}>{grip && <col style={{ width: 16 }} />}<col style={{ width: print ? _prNameW : (_ph ? (twoCol ? 120 : 170) : (twoCol ? 108 : 128)) }} /><col style={{ width: print ? _prCareW : (_ph ? 56 : 48) }} /></React.Fragment>)}</React.Fragment>)}</colgroup>
       <tbody>{/* 左端の「午前/午後」は rowSpan で全行をまたぐため見出し行も tbody(thead→tbody をまたぐ rowSpan は効かない) */}
         {/* ★ 2026-10-13(ユーザー指示): 曜日の見出しは午前だけ。午後は左端の「午後」と氏名・介護度の見出しを同じ行に(列幅は午前と同じなので揃う) */}
@@ -34991,6 +34994,8 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave, patien
                 <div {...(() => { const rp = itemDnd.rowProps(index); return { ...rp, className: `flex items-start gap-2 border p-2.5 rounded-xl hover:shadow-md transition-shadow group ${item.visible === false ? 'bg-slate-100 border-slate-200 opacity-60' : 'bg-slate-50 border-slate-200'}` }; })()}>
                   <div className="text-slate-300 shrink-0 self-center" title="長押しでドラッグして並べ替え"><GripVertical size={18}/></div>
                   {/* 表示/非表示トグル */}
+                  {/* ★ 2026-10-13(ユーザー指示): 「表示」の下に「利用者ごと ON/OFF」を縦に並べ、幅を固定(ONにしても右の欄が折れない) */}
+                  <div className="flex flex-col items-center gap-1 shrink-0" style={{ width: 64 }}>
                   <label className="flex flex-col items-center gap-0.5 cursor-pointer select-none" title="チェックを外すと連絡帳に表示しません">
                     <input type="checkbox" checked={item.visible !== false} onChange={e => handleItemChange(item.id, 'visible', e.target.checked)}
                            className="w-5 h-5 cursor-pointer accent-emerald-500"/>
@@ -35000,10 +35005,11 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave, patien
                   {/* ★ 2026-09-29: iPad でタップしても反応しない報告があったため、label+checkbox ではなく明示的なボタンで切替 */}
                   <button type="button" disabled={item.type==='linked'} onClick={()=>handleItemChange(item.id, 'perPatient', !item.perPatient)}
                           title={item.type==='linked' ? '提供記録連動の項目は利用者ごとに設定できません' : 'ON にすると、保存後に各利用者の連絡帳カードの値をタップして個別の値を入力できます'}
-                          className={`flex flex-col items-center gap-0.5 select-none rounded-lg border px-2 py-1 ${item.type==='linked'?'opacity-30 cursor-not-allowed border-slate-200':(item.perPatient?'bg-violet-600 border-violet-600 text-white':'bg-white border-slate-300 text-slate-500')}`}>
-                    <span className="text-[11px] font-bold whitespace-nowrap">利用者ごと</span>
-                    <span className="text-[10px] font-bold whitespace-nowrap">{item.type!=='linked' && item.perPatient ? 'ON' : 'OFF'}</span>
+                          className={`w-full flex flex-col items-center gap-0 select-none rounded-lg border px-1 py-1 ${item.type==='linked'?'opacity-30 cursor-not-allowed border-slate-200':(item.perPatient?'bg-violet-600 border-violet-600 text-white':'bg-white border-slate-300 text-slate-500')}`}>
+                    <span className="text-[10px] font-bold whitespace-nowrap">利用者ごと</span>
+                    <span className="text-[11px] font-bold whitespace-nowrap">{item.type!=='linked' && item.perPatient ? 'ON' : 'OFF'}</span>
                   </button>
+                  </div>
                   <div className="flex-1 min-w-0 grid grid-cols-12 gap-2 items-end">
                     <div className="col-span-7"><label className="block text-[11px] font-bold text-slate-500 mb-0.5">項目名<CharCount value={item.label} max={CB_LABEL_MAX} style={{ marginLeft: 6 }}/></label><input type="text" value={item.label || ""} maxLength={CB_LABEL_MAX} onChange={e => handleItemChange(item.id, 'label', e.target.value.slice(0, CB_LABEL_MAX))} placeholder="新しい項目" className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none placeholder-slate-300" /></div>
                     <div className="col-span-5"><label className="block text-[11px] font-bold text-slate-500 mb-0.5">反映方法</label><select value={item.type || "fixed"} onChange={e => handleItemChange(item.id, 'type', e.target.value)} className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"><option value="fixed">自由</option><option value="linked">連携</option></select></div>
