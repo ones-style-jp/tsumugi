@@ -43,6 +43,7 @@ import {
   getSyncLog,
   clearSyncLog,
   supabaseUploadSyncDiag,
+  cloudUndoPush, cloudUndoList, cloudUndoDelete,
   supabaseLoadDiseaseMaster,
   supabaseSaveDiseaseMaster,
 } from './lib/supabase';
@@ -24422,6 +24423,16 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const [restoreModal, setRestoreModal] = useState(false);
   const [restoreConfirm, setRestoreConfirm] = useState(null);   // {snap,msg} アプリ内確認ダイアログ(window.confirm不発対策)
   React.useEffect(() => { if (restoreConfirm) syncLog('restore-dialog', {}); }, [restoreConfirm]);   // ★診断: ダイアログが実際に表示された
+  // ★ 2026-10-13(ユーザー要望「どの端末からでも元に戻せるように」): 控えは端末内(localStorage)に加えてクラウドの別テーブル(undo_snapshots)にも置く。
+  //   小窓を開いたときにクラウドの控えを読み、端末内の控えと合わせて(同じ時刻は1つに)新しい順に出す。クラウドが無ければ端末内だけ
+  const [cloudRecSnaps, setCloudRecSnaps] = useState(null); // null=未取得
+  React.useEffect(() => {
+    if (!restoreModal) { setCloudRecSnaps(null); return; }
+    let alive = true;
+    (async () => { const rows = await cloudUndoList(appData._sbStoreId, 'record', selectedDate, 25); if (!alive) return;
+      setCloudRecSnaps(rows.map(r => ({ t: Number(r.t) || 0, recs: Array.isArray(r.data) ? r.data : [], _cloud: true, _cid: r.id }))); })();
+    return () => { alive = false; };
+  }, [restoreModal]); // eslint-disable-line react-hooks/exhaustive-deps
   const _RECSNAP_KEY = 'tsumugiRecSnap_v1';
   const _recSnapSKey = () => `${appData._sbStoreId||'x'}|${selectedDate}`;
   const _readRecSnaps = () => { try { const all = JSON.parse(localStorage.getItem(_RECSNAP_KEY)||'{}'); return all[_recSnapSKey()] || []; } catch { return []; } };
@@ -24441,6 +24452,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       const snap = { t: Date.now(), sig, recs: day };
       if (last && (Date.now()-last.t) < 20000) list[list.length-1] = snap; // 20秒以内は直近を上書き(スナップ乱立防止)
       else list.push(snap);
+      // ★ 2026-10-13: クラウドにも控える(別テーブル・失敗しても端末内の控えは残る)
+      try { if (appData._sbStoreId) cloudUndoPush(appData._sbStoreId, 'record', selectedDate, snap.t, '', day, 25); } catch {}
       all[sk] = list.slice(-25); // 最新25件保持
       // ★ 2026-09-15 Quota恒久対策(扇橋実測): 日付ごとのキーが永遠に溜まり続け(掃除なし)、RecSnapが
       //   Surfaceで5.1MB/iPadで2.5MBに肥大→localStorageを占拠し、本命の控え(daycareAppData_v3)が
@@ -26437,7 +26450,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           </div>
         </div>, document.body)}
       {restoreModal && ReactDOM.createPortal((()=>{
-        const snaps = _readRecSnaps().slice().reverse(); // 新しい順
+        // 端末内の控え + クラウドの控え(同じ時刻は端末内を優先)を新しい順に
+        const _loc = _readRecSnaps().slice().reverse(); const _locT = new Set(_loc.map(x => x.t));
+        const snaps = [..._loc, ...((cloudRecSnaps || []).filter(c => !_locT.has(c.t)))].sort((a, b) => b.t - a.t).slice(0, 40); // 新しい順
         const _fmtT = (t)=>{ const d=new Date(t); return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
         const _cntData = (recs)=> (recs||[]).filter(r=>r && (r.temp_AM||r.temp_PM||r.temp||r.bpUpSt_AM||r.bpUpSt||r.plSt_AM||r.plSt||r.massage||r.tokki||r.kibunArrival||r.kibunDeparture||(r.exercises&&Object.keys(r.exercises).length))).length;
         // ★ 「戻した後にどうなるか」を一目で分かるように: その時点のデータ内容を項目別に集計
@@ -26456,6 +26471,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 <button onClick={()=>setRestoreModal(false)} className="p-2 text-slate-400 hover:bg-slate-200 rounded-full"><X size={18}/></button>
               </div>
               <div className="p-3 overflow-y-auto">
+                {cloudRecSnaps === null && appData._sbStoreId ? <div className="text-[11px] text-slate-500 px-1 pb-2">他の端末の保存履歴を読み込んでいます…</div> : null}
                 {snaps.length===0 ? <div className="text-center text-slate-400 font-bold py-8 text-sm">この日の保存履歴はまだありません</div> :
                   snaps.map((s,i)=>{
                     // ★ 最古の履歴は「比較する直前」が無く、全員(欠席・休止の既存状態まで)が差分扱いになって
@@ -26469,7 +26485,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     return (
                     <button key={s.t} onClick={()=>_restoreRecSnap(s)}
                       className="w-full text-left px-4 py-3 rounded-xl border border-slate-200 hover:bg-blue-50 hover:border-blue-300 mb-2 flex items-start justify-between gap-2 active:scale-[0.99]">
-                      <div className="min-w-0"><div className="font-bold text-slate-700 text-sm">{_fmtT(s.t)}{i===0 && <span className="ml-2 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">最新</span>}</div>
+                      <div className="min-w-0"><div className="font-bold text-slate-700 text-sm">{_fmtT(s.t)}{i===0 && <span className="ml-2 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">最新</span>}{s._cloud && <span className="ml-1 text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full" title="他の端末で保存された控え">他の端末</span>}</div>
                         {/* ★ 主役は「この時点に戻すと何が残るか」。 データ内容の項目別サマリを大きく出す */}
                         <div className="text-[12px] font-bold mt-0.5" style={{color:'#047857'}}>戻した後の内容: {_snapSum(s.recs)}</div>
                         <div className="text-[11px] text-slate-500 leading-snug mt-0.5" style={{display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>✎ この保存での変更: {chgLabel}</div>
@@ -35134,7 +35150,19 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     list.push({ label, at: now, items: keys.map(k => ({ k, before: JSON.parse(JSON.stringify(befores[k])), after: _planSig(afters[k]) })) });
     if (list.length > 20) list.shift();
     _setUndoTick(t => t + 1);
+    _cloudPushUndoLater(list[list.length - 1]);
   };
+  // ★ 2026-10-13(ユーザー要望「どの端末からでも元に戻せるように」): 控えをクラウドの別テーブル(undo_snapshots)にも置く。
+  //   手での変更は4秒以内の連続を1件にまとめるので、5秒待ってから送る(送った id を控えに持ち、戻したときにクラウドからも消す)
+  const _cloudPushUndoLater = (e) => { if (!e || !appData._sbStoreId) return; if (e._cloudTimer) clearTimeout(e._cloudTimer);
+    e._cloudTimer = setTimeout(async () => { e._cloudTimer = null; const id = await cloudUndoPush(appData._sbStoreId, 'transport', _undoKey, e.at, e.label, { items: e.items }, 20); if (id != null) e._cid = id; }, 5000); };
+  // 画面を開いたとき、クラウドの控え(他の端末の操作を含む)を端末内の一覧に合流(同じ時刻は端末内を優先)
+  React.useEffect(() => { let alive = true; if (!appData._sbStoreId) return;
+    (async () => { const rows = await cloudUndoList(appData._sbStoreId, 'transport', _undoKey, 20); if (!alive || !rows.length) return;
+      const list = _undoList(); const have = new Set(list.map(x => x.at)); let added = 0;
+      rows.forEach(r => { const d = r.data || {}; if (!Array.isArray(d.items) || have.has(Number(r.t))) return; list.push({ label: r.label || '操作', at: Number(r.t) || 0, items: d.items, _cid: r.id, _cloud: true }); added++; });
+      if (added) { list.sort((a, b) => a.at - b.at); while (list.length > 20) list.shift(); _setUndoTick(t => t + 1); } })();
+    return () => { alive = false; }; }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const _shownOf = (k) => { const [iso, sl] = k.split('_'); const { _draft, ...rest } = getPlan(iso, sl); return rest; }; // 画面に出ている内容(変わったかの判定用)
   const _beforeOf = (k) => { const raw = plans[k]; if (raw) { const { _savedAt, ...rest } = raw; return rest; } return _shownOf(k); };
   const undoLast = () => {
@@ -35148,6 +35176,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     if (!window.confirm(`「${e.label}」（${when}）の前の状態に戻します。\n対象: ${where}${later ? '\n\n※この操作のあとに変えた内容（他の端末での変更を含む）も、このコマは操作の前に戻ります。' : ''}\n\nよろしいですか？`)) return;
     const np = { ...plans }; const ts = syncNow(); e.items.forEach(it => { np[it.k] = { ...it.before, _savedAt: ts }; });
     list.pop(); _setUndoTick(t => t + 1);
+    try { if (e._cloudTimer) clearTimeout(e._cloudTimer); if (e._cid != null && appData._sbStoreId) cloudUndoDelete(appData._sbStoreId, e._cid); } catch {}
     onSave({ ...appData, transportPlans: np }, { manual: true, message: `✓ 「${e.label}」の前に戻しました(${e.items.length}コマ)` });
   };
   //   一括の操作(自動計算・前週コピー・完成)は、保存する直前に変わるコマの操作前を控える
@@ -36819,13 +36848,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         //   「送迎時の連絡先」をご家族などにしている方は、その相手と番号を先頭に(本人の番号はその後ろ)
         const Row = ({ m, pl, sl, rm, walk }) => { const pt = _pt(m.pid); const dot = !rm && (m.mark || _dotOf(pl, iso, m.pid)); const tg = rm ? '' : _dropTag(pl, m.pid); const calls = tsumugiPickupCalls(pt); const addr = _addr(pt); const place = _place(pt); return (
           <div data-testid={`tp-dl-${iso}-${sl}-${m.pid}`} data-rm={rm ? '1' : '0'} className={`px-3 py-1.5 border-b border-slate-100 ${rm ? 'opacity-50' : ''}`}>
+            {/* ★ 2026-10-13(ユーザー指示): 時間が凹凸にならないよう名前を固定幅(約6.5文字)にして時間を縦1列にそろえる */}
             <div className="flex items-baseline gap-x-2 gap-y-0 flex-wrap">
-              <span className={`shrink-0 font-bold text-[17px] text-slate-900 ${rm ? 'line-through' : ''}`}>{_pname(m.pid)}</span>
-              <span data-tel={dot ? '1' : '0'} className={`shrink-0 font-bold tabular-nums text-[18px] text-slate-900 border-2 rounded px-1 ${dot ? 'border-red-600' : 'border-transparent'} ${rm ? 'line-through' : ''}`}>{walk ? (/\d/.test(String(m.t||'')) ? `${_fmtT(m.t)} 着` : '到着') : (_fmtT(m.t) || '—')}</span>
+              <span className={`shrink-0 truncate font-bold text-[17px] text-slate-900 ${rm ? 'line-through' : ''}`} style={{width:'6.6em'}}>{_pname(m.pid)}</span>
+              <span data-tel={dot ? '1' : '0'} className={`shrink-0 font-bold tabular-nums text-[18px] text-slate-900 border-2 rounded px-1 ${dot ? 'border-red-600' : 'border-transparent'} ${rm ? 'line-through' : ''}`} style={{minWidth:'3.2em', textAlign:'center'}}>{walk ? (/\d/.test(String(m.t||'')) ? `${_fmtT(m.t)} 着` : '到着') : (_fmtT(m.t) || '—')}</span>
               {tg ? <span className="shrink-0 text-[11px] text-slate-500">{tg}</span> : null}
               {!rm && (addr ? <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([pt.address, pt.addressBuilding].filter(Boolean).join(' '))}`} target="_blank" rel="noopener noreferrer" className="min-w-0 text-[13px] text-slate-700 underline decoration-dotted underline-offset-2 leading-snug">{addr}</a> : <span className="text-[12px] text-slate-400">住所未登録</span>)}
             </div>
-            {rm ? <div className="text-[12px] text-red-700 font-bold">確定後に外れた方: {_absReasonOfPid(m.pid, iso, sl)}</div> : (
+            {rm ? <div className="text-[12px] text-red-700 font-bold">{_absReasonOfPid(m.pid, iso, sl)}</div> : (
               <div className="flex items-baseline gap-x-3 gap-y-0 flex-wrap text-[13px] leading-snug">
                 {place ? <span className="font-bold text-emerald-800">待ち合わせ: {place}</span> : null}
                 {calls.length ? calls.map((c, i) => <a key={c.phone} href={`tel:${c.phone.replace(/[^0-9+]/g, '')}`} className={`whitespace-nowrap tabular-nums ${i === 0 ? 'text-slate-800 font-bold' : 'text-slate-500'}`}>{c.label !== '本人' || i > 0 ? `${c.label} ` : ''}{c.phone}</a>) : <span className="text-[12px] text-slate-400">電話未登録</span>}
@@ -36883,7 +36913,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                             <div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">{c.name}{drv ? <span className="font-normal ml-1">運転 {drv}</span> : null}</div>
                             {/* ★ 2026-10-03 ユーザー指示: 運行表と同じく左に名前・右に時間。時間の桁数が違っても名前の開始位置が揃うよう、赤丸→名前(可変)→時間(固定幅・右寄せ) */}
                             {rows.map(m => { if (m._rm) return (
-                              <div key={`rm-${m.pid}`} className="flex items-center gap-1 text-[12px] leading-tight py-0.5 opacity-50" data-testid={`tp-fb-rm-${iso}-${sl}-${m.pid}`} data-tpfb={`${iso}_${sl}_${m.pid}`} title={`確定後に外れた方: ${_absReasonOfPid(m.pid, iso, sl)}`}>
+                              <div key={`rm-${m.pid}`} className="flex items-center gap-1 text-[12px] leading-tight py-0.5 opacity-50" data-testid={`tp-fb-rm-${iso}-${sl}-${m.pid}`} data-tpfb={`${iso}_${sl}_${m.pid}`} title={_absReasonOfPid(m.pid, iso, sl)}>
                                 <span className="truncate font-bold text-slate-600 shrink-0 line-through" style={{width:'7.2em'}}>{_pname(m.pid)}</span>
                                 <span className="shrink-0 font-bold tabular-nums text-slate-600 border-2 border-transparent rounded px-1 -my-0.5 line-through">{_fmtT(m.t)||'—'}</span>
                               </div>);

@@ -2342,3 +2342,29 @@ export async function supabaseDeleteFile(path) {
     return false;
   }
 }
+
+// ★ 2026-10-13(ユーザー要望「提供記録も送迎表も、どの端末からでも元に戻せるように。容量の問題は解決したい」):
+//   「元に戻す」の控えを app_state(店舗データ本体・約2.5MB)には入れず、別テーブル undo_snapshots に置く。
+//   書込は RPC(push_undo_snapshot)経由で、同じ鍵(店舗・種類・skey)は新しい順に keep 件だけ残し、14日より古い控えはサーバーで消す。
+//   テーブルが無い/通信が無いときは静かに諦めて端末内の控えだけで動く(sql/2026-10-13_undo_snapshots.sql を本部が実行して有効になる)。
+export async function cloudUndoPush(storeId, kind, skey, t, label, data, keep = 25) {
+  if (!supabase || !storeId || !kind || !skey) return null;
+  try {
+    const { data: id, error } = await supabase.rpc('push_undo_snapshot', { p_store_id: String(storeId), p_kind: String(kind), p_skey: String(skey), p_t: Number(t) || Date.now(), p_label: String(label || ''), p_data: data, p_keep: keep });
+    if (error) throw error;
+    return id;
+  } catch (e) { try { console.warn('[undo] cloud push failed', e && e.message ? e.message : e); } catch {} return null; }
+}
+export async function cloudUndoList(storeId, kind, skey, limit = 25) {
+  if (!supabase || !storeId || !kind || !skey) return [];
+  try {
+    const { data, error } = await supabase.from('undo_snapshots').select('id, t, label, data').eq('store_id', String(storeId)).eq('kind', String(kind)).eq('skey', String(skey)).order('t', { ascending: false }).limit(limit);
+    if (error) throw error;
+    return Array.isArray(data) ? data : [];
+  } catch (e) { try { console.warn('[undo] cloud list failed', e && e.message ? e.message : e); } catch {} return []; }
+}
+export async function cloudUndoDelete(storeId, id) {
+  if (!supabase || !storeId || id == null) return false;
+  try { const { error } = await supabase.rpc('delete_undo_snapshot', { p_store_id: String(storeId), p_id: Number(id) }); if (error) throw error; return true; }
+  catch (e) { try { console.warn('[undo] cloud delete failed', e && e.message ? e.message : e); } catch {} return false; }
+}
