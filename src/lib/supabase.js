@@ -949,7 +949,8 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData) {
   //   更新されても、これらの項目は触っていなければ古い端末の保存で巻き戻らない(基本利用日/送迎/緊急連絡先)。
   // ★ cm系(担当ケアマネ)を追加(2026-09-03): 「担当を変更」が刻印なし=非保護で、別端末の古いスナップショット
   //   保存で担当情報が巻き戻り消えていた(試作店で担当欄がクラウドから消失した実例)。
-  const PATIENT_FIELDLEVEL = new Set(['scheduleAmPm','pickupType','pickupTimes','massageNeed','onyokuDenryo','plannedExercises','careLevel','careLevelFrom','careLevelTo','costBurden','costBurdenFrom','costBurdenTo','insuranceNo','startDate','endDate','serviceCode','serviceCodes','contactBookRenraku','cmOffice','cmName','cmPhone','cmFax','cmHistory', ...FAMILY_CONTACT_FIELDS]);
+  // ★ 2026-10-13(西馬込店の報告「個別運動の既定を未設定にして保存しても戻る」): 個別運動の既定/メニューも項目別(新しい方が空でも採用)。従来は空欄をクラウドの旧値で補完していた
+  const PATIENT_FIELDLEVEL = new Set(['individualExerciseSlotDefaults','individualExercises','individualExercisesHistory','scheduleAmPm','pickupType','pickupTimes','massageNeed','onyokuDenryo','plannedExercises','careLevel','careLevelFrom','careLevelTo','costBurden','costBurdenFrom','costBurdenTo','insuranceNo','startDate','endDate','serviceCode','serviceCodes','contactBookRenraku','cmOffice','cmName','cmPhone','cmFax','cmHistory', ...FAMILY_CONTACT_FIELDS]);
   // ★ 削除済み書類の墓石を両端末ぶん合算する。 _delDocs = { "<書類id>": 削除時刻(ms) }
   //   和集合(union)マージは「追加を失わない」代わりに削除を必ず復活させるため、墓石で除外する。
   const _mergeDocTombs = (...srcs) => {

@@ -1427,6 +1427,24 @@ const getIndividualExercisesForDate = (patient, dateISO) => {
   for (const h of sorted) { if (norm(h.from) <= d) chosen = h; }
   return (chosen && Array.isArray(chosen.values)) ? chosen.values : cur;
 };
+// ★ 2026-10-13(西馬込店の報告): 個別運動の既定スロットを「有効な形」にそろえる共通関数。
+//   ・各種設定で削除した運動／利用者で外した運動の既定は無いものとして、残りを若い番号へ詰める(②が空で③にあれば②へ)
+//   ・同じ運動が2つのスロットにあれば若い番号だけ残し、もう一方は未設定
+//   表示・提供記録の初期選択・印刷・分析のすべてがこの結果を使う(保存されている生の値は触らない)
+const tsuIndSlotDefaults = (patient, ss) => {
+  const slots = (effExerciseItems(ss) || []).filter(it => it && it.type === 'individual');
+  const menu = (ss && Array.isArray(ss.individualExerciseItems)) ? ss.individualExerciseItems : [];
+  const raw = patient ? patient.individualExercises : null;
+  const enabled = new Set((raw == null) ? menu.map(m => m.id) : (Array.isArray(raw) ? raw : []).map(x => x && x.itemId));
+  const sd = (patient && patient.individualExerciseSlotDefaults && typeof patient.individualExerciseSlotDefaults === 'object') ? patient.individualExerciseSlotDefaults : {};
+  const seen = new Set(); const vals = [];
+  slots.forEach(sl => { const id = sd[sl.id] || ''; if (id && menu.some(m => m.id === id) && enabled.has(id) && !seen.has(id)) { seen.add(id); vals.push(id); } });
+  const out = {}; slots.forEach((sl, i) => { out[sl.id] = vals[i] || ''; }); return out;
+};
+// ★ 提供記録のスロットで「—(なし)」を明示的に選んだ印。既定がある利用者でも「—」に戻せるようにする(空文字は「未選択=既定を使う」の意味なので区別する)
+const IND_NONE = '__none__';
+// 記録のスロット値 {itemId,value} と利用者の既定から、実際に選ばれている運動の id を返す('' = なし)
+const tsuIndEffId = (cur, patient, slotId, ss) => { const c = cur && cur.itemId; if (c === IND_NONE) return ''; if (c) return c; return tsuIndSlotDefaults(patient, ss)[slotId] || ''; };
 // 有効なアドオンのラベル配列 (チップ表示用)
 const activeAddonLabels = (addonsObj) => ADDONS.filter(a => addonsObj?.[a.key]).map(a => a.label);
 // record から年を取り出す (無ければ null)
@@ -21856,7 +21874,7 @@ export default function App() {
         let changed = false;
         // ★ フィールド単位保護対象(基本利用日/送迎/緊急連絡先/介護度等)は、変更された項目だけ _fieldTs に刻む。
         //   これで別項目を編集して _savedAt 全体が更新されても、触っていない項目は古い端末で巻き戻らない。
-        const _PT_FL = ['scheduleAmPm','pickupType','pickupTimes','massageNeed','onyokuDenryo','plannedExercises','careLevel','careLevelFrom','careLevelTo','costBurden','costBurdenFrom','costBurdenTo','insuranceNo','startDate','endDate','serviceCode','serviceCodes','contactBookRenraku','cmOffice','cmName','cmPhone','cmFax','cmHistory','familyName','familyLastName','familyFirstName','familyKana','familyKanaLast','familyKanaFirst','familyRelation','familyPhone','familyPhoneMobile','familyEmail'];
+        const _PT_FL = ['individualExerciseSlotDefaults','individualExercises','individualExercisesHistory','scheduleAmPm','pickupType','pickupTimes','massageNeed','onyokuDenryo','plannedExercises','careLevel','careLevelFrom','careLevelTo','costBurden','costBurdenFrom','costBurdenTo','insuranceNo','startDate','endDate','serviceCode','serviceCodes','contactBookRenraku','cmOffice','cmName','cmPhone','cmFax','cmHistory','familyName','familyLastName','familyFirstName','familyKana','familyKanaLast','familyKanaFirst','familyRelation','familyPhone','familyPhoneMobile','familyEmail'];
         const stamped = newData.patients.map(p => {
           if (!p || p.id == null) return p;
           const old = prevMap.get(String(p.id));
@@ -24975,7 +24993,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     const item = (effExerciseItems(appData.systemSettings)).find(i => i.id === field); if (!item) return 'x';
     if (item.type === 'individual') {
       const cur = (rec.exercises && typeof rec.exercises[field] === 'object') ? rec.exercises[field] : { itemId: '' };
-      const effItemId = cur.itemId || master.individualExerciseSlotDefaults?.[field] || '';
+      const effItemId = tsuIndEffId(cur, master, field, appData.systemSettings);
       if (!effItemId) return '';
       const raw = master.individualExercises;
       const dated = getIndividualExercisesForDate(master, selectedDate) || [];
@@ -25949,7 +25967,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       const _enItems = _all.filter(it => _enIds.includes(it.id));
                       const _ps = (_raw === undefined || _raw === null) ? _all.map(it => ({itemId: it.id, defaultValue: ''})) : _raw;
                       const _cur = (p.exercises && typeof p.exercises[item.id] === 'object' && p.exercises[item.id]) ? p.exercises[item.id] : { itemId:'', value:'' };
-                      const _effId = _cur.itemId || _tp?.individualExerciseSlotDefaults?.[item.id] || '';
+                      const _effId = tsuIndEffId(_cur, _tp, item.id, appData.systemSettings);
                       const _sel = _all.find(it => it.id === _effId);
                       const _dated = getIndividualExercisesForDate(_tp, selectedDate) || [];
                       const _def = _sel ? (((_dated.find(x => x.itemId === _sel.id)?.defaultValue) ?? (_ps.find(x => x.itemId === _sel.id)?.defaultValue)) || '') : '';
@@ -26268,8 +26286,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         : rawIndEx;
                       const cur = (p.exercises && typeof p.exercises[item.id] === 'object') ? p.exercises[item.id] : { itemId:'', value:'' };
                       // ★ スロット既定(利用者マスタで「個別運動①=屋外歩行」等を設定)を反映。 未選択ならこの既定を採用
-                      const slotDefaultId = targetPatient?.individualExerciseSlotDefaults?.[item.id] || '';
-                      const effItemId = cur.itemId || slotDefaultId;
+                      const effItemId = tsuIndEffId(cur, targetPatient, item.id, appData.systemSettings); // ★ 2026-10-13: 既定は詰め・重複なし、「—」は明示(IND_NONE)
                       const selItem = allIndItems.find(it => it.id === effItemId);
                       // ★ 規定値(グレー数値)は「選択日時点」の設定値を使用 (日付単位のサービス内容変更に連動・翌月から切替)
                       const _datedInd = getIndividualExercisesForDate(targetPatient, selectedDate);
@@ -26285,7 +26302,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       return (
                         <td key={item.id} data-ind-cell className={`px-1 py-0 align-middle border border-emerald-200 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-emerald-50/40'}`}>
                           <select value={effItemId} disabled={isAbsent || isReadOnly || isPause}
-                            onChange={e=>updateExercise(p.id, item.id, {...cur, itemId: e.target.value})}
+                            onChange={e=>updateExercise(p.id, item.id, {...cur, itemId: e.target.value || (tsuIndSlotDefaults(targetPatient, appData.systemSettings)[item.id] ? IND_NONE : '')})}
                             className="w-full px-0.5 mb-0 font-bold bg-white border border-emerald-300 rounded outline-none focus:border-emerald-500 disabled:opacity-50 appearance-none"
                             style={{WebkitAppearance:'none',MozAppearance:'none',backgroundImage:'none',textAlignLast:'center',fontSize:_indNameFs,height:19,boxSizing:'border-box',lineHeight:1}}>
                             <option value="">—</option>
@@ -26677,7 +26694,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         const _pid = p.patientId || p.id; const _tp = (appData.patients||[]).find(pp => pp.id === _pid);
                         const _all = appData.systemSettings?.individualExerciseItems || [];
                         const _cur = (p.exercises && typeof p.exercises[item.id] === 'object') ? p.exercises[item.id] : { itemId:'', value:'' };
-                        const _effId = _cur.itemId || _tp?.individualExerciseSlotDefaults?.[item.id] || '';
+                        const _effId = tsuIndEffId(_cur, _tp, item.id, appData.systemSettings);
                         const _sel = _all.find(it => it.id === _effId);
                         const _raw = _tp?.individualExercises;
                         const _ps = (_raw === undefined || _raw === null) ? _all.map(it => ({itemId: it.id, defaultValue: ''})) : _raw;
@@ -29388,10 +29405,10 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
               let nm = '';
               for (const r of validRecs) {
                 const v = r.exercises?.[ex.id];
-                if (v && typeof v === 'object' && v.itemId) { nm = pick(v.itemId); if (nm) break; }
+                if (v && typeof v === 'object' && v.itemId && v.itemId !== IND_NONE) { nm = pick(v.itemId); if (nm) break; }
               }
               // 無ければ利用者マスタのスロット既定 (個別運動①=屋外歩行訓練 等)
-              if (!nm) nm = pick(selectedPatient?.individualExerciseSlotDefaults?.[ex.id] || '');
+              if (!nm) nm = pick(tsuIndSlotDefaults(selectedPatient, appData.systemSettings)[ex.id] || '');
               return nm || ex.name;
             };
 
@@ -32791,7 +32808,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
               const _indPlanDisp = (it) => {
                 const allInd = appData.systemSettings?.individualExerciseItems || [];
                 const rawIndEx = getIndividualExercisesForDate(sp, `${tY}-${String(tM).padStart(2,'0')}-01`) || [];
-                const selId = (sp?.individualExerciseSlotDefaults?.[it.id]) || '';
+                const selId = tsuIndSlotDefaults(sp, appData.systemSettings)[it.id] || '';
                 if (!selId) return null;
                 const sel = allInd.find(ii => ii.id === selId);
                 if (!sel) return null;
@@ -40412,6 +40429,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   const idx = patIndEx.findIndex(x => x.itemId === itemId);
                   const updated = idx >= 0 ? patIndEx.filter((_,i)=>i!==idx) : [...patIndEx, {itemId, defaultValue:''}];
                   updateLP('individualExercises', updated);
+                  // ★ 2026-10-13: 外した運動が既定スロットにあれば外し、後ろを前へ詰める
+                  if (idx >= 0) updateLP('individualExerciseSlotDefaults', tsuIndSlotDefaults({ ...localPatient, individualExercises: updated }, appData.systemSettings));
                 };
                 const updateIndDefault = (itemId, val) => {
                   const updated = patIndEx.map(x => x.itemId === itemId ? {...x, defaultValue: val} : x);
@@ -40450,8 +40469,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                       const slots = (effExerciseItems(appData.systemSettings)).filter(it => it.type === 'individual');
                       if (slots.length === 0) return null;
                       const enabledMenu = indItems.filter(it => patIndEx.some(x => x.itemId === it.id));
-                      const slotDefaults = localPatient.individualExerciseSlotDefaults || {};
-                      const setSlotDefault = (slotId, indId) => updateLP('individualExerciseSlotDefaults', { ...slotDefaults, [slotId]: indId });
+                      // ★ 2026-10-13: 表示も保存も「詰め・重複なし」の形(tsuIndSlotDefaults)。削除済みの運動は自動で外れ、後ろのスロットが前へ詰まる
+                      const slotDefaults = tsuIndSlotDefaults(localPatient, appData.systemSettings);
+                      const setSlotDefault = (slotId, indId) => { const rawNext = { ...slotDefaults, [slotId]: indId }; updateLP('individualExerciseSlotDefaults', tsuIndSlotDefaults({ ...localPatient, individualExerciseSlotDefaults: rawNext }, appData.systemSettings)); };
                       return (
                         <div className="mt-4 pt-3 border-t border-slate-200">
                           <h3 className="text-sm font-bold text-slate-600 mb-1">個別運動の既定（提供記録での初期選択）<span className="text-[10px] text-slate-400 font-normal">　提供記録入力でいちいち選ばなくて済むよう、各スロットの運動を決めておけます</span></h3>
