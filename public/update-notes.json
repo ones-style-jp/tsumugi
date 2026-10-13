@@ -1,7 +1,14 @@
 {
-  "version": "upd-2026-1013-trial258",
+  "version": "upd-2026-1013-trial259",
   "updatedAt": "2026-10-13",
   "notes": [
+    {
+      "id": "upd-2026-1013-trial259-mark",
+      "type": "improve",
+      "title": "「元に戻す」ボタンの記号（⟲）をなくしました",
+      "body": "提供記録・体力測定などの「元に戻す」ボタンの前に付いていた矢印の記号をなくし、文字だけにしました。",
+      "date": "2026-10-13"
+    },
     {
       "id": "upd-2026-1013-trial258-fitundo",
       "type": "feature",
