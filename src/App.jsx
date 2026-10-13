@@ -36319,10 +36319,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const _carColW = (f) => Math.ceil(Math.min(f, 14) * 1.25) + 16;     // 左端の車名の列(縦書き1列＋余白)
     const _drvW = (f) => _hasDrv ? Math.ceil(Math.min(f, 11) * 1.2) + 9 : 0; // 各日の運転者の細い欄
     const _slW = 24; // 午前・午後の列
-    const _dayPx = (f) => (1039 - _slW - 2 - _carColW(f)) / Math.max(1, days.length) - 9 - 2 - _drvW(f); // 275mm≒1039px − 午前午後 − 車名列 − 余白・罫線
+    const _dayPx = (f) => (1069 - _slW - 2 - _carColW(f)) / Math.max(1, days.length) - 9 - 2 - _drvW(f); // ★ 2026-10-13: 283mm≒1069px(余白7mm・旧275mm) − 午前午後 − 車名列 − 余白・罫線
     const _fzS = (f) => Math.max(9, Math.round(f * 0.95));               // 次回(曜日)。★ 2026-10-02 ユーザー要望「もう少し大きく」(0.78→0.95)
     const _fzB = (f) => Math.max(8, Math.round(f * 2 / 3)); // 休み・初回・その他など(2026-10-01c: 名前の約2/3)
-    const _fzAb = (f) => Math.max(9, Math.round(f * 0.8)); // ★ 2026-10-01(ユーザー要望「休みをもう少し大きく」): 休みだけ名前の約8割
+    const _fzAb = (f) => f; // ★ 2026-10-13(ユーザー要望): 休みの名前は出席する方の名前と同じ大きさ(旧: 約8割)
     const _nameW = (f) => Math.ceil(_maxNameEm * f * 1.04) + 5;
     const _timeW = (f) => Math.ceil(f * 2.9) + 6;
     const _hdrF = (f) => Math.max(8, Math.round(f * 0.6));      // 見出し(氏名・時間・次回)の文字
@@ -36351,7 +36351,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       return u + ex;
     };
     // ★ 2026-09-16f: 本文の有効高さを実測に基づいて補正(190mm=718px − 題字28 − 日付見出し6mm − 凡例17 − セル余白12 ≒ 638)。
-    const availPx = 630;
+    const availPx = 630 + 19 + 22; // ★ 2026-10-13: 凡例を右上へ(+19)・印字域を196mmに(+22)
     let fz = 20; // 上限20px(利用者が少ない店舗で大きくなりすぎないように)
     while (fz > 8) { const uh = Math.ceil(fz * 1.25) + 3; const tu = Math.max(unitsOf('AM', fz) + unitsOf('PM', fz), 6); if (tu * uh <= availPx && _nameW(fz) + _timeW(fz) + _nextW(fz) + _sendW(fz) <= _dayPx(fz)) break; fz--; }
     const uAM = unitsOf('AM', fz), uPM = unitsOf('PM', fz);
@@ -36389,7 +36389,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const emptyRow = () => `<tr style="${_rowStyle}"><td style="border-bottom:1px solid #dfe3de;padding:1px 3px;font-size:${fz}px;line-height:1.25;">&nbsp;</td><td style="border-bottom:1px solid #dfe3de;border-left:1px solid #eaece8;padding:1px 2px;font-size:${fz}px;line-height:1.25;">&nbsp;</td><td style="border-bottom:1px solid #dfe3de;border-left:1px solid #eaece8;padding:1px 2px;font-size:${fzS}px;line-height:1.25;">&nbsp;</td>${_sendEmptyTd()}</tr>`;
     const _vBox = (hpx, inner, extra) => `<div style="height:${hpx}px;width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:center;overflow:hidden;${extra||''}"><span style="writing-mode:vertical-rl;text-orientation:upright;display:inline-block;">${inner}</span></div>`;
     // ★ 2026-10-01d(ユーザー要望): 車ごとの見出しをやめた代わりに、各日の午前・午後の上に1か所だけ「氏名・時間・次回」
-    const _colHead = () => `<div style="display:flex;height:${_hdrH(fz)}px;margin-bottom:2px;padding:0 1px;box-sizing:border-box;">${_hasDrv ? `<div style="flex:none;width:${_drvW(fz) + 1}px;"></div>` : ''}<div style="flex:1;min-width:0;"><table style="border-collapse:collapse;width:100%;table-layout:fixed;">${COLG}<tr>${(_anyDropTag ? ['氏名','時間','次回','送り'] : ['氏名','時間','次回']).map((t2, k2) => `<td style="padding:0 ${k2 ? 1 : 4}px;font-size:${_hdrF(fz)}px;line-height:1.2;color:#4e5f53;text-align:${k2 ? 'center' : 'left'};white-space:nowrap;overflow:hidden;">${t2}</td>`).join('')}</tr></table></div></div>`;
+    const _colHead = () => `<div style="display:flex;height:${_hdrH(fz)}px;margin-bottom:2px;padding:0 1px;box-sizing:border-box;">${_hasDrv ? `<div style="flex:none;width:${_drvW(fz) + 1}px;"></div>` : ''}<div style="flex:1;min-width:0;"><table style="border-collapse:collapse;width:100%;table-layout:fixed;">${COLG}<tr>${(_anyDropTag ? ['氏名','時間','次回','送り'] : ['氏名','時間','次回']).map((t2, k2) => `<td style="padding:0 ${k2 ? 1 : 4}px;font-size:${_hdrF(fz)}px;line-height:1.2;color:#4e5f53;text-align:center;white-space:nowrap;overflow:hidden;">${t2}</td>`).join('')}</tr></table></div></div>`;
     const dayBlock = (iso, sl) => {
       const pl = getPlan(iso, sl);
       let h = _colHead();
@@ -36401,7 +36401,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         for (let i = 0; i < total; i++) body += rows[i] ? cellRow(rows[i], iso, sl) : emptyRow();
         const hp = _blkPx(sl, c);
         const _df = Math.max(6, Math.min(11, Math.floor((hp - 10) / _vEm(_drv) / 1.05)));
-        const drvCol = _hasDrv ? `<div style="flex:none;width:${_drvW(fz)}px;background:#e6effa;border-right:1px solid #b9cbe4;">${_drv ? _vBox(hp - 2, `<span style="font-size:${_df}px;line-height:1.1;white-space:nowrap;color:#1e3a8a;">${_vt(_drv)}</span>`) : ''}</div>` : ''; // ★ 2026-10-01d: 運転者は薄い青(車名の灰緑と区別)
+        // ★ 2026-10-13(ユーザー要望): 欄の上に小さく「運転」、名前は太字
+        const _dlh = _drv ? Math.min(14, Math.max(0, hp - 2 - Math.ceil(_vEm(_drv) * _df * 1.05))) : 0;
+        const drvCol = _hasDrv ? `<div style="flex:none;width:${_drvW(fz)}px;background:#e6effa;border-right:1px solid #b9cbe4;">${_drv ? `${_dlh >= 9 ? `<div style="height:${_dlh}px;font-size:${Math.min(8, _dlh - 2)}px;line-height:${_dlh}px;text-align:center;color:#1e3a8a;white-space:nowrap;overflow:hidden;">運転</div>` : ''}${_vBox(hp - 2 - (_dlh >= 9 ? _dlh : 0), `<b style="font-size:${_df}px;line-height:1.1;white-space:nowrap;color:#1e3a8a;">${_vt(_drv)}</b>`)}` : ''}</div>` : ''; // ★ 2026-10-01d: 運転者は薄い青(車名の灰緑と区別)
         h += `<div style="border:1px solid #66756b;margin-bottom:3px;display:flex;height:${hp}px;box-sizing:border-box;overflow:hidden;">${drvCol}
           <div style="flex:1;min-width:0;"><table style="border-collapse:collapse;width:100%;table-layout:fixed;">${COLG}${body}</table></div></div>`;
       });
@@ -36441,21 +36443,20 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const header = days.map(d => `<th style="border:1px solid #65736a;background:#edf0ec;font-size:11px;padding:3px;">${d.getMonth()+1}/${d.getDate()}（${DOWJ[d.getDay()]}）</th>`).join('');
     // ★ 2026-10-01(iPad): 表の高さは px で指定(Safari は flex＋height:100% の表が親いっぱいになり、題字・凡例の分はみ出して凡例が切れていた)
     //   本文 190mm≒718px − 題字(約30px) − 凡例(約19px) − 余裕3px。日付の見出し 6mm≒23px を除いた残りを午前・午後に行数比で配分
-    const _tblH = 718 - 30 - 19 - 3, _bodyH = _tblH - 23;
+    const _tblH = 740 - 30 - 3, _bodyH = _tblH - 23; // ★ 2026-10-13: 凡例を右上へ移し(下の19px)・印字域196mm≒740px(旧190mm=718px)
     const row = (sl, label) => `<tr style="height:${Math.round((sl==='AM'?uAM:uPM)/totalU*_bodyH)}px;"><td style="border:1px solid #65736a;padding:0;background:${sl==='AM'?'#faf0d9':'#e8edf7'};"><div style="display:flex;align-items:center;justify-content:center;height:100%;"><span style="writing-mode:vertical-rl;font-weight:bold;font-size:13px;letter-spacing:2px;white-space:nowrap;">${label}</span></div></td>
       <td style="border:1px solid #89958c;vertical-align:top;padding:3px 2px;background:#fafbf9;">${carLabels(sl)}</td>
       ${days.map(d => `<td style="border:1px solid #89958c;vertical-align:top;padding:3px;background:#fff;">${dayBlock(_iso(d), sl)}</td>`).join('')}</tr>`;
     const _last = days[days.length-1] || _mon;
     const fname = String(appData.systemSettings?.facilityInfo?.name || 'つむぎ');
     return `<div id="transport-print-inner" style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;background:#fff;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
-      <div style="position:relative;text-align:center;flex:none;margin:0 0 2mm;"><span style="position:absolute;left:0;top:4px;font-size:10px;">${esc(fname)}</span><span style="font-size:17px;font-weight:bold;letter-spacing:10px;">運行表</span><span style="position:absolute;right:0;top:4px;font-size:10px;">${_mon.getMonth()+1}/${_mon.getDate()}（${DOWJ[_mon.getDay()]}）〜${_last.getMonth()+1}/${_last.getDate()}（${DOWJ[_last.getDay()]}）</span></div>
+      <div style="position:relative;text-align:center;flex:none;margin:0 0 2mm;"><span style="position:absolute;left:0;top:4px;font-size:10px;">${esc(fname)}</span><span style="font-size:17px;font-weight:bold;letter-spacing:10px;">運行表</span><span style="position:absolute;right:0;top:1px;font-size:11px;text-align:right;white-space:nowrap;"><span style="outline:1.5px solid #c82c35;outline-offset:-1px;padding:0 3px;">時間の赤枠</span>=時間変更　<span style="background:#a7f3d0;padding:0 4px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 4px;">水色</span>=初回　　${_mon.getMonth()+1}/${_mon.getDate()}（${DOWJ[_mon.getDay()]}）〜${_last.getMonth()+1}/${_last.getDate()}（${DOWJ[_last.getDay()]}）</span></div>
       <table style="border-collapse:collapse;width:100%;table-layout:fixed;flex:none;height:${_tblH}px;">
         <colgroup><col style="width:${_slW}px"/><col style="width:${_carColW(fz)}px"/>${days.map(() => '<col/>').join('')}</colgroup>
         <thead><tr style="height:23px;"><th style="border:1px solid #65736a;background:#edf0ec;"></th><th style="border:1px solid #65736a;background:#edf0ec;font-size:9px;font-weight:normal;">車</th>${header}</tr></thead>
         <tbody>${row('AM','午前')}${row('PM','午後')}</tbody>
       </table>
-      <div style="font-size:9px;color:#3f4b43;margin-top:1.5mm;flex:none;display:flex;justify-content:space-between;"><span><span style="outline:1.5px solid #c82c35;outline-offset:-1px;padding:0 2px;margin-left:2px;">時間の赤枠</span>=時間変更　<span style="background:#a7f3d0;padding:0 3px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 3px;">水色</span>=初回　左端=車名${_hasDrv?'　各枠の左の青い欄=運転者':''}　時間=お迎え　徒歩の時間=到着（指定なしはクラスの開始）　次回=次の利用曜日${_anyDropTag ? '　<span style="color:#3730a3;font-weight:bold;">送り</span>=送りの車（迎えと違う方だけ）' : ''}</span><span>空欄=空席</span></div>
-    </div>`;
+          </div>`;
   };
   // ==== 連絡先一覧(週間の2枚目・2026-09-16 店舗要望) ====
   const _escP = (t) => String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
@@ -36552,7 +36553,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const _em = (t) => [...String(t||'')].reduce((a, ch) => a + (ch === '　' ? 1 : (/[0-9]/.test(ch) ? 0.62 : (/[ -~]/.test(ch) ? (ch === ' ' ? 0.3 : 0.55) : 1))), 0);
     const addrOf = (pt) => `${[_addrDisp(pt.address), pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' ')}${pt.pickupPlace ? `（${PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace}）` : ''}`;
     const telOf = (pt) => String(pt.phoneMobile || pt.phone || '');
-    const PAGE_W = 708, PAGE_H = 1039 - 30 - 18; // 本文の幅・高さ(題字と凡例を除く)
+    const PAGE_W = 738, PAGE_H = 1069 - 30 - 18; // 本文の幅・高さ(題字と凡例を除く) ★ 2026-10-13: 印字域 196×283mm(余白7mm・旧188×275)
     const slots = (onlySl ? [onlySl] : ['AM','PM']).map(sl => { const pl = getPlan(iso, sl);
       const blocks = cars.map(c => ({ name: c.name, drv: (pl.driver||{})[c.id] || '', members: (pl.cars?.[c.id]||[]), rows: _dRows(pl, c), car: true }));
       if ((pl.walkers||[]).length) blocks.push({ name: '徒歩', walk: true, members: (pl.walkers||[]).map(m => ({ ...m, t: _walkT(m, sl) })), rows: (pl.walkers||[]).length });
@@ -36567,7 +36568,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const _anyTagD = slots.some(x => x.blocks.some(b => b.members.some(m => _dropTag(x.pl, m.pid))));
     const maxTel = Math.max(0, ...allM.map(m => _em(telOf(_pt(m.pid)))));
     // 文字の大きさ(行の高さ H から)
-    const F = (H) => { const fz = Math.min(22, Math.floor((H - 5) / 1.25)); return { fz, fzS: Math.max(10, Math.round(fz * 0.9)), fzB: Math.max(9, Math.round(fz * 2 / 3)), fzAb: Math.max(10, Math.round(fz * 0.8)), fzH: Math.max(10, Math.round(fz * 0.8)), fzC: Math.max(8, Math.round(fz * 0.5)) }; };
+    const F = (H) => { const fz = Math.min(22, Math.floor((H - 5) / 1.25)); return { fz, fzS: Math.max(10, Math.round(fz * 0.9)), fzB: Math.max(9, Math.round(fz * 2 / 3)), fzAb: fz, fzH: Math.max(11, Math.round(fz * 0.95)), /* ★ 2026-10-13(ユーザー要望): 休みは名前と同じ大きさ・車名の見出しも大きく */ fzC: Math.max(8, Math.round(fz * 0.5)) }; };
     const W = (f) => { const name = Math.ceil(maxName * f.fz * 1.04) + 14, time = Math.ceil(f.fz * 3.0) + 10, tel = maxTel ? Math.ceil(maxTel * f.fzS) + 14 : 44; return { name, time, tel, addr: PAGE_W - name - time - tel }; };
     const totalH = (H) => { const f = F(H); let h = 0;
       slots.forEach((x, k) => { h += (k ? 42 : 11) + Math.ceil(f.fz * 1.3) + 6; // 午前11px・午後42px の余白＋見出し
@@ -36600,7 +36601,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       x.blocks.forEach((b, bi) => { const _hd = bi === 0 || b.other;
         // 行は用紙の下まで伸ばすが、利用者が少ない日に間延びしないよう1行は通常の約1.5倍まで
         h += `<div style="border:1px solid #66756b;margin-top:2mm;flex:${b.rows} 1 auto;display:flex;flex-direction:column;min-height:0;max-height:${b.rows * Math.round(H * 1.5) + Math.ceil(fzH * 1.3) + Math.ceil(fzC * 1.3) + 12}px;">
-          <div style="flex:none;background:${b.walk ? '#fdf1e3' : (b.other ? '#f1edfb' : '#eef0ed')};padding:2px 8px;font-size:${fzH}px;line-height:1.3;font-weight:800;border-bottom:1px solid #9aa79e;${b.walk ? 'color:#9a4a0b;' : (b.other ? 'color:#6d28d9;' : '')}">${_escP(b.name)}${b.walk ? `<span style="font-weight:400;">（時間＝到着）</span>` : ''}${b.drv?`<span style="float:right;font-weight:400;">運転者 ${_escP(b.drv)}</span>`:''}</div>
+          <div style="flex:none;background:${b.walk ? '#fdf1e3' : (b.other ? '#f1edfb' : '#eef0ed')};padding:2px 0 2px 8px;font-size:${fzH}px;line-height:1.3;font-weight:800;border-bottom:1px solid #9aa79e;display:flex;align-items:baseline;${b.walk ? 'color:#9a4a0b;' : (b.other ? 'color:#6d28d9;' : '')}"><span style="flex:none;${b.drv ? `width:${w.name - 8}px;` : ''}white-space:nowrap;overflow:hidden;">${_escP(b.name)}${b.walk ? `<span style="font-weight:400;font-size:${fzC}px;">（時間＝到着）</span>` : ''}</span>${b.drv?`<span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;color:#1e3a8a;"><span style="font-weight:400;font-size:${fzC}px;">運転者</span> ${_escP(b.drv)}</span>`:''}</div>
           ${_hd ? `<table style="flex:none;border-collapse:collapse;width:100%;table-layout:fixed;">${COLG}
           <tr>${['氏名','時間', b.other ? '理由' : '住所（待ち合わせ）','電話'].map(t2=>`<td style="border:1px solid #66756b;background:#f8faf6;font-size:${fzC}px;line-height:1.3;color:#4e5f53;padding:0 4px;text-align:center;white-space:nowrap;overflow:hidden;">${t2}</td>`).join('')}</tr></table>` : ''}
           <table style="flex:1 1 auto;border-collapse:collapse;width:100%;table-layout:fixed;">${COLG}
@@ -36610,11 +36611,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     return `<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
       <div style="position:relative;text-align:center;flex:none;"><span style="position:absolute;left:0;top:4px;font-size:10px;">${_escP(String(appData.systemSettings?.facilityInfo?.name||'つむぎ'))}</span><span style="font-size:18px;font-weight:bold;letter-spacing:8px;">運行表</span><span style="position:absolute;right:0;top:2px;font-size:14px;font-weight:700;">${d.getMonth()+1}/${d.getDate()}（${DOWJ[d.getDay()]}）</span></div>
       <div style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;">${slots.map((x, k) => slotBlock(x, x.sl === 'AM' ? '午前' : '午後', k)).join('')}</div>
-      <div style="margin-top:4px;font-size:9px;color:#3f4b43;display:flex;justify-content:space-between;flex:none;"><span><span style="outline:1.5px solid #c82c35;outline-offset:-1px;padding:0 2px;margin-left:2px;">時間の赤枠</span>=時間変更　<span style="background:#a7f3d0;padding:0 3px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 3px;">水色</span>=初回　徒歩の時間=到着（指定なしはクラスの開始）${_anyTagD ? '　<span style="border:1px solid #6366f1;color:#3730a3;padding:0 2px;">送○</span>=送りが迎えと違う' : ''}</span><span>※個人情報を含みます。取り扱いにご注意ください</span></div>
+      <div style="margin-top:4px;font-size:10px;color:#3f4b43;display:flex;justify-content:flex-end;flex:none;"><span><span style="outline:1.5px solid #c82c35;outline-offset:-1px;padding:0 3px;">時間の赤枠</span>=時間変更　<span style="background:#a7f3d0;padding:0 4px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 4px;">水色</span>=初回</span></div>
     </div>`;
   };
   const _dailyPages = (iso) => { const one = buildDailyPrintHtml(iso); return one != null ? [one] : [buildDailyPrintHtml(iso, 'AM'), buildDailyPrintHtml(iso, 'PM')]; };
-  const _dailyPageWrap = (inner, first) => `<div data-page-break="1" style="${first ? '' : 'page-break-before:always;'}width:210mm;height:296mm;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden;"><div style="width:188mm;height:275mm;box-sizing:border-box;background:#fff;overflow:hidden;">${inner}</div></div>`;
+  const _dailyPageWrap = (inner, first) => `<div data-page-break="1" style="${first ? '' : 'page-break-before:always;'}width:210mm;height:296mm;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden;"><div style="width:196mm;height:283mm;box-sizing:border-box;background:#fff;overflow:hidden;">${inner}</div></div>`; // ★ 2026-10-13: 余白7mm
   const doPrintDay = (iso) => {
     // ★ 2026-09-16(店舗指摘): 実機で左右が見切れる→プリンタの印字可能域(約188×275mm)に縮小して中央配置
     //   ★ 2026-09-16c(店舗指摘): 印刷ホストがbody直下のmargin/paddingを0に強制するためmargin:autoの中央寄せが効かず左上に寄っていた
@@ -36633,7 +36634,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const withContacts = content === 'both' || content === 'contacts';
     // ★ 2026-09-16(店舗指摘): 実機で右端(金曜)が見切れる→印字可能域(約275×190mm)に縮小して中央配置
     // ★ 2026-09-16c(店舗指摘): margin:autoは印刷ホストのbody>*{margin:0!important}で無効化され左上に寄る→全面ラッパー+flexで中央配置
-    const _wrap = (inner, brk) => `<div data-page-break="1" style="${brk?'page-break-before:always;':''}width:297mm;height:209mm;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden;"><div style="width:275mm;height:190mm;box-sizing:border-box;background:#fff;overflow:hidden;">${inner}</div></div>`;
+    const _wrap = (inner, brk) => `<div data-page-break="1" style="${brk?'page-break-before:always;':''}width:297mm;height:209mm;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden;"><div style="width:283mm;height:196mm;box-sizing:border-box;background:#fff;overflow:hidden;">${inner}</div></div>`; // ★ 2026-10-13(ユーザー要望「周りの空欄を減らす」): 余白7mm(見切れ防止のため0にはしない)
     if (content === 'contacts') {
       window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `利用者連絡先一覧_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: buildContactsPages().map((pg, k) => _wrap(pg, k > 0)).join(''), elementId: null } }));
       return;
@@ -36890,7 +36891,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           <div className={`px-3 py-1.5 text-[13px] font-bold text-center ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-700 text-white'}`}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{_hol ? <span className="ml-1 text-red-200">休業</span> : null}{!_finalAtOfWeek() ? <span className="ml-2 text-[11px] font-normal opacity-80">作成中（編集はパソコン・iPadで）</span> : null}</div>
           {['AM','PM'].map(sl => { const pl = getPlan(iso, sl); const abs = _absentees(iso, sl); const _fin = _baseOf(pl) || {}; const _rmSet = new Set(_removedSince(pl).map(String)); const n = _chgCount(pl);
             const anyone = Object.values(pl.cars||{}).some(a => (a||[]).length) || (pl.walkers||[]).length || (pl.others||[]).length || (pl.un||[]).length || _rmSet.size; return (
-            <div key={sl} data-testid={`tp-dl-slot-${sl}`} className="mt-2 mx-2 bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div key={sl} data-testid={`tp-dl-slot-${sl}`} className={`mt-2 mx-2 bg-white rounded-xl border-2 overflow-hidden ${sl==='AM' ? 'border-amber-300' : 'border-indigo-300'}`}>
               <div className={`px-3 py-1.5 flex items-center gap-2 text-[14px] font-bold ${sl==='AM'?'bg-amber-50 text-amber-800':'bg-indigo-50 text-indigo-800'}`}>{sl==='AM'?'午前':'午後'}
                 {pl._draft ? <span className="text-[10px] text-slate-500 bg-slate-200 rounded px-1 py-0.5 font-normal">下書き</span> : null}
                 {_baseOf(pl) && n ? <button type="button" data-testid={`tp-dl-chg-${sl}`} onClick={() => setFinalMenu(true)} className="text-[10px] text-white bg-red-600 rounded px-1.5 py-0.5 font-normal" title="押すと変更の一覧">{pl._final ? '確定後の変更' : '確定時からの変更'} {n}件 ▼</button> : null}
@@ -36899,14 +36900,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 {cars.map(c => { const ms = (pl.cars||{})[c.id] || []; const rmHere = ((_fin.cars||{})[c.id] || []).filter(m => m && _rmSet.has(String(m.pid)) && !ms.some(x => String(x.pid) === String(m.pid))); if (!ms.length && !rmHere.length) return null; const drv = (pl.driver||{})[c.id] || '';
                   const rows = [...ms.map(m => ({ ...m, _rm: false })), ...rmHere.map(m => ({ ...m, _rm: true }))].sort((a, b) => _mins(a.t) - _mins(b.t)); return (
                   <div key={c.id}>
-                    <div className="px-3 py-1 text-[13px] font-bold text-slate-700 bg-slate-100 border-y border-slate-200">{c.name}{drv ? <span className="font-normal ml-2 text-slate-500">運転 {drv}</span> : null}</div>
+                    <div className="px-3 py-1 text-[16px] font-bold text-slate-800 bg-slate-100 border-y border-slate-200">{c.name}{drv ? <span className="ml-3 text-[15px] text-slate-800"><span className="text-[12px] font-normal text-slate-500 mr-1">運転</span>{drv}</span> : null}</div>
                     {rows.map(m => <Row key={`${m._rm?'rm-':''}${m.pid}`} m={m} pl={pl} sl={sl} rm={m._rm} />)}
                   </div>); })}
                 {(pl.walkers||[]).length ? <div><div className="px-3 py-1 text-[13px] font-bold text-slate-700 bg-slate-100 border-y border-slate-200">徒歩</div>{(pl.walkers||[]).map(m => <Row key={m.pid} m={m} pl={pl} sl={sl} walk />)}</div> : null}
                 {(pl.others||[]).length ? <div><div className="px-3 py-1 text-[13px] font-bold text-slate-700 bg-slate-100 border-y border-slate-200">その他</div>{(pl.others||[]).map(m => <Row key={m.pid} m={m} pl={pl} sl={sl} />)}</div> : null}
                 {(pl.un||[]).length ? <div className="px-3 py-2 text-[13px] text-amber-800 font-bold bg-amber-50">未割当: {(pl.un||[]).map(m => _pname(m.pid)).join('・')}</div> : null}
               </>)}
-              {abs.length ? <div className="px-3 py-2 text-[13px] text-slate-600 bg-slate-50 border-t border-slate-200">休み: {abs.map(a => `${a.name}${a.reason && a.reason !== '休み' ? `（${a.reason}）` : ''}`).join('・')}</div> : null}
+              {abs.length ? <div className="px-3 py-2 text-[13px] text-slate-600 bg-slate-50 border-t border-slate-200">休み: {abs.map(a => a.name).join('・')}</div> : null}
             </div>); })}
         </div>); })() : _finalView ? (
       <div className="px-2 sm:px-3 pt-2 pb-3" data-testid="tp-final-board">
