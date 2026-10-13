@@ -2345,7 +2345,7 @@ export async function supabaseDeleteFile(path) {
 
 // ★ 2026-10-13(ユーザー要望「提供記録も送迎表も、どの端末からでも元に戻せるように。容量の問題は解決したい」):
 //   「元に戻す」の控えを app_state(店舗データ本体・約2.5MB)には入れず、別テーブル undo_snapshots に置く。
-//   書込は RPC(push_undo_snapshot)経由で、同じ鍵(店舗・種類・skey)は新しい順に keep 件だけ残し、14日より古い控えはサーバーで消す。
+//   書込は RPC(push_undo_snapshot)経由で、同じ鍵(店舗・種類・skey)は新しい順に keep 件だけ残し、7日より古い控えはサーバーで消す。
 //   テーブルが無い/通信が無いときは静かに諦めて端末内の控えだけで動く(sql/2026-10-13_undo_snapshots.sql を本部が実行して有効になる)。
 export async function cloudUndoPush(storeId, kind, skey, t, label, data, keep = 25) {
   if (!supabase || !storeId || !kind || !skey) return null;

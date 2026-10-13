@@ -24429,7 +24429,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   React.useEffect(() => {
     if (!restoreModal) { setCloudRecSnaps(null); return; }
     let alive = true;
-    (async () => { const rows = await cloudUndoList(appData._sbStoreId, 'record', selectedDate, 25); if (!alive) return;
+    (async () => { const rows = await cloudUndoList(appData._sbStoreId, 'record', selectedDate, 40); if (!alive) return;
       setCloudRecSnaps(rows.map(r => ({ t: Number(r.t) || 0, recs: Array.isArray(r.data) ? r.data : [], _cloud: true, _cid: r.id }))); })();
     return () => { alive = false; };
   }, [restoreModal]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -24450,11 +24450,11 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       const last = list[list.length-1];
       if (last && last.sig === sig) return; // 内容が同じならスキップ
       const snap = { t: Date.now(), sig, recs: day };
-      if (last && (Date.now()-last.t) < 20000) list[list.length-1] = snap; // 20秒以内は直近を上書き(スナップ乱立防止)
+      if (last && (Date.now()-last.t) < 8000) list[list.length-1] = snap; // 8秒以内は直近を上書き(スナップ乱立防止。2026-10-13 ユーザー指示「操作を細分化」で20秒→8秒)
       else list.push(snap);
       // ★ 2026-10-13: クラウドにも控える(別テーブル・失敗しても端末内の控えは残る)
-      try { if (appData._sbStoreId) cloudUndoPush(appData._sbStoreId, 'record', selectedDate, snap.t, '', day, 25); } catch {}
-      all[sk] = list.slice(-25); // 最新25件保持
+      try { if (appData._sbStoreId) cloudUndoPush(appData._sbStoreId, 'record', selectedDate, snap.t, '', day, 40); } catch {}
+      all[sk] = list.slice(-40); // 最新40件保持(2026-10-13: 25→40)
       // ★ 2026-09-15 Quota恒久対策(扇橋実測): 日付ごとのキーが永遠に溜まり続け(掃除なし)、RecSnapが
       //   Surfaceで5.1MB/iPadで2.5MBに肥大→localStorageを占拠し、本命の控え(daycareAppData_v3)が
       //   保存不能(0KB)になっていた。①古い日付(7日超)のスナップを削除 ②全体を約1.5MBまでに制限。
@@ -26452,7 +26452,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       {restoreModal && ReactDOM.createPortal((()=>{
         // 端末内の控え + クラウドの控え(同じ時刻は端末内を優先)を新しい順に
         const _loc = _readRecSnaps().slice().reverse(); const _locT = new Set(_loc.map(x => x.t));
-        const snaps = [..._loc, ...((cloudRecSnaps || []).filter(c => !_locT.has(c.t)))].sort((a, b) => b.t - a.t).slice(0, 40); // 新しい順
+        const snaps = [..._loc, ...((cloudRecSnaps || []).filter(c => !_locT.has(c.t)))].sort((a, b) => b.t - a.t).slice(0, 60); // 新しい順
         const _fmtT = (t)=>{ const d=new Date(t); return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
         const _cntData = (recs)=> (recs||[]).filter(r=>r && (r.temp_AM||r.temp_PM||r.temp||r.bpUpSt_AM||r.bpUpSt||r.plSt_AM||r.plSt||r.massage||r.tokki||r.kibunArrival||r.kibunDeparture||(r.exercises&&Object.keys(r.exercises).length))).length;
         // ★ 「戻した後にどうなるか」を一目で分かるように: その時点のデータ内容を項目別に集計
@@ -35095,9 +35095,9 @@ function PickupCallField({ value, onChange, disabled, patient }) {
   return (
     <div className="space-y-1.5">
       <select disabled={disabled} value={v.callTo || ''} onChange={e => onChange({ ...v, callTo: e.target.value })} data-testid="pickup-call-to" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none">
-        <option value="">本人の番号（携帯があれば携帯、無ければ固定）</option>
-        <option value="family">緊急連絡先{fam ? `（${fam}）` : ''}にかける</option>
-        <option value="other">別の相手・番号を指定</option>
+        <option value="">本人（携帯優先）</option>
+        <option value="family">緊急連絡先{fam ? `（${fam}）` : ''}</option>
+        <option value="other">別の相手・番号</option>
       </select>
       {v.callTo === 'other' && (
         <div className="flex gap-2">
@@ -35148,20 +35148,20 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const list = _undoList(); const top = list[list.length - 1]; const now = Date.now();
     if (label === '手での変更' && top && top.label === label && top.items.length === 1 && keys.length === 1 && top.items[0].k === keys[0] && now - top.at < 4000) { top.items[0].after = _planSig(afters[keys[0]]); top.at = now; return; }
     list.push({ label, at: now, items: keys.map(k => ({ k, before: JSON.parse(JSON.stringify(befores[k])), after: _planSig(afters[k]) })) });
-    if (list.length > 20) list.shift();
+    if (list.length > 30) list.shift();
     _setUndoTick(t => t + 1);
     _cloudPushUndoLater(list[list.length - 1]);
   };
   // ★ 2026-10-13(ユーザー要望「どの端末からでも元に戻せるように」): 控えをクラウドの別テーブル(undo_snapshots)にも置く。
   //   手での変更は4秒以内の連続を1件にまとめるので、5秒待ってから送る(送った id を控えに持ち、戻したときにクラウドからも消す)
   const _cloudPushUndoLater = (e) => { if (!e || !appData._sbStoreId) return; if (e._cloudTimer) clearTimeout(e._cloudTimer);
-    e._cloudTimer = setTimeout(async () => { e._cloudTimer = null; const id = await cloudUndoPush(appData._sbStoreId, 'transport', _undoKey, e.at, e.label, { items: e.items }, 20); if (id != null) e._cid = id; }, 5000); };
+    e._cloudTimer = setTimeout(async () => { e._cloudTimer = null; const id = await cloudUndoPush(appData._sbStoreId, 'transport', _undoKey, e.at, e.label, { items: e.items }, 30); if (id != null) e._cid = id; }, 5000); };
   // 画面を開いたとき、クラウドの控え(他の端末の操作を含む)を端末内の一覧に合流(同じ時刻は端末内を優先)
   React.useEffect(() => { let alive = true; if (!appData._sbStoreId) return;
-    (async () => { const rows = await cloudUndoList(appData._sbStoreId, 'transport', _undoKey, 20); if (!alive || !rows.length) return;
+    (async () => { const rows = await cloudUndoList(appData._sbStoreId, 'transport', _undoKey, 30); if (!alive || !rows.length) return;
       const list = _undoList(); const have = new Set(list.map(x => x.at)); let added = 0;
       rows.forEach(r => { const d = r.data || {}; if (!Array.isArray(d.items) || have.has(Number(r.t))) return; list.push({ label: r.label || '操作', at: Number(r.t) || 0, items: d.items, _cid: r.id, _cloud: true }); added++; });
-      if (added) { list.sort((a, b) => a.at - b.at); while (list.length > 20) list.shift(); _setUndoTick(t => t + 1); } })();
+      if (added) { list.sort((a, b) => a.at - b.at); while (list.length > 30) list.shift(); _setUndoTick(t => t + 1); } })();
     return () => { alive = false; }; }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const _shownOf = (k) => { const [iso, sl] = k.split('_'); const { _draft, ...rest } = getPlan(iso, sl); return rest; }; // 画面に出ている内容(変わったかの判定用)
   const _beforeOf = (k) => { const raw = plans[k]; if (raw) { const { _savedAt, ...rest } = raw; return rest; } return _shownOf(k); };
@@ -40245,7 +40245,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 );
               })()}
               <div><label className="block text-sm font-bold text-slate-600 mb-1.5">留意点（スタッフへの申し送り）</label><textarea disabled={isOff} value={localPatient.ryui || ""} onChange={e => updateLP('ryui', e.target.value)} rows={2} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl outline-none resize-none text-base disabled:opacity-60 leading-relaxed" /></div>
-              <div><label className="block text-sm font-bold text-slate-600 mb-3">基本利用曜日</label><div className="grid grid-cols-7 gap-2">{['日', '月', '火', '水', '木', '金', '土'].map((d, i) => { const v = localPatient.scheduleAmPm?.[i] || ""; const isClosed = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(i); const colorCls = isClosed ? 'bg-slate-100 border-slate-200 text-slate-400' : v === 'AM' ? 'bg-red-50 border-red-300 text-red-700' : v === 'PM' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-400'; return (<div key={d} className="flex flex-col"><span className={`text-center text-[13px] font-bold mb-1 ${i===0?'text-red-400':i===6?'text-blue-400':'text-slate-500'}`}>{d}</span>{isClosed ? (<div className={`w-full h-[42px] flex items-center justify-center text-[14px] font-bold text-center border rounded-xl box-border bg-slate-100 border-slate-200 text-slate-400`}>定休</div>) : (<select disabled={isOff} value={v} onChange={e => updateSched(i, e.target.value)} className={`w-full h-[42px] text-[14px] font-bold text-center border rounded-xl box-border outline-none cursor-pointer disabled:opacity-60 ${colorCls}`}><option value="">無</option><option value="AM">AM</option><option value="PM">PM</option></select>)}</div>); })}</div>
+              <div><label className="block text-sm font-bold text-slate-600 mb-3">基本利用曜日</label><div className="grid grid-cols-7 gap-2 tsu-sched7">{['日', '月', '火', '水', '木', '金', '土'].map((d, i) => { const v = localPatient.scheduleAmPm?.[i] || ""; const isClosed = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(i); const colorCls = isClosed ? 'bg-slate-100 border-slate-200 text-slate-400' : v === 'AM' ? 'bg-red-50 border-red-300 text-red-700' : v === 'PM' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-400'; return (<div key={d} className="flex flex-col"><span className={`text-center text-[13px] font-bold mb-1 ${i===0?'text-red-400':i===6?'text-blue-400':'text-slate-500'}`}>{d}</span>{isClosed ? (<div className={`w-full h-[42px] flex items-center justify-center text-[14px] font-bold text-center border rounded-xl box-border bg-slate-100 border-slate-200 text-slate-400`}>定休</div>) : (<select disabled={isOff} value={v} onChange={e => updateSched(i, e.target.value)} className={`w-full h-[42px] text-[14px] font-bold text-center border rounded-xl box-border outline-none cursor-pointer disabled:opacity-60 ${colorCls}`}><option value="">無</option><option value="AM">AM</option><option value="PM">PM</option></select>)}</div>); })}</div>
                 <p className="text-[11px] text-slate-500 mt-1.5">毎週の決まった利用日です。振替・欠席・休業・休止など「その日だけ」の変更は下の月間スケジュールで行ってください。</p>
                 {/* ★ 基本利用曜日の変更履歴(最新5件)と「削除」(2026-09-23): 誤って変えて手で戻した後に残った履歴の復旧用 */}
                 {(() => {
@@ -40310,12 +40310,12 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                             <option value="walk">徒歩（車を使わない・運行表は徒歩欄へ）</option>
                           </select>
                         </div>
-                        <div className="col-span-2 min-w-0">
-                          <label className="block text-xs font-bold text-slate-600 mb-1">送迎時の連絡先（送迎表のスマホ表示・連絡先一覧に出ます）</label>
+                        <div className="sm:col-span-2 min-w-0">
+                          <label className="block text-xs font-bold text-slate-600 mb-1">送迎時の連絡先</label>
                           <PickupCallField disabled={isOff} patient={localPatient} value={{ callTo: localPatient.pickupCallTo || '', name: localPatient.pickupCallName || '', phone: localPatient.pickupCallPhone || '' }} onChange={v => { setLocalPatient(prev => ({ ...(prev || localPatient), pickupCallTo: v.callTo || '', pickupCallName: v.name || '', pickupCallPhone: v.phone || '' })); if (dirtyRef) dirtyRef.current = true; }} />
-                          <div className="text-[11px] text-slate-500 mt-1">耳が聞こえづらい方など、送迎のときはご家族にかける場合に選びます。本人の番号は後ろに続けて表示されます。</div>
+                          <div className="text-[11px] text-slate-500 mt-1">送迎のときにかける相手。送迎表のスマホ表示と連絡先一覧に先頭で出ます（本人の番号も続けて出ます）。</div>
                         </div>
-                        <div className="col-span-2 text-[11px] text-slate-500">乗車にかかる時間=車を停めてから（マンション1階等）お部屋へお迎えに行き、車に乗せ終わるまでの時間。送迎表のルート自動作成で移動時間に上乗せして逆算に使います（未入力は1分）。「徒歩」を選ぶと送迎表（運行表）では最初から徒歩欄に入り、車の配車対象になりません。</div>
+                        <div className="sm:col-span-2 text-[11px] text-slate-500">乗車にかかる時間=車を停めてから（マンション1階等）お部屋へお迎えに行き、車に乗せ終わるまでの時間。送迎表のルート自動作成で移動時間に上乗せして逆算に使います（未入力は1分）。「徒歩」を選ぶと送迎表（運行表）では最初から徒歩欄に入り、車の配車対象になりません。</div>
                       </div>
                     </div>
                   </div>
@@ -54552,7 +54552,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
   return (
     // ★ 2026-10-08(店舗報告: iPhoneで個人ファイルを開くと上部が見切れる): 100vh は iPhone の実際の表示域より大きく、上下に切れていた。
     //   画面の表示域いっぱい(fixed)の中で高さを決め、上端は時計などの表示(セーフエリア)を避けて置く
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-start sm:items-center justify-center p-2 sm:p-3" style={{paddingTop:'max(8px, env(safe-area-inset-top, 0px))',paddingBottom:'max(8px, env(safe-area-inset-bottom, 0px))'}}>
+    <div data-testid="personal-file-modal" className="tsu-pf fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-start sm:items-center justify-center p-2 sm:p-3" style={{paddingTop:'max(8px, env(safe-area-inset-top, 0px))',paddingBottom:'max(8px, env(safe-area-inset-bottom, 0px))'}}>
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-[1700px] h-full flex flex-col" style={{maxHeight:'100%'}} onClick={e=>e.stopPropagation()}>
         {/* ヘッダー */}
         {/* ★ 2026-10-07(店舗報告「右上の×とゴミ箱が近くて押し間違える」): ゴミ箱は左の見出しの横へ移し、×(閉じる)は右端に単独で大きめに */}
@@ -54647,9 +54647,10 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
           {/* 基本情報タブ: フェイスシート (先頭) */}
           {isBasicTab && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-sm font-bold text-amber-900">フェイスシート</div>
-                <div className="flex gap-2">
+              {/* ★ 2026-10-13(ユーザー指摘: スマホで「フェイスシート」「編集・追記」「ダウンロード」が縦に折れる): 題名とボタンは折り返し可・各ボタンは1行 */}
+              <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <div className="text-sm font-bold text-amber-900 whitespace-nowrap">フェイスシート</div>
+                <div className="flex gap-2 flex-wrap tsu-pf-btns">
                   {/* ★ 「新規作成」廃止(2026-08-11): フェイスシートは全利用者に最初から用意されている
                       扱いとし、常に「編集・追記」で開く(利用者マスタや家族編集の内容が自動反映されるため)。 */}
                   <button onClick={()=>setFaceSheetChoice(true)}
@@ -54912,7 +54913,8 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                       <div key={h.id}>
                         <div className="flex items-center gap-1">
                           <button onClick={()=>setExpandedFaxId(expanded?null:h.id)} className="flex-1 min-w-0 py-1.5 flex items-center justify-between gap-2 text-xs text-left hover:bg-slate-50 rounded px-1">
-                            <div className="min-w-0"><span className="text-slate-400 mr-1">{expanded?'▾':'▸'}</span><span className="font-bold text-slate-700">{h.subject||title}</span>{h.recipientName && <span className="text-slate-400 ml-2">宛: {h.recipientName}</span>}</div>
+                            {/* ★ 2026-10-13(ユーザー指摘: スマホで宛先の名前が折れる): 件名の行の下に宛先を出す(日付は右) */}
+                            <div className="min-w-0"><span className="text-slate-400 mr-1">{expanded?'▾':'▸'}</span><span className="font-bold text-slate-700">{h.subject||title}</span>{h.recipientName && <div className="text-slate-400 text-[11px] pl-4 whitespace-nowrap overflow-hidden text-ellipsis">宛: {h.recipientName}</div>}</div>
                             <span className="text-slate-400 shrink-0">{_ts(h.timestamp)}</span>
                           </button>
                           {/* ★ 送付履歴の削除(重複や誤登録をこの一覧から直接消せる) */}
@@ -55402,7 +55404,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                   <div className="text-xs text-slate-400 py-3 text-center">{sel}年の記録はありません。「＋ 行を追加」で追記できます（既存データがあれば自動で表示されます）。</div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full border-collapse text-xs" style={{minWidth:640}}>
+                    <table className="w-full border-collapse text-xs tsu-sp-table" style={{minWidth: (typeof window !== 'undefined' && window.innerWidth < 768) ? 520 : 640}}>
                       <thead><tr className="bg-slate-50">
                         <th className="border border-slate-300 px-1 py-1 font-bold" style={{width:120}}>日付</th>
                         <th className="border border-slate-300 px-1 py-1 font-bold" style={{width:90}}>担当者</th>

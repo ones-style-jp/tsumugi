@@ -3,7 +3,7 @@
 --   目的: 提供記録・送迎表の「元に戻す」を、どの端末からでも使えるようにする。
 --         店舗データ本体(app_state・約2.5MB)には入れず、この別テーブルに置くので本体は重くならない。
 --   仕組み: 保存のたびに RPC push_undo_snapshot で1件追加 → 同じ鍵(店舗・種類・skey)は新しい順に keep 件(既定25)だけ残し、
---           14日より古い控えは店舗単位でサーバーが消す。読み出しは select(anon可)。削除は RPC 経由のみ。
+--           7日より古い控えは店舗単位でサーバーが消す(2026-10-13 ユーザー指示: 14日は多い→7日)。読み出しは select(anon可)。削除は RPC 経由のみ。
 --   実行: Supabase の SQL Editor にこのファイルを貼って Run(本部が1回だけ)。
 -- =========================================================
 create table if not exists public.undo_snapshots (
@@ -38,8 +38,8 @@ begin
   delete from public.undo_snapshots where id in (
     select id from public.undo_snapshots where store_id = p_store_id and kind = p_kind and skey = p_skey order by t desc offset greatest(coalesce(p_keep, 25), 1)
   );
-  -- 14日より古い控えは店舗単位で消す
-  delete from public.undo_snapshots where store_id = p_store_id and created_at < now() - interval '14 days';
+  -- 7日より古い控えは店舗単位で消す
+  delete from public.undo_snapshots where store_id = p_store_id and created_at < now() - interval '7 days';
   return v_id;
 end $$;
 grant execute on function public.push_undo_snapshot(text, text, text, bigint, text, jsonb, int) to anon, authenticated;
