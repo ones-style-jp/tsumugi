@@ -36744,7 +36744,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         )}
         {_tpPhone && tpFocus && !_tpOpsOpen && <div className="bg-yellow-50 border-b border-amber-200 px-2 py-1 flex justify-end"><button type="button" data-testid="tp-focus-clear-phone" onClick={() => setTpFocus(null)} className="px-2.5 py-1.5 rounded-lg font-bold text-xs border border-amber-300 bg-yellow-100 text-amber-900">黄色の表示を消す</button></div>}
         {/* ★ 2026-09-30: 上の帯と隙間なく詰めて固定(スクロール中に下の内容が透けて見えないよう背景つき)。日付は中央揃え・「この日を印刷」は廃止(印刷ボタンの「日ごと」で印刷) */}
-        {!_finalView && <div className="bg-slate-100 px-2 sm:px-3 pt-1 pb-1 border-b border-slate-200" data-testid="tp-date-strip">
+        {!_finalView && !_tpOneDay && <div className="bg-slate-100 px-2 sm:px-3 pt-1 pb-1 border-b border-slate-200" data-testid="tp-date-strip">
           <div className="max-w-[1500px] mx-auto overflow-hidden" ref={tpHdrRef}>
             <div className="grid" style={{gridTemplateColumns:_tpCols, columnGap:8}}>
               <div />
@@ -36765,7 +36765,54 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       {tpFocus && <style>{`${_tpSelOf(tpFocus)}{background:#fef08a !important;outline:3px solid #f59e0b;outline-offset:-2px;border-radius:6px;}`}</style>}
       {/* ★ 2026-10-03(ユーザー提案「確定していたら入力画面ではなく一覧を常に表示。午前・午後を一度に見たい」): 確定済みの週は読み取り専用の一覧(午前・午後を同じ画面に)。
           「編集する」で入力画面へ(確定後の変更は赤丸)。確定を解除すると自動で入力画面に戻る */}
-      {_finalView ? (
+      {/* ★ 2026-10-13(ユーザー方針「スマホは週の運行表の1日分ではなく、日付ごとに 利用者名・時間・住所・待ち合わせ場所・電話番号 が載る画面に」):
+          スマホの1日表示は運転手向けのリスト(車ごと・乗る順)。電話はタップで発信、住所はタップで地図。編集はPC/iPad(「1週間を見る」は従来どおり) */}
+      {_tpOneDay ? (() => { const iso = _tpDayIso; const d = new Date(iso + 'T00:00:00'); const _hol = (appData.holidays||[]).find(h => (h && (h.date||h)) === iso);
+        const _pt = (pid) => (appData.patients||[]).find(x => x.id === pid) || {};
+        const _tel = (pt) => [pt.phoneMobile, pt.phone].map(x => String(x||'').trim()).filter(Boolean);
+        const _addr = (pt) => [_addrDisp(pt.address), pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' ');
+        const _place = (pt) => pt.pickupPlace ? (PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace) : '';
+        const _mins = (t) => { const m = String(_fmtT(t) || '').match(/(\d+):(\d+)/); return m ? (+m[1]) * 60 + (+m[2]) : 9999; };
+        const Row = ({ m, pl, sl, rm, walk }) => { const pt = _pt(m.pid); const dot = !rm && (m.mark || _dotOf(pl, iso, m.pid)); const tg = rm ? '' : _dropTag(pl, m.pid); const tels = _tel(pt); const addr = _addr(pt); const place = _place(pt); return (
+          <div data-testid={`tp-dl-${iso}-${sl}-${m.pid}`} data-rm={rm ? '1' : '0'} className={`px-3 py-2 border-b border-slate-100 ${rm ? 'opacity-50' : ''}`}>
+            <div className="flex items-center gap-2">
+              <span className={`flex-1 min-w-0 truncate font-bold text-[17px] text-slate-900 ${rm ? 'line-through' : ''}`}>{_pname(m.pid)}</span>
+              {tg ? <span className="shrink-0 text-[11px] text-slate-500">{tg}</span> : null}
+              <span data-tel={dot ? '1' : '0'} className={`shrink-0 font-bold tabular-nums text-[19px] text-slate-900 border-2 rounded px-1.5 ${dot ? 'border-red-600' : 'border-transparent'} ${rm ? 'line-through' : ''}`}>{walk ? (/\d/.test(String(m.t||'')) ? `${_fmtT(m.t)} 着` : '到着') : (_fmtT(m.t) || '—')}</span>
+            </div>
+            {rm ? <div className="text-[12px] text-red-700 font-bold">確定後に外れた方（休みなど）</div> : (
+              <div className="mt-1 flex items-start gap-2">
+                <div className="flex-1 min-w-0 text-[13px] text-slate-700 leading-snug">
+                  {addr ? <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([pt.address, pt.addressBuilding].filter(Boolean).join(' '))}`} target="_blank" rel="noopener noreferrer" className="underline decoration-dotted underline-offset-2 text-slate-700">{addr}</a> : <span className="text-slate-400">住所未登録</span>}
+                  {place ? <div className="text-[13px] font-bold text-emerald-800">待ち合わせ: {place}</div> : null}
+                </div>
+                {tels.length ? <div className="shrink-0 flex flex-col gap-1">{tels.map(t => <a key={t} href={`tel:${t.replace(/[^0-9+]/g, '')}`} className="inline-flex items-center justify-center h-9 px-3 rounded-lg bg-blue-600 text-white text-[13px] font-bold whitespace-nowrap">{t}</a>)}</div> : <span className="shrink-0 text-[12px] text-slate-400">電話未登録</span>}
+              </div>)}
+          </div>); };
+        return (
+        <div className="pb-4" data-testid="tp-day-list">
+          <div className={`px-3 py-1.5 text-[13px] font-bold text-center ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-700 text-white'}`}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{_hol ? <span className="ml-1 text-red-200">休業</span> : null}{!_finalAtOfWeek() ? <span className="ml-2 text-[11px] font-normal opacity-80">作成中（編集はパソコン・iPadで）</span> : null}</div>
+          {['AM','PM'].map(sl => { const pl = getPlan(iso, sl); const abs = _absentees(iso, sl); const _fin = _baseOf(pl) || {}; const _rmSet = new Set(_removedSince(pl).map(String)); const n = _chgCount(pl);
+            const anyone = Object.values(pl.cars||{}).some(a => (a||[]).length) || (pl.walkers||[]).length || (pl.others||[]).length || (pl.un||[]).length || _rmSet.size; return (
+            <div key={sl} data-testid={`tp-dl-slot-${sl}`} className="mt-2 mx-2 bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <div className={`px-3 py-1.5 flex items-center gap-2 text-[14px] font-bold ${sl==='AM'?'bg-amber-50 text-amber-800':'bg-indigo-50 text-indigo-800'}`}>{sl==='AM'?'午前':'午後'}
+                {pl._draft ? <span className="text-[10px] text-slate-500 bg-slate-200 rounded px-1 py-0.5 font-normal">下書き</span> : null}
+                {_baseOf(pl) && n ? <span className="text-[10px] text-white bg-red-600 rounded px-1 py-0.5 font-normal">{pl._final ? '確定後の変更' : '確定時からの変更'} {n}件</span> : null}
+              </div>
+              {!anyone ? <div className="px-3 py-2 text-[13px] text-slate-400">—</div> : (<>
+                {cars.map(c => { const ms = (pl.cars||{})[c.id] || []; const rmHere = ((_fin.cars||{})[c.id] || []).filter(m => m && _rmSet.has(String(m.pid)) && !ms.some(x => String(x.pid) === String(m.pid))); if (!ms.length && !rmHere.length) return null; const drv = (pl.driver||{})[c.id] || '';
+                  const rows = [...ms.map(m => ({ ...m, _rm: false })), ...rmHere.map(m => ({ ...m, _rm: true }))].sort((a, b) => _mins(a.t) - _mins(b.t)); return (
+                  <div key={c.id}>
+                    <div className="px-3 py-1 text-[13px] font-bold text-slate-700 bg-slate-100 border-y border-slate-200">{c.name}{drv ? <span className="font-normal ml-2 text-slate-500">運転 {drv}</span> : null}</div>
+                    {rows.map(m => <Row key={`${m._rm?'rm-':''}${m.pid}`} m={m} pl={pl} sl={sl} rm={m._rm} />)}
+                  </div>); })}
+                {(pl.walkers||[]).length ? <div><div className="px-3 py-1 text-[13px] font-bold text-slate-700 bg-slate-100 border-y border-slate-200">徒歩</div>{(pl.walkers||[]).map(m => <Row key={m.pid} m={m} pl={pl} sl={sl} walk />)}</div> : null}
+                {(pl.others||[]).length ? <div><div className="px-3 py-1 text-[13px] font-bold text-slate-700 bg-slate-100 border-y border-slate-200">その他</div>{(pl.others||[]).map(m => <Row key={m.pid} m={m} pl={pl} sl={sl} />)}</div> : null}
+                {(pl.un||[]).length ? <div className="px-3 py-2 text-[13px] text-amber-800 font-bold bg-amber-50">未割当: {(pl.un||[]).map(m => _pname(m.pid)).join('・')}</div> : null}
+              </>)}
+              {abs.length ? <div className="px-3 py-2 text-[13px] text-slate-600 bg-slate-50 border-t border-slate-200">休み: {abs.map(a => a.name).join('・')}</div> : null}
+            </div>); })}
+        </div>); })() : _finalView ? (
       <div className="px-2 sm:px-3 pt-2 pb-3" data-testid="tp-final-board">
         <div className="max-w-[1500px] mx-auto">
           <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -36779,23 +36826,33 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             {_tpViewDays.map(d => { const iso = _iso(d); const _hol = (appData.holidays||[]).find(h => (h && (h.date||h)) === iso); return (
               <React.Fragment key={iso}>
                 <div className={`px-2 py-1 text-xs font-bold text-center rounded-t-xl border border-b-0 border-slate-200 min-w-0 ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-100 text-slate-700'}`}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{_hol ? <span className="ml-1 text-red-600">休業</span> : null}</div>
-                {['AM','PM'].map(sl => { const pl = getPlan(iso, sl); const abs = _absentees(iso, sl); const anyone = Object.values(pl.cars||{}).some(a => (a||[]).length) || (pl.walkers||[]).length || (pl.others||[]).length || (pl.un||[]).length; return (
+                {['AM','PM'].map(sl => { const pl = getPlan(iso, sl); const abs = _absentees(iso, sl); const anyone = Object.values(pl.cars||{}).some(a => (a||[]).length) || (pl.walkers||[]).length || (pl.others||[]).length || (pl.un||[]).length || _removedSince(pl).length; return (
                   <div key={sl} data-testid={`tp-fb-cell-${iso}-${sl}`} data-tpcell={`${iso}_${sl}`} className={`bg-white border-x border-t border-slate-200 min-w-0 ${sl==='PM' ? 'border-b rounded-b-xl mb-1' : ''}`}>
                     <div className={`px-2 py-0.5 text-[11px] font-bold ${sl==='AM'?'bg-amber-50 text-amber-800':'bg-indigo-50 text-indigo-800'}`}>{sl==='AM'?'午前':'午後'}</div>
                     {!anyone ? <div className="px-2 py-1 text-[11px] text-slate-400">—</div> : (
                       <div className="px-1.5 py-1 space-y-1">
-                        {cars.map(c => { const ms = (pl.cars||{})[c.id] || []; if (!ms.length) return null; const drv = (pl.driver||{})[c.id] || ''; return (
+                        {/* ★ 2026-10-13(ユーザー方針): 確定後に外れた方(休みなど)は、確定時にいた車の位置に名前と時間を取り消し線で薄く残す(枠が空いたと分かる)。
+                            休み欄にも従来どおり名前を出す。ダウンロードの運行表には載せない(10/8 決定)。作成中の編集画面は従来どおり消える */}
+                        {(() => { const _fin = _baseOf(pl) || {}; const _rmSet = new Set(_removedSince(pl).map(String)); const _mins = (t) => { const m = String(_fmtT(t) || '').match(/(\d+):(\d+)/); return m ? (+m[1]) * 60 + (+m[2]) : 9999; };
+                        return cars.map(c => { const ms = (pl.cars||{})[c.id] || []; const rmHere = ((_fin.cars||{})[c.id] || []).filter(m => m && _rmSet.has(String(m.pid)) && !ms.some(x => String(x.pid) === String(m.pid)));
+                          if (!ms.length && !rmHere.length) return null; const drv = (pl.driver||{})[c.id] || '';
+                          const rows = [...ms.map(m => ({ ...m, _rm: false })), ...rmHere.map(m => ({ ...m, _rm: true }))].sort((a, b) => _mins(a.t) - _mins(b.t)); return (
                           <div key={c.id}>
                             <div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">{c.name}{drv ? <span className="font-normal ml-1">運転 {drv}</span> : null}</div>
                             {/* ★ 2026-10-03 ユーザー指示: 運行表と同じく左に名前・右に時間。時間の桁数が違っても名前の開始位置が揃うよう、赤丸→名前(可変)→時間(固定幅・右寄せ) */}
-                            {ms.map(m => { const dot = m.mark || _dotOf(pl, iso, m.pid); const tg = _dropTag(pl, m.pid); return (
+                            {rows.map(m => { if (m._rm) return (
+                              <div key={`rm-${m.pid}`} className="flex items-center gap-1 text-[12px] leading-tight py-0.5 opacity-50" data-testid={`tp-fb-rm-${iso}-${sl}-${m.pid}`} data-tpfb={`${iso}_${sl}_${m.pid}`} title="確定後に外れた方（休みなど）">
+                                <span className="truncate font-bold text-slate-600 shrink-0 line-through" style={{width:'7.2em'}}>{_pname(m.pid)}</span>
+                                <span className="shrink-0 font-bold tabular-nums text-slate-600 border-2 border-transparent rounded px-1 -my-0.5 line-through">{_fmtT(m.t)||'—'}</span>
+                              </div>);
+                              const dot = m.mark || _dotOf(pl, iso, m.pid); const tg = _dropTag(pl, m.pid); return (
                               <div key={m.pid} className="flex items-center gap-1 text-[12px] leading-tight py-0.5" data-testid={`tp-fb-${iso}-${sl}-${m.pid}`} data-tpfb={`${iso}_${sl}_${m.pid}`}>
                                 {/* 名前は固定幅(約7文字)・時間はその直後(開始位置は全行で同じ)。2026-10-03 ユーザー: 名前と時間の距離を近く */}
                                 <span className="truncate font-bold text-slate-800 shrink-0" style={{width:'7.2em'}}>{_pname(m.pid)}</span>
                                 <span data-tel={dot ? '1' : '0'} className={`shrink-0 font-bold tabular-nums text-slate-800 border-2 rounded px-1 -my-0.5 ${dot ? 'border-red-600' : 'border-transparent'}`}>{_fmtT(m.t)||'—'}</span>
                                 {tg ? <span className="text-[9px] text-slate-500 truncate">{tg}</span> : null}
                               </div>); })}
-                          </div>); })}
+                          </div>); }); })()}
                         {(pl.walkers||[]).length ? <div><div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">徒歩</div>{(pl.walkers||[]).map(m => <div key={m.pid} data-tpfb={`${iso}_${sl}_${m.pid}`} className="flex items-center gap-1 text-[12px] py-0.5"><span className="truncate font-bold text-slate-800 shrink-0" style={{width:'7.2em'}}>{_pname(m.pid)}</span><span className={`shrink-0 font-bold text-slate-800 tabular-nums border-2 rounded px-1 -my-0.5 ${(m.mark||_dotOf(pl, iso, m.pid)) ? 'border-red-600' : 'border-transparent'}`}>{/\d/.test(String(m.t||''))?_fmtT(m.t):_classStart(sl)}</span></div>)}</div> : null}
                         {(pl.others||[]).length ? <div><div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">その他</div>{(pl.others||[]).map(m => <div key={m.pid} data-tpfb={`${iso}_${sl}_${m.pid}`} className="flex items-center gap-1 text-[12px] py-0.5"><span className={`truncate font-bold text-slate-800 border-2 rounded px-1 -my-0.5 ${(m.mark||_dotOf(pl, iso, m.pid)) ? 'border-red-600' : 'border-transparent'}`}>{_pname(m.pid)}</span>{m.why ? <span className="text-[10px] text-slate-500 shrink-0">（{m.why}）</span> : null}</div>)}</div> : null}
                         {(pl.un||[]).length ? <div className="text-[11px] text-amber-700 font-bold">未割当 {(pl.un||[]).map(m => _pname(m.pid)).join('・')}</div> : null}
