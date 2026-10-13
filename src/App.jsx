@@ -34991,7 +34991,9 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave, patien
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-3 gap-y-2">
               {localConfig.items.map((item, index) => (
                 <React.Fragment key={item.id}>
-                <div {...(() => { const rp = itemDnd.rowProps(index); return { ...rp, className: `flex items-start gap-2 border p-2.5 rounded-xl hover:shadow-md transition-shadow group ${item.visible === false ? 'bg-slate-100 border-slate-200 opacity-60' : 'bg-slate-50 border-slate-200'}` }; })()}>
+                <div {...(() => { const rp = itemDnd.rowProps(index); return { ...rp, className: `border p-2.5 rounded-xl hover:shadow-md transition-shadow group ${item.visible === false ? 'bg-slate-100 border-slate-200 opacity-60' : 'bg-slate-50 border-slate-200'}` }; })()}>
+                  {/* ★ 2026-10-13(ユーザー指摘「改行されている」): 「利用者ごとの値を設定」はカードの中に入れ、2列の並びを崩さない(開いたときだけ下に全幅で一覧) */}
+                  <div className="flex items-start gap-2">
                   <div className="text-slate-300 shrink-0 self-center" title="長押しでドラッグして並べ替え"><GripVertical size={18}/></div>
                   {/* 表示/非表示トグル */}
                   {/* ★ 2026-10-13(ユーザー指示): 「表示」の下に「利用者ごと ON/OFF」を縦に並べ、幅を固定(ONにしても右の欄が折れない) */}
@@ -35024,14 +35026,17 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave, patien
                     </div>
                   </div>
                   <button onClick={() => deleteItem(item.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg self-center"><Trash2 size={18}/></button>
-                </div>
-                {item.type !== 'linked' && item.perPatient && patients.length > 0 && (
-                  <div className="lg:col-span-2 ml-8 mb-1 -mt-1">
+                  </div>
+                  {item.type !== 'linked' && item.perPatient && patients.length > 0 && (<div className="mt-1.5 ml-8">
                     <button type="button" onClick={()=>{ setOpenPv(openPv===item.id ? null : item.id); setPvQ(''); }} className="text-xs font-bold text-violet-700 bg-violet-50 border border-violet-200 rounded-lg px-3 py-1.5 hover:bg-violet-100">
                       {openPv===item.id ? '▲ 利用者ごとの値を閉じる' : `▼ 利用者ごとの値を設定（${patients.filter(pt => ((pt.contactBookValues||{})[item.id] ?? '') !== '' || (pv[pt.id] && pv[pt.id][item.id] !== undefined && pv[pt.id][item.id] !== '')).length}名 設定済）`}
                     </button>
-                    {openPv===item.id && (
-                      <div className="mt-2 bg-violet-50 border border-violet-200 rounded-xl p-3">
+                  </div>)}
+                </div>
+                {item.type !== 'linked' && item.perPatient && patients.length > 0 && openPv===item.id && (
+                  <div className="lg:col-span-2">
+                    {true && (
+                      <div className="bg-violet-50 border border-violet-200 rounded-xl p-3">
                         <div className="flex items-center gap-2 mb-2"><input type="search" value={pvQ} onChange={e=>setPvQ(e.target.value)} placeholder="氏名で絞り込み" className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold outline-none flex-1"/><span className="text-[11px] text-slate-500">空欄＝共通の表示文字「{item.value || '—'}」</span></div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 max-h-72 overflow-y-auto pr-1">
                           {patients.filter(pt => tsuSearchHit(pvQ, pt.name, pt.kana)).map(pt => (
