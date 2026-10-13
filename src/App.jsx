@@ -34476,9 +34476,16 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
   const _cbV = (f) => { if (!record) return ''; if (_cbSlot) { const x = record[`${f}_${_cbSlot}`]; if (x != null && String(x) !== '') return x;
       const o = record[`${f}_${_cbSlot === 'AM' ? 'PM' : 'AM'}`]; const hasKeys = (x !== undefined) || (o !== undefined);
       if (hasKeys && !(o != null && String(o) !== '')) return ''; } return record[f] || ''; };
+  // ★ 2026-10-13(ユーザー再報告「直っていない」: 開始時 106/58 脈94・再測定 106/58 脈85 と、1回目の血圧が再測定行に混ざる):
+  //   「再」を押した時間帯(再検ログ bpRe の ampm)と、連絡帳が見る時間帯(_cbSlot=基本利用曜日/振替区分。1日利用の方は空=旧形式のまとめ値)が
+  //   違うと、再検で空にした欄ではなく もう一方の欄・まとめ値(1回目の値が残る)を読んでいた。
+  //   再検ログがある列(開始/終了)は、そのログと同じ時間帯の欄をそのまま(空なら空のまま)使う＝提供記録入力で「再1」の横に見えている値と一致させる。
+  const _cbReAm = (ph) => { const l = (Array.isArray(record?.bpRe) ? record.bpRe : []).filter(e => e && e.phase === ph); const ams = [...new Set(l.map(e => e.ampm).filter(Boolean))]; return ams.length === 1 ? ams[0] : (ams.includes(_cbSlot) ? _cbSlot : ''); };
+  const _cbVr = (f, am) => { if (!am || !record) return _cbV(f); const x = record[`${f}_${am}`]; return x === undefined ? _cbV(f) : (x == null ? '' : x); };
   const _cbBp = (() => {
-    const cur = { up: _cbV('bpUpSt'), dn: _cbV('bpDnSt'), pl: _cbV('plSt') };
-    const en = { up: _cbV('bpUpEn'), dn: _cbV('bpDnEn'), pl: _cbV('plEn') };
+    const _amSt = _cbReAm('St'), _amEn = _cbReAm('En');
+    const cur = { up: _cbVr('bpUpSt', _amSt), dn: _cbVr('bpDnSt', _amSt), pl: _cbVr('plSt', _amSt) };
+    const en = { up: _cbVr('bpUpEn', _amEn), dn: _cbVr('bpDnEn', _amEn), pl: _cbVr('plEn', _amEn) };
     if (_bpMode !== 'startOnly') return { row1: cur, row1Re: bpReHas(record, 'St'), label2: _bpMode === 'recheckStart' ? '再測定' : '終了時', row2: en, row2Re: _bpMode !== 'recheckStart' && bpReHas(record, 'En') };
     let st = (Array.isArray(record.bpRe) ? record.bpRe : []).filter(e => e && e.phase === 'St');
     const ams = [...new Set(st.map(e => e.ampm).filter(Boolean))];
@@ -34706,7 +34713,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
               {/* ★ 2026-09-11(iOS印刷調査): 行高はrem指定だと環境で解釈差が出るためpx固定 */}
               {/* ★ 2026-09-30(不具合修正・印刷のずれ): 1行目と2行目を同じ列幅のグリッドにそろえる(従来は文字の空白で位置を合わせており、
                   1行目が約20px右へずれ、脈拍が枠からはみ出していた)。列=体温｜余白｜開始時/終了時｜血圧｜脈拍｜値 */}
-              {[1, 2].map(rowNo => { const _r = rowNo === 1 ? _cbBp.row1 : _cbBp.row2; const _re = rowNo === 1 ? _cbBp.row1Re : _cbBp.row2Re; if (rowNo === 1 && typeof window !== 'undefined') { try { window.__tsuCbBp = window.__tsuCbBp || {}; window.__tsuCbBp[String(patient?.id)] = { up: _r.up, dn: _r.dn, pl: _r.pl }; } catch {} } return (
+              {[1, 2].map(rowNo => { const _r = rowNo === 1 ? _cbBp.row1 : _cbBp.row2; const _re = rowNo === 1 ? _cbBp.row1Re : _cbBp.row2Re; if (rowNo === 1 && typeof window !== 'undefined') { try { window.__tsuCbBp = window.__tsuCbBp || {}; window.__tsuCbBp[String(patient?.id)] = { up: _r.up, dn: _r.dn, pl: _r.pl, r2: _cbBp.row2 }; } catch {} } return (
               <tr key={rowNo} className={rowNo === 1 ? 'border-b border-black' : ''} style={{height:58}}>
                 <td className="p-0" colSpan={2}>
                   <div data-testid={`cb-vitals-row${rowNo}`} className="h-full px-3" style={{display:'grid', gridTemplateColumns:'136px minmax(4px,1fr) 106px 165px 54px 50px', alignItems:'center', columnGap:0}}>
