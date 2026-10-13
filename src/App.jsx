@@ -30548,6 +30548,16 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
   //   行数が多いときは文字を小さく(定員15名=16行×2表でも収まる)
   const printFs = rows <= 11 ? 10 : 9; // 2列表示(定員11名以上)なら行数が半分になるので9pt
   const scrRowH = rows > 13 ? 21 : 24;
+  // ★ 2026-10-13(ユーザー指摘「ダウンロードで11人目が潰れる・氏名の幅が午前と午後で違う・氏名と介護度が離れている」):
+  //   印刷は表を用紙いっぱいに伸ばす(height:100%)のをやめ、行の高さと氏名の列幅を計算して午前・午後で同じ値にする。
+  //   名前の行は均等(空の行が潰れない)。氏名の列は一番長い名前に合わせた幅(介護度が隣に来る)。
+  const _prTwo = rows > 11, _prPer = _prTwo ? Math.ceil(rows / 2) : rows;
+  const _prHdr = Math.ceil(printFs * 1.3) + 6, _prWait = Math.ceil((printFs - 1) * 1.25 * 2) + 6, _prFree = Math.ceil(printFs * 1.3) + 6;
+  const _prBodyH = 741 - 22 - 10; // 210mm − 余白7mm×2 ≒ 741px − 題名 − 表の間
+  const _prRowH = Math.max(14, Math.min(30, Math.floor((_prBodyH - 3 * _prHdr - 2 * (_prWait + _prFree)) / (2 * _prPer))));
+  const _prNameEm = Math.max(5, ...pats.map(p => String(p.name || '').length + (isPaused(p) ? 1.6 : 0)));
+  const _prCareW = _prTwo ? 30 : 36;
+  const _prNameW = Math.min(Math.max(48, Math.ceil(_prNameEm * printFs * 1.08) + 8), Math.floor((1055 - 16) / (_crAllDays.length * (_prTwo ? 2 : 1))) - _prCareW);
   const B = '1px solid #cbd5e1', BH = '1px solid #94a3b8';
   // ★ 2026-10-03: コンポーネントではなく「描画関数」にする(コンポーネントにすると親の再描画のたびに別物として作り直され、
   //   待ちの入力欄が1文字ごとに作り直されて日本語入力が1文字で確定してしまった)
@@ -30555,7 +30565,7 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
     const days = (!print && _crPhone) ? [_crDay] : _crAllDays; // スマホの画面は選んだ曜日だけ
     // ★ 2026-10-08(ユーザー要望: スマホで名前と介護度の間が空きすぎ・文字を大きく): スマホの1日表示は文字16px・行32px・氏名列は名前に合う幅(表全体を左に寄せる)
     const _ph = !print && _crPhone;
-    const fs = print ? printFs : (_ph ? 16 : 12), rh = print ? undefined : (_ph ? 32 : scrRowH);
+    const fs = print ? printFs : (_ph ? 16 : 12), rh = print ? _prRowH : (_ph ? 32 : scrRowH);
     const grip = !print; // 画面だけ: 並べ替え用のつまみ列(NO列は廃止・2026-10-03 ユーザー指示)
     // ★ 2026-10-04(ユーザー指示「15人定員だと下が詰まる。名前の右に余白があるので2列に」): 定員11名以上は各曜日を左右2列(例: 8+8)。曜日の境目は太線
     const twoCol = rows > 11;
@@ -30580,18 +30590,18 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
         </React.Fragment>);
     };
     return (
-    <table style={{ borderCollapse: 'collapse', width: print ? '100%' : 'auto', height: print ? '100%' : undefined, tableLayout: 'fixed', fontSize: fs, lineHeight: 1.1 }} data-testid={print ? undefined : `cr-${sl.toLowerCase()}`}>
-      <colgroup><col style={{ width: print ? 16 : 22 }} />{days.map(d => <React.Fragment key={d}>{Array.from({ length: twoCol ? 2 : 1 }).map((_, c) => <React.Fragment key={c}>{grip && <col style={{ width: 16 }} />}<col style={print ? undefined : { width: _ph ? (twoCol ? 120 : 170) : (twoCol ? 108 : 128) }} /><col style={{ width: print ? (twoCol ? 32 : 42) : (_ph ? 56 : 48) }} /></React.Fragment>)}</React.Fragment>)}</colgroup>
+    <table style={{ borderCollapse: 'collapse', width: 'auto', tableLayout: 'fixed', fontSize: fs, lineHeight: 1.1 }} data-testid={print ? undefined : `cr-${sl.toLowerCase()}`}>
+      <colgroup><col style={{ width: print ? 16 : 22 }} />{days.map(d => <React.Fragment key={d}>{Array.from({ length: twoCol ? 2 : 1 }).map((_, c) => <React.Fragment key={c}>{grip && <col style={{ width: 16 }} />}<col style={{ width: print ? _prNameW : (_ph ? (twoCol ? 120 : 170) : (twoCol ? 108 : 128)) }} /><col style={{ width: print ? _prCareW : (_ph ? 56 : 48) }} /></React.Fragment>)}</React.Fragment>)}</colgroup>
       <tbody>{/* 左端の「午前/午後」は rowSpan で全行をまたぐため見出し行も tbody(thead→tbody をまたぐ rowSpan は効かない) */}
         {/* ★ 2026-10-13(ユーザー指示): 曜日の見出しは午前だけ。午後は左端の「午後」と氏名・介護度の見出しを同じ行に(列幅は午前と同じなので揃う) */}
         {sl === 'AM' ? (<>
-        <tr style={{ height: rh }}>
+        <tr style={{ height: print ? _prHdr : rh }}>
           <th rowSpan={per + (sl === 'AM' ? 4 : 3)} style={{ border: BH, background: sl === 'AM' ? '#fef3c7' : '#e0e7ff', color: sl === 'AM' ? '#92400e' : '#3730a3', fontWeight: 'bold', writingMode: 'vertical-rl', letterSpacing: 4, fontSize: print ? 11 : 13 }}>{label}</th>
           {days.map(d => <th key={d} colSpan={cols} style={{ border: BH, borderLeft: DB, background: '#1e293b', color: 'white', fontWeight: 'bold', padding: 0 }}>{DOWJ[d]}曜日</th>)}
         </tr>
-        <tr style={{ height: rh }}>{days.map(d => <React.Fragment key={d}>{Array.from({ length: twoCol ? 2 : 1 }).map((_, c) => <React.Fragment key={c}>{grip && <th style={{ border: B, ...(c === 0 ? { borderLeft: DB } : { borderLeft: '1px solid #94a3b8' }), background: '#f1f5f9' }}></th>}<th style={{ border: B, ...(!grip && c === 0 ? { borderLeft: DB } : {}), ...(c === 1 && !grip ? { borderLeft: '1px solid #94a3b8' } : {}), background: '#f1f5f9', color: '#475569', fontWeight: 'bold', whiteSpace: 'nowrap' }}>氏名</th><th style={{ border: B, background: '#f1f5f9', color: '#475569', fontWeight: 'bold', whiteSpace: 'nowrap' }}>介護度</th></React.Fragment>)}</React.Fragment>)}</tr>
+        <tr style={{ height: print ? _prHdr : rh }}>{days.map(d => <React.Fragment key={d}>{Array.from({ length: twoCol ? 2 : 1 }).map((_, c) => <React.Fragment key={c}>{grip && <th style={{ border: B, ...(c === 0 ? { borderLeft: DB } : { borderLeft: '1px solid #94a3b8' }), background: '#f1f5f9' }}></th>}<th style={{ border: B, ...(!grip && c === 0 ? { borderLeft: DB } : {}), ...(c === 1 && !grip ? { borderLeft: '1px solid #94a3b8' } : {}), background: '#f1f5f9', color: '#475569', fontWeight: 'bold', whiteSpace: 'nowrap' }}>氏名</th><th style={{ border: B, background: '#f1f5f9', color: '#475569', fontWeight: 'bold', whiteSpace: 'nowrap' }}>介護度</th></React.Fragment>)}</React.Fragment>)}</tr>
         </>) : (
-        <tr style={{ height: rh }}>
+        <tr style={{ height: print ? _prHdr : rh }}>
           <th rowSpan={per + (sl === 'AM' ? 4 : 3)} style={{ border: BH, background: sl === 'AM' ? '#fef3c7' : '#e0e7ff', color: sl === 'AM' ? '#92400e' : '#3730a3', fontWeight: 'bold', writingMode: 'vertical-rl', letterSpacing: 4, fontSize: print ? 11 : 13 }}>{label}</th>
           {days.map(d => <React.Fragment key={d}>{Array.from({ length: twoCol ? 2 : 1 }).map((_, c) => <React.Fragment key={c}>{grip && <th style={{ border: B, ...(c === 0 ? { borderLeft: DB } : { borderLeft: '1px solid #94a3b8' }), background: '#f1f5f9' }}></th>}<th style={{ border: B, ...(!grip && c === 0 ? { borderLeft: DB } : {}), ...(c === 1 && !grip ? { borderLeft: '1px solid #94a3b8' } : {}), background: '#f1f5f9', color: '#475569', fontWeight: 'bold', whiteSpace: 'nowrap' }}>氏名</th><th style={{ border: B, background: '#f1f5f9', color: '#475569', fontWeight: 'bold', whiteSpace: 'nowrap' }}>介護度</th></React.Fragment>)}</React.Fragment>)}</tr>
         )}
@@ -30604,7 +30614,7 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
               </React.Fragment>); })}
           </tr>
         ))}
-        <tr style={{ height: print ? Math.ceil((fs - 1) * 1.25 * 2) + 6 : 34 }}>{/* ★ 2026-10-13: 印刷は待ちを2行分の高さに固定(名前の行が潰れないように) */}
+        <tr style={{ height: print ? _prWait : 34 }}>{/* ★ 2026-10-13: 印刷は待ちを2行分の高さに固定(名前の行が潰れないように) */}
           {days.map(d => { const k = `${d}_${sl}`; const v = waitDraft[k] != null ? waitDraft[k] : (wait[k] || ''); return (
             <td key={d} colSpan={cols} style={{ border: B, borderLeft: DB, padding: '1px 3px', verticalAlign: 'top', background: '#f8fafc' }}>
               <div style={{ display: 'flex', gap: 3, alignItems: 'flex-start' }}>
@@ -30655,8 +30665,9 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
         <style>{`@page{size:A4 landscape;margin:0}`}</style>
         <div style={{ width: '297mm', height: '210mm', boxSizing: 'border-box', background: 'white', overflow: 'hidden' }}>
           <div style={{ padding: '7mm 9mm', boxSizing: 'border-box', height: '100%', display: 'flex', flexDirection: 'column', gap: 6, fontFamily: '"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","メイリオ",Meiryo,sans-serif', color: '#1e293b' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}><span style={{ fontSize: 13, fontWeight: 'bold' }}>クラス在籍表　<span style={{ fontSize: 10, fontWeight: 'normal', color: '#475569' }}>定員 {cap}名（＋予備1枠）　<CrPauseMark />＝休止中</span></span><span style={{ fontSize: 10, color: '#475569' }}>{String(fi.name || '')}　{todayIso.replace(/-/g, '/')} 現在</span></div>
-            <div style={{ flex: '1 1 0', minHeight: 0 }}>{renderBlock('AM', '午前', true)}</div><div style={{ flex: '1 1 0', minHeight: 0 }}>{renderBlock('PM', '午後', true)}</div>
+            {/* ★ 2026-10-13(ユーザー指示): 題名は中央。定員・休止の印は左、事業所名と日付は右 */}
+            <div style={{ position: 'relative', textAlign: 'center', height: 18, flex: 'none' }}><span style={{ position: 'absolute', left: 0, top: 2, fontSize: 10, color: '#475569' }}>定員 {cap}名（＋予備1枠）　<CrPauseMark />＝休止中</span><span style={{ fontSize: 14, fontWeight: 'bold', letterSpacing: 4 }}>クラス在籍表</span><span style={{ position: 'absolute', right: 0, top: 2, fontSize: 10, color: '#475569' }}>{String(fi.name || '')}　{todayIso.replace(/-/g, '/')} 現在</span></div>
+            <div style={{ flex: 'none' }}>{renderBlock('AM', '午前', true)}</div><div style={{ flex: 'none' }}>{renderBlock('PM', '午後', true)}</div>
           </div>
         </div>
       </div>
@@ -36763,7 +36774,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           {/* ★ 週の完成確定(2026-09-28): 確定後の変更は赤丸で自動表示 */}
           {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return (
             <button onClick={() => fa ? setFinalMenu(v => !v) : finalizeWeek()} data-testid="tp-finalize" className={`${_tpPhone ? 'hidden ' : ''}px-2.5 py-2 rounded-xl font-bold text-xs border whitespace-nowrap ${fa?'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100':'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`} title={fa?`確定 ${_fmtStamp(fa)}。押すと今の内容で確定を更新(赤丸は付け直し)`:'この週の送迎表を「確定」として確定。以後に変えた箇所に自動で赤丸が付きます'}>
-              {fa ? <>確定済<span className="ml-1 font-normal text-[11px]">（{_fmtStamp(fa)}）</span>{tot ? <span className="ml-1 bg-red-600 text-white rounded px-1" data-testid="tp-chg-badge">変更{tot}</span> : null}<span className="ml-1 text-[9px]">▼</span></> : '確定'}
+              {fa ? <>確定済<span className="ml-1 font-normal text-[11px]">（{_fmtStamp(fa)}）</span><span className="ml-1 text-[9px]">▼</span></> : '確定'}
             </button>
           ); })()}
           {/* ★ 2026-10-13(ユーザー提案): 変更内容は確定済みメニューとは別の専用ボタンから(全体・曜日・午前午後で絞り込み) */}

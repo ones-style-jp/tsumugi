@@ -447,3 +447,7 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
   /* 送迎時の連絡先など、長い選択肢は折り返さず欄に収める */
   .master-detail-content select { max-width: 100%; text-overflow: ellipsis; }
 }
+
+/* ★ 2026-10-13(ユーザー要望「サイドバーがあると設定・ダウンロードが2行目に落ちて左に寄る」):
+   右寄せのための空白(flex-1 の空の div)や ml-auto を持つ折返しバーは、2行目以降も右寄せにする(1行目は空白が伸びるので従来どおり) */
+.flex.flex-wrap:has(> .flex-1:empty), .flex.flex-wrap:has(> .ml-auto) { justify-content: flex-end; }
