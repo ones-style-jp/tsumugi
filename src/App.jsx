@@ -30631,7 +30631,7 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
         <tr style={{ height: rh }}>
           {days.map(d => { const k = `${d}_${sl}`; const n = members(d, sl).length; const free = cap - n; return (
             <td key={d} colSpan={cols} style={{ border: BH, borderLeft: DB, textAlign: 'center', fontWeight: 'bold', background: free > 0 ? '#ecfdf5' : free < 0 ? '#fef2f2' : '#f8fafc', color: free > 0 ? '#047857' : free < 0 ? '#b91c1c' : '#334155', padding: 0 }} data-testid={print ? undefined : `cr-free-${k}`}>
-              <span style={{ color: '#334155', fontWeight: 'normal' }}>{n}／{cap}名</span><span style={{ marginLeft: 8 }}>空き {Math.max(0, free)}名{free < 0 ? `（定員超過 ${-free}）` : ''}</span>
+              <span style={{ whiteSpace: 'nowrap' }}><span style={{ color: '#334155', fontWeight: 'normal' }}>{n}／{cap}名</span><span style={{ marginLeft: 8 }}>{free < 0 ? `超過 ${-free}名` : `空き ${free}名`}</span></span>
               {!print && custom[k] && <button type="button" onClick={() => resetOrder(k)} title="手動の並び替えをやめて介護度→NO順に戻す" style={{ marginLeft: 8, fontSize: 10, fontWeight: 'normal', color: '#2563eb', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer' }}>並び順を戻す</button>}
             </td>); })}
         </tr>
@@ -34988,7 +34988,7 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave, patien
             <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-1">表示項目リスト</h3>
             {/* ★ 2026-10-13(ユーザー要望): 連絡帳と同じ配置(左右2列・上から順)で編集する。非表示の項目は連絡帳では詰めて並ぶ */}
             <p className="text-xs text-slate-400 mb-3">{itemDnd.hint}　連絡帳と同じ並び（左→右、上→下）です。「表示」を外した項目は連絡帳では詰めて並びます。</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3 gap-y-2">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-3 gap-y-2">
               {localConfig.items.map((item, index) => (
                 <React.Fragment key={item.id}>
                 <div {...(() => { const rp = itemDnd.rowProps(index); return { ...rp, className: `flex items-start gap-2 border p-2.5 rounded-xl hover:shadow-md transition-shadow group ${item.visible === false ? 'bg-slate-100 border-slate-200 opacity-60' : 'bg-slate-50 border-slate-200'}` }; })()}>
@@ -35026,7 +35026,7 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave, patien
                   <button onClick={() => deleteItem(item.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg self-center"><Trash2 size={18}/></button>
                 </div>
                 {item.type !== 'linked' && item.perPatient && patients.length > 0 && (
-                  <div className="md:col-span-2 ml-8 mb-1 -mt-1">
+                  <div className="lg:col-span-2 ml-8 mb-1 -mt-1">
                     <button type="button" onClick={()=>{ setOpenPv(openPv===item.id ? null : item.id); setPvQ(''); }} className="text-xs font-bold text-violet-700 bg-violet-50 border border-violet-200 rounded-lg px-3 py-1.5 hover:bg-violet-100">
                       {openPv===item.id ? '▲ 利用者ごとの値を閉じる' : `▼ 利用者ごとの値を設定（${patients.filter(pt => ((pt.contactBookValues||{})[item.id] ?? '') !== '' || (pv[pt.id] && pv[pt.id][item.id] !== undefined && pv[pt.id][item.id] !== '')).length}名 設定済）`}
                     </button>
