@@ -33637,7 +33637,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         + `<div style="width:182mm;height:257mm;transform:scale(${scale});transform-origin:top left;">${h || ''}</div>`
         + `</div>`
         + (guidePunch ? (punchTop
-            ? `<div style="position:absolute;top:7mm;left:50%;transform:translateX(-50%);font-size:3.4mm;line-height:1;color:#333;">▼</div>` /* ★ 上綴じは各面の上中央に1つ(2026-09-25 ユーザー指示)。★ 2026-10-01(店舗報告: プレビューでは出るが印刷で消える): 用紙の端から2mmはプリンタの印字できない範囲のため7mmへ(中身は14mmから) */
+            ? `<div style="position:absolute;top:7mm;left:50%;transform:translateX(-50%);font-size:3.4mm;line-height:1;color:#333;">▲</div>` /* ★ 2026-10-14(ユーザー指示): 穴の方(上)を向く */ /* ★ 上綴じは各面の上中央に1つ(2026-09-25 ユーザー指示)。★ 2026-10-01(店舗報告: プレビューでは出るが印刷で消える): 用紙の端から2mmはプリンタの印字できない範囲のため7mmへ(中身は14mmから) */
             : `<div style="position:absolute;left:7mm;top:50%;transform:translateY(-50%);font-size:3.4mm;line-height:1;color:#333;">◀</div>`) : '')
         + `</div>`;
       const pages = [];
@@ -35685,6 +35685,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const setTime = (iso, sl, pid, val) => mutate(iso, sl, (pl) => {
     Object.keys(pl.cars||{}).forEach(cid => (pl.cars[cid]||[]).forEach(m => { if (m.pid === pid) m.t = val; }));
     (pl.un||[]).forEach(m => { if (m.pid === pid) m.t = val; });
+    // ★ 2026-10-14(ユーザー指示「入力画面・印刷・スマホで順番が違う。統一して」): 時間を入れたら、その車の乗る順を時間順に並べ直す
+    //   (時間が無い方は後ろに、元の順のまま)。入力画面・運行表・スマホの1日リストが同じ順になる
+    Object.keys(pl.cars||{}).forEach(cid => { const arr = pl.cars[cid]; if (!Array.isArray(arr) || !arr.some(m => m.pid === pid)) return;
+      const key = (m, i) => [_tMin(m.t) >= 99998 ? 1 : 0, _tMin(m.t), i];
+      pl.cars[cid] = arr.map((m, i) => ({ m, k: key(m, i) })).sort((a, b) => a.k[0] - b.k[0] || a.k[1] - b.k[1] || a.k[2] - b.k[2]).map(x => x.m); });
   });
   // ★ 2026-10-01(試験版・ユーザー要望「徒歩にしたら自動で開始時間に・あとから編集も可能」): 徒歩の時間は保存値「徒歩」=クラスの開始時刻(各種設定の提供時間)を表示。
   //   1人ずつ時刻を入れて変えられる。空にして欄から離れると「徒歩」(=開始時刻)に戻る。徒歩から車へ移すと時刻は空(乗車時間は別に決める)。
