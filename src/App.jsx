@@ -25691,7 +25691,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           <div className="basis-full sm:hidden" />
           <button onClick={()=>{ handleSaveClick(); navigateTo('print'); }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap" title="連絡帳の作成・印刷へ"><Printer size={13} className="mr-1"/>連絡帳</button>
           <button onClick={closeFullscreen} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap">通常表示に戻る</button>
-          <button onClick={()=>setRestoreModal(true)} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap" title="保存した記録を丸ごと復元">⟲ 元に戻す</button>
+          <button onClick={()=>setRestoreModal(true)} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap" title="保存した記録を丸ごと復元">元に戻す</button>
           <button onClick={()=>handleSaveClick(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap"><CloudUpload size={13} className="mr-1"/>保存</button>
         </div>
       )}
@@ -26471,7 +26471,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       className="w-full text-left px-4 py-3 rounded-xl border border-slate-200 hover:bg-blue-50 hover:border-blue-300 mb-2 flex items-start justify-between gap-2 active:scale-[0.99]">
                       <div className="min-w-0"><div className="font-bold text-slate-700 text-sm">{_fmtT(s.t)}{i===0 && <span className="ml-2 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">最新</span>}</div>
                         {/* ★ 主役は「この時点に戻すと何が残るか」。 データ内容の項目別サマリを大きく出す */}
-                        <div className="text-[12px] font-bold mt-0.5" style={{color:'#047857'}}>⟲ 戻した後の内容: {_snapSum(s.recs)}</div>
+                        <div className="text-[12px] font-bold mt-0.5" style={{color:'#047857'}}>戻した後の内容: {_snapSum(s.recs)}</div>
                         <div className="text-[11px] text-slate-500 leading-snug mt-0.5" style={{display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>✎ この保存での変更: {chgLabel}</div>
                         <div className="text-[11px] text-slate-400 mt-0.5">入力あり {_cntData(s.recs)}名 / {(s.recs||[]).length}件</div></div>
                       <span className="text-xs font-bold text-blue-600 shrink-0">戻す →</span>
