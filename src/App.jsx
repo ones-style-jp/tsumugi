@@ -34486,7 +34486,12 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
       return (s === 'AM' || s === 'PM') ? s : '';
     } catch { return ''; }
   })();
-  const _cbV = (f) => { if (!record) return ''; if (_cbSlot) { const x = record[`${f}_${_cbSlot}`]; if (x != null && String(x) !== '') return x; } return record[f] || ''; };
+  // ★ 2026-10-13(ユーザー報告「再検で血圧を空にして脈だけ入れると、連絡帳に1回目の血圧が出る」): AM/PM つきの欄がその記録に「ある」なら、空でもその値(空)を使う。
+  //   旧形式の欄(record.bpUpSt 等)へ戻るのは、AM/PM つきの欄がそもそも無い古い記録だけ(旧形式の欄には1回目の値が残っていることがあるため)
+  //   例外: もう一方(AM/PM)の欄に値があるときは従来どおり旧形式の欄(＝その値)を使う(AM/PMを取り違えて入力した記録を空にしない)
+  const _cbV = (f) => { if (!record) return ''; if (_cbSlot) { const x = record[`${f}_${_cbSlot}`]; if (x != null && String(x) !== '') return x;
+      const o = record[`${f}_${_cbSlot === 'AM' ? 'PM' : 'AM'}`]; const hasKeys = (x !== undefined) || (o !== undefined);
+      if (hasKeys && !(o != null && String(o) !== '')) return ''; } return record[f] || ''; };
   const _cbBp = (() => {
     const cur = { up: _cbV('bpUpSt'), dn: _cbV('bpDnSt'), pl: _cbV('plSt') };
     const en = { up: _cbV('bpUpEn'), dn: _cbV('bpDnEn'), pl: _cbV('plEn') };
@@ -34717,7 +34722,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
               {/* ★ 2026-09-11(iOS印刷調査): 行高はrem指定だと環境で解釈差が出るためpx固定 */}
               {/* ★ 2026-09-30(不具合修正・印刷のずれ): 1行目と2行目を同じ列幅のグリッドにそろえる(従来は文字の空白で位置を合わせており、
                   1行目が約20px右へずれ、脈拍が枠からはみ出していた)。列=体温｜余白｜開始時/終了時｜血圧｜脈拍｜値 */}
-              {[1, 2].map(rowNo => { const _r = rowNo === 1 ? _cbBp.row1 : _cbBp.row2; const _re = rowNo === 1 ? _cbBp.row1Re : _cbBp.row2Re; return (
+              {[1, 2].map(rowNo => { const _r = rowNo === 1 ? _cbBp.row1 : _cbBp.row2; const _re = rowNo === 1 ? _cbBp.row1Re : _cbBp.row2Re; if (rowNo === 1 && typeof window !== 'undefined') { try { window.__tsuCbBp = window.__tsuCbBp || {}; window.__tsuCbBp[String(patient?.id)] = { up: _r.up, dn: _r.dn, pl: _r.pl }; } catch {} } return (
               <tr key={rowNo} className={rowNo === 1 ? 'border-b border-black' : ''} style={{height:58}}>
                 <td className="p-0" colSpan={2}>
                   <div data-testid={`cb-vitals-row${rowNo}`} className="h-full px-3" style={{display:'grid', gridTemplateColumns:'136px minmax(4px,1fr) 106px 165px 54px 50px', alignItems:'center', columnGap:0}}>
@@ -40492,7 +40497,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               </div>
             )}
           </div></div>
-        </>) : (<div className="flex h-full items-center justify-center text-slate-400 font-bold">左から利用者を選択してください</div>)}
+        </>) : (<div className="hidden md:flex h-full items-center justify-center text-slate-400 font-bold">左から利用者を選択してください</div>)}
       </div>
       <DigitalKeypad isOpen={keypad.isOpen} anchorKey={`${keypad.recordId}-${keypad.field}`} value={keypad.value} isFirstInput={keypad.isFirstInput} mode={keypad.mode}
         unitSep={(()=>{ const _src = keypad.field==='individualDefault' ? (appData.systemSettings?.individualExerciseItems||[]) : (effExerciseItems(appData.systemSettings)); const _it=_src.find(e => e.id === keypad.exerciseId); return (_it&&_it.unitSep)||''; })()}
