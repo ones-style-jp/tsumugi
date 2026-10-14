@@ -43268,6 +43268,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
     { id: 'diary', label: '日誌' },
     { id: 'fitness', label: '体力測定' },
     { id: 'kibun', label: '気分の理由' },
+    { id: 'keikaku', label: '計画書' },
     { id: 'addon', label: 'アドオン' },
     { id: 'system', label: 'システム' },
   ];
@@ -43402,6 +43403,17 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
         <div className={`${activeTab === 'cm' ? 'max-w-6xl' : 'max-w-4xl'} mx-auto space-y-6 pb-6`}>
 
           {/* 気分の理由 (カスタマイズ) */}
+          {/* ★ 2026-10-14(ユーザー要望): 個別機能訓練計画書(3-3)の定型文を店舗ごとに編集(1行=1つ)。空にすると既定に戻る */}
+          {activeTab === 'keikaku' && (
+            <SectionCard title="個別機能訓練計画書（様式3-3）の定型文">
+              <p className="text-xs text-slate-500 mb-3">計画書の各欄で「定型文から ▼」やチェックで選べる文言です。1行に1つ。空にすると標準の文言に戻ります。保存すると全端末に反映されます。</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {[['ryui','機能訓練実施上の留意事項（チェックで複数選択）'],['goalKinou','目標（機能）'],['goalKatsudo','目標（活動）'],['goalSanka','目標（参加）'],['progContent','プログラム内容'],['progPoint','プログラムの留意点'],['henka','実施による変化'],['kadai','課題とその要因']].map(([k,lb]) => { const cur = kkPresetsOf(ss)[k]; return (
+                  <div key={k}><label className="block text-xs font-bold text-slate-600 mb-1">{lb} <span className="font-normal text-slate-400">（{cur.length}件）</span></label>
+                    <textarea key={`${k}-${(ss.kkPresets&&ss.kkPresets[k]) ? 'c' : 'd'}`} defaultValue={cur.join('\n')} rows={6} onBlur={e => { const lines = e.target.value.split('\n').map(x=>x.trim()).filter(Boolean); const prev = (ss.kkPresets||{})[k]; const same = JSON.stringify(lines) === JSON.stringify(prev || KK_PRESETS_DEFAULT[k]); if (same) return; saveSS({ kkPresets: { ...(ss.kkPresets||{}), [k]: lines.length ? lines : undefined } }, `✓ 定型文（${lb}）を保存しました`); }} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm outline-none" /></div>); })}
+              </div>
+            </SectionCard>
+          )}
           {activeTab === 'kibun' && (
             <SectionCard title="気分の理由（カスタマイズ）">
               <div className="flex items-start justify-between gap-2 mb-3">
@@ -43494,11 +43506,11 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                 <div className="border border-cyan-200 bg-cyan-50/50 rounded-xl p-3">
                   <div className="text-sm font-bold text-cyan-800 mb-2">LIFE連携（科学的介護）用の情報</div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div><label className="block text-xs font-bold text-slate-600 mb-1">介護保険事業所番号（10桁）</label><ImeSafeInput type="text" inputMode="numeric" value={facilityInfo.officeNumber || ""} onChange={e => setFacilityInfo({...facilityInfo, officeNumber: e.target.value.replace(/[^0-9]/g,'').slice(0,10)})} placeholder="例: 1370200001" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
+                    <div><label className="block text-xs font-bold text-slate-600 mb-1">介護保険事業所番号（10桁） <span className="font-normal text-slate-400">（「事業所情報」タブで入力）</span></label><div className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl font-bold text-sm text-slate-700">{facilityInfo.officeNumber || <span className="text-red-500">未設定</span>}</div></div>
                     <div><label className="block text-xs font-bold text-slate-600 mb-1">保険者番号（6桁・利用者共通の既定）</label><ImeSafeInput type="text" inputMode="numeric" value={facilityInfo.insurerNo || ""} onChange={e => setFacilityInfo({...facilityInfo, insurerNo: e.target.value.replace(/[^0-9]/g,'').slice(0,6)})} placeholder="市区町村により異なる" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                     <div><label className="block text-xs font-bold text-slate-600 mb-1">サービス種類コード</label><ImeSafeInput type="text" inputMode="numeric" value={facilityInfo.serviceCode || ""} onChange={e => setFacilityInfo({...facilityInfo, serviceCode: e.target.value.replace(/[^0-9]/g,'').slice(0,2)})} placeholder="通所介護=78" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                     {/* ★ 2026-10-14(扇橋): 要介護(通所介護=139…/78)と要支援・事業対象者(総合事業=13A…/A6・A7)で事業所番号・サービス種類が別。利用者の介護度で自動的に切り替えて出力する */}
-                    <div><label className="block text-xs font-bold text-slate-600 mb-1">総合事業用の事業所番号 <span className="font-normal text-slate-400">（要支援・事業対象者の方に使う。例: 13A0800386。無ければ空欄）</span></label><ImeSafeInput type="text" value={facilityInfo.officeNumber2 || ""} onChange={e => setFacilityInfo({...facilityInfo, officeNumber2: e.target.value.toUpperCase().replace(/[^0-9A-Z]/g,'').slice(0,10)})} placeholder="例: 13A0800386" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
+                    <div><label className="block text-xs font-bold text-slate-600 mb-1">総合事業の事業所番号 <span className="font-normal text-slate-400">（「事業所情報」タブで入力）</span></label><div className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl font-bold text-sm text-slate-700">{facilityInfo.officeNumber2 || <span className="text-slate-400">（なし）</span>}</div></div>
                     <div><label className="block text-xs font-bold text-slate-600 mb-1">総合事業用のサービス種類コード <span className="font-normal text-slate-400">（例: A6＝通所型独自、A7＝通所型独自/定率）</span></label><ImeSafeInput type="text" value={facilityInfo.serviceCode2 || ""} onChange={e => setFacilityInfo({...facilityInfo, serviceCode2: e.target.value.toUpperCase().replace(/[^0-9A-Z]/g,'').slice(0,2)})} placeholder="例: A7" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                     <div><label className="block text-xs font-bold text-slate-600 mb-1">CSVバージョン</label><input type="text" value={facilityInfo.lifeCsvVersion || ""} onChange={e => setFacilityInfo({...facilityInfo, lifeCsvVersion: e.target.value.trim()})} placeholder="0310（3.10版の固定値・空欄なら0310）" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                     <div><label className="block text-xs font-bold text-slate-600 mb-1">リハ・個別機能／栄養／口腔の一体的取組 <span className="font-normal text-slate-400">（生活機能チェック・個別機能訓練のCSV必須項目）</span></label>
@@ -43539,6 +43551,11 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
             <SectionCard title="事業所情報">
               {/* ★ 縦並びレイアウトに変更 (項目ごとに行を分けて見やすく) */}
               <div className="space-y-4">
+                {/* ★ 2026-10-14(ユーザー指示): 事業所番号はLIFE専用ではない(請求等でも使う)ので事業所情報に入力欄を置く(保存先は従来どおり facilityInfo.officeNumber/officeNumber2) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div><label className="block text-sm font-bold text-slate-600 mb-1.5">介護保険事業所番号（10桁）</label><ImeSafeInput type="text" inputMode="numeric" value={facilityInfo.officeNumber || ""} onChange={e => setFacilityInfo({...facilityInfo, officeNumber: e.target.value.replace(/[^0-9]/g,'').slice(0,10)})} placeholder="例: 1390800348" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
+                  <div><label className="block text-sm font-bold text-slate-600 mb-1.5">総合事業の事業所番号 <span className="text-[10px] font-normal text-slate-400">（要支援・事業対象者の方に使う番号。無ければ空欄）</span></label><ImeSafeInput type="text" value={facilityInfo.officeNumber2 || ""} onChange={e => setFacilityInfo({...facilityInfo, officeNumber2: e.target.value.toUpperCase().replace(/[^0-9A-Z]/g,'').slice(0,10)})} placeholder="例: 13A0800386" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
+                </div>
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">事業所名</label><input type="text" value={facilityInfo.name} onChange={e => setFacilityInfo({...facilityInfo, name: e.target.value})} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                 {/* ★ 管理者名: スタッフ切替/日誌の「管理者」と自動連動(表示のみ・ここでは編集不可)。
                     初回に管理者を登録すると自動で反映される。 変更はスタッフ切替/日誌の管理者を変更する。 */}
@@ -47318,15 +47335,51 @@ function KKDateField({ label, value, onChange, ph }) {
 }
 // 計画書フォーム用の入力フィールド (モジュールレベルで定義し、入力中のフォーカス喪失を防ぐ)
 // ★ 定型文チップ(suggestions)は2026-08-16に全廃(ユーザー判断: 画面がうるさく不要)。
-function KKField({ label, value, onChange, rows, ph, max }) {
+// ★ 2026-10-14(ユーザー要望): 個別機能訓練計画書(3-3)の各欄に「定型文」を用意(各種設定→計画書で店舗ごとに編集可)。文言はつむぎで書き起こし
+const KK_PRESETS_DEFAULT = {
+  ryui: ['血圧・脈拍を確認してから開始する','転倒に注意し見守りの下で行う','痛みが出たら中止する','中腰・前かがみの姿勢は避ける','息を止めずに行う','立ち上がり時はふらつきに注意','水分補給をこまめに行う','疲労の訴えがあれば休憩を入れる','運動強度は軽〜中等度(会話ができる程度)'],
+  goalKinou: ['下肢筋力の維持・向上','体幹の安定性の向上','関節可動域の維持','バランス能力の向上','持久力の維持・向上','上肢筋力の維持','痛みの軽減'],
+  goalKatsudo: ['見守りで屋内を安全に歩行できる','手すりを使って階段の昇り降りができる','椅子から一人で立ち上がれる','トイレ動作を自分でできる','シルバーカーで屋外を30分歩ける','入浴動作を一部介助で行える'],
+  goalSanka: ['近所のコンビニへ買い物に行ける','家族と外食に出かけられる','趣味の活動に参加できる','通院を安全に行える','町内の行事に参加できる','友人との交流を続けられる'],
+  progContent: ['下肢筋力訓練（椅子からの立ち座り）','歩行訓練（平行棒・屋内）','屋外歩行訓練','階段昇降訓練','バランス訓練（片足立ち・踏み台）','関節可動域訓練（ストレッチ）','上肢機能訓練（セラバンド）','持久力訓練（エルゴメーター）','基本動作訓練（起き上がり・立ち上がり）','ADL訓練（トイレ・更衣）'],
+  progPoint: ['転倒に留意','腰痛に留意','膝の痛みに留意','血圧の変動に留意','息切れに留意','ふらつきに留意','無理のない範囲で'],
+  henka: ['歩行が安定し、ふらつきが減った','立ち上がりが楽になった','下肢筋力が向上した','痛みの訴えが減った','活動量が増え、意欲が向上した','バランス能力が向上した','大きな変化はないが現状を維持できている'],
+  kadai: ['筋力低下により歩行が不安定','痛みにより運動量が制限される','意欲の低下がみられる','体調の変動で休みが多かった','自宅での運動が定着していない','転倒への不安が強い'],
+};
+const kkPresetsOf = (ss) => { const o = (ss && ss.kkPresets && typeof ss.kkPresets === 'object') ? ss.kkPresets : {}; const out = {}; Object.keys(KK_PRESETS_DEFAULT).forEach(k => { out[k] = Array.isArray(o[k]) ? o[k].filter(x => String(x||'').trim()) : KK_PRESETS_DEFAULT[k]; }); return out; };
+// 職員の一覧(storeMembers + 日誌の職員)を 役職つきで重複なしに
+const tsuStaffList = (appData) => { const out = []; const seen = new Set(); const add = (name, role, id) => { const nm = String(name||'').trim(); if (!nm || nm === '管理局' || id === 'hq_viewer') return; const k = `${nm}|${role||''}`; if (seen.has(k)) return; seen.add(k); out.push({ name: nm, role: role || '' }); };
+  (appData?.storeMembers||[]).forEach(m => { if (m && !m._preview) { add(m.name, m.roleLabel, m.id); if (m.role2) add(m.name, m.role2, m.id); } });
+  (appData?.diarySettings?.staff||[]).forEach(st => { if (st && !st._tempHelp) { add(st.name, st.role, st.id); if (st.role2) add(st.name, st.role2, st.id); } });
+  const order = { '管理者':0, '機能訓練指導員':1, '生活相談員':2, '看護師':3, '介護職員':4 }; return out.sort((a,b) => ((order[a.role]??9)-(order[b.role]??9)) || a.name.localeCompare(b.name,'ja')); };
+// 役職ごとの optgroup つき select(value=氏名)。onPick(name, role)
+function KKStaffSelect({ staff, value, onPick, placeholder, className }) {
+  const roles = [...new Set(staff.map(x => x.role || 'その他'))];
+  return (
+    <select value={staff.some(x => x.name === value) ? value : (value ? '__free__' : '')} onChange={e => { const v = e.target.value; if (v === '__free__' || v === '') { onPick('', ''); return; } const st = staff.find(x => x.name === v); onPick(v, st ? st.role : ''); }} className={className || 'w-full px-2 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none'}>
+      <option value="">{placeholder || '（選択）'}</option>
+      {roles.map(r => <optgroup key={r} label={r}>{staff.filter(x => (x.role||'その他') === r).map(x => <option key={`${r}|${x.name}`} value={x.name}>{x.name}</option>)}</optgroup>)}
+      {value && !staff.some(x => x.name === value) ? <option value="__free__">{value}（直接入力）</option> : null}
+    </select>
+  );
+}
+function KKField({ label, value, onChange, rows, ph, max, presets, presetMode }) {
   // ★ 2026-10-03: 計画書の欄は印刷で見切れないよう文字数制限(既定: 1行=60字・複数行=行数×60字)。右上に 現在/最大
   const lim = max || (rows ? rows * 60 : 60);
+  // ★ 2026-10-14: 定型文(presets)。presetMode='check'=チェックで追加/除去(留意事項)・既定=選ぶと追記(複数行)/置換(1行)
+  const _has = (t) => String(value||'').split(/[、\n]/).map(x=>x.trim()).includes(t);
+  const _toggle = (t) => { const parts = String(value||'').split(/[、\n]/).map(x=>x.trim()).filter(Boolean); const next = parts.includes(t) ? parts.filter(x=>x!==t) : [...parts, t]; onChange(next.join('、').slice(0, lim)); };
+  const _pick = (t) => { if (!t) return; const cur = String(value||'').trim(); onChange(((!rows || !cur) ? t : `${cur}\n${t}`).slice(0, lim)); };
   return (
     <div>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',gap:6,marginBottom:4}}>
         {label ? <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569'}}>{label}</label> : <span/>}
-        <CharCount value={value} max={lim}/>
+        <span style={{display:'flex',alignItems:'baseline',gap:6}}>
+          {presets && presets.length && presetMode !== 'check' ? <select value="" onChange={e=>_pick(e.target.value)} className="text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 outline-none max-w-[220px]" title="定型文を選ぶと入ります（複数行の欄は下に追記）"><option value="">定型文から ▼</option>{presets.map((t,i)=><option key={i} value={t}>{t}</option>)}</select> : null}
+          <CharCount value={value} max={lim}/>
+        </span>
       </div>
+      {presets && presets.length && presetMode === 'check' ? <div className="flex flex-wrap gap-1 mb-1.5">{presets.map((t,i)=><label key={i} className={`text-[11px] font-bold rounded-full border px-2 py-0.5 cursor-pointer select-none ${_has(t)?'bg-blue-600 border-blue-600 text-white':'bg-white border-slate-300 text-slate-600'}`}><input type="checkbox" className="hidden" checked={_has(t)} onChange={()=>_toggle(t)}/>{t}</label>)}</div> : null}
       {rows ? (
         <textarea value={value||''} maxLength={lim} onChange={e=>onChange(e.target.value.slice(0, lim))} rows={rows} placeholder={ph||''} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none resize-none focus:border-blue-400"/>
       ) : (
@@ -47605,6 +47658,8 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
       .map(([k,v]) => { const it = exItems.find(i=>i.id===k); const unit=it?.defaultUnit||''; const num=String(v).match(/[0-9０-９]/)?String(v):''; return { content:`${it?.name||k}（運動器機能の向上のために）`, point:'', freqWeek:'', time: num?`${v}${/分|回|往復/.test(String(v))?'':unit}`:String(v), person:'機能訓練指導員' }; });
     return list.length ? list : [blankProgram(),blankProgram()];
   };
+  const _kkP = kkPresetsOf(appData.systemSettings); // ★ 2026-10-14: 定型文(各種設定→計画書)
+  const _kkStaff = React.useMemo(() => tsuStaffList(appData), [appData.storeMembers, appData.diarySettings]);
   const newRecord = () => ({
     id: `kk_${pid}_${Date.now()}`, patientId: pid, createdAt: Date.now(),
     createdDate: toReiwa(new Date().toISOString().slice(0,10)), prevDate: '', firstDate: '',
@@ -47616,7 +47671,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
     chiryoKeika: '',
     shortKinou: '', shortKatsudo: '', shortSanka: '', shortAchieve: '',
     longKinou: '', longKatsudo: '', longSanka: '', longAchieve: '',
-    programs: programsFromPlanned(), programPlanner: '',
+    programs: [blankProgram()], programPlanner: '', // ★ 2026-10-14: 運動メニューからの自動取込はやめ、定型文から選んで入力
     jikangaiJisshi: '', tokki: '',
     henka: '', kadai: '',
     setsumeiDate: '', setsumeisha: '',
@@ -47746,10 +47801,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
                   className="px-3 py-2 bg-white border border-indigo-300 text-indigo-700 rounded-lg text-xs font-bold hover:bg-indigo-100">
                   興味・関心から取り込む <span className="font-normal opacity-70">{latestKyomi?`（${latestKyomi.recordDate||'日付なし'}）`:'（未作成）'}</span>
                 </button>
-                <button onClick={()=>upd({programs:programsFromPlanned()})} title="運動メニュー（月別提供記録の予定運動）から個別機能訓練項目を取り込みます"
-                  className="px-3 py-2 bg-white border border-amber-300 text-amber-700 rounded-lg text-xs font-bold hover:bg-amber-100">
-                  運動メニューから訓練項目を取り込む
-                </button>
+                {/* ★ 2026-10-14(ユーザー指示): 「運動メニューから訓練項目を取り込む」は廃止(定型文のプルダウンで入力) */}
               </div>
             </div>
             {/* ★ 前回計画書の評価(新計画書の作成と同時に入力できる。 保存先は前回レコード側) */}
@@ -47799,9 +47851,19 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
                 <KKDateField label="作成日" value={editing.createdDate} onChange={v=>upd({createdDate:v})}/>
                 <KKDateField label="前回作成日" value={editing.prevDate} onChange={v=>upd({prevDate:v})} ph="（初回は空欄）"/>
                 <KKDateField label="初回作成日" value={editing.firstDate} onChange={v=>upd({firstDate:v})}/>
-                <KKField label="計画作成者" value={editing.author} onChange={v=>upd({author:v})}/>
-                <KKField label="職種" value={editing.authorJob} onChange={v=>upd({authorJob:v})}/>
-                <KKField label="共同作成者（多職種）" value={editing.coAuthors} onChange={v=>upd({coAuthors:v})} ph="例: 看護師 山田／介護職員 佐藤"/>
+                {/* ★ 2026-10-14(ユーザー要望): 計画作成者・職種・共同作成者は職員のプルダウン(役職ごと)。共同作成者は複数チェック */}
+                <div><label className="block text-xs font-bold text-slate-600 mb-1">計画作成者</label>
+                  <KKStaffSelect staff={_kkStaff} value={editing.author||''} onPick={(name, role)=>upd({ author: name, ...(role ? { authorJob: role } : {}) })} placeholder="（職員を選択）"/>
+                  <input value={editing.author||''} maxLength={60} onChange={e=>upd({author:e.target.value.slice(0,60)})} placeholder="直接入力もできます" className="mt-1 w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs outline-none"/></div>
+                <div><label className="block text-xs font-bold text-slate-600 mb-1">職種</label>
+                  <select value={editing.authorJob||''} onChange={e=>upd({authorJob:e.target.value})} className="w-full px-2 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none">
+                    <option value="">（選択）</option>{[...STAFF_ROLE_GROUPS.filter(r=>r!=='管理者'), '理学療法士','作業療法士','言語聴覚士','柔道整復師','あん摩マッサージ指圧師','その他'].map(r=><option key={r} value={r}>{r}</option>)}{editing.authorJob && !['管理者','機能訓練指導員','生活相談員','介護職員','看護師','理学療法士','作業療法士','言語聴覚士','柔道整復師','あん摩マッサージ指圧師','その他'].includes(editing.authorJob) ? <option value={editing.authorJob}>{editing.authorJob}</option> : null}
+                  </select></div>
+                <div><label className="block text-xs font-bold text-slate-600 mb-1">共同作成者（多職種）</label>
+                  <details className="border border-slate-300 rounded-lg bg-white"><summary className="px-2 py-2 text-sm cursor-pointer select-none text-slate-700">{editing.coAuthors ? editing.coAuthors : <span className="text-slate-400">（職員を選択・複数可）</span>}</summary>
+                    <div className="px-2 pb-2 max-h-48 overflow-auto">{_kkStaff.filter(x=>x.name!==editing.author).map(x => { const tok = `${x.role ? x.role + ' ' : ''}${x.name}`; const list = String(editing.coAuthors||'').split('／').map(t=>t.trim()).filter(Boolean); const on = list.includes(tok); return (
+                      <label key={tok} className="flex items-center gap-2 text-xs py-0.5 cursor-pointer"><input type="checkbox" checked={on} onChange={()=>{ const next = on ? list.filter(t=>t!==tok) : [...list, tok]; upd({coAuthors: next.join('／').slice(0,60)}); }}/>{tok}</label>); })}</div></details>
+                  <input value={editing.coAuthors||''} maxLength={60} onChange={e=>upd({coAuthors:e.target.value.slice(0,60)})} placeholder="直接入力もできます（／区切り）" className="mt-1 w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs outline-none"/></div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 mb-1">障害高齢者の日常生活自立度</label>
                   <select value={editing.jiritsuBody} onChange={e=>upd({jiritsuBody:e.target.value})} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none">
@@ -47838,7 +47900,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
               <div className="grid md:grid-cols-1 gap-3">
                 <KKField label="治療経過（手術がある場合は手術日・術式等）" value={editing.chiryoKeika} onChange={v=>upd({chiryoKeika:v})} rows={2}/>
                 <KKField label="合併疾患・コントロール状態（高血圧・心疾患・呼吸器疾患・糖尿病等）" value={editing.gappei} onChange={v=>upd({gappei:v})} rows={2}/>
-                <KKField label="機能訓練実施上の留意事項（開始前・訓練中の留意事項、運動強度・負荷量等）" value={editing.ryuiPoint} onChange={v=>upd({ryuiPoint:v})} rows={2}/>
+                <KKField label="機能訓練実施上の留意事項（開始前・訓練中の留意事項、運動強度・負荷量等）" value={editing.ryuiPoint} onChange={v=>upd({ryuiPoint:v})} rows={2} presets={_kkP.ryui} presetMode="check"/>
               </div>
             </div>
             {/* Ⅱ 目標 */}
@@ -47848,16 +47910,16 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
                 <div className="space-y-2">
                   <div className="flex items-center gap-2"><span className="text-xs font-bold text-slate-600">短期目標（今後3ヶ月）</span>
                     <select value={editing.shortAchieve} onChange={e=>upd({shortAchieve:e.target.value})} className="px-2 py-1 border border-slate-300 rounded text-xs outline-none"><option value="">達成度</option><option>達成</option><option>一部</option><option>未達</option></select></div>
-                  <KKField label="（機能）" value={editing.shortKinou} onChange={v=>upd({shortKinou:v})} rows={2}/>
-                  <KKField label="（活動）" value={editing.shortKatsudo} onChange={v=>upd({shortKatsudo:v})} rows={2}/>
-                  <KKField label="（参加）" value={editing.shortSanka} onChange={v=>upd({shortSanka:v})} rows={2}/>
+                  <KKField label="（機能）" value={editing.shortKinou} onChange={v=>upd({shortKinou:v})} rows={2} presets={_kkP.goalKinou}/>
+                  <KKField label="（活動）" value={editing.shortKatsudo} onChange={v=>upd({shortKatsudo:v})} rows={2} presets={_kkP.goalKatsudo}/>
+                  <KKField label="（参加）" value={editing.shortSanka} onChange={v=>upd({shortSanka:v})} rows={2} presets={_kkP.goalSanka}/>
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-center gap-2"><span className="text-xs font-bold text-slate-600">長期目標</span>
                     <select value={editing.longAchieve} onChange={e=>upd({longAchieve:e.target.value})} className="px-2 py-1 border border-slate-300 rounded text-xs outline-none"><option value="">達成度</option><option>達成</option><option>一部</option><option>未達</option></select></div>
-                  <KKField label="（機能）" value={editing.longKinou} onChange={v=>upd({longKinou:v})} rows={2}/>
-                  <KKField label="（活動）" value={editing.longKatsudo} onChange={v=>upd({longKatsudo:v})} rows={2}/>
-                  <KKField label="（参加）" value={editing.longSanka} onChange={v=>upd({longSanka:v})} rows={2}/>
+                  <KKField label="（機能）" value={editing.longKinou} onChange={v=>upd({longKinou:v})} rows={2} presets={_kkP.goalKinou}/>
+                  <KKField label="（活動）" value={editing.longKatsudo} onChange={v=>upd({longKatsudo:v})} rows={2} presets={_kkP.goalKatsudo}/>
+                  <KKField label="（参加）" value={editing.longSanka} onChange={v=>upd({longSanka:v})} rows={2} presets={_kkP.goalSanka}/>
                 </div>
               </div>
             </div>
@@ -47866,7 +47928,6 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
               <div className="flex items-center justify-between mb-2">
                 <div className="text-sm font-bold text-blue-700">個別機能訓練項目</div>
                 <div className="flex gap-2">
-                  <button onClick={()=>upd({programs:programsFromPlanned()})} className="px-3 py-1 bg-amber-100 hover:bg-amber-200 text-amber-700 rounded text-xs font-bold">運動メニューから取込</button>
                   <button onClick={addProg} className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-xs font-bold">＋ 行追加</button>
                 </div>
               </div>
@@ -47876,16 +47937,19 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
               <div className="space-y-2">
                 {editing.programs.map((pr,i)=>(
                   <div key={i} className="grid grid-cols-12 gap-2 items-start bg-slate-50 rounded-lg p-2">
-                    <input value={pr.content} onChange={e=>updProg(i,{content:e.target.value})} placeholder="○○のために△△する" className="col-span-4 px-2 py-1.5 bg-white border border-slate-300 rounded text-xs outline-none"/>
-                    <input value={pr.point} onChange={e=>updProg(i,{point:e.target.value})} placeholder="留意点" className="col-span-3 px-2 py-1.5 bg-white border border-slate-300 rounded text-xs outline-none"/>
+                    <input list="kk-prog-content" value={pr.content} onChange={e=>updProg(i,{content:e.target.value})} placeholder="○○のために△△する（▼で定型文）" className="col-span-4 px-2 py-1.5 bg-white border border-slate-300 rounded text-xs outline-none"/>
+                    <input list="kk-prog-point" value={pr.point} onChange={e=>updProg(i,{point:e.target.value})} placeholder="留意点（▼で定型文）" className="col-span-3 px-2 py-1.5 bg-white border border-slate-300 rounded text-xs outline-none"/>
                     <input value={pr.freqWeek} onChange={e=>updProg(i,{freqWeek:e.target.value})} placeholder="週○回" className="col-span-2 px-2 py-1.5 bg-white border border-slate-300 rounded text-xs outline-none"/>
                     <input value={pr.time} onChange={e=>updProg(i,{time:e.target.value})} placeholder="○分" className="col-span-2 px-2 py-1.5 bg-white border border-slate-300 rounded text-xs outline-none"/>
                     <button onClick={()=>delProg(i)} className="col-span-1 text-red-500 hover:text-red-700 text-xs font-bold py-1.5">削除</button>
-                    <input value={pr.person} onChange={e=>updProg(i,{person:e.target.value})} placeholder="主な実施者" className="col-span-11 px-2 py-1 bg-white border border-slate-200 rounded text-[11px] outline-none"/>
+                    <input list="kk-staff" value={pr.person} onChange={e=>updProg(i,{person:e.target.value})} placeholder="主な実施者（▼で職員・職種）" className="col-span-11 px-2 py-1 bg-white border border-slate-200 rounded text-[11px] outline-none"/>
                   </div>
                 ))}
               </div>
-              <div className="mt-2"><KKField label="プログラム立案者" value={editing.programPlanner} onChange={v=>upd({programPlanner:v})}/></div>
+              <datalist id="kk-prog-content">{_kkP.progContent.map((t,i)=><option key={i} value={t}/>)}</datalist>
+              <datalist id="kk-prog-point">{_kkP.progPoint.map((t,i)=><option key={i} value={t}/>)}</datalist>
+              <datalist id="kk-staff">{[...new Set([..._kkStaff.map(x=>x.name), ...STAFF_ROLE_GROUPS.filter(r=>r!=='管理者')])].map((t,i)=><option key={i} value={t}/>)}</datalist>
+              <div className="mt-2"><label className="block text-xs font-bold text-slate-600 mb-1">プログラム立案者</label><KKStaffSelect staff={_kkStaff} value={editing.programPlanner||''} onPick={(name)=>upd({programPlanner:name})} placeholder="（職員を選択）"/><input value={editing.programPlanner||''} maxLength={60} onChange={e=>upd({programPlanner:e.target.value.slice(0,60)})} placeholder="直接入力もできます" className="mt-1 w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs outline-none"/></div>
               <div className="grid md:grid-cols-2 gap-3 mt-3">
                 <KKField label="利用者本人・家族等がサービス利用時間以外に実施すること" value={editing.jikangaiJisshi} onChange={v=>upd({jikangaiJisshi:v})} rows={2}/>
                 <KKField label="特記事項" value={editing.tokki} onChange={v=>upd({tokki:v})} rows={2}/>
@@ -47896,14 +47960,14 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
               <div className="text-sm font-bold text-blue-700 mb-1">Ⅲ 個別機能訓練実施後の対応</div>
               <div className="text-[10px] text-slate-400 mb-3">※ 初回作成時は記載不要</div>
               <div className="grid md:grid-cols-2 gap-3">
-                <KKField label="個別機能訓練の実施による変化" value={editing.henka} onChange={v=>upd({henka:v})} rows={2}/>
-                <KKField label="個別機能訓練実施における課題とその要因" value={editing.kadai} onChange={v=>upd({kadai:v})} rows={2}/>
+                <KKField label="個別機能訓練の実施による変化" value={editing.henka} onChange={v=>upd({henka:v})} rows={2} presets={_kkP.henka}/>
+                <KKField label="個別機能訓練実施における課題とその要因" value={editing.kadai} onChange={v=>upd({kadai:v})} rows={2} presets={_kkP.kadai}/>
               </div>
             </div>
             {/* 説明 */}
             <div className="bg-white rounded-xl border border-slate-200 p-4 grid grid-cols-2 gap-3">
               <KKDateField label="説明日" value={editing.setsumeiDate} onChange={v=>upd({setsumeiDate:v})}/>
-              <KKField label="説明者" value={editing.setsumeisha} onChange={v=>upd({setsumeisha:v})}/>
+              <div><label className="block text-xs font-bold text-slate-600 mb-1">説明者</label><KKStaffSelect staff={_kkStaff} value={editing.setsumeisha||''} onPick={(name)=>upd({setsumeisha:name})} placeholder="（職員を選択）"/><input value={editing.setsumeisha||''} maxLength={60} onChange={e=>upd({setsumeisha:e.target.value.slice(0,60)})} placeholder="直接入力もできます" className="mt-1 w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs outline-none"/></div>
             </div>
             {/* ★ LIFE提出用コード (個別機能訓練加算Ⅱ ON のときのみ)。 IDUA2024 CSV に使うコードを指定。 */}
             {(() => {
@@ -47956,9 +48020,9 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
                           <span className="text-[11px] font-bold text-slate-500 w-16 pt-1.5">{label}</span>
                           <div className="flex-1 min-w-[240px]">
                             <div className="text-[10px] text-slate-400 mb-0.5 truncate">{editing[txtKey]||'（目標文なし）'}</div>
-                            <div className="flex gap-1 flex-wrap">
+                            <div className="grid gap-1" style={{gridTemplateColumns:'repeat(auto-fit, minmax(220px, 1fr))'}}>
                               {[0,1,2].map(i=>(
-                                <select key={i} value={(L.goals&&L.goals[slot]&&L.goals[slot][i])||''} onChange={e=>setGoal(slot,i,e.target.value)} className="px-1 py-1 bg-white border border-slate-300 rounded text-[11px] outline-none max-w-[190px]">
+                                <select key={i} value={(L.goals&&L.goals[slot]&&L.goals[slot][i])||''} onChange={e=>setGoal(slot,i,e.target.value)} className="w-full min-w-0 px-1 py-1 bg-white border border-slate-300 rounded text-[11px] outline-none">
                                   <option value="">―</option>{icfOpt}
                                 </select>
                               ))}
@@ -49804,6 +49868,8 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
   };
   const _lifeBiCols = ['barthel_index_meal','barthel_transfer','barthel_index_personal_hygiene_and_adjustment','barthel_index_toilet_activity','barthel_index_bathing','barthel_index_flat_ground_walking','barthel_index_stair_movement','barthel_index_changing_clothes','barthel_index_defecation_manage','barthel_index_urination_manage'];
   const _lifeImportParseFile = async (f) => {
+    // ★ 2026-10-14: 傷病名コード→病名(傷病名マスタ・クラウド優先)。取れなければコードのまま
+    let _dzMap = null; try { const m = await loadLifeDiseaseMaster(); if (Array.isArray(m)) { _dzMap = new Map(); m.forEach(([c, n]) => { const k = String(c||''); _dzMap.set(k, n); _dzMap.set(k.replace(/^0+/,''), n); }); } } catch {}
     const buf = await f.arrayBuffer();
     let text; try { text = new TextDecoder('utf-8',{fatal:true}).decode(buf); } catch { text = new TextDecoder('shift_jis').decode(buf); }
     let rows = _csvParse(text);
@@ -49861,10 +49927,10 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
           programs.push({ content: (LIFE_TRAIN_PROGRAMS.find(x=>x.c===code)||{}).n || '', point: g[`function_training_note_${pf}`]||'', freqWeek: g[`function_training_frequency_times_${pf}`]||'', time: g[`function_training_date_${pf}`]||'', person: _jobName(g[`function_training_personnel_${pf}`]) || '機能訓練指導員' });
           programCodes.push(code); personCodes.push(g[`function_training_personnel_${pf}`]||''); }
         const _ach = (c) => ({'1':'達成','2':'一部達成','3':'未達成'})[c] || '';
-        kk = { createdDate: _wareki(ed), prevDate: _wareki(g.last_date), firstDate: _wareki(g.first_date), author:'LIFE移行取込', authorJob:'機能訓練指導員', coAuthors:'',
+        kk = { createdDate: _wareki(ed), prevDate: _wareki(g.last_date), firstDate: _wareki(g.first_date), author:'', authorJob:'機能訓練指導員', coAuthors:'',
           jiritsuBody: patch.adlLevel, jiritsuDementia: patch.dementiaLevel,
           honninKibou: g.user_request||'', kazokuKibou: g.user_family_request||'', shakaiSanka: g.social_participation||'', kyotakuKankyo: g.housing_environment||'',
-          byomei: (g.disease_name_code ? `傷病名コード ${g.disease_name_code}` : ''), gappei: '', ryuiPoint: g.implementation_status||'',
+          byomei: (g.disease_name_code ? ((_dzMap && _dzMap.get(String(g.disease_name_code).replace(/^0+/,''))) || _dzMap && _dzMap.get(String(g.disease_name_code)) || `傷病名コード ${g.disease_name_code}`) : ''), gappei: '', ryuiPoint: g.implementation_status||'',
           hasshoDate: _ymd3(g.onset_date_year,g.onset_date_month,g.onset_date_day), nyuinDate: _ymd3(g.latest_admission_date_year,g.latest_admission_date_month,g.latest_admission_date_day), taiinDate: _ymd3(g.latest_discharge_date_year,g.latest_discharge_date_month,g.latest_discharge_date_day),
           chiryoKeika: g.progress||'',
           shortKinou: g.short_goal_functional_training_mind_and_body_function_contents||'', shortKatsudo: g.short_goal_functional_training_activity_contents||'', shortSanka: g.short_goal_functional_training_activity_join_contents||'', shortAchieve: _ach(g.short_goal_achievement),
@@ -50396,12 +50462,12 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                 <tbody className="divide-y divide-slate-100">
                   {userRows.length===0 ? <tr><td colSpan={8} className="px-2 py-4 text-center text-slate-400">対象の利用者がいません</td></tr> : userRows.map(d=>(
                     <tr key={d.p.id} className={`hover:bg-slate-50 cursor-pointer ${d.p.id===pid?'bg-indigo-50':''}`} onClick={()=>{ setEditing(null); setPid(d.p.id); }}>
-                      <td className="px-2 py-1.5 font-bold text-slate-700">{d.p.name}<div className="text-[10px] font-normal text-slate-400">{d.row.last_name_kana}{d.row.first_name_kana?` ${d.row.first_name_kana}`:''}</div></td>
+                      <td className="px-2 py-1.5 font-bold text-slate-700 whitespace-nowrap">{d.p.name}<div className="text-[10px] font-normal text-slate-400 whitespace-nowrap">{d.row.last_name_kana}{d.row.first_name_kana?` ${d.row.first_name_kana}`:''}</div></td>
                       <td className="px-2 py-1.5 text-center font-mono">{d.row.insurer_no||<span className="text-red-500">—</span>}</td>
                       <td className="px-2 py-1.5 text-center font-mono">{d.row.insured_no||<span className="text-red-500">—</span>}</td>
                       <td className="px-2 py-1.5 text-center">{d.row.gender==='1'?'男':d.row.gender==='2'?'女':<span className="text-red-500">—</span>}</td>
-                      <td className="px-2 py-1.5 text-center font-mono">{d.row.birthday||<span className="text-red-500">—</span>}</td>
-                      <td className="px-2 py-1.5 text-center">{d.p.careLevel||<span className="text-red-500">—</span>}<span className="text-slate-400 ml-1">{d.row.care_level}</span></td>
+                      <td className="px-2 py-1.5 text-center font-mono whitespace-nowrap">{d.row.birthday ? String(d.row.birthday).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1/$2/$3') : <span className="text-red-500">—</span>}</td>
+                      <td className="px-2 py-1.5 text-center whitespace-nowrap">{d.p.careLevel||<span className="text-red-500">—</span>}<span className="text-slate-400 ml-1">{d.row.care_level ? `(${d.row.care_level})` : ''}</span></td>
                       <td className="px-2 py-1.5 text-center">{d.status==='ok'?<span className="text-emerald-600 font-bold">✓ 出力可</span>:<span className="text-red-600 font-bold">エラー{d.vr.errors.length}件</span>}</td>
                       <td className="px-2 py-1.5 text-[11px] text-slate-500">{d.status==='error'?d.vr.errors.slice(0,3).join(' / ')+(d.vr.errors.length>3?' …':''):d.vr.warns.length?<span className="text-amber-600">要確認: {d.vr.warns.join(' / ')}</span>:''}</td>
                     </tr>
@@ -50445,8 +50511,8 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                   <tbody className="divide-y divide-slate-100">
                     {dashRows.length===0 ? <tr><td colSpan={4} className="px-2 py-4 text-center text-slate-400">対象の利用者がいません</td></tr> : dashRows.map(d=>(
                       <tr key={d.p.id} className={`hover:bg-slate-50 cursor-pointer ${d.p.id===pid?'bg-purple-50':''}`} onClick={()=>{ setEditing(null); setPid(d.p.id); }}>
-                        <td className="px-2 py-1.5 font-bold text-slate-700">{d.p.name}</td>
-                        <td className="px-2 py-1.5 text-center text-slate-500">{d.latest?.evalDate||d.latest?.recordDate||d.latest?.createdDate||'—'}</td>
+                        <td className="px-2 py-1.5 font-bold text-slate-700 whitespace-nowrap">{d.p.name}</td>
+                        <td className="px-2 py-1.5 text-center text-slate-500 whitespace-nowrap">{d.latest?.evalDate||d.latest?.recordDate||d.latest?.createdDate||'—'}</td>
                         <td className="px-2 py-1.5 text-center">{d.status==='ok'?<span className="text-emerald-600 font-bold">✓ 提出可</span>:d.status==='error'?<span className="text-red-600 font-bold">エラー{d.vr.errors.length}件</span>:<span className="text-slate-400 font-bold">未評価</span>}</td>
                         <td className="px-2 py-1.5 text-[11px] text-slate-500">{d.status==='error'?d.vr.errors.slice(0,3).join(' / ')+(d.vr.errors.length>3?' …':''):d.status==='ok'&&d.vr.warns.length?<span className="text-amber-600">要確認: {d.vr.warns.join(' / ')}</span>:''}</td>
                       </tr>
