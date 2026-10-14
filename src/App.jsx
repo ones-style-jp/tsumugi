@@ -47555,7 +47555,17 @@ function KeikakuTabs({ current, navigateTo, family, pid, appData }) {
     </div>
   );
 }
+// ★ 2026-10-14(ユーザー要望「閉じると別の画面を挟む」): 利用者ごと・作成予定から開いた編集は、閉じたら元の画面へ戻る。
+//   開くときに navFocus へ「|ret:画面名」を付けて渡し、編集(または評価・計画)を閉じたらその画面へ移る
+const kkFocusBase = (f) => String(f || '').split('|')[0];
+const kkFocusRet = (f) => { const m = String(f || '').match(/\|ret:([a-z_]+)/); return m ? m[1] : null; };
+function useKkReturn(open, navigateTo, pid) {
+  const ret = React.useRef(null); const was = React.useRef(false);
+  React.useEffect(() => { if (was.current && !open && ret.current) { const r = ret.current; ret.current = null; if (navigateTo) navigateTo(r, pid); } was.current = !!open; }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  return ret;
+}
 // 利用者の選択(全画面で左端・同じ見た目)
+// ★ 2026-10-14(ユーザー要望「タブの位置が変わる」): 幅を固定し、作成予定・LIFE提出にも置く(選ぶとその方の画面へ)
 // ★ 2026-10-14(ユーザー要望): 名前・ふりがなで検索でき、要介護／要支援・事業対象者に分けて並べる(通所介護計画書も同じ部品)
 const _kpNorm = (v) => String(v || '').normalize('NFKC').replace(/[ァ-ヶ]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0x60)).replace(/[\s　]/g, '').toLowerCase();
 const kpCareGroup = (p) => { const cl = String(p?.careLevel || ''); if (cl.includes('要介護') && !cl.includes('経過的')) return 'kaigo'; if (cl.includes('要支援') || cl.includes('事業対象') || cl.includes('経過的')) return 'shien'; return 'none'; };
@@ -47580,8 +47590,8 @@ function KeikakuPatientSelect({ patients, pid, onChange }) {
   return (
     <div ref={boxRef} className="relative">
       <button type="button" data-testid="kk-patient" onClick={() => setOpen(o => !o)} aria-haspopup="listbox" aria-expanded={open}
-        className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none max-w-[14em] hover:bg-slate-100">
-        <span className="truncate">{cur ? cur.name : '利用者を選ぶ'}</span>
+        className="flex items-center justify-between gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none w-[11em] hover:bg-slate-100">
+        <span className={`truncate ${cur ? '' : 'text-slate-400'}`}>{cur ? cur.name : '利用者を選ぶ'}</span>
         <ChevronDown size={14} className="shrink-0 text-slate-400"/>
       </button>
       {open && (
@@ -47623,10 +47633,10 @@ function KinouPatientView({ appData, navigateTo, targetPatientId, onShowPrintPre
   const _dirtyDummy = React.useRef(false), _saveDummy = React.useRef(null);
   React.useEffect(() => { if (!dl) return; const t = setTimeout(() => setDl(null), 8000); return () => clearTimeout(t); }, [dl]); // 念のため(書類が見つからない等)
   const docs = [
-    { view:'kinou_keikaku', title:'個別機能訓練計画書', sub:'様式3-3・3か月ごとに見直し', list:_hist(appData.kinouKeikakuRecords, 'createdDate'), edit:(r) => navigateTo('kinou_keikaku', pid, `edit:${r.id}`) },
-    { view:'seikatsu_kinou', title:'生活機能チェック', sub:'様式3-2', list:_hist(appData.seikatsuKinouRecords, 'recordDate'), edit:(r) => navigateTo('seikatsu_kinou', pid, `edit:${r.id}`) },
-    { view:'kyomi_kanshin', title:'興味・関心チェック', sub:'様式3-1', list:_hist(appData.kyomiKanshinRecords, 'recordDate'), edit:(r) => navigateTo('kyomi_kanshin', pid, `edit:${r.id}`) },
-    ...(hasLife ? [{ view:'life_hub', title:'ADL評価・科学的介護', sub:'LIFE提出のもとになる評価', list:_hist(appData.adlRecords, 'evalDate'), edit:(r) => navigateTo('life_hub', pid, `batch:${r.evalDate}`) }] : []),
+    { view:'kinou_keikaku', title:'個別機能訓練計画書', sub:'様式3-3・3か月ごとに見直し', list:_hist(appData.kinouKeikakuRecords, 'createdDate'), edit:(r) => navigateTo('kinou_keikaku', pid, `edit:${r.id}|ret:kinou_patient`) },
+    { view:'seikatsu_kinou', title:'生活機能チェック', sub:'様式3-2', list:_hist(appData.seikatsuKinouRecords, 'recordDate'), edit:(r) => navigateTo('seikatsu_kinou', pid, `edit:${r.id}|ret:kinou_patient`) },
+    { view:'kyomi_kanshin', title:'興味・関心チェック', sub:'様式3-1', list:_hist(appData.kyomiKanshinRecords, 'recordDate'), edit:(r) => navigateTo('kyomi_kanshin', pid, `edit:${r.id}|ret:kinou_patient`) },
+    ...(hasLife ? [{ view:'life_hub', title:'ADL評価・科学的介護', sub:'LIFE提出のもとになる評価', list:_hist(appData.adlRecords, 'evalDate'), edit:(r) => navigateTo('life_hub', pid, `batch:${r.evalDate}|ret:kinou_patient`) }] : []),
   ];
   // 次にやることの行で何をするか(押すとその場所が開く)
   const _act = (d) => d.view === 'kinou_keikaku' ? (d.note === '未作成' ? '作る' : String(d.note||'').startsWith('一時保存') ? '続きを書く' : '見直す') : '評価する';
@@ -47651,7 +47661,7 @@ function KinouPatientView({ appData, navigateTo, targetPatientId, onShowPrintPre
             {dues.length === 0 ? <div className="text-sm text-slate-500">いま期限のある書類はありません。</div> : (
               <div className="divide-y divide-slate-100">
                 {dues.map((d, i) => (
-                  <button key={i} type="button" onClick={() => navigateTo(d.view, pid, d.view === 'kinou_keikaku' ? 'start_edit' : (d.view === 'life_hub' ? 'batch' : null))} className="w-full text-left flex items-center gap-3 py-2 hover:bg-slate-50 rounded-lg px-1">
+                  <button key={i} type="button" onClick={() => navigateTo(d.view, pid, d.view === 'kinou_keikaku' ? 'start_edit|ret:kinou_patient' : (d.view === 'life_hub' ? 'batch|ret:kinou_patient' : null))} className="w-full text-left flex items-center gap-3 py-2 hover:bg-slate-50 rounded-lg px-1">
                     <span className={`shrink-0 text-[11px] font-bold rounded-full px-2 py-0.5 ${d.overdue ? 'bg-red-600 text-white' : d.daysLeft <= 30 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>{d.overdue ? '期限切れ' : d.daysLeft === 0 ? '今日' : `あと${d.daysLeft}日`}</span>
                     <span className="flex-1 min-w-0"><span className="font-bold text-slate-800 text-sm">{d.label}</span><span className="text-xs text-slate-500 ml-2">{d.note}</span></span>
                     <span className="shrink-0 text-xs text-slate-500 tabular-nums">{_ymd(d.due)}まで</span>
@@ -47661,12 +47671,12 @@ function KinouPatientView({ appData, navigateTo, targetPatientId, onShowPrintPre
           </div>
           {/* 作るときはこれ1つ */}
           {hasLife ? (
-            <button type="button" data-testid="kk-start" onClick={() => navigateTo('life_hub', pid, 'batch')} className="w-full text-left bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl px-5 py-4 shadow active:scale-[0.99]">
+            <button type="button" data-testid="kk-start" onClick={() => navigateTo('life_hub', pid, 'batch|ret:kinou_patient')} className="w-full text-left bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl px-5 py-4 shadow active:scale-[0.99]">
               <div className="text-lg font-bold">評価・計画を始める</div>
               <div className="text-xs opacity-90 mt-0.5">ADL・科学的介護・生活機能チェック（3-2）・興味関心（3-1）・計画書の見直し（3-3）を、上から順に1つの流れで入力します。3か月ごとの評価はここから。</div>
             </button>
           ) : (
-            <button type="button" data-testid="kk-start" onClick={() => navigateTo('kinou_keikaku', pid, 'start_edit')} className="w-full text-left bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl px-5 py-4 shadow active:scale-[0.99]">
+            <button type="button" data-testid="kk-start" onClick={() => navigateTo('kinou_keikaku', pid, 'start_edit|ret:kinou_patient')} className="w-full text-left bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl px-5 py-4 shadow active:scale-[0.99]">
               <div className="text-lg font-bold">計画書を作る</div>
               <div className="text-xs opacity-90 mt-0.5">個別機能訓練計画書（様式3-3）を新しく作ります。</div>
             </button>
@@ -47702,7 +47712,8 @@ function KinouPatientView({ appData, navigateTo, targetPatientId, onShowPrintPre
 //   期限の1ヶ月前から「誰の・何を・いつまでに」を月ごとにまとめて表示する。 行タップで該当画面へ。
 const PLAN_KIND_COLOR = { tsusho:'#0891b2', kinou:'#7c3aed', kagaku:'#059669', adl:'#d97706' };
 function KeikakuYoteiView({ appData, navigateTo, family = 'tsusho' }) {
-  const [showDone, setShowDone] = React.useState(true); // ★ 未作成も既定で表示(2026-09-08 店舗要望: 退所しない限り必要になるため)
+  // ★ 2026-10-14(ユーザー要望): 「未作成の方も表示」のチェックはやめ、未作成の方も常に表示する(初回も作る必要があるため)
+  const _yPatients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
   // ★ 月別ブラウズ(2026-09-08 店舗要望): null=直近(従来の「期限1ヶ月前から」) / 1〜12=その月が期日の人を表示
   const [duesMonth, setDuesMonth] = React.useState(null);
   const _allDues = React.useMemo(() => computePlanDues(appData, null, { includeFuture: true }), [appData]);
@@ -47729,9 +47740,7 @@ function KeikakuYoteiView({ appData, navigateTo, family = 'tsusho' }) {
     return before.filter(d => !still.has(`${d.patient.id}|${d.kind}`)).map(d => ({ ...d, done: true, overdue: false }));
   }, [appData, _famDues, family]);
   const doneList = _selYm == null ? _doneAll : _doneAll.filter(d => d.ym === _selYm);
-  // 「未作成」は初回導入時に全員ぶん出て件数が膨らむため、既定では期限があるものだけ表示する
-  const dues = showDone ? all : all.filter(d => d.note !== '未作成' && d.note !== 'ADL評価が未実施');
-  const newN = all.length - dues.length;
+  const dues = all;
   const byYm = {};
   dues.forEach(d => { (byYm[d.ym] = byYm[d.ym] || []).push(d); });
   doneList.forEach(d => { (byYm[d.ym] = byYm[d.ym] || []).push(d); });
@@ -47742,6 +47751,7 @@ function KeikakuYoteiView({ appData, navigateTo, family = 'tsusho' }) {
   return (
     <div className="flex flex-col h-full">
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
+        <KeikakuPatientSelect patients={_yPatients} pid={null} onChange={(id) => navigateTo(family === 'tsusho' ? 'tsusho_keikaku' : 'kinou_patient', id)}/>
         <KeikakuTabs current={family === 'tsusho' ? 'keikaku_yotei' : 'kinou_yotei'} navigateTo={navigateTo} family={family} appData={appData}/>
         <div className="flex-1"/>
         {/* ★ 月別ブラウズ(2026-09-08): 直近(既定)/1〜12月。過ぎた月は翌年のその月として表示 */}
@@ -47752,10 +47762,6 @@ function KeikakuYoteiView({ appData, navigateTo, family = 'tsusho' }) {
           ))}
         </div>
         {overdueN > 0 && <span className="text-xs font-bold bg-red-100 text-red-700 px-2.5 py-1 rounded-lg">期限超過 {overdueN}件</span>}
-        <label className="flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer">
-          <input type="checkbox" checked={showDone} onChange={e=>setShowDone(e.target.checked)} className="w-4 h-4"/>
-          未作成の方も表示{newN>0 && <span className="text-slate-400 font-normal">（{newN}件）</span>}
-        </label>
       </div>
       <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
         <div className="max-w-4xl mx-auto space-y-4">
@@ -47767,7 +47773,6 @@ function KeikakuYoteiView({ appData, navigateTo, family = 'tsusho' }) {
           {yms.length === 0 ? (
             <div className="text-center text-slate-400 py-16 font-bold">
               作成予定はありません
-              {newN>0 && <div className="text-xs font-normal mt-2">まだ計画書が無い方が {newN}件 あります。上の「未作成の方も表示」で確認できます。</div>}
             </div>
           ) : yms.map(ym => {
             const [yy,mm] = ym.split('-');
@@ -47796,7 +47801,7 @@ function KeikakuYoteiView({ appData, navigateTo, family = 'tsusho' }) {
                             {KK_YOTEI_KINDS.map(([k, lb]) => { const it = items.find(x => x.kind === k); if (!it) return null; return it.done ? (
                               <span key={k} data-testid={`kk-chip-${k}`} data-done="1" title="今月作成済み" className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-300"><CheckCircle2 size={13}/>{lb}</span>
                             ) : (
-                              <button key={k} type="button" data-testid={`kk-chip-${k}`} data-done="0" title={it.note} onClick={() => navigateTo(it.view, p.id, it.kind === 'kinou' ? 'start_edit' : 'batch')}
+                              <button key={k} type="button" data-testid={`kk-chip-${k}`} data-done="0" title={it.note} onClick={() => navigateTo(it.view, p.id, it.kind === 'kinou' ? 'start_edit|ret:kinou_yotei' : 'batch|ret:kinou_yotei')}
                                 className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold bg-white border hover:bg-slate-50" style={{ borderColor: PLAN_KIND_COLOR[k], color: PLAN_KIND_COLOR[k] }}>
                                 <span className="inline-block w-3 h-3 rounded-full border-2 border-current"/>{lb}
                                 {(it.note === '未作成' || it.note === 'ADL評価が未実施') ? <span className="font-normal text-slate-400">未作成</span> : String(it.note||'').startsWith('一時保存') ? <span className="font-normal text-amber-600">一時保存中</span> : null}
@@ -47804,8 +47809,8 @@ function KeikakuYoteiView({ appData, navigateTo, family = 'tsusho' }) {
                           </div>
                           <span className="flex-1"/>
                           {first && (_hasLifeY
-                            ? <button type="button" onClick={() => navigateTo('life_hub', p.id, 'batch')} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shrink-0">評価・計画を始める</button>
-                            : <button type="button" onClick={() => navigateTo('kinou_keikaku', p.id, 'start_edit')} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shrink-0">計画書を作る</button>)}
+                            ? <button type="button" onClick={() => navigateTo('life_hub', p.id, 'batch|ret:kinou_yotei')} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shrink-0">評価・計画を始める</button>
+                            : <button type="button" onClick={() => navigateTo('kinou_keikaku', p.id, 'start_edit|ret:kinou_yotei')} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shrink-0">計画書を作る</button>)}
                           <span className={`text-xs font-bold whitespace-nowrap ${!first ? 'text-emerald-600' : first.overdue ? 'text-red-600' : first.daysLeft <= 7 ? 'text-amber-600' : 'text-slate-500'}`}>
                             {!first ? '完了' : first.overdue ? `${Math.abs(first.daysLeft)}日超過` : first.daysLeft === 0 ? '本日' : `あと${first.daysLeft}日`}
                           </span>
@@ -47832,7 +47837,7 @@ function KeikakuYoteiView({ appData, navigateTo, family = 'tsusho' }) {
                       </div>
                       <div className="divide-y divide-slate-100">
                         {rows.map((d,i) => (
-                          <button key={i} onClick={()=>navigateTo(d.view, d.patient.id, (d.kind==='tsusho'||d.kind==='kinou') ? 'start_edit' : null)}
+                          <button key={i} onClick={()=>navigateTo(d.view, d.patient.id, (d.kind==='tsusho'||d.kind==='kinou') ? `start_edit|ret:${family === 'tsusho' ? 'keikaku_yotei' : 'kinou_yotei'}` : null)}
                             className={`w-full text-left px-4 py-3 flex items-center gap-3 flex-wrap hover:bg-blue-50 active:bg-blue-100 ${d.overdue?'bg-red-50':''}`}>
                             <span className="font-bold text-slate-800 text-sm" style={{minWidth:110}}>{d.patient.name}</span>
                             <span className="text-[11px] text-slate-400">{d.note}</span>
@@ -48033,9 +48038,9 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
   });
 
   const upd = (patch) => { setEditing(e => ({ ...e, ...patch })); markDirty(); };
-  const updProg = (i, patch) => { setEditing(e => ({ ...e, programs: e.programs.map((p,idx)=> idx===i ? {...p,...patch} : p) })); markDirty(); };
-  const addProg = () => { setEditing(e => ({ ...e, programs: [...e.programs, blankProgram()] })); markDirty(); };
-  const delProg = (i) => { setEditing(e => ({ ...e, programs: e.programs.filter((_,idx)=>idx!==i) })); markDirty(); };
+  const updProg = (i, patch) => { setEditing(e => ({ ...e, programs: (e.programs||[]).map((p,idx)=> idx===i ? {...p,...patch} : p) })); markDirty(); };
+  const addProg = () => { setEditing(e => ({ ...e, programs: [...(e.programs||[]), blankProgram()] })); markDirty(); };
+  const delProg = (i) => { setEditing(e => ({ ...e, programs: (e.programs||[]).filter((_,idx)=>idx!==i) })); markDirty(); };
 
   // ★ close=true: 保存して一覧へ戻る / close=false: 一時保存(編集画面は開いたまま。 画面を戻る前に消えないよう取っておく)
   const saveRecord = (close=true) => {
@@ -48066,7 +48071,8 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
   // ★ 作成予定からの遷移(navFocus='start_edit'): 最新が一時保存(draft)ならそれを再開、
   //   完成版があれば「複製して更新」、無ければ新規(2026-09-08 店舗要望: 一時保存の続きから作成)
   React.useEffect(() => {
-    if (navFocus !== 'start_edit') return;
+    if (kkFocusBase(navFocus) !== 'start_edit') return;
+    _retRef.current = kkFocusRet(navFocus);
     if (!editing) {
       if (records[0] && records[0].draft) setEditing({ ...records[0] });
       else if (records[0]) dupRecord(records[0]);
@@ -48116,10 +48122,11 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
   // 印刷対象 (編集中 or 最新)
   // ★ 2026-10-14: 「利用者ごと」の履歴から 編集(edit:<id>)・ダウンロード(print:<id>)
   const [printPickId, setPrintPickId] = React.useState(null);
+  const _retRef = useKkReturn(!!editing, navigateTo, pid);
   const printRec = editing || (printPickId != null && records.find(r => String(r.id) === String(printPickId))) || records[0] || null;
   React.useEffect(() => {
-    const f = String(navFocus || '');
-    if (f.startsWith('edit:')) { const r = records.find(x => String(x.id) === f.slice(5)); if (r) setEditing({ ...r }); if (onFocusHandled) onFocusHandled(); }
+    const f = kkFocusBase(navFocus);
+    if (f.startsWith('edit:')) { const r = records.find(x => String(x.id) === f.slice(5)); if (r) { _retRef.current = kkFocusRet(navFocus); setEditing({ ...r }); } if (onFocusHandled) onFocusHandled(); }
     else if (f.startsWith('print:')) setPrintPickId(f.slice(6));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navFocus]);
@@ -48134,12 +48141,16 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
     <div className="flex flex-col h-full">
       {/* ヘッダ */}
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
-        <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>
-        <KeikakuTabs current="kinou_keikaku" navigateTo={navigateTo} family="kinou" pid={pid} appData={appData}/>
+        {editing ? <>
+          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} data-testid="kk-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold"><ChevronLeft size={16}/>閉じる</button>
+          <span className="text-sm font-bold text-slate-700 whitespace-nowrap">個別機能訓練計画書（様式3-3）の編集<span className="ml-2 font-normal text-slate-500">{patient?.name ? `${patient.name} 様` : ''}</span></span>
+        </> : <>
+          <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>
+          <KeikakuTabs current="kinou_keikaku" navigateTo={navigateTo} family="kinou" pid={pid} appData={appData}/>
+        </>}
         <div className="flex-1"/>
         {!editing && <button onClick={()=>setEditing(newRecord())} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">＋ 新規作成</button>}
         {editing && <>
-          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
           <button onClick={()=>saveRecord(false)} className="px-4 py-2 bg-white border border-emerald-500 text-emerald-600 hover:bg-emerald-50 rounded-lg text-sm font-bold active:scale-95" title="編集画面を開いたまま保存します">一時保存</button>
           <button onClick={()=>saveRecord(true)} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold shadow active:scale-95">保存して閉じる</button>
         </>}
@@ -48302,7 +48313,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
                 <div className="col-span-4">プログラム内容（何を目的に〜する）</div><div className="col-span-3">留意点</div><div className="col-span-2">頻度(週○回)</div><div className="col-span-2">時間</div><div className="col-span-1"></div>
               </div>
               <div className="space-y-2">
-                {editing.programs.map((pr,i)=>(
+                {(editing.programs||[]).map((pr,i)=>(
                   <div key={i} className="grid grid-cols-12 gap-2 items-start bg-slate-50 rounded-lg p-2">
                     <input list="kk-prog-content" value={pr.content} onChange={e=>updProg(i,{content:e.target.value})} placeholder="○○のために△△する（▼で定型文）" className="col-span-4 px-2 py-1.5 bg-white border border-slate-300 rounded text-xs outline-none"/>
                     <input list="kk-prog-point" value={pr.point} onChange={e=>updProg(i,{point:e.target.value})} placeholder="留意点（▼で定型文）" className="col-span-3 px-2 py-1.5 bg-white border border-slate-300 rounded text-xs outline-none"/>
@@ -48668,10 +48679,11 @@ function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
   const dupRecord = (r) => setEditing({...r, id:`sk_${pid}_${Date.now()}`, createdAt:Date.now(), recordDate:toReiwa(new Date().toISOString().slice(0,10))});
   // ★ 2026-10-14: 「利用者ごと」の履歴から 編集(edit:<id>)・ダウンロード(print:<id>)
   const [printPickId, setPrintPickId] = React.useState(null);
+  const _retRef = useKkReturn(!!editing, navigateTo, pid);
   const printRec = editing || (printPickId != null && records.find(r => String(r.id) === String(printPickId))) || records[0] || null;
   React.useEffect(() => {
-    const f = String(navFocus || '');
-    if (f.startsWith('edit:')) { const r = records.find(x => String(x.id) === f.slice(5)); if (r) setEditing({ ...r }); if (onFocusHandled) onFocusHandled(); }
+    const f = kkFocusBase(navFocus);
+    if (f.startsWith('edit:')) { const r = records.find(x => String(x.id) === f.slice(5)); if (r) { _retRef.current = kkFocusRet(navFocus); setEditing({ ...r }); } if (onFocusHandled) onFocusHandled(); }
     else if (f.startsWith('print:')) setPrintPickId(f.slice(6));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navFocus]);
@@ -48702,12 +48714,16 @@ function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
   return (
     <div className="flex flex-col h-full">
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
-        <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>
-        <KeikakuTabs current="seikatsu_kinou" navigateTo={navigateTo} family="kinou" pid={pid} appData={appData}/>
+        {editing ? <>
+          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef)dirtyRef.current=false; setEditing(null); }} data-testid="kk-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold"><ChevronLeft size={16}/>閉じる</button>
+          <span className="text-sm font-bold text-slate-700 whitespace-nowrap">生活機能チェック（様式3-2）の編集<span className="ml-2 font-normal text-slate-500">{patient?.name ? `${patient.name} 様` : ''}</span></span>
+        </> : <>
+          <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>
+          <KeikakuTabs current="seikatsu_kinou" navigateTo={navigateTo} family="kinou" pid={pid} appData={appData}/>
+        </>}
         <div className="flex-1"/>
         {!editing && <button onClick={()=>setEditing(newRecord())} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">＋ 新規作成</button>}
         {editing && <>
-          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef)dirtyRef.current=false; setEditing(null); }} className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
           <button onClick={()=>saveRecord(false)} className="px-4 py-2 bg-white border border-emerald-500 text-emerald-600 hover:bg-emerald-50 rounded-lg text-sm font-bold active:scale-95" title="編集画面を開いたまま保存します">一時保存</button>
           <button onClick={()=>saveRecord(true)} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold shadow active:scale-95">保存して閉じる</button>
         </>}
@@ -48813,10 +48829,11 @@ function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
   const dupRecord = (r) => setEditing({...r, id:`ki_${pid}_${Date.now()}`, createdAt:Date.now(), recordDate:toReiwa(new Date().toISOString().slice(0,10))});
   // ★ 2026-10-14: 「利用者ごと」の履歴から 編集(edit:<id>)・ダウンロード(print:<id>)
   const [printPickId, setPrintPickId] = React.useState(null);
+  const _retRef = useKkReturn(!!editing, navigateTo, pid);
   const printRec = editing || (printPickId != null && records.find(r => String(r.id) === String(printPickId))) || records[0] || null;
   React.useEffect(() => {
-    const f = String(navFocus || '');
-    if (f.startsWith('edit:')) { const r = records.find(x => String(x.id) === f.slice(5)); if (r) setEditing({ ...r }); if (onFocusHandled) onFocusHandled(); }
+    const f = kkFocusBase(navFocus);
+    if (f.startsWith('edit:')) { const r = records.find(x => String(x.id) === f.slice(5)); if (r) { _retRef.current = kkFocusRet(navFocus); setEditing({ ...r }); } if (onFocusHandled) onFocusHandled(); }
     else if (f.startsWith('print:')) setPrintPickId(f.slice(6));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navFocus]);
@@ -48842,12 +48859,16 @@ function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
   return (
     <div className="flex flex-col h-full">
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
-        <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>
-        <KeikakuTabs current="kyomi_kanshin" navigateTo={navigateTo} family="kinou" pid={pid} appData={appData}/>
+        {editing ? <>
+          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef)dirtyRef.current=false; setEditing(null); }} data-testid="kk-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold"><ChevronLeft size={16}/>閉じる</button>
+          <span className="text-sm font-bold text-slate-700 whitespace-nowrap">興味・関心チェック（様式3-1）の編集<span className="ml-2 font-normal text-slate-500">{patient?.name ? `${patient.name} 様` : ''}</span></span>
+        </> : <>
+          <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>
+          <KeikakuTabs current="kyomi_kanshin" navigateTo={navigateTo} family="kinou" pid={pid} appData={appData}/>
+        </>}
         <div className="flex-1"/>
         {!editing && <button onClick={()=>setEditing(newRecord())} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">＋ 新規作成</button>}
         {editing && <>
-          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef)dirtyRef.current=false; setEditing(null); }} className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
           <button onClick={()=>saveRecord(false)} className="px-4 py-2 bg-white border border-emerald-500 text-emerald-600 hover:bg-emerald-50 rounded-lg text-sm font-bold active:scale-95" title="編集画面を開いたまま保存します">一時保存</button>
           <button onClick={()=>saveRecord(true)} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold shadow active:scale-95">保存して閉じる</button>
         </>}
@@ -49094,9 +49115,9 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
     markDirty();
   };
   const upd = (patch)=>{ setEditing(e=>({...e,...patch})); markDirty(); };
-  const updProg = (i,patch)=>{ setEditing(e=>({...e, programs:e.programs.map((p,idx)=>idx===i?{...p,...patch}:p)})); markDirty(); };
+  const updProg = (i,patch)=>{ setEditing(e=>({...e, programs:(e.programs||[]).map((p,idx)=>idx===i?{...p,...patch}:p)})); markDirty(); };
   const addProg = ()=>{ setEditing(e=>({...e, programs:[...(e.programs||[]), blankProg()]})); markDirty(); };
-  const delProg = (i)=>{ setEditing(e=>({...e, programs:e.programs.filter((_,idx)=>idx!==i)})); markDirty(); };
+  const delProg = (i)=>{ setEditing(e=>({...e, programs:(e.programs||[]).filter((_,idx)=>idx!==i)})); markDirty(); };
   // ★ 様式3-4: サービス提供内容①〜⑤ / 1日の流れ
   const updSvc = (i,patch)=>{ setEditing(e=>({...e, services:(e.services||[]).map((s,idx)=>idx===i?{...s,...patch}:s)})); markDirty(); };
   const updFlow = (i,patch)=>{ setEditing(e=>({...e, flow:(e.flow||[]).map((s,idx)=>idx===i?{...s,...patch}:s)})); markDirty(); };
@@ -49127,7 +49148,8 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
   // ★ 作成予定からの遷移(navFocus='start_edit'): 最新が一時保存(draft)ならそれを再開、
   //   完成版があれば「複製して更新」、無ければ新規(2026-09-08 店舗要望: 一時保存の続きから作成)
   React.useEffect(() => {
-    if (navFocus !== 'start_edit') return;
+    if (kkFocusBase(navFocus) !== 'start_edit') return;
+    _retRef.current = kkFocusRet(navFocus);
     if (!editing) {
       if (records[0] && records[0].draft) setEditing(_migrate({ ...records[0] }));
       else if (records[0]) dupRecord(records[0]);
@@ -49189,15 +49211,20 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
   const TEIKYO_TIMES=['3時間以上4時間未満','4時間以上5時間未満','5時間以上6時間未満','6時間以上7時間未満','7時間以上8時間未満','8時間以上9時間未満'];
 
   const printRec = editing || records[0] || null;
+  const _retRef = useKkReturn(!!editing, navigateTo, pid); // ★ 2026-10-14: 作成予定から開いた編集は閉じたら作成予定へ
   return (
     <div className="flex flex-col h-full">
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
-        <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>
-        <KeikakuTabs current="tsusho_keikaku" navigateTo={navigateTo} family="tsusho" pid={pid} appData={appData}/>
+        {editing ? <>
+          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} data-testid="kk-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold"><ChevronLeft size={16}/>閉じる</button>
+          <span className="text-sm font-bold text-slate-700 whitespace-nowrap">通所介護計画書の編集<span className="ml-2 font-normal text-slate-500">{patient?.name ? `${patient.name} 様` : ''}</span></span>
+        </> : <>
+          <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>
+          <KeikakuTabs current="tsusho_keikaku" navigateTo={navigateTo} family="tsusho" pid={pid} appData={appData}/>
+        </>}
         <div className="flex-1"/>
         {!editing && <button onClick={()=>setEditing(newRecord())} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">＋ 新規作成</button>}
         {editing && <>
-          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
           <button onClick={()=>saveRecord(false)} className="px-4 py-2 bg-white border border-emerald-500 text-emerald-600 hover:bg-emerald-50 rounded-lg text-sm font-bold active:scale-95" title="編集画面を開いたまま保存します">一時保存</button>
           <button onClick={()=>saveRecord(true)} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold shadow active:scale-95">保存して閉じる</button>
         </>}
@@ -50144,6 +50171,116 @@ const DEM_SCALE_QUESTIONS = [
   { no:'⑤', label:'一人で着替えができるか', choices:['季節・気温に応じた服装を選び着脱衣できる','服装選びは不可だが順番・方法を理解し自分で着脱衣できる','促せば自分で着脱衣できる','着脱衣の一部を介護者が行う','着脱衣の全てを常に介護者が行う'] },
   { no:'⑥', label:'電化製品(テレビ・エアコン等)を操作できるか', choices:['自由に操作できる','普段している操作はできる','教えてもらえれば使える','認識しているが使い方が全く分からない','何をするものか分からない'] },
 ];
+// ★ 2026-10-14(ユーザー要望「ADL利得の計算を職員が手でしていた・入院などで来られない月があるときの扱いも」): ADL維持等加算の目安。
+//   令和6年度の基準: 評価対象=要介護の方で、評価対象期間の中の利用が6か月を超える方(10名以上)。
+//   初月(評価対象利用開始月)と、その翌月から数えて6月目の Barthel Index で
+//   調整済ADL利得 = 6月目 − 初月 + 初月の値に応じた数(0〜25・30〜50→1、55〜75→2、80〜100→3)。
+//   6月目に利用が無いとき(入院など)は、利用があった最終の月の評価を使う(令和3年度Q&A)。
+//   上位・下位それぞれ1割(端数は切り捨て)を除いた平均が 1以上=(Ⅰ)30単位・3以上=(Ⅱ)60単位。正式な判定は LIFE で確認する(ここは目安)
+const adlGainAdj = (bi) => bi <= 50 ? 1 : bi <= 75 ? 2 : 3;
+const _agYmAdd = (ym, n) => { const [y, m] = String(ym).split('-').map(Number); const d = new Date(y, m - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
+const _agYmJp = (ym) => ym ? `${Number(ym.slice(0, 4))}年${Number(ym.slice(5, 7))}月` : '';
+function AdlGainEstimate({ appData, navigateTo }) {
+  const now = new Date(); const curYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const [startYm, setStartYm] = React.useState(() => _agYmAdd(curYm, -12)); // 既定=先月までの12か月
+  const endYm = _agYmAdd(startYm, 11);
+  const rows = React.useMemo(() => {
+    const used = new Map(); // 利用者ごとの「利用があった月」(提供記録の 出席・振替・臨時)
+    (appData.ticketRecords || []).forEach(r => {
+      if (!r || !['出席', '振替', '臨時'].includes(r.status)) return;
+      const m = String(r.date || '').match(/(\d+)月(\d+)日/); if (!m) return;
+      const ym = `${r.year || now.getFullYear()}-${String(m[1]).padStart(2, '0')}`; const k = String(r.patientId);
+      if (!used.has(k)) used.set(k, new Set()); used.get(k).add(ym);
+    });
+    const complete = (it) => BARTHEL_ITEMS.every(b => it && it[b.key] != null && it[b.key] !== '');
+    return sortPatientsByKana((appData.patients || []).filter(p => p && isPatientListable(p) && kpCareGroup(p) === 'kaigo')).map(p => {
+      const all = [...(used.get(String(p.id)) || [])].sort();
+      const inPeriod = all.filter(ym => ym >= startYm && ym <= endYm);
+      if (!inPeriod.length) return null;
+      const m0 = inPeriod[0], m6 = _agYmAdd(m0, 6);
+      const recs = (appData.adlRecords || []).filter(r => r && r.patientId === p.id && r.evalDate && complete(r.items))
+        .map(r => ({ r, ym: String(r.evalDate).slice(0, 7), bi: barthelTotal(r.items) })).sort((a, b) => String(a.r.evalDate).localeCompare(String(b.r.evalDate)));
+      const first = recs.find(x => x.ym === m0) || null;
+      let six = null, sixYm = m6, sixNote = '';
+      if (all.includes(m6)) six = recs.filter(x => x.ym === m6).pop() || null;
+      else { const lu = all.filter(ym => ym > m0 && ym < m6).pop(); if (lu && m6 <= curYm) { sixYm = lu; six = recs.filter(x => x.ym === lu).pop() || null; sixNote = `6月目(${Number(m6.slice(5))}月)は利用なし→最後に利用した月`; } }
+      const ended = isPatientResigned(p) || (p.endDate && String(p.endDate).slice(0, 7) < m6);
+      const lastUse = all[all.length - 1] || '';
+      const over6 = m6 <= endYm && (!ended || lastUse >= m6 || !!six); // 期間の中で6か月を超えて利用(途中で入院などがあっても続いている)
+      let status = 'ok', gain = null;
+      if (!over6) status = m6 > endYm ? '期間内の利用が6か月以内' : '6か月目より前に利用終了';
+      else if (!first) status = '初月の評価がありません';
+      else if (!six && m6 >= curYm) status = '6月目の評価待ち';
+      else if (!six) status = '6月目の評価がありません';
+      else gain = six.bi - first.bi + adlGainAdj(first.bi);
+      return { p, m0, m6, sixYm, first, six, sixNote, over6, status, gain };
+    }).filter(Boolean);
+  }, [appData.ticketRecords, appData.adlRecords, appData.patients, startYm]); // eslint-disable-line react-hooks/exhaustive-deps
+  const elig = rows.filter(r => r.over6);
+  const calc = elig.filter(r => r.gain != null).sort((a, b) => b.gain - a.gain);
+  const cut = Math.floor(calc.length * 0.1);
+  const topIds = new Set(calc.slice(0, cut).map(r => r.p.id)), botIds = new Set(calc.slice(calc.length - cut).map(r => r.p.id));
+  const kept = calc.slice(cut, calc.length - cut);
+  const avg = kept.length ? kept.reduce((n, r) => n + r.gain, 0) / kept.length : null;
+  const missing = elig.length - calc.length;
+  const judge = elig.length < 10 ? { t: `評価対象の方が${elig.length}名で、10名に届いていません`, c: 'bg-slate-100 text-slate-600 border-slate-300' }
+    : avg == null ? { t: '計算できる方がまだいません', c: 'bg-slate-100 text-slate-600 border-slate-300' }
+    : avg >= 3 ? { t: 'ADL維持等加算（Ⅱ）60単位の目安', c: 'bg-emerald-50 text-emerald-800 border-emerald-300' }
+    : avg >= 1 ? { t: 'ADL維持等加算（Ⅰ）30単位の目安', c: 'bg-sky-50 text-sky-800 border-sky-300' }
+    : { t: '基準（平均1以上）に届いていません', c: 'bg-amber-50 text-amber-800 border-amber-300' };
+  const _bi = (x) => x ? <span className="tabular-nums"><b>{x.bi}</b><span className="text-slate-400 ml-1">{Number(x.ym.slice(5))}月</span></span> : <span className="text-slate-300">—</span>;
+  return (
+    <div className="bg-white rounded-xl border border-orange-200 p-4" data-testid="adl-gain">
+      <div className="flex items-start justify-between gap-3 flex-wrap mb-2">
+        <div>
+          <div className="text-sm font-bold text-orange-700">ADL維持等加算の目安（ADL利得の自動計算）</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">要介護の方の初月と6月目のADL評価（Barthel Index）から計算します。正式な判定は、届出の前に新LIFEで確認してください。</div>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap text-xs font-bold text-slate-500">
+          評価対象期間
+          <input type="month" value={startYm} onChange={e => e.target.value && setStartYm(e.target.value)} className="px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none"/>
+          〜 {_agYmJp(endYm)}（12か月）
+        </div>
+      </div>
+      <div className="flex gap-2 flex-wrap items-center mb-2 text-xs font-bold">
+        <span className={`px-3 py-1.5 rounded-lg border ${judge.c}`} data-testid="adl-gain-judge">{judge.t}</span>
+        <span className="px-2 py-1 rounded bg-white border border-slate-200 text-slate-600">ADL利得の平均 <b className="tabular-nums text-base">{avg == null ? '—' : avg.toFixed(2)}</b></span>
+        <span className="px-2 py-1 rounded bg-white border border-slate-200 text-slate-600">評価対象 {elig.length}名</span>
+        <span className="px-2 py-1 rounded bg-white border border-slate-200 text-slate-600">計算 {calc.length}名{cut ? `（上位・下位 各${cut}名を除いて${kept.length}名で平均）` : ''}</span>
+        {missing > 0 && <span className="px-2 py-1 rounded bg-red-50 border border-red-200 text-red-700">評価がそろっていない方 {missing}名</span>}
+      </div>
+      {rows.length === 0 ? <div className="text-xs text-slate-400 py-3">この期間に利用があった要介護の方がいません（提供記録の出席から数えます）。</div> : (
+        <div className="overflow-x-auto border border-slate-200 rounded-lg max-h-80 overflow-y-auto">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0"><tr className="bg-slate-50 text-slate-500"><th className="px-2 py-1.5 text-left">利用者</th><th className="px-2 py-1.5">初月</th><th className="px-2 py-1.5">6月目</th><th className="px-2 py-1.5">差</th><th className="px-2 py-1.5">初月に応じた数</th><th className="px-2 py-1.5">ADL利得</th><th className="px-2 py-1.5 text-left">状態</th></tr></thead>
+            <tbody className="divide-y divide-slate-100">
+              {rows.map(r => { const ex = topIds.has(r.p.id) ? '上位1割のため平均から除外' : botIds.has(r.p.id) ? '下位1割のため平均から除外' : ''; return (
+                <tr key={r.p.id} data-testid="adl-gain-row" className={`hover:bg-slate-50 cursor-pointer ${!r.over6 ? 'text-slate-400' : ''}`} onClick={() => navigateTo && navigateTo('life_hub', r.p.id)}>
+                  <td className="px-2 py-1.5 font-bold whitespace-nowrap">{r.p.name}<div className="text-[10px] font-normal text-slate-400">{r.p.careLevel || ''}・初月 {_agYmJp(r.m0)}</div></td>
+                  <td className="px-2 py-1.5 text-center whitespace-nowrap">{_bi(r.first)}</td>
+                  <td className="px-2 py-1.5 text-center whitespace-nowrap">{_bi(r.six)}{r.sixNote ? <div className="text-[10px] text-amber-700">{r.sixNote}</div> : null}</td>
+                  <td className="px-2 py-1.5 text-center tabular-nums">{r.gain != null ? (r.six.bi - r.first.bi > 0 ? '+' : '') + (r.six.bi - r.first.bi) : ''}</td>
+                  <td className="px-2 py-1.5 text-center tabular-nums">{r.first && r.over6 ? `+${adlGainAdj(r.first.bi)}` : ''}</td>
+                  <td className="px-2 py-1.5 text-center tabular-nums font-bold">{r.gain != null ? r.gain : ''}</td>
+                  <td className="px-2 py-1.5 text-[11px]">{r.gain != null ? (ex ? <span className="text-slate-400">{ex}</span> : <span className="text-emerald-700">計算に使用</span>) : <span className={r.over6 ? 'text-red-600 font-bold' : ''}>{r.status}</span>}</td>
+                </tr>); })}
+            </tbody>
+          </table>
+        </div>)}
+      <details className="mt-2 text-[11px] text-slate-500 leading-relaxed">
+        <summary className="cursor-pointer font-bold text-slate-600">計算のしかた（令和6年度の基準）</summary>
+        <div className="mt-1 space-y-0.5">
+          <div>・対象は要介護の方だけです（要支援・事業対象者は対象外）。評価対象期間の中で、最初に利用した月（初月）から6か月を超えて利用している方が対象で、10名以上必要です。</div>
+          <div>・初月と、その翌月から数えて6月目に ADL評価（Barthel Index）を行い、それぞれ LIFE に提出します。</div>
+          <div>・<b>6月目に利用が無い（入院などで来られない）とき</b>は、利用があった最後の月の評価を使います。途中で来られない月があっても、利用が続いていれば対象のままです。</div>
+          <div>・ADL利得 ＝ 6月目の点数 − 初月の点数 ＋ 初月の点数に応じた数（0〜25点・30〜50点→1、55〜75点→2、80〜100点→3）。</div>
+          <div>・ADL利得の高い方・低い方それぞれ1割（端数は切り捨て）を除いて平均し、1以上で（Ⅰ）30単位、3以上で（Ⅱ）60単位です。</div>
+          <div>・利用のあった月は提供記録の「出席・振替・臨時」から数えます。10項目すべて入力したADL評価だけを使います。行を押すと、その方の評価の画面が開きます。</div>
+        </div>
+      </details>
+    </div>
+  );
+}
 function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, onFocusHandled, dirtyRef, saveFnRef, onShowPrintPreview, mode }) {
   const _isSubmit = mode === 'submit'; // ★ 2026-10-14: LIFE提出(月1回の提出・CSV・取込)と、利用者ごとのADL評価・科学的介護を別の画面に
   const _kkPL = kkPresetsOf(appData.systemSettings); const _kkStaffL = tsuStaffList(appData); // ★ 2026-10-14: 評価・計画(一括評価)にも定型文・職員
@@ -50516,10 +50653,12 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
   // ★ 作成予定の「一括評価」ボタンからの遷移(navFocus='batch'): 対象者選択済みで一括評価を即開く(2026-08-20)
   // ★ 2026-10-14: 「利用者ごと」の履歴から 編集=batch:<評価日>(その日の評価・計画を開く)・ダウンロード=print:<id>
   const [_printPickIdL, setPrintPickIdL] = React.useState(null);
+  const _retRef = useKkReturn(!!(batchMode || editing), navigateTo, pid);
   React.useEffect(() => {
-    const f = String(navFocus || '');
+    const f = kkFocusBase(navFocus);
     if (f.startsWith('print:')) { setPrintPickIdL(f.slice(6)); return; }
     if (f !== 'batch' && !f.startsWith('batch:')) return;
+    _retRef.current = kkFocusRet(navFocus);
     _batchLoad(f.startsWith('batch:') ? f.slice(6) : today);
     if (onFocusHandled) onFocusHandled();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -50596,8 +50735,13 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
   return (
     <div className="flex flex-col h-full">
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
-        {!_isSubmit && <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>}
-        <KeikakuTabs current={_isSubmit ? 'life_submit' : 'life_hub'} navigateTo={navigateTo} family="kinou" pid={pid} appData={appData}/>
+        {editing ? <>
+          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} data-testid="kk-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold"><ChevronLeft size={16}/>閉じる</button>
+          <span className="text-sm font-bold text-slate-700 whitespace-nowrap">ADL評価の編集<span className="ml-2 font-normal text-slate-500">{patient?.name ? `${patient.name} 様` : ''}</span></span>
+        </> : <>
+          {_isSubmit ? <KeikakuPatientSelect patients={patients} pid={null} onChange={(id)=>navigateTo('kinou_patient', id)}/> : <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>}
+          <KeikakuTabs current={_isSubmit ? 'life_submit' : 'life_hub'} navigateTo={navigateTo} family="kinou" pid={pid} appData={appData}/>
+        </>}
         <div className="flex-1"/>
         {/* ★ 2026-10-14: 「一括評価」は「利用者ごと」の「評価・計画を始める」に統一。CSV取込(移行)は LIFE提出 だけ */}
         {_isSubmit && !editing && <label title="まるっとLIFE等の提出用CSV(TIFI2024/AINT2024)を読み込み、ADL評価と科学的介護推進の項目を移行します" className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold shadow active:scale-95 cursor-pointer">CSV取込(移行)
@@ -50605,7 +50749,6 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
         </label>}
         {!_isSubmit && !editing && <button onClick={()=>setEditing(blank())} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">＋ ADL評価を新規作成</button>}
         {editing && <>
-          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
           {_lifeMissing.length > 0 && (
             <button onClick={()=>save(true)} className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-bold shadow active:scale-95" title="必須項目が未入力でも保存できます(後で完成させてください)">一時保存</button>
           )}
@@ -50619,6 +50762,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
       {batchMode && batch && (
         <div className="fixed inset-0 z-50 bg-slate-100 flex flex-col">
           <div className="bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-2 flex-wrap shadow-sm">
+            <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setBatchMode(false); setBatch(null); }} data-testid="kk-close" className="flex items-center gap-1 px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold"><ChevronLeft size={16}/>閉じる</button>
             <span className="text-sm font-bold text-indigo-700">評価・計画（3か月ごとの評価）</span>
             <span className="text-sm font-bold text-slate-700">{patient?.name} 様</span>
             <div className="flex items-center gap-1.5 ml-2">
@@ -50629,7 +50773,6 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
             <div className="flex-1"/>
             {_batchMissing.length > 0 && <button onClick={()=>batchSave(true)} className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold shadow">一時保存</button>}
             <button onClick={()=>batchSave(false)} title={_batchMissing.length?`必須が${_batchMissing.length}件未入力です`:''} className={`px-4 py-1.5 rounded-lg text-sm font-bold shadow text-white ${_batchMissing.length?'bg-slate-400':'bg-emerald-500 hover:bg-emerald-600'}`}>保存{_batchMissing.length?`（必須残${_batchMissing.length}）`:''}</button>
-            <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setBatchMode(false); setBatch(null); }} className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
           </div>
           {/* 評価履歴タイムライン + セクションジャンプ */}
           <div className="bg-white border-b border-slate-200 px-4 py-2 flex items-center gap-2 flex-wrap">
@@ -50907,6 +51050,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
           )}
 
           {/* ★ 利用者情報CSV(SERVICE_USER_INFO・新LIFEへの利用者登録) 2026-09-21 */}
+          {addons.kasan_adl && <AdlGainEstimate appData={appData} navigateTo={navigateTo}/>}
           <details className="bg-white rounded-xl border border-indigo-200 p-4" data-testid="life-userinfo">
             <summary className="cursor-pointer select-none text-sm font-bold text-indigo-700">利用者情報CSV（新LIFEに利用者を登録するときだけ）<span className="ml-2 text-[11px] font-normal text-slate-500">新LIFEに、まだ登録されていない利用者がいる時に開きます</span></summary>
             <div className="flex items-center justify-between flex-wrap gap-2 mb-2 mt-3">
