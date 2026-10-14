@@ -13729,7 +13729,8 @@ function EmergencyNoticeView({ appData, onSave, staffSession, safety: safetyProp
   })();
   const safetyCount = Object.keys(safety).filter(k => safety[k] && scopedPid.has(k)).length;
   const nFam = recipients.filter(r => r.kind === 'family').length, nCm = recipients.filter(r => r.kind === 'cm').length;
-  const noEmailFam = activePats.filter(p => !famRows.some(r => String(r.patient_id) === String(p.id))).length;
+  // ★ 2026-10-14(不具合修正): 「対象のうち」なので、選んだ対象の方だけで数える(従来は利用中の全員で数えて多く出ていた)
+  const noEmailFam = scopedPats.filter(p => !famRows.some(r => String(r.patient_id) === String(p.id))).length;
   const tel = fi.phone || '（電話番号）';
   const TEMPLATES = [
     { key: 'safe', label: '避難完了・全員無事', subject: '【重要】避難完了と皆さまの無事のご連絡',
