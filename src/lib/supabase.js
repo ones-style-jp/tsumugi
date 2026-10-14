@@ -1999,6 +1999,28 @@ export async function supabaseSetStoreAddon(storeId, key, value) {
   } catch (e) { console.warn('[supabase] setStoreAddon failed', e); return false; }
 }
 
+// ★ 2026-10-14(ユーザー要望): 管理局の店舗編集で入れた郵便番号・住所・電話等を、その店舗の各種設定→事業所情報へ反映する。
+//   facilityInfo のサブ項目ごとに刻印(fi:<key>)して、店舗の端末側の項目別マージで確実に新しい値が勝つようにする。
+//   ifEmpty の項目(事業所名)は、事業所情報が空欄のときだけ入れる。店舗データがまだ無ければ何もしない(false)。
+export async function supabaseSetStoreFacilityInfo(storeId, patch, ifEmpty) {
+  if (!supabase || !storeId) return false;
+  try {
+    const res = await supabaseCasUpdate(storeId, (cloud) => {
+      if (!cloud) return null;
+      const now = syncNow();
+      const ss = cloud.systemSettings || {};
+      const fi = { ...(ss.facilityInfo || {}) };
+      const fts = { ...(ss._fieldTs && typeof ss._fieldTs === 'object' ? ss._fieldTs : {}) };
+      let changed = false;
+      Object.keys(patch || {}).forEach(k => { const v = patch[k] == null ? '' : String(patch[k]); if (String(fi[k] ?? '') !== v) { fi[k] = v; fts['fi:' + k] = now; changed = true; } });
+      Object.keys(ifEmpty || {}).forEach(k => { const v = String(ifEmpty[k] ?? '').trim(); if (v && !String(fi[k] ?? '').trim()) { fi[k] = v; fts['fi:' + k] = now; changed = true; } });
+      if (!changed) return null;
+      return { ...cloud, systemSettings: { ...ss, facilityInfo: fi, _fieldTs: fts, _updatedAt: now } };
+    });
+    return !!(res && res.ok);
+  } catch (e) { console.warn('[supabase] setStoreFacilityInfo failed', e); return false; }
+}
+
 export async function supabaseSetStoreAdminAuth(storeId, authPatch) {
   if (!supabase || !storeId) return false;
   try {

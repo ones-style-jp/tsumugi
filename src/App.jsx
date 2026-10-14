@@ -92,6 +92,7 @@ import {
   supabaseMarkDocUpdatesRead,
   supabaseSetStoreAdminAuth,
   supabaseSetStoreAddon,
+  supabaseSetStoreFacilityInfo,
   supabaseDeletePatientFamily,
   supabaseListSystemNotices,
   supabaseListAllSystemNotices,
@@ -18980,17 +18981,23 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
     if (!editStore.name?.trim()) { setEditStore(s=>({...s, error:'店舗名は必須です'})); return; }
     setEditStore(s=>({...s, loading:true, error:''}));
     try {
-      await supabaseUpdateStore(editStore.id, {
+      const _fields = {
         name: editStore.name.trim(),
         short_name: (editStore.short_name||'').trim() || editStore.name.trim(),
         org_name: (editStore.org_name||'').trim(),
         zip_code: formatJpZip(editStore.zip_code||''),
         address: (editStore.address||'').trim(),
+        address_building: (editStore.address_building||'').trim(),
         phone: formatJpPhone(editStore.phone||''),
         fax: formatJpPhone(editStore.fax||''),
-      });
+      };
+      try { await supabaseUpdateStore(editStore.id, _fields); }
+      catch (e1) { if (/address_building|column|schema/i.test(e1?.message||'')) { const { address_building: _b, ...rest } = _fields; await supabaseUpdateStore(editStore.id, rest); } else throw e1; }
+      // ★ 2026-10-14(ユーザー要望): ここで入力した郵便番号・住所・建物名・電話・FAXを、その店舗の「各種設定→事業所情報」へも反映(事業所名は空欄のときだけ)
+      const _synced = await supabaseSetStoreFacilityInfo(editStore.id, { zipCode: _fields.zip_code, zip: _fields.zip_code, address: _fields.address, addressBuilding: _fields.address_building, phone: _fields.phone, fax: _fields.fax }, { name: _fields.name });
       setEditStore(null);
       await loadStores();
+      if (!_synced) alert('店舗情報は保存しましたが、事業所情報への反映に失敗しました（通信を確認して、もう一度保存してください）。');
     } catch (e) {
       setEditStore(s=>({...s, loading:false, error: '更新に失敗: '+(e?.message||'不明')}));
     }
@@ -19181,7 +19188,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
                       <button onClick={()=>setAddonModal({storeId:s.id, storeName:s.name})} style={{padding:'8px 12px',background:'white',color:'#0e7490',border:'1px solid #67e8f9',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>アドオン</button>
                       <button disabled={addonBusy===s.id} onClick={()=>resetStoreAdminPw(s.id, s.name)} style={{padding:'8px 12px',background:'white',color:'#b45309',border:'1px solid #fcd34d',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer',opacity:addonBusy===s.id?0.5:1}}>管理者PWリセット</button>
                       <button onClick={()=>onSelectStore(s)} style={{padding:'8px 14px',background:'white',color:'#3d5021',border:'1px solid #94c456',borderRadius:8,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>この店舗を開く →</button>
-                      <button onClick={()=>setEditStore({ id:s.id, name:s.name||'', short_name:s.short_name||'', org_name:s.org_name||'', zip_code:s.zip_code||'', address:s.address||'', phone:s.phone||'', fax:s.fax||'', loading:false, error:'' })} style={{padding:'8px 12px',background:'white',color:'#475569',border:'1px solid #cbd5e1',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>編集</button>
+                      <button onClick={()=>setEditStore({ id:s.id, name:s.name||'', short_name:s.short_name||'', org_name:s.org_name||'', zip_code:s.zip_code||'', address:s.address||'', address_building:s.address_building||'', phone:s.phone||'', fax:s.fax||'', loading:false, error:'' })} style={{padding:'8px 12px',background:'white',color:'#475569',border:'1px solid #cbd5e1',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>編集</button>
                       <button onClick={async ()=>{
                         if (!window.confirm(`「${s.name}」を完全に削除します。\n\n・全てのデータ (利用者・記録・お知らせ・メンバー)\n・店舗管理者アカウント\n・家族アカウント / 招待\n\nこの操作は元に戻せません。本当に実行しますか?`)) return;
                         if (!window.confirm(`もう一度確認: 「${s.name}」を本当に削除しますか?`)) return;
@@ -19303,8 +19310,6 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
               {k:'name',label:'店舗名 (正式) *',ph:'ひかりデイサービス本所店'},
               {k:'short_name',label:'短縮名',ph:'本所店'},
               {k:'org_name',label:'法人名',ph:'株式会社ワンズスタイル'},
-              {k:'zip_code',label:'郵便番号',ph:'1350011'},
-              {k:'address',label:'住所',ph:'東京都江東区…'},
             ].map(fld=>(
               <div key={fld.k} style={{marginBottom:12}}>
                 <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>{fld.label}</label>
@@ -19312,12 +19317,29 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
                   style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
               </div>
             ))}
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:16}}>
-              <div><label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>電話番号</label>
-                <ImeSafeInput value={editStore.phone||''} onChange={e=>setEditStore(s=>({...s,phone:toHankaku(e.target.value).replace(/[^0-9]/g,''),error:''}))} inputMode="numeric" placeholder="0312345678" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/></div>
-              <div><label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>FAX</label>
-                <ImeSafeInput value={editStore.fax||''} onChange={e=>setEditStore(s=>({...s,fax:toHankaku(e.target.value).replace(/[^0-9]/g,''),error:''}))} inputMode="numeric" placeholder="0312345679" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/></div>
+            {/* ★ 2026-10-14(ユーザー要望): 郵便番号はハイフン自動・「住所を検索」で住所を補完。建物名は別欄。保存すると店舗の事業所情報にも反映 */}
+            <div style={{marginBottom:12}}>
+              <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>郵便番号</label>
+              <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                <ImeSafeInput type="tel" inputMode="numeric" value={formatJpZip(editStore.zip_code||'')} onChange={e=>setEditStore(s=>({...s,zip_code:toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,7),error:''}))} placeholder="135-0011" style={{width:150,padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+                <button type="button" data-testid="store-edit-zip" onClick={async ()=>{ const r = await lookupZipAddress(editStore.zip_code); if (r?.full) setEditStore(s=>({...s, address: r.full, error:''})); else alert('住所が見つかりませんでした。郵便番号をご確認ください。'); }} style={{padding:'10px 14px',background:'#3b82f6',color:'white',border:'none',borderRadius:8,fontSize:12,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>住所を検索</button>
+              </div>
             </div>
+            <div style={{marginBottom:12}}>
+              <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>住所</label>
+              <input value={editStore.address||''} onChange={e=>setEditStore(s=>({...s,address:e.target.value,error:''}))} placeholder="東京都江東区扇橋1-4-9" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+            </div>
+            <div style={{marginBottom:12}}>
+              <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>建物名・部屋番号 <span style={{fontWeight:'normal',color:'#64748b'}}>(任意)</span></label>
+              <input value={editStore.address_building||''} onChange={e=>setEditStore(s=>({...s,address_building:e.target.value,error:''}))} placeholder="例: メイゾン白子 1階" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:8}}>
+              <div><label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>電話番号</label>
+                <ImeSafeInput type="tel" value={formatJpPhone(editStore.phone||'')} onChange={e=>setEditStore(s=>({...s,phone:toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11),error:''}))} inputMode="numeric" placeholder="0312345678" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/></div>
+              <div><label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>FAX</label>
+                <ImeSafeInput type="tel" value={formatJpPhone(editStore.fax||'')} onChange={e=>setEditStore(s=>({...s,fax:toHankaku(e.target.value).replace(/[^0-9]/g,'').slice(0,11),error:''}))} inputMode="numeric" placeholder="0312345679" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/></div>
+            </div>
+            <div style={{fontSize:11,color:'#64748b',marginBottom:14}}>※ 保存すると、郵便番号・住所・建物名・電話・FAXはこの店舗の「各種設定→事業所情報」にも反映されます（事業所名は事業所情報が空欄のときだけ）。</div>
             <div style={{display:'flex',gap:10}}>
               <button onClick={()=>setEditStore(null)} disabled={editStore.loading} style={{flex:1,padding:'11px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
               <button onClick={handleUpdateStore} disabled={editStore.loading} style={{flex:1,padding:'11px',background:editStore.loading?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:editStore.loading?'wait':'pointer'}}>{editStore.loading? <><BusySpin/>保存中…</>:'保存'}</button>
@@ -24044,6 +24066,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const [kibunModal, setKibunModal] = useState({ isOpen: false, recordId: null, timing: null }); // timing: 'arrival'|'departure'
   const [kibunStep, setKibunStep] = useState('mood'); // 'mood' | 'reason'
   const [kibunTempMood, setKibunTempMood] = useState('');
+  const [kibunNote, setKibunNote] = useState(''); // ★ 2026-10-14: 気分のあとに入れる「特記に書く内容」(決定で特記欄へ反映)
   const [activeCell, setActiveCell] = useState(null); // "recordId-field"
   // ★ 介護整体 操作メニュー(2026-09-09 案2): セルタップ→吹き出しで「過去3回+担当選択」「✓実施」「取り消し/担当変更」を大きなボタンで操作
   //   {pid, recId, cx, cy, cyB, view:'pick'|'main'} — body へ portal + fixed で最前面表示
@@ -24114,6 +24137,14 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     setKibunTempMood('');
   };
   const closeKibunModal = () => setKibunModal({ isOpen: false, recordId: null, timing: null });
+  // ★ 2026-10-14(ユーザー指示「気分の理由の選択肢は廃止。状態は特記に書けばよい」): 気分の内容(自由入力)を特記欄へ反映する。
+  //   前回入れた内容が特記に残っていればそこを置き換え、無ければ末尾に足す(特記の100文字まで)。空にすると特記から消す
+  const _kibunTokkiApply = (tokki, prevNote, newNote) => {
+    let t = String(tokki || ''); const pv = String(prevNote || '').trim(), nv = String(newNote || '').trim();
+    if (pv && t.includes(pv)) { t = t.replace(pv, nv); t = t.replace(/^[\s　]+|[\s　]+$/g, '').replace(/[　 ]{2,}/g, '　'); }
+    else if (nv) { t = t.trim() ? (/[。．.、]$/.test(t.trim()) ? `${t.trim()}${nv}` : `${t.trim()}　${nv}`) : nv; }
+    return t.slice(0, TOKKI_MAX);
+  };
 
   const getKibunKey = (timing) => timing === 'arrival' ? 'kibunArrival' : 'kibunDeparture';
   const getKibunReasonKey = (timing) => timing === 'arrival' ? 'kibunArrivalReason' : 'kibunDepartureReason';
@@ -26914,7 +26945,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 </div>
                 <div className="grid grid-cols-5 gap-5 w-full max-w-5xl">
                   {KIBUN_MOODS.map(mood => (
-                    <button key={mood.key} {...longPressTapProps(() => { setKibunTempMood(mood.key); setKibunStep('reason'); })}
+                    <button key={mood.key} {...longPressTapProps(() => { setKibunTempMood(mood.key); setKibunNote(String(currentRec?.[reasonKey] || '')); setKibunStep('reason'); })}
                       className={`flex flex-col items-center gap-3 px-3 py-7 rounded-3xl border-4 border-transparent hover:border-slate-500 transition-all active:scale-95 shadow-lg ${mood.color}`}>
                       <span className="leading-none" style={{fontSize:'5.5rem',pointerEvents:'none'}}>{mood.emoji}</span>
                       <span className={`font-bold text-3xl ${mood.textColor}`} style={{pointerEvents:'none'}}>{mood.label}</span>
@@ -26923,6 +26954,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 </div>
                 {currentRec?.[moodKey] && (
                   <button onClick={() => { updateRecord(recId, moodKey, ''); updateRecord(recId, reasonKey, '');
+                    { const _pv = String(currentRec?.[reasonKey] || ''); if (_pv && String(currentRec?.tokki || '').includes(_pv)) updateRecord(recId, 'tokki', _kibunTokkiApply(currentRec?.tokki, _pv, '')); }
                     // ※ 転記済みの【気分】行掃除は転記廃止に伴い不要(2026-09-16)。過去に転記された行があれば消す(移行掃除)。
                     try { const marker = timing === 'arrival' ? '【気分・通所】' : '【気分・帰宅】'; const cur = String(currentRec?.tokki || ''); const nt = cur.split('\n').filter(l => !l.startsWith(marker)).join('\n'); if (nt !== cur) updateRecord(recId, 'tokki', nt); } catch {}
                     closeKibunModal(); }}
@@ -26931,43 +26963,28 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               </div>
             ) : (
               <div className="flex-1 flex flex-col items-center justify-start gap-4 p-6 overflow-y-auto">
-                <div className="text-slate-700 text-2xl font-bold mb-1">理由を選んでください（複数選択可）</div>
-                <div className="grid grid-cols-2 gap-4 w-full max-w-3xl">
-                  {getKibunReasons(timing, kibunTempMood).map(reason => {
-                    const cur = currentRec?.[reasonKey] || '';
-                    const selected = cur.split('・').includes(reason);
-                    return (
-                      <button key={reason} {...longPressTapProps(() => {
-                        const parts = cur ? cur.split('・') : [];
-                        const np = parts.includes(reason) ? parts.filter(r=>r!==reason) : [...parts, reason];
-                        updateRecord(recId, reasonKey, np.join('・'));
-                      })} className={`py-6 px-5 rounded-2xl text-2xl font-bold border-4 transition-all active:scale-95 ${selected ? 'bg-emerald-600 text-white border-emerald-700 shadow-lg' : 'bg-slate-50 text-slate-800 border-slate-300 hover:border-slate-500'}`}>
-                        {selected && <span className="mr-2">✓</span>}
-                        {reason}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="w-full max-w-3xl mt-3">
-                  <div className="text-slate-600 text-xl font-bold mb-2">くわしく（自由入力・任意）</div>
-                  {/* ★ 2026-09-16: 自由入力を大きな欄に。iPad/スマホはキーボードのマイクで音声入力できる(案内を表示) */}
-                  <textarea rows={2}
-                    value={(() => { const cur = currentRec?.[reasonKey]||''; const known = getKibunReasons(timing, kibunTempMood); return cur.split('・').filter(r=>r&&!known.includes(r)).join('・'); })()}
-                    onChange={e => {
-                      const known = getKibunReasons(timing, kibunTempMood);
-                      const cur = currentRec?.[reasonKey]||'';
-                      const sel = cur.split('・').filter(r=>r&&known.includes(r));
-                      updateRecord(recId, reasonKey, [...sel, ...(e.target.value?[e.target.value.replace(/\n/g,' ')]:[])].join('・'));
-                    }}
+                {/* ★ 2026-10-14(ユーザー指示): 理由の選択肢は廃止。ここに書いた内容は「決定」で特記欄に反映される(様子は特記に集約) */}
+                {(() => { const _pv = String(currentRec?.[reasonKey] || ''); const _base = _pv && String(currentRec?.tokki||'').includes(_pv) ? String(currentRec?.tokki||'').replace(_pv,'').trim() : String(currentRec?.tokki||'').trim(); const _room = Math.max(0, TOKKI_MAX - _base.length - (_base ? 1 : 0)); return (
+                <div className="w-full max-w-3xl mt-2" data-testid="kibun-note">
+                  <div className="text-slate-700 text-2xl font-bold mb-2">特記に書く内容（任意）</div>
+                  <textarea rows={3} value={kibunNote} maxLength={_room}
+                    onChange={e => setKibunNote(e.target.value.replace(/\n/g, ' ').slice(0, _room))}
                     onFocus={(e) => { if (Date.now() - _lpLastFireAt < 600) e.target.blur(); }}
                     placeholder="例: 昨夜あまり眠れなかったとのこと" className="w-full px-5 py-4 rounded-2xl bg-slate-100 text-slate-800 border-2 border-slate-300 outline-none text-2xl leading-relaxed" />
-                  <div className="text-slate-400 text-base font-bold mt-1">ヒント: iPad・スマホはキーボードのマイクボタンで音声入力できます</div>
-                </div>
+                  <div className="flex justify-between items-baseline mt-1">
+                    <div className="text-slate-400 text-base font-bold">「決定」で特記欄に入ります（特記は100文字まで）。iPad・スマホはキーボードのマイクで音声入力できます</div>
+                    <CharCount value={kibunNote} max={_room}/>
+                  </div>
+                  {_base ? <div className="mt-3 text-base text-slate-500"><span className="font-bold">今の特記：</span>{_base}</div> : null}
+                </div>); })()}
                 <div className="flex gap-5 mt-6 pb-6">
                   <button {...longPressTapProps(() => setKibunStep('mood'))} className="px-10 py-5 bg-slate-200 text-slate-700 rounded-full text-2xl font-bold hover:bg-slate-300 active:scale-95">← 戻る</button>
                   <button {...longPressTapProps(() => {
                     updateRecord(recId, moodKey, kibunTempMood);
-                    // ※ 理由の特記転記は廃止(2026-09-16 店舗指示)。理由はモニタリングAIへ直接渡す。
+                    // ★ 2026-10-14: 内容は気分の欄(…Reason)にも残し(モニタリングAI・分析で使う)、特記欄へ反映する
+                    const _pv = String(currentRec?.[reasonKey] || ''); const _nv = String(kibunNote || '').trim();
+                    if (_pv !== _nv) { updateRecord(recId, reasonKey, _nv); updateRecord(recId, 'tokki', _kibunTokkiApply(currentRec?.tokki, _pv, _nv)); }
+                    else if (_nv && !String(currentRec?.tokki || '').includes(_nv)) updateRecord(recId, 'tokki', _kibunTokkiApply(currentRec?.tokki, '', _nv));
                     closeKibunModal();
                   })}
                     className="px-16 py-5 bg-emerald-500 text-white rounded-full text-2xl font-bold hover:bg-emerald-600 shadow-lg active:scale-95">決定</button>
@@ -37001,7 +37018,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           {/* ★ 2026-10-13(ユーザー指示): 「確定済み(日時)の一覧です」の帯と「編集する」は廃止(確定日時は上部の「確定済」ボタンに。編集は確定を解除してから) */}
           {/* ★ 2026-10-05(ユーザー指示「人数によって午後の位置がカクカクする。横一列で揃えて」): 日付・午前・午後を行に持つグリッドにし、
               どの曜日も午後が同じ高さから始まるようにする(1日=縦に3マス・列の流れは縦) */}
-          <div data-testid="tp-fb-grid" className={`grid ${_tpOneDay ? 'tsu-tp-one' : ''}`} style={{gridTemplateColumns:`repeat(${_tpViewDays.length}, minmax(0, 1fr))`, gridTemplateRows:'auto auto auto', gridAutoFlow:'column', columnGap:8, rowGap:0}}>
+          {/* ★ 2026-10-14(ユーザー指摘「スマホ縦で1週間を見ると時間が名前に重なる・はみ出す」): スマホの1週間は各日の列に最小幅(名前7文字＋時間)を持たせ、横にスクロールして見る */}
+          <div className={(_tpPhone && !_tpOneDay) ? 'overflow-x-auto -mx-2 px-2' : ''} data-testid="tp-fb-scroll">
+          <div data-testid="tp-fb-grid" className={`grid ${_tpOneDay ? 'tsu-tp-one' : ''}`} style={{gridTemplateColumns: (_tpPhone && !_tpOneDay) ? `repeat(${_tpViewDays.length}, 172px)` : `repeat(${_tpViewDays.length}, minmax(0, 1fr))`, gridTemplateRows:'auto auto auto', gridAutoFlow:'column', columnGap:8, rowGap:0, ...((_tpPhone && !_tpOneDay) ? { width: 'max-content' } : {})}}>
             {_tpViewDays.map(d => { const iso = _iso(d); const _hol = (appData.holidays||[]).find(h => (h && (h.date||h)) === iso); return (
               <React.Fragment key={iso}>
                 <div className={`px-2 py-1 text-xs font-bold text-center rounded-t-xl border border-b-0 border-slate-200 min-w-0 ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-100 text-slate-700'}`}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{_hol ? <span className="ml-1 text-red-600">休業</span> : null}</div>
@@ -37040,6 +37059,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                     {abs.length ? <div className="px-2 pb-1 text-[10px] text-slate-500">休み: {abs.map(a => a.name).join('・')}</div> : null}
                   </div>); })}
               </React.Fragment>); })}
+          </div>
           </div>
         </div>
       </div>
@@ -43267,7 +43287,6 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
     { id: 'record', label: 'サービス提供内容' },
     { id: 'diary', label: '日誌' },
     { id: 'fitness', label: '体力測定' },
-    { id: 'kibun', label: '気分の理由' },
     { id: 'keikaku', label: '計画書' },
     { id: 'addon', label: 'アドオン' },
     { id: 'system', label: 'システム' },
