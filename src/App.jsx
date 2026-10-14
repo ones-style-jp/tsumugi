@@ -37001,7 +37001,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           {/* ★ 2026-10-13(ユーザー指示): 「確定済み(日時)の一覧です」の帯と「編集する」は廃止(確定日時は上部の「確定済」ボタンに。編集は確定を解除してから) */}
           {/* ★ 2026-10-05(ユーザー指示「人数によって午後の位置がカクカクする。横一列で揃えて」): 日付・午前・午後を行に持つグリッドにし、
               どの曜日も午後が同じ高さから始まるようにする(1日=縦に3マス・列の流れは縦) */}
-          <div data-testid="tp-fb-grid" className={`grid ${_tpOneDay ? 'tsu-tp-one' : ''}`} style={{gridTemplateColumns:`repeat(${_tpViewDays.length}, minmax(0, 1fr))`, gridTemplateRows:'auto auto auto', gridAutoFlow:'column', columnGap:8, rowGap:0}}>
+          {/* ★ 2026-10-14(ユーザー指摘「スマホ縦で1週間を見ると時間が名前に重なる・はみ出す」): スマホの1週間は各日の列に最小幅(名前7文字＋時間)を持たせ、横にスクロールして見る */}
+          <div className={(_tpPhone && !_tpOneDay) ? 'overflow-x-auto -mx-2 px-2' : ''} data-testid="tp-fb-scroll">
+          <div data-testid="tp-fb-grid" className={`grid ${_tpOneDay ? 'tsu-tp-one' : ''}`} style={{gridTemplateColumns: (_tpPhone && !_tpOneDay) ? `repeat(${_tpViewDays.length}, 172px)` : `repeat(${_tpViewDays.length}, minmax(0, 1fr))`, gridTemplateRows:'auto auto auto', gridAutoFlow:'column', columnGap:8, rowGap:0, ...((_tpPhone && !_tpOneDay) ? { width: 'max-content' } : {})}}>
             {_tpViewDays.map(d => { const iso = _iso(d); const _hol = (appData.holidays||[]).find(h => (h && (h.date||h)) === iso); return (
               <React.Fragment key={iso}>
                 <div className={`px-2 py-1 text-xs font-bold text-center rounded-t-xl border border-b-0 border-slate-200 min-w-0 ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-100 text-slate-700'}`}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{_hol ? <span className="ml-1 text-red-600">休業</span> : null}</div>
@@ -37040,6 +37042,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                     {abs.length ? <div className="px-2 pb-1 text-[10px] text-slate-500">休み: {abs.map(a => a.name).join('・')}</div> : null}
                   </div>); })}
               </React.Fragment>); })}
+          </div>
           </div>
         </div>
       </div>
