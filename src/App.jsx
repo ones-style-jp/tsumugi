@@ -1353,7 +1353,7 @@ function BpReMini({ entries, canEdit, onDelete, big = false }) {
       {list.map(e => (
         <div key={e.at || e.n} className={`${big ? 'text-[15px] gap-2 mt-1' : 'text-[9px] gap-1'} font-bold text-amber-800 whitespace-nowrap flex items-center`} data-testid="bp-re-row">
           <span>{e.n || 1}回目</span><span>{e.time || ''}</span><span>{e.up || '－'}/{e.dn || '－'}</span><span>脈{e.pl || '－'}</span>
-          {canEdit && <button type="button" data-testid="bp-re-del" onClick={() => onDelete(e.at)} className={`${big ? 'text-[13px] px-2 py-0.5' : 'text-[9px] px-1'} font-bold text-red-600 border border-red-300 bg-white rounded leading-tight`}>削除</button>}
+          {canEdit && <button type="button" data-testid="bp-re-del" onClick={() => onDelete(e.at)} className={`${big ? 'text-[13px] px-2 py-0.5' : 'text-[9px] px-1'} font-bold text-blue-700 border border-blue-300 bg-white rounded leading-tight`} title="この回の値に戻します（今の値は消えます）">戻す</button>}
         </div>
       ))}
       {entries.length > 1 && <button type="button" data-testid="bp-re-toggle" onClick={() => setOpen(o => !o)} className={`${big ? 'text-[13px]' : 'text-[9px]'} font-bold text-blue-700 underline leading-tight`}>{open ? '閉じる' : `他${entries.length - 1}件`}</button>}
@@ -20554,6 +20554,20 @@ export default function App() {
                 const out = { ...((lT >= cT) ? lo : co) };
                 new Set([...Object.keys(lo), ...Object.keys(co)]).forEach(f => {
                   if (f === '_updatedAt' || f === '_fieldTs') return;
+                  // ★ 2026-10-14(不具合修正): 事業所情報(facilityInfo)は push側(supabase.js)と同じくサブ項目単位(fi:<key>)でマージする。
+                  //   従来は丸ごと新しい方(_updatedAt)を採っていたため、別端末がクラウドに書いた事業所番号等が pull で消え、
+                  //   刻印(_fieldTs)だけ引き継がれて次の push で「同時刻=手元優先」になり値ごと失われていた(試作店の LIFE 事業所番号で再現)
+                  if (_k === 'systemSettings' && f === 'facilityInfo') {
+                    const lfi = (lo.facilityInfo && typeof lo.facilityInfo === 'object') ? lo.facilityInfo : {}, cfi = (co.facilityInfo && typeof co.facilityInfo === 'object') ? co.facilityInfo : {};
+                    const bfi = (lT >= cT) ? lfi : cfi, ofi = (lT >= cT) ? cfi : lfi; const m = { ...ofi, ...bfi };
+                    const _ne = (v) => v !== '' && v != null;
+                    new Set([...Object.keys(lfi), ...Object.keys(cfi)]).forEach(kk => {
+                      const lt = Number(lFts['fi:' + kk]) || 0, ct = Number(cFts['fi:' + kk]) || 0;
+                      if (lt || ct) { m[kk] = (lt > ct) ? lfi[kk] : (ct > lt) ? cfi[kk] : (_ne(lfi[kk]) ? lfi[kk] : cfi[kk]); return; } // 同時刻は非空を優先
+                      const bv = bfi[kk], ov = ofi[kk]; m[kk] = _ne(bv) ? bv : (_ne(ov) ? ov : bv);
+                    });
+                    out[f] = m; return;
+                  }
                   const lft = Number(lFts[f]) || 0, cft = Number(cFts[f]) || 0;
                   if (lft || cft) out[f] = (lft >= cft) ? lo[f] : co[f];
                   else if (!(f in out)) out[f] = (f in lo) ? lo[f] : co[f];
@@ -24413,12 +24427,14 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     const idx = log.findIndex(e => e && e.at === at); if (idx < 0) return;
     const e = log[idx]; const lbl = e.phase === 'En' ? '終了' : '開始';
     const fBu = `bpUp${e.phase}_${e.ampm || 'AM'}`, fBd = `bpDn${e.phase}_${e.ampm || 'AM'}`, fPl = `pl${e.phase}_${e.ampm || 'AM'}`, fT = `bpT${e.phase}_${e.ampm || 'AM'}`;
-    const restore = !rec[fBu] && !rec[fPl]; // 欄が空(＝押した直後)なら値を欄に戻す
-    if (!window.confirm(restore ? `${lbl} ${e.n || 1}回目（${e.time || ''} ${e.up || '－'}/${e.dn || '－'} 脈${e.pl || '－'}）を欄に戻しますか？` : `${lbl} ${e.n || 1}回目（${e.time || ''} ${e.up || '－'}/${e.dn || '－'} 脈${e.pl || '－'}）を削除しますか？`)) return;
-    log.splice(idx, 1);
-    const cnt = {}; log.forEach(x => { const k = `${x.phase}_${x.ampm}`; cnt[k] = (cnt[k] || 0) + 1; x.n = cnt[k]; });
-    updateRecord(id, 'bpRe', log); // ★ 空でも [] を保存する(保存時に省略すると同期で元のログが戻ってしまう)
-    if (restore) { updateRecord(id, fBu, e.up || ''); updateRecord(id, fBd, e.dn || ''); updateRecord(id, fPl, e.pl || ''); if (e.time) updateRecord(id, fT, e.time); }
+    // ★ 2026-10-14(ユーザー指示「削除ではなく戻す。再検後に値を入れてから1回目を消すと再検の値が残る」): 「戻す」=その回の値を欄に戻し(今の値は捨てる)、その回以降の控えは消す(1つ前に戻す)
+    const curTxt = (rec[fBu] || rec[fPl]) ? `（今の値 ${rec[fBu] || '－'}/${rec[fBd] || '－'} 脈${rec[fPl] || '－'} は消えます）` : '';
+    if (!window.confirm(`${lbl} ${e.n || 1}回目（${e.time || ''} ${e.up || '－'}/${e.dn || '－'} 脈${e.pl || '－'}）の値に戻しますか？${curTxt}`)) return;
+    const eN = Number(e.n || 1);
+    const kept = log.filter(x => !(x.phase === e.phase && (x.ampm || 'AM') === (e.ampm || 'AM') && Number(x.n || 1) >= eN));
+    const cnt = {}; kept.forEach(x => { const k = `${x.phase}_${x.ampm}`; cnt[k] = (cnt[k] || 0) + 1; x.n = cnt[k]; });
+    updateRecord(id, 'bpRe', kept); // ★ 空でも [] を保存する(保存時に省略すると同期で元のログが戻ってしまう)
+    updateRecord(id, fBu, e.up || ''); updateRecord(id, fBd, e.dn || ''); updateRecord(id, fPl, e.pl || ''); if (e.time) updateRecord(id, fT, e.time);
   };
   const updateExercise = (id, field, value) => {
     if (filterMode === 'single') { obsMarkRecEdit(id, selectedDate, 'exercises'); setLocalPatients(prev => prev.map(p => p.id === id ? { ...p, exercises: { ...(p.exercises || {}), [field]: value } } : p)); }
@@ -34786,7 +34802,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                     <div style={{display:'flex', alignItems:'baseline', whiteSpace:'nowrap'}}>
                       {rowNo === 1 && <>
                         <span className="font-normal" style={{fontSize:18,marginRight:'0.35em'}}>体温</span>
-                        <span className="font-bold" style={{fontSize:29,fontVariantNumeric:'tabular-nums'}}>{_cbV('temp')}</span>
+                        <span className="font-bold" style={{fontSize:29,fontVariantNumeric:'tabular-nums',display:'inline-block',minWidth:'2.5em',textAlign:'right'}}>{_cbV('temp')}</span>{/* ★ 2026-10-14(ユーザー指示): 未入力でも数値ぶんの幅を空けて ℃ を右に */}
                         <span className="font-normal" style={{fontSize:17,marginLeft:'0.15em'}}>℃</span>
                       </>}
                     </div>

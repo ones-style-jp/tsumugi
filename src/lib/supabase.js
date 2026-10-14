@@ -1172,7 +1172,7 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData) {
           const m = { ...ofi, ...bfi }; // 既定: 新しい方を優先しつつ、相手にしか無いキーは残す
           new Set([...Object.keys(lfi), ...Object.keys(cfi)]).forEach(kk => {
             const lt = Number(lFts['fi:' + kk]) || 0, ct = Number(cFts['fi:' + kk]) || 0;
-            if (lt || ct) { m[kk] = (lt >= ct) ? lfi[kk] : cfi[kk]; return; } // 刻印あり=新しい方(明示クリア含む)
+            if (lt || ct) { m[kk] = (lt > ct) ? lfi[kk] : (ct > lt) ? cfi[kk] : ((lfi[kk] !== '' && lfi[kk] != null) ? lfi[kk] : cfi[kk]); return; } // 刻印あり=新しい方(明示クリア含む)。★ 2026-10-14: 同時刻(刻印だけ引き継いだ側)は非空を優先
             const bv = bfi[kk], ov = ofi[kk]; // 刻印なし=新しい側優先・空なら相手の非空で補完(空欄で消さない)
             m[kk] = (bv !== '' && bv != null) ? bv : ((ov !== '' && ov != null) ? ov : bv);
           });
