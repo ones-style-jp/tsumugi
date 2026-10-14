@@ -18435,6 +18435,85 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
 // 本部管理者用 店舗選択 + 店舗追加 + スタッフ追加画面
 // ===========================================
 // ★ 本部 → 店舗お知らせ管理パネル (メンテナンス通知等)
+// ★ 2026-10-14(ユーザー要望): 本部の手順書(管理局のトップ)。本部が店舗の代わりに作業するときに、上から順に進めればできるように
+//   電子請求の代理人申請は 国保中央会「代理人申請 電子請求をはじめる前に」をもとに、つむぎの言葉で要点をまとめたもの
+const HQ_GUIDES = [
+  { key:'life', title:'LIFE提出（毎月）', lead:'店舗の代わりに本部が提出する場合も、店舗が自分で提出する場合も、つむぎで作るファイルと手順は同じです。', sections:[
+    { h:'最初に1回だけ準備すること', items:[
+      '店舗の「各種設定 → 事業所情報」に、LIFEの事業所番号・サービス種類コード・保険者番号を入れる（要支援・事業対象者の事業所番号が別にある店舗は、総合事業の欄にも入れる）。',
+      'その店舗の新LIFEのログインIDとパスワード、電子証明書を用意する。本部が代わりに提出する場合は、本部のパソコンにその店舗の電子証明書を入れておく。',
+      '新LIFEにまだ利用者が登録されていない場合だけ、LIFE提出の画面の「利用者情報CSV」で利用者を登録する。カイポケなど他のソフトで登録済みの利用者には入れない（二重登録になるため）。',
+    ]},
+    { h:'毎月の流れ（評価した月の翌月10日まで）', ordered:true, items:[
+      '本部が行う場合は、管理局の「店舗一覧」からその店舗に入る（店舗が行う場合は、いつも通りログイン）。',
+      '左のメニュー「計画書 → 個別機能訓練・LIFE」を開き、上の「LIFE提出」を押す。',
+      '提出年月を選び、「提出ダッシュボード」で「提出可」の人数を確かめる。エラー・未評価の方がいたら、行を押して直す（店舗に直してもらってもよい）。',
+      '「算定中の様式をまとめて保存」を押す。様式ごと（事業所番号が2つある店舗は事業所番号ごと）にファイルが保存される。',
+      '電子証明書を入れたパソコンで新LIFEにログインする。ファイル名の最後に事業所番号が付いているときは、その番号のアカウントで取り込む。',
+      '新LIFEの「外部データ取込」から、保存したファイルを選んで取り込む。',
+      '取込結果にエラーが無ければ完了。エラーがあれば内容を控え、つむぎで直してからもう一度保存・取込する（同じ方・同じ月の分は上書きされる）。',
+    ]},
+    { h:'電子証明書が選べないとき（Windows）', ordered:true, items:[
+      'Windowsキーを押しながら R を押し、出てきた小窓に certlm.msc と入力して OK を押す。',
+      '「個人」→「証明書」を開き、事業所番号の証明書を右クリック →「すべてのタスク」→「秘密キーの管理」を開く。',
+      '「追加」で Users を入れ、「読み取り」にチェックを付けて OK。ブラウザを開き直して、もう一度ログインする。',
+    ]},
+  ]},
+  { key:'seikyu', title:'国保連の電子請求を本部がまとめて行う（代理人申請・初回だけ）', lead:'本部が各店舗の介護給付費の請求を代わりに行うための、国保連への届け出の流れです。つむぎはまだ請求のデータを作れないため、今は準備の手順として載せています。LIFEの提出とは別のしくみです。', sections:[
+    { h:'始める前に知っておくこと', items:[
+      '代理請求を始めると、店舗は自分で請求・状況照会・請求の取消依頼・通知文書の取得ができなくなる（本部が行い、支払額の通知などは本部から店舗へ渡す）。',
+      '代理人の区分: 本部と店舗が同じ法人なら「同一事業者」、加盟店など別の法人なら「第三者」。',
+      '各店舗から、事業所番号と電子請求のユーザID（国保連の「電子請求登録結果に関するお知らせ」に書いてある）を預かっておく。',
+      '電子証明書は1枚で複数の店舗の請求ができる。介護保険だけなら「介護保険証明書」、障害福祉の請求もあるなら「介護・障害共通証明書」。',
+    ]},
+    { h:'手順', ordered:true, items:[
+      '店舗と代理人契約を結ぶ。',
+      'パソコンを確かめる（Windows 11、Microsoft Edge か Google Chrome）。e-seikyuu.jp を開き、「代理人情報／代理人証明書の申請はこちら」へ進む。',
+      '「代理人情報届出」で、メールアドレスと代表の店舗1つ（制度・都道府県・事業所番号・ユーザID）を入れ、利用規約に同意して送信する。',
+      '届いたメールのURLを24時間以内に開き、本部の情報（法人名は後から変えられない）と初回仮パスワード（8〜16文字・英字と数字をまぜる）を入れる。',
+      '店舗ごとに委任の開始年月と代理人区分を設定する。店舗が多いときはCSVでまとめて登録できる。',
+      '申請書類をダウンロードしてから「送信」を押す（ダウンロードだけでは申請は終わらない）。',
+      '書類に記入・押印して国保連へ郵送する: 提出書類チェックシート・送付状・代理人登録申請書・代理請求申請書・委任状（店舗と本部の両方が押印）。必要に応じて登記簿謄本・印鑑証明書を付ける。初回仮パスワード控えは送らずに保管する。',
+      '店舗は委任状とあわせて、介護電子請求受付システムで「請求及び受領に関する届出」を行う。',
+      '国保連が承認すると、代理人のユーザID（HDで始まる）がメールで届く。却下のときは、メールのURLから直して出し直す（30日以内）。',
+      'ユーザIDと初回仮パスワードでログインし、パスワードを変える（3回まちがえると30分ロックされる）。',
+      'お知らせ「代理人登録結果に関するお知らせ通知」の添付ファイルを開き（パスワードは初回仮パスワード）、証明書発行用パスワードを確かめる。',
+      'マニュアル画面から「代理人申請電子請求受付システム 導入マニュアル」を保存し、その手順で電子証明書の発行申請・手数料の支払い（振込、または店舗の給付費から差し引き。差し引きは委任状の同意欄に店舗が記入）・証明書のインストール・請求ソフトの準備・接続確認を行う。',
+    ]},
+    { h:'問い合わせ先・元の資料', items:[
+      '介護電子請求ヘルプデスク: 0570-059-402（毎月1〜10日は平日10:00〜19:00・土曜10:00〜17:00、それ以外は平日10:00〜17:00）。メール mail-kaigo@support-e-seikyuu.jp',
+      '国民健康保険中央会「代理人申請 電子請求をはじめる前に」（e-seikyuu.jp で入手できる）。',
+    ]},
+  ]},
+];
+function HqGuidePanel() {
+  const [open, setOpen] = React.useState(null);
+  return (
+    <div data-testid="hq-guides" style={{background:'white',borderRadius:16,padding:'16px 24px',marginBottom:16,boxShadow:'0 4px 16px rgba(0,0,0,0.06)'}}>
+      <div style={{fontSize:16,fontWeight:'bold',color:'#3d5021'}}>本部の手順書</div>
+      <div style={{fontSize:12,color:'#64748b',marginTop:4,lineHeight:1.7}}>本部が店舗の代わりに作業するときの手順です。上から順に進めれば、初めての方でもできます。</div>
+      <div style={{display:'flex',flexDirection:'column',gap:8,marginTop:12}}>
+        {HQ_GUIDES.map(g => { const on = open === g.key; return (
+          <div key={g.key} style={{border:'1px solid #d9e7c4',borderRadius:12,overflow:'hidden'}}>
+            <button type="button" data-testid={`hq-guide-${g.key}`} onClick={() => setOpen(on ? null : g.key)} aria-expanded={on}
+              style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,width:'100%',padding:'12px 16px',background:on?'#f3f8ea':'white',border:'none',cursor:'pointer',textAlign:'left'}}>
+              <span style={{fontSize:14,fontWeight:'bold',color:'#3d5021'}}>{g.title}</span>
+              <span style={{fontSize:12,color:'#64748b',whiteSpace:'nowrap'}}>{on ? '閉じる ▲' : '開く ▼'}</span>
+            </button>
+            {on && (
+              <div style={{padding:'4px 16px 16px'}}>
+                <div style={{fontSize:12.5,color:'#475569',lineHeight:1.8}}>{g.lead}</div>
+                {g.sections.map((sec, si) => { const L = sec.ordered ? 'ol' : 'ul'; return (
+                  <div key={si} style={{marginTop:14}}>
+                    <div style={{fontSize:13,fontWeight:'bold',color:'#3d5021',marginBottom:4}}>{sec.h}</div>
+                    <L style={{margin:0,paddingLeft:24,listStyleType:sec.ordered?'decimal':'disc',fontSize:12.5,color:'#334155',lineHeight:1.85}}>{sec.items.map((t, ti) => <li key={ti} style={{marginBottom:3}}>{t}</li>)}</L>
+                  </div>); })}
+              </div>)}
+          </div>); })}
+      </div>
+    </div>
+  );
+}
 // ★ LIFE傷病名マスタ管理(つむぎ管理局専用)。 CSVを取り込み、予約キーに置き換え保存 → 全店の病名検索が自動で使う。
 //   ・置き換え式: 取込のたびに丸ごと差し替え(古い版は残らない=容量は増えない)
 //   ・過去に計画書へ入力済みのコード/病名はレコード側に保存済みなので、入替の影響を受けない
@@ -19043,7 +19122,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
   // ★ 管理局コンソールの見やすさ改善(2026-08-18): 店舗検索・セクションジャンプ・ガイダンス折りたたみ
   const [storeQuery, setStoreQuery] = useState('');
   const [loginInfoOpen, setLoginInfoOpen] = useState(false);
-  const _secNotices = React.useRef(null), _secStores = React.useRef(null), _secPolicy = React.useRef(null), _secMaster = React.useRef(null), _secAi = React.useRef(null);
+  const _secNotices = React.useRef(null), _secStores = React.useRef(null), _secPolicy = React.useRef(null), _secMaster = React.useRef(null), _secAi = React.useRef(null), _secGuide = React.useRef(null);
   const _jump = (ref) => { try { ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {} };
 
   const handleCreateStore = async (e) => {
@@ -19145,9 +19224,13 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
         </div>
         {/* ★ セクションジャンプ(2026-08-18): 店舗が増えても下の方のパネルへすぐ移動できる */}
         <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:16,position:'sticky',top:8,zIndex:20}}>
-          {[['お知らせ管理',_secNotices],['店舗一覧',_secStores],['外部サービス設定',_secAi],['同意ポリシー',_secPolicy],['傷病名マスタ',_secMaster]].map(([lb,ref])=>(
+          {[['本部の手順書',_secGuide],['お知らせ管理',_secNotices],['店舗一覧',_secStores],['外部サービス設定',_secAi],['同意ポリシー',_secPolicy],['傷病名マスタ',_secMaster]].map(([lb,ref])=>(
             <button key={lb} onClick={()=>_jump(ref)} style={{padding:'6px 14px',background:'rgba(255,255,255,0.92)',color:'#3d5021',border:'1px solid #94c456',borderRadius:999,fontSize:12,fontWeight:'bold',cursor:'pointer',boxShadow:'0 1px 4px rgba(0,0,0,0.08)'}}>{lb}</button>
           ))}
+        </div>
+        {/* ★ 2026-10-14(ユーザー要望): 本部が店舗の代わりに作業するときの手順書 */}
+        <div ref={_secGuide} style={{scrollMarginTop:56}}>
+        <HqGuidePanel/>
         </div>
         {/* システムお知らせ管理 */}
         <div ref={_secNotices} style={{scrollMarginTop:56}}>
@@ -23670,11 +23753,11 @@ export default function App() {
              currentView === 'keikaku_yotei' ? <KeikakuYoteiView appData={appData} navigateTo={navigateTo} family="tsusho" /> :
              currentView === 'kinou_yotei' ? <KeikakuYoteiView appData={appData} navigateTo={navigateTo} family="kinou" /> :
              currentView === 'tsusho_keikaku' ? <TsushoKeikakuView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} dirtyRef={tsushoKeikakuDirtyRef} saveFnRef={tsushoKeikakuSaveFnRef} /> :
-             currentView === 'kinou_patient' ? <KinouPatientView appData={appData} navigateTo={navigateTo} targetPatientId={targetPatientId} /> :
+             currentView === 'kinou_patient' ? <KinouPatientView appData={appData} navigateTo={navigateTo} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
              currentView === 'life_submit' ? <LifeHubView key="life-submit" mode="submit" appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} targetPatientId={targetPatientId} navFocus={null} onFocusHandled={()=>setNavFocus(null)} dirtyRef={lifeHubDirtyRef} saveFnRef={lifeHubSaveFnRef} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
              currentView === 'life_hub' ? <LifeHubView key="life-eval" appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} targetPatientId={targetPatientId} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} dirtyRef={lifeHubDirtyRef} saveFnRef={lifeHubSaveFnRef} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
-             currentView === 'seikatsu_kinou' ? <SeikatsuKinouView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={seikatsuKinouDirtyRef} saveFnRef={seikatsuKinouSaveFnRef} /> :
-             currentView === 'kyomi_kanshin' ? <KyomiKanshinView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={kyomiKanshinDirtyRef} saveFnRef={kyomiKanshinSaveFnRef} /> :
+             currentView === 'seikatsu_kinou' ? <SeikatsuKinouView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} targetPatientId={targetPatientId} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={seikatsuKinouDirtyRef} saveFnRef={seikatsuKinouSaveFnRef} /> :
+             currentView === 'kyomi_kanshin' ? <KyomiKanshinView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} targetPatientId={targetPatientId} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={kyomiKanshinDirtyRef} saveFnRef={kyomiKanshinSaveFnRef} /> :
              currentView === 'dash_operation' ? <OperationDashboardView appData={appData} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} setAppData={setAppData} /> :
              <div className="flex h-full items-center justify-center text-slate-400 font-bold">開発中</div>}
           </div></div></main>
@@ -47472,15 +47555,61 @@ function KeikakuTabs({ current, navigateTo, family, pid, appData }) {
   );
 }
 // 利用者の選択(全画面で左端・同じ見た目)
+// ★ 2026-10-14(ユーザー要望): 名前・ふりがなで検索でき、要介護／要支援・事業対象者に分けて並べる(通所介護計画書も同じ部品)
+const _kpNorm = (v) => String(v || '').normalize('NFKC').replace(/[ァ-ヶ]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0x60)).replace(/[\s　]/g, '').toLowerCase();
+const kpCareGroup = (p) => { const cl = String(p?.careLevel || ''); if (cl.includes('要介護') && !cl.includes('経過的')) return 'kaigo'; if (cl.includes('要支援') || cl.includes('事業対象') || cl.includes('経過的')) return 'shien'; return 'none'; };
+const KP_GROUPS = [['kaigo','要介護'],['shien','要支援・事業対象者'],['none','介護度が未登録']];
 function KeikakuPatientSelect({ patients, pid, onChange }) {
+  const [open, setOpen] = React.useState(false);
+  const [q, setQ] = React.useState('');
+  const boxRef = React.useRef(null);
+  const inRef = React.useRef(null);
+  const list = patients || [];
+  const cur = list.find(p => p.id === pid);
+  React.useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h); document.addEventListener('touchstart', h);
+    const t = setTimeout(() => { try { if (inRef.current) inRef.current.focus(); } catch {} }, 30);
+    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('touchstart', h); clearTimeout(t); };
+  }, [open]);
+  const nq = _kpNorm(q);
+  const hits = list.filter(p => !nq || _kpNorm(p.name).includes(nq) || _kpNorm(p.kana).includes(nq));
+  const pick = (id) => { setOpen(false); setQ(''); if (id !== pid) onChange(id); };
   return (
-    <select value={pid ?? ''} onChange={e => onChange(Number(e.target.value))} data-testid="kk-patient" className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none max-w-[12em]">
-      {patients.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-    </select>
+    <div ref={boxRef} className="relative">
+      <button type="button" data-testid="kk-patient" onClick={() => setOpen(o => !o)} aria-haspopup="listbox" aria-expanded={open}
+        className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none max-w-[14em] hover:bg-slate-100">
+        <span className="truncate">{cur ? cur.name : '利用者を選ぶ'}</span>
+        <ChevronDown size={14} className="shrink-0 text-slate-400"/>
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full mt-1 z-50 w-72 max-w-[85vw] bg-white border border-slate-300 rounded-xl shadow-xl overflow-hidden" data-testid="kk-patient-pop">
+          <div className="p-2 border-b border-slate-100">
+            <input ref={inRef} value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') setOpen(false); if (e.key === 'Enter' && hits.length && !e.nativeEvent.isComposing) pick(hits[0].id); }}
+              data-testid="kk-patient-q" placeholder="名前・ふりがなで検索" className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-400"/>
+          </div>
+          <div className="max-h-[55vh] overflow-y-auto py-1" role="listbox">
+            {hits.length === 0 ? <div className="px-3 py-3 text-xs text-slate-400">該当する利用者がいません</div> :
+              KP_GROUPS.map(([g, lb]) => { const ps = hits.filter(p => kpCareGroup(p) === g); if (!ps.length) return null; return (
+                <div key={g}>
+                  <div className="px-3 pt-2 pb-1 text-[11px] font-bold text-slate-400">{lb}<span className="ml-1 font-normal">{ps.length}名</span></div>
+                  {ps.map(p => (
+                    <button key={p.id} type="button" role="option" aria-selected={p.id === pid} data-testid="kk-patient-opt" onClick={() => pick(p.id)}
+                      className={`w-full text-left px-3 py-2 flex items-center gap-2 text-sm ${p.id === pid ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-700 hover:bg-slate-50'}`}>
+                      <span className="flex-1 min-w-0 truncate">{p.name}</span>
+                      <span className="shrink-0 text-[11px] text-slate-400">{p.careLevel || ''}</span>
+                    </button>))}
+                </div>); })}
+          </div>
+        </div>)}
+    </div>
   );
 }
 // ★ 2026-10-14: 「利用者ごと」の画面。その方の「次にやること」と、書類(3-3/3-2/3-1/ADL評価)の一覧。作るときは「評価・計画を始める」1つ
-function KinouPatientView({ appData, navigateTo, targetPatientId }) {
+// ★ 2026-10-14(ユーザー要望「下は閲覧が目的」): 書類は日付ごとの履歴に「ダウンロード(PDF)」「編集」。
+//   ダウンロードはその書類の画面を見えない所で開いて印刷用の中身を作る(画面は移らない)。編集はその書類の画面へ
+function KinouPatientView({ appData, navigateTo, targetPatientId, onShowPrintPreview }) {
   const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
   const [pid, setPid] = React.useState((targetPatientId!=null && patients.some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
   const patient = patients.find(p => p.id === pid);
@@ -47488,12 +47617,23 @@ function KinouPatientView({ appData, navigateTo, targetPatientId }) {
   const dues = React.useMemo(() => computePlanDues(appData, null, { includeFuture: true }).filter(d => d.patient && d.patient.id === pid && d.kind !== 'tsusho').sort((a,b) => a.due - b.due), [appData, pid]);
   const _hist = (arr, key) => (arr||[]).filter(r => r && r.patientId === pid).map(r => ({ r, d: parseJpDate(r[key]) })).filter(x => x.d).sort((a,b) => b.d - a.d);
   const _ymd = (d) => d ? `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}` : '';
+  const [dl, setDl] = React.useState(null); // { view, id } ダウンロード中の書類
+  const [more, setMore] = React.useState({});
+  const _dirtyDummy = React.useRef(false), _saveDummy = React.useRef(null);
+  React.useEffect(() => { if (!dl) return; const t = setTimeout(() => setDl(null), 8000); return () => clearTimeout(t); }, [dl]); // 念のため(書類が見つからない等)
   const docs = [
-    { view:'kinou_keikaku', title:'個別機能訓練計画書', sub:'様式3-3・3か月ごとに見直し', list:_hist(appData.kinouKeikakuRecords, 'createdDate') },
-    { view:'seikatsu_kinou', title:'生活機能チェック', sub:'様式3-2', list:_hist(appData.seikatsuKinouRecords, 'recordDate') },
-    { view:'kyomi_kanshin', title:'興味・関心チェック', sub:'様式3-1', list:_hist(appData.kyomiKanshinRecords, 'recordDate') },
-    ...(hasLife ? [{ view:'life_hub', title:'ADL評価・科学的介護', sub:'LIFE提出のもとになる評価', list:_hist(appData.adlRecords, 'evalDate') }] : []),
+    { view:'kinou_keikaku', title:'個別機能訓練計画書', sub:'様式3-3・3か月ごとに見直し', list:_hist(appData.kinouKeikakuRecords, 'createdDate'), edit:(r) => navigateTo('kinou_keikaku', pid, `edit:${r.id}`) },
+    { view:'seikatsu_kinou', title:'生活機能チェック', sub:'様式3-2', list:_hist(appData.seikatsuKinouRecords, 'recordDate'), edit:(r) => navigateTo('seikatsu_kinou', pid, `edit:${r.id}`) },
+    { view:'kyomi_kanshin', title:'興味・関心チェック', sub:'様式3-1', list:_hist(appData.kyomiKanshinRecords, 'recordDate'), edit:(r) => navigateTo('kyomi_kanshin', pid, `edit:${r.id}`) },
+    ...(hasLife ? [{ view:'life_hub', title:'ADL評価・科学的介護', sub:'LIFE提出のもとになる評価', list:_hist(appData.adlRecords, 'evalDate'), edit:(r) => navigateTo('life_hub', pid, `batch:${r.evalDate}`) }] : []),
   ];
+  // 次にやることの行で何をするか(押すとその場所が開く)
+  const _act = (d) => d.view === 'kinou_keikaku' ? (d.note === '未作成' ? '作る' : String(d.note||'').startsWith('一時保存') ? '続きを書く' : '見直す') : '評価する';
+  const _dlEl = (() => {
+    if (!dl || !onShowPrintPreview) return null;
+    const P = { appData, onSave: () => {}, navigateTo, targetPatientId: pid, navFocus: `print:${dl.id}`, onFocusHandled: () => setDl(null), onShowPrintPreview, dirtyRef: _dirtyDummy, saveFnRef: _saveDummy };
+    return dl.view === 'kinou_keikaku' ? <KinouKeikakuView {...P}/> : dl.view === 'seikatsu_kinou' ? <SeikatsuKinouView {...P}/> : dl.view === 'kyomi_kanshin' ? <KyomiKanshinView {...P}/> : <LifeHubView key="life-dl" {...P}/>;
+  })();
   return (
     <div className="flex flex-col h-full">
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
@@ -47504,7 +47644,7 @@ function KinouPatientView({ appData, navigateTo, targetPatientId }) {
         {!patient ? <div className="text-center text-slate-400 py-20 font-bold">利用者を登録してください</div> : (
         <div className="max-w-4xl mx-auto space-y-4" data-testid="kk-patient-view">
           <div className="text-lg font-bold text-slate-800">{patient.name} 様 <span className="text-sm font-normal text-slate-500 ml-1">{patient.careLevel || ''}</span></div>
-          {/* 次にやること */}
+          {/* 次にやること(行を押すとその場所が開く) */}
           <div className="bg-white rounded-2xl border border-slate-200 p-4" data-testid="kk-next">
             <div className="text-sm font-bold text-slate-700 mb-2">次にやること</div>
             {dues.length === 0 ? <div className="text-sm text-slate-500">いま期限のある書類はありません。</div> : (
@@ -47514,7 +47654,7 @@ function KinouPatientView({ appData, navigateTo, targetPatientId }) {
                     <span className={`shrink-0 text-[11px] font-bold rounded-full px-2 py-0.5 ${d.overdue ? 'bg-red-600 text-white' : d.daysLeft <= 30 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>{d.overdue ? '期限切れ' : d.daysLeft === 0 ? '今日' : `あと${d.daysLeft}日`}</span>
                     <span className="flex-1 min-w-0"><span className="font-bold text-slate-800 text-sm">{d.label}</span><span className="text-xs text-slate-500 ml-2">{d.note}</span></span>
                     <span className="shrink-0 text-xs text-slate-500 tabular-nums">{_ymd(d.due)}まで</span>
-                    <span className="shrink-0 text-xs font-bold text-blue-600">開く ›</span>
+                    <span className="shrink-0 text-xs font-bold text-white bg-blue-600 rounded-lg px-2.5 py-1">{_act(d)}</span>
                   </button>))}
               </div>)}
           </div>
@@ -47530,17 +47670,29 @@ function KinouPatientView({ appData, navigateTo, targetPatientId }) {
               <div className="text-xs opacity-90 mt-0.5">個別機能訓練計画書（様式3-3）を新しく作ります。</div>
             </button>
           )}
-          {/* 書類の一覧(開く・直す・ダウンロードは各書類の画面で) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3" data-testid="kk-docs">
-            {docs.map(doc => { const last = doc.list[0]; const draft = last && last.r && last.r.draft; return (
-              <button key={doc.view} type="button" onClick={() => navigateTo(doc.view, pid)} className="text-left bg-white border border-slate-200 hover:border-blue-300 hover:bg-blue-50/40 rounded-2xl p-4">
-                <div className="flex items-baseline justify-between gap-2"><span className="font-bold text-slate-800">{doc.title}</span><span className="text-[11px] text-slate-400 whitespace-nowrap">{doc.sub}</span></div>
-                <div className="mt-1.5 text-sm text-slate-600">{last ? <>最新 <b className="tabular-nums">{_ymd(last.d)}</b>{draft ? <span className="ml-1 text-[11px] font-bold text-amber-700 bg-amber-100 rounded px-1">一時保存中</span> : null}<span className="text-slate-400 ml-2">全{doc.list.length}件</span></> : <span className="text-slate-400">まだありません</span>}</div>
-                <div className="mt-2 text-xs font-bold text-blue-600">開く（過去の書類・直す・ダウンロード） ›</div>
-              </button>); })}
+          {/* 作った書類(閲覧用): 日付ごとに ダウンロード(PDF)・編集 */}
+          <div>
+            <div className="text-sm font-bold text-slate-700 mb-2">作った書類 <span className="text-[11px] font-normal text-slate-400 ml-1">ダウンロードはPDFです。直すときは「編集」を押すと、その書類の画面が開きます。</span></div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3" data-testid="kk-docs">
+              {docs.map(doc => { const shown = more[doc.view] ? doc.list : doc.list.slice(0, 3); return (
+                <div key={doc.view} className="bg-white border border-slate-200 rounded-2xl p-4" data-testid={`kk-doc-${doc.view}`}>
+                  <div className="flex items-baseline justify-between gap-2"><span className="font-bold text-slate-800">{doc.title}</span><span className="text-[11px] text-slate-400 whitespace-nowrap">{doc.sub}</span></div>
+                  {doc.list.length === 0 ? <div className="mt-2 text-sm text-slate-400">まだありません</div> : (
+                    <div className="mt-1.5 divide-y divide-slate-100">
+                      {shown.map(({ r, d }, k) => (
+                        <div key={r.id || k} className="flex items-center gap-2 py-2">
+                          <span className="flex-1 min-w-0 text-sm text-slate-700 tabular-nums">{_ymd(d)}{k === 0 && !more[doc.view] ? <span className="ml-1.5 text-[11px] text-slate-400">最新</span> : null}{r.draft ? <span className="ml-1.5 text-[11px] font-bold text-amber-700 bg-amber-100 rounded px-1">一時保存中</span> : null}</span>
+                          <button type="button" data-testid="kk-doc-dl" disabled={!!dl || !onShowPrintPreview} onClick={() => setDl({ view: doc.view, id: r.id })} className="shrink-0 px-3 py-2 bg-slate-700 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg text-xs font-bold">{dl && dl.id === r.id ? '作成中…' : 'ダウンロード'}</button>
+                          <button type="button" data-testid="kk-doc-edit" onClick={() => doc.edit(r)} className="shrink-0 px-3 py-2 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-xs font-bold">編集</button>
+                        </div>))}
+                    </div>)}
+                  {doc.list.length > 3 ? <button type="button" onClick={() => setMore(m => ({ ...m, [doc.view]: !m[doc.view] }))} className="mt-1 text-xs font-bold text-blue-600 hover:underline">{more[doc.view] ? '閉じる' : `ほか${doc.list.length - 3}件を見る`}</button> : null}
+                </div>); })}
+            </div>
           </div>
         </div>)}
       </div>
+      {_dlEl ? <div style={{ display: 'none' }} aria-hidden="true">{_dlEl}</div> : null}
     </div>
   );
 }
@@ -47555,18 +47707,35 @@ function KeikakuYoteiView({ appData, navigateTo, family = 'tsusho' }) {
   const _allDues = React.useMemo(() => computePlanDues(appData, null, { includeFuture: true }), [appData]);
   // ★ ファミリーで絞る: tsusho=通所介護計画書 / kinou=個別機能訓練(3-3)+科学的介護+ADL加算
   const _famDues = React.useMemo(() => _allDues.filter(d => family === 'tsusho' ? d.kind === 'tsusho' : d.kind !== 'tsusho'), [_allDues, family]);
-  const all = React.useMemo(() => {
-    if (duesMonth == null) return _famDues.filter(d => d.daysLeft <= PLAN_DUE_LEAD_DAYS); // 従来の「直近」
+  const _selYm = React.useMemo(() => {
+    if (duesMonth == null) return null; // 従来の「直近」
     const now = new Date();
     const y = duesMonth >= (now.getMonth() + 1) ? now.getFullYear() : now.getFullYear() + 1; // 過ぎた月は翌年扱い
-    const ym = `${y}-${String(duesMonth).padStart(2,'0')}`;
-    return _famDues.filter(d => d.ym === ym);
-  }, [_famDues, duesMonth]);
+    return `${y}-${String(duesMonth).padStart(2,'0')}`;
+  }, [duesMonth]);
+  const all = React.useMemo(() => _selYm == null ? _famDues.filter(d => d.daysLeft <= PLAN_DUE_LEAD_DAYS) : _famDues.filter(d => d.ym === _selYm), [_famDues, _selYm]);
+  // ★ 2026-10-14(ユーザー要望「完了したらチェック」): 今月作った書類で済んだ予定を復元する。
+  //   今月の計画書(完成版)・ADL評価を除いて計算した予定のうち、今は先へ進んだもの=今月済んだもの
+  const _doneAll = React.useMemo(() => {
+    if (family !== 'kinou') return [];
+    const t0 = new Date(); t0.setHours(0,0,0,0); const cym = ymKey(t0);
+    const inCur = (v) => { const d = parseJpDate(v); return !!d && ymKey(d) === cym; };
+    const stripped = { ...appData,
+      kinouKeikakuRecords: (appData.kinouKeikakuRecords || []).filter(r => !(r && !r.draft && inCur(r.createdDate))),
+      adlRecords: (appData.adlRecords || []).filter(r => !(r && inCur(r.evalDate))) };
+    const before = computePlanDues(stripped, null, { includeFuture: true }).filter(d => d.kind !== 'tsusho' && d.ym <= cym);
+    const still = new Set(_famDues.filter(d => d.ym <= cym).map(d => `${d.patient.id}|${d.kind}`));
+    return before.filter(d => !still.has(`${d.patient.id}|${d.kind}`)).map(d => ({ ...d, done: true, overdue: false }));
+  }, [appData, _famDues, family]);
+  const doneList = _selYm == null ? _doneAll : _doneAll.filter(d => d.ym === _selYm);
   // 「未作成」は初回導入時に全員ぶん出て件数が膨らむため、既定では期限があるものだけ表示する
   const dues = showDone ? all : all.filter(d => d.note !== '未作成' && d.note !== 'ADL評価が未実施');
   const newN = all.length - dues.length;
   const byYm = {};
   dues.forEach(d => { (byYm[d.ym] = byYm[d.ym] || []).push(d); });
+  doneList.forEach(d => { (byYm[d.ym] = byYm[d.ym] || []).push(d); });
+  const _hasLifeY = kkHasLife(appData);
+  const KK_YOTEI_KINDS = [['kinou','個別機能訓練計画書'],['kagaku','科学的介護'],['adl','ADL維持等']];
   const yms = Object.keys(byYm).sort();
   const overdueN = dues.filter(d => d.overdue).length;
   return (
@@ -47590,7 +47759,9 @@ function KeikakuYoteiView({ appData, navigateTo, family = 'tsusho' }) {
       <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
         <div className="max-w-4xl mx-auto space-y-4">
           <div className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-xl px-4 py-2.5">
-            期限の1ヶ月前からお知らせします。通所介護計画書=目標の達成予定日（未設定なら作成から6ヶ月）／個別機能訓練計画書=3ヶ月ごと／加算=前回のADL評価から6ヶ月。
+            {family === 'kinou'
+              ? <>期限の1ヶ月前からお知らせします。個別機能訓練計画書・科学的介護＝3か月ごと／ADL維持等＝6か月ごと。今月作ったものには<b className="text-emerald-700">チェック</b>が付きます。名前を押すと、その方の「利用者ごと」が開きます。</>
+              : <>期限の1ヶ月前からお知らせします。通所介護計画書=目標の達成予定日（未設定なら作成から6ヶ月）。</>}
           </div>
           {yms.length === 0 ? (
             <div className="text-center text-slate-400 py-16 font-bold">
@@ -47599,6 +47770,50 @@ function KeikakuYoteiView({ appData, navigateTo, family = 'tsusho' }) {
             </div>
           ) : yms.map(ym => {
             const [yy,mm] = ym.split('-');
+            if (family === 'kinou') {
+              // ★ 2026-10-14: 利用者1行に 個別機能訓練計画書・科学的介護・ADL維持等 を並べ、済んだものにチェック
+              const rows = byYm[ym];
+              const byP = new Map(); rows.forEach(d => { if (!byP.has(d.patient.id)) byP.set(d.patient.id, { p: d.patient, items: [] }); byP.get(d.patient.id).items.push(d); });
+              const pts = sortPatientsByKana([...byP.values()].map(x => x.p)).map(p => byP.get(p.id));
+              const doneN = rows.filter(d => d.done).length;
+              return (
+                <div key={ym} className="bg-white rounded-2xl border border-slate-200 overflow-hidden" data-testid="kk-yotei-month">
+                  <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 text-sm font-bold text-slate-700 flex items-center gap-2 flex-wrap">
+                    {Number(yy)}年{Number(mm)}月 <span className="text-slate-400 font-normal text-xs">{pts.length}名</span>
+                    {doneN > 0 && <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">作成済み {doneN}／{rows.length}</span>}
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {pts.map(({ p, items }) => {
+                      const pend = items.filter(x => !x.done).sort((a,b) => a.due - b.due); const first = pend[0] || null;
+                      return (
+                        <div key={p.id} data-testid="kk-yotei-row" className={`px-4 py-2.5 flex items-center gap-x-3 gap-y-2 flex-wrap ${first && first.overdue ? 'bg-red-50' : ''}`}>
+                          <button type="button" onClick={() => navigateTo('kinou_patient', p.id)} className="text-left hover:text-blue-700" style={{minWidth:110}}>
+                            <span className="block font-bold text-slate-800 text-sm">{p.name}</span>
+                            <span className="block text-[10px] text-slate-400">{p.careLevel || ''}</span>
+                          </button>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {KK_YOTEI_KINDS.map(([k, lb]) => { const it = items.find(x => x.kind === k); if (!it) return null; return it.done ? (
+                              <span key={k} data-testid={`kk-chip-${k}`} data-done="1" title="今月作成済み" className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-300"><CheckCircle2 size={13}/>{lb}</span>
+                            ) : (
+                              <button key={k} type="button" data-testid={`kk-chip-${k}`} data-done="0" title={it.note} onClick={() => navigateTo(it.view, p.id, it.kind === 'kinou' ? 'start_edit' : 'batch')}
+                                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold bg-white border hover:bg-slate-50" style={{ borderColor: PLAN_KIND_COLOR[k], color: PLAN_KIND_COLOR[k] }}>
+                                <span className="inline-block w-3 h-3 rounded-full border-2 border-current"/>{lb}
+                                {(it.note === '未作成' || it.note === 'ADL評価が未実施') ? <span className="font-normal text-slate-400">未作成</span> : String(it.note||'').startsWith('一時保存') ? <span className="font-normal text-amber-600">一時保存中</span> : null}
+                              </button>); })}
+                          </div>
+                          <span className="flex-1"/>
+                          {first && (_hasLifeY
+                            ? <button type="button" onClick={() => navigateTo('life_hub', p.id, 'batch')} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shrink-0">評価・計画を始める</button>
+                            : <button type="button" onClick={() => navigateTo('kinou_keikaku', p.id, 'start_edit')} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shrink-0">計画書を作る</button>)}
+                          <span className={`text-xs font-bold whitespace-nowrap ${!first ? 'text-emerald-600' : first.overdue ? 'text-red-600' : first.daysLeft <= 7 ? 'text-amber-600' : 'text-slate-500'}`}>
+                            {!first ? '完了' : first.overdue ? `${Math.abs(first.daysLeft)}日超過` : first.daysLeft === 0 ? '本日' : `あと${first.daysLeft}日`}
+                          </span>
+                        </div>);
+                    })}
+                  </div>
+                </div>
+              );
+            }
             return (
               <div key={ym} className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
                 <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 text-sm font-bold text-slate-700">
@@ -47898,7 +48113,21 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
   };
 
   // 印刷対象 (編集中 or 最新)
-  const printRec = editing || records[0] || null;
+  // ★ 2026-10-14: 「利用者ごと」の履歴から 編集(edit:<id>)・ダウンロード(print:<id>)
+  const [printPickId, setPrintPickId] = React.useState(null);
+  const printRec = editing || (printPickId != null && records.find(r => String(r.id) === String(printPickId))) || records[0] || null;
+  React.useEffect(() => {
+    const f = String(navFocus || '');
+    if (f.startsWith('edit:')) { const r = records.find(x => String(x.id) === f.slice(5)); if (r) setEditing({ ...r }); if (onFocusHandled) onFocusHandled(); }
+    else if (f.startsWith('print:')) setPrintPickId(f.slice(6));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navFocus]);
+  React.useEffect(() => {
+    if (printPickId == null) return;
+    if (printRec && String(printRec.id) === String(printPickId) && onShowPrintPreview) onShowPrintPreview('個別機能訓練計画書','A4','kk-print-area');
+    setPrintPickId(null); if (onFocusHandled) onFocusHandled();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [printPickId]);
 
   return (
     <div className="flex flex-col h-full">
@@ -48419,7 +48648,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
 }
 
 // === 生活機能チェックシート (別紙様式3-2 / アドオン: kinou_keikaku) ===
-function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId }) {
+function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId, navFocus, onFocusHandled }) {
   const _kkP = kkPresetsOf(appData.systemSettings); const _kkStaff = tsuStaffList(appData); // ★ 2026-10-14: 定型文・職員(各種設定→計画書)
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
   const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
@@ -48436,7 +48665,21 @@ function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
   React.useEffect(()=>{ if(!saveFnRef) return; saveFnRef.current=()=>{ if(editing) saveRecord(); }; });
   const delRecord = (id) => { if(!window.confirm('削除しますか？')) return; onSave({...appData,seikatsuKinouRecords:(appData.seikatsuKinouRecords||[]).filter(r=>r.id!==id), deletedIds: addTombstone(appData,'seikatsuKinouRecords',id)},{manual:true,message:'削除しました'}); if(editing?.id===id)setEditing(null); };
   const dupRecord = (r) => setEditing({...r, id:`sk_${pid}_${Date.now()}`, createdAt:Date.now(), recordDate:toReiwa(new Date().toISOString().slice(0,10))});
-  const printRec = editing || records[0] || null;
+  // ★ 2026-10-14: 「利用者ごと」の履歴から 編集(edit:<id>)・ダウンロード(print:<id>)
+  const [printPickId, setPrintPickId] = React.useState(null);
+  const printRec = editing || (printPickId != null && records.find(r => String(r.id) === String(printPickId))) || records[0] || null;
+  React.useEffect(() => {
+    const f = String(navFocus || '');
+    if (f.startsWith('edit:')) { const r = records.find(x => String(x.id) === f.slice(5)); if (r) setEditing({ ...r }); if (onFocusHandled) onFocusHandled(); }
+    else if (f.startsWith('print:')) setPrintPickId(f.slice(6));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navFocus]);
+  React.useEffect(() => {
+    if (printPickId == null) return;
+    if (printRec && String(printRec.id) === String(printPickId) && onShowPrintPreview) onShowPrintPreview('生活機能チェックシート','A4','sk-print-area');
+    setPrintPickId(null); if (onFocusHandled) onFocusHandled();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [printPickId]);
   const grpForm = (title, group, items, opts) => (
     <div className="bg-white rounded-xl border border-slate-200 p-4">
       <div className="text-sm font-bold text-blue-700 mb-2">{title}</div>
@@ -48546,7 +48789,7 @@ function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
 }
 
 // === 興味・関心チェックシート (別紙様式3-1 / アドオン: kinou_keikaku) ===
-function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId }) {
+function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId, navFocus, onFocusHandled }) {
   const _kkP = kkPresetsOf(appData.systemSettings); const _kkStaff = tsuStaffList(appData); // ★ 2026-10-14: 定型文・職員(各種設定→計画書)
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
   const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
@@ -48567,7 +48810,21 @@ function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
   React.useEffect(()=>{ if(!saveFnRef) return; saveFnRef.current=()=>{ if(editing) saveRecord(); }; });
   const delRecord = (id) => { if(!window.confirm('削除しますか？')) return; onSave({...appData,kyomiKanshinRecords:(appData.kyomiKanshinRecords||[]).filter(r=>r.id!==id), deletedIds: addTombstone(appData,'kyomiKanshinRecords',id)},{manual:true,message:'削除しました'}); if(editing?.id===id)setEditing(null); };
   const dupRecord = (r) => setEditing({...r, id:`ki_${pid}_${Date.now()}`, createdAt:Date.now(), recordDate:toReiwa(new Date().toISOString().slice(0,10))});
-  const printRec = editing || records[0] || null;
+  // ★ 2026-10-14: 「利用者ごと」の履歴から 編集(edit:<id>)・ダウンロード(print:<id>)
+  const [printPickId, setPrintPickId] = React.useState(null);
+  const printRec = editing || (printPickId != null && records.find(r => String(r.id) === String(printPickId))) || records[0] || null;
+  React.useEffect(() => {
+    const f = String(navFocus || '');
+    if (f.startsWith('edit:')) { const r = records.find(x => String(x.id) === f.slice(5)); if (r) setEditing({ ...r }); if (onFocusHandled) onFocusHandled(); }
+    else if (f.startsWith('print:')) setPrintPickId(f.slice(6));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navFocus]);
+  React.useEffect(() => {
+    if (printPickId == null) return;
+    if (printRec && String(printRec.id) === String(printPickId) && onShowPrintPreview) onShowPrintPreview('興味・関心チェックシート','A4','ki-print-area');
+    setPrintPickId(null); if (onFocusHandled) onFocusHandled();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [printPickId]);
   const COLS = [['shiteiru','している'],['shitemitai','してみたい'],['kyomi','興味がある']];
   const row3 = (name, vals, onTog) => (
     <div className="flex items-center gap-2 py-1 border-b border-slate-100">
@@ -49913,9 +50170,9 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
   const enabledForms = Object.keys(LIFE_FORMS).filter(id=>addons[LIFE_FORMS[id].addon]).map(id=>({ id, ...LIFE_FORMS[id] }));
   const [dashFormId, setDashFormId] = React.useState(enabledForms[0]?.id || 'TIFI2024');
   const dashForm = enabledForms.find(f=>f.id===dashFormId) || enabledForms[0] || null;
-  const dashRows = React.useMemo(() => {
-    if (!dashForm) return [];
-    const src = dashForm.source || 'adl';
+  const _lifeRowsFor = (form) => {
+    if (!form) return [];
+    const src = form.source || 'adl';
     return patients.map(p => {
       let latest=null, sci={}, pym='';
       if (src==='seikatsu') {
@@ -49932,12 +50189,13 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
         sci = latest?.science||{};
         pym = latest ? String(latest.evalDate).slice(0,7).replace('-','') : '';
       }
-      const row = latest ? dashForm.build(p, latest, sci, lifeCfgFor(p), pym) : null;
+      const row = latest ? form.build(p, latest, sci, lifeCfgFor(p), pym) : null;
       const noneMsg = src==='seikatsu' ? '生活機能チェックが未作成' : src==='kinou' ? '個別機能訓練計画書が未作成' : 'ADL評価が未作成';
-      const vr = latest ? dashForm.validate(p, latest, sci, row, today) : { errors:[noneMsg], warns:[] };
+      const vr = latest ? form.validate(p, latest, sci, row, today) : { errors:[noneMsg], warns:[] };
       return { p, latest, row, vr, status: !latest ? 'none' : (vr.errors.length ? 'error' : 'ok') };
     });
-  }, [appData.adlRecords, appData.seikatsuKinouRecords, appData.kinouKeikakuRecords, appData.patients, dashFormId, appData.systemSettings?.facilityInfo]);
+  };
+  const dashRows = React.useMemo(() => _lifeRowsFor(dashForm), [appData.adlRecords, appData.seikatsuKinouRecords, appData.kinouKeikakuRecords, appData.patients, dashFormId, appData.systemSettings?.facilityInfo]); // eslint-disable-line react-hooks/exhaustive-deps
   // ★ 2026-10-14: 事業所番号が2種類(通所介護/総合事業)ある店舗は、新LIFEのアカウントが別なのでファイルも事業所番号ごとに分ける
   const _groupByOffice = (rows) => { const m = new Map(); rows.forEach(r => { const k = String(r.care_facility_id||''); if (!m.has(k)) m.set(k, []); m.get(k).push(r); }); return [...m.entries()]; };
   const _dlByOffice = (base, cols, rows, dataType) => { const gs = _groupByOffice(rows); gs.forEach(([ofc, rs], i) => { const name = gs.length > 1 ? `${base}_${ofc||'事業所番号なし'}.csv` : `${base}.csv`; setTimeout(() => lifeDownloadCsv(name, lifeToCsvText(cols, rs, dataType)), i * 900); }); return gs; };
@@ -49951,6 +50209,19 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
       + (excluded.length ? `\n\n除外 ${excluded.length}名（この出力には含めません）:\n` + excluded.map(d=>`・${d.p.name}（${d.status==='none'?'未評価':`エラー${d.vr.errors.length}件`}）`).join('\n') : '');
     if (!window.confirm(msg)) return;
     _dlByOffice(`${dashForm.id}_${submitYm.replace('-','')}`, dashForm.cols, ok.map(d=>d.row), dashForm.dataType);
+  };
+  // ★ 2026-10-14(ユーザー要望「分かりやすく」): 算定中の様式をまとめて保存(様式ごと・事業所番号ごとにファイルを分ける)
+  const exportAllForms = () => {
+    const sets = enabledForms.map(f => { const rows = _lifeRowsFor(f); return { f, rows, ok: rows.filter(d => d.status === 'ok') }; });
+    const total = sets.reduce((n, x) => n + x.ok.length, 0);
+    if (!total) { alert('提出できる利用者がいません（未評価またはエラーのため）。下の「提出ダッシュボード」で理由を確認できます。'); return; }
+    const ofcs = new Set(sets.flatMap(x => x.ok.map(d => String(d.row.care_facility_id || ''))));
+    const msg = `算定中の様式をまとめて保存します（提出年月 ${submitYm.replace('-','年')}月）。\n` + sets.map(x => `・${x.f.label}：提出可 ${x.ok.length}名` + (x.rows.length - x.ok.length ? `（除外 ${x.rows.length - x.ok.length}名）` : '')).join('\n')
+      + (ofcs.size > 1 ? `\n\n事業所番号が${ofcs.size}種類あるため、事業所番号ごとにファイルを分けます（それぞれの新LIFEアカウントで取り込んでください）。` : '')
+      + '\n\n除外の方は、下の「提出ダッシュボード」で様式を切り替えると理由が見られます。\nブラウザに「複数のファイルのダウンロード」の確認が出たら「許可」を押してください。';
+    if (!window.confirm(msg)) return;
+    let delay = 0;
+    sets.forEach(x => { if (!x.ok.length) return; const rows = x.ok.map(d => d.row); setTimeout(() => _dlByOffice(`${x.f.id}_${submitYm.replace('-','')}`, x.f.cols, rows, x.f.dataType), delay); delay += 900 * Math.max(1, _groupByOffice(rows).length) + 300; });
   };
   // ★ 利用者情報(SERVICE_USER_INFO)の一括出力(2026-09-21・新LIFE対応 T1/T2/T3)。 退所済みは対象外。
   const lifePatients = React.useMemo(() => patients.filter(p => !isPatientResigned(p)), [patients]);
@@ -50242,12 +50513,23 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
   };
   React.useEffect(()=>{ if(!saveFnRef) return; if (batchMode && batch) saveFnRef.current = () => batchSave(true); });
   // ★ 作成予定の「一括評価」ボタンからの遷移(navFocus='batch'): 対象者選択済みで一括評価を即開く(2026-08-20)
+  // ★ 2026-10-14: 「利用者ごと」の履歴から 編集=batch:<評価日>(その日の評価・計画を開く)・ダウンロード=print:<id>
+  const [_printPickIdL, setPrintPickIdL] = React.useState(null);
   React.useEffect(() => {
-    if (navFocus !== 'batch') return;
-    _batchLoad(today);
+    const f = String(navFocus || '');
+    if (f.startsWith('print:')) { setPrintPickIdL(f.slice(6)); return; }
+    if (f !== 'batch' && !f.startsWith('batch:')) return;
+    _batchLoad(f.startsWith('batch:') ? f.slice(6) : today);
     if (onFocusHandled) onFocusHandled();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navFocus]);
+  React.useEffect(() => {
+    if (_printPickIdL == null) return;
+    const _ad = appData.systemSettings?.addons || {}; const _sciP = !!_ad.kasan_kagaku || !_ad.kasan_adl;
+    if (adlRecords.some(r => String(r.id) === String(_printPickIdL)) && onShowPrintPreview) onShowPrintPreview(_sciP ? '科学的介護推進に関する評価' : 'ADL維持等加算 評価', 'A4', _sciP ? 'tifi-print-area' : 'aint-print-area');
+    setPrintPickIdL(null); if (onFocusHandled) onFocusHandled();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [_printPickIdL]);
   const blank = () => ({ id:`adl_${pid}_${Date.now()}`, patientId:pid, evalDate:today, evaluator:'', items:{}, note:'' });
   const setItem = (k,v)=>{ setEditing(e=>({...e, items:{...e.items,[k]:Number(v)}})); markDirty(); };
   // ★ 生活機能チェック(3-2)のADLから Barthel の点数を「提案」する。 同じ10項目を二度入力しないため。
@@ -50551,61 +50833,31 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
         {!pid ? <div className="text-center text-slate-400 py-20 font-bold">利用者を登録してください</div> : (
         <div className="max-w-4xl mx-auto space-y-4">
           {_isSubmit && (<>
-          {/* この店で有効な加算 */}
-          <div className="bg-indigo-50 rounded-xl border border-indigo-200 p-4">
-            <div className="text-sm font-bold text-indigo-700 mb-2">この事業所で算定中の加算（本部の店舗設定でON/OFF）</div>
-            {enabledKasan.length===0 ? (
-              <div className="text-xs text-indigo-900 opacity-70">現在ONの加算がありません。本部の「店舗設定 → アドオン」で、個別機能訓練加算Ⅱ／科学的介護推進体制加算／ADL維持等加算 を有効にしてください。</div>
-            ) : (
-              <div className="grid md:grid-cols-3 gap-2">
-                {enabledKasan.map(([k,label,desc])=>(
-                  <div key={k} className="bg-white rounded-lg border border-indigo-200 p-3">
-                    <div className="text-xs font-bold text-slate-700">{label}</div>
-                    <div className="text-[11px] text-slate-500 mt-1 leading-snug">{desc}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="text-[11px] text-indigo-900 opacity-70 mt-2">※ 下の <b>共通データ（ADL＝Barthel Index）</b> は、上記どの加算にも自動で反映されます。各加算の固有項目は順次追加します。</div>
-          </div>
-
-          {/* ★ 利用者情報CSV(SERVICE_USER_INFO・新LIFEへの利用者登録) 2026-09-21 */}
-          <div className="bg-white rounded-xl border border-indigo-200 p-4">
-            <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+          {/* ★ 2026-10-14(ユーザー要望「何の用途か分かりやすく・本部代行でも店舗でも」): 毎月の流れ */}
+          <div className="bg-white rounded-xl border border-indigo-200 p-4" data-testid="life-flow">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
               <div>
-                <div className="text-sm font-bold text-indigo-700">利用者情報CSV（新LIFEへの利用者登録・SERVICE_USER_INFO）</div>
-                <div className="text-[11px] text-slate-500 mt-0.5">新LIFEには利用者情報が引き継がれません。様式CSVを取り込む前に、この利用者情報CSVを取り込んでください（同時取込も可）。保険者番号・被保険者番号・性別・生年月日は介護保険証と完全一致が必要です。</div>
-                <div className="text-[11px] text-red-700 mt-0.5 font-bold">注意: カイポケ（まるっとLIFE）など他のソフトで新LIFEに登録済みの利用者には取り込まないでください（管理番号が異なるため二重登録になります）。新規の利用者や、他ソフトから完全に切り替えた店舗で使います。</div>
+                <div className="text-sm font-bold text-indigo-700">LIFE提出の流れ（毎月）</div>
+                <div className="text-[11px] text-slate-500 mt-0.5">評価した月の翌月10日までに提出します（科学的介護推進体制加算は少なくとも3か月に1回）。</div>
               </div>
-              <button type="button" onClick={exportUserInfo} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">利用者情報CSV出力</button>
+              {enabledForms.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="text-xs font-bold text-slate-500">提出年月</label>
+                  <input type="month" value={submitYm} onChange={e=>setSubmitYm(e.target.value)} className="px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none"/>
+                  <button type="button" data-testid="life-export-all" onClick={exportAllForms} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">算定中の様式をまとめて保存</button>
+                </div>)}
             </div>
-            {(() => { const ok=userRows.filter(d=>d.status==='ok').length, er=userRows.length-ok; return (
-              <div className="flex gap-2 flex-wrap mb-2 text-xs font-bold">
-                <span className="px-2 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">出力可 {ok}</span>
-                <span className="px-2 py-1 rounded bg-red-50 text-red-700 border border-red-200">エラー {er}</span>
-                <span className="px-2 py-1 rounded bg-slate-50 text-slate-400 border border-slate-200">対象 {userRows.length}名（利用中・休止中）</span>
-              </div>
-            ); })()}
-            <div className="overflow-x-auto border border-slate-200 rounded-lg">
-              <table className="w-full text-xs">
-                <thead><tr className="bg-slate-50 text-slate-500"><th className="px-2 py-1.5 text-left">利用者</th><th className="px-2 py-1.5 w-20">保険者</th><th className="px-2 py-1.5 w-24">被保険者</th><th className="px-2 py-1.5 w-10">性別</th><th className="px-2 py-1.5 w-20">生年月日</th><th className="px-2 py-1.5 w-16">介護度</th><th className="px-2 py-1.5 w-20">状態</th><th className="px-2 py-1.5 text-left">確認事項</th></tr></thead>
-                <tbody className="divide-y divide-slate-100">
-                  {userRows.length===0 ? <tr><td colSpan={8} className="px-2 py-4 text-center text-slate-400">対象の利用者がいません</td></tr> : userRows.map(d=>(
-                    <tr key={d.p.id} className={`hover:bg-slate-50 cursor-pointer ${d.p.id===pid?'bg-indigo-50':''}`} onClick={()=>{ if (_isSubmit) { if (navigateTo) navigateTo('life_hub', d.p.id); return; } setEditing(null); setPid(d.p.id); }}>
-                      <td className="px-2 py-1.5 font-bold text-slate-700 whitespace-nowrap">{d.p.name}<div className="text-[10px] font-normal text-slate-400 whitespace-nowrap">{d.row.last_name_kana}{d.row.first_name_kana?` ${d.row.first_name_kana}`:''}</div></td>
-                      <td className="px-2 py-1.5 text-center font-mono">{d.row.insurer_no||<span className="text-red-500">—</span>}</td>
-                      <td className="px-2 py-1.5 text-center font-mono">{d.row.insured_no||<span className="text-red-500">—</span>}</td>
-                      <td className="px-2 py-1.5 text-center">{d.row.gender==='1'?'男':d.row.gender==='2'?'女':<span className="text-red-500">—</span>}</td>
-                      <td className="px-2 py-1.5 text-center font-mono whitespace-nowrap">{d.row.birthday ? String(d.row.birthday).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1/$2/$3') : <span className="text-red-500">—</span>}</td>
-                      <td className="px-2 py-1.5 text-center whitespace-nowrap">{d.p.careLevel||<span className="text-red-500">—</span>}<span className="text-slate-400 ml-1">{d.row.care_level ? `(${d.row.care_level})` : ''}</span></td>
-                      <td className="px-2 py-1.5 text-center">{d.status==='ok'?<span className="text-emerald-600 font-bold">✓ 出力可</span>:<span className="text-red-600 font-bold">エラー{d.vr.errors.length}件</span>}</td>
-                      <td className="px-2 py-1.5 text-[11px] text-slate-500">{d.status==='error'?d.vr.errors.slice(0,3).join(' / ')+(d.vr.errors.length>3?' …':''):d.vr.warns.length?<span className="text-amber-600">要確認: {d.vr.warns.join(' / ')}</span>:''}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <ol className="mt-3 space-y-2 text-xs text-slate-700">
+              {[['提出する月を選んで確かめる', '提出年月を選び、下の「提出ダッシュボード」で「提出可」の人数を見ます。エラー・未評価の方は、行を押すとその方の評価の画面が開きます。'],
+                ['ファイルを保存する', '「算定中の様式をまとめて保存」を押すと、提出用のファイル（CSV）が様式ごとに保存されます。要介護と要支援・事業対象者で事業所番号が違う店舗は、事業所番号ごとに分かれます。'],
+                ['新LIFEに取り込む', '電子証明書を入れたパソコンで新LIFEにログインし（事業所番号ごと）、「外部データ取込」から保存したファイルを取り込みます。'],
+                ['結果を確かめる', '取込結果にエラーが無ければ完了です。直してから出し直しても、同じ方・同じ月の分は上書きされます（二重にはなりません）。']].map(([t, b], i) => (
+                <li key={i} className="flex gap-2"><span className="shrink-0 w-5 h-5 rounded-full bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center">{i + 1}</span><span><b>{t}</b>　{b}</span></li>))}
+            </ol>
+            <div className="mt-3 text-[11px] text-slate-500 leading-relaxed border-t border-slate-100 pt-2">
+              ・<b>利用者情報CSV</b>は、新LIFEにまだ登録されていない利用者がいる時だけ使います（カイポケなど他のソフトで登録済みの方には入れません）。<br/>
+              ・<b>本部が代わりに提出する場合</b>も手順は同じです。本部は管理局から店舗に入り、この画面でファイルを保存します（管理局の「本部の手順書」に詳しい手順があります）。
             </div>
-            <div className="text-[10px] text-slate-400 mt-2 leading-relaxed">※ 氏名・ふりがなは利用者マスタの「姓 名」（空白区切り）から姓・名に分けて出力します（ふりがなは半角カナに自動変換）。保険者番号は利用者ごとの登録が無ければ事業所情報の既定値を使います。エラーの行は出力から除外されるので、利用者マスタで修正してください。外部システム管理番号には被保険者番号を使うため、再出力しても新LIFE側では同じ利用者として上書きされます。</div>
           </div>
 
           {/* 提出ダッシュボード + まとめ出力 (様式横断: TIFI2024/AINT2024) */}
@@ -50613,7 +50865,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
             <div className="bg-white rounded-xl border border-purple-200 p-4">
               <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <div className="text-sm font-bold text-purple-700">提出ダッシュボード</div>
+                  <div className="text-sm font-bold text-purple-700">提出ダッシュボード<span className="ml-2 text-[11px] font-normal text-slate-500">提出できる状態か、様式ごとに一人ずつ確かめる一覧</span></div>
                   {enabledForms.length>1 ? (
                     <select value={dashFormId} onChange={e=>setDashFormId(e.target.value)} className="px-2 py-1 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none">
                       {enabledForms.map(f=><option key={f.id} value={f.id}>{f.label}（{f.id}）</option>)}
@@ -50624,7 +50876,6 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                   <label className="text-xs font-bold text-slate-500">提出年月</label>
                   <input type="month" value={submitYm} onChange={e=>setSubmitYm(e.target.value)} className="px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-sm outline-none"/>
                   <button type="button" onClick={exportAllForm} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">まとめてCSV出力</button>
-                  <button type="button" onClick={exportBundle} title="利用者情報CSVと様式CSVを続けて出力します（新LIFEに2ファイルを一括で取り込めます）" className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">利用者情報＋様式をまとめて出力</button>
                 </div>
               </div>
               {(() => { const ok=dashRows.filter(d=>d.status==='ok').length, er=dashRows.filter(d=>d.status==='error').length, no=dashRows.filter(d=>d.status==='none').length; return (
@@ -50654,9 +50905,53 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
             </div>
           )}
 
+          {/* ★ 利用者情報CSV(SERVICE_USER_INFO・新LIFEへの利用者登録) 2026-09-21 */}
+          <details className="bg-white rounded-xl border border-indigo-200 p-4" data-testid="life-userinfo">
+            <summary className="cursor-pointer select-none text-sm font-bold text-indigo-700">利用者情報CSV（新LIFEに利用者を登録するときだけ）<span className="ml-2 text-[11px] font-normal text-slate-500">新LIFEに、まだ登録されていない利用者がいる時に開きます</span></summary>
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-2 mt-3">
+              <div>
+                <div className="text-sm font-bold text-indigo-700">利用者情報CSV（新LIFEへの利用者登録・SERVICE_USER_INFO）</div>
+                <div className="text-[11px] text-slate-500 mt-0.5">新LIFEには利用者情報が引き継がれません。様式CSVを取り込む前に、この利用者情報CSVを取り込んでください（同時取込も可）。保険者番号・被保険者番号・性別・生年月日は介護保険証と完全一致が必要です。</div>
+                <div className="text-[11px] text-red-700 mt-0.5 font-bold">注意: カイポケ（まるっとLIFE）など他のソフトで新LIFEに登録済みの利用者には取り込まないでください（管理番号が異なるため二重登録になります）。新規の利用者や、他ソフトから完全に切り替えた店舗で使います。</div>
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <button type="button" onClick={exportUserInfo} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">利用者情報CSV出力</button>
+                {dashForm && <button type="button" onClick={exportBundle} title="利用者情報CSVと様式CSVを続けて出力します（新LIFEに2ファイルを一括で取り込めます）" className="px-4 py-2 bg-white border border-indigo-300 text-indigo-700 hover:bg-indigo-50 rounded-lg text-sm font-bold active:scale-95">利用者情報＋様式をまとめて出力</button>}
+              </div>
+            </div>
+            {(() => { const ok=userRows.filter(d=>d.status==='ok').length, er=userRows.length-ok; return (
+              <div className="flex gap-2 flex-wrap mb-2 text-xs font-bold">
+                <span className="px-2 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">出力可 {ok}</span>
+                <span className="px-2 py-1 rounded bg-red-50 text-red-700 border border-red-200">エラー {er}</span>
+                <span className="px-2 py-1 rounded bg-slate-50 text-slate-400 border border-slate-200">対象 {userRows.length}名（利用中・休止中）</span>
+              </div>
+            ); })()}
+            <div className="overflow-x-auto border border-slate-200 rounded-lg">
+              <table className="w-full text-xs">
+                <thead><tr className="bg-slate-50 text-slate-500"><th className="px-2 py-1.5 text-left">利用者</th><th className="px-2 py-1.5 w-20">保険者</th><th className="px-2 py-1.5 w-24">被保険者</th><th className="px-2 py-1.5 w-10">性別</th><th className="px-2 py-1.5 w-20">生年月日</th><th className="px-2 py-1.5 w-16">介護度</th><th className="px-2 py-1.5 w-20">状態</th><th className="px-2 py-1.5 text-left">確認事項</th></tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  {userRows.length===0 ? <tr><td colSpan={8} className="px-2 py-4 text-center text-slate-400">対象の利用者がいません</td></tr> : userRows.map(d=>(
+                    <tr key={d.p.id} className={`hover:bg-slate-50 cursor-pointer ${d.p.id===pid?'bg-indigo-50':''}`} onClick={()=>{ if (_isSubmit) { if (navigateTo) navigateTo('life_hub', d.p.id); return; } setEditing(null); setPid(d.p.id); }}>
+                      <td className="px-2 py-1.5 font-bold text-slate-700 whitespace-nowrap">{d.p.name}<div className="text-[10px] font-normal text-slate-400 whitespace-nowrap">{d.row.last_name_kana}{d.row.first_name_kana?` ${d.row.first_name_kana}`:''}</div></td>
+                      <td className="px-2 py-1.5 text-center font-mono">{d.row.insurer_no||<span className="text-red-500">—</span>}</td>
+                      <td className="px-2 py-1.5 text-center font-mono">{d.row.insured_no||<span className="text-red-500">—</span>}</td>
+                      <td className="px-2 py-1.5 text-center">{d.row.gender==='1'?'男':d.row.gender==='2'?'女':<span className="text-red-500">—</span>}</td>
+                      <td className="px-2 py-1.5 text-center font-mono whitespace-nowrap">{d.row.birthday ? String(d.row.birthday).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1/$2/$3') : <span className="text-red-500">—</span>}</td>
+                      <td className="px-2 py-1.5 text-center whitespace-nowrap">{d.p.careLevel||<span className="text-red-500">—</span>}<span className="text-slate-400 ml-1">{d.row.care_level ? `(${d.row.care_level})` : ''}</span></td>
+                      <td className="px-2 py-1.5 text-center">{d.status==='ok'?<span className="text-emerald-600 font-bold">✓ 出力可</span>:<span className="text-red-600 font-bold">エラー{d.vr.errors.length}件</span>}</td>
+                      <td className="px-2 py-1.5 text-[11px] text-slate-500">{d.status==='error'?d.vr.errors.slice(0,3).join(' / ')+(d.vr.errors.length>3?' …':''):d.vr.warns.length?<span className="text-amber-600">要確認: {d.vr.warns.join(' / ')}</span>:''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="text-[10px] text-slate-400 mt-2 leading-relaxed">※ 氏名・ふりがなは利用者マスタの「姓 名」（空白区切り）から姓・名に分けて出力します（ふりがなは半角カナに自動変換）。保険者番号は利用者ごとの登録が無ければ事業所情報の既定値を使います。エラーの行は出力から除外されるので、利用者マスタで修正してください。外部システム管理番号には被保険者番号を使うため、再出力しても新LIFE側では同じ利用者として上書きされます。</div>
+          </details>
+
+
           {/* LIFE連携の事業所情報 (各種設定→LIFE連携 から読み込み・ここは表示のみ) */}
           <div className="bg-white rounded-xl border border-slate-200 p-4">
-            <div className="text-sm font-bold text-slate-700 mb-2">LIFE連携の事業所情報 <span className="text-[11px] font-normal text-slate-400">（各種設定 → LIFE連携 で登録）</span></div>
+            <div className="text-sm font-bold text-slate-700 mb-2">LIFE連携の事業所情報 <span className="text-[11px] font-normal text-slate-400">（各種設定 → 事業所情報 で登録）</span></div>
             <div className="flex gap-x-6 gap-y-1 flex-wrap text-xs">
               <span className="text-slate-500">事業所番号：<b className={lifeOfficeCfg.officeNumber?'text-slate-700':'text-red-500'}>{lifeOfficeCfg.officeNumber||'未設定'}</b></span>
               <span className="text-slate-500">保険者番号(既定)：<b className={lifeOfficeCfg.insurerNo?'text-slate-700':'text-amber-600'}>{lifeOfficeCfg.insurerNo||'未設定'}</b></span>
@@ -50665,6 +50960,23 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
               <span className="text-slate-500">CSVバージョン：<b className="text-slate-700">{lifeOfficeCfg.version||'—'}</b></span>
             </div>
             <button type="button" onClick={()=>navigateTo('settings')} className="mt-2 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold">各種設定を開く</button>
+          </div>
+
+          {/* この店で有効な加算 */}
+          <div className="bg-indigo-50 rounded-xl border border-indigo-200 p-4">
+            <div className="text-sm font-bold text-indigo-700 mb-2">この事業所で算定中の加算（本部の店舗設定でON/OFF）</div>
+            {enabledKasan.length===0 ? (
+              <div className="text-xs text-indigo-900 opacity-70">現在ONの加算がありません。本部の「店舗設定 → アドオン」で、個別機能訓練加算Ⅱ／科学的介護推進体制加算／ADL維持等加算 を有効にしてください。</div>
+            ) : (
+              <div className="grid md:grid-cols-3 gap-2">
+                {enabledKasan.map(([k,label,desc])=>(
+                  <div key={k} className="bg-white rounded-lg border border-indigo-200 p-3">
+                    <div className="text-xs font-bold text-slate-700">{label}</div>
+                    <div className="text-[11px] text-slate-500 mt-1 leading-snug">{desc}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           </>)}
@@ -50864,7 +51176,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
           </>)}
           {/* ★ LIFE帳票(印刷用・非表示)。 科学的介護推進 / ADL維持等 は現在選択中の利用者の最新ADL評価+固有項目から生成 */}
           {(() => {
-            const _a = adlRecords[0] || null; if (!_a) return null;
+            const _a = (_printPickIdL != null && adlRecords.find(r => String(r.id) === String(_printPickIdL))) || adlRecords[0] || null; if (!_a) return null;
             const _s = _a.science || {}; const fac = appData.systemSettings?.facilityInfo || {};
             const cell={border:'1px solid #000',padding:'3px 7px',fontSize:'11px',verticalAlign:'top',lineHeight:1.5};
             const lab={...cell,background:'#f1f2f4',fontWeight:'bold',whiteSpace:'nowrap'};
