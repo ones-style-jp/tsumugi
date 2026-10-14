@@ -43452,10 +43452,10 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
           {/* 気分の理由 (カスタマイズ) */}
           {/* ★ 2026-10-14(ユーザー要望): 個別機能訓練計画書(3-3)の定型文を店舗ごとに編集(1行=1つ)。空にすると既定に戻る */}
           {activeTab === 'keikaku' && (
-            <SectionCard title="個別機能訓練計画書（様式3-3）の定型文">
+            <SectionCard title="計画書の定型文（3-3・3-2・3-1・通所介護計画書）">
               <p className="text-xs text-slate-500 mb-3">計画書の各欄で「定型文から ▼」やチェックで選べる文言です。1行に1つ。空にすると標準の文言に戻ります。保存すると全端末に反映されます。</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {[['ryui','機能訓練実施上の留意事項（チェックで複数選択）'],['goalKinou','目標（機能）'],['goalKatsudo','目標（活動）'],['goalSanka','目標（参加）'],['progContent','プログラム内容'],['progPoint','プログラムの留意点'],['henka','実施による変化'],['kadai','課題とその要因']].map(([k,lb]) => { const cur = kkPresetsOf(ss)[k]; return (
+                {[['ryui','【3-3】機能訓練実施上の留意事項（チェックで複数選択）'],['goalKinou','【3-3】目標（機能）'],['goalKatsudo','【3-3】目標（活動）'],['goalSanka','【3-3】目標（参加）'],['progContent','【3-3】プログラム内容'],['progPoint','【3-3】プログラムの留意点'],['henka','【3-3】実施による変化'],['kadai','【3-3】課題とその要因'],['skNinchi','【3-2】認知機能・コミュニケーション'],['skKadai','【3-2】生活上の課題・背景因子'],['kyBikou','【3-1】備考（希望・エピソード）'],['tsGoal','【通所介護計画書】目標'],['tsContent','【通所介護計画書】目的とケアの提供方針・内容'],['tsEffect','【通所介護計画書】効果・満足度'],['tsRisk','【通所介護計画書】医学的リスク・留意事項']].map(([k,lb]) => { const cur = kkPresetsOf(ss)[k]; return (
                   <div key={k}><label className="block text-xs font-bold text-slate-600 mb-1">{lb} <span className="font-normal text-slate-400">（{cur.length}件）</span></label>
                     <textarea key={`${k}-${(ss.kkPresets&&ss.kkPresets[k]) ? 'c' : 'd'}`} defaultValue={cur.join('\n')} rows={6} onBlur={e => { const lines = e.target.value.split('\n').map(x=>x.trim()).filter(Boolean); const prev = (ss.kkPresets||{})[k]; const same = JSON.stringify(lines) === JSON.stringify(prev || KK_PRESETS_DEFAULT[k]); if (same) return; saveSS({ kkPresets: { ...(ss.kkPresets||{}), [k]: lines.length ? lines : undefined } }, `✓ 定型文（${lb}）を保存しました`); }} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm outline-none" /></div>); })}
               </div>
@@ -47392,6 +47392,14 @@ const KK_PRESETS_DEFAULT = {
   progPoint: ['転倒に留意','腰痛に留意','膝の痛みに留意','血圧の変動に留意','息切れに留意','ふらつきに留意','無理のない範囲で'],
   henka: ['歩行が安定し、ふらつきが減った','立ち上がりが楽になった','下肢筋力が向上した','痛みの訴えが減った','活動量が増え、意欲が向上した','バランス能力が向上した','大きな変化はないが現状を維持できている'],
   kadai: ['筋力低下により歩行が不安定','痛みにより運動量が制限される','意欲の低下がみられる','体調の変動で休みが多かった','自宅での運動が定着していない','転倒への不安が強い'],
+  // ★ 2026-10-14: 生活機能チェック(3-2)・興味関心(3-1)・通所介護計画書にも定型文
+  skNinchi: ['会話は問題なくできる','物忘れはあるが日常会話は可能','同じ話を繰り返すことがある','難聴があり大きな声で話す必要がある','意思表示は可能だが言葉が出にくい','日時や場所が分からなくなることがある'],
+  skKadai: ['下肢筋力の低下により外出の機会が減っている','転倒の不安から活動量が減っている','独居のため日中の活動が少ない','家族の介護負担が大きい','痛みのため家事が十分にできない','意欲の低下で閉じこもりがち'],
+  kyBikou: ['以前は畑仕事をしていた','家族と旅行に行きたい','友人と会って話をしたい','手芸をまた始めたい','近所を散歩したい','孫の行事に参加したい'],
+  tsGoal: ['転倒せずに安全に生活できる','自宅内を一人で移動できる','週に1回は外出できる','入浴を一部介助で続けられる','他の利用者と交流して楽しく過ごせる','現在の身体機能を維持できる'],
+  tsContent: ['バイタルチェックで体調を確認し、安全にサービスを提供する','集団体操・個別運動で下肢筋力の維持を図る','入浴の介助を行い清潔を保つ','レクリエーションで他者との交流を図る','送迎時に家族へ様子を伝える','口腔体操で嚥下機能の維持を図る'],
+  tsEffect: ['休まず通所できている','表情が明るくなった','歩行が安定してきた','他の利用者との会話が増えた','入浴を楽しみにしている','体調の変動があり欠席がみられた'],
+  tsRisk: ['高血圧のため運動前に血圧を確認する','転倒の危険があり移動時は見守る','嚥下機能の低下があり食事・水分はとろみを付ける','糖尿病のため低血糖の症状に注意する','心疾患があり息切れ・胸の痛みに注意する','膝の痛みがあり負荷を調整する'],
 };
 const kkPresetsOf = (ss) => { const o = (ss && ss.kkPresets && typeof ss.kkPresets === 'object') ? ss.kkPresets : {}; const out = {}; Object.keys(KK_PRESETS_DEFAULT).forEach(k => { out[k] = Array.isArray(o[k]) ? o[k].filter(x => String(x||'').trim()) : KK_PRESETS_DEFAULT[k]; }); return out; };
 // 職員の一覧(storeMembers + 日誌の職員)を 役職つきで重複なしに
@@ -48408,6 +48416,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
 
 // === 生活機能チェックシート (別紙様式3-2 / アドオン: kinou_keikaku) ===
 function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId }) {
+  const _kkP = kkPresetsOf(appData.systemSettings); const _kkStaff = tsuStaffList(appData); // ★ 2026-10-14: 定型文・職員(各種設定→計画書)
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
   const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
   const [pid, setPid] = React.useState((targetPatientId!=null && (appData.patients||[]).some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
@@ -48463,7 +48472,7 @@ function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
               <div className="text-sm font-bold text-blue-700 mb-3">基本情報（{patient?.name} 様）</div>
               <div className="grid grid-cols-2 gap-3">
                 <KKDateField label="作成日" value={editing.recordDate} onChange={v=>upd({recordDate:v})}/>
-                <KKField label="記入者" value={editing.recorder} onChange={v=>upd({recorder:v})}/>
+                <div><label className="block text-xs font-bold text-slate-600 mb-1">記入者</label><KKStaffSelect staff={_kkStaff} value={editing.recorder||''} onPick={(name)=>upd({ recorder: name })} placeholder="（職員を選択）"/><input value={editing.recorder||''} maxLength={60} onChange={e=>upd({recorder:e.target.value.slice(0,60)})} placeholder="直接入力もできます" className="mt-1 w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs outline-none"/></div>
                 <div>
                   <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:4}}>記入者の職種 <span style={{fontWeight:'normal',color:'#94a3b8'}}>（LIFE提出用・原則必須）</span></label>
                   <select value={editing.recorderJob||''} onChange={e=>upd({recorderJob:e.target.value})} style={{width:'100%',padding:'8px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:14,background:'white'}}>
@@ -48478,8 +48487,8 @@ function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
             {grpForm('IADL（手段的日常生活動作）','iadl',SEIKATSU_IADL,KK_STATUS)}
             {grpForm('心身機能・構造（程度）','shinshin',SEIKATSU_SHINSHIN,KK_SHINSHIN)}
             <div className="bg-white rounded-xl border border-slate-200 p-4 grid md:grid-cols-1 gap-3">
-              <KKField label="認知機能・コミュニケーション" value={editing.ninchi} onChange={v=>upd({ninchi:v})} rows={2}/>
-              <KKField label="生活上の課題・背景因子" value={editing.kadai} onChange={v=>upd({kadai:v})} rows={2}/>
+              <KKField presets={_kkP.skNinchi} label="認知機能・コミュニケーション" value={editing.ninchi} onChange={v=>upd({ninchi:v})} rows={2}/>
+              <KKField presets={_kkP.skKadai} label="生活上の課題・背景因子" value={editing.kadai} onChange={v=>upd({kadai:v})} rows={2}/>
               <KKField label="備考" value={editing.bikou} onChange={v=>upd({bikou:v})} rows={2}/>
             </div>
           </div>
@@ -48534,6 +48543,7 @@ function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
 
 // === 興味・関心チェックシート (別紙様式3-1 / アドオン: kinou_keikaku) ===
 function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId }) {
+  const _kkP = kkPresetsOf(appData.systemSettings); const _kkStaff = tsuStaffList(appData); // ★ 2026-10-14: 定型文・職員(各種設定→計画書)
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
   const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
   const [pid, setPid] = React.useState((targetPatientId!=null && (appData.patients||[]).some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
@@ -48586,7 +48596,7 @@ function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
           <div className="max-w-3xl mx-auto space-y-4">
             <div className="bg-white rounded-xl border border-slate-200 p-4 grid grid-cols-2 gap-3">
               <KKDateField label="作成日" value={editing.recordDate} onChange={v=>upd({recordDate:v})}/>
-              <KKField label="記入者" value={editing.recorder} onChange={v=>upd({recorder:v})}/>
+              <div><label className="block text-xs font-bold text-slate-600 mb-1">記入者</label><KKStaffSelect staff={_kkStaff} value={editing.recorder||''} onPick={(name)=>upd({ recorder: name })} placeholder="（職員を選択）"/><input value={editing.recorder||''} maxLength={60} onChange={e=>upd({recorder:e.target.value.slice(0,60)})} placeholder="直接入力もできます" className="mt-1 w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs outline-none"/></div>
             </div>
             <div className="bg-white rounded-xl border border-slate-200 p-4">
               <div className="text-sm font-bold text-blue-700 mb-2">興味・関心（あてはまるものにチェック）</div>
@@ -48602,7 +48612,7 @@ function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
                 <button onClick={addCustom} className="px-3 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-bold">＋ 追加</button>
               </div>
             </div>
-            <div className="bg-white rounded-xl border border-slate-200 p-4"><KKField label="備考（具体的な希望・エピソード等）" value={editing.bikou} onChange={v=>upd({bikou:v})} rows={2}/></div>
+            <div className="bg-white rounded-xl border border-slate-200 p-4"><KKField presets={_kkP.kyBikou} label="備考（具体的な希望・エピソード等）" value={editing.bikou} onChange={v=>upd({bikou:v})} rows={2}/></div>
           </div>
         ) : (
           <div className="max-w-3xl mx-auto">
@@ -48668,6 +48678,7 @@ const TK_ACHIEVE = ['達成','一部','未達'];
 const TK_MARU    = ['①','②','③','④','⑤'];
 const TK_UMU     = ['有','無'];
 function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId, navFocus, onFocusHandled }) {
+  const _kkP = kkPresetsOf(appData.systemSettings); const _kkStaff = tsuStaffList(appData); // ★ 2026-10-14: 定型文・職員(各種設定→計画書)
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
   const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
   const [pid, setPid] = React.useState((targetPatientId!=null && (appData.patients||[]).some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
@@ -48993,7 +49004,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                 <KKField label="利用者の居宅の環境 ★（特によく使用する場所・使用したい場所の環境）" value={editing.kyotakuKankyo} onChange={v=>upd({kyotakuKankyo:v})} rows={2}/>
                 <div className="grid md:grid-cols-2 gap-3">
                   <KKField label="健康状態 ★（病名・合併症・服薬状況等）" value={editing.kenkoJotai} onChange={v=>upd({kenkoJotai:v})} rows={3}/>
-                  <KKField label="ケアの上での医学的リスク ★（血圧・転倒・嚥下障害等）・留意事項" value={editing.iryoRisk} onChange={v=>upd({iryoRisk:v})} rows={3}/>
+                  <KKField presets={_kkP.tsRisk} label="ケアの上での医学的リスク ★（血圧・転倒・嚥下障害等）・留意事項" value={editing.iryoRisk} onChange={v=>upd({iryoRisk:v})} rows={3}/>
                 </div>
               </div>
               <div className="text-[10px] text-slate-400 mt-2">★ = 入浴介助加算（Ⅱ）を算定する場合に記入が必要な欄</div>
@@ -49020,7 +49031,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                       <button key={o} onClick={()=>upd({[k+'Achieve']: editing[k+'Achieve']===o?'':o})} className={`px-2.5 py-1 rounded border text-xs font-bold ${editing[k+'Achieve']===o?'bg-emerald-500 text-white border-emerald-500':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{o}</button>
                     ))}
                   </div>
-                  <KKField label="" value={editing[k+'Goal']} onChange={v=>upd({[k+'Goal']:v})} rows={2}/>
+                  <KKField presets={_kkP.tsGoal} label="" value={editing[k+'Goal']} onChange={v=>upd({[k+'Goal']:v})} rows={2}/>
                 </div>
               ))}
             </div>
@@ -49039,7 +49050,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                       <input value={sv.to||''} onChange={e=>updSvc(i,{to:e.target.value})} placeholder="令和○年○月○日" className="px-2 py-1 bg-white border border-slate-300 rounded text-xs outline-none w-32"/>
                       <CalendarPickBtn size="xs" iso={(()=>{const d=parseJpDate(sv.to);return d?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`:'';})()} onPick={v=>{const d=v?new Date(v):null; updSvc(i,{to:d?`令和${d.getFullYear()-2018}年${d.getMonth()+1}月${d.getDate()}日`:''});}}/>
                     </div>
-                    <KKField label="目的とケアの提供方針・内容" value={sv.content} onChange={v=>updSvc(i,{content:v})} rows={2}/>
+                    <KKField presets={_kkP.tsContent} label="目的とケアの提供方針・内容" value={sv.content} onChange={v=>updSvc(i,{content:v})} rows={2}/>
                     <div className="grid md:grid-cols-3 gap-3 mt-2">
                       <div>
                         <label className="block text-[11px] font-bold text-slate-500 mb-1">評価：実施</label>
@@ -49053,7 +49064,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                           <button key={o} onClick={()=>updSvc(i,{tassei: sv.tassei===o?'':o})} className={`px-2 py-1 rounded border text-[11px] font-bold ${sv.tassei===o?'bg-emerald-500 text-white border-emerald-500':'bg-white text-slate-600 border-slate-300 hover:bg-slate-100'}`}>{o}</button>
                         ))}</div>
                       </div>
-                      <KKField label="効果、満足度など" value={sv.effect} onChange={v=>updSvc(i,{effect:v})} rows={1}/>
+                      <KKField presets={_kkP.tsEffect} label="効果、満足度など" value={sv.effect} onChange={v=>updSvc(i,{effect:v})} rows={1}/>
                     </div>
                   </div>
                 ))}
@@ -49873,6 +49884,7 @@ const DEM_SCALE_QUESTIONS = [
 ];
 function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, onFocusHandled, dirtyRef, saveFnRef, onShowPrintPreview, mode }) {
   const _isSubmit = mode === 'submit'; // ★ 2026-10-14: LIFE提出(月1回の提出・CSV・取込)と、利用者ごとのADL評価・科学的介護を別の画面に
+  const _kkPL = kkPresetsOf(appData.systemSettings); const _kkStaffL = tsuStaffList(appData); // ★ 2026-10-14: 評価・計画(一括評価)にも定型文・職員
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
   const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
   const [pid, setPid] = React.useState((targetPatientId!=null && (appData.patients||[]).some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
@@ -50354,7 +50366,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
               <div className="bg-white rounded-xl border border-slate-200 p-4">
                 <div className="text-sm font-bold text-indigo-700 mb-3">① 基本情報</div>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  <div><label className="block text-xs font-bold text-slate-500 mb-1">評価者</label><input value={batch.evaluator} onChange={e=>bset({evaluator:e.target.value})} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none"/></div>
+                  <div><label className="block text-xs font-bold text-slate-500 mb-1">評価者</label><KKStaffSelect staff={_kkStaffL} value={batch.evaluator||''} onPick={(name)=>bset({evaluator:name})} placeholder="（職員を選択）"/><input value={batch.evaluator||''} maxLength={60} onChange={e=>bset({evaluator:e.target.value.slice(0,60)})} placeholder="直接入力もできます" className="mt-1 w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs outline-none"/></div>
                   <div><label className="block text-xs font-bold text-slate-500 mb-1">利用状態</label>
                     <select value={batch.science?.status||'利用中'} onChange={e=>bsetSci('status', e.target.value)} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none">
                       {['利用開始時','利用中','利用終了時'].map(o=><option key={o}>{o}</option>)}
@@ -50436,7 +50448,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                     </div>
                   ); })}
                 </div>
-                <div className="mt-2"><label className="block text-xs font-bold text-slate-500 mb-1">備考</label><textarea value={batch.ky.bikou} onChange={e=>{ setBatch(b=>({...b, ky:{...b.ky, bikou:e.target.value}})); markDirty(); }} rows={2} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none resize-none"/></div>
+                <div className="mt-2"><KKField presets={_kkPL.kyBikou} label="備考" value={batch.ky.bikou} onChange={v=>{ setBatch(b=>({...b, ky:{...b.ky, bikou:v}})); markDirty(); }} rows={2}/></div>
               </div>
               {/* ⑥ 計画書の見直し(まるっとLIFE式: 更新が必要な項目だけ・2026-08-20) */}
               <div ref={el=>{_batchRefs.current.plan=el;}} className="bg-white rounded-xl border border-slate-200 p-4" style={{scrollMarginTop:8}}>
@@ -50469,9 +50481,8 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                   )}
                   <div className="text-xs font-bold text-slate-600 mb-1.5">新しい短期目標（今後3ヶ月）</div>
                   <div className="grid md:grid-cols-3 gap-2 mb-3">
-                    {[['shortKinou','（機能）'],['shortKatsudo','（活動）'],['shortSanka','（参加）']].map(([k,lb])=>(
-                      <div key={k}><label className="block text-[10px] font-bold text-slate-400 mb-0.5">{lb}</label>
-                        <textarea value={batch.plan[k]||''} onChange={e=>bsetPlan({[k]:e.target.value})} rows={2} className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-xs outline-none resize-none"/></div>
+                    {[['shortKinou','（機能）','goalKinou'],['shortKatsudo','（活動）','goalKatsudo'],['shortSanka','（参加）','goalSanka']].map(([k,lb,pk])=>(
+                      <div key={k}><KKField presets={_kkPL[pk]} label={lb} value={batch.plan[k]||''} onChange={v=>bsetPlan({[k]:v})} rows={2}/></div>
                     ))}
                   </div>
                   <label className="flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer mb-1.5">
@@ -50480,19 +50491,15 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                   </label>
                   {batch.plan?.longOn && (
                     <div className="grid md:grid-cols-3 gap-2 mb-3">
-                      {[['longKinou','（機能）'],['longKatsudo','（活動）'],['longSanka','（参加）']].map(([k,lb])=>(
-                        <div key={k}><label className="block text-[10px] font-bold text-slate-400 mb-0.5">{lb}</label>
-                          <textarea value={batch.plan[k]||''} onChange={e=>bsetPlan({[k]:e.target.value})} rows={2} className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-xs outline-none resize-none"/></div>
+                      {[['longKinou','（機能）','goalKinou'],['longKatsudo','（活動）','goalKatsudo'],['longSanka','（参加）','goalSanka']].map(([k,lb,pk])=>(
+                        <div key={k}><KKField presets={_kkPL[pk]} label={lb} value={batch.plan[k]||''} onChange={v=>bsetPlan({[k]:v})} rows={2}/></div>
                       ))}
                     </div>
                   )}
                   <div className="grid md:grid-cols-3 gap-2">
-                    <div><label className="block text-[10px] font-bold text-slate-400 mb-0.5">機能訓練実施上の留意事項</label>
-                      <textarea value={batch.plan.ryuiPoint||''} onChange={e=>bsetPlan({ryuiPoint:e.target.value})} rows={2} className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-xs outline-none resize-none"/></div>
-                    <div><label className="block text-[10px] font-bold text-slate-400 mb-0.5">実施による変化（Ⅲ）</label>
-                      <textarea value={batch.plan.henka||''} onChange={e=>bsetPlan({henka:e.target.value})} rows={2} className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-xs outline-none resize-none"/></div>
-                    <div><label className="block text-[10px] font-bold text-slate-400 mb-0.5">課題とその要因（Ⅲ）</label>
-                      <textarea value={batch.plan.kadai||''} onChange={e=>bsetPlan({kadai:e.target.value})} rows={2} className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-xs outline-none resize-none"/></div>
+                    <div><KKField presets={_kkPL.ryui} presetMode="check" label="機能訓練実施上の留意事項" value={batch.plan.ryuiPoint||''} onChange={v=>bsetPlan({ryuiPoint:v})} rows={2}/></div>
+                    <div><KKField presets={_kkPL.henka} label="実施による変化（Ⅲ）" value={batch.plan.henka||''} onChange={v=>bsetPlan({henka:v})} rows={2}/></div>
+                    <div><KKField presets={_kkPL.kadai} label="課題とその要因（Ⅲ）" value={batch.plan.kadai||''} onChange={v=>bsetPlan({kadai:v})} rows={2}/></div>
                   </div>
                 </>)}
               </div>
