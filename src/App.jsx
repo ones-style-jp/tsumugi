@@ -10910,6 +10910,9 @@ const getPausePlanned = (p) => {
   const today = new Date(); today.setHours(0,0,0,0); const fr = new Date(active.fromDate); fr.setHours(0,0,0,0);
   return (!isNaN(fr.getTime()) && today < fr) ? { reason: active.reason || '', fromDate: active.fromDate } : null;
 };
+// ★ 2026-10-14(ユーザー指摘「要介護も要支援と同じ1ヶ月周期になっている」): 体力測定の周期は介護度別設定(sameForAll=false)なら
+//   要介護=kaigo / 事業対象・要支援(経過的要介護を含む)=jigyo。全画面でこの関数を使う
+const fitCycleNumFor = (cycle, p) => { const cl = String(p?.careLevel || ''); const isKaigo = cl.includes('要介護') && !cl.includes('経過的'); return parseInt((cycle?.sameForAll === false ? (isKaigo ? cycle?.kaigo : cycle?.jigyo) : cycle?.jigyo) || '3', 10) || 3; };
 const isAbsentFromTokki = (tokkiText) => {
   if (!tokkiText || typeof tokkiText !== 'string') return false;
   const keywords = ["休み", "欠席", "退所", "終了", "開始前", "休業"];
@@ -23428,7 +23431,7 @@ export default function App() {
                 const _now = new Date(); _now.setHours(0,0,0,0);
                 const _cycle = appData.systemSettings?.fitnessCycle;
                 const _unit = _cycle?.unit||'ヶ月';
-                const _cycleNumFor = (p) => parseInt((_cycle?.sameForAll === false ? ((p.careLevel||'').includes('要介護') ? _cycle?.kaigo : _cycle?.jigyo) : _cycle?.jigyo) || '3');
+                const _cycleNumFor = (p) => fitCycleNumFor(_cycle, p);
                 const _addC = (d, p) => { const nd=new Date(d); const n=_cycleNumFor(p); if(_unit==='ヶ月') nd.setMonth(nd.getMonth()+n); else if(_unit==='週') nd.setDate(nd.getDate()+n*7); else if(_unit==='年') nd.setFullYear(nd.getFullYear()+n); return nd; };
                 const _getNextDue = (p) => {
                   const pr=(appData.fitnessRecords||[]).filter(r=>r.patientId===p.id).sort((a,b)=>b.date.localeCompare(a.date));
@@ -26169,7 +26172,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       // ★ 値が入った記録だけを対象(空の記録=削除後は「記録なし」扱い)。 記録が無ければ初回として必ず表示。
                       const _hasFitVals = (r) => !!(r && r.values && Object.values(r.values).some(v => v !== '' && v != null && !isNaN(Number(v))));
                       const _fr = (appData.fitnessRecords||[]).filter(r=>r.patientId===masterData.id && _hasFitVals(r)).sort((a,b)=>b.date.localeCompare(a.date));
-                      const _cn = parseInt(_cycle?.jigyo||'3');
+                      const _cn = fitCycleNumFor(_cycle, masterData); // ★ 2026-10-14: 要介護は要介護の周期
                       const _u = _cycle?.unit||'ヶ月';
                       let _showBadge = false;
                       if (!_fitDisabled) {
@@ -37497,7 +37500,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
     if (cycle2?.unit === '実施しない' || cycle2?.disabled) return -1; // 実施しない → 予定に出さない
     // ★ 測定周期は各種設定の値を反映 (固定3ヶ月ではない)。 介護度別設定(sameForAll=false)なら 要介護=kaigo / 事業対象・要支援=jigyo
     const _isKaigo = (p.careLevel || '').includes('要介護');
-    const cycleNum2 = parseInt((cycle2?.sameForAll === false ? (_isKaigo ? cycle2?.kaigo : cycle2?.jigyo) : cycle2?.jigyo) || '3');
+    const cycleNum2 = fitCycleNumFor(cycle2, p); void _isKaigo;
     const unit2 = cycle2?.unit || 'ヶ月';
     const patRecs = records.filter(r => r.patientId === p.id && _hasFitVals(r)).sort((a,b)=>b.date.localeCompare(a.date));
     // ★ まだ一度も測定していない人は「当月」(=測定するまで当月に残す)。 測定後に次回予定へ移る。
@@ -37701,10 +37704,10 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
           <div className="flex-1 overflow-y-auto bg-slate-50">
             {(()=>{
               const cycle = appData.systemSettings?.fitnessCycle;
-              const cycleNum = parseInt(cycle?.jigyo || '3');
               const unit = cycle?.unit || 'ヶ月';
-              const addCycle = (d) => {
-                const nd = new Date(d);
+              // ★ 2026-10-14(不具合修正): 次回予定は利用者の介護度の周期で(従来は全員 事業対象・要支援の周期だった)
+              const addCycle = (d, p) => {
+                const nd = new Date(d); const cycleNum = fitCycleNumFor(cycle, p);
                 if (unit==='ヶ月') nd.setMonth(nd.getMonth()+cycleNum);
                 else if (unit==='週') nd.setDate(nd.getDate()+cycleNum*7);
                 else if (unit==='年') nd.setFullYear(nd.getFullYear()+cycleNum);
@@ -37716,9 +37719,9 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                 if (!patRecs.length) {
                   // 初回: 利用開始日 + 周期
                   if (!p.startDate) return null;
-                  return addCycle(new Date(p.startDate));
+                  return addCycle(new Date(p.startDate), p);
                 }
-                return addCycle(new Date(patRecs[0].date));
+                return addCycle(new Date(patRecs[0].date), p);
               };
               const isFirst = (p) => records.filter(r=>r.patientId===p.id && _hasFitVals(r)).length === 0;
               const now2 = new Date(); now2.setHours(0,0,0,0);
@@ -47427,10 +47430,11 @@ function KKField({ label, value, onChange, rows, ph, max, presets, presetMode })
   const _pick = (t) => { if (!t) return; const cur = String(value||'').trim(); onChange(((!rows || !cur) ? t : `${cur}\n${t}`).slice(0, lim)); };
   return (
     <div>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',gap:6,marginBottom:4}}>
-        {label ? <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569'}}>{label}</label> : <span/>}
-        <span style={{display:'flex',alignItems:'baseline',gap:6}}>
-          {presets && presets.length && presetMode !== 'check' ? <select value="" onChange={e=>_pick(e.target.value)} className="text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 outline-none max-w-[220px]" title="定型文を選ぶと入ります（複数行の欄は下に追記）"><option value="">定型文から ▼</option>{presets.map((t,i)=><option key={i} value={t}>{t}</option>)}</select> : null}
+      {/* ★ 2026-10-14(ユーザー指摘「計画書の文字がおかしい」): 3列の狭い欄で見出しが1文字ずつ縦に折れていた。見出しは折り返さず、定型文の選択は幅が足りなければ次の行へ */}
+      <div style={{display:'flex',flexWrap:'wrap',justifyContent:'space-between',alignItems:'center',columnGap:6,rowGap:3,marginBottom:4}}>
+        {label ? <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',whiteSpace:'nowrap'}}>{label}</label> : <span/>}
+        <span style={{display:'flex',alignItems:'center',gap:6,marginLeft:'auto',minWidth:0,flex:'0 1 auto'}}>
+          {presets && presets.length && presetMode !== 'check' ? <select value="" onChange={e=>_pick(e.target.value)} className="text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 outline-none min-w-0 w-[9.5em] max-w-[220px]" title="定型文を選ぶと入ります（複数行の欄は下に追記）"><option value="">定型文から ▼</option>{presets.map((t,i)=><option key={i} value={t}>{t}</option>)}</select> : null}
           <CharCount value={value} max={lim}/>
         </span>
       </div>
