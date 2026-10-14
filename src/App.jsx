@@ -22448,7 +22448,7 @@ export default function App() {
                    (currentView === 'general_fax' && generalFaxDirtyRef.current) ||
                    (currentView === 'kinou_keikaku' && kinouKeikakuDirtyRef.current) ||
                    (currentView === 'tsusho_keikaku' && tsushoKeikakuDirtyRef.current) ||
-                   (currentView === 'life_hub' && lifeHubDirtyRef.current) ||
+                   ((currentView === 'life_hub' || currentView === 'life_submit') && lifeHubDirtyRef.current) ||
                    (currentView === 'seikatsu_kinou' && seikatsuKinouDirtyRef.current) ||
                    (currentView === 'kyomi_kanshin' && kyomiKanshinDirtyRef.current);
     if (isDirty && view !== currentView) {
@@ -23466,12 +23466,12 @@ export default function App() {
               {/* ★ 2ハブ構成(2026-08-19): 通所介護計画書(全利用者) / 個別機能訓練・LIFE(加算アドオン店舗のみ)。
                   3-2/3-1/ADL/LIFE提出は機能訓練ハブ内のタブへ集約。 ラベルの数字=作成予定(期限内+超過)件数 */}
               {(hasAddon(appData,'kinou_keikaku') || hasAddon(appData,'tsusho_keikaku') || hasAnyLifeAddon(appData)) && (
-                <SidebarGroup icon={<FileText size={18} />} label="計画書" activeChild={['keikaku_yotei','kinou_yotei','kinou_keikaku','tsusho_keikaku','seikatsu_kinou','kyomi_kanshin','life_hub'].includes(currentView)}>
+                <SidebarGroup icon={<FileText size={18} />} label="計画書" activeChild={['keikaku_yotei','kinou_yotei','kinou_keikaku','tsusho_keikaku','seikatsu_kinou','kyomi_kanshin','life_hub','life_submit','kinou_patient'].includes(currentView)}>
                   {hasAddon(appData,'tsusho_keikaku') && (
                     <SidebarItem icon={<FileText size={16} />} label={_dueCounts.tsusho ? `通所介護計画書 (${_dueCounts.tsusho})` : '通所介護計画書'} active={['keikaku_yotei','tsusho_keikaku'].includes(currentView)} onClick={() => _sideNav('keikaku_yotei')} />
                   )}
                   {(hasAddon(appData,'kinou_keikaku') || hasAnyLifeAddon(appData)) && (
-                    <SidebarItem icon={<Activity size={16} />} label={_dueCounts.kinou ? `個別機能訓練・LIFE (${_dueCounts.kinou})` : '個別機能訓練・LIFE'} active={['kinou_yotei','kinou_keikaku','seikatsu_kinou','kyomi_kanshin','life_hub'].includes(currentView)} onClick={() => _sideNav('kinou_yotei')} />
+                    <SidebarItem icon={<Activity size={16} />} label={_dueCounts.kinou ? `個別機能訓練・LIFE (${_dueCounts.kinou})` : '個別機能訓練・LIFE'} active={['kinou_yotei','kinou_keikaku','seikatsu_kinou','kyomi_kanshin','life_hub','life_submit','kinou_patient'].includes(currentView)} onClick={() => _sideNav('kinou_yotei')} />
                   )}
                 </SidebarGroup>
               )}
@@ -23532,7 +23532,9 @@ export default function App() {
                  currentView === 'keikaku_yotei' ? '通所介護計画書の作成予定' :
                  currentView === 'kinou_yotei' ? '個別機能訓練・LIFEの作成予定' :
                  currentView === 'tsusho_keikaku' ? '通所介護計画書' :
-                 currentView === 'life_hub' ? 'LIFE・加算' :
+                 currentView === 'life_hub' ? 'ADL評価・科学的介護' :
+                 currentView === 'life_submit' ? 'LIFE提出' :
+                 currentView === 'kinou_patient' ? '個別機能訓練・LIFE（利用者ごと）' :
                  currentView === 'seikatsu_kinou' ? '生活機能チェックシート' :
                  currentView === 'kyomi_kanshin' ? '興味・関心チェックシート' :
                  currentView === 'master' ? '利用者マスタ管理' :
@@ -23665,7 +23667,9 @@ export default function App() {
              currentView === 'keikaku_yotei' ? <KeikakuYoteiView appData={appData} navigateTo={navigateTo} family="tsusho" /> :
              currentView === 'kinou_yotei' ? <KeikakuYoteiView appData={appData} navigateTo={navigateTo} family="kinou" /> :
              currentView === 'tsusho_keikaku' ? <TsushoKeikakuView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} dirtyRef={tsushoKeikakuDirtyRef} saveFnRef={tsushoKeikakuSaveFnRef} /> :
-             currentView === 'life_hub' ? <LifeHubView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} targetPatientId={targetPatientId} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} dirtyRef={lifeHubDirtyRef} saveFnRef={lifeHubSaveFnRef} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
+             currentView === 'kinou_patient' ? <KinouPatientView appData={appData} navigateTo={navigateTo} targetPatientId={targetPatientId} /> :
+             currentView === 'life_submit' ? <LifeHubView key="life-submit" mode="submit" appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} targetPatientId={targetPatientId} navFocus={null} onFocusHandled={()=>setNavFocus(null)} dirtyRef={lifeHubDirtyRef} saveFnRef={lifeHubSaveFnRef} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
+             currentView === 'life_hub' ? <LifeHubView key="life-eval" appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} targetPatientId={targetPatientId} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} dirtyRef={lifeHubDirtyRef} saveFnRef={lifeHubSaveFnRef} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} /> :
              currentView === 'seikatsu_kinou' ? <SeikatsuKinouView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={seikatsuKinouDirtyRef} saveFnRef={seikatsuKinouSaveFnRef} /> :
              currentView === 'kyomi_kanshin' ? <KyomiKanshinView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={kyomiKanshinDirtyRef} saveFnRef={kyomiKanshinSaveFnRef} /> :
              currentView === 'dash_operation' ? <OperationDashboardView appData={appData} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} setAppData={setAppData} /> :
@@ -47436,15 +47440,95 @@ function KKField({ label, value, onChange, rows, ph, max, presets, presetMode })
 // ★ 2ハブ構成(2026-08-19): 書類ファミリーごとにタブを分離。
 //   通所ファミリー=通所介護計画書(全利用者対象)。 機能訓練ファミリー=3-3+別紙(3-2/3-1)+LIFE(加算アドオン店舗のみ)。
 const KEIKAKU_DOCS_TSUSHO = [['keikaku_yotei','作成予定'],['tsusho_keikaku','通所介護計画書']];
-const KEIKAKU_DOCS_KINOU = [['kinou_yotei','作成予定'],['kinou_keikaku','計画書 (様式3-3)'],['seikatsu_kinou','生活機能チェック (3-2)'],['kyomi_kanshin','興味・関心 (3-1)'],['life_hub','LIFE']];
-function KeikakuTabs({ current, navigateTo, family }) {
+// ★ 2026-10-14(ユーザー要望「タブとボタンが分かれすぎて迷う」): 個別機能訓練・LIFEのタブは 作成予定／利用者ごと／LIFE提出 の3つ。
+//   3-3・3-2・3-1・ADL評価は「利用者ごと」から開く書類(タブの横に「› 書類名」を出す)。選んだ利用者はタブを移っても引き継ぐ
+const KEIKAKU_DOCS_KINOU = [['kinou_yotei','作成予定'],['kinou_patient','利用者ごと'],['life_submit','LIFE提出']];
+const KEIKAKU_SUB_LABEL = { kinou_keikaku:'個別機能訓練計画書（様式3-3）', seikatsu_kinou:'生活機能チェック（様式3-2）', kyomi_kanshin:'興味・関心チェック（様式3-1）', life_hub:'ADL評価・科学的介護' };
+const kkHasLife = (appData) => { const a = appData?.systemSettings?.addons || {}; return !!(a.kasan_kagaku || a.kasan_adl || a.kasan_kinou2); };
+function KeikakuTabs({ current, navigateTo, family, pid, appData }) {
   if (!navigateTo) return null;
-  const docs = family === 'tsusho' ? KEIKAKU_DOCS_TSUSHO : KEIKAKU_DOCS_KINOU;
+  const docs = family === 'tsusho' ? KEIKAKU_DOCS_TSUSHO : KEIKAKU_DOCS_KINOU.filter(([v]) => v !== 'life_submit' || !appData || kkHasLife(appData));
+  const sub = family !== 'tsusho' ? KEIKAKU_SUB_LABEL[current] : null;
+  const active = sub ? 'kinou_patient' : current;
   return (
-    <div className="flex gap-1 flex-wrap">
+    <div className="flex gap-1 flex-wrap items-center" data-testid="kk-tabs">
       {docs.map(([v,l]) => (
-        <button key={v} onClick={()=>navigateTo(v)} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${current===v?'bg-blue-600 text-white':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{l}</button>
+        <button key={v} onClick={()=>navigateTo(v, pid ?? null)} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${active===v?'bg-blue-600 text-white':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{l}</button>
       ))}
+      {sub ? <span className="flex items-center gap-1 text-xs font-bold text-slate-600 ml-1 whitespace-nowrap" data-testid="kk-sub"><span className="text-slate-400">›</span>{sub}</span> : null}
+    </div>
+  );
+}
+// 利用者の選択(全画面で左端・同じ見た目)
+function KeikakuPatientSelect({ patients, pid, onChange }) {
+  return (
+    <select value={pid ?? ''} onChange={e => onChange(Number(e.target.value))} data-testid="kk-patient" className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none max-w-[12em]">
+      {patients.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+    </select>
+  );
+}
+// ★ 2026-10-14: 「利用者ごと」の画面。その方の「次にやること」と、書類(3-3/3-2/3-1/ADL評価)の一覧。作るときは「評価・計画を始める」1つ
+function KinouPatientView({ appData, navigateTo, targetPatientId }) {
+  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
+  const [pid, setPid] = React.useState((targetPatientId!=null && patients.some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
+  const patient = patients.find(p => p.id === pid);
+  const hasLife = kkHasLife(appData);
+  const dues = React.useMemo(() => computePlanDues(appData, null, { includeFuture: true }).filter(d => d.patient && d.patient.id === pid && d.kind !== 'tsusho').sort((a,b) => a.due - b.due), [appData, pid]);
+  const _hist = (arr, key) => (arr||[]).filter(r => r && r.patientId === pid).map(r => ({ r, d: parseJpDate(r[key]) })).filter(x => x.d).sort((a,b) => b.d - a.d);
+  const _ymd = (d) => d ? `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}` : '';
+  const docs = [
+    { view:'kinou_keikaku', title:'個別機能訓練計画書', sub:'様式3-3・3か月ごとに見直し', list:_hist(appData.kinouKeikakuRecords, 'createdDate') },
+    { view:'seikatsu_kinou', title:'生活機能チェック', sub:'様式3-2', list:_hist(appData.seikatsuKinouRecords, 'recordDate') },
+    { view:'kyomi_kanshin', title:'興味・関心チェック', sub:'様式3-1', list:_hist(appData.kyomiKanshinRecords, 'recordDate') },
+    ...(hasLife ? [{ view:'life_hub', title:'ADL評価・科学的介護', sub:'LIFE提出のもとになる評価', list:_hist(appData.adlRecords, 'evalDate') }] : []),
+  ];
+  return (
+    <div className="flex flex-col h-full">
+      <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
+        <KeikakuPatientSelect patients={patients} pid={pid} onChange={setPid}/>
+        <KeikakuTabs current="kinou_patient" navigateTo={navigateTo} family="kinou" pid={pid} appData={appData}/>
+      </div>
+      <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+        {!patient ? <div className="text-center text-slate-400 py-20 font-bold">利用者を登録してください</div> : (
+        <div className="max-w-4xl mx-auto space-y-4" data-testid="kk-patient-view">
+          <div className="text-lg font-bold text-slate-800">{patient.name} 様 <span className="text-sm font-normal text-slate-500 ml-1">{patient.careLevel || ''}</span></div>
+          {/* 次にやること */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-4" data-testid="kk-next">
+            <div className="text-sm font-bold text-slate-700 mb-2">次にやること</div>
+            {dues.length === 0 ? <div className="text-sm text-slate-500">いま期限のある書類はありません。</div> : (
+              <div className="divide-y divide-slate-100">
+                {dues.map((d, i) => (
+                  <button key={i} type="button" onClick={() => navigateTo(d.view, pid, d.view === 'kinou_keikaku' ? 'start_edit' : (d.view === 'life_hub' ? 'batch' : null))} className="w-full text-left flex items-center gap-3 py-2 hover:bg-slate-50 rounded-lg px-1">
+                    <span className={`shrink-0 text-[11px] font-bold rounded-full px-2 py-0.5 ${d.overdue ? 'bg-red-600 text-white' : d.daysLeft <= 30 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>{d.overdue ? '期限切れ' : d.daysLeft === 0 ? '今日' : `あと${d.daysLeft}日`}</span>
+                    <span className="flex-1 min-w-0"><span className="font-bold text-slate-800 text-sm">{d.label}</span><span className="text-xs text-slate-500 ml-2">{d.note}</span></span>
+                    <span className="shrink-0 text-xs text-slate-500 tabular-nums">{_ymd(d.due)}まで</span>
+                    <span className="shrink-0 text-xs font-bold text-blue-600">開く ›</span>
+                  </button>))}
+              </div>)}
+          </div>
+          {/* 作るときはこれ1つ */}
+          {hasLife ? (
+            <button type="button" data-testid="kk-start" onClick={() => navigateTo('life_hub', pid, 'batch')} className="w-full text-left bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl px-5 py-4 shadow active:scale-[0.99]">
+              <div className="text-lg font-bold">評価・計画を始める</div>
+              <div className="text-xs opacity-90 mt-0.5">ADL・科学的介護・生活機能チェック（3-2）・興味関心（3-1）・計画書の見直し（3-3）を、上から順に1つの流れで入力します。3か月ごとの評価はここから。</div>
+            </button>
+          ) : (
+            <button type="button" data-testid="kk-start" onClick={() => navigateTo('kinou_keikaku', pid, 'start_edit')} className="w-full text-left bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl px-5 py-4 shadow active:scale-[0.99]">
+              <div className="text-lg font-bold">計画書を作る</div>
+              <div className="text-xs opacity-90 mt-0.5">個別機能訓練計画書（様式3-3）を新しく作ります。</div>
+            </button>
+          )}
+          {/* 書類の一覧(開く・直す・ダウンロードは各書類の画面で) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3" data-testid="kk-docs">
+            {docs.map(doc => { const last = doc.list[0]; const draft = last && last.r && last.r.draft; return (
+              <button key={doc.view} type="button" onClick={() => navigateTo(doc.view, pid)} className="text-left bg-white border border-slate-200 hover:border-blue-300 hover:bg-blue-50/40 rounded-2xl p-4">
+                <div className="flex items-baseline justify-between gap-2"><span className="font-bold text-slate-800">{doc.title}</span><span className="text-[11px] text-slate-400 whitespace-nowrap">{doc.sub}</span></div>
+                <div className="mt-1.5 text-sm text-slate-600">{last ? <>最新 <b className="tabular-nums">{_ymd(last.d)}</b>{draft ? <span className="ml-1 text-[11px] font-bold text-amber-700 bg-amber-100 rounded px-1">一時保存中</span> : null}<span className="text-slate-400 ml-2">全{doc.list.length}件</span></> : <span className="text-slate-400">まだありません</span>}</div>
+                <div className="mt-2 text-xs font-bold text-blue-600">開く（過去の書類・直す・ダウンロード） ›</div>
+              </button>); })}
+          </div>
+        </div>)}
+      </div>
     </div>
   );
 }
@@ -47476,7 +47560,7 @@ function KeikakuYoteiView({ appData, navigateTo, family = 'tsusho' }) {
   return (
     <div className="flex flex-col h-full">
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
-        <KeikakuTabs current={family === 'tsusho' ? 'keikaku_yotei' : 'kinou_yotei'} navigateTo={navigateTo} family={family}/>
+        <KeikakuTabs current={family === 'tsusho' ? 'keikaku_yotei' : 'kinou_yotei'} navigateTo={navigateTo} family={family} appData={appData}/>
         <div className="flex-1"/>
         {/* ★ 月別ブラウズ(2026-09-08): 直近(既定)/1〜12月。過ぎた月は翌年のその月として表示 */}
         <div className="flex items-center gap-1 flex-wrap">
@@ -47527,7 +47611,7 @@ function KeikakuYoteiView({ appData, navigateTo, family = 'tsusho' }) {
                             {family === 'kinou' && (
                               <span onClick={(e)=>{ e.stopPropagation(); navigateTo('life_hub', d.patient.id, 'batch'); }}
                                 title="ADL・生活機能・興味関心を1画面でまとめて評価します"
-                                className="px-2.5 py-1 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded-lg text-[10px] font-bold shrink-0 cursor-pointer">一括評価</span>
+                                className="px-2.5 py-1 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded-lg text-[10px] font-bold shrink-0 cursor-pointer">評価を始める</span>
                             )}
                             <span className={`ml-auto text-xs font-bold whitespace-nowrap ${d.overdue?'text-red-600':d.daysLeft<=7?'text-amber-600':'text-slate-500'}`}>
                               {d.overdue ? `${Math.abs(d.daysLeft)}日超過` : d.daysLeft===0 ? '本日' : `あと${d.daysLeft}日`}
@@ -47808,10 +47892,8 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
     <div className="flex flex-col h-full">
       {/* ヘッダ */}
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
-        <select value={pid??''} onChange={e=>{ setEditing(null); setPid(Number(e.target.value)); }} className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none">
-          {patients.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        <KeikakuTabs current="kinou_keikaku" navigateTo={navigateTo} family="kinou"/>
+        <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>
+        <KeikakuTabs current="kinou_keikaku" navigateTo={navigateTo} family="kinou" pid={pid} appData={appData}/>
         <div className="flex-1"/>
         {!editing && <button onClick={()=>setEditing(newRecord())} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">＋ 新規作成</button>}
         {editing && <>
@@ -48363,10 +48445,8 @@ function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
   return (
     <div className="flex flex-col h-full">
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
-        <select value={pid??''} onChange={e=>{ setEditing(null); setPid(Number(e.target.value)); }} className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none">
-          {patients.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        <KeikakuTabs current="seikatsu_kinou" navigateTo={navigateTo} family="kinou"/>
+        <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>
+        <KeikakuTabs current="seikatsu_kinou" navigateTo={navigateTo} family="kinou" pid={pid} appData={appData}/>
         <div className="flex-1"/>
         {!editing && <button onClick={()=>setEditing(newRecord())} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">＋ 新規作成</button>}
         {editing && <>
@@ -48490,10 +48570,8 @@ function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
   return (
     <div className="flex flex-col h-full">
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
-        <select value={pid??''} onChange={e=>{ setEditing(null); setPid(Number(e.target.value)); }} className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none">
-          {patients.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        <KeikakuTabs current="kyomi_kanshin" navigateTo={navigateTo} family="kinou"/>
+        <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>
+        <KeikakuTabs current="kyomi_kanshin" navigateTo={navigateTo} family="kinou" pid={pid} appData={appData}/>
         <div className="flex-1"/>
         {!editing && <button onClick={()=>setEditing(newRecord())} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">＋ 新規作成</button>}
         {editing && <>
@@ -48841,10 +48919,8 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
   return (
     <div className="flex flex-col h-full">
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
-        <select value={pid??''} onChange={e=>{ setEditing(null); setPid(Number(e.target.value)); }} className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none">
-          {patients.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        <KeikakuTabs current="tsusho_keikaku" navigateTo={navigateTo} family="tsusho"/>
+        <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>
+        <KeikakuTabs current="tsusho_keikaku" navigateTo={navigateTo} family="tsusho" pid={pid} appData={appData}/>
         <div className="flex-1"/>
         {!editing && <button onClick={()=>setEditing(newRecord())} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">＋ 新規作成</button>}
         {editing && <>
@@ -49795,7 +49871,8 @@ const DEM_SCALE_QUESTIONS = [
   { no:'⑤', label:'一人で着替えができるか', choices:['季節・気温に応じた服装を選び着脱衣できる','服装選びは不可だが順番・方法を理解し自分で着脱衣できる','促せば自分で着脱衣できる','着脱衣の一部を介護者が行う','着脱衣の全てを常に介護者が行う'] },
   { no:'⑥', label:'電化製品(テレビ・エアコン等)を操作できるか', choices:['自由に操作できる','普段している操作はできる','教えてもらえれば使える','認識しているが使い方が全く分からない','何をするものか分からない'] },
 ];
-function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, onFocusHandled, dirtyRef, saveFnRef, onShowPrintPreview }) {
+function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, onFocusHandled, dirtyRef, saveFnRef, onShowPrintPreview, mode }) {
+  const _isSubmit = mode === 'submit'; // ★ 2026-10-14: LIFE提出(月1回の提出・CSV・取込)と、利用者ごとのADL評価・科学的介護を別の画面に
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
   const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
   const [pid, setPid] = React.useState((targetPatientId!=null && (appData.patients||[]).some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
@@ -50220,16 +50297,14 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
   return (
     <div className="flex flex-col h-full">
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
-        <KeikakuTabs current="life_hub" navigateTo={navigateTo} family="kinou"/>
-        <select value={pid??''} onChange={e=>{ setEditing(null); setPid(Number(e.target.value)); }} className="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none">
-          {patients.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+        {!_isSubmit && <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>}
+        <KeikakuTabs current={_isSubmit ? 'life_submit' : 'life_hub'} navigateTo={navigateTo} family="kinou" pid={pid} appData={appData}/>
         <div className="flex-1"/>
-        {!editing && !batchMode && <button onClick={()=>_batchLoad((_batchDates[0] && _batchDates[0]===today) ? today : today)} title="ADL・科学的介護推進・生活機能チェック・興味関心を1画面でまとめて入力できます" className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">一括評価</button>}
-        {!editing && <label title="まるっとLIFE等の提出用CSV(TIFI2024/AINT2024)を読み込み、ADL評価と科学的介護推進の項目を移行します" className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold shadow active:scale-95 cursor-pointer">CSV取込(移行)
+        {/* ★ 2026-10-14: 「一括評価」は「利用者ごと」の「評価・計画を始める」に統一。CSV取込(移行)は LIFE提出 だけ */}
+        {_isSubmit && !editing && <label title="まるっとLIFE等の提出用CSV(TIFI2024/AINT2024)を読み込み、ADL評価と科学的介護推進の項目を移行します" className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold shadow active:scale-95 cursor-pointer">CSV取込(移行)
           <input type="file" accept=".csv,.txt" multiple className="hidden" onChange={e=>{ const fs=[...(e.target.files||[])]; e.target.value=''; if(fs.length) startLifeImport(fs); }}/>
         </label>}
-        {!editing && <button onClick={()=>setEditing(blank())} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">＋ ADL評価を新規作成</button>}
+        {!_isSubmit && !editing && <button onClick={()=>setEditing(blank())} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">＋ ADL評価を新規作成</button>}
         {editing && <>
           <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
           {_lifeMissing.length > 0 && (
@@ -50245,7 +50320,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
       {batchMode && batch && (
         <div className="fixed inset-0 z-50 bg-slate-100 flex flex-col">
           <div className="bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-2 flex-wrap shadow-sm">
-            <span className="text-sm font-bold text-indigo-700">LIFE一括評価</span>
+            <span className="text-sm font-bold text-indigo-700">評価・計画（3か月ごとの評価）</span>
             <span className="text-sm font-bold text-slate-700">{patient?.name} 様</span>
             <div className="flex items-center gap-1.5 ml-2">
               <span className="text-[10px] font-bold text-slate-400">評価日</span>
@@ -50464,6 +50539,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
       <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
         {!pid ? <div className="text-center text-slate-400 py-20 font-bold">利用者を登録してください</div> : (
         <div className="max-w-4xl mx-auto space-y-4">
+          {_isSubmit && (<>
           {/* この店で有効な加算 */}
           <div className="bg-indigo-50 rounded-xl border border-indigo-200 p-4">
             <div className="text-sm font-bold text-indigo-700 mb-2">この事業所で算定中の加算（本部の店舗設定でON/OFF）</div>
@@ -50504,7 +50580,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                 <thead><tr className="bg-slate-50 text-slate-500"><th className="px-2 py-1.5 text-left">利用者</th><th className="px-2 py-1.5 w-20">保険者</th><th className="px-2 py-1.5 w-24">被保険者</th><th className="px-2 py-1.5 w-10">性別</th><th className="px-2 py-1.5 w-20">生年月日</th><th className="px-2 py-1.5 w-16">介護度</th><th className="px-2 py-1.5 w-20">状態</th><th className="px-2 py-1.5 text-left">確認事項</th></tr></thead>
                 <tbody className="divide-y divide-slate-100">
                   {userRows.length===0 ? <tr><td colSpan={8} className="px-2 py-4 text-center text-slate-400">対象の利用者がいません</td></tr> : userRows.map(d=>(
-                    <tr key={d.p.id} className={`hover:bg-slate-50 cursor-pointer ${d.p.id===pid?'bg-indigo-50':''}`} onClick={()=>{ setEditing(null); setPid(d.p.id); }}>
+                    <tr key={d.p.id} className={`hover:bg-slate-50 cursor-pointer ${d.p.id===pid?'bg-indigo-50':''}`} onClick={()=>{ if (_isSubmit) { if (navigateTo) navigateTo('life_hub', d.p.id); return; } setEditing(null); setPid(d.p.id); }}>
                       <td className="px-2 py-1.5 font-bold text-slate-700 whitespace-nowrap">{d.p.name}<div className="text-[10px] font-normal text-slate-400 whitespace-nowrap">{d.row.last_name_kana}{d.row.first_name_kana?` ${d.row.first_name_kana}`:''}</div></td>
                       <td className="px-2 py-1.5 text-center font-mono">{d.row.insurer_no||<span className="text-red-500">—</span>}</td>
                       <td className="px-2 py-1.5 text-center font-mono">{d.row.insured_no||<span className="text-red-500">—</span>}</td>
@@ -50553,7 +50629,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                   <thead><tr className="bg-slate-50 text-slate-500"><th className="px-2 py-1.5 text-left">利用者</th><th className="px-2 py-1.5 w-24">最新評価日</th><th className="px-2 py-1.5 w-28">状態</th><th className="px-2 py-1.5 text-left">確認事項</th></tr></thead>
                   <tbody className="divide-y divide-slate-100">
                     {dashRows.length===0 ? <tr><td colSpan={4} className="px-2 py-4 text-center text-slate-400">対象の利用者がいません</td></tr> : dashRows.map(d=>(
-                      <tr key={d.p.id} className={`hover:bg-slate-50 cursor-pointer ${d.p.id===pid?'bg-purple-50':''}`} onClick={()=>{ setEditing(null); setPid(d.p.id); }}>
+                      <tr key={d.p.id} className={`hover:bg-slate-50 cursor-pointer ${d.p.id===pid?'bg-purple-50':''}`} onClick={()=>{ if (_isSubmit) { if (navigateTo) navigateTo('life_hub', d.p.id); return; } setEditing(null); setPid(d.p.id); }}>
                         <td className="px-2 py-1.5 font-bold text-slate-700 whitespace-nowrap">{d.p.name}</td>
                         <td className="px-2 py-1.5 text-center text-slate-500 whitespace-nowrap">{d.latest?.evalDate||d.latest?.recordDate||d.latest?.createdDate||'—'}</td>
                         <td className="px-2 py-1.5 text-center">{d.status==='ok'?<span className="text-emerald-600 font-bold">✓ 提出可</span>:d.status==='error'?<span className="text-red-600 font-bold">エラー{d.vr.errors.length}件</span>:<span className="text-slate-400 font-bold">未評価</span>}</td>
@@ -50580,6 +50656,8 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
             <button type="button" onClick={()=>navigateTo('settings')} className="mt-2 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold">各種設定を開く</button>
           </div>
 
+          </>)}
+          {!_isSubmit && (<>
           {/* 共通データ: 基本情報 */}
           <div className="bg-white rounded-xl border border-slate-200 p-4">
             <div className="text-sm font-bold text-blue-700 mb-1">共通データ ①利用者基本情報（自動）</div>
@@ -50772,6 +50850,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
               </div>
             );
           })}
+          </>)}
           {/* ★ LIFE帳票(印刷用・非表示)。 科学的介護推進 / ADL維持等 は現在選択中の利用者の最新ADL評価+固有項目から生成 */}
           {(() => {
             const _a = adlRecords[0] || null; if (!_a) return null;
