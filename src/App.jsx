@@ -10889,8 +10889,10 @@ const getPatientDisplayStatus = (p) => {
         //   終了日が無ければ、再開を押すまでずっと休止のまま（勝手に戻らない）。
         const hist = p.pauseHistory || [];
         const active = hist.length ? [...hist].sort((a,b)=> new Date(b.fromDate) - new Date(a.fromDate))[0] : null;
+        const today = new Date(); today.setHours(0,0,0,0);
+        // ★ 2026-10-14(ユーザー指摘「未来の日付で休止を設定すると、すぐ休止の方に入ってしまう」): 開始日が未来なら開始日までは利用中(休止予定)
+        if (active && active.fromDate) { const fr = new Date(active.fromDate); fr.setHours(0,0,0,0); if (!isNaN(fr.getTime()) && today < fr) return '利用中'; }
         if (active && active.toDate) {
-            const today = new Date(); today.setHours(0,0,0,0);
             const to = new Date(active.toDate); to.setHours(0,0,0,0);
             if (today > to) return '利用中';
         }
@@ -10899,6 +10901,15 @@ const getPatientDisplayStatus = (p) => {
     return '利用中';
 };
 
+// ★ 2026-10-14: 休止の開始日が未来の「休止予定」なら {reason, fromDate} を返す
+const getPausePlanned = (p) => {
+  if (!p || !(p.status === '休止' || p.status === '一時中止')) return null;
+  const hist = p.pauseHistory || []; if (!hist.length) return null;
+  const active = [...hist].sort((a,b)=> new Date(b.fromDate) - new Date(a.fromDate))[0];
+  if (!active || !active.fromDate) return null;
+  const today = new Date(); today.setHours(0,0,0,0); const fr = new Date(active.fromDate); fr.setHours(0,0,0,0);
+  return (!isNaN(fr.getTime()) && today < fr) ? { reason: active.reason || '', fromDate: active.fromDate } : null;
+};
 const isAbsentFromTokki = (tokkiText) => {
   if (!tokkiText || typeof tokkiText !== 'string') return false;
   const keywords = ["休み", "欠席", "退所", "終了", "開始前", "休業"];
@@ -38326,6 +38337,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   // ★ 管理者認証ゲート (利用者削除など重要操作)。 {onSuccess} で成功時の処理を保持
   const [adminGate, setAdminGate] = useState(null);
   // 管理者パスワードが設定済みで、かつ現在のスタッフが管理者として認証済みでなければ、管理者PWを要求してから実行
+  // ★ 2026-10-14(ユーザー指示): 利用者の「削除」ボタンは管理者(管理局・一時譲渡を含む)だけに出す。管理者以外にはボタン自体を出さない
+  const _canDeletePatient = (() => { let rec = null; try { rec = JSON.parse(sessionStorage.getItem('tsumugiActiveRecorder')||'null'); } catch {} const verified = (() => { try { return sessionStorage.getItem('tsumugiAdminVerified')==='1'; } catch { return false; } })(); return !!(verified || isMemberAdmin(rec, appData.systemSettings) || (rec && rec.isSuperAdmin)); })();
   const requireAdminThen = (fn) => {
     const auth = appData.systemSettings?.adminAuth;
     if (!auth?.passwordHash) { fn(); return; } // 未設定 → そのまま実行
@@ -39968,7 +39981,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   ))}
                 </>);
               })()}{(localPatient.cmOffice||localPatient.cmName) && <div className="flex flex-col"><span className="text-[13px] font-bold text-slate-900">{localPatient.cmOffice}</span><span className="text-[13px] font-bold text-slate-900">{localPatient.cmName}</span></div>}{localPatient.startDate && <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg">{dTxt(dBtw(localPatient.startDate,new Date()))}利用</span>}</div>{isResigned && <span className="text-xs font-bold bg-slate-200 text-slate-600 px-3 py-1 rounded-lg">終了</span>}
-            <div className="flex items-center gap-2">{isResigned ? (<>{!isEditingResigned && <button onClick={() => setIsEditingResigned(true)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm flex items-center active:scale-95"><Lock size={14} className="mr-1" />編集</button>}{isEditingResigned && <button onClick={() => { saveMasterInfo(); setIsEditingResigned(false); }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center active:scale-95"><Save size={14} className="mr-1" />保存</button>}<button onClick={() => setDeleteConfirmModal(true)} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm flex items-center shadow-lg active:scale-95"><Trash2 size={14} className="mr-1" />完全削除</button></>) : (<div className="flex gap-2 flex-wrap justify-end"><button onClick={() => setDeleteConfirmModal(true)} className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-600 rounded-xl font-bold text-sm flex items-center whitespace-nowrap shrink-0 active:scale-95" title={localPatient.startDate ? '利用中の利用者を削除します (関連記録も削除されます)' : '利用者を削除'}><Trash2 size={14} className="mr-1" />削除</button><button onClick={()=>setPersonalFileModal({patient:localPatient})} className="px-3 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-xl font-bold text-sm flex items-center whitespace-nowrap shrink-0 active:scale-95" title="個人ファイル: フェイスシート・契約書・ケアプラン・モニタリング 等"><BookOpen size={14} className="mr-1"/>個人ファイル</button><button onClick={()=>setFamilyShareModal({patient:localPatient})} className="px-3 py-2 bg-violet-100 hover:bg-violet-200 text-violet-700 rounded-xl font-bold text-sm flex items-center whitespace-nowrap shrink-0 active:scale-95" title="家族・ケアマネ用ログインアカウントを発行・管理"><QrCode size={14} className="mr-1"/>アカウント管理</button>{/* ★ onClick={saveMasterInfo} だとクリックイベントが第1引数(auto)に渡り auto=truthy(自動保存扱い)になり、
+            <div className="flex items-center gap-2">{isResigned ? (<>{!isEditingResigned && <button onClick={() => setIsEditingResigned(true)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm flex items-center active:scale-95"><Lock size={14} className="mr-1" />編集</button>}{isEditingResigned && <button onClick={() => { saveMasterInfo(); setIsEditingResigned(false); }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm flex items-center active:scale-95"><Save size={14} className="mr-1" />保存</button>}{_canDeletePatient && <button onClick={() => setDeleteConfirmModal(true)} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm flex items-center shadow-lg active:scale-95"><Trash2 size={14} className="mr-1" />完全削除</button>}</>) : (<div className="flex gap-2 flex-wrap justify-end">{_canDeletePatient && <button onClick={() => setDeleteConfirmModal(true)} className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-600 rounded-xl font-bold text-sm flex items-center whitespace-nowrap shrink-0 active:scale-95" title={localPatient.startDate ? '利用中の利用者を削除します (関連記録も削除されます)' : '利用者を削除'}><Trash2 size={14} className="mr-1" />削除</button>}<button onClick={()=>setPersonalFileModal({patient:localPatient})} className="px-3 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-xl font-bold text-sm flex items-center whitespace-nowrap shrink-0 active:scale-95" title="個人ファイル: フェイスシート・契約書・ケアプラン・モニタリング 等"><BookOpen size={14} className="mr-1"/>個人ファイル</button><button onClick={()=>setFamilyShareModal({patient:localPatient})} className="px-3 py-2 bg-violet-100 hover:bg-violet-200 text-violet-700 rounded-xl font-bold text-sm flex items-center whitespace-nowrap shrink-0 active:scale-95" title="家族・ケアマネ用ログインアカウントを発行・管理"><QrCode size={14} className="mr-1"/>アカウント管理</button>{/* ★ onClick={saveMasterInfo} だとクリックイベントが第1引数(auto)に渡り auto=truthy(自動保存扱い)になり、
     運動メニュー変更時の「いつから適用」モーダルが出ずに当日付で確定し、保存トーストも出なかった。 明示的に auto=false で呼ぶ。 */}
 <button onClick={()=>saveMasterInfo(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-bold flex items-center whitespace-nowrap shrink-0 shadow-lg active:scale-95 text-sm">保存</button></div>)}</div>
           </div>
@@ -39992,7 +40005,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
 
             {activeDetailTab === 'basic' && (<>
               {/* ① 状態・利用開始日・利用終了日 (文字数に合わせた幅で横並び・折り返し) */}
-              <div className="flex flex-wrap gap-4 items-start"><div style={{width:150}}><label className="block text-sm font-bold text-slate-600 mb-1.5">状態</label>{isResigned ? (<div className="w-full px-3 py-2.5 bg-slate-200 border border-slate-300 rounded-xl font-bold text-base text-slate-600 text-center">終了</div>) : localPatient.status === '休止' ? (<div className="w-full px-3 py-2.5 bg-orange-50 border border-orange-200 rounded-xl font-bold text-sm text-orange-700 text-center">休止中</div>) : (<><div className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm text-slate-700 text-center">利用中</div><div className="text-[10px] text-slate-400 mt-1">休止は月間スケジュールで設定</div></>)}</div><LabelInput width={172} label="利用開始日" type="date" disabled={isOff} value={localPatient.startDate} onChange={e => updateLP('startDate', e.target.value)} /><LabelInput width={172} label="利用終了日" type="date" disabled={isOff && !isEditingResigned} value={localPatient.endDate} onFocus={() => { endDateFocusRef.current = localPatient.endDate || ''; }} onChange={e => updateLP('endDate', e.target.value)} onBlur={e => { const v = e.target.value; if (v && v !== endDateFocusRef.current) setAutoDeleteModal({ endDate: v, years: (localPatient.autoDeleteYears != null ? localPatient.autoDeleteYears : (localPatient.autoDeleteAfter5Years ? 5 : 0)) }); }} /></div>
+              <div className="flex flex-wrap gap-4 items-start"><div style={{width:150}}><label className="block text-sm font-bold text-slate-600 mb-1.5">状態</label>{isResigned ? (<div className="w-full px-3 py-2.5 bg-slate-200 border border-slate-300 rounded-xl font-bold text-base text-slate-600 text-center">終了</div>) : getPausePlanned(localPatient) ? (<div className="w-full px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-xl font-bold text-sm text-amber-700 text-center">利用中（休止予定）</div>) : localPatient.status === '休止' ? (<div className="w-full px-3 py-2.5 bg-orange-50 border border-orange-200 rounded-xl font-bold text-sm text-orange-700 text-center">休止中</div>) : (<><div className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm text-slate-700 text-center">利用中</div><div className="text-[10px] text-slate-400 mt-1">休止は月間スケジュールで設定</div></>)}</div><LabelInput width={172} label="利用開始日" type="date" disabled={isOff} value={localPatient.startDate} onChange={e => updateLP('startDate', e.target.value)} /><LabelInput width={172} label="利用終了日" type="date" disabled={isOff && !isEditingResigned} value={localPatient.endDate} onFocus={() => { endDateFocusRef.current = localPatient.endDate || ''; }} onChange={e => updateLP('endDate', e.target.value)} onBlur={e => { const v = e.target.value; if (v && v !== endDateFocusRef.current) setAutoDeleteModal({ endDate: v, years: (localPatient.autoDeleteYears != null ? localPatient.autoDeleteYears : (localPatient.autoDeleteAfter5Years ? 5 : 0)) }); }} /></div>
 
               {/* 休止情報・休止履歴は「サービス提供内容」タブ(月間スケジュールの上)へ移動しました */}
               {/* ② 氏名・フリガナ・性別・生年月日 — 縦並びレイアウト (見やすく入力しやすく) */}
@@ -40321,9 +40334,18 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 //   status直参照だと、終了日(例8/9)を過ぎても再開ボタンを押すまでバナーが消えなかった。
                 //   終了日を過ぎたら自動で「過去の休止履歴あり」表示に切り替わる。
                 const onPause = getPatientDisplayStatus(localPatient) === '休止';
+                const planned = getPausePlanned(localPatient);
                 return (
-                  <div className={`rounded-2xl border-2 overflow-hidden ${onPause ? 'border-orange-300 bg-orange-50' : 'border-slate-200 bg-slate-50'}`}>
-                    {onPause ? (
+                  <div className={`rounded-2xl border-2 overflow-hidden ${onPause ? 'border-orange-300 bg-orange-50' : planned ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-slate-50'}`}>
+                    {planned ? (
+                      <div className="px-4 py-3 flex items-center gap-3 bg-amber-100 border-b border-amber-200" data-testid="pause-planned">
+                        <CalendarOff size={20} className="text-amber-600 shrink-0" />
+                        <div className="min-w-0">
+                          <div className="text-sm font-bold text-amber-800 break-words">休止予定{planned.reason ? `：${planned.reason}` : ''}</div>
+                          <div className="text-xs text-amber-700">{fD(planned.fromDate)}から休止（それまでは利用中）</div>
+                        </div>
+                      </div>
+                    ) : onPause ? (
                       <div className="px-4 py-3 flex items-center justify-between flex-wrap gap-2 bg-orange-100 border-b border-orange-200">
                         <div className="flex items-center gap-3">
                           <CalendarOff size={20} className="text-orange-500" />
@@ -40349,10 +40371,11 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                           const isCurrentlyOnPause = onPause && getPatientDisplayStatus(localPatient) === '休止';
                           const showCurrent = isLatest && isCurrentlyOnPause && !h.toDate;
                           return (
-                            <div key={origIdx} className={`flex items-center gap-2 p-2 rounded-lg border text-xs ${isLatest && isCurrentlyOnPause ? 'bg-orange-50 border-orange-200' : 'bg-white border-slate-200'}`}>
+                            <div key={origIdx} className={`flex flex-wrap items-center gap-x-2 gap-y-1 p-2 rounded-lg border text-xs ${isLatest && isCurrentlyOnPause ? 'bg-orange-50 border-orange-200' : 'bg-white border-slate-200'}`}>
                               <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isLatest && isCurrentlyOnPause ? 'bg-orange-500' : 'bg-slate-300'}`} />
-                              <span className="font-bold text-slate-700">{h.reason}</span>
-                              <span className="text-slate-400 ml-auto shrink-0">{fD(h.fromDate)}〜</span>
+                              {/* ★ 2026-10-14(ユーザー指摘: スマホで理由が縦に1文字ずつ折れる): 理由は残りの幅いっぱい(狭いときは1行目を占め、日付・操作は次の行へ) */}
+                              <span className="font-bold text-slate-700 min-w-[8em] flex-1 break-words">{h.reason}</span>
+                              <span className="text-slate-400 shrink-0">{fD(h.fromDate)}〜</span>
                               {h.toDate ? (
                                 <span className="text-slate-500 shrink-0 flex items-center gap-1">{fD(h.toDate)}{!isOff && <button onClick={()=>{const newHist=[...localPatient.pauseHistory]; newHist[origIdx]={...newHist[origIdx], toDate:''}; commitLP({pauseHistory: newHist}, '✓ 終了日をクリアしました（保存済み）');}} className="text-slate-300 hover:text-red-400 text-[10px]" title="終了日をクリア">✕</button>}</span>
                               ) : (
@@ -40360,6 +40383,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                                 !isOff ? (<span className="shrink-0"><SmartDateInput value="" width={150} onChange={e=>{if(!e.target.value)return; const newHist=[...localPatient.pauseHistory]; newHist[origIdx]={...newHist[origIdx], toDate:e.target.value}; commitLP({pauseHistory: newHist}, '✓ 終了日を設定しました（保存済み）');}} /></span>) : <span className="text-slate-400 shrink-0">現在</span>
                               )}
                               {showCurrent && <span className="text-[9px] bg-orange-500 text-white px-1.5 py-0.5 rounded-full font-bold shrink-0">現在</span>}
+                              {isLatest && planned && !h.toDate && <span className="text-[9px] bg-amber-500 text-white px-1.5 py-0.5 rounded-full font-bold shrink-0">予定</span>}
                               {!isOff && <button onClick={()=>setPauseEditModal({origIdx, reason:h.reason||'', fromDate:h.fromDate||'', toDate:h.toDate||''})} className="text-slate-300 hover:text-blue-500 shrink-0" title="この休止履歴を編集"><Edit3 size={13}/></button>}
                               {!isOff && <button onClick={()=>{ if(!window.confirm('この休止履歴を削除しますか？')) return; const newHist=(localPatient.pauseHistory||[]).filter((_,i)=>i!==origIdx); const _upd={pauseHistory:newHist}; if(isLatest && isCurrentlyOnPause) _upd.status='利用中'; commitLP(_upd, '✓ 休止履歴を削除しました（保存済み）'); }} className="text-slate-300 hover:text-red-500 shrink-0" title="この休止履歴を削除"><Trash2 size={13}/></button>}
                             </div>
@@ -46286,7 +46310,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             };
             const CarCell = ({prefix}) => {
               // ★ 欠席/休業/休止の場合は送迎なし → 選択されていても空白表示にする(2026-09-30: 休止も追加)
-              if (isAbsent || pt?.status === '休止') {
+              if (isAbsent || (pt && getPatientDisplayStatus(pt) === '休止')) { // ★ 2026-10-14: 休止予定(開始日が未来)は送迎あり
                 return <div style={{fontSize:8,textAlign:'center',color:'#bbb',fontWeight:'normal',lineHeight:_compact?'16px':'20px'}}>—</div>;
               }
               const sel = getSelectedCar(prefix);
@@ -51085,7 +51109,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   // ★ 2026-09-30(店舗報告: 休止にした成田さん等が出ない): 休止中などの方も、その月に1回でも通所していれば対象に含める
   //   (その月のモニタリングは必要なため)。退所済み・利用開始前は従来どおり対象外。
   // ★ 2026-09-30 追加(ユーザー指示: 茂木さんのように休止中で今月来ていない方も「通所なし」に表示): 休止中の方は通所の有無にかかわらず対象
-  const _monPaused = (p) => p.status === '休止' || p.status === '一時中止' || getPatientDisplayStatus(p) === '休止';
+  const _monPaused = (p) => getPatientDisplayStatus(p) === '休止'; // ★ 2026-10-14: 休止予定(開始日が未来)は含めない
   const allActive = (appData.patients||[]).filter(p => isPatientListable(p) && isPatientStartedByToday(p) && (p.status === '利用中' || _monPaused(p) || hasAttendance(p)));
   const careLevelOrd = ['事業対象者','要支援1','要支援2','要介護1','要介護2','要介護3','要介護4','要介護5'];
   const dowStr = ['日','月','火','水','木','金','土'];
