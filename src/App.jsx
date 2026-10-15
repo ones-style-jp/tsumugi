@@ -2016,6 +2016,9 @@ function RenrakuPositionDiagram({ ss }) {
     </div>
   );
 }
+// ★ 2026-10-15(ユーザー報告「スマホで休み連絡・各種連絡をダウンロードすると小さい。パソコンと同じ大きさに」): 書類のいちばん外側の要素に
+//   画面に収めるための縮小(zoom / transform:scale)が付いていると PDF にも写る。PDF・印刷用の中身では外側の縮小だけを外す(中の縮小は書類の作りなので残す)
+const tsumugiStripFitZoom = (html) => String(html || '').replace(/^(\s*<[a-zA-Z][a-zA-Z0-9-]*\b[^>]*?\sstyle=")([^"]*)"/, (m, a, st) => a + st.replace(/(^|;)\s*zoom\s*:\s*[^;]*;?/gi, '$1').replace(/(^|;)\s*transform\s*:\s*scale\([^)]*\)\s*;?/gi, '$1') + '"');
 const tsumugiBuildPrintSrcDoc = (html) => {
   let head = ''; try {
     document.querySelectorAll('style').forEach(s => { head += '<style>' + (s.textContent || '') + '</style>'; });
@@ -21114,6 +21117,7 @@ export default function App() {
     let html = detail.html;
     if (!html && detail.elementId) { try { const el = document.getElementById(detail.elementId); html = el ? el.outerHTML.replace(/display:\s*none[^;"']*/g, 'display:block').replace(/visibility:\s*hidden/g, 'visibility:visible') : ''; } catch {} }
     if (!html) { setPdfJob({ status: 'error', title, error: '出力する内容が見つかりません' }); return; }
+    html = tsumugiStripFitZoom(html); // ★ 2026-10-15: スマホの画面用の縮小は PDF に写さない
     const maskable = !/^連絡帳/.test(title) && !/日誌/.test(title);
     const masked = (maskable && tsumugiMaskOn()) ? _maskRef.current.fn(html) : html;
     setPdfJob({ status: 'busy', title });
@@ -21129,6 +21133,7 @@ export default function App() {
   const setPrintPreviewContent = (detail) => {
     if (!detail) { _setPrintPreviewContentRaw(null); return; }
     if (!detail.html && !detail.elementId) return; // ★ 「先に枠だけ開いて後から setPrintHtml で中身」の呼び出し(モニタリング等)の1回目は無視
+    if (detail.html) detail = { ...detail, html: tsumugiStripFitZoom(detail.html) }; // ★ 2026-10-15: スマホの画面用の縮小は PDF に写さない
     const title = String(detail.title || '');
     const keepPreview = detail.forcePreview || detail.autoPrint || !!detail.adjust || /^連絡帳/.test(title);
     if (keepPreview) { _setPrintPreviewContentRaw(detail); return; }
@@ -32753,7 +32758,8 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
       {/* コンテンツ：横スクロール可能 */}
       <div className="flex-1 overflow-auto bg-slate-200" style={{minWidth:0}} ref={_fitRef}>
       {/* ★ 2026-10-02(店舗報告: 運動メニューが多いと提供記録が横にスクロールする): 画面では用紙(A4横=1123px)を画面の幅に合わせて縮小して表示(印刷は等倍のまま) */}
-      <div className="space-y-6 pb-32 pt-6 px-4 ticket-outer" style={{minWidth:0, zoom: _fitZoom}}>
+      {/* ★ 2026-10-15(ユーザー要望「スマホで提供記録の格子が無い」): 用紙を大きく縮小しているときは、線の太さを縮小ぶん補う(画面だけ・印刷は等倍) */}
+      <div className="space-y-6 pb-32 pt-6 px-4 ticket-outer" data-thin={_fitZoom < 0.8 ? '1' : undefined} style={{minWidth:0, zoom: _fitZoom, '--tkBw': `${(1 / Math.max(0.2, _fitZoom * 0.92)).toFixed(2)}px`}}>
         <div id="print-content-ticket">
 
         {renderList.flatMap(({ mY: tY, mM: tM, ex, plannedM, tc, pages, pp }) => pages.map((pr, pi) => {
@@ -32868,6 +32874,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
               <style>{`
                 .tp>* { zoom: var(--tpZoom, 0.92); } /* 印刷と同じ縮尺を画面でも(用紙の高さの判定を印刷と揃える)。収まらない用紙は fit() が --tpZoom を下げる */
                 .tp table { table-layout: fixed; }
+                @media screen { .ticket-outer[data-thin] .tp .border { border-width: var(--tkBw) !important; } .ticket-outer[data-thin] .tp .border-l { border-left-width: var(--tkBw) !important; } .ticket-outer[data-thin] .tp .border-r { border-right-width: var(--tkBw) !important; } .ticket-outer[data-thin] .tp .border-t { border-top-width: var(--tkBw) !important; } .ticket-outer[data-thin] .tp .border-b { border-bottom-width: var(--tkBw) !important; } }
                 .tp table tbody tr.hd-row { height:16px!important; max-height:16px!important; }
                 .tp table tbody tr.hd-row th { height:16px!important; max-height:16px!important; overflow:hidden; padding:0 1px; box-sizing:border-box; font-weight:bold; }
                 .tp table tbody tr.data-row, .tp table tbody tr.ex-row { height:max(23px, calc(28px - var(--tpShrink, 0px)))!important; max-height:max(23px, calc(28px - var(--tpShrink, 0px)))!important; }
