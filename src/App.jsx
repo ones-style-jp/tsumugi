@@ -35295,6 +35295,8 @@ const tsuInstallModalScrollGuard = () => {
 };
 if (typeof window !== 'undefined') tsuInstallModalScrollGuard();
 const tsumugiTransportOn = (appData) => (appData?.systemSettings?.transportEnabled !== false);
+// 'H:MM' から n 分引いた 'H:MM'(読めなければ空)
+const tsuHmMinus = (hm, n) => { const m = String(hm || '').match(/(\d{1,2})[:：](\d{2})/); if (!m) return ''; const t = Math.max(0, (+m[1]) * 60 + (+m[2]) - (n || 0)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
 // ★ 2026-10-15(ユーザー相談「送迎表を使うなら日誌の1週間前コピーは要るのか」): 送迎表を使っている店舗で、その日・その時間帯の送迎表が保存されているか。
 //   保存されている日は、日誌の「1週間前の送迎を自動コピー」をせず「送迎表取込」で入れる(先週の割り当てが残って取り込み忘れになるのを防ぐ)
 const tsuTpPlanHas = (appData, iso, slot) => { if (!tsumugiTransportOn(appData)) return false; const pl = ((appData && appData.transportPlans) || {})[`${iso}_${slot}`]; if (!pl || typeof pl !== 'object') return false; return Object.values(pl.cars || {}).some(a => (a || []).length) || (pl.walkers || []).length > 0 || (pl.others || []).length > 0; };
@@ -36341,7 +36343,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     if (conf) return (+conf[1])*60 + (+conf[2]);
     const _svc = String((sl === 'AM' ? appData.systemSettings?.facilityInfo?.serviceTimeAM : appData.systemSettings?.facilityInfo?.serviceTimePM) || '').split(/[～〜]/)[0] || '';
     const _sm2 = _svc.match(/(\d{1,2}):(\d{2})/);
-    if (_sm2) return (+_sm2[1])*60 + (+_sm2[2]);
+    if (_sm2) return (+_sm2[1])*60 + (+_sm2[2]) - 1; // ★ 2026-10-15(ユーザー要望「到着がぴったりだとよくないので1分前に」): 既定は開始時間の1分前
     const sched = sl === 'AM' ? (ds.scheduleAM||[]) : (ds.schedulePM||[]);
     for (const row of sched) { const m = String(row?.time||'').match(/(\d{1,2})[:時](\d{2})?/); if (m) { let h=+m[1], mi=+(m[2]||0)-5; if (mi<0){h--;mi+=60;} return h*60+mi; } }
     return sl === 'AM' ? 9*60 - 5 : 13*60 + 30 - 5;
@@ -37785,6 +37787,26 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                   </div>
                   <div className="text-[11px] text-slate-400">決めた送り（車・運転者・出発時間）は日誌の「送迎表取込」で日誌にも入ります。確定した週も、送りはこの画面で変えられます。席の形は車の定員（運転者を除く）から作っています。2列目・3列目の席の数は、送迎表の「設定」の「座席表の並び」で変えられます。</div>
                 </div>)}
+              {/* ★ 2026-10-15(ユーザー要望「午前に送ってそのまま午後のお迎えに行くので、午前の送りの座席表の下に午後の送迎表が見えると使いやすい」): 見るだけ(変えるのは送迎表で) */}
+              {sl === 'AM' && (() => { const pm = getPlan(iso, 'PM'); const pmCars = cars.filter(c => ((pm.cars||{})[c.id]||[]).length); const pmWalk = pm.walkers || [], pmOther = pm.others || [], pmUn = pm.un || [];
+                if (!pmCars.length && !pmWalk.length && !pmOther.length && !pmUn.length) return null; return (
+                <div className="border-t-2 border-indigo-200 px-4 pt-3 pb-4" data-testid="tp-seat-pm">
+                  <div className="flex items-baseline gap-2 flex-wrap mb-2"><span className="text-sm font-bold text-indigo-800">この日の午後の迎え（送迎表）</span><span className="text-[11px] text-slate-500">午前の送りのあと、そのまま午後のお迎えに行くときの確認用です。変えるときは送迎表で変えてください。</span></div>
+                  {pmCars.length ? (
+                  <div className="flex flex-wrap gap-3">
+                    {pmCars.map(c => { const ms = pm.cars[c.id] || []; const drv = (pm.driver||{})[c.id] || ''; const av = (pm.arrive||{})[c.id] || ''; const au = !!av && !!(pm.arriveAuto||{})[c.id]; return (
+                      <div key={c.id} className="min-w-[200px] flex-1 max-w-[320px] rounded-lg border border-indigo-200 bg-white overflow-hidden" data-testid={`tp-seat-pm-${c.id}`}>
+                        <div className="px-2 py-1 bg-indigo-50 border-b border-indigo-100 flex items-baseline gap-2"><span className="font-bold text-[13px] text-slate-800">{c.name}</span>{drv ? <span className="text-[11px] font-bold text-slate-700"><span className="text-[10px] font-normal text-slate-500 mr-0.5">運転</span>{drv}</span> : <span className="text-[10px] text-slate-400">運転者 未選択</span>}</div>
+                        {ms.map(m => <div key={m.pid} className={`flex items-center gap-2 px-2 py-0.5 text-[12px] border-t border-slate-100 ${_isFurikae(iso, 'PM', m.pid) ? 'bg-emerald-100' : (_isFirstVisit(m.pid, iso) ? 'bg-sky-100' : '')}`}><span className="flex-1 min-w-0 truncate font-bold text-slate-800">{_pname(m.pid)}</span><span className="shrink-0 font-bold tabular-nums text-slate-700">{_fmtT(m.t) || '—'}</span></div>)}
+                        <div className="flex items-center gap-1.5 px-2 py-0.5 text-[11px] border-t border-dashed border-slate-300 bg-slate-50"><span className="flex-1 font-bold text-slate-500">施設に到着</span>{au ? <span className="text-[9px] font-bold text-amber-800 bg-amber-100 rounded px-1">目安</span> : null}<span className={`shrink-0 font-bold tabular-nums ${au ? 'text-slate-400' : 'text-slate-700'}`}>{av || '—:—'}</span></div>
+                      </div>); })}
+                  </div>) : <div className="text-[12px] text-slate-400">午後の迎えの車はまだ決まっていません。</div>}
+                  {(pmWalk.length || pmOther.length || pmUn.length) ? <div className="mt-2 text-[11px] text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
+                    {pmWalk.length ? <span><b className="text-orange-700">徒歩</b> {pmWalk.map(m => _pname(m.pid)).join('・')}</span> : null}
+                    {pmOther.length ? <span><b className="text-violet-700">その他</b> {pmOther.map(m => _pname(m.pid)).join('・')}</span> : null}
+                    {pmUn.length ? <span className="text-rose-700"><b>未割当</b> {pmUn.map(m => _pname(m.pid)).join('・')}</span> : null}
+                  </div> : null}
+                </div>); })()}
             </div>
           </div>);
       })(), document.body)}
@@ -37807,7 +37829,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <div className="grid grid-cols-2 gap-3 mb-2">
               {(() => {
                 // ★ 2026-09-12h: 時刻は選択式(時/分プルダウン)。既定表示=到着は事業所情報の各単位開始時間
-                const _svcDefHM = (sl2) => _classStart(sl2); // 事業所情報の各単位の開始(例 9:00)
+                const _svcDefHM = (sl2) => tsuHmMinus(_classStart(sl2), 1); // ★ 2026-10-15: 事業所情報の各単位の開始の1分前(例 9:00 → 8:59)
                 // ★ 2026-10-01(試験版・ユーザー要望「到着目標は事業所情報の1単位目・2単位目の開始時間を既定に」): 未設定なら開始時刻を最初から選んだ状態で表示。
                 //   開始時刻と同じまま保存した場合は空(=事業所情報に追従)で保存し、事業所情報の時間を変えればそれに合わせて変わる
                 const TSel = ({label, idBase, val, def}) => {
@@ -37826,7 +37848,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                           {[...new Set([...Array.from({length:12},(_,i)=>i*5), ...(dm !== '' && +dm % 5 ? [+dm] : [])])].sort((a,b)=>a-b).map(mm=><option key={mm} value={mm}>{String(mm).padStart(2,'0')}</option>)}
                         </select><span className="text-xs font-bold text-slate-500">分</span>
                       </div>
-                      {def && !val && <div className="text-[10px] text-slate-400 mt-0.5">事業所情報の開始時間（{def}）</div>}
+                      {def && !val && <div className="text-[10px] text-slate-400 mt-0.5">事業所情報の開始時間（{_classStart(idBase === 'tp-set-pm' ? 'PM' : 'AM')}）の1分前</div>}
                       {!def && !val && <div className="text-[10px] text-amber-600 mt-0.5">事業所情報の{idBase === 'tp-set-pm' ? '2単位目' : '1単位目'}の時間が未入力です（各種設定→事業所情報）</div>}
                     </div>
                   );
@@ -37837,7 +37859,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 </>);
               })()}
             </div>
-            <div className="text-[11px] text-slate-500 mb-4">お迎え時間は「その方の家に着く時間（ピンポンの時間）」です。到着目標時刻に施設へ着くように逆算し、次の方の時間は「前の方の時間＋乗車にかかる時間＋移動時間」になります（到着目標の既定は事業所情報の1単位目・2単位目の開始時間）。</div>
+            <div className="text-[11px] text-slate-500 mb-4">お迎え時間は「その方の家に着く時間（ピンポンの時間）」です。到着目標時刻に施設へ着くように逆算し、次の方の時間は「前の方の時間＋乗車にかかる時間＋移動時間」になります（到着目標の既定は事業所情報の1単位目・2単位目の開始時間の1分前。例: 9:00 開始なら 8:59）。</div>
             <div className="font-bold text-sm text-slate-700 mb-2">車の定員（運転者を除く乗車人数）</div>
             <div className="space-y-2 mb-4">
               {cars.map((c, i) => (
@@ -37864,7 +37886,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               <button onClick={()=>{
                 const _tv = (b) => { const h = document.getElementById(`${b}-h`)?.value||''; const m = document.getElementById(`${b}-m`)?.value||'0'; return h === '' ? '' : `${h}:${String(+m).padStart(2,'0')}`; };
                 // 事業所情報の開始時刻と同じなら空で保存(事業所情報に追従)
-                const _same = (v, sl2) => { const d0 = _classStart(sl2); return !!d0 && v === d0; };
+                const _same = (v, sl2) => { const d0 = tsuHmMinus(_classStart(sl2), 1); return !!d0 && v === d0; }; // 既定(開始の1分前)のままなら空で保存
                 let am = _tv('tp-set-am'), pm = _tv('tp-set-pm'); if (_same(am, 'AM')) am = ''; if (_same(pm, 'PM')) pm = '';
                 const newCars = cars.map(c => { const _rw = document.getElementById(`tp-set-rows-${c.id}`); return { ...c, cap: (document.getElementById(`tp-set-cap-${c.id}`)?.value||'').replace(/[^0-9]/g,''), seatRows: _rw ? _rw.value : (c.seatRows || '') }; });
                 onSave({ ...appData, diarySettings: { ...(appData.diarySettings||{}), arriveAM: am, arrivePM: pm, departAM: '', departPM: '', cars: newCars } }, { manual: true, message: '✓ 送迎表の設定を保存しました' });
