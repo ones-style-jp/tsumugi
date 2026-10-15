@@ -36338,16 +36338,15 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const rest = cut(noPref != null ? noPref : s0, m[2]);
     return rest ? rest : s0;
   };
+  // ★ 2026-10-15(ユーザー指示「1単位目・2単位目の開始時間が設定されていれば、その1分前に着くように。到着目標時刻の設定は不要」):
+  //   施設に着く時間 = 事業所情報の各単位の開始時間の1分前だけ。送迎表の設定の到着目標(ds.arriveAM/PM)は使わない(保存済みの値は残るが見ない)。
+  //   開始時間が未入力なら null(自動計算の前に入力を促す)
   const _targetArrive = (sl) => {
-    const conf = String((sl === 'AM' ? ds.arriveAM : ds.arrivePM) || '').match(/(\d{1,2})[:時](\d{2})/);
-    if (conf) return (+conf[1])*60 + (+conf[2]);
-    const _svc = String((sl === 'AM' ? appData.systemSettings?.facilityInfo?.serviceTimeAM : appData.systemSettings?.facilityInfo?.serviceTimePM) || '').split(/[～〜]/)[0] || '';
-    const _sm2 = _svc.match(/(\d{1,2}):(\d{2})/);
-    if (_sm2) return (+_sm2[1])*60 + (+_sm2[2]) - 1; // ★ 2026-10-15(ユーザー要望「到着がぴったりだとよくないので1分前に」): 既定は開始時間の1分前
-    const sched = sl === 'AM' ? (ds.scheduleAM||[]) : (ds.schedulePM||[]);
-    for (const row of sched) { const m = String(row?.time||'').match(/(\d{1,2})[:時](\d{2})?/); if (m) { let h=+m[1], mi=+(m[2]||0)-5; if (mi<0){h--;mi+=60;} return h*60+mi; } }
-    return sl === 'AM' ? 9*60 - 5 : 13*60 + 30 - 5;
+    const raw = String((sl === 'PM' ? appData.systemSettings?.facilityInfo?.serviceTimePM : appData.systemSettings?.facilityInfo?.serviceTimeAM) || '').split(/[～〜~]/)[0] || '';
+    const m = raw.match(/(\d{1,2})[:：時](\d{2})/);
+    return m ? (+m[1]) * 60 + (+m[2]) - 1 : null;
   };
+  const _noStartMsg = (slots) => { const miss = slots.filter(s2 => _targetArrive(s2) == null); return miss.length ? `各種設定→事業所情報の「${miss.map(s2 => s2 === 'PM' ? '2単位目（午後）' : '1単位目（午前）').join('」「')}」のサービス提供時間（例: 9:00～12:05）が未入力です。\n入れてから自動計算してください。\n（お迎え時間は、開始時間の1分前に施設へ着くように逆算します）` : ''; };
   const _fmtHM = (mins) => { const h = Math.floor(mins/60), m2 = mins%60; return `${h}:${String(m2).padStart(2,'0')}`; };
   const _carsAll = cars;
   const _autoRouteCore = async (iso, sl, basePlans, opts) => {
@@ -36359,6 +36358,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const fac = _facilityAddr();
     const pl = (() => { const saved = (basePlans||plans)[`${iso}_${sl}`]; if (saved && typeof saved === 'object') { const inPlan = new Set([ ...Object.values(saved.cars||{}).flat().map(m=>m.pid), ...((saved.walkers||[]).map(m=>m.pid)), ...((saved.others||[]).map(m=>m.pid)), ...((saved.un||[]).map(m=>m.pid)) ]); const extra = _attendees(iso, sl).filter(a => !inPlan.has(a.pid)).map(a => ({ pid: a.pid, t: a.time, mark: false })); return { cars: {}, walkers: [], memo: '', ...saved, un: [ ...(saved.un||[]), ...extra ] }; } return _draftPlan(iso, sl); })();
     const target = _targetArrive(sl);
+    if (target == null) { msgs.push(`${iso} ${sl === 'PM' ? '午後' : '午前'}: 事業所情報の${sl === 'PM' ? '2単位目' : '1単位目'}の開始時間が未入力のため計算していません`); return { msgs, changed: false, entry: null }; }
     // ★ 2026-09-30(ユーザー指示): 出発時刻の設定は廃止(出発から数えると到着目標より大幅に遅れるため)。お迎え時間は到着目標から逆算する。
     //   交通状況の予測に使う時刻は「到着目標の45分前」。
     const _departConf = null;
@@ -36611,6 +36611,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     if (!opt.haisha && !opt.jikan) { alert('「配車」か「時間」のどちらかにチェックを入れてください'); return; }
     if (!selDays.length || !selSlots.length) { alert('曜日と午前・午後を1つ以上選んでください'); return; }
     if (opt.cars && !opt.cars.size) { alert('車を1台以上選んでください'); return; }
+    { const _nm = _noStartMsg(selSlots); if (_nm) { alert(_nm); return; } } // ★ 2026-10-15: 開始時間が未入力なら計算しない
     setAutoCalc(null);
     setRouting('week');
     try {
@@ -37026,6 +37027,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     <div className="fixed inset-0 z-[10060] bg-black/40 flex items-center justify-center p-3">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-4 max-h-[92vh] overflow-y-auto" data-testid="tp-autocalc-modal">
         <div className="font-bold text-base text-slate-800 mb-3">自動計算（Googleマップ）</div>
+        {/* ★ 2026-10-15: 施設に着く時間(事業所情報の開始の1分前)を表示。未入力なら入力を促す */}
+        <div className="text-[12px] text-slate-600 mb-3 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2" data-testid="ac-arrive">
+          <span className="font-bold text-slate-700">施設に着く時間</span>　{['AM','PM'].map(s2 => { const t = _targetArrive(s2); return <span key={s2} className="mr-3">{s2 === 'AM' ? '午前' : '午後'} {t == null ? <b className="text-amber-700">未入力</b> : <b>{_fmtHM(t)}</b>}</span>; })}
+          <span className="block text-[10px] text-slate-500 mt-0.5">各種設定→事業所情報の1単位目・2単位目の開始時間の1分前に着くように、お迎え時間を逆算します{['AM','PM'].some(s2 => _targetArrive(s2) == null) ? '（未入力の時間帯は計算できません。事業所情報で入れてください）' : ''}</span>
+        </div>
         <div className="text-[12px] font-bold text-slate-500 mb-1">計算するもの</div>
         {/* ★ 2026-09-30(ユーザー要望): チェックを大きく・配車と時間はそれぞれ選べる(両方=配車と時間を一度に) */}
         <div className="flex flex-col gap-2 mb-3">
@@ -37208,7 +37214,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           {(() => { const r = tpNextWeekReminder(appData); if (!r || tpIsoOf(_mon) === r.iso) return null; return (
             <button onClick={()=>setSelectedDate(r.iso)} data-testid="tp-next-reminder" className="text-[11px] font-bold text-red-700 bg-red-50 border border-red-300 rounded-lg px-2 py-1 whitespace-nowrap hover:bg-red-100" title={`1週間後の日を含む週（${r.label}）の送迎表がまだ確定していません。押すとその週を開きます`}>次週分未確定 ›</button>
           ); })()}
-          <button onClick={()=>{ setTpSetCap({}); setTpSettings(true); }} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="到着目標時刻・車の定員の設定">設定</button>
+          <button onClick={()=>{ setTpSetCap({}); setTpSettings(true); }} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="車の定員・座席表の並びの設定（施設に着く時間も確認できます）">設定</button>
           <button onClick={()=>setPrintModal({ mode:'week', weekContent:'sheet', days:new Set(days.map(d=>_iso(d))) })} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">ダウンロード</button>
         {/* ★ 2026-10-08(ユーザー指示): 上部の「?」(使い方の説明)は削除 */}
       </div>
@@ -37826,40 +37832,12 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         <div className="fixed inset-0 bg-slate-900/60 flex items-start justify-center p-4 pt-20" style={{zIndex:10000}} onClick={()=>setTpSettings(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5" onClick={e=>e.stopPropagation()}>
             <div className="font-bold text-slate-800 text-lg mb-3">送迎表の設定</div>
-            <div className="grid grid-cols-2 gap-3 mb-2">
-              {(() => {
-                // ★ 2026-09-12h: 時刻は選択式(時/分プルダウン)。既定表示=到着は事業所情報の各単位開始時間
-                const _svcDefHM = (sl2) => tsuHmMinus(_classStart(sl2), 1); // ★ 2026-10-15: 事業所情報の各単位の開始の1分前(例 9:00 → 8:59)
-                // ★ 2026-10-01(試験版・ユーザー要望「到着目標は事業所情報の1単位目・2単位目の開始時間を既定に」): 未設定なら開始時刻を最初から選んだ状態で表示。
-                //   開始時刻と同じまま保存した場合は空(=事業所情報に追従)で保存し、事業所情報の時間を変えればそれに合わせて変わる
-                const TSel = ({label, idBase, val, def}) => {
-                  const m = String(val||'').match(/(\d{1,2})[:時](\d{2})/) || String(def||'').match(/(\d{1,2})[:時](\d{2})/);
-                  const dh = m ? String(+m[1]) : '';
-                  const dm = m ? String(+m[2]) : '';
-                  return (
-                    <div>
-                      <label className="block text-xs font-bold text-slate-600 mb-1">{label}</label>
-                      <div className="flex items-center gap-1">
-                        <select defaultValue={dh} id={`${idBase}-h`} className="flex-1 px-2 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none">
-                          <option value="">--</option>
-                          {Array.from({length:15},(_,i)=>i+5).map(h=><option key={h} value={h}>{h}</option>)}
-                        </select><span className="text-xs font-bold text-slate-500">時</span>
-                        <select defaultValue={dm} id={`${idBase}-m`} className="flex-1 px-2 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none">
-                          {[...new Set([...Array.from({length:12},(_,i)=>i*5), ...(dm !== '' && +dm % 5 ? [+dm] : [])])].sort((a,b)=>a-b).map(mm=><option key={mm} value={mm}>{String(mm).padStart(2,'0')}</option>)}
-                        </select><span className="text-xs font-bold text-slate-500">分</span>
-                      </div>
-                      {def && !val && <div className="text-[10px] text-slate-400 mt-0.5">事業所情報の開始時間（{_classStart(idBase === 'tp-set-pm' ? 'PM' : 'AM')}）の1分前</div>}
-                      {!def && !val && <div className="text-[10px] text-amber-600 mt-0.5">事業所情報の{idBase === 'tp-set-pm' ? '2単位目' : '1単位目'}の時間が未入力です（各種設定→事業所情報）</div>}
-                    </div>
-                  );
-                };
-                return (<>
-                  <TSel label="午前の到着目標時刻" idBase="tp-set-am" val={ds.arriveAM} def={_svcDefHM('AM')}/>
-                  <TSel label="午後の到着目標時刻" idBase="tp-set-pm" val={ds.arrivePM} def={_svcDefHM('PM')}/>
-                </>);
-              })()}
+            {/* ★ 2026-10-15(ユーザー指示「到着目標時刻の設定は不要。開始時間の1分前に着くように」): 到着目標の選択はなくし、事業所情報の開始時間から決める(表示だけ) */}
+            <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 mb-4 text-[12px] text-slate-600" data-testid="tp-set-arrive-info">
+              <div className="font-bold text-slate-700 mb-0.5">施設に着く時間（自動計算）</div>
+              {['AM','PM'].map(s2 => { const st = _classStart(s2); return <div key={s2}>{s2 === 'AM' ? '午前' : '午後'}: {st ? <><b>{tsuHmMinus(st, 1)}</b><span className="text-slate-400">（{s2 === 'PM' ? '2単位目' : '1単位目'}の開始 {st} の1分前）</span></> : <span className="text-amber-700 font-bold">事業所情報の{s2 === 'PM' ? '2単位目' : '1単位目'}の時間が未入力です（各種設定→事業所情報）</span>}</div>; })}
+              <div className="text-[11px] text-slate-500 mt-1">お迎え時間は「その方の家に着く時間（ピンポンの時間）」です。事業所情報の1単位目・2単位目の開始時間の1分前に施設へ着くように逆算し、次の方の時間は「前の方の時間＋乗車にかかる時間＋移動時間」になります。</div>
             </div>
-            <div className="text-[11px] text-slate-500 mb-4">お迎え時間は「その方の家に着く時間（ピンポンの時間）」です。到着目標時刻に施設へ着くように逆算し、次の方の時間は「前の方の時間＋乗車にかかる時間＋移動時間」になります（到着目標の既定は事業所情報の1単位目・2単位目の開始時間の1分前。例: 9:00 開始なら 8:59）。</div>
             <div className="font-bold text-sm text-slate-700 mb-2">車の定員（運転者を除く乗車人数）</div>
             <div className="space-y-2 mb-4">
               {cars.map((c, i) => (
@@ -37884,12 +37862,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <div className="flex justify-end gap-2">
               <button onClick={()=>setTpSettings(false)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">閉じる</button>
               <button onClick={()=>{
-                const _tv = (b) => { const h = document.getElementById(`${b}-h`)?.value||''; const m = document.getElementById(`${b}-m`)?.value||'0'; return h === '' ? '' : `${h}:${String(+m).padStart(2,'0')}`; };
-                // 事業所情報の開始時刻と同じなら空で保存(事業所情報に追従)
-                const _same = (v, sl2) => { const d0 = tsuHmMinus(_classStart(sl2), 1); return !!d0 && v === d0; }; // 既定(開始の1分前)のままなら空で保存
-                let am = _tv('tp-set-am'), pm = _tv('tp-set-pm'); if (_same(am, 'AM')) am = ''; if (_same(pm, 'PM')) pm = '';
                 const newCars = cars.map(c => { const _rw = document.getElementById(`tp-set-rows-${c.id}`); return { ...c, cap: (document.getElementById(`tp-set-cap-${c.id}`)?.value||'').replace(/[^0-9]/g,''), seatRows: _rw ? _rw.value : (c.seatRows || '') }; });
-                onSave({ ...appData, diarySettings: { ...(appData.diarySettings||{}), arriveAM: am, arrivePM: pm, departAM: '', departPM: '', cars: newCars } }, { manual: true, message: '✓ 送迎表の設定を保存しました' });
+                onSave({ ...appData, diarySettings: { ...(appData.diarySettings||{}), cars: newCars } }, { manual: true, message: '✓ 送迎表の設定を保存しました' });
                 setTpSettings(false);
               }} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm">保存</button>
             </div>
