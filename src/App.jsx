@@ -3486,8 +3486,8 @@ const initialData = {
       { id: 'ds6', role: '介護職員',      name: '長谷川' },
     ],
     cars: [
-      { id: 'car1', name: '1号車', type: 'ハイエース' },
-      { id: 'car2', name: '2号車', type: 'ステップワゴン' },
+      { id: 'car1', name: '1号車', type: '' },
+      { id: 'car2', name: '2号車', type: '' },
     ],
     scheduleAM: [
       { id: 'am0', time: '8:25〜8:55',   content: '送迎車にてご自宅にお迎え' },
@@ -35294,6 +35294,14 @@ const tsuInstallModalScrollGuard = () => {
   }, { passive: false });
 };
 if (typeof window !== 'undefined') tsuInstallModalScrollGuard();
+// ★ 2026-10-15(ユーザー報告「日誌の車で、各種設定は1号車・2号車だけなのに車の名前も出る。名前を変えても前の名前が残る」):
+//   車の欄は 9/12 に「名前」1つにまとめた(車種の欄は廃止)が、以前の車種(type)が残っている車がある。表示する名前は1つだけ:
+//   名前が「1号車」のような番号だけ(または空)で車種があれば車種(ユーザー指示「下に車の名前がある店舗は車の名前を優先」)、それ以外は名前。
+//   見本の初期値のまま(1号車=ハイエース・2号車=ステップワゴン)は店舗が書いた名前ではないので名前のまま
+const TSU_CAR_TEMPLATE_TYPE = { '1号車': 'ハイエース', '2号車': 'ステップワゴン' };
+const tsuCarName = (c) => { const n = String((c && c.name) || '').trim(); const t = String((c && c.type) || '').trim(); if (t && t !== n && (!n || /^[0-9０-９]+\s*号車$/.test(n)) && TSU_CAR_TEMPLATE_TYPE[n] !== t) return t; return n || t; };
+// 表示・計算用の車の一覧(名前を上の規則にそろえ、車種は空に)。保存すると、そのまま古い車種のない形になる
+const tsuCarsNorm = (cars) => (Array.isArray(cars) ? cars : []).map(c => (c && String(c.type || '').trim()) ? { ...c, name: tsuCarName(c), type: '' } : c);
 const tsumugiTransportOn = (appData) => (appData?.systemSettings?.transportEnabled !== false);
 // 'H:MM' から n 分引いた 'H:MM'(読めなければ空)
 const tsuHmMinus = (hm, n) => { const m = String(hm || '').match(/(\d{1,2})[:：](\d{2})/); if (!m) return ''; const t = Math.max(0, (+m[1]) * 60 + (+m[2]) - (n || 0)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
@@ -35400,7 +35408,9 @@ const tsuKpParse = (raw) => { const r = String(raw || '').replace(':', ''); if (
 const tsuKpShow = (v) => { const r = String(v || '').replace(':', ''); if (!r) return '__:__'; if (r.length <= 2) return r; if (r.length === 3) return parseInt(r.slice(0, 2), 10) <= 23 ? r.slice(0, 2) + ':' + r.slice(2) : '0' + r[0] + ':' + r.slice(1); return r.slice(0, 2) + ':' + r.slice(2); };
 function TsuTimeKeypad({ title, hint, initial, onCommit, onClose, suggest }) {
   const [v, setV] = React.useState(String(initial || '').replace(':', ''));
-  const add = (d) => setV(cur => d === 'DEL' ? cur.slice(0, -1) : (cur.length < 4 ? cur + d : cur));
+  // ★ 2026-10-15: すでに時間(目安など)が入っているときは、最初に押した数字で入れ直す(付け足さない)。⌫ を最初に押したら全部消す
+  const freshRef = React.useRef(!!String(initial || '').trim()); const [fresh, setFresh] = React.useState(freshRef.current);
+  const add = (d) => { if (freshRef.current) { freshRef.current = false; setFresh(false); setV(d === 'DEL' ? '' : d); return; } setV(cur => d === 'DEL' ? cur.slice(0, -1) : (cur.length < 4 ? cur + d : cur)); };
   const done = () => { if (v === '') { onCommit(''); return; } const t = tsuKpParse(v); if (t == null) { alert('時刻は 00:00〜23:59 の範囲で入力してください'); return; } onCommit(t); };
   const doneRef = React.useRef(done); doneRef.current = done;
   const closeRef = React.useRef(onClose); closeRef.current = onClose;
@@ -35411,8 +35421,9 @@ function TsuTimeKeypad({ title, hint, initial, onCommit, onClose, suggest }) {
       <div style={{ backgroundColor: 'white', borderRadius: 16, padding: 20, width: 240, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
         <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: 13, marginBottom: 6, color: '#333' }}>{title}</div>
         {hint ? <div style={{ textAlign: 'center', fontSize: 11, fontWeight: 'bold', color: '#475569', marginBottom: 6 }} data-testid="tsu-kp-hint">{hint}</div> : null}
-        {suggest && suggest.value ? <button type="button" data-testid="tsu-kp-suggest" onClick={() => setV(String(suggest.value).replace(':', ''))} style={{ width: '100%', marginBottom: 6, padding: '7px 4px', borderRadius: 8, border: '1px dashed #d97706', backgroundColor: '#fffbeb', color: '#92400e', fontWeight: 'bold', fontSize: 12, cursor: 'pointer' }}>{suggest.label}</button> : null}
-        <div style={{ fontSize: 32, fontWeight: 'bold', textAlign: 'center', letterSpacing: 4, marginBottom: 4, padding: '8px 0', border: '2px solid #1d4ed8', borderRadius: 8, color: '#1d4ed8', minHeight: 52 }}>{tsuKpShow(v)}</div>
+        {suggest && suggest.value ? <button type="button" data-testid="tsu-kp-suggest" onClick={() => { freshRef.current = false; setFresh(false); setV(String(suggest.value).replace(':', '')); }} style={{ width: '100%', marginBottom: 6, padding: '7px 4px', borderRadius: 8, border: '1px dashed #d97706', backgroundColor: '#fffbeb', color: '#92400e', fontWeight: 'bold', fontSize: 12, cursor: 'pointer' }}>{suggest.label}</button> : null}
+        <div data-testid="tsu-kp-val" data-fresh={fresh ? '1' : '0'} style={{ fontSize: 32, fontWeight: 'bold', textAlign: 'center', letterSpacing: 4, marginBottom: 4, padding: '8px 0', border: '2px solid #1d4ed8', borderRadius: 8, color: fresh ? '#93a8d8' : '#1d4ed8', minHeight: 52 }}>{tsuKpShow(v)}</div>
+        {fresh ? <div style={{ fontSize: 10, color: '#64748b', textAlign: 'center', marginBottom: 4 }}>数字を押すと入れ直せます（そのままなら「決定」）</div> : null}
         <div style={{ fontSize: 10, color: '#94a3b8', textAlign: 'center', marginBottom: 8 }}>PCのキーボード/テンキーでも入力できます（Enter=決定）</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 8 }}>
           {tsuKpDigits9().map(n => <button key={n} type="button" onClick={() => add(String(n))} style={btn}>{n}</button>)}
@@ -35444,7 +35455,7 @@ const tpSeatLayout = (c, list) => {
 };
 function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowPrintPreview, navigateTo }) {
   const ds = appData.diarySettings || {};
-  const cars = (ds.cars && ds.cars.length ? ds.cars : [{id:'car1',name:'1号車',type:''},{id:'car2',name:'2号車',type:''}]);
+  const cars = tsuCarsNorm(ds.cars && ds.cars.length ? ds.cars : [{id:'car1',name:'1号車',type:''},{id:'car2',name:'2号車',type:''}]); // ★ 2026-10-15: 車の名前は tsuCarName にそろえる
   const plans = appData.transportPlans || {};
   //   1件 = 1回の操作で変わったコマ(日付_午前午後)の「操作前の内容」。戻すと、その内容を新しい変更として保存する(他の端末にも反映)。
   //   手での変更(移動・時間・運転者など)は同じコマを4秒以内に続けて変えたものを1件にまとめる(時間を1文字ずつ打つたびに増えないように)。
@@ -36212,6 +36223,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const [ordDrag, setOrdDrag] = useState(null); const ordDragRef = React.useRef(null); // ★ 2026-10-15: 送りの順番の一覧でつかんでいる方 {cid, pid, y0, dy, over}
   const [seatKp, setSeatKp] = useState(null); // ★ 2026-10-15: 送りの出発時間のテンキー {iso, sl, cid}
   const [arrKp, setArrKp] = useState(null); // ★ 2026-10-15: 迎えの到着時間のテンキー {iso, sl, cid}
+  const [seatView, setSeatView] = useState(null); // ★ 2026-10-15: スマホの送りの座席表(見るだけ) {iso, sl, cid}
   const performFurikaeMove = (pid, fromIso, fromSl, toIso, toSl, destZone, beforePid) => {
     const pt = (appData.patients||[]).find(x => x.id === pid); if (!pt) return;
     const fD = new Date(fromIso);
@@ -37301,11 +37313,23 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 {_baseOf(pl) && n ? <button type="button" data-testid={`tp-dl-chg-${sl}`} onClick={() => setChgPanel({ iso, sl })} className="text-[10px] text-white bg-red-600 rounded px-1.5 py-0.5 font-normal" title="押すと変更の一覧">{pl._final ? '確定後の変更' : '確定時からの変更'} {n}件 ▼</button> : null}
               </div>
               {!anyone ? <div className="px-3 py-2 text-[13px] text-slate-400">—</div> : (<>
-                {cars.map(c => { const ms = (pl.cars||{})[c.id] || []; const rmHere = ((_fin.cars||{})[c.id] || []).filter(m => m && _rmSet.has(String(m.pid)) && !ms.some(x => String(x.pid) === String(m.pid))); if (!ms.length && !rmHere.length) return null; const drv = (pl.driver||{})[c.id] || '';
-                  const rows = [...ms.map(m => ({ ...m, _rm: false })), ...rmHere.map(m => ({ ...m, _rm: true }))].sort((a, b) => _mins(a.t) - _mins(b.t)); return (
+                {cars.map(c => { const ms = (pl.cars||{})[c.id] || []; const rmHere = ((_fin.cars||{})[c.id] || []).filter(m => m && _rmSet.has(String(m.pid)) && !ms.some(x => String(x.pid) === String(m.pid)));
+                  // ★ 2026-10-15(ユーザー要望): 送りを座席表で決めた日は、車の名前・運転者の横に「送りの座席」(押すとその車の送りの座席表・見るだけ)。送りだけで使う車も見出しを出す
+                  const _dropMs = (pl.dropMode === 'custom' && pl.drop) ? ((pl.drop.cars||{})[c.id] || []) : [];
+                  if (!ms.length && !rmHere.length && !_dropMs.length) return null; const drv = (pl.driver||{})[c.id] || '';
+                  const rows = [...ms.map(m => ({ ...m, _rm: false })), ...rmHere.map(m => ({ ...m, _rm: true }))].sort((a, b) => _mins(a.t) - _mins(b.t));
+                  const _av = (pl.arrive||{})[c.id] || ''; const _au = !!_av && !!(pl.arriveAuto||{})[c.id]; return (
                   <div key={c.id}>
-                    <div className="px-3 py-1 text-[16px] font-bold text-slate-800 bg-slate-100 border-y border-slate-200">{c.name}{drv ? <span className="ml-3 text-[15px] text-slate-800"><span className="text-[12px] font-normal text-slate-500 mr-1">運転</span>{drv}</span> : null}</div>
+                    <div className="px-3 py-1 flex items-center gap-x-3 gap-y-1 flex-wrap text-[16px] font-bold text-slate-800 bg-slate-100 border-y border-slate-200"><span>{c.name}{!ms.length && !rmHere.length ? <span className="ml-1 text-[12px] font-normal text-slate-500">（送りだけ）</span> : null}</span>{drv ? <span className="text-[15px] text-slate-800"><span className="text-[12px] font-normal text-slate-500 mr-1">運転</span>{drv}</span> : null}
+                      {_dropMs.length ? <button type="button" data-testid={`tp-dl-seat-${iso}-${sl}-${c.id}`} onClick={() => setSeatView({ iso, sl, cid: c.id })} className="ml-auto shrink-0 text-[13px] font-bold text-white bg-indigo-600 rounded-lg px-2.5 py-1">送りの座席</button> : null}</div>
                     {rows.map(m => <Row key={`${m._rm?'rm-':''}${m.pid}`} m={m} pl={pl} sl={sl} rm={m._rm} />)}
+                    {/* ★ 2026-10-15(ユーザー要望「スマホでも到着を入れることがある」): その車の最後に、施設に到着(押すとテンキー)。自動計算・前週コピーの時間は「目安」 */}
+                    {ms.length ? (
+                      <div className="px-3 py-1.5 flex items-center gap-2 border-b border-slate-100 bg-slate-50" data-testid={`tp-dl-arrive-${iso}-${sl}-${c.id}`}>
+                        <span className="shrink-0 font-bold text-[14px] text-slate-600" style={{width:'7.5em'}}>施設に到着</span>
+                        <button type="button" data-testid={`tp-dl-arrive-btn-${iso}-${sl}-${c.id}`} data-auto={_au ? '1' : '0'} onClick={() => setArrKp({ iso, sl, cid: c.id })} className={`shrink-0 font-bold tabular-nums text-[19px] rounded-lg border-2 px-2 py-0.5 bg-white ${_au ? 'border-dashed border-amber-400 text-slate-400' : 'border-slate-300 text-slate-900'}`} style={{minWidth:'3.6em'}}>{_av || '—:—'}</button>
+                        {_au ? <span className="text-[11px] font-bold text-amber-800 bg-amber-100 rounded px-1.5">目安</span> : null}
+                      </div>) : null}
                   </div>); })}
                 {(pl.walkers||[]).length ? <div><div className="px-3 py-1 text-[13px] font-bold text-slate-700 bg-slate-100 border-y border-slate-200">徒歩</div>{(pl.walkers||[]).map(m => <Row key={m.pid} m={m} pl={pl} sl={sl} walk />)}</div> : null}
                 {(pl.others||[]).length ? <div><div className="px-3 py-1 text-[13px] font-bold text-slate-700 bg-slate-100 border-y border-slate-200">その他</div>{(pl.others||[]).map(m => <Row key={m.pid} m={m} pl={pl} sl={sl} />)}</div> : null}
@@ -37363,6 +37387,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                         {(pl.un||[]).length ? <div className="text-[11px] text-rose-700 font-bold">未割当 {(pl.un||[]).map(m => _pname(m.pid)).join('・')}</div> : null}
                       </div>
                     )}
+                    {/* ★ 2026-10-15: スマホは送りの座席表を見るだけ(車ごとに切り替え) */}
+                    {_tpPhone && anyone && pl.dropMode === 'custom' && pl.drop ? (
+                      <div className="px-2 pb-1"><button type="button" data-testid={`tp-fb-seatview-${iso}-${sl}`} onClick={() => setSeatView({ iso, sl, cid: (cars.find(x => ((pl.drop.cars||{})[x.id]||[]).length) || {}).id })} className="text-[11px] font-bold rounded px-1.5 py-0.5 bg-indigo-600 text-white">送りの座席表</button></div>) : null}
                     {/* ★ 2026-10-15(ユーザー要望「確定しても送りの座席は後で変えることがある」): 迎えは確定のまま、送りは確定後も座席表で変えられる */}
                     {!_tpPhone && anyone ? (
                       <div className="px-2 pb-1 flex items-center gap-2 flex-wrap">
@@ -37823,6 +37850,62 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       {arrKp && (() => { const c = cars.find(x => x.id === arrKp.cid) || {}; const r = _svcRangeTp(arrKp.sl); const pl0 = getPlan(arrKp.iso, arrKp.sl); return (
         <TsuTimeKeypad title={`${c.name || ''}　施設に到着した時間`} hint={r.s != null ? `${_hmTp(r.s)} までに到着（${r.unit}の開始）` : ''} initial={(pl0.arrive || {})[arrKp.cid] || ''}
           onClose={() => setArrKp(null)} onCommit={(v) => { if (setArrive(arrKp.iso, arrKp.sl, arrKp.cid, v) !== false) setArrKp(null); }}/>); })()}
+      {/* ★ 2026-10-15(ユーザー要望「スマホでも送りの各車の配置を見たい。スマホは閲覧用。車ごとにタップでその車の送りの座席表」): 見るだけ・1台ずつ(上で車を切り替え)。
+          下に送りの順番(住所=地図・電話=発信)。席・順番・運転者・出発を変えるのはパソコン・iPadの座席表 */}
+      {seatView && ReactDOM.createPortal((() => { const svIso = seatView.iso, svSl = seatView.sl; const pl = getPlan(svIso, svSl); const dr = (pl.dropMode === 'custom' && pl.drop) ? pl.drop : null;
+        const dcars = dr ? cars.filter(x => ((dr.cars||{})[x.id]||[]).length) : [];
+        const c = dcars.find(x => x.id === seatView.cid) || dcars[0];
+        const d0 = new Date(svIso + 'T00:00:00'); const dl = `${d0.getMonth()+1}/${d0.getDate()}（${DOWJ[d0.getDay()]}）`;
+        const list = c ? ((dr.cars||{})[c.id]||[]) : []; const lay = c ? tpSeatLayout(c, list) : null;
+        const cell = (seat, label) => { const bb = lay.bySeat[seat]; return (
+          <div key={seat} className={`relative rounded-lg border-2 min-h-[54px] flex items-center gap-1.5 px-1.5 pt-3 pb-1 ${bb ? 'border-slate-500 bg-white' : 'border-dashed border-slate-300 bg-slate-50'}`} data-testid={`tp-sv-seat-${seat}`}>
+            {label ? <span className="absolute top-0 left-1 text-[9px] font-bold text-slate-400">{label}</span> : null}
+            {bb ? <><span className="shrink-0 w-6 h-6 rounded-full bg-indigo-600 text-white text-[12px] font-bold flex items-center justify-center">{bb.i + 1}</span><span className="min-w-0 text-[13px] font-bold text-slate-800 leading-tight">{tpNameLines(_pname(bb.m.pid)).map((x, j) => <span key={j} className="block truncate">{x}</span>)}</span></> : <span className="w-full text-center text-[11px] text-slate-400">空き</span>}
+          </div>); };
+        const ptOf = (pid) => (appData.patients||[]).find(x => x.id === pid) || {};
+        let k = 1; const dep = c ? ((dr.depart||{})[c.id] || '') : ''; const depAuto = !!(c && dep && (dr.departAuto||{})[c.id]); const drv = c ? ((dr.driver||{})[c.id] || '') : ''; const memo = c ? ((dr.carMemo||{})[c.id] || '') : '';
+        return (
+        <div className="fixed inset-0 bg-white flex flex-col" style={{ zIndex: 10000 }} data-testid="tp-seat-view">
+          <div className="flex items-center gap-2 px-3 pb-2 border-b border-slate-200" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 8px)' }}>
+            <button type="button" onClick={() => setSeatView(null)} data-testid="tp-sv-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 text-slate-700 rounded-lg text-sm font-bold"><ChevronLeft size={16}/>閉じる</button>
+            <span className="text-[15px] font-bold text-slate-800">送りの座席表</span>
+            <span className={`ml-auto text-[12px] font-bold rounded px-2 py-0.5 whitespace-nowrap ${svSl === 'AM' ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800'}`}>{dl} {svSl === 'AM' ? 'AM送り' : 'PM送り'}</span>
+          </div>
+          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}>
+            {!c ? <div className="text-[14px] text-slate-500">この時間帯の送りは、座席表で決めていません（迎えと同じ）。</div> : (<>
+              {dcars.length > 1 ? <div className="flex gap-1.5 flex-wrap" data-testid="tp-sv-cars">{dcars.map(x => <button key={x.id} type="button" onClick={() => setSeatView({ iso: svIso, sl: svSl, cid: x.id })} className={`px-3 py-1.5 rounded-lg text-[14px] font-bold border ${x.id === c.id ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-700 border-slate-300'}`}>{x.name}</button>)}</div> : null}
+              <div className="flex items-baseline gap-x-3 gap-y-1 flex-wrap">
+                <span className="text-[18px] font-bold text-slate-900">{c.name}</span>
+                <span className="text-[14px] text-slate-700"><span className="text-[12px] text-slate-500 mr-1">運転</span><b>{drv || '未選択'}</b></span>
+                <span className="text-[14px] text-slate-700" data-testid="tp-sv-depart"><span className="text-[12px] text-slate-500 mr-1">出発</span><b className={depAuto ? 'text-slate-400' : ''}>{dep || '—:—'}</b>{depAuto ? <span className="ml-1 text-[10px] font-bold text-amber-800 bg-amber-100 rounded px-1">目安</span> : null}</span>
+              </div>
+              <div className="relative bg-white border-[3px] border-slate-700 px-2 pb-2.5 pt-6 flex flex-col gap-2" style={{ borderRadius: '34px 34px 12px 12px' }} data-testid="tp-sv-car">
+                <span className="absolute top-1 w-9 h-3.5 rounded-t-full border-2 border-b-0 border-slate-700" style={{ right: 'calc(25% - 15px)' }} aria-hidden="true"/>
+                <div className="grid grid-cols-2 gap-2">
+                  {cell(0, '助手席')}
+                  <div className="rounded-lg border-2 border-slate-200 bg-slate-100 min-h-[54px] flex flex-col items-center justify-center px-1"><span className="text-[9px] font-bold text-slate-400">運転席</span><span className="text-[13px] font-bold text-slate-700 text-center leading-tight">{drv || '—'}</span></div>
+                </div>
+                {lay.rows.map((n, ri) => <div key={ri} className="grid gap-2" style={{ gridTemplateColumns: `repeat(${n}, 1fr)` }}>{Array.from({ length: n }, () => { const sN = k++; return cell(sN); })}</div>)}
+              </div>
+              {memo ? <div className="text-[13px] text-slate-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">メモ：{memo}</div> : null}
+              {lay.unseated.length ? <div className="text-[13px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">席が決まっていない方：{lay.unseated.map(x => _pname(x.m.pid)).join('・')}</div> : null}
+              <div>
+                <div className="text-[13px] font-bold text-slate-600 mb-1">送りの順番</div>
+                <div className="border border-slate-200 rounded-lg divide-y divide-slate-100" data-testid="tp-sv-order">
+                  {list.map((m, i) => { const pp = ptOf(m.pid); const addr = [_addrDisp(pp.address), pp.addressBuilding, pp.addressRoom].filter(Boolean).join(' '); const calls = tsumugiPickupCalls(pp); return (
+                    <div key={m.pid} className="px-2.5 py-1.5">
+                      <div className="flex items-center gap-2"><span className="shrink-0 w-6 h-6 rounded-full bg-indigo-600 text-white text-[12px] font-bold flex items-center justify-center">{i + 1}</span><span className="font-bold text-[16px] text-slate-900">{_pname(m.pid)}</span></div>
+                      <div className="pl-8 flex items-baseline gap-x-3 flex-wrap text-[13px] leading-snug">
+                        {addr ? <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([pp.address, pp.addressBuilding].filter(Boolean).join(' '))}`} target="_blank" rel="noopener noreferrer" className="text-slate-800 underline decoration-dotted underline-offset-2">{addr}</a> : <span className="text-[12px] text-slate-400">住所未登録</span>}
+                        {calls.map((cc, j) => <a key={cc.phone} href={`tel:${cc.phone.replace(/[^0-9+]/g, '')}`} className={`whitespace-nowrap tabular-nums ${j === 0 ? 'text-slate-700' : 'text-slate-500'}`}>{cc.label !== '本人' || j > 0 ? `${cc.label} ` : ''}{cc.phone}</a>)}
+                      </div>
+                    </div>); })}
+                </div>
+              </div>
+              <div className="text-[11px] text-slate-400">スマホでは見るだけです。席・順番・運転者・出発時間を変えるときは、パソコン・iPadの座席表で変えてください。</div>
+            </>)}
+          </div>
+        </div>); })(), document.body)}
       {dragMv && ReactDOM.createPortal((
         <div style={{position:'fixed', left: dragMv.x + 10, top: dragMv.y - 14, zIndex: 100002, pointerEvents:'none', background:'#1d4ed8', color:'white', fontWeight:'bold', fontSize:14, padding:'6px 12px', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.35)'}}>
           {dragMv.name} <span style={{fontSize:11, opacity:0.85}}>青い線の位置に入ります</span>
@@ -45713,7 +45796,7 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
 
   const mutate = (newDs) => { ['staff','cars','scheduleAM','schedulePM','customRoles','customQuals'].forEach(k => { if (newDs[k] !== (dsRef.current||{})[k]) _markEd(k); }); dsRef.current = newDs; setRenderKey(k=>k+1); _md(); };
   const onBlurStaff = (i, field, val) => { _markEd('staff'); const a=[...dsRef.current.staff]; a[i]={...a[i],[field]:val}; dsRef.current={...dsRef.current,staff:a}; _md(); };
-  const onBlurCar = (i, field, val) => { _markEd('cars'); const a=[...dsRef.current.cars]; a[i]={...a[i],[field]:val}; dsRef.current={...dsRef.current,cars:a}; _md(); };
+  const onBlurCar = (i, field, val) => { const _cur = (dsRef.current.cars||[])[i] || {}; if (field === 'name' ? (val === tsuCarName(_cur) && !String(_cur.type||'').trim()) : String(_cur[field] ?? '') === String(val ?? '')) return; _markEd('cars'); const a=[...dsRef.current.cars]; a[i]={...a[i],[field]:val, ...(field === 'name' ? { type: '' } : {})}; dsRef.current={...dsRef.current,cars:a}; _md(); }; // ★ 2026-10-15: 名前を直したら古い車種は消す
   const onBlurSched = (ap, i, field, val) => { const k=`schedule${ap}`; _markEd(k); const a=[...(dsRef.current[k]||[])]; a[i]={...a[i],[field]:val}; dsRef.current={...dsRef.current,[k]:a}; _md(); };
 
   const SC = _DSPSection;
@@ -45881,7 +45964,7 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
           {ds.cars.map((c,i)=>(
             <div key={c.id} className="flex items-center gap-2">
               {/* ★ 2026-09-12f(店舗要望): 車名は1枠に統一(「シエンタ」「1号車」など自由記載)。旧・車種欄は廃止 */}
-              <input defaultValue={c.name} onBlur={e=>onBlurCar(i,'name',e.target.value)} placeholder="車両名（例: シエンタ / 1号車）" className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
+              <input defaultValue={tsuCarName(c)} onBlur={e=>onBlurCar(i,'name',e.target.value)} placeholder="車両名（例: シエンタ / 1号車）" className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
               {/* ★ 定員(2026-09-12 試験版・送迎表): 送迎表で定員オーバーを警告するために使用 */}
               <input defaultValue={c.cap || ''} onBlur={e=>onBlurCar(i,'cap',e.target.value.replace(/[^0-9]/g,''))} placeholder="定員" inputMode="numeric" className="w-[64px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none text-center focus:border-blue-400" title="送迎表で超過時に警告します"/>
               <span className="text-xs text-slate-500 whitespace-nowrap">名<span className="text-slate-400 hidden sm:inline">（運転者を除く）</span></span>
@@ -45969,7 +46052,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   const isReadOnly = false;
 
   const fi = appData.systemSettings?.facilityInfo || {};
-  const _baseDs = appData.diarySettings || { staff:[], cars:[], scheduleAM:[], schedulePM:[] };
+  // ★ 2026-10-15: 車の名前は tsuCarName にそろえる(古い車種を名前の下に出さない)
+  const _baseDs = React.useMemo(() => { const d0 = appData.diarySettings || { staff:[], cars:[], scheduleAM:[], schedulePM:[] }; return Array.isArray(d0.cars) && d0.cars.some(c => c && String(c.type || '').trim()) ? { ...d0, cars: tsuCarsNorm(d0.cars) } : d0; }, [appData.diarySettings]);
   // 担当者の追加/削除は保留扱い（保存ボタンで commit）
   const [pendingStaff, setPendingStaff] = useState(null); // null = no pending
   const ds = pendingStaff ? { ..._baseDs, staff: pendingStaff } : _baseDs;
