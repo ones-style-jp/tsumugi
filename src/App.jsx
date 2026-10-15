@@ -12402,6 +12402,11 @@ const diaryRequiredRoles = (appData) => {
   const cap = Number(appData?.systemSettings?.facilityInfo?.capacity) || 10;
   return ['管理者', '生活相談員', '機能訓練指導員', '介護職員', ...(cap > 10 ? ['看護師'] : [])];
 };
+// ★ 2026-10-15(ユーザー報告「副役職の人を押すと本来の役職と管理者の両方にチェックが付く」): 副役職の欄は別に記録する
+const DIARY_SUB_CUTOFF = '2026-10-15';
+const diarySubKey = (id, role) => `${id}@sub:${role}`;
+const diarySubExplicit = (log, iso) => !!(log && (log.staffSubV || Object.keys(log.staff || {}).some(k => k.includes('@sub:')))) || !(iso && iso < DIARY_SUB_CUTOFF);
+const diarySubOn = (log, id, role, iso) => { const sel = (log && log.staff) || {}; if (sel[diarySubKey(id, role)]) return true; return !diarySubExplicit(log, iso) && !!sel[id]; };
 const diaryStaffMissing = (log, iso, appData) => {
   try {
     if (!log || !appData) return [];
@@ -12412,7 +12417,7 @@ const diaryStaffMissing = (log, iso, appData) => {
     // ★ 兼務(2026-09-29): log.kenmu[役職]=その日に兼務する職員id。その職員が担当職員に選ばれていれば充足
     //   (例: 生活相談員が2人出勤しても介護職員は別に必要。1人が介護職員を兼務するなら「兼務」で記録)
     const kenmu = log.kenmu || {};
-    const has = (role) => staff.some(st => sel[st.id] && (st.role === role || st.role2 === role || String(kenmu[role] ?? '') === String(st.id)));
+    const has = (role) => staff.some(st => (sel[st.id] && (st.role === role || String(kenmu[role] ?? '') === String(st.id))) || (st.role2 === role && st.role !== role && diarySubOn(log, st.id, role, iso)));
     const gensan = log.gensan || {};
     return diaryRequiredRoles(appData).filter(role => !has(role) && !gensan[role]);
   } catch { return []; }
@@ -45770,6 +45775,21 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     return () => clearTimeout(t);
   }, [localLog]); // eslint-disable-line
   const toggle = (field, key) => updateLog({ [field]: { ...(log[field]||{}), [key]: !(log[field]||{})[key] } });
+  // ★ 2026-10-15: 担当職員のチェック。副役職の欄(_sub)は「職員id@sub:役職」で別に持つ(本来の欄を押しても副役職の欄は付かない)
+  const _staffOn = (s) => (s && s._sub) ? diarySubOn(log, s.id, s._subRole, _diaryIsoDate) : !!(log.staff||{})[s.id];
+  const toggleStaffRow = (s) => {
+    const sel = { ...(log.staff||{}) };
+    if (s._sub) {
+      // 従来の見え方の日誌(10/15より前・副役職の記録なし)を初めて触るときは、今見えている印をそのまま記録にしてから切り替える
+      if (!diarySubExplicit(log, _diaryIsoDate)) (ds.staff||[]).forEach(st => { if (st && st.role2 && sel[st.id]) sel[diarySubKey(st.id, st.role2)] = true; });
+      const k = diarySubKey(s.id, s._subRole);
+      if (sel[k]) delete sel[k]; else { sel[k] = true; sel[s.id] = true; }
+      updateLog({ staff: sel, staffSubV: 1 });
+    } else {
+      if (sel[s.id]) { delete sel[s.id]; Object.keys(sel).forEach(k => { if (k.startsWith(`${s.id}@sub:`)) delete sel[k]; }); } else sel[s.id] = true;
+      updateLog({ staff: sel });
+    }
+  };
   const setPatRow = (i,f,v) => { const rows=[...(log.patientRows||[])]; while(rows.length<=i) rows.push({}); rows[i]={...rows[i],[f]:v}; updateLog({patientRows:rows}); };
   const setCarTime = (carId,tf,v) => updateLog({ carTimes: { ...(log.carTimes||{}), [carId]: {...((log.carTimes||{})[carId]||{}),[tf]:v} }});
 
@@ -45908,7 +45928,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   // ★ 副役職(role2)の人もその欄に載せる(2026-09-28 ユーザー要望)。副で載る人は「不在時」の印を付ける(管理者が2名並んだときの区別)
   const _byRole = (role) => _dedupByName([
     ...ds.staff.filter(s=>s.role===role && _staffOk(s)),
-    ...ds.staff.filter(s=>s.role2===role && s.role!==role && _staffOk(s)).map(s=>({ ...s, _sub:true })),
+    ...ds.staff.filter(s=>s.role2===role && s.role!==role && _staffOk(s)).map(s=>({ ...s, _sub:true, _subRole:role })),
   ]);
   const managers  = _byRole('管理者');
   const seikatsu  = _byRole('生活相談員');
@@ -45990,8 +46010,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           <span key={`${s.id}_${s._sub?'sub':'main'}`} style={{display:'inline-flex',flexDirection:'column',alignItems:'flex-start',gap:0}}>
             {/* ★ 2026-09-28 ユーザー指示: 日誌は氏名だけ(「不在時」印・資格表示は出さない)。副役職の人も該当欄に並ぶのは維持 */}
             <span style={{display:'inline-flex',alignItems:'center',gap:2,whiteSpace:'nowrap'}}>
-              {CB({checked:!!(log.staff||{})[s.id], onChange:()=>{ toggle('staff',s.id); if(!(log.staff||{})[s.id] && !appData.diarySettings?.hideStaffTemp) setTempModal({staffId:s.id,staffName:s.name,value:(log.staffTemp||{})[s.id]||''}); }, sz:11})}
-              <span style={{fontSize:11,whiteSpace:'nowrap',cursor:'pointer'}} onClick={()=>{ toggle('staff',s.id); if(!(log.staff||{})[s.id] && !appData.diarySettings?.hideStaffTemp) setTempModal({staffId:s.id,staffName:s.name,value:(log.staffTemp||{})[s.id]||''}); }}>{s.name}</span>
+              {CB({checked:_staffOn(s), onChange:()=>{ toggleStaffRow(s); if(!(log.staff||{})[s.id] && !appData.diarySettings?.hideStaffTemp) setTempModal({staffId:s.id,staffName:s.name,value:(log.staffTemp||{})[s.id]||''}); }, sz:11})}
+              <span style={{fontSize:11,whiteSpace:'nowrap',cursor:'pointer'}} onClick={()=>{ toggleStaffRow(s); if(!(log.staff||{})[s.id] && !appData.diarySettings?.hideStaffTemp) setTempModal({staffId:s.id,staffName:s.name,value:(log.staffTemp||{})[s.id]||''}); }}>{s.name}</span>
             </span>
             {/* ★ 2026-09-18: 各種設定→日誌「職員の体温を表示・入力する」がOFFの店舗は非表示(画面・印刷とも同じ描画関数) */}
             {!appData.diarySettings?.hideStaffTemp && (log.staffTemp||{})[s.id] && (
@@ -47197,7 +47217,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             {groups.map(([role, l]) => (
               <div key={role}>
                 <div className="text-[12px] font-bold text-slate-500 mb-1">{role}</div>
-                <div className="flex flex-wrap gap-2">{l.filter(x => x.name).map(x => chip(!!_st[x.id], x.name, () => { toggle('staff', x.id); if (!_st[x.id] && !appData.diarySettings?.hideStaffTemp) setTempModal({ staffId: x.id, staffName: x.name, value: (log.staffTemp || {})[x.id] || '' }); }, `${role}_${x.id}_${x._sub ? 's' : 'm'}`, `dpc-staff-${x.id}`))}</div>
+                <div className="flex flex-wrap gap-2">{l.filter(x => x.name).map(x => chip(_staffOn(x), x.name, () => { toggleStaffRow(x); if (!_st[x.id] && !appData.diarySettings?.hideStaffTemp) setTempModal({ staffId: x.id, staffName: x.name, value: (log.staffTemp || {})[x.id] || '' }); }, `${role}_${x.id}_${x._sub ? 's' : 'm'}`, `dpc-staff-${x.id}`))}</div>
               </div>
             ))}
             {recList.length > 0 && <div>
@@ -52721,6 +52741,7 @@ function CopyFaxButton({ value }) {
   );
 }
 function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview }) {
+  const _absPhone = useTsuIsPhone(); // ★ 2026-10-15: スマホのカレンダーは名前を上の段・状態を下の段に
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
   const [currentMonth, setCurrentMonth] = React.useState(() => { const d=new Date(); return new Date(d.getFullYear(),d.getMonth(),1); });
@@ -53279,7 +53300,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                 const isToday = new Date(dateStr).getTime()===today.getTime();
                 const isClosed = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(di);
                 return (
-                  <div key={di} style={{minHeight:90,minWidth:0,borderRight:'1px solid #f1f5f9',padding:'6px 4px 4px',opacity:day.other?0.75:1,background:isClosed?'#f1f5f9':isToday?'#fffbeb':'white',position:'relative'}}>
+                  <div key={di} style={{minHeight:90,minWidth:0,borderRight:'1px solid #f1f5f9',padding:_absPhone?'6px 2px 4px':'6px 4px 4px',opacity:day.other?0.75:1,background:isClosed?'#f1f5f9':isToday?'#fffbeb':'white',position:'relative'}}>
                     <div style={{fontSize:13,fontWeight:'bold',color:isClosed?'#cbd5e1':di===0?'#dc2626':di===6?'#2563eb':'#334155',marginBottom:4,display:'flex',alignItems:'center',gap:4}}>
                       {day.other ? `${day.m}/${day.d}` : day.d}
                       {day.other&&<span style={{fontSize:9,color:'#94a3b8'}}>翌月</span>}
@@ -53299,11 +53320,19 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                             width:'100%',minWidth:0,marginBottom:3,padding:'3px 4px',borderRadius:6,border:'none',
                             background:st!=='none'?statusColors[st]:'#fef2f2',
                             color:'#1e293b',fontSize:11,fontWeight:'bold',cursor:'pointer',
-                            textAlign:'left',display:'flex',alignItems:'center',gap:2
+                            textAlign:'left',display:'flex',alignItems:'center',gap:2,
+                            ...(_absPhone ? { flexDirection:'column', alignItems:'stretch', gap:1, padding:'3px 3px' } : {})
                           }}>
-                          <span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{maskedN}</span>
+                          {_absPhone
+                            ? <span style={{minWidth:0,lineHeight:1.2,wordBreak:'break-all'}}>{String(maskedN||'').trim().split(/[\s　]+/).map((w,wi)=><span key={wi} style={{display:'block'}}>{w}</span>)}</span>
+                            : <span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{maskedN}</span>}
+                          {_absPhone ? ((furikae || st!=='none') ? <span style={{display:'flex',flexWrap:'wrap',gap:2}}>
+                            {furikae&&<span style={{fontSize:9,color:'#7c2d12',background:'#fed7aa',padding:'0 3px',borderRadius:3,fontWeight:'bold'}}>振替</span>}
+                            {st!=='none'&&<span style={{fontSize:9,color:'#475569',background:'rgba(255,255,255,0.75)',padding:'0 3px',borderRadius:3}}>{statusLabels[st]}</span>}
+                          </span> : null) : <>
                           {furikae&&<span style={{fontSize:9,flexShrink:0,color:'#7c2d12',background:'#fed7aa',padding:'1px 4px',borderRadius:3,fontWeight:'bold'}}>振替あり</span>}
                           {st!=='none'&&<span style={{fontSize:9,flexShrink:0,color:'#475569',background:'rgba(255,255,255,0.7)',padding:'1px 4px',borderRadius:3}}>{statusLabels[st]}</span>}
+                          </>}
                         </button>
                       );
                     })}
