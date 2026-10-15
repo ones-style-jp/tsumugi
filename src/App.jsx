@@ -3486,8 +3486,8 @@ const initialData = {
       { id: 'ds6', role: '介護職員',      name: '長谷川' },
     ],
     cars: [
-      { id: 'car1', name: '1号車', type: 'ハイエース' },
-      { id: 'car2', name: '2号車', type: 'ステップワゴン' },
+      { id: 'car1', name: '1号車', type: '' },
+      { id: 'car2', name: '2号車', type: '' },
     ],
     scheduleAM: [
       { id: 'am0', time: '8:25〜8:55',   content: '送迎車にてご自宅にお迎え' },
@@ -35270,6 +35270,14 @@ const tsuInstallModalScrollGuard = () => {
   }, { passive: false });
 };
 if (typeof window !== 'undefined') tsuInstallModalScrollGuard();
+// ★ 2026-10-15(ユーザー報告「日誌の車で、各種設定は1号車・2号車だけなのに車の名前も出る。名前を変えても前の名前が残る」):
+//   車の欄は 9/12 に「名前」1つにまとめた(車種の欄は廃止)が、以前の車種(type)が残っている車がある。表示する名前は1つだけ:
+//   名前が「1号車」のような番号だけ(または空)で車種があれば車種(ユーザー指示「下に車の名前がある店舗は車の名前を優先」)、それ以外は名前。
+//   見本の初期値のまま(1号車=ハイエース・2号車=ステップワゴン)は店舗が書いた名前ではないので名前のまま
+const TSU_CAR_TEMPLATE_TYPE = { '1号車': 'ハイエース', '2号車': 'ステップワゴン' };
+const tsuCarName = (c) => { const n = String((c && c.name) || '').trim(); const t = String((c && c.type) || '').trim(); if (t && t !== n && (!n || /^[0-9０-９]+\s*号車$/.test(n)) && TSU_CAR_TEMPLATE_TYPE[n] !== t) return t; return n || t; };
+// 表示・計算用の車の一覧(名前を上の規則にそろえ、車種は空に)。保存すると、そのまま古い車種のない形になる
+const tsuCarsNorm = (cars) => (Array.isArray(cars) ? cars : []).map(c => (c && String(c.type || '').trim()) ? { ...c, name: tsuCarName(c), type: '' } : c);
 const tsumugiTransportOn = (appData) => (appData?.systemSettings?.transportEnabled !== false);
 // 'H:MM' から n 分引いた 'H:MM'(読めなければ空)
 const tsuHmMinus = (hm, n) => { const m = String(hm || '').match(/(\d{1,2})[:：](\d{2})/); if (!m) return ''; const t = Math.max(0, (+m[1]) * 60 + (+m[2]) - (n || 0)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
@@ -35420,7 +35428,7 @@ const tpSeatLayout = (c, list) => {
 };
 function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowPrintPreview, navigateTo }) {
   const ds = appData.diarySettings || {};
-  const cars = (ds.cars && ds.cars.length ? ds.cars : [{id:'car1',name:'1号車',type:''},{id:'car2',name:'2号車',type:''}]);
+  const cars = tsuCarsNorm(ds.cars && ds.cars.length ? ds.cars : [{id:'car1',name:'1号車',type:''},{id:'car2',name:'2号車',type:''}]); // ★ 2026-10-15: 車の名前は tsuCarName にそろえる
   const plans = appData.transportPlans || {};
   //   1件 = 1回の操作で変わったコマ(日付_午前午後)の「操作前の内容」。戻すと、その内容を新しい変更として保存する(他の端末にも反映)。
   //   手での変更(移動・時間・運転者など)は同じコマを4秒以内に続けて変えたものを1件にまとめる(時間を1文字ずつ打つたびに増えないように)。
@@ -45669,7 +45677,7 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
 
   const mutate = (newDs) => { ['staff','cars','scheduleAM','schedulePM','customRoles','customQuals'].forEach(k => { if (newDs[k] !== (dsRef.current||{})[k]) _markEd(k); }); dsRef.current = newDs; setRenderKey(k=>k+1); _md(); };
   const onBlurStaff = (i, field, val) => { _markEd('staff'); const a=[...dsRef.current.staff]; a[i]={...a[i],[field]:val}; dsRef.current={...dsRef.current,staff:a}; _md(); };
-  const onBlurCar = (i, field, val) => { _markEd('cars'); const a=[...dsRef.current.cars]; a[i]={...a[i],[field]:val}; dsRef.current={...dsRef.current,cars:a}; _md(); };
+  const onBlurCar = (i, field, val) => { const _cur = (dsRef.current.cars||[])[i] || {}; if (field === 'name' ? (val === tsuCarName(_cur) && !String(_cur.type||'').trim()) : String(_cur[field] ?? '') === String(val ?? '')) return; _markEd('cars'); const a=[...dsRef.current.cars]; a[i]={...a[i],[field]:val, ...(field === 'name' ? { type: '' } : {})}; dsRef.current={...dsRef.current,cars:a}; _md(); }; // ★ 2026-10-15: 名前を直したら古い車種は消す
   const onBlurSched = (ap, i, field, val) => { const k=`schedule${ap}`; _markEd(k); const a=[...(dsRef.current[k]||[])]; a[i]={...a[i],[field]:val}; dsRef.current={...dsRef.current,[k]:a}; _md(); };
 
   const SC = _DSPSection;
@@ -45837,7 +45845,7 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
           {ds.cars.map((c,i)=>(
             <div key={c.id} className="flex items-center gap-2">
               {/* ★ 2026-09-12f(店舗要望): 車名は1枠に統一(「シエンタ」「1号車」など自由記載)。旧・車種欄は廃止 */}
-              <input defaultValue={c.name} onBlur={e=>onBlurCar(i,'name',e.target.value)} placeholder="車両名（例: シエンタ / 1号車）" className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
+              <input defaultValue={tsuCarName(c)} onBlur={e=>onBlurCar(i,'name',e.target.value)} placeholder="車両名（例: シエンタ / 1号車）" className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/>
               {/* ★ 定員(2026-09-12 試験版・送迎表): 送迎表で定員オーバーを警告するために使用 */}
               <input defaultValue={c.cap || ''} onBlur={e=>onBlurCar(i,'cap',e.target.value.replace(/[^0-9]/g,''))} placeholder="定員" inputMode="numeric" className="w-[64px] px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none text-center focus:border-blue-400" title="送迎表で超過時に警告します"/>
               <span className="text-xs text-slate-500 whitespace-nowrap">名<span className="text-slate-400 hidden sm:inline">（運転者を除く）</span></span>
@@ -45925,7 +45933,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   const isReadOnly = false;
 
   const fi = appData.systemSettings?.facilityInfo || {};
-  const _baseDs = appData.diarySettings || { staff:[], cars:[], scheduleAM:[], schedulePM:[] };
+  // ★ 2026-10-15: 車の名前は tsuCarName にそろえる(古い車種を名前の下に出さない)
+  const _baseDs = React.useMemo(() => { const d0 = appData.diarySettings || { staff:[], cars:[], scheduleAM:[], schedulePM:[] }; return Array.isArray(d0.cars) && d0.cars.some(c => c && String(c.type || '').trim()) ? { ...d0, cars: tsuCarsNorm(d0.cars) } : d0; }, [appData.diarySettings]);
   // 担当者の追加/削除は保留扱い（保存ボタンで commit）
   const [pendingStaff, setPendingStaff] = useState(null); // null = no pending
   const ds = pendingStaff ? { ..._baseDs, staff: pendingStaff } : _baseDs;
