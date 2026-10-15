@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>つむぎ 新機能のご案内と使い方（10月15日）</title>
+<style>
+  :root{--ink:#1f2937;--sub:#5b6472;--line:#d9dee6;--green:#5b8c2a;--green-d:#3f6a1a;--green-l:#eef5e6;--amber:#9a6412;--amber-l:#fdf4e1;--blue:#2f5fa8;--blue-l:#e8eff9;--red:#b42318;--red-l:#fbeae8;--gray-l:#f3f4f6}
+  *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  html,body{margin:0;padding:0;background:#e9ebef;color:var(--ink);font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",Meiryo,sans-serif;font-size:12.8px;line-height:1.58}
+  .page{width:210mm;height:297mm;margin:10mm auto;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.12);position:relative;overflow:hidden;display:flex;flex-direction:column}
+  .in{padding:13mm 14mm 9mm;flex:1;display:flex;flex-direction:column;min-height:0}
+  h1{font-size:30px;margin:4px 0 6px;color:var(--green-d);line-height:1.25;text-wrap:balance}
+  h2{font-size:19px;margin:0 0 7px;color:var(--green-d);padding-bottom:5px;border-bottom:3px solid var(--green);display:flex;align-items:center;gap:10px}
+  h3{font-size:14px;margin:8px 0 4px;color:var(--green-d)}
+  p{margin:5px 0}
+  .lead{font-size:13.5px;color:var(--sub)}
+  ul,ol{margin:3px 0 3px 1.3em;padding:0}li{margin:2px 0}
+  ol.steps li{margin:4px 0}
+  table{border-collapse:collapse;width:100%;font-size:11.8px}
+  th,td{border:1px solid var(--line);padding:4px 6px;vertical-align:top;text-align:left}
+  th{background:var(--green-l);white-space:nowrap}
+  td.s{white-space:nowrap;font-weight:700}
+  .card{border:1px solid var(--line);border-radius:8px;padding:7px 11px;background:#fff;margin:6px 0}
+  .card.g{background:var(--green-l);border-color:#cfe0bb}.card.a{background:var(--amber-l);border-color:#ecd9a8}.card.b{background:var(--blue-l);border-color:#c5d6f2}.card.r{background:var(--red-l);border-color:#efc3bf}
+  .card h3{margin-top:0}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}.cols>*{min-width:0}
+  .cols.w{grid-template-columns:42% 1fr}.cols.w2{grid-template-columns:58% 1fr}.cols.n{grid-template-columns:30% 1fr}.cols.n2{grid-template-columns:27% 1fr}
+  .cols3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;align-items:start}.cols3>*{min-width:0}
+  .pill{display:inline-block;padding:1px 9px;border-radius:999px;font-size:11px;font-weight:700;background:var(--green-l);color:var(--green-d);border:1px solid #cfe0bb;white-space:nowrap}
+  h2 .pill{font-size:11.5px}
+  .kbd{display:inline-block;padding:0 6px;border:1px solid #b8c0cc;border-bottom-width:2px;border-radius:5px;background:#fff;font-size:11.8px;font-weight:700;white-space:nowrap;line-height:1.5}
+  figure{margin:5px 0 4px}
+  figure img{display:block;width:100%;height:auto;border:1px solid #c9ced8;border-radius:6px}
+  figure.sp img{border-radius:14px}
+  figure.c img{width:auto;max-width:100%;margin:0 auto}
+  figcaption{font-size:10.8px;color:var(--sub);margin-top:3px;line-height:1.45}
+  .note{font-size:10.8px;color:var(--sub)}
+  .foot{margin-top:auto;padding-top:6px;border-top:1px solid var(--line);font-size:10px;color:var(--sub);display:flex;justify-content:space-between}
+  .ov td:first-child{white-space:nowrap;font-weight:700}
+  .ov td:last-child{white-space:nowrap;text-align:center;color:var(--sub)}
+  .qa dt{font-weight:700;color:var(--green-d);margin-top:8px}
+  .qa dt::before{content:"Q. ";color:var(--green)}
+  .qa dd{margin:2px 0 0 1.4em}
+  .qa dd::before{content:"A. ";font-weight:700;color:var(--sub);margin-left:-1.4em}
+  .red{color:var(--red);font-weight:700}
+  .flow{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:8px 0}
+  .flow>div{border:2px solid var(--green);border-radius:10px;padding:8px 10px;background:#fff;position:relative;min-width:0}
+  .flow>div .t{font-size:11px;font-weight:700;color:#fff;background:var(--green);border-radius:999px;padding:1px 9px;display:inline-block;margin-bottom:4px}
+  .flow>div h4{margin:0 0 4px;font-size:13.5px;color:var(--green-d)}
+  .flow>div p{margin:0;font-size:11.8px;line-height:1.5}
+  .flow>div:not(:last-child)::after{content:"";position:absolute;right:-9px;top:50%;width:0;height:0;border-top:8px solid transparent;border-bottom:8px solid transparent;border-left:9px solid var(--green);transform:translateY(-50%)}
+  .where{display:inline-block;font-size:11px;color:var(--blue);background:var(--blue-l);border:1px solid #c5d6f2;border-radius:5px;padding:0 6px;white-space:nowrap}
+  @media print{
+    @page{size:A4 portrait;margin:0}
+    html,body{background:#fff}
+    .page{margin:0;box-shadow:none;page-break-after:always;height:297mm}
+    .page:last-child{page-break-after:auto}
+  }
+</style>
+</head>
+<body>
+
+<!-- 1 表紙 -->
+<div class="page"><div class="in">
+  <p><span class="pill">事業所向け</span></p>
+  <h1>つむぎ<br>新機能のご案内と使い方</h1>
+  <p class="lead">10月5日以降の更新分のまとめ（10月15日 配信）　／　ワンズスタイル本部</p>
+
+  <div class="card g">
+    <h3>はじめに</h3>
+    <ul>
+      <li>ここに載っている機能は、<b>10月15日から全店で使えます</b>。アプリを開き直すと自動で最新になります（店舗での操作は不要です）。</li>
+      <li>画面の写真はすべて<b>見本データ（架空の利用者・職員・事業所）</b>です。</li>
+      <li>分からないこと・不具合は、これまでどおり<b>本部（髙橋）へ直接</b>ご連絡ください。</li>
+    </ul>
+  </div>
+
+  <div class="card a">
+    <h3>いちばん大きな変更 ― 送迎表と日誌</h3>
+    <p>送迎表で<b>送りの座席・運転者・出発と到着の時間</b>まで決められるようになりました。日誌は<b>「送迎表取込」を押すだけで、送迎の欄（車・運転者・時間）が埋まります</b>。紙の座席表を書いたり、日誌に時間と運転者を書き写したりする手間がなくなります。新しい1日の流れは次のページをご覧ください。</p>
+  </div>
+
+  <h3 style="margin-top:10px">新しくなったことの一覧</h3>
+  <table class="ov">
+    <tr><th>画面</th><th>変わったこと</th><th>ページ</th></tr>
+    <tr><td>送迎表と日誌</td><td>新しい1日の流れ・使う前に確かめる設定</td><td>2</td></tr>
+    <tr><td>送迎表（座席表）</td><td>送りを車の席の絵で決める（席・送りの順番・運転者・出発時間・ダウンロード）</td><td>3〜4</td></tr>
+    <tr><td>送迎表（到着）</td><td>各車の最後に「施設に到着」。自動計算は開始時間の1分前に着くように</td><td>5</td></tr>
+    <tr><td>送迎表（そのほか）</td><td>「変更内容」と「連絡済」・時間を入れると時間順・スマホの1日リスト・送迎時の連絡先</td><td>6</td></tr>
+    <tr><td>日誌</td><td>送迎表取込で運転者・到着・出発も入る／時間の確認／兼務（副役職）のチェック</td><td>7</td></tr>
+    <tr><td>サービス提供記録 入力</td><td>気分のあとに特記へ書く内容／並び替え／血圧の再測定／テンキー</td><td>8</td></tr>
+    <tr><td>そのほか</td><td>体力測定・連絡帳・クラス在籍表・利用者マスタ・休み連絡・スマホ／iPad など</td><td>9</td></tr>
+    <tr><td>よくあるご質問</td><td>Q&amp;A・直った不具合</td><td>10</td></tr>
+  </table>
+  <div class="foot"><span>つむぎ 新機能のご案内（事業所向け・10月15日）</span><span>1</span></div>
+</div></div>
+
+<!-- 2 新しい1日の流れ -->
+<div class="page"><div class="in">
+  <h2>送迎表と日誌：新しい1日の流れ</h2>
+  <p class="lead">送迎のことは送迎表で決めて、日誌はそれを取り込みます。送りが迎えと同じ日は、2の座席表は使わなくてかまいません。</p>
+  <div class="flow">
+    <div><span class="t">前の週まで</span><h4>1. 迎えを作って確定</h4><p>送迎表の<b>「前週コピー」「自動計算」</b>で、車・乗る順・お迎え時間を作り、<b>「確定」</b>します。到着の時間には「目安」が入ります。</p></div>
+    <div><span class="t">送りの前</span><h4>2. 送りを座席表で</h4><p>送りを変える日は、<b>「送りは迎えと同じ」のチェックを外して</b>座席表で席・順番・運転者・出発時間を決めます。必要なら座席表をダウンロードして印刷。</p></div>
+    <div><span class="t">迎えから戻ったら</span><h4>3. 施設に着いた時間</h4><p>確定後の表示（パソコン・iPad。スマホは上の「1週間」を押した表示）で、各車の<b>「施設に到着」</b>を実際の時間に直します。</p></div>
+    <div><span class="t">日誌</span><h4>4. 送迎表取込</h4><p>日誌の<b>「送迎表取込」</b>を押します。車・運転者・到着・出発が入ります。確認が出たら答えて、保存します。</p></div>
+  </div>
+  <div class="card a">
+    <h3>使う前に確かめてください（店舗で1回だけ）</h3>
+    <table>
+      <tr><th style="width:34%">設定</th><th style="width:30%">場所</th><th>使われるところ</th></tr>
+      <tr><td><b>サービス提供時間</b>（1単位目・2単位目。例 9:00〜12:05）</td><td><span class="where">各種設定 → 事業所情報</span></td><td>送迎表の自動計算（開始の1分前に着く）、到着・出発の確認（日誌・送迎表）、出発の目安</td></tr>
+      <tr><td><b>送迎車両の名前・定員</b>（運転者を除く人数）</td><td><span class="where">各種設定 → 日誌 → 送迎車両</span></td><td>座席表の席の形。定員が無い車は、席の絵が正しく出ません</td></tr>
+      <tr><td><b>乗車にかかる時間（分）</b>・<b>送迎時の連絡先</b></td><td><span class="where">利用者マスタ → サービス提供内容</span></td><td>自動計算のお迎え時間、座席表の出発の目安／スマホの1日リストの電話</td></tr>
+      <tr><td><b>職員の名前</b></td><td><span class="where">各種設定 → 日誌 → 職員</span></td><td>送迎表で選んだ運転者と<b>同じ名前</b>の職員に、日誌でチェックが付きます</td></tr>
+    </table>
+  </div>
+  <div class="cols">
+    <div class="card">
+      <h3>送迎表を使わない店舗は</h3>
+      <p>各種設定の<b>「送迎表を使う」</b>のチェックを外すと、送迎表まわりの表示（ホームのお知らせ・日誌の「送迎表取込」など）が出なくなります。日誌はこれまでどおり手で入れてください（「1週間前の送迎を自動コピー」も使えます）。</p>
+    </div>
+    <div class="card b">
+      <h3>確定のあとに変わったら</h3>
+      <p>休み・時間の変更などは、上の<b>「変更内容」</b>で確かめられます。ご家族への連絡が必要なものは、連絡したら<b>「連絡済」</b>にチェックを付けます（6ページ）。</p>
+    </div>
+  </div>
+  <div class="foot"><span>つむぎ 新機能のご案内（事業所向け・10月15日）</span><span>2</span></div>
+</div></div>
+
+<!-- 3 座席表 -->
+<div class="page"><div class="in">
+  <h2>送迎表：送りを「座席表」で決める</h2>
+  <p class="lead">紙の座席表（車の絵に名前を書いて、送りの順番を決めるもの）と同じことを、画面でできます。</p>
+  <figure><img src="manual/img/a15_seat_modal.jpg" alt="座席表（AM送り）"><figcaption>座席表（AM送り）。丸い番号が送りの順番です。下に、その日の午後の迎えが出ます（見本）。</figcaption></figure>
+  <div class="cols">
+    <div class="card">
+      <h3>使い方</h3>
+      <ol class="steps">
+        <li>送迎表で、その日の<b>「送りは迎えと同じ」のチェックを外します</b>。座席表が開きます（迎えの逆の順で、下書きが入っています）。</li>
+        <li>名前を<b>長押ししてつかみ</b>、席に入れます。入れた順に<b>丸い番号</b>が付きます。これが<b>送りの順番</b>です。</li>
+        <li>別の席に入れると入れ替わります。席から外すときは、上の<b>「席が決まっていない方」</b>へ落とします。</li>
+        <li><b>運転席</b>で送りの運転者を選びます。</li>
+        <li>車の名前の横の<b>「出発」</b>を押して、出発時間を入れます（次のページ）。</li>
+        <li>車の下のメモ欄に「前・横」などを書けます。</li>
+        <li>上の<b>「AM送り」「PM送り」</b>で切り替え、<b>◀ ▶</b>で日を変えます。終わったら左上の<b>「閉じる」</b>。もう一度開くときは、チェックの横の<b>「座席表」</b>を押します。</li>
+      </ol>
+    </div>
+    <div>
+      <div class="card b">
+        <h3>覚えておくと便利なこと</h3>
+        <ul>
+          <li>車に乗るのは<b>席に入っている方だけ</b>なので、定員を超えることはありません。</li>
+          <li><b>確定した週でも、送りは変えられます</b>（迎えは確定のまま）。確定後の表示の「送りは迎えと同じ」「座席表」から開きます。</li>
+          <li>AM送りの座席表の下には、<b>その日の午後の迎え</b>（車・運転者・お迎えの方と時間）が見えます。午前に送って、そのまま午後のお迎えに行くときの確認に使えます。</li>
+          <li><b>「ダウンロード」</b>で、その日のAM送り・PM送りをA4の座席表にできます。運転者と出発時間も載ります。</li>
+        </ul>
+      </div>
+      <div class="card a">
+        <h3>送りを迎えと同じに戻すとき</h3>
+        <p>「送りは迎えと同じ」にもう一度チェックを付けます。座席表で決めた送り（席・順番・メモ）は消えるので、確認が出ます。</p>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>つむぎ 新機能のご案内（事業所向け・10月15日）</span><span>3</span></div>
+</div></div>
+
+<!-- 4 順番・出発・並び -->
+<div class="page"><div class="in">
+  <h2>送迎表：送りの順番・出発時間・座席の並び</h2>
+  <div class="cols n">
+    <figure><img src="manual/img/a15_seat_order.jpg" alt="送りの順番の一覧"><figcaption>丸い番号を押すと、その車の方が送りの順番で一覧に出ます。</figcaption></figure>
+    <div>
+      <h3>送りの順番を並べ替える</h3>
+      <ol class="steps">
+        <li>席の<b>丸い番号</b>を押します。その車に乗る方が、送りの順番どおりに一覧で出ます。</li>
+        <li>名前を<b>つかんで上下に動かす</b>か、右の<b>矢印（∧ ∨）</b>で入れ替えます。</li>
+        <li>終わったら<b>「閉じる」</b>を押します。</li>
+      </ol>
+      <p class="note">全員の並びを見ながら直せます。1人を動かすと、ほかの方の番号も変わるので、一覧で確かめてください。</p>
+      <h3>出発時間を入れる</h3>
+      <div class="cols n2" style="gap:10px">
+        <figure class="c"><img src="manual/img/a15_seat_depart_kp.jpg" alt="出発時間のテンキー"></figure>
+        <ul>
+          <li>車の名前の横の<b>「出発」</b>を押すとテンキーが出ます。パソコンはキーボードでも入力でき、<span class="kbd">Enter</span>で決定です。</li>
+          <li>テンキーの<b>「目安 ○:○○ を入れる」</b>を押すと、目安の時間が入ります。目安は、終了時刻（例 12:05）に、乗る方の「乗車にかかる時間」を足した時間です（設定していない方は1分で数えます）。</li>
+          <li>座席表の上の<b>「出発の目安を入れる」</b>を押すと、全部の車にまとめて目安が入ります。<b>自分で入れた出発時間は変わりません</b>。</li>
+          <li>終了時刻より前の時間を入れると、「このまま登録してよろしいですか？」と出ます。</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <h3 style="margin-top:4px">座席の並びを車に合わせる（送迎表の「設定」）</h3>
+  <div class="cols w">
+    <figure><img src="manual/img/a15_tp_settings.jpg" alt="送迎表の設定"><figcaption>送迎表の「設定」。定員の下に「座席表の並び」があります。</figcaption></figure>
+    <div>
+      <ul>
+        <li>席の形は、車の定員（運転者を除く）から自動で作ります。1列目は運転席と助手席です。</li>
+        <li>同じ定員でも、2列目が3席の車と、3列目が3席の車があります。実際の車と違うときは、送迎表の<b>「設定」→「座席表の並び」</b>で選んで<b>「保存」</b>します（例：2列目 3席・3列目 2席）。</li>
+        <li>定員はここでも、各種設定→日誌の送迎車両でも直せます（同じ項目です）。</li>
+        <li>設定画面には、自動計算で<b>施設に着く時間</b>も表示されます（次のページ）。</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>つむぎ 新機能のご案内（事業所向け・10月15日）</span><span>4</span></div>
+</div></div>
+
+<!-- 5 施設に到着 -->
+<div class="page"><div class="in">
+  <h2>送迎表：「施設に到着」の時間と自動計算</h2>
+  <p class="lead">迎えの各車の、最後の方の下に「施設に到着」の欄が付きました。ここに入れた時間が、日誌の到着時間に入ります。</p>
+  <div class="cols n">
+    <figure><img src="manual/img/a15_tp_cell.jpg" alt="送迎表の車と施設に到着"><figcaption>シエンタは自分で入れた時間（8:57）、ステップ・タントは自動計算の「目安」（8:59）。緑の行は振替の方です（見本）。</figcaption></figure>
+    <div>
+      <div class="card g">
+        <h3>施設に着く時間は「開始時間の1分前」</h3>
+        <ul>
+          <li>自動計算のお迎え時間は、事業所情報の<b>1単位目・2単位目の開始時間の1分前</b>に施設へ着くように計算します（9:00開始なら <b>8:59</b>、13:20開始なら <b>13:19</b>）。</li>
+          <li>送迎表の設定にあった「到着目標時刻」は<b>なくなりました</b>。</li>
+          <li>事業所情報の時間が入っていないと、自動計算の画面に「未入力」と出て計算できません。<span class="where">各種設定 → 事業所情報</span>で、サービス提供時間（例 9:00〜12:05）を入れてください。</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>「目安」と、実際の時間の入れ方</h3>
+        <ol class="steps">
+          <li>自動計算をすると、到着に<b>「目安」</b>が入ります（薄い文字・点線の枠・「目安」の札）。前週コピーでは、前の週の時間が目安として入ります。</li>
+          <li>迎えから戻ったら、<b>「施設に到着」の時間を押します</b>。テンキーが出るので、実際に着いた時間を入れて<b>「決定」</b>。</li>
+          <li>自分で入れると「目安」ではなくなり、あとで自動計算をしても変わりません。</li>
+        </ol>
+        <p class="note">開始時間を過ぎた到着を入れると「このまま登録してよろしいですか？」と出ます。確定後の表示でも入れられるので、当日はiPadからでも直せます。スマホは、上の<b>「1週間」</b>を押して出る表示から入れられます。</p>
+      </div>
+    </div>
+  </div>
+  <div class="cols3" style="grid-template-columns:34% 1fr 1fr">
+    <figure><img src="manual/img/a15_ac_modal.jpg" alt="自動計算の画面" style="max-height:72mm;width:auto;max-width:100%"><figcaption>自動計算の画面の上に、施設に着く時間が出ます。</figcaption></figure>
+    <figure class="c"><img src="manual/img/a15_tp_arrive_kp.jpg" alt="到着時間のテンキー" style="max-height:68mm"><figcaption>到着のテンキー。「9:00 までに到着」と目安が出ます。</figcaption></figure>
+    <figure class="c"><img src="manual/img/a15_tp_final_cell.jpg" alt="確定後の表示" style="max-height:68mm"><figcaption>確定後の表示でも、施設に到着を入れられます。</figcaption></figure>
+  </div>
+  <div class="foot"><span>つむぎ 新機能のご案内（事業所向け・10月15日）</span><span>5</span></div>
+</div></div>
+
+<!-- 6 送迎表そのほか -->
+<div class="page"><div class="in">
+  <h2>送迎表：そのほかの変更</h2>
+  <h3>確定のあとの変更は「変更内容」で</h3>
+  <div class="cols w2">
+    <figure><img src="manual/img/s15_chg_panel.jpg" alt="確定後の変更の一覧"><figcaption>上の「変更内容」を押すと、確定のあとに変わったことが一覧で出ます（見本）。</figcaption></figure>
+    <ul>
+      <li>日付・午前／午後で絞り込めます。</li>
+      <li>ご家族への連絡が必要な変更には<b>「要連絡」</b>が付きます。連絡したら<b>「連絡済」</b>にチェック（全部の端末で同じ表示になります）。</li>
+      <li>項目を押すと、送迎表のその方が<b>黄色</b>で表示されます。</li>
+      <li>確定のあとに休みになった方は、元の車の位置に<b>取り消し線</b>で残ります。</li>
+      <li>「確定済」のメニューは<b>「確定を更新」「確定を解除」</b>だけです。直すときは確定を解除してから直し、もう一度「確定」します。</li>
+    </ul>
+  </div>
+  <div class="cols w2" style="margin-top:4px">
+    <div>
+      <div class="card">
+        <h3>時間を入れると、乗る順が時間順に</h3>
+        <p>お迎え時間を入れると、その車の乗る順が自動で時間順にそろいます。入力画面・運行表（印刷）・スマホの1日リストで順番がずれません。</p>
+      </div>
+      <div class="card">
+        <h3>運行表（ダウンロード）</h3>
+        <p>運転者の位置・車名の大きさ・休みの方の名前などを見やすくしました。色の意味は「時間の赤枠＝時間変更／緑＝振替／水色＝初回」です。未割当の欄は、徒歩（オレンジ）と見分けやすい赤みの点線になりました。</p>
+      </div>
+      <div class="card b">
+        <h3>送迎時の連絡先</h3>
+        <p><span class="where">利用者マスタ → サービス提供内容</span>の「送迎時の連絡先」で、送迎のときに電話をかける相手（本人・緊急連絡先・別の相手）を選べます。スマホの1日リストでは、その番号がいちばん前に出ます。</p>
+      </div>
+      <div class="card">
+        <h3>前週コピー・自動計算・確定</h3>
+        <p>確定した週で「休み・休止になった方を反映」を押すと、確定が自動で解除されて作成中に戻ります。直したら、もう一度「確定」してください。</p>
+      </div>
+    </div>
+    <div>
+      <figure class="sp"><img src="manual/img/a15_phone_daylist.jpg" alt="スマホの1日リスト"><figcaption>スマホの送迎表は、運転する人向けの1日リスト。車ごと・乗る順に、名前・お迎え時間・待ち合わせ場所・住所・電話が並びます。電話番号を押すと電話がかかり、住所を押すと地図が開きます（見本）。</figcaption></figure>
+      <p class="note">スマホは見るための画面です。直すときはパソコン・iPadで行ってください（施設に到着の時間は、上の「1週間」を押して出る表示から入れられます）。</p>
+    </div>
+  </div>
+  <div class="foot"><span>つむぎ 新機能のご案内（事業所向け・10月15日）</span><span>6</span></div>
+</div></div>
+
+<!-- 7 日誌 -->
+<div class="page"><div class="in">
+  <h2>日誌：送迎表取込で送迎の欄が埋まる</h2>
+  <figure><img src="manual/img/a15_diary_bar.jpg" alt="日誌の上のボタン"><figcaption>その日の送迎表があるのに、日誌の送迎がまだ空のときは、「送迎表取込」に<b>「未取込」</b>と出ます。</figcaption></figure>
+  <div class="cols">
+    <div class="card g">
+      <h3>送迎表取込のしかた</h3>
+      <ol class="steps">
+        <li>日誌で日付と<b>AM／PM</b>を選び、<b>「送迎表取込」</b>を押します。</li>
+        <li>「取り込みます。よろしいですか？」と出たら<b>「OK」</b>。</li>
+        <li>迎え・送りの車、<b>運転者</b>、<b>到着・出発の時間</b>が入ります。</li>
+        <li>確認が出たときは、下の表を見て答えます。</li>
+        <li>内容を見て<b>「保存」</b>します。</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h3>こんな確認が出たら</h3>
+      <table>
+        <tr><th>出る確認</th><th>答え方</th></tr>
+        <tr><td>「目安」のままの時間があります</td><td>送迎表の到着・出発が見込みのままです。そのまま入れてよければ「OK」。実際の時間を入れるなら「キャンセル」して、送迎表か日誌で直す。</td></tr>
+        <tr><td>日誌の時間と、送迎表の時間が違う車があります</td><td>送迎表の時間で上書きするなら「OK」。日誌の時間のままにするなら「キャンセル」。</td></tr>
+      </table>
+    </div>
+  </div>
+  <figure><img src="manual/img/a15_diary_cars.jpg" alt="取込のあとの送迎の欄"><figcaption>取込のあと。車ごとに到着・出発と、迎え・送りの運転者にチェックが入ります（見本）。</figcaption></figure>
+  <div class="cols">
+    <div class="card a">
+      <h3>「1週間前の送迎を自動コピー」を使っている店舗</h3>
+      <p>その日の送迎表がある日は、<b>コピーしません</b>。「送迎表取込」で入れてください。送迎表が無い日は、これまでどおりコピーされます。</p>
+    </div>
+    <div class="card">
+      <h3>運転者にチェックが付かないとき</h3>
+      <p>送迎表で選んだ運転者と、日誌の職員の<b>名前が同じ</b>ときだけチェックが付きます。名前（漢字・空白）がそろっているか確かめてください。</p>
+    </div>
+  </div>
+  <div class="cols">
+    <div class="cols" style="gap:10px;grid-template-columns:42% 1fr">
+      <figure class="sp"><img src="manual/img/a15_diary_kp.jpg" alt="日誌の時間のテンキー"></figure>
+      <div><h3>時間の確認</h3><p>到着が提供時間の開始（例 9:00）を過ぎるとき、出発が終了（例 12:05）より前のときは、「このまま登録してよろしいですか？」と出ます。テンキーにも「9:00 までに到着」と出ます。</p></div>
+    </div>
+    <div class="cols" style="gap:10px;grid-template-columns:42% 1fr">
+      <figure class="sp"><img src="manual/img/a15_diary_kenmu.jpg" alt="担当職員のチェック"></figure>
+      <div><h3>兼務（副役職）の方</h3><p>例：生活相談員で、管理者がいない日だけ管理者も兼ねる方。<b>本来の役職の欄を押すと出勤だけ</b>。その日に管理者も兼ねるときは、<b>管理者の欄の名前も押します</b>。</p><p class="note">10月15日より前の日誌は、これまでどおりの見え方です。</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>つむぎ 新機能のご案内（事業所向け・10月15日）</span><span>7</span></div>
+</div></div>
+
+<!-- 8 提供記録 -->
+<div class="page"><div class="in">
+  <h2>サービス提供記録 入力</h2>
+  <div class="cols w2">
+    <figure><img src="manual/img/a15_kibun.jpg" alt="気分のあとに特記に書く内容"><figcaption>気分の絵文字を選んだあとの画面（見本）。</figcaption></figure>
+    <div>
+      <h3>気分のあとは「特記に書く内容」</h3>
+      <ol class="steps">
+        <li>「通所」「帰宅」の気分を押して、絵文字を選びます。</li>
+        <li><b>「特記に書く内容」</b>に、気づいたこと（例：昨夜はよく眠れたとのこと）を入れます。空のままでもかまいません。</li>
+        <li><b>「決定」</b>で特記欄に入ります。もう一度入れ直すと、前の内容と置き換わります。</li>
+      </ol>
+      <p class="note">理由を選ぶ画面はなくなりました。iPad・スマホはキーボードのマイクで音声入力できます。</p>
+    </div>
+  </div>
+  <div class="cols">
+    <div>
+      <h3>利用者の並び替え</h3>
+      <div class="cols" style="grid-template-columns:46% 1fr;gap:10px">
+        <figure><img src="manual/img/s15_rec_order.jpg" alt="利用者の並び替え"></figure>
+        <ol class="steps">
+          <li>「AM／PM」の横の<b>「並び替え」</b>を押します。</li>
+          <li>名前を<b>長押しして上下に動かす</b>か、<b>「上へ」「下へ」</b>で並べ替えます。</li>
+          <li><b>「この順で保存」</b>を押すと、表がこの順になります。</li>
+        </ol>
+      </div>
+      <p class="note">並び順は店舗の全部の端末で同じです。欠席・休止の方は、これまでどおり下にまとまります。「あいうえお順に戻す」で元に戻せます。</p>
+    </div>
+    <div>
+      <div class="card">
+        <h3>血圧の再測定</h3>
+        <p>再測定の控えのボタンは「削除」ではなく<b>「戻す」</b>になりました。押すと、その回の値が欄に戻ります（今の値は消えます）。</p>
+      </div>
+      <div class="card">
+        <h3>テンキー</h3>
+        <ul>
+          <li>テンキーが出ているマスを<b>もう一度押すと閉じます</b>（入れた値は残ります）。</li>
+          <li>数字の並びを<b>電話型（1 2 3 が上）／電卓型（7 8 9 が上）</b>から選べます。<span class="where">各種設定 → システム</span>（端末ごとに覚えます）。</li>
+          <li>基準値に数字が無い運動に○を入れようとすると、「数値を入力してください」と出ます。</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>初回ご利用報告</h3>
+        <p>「ご利用の様子」に、初回の提供記録の特記が最初から入ります（ここで直しても、提供記録の特記は変わりません）。</p>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>つむぎ 新機能のご案内（事業所向け・10月15日）</span><span>8</span></div>
+</div></div>
+
+<!-- 9 そのほか -->
+<div class="page"><div class="in">
+  <h2>そのほかの画面</h2>
+  <table>
+    <tr><th style="width:22%">画面</th><th>変わったこと</th></tr>
+    <tr><td class="s">体力測定</td><td><ul><li>利用者を選ぶと、全部の測定項目の推移グラフが出ます。入力表に「最高」「最低」（測定日つき）の列。</li><li>入力したまま別の方を選ぶと「保存しますか？」と出ます。</li><li>対象者を「全員／AM／PM」で絞り込めます。</li><li>上書きした記録を1つ前の値に戻す<b>「元に戻す」</b>（削除した記録も戻せます）。</li><li>各種設定で、項目を並べ替えたり、握力の右・左のような項目を1つの組にまとめたりできます。</li></ul></td></tr>
+    <tr><td class="s">連絡帳</td><td><ul><li>フォーマット設定は、連絡帳と同じ2列の並びで編集できます（項目名10文字・表示文字12文字まで、反映方法は「自由／連携」）。</li><li>体温が未入力でも「℃」の位置がそろいます。印刷の穴あけの目印は「▲」です。</li></ul></td></tr>
+    <tr><td class="s">クラス在籍表</td><td><ul><li>氏名と介護度を並べ、下の段は「10／10名　空き 0名」の1行。ダウンロードは用紙の幅いっぱいに大きく。</li><li>休止中の方は、名前の右に丸で囲んだ「休」が付きます。</li></ul></td></tr>
+    <tr><td class="s">利用者マスタ</td><td><ul><li>休止の開始日を先の日にすると、前の日までは「利用中（休止予定）」と表示し、開始日から休止になります。</li><li>利用者の「削除」ボタンは<b>管理者だけ</b>に出ます。</li><li>利用者名簿CSVの取込で、被保険者番号・電話の先頭のゼロを戻して取り込みます。フェイスシートの項目も取り込めます。</li></ul></td></tr>
+    <tr><td class="s">休み連絡・各種連絡</td><td><ul><li>氏名マスキングのチェックが画面の送付状にも反映され、前回の設定を覚えます。</li><li>スマホでダウンロードしても、パソコンと同じ大きさの書類になります。</li><li>スマホのカレンダーは、名前と「連絡済」などを2段で表示します。</li></ul></td></tr>
+    <tr><td class="s">写真・検索</td><td><ul><li>書類の写真は、登録の前後に回転できます。開くと画面に収まる大きさで出ます。</li><li>ひらがなで入力しても、利用者が見つかります。</li></ul></td></tr>
+    <tr><td class="s">各種設定</td><td><ul><li>「サイドバー」タブで、使わない画面をメニューに出さないようにできます。</li><li>「送迎表を使う」・テンキーの数字の並び。</li></ul></td></tr>
+    <tr><td class="s">スマホ</td><td><ul><li>画面の上（日付・AM/PM・保存）が固定され、たまに使うボタンは<b>「操作」</b>の中にまとまりました。</li><li>1行目の日付を押すと、日付を選べます。</li><li>iPhoneは2本の指で拡大・縮小できます。</li><li>サイドバーは最初は閉じていて、項目を押すと自動で閉じます。</li></ul></td></tr>
+    <tr><td class="s">iPad・全画面</td><td><ul><li>iPadで画面が大きくずれる・上の方が白く見える件を直しました。</li><li>ポップアップの外でスクロールしても、後ろの画面が動かなくなりました。</li></ul></td></tr>
+  </table>
+  <div class="foot"><span>つむぎ 新機能のご案内（事業所向け・10月15日）</span><span>9</span></div>
+</div></div>
+
+<!-- 10 Q&A -->
+<div class="page"><div class="in">
+  <h2>よくあるご質問</h2>
+  <dl class="qa">
+    <dt>座席表は毎日使わないといけませんか？</dt>
+    <dd>いいえ。送りが迎えと同じ日は、「送りは迎えと同じ」にチェックを付けたままで大丈夫です。送りの車や順番を変える日だけ、座席表を使ってください。</dd>
+    <dt>送迎表の到着時間が、薄い文字で「目安」と出ています。</dt>
+    <dd>自動計算や前週コピーで入った見込みの時間です。迎えから戻ったら、押して実際の時間に直してください。直すと普通の文字になります。</dd>
+    <dt>自動計算を押すと「サービス提供時間が未入力です」と出ます。</dt>
+    <dd>各種設定→事業所情報の「1単位目・2単位目」のサービス提供時間（例 9:00〜12:05）を入れてください。施設に着く時間は、その開始の1分前で計算します。</dd>
+    <dt>送迎表の設定に「到着目標時刻」が無くなりました。</dt>
+    <dd>施設に着く時間は、事業所情報の開始時間の1分前にそろえました。2か所で設定して食い違うことがなくなります。</dd>
+    <dt>送迎表取込をしても、時間が入らない車があります。</dt>
+    <dd>日誌にすでに違う時間が入っていると、上書きするかを聞かれます（キャンセルすると日誌の時間のまま）。送迎表の時間が「目安」のままの車は、「OK」を押したときだけ入ります。</dd>
+    <dt>送迎表取込で、運転者にチェックが付きません。</dt>
+    <dd>送迎表で選んだ運転者と、日誌の職員の名前が同じ方にだけ付きます。名前をそろえてください。</dd>
+    <dt>日誌の「1週間前の送迎を自動コピー」が入らなくなりました。</dt>
+    <dd>その日の送迎表がある日はコピーしない形にしました。「送迎表取込」（ボタンに「未取込」と出ます）で入れてください。</dd>
+    <dt>兼務の人の、管理者の欄にチェックが付かなくなりました。</dt>
+    <dd>本来の役職の欄は出勤だけを表します。その日に管理者も兼ねるときは、管理者の欄の名前も押してください。</dd>
+    <dt>気分の理由を選ぶ画面がありません。</dt>
+    <dd>絵文字を選んだあとに「特記に書く内容」を入れる形に変わりました。入れた内容は特記欄に入ります。</dd>
+    <dt>利用者マスタに「削除」ボタンがありません。</dt>
+    <dd>管理者だけに出るようにしました。削除が必要なときは管理者に頼んでください。</dd>
+  </dl>
+  <div class="card b" style="margin-top:10px">
+    <h3>直った不具合（主なもの）</h3>
+    <ul>
+      <li>日誌：兼務の方を押すと、本来の役職と副役職の両方にチェックが付く／欠席・休止・休業の方が載らないことがある</li>
+      <li>スマホ：休み連絡で名前が潰れる／休み連絡・各種連絡のダウンロードが小さくなる／提供記録の罫線が見えない／向きを変えるとエラーになる</li>
+      <li>連絡帳：再検で血圧を空にして脈だけ入れたとき、1回目の血圧が混ざる</li>
+      <li>個別運動：「未設定」にしても戻る・削除した運動が残る・「15秒×2」などが見切れる</li>
+      <li>利用者マスタ：開始日が先の休止が、すぐに休止扱いになる／既往歴が古い内容で上書きされることがある</li>
+      <li>長い時間開いたままにすると「エラーコード5」で落ちることがある</li>
+    </ul>
+  </div>
+  <div class="card g">
+    <h3>お問い合わせ</h3>
+    <p>分からないこと・不具合は、これまでどおり本部（髙橋）へ直接ご連絡ください。画面の写真（スクリーンショット）を添えていただくと、早くお答えできます。</p>
+  </div>
+  <div class="foot"><span>つむぎ 新機能のご案内（事業所向け・10月15日）</span><span>10</span></div>
+</div></div>
+
+</body>
+</html>

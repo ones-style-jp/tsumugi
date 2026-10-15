@@ -12,6 +12,7 @@ const JOBS = [
   ['guide-kankeisha.html', 'つむぎのご紹介_ケアマネ・関係者向け.pdf'],
   ['cm-saigai.html', 'つむぎ_災害時の安否連絡のご案内_ケアマネ向け.pdf'],
   ['area-update-1015.html', 'つむぎ_更新のまとめ_10月5日〜15日_エリア担当者向け.pdf'],
+  ['new-features-1015.html', 'つむぎ_新機能のご案内_事業所向け_2026-10-15.pdf'],
 ];
 // --only guide で一部だけ作る(部分一致)
 const ONLY = arg('--only', '');
