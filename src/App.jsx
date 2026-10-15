@@ -12403,6 +12403,11 @@ const diaryRequiredRoles = (appData) => {
   const cap = Number(appData?.systemSettings?.facilityInfo?.capacity) || 10;
   return ['管理者', '生活相談員', '機能訓練指導員', '介護職員', ...(cap > 10 ? ['看護師'] : [])];
 };
+// ★ 2026-10-15(ユーザー報告「副役職の人を押すと本来の役職と管理者の両方にチェックが付く」): 副役職の欄は別に記録する
+const DIARY_SUB_CUTOFF = '2026-10-15';
+const diarySubKey = (id, role) => `${id}@sub:${role}`;
+const diarySubExplicit = (log, iso) => !!(log && (log.staffSubV || Object.keys(log.staff || {}).some(k => k.includes('@sub:')))) || !(iso && iso < DIARY_SUB_CUTOFF);
+const diarySubOn = (log, id, role, iso) => { const sel = (log && log.staff) || {}; if (sel[diarySubKey(id, role)]) return true; return !diarySubExplicit(log, iso) && !!sel[id]; };
 const diaryStaffMissing = (log, iso, appData) => {
   try {
     if (!log || !appData) return [];
@@ -12413,7 +12418,7 @@ const diaryStaffMissing = (log, iso, appData) => {
     // ★ 兼務(2026-09-29): log.kenmu[役職]=その日に兼務する職員id。その職員が担当職員に選ばれていれば充足
     //   (例: 生活相談員が2人出勤しても介護職員は別に必要。1人が介護職員を兼務するなら「兼務」で記録)
     const kenmu = log.kenmu || {};
-    const has = (role) => staff.some(st => sel[st.id] && (st.role === role || st.role2 === role || String(kenmu[role] ?? '') === String(st.id)));
+    const has = (role) => staff.some(st => (sel[st.id] && (st.role === role || String(kenmu[role] ?? '') === String(st.id))) || (st.role2 === role && st.role !== role && diarySubOn(log, st.id, role, iso)));
     const gensan = log.gensan || {};
     return diaryRequiredRoles(appData).filter(role => !has(role) && !gensan[role]);
   } catch { return []; }
@@ -35380,6 +35385,36 @@ function PickupPlaceField({ value, onChange, disabled, hiddenId, className }) {
 const _tpUndoMem = {};
 // ★ 2026-10-15(ユーザー要望「座席表」): 席の並びは定員(運転者を除く)から自動。前列=助手席(席0)＋運転席、
 //   残りを前から2〜3席の列に分ける(例 定員3=前1+2 / 定員5=前1+2+2 / 定員7=前1+3+3)。後ろの席は前の列から左→右に席1,2,…
+// ★ 2026-10-15(ユーザー要望「出発時間は日誌の時間のようにテンキーで」): 日誌と同じテンキー(パソコンのキーボード/テンキーでも入力・Enter=決定・Esc=閉じる)
+const tsuKpParse = (raw) => { const r = String(raw || '').replace(':', ''); if (!r) return ''; let hh, mm; if (r.length <= 2) { hh = parseInt(r, 10); mm = 0; } else if (r.length === 3 && parseInt(r.slice(0, 2), 10) <= 23) { hh = parseInt(r.slice(0, 2), 10); mm = parseInt(r.slice(2), 10); } else { hh = parseInt(r.slice(0, r.length - 2), 10); mm = parseInt(r.slice(-2), 10); } if (isNaN(hh) || isNaN(mm) || hh > 23 || mm > 59) return null; return `${hh}:${String(mm).padStart(2, '0')}`; };
+const tsuKpShow = (v) => { const r = String(v || '').replace(':', ''); if (!r) return '__:__'; if (r.length <= 2) return r; if (r.length === 3) return parseInt(r.slice(0, 2), 10) <= 23 ? r.slice(0, 2) + ':' + r.slice(2) : '0' + r[0] + ':' + r.slice(1); return r.slice(0, 2) + ':' + r.slice(2); };
+function TsuTimeKeypad({ title, hint, initial, onCommit, onClose }) {
+  const [v, setV] = React.useState(String(initial || '').replace(':', ''));
+  const add = (d) => setV(cur => d === 'DEL' ? cur.slice(0, -1) : (cur.length < 4 ? cur + d : cur));
+  const done = () => { if (v === '') { onCommit(''); return; } const t = tsuKpParse(v); if (t == null) { alert('時刻は 00:00〜23:59 の範囲で入力してください'); return; } onCommit(t); };
+  const doneRef = React.useRef(done); doneRef.current = done;
+  const closeRef = React.useRef(onClose); closeRef.current = onClose;
+  React.useEffect(() => { const h = (e) => { if (e.key >= '0' && e.key <= '9') { e.preventDefault(); add(e.key); } else if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); add('DEL'); } else if (e.key === 'Enter') { e.preventDefault(); doneRef.current(); } else if (e.key === 'Escape') { e.preventDefault(); closeRef.current(); } }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const btn = { padding: '10px 0', fontSize: 18, fontWeight: 'bold', borderRadius: 10, border: '1px solid #ddd', cursor: 'pointer', backgroundColor: '#f8f9fa', color: '#333' };
+  return ReactDOM.createPortal(
+    <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 100001, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, boxSizing: 'border-box' }} onClick={onClose} data-testid="tsu-kp">
+      <div style={{ backgroundColor: 'white', borderRadius: 16, padding: 20, width: 240, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
+        <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: 13, marginBottom: 6, color: '#333' }}>{title}</div>
+        {hint ? <div style={{ textAlign: 'center', fontSize: 11, fontWeight: 'bold', color: '#475569', marginBottom: 6 }} data-testid="tsu-kp-hint">{hint}</div> : null}
+        <div style={{ fontSize: 32, fontWeight: 'bold', textAlign: 'center', letterSpacing: 4, marginBottom: 4, padding: '8px 0', border: '2px solid #1d4ed8', borderRadius: 8, color: '#1d4ed8', minHeight: 52 }}>{tsuKpShow(v)}</div>
+        <div style={{ fontSize: 10, color: '#94a3b8', textAlign: 'center', marginBottom: 8 }}>PCのキーボード/テンキーでも入力できます（Enter=決定）</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 8 }}>
+          {tsuKpDigits9().map(n => <button key={n} type="button" onClick={() => add(String(n))} style={btn}>{n}</button>)}
+          <button type="button" onClick={() => add('0')} style={{ ...btn, gridColumn: '1/3' }}>0</button>
+          <button type="button" onClick={() => add('DEL')} style={{ ...btn, fontSize: 14, backgroundColor: '#fee2e2', color: '#dc2626' }}>⌫</button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+          <button type="button" onClick={onClose} style={{ padding: '10px 0', borderRadius: 10, border: '1px solid #ddd', cursor: 'pointer', backgroundColor: '#f1f5f9', fontWeight: 'bold', fontSize: 13 }}>キャンセル</button>
+          <button type="button" onClick={done} style={{ padding: '10px 0', borderRadius: 10, border: 'none', cursor: 'pointer', backgroundColor: '#1d4ed8', color: 'white', fontWeight: 'bold', fontSize: 13 }}>決定</button>
+        </div>
+      </div>
+    </div>, document.body);
+}
 const tpSeatRows = (cap) => { const n = Math.max(0, (Number(cap) || 0) - 1); const rows = []; let r = n; while (r > 0) { const k = (r % 3 === 0 || r > 4) ? Math.min(3, r) : Math.min(2, r); rows.push(k); r -= k; } return rows.reverse(); };
 // 車の席の割り当て(送りの一覧 list=[{pid, seat}] の並び順=送りの順番)。席が無い・重なる・定員外の方は「席未定」
 // 座席表の名前は姓と名で改行(最初の空白で分ける。空白が無ければ1行)
@@ -36002,8 +36037,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _hmTp = (n) => `${Math.floor(n / 60)}:${String(n % 60).padStart(2, '0')}`;
   const _minTp = (v) => { const m = String(v || '').match(/(\d{1,2}):(\d{2})/); return m ? (+m[1]) * 60 + (+m[2]) : null; };
   const setDropDriver = (iso, sl, cid, name) => mutate(iso, sl, (pl) => { if (!pl.drop) return; pl.drop.driver = { ...(pl.drop.driver||{}), [cid]: name }; });
-  const setDropDepart = (iso, sl, cid, v) => { const t = _minTp(v); const r = _svcRangeTp(sl); if (t != null && r.e != null && t < r.e && !window.confirm(`提供時間（${r.unit}の終了 ${_hmTp(r.e)}）より前の出発になります。\nこのまま ${v} で登録してよろしいですか？`)) return; mutate(iso, sl, (pl) => { if (!pl.drop) return; pl.drop.depart = { ...(pl.drop.depart||{}), [cid]: v }; }); };
-  const setArrive = (iso, sl, cid, v) => { const t = _minTp(v); const r = _svcRangeTp(sl); if (t != null && r.s != null && t > r.s && !window.confirm(`提供時間（${r.unit}の開始 ${_hmTp(r.s)}）を過ぎての到着になります。\nこのまま ${v} で登録してよろしいですか？`)) return; mutate(iso, sl, (pl) => { pl.arrive = { ...(pl.arrive||{}), [cid]: v }; }); };
+  const setDropDepart = (iso, sl, cid, v) => { const t = _minTp(v); const r = _svcRangeTp(sl); if (t != null && r.e != null && t < r.e && !window.confirm(`提供時間（${r.unit}の終了 ${_hmTp(r.e)}）より前の出発になります。\nこのまま ${v} で登録してよろしいですか？`)) return false; mutate(iso, sl, (pl) => { if (!pl.drop) return; pl.drop.depart = { ...(pl.drop.depart||{}), [cid]: v }; }); return true; };
   // 座席表のダウンロード(A4縦・その日の AM送り と PM送り)。用紙=外側、余白=内側の div(印刷の余白ルール)
   const buildSeatPrintHtml = (iso) => {
     const esc = (t) => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -36150,6 +36184,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const [fkMove, setFkMove] = useState(null); // {pid, fromIso, fromSl, toIso, toSl, destZone, beforePid, cat, detail}
   const [seatMv, setSeatMv] = useState(null); // ★ 2026-10-15: 座席表を開いている日・時間帯 {iso, sl}
   const [seatOrd, setSeatOrd] = useState(null); // 順番を変える方 {cid, pid}
+  const [seatKp, setSeatKp] = useState(null); // ★ 2026-10-15: 送りの出発時間のテンキー {iso, sl, cid}
   const performFurikaeMove = (pid, fromIso, fromSl, toIso, toSl, destZone, beforePid) => {
     const pt = (appData.patients||[]).find(x => x.id === pid); if (!pt) return;
     const fD = new Date(fromIso);
@@ -37259,10 +37294,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                             休み欄にも従来どおり名前を出す。ダウンロードの運行表には載せない(10/8 決定)。作成中の編集画面は従来どおり消える */}
                         {(() => { const _fin = _baseOf(pl) || {}; const _rmSet = new Set(_removedSince(pl).map(String)); const _mins = (t) => { const m = String(_fmtT(t) || '').match(/(\d+):(\d+)/); return m ? (+m[1]) * 60 + (+m[2]) : 9999; };
                         return cars.map(c => { const ms = (pl.cars||{})[c.id] || []; const rmHere = ((_fin.cars||{})[c.id] || []).filter(m => m && _rmSet.has(String(m.pid)) && !ms.some(x => String(x.pid) === String(m.pid)));
-                          if (!ms.length && !rmHere.length) return null; const drv = (pl.driver||{})[c.id] || ''; const _arv = (pl.arrive||{})[c.id] || '';
+                          if (!ms.length && !rmHere.length) return null; const drv = (pl.driver||{})[c.id] || '';
                           const rows = [...ms.map(m => ({ ...m, _rm: false })), ...rmHere.map(m => ({ ...m, _rm: true }))].sort((a, b) => _mins(a.t) - _mins(b.t)); return (
                           <div key={c.id}>
-                            <div className="text-[13px] font-bold text-slate-800 border-b border-dashed border-slate-300 flex items-baseline gap-3 flex-wrap">{c.name}{drv ? <span className="text-slate-700"><span className="text-[10px] font-normal text-slate-500 mr-1">運転</span>{drv}</span> : null}{!_tpPhone ? <span className="ml-auto flex items-center gap-0.5 text-[10px] font-bold text-slate-500" title="施設に着いた時間（日誌の到着時間へ入ります）">着<TpTimeInput data-testid={`tp-fb-arrive-${iso}-${sl}-${c.id}`} value={_arv} normalize={_normTimeInput} onCommit={v => setArrive(iso, sl, c.id, v)} placeholder="—:—" className="w-[3.6em] px-0.5 py-0 border border-slate-300 rounded text-[12px] font-bold text-center tabular-nums bg-white"/></span> : (_arv ? <span className="ml-auto text-[10px] text-slate-500">着 {_arv}</span> : null)}</div>
+                            <div className="text-[13px] font-bold text-slate-800 border-b border-dashed border-slate-300 flex items-baseline gap-3 flex-wrap">{c.name}{drv ? <span className="text-slate-700"><span className="text-[10px] font-normal text-slate-500 mr-1">運転</span>{drv}</span> : null}</div>
                             {/* ★ 2026-10-03 ユーザー指示: 運行表と同じく左に名前・右に時間。時間の桁数が違っても名前の開始位置が揃うよう、赤丸→名前(可変)→時間(固定幅・右寄せ) */}
                             {rows.map(m => { if (m._rm) return (
                               <div key={`rm-${m.pid}`} className="flex items-center gap-1 text-[12px] leading-tight py-0.5 opacity-50" data-testid={`tp-fb-rm-${iso}-${sl}-${m.pid}`} data-tpfb={`${iso}_${sl}_${m.pid}`} title={_absReasonOfPid(m.pid, iso, sl)}>
@@ -37339,7 +37374,6 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                                   <option value="">運転者: 未選択</option>
                                   {_driverNames.map(n=><option key={n} value={n}>{n}</option>)}
                                 </select>
-                                <span className="flex items-center gap-0.5 text-[10px] font-bold text-slate-500 shrink-0" title="施設に着いた時間（日誌の到着時間へ入ります）">着<TpTimeInput data-testid={`tp-arrive-${iso}-${sl}-${c.id}`} value={(pl.arrive||{})[c.id] || ''} normalize={_normTimeInput} onCommit={v => setArrive(iso, sl, c.id, v)} placeholder="—:—" className="w-[3.6em] px-0.5 py-1 border border-slate-300 rounded text-[12px] font-bold text-center tabular-nums bg-white"/></span>
                                 <button onClick={()=>openNavi(iso, sl, c.id)} title="この車の乗車順でGoogleマップの経路案内を開く" className="text-[11px] font-bold text-blue-600 border border-blue-300 rounded px-2 py-1 bg-white hover:bg-blue-50 shrink-0">ナビ</button>
                               </div>
                             </div>
@@ -37609,7 +37643,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           return (
             <div key={c.id} className="flex flex-col items-center gap-1.5" style={{ width: maxCols * 120 + 30 }} data-testid={`tp-seatcar-${c.id}`}>
               <div className="text-sm font-bold text-slate-800 flex items-center gap-2 flex-wrap justify-center">{c.name} <span className="text-[11px] font-normal text-slate-400">{Object.keys(lay.bySeat).length}/{lay.capN}名</span>
-                <span className="flex items-center gap-1 text-[11px] font-bold text-slate-500">出発<TpTimeInput data-testid={`tp-seat-depart-${c.id}`} value={(dr.depart||{})[c.id] || ''} normalize={_normTimeInput} onCommit={v => setDropDepart(iso, sl, c.id, v)} placeholder="—:—" className="w-[4.2em] px-1 py-0.5 border border-slate-300 rounded text-[13px] font-bold text-center tabular-nums bg-white"/></span>
+                <span className="flex items-center gap-1 text-[11px] font-bold text-slate-500">出発<button type="button" data-testid={`tp-seat-depart-${c.id}`} onClick={() => setSeatKp({ iso, sl, cid: c.id })} title="押すとテンキーで入力できます" className="min-w-[4.4em] px-1.5 py-0.5 border-2 border-slate-300 rounded text-[13px] font-bold text-center tabular-nums bg-white text-blue-700 hover:bg-blue-50">{(dr.depart||{})[c.id] || '—:—'}</button></span>
               </div>
               <div className="relative w-full bg-white border-[3px] border-slate-700 px-2.5 pb-3 pt-7 flex flex-col gap-2" style={{ borderRadius: '42px 42px 14px 14px' }}>
                 <span className="absolute -left-[13px] top-9 w-3 h-2.5 border-2 border-slate-700 rounded-l-md bg-white" aria-hidden="true"/>
@@ -37686,6 +37720,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             </div>
           </div>);
       })(), document.body)}
+      {seatKp && (() => { const c = cars.find(x => x.id === seatKp.cid) || {}; const r = _svcRangeTp(seatKp.sl); const pl0 = getPlan(seatKp.iso, seatKp.sl); return (
+        <TsuTimeKeypad title={`${c.name || ''}　送りの出発時間`} hint={r.e != null ? `${_hmTp(r.e)} 以降に出発（${r.unit}の終了）` : ''} initial={((pl0.drop && pl0.drop.depart) || {})[seatKp.cid] || ''}
+          onClose={() => setSeatKp(null)} onCommit={(v) => { if (setDropDepart(seatKp.iso, seatKp.sl, seatKp.cid, v) !== false) setSeatKp(null); }}/>); })()}
       {dragMv && ReactDOM.createPortal((
         <div style={{position:'fixed', left: dragMv.x + 10, top: dragMv.y - 14, zIndex: 100002, pointerEvents:'none', background:'#1d4ed8', color:'white', fontWeight:'bold', fontSize:14, padding:'6px 12px', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.35)'}}>
           {dragMv.name} <span style={{fontSize:11, opacity:0.85}}>青い線の位置に入ります</span>
@@ -46107,6 +46144,21 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     return () => clearTimeout(t);
   }, [localLog]); // eslint-disable-line
   const toggle = (field, key) => updateLog({ [field]: { ...(log[field]||{}), [key]: !(log[field]||{})[key] } });
+  // ★ 2026-10-15: 担当職員のチェック。副役職の欄(_sub)は「職員id@sub:役職」で別に持つ(本来の欄を押しても副役職の欄は付かない)
+  const _staffOn = (s) => (s && s._sub) ? diarySubOn(log, s.id, s._subRole, _diaryIsoDate) : !!(log.staff||{})[s.id];
+  const toggleStaffRow = (s) => {
+    const sel = { ...(log.staff||{}) };
+    if (s._sub) {
+      // 従来の見え方の日誌(10/15より前・副役職の記録なし)を初めて触るときは、今見えている印をそのまま記録にしてから切り替える
+      if (!diarySubExplicit(log, _diaryIsoDate)) (ds.staff||[]).forEach(st => { if (st && st.role2 && sel[st.id]) sel[diarySubKey(st.id, st.role2)] = true; });
+      const k = diarySubKey(s.id, s._subRole);
+      if (sel[k]) delete sel[k]; else { sel[k] = true; sel[s.id] = true; }
+      updateLog({ staff: sel, staffSubV: 1 });
+    } else {
+      if (sel[s.id]) { delete sel[s.id]; Object.keys(sel).forEach(k => { if (k.startsWith(`${s.id}@sub:`)) delete sel[k]; }); } else sel[s.id] = true;
+      updateLog({ staff: sel });
+    }
+  };
   const setPatRow = (i,f,v) => { const rows=[...(log.patientRows||[])]; while(rows.length<=i) rows.push({}); rows[i]={...rows[i],[f]:v}; updateLog({patientRows:rows}); };
   const setCarTime = (carId,tf,v) => updateLog({ carTimes: { ...(log.carTimes||{}), [carId]: {...((log.carTimes||{})[carId]||{}),[tf]:v} }});
 
@@ -46245,7 +46297,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   // ★ 副役職(role2)の人もその欄に載せる(2026-09-28 ユーザー要望)。副で載る人は「不在時」の印を付ける(管理者が2名並んだときの区別)
   const _byRole = (role) => _dedupByName([
     ...ds.staff.filter(s=>s.role===role && _staffOk(s)),
-    ...ds.staff.filter(s=>s.role2===role && s.role!==role && _staffOk(s)).map(s=>({ ...s, _sub:true })),
+    ...ds.staff.filter(s=>s.role2===role && s.role!==role && _staffOk(s)).map(s=>({ ...s, _sub:true, _subRole:role })),
   ]);
   const managers  = _byRole('管理者');
   const seikatsu  = _byRole('生活相談員');
@@ -46333,8 +46385,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           <span key={`${s.id}_${s._sub?'sub':'main'}`} style={{display:'inline-flex',flexDirection:'column',alignItems:'flex-start',gap:0}}>
             {/* ★ 2026-09-28 ユーザー指示: 日誌は氏名だけ(「不在時」印・資格表示は出さない)。副役職の人も該当欄に並ぶのは維持 */}
             <span style={{display:'inline-flex',alignItems:'center',gap:2,whiteSpace:'nowrap'}}>
-              {CB({checked:!!(log.staff||{})[s.id], onChange:()=>{ toggle('staff',s.id); if(!(log.staff||{})[s.id] && !appData.diarySettings?.hideStaffTemp) setTempModal({staffId:s.id,staffName:s.name,value:(log.staffTemp||{})[s.id]||''}); }, sz:11})}
-              <span style={{fontSize:11,whiteSpace:'nowrap',cursor:'pointer'}} onClick={()=>{ toggle('staff',s.id); if(!(log.staff||{})[s.id] && !appData.diarySettings?.hideStaffTemp) setTempModal({staffId:s.id,staffName:s.name,value:(log.staffTemp||{})[s.id]||''}); }}>{s.name}</span>
+              {CB({checked:_staffOn(s), onChange:()=>{ toggleStaffRow(s); if(!(log.staff||{})[s.id] && !appData.diarySettings?.hideStaffTemp) setTempModal({staffId:s.id,staffName:s.name,value:(log.staffTemp||{})[s.id]||''}); }, sz:11})}
+              <span style={{fontSize:11,whiteSpace:'nowrap',cursor:'pointer'}} onClick={()=>{ toggleStaffRow(s); if(!(log.staff||{})[s.id] && !appData.diarySettings?.hideStaffTemp) setTempModal({staffId:s.id,staffName:s.name,value:(log.staffTemp||{})[s.id]||''}); }}>{s.name}</span>
             </span>
             {/* ★ 2026-09-18: 各種設定→日誌「職員の体温を表示・入力する」がOFFの店舗は非表示(画面・印刷とも同じ描画関数) */}
             {!appData.diarySettings?.hideStaffTemp && (log.staffTemp||{})[s.id] && (
@@ -47421,7 +47473,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         {tsumugiTransportOn(appData) && (<button disabled={isReadOnly} onClick={()=>{
           const plan = (appData.transportPlans||{})[`${selectedDate}_${ampm}`];
           if (!plan) { alert('この日の送迎表がまだ保存されていません。\n送迎表の画面で車割り当てを編集すると保存されます。'); return; }
-          if (!window.confirm('送迎表の車割り当てを、この日誌の「迎え」「送り」へ取り込みます。\n既存の迎え/送りの割り当ては上書きされます。よろしいですか？\n（送迎表で決めた運転者・到着/出発の時間も入ります。送りを座席表で決めた日は、その送りの車が入ります）')) return;
+          if (!window.confirm('送迎表の車割り当てを、この日誌の「迎え」「送り」へ取り込みます。\n既存の迎え/送りの割り当ては上書きされます。よろしいですか？\n（送迎表で決めた運転者も入ります。座席表の送りの出発時間は、日誌の出発時間が空のときだけ入ります。送りを座席表で決めた日は、その送りの車が入ります）')) return;
           const _pk = {}, _dp = {}, _pw = {}, _dw2 = {}, _po = {}, _do2 = {};
           Object.keys(plan.cars||{}).forEach(cid => (plan.cars[cid]||[]).forEach(m => { _pk[`${m.pid}_${cid}`] = true; }));
           (plan.walkers||[]).forEach(m => { _pw[String(m.pid)] = true; });
@@ -47438,8 +47490,8 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           _setDrv('a', plan.driver);
           const _dropX = (plan.dropMode === 'custom' && plan.drop) ? plan.drop : null;
           if (_dropX) _setDrv('d', _dropX.driver);
-          Object.keys(plan.arrive||{}).forEach(cid => { const v = _pad(plan.arrive[cid]); if (v) _ct2[cid] = { ...(_ct2[cid]||{}), arrive: v }; });
-          if (_dropX) Object.keys(_dropX.depart||{}).forEach(cid => { const v = _pad(_dropX.depart[cid]); if (v) _ct2[cid] = { ...(_ct2[cid]||{}), depart: v }; });
+          // 送りの出発時間(座席表で決めた予定)は、日誌の出発時間が空のときだけ入れる(日誌で入れた実際の時間は上書きしない)
+          if (_dropX) Object.keys(_dropX.depart||{}).forEach(cid => { const v = _pad(_dropX.depart[cid]); if (v && !((_ct2[cid]||{}).depart)) _ct2[cid] = { ...(_ct2[cid]||{}), depart: v }; });
           updateLog({ pick: _pk, drop: _dp, pick_walk: _pw, drop_walk: _dw2, pick_other: _po, drop_other: _do2, driver: _drv2, carTimes: _ct2, _sougeiPending: { ...(log._sougeiPending||{}), '迎え': false, '送り': false } });
         }}
           className="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed" title="送迎表(運行表)で決めた車割り当てを、この日の迎え/送りへ一括反映します">
@@ -47550,7 +47602,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             {groups.map(([role, l]) => (
               <div key={role}>
                 <div className="text-[12px] font-bold text-slate-500 mb-1">{role}</div>
-                <div className="flex flex-wrap gap-2">{l.filter(x => x.name).map(x => chip(!!_st[x.id], x.name, () => { toggle('staff', x.id); if (!_st[x.id] && !appData.diarySettings?.hideStaffTemp) setTempModal({ staffId: x.id, staffName: x.name, value: (log.staffTemp || {})[x.id] || '' }); }, `${role}_${x.id}_${x._sub ? 's' : 'm'}`, `dpc-staff-${x.id}`))}</div>
+                <div className="flex flex-wrap gap-2">{l.filter(x => x.name).map(x => chip(_staffOn(x), x.name, () => { toggleStaffRow(x); if (!_st[x.id] && !appData.diarySettings?.hideStaffTemp) setTempModal({ staffId: x.id, staffName: x.name, value: (log.staffTemp || {})[x.id] || '' }); }, `${role}_${x.id}_${x._sub ? 's' : 'm'}`, `dpc-staff-${x.id}`))}</div>
               </div>
             ))}
             {recList.length > 0 && <div>
@@ -53661,6 +53713,7 @@ function CopyFaxButton({ value }) {
   );
 }
 function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview }) {
+  const _absPhone = useTsuIsPhone(); // ★ 2026-10-15: スマホのカレンダーは名前を上の段・状態を下の段に
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
   const [currentMonth, setCurrentMonth] = React.useState(() => { const d=new Date(); return new Date(d.getFullYear(),d.getMonth(),1); });
@@ -54219,7 +54272,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                 const isToday = new Date(dateStr).getTime()===today.getTime();
                 const isClosed = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(di);
                 return (
-                  <div key={di} style={{minHeight:90,minWidth:0,borderRight:'1px solid #f1f5f9',padding:'6px 4px 4px',opacity:day.other?0.75:1,background:isClosed?'#f1f5f9':isToday?'#fffbeb':'white',position:'relative'}}>
+                  <div key={di} style={{minHeight:90,minWidth:0,borderRight:'1px solid #f1f5f9',padding:_absPhone?'6px 2px 4px':'6px 4px 4px',opacity:day.other?0.75:1,background:isClosed?'#f1f5f9':isToday?'#fffbeb':'white',position:'relative'}}>
                     <div style={{fontSize:13,fontWeight:'bold',color:isClosed?'#cbd5e1':di===0?'#dc2626':di===6?'#2563eb':'#334155',marginBottom:4,display:'flex',alignItems:'center',gap:4}}>
                       {day.other ? `${day.m}/${day.d}` : day.d}
                       {day.other&&<span style={{fontSize:9,color:'#94a3b8'}}>翌月</span>}
@@ -54239,11 +54292,19 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                             width:'100%',minWidth:0,marginBottom:3,padding:'3px 4px',borderRadius:6,border:'none',
                             background:st!=='none'?statusColors[st]:'#fef2f2',
                             color:'#1e293b',fontSize:11,fontWeight:'bold',cursor:'pointer',
-                            textAlign:'left',display:'flex',alignItems:'center',gap:2
+                            textAlign:'left',display:'flex',alignItems:'center',gap:2,
+                            ...(_absPhone ? { flexDirection:'column', alignItems:'stretch', gap:1, padding:'3px 3px' } : {})
                           }}>
-                          <span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{maskedN}</span>
+                          {_absPhone
+                            ? <span style={{minWidth:0,lineHeight:1.2,wordBreak:'break-all'}}>{String(maskedN||'').trim().split(/[\s　]+/).map((w,wi)=><span key={wi} style={{display:'block'}}>{w}</span>)}</span>
+                            : <span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{maskedN}</span>}
+                          {_absPhone ? ((furikae || st!=='none') ? <span style={{display:'flex',flexWrap:'wrap',gap:2}}>
+                            {furikae&&<span style={{fontSize:9,color:'#7c2d12',background:'#fed7aa',padding:'0 3px',borderRadius:3,fontWeight:'bold'}}>振替</span>}
+                            {st!=='none'&&<span style={{fontSize:9,color:'#475569',background:'rgba(255,255,255,0.75)',padding:'0 3px',borderRadius:3}}>{statusLabels[st]}</span>}
+                          </span> : null) : <>
                           {furikae&&<span style={{fontSize:9,flexShrink:0,color:'#7c2d12',background:'#fed7aa',padding:'1px 4px',borderRadius:3,fontWeight:'bold'}}>振替あり</span>}
                           {st!=='none'&&<span style={{fontSize:9,flexShrink:0,color:'#475569',background:'rgba(255,255,255,0.7)',padding:'1px 4px',borderRadius:3}}>{statusLabels[st]}</span>}
+                          </>}
                         </button>
                       );
                     })}
