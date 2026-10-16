@@ -19837,7 +19837,7 @@ export default function App() {
       if (raw) {
         sessionStorage.removeItem('tsumugi_resume_view');
         const o = JSON.parse(raw);
-        if (o && o.view && Date.now() - (o.t||0) < 5*60*1000) {
+        if (o && o.view && Date.now() - (o.t||0) < 12*60*60*1000) { // ★ 2026-10-17: 12時間以内(常時控えるようにしたため)
           if (o.pid != null) window.__tsumugiResumePid = o.pid;
           return o.view;
         }
@@ -21234,11 +21234,14 @@ export default function App() {
     window.addEventListener('tsumugi-meeting-float', h);
     return () => window.removeEventListener('tsumugi-meeting-float', h);
   }, []);
-  // ★ 2026-10-17: 「今すぐ更新」の前に開いていた小窓を開き直す(5分以内・使い捨て)。データが読み込まれてから
+  // ★ 2026-10-17: 再読み込み(更新ボタン・ブラウザの再読み込みとも)の前に開いていた小窓を開き直す(12時間以内)。データが読み込まれてから
   React.useEffect(() => {
-    try { const raw = sessionStorage.getItem('tsumugi_resume_meeting_float'); if (!raw) return; sessionStorage.removeItem('tsumugi_resume_meeting_float'); const o = JSON.parse(raw);
-      if (o && o.patientId && o.meetingId && Date.now() - (o.t || 0) < 5 * 60 * 1000) { const t = setTimeout(() => setMeetingFloat({ patientId: o.patientId, meetingId: o.meetingId, isNew: false }), 1200); return () => clearTimeout(t); } } catch {}
+    try { const raw = sessionStorage.getItem('tsumugi_resume_meeting_float'); if (!raw) return; const o = JSON.parse(raw);
+      if (o && o.patientId && o.meetingId && Date.now() - (o.t || 0) < 12 * 60 * 60 * 1000) { const t = setTimeout(() => setMeetingFloat({ patientId: o.patientId, meetingId: o.meetingId, isNew: false }), 1200); return () => clearTimeout(t); }
+      sessionStorage.removeItem('tsumugi_resume_meeting_float'); } catch {}
   }, []);
+  // 小窓が開いている間はその控えを置き、閉じたら消す(どの再読み込みでも戻れる)
+  React.useEffect(() => { try { if (meetingFloat) sessionStorage.setItem('tsumugi_resume_meeting_float', JSON.stringify({ patientId: meetingFloat.patientId, meetingId: meetingFloat.meetingId, t: Date.now() })); else sessionStorage.removeItem('tsumugi_resume_meeting_float'); } catch {} }, [meetingFloat]);
   useEffect(()=>{
     // ★ 2026-10-03(ユーザー要望「連絡帳はまっすぐ印刷画面へ」): detail.autoPrint=true なら、プレビューを出した直後に印刷(PC=隠しiframeで印刷ダイアログ、iPad=印刷用の表示)へ進む
     const handler = (e) => { if (e.detail && e.detail.autoPrint) _autoPrintRef.current = true; setPrintPreviewContent(e.detail); };
@@ -21525,6 +21528,8 @@ export default function App() {
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   });
   const [targetPatientId, setTargetPatientId] = useState(() => (window.__tsumugiResumePid != null ? window.__tsumugiResumePid : null)); // ★ 今すぐ更新の復帰時は選択中の利用者も引き継ぐ
+  // ★ 2026-10-17(ユーザー要望「再読み込みしても今表示している画面に戻ってほしい」): 見ている画面と利用者を常に控える(更新ボタンのときだけだったのを常時に)
+  useEffect(() => { try { sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: currentView, pid: targetPatientId ?? null, t: Date.now() })); } catch {} }, [currentView, targetPatientId]);
   // ★ 定休日(土日等)にアプリを開いたら「次の営業日」を初期表示にする(店舗要望)。
   //   カレンダーの nearestOpenDate は土曜→金曜と後退するが、起動時は必ず前進(未来の営業日)。
   //   設定(closedDays)が読み込めた最初の1回だけ実行し、ユーザーが日付を動かした後は触らない。
@@ -56510,6 +56515,21 @@ const dayOfWeekJp = (yyyy_mm_dd) => {
   } catch { return ''; }
 };
 
+// ★ 2026-10-17(ユーザー報告「小窓で入力中に再読み込みすると中身が消えた」): 入力途中の下書きを端末(localStorage)に控える。保存・破棄で消す。24時間で無効
+const tsuMeetDraftKey = (pid, mid) => `tsumugi_meet_draft:${pid}:${mid || 'new'}`;
+const tsuMeetDraftSave = (pid, mid, draft) => { try { localStorage.setItem(tsuMeetDraftKey(pid, mid), JSON.stringify({ t: Date.now(), draft })); } catch {} };
+const tsuMeetDraftLoad = (pid, mid) => { try { const raw = localStorage.getItem(tsuMeetDraftKey(pid, mid)); if (!raw) return null; const o = JSON.parse(raw); if (!o || !o.draft || Date.now() - (o.t || 0) > 24 * 60 * 60 * 1000) { localStorage.removeItem(tsuMeetDraftKey(pid, mid)); return null; } return o.draft; } catch { return null; } };
+const tsuMeetDraftClear = (pid, mid) => { try { localStorage.removeItem(tsuMeetDraftKey(pid, mid)); } catch {} };
+// 画面の下の中央に短く出る知らせ(安定版: 試験版 trial302 の tsuPopNotice と同じ)
+const tsuPopNotice = (text, ms = 1800) => { try {
+  let el = document.getElementById('tsu-pop-notice');
+  if (!el) { el = document.createElement('div'); el.id = 'tsu-pop-notice'; el.setAttribute('role', 'status');
+    el.style.cssText = 'position:fixed;left:50%;bottom:calc(14% + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:2000005;background:rgba(15,23,42,0.92);color:#fff;font-size:15px;font-weight:bold;padding:12px 20px;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,0.3);max-width:88vw;width:max-content;text-align:center;pointer-events:none;transition:opacity 0.25s;line-height:1.5';
+    document.body.appendChild(el); }
+  el.textContent = text; el.style.opacity = '1'; el.style.display = 'block';
+  if (tsuPopNotice._t) clearTimeout(tsuPopNotice._t);
+  tsuPopNotice._t = setTimeout(() => { el.style.opacity = '0'; setTimeout(() => { if (el.style.opacity === '0') el.style.display = 'none'; }, 300); }, ms);
+} catch {} };
 // ★ 担当者会議のフロートメモ(2026-08-28 店舗要望): iPadのクイックメモ風の小窓。 画面(分析個人・提供記録等)を
 //   切り替えても消えず、ドラッグ移動・最小化できる。 編集は1秒後に自動保存(personalFile.meetings)。
 //   下書きは小窓のローカル状態に持ち、4秒同期の再レンダーでは読み直さない(入力が消えない)。
@@ -56520,6 +56540,7 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
   const [pos, setPos] = React.useState(null); // null=既定(右下)
   const [draft, setDraft] = React.useState(null);
   const [savedAt, setSavedAt] = React.useState(null);
+  const [dirty, setDirty] = React.useState(false);
   const dataRef = React.useRef(null);
   dataRef.current = { appData, onSave, float };
   const draftRef = React.useRef(null);
@@ -56527,7 +56548,11 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
   const timerRef = React.useRef(null);
   React.useEffect(() => {
     const m = ((dataRef.current.appData.patients||[]).find(p=>p.id===float.patientId)?.personalFile?.meetings||[]).find(x=>x.id===float.meetingId);
-    setDraft(m ? { date: m.date||'', timeStart: m.timeStart||'', timeEnd: m.timeEnd||'', attendees: m.attendees||'', reason: m.reason||'', content: m.content||'' } : null);
+    const base = m ? { date: m.date||'', timeStart: m.timeStart||'', timeEnd: m.timeEnd||'', attendees: m.attendees||'', reason: m.reason||'', content: m.content||'' } : null;
+    // ★ 2026-10-17: 再読み込み前の下書きが端末に控えてあれば、それを戻す(保存するまで未保存のまま)
+    const kept = m ? tsuMeetDraftLoad(float.patientId, float.meetingId) : null;
+    if (kept && JSON.stringify(kept) !== JSON.stringify(base)) { setDraft({ ...base, ...kept }); setDirty(true); setTimeout(() => tsuPopNotice('入力途中の内容を戻しました（保存を押すと記録に残ります）', 2600), 400); }
+    else setDraft(base);
   }, [float.patientId, float.meetingId]); // eslint-disable-line
   const flush = () => {
     const { appData: ad, onSave: sv, float: fl } = dataRef.current;
@@ -56537,13 +56562,12 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
     if (!(pf.meetings||[]).some(m=>m.id===fl.meetingId)) return;
     const list = (pf.meetings||[]).map(m => m.id===fl.meetingId ? { ...m, ...dr, dateLabel: toWarekiDateLabel(dr.date)||m.dateLabel||'', dayOfWeek: dayOfWeekJp(dr.date)||m.dayOfWeek||'' } : m);
     sv({ ...ad, patients: ad.patients.map(p=>p.id===pt.id?{...pt, personalFile:{...pf, meetings:list}}:p) }, { silent: true });
-    setSavedAt(new Date());
+    setSavedAt(new Date()); tsuMeetDraftClear(fl.patientId, fl.meetingId);
   };
   // ★ 明示保存型(2026-08-28 店舗要望): 自動保存はせず、下部の「保存」で確定・「キャンセル」で破棄。
-  const [dirty, setDirty] = React.useState(false);
   const savedOnceRef = React.useRef(false);
-  const upd = (patch) => { setDraft(d => ({ ...(d||{}), ...patch })); setDirty(true); };
-  const doSave = () => { flush(); savedOnceRef.current = true; setDirty(false); };
+  const upd = (patch) => { setDraft(d => { const n = { ...(d||{}), ...patch }; tsuMeetDraftSave(dataRef.current.float.patientId, dataRef.current.float.meetingId, n); return n; }); setDirty(true); }; // ★ 2026-10-17: 打つたびに端末へ控える
+  const doSave = () => { flush(); savedOnceRef.current = true; setDirty(false); tsuMeetDraftClear(float.patientId, float.meetingId); };
   // ★ 2026-10-17: 「今すぐ更新」の合図で、未保存なら保存し、再読込後に開き直すための控えを sessionStorage に置く
   React.useEffect(() => {
     const h = () => { try { const dr = draftRef.current; if (dr && dirty) flush(); sessionStorage.setItem('tsumugi_resume_meeting_float', JSON.stringify({ patientId: float.patientId, meetingId: float.meetingId, t: Date.now() })); } catch {} };
@@ -56563,6 +56587,7 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
     } else if (dirty) {
       if (!window.confirm('変更を保存せずに閉じます。よろしいですか？')) return;
     }
+    tsuMeetDraftClear(float.patientId, float.meetingId); // 閉じた(破棄)なら下書きの控えも消す
     onClose();
   };
   const boxRef = React.useRef(null);
@@ -56675,8 +56700,13 @@ function MeetingRecordForm({ patient, meeting, onSave, onClose, onFloat }) {
     if (JSON.stringify(form) !== _initialFormRef.current) {
       if (!window.confirm('入力内容を保存せずに閉じます。よろしいですか？\n（保存する場合はキャンセルして、下の「保存」を押してください）')) return;
     }
+    tsuMeetDraftClear(patient.id, meeting?.id || 'new');
     onClose();
   };
+  // ★ 2026-10-17: 入力途中の下書きを端末に控える(再読み込みしても、同じ記録を開き直せば戻る)。開くとき控えがあれば戻す
+  const _draftMid = meeting?.id || 'new';
+  React.useEffect(() => { const kept = tsuMeetDraftLoad(patient.id, _draftMid); if (kept && JSON.stringify(kept) !== JSON.stringify(form)) { setForm(f => ({ ...f, ...kept })); setTimeout(() => tsuPopNotice('入力途中の内容を戻しました（保存を押すと記録に残ります）', 2600), 400); } }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => { if (_initialFormRef.current !== null && JSON.stringify(form) !== _initialFormRef.current) tsuMeetDraftSave(patient.id, _draftMid, form); }, [form]); // eslint-disable-line react-hooks/exhaustive-deps
   // ★ 2026-10-17: 「今すぐ更新」の合図で、変更があれば保存してから再読込される(開催日が無いときは保存できないので何もしない)
   const _formRef = React.useRef(form); _formRef.current = form;
   React.useEffect(() => {
@@ -56697,6 +56727,7 @@ function MeetingRecordForm({ patient, meeting, onSave, onClose, onFloat }) {
       dayOfWeek,
       location: locationLabel,
     });
+    tsuMeetDraftClear(patient.id, _draftMid);
   };
   return (
     <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[60] flex items-center justify-center p-0 sm:p-4">
