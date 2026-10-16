@@ -25069,6 +25069,22 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
 
   // ★ テンキー(点キー)の表示ON/OFF。 OFFの店舗ではセルを直接キーボードで入力する。
   const _keypadOn = (appData.systemSettings?.keypadDisabled !== true);
+  // ★ 2026-10-16(ユーザー要望「スマホで利用者が多いと、どこだっけとスクロールするのが大変」): 上部の「利用者」から選ぶと、その方のカードへ移る
+  const [recJump, setRecJump] = useState(null); // null=閉じる / { top, q }
+  const [recFlash, setRecFlash] = useState(null);
+  const _recKana = (t) => String(t || '').replace(/[\u3041-\u3096]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 0x60)).replace(/[\s　]/g, '');
+  const openRecJump = () => { const pin = document.querySelector('.tsu-pin'); const top = pin ? Math.round(pin.getBoundingClientRect().bottom) : 96; setRecJump(v => v ? null : { top, q: '' }); };
+  const jumpToRecCard = (id) => {
+    setRecJump(null);
+    setTimeout(() => {
+      const el = document.querySelector(`[data-rec-card="${id}"]`); if (!el) return;
+      const pin = document.querySelector('.tsu-pin'); const off = (pin ? pin.getBoundingClientRect().bottom : 96) + 8;
+      let sc = el.parentElement; while (sc && sc !== document.body && sc !== document.documentElement) { const st = getComputedStyle(sc); if (/(auto|scroll)/.test(st.overflowY) && sc.scrollHeight > sc.clientHeight + 1) break; sc = sc.parentElement; }
+      const dy = el.getBoundingClientRect().top - off;
+      if (sc && sc !== document.body && sc !== document.documentElement) sc.scrollBy({ top: dy, behavior: 'smooth' }); else window.scrollBy({ top: dy, behavior: 'smooth' });
+      setRecFlash(id); setTimeout(() => setRecFlash(f => (f === id ? null : f)), 1800);
+    }, 30);
+  };
   const openKeypad = (recordId, field, currentValue, isAbsent, force, reopen) => {
     if (isAbsent || (!_keypadOn && !force)) return;
     // ★ 2026-10-15(ユーザー要望): テンキーが出ているセルをもう一度押したら閉じる(閉じるボタンと同じ扱い)。reopen=開き直し(○の後など)は閉じない
@@ -25743,11 +25759,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
         <div className="flex rounded-lg overflow-hidden border border-slate-300 shrink-0">
           {['AM','PM'].map(v=>(<button key={v} type="button" onClick={()=>setTimeFilter(v)} className={`px-2 h-10 text-sm font-bold ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600'}`}>{v}</button>))}
         </div>
+        {/* ★ 2026-10-16: 利用者を選んでそのカードへ移る */}
+        <button type="button" data-testid="rec-fold-jump" onClick={openRecJump} aria-expanded={!!recJump} className={`shrink-0 h-10 px-2 rounded-lg text-sm font-bold border ${recJump ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-700 border-slate-300'}`}>利用者</button>
         {/* ★ 2026-10-08(ユーザー要望): 出席・欠席などの人数も1行目に(小さく2段)。連絡帳は「操作」の中へ */}
-        {attCounts && (() => { const defs = [['出席','#1e40af','#dbeafe'],['欠席','#991b1b','#fee2e2'],['振替','#166534','#dcfce7'],['臨時','#155e75','#cffafe'],['休止','#9a3412','#ffedd5'],['休業','#475569','#f1f5f9']].filter(([l]) => (attCounts[l]||0) > 0); if (!defs.length) return null; return (
-          <div data-testid="rec-fold-att" className="min-w-0 overflow-hidden" style={{display:'grid',gridTemplateRows:'repeat(2, auto)',gridAutoFlow:'column',gap:'1px 3px'}}>
-            {defs.map(([l,fg,bg]) => <span key={l} style={{background:bg,color:fg,borderRadius:5,padding:'0 4px',fontSize:10,fontWeight:'bold',whiteSpace:'nowrap',lineHeight:1.45}}>{l}{attCounts[l]}</span>)}
-          </div>); })()}
+        {/* ★ 2026-10-16: 1行目に「利用者」を入れたので、出席・欠席などの人数は「利用者」の一覧の上に移した(1行目では潰れて読めないため) */}
         <button type="button" data-testid="rec-fold-save" onClick={()=>handleSaveClick(false)} className="shrink-0 h-10 px-2 rounded-xl bg-blue-600 text-white text-sm font-bold ml-auto">保存</button>
       </>); })()}>
       <>
@@ -25886,6 +25901,28 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             </div>
       </div>
       {_vitalPanel}
+      {/* ★ 2026-10-16: スマホの「利用者」一覧(押すとその方のカードへ)。名前・ふりがなで探せる */}
+      {recJump && ReactDOM.createPortal((
+        <div className="fixed inset-x-0 bottom-0" style={{ top: recJump.top, zIndex: 9000 }} data-testid="rec-jump">
+          <div className="absolute inset-0 bg-slate-900/40" onClick={() => setRecJump(null)} />
+          <div className="relative bg-white border-b border-slate-300 shadow-xl flex flex-col" style={{ maxHeight: '70vh' }}>
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200">
+              <input type="search" value={recJump.q} onChange={e => { const v = e.target.value; setRecJump(o => o ? { ...o, q: v } : o); }} placeholder="名前で探す" data-testid="rec-jump-q" className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-[16px] outline-none" />
+              <button type="button" onClick={() => setRecJump(null)} className="shrink-0 px-3 py-2 rounded-lg bg-slate-200 text-slate-700 text-sm font-bold">閉じる</button>
+            </div>
+            {attCounts && (() => { const defs = [['出席','#1e40af','#dbeafe'],['欠席','#991b1b','#fee2e2'],['振替','#166534','#dcfce7'],['臨時','#155e75','#cffafe'],['休止','#9a3412','#ffedd5'],['休業','#475569','#f1f5f9']].filter(([l]) => (attCounts[l]||0) > 0); if (!defs.length) return null; return (
+              <div data-testid="rec-jump-att" className="flex flex-wrap gap-1.5 px-3 pt-2">{defs.map(([l,fg,bg]) => <span key={l} style={{background:bg,color:fg,borderRadius:6,padding:'1px 8px',fontSize:13,fontWeight:'bold'}}>{l} {attCounts[l]}</span>)}</div>); })()}
+            <div className="overflow-y-auto p-2 grid grid-cols-2 gap-1.5" data-testid="rec-jump-list">
+              {(() => { const q = _recKana(recJump.q); const list = (displayRecords || []).filter(r => { if (!q) return true; const mp = (appData.patients||[]).find(pt => pt.id === r.patientId || pt.id === r.id) || {}; return _recKana(r.name).includes(q) || _recKana(mp.kana).includes(q); });
+                if (!list.length) return <div className="col-span-2 text-center text-[14px] text-slate-400 py-4">見つかりません</div>;
+                return list.map(r => { const st = r.status || '出席'; const off = st === '欠席' || st === '休業' || st === '休止'; return (
+                  <button key={r.id} type="button" data-testid="rec-jump-item" onClick={() => jumpToRecCard(r.id)} className={`min-h-[48px] px-2.5 py-1.5 rounded-lg border text-left flex items-center gap-1.5 ${off ? 'bg-slate-50 border-slate-200 text-slate-400' : 'bg-white border-slate-300 text-slate-800'}`}>
+                    <span className="flex-1 min-w-0 truncate text-[16px] font-bold">{r.name}</span>
+                    {st !== '出席' ? <span className="shrink-0 text-[11px] font-bold rounded px-1.5 py-0.5 bg-slate-100 text-slate-600">{st}</span> : null}
+                  </button>); }); })()}
+            </div>
+          </div>
+        </div>), document.body)}
       </>
       </TsuPhoneFold>
       ) : (
@@ -26044,7 +26081,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             const vBuSt=p[`bpUpSt_${tf}`]||'', vBdSt=p[`bpDnSt_${tf}`]||'';
             const vBuEn=p[`bpUpEn_${tf}`]||'', vBdEn=p[`bpDnEn_${tf}`]||'';
             return (
-              <div key={`m-${p.id}`} className={`bg-white rounded-xl border-2 shadow-sm p-3 ${isAbsent||isPause?'border-slate-200 opacity-70':'border-slate-300'}`}>
+              <div key={`m-${p.id}`} data-rec-card={p.id} className={`bg-white rounded-xl border-2 shadow-sm p-3 transition-shadow ${isAbsent||isPause?'border-slate-200 opacity-70':'border-slate-300'} ${recFlash===p.id?'ring-4 ring-amber-400':''}`}>
                 <div className="flex items-center justify-between gap-2 mb-2.5">
                   <button onClick={()=>setPatientInfoModal(masterData)} className="font-bold text-base text-slate-800 flex items-center gap-1 min-w-0"><span className="truncate">{p.name}</span><span className="text-[10px] text-blue-500 shrink-0">ⓘ</span></button>
                   <button type="button" onClick={()=>setZoomPid(p.id)} title="この方だけを大きな文字で入力します" className="shrink-0 text-teal-600 hover:text-teal-800 bg-teal-50 border border-teal-200 rounded-md p-1.5" style={{lineHeight:0}}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><line x1="15.6" y1="15.6" x2="21" y2="21"/><line x1="10.5" y1="8" x2="10.5" y2="13"/><line x1="8" y1="10.5" x2="13" y2="10.5"/></svg></button>
@@ -50351,10 +50388,11 @@ const validateAint2024 = (patient, adlRec, sci, row, today) => {
   if (patient?.birthDate && row.evaluate_date && lifeYmd(patient.birthDate) >= row.evaluate_date) errors.push('生年月日が評価日以降になっています');
   const biCols=['食事','移乗','整容','トイレ','入浴','歩行','階段','更衣','排便','排尿'];
   LIFE_BI_ORDER.forEach((key,idx)=>{ if(adlRec && (adlRec.items?.[key]==null||adlRec.items?.[key]==='')) errors.push(`ADL「${biCols[idx]}」が未評価`); });
-  if (adlRec && !adlRec.adlMonth) warns.push('対象月区分(初月/6か月後/どちらでもない)が未設定 → どちらでもない(0/0)で出力');
+  // ★ 2026-10-16: ADL維持等加算の提出は 初月(評価対象利用開始月)と6月目の分だけ。対象月区分が どちらでもない/未設定 の評価は対象外(ファイルに入れない)
+  const skip = !!adlRec && !adlRec.adlMonth;
   if (!row.insurer_no) warns.push('保険者番号(6桁)が未設定（参考元は空欄運用可・要確認）');
   if (!row.care_facility_id) warns.push('事業所番号が未設定（各種設定→事業所情報で入力）');
-  return { errors, warns };
+  return { errors, warns, skip, skipReason: skip ? '初月・6か月後のどちらでもない評価のため、ADL維持等では出しません（初月・6か月後の評価なら、ADL評価の画面で「対象月区分」を選んでください）' : '' };
 };
 // 生活機能チェック(FUNC2024) 全52列(§6.2)。 元データ=生活機能チェック(様式3-2 seikatsuKinouRecords)。
 //   ADL10項目のstatusはBI段階コード(§6.4)。 IADL/起居動作は 自立=3/見守り=2/一部介助=1/全介助=0。
@@ -50821,7 +50859,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
       const row = latest ? form.build(p, latest, sci, lifeCfgFor(p), pym) : null;
       const noneMsg = src==='seikatsu' ? '生活機能チェックが未作成' : src==='kinou' ? '個別機能訓練計画書が未作成' : 'ADL評価が未作成';
       const vr = latest ? form.validate(p, latest, sci, row, today) : { errors:[noneMsg], warns:[] };
-      return { p, latest, row, vr, status: !latest ? 'none' : (vr.errors.length ? 'error' : 'ok') };
+      return { p, latest, row, vr, status: !latest ? 'none' : (vr.skip ? 'skip' : (vr.errors.length ? 'error' : 'ok')) }; // ★ 2026-10-16: skip=対象外(ADL維持等の初月・6か月後以外・出さないのでエラーより先に判定)
     });
   };
   const dashRows = React.useMemo(() => _lifeRowsFor(dashForm), [appData.adlRecords, appData.seikatsuKinouRecords, appData.kinouKeikakuRecords, appData.patients, dashFormId, appData.systemSettings?.facilityInfo]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -50835,7 +50873,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
     const excluded = dashRows.filter(d=>d.status!=='ok');
     if (!ok.length) { alert('提出できる利用者がいません（未評価またはエラーのため）。'); return; }
     const msg = `【${dashForm.label}】提出可能 ${ok.length}名分をまとめてCSVに出力します。` + _officeNote(ok.map(d=>d.row))
-      + (excluded.length ? `\n\n除外 ${excluded.length}名（この出力には含めません）:\n` + excluded.map(d=>`・${d.p.name}（${d.status==='none'?'未評価':`エラー${d.vr.errors.length}件`}）`).join('\n') : '');
+      + (excluded.length ? `\n\n除外 ${excluded.length}名（この出力には含めません）:\n` + excluded.map(d=>`・${d.p.name}（${d.status==='none'?'未評価':d.status==='skip'?'初月・6か月後ではない':`エラー${d.vr.errors.length}件`}）`).join('\n') : '');
     if (!window.confirm(msg)) return;
     _dlByOffice(`${dashForm.id}_${submitYm.replace('-','')}`, dashForm.cols, ok.map(d=>d.row), dashForm.dataType);
   };
@@ -51513,11 +51551,12 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                   <button type="button" onClick={exportAllForm} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">まとめてCSV出力</button>
                 </div>
               </div>
-              {(() => { const ok=dashRows.filter(d=>d.status==='ok').length, er=dashRows.filter(d=>d.status==='error').length, no=dashRows.filter(d=>d.status==='none').length; return (
+              {(() => { const ok=dashRows.filter(d=>d.status==='ok').length, er=dashRows.filter(d=>d.status==='error').length, no=dashRows.filter(d=>d.status==='none').length, sk=dashRows.filter(d=>d.status==='skip').length; return (
                 <div className="flex gap-2 flex-wrap mb-2 text-xs font-bold">
                   <span className="px-2 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">提出可 {ok}</span>
                   <span className="px-2 py-1 rounded bg-red-50 text-red-700 border border-red-200">エラー {er}</span>
                   <span className="px-2 py-1 rounded bg-slate-100 text-slate-500 border border-slate-200">未評価 {no}</span>
+                  {sk ? <span className="px-2 py-1 rounded bg-white text-slate-500 border border-slate-300" data-testid="life-dash-skip" title="ADL維持等は初月・6か月後の評価だけを出します">対象外 {sk}</span> : null}
                   <span className="px-2 py-1 rounded bg-slate-50 text-slate-400 border border-slate-200">対象 {dashRows.length}名</span>
                 </div>
               ); })()}
@@ -51529,8 +51568,8 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                       <tr key={d.p.id} className={`hover:bg-slate-50 cursor-pointer ${d.p.id===pid?'bg-purple-50':''}`} onClick={()=>{ if (_isSubmit) { if (navigateTo) navigateTo('life_hub', d.p.id); return; } setEditing(null); setPid(d.p.id); }}>
                         <td className="px-2 py-1.5 font-bold text-slate-700 whitespace-nowrap">{d.p.name}</td>
                         <td className="px-2 py-1.5 text-center text-slate-500 whitespace-nowrap">{d.latest?.evalDate||d.latest?.recordDate||d.latest?.createdDate||'—'}</td>
-                        <td className="px-2 py-1.5 text-center">{d.status==='ok'?<span className="text-emerald-600 font-bold">✓ 提出可</span>:d.status==='error'?<span className="text-red-600 font-bold">エラー{d.vr.errors.length}件</span>:<span className="text-slate-400 font-bold">未評価</span>}</td>
-                        <td className="px-2 py-1.5 text-[11px] text-slate-500">{d.status==='error'?d.vr.errors.slice(0,3).join(' / ')+(d.vr.errors.length>3?' …':''):d.status==='ok'&&d.vr.warns.length?<span className="text-amber-600">要確認: {d.vr.warns.join(' / ')}</span>:''}</td>
+                        <td className="px-2 py-1.5 text-center">{d.status==='ok'?<span className="text-emerald-600 font-bold">✓ 提出可</span>:d.status==='error'?<span className="text-red-600 font-bold">エラー{d.vr.errors.length}件</span>:d.status==='skip'?<span className="text-slate-500 font-bold">対象外</span>:<span className="text-slate-400 font-bold">未評価</span>}</td>
+                        <td className="px-2 py-1.5 text-[11px] text-slate-500">{d.status==='error'?d.vr.errors.slice(0,3).join(' / ')+(d.vr.errors.length>3?' …':''):d.status==='skip'?(d.vr.skipReason||''):d.status==='ok'&&d.vr.warns.length?<span className="text-amber-600">要確認: {d.vr.warns.join(' / ')}</span>:''}</td>
                       </tr>
                     ))}
                   </tbody>
