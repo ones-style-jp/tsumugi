@@ -572,7 +572,7 @@ html, body { font-family: "Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic
 }
 </style>
 </head><body>
-<div class="no-print">Ctrl/Cmd + P で「PDFとして保存」 <button onclick="window.print()">印刷</button></div>
+<div class="no-print">Ctrl/Cmd + P で「PDFとして保存」 <button onclick="window.print()" className="whitespace-nowrap">印刷</button></div>
 ${allPagesHtml}
 </body></html>`;
             const safeName = pat.name.replace(/[\/\\:?*"<>|\s]/g,'_');
@@ -1354,7 +1354,7 @@ function BpReMini({ entries, canEdit, onDelete, big = false }) {
       {list.map(e => (
         <div key={e.at || e.n} className={`${big ? 'text-[15px] gap-2 mt-1' : 'text-[9px] gap-1'} font-bold text-amber-800 whitespace-nowrap flex items-center`} data-testid="bp-re-row">
           <span>{e.n || 1}回目</span><span>{e.time || ''}</span><span>{e.up || '－'}/{e.dn || '－'}</span><span>脈{e.pl || '－'}</span>
-          {canEdit && <button type="button" data-testid="bp-re-del" onClick={() => onDelete(e.at)} className={`${big ? 'text-[13px] px-2 py-0.5' : 'text-[9px] px-1'} font-bold text-blue-700 border border-blue-300 bg-white rounded leading-tight`} title="この回の値に戻します（今の値は消えます）">戻す</button>}
+          {canEdit && <button type="button" data-testid="bp-re-del" onClick={() => onDelete(e.at)} className={`whitespace-nowrap ${big ? 'text-[13px] px-2 py-0.5' : 'text-[9px] px-1'} font-bold text-blue-700 border border-blue-300 bg-white rounded leading-tight`} title="この回の値に戻します（今の値は消えます）">戻す</button>}
         </div>
       ))}
       {entries.length > 1 && <button type="button" data-testid="bp-re-toggle" onClick={() => setOpen(o => !o)} className={`${big ? 'text-[13px]' : 'text-[9px]'} font-bold text-blue-700 underline leading-tight`}>{open ? '閉じる' : `他${entries.length - 1}件`}</button>}
@@ -2557,7 +2557,7 @@ const tsumugiOpenImage = (src, name) => {
   host.setAttribute('data-testid', 'tsu-img-view');
   host.style.cssText = 'position:fixed;inset:0;z-index:2000002;background:#0f172a;display:flex;flex-direction:column;overflow:hidden;touch-action:none;font-family:-apple-system,"Hiragino Sans","Meiryo",sans-serif;';
   host.innerHTML = `<div style="flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px;background:#1e293b;color:#fff;">
-      <button type="button" data-act="close" style="font-size:15px;font-weight:bold;padding:9px 16px;background:#475569;color:#fff;border:none;border-radius:10px;cursor:pointer;">閉じる</button>
+      <button type="button" data-act="close" style="font-size:15px;font-weight:bold;padding:9px 16px;background:#475569;color:#fff;border:none;border-radius:10px;cursor:pointer;" className="whitespace-nowrap">閉じる</button>
       <div data-act="name" style="flex:1;min-width:0;font-size:12px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
       <div style="font-size:11px;color:#94a3b8;white-space:nowrap;">ピンチ・ダブルタップで拡大</div>
     </div>
@@ -2899,7 +2899,7 @@ function ValueHistoryList({ title, hist, onChangeHist, valueOptions }) {
             <input type="date" value={draft.from} onChange={e => setDraft(d => ({ ...d, from: e.target.value }))} style={iStyle} />
             <span style={{ color: '#94a3b8', fontSize: 11 }}>〜</span>
             <input type="date" value={draft.to} onChange={e => setDraft(d => ({ ...d, to: e.target.value }))} style={iStyle} />
-            <button type="button" onClick={saveEdit} style={{ fontSize: 11, fontWeight: 'bold', color: 'white', background: '#2563eb', border: 'none', borderRadius: 6, padding: '4px 9px', cursor: 'pointer' }}>保存</button>
+            <button type="button" onClick={saveEdit} style={{whiteSpace:'nowrap', fontSize: 11, fontWeight: 'bold', color: 'white', background: '#2563eb', border: 'none', borderRadius: 6, padding: '4px 9px', cursor: 'pointer' }}>保存</button>
             <button type="button" onClick={() => { setEditIdx(null); setDraft(null); }} style={{ fontSize: 11, fontWeight: 'bold', color: '#475569', background: '#e2e8f0', border: 'none', borderRadius: 6, padding: '4px 9px', cursor: 'pointer' }}>取消</button>
           </div>
         ) : (
@@ -11163,7 +11163,7 @@ function RecordOrderModal({ rows, onSave, onClose }) {
         </div>
         <div className="px-4 py-3 border-t border-slate-200 flex items-center gap-2 flex-wrap">
           <button type="button" data-testid="rec-order-kana" onClick={() => setList(prev => [...prev].sort((a, b) => String(a.kana || a.name || '').localeCompare(String(b.kana || b.name || ''), 'ja')))} className="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-600">あいうえお順に戻す</button>
-          <button type="button" onClick={onClose} className="ml-auto px-4 py-2 rounded-xl bg-slate-100 text-sm font-bold text-slate-600">キャンセル</button>
+          <button type="button" onClick={onClose} className="whitespace-nowrap ml-auto px-4 py-2 rounded-xl bg-slate-100 text-sm font-bold text-slate-600">キャンセル</button>
           <button type="button" data-testid="rec-order-save" onClick={() => onSave(list.map(r => r.id))} className="px-5 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold">この順で保存</button>
         </div>
       </div>
@@ -12399,7 +12399,7 @@ function RosterView({ appData, onSave }) {
             </div>
             <div style={{display:'flex',gap:8}}>
               <button onClick={()=>{ setCell(picker.staffKey, picker.day, ''); setPicker(null); }} style={{flex:1,padding:'9px',background:'#f1f5f9',color:'#475569',border:'1px solid #cbd5e1',borderRadius:8,fontWeight:'bold',cursor:'pointer'}}>クリア</button>
-              <button onClick={()=>setPicker(null)} style={{flex:1,padding:'9px',background:'white',color:'#64748b',border:'1px solid #cbd5e1',borderRadius:8,fontWeight:'bold',cursor:'pointer'}}>閉じる</button>
+              <button onClick={()=>setPicker(null)} style={{whiteSpace:'nowrap',flex:1,padding:'9px',background:'white',color:'#64748b',border:'1px solid #cbd5e1',borderRadius:8,fontWeight:'bold',cursor:'pointer'}}>閉じる</button>
             </div>
           </div>
         </div>
@@ -12933,7 +12933,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
             <div style={{display:'flex',gap:8,marginTop:20,justifyContent:'flex-end'}}>
               {noticeDetail.patientId && <button onClick={()=>{const pid=noticeDetail.patientId; try{sessionStorage.setItem('tsumugiReopenPF', JSON.stringify({patientId:pid, tab:'cat_3', focus:'meeting'}));}catch{} setNoticeDetail(null); navigateTo('master',pid);}} style={{padding:'9px 18px',borderRadius:10,border:'none',background:'#2563eb',color:'white',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>担当者会議を記録</button>}
               {noticeDetail.patientId && <button onClick={()=>{const pid=noticeDetail.patientId;setNoticeDetail(null);navigateTo('master',pid);}} style={{padding:'9px 18px',borderRadius:10,border:'none',background:'#4338ca',color:'white',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>利用者を開く</button>}
-              <button onClick={()=>setNoticeDetail(null)} style={{padding:'9px 18px',borderRadius:10,border:'1px solid #cbd5e1',background:'#f8fafc',color:'#475569',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
+              <button onClick={()=>setNoticeDetail(null)} style={{whiteSpace:'nowrap',padding:'9px 18px',borderRadius:10,border:'1px solid #cbd5e1',background:'#f8fafc',color:'#475569',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
             </div>
           </div>
         </div>
@@ -13255,7 +13255,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
             <div style={{background:'white',borderRadius:16,border:'1px solid #e2e8f0',boxShadow:'0 1px 6px rgba(0,0,0,0.06)',padding:16}}>
               <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
                 <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b'}}>{fmtJp(selDay)} の予定</div>
-                <button onClick={()=>openNew(selDay)} style={{background:'#6366f1',color:'white',border:'none',borderRadius:8,padding:'5px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4}}>追加</button>
+                <button onClick={()=>openNew(selDay)} style={{whiteSpace:'nowrap',background:'#6366f1',color:'white',border:'none',borderRadius:8,padding:'5px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4}}>追加</button>
               </div>
               {selEvents.length===0 ? (
                 <div style={{fontSize:13,color:'#64748b',padding:'12px 0'}}>この日の予定はありません。「追加」から登録できます。</div>
@@ -13274,8 +13274,8 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                       </div>
                       {e.patientId && <button onClick={()=>_goMeeting(e.patientId)} title="個人ファイルの担当者会議記録を開く"
                         style={{background:'#2563eb',border:'none',borderRadius:6,padding:'4px 10px',fontSize:11,fontWeight:'bold',color:'white',cursor:'pointer',whiteSpace:'nowrap'}}>担当者会議を記録</button>}
-                      <button onClick={()=>editEvent(e)} style={{background:'#e2e8f0',border:'none',borderRadius:6,padding:'4px 10px',fontSize:11,fontWeight:'bold',color:'#334155',cursor:'pointer'}}>編集</button>
-                      <button onClick={()=>delEvent(e)} style={{background:'#fee2e2',border:'none',borderRadius:6,padding:'4px 10px',fontSize:11,fontWeight:'bold',color:'#b91c1c',cursor:'pointer'}}>削除</button>
+                      <button onClick={()=>editEvent(e)} style={{whiteSpace:'nowrap',background:'#e2e8f0',border:'none',borderRadius:6,padding:'4px 10px',fontSize:11,fontWeight:'bold',color:'#334155',cursor:'pointer'}}>編集</button>
+                      <button onClick={()=>delEvent(e)} style={{whiteSpace:'nowrap',background:'#fee2e2',border:'none',borderRadius:6,padding:'4px 10px',fontSize:11,fontWeight:'bold',color:'#b91c1c',cursor:'pointer'}}>削除</button>
                     </div>
                   ))}
                 </div>
@@ -13307,9 +13307,9 @@ function ScheduleView({ appData, onSave, navigateTo }) {
               {e.patientId && <button type="button" onClick={()=>{ setEvDetail(null); _goMeeting(e.patientId); }}
                 style={{background:'#2563eb',border:'none',color:'white',borderRadius:10,padding:'11px 18px',fontWeight:'bold',fontSize:15,cursor:'pointer',marginRight:'auto'}}>担当者会議を記録</button>}
               {!e.patientId && <span style={{marginRight:'auto'}}/>}
-              <button onClick={()=>{ if(window.confirm('この予定を削除しますか？')){ delEvent(e); setEvDetail(null); } }} style={{background:'#fef2f2',border:'1px solid #fecaca',color:'#dc2626',borderRadius:10,padding:'11px 18px',fontWeight:'bold',fontSize:15,cursor:'pointer'}}>削除</button>
-              <button onClick={()=>{ setEvDetail(null); editEvent(e); }} style={{background:'#4f46e5',border:'none',color:'white',borderRadius:10,padding:'11px 22px',fontWeight:'bold',fontSize:15,cursor:'pointer'}}>編集</button>
-              <button onClick={()=>setEvDetail(null)} style={{background:'#f1f5f9',border:'none',color:'#475569',borderRadius:10,padding:'11px 18px',fontWeight:'bold',fontSize:15,cursor:'pointer'}}>閉じる</button>
+              <button onClick={()=>{ if(window.confirm('この予定を削除しますか？')){ delEvent(e); setEvDetail(null); } }} style={{whiteSpace:'nowrap',background:'#fef2f2',border:'1px solid #fecaca',color:'#dc2626',borderRadius:10,padding:'11px 18px',fontWeight:'bold',fontSize:15,cursor:'pointer'}}>削除</button>
+              <button onClick={()=>{ setEvDetail(null); editEvent(e); }} style={{whiteSpace:'nowrap',background:'#4f46e5',border:'none',color:'white',borderRadius:10,padding:'11px 22px',fontWeight:'bold',fontSize:15,cursor:'pointer'}}>編集</button>
+              <button onClick={()=>setEvDetail(null)} style={{whiteSpace:'nowrap',background:'#f1f5f9',border:'none',color:'#475569',borderRadius:10,padding:'11px 18px',fontWeight:'bold',fontSize:15,cursor:'pointer'}}>閉じる</button>
             </div>
           </div>
         </div>
@@ -13400,10 +13400,10 @@ function ScheduleView({ appData, onSave, navigateTo }) {
               })}
             </div>
             <div style={{display:'flex',gap:8}}>
-              {modal.id && <button onClick={()=>del(modal.id)} style={{background:'#fee2e2',border:'none',color:'#b91c1c',borderRadius:8,padding:'10px 14px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>削除</button>}
+              {modal.id && <button onClick={()=>del(modal.id)} style={{whiteSpace:'nowrap',background:'#fee2e2',border:'none',color:'#b91c1c',borderRadius:8,padding:'10px 14px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>削除</button>}
               <div style={{flex:1}}/>
-              <button onClick={()=>setModal(null)} style={{background:'#e2e8f0',border:'none',color:'#334155',borderRadius:8,padding:'10px 14px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>キャンセル</button>
-              <button onClick={upsert} style={{background:'#6366f1',border:'none',color:'white',borderRadius:8,padding:'10px 18px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>保存</button>
+              <button onClick={()=>setModal(null)} style={{whiteSpace:'nowrap',background:'#e2e8f0',border:'none',color:'#334155',borderRadius:8,padding:'10px 14px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>キャンセル</button>
+              <button onClick={upsert} style={{whiteSpace:'nowrap',background:'#6366f1',border:'none',color:'white',borderRadius:8,padding:'10px 18px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>保存</button>
             </div>
           </div>
         </div>
@@ -13438,8 +13438,8 @@ function ScheduleView({ appData, onSave, navigateTo }) {
               <button onClick={()=>setLabelDraft([...dl,{color:COLORS[dl.length%COLORS.length],label:''}])} style={{marginTop:10,background:'#eef2ff',border:'1px dashed #a5b4fc',color:'#4338ca',borderRadius:10,padding:'8px 14px',fontWeight:'bold',fontSize:13,cursor:'pointer',width:'100%'}}>＋ ラベルを追加（{dl.length}/15）</button>
             ) : <div style={{marginTop:10,fontSize:11,color:'#64748b',textAlign:'center'}}>上限の15件です。</div>}
             <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:14}}>
-              <button onClick={_closeL} style={{background:'#f1f5f9',border:'1px solid #e2e8f0',color:'#475569',borderRadius:8,padding:'9px 18px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>キャンセル</button>
-              <button onClick={()=>{ saveColorLabels(dl); setLabelEditorOpen(false); setLabelDraft(null); }} style={{background:'#6366f1',border:'none',color:'white',borderRadius:8,padding:'9px 20px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>保存</button>
+              <button onClick={_closeL} style={{whiteSpace:'nowrap',background:'#f1f5f9',border:'1px solid #e2e8f0',color:'#475569',borderRadius:8,padding:'9px 18px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>キャンセル</button>
+              <button onClick={()=>{ saveColorLabels(dl); setLabelEditorOpen(false); setLabelDraft(null); }} style={{whiteSpace:'nowrap',background:'#6366f1',border:'none',color:'white',borderRadius:8,padding:'9px 20px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>保存</button>
             </div>
           </div>
         </div>
@@ -13486,7 +13486,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
               });
             })()}
             <div style={{textAlign:'right',marginTop:8}}>
-              <button onClick={()=>setRepeatMgrOpen(false)} style={{background:'#6366f1',border:'none',color:'white',borderRadius:8,padding:'9px 20px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
+              <button onClick={()=>setRepeatMgrOpen(false)} style={{whiteSpace:'nowrap',background:'#6366f1',border:'none',color:'white',borderRadius:8,padding:'9px 20px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
             </div>
           </div>
         </div>
@@ -13508,7 +13508,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
               </div>
             )}
             <div style={{textAlign:'right',marginTop:14}}>
-              <button onClick={()=>setIconPopup(null)} style={{background:'#e2e8f0',border:'none',color:'#334155',borderRadius:8,padding:'8px 18px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
+              <button onClick={()=>setIconPopup(null)} style={{whiteSpace:'nowrap',background:'#e2e8f0',border:'none',color:'#334155',borderRadius:8,padding:'8px 18px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
             </div>
           </div>
         </div>
@@ -13613,7 +13613,7 @@ function DisasterView({ appData, onSave, staffSession }) {
           <input value={e.name || ''} onChange={ev => setDraft(d => ({ ...d, [key]: d[key].map((x, j) => j === i ? { ...x, name: ev.target.value } : x) }))} placeholder="名称(例: ○○公園)" className={inp} />
           <input value={e.address || ''} onChange={ev => setDraft(d => ({ ...d, [key]: d[key].map((x, j) => j === i ? { ...x, address: ev.target.value } : x) }))} placeholder="住所・場所" className={inp} />
           <input value={e.note || ''} onChange={ev => setDraft(d => ({ ...d, [key]: d[key].map((x, j) => j === i ? { ...x, note: ev.target.value } : x) }))} placeholder="備考(徒歩○分・開設条件など)" className={inp} />
-          <button type="button" onClick={() => setDraft(d => ({ ...d, [key]: d[key].filter((_, j) => j !== i) }))} className="px-2 text-red-600 text-xs font-bold">削除</button>
+          <button type="button" onClick={() => setDraft(d => ({ ...d, [key]: d[key].filter((_, j) => j !== i) }))} className="whitespace-nowrap px-2 text-red-600 text-xs font-bold">削除</button>
         </div>
       ))}
       <button type="button" onClick={() => setDraft(d => ({ ...d, [key]: [...(d[key] || []), { id: `ev${Date.now()}`, name: '', address: '', note: '' }] }))} className="text-xs font-bold text-blue-700">＋ 追加</button>
@@ -13675,7 +13675,7 @@ function DisasterView({ appData, onSave, staffSession }) {
         <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
           <div className="max-w-4xl mx-auto space-y-4">
             <div className="bg-white rounded-2xl border border-slate-200 p-4">
-              <div className="flex items-center gap-2 mb-3"><div className="text-sm font-bold text-slate-800">避難場所</div><div className="ml-auto flex gap-2">{editing ? <><button type="button" onClick={() => saveBcp(draft)} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold">保存</button><button type="button" onClick={() => { setDraft(bcp); setEditing(false); }} className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-600 text-xs font-bold">やめる</button></> : <button type="button" onClick={() => { setDraft(bcp); setEditing(true); }} className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-700 text-xs font-bold">編集</button>}</div></div>
+              <div className="flex items-center gap-2 mb-3"><div className="text-sm font-bold text-slate-800">避難場所</div><div className="ml-auto flex gap-2">{editing ? <><button type="button" onClick={() => saveBcp(draft)} className="whitespace-nowrap px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold">保存</button><button type="button" onClick={() => { setDraft(bcp); setEditing(false); }} className="whitespace-nowrap px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-600 text-xs font-bold">やめる</button></> : <button type="button" onClick={() => { setDraft(bcp); setEditing(true); }} className="whitespace-nowrap px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-700 text-xs font-bold">編集</button>}</div></div>
               {editing ? (
                 <>
                   {listEditor('evacTemp', '一時避難場所', '（近くの公園など。学校等の指定避難所は開設されるまで使えないため、まずここへ）')}
@@ -13710,7 +13710,7 @@ function DisasterView({ appData, onSave, staffSession }) {
         <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
           <div className="max-w-4xl mx-auto">
             <div className="bg-white rounded-2xl border border-slate-200 p-4">
-              <div className="flex items-center gap-2 mb-3"><div className="text-sm font-bold text-slate-800">備蓄品と保管場所</div><div className="ml-auto flex gap-2">{editing ? <><button type="button" onClick={() => saveBcp(draft)} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold">保存</button><button type="button" onClick={() => { setDraft(bcp); setEditing(false); }} className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-600 text-xs font-bold">やめる</button></> : <button type="button" onClick={() => { setDraft(bcp); setEditing(true); }} className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-700 text-xs font-bold">編集</button>}</div></div>
+              <div className="flex items-center gap-2 mb-3"><div className="text-sm font-bold text-slate-800">備蓄品と保管場所</div><div className="ml-auto flex gap-2">{editing ? <><button type="button" onClick={() => saveBcp(draft)} className="whitespace-nowrap px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold">保存</button><button type="button" onClick={() => { setDraft(bcp); setEditing(false); }} className="whitespace-nowrap px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-600 text-xs font-bold">やめる</button></> : <button type="button" onClick={() => { setDraft(bcp); setEditing(true); }} className="whitespace-nowrap px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-700 text-xs font-bold">編集</button>}</div></div>
               {editing ? (
                 <>
                   <div className="text-xs font-bold text-slate-600 mb-1">保管場所の説明 <span className="font-normal text-slate-400">（例: 2階倉庫の右棚／事務所の防災BOX）</span></div>
@@ -13719,7 +13719,7 @@ function DisasterView({ appData, onSave, staffSession }) {
                   {(draft.stocks || []).map((s, i) => (
                     <div key={s.id || i} className="grid grid-cols-[1.4fr_.6fr_.5fr_1fr_.9fr_auto] gap-2 mb-1">
                       {[['item', '例: 飲料水'], ['qty', '例: 60'], ['unit', '本'], ['place', '例: 2階倉庫'], ['expires', '2027-03']].map(([f, ph]) => <input key={f} value={s[f] || ''} onChange={ev => setDraft(d => ({ ...d, stocks: d.stocks.map((x, j) => j === i ? { ...x, [f]: ev.target.value } : x) }))} placeholder={ph} className={inp} />)}
-                      <button type="button" onClick={() => setDraft(d => ({ ...d, stocks: d.stocks.filter((_, j) => j !== i) }))} className="px-2 text-red-600 text-xs font-bold">削除</button>
+                      <button type="button" onClick={() => setDraft(d => ({ ...d, stocks: d.stocks.filter((_, j) => j !== i) }))} className="whitespace-nowrap px-2 text-red-600 text-xs font-bold">削除</button>
                     </div>
                   ))}
                   <button type="button" onClick={() => setDraft(d => ({ ...d, stocks: [...(d.stocks || []), { id: `st${Date.now()}`, item: '', qty: '', unit: '', place: '', expires: '' }] }))} className="text-xs font-bold text-blue-700">＋ 追加</button>
@@ -14793,7 +14793,7 @@ function LoginHelpModal({ kind, onClose }) {
             <Q q="それでも解決しないとき" a={<>お手数ですが事業所、またはサポート（support@ones-style.co.jp）までご連絡ください。</>} />
           </div>
         )}
-        <button onClick={onClose} style={{width:'100%',marginTop:8,padding:'12px',background:'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:'bold',cursor:'pointer'}}>閉じる</button>
+        <button onClick={onClose} style={{whiteSpace:'nowrap',width:'100%',marginTop:8,padding:'12px',background:'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:'bold',cursor:'pointer'}}>閉じる</button>
       </div>
     </div>
   );
@@ -16258,7 +16258,7 @@ function FamilyView() {
                       setFamReset(f=>({...f, step:2, busy:false, err:'', masked:j.masked||''}));
                     } catch { setFamReset(f=>({...f,busy:false,err:'通信エラーです。電波の良いところでお試しください。'})); }
                   }} style={{width:'100%',padding:'12px',background:famReset.busy?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:14,fontWeight:'bold',cursor:famReset.busy?'not-allowed':'pointer',marginBottom:8}}>{famReset.busy? <><BusySpin/>送信中...</>:'確認コードを送信'}</button>
-                  <button onClick={()=>setFamReset(null)} style={{width:'100%',padding:'11px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
+                  <button onClick={()=>setFamReset(null)} style={{whiteSpace:'nowrap',width:'100%',padding:'11px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
                 </>
               ) : (
                 <>
@@ -16283,7 +16283,7 @@ function FamilyView() {
                       setFamReset(f=>({...f,busy:false,err:'',done:true}));
                     } catch { setFamReset(f=>({...f,busy:false,err:'通信エラーです。電波の良いところでお試しください。'})); }
                   }} style={{width:'100%',padding:'12px',background:famReset.busy?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:14,fontWeight:'bold',cursor:famReset.busy?'not-allowed':'pointer',marginBottom:8}}>{famReset.busy? <><BusySpin/>再設定中...</>:'パスワードを再設定する'}</button>
-                  <button onClick={()=>setFamReset(null)} style={{width:'100%',padding:'11px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
+                  <button onClick={()=>setFamReset(null)} style={{whiteSpace:'nowrap',width:'100%',padding:'11px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
                 </>
               )}
             </div>
@@ -16511,7 +16511,7 @@ function CmDocsModal({ patient, storeId, byName, onSaved, onClose }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
-          <button onClick={onClose} disabled={saving} style={{ flex: 1, padding: '11px', fontSize: 14, fontWeight: 'bold', color: '#475569', background: '#f1f5f9', border: 'none', borderRadius: 10, cursor: 'pointer' }}>閉じる</button>
+          <button onClick={onClose} disabled={saving} style={{whiteSpace:'nowrap', flex: 1, padding: '11px', fontSize: 14, fontWeight: 'bold', color: '#475569', background: '#f1f5f9', border: 'none', borderRadius: 10, cursor: 'pointer' }}>閉じる</button>
           <button onClick={save} disabled={saving || !!busy} style={{ flex: 2, padding: '11px', fontSize: 14, fontWeight: 'bold', color: 'white', background: (saving || busy) ? '#94a3b8' : '#0891b2', border: 'none', borderRadius: 10, cursor: (saving || busy) ? 'wait' : 'pointer' }}>{saving ? <><BusySpin/>保存中…</> : '保存して事業所に反映'}</button>
         </div>
       </div>
@@ -16952,7 +16952,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
             <div style={{maxWidth:720,margin:'0 auto 12px',background:'#ecfeff',border:'2px solid #67e8f9',borderRadius:12,padding:'12px 14px'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
                 <div style={{fontSize:13,fontWeight:'bold',color:'#0e7490'}}>事業所から書類の更新があります</div>
-                <button onClick={markRead} style={{fontSize:12,fontWeight:'bold',color:'white',background:'#0891b2',border:'none',borderRadius:8,padding:'5px 10px',cursor:'pointer'}}>確認</button>
+                <button onClick={markRead} style={{whiteSpace:'nowrap',fontSize:12,fontWeight:'bold',color:'white',background:'#0891b2',border:'none',borderRadius:8,padding:'5px 10px',cursor:'pointer'}}>確認</button>
               </div>
               {officeUpds.slice().reverse().map(u => (
                 <div key={u.id} style={{fontSize:12,color:'#155e75'}}>・{(u.items||[]).join('・')} <span style={{color:'#0891b2'}}>（{u.byName||'事業所'} / {u.at ? new Date(u.at).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : ''}）</span></div>
@@ -17165,7 +17165,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
               <button onClick={()=>setTermsOpen(false)} aria-label="閉じる" style={{flexShrink:0,background:'#f1f5f9',border:'none',borderRadius:20,width:38,height:38,fontSize:18,fontWeight:'bold',color:'#475569',cursor:'pointer'}}>✕</button>
             </div>
             <div style={{flex:1,overflow:'auto',padding:'14px 18px',fontSize:12,color:'#334155',lineHeight:1.8,whiteSpace:'pre-wrap'}}>{renderPolicyText(_pol.text, facility.name||'当事業所', facility.phone||'')}</div>
-            <div style={{padding:'12px 18px',borderTop:'1px solid #e2e8f0'}}><button onClick={()=>setTermsOpen(false)} style={{width:'100%',padding:'12px',background:'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:'bold',cursor:'pointer'}}>閉じる</button></div>
+            <div style={{padding:'12px 18px',borderTop:'1px solid #e2e8f0'}}><button onClick={()=>setTermsOpen(false)} style={{whiteSpace:'nowrap',width:'100%',padding:'12px',background:'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:14,fontWeight:'bold',cursor:'pointer'}}>閉じる</button></div>
           </div>
         </div>
       ); })()}
@@ -17185,7 +17185,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                 
                 <div style={{fontWeight:'bold',color:'#1e293b'}}>送信しました</div>
                 <div style={{fontSize:12,color:'#64748b',marginTop:4}}>ご協力ありがとうございます。</div>
-                <button onClick={()=>setFamReport(null)} style={{marginTop:16,padding:'10px 24px',background:'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>閉じる</button>
+                <button onClick={()=>setFamReport(null)} style={{whiteSpace:'nowrap',marginTop:16,padding:'10px 24px',background:'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>閉じる</button>
               </div>
             ) : (<>
               <div style={{fontSize:11,color:'#64748b',lineHeight:1.7,background:'#fffbeb',border:'1px solid #fcd34d',borderRadius:8,padding:'10px',marginBottom:10}}>どの画面で・何が・どうおかしいか（ご意見・ご要望も可）をお書きください。画面状況・端末情報も自動で添付されます。</div>
@@ -17194,7 +17194,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                 style={{width:'100%',boxSizing:'border-box',padding:'10px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',lineHeight:1.6,resize:'vertical'}}/>
               {famReport.err && <div style={{color:'#dc2626',fontSize:12,fontWeight:'bold',marginTop:8}}>{famReport.err}</div>}
               <div style={{display:'flex',gap:8,marginTop:12}}>
-                <button onClick={()=>!famReport.sending&&setFamReport(null)} style={{flex:1,padding:'11px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
+                <button onClick={()=>!famReport.sending&&setFamReport(null)} style={{whiteSpace:'nowrap',flex:1,padding:'11px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
                 <button disabled={famReport.sending||!famReport.desc.trim()} onClick={async()=>{
                   setFamReport(b=>({...b,sending:true,err:''}));
                   try {
@@ -18286,7 +18286,7 @@ function AdminAuthModal({ mode, adminName, existingHash, onSuccess, onCancel, on
                 <input type="email" value={rEmail} onChange={e=>setREmail(e.target.value)} placeholder="登録メールアドレス" autoFocus style={{width:'100%',padding:'11px 13px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,outline:'none',boxSizing:'border-box',marginBottom:10}}/>
                 {err && <div style={{color:'#dc2626',fontSize:12,fontWeight:'bold',marginBottom:10}}>{err}</div>}
                 <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
-                  <button onClick={()=>{ setResetStep(0); setErr(''); }} disabled={busy} style={{padding:'9px 16px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>戻る</button>
+                  <button onClick={()=>{ setResetStep(0); setErr(''); }} disabled={busy} style={{whiteSpace:'nowrap',padding:'9px 16px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>戻る</button>
                   <button onClick={requestCode} disabled={busy} style={{padding:'9px 20px',background:'#2563eb',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer',opacity:busy?0.6:1}}>コードを送る</button>
                 </div>
               </>
@@ -18298,7 +18298,7 @@ function AdminAuthModal({ mode, adminName, existingHash, onSuccess, onCancel, on
                 <input type="password" value={rPw2} onChange={e=>setRPw2(e.target.value)} placeholder="新しいパスワード(確認)" style={{width:'100%',padding:'11px 13px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,outline:'none',boxSizing:'border-box',marginBottom:10}}/>
                 {err && <div style={{color:'#dc2626',fontSize:12,fontWeight:'bold',marginBottom:10}}>{err}</div>}
                 <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
-                  <button onClick={()=>{ setResetStep(1); setErr(''); }} disabled={busy} style={{padding:'9px 16px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>戻る</button>
+                  <button onClick={()=>{ setResetStep(1); setErr(''); }} disabled={busy} style={{whiteSpace:'nowrap',padding:'9px 16px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>戻る</button>
                   <button onClick={doReset} disabled={busy} style={{padding:'9px 20px',background:'#2563eb',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer',opacity:busy?0.6:1}}>再設定する</button>
                 </div>
               </>
@@ -18320,7 +18320,7 @@ function AdminAuthModal({ mode, adminName, existingHash, onSuccess, onCancel, on
         </>}
         {err && <div style={{color:'#dc2626',fontSize:12,fontWeight:'bold',marginBottom:10}}>{err}</div>}
         <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
-          <button onClick={onCancel} disabled={busy} style={{padding:'9px 16px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
+          <button onClick={onCancel} disabled={busy} style={{whiteSpace:'nowrap',padding:'9px 16px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
           <button onClick={submit} disabled={busy} style={{padding:'9px 20px',background:'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer',opacity:busy?0.6:1}}>{mode==='set'?'設定して入る':'認証して入る'}</button>
         </div>
         {mode==='verify' && storeId && (
@@ -18494,8 +18494,8 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
                 )}
               </div>
               <div style={{display:'flex',gap:8}}>
-                <button type="button" onClick={()=>setShowAdd(false)} style={{flex:1,padding:'10px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
-                <button type="submit" style={{flex:1,padding:'10px',background:'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>追加</button>
+                <button type="button" onClick={()=>setShowAdd(false)} style={{whiteSpace:'nowrap',flex:1,padding:'10px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
+                <button type="submit" style={{whiteSpace:'nowrap',flex:1,padding:'10px',background:'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>追加</button>
               </div>
             </form>
           </div>
@@ -18654,7 +18654,7 @@ function DiseaseMasterPanel() {
               <div style={{fontSize:11,color:'#64748b',margin:'6px 0'}}>先頭5件: {preview.items.slice(0,5).map(([c,n])=>`${n}(${c})`).join('、 ')}</div>
               <div style={{display:'flex',gap:8}}>
                 <button onClick={save} disabled={busy} style={{padding:'8px 16px',background:'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>この内容で置き換え保存</button>
-                <button onClick={()=>setPreview(null)} disabled={busy} style={{padding:'8px 16px',background:'#f1f5f9',color:'#475569',border:'1px solid #cbd5e1',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
+                <button onClick={()=>setPreview(null)} disabled={busy} style={{whiteSpace:'nowrap',padding:'8px 16px',background:'#f1f5f9',color:'#475569',border:'1px solid #cbd5e1',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
               </div>
             </div>
           )}
@@ -19009,7 +19009,7 @@ function SystemNoticesPanel({ stores, staffSession }) {
                     {n.ends_at && ` / 〜${new Date(n.ends_at).toLocaleDateString('ja-JP')}`}
                   </div>
                 </div>
-                <button onClick={()=>handleDelete(n.id)} style={{padding:'4px 10px',background:'#fef2f2',color:'#dc2626',border:'1px solid #fecaca',borderRadius:6,fontSize:10,fontWeight:'bold',cursor:'pointer'}}>削除</button>
+                <button onClick={()=>handleDelete(n.id)} style={{whiteSpace:'nowrap',padding:'4px 10px',background:'#fef2f2',color:'#dc2626',border:'1px solid #fecaca',borderRadius:6,fontSize:10,fontWeight:'bold',cursor:'pointer'}}>削除</button>
               </div>
             );
           })}
@@ -19074,7 +19074,7 @@ function SystemNoticesPanel({ stores, staffSession }) {
                 <div style={{fontSize:10,color:'#64748b',marginTop:2}}>未指定なら永続的に表示</div>
               </div>
               <div style={{display:'flex',gap:8,marginTop:8}}>
-                <button type="button" onClick={()=>setShowForm(false)} style={{flex:1,padding:'12px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
+                <button type="button" onClick={()=>setShowForm(false)} style={{whiteSpace:'nowrap',flex:1,padding:'12px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
                 <button type="submit" style={{flex:1,padding:'12px',background:'#3b82f6',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>作成</button>
               </div>
             </form>
@@ -19350,7 +19350,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
                       <button onClick={()=>setAddonModal({storeId:s.id, storeName:s.name})} style={{padding:'8px 12px',background:'white',color:'#0e7490',border:'1px solid #67e8f9',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>アドオン</button>
                       <button disabled={addonBusy===s.id} onClick={()=>resetStoreAdminPw(s.id, s.name)} style={{padding:'8px 12px',background:'white',color:'#b45309',border:'1px solid #fcd34d',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer',opacity:addonBusy===s.id?0.5:1}}>管理者PWリセット</button>
                       <button onClick={()=>onSelectStore(s)} style={{padding:'8px 14px',background:'white',color:'#3d5021',border:'1px solid #94c456',borderRadius:8,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>この店舗を開く →</button>
-                      <button onClick={()=>setEditStore({ id:s.id, name:s.name||'', short_name:s.short_name||'', org_name:s.org_name||'', zip_code:s.zip_code||'', address:s.address||'', address_building:s.address_building||'', phone:s.phone||'', fax:s.fax||'', loading:false, error:'' })} style={{padding:'8px 12px',background:'white',color:'#475569',border:'1px solid #cbd5e1',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>編集</button>
+                      <button onClick={()=>setEditStore({ id:s.id, name:s.name||'', short_name:s.short_name||'', org_name:s.org_name||'', zip_code:s.zip_code||'', address:s.address||'', address_building:s.address_building||'', phone:s.phone||'', fax:s.fax||'', loading:false, error:'' })} style={{whiteSpace:'nowrap',padding:'8px 12px',background:'white',color:'#475569',border:'1px solid #cbd5e1',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>編集</button>
                       <button onClick={async ()=>{
                         if (!window.confirm(`「${s.name}」を完全に削除します。\n\n・全てのデータ (利用者・記録・お知らせ・メンバー)\n・店舗管理者アカウント\n・家族アカウント / 招待\n\nこの操作は元に戻せません。本当に実行しますか?`)) return;
                         if (!window.confirm(`もう一度確認: 「${s.name}」を本当に削除しますか?`)) return;
@@ -19458,7 +19458,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
               })}
             </div>
             <div style={{fontSize:10,color:'#64748b',marginTop:12}}>※ 変更は即時に店舗へ反映されます。</div>
-            <button onClick={()=>!addonBusy&&setAddonModal(null)} style={{width:'100%',marginTop:14,padding:'11px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>閉じる</button>
+            <button onClick={()=>!addonBusy&&setAddonModal(null)} style={{whiteSpace:'nowrap',width:'100%',marginTop:14,padding:'11px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>閉じる</button>
           </div>
         </div>
       )}
@@ -19503,7 +19503,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
             </div>
             <div style={{fontSize:11,color:'#64748b',marginBottom:14}}>※ 保存すると、郵便番号・住所・建物名・電話・FAXはこの店舗の「各種設定→事業所情報」にも反映されます（事業所名は事業所情報が空欄のときだけ）。</div>
             <div style={{display:'flex',gap:10}}>
-              <button onClick={()=>setEditStore(null)} disabled={editStore.loading} style={{flex:1,padding:'11px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
+              <button onClick={()=>setEditStore(null)} disabled={editStore.loading} style={{whiteSpace:'nowrap',flex:1,padding:'11px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
               <button onClick={handleUpdateStore} disabled={editStore.loading} style={{flex:1,padding:'11px',background:editStore.loading?'#94a3b8':'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:editStore.loading?'wait':'pointer'}}>{editStore.loading? <><BusySpin/>保存中…</>:'保存'}</button>
             </div>
           </div>
@@ -19591,7 +19591,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
               </div>
               {storeForm.error && <div style={{color:'#dc2626',fontSize:12,fontWeight:'bold',marginBottom:12,padding:8,background:'#fef2f2',borderRadius:8}}>{storeForm.error}</div>}
               <div style={{display:'flex',gap:8}}>
-                <button type="button" onClick={()=>setShowAddStore(false)} style={{flex:1,padding:'12px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
+                <button type="button" onClick={()=>setShowAddStore(false)} style={{whiteSpace:'nowrap',flex:1,padding:'12px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
                 <button type="submit" disabled={storeForm.loading} style={{flex:1,padding:'12px',background:'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>{storeForm.loading? <><BusySpin/>作成中...</>:'店舗 + ログイン情報を作成'}</button>
               </div>
             </form>
@@ -19640,7 +19640,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
               </div>
               {staffForm.error && <div style={{color:'#dc2626',fontSize:12,fontWeight:'bold',marginBottom:12,padding:8,background:'#fef2f2',borderRadius:8}}>{staffForm.error}</div>}
               <div style={{display:'flex',gap:8}}>
-                <button type="button" onClick={()=>setShowAddStaff(false)} style={{flex:1,padding:'12px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
+                <button type="button" onClick={()=>setShowAddStaff(false)} style={{whiteSpace:'nowrap',flex:1,padding:'12px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>キャンセル</button>
                 <button type="submit" disabled={staffForm.loading} style={{flex:1,padding:'12px',background:'#5e8030',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>{staffForm.loading? <><BusySpin/>作成中...</>:'スタッフを作成'}</button>
               </div>
             </form>
@@ -21233,6 +21233,11 @@ export default function App() {
     const h = (e) => setMeetingFloat({ patientId: e.detail.patientId, meetingId: e.detail.meetingId, isNew: !!e.detail.isNew });
     window.addEventListener('tsumugi-meeting-float', h);
     return () => window.removeEventListener('tsumugi-meeting-float', h);
+  }, []);
+  // ★ 2026-10-17: 「今すぐ更新」の前に開いていた小窓を開き直す(5分以内・使い捨て)。データが読み込まれてから
+  React.useEffect(() => {
+    try { const raw = sessionStorage.getItem('tsumugi_resume_meeting_float'); if (!raw) return; sessionStorage.removeItem('tsumugi_resume_meeting_float'); const o = JSON.parse(raw);
+      if (o && o.patientId && o.meetingId && Date.now() - (o.t || 0) < 5 * 60 * 1000) { const t = setTimeout(() => setMeetingFloat({ patientId: o.patientId, meetingId: o.meetingId, isNew: false }), 1200); return () => clearTimeout(t); } } catch {}
   }, []);
   useEffect(()=>{
     // ★ 2026-10-03(ユーザー要望「連絡帳はまっすぐ印刷画面へ」): detail.autoPrint=true なら、プレビューを出した直後に印刷(PC=隠しiframeで印刷ダイアログ、iPad=印刷用の表示)へ進む
@@ -22887,7 +22892,7 @@ export default function App() {
             </div>
             {!bugReport.sent && (
               <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 flex justify-end gap-2 shrink-0">
-                <button onClick={()=>!bugReport.sending && setBugReport(null)} className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
+                <button onClick={()=>!bugReport.sending && setBugReport(null)} className="whitespace-nowrap px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
                 <button disabled={bugReport.sending || !bugReport.desc.trim()} onClick={async()=>{
                   setBugReport(b=>({...b, sending:true, err:''}));
                   try {
@@ -22935,7 +22940,7 @@ export default function App() {
               </div>
               <div className="flex-1 overflow-y-auto px-5 py-4 text-[12.5px] text-slate-700 leading-relaxed whitespace-pre-wrap">{renderPolicyText(_pol.text, _fi.name||'当事業所', _fi.phone||'')}</div>
               <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 shrink-0">
-                <button onClick={()=>setStaffPolicyView(false)} className="w-full py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold text-sm">閉じる</button>
+                <button onClick={()=>setStaffPolicyView(false)} className="whitespace-nowrap w-full py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold text-sm">閉じる</button>
               </div>
             </div>
           </div>
@@ -22958,11 +22963,11 @@ export default function App() {
                   style={{padding:'12px 24px',background:'#1d4ed8',color:'white',border:'none',borderRadius:12,fontWeight:'bold',fontSize:16,cursor:'pointer',width:'100%',marginBottom:10}}>共有・印刷（iPhone/iPadの共有メニュー）</button>; } catch { return null; } })()}
               <button type="button" data-testid="pdf-open" onClick={()=>{ try { const w = window.open(pdfJob.url, '_blank'); if (!w) { const a = document.createElement('a'); a.href = pdfJob.url; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); } } catch {} setPdfJob(null); }}
                 style={{padding:'12px 24px',background:'#0f766e',color:'white',border:'none',borderRadius:12,fontWeight:'bold',fontSize:16,cursor:'pointer',width:'100%'}}>新しいタブで開く</button>
-              <button type="button" onClick={()=>setPdfJob(null)} style={{marginTop:10,padding:'8px 16px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
+              <button type="button" onClick={()=>setPdfJob(null)} style={{whiteSpace:'nowrap',marginTop:10,padding:'8px 16px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
             </>)}
             {pdfJob.status === 'error' && (<>
               <div style={{fontSize:14,fontWeight:'bold',color:'#b91c1c',marginBottom:12,whiteSpace:'pre-wrap'}}>PDFを作成できませんでした{'\n'}{pdfJob.error}</div>
-              <button type="button" onClick={()=>setPdfJob(null)} style={{padding:'8px 16px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
+              <button type="button" onClick={()=>setPdfJob(null)} style={{whiteSpace:'nowrap',padding:'8px 16px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
             </>)}
           </div>
         </div>
@@ -23079,7 +23084,7 @@ export default function App() {
               </style>
               <div class="tsumugi-ios-bar no-print" style="position:fixed;top:0;left:0;right:0;background:#1e293b;color:#fff;padding:12px 16px;text-align:center;font-family:-apple-system,sans-serif;z-index:5;box-shadow:0 2px 10px rgba(0,0,0,0.35);">
                 <button type="button" data-act="pdf" style="font-size:17px;font-weight:bold;padding:11px 28px;background:#2563eb;color:#fff;border:none;border-radius:10px;cursor:pointer;">PDFにして印刷・保存</button>
-                <button type="button" data-act="close" style="font-size:15px;font-weight:bold;padding:11px 20px;margin-left:10px;background:#475569;color:#fff;border:none;border-radius:10px;cursor:pointer;">閉じる</button>
+                <button type="button" data-act="close" style="font-size:15px;font-weight:bold;padding:11px 20px;margin-left:10px;background:#475569;color:#fff;border:none;border-radius:10px;cursor:pointer;" className="whitespace-nowrap">閉じる</button>
                 <div data-act="msg" style="font-size:12px;margin-top:7px;color:#cbd5e1;">ホーム画面のアプリでは、PDFを作って共有メニューの「プリント」から印刷します（${hint.replace(/^印刷オプションで /, 'プリントの設定で ')}）。</div>
               </div>
               <div class="tsumugi-ios-doc">${inner}</div>`;
@@ -23238,7 +23243,7 @@ export default function App() {
                   <a href="https://disaportal.gsi.go.jp/" target="_blank" rel="noopener" style={{padding:'8px 12px',background:'rgba(255,255,255,.18)',color:'white',borderRadius:10,fontSize:13,fontWeight:700,textDecoration:'none'}}>ハザードマップ</a>
                   <button onClick={()=>{ try{ sessionStorage.setItem('tsumugiEmergencyPreset','safe'); sessionStorage.setItem('tsumugiDisasterTab','notice'); }catch{} navigateTo('emergency'); }} style={{padding:'8px 12px',background:'white',color:'#b91c1c',border:'none',borderRadius:10,fontSize:13,fontWeight:800,cursor:'pointer'}}>緊急連絡</button>
                   <button onClick={()=>{ try{ sessionStorage.setItem('tsumugiDisasterTab','safety'); }catch{} navigateTo('emergency'); }} style={{padding:'8px 12px',background:'white',color:'#b91c1c',border:'none',borderRadius:10,fontSize:13,fontWeight:800,cursor:'pointer'}}>安否確認</button>
-                  <button onClick={()=>dismissAlert(a.id)} style={{padding:'8px 12px',background:'transparent',color:'white',border:'1px solid rgba(255,255,255,.7)',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>解除</button>
+                  <button onClick={()=>dismissAlert(a.id)} style={{whiteSpace:'nowrap',padding:'8px 12px',background:'transparent',color:'white',border:'1px solid rgba(255,255,255,.7)',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer'}}>解除</button>
                 </div>
               </div>
             ))}
@@ -23264,7 +23269,7 @@ export default function App() {
               <div style={{padding:'14px 18px',borderBottom:'1px solid #e2e8f0',display:'flex',alignItems:'center',gap:8}}>
                 <div style={{fontWeight:'bold',color:'#1e293b'}}>変更ログ</div>
                 <div style={{fontSize:11,color:'#64748b'}}>いつ・どの端末で・何を変更したか（最新300件）</div>
-                <button onClick={()=>setAuditLogOpen(false)} style={{marginLeft:'auto',border:'none',background:'#f1f5f9',borderRadius:8,padding:'4px 10px',fontWeight:'bold',cursor:'pointer',color:'#475569'}}>閉じる</button>
+                <button onClick={()=>setAuditLogOpen(false)} style={{whiteSpace:'nowrap',marginLeft:'auto',border:'none',background:'#f1f5f9',borderRadius:8,padding:'4px 10px',fontWeight:'bold',cursor:'pointer',color:'#475569'}}>閉じる</button>
               </div>
               <div style={{padding:'8px 14px',borderBottom:'1px solid #f1f5f9',display:'flex',gap:6,flexWrap:'wrap'}}>
                 {_cats.map(c=>(
@@ -23326,6 +23331,9 @@ export default function App() {
             try {
               const ae = document.activeElement; if (ae && typeof ae.blur === 'function') ae.blur();  // 入力欄を確定
             } catch {}
+            // ★ 2026-10-17(ユーザー報告「小窓を開いたまま更新すると入力途中の担会記録が消える」): 開いている小窓・入力画面に合図を送り、
+            //   未保存の内容を保存(小窓は再読込後に開き直す控えも)。保存が state に反映されるのを少し待ってからクラウドへ
+            try { window.dispatchEvent(new CustomEvent('tsumugi-before-update')); await new Promise(r => setTimeout(r, 350)); } catch {}
             try {
               // 直近の appData を即時クラウド保存(debounce待ちを飛ばす)＋操作ログの未送信を送り切る
               if (isSupabaseEnabled && staffSession?.storeId) {
@@ -23385,7 +23393,7 @@ export default function App() {
               <div style={{fontSize:12,color:'#64748b',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:10,padding:'10px 12px',lineHeight:1.6}}>
                 この内容はホームの「つむぎ運営からのお知らせ」でもいつでも確認できます。「今すぐ更新」を押すと最新版に切り替わります。
               </div>
-              <button onClick={()=>setShowUpdateNotes(false)} style={{alignSelf:'flex-end',background:'#e2e8f0',color:'#334155',border:'none',borderRadius:8,padding:'8px 18px',fontSize:13,fontWeight:'bold',cursor:'pointer'}}>閉じる</button>
+              <button onClick={()=>setShowUpdateNotes(false)} style={{whiteSpace:'nowrap',alignSelf:'flex-end',background:'#e2e8f0',color:'#334155',border:'none',borderRadius:8,padding:'8px 18px',fontSize:13,fontWeight:'bold',cursor:'pointer'}}>閉じる</button>
             </div>
           </div>
         </div>,
@@ -25818,7 +25826,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
         <button type="button" data-testid="rec-fold-jump" onClick={openRecJump} aria-expanded={!!recJump} className={`shrink-0 h-10 px-2 rounded-lg text-sm font-bold border ${recJump ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-700 border-slate-300'}`}>利用者</button>
         {/* ★ 2026-10-08(ユーザー要望): 出席・欠席などの人数も1行目に(小さく2段)。連絡帳は「操作」の中へ */}
         {/* ★ 2026-10-16: 1行目に「利用者」を入れたので、出席・欠席などの人数は「利用者」の一覧の上に移した(1行目では潰れて読めないため) */}
-        <button type="button" data-testid="rec-fold-save" onClick={()=>handleSaveClick(false)} className="shrink-0 h-10 px-2 rounded-xl bg-blue-600 text-white text-sm font-bold ml-auto">保存</button>
+        <button type="button" data-testid="rec-fold-save" onClick={()=>handleSaveClick(false)} className="whitespace-nowrap shrink-0 h-10 px-2 rounded-xl bg-blue-600 text-white text-sm font-bold ml-auto">保存</button>
       </>); })()}>
       <>
       <div data-testid="rec-toolbar" className="bg-white px-2 py-2 sm:px-4 sm:py-3 rounded-2xl shadow-sm border border-slate-200 flex flex-row items-center gap-2 sm:gap-3 flex-wrap flex-shrink-0 sticky top-0 z-30 mb-2 sm:mb-4">
@@ -25890,7 +25898,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         </div>
                         <button type="button" data-testid="kg-reset" disabled={!isEditMode} onClick={resetKinouGroups} title="表示中の午前/午後のグループ分けを全員「グループなし」に戻します" className="ml-auto shrink-0 px-3 py-2 rounded-xl border border-red-300 bg-white text-red-600 text-sm font-bold hover:bg-red-50 disabled:opacity-50">リセット</button>
                         <button type="button" data-testid="kg-copy-last-week" disabled={!isEditMode} onClick={copyKinouGroupsFromLastWeek} title="同じ曜日・同じ午前/午後の先週の割り振りをそのまま使います(先週が休みなら最大4週前までさかのぼります)" className="shrink-0 px-3 py-2 rounded-xl border border-emerald-400 bg-emerald-50 text-emerald-800 text-sm font-bold hover:bg-emerald-100 disabled:opacity-50">先週の割り振りをコピー</button>
-                        <button type="button" onClick={()=>{ setKinouGroupPanel(false); setKgSel(null); }} className="shrink-0 px-4 py-2 rounded-xl bg-slate-800 text-white text-sm font-bold">閉じる</button>
+                        <button type="button" onClick={()=>{ setKinouGroupPanel(false); setKgSel(null); }} className="whitespace-nowrap shrink-0 px-4 py-2 rounded-xl bg-slate-800 text-white text-sm font-bold">閉じる</button>
                       </div>
                       <div className="p-3 overflow-y-auto" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(190px,1fr))',gap:10,alignItems:'start'}}>
                         {[{ key: 'none', title: 'グループなし' }, ..._kinouGroupList.map(g => ({ key: g, title: `グループ${g}` })), { key: 'new', title: '＋グループ追加' }].map(col => {
@@ -25963,7 +25971,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           <div className="relative bg-white border-b border-slate-300 shadow-xl flex flex-col" style={{ maxHeight: '70vh' }}>
             <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200">
               <input type="search" value={recJump.q} onChange={e => { const v = e.target.value; setRecJump(o => o ? { ...o, q: v } : o); }} placeholder="名前で探す" data-testid="rec-jump-q" className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-[16px] outline-none" />
-              <button type="button" onClick={() => setRecJump(null)} className="shrink-0 px-3 py-2 rounded-lg bg-slate-200 text-slate-700 text-sm font-bold">閉じる</button>
+              <button type="button" onClick={() => setRecJump(null)} className="whitespace-nowrap shrink-0 px-3 py-2 rounded-lg bg-slate-200 text-slate-700 text-sm font-bold">閉じる</button>
             </div>
             {attCounts && (() => { const defs = [['出席','#1e40af','#dbeafe'],['欠席','#991b1b','#fee2e2'],['振替','#166534','#dcfce7'],['臨時','#155e75','#cffafe'],['休止','#9a3412','#ffedd5'],['休業','#475569','#f1f5f9']].filter(([l]) => (attCounts[l]||0) > 0); if (!defs.length) return null; return (
               <div data-testid="rec-jump-att" className="flex flex-wrap gap-1.5 px-3 pt-2">{defs.map(([l,fg,bg]) => <span key={l} style={{background:bg,color:fg,borderRadius:6,padding:'1px 8px',fontSize:13,fontWeight:'bold'}}>{l} {attCounts[l]}</span>)}</div>); })()}
@@ -26729,7 +26737,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             <div style={{fontWeight:'bold',fontSize:15,color:'#0f172a',marginBottom:10}}>記録を復元（元に戻す）</div>
             <div style={{fontSize:13,color:'#334155',whiteSpace:'pre-line',lineHeight:1.6,maxHeight:'50vh',overflowY:'auto'}}>{restoreConfirm.msg}</div>
             <div style={{display:'flex',gap:10,marginTop:16,justifyContent:'flex-end'}}>
-              <button onClick={()=>setRestoreConfirm(null)} style={{padding:'10px 18px',borderRadius:10,border:'1px solid #cbd5e1',background:'white',fontWeight:'bold',fontSize:13,color:'#475569',cursor:'pointer'}}>キャンセル</button>
+              <button onClick={()=>setRestoreConfirm(null)} style={{whiteSpace:'nowrap',padding:'10px 18px',borderRadius:10,border:'1px solid #cbd5e1',background:'white',fontWeight:'bold',fontSize:13,color:'#475569',cursor:'pointer'}}>キャンセル</button>
               <button onClick={()=>{ const _s=restoreConfirm.snap; setRestoreConfirm(null); _doRestoreRecSnap(_s); }} style={{padding:'10px 18px',borderRadius:10,border:'none',background:'#2563eb',color:'white',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>復元する</button>
             </div>
           </div>
@@ -26858,7 +26866,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       {vitalWarn && ReactDOM.createPortal(
         <div style={{position:'fixed',top:12,left:'50%',transform:'translateX(-50%)',zIndex:2000020,background:'#dc2626',color:'white',padding:'10px 18px',borderRadius:12,fontWeight:'bold',fontSize:14,boxShadow:'0 8px 30px rgba(0,0,0,0.35)',display:'flex',alignItems:'center',gap:10,maxWidth:'92vw'}}>
           <span>⚠ {vitalWarn}</span>
-          <button onClick={()=>setVitalWarn(null)} style={{background:'rgba(255,255,255,0.2)',border:'none',color:'white',borderRadius:8,padding:'4px 10px',fontWeight:'bold',cursor:'pointer',fontSize:12}}>閉じる</button>
+          <button onClick={()=>setVitalWarn(null)} style={{whiteSpace:'nowrap',background:'rgba(255,255,255,0.2)',border:'none',color:'white',borderRadius:8,padding:'4px 10px',fontWeight:'bold',cursor:'pointer',fontSize:12}}>閉じる</button>
         </div>, document.body)}
       <DigitalKeypad isOpen={keypad.isOpen} anchorKey={`${keypad.recordId}-${keypad.field}`} zoom={isFullscreen ? 1.2 : 1} value={keypad.value} isFirstInput={keypad.isFirstInput} mode={keypad.mode} onClose={() => { _checkVitalRange(keypad.field, keypad.value); setKeypad({...keypad, isOpen: false}); }} onInput={handleKeypadInput} onEnter={handleKeypadEnter} onTab={handleTab} quickButtons={appData.systemSettings?.exerciseQuickButtons} prefixButtons={String(keypad.field||'').startsWith('temp') ? ['35.','36.','37.'] : null}
         unitSep={(()=>{ const _ei=(appData.systemSettings?.exerciseItems||appSettings.exerciseItems).find(i=>i.id===keypad.field); if(_ei && _ei.type!=='individual') return _ei.unitSep||''; const _rec=(filterMode==='single'?localPatients:localTicketRecords).find(x=>x.id===keypad.recordId); const _cur=_rec&&_rec.exercises&&_rec.exercises[keypad.field]; const _iid=(_cur&&typeof _cur==='object')?_cur.itemId:null; if(_iid){ const _ii=(appData.systemSettings?.individualExerciseItems||appSettings.individualExerciseItems||[]).find(x=>x.id===_iid); return (_ii&&_ii.unitSep)||''; } return ''; })()}/>
@@ -26904,7 +26912,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           <div style={{position:'fixed',inset:0,zIndex:10000,background:'#f8fafc',display:'flex',flexDirection:'column'}}>{/* ★ 2026-09-11: 全画面表示(z9999)より上に。テンキー(99999)・気分等のモーダル(z10000でDOM後勝ち)はさらに上 */}
             <div style={{flexShrink:0,background:'#0f766e',color:'white',padding:'12px 16px',display:'flex',alignItems:'center',gap:12}}>
               <div style={{fontSize:24,fontWeight:'bold',flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name} 様 <span style={{fontSize:15,opacity:0.85}}>（{p.status||'出席'}・{tf==='AM'?'午前':'午後'}）</span></div>
-              <button onClick={()=>setZoomPid(null)} style={{background:'white',color:'#0f766e',border:'none',borderRadius:12,padding:'12px 22px',fontSize:18,fontWeight:'bold',cursor:'pointer'}}>閉じる</button>
+              <button onClick={()=>setZoomPid(null)} style={{whiteSpace:'nowrap',background:'white',color:'#0f766e',border:'none',borderRadius:12,padding:'12px 22px',fontSize:18,fontWeight:'bold',cursor:'pointer'}}>閉じる</button>
             </div>
             <div style={{flex:1,overflowY:'auto',padding:'14px 14px 40px'}}>
               <div style={{maxWidth:720,margin:'0 auto',display:'flex',flexDirection:'column',gap:16}}>
@@ -27123,7 +27131,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               )
             )}
             <div className="flex gap-3 mt-5">
-              <button onClick={() => setStatusModal(s => ({...s, isOpen: false}))} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200">キャンセル</button>
+              <button onClick={() => setStatusModal(s => ({...s, isOpen: false}))} className="whitespace-nowrap flex-1 py-2.5 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200">キャンセル</button>
               <button onClick={() => { const _rsn = statusModal.status==='欠席' ? composeAbsReason(statusModal.reasonCat, statusModal.reason) : statusModal.reason; const _sub = statusModal.status==='振替' ? composeAbsReason(statusModal.reasonCat, statusModal.substituteReason) : statusModal.substituteReason; applyStatusChange(statusModal.id, statusModal.status, _rsn, statusModal.furikaeDate, _sub, statusModal.furikaeAmpm||'AM', statusModal.pauseFromDate, statusModal.pauseToDate); setStatusModal(s => ({...s, isOpen: false})); }}
                 className={`flex-1 py-2.5 rounded-xl text-sm font-bold text-white ${statusModal.status==='休止'?'bg-orange-600 hover:bg-orange-700':'bg-blue-600 hover:bg-blue-700'}`}>確定</button>
             </div>
@@ -31092,7 +31100,7 @@ function JissekiView({ appData, onSave, onShowPrintPreview }) {
               <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
                 <input value={newCode.code} onChange={e=>setNewCode(c=>({...c,code:e.target.value}))} placeholder="コード（例: 782341 / A61234）" style={{padding:'6px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:13,outline:'none',width:190}}/>
                 <input value={newCode.name} onChange={e=>setNewCode(c=>({...c,name:e.target.value}))} placeholder="名称（例: 通所型サービス21）" style={{padding:'6px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:13,outline:'none',flex:1,minWidth:180}}/>
-                <button onClick={addCode} disabled={!newCode.code.trim()} style={{padding:'6px 14px',background:'#2563eb',color:'white',border:'none',borderRadius:8,fontWeight:'bold',cursor:'pointer',fontSize:13,opacity:newCode.code.trim()?1:0.4}}>追加</button>
+                <button onClick={addCode} disabled={!newCode.code.trim()} style={{whiteSpace:'nowrap',padding:'6px 14px',background:'#2563eb',color:'white',border:'none',borderRadius:8,fontWeight:'bold',cursor:'pointer',fontSize:13,opacity:newCode.code.trim()?1:0.4}}>追加</button>
                 <button onClick={()=>fileRef.current && fileRef.current.click()} style={{padding:'6px 14px',background:'#7c3aed',color:'white',border:'none',borderRadius:8,fontWeight:'bold',cursor:'pointer',fontSize:13}}>CSVから取込</button>
                 <input ref={fileRef} type="file" accept=".csv,text/csv" style={{display:'none'}} onChange={e=>{ const f=e.target.files&&e.target.files[0]; if(f) handleCsvFile(f); e.target.value=''; }}/>
               </div>
@@ -31242,7 +31250,7 @@ function JissekiView({ appData, onSave, onShowPrintPreview }) {
                 </table>
               </div>
               <div style={{padding:'12px 18px',borderTop:'1px solid #e2e8f0',display:'flex',gap:8,justifyContent:'flex-end'}}>
-                <button onClick={()=>setCsvPreview(null)} style={{padding:'9px 18px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontWeight:'bold',cursor:'pointer',fontSize:13}}>キャンセル</button>
+                <button onClick={()=>setCsvPreview(null)} style={{whiteSpace:'nowrap',padding:'9px 18px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontWeight:'bold',cursor:'pointer',fontSize:13}}>キャンセル</button>
                 <button onClick={importCsv} disabled={!csvPreview.rows.some(r=>r.sel)} style={{padding:'9px 18px',background:'#7c3aed',color:'white',border:'none',borderRadius:10,fontWeight:'bold',cursor:'pointer',fontSize:13,opacity:csvPreview.rows.some(r=>r.sel)?1:0.4}}>取り込む（{csvPreview.rows.filter(r=>r.sel).length}件）</button>
               </div>
             </div>
@@ -32087,7 +32095,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
               </div>
             </div>
             <div style={{display:'flex',gap:8}}>
-              <button onClick={()=>setPrintOptsModal(false)} style={{flex:1,padding:'10px',borderRadius:8,border:'1px solid #94a3b8',background:'#f1f5f9',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>キャンセル</button>
+              <button onClick={()=>setPrintOptsModal(false)} style={{whiteSpace:'nowrap',flex:1,padding:'10px',borderRadius:8,border:'1px solid #94a3b8',background:'#f1f5f9',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>キャンセル</button>
               <button onClick={()=>{ setPrintOptsModal(false); runOpsPrint(printOpts); }} style={{flex:1,padding:'10px',borderRadius:8,border:'none',background:'#2563eb',color:'white',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>ダウンロード</button>
             </div>
           </div>
@@ -33271,7 +33279,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                 onSave({ ...appData, patients: (appData.patients||[]).map(p => p.id===sp.id ? { ...p, bikouOverrides: ov } : p) }, { manual:true, message:'✓ 自動記載に戻しました' });
                 setBikouEdit(null);
               }} style={{background:'#f1f5f9',border:'1px solid #cbd5e1',color:'#334155',borderRadius:8,padding:'10px 14px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>自動に戻す</button>
-              <button onClick={()=>setBikouEdit(null)} style={{background:'#e2e8f0',border:'none',color:'#334155',borderRadius:8,padding:'10px 14px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>キャンセル</button>
+              <button onClick={()=>setBikouEdit(null)} style={{whiteSpace:'nowrap',background:'#e2e8f0',border:'none',color:'#334155',borderRadius:8,padding:'10px 14px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>キャンセル</button>
             </div>
           </div>
         </div>
@@ -33522,7 +33530,7 @@ function RenrakuModal({ appData, patientId, dayPatientIds, onClose, onSave }) {
                 {/* ★ 定型文も本文と同じリッチ入力(色/太字/下線/大きさ)。 書式付きで保存し、挿入時も書式ごと入る。 */}
                 <RichEditor key={tmplEditKey} initialHtml={tmplToHtml(tmplForm.content)} onChange={(html)=>setTmplForm(f=>({...f,content:html}))}/>
                 <div className="flex justify-end gap-2">
-                  <button type="button" onClick={()=>setTmplView(null)} className="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-500 hover:bg-slate-100">キャンセル</button>
+                  <button type="button" onClick={()=>setTmplView(null)} className="whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-bold text-slate-500 hover:bg-slate-100">キャンセル</button>
                   <button type="button" disabled={!tmplForm.title.trim() && !tmplToPlain(tmplForm.content)} onClick={()=>{
                     const item = { title: tmplForm.title.trim()|| (tmplToPlain(tmplForm.content).split('\n')[0]||'定型文').slice(0,20), content: tmplForm.content };
                     setTemplates(ts => tmplEditIdx>=0 ? ts.map((x,j)=>j===tmplEditIdx?item:x) : [...ts, item]);
@@ -33545,8 +33553,8 @@ function RenrakuModal({ appData, patientId, dayPatientIds, onClose, onSave }) {
                         <div className="text-[11px] text-slate-400 truncate">{tmplToPlain(t.content).replace(/\n/g,' ')}</div>
                       </div>
                       <button type="button" onClick={()=>setApplyIdx(applyIdx===i?-1:i)} className="px-2.5 py-1 rounded text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 shrink-0">適応</button>
-                      <button type="button" onClick={()=>openTmplForm({title:t.title||'',content:t.content||''}, i)} className="px-2 py-1 rounded text-xs font-bold bg-white text-slate-600 border border-slate-300 hover:bg-slate-50 shrink-0">編集</button>
-                      <button type="button" onClick={()=>{ setTemplates(ts=>ts.filter((_,j)=>j!==i)); if(applyIdx===i) setApplyIdx(-1); }} className="px-2 py-1 rounded text-xs font-bold text-red-500 hover:bg-red-50 shrink-0">削除</button>
+                      <button type="button" onClick={()=>openTmplForm({title:t.title||'',content:t.content||''}, i)} className="whitespace-nowrap px-2 py-1 rounded text-xs font-bold bg-white text-slate-600 border border-slate-300 hover:bg-slate-50 shrink-0">編集</button>
+                      <button type="button" onClick={()=>{ setTemplates(ts=>ts.filter((_,j)=>j!==i)); if(applyIdx===i) setApplyIdx(-1); }} className="whitespace-nowrap px-2 py-1 rounded text-xs font-bold text-red-500 hover:bg-red-50 shrink-0">削除</button>
                     </div>
                     {applyIdx===i && (
                       <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-200">
@@ -33562,9 +33570,9 @@ function RenrakuModal({ appData, patientId, dayPatientIds, onClose, onSave }) {
           </div>
         </div>
         <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-slate-200">
-          <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg font-bold text-slate-500 hover:bg-slate-100 text-sm">キャンセル</button>
+          <button type="button" onClick={onClose} className="whitespace-nowrap px-4 py-2 rounded-lg font-bold text-slate-500 hover:bg-slate-100 text-sm">キャンセル</button>
           <span className="text-[11px] self-center mr-2" style={{color: usage > 92 ? '#dc2626' : usage > 80 ? '#d97706' : '#64748b'}}>欄の使用量 {usage}%</span>
-          <button type="button" onClick={save} disabled={!!warn} className="px-7 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-lg font-bold shadow text-sm">保存</button>
+          <button type="button" onClick={save} disabled={!!warn} className="whitespace-nowrap px-7 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-lg font-bold shadow text-sm">保存</button>
         </div>
       </div>
     </div>
@@ -34387,7 +34395,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                         <div className="grid grid-cols-3 gap-1" style={{ width: 'fit-content' }}>
                           <span /><button type="button" data-testid="cb-pos-up" onClick={() => mv(0, -1)} className={ab} title="上へ1mm">↑</button><span />
                           <button type="button" data-testid="cb-pos-left" onClick={() => mv(-1, 0)} className={ab} title="左へ1mm">←</button>
-                          <button type="button" data-testid="cb-pos-reset" onClick={() => setSS({ renrakuOffsetX: 0, renrakuOffsetY: 0 })} className="w-9 h-8 rounded-lg border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-500 font-bold text-[10px]" title="中央に戻す">戻す</button>
+                          <button type="button" data-testid="cb-pos-reset" onClick={() => setSS({ renrakuOffsetX: 0, renrakuOffsetY: 0 })} className="whitespace-nowrap w-9 h-8 rounded-lg border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-500 font-bold text-[10px]" title="中央に戻す">戻す</button>
                           <button type="button" data-testid="cb-pos-right" onClick={() => mv(1, 0)} className={ab} title="右へ1mm">→</button>
                           <span /><button type="button" data-testid="cb-pos-down" onClick={() => mv(0, 1)} className={ab} title="下へ1mm">↓</button><span />
                         </div>
@@ -34452,7 +34460,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                 )}
               </div>
               <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex justify-end gap-2 flex-shrink-0">
-                <button onClick={()=>setOvCleanup(null)} className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
+                <button onClick={()=>setOvCleanup(null)} className="whitespace-nowrap px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
                 {ovCleanup.items.length > 0 && <button onClick={_execOvCleanup} className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-bold shadow">選択した{ovCleanup.items.filter(x=>x.checked).length}件を自動計算に戻す</button>}
               </div>
             </div>
@@ -34587,8 +34595,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                 </div>
               </div>
               <div className="px-6 py-4 bg-white border-t border-slate-200 flex justify-end gap-3 flex-shrink-0">
-                <button onClick={() => { setLocalOverrides({}); setIsScheduleModalOpen(false); }} className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold">キャンセル</button>
-                <button onClick={() => { saveAllOverrides(); setIsScheduleModalOpen(false); }} className="px-8 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg active:scale-95">保存</button>
+                <button onClick={() => { setLocalOverrides({}); setIsScheduleModalOpen(false); }} className="whitespace-nowrap px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold">キャンセル</button>
+                <button onClick={() => { saveAllOverrides(); setIsScheduleModalOpen(false); }} className="whitespace-nowrap px-8 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg active:scale-95">保存</button>
               </div>
             </div>
           </div>
@@ -34633,7 +34641,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                 <button type="button" onClick={() => setBlankDl(v => ({ n: Math.min(20, v.n + 1) }))} className="w-10 h-10 rounded-xl border border-slate-300 bg-white text-xl font-bold text-slate-700">＋</button>
               </div>
               <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => setBlankDl(null)} className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm">やめる</button>
+                <button type="button" onClick={() => setBlankDl(null)} className="whitespace-nowrap px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm">やめる</button>
                 <button type="button" data-testid="cb-blank-dl" onClick={() => { const n = blankDl.n; setBlankDl(null); doPrintBlank(n); }} className="px-5 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-sm">ダウンロード</button>
               </div>
             </div>
@@ -34670,7 +34678,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                 )}
               </div>
               <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-3 flex-shrink-0">
-                <button onClick={()=>setPrintModeModal(false)} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
+                <button onClick={()=>setPrintModeModal(false)} className="whitespace-nowrap px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
                 <button onClick={()=>doPrint(printSelectedIds)} disabled={printSelectedIds.length===0}
                         className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl font-bold text-sm shadow-md flex items-center gap-2">
                   選択した{printSelectedIds.length}名を{cbOut === 'pdf' ? 'ダウンロード' : '印刷'}
@@ -34702,8 +34710,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                   <button onClick={resetPatientValue} className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-xs">既定値に戻す</button>
                 )}
                 <div className="flex-1"/>
-                <button onClick={()=>setPatientValueModal(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-bold text-sm">キャンセル</button>
-                <button onClick={savePatientValue} className="px-5 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-bold text-sm shadow">保存</button>
+                <button onClick={()=>setPatientValueModal(null)} className="whitespace-nowrap px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-bold text-sm">キャンセル</button>
+                <button onClick={savePatientValue} className="whitespace-nowrap px-5 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-bold text-sm shadow">保存</button>
               </div>
             </div>
           </div>,
@@ -35339,8 +35347,8 @@ function ContactBookConfigModal({ config, exerciseItems, onClose, onSave, patien
           </div>
         </div>
         <div className="px-6 py-4 bg-white border-t border-slate-200 flex justify-end gap-3 flex-shrink-0">
-          <button onClick={onClose} className="px-6 py-2.5 rounded-xl font-bold text-slate-600 hover:bg-slate-100 transition-colors">キャンセル</button>
-          <button onClick={() => onSave(localConfig, pv)} className="px-8 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg transition-all active:scale-95">保存</button>
+          <button onClick={onClose} className="whitespace-nowrap px-6 py-2.5 rounded-xl font-bold text-slate-600 hover:bg-slate-100 transition-colors">キャンセル</button>
+          <button onClick={() => onSave(localConfig, pv)} className="whitespace-nowrap px-8 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg transition-all active:scale-95">保存</button>
         </div>
       </div>
     </div>,
@@ -35546,7 +35554,7 @@ function TsuTimeKeypad({ title, hint, initial, onCommit, onClose, suggest }) {
           <button type="button" onClick={() => add('DEL')} style={{ ...btn, fontSize: 14, backgroundColor: '#fee2e2', color: '#dc2626' }}>⌫</button>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-          <button type="button" onClick={onClose} style={{ padding: '10px 0', borderRadius: 10, border: '1px solid #ddd', cursor: 'pointer', backgroundColor: '#f1f5f9', fontWeight: 'bold', fontSize: 13 }}>キャンセル</button>
+          <button type="button" onClick={onClose} style={{whiteSpace:'nowrap', padding: '10px 0', borderRadius: 10, border: '1px solid #ddd', cursor: 'pointer', backgroundColor: '#f1f5f9', fontWeight: 'bold', fontSize: 13 }}>キャンセル</button>
           <button type="button" onClick={done} style={{ padding: '10px 0', borderRadius: 10, border: 'none', cursor: 'pointer', backgroundColor: '#1d4ed8', color: 'white', fontWeight: 'bold', fontSize: 13 }}>決定</button>
         </div>
       </div>
@@ -37244,7 +37252,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         </div>
         <div className="text-[11px] text-slate-500 mb-3 leading-relaxed">選んだ日・時間帯{autoCalc.cars && autoCalc.cars.size < cars.length ? `・車（${cars.filter(c=>autoCalc.cars.has(c.id)).map(c=>c.name).join('・') || 'なし'}）` : ''}の{[autoCalc.haisha ? '車の組み合わせ・乗車順' : '', autoCalc.jikan ? 'お迎え時間' : ''].filter(Boolean).join('と') || '（何も選ばれていません）'}が上書きされます。</div>
         <div className="flex gap-2 justify-end">
-          <button type="button" onClick={()=>setAutoCalc(null)} className="px-4 py-2 rounded-xl text-sm font-bold bg-slate-100 text-slate-700">やめる</button>
+          <button type="button" onClick={()=>setAutoCalc(null)} className="whitespace-nowrap px-4 py-2 rounded-xl text-sm font-bold bg-slate-100 text-slate-700">やめる</button>
           <button type="button" onClick={()=>runAutoCalc({ haisha: autoCalc.haisha, jikan: autoCalc.jikan, days: autoCalc.days, slots: autoCalc.slots, cars: autoCalc.cars || new Set(cars.map(c=>c.id)) })} className="px-4 py-2 rounded-xl text-sm font-bold bg-emerald-600 text-white">計算する</button>
         </div>
       </div>
@@ -37314,7 +37322,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 <div className="space-y-2">
                   <button onClick={()=>{ setFinalMenu(false); finalizeWeek(); }} className="w-full py-2.5 rounded-xl font-bold text-sm bg-emerald-600 hover:bg-emerald-700 text-white">確定を更新（今の内容で確定し直す）</button>
                   <button onClick={unfinalizeWeek} data-testid="tp-unfinalize" className="w-full py-2.5 rounded-xl font-bold text-sm bg-white border border-amber-300 text-amber-800 hover:bg-amber-50">確定を解除（作成中に戻す）</button>
-                  <button onClick={()=>setFinalMenu(false)} className="w-full py-2 rounded-xl font-bold text-sm bg-slate-100 text-slate-600 hover:bg-slate-200">キャンセル</button>
+                  <button onClick={()=>setFinalMenu(false)} className="whitespace-nowrap w-full py-2 rounded-xl font-bold text-sm bg-slate-100 text-slate-600 hover:bg-slate-200">キャンセル</button>
                 </div>
               </div>
             </div>), document.body)}
@@ -37324,7 +37332,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             return (
             <div className="fixed inset-0 bg-slate-900/50 flex items-start justify-center p-4 pt-16" style={{zIndex:10000}} onClick={()=>setChgPanel(null)}>
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-5" onClick={e=>e.stopPropagation()} data-testid="tp-chg-panel">
-                <div className="flex items-center justify-between mb-3"><div className="font-bold text-slate-800 text-lg">{_finalAtOfWeek() ? '確定後の変更' : '確定時からの変更'}<span className="ml-1 text-sm font-normal text-slate-500">（{cl.length}件{(chgPanel.iso || chgPanel.sl) ? `／全体 ${all.length}件` : ''}）</span></div><button type="button" onClick={()=>setChgPanel(null)} className="text-slate-500 text-sm font-bold px-2">閉じる</button></div>
+                <div className="flex items-center justify-between mb-3"><div className="font-bold text-slate-800 text-lg">{_finalAtOfWeek() ? '確定後の変更' : '確定時からの変更'}<span className="ml-1 text-sm font-normal text-slate-500">（{cl.length}件{(chgPanel.iso || chgPanel.sl) ? `／全体 ${all.length}件` : ''}）</span></div><button type="button" onClick={()=>setChgPanel(null)} className="whitespace-nowrap text-slate-500 text-sm font-bold px-2">閉じる</button></div>
                 <div className="flex flex-wrap gap-1.5 mb-1.5" data-testid="tp-chg-filter-day">
                   <button type="button" className={_fb(!chgPanel.iso)} onClick={()=>setChgPanel(v=>({ ...v, iso: '' }))}>全体</button>
                   {days.map(d => { const iso = _iso(d); const n = all.filter(x => x.iso === iso).length; return <button key={iso} type="button" className={_fb(chgPanel.iso === iso, n ? '' : 'opacity-50')} onClick={()=>setChgPanel(v=>({ ...v, iso }))}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{n ? <span className="ml-0.5 text-red-600">{n}</span> : null}</button>; })}
@@ -37591,7 +37599,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                                   <option value="">運転者: 未選択</option>
                                   {_driverNames.map(n=><option key={n} value={n}>{n}</option>)}
                                 </select>
-                                <button onClick={()=>openNavi(iso, sl, c.id)} title="この車の乗車順でGoogleマップの経路案内を開く" className="text-[11px] font-bold text-blue-600 border border-blue-300 rounded px-2 py-1 bg-white hover:bg-blue-50 shrink-0">ナビ</button>
+                                <button onClick={()=>openNavi(iso, sl, c.id)} title="この車の乗車順でGoogleマップの経路案内を開く" className="whitespace-nowrap text-[11px] font-bold text-blue-600 border border-blue-300 rounded px-2 py-1 bg-white hover:bg-blue-50 shrink-0">ナビ</button>
                               </div>
                             </div>
                             <div className="flex items-center justify-between px-2 py-0.5 text-[10px] text-slate-400 font-bold border-b border-slate-100"><span className="pl-6">氏名</span><span className="w-16 text-center shrink-0">時間</span></div>
@@ -37757,7 +37765,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             )}
             {printModal.mode==='days' && (
               <div className="border border-slate-200 rounded-xl p-3 mb-3">
-                <div className="flex items-center justify-between mb-1.5"><span className="text-xs font-bold text-slate-600">印刷する日にチェック</span><span className="flex gap-2"><button onClick={()=>setPrintModal(m=>({...m, days:new Set(days.map(d=>_iso(d)))}))} className="text-[11px] text-blue-600 underline">すべて</button><button onClick={()=>setPrintModal(m=>({...m, days:new Set()}))} className="text-[11px] text-blue-600 underline">解除</button></span></div>
+                <div className="flex items-center justify-between mb-1.5"><span className="text-xs font-bold text-slate-600">印刷する日にチェック</span><span className="flex gap-2"><button onClick={()=>setPrintModal(m=>({...m, days:new Set(days.map(d=>_iso(d)))}))} className="text-[11px] text-blue-600 underline">すべて</button><button onClick={()=>setPrintModal(m=>({...m, days:new Set()}))} className="whitespace-nowrap text-[11px] text-blue-600 underline">解除</button></span></div>
                 <div className="flex flex-col gap-1.5">
                   {days.map(d => { const iso = _iso(d); const on = printModal.days.has(iso); return (
                     <label key={iso} className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg border text-sm font-bold cursor-pointer ${on?'bg-blue-50 border-blue-300 text-blue-800':'bg-white border-slate-200 text-slate-600'}`}>
@@ -37770,7 +37778,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               </div>
             )}
             <div className="flex gap-2">
-              <button onClick={()=>setPrintModal(null)} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
+              <button onClick={()=>setPrintModal(null)} className="whitespace-nowrap flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
               <button onClick={()=>{ const pm = printModal; setPrintModal(null); if (pm.mode==='week') doPrint(pm.weekContent||'sheet'); else doPrintDays(days.map(d=>_iso(d)).filter(iso=>pm.days.has(iso))); }} disabled={printModal.mode==='days' && printModal.days.size===0} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm disabled:opacity-40">ダウンロード</button>
             </div>
           </div>
@@ -37797,8 +37805,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               <label className="block text-xs font-bold text-slate-600 mb-1">送迎時の連絡先</label>
               <div className="mb-4"><PickupCallField patient={pt} value={editCall || { callTo: pt.pickupCallTo || '', name: pt.pickupCallName || '', phone: pt.pickupCallPhone || '' }} onChange={setEditCall} /></div>
               <div className="flex justify-end gap-2">
-                <button onClick={()=>{ setEditP(null); setEditCall(null); }} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">閉じる</button>
-                <button onClick={()=>{ const pv=document.getElementById('tp-edit-place')?.value||''; const mv=document.getElementById('tp-edit-min')?.value||''; savePatientPickup(pt.id, pv, mv, editCall || { callTo: pt.pickupCallTo || '', name: pt.pickupCallName || '', phone: pt.pickupCallPhone || '' }); setEditP(null); setEditCall(null); }} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm">保存</button>
+                <button onClick={()=>{ setEditP(null); setEditCall(null); }} className="whitespace-nowrap px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">閉じる</button>
+                <button onClick={()=>{ const pv=document.getElementById('tp-edit-place')?.value||''; const mv=document.getElementById('tp-edit-min')?.value||''; savePatientPickup(pt.id, pv, mv, editCall || { callTo: pt.pickupCallTo || '', name: pt.pickupCallName || '', phone: pt.pickupCallPhone || '' }); setEditP(null); setEditCall(null); }} className="whitespace-nowrap px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm">保存</button>
               </div>
               <div className="text-[10px] text-slate-400 mt-3">利用者マスタの「待ち合わせ場所・乗車にかかる時間」と同じ項目に保存されます。</div>
             </div>
@@ -37830,7 +37838,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               <input type="text" value={fkMove.detail||''} onChange={e=>setFkMove(m=>({...m, detail:e.target.value}))} placeholder="例: 通院のため" className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none mb-1"/>
               {(fkMove.cat || fkMove.detail) && <div className="text-[11px] text-slate-500 mb-3">記録される理由: {composeAbsReason(fkMove.cat, fkMove.detail) || '（なし）'}</div>}
               <div className="flex justify-end gap-2 mt-3">
-                <button onClick={()=>setFkMove(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
+                <button onClick={()=>setFkMove(null)} className="whitespace-nowrap px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
                 <button onClick={()=>{ const rs = composeAbsReason(fkMove.cat, fkMove.detail); executeFurikaeMove(fkMove, rs); setFkMove(null); }} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm">振替を登録</button>
               </div>
             </div>
@@ -37908,7 +37916,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 <div className="w-full rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-[12px]" data-testid="tp-seat-order">
                   <div className="flex items-start gap-2 mb-1">
                     <div className="flex-1 min-w-0"><div className="font-bold text-amber-800">{c.name}の送りの順番</div><div className="text-[10px] text-amber-700 leading-tight">上から順に送ります。名前をつかんで上下に動かすか、矢印で入れ替えます</div></div>
-                    <button type="button" data-testid="tp-ord-close" onClick={() => setSeatOrd(null)} className="shrink-0 px-2 py-1 rounded border border-amber-300 bg-white text-[11px] font-bold text-amber-800">閉じる</button>
+                    <button type="button" data-testid="tp-ord-close" onClick={() => setSeatOrd(null)} className="whitespace-nowrap shrink-0 px-2 py-1 rounded border border-amber-300 bg-white text-[11px] font-bold text-amber-800">閉じる</button>
                   </div>
                   <div className="flex flex-col gap-1">{out}</div>
                 </div>); })()}
@@ -38004,7 +38012,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               <div className="font-bold text-slate-800">全部コピーし直す（{fill + made}コマ）</div>
               <div className="text-[12px] text-red-700 mt-0.5">この週に入力済みの内容も、前の週の内容で上書きします。</div>
             </button>
-            <div className="flex justify-end"><button type="button" onClick={() => setCopyAsk(false)} className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold">やめる</button></div>
+            <div className="flex justify-end"><button type="button" onClick={() => setCopyAsk(false)} className="whitespace-nowrap px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold">やめる</button></div>
           </div>
         </div>); })(), document.body)}
       {arrKp && (() => { const c = cars.find(x => x.id === arrKp.cid) || {}; const r = _svcRangeTp(arrKp.sl); const pl0 = getPlan(arrKp.iso, arrKp.sl); return (
@@ -38103,7 +38111,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               <div className="text-[10px] text-slate-400">座席表の並び: 1列目は運転席と助手席です。2列目・3列目の席の数が車によって違うときに選んでください。</div>
             </div>
             <div className="flex justify-end gap-2">
-              <button onClick={()=>setTpSettings(false)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">閉じる</button>
+              <button onClick={()=>setTpSettings(false)} className="whitespace-nowrap px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">閉じる</button>
               <button onClick={()=>{
                 const newCars = cars.map(c => { const _rw = document.getElementById(`tp-set-rows-${c.id}`); return { ...c, cap: (document.getElementById(`tp-set-cap-${c.id}`)?.value||'').replace(/[^0-9]/g,''), seatRows: _rw ? _rw.value : (c.seatRows || '') }; });
                 onSave({ ...appData, diarySettings: { ...(appData.diarySettings||{}), cars: newCars } }, { manual: true, message: '✓ 送迎表の設定を保存しました' });
@@ -38514,7 +38522,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                   <input type="date" value={date} onChange={e => setDate(e.target.value)}
                     className="px-3 py-2 border border-slate-300 rounded-xl font-bold text-sm outline-none" />
                 </div>
-                <button onClick={save} className="mt-4 px-6 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 shadow active:scale-95">保存</button>
+                <button onClick={save} className="whitespace-nowrap mt-4 px-6 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 shadow active:scale-95">保存</button>
                 <button type="button" data-testid="fit-undo-btn" onClick={() => setFitUndoOpen(true)} title="保存した記録を1つ前の値に戻す／誤って作った記録を取り消す" className="mt-4 px-3 py-2 bg-white border border-slate-300 text-slate-700 rounded-xl font-bold text-sm hover:bg-slate-50 whitespace-nowrap">元に戻す</button>
               </div>
             </div>
@@ -38535,7 +38543,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                            : <button type="button" onClick={() => fitUndoDelete(r)} className="shrink-0 px-2.5 py-1.5 rounded-lg font-bold text-xs bg-white border border-red-300 text-red-700 hover:bg-red-50 whitespace-nowrap">削除</button>}
                       </div>); })}
                   </div>
-                  <button type="button" onClick={() => setFitUndoOpen(false)} className="w-full mt-3 py-2 rounded-xl font-bold text-sm bg-slate-100 text-slate-600 hover:bg-slate-200">閉じる</button>
+                  <button type="button" onClick={() => setFitUndoOpen(false)} className="whitespace-nowrap w-full mt-3 py-2 rounded-xl font-bold text-sm bg-slate-100 text-slate-600 hover:bg-slate-200">閉じる</button>
                 </div>
               </div>), document.body)}
 
@@ -40543,7 +40551,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                         ); })}
                       </div>
                       <div style={{textAlign:'right',marginTop:8}}>
-                        <button type="button" onClick={()=>setMasterSortPop(false)} style={{padding:'5px 14px',borderRadius:8,fontSize:11,fontWeight:'bold',border:'none',background:'#2563eb',color:'white',cursor:'pointer'}}>閉じる</button>
+                        <button type="button" onClick={()=>setMasterSortPop(false)} style={{whiteSpace:'nowrap',padding:'5px 14px',borderRadius:8,fontSize:11,fontWeight:'bold',border:'none',background:'#2563eb',color:'white',cursor:'pointer'}}>閉じる</button>
                       </div>
                     </div>
                   )}
@@ -41101,7 +41109,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     <div className="text-[11px] font-bold text-slate-500 mb-1">基本利用曜日の変更履歴（最新5件）　間違えた変更は「削除」で、今の設定のまま過去の表示を直せます</div>
                     {hs.map((h,i)=>(<div key={`${h.date}_${h.dayIndex}_${i}`} className="flex items-center justify-between gap-2 text-xs py-1 border-t border-slate-200 first:border-t-0">
                       <span className="text-slate-700"><span className="tabular-nums text-slate-500 mr-2">{h.date}〜</span>{h.label || `${dN[h.dayIndex]}曜日 ${h.oldVal||'無'}→${h.newVal||'無'}`}</span>
-                      {!isOff && <button onClick={()=>removeSchedHistory(h)} className="shrink-0 px-2 py-0.5 rounded-md text-[11px] font-bold text-red-600 bg-white border border-red-200 hover:bg-red-50 active:scale-95">削除</button>}
+                      {!isOff && <button onClick={()=>removeSchedHistory(h)} className="whitespace-nowrap shrink-0 px-2 py-0.5 rounded-md text-[11px] font-bold text-red-600 bg-white border border-red-200 hover:bg-red-50 active:scale-95">削除</button>}
                     </div>))}
                   </div>);
                 })()}
@@ -41361,7 +41369,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         }
         setKeypad({ ...keypad, isOpen: false });
       }} onInput={handleKpInput} quickButtons={appData.systemSettings?.exerciseQuickButtons}/>
-      {pauseModal.isOpen && (<div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"><div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden"><div className="px-6 py-4 bg-orange-50 border-b border-orange-200 flex justify-between items-center"><h2 className="text-lg font-bold text-orange-800 flex items-center"><CalendarOff size={20} className="mr-2" />休止理由の登録</h2><button onClick={cancelPause} className="p-2 text-slate-400 hover:bg-slate-200 rounded-full"><X size={20} /></button></div><div className="p-6 space-y-5">{localPatient?.pauseHistory?.length > 0 && (<div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs"><span className="font-bold text-slate-500">前回: </span><span className="font-bold text-slate-700">{latPause(localPatient)?.reason}</span><span className="text-slate-400 ml-2">{fD(latPause(localPatient)?.fromDate)}〜</span></div>)}<div><label className="text-xs font-bold text-slate-500 block mb-1">休止の理由</label><input type="text" value={pauseModal.reason} onChange={e => setPauseModal({ ...pauseModal, reason: e.target.value })} placeholder="例: 入院、自宅療養" className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl font-bold outline-none" /></div><div><label className="text-xs font-bold text-slate-500 block mb-1">開始日</label><input type="date" value={pauseModal.fromDate} onChange={e => setPauseModal({ ...pauseModal, fromDate: e.target.value })} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl font-bold outline-none" /></div></div><div className="px-6 py-4 bg-slate-50 border-t flex justify-end gap-3"><button onClick={cancelPause} className="px-5 py-2 rounded-xl font-bold text-slate-600 hover:bg-slate-200">キャンセル</button><button onClick={submitPause} className="px-8 py-2 bg-orange-600 text-white rounded-xl font-bold shadow-lg active:scale-95">確定</button></div></div></div>)}
+      {pauseModal.isOpen && (<div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"><div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden"><div className="px-6 py-4 bg-orange-50 border-b border-orange-200 flex justify-between items-center"><h2 className="text-lg font-bold text-orange-800 flex items-center"><CalendarOff size={20} className="mr-2" />休止理由の登録</h2><button onClick={cancelPause} className="p-2 text-slate-400 hover:bg-slate-200 rounded-full"><X size={20} /></button></div><div className="p-6 space-y-5">{localPatient?.pauseHistory?.length > 0 && (<div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs"><span className="font-bold text-slate-500">前回: </span><span className="font-bold text-slate-700">{latPause(localPatient)?.reason}</span><span className="text-slate-400 ml-2">{fD(latPause(localPatient)?.fromDate)}〜</span></div>)}<div><label className="text-xs font-bold text-slate-500 block mb-1">休止の理由</label><input type="text" value={pauseModal.reason} onChange={e => setPauseModal({ ...pauseModal, reason: e.target.value })} placeholder="例: 入院、自宅療養" className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl font-bold outline-none" /></div><div><label className="text-xs font-bold text-slate-500 block mb-1">開始日</label><input type="date" value={pauseModal.fromDate} onChange={e => setPauseModal({ ...pauseModal, fromDate: e.target.value })} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl font-bold outline-none" /></div></div><div className="px-6 py-4 bg-slate-50 border-t flex justify-end gap-3"><button onClick={cancelPause} className="whitespace-nowrap px-5 py-2 rounded-xl font-bold text-slate-600 hover:bg-slate-200">キャンセル</button><button onClick={submitPause} className="px-8 py-2 bg-orange-600 text-white rounded-xl font-bold shadow-lg active:scale-95">確定</button></div></div></div>)}
       {/* ★ 休止履歴の編集 */}
       {pauseEditModal && (
         <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-center justify-center p-0 sm:p-4">{/* ★ 外側タップでは閉じない 2026-09-27 */}
@@ -41385,7 +41393,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             <div className="px-6 py-4 bg-slate-50 border-t flex justify-between items-center gap-2 shrink-0">
               <button onClick={()=>{ if(!window.confirm('この休止履歴を削除しますか？')) return; const newHist=(localPatient.pauseHistory||[]).filter((_,i)=>i!==pauseEditModal.origIdx); updateLPFields({pauseHistory:newHist}); setPauseEditModal(null); }} className="px-4 py-2 rounded-xl font-bold text-red-600 hover:bg-red-50 flex items-center gap-1 text-sm"><Trash2 size={15}/>削除</button>
               <div className="flex gap-2">
-                <button onClick={()=>setPauseEditModal(null)} className="px-5 py-2 rounded-xl font-bold text-slate-600 hover:bg-slate-200">キャンセル</button>
+                <button onClick={()=>setPauseEditModal(null)} className="whitespace-nowrap px-5 py-2 rounded-xl font-bold text-slate-600 hover:bg-slate-200">キャンセル</button>
                 <button onClick={()=>{
                   if(!pauseEditModal.reason.trim() || !pauseEditModal.fromDate){ alert('理由と開始日を入力してください'); return; }
                   const newHist=[...(localPatient.pauseHistory||[])];
@@ -41410,7 +41418,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               <SmartDateInput value={resumeModal.resumeDate} onChange={e=>setResumeModal(m=>({...m, resumeDate:e.target.value}))} />
             </div>
             <div className="flex justify-end gap-3">
-              <button onClick={()=>setResumeModal(null)} className="px-5 py-2 rounded-xl font-bold text-slate-600 hover:bg-slate-200">キャンセル</button>
+              <button onClick={()=>setResumeModal(null)} className="whitespace-nowrap px-5 py-2 rounded-xl font-bold text-slate-600 hover:bg-slate-200">キャンセル</button>
               <button onClick={()=>{
                 const rd = resumeModal.resumeDate;
                 if (!rd) { alert('再開日を入力してください'); return; }
@@ -41542,7 +41550,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               <p className="text-xs text-slate-500 mt-1.5">選択中: <b className="text-slate-700">{schedModal.applyFrom || '未選択'}</b>　この日以降の月間スケジュールに反映されます</p>
             </div>
             <div className="flex gap-3">
-              <button onClick={()=>setSchedModal(null)} className="flex-1 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">キャンセル</button>
+              <button onClick={()=>setSchedModal(null)} className="whitespace-nowrap flex-1 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">キャンセル</button>
               <button disabled={!schedModal.applyFrom}
                 onClick={()=>{
                   // ★ 適用開始日が60日以上前なら、過去の表示が変わることを確認してから適用する
@@ -41605,7 +41613,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               })}
             </div>
             <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 shrink-0">
-              <button onClick={()=>{setMergeModal(null);setMergeKeep({});}} className="w-full py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">閉じる</button>
+              <button onClick={()=>{setMergeModal(null);setMergeKeep({});}} className="whitespace-nowrap w-full py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">閉じる</button>
             </div>
           </div>
         </div>
@@ -42336,7 +42344,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                                     {isExpired && (
                                       <button onClick={()=>reissueInvite(inv)} className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[10px] font-bold" title="新しいコードで再発行">再発行</button>
                                     )}
-                                    <button onClick={()=>deleteInvite(inv.id)} className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[10px] font-bold">削除</button>
+                                    <button onClick={()=>deleteInvite(inv.id)} className="whitespace-nowrap px-2 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[10px] font-bold">削除</button>
                                   </div>
                                 </div>
                                 {/* ★ 未使用コード: 新規登録URL + QR (このQRを読むと登録画面が開く) */}
@@ -42614,7 +42622,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               <button disabled={!canSubmit} onClick={()=>submit('service')} className="w-full py-3 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-lg active:scale-95">完了 → サービス提供内容を入力</button>
               {/* ★ 名前だけ登録して一覧に戻る（詳細は後で） */}
               <button disabled={!canSubmit} onClick={()=>submit('none')} className="w-full py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95">追加のみ（詳細はあとで）</button>
-              <button onClick={()=>{ setNewPatientModal(false); _clearNew(); }} className="w-full py-2 rounded-xl font-bold text-slate-400 hover:bg-slate-100">キャンセル</button>
+              <button onClick={()=>{ setNewPatientModal(false); _clearNew(); }} className="whitespace-nowrap w-full py-2 rounded-xl font-bold text-slate-400 hover:bg-slate-100">キャンセル</button>
             </div>
           </div>
         </div>,
@@ -42687,7 +42695,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             <p className="text-sm text-slate-500 mb-2">{localPatient?.name} 様のデータを削除します。</p>
             <p className="text-xs text-slate-400 mb-6">関連する提供記録・体力測定なども全て削除されます。</p>
             <div className="flex gap-3 justify-center">
-              <button onClick={() => setDeleteConfirmModal(false)} className="px-6 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">キャンセル</button>
+              <button onClick={() => setDeleteConfirmModal(false)} className="whitespace-nowrap px-6 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">キャンセル</button>
               <button onClick={() => setDeleteConfirmStep2(true)} className="px-6 py-2.5 rounded-xl font-bold text-white bg-red-600 hover:bg-red-700 shadow-lg active:scale-95">はい、削除する</button>
             </div>
           </div>
@@ -42764,7 +42772,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               <p className="text-[11px] text-blue-600 font-bold mb-3 bg-blue-50 rounded-lg px-3 py-2">開始日になったら自動的に適用されます</p>
             )}
             <div className="flex gap-3">
-              <button onClick={()=>setCareLevelModal(null)} className="flex-1 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">キャンセル</button>
+              <button onClick={()=>setCareLevelModal(null)} className="whitespace-nowrap flex-1 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">キャンセル</button>
               <button disabled={!careLevelModal.from||!careLevelModal.newValue||(!careLevelModal.isCostBurden && !careLevelModal.periodOnly && !careLevelModal.to)} onClick={()=>{
                 if (!localPatient) return;
                 if (careLevelModal.periodOnly) {
@@ -42851,7 +42859,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               <p className="text-[11px] text-blue-600 font-bold mb-3 bg-blue-50 rounded-lg px-3 py-2">開始日になったら自動的に適用されます</p>
             )}
             <div className="flex gap-3">
-              <button onClick={()=>setCmChangeModal(null)} className="flex-1 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">キャンセル</button>
+              <button onClick={()=>setCmChangeModal(null)} className="whitespace-nowrap flex-1 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">キャンセル</button>
               <button disabled={!cmChangeModal.from||!cmChangeModal.office} onClick={()=>{
                 if(!localPatient) return;
                 const today=new Date().toISOString().split('T')[0];
@@ -42908,7 +42916,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 <input value={editHistModal.entry.note||''} onChange={e=>setEditHistModal({...editHistModal,entry:{...editHistModal.entry,note:e.target.value}})} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm outline-none"/></div>
             </div>
             <div className="flex gap-3">
-              <button onClick={()=>setEditHistModal(null)} className="flex-1 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100">キャンセル</button>
+              <button onClick={()=>setEditHistModal(null)} className="whitespace-nowrap flex-1 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100">キャンセル</button>
               <button onClick={()=>{
                 if(!localPatient) return;
                 const histKey = editHistModal.type==='careLevel'?'careLevelHistory':editHistModal.type==='costBurden'?'costBurdenHistory':editHistModal.type==='cm'?'cmHistory':'changeLog';
@@ -42933,7 +42941,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             <h3 className="text-base font-bold text-slate-800 mb-2">この履歴を削除しますか？</h3>
             <p className="text-sm text-slate-500 mb-6">削除すると元に戻せません。</p>
             <div className="flex gap-3">
-              <button onClick={()=>setDeleteHistConfirm(null)} className="flex-1 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100">キャンセル</button>
+              <button onClick={()=>setDeleteHistConfirm(null)} className="whitespace-nowrap flex-1 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100">キャンセル</button>
               <button onClick={()=>{
                 if(!localPatient) return;
                 const histKey=deleteHistConfirm.type==='careLevel'?'careLevelHistory':deleteHistConfirm.type==='costBurden'?'costBurdenHistory':deleteHistConfirm.type==='cm'?'cmHistory':'changeLog';
@@ -42957,7 +42965,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             <h3 className="text-base font-bold text-slate-800 mb-2">写真を削除しますか？</h3>
             <p className="text-sm text-slate-500 mb-6 break-all">{docDeleteConfirm.name}</p>
             <div className="flex gap-3 justify-center">
-              <button onClick={()=>setDocDeleteConfirm(null)} className="px-6 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">キャンセル</button>
+              <button onClick={()=>setDocDeleteConfirm(null)} className="whitespace-nowrap px-6 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">キャンセル</button>
               <button onClick={()=>{
                 const {key,imgId}=docDeleteConfirm;
                 saveLP(key,(localPatient[key]||[]).filter(x=>x.id!==imgId));
@@ -42989,7 +42997,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               </div>
             </div>
             <div className="px-6 py-4 bg-slate-50 border-t flex justify-end gap-3">
-              <button onClick={()=>setPauseFromCellModal({isOpen:false,reason:'',fromDate:'',toDate:''})} className="px-4 py-2 rounded-xl font-bold text-slate-600 hover:bg-slate-200 text-sm">キャンセル</button>
+              <button onClick={()=>setPauseFromCellModal({isOpen:false,reason:'',fromDate:'',toDate:''})} className="whitespace-nowrap px-4 py-2 rounded-xl font-bold text-slate-600 hover:bg-slate-200 text-sm">キャンセル</button>
               <button disabled={!pauseFromCellModal.fromDate || !pauseFromCellModal.reason.trim()} onClick={()=>{
                 if (!localPatient) { setPauseFromCellModal({isOpen:false,reason:'',fromDate:'',toDate:''}); return; }
                 const entry = { reason: pauseFromCellModal.reason.trim(), fromDate: pauseFromCellModal.fromDate };
@@ -43259,7 +43267,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               </div>
               {furikaeModal.fromDate && (()=>{const d=new Date(furikaeModal.fromDate);const dn=['日','月','火','水','木','金','土'];return <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm"><div className="font-bold text-emerald-700">{otherLabel}：{d.getMonth()+1}月{d.getDate()}日（{dn[d.getDay()]}）{(furikaeModal.furikaeAmpm||'AM')==='AM'?'午前':'午後'}</div></div>;})()}
             </div>
-            <div className="px-6 py-4 bg-slate-50 border-t flex justify-end gap-3"><button onClick={() => setFurikaeModal({ isOpen: false, day: null, ampm: "", fromDate: "", reason: "", mode: 'forward' })} className="px-4 py-2 rounded-xl font-bold text-slate-600 hover:bg-slate-200 text-sm">キャンセル</button><button disabled={!furikaeModal.fromDate} onClick={subFuri} className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-lg active:scale-95 text-sm disabled:opacity-40">確定</button></div>
+            <div className="px-6 py-4 bg-slate-50 border-t flex justify-end gap-3"><button onClick={() => setFurikaeModal({ isOpen: false, day: null, ampm: "", fromDate: "", reason: "", mode: 'forward' })} className="whitespace-nowrap px-4 py-2 rounded-xl font-bold text-slate-600 hover:bg-slate-200 text-sm">キャンセル</button><button disabled={!furikaeModal.fromDate} onClick={subFuri} className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-lg active:scale-95 text-sm disabled:opacity-40">確定</button></div>
           </div>
         </div>
         );
@@ -43356,7 +43364,7 @@ function AdminSettingsSection({ appData, onSave }) {
         {delegate && (
           <div className="bg-white border border-amber-200 rounded-lg p-2 text-xs font-bold text-amber-800 mb-2 flex items-center justify-between gap-2">
             <span>現在の委任: {delegate.name}（{delegate.from}〜{delegate.until}）</span>
-            <button type="button" onClick={()=>saveSS({adminDelegate:null},'委任を解除しました')} className="text-red-500 hover:text-red-700 shrink-0">解除</button>
+            <button type="button" onClick={()=>saveSS({adminDelegate:null},'委任を解除しました')} className="whitespace-nowrap text-red-500 hover:text-red-700 shrink-0">解除</button>
           </div>
         )}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -44052,8 +44060,8 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
               </div>
             )}
             <div className="flex gap-3 mt-5">
-              <button onClick={()=>setCmEditModal(null)} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
-              <button onClick={saveCmEdit} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm shadow">更新</button>
+              <button onClick={()=>setCmEditModal(null)} className="whitespace-nowrap flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
+              <button onClick={saveCmEdit} className="whitespace-nowrap flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm shadow">更新</button>
             </div>
           </div>
         </div>
@@ -44074,8 +44082,8 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
               </div>
             </div>
             <div className="flex gap-3 mt-5">
-              <button onClick={()=>setAddOfficeModal(false)} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
-              <button onClick={addOfficeFromModal} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm shadow">追加</button>
+              <button onClick={()=>setAddOfficeModal(false)} className="whitespace-nowrap flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
+              <button onClick={addOfficeFromModal} className="whitespace-nowrap flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm shadow">追加</button>
             </div>
           </div>
         </div>
@@ -44112,8 +44120,8 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                 <input value={newPerson.email||''} onChange={e=>setNewPerson({...newPerson,email:e.target.value})} type="email" inputMode="email" placeholder="例: suzuki@example.com" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold outline-none focus:border-blue-400"/></div>
             </div>
             <div className="flex gap-3 mt-5">
-              <button onClick={()=>setAddPersonModal(false)} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
-              <button onClick={addPersonFromModal} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm shadow">追加</button>
+              <button onClick={()=>setAddPersonModal(false)} className="whitespace-nowrap flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
+              <button onClick={addPersonFromModal} className="whitespace-nowrap flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm shadow">追加</button>
             </div>
           </div>
         </div>
@@ -44471,8 +44479,8 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                     </div>
                   </div>
                   <div className="flex gap-2 mt-6">
-                    <button type="button" onClick={()=>setHolidayEditModal(null)} className="flex-1 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">キャンセル</button>
-                    <button type="button" onClick={saveHolidayEdit} className="flex-1 py-2.5 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700">保存</button>
+                    <button type="button" onClick={()=>setHolidayEditModal(null)} className="whitespace-nowrap flex-1 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200">キャンセル</button>
+                    <button type="button" onClick={saveHolidayEdit} className="whitespace-nowrap flex-1 py-2.5 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700">保存</button>
                   </div>
                 </div>
               </div>
@@ -45255,7 +45263,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                           </td>
                         )}
                         <td className="py-2 px-3 text-center">
-                          {!item.fixed && <button type="button" onClick={() => deleteFitnessItem(item.id)} className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1 rounded hover:bg-red-50">削除</button>}
+                          {!item.fixed && <button type="button" onClick={() => deleteFitnessItem(item.id)} className="whitespace-nowrap text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1 rounded hover:bg-red-50">削除</button>}
                         </td>
                       </tr>
                     ))}
@@ -45279,7 +45287,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                         {cands.map(c => <option key={c.id} value={c.id}>{c.name}{c.unit ? `（${c.unit}）` : ''}</option>)}
                       </select>
                       <div className="flex gap-2 justify-end">
-                        <button type="button" onClick={() => setFitPairModal(null)} className="px-4 py-2 rounded-xl font-bold text-sm text-slate-600 hover:bg-slate-100">キャンセル</button>
+                        <button type="button" onClick={() => setFitPairModal(null)} className="whitespace-nowrap px-4 py-2 rounded-xl font-bold text-sm text-slate-600 hover:bg-slate-100">キャンセル</button>
                         <button type="button" data-testid="fit-pair-ok" disabled={!fitPairModal.partner} onClick={() => { linkFitPair(fitPairModal.id, fitPairModal.partner, fitPairModal.side); setFitPairModal(null); }} className="px-5 py-2 bg-sky-600 text-white rounded-xl font-bold text-sm disabled:opacity-40">組にする</button>
                       </div>
                     </div>
@@ -45314,8 +45322,8 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                         </label>
                       </div>
                       <div className="flex gap-2 justify-end">
-                        <button type="button" onClick={() => setShowFitnessModal(false)} className="px-4 py-2 rounded-xl font-bold text-sm text-slate-600 hover:bg-slate-100">キャンセル</button>
-                        <button type="button" onClick={addFitnessItem} className="px-5 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700">追加</button>
+                        <button type="button" onClick={() => setShowFitnessModal(false)} className="whitespace-nowrap px-4 py-2 rounded-xl font-bold text-sm text-slate-600 hover:bg-slate-100">キャンセル</button>
+                        <button type="button" onClick={addFitnessItem} className="whitespace-nowrap px-5 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700">追加</button>
                       </div>
                     </div>
                   </div>
@@ -46080,13 +46088,13 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 min-w-0">
               <div className="text-[11px] font-bold text-slate-500 mb-1">追加した役職</div>
               <div className="flex flex-wrap gap-1 mb-2">{(ds.customRoles||[]).map(r=>(<span key={r} className="inline-flex items-center gap-1 text-[11px] font-bold bg-white border border-slate-300 rounded-full px-2 py-0.5">{r}<button onClick={()=>{ const nd={...dsRef.current, customRoles:(dsRef.current.customRoles||[]).filter(x=>x!==r)}; dsRef.current=nd; _markEd('customRoles'); setRenderKey(k=>k+1); _md(); }} className="text-red-400 hover:text-red-600" title="削除">×</button></span>))}{!(ds.customRoles||[]).length && <span className="text-[11px] text-slate-400">なし</span>}</div>
-              <div className="flex gap-1"><input id="ds-new-role" placeholder="例: 送迎ドライバー、事務" className="flex-1 min-w-0 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-400"/><button onClick={()=>{ const el=document.getElementById('ds-new-role'); const v=(el?.value||'').trim(); if(!v) return; if (STAFF_BASE_ROLES.includes(v) || (dsRef.current.customRoles||[]).includes(v)) { alert('その役職は既にあります'); return; } const nd={...dsRef.current, customRoles:[...(dsRef.current.customRoles||[]), v]}; dsRef.current=nd; _markEd('customRoles'); if(el) el.value=''; setRenderKey(k=>k+1); _md(); }} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold">追加</button></div>
+              <div className="flex gap-1"><input id="ds-new-role" placeholder="例: 送迎ドライバー、事務" className="flex-1 min-w-0 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-400"/><button onClick={()=>{ const el=document.getElementById('ds-new-role'); const v=(el?.value||'').trim(); if(!v) return; if (STAFF_BASE_ROLES.includes(v) || (dsRef.current.customRoles||[]).includes(v)) { alert('その役職は既にあります'); return; } const nd={...dsRef.current, customRoles:[...(dsRef.current.customRoles||[]), v]}; dsRef.current=nd; _markEd('customRoles'); if(el) el.value=''; setRenderKey(k=>k+1); _md(); }} className="whitespace-nowrap px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold">追加</button></div>
               <div className="text-[10px] text-slate-400 mt-1">追加した役職はログイン・スタッフ切替では「その他」の枠に表示されます。</div>
             </div>
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 min-w-0">
               <div className="text-[11px] font-bold text-slate-500 mb-1">追加した資格</div>
               <div className="flex flex-wrap gap-1 mb-2">{(ds.customQuals||[]).map((q,qi)=>(<span key={qi} className="inline-flex items-center gap-1 text-[11px] font-bold bg-white border border-slate-300 rounded-full px-2 py-0.5">{q.name}<span className="text-[9px] font-normal text-slate-400">（{q.role||'全役職'}）</span><button onClick={()=>{ const nd={...dsRef.current, customQuals:(dsRef.current.customQuals||[]).filter((_,j)=>j!==qi)}; dsRef.current=nd; _markEd('customQuals'); setRenderKey(k=>k+1); _md(); }} className="text-red-400 hover:text-red-600" title="削除">×</button></span>))}{!(ds.customQuals||[]).length && <span className="text-[11px] text-slate-400">なし</span>}</div>
-              <div className="flex gap-1 flex-wrap sm:flex-nowrap"><input id="ds-new-qual" placeholder="例: 介護福祉士（登録番号あり）" className="flex-1 basis-full sm:basis-auto min-w-0 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-400"/><select id="ds-new-qual-role" className="px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs outline-none"><option value="">全役職</option>{[...STAFF_BASE_ROLES, ...((ds.customRoles||[]))].map(r=><option key={r} value={r}>{r}</option>)}</select><button onClick={()=>{ const el=document.getElementById('ds-new-qual'); const rl=document.getElementById('ds-new-qual-role'); const v=(el?.value||'').trim(); const role=(rl?.value||''); if(!v) return; const nd={...dsRef.current, customQuals:[...(dsRef.current.customQuals||[]), {name:v, role}]}; dsRef.current=nd; _markEd('customQuals'); if(el) el.value=''; setRenderKey(k=>k+1); _md(); }} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold">追加</button></div>
+              <div className="flex gap-1 flex-wrap sm:flex-nowrap"><input id="ds-new-qual" placeholder="例: 介護福祉士（登録番号あり）" className="flex-1 basis-full sm:basis-auto min-w-0 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:border-blue-400"/><select id="ds-new-qual-role" className="px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs outline-none"><option value="">全役職</option>{[...STAFF_BASE_ROLES, ...((ds.customRoles||[]))].map(r=><option key={r} value={r}>{r}</option>)}</select><button onClick={()=>{ const el=document.getElementById('ds-new-qual'); const rl=document.getElementById('ds-new-qual-role'); const v=(el?.value||'').trim(); const role=(rl?.value||''); if(!v) return; const nd={...dsRef.current, customQuals:[...(dsRef.current.customQuals||[]), {name:v, role}]}; dsRef.current=nd; _markEd('customQuals'); if(el) el.value=''; setRenderKey(k=>k+1); _md(); }} className="whitespace-nowrap px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold">追加</button></div>
               <div className="text-[10px] text-slate-400 mt-1">役職を選ぶとその役職の候補に、「全役職」にするとすべての職員の候補に出ます。</div>
             </div>
           </div>
@@ -47308,7 +47316,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             setCarAssignSelections(all);
           }} className="w-full mb-2 py-2 rounded-xl border border-amber-300 bg-amber-50 text-amber-700 font-bold text-sm hover:bg-amber-100">全員を未設定にする（リセット）</button>
           <div className="flex gap-3">
-            <button onClick={()=>{setCarAssignModal(null);setCarAssignSelections({});}} className="flex-1 py-2 rounded-xl border border-slate-300 text-slate-600 font-bold text-sm">キャンセル</button>
+            <button onClick={()=>{setCarAssignModal(null);setCarAssignSelections({});}} className="whitespace-nowrap flex-1 py-2 rounded-xl border border-slate-300 text-slate-600 font-bold text-sm">キャンセル</button>
             <button onClick={applyCarAssign} className="flex-1 py-2 rounded-xl bg-blue-600 text-white font-bold text-sm hover:bg-blue-700">適用</button>
           </div>
         </div>
@@ -47345,7 +47353,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             <button onClick={()=>kpInput('DEL')} style={{padding:'10px 0',fontSize:14,fontWeight:'bold',borderRadius:10,border:'1px solid #ddd',cursor:'pointer',backgroundColor:'#fee2e2',color:'#dc2626'}}>⌫</button>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
-            <button onClick={()=>{setTimeKeypad(null);setTimeInput('');}} style={{padding:'10px 0',borderRadius:10,border:'1px solid #ddd',cursor:'pointer',backgroundColor:'#f1f5f9',fontWeight:'bold',fontSize:13}}>キャンセル</button>
+            <button onClick={()=>{setTimeKeypad(null);setTimeInput('');}} style={{whiteSpace:'nowrap',padding:'10px 0',borderRadius:10,border:'1px solid #ddd',cursor:'pointer',backgroundColor:'#f1f5f9',fontWeight:'bold',fontSize:13}}>キャンセル</button>
             <button onClick={closeTimeKeypad} style={{padding:'10px 0',borderRadius:10,border:'none',cursor:'pointer',backgroundColor:'#1d4ed8',color:'white',fontWeight:'bold',fontSize:13}}>決定</button>
           </div>
         </div>
@@ -47687,15 +47695,15 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
                       <span style={{flex:1,fontWeight:'bold'}}>{s.name}</span>
                       {s._tempHelp && <span style={{fontSize:10,fontWeight:'bold',background:'#fef3c7',color:'#92400e',padding:'1px 6px',borderRadius:4}}>この日だけ</span>}
                       <span style={{fontSize:10,fontWeight:'bold',background:'#e0f2fe',color:'#0369a1',padding:'1px 6px',borderRadius:4}}>{apLbl}</span>
-                      <button onClick={()=>deleteStaffMember(s.id)} style={{padding:'2px 8px',borderRadius:6,border:'1px solid #fca5a5',background:'#fef2f2',color:'#dc2626',fontSize:11,fontWeight:'bold',cursor:'pointer'}}>削除</button>
+                      <button onClick={()=>deleteStaffMember(s.id)} style={{whiteSpace:'nowrap',padding:'2px 8px',borderRadius:6,border:'1px solid #fca5a5',background:'#fef2f2',color:'#dc2626',fontSize:11,fontWeight:'bold',cursor:'pointer'}}>削除</button>
                     </div>
                   );
                 })}
               </div>
             )}
             <div style={{display:'flex',gap:8}}>
-              <button onClick={()=>setAddStaffModal(false)} style={{flex:1,padding:'10px',borderRadius:8,border:'1px solid #ddd',background:'#f1f5f9',fontWeight:'bold',cursor:'pointer'}}>閉じる</button>
-              <button onClick={addStaffMember} style={{flex:1,padding:'10px',borderRadius:8,border:'none',background:'#2563eb',color:'white',fontWeight:'bold',cursor:'pointer'}}>追加</button>
+              <button onClick={()=>setAddStaffModal(false)} style={{whiteSpace:'nowrap',flex:1,padding:'10px',borderRadius:8,border:'1px solid #ddd',background:'#f1f5f9',fontWeight:'bold',cursor:'pointer'}}>閉じる</button>
+              <button onClick={addStaffMember} style={{whiteSpace:'nowrap',flex:1,padding:'10px',borderRadius:8,border:'none',background:'#2563eb',color:'white',fontWeight:'bold',cursor:'pointer'}}>追加</button>
             </div>
           </div>
         </div>
@@ -47751,7 +47759,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         <div className="flex rounded-lg overflow-hidden border border-slate-300 shrink-0" data-testid="diary-fold-ampm">
           {['AM','PM'].map(v=>(<button key={v} type="button" onClick={()=>_diarySwitchAmpm(v)} className={`px-2.5 h-10 text-sm font-bold ${ampm===v?'bg-blue-600 text-white':'bg-white text-slate-600'}`}>{v}</button>))}
         </div>
-        {isReadOnly ? null : <button type="button" data-testid="diary-fold-save" onClick={saveLog} className="shrink-0 h-10 px-3 rounded-xl bg-blue-600 text-white text-sm font-bold">保存</button>}
+        {isReadOnly ? null : <button type="button" data-testid="diary-fold-save" onClick={saveLog} className="whitespace-nowrap shrink-0 h-10 px-3 rounded-xl bg-blue-600 text-white text-sm font-bold">保存</button>}
       </>); })()}>
       <div className="tsu-diary-bar bg-white px-2 sm:px-4 py-2 sm:py-3 border-b border-slate-200 flex items-center gap-1.5 sm:gap-3 sticky top-0 z-30 flex-wrap">
         {/* カスタムカレンダー（折りたたみ） ★ スマホは1行目に出す(2026-10-08) */}
@@ -47896,7 +47904,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
                     ))}
                   </div>
                 )}
-                <div className="flex justify-end mt-4"><button type="button" onClick={()=>setKenmuModal(null)} className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold">閉じる</button></div>
+                <div className="flex justify-end mt-4"><button type="button" onClick={()=>setKenmuModal(null)} className="whitespace-nowrap px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold">閉じる</button></div>
               </div>
             </div>
           );
@@ -48499,7 +48507,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
         <div className="flex-1"/>
         {!editing && <button onClick={()=>setEditing(newRecord())} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">＋ 新規作成</button>}
         {editing && <>
-          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
+          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} className="whitespace-nowrap px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
           <button onClick={()=>saveRecord(false)} className="px-4 py-2 bg-white border border-emerald-500 text-emerald-600 hover:bg-emerald-50 rounded-lg text-sm font-bold active:scale-95" title="編集画面を開いたまま保存します">一時保存</button>
           <button onClick={()=>saveRecord(true)} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold shadow active:scale-95">保存して閉じる</button>
         </>}
@@ -48662,7 +48670,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
                     <input value={pr.point} onChange={e=>updProg(i,{point:e.target.value})} placeholder="留意点" className="col-span-3 px-2 py-1.5 bg-white border border-slate-300 rounded text-xs outline-none"/>
                     <input value={pr.freqWeek} onChange={e=>updProg(i,{freqWeek:e.target.value})} placeholder="週○回" className="col-span-2 px-2 py-1.5 bg-white border border-slate-300 rounded text-xs outline-none"/>
                     <input value={pr.time} onChange={e=>updProg(i,{time:e.target.value})} placeholder="○分" className="col-span-2 px-2 py-1.5 bg-white border border-slate-300 rounded text-xs outline-none"/>
-                    <button onClick={()=>delProg(i)} className="col-span-1 text-red-500 hover:text-red-700 text-xs font-bold py-1.5">削除</button>
+                    <button onClick={()=>delProg(i)} className="whitespace-nowrap col-span-1 text-red-500 hover:text-red-700 text-xs font-bold py-1.5">削除</button>
                     <input value={pr.person} onChange={e=>updProg(i,{person:e.target.value})} placeholder="主な実施者" className="col-span-11 px-2 py-1 bg-white border border-slate-200 rounded text-[11px] outline-none"/>
                   </div>
                 ))}
@@ -48821,9 +48829,9 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
                       <div className="text-xs text-slate-500 mt-0.5 truncate" style={{maxWidth:420}}>短期目標(機能): {r.shortKinou||'（未入力）'}</div>
                     </div>
                     <div className="flex gap-2 shrink-0">
-                      <button onClick={()=>setEditing(r)} className="px-3 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-bold">編集</button>
+                      <button onClick={()=>setEditing(r)} className="whitespace-nowrap px-3 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-bold">編集</button>
                       <button onClick={()=>dupRecord(r)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold">複製して更新</button>
-                      <button onClick={()=>delRecord(r.id)} className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold">削除</button>
+                      <button onClick={()=>delRecord(r.id)} className="whitespace-nowrap px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold">削除</button>
                     </div>
                   </div>
                 ))}
@@ -49045,7 +49053,7 @@ function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
         <div className="flex-1"/>
         {!editing && <button onClick={()=>setEditing(newRecord())} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">＋ 新規作成</button>}
         {editing && <>
-          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef)dirtyRef.current=false; setEditing(null); }} className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
+          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef)dirtyRef.current=false; setEditing(null); }} className="whitespace-nowrap px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
           <button onClick={()=>saveRecord(false)} className="px-4 py-2 bg-white border border-emerald-500 text-emerald-600 hover:bg-emerald-50 rounded-lg text-sm font-bold active:scale-95" title="編集画面を開いたまま保存します">一時保存</button>
           <button onClick={()=>saveRecord(true)} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold shadow active:scale-95">保存して閉じる</button>
         </>}
@@ -49087,9 +49095,9 @@ function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                 <div key={r.id} className="bg-white rounded-xl border border-slate-200 p-4 flex items-center justify-between gap-3">
                   <div className="font-bold text-slate-800">作成日: {r.recordDate}{r.recorder?`／記入者: ${r.recorder}`:''}</div>
                   <div className="flex gap-2 shrink-0">
-                    <button onClick={()=>setEditing(r)} className="px-3 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-bold">編集</button>
+                    <button onClick={()=>setEditing(r)} className="whitespace-nowrap px-3 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-bold">編集</button>
                     <button onClick={()=>dupRecord(r)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold">複製</button>
-                    <button onClick={()=>delRecord(r.id)} className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold">削除</button>
+                    <button onClick={()=>delRecord(r.id)} className="whitespace-nowrap px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold">削除</button>
                   </div>
                 </div>
               ))}</div>
@@ -49172,7 +49180,7 @@ function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
         <div className="flex-1"/>
         {!editing && <button onClick={()=>setEditing(newRecord())} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">＋ 新規作成</button>}
         {editing && <>
-          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef)dirtyRef.current=false; setEditing(null); }} className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
+          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef)dirtyRef.current=false; setEditing(null); }} className="whitespace-nowrap px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
           <button onClick={()=>saveRecord(false)} className="px-4 py-2 bg-white border border-emerald-500 text-emerald-600 hover:bg-emerald-50 rounded-lg text-sm font-bold active:scale-95" title="編集画面を開いたまま保存します">一時保存</button>
           <button onClick={()=>saveRecord(true)} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold shadow active:scale-95">保存して閉じる</button>
         </>}
@@ -49210,9 +49218,9 @@ function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
                 <div key={r.id} className="bg-white rounded-xl border border-slate-200 p-4 flex items-center justify-between gap-3">
                   <div className="font-bold text-slate-800">作成日: {r.recordDate}{r.recorder?`／記入者: ${r.recorder}`:''}</div>
                   <div className="flex gap-2 shrink-0">
-                    <button onClick={()=>setEditing(r)} className="px-3 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-bold">編集</button>
+                    <button onClick={()=>setEditing(r)} className="whitespace-nowrap px-3 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-bold">編集</button>
                     <button onClick={()=>dupRecord(r)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold">複製</button>
-                    <button onClick={()=>delRecord(r.id)} className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold">削除</button>
+                    <button onClick={()=>delRecord(r.id)} className="whitespace-nowrap px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold">削除</button>
                   </div>
                 </div>
               ))}</div>
@@ -49523,7 +49531,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
         <div className="flex-1"/>
         {!editing && <button onClick={()=>setEditing(newRecord())} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">＋ 新規作成</button>}
         {editing && <>
-          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
+          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} className="whitespace-nowrap px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
           <button onClick={()=>saveRecord(false)} className="px-4 py-2 bg-white border border-emerald-500 text-emerald-600 hover:bg-emerald-50 rounded-lg text-sm font-bold active:scale-95" title="編集画面を開いたまま保存します">一時保存</button>
           <button onClick={()=>saveRecord(true)} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold shadow active:scale-95">保存して閉じる</button>
         </>}
@@ -49684,7 +49692,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                   <div key={i} className="grid grid-cols-12 gap-2 items-center">
                     <input value={f.time||''} onChange={e=>updFlow(i,{time:e.target.value})} placeholder="9:00" className="col-span-3 px-2 py-1.5 bg-white border border-slate-300 rounded text-xs outline-none"/>
                     <input value={f.content||''} onChange={e=>updFlow(i,{content:e.target.value})} placeholder="内容" className="col-span-8 px-2 py-1.5 bg-white border border-slate-300 rounded text-xs outline-none"/>
-                    <button onClick={()=>delFlow(i)} className="col-span-1 text-red-500 hover:text-red-700 text-xs font-bold">削除</button>
+                    <button onClick={()=>delFlow(i)} className="whitespace-nowrap col-span-1 text-red-500 hover:text-red-700 text-xs font-bold">削除</button>
                   </div>
                 ))}
               </div>
@@ -49762,9 +49770,9 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                       <div className="text-xs text-slate-500 mt-0.5 truncate" style={{maxWidth:420}}>短期目標: {r.shortGoal||'（未入力）'}</div>
                     </div>
                     <div className="flex gap-2 shrink-0">
-                      <button onClick={()=>setEditing(_migrate(r))} className="px-3 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-bold">編集</button>
+                      <button onClick={()=>setEditing(_migrate(r))} className="whitespace-nowrap px-3 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-bold">編集</button>
                       <button onClick={()=>dupRecord(r)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold">複製して更新</button>
-                      <button onClick={()=>delRecord(r.id)} className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold">削除</button>
+                      <button onClick={()=>delRecord(r.id)} className="whitespace-nowrap px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold">削除</button>
                     </div>
                   </div>
                 ))}
@@ -50823,7 +50831,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
         </label>}
         {!editing && <button onClick={()=>setEditing(blank())} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">＋ ADL評価を新規作成</button>}
         {editing && <>
-          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
+          <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} className="whitespace-nowrap px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
           {_lifeMissing.length > 0 && (
             <button onClick={()=>save(true)} className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-bold shadow active:scale-95" title="必須項目が未入力でも保存できます(後で完成させてください)">一時保存</button>
           )}
@@ -50847,7 +50855,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
             <div className="flex-1"/>
             {_batchMissing.length > 0 && <button onClick={()=>batchSave(true)} className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold shadow">一時保存</button>}
             <button onClick={()=>batchSave(false)} title={_batchMissing.length?`必須が${_batchMissing.length}件未入力です`:''} className={`px-4 py-1.5 rounded-lg text-sm font-bold shadow text-white ${_batchMissing.length?'bg-slate-400':'bg-emerald-500 hover:bg-emerald-600'}`}>保存{_batchMissing.length?`（必須残${_batchMissing.length}）`:''}</button>
-            <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setBatchMode(false); setBatch(null); }} className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
+            <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setBatchMode(false); setBatch(null); }} className="whitespace-nowrap px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
           </div>
           {/* 評価履歴タイムライン + セクションジャンプ */}
           <div className="bg-white border-b border-slate-200 px-4 py-2 flex items-center gap-2 flex-wrap">
@@ -51046,7 +51054,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
               ))}
             </div>
             <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex justify-end gap-2 flex-shrink-0">
-              <button onClick={()=>setLifeImport(null)} className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
+              <button onClick={()=>setLifeImport(null)} className="whitespace-nowrap px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-sm font-bold">閉じる</button>
               <button onClick={execLifeImport} className="px-5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold shadow">選択した{lifeImport.items.filter(x=>x.checked).length}件を取り込む</button>
             </div>
           </div>
@@ -51179,7 +51187,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
               <span className="text-xs font-bold text-slate-500">被保険者番号</span><span className="text-sm font-bold text-slate-700">{patient?.insuranceNo||'（未設定）'}</span>
               <span className="text-xs font-bold text-slate-500 ml-3">保険者番号(6桁)</span>
               <ImeSafeInput value={pInsurer} onChange={e=>setPInsurer(e.target.value.normalize('NFKC').replace(/\D/g,'').slice(0,6))} placeholder="この利用者の保険者番号" className="px-2 py-1 bg-white border border-slate-300 rounded text-sm outline-none w-40"/>
-              <button type="button" onClick={savePInsurer} disabled={pInsurer===(patient?.insurerNo||'')} className={`px-3 py-1 rounded text-xs font-bold ${pInsurer===(patient?.insurerNo||'')?'bg-slate-100 text-slate-400':'bg-blue-600 text-white hover:bg-blue-700'}`}>保存</button>
+              <button type="button" onClick={savePInsurer} disabled={pInsurer===(patient?.insurerNo||'')} className={`whitespace-nowrap px-3 py-1 rounded text-xs font-bold ${pInsurer===(patient?.insurerNo||'')?'bg-slate-100 text-slate-400':'bg-blue-600 text-white hover:bg-blue-700'}`}>保存</button>
             </div>
             <div className="text-[10px] text-slate-400 mt-1">※ 被保険者番号(10桁)はフェイスシートで登録。保険者番号はCSVの insurer_no に使います（利用者ごと・未設定ならLIFE設定の既定を使用）。</div>
           </div>
@@ -51309,8 +51317,8 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                   <div key={r.id} className="bg-slate-50 rounded-lg border border-slate-200 p-3 flex items-center justify-between gap-3">
                     <div><div className="font-bold text-slate-800 text-sm">{r.evalDate}　合計 {r.total}/100{r.evaluator?`　評価者: ${r.evaluator}`:''}</div>{r.note&&<div className="text-xs text-slate-500 mt-0.5 truncate" style={{maxWidth:420}}>{r.note}</div>}</div>
                     <div className="flex gap-2 shrink-0">
-                      <button onClick={()=>setEditing(r)} className="px-3 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-bold">編集</button>
-                      <button onClick={()=>delRec(r.id)} className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold">削除</button>
+                      <button onClick={()=>setEditing(r)} className="whitespace-nowrap px-3 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-bold">編集</button>
+                      <button onClick={()=>delRec(r.id)} className="whitespace-nowrap px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold">削除</button>
                     </div>
                   </div>
                 ))}
@@ -52546,7 +52554,7 @@ ${optionsDesc}
           ? <button type="button" onClick={cancelGenerate} className="shrink-0 h-10 px-2 rounded-xl text-[13px] font-bold border border-red-300 bg-red-50 text-red-600 whitespace-nowrap ml-auto"><BusySpin/>{sheetBatchProg.done}/{sheetBatchProg.total} 中止</button>
           : <button type="button" data-testid="mon-fold-ai" onClick={generateAllSheets} className="shrink-0 h-10 px-2 rounded-xl text-[13px] font-bold border border-violet-300 bg-violet-50 text-violet-700 whitespace-nowrap ml-auto">AI下書き</button>}
         <button type="button" data-testid="mon-fold-confirm" onClick={bulkConfirm} className="shrink-0 h-10 px-2 rounded-xl text-[13px] font-bold bg-emerald-500 text-white whitespace-nowrap">{checkedIds.size && !allChecked ? `${attendedPats.filter(p=>checkedIds.has(p.id)&&!getSheetRecord(p.id)?.confirmed).length}名確定` : '一括確定'}</button>
-        <button type="button" data-testid="mon-fold-save" onClick={()=>{ markClean(); onSave({...appData}, {manual:true, message:'✓ 保存しました'}); }} className="shrink-0 h-10 px-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold">保存</button>
+        <button type="button" data-testid="mon-fold-save" onClick={()=>{ markClean(); onSave({...appData}, {manual:true, message:'✓ 保存しました'}); }} className="whitespace-nowrap shrink-0 h-10 px-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold">保存</button>
       </>}>
       <div className="no-print tsu-mon-bar" style={{position:'sticky',top:0,zIndex:30,flexShrink:0,background:'linear-gradient(135deg,#bae6fd,#7dd3fc)',color:'#1e293b',padding:'7px 14px',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',boxShadow:'0 2px 8px rgba(0,0,0,0.15)'}}>
         {/* 絞り込みポップアップ */}
@@ -52609,7 +52617,7 @@ ${optionsDesc}
                 ); })}
               </div>
               <div style={{textAlign:'right',marginTop:8}}>
-                <button type="button" onClick={()=>setMonSortPop(false)} style={{padding:'6px 16px',borderRadius:8,fontSize:11,fontWeight:'bold',border:'none',background:'#0284c7',color:'white',cursor:'pointer'}}>閉じる</button>
+                <button type="button" onClick={()=>setMonSortPop(false)} style={{whiteSpace:'nowrap',padding:'6px 16px',borderRadius:8,fontSize:11,fontWeight:'bold',border:'none',background:'#0284c7',color:'white',cursor:'pointer'}}>閉じる</button>
               </div>
             </div>
           )}
@@ -52930,8 +52938,8 @@ ${optionsDesc}
           <div style={{background:'white',borderRadius:16,padding:'20px 22px',width:420,maxWidth:'100%',boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
             <div style={{fontSize:13,color:'#1e293b',whiteSpace:'pre-wrap',lineHeight:1.7,marginBottom:16}}>{monDialog.msg}</div>
             <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
-              {monDialog.confirm && <button onClick={monDialog.ng} style={{padding:'8px 18px',borderRadius:10,border:'1px solid #cbd5e1',background:'#f1f5f9',color:'#334155',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>キャンセル</button>}
-              <button autoFocus onClick={monDialog.ok} style={{padding:'8px 18px',borderRadius:10,border:'none',background:'#2563eb',color:'white',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>OK</button>
+              {monDialog.confirm && <button onClick={monDialog.ng} style={{whiteSpace:'nowrap',padding:'8px 18px',borderRadius:10,border:'1px solid #cbd5e1',background:'#f1f5f9',color:'#334155',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>キャンセル</button>}
+              <button autoFocus onClick={monDialog.ok} style={{whiteSpace:'nowrap',padding:'8px 18px',borderRadius:10,border:'none',background:'#2563eb',color:'white',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>OK</button>
             </div>
           </div>
         </div>, document.body)}
@@ -53206,7 +53214,7 @@ function FaxHistoryRecordModal({ defaultRecord, onSave, onClose }) {
           </div>
         </div>
         <div style={{display:'flex',gap:10,marginTop:18}}>
-          <button onClick={onClose} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-sm">キャンセル</button>
+          <button onClick={onClose} className="whitespace-nowrap flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-sm">キャンセル</button>
           <button onClick={()=>{ onSave(rec); onClose(); }} className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-bold text-sm">記録する</button>
         </div>
       </div>
@@ -54553,8 +54561,8 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                         <div style={{fontSize:12,color:'#475569',whiteSpace:'pre-wrap',marginBottom:10,maxHeight:180,overflow:'auto',borderTop:'1px solid #f1f5f9',paddingTop:8}}>{t.body}</div>
                         <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
                           <button onClick={()=>_insertTemplate(t)} style={{background:'#0f766e',border:'none',color:'white',borderRadius:6,padding:'5px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer'}}>連絡事項に挿入</button>
-                          <button onClick={()=>setTplEdit({...t})} style={{background:'#e2e8f0',border:'none',color:'#334155',borderRadius:6,padding:'5px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer'}}>編集</button>
-                          <button onClick={()=>{ if(window.confirm('この定型文を削除しますか？')) _deleteTemplate(t.id); }} style={{background:'#fee2e2',border:'none',color:'#b91c1c',borderRadius:6,padding:'5px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer'}}>削除</button>
+                          <button onClick={()=>setTplEdit({...t})} style={{whiteSpace:'nowrap',background:'#e2e8f0',border:'none',color:'#334155',borderRadius:6,padding:'5px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer'}}>編集</button>
+                          <button onClick={()=>{ if(window.confirm('この定型文を削除しますか？')) _deleteTemplate(t.id); }} style={{whiteSpace:'nowrap',background:'#fee2e2',border:'none',color:'#b91c1c',borderRadius:6,padding:'5px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer'}}>削除</button>
                         </div>
                       </div>
                     )}
@@ -54586,8 +54594,8 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                 </div>
                 {/* ★ ボタン配置をアプリ標準に統一(2026-09-07 店舗要望): 左=キャンセル・右=保存 */}
                 <div style={{display:'flex',gap:8}}>
-                  <button onClick={()=>setTplEdit(null)} style={{flex:1,background:'#e2e8f0',border:'none',color:'#334155',borderRadius:8,padding:'10px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>キャンセル</button>
-                  <button onClick={_upsertTemplate} style={{flex:1,background:'#2563eb',border:'none',color:'white',borderRadius:8,padding:'10px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>保存</button>
+                  <button onClick={()=>setTplEdit(null)} style={{whiteSpace:'nowrap',flex:1,background:'#e2e8f0',border:'none',color:'#334155',borderRadius:8,padding:'10px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>キャンセル</button>
+                  <button onClick={_upsertTemplate} style={{whiteSpace:'nowrap',flex:1,background:'#2563eb',border:'none',color:'white',borderRadius:8,padding:'10px',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>保存</button>
                 </div>
               </div>
             )}
@@ -54912,7 +54920,7 @@ function OfficeAssessmentCard({ patientId, assessment, onSaveAssessment }) {
         <div className="text-sm font-bold text-sky-900">アセスメントシート</div>
         <div className="flex items-center gap-2">
           {text !== savedText && <span className="text-[11px] text-orange-600 font-bold">未保存</span>}
-          <button onClick={() => onSaveAssessment({ text, files })} disabled={text === savedText} className={`px-3 py-1.5 rounded-lg text-xs font-bold text-white ${text === savedText ? 'bg-slate-300' : 'bg-sky-600 hover:bg-sky-700'}`}>保存</button>
+          <button onClick={() => onSaveAssessment({ text, files })} disabled={text === savedText} className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-bold text-white ${text === savedText ? 'bg-slate-300' : 'bg-sky-600 hover:bg-sky-700'}`}>保存</button>
           <label className={`px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold cursor-pointer flex items-center gap-1 ${busy ? 'opacity-60' : ''}`}>
             <CloudUpload size={12} />{busy ? <><BusySpin/>保存中…</> : '添付'}
             <input type="file" accept="image/*,application/pdf" multiple className="hidden" disabled={busy} onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
@@ -55705,7 +55713,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                         </div>
                         {dirty && (
                           <div className="flex items-center gap-2 flex-wrap pt-1">
-                            <button type="button" onClick={()=>{ saveMaster(docInsDraft); setDocInsDraft(null); }} className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold active:scale-95">保存</button>
+                            <button type="button" onClick={()=>{ saveMaster(docInsDraft); setDocInsDraft(null); }} className="whitespace-nowrap px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold active:scale-95">保存</button>
                             <button type="button" onClick={()=>setDocInsDraft(null)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold">取消</button>
                             <span className="text-[11px] text-amber-600 font-bold">未保存（「保存」で確定）</span>
                           </div>
@@ -55740,7 +55748,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                         </div>
                         {dirty && (
                           <div className="flex items-center gap-2 flex-wrap mt-2">
-                            <button type="button" onClick={()=>{ saveMaster(docBurDraft); setDocBurDraft(null); }} className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold active:scale-95">保存</button>
+                            <button type="button" onClick={()=>{ saveMaster(docBurDraft); setDocBurDraft(null); }} className="whitespace-nowrap px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold active:scale-95">保存</button>
                             <button type="button" onClick={()=>setDocBurDraft(null)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold">取消</button>
                             <span className="text-[11px] text-amber-600 font-bold">未保存（「保存」で確定）</span>
                           </div>
@@ -55999,7 +56007,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                       <div className="text-right text-xs text-slate-500">報告者：{_savedIR.reporter||'－'}</div>
                       <div className="flex justify-end gap-2 pt-1">
                         <button onClick={()=>printInitialReport(_savedIR)} className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl font-bold text-xs flex items-center gap-1 active:scale-95"><Printer size={14}/>印刷 / PDF保存</button>
-                        <button onClick={()=>setIrMode('form')} className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs active:scale-95">編集</button>
+                        <button onClick={()=>setIrMode('form')} className="whitespace-nowrap px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs active:scale-95">編集</button>
                       </div>
                     </div>
                   ) : (
@@ -56213,7 +56221,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                           title="小窓(フロートメモ)で開く。他の画面を見ながら入力できます"
                           className="px-2 py-1 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded text-[11px] font-bold">小窓</button>
                         <button onClick={()=>setPdfPreviewMeeting(m)} className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[11px] font-bold">ダウンロード</button>
-                        <button onClick={()=>{ setEditingMeeting(m); setShowMeetingForm(true); }} className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-[11px] font-bold">編集</button>
+                        <button onClick={()=>{ setEditingMeeting(m); setShowMeetingForm(true); }} className="whitespace-nowrap px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-[11px] font-bold">編集</button>
                         <button onClick={()=>{ if(window.confirm('この会議記録を削除しますか?')) updatePatient({ meetings: meetings.filter(x => x.id !== m.id) }); }}
                           className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[11px] font-bold">削除</button>
                       </div>
@@ -56282,7 +56290,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                           <div className="flex flex-col gap-1 shrink-0">
                             <StoredFileLink file={f} className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[10px] font-bold text-center">開く</StoredFileLink>
                             {f.type === 'image' && <button type="button" data-testid="pf-rotate" disabled={!!rotatingId} onClick={()=>rotateFile(f)} className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[10px] font-bold disabled:opacity-50">{rotatingId === f.id ? '保存中…' : '回転'}</button>}
-                            <button onClick={()=>handleDeleteFile(f.id)} className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[10px] font-bold">削除</button>
+                            <button onClick={()=>handleDeleteFile(f.id)} className="whitespace-nowrap px-2 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[10px] font-bold">削除</button>
                           </div>
                         </div>
                       ))}
@@ -56338,7 +56346,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                             <div className="flex gap-1.5"><input type="date" defaultValue={e.date} onBlur={ev=>ev.target.value!==e.date&&spEditRow(e,{date:ev.target.value})} className="flex-1 min-w-0 px-2 py-1.5 border border-slate-300 rounded"/><input defaultValue={e.staff} placeholder="担当者" onBlur={ev=>ev.target.value!==(e.staff||'')&&spEditRow(e,{staff:ev.target.value})} className="w-28 px-2 py-1.5 border border-slate-300 rounded"/></div>
                             <input defaultValue={e.from} placeholder="連絡元" onBlur={ev=>ev.target.value!==(e.from||'')&&spEditRow(e,{from:ev.target.value})} className="w-full px-2 py-1.5 border border-slate-300 rounded"/>
                             <textarea defaultValue={e.content} placeholder="内容・特記事項" rows={3} onBlur={ev=>ev.target.value!==(e.content||'')&&spEditRow(e,{content:ev.target.value})} className="w-full px-2 py-1.5 border border-slate-300 rounded"/>
-                            <div className="flex justify-between"><button type="button" onClick={()=>spDel(e)} className="px-2 py-1 text-red-600 text-xs font-bold">削除</button><button type="button" onClick={()=>setSpEditId(null)} className="px-3 py-1 bg-slate-100 rounded text-xs font-bold">閉じる</button></div>
+                            <div className="flex justify-between"><button type="button" onClick={()=>spDel(e)} className="whitespace-nowrap px-2 py-1 text-red-600 text-xs font-bold">削除</button><button type="button" onClick={()=>setSpEditId(null)} className="whitespace-nowrap px-3 py-1 bg-slate-100 rounded text-xs font-bold">閉じる</button></div>
                           </div>
                         )}
                       </div>); })}
@@ -56431,7 +56439,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                 <div className="text-xs text-slate-500 mt-0.5">紙のフェイスシートを撮影/スキャンして添付します</div>
               </button>
             </div>
-            <button onClick={()=>setFaceSheetChoice(false)} className="w-full mt-4 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 text-sm">キャンセル</button>
+            <button onClick={()=>setFaceSheetChoice(false)} className="whitespace-nowrap w-full mt-4 py-2.5 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 text-sm">キャンセル</button>
           </div>
         </div>
       )}
@@ -56536,6 +56544,12 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
   const savedOnceRef = React.useRef(false);
   const upd = (patch) => { setDraft(d => ({ ...(d||{}), ...patch })); setDirty(true); };
   const doSave = () => { flush(); savedOnceRef.current = true; setDirty(false); };
+  // ★ 2026-10-17: 「今すぐ更新」の合図で、未保存なら保存し、再読込後に開き直すための控えを sessionStorage に置く
+  React.useEffect(() => {
+    const h = () => { try { const dr = draftRef.current; if (dr && dirty) flush(); sessionStorage.setItem('tsumugi_resume_meeting_float', JSON.stringify({ patientId: float.patientId, meetingId: float.meetingId, t: Date.now() })); } catch {} };
+    window.addEventListener('tsumugi-before-update', h);
+    return () => window.removeEventListener('tsumugi-before-update', h);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
   const discardNew = () => {
     const { appData: ad, onSave: sv, float: fl } = dataRef.current;
     const pt = (ad.patients||[]).find(p=>p.id===fl.patientId); if (!pt) return;
@@ -56587,7 +56601,7 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
       </button>
     </div>
   ) : (
-    <div ref={boxRef} style={{ position:'fixed', zIndex:55, ..._posStyle, width:Math.round(340*scale), maxWidth:'calc(100vw - 16px)', maxHeight:'80vh', display:'flex', flexDirection:'column', background:'white', border:'1px solid #cbd5e1', borderRadius:14, boxShadow:'0 12px 40px rgba(0,0,0,0.28)', overflow:'hidden', fontSize:Math.round(12*scale) }}>
+    <div ref={boxRef} data-testid="meeting-float" style={{ position:'fixed', zIndex:55, ..._posStyle, width:Math.round(340*scale), maxWidth:'calc(100vw - 16px)', maxHeight:'80vh', display:'flex', flexDirection:'column', background:'white', border:'1px solid #cbd5e1', borderRadius:14, boxShadow:'0 12px 40px rgba(0,0,0,0.28)', overflow:'hidden', fontSize:Math.round(12*scale) }}>
       <div onPointerDown={onDragStart} style={{ background:'#1e3a8a', color:'white', padding:'8px 12px', display:'flex', alignItems:'center', gap:6, cursor:'move', touchAction:'none', userSelect:'none', flexShrink:0 }}>
         <span style={{ fontSize:12, fontWeight:'bold', flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>担当者会議メモ — {patient.name} 様</span>
         <button type="button" onClick={()=>setScale(s=>Math.max(0.7, Number((s-0.15).toFixed(2))))} title="縮小(右下のつまみでも調整できます)" style={{ background:'rgba(255,255,255,0.2)', border:'none', color:'white', borderRadius:8, minWidth:40, height:32, padding:'0 6px', fontSize:14, fontWeight:'bold', cursor:'pointer', lineHeight:1 }}>Ａ−</button>
@@ -56625,7 +56639,7 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
         <div style={{ display:'flex', gap:8, alignItems:'center' }}>
           <button type="button" onClick={doSave}
             style={{ flex:1, background:'#2563eb', color:'white', border:'none', borderRadius:10, padding:'8px 0', fontSize:Math.round(13*scale), fontWeight:'bold', cursor:'pointer' }}>保存</button>
-          <button type="button" onClick={handleCancel}
+          <button type="button" onClick={handleCancel} data-testid="meeting-float-close"
             style={{ flex:1, background:'#f1f5f9', color:'#475569', border:'1px solid #e2e8f0', borderRadius:10, padding:'8px 0', fontSize:Math.round(13*scale), fontWeight:'bold', cursor:'pointer' }}>キャンセル</button>
         </div>
         <div style={{ fontSize:10, color:'#64748b', display:'flex', justifyContent:'space-between', alignItems:'center', minHeight:14 }}>
@@ -56663,6 +56677,14 @@ function MeetingRecordForm({ patient, meeting, onSave, onClose, onFloat }) {
     }
     onClose();
   };
+  // ★ 2026-10-17: 「今すぐ更新」の合図で、変更があれば保存してから再読込される(開催日が無いときは保存できないので何もしない)
+  const _formRef = React.useRef(form); _formRef.current = form;
+  React.useEffect(() => {
+    const h = () => { try { const f = _formRef.current; if (!f.date) return; if (JSON.stringify(f) === _initialFormRef.current) return;
+      onSave({ ...f, dateLabel: toWarekiDateLabel(f.date), dayOfWeek: dayOfWeekJp(f.date), location: f.locationType === 'その他' ? (f.locationOther || 'その他') : f.locationType }); } catch {} };
+    window.addEventListener('tsumugi-before-update', h);
+    return () => window.removeEventListener('tsumugi-before-update', h);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const careLevel = patient.careLevel || '';
   const dateLabel = toWarekiDateLabel(form.date);
   const dayOfWeek = dayOfWeekJp(form.date);
@@ -56767,8 +56789,8 @@ function MeetingRecordForm({ patient, meeting, onSave, onClose, onFloat }) {
           </div>
         </div>
         <div className="flex gap-2 px-5 py-3 border-t border-slate-200 shrink-0">
-          <button onClick={_confirmClose} className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-bold">キャンセル</button>
-          <button onClick={handleSubmit} className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold">保存</button>
+          <button onClick={_confirmClose} className="whitespace-nowrap flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-bold">キャンセル</button>
+          <button onClick={handleSubmit} className="whitespace-nowrap flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold">保存</button>
         </div>
       </div>
     </div>
@@ -56836,7 +56858,7 @@ function MeetingPdfPreview({ patient, meeting, onClose }) {
               style={{padding:'8px 14px',background: downloading?'#94a3b8':'#2563eb',color:'white',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor: downloading?'wait':'pointer'}}>
               {downloading ? <><BusySpin/>生成中...</> : 'ダウンロード'}
             </button>
-            <button onClick={onClose} style={{padding:'8px 14px',background:'#e2e8f0',color:'#475569',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
+            <button onClick={onClose} style={{whiteSpace:'nowrap',padding:'8px 14px',background:'#e2e8f0',color:'#475569',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
           </div>
         </div>
         <div style={{padding:'20px',overflow:'auto'}}>
@@ -56918,7 +56940,7 @@ function MonthlyServicePdfPreview({ patient, snapshot, onClose }) {
               style={{padding:'8px 14px',background: downloading?'#94a3b8':'#2563eb',color:'white',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor: downloading?'wait':'pointer'}}>
               {downloading ? <><BusySpin/>生成中...</> : 'ダウンロード'}
             </button>
-            <button onClick={onClose} style={{padding:'8px 14px',background:'#e2e8f0',color:'#475569',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
+            <button onClick={onClose} style={{whiteSpace:'nowrap',padding:'8px 14px',background:'#e2e8f0',color:'#475569',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
           </div>
         </div>
         <div style={{padding:'20px',overflow:'auto'}}>
@@ -57538,8 +57560,8 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
           </div>
         </div>
         <div className="flex gap-2 px-5 py-3 border-t border-slate-200 shrink-0">
-          <button onClick={onClose} className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-bold">キャンセル</button>
-          <button onClick={handleSubmit} className="flex-1 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-bold">保存</button>
+          <button onClick={onClose} className="whitespace-nowrap flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-bold">キャンセル</button>
+          <button onClick={handleSubmit} className="whitespace-nowrap flex-1 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-bold">保存</button>
         </div>
       </div>
     </div>
@@ -57626,7 +57648,7 @@ function FaceSheetPdfPreview({ patient, appData, faceSheet, onClose }) {
               style={{padding:'8px 14px',background:'#0f766e',color:'white',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>
               ダウンロード
             </button>
-            <button onClick={onClose} style={{padding:'8px 14px',background:'#e2e8f0',color:'#475569',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
+            <button onClick={onClose} style={{whiteSpace:'nowrap',padding:'8px 14px',background:'#e2e8f0',color:'#475569',border:'none',borderRadius:8,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
           </div>
         </div>
         <div style={{padding:'20px',overflow:'auto'}}>
