@@ -36466,13 +36466,12 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const runPrevWeekCopy = (mode) => {
             setCopyAsk(false);
 
-            let n = 0, nSkip = 0, nKeep = 0;
+            let n = 0, nSkip = 0, nKeep = 0, nFill = 0;
             const np = { ...plans };
             days.forEach(d => { ['AM','PM'].forEach(sl => {
               const prevD = new Date(d); prevD.setDate(prevD.getDate() - 7);
               const src = plans[`${_iso(prevD)}_${sl}`];
               if (!src) return;
-              if (mode === 'fill' && plans[`${_iso(d)}_${sl}`]) { nKeep++; return; } // ★ 2026-10-16: この週ですでに作った・直したコマはそのまま
               const cp = JSON.parse(JSON.stringify(src));
               // 赤丸(時間変更マーク)はコピーしない
               Object.keys(cp.cars||{}).forEach(cid => (cp.cars[cid]||[]).forEach(m => { m.mark = false; }));
@@ -36486,10 +36485,26 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               if (cp.arrive) { cp.arriveAuto = {}; Object.keys(cp.arrive).forEach(cid => { if (cp.arrive[cid] && (cp.cars?.[cid]||[]).length) cp.arriveAuto[cid] = true; else delete cp.arrive[cid]; }); }
               if (cp.drop && cp.drop.depart) { cp.drop.departAuto = {}; Object.keys(cp.drop.depart).forEach(cid => { if (cp.drop.depart[cid] && (cp.drop.cars?.[cid]||[]).length) cp.drop.departAuto[cid] = true; else delete cp.drop.depart[cid]; }); }
               delete cp._final; delete cp._finalAt; delete cp._finalId; delete cp._base; delete cp._baseAt; delete cp._baseId; delete cp._chgAt; delete cp._telDone; // ★ 完成の控えは週ごと(コピー先は未確定から)
+              // ★ 2026-10-16(ユーザー要望「この週で変えたところは作成中でも変えないで」): 「まだ作っていない日だけ」で、この週にすでにあるコマは
+              //   丸ごと飛ばすのではなく、この週で誰も乗っていない車だけ前の週から補う(この週ですでに乗せた方・時間・運転者・徒歩・その他はそのまま。
+              //   この週ですでにどこかに入っている方は補わない)。全部のコマで補う車が無ければ「そのまま」と数える
+              const cur = plans[`${_iso(d)}_${sl}`];
+              if (mode === 'fill' && cur) {
+                const merged = JSON.parse(JSON.stringify(cur)); delete merged._draft; merged.cars = merged.cars || {};
+                const placed = new Set([...Object.values(merged.cars).flat(), ...(merged.walkers||[]), ...(merged.others||[])].map(m => String(m && m.pid)));
+                let filled = 0; const newly = new Set();
+                Object.keys(cp.cars||{}).forEach(cid => { if ((merged.cars[cid]||[]).length) return; const add = (cp.cars[cid]||[]).filter(m => m && !placed.has(String(m.pid))); if (!add.length) return;
+                  merged.cars[cid] = add; add.forEach(m => newly.add(String(m.pid))); filled++;
+                  if (!(merged.driver||{})[cid] && (cp.driver||{})[cid]) merged.driver = { ...(merged.driver||{}), [cid]: cp.driver[cid] };
+                  if ((cp.arrive||{})[cid]) { merged.arrive = { ...(merged.arrive||{}), [cid]: cp.arrive[cid] }; merged.arriveAuto = { ...(merged.arriveAuto||{}), [cid]: true }; } });
+                if (!filled) { nKeep++; return; }
+                merged.un = (merged.un||[]).filter(m => !newly.has(String(m && m.pid)));
+                np[`${_iso(d)}_${sl}`] = { ...merged, _savedAt: syncNow() }; nFill++; return;
+              }
               np[`${_iso(d)}_${sl}`] = { ...cp, _savedAt: syncNow() }; n++;
             }); });
-            if (n) _saveBulk('前週コピー', np);
-            alert(n ? `前週から${n}コマをコピーしました。${nKeep ? `\n（この週ですでに作ってあった ${nKeep}コマはそのままです）` : ''}${nSkip ? `\n（前の週の振替・この週のお休みなどで、この週に来ない方 のべ${nSkip}名はコピーしていません）` : ''}` : (nKeep ? `この週はすでに全部作ってあるため、コピーしませんでした（${nKeep}コマ）。` : '前の週に保存済みの送迎表がありませんでした。'));
+            if (n || nFill) _saveBulk('前週コピー', np);
+            alert((n || nFill) ? `前週から${n}コマをコピーしました。${nFill ? `\n（この週ですでに作ってあった ${nFill}コマは、空いている車だけ前の週から補いました。この週で乗せた方・時間・運転者はそのままです）` : ''}${nKeep ? `\n（この週ですでに作ってあった ${nKeep}コマはそのままです）` : ''}${nSkip ? `\n（前の週の振替・この週のお休みなどで、この週に来ない方 のべ${nSkip}名はコピーしていません）` : ''}` : (nKeep ? `この週はすでに全部作ってあるため、コピーしませんでした（${nKeep}コマ）。` : '前の週に保存済みの送迎表がありませんでした。'));
   };
   const [arrKp, setArrKp] = useState(null); // ★ 2026-10-15: 迎えの到着時間のテンキー {iso, sl, cid}
   React.useEffect(() => { if (legTick) _applyLegs(); }, [legTick]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -36628,6 +36643,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const m = raw.match(/(\d{1,2})[:：時](\d{2})/);
     return m ? (+m[1]) * 60 + (+m[2]) - 1 : null;
   };
+  // ★ 2026-10-16(ユーザー要望「目安が開始時間ぴったり・それより遅いときは赤い点線で分かりやすく」): 到着(目安)が 1単位目/2単位目の開始時間以降なら true
+  const _arriveLate = (sl, av) => { const tgt = _targetArrive(sl); if (tgt == null || !av) return false; const m = String(_fmtT(av) || '').match(/^(\d{1,2}):(\d{2})$/); return !!m && ((+m[1]) * 60 + (+m[2])) >= tgt + 1; };
   const _noStartMsg = (slots) => { const miss = slots.filter(s2 => _targetArrive(s2) == null); return miss.length ? `各種設定→事業所情報の「${miss.map(s2 => s2 === 'PM' ? '2単位目（午後）' : '1単位目（午前）').join('」「')}」のサービス提供時間（例: 9:00～12:05）が未入力です。\n入れてから自動計算してください。\n（お迎え時間は、開始時間の1分前に施設へ着くように逆算します）` : ''; };
   const _fmtHM = (mins) => { const h = Math.floor(mins/60), m2 = mins%60; return `${h}:${String(m2).padStart(2,'0')}`; };
   const _carsAll = cars;
@@ -37574,7 +37591,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                     {ms.length ? (
                       <div className="px-3 py-1.5 flex items-center gap-2 border-b border-slate-100 bg-slate-50" data-testid={`tp-dl-arrive-${iso}-${sl}-${c.id}`}>
                         <span className="shrink-0 font-bold text-[14px] text-slate-600" style={{width:'7.5em'}}>施設に到着</span>
-                        <button type="button" data-testid={`tp-dl-arrive-btn-${iso}-${sl}-${c.id}`} data-auto={_au ? '1' : '0'} onClick={() => setArrKp({ iso, sl, cid: c.id })} className={`shrink-0 font-bold tabular-nums text-[19px] rounded-lg border-2 px-2 py-0.5 bg-white ${_au ? 'border-dashed border-amber-400 text-slate-400' : 'border-slate-300 text-slate-900'}`} style={{minWidth:'3.6em'}}>{_av || '—:—'}</button>
+                        <button type="button" data-testid={`tp-dl-arrive-btn-${iso}-${sl}-${c.id}`} data-auto={_au ? '1' : '0'} data-late={(_au && _arriveLate(sl, _av)) ? '1' : '0'} onClick={() => setArrKp({ iso, sl, cid: c.id })} className={`shrink-0 font-bold tabular-nums text-[19px] rounded-lg border-2 px-2 py-0.5 bg-white ${_au ? (_arriveLate(sl, _av) ? 'border-dashed border-red-500 text-red-600 bg-red-50' : 'border-dashed border-amber-400 text-slate-400') : 'border-slate-300 text-slate-900'}`} style={{minWidth:'3.6em'}}>{_av || '—:—'}</button>
                         {_au ? <span className="text-[11px] font-bold text-amber-800 bg-amber-100 rounded px-1.5">目安</span> : null}
                       </div>) : null}
                   </div>); })}
@@ -37604,9 +37621,21 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                         {/* ★ 2026-10-13(ユーザー方針): 確定後に外れた方(休みなど)は、確定時にいた車の位置に名前と時間を取り消し線で薄く残す(枠が空いたと分かる)。
                             休み欄にも従来どおり名前を出す。ダウンロードの運行表には載せない(10/8 決定)。作成中の編集画面は従来どおり消える */}
                         {(() => { const _fin = _baseOf(pl) || {}; const _rmSet = new Set(_removedSince(pl).map(String)); const _mins = (t) => { const m = String(_fmtT(t) || '').match(/(\d+):(\d+)/); return m ? (+m[1]) * 60 + (+m[2]) : 9999; };
+                        // ★ 2026-10-16(ユーザー「確定後の送迎表も車ごとで横の行を合わせて。凸凹して見づらい」): 同じ時間帯の同じ車は、どの日も同じ高さから始まるように、
+                        //   表示中の日のうちその車の行数(乗る方＋外れた方)が一番多い日に合わせて空の行で埋める。乗る方がいない日も見出しと空の行を出す(1日表示のときはそのまま)
+                        const _rowsOf = (iso2, cid) => { const pl2 = getPlan(iso2, sl); const fin2 = _baseOf(pl2) || {}; const ms2 = (pl2.cars||{})[cid] || []; const rm2 = new Set(_removedSince(pl2).map(String)); return ms2.length + ((fin2.cars||{})[cid] || []).filter(m => m && rm2.has(String(m.pid)) && !ms2.some(x => String(x.pid) === String(m.pid))).length; };
+                        const _align = _tpViewDays.length > 1; const _maxRows = {}; if (_align) cars.forEach(c => { _maxRows[c.id] = Math.max(0, ..._tpViewDays.map(d2 => _rowsOf(_iso(d2), c.id))); });
+                        const _padRow = (k) => <div key={`pad-${k}`} aria-hidden="true" className="text-[12px] leading-tight py-0.5" data-testid="tp-fb-pad">&nbsp;</div>;
+                        const _padArrive = <div className="flex items-center gap-1 text-[12px] leading-tight py-0.5 mt-0.5 border-t border-dotted border-slate-200" aria-hidden="true"><span className="font-bold text-slate-300 shrink-0 text-[11px]" style={{width:'7.2em'}}>施設に到着</span><span className="shrink-0 font-bold tabular-nums rounded px-1 -my-0.5 border border-transparent">&nbsp;</span></div>;
                         return cars.map(c => { const ms = (pl.cars||{})[c.id] || []; const rmHere = ((_fin.cars||{})[c.id] || []).filter(m => m && _rmSet.has(String(m.pid)) && !ms.some(x => String(x.pid) === String(m.pid)));
-                          if (!ms.length && !rmHere.length) return null; const drv = (pl.driver||{})[c.id] || '';
-                          const rows = [...ms.map(m => ({ ...m, _rm: false })), ...rmHere.map(m => ({ ...m, _rm: true }))].sort((a, b) => _mins(a.t) - _mins(b.t)); return (
+                          if (!ms.length && !rmHere.length) { if (!_align || !_maxRows[c.id]) return null; return (
+                            <div key={c.id} data-testid={`tp-fb-car-empty-${iso}-${sl}-${c.id}`}>
+                              <div className="text-[13px] font-bold text-slate-400 border-b border-dashed border-slate-300 flex items-baseline gap-3 flex-wrap">{c.name}</div>
+                              {Array.from({ length: _maxRows[c.id] }, (_, i) => _padRow(i))}
+                              {_padArrive}
+                            </div>); }
+                          const drv = (pl.driver||{})[c.id] || '';
+                          const rows = [...ms.map(m => ({ ...m, _rm: false })), ...rmHere.map(m => ({ ...m, _rm: true }))].sort((a, b) => _mins(a.t) - _mins(b.t)); const _pads = _align ? Math.max(0, (_maxRows[c.id] || 0) - rows.length) : 0; return (
                           <div key={c.id}>
                             <div className="text-[13px] font-bold text-slate-800 border-b border-dashed border-slate-300 flex items-baseline gap-3 flex-wrap">{c.name}{drv ? <span className="text-slate-700"><span className="text-[10px] font-normal text-slate-500 mr-1">運転</span>{drv}</span> : null}</div>
                             {/* ★ 2026-10-03 ユーザー指示: 運行表と同じく左に名前・右に時間。時間の桁数が違っても名前の開始位置が揃うよう、赤丸→名前(可変)→時間(固定幅・右寄せ) */}
@@ -37622,12 +37651,13 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                                 <span data-tel={dot ? '1' : '0'} className={`shrink-0 font-bold tabular-nums text-slate-800 border-2 rounded px-1 -my-0.5 ${dot ? 'border-red-600' : 'border-transparent'}`}>{_fmtT(m.t)||'—'}</span>
                                 {tg ? <span className="text-[9px] text-slate-500 truncate">{tg}</span> : null}
                               </div>); })}
+                            {Array.from({ length: _pads }, (_, i) => _padRow(i))}
                             {ms.length ? (() => { const av = (pl.arrive||{})[c.id] || ''; const au = !!av && !!(pl.arriveAuto||{})[c.id]; return (
                               <div className="flex items-center gap-1 text-[12px] leading-tight py-0.5 mt-0.5 border-t border-dotted border-slate-300" data-testid={`tp-fb-arrive-row-${iso}-${sl}-${c.id}`}>
                                 <span className="font-bold text-slate-500 shrink-0 text-[11px]" style={{width:'7.2em'}}>施設に到着</span>
-                                <button type="button" data-testid={`tp-fb-arrive-${iso}-${sl}-${c.id}`} data-auto={au ? '1' : '0'} onClick={() => setArrKp({ iso, sl, cid: c.id })} title="押すとテンキーで入力できます（日誌の「送迎表取込」で日誌の到着時間へ入ります）" className={`shrink-0 font-bold tabular-nums rounded px-1 -my-0.5 border bg-white hover:bg-blue-50 ${au ? 'border-dashed border-amber-400 text-slate-400' : 'border-slate-300 text-slate-800'}`}>{av || '—:—'}</button>
+                                <button type="button" data-testid={`tp-fb-arrive-${iso}-${sl}-${c.id}`} data-auto={au ? '1' : '0'} onClick={() => setArrKp({ iso, sl, cid: c.id })} title="押すとテンキーで入力できます（日誌の「送迎表取込」で日誌の到着時間へ入ります）" data-late={(au && _arriveLate(sl, av)) ? '1' : '0'} className={`shrink-0 font-bold tabular-nums rounded px-1 -my-0.5 border bg-white hover:bg-blue-50 ${au ? (_arriveLate(sl, av) ? 'border-2 border-dashed border-red-500 text-red-600 bg-red-50' : 'border-dashed border-amber-400 text-slate-400') : 'border-slate-300 text-slate-800'}`}>{av || '—:—'}</button>
                                 {au ? <span className="text-[9px] font-bold text-amber-800 bg-amber-100 rounded px-1">目安</span> : null}
-                              </div>); })() : null}
+                              </div>); })() : (_align ? _padArrive : null)}
                           </div>); }); })()}
                         {(pl.walkers||[]).length ? <div><div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">徒歩</div>{(pl.walkers||[]).map(m => <div key={m.pid} data-tpfb={`${iso}_${sl}_${m.pid}`} className={`flex items-center gap-1 text-[12px] py-0.5 ${_isFurikae(iso, sl, m.pid) ? 'bg-emerald-100 rounded' : (_isFirstVisit(m.pid, iso) ? 'bg-sky-100 rounded' : '')}`}><span className="truncate font-bold text-slate-800 shrink-0" style={{width:'7.2em'}}>{_pname(m.pid)}</span><span className={`shrink-0 font-bold text-slate-800 tabular-nums border-2 rounded px-1 -my-0.5 ${(m.mark||_dotOf(pl, iso, m.pid)) ? 'border-red-600' : 'border-transparent'}`}>{/\d/.test(String(m.t||''))?_fmtT(m.t):_classStart(sl)}</span></div>)}</div> : null}
                         {(pl.others||[]).length ? <div><div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">その他</div>{(pl.others||[]).map(m => <div key={m.pid} data-tpfb={`${iso}_${sl}_${m.pid}`} className={`flex items-center gap-1 text-[12px] py-0.5 ${_isFurikae(iso, sl, m.pid) ? 'bg-emerald-100 rounded' : (_isFirstVisit(m.pid, iso) ? 'bg-sky-100 rounded' : '')}`}><span className={`truncate font-bold text-slate-800 border-2 rounded px-1 -my-0.5 ${(m.mark||_dotOf(pl, iso, m.pid)) ? 'border-red-600' : 'border-transparent'}`}>{_pname(m.pid)}</span>{m.why ? <span className="text-[10px] text-slate-500 shrink-0">（{m.why}）</span> : null}</div>)}</div> : null}
@@ -37671,6 +37701,12 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 {['AM','PM'].map(sl => {
                   const pl = getPlan(iso, sl);
                   const _dropRing = dragMv && !(dragMv.iso===iso && dragMv.slot===sl);
+                  // ★ 2026-10-16(ユーザー「確定後の送迎表も車ごとで横の行を合わせて。作成中も」): 同じ時間帯の同じ車は、表示中の日のうち乗る方が一番多い日に合わせて
+                  //   空の行(28px)で埋め、どの日も次の車が同じ高さから始まるようにする。乗る方がいない日も「なし」の行＋空の行＋到着の行ぶんの余白(1日表示のときはそのまま)
+                  const _alignE = _tpViewDays.length > 1;
+                  const _maxE = (cid) => _alignE ? Math.max(0, ..._tpViewDays.map(d2 => ((getPlan(_iso(d2), sl).cars||{})[cid]||[]).length)) : 0;
+                  const _padE = (k) => <div key={`pad-${k}`} aria-hidden="true" data-testid="tp-pad" className="flex items-center gap-1 px-1 min-h-[28px] border-t border-slate-100"><span className="w-6 shrink-0"/><span className="flex-1"/><input readOnly tabIndex={-1} aria-hidden="true" className="w-[58px] text-center text-[16px] font-bold rounded px-0.5 py-1 shrink-0 border border-transparent bg-transparent pointer-events-none" /></div>; // 中身は本物の行と同じ高さ(時間の欄と同じ大きさの透明な箱)
+                  const _padArrE = <div aria-hidden="true" data-testid="tp-pad-arrive" className="flex items-center gap-1 px-1 min-h-[30px] border-t border-dashed border-slate-200 bg-slate-50/60"><span className="w-6 shrink-0"/><span className="flex-1 min-w-0 text-[12px] font-bold text-slate-300">施設に到着</span><input readOnly tabIndex={-1} aria-hidden="true" className="w-[58px] text-center text-[16px] font-bold rounded px-0.5 py-1 shrink-0 border border-transparent bg-transparent pointer-events-none" /></div>;
                   return (
                     <div key={sl} className={`bg-white border rounded-xl overflow-hidden ${sl==='AM' ? 'border-amber-300' : 'border-indigo-300'}`}>
                       {/* ★ 2026-09-30: 各コマの見出し(午前/午後・計算ボタン)は廃止。状態(下書き・確定後の変更)だけ小さく表示 */}
@@ -37711,14 +37747,19 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                                 <TpTimeInput value={_fmtT(m.t)} normalize={_normTimeInput} onCommit={v => setTime(iso, sl, m.pid, v)} data-testid={`tp-time-${m.pid}`} data-tel={(m.mark || _dotOf(pl, iso, m.pid)) ? '1' : '0'} placeholder="—:—" className={`w-[58px] text-center text-[16px] font-bold rounded px-0.5 py-1 outline-none shrink-0 ${(m.mark || _dotOf(pl, iso, m.pid)) ? 'border-2 border-red-600 text-slate-800' : 'border border-slate-300'}`} style={{fontVariantNumeric:'tabular-nums'}}/>
                               </div>
                             ))}
+                            {Array.from({ length: Math.max(0, _maxE(c.id) - (pl.cars?.[c.id]||[]).length) }, (_, i) => (i === 0 && !(pl.cars?.[c.id]||[]).length)
+                              ? <div key="pad-0" data-testid="tp-pad" className="flex items-center gap-1 px-1 min-h-[28px] border-t border-slate-100"><span className="w-6 shrink-0"/><span className="flex-1 text-[10px] text-slate-400">{dragMv&&dragMv.kind!=='drop'?'ここにドロップ':'なし'}</span><input readOnly tabIndex={-1} aria-hidden="true" className="w-[58px] text-center text-[16px] font-bold rounded px-0.5 py-1 shrink-0 border border-transparent bg-transparent pointer-events-none" /></div>
+                              : _padE(i))}
                             {/* ★ 2026-10-15(ユーザー要望): その車の最後の方の下に、施設に到着した時間(押すとテンキー)。自動計算・前週コピーで入った時間は「目安」 */}
                             {!!(pl.cars?.[c.id]||[]).length && (() => { const av = (pl.arrive||{})[c.id] || ''; const au = !!av && !!(pl.arriveAuto||{})[c.id]; return (
                               <div className="flex items-center gap-1 px-1 min-h-[30px] border-t border-dashed border-slate-300 bg-slate-50" data-testid={`tp-arrive-row-${iso}-${sl}-${c.id}`} title="施設に着いた時間（日誌の「送迎表取込」で日誌の到着時間へ入ります）">
                                 <span className="w-6 shrink-0"/>
                                 <span className="flex-1 min-w-0 text-[12px] font-bold text-slate-500 flex items-center gap-1">施設に到着{au ? <span className="text-[10px] font-bold text-amber-800 bg-amber-100 rounded px-1">目安</span> : null}</span>
-                                <button type="button" data-testid={`tp-arrive-${iso}-${sl}-${c.id}`} data-auto={au ? '1' : '0'} onClick={() => { if (!dragMv) setArrKp({ iso, sl, cid: c.id }); }} className={`w-[58px] text-center text-[16px] font-bold rounded px-0.5 py-1 shrink-0 border bg-white hover:bg-blue-50 ${au ? 'border-dashed border-amber-400 text-slate-400' : 'border-slate-300 text-slate-800'}`} style={{fontVariantNumeric:'tabular-nums'}}>{av || '—:—'}</button>
+                                <button type="button" data-testid={`tp-arrive-${iso}-${sl}-${c.id}`} data-auto={au ? '1' : '0'} onClick={() => { if (!dragMv) setArrKp({ iso, sl, cid: c.id }); }} data-late={(au && _arriveLate(sl, av)) ? '1' : '0'} title={(au && _arriveLate(sl, av)) ? `到着の目安が${sl === 'PM' ? '2単位目' : '1単位目'}の開始時間に間に合いません（お迎え時間を早めるか、到着を押して実際の時間を入れてください）` : undefined} className={`w-[58px] text-center text-[16px] font-bold rounded px-0.5 py-1 shrink-0 border bg-white hover:bg-blue-50 ${au ? (_arriveLate(sl, av) ? 'border-2 border-dashed border-red-500 text-red-600 bg-red-50' : 'border-dashed border-amber-400 text-slate-400') : 'border-slate-300 text-slate-800'}`} style={{fontVariantNumeric:'tabular-nums'}}>{av || '—:—'}</button>
                               </div>); })()}
-                            {!(pl.cars?.[c.id]||[]).length && <div className="px-2 py-1 text-[10px] text-slate-400">{dragMv&&dragMv.kind!=='drop'?'ここにドロップ':'なし'}</div>}
+                            {!(pl.cars?.[c.id]||[]).length && (_maxE(c.id) > 0
+                              ? <>{_padArrE}</>
+                              : <div className="px-2 py-1 text-[10px] text-slate-400">{dragMv&&dragMv.kind!=='drop'?'ここにドロップ':'なし'}</div>)}
                           </div>
                         ))}
                         {_baseOf(pl) && (_removedSince(pl).length > 0) && (
@@ -38099,9 +38140,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
             <div className="text-lg font-bold text-slate-800 mb-1">前週コピー</div>
             <div className="text-[13px] text-slate-600 mb-3">前の週の送迎表（車の割り当て・時間・運転者・備考）を、この週へ写します。前の週に振替で来た方や、この週にお休みの方は写しません。前の週の到着・送りの出発の時間は「目安」として入ります。</div>
-            <button type="button" data-testid="tp-copy-fill" disabled={!fill} onClick={() => runPrevWeekCopy('fill')} className="w-full text-left rounded-xl border-2 border-blue-600 bg-blue-50 hover:bg-blue-100 px-4 py-3 mb-2 disabled:opacity-40">
+            <button type="button" data-testid="tp-copy-fill" disabled={!fill && !made} onClick={() => runPrevWeekCopy('fill')} className="w-full text-left rounded-xl border-2 border-blue-600 bg-blue-50 hover:bg-blue-100 px-4 py-3 mb-2 disabled:opacity-40">
               <div className="font-bold text-blue-800">まだ作っていない日だけコピー（{fill}コマ）</div>
-              <div className="text-[12px] text-slate-600 mt-0.5">この週ですでに作ったり直したりした午前・午後（{made}コマ）はそのままにします。</div>
+              <div className="text-[12px] text-slate-600 mt-0.5">この週ですでに作ったり直したりした午前・午後（{made}コマ）は、この週で乗せた方・時間・運転者はそのままで、誰も乗っていない車だけ前の週から補います。</div>
             </button>
             <button type="button" data-testid="tp-copy-all" onClick={() => runPrevWeekCopy('all')} className="w-full text-left rounded-xl border-2 border-slate-300 bg-white hover:bg-slate-50 px-4 py-3 mb-3">
               <div className="font-bold text-slate-800">全部コピーし直す（{fill + made}コマ）</div>
