@@ -35,6 +35,17 @@ function mintSbToken(staff) {
   const sig = crypto.createHmac('sha256', JWT_SECRET).update(header + '.' + payload).digest('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   return `${header}.${payload}.${sig}`;
 }
+// 発行した証を Supabase が受け付けるか確かめる(秘密の貼り間違いで全端末が読めなくなるのを防ぐ)。受け付けないときは証を渡さない(従来どおり公開キーで動く)
+let _mintCheck = { at: 0, ok: null };
+async function mintSbTokenChecked(staff) {
+  const tok = mintSbToken(staff); if (!tok) return { tok: null, ok: false, reason: 'no_secret' };
+  if (_mintCheck.ok === true && Date.now() - _mintCheck.at < 10 * 60 * 1000) return { tok, ok: true };
+  try {
+    const r = await fetch(`${SUPA_URL}/rest/v1/stores?select=id&limit=1`, { headers: { apikey: SERVICE_KEY, Authorization: 'Bearer ' + tok } });
+    if (r.status === 401) { _mintCheck = { at: Date.now(), ok: false }; return { tok: null, ok: false, reason: 'bad_secret' }; }
+    _mintCheck = { at: Date.now(), ok: true }; return { tok, ok: true };
+  } catch { return { tok: null, ok: false, reason: 'check_failed' }; }
+}
 const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const SAFE_COLS = 'id,store_id,username,role,last_name,first_name,display_name,email,phone,is_active,last_login,created_at,deleted_at';
 
@@ -91,7 +102,8 @@ export default async function handler(req, res) {
       const staff = Array.isArray(rows) ? rows[0] : null;
       if (!staff) return res.status(401).json({ error: 'IDまたはパスワードが違います' });
       try { await sb(`staff?id=eq.${encodeURIComponent(staff.id)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ last_login: new Date().toISOString() }) }); } catch {}
-      return res.status(200).json({ staff: strip(staff), token: makeToken(staff), sb_token: mintSbToken(staff), sb_exp: JWT_SECRET ? Date.now() + SB_TOKEN_TTL_SEC * 1000 : null });
+      const mc = await mintSbTokenChecked(staff);
+      return res.status(200).json({ staff: strip(staff), token: makeToken(staff), sb_token: mc.tok, sb_exp: mc.tok ? Date.now() + SB_TOKEN_TTL_SEC * 1000 : null, sb_reason: mc.ok ? undefined : mc.reason });
     }
 
     // 以降は token 必須
@@ -101,8 +113,8 @@ export default async function handler(req, res) {
 
     // ★ 2026-10-17 データ保護(段階1): ログインの証(token)から Supabase の証を発行し直す(起動時・24時間ごと)。秘密が未設定なら null
     if (action === 'sb_token') {
-      const tok = mintSbToken({ id: t.sid, role: t.role, store_id: t.store_id });
-      return res.status(200).json({ sb_token: tok, sb_exp: tok ? Date.now() + SB_TOKEN_TTL_SEC * 1000 : null, configured: !!JWT_SECRET });
+      const mc = await mintSbTokenChecked({ id: t.sid, role: t.role, store_id: t.store_id });
+      return res.status(200).json({ sb_token: mc.tok, sb_exp: mc.tok ? Date.now() + SB_TOKEN_TTL_SEC * 1000 : null, configured: !!JWT_SECRET, reason: mc.ok ? undefined : mc.reason });
     }
 
     if (action === 'list') {
