@@ -19022,6 +19022,27 @@ function GlobalAiPanel({ staffSession }) {
     </div>
   );
 }
+// ★ 2026-10-17(ユーザー要望): 店舗で初めて使う端末に一度だけ出す「この端末の名前」の確認。候補(店舗名1 など)が入っているので、そのまま「この名前で使う」か、書き換えて保存
+function TsuDeviceNamePrompt({ suggested, onDone }) {
+  const [v, setV] = React.useState(suggested || '');
+  const ref = React.useRef(null);
+  React.useEffect(() => { const t = setTimeout(() => { try { ref.current && ref.current.select(); } catch {} }, 150); return () => clearTimeout(t); }, []);
+  const submit = (e) => { if (e) e.preventDefault(); onDone(v); };
+  return (
+    <div role="dialog" aria-modal="true" data-testid="device-name-prompt" style={{position:'fixed',inset:0,zIndex:2000010,background:'rgba(15,23,42,0.45)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <form onSubmit={submit} style={{width:'100%',maxWidth:420,background:'white',borderRadius:16,padding:'22px 22px 18px',boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
+        <div style={{fontSize:17,fontWeight:'bold',color:'#1e293b',marginBottom:6}}>この端末の名前</div>
+        <div style={{fontSize:14,color:'#475569',lineHeight:1.6,marginBottom:12}}>この端末で初めてログインしました。記録に「どの端末で保存したか」が残るので、分かりやすい名前を付けてください（あとから 設定 → システム → 端末名 で変更できます）。</div>
+        <input ref={ref} value={v} onChange={e=>setV(e.target.value)} maxLength={20} placeholder={suggested} style={{width:'100%',boxSizing:'border-box',padding:'12px 14px',border:'2px solid #94c456',borderRadius:12,fontSize:18,fontWeight:'bold',outline:'none'}}/>
+        <div style={{fontSize:12,color:'#64748b',marginTop:6}}>例: 事務所PC・送迎iPad・フロア1　（空のままなら「{suggested}」になります）</div>
+        <div style={{display:'flex',gap:10,marginTop:16,justifyContent:'flex-end',flexWrap:'wrap'}}>
+          <button type="button" onClick={()=>onDone(suggested)} style={{padding:'12px 16px',minHeight:44,background:'white',color:'#3d5021',border:'1px solid #94c456',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>「{suggested}」のまま使う</button>
+          <button type="submit" style={{padding:'12px 18px',minHeight:44,background:'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>この名前で保存</button>
+        </div>
+      </form>
+    </div>
+  );
+}
 // ★ 2026-10-17 データ保護(段階2・設計書): 管理局「端末の更新状況」。各端末が60秒ごとに送る同期診断(端末名|版・証の有無)から、
 //   店舗ごとに「どの端末が・どの版で・いつ最後に動いていて・証を持っているか」を一覧にする。制限(段階3)をかける前に、
 //   全店の端末が証を持っているか本部がここで確かめる。
@@ -19952,12 +19973,14 @@ export default function App() {
   const _effDevRef = React.useRef(effDeviceName); _effDevRef.current = effDeviceName;
   // ★ 2026-10-17(ユーザー要望「端末ごとに○○店1・2…を自動で」): 店舗で初めて使う端末(端末名が空)に「<店舗の短縮名>番号」を付ける。
   //   同じ端末は再ログインしても同じ名前(端末IDで控える)。あとから設定 → システム → 端末名 で変更できる。管理局は付けない
+  // ★ 2026-10-17(ユーザー「初めてログインした端末では最初だけ名前を付けてもらう」): 初回だけの確認画面。候補のまま使うか、その場で変えて保存
+  const [deviceNamePrompt, setDeviceNamePrompt] = useState(null);
   const _claimedRef = React.useRef(null);
   useEffect(() => {
     if (!isSupabaseEnabled || !staffSession?.storeId || staffSession.role === 'super_admin' || deviceName) return;
     if (_claimedRef.current === staffSession.storeId) return; _claimedRef.current = staffSession.storeId;
     let stop = false;
-    (async () => { try { const nm = await supabaseClaimDeviceName(staffSession.storeId, staffSession.storeShortName || staffSession.storeName || '端末'); if (!stop && nm) { updateDeviceName(nm); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `この端末の名前を「${nm}」にしました（設定 → システム → 端末名 で変更できます）` } })); } catch {} } } catch {} })();
+    (async () => { try { const nm = await supabaseClaimDeviceName(staffSession.storeId, staffSession.storeShortName || staffSession.storeName || '端末'); if (!stop && nm) { updateDeviceName(nm); setDeviceNamePrompt({ suggested: nm }); } } catch {} })(); // ★ 候補を付けたうえで初回だけ確認画面(そのまま／変更)
     return () => { stop = true; };
   }, [staffSession?.storeId, deviceName]); // eslint-disable-line react-hooks/exhaustive-deps
   // ★ 現在の記録者 (店舗ログイン後に選ぶ)
@@ -22977,6 +23000,9 @@ export default function App() {
   // ★ VITE_E2E_DEMO=1 (CIの自動テストビルド専用・本番Vercelには未設定) のときだけこの壁を外し、
   //   旧来のローカルモード(端末内データのみ・ログイン不要)で起動して画面操作テストを可能にする(2026-09-02)
   // ★ 自動テスト(VITE_E2E_DEMO=1 のビルドのみ・本番では空): 管理局「端末の更新状況」パネルを単体で表示する入口(2026-10-17)
+  if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.location.hash === '#devname') {
+    return <div style={{minHeight:'100vh',background:'#f0f7e0'}}><TsuDeviceNamePrompt suggested="テスト店1" onDone={(v) => { window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), devName: String(v || '').trim() || 'テスト店1' }; }} /></div>;
+  }
   if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.location.hash === '#hqdevices') {
     return <div style={{padding:24,background:'#f0f7e0',minHeight:'100vh'}}><HqDevicePanel stores={(window.__tsumugiE2E && window.__tsumugiE2E.stores) || []}/></div>;
   }
@@ -23148,6 +23174,7 @@ export default function App() {
       })()}
       {/* グローバルプリントプレビュー */}
       {meetingFloat && <MeetingFloatWidget appData={appData} onSave={handleSaveToCloud} float={meetingFloat} onClose={()=>setMeetingFloat(null)} />}
+      {deviceNamePrompt && <TsuDeviceNamePrompt suggested={deviceNamePrompt.suggested} onDone={(v) => { const nm = String(v || '').trim() || deviceNamePrompt.suggested; updateDeviceName(nm); setDeviceNamePrompt(null); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `この端末の名前は「${nm}」です（設定 → システム → 端末名 で変更できます）` } })); } catch {} }} />}
       {/* ★ 2026-10-04: 直接ダウンロードの進行表示。iPad は「開く」(ユーザー操作)で新しいタブに表示 */}
       {pdfJob && (
         <div data-testid="pdf-job" style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',zIndex:9950,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={()=>{ if (pdfJob.status !== 'busy') setPdfJob(null); }}>
