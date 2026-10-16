@@ -2145,11 +2145,15 @@ const tsuFitFs = (el, text, baseFs, maxH, lineHeight, minFs = 11) => { let fs = 
 const TSU_MEMO_MIN_FS = 13;
 const TSU_MEMO_FULL_MSG = '枠がいっぱいです（これ以上は入りません）';
 // ★ 2026-10-16(ユーザー「枠がいっぱいですはポップで出てほしい」): 画面の下の中央に短く出る知らせ(どの画面からでも使える)
-const tsuPopNotice = (text, ms = 1800) => { try {
+const tsuPopNotice = (text, ms = 1800, anchor) => { try {
   let el = document.getElementById('tsu-pop-notice');
   if (!el) { el = document.createElement('div'); el.id = 'tsu-pop-notice'; el.setAttribute('role', 'status');
     el.style.cssText = 'position:fixed;left:50%;bottom:calc(14% + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:2000005;background:rgba(15,23,42,0.92);color:#fff;font-size:15px;font-weight:bold;padding:12px 20px;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,0.3);max-width:88vw;text-align:center;pointer-events:none;transition:opacity 0.25s;line-height:1.5';
     document.body.appendChild(el); }
+  // ★ 2026-10-16(ユーザー「保存しましたは保存ボタンの近くに出た方が分かりやすい」): anchor(押したボタン)があればその真上に出す。無ければ画面の下の中央
+  try { const r = anchor && anchor.getBoundingClientRect ? anchor.getBoundingClientRect() : null;
+    if (r && r.width) { el.style.left = `${Math.round(r.left + r.width / 2)}px`; el.style.bottom = `${Math.round(window.innerHeight - r.top + 8)}px`; el.style.transform = 'translateX(-50%)'; }
+    else { el.style.left = '50%'; el.style.bottom = 'calc(14% + env(safe-area-inset-bottom,0px))'; el.style.transform = 'translateX(-50%)'; } } catch {}
   el.textContent = text; el.style.opacity = '1'; el.style.display = 'block';
   if (tsuPopNotice._t) clearTimeout(tsuPopNotice._t);
   tsuPopNotice._t = setTimeout(() => { el.style.opacity = '0'; setTimeout(() => { if (el.style.opacity === '0') el.style.display = 'none'; }, 300); }, ms);
@@ -21310,6 +21314,7 @@ export default function App() {
     window.addEventListener('tsumugi-meeting-float', h);
     return () => window.removeEventListener('tsumugi-meeting-float', h);
   }, []);
+  // ★ 2026-10-16(ユーザー「小窓を出しながら編集を押すと両方出る。片方だけに」): 入力画面を開くときは小窓を閉じる(小窓側で未保存なら保存してから)
   useEffect(()=>{
     // ★ 2026-10-03(ユーザー要望「連絡帳はまっすぐ印刷画面へ」): detail.autoPrint=true なら、プレビューを出した直後に印刷(PC=隠しiframeで印刷ダイアログ、iPad=印刷用の表示)へ進む
     const handler = (e) => { if (e.detail && e.detail.autoPrint) _autoPrintRef.current = true; setPrintPreviewContent(e.detail); };
@@ -56246,6 +56251,8 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
   React.useEffect(() => { const m = String(focusSection || '').match(/^facesheet(?::(\w+))?$/); if (m) { setActiveCat('cat_1'); setFaceSheetAttachFocus(false); setFaceSheetSectionFocus(m[1] || ''); setShowFaceSheetForm(true); } }, [focusSection]);
   // ★ 本日のスケジュールの担当者会議から飛んできたら、ケアマネジメントタブ(cat_3)を開いて会議記録の新規入力を自動で開く。
   React.useEffect(() => { if (focusSection === 'meeting') { setActiveCat('cat_3'); setEditingMeeting(null); setShowMeetingForm(true); } }, [focusSection]);
+  // ★ 2026-10-16: 入力画面を開いたら小窓に知らせる(片方だけ表示)
+  React.useEffect(() => { if (showMeetingForm) { try { window.dispatchEvent(new CustomEvent('tsumugi-meeting-form-open')); } catch {} } }, [showMeetingForm]);
   // ★ 任意の月を指定して提供記録を作成/ダウンロードするための選択月 (既定: 先月)
   const [snapMonth, setSnapMonth] = useState(() => {
     const d = new Date(); d.setMonth(d.getMonth() - 1);
@@ -57454,13 +57461,19 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
       // ★ 2026-10-16: 開催日を変えたとき、カレンダーにその日の担当者会議の予定があれば開始・終了を入れる(手で入れた時間があればそのまま)
       if (patch.date && patch.date !== (d||{}).date && !(d||{}).timeStart && !(d||{}).timeEnd) { const c = tsuMeetCalendarTimes(dataRef.current.appData, dataRef.current.float.patientId, patch.date); if (c) { n.timeStart = c.timeStart; n.timeEnd = c.timeEnd; } }
       return n; }); setDirty(true); };
-  const doSave = () => { flush(); savedOnceRef.current = true; setDirty(false); tsuPopNotice('保存しました'); }; // ★ 2026-10-16: 保存したことが分かるようにポップ
+  const doSave = (ev) => { flush(); savedOnceRef.current = true; setDirty(false); tsuPopNotice('保存しました', 1800, ev && ev.currentTarget); }; // ★ 2026-10-16: 保存したことが分かるようにポップ(保存ボタンの真上)
   const discardNew = () => {
     const { appData: ad, onSave: sv, float: fl } = dataRef.current;
     const pt = (ad.patients||[]).find(p=>p.id===fl.patientId); if (!pt) return;
     const pf = pt.personalFile || {};
     sv({ ...ad, patients: ad.patients.map(p=>p.id===pt.id?{...pt, personalFile:{...pf, meetings:(pf.meetings||[]).filter(m=>m.id!==fl.meetingId)}}:p) }, { silent: true });
   };
+  // ★ 2026-10-16: 入力画面(新規作成・編集)が開いたら、この小窓は未保存の内容を保存して閉じる(両方は出さない)
+  React.useEffect(() => {
+    const h = () => { const dr = draftRef.current; if (dr && (dirty || savedOnceRef.current || !float.isNew)) { if (dirty) { flush(); tsuPopNotice('小窓の内容を保存して閉じました'); } } else if (float.isNew && !savedOnceRef.current) { discardNew(); } onClose(); };
+    window.addEventListener('tsumugi-meeting-form-open', h);
+    return () => window.removeEventListener('tsumugi-meeting-form-open', h);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
   const handleCancel = () => {
     // ★ 2026-10-16(ユーザー要望「キャンセルより終了。誤タップに備えて保存せず終了の確認」)
     if (float.isNew && !savedOnceRef.current) {
@@ -57520,7 +57533,7 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
         ))}
       </div>
       <div style={{ padding:10, overflowY:'auto', display:'flex', flexDirection:'column', gap:8, flex: full ? 1 : undefined, minHeight: 0 }} className="tsu-meet-body">
-        <style>{`.tsu-meet-body > div{flex:0 0 auto;}`}</style>
+        <style>{`.tsu-meet-body > div{flex:0 0 auto;} .tsu-meet-body > div[data-grow="1"]{flex:1 1 0;}`}</style>
         <div style={{ fontSize:Math.round(13*scale), fontWeight:'bold', color:'#1e3a8a', borderBottom:'1px solid #e2e8f0', paddingBottom:4, flex:'0 0 auto' }}>担当者会議メモ — {patient.name} 様</div>
         {/* ★ iPad対策(2026-08-28): 日付/時刻inputは固有の最小幅が広く1行だと重なるため、開催日と開始/終了を2行に分離 */}
         <div>
@@ -57544,9 +57557,9 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
           <TsuMeetReasonPicker patient={patient} value={{ reasonType: draft.reasonType, reasonNote: draft.reasonNote, careBefore: draft.careBefore, careAfter: draft.careAfter }} onChange={v=>upd({ ...v, reason: tsuMeetReasonCompose(v) })} fs={Math.round(12*scale)} />
         </div>
         {/* ★ 2026-10-16 追補(ユーザー報告「保存の位置がおかしい」): 欄を囲む箱が縦に縮んで中身がはみ出し、保存・終了が重なっていた → 縮まないように(flex: none)。全画面のときだけ伸ばす */}
-        <div style={{ flex: full ? '1 1 auto' : '0 0 auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <div data-grow={full ? '1' : '0'} style={{ display: 'flex', flexDirection: 'column', minHeight: full ? 160 : 0, overflow: 'hidden' }}>
           <label style={_lb}>検討した項目・内容・結論</label>
-          <textarea value={draft.content} onChange={e=>upd({content:e.target.value})} rows={14} style={{ ..._iSt, resize:'vertical', minHeight:200, flex: full ? '1 1 auto' : '0 0 auto' }}/>
+          <textarea value={draft.content} onChange={e=>upd({content:e.target.value})} rows={full ? 3 : 14} style={{ ..._iSt, resize: full ? 'none' : 'vertical', minHeight: full ? 0 : 200, height: full ? 'auto' : undefined, flex: full ? '1 1 0' : '0 0 auto' }}/>
         </div>
         {/* ★ 明示保存(2026-08-28): 単体の新規作成フォームと同じく保存/キャンセルを選ぶ */}
         {/* ★ 2026-10-16 追補(ユーザー「新規作成と小窓で保存と終了の位置が逆」): どちらも 左=終了・右=保存 */}
@@ -57590,7 +57603,7 @@ function MeetingRecordForm({ patient, meeting, onSave, onClose, onFloat, appData
   const _setDate = (v) => setForm(f => { const n = { ...f, date: v }; if (!f.timeStart && !f.timeEnd) { const c = tsuMeetCalendarTimes(appData, patient.id, v); if (c) { n.timeStart = c.timeStart; n.timeEnd = c.timeEnd; } } return n; });
   // ★ ×で閉じる時、入力に変更があれば保存するか確認する(2026-08-28 店舗要望: 誤タップで入力が消えないように)
   const _initialFormRef = React.useRef(null);
-  if (_initialFormRef.current === null) _initialFormRef.current = JSON.stringify({ date: meeting?.date || '', timeStart: meeting?.timeStart || '', timeEnd: meeting?.timeEnd || '', locationType: meeting?.locationType || '事業所', locationOther: meeting?.locationOther || '', attendees: meeting?.attendees || '', reason: meeting?.reason || '', content: meeting?.content || '' });
+  if (_initialFormRef.current === null) _initialFormRef.current = JSON.stringify(form); // ★ 2026-10-16: カレンダーから入った時間や選択肢の分解も「最初の状態」に含める(開いてすぐ終了で確認が出ないように)
   const _confirmClose = () => {
     if (JSON.stringify(form) !== _initialFormRef.current) {
       if (!window.confirm('保存せずに終了しますか？\n（保存するときは「いいえ」を押して、下の「保存」を）')) return;
@@ -57601,7 +57614,7 @@ function MeetingRecordForm({ patient, meeting, onSave, onClose, onFloat, appData
   const dateLabel = toWarekiDateLabel(form.date);
   const dayOfWeek = dayOfWeekJp(form.date);
   const locationLabel = form.locationType === 'その他' ? (form.locationOther || 'その他') : form.locationType;
-  const handleSubmit = () => {
+  const handleSubmit = (ev) => {
     if (!form.date) { alert('開催日を選択してください'); return; }
     onSave({
       ...form,
@@ -57610,11 +57623,12 @@ function MeetingRecordForm({ patient, meeting, onSave, onClose, onFloat, appData
       dayOfWeek,
       location: locationLabel,
     });
-    tsuPopNotice('保存しました');
+    tsuPopNotice('保存しました', 1800, ev && ev.currentTarget);
   };
   return (
-    <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[60] flex items-center justify-center p-0 sm:p-4">
-      <div className="bg-white rounded-none sm:rounded-2xl shadow-2xl w-full max-w-3xl h-full sm:h-[90vh] flex flex-col" onClick={e=>e.stopPropagation()}>
+    <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[60] flex items-center justify-center p-0">
+      {/* ★ 2026-10-16(ユーザー「新規作成・編集は最初から全画面でいい」): 画面いっぱい(PC・iPad・スマホとも) */}
+      <div className="bg-white rounded-none shadow-2xl w-full h-full flex flex-col" onClick={e=>e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 shrink-0">
           <div className="text-base font-bold text-slate-800">サービス担当者会議記録表 (担会)</div>
           <div className="flex items-center gap-1.5">
@@ -57622,10 +57636,10 @@ function MeetingRecordForm({ patient, meeting, onSave, onClose, onFloat, appData
             {onFloat && <button onClick={()=>{ const d = form.date || new Date().toISOString().slice(0,10); onFloat({ ...form, date: d, dateLabel: toWarekiDateLabel(d), dayOfWeek: dayOfWeekJp(d), location: locationLabel }); }}
               title="ここまでの内容を保存して小窓(フロートメモ)に切り替えます。他の画面を見ながら続きを入力できます"
               className="px-3 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded-lg text-xs font-bold">小窓にする</button>}
-            <button onClick={_confirmClose} className="p-2 text-slate-400 hover:bg-slate-200 rounded-full"><X size={20}/></button>
+            {/* ★ 2026-10-16(ユーザー「右上の×は下の終了と同じなので消す」) */}
           </div>
         </div>
-        <div className="flex-1 overflow-auto p-5 space-y-3 text-sm">
+        <div className="flex-1 overflow-auto p-5 space-y-3 text-sm flex flex-col">
           {/* 介護区分 + 利用者名 (自動表示) */}
           <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 grid grid-cols-2 gap-3">
             <div>
@@ -57688,13 +57702,13 @@ function MeetingRecordForm({ patient, meeting, onSave, onClose, onFloat, appData
             <div className="text-[11px] font-bold text-slate-600 mb-2">開催理由（選んで、補足があれば入力）</div>
             <TsuMeetReasonPicker patient={patient} value={{ reasonType: form.reasonType, reasonNote: form.reasonNote, careBefore: form.careBefore, careAfter: form.careAfter }} onChange={v=>setForm(f=>({...f, ...v}))} fs={14} />
           </div>
-          {/* 内容 (様子・状態) */}
-          <div className="border border-slate-200 rounded-lg p-3">
-            <div className="text-[11px] font-bold text-slate-600 mb-2">内容 (様子・状態)</div>
+          {/* 内容 (様子・状態) ★ 2026-10-16: 画面の残りいっぱいに伸びる(最低16行) */}
+          <div className="border border-slate-200 rounded-lg p-3 flex flex-col flex-1" style={{minHeight:0}}>
+            <div className="text-[11px] font-bold text-slate-600 mb-2">検討した項目・内容・結論</div>
             <textarea value={form.content} onChange={e=>setForm(f=>({...f, content: e.target.value}))}
               rows={16}
               placeholder={`〇様子・状態\n\nご本人より...\nご家族より...\n事業所より...`}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none resize-y"/>
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none resize-none flex-1" style={{minHeight:'16em'}}/>
           </div>
         </div>
         <div className="flex gap-2 px-5 py-3 border-t border-slate-200 shrink-0">
