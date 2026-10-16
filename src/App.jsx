@@ -1869,29 +1869,73 @@ const ImeSafeInput = React.forwardRef(function ImeSafeInput({ value, onChange, o
 //   ・数字のキーボード(inputMode numeric)。日本語入力の変換中は値を整えない(iPadで数字が増える不具合の対策・ImeSafeInput と同じ)
 //   ・打っている間は画面の中だけで持ち、欄から離れたとき(または打つのをやめて約1秒後)に1回だけ保存する。
 //     以前は1文字ごとに保存→店舗データ全体(約1.8MB)を毎回送っており、時間を打つだけで通信が詰まり他端末の保存が失敗していた。
+// ★ 2026-10-16(ユーザー要望「8:-- は 8 はそのままで分の方だけ入力できるように。8 も変えるときは 8 の方を押せば入力できるように」):
+//   「時:--」(分が空)の欄は、押した場所で分ける。分の側(または Tab で入ったとき)=「8:」にして続けて分を打つ(845 と全部打っても 8:45)。
+//   時の数字の上=時の数字だけを選んだ状態(打つと置き換わり、打ち終えたら「9:」になって分へ進む)。何も打たずに離れたら元の「8:--」のまま
+const _tpHitHour = (el, x, text) => { try {
+  const m = String(text || '').match(/^(\d{1,2}):/); if (!m || x == null) return false;
+  const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); const k = el.offsetWidth ? r.width / el.offsetWidth : 1; // 縮小表示(zoom)の中でも合うよう、見た目の倍率をかける
+  const cv = _tpHitHour.cv || (_tpHitHour.cv = document.createElement('canvas')); const ctx = cv.getContext('2d'); if (!ctx) return x < r.left + r.width * 0.45;
+  ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  const wAll = ctx.measureText(String(text)).width, wH = ctx.measureText(m[1]).width, wC = ctx.measureText(':').width;
+  const pl = parseFloat(cs.paddingLeft) || 0, pr = parseFloat(cs.paddingRight) || 0, bl = parseFloat(cs.borderLeftWidth) || 0;
+  const inner = el.clientWidth - pl - pr; const al = cs.textAlign;
+  const off = al === 'center' ? Math.max(0, (inner - wAll) / 2) : (al === 'right' || al === 'end') ? Math.max(0, inner - wAll) : 0;
+  return x < r.left + k * (bl + pl + off + wH + wC / 2);
+} catch { return false; } };
 const TpTimeInput = ({ value, onCommit, normalize, ...rest }) => {
   const [draft, setDraft] = React.useState(null);
-  const dashRef = React.useRef(null); // ★ 2026-10-16(ユーザー報告「8:-- のようになっていて、消さないと数字を入れられない」): 「--」の欄は押すと空にして、元の値は薄く見せる
+  const dashRef = React.useRef(null); // 「時:--」の欄を触っている間 { orig:'8:--', hour:'8', mode:'min'|'hour'|'free', pristine }
+  const tapRef = React.useRef(null);  // 押した位置と、そのとき見えていた文字 { x, text, at }
   const composing = React.useRef(false);
   const timer = React.useRef(null);
   const lastSent = React.useRef(null);
   const norm = (v, fin) => { try { return normalize ? normalize(v, fin) : String(v ?? ''); } catch { return String(v ?? ''); } };
+  const z2h = (v) => String(v ?? '').replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)).replace(/[：]/g, ':').replace(/[\s　]+/g, '');
+  // 「8:」のあとに 845 / 0930 と全部打った → 打った数字だけで時刻にする
+  const fixDash = (v, on) => { if (!(on || dashRef.current)) return v; const mm = z2h(v).match(/^(\d{1,2}):(\d{3,4})$/); return mm ? mm[2] : v; };
   const commit = (v) => { if (timer.current) { clearTimeout(timer.current); timer.current = null; } if (v === lastSent.current) return; lastSent.current = v; if (v !== String(value ?? '')) onCommit(v); };
-  const schedule = (v) => { if (timer.current) clearTimeout(timer.current); timer.current = setTimeout(() => { timer.current = null; const f = norm(v, true); if (f === '' || /^\d{1,2}:\d{2}$/.test(f)) commit(f); }, 1200); };
+  const schedule = (v) => { if (timer.current) clearTimeout(timer.current); timer.current = setTimeout(() => { timer.current = null; const f = norm(fixDash(v), true); if (f === '' || /^\d{1,2}:\d{2}$/.test(f)) commit(f); }, 1200); };
   React.useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  const place = (el) => requestAnimationFrame(() => { try { const d = dashRef.current; if (!d || document.activeElement !== el) return;
+    if (d.mode === 'hour') { const m = el.value.match(/^(\d{0,2}):/); el.setSelectionRange(0, m ? m[1].length : 0); }
+    else if (d.mode === 'min') { const n = el.value.length; el.setSelectionRange(n, n); } } catch {} });
+  const pickMode = (el) => { const d = dashRef.current; if (!d || !d.pristine) return; const t = tapRef.current; const recent = t && Date.now() - t.at < 1500;
+    const mode = recent && _tpHitHour(el, t.x, t.text) ? 'hour' : 'min'; tapRef.current = null;
+    if (mode !== d.mode) { d.mode = mode; setDraft(mode === 'hour' ? d.orig : `${d.hour}:`); } place(el); };
+  const onType = (v, el) => {
+    const d = dashRef.current; if (!d) return v; d.pristine = false;
+    if (d.mode !== 'hour') return v;
+    const m = z2h(v).match(/^(\d{0,2}):--$/);
+    if (!m) { d.mode = 'free'; return v; }
+    const h = m[1];
+    if (h.length === 2 && +h > 23) { d.mode = 'min'; const v2 = `${+h[0]}:${h[1]}`; place(el); return v2; } // 24〜29 は「2時4分…」と読む
+    if (h.length === 2 || (h.length === 1 && +h >= 3)) { d.mode = 'min'; const v2 = `${+h}:`; place(el); return v2; } // 時を打ち終えた → 分へ
+    return v;
+  };
   const shown = draft !== null ? draft : String(value ?? '');
   return <input type="text" inputMode="numeric" pattern="[0-9]*" enterKeyHint="done" autoComplete="off" {...rest} value={shown}
-    placeholder={draft === '' && dashRef.current ? dashRef.current : rest.placeholder}
-    onFocus={(e) => { lastSent.current = null; const v0 = e.target.value; const dash = /--/.test(v0); dashRef.current = dash ? v0 : null; setDraft(dash ? '' : v0); }}
+    onPointerDown={(e) => { tapRef.current = { x: e.clientX, text: e.currentTarget.value, at: Date.now() }; if (rest.onPointerDown) rest.onPointerDown(e); }}
+    onFocus={(e) => { lastSent.current = null; const v0 = e.target.value; const mm = v0.match(/^(\d{1,2}):--$/);
+      if (mm) { const el = e.currentTarget; dashRef.current = { orig: v0, hour: mm[1], mode: 'min', pristine: true, focusAt: Date.now() }; setDraft(`${mm[1]}:`); pickMode(el); place(el); }
+      else { dashRef.current = null; setDraft(v0); } }}
+    onClick={(e) => { const d = dashRef.current; if (d) { const el = e.currentTarget; // 押して入った直後のクリックは、ブラウザが動かしたカーソルを戻すだけ(押した場所の判定は入ったときに済み)
+        if (Date.now() - (d.focusAt || 0) < 700) place(el); else { if (!tapRef.current) tapRef.current = { x: e.clientX, text: el.value, at: Date.now() }; pickMode(el); } } if (rest.onClick) rest.onClick(e); }}
     /* ★ 2026-10-02(ユーザー報告「８３０と打ったら308:30になる」): 打っている間は値を一切整えない(全角→半角の置換も変換中の文字が
        残って二重になる原因)。整えるのは保存するときだけ(1.2秒後の自動保存・欄を離れたとき)。表示は欄を離れたときに整った形になる */
-    onChange={(e) => { const v = e.target.value; setDraft(v); if (composing.current || (e.nativeEvent && e.nativeEvent.isComposing)) return; schedule(v); }}
+    onChange={(e) => { const v = e.target.value; if (composing.current || (e.nativeEvent && e.nativeEvent.isComposing)) { setDraft(v); return; } const v2 = onType(v, e.currentTarget); setDraft(v2); schedule(v2); }}
     onCompositionStart={() => { composing.current = true; }}
-    onCompositionEnd={(e) => { composing.current = false; const v = e.target.value; setDraft(v); schedule(v); }}
+    onCompositionEnd={(e) => { composing.current = false; const v2 = onType(e.target.value, e.currentTarget); setDraft(v2); schedule(v2); }}
     /* ★ 2026-10-02(ユーザー報告・PCの全角入力で「８３０」→「8308:30」): 日本語入力の変換を確定する Enter(keyCode 229・変換中)で欄を
        離れてしまい、整えた値の後ろに確定文字が足されていた。変換中の Enter は無視し、確定後の Enter だけで欄を離れる */
     onKeyDown={(e) => { if (e.key === 'Enter' && !composing.current && !(e.nativeEvent && e.nativeEvent.isComposing) && e.keyCode !== 229) e.currentTarget.blur(); }}
-    onBlur={(e) => { composing.current = false; const f = norm(e.target.value, true); setDraft(null); const keep = dashRef.current && f === ''; dashRef.current = null; if (keep) return; commit(f); }} />;
+    onBlur={(e) => { composing.current = false; const d = dashRef.current; dashRef.current = null; tapRef.current = null; setDraft(null);
+      if (d) { const v = z2h(fixDash(e.target.value, true));
+        if (v === '' || /^:?-*$/.test(v)) { if (timer.current) { clearTimeout(timer.current); timer.current = null; } return; } // 何も入れていない → 元のまま
+        const hm = v.match(/^(\d{1,2}):(--)?$/);
+        if (hm) { if (timer.current) { clearTimeout(timer.current); timer.current = null; } if (+hm[1] === +d.hour) return; commit(`${+hm[1]}:--`); return; } // 時だけ直した → 9:--
+        commit(norm(v, true)); return; }
+      commit(norm(e.target.value, true)); }} />;
 };
 // ★ 2026-10-01(試験版・ユーザー要望「再読み込み中や何かの動作で画面が固まっている時は分かりやすくアニメーションを」):
 //   処理中・読み込み中の共通の回る輪。文字の大きさ・色に合わせて回る(見た目は src/index.css の .tsumugi-busy-spin)。
