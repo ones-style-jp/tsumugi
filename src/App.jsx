@@ -1987,11 +1987,30 @@ const tsumugiFacilityInfo = (appData) => {
 };
 const tsumugiFaxLog = (appData) => (appData && Array.isArray(appData.faxHistory) ? appData.faxHistory : []).filter(h => h && h.method !== 'pdf');
 const tsumugiIsIOS = () => typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+// ★ 2026-10-16(ユーザー要望「タブレットでもピンチイン・ピンチアウトできるように」): iPad/iPhone は指で拡大している間、window.innerWidth が
+//   「いま見えている幅」に縮む(1080px の iPad を1.5倍にすると 720px)。スマホ用の画面への切り替え(768px 未満)などの判定が拡大で変わらないよう、
+//   拡大中はページ本来の幅(documentElement.clientWidth)を使う。拡大していないとき・PC は window.innerWidth のまま(従来どおり)
+const tsuViewW = () => { try { const iw = window.innerWidth; const vv = window.visualViewport; if (vv && vv.scale > 1.01) { const cw = document.documentElement.clientWidth; if (cw > iw) return cw; } return iw; } catch { return 1024; } };
+// ★ 2026-10-16(ユーザー要望「PCでも Ctrl+スクロールで拡大・表示できるように」): PC のブラウザの拡大率(Ctrl+ホイール・Ctrl+＋)。
+//   画面を 1100px 基準で幅に合わせて縮める仕組み(contentScale)が、拡大で狭くなった幅に合わせて縮め直すため、拡大しても大きさが変わらなかった。
+//   拡大率は ウィンドウの外の幅÷中の幅 で求め、ブラウザの拡大の段階(110%・125%…)と画面の倍率(devicePixelRatio)の両方に合うときだけ使う
+//   (横のサイドパネル等で幅がずれただけのときは使わない)。iPad/iPhone/Android は 1(指での拡大は別の仕組み)
+const _TSU_BZ_LEVELS = [1.1, 1.15, 1.2, 1.25, 1.33, 1.5, 1.7, 1.75, 2, 2.4, 2.5, 3, 4, 5];
+const _TSU_OS_SCALES = [1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 3];
+const tsuPcBrowserZoom = () => { try {
+  if (tsumugiIsIOS() || /Android/i.test(navigator.userAgent || '')) return 1;
+  const ow = window.outerWidth, iw = window.innerWidth; if (!ow || !iw) return 1;
+  const r = ow / iw; if (r < 1.07) return 1;
+  const dpr = window.devicePixelRatio || 1;
+  const cands = _TSU_BZ_LEVELS.filter(L => Math.abs(r / L - 1) < 0.03).sort((a, b) => Math.abs(r / a - 1) - Math.abs(r / b - 1));
+  for (const L of cands) { const base = dpr / L; if (_TSU_OS_SCALES.some(x => Math.abs(base / x - 1) < 0.02)) return L; }
+  return 1;
+} catch { return 1; } };
 // ★ 2026-10-11(ユーザー報告: iPad でしばらくしてからログインすると、見出し・上部のメニューが白いまま/見出しがぼやけて見える。縦にして横に戻すと直る):
 //   iPad の Safari が画面の一部を古い描画のまま出し続ける。部品を消して出し直す(display)だけでは大きさが同じなので描き直されないことがあるため、
 //   回転と同じように「アプリ全体の高さを 2 フレームだけ 1px 変える」ことで、画面全体を描き直させる。iPad/PC 幅の iPhone・iPad だけ(スマホ幅はページ全体のスクロールなので触らない)
 const tsuForceRepaint = () => { try {
-  if (!tsumugiIsIOS() || window.innerWidth < 768) return;
+  if (!tsumugiIsIOS() || tsuViewW() < 768) return;
   const el = document.querySelector('.tsu-app-root'); if (!el || el.dataset.tsuRp === '1') return;
   // ★ 2026-10-11 追補(ユーザー報告「まだ白い」): 高さだけでは見出し・上部の帯(幅は変わらない)が描き直されなかった。回転と同じく「幅」を変える(全部の幅が変わる)
   el.dataset.tsuRp = '1'; const prevH = el.style.height, prevW = el.style.width;
@@ -2002,7 +2021,8 @@ const tsuForceRepaint = () => { try {
   //   しばらく置いて開き直すと写しが上に残ることがある(Web 側の描き直しでは剥がれず、回転=画面の作り直しで消える)。
   //   回転と同じ作り直しを起こすため、表示設定(viewport)を2フレームだけ切り替えて戻す(見た目は変わらない)。ホーム画面のアプリのときだけ
   let meta = null, prevMeta = '';
-  try { if (navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)) { meta = document.querySelector('meta[name="viewport"]'); if (meta) { prevMeta = meta.getAttribute('content') || ''; meta.setAttribute('content', prevMeta.replace('viewport-fit=cover', 'viewport-fit=contain')); } } } catch {}
+  // ★ 2026-10-16: 指で拡大している間は表示設定を切り替えない(拡大が戻るため)
+  try { if (!(window.visualViewport && window.visualViewport.scale > 1.01) && (navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches))) { meta = document.querySelector('meta[name="viewport"]'); if (meta) { prevMeta = meta.getAttribute('content') || ''; meta.setAttribute('content', prevMeta.replace('viewport-fit=cover', 'viewport-fit=contain')); } } } catch {}
   const parts = [document.querySelector('header.tsu-app-header'), document.querySelector('[data-testid="app-sidebar"]')].filter(Boolean);
   parts.forEach(x => { x.dataset.tsuOp = x.style.opacity || ''; x.style.opacity = '0.99'; });
   requestAnimationFrame(() => requestAnimationFrame(() => { try { el.style.height = prevH; el.style.width = prevW; delete el.dataset.tsuRp;
@@ -11636,7 +11656,7 @@ const _tsuPushTmo = { at: 0, tmo: 20000 };
 // ★ 2026-10-08(ユーザー要望「スマホでも連絡帳の全体を常に表示。横・縦とも左右はぴったり、上下はスクロール」):
 //   スマホ(縦=幅768未満、または横向きのスマホ)かどうか。回転にも追従する。
 function useTsuIsPhoneDevice() {
-  const calc = () => { try { const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches; const small = Math.min(window.screen.width || 9999, window.screen.height || 9999) < 600; return window.innerWidth < 768 || (coarse && small); } catch { return false; } };
+  const calc = () => { try { const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches; const small = Math.min(window.screen.width || 9999, window.screen.height || 9999) < 600; return tsuViewW() < 768 || (coarse && small); } catch { return false; } };
   const [on, setOn] = React.useState(calc);
   React.useEffect(() => { const h = () => setOn(calc()); window.addEventListener('resize', h); window.addEventListener('orientationchange', h); return () => { window.removeEventListener('resize', h); window.removeEventListener('orientationchange', h); }; }, []);
   return on;
@@ -21354,12 +21374,12 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     if (typeof window === 'undefined') return true;
     // ★ 2026-10-09(ユーザー要望・スマホ限定): ログインしたら(起動したら)サイドバーは閉じた状態にし、ホーム画面の全体が見えるように(開閉の記憶は使わない)
-    if (window.innerWidth < 768) return false;
+    if (tsuViewW() < 768) return false;
     // ★ ユーザーが開閉ボタンで選んだ状態を記憶して復元(2026-08-11)。 従来は毎回「画面幅>=768」で
     //   自動判定していたため、再読み込みや更新のたびに設定が初期化され「常に表示にしているのに
     //   表示されない」ことがあった。 記憶が無い端末は従来どおり画面幅で判定。
     try { const s = localStorage.getItem('tsumugiSidebarOpen'); if (s === '1') return true; if (s === '0') return false; } catch {}
-    return window.innerWidth >= 768;
+    return tsuViewW() >= 768;
   });
   // ★ iOS Safari 対策: サイドバー開閉で flex レイアウトが変わると position:sticky が再計算されず、
   //   上部バー(期間/利用者選択/ジャンプ等)が固定されなくなる。 開閉のたびにメイン領域を一瞬だけ
@@ -21367,7 +21387,7 @@ export default function App() {
   useEffect(() => {
     const id = setTimeout(() => {
       // ★ 2026-10-08: スマホ幅は何もしない(サイドバーは重ねて出すだけで並びは変わらない。消して描き直すと上の方が空白で残ることがあった)
-      if (window.innerWidth < 768) return;
+      if (tsuViewW() < 768) return;
       const el = document.getElementById('appMainArea');
       if (!el) return;
       const prev = el.style.display;
@@ -21389,7 +21409,7 @@ export default function App() {
     const root = document.getElementById('tsuContentScroller'); if (!root) return;
     let t = null;
     const run = () => {
-      if (window.innerWidth >= 768) return;
+      if (tsuViewW() >= 768) return;
       root.querySelectorAll('.sticky, [style*="sticky"]').forEach(el => {
         if (/^(TH|TD|TR|THEAD)$/.test(el.tagName) || (el.closest && el.closest('.tsu-pin'))) return;
         let p = el.parentElement, nested = false;
@@ -21407,7 +21427,7 @@ export default function App() {
   // ★ 2026-10-08(白画面の対策の整理): スマホ幅は画面全体(ページ)がスクロールする作りに変えた(下の tsu-docscroll)。
   //   それまで試した「描き直させる」工夫(1pxスクロール・背景色の切替・起動後/ログイン後/データ反映後の描き直し)は効かなかったので外した。
   //   画面を切り替えたらページの一番上へ(ページ全体のスクロールは画面をまたいで残るため)
-  useEffect(() => { try { if (window.innerWidth < 768) window.scrollTo(0, 0); } catch {} }, [currentView]);
+  useEffect(() => { try { if (tsuViewW() < 768) window.scrollTo(0, 0); } catch {} }, [currentView]);
   useEffect(() => {
     if (!tsumugiIsIOS()) return;
     const on = () => _setRepaintTick(t => t + 1);
@@ -21420,20 +21440,23 @@ export default function App() {
   const contentRef = useRef(null);
   // ★ スマホ幅(<768px)では「1100px基準の縮小表示」をやめ、実物大でモバイルレイアウトを使う。
   //   (縮小するとPC画面が小さく表示され、下切れ・文字が小さい・重い等になっていた)
-  const [isMobileLayout, setIsMobileLayout] = useState(()=>{ try { return window.innerWidth < 768; } catch { return false; } });
+  const [isMobileLayout, setIsMobileLayout] = useState(()=>{ try { return tsuViewW() < 768; } catch { return false; } });
   const [contentScale, setContentScale] = useState(()=>{ try { return Math.min(1, window.innerWidth / 1100); } catch { return 1; } });
   // ★ 2026-10-09(ユーザー報告「上部で固定されなくなっている」): 縮小表示(zoom)の中身の高さを「100/縮率 %」で指定していたが、
   //   今のブラウザ(iPad の Safari・PC の Chrome とも)は zoom の中の % を縮小後の座標で計算するため高さが二重に伸び(縮率0.5なら2倍)、
   //   画面の内側の枠ではなく外側の枠がスクロールして、各画面の上の帯(sticky)が一緒に流れていた。
   //   外側の枠の実際の高さ(px)を測り、「高さ÷縮率」の px で指定する(px はどのブラウザでも縮率どおりに縮むので、ちょうど画面の高さになる)
   const [scrollerH, setScrollerH] = useState(0);
+  const [pcZoomWide, setPcZoomWide] = useState(false); // PC のブラウザで拡大して、1100px の画面が幅に収まらない(横スクロールで見る)
   useEffect(()=>{
     const calc = ()=>{
-      try { setIsMobileLayout(window.innerWidth < 768); } catch {}
+      try { setIsMobileLayout(tsuViewW() < 768); } catch {}
       if(!contentRef.current) return;
       const avail = contentRef.current.parentElement?.clientWidth || window.innerWidth;
-      setContentScale(Math.min(1, avail / DESIGN_WIDTH));
-      if (window.innerWidth >= 768) setScrollerH(contentRef.current.clientHeight || 0); // スマホ幅はページ全体のスクロールなので測らない(中身が伸びるたびに描き直さない)
+      // ★ 2026-10-16(ユーザー要望「PCでも Ctrl+スクロールで拡大・表示できるように」): ブラウザで拡大したら、その分だけ縮小を弱めて大きく見せる(はみ出す分は横スクロール)
+      const bz = tsuPcBrowserZoom(); setPcZoomWide(bz > 1.01 && avail < DESIGN_WIDTH);
+      setContentScale(Math.min(1, avail * bz / DESIGN_WIDTH));
+      if (tsuViewW() >= 768) setScrollerH(contentRef.current.clientHeight || 0); // スマホ幅はページ全体のスクロールなので測らない(中身が伸びるたびに描き直さない)
     };
     calc();
     window.addEventListener('resize', calc);
@@ -21449,7 +21472,7 @@ export default function App() {
   //   ②の安全策で縮小をやめたとき、実際の幅のまま並べていたため列が詰まって文字が切れていた。
   //   縮小が効かないときは 1100px のまま(文字の大きさを変えず)横スクロールで見る。縮小の幅指定も % ではなく px にする(iPad の WebKit で効きやすい)
   const [zoomOff, setZoomOff] = useState(false);
-  const _zoomNear1 = contentScale >= 0.94;
+  const _zoomNear1 = contentScale >= 0.94 && !pcZoomWide; // ★ 2026-10-16: PC で拡大したときは 1100px のまま(幅に押し込めると列が詰まる)
   const _zoomActive = !_zoomNear1 && !zoomOff;
   const _zoomScroll = !_zoomNear1 && zoomOff;
   // ★ 2026-10-06: 一度 72% を下限にしたが、上部のボタン(ダウンロード等)が右へはみ出して見えなくなるため、下限なしで幅に合わせる
@@ -21463,7 +21486,7 @@ export default function App() {
   useEffect(() => {
     if (!tsumugiIsIOS()) return;
     const id = setTimeout(() => { try {
-      if (window.innerWidth < 768) return; // ★ 2026-10-08: スマホ幅は何もしない(ページ全体のスクロールにしたため)
+      if (tsuViewW() < 768) return; // ★ 2026-10-08: スマホ幅は何もしない(ページ全体のスクロールにしたため)
       const el = document.getElementById('appMainArea'); if (!el) return;
       const sc = contentRef.current; const st = sc ? [sc.scrollTop, sc.scrollLeft] : null;
       const prev = el.style.display; el.style.display = 'none'; void el.offsetHeight; el.style.display = prev || '';
@@ -21490,7 +21513,7 @@ export default function App() {
   useEffect(() => {
     if (!_tsuMainShown || !tsumugiIsIOS()) return;
     const nudge = () => { try {
-      if (window.innerWidth < 768) return;
+      if (tsuViewW() < 768) return;
       const el = document.querySelector('.tsu-app-root'); if (!el) return;
       const sc = contentRef.current; const st = sc ? [sc.scrollTop, sc.scrollLeft] : null;
       const prev = el.style.display; el.style.display = 'none'; void el.offsetHeight; el.style.display = prev || '';
@@ -22577,7 +22600,7 @@ export default function App() {
   }, []);
 
   // ★ 2026-10-09(ユーザー要望・スマホ限定): サイドバーの項目(連絡帳・日誌など)を押したら、自動でサイドバーを閉じる
-  const _sideNav = (...a) => { try { if (window.innerWidth < 768) setIsSidebarOpen(false); } catch {} navigateTo(...a); };
+  const _sideNav = (...a) => { try { if (tsuViewW() < 768) setIsSidebarOpen(false); } catch {} navigateTo(...a); };
   const navigateTo = (view, patientId = null, focus = null) => {
     if (view !== 'master' && view !== 'ticket') { try { sessionStorage.removeItem('tsumugiPFOrigin'); } catch {} }
     const isDirty = (currentView === 'record' && recordDirtyRef.current) ||
@@ -24065,7 +24088,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const [searchQuery, setSearchQuery] = useState('');
   const [patientInfoModal, setPatientInfoModal] = useState(null); // masterData object
   // ★ 2026-10-07(店舗報告: スマホ縦で基準値の欄が大きく、入力欄が狭くなる): スマホ幅は最初から「正常範囲だけの1行」にする(押すと詳しく開く)
-  const [vitalCollapsed, setVitalCollapsed] = useState(() => { try { return window.innerWidth < 640; } catch { return false; } });
+  const [vitalCollapsed, setVitalCollapsed] = useState(() => { try { return tsuViewW() < 640; } catch { return false; } });
   const [isFullscreen, setIsFullscreen] = useState(false);
   // ★ 2026-10-11: 全画面(画面全体を覆う)を一瞬で外すと、iPad では下の見出し・上部の帯が古い描画のまま白く残ることがある。0.3秒かけて薄くしてから外す
   const [fsClosing, setFsClosing] = useState(false);
@@ -31962,7 +31985,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
 
   const renderKaikin = (k, getSD) => {
     // ★ 横6列まで。 左→右に1〜6位、はみ出たら次の行へ (行が増える)
-    const N_COLS = (typeof window!=='undefined' && window.innerWidth < 640) ? 2 : (typeof window!=='undefined' && window.innerWidth < 1024) ? 3 : 6;
+    const N_COLS = (typeof window!=='undefined' && tsuViewW() < 640) ? 2 : (typeof window!=='undefined' && tsuViewW() < 1024) ? 3 : 6;
     return (
       <div style={{display:'grid',gridTemplateColumns:`repeat(${N_COLS},minmax(0,1fr))`,columnGap:24}}>
         {k.map(({patient,days},idx) => (
@@ -31983,7 +32006,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         <div className="tsu-dash-hdr" style={{background:'linear-gradient(135deg,#fed7aa,#fdba74)',color:'#1e293b',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',rowGap:8,columnGap:8}}>
         {/* ★ 2026-10-08: スマホは見出し(画面の題名と重複)を省き、部品の高さをそろえる(CSS tsu-dash-hdr) */}
         <div className="tsu-dash-sub" style={{display:'flex',alignItems:'center',gap:10,flexShrink:0,whiteSpace:'nowrap'}}><TrendingUp size={20}/><span style={{fontSize:17,fontWeight:'bold'}}>分析（稼働）</span></div>
-        <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',justifyContent:(typeof window!=='undefined'&&window.innerWidth<768)?'flex-start':'flex-end',order:(typeof window!=='undefined'&&window.innerWidth<768)?3:0,flexBasis:(typeof window!=='undefined'&&window.innerWidth<768)?'100%':'auto',flexGrow:1}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',justifyContent:(typeof window!=='undefined'&&tsuViewW()<768)?'flex-start':'flex-end',order:(typeof window!=='undefined'&&tsuViewW()<768)?3:0,flexBasis:(typeof window!=='undefined'&&tsuViewW()<768)?'100%':'auto',flexGrow:1}}>
           {/* ★ 2026-10-08(ユーザー要望: スマホで3段→少なく): スマホは期間を選択欄に、同じ月の表示(1ヶ月のとき)は出さない */}
           <select className="tsu-period-sel" value={period} onChange={e=>{setPeriod(e.target.value);setOpenDow(null);}} aria-label="期間">
             {[['1','1ヶ月'],['3','3ヶ月'],['6','半年'],['12','1年'],['custom','期間指定']].map(([v,l])=><option key={v} value={v}>{l}</option>)}
@@ -32412,7 +32435,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         {/* 2. 曜日別稼働率 — 曜日カード形式 (3日ずつ 2ページに分割) */}
         <div id="ops-dow" data-sec="ops-dow" style={{scrollMarginTop:170}}/>
         <Card title="曜日別稼働率（前半）" accent='#8b5cf6'>
-          <div style={{display:'grid',gridTemplateColumns:`repeat(${(typeof window!=='undefined'&&window.innerWidth<768)?1:3},minmax(0,1fr))`,gap:10}}>
+          <div style={{display:'grid',gridTemplateColumns:`repeat(${(typeof window!=='undefined'&&tsuViewW()<768)?1:3},minmax(0,1fr))`,gap:10}}>
             {dowStats.slice(0,3).map(d => {
               const dayLabel = `${d.dow}曜日`;
               const renderPats = (label, list, col) => {
@@ -32472,7 +32495,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         {dowStats.length > 3 && (<>
           <div id="ops-dow-2" data-sec="ops-dow-2" style={{scrollMarginTop:170}}/>
           <Card title="曜日別稼働率（後半）" accent='#8b5cf6'>
-            <div style={{display:'grid',gridTemplateColumns:`repeat(${(typeof window!=='undefined'&&window.innerWidth<768)?1:3},minmax(0,1fr))`,gap:10}}>
+            <div style={{display:'grid',gridTemplateColumns:`repeat(${(typeof window!=='undefined'&&tsuViewW()<768)?1:3},minmax(0,1fr))`,gap:10}}>
               {dowStats.slice(3,6).map(d => {
                 const dayLabel = `${d.dow}曜日`;
                 const renderPats = (label, list, col) => {
@@ -32583,7 +32606,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         <Card title={`出席率ランキング　${periodLabel}（${attRank.length}名）`} accent='#3b82f6'>
             {attRank.length===0 ? <div style={{color:'#64748b',fontSize:13,textAlign:'center',padding:'12px 0'}}>データなし</div> : (() => {
               // ★ 横列数は画面幅で可変(スマホは2列＝氏名がつぶれない)。 左→右順、はみ出たら次の行へ
-              const N_COLS = (typeof window!=='undefined' && window.innerWidth < 640) ? 2 : (typeof window!=='undefined' && window.innerWidth < 1024) ? 3 : 6;
+              const N_COLS = (typeof window!=='undefined' && tsuViewW() < 640) ? 2 : (typeof window!=='undefined' && tsuViewW() < 1024) ? 3 : 6;
               const list = showAllAtt ? attRank : attRank.slice(0,120);
               return (
                 <React.Fragment>
@@ -32610,7 +32633,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         <div id="ops-rank-abs" data-sec="ops-rank-abs" style={{scrollMarginTop:170,marginTop:12}}/>
         <Card title={`欠席率ランキング　${periodLabel}（${absRank.length}名）`} accent='#ef4444'>
             {absRank.length===0 ? <div style={{color:'#64748b',fontSize:13,textAlign:'center',padding:'12px 0'}}>データなし</div> : (() => {
-              const N_COLS = (typeof window!=='undefined' && window.innerWidth < 640) ? 2 : (typeof window!=='undefined' && window.innerWidth < 1024) ? 3 : 6;
+              const N_COLS = (typeof window!=='undefined' && tsuViewW() < 640) ? 2 : (typeof window!=='undefined' && tsuViewW() < 1024) ? 3 : 6;
               const list = showAllAbs ? absRank : absRank.slice(0,120);
               return (
                 <React.Fragment>
@@ -32640,7 +32663,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
             <div style={{textAlign:'center',color:'#64748b',fontSize:13,padding:'12px 0'}}>欠席理由の記録なし</div>
           ) : (() => {
             // ★ 横6列まで。 左→右に1〜6位、はみ出たら次の行へ
-            const N_COLS = (typeof window!=='undefined' && window.innerWidth < 640) ? 2 : (typeof window!=='undefined' && window.innerWidth < 1024) ? 3 : 6;
+            const N_COLS = (typeof window!=='undefined' && tsuViewW() < 640) ? 2 : (typeof window!=='undefined' && tsuViewW() < 1024) ? 3 : 6;
             const list = showAllReason ? reasonRank : reasonRank.slice(0,120);
             return (
               <React.Fragment>
@@ -35370,6 +35393,7 @@ const tsuInstallModalScrollGuard = () => {
   window.addEventListener('touchstart', (e) => { const t = e.touches && e.touches[0]; if (t) { _tx = t.clientX; _ty = t.clientY; } }, { passive: true });
   window.addEventListener('touchmove', (e) => {
     if (!e.cancelable || (e.touches && e.touches.length > 1)) return;
+    if (window.visualViewport && window.visualViewport.scale > 1.01) return; // ★ 2026-10-16: 指で拡大している間は止めない(拡大した画面を指で動かせるように)
     const t = e.touches && e.touches[0]; if (!t) return;
     const dx = _tx - t.clientX, dy = _ty - t.clientY; _tx = t.clientX; _ty = t.clientY;
     if (!dx && !dy) return;
@@ -35377,6 +35401,27 @@ const tsuInstallModalScrollGuard = () => {
   }, { passive: false });
 };
 if (typeof window !== 'undefined') tsuInstallModalScrollGuard();
+// ★ 2026-10-16(ユーザー要望「タブレットでもピンチイン・ピンチアウトできるように」): iPad もスマホと同じく指で拡大・縮小できるようにした(index.html の viewport)。
+//   iPad/iPhone は文字が16px未満の入力欄を押すと勝手に拡大し、戻らずに画面がはみ出す(2026-10-05 の不具合・それで iPad は拡大を止めていた)。
+//   それを防ぐため、拡大していない(等倍の)ときに入力欄に触れた瞬間だけ「拡大の上限=1倍」にし、欄を離れたら元(4倍)に戻す。
+//   指2本(ピンチ)が触れたらすぐ戻す。入力欄に文字を打っている間は指での拡大はできない
+let _tsuFocusZoomOn = false;
+const tsuInstallIosFocusZoomGuard = () => {
+  if (_tsuFocusZoomOn || typeof window === 'undefined' || typeof document === 'undefined' || !tsumugiIsIOS()) return; _tsuFocusZoomOn = true;
+  let locked = false, tm = null;
+  const set = (on) => { try { const m = document.querySelector('meta[name="viewport"]'); if (!m) return; const c = m.getAttribute('content') || '';
+    const nx = c.replace(/maximum-scale=[\d.]+/, on ? 'maximum-scale=1.0' : 'maximum-scale=4.0'); if (nx !== c) m.setAttribute('content', nx); locked = on; } catch {} };
+  const isField = (t) => { const el = t && t.nodeType === 1 ? t : (t && t.parentElement); return !!(el && el.closest && el.closest('input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="range"]):not([type="file"]),textarea,select,[contenteditable="true"]')); };
+  const zoomed = () => { const vv = window.visualViewport; return !!(vv && vv.scale > 1.01); };
+  const unlockLater = (ms) => { if (tm) clearTimeout(tm); tm = setTimeout(() => { tm = null; if (isField(document.activeElement)) { unlockLater(800); return; } set(false); }, ms); };
+  document.addEventListener('touchstart', (e) => {
+    if (e.touches && e.touches.length > 1) { if (tm) { clearTimeout(tm); tm = null; } if (locked) set(false); return; }
+    if (!zoomed() && isField(e.target)) { set(true); unlockLater(1500); }
+  }, { passive: true, capture: true });
+  document.addEventListener('focusin', (e) => { if (!zoomed() && isField(e.target)) { set(true); unlockLater(1500); } }, true);
+  document.addEventListener('focusout', () => { if (locked) unlockLater(400); }, true);
+};
+if (typeof window !== 'undefined') tsuInstallIosFocusZoomGuard();
 // ★ 2026-10-15(ユーザー報告「日誌の車で、各種設定は1号車・2号車だけなのに車の名前も出る。名前を変えても前の名前が残る」):
 //   車の欄は 9/12 に「名前」1つにまとめた(車種の欄は廃止)が、以前の車種(type)が残っている車がある。表示する名前は1つだけ:
 //   名前が「1号車」のような番号だけ(または空)で車種があれば車種(ユーザー指示「下に車の名前がある店舗は車の名前を優先」)、それ以外は名前。
@@ -38101,7 +38146,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
   const [nameSearch, setNameSearch] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileRosterOpen, setMobileRosterOpen] = useState(false); // ★ スマホは対象者一覧をスライドオーバー
-  const isMobileView = typeof window !== 'undefined' && window.innerWidth < 768;
+  const isMobileView = typeof window !== 'undefined' && tsuViewW() < 768;
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [values, setValues] = useState({});
   // ★ 数値入力用テンキー (提供記録入力と同じ DigitalKeypad)。 身長・体重・体力測定の各項目で使う。
@@ -39204,7 +39249,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   const [masterDowFilter, setMasterDowFilter] = useState([]); // '1_AM'等の「曜日_時間帯」トークン。空=全員
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [mobileRosterOpen, setMobileRosterOpen] = useState(false); // ★ スマホは名簿をスライドオーバー表示
-  const isMobileView = typeof window !== 'undefined' && window.innerWidth < 768;
+  const isMobileView = typeof window !== 'undefined' && tsuViewW() < 768;
   const [activeDetailTab, setActiveDetailTab] = useState('basic');
   // ★ 提供記録入力の「振替/休止」からジャンプしてきたら、サービス提供内容タブ→月間スケジュールへスクロール。
   React.useEffect(() => {
@@ -47376,7 +47421,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         <div className="flex flex-col items-center py-8 gap-8">
           {(() => {
             // ★ スマホは余白を詰めて1枚を画面いっぱいに (PCは従来の80px余白)
-            const _margin = window.innerWidth < 768 ? 12 : 80;
+            const _margin = tsuViewW() < 768 ? 12 : 80;
             const scale = Math.min(1, (window.innerWidth - _margin) / 794);
             const items = [];
             printPages.forEach(ap => {
@@ -54633,7 +54678,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 // === GeneralFaxView (各種連絡) ===
 function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview }) {
   // ★ 2026-10-08(ユーザー報告: スマホで初回ご利用報告の一覧が縦に長く画面を占める): 一覧は折りたたみ(人数の行だけ)。スマホは最初は閉じる
-  const [initRepOpen, setInitRepOpen] = React.useState(() => { try { return window.innerWidth >= 768; } catch { return true; } });
+  const [initRepOpen, setInitRepOpen] = React.useState(() => { try { return tsuViewW() >= 768; } catch { return true; } });
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
   // 下書き復元
@@ -56911,7 +56956,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full border-collapse text-xs tsu-sp-table" style={{minWidth: (typeof window !== 'undefined' && window.innerWidth < 768) ? 520 : 640}}>
+                    <table className="w-full border-collapse text-xs tsu-sp-table" style={{minWidth: (typeof window !== 'undefined' && tsuViewW() < 768) ? 520 : 640}}>
                       <thead><tr className="bg-slate-50">
                         <th className="border border-slate-300 px-1 py-1 font-bold" style={{width:120}}>日付</th>
                         <th className="border border-slate-300 px-1 py-1 font-bold" style={{width:90}}>担当者</th>
