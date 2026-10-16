@@ -43,6 +43,7 @@ import {
   getSyncLog,
   clearSyncLog,
   supabaseUploadSyncDiag,
+  supabaseListSyncDiag, // ★ 2026-10-17 データ保護(段階2): 管理局の端末一覧
   cloudUndoPush, cloudUndoList, cloudUndoDelete,
   supabaseLoadDiseaseMaster,
   supabaseSaveDiseaseMaster,
@@ -19021,6 +19022,69 @@ function GlobalAiPanel({ staffSession }) {
     </div>
   );
 }
+// ★ 2026-10-17 データ保護(段階2・設計書): 管理局「端末の更新状況」。各端末が60秒ごとに送る同期診断(端末名|版・証の有無)から、
+//   店舗ごとに「どの端末が・どの版で・いつ最後に動いていて・証を持っているか」を一覧にする。制限(段階3)をかける前に、
+//   全店の端末が証を持っているか本部がここで確かめる。
+function HqDevicePanel({ stores }) {
+  const [rows, setRows] = React.useState(null);
+  const [showOld, setShowOld] = React.useState(false);
+  const load = React.useCallback(async () => { setRows(null); try {
+    // 自動テスト(VITE_E2E_DEMO=1 のビルドのみ・本番では空): window.__tsumugiE2E.syncDiag があればそれを使う
+    const mock = (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && window.__tsumugiE2E && window.__tsumugiE2E.syncDiag) || null;
+    setRows(mock || await supabaseListSyncDiag()); } catch { setRows([]); } }, []);
+  React.useEffect(() => { load(); }, [load]);
+  const now = Date.now();
+  const RECENT = 14 * 24 * 60 * 60 * 1000;
+  const ago = (t) => { const m = Math.max(0, Math.round((now - t) / 60000)); if (m < 60) return `${m}分前`; const h = Math.round(m / 60); if (h < 48) return `${h}時間前`; return `${Math.round(h / 24)}日前`; };
+  const verLabel = (v) => String(v || '').replace(/^upd-\d{4}-\d{4}-/, '') || '不明';
+  const byStore = new Map((rows || []).map(r => [r.storeId, r.devices]));
+  const list = (stores || []).map(st => { const all = byStore.get(String(st.id)) || []; const devs = showOld ? all : all.filter(d => now - d.at < RECENT); return { st, devs, ok: devs.filter(d => d.sb === true).length }; });
+  const totalDev = list.reduce((a, x) => a + x.devs.length, 0), totalOk = list.reduce((a, x) => a + x.ok, 0);
+  const sbCell = (d) => d.sb === true ? <span style={{color:'#15803d',fontWeight:'bold'}}>証あり</span>
+    : d.sb === false ? <span style={{color:'#b45309',fontWeight:'bold'}}>証なし（ログインし直し）</span>
+    : <span style={{color:'#b91c1c',fontWeight:'bold'}}>古い版（証なし）</span>;
+  return (
+    <div style={{background:'white',borderRadius:16,padding:24,marginBottom:16,boxShadow:'0 4px 16px rgba(0,0,0,0.06)'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:8}}>
+        <div style={{fontSize:16,fontWeight:'bold',color:'#3d5021'}}>端末の更新状況 {rows && <span style={{fontSize:13,color:'#64748b',fontWeight:'normal'}}>（直近{showOld?'30':'14'}日に動いた端末 {totalDev} 台のうち 証あり {totalOk} 台）</span>}</div>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          <label style={{fontSize:12,color:'#475569',display:'flex',alignItems:'center',gap:4,cursor:'pointer'}}><input type="checkbox" checked={showOld} onChange={e=>setShowOld(e.target.checked)}/>30日前まで表示</label>
+          <button onClick={load} style={{padding:'6px 12px',background:'white',color:'#3d5021',border:'1px solid #94c456',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>再読込</button>
+        </div>
+      </div>
+      <div style={{fontSize:12,color:'#64748b',lineHeight:1.6,marginBottom:12}}>
+        各端末は動いている間、1分ごとに「端末名・アプリの版・証の有無」を知らせます。データ保護の制限（段階3）をかける前に、全店の端末が「証あり」になっていることをここで確かめます。
+        「古い版」はアプリの更新が届いていない端末（更新のお知らせから更新するか、再読み込み）。「証なし」は新しい版だがログインし直していない端末です。
+      </div>
+      {rows === null ? <div style={{textAlign:'center',padding:24,color:'#64748b'}}><BusySpin/>読込中...</div> : (
+        <div style={{display:'grid',gap:10}}>
+          {list.map(({ st, devs, ok }) => (
+            <div key={st.id} style={{border:'1px solid #e2e8f0',borderRadius:12,padding:'10px 14px'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                <div style={{fontWeight:'bold',color:'#1e293b',fontSize:14}}>{st.name}</div>
+                <div style={{fontSize:12,fontWeight:'bold',color: devs.length && ok === devs.length ? '#15803d' : devs.length ? '#b45309' : '#64748b'}}>{devs.length ? `証あり ${ok} / ${devs.length} 台` : '直近の端末なし'}</div>
+              </div>
+              {devs.length > 0 && (
+                <div style={{overflowX:'auto',marginTop:6}}>
+                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                    <thead><tr style={{color:'#64748b',textAlign:'left'}}><th style={{padding:'4px 6px',fontWeight:'normal'}}>端末名</th><th style={{padding:'4px 6px',fontWeight:'normal'}}>版</th><th style={{padding:'4px 6px',fontWeight:'normal'}}>最後に動いた</th><th style={{padding:'4px 6px',fontWeight:'normal'}}>証</th></tr></thead>
+                    <tbody>{devs.map(d => (
+                      <tr key={d.tag} style={{borderTop:'1px solid #f1f5f9'}}>
+                        <td style={{padding:'5px 6px',color:'#1e293b',fontWeight:'bold',whiteSpace:'nowrap'}}>{d.name}</td>
+                        <td style={{padding:'5px 6px',color:'#475569',fontFamily:'monospace',whiteSpace:'nowrap'}}>{verLabel(d.ver)}</td>
+                        <td style={{padding:'5px 6px',color:'#475569',whiteSpace:'nowrap'}}>{ago(d.at)}</td>
+                        <td style={{padding:'5px 6px',whiteSpace:'nowrap'}}>{sbCell(d)}</td>
+                      </tr>))}</tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 function SystemNoticesPanel({ stores, staffSession }) {
   const [notices, setNotices] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
@@ -19270,7 +19334,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
   // ★ 管理局コンソールの見やすさ改善(2026-08-18): 店舗検索・セクションジャンプ・ガイダンス折りたたみ
   const [storeQuery, setStoreQuery] = useState('');
   const [loginInfoOpen, setLoginInfoOpen] = useState(false);
-  const _secNotices = React.useRef(null), _secStores = React.useRef(null), _secPolicy = React.useRef(null), _secMaster = React.useRef(null), _secAi = React.useRef(null), _secGuide = React.useRef(null);
+  const _secNotices = React.useRef(null), _secStores = React.useRef(null), _secPolicy = React.useRef(null), _secMaster = React.useRef(null), _secAi = React.useRef(null), _secGuide = React.useRef(null), _secDevices = React.useRef(null);
   const _jump = (ref) => { try { ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {} };
 
   const handleCreateStore = async (e) => {
@@ -19372,7 +19436,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
         </div>
         {/* ★ セクションジャンプ(2026-08-18): 店舗が増えても下の方のパネルへすぐ移動できる */}
         <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:16,position:'sticky',top:8,zIndex:20}}>
-          {[['本部の手順書',_secGuide],['お知らせ管理',_secNotices],['店舗一覧',_secStores],['外部サービス設定',_secAi],['同意ポリシー',_secPolicy],['傷病名マスタ',_secMaster]].map(([lb,ref])=>(
+          {[['本部の手順書',_secGuide],['お知らせ管理',_secNotices],['端末の更新状況',_secDevices],['店舗一覧',_secStores],['外部サービス設定',_secAi],['同意ポリシー',_secPolicy],['傷病名マスタ',_secMaster]].map(([lb,ref])=>(
             <button key={lb} onClick={()=>_jump(ref)} style={{padding:'6px 14px',background:'rgba(255,255,255,0.92)',color:'#3d5021',border:'1px solid #94c456',borderRadius:999,fontSize:12,fontWeight:'bold',cursor:'pointer',boxShadow:'0 1px 4px rgba(0,0,0,0.08)'}}>{lb}</button>
           ))}
         </div>
@@ -19383,6 +19447,10 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
         {/* システムお知らせ管理 */}
         <div ref={_secNotices} style={{scrollMarginTop:56}}>
         <SystemNoticesPanel stores={stores} staffSession={staffSession}/>
+        </div>
+        {/* ★ 2026-10-17 データ保護(段階2): 端末の更新状況 */}
+        <div ref={_secDevices} style={{scrollMarginTop:56}}>
+        <HqDevicePanel stores={stores}/>
         </div>
         {/* 店舗一覧 */}
         <div ref={_secStores} style={{background:'white',borderRadius:16,padding:24,marginBottom:16,boxShadow:'0 4px 16px rgba(0,0,0,0.06)',scrollMarginTop:56}}>
@@ -22888,6 +22956,10 @@ export default function App() {
   // Supabase 未接続時: 環境変数設定を促す画面
   // ★ VITE_E2E_DEMO=1 (CIの自動テストビルド専用・本番Vercelには未設定) のときだけこの壁を外し、
   //   旧来のローカルモード(端末内データのみ・ログイン不要)で起動して画面操作テストを可能にする(2026-09-02)
+  // ★ 自動テスト(VITE_E2E_DEMO=1 のビルドのみ・本番では空): 管理局「端末の更新状況」パネルを単体で表示する入口(2026-10-17)
+  if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.location.hash === '#hqdevices') {
+    return <div style={{padding:24,background:'#f0f7e0',minHeight:'100vh'}}><HqDevicePanel stores={(window.__tsumugiE2E && window.__tsumugiE2E.stores) || []}/></div>;
+  }
   if (!isSupabaseEnabled && !session && String(import.meta.env.VITE_E2E_DEMO || '') !== '1') {
     return (
       <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:24,background:'#f4f8ed'}}>

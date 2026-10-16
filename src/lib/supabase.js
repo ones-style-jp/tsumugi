@@ -62,16 +62,32 @@ export function clearSyncLog() { try { localStorage.removeItem(_SYNCLOG_KEY); } 
 export async function supabaseUploadSyncDiag(storeId, deviceTag) {
   if (!supabase || !storeId) return false;
   try {
-    const logs = getSyncLog().slice(-60);
-    if (!logs.length) return false;
+    const logs = getSyncLog().slice(-60); // ★ 2026-10-17: 記録が無くても送る(端末の生存確認と証の有無を管理局で見るため)
     const tag = String(deviceTag || 'unknown').slice(0, 80);
+    const sb = !!(_sbJwt && _sbJwtExp > Date.now()); // ★ 2026-10-17 データ保護(段階2): この端末が Supabase の証を持っているか
     const r = await supabaseCasUpdate(`diag_${storeId}`, (cur) => {
       const d = (cur && typeof cur === 'object') ? { ...cur } : {};
-      d[tag] = { at: Date.now(), logs };
+      const now = Date.now();
+      for (const k of Object.keys(d)) { const at = Number(d[k] && d[k].at); if (!at || now - at > 30 * 24 * 60 * 60 * 1000) delete d[k]; } // 30日見ていない端末の控えは消す(行が太らないように)
+      d[tag] = { at: now, logs, sb };
       return d;
     }, { maxRetries: 1 });
     return !!(r && r.ok);
   } catch { return false; }
+}
+// ★ 2026-10-17 データ保護(段階2): 管理局用。全店の diag_ 行を読み、店舗ごとの端末一覧 [{storeId, devices:[{tag,name,ver,at,sb}]}] にする
+export async function supabaseListSyncDiag() {
+  if (!supabase) return [];
+  const { data, error } = await supabase.from('app_state').select('key, data').like('key', 'diag_%');
+  if (error || !Array.isArray(data)) return [];
+  return data.map(row => {
+    const storeId = String(row.key || '').slice(5);
+    const d = (row.data && typeof row.data === 'object') ? row.data : {};
+    const devices = Object.keys(d).map(tag => { const v = d[tag] || {}; const i = tag.lastIndexOf('|');
+      return { tag, name: i >= 0 ? tag.slice(0, i) : tag, ver: i >= 0 ? tag.slice(i + 1) : '', at: Number(v.at) || 0, sb: (typeof v.sb === 'boolean') ? v.sb : null }; })
+      .sort((a, b) => b.at - a.at);
+    return { storeId, devices };
+  });
 }
 // ★ 操作ログ方式へ移行済みのキー。 巨大JSON側では読み取り専用(スナップショット)として扱う。
 export const OPLOG_FROZEN_KEYS = new Set(['ticketRecords']);  // ★プレビュー検証(preview-table2): 提供記録はテーブルが正・巨大JSON側は凍結(テーブルが読めた端末のみ)
