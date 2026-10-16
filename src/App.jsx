@@ -1871,6 +1871,7 @@ const ImeSafeInput = React.forwardRef(function ImeSafeInput({ value, onChange, o
 //     以前は1文字ごとに保存→店舗データ全体(約1.8MB)を毎回送っており、時間を打つだけで通信が詰まり他端末の保存が失敗していた。
 const TpTimeInput = ({ value, onCommit, normalize, ...rest }) => {
   const [draft, setDraft] = React.useState(null);
+  const dashRef = React.useRef(null); // ★ 2026-10-16(ユーザー報告「8:-- のようになっていて、消さないと数字を入れられない」): 「--」の欄は押すと空にして、元の値は薄く見せる
   const composing = React.useRef(false);
   const timer = React.useRef(null);
   const lastSent = React.useRef(null);
@@ -1880,7 +1881,8 @@ const TpTimeInput = ({ value, onCommit, normalize, ...rest }) => {
   React.useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   const shown = draft !== null ? draft : String(value ?? '');
   return <input type="text" inputMode="numeric" pattern="[0-9]*" enterKeyHint="done" autoComplete="off" {...rest} value={shown}
-    onFocus={(e) => { lastSent.current = null; setDraft(e.target.value); }}
+    placeholder={draft === '' && dashRef.current ? dashRef.current : rest.placeholder}
+    onFocus={(e) => { lastSent.current = null; const v0 = e.target.value; const dash = /--/.test(v0); dashRef.current = dash ? v0 : null; setDraft(dash ? '' : v0); }}
     /* ★ 2026-10-02(ユーザー報告「８３０と打ったら308:30になる」): 打っている間は値を一切整えない(全角→半角の置換も変換中の文字が
        残って二重になる原因)。整えるのは保存するときだけ(1.2秒後の自動保存・欄を離れたとき)。表示は欄を離れたときに整った形になる */
     onChange={(e) => { const v = e.target.value; setDraft(v); if (composing.current || (e.nativeEvent && e.nativeEvent.isComposing)) return; schedule(v); }}
@@ -1889,7 +1891,7 @@ const TpTimeInput = ({ value, onCommit, normalize, ...rest }) => {
     /* ★ 2026-10-02(ユーザー報告・PCの全角入力で「８３０」→「8308:30」): 日本語入力の変換を確定する Enter(keyCode 229・変換中)で欄を
        離れてしまい、整えた値の後ろに確定文字が足されていた。変換中の Enter は無視し、確定後の Enter だけで欄を離れる */
     onKeyDown={(e) => { if (e.key === 'Enter' && !composing.current && !(e.nativeEvent && e.nativeEvent.isComposing) && e.keyCode !== 229) e.currentTarget.blur(); }}
-    onBlur={(e) => { composing.current = false; const f = norm(e.target.value, true); setDraft(null); commit(f); }} />;
+    onBlur={(e) => { composing.current = false; const f = norm(e.target.value, true); setDraft(null); const keep = dashRef.current && f === ''; dashRef.current = null; if (keep) return; commit(f); }} />;
 };
 // ★ 2026-10-01(試験版・ユーザー要望「再読み込み中や何かの動作で画面が固まっている時は分かりやすくアニメーションを」):
 //   処理中・読み込み中の共通の回る輪。文字の大きさ・色に合わせて回る(見た目は src/index.css の .tsumugi-busy-spin)。
@@ -25045,6 +25047,22 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
 
   // ★ テンキー(点キー)の表示ON/OFF。 OFFの店舗ではセルを直接キーボードで入力する。
   const _keypadOn = (appData.systemSettings?.keypadDisabled !== true);
+  // ★ 2026-10-16(ユーザー要望「スマホで利用者が多いと、どこだっけとスクロールするのが大変」): 上部の「利用者」から選ぶと、その方のカードへ移る
+  const [recJump, setRecJump] = useState(null); // null=閉じる / { top, q }
+  const [recFlash, setRecFlash] = useState(null);
+  const _recKana = (t) => String(t || '').replace(/[\u3041-\u3096]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 0x60)).replace(/[\s　]/g, '');
+  const openRecJump = () => { const pin = document.querySelector('.tsu-pin'); const top = pin ? Math.round(pin.getBoundingClientRect().bottom) : 96; setRecJump(v => v ? null : { top, q: '' }); };
+  const jumpToRecCard = (id) => {
+    setRecJump(null);
+    setTimeout(() => {
+      const el = document.querySelector(`[data-rec-card="${id}"]`); if (!el) return;
+      const pin = document.querySelector('.tsu-pin'); const off = (pin ? pin.getBoundingClientRect().bottom : 96) + 8;
+      let sc = el.parentElement; while (sc && sc !== document.body && sc !== document.documentElement) { const st = getComputedStyle(sc); if (/(auto|scroll)/.test(st.overflowY) && sc.scrollHeight > sc.clientHeight + 1) break; sc = sc.parentElement; }
+      const dy = el.getBoundingClientRect().top - off;
+      if (sc && sc !== document.body && sc !== document.documentElement) sc.scrollBy({ top: dy, behavior: 'smooth' }); else window.scrollBy({ top: dy, behavior: 'smooth' });
+      setRecFlash(id); setTimeout(() => setRecFlash(f => (f === id ? null : f)), 1800);
+    }, 30);
+  };
   const openKeypad = (recordId, field, currentValue, isAbsent, force, reopen) => {
     if (isAbsent || (!_keypadOn && !force)) return;
     // ★ 2026-10-15(ユーザー要望): テンキーが出ているセルをもう一度押したら閉じる(閉じるボタンと同じ扱い)。reopen=開き直し(○の後など)は閉じない
@@ -25719,11 +25737,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
         <div className="flex rounded-lg overflow-hidden border border-slate-300 shrink-0">
           {['AM','PM'].map(v=>(<button key={v} type="button" onClick={()=>setTimeFilter(v)} className={`px-2 h-10 text-sm font-bold ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600'}`}>{v}</button>))}
         </div>
+        {/* ★ 2026-10-16: 利用者を選んでそのカードへ移る */}
+        <button type="button" data-testid="rec-fold-jump" onClick={openRecJump} aria-expanded={!!recJump} className={`shrink-0 h-10 px-2 rounded-lg text-sm font-bold border ${recJump ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-700 border-slate-300'}`}>利用者</button>
         {/* ★ 2026-10-08(ユーザー要望): 出席・欠席などの人数も1行目に(小さく2段)。連絡帳は「操作」の中へ */}
-        {attCounts && (() => { const defs = [['出席','#1e40af','#dbeafe'],['欠席','#991b1b','#fee2e2'],['振替','#166534','#dcfce7'],['臨時','#155e75','#cffafe'],['休止','#9a3412','#ffedd5'],['休業','#475569','#f1f5f9']].filter(([l]) => (attCounts[l]||0) > 0); if (!defs.length) return null; return (
-          <div data-testid="rec-fold-att" className="min-w-0 overflow-hidden" style={{display:'grid',gridTemplateRows:'repeat(2, auto)',gridAutoFlow:'column',gap:'1px 3px'}}>
-            {defs.map(([l,fg,bg]) => <span key={l} style={{background:bg,color:fg,borderRadius:5,padding:'0 4px',fontSize:10,fontWeight:'bold',whiteSpace:'nowrap',lineHeight:1.45}}>{l}{attCounts[l]}</span>)}
-          </div>); })()}
+        {/* ★ 2026-10-16: 1行目に「利用者」を入れたので、出席・欠席などの人数は「利用者」の一覧の上に移した(1行目では潰れて読めないため) */}
         <button type="button" data-testid="rec-fold-save" onClick={()=>handleSaveClick(false)} className="shrink-0 h-10 px-2 rounded-xl bg-blue-600 text-white text-sm font-bold ml-auto">保存</button>
       </>); })()}>
       <>
@@ -25862,6 +25879,28 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             </div>
       </div>
       {_vitalPanel}
+      {/* ★ 2026-10-16: スマホの「利用者」一覧(押すとその方のカードへ)。名前・ふりがなで探せる */}
+      {recJump && ReactDOM.createPortal((
+        <div className="fixed inset-x-0 bottom-0" style={{ top: recJump.top, zIndex: 9000 }} data-testid="rec-jump">
+          <div className="absolute inset-0 bg-slate-900/40" onClick={() => setRecJump(null)} />
+          <div className="relative bg-white border-b border-slate-300 shadow-xl flex flex-col" style={{ maxHeight: '70vh' }}>
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200">
+              <input type="search" value={recJump.q} onChange={e => { const v = e.target.value; setRecJump(o => o ? { ...o, q: v } : o); }} placeholder="名前で探す" data-testid="rec-jump-q" className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-[16px] outline-none" />
+              <button type="button" onClick={() => setRecJump(null)} className="shrink-0 px-3 py-2 rounded-lg bg-slate-200 text-slate-700 text-sm font-bold">閉じる</button>
+            </div>
+            {attCounts && (() => { const defs = [['出席','#1e40af','#dbeafe'],['欠席','#991b1b','#fee2e2'],['振替','#166534','#dcfce7'],['臨時','#155e75','#cffafe'],['休止','#9a3412','#ffedd5'],['休業','#475569','#f1f5f9']].filter(([l]) => (attCounts[l]||0) > 0); if (!defs.length) return null; return (
+              <div data-testid="rec-jump-att" className="flex flex-wrap gap-1.5 px-3 pt-2">{defs.map(([l,fg,bg]) => <span key={l} style={{background:bg,color:fg,borderRadius:6,padding:'1px 8px',fontSize:13,fontWeight:'bold'}}>{l} {attCounts[l]}</span>)}</div>); })()}
+            <div className="overflow-y-auto p-2 grid grid-cols-2 gap-1.5" data-testid="rec-jump-list">
+              {(() => { const q = _recKana(recJump.q); const list = (displayRecords || []).filter(r => { if (!q) return true; const mp = (appData.patients||[]).find(pt => pt.id === r.patientId || pt.id === r.id) || {}; return _recKana(r.name).includes(q) || _recKana(mp.kana).includes(q); });
+                if (!list.length) return <div className="col-span-2 text-center text-[14px] text-slate-400 py-4">見つかりません</div>;
+                return list.map(r => { const st = r.status || '出席'; const off = st === '欠席' || st === '休業' || st === '休止'; return (
+                  <button key={r.id} type="button" data-testid="rec-jump-item" onClick={() => jumpToRecCard(r.id)} className={`min-h-[48px] px-2.5 py-1.5 rounded-lg border text-left flex items-center gap-1.5 ${off ? 'bg-slate-50 border-slate-200 text-slate-400' : 'bg-white border-slate-300 text-slate-800'}`}>
+                    <span className="flex-1 min-w-0 truncate text-[16px] font-bold">{r.name}</span>
+                    {st !== '出席' ? <span className="shrink-0 text-[11px] font-bold rounded px-1.5 py-0.5 bg-slate-100 text-slate-600">{st}</span> : null}
+                  </button>); }); })()}
+            </div>
+          </div>
+        </div>), document.body)}
       </>
       </TsuPhoneFold>
       ) : (
@@ -26020,7 +26059,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             const vBuSt=p[`bpUpSt_${tf}`]||'', vBdSt=p[`bpDnSt_${tf}`]||'';
             const vBuEn=p[`bpUpEn_${tf}`]||'', vBdEn=p[`bpDnEn_${tf}`]||'';
             return (
-              <div key={`m-${p.id}`} className={`bg-white rounded-xl border-2 shadow-sm p-3 ${isAbsent||isPause?'border-slate-200 opacity-70':'border-slate-300'}`}>
+              <div key={`m-${p.id}`} data-rec-card={p.id} className={`bg-white rounded-xl border-2 shadow-sm p-3 transition-shadow ${isAbsent||isPause?'border-slate-200 opacity-70':'border-slate-300'} ${recFlash===p.id?'ring-4 ring-amber-400':''}`}>
                 <div className="flex items-center justify-between gap-2 mb-2.5">
                   <button onClick={()=>setPatientInfoModal(masterData)} className="font-bold text-base text-slate-800 flex items-center gap-1 min-w-0"><span className="truncate">{p.name}</span><span className="text-[10px] text-blue-500 shrink-0">ⓘ</span></button>
                   <button type="button" onClick={()=>setZoomPid(p.id)} title="この方だけを大きな文字で入力します" className="shrink-0 text-teal-600 hover:text-teal-800 bg-teal-50 border border-teal-200 rounded-md p-1.5" style={{lineHeight:0}}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><line x1="15.6" y1="15.6" x2="21" y2="21"/><line x1="10.5" y1="8" x2="10.5" y2="13"/><line x1="8" y1="10.5" x2="13" y2="10.5"/></svg></button>
@@ -35384,7 +35423,9 @@ const tsuKpParse = (raw) => { const r = String(raw || '').replace(':', ''); if (
 const tsuKpShow = (v) => { const r = String(v || '').replace(':', ''); if (!r) return '__:__'; if (r.length <= 2) return r; if (r.length === 3) return parseInt(r.slice(0, 2), 10) <= 23 ? r.slice(0, 2) + ':' + r.slice(2) : '0' + r[0] + ':' + r.slice(1); return r.slice(0, 2) + ':' + r.slice(2); };
 function TsuTimeKeypad({ title, hint, initial, onCommit, onClose, suggest }) {
   const [v, setV] = React.useState(String(initial || '').replace(':', ''));
-  const add = (d) => setV(cur => d === 'DEL' ? cur.slice(0, -1) : (cur.length < 4 ? cur + d : cur));
+  // ★ 2026-10-15: すでに時間(目安など)が入っているときは、最初に押した数字で入れ直す(付け足さない)。⌫ を最初に押したら全部消す
+  const freshRef = React.useRef(!!String(initial || '').trim()); const [fresh, setFresh] = React.useState(freshRef.current);
+  const add = (d) => { if (freshRef.current) { freshRef.current = false; setFresh(false); setV(d === 'DEL' ? '' : d); return; } setV(cur => d === 'DEL' ? cur.slice(0, -1) : (cur.length < 4 ? cur + d : cur)); };
   const done = () => { if (v === '') { onCommit(''); return; } const t = tsuKpParse(v); if (t == null) { alert('時刻は 00:00〜23:59 の範囲で入力してください'); return; } onCommit(t); };
   const doneRef = React.useRef(done); doneRef.current = done;
   const closeRef = React.useRef(onClose); closeRef.current = onClose;
@@ -35395,8 +35436,9 @@ function TsuTimeKeypad({ title, hint, initial, onCommit, onClose, suggest }) {
       <div style={{ backgroundColor: 'white', borderRadius: 16, padding: 20, width: 240, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
         <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: 13, marginBottom: 6, color: '#333' }}>{title}</div>
         {hint ? <div style={{ textAlign: 'center', fontSize: 11, fontWeight: 'bold', color: '#475569', marginBottom: 6 }} data-testid="tsu-kp-hint">{hint}</div> : null}
-        {suggest && suggest.value ? <button type="button" data-testid="tsu-kp-suggest" onClick={() => setV(String(suggest.value).replace(':', ''))} style={{ width: '100%', marginBottom: 6, padding: '7px 4px', borderRadius: 8, border: '1px dashed #d97706', backgroundColor: '#fffbeb', color: '#92400e', fontWeight: 'bold', fontSize: 12, cursor: 'pointer' }}>{suggest.label}</button> : null}
-        <div style={{ fontSize: 32, fontWeight: 'bold', textAlign: 'center', letterSpacing: 4, marginBottom: 4, padding: '8px 0', border: '2px solid #1d4ed8', borderRadius: 8, color: '#1d4ed8', minHeight: 52 }}>{tsuKpShow(v)}</div>
+        {suggest && suggest.value ? <button type="button" data-testid="tsu-kp-suggest" onClick={() => { freshRef.current = false; setFresh(false); setV(String(suggest.value).replace(':', '')); }} style={{ width: '100%', marginBottom: 6, padding: '7px 4px', borderRadius: 8, border: '1px dashed #d97706', backgroundColor: '#fffbeb', color: '#92400e', fontWeight: 'bold', fontSize: 12, cursor: 'pointer' }}>{suggest.label}</button> : null}
+        <div data-testid="tsu-kp-val" data-fresh={fresh ? '1' : '0'} style={{ fontSize: 32, fontWeight: 'bold', textAlign: 'center', letterSpacing: 4, marginBottom: 4, padding: '8px 0', border: '2px solid #1d4ed8', borderRadius: 8, color: fresh ? '#93a8d8' : '#1d4ed8', minHeight: 52 }}>{tsuKpShow(v)}</div>
+        {fresh ? <div style={{ fontSize: 10, color: '#64748b', textAlign: 'center', marginBottom: 4 }}>数字を押すと入れ直せます（そのままなら「決定」）</div> : null}
         <div style={{ fontSize: 10, color: '#94a3b8', textAlign: 'center', marginBottom: 8 }}>PCのキーボード/テンキーでも入力できます（Enter=決定）</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 8 }}>
           {tsuKpDigits9().map(n => <button key={n} type="button" onClick={() => add(String(n))} style={btn}>{n}</button>)}
@@ -36196,6 +36238,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const [ordDrag, setOrdDrag] = useState(null); const ordDragRef = React.useRef(null); // ★ 2026-10-15: 送りの順番の一覧でつかんでいる方 {cid, pid, y0, dy, over}
   const [seatKp, setSeatKp] = useState(null); // ★ 2026-10-15: 送りの出発時間のテンキー {iso, sl, cid}
   const [arrKp, setArrKp] = useState(null); // ★ 2026-10-15: 迎えの到着時間のテンキー {iso, sl, cid}
+  const [seatView, setSeatView] = useState(null); // ★ 2026-10-15: スマホの送りの座席表(見るだけ) {iso, sl, cid}
   const performFurikaeMove = (pid, fromIso, fromSl, toIso, toSl, destZone, beforePid) => {
     const pt = (appData.patients||[]).find(x => x.id === pid); if (!pt) return;
     const fD = new Date(fromIso);
@@ -37285,11 +37328,23 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 {_baseOf(pl) && n ? <button type="button" data-testid={`tp-dl-chg-${sl}`} onClick={() => setChgPanel({ iso, sl })} className="text-[10px] text-white bg-red-600 rounded px-1.5 py-0.5 font-normal" title="押すと変更の一覧">{pl._final ? '確定後の変更' : '確定時からの変更'} {n}件 ▼</button> : null}
               </div>
               {!anyone ? <div className="px-3 py-2 text-[13px] text-slate-400">—</div> : (<>
-                {cars.map(c => { const ms = (pl.cars||{})[c.id] || []; const rmHere = ((_fin.cars||{})[c.id] || []).filter(m => m && _rmSet.has(String(m.pid)) && !ms.some(x => String(x.pid) === String(m.pid))); if (!ms.length && !rmHere.length) return null; const drv = (pl.driver||{})[c.id] || '';
-                  const rows = [...ms.map(m => ({ ...m, _rm: false })), ...rmHere.map(m => ({ ...m, _rm: true }))].sort((a, b) => _mins(a.t) - _mins(b.t)); return (
+                {cars.map(c => { const ms = (pl.cars||{})[c.id] || []; const rmHere = ((_fin.cars||{})[c.id] || []).filter(m => m && _rmSet.has(String(m.pid)) && !ms.some(x => String(x.pid) === String(m.pid)));
+                  // ★ 2026-10-15(ユーザー要望): 送りを座席表で決めた日は、車の名前・運転者の横に「送りの座席」(押すとその車の送りの座席表・見るだけ)。送りだけで使う車も見出しを出す
+                  const _dropMs = (pl.dropMode === 'custom' && pl.drop) ? ((pl.drop.cars||{})[c.id] || []) : [];
+                  if (!ms.length && !rmHere.length && !_dropMs.length) return null; const drv = (pl.driver||{})[c.id] || '';
+                  const rows = [...ms.map(m => ({ ...m, _rm: false })), ...rmHere.map(m => ({ ...m, _rm: true }))].sort((a, b) => _mins(a.t) - _mins(b.t));
+                  const _av = (pl.arrive||{})[c.id] || ''; const _au = !!_av && !!(pl.arriveAuto||{})[c.id]; return (
                   <div key={c.id}>
-                    <div className="px-3 py-1 text-[16px] font-bold text-slate-800 bg-slate-100 border-y border-slate-200">{c.name}{drv ? <span className="ml-3 text-[15px] text-slate-800"><span className="text-[12px] font-normal text-slate-500 mr-1">運転</span>{drv}</span> : null}</div>
+                    <div className="px-3 py-1 flex items-center gap-x-3 gap-y-1 flex-wrap text-[16px] font-bold text-slate-800 bg-slate-100 border-y border-slate-200"><span>{c.name}{!ms.length && !rmHere.length ? <span className="ml-1 text-[12px] font-normal text-slate-500">（送りだけ）</span> : null}</span>{drv ? <span className="text-[15px] text-slate-800"><span className="text-[12px] font-normal text-slate-500 mr-1">運転</span>{drv}</span> : null}
+                      {_dropMs.length ? <button type="button" data-testid={`tp-dl-seat-${iso}-${sl}-${c.id}`} onClick={() => setSeatView({ iso, sl, cid: c.id })} className="ml-auto shrink-0 text-[13px] font-bold text-white bg-indigo-600 rounded-lg px-2.5 py-1">送りの座席</button> : null}</div>
                     {rows.map(m => <Row key={`${m._rm?'rm-':''}${m.pid}`} m={m} pl={pl} sl={sl} rm={m._rm} />)}
+                    {/* ★ 2026-10-15(ユーザー要望「スマホでも到着を入れることがある」): その車の最後に、施設に到着(押すとテンキー)。自動計算・前週コピーの時間は「目安」 */}
+                    {ms.length ? (
+                      <div className="px-3 py-1.5 flex items-center gap-2 border-b border-slate-100 bg-slate-50" data-testid={`tp-dl-arrive-${iso}-${sl}-${c.id}`}>
+                        <span className="shrink-0 font-bold text-[14px] text-slate-600" style={{width:'7.5em'}}>施設に到着</span>
+                        <button type="button" data-testid={`tp-dl-arrive-btn-${iso}-${sl}-${c.id}`} data-auto={_au ? '1' : '0'} onClick={() => setArrKp({ iso, sl, cid: c.id })} className={`shrink-0 font-bold tabular-nums text-[19px] rounded-lg border-2 px-2 py-0.5 bg-white ${_au ? 'border-dashed border-amber-400 text-slate-400' : 'border-slate-300 text-slate-900'}`} style={{minWidth:'3.6em'}}>{_av || '—:—'}</button>
+                        {_au ? <span className="text-[11px] font-bold text-amber-800 bg-amber-100 rounded px-1.5">目安</span> : null}
+                      </div>) : null}
                   </div>); })}
                 {(pl.walkers||[]).length ? <div><div className="px-3 py-1 text-[13px] font-bold text-slate-700 bg-slate-100 border-y border-slate-200">徒歩</div>{(pl.walkers||[]).map(m => <Row key={m.pid} m={m} pl={pl} sl={sl} walk />)}</div> : null}
                 {(pl.others||[]).length ? <div><div className="px-3 py-1 text-[13px] font-bold text-slate-700 bg-slate-100 border-y border-slate-200">その他</div>{(pl.others||[]).map(m => <Row key={m.pid} m={m} pl={pl} sl={sl} />)}</div> : null}
@@ -37347,6 +37402,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                         {(pl.un||[]).length ? <div className="text-[11px] text-rose-700 font-bold">未割当 {(pl.un||[]).map(m => _pname(m.pid)).join('・')}</div> : null}
                       </div>
                     )}
+                    {/* ★ 2026-10-15: スマホは送りの座席表を見るだけ(車ごとに切り替え) */}
+                    {_tpPhone && anyone && pl.dropMode === 'custom' && pl.drop ? (
+                      <div className="px-2 pb-1"><button type="button" data-testid={`tp-fb-seatview-${iso}-${sl}`} onClick={() => setSeatView({ iso, sl, cid: (cars.find(x => ((pl.drop.cars||{})[x.id]||[]).length) || {}).id })} className="text-[11px] font-bold rounded px-1.5 py-0.5 bg-indigo-600 text-white">送りの座席表</button></div>) : null}
                     {/* ★ 2026-10-15(ユーザー要望「確定しても送りの座席は後で変えることがある」): 迎えは確定のまま、送りは確定後も座席表で変えられる */}
                     {!_tpPhone && anyone ? (
                       <div className="px-2 pb-1 flex items-center gap-2 flex-wrap">
@@ -37807,6 +37865,62 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       {arrKp && (() => { const c = cars.find(x => x.id === arrKp.cid) || {}; const r = _svcRangeTp(arrKp.sl); const pl0 = getPlan(arrKp.iso, arrKp.sl); return (
         <TsuTimeKeypad title={`${c.name || ''}　施設に到着した時間`} hint={r.s != null ? `${_hmTp(r.s)} までに到着（${r.unit}の開始）` : ''} initial={(pl0.arrive || {})[arrKp.cid] || ''}
           onClose={() => setArrKp(null)} onCommit={(v) => { if (setArrive(arrKp.iso, arrKp.sl, arrKp.cid, v) !== false) setArrKp(null); }}/>); })()}
+      {/* ★ 2026-10-15(ユーザー要望「スマホでも送りの各車の配置を見たい。スマホは閲覧用。車ごとにタップでその車の送りの座席表」): 見るだけ・1台ずつ(上で車を切り替え)。
+          下に送りの順番(住所=地図・電話=発信)。席・順番・運転者・出発を変えるのはパソコン・iPadの座席表 */}
+      {seatView && ReactDOM.createPortal((() => { const svIso = seatView.iso, svSl = seatView.sl; const pl = getPlan(svIso, svSl); const dr = (pl.dropMode === 'custom' && pl.drop) ? pl.drop : null;
+        const dcars = dr ? cars.filter(x => ((dr.cars||{})[x.id]||[]).length) : [];
+        const c = dcars.find(x => x.id === seatView.cid) || dcars[0];
+        const d0 = new Date(svIso + 'T00:00:00'); const dl = `${d0.getMonth()+1}/${d0.getDate()}（${DOWJ[d0.getDay()]}）`;
+        const list = c ? ((dr.cars||{})[c.id]||[]) : []; const lay = c ? tpSeatLayout(c, list) : null;
+        const cell = (seat, label) => { const bb = lay.bySeat[seat]; return (
+          <div key={seat} className={`relative rounded-lg border-2 min-h-[54px] flex items-center gap-1.5 px-1.5 pt-3 pb-1 ${bb ? 'border-slate-500 bg-white' : 'border-dashed border-slate-300 bg-slate-50'}`} data-testid={`tp-sv-seat-${seat}`}>
+            {label ? <span className="absolute top-0 left-1 text-[9px] font-bold text-slate-400">{label}</span> : null}
+            {bb ? <><span className="shrink-0 w-6 h-6 rounded-full bg-indigo-600 text-white text-[12px] font-bold flex items-center justify-center">{bb.i + 1}</span><span className="min-w-0 text-[13px] font-bold text-slate-800 leading-tight">{tpNameLines(_pname(bb.m.pid)).map((x, j) => <span key={j} className="block truncate">{x}</span>)}</span></> : <span className="w-full text-center text-[11px] text-slate-400">空き</span>}
+          </div>); };
+        const ptOf = (pid) => (appData.patients||[]).find(x => x.id === pid) || {};
+        let k = 1; const dep = c ? ((dr.depart||{})[c.id] || '') : ''; const depAuto = !!(c && dep && (dr.departAuto||{})[c.id]); const drv = c ? ((dr.driver||{})[c.id] || '') : ''; const memo = c ? ((dr.carMemo||{})[c.id] || '') : '';
+        return (
+        <div className="fixed inset-0 bg-white flex flex-col" style={{ zIndex: 10000 }} data-testid="tp-seat-view">
+          <div className="flex items-center gap-2 px-3 pb-2 border-b border-slate-200" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 8px)' }}>
+            <button type="button" onClick={() => setSeatView(null)} data-testid="tp-sv-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 text-slate-700 rounded-lg text-sm font-bold"><ChevronLeft size={16}/>閉じる</button>
+            <span className="text-[15px] font-bold text-slate-800">送りの座席表</span>
+            <span className={`ml-auto text-[12px] font-bold rounded px-2 py-0.5 whitespace-nowrap ${svSl === 'AM' ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800'}`}>{dl} {svSl === 'AM' ? 'AM送り' : 'PM送り'}</span>
+          </div>
+          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}>
+            {!c ? <div className="text-[14px] text-slate-500">この時間帯の送りは、座席表で決めていません（迎えと同じ）。</div> : (<>
+              {dcars.length > 1 ? <div className="flex gap-1.5 flex-wrap" data-testid="tp-sv-cars">{dcars.map(x => <button key={x.id} type="button" onClick={() => setSeatView({ iso: svIso, sl: svSl, cid: x.id })} className={`px-3 py-1.5 rounded-lg text-[14px] font-bold border ${x.id === c.id ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-700 border-slate-300'}`}>{x.name}</button>)}</div> : null}
+              <div className="flex items-baseline gap-x-3 gap-y-1 flex-wrap">
+                <span className="text-[18px] font-bold text-slate-900">{c.name}</span>
+                <span className="text-[14px] text-slate-700"><span className="text-[12px] text-slate-500 mr-1">運転</span><b>{drv || '未選択'}</b></span>
+                <span className="text-[14px] text-slate-700" data-testid="tp-sv-depart"><span className="text-[12px] text-slate-500 mr-1">出発</span><b className={depAuto ? 'text-slate-400' : ''}>{dep || '—:—'}</b>{depAuto ? <span className="ml-1 text-[10px] font-bold text-amber-800 bg-amber-100 rounded px-1">目安</span> : null}</span>
+              </div>
+              <div className="relative bg-white border-[3px] border-slate-700 px-2 pb-2.5 pt-6 flex flex-col gap-2" style={{ borderRadius: '34px 34px 12px 12px' }} data-testid="tp-sv-car">
+                <span className="absolute top-1 w-9 h-3.5 rounded-t-full border-2 border-b-0 border-slate-700" style={{ right: 'calc(25% - 15px)' }} aria-hidden="true"/>
+                <div className="grid grid-cols-2 gap-2">
+                  {cell(0, '助手席')}
+                  <div className="rounded-lg border-2 border-slate-200 bg-slate-100 min-h-[54px] flex flex-col items-center justify-center px-1"><span className="text-[9px] font-bold text-slate-400">運転席</span><span className="text-[13px] font-bold text-slate-700 text-center leading-tight">{drv || '—'}</span></div>
+                </div>
+                {lay.rows.map((n, ri) => <div key={ri} className="grid gap-2" style={{ gridTemplateColumns: `repeat(${n}, 1fr)` }}>{Array.from({ length: n }, () => { const sN = k++; return cell(sN); })}</div>)}
+              </div>
+              {memo ? <div className="text-[13px] text-slate-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">メモ：{memo}</div> : null}
+              {lay.unseated.length ? <div className="text-[13px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">席が決まっていない方：{lay.unseated.map(x => _pname(x.m.pid)).join('・')}</div> : null}
+              <div>
+                <div className="text-[13px] font-bold text-slate-600 mb-1">送りの順番</div>
+                <div className="border border-slate-200 rounded-lg divide-y divide-slate-100" data-testid="tp-sv-order">
+                  {list.map((m, i) => { const pp = ptOf(m.pid); const addr = [_addrDisp(pp.address), pp.addressBuilding, pp.addressRoom].filter(Boolean).join(' '); const calls = tsumugiPickupCalls(pp); return (
+                    <div key={m.pid} className="px-2.5 py-1.5">
+                      <div className="flex items-center gap-2"><span className="shrink-0 w-6 h-6 rounded-full bg-indigo-600 text-white text-[12px] font-bold flex items-center justify-center">{i + 1}</span><span className="font-bold text-[16px] text-slate-900">{_pname(m.pid)}</span></div>
+                      <div className="pl-8 flex items-baseline gap-x-3 flex-wrap text-[13px] leading-snug">
+                        {addr ? <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([pp.address, pp.addressBuilding].filter(Boolean).join(' '))}`} target="_blank" rel="noopener noreferrer" className="text-slate-800 underline decoration-dotted underline-offset-2">{addr}</a> : <span className="text-[12px] text-slate-400">住所未登録</span>}
+                        {calls.map((cc, j) => <a key={cc.phone} href={`tel:${cc.phone.replace(/[^0-9+]/g, '')}`} className={`whitespace-nowrap tabular-nums ${j === 0 ? 'text-slate-700' : 'text-slate-500'}`}>{cc.label !== '本人' || j > 0 ? `${cc.label} ` : ''}{cc.phone}</a>)}
+                      </div>
+                    </div>); })}
+                </div>
+              </div>
+              <div className="text-[11px] text-slate-400">スマホでは見るだけです。席・順番・運転者・出発時間を変えるときは、パソコン・iPadの座席表で変えてください。</div>
+            </>)}
+          </div>
+        </div>); })(), document.body)}
       {dragMv && ReactDOM.createPortal((
         <div style={{position:'fixed', left: dragMv.x + 10, top: dragMv.y - 14, zIndex: 100002, pointerEvents:'none', background:'#1d4ed8', color:'white', fontWeight:'bold', fontSize:14, padding:'6px 12px', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,0.35)'}}>
           {dragMv.name} <span style={{fontSize:11, opacity:0.85}}>青い線の位置に入ります</span>
