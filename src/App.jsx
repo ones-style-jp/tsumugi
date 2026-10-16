@@ -34326,7 +34326,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                     <button type="button" data-testid="cb-timebold-1" onClick={()=>setSS({renrakuTimeBold:true})} className={tabBtn(ss.renrakuTimeBold!==false)}>太字</button>
                     <button type="button" data-testid="cb-timebold-0" onClick={()=>setSS({renrakuTimeBold:false})} className={tabBtn(ss.renrakuTimeBold===false)}>ふつう</button>
                   </div>
-                  <div className="text-[10px] text-slate-400 mt-1">連絡帳の「次回お迎え時間」の日付と時刻に付きます（画面・PDFとも）。</div>
+                  <div className="text-[10px] text-slate-400 mt-1">連絡帳の「次回お迎え時間」の時刻（○時○分頃）に付きます。日付は黒のままです（画面・PDFとも）。</div>
                 </div>
                 <div>
                   <div className="text-[11px] font-bold text-slate-500 mb-1">面数（1枚に何人分）</div>
@@ -35122,7 +35122,8 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
               {(() => {
                 // 日付: 数字は30px, 「月」「日」のみ20px、括弧内の曜日は30px (数字と同じ)
                 // 状態機械: 括弧内なら全て30px、それ以外は 月/日 を20px・他を30px
-                // ★ 2026-10-16: 次回お迎え時間の色・太さ(各種設定ではなく連絡帳の印刷設定で選ぶ・systemSettings.renrakuTimeColor/renrakuTimeBold)
+                // ★ 2026-10-16: 次回お迎え時間の色・太さ(各種設定ではなく連絡帳の印刷設定で選ぶ・systemSettings.renrakuTimeColor/renrakuTimeBold)。
+                //   ★ 同日追補(ユーザー「日付は黒で時間だけ色選択に」): 色・太さは時刻(○時○分頃)だけ。日付は黒・太字のまま
                 const _tc = (appData?.systemSettings?.renrakuTimeColor === 'red') ? '#dc2626' : (appData?.systemSettings?.renrakuTimeColor === 'blue') ? '#1d4ed8' : '#1e293b';
                 const _tw = appData?.systemSettings?.renrakuTimeBold === false ? 'normal' : 'bold';
                 const renderDate = (str) => {
@@ -35135,20 +35136,20 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                     const c = str[i];
                     if (c === '（' || c === '(') {
                       inParen = true;
-                      out.push(<span key={i} style={{fontSize:36, fontWeight:_tw, color:_tc, lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:36, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                       continue;
                     }
                     if (c === '）' || c === ')') {
                       inParen = false;
-                      out.push(<span key={i} style={{fontSize:36, fontWeight:_tw, color:_tc, lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:36, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                       continue;
                     }
                     if (inParen) {
-                      out.push(<span key={i} style={{fontSize:36, fontWeight:_tw, color:_tc, lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:36, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                     } else if (c === '月' || c === '日' || c === '年') {
-                      out.push(<span key={i} style={{fontSize:24, fontWeight:_tw, color:_tc, lineHeight:1.1, whiteSpace:'pre'}}>{' '+c+' '}</span>);
+                      out.push(<span key={i} style={{fontSize:24, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{' '+c+' '}</span>);
                     } else {
-                      out.push(<span key={i} style={{fontSize:36, fontWeight:_tw, color:_tc, lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:36, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                     }
                   }
                   return out;
