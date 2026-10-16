@@ -2143,6 +2143,26 @@ const tsuFitFs = (el, text, baseFs, maxH, lineHeight, minFs = 11) => { let fs = 
 // ★ 2026-10-16 追補(ユーザー「もう少し小さくなってもいいので、小さすぎない程度に改行はできるように」): 縮小の下限 = 13px。
 //   この大きさまで縮めれば枠に入る入力は受け付け(縮めて表示)、それでも入らない入力だけ受け付けない
 const TSU_MEMO_MIN_FS = 13;
+const TSU_MEMO_FULL_MSG = '枠がいっぱいです（これ以上は入りません）';
+// ★ 2026-10-16(ユーザー「枠がいっぱいですはポップで出てほしい」): 画面の下の中央に短く出る知らせ(どの画面からでも使える)
+const tsuPopNotice = (text, ms = 1800) => { try {
+  let el = document.getElementById('tsu-pop-notice');
+  if (!el) { el = document.createElement('div'); el.id = 'tsu-pop-notice'; el.setAttribute('role', 'status');
+    el.style.cssText = 'position:fixed;left:50%;bottom:calc(14% + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:2000005;background:rgba(15,23,42,0.92);color:#fff;font-size:15px;font-weight:bold;padding:12px 20px;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,0.3);max-width:88vw;text-align:center;pointer-events:none;transition:opacity 0.25s;line-height:1.5';
+    document.body.appendChild(el); }
+  el.textContent = text; el.style.opacity = '1'; el.style.display = 'block';
+  if (tsuPopNotice._t) clearTimeout(tsuPopNotice._t);
+  tsuPopNotice._t = setTimeout(() => { el.style.opacity = '0'; setTimeout(() => { if (el.style.opacity === '0') el.style.display = 'none'; }, 300); }, ms);
+} catch {} };
+// ★ 2026-10-16(ユーザー「休み連絡の改行に制限がかかっていない」): iPhone/iPad の日本語入力では Enter が変換中(isComposing)扱いになり判定を通り抜けていた。
+//   改行は keydown で先に判定して止める(変換確定の Enter=keyCode 229 は除く)。変換中の文字は確定(compositionend)のときに判定し、入らなければ変換前に戻す
+const tsuMemoEnterBlocked = (e, text, baseFs, lineHeight, avail) => { try {
+  if (e.key !== 'Enter' || e.keyCode === 229 || (e.nativeEvent && e.nativeEvent.isComposing)) return false;
+  const el = e.currentTarget; if (!el || !avail) return false;
+  const trimmed = String(text || '').replace(/\s+$/, ''); if (!trimmed) return false;
+  if (tsuMeasureTextH(el, trimmed, baseFs, lineHeight) > avail) return false; // すでに入らない古いデータは止めない
+  return tsuMeasureTextH(el, trimmed + '\nあ', baseFs, lineHeight) > avail;
+} catch { return false; } };
 const tsuMemoOverflows = (el, nextText, prevText, baseFs, lineHeight, avail) => { try {
   if (!el || !avail) return false; const nt = String(nextText || ''), pt = String(prevText || '');
   if (nt.length <= pt.length && nt.split('\n').length <= pt.split('\n').length) return false;
@@ -54147,7 +54167,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const _absMemoRef = React.useRef(null);
   const [absMemoFit, setAbsMemoFit] = React.useState(null);
   const [absMemoH, setAbsMemoH] = React.useState(null);
-  const _absAvailRef = React.useRef(0); const [absMemoFull, setAbsMemoFull] = React.useState(false);
+  const _absAvailRef = React.useRef(0); const _absCompRef = React.useRef(null);
   const ABS_MEMO_MAX = 200; // ★ 2026-10-16: 連絡事項の文字数の上限(休み連絡の枠は欠席情報の下の5〜6行ぶん・16px のまま入る量の目安)
   // ★ 2026-10-16: 各種連絡と同じく、見えない箱で測る・末尾の空行は数えない・入力欄は中身の高さに広げる(tsuFitMemoBox)
   React.useLayoutEffect(() => {
@@ -54600,8 +54620,12 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                     ref={_absMemoRef}
                     value={fax.memo ?? defaultMemo}
                     onChange={e=>{ const v = e.target.value; const comp = !!(e.nativeEvent && e.nativeEvent.isComposing);
-                      if (!comp && tsuMemoOverflows(e.target, v, String(fax.memo ?? defaultMemo ?? ''), TSU_MEMO_MIN_FS, 1.7, _absAvailRef.current)) { setAbsMemoFull(true); setTimeout(()=>setAbsMemoFull(false), 1800); return; } // ★ 2026-10-16: 枠に入らない入力は受け付けない
+                      if (!comp && tsuMemoOverflows(e.target, v, String(fax.memo ?? defaultMemo ?? ''), TSU_MEMO_MIN_FS, 1.7, _absAvailRef.current)) { tsuPopNotice(TSU_MEMO_FULL_MSG); return; } // ★ 2026-10-16: 枠に入らない入力は受け付けない
                       updateFax(key,{memo:v}); }}
+                    onKeyDown={e=>{ if (tsuMemoEnterBlocked(e, String(fax.memo ?? defaultMemo ?? ''), TSU_MEMO_MIN_FS, 1.7, _absAvailRef.current)) { e.preventDefault(); tsuPopNotice(TSU_MEMO_FULL_MSG); } }}
+                    onCompositionStart={()=>{ _absCompRef.current = String(fax.memo ?? defaultMemo ?? ''); }}
+                    onCompositionEnd={e=>{ const v = e.target.value, before = _absCompRef.current; _absCompRef.current = null;
+                      if (before != null && tsuMemoOverflows(e.target, v, before, TSU_MEMO_MIN_FS, 1.7, _absAvailRef.current)) { updateFax(key,{memo:before}); tsuPopNotice(TSU_MEMO_FULL_MSG); } }}
                     onBlur={e=>{ const t = String(e.target.value||'').replace(/\s+$/,''); if (t !== e.target.value) updateFax(key,{memo:t}); }}
                     maxLength={ABS_MEMO_MAX}
                     placeholder="連絡事項を自由に入力してください"
@@ -54610,7 +54634,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                     style={{width:'100%',flex:'0 0 auto',height:(absMemoH ? `${absMemoH}px` : 'auto'),minHeight:`${Math.ceil(_memoFs*1.7*3)+8}px`,border:'none',borderRadius:0,padding:'4px 0',fontSize:_memoFs,overflow:'hidden',outline:'none',resize:'none',fontFamily:'serif',lineHeight:1.7,boxSizing:'border-box',background:'transparent'}}
                   />
                 )}
-                {!isPrint && <div style={{textAlign:'right',marginTop:2,flex:'0 0 auto',display:'flex',justifyContent:'flex-end',alignItems:'center',gap:8}}>{absMemoFull && <span className="no-print" style={{fontSize:11,color:'#dc2626',fontWeight:'bold'}}>枠がいっぱいです（これ以上は入りません）</span>}<CharCount value={fax.memo ?? defaultMemo} max={ABS_MEMO_MAX} style={absMemoFull?{color:'#dc2626'}:undefined}/></div>}
+                {!isPrint && <div className="no-print" style={{textAlign:'right',marginTop:2,flex:'0 0 auto'}}><CharCount value={fax.memo ?? defaultMemo} max={ABS_MEMO_MAX}/></div>}
                 {/* ★ 2026-10-16: 結びは本文の直後・本文と同じ大きさ(本文が縮んだら一緒に縮む)。枠(flex:1)の中に置き、残りは空白 */}
                 <div style={{fontSize:Math.min(16,_memoFs),marginTop:8,flex:'0 0 auto'}}>今後ともよろしくお願いいたします。</div>
               </div>
@@ -54776,7 +54800,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const _memoRef = React.useRef(null);
   const [memoFitFs, setMemoFitFs] = React.useState(null);
   const [memoBoxH, setMemoBoxH] = React.useState(null);
-  const _memoAvailRef = React.useRef(0); const [memoFull, setMemoFull] = React.useState(false); // 枠がいっぱいで受け付けなかった(表示用)
+  const _memoAvailRef = React.useRef(0); const _memoCompRef = React.useRef(null); // 枠の高さの控え・変換を始めたときの本文
   const _memoBaseFs = memoStyle.size==='xl'?24:memoStyle.size==='lg'?20:16;
   // ★ 2026-10-16(ユーザー要望): 連絡事項の文字数の上限(標準400・大250・特大180=枠に 16px のまま入る量の目安)。あからさまに小さくならないように
   const _memoMax = memoStyle.size==='xl'?180:memoStyle.size==='lg'?250:400;
@@ -55014,8 +55038,6 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
             ))}
             <button type="button" onClick={()=>{ setMemoStyle(ms=>({...ms,underline:!ms.underline})); markDirty(); }}
                     style={{padding:'6px 10px',borderRadius:8,fontWeight:'bold',fontSize:11,cursor:'pointer',border:'1px solid #cbd5e1',background:memoStyle.underline?'#1d4ed8':'white',color:memoStyle.underline?'white':'#334155',textDecoration:'underline'}}>下線</button>
-            <CharCount value={memo} max={_memoMax} style={{color:(memoFull||String(memo||'').length>=_memoMax)?'#fca5a5':'#cbd5e1',fontSize:11,marginLeft:2}}/>
-            {memoFull && <span style={{fontSize:11,color:'#fca5a5',fontWeight:'bold',whiteSpace:'nowrap'}}>枠がいっぱいです（これ以上は入りません）</span>}
           </div>
           {/* ★ 保存ボタン(休み連絡と統一・店舗要望)。 下書きを保存して未保存状態を解消する */}
           <button type="button" onClick={()=>{ flushSave(); setJustSavedFax(true); setTimeout(()=>setJustSavedFax(false), 2500); }}
@@ -55218,14 +55240,20 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
               </div>
             )}
             <textarea value={memo} onChange={e=>{ const v = e.target.value; const comp = !!(e.nativeEvent && e.nativeEvent.isComposing);
-                        if (!comp && tsuMemoOverflows(e.target, v, memo, Math.min(_memoBaseFs, TSU_MEMO_MIN_FS), 1.9, _memoAvailRef.current)) { setMemoFull(true); setTimeout(()=>setMemoFull(false), 1800); return; } // ★ 2026-10-16: 枠に入らない入力は受け付けない
+                        if (!comp && tsuMemoOverflows(e.target, v, memo, Math.min(_memoBaseFs, TSU_MEMO_MIN_FS), 1.9, _memoAvailRef.current)) { tsuPopNotice(TSU_MEMO_FULL_MSG); return; } // ★ 2026-10-16: 枠に入らない入力は受け付けない
                         setMemo(v); }}
+                      onKeyDown={e=>{ if (tsuMemoEnterBlocked(e, memo, Math.min(_memoBaseFs, TSU_MEMO_MIN_FS), 1.9, _memoAvailRef.current)) { e.preventDefault(); tsuPopNotice(TSU_MEMO_FULL_MSG); } }}
+                      onCompositionStart={()=>{ _memoCompRef.current = memo; }}
+                      onCompositionEnd={e=>{ const v = e.target.value, before = _memoCompRef.current; _memoCompRef.current = null;
+                        if (before != null && tsuMemoOverflows(e.target, v, before, Math.min(_memoBaseFs, TSU_MEMO_MIN_FS), 1.9, _memoAvailRef.current)) { setMemo(before); tsuPopNotice(TSU_MEMO_FULL_MSG); } }}
                       placeholder="ここに連絡事項を直接入力してください"
                       className="fax-inline-input"
                       ref={_memoRef}
                       maxLength={_memoMax}
                       onBlur={()=>{ const t = String(memo||'').replace(/\s+$/,''); if (t !== memo) setMemo(t); }}
                       style={{flex:'0 0 auto',height:(memoBoxH ? `${memoBoxH}px` : 'auto'),minHeight:`${Math.ceil((memoFitFs ?? _memoBaseFs)*1.9*3)+8}px`,fontSize:(memoFitFs ?? _memoBaseFs),overflow:'hidden',lineHeight:1.9,padding:'4px 0',border:'none',outline:'none',background:'transparent',resize:'none',fontFamily:'inherit',width:'100%',boxSizing:'border-box',textDecoration:(memoStyle.underline?'underline':'none')}}/>
+            {/* ★ 2026-10-16(ユーザー「各種連絡も休み連絡と同じように文字数を欄の下に」): 現在/最大(印刷・PDFには出ない) */}
+            <div className="no-print" style={{textAlign:'right',marginTop:2,flex:'0 0 auto'}}><CharCount value={memo} max={_memoMax}/></div>
             {/* ★ 2026-10-16: 結びは本文と同じ大きさ(本文が縮んだら一緒に縮む・本文が大/特大でも 16px)。本文の直後に置く */}
             <div style={{fontSize:Math.min(16, memoFitFs ?? 16),marginTop:8,flex:'0 0 auto'}}>今後ともよろしくお願いいたします。</div>
           </div>
