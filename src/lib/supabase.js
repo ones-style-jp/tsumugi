@@ -59,21 +59,54 @@ export function clearSyncLog() { try { localStorage.removeItem(_SYNCLOG_KEY); } 
 // ★ 同期診断のクラウド送信(2026-09-06 扇橋「保存が届かない」調査用): syncLog の末尾を
 //   app_state の別行(diag_<店舗ID>)へベストエフォートで送る。本体データとは完全に別行のため、
 //   失敗しても通常の保存・同期には一切影響しない。deviceTag は「端末名|アプリ版」。
-export async function supabaseUploadSyncDiag(storeId, deviceTag) {
+// ★ 2026-10-17: 端末ID(この端末だけの印・一度作ったら変えない)。端末名を変えても同じ端末として扱うため
+export function getDeviceId() {
+  try { let id = localStorage.getItem('tsumugiDeviceId'); if (!id) { id = (crypto && crypto.randomUUID) ? crypto.randomUUID() : `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`; localStorage.setItem('tsumugiDeviceId', id); } return id; }
+  catch { return 'd-nostorage'; }
+}
+const DIAG_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
+// (name, ver) で呼ぶ。鍵は端末ID。古い版が書いた「端末名|版」の鍵は同じ端末名なら消す(同じ端末が2行に見えないように)
+export async function supabaseUploadSyncDiag(storeId, name, ver) {
   if (!supabase || !storeId) return false;
   try {
     const logs = getSyncLog().slice(-60); // ★ 2026-10-17: 記録が無くても送る(端末の生存確認と証の有無を管理局で見るため)
-    const tag = String(deviceTag || 'unknown').slice(0, 80);
+    const nm = String(name || '名称未設定の端末').slice(0, 60), vr = String(ver || '-').slice(0, 40);
     const sb = !!(_sbJwt && _sbJwtExp > Date.now()); // ★ 2026-10-17 データ保護(段階2): この端末が Supabase の証を持っているか
+    const id = getDeviceId();
     const r = await supabaseCasUpdate(`diag_${storeId}`, (cur) => {
       const d = (cur && typeof cur === 'object') ? { ...cur } : {};
       const now = Date.now();
-      for (const k of Object.keys(d)) { const at = Number(d[k] && d[k].at); if (!at || now - at > 30 * 24 * 60 * 60 * 1000) delete d[k]; } // 30日見ていない端末の控えは消す(行が太らないように)
-      d[tag] = { at: now, logs, sb };
+      for (const k of Object.keys(d)) {
+        if (k.startsWith('__')) continue; // 予約(端末名の割当表など)
+        const at = Number(d[k] && d[k].at); if (!at || now - at > DIAG_KEEP_MS) { delete d[k]; continue; } // 30日見ていない端末の控えは消す(行が太らないように)
+        if (k.includes('|') && k.slice(0, k.lastIndexOf('|')) === nm) delete d[k]; // 旧形式(端末名|版)の自分の控え
+      }
+      d[id] = { at: now, logs, sb, name: nm, ver: vr };
       return d;
     }, { maxRetries: 1 });
     return !!(r && r.ok);
   } catch { return false; }
+}
+// ★ 2026-10-17(ユーザー要望): 店舗で初めて使う端末に「<店舗の短縮名>1」「2」…を自動で付ける。割当は diag_<店舗> 行の __names(端末ID → 名前)に控え、
+//   同じ端末は再ログインしても同じ名前。番号は使われていない最小の数(他の端末が付けた名前・手で付けた名前とも重ならないように)
+export async function supabaseClaimDeviceName(storeId, prefix) {
+  if (!supabase || !storeId) return null;
+  const id = getDeviceId(); const pf = String(prefix || '端末').slice(0, 20);
+  let picked = null;
+  try {
+    const r = await supabaseCasUpdate(`diag_${storeId}`, (cur) => {
+      const d = (cur && typeof cur === 'object') ? { ...cur } : {};
+      const names = (d.__names && typeof d.__names === 'object') ? { ...d.__names } : {};
+      if (names[id]) { picked = names[id]; return null; } // すでに割当済み → 書き込まない
+      const used = new Set(Object.values(names));
+      for (const k of Object.keys(d)) { if (k.startsWith('__')) continue; const v = d[k]; if (v && v.name) used.add(v.name); if (k.includes('|')) used.add(k.slice(0, k.lastIndexOf('|'))); }
+      let n = 1; while (used.has(`${pf}${n}`)) n++;
+      picked = `${pf}${n}`; names[id] = picked; d.__names = names;
+      return d;
+    }, { maxRetries: 2 });
+    if (r && r.ok === false && !picked) return null;
+    return picked;
+  } catch { return picked; }
 }
 // ★ 2026-10-17 データ保護(段階2): 管理局用。全店の diag_ 行を読み、店舗ごとの端末一覧 [{storeId, devices:[{tag,name,ver,at,sb}]}] にする
 export async function supabaseListSyncDiag() {
@@ -83,8 +116,9 @@ export async function supabaseListSyncDiag() {
   return data.map(row => {
     const storeId = String(row.key || '').slice(5);
     const d = (row.data && typeof row.data === 'object') ? row.data : {};
-    const devices = Object.keys(d).map(tag => { const v = d[tag] || {}; const i = tag.lastIndexOf('|');
-      return { tag, name: i >= 0 ? tag.slice(0, i) : tag, ver: i >= 0 ? tag.slice(i + 1) : '', at: Number(v.at) || 0, sb: (typeof v.sb === 'boolean') ? v.sb : null }; })
+    const devices = Object.keys(d).filter(k => !k.startsWith('__')).map(tag => { const v = d[tag] || {}; const i = tag.lastIndexOf('|');
+      if (v && v.name) return { tag, name: String(v.name), ver: String(v.ver || ''), at: Number(v.at) || 0, sb: (typeof v.sb === 'boolean') ? v.sb : null }; // 新形式(鍵=端末ID)
+      return { tag, name: i >= 0 ? tag.slice(0, i) : tag, ver: i >= 0 ? tag.slice(i + 1) : '', at: Number(v.at) || 0, sb: (typeof v.sb === 'boolean') ? v.sb : null }; }) // 旧形式(鍵=端末名|版)
       .sort((a, b) => b.at - a.at);
     return { storeId, devices };
   });

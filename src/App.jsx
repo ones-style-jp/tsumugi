@@ -43,7 +43,7 @@ import {
   getSyncLog,
   clearSyncLog,
   supabaseUploadSyncDiag,
-  supabaseListSyncDiag, // ★ 2026-10-17 データ保護(段階2): 管理局の端末一覧
+  supabaseListSyncDiag, supabaseClaimDeviceName, // ★ 2026-10-17 データ保護(段階2): 管理局の端末一覧・端末名の自動付与
   cloudUndoPush, cloudUndoList, cloudUndoDelete,
   supabaseLoadDiseaseMaster,
   supabaseSaveDiseaseMaster,
@@ -19028,6 +19028,7 @@ function GlobalAiPanel({ staffSession }) {
 function HqDevicePanel({ stores }) {
   const [rows, setRows] = React.useState(null);
   const [showOld, setShowOld] = React.useState(false);
+  const [open, setOpen] = React.useState(false); // ★ 2026-10-17(ユーザー要望): 折りたたんで表示(見出しに集計だけ)
   const load = React.useCallback(async () => { setRows(null); try {
     // 自動テスト(VITE_E2E_DEMO=1 のビルドのみ・本番では空): window.__tsumugiE2E.syncDiag があればそれを使う
     const mock = (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && window.__tsumugiE2E && window.__tsumugiE2E.syncDiag) || null;
@@ -19045,16 +19046,22 @@ function HqDevicePanel({ stores }) {
     : <span style={{color:'#b91c1c',fontWeight:'bold'}}>古い版（証なし）</span>;
   return (
     <div style={{background:'white',borderRadius:16,padding:24,marginBottom:16,boxShadow:'0 4px 16px rgba(0,0,0,0.06)'}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:8}}>
-        <div style={{fontSize:16,fontWeight:'bold',color:'#3d5021'}}>端末の更新状況 {rows && <span style={{fontSize:13,color:'#64748b',fontWeight:'normal'}}>（直近{showOld?'30':'14'}日に動いた端末 {totalDev} 台のうち 証あり {totalOk} 台）</span>}</div>
-        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom: open ? 8 : 0}}>
+        <button type="button" data-testid="hq-dev-toggle" onClick={()=>setOpen(o=>!o)} aria-expanded={open} style={{display:'flex',alignItems:'center',gap:8,background:'none',border:'none',padding:0,cursor:'pointer',textAlign:'left',minHeight:32}}>
+          <span style={{display:'inline-block',width:0,height:0,borderTop:'6px solid transparent',borderBottom:'6px solid transparent',borderLeft:'8px solid #5e8030',transform: open ? 'rotate(90deg)' : 'none',transition:'transform 0.15s'}}/>
+          <span style={{fontSize:16,fontWeight:'bold',color:'#3d5021'}}>端末の更新状況</span>
+          {rows && <span style={{fontSize:13,color:'#64748b'}}>（直近{showOld?'30':'14'}日に動いた端末 {totalDev} 台のうち 証あり {totalOk} 台）</span>}
+        </button>
+        {open && <div style={{display:'flex',gap:8,alignItems:'center'}}>
           <label style={{fontSize:12,color:'#475569',display:'flex',alignItems:'center',gap:4,cursor:'pointer'}}><input type="checkbox" checked={showOld} onChange={e=>setShowOld(e.target.checked)}/>30日前まで表示</label>
           <button onClick={load} style={{padding:'6px 12px',background:'white',color:'#3d5021',border:'1px solid #94c456',borderRadius:10,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>再読込</button>
-        </div>
+        </div>}
       </div>
+      {open && <>
       <div style={{fontSize:12,color:'#64748b',lineHeight:1.6,marginBottom:12}}>
         各端末は動いている間、1分ごとに「端末名・アプリの版・証の有無」を知らせます。データ保護の制限（段階3）をかける前に、全店の端末が「証あり」になっていることをここで確かめます。
         「古い版」はアプリの更新が届いていない端末（更新のお知らせから更新するか、再読み込み）。「証なし」は新しい版だがログインし直していない端末です。
+        端末名は、店舗で初めて使った端末に「店舗名1・2…」が自動で付きます（店舗の 設定 → システム → 端末名 で変更できます）。管理局でログインした端末は「管理局」と出ます。
       </div>
       {rows === null ? <div style={{textAlign:'center',padding:24,color:'#64748b'}}><BusySpin/>読込中...</div> : (
         <div style={{display:'grid',gap:10}}>
@@ -19082,6 +19089,7 @@ function HqDevicePanel({ stores }) {
           ))}
         </div>
       )}
+      </>}
     </div>
   );
 }
@@ -19436,7 +19444,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
         </div>
         {/* ★ セクションジャンプ(2026-08-18): 店舗が増えても下の方のパネルへすぐ移動できる */}
         <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:16,position:'sticky',top:8,zIndex:20}}>
-          {[['本部の手順書',_secGuide],['お知らせ管理',_secNotices],['端末の更新状況',_secDevices],['店舗一覧',_secStores],['外部サービス設定',_secAi],['同意ポリシー',_secPolicy],['傷病名マスタ',_secMaster]].map(([lb,ref])=>(
+          {[['本部の手順書',_secGuide],['お知らせ管理',_secNotices],['店舗一覧',_secStores],['端末の更新状況',_secDevices],['外部サービス設定',_secAi],['同意ポリシー',_secPolicy],['傷病名マスタ',_secMaster]].map(([lb,ref])=>(
             <button key={lb} onClick={()=>_jump(ref)} style={{padding:'6px 14px',background:'rgba(255,255,255,0.92)',color:'#3d5021',border:'1px solid #94c456',borderRadius:999,fontSize:12,fontWeight:'bold',cursor:'pointer',boxShadow:'0 1px 4px rgba(0,0,0,0.08)'}}>{lb}</button>
           ))}
         </div>
@@ -19447,10 +19455,6 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
         {/* システムお知らせ管理 */}
         <div ref={_secNotices} style={{scrollMarginTop:56}}>
         <SystemNoticesPanel stores={stores} staffSession={staffSession}/>
-        </div>
-        {/* ★ 2026-10-17 データ保護(段階2): 端末の更新状況 */}
-        <div ref={_secDevices} style={{scrollMarginTop:56}}>
-        <HqDevicePanel stores={stores}/>
         </div>
         {/* 店舗一覧 */}
         <div ref={_secStores} style={{background:'white',borderRadius:16,padding:24,marginBottom:16,boxShadow:'0 4px 16px rgba(0,0,0,0.06)',scrollMarginTop:56}}>
@@ -19549,6 +19553,10 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
               })()}
             </div>
           )}
+        </div>
+        {/* ★ 2026-10-17 データ保護(段階2): 端末の更新状況(折りたたみ・店舗一覧の下) */}
+        <div ref={_secDevices} style={{scrollMarginTop:56}}>
+        <HqDevicePanel stores={stores}/>
         </div>
         {/* ★ J: 全店共通ポリシー編集 (折りたたみ) */}
         <div ref={_secAi} style={{scrollMarginTop:56}}>
@@ -19939,6 +19947,19 @@ export default function App() {
       return saved ? JSON.parse(saved) : null;
     } catch { return null; }
   });
+  // ★ 2026-10-17(ユーザー要望): 管理局(本部)でログインしているときの端末名は「管理局」。記録・最終更新・端末の更新状況に使う
+  const effDeviceName = staffSession?.role === 'super_admin' ? '管理局' : deviceName;
+  const _effDevRef = React.useRef(effDeviceName); _effDevRef.current = effDeviceName;
+  // ★ 2026-10-17(ユーザー要望「端末ごとに○○店1・2…を自動で」): 店舗で初めて使う端末(端末名が空)に「<店舗の短縮名>番号」を付ける。
+  //   同じ端末は再ログインしても同じ名前(端末IDで控える)。あとから設定 → システム → 端末名 で変更できる。管理局は付けない
+  const _claimedRef = React.useRef(null);
+  useEffect(() => {
+    if (!isSupabaseEnabled || !staffSession?.storeId || staffSession.role === 'super_admin' || deviceName) return;
+    if (_claimedRef.current === staffSession.storeId) return; _claimedRef.current = staffSession.storeId;
+    let stop = false;
+    (async () => { try { const nm = await supabaseClaimDeviceName(staffSession.storeId, staffSession.storeShortName || staffSession.storeName || '端末'); if (!stop && nm) { updateDeviceName(nm); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `この端末の名前を「${nm}」にしました（設定 → システム → 端末名 で変更できます）` } })); } catch {} } } catch {} })();
+    return () => { stop = true; };
+  }, [staffSession?.storeId, deviceName]); // eslint-disable-line react-hooks/exhaustive-deps
   // ★ 現在の記録者 (店舗ログイン後に選ぶ)
   const [activeRecorder, setActiveRecorder] = useState(() => {
     try {
@@ -21191,8 +21212,7 @@ export default function App() {
   //   本体データとは別行・ベストエフォート(失敗無害)。端末タグ=端末名|稼働中アプリ版。
   useEffect(() => {
     if (!isSupabaseEnabled || !staffSession?.storeId) return;
-    const _tag = () => `${deviceName || '名称未設定の端末'}|${__builtUpdateNotes?.version || '-'}`;
-    const send = () => { try { supabaseUploadSyncDiag(staffSession.storeId, _tag()); } catch {} };
+    const send = () => { try { supabaseUploadSyncDiag(staffSession.storeId, _effDevRef.current || '名称未設定の端末', __builtUpdateNotes?.version || '-'); } catch {} }; // ★ 2026-10-17: 最新の端末名(自動付与・管理局)で送る
     const t0 = setTimeout(send, 10000);
     const t = setInterval(send, 60000);
     return () => { clearTimeout(t0); clearInterval(t); };
@@ -22191,7 +22211,7 @@ export default function App() {
       //   読み取り専用の履歴なので同期のマージには影響しない(union併合)。 保存を壊さないよう try 内で完結。
       try {
         const _alNow = syncNow();
-        const _alDev = deviceName || '名称未設定の端末';
+        const _alDev = effDeviceName || '名称未設定の端末'; // ★ 2026-10-17: 管理局は「管理局」
         const _alCats = [
           ['ticketRecords','提供記録'], ['dailyLogs','日誌'], ['fitnessRecords','体力測定'],
           ['monitoringRecords','モニタリング'], ['faxHistory','連絡'], ['patients','利用者マスタ'],
@@ -22450,7 +22470,7 @@ export default function App() {
       }
       // ★ 実データを保存する時は「最終更新した端末・時刻」を記録する(全端末で共有・表示用)。
       {
-        newData = { ...newData, _lastSync: { device: (deviceName || '名称未設定の端末'), at: syncNow() } };
+        newData = { ...newData, _lastSync: { device: (effDeviceName || '名称未設定の端末'), at: syncNow() } }; // ★ 2026-10-17: 管理局は「管理局」
       }
     } catch (e) { /* 失敗しても保存自体は続行 */ }
     // ★ 2026-10-02(扇橋 上野様「Surfaceで欠席にしたのにiPadで出席に戻る」): 保存の内容(newData)は画面が最後に描かれた時点の
@@ -23906,7 +23926,7 @@ export default function App() {
               const at = new Date(ls.at);
               if (isNaN(at.getTime())) return null;
               const atStr = at.toLocaleString('ja-JP', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' });
-              const thisName = (deviceName || '名称未設定の端末');
+              const thisName = (effDeviceName || '名称未設定の端末'); // ★ 2026-10-17: 管理局は「管理局」
               const isSelf = ls.device === thisName;
               return (
                 <div
@@ -23989,7 +24009,7 @@ export default function App() {
                 iPad Safariでタップ座標がズレてシート内のチェック/時間セルが反応しなくなるため */}
             <div style={isMobileLayout ? {width:'100%',minWidth:0} : (currentView==='dashboard' || currentView==='print' || currentView==='master' || currentView==='diary' || currentView==='ticket' || _zoomNear1) ? {width:'100%',minWidth:0,height:'100%'} : _zoomScroll ? {width:`${DESIGN_WIDTH}px`, minWidth:DESIGN_WIDTH, height:'100%'} : {width:`${DESIGN_WIDTH}px`, minWidth:DESIGN_WIDTH, zoom: _zoomVal, height: scrollerH > 0 ? `${Math.floor(scrollerH / _zoomVal)}px` : '100%'}}>
             {currentView === 'dashboard' ? <DashboardView appData={appData} navigateTo={navigateTo} activeRecorder={activeRecorder} notices={visibleNotices} devNotes={devUpdateNotes} isNoticeRead={isNoticeRead} markNoticeRead={markNoticeRead} /> :
-             currentView === 'record' ? <RecordView appData={appData} activeRecorder={activeRecorder} onSave={handleSaveToCloud} navigateTo={navigateTo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={recordDirtyRef} saveFnRef={recordSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} showTip={showTip} hideTip={hideTip} isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} deviceName={deviceName} /> :
+             currentView === 'record' ? <RecordView appData={appData} activeRecorder={activeRecorder} onSave={handleSaveToCloud} navigateTo={navigateTo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={recordDirtyRef} saveFnRef={recordSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} showTip={showTip} hideTip={hideTip} isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} deviceName={effDeviceName} /> :
              currentView === 'ticket' ? <TicketView appData={appData} targetPatientId={targetPatientId} onBack={()=>navigateBack('master')} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  onSave={handleSaveToCloud} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={ticketDirtyRef} saveFnRef={ticketSaveFnRef} /> :
              currentView === 'print' ? <ContactBookView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={printDirtyRef} saveFnRef={printSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} /> :
              currentView === 'master' ? <MasterView appData={appData} onSave={handleSaveToCloud} targetPatientId={targetPatientId} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={masterDirtyRef} saveFnRef={masterSaveFnRef} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} exPendingRef={masterExPendingRef} navAfterExRef={masterNavAfterExRef} /> :
