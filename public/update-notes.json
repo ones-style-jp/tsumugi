@@ -1,7 +1,14 @@
 {
-  "version": "upd-2026-1016-trial308",
-  "updatedAt": "2026-10-16",
+  "version": "upd-2026-1017-trial309",
+  "updatedAt": "2026-10-17",
   "notes": [
+    {
+      "id": "upd-2026-1017-trial309-meet",
+      "type": "improvement",
+      "title": "担当者会議メモ：保存・終了を上に",
+      "body": "・小窓も新規作成・編集の画面も、「終了」「保存」をほかの画面と同じく上に置きました（下にあると誤って押しやすいため）。小窓は上の帯のすぐ下、入力画面は上の帯の右です。",
+      "date": "2026-10-17"
+    },
     {
       "id": "upd-2026-1016-trial308-meet",
       "type": "improvement",

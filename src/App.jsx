@@ -57532,6 +57532,13 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
           <button key={lbl} type="button" onClick={fn} title={tt} style={{ background:'rgba(255,255,255,0.2)', border:'none', color:'white', borderRadius:8, height:32, padding:'0 9px', fontSize:12, fontWeight:'bold', cursor:'pointer', whiteSpace:'nowrap' }}>{lbl}</button>
         ))}
       </div>
+      {/* ★ 2026-10-17(ユーザー「保存と終了は上の方が誤タップが減る。他の機能も上に保存がある」): 帯のすぐ下・スクロールしない所に 終了・保存 */}
+      <div style={{ display:'flex', gap:8, alignItems:'center', padding:'8px 10px 0', flexShrink:0 }}>
+        <button type="button" onClick={handleCancel} data-testid="meeting-float-close"
+          style={{ flex:1, background:'#f1f5f9', color:'#475569', border:'1px solid #e2e8f0', borderRadius:10, padding:'8px 0', fontSize:Math.round(13*scale), fontWeight:'bold', cursor:'pointer' }}>終了</button>
+        <button type="button" onClick={doSave}
+          style={{ flex:1, background:'#2563eb', color:'white', border:'none', borderRadius:10, padding:'8px 0', fontSize:Math.round(13*scale), fontWeight:'bold', cursor:'pointer' }}>保存</button>
+      </div>
       <div style={{ padding:10, overflowY:'auto', display:'flex', flexDirection:'column', gap:8, flex: full ? 1 : undefined, minHeight: 0 }} className="tsu-meet-body">
         <style>{`.tsu-meet-body > div{flex:0 0 auto;} .tsu-meet-body > div[data-grow="1"]{flex:1 1 0;}`}</style>
         <div style={{ fontSize:Math.round(13*scale), fontWeight:'bold', color:'#1e3a8a', borderBottom:'1px solid #e2e8f0', paddingBottom:4, flex:'0 0 auto' }}>担当者会議メモ — {patient.name} 様</div>
@@ -57560,14 +57567,6 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
         <div data-grow={full ? '1' : '0'} style={{ display: 'flex', flexDirection: 'column', minHeight: full ? 160 : 0, overflow: 'hidden' }}>
           <label style={_lb}>検討した項目・内容・結論</label>
           <textarea value={draft.content} onChange={e=>upd({content:e.target.value})} rows={full ? 3 : 14} style={{ ..._iSt, resize: full ? 'none' : 'vertical', minHeight: full ? 0 : 200, height: full ? 'auto' : undefined, flex: full ? '1 1 0' : '0 0 auto' }}/>
-        </div>
-        {/* ★ 明示保存(2026-08-28): 単体の新規作成フォームと同じく保存/キャンセルを選ぶ */}
-        {/* ★ 2026-10-16 追補(ユーザー「新規作成と小窓で保存と終了の位置が逆」): どちらも 左=終了・右=保存 */}
-        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-          <button type="button" onClick={handleCancel} data-testid="meeting-float-close"
-            style={{ flex:1, background:'#f1f5f9', color:'#475569', border:'1px solid #e2e8f0', borderRadius:10, padding:'8px 0', fontSize:Math.round(13*scale), fontWeight:'bold', cursor:'pointer' }}>終了</button>
-          <button type="button" onClick={doSave}
-            style={{ flex:1, background:'#2563eb', color:'white', border:'none', borderRadius:10, padding:'8px 0', fontSize:Math.round(13*scale), fontWeight:'bold', cursor:'pointer' }}>保存</button>
         </div>
         <div style={{ fontSize:10, color:'#64748b', display:'flex', justifyContent:'space-between', alignItems:'center', minHeight:14 }}>
           <span>{dirty ? '未保存の変更があります' : ''}</span>
@@ -57636,7 +57635,9 @@ function MeetingRecordForm({ patient, meeting, onSave, onClose, onFloat, appData
             {onFloat && <button onClick={()=>{ const d = form.date || new Date().toISOString().slice(0,10); onFloat({ ...form, date: d, dateLabel: toWarekiDateLabel(d), dayOfWeek: dayOfWeekJp(d), location: locationLabel }); }}
               title="ここまでの内容を保存して小窓(フロートメモ)に切り替えます。他の画面を見ながら続きを入力できます"
               className="px-3 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded-lg text-xs font-bold">小窓にする</button>}
-            {/* ★ 2026-10-16(ユーザー「右上の×は下の終了と同じなので消す」) */}
+            {/* ★ 2026-10-16(ユーザー「右上の×は下の終了と同じなので消す」)。★ 2026-10-17(ユーザー「保存と終了は上に」): 他の画面と同じく上の帯に */}
+            <button onClick={_confirmClose} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-bold">終了</button>
+            <button onClick={handleSubmit} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold">保存</button>
           </div>
         </div>
         <div className="flex-1 overflow-auto p-5 space-y-3 text-sm flex flex-col">
@@ -57710,10 +57711,6 @@ function MeetingRecordForm({ patient, meeting, onSave, onClose, onFloat, appData
               placeholder={`〇様子・状態\n\nご本人より...\nご家族より...\n事業所より...`}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none resize-none flex-1" style={{minHeight:'16em'}}/>
           </div>
-        </div>
-        <div className="flex gap-2 px-5 py-3 border-t border-slate-200 shrink-0">
-          <button onClick={_confirmClose} className="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-bold">終了</button>
-          <button onClick={handleSubmit} className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold">保存</button>
         </div>
       </div>
     </div>
