@@ -2140,6 +2140,9 @@ const tsuFitFs = (el, text, baseFs, maxH, lineHeight, minFs = 11) => { let fs = 
 // ★ 2026-10-16(ユーザー「改行して1文字で改行しまくると文字がめちゃくちゃ小さくなる。行も制限した方が」): 文字数の上限に加え、
 //   「基準の大きさのまま枠に入らない入力」(改行が多すぎる等)は受け付けない。直前の計測(tsuFitMemoBox)で控えた枠の高さ(avail)で判定。
 //   削る方向(短くなる)はいつでも通す。IME 変換中は判定しない(呼ぶ側)。戻り値 true=受け付けない
+// ★ 2026-10-16 追補(ユーザー「もう少し小さくなってもいいので、小さすぎない程度に改行はできるように」): 縮小の下限 = 13px。
+//   この大きさまで縮めれば枠に入る入力は受け付け(縮めて表示)、それでも入らない入力だけ受け付けない
+const TSU_MEMO_MIN_FS = 13;
 const tsuMemoOverflows = (el, nextText, prevText, baseFs, lineHeight, avail) => { try {
   if (!el || !avail) return false; const nt = String(nextText || ''), pt = String(prevText || '');
   if (nt.length <= pt.length && nt.split('\n').length <= pt.split('\n').length) return false;
@@ -54149,7 +54152,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   // ★ 2026-10-16: 各種連絡と同じく、見えない箱で測る・末尾の空行は数えない・入力欄は中身の高さに広げる(tsuFitMemoBox)
   React.useLayoutEffect(() => {
     const el = _absMemoRef.current; if (!el) { if (absMemoFit !== null) setAbsMemoFit(null); return; }
-    const r = tsuFitMemoBox(el, el.value, 16, 1.7, 11); if (!r) return;
+    const r = tsuFitMemoBox(el, el.value, 16, 1.7, TSU_MEMO_MIN_FS); if (!r) return;
     _absAvailRef.current = r.avail; try { el.dataset.avail = String(Math.round(r.avail)); } catch {}
     const v = Math.min(16, r.fs); // 測れたら必ず数値(null だと文字数からの推定に戻り、末尾の空行まで数えて小さくなる)
     if (v !== absMemoFit) setAbsMemoFit(v);
@@ -54597,7 +54600,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                     ref={_absMemoRef}
                     value={fax.memo ?? defaultMemo}
                     onChange={e=>{ const v = e.target.value; const comp = !!(e.nativeEvent && e.nativeEvent.isComposing);
-                      if (!comp && tsuMemoOverflows(e.target, v, String(fax.memo ?? defaultMemo ?? ''), 16, 1.7, _absAvailRef.current)) { setAbsMemoFull(true); setTimeout(()=>setAbsMemoFull(false), 1800); return; } // ★ 2026-10-16: 枠に入らない入力は受け付けない
+                      if (!comp && tsuMemoOverflows(e.target, v, String(fax.memo ?? defaultMemo ?? ''), TSU_MEMO_MIN_FS, 1.7, _absAvailRef.current)) { setAbsMemoFull(true); setTimeout(()=>setAbsMemoFull(false), 1800); return; } // ★ 2026-10-16: 枠に入らない入力は受け付けない
                       updateFax(key,{memo:v}); }}
                     onBlur={e=>{ const t = String(e.target.value||'').replace(/\s+$/,''); if (t !== e.target.value) updateFax(key,{memo:t}); }}
                     maxLength={ABS_MEMO_MAX}
@@ -54607,7 +54610,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                     style={{width:'100%',flex:'0 0 auto',height:(absMemoH ? `${absMemoH}px` : 'auto'),minHeight:`${Math.ceil(_memoFs*1.7*3)+8}px`,border:'none',borderRadius:0,padding:'4px 0',fontSize:_memoFs,overflow:'hidden',outline:'none',resize:'none',fontFamily:'serif',lineHeight:1.7,boxSizing:'border-box',background:'transparent'}}
                   />
                 )}
-                {!isPrint && <div style={{textAlign:'right',marginTop:2,flex:'0 0 auto',display:'flex',justifyContent:'flex-end',alignItems:'center',gap:8}}>{absMemoFull && <span className="no-print" style={{fontSize:11,color:'#dc2626',fontWeight:'bold'}}>枠がいっぱいです（行を減らしてください）</span>}<CharCount value={fax.memo ?? defaultMemo} max={ABS_MEMO_MAX} style={absMemoFull?{color:'#dc2626'}:undefined}/></div>}
+                {!isPrint && <div style={{textAlign:'right',marginTop:2,flex:'0 0 auto',display:'flex',justifyContent:'flex-end',alignItems:'center',gap:8}}>{absMemoFull && <span className="no-print" style={{fontSize:11,color:'#dc2626',fontWeight:'bold'}}>枠がいっぱいです（これ以上は入りません）</span>}<CharCount value={fax.memo ?? defaultMemo} max={ABS_MEMO_MAX} style={absMemoFull?{color:'#dc2626'}:undefined}/></div>}
                 {/* ★ 2026-10-16: 結びは本文の直後・本文と同じ大きさ(本文が縮んだら一緒に縮む)。枠(flex:1)の中に置き、残りは空白 */}
                 <div style={{fontSize:Math.min(16,_memoFs),marginTop:8,flex:'0 0 auto'}}>今後ともよろしくお願いいたします。</div>
               </div>
@@ -54781,7 +54784,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   //   見えない箱で測り(tsuFitMemoBox)、末尾の空行は数えない。入力欄は中身の高さに広げる(スマホで下の行が隠れない)。「今後とも〜」は本文の直後
   React.useLayoutEffect(() => {
     const el = _memoRef.current; if (!el) return;
-    const r = tsuFitMemoBox(el, memo, _memoBaseFs, 1.9, 11); if (!r) return;
+    const r = tsuFitMemoBox(el, memo, _memoBaseFs, 1.9, TSU_MEMO_MIN_FS); if (!r) return;
     _memoAvailRef.current = r.avail; try { el.dataset.avail = String(Math.round(r.avail)); } catch {}
     const fs = r.fs >= _memoBaseFs ? null : r.fs;
     if (fs !== memoFitFs) setMemoFitFs(fs);
@@ -55012,7 +55015,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
             <button type="button" onClick={()=>{ setMemoStyle(ms=>({...ms,underline:!ms.underline})); markDirty(); }}
                     style={{padding:'6px 10px',borderRadius:8,fontWeight:'bold',fontSize:11,cursor:'pointer',border:'1px solid #cbd5e1',background:memoStyle.underline?'#1d4ed8':'white',color:memoStyle.underline?'white':'#334155',textDecoration:'underline'}}>下線</button>
             <CharCount value={memo} max={_memoMax} style={{color:(memoFull||String(memo||'').length>=_memoMax)?'#fca5a5':'#cbd5e1',fontSize:11,marginLeft:2}}/>
-            {memoFull && <span style={{fontSize:11,color:'#fca5a5',fontWeight:'bold',whiteSpace:'nowrap'}}>枠がいっぱいです（行を減らすか、文字の大きさを「標準」に）</span>}
+            {memoFull && <span style={{fontSize:11,color:'#fca5a5',fontWeight:'bold',whiteSpace:'nowrap'}}>枠がいっぱいです（これ以上は入りません）</span>}
           </div>
           {/* ★ 保存ボタン(休み連絡と統一・店舗要望)。 下書きを保存して未保存状態を解消する */}
           <button type="button" onClick={()=>{ flushSave(); setJustSavedFax(true); setTimeout(()=>setJustSavedFax(false), 2500); }}
@@ -55215,7 +55218,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
               </div>
             )}
             <textarea value={memo} onChange={e=>{ const v = e.target.value; const comp = !!(e.nativeEvent && e.nativeEvent.isComposing);
-                        if (!comp && tsuMemoOverflows(e.target, v, memo, _memoBaseFs, 1.9, _memoAvailRef.current)) { setMemoFull(true); setTimeout(()=>setMemoFull(false), 1800); return; } // ★ 2026-10-16: 枠に入らない入力は受け付けない
+                        if (!comp && tsuMemoOverflows(e.target, v, memo, Math.min(_memoBaseFs, TSU_MEMO_MIN_FS), 1.9, _memoAvailRef.current)) { setMemoFull(true); setTimeout(()=>setMemoFull(false), 1800); return; } // ★ 2026-10-16: 枠に入らない入力は受け付けない
                         setMemo(v); }}
                       placeholder="ここに連絡事項を直接入力してください"
                       className="fax-inline-input"
