@@ -19839,6 +19839,8 @@ export default function App() {
         const o = JSON.parse(raw);
         if (o && o.view && Date.now() - (o.t||0) < 12*60*60*1000) { // ★ 2026-10-17: 12時間以内(常時控えるようにしたため)
           if (o.pid != null) window.__tsumugiResumePid = o.pid;
+          if (o.date) window.__tsumugiResumeDate = o.date;   // ★ 2026-10-17: 見ていた日付・午前/午後も戻す
+          if (o.ampm) window.__tsumugiResumeAmpm = o.ampm;
           return o.view;
         }
       }
@@ -21524,18 +21526,18 @@ export default function App() {
     return () => { clearTimeout(t); document.removeEventListener('visibilitychange', onVis); window.removeEventListener('pageshow', onVis); };
   }, []);
   const [selectedDate, setSelectedDate] = useState(() => {
+    if (window.__tsumugiResumeDate && /^\d{4}-\d{2}-\d{2}$/.test(window.__tsumugiResumeDate)) return window.__tsumugiResumeDate; // ★ 2026-10-17: 再読み込み前に見ていた日付
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   });
   const [targetPatientId, setTargetPatientId] = useState(() => (window.__tsumugiResumePid != null ? window.__tsumugiResumePid : null)); // ★ 今すぐ更新の復帰時は選択中の利用者も引き継ぐ
-  // ★ 2026-10-17(ユーザー要望「再読み込みしても今表示している画面に戻ってほしい」): 見ている画面と利用者を常に控える(更新ボタンのときだけだったのを常時に)
-  useEffect(() => { try { sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: currentView, pid: targetPatientId ?? null, t: Date.now() })); } catch {} }, [currentView, targetPatientId]);
   // ★ 定休日(土日等)にアプリを開いたら「次の営業日」を初期表示にする(店舗要望)。
   //   カレンダーの nearestOpenDate は土曜→金曜と後退するが、起動時は必ず前進(未来の営業日)。
   //   設定(closedDays)が読み込めた最初の1回だけ実行し、ユーザーが日付を動かした後は触らない。
   const _initDateAdjRef = React.useRef(false);
   useEffect(() => {
     if (_initDateAdjRef.current) return;
+    if (window.__tsumugiResumeDate) { _initDateAdjRef.current = true; return; } // ★ 2026-10-17: 再読み込みで戻した日付はそのまま
     const cd = appData?.systemSettings?.facilityInfo?.closedDays;
     if (!Array.isArray(cd)) return;
     _initDateAdjRef.current = true;
@@ -21907,7 +21909,9 @@ export default function App() {
       window.removeEventListener('beforeunload', onBeforeUnload);
     };
   }, [currentView]);
-  const [sharedAmpm, setSharedAmpm] = useState('AM'); // 'AM' or 'PM'
+  const [sharedAmpm, setSharedAmpm] = useState(() => (window.__tsumugiResumeAmpm === 'PM' ? 'PM' : 'AM')); // 'AM' or 'PM' ★ 2026-10-17: 再読み込み前の午前/午後
+  // ★ 2026-10-17(ユーザー要望「再読み込みしても今表示している画面に戻ってほしい」): 見ている画面・利用者・日付・午前/午後を常に控える(更新ボタンのときだけだったのを常時に)
+  useEffect(() => { try { sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: currentView, pid: targetPatientId ?? null, date: selectedDate || null, ampm: sharedAmpm, t: Date.now() })); } catch {} }, [currentView, targetPatientId, selectedDate, sharedAmpm]);
   const [pendingStaffSwitch, setPendingStaffSwitch] = useState(null); // サイドバーのスタッフ切替で管理者を選んだ→認証待ち
   const [bugReport, setBugReport] = useState(null); // {desc, sending, sent, err} | null  不具合レポート
   const [staffPolicyView, setStaffPolicyView] = useState(false); // ★ 利用規約・同意ポリシーの閲覧(スタッフ用・タブ 'office'|'family')
@@ -21946,6 +21950,7 @@ export default function App() {
     const fi = appData?.systemSettings?.facilityInfo;
     if (!fi) return; // 施設情報が読み込まれてから判定
     _ampmInitRef.current = true;
+    if (window.__tsumugiResumeAmpm) return; // ★ 2026-10-17: 再読み込みで戻した午前/午後はそのまま(時刻での自動切替はしない)
     const parseStart = (s) => { const m = String(s||'').match(/(\d{1,2})[:：](\d{2})/); return m ? ((+m[1])*60 + (+m[2])) : null; };
     const parseEnd = (s) => { const m = String(s||'').match(/[~～\-－].*?(\d{1,2})[:：](\d{2})/); return m ? ((+m[1])*60 + (+m[2])) : null; };
     const now = new Date(); const cur = now.getHours()*60 + now.getMinutes();
@@ -39081,6 +39086,11 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appData.patients]);
   React.useEffect(() => { _reopenPF(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // ★ 2026-10-17(ユーザー要望「再読み込みしても同じ画面に」): 個人ファイルを開いている間はその控え(利用者・タブ)を置き、閉じたら消す。
+  //   タブの変更は PersonalFileModal から合図(tsumugi-pf-tab)で受け取る
+  const _pfTabRef = React.useRef(null);
+  React.useEffect(() => { const h = (e) => { _pfTabRef.current = e.detail && e.detail.tab; try { if (personalFileModal) sessionStorage.setItem('tsumugiReopenPF', JSON.stringify({ patientId: personalFileModal.patient.id, tab: _pfTabRef.current || personalFileModal.initialTab || 'cat_1', keep: true })); } catch {} }; window.addEventListener('tsumugi-pf-tab', h); return () => window.removeEventListener('tsumugi-pf-tab', h); }, [personalFileModal]);
+  React.useEffect(() => { try { if (personalFileModal) sessionStorage.setItem('tsumugiReopenPF', JSON.stringify({ patientId: personalFileModal.patient.id, tab: _pfTabRef.current || personalFileModal.initialTab || 'cat_1', keep: true })); else { const raw = sessionStorage.getItem('tsumugiReopenPF'); if (raw && JSON.parse(raw).keep) sessionStorage.removeItem('tsumugiReopenPF'); } } catch {} }, [personalFileModal]);
   React.useEffect(() => { window.addEventListener('tsumugiReopenPF', _reopenPF); return () => window.removeEventListener('tsumugiReopenPF', _reopenPF); }, [_reopenPF]);
 
   // ★ アカウント管理モーダルを開いた時 + 10秒ごと、Supabase から最新の家族招待/アカウントを取得
@@ -54970,6 +54980,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
   const [expandedMon, setExpandedMon] = useState(null); // モニタリング表の展開
   const allCategories = [...DEFAULT_PF_CATEGORIES, ...customCategories];
   const [activeCat, setActiveCat] = useState((initialTab && allCategories.some(c=>c.id===initialTab)) ? initialTab : allCategories[0].id);
+  React.useEffect(() => { try { window.dispatchEvent(new CustomEvent('tsumugi-pf-tab', { detail: { tab: activeCat } })); } catch {} }, [activeCat]); // ★ 2026-10-17: 開いているタブを控える(再読み込みで同じタブへ)
   const [showMeetingForm, setShowMeetingForm] = useState(false);
   const [editingMeeting, setEditingMeeting] = useState(null);
   const [pdfPreviewMeeting, setPdfPreviewMeeting] = useState(null);
