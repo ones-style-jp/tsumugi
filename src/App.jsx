@@ -29352,16 +29352,18 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             for(let v=Math.ceil(mn/step)*step;v<=mx;v+=step) yTicks.push(v);
 
             // max/min indices for highlighting
-            const vals1=pts1.map(p=>p.v);
+            // ★ 2026-10-16(ユーザー指摘「両方のとき最高・最低が通所時のものになっている」): 「両方」は通所時＋終了時を合わせた中の最高・最低に印(上の数字の箱と同じ考え方)
+            const all1=[...pts1, ...ptsE1], all2=[...pts2, ...ptsE2];
+            const vals1=all1.map(p=>p.v);
             const maxV1=vals1.length?Math.max(...vals1):null;
             const minV1=vals1.length?Math.min(...vals1):null;
-            const maxP1=pts1.find(p=>p.v===maxV1);
-            const minP1=pts1.find(p=>p.v===minV1);
-            const vals2=pts2.map(p=>p.v);
+            const maxP1=all1.find(p=>p.v===maxV1);
+            const minP1=all1.find(p=>p.v===minV1);
+            const vals2=all2.map(p=>p.v);
             const maxV2=vals2.length?Math.max(...vals2):null;
             const minV2=vals2.length?Math.min(...vals2):null;
-            const maxP2=pts2.find(p=>p.v===maxV2);
-            const minP2=pts2.find(p=>p.v===minV2);
+            const maxP2=all2.find(p=>p.v===maxV2);
+            const minP2=all2.find(p=>p.v===minV2);
 
             return (
               <div style={{display:'flex',alignItems:'stretch'}}>
