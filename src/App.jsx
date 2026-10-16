@@ -36466,7 +36466,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const runPrevWeekCopy = (mode) => {
             setCopyAsk(false);
 
-            let n = 0, nSkip = 0, nKeep = 0, nFill = 0;
+            let n = 0, nSkip = 0, nKeep = 0, nFill = 0, nAdded = 0;
             const np = { ...plans };
             days.forEach(d => { ['AM','PM'].forEach(sl => {
               const prevD = new Date(d); prevD.setDate(prevD.getDate() - 7);
@@ -36485,26 +36485,30 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               if (cp.arrive) { cp.arriveAuto = {}; Object.keys(cp.arrive).forEach(cid => { if (cp.arrive[cid] && (cp.cars?.[cid]||[]).length) cp.arriveAuto[cid] = true; else delete cp.arrive[cid]; }); }
               if (cp.drop && cp.drop.depart) { cp.drop.departAuto = {}; Object.keys(cp.drop.depart).forEach(cid => { if (cp.drop.depart[cid] && (cp.drop.cars?.[cid]||[]).length) cp.drop.departAuto[cid] = true; else delete cp.drop.depart[cid]; }); }
               delete cp._final; delete cp._finalAt; delete cp._finalId; delete cp._base; delete cp._baseAt; delete cp._baseId; delete cp._chgAt; delete cp._telDone; // ★ 完成の控えは週ごと(コピー先は未確定から)
-              // ★ 2026-10-16(ユーザー要望「この週で変えたところは作成中でも変えないで」): 「まだ作っていない日だけ」で、この週にすでにあるコマは
-              //   丸ごと飛ばすのではなく、この週で誰も乗っていない車だけ前の週から補う(この週ですでに乗せた方・時間・運転者・徒歩・その他はそのまま。
-              //   この週ですでにどこかに入っている方は補わない)。全部のコマで補う車が無ければ「そのまま」と数える
+              // ★ 2026-10-16(ユーザー要望「この週で変えたところは作成中でも変えないで」「前週コピーのあと未割当の方を車に乗せて、もう一度押すと未割当に戻る」):
+              //   「前の週と見比べて写す」= この週にすでにあるコマは、この週で車・徒歩・その他に入っている方(この週で決めたこと)と時間・運転者はそのまま。
+              //   前の週にいて、この週でまだどこにも入っていない(未割当か居ない)方だけ、前の週と同じ車・徒歩・その他へ入れる(車の運転者・到着は空のときだけ前の週から)。
+              //   この週にしかいない方(前の週は休みなど)も当然そのまま。写すものが無ければ「そのまま」と数える
               const cur = plans[`${_iso(d)}_${sl}`];
               if (mode === 'fill' && cur) {
-                const merged = JSON.parse(JSON.stringify(cur)); delete merged._draft; merged.cars = merged.cars || {};
-                const placed = new Set([...Object.values(merged.cars).flat(), ...(merged.walkers||[]), ...(merged.others||[])].map(m => String(m && m.pid)));
-                let filled = 0; const newly = new Set();
-                Object.keys(cp.cars||{}).forEach(cid => { if ((merged.cars[cid]||[]).length) return; const add = (cp.cars[cid]||[]).filter(m => m && !placed.has(String(m.pid))); if (!add.length) return;
-                  merged.cars[cid] = add; add.forEach(m => newly.add(String(m.pid))); filled++;
+                const merged = JSON.parse(JSON.stringify(cur)); delete merged._draft; merged.cars = merged.cars || {}; merged.walkers = merged.walkers || []; merged.others = merged.others || [];
+                const placed = new Set([...Object.values(merged.cars).flat(), ...merged.walkers, ...merged.others].map(m => String(m && m.pid)));
+                let added = 0; const newly = new Set(); const touched = new Set();
+                Object.keys(cp.cars||{}).forEach(cid => { (cp.cars[cid]||[]).forEach(m => { if (!m || placed.has(String(m.pid))) return; merged.cars[cid] = [...(merged.cars[cid]||[]), { ...m, mark: false }]; placed.add(String(m.pid)); newly.add(String(m.pid)); touched.add(cid); added++; }); });
+                ['walkers','others'].forEach(k => (cp[k]||[]).forEach(m => { if (!m || placed.has(String(m.pid))) return; merged[k] = [...merged[k], { ...m }]; placed.add(String(m.pid)); newly.add(String(m.pid)); added++; }));
+                if (!added) { nKeep++; return; }
+                touched.forEach(cid => {
+                  // 新しく入れた方を含めて、その車は時間順に並べ直す
+                  merged.cars[cid] = [...merged.cars[cid]].sort((x, y) => _tMin(x.t) - _tMin(y.t));
                   if (!(merged.driver||{})[cid] && (cp.driver||{})[cid]) merged.driver = { ...(merged.driver||{}), [cid]: cp.driver[cid] };
-                  if ((cp.arrive||{})[cid]) { merged.arrive = { ...(merged.arrive||{}), [cid]: cp.arrive[cid] }; merged.arriveAuto = { ...(merged.arriveAuto||{}), [cid]: true }; } });
-                if (!filled) { nKeep++; return; }
+                  if (!(merged.arrive||{})[cid] && (cp.arrive||{})[cid]) { merged.arrive = { ...(merged.arrive||{}), [cid]: cp.arrive[cid] }; merged.arriveAuto = { ...(merged.arriveAuto||{}), [cid]: true }; } });
                 merged.un = (merged.un||[]).filter(m => !newly.has(String(m && m.pid)));
-                np[`${_iso(d)}_${sl}`] = { ...merged, _savedAt: syncNow() }; nFill++; return;
+                np[`${_iso(d)}_${sl}`] = { ...merged, _savedAt: syncNow() }; nFill++; nAdded += added; return;
               }
               np[`${_iso(d)}_${sl}`] = { ...cp, _savedAt: syncNow() }; n++;
             }); });
             if (n || nFill) _saveBulk('前週コピー', np);
-            alert((n || nFill) ? `前週から${n}コマをコピーしました。${nFill ? `\n（この週ですでに作ってあった ${nFill}コマは、空いている車だけ前の週から補いました。この週で乗せた方・時間・運転者はそのままです）` : ''}${nKeep ? `\n（この週ですでに作ってあった ${nKeep}コマはそのままです）` : ''}${nSkip ? `\n（前の週の振替・この週のお休みなどで、この週に来ない方 のべ${nSkip}名はコピーしていません）` : ''}` : (nKeep ? `この週はすでに全部作ってあるため、コピーしませんでした（${nKeep}コマ）。` : '前の週に保存済みの送迎表がありませんでした。'));
+            alert((n || nFill) ? `前週から${n}コマをコピーしました。${nFill ? `\n（この週ですでに作ってあった ${nFill}コマは、まだどこにも入っていなかった ${nAdded}名だけを前の週と同じ車へ入れました。この週で乗せた方・時間・運転者はそのままです）` : ''}${nKeep ? `\n（この週ですでに作ってあった ${nKeep}コマはそのままです）` : ''}${nSkip ? `\n（前の週の振替・この週のお休みなどで、この週に来ない方 のべ${nSkip}名はコピーしていません）` : ''}` : (nKeep ? `この週はすでに全部作ってあるため、コピーしませんでした（${nKeep}コマ）。` : '前の週に保存済みの送迎表がありませんでした。'));
   };
   const [arrKp, setArrKp] = useState(null); // ★ 2026-10-15: 迎えの到着時間のテンキー {iso, sl, cid}
   React.useEffect(() => { if (legTick) _applyLegs(); }, [legTick]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -37372,6 +37376,17 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   );
   // ★ 2026-09-30(ユーザー要望): 下へスクロールしても日付を常に表示する(上部の固定帯に日付の行を置き、表の横スクロールと連動)
   const tpHdrRef = React.useRef(null);
+  const tpGridRef = React.useRef(null); // 作成中の1週間の表(本体)
+  // ★ 2026-10-16(ユーザー報告「横にスクロールすると日付の位置と車両・利用者の位置がずれる」): 日付の帯は本体と別のグリッドなので、
+  //   列の幅(中身で広がる列がある)や横スクロールの量が違うとずれる。本体の各日の列の実際の幅を測って帯の列幅をそろえ、横スクロールも合わせる
+  const _tpSyncHdr = React.useCallback(() => { try {
+    const g = tpGridRef.current, h = tpHdrRef.current; if (!g || !h) return; const hg = h.firstElementChild; if (!hg) return;
+    const kids = Array.from(g.children); const lbl = kids.find(k => k.style.display !== 'contents'); const days = kids.filter(k => k.style.display === 'contents').map(w => w.firstElementChild).filter(Boolean);
+    if (days.length) { const cols = [`${lbl ? lbl.offsetWidth : 26}px`, ...days.map(c => `${c.offsetWidth}px`)].join(' '); if (hg.style.gridTemplateColumns !== cols) hg.style.gridTemplateColumns = cols; }
+    if (h.scrollLeft !== g.scrollLeft) h.scrollLeft = g.scrollLeft;
+  } catch {} }, []);
+  React.useEffect(() => { _tpSyncHdr(); const g = tpGridRef.current; if (!g) return; let ro = null; try { ro = new ResizeObserver(_tpSyncHdr); ro.observe(g); Array.from(g.children).forEach(k => { const c = k.style.display === 'contents' ? k.firstElementChild : k; if (c) ro.observe(c); }); } catch {}
+    window.addEventListener('resize', _tpSyncHdr); const t = setTimeout(_tpSyncHdr, 300); return () => { try { ro && ro.disconnect(); } catch {} window.removeEventListener('resize', _tpSyncHdr); clearTimeout(t); }; });
   // ★ 2026-10-08(ユーザー要望「スマホで見るのは主に今日の送迎。スマホは当日の運行表を全体で表示し、上のボタンで1週間分も見られるように」):
   //   スマホ幅は選んだ日(週の中に無ければ今日・それも無ければ週の最初の日)の1日だけを画面の幅いっぱいに表示。「1週間を見る」で従来の週表示。
   //   表示だけの切替(確定・保存・ダウンロードは従来どおり週単位)。iPad・PCは従来どおり
@@ -37687,7 +37702,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         <div className="max-w-[1500px] mx-auto">
         {/* ★ 2026-09-13c(店舗要望): 午前/午後を「段」として揃える(どの曜日も午後が同じ高さから始まる)。日付/午前/午後を行に持つグリッドへ変更 */}
         {/* ★ 2026-09-25(ユーザー指示): 列を詰めてサイドバーを閉じれば月〜金が1画面に収まる幅(5列×236px+隙間≈1220px) */}
-        <div className="grid" onScroll={e => { if (tpHdrRef.current) tpHdrRef.current.scrollLeft = e.currentTarget.scrollLeft; }} style={{gridTemplateColumns:_tpCols, gridAutoFlow:'column', gridTemplateRows:'auto auto', columnGap:8, rowGap:12, alignItems:'stretch', overflowX:'auto'}}>
+        <div className="grid" ref={tpGridRef} data-testid="tp-edit-grid" onScroll={() => _tpSyncHdr()} style={{gridTemplateColumns:_tpCols, gridAutoFlow:'column', gridTemplateRows:'auto auto', columnGap:8, rowGap:12, alignItems:'stretch', overflowX:'auto'}}>
           {/* ★ 2026-09-30: 午前/午後は左端に縦にまとめて1回だけ表示 */}
           {['AM','PM'].map(sl => (
             <div key={`lbl-${sl}`} className={`rounded-lg flex items-center justify-start font-bold text-[13px] ${sl==='AM'?'bg-amber-100 text-amber-800':'bg-indigo-100 text-indigo-800'}`} style={{writingMode:'vertical-rl', letterSpacing:4, paddingTop:10}}>{sl==='AM'?'午前':'午後'}</div>
@@ -38141,8 +38156,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <div className="text-lg font-bold text-slate-800 mb-1">前週コピー</div>
             <div className="text-[13px] text-slate-600 mb-3">前の週の送迎表（車の割り当て・時間・運転者・備考）を、この週へ写します。前の週に振替で来た方や、この週にお休みの方は写しません。前の週の到着・送りの出発の時間は「目安」として入ります。</div>
             <button type="button" data-testid="tp-copy-fill" disabled={!fill && !made} onClick={() => runPrevWeekCopy('fill')} className="w-full text-left rounded-xl border-2 border-blue-600 bg-blue-50 hover:bg-blue-100 px-4 py-3 mb-2 disabled:opacity-40">
-              <div className="font-bold text-blue-800">まだ作っていない日だけコピー（{fill}コマ）</div>
-              <div className="text-[12px] text-slate-600 mt-0.5">この週ですでに作ったり直したりした午前・午後（{made}コマ）は、この週で乗せた方・時間・運転者はそのままで、誰も乗っていない車だけ前の週から補います。</div>
+              <div className="font-bold text-blue-800">前の週と見比べて写す（まだの {fill}コマは全部・作ってある {made}コマは足りない方だけ）</div>
+              <div className="text-[12px] text-slate-600 mt-0.5">この週ですでに作ったり直したりした午前・午後（{made}コマ）は、この週で乗せた方・時間・運転者はそのまま。まだどこにも入っていない方だけ、前の週と同じ車に入れます。</div>
             </button>
             <button type="button" data-testid="tp-copy-all" onClick={() => runPrevWeekCopy('all')} className="w-full text-left rounded-xl border-2 border-slate-300 bg-white hover:bg-slate-50 px-4 py-3 mb-3">
               <div className="font-bold text-slate-800">全部コピーし直す（{fill + made}コマ）</div>
