@@ -9,6 +9,7 @@
 // 環境変数: SUPABASE_URL(または VITE_SUPABASE_URL) / SUPABASE_SERVICE_ROLE_KEY
 //
 // POST /api/staff-auth  { action, ... }
+//   sb_status            {}                                                 → { configured, ok, reason }  ログイン不要(証の発行状態の確認)
 //   login                { username, password_hash }                          → { staff, token }
 //   list                 { token, store_id? }                                 → { staff:[...] }   本部=全店 / 店舗管理者=自店
 //   create               { token, store_id, username, password_hash, role, last_name, first_name, email, phone } → { staff }
@@ -94,6 +95,12 @@ export default async function handler(req, res) {
   const action = String(body.action || '');
 
   try {
+    // ★ 2026-10-17 データ保護(段階1): 証の発行状態の確認(ログイン不要・本部が Vercel に秘密を入れた後の確認用)。
+    //   返すのは「秘密が設定されているか」「その秘密で作った証を Supabase が受け付けるか」だけ。証そのものや秘密は返さない
+    if (action === 'sb_status') {
+      const mc = await mintSbTokenChecked({ id: 'probe', role: '', store_id: null });
+      return res.status(200).json({ configured: !!JWT_SECRET, ok: !!mc.ok, reason: mc.ok ? undefined : mc.reason });
+    }
     if (action === 'login') {
       const username = String(body.username || '').trim();
       const hash = String(body.password_hash || '').trim();
