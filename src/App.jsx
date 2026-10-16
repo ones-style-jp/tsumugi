@@ -19919,7 +19919,7 @@ export default function App() {
       if (raw) {
         sessionStorage.removeItem('tsumugi_resume_view');
         const o = JSON.parse(raw);
-        if (o && o.view && Date.now() - (o.t||0) < 5*60*1000) {
+        if (o && o.view && Date.now() - (o.t||0) < 12*60*60*1000) { // ★ 2026-10-17: 12時間以内(常時控えるようにしたため)
           if (o.pid != null) window.__tsumugiResumePid = o.pid;
           return o.view;
         }
@@ -21316,11 +21316,14 @@ export default function App() {
     window.addEventListener('tsumugi-meeting-float', h);
     return () => window.removeEventListener('tsumugi-meeting-float', h);
   }, []);
-  // ★ 2026-10-17: 「今すぐ更新」の前に開いていた小窓を開き直す(5分以内・使い捨て)。データが読み込まれてから
+  // ★ 2026-10-17: 再読み込み(更新ボタン・ブラウザの再読み込みとも)の前に開いていた小窓を開き直す(12時間以内)。データが読み込まれてから
   React.useEffect(() => {
-    try { const raw = sessionStorage.getItem('tsumugi_resume_meeting_float'); if (!raw) return; sessionStorage.removeItem('tsumugi_resume_meeting_float'); const o = JSON.parse(raw);
-      if (o && o.patientId && o.meetingId && Date.now() - (o.t || 0) < 5 * 60 * 1000) { const t = setTimeout(() => setMeetingFloat({ patientId: o.patientId, meetingId: o.meetingId, isNew: false }), 1200); return () => clearTimeout(t); } } catch {}
+    try { const raw = sessionStorage.getItem('tsumugi_resume_meeting_float'); if (!raw) return; const o = JSON.parse(raw);
+      if (o && o.patientId && o.meetingId && Date.now() - (o.t || 0) < 12 * 60 * 60 * 1000) { const t = setTimeout(() => setMeetingFloat({ patientId: o.patientId, meetingId: o.meetingId, isNew: false }), 1200); return () => clearTimeout(t); }
+      sessionStorage.removeItem('tsumugi_resume_meeting_float'); } catch {}
   }, []);
+  // 小窓が開いている間はその控えを置き、閉じたら消す(どの再読み込みでも戻れる)
+  React.useEffect(() => { try { if (meetingFloat) sessionStorage.setItem('tsumugi_resume_meeting_float', JSON.stringify({ patientId: meetingFloat.patientId, meetingId: meetingFloat.meetingId, t: Date.now() })); else sessionStorage.removeItem('tsumugi_resume_meeting_float'); } catch {} }, [meetingFloat]);
   // ★ 2026-10-16(ユーザー「小窓を出しながら編集を押すと両方出る。片方だけに」): 入力画面を開くときは小窓を閉じる(小窓側で未保存なら保存してから)
   useEffect(()=>{
     // ★ 2026-10-03(ユーザー要望「連絡帳はまっすぐ印刷画面へ」): detail.autoPrint=true なら、プレビューを出した直後に印刷(PC=隠しiframeで印刷ダイアログ、iPad=印刷用の表示)へ進む
@@ -21611,6 +21614,8 @@ export default function App() {
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   });
   const [targetPatientId, setTargetPatientId] = useState(() => (window.__tsumugiResumePid != null ? window.__tsumugiResumePid : null)); // ★ 今すぐ更新の復帰時は選択中の利用者も引き継ぐ
+  // ★ 2026-10-17(ユーザー要望「再読み込みしても今表示している画面に戻ってほしい」): 見ている画面と利用者を常に控える(更新ボタンのときだけだったのを常時に)
+  useEffect(() => { try { sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: currentView, pid: targetPatientId ?? null, t: Date.now() })); } catch {} }, [currentView, targetPatientId]);
   // ★ 定休日(土日等)にアプリを開いたら「次の営業日」を初期表示にする(店舗要望)。
   //   カレンダーの nearestOpenDate は土曜→金曜と後退するが、起動時は必ず前進(未来の営業日)。
   //   設定(closedDays)が読み込めた最初の1回だけ実行し、ユーザーが日付を動かした後は触らない。
@@ -57362,6 +57367,11 @@ const tsuMeetReasonCompose = (r) => { const t = r.reasonType && r.reasonType !==
 const tsuMeetReasonParse = (m) => { if (m && m.reasonType === '初回（新規）のケアプラン作成') m = { ...m, reasonType: '初回（契約・通所開始前）' }; if (m && m.reasonType) return { reasonType: m.reasonType, reasonNote: m.reasonNote || '', careBefore: m.careBefore || '', careAfter: m.careAfter || '' }; const str = String((m && m.reason) || '').trim(); const t = TSU_MEET_REASONS.find(o => o !== 'その他' && str.startsWith(o)); return t ? { reasonType: t, reasonNote: str.slice(t.length).trim(), careBefore: '', careAfter: '' } : { reasonType: str ? 'その他' : '', reasonNote: str, careBefore: '', careAfter: '' }; };
 // カレンダー(scheduleEvents)にその方の担当者会議の予定があれば、その日の開始・終了を返す
 const tsuMeetCalendarTimes = (appData, patientId, date) => { try { const ev = (appData.scheduleEvents || []).find(e => e && e.date === date && e.patientId === patientId && /担当者会議|担会/.test(String(e.title || ''))); return ev && (ev.start || ev.end) ? { timeStart: ev.start || '', timeEnd: ev.end || '' } : null; } catch { return null; } };
+// ★ 2026-10-17(ユーザー報告「小窓で入力中に再読み込みすると中身が消えた」): 入力途中の下書きを端末(localStorage)に控える。保存・破棄で消す。24時間で無効
+const tsuMeetDraftKey = (pid, mid) => `tsumugi_meet_draft:${pid}:${mid || 'new'}`;
+const tsuMeetDraftSave = (pid, mid, draft) => { try { localStorage.setItem(tsuMeetDraftKey(pid, mid), JSON.stringify({ t: Date.now(), draft })); } catch {} };
+const tsuMeetDraftLoad = (pid, mid) => { try { const raw = localStorage.getItem(tsuMeetDraftKey(pid, mid)); if (!raw) return null; const o = JSON.parse(raw); if (!o || !o.draft || Date.now() - (o.t || 0) > 24 * 60 * 60 * 1000) { localStorage.removeItem(tsuMeetDraftKey(pid, mid)); return null; } return o.draft; } catch { return null; } };
+const tsuMeetDraftClear = (pid, mid) => { try { localStorage.removeItem(tsuMeetDraftKey(pid, mid)); } catch {} };
 // 出席者の選択(チェック＋その他)
 function TsuMeetAttendeesPicker({ value, onChange, patient, fs = 12, dense }) {
   const { sel, other, family } = tsuMeetAttParse(value, patient);
@@ -57452,8 +57462,11 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
     const m = ((dataRef.current.appData.patients||[]).find(p=>p.id===float.patientId)?.personalFile?.meetings||[]).find(x=>x.id===float.meetingId);
     // ★ 2026-10-16: 開始・終了が空なら、カレンダーのその方の担当者会議の予定から入れる。開催理由は選択肢に分解
     const _cal = m && !m.timeStart && !m.timeEnd ? tsuMeetCalendarTimes(dataRef.current.appData, float.patientId, m.date || '') : null;
-    setDraft(m ? { date: m.date||'', timeStart: m.timeStart || (_cal ? _cal.timeStart : ''), timeEnd: m.timeEnd || (_cal ? _cal.timeEnd : ''), attendees: m.attendees||'', reason: m.reason||'', content: m.content||'', ...tsuMeetReasonParse(m) } : null);
-    if (_cal) setDirty(true);
+    const base = m ? { date: m.date||'', timeStart: m.timeStart || (_cal ? _cal.timeStart : ''), timeEnd: m.timeEnd || (_cal ? _cal.timeEnd : ''), attendees: m.attendees||'', reason: m.reason||'', content: m.content||'', ...tsuMeetReasonParse(m) } : null;
+    // ★ 2026-10-17: 再読み込み前の下書きが端末に控えてあれば、それを戻す(保存するまで未保存のまま)
+    const kept = m ? tsuMeetDraftLoad(float.patientId, float.meetingId) : null;
+    if (kept && JSON.stringify(kept) !== JSON.stringify(base)) { setDraft({ ...base, ...kept }); setDirty(true); setTimeout(() => tsuPopNotice('入力途中の内容を戻しました（保存を押すと記録に残ります）', 2600), 400); }
+    else { setDraft(base); if (_cal) setDirty(true); }
   }, [float.patientId, float.meetingId]); // eslint-disable-line
   const flush = () => {
     const { appData: ad, onSave: sv, float: fl } = dataRef.current;
@@ -57463,15 +57476,16 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
     if (!(pf.meetings||[]).some(m=>m.id===fl.meetingId)) return;
     const list = (pf.meetings||[]).map(m => m.id===fl.meetingId ? { ...m, ...dr, reason: tsuMeetReasonCompose(dr), dateLabel: toWarekiDateLabel(dr.date)||m.dateLabel||'', dayOfWeek: dayOfWeekJp(dr.date)||m.dayOfWeek||'' } : m);
     sv({ ...ad, patients: ad.patients.map(p=>p.id===pt.id?{...pt, personalFile:{...pf, meetings:list}}:p) }, { silent: true });
-    setSavedAt(new Date());
+    setSavedAt(new Date()); tsuMeetDraftClear(fl.patientId, fl.meetingId);
   };
   // ★ 明示保存型(2026-08-28 店舗要望): 自動保存はせず、下部の「保存」で確定・「終了」で破棄。
   const savedOnceRef = React.useRef(false);
   const upd = (patch) => { setDraft(d => { const n = { ...(d||{}), ...patch };
       // ★ 2026-10-16: 開催日を変えたとき、カレンダーにその日の担当者会議の予定があれば開始・終了を入れる(手で入れた時間があればそのまま)
       if (patch.date && patch.date !== (d||{}).date && !(d||{}).timeStart && !(d||{}).timeEnd) { const c = tsuMeetCalendarTimes(dataRef.current.appData, dataRef.current.float.patientId, patch.date); if (c) { n.timeStart = c.timeStart; n.timeEnd = c.timeEnd; } }
+      tsuMeetDraftSave(dataRef.current.float.patientId, dataRef.current.float.meetingId, n); // ★ 2026-10-17: 打つたびに端末へ控える
       return n; }); setDirty(true); };
-  const doSave = (ev) => { flush(); savedOnceRef.current = true; setDirty(false); tsuPopNotice('保存しました', 1800, ev && ev.currentTarget); }; // ★ 2026-10-16: 保存したことが分かるようにポップ(保存ボタンの真上)
+  const doSave = (ev) => { flush(); savedOnceRef.current = true; setDirty(false); tsuMeetDraftClear(float.patientId, float.meetingId); tsuPopNotice('保存しました', 1800, ev && ev.currentTarget); }; // ★ 2026-10-16: 保存したことが分かるようにポップ(保存ボタンの真上)
   const discardNew = () => {
     const { appData: ad, onSave: sv, float: fl } = dataRef.current;
     const pt = (ad.patients||[]).find(p=>p.id===fl.patientId); if (!pt) return;
@@ -57498,6 +57512,7 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
     } else if (dirty) {
       if (!window.confirm('保存せずに終了しますか？\n（保存するときは「いいえ」を押して「保存」を）')) return;
     }
+    tsuMeetDraftClear(float.patientId, float.meetingId); // 終了(破棄)したら下書きの控えも消す
     onClose();
   };
   // ★ 2026-10-16(ユーザー報告「場合によって画面の外に行って見えなくなる」): 小窓は必ず画面の中に収める(動かした後・大きさを変えた後・画面の回転や大きさの変化)
@@ -57616,6 +57631,10 @@ function MeetingRecordForm({ patient, meeting, onSave, onClose, onFloat, appData
     ...tsuMeetReasonParse(meeting || {}),
   }; });
   const _setDate = (v) => setForm(f => { const n = { ...f, date: v }; if (!f.timeStart && !f.timeEnd) { const c = tsuMeetCalendarTimes(appData, patient.id, v); if (c) { n.timeStart = c.timeStart; n.timeEnd = c.timeEnd; } } return n; });
+  // ★ 2026-10-17: 入力途中の下書きを端末に控える(再読み込みしても、同じ記録を開き直せば戻る)。開くとき控えがあれば戻す
+  const _draftMid = meeting?.id || 'new';
+  React.useEffect(() => { const kept = tsuMeetDraftLoad(patient.id, _draftMid); if (kept && JSON.stringify(kept) !== JSON.stringify(form)) { setForm(f => ({ ...f, ...kept })); setTimeout(() => tsuPopNotice('入力途中の内容を戻しました（保存を押すと記録に残ります）', 2600), 400); } }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => { if (_initialFormRef.current !== null && JSON.stringify(form) !== _initialFormRef.current) tsuMeetDraftSave(patient.id, _draftMid, form); }, [form]); // eslint-disable-line react-hooks/exhaustive-deps
   // ★ 2026-10-17: 「今すぐ更新」の合図で、変更があれば保存してから再読込される(開催日が無いときは保存できないので何もしない)
   const _formRef = React.useRef(form); _formRef.current = form;
   React.useEffect(() => {
@@ -57631,6 +57650,7 @@ function MeetingRecordForm({ patient, meeting, onSave, onClose, onFloat, appData
     if (JSON.stringify(form) !== _initialFormRef.current) {
       if (!window.confirm('保存せずに終了しますか？\n（保存するときは「いいえ」を押して、下の「保存」を）')) return;
     }
+    tsuMeetDraftClear(patient.id, meeting?.id || 'new');
     onClose();
   };
   const careLevel = patient.careLevel || '';
@@ -57646,6 +57666,7 @@ function MeetingRecordForm({ patient, meeting, onSave, onClose, onFloat, appData
       dayOfWeek,
       location: locationLabel,
     });
+    tsuMeetDraftClear(patient.id, _draftMid);
     tsuPopNotice('保存しました', 1800, ev && ev.currentTarget);
   };
   return (
