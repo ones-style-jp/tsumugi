@@ -54634,7 +54634,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                     style={{width:'100%',flex:'0 0 auto',height:(absMemoH ? `${absMemoH}px` : 'auto'),minHeight:`${Math.ceil(_memoFs*1.7*3)+8}px`,border:'none',borderRadius:0,padding:'4px 0',fontSize:_memoFs,overflow:'hidden',outline:'none',resize:'none',fontFamily:'serif',lineHeight:1.7,boxSizing:'border-box',background:'transparent'}}
                   />
                 )}
-                {!isPrint && <div className="no-print" style={{textAlign:'right',marginTop:2,flex:'0 0 auto'}}><CharCount value={fax.memo ?? defaultMemo} max={ABS_MEMO_MAX}/></div>}
+                {!isPrint && <div className="no-print" style={{height:0,position:'relative',flex:'0 0 auto'}}><CharCount value={fax.memo ?? defaultMemo} max={ABS_MEMO_MAX} style={{position:'absolute',right:0,top:0}}/></div>}
                 {/* ★ 2026-10-16: 結びは本文の直後・本文と同じ大きさ(本文が縮んだら一緒に縮む)。枠(flex:1)の中に置き、残りは空白 */}
                 <div style={{fontSize:Math.min(16,_memoFs),marginTop:8,flex:'0 0 auto'}}>今後ともよろしくお願いいたします。</div>
               </div>
@@ -55253,7 +55253,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                       onBlur={()=>{ const t = String(memo||'').replace(/\s+$/,''); if (t !== memo) setMemo(t); }}
                       style={{flex:'0 0 auto',height:(memoBoxH ? `${memoBoxH}px` : 'auto'),minHeight:`${Math.ceil((memoFitFs ?? _memoBaseFs)*1.9*3)+8}px`,fontSize:(memoFitFs ?? _memoBaseFs),overflow:'hidden',lineHeight:1.9,padding:'4px 0',border:'none',outline:'none',background:'transparent',resize:'none',fontFamily:'inherit',width:'100%',boxSizing:'border-box',textDecoration:(memoStyle.underline?'underline':'none')}}/>
             {/* ★ 2026-10-16(ユーザー「各種連絡も休み連絡と同じように文字数を欄の下に」): 現在/最大(印刷・PDFには出ない) */}
-            <div className="no-print" style={{textAlign:'right',marginTop:2,flex:'0 0 auto'}}><CharCount value={memo} max={_memoMax}/></div>
+            <div className="no-print" style={{height:0,position:'relative',flex:'0 0 auto'}}><CharCount value={memo} max={_memoMax} style={{position:'absolute',right:0,top:0}}/></div>{/* 高さ0: 枠の高さを食わない(印刷と同じ余白で測れる) */}
             {/* ★ 2026-10-16: 結びは本文と同じ大きさ(本文が縮んだら一緒に縮む・本文が大/特大でも 16px)。本文の直後に置く */}
             <div style={{fontSize:Math.min(16, memoFitFs ?? 16),marginTop:8,flex:'0 0 auto'}}>今後ともよろしくお願いいたします。</div>
           </div>
