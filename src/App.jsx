@@ -29435,16 +29435,18 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             for(let v=Math.ceil(mn/step)*step;v<=mx;v+=step) yTicks.push(v);
 
             // max/min indices for highlighting
-            const vals1=pts1.map(p=>p.v);
+            // ★ 2026-10-16(ユーザー指摘「両方のとき最高・最低が通所時のものになっている」): 「両方」は通所時＋終了時を合わせた中の最高・最低に印(上の数字の箱と同じ考え方)
+            const all1=[...pts1, ...ptsE1], all2=[...pts2, ...ptsE2];
+            const vals1=all1.map(p=>p.v);
             const maxV1=vals1.length?Math.max(...vals1):null;
             const minV1=vals1.length?Math.min(...vals1):null;
-            const maxP1=pts1.find(p=>p.v===maxV1);
-            const minP1=pts1.find(p=>p.v===minV1);
-            const vals2=pts2.map(p=>p.v);
+            const maxP1=all1.find(p=>p.v===maxV1);
+            const minP1=all1.find(p=>p.v===minV1);
+            const vals2=all2.map(p=>p.v);
             const maxV2=vals2.length?Math.max(...vals2):null;
             const minV2=vals2.length?Math.min(...vals2):null;
-            const maxP2=pts2.find(p=>p.v===maxV2);
-            const minP2=pts2.find(p=>p.v===minV2);
+            const maxP2=all2.find(p=>p.v===maxV2);
+            const minP2=all2.find(p=>p.v===minV2);
 
             return (
               <div style={{display:'flex',alignItems:'stretch'}}>
@@ -36466,7 +36468,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const runPrevWeekCopy = (mode) => {
             setCopyAsk(false);
 
-            let n = 0, nSkip = 0, nKeep = 0, nFill = 0, nAdded = 0;
+            let n = 0, nSkip = 0, nKeep = 0, nFill = 0, nAdded = 0, nMoved = 0, nDrv = 0, nArr = 0, nBaseOnly = 0;
+            // コピー元(前の週)の内容の控え: 人ごとの場所と時間・車ごとの運転者・到着
+            const _copySnap = (pl) => { const people = {}; Object.keys(pl.cars||{}).forEach(cid => (pl.cars[cid]||[]).forEach(m => { if (m) people[String(m.pid)] = { z: cid, t: m.t || '' }; })); (pl.walkers||[]).forEach(m => { if (m) people[String(m.pid)] = { z: 'walk', t: m.t || '' }; }); (pl.others||[]).forEach(m => { if (m) people[String(m.pid)] = { z: 'other', t: m.t || '' }; });
+              return { at: Date.now(), people, driver: { ...(pl.driver||{}) }, arrive: { ...(pl.arrive||{}) } }; };
             const np = { ...plans };
             days.forEach(d => { ['AM','PM'].forEach(sl => {
               const prevD = new Date(d); prevD.setDate(prevD.getDate() - 7);
@@ -36491,24 +36496,45 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               //   この週にしかいない方(前の週は休みなど)も当然そのまま。写すものが無ければ「そのまま」と数える
               const cur = plans[`${_iso(d)}_${sl}`];
               if (mode === 'fill' && cur) {
+                // ★ 2026-10-16 追補(ユーザー「水曜のタントで乗せた方・直した到着・運転者はコピーに含まれない。逆に前の週の金曜で直した時間は次の週に反映されてほしい」):
+                //   コピーしたときの前の週の内容(控え _copyBase)と見比べる3方向の判定。人ごと・車の運転者ごと・到着ごとに、
+                //   この週が控えと違う(この週で直した)→そのまま、前の週が控えと違う(前の週で直した)→前の週に合わせる、どちらも同じ→そのまま。
+                //   控えが無い(古いコピー・手で作ったコマ)ときは、この週に入っている方は全部「この週で直した」とみなす(=入っていない方だけ足す)
                 const merged = JSON.parse(JSON.stringify(cur)); delete merged._draft; merged.cars = merged.cars || {}; merged.walkers = merged.walkers || []; merged.others = merged.others || [];
-                const placed = new Set([...Object.values(merged.cars).flat(), ...merged.walkers, ...merged.others].map(m => String(m && m.pid)));
-                let added = 0; const newly = new Set(); const touched = new Set();
-                Object.keys(cp.cars||{}).forEach(cid => { (cp.cars[cid]||[]).forEach(m => { if (!m || placed.has(String(m.pid))) return; merged.cars[cid] = [...(merged.cars[cid]||[]), { ...m, mark: false }]; placed.add(String(m.pid)); newly.add(String(m.pid)); touched.add(cid); added++; }); });
-                ['walkers','others'].forEach(k => (cp[k]||[]).forEach(m => { if (!m || placed.has(String(m.pid))) return; merged[k] = [...merged[k], { ...m }]; placed.add(String(m.pid)); newly.add(String(m.pid)); added++; }));
-                if (!added) { nKeep++; return; }
-                touched.forEach(cid => {
-                  // 新しく入れた方を含めて、その車は時間順に並べ直す
-                  merged.cars[cid] = [...merged.cars[cid]].sort((x, y) => _tMin(x.t) - _tMin(y.t));
-                  if (!(merged.driver||{})[cid] && (cp.driver||{})[cid]) merged.driver = { ...(merged.driver||{}), [cid]: cp.driver[cid] };
-                  if (!(merged.arrive||{})[cid] && (cp.arrive||{})[cid]) { merged.arrive = { ...(merged.arrive||{}), [cid]: cp.arrive[cid] }; merged.arriveAuto = { ...(merged.arriveAuto||{}), [cid]: true }; } });
+                const base = (cur._copyBase && cur._copyBase.people) ? cur._copyBase : null;
+                const srcSnap = _copySnap(cp), curSnap = _copySnap(merged);
+                const eqP = (x, y) => (!x && !y) || (!!x && !!y && x.z === y.z && _fmtT(x.t) === _fmtT(y.t));
+                const basePeople = base ? base.people : curSnap.people; // 控えが無ければ「この週の今」を控えとみなす
+                const baseDrv = base ? (base.driver || {}) : (curSnap.driver || {}), baseArr = base ? (base.arrive || {}) : (curSnap.arrive || {});
+                const pids = new Set([...Object.keys(srcSnap.people), ...Object.keys(curSnap.people), ...Object.keys(basePeople)]);
+                let added = 0, moved = 0; const newly = new Set(); const touched = new Set();
+                const removeP = (pid) => { Object.keys(merged.cars).forEach(cid => { merged.cars[cid] = (merged.cars[cid]||[]).filter(m => String(m && m.pid) !== pid); }); merged.walkers = merged.walkers.filter(m => String(m && m.pid) !== pid); merged.others = merged.others.filter(m => String(m && m.pid) !== pid); };
+                const placeP = (pid, sp, srcM) => { if (sp.z === 'walk') merged.walkers.push({ ...srcM }); else if (sp.z === 'other') merged.others.push({ ...srcM }); else { merged.cars[sp.z] = [...(merged.cars[sp.z]||[]), { ...srcM, mark: false }]; touched.add(sp.z); } };
+                const srcMemberOf = (pid) => [...Object.values(cp.cars||{}).flat(), ...(cp.walkers||[]), ...(cp.others||[])].find(m => m && String(m.pid) === pid);
+                pids.forEach(pid => {
+                  const bp = basePeople[pid] || null, sp = srcSnap.people[pid] || null, cpv = curSnap.people[pid] || null;
+                  if (!base && cpv) return;       // 控えが無いときは、この週に入っている方はすべて「この週で決めた」とみなして触らない
+                  if (!eqP(cpv, bp)) return;      // この週で直した(乗せた・外した・時間を変えた) → そのまま
+                  if (eqP(sp, bp) || !sp) return; // 前の週も変わっていない / 前の週から外れた → そのまま
+                  const srcM = srcMemberOf(pid); if (!srcM) return;
+                  removeP(pid); placeP(pid, sp, srcM); newly.add(pid); if (cpv) moved++; else added++;
+                });
+                let drvN = 0, arrN = 0;
+                Object.keys(cp.driver||{}).forEach(cid => { const b0 = baseDrv[cid] || '', s0 = (cp.driver||{})[cid] || '', c0 = (merged.driver||{})[cid] || ''; if ((!base && c0) || c0 !== b0 || s0 === b0 || !s0) return; merged.driver = { ...(merged.driver||{}), [cid]: s0 }; drvN++; });
+                Object.keys(cp.arrive||{}).forEach(cid => { const b0 = _fmtT(baseArr[cid] || ''), s0 = _fmtT((cp.arrive||{})[cid] || ''), c0 = _fmtT((merged.arrive||{})[cid] || ''); if ((!base && c0) || c0 !== b0 || s0 === b0 || !s0) return; merged.arrive = { ...(merged.arrive||{}), [cid]: (cp.arrive||{})[cid] }; merged.arriveAuto = { ...(merged.arriveAuto||{}), [cid]: true }; arrN++; });
+                const changed = added + moved + drvN + arrN;
+                merged._copyBase = srcSnap; // 次に見比べるときの控え(前の週の今の内容)
+                if (!changed) { nKeep++; np[`${_iso(d)}_${sl}`] = { ...merged, _savedAt: cur._savedAt || syncNow() }; nBaseOnly++; return; }
+                touched.forEach(cid => { merged.cars[cid] = [...merged.cars[cid]].sort((x, y) => _tMin(x.t) - _tMin(y.t)); });
                 merged.un = (merged.un||[]).filter(m => !newly.has(String(m && m.pid)));
-                np[`${_iso(d)}_${sl}`] = { ...merged, _savedAt: syncNow() }; nFill++; nAdded += added; return;
+                np[`${_iso(d)}_${sl}`] = { ...merged, _savedAt: syncNow() }; nFill++; nAdded += added; nMoved += moved; nDrv += drvN; nArr += arrN; return;
               }
+              cp._copyBase = _copySnap(cp); // ★ 2026-10-16: 次回「見比べて写す」ときの控え(写した時点の前の週の内容)
               np[`${_iso(d)}_${sl}`] = { ...cp, _savedAt: syncNow() }; n++;
             }); });
-            if (n || nFill) _saveBulk('前週コピー', np);
-            alert((n || nFill) ? `前週から${n}コマをコピーしました。${nFill ? `\n（この週ですでに作ってあった ${nFill}コマは、まだどこにも入っていなかった ${nAdded}名だけを前の週と同じ車へ入れました。この週で乗せた方・時間・運転者はそのままです）` : ''}${nKeep ? `\n（この週ですでに作ってあった ${nKeep}コマはそのままです）` : ''}${nSkip ? `\n（前の週の振替・この週のお休みなどで、この週に来ない方 のべ${nSkip}名はコピーしていません）` : ''}` : (nKeep ? `この週はすでに全部作ってあるため、コピーしませんでした（${nKeep}コマ）。` : '前の週に保存済みの送迎表がありませんでした。'));
+            if (n || nFill || nBaseOnly) _saveBulk('前週コピー', np);
+            const _fillMsg = nFill ? `\n（この週ですでに作ってあった ${nFill}コマは、前の週で変わったところだけ写しました: ${[nAdded ? `新しく乗せた方 ${nAdded}名` : '', nMoved ? `車・時間が変わった方 ${nMoved}名` : '', nDrv ? `運転者 ${nDrv}台` : '', nArr ? `到着 ${nArr}台` : ''].filter(Boolean).join('・')}。この週で直したところはそのままです）` : '';
+            alert((n || nFill) ? `${n ? `前週から${n}コマをコピーしました。` : '前の週と見比べて写しました。'}${_fillMsg}${nKeep ? `\n（この週ですでに作ってあった ${nKeep}コマは、前の週と違うところが無いのでそのままです）` : ''}${nSkip ? `\n（前の週の振替・この週のお休みなどで、この週に来ない方 のべ${nSkip}名はコピーしていません）` : ''}` : (nKeep ? `この週の ${nKeep}コマは、前の週と見比べて写すものがありませんでした（この週で直したところはそのまま・前の週に新しい変更なし）。` : '前の週に保存済みの送迎表がありませんでした。'));
   };
   const [arrKp, setArrKp] = useState(null); // ★ 2026-10-15: 迎えの到着時間のテンキー {iso, sl, cid}
   React.useEffect(() => { if (legTick) _applyLegs(); }, [legTick]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -38156,12 +38182,12 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <div className="text-lg font-bold text-slate-800 mb-1">前週コピー</div>
             <div className="text-[13px] text-slate-600 mb-3">前の週の送迎表（車の割り当て・時間・運転者・備考）を、この週へ写します。前の週に振替で来た方や、この週にお休みの方は写しません。前の週の到着・送りの出発の時間は「目安」として入ります。</div>
             <button type="button" data-testid="tp-copy-fill" disabled={!fill && !made} onClick={() => runPrevWeekCopy('fill')} className="w-full text-left rounded-xl border-2 border-blue-600 bg-blue-50 hover:bg-blue-100 px-4 py-3 mb-2 disabled:opacity-40">
-              <div className="font-bold text-blue-800">前の週と見比べて写す（まだの {fill}コマは全部・作ってある {made}コマは足りない方だけ）</div>
-              <div className="text-[12px] text-slate-600 mt-0.5">この週ですでに作ったり直したりした午前・午後（{made}コマ）は、この週で乗せた方・時間・運転者はそのまま。まだどこにも入っていない方だけ、前の週と同じ車に入れます。</div>
+              <div className="font-bold text-blue-800">前の週に合わせる（この週で直したところは残す）</div>
+              <div className="text-[12px] text-slate-600 mt-0.5">まだ作っていない {fill}コマは前の週をそのまま写します。すでに作ってある {made}コマは、この週で直したところ（乗せた方・時間・運転者・到着）はそのまま残し、前の週のほうで変わったところ（前回写したあとに直した時間や車など）だけを写します。</div>
             </button>
             <button type="button" data-testid="tp-copy-all" onClick={() => runPrevWeekCopy('all')} className="w-full text-left rounded-xl border-2 border-slate-300 bg-white hover:bg-slate-50 px-4 py-3 mb-3">
-              <div className="font-bold text-slate-800">全部コピーし直す（{fill + made}コマ）</div>
-              <div className="text-[12px] text-red-700 mt-0.5">この週に入力済みの内容も、前の週の内容で上書きします。</div>
+              <div className="font-bold text-slate-800">前の週で全部上書きする（{fill + made}コマ）</div>
+              <div className="text-[12px] text-red-700 mt-0.5">この週で直したところも消えて、前の週の内容そのままになります。</div>
             </button>
             <div className="flex justify-end"><button type="button" onClick={() => setCopyAsk(false)} className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold">やめる</button></div>
           </div>
