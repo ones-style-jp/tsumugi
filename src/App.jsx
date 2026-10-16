@@ -2082,7 +2082,7 @@ async function tsumugiServerPdf({ html, pageSize, title, win, onReady }) {
   const blob = await r.blob();
   const url = URL.createObjectURL(blob);
   const fname = `${String(title || 'document').replace(/[\\/:*?"<>|]+/g, '_')}.pdf`;
-  if (onReady) { onReady(url, fname); }
+  if (onReady) { onReady(url, fname, blob); }
   else if (win && !win.closed) { try { win.location.href = url; } catch { win.close(); window.open(url, '_blank'); } }
   else if (tsumugiIsIOS()) { const w2 = window.open(url, '_blank'); if (!w2) { const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); } }
   else { const a = document.createElement('a'); a.href = url; a.download = fname; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); }
@@ -2103,6 +2103,34 @@ function MaskToggle({ small, storeKey, onChange }) {
     </label>
   );
 }
+// ★ 2026-10-16(ユーザー報告「各種連絡の本文が小さく縮む・スマホでは大きいのにダウンロードすると縮む」):
+//   枠に収まる文字の大きさを「同じ幅・同じ字体の見えない箱」で測る。textarea の scrollHeight は iPhone/iPad の Safari が中身の高さを
+//   返さないことがあり、スマホでは縮まず PC・PDF では縮む食い違いが出ていた。本文の末尾の空行は数えない(呼ぶ側で trim する)
+const tsuMeasureTextH = (el, text, fs, lineHeight) => { try {
+  const cs = getComputedStyle(el); const m = tsuMeasureTextH._m || (tsuMeasureTextH._m = document.createElement('div'));
+  if (!m.parentNode) { m.setAttribute('aria-hidden', 'true'); m.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden;white-space:pre-wrap;overflow-wrap:break-word;word-break:break-word;pointer-events:none;box-sizing:content-box;padding:0;border:0'; document.body.appendChild(m); }
+  const pl = parseFloat(cs.paddingLeft) || 0, pr = parseFloat(cs.paddingRight) || 0, pt = parseFloat(cs.paddingTop) || 0, pb = parseFloat(cs.paddingBottom) || 0;
+  m.style.width = Math.max(10, el.clientWidth - pl - pr) + 'px';
+  m.style.fontFamily = cs.fontFamily; m.style.fontWeight = cs.fontWeight; m.style.letterSpacing = cs.letterSpacing; m.style.fontSize = fs + 'px'; m.style.lineHeight = String(lineHeight);
+  m.textContent = String(text || '') + '\u200b';
+  return m.offsetHeight + pt + pb;
+} catch { return 0; } };
+const tsuFitFs = (el, text, baseFs, maxH, lineHeight, minFs = 11) => { let fs = baseFs, g = 0; while (fs > minFs && g < 60 && tsuMeasureTextH(el, text, fs, lineHeight) > maxH) { fs -= 0.5; g++; } return fs; };
+// 本文の入力欄(textarea)を枠に合わせる: 末尾の空行を除いた本文が枠に収まる文字の大きさ(fs)と、入力欄の高さ(中身の高さ・枠の残りが上限)を返す
+const tsuFitMemoBox = (el, text, baseFs, lineHeight, minFs) => {
+  const box = el.parentElement; if (!box) return null;
+  const prevH = el.style.height; el.style.height = '0px';
+  const bcs = getComputedStyle(box); let other = 0;
+  Array.from(box.children).forEach(c => { if (c === el) return; const ccs = getComputedStyle(c); if (ccs.position === 'absolute' || ccs.display === 'none') return; other += c.offsetHeight + (parseFloat(ccs.marginTop) || 0) + (parseFloat(ccs.marginBottom) || 0); });
+  const ecs = getComputedStyle(el); const em = (parseFloat(ecs.marginTop) || 0) + (parseFloat(ecs.marginBottom) || 0);
+  const avail = Math.max(60, box.clientHeight - (parseFloat(bcs.paddingTop) || 0) - (parseFloat(bcs.paddingBottom) || 0) - other - em);
+  el.style.height = prevH;
+  const trimmed = String(text || '').replace(/\s+$/, '');
+  const fs = tsuFitFs(el, trimmed, baseFs, avail, lineHeight, minFs);
+  const full = tsuMeasureTextH(el, text, fs, lineHeight);
+  const minH = Math.ceil(fs * lineHeight * 3) + (parseFloat(ecs.paddingTop) || 0) + (parseFloat(ecs.paddingBottom) || 0);
+  return { fs, h: Math.min(avail, Math.max(minH, Math.ceil(full) + 2)), avail };
+};
 const CharCount = ({ value, max, style }) => { const n = String(value ?? '').length; return <span className="no-print" style={{ fontSize: 10, fontVariantNumeric: 'tabular-nums', color: n >= max ? '#dc2626' : n >= max * 0.9 ? '#d97706' : '#94a3b8', whiteSpace: 'nowrap', ...(style || {}) }}>{n} / {max}</span>; };
 // 日本の電話番号フォーマッタ: ハイフン無しの数字 → 自動でハイフン付与 (実装は下部 formatJpPhone)
 // ★ 稼働率/出席率の「予定(分母)」判定。 振替=出席扱い。 振替済みの欠席(tokkiに「へ振替」)は相殺で分母から除外。
@@ -21260,8 +21288,8 @@ export default function App() {
     const masked = (maskable && tsumugiMaskOn()) ? _maskRef.current.fn(html) : html;
     setPdfJob({ status: 'busy', title });
     try {
-      await tsumugiServerPdf({ html: tsumugiBuildPrintSrcDoc(masked), pageSize: detail.pageSize || 'A4 portrait', title, onReady: (url, fname) => {
-        if (tsumugiIsIOS()) setPdfJob({ status: 'ready', title, url, fname }); // iPad: ボタン(ユーザー操作)で新しいタブに開く
+      await tsumugiServerPdf({ html: tsumugiBuildPrintSrcDoc(masked), pageSize: detail.pageSize || 'A4 portrait', title, onReady: (url, fname, blob) => {
+        if (tsumugiIsIOS()) setPdfJob({ status: 'ready', title, url, fname, blob }); // iPad: ボタン(ユーザー操作)で新しいタブに開く
         else { const a = document.createElement('a'); a.href = url; a.download = fname; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); setPdfJob(null); }
       } });
       _recordPdfOutput(title);
@@ -22923,8 +22951,13 @@ export default function App() {
             {pdfJob.status === 'busy' && <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}><BusySpin/>PDFを作成しています…</div>}
             {pdfJob.status === 'ready' && (<>
               <div style={{fontSize:16,fontWeight:'bold',color:'#065f46',marginBottom:14}}>PDFができました</div>
+              {/* ★ 2026-10-16(ユーザー報告「ホーム画面に追加したアプリだと、2回目のダウンロードから印刷が反応しない」): ホーム画面のアプリは
+                  新しいタブ(window.open)が1回しか開けないことがある。iPhone/iPad の共有メニュー(プリント・ファイルに保存)を先に出す */}
+              {(() => { try { if (!pdfJob.blob || !navigator.share || !navigator.canShare) return null; const f = new File([pdfJob.blob], pdfJob.fname || 'document.pdf', { type: 'application/pdf' }); if (!navigator.canShare({ files: [f] })) return null;
+                return <button type="button" data-testid="pdf-share" onClick={async()=>{ try { await navigator.share({ files: [f], title: pdfJob.title || 'PDF' }); setPdfJob(null); } catch (e) { if (!(e && e.name === 'AbortError')) { try { alert('共有メニューを開けませんでした。「新しいタブで開く」からお試しください。'); } catch {} } } }}
+                  style={{padding:'12px 24px',background:'#1d4ed8',color:'white',border:'none',borderRadius:12,fontWeight:'bold',fontSize:16,cursor:'pointer',width:'100%',marginBottom:10}}>共有・印刷（iPhone/iPadの共有メニュー）</button>; } catch { return null; } })()}
               <button type="button" data-testid="pdf-open" onClick={()=>{ try { const w = window.open(pdfJob.url, '_blank'); if (!w) { const a = document.createElement('a'); a.href = pdfJob.url; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); } } catch {} setPdfJob(null); }}
-                style={{padding:'12px 24px',background:'#0f766e',color:'white',border:'none',borderRadius:12,fontWeight:'bold',fontSize:16,cursor:'pointer',width:'100%'}}>新しいタブで開く（共有・印刷・保存）</button>
+                style={{padding:'12px 24px',background:'#0f766e',color:'white',border:'none',borderRadius:12,fontWeight:'bold',fontSize:16,cursor:'pointer',width:'100%'}}>新しいタブで開く</button>
               <button type="button" onClick={()=>setPdfJob(null)} style={{marginTop:10,padding:'8px 16px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:10,fontWeight:'bold',fontSize:13,cursor:'pointer'}}>閉じる</button>
             </>)}
             {pdfJob.status === 'error' && (<>
@@ -34278,8 +34311,23 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
             const setSS = (patch)=>onSave({ ...appData, systemSettings: { ...ss, ...patch } });
             const tabBtn = (on)=>`flex-1 px-2 py-1.5 rounded-lg text-xs font-bold border ${on?'bg-blue-600 text-white border-blue-600':'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`;
             return (
-              <div className="absolute right-0 top-full mt-1.5 z-30 bg-white border border-slate-300 rounded-xl shadow-xl p-3.5 w-80 text-left space-y-3 overflow-y-auto" style={{maxHeight:'calc(100vh - 140px)'}}>
+              <div ref={(n)=>{ /* ★ 2026-10-16(ユーザー報告「スマホで印刷設定の左が見切れる」): スマホ幅は画面の左右 8px に合わせて固定表示 */
+                     try { if (!n) return; if (window.innerWidth >= 768) { n.style.position=''; n.style.left=''; n.style.right=''; n.style.top=''; n.style.width=''; return; }
+                       const r = n.parentElement.getBoundingClientRect(); n.style.position='fixed'; n.style.left='8px'; n.style.right='8px'; n.style.width='auto'; n.style.top=`${Math.round(r.bottom+6)}px`; n.style.maxHeight=`calc(100vh - ${Math.round(r.bottom+6)}px - 12px)`; } catch {} }}
+                   className="absolute right-0 top-full mt-1.5 z-30 bg-white border border-slate-300 rounded-xl shadow-xl p-3.5 w-80 text-left space-y-3 overflow-y-auto" style={{maxHeight:'calc(100vh - 140px)'}} data-testid="cb-print-settings">
                 <div className="flex items-center justify-between"><span className="text-sm font-bold text-slate-700">印刷設定</span><button onClick={()=>setShowPrintSettings(false)} className="text-slate-400 hover:text-slate-700 text-lg leading-none">×</button></div>
+                {/* ★ 2026-10-16(ユーザー要望「店舗によって次回のお迎え時間を色付きで印刷したい」): 時刻の色(黒/赤/青)と太さ */}
+                <div>
+                  <div className="text-[11px] font-bold text-slate-500 mb-1">次回お迎え時間の色・太さ</div>
+                  <div className="flex gap-2 mb-1.5">
+                    {[['black','黒'],['red','赤'],['blue','青']].map(([v,l])=>(<button key={v} type="button" data-testid={`cb-timecolor-${v}`} onClick={()=>setSS({renrakuTimeColor:v})} className={tabBtn((ss.renrakuTimeColor||'black')===v)} style={{color:(ss.renrakuTimeColor||'black')===v?undefined:(v==='red'?'#dc2626':v==='blue'?'#1d4ed8':undefined)}}>{l}</button>))}
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" data-testid="cb-timebold-1" onClick={()=>setSS({renrakuTimeBold:true})} className={tabBtn(ss.renrakuTimeBold!==false)}>太字</button>
+                    <button type="button" data-testid="cb-timebold-0" onClick={()=>setSS({renrakuTimeBold:false})} className={tabBtn(ss.renrakuTimeBold===false)}>ふつう</button>
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-1">連絡帳の「次回お迎え時間」の日付と時刻に付きます（画面・PDFとも）。</div>
+                </div>
                 <div>
                   <div className="text-[11px] font-bold text-slate-500 mb-1">面数（1枚に何人分）</div>
                   <div className="flex gap-2">
@@ -35074,6 +35122,9 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
               {(() => {
                 // 日付: 数字は30px, 「月」「日」のみ20px、括弧内の曜日は30px (数字と同じ)
                 // 状態機械: 括弧内なら全て30px、それ以外は 月/日 を20px・他を30px
+                // ★ 2026-10-16: 次回お迎え時間の色・太さ(各種設定ではなく連絡帳の印刷設定で選ぶ・systemSettings.renrakuTimeColor/renrakuTimeBold)
+                const _tc = (appData?.systemSettings?.renrakuTimeColor === 'red') ? '#dc2626' : (appData?.systemSettings?.renrakuTimeColor === 'blue') ? '#1d4ed8' : '#1e293b';
+                const _tw = appData?.systemSettings?.renrakuTimeBold === false ? 'normal' : 'bold';
                 const renderDate = (str) => {
                   if (!str) return null;
                   // 「6月9日（火）」を「6 月 9 日 （火）」のように 月/日 の前後に半角SP
@@ -35084,20 +35135,20 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                     const c = str[i];
                     if (c === '（' || c === '(') {
                       inParen = true;
-                      out.push(<span key={i} style={{fontSize:36, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:36, fontWeight:_tw, color:_tc, lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                       continue;
                     }
                     if (c === '）' || c === ')') {
                       inParen = false;
-                      out.push(<span key={i} style={{fontSize:36, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:36, fontWeight:_tw, color:_tc, lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                       continue;
                     }
                     if (inParen) {
-                      out.push(<span key={i} style={{fontSize:36, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:36, fontWeight:_tw, color:_tc, lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                     } else if (c === '月' || c === '日' || c === '年') {
-                      out.push(<span key={i} style={{fontSize:24, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{' '+c+' '}</span>);
+                      out.push(<span key={i} style={{fontSize:24, fontWeight:_tw, color:_tc, lineHeight:1.1, whiteSpace:'pre'}}>{' '+c+' '}</span>);
                     } else {
-                      out.push(<span key={i} style={{fontSize:36, fontWeight:"bold", lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
+                      out.push(<span key={i} style={{fontSize:36, fontWeight:_tw, color:_tc, lineHeight:1.1, whiteSpace:'pre'}}>{c}</span>);
                     }
                   }
                   return out;
@@ -35116,11 +35167,11 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
                   const mBlank = !m;
                   const numStyle = (blank) => ({
                     fontSize:36, fontWeight:'bold', lineHeight:1.1, // ★ 2026-10-04: 「10月12日（月） 13時00分頃」がQRの手前で切れないよう 38→33 → 10-05 ユーザー「もう少し大きく」で 36(単位 24)
-                    display:'inline-block', minWidth:'2ch', textAlign:'right',
-                    color: blank ? '#cbd5e1' : '#1e293b',
+                    display:'inline-block', minWidth:'2ch', textAlign:'right', fontWeight:_tw,
+                    color: blank ? '#cbd5e1' : _tc,
                     fontVariantNumeric:'tabular-nums'
                   });
-                  const labelStyle = { fontSize:24, fontWeight:'bold', lineHeight:1.1 };
+                  const labelStyle = { fontSize:24, fontWeight:_tw, color:_tc, lineHeight:1.1 };
                   return <span style={{whiteSpace:'pre'}}>
                     <span style={numStyle(hBlank)}>{hBlank ? '  ' : h}</span>
                     {' '}
@@ -53400,15 +53451,15 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   // ★ 2026-09-04: 連絡事項の実測自動縮小(スクロールを出さない)。文字数推定ではズレるためscrollHeightで測る
   const _absMemoRef = React.useRef(null);
   const [absMemoFit, setAbsMemoFit] = React.useState(null);
+  const [absMemoH, setAbsMemoH] = React.useState(null);
+  const ABS_MEMO_MAX = 200; // ★ 2026-10-16: 連絡事項の文字数の上限(休み連絡の枠は欠席情報の下の5〜6行ぶん・16px のまま入る量の目安)
+  // ★ 2026-10-16: 各種連絡と同じく、見えない箱で測る・末尾の空行は数えない・入力欄は中身の高さに広げる(tsuFitMemoBox)
   React.useLayoutEffect(() => {
     const el = _absMemoRef.current; if (!el) { if (absMemoFit !== null) setAbsMemoFit(null); return; }
-    const base = 16;
-    let fs = base;
-    el.style.fontSize = fs + 'px';
-    let guard = 0;
-    while (el.scrollHeight > el.clientHeight + 2 && fs > 9 && guard < 40) { fs -= 0.5; el.style.fontSize = fs + 'px'; guard++; }
-    const v = fs >= base ? null : fs;
+    const r = tsuFitMemoBox(el, el.value, 16, 1.7, 11); if (!r) return;
+    const v = Math.min(16, r.fs); // 測れたら必ず数値(null だと文字数からの推定に戻り、末尾の空行まで数えて小さくなる)
     if (v !== absMemoFit) setAbsMemoFit(v);
+    if (r.h !== absMemoH) setAbsMemoH(r.h);
   });
   const [showFaxHist, setShowFaxHist] = React.useState(false);
   const absHistory = tsumugiFaxLog(appData).filter(h => h.type === 'absence');
@@ -53611,7 +53662,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     // ★ 2026-09-03/04: 連絡事項は枠を溢れたらスクロールでなく文字を自動縮小(印刷と同じ見た目で入力できる)。
     //   実測(_absMemoFit)を優先し、未計測時のみ文字数からの推定を使う
     const _memoFs = absMemoFit ?? (() => {
-      const t = String(fax.memo ?? defaultMemo ?? '');
+      const t = String(fax.memo ?? defaultMemo ?? '').replace(/\s+$/, ''); // ★ 2026-10-16: 末尾の空行は数えない
       const lines = t.split('\n').reduce((a,l)=>a+Math.max(1,Math.ceil((l.length||1)/38)),0);
       if (lines <= 8) return 16; if (lines <= 11) return 14; if (lines <= 14) return 12.5; if (lines <= 18) return 11; return 10;
     })();
@@ -53842,21 +53893,24 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                   <span>連絡事項</span>
                 </div>
                 {isPrint ? (
-                  <div style={{flex:1,border:'none',borderRadius:0,padding:'4px 0',fontSize:_memoFs,whiteSpace:'pre-wrap',lineHeight:1.7}}>
-                    {fax.memo ?? defaultMemo}
+                  <div style={{flex:'0 0 auto',border:'none',borderRadius:0,padding:'4px 0',fontSize:_memoFs,whiteSpace:'pre-wrap',lineHeight:1.7}}>
+                    {String(fax.memo ?? defaultMemo ?? '').replace(/\s+$/,'')}
                   </div>
                 ) : (
                   <textarea
                     ref={_absMemoRef}
                     value={fax.memo ?? defaultMemo}
                     onChange={e=>updateFax(key,{memo:e.target.value})}
+                    onBlur={e=>{ const t = String(e.target.value||'').replace(/\s+$/,''); if (t !== e.target.value) updateFax(key,{memo:t}); }}
+                    maxLength={ABS_MEMO_MAX}
                     placeholder="連絡事項を自由に入力してください"
-                    style={{width:'100%',flex:1,border:'1.5px dashed #94a3b8',borderRadius:8,padding:'10px 12px',fontSize:_memoFs,overflow:'hidden',outline:'none',resize:'none',fontFamily:'serif',lineHeight:1.7,boxSizing:'border-box',background:'#fafafa'}}
+                    style={{width:'100%',flex:'0 0 auto',height:(absMemoH ? `${absMemoH}px` : 'auto'),minHeight:`${Math.ceil(_memoFs*1.7*3)+20}px`,border:'1.5px dashed #94a3b8',borderRadius:8,padding:'10px 12px',fontSize:_memoFs,overflow:'hidden',outline:'none',resize:'none',fontFamily:'serif',lineHeight:1.7,boxSizing:'border-box',background:'#fafafa'}}
                   />
                 )}
+                {!isPrint && <div style={{textAlign:'right',marginTop:2,flex:'0 0 auto'}}><CharCount value={fax.memo ?? defaultMemo} max={ABS_MEMO_MAX}/></div>}
+                {/* ★ 2026-10-16: 結びは本文の直後・本文と同じ大きさ(本文が縮んだら一緒に縮む)。枠(flex:1)の中に置き、残りは空白 */}
+                <div style={{fontSize:Math.min(16,_memoFs),marginTop:8,flex:'0 0 auto'}}>今後ともよろしくお願いいたします。</div>
               </div>
-
-              <div style={{fontSize:16,marginTop:8}}>今後ともよろしくお願いいたします。</div>
             </div>
           </div>
         </div>
@@ -54018,15 +54072,19 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   //   ※ 必ず memo/pageCount 等の宣言より後に置くこと(前に置くと初期化前参照でクラッシュ・2026-09-04実例)
   const _memoRef = React.useRef(null);
   const [memoFitFs, setMemoFitFs] = React.useState(null);
+  const [memoBoxH, setMemoBoxH] = React.useState(null);
   const _memoBaseFs = memoStyle.size==='xl'?24:memoStyle.size==='lg'?20:16;
+  // ★ 2026-10-16(ユーザー要望): 連絡事項の文字数の上限(標準400・大250・特大180=枠に 16px のまま入る量の目安)。あからさまに小さくならないように
+  const _memoMax = memoStyle.size==='xl'?180:memoStyle.size==='lg'?250:400;
+  // ★ 2026-10-16(ユーザー報告「本文が小さく縮んで下に大きな空白」): 原因は末尾の空行(改行)まで枠に収めようとして縮めていたこと。
+  //   見えない箱で測り(tsuFitMemoBox)、末尾の空行は数えない。入力欄は中身の高さに広げる(スマホで下の行が隠れない)。「今後とも〜」は本文の直後
   React.useLayoutEffect(() => {
     const el = _memoRef.current; if (!el) return;
-    let fs = _memoBaseFs;
-    el.style.fontSize = fs + 'px';
-    let guard = 0;
-    while (el.scrollHeight > el.clientHeight + 2 && fs > 9 && guard < 40) { fs -= 0.5; el.style.fontSize = fs + 'px'; guard++; }
-    setMemoFitFs(fs >= _memoBaseFs ? null : fs);
-  }, [memo, _memoBaseFs, selectedPatientId, pageCount]);
+    const r = tsuFitMemoBox(el, memo, _memoBaseFs, 1.9, 11); if (!r) return;
+    const fs = r.fs >= _memoBaseFs ? null : r.fs;
+    if (fs !== memoFitFs) setMemoFitFs(fs);
+    if (r.h !== memoBoxH) setMemoBoxH(r.h);
+  }, [memo, _memoBaseFs, selectedPatientId, pageCount, memoStyle.underline]); // eslint-disable-line react-hooks/exhaustive-deps
   const [showFaxHist, setShowFaxHist] = React.useState(false);
   const [recipientOffice, setRecipientOffice] = React.useState(draft.recipientOffice || '');
   const [recipientName, setRecipientName] = React.useState(draft.recipientName || '');
@@ -54160,6 +54218,8 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   };
 
   const handlePreview = () => {
+    // ★ 2026-10-16: 末尾の空行は PDF に写さない(描き直してから出力)
+    { const t = String(memo||'').replace(/\s+$/,''); if (t !== memo) { setMemo(t); setTimeout(handlePreview, 80); return; } }
     const label = patient ? patient.name : (customPatientName || '汎用');
     // 送付履歴に自動記録
     const newEntry = {
@@ -54249,6 +54309,7 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
             ))}
             <button type="button" onClick={()=>{ setMemoStyle(ms=>({...ms,underline:!ms.underline})); markDirty(); }}
                     style={{padding:'6px 10px',borderRadius:8,fontWeight:'bold',fontSize:11,cursor:'pointer',border:'1px solid #cbd5e1',background:memoStyle.underline?'#1d4ed8':'white',color:memoStyle.underline?'white':'#334155',textDecoration:'underline'}}>下線</button>
+            <CharCount value={memo} max={_memoMax} style={{color:String(memo||'').length>=_memoMax?'#fca5a5':'#cbd5e1',fontSize:11,marginLeft:2}}/>
           </div>
           {/* ★ 保存ボタン(休み連絡と統一・店舗要望)。 下書きを保存して未保存状態を解消する */}
           <button type="button" onClick={()=>{ flushSave(); setJustSavedFax(true); setTimeout(()=>setJustSavedFax(false), 2500); }}
@@ -54454,8 +54515,11 @@ function GeneralFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                       placeholder="ここに連絡事項を直接入力してください"
                       className="fax-inline-input"
                       ref={_memoRef}
-                      style={{flex:1,fontSize:(memoFitFs ?? _memoBaseFs),overflow:'hidden',lineHeight:1.9,padding:'4px 0',border:'none',outline:'none',background:'transparent',resize:'none',fontFamily:'inherit',width:'100%',textDecoration:(memoStyle.underline?'underline':'none')}}/>
-            <div style={{fontSize:16,marginTop:8}}>今後ともよろしくお願いいたします。</div>
+                      maxLength={_memoMax}
+                      onBlur={()=>{ const t = String(memo||'').replace(/\s+$/,''); if (t !== memo) setMemo(t); }}
+                      style={{flex:'0 0 auto',height:(memoBoxH ? `${memoBoxH}px` : 'auto'),minHeight:`${Math.ceil((memoFitFs ?? _memoBaseFs)*1.9*3)+8}px`,fontSize:(memoFitFs ?? _memoBaseFs),overflow:'hidden',lineHeight:1.9,padding:'4px 0',border:'none',outline:'none',background:'transparent',resize:'none',fontFamily:'inherit',width:'100%',boxSizing:'border-box',textDecoration:(memoStyle.underline?'underline':'none')}}/>
+            {/* ★ 2026-10-16: 結びは本文と同じ大きさ(本文が縮んだら一緒に縮む・本文が大/特大でも 16px)。本文の直後に置く */}
+            <div style={{fontSize:Math.min(16, memoFitFs ?? 16),marginTop:8,flex:'0 0 auto'}}>今後ともよろしくお願いいたします。</div>
           </div>
         </div>
       </div>
