@@ -75,6 +75,7 @@ import {
   supabaseLoadStateForStore,
   supabaseLoadStateMetaForStore,
   supabaseStaffLogin,
+  supabaseStaffRefreshSbToken, setSbAccessToken, getSbAccessState, // ★ 2026-10-17 データ保護(段階1)
   supabaseStaffChangePassword,
   supabaseListStores,
   supabaseCreateStore,
@@ -19880,9 +19881,20 @@ export default function App() {
   const handleStaffLogout = () => {
     sessionStorage.removeItem('tsumugiStaffSession');
     sessionStorage.removeItem('tsumugiActiveRecorder');
+    try { setSbAccessToken(null); } catch {} // ★ 2026-10-17: Supabase の証も消す
     setStaffSession(null);
     setActiveRecorder(null);
   };
+  // ★ 2026-10-17 データ保護(段階1): ログイン中は Supabase の証を起動時に取り直し、以後12時間ごとに更新(証は24時間有効)。
+  //   ログインの証が切れていたら(サーバーが expired)ログアウトして入り直してもらう
+  React.useEffect(() => {
+    if (!staffSession || !staffSession.token || !isSupabaseEnabled) return;
+    let stop = false;
+    const run = async () => { try { const r = await supabaseStaffRefreshSbToken(staffSession.token); if (!stop && r && r.expired) { handleStaffLogout(); } } catch {} };
+    run();
+    const iv = setInterval(run, 12 * 60 * 60 * 1000);
+    return () => { stop = true; clearInterval(iv); };
+  }, [staffSession && staffSession.token]); // eslint-disable-line react-hooks/exhaustive-deps
   // ★ J: 全店共通ポリシー(管理局が編集)を起動時に読み込み、getEffectivePolicy が参照するキャッシュへ。
   //   各店・家族閲覧はこれを「読む」だけ(自店データには書き込まない)。 読めたら再描画して同意ゲートに反映。
   const [, _setGpTick] = useState(0);

@@ -6,8 +6,18 @@ import { sameStateIgnoringMeta, mergeTpTelDone } from './logic.js';
 const url = import.meta.env.VITE_SUPABASE_URL || '';
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
+// ★ 2026-10-17 データ保護(段階1): 職員ログインでサーバーが発行する Supabase の証(JWT・24時間)を、全アクセス(読み書き・リアルタイム・写真)に添える。
+//   証が無いときは従来どおり公開キー(anon)。段階3で RLS をかけると、証が無い・別の店の証では行が返らなくなる
+const SB_JWT_KEY = 'tsumugiSbJwt';
+let _sbJwt = null, _sbJwtExp = 0;
+try { const raw = sessionStorage.getItem(SB_JWT_KEY); if (raw) { const o = JSON.parse(raw); if (o && o.token && Number(o.exp) > Date.now() + 60 * 1000) { _sbJwt = o.token; _sbJwtExp = Number(o.exp); } } } catch {}
+export const setSbAccessToken = (token, exp) => { _sbJwt = token || null; _sbJwtExp = token ? (Number(exp) || (Date.now() + 23 * 60 * 60 * 1000)) : 0;
+  try { if (token) sessionStorage.setItem(SB_JWT_KEY, JSON.stringify({ token, exp: _sbJwtExp })); else sessionStorage.removeItem(SB_JWT_KEY); } catch {}
+  try { if (supabase && supabase.realtime) supabase.realtime.setAuth(token || key); } catch {} };
+export const getSbAccessState = () => ({ has: !!_sbJwt, exp: _sbJwtExp });
 export const supabase = (url && key) ? createClient(url, key, {
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  accessToken: async () => (_sbJwt && _sbJwtExp > Date.now() ? _sbJwt : null), // null → 公開キー(anon)
 }) : null;
 
 export const isSupabaseEnabled = !!supabase;
@@ -2057,6 +2067,7 @@ export async function supabaseStaffLogin({ username, password }) {
   const password_hash = await hashPassword(password);
   try {
     const j = await staffApi({ action: 'login', username: String(username || '').trim(), password_hash });
+    if (j.sb_token) setSbAccessToken(j.sb_token, j.sb_exp); // ★ 2026-10-17: Supabase の証(発行されたときだけ)
     return { ...(j.staff || {}), _token: j.token || '' };
   } catch (e) {
     if (!_isNoServer(e)) throw e;
@@ -2077,6 +2088,12 @@ export async function supabaseStaffLogin({ username, password }) {
   return rest;
 }
 
+// ★ 2026-10-17 データ保護(段階1): ログインの証から Supabase の証を取り直す(起動時・12時間ごと)。サーバーに秘密が無ければ null(従来どおり)
+export async function supabaseStaffRefreshSbToken(staffToken) {
+  if (!supabase || !staffToken) return { ok: false };
+  try { const j = await staffApi({ action: 'sb_token', token: staffToken }); if (j.sb_token) { setSbAccessToken(j.sb_token, j.sb_exp); return { ok: true, configured: true }; } setSbAccessToken(null); return { ok: true, configured: !!j.configured }; }
+  catch (e) { if (e && e.expired) return { ok: false, expired: true }; return { ok: false }; }
+}
 export async function supabaseStaffChangePassword(staffId, newPassword) {
   if (!supabase) throw new Error('Supabase 未接続');
   const password_hash = await hashPassword(newPassword);
