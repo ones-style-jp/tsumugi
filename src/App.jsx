@@ -38317,6 +38317,8 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileRosterOpen, setMobileRosterOpen] = useState(false); // ★ スマホは対象者一覧をスライドオーバー
   const isMobileView = typeof window !== 'undefined' && tsuViewW() < 768;
+  // ★ 2026-10-16(ユーザー要望「対象者を選ぶを押すひと手間をなくす」): スマホで対象者が未選択なら、開いたときに名簿を出す
+  React.useEffect(() => { if (isMobileView && !selectedPatientId) setMobileRosterOpen(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [values, setValues] = useState({});
   // ★ 数値入力用テンキー (提供記録入力と同じ DigitalKeypad)。 身長・体重・体力測定の各項目で使う。
@@ -39420,6 +39422,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [mobileRosterOpen, setMobileRosterOpen] = useState(false); // ★ スマホは名簿をスライドオーバー表示
   const isMobileView = typeof window !== 'undefined' && tsuViewW() < 768;
+  // ★ 2026-10-16(ユーザー要望「利用者を選ぶを押すひと手間をなくす」): スマホで利用者が未選択なら、開いたときに名簿を出す
+  React.useEffect(() => { if (isMobileView && !localPatient) setMobileRosterOpen(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [activeDetailTab, setActiveDetailTab] = useState('basic');
   // ★ 提供記録入力の「振替/休止」からジャンプしてきたら、サービス提供内容タブ→月間スケジュールへスクロール。
   React.useEffect(() => {
@@ -57331,20 +57335,20 @@ const dayOfWeekJp = (yyyy_mm_dd) => {
 //   (印刷・一覧・古い記録と互換)。開催理由は選んだ種類と介護度の変更も別の項目(reasonType/reasonNote/careBefore/careAfter)に控える
 const TSU_MEET_ATTENDEES = ['ご本人', 'ご家族', '担当ケアマネジャー', '当事業所', '訪問介護（ヘルパー）', '訪問看護', '訪問リハビリ', '通所リハビリ', '福祉用具', '主治医', '地域包括支援センター', '他の事業所'];
 // 開催理由(サービス担当者会議の開催が求められる主な場面: 新規・更新認定・区分変更・計画の変更・サービスの追加・福祉用具・住宅改修・退院退所・状態変化 ほか)
-const TSU_MEET_REASONS = ['初回（新規）のケアプラン作成', '介護認定の更新', '区分変更（介護度の変更）', 'ケアプランの変更（サービス内容・回数）', '新しいサービスの導入', '福祉用具の導入・変更', '住宅改修', '退院・退所に伴う調整', '心身の状態の変化', 'ケアマネジャーの変更', '事業所の変更', '定期的な見直し', 'ご家族の状況の変化', 'ご本人・ご家族の希望', 'その他'];
+const TSU_MEET_REASONS = ['初回（契約・通所開始前）', '介護認定の更新', '区分変更（介護度の変更）', 'ケアプランの変更（サービス内容・回数）', '新しいサービスの導入', '福祉用具の導入・変更', '住宅改修', '退院・退所に伴う調整', '心身の状態の変化', 'ケアマネジャーの変更', '事業所の変更', '定期的な見直し', 'ご家族の状況の変化', 'ご本人・ご家族の希望', 'その他'];
 const TSU_CARE_LEVELS = ['事業対象者', '要支援1', '要支援2', '要介護1', '要介護2', '要介護3', '要介護4', '要介護5'];
 const tsuMeetAttLabel = (key, patient) => key === '担当ケアマネジャー' ? (patient && patient.cmName ? `担当ケアマネジャー（${patient.cmName}）` : key) : key;
-const tsuMeetAttParse = (str, patient) => { const sel = new Set(); const other = []; String(str || '').split(/[\/／、,，\n]+/).map(x => x.trim()).filter(Boolean).forEach(x => { const k = TSU_MEET_ATTENDEES.find(k2 => x === k2 || x === tsuMeetAttLabel(k2, patient) || x.startsWith(k2)); if (k) sel.add(k); else other.push(x); }); return { sel, other: other.join('／') }; };
-const tsuMeetAttJoin = (sel, other, patient) => [...TSU_MEET_ATTENDEES.filter(k => sel.has(k)).map(k => tsuMeetAttLabel(k, patient)), String(other || '').trim()].filter(Boolean).join('／');
+const tsuMeetAttParse = (str, patient) => { const sel = new Set(); const other = []; let family = ''; String(str || '').split(/[\/／、,，\n]+/).map(x => x.trim()).filter(Boolean).forEach(x => { const k = TSU_MEET_ATTENDEES.find(k2 => x === k2 || x === tsuMeetAttLabel(k2, patient) || x.startsWith(k2)); if (k === 'ご家族') { const mm = x.match(/^ご家族[（(](.+?)[）)]$/); if (mm) family = mm[1]; } if (k) sel.add(k); else other.push(x); }); return { sel, other: other.join('／'), family }; };
+const tsuMeetAttJoin = (sel, other, patient, family) => [...TSU_MEET_ATTENDEES.filter(k => sel.has(k)).map(k => (k === 'ご家族' && String(family || '').trim()) ? `ご家族（${String(family).trim()}）` : tsuMeetAttLabel(k, patient)), String(other || '').trim()].filter(Boolean).join('／');
 const tsuMeetCareLevelReason = (t) => /認定の更新|区分変更/.test(String(t || ''));
 const tsuMeetReasonCompose = (r) => { const t = r.reasonType && r.reasonType !== 'その他' ? r.reasonType : ''; const cl = (tsuMeetCareLevelReason(r.reasonType) && (r.careBefore || r.careAfter)) ? `（${r.careBefore || '　'}→${r.careAfter || '　'}）` : ''; const note = String(r.reasonNote || '').trim(); return [t + cl, note].filter(Boolean).join(' '); };
-const tsuMeetReasonParse = (m) => { if (m && m.reasonType) return { reasonType: m.reasonType, reasonNote: m.reasonNote || '', careBefore: m.careBefore || '', careAfter: m.careAfter || '' }; const str = String((m && m.reason) || '').trim(); const t = TSU_MEET_REASONS.find(o => o !== 'その他' && str.startsWith(o)); return t ? { reasonType: t, reasonNote: str.slice(t.length).trim(), careBefore: '', careAfter: '' } : { reasonType: str ? 'その他' : '', reasonNote: str, careBefore: '', careAfter: '' }; };
+const tsuMeetReasonParse = (m) => { if (m && m.reasonType === '初回（新規）のケアプラン作成') m = { ...m, reasonType: '初回（契約・通所開始前）' }; if (m && m.reasonType) return { reasonType: m.reasonType, reasonNote: m.reasonNote || '', careBefore: m.careBefore || '', careAfter: m.careAfter || '' }; const str = String((m && m.reason) || '').trim(); const t = TSU_MEET_REASONS.find(o => o !== 'その他' && str.startsWith(o)); return t ? { reasonType: t, reasonNote: str.slice(t.length).trim(), careBefore: '', careAfter: '' } : { reasonType: str ? 'その他' : '', reasonNote: str, careBefore: '', careAfter: '' }; };
 // カレンダー(scheduleEvents)にその方の担当者会議の予定があれば、その日の開始・終了を返す
 const tsuMeetCalendarTimes = (appData, patientId, date) => { try { const ev = (appData.scheduleEvents || []).find(e => e && e.date === date && e.patientId === patientId && /担当者会議|担会/.test(String(e.title || ''))); return ev && (ev.start || ev.end) ? { timeStart: ev.start || '', timeEnd: ev.end || '' } : null; } catch { return null; } };
 // 出席者の選択(チェック＋その他)
 function TsuMeetAttendeesPicker({ value, onChange, patient, fs = 12, dense }) {
-  const { sel, other } = tsuMeetAttParse(value, patient);
-  const toggle = (k) => { const n = new Set(sel); if (n.has(k)) n.delete(k); else n.add(k); onChange(tsuMeetAttJoin(n, other, patient)); };
+  const { sel, other, family } = tsuMeetAttParse(value, patient);
+  const toggle = (k) => { const n = new Set(sel); if (n.has(k)) n.delete(k); else n.add(k); onChange(tsuMeetAttJoin(n, other, patient, family)); };
   return (
     <div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: dense ? 4 : 6 }}>
@@ -57354,15 +57358,19 @@ function TsuMeetAttendeesPicker({ value, onChange, patient, fs = 12, dense }) {
           </label>
         ))}
       </div>
-      <input value={other} onChange={e => onChange(tsuMeetAttJoin(sel, e.target.value, patient))} placeholder="その他（例: 妹様／○○訪問看護 △△様）" maxLength={120}
+      {/* ★ 2026-10-16 追補(ユーザー「ご家族の誰なのかも入力できるように」): ご家族を選んだら続柄・お名前 */}
+      {sel.has('ご家族') && <input value={family} onChange={e => onChange(tsuMeetAttJoin(sel, other, patient, e.target.value))} placeholder="ご家族のどなたか（例: 長女 ○○様／妹様）" maxLength={40}
+        style={{ marginTop: 6, border: '1px solid #93c5fd', borderRadius: 8, padding: '5px 6px', fontSize: fs, outline: 'none', background: '#eff6ff', width: '100%', boxSizing: 'border-box' }} />}
+      <input value={other} onChange={e => onChange(tsuMeetAttJoin(sel, e.target.value, patient, family))} placeholder="その他（例: ○○訪問看護 △△様）" maxLength={120}
         style={{ marginTop: 6, border: '1px solid #cbd5e1', borderRadius: 8, padding: '5px 6px', fontSize: fs, outline: 'none', background: 'white', width: '100%', boxSizing: 'border-box' }} />
     </div>
   );
 }
 // 開催理由の選択(プルダウン＋自由記入。認定の更新・区分変更は変更前→変更後の介護度)
-function TsuMeetReasonPicker({ value, onChange, fs = 12 }) {
+function TsuMeetReasonPicker({ value, onChange, fs = 12, patient }) {
   const v = value || { reasonType: '', reasonNote: '', careBefore: '', careAfter: '' };
-  const set = (patch) => onChange({ ...v, ...patch });
+  // ★ 2026-10-16 追補(ユーザー「変更前の介護度は今設定してある利用者の介護度を入れておいて」): 認定の更新・区分変更を選んだとき、変更前が空なら利用者マスタの介護度
+  const set = (patch) => { const n = { ...v, ...patch }; if (patch.reasonType && tsuMeetCareLevelReason(patch.reasonType) && !n.careBefore && patient && TSU_CARE_LEVELS.includes(String(patient.careLevel || ''))) n.careBefore = patient.careLevel; onChange(n); };
   const selSt = { border: '1px solid #cbd5e1', borderRadius: 8, padding: '5px 6px', fontSize: fs, outline: 'none', background: 'white', boxSizing: 'border-box', fontWeight: 'bold' };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -57446,7 +57454,7 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
       // ★ 2026-10-16: 開催日を変えたとき、カレンダーにその日の担当者会議の予定があれば開始・終了を入れる(手で入れた時間があればそのまま)
       if (patch.date && patch.date !== (d||{}).date && !(d||{}).timeStart && !(d||{}).timeEnd) { const c = tsuMeetCalendarTimes(dataRef.current.appData, dataRef.current.float.patientId, patch.date); if (c) { n.timeStart = c.timeStart; n.timeEnd = c.timeEnd; } }
       return n; }); setDirty(true); };
-  const doSave = () => { flush(); savedOnceRef.current = true; setDirty(false); };
+  const doSave = () => { flush(); savedOnceRef.current = true; setDirty(false); tsuPopNotice('保存しました'); }; // ★ 2026-10-16: 保存したことが分かるようにポップ
   const discardNew = () => {
     const { appData: ad, onSave: sv, float: fl } = dataRef.current;
     const pt = (ad.patients||[]).find(p=>p.id===fl.patientId); if (!pt) return;
@@ -57511,8 +57519,9 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
           <button key={lbl} type="button" onClick={fn} title={tt} style={{ background:'rgba(255,255,255,0.2)', border:'none', color:'white', borderRadius:8, height:32, padding:'0 9px', fontSize:12, fontWeight:'bold', cursor:'pointer', whiteSpace:'nowrap' }}>{lbl}</button>
         ))}
       </div>
-      <div style={{ padding:10, overflowY:'auto', display:'flex', flexDirection:'column', gap:8, flex: full ? 1 : undefined, minHeight: 0 }}>
-        <div style={{ fontSize:Math.round(13*scale), fontWeight:'bold', color:'#1e3a8a', borderBottom:'1px solid #e2e8f0', paddingBottom:4 }}>担当者会議メモ — {patient.name} 様</div>
+      <div style={{ padding:10, overflowY:'auto', display:'flex', flexDirection:'column', gap:8, flex: full ? 1 : undefined, minHeight: 0 }} className="tsu-meet-body">
+        <style>{`.tsu-meet-body > div{flex:0 0 auto;}`}</style>
+        <div style={{ fontSize:Math.round(13*scale), fontWeight:'bold', color:'#1e3a8a', borderBottom:'1px solid #e2e8f0', paddingBottom:4, flex:'0 0 auto' }}>担当者会議メモ — {patient.name} 様</div>
         {/* ★ iPad対策(2026-08-28): 日付/時刻inputは固有の最小幅が広く1行だと重なるため、開催日と開始/終了を2行に分離 */}
         <div>
           <label style={_lb}>開催日</label>
@@ -57532,18 +57541,20 @@ function MeetingFloatWidget({ appData, onSave, float, onClose }) {
         </div>
         <div>
           <label style={_lb}>開催理由（選んで、補足があれば入力）</label>
-          <TsuMeetReasonPicker value={{ reasonType: draft.reasonType, reasonNote: draft.reasonNote, careBefore: draft.careBefore, careAfter: draft.careAfter }} onChange={v=>upd({ ...v, reason: tsuMeetReasonCompose(v) })} fs={Math.round(12*scale)} />
+          <TsuMeetReasonPicker patient={patient} value={{ reasonType: draft.reasonType, reasonNote: draft.reasonNote, careBefore: draft.careBefore, careAfter: draft.careAfter }} onChange={v=>upd({ ...v, reason: tsuMeetReasonCompose(v) })} fs={Math.round(12*scale)} />
         </div>
-        <div style={{ flex: full ? 1 : undefined, display: full ? 'flex' : undefined, flexDirection: 'column', minHeight: 0 }}>
+        {/* ★ 2026-10-16 追補(ユーザー報告「保存の位置がおかしい」): 欄を囲む箱が縦に縮んで中身がはみ出し、保存・終了が重なっていた → 縮まないように(flex: none)。全画面のときだけ伸ばす */}
+        <div style={{ flex: full ? '1 1 auto' : '0 0 auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           <label style={_lb}>検討した項目・内容・結論</label>
-          <textarea value={draft.content} onChange={e=>upd({content:e.target.value})} rows={9} style={{ ..._iSt, resize:'vertical', minHeight:120, flex: full ? 1 : undefined }}/>
+          <textarea value={draft.content} onChange={e=>upd({content:e.target.value})} rows={14} style={{ ..._iSt, resize:'vertical', minHeight:200, flex: full ? '1 1 auto' : '0 0 auto' }}/>
         </div>
         {/* ★ 明示保存(2026-08-28): 単体の新規作成フォームと同じく保存/キャンセルを選ぶ */}
+        {/* ★ 2026-10-16 追補(ユーザー「新規作成と小窓で保存と終了の位置が逆」): どちらも 左=終了・右=保存 */}
         <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-          <button type="button" onClick={doSave}
-            style={{ flex:1, background:'#2563eb', color:'white', border:'none', borderRadius:10, padding:'8px 0', fontSize:Math.round(13*scale), fontWeight:'bold', cursor:'pointer' }}>保存</button>
           <button type="button" onClick={handleCancel} data-testid="meeting-float-close"
             style={{ flex:1, background:'#f1f5f9', color:'#475569', border:'1px solid #e2e8f0', borderRadius:10, padding:'8px 0', fontSize:Math.round(13*scale), fontWeight:'bold', cursor:'pointer' }}>終了</button>
+          <button type="button" onClick={doSave}
+            style={{ flex:1, background:'#2563eb', color:'white', border:'none', borderRadius:10, padding:'8px 0', fontSize:Math.round(13*scale), fontWeight:'bold', cursor:'pointer' }}>保存</button>
         </div>
         <div style={{ fontSize:10, color:'#64748b', display:'flex', justifyContent:'space-between', alignItems:'center', minHeight:14 }}>
           <span>{dirty ? '未保存の変更があります' : ''}</span>
@@ -57599,6 +57610,7 @@ function MeetingRecordForm({ patient, meeting, onSave, onClose, onFloat, appData
       dayOfWeek,
       location: locationLabel,
     });
+    tsuPopNotice('保存しました');
   };
   return (
     <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[60] flex items-center justify-center p-0 sm:p-4">
@@ -57674,13 +57686,13 @@ function MeetingRecordForm({ patient, meeting, onSave, onClose, onFloat, appData
           {/* 開催理由 */}
           <div className="border border-slate-200 rounded-lg p-3">
             <div className="text-[11px] font-bold text-slate-600 mb-2">開催理由（選んで、補足があれば入力）</div>
-            <TsuMeetReasonPicker value={{ reasonType: form.reasonType, reasonNote: form.reasonNote, careBefore: form.careBefore, careAfter: form.careAfter }} onChange={v=>setForm(f=>({...f, ...v}))} fs={14} />
+            <TsuMeetReasonPicker patient={patient} value={{ reasonType: form.reasonType, reasonNote: form.reasonNote, careBefore: form.careBefore, careAfter: form.careAfter }} onChange={v=>setForm(f=>({...f, ...v}))} fs={14} />
           </div>
           {/* 内容 (様子・状態) */}
           <div className="border border-slate-200 rounded-lg p-3">
             <div className="text-[11px] font-bold text-slate-600 mb-2">内容 (様子・状態)</div>
             <textarea value={form.content} onChange={e=>setForm(f=>({...f, content: e.target.value}))}
-              rows={10}
+              rows={16}
               placeholder={`〇様子・状態\n\nご本人より...\nご家族より...\n事業所より...`}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none resize-y"/>
           </div>
