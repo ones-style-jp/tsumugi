@@ -1869,29 +1869,73 @@ const ImeSafeInput = React.forwardRef(function ImeSafeInput({ value, onChange, o
 //   ・数字のキーボード(inputMode numeric)。日本語入力の変換中は値を整えない(iPadで数字が増える不具合の対策・ImeSafeInput と同じ)
 //   ・打っている間は画面の中だけで持ち、欄から離れたとき(または打つのをやめて約1秒後)に1回だけ保存する。
 //     以前は1文字ごとに保存→店舗データ全体(約1.8MB)を毎回送っており、時間を打つだけで通信が詰まり他端末の保存が失敗していた。
+// ★ 2026-10-16(ユーザー要望「8:-- は 8 はそのままで分の方だけ入力できるように。8 も変えるときは 8 の方を押せば入力できるように」):
+//   「時:--」(分が空)の欄は、押した場所で分ける。分の側(または Tab で入ったとき)=「8:」にして続けて分を打つ(845 と全部打っても 8:45)。
+//   時の数字の上=時の数字だけを選んだ状態(打つと置き換わり、打ち終えたら「9:」になって分へ進む)。何も打たずに離れたら元の「8:--」のまま
+const _tpHitHour = (el, x, text) => { try {
+  const m = String(text || '').match(/^(\d{1,2}):/); if (!m || x == null) return false;
+  const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); const k = el.offsetWidth ? r.width / el.offsetWidth : 1; // 縮小表示(zoom)の中でも合うよう、見た目の倍率をかける
+  const cv = _tpHitHour.cv || (_tpHitHour.cv = document.createElement('canvas')); const ctx = cv.getContext('2d'); if (!ctx) return x < r.left + r.width * 0.45;
+  ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  const wAll = ctx.measureText(String(text)).width, wH = ctx.measureText(m[1]).width, wC = ctx.measureText(':').width;
+  const pl = parseFloat(cs.paddingLeft) || 0, pr = parseFloat(cs.paddingRight) || 0, bl = parseFloat(cs.borderLeftWidth) || 0;
+  const inner = el.clientWidth - pl - pr; const al = cs.textAlign;
+  const off = al === 'center' ? Math.max(0, (inner - wAll) / 2) : (al === 'right' || al === 'end') ? Math.max(0, inner - wAll) : 0;
+  return x < r.left + k * (bl + pl + off + wH + wC / 2);
+} catch { return false; } };
 const TpTimeInput = ({ value, onCommit, normalize, ...rest }) => {
   const [draft, setDraft] = React.useState(null);
-  const dashRef = React.useRef(null); // ★ 2026-10-16(ユーザー報告「8:-- のようになっていて、消さないと数字を入れられない」): 「--」の欄は押すと空にして、元の値は薄く見せる
+  const dashRef = React.useRef(null); // 「時:--」の欄を触っている間 { orig:'8:--', hour:'8', mode:'min'|'hour'|'free', pristine }
+  const tapRef = React.useRef(null);  // 押した位置と、そのとき見えていた文字 { x, text, at }
   const composing = React.useRef(false);
   const timer = React.useRef(null);
   const lastSent = React.useRef(null);
   const norm = (v, fin) => { try { return normalize ? normalize(v, fin) : String(v ?? ''); } catch { return String(v ?? ''); } };
+  const z2h = (v) => String(v ?? '').replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)).replace(/[：]/g, ':').replace(/[\s　]+/g, '');
+  // 「8:」のあとに 845 / 0930 と全部打った → 打った数字だけで時刻にする
+  const fixDash = (v, on) => { if (!(on || dashRef.current)) return v; const mm = z2h(v).match(/^(\d{1,2}):(\d{3,4})$/); return mm ? mm[2] : v; };
   const commit = (v) => { if (timer.current) { clearTimeout(timer.current); timer.current = null; } if (v === lastSent.current) return; lastSent.current = v; if (v !== String(value ?? '')) onCommit(v); };
-  const schedule = (v) => { if (timer.current) clearTimeout(timer.current); timer.current = setTimeout(() => { timer.current = null; const f = norm(v, true); if (f === '' || /^\d{1,2}:\d{2}$/.test(f)) commit(f); }, 1200); };
+  const schedule = (v) => { if (timer.current) clearTimeout(timer.current); timer.current = setTimeout(() => { timer.current = null; const f = norm(fixDash(v), true); if (f === '' || /^\d{1,2}:\d{2}$/.test(f)) commit(f); }, 1200); };
   React.useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  const place = (el) => requestAnimationFrame(() => { try { const d = dashRef.current; if (!d || document.activeElement !== el) return;
+    if (d.mode === 'hour') { const m = el.value.match(/^(\d{0,2}):/); el.setSelectionRange(0, m ? m[1].length : 0); }
+    else if (d.mode === 'min') { const n = el.value.length; el.setSelectionRange(n, n); } } catch {} });
+  const pickMode = (el) => { const d = dashRef.current; if (!d || !d.pristine) return; const t = tapRef.current; const recent = t && Date.now() - t.at < 1500;
+    const mode = recent && _tpHitHour(el, t.x, t.text) ? 'hour' : 'min'; tapRef.current = null;
+    if (mode !== d.mode) { d.mode = mode; setDraft(mode === 'hour' ? d.orig : `${d.hour}:`); } place(el); };
+  const onType = (v, el) => {
+    const d = dashRef.current; if (!d) return v; d.pristine = false;
+    if (d.mode !== 'hour') return v;
+    const m = z2h(v).match(/^(\d{0,2}):--$/);
+    if (!m) { d.mode = 'free'; return v; }
+    const h = m[1];
+    if (h.length === 2 && +h > 23) { d.mode = 'min'; const v2 = `${+h[0]}:${h[1]}`; place(el); return v2; } // 24〜29 は「2時4分…」と読む
+    if (h.length === 2 || (h.length === 1 && +h >= 3)) { d.mode = 'min'; const v2 = `${+h}:`; place(el); return v2; } // 時を打ち終えた → 分へ
+    return v;
+  };
   const shown = draft !== null ? draft : String(value ?? '');
   return <input type="text" inputMode="numeric" pattern="[0-9]*" enterKeyHint="done" autoComplete="off" {...rest} value={shown}
-    placeholder={draft === '' && dashRef.current ? dashRef.current : rest.placeholder}
-    onFocus={(e) => { lastSent.current = null; const v0 = e.target.value; const dash = /--/.test(v0); dashRef.current = dash ? v0 : null; setDraft(dash ? '' : v0); }}
+    onPointerDown={(e) => { tapRef.current = { x: e.clientX, text: e.currentTarget.value, at: Date.now() }; if (rest.onPointerDown) rest.onPointerDown(e); }}
+    onFocus={(e) => { lastSent.current = null; const v0 = e.target.value; const mm = v0.match(/^(\d{1,2}):--$/);
+      if (mm) { const el = e.currentTarget; dashRef.current = { orig: v0, hour: mm[1], mode: 'min', pristine: true, focusAt: Date.now() }; setDraft(`${mm[1]}:`); pickMode(el); place(el); }
+      else { dashRef.current = null; setDraft(v0); } }}
+    onClick={(e) => { const d = dashRef.current; if (d) { const el = e.currentTarget; // 押して入った直後のクリックは、ブラウザが動かしたカーソルを戻すだけ(押した場所の判定は入ったときに済み)
+        if (Date.now() - (d.focusAt || 0) < 700) place(el); else { if (!tapRef.current) tapRef.current = { x: e.clientX, text: el.value, at: Date.now() }; pickMode(el); } } if (rest.onClick) rest.onClick(e); }}
     /* ★ 2026-10-02(ユーザー報告「８３０と打ったら308:30になる」): 打っている間は値を一切整えない(全角→半角の置換も変換中の文字が
        残って二重になる原因)。整えるのは保存するときだけ(1.2秒後の自動保存・欄を離れたとき)。表示は欄を離れたときに整った形になる */
-    onChange={(e) => { const v = e.target.value; setDraft(v); if (composing.current || (e.nativeEvent && e.nativeEvent.isComposing)) return; schedule(v); }}
+    onChange={(e) => { const v = e.target.value; if (composing.current || (e.nativeEvent && e.nativeEvent.isComposing)) { setDraft(v); return; } const v2 = onType(v, e.currentTarget); setDraft(v2); schedule(v2); }}
     onCompositionStart={() => { composing.current = true; }}
-    onCompositionEnd={(e) => { composing.current = false; const v = e.target.value; setDraft(v); schedule(v); }}
+    onCompositionEnd={(e) => { composing.current = false; const v2 = onType(e.target.value, e.currentTarget); setDraft(v2); schedule(v2); }}
     /* ★ 2026-10-02(ユーザー報告・PCの全角入力で「８３０」→「8308:30」): 日本語入力の変換を確定する Enter(keyCode 229・変換中)で欄を
        離れてしまい、整えた値の後ろに確定文字が足されていた。変換中の Enter は無視し、確定後の Enter だけで欄を離れる */
     onKeyDown={(e) => { if (e.key === 'Enter' && !composing.current && !(e.nativeEvent && e.nativeEvent.isComposing) && e.keyCode !== 229) e.currentTarget.blur(); }}
-    onBlur={(e) => { composing.current = false; const f = norm(e.target.value, true); setDraft(null); const keep = dashRef.current && f === ''; dashRef.current = null; if (keep) return; commit(f); }} />;
+    onBlur={(e) => { composing.current = false; const d = dashRef.current; dashRef.current = null; tapRef.current = null; setDraft(null);
+      if (d) { const v = z2h(fixDash(e.target.value, true));
+        if (v === '' || /^:?-*$/.test(v)) { if (timer.current) { clearTimeout(timer.current); timer.current = null; } return; } // 何も入れていない → 元のまま
+        const hm = v.match(/^(\d{1,2}):(--)?$/);
+        if (hm) { if (timer.current) { clearTimeout(timer.current); timer.current = null; } if (+hm[1] === +d.hour) return; commit(`${+hm[1]}:--`); return; } // 時だけ直した → 9:--
+        commit(norm(v, true)); return; }
+      commit(norm(e.target.value, true)); }} />;
 };
 // ★ 2026-10-01(試験版・ユーザー要望「再読み込み中や何かの動作で画面が固まっている時は分かりやすくアニメーションを」):
 //   処理中・読み込み中の共通の回る輪。文字の大きさ・色に合わせて回る(見た目は src/index.css の .tsumugi-busy-spin)。
@@ -35318,6 +35362,8 @@ const tsuCarName = (c) => { const n = String((c && c.name) || '').trim(); const 
 // 表示・計算用の車の一覧(名前を上の規則にそろえ、車種は空に)。保存すると、そのまま古い車種のない形になる
 const tsuCarsNorm = (cars) => (Array.isArray(cars) ? cars : []).map(c => (c && String(c.type || '').trim()) ? { ...c, name: tsuCarName(c), type: '' } : c);
 const tsumugiTransportOn = (appData) => (appData?.systemSettings?.transportEnabled !== false);
+// ★ 2026-10-16: 利用者の家→施設の移動時間(分)の控え(自動計算・Googleマップで調べた値)。送迎表の各コマにも facLeg として残す
+const _tsuFacLegMin = new Map(); const _tsuFacLegAsk = new Set();
 // 'H:MM' から n 分引いた 'H:MM'(読めなければ空)
 const tsuHmMinus = (hm, n) => { const m = String(hm || '').match(/(\d{1,2})[:：](\d{2})/); if (!m) return ''; const t = Math.max(0, (+m[1]) * 60 + (+m[2]) - (n || 0)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
 // ★ 2026-10-15(ユーザー相談「送迎表を使うなら日誌の1週間前コピーは要るのか」): 送迎表を使っている店舗で、その日・その時間帯の送迎表が保存されているか。
@@ -35685,7 +35731,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     return _draftPlan(iso, sl);
   };
   const savePlan = (iso, sl, plan) => {
-    const { _draft, ...rest } = plan;
+    const { _draft, ...rest0 } = plan; const rest = _withArriveEst(iso, sl, rest0); // ★ 2026-10-16: 到着の目安を最後の方の時間から入れ直す
     const k = `${iso}_${sl}`;
     const next = _stampChg(plans[k], { ...rest, _savedAt: syncNow() });
     _pushUndo('手での変更', { [k]: next });
@@ -36083,6 +36129,25 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const setDropDepart = (iso, sl, cid, v) => { const t = _minTp(v); const r = _svcRangeTp(sl); if (t != null && r.e != null && t < r.e && !window.confirm(`提供時間（${r.unit}の終了 ${_hmTp(r.e)}）より前の出発になります。\nこのまま ${v} で登録してよろしいですか？`)) return false; mutate(iso, sl, (pl) => { if (!pl.drop) return; pl.drop.depart = { ...(pl.drop.depart||{}), [cid]: v }; const _au = { ...(pl.drop.departAuto||{}) }; delete _au[cid]; pl.drop.departAuto = _au; }); return true; };
   // ★ 2026-10-15(ユーザー要望「到着時間もやっぱり入れたい。車の最後に。自動計算したら目安も」): 迎えの施設への到着時間 arrive[車]。
   //   arriveAuto[車]=true は「目安」(自動計算・前週コピーで入った時間)。手で決めると目安が外れる。日誌の「送迎表取込」で日誌の到着時間へ入る
+  // ★ 2026-10-16(ユーザー要望「各車の最後の方の時間が入ったら、それをもとに到着時間を自動で。後で直せる」):
+  //   到着の目安 = 最後の方のお迎え時間 + その方の乗車にかかる時間 + その方の家→施設の移動時間(自動計算で控えた値。無ければGoogleマップで1回だけ調べて控える)。
+  //   手で決めた到着はそのまま(目安だけ入れ直す)。保存のたび(savePlan)に入れ直す
+  const _facLegOf = (pid, pl) => { const k = String(pid); const a = pl && pl.facLeg && pl.facLeg[k]; if (a != null) return a; if (_tsuFacLegMin.has(k)) return _tsuFacLegMin.get(k); for (const p2 of Object.values(plans || {})) { const v = p2 && p2.facLeg && p2.facLeg[k]; if (v != null) return v; } return null; };
+  const _routeAddrOf = (pid) => { const pt = (appData.patients||[]).find(x => x.id === pid) || {}; const a = String(pt.address||'').trim(); if (!a) return ''; const fa = String(_facilityAddr() || '').replace(/[\s　]/g, ''); const m = fa.match(/^(東京都|北海道|(?:京都|大阪)府|.{2,3}県)(.+?[市区町村])?/); const pref = m ? m[1] : '', city = m ? (m[2] || '') : ''; if (/^(東京都|北海道|(?:京都|大阪)府|.{2,3}県)/.test(a) || !pref) return a; return /^.{1,5}?[市区町村]/.test(a) ? `${pref}${a}` : `${pref}${city}${a}`; };
+  const _askFacLeg = (pid, iso, sl) => { const k = String(pid); if (_tsuFacLegAsk.has(k)) return; _tsuFacLegAsk.add(k); const fac = _facilityAddr(); const addr = _routeAddrOf(pid); if (!fac || !addr) return;
+    (async () => { try { const r = await fetch('/api/route-plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ origin: fac, stops: [addr], keepOrder: true }) }); const j = await r.json().catch(() => ({})); const sec = Array.isArray(j.legSeconds) ? j.legSeconds[1] : null; if (j.error || sec == null) return; const min = Math.max(1, Math.ceil(sec / 60)); _tsuFacLegMin.set(k, min);
+      // 調べ終わったら、描き直したあと(最新の送迎表)にそのコマの目安を入れる(ここで直接書くと、その間に打った時間を古い内容で上書きしてしまう)
+      _legWantRef.current.add(`${iso}|${sl}`); setLegTick(t => t + 1); } catch { /* 調べられないときは目安を入れない */ } })(); };
+  const _applyLegs = () => { const want = [..._legWantRef.current]; _legWantRef.current.clear(); want.forEach(w => { const [iso, sl] = w.split('|'); const pl0 = getPlan(iso, sl); if (!pl0 || pl0._draft) return; const add = {}; Object.values(pl0.cars || {}).forEach(ms => (ms || []).forEach(m => { const k2 = String(m.pid); if (_tsuFacLegMin.has(k2) && (pl0.facLeg || {})[k2] == null) add[k2] = _tsuFacLegMin.get(k2); })); if (!Object.keys(add).length) return; mutate(iso, sl, (pl) => { pl.facLeg = { ...(pl.facLeg || {}), ...add }; }); }); };
+  const _withArriveEst = (iso, sl, pl) => { if (!pl || !pl.cars) return pl; const arr = { ...(pl.arrive || {}) }, au = { ...(pl.arriveAuto || {}) }; let ch = false;
+    cars.forEach(c => { const ms = (pl.cars || {})[c.id] || [];
+      if (!ms.length) { if (au[c.id]) { delete arr[c.id]; delete au[c.id]; ch = true; } return; }
+      if (arr[c.id] && !au[c.id]) return; // 手で決めた到着はそのまま
+      let last = null, lt = -1; ms.forEach(m => { const f = _fmtT(m.t); if (!/^\d{1,2}:\d{2}$/.test(f)) return; const t = _tMin(m.t); if (t >= lt) { lt = t; last = m; } });
+      if (!last) return; const leg = _facLegOf(last.pid, pl); if (leg == null) { _askFacLeg(last.pid, iso, sl); return; }
+      const pt = (appData.patients || []).find(x => x.id === last.pid) || {}; const t2 = lt + Math.max(1, Number(pt.pickupMinutes) || 1) + leg; const v = `${Math.floor(t2 / 60)}:${String(t2 % 60).padStart(2, '0')}`;
+      if (arr[c.id] !== v || !au[c.id]) { arr[c.id] = v; au[c.id] = true; ch = true; } });
+    return ch ? { ...pl, arrive: arr, arriveAuto: au } : pl; };
   const setArrive = (iso, sl, cid, v) => { const t = _minTp(v); const r = _svcRangeTp(sl); if (t != null && r.s != null && t > r.s && !window.confirm(`提供時間（${r.unit}の開始 ${_hmTp(r.s)}）を過ぎての到着になります。\nこのまま ${v} で登録してよろしいですか？`)) return false; mutate(iso, sl, (pl) => { const a = { ...(pl.arrive||{}) }; if (v) a[cid] = v; else delete a[cid]; pl.arrive = a; const au = { ...(pl.arriveAuto||{}) }; delete au[cid]; pl.arriveAuto = au; }); return true; };
   // ★ 2026-10-15(ユーザー要望「人数を見て出発時間の目安をボタンで」): 送りの出発の目安 = 終了時刻 + 乗る方の「乗車にかかる時間」(利用者マスタ・未設定は1分)の合計
   const _dropDepartEst = (pl, sl, cid) => { const list = ((pl && pl.drop && pl.drop.cars) || {})[cid] || []; const r = _svcRangeTp(sl); if (!list.length || r.e == null) return null; const add = list.reduce((a, m) => { const pt = (appData.patients||[]).find(x => x.id === m.pid) || {}; return a + Math.max(1, Number(pt.pickupMinutes) || 1); }, 0); return { v: _hmTp(r.e + add), n: list.length, add }; };
@@ -36237,7 +36302,40 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const [seatOrd, setSeatOrd] = useState(null); // 順番を変える方 {cid, pid}
   const [ordDrag, setOrdDrag] = useState(null); const ordDragRef = React.useRef(null); // ★ 2026-10-15: 送りの順番の一覧でつかんでいる方 {cid, pid, y0, dy, over}
   const [seatKp, setSeatKp] = useState(null); // ★ 2026-10-15: 送りの出発時間のテンキー {iso, sl, cid}
+  // ★ 2026-10-16(ユーザー要望「次の週の順番などを変えた後に前週コピーすると、そのまま入ってしまう」): 前週コピーは
+  //   mode='fill'=この週でまだ作っていない午前・午後だけ写す(作った・直したコマはそのまま) / 'all'=全部写し直す(従来)
+  const [copyAsk, setCopyAsk] = useState(false);
+  const [legTick, setLegTick] = useState(0); const _legWantRef = React.useRef(new Set()); // ★ 2026-10-16: 移動時間を調べ終わった合図
+  const runPrevWeekCopy = (mode) => {
+            setCopyAsk(false);
+
+            let n = 0, nSkip = 0, nKeep = 0;
+            const np = { ...plans };
+            days.forEach(d => { ['AM','PM'].forEach(sl => {
+              const prevD = new Date(d); prevD.setDate(prevD.getDate() - 7);
+              const src = plans[`${_iso(prevD)}_${sl}`];
+              if (!src) return;
+              if (mode === 'fill' && plans[`${_iso(d)}_${sl}`]) { nKeep++; return; } // ★ 2026-10-16: この週ですでに作った・直したコマはそのまま
+              const cp = JSON.parse(JSON.stringify(src));
+              // 赤丸(時間変更マーク)はコピーしない
+              Object.keys(cp.cars||{}).forEach(cid => (cp.cars[cid]||[]).forEach(m => { m.mark = false; }));
+              // ★ 2026-09-30(不具合修正・ユーザー指摘): 前の週に振替で来た方までコピーされていた。
+              //   コピー先の日・時間帯に来る方(_attendees: 基本曜日・月間スケジュール・提供記録)だけを残す(お休みの方も外れて「休み」に出る)。
+              // ★ 2026-10-02(試験版・ユーザー要望): 振替だけでなく臨時の方もコピーしない(その週だけの方。来る日は未割当に自動で入る)
+              const _att = new Set(_attendees(_iso(d), sl).filter(a => !a.furikae && !a.rinji).map(a => String(a.pid)));
+              const _filt = (pl) => { if (!pl) return; Object.keys(pl.cars||{}).forEach(cid => { const a = pl.cars[cid]||[]; pl.cars[cid] = a.filter(m => _att.has(String(m && m.pid))); nSkip += a.length - pl.cars[cid].length; }); ['walkers','others','un'].forEach(k => { if (Array.isArray(pl[k])) { const a = pl[k]; pl[k] = a.filter(m => _att.has(String(m && m.pid))); nSkip += a.length - pl[k].length; } }); };
+              _filt(cp); if (cp.drop) _filt(cp.drop);
+              // ★ 2026-10-15: 前の週の到着・送りの出発は、この週の「目安」として写す(手で決め直すと目安が外れる)
+              if (cp.arrive) { cp.arriveAuto = {}; Object.keys(cp.arrive).forEach(cid => { if (cp.arrive[cid] && (cp.cars?.[cid]||[]).length) cp.arriveAuto[cid] = true; else delete cp.arrive[cid]; }); }
+              if (cp.drop && cp.drop.depart) { cp.drop.departAuto = {}; Object.keys(cp.drop.depart).forEach(cid => { if (cp.drop.depart[cid] && (cp.drop.cars?.[cid]||[]).length) cp.drop.departAuto[cid] = true; else delete cp.drop.depart[cid]; }); }
+              delete cp._final; delete cp._finalAt; delete cp._finalId; delete cp._base; delete cp._baseAt; delete cp._baseId; delete cp._chgAt; delete cp._telDone; // ★ 完成の控えは週ごと(コピー先は未確定から)
+              np[`${_iso(d)}_${sl}`] = { ...cp, _savedAt: syncNow() }; n++;
+            }); });
+            if (n) _saveBulk('前週コピー', np);
+            alert(n ? `前週から${n}コマをコピーしました。${nKeep ? `\n（この週ですでに作ってあった ${nKeep}コマはそのままです）` : ''}${nSkip ? `\n（前の週の振替・この週のお休みなどで、この週に来ない方 のべ${nSkip}名はコピーしていません）` : ''}` : (nKeep ? `この週はすでに全部作ってあるため、コピーしませんでした（${nKeep}コマ）。` : '前の週に保存済みの送迎表がありませんでした。'));
+  };
   const [arrKp, setArrKp] = useState(null); // ★ 2026-10-15: 迎えの到着時間のテンキー {iso, sl, cid}
+  React.useEffect(() => { if (legTick) _applyLegs(); }, [legTick]); // eslint-disable-line react-hooks/exhaustive-deps
   const [seatView, setSeatView] = useState(null); // ★ 2026-10-15: スマホの送りの座席表(見るだけ) {iso, sl, cid}
   const performFurikaeMove = (pid, fromIso, fromSl, toIso, toSl, destZone, beforePid) => {
     const pt = (appData.patients||[]).find(x => x.id === pid); if (!pt) return;
@@ -36410,6 +36508,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const _coordMap = {}; let _originCoord = null;
     let nextPlanCars = JSON.parse(JSON.stringify(pl.cars||{}));
     const _nextArr = { ...(pl.arrive||{}) }, _nextArrAuto = { ...(pl.arriveAuto||{}) }; // ★ 2026-10-15: 到着の目安
+    const _nextFacLeg = { ...(pl.facLeg||{}) }; // ★ 2026-10-16: 最後の方の家→施設の移動時間(分)の控え
     cars.forEach(c => { nextPlanCars[c.id] = nextPlanCars[c.id] || []; });
     let remainUn = [];
     let changed = false;
@@ -36593,12 +36692,13 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const ordered = orderedG.flatMap((g, k) => g.ms.map(m => ({ ...m, t: _tOfG[k] })));
       nextPlanCars[cid] = ordered;
       changed = true;
+      { const _lg = orderedG[orderedG.length - 1]; const _ls = legs[orderedG.length - 1]; if (_lg && _ls) { const _mn = Math.max(1, Math.ceil(_ls / 60)); _lg.ms.forEach(m => { _nextFacLeg[String(m.pid)] = _mn; _tsuFacLegMin.set(String(m.pid), _mn); }); } }
       if (!_nextArr[cid] || _nextArrAuto[cid]) { _nextArr[cid] = _fmtHM(target); _nextArrAuto[cid] = true; }
     }
     if (!changed) return { msgs, changed: false, entry: null };
     cars.forEach(c => { if (!(nextPlanCars[c.id]||[]).length && _nextArrAuto[c.id]) { delete _nextArr[c.id]; delete _nextArrAuto[c.id]; } });
     const { _draft, ...rest } = pl;
-    const entry = { ...rest, cars: nextPlanCars, un: remainUn, arrive: _nextArr, arriveAuto: _nextArrAuto, _savedAt: syncNow() };
+    const entry = { ...rest, cars: nextPlanCars, un: remainUn, arrive: _nextArr, arriveAuto: _nextArrAuto, facLeg: _nextFacLeg, _savedAt: syncNow() };
     return { msgs, changed: true, entry };
   };
   const _probeMaps = async () => {
@@ -37130,32 +37230,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           <span className="bg-emerald-200 text-emerald-900 rounded px-1.5 py-0.5">緑=振替</span><span className="bg-sky-200 text-sky-900 rounded px-1.5 py-0.5">水色=初回</span>
         </span>
           <div className="tsu-tpo-sp flex-1"/>
-          <button onClick={()=>{
-            if (!window.confirm('前の週の送迎表(車割り当て・時間・運転者・備考)を、この週へコピーします。\n前の週に振替で来た方や、この週にお休みの方はコピーしません(この週に振替で来る方は未割当に入ります)。\n前の週の到着・送りの出発の時間は「目安」として入ります。\nこの週に入力済みの内容は上書きされます。よろしいですか？')) return;
-            let n = 0, nSkip = 0;
-            const np = { ...plans };
-            days.forEach(d => { ['AM','PM'].forEach(sl => {
-              const prevD = new Date(d); prevD.setDate(prevD.getDate() - 7);
-              const src = plans[`${_iso(prevD)}_${sl}`];
-              if (!src) return;
-              const cp = JSON.parse(JSON.stringify(src));
-              // 赤丸(時間変更マーク)はコピーしない
-              Object.keys(cp.cars||{}).forEach(cid => (cp.cars[cid]||[]).forEach(m => { m.mark = false; }));
-              // ★ 2026-09-30(不具合修正・ユーザー指摘): 前の週に振替で来た方までコピーされていた。
-              //   コピー先の日・時間帯に来る方(_attendees: 基本曜日・月間スケジュール・提供記録)だけを残す(お休みの方も外れて「休み」に出る)。
-              // ★ 2026-10-02(試験版・ユーザー要望): 振替だけでなく臨時の方もコピーしない(その週だけの方。来る日は未割当に自動で入る)
-              const _att = new Set(_attendees(_iso(d), sl).filter(a => !a.furikae && !a.rinji).map(a => String(a.pid)));
-              const _filt = (pl) => { if (!pl) return; Object.keys(pl.cars||{}).forEach(cid => { const a = pl.cars[cid]||[]; pl.cars[cid] = a.filter(m => _att.has(String(m && m.pid))); nSkip += a.length - pl.cars[cid].length; }); ['walkers','others','un'].forEach(k => { if (Array.isArray(pl[k])) { const a = pl[k]; pl[k] = a.filter(m => _att.has(String(m && m.pid))); nSkip += a.length - pl[k].length; } }); };
-              _filt(cp); if (cp.drop) _filt(cp.drop);
-              // ★ 2026-10-15: 前の週の到着・送りの出発は、この週の「目安」として写す(手で決め直すと目安が外れる)
-              if (cp.arrive) { cp.arriveAuto = {}; Object.keys(cp.arrive).forEach(cid => { if (cp.arrive[cid] && (cp.cars?.[cid]||[]).length) cp.arriveAuto[cid] = true; else delete cp.arrive[cid]; }); }
-              if (cp.drop && cp.drop.depart) { cp.drop.departAuto = {}; Object.keys(cp.drop.depart).forEach(cid => { if (cp.drop.depart[cid] && (cp.drop.cars?.[cid]||[]).length) cp.drop.departAuto[cid] = true; else delete cp.drop.depart[cid]; }); }
-              delete cp._final; delete cp._finalAt; delete cp._finalId; delete cp._base; delete cp._baseAt; delete cp._baseId; delete cp._chgAt; delete cp._telDone; // ★ 完成の控えは週ごと(コピー先は未確定から)
-              np[`${_iso(d)}_${sl}`] = { ...cp, _savedAt: syncNow() }; n++;
-            }); });
-            if (n) _saveBulk('前週コピー', np);
-            alert(n ? `前週から${n}コマをコピーしました。${nSkip ? `\n（前の週の振替・この週のお休みなどで、この週に来ない方 のべ${nSkip}名はコピーしていません）` : ''}` : '前の週に保存済みの送迎表がありませんでした。');
-          }} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="前の週の割り当て・時間・運転者・備考をこの週へ複製">前週コピー</button>
+          <button onClick={()=>setCopyAsk(true)} data-testid="tp-copy-prev" className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="前の週の割り当て・時間・運転者・備考をこの週へ複製">前週コピー</button>
           <button onClick={()=>setAutoCalc({ haisha: false, jikan: true, days: new Set(days.map(d=>_iso(d))), slots: new Set(['AM','PM']), cars: new Set(cars.map(c=>c.id)) })} disabled={!!routing} data-testid="tp-autocalc" className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-sm disabled:opacity-50" title="配車・時間を、曜日や午前/午後を選んでGoogleマップで自動計算">{routing ? (
             // ★ 2026-10-01(試験版・ユーザー要望): 計算中が分かるよう回る輪を付ける(点の点滅は「どちらかでいい」との指示で回る輪だけに)
             <span data-testid="tp-calculating" className="inline-flex items-center whitespace-nowrap"><BusySpin/>計算中…</span>
@@ -37862,6 +37937,22 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         <TsuTimeKeypad title={`${c.name || ''}　送りの出発時間`} hint={r.e != null ? `${_hmTp(r.e)} 以降に出発（${r.unit}の終了）` : ''} initial={((pl0.drop && pl0.drop.depart) || {})[seatKp.cid] || ''}
           suggest={(() => { const e = _dropDepartEst(pl0, seatKp.sl, seatKp.cid); return e ? { label: `目安 ${e.v} を入れる（${e.n}名・乗車 ${e.add}分）`, value: e.v } : null; })()}
           onClose={() => setSeatKp(null)} onCommit={(v) => { if (setDropDepart(seatKp.iso, seatKp.sl, seatKp.cid, v) !== false) setSeatKp(null); }}/>); })()}
+      {copyAsk && ReactDOM.createPortal((() => { let made = 0, fill = 0; days.forEach(d => ['AM','PM'].forEach(sl => { const pd = new Date(d); pd.setDate(pd.getDate() - 7); if (!plans[`${_iso(pd)}_${sl}`]) return; if (plans[`${_iso(d)}_${sl}`]) made++; else fill++; })); return (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4" style={{ zIndex: 10000 }} onClick={() => setCopyAsk(false)} data-testid="tp-copy-ask">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
+            <div className="text-lg font-bold text-slate-800 mb-1">前週コピー</div>
+            <div className="text-[13px] text-slate-600 mb-3">前の週の送迎表（車の割り当て・時間・運転者・備考）を、この週へ写します。前の週に振替で来た方や、この週にお休みの方は写しません。前の週の到着・送りの出発の時間は「目安」として入ります。</div>
+            <button type="button" data-testid="tp-copy-fill" disabled={!fill} onClick={() => runPrevWeekCopy('fill')} className="w-full text-left rounded-xl border-2 border-blue-600 bg-blue-50 hover:bg-blue-100 px-4 py-3 mb-2 disabled:opacity-40">
+              <div className="font-bold text-blue-800">まだ作っていない日だけコピー（{fill}コマ）</div>
+              <div className="text-[12px] text-slate-600 mt-0.5">この週ですでに作ったり直したりした午前・午後（{made}コマ）はそのままにします。</div>
+            </button>
+            <button type="button" data-testid="tp-copy-all" onClick={() => runPrevWeekCopy('all')} className="w-full text-left rounded-xl border-2 border-slate-300 bg-white hover:bg-slate-50 px-4 py-3 mb-3">
+              <div className="font-bold text-slate-800">全部コピーし直す（{fill + made}コマ）</div>
+              <div className="text-[12px] text-red-700 mt-0.5">この週に入力済みの内容も、前の週の内容で上書きします。</div>
+            </button>
+            <div className="flex justify-end"><button type="button" onClick={() => setCopyAsk(false)} className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold">やめる</button></div>
+          </div>
+        </div>); })(), document.body)}
       {arrKp && (() => { const c = cars.find(x => x.id === arrKp.cid) || {}; const r = _svcRangeTp(arrKp.sl); const pl0 = getPlan(arrKp.iso, arrKp.sl); return (
         <TsuTimeKeypad title={`${c.name || ''}　施設に到着した時間`} hint={r.s != null ? `${_hmTp(r.s)} までに到着（${r.unit}の開始）` : ''} initial={(pl0.arrive || {})[arrKp.cid] || ''}
           onClose={() => setArrKp(null)} onCommit={(v) => { if (setArrive(arrKp.iso, arrKp.sl, arrKp.cid, v) !== false) setArrKp(null); }}/>); })()}
