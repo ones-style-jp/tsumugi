@@ -209,3 +209,5 @@ $function$;
 --   select proname, prosecdef from pg_proc where proname in ('upsert_ticket_records','delete_ticket_record','push_sync_ops','push_undo_snapshot','delete_undo_snapshot');
 --   証なし(公開キーだけ)で呼ぶと 42501 の例外になること:
 --   curl -s -X POST "https://<プロジェクト>.supabase.co/rest/v1/rpc/delete_undo_snapshot" -H "apikey: <公開キー>" -H "Authorization: Bearer <公開キー>" -H "Content-Type: application/json" -d '{"p_store_id":"x","p_id":0}'
+
+-- ★ 実行したら docs/sql/rls_status.json の "3_functions_guarded" を true にして commit(scripts/run_tests.py の T-SEC-04/05/06 が「閉じていること」を毎回確かめるようになる)。戻したら false に。

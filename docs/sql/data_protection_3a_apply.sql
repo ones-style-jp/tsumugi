@@ -78,3 +78,5 @@ create policy undo_select_own on public.undo_snapshots for select to authenticat
 --   ターミナル(公開キーだけ → [] が返れば成功):
 --   curl -s "https://<プロジェクト>.supabase.co/rest/v1/undo_snapshots?select=id&limit=1" -H "apikey: <公開キー>" -H "Authorization: Bearer <公開キー>"
 --   店舗の端末: 提供記録の「元に戻す」の一覧が出る(証つきで読める)。
+
+-- ★ 実行したら docs/sql/rls_status.json の "3a_sync_ops_undo_snapshots" を true にして commit(scripts/run_tests.py の T-SEC-04/05/06 が「閉じていること」を毎回確かめるようになる)。戻したら false に。

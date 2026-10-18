@@ -78,3 +78,5 @@ create policy notices_hq_write on public.system_notices for all to authenticated
 --   店舗の端末: ホーム・提供記録・同期・リアルタイム(他端末の更新が届く)・写真・お知らせ・元に戻す を確認。
 --   本部: 管理局の店舗一覧・端末の更新状況・お知らせ管理・店舗に入っての操作を確認。
 --   自動テスト: scripts/run_tests.py の T-SEC(他店の行が読めない)が PASS。
+
+-- ★ 実行したら docs/sql/rls_status.json の "3b_app_state_ticket_records_stores_notices" を true にして commit(scripts/run_tests.py の T-SEC-04/05/06 が「閉じていること」を毎回確かめるようになる)。戻したら false に。
