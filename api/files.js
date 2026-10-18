@@ -45,15 +45,18 @@ async function sbJson(url, init) {
 }
 // 店舗データ本体(文字列)を60秒だけ控える(同じ画面で何枚も署名するため)
 const _stateCache = new Map();
+async function loadStateText(storeId) {
+  const rows = await sbJson(`${SUPA_URL}/rest/v1/app_state?select=data&key=eq.${enc(storeId)}`);
+  const text = rows && rows[0] && rows[0].data ? JSON.stringify(rows[0].data) : '';
+  _stateCache.set(storeId, { t: Date.now(), text }); return text;
+}
 async function storeHasPath(storeId, path) {
-  const now = Date.now(); const c = _stateCache.get(storeId);
-  let text = c && now - c.t < 60 * 1000 ? c.text : null;
-  if (text == null) {
-    const rows = await sbJson(`${SUPA_URL}/rest/v1/app_state?select=data&key=eq.${enc(storeId)}`);
-    text = rows && rows[0] && rows[0].data ? JSON.stringify(rows[0].data) : '';
-    _stateCache.set(storeId, { t: now, text });
-  }
-  return text.includes(JSON.stringify(path).slice(1, -1));
+  const needle = JSON.stringify(path).slice(1, -1);
+  const c = _stateCache.get(storeId); const fresh = c && Date.now() - c.t < 60 * 1000;
+  let text = fresh ? c.text : await loadStateText(storeId);
+  if (text.includes(needle)) return true;
+  if (fresh) { text = await loadStateText(storeId); if (text.includes(needle)) return true; } // 控えに無い=直前に追加された可能性 → 読み直して1回だけ確かめる
+  return false;
 }
 // 証の確認: 職員(店舗一致 or 本部)か、ポータル(見てよい店舗)。見てよい利用者IDの一覧も返す(ポータルのアップロード先の確認用)
 function authorize(body, storeId) {
