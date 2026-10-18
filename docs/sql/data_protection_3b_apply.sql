@@ -69,9 +69,7 @@ create policy notices_select_target on public.system_notices for select to authe
 create policy notices_hq_write on public.system_notices for all to authenticated
   using (public.tsumugi_is_hq()) with check (public.tsumugi_is_hq());
 
--- 5) 関数(RPC)の店舗確認: upsert_ticket_records / delete_ticket_record の先頭に
---      perform public.tsumugi_assert_store(p_store_id);
---    を足した版を inventory の定義から作ってここに貼る(docs/sql/upsert_ticket_records_v2.sql も同時に更新)。
+-- 5) 関数(RPC)の店舗確認: data_protection_3_functions_guarded.sql(段階3a で実行済みのはず)。未実行ならここで実行する。
 
 -- 6) 確認
 --   公開キーだけ → すべて [] :

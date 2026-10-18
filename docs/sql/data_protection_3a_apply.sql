@@ -26,10 +26,15 @@ create or replace function public.tsumugi_is_hq() returns boolean
 language sql stable as $$
   select coalesce(auth.jwt() ->> 'staff_role', '') = 'super_admin'
 $$;
--- 行の店舗IDにアクセスしてよいか(本部は常に可)
+-- サーバー(service_role キー: /api/*・本部の復旧ツール)か。証の店舗IDを持たないので常に通す
+create or replace function public.tsumugi_is_service() returns boolean
+language sql stable as $$
+  select coalesce(auth.jwt() ->> 'role', '') = 'service_role' or current_user in ('postgres', 'service_role', 'supabase_admin')
+$$;
+-- 行の店舗IDにアクセスしてよいか(本部・サーバーは常に可)
 create or replace function public.tsumugi_can_access_store(p_store_id text) returns boolean
 language sql stable as $$
-  select public.tsumugi_is_hq() or (public.tsumugi_jwt_store_id() is not null and public.tsumugi_jwt_store_id() = p_store_id)
+  select public.tsumugi_is_service() or public.tsumugi_is_hq() or (public.tsumugi_jwt_store_id() is not null and public.tsumugi_jwt_store_id() = p_store_id)
 $$;
 -- RPC の先頭で呼ぶ。許されない店舗なら例外(関数の中身は実行されない)
 create or replace function public.tsumugi_assert_store(p_store_id text) returns void
@@ -42,6 +47,7 @@ end;
 $$;
 grant execute on function public.tsumugi_jwt_store_id() to anon, authenticated;
 grant execute on function public.tsumugi_is_hq() to anon, authenticated;
+grant execute on function public.tsumugi_is_service() to anon, authenticated;
 grant execute on function public.tsumugi_can_access_store(text) to anon, authenticated;
 grant execute on function public.tsumugi_assert_store(text) to anon, authenticated;
 
@@ -64,10 +70,8 @@ create policy undo_select_own on public.undo_snapshots for select to authenticat
   using (public.tsumugi_can_access_store(store_id::text));
 
 -- 3) 関数(RPC)の店舗確認
---   ★ 関数本体は inventory の結果(pg_get_functiondef)を見てから、先頭に
---        perform public.tsumugi_assert_store(p_store_id);
---      を1行足した版をここに貼る(push_sync_ops / push_undo_snapshot / delete_undo_snapshot)。
---   それまでは実行しないこと(関数を書き換えないと、証の無い端末でも RPC 経由で書けてしまう)。
+--   ★ この SQL のあとに data_protection_3_functions_guarded.sql を実行する(5つの関数の先頭に店舗の確認を足した版・2026-10-18 棚卸し済み)。
+--   関数を書き換えないと、証の無い端末でも RPC 経由で書けてしまう。戻しは data_protection_3_functions_original.sql。
 
 -- 4) 確認
 --   select policyname, roles, cmd, qual from pg_policies where schemaname='public' and tablename in ('sync_ops','undo_snapshots');
