@@ -44,7 +44,7 @@ import {
   clearSyncLog,
   supabaseUploadSyncDiag,
   supabaseListSyncDiag, supabaseClaimDeviceName, // ★ 2026-10-17 データ保護(段階2): 管理局の端末一覧・端末名の自動付与
-  deviceIdentityReady, kvSet, lsSetSmall, // ★ 2026-10-18: 端末ID・端末名の第2の保存先(IndexedDB)
+  deviceIdentityReady, kvSet, lsSetSmall, deviceStorageStatus, // ★ 2026-10-18: 端末ID・端末名の第2・第3の保存先(IndexedDB・Cookie)と保存の状態
   cloudUndoPush, cloudUndoList, cloudUndoDelete,
   supabaseLoadDiseaseMaster,
   supabaseSaveDiseaseMaster,
@@ -45731,6 +45731,13 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                 {deviceName ? <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-bold">保存済み</span>
                             : <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">未設定</span>}
               </div>
+              {/* ★ 2026-10-18: 保存の状態(端末名が起動のたびに消える端末の原因切り分け用) */}
+              {(() => { let st = null; try { st = deviceStorageStatus(); } catch {} if (!st) return null;
+                const mk = (ok) => ok === true ? '○' : ok === false ? '×' : '－';
+                return <div className="mb-3 text-[11px] text-slate-500 leading-5" data-testid="device-storage-status">
+                  保存の状態: ブラウザ保存 {mk(st.ls)}{st.lsWritable === false ? '（容量いっぱい）' : ''} ／ 控え(IndexedDB) {mk(st.idb)} ／ Cookie {mk(st.ck)} ／ 端末の印 {st.id ? st.id.slice(0, 8) : 'なし'} ／ 版 {(__builtUpdateNotes?.version || '-').replace(/^upd-\d{4}-\d{4}-/, '')}
+                  <span className="block">端末名が起動のたびに消える場合は、この行の画面写真を本部へ送ってください。</span>
+                </div>; })()}
               <label className="block text-sm font-bold text-slate-600 mb-1.5">端末名</label>
               <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
                 <input

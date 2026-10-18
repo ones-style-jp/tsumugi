@@ -79,8 +79,22 @@ export async function kvGet(k) {
 }
 export async function kvSet(k, v) {
   _kvMem.set(k, v);
+  if (k === 'tsumugiDeviceId' || k === 'tsumugiDeviceName') _ckSet(k, String(v)); // 端末の印・端末名は Cookie にも
   const db = await _kvDb(); if (!db) return false;
   return new Promise((res) => { try { const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').put(v, k); tx.oncomplete = () => res(true); tx.onerror = () => res(false); tx.onabort = () => res(false); } catch { res(false); } });
+}
+// ★ 2026-10-18: 第3の保存先 Cookie(400日・同じサイト内だけ)。localStorage が満杯で IndexedDB も使えない端末のため
+const _ckGet = (k) => { try { const m = document.cookie.match(new RegExp('(?:^|; )' + k + '=([^;]*)')); return m ? decodeURIComponent(m[1]) : null; } catch { return null; } };
+const _ckSet = (k, v) => { try { document.cookie = `${k}=${encodeURIComponent(v)}; Max-Age=${400 * 24 * 3600}; Path=/; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`; return _ckGet(k) === v; } catch { return false; } };
+// 保存の状態(設定画面の表示用): どの保存先に端末の印・端末名があるか
+export function deviceStorageStatus() {
+  const st = { ls: null, idb: null, ck: null, lsWritable: null, id: '' };
+  try { st.ls = !!localStorage.getItem('tsumugiDeviceName'); st.id = localStorage.getItem('tsumugiDeviceId') || ''; } catch { st.ls = false; }
+  try { const k = '__tsumugi_probe'; localStorage.setItem(k, '1'); localStorage.removeItem(k); st.lsWritable = true; } catch { st.lsWritable = false; }
+  st.idb = _kvMem.has('tsumugiDeviceName') ? true : (typeof indexedDB === 'undefined' ? false : null);
+  st.ck = !!_ckGet('tsumugiDeviceName');
+  if (!st.id) st.id = _devIdMem || _ckGet('tsumugiDeviceId') || '';
+  return st;
 }
 // localStorage に書く(容量超過なら同期ログを捨てて1回だけやり直す)。成否を返す
 export function lsSetSmall(k, v) {
@@ -93,7 +107,7 @@ let _devIdMem = null;
 export function getDeviceId() {
   let id = null;
   try { id = localStorage.getItem('tsumugiDeviceId') || null; } catch {} // 第1: localStorage
-  if (!id) id = _devIdMem || (_kvMem.has('tsumugiDeviceId') ? _kvMem.get('tsumugiDeviceId') : null); // 第2: メモリ(=IndexedDB から読んだ値)
+  if (!id) id = _devIdMem || (_kvMem.has('tsumugiDeviceId') ? _kvMem.get('tsumugiDeviceId') : null) || _ckGet('tsumugiDeviceId'); // 第2: メモリ(=IndexedDB から読んだ値)・第3: Cookie
   if (!id) { id = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`; }
   if (id !== _devIdMem) { _devIdMem = id; lsSetSmall('tsumugiDeviceId', id); kvSet('tsumugiDeviceId', id); }
   return id;
@@ -101,12 +115,14 @@ export function getDeviceId() {
 // 起動時に1回: IndexedDB の控え(端末ID・端末名)を読み、localStorage に無ければ戻す。App は初回の名前付けの前にこれを待つ
 export const deviceIdentityReady = (async () => {
   try {
-    const [id, name] = await Promise.all([kvGet('tsumugiDeviceId'), kvGet('tsumugiDeviceName')]);
+    const [id0, name0] = await Promise.all([kvGet('tsumugiDeviceId'), kvGet('tsumugiDeviceName')]);
+    const id = id0 || _ckGet('tsumugiDeviceId'), name = name0 || _ckGet('tsumugiDeviceName'); // IndexedDB → Cookie の順
     let lsId = null, lsName = null;
     try { lsId = localStorage.getItem('tsumugiDeviceId') || null; lsName = localStorage.getItem('tsumugiDeviceName') || null; } catch {}
     if (!lsId && id) { _devIdMem = String(id); lsSetSmall('tsumugiDeviceId', _devIdMem); }
-    if (lsId && !id) kvSet('tsumugiDeviceId', lsId);
-    if (lsName && !name) kvSet('tsumugiDeviceName', lsName);
+    if (lsId && !id0) kvSet('tsumugiDeviceId', lsId);
+    if (lsName && !name0) kvSet('tsumugiDeviceName', lsName);
+    if (!lsName && name && !name0) kvSet('tsumugiDeviceName', String(name)); // Cookie にしか無ければ IndexedDB にも
     return { name: lsName || (name ? String(name) : '') };
   } catch { return { name: '' }; }
 })();
