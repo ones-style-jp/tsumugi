@@ -59,11 +59,57 @@ export function clearSyncLog() { try { localStorage.removeItem(_SYNCLOG_KEY); } 
 // ★ 同期診断のクラウド送信(2026-09-06 扇橋「保存が届かない」調査用): syncLog の末尾を
 //   app_state の別行(diag_<店舗ID>)へベストエフォートで送る。本体データとは完全に別行のため、
 //   失敗しても通常の保存・同期には一切影響しない。deviceTag は「端末名|アプリ版」。
-// ★ 2026-10-17: 端末ID(この端末だけの印・一度作ったら変えない)。端末名を変えても同じ端末として扱うため
-export function getDeviceId() {
-  try { let id = localStorage.getItem('tsumugiDeviceId'); if (!id) { id = (crypto && crypto.randomUUID) ? crypto.randomUUID() : `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`; localStorage.setItem('tsumugiDeviceId', id); } return id; }
-  catch { return 'd-nostorage'; }
+// ★ 2026-10-18: 小さな値の控え(IndexedDB)。localStorage が容量いっぱい(iPhone Safari は約5MB・店舗データの控えで埋まる)でも
+//   端末ID・端末名を失わないための第2の保存先。indexedDB が無い環境(テスト等)はメモリだけ
+const _kvMem = new Map();
+function _kvDb() {
+  return new Promise((res) => {
+    try {
+      if (typeof indexedDB === 'undefined') return res(null);
+      const r = indexedDB.open('tsumugi-kv', 1);
+      r.onupgradeneeded = () => { try { r.result.createObjectStore('kv'); } catch {} };
+      r.onsuccess = () => res(r.result); r.onerror = () => res(null); r.onblocked = () => res(null);
+    } catch { res(null); }
+  });
 }
+export async function kvGet(k) {
+  if (_kvMem.has(k)) return _kvMem.get(k);
+  const db = await _kvDb(); if (!db) return null;
+  return new Promise((res) => { try { const rq = db.transaction('kv', 'readonly').objectStore('kv').get(k); rq.onsuccess = () => { const v = rq.result == null ? null : rq.result; if (v != null) _kvMem.set(k, v); res(v); }; rq.onerror = () => res(null); } catch { res(null); } });
+}
+export async function kvSet(k, v) {
+  _kvMem.set(k, v);
+  const db = await _kvDb(); if (!db) return false;
+  return new Promise((res) => { try { const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').put(v, k); tx.oncomplete = () => res(true); tx.onerror = () => res(false); tx.onabort = () => res(false); } catch { res(false); } });
+}
+// localStorage に書く(容量超過なら同期ログを捨てて1回だけやり直す)。成否を返す
+export function lsSetSmall(k, v) {
+  try { localStorage.setItem(k, v); return true; } catch {}
+  try { localStorage.removeItem('tsumugiSyncLog'); localStorage.setItem(k, v); return true; } catch { return false; }
+}
+// ★ 2026-10-17: 端末ID(この端末だけの印・一度作ったら変えない)。端末名を変えても同じ端末として扱うため
+//   2026-10-18: localStorage → IndexedDB(kv) → 新規作成 の順。新規作成した値は両方へ書く
+let _devIdMem = null;
+export function getDeviceId() {
+  let id = null;
+  try { id = localStorage.getItem('tsumugiDeviceId') || null; } catch {} // 第1: localStorage
+  if (!id) id = _devIdMem || (_kvMem.has('tsumugiDeviceId') ? _kvMem.get('tsumugiDeviceId') : null); // 第2: メモリ(=IndexedDB から読んだ値)
+  if (!id) { id = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`; }
+  if (id !== _devIdMem) { _devIdMem = id; lsSetSmall('tsumugiDeviceId', id); kvSet('tsumugiDeviceId', id); }
+  return id;
+}
+// 起動時に1回: IndexedDB の控え(端末ID・端末名)を読み、localStorage に無ければ戻す。App は初回の名前付けの前にこれを待つ
+export const deviceIdentityReady = (async () => {
+  try {
+    const [id, name] = await Promise.all([kvGet('tsumugiDeviceId'), kvGet('tsumugiDeviceName')]);
+    let lsId = null, lsName = null;
+    try { lsId = localStorage.getItem('tsumugiDeviceId') || null; lsName = localStorage.getItem('tsumugiDeviceName') || null; } catch {}
+    if (!lsId && id) { _devIdMem = String(id); lsSetSmall('tsumugiDeviceId', _devIdMem); }
+    if (lsId && !id) kvSet('tsumugiDeviceId', lsId);
+    if (lsName && !name) kvSet('tsumugiDeviceName', lsName);
+    return { name: lsName || (name ? String(name) : '') };
+  } catch { return { name: '' }; }
+})();
 const DIAG_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 // (name, ver) で呼ぶ。鍵は端末ID。古い版が書いた「端末名|版」の鍵は同じ端末名なら消す(同じ端末が2行に見えないように)
 export async function supabaseUploadSyncDiag(storeId, name, ver) {

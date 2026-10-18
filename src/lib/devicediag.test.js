@@ -80,3 +80,20 @@ describe('端末の控えと端末名の自動付与', () => {
     f.mockRestore();
   });
 });
+describe('localStorage が満杯でも端末ID・端末名を失わない(2026-10-18)', () => {
+  it('setItem が容量超過で失敗しても、同じ端末IDを返し続け、kv(第2の保存先)に残る', async () => {
+    const full = { _m: {}, getItem(k) { return this._m[k] ?? null; }, setItem() { throw new Error('QuotaExceededError'); }, removeItem(k) { delete this._m[k]; } };
+    const prev = globalThis.localStorage; globalThis.localStorage = full;
+    try {
+      const fresh = await import('./supabase.js?full=' + Date.now()).catch(() => null);
+      const m = fresh || mod;
+      const id1 = m.getDeviceId(); const id2 = m.getDeviceId();
+      expect(id1).toBe(id2);
+      expect(await m.kvGet('tsumugiDeviceId')).toBe(id1);
+      expect(await m.kvSet('tsumugiDeviceName', '南水元1')).toBeDefined();
+      expect(await m.kvGet('tsumugiDeviceName')).toBe('南水元1');
+      expect(m.lsSetSmall('tsumugiDeviceName', 'x')).toBe(false); // localStorage には入らない(= 従来はここで失われていた)
+      const r = await m.deviceIdentityReady; expect(r).toBeTruthy();
+    } finally { globalThis.localStorage = prev; }
+  });
+});

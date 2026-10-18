@@ -44,6 +44,7 @@ import {
   clearSyncLog,
   supabaseUploadSyncDiag,
   supabaseListSyncDiag, supabaseClaimDeviceName, // ★ 2026-10-17 データ保護(段階2): 管理局の端末一覧・端末名の自動付与
+  deviceIdentityReady, kvSet, lsSetSmall, // ★ 2026-10-18: 端末ID・端末名の第2の保存先(IndexedDB)
   cloudUndoPush, cloudUndoList, cloudUndoDelete,
   supabaseLoadDiseaseMaster,
   supabaseSaveDiseaseMaster,
@@ -19961,7 +19962,10 @@ export default function App() {
   // ★ この端末の名前(端末ごと・localStorage)。 「最終更新した端末」を表示するために使う。
   //   機種名はブラウザから取得できないため、利用者が手動で付ける(例: 受付iPad / 事務所PC)。
   const [deviceName, setDeviceName] = useState(() => { try { return localStorage.getItem('tsumugiDeviceName') || ''; } catch { return ''; } });
-  const updateDeviceName = React.useCallback((v) => { setDeviceName(v); try { localStorage.setItem('tsumugiDeviceName', v); } catch {} }, []);
+  const updateDeviceName = React.useCallback((v) => { setDeviceName(v); try { lsSetSmall('tsumugiDeviceName', v); } catch {} try { kvSet('tsumugiDeviceName', v); } catch {} }, []); // ★ 2026-10-18: localStorage が満杯でも IndexedDB に残す
+  // ★ 2026-10-18(ユーザー報告「スマホで決めた端末名が起動のたびに聞かれる」): 起動時に IndexedDB の控えを読み、localStorage に無ければ戻す。読み終わるまで初回の名前付けはしない
+  const [devIdentityReady, setDevIdentityReady] = useState(false);
+  useEffect(() => { let on = true; deviceIdentityReady.then((r) => { if (!on) return; if (r && r.name) setDeviceName((cur) => cur || r.name); setDevIdentityReady(true); }).catch(() => { if (on) setDevIdentityReady(true); }); return () => { on = false; }; }, []);
   const [staffSession, setStaffSession] = useState(() => {
     try {
       const saved = sessionStorage.getItem('tsumugiStaffSession');
@@ -19977,12 +19981,12 @@ export default function App() {
   const [deviceNamePrompt, setDeviceNamePrompt] = useState(null);
   const _claimedRef = React.useRef(null);
   useEffect(() => {
-    if (!isSupabaseEnabled || !staffSession?.storeId || staffSession.role === 'super_admin' || deviceName) return;
+    if (!isSupabaseEnabled || !staffSession?.storeId || staffSession.role === 'super_admin' || deviceName || !devIdentityReady) return; // ★ 2026-10-18: 控えの読み出しを待つ
     if (_claimedRef.current === staffSession.storeId) return; _claimedRef.current = staffSession.storeId;
     let stop = false;
     (async () => { try { const nm = await supabaseClaimDeviceName(staffSession.storeId, staffSession.storeShortName || staffSession.storeName || '端末'); if (!stop && nm) { updateDeviceName(nm); setDeviceNamePrompt({ suggested: nm }); } } catch {} })(); // ★ 候補を付けたうえで初回だけ確認画面(そのまま／変更)
     return () => { stop = true; };
-  }, [staffSession?.storeId, deviceName]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [staffSession?.storeId, deviceName, devIdentityReady]); // eslint-disable-line react-hooks/exhaustive-deps
   // ★ 現在の記録者 (店舗ログイン後に選ぶ)
   const [activeRecorder, setActiveRecorder] = useState(() => {
     try {
