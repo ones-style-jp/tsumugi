@@ -2237,6 +2237,22 @@ export async function supabaseListStaff(storeId = null) {
 // =========================================================
 export const PF_BUCKET = 'personal-files';
 
+// ★ 2026-10-19 データ保護(段階3c): 写真・書類の署名 URL とアップロード用署名をサーバー(/api/files)で発行してもらう。
+//   職員は店舗IDとログインの証を App から受け取る(setFilesContext)。ポータルはポータルの証(_portalToken)。
+//   バケットを非公開にしたあとも、直接の署名(authenticated)→ サーバー → 公開 URL の順で必ずどれかが通る
+let _filesCtx = { storeId: null, staffToken: null };
+export function setFilesContext(ctx) { _filesCtx = { storeId: (ctx && ctx.storeId) || null, staffToken: (ctx && ctx.staffToken) || null }; }
+async function filesApi(action, path) {
+  const storeId = _filesCtx.storeId || (() => { try { return sessionStorage.getItem('familyAuthStoreId') || null; } catch { return null; } })();
+  if (!storeId || !path) return null;
+  const body = { action, store_id: String(storeId), path: String(path) };
+  if (_filesCtx.staffToken) body.token = _filesCtx.staffToken; else if (_portalToken) body.ptoken = _portalToken; else return null;
+  const r = await fetch('/api/files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const text = await r.text().catch(() => ''); let j = null; try { j = text ? JSON.parse(text) : null; } catch { j = null; }
+  if (r.status === 404 || (j == null && /<html/i.test(text))) { const e = new Error('no server'); e.noServer = true; throw e; }
+  if (!r.ok) { const e = new Error((j && j.error) || `files ${r.status}`); e.status = r.status; throw e; }
+  return j;
+}
 // Blob/File をアップロードして { path, url } を返す (失敗時 null)
 export async function supabaseUploadFile(blob, opts = {}) {
   if (!supabase || !blob) return null;
@@ -2254,7 +2270,18 @@ export async function supabaseUploadFile(blob, opts = {}) {
     const { error } = await supabase.storage.from(PF_BUCKET).upload(path, blob, {
       contentType, upsert: false, cacheControl: '3600',
     });
-    if (error) { console.warn('[storage] upload error', error?.message || error); return null; }
+    if (error) {
+      // ★ 2026-10-19: 直接のアップロードが拒否された(非公開バケット・ポータル等) → サーバーの署名付きアップロード
+      try {
+        const su = await filesApi('sign_upload', path);
+        if (su && su.token) {
+          const { error: e2 } = await supabase.storage.from(PF_BUCKET).uploadToSignedUrl(path, su.token, blob, { contentType, upsert: false });
+          if (!e2) return { path, url: '' };
+          console.warn('[storage] signed upload error', e2?.message || e2);
+        }
+      } catch (e3) { if (!(e3 && e3.noServer)) console.warn('[storage] sign_upload failed', e3?.message || e3); }
+      console.warn('[storage] upload error', error?.message || error); return null;
+    }
     const { data } = supabase.storage.from(PF_BUCKET).getPublicUrl(path);
     return { path, url: data?.publicUrl || '' };
   } catch (e) {
@@ -2275,9 +2302,14 @@ export function supabaseGetPublicUrl(path) {
 // 非公開バケット用: storagePath から署名付きURL (時間制限) を発行
 export async function supabaseGetSignedUrl(path, expiresIn = 900) {
   if (!supabase || !path) return null;
+  // ★ 2026-10-19: ポータル(ポータルの証だけ)はサーバーで署名。職員は直接(証つき)→ だめならサーバー
+  if (!_filesCtx.staffToken && _portalToken) { try { const j = await filesApi('sign', path); if (j && j.url) return j.url; } catch (e) { if (!(e && e.noServer)) return null; } }
   try {
     const { data, error } = await supabase.storage.from(PF_BUCKET).createSignedUrl(path, expiresIn);
-    if (error) { console.warn('[storage] signedUrl error', error?.message || error); return null; }
+    if (error) {
+      try { const j = await filesApi('sign', path); if (j && j.url) return j.url; } catch {}
+      console.warn('[storage] signedUrl error', error?.message || error); return null;
+    }
     return data?.signedUrl || null;
   } catch (e) {
     console.warn('[storage] signedUrl exception', e?.message || e);

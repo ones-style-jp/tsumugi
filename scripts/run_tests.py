@@ -124,6 +124,19 @@ try:
         _rej, _det = False, 'HTTP 200(通ってしまう)'
     except urllib.error.HTTPError as _e:
         _rej, _det = _e.code in (400, 401, 403), f'HTTP {_e.code}'
+    # 3c: 公開 URL で写真が取れるか。rls_status.json の 3c_probe_path(テスト店舗の架空ファイルのパス)を公開 URL で取り、200 なら公開のまま
+    _probe = str(_st.get('3c_probe_path') or '')
+    if _probe:
+        try:
+            _req = urllib.request.Request(f'{_base}/storage/v1/object/public/personal-files/{_probe}', headers={'apikey': _pub})
+            with urllib.request.urlopen(_req, timeout=15) as _r: _r.read(); _pubcode = 200
+        except urllib.error.HTTPError as _e: _pubcode = _e.code
+        if _st.get('3c_storage_private'):
+            check('T-SEC-09', '段階3c personal-files が非公開(公開URLで取れない)', _pubcode != 200, f'HTTP {_pubcode}')
+        else:
+            check('T-SEC-09', '段階3c personal-files 非公開化: 未適用(情報)', True, f'公開URL HTTP {_pubcode}' + ('(誰でも取れる)' if _pubcode == 200 else ''))
+    else:
+        check('T-SEC-09', '段階3c 非公開化の確認: 確認用パス未設定(情報)', True, 'rls_status.json に 3c_probe_path を入れると確認できる')
     if _st.get('3_functions_guarded'):
         check('T-SEC-06', '関数(RPC)が証なしを拒否', _rej, _det)
     else:
