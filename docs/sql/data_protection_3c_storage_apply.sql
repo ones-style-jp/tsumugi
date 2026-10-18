@@ -1,5 +1,7 @@
 -- つむぎ データ保護 段階3c: 写真・書類のバケット(personal-files)を非公開にする (下書き 2026-10-19・実行はまだ)
---   いまは公開バケットで、URL(ランダムな名前)を知っていれば誰でも取れる。非公開にすると
+--   (2026-10-19 実測: バケット自体はすでに非公開(public=false)だが、公開キー(anon)に SELECT/INSERT のポリシーがあるため
+--    「公開キー＋パス」で誰でも取れる・置ける状態。この SQL は anon のポリシーを外し、証(authenticated)だけにする)
+--   いまは公開キーで取れる。証だけにすると
 --   職員の端末は Supabase の証(authenticated)で署名 URL を作り、ご家族・ケアマネのポータルはサーバー(/api/files)が
 --   本人確認をして署名 URL を渡す(アップロードも同様)。
 --
@@ -28,6 +30,6 @@ create policy pf_auth_update on storage.objects for update to authenticated usin
 create policy pf_auth_delete on storage.objects for delete to authenticated using (bucket_id = 'personal-files');
 
 -- 4) 確認
---   公開 URL が 400/403 になる: curl -s -o /dev/null -w "%{http_code}" "https://<プロジェクト>.supabase.co/storage/v1/object/public/personal-files/<既存のパス>"
+--   公開キーで取れない(400/403): curl -s -o /dev/null -w "%{http_code}" -H "apikey: <公開キー>" -H "Authorization: Bearer <公開キー>" "https://<プロジェクト>.supabase.co/storage/v1/object/authenticated/personal-files/<既存のパス>"
 --   店舗の端末: 個人ファイルの写真・PDF が開く(署名 URL)。ご家族: フェイスシートの添付・連絡帳の写真が開く(/api/files 経由)。
 -- ★ 実行したら docs/sql/rls_status.json の "3c_storage_private" を true にして commit。

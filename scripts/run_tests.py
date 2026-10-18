@@ -128,13 +128,14 @@ try:
     _probe = str(_st.get('3c_probe_path') or '')
     if _probe:
         try:
-            _req = urllib.request.Request(f'{_base}/storage/v1/object/public/personal-files/{_probe}', headers={'apikey': _pub})
+            # バケットは非公開(public 経路は常に 400)。穴は「公開キー＋パス」で authenticated 経路から取れること → それを見る
+            _req = urllib.request.Request(f'{_base}/storage/v1/object/authenticated/personal-files/{_probe}', headers={'apikey': _pub, 'Authorization': 'Bearer ' + _pub})
             with urllib.request.urlopen(_req, timeout=15) as _r: _r.read(); _pubcode = 200
         except urllib.error.HTTPError as _e: _pubcode = _e.code
         if _st.get('3c_storage_private'):
-            check('T-SEC-09', '段階3c personal-files が非公開(公開URLで取れない)', _pubcode != 200, f'HTTP {_pubcode}')
+            check('T-SEC-09', '段階3c personal-files が公開キーで取れない', _pubcode != 200, f'HTTP {_pubcode}')
         else:
-            check('T-SEC-09', '段階3c personal-files 非公開化: 未適用(情報)', True, f'公開URL HTTP {_pubcode}' + ('(誰でも取れる)' if _pubcode == 200 else ''))
+            check('T-SEC-09', '段階3c personal-files 公開キー遮断: 未適用(情報)', True, f'公開キーで HTTP {_pubcode}' + ('(キーとパスを知っていれば取れる)' if _pubcode == 200 else ''))
     else:
         check('T-SEC-09', '段階3c 非公開化の確認: 確認用パス未設定(情報)', True, 'rls_status.json に 3c_probe_path を入れると確認できる')
     if _st.get('3_functions_guarded'):
