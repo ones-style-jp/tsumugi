@@ -261,7 +261,23 @@ export default async function handler(req, res) {
         return res.status(410).json({ error: '招待コードの有効期限が切れています', reason: 'expired', facility_phone: inv.facility_phone || '' });
       }
       await finishAttempt(ipKey, b.stamp, true);
-      if (action === 'lookup') return res.status(200).json({ invite: pickInvite(inv) });
+      if (action === 'lookup') {
+        // ★ 2026-10-18 データ保護(段階3.5): 登録画面(ログイン前)が店舗データ本体を直接読まなくて済むよう、必要な分だけ同梱する
+        //   (事業所一覧・担当者・施設情報 と 招待の利用者1名)。招待コードの照合に通った回だけ返す(回数制限は上で済み)
+        let context = null;
+        try {
+          if (inv.store_id) {
+            const rows = await sb(`app_state?select=data&key=eq.${enc(inv.store_id)}`);
+            const d = Array.isArray(rows) && rows[0] ? rows[0].data : null;
+            if (d) {
+              const ss = d.systemSettings || {};
+              const patient = (d.patients || []).find(p => p && String(p.id) === String(inv.patient_id)) || null;
+              context = { store_id: inv.store_id, systemSettings: { cmOffices: ss.cmOffices || [], careManagers: (ss.careManagers || []).map(c => { const { email, _emailTs, ...r } = c || {}; return r; }), facilityInfo: ss.facilityInfo || null }, patient };
+            }
+          }
+        } catch {}
+        return res.status(200).json({ invite: pickInvite(inv), context });
+      }
 
       // signup: ID重複(削除済みは除く) → アカウント作成 → 招待を使用済みに(未使用のときだけ・同時登録の取り合い対策)
       const dup = await sb(`family_accounts?select=id&username=eq.${enc(username)}&deleted_at=is.null&limit=1`);

@@ -9,6 +9,7 @@
 // 環境変数: SUPABASE_URL(または VITE_SUPABASE_URL) / SUPABASE_SERVICE_ROLE_KEY
 //
 // POST /api/staff-auth  { action, ... }
+//   sb_status            {}                                                 → { configured, ok, reason }  ログイン不要(証の発行状態の確認)
 //   login                { username, password_hash }                          → { staff, token }
 //   list                 { token, store_id? }                                 → { staff:[...] }   本部=全店 / 店舗管理者=自店
 //   create               { token, store_id, username, password_hash, role, last_name, first_name, email, phone } → { staff }
@@ -21,6 +22,31 @@ import crypto from 'crypto';
 
 const SUPA_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+// ★ 2026-10-17 データ保護(段階1): Supabase 形式の「証」(JWT)に署名する秘密(Supabase の Project Settings → API → JWT Secret)。
+//   未設定なら証は発行せず、アプリは従来どおり公開キーで動く(段階3で RLS をかけるまでは動きは同じ)
+const JWT_SECRET = process.env.SUPABASE_JWT_SECRET || '';
+const SB_TOKEN_TTL_SEC = 24 * 60 * 60;
+// 職員の情報から Supabase の証(HS256 JWT)を作る。claims: role=authenticated(RLS で auth.jwt() が読める)・store_id・staff_role・staff_id
+function mintSbToken(staff) {
+  if (!JWT_SECRET) return null;
+  const now = Math.floor(Date.now() / 1000);
+  const header = b64u(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const payload = b64u(JSON.stringify({ aud: 'authenticated', role: 'authenticated', iss: 'tsumugi', sub: `staff:${staff.id}`, iat: now, exp: now + SB_TOKEN_TTL_SEC,
+    store_id: staff.store_id ? String(staff.store_id) : null, staff_role: String(staff.role || ''), staff_id: String(staff.id) }));
+  const sig = crypto.createHmac('sha256', JWT_SECRET).update(header + '.' + payload).digest('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return `${header}.${payload}.${sig}`;
+}
+// 発行した証を Supabase が受け付けるか確かめる(秘密の貼り間違いで全端末が読めなくなるのを防ぐ)。受け付けないときは証を渡さない(従来どおり公開キーで動く)
+let _mintCheck = { at: 0, ok: null };
+async function mintSbTokenChecked(staff) {
+  const tok = mintSbToken(staff); if (!tok) return { tok: null, ok: false, reason: 'no_secret' };
+  if (_mintCheck.ok === true && Date.now() - _mintCheck.at < 10 * 60 * 1000) return { tok, ok: true };
+  try {
+    const r = await fetch(`${SUPA_URL}/rest/v1/stores?select=id&limit=1`, { headers: { apikey: SERVICE_KEY, Authorization: 'Bearer ' + tok } });
+    if (r.status === 401) { _mintCheck = { at: Date.now(), ok: false }; return { tok: null, ok: false, reason: 'bad_secret' }; }
+    _mintCheck = { at: Date.now(), ok: true }; return { tok, ok: true };
+  } catch { return { tok: null, ok: false, reason: 'check_failed' }; }
+}
 const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const SAFE_COLS = 'id,store_id,username,role,last_name,first_name,display_name,email,phone,is_active,last_login,created_at,deleted_at';
 
@@ -69,6 +95,12 @@ export default async function handler(req, res) {
   const action = String(body.action || '');
 
   try {
+    // ★ 2026-10-17 データ保護(段階1): 証の発行状態の確認(ログイン不要・本部が Vercel に秘密を入れた後の確認用)。
+    //   返すのは「秘密が設定されているか」「その秘密で作った証を Supabase が受け付けるか」だけ。証そのものや秘密は返さない
+    if (action === 'sb_status') {
+      const mc = await mintSbTokenChecked({ id: 'probe', role: '', store_id: null });
+      return res.status(200).json({ configured: !!JWT_SECRET, ok: !!mc.ok, reason: mc.ok ? undefined : mc.reason });
+    }
     if (action === 'login') {
       const username = String(body.username || '').trim();
       const hash = String(body.password_hash || '').trim();
@@ -77,13 +109,20 @@ export default async function handler(req, res) {
       const staff = Array.isArray(rows) ? rows[0] : null;
       if (!staff) return res.status(401).json({ error: 'IDまたはパスワードが違います' });
       try { await sb(`staff?id=eq.${encodeURIComponent(staff.id)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ last_login: new Date().toISOString() }) }); } catch {}
-      return res.status(200).json({ staff: strip(staff), token: makeToken(staff) });
+      const mc = await mintSbTokenChecked(staff);
+      return res.status(200).json({ staff: strip(staff), token: makeToken(staff), sb_token: mc.tok, sb_exp: mc.tok ? Date.now() + SB_TOKEN_TTL_SEC * 1000 : null, sb_reason: mc.ok ? undefined : mc.reason });
     }
 
     // 以降は token 必須
     const t = readToken(body.token);
     if (!t) return res.status(401).json({ error: 'ログインの有効期限が切れています。もう一度ログインしてください。', expired: true });
     const isHq = t.role === 'super_admin';
+
+    // ★ 2026-10-17 データ保護(段階1): ログインの証(token)から Supabase の証を発行し直す(起動時・24時間ごと)。秘密が未設定なら null
+    if (action === 'sb_token') {
+      const mc = await mintSbTokenChecked({ id: t.sid, role: t.role, store_id: t.store_id });
+      return res.status(200).json({ sb_token: mc.tok, sb_exp: mc.tok ? Date.now() + SB_TOKEN_TTL_SEC * 1000 : null, configured: !!JWT_SECRET, reason: mc.ok ? undefined : mc.reason });
+    }
 
     if (action === 'list') {
       const storeId = String(body.store_id || '');
