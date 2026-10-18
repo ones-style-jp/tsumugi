@@ -2,6 +2,7 @@
 // 環境変数が設定されていない場合は null を返し、呼び出し側で localStorage フォールバック
 import { createClient } from '@supabase/supabase-js';
 import { sameStateIgnoringMeta, mergeTpTelDone } from './logic.js';
+import { portalMergePatientFromFamily, portalAppendDocUpdate, portalMergeFaceSheetFromCM, portalMergePatientDocsFromCM, portalMarkDocUpdatesRead } from './portalLogic.js'; // ★ 2026-10-18 データ保護: ポータルの書き込み計算(サーバー /api/portal と共通)
 
 const url = import.meta.env.VITE_SUPABASE_URL || '';
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -59,6 +60,49 @@ export function clearSyncLog() { try { localStorage.removeItem(_SYNCLOG_KEY); } 
 // ★ 同期診断のクラウド送信(2026-09-06 扇橋「保存が届かない」調査用): syncLog の末尾を
 //   app_state の別行(diag_<店舗ID>)へベストエフォートで送る。本体データとは完全に別行のため、
 //   失敗しても通常の保存・同期には一切影響しない。deviceTag は「端末名|アプリ版」。
+// =========================================================
+// ★ 2026-10-18 データ保護(段階3.5): ポータル(ご家族・ケアマネ)のサーバー経由化
+//   ログイン/登録でサーバーが「ポータルの証」(署名付き・30日)を発行。以後の読み書きは /api/portal に証を添えて行い、
+//   サーバーは「その利用者の分だけ」を返す。サーバーが無い環境(開発)では従来の直接アクセスに戻る(e.noServer)。
+// =========================================================
+const PORTAL_TOKEN_KEY = 'tsumugiPortalToken';
+let _portalToken = (() => { try { return sessionStorage.getItem(PORTAL_TOKEN_KEY) || localStorage.getItem(PORTAL_TOKEN_KEY) || null; } catch { return null; } })();
+export function setPortalToken(tok) {
+  _portalToken = tok || null;
+  try { if (tok) { sessionStorage.setItem(PORTAL_TOKEN_KEY, tok); try { localStorage.setItem(PORTAL_TOKEN_KEY, tok); } catch {} } else { sessionStorage.removeItem(PORTAL_TOKEN_KEY); try { localStorage.removeItem(PORTAL_TOKEN_KEY); } catch {} } } catch {}
+}
+export const hasPortalToken = () => !!_portalToken;
+export async function portalApi(body) {
+  const r = await fetch('/api/portal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...(body || {}), token: (body && body.token) || _portalToken || undefined }) });
+  const text = await r.text().catch(() => '');
+  let j = null; try { j = text ? JSON.parse(text) : null; } catch { j = null; }
+  if (r.status === 404 || (j == null && /<html/i.test(text))) { const e = new Error('ポータルのサーバーがありません'); e.noServer = true; throw e; }
+  if (!r.ok) { const e = new Error((j && j.error) || `ポータルの通信に失敗しました(${r.status})`); e.status = r.status; e.expired = !!(j && j.expired); if (e.expired) setPortalToken(null); throw e; }
+  return j || {};
+}
+// その利用者の分だけの店舗データ { data, updated_at } (証が無ければ null → 呼び出し側で従来処理)
+export async function portalLoadState(storeId) {
+  if (!_portalToken || !storeId) return null;
+  const j = await portalApi({ action: 'state', store_id: String(storeId) });
+  try { const d = j && j.data; observeRemoteClock(d && d.__clock ? d.__clock : 0); } catch {}
+  return j && j.data ? { data: j.data, updated_at: j.updated_at } : { data: null, updated_at: null };
+}
+// 15秒ごとにその利用者分の店舗データを取り直す(ブラウザ版 supabaseSubscribeState と同じ形)
+export function portalSubscribeState(onChange, intervalMs = 15000, storeId) {
+  if (!_portalToken || !storeId) return () => {};
+  let stopped = false, lastUpdate = '';
+  const tick = async () => { if (stopped) return; try { const row = await portalLoadState(storeId); if (row && row.data && row.updated_at !== lastUpdate) { lastUpdate = row.updated_at; onChange(row.data); } } catch {} };
+  tick(); const timer = setInterval(tick, intervalMs);
+  return () => { stopped = true; clearInterval(timer); };
+}
+// アカウントに店舗IDが無い旧データ: サーバーに店舗を探してもらう
+export async function portalResolveStore(expectName) {
+  if (!_portalToken) return null;
+  try { const j = await portalApi({ action: 'resolve_store', expect_name: expectName || '' }); return j || null; } catch { return null; }
+}
+export async function portalListStores() {
+  try { const j = await portalApi({ action: 'list_stores' }); return j.stores || []; } catch (e) { if (e && e.noServer) return supabaseListStores(); return []; }
+}
 // ★ 2026-10-18: 小さな値の控え(IndexedDB)。localStorage が容量いっぱい(iPhone Safari は約5MB・店舗データの控えで埋まる)でも
 //   端末ID・端末名を失わないための第2の保存先。indexedDB が無い環境(テスト等)はメモリだけ
 const _kvMem = new Map();
@@ -332,6 +376,8 @@ export async function supabaseSignupFamily({
   try {
     const j = await inviteApi({ action: 'signup', code: inviteCode, username, password_hash, email: email || '', relation: relation || '',
       display_name: displayName || '', kind: kind || 'family', role: role || 'member', facility_name: facilityName || '', patient_name: patientName || '' });
+    // ★ 2026-10-18: 登録直後にポータルの証を取る(以後の読み書きに使う)
+    try { const l = await portalApi({ action: 'token_for_account', username, password_hash, token: null }); if (l && l.token) setPortalToken(l.token); } catch {}
     return { account: j.account, invite: j.invite };
   } catch (e) {
     if (!(e && e.noServer)) throw e;
@@ -396,6 +442,7 @@ export async function supabaseFamilyUsernameExists(username, excludeId) {
   if (!supabase) return null;
   const u = String(username || '').trim();
   if (!u) return false;
+  try { const j = await portalApi({ action: 'username_exists', username: u, exclude_id: excludeId || '', token: null }); return !!j.exists; } catch (e) { if (!(e && e.noServer)) return null; } // ★ 2026-10-18: サーバーで確認
   try {
     let q = supabase.from('family_accounts').select('id').eq('username', u).is('deleted_at', null).limit(2);
     const { data, error } = await q;
@@ -408,6 +455,12 @@ export async function supabaseFamilyUsernameExists(username, excludeId) {
 export async function supabaseLoginFamily({ username, password }) {
   if (!supabase) throw new Error('Supabase 未接続');
   const password_hash = await hashPassword(password);
+  // ★ 2026-10-18 データ保護(段階3.5): サーバーでログインし「ポータルの証」を受け取る。サーバーが無い環境だけ従来処理
+  try {
+    const j = await portalApi({ action: 'login', username: String(username || '').trim(), password_hash, token: null });
+    if (j && j.token) setPortalToken(j.token);
+    return { ...(j.account || {}), linkedAccounts: Array.isArray(j.linkedAccounts) && j.linkedAccounts.length ? j.linkedAccounts : [j.account] };
+  } catch (e) { if (!(e && e.noServer)) throw e; }
   const { data, error } = await supabase
     .from('family_accounts')
     .select('*')
@@ -454,7 +507,7 @@ export async function supabaseLookupInvite(code) {
   if (!supabase) return { error: '招待コードが見つかりません', reason: 'not_found' };
   try {
     const j = await inviteApi({ action: 'lookup', code });
-    return { invite: j.invite || null };
+    return { invite: j.invite || null, context: j.context || null }; // ★ 2026-10-18: context = 登録画面に必要な店舗の設定と該当利用者(サーバーが同梱)
   } catch (e) {
     if (!(e && e.noServer)) return { error: e?.message || '招待コードを確認できませんでした', reason: e?.reason || (e?.status ? 'error' : 'network'), lockMin: e?.lockMin || 0, facilityPhone: e?.facilityPhone || '' };
   }
@@ -578,6 +631,10 @@ export async function supabaseSetFamilyAccountDeleted(accountId, deleted) {
 //   担当利用者(退所済み除外)に対して、同メール+同パスワードハッシュのアカウントを揃える。
 export async function supabaseSelfProvisionCm(acc, password) {
   if (!supabase || !acc || !acc.store_id || !acc.email || !password) return { added: 0 };
+  if (_portalToken) { // ★ 2026-10-18: サーバーで揃える(揃えたあとの証も受け取る)
+    try { const j = await portalApi({ action: 'self_provision_cm', password_hash: await hashPassword(password) }); if (j && j.token) setPortalToken(j.token); return { added: Number(j.added) || 0, linkedAccounts: j.linkedAccounts }; }
+    catch (e) { if (!(e && e.noServer)) return { added: 0 }; }
+  }
   try {
     const { data: st, error } = await supabase.from('app_state')
       .select('pats:data->patients, cms:data->systemSettings->careManagers')
@@ -1741,126 +1798,11 @@ export async function supabaseDeleteSystemNotice(id) {
 //   最新の app_state を取得 → 対象 patient を merge → 戻す
 export async function supabaseMergePatientFromFamily(storeId, patientId, patientPatch, extra) {
   if (!supabase || !storeId || !patientId) return false;
+  if (_portalToken) { try { const j = await portalApi({ action: 'merge_patient', store_id: String(storeId), patient_id: String(patientId), patch: patientPatch || {}, extra: extra || null }); return !!j.ok; } catch (e) { if (!(e && e.noServer)) { console.warn('[portal] merge_patient failed', e); return false; } } } // ★ 2026-10-18
   try {
     // ★ CAS: 連絡先/relatedParties/docUpdates の統合は dedup・id和集合で「冪等」。 patientPatch/extra は
     //   呼び出し側で固定生成済み(再試行しても不変)なので、応答ロス→再試行で二重追加は起きない。
-    const res = await supabaseCasUpdate(storeId, (cloud) => {
-    const currentData = cloud;
-    if (!currentData) return null; // 店舗行が無い → 何もしない
-    const patients = (currentData.patients || []).map(p => {
-      if (String(p.id) !== String(patientId)) return p;
-      // emergencyContacts は配列マージ (重複防止)。 ★ 墓石(_deletedEC: 事業所側で削除した連絡先)は復活させない
-      const _ecKey = c => `${(c.name||'').trim()}|${(c.relation||'').trim()}|${(c.phone||'').trim()}|${(c.phoneMobile||'').trim()}`;
-      // ★ ケアマネ由来の連絡先は緊急連絡先(家族)には一切残さない(事業所名/事業所電話/FAXを持つ or 続柄がケアマネ系)。
-      //   これで「ケアマネが緊急連絡先に混入 → 削除しても復活」を根絶する。
-      const _isCmC = c => !!(c && (c.cmOffice || c.officePhone || c.officeFax || /ケアマネ|介護支援|居宅/.test(String(c.relation||''))));
-      const _ecTomb = new Set(p._deletedEC || []);
-      let mergedContacts = (p.emergencyContacts || []).filter(c => !_ecTomb.has(_ecKey(c)) && !_isCmC(c));
-      if (patientPatch.emergencyContacts) {
-        const incoming = patientPatch.emergencyContacts || [];
-        incoming.forEach(c => {
-          if (_ecTomb.has(_ecKey(c))) return; // 削除済み(墓石)は追加しない
-          if (_isCmC(c)) return;              // ケアマネは緊急連絡先に追加しない
-          const dup = mergedContacts.some(ex =>
-            (ex.name||'').trim() === (c.name||'').trim() &&
-            (ex.relation||'').trim() === (c.relation||'').trim()
-          );
-          if (!dup) mergedContacts = [...mergedContacts, c];
-        });
-      }
-      // relatedParties (その他関係者) も配列マージ (同名+同事業所は重複防止)
-      let mergedRelated = p.relatedParties || [];
-      if (patientPatch.relatedParties) {
-        (patientPatch.relatedParties || []).forEach(c => {
-          const dup = mergedRelated.some(ex =>
-            (ex.name||'').trim() === (c.name||'').trim() &&
-            (ex.office||'').trim() === (c.office||'').trim()
-          );
-          if (!dup) mergedRelated = [...mergedRelated, c];
-        });
-      }
-      // ★ 代表家族(familyName 等)の扱い:
-      //   - クラウドに代表が居らず or 「同一人物(familyName 一致)の更新」 → そのまま反映 (代表が自分の情報を編集できる)
-      //   - クラウドに代表が居て「別人」が代表を上書きしようとした場合のみ → 上書きせず emergencyContacts へ追加
-      //   (2人目の家族登録で代表が最新の人に化ける不具合の対策。 かつ代表本人の編集はブロックしない)
-      const FAMILY_PRIMARY = ['familyName','familyLastName','familyFirstName','familyKana','familyKanaLast','familyKanaFirst','familyRelation','familyPhone','familyPhoneMobile','familyEmail'];
-      const cloudName = String(p.familyName||'').trim();
-      const cloudHasPrimary = !!cloudName;
-      const incName = String(patientPatch.familyName||'').trim();
-      // 代表フィールドを含むパッチか
-      const patchHasPrimary = FAMILY_PRIMARY.some(k => patientPatch[k] !== undefined && patientPatch[k] !== null && patientPatch[k] !== '');
-      // 別人による代表の上書きか (代表が居て、 名前が入っていて、 既存代表と違う)
-      const isDifferentPerson = cloudHasPrimary && patchHasPrimary && incName && incName !== cloudName;
-      let mergedContacts2 = mergedContacts;
-      if (isDifferentPerson) {
-        const incRel = String(patientPatch.familyRelation||'').trim();
-        const dup2 = mergedContacts2.some(c => (c.name||'').trim() === incName && (c.relation||'').trim() === incRel);
-        if (incName && !dup2) {
-          mergedContacts2 = [...mergedContacts2, { name: incName, relation: incRel, phone: patientPatch.familyPhone||'', phoneMobile: patientPatch.familyPhoneMobile||'', email: patientPatch.familyEmail||'' }];
-        }
-      }
-      // ★ docUpdates(更新通知ログ)は id で和集合マージ → 家族/CMの操作を事業所へ確実に届ける(上書きで消さない)
-      let mergedDocUpdates = Array.isArray(p.docUpdates) ? p.docUpdates : [];
-      if (Array.isArray(patientPatch.docUpdates)) {
-        const _seenDu = new Set(mergedDocUpdates.map(u => u && u.id));
-        patientPatch.docUpdates.forEach(u => { if (u && u.id && !_seenDu.has(u.id)) { mergedDocUpdates = [...mergedDocUpdates, u]; _seenDu.add(u.id); } });
-        mergedDocUpdates = mergedDocUpdates.slice(-50);
-      }
-      // ★ フェイスシートの部分更新(2026-08-11): personalFile を丸ごと送ると事業所側の書類・会議記録等を
-      //   家族端末の古いコピーで巻き戻すため、専用キー faceSheetPatch で指定サブ項目だけを重ねる。
-      //   pf:faceSheet の _fieldTs を刻印し、端末間マージで巻き戻らないようにする。
-      let mergedPersonalFile = p.personalFile;
-      let _pfTs = null;
-      if (patientPatch.faceSheetPatch && typeof patientPatch.faceSheetPatch === 'object') {
-        const fsp = {};
-        Object.keys(patientPatch.faceSheetPatch).forEach(k => { const v = patientPatch.faceSheetPatch[k]; if (v !== undefined && v !== null && v !== '') fsp[k] = v; });
-        if (Object.keys(fsp).length) {
-          mergedPersonalFile = { ...(p.personalFile || {}), faceSheet: { ...((p.personalFile || {}).faceSheet || {}), ...fsp } };
-          _pfTs = { ...(p._fieldTs || {}), 'pf:faceSheet': Date.now() };
-        }
-      }
-      const filteredPatch = {};
-      Object.keys(patientPatch).forEach(k => {
-        if (k === 'emergencyContacts' || k === 'relatedParties' || k === 'docUpdates' || k === 'faceSheetPatch') return;
-        const v = patientPatch[k];
-        if (v === undefined || v === null || v === '') return;
-        // 別人が代表フィールドを上書きしようとした場合のみスキップ (本人/初回はそのまま反映)
-        if (FAMILY_PRIMARY.includes(k) && isDifferentPerson) return;
-        filteredPatch[k] = v;
-      });
-      // ★ 担当ケアマネ系(cm*)の更新は項目時刻を刻む(2026-09-03): 刻印なしだと項目別マージ側で
-      //   スタッフ端末の古い刻印に負け、ケアマネ本人の更新が巻き戻るため。
-      let _cmTs = _pfTs;
-      { const _cmKeys = ['cmName','cmOffice','cmPhone','cmFax'].filter(k => filteredPatch[k] !== undefined);
-        if (_cmKeys.length) { _cmTs = { ...(p._fieldTs || {}), ...(_cmTs || {}) }; const _tnow = Date.now(); _cmKeys.forEach(k => { _cmTs[k] = _tnow; }); } }
-      return { ...p, ...filteredPatch, emergencyContacts: mergedContacts2, relatedParties: mergedRelated, docUpdates: mergedDocUpdates, personalFile: mergedPersonalFile, ...(_cmTs ? { _fieldTs: _cmTs } : {}) };
-    });
-    // ★ ケアマネ事業所/担当者マスタ (systemSettings) も、家族(関係者)登録で増えた分を統合 (重複は追加しない)
-    let nextSettings = currentData.systemSettings || {};
-    if (extra && (extra.cmOffices || extra.careManagers)) {
-      nextSettings = { ...nextSettings };
-      if (Array.isArray(extra.cmOffices)) {
-        const exist = nextSettings.cmOffices || [];
-        const names = new Set(exist.map(o => (o.name||'').trim()));
-        const add = extra.cmOffices.filter(o => o && o.name && !names.has((o.name||'').trim()));
-        if (add.length) nextSettings.cmOffices = [...exist, ...add];
-      }
-      if (Array.isArray(extra.careManagers)) {
-        const exist = nextSettings.careManagers || [];
-        // ★ 2026-09-30(試験版): 空白の違い(全角/半角)は同じ担当者とみなす。既存の担当者でメールが空なら、登録で入ったメールを補う(時刻付き)。
-        const _n = s => String(s || '').normalize('NFKC').replace(/[\s　]/g, '');
-        const key = c => `${_n(c.office)}|${_n(c.name)}`;
-        const keys = new Set(exist.map(key));
-        const add = extra.careManagers.filter(c => c && c.name && !keys.has(key(c)));
-        const fill = new Map(extra.careManagers.filter(c => c && c.name && String(c.email || '').trim()).map(c => [key(c), c]));
-        let filled = false;
-        const merged = exist.map(c => { const f = fill.get(key(c)); if (f && !String(c.email || '').trim()) { filled = true; return { ...c, email: String(f.email).trim(), _emailTs: Number(f._emailTs) || Date.now() }; } return c; });
-        if (add.length || filled) nextSettings.careManagers = [...merged, ...add];
-      }
-    }
-    const updatedData = { ...currentData, patients, systemSettings: nextSettings };
-    return updatedData;
-    }); // supabaseCasUpdate mutate 終わり
+    const res = await supabaseCasUpdate(storeId, (cloud) => portalMergePatientFromFamily(cloud, patientId, patientPatch, extra)); // ★ 2026-10-18: 計算は portalLogic.js(サーバーと共通)
     return !!(res && res.ok);
   } catch (e) {
     console.warn('[supabase] mergePatientFromFamily failed', e);
@@ -1873,6 +1815,7 @@ export async function supabaseMergePatientFromFamily(storeId, patientId, patient
 //    (既存ログ・他端末の追記は温存し、同じ id は二重登録しない=冪等)。
 export async function supabaseAppendDocUpdate(storeId, patientId, entry) {
   if (!supabase || !storeId || !patientId || !entry) return false;
+  if (_portalToken) { try { const j = await portalApi({ action: 'append_doc_update', store_id: String(storeId), patient_id: String(patientId), entry }); return !!j.ok; } catch (e) { if (!(e && e.noServer)) { console.warn('[portal] append_doc_update failed', e); return false; } } } // ★ 2026-10-18
   try {
     // ★ ID冪等: 追加要素の id/at は CAS を呼ぶ前に1回だけ固定生成(mutate内で毎回生成しない)。
     //   応答ロス→再試行で最新cloudに同idが既存なら追加しない(重複防止)。
@@ -1890,20 +1833,7 @@ export async function supabaseAppendDocUpdate(storeId, patientId, entry) {
       ...(entry.monRecId != null ? { monRecId: entry.monRecId } : {}),
       ...(entry.period ? { period: entry.period } : {}),
     };
-    const res = await supabaseCasUpdate(storeId, (cloud) => {
-      const currentData = cloud;
-      if (!currentData) return null;
-      let matched = false, already = false;
-      const patients = (currentData.patients || []).map(p => {
-        if (String(p.id) !== String(patientId)) return p;
-        matched = true;
-        const log = Array.isArray(p.docUpdates) ? p.docUpdates : [];
-        if (log.some(u => u && u.id === e.id)) { already = true; return p; } // 同id既存=冪等スキップ
-        return { ...p, docUpdates: [...log, e].slice(-50) };
-      });
-      if (!matched || already) return null; // 対象なし or 既反映 → 書き込まない(noop)
-      return { ...currentData, patients };
-    });
+    const res = await supabaseCasUpdate(storeId, (cloud) => portalAppendDocUpdate(cloud, patientId, e)); // ★ 2026-10-18: 計算は portalLogic.js(サーバーと共通)
     return !!(res && res.ok);
   } catch (err) {
     console.warn('[supabase] appendDocUpdate failed', err);
@@ -1915,36 +1845,13 @@ export async function supabaseAppendDocUpdate(storeId, patientId, entry) {
 //   変更ごとに版(faceSheetHistory)を追加する。 personalFile の他の部分(ファイル等)は温存。
 export async function supabaseMergeFaceSheetFromCM(storeId, patientId, faceSheet, meta = {}) {
   if (!supabase || !storeId || !patientId) return false;
+  if (_portalToken) { try { const j = await portalApi({ action: 'merge_facesheet', store_id: String(storeId), patient_id: String(patientId), face_sheet: faceSheet || {}, meta: meta || {} }); return !!j.ok; } catch (e) { if (!(e && e.noServer)) { console.warn('[portal] merge_facesheet failed', e); return false; } } } // ★ 2026-10-18
   try {
     // ★ ID冪等: now と docUpdate id(_duId) を CAS前に1回固定。 応答ロス→再試行で同idが既存なら、
     //   フェイスシート版(hist)も docUpdate も二重追加しない(version の二重加算も防止)。
     const _now = new Date().toISOString();
     const _duId = `du_${_now}_${Math.round(Math.random() * 1e6)}`;
-    const res = await supabaseCasUpdate(storeId, (cloud) => {
-      const currentData = cloud;
-      if (!currentData) return null;
-      let matched = false, already = false;
-      const patients = (currentData.patients || []).map(p => {
-        if (String(p.id) !== String(patientId)) return p;
-        matched = true;
-        const log = Array.isArray(p.docUpdates) ? p.docUpdates : [];
-        if (log.some(u => u && u.id === _duId)) { already = true; return p; } // 同id既存=冪等スキップ
-        const pf = p.personalFile || {};
-        const newFs = { ...(pf.faceSheet || {}), ...(faceSheet || {}), updatedAt: _now, updatedBy: meta.updatedBy || 'ケアマネ' };
-        const prevHist = Array.isArray(pf.faceSheetHistory) ? pf.faceSheetHistory : [];
-        const version = ((prevHist[prevHist.length - 1] || {}).version || 0) + 1;
-        const { genogramFiles, floorPlanFiles, pickupRouteFiles, ...textOnly } = newFs;
-        const snapshot = { ...textOnly, _attachCounts: { genogram: (genogramFiles || []).length, floorPlan: (floorPlanFiles || []).length, pickupRoute: (pickupRouteFiles || []).length } };
-        const hist = [...prevHist, { version, updatedAt: _now, updatedBy: newFs.updatedBy, source: meta.source || 'caremanager', snapshot }].slice(-20);
-        // ★ 2026-10-04: 画面側で作った「どこをどう変えたか」(meta.items / meta.changes)を事業所へ届く docUpdates に載せる。by は family/caremanager
-        const _ch = Array.isArray(meta.changes) ? meta.changes.filter(c => c && c.label).map(c => ({ label: String(c.label), before: String(c.before ?? '').slice(0, 200), after: String(c.after ?? '').slice(0, 200) })).slice(0, 40) : [];
-        const docUpdates = [...log, { id: _duId, at: _now, by: (meta.source === 'family' ? 'family' : 'caremanager'), byName: newFs.updatedBy, items: (Array.isArray(meta.items) && meta.items.length ? meta.items : ['フェイスシート']), ...(_ch.length ? { changes: _ch } : {}), readOffice: false, readCm: true }].slice(-200);
-        // ★ F1: フェイスシートの既往歴(kiou)を患者トップにもミラー(計画書/CSV/帳票が参照する source of truth)
-        return { ...p, kiou: (newFs.kiou ?? p.kiou ?? ''), docUpdates, personalFile: { ...pf, faceSheet: newFs, faceSheetHistory: hist } };
-      });
-      if (!matched || already) return null;
-      return { ...currentData, patients };
-    });
+    const res = await supabaseCasUpdate(storeId, (cloud) => portalMergeFaceSheetFromCM(cloud, patientId, faceSheet, meta, _now, _duId)); // ★ 2026-10-18: 計算は portalLogic.js(サーバーと共通)
     return !!(res && res.ok);
   } catch (e) { console.warn('[supabase] mergeFaceSheetFromCM failed', e); return false; }
 }
@@ -1956,93 +1863,13 @@ export async function supabaseMergeFaceSheetFromCM(storeId, patientId, faceSheet
 //    meta: { byName }
 export async function supabaseMergePatientDocsFromCM(storeId, patientId, patch = {}, meta = {}) {
   if (!supabase || !storeId || !patientId) return false;
+  if (_portalToken) { try { const j = await portalApi({ action: 'merge_docs', store_id: String(storeId), patient_id: String(patientId), patch: patch || {}, meta: meta || {} }); return !!j.ok; } catch (e) { if (!(e && e.noServer)) { console.warn('[portal] merge_docs failed', e); return false; } } } // ★ 2026-10-18
   try {
     // ★ ID冪等: now と docUpdate id(_duId) を CAS前に1回固定。 応答ロス→再試行で同idが既存なら docUpdate を二重追加しない。
     const now = new Date().toISOString();
     const byName = meta.byName || 'ケアマネ';
     const _duId = `du_${now}_${Math.round(Math.random() * 1e6)}`;
-    const res = await supabaseCasUpdate(storeId, (cloud) => {
-    const currentData = cloud;
-    if (!currentData) return null;
-    let changed = [];
-    const patients = (currentData.patients || []).map(p => {
-      if (String(p.id) !== String(patientId)) return p;
-      const np = { ...p };
-      // ★ 事業所側で削除済み(墓石)の書類は、ケアマネ端末に残っていても再追加しない
-      const _tomb = (p && p._delDocs && typeof p._delDocs === 'object') ? p._delDocs : {};
-      const unionDocs = (key, incoming, label) => {
-        if (!Array.isArray(incoming) || !incoming.length) return;
-        const ex = Array.isArray(np[key]) ? np[key] : [];
-        const ids = new Set(ex.map(d => String(d && d.id)));
-        const add = incoming.filter(d => d && !ids.has(String(d.id)) && !_tomb[String(d.id)]);
-        if (add.length) { np[key] = [...ex, ...add]; changed.push(label); }
-      };
-      unionDocs('docInsurance', patch.docInsurance, '介護保険証');
-      unionDocs('docBurden', patch.docBurden, '負担割合証');
-      // 保険証・負担割合証の内容(介護度/認定有効期間/負担割合)を利用者マスタへ反映。 値変更は変更履歴にも記録。
-      const m = patch.master || {};
-      const nowDay = now.split('T')[0];
-      // ★ App.jsx の appendValueHistory と同じ規則: 値の変更に加え、値が同じでも認定有効期間の
-      //   開始日が変わったら「認定更新」として1件残す(prevFrom を渡した時のみ判定)。
-      const appendHist = (histKey, oldVal, newVal, from, to, prevFrom) => {
-        const hist = Array.isArray(np[histKey]) ? [...np[histKey]] : [];
-        const nv = newVal == null ? '' : String(newVal);
-        if (!nv) return hist;
-        const f = from || nowDay;
-        const last = hist.length ? hist[hist.length - 1] : null;
-        const valChanged = String(oldVal || '') !== nv;
-        const periodChanged = prevFrom !== undefined && String(prevFrom || '') !== String(from || '');
-        if (last && String(last.value || '') === nv && String(last.from || '') === String(f)) {
-          if (to && String(last.to || '') !== String(to)) hist[hist.length - 1] = { ...last, to };
-          return hist;
-        }
-        if (!valChanged && !periodChanged) return hist;
-        if (oldVal) {
-          if (last && !last.to) hist[hist.length - 1] = { ...last, to: f };
-          else if (!hist.length) hist.push({ value: oldVal, from: prevFrom || null, to: f, note: '' });
-        }
-        hist.push({ value: nv, from: f, to: to || null, note: valChanged ? '' : '認定更新' });
-        return hist;
-      };
-      // 介護度: 値が変わった時、または 値は同じでも認定開始日が変わった時に履歴を残す
-      const _mCl = (m.careLevel != null && m.careLevel !== '') ? String(m.careLevel) : String(np.careLevel || '');
-      const _mClFrom = (m.careLevelFrom != null && m.careLevelFrom !== '') ? String(m.careLevelFrom) : (np.careLevelFrom || '');
-      if (_mCl && (_mCl !== String(np.careLevel || '') || _mClFrom !== String(np.careLevelFrom || ''))) {
-        np.careLevelHistory = appendHist('careLevelHistory', np.careLevel, _mCl, _mClFrom, (m.careLevelTo || np.careLevelTo), np.careLevelFrom);
-        if (_mCl !== String(np.careLevel || '')) { np.careLevel = _mCl; changed.push('介護度'); }
-      }
-      if (m.careLevelFrom != null && m.careLevelFrom !== '' && String(m.careLevelFrom) !== String(np.careLevelFrom || '')) { np.careLevelFrom = String(m.careLevelFrom); changed.push('認定有効期間'); }
-      if (m.careLevelTo != null && m.careLevelTo !== '' && String(m.careLevelTo) !== String(np.careLevelTo || '')) { np.careLevelTo = String(m.careLevelTo); changed.push('認定有効期間'); }
-      if (m.costBurden != null && m.costBurden !== '' && String(m.costBurden) !== String(np.costBurden || '')) {
-        np.costBurdenHistory = appendHist('costBurdenHistory', np.costBurden, m.costBurden, null, null);
-        np.costBurden = String(m.costBurden); changed.push('負担割合');
-      }
-      const hasAsmtText = patch.assessmentText != null && String(patch.assessmentText) !== ((np.personalFile || {}).assessment || {}).text;
-      const hasAsmtFiles = Array.isArray(patch.assessmentFiles) && patch.assessmentFiles.length;
-      if (hasAsmtText || hasAsmtFiles) {
-        const pf = np.personalFile || {};
-        const asmt = { ...(pf.assessment || {}) };
-        if (patch.assessmentText != null) asmt.text = String(patch.assessmentText);
-        if (hasAsmtFiles) {
-          const ex = Array.isArray(asmt.files) ? asmt.files : [];
-          const ids = new Set(ex.map(d => String(d && d.id)));
-          asmt.files = [...ex, ...patch.assessmentFiles.filter(d => d && !ids.has(String(d.id)))];
-        }
-        asmt.updatedAt = now; asmt.updatedBy = byName;
-        np.personalFile = { ...pf, assessment: asmt };
-        changed.push('アセスメントシート');
-      }
-      if (changed.length) {
-        const items = [...new Set(changed)];
-        const log = Array.isArray(np.docUpdates) ? np.docUpdates : [];
-        // ★ 同 _duId が既存なら二重追加しない(応答ロス→再試行の冪等)
-        np.docUpdates = log.some(u => u && u.id === _duId) ? log : [...log, { id: _duId, at: now, by: 'caremanager', byName, items, readOffice: false, readCm: true }].slice(-50);
-      }
-      return np;
-    });
-    if (!changed.length) return null; // 変更なし → 書き込まない(noop)
-    return { ...currentData, patients };
-    }); // supabaseCasUpdate mutate 終わり
+    const res = await supabaseCasUpdate(storeId, (cloud) => portalMergePatientDocsFromCM(cloud, patientId, patch, byName, now, _duId)); // ★ 2026-10-18: 計算は portalLogic.js(サーバーと共通)
     return !!(res && res.ok);
   } catch (e) { console.warn('[supabase] mergePatientDocsFromCM failed', e); return false; }
 }
@@ -2051,23 +1878,11 @@ export async function supabaseMergePatientDocsFromCM(storeId, patientId, patch =
 //   ケアマネ画面は全体stateをpushしないため、ここで対象店舗のデータを読み直して該当項目のみ更新。
 export async function supabaseMarkDocUpdatesRead(storeId, patientId, side = 'cm') {
   if (!supabase || !storeId || !patientId) return false;
+  if (_portalToken) { try { const j = await portalApi({ action: 'mark_read', store_id: String(storeId), patient_id: String(patientId), side }); return !!j.ok; } catch (e) { if (!(e && e.noServer)) { console.warn('[portal] mark_read failed', e); return false; } } } // ★ 2026-10-18
   try {
     // ★ 既読フラグを立てるだけ＝本質的に冪等(再試行で同じ結果)。 CAS化して古いデータで上書きしない。
     const flag = side === 'office' ? 'readOffice' : 'readCm';
-    const res = await supabaseCasUpdate(storeId, (cloud) => {
-      const currentData = cloud;
-      if (!currentData) return null;
-      let touched = false;
-      const patients = (currentData.patients || []).map(p => {
-        if (String(p.id) !== String(patientId)) return p;
-        const log = Array.isArray(p.docUpdates) ? p.docUpdates : [];
-        if (!log.some(u => !u[flag])) return p;
-        touched = true;
-        return { ...p, docUpdates: log.map(u => u[flag] ? u : { ...u, [flag]: true }) };
-      });
-      if (!touched) return null; // 既に全既読 → 書き込まない
-      return { ...currentData, patients };
-    });
+    const res = await supabaseCasUpdate(storeId, (cloud) => portalMarkDocUpdatesRead(cloud, patientId, flag)); // ★ 2026-10-18: 計算は portalLogic.js(サーバーと共通)
     return !!(res && res.ok);
   } catch (e) { console.warn('[supabase] markDocUpdatesRead failed', e); return false; }
 }
@@ -2250,6 +2065,11 @@ export async function supabaseCreateStore({ id, name, short_name, org_name, zip_
 export async function supabaseUpdateFamilyAccount(accountId, patch, opts = {}) {
   if (!supabase) throw new Error('Supabase 未接続');
   const fields = { ...(patch || {}) };
+  if (_portalToken) { // ★ 2026-10-18: サーバー経由(本人が見てよい利用者のアカウントだけ)
+    try { const f2 = { ...fields }; if (f2.password) { f2.password_hash = await hashPassword(f2.password); delete f2.password; }
+      await portalApi({ action: 'update_account', account_id: accountId, patch: f2, match_username: opts.matchUsername || null }); return true; }
+    catch (e) { if (!(e && e.noServer)) throw e; }
+  }
   // 行の特定: 通常は id。 ローカルidとSupabase idが食い違う場合に備え、旧username(matchUsername)でも特定可。
   const matchUsername = opts.matchUsername || null;
   if (fields.username) {
@@ -2323,6 +2143,7 @@ async function _inviteDelete(cond, direct, opts) {
 
 export async function supabaseDeleteFamilyAccount(accountId, opts) {
   if (!supabase) return false;
+  if (_portalToken) { try { const j = await portalApi({ action: 'delete_account', account_id: accountId }); return !!j.ok; } catch (e) { if (!(e && e.noServer)) { console.warn('[portal] delete_account failed', e); return false; } } } // ★ 2026-10-18
   try {
     // ★ 関連 invite を物理削除 (used_by の解除ではなく、 招待自体を削除して
     //    同じメールアドレス/コードでの再使用を阻害しないようにする)

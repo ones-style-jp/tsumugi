@@ -77,6 +77,7 @@ import {
   supabaseLoadStateForStore,
   supabaseLoadStateMetaForStore,
   supabaseStaffLogin,
+  portalLoadState, portalSubscribeState, portalResolveStore, portalListStores, hasPortalToken, setPortalToken, // ★ 2026-10-18 データ保護(段階3.5): ポータルのサーバー経由
   supabaseStaffRefreshSbToken, setSbAccessToken, getSbAccessState, // ★ 2026-10-17 データ保護(段階1)
   supabaseStaffChangePassword,
   supabaseListStores,
@@ -14918,10 +14919,17 @@ function FamilyView() {
     let cancelled = false;
     (async () => {
       try {
-        const stores = await supabaseListStores();
-        const pidNum = parseInt(authPid, 10);
         let _expectName = '';
         try { _expectName = sessionStorage.getItem('familyAuthPatientName') || ''; } catch {}
+        // ★ 2026-10-18 データ保護(段階3.5): 証があればサーバーに店舗を探してもらう(全店の店舗データを端末に読み込まない)
+        if (hasPortalToken()) {
+          const r = await portalResolveStore(_expectName);
+          if (cancelled) return;
+          if (r && r.store_id) { if (r.token) setPortalToken(r.token); try { sessionStorage.setItem('familyAuthStoreId', String(r.store_id)); } catch {} window.location.reload(); return; }
+          if (r) { setFamStoreUnresolved(true); return; } // 見つからない → 招待の発行し直しを案内(全店スキャンはしない)
+        }
+        const stores = await supabaseListStores();
+        const pidNum = parseInt(authPid, 10);
         // ★ 利用者IDは店舗ごとの連番で全店一意でない。 ID該当の店舗を全て集めてから判定する。
         //   - 該当が1店舗だけ → 安全に採用
         //   - 複数店舗に同番号 → 氏名一致で1つに確定。 確定できなければ どの店舗も採用しない
@@ -15054,7 +15062,7 @@ function FamilyView() {
       setData(prev => ({ ...prev, patients: [], ticketRecords: [], familyAnnouncements: [], familyPersonalAnnouncements: [], familyPhotos: [] }));
     }
     try { localStorage.setItem(lastFamilyStoreKey, familyStoreId); } catch {}
-    const stop = supabaseSubscribeState((sbData) => {
+    const stop = (hasPortalToken() ? portalSubscribeState : supabaseSubscribeState)((sbData) => { // ★ 2026-10-18: 証があればサーバーから「その利用者分だけ」
       if (!sbData) return;
       setData(prev => {
         const merged = { ...prev, ...sbData };
@@ -15188,6 +15196,7 @@ function FamilyView() {
     // ★ 2026-09-30(試験版): 照合はサーバーで行う(回線ごと・全体の失敗回数で止まる=総当たり対策)
     let lk2 = null;
     try { lk2 = await Promise.race([ supabaseLookupInvite(code), new Promise(res => setTimeout(() => res({ reason: 'timeout' }), 10000)) ]); } catch { lk2 = { reason: 'network' }; }
+    try { if (lk2 && lk2.context) window.__tsumugiInviteCtx = lk2.context; } catch {} // ★ 2026-10-18: 登録画面用の店舗の設定(サーバーが同梱)
     setJoinBusy(false);
     const sb = lk2 && lk2.invite;
     if (!sb) {
@@ -15222,7 +15231,9 @@ function FamilyView() {
     let cancelled = false;
     (async () => {
       try {
-        const st = await supabaseLoadStateForStore(sid);
+        // ★ 2026-10-18 データ保護(段階3.5): 招待コードの照合で同梱された店舗の設定があればそれを使う(店舗データ本体を直接読まない)
+        const _ctx = (window.__tsumugiInviteCtx && String(window.__tsumugiInviteCtx.store_id) === String(sid)) ? window.__tsumugiInviteCtx : null;
+        const st = _ctx ? { systemSettings: _ctx.systemSettings || {}, patients: _ctx.patient ? [_ctx.patient] : [], familyInvites: [] } : await supabaseLoadStateForStore(sid);
         if (cancelled || !st) return;
         // ★ ケアマネ登録の「事業所」プルダウンに、この店舗の実際のケアマネ事業所/担当者(各種設定で登録・CSV取込したもの)を表示する。
         //   これが無いと data(=localStorage/見本)の cmOffices が使われ、見本の「あおぞら/さくら」しか出ない。
@@ -15715,6 +15726,7 @@ function FamilyView() {
                     setSignupForm(f=>({...f, checking:true, error:''}));
                     let _ck = null;
                     try { _ck = await Promise.race([ supabaseLookupInvite(code), new Promise(res => setTimeout(() => res({ reason: 'timeout' }), 10000)) ]); } catch { _ck = { reason: 'network' }; }
+                    try { if (_ck && _ck.context) window.__tsumugiInviteCtx = _ck.context; } catch {} // ★ 2026-10-18
                     setSignupForm(f=>({...f, checking:false}));
                     const _ci = _ck && _ck.invite;
                     if (!_ci) {
@@ -15735,7 +15747,8 @@ function FamilyView() {
                     const _sid0 = invite.storeId || invite.store_id || (decodeInviteToken(_urlToken)?.s) || null;
                     if (_sid0) {
                       try {
-                        const st0 = await Promise.race([ supabaseLoadStateForStore(_sid0), new Promise(res => setTimeout(() => res(null), 10000)) ]);
+                        const _ctx0 = (window.__tsumugiInviteCtx && String(window.__tsumugiInviteCtx.store_id) === String(_sid0)) ? window.__tsumugiInviteCtx : null; // ★ 2026-10-18: 同梱された分を使う
+                        const st0 = _ctx0 ? { systemSettings: _ctx0.systemSettings || {}, patients: _ctx0.patient ? [_ctx0.patient] : [], familyAccounts: [] } : await Promise.race([ supabaseLoadStateForStore(_sid0), new Promise(res => setTimeout(() => res(null), 10000)) ]);
                         const p0 = (st0?.patients || []).find(p => String(p.id) === String(invite.patientId));
                         if (p0) {
                           const ss0 = st0.systemSettings || {};
@@ -16361,6 +16374,7 @@ function FamilyView() {
     );
   }
   const handleLogout = () => {
+    try { setPortalToken(null); } catch {} // ★ 2026-10-18: ポータルの証も消す
     sessionStorage.removeItem('familyAuthPid');
     sessionStorage.removeItem('familyAuthAccId');
     sessionStorage.removeItem('familyAuthStoreId'); // ★ store_id も削除
@@ -16800,7 +16814,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
       if (_autoPullBusyRef.current) return;
       _autoPullBusyRef.current = true;
       try {
-        const st = await supabaseLoadStateForStore(familyStoreId);
+        const st = hasPortalToken() ? (await portalLoadState(familyStoreId) || {}).data : await supabaseLoadStateForStore(familyStoreId); // ★ 2026-10-18: 証があればその利用者分だけ
         if (!stopped && st && Array.isArray(st.patients) && st.patients.length) {
           setData(prev => ({
             ...prev, ...st,

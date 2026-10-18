@@ -29,8 +29,8 @@ do $$ declare r record; begin
 create policy app_state_own_all on public.app_state for all to authenticated
   using (public.tsumugi_is_hq() or key = public.tsumugi_jwt_store_id() or key = 'diag_' || public.tsumugi_jwt_store_id())
   with check (public.tsumugi_is_hq() or key = public.tsumugi_jwt_store_id() or key = 'diag_' || public.tsumugi_jwt_store_id());
--- 全店共通の設定(同意ポリシー・傷病名マスタ)は証があれば誰でも読める(書きは上の本部ルールで)
-create policy app_state_global_read on public.app_state for select to authenticated
+-- 全店共通の設定(同意ポリシー・傷病名マスタ=個人情報なし)は、証の無いポータル(anon)も含めて誰でも読める(書きは上の本部ルールで)
+create policy app_state_global_read on public.app_state for select to anon, authenticated
   using (key in ('__tsumugi_global__', '__tsumugi_disease_master__'));
 
 -- 2) ticket_records(書き込みは関数 upsert_ticket_records / delete_ticket_record 経由 → 関数の先頭に tsumugi_assert_store を足す)
