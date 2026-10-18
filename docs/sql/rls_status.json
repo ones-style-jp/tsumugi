@@ -1,0 +1,9 @@
+{
+  "_説明": "データ保護 段階3 の適用状況。本部が SQL を実行したら true にして commit する(scripts/run_tests.py の T-SEC-04/05/06 がこの値で期待を切り替える)",
+  "3a_sync_ops_undo_snapshots": false,
+  "3_functions_guarded": false,
+  "3b_app_state_ticket_records_stores_notices": false,
+  "3c_storage_private": false,
+  "3c_probe_path": "fs/1/b188a279bf272fab.png",
+  "_説明2": "3c_probe_path = テスト店舗(store_test・架空)のご家族が添付した確認用ファイルのパス。T-SEC-09 が公開URLで取れるかを見る"
+}

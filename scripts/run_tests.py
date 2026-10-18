@@ -95,6 +95,56 @@ try:
 except Exception as e:
     check('T-SEC-03', 'staff テーブルが公開キーで読めない', False, str(e))
 
+# ---- T-SEC-04/05/06 データ保護 段階3(RLS)の状態(2026-10-18): docs/sql/rls_status.json の適用状況で期待を切り替える ----
+#   未適用の段階は「まだ開いている」ことを detail に出して PASS(情報)。適用済みにしたのに読めたら FAIL(戻ってしまった)。
+try:
+    _pub = 'sb_publishable_2IG11GJZUGdf0t-UPg_FhQ_hAn6hin1'
+    _base = 'https://eopdtcfxfhshzxtqcwmy.supabase.co'
+    _st = json.load(open(f'{ROOT}/docs/sql/rls_status.json', encoding='utf-8'))
+    def _anon_readable(table):
+        _req = urllib.request.Request(f'{_base}/rest/v1/{table}?select=*&limit=1', headers={'apikey': _pub, 'Authorization': 'Bearer ' + _pub, 'Range': '0-0'})
+        try:
+            with urllib.request.urlopen(_req, timeout=15) as _r:
+                _rows = json.loads(_r.read() or b'[]')
+            return (isinstance(_rows, list) and len(_rows) > 0), 'rows>0' if _rows else 'empty'
+        except urllib.error.HTTPError as _e:
+            return False, f'HTTP {_e.code}'
+    def _stage(tid, label, tables, applied):
+        _open = [t for t in tables if _anon_readable(t)[0]]
+        if applied:
+            check(tid, f'{label}: 公開キーで読めない', not _open, ('まだ読める: ' + ','.join(_open)) if _open else '全て閉じている')
+        else:
+            check(tid, f'{label}: 未適用(情報)', True, ('公開キーで読める: ' + ','.join(_open)) if _open else '読めない(適用済みなら rls_status.json を true に)')
+    _stage('T-SEC-04', '段階3a sync_ops/undo_snapshots', ['sync_ops', 'undo_snapshots'], bool(_st.get('3a_sync_ops_undo_snapshots')))
+    _stage('T-SEC-05', '段階3b app_state/ticket_records/stores/system_notices', ['app_state', 'ticket_records', 'stores', 'system_notices'], bool(_st.get('3b_app_state_ticket_records_stores_notices')))
+    # RPC: 証なしで呼ぶと拒否される(関数の守り)。削除系を無害な引数(存在しないID)で呼ぶ
+    _req = urllib.request.Request(f'{_base}/rest/v1/rpc/delete_undo_snapshot', data=json.dumps({'p_store_id': '__tsumugi_probe__', 'p_id': 0}).encode(), headers={'apikey': _pub, 'Authorization': 'Bearer ' + _pub, 'Content-Type': 'application/json'}, method='POST')
+    try:
+        with urllib.request.urlopen(_req, timeout=15) as _r: _r.read()
+        _rej, _det = False, 'HTTP 200(通ってしまう)'
+    except urllib.error.HTTPError as _e:
+        _rej, _det = _e.code in (400, 401, 403), f'HTTP {_e.code}'
+    # 3c: 公開 URL で写真が取れるか。rls_status.json の 3c_probe_path(テスト店舗の架空ファイルのパス)を公開 URL で取り、200 なら公開のまま
+    _probe = str(_st.get('3c_probe_path') or '')
+    if _probe:
+        try:
+            # バケットは非公開(public 経路は常に 400)。穴は「公開キー＋パス」で authenticated 経路から取れること → それを見る
+            _req = urllib.request.Request(f'{_base}/storage/v1/object/authenticated/personal-files/{_probe}', headers={'apikey': _pub, 'Authorization': 'Bearer ' + _pub})
+            with urllib.request.urlopen(_req, timeout=15) as _r: _r.read(); _pubcode = 200
+        except urllib.error.HTTPError as _e: _pubcode = _e.code
+        if _st.get('3c_storage_private'):
+            check('T-SEC-09', '段階3c personal-files が公開キーで取れない', _pubcode != 200, f'HTTP {_pubcode}')
+        else:
+            check('T-SEC-09', '段階3c personal-files 公開キー遮断: 未適用(情報)', True, f'公開キーで HTTP {_pubcode}' + ('(キーとパスを知っていれば取れる)' if _pubcode == 200 else ''))
+    else:
+        check('T-SEC-09', '段階3c 非公開化の確認: 確認用パス未設定(情報)', True, 'rls_status.json に 3c_probe_path を入れると確認できる')
+    if _st.get('3_functions_guarded'):
+        check('T-SEC-06', '関数(RPC)が証なしを拒否', _rej, _det)
+    else:
+        check('T-SEC-06', '関数(RPC)の守り: 未適用(情報)', True, _det + ('(証なしで通る)' if not _rej else '(拒否)'))
+except Exception as e:
+    check('T-SEC-04', '段階3 RLS 状態の確認', False, str(e))
+
 # ---- T-SYNC-07(静的) id無し行を生む push の簡易検査: 主要配列へのpushにid欠落が無いかの目視対象を列挙 ----
 cur = open(f'{ROOT}/src/App.jsx', encoding='utf-8').read()
 suspicious = len(re.findall(r'ticketRecords:\s*\[\.\.\.', cur))

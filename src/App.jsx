@@ -45,6 +45,7 @@ import {
   supabaseUploadSyncDiag,
   supabaseListSyncDiag, supabaseClaimDeviceName, // ★ 2026-10-17 データ保護(段階2): 管理局の端末一覧・端末名の自動付与
   deviceIdentityReady, kvSet, lsSetSmall, deviceStorageStatus, // ★ 2026-10-18: 端末ID・端末名の第2・第3の保存先(IndexedDB・Cookie)と保存の状態
+  setFilesContext, // ★ 2026-10-19 データ保護(段階3c): 写真・書類の署名はサーバー(/api/files)で
   cloudUndoPush, cloudUndoList, cloudUndoDelete,
   supabaseLoadDiseaseMaster,
   supabaseSaveDiseaseMaster,
@@ -19966,6 +19967,8 @@ export default function App() {
     setStaffSession(null);
     setActiveRecorder(null);
   };
+  // ★ 2026-10-19 データ保護(段階3c): 写真・書類の署名 URL 用に、店舗IDとログインの証を部品側へ渡す
+  useEffect(() => { try { setFilesContext({ storeId: staffSession?.storeId || null, staffToken: staffSession?.token || null }); } catch {} }, [staffSession?.storeId, staffSession?.token]);
   // ★ 2026-10-17 データ保護(段階1): ログイン中は Supabase の証を起動時に取り直し、以後12時間ごとに更新(証は24時間有効)。
   //   ログインの証が切れていたら(サーバーが expired)ログアウトして入り直してもらう
   React.useEffect(() => {
