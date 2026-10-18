@@ -53,7 +53,7 @@ create policy stores_select_own on public.stores for select to authenticated
 create policy stores_hq_write on public.stores for all to authenticated
   using (public.tsumugi_is_hq()) with check (public.tsumugi_is_hq());
 
--- 4) system_notices(列名 target_store_ids は inventory で確認すること。旧 target_store_id が残っていれば OR で足す)
+-- 4) system_notices(棚卸し 2026-10-18 で確認: 旧 target_store_id:text と 新 target_store_ids:ARRAY の両方がある → 両方を見る)
 alter table public.system_notices enable row level security;
 do $$ declare r record; begin
   for r in select policyname from pg_policies where schemaname='public' and tablename='system_notices' loop
@@ -62,9 +62,9 @@ do $$ declare r record; begin
 create policy notices_select_target on public.system_notices for select to authenticated
   using (
     public.tsumugi_is_hq()
-    or target_store_ids is null
-    or cardinality(target_store_ids) = 0
-    or public.tsumugi_jwt_store_id() = any (target_store_ids)
+    or ((target_store_ids is null or cardinality(target_store_ids) = 0) and (target_store_id is null or target_store_id = ''))
+    or public.tsumugi_jwt_store_id() = any (coalesce(target_store_ids, array[]::text[]))
+    or target_store_id = public.tsumugi_jwt_store_id()
   );
 create policy notices_hq_write on public.system_notices for all to authenticated
   using (public.tsumugi_is_hq()) with check (public.tsumugi_is_hq());
