@@ -140,7 +140,7 @@ export async function supabaseUploadSyncDiag(storeId, name, ver) {
       const now = Date.now();
       for (const k of Object.keys(d)) {
         if (k.startsWith('__')) continue; // 予約(端末名の割当表など)
-        const at = Number(d[k] && d[k].at); if (!at || now - at > DIAG_KEEP_MS) { delete d[k]; continue; } // 30日見ていない端末の控えは消す(行が太らないように)
+        const at = Number(d[k] && d[k].at); if (!at || now - at > DIAG_KEEP_MS) { delete d[k]; if (d.__names && typeof d.__names === 'object' && d.__names[k]) { d.__names = { ...d.__names }; delete d.__names[k]; } continue; } // 30日見ていない端末の控え(と名前の割当)は消す(行が太らない・番号が空く)
         if (k.includes('|') && k.slice(0, k.lastIndexOf('|')) === nm) delete d[k]; // 旧形式(端末名|版)の自分の控え
       }
       d[id] = { at: now, logs, sb, name: nm, ver: vr };
