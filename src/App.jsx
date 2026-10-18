@@ -14908,8 +14908,10 @@ function FamilyView() {
   //   (試作店の実地テストで、修正配信後もログイン時の自動付与が動かなかった原因)。
   //   ログイン画面表示中に限り、本番の update-notes.json の version がこのバンドルの焼き込み値と
   //   違ったら一度だけ自動で再読み込みする(入力中データが無い画面なので安全)。
+  // ★ 2026-10-18: ログイン中は自動では再読み込みせず、上に「新しい版があります」の帯を出す(店舗の更新ボタンと同じ)
+  const [famUpdateAvail, setFamUpdateAvail] = useState(false);
   useEffect(() => {
-    if (authPid || adminPreview) return;
+    if (adminPreview) return;
     let stopped = false;
     const check = async () => {
       try {
@@ -14918,6 +14920,7 @@ function FamilyView() {
         const j = await res.json();
         const remote = String(j.version || ''), local = String((__builtUpdateNotes && __builtUpdateNotes.version) || '');
         if (!remote || !local || remote === local) return;
+        if (authPid) { if (!stopped) setFamUpdateAvail(true); return; }
         const guard = 'tsumugiFamReloadedFor';
         try { if (sessionStorage.getItem(guard) === remote) return; sessionStorage.setItem(guard, remote); } catch { return; }
         if (!stopped) window.location.reload();
@@ -14929,6 +14932,15 @@ function FamilyView() {
     document.addEventListener('visibilitychange', onFocus);
     return () => { stopped = true; window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onFocus); };
   }, [authPid, adminPreview]);
+  // ★ 2026-10-18 データ保護(段階3.5): ログインしたままで「ポータルの証」が無い端末(新しい仕組みの前にログインしていた)は、
+  //   一度ログインし直してもらう(ログインし直すだけで証が付く)。サーバーが無い環境(開発)では出さない。
+  const [famNeedsRelogin, setFamNeedsRelogin] = useState(false);
+  useEffect(() => {
+    if (!authPid || adminPreview || !isSupabaseEnabled || hasPortalToken()) { setFamNeedsRelogin(false); return; }
+    let on = true;
+    (async () => { try { await portalListStores(); if (on) setFamNeedsRelogin(true); } catch {} })(); // サーバーが応答する＝新しい仕組みが使える
+    return () => { on = false; };
+  }, [authPid, adminPreview]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ★ ケアマネの起動時自己付与(2026-09-03): ログイン時だけだと「古いJSでログイン→その後に再読み込み」の
   //   順では自己付与が走らず、担当利用者が1名のまま利用者切替が出ない。ログイン済みのケアマネでも
@@ -16373,7 +16385,26 @@ function FamilyView() {
       }}
     />;
   }
-  return <FamilyPatientView data={data} setData={setData} patientId={authPid} accountId={authAccId} onLogout={handleLogout} onSwitchPatient={handleSwitchPatient} editingRef={editingRef} familyStoreId={familyStoreId} storeUnresolved={famStoreUnresolved && !familyStoreId} />;
+  if (famNeedsRelogin) {
+    return (
+      <div data-testid="fam-relogin-gate" style={{minHeight:'100vh',background:'#f4f8ed',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+        <div style={{width:'100%',maxWidth:440,background:'white',borderRadius:16,padding:'24px 22px',boxShadow:'0 4px 16px rgba(0,0,0,0.08)'}}>
+          <div style={{fontSize:18,fontWeight:'bold',color:'#3d5021',marginBottom:8}}>一度ログインし直してください</div>
+          <div style={{fontSize:15,color:'#475569',lineHeight:1.7,marginBottom:16}}>安全性を高めた新しい仕組みに切り替わりました。お手数ですが、ログインし直していただくと、これまでどおりご覧いただけます（ID・パスワードは変わりません）。</div>
+          <button type="button" onClick={handleLogout} style={{width:'100%',minHeight:48,padding:'12px 16px',background:'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:16,fontWeight:'bold',cursor:'pointer'}}>ログイン画面へ</button>
+        </div>
+      </div>
+    );
+  }
+  return (<>
+    {famUpdateAvail && (
+      <div data-testid="fam-update-banner" style={{position:'sticky',top:0,zIndex:1000,background:'#fef3c7',borderBottom:'1px solid #f59e0b',padding:'10px 14px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap'}}>
+        <span style={{fontSize:14,color:'#78350f',fontWeight:'bold'}}>新しい版があります。入力中のものが無ければ更新してください。</span>
+        <button type="button" onClick={() => window.location.reload()} style={{minHeight:40,padding:'8px 14px',background:'#b45309',color:'white',border:'none',borderRadius:10,fontSize:14,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap'}}>今すぐ更新</button>
+      </div>
+    )}
+    <FamilyPatientView data={data} setData={setData} patientId={authPid} accountId={authAccId} onLogout={handleLogout} onSwitchPatient={handleSwitchPatient} editingRef={editingRef} familyStoreId={familyStoreId} storeUnresolved={famStoreUnresolved && !familyStoreId} />
+  </>);
 }
 
 // === 家族画面 - 利用者ごとのコンテンツ ===
