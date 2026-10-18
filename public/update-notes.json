@@ -1,7 +1,14 @@
 {
-  "version": "upd-2026-1018a",
+  "version": "upd-2026-1018b",
   "updatedAt": "2026-10-18",
   "notes": [
+    {
+      "id": "upd-2026-1018b-devname-quiet",
+      "type": "improvement",
+      "title": "端末名は自動で付けるだけに（確認画面は出しません）",
+      "body": "・店舗で初めて使う端末の名前は「店舗名1・2…」を自動で付け、画面下に短く知らせるだけにしました（確認画面は出ません）。\n・名前は「設定 → システム → 端末名」でいつでも変更できます（例: 事務所PC・送迎iPad）。",
+      "date": "2026-10-18"
+    },
     {
       "id": "upd-2026-1018a-dataprotect",
       "type": "improvement",

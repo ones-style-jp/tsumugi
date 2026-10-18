@@ -19918,7 +19918,7 @@ export default function App() {
     if (!isSupabaseEnabled || !staffSession?.storeId || staffSession.role === 'super_admin' || deviceName || !devIdentityReady) return; // ★ 2026-10-18: 控えの読み出しを待つ
     if (_claimedRef.current === staffSession.storeId) return; _claimedRef.current = staffSession.storeId;
     let stop = false;
-    (async () => { try { const nm = await supabaseClaimDeviceName(staffSession.storeId, staffSession.storeShortName || staffSession.storeName || '端末'); if (!stop && nm) { updateDeviceName(nm); setDeviceNamePrompt({ suggested: nm }); } } catch {} })(); // ★ 候補を付けたうえで初回だけ確認画面(そのまま／変更)
+    (async () => { try { const nm = await supabaseClaimDeviceName(staffSession.storeId, staffSession.storeShortName || staffSession.storeName || '端末'); if (!stop && nm) { updateDeviceName(nm); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `この端末の名前を「${nm}」にしました（設定 → システム → 端末名 で変更できます）` } })); } catch {} } } catch {} })(); // ★ 安定版(1018b・ユーザー指示): 確認画面は出さず自動で付けて知らせるだけ(試験版は初回に確認画面)
     return () => { stop = true; };
   }, [staffSession?.storeId, deviceName, devIdentityReady]); // eslint-disable-line react-hooks/exhaustive-deps
   // ★ 現在の記録者 (店舗ログイン後に選ぶ)
