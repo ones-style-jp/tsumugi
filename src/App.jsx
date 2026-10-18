@@ -15225,6 +15225,7 @@ function FamilyView() {
   const [_inviteUsedRemote, setInviteUsedRemote] = useState(false);
   React.useEffect(() => {
     if (!isSupabaseEnabled) return;
+    if (authPid && !_urlInvite) return; // ★ 2026-10-18: ログイン後は別経路(ポータルの証)で読むので、ここでは店舗データ本体を読まない
     const tok = decodeInviteToken(_urlToken);
     const sid = (tok && tok.s) || familyStoreId || null;
     if (!sid) return;
@@ -15232,7 +15233,8 @@ function FamilyView() {
     (async () => {
       try {
         // ★ 2026-10-18 データ保護(段階3.5): 招待コードの照合で同梱された店舗の設定があればそれを使う(店舗データ本体を直接読まない)
-        const _ctx = (window.__tsumugiInviteCtx && String(window.__tsumugiInviteCtx.store_id) === String(sid)) ? window.__tsumugiInviteCtx : null;
+        let _ctx = (window.__tsumugiInviteCtx && String(window.__tsumugiInviteCtx.store_id) === String(sid)) ? window.__tsumugiInviteCtx : null;
+        if (!_ctx && _urlInvite) { try { const lk = await supabaseLookupInvite(_urlInvite); if (lk && lk.context && String(lk.context.store_id) === String(sid)) { _ctx = lk.context; window.__tsumugiInviteCtx = lk.context; } } catch {} } // 招待コードがあればサーバーに同梱してもらう(店舗データ本体を直接読まない)
         const st = _ctx ? { systemSettings: _ctx.systemSettings || {}, patients: _ctx.patient ? [_ctx.patient] : [], familyInvites: [] } : await supabaseLoadStateForStore(sid);
         if (cancelled || !st) return;
         // ★ ケアマネ登録の「事業所」プルダウンに、この店舗の実際のケアマネ事業所/担当者(各種設定で登録・CSV取込したもの)を表示する。

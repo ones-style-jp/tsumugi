@@ -242,7 +242,10 @@ export default async function handler(req, res) {
       return t.links.some(l => String(l.p) === String(a.patient_id) && (!a.store_id || !l.s || String(l.s) === String(a.store_id))) ? a : null;
     };
     if (action === 'update_account') {
-      const fields = { ...(body.patch || {}) }; delete fields.id; delete fields.patient_id; delete fields.store_id; delete fields.kind;
+      // 変えてよい列だけ(列に無いもの=consents 等は黙って落とす。古い DB でもエラーにしない)
+      const ALLOW = ['username', 'password_hash', 'password', 'relation', 'display_name', 'email', 'facility_name', 'patient_name', 'role'];
+      const fields = {}; Object.keys(body.patch || {}).forEach(k => { if (ALLOW.includes(k)) fields[k] = body.patch[k]; });
+      if (!Object.keys(fields).length) return res.status(200).json({ ok: true, skipped: true });
       let target = null;
       if (body.match_username) { const rows = await sb(`family_accounts?select=id,patient_id,store_id,username&username=eq.${enc(body.match_username)}&deleted_at=is.null&limit=1`); target = Array.isArray(rows) ? rows[0] : null; if (target) target = await accAllowed(target.id); }
       else target = await accAllowed(String(body.account_id || ''));
