@@ -46,6 +46,7 @@ import {
   supabaseListSyncDiag, supabaseClaimDeviceName, // ★ 2026-10-17 データ保護(段階2): 管理局の端末一覧・端末名の自動付与
   deviceIdentityReady, kvSet, lsSetSmall, deviceStorageStatus, // ★ 2026-10-18: 端末ID・端末名の第2・第3の保存先(IndexedDB・Cookie)と保存の状態
   setFilesContext, // ★ 2026-10-19 データ保護(段階3c): 写真・書類の署名はサーバー(/api/files)で
+  supabaseStaffInviteCreate, supabaseStaffInviteLookup, supabaseStaffInviteAccept, supabaseStaffPinSet, supabaseStaffPinVerify, supabaseStaffMembersStatus, supabaseStaffSetActive, supabaseStaffLoginsList, // ★ 2026-10-19 段階4
   cloudUndoPush, cloudUndoList, cloudUndoDelete,
   supabaseLoadDiseaseMaster,
   supabaseSaveDiseaseMaster,
@@ -18480,11 +18481,80 @@ const groupStaffByRole = (members) => {
   if (rest.length) groups.push({ role: '', label: 'その他', members: rest });
   return groups;
 };
-function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdmin, onSelect, onAddMember, onRemoveMember, onTransferAdmin, onLogout, onBackToStores, adminAuth, onSetAdminAuth, loading, roleChoices }) {
+// ★ 2026-10-19 段階4: 従業員の本人登録(招待 URL ?staffinvite=1234-5678 から)。ID・パスワード・PIN(任意・共有 iPad の切替用)を決めてそのままログイン
+function tsuBuildStaffSession(staff) {
+  return { staffId: staff.id, username: staff.username, role: staff.role, storeId: staff.store_id || null, storeName: staff.stores?.name || '', storeShortName: staff.stores?.short_name || '',
+    displayName: staff.display_name || staff.username, token: staff._token || '', kind: staff.kind || 'store', memberId: staff.member_id || null, hasPin: !!staff.has_pin };
+}
+function StaffInviteAcceptView({ code, onLogin }) {
+  const [inv, setInv] = React.useState(null); const [err, setErr] = React.useState(''); const [busy, setBusy] = React.useState(false);
+  const [f, setF] = React.useState({ username: '', password: '', password2: '', pin: '', pin2: '' });
+  React.useEffect(() => { let on = true; (async () => { try { const i = await supabaseStaffInviteLookup(code); if (on) setInv(i); } catch (e) { if (on) setErr(e?.message || '招待コードを確認できませんでした'); } })(); return () => { on = false; }; }, [code]);
+  const submit = async (e) => { e.preventDefault(); setErr('');
+    if (!/^[A-Za-z0-9_.@\-]{4,64}$/.test(f.username)) return setErr('ログインIDは4文字以上の半角英数字(. _ @ -)で入力してください');
+    if (f.password.length < 8 || !/[A-Za-z]/.test(f.password) || !/[0-9]/.test(f.password)) return setErr('パスワードは8文字以上で英字と数字を含めてください');
+    if (f.password !== f.password2) return setErr('パスワード(確認)が一致しません');
+    if (f.pin && !/^\d{4}$/.test(f.pin)) return setErr('PIN は数字4桁です');
+    if (f.pin !== f.pin2) return setErr('PIN(確認)が一致しません');
+    setBusy(true);
+    try { const staff = await supabaseStaffInviteAccept({ code, username: f.username, password: f.password, pin: f.pin }); const session = tsuBuildStaffSession(staff); sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(session)); try { history.replaceState(null, '', location.pathname); } catch {} onLogin(session); }
+    catch (e2) { setErr(e2?.message || '登録に失敗しました'); setBusy(false); }
+  };
+  const inp = (k, type, ph, extra) => <input type={type} value={f[k]} onChange={e => setF(x => ({ ...x, [k]: e.target.value }))} placeholder={ph} {...(extra || {})} style={{width:'100%',boxSizing:'border-box',padding:'12px 14px',border:'1px solid #cbd5e1',borderRadius:12,fontSize:16,outline:'none'}}/>;
+  return (
+    <div data-testid="staff-invite-view" style={{minHeight:'100vh',background:'#f4f8ed',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <form onSubmit={submit} style={{width:'100%',maxWidth:440,background:'white',borderRadius:16,padding:'24px 22px',boxShadow:'0 4px 16px rgba(0,0,0,0.08)'}}>
+        <div style={{fontSize:11,fontWeight:'bold',color:'#5e8030',letterSpacing:2}}>TSUMUGI</div>
+        <div style={{fontSize:18,fontWeight:'bold',color:'#3d5021',marginBottom:10}}>職員の本人登録</div>
+        {!inv && !err && <div style={{color:'#64748b',fontSize:14}}>招待コードを確認しています…</div>}
+        {err && <div style={{color:'#b91c1c',fontSize:14,fontWeight:'bold',marginBottom:10,lineHeight:1.6}}>{err}</div>}
+        {inv && (<>
+          <div style={{background:'#f0f7e0',border:'1px solid #c5dea0',borderRadius:12,padding:'10px 12px',fontSize:14,color:'#3d5021',marginBottom:14,lineHeight:1.7}}>
+            <div><b>{inv.store_name || '店舗'}</b> の職員として登録します</div>
+            <div>お名前: <b>{inv.name}</b>（{inv.role === 'manager' ? '管理者' : '職員'}）</div>
+          </div>
+          <div style={{display:'grid',gap:10}}>
+            <div><div style={{fontSize:13,fontWeight:'bold',color:'#475569',marginBottom:4}}>ログインID <span style={{color:'#dc2626'}}>*</span></div>{inp('username','text','例: hanako_m（4文字以上の半角英数字）',{autoCapitalize:'none',autoCorrect:'off'})}</div>
+            <div><div style={{fontSize:13,fontWeight:'bold',color:'#475569',marginBottom:4}}>パスワード <span style={{color:'#dc2626'}}>*</span>（8文字以上・英字と数字）</div>{inp('password','password','パスワード')}</div>
+            <div>{inp('password2','password','パスワード（確認）')}</div>
+            <div><div style={{fontSize:13,fontWeight:'bold',color:'#475569',marginBottom:4}}>PIN（数字4桁・任意）</div><div style={{fontSize:12,color:'#64748b',marginBottom:4,lineHeight:1.6}}>みんなで使う iPad で「自分に切り替える」ときに入力する番号です。あとからでも設定できます。</div>{inp('pin','password','0000',{inputMode:'numeric',maxLength:4})}</div>
+            <div>{inp('pin2','password','PIN（確認）',{inputMode:'numeric',maxLength:4})}</div>
+          </div>
+          <button type="submit" disabled={busy} style={{marginTop:16,width:'100%',minHeight:48,padding:'12px 16px',background:busy?'#a3b98a':'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:16,fontWeight:'bold',cursor:'pointer'}}>{busy ? '登録中…' : '登録してログイン'}</button>
+        </>)}
+        <button type="button" onClick={() => { try { history.replaceState(null, '', location.pathname); } catch {} location.reload(); }} style={{marginTop:10,width:'100%',minHeight:40,background:'none',border:'none',color:'#64748b',fontSize:13,cursor:'pointer'}}>ログイン画面へ戻る</button>
+      </form>
+    </div>
+  );
+}
+// ★ 2026-10-19 段階4: 共有 iPad で本人に切り替えるときの PIN 入力(4桁)
+function TsuPinPrompt({ member, onVerify, onCancel }) {
+  const [pin, setPin] = React.useState(''); const [err, setErr] = React.useState(''); const [busy, setBusy] = React.useState(false);
+  const go = async (v) => { if (busy) return; setBusy(true); setErr(''); try { await onVerify(v); } catch (e) { setErr(e?.message || 'PIN が違います'); setPin(''); setBusy(false); } };
+  const press = (d) => { if (busy) return; const n = (pin + d).slice(0, 4); setPin(n); if (n.length === 4) go(n); };
+  const K = ({ v, children, onClick }) => <button type="button" onClick={onClick || (() => press(v))} style={{minHeight:52,fontSize:22,fontWeight:'bold',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:12,cursor:'pointer',color:'#1e293b'}}>{children ?? v}</button>;
+  return (
+    <div role="dialog" aria-modal="true" data-testid="pin-prompt" style={{position:'fixed',inset:0,zIndex:2000020,background:'rgba(15,23,42,0.55)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div style={{width:'100%',maxWidth:340,background:'white',borderRadius:16,padding:'20px 18px',boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
+        <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b'}}>{member?.name} さんの PIN</div>
+        <div style={{fontSize:13,color:'#64748b',marginTop:2,marginBottom:12}}>本人確認のため、4桁の番号を入力してください</div>
+        <div style={{display:'flex',justifyContent:'center',gap:12,marginBottom:12}}>{[0,1,2,3].map(i => <div key={i} style={{width:16,height:16,borderRadius:8,background: pin.length > i ? '#3d5021' : '#e2e8f0'}}/>)}</div>
+        {err && <div style={{color:'#b91c1c',fontSize:13,fontWeight:'bold',textAlign:'center',marginBottom:8}}>{err}</div>}
+        <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>
+          {['1','2','3','4','5','6','7','8','9'].map(d => <K key={d} v={d}/>)}
+          <K v="" onClick={() => setPin(p => p.slice(0, -1))}>⌫</K><K v="0"/><K v="" onClick={onCancel}>戻る</K>
+        </div>
+      </div>
+    </div>
+  );
+}
+function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdmin, onSelect, onAddMember, onRemoveMember, onTransferAdmin, onLogout, onBackToStores, adminAuth, onSetAdminAuth, loading, roleChoices, pinMembers, onVerifyPin }) {
   const [pendingAdmin, setPendingAdmin] = React.useState(null); // 管理者選択 → 認証待ち
+  const [pendingPin, setPendingPin] = React.useState(null); // ★ 2026-10-19 段階4: 本人アカウント＋PIN のある職員 → PIN 待ち
   // 管理者メンバーを選んだ時はパスワード認証を挟む。 ★ つむぎ管理局(super_admin)は本部認証済みなので店舗のPINを省略して入れる
   const selectMember = (m) => {
     tsumugiMaybeAutoFullscreen(); // ★ 端末設定ONなら、このクリックで全画面に
+    if (!isSuperAdmin && pinMembers && pinMembers.has(String(m.id)) && onVerifyPin) { setPendingPin(m); return; } // ★ 段階4: PIN で本人確認(管理者パスワードの代わり)
     const isAdminMember = m.isAdmin || m.roleLabel === '管理者';
     if (isAdminMember && !isSuperAdmin) { setPendingAdmin(m); return; }
     onSelect(m);
@@ -18614,6 +18684,7 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
           </div>
         </div>
       )}
+      {pendingPin && <TsuPinPrompt member={pendingPin} onCancel={() => setPendingPin(null)} onVerify={async (pin) => { const m = pendingPin; await onVerifyPin(m, pin); setPendingPin(null); try { if (m.isAdmin || m.roleLabel === '管理者') sessionStorage.setItem('tsumugiAdminVerified', '1'); } catch {} onSelect(m); }} />}
       {pendingAdmin && (
         <AdminAuthModal
           mode={adminAuth?.passwordHash ? 'verify' : 'set'}
@@ -19915,16 +19986,7 @@ function StaffLoginGate({ onLogin }) {
     setForm(f=>({...f, loading:true, error:''}));
     try {
       const staff = await supabaseStaffLogin({ username: form.username, password: form.password });
-      const session = {
-        staffId: staff.id,
-        username: staff.username,
-        role: staff.role,
-        storeId: staff.store_id || null,
-        storeName: staff.stores?.name || '',
-        storeShortName: staff.stores?.short_name || '',
-        displayName: staff.display_name || staff.username,
-        token: staff._token || '', // ★ サーバー認証の署名付きトークン(職員作成・PW変更・一覧で使用)
-      };
+      const session = tsuBuildStaffSession(staff); // ★ 2026-10-19 段階4: kind(store/person)・memberId・hasPin も持つ
       sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(session));
       // ★ 2026-10-08(店舗報告: iPhoneでIDとパスワードを入力してログインした直後、画面の一部が白いまま。スクロールしても戻らず、押すと反応する):
       //   キーボードが出て表示域が狭いままアプリの画面が作られると、その狭い範囲しか描かれずに残る(iPhoneのブラウザの不具合)と見ている。
@@ -20001,6 +20063,7 @@ const _pendIdb = {
 };
 export default function App() {
   // 家族用閲覧モード判定: ?family が含まれていれば家族用ログイン画面に遷移
+  const _staffInviteCode = React.useMemo(() => { try { const q = new URLSearchParams(window.location.search); const c = String(q.get('staffinvite') || '').replace(/[^0-9]/g, ''); return c.length === 8 ? c.slice(0, 4) + '-' + c.slice(4) : null; } catch { return null; } }, []); // ★ 2026-10-19 段階4
   const isFamilyMode = React.useMemo(()=>{
     try {
       return new URLSearchParams(window.location.search).has('family');
@@ -22205,6 +22268,28 @@ export default function App() {
     (appData.diarySettings?.staff||[]).forEach(s => { if(!s||!s.name||!s.name.trim()||_isHq(s)||s._tempHelp) return; const k=mk(s.name,s.role); if(seen.has(k))return; seen.add(k); out.push({ id:s.id, name:s.name, roleLabel:s.role||'', isAdmin: s.role==='管理者' }); });
     return out;
   }, [appData.storeMembers, appData.diarySettings?.staff]);
+  // ★ 2026-10-19 段階4(従業員ごとのログイン):
+  //   ・本人ログイン(kind=person・memberId あり)は記録者を自動で本人にする(選択画面を出さない)
+  //   ・店舗共通ログインでは、本人アカウント＋PIN を持つ職員の一覧を取り、選択時に PIN を求める
+  //   ・店舗共通ログインは 30 分操作が無いと記録者の選択に戻る(自動ロック)
+  const [_staffAcct, _setStaffAcct] = useState({ accounts: [], invites: [] });
+  const _reloadStaffAcct = React.useCallback(async () => { if (!isSupabaseEnabled || !staffSession?.token || !staffSession?.storeId) return; try { const r = await supabaseStaffMembersStatus(staffSession.token, staffSession.storeId); if (r) _setStaffAcct(r); } catch {} }, [staffSession?.token, staffSession?.storeId]);
+  useEffect(() => { _reloadStaffAcct(); }, [_reloadStaffAcct]);
+  const _pinMembers = React.useMemo(() => new Set((_staffAcct.accounts || []).filter(a => a.is_active && a.has_pin && a.member_id).map(a => String(a.member_id))), [_staffAcct]);
+  const _verifyPin = React.useCallback(async (m, pin) => { await supabaseStaffPinVerify(staffSession.token, m.id, pin); }, [staffSession?.token]);
+  useEffect(() => {
+    if (!isSupabaseEnabled || !staffSession?.storeId || staffSession.kind !== 'person' || !staffSession.memberId || activeRecorder) return;
+    const m = mergedStaffMembers.find(x => String(x.id) === String(staffSession.memberId));
+    if (m) { sessionStorage.setItem('tsumugiActiveRecorder', JSON.stringify(m)); setActiveRecorder(m); }
+  }, [staffSession?.storeId, staffSession?.kind, staffSession?.memberId, activeRecorder, mergedStaffMembers]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!isSupabaseEnabled || !staffSession?.storeId || staffSession.kind === 'person' || staffSession.role === 'super_admin' || !activeRecorder) return;
+    const LOCK_MS = 30 * 60 * 1000; let last = Date.now();
+    const touch = () => { last = Date.now(); };
+    ['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.addEventListener(ev, touch, { passive: true }));
+    const iv = setInterval(() => { if (Date.now() - last > LOCK_MS) { try { sessionStorage.removeItem('tsumugiActiveRecorder'); } catch {} setActiveRecorder(null); } }, 60 * 1000);
+    return () => { clearInterval(iv); ['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.removeEventListener(ev, touch)); };
+  }, [staffSession?.storeId, staffSession?.kind, staffSession?.role, !!activeRecorder]); // eslint-disable-line react-hooks/exhaustive-deps
   // ★ 起動/更新時に「今の時刻」とサービス提供時間(各種設定)から AM/PM を自動選択。
   //   午前の時間帯=AM、午後の時間帯(PM開始以降)=PM。 一度だけ(以降は手動切替を尊重)。
   const _ampmInitRef = useRef(false);
@@ -22935,6 +23020,10 @@ export default function App() {
   if (isFamilyMode) {
     return <ViewErrorBoundary><FamilyView /></ViewErrorBoundary>;
   }
+  // ★ 2026-10-19 段階4: 招待 URL(?staffinvite=1234-5678)なら本人登録の画面
+  if (isSupabaseEnabled && !staffSession && _staffInviteCode) {
+    return <StaffInviteAcceptView code={_staffInviteCode} onLogin={(s) => setStaffSession(s)} />;
+  }
   // ★ Supabase 経由のスタッフログイン (本番経路)
   if (isSupabaseEnabled && !staffSession) {
     return <StaffLoginGate onLogin={(s) => setStaffSession(s)} />;
@@ -22958,7 +23047,7 @@ export default function App() {
   }
   // ★ ログイン済み + 店舗確定 + 記録者未選択 → RecorderPicker
   if (isSupabaseEnabled && staffSession?.storeId && !activeRecorder) {
-    return <RecorderPickerGate roleChoices={staffRoleChoices(appData)}
+    return <RecorderPickerGate roleChoices={staffRoleChoices(appData)} pinMembers={_pinMembers} onVerifyPin={_verifyPin}
       storeName={staffSession.storeName || staffSession.storeShortName}
       storeId={staffSession.storeId}
       loading={isSupabaseEnabled && (!appData._sbStoreId || appData._sbStoreId !== staffSession.storeId)}
@@ -23054,6 +23143,12 @@ export default function App() {
   // ★ VITE_E2E_DEMO=1 (CIの自動テストビルド専用・本番Vercelには未設定) のときだけこの壁を外し、
   //   旧来のローカルモード(端末内データのみ・ログイン不要)で起動して画面操作テストを可能にする(2026-09-02)
   // ★ 自動テスト(VITE_E2E_DEMO=1 のビルドのみ・本番では空): 管理局「端末の更新状況」パネルを単体で表示する入口(2026-10-17)
+  if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && /^#staffinvite=/.test(window.location.hash)) { // ★ 段階4 の自動テスト(本番では空)
+    return <StaffInviteAcceptView code={window.location.hash.slice('#staffinvite='.length)} onLogin={(sess) => { window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), staffSession: sess }; }} />;
+  }
+  if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.location.hash === '#pinprompt') {
+    return <div style={{minHeight:'100vh'}}><TsuPinPrompt member={{ id: 'm1', name: '見本 花子' }} onCancel={() => { window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), pinCancel: true }; }} onVerify={async (pin) => { if (pin !== '1234') throw new Error('PIN が違います'); window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), pinOk: true }; }} /></div>;
+  }
   if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.location.hash === '#devname') {
     return <div style={{minHeight:'100vh',background:'#f0f7e0'}}><TsuDeviceNamePrompt suggested="テスト店1" onDone={(v) => { window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), devName: String(v || '').trim() || 'テスト店1' }; }} /></div>;
   }
@@ -24095,7 +24190,7 @@ export default function App() {
              currentView === 'print' ? <ContactBookView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={printDirtyRef} saveFnRef={printSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} /> :
              currentView === 'master' ? <MasterView appData={appData} onSave={handleSaveToCloud} targetPatientId={targetPatientId} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={masterDirtyRef} saveFnRef={masterSaveFnRef} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} exPendingRef={masterExPendingRef} navAfterExRef={masterNavAfterExRef} /> :
              currentView === 'dash_personal' ? <PersonalDashboardView appData={appData} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  navigateTo={navigateTo} onPatientChange={setTargetPatientId} isSidebarOpen={isSidebarOpen} /> :
-             currentView === 'settings' ? <SettingsView appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} isSuperAdmin={staffSession?.role === 'super_admin'} isAdmin={staffSession?.role === 'super_admin' || staffSession?.role === 'manager'} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} deviceName={deviceName} updateDeviceName={updateDeviceName} lastSync={appData._lastSync} /> :
+             currentView === 'settings' ? <SettingsView appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} isSuperAdmin={staffSession?.role === 'super_admin'} isAdmin={staffSession?.role === 'super_admin' || staffSession?.role === 'manager'} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} deviceName={deviceName} updateDeviceName={updateDeviceName} lastSync={appData._lastSync} loginLogLoader={isSupabaseEnabled && staffSession?.token && staffSession?.storeId && (staffSession.role === 'manager' || staffSession.role === 'super_admin') ? (() => supabaseStaffLoginsList(staffSession.token, staffSession.storeId, 200)) : null} /> :
              currentView === 'cmmaster' ? <SettingsView cmOnly appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} isSuperAdmin={staffSession?.role === 'super_admin'} isAdmin={staffSession?.role === 'super_admin' || staffSession?.role === 'manager'} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} deviceName={deviceName} updateDeviceName={updateDeviceName} lastSync={appData._lastSync} /> :
              currentView === 'family_admin' ? <FamilyAdminView appData={appData} onSave={handleSaveToCloud} /> :
              currentView === 'emergency' ? <DisasterView appData={appData} onSave={handleSaveToCloud} staffSession={staffSession} /> :
@@ -24155,6 +24250,43 @@ export default function App() {
                 </select>
               </div>
             </div>
+            {/* ★ 2026-10-19 段階4: 本人アカウント(管理者だけ・編集時だけ) */}
+            {staffAddForm.editId && isSupabaseEnabled && (staffSession?.role === 'manager' || staffSession?.role === 'super_admin') && (() => {
+              const mid = String(staffAddForm.editId); const acct = (_staffAcct.accounts || []).find(a => String(a.member_id) === mid) || null; const inv = (_staffAcct.invites || []).find(i => String(i.member_id) === mid) || null;
+              const nm = `${staffAddForm.lastName || ''} ${staffAddForm.firstName || ''}`.trim();
+              const url = inv ? `${location.origin}${location.pathname}?staffinvite=${inv.code}` : '';
+              const issue = async () => { try { await supabaseStaffInviteCreate(staffSession.token, { storeId: staffSession.storeId, memberId: mid, name: nm, role: staffAddForm.role === '管理者' ? 'manager' : 'member' }); await _reloadStaffAcct(); } catch (e) { alert(e?.message || '招待を発行できませんでした'); } };
+              const toggle = async () => { if (!acct) return; if (!window.confirm(acct.is_active ? `「${acct.name}」を退職にしますか？\n（この人のログインはすぐに使えなくなります。記録に残っている名前はそのままです）` : `「${acct.name}」を復帰にしますか？`)) return; try { await supabaseStaffSetActive(staffSession.token, acct.staff_id, !acct.is_active); await _reloadStaffAcct(); } catch (e) { alert(e?.message || '変更できませんでした'); } };
+              return (
+                <div data-testid="member-account-panel" className="mt-4 p-3 rounded-xl border border-emerald-200 bg-emerald-50/60">
+                  <div className="text-sm font-bold text-emerald-900 mb-1">本人のログイン（従業員ごとのアカウント）</div>
+                  {_staffAcct.not_ready && <div className="text-xs text-amber-700 font-bold">まだ有効になっていません（本部の設定待ち）</div>}
+                  {acct ? (
+                    <div className="text-sm text-slate-700 leading-6">
+                      <div>状態: {acct.is_active ? <b className="text-emerald-700">登録済み</b> : <b className="text-red-700">退職（ログイン不可）</b>}　ID: <span className="font-mono">{acct.username}</span>　PIN: {acct.has_pin ? 'あり' : 'なし'}</div>
+                      <div className="text-xs text-slate-500">最終ログイン: {acct.last_login ? new Date(acct.last_login).toLocaleString('ja-JP') : '—'}</div>
+                      <button type="button" onClick={toggle} className={`mt-2 px-3 py-2 rounded-lg text-sm font-bold ${acct.is_active ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-emerald-600 text-white'}`}>{acct.is_active ? '退職にする' : '復帰させる'}</button>
+                    </div>
+                  ) : inv ? (
+                    <div className="text-sm text-slate-700 leading-6">
+                      <div>招待中（{new Date(inv.expires_at).toLocaleDateString('ja-JP')} まで有効）</div>
+                      <div className="font-mono text-lg font-bold tracking-wider">{inv.code}</div>
+                      <div className="text-xs text-slate-500 break-all">{url}</div>
+                      <div className="flex gap-2 mt-2 flex-wrap">
+                        <button type="button" onClick={() => { try { navigator.clipboard.writeText(url); tsuPopNotice('招待URLをコピーしました'); } catch {} }} className="px-3 py-2 rounded-lg text-sm font-bold bg-white border border-slate-300 text-slate-700">URLをコピー</button>
+                        <button type="button" onClick={issue} className="px-3 py-2 rounded-lg text-sm font-bold bg-white border border-slate-300 text-slate-700">コードを発行し直す</button>
+                      </div>
+                      <div className="text-xs text-slate-500 mt-1">本人にこの URL（またはコード）を渡してください。本人がログインID・パスワード・PIN を決めると登録が完了します。</div>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-slate-700 leading-6">
+                      <div>未登録</div>
+                      <button type="button" onClick={issue} disabled={!!_staffAcct.not_ready} className="mt-1 px-3 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white disabled:opacity-50">招待コードを発行</button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             <div className="flex gap-2 mt-5">
               <button onClick={()=>setStaffAddModal(false)}
                 className="flex-1 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-sm">キャンセル</button>
@@ -43794,7 +43926,9 @@ function AdminSettingsSection({ appData, onSave }) {
   );
 }
 
-function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAdmin, navFocus, onFocusHandled, deviceName, updateDeviceName, lastSync, cmOnly }) {
+function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAdmin, navFocus, onFocusHandled, deviceName, updateDeviceName, lastSync, cmOnly, loginLogLoader }) {
+  // ★ 2026-10-19 段階4: ログイン記録(管理者だけ・サーバーから取得)
+  const [loginLog, setLoginLog] = useState(null);
   const [, setKpLayoutTick] = useState(0); // テンキーの並びの選択を画面に反映するため(値は端末に保存)
   // ★ cmOnly=true: サイドバー「ケアマネ事業所・担当者」画面の専用モード(2026-08-31 店舗要望で各種設定から完全移設)。
   //   「消える問題」対策の同期追従・即保存(persistCm)ロジックを共有するため、タブ抽出はせず同一コンポーネントをモード分けで再利用。
@@ -45788,6 +45922,21 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                   保存の状態: ブラウザ保存 {mk(st.ls)}{st.lsWritable === false ? '（容量いっぱい）' : ''} ／ 控え(IndexedDB) {mk(st.idb)} ／ Cookie {mk(st.ck)} ／ 端末の印 {st.id ? st.id.slice(0, 8) : 'なし'} ／ 版 {(__builtUpdateNotes?.version || '-').replace(/^upd-\d{4}-\d{4}-/, '')}
                   <span className="block">端末名が起動のたびに消える場合は、この行の画面写真を本部へ送ってください。</span>
                 </div>; })()}
+              {/* ★ 2026-10-19 段階4: ログイン記録(誰がいつどの端末から入ったか) */}
+              {loginLogLoader && (
+                <div className="mb-3" data-testid="login-log">
+                  <button type="button" onClick={async () => { if (loginLog) { setLoginLog(null); return; } setLoginLog([]); try { setLoginLog(await loginLogLoader()); } catch { setLoginLog([]); } }}
+                    className="px-3 py-2 rounded-lg text-sm font-bold bg-white border border-slate-300 text-slate-700">{loginLog ? 'ログイン記録を閉じる' : 'ログイン記録を見る'}</button>
+                  {loginLog && (
+                    <div className="mt-2 overflow-x-auto">
+                      {loginLog.length === 0 ? <div className="text-xs text-slate-500">記録はまだありません（従業員ごとのログインが有効になると残ります）</div> : (
+                        <table className="w-full text-xs"><thead><tr className="text-slate-500 text-left"><th className="py-1 pr-2 font-normal">日時</th><th className="py-1 pr-2 font-normal">名前</th><th className="py-1 pr-2 font-normal">種類</th><th className="py-1 pr-2 font-normal">端末</th></tr></thead>
+                          <tbody>{loginLog.map((l, i) => <tr key={i} className="border-t border-slate-100"><td className="py-1 pr-2 whitespace-nowrap">{new Date(l.at).toLocaleString('ja-JP')}</td><td className="py-1 pr-2 font-bold">{l.name || '—'}</td><td className="py-1 pr-2">{l.kind === 'person' ? '本人ログイン' : l.kind === 'pin' ? 'PIN切替' : '店舗ログイン'}</td><td className="py-1 pr-2">{l.device || '—'}</td></tr>)}</tbody></table>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               <label className="block text-sm font-bold text-slate-600 mb-1.5">端末名</label>
               <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
                 <input

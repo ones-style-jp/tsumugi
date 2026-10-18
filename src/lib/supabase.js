@@ -1989,11 +1989,27 @@ async function staffApi(payload) {
 }
 const _isNoServer = (e) => !!(e && e.noServer) && !!supabase;
 
+// ★ 2026-10-19 段階4(従業員ごとのログイン): 招待・本人登録・PIN・退職・ログイン記録(すべてサーバー /api/staff-auth)
+const _devName = () => { try { return localStorage.getItem('tsumugiDeviceName') || ''; } catch { return ''; } };
+export const hashPin = (pin) => hashPassword('pin:' + String(pin || ''));
+export async function supabaseStaffInviteCreate(token, { storeId, memberId, name, role, email }) { return (await staffApi({ action: 'invite_create', token, store_id: storeId, member_id: memberId, name, role, email: email || '' })).invite; }
+export async function supabaseStaffInviteLookup(code) { return (await staffApi({ action: 'invite_lookup', code: String(code || '') })).invite; }
+export async function supabaseStaffInviteAccept({ code, username, password, pin }) {
+  const password_hash = await hashPassword(password); const pin_hash = pin ? await hashPin(pin) : '';
+  const j = await staffApi({ action: 'invite_accept', code: String(code || ''), username: String(username || '').trim(), password_hash, pin_hash, device: _devName() });
+  if (j.sb_token) setSbAccessToken(j.sb_token, j.sb_exp);
+  return { ...(j.staff || {}), _token: j.token || '' };
+}
+export async function supabaseStaffPinSet(token, pin) { return staffApi({ action: 'pin_set', token, pin_hash: await hashPin(pin) }); }
+export async function supabaseStaffPinVerify(token, memberId, pin) { return staffApi({ action: 'pin_verify', token, member_id: String(memberId), pin_hash: await hashPin(pin), device: _devName() }); }
+export async function supabaseStaffMembersStatus(token, storeId) { try { return await staffApi({ action: 'members_status', token, store_id: storeId }); } catch (e) { return { accounts: [], invites: [], error: e && e.message }; } }
+export async function supabaseStaffSetActive(token, staffId, active) { return staffApi({ action: 'set_active', token, staff_id: staffId, active: !!active }); }
+export async function supabaseStaffLoginsList(token, storeId, limit) { try { return (await staffApi({ action: 'logins_list', token, store_id: storeId, limit: limit || 100 })).logins || []; } catch { return []; } }
 export async function supabaseStaffLogin({ username, password }) {
   if (!supabase) throw new Error('Supabase 未接続');
   const password_hash = await hashPassword(password);
   try {
-    const j = await staffApi({ action: 'login', username: String(username || '').trim(), password_hash });
+    const j = await staffApi({ action: 'login', username: String(username || '').trim(), password_hash, device: _devName() }); // ★ 段階4: 端末名も記録
     if (j.sb_token) setSbAccessToken(j.sb_token, j.sb_exp); // ★ 2026-10-17: Supabase の証(発行されたときだけ)
     return { ...(j.staff || {}), _token: j.token || '' };
   } catch (e) {
