@@ -2004,6 +2004,9 @@ export async function supabaseStaffPinSet(token, pin) { return staffApi({ action
 export async function supabaseStaffPinVerify(token, memberId, pin) { return staffApi({ action: 'pin_verify', token, member_id: String(memberId), pin_hash: await hashPin(pin), device: _devName() }); }
 export async function supabaseStaffMembersStatus(token, storeId) { try { return await staffApi({ action: 'members_status', token, store_id: storeId }); } catch (e) { return { accounts: [], invites: [], error: e && e.message }; } }
 export async function supabaseStaffSetActive(token, staffId, active) { return staffApi({ action: 'set_active', token, staff_id: staffId, active: !!active }); }
+export async function supabaseStaffSharedDevice(token) { return staffApi({ action: 'shared_device', token, device: _devName() }); }
+export async function supabaseStaffRenew(token) { return staffApi({ action: 'renew', token }); }
+export function tsuTokenExp(token) { try { const p = String(token || '').split('.')[0]; const j = JSON.parse(atob(p.replace(/-/g, '+').replace(/_/g, '/'))); return Number(j.exp) || 0; } catch { return 0; } }
 export async function supabaseStaffLoginsList(token, storeId, limit) { try { return (await staffApi({ action: 'logins_list', token, store_id: storeId, limit: limit || 100 })).logins || []; } catch { return []; } }
 export async function supabaseStaffLogin({ username, password }) {
   if (!supabase) throw new Error('Supabase 未接続');

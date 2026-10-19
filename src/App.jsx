@@ -47,6 +47,7 @@ import {
   deviceIdentityReady, kvSet, lsSetSmall, deviceStorageStatus, // ★ 2026-10-18: 端末ID・端末名の第2・第3の保存先(IndexedDB・Cookie)と保存の状態
   setFilesContext, // ★ 2026-10-19 データ保護(段階3c): 写真・書類の署名はサーバー(/api/files)で
   supabaseStaffInviteCreate, supabaseStaffInviteLookup, supabaseStaffInviteAccept, supabaseStaffPinSet, supabaseStaffPinVerify, supabaseStaffMembersStatus, supabaseStaffSetActive, supabaseStaffLoginsList, // ★ 2026-10-19 段階4
+  supabaseStaffSharedDevice, supabaseStaffRenew, tsuTokenExp, // ★ 2026-10-19 段階4 続き
   cloudUndoPush, cloudUndoList, cloudUndoDelete,
   supabaseLoadDiseaseMaster,
   supabaseSaveDiseaseMaster,
@@ -18548,13 +18549,14 @@ function TsuPinPrompt({ member, onVerify, onCancel }) {
     </div>
   );
 }
-function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdmin, onSelect, onAddMember, onRemoveMember, onTransferAdmin, onLogout, onBackToStores, adminAuth, onSetAdminAuth, loading, roleChoices, pinMembers, onVerifyPin }) {
+function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdmin, onSelect, onAddMember, onRemoveMember, onTransferAdmin, onLogout, onBackToStores, adminAuth, onSetAdminAuth, loading, roleChoices, pinMembers, onVerifyPin, pinRequired }) {
   const [pendingAdmin, setPendingAdmin] = React.useState(null); // 管理者選択 → 認証待ち
   const [pendingPin, setPendingPin] = React.useState(null); // ★ 2026-10-19 段階4: 本人アカウント＋PIN のある職員 → PIN 待ち
   // 管理者メンバーを選んだ時はパスワード認証を挟む。 ★ つむぎ管理局(super_admin)は本部認証済みなので店舗のPINを省略して入れる
   const selectMember = (m) => {
     tsumugiMaybeAutoFullscreen(); // ★ 端末設定ONなら、このクリックで全画面に
     if (!isSuperAdmin && pinMembers && pinMembers.has(String(m.id)) && onVerifyPin) { setPendingPin(m); return; } // ★ 段階4: PIN で本人確認(管理者パスワードの代わり)
+    if (!isSuperAdmin && pinRequired && m.id !== 'hq_viewer') { alert(`${m.name} さんはまだ本人登録（PIN）が済んでいません。管理者から招待を受けて本人登録をしてから選んでください。`); return; } // ★ 段階4: PIN 必須の店舗
     const isAdminMember = m.isAdmin || m.roleLabel === '管理者';
     if (isAdminMember && !isSuperAdmin) { setPendingAdmin(m); return; }
     onSelect(m);
@@ -22276,20 +22278,50 @@ export default function App() {
   const _reloadStaffAcct = React.useCallback(async () => { if (!isSupabaseEnabled || !staffSession?.token || !staffSession?.storeId) return; try { const r = await supabaseStaffMembersStatus(staffSession.token, staffSession.storeId); if (r) _setStaffAcct(r); } catch {} }, [staffSession?.token, staffSession?.storeId]);
   useEffect(() => { _reloadStaffAcct(); }, [_reloadStaffAcct]);
   const _pinMembers = React.useMemo(() => new Set((_staffAcct.accounts || []).filter(a => a.is_active && a.has_pin && a.member_id).map(a => String(a.member_id))), [_staffAcct]);
+  // ★ 段階4 続き: 各種設定へ渡す(本人の PIN 設定・この端末をみんなで使う・未登録の職員)
+  const _staffCtx = React.useMemo(() => {
+    if (!isSupabaseEnabled || !staffSession?.token || !staffSession?.storeId) return null;
+    const withPin = new Set((_staffAcct.accounts || []).filter(a => a.is_active && a.has_pin).map(a => String(a.member_id)));
+    return { enabled: true, kind: staffSession.kind || 'store', role: staffSession.role, displayName: staffSession.displayName, hasPin: !!staffSession.hasPin,
+      membersWithoutAccount: mergedStaffMembers.filter(m => m.id !== 'hq_viewer' && !withPin.has(String(m.id))).map(m => m.name),
+      setPin: async (pin) => { await supabaseStaffPinSet(staffSession.token, pin); const next = { ...staffSession, hasPin: true }; sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(next)); setStaffSession(next); _reloadStaffAcct(); },
+      sharedDevice: async () => { const r = await supabaseStaffSharedDevice(staffSession.token); if (!r || !r.token) throw new Error('設定できませんでした'); const next = { ...r.session, token: r.token }; sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(next)); sessionStorage.removeItem('tsumugiActiveRecorder'); window.location.reload(); } };
+  }, [staffSession, _staffAcct, mergedStaffMembers, _reloadStaffAcct]); // eslint-disable-line react-hooks/exhaustive-deps
   const _verifyPin = React.useCallback(async (m, pin) => { await supabaseStaffPinVerify(staffSession.token, m.id, pin); }, [staffSession?.token]);
   useEffect(() => {
     if (!isSupabaseEnabled || !staffSession?.storeId || staffSession.kind !== 'person' || !staffSession.memberId || activeRecorder) return;
     const m = mergedStaffMembers.find(x => String(x.id) === String(staffSession.memberId));
     if (m) { sessionStorage.setItem('tsumugiActiveRecorder', JSON.stringify(m)); setActiveRecorder(m); }
   }, [staffSession?.storeId, staffSession?.kind, staffSession?.memberId, activeRecorder, mergedStaffMembers]); // eslint-disable-line react-hooks/exhaustive-deps
+  const _sec = tsuSecurity(appData);
   useEffect(() => {
     if (!isSupabaseEnabled || !staffSession?.storeId || staffSession.kind === 'person' || staffSession.role === 'super_admin' || !activeRecorder) return;
-    const LOCK_MS = 30 * 60 * 1000; let last = Date.now();
+    const lockMin = Number(_sec.lockMin) || 0; if (!lockMin) return; // 「なし」
+    const LOCK_MS = lockMin * 60 * 1000; let last = Date.now();
     const touch = () => { last = Date.now(); };
     ['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.addEventListener(ev, touch, { passive: true }));
-    const iv = setInterval(() => { if (Date.now() - last > LOCK_MS) { try { sessionStorage.removeItem('tsumugiActiveRecorder'); } catch {} setActiveRecorder(null); } }, 60 * 1000);
+    const iv = setInterval(() => { if (Date.now() - last > LOCK_MS) { try { sessionStorage.removeItem('tsumugiActiveRecorder'); } catch {} setActiveRecorder(null); } }, 30 * 1000);
     return () => { clearInterval(iv); ['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.removeEventListener(ev, touch)); };
-  }, [staffSession?.storeId, staffSession?.kind, staffSession?.role, !!activeRecorder]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [staffSession?.storeId, staffSession?.kind, staffSession?.role, !!activeRecorder, _sec.lockMin]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 完全ログアウト: 最後の操作から logoutHours 経ったら(端末を閉じていた時間も含む)ログアウト。「なし」なら何もしない
+  useEffect(() => {
+    if (!isSupabaseEnabled || !staffSession?.token || staffSession.role === 'super_admin') return;
+    const hours = Number(_sec.logoutHours) || 0; if (!hours) return;
+    const KEY = 'tsumugiLastActive'; const touch = () => { try { localStorage.setItem(KEY, String(Date.now())); } catch {} };
+    const check = () => { try { const t = Number(localStorage.getItem(KEY)) || 0; if (t && Date.now() - t > hours * 3600 * 1000) { handleStaffLogout(); } } catch {} };
+    check(); touch();
+    ['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.addEventListener(ev, touch, { passive: true }));
+    const iv = setInterval(check, 60 * 1000);
+    return () => { clearInterval(iv); ['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.removeEventListener(ev, touch)); };
+  }, [staffSession?.token, staffSession?.role, _sec.logoutHours]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 証の自動延長: 残り20日を切ったら更新(使っている限り切れない)。退職なら失効→ログアウト
+  useEffect(() => {
+    if (!isSupabaseEnabled || !staffSession?.token) return;
+    const exp = tsuTokenExp(staffSession.token); if (!exp || exp - Date.now() > 20 * 24 * 3600 * 1000) return;
+    let on = true;
+    (async () => { try { const r = await supabaseStaffRenew(staffSession.token); if (on && r && r.token) { const next = { ...staffSession, token: r.token }; sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(next)); setStaffSession(next); } } catch (e) { if (on && e && e.expired) handleStaffLogout(); } })();
+    return () => { on = false; };
+  }, [staffSession?.token]); // eslint-disable-line react-hooks/exhaustive-deps
   // ★ 起動/更新時に「今の時刻」とサービス提供時間(各種設定)から AM/PM を自動選択。
   //   午前の時間帯=AM、午後の時間帯(PM開始以降)=PM。 一度だけ(以降は手動切替を尊重)。
   const _ampmInitRef = useRef(false);
@@ -23047,7 +23079,7 @@ export default function App() {
   }
   // ★ ログイン済み + 店舗確定 + 記録者未選択 → RecorderPicker
   if (isSupabaseEnabled && staffSession?.storeId && !activeRecorder) {
-    return <RecorderPickerGate roleChoices={staffRoleChoices(appData)} pinMembers={_pinMembers} onVerifyPin={_verifyPin}
+    return <RecorderPickerGate roleChoices={staffRoleChoices(appData)} pinMembers={_pinMembers} onVerifyPin={_verifyPin} pinRequired={!!_sec.pinRequired}
       storeName={staffSession.storeName || staffSession.storeShortName}
       storeId={staffSession.storeId}
       loading={isSupabaseEnabled && (!appData._sbStoreId || appData._sbStoreId !== staffSession.storeId)}
@@ -24190,7 +24222,7 @@ export default function App() {
              currentView === 'print' ? <ContactBookView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={printDirtyRef} saveFnRef={printSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} /> :
              currentView === 'master' ? <MasterView appData={appData} onSave={handleSaveToCloud} targetPatientId={targetPatientId} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={masterDirtyRef} saveFnRef={masterSaveFnRef} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} exPendingRef={masterExPendingRef} navAfterExRef={masterNavAfterExRef} /> :
              currentView === 'dash_personal' ? <PersonalDashboardView appData={appData} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  navigateTo={navigateTo} onPatientChange={setTargetPatientId} isSidebarOpen={isSidebarOpen} /> :
-             currentView === 'settings' ? <SettingsView appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} isSuperAdmin={staffSession?.role === 'super_admin'} isAdmin={staffSession?.role === 'super_admin' || staffSession?.role === 'manager'} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} deviceName={deviceName} updateDeviceName={updateDeviceName} lastSync={appData._lastSync} loginLogLoader={isSupabaseEnabled && staffSession?.token && staffSession?.storeId && (staffSession.role === 'manager' || staffSession.role === 'super_admin') ? (() => supabaseStaffLoginsList(staffSession.token, staffSession.storeId, 200)) : null} /> :
+             currentView === 'settings' ? <SettingsView appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} isSuperAdmin={staffSession?.role === 'super_admin'} isAdmin={staffSession?.role === 'super_admin' || staffSession?.role === 'manager'} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} deviceName={deviceName} updateDeviceName={updateDeviceName} lastSync={appData._lastSync} loginLogLoader={isSupabaseEnabled && staffSession?.token && staffSession?.storeId && (staffSession.role === 'manager' || staffSession.role === 'super_admin') ? (() => supabaseStaffLoginsList(staffSession.token, staffSession.storeId, 200)) : null} staffCtx={_staffCtx || ((String(import.meta.env.VITE_E2E_DEMO || '') === '1' && window.__tsumugiE2E && window.__tsumugiE2E.staffCtx) || null)} /> :
              currentView === 'cmmaster' ? <SettingsView cmOnly appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} isSuperAdmin={staffSession?.role === 'super_admin'} isAdmin={staffSession?.role === 'super_admin' || staffSession?.role === 'manager'} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} deviceName={deviceName} updateDeviceName={updateDeviceName} lastSync={appData._lastSync} /> :
              currentView === 'family_admin' ? <FamilyAdminView appData={appData} onSave={handleSaveToCloud} /> :
              currentView === 'emergency' ? <DisasterView appData={appData} onSave={handleSaveToCloud} staffSession={staffSession} /> :
@@ -39547,6 +39579,9 @@ function InfoRow({ label, children }) {
     </div>
   );
 }
+// ★ 2026-10-19 段階4: 店舗ごとのログインとロックの設定(各種設定→システム)。無ければ既定(ロック30分・完全ログアウト7日・PIN任意・店舗IDは有効)
+const TSU_SECURITY_DEFAULT = { lockMin: 30, logoutHours: 168, pinRequired: false, storeLoginDisabled: false };
+const tsuSecurity = (appData) => ({ ...TSU_SECURITY_DEFAULT, ...((appData && appData.systemSettings && appData.systemSettings.security) || {}) });
 // ★ 初回ご利用報告が未報告の利用者ID(初回通所日が今日以前 かつ initialReports 未登録)。利用者マスタのバッジと各種設定「導入時の書類整理」で共通
 function tsuPendingInitialReportSet(appData) {
   const reported = new Set((appData.initialReports||[]).map(r => r.patientId));
@@ -39570,6 +39605,53 @@ function tsuPendingInitialReportSet(appData) {
   const set = new Set();
   firstByPatient.forEach((firstKey, pid) => { if (!reported.has(pid) && firstKey <= todayStr) set.add(pid); });
   return set;
+}
+// ★ 2026-10-19 段階4: 各種設定→システム「ログインとロックの設定」(管理者)＋本人ログインの PIN ＋「この端末をみんなで使う」
+function TsuLoginSecurityCard({ appData, onSave, staffCtx, isAdmin }) {
+  const sec = tsuSecurity(appData);
+  const setSec = (patch) => onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), security: { ...sec, ...patch } } }, { manual: true, message: '✓ ログインとロックの設定を保存しました' });
+  const [pin, setPin] = useState(''); const [pin2, setPin2] = useState(''); const [pinMsg, setPinMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const savePin = async () => { setPinMsg(''); if (!/^\d{4}$/.test(pin)) return setPinMsg('PIN は数字4桁です'); if (pin !== pin2) return setPinMsg('PIN(確認)が一致しません'); setBusy(true); try { await staffCtx.setPin(pin); setPin(''); setPin2(''); setPinMsg('PIN を保存しました'); } catch (e) { setPinMsg(e?.message || '保存できませんでした'); } setBusy(false); };
+  const Sel = ({ value, opts, onChange }) => <select value={String(value)} onChange={e => onChange(Number(e.target.value))} className="px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold bg-white">{opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>;
+  const noAcct = staffCtx.membersWithoutAccount || [];
+  return (
+    <SectionCard title="ログインとロックの設定">
+      <div data-testid="login-security">
+        {staffCtx.kind === 'person' && (
+          <div className="mb-4 p-3 rounded-xl border border-emerald-200 bg-emerald-50/60">
+            <div className="text-sm font-bold text-emerald-900">本人のログイン（{staffCtx.displayName}）</div>
+            <div className="text-xs text-slate-600 mt-1 mb-2">みんなで使う iPad で「自分に切り替える」ための PIN（数字4桁）{staffCtx.hasPin ? '：設定済み（変更できます）' : '：未設定'}</div>
+            <div className="flex gap-2 flex-wrap items-center">
+              <input type="password" inputMode="numeric" maxLength={4} value={pin} onChange={e => setPin(e.target.value)} placeholder="新しい PIN" className="w-28 px-3 py-2 border border-slate-300 rounded-lg text-sm"/>
+              <input type="password" inputMode="numeric" maxLength={4} value={pin2} onChange={e => setPin2(e.target.value)} placeholder="確認" className="w-28 px-3 py-2 border border-slate-300 rounded-lg text-sm"/>
+              <button type="button" onClick={savePin} disabled={busy} className="px-3 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white disabled:opacity-50">PIN を保存</button>
+              {pinMsg && <span className="text-xs font-bold text-slate-600">{pinMsg}</span>}
+            </div>
+            {staffCtx.role === 'manager' && (
+              <div className="mt-3 pt-3 border-t border-emerald-200">
+                <div className="text-sm font-bold text-emerald-900">この端末をみんなで使う</div>
+                <div className="text-xs text-slate-600 mt-1 mb-2 leading-5">共有の iPad などで設定します。設定後はこの端末は店舗のログイン状態になり、職員は「どなたですか」で名前と PIN を選んで使います。誰が設定したかは記録に残ります。</div>
+                <button type="button" onClick={async () => { if (!window.confirm('この端末を「みんなで使う」端末にします。あなたのログインは解除され、職員が名前と PIN で使えるようになります。よろしいですか？')) return; try { await staffCtx.sharedDevice(); } catch (e) { alert(e?.message || '設定できませんでした'); } }} className="px-3 py-2 rounded-lg text-sm font-bold bg-white border border-emerald-400 text-emerald-800">この端末をみんなで使う</button>
+              </div>
+            )}
+          </div>
+        )}
+        {(isAdmin || staffCtx.role === 'manager' || staffCtx.role === 'super_admin') ? (
+          <div className="grid gap-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap"><div><div className="text-sm font-bold text-slate-800">記録者の選択に戻るまで</div><div className="text-xs text-slate-500">みんなで使う端末で、操作が無いとき。画面から利用者情報が消えます</div></div>
+              <Sel value={sec.lockMin} opts={[[10,'10分'],[30,'30分'],[60,'60分'],[0,'なし']]} onChange={v => setSec({ lockMin: v })}/></div>
+            <div className="flex items-center justify-between gap-3 flex-wrap"><div><div className="text-sm font-bold text-slate-800">完全にログアウトするまで</div><div className="text-xs text-slate-500">端末を使わなかった時間。次に使うときはログインし直し</div></div>
+              <Sel value={sec.logoutHours} opts={[[12,'12時間'],[24,'24時間'],[168,'7日間'],[0,'なし']]} onChange={v => setSec({ logoutHours: v })}/></div>
+            <label className="flex items-center justify-between gap-3 flex-wrap cursor-pointer"><div><div className="text-sm font-bold text-slate-800">PIN を必須にする</div><div className="text-xs text-slate-500">本人登録（PIN）が済んでいない職員は「どなたですか」で選べなくなります{noAcct.length ? `（未登録: ${noAcct.length}名）` : ''}</div></div>
+              <input type="checkbox" checked={!!sec.pinRequired} onChange={e => { if (e.target.checked && noAcct.length && !window.confirm(`まだ本人登録が済んでいない職員が ${noAcct.length} 名います（${noAcct.slice(0,5).join('・')}${noAcct.length>5?' …':''}）。この人たちは記録できなくなります。PIN を必須にしますか？`)) return; setSec({ pinRequired: e.target.checked }); }} className="w-6 h-6"/></label>
+            <label className="flex items-center justify-between gap-3 flex-wrap cursor-pointer"><div><div className="text-sm font-bold text-slate-800">店舗IDでのログインを止める</div><div className="text-xs text-slate-500">全員が本人登録を終えたら。以後は本人のID・パスワードと「この端末をみんなで使う」だけでログインします</div></div>
+              <input type="checkbox" checked={!!sec.storeLoginDisabled} onChange={e => { if (e.target.checked && !window.confirm('店舗IDでのログインを止めます。管理者の本人ログインから「この端末をみんなで使う」を設定できることを確認してから入れてください。よろしいですか？')) return; setSec({ storeLoginDisabled: e.target.checked }); }} className="w-6 h-6"/></label>
+          </div>
+        ) : <div className="text-xs text-slate-500">ロックや PIN の設定は管理者が行います。</div>}
+      </div>
+    </SectionCard>
+  );
 }
 // ★ 2026-10-19(ユーザー要望): 各種設定「導入時の書類整理」。つむぎより前から紙・パソコンで保管している書類を、種類ごとにまとめて「別の場所で保管」として記録する(導入直後に一度使う画面)
 function TsuOnboardingDocsPanel({ appData, onSave }) {
@@ -43977,7 +44059,7 @@ function AdminSettingsSection({ appData, onSave }) {
   );
 }
 
-function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAdmin, navFocus, onFocusHandled, deviceName, updateDeviceName, lastSync, cmOnly, loginLogLoader }) {
+function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAdmin, navFocus, onFocusHandled, deviceName, updateDeviceName, lastSync, cmOnly, loginLogLoader, staffCtx }) {
   // ★ 2026-10-19 段階4: ログイン記録(管理者だけ・サーバーから取得)
   const [loginLog, setLoginLog] = useState(null);
   const [, setKpLayoutTick] = useState(0); // テンキーの並びの選択を画面に反映するため(値は端末に保存)
@@ -45957,6 +46039,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
               </label>
             </SectionCard>
             <div ref={deviceSectionRef}>
+            {!cmOnly && staffCtx && staffCtx.enabled && <TsuLoginSecurityCard appData={appData} onSave={onSave} staffCtx={staffCtx} isAdmin={isAdmin} />}
             {!cmOnly && <TsuOnboardingDocsPanel appData={appData} onSave={onSave} />}
             <SectionCard title="この端末の名前・最終更新">
               <p className="text-xs text-slate-500 mb-3">この端末（iPad・PC 等）に名前を付けておくと、記録を保存したときに「どの端末で最後に更新したか」が全端末に表示されます。名前はこの端末だけに保存され、他の端末には送信されません。</p>

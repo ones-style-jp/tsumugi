@@ -25,6 +25,9 @@
 //   set_active           { token, staff_id, active }                          → { ok }           退職(false)/復帰(true)。店舗管理者 or 本部
 //   logins_list          { token, store_id, limit? }                          → { logins:[...] } 店舗管理者 or 本部
 //   login には device(端末名) を添えられる → staff_logins に記録
+//   shared_device        { token(本人・管理者), device? }                    → { token, session } 「この端末をみんなで使う」: 店舗共通と同じ働きの証(shared)を発行
+//   renew                { token }                                            → { token }        証の延長(30日)。退職・削除なら 401
+//   店舗の設定 systemSettings.security.storeLoginDisabled=true なら、店舗共通(kind=store)の login は拒否(従業員ごとのログインへ切替済み)
 //
 // token = 署名付きの短い文字列(HMAC-SHA256・30日)。DBに列を増やさずに済み、偽造できない。
 //   パスワードのハッシュ方式(SHA-256+固定ソルト)は従来どおりブラウザ側で計算して送る(平文は送らない)。
@@ -66,6 +69,10 @@ const unb64u = (s) => Buffer.from(String(s).replace(/-/g, '+').replace(/_/g, '/'
 const sign = (payload) => crypto.createHmac('sha256', 'tsumugi-staff-token|' + SERVICE_KEY).update(payload).digest('hex');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// ★ 段階4: 店舗のログイン設定(各種設定→システム・systemSettings.security)。読めなければ既定
+async function storeSecurity(storeId) {
+  try { const rows = await sb(`app_state?select=sec:data->systemSettings->security&key=eq.${encodeURIComponent(storeId)}&limit=1`); const sec = rows && rows[0] && rows[0].sec; return (sec && typeof sec === 'object') ? sec : {}; } catch { return {}; }
+}
 // ★ 2026-10-19 段階4: ログイン記録(staff_logins が無い間は黙って何もしない)
 async function logLogin(staff, kind, device) {
   try { await sb('staff_logins', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ store_id: staff.store_id || null, staff_id: staff.id, member_id: staff.member_id || null, name: staff.display_name || `${staff.last_name || ''} ${staff.first_name || ''}`.trim(), kind, device: String(device || '').slice(0, 60) || null }) }); } catch {}
@@ -123,6 +130,10 @@ export default async function handler(req, res) {
       const rows = await sb(`staff?select=*,stores(id,name,short_name)&username=eq.${encodeURIComponent(username)}&password_hash=eq.${encodeURIComponent(hash)}&is_active=eq.true&deleted_at=is.null&limit=1`);
       const staff = Array.isArray(rows) ? rows[0] : null;
       if (!staff) return res.status(401).json({ error: 'IDまたはパスワードが違います' });
+      // ★ 段階4: 店舗の設定で「店舗IDでのログインを止める」が入っていれば、店舗共通ログインは拒否(本人のログインへ)
+      if ((staff.kind || 'store') === 'store' && staff.role !== 'super_admin' && staff.store_id && (await storeSecurity(staff.store_id)).storeLoginDisabled) {
+        return res.status(403).json({ error: 'この店舗は「従業員ごとのログイン」に切り替わりました。ご自身のログインIDとパスワードでログインしてください。', store_login_disabled: true });
+      }
       try { await sb(`staff?id=eq.${encodeURIComponent(staff.id)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ last_login: new Date().toISOString() }) }); } catch {}
       const mc = await mintSbTokenChecked(staff);
       await logLogin(staff, staff.kind === 'person' ? 'person' : 'store', body.device); // ★ 段階4: ログイン記録(表が無ければ何もしない)
@@ -173,6 +184,23 @@ export default async function handler(req, res) {
 
     // ★ 2026-10-19 段階4 ----------------------------------------------------------
     const canManageStore = (sid) => isHq || (t.role === 'manager' && t.store_id && String(t.store_id) === String(sid));
+    if (action === 'renew') {
+      // 証の延長(使っている限り切れない)。退職・削除なら失効
+      const cur = await sb(`staff?select=id,role,store_id,is_active,deleted_at,kind,member_id&id=eq.${encodeURIComponent(t.sid)}&limit=1`); const row = Array.isArray(cur) ? cur[0] : null;
+      if (!row || row.is_active === false || row.deleted_at) return res.status(401).json({ error: 'このアカウントは使えなくなりました。管理者にご確認ください。', expired: true });
+      const payload = b64u(JSON.stringify({ sid: row.id, role: t.role, store_id: t.store_id || row.store_id || null, shared: !!t.shared, exp: Date.now() + TOKEN_TTL_MS }));
+      return res.status(200).json({ token: payload + '.' + sign(payload) });
+    }
+    if (action === 'shared_device') {
+      // 「この端末をみんなで使う」: 本人(管理者)のログインから、店舗共通と同じ働きの証を発行する(端末に残す)。誰が設定したかは記録に残る
+      const cur = await sb(`staff?select=*,stores(id,name,short_name)&id=eq.${encodeURIComponent(t.sid)}&limit=1`); const me = Array.isArray(cur) ? cur[0] : null;
+      if (!me || me.is_active === false || me.deleted_at) return res.status(401).json({ error: 'ログインし直してください', expired: true });
+      if (!(me.role === 'manager' || me.role === 'super_admin') || !t.store_id) return res.status(403).json({ error: '管理者の本人ログインからだけ設定できます' });
+      const payload = b64u(JSON.stringify({ sid: me.id, role: 'manager', store_id: t.store_id, shared: true, exp: Date.now() + TOKEN_TTL_MS }));
+      await logLogin({ ...me, store_id: t.store_id }, 'shared', body.device);
+      const st = me.stores || null;
+      return res.status(200).json({ token: payload + '.' + sign(payload), session: { staffId: me.id, username: me.username, role: 'manager', storeId: t.store_id, storeName: (st && st.name) || '', storeShortName: (st && st.short_name) || '', displayName: `共有端末（設定: ${me.display_name || me.username}）`, kind: 'store', shared: true, sharedBy: me.display_name || me.username, memberId: null, hasPin: false } });
+    }
     if (action === 'invite_create') {
       const sid = String(body.store_id || t.store_id || ''); if (!sid || !canManageStore(sid)) return res.status(403).json({ error: '権限がありません' });
       const name = String(body.name || '').trim(); if (!name) return res.status(400).json({ error: '名前が必要です' });
