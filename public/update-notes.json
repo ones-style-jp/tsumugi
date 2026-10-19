@@ -1,7 +1,14 @@
 {
-  "version": "upd-2026-1019-trial331",
+  "version": "upd-2026-1019-trial332",
   "updatedAt": "2026-10-19",
   "notes": [
+    {
+      "id": "upd-2026-1019-trial332-hq2fa-strict",
+      "type": "improvement",
+      "title": "本部の確認コードは 5分有効・3回まで に",
+      "body": "・管理局ログインの確認コードを、10分・5回 → 5分・3回 に厳しくしました。",
+      "date": "2026-10-19"
+    },
     {
       "id": "upd-2026-1019-trial331-hq2fa",
       "type": "improvement",

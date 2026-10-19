@@ -20057,7 +20057,7 @@ function StaffLoginGate({ onLogin }) {
           {form.needCode && (
             <div data-testid="hq-code" style={{marginBottom:14,padding:'12px 14px',background:'#f0f7e0',border:'1px solid #c5dea0',borderRadius:12}}>
               <div style={{fontSize:13,fontWeight:'bold',color:'#3d5021',marginBottom:4}}>確認コード（メールに届いた6桁）</div>
-              <div style={{fontSize:12,color:'#5e8030',marginBottom:8}}>{form.hint ? `${form.hint} に送りました。10分間有効です。` : '登録メールに送りました。10分間有効です。'}</div>
+              <div style={{fontSize:12,color:'#5e8030',marginBottom:8}}>{form.hint ? `${form.hint} に送りました。5分間有効・間違いは3回までです。` : '登録メールに送りました。5分間有効・間違いは3回までです。'}</div>
               <ImeSafeInput type="text" inputMode="numeric" value={form.code} onChange={e=>setForm(f=>({...f,code:toHalfWidth(e.target.value).replace(/[^0-9]/g,'').slice(0,6),error:''}))} placeholder="123456" autoComplete="one-time-code"
                 style={{width:'100%',padding:'12px 14px',border:'1px solid #cbd5e1',borderRadius:12,fontSize:20,fontWeight:'bold',letterSpacing:6,outline:'none',textAlign:'center',boxSizing:'border-box'}}/>
             </div>

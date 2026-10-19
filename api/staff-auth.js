@@ -32,7 +32,7 @@
 //   renew                { token }                                            → { token }        証の延長(30日)。退職・削除なら 401
 //   店舗の設定 systemSettings.security.storeLoginDisabled=true なら、店舗共通(kind=store)の login は拒否(従業員ごとのログインへ切替済み)
 //   ★ 2026-10-19 本部の2段階認証: super_admin の login は、ID・パスワードが合ったら登録メールへ6桁の確認コードを送り { need_code: true, hint }。
-//     login に code を添えて再送すると証を発行。コードは10分有効・5回間違いで無効。本部にメールが無ければ従来どおり(警告を返す)
+//     login に code を添えて再送すると証を発行。コードは5分有効・3回間違いで無効(2026-10-19 ユーザー指示で厳しく)。本部にメールが無ければ従来どおり
 //   ★ 2026-10-19 監視: ログイン失敗が 15分に10回(同じID)続いたら本部(super_admin のメール)へ通知。状態は app_secrets 'guard_login'
 //
 // token = 署名付きの短い文字列(HMAC-SHA256・30日)。DBに列を増やさずに済み、偽造できない。
@@ -124,17 +124,17 @@ async function loginFailNote(username) {
   await kvSave('guard_login', g);
   if (notify) { try { await sendMail(await hqEmails(), `【つむぎ】ログインの失敗が続いています（ID: ${String(username).slice(0, 40)}）`, `<p>ログインID「${String(username).slice(0, 40)}」で、パスワードの間違いが 15 分に 10 回以上続いています。</p><p>総当たり攻撃の可能性があります。心当たりが無い場合は、そのIDのパスワード変更をご検討ください。</p><p>— つむぎ(自動送信)</p>`); } catch {} }
 }
-// ★ 本部の2段階認証: 6桁コードをメールへ(10分・5回まで)
+// ★ 本部の2段階認証: 6桁コードをメールへ(5分・3回まで)
 async function hqCodeIssue(staff) {
   if (!staff.email || !/@/.test(staff.email)) return { skipped: true };
   const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
-  const g = await kvLoad('guard_hq2fa'); g[staff.id] = { hash: crypto.createHash('sha256').update(code + '|' + SERVICE_KEY).digest('hex'), exp: Date.now() + 10 * 60 * 1000, tries: 0 }; await kvSave('guard_hq2fa', g);
-  const ok = await sendMail([staff.email], '【つむぎ】管理局ログインの確認コード', `<p>つむぎ管理局のログインの確認コードです。</p><p style="font-size:28px;font-weight:bold;letter-spacing:6px">${code}</p><p>10分間有効です。心当たりが無い場合は、このメールを無視し、パスワードの変更をご検討ください。</p><p>— つむぎ(自動送信)</p>`);
+  const g = await kvLoad('guard_hq2fa'); g[staff.id] = { hash: crypto.createHash('sha256').update(code + '|' + SERVICE_KEY).digest('hex'), exp: Date.now() + 5 * 60 * 1000, tries: 0 }; await kvSave('guard_hq2fa', g);
+  const ok = await sendMail([staff.email], '【つむぎ】管理局ログインの確認コード', `<p>つむぎ管理局のログインの確認コードです。</p><p style="font-size:28px;font-weight:bold;letter-spacing:6px">${code}</p><p>5分間有効です（間違いは3回まで）。心当たりが無い場合は、このメールを無視し、パスワードの変更をご検討ください。</p><p>— つむぎ(自動送信)</p>`);
   return { ok, hint: staff.email.replace(/^(.{2}).*(@.*)$/, '$1***$2') };
 }
 async function hqCodeVerify(staff, code) {
   const g = await kvLoad('guard_hq2fa'); const e = g[staff.id]; if (!e) return false;
-  if (Date.now() > e.exp || (e.tries || 0) >= 5) { delete g[staff.id]; await kvSave('guard_hq2fa', g); return false; }
+  if (Date.now() > e.exp || (e.tries || 0) >= 3) { delete g[staff.id]; await kvSave('guard_hq2fa', g); return false; }
   const ok = crypto.createHash('sha256').update(String(code).replace(/[^0-9]/g, '') + '|' + SERVICE_KEY).digest('hex') === e.hash;
   if (ok) delete g[staff.id]; else e.tries = (e.tries || 0) + 1;
   await kvSave('guard_hq2fa', g); return ok;
