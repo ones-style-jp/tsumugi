@@ -2001,6 +2001,8 @@ export async function supabaseStaffInviteAccept({ code, username, password, pin 
   return { ...(j.staff || {}), _token: j.token || '' };
 }
 export async function supabaseStaffPinSet(token, pin) { return staffApi({ action: 'pin_set', token, pin_hash: await hashPin(pin) }); }
+export async function supabaseStaffPinUnlock(token, storeId) { return staffApi({ action: 'pin_unlock', token, store_id: storeId }); }
+export async function supabaseStaffPinGuardStatus(token, storeId) { try { return await staffApi({ action: 'pin_guard_status', token, store_id: storeId }); } catch { return { hard: false, minutes: 0 }; } }
 export async function supabaseStaffPinLogin(token, pin) { return staffApi({ action: 'pin_login', token, pin_hash: await hashPin(pin), device: _devName() }); }
 export async function supabaseStaffPinVerify(token, memberId, pin) { return staffApi({ action: 'pin_verify', token, member_id: String(memberId), pin_hash: await hashPin(pin), device: _devName() }); }
 export async function supabaseStaffMembersStatus(token, storeId) { try { return await staffApi({ action: 'members_status', token, store_id: storeId }); } catch (e) { return { accounts: [], invites: [], error: e && e.message }; } }

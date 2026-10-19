@@ -47,7 +47,7 @@ import {
   deviceIdentityReady, kvSet, lsSetSmall, deviceStorageStatus, // ★ 2026-10-18: 端末ID・端末名の第2・第3の保存先(IndexedDB・Cookie)と保存の状態
   setFilesContext, // ★ 2026-10-19 データ保護(段階3c): 写真・書類の署名はサーバー(/api/files)で
   supabaseStaffInviteCreate, supabaseStaffInviteLookup, supabaseStaffInviteAccept, supabaseStaffPinSet, supabaseStaffPinVerify, supabaseStaffMembersStatus, supabaseStaffSetActive, supabaseStaffLoginsList, // ★ 2026-10-19 段階4
-  supabaseStaffSharedDevice, supabaseStaffRenew, tsuTokenExp, supabaseStaffPinLogin, // ★ 2026-10-19 段階4 続き
+  supabaseStaffSharedDevice, supabaseStaffRenew, tsuTokenExp, supabaseStaffPinLogin, supabaseStaffPinUnlock, supabaseStaffPinGuardStatus, // ★ 2026-10-19 段階4 続き
   cloudUndoPush, cloudUndoList, cloudUndoDelete,
   supabaseLoadDiseaseMaster,
   supabaseSaveDiseaseMaster,
@@ -22304,7 +22304,9 @@ export default function App() {
     return { enabled: true, kind: staffSession.kind || 'store', role: staffSession.role, displayName: staffSession.displayName, hasPin: !!staffSession.hasPin,
       membersWithoutAccount: mergedStaffMembers.filter(m => m.id !== 'hq_viewer' && !withPin.has(String(m.id))).map(m => m.name),
       setPin: async (pin) => { await supabaseStaffPinSet(staffSession.token, pin); const next = { ...staffSession, hasPin: true }; sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(next)); setStaffSession(next); _reloadStaffAcct(); },
-      sharedDevice: async () => { const r = await supabaseStaffSharedDevice(staffSession.token); if (!r || !r.token) throw new Error('設定できませんでした'); const next = { ...r.session, token: r.token }; sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(next)); sessionStorage.removeItem('tsumugiActiveRecorder'); window.location.reload(); } };
+      sharedDevice: async () => { const r = await supabaseStaffSharedDevice(staffSession.token); if (!r || !r.token) throw new Error('設定できませんでした'); const next = { ...r.session, token: r.token }; sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(next)); sessionStorage.removeItem('tsumugiActiveRecorder'); window.location.reload(); },
+      pinGuardStatus: async () => supabaseStaffPinGuardStatus(staffSession.token, staffSession.storeId),
+      pinUnlock: async () => { await supabaseStaffPinUnlock(staffSession.token, staffSession.storeId); } };
   }, [staffSession, _staffAcct, mergedStaffMembers, _reloadStaffAcct]); // eslint-disable-line react-hooks/exhaustive-deps
   const _verifyPin = React.useCallback(async (m, pin) => { await supabaseStaffPinVerify(staffSession.token, m.id, pin); }, [staffSession?.token]);
   const _pinLogin = React.useCallback(async (pin) => { const r = await supabaseStaffPinLogin(staffSession.token, pin); const mid = r && r.staff && r.staff.member_id; const m = mergedStaffMembers.find(x => String(x.id) === String(mid)); if (m && (m.isAdmin || m.roleLabel === '管理者')) { try { sessionStorage.setItem('tsumugiAdminVerified', '1'); } catch {} } return m || null; }, [staffSession?.token, mergedStaffMembers]);
@@ -39647,8 +39649,19 @@ function TsuLoginSecurityCard({ appData, onSave, staffCtx, isAdmin }) {
   const savePin = async () => { setPinMsg(''); if (!/^\d{4}$/.test(pin)) return setPinMsg('PIN は数字4桁です'); if (pin !== pin2) return setPinMsg('PIN(確認)が一致しません'); setBusy(true); try { await staffCtx.setPin(pin); setPin(''); setPin2(''); setPinMsg('PIN を保存しました'); } catch (e) { setPinMsg(e?.message || '保存できませんでした'); } setBusy(false); };
   const Sel = ({ value, opts, onChange }) => <select value={String(value)} onChange={e => onChange(Number(e.target.value))} className="px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold bg-white">{opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>;
   const noAcct = staffCtx.membersWithoutAccount || [];
+  const [guard, setGuard] = useState(null);
+  React.useEffect(() => { let on = true; if (staffCtx.pinGuardStatus) staffCtx.pinGuardStatus().then(g => { if (on) setGuard(g); }).catch(() => {}); return () => { on = false; }; }, [staffCtx]);
   return (
     <SectionCard title="ログインとロックの設定">
+      {guard && (guard.hard || guard.minutes > 0) && (
+        <div data-testid="pin-guard" className="mb-3 p-3 rounded-xl border border-red-200 bg-red-50 text-sm text-red-800">
+          <div className="font-bold">{guard.hard ? 'PIN の間違いが 15 回続いたため、PIN の入力を止めています' : `PIN の間違いが続いたため、あと ${guard.minutes} 分ほど PIN を止めています`}</div>
+          <div className="text-xs mt-1">心当たりが無い場合は、端末が第三者の手に渡っていないかご確認ください。</div>
+          {guard.hard && (isAdmin || staffCtx.role === 'manager' || staffCtx.role === 'super_admin') && staffCtx.pinUnlock && (
+            <button type="button" onClick={async () => { if (!window.confirm('PIN の停止を解除しますか？')) return; try { await staffCtx.pinUnlock(); setGuard({ hard: false, minutes: 0 }); } catch (e) { alert(e?.message || '解除できませんでした'); } }} className="mt-2 px-3 py-2 rounded-lg text-sm font-bold bg-white border border-red-300 text-red-800">PIN の停止を解除</button>
+          )}
+        </div>
+      )}
       <div data-testid="login-security">
         {staffCtx.kind === 'person' && (
           <div className="mb-4 p-3 rounded-xl border border-emerald-200 bg-emerald-50/60">
@@ -39676,7 +39689,7 @@ function TsuLoginSecurityCard({ appData, onSave, staffCtx, isAdmin }) {
               <Sel value={Math.min(Number(sec.lockMin) || 30, 60)} opts={[[10,'10分'],[30,'30分'],[60,'60分']]} onChange={v => setSec({ lockMin: v })}/></div>
             <div className="flex items-center justify-between gap-3 flex-wrap"><div><div className="text-sm font-bold text-slate-800">完全にログアウトするまで</div><div className="text-xs text-slate-500">PIN 必須の店舗で、端末を使わなかった時間。次に使うときは ID・パスワードから</div></div>
               <Sel value={Math.min(Number(sec.logoutHours) || 168, 168)} opts={[[24,'24時間'],[168,'7日間']]} onChange={v => setSec({ logoutHours: v })}/></div>
-            <label className="flex items-center justify-between gap-3 flex-wrap cursor-pointer"><div><div className="text-sm font-bold text-slate-800">PIN を必須にする</div><div className="text-xs text-slate-500">本人登録（PIN）が済んでいない職員は「どなたですか」で選べなくなります{noAcct.length ? `（未登録: ${noAcct.length}名）` : ''}</div></div>
+            <label className="flex items-center justify-between gap-3 flex-wrap cursor-pointer"><div><div className="text-sm font-bold text-slate-800">PIN を必須にする</div><div className="text-xs text-slate-500">本人登録（PIN）が済んでいない職員は「どなたですか」で選べなくなります{noAcct.length ? `（未登録: ${noAcct.length}名）` : ''}。PIN の間違いは 5回で15分停止 → さらに5回で60分 → さらに5回で管理者が解除するまで停止（店舗と管理者へメール）</div></div>
               <input type="checkbox" checked={!!sec.pinRequired} onChange={e => { if (e.target.checked && noAcct.length && !window.confirm(`まだ本人登録が済んでいない職員が ${noAcct.length} 名います（${noAcct.slice(0,5).join('・')}${noAcct.length>5?' …':''}）。この人たちは記録できなくなります。PIN を必須にしますか？`)) return; setSec({ pinRequired: e.target.checked }); }} className="w-6 h-6"/></label>
             <label className="flex items-center justify-between gap-3 flex-wrap cursor-pointer"><div><div className="text-sm font-bold text-slate-800">店舗IDでのログインを止める</div><div className="text-xs text-slate-500">全員が本人登録を終えたら。以後は本人のID・パスワードと「この端末をみんなで使う」だけでログインします</div></div>
               <input type="checkbox" checked={!!sec.storeLoginDisabled} onChange={e => { if (e.target.checked && !window.confirm('店舗IDでのログインを止めます。管理者の本人ログインから「この端末をみんなで使う」を設定できることを確認してから入れてください。よろしいですか？')) return; setSec({ storeLoginDisabled: e.target.checked }); }} className="w-6 h-6"/></label>

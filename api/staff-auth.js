@@ -22,6 +22,8 @@
 //   pin_set              { token, pin_hash }                                  → { ok }           本人(person)だけ
 //   pin_verify           { token, member_id, pin_hash, device? }              → { ok, staff }    店舗共通ログイン中に操作者を PIN で切替
 //   pin_login            { token, pin_hash, device? }                         → { ok, staff }    PIN だけで本人を特定(店舗内で PIN は重複しないので名前のタップが要らない)
+//   pin_unlock           { token, store_id }                                  → { ok }           PIN の停止(15回失敗)を管理者が解除
+//   pin_guard_status     { token, store_id }                                  → { hard, minutes } PIN の停止状態
 //   members_status       { token, store_id }                                  → { accounts:[{member_id, staff_id, name, is_active, has_pin, last_login, username}], invites:[...] }
 //   set_active           { token, staff_id, active }                          → { ok }           退職(false)/復帰(true)。店舗管理者 or 本部
 //   logins_list          { token, store_id, limit? }                          → { logins:[...] } 店舗管理者 or 本部
@@ -33,6 +35,7 @@
 // token = 署名付きの短い文字列(HMAC-SHA256・30日)。DBに列を増やさずに済み、偽造できない。
 //   パスワードのハッシュ方式(SHA-256+固定ソルト)は従来どおりブラウザ側で計算して送る(平文は送らない)。
 import crypto from 'crypto';
+import { getSecret } from './_secrets.js';
 
 const SUPA_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -70,11 +73,40 @@ const unb64u = (s) => Buffer.from(String(s).replace(/-/g, '+').replace(/_/g, '/'
 const sign = (payload) => crypto.createHmac('sha256', 'tsumugi-staff-token|' + SERVICE_KEY).update(payload).digest('hex');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-// ★ 段階4: PIN の総当たり対策(店舗ごと・15分に5回失敗で15分停止。サーバーの実行単位ごとの控え＝完全ではないが十分な遅延になる)
-const _pinGuard = new Map();
-function pinGuardCheck(sid) { const g = _pinGuard.get(sid); if (!g) return 0; if (g.lockUntil && Date.now() < g.lockUntil) return Math.ceil((g.lockUntil - Date.now()) / 60000); return 0; }
-function pinGuardFail(sid) { const now = Date.now(); const g = _pinGuard.get(sid) || { fails: [] }; g.fails = g.fails.filter(t => now - t < 15 * 60 * 1000); g.fails.push(now); if (g.fails.length >= 5) { g.lockUntil = now + 15 * 60 * 1000; g.fails = []; } _pinGuard.set(sid, g); }
-function pinGuardOk(sid) { _pinGuard.delete(sid); }
+// ★ 段階4: PIN の総当たり対策(店舗ごと・段階的)。失敗5回→15分停止、さらに5回→60分、さらに5回(計15回)→管理者が解除するまで停止＋店舗/管理者へメール。
+//   状態は app_secrets の1行 'guard_pin'(サーバー専用)に JSON で保存(サーバーの実行単位をまたいでも効く)
+const PIN_GUARD_KEY = 'guard_pin';
+async function pinGuardLoad() { try { const rows = await sb(`app_secrets?select=value&key=eq.${encodeURIComponent(PIN_GUARD_KEY)}&limit=1`); const v = rows && rows[0] && rows[0].value; const j = v ? JSON.parse(v) : {}; return (j && typeof j === 'object') ? j : {}; } catch { return {}; } }
+async function pinGuardSave(g) {
+  const value = JSON.stringify(g), updated_at = new Date().toISOString();
+  try { const r = await sb(`app_secrets?key=eq.${encodeURIComponent(PIN_GUARD_KEY)}&select=key`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ value, updated_at, updated_by: 'staff-auth' }) }); if (Array.isArray(r) && r.length) return; } catch {}
+  try { await sb('app_secrets', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ key: PIN_GUARD_KEY, value, updated_at, updated_by: 'staff-auth' }) }); } catch {}
+}
+// 返り値: 0=使える / 分=あと何分停止 / -1=管理者の解除待ち
+async function pinGuardCheck(sid) { const g = (await pinGuardLoad())[sid]; if (!g) return 0; if (g.hard) return -1; if (g.lockUntil && Date.now() < g.lockUntil) return Math.ceil((g.lockUntil - Date.now()) / 60000); return 0; }
+async function pinGuardFail(sid) {
+  const all = await pinGuardLoad(); const now = Date.now(); const g = all[sid] || { fails: [], locks: 0 };
+  g.fails = (g.fails || []).filter(t => now - t < 15 * 60 * 1000); g.fails.push(now);
+  let locked = null;
+  if (g.fails.length >= 5) { g.locks = (g.locks || 0) + 1; g.fails = []; if (g.locks >= 3) { g.hard = true; g.hardAt = now; locked = 'hard'; } else { g.lockUntil = now + (g.locks === 1 ? 15 : 60) * 60 * 1000; locked = g.locks; } }
+  all[sid] = g; await pinGuardSave(all);
+  if (locked === 'hard') { try { await notifyPinHardLock(sid); } catch {} }
+  return locked;
+}
+async function pinGuardOk(sid) { const all = await pinGuardLoad(); if (all[sid] && !all[sid].hard) { delete all[sid]; await pinGuardSave(all); } }
+async function pinGuardUnlock(sid) { const all = await pinGuardLoad(); delete all[sid]; await pinGuardSave(all); }
+// 停止(管理者解除待ち)になったら店舗のメールと管理者(本人アカウント)のメールへ知らせる。送れなくても処理は止めない
+async function notifyPinHardLock(sid) {
+  const apiKey = await getSecret('BREVO_API_KEY', 'brevo_api_key'); if (!apiKey) return;
+  const senderEmail = (await getSecret('BREVO_SENDER_EMAIL', 'brevo_sender_email')) || 'noreply@ones-style.co.jp';
+  const st = await sb(`stores?select=name,email&id=eq.${encodeURIComponent(sid)}&limit=1`); const store = (st && st[0]) || {};
+  const mgrs = await sb(`staff?select=email,display_name&store_id=eq.${encodeURIComponent(sid)}&role=eq.manager&is_active=eq.true&deleted_at=is.null`);
+  const to = [...new Set([store.email, ...(mgrs || []).map(m => m.email)].filter(e => e && /@/.test(e)))].map(email => ({ email }));
+  if (!to.length) return;
+  const name = store.name || '店舗';
+  const html = `<p>${name} の「どなたですか」(PIN)で、PIN の間違いが 15 回続いたため、PIN の入力を止めました。</p><p>心当たりが無い場合は、端末が第三者の手に渡っていないかをご確認ください。</p><p>解除は、管理者が つむぎ の「各種設定 → システム → ログインとロックの設定」の「PIN の停止を解除」から行えます。</p><p>— つむぎ(自動送信)</p>`;
+  await fetch('https://api.brevo.com/v3/smtp/email', { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json', 'api-key': apiKey }, body: JSON.stringify({ sender: { email: senderEmail, name: 'つむぎ' }, to, subject: `【つむぎ】${name}: PIN の間違いが続いたため停止しました`, htmlContent: html }) });
+}
 // ★ 段階4: 店舗のログイン設定(各種設定→システム・systemSettings.security)。読めなければ既定
 async function storeSecurity(storeId) {
   try { const rows = await sb(`app_state?select=sec:data->systemSettings->security&key=eq.${encodeURIComponent(storeId)}&limit=1`); const sec = rows && rows[0] && rows[0].sec; return (sec && typeof sec === 'object') ? sec : {}; } catch { return {}; }
@@ -233,11 +265,11 @@ export default async function handler(req, res) {
       await sleep(300);
       const sid = String(t.store_id || body.store_id || ''); const mid = String(body.member_id || ''); const pin = String(body.pin_hash || '').trim();
       if (!sid || !mid || !/^[0-9a-f]{64}$/.test(pin)) return res.status(400).json({ error: 'PIN が違います' });
-      { const lk = pinGuardCheck(sid); if (lk) return res.status(429).json({ error: `PIN の間違いが続いたため、${lk} 分ほど待ってからやり直してください` }); }
+      { const lk = await pinGuardCheck(sid); if (lk === -1) return res.status(423).json({ error: 'PIN の間違いが続いたため、管理者が解除するまで PIN は使えません(各種設定 → システム)', hard: true }); if (lk) return res.status(429).json({ error: `PIN の間違いが続いたため、${lk} 分ほど待ってからやり直してください` }); }
       const rows = await sb(`staff?select=${SAFE_COLS},member_id,kind&store_id=eq.${encodeURIComponent(sid)}&member_id=eq.${encodeURIComponent(mid)}&kind=eq.person&pin_hash=eq.${encodeURIComponent(pin)}&is_active=eq.true&deleted_at=is.null&limit=1`);
       const st = Array.isArray(rows) ? rows[0] : null;
-      if (!st) { pinGuardFail(sid); return res.status(401).json({ error: 'PIN が違います' }); }
-      pinGuardOk(sid);
+      if (!st) { const lk = await pinGuardFail(sid); return res.status(lk === 'hard' ? 423 : 401).json({ error: lk === 'hard' ? 'PIN の間違いが続いたため停止しました。管理者が解除するまで PIN は使えません' : 'PIN が違います', hard: lk === 'hard' }); }
+      await pinGuardOk(sid);
       await logLogin(st, 'pin', body.device);
       return res.status(200).json({ ok: true, staff: strip(st) });
     }
@@ -245,12 +277,20 @@ export default async function handler(req, res) {
       await sleep(300);
       const sid = String(t.store_id || body.store_id || ''); const pin = String(body.pin_hash || '').trim();
       if (!sid || !/^[0-9a-f]{64}$/.test(pin)) return res.status(400).json({ error: 'PIN が違います' });
-      { const lk = pinGuardCheck(sid); if (lk) return res.status(429).json({ error: `PIN の間違いが続いたため、${lk} 分ほど待ってからやり直してください` }); }
+      { const lk = await pinGuardCheck(sid); if (lk === -1) return res.status(423).json({ error: 'PIN の間違いが続いたため、管理者が解除するまで PIN は使えません(各種設定 → システム)', hard: true }); if (lk) return res.status(429).json({ error: `PIN の間違いが続いたため、${lk} 分ほど待ってからやり直してください` }); }
       const rows = await sb(`staff?select=${SAFE_COLS},member_id,kind&store_id=eq.${encodeURIComponent(sid)}&kind=eq.person&pin_hash=eq.${encodeURIComponent(pin)}&is_active=eq.true&deleted_at=is.null&limit=2`);
-      if (!Array.isArray(rows) || rows.length !== 1 || !rows[0].member_id) { pinGuardFail(sid); return res.status(401).json({ error: 'PIN が違います' }); }
-      pinGuardOk(sid);
+      if (!Array.isArray(rows) || rows.length !== 1 || !rows[0].member_id) { const lk = await pinGuardFail(sid); return res.status(lk === 'hard' ? 423 : 401).json({ error: lk === 'hard' ? 'PIN の間違いが続いたため停止しました。管理者が解除するまで PIN は使えません' : 'PIN が違います', hard: lk === 'hard' }); }
+      await pinGuardOk(sid);
       await logLogin(rows[0], 'pin', body.device);
       return res.status(200).json({ ok: true, staff: strip(rows[0]) });
+    }
+    if (action === 'pin_unlock') {
+      const sid = String(body.store_id || t.store_id || ''); if (!sid || !canManageStore(sid)) return res.status(403).json({ error: '権限がありません' });
+      await pinGuardUnlock(sid); return res.status(200).json({ ok: true });
+    }
+    if (action === 'pin_guard_status') {
+      const sid = String(body.store_id || t.store_id || ''); if (!sid) return res.status(400).json({ error: 'store_id' });
+      const lk = await pinGuardCheck(sid); return res.status(200).json({ hard: lk === -1, minutes: lk > 0 ? lk : 0 });
     }
     if (action === 'members_status') {
       const sid = String(body.store_id || t.store_id || ''); if (!sid || !(canManageStore(sid) || (t.store_id && String(t.store_id) === String(sid)))) return res.status(403).json({ error: '権限がありません' });
