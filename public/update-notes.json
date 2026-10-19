@@ -1,7 +1,14 @@
 {
-  "version": "upd-2026-1019-trial327",
+  "version": "upd-2026-1019-trial328",
   "updatedAt": "2026-10-19",
   "notes": [
+    {
+      "id": "upd-2026-1019-trial328-range",
+      "type": "improvement",
+      "title": "ロックとログアウトの選べる範囲を絞りました",
+      "body": "・記録者の選択に戻るまで: 10分／30分／60分（既定 30分）。完全にログアウトするまで: 24時間／7日間（既定 7日間）。安全面で説明できる範囲に揃えました。",
+      "date": "2026-10-19"
+    },
     {
       "id": "upd-2026-1019-trial327-quickpin",
       "type": "improvement",

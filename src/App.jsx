@@ -22316,7 +22316,7 @@ export default function App() {
   const _sec = tsuSecurity(appData);
   useEffect(() => {
     if (!isSupabaseEnabled || !staffSession?.storeId || staffSession.kind === 'person' || staffSession.role === 'super_admin' || !activeRecorder) return;
-    const lockMin = Number(_sec.lockMin) || 30; // 「なし」は無い(最短10分・最長120分)
+    const lockMin = Math.min(Math.max(Number(_sec.lockMin) || 30, 10), 60); // 10〜60分(「なし」は無い)
     const LOCK_MS = lockMin * 60 * 1000; let last = Date.now();
     const touch = () => { last = Date.now(); };
     ['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.addEventListener(ev, touch, { passive: true }));
@@ -22326,7 +22326,7 @@ export default function App() {
   // 完全ログアウト: 最後の操作から logoutHours 経ったら(端末を閉じていた時間も含む)ログアウト。「なし」なら何もしない
   useEffect(() => {
     if (!isSupabaseEnabled || !staffSession?.token || staffSession.role === 'super_admin') return;
-    const hours = Number(_sec.logoutHours) || 168; // 「なし」は無い(24時間〜30日)
+    const hours = Math.min(Math.max(Number(_sec.logoutHours) || 168, 24), 168); // 24時間〜7日(「なし」は無い)
     const KEY = 'tsumugiLastActive'; const touch = () => { try { localStorage.setItem(KEY, String(Date.now())); } catch {} };
     const check = () => { try { const t = Number(localStorage.getItem(KEY)) || 0; if (t && Date.now() - t > hours * 3600 * 1000) { handleStaffLogout(); } } catch {} };
     check(); touch();
@@ -39666,9 +39666,9 @@ function TsuLoginSecurityCard({ appData, onSave, staffCtx, isAdmin }) {
         {(isAdmin || staffCtx.role === 'manager' || staffCtx.role === 'super_admin') ? (
           <div className="grid gap-3">
             <div className="flex items-center justify-between gap-3 flex-wrap"><div><div className="text-sm font-bold text-slate-800">記録者の選択に戻るまで</div><div className="text-xs text-slate-500">みんなで使う端末で、操作が無いとき。画面から利用者情報が消えます</div></div>
-              <Sel value={sec.lockMin || 30} opts={[[10,'10分'],[30,'30分'],[60,'60分'],[120,'120分']]} onChange={v => setSec({ lockMin: v })}/></div>
+              <Sel value={Math.min(Number(sec.lockMin) || 30, 60)} opts={[[10,'10分'],[30,'30分'],[60,'60分']]} onChange={v => setSec({ lockMin: v })}/></div>
             <div className="flex items-center justify-between gap-3 flex-wrap"><div><div className="text-sm font-bold text-slate-800">完全にログアウトするまで</div><div className="text-xs text-slate-500">端末を使わなかった時間。次に使うときはログインし直し</div></div>
-              <Sel value={sec.logoutHours || 168} opts={[[24,'24時間'],[168,'7日間'],[720,'30日間']]} onChange={v => setSec({ logoutHours: v })}/></div>
+              <Sel value={Math.min(Number(sec.logoutHours) || 168, 168)} opts={[[24,'24時間'],[168,'7日間']]} onChange={v => setSec({ logoutHours: v })}/></div>
             <label className="flex items-center justify-between gap-3 flex-wrap cursor-pointer"><div><div className="text-sm font-bold text-slate-800">PIN を必須にする</div><div className="text-xs text-slate-500">本人登録（PIN）が済んでいない職員は「どなたですか」で選べなくなります{noAcct.length ? `（未登録: ${noAcct.length}名）` : ''}</div></div>
               <input type="checkbox" checked={!!sec.pinRequired} onChange={e => { if (e.target.checked && noAcct.length && !window.confirm(`まだ本人登録が済んでいない職員が ${noAcct.length} 名います（${noAcct.slice(0,5).join('・')}${noAcct.length>5?' …':''}）。この人たちは記録できなくなります。PIN を必須にしますか？`)) return; setSec({ pinRequired: e.target.checked }); }} className="w-6 h-6"/></label>
             <label className="flex items-center justify-between gap-3 flex-wrap cursor-pointer"><div><div className="text-sm font-bold text-slate-800">店舗IDでのログインを止める</div><div className="text-xs text-slate-500">全員が本人登録を終えたら。以後は本人のID・パスワードと「この端末をみんなで使う」だけでログインします</div></div>
