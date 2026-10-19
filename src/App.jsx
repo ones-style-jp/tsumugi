@@ -26373,9 +26373,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     // ★ 血圧の自動スラッシュ表示をやめる(2026-08-10): 上だけ入力の段階では「126」とだけ表示し、
                     //   スラッシュは自分で「/」を打った(=下の値がある)時だけ表示する。 従来は「126/」と自動表示され、
                     //   スラッシュ入力済みと誤認して下の値を続けると「1264」と上に連結される事故になっていた。
-                    ['開始 血圧',`bpSt_combo_${tf}`,(vBuSt||vBdSt)?`${vBuSt}${vBdSt?`/${vBdSt}`:''}`:'','text-slate-800',(vBuSt||vBdSt)?`${vBuSt}${vBdSt?`/${vBdSt}`:''}`:'＋'],
+                    ['開始 血圧',`bpSt_combo_${tf}`,(vBuSt||vBdSt)?`${vBuSt}${vBdSt?`/${vBdSt}`:''}`:'',getBpColorClass(vBuSt,vBdSt),(vBuSt||vBdSt)?`${vBuSt}${vBdSt?`/${vBdSt}`:''}`:'＋'], // ★ 2026-10-19(店舗報告「スマホで血圧が色分けされない」): 基準値で色分け
                     ['開始 脈',`plSt_${tf}`,vPlSt,getPulseColorClass(vPlSt,true),vPlSt?`${vPlSt}`:'＋'],
-                    [`${secondBpLabel(appData)} 血圧`,`bpEn_combo_${tf}`,(vBuEn||vBdEn)?`${vBuEn}${vBdEn?`/${vBdEn}`:''}`:'','text-slate-800',(vBuEn||vBdEn)?`${vBuEn}${vBdEn?`/${vBdEn}`:''}`:'＋'],
+                    [`${secondBpLabel(appData)} 血圧`,`bpEn_combo_${tf}`,(vBuEn||vBdEn)?`${vBuEn}${vBdEn?`/${vBdEn}`:''}`:'',getBpColorClass(vBuEn,vBdEn),(vBuEn||vBdEn)?`${vBuEn}${vBdEn?`/${vBdEn}`:''}`:'＋'],
                     ['終了 脈',`plEn_${tf}`,vPlEn,getPulseColorClass(vPlEn,true),vPlEn?`${vPlEn}`:'＋']
                   ]; })().filter(([,field]) => _showEn || !(String(field).startsWith('bpEn') || String(field).startsWith('plEn'))).map(([lbl,field,cur,colorCls,shown])=>{
                     const isBp = typeof field==='string' && field.includes('_combo_');
@@ -26386,7 +26386,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                           <input type="text" inputMode={isBp?'text':'decimal'} placeholder={isBp?'上/下':'—'} disabled={dis} data-bp-input={isBp ? `${p.id}-${field}` : undefined}
                             key={`mk-${p.id}-${field}-${cur}`} defaultValue={cur||''}
                             onBlur={(e)=>{ const val=e.target.value; if(isBp){ const c=(val||'').replace(/[^0-9/]/g,''); const parts=c.split('/'); const isStart=field.startsWith('bpSt'); const fBu=`${isStart?'bpUpSt':'bpUpEn'}_${tf}`, fBd=`${isStart?'bpDnSt':'bpDnEn'}_${tf}`; updateRecord(p.id,fBu,(parts[0]||'').trim()); updateRecord(p.id,fBd,(parts[1]||'').trim()); } else { updateRecord(p.id, field, (val||'').trim()); } }}
-                            className="w-full text-center text-base font-bold outline-none border border-slate-200 rounded mt-0.5 disabled:opacity-40 placeholder:text-slate-500 placeholder:font-bold" style={{height:32}} />
+                            className={`w-full text-center text-base font-bold outline-none border border-slate-200 rounded mt-0.5 disabled:opacity-40 placeholder:text-slate-500 placeholder:font-bold ${colorCls||''}`} style={{height:32}} />
                         </div>
                       );
                     }
