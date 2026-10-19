@@ -102,7 +102,9 @@ try:
     _base = 'https://eopdtcfxfhshzxtqcwmy.supabase.co'
     _st = json.load(open(f'{ROOT}/docs/sql/rls_status.json', encoding='utf-8'))
     def _anon_readable(table):
-        _req = urllib.request.Request(f'{_base}/rest/v1/{table}?select=*&limit=1', headers={'apikey': _pub, 'Authorization': 'Bearer ' + _pub, 'Range': '0-0'})
+        # app_state の全店共通キー(同意ポリシー・傷病名マスタ=個人情報なし)は設計上 anon も読める → 店舗の行だけを見る
+        _extra = '&key=not.in.(__tsumugi_global__,__tsumugi_disease_master__)' if table == 'app_state' else ''
+        _req = urllib.request.Request(f'{_base}/rest/v1/{table}?select=*&limit=1{_extra}', headers={'apikey': _pub, 'Authorization': 'Bearer ' + _pub, 'Range': '0-0'})
         try:
             with urllib.request.urlopen(_req, timeout=15) as _r:
                 _rows = json.loads(_r.read() or b'[]')
