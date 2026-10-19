@@ -70,6 +70,11 @@ const unb64u = (s) => Buffer.from(String(s).replace(/-/g, '+').replace(/_/g, '/'
 const sign = (payload) => crypto.createHmac('sha256', 'tsumugi-staff-token|' + SERVICE_KEY).update(payload).digest('hex');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// ★ 段階4: PIN の総当たり対策(店舗ごと・15分に5回失敗で15分停止。サーバーの実行単位ごとの控え＝完全ではないが十分な遅延になる)
+const _pinGuard = new Map();
+function pinGuardCheck(sid) { const g = _pinGuard.get(sid); if (!g) return 0; if (g.lockUntil && Date.now() < g.lockUntil) return Math.ceil((g.lockUntil - Date.now()) / 60000); return 0; }
+function pinGuardFail(sid) { const now = Date.now(); const g = _pinGuard.get(sid) || { fails: [] }; g.fails = g.fails.filter(t => now - t < 15 * 60 * 1000); g.fails.push(now); if (g.fails.length >= 5) { g.lockUntil = now + 15 * 60 * 1000; g.fails = []; } _pinGuard.set(sid, g); }
+function pinGuardOk(sid) { _pinGuard.delete(sid); }
 // ★ 段階4: 店舗のログイン設定(各種設定→システム・systemSettings.security)。読めなければ既定
 async function storeSecurity(storeId) {
   try { const rows = await sb(`app_state?select=sec:data->systemSettings->security&key=eq.${encodeURIComponent(storeId)}&limit=1`); const sec = rows && rows[0] && rows[0].sec; return (sec && typeof sec === 'object') ? sec : {}; } catch { return {}; }
@@ -228,9 +233,11 @@ export default async function handler(req, res) {
       await sleep(300);
       const sid = String(t.store_id || body.store_id || ''); const mid = String(body.member_id || ''); const pin = String(body.pin_hash || '').trim();
       if (!sid || !mid || !/^[0-9a-f]{64}$/.test(pin)) return res.status(400).json({ error: 'PIN が違います' });
+      { const lk = pinGuardCheck(sid); if (lk) return res.status(429).json({ error: `PIN の間違いが続いたため、${lk} 分ほど待ってからやり直してください` }); }
       const rows = await sb(`staff?select=${SAFE_COLS},member_id,kind&store_id=eq.${encodeURIComponent(sid)}&member_id=eq.${encodeURIComponent(mid)}&kind=eq.person&pin_hash=eq.${encodeURIComponent(pin)}&is_active=eq.true&deleted_at=is.null&limit=1`);
       const st = Array.isArray(rows) ? rows[0] : null;
-      if (!st) return res.status(401).json({ error: 'PIN が違います' });
+      if (!st) { pinGuardFail(sid); return res.status(401).json({ error: 'PIN が違います' }); }
+      pinGuardOk(sid);
       await logLogin(st, 'pin', body.device);
       return res.status(200).json({ ok: true, staff: strip(st) });
     }
@@ -238,8 +245,10 @@ export default async function handler(req, res) {
       await sleep(300);
       const sid = String(t.store_id || body.store_id || ''); const pin = String(body.pin_hash || '').trim();
       if (!sid || !/^[0-9a-f]{64}$/.test(pin)) return res.status(400).json({ error: 'PIN が違います' });
+      { const lk = pinGuardCheck(sid); if (lk) return res.status(429).json({ error: `PIN の間違いが続いたため、${lk} 分ほど待ってからやり直してください` }); }
       const rows = await sb(`staff?select=${SAFE_COLS},member_id,kind&store_id=eq.${encodeURIComponent(sid)}&kind=eq.person&pin_hash=eq.${encodeURIComponent(pin)}&is_active=eq.true&deleted_at=is.null&limit=2`);
-      if (!Array.isArray(rows) || rows.length !== 1 || !rows[0].member_id) return res.status(401).json({ error: 'PIN が違います' });
+      if (!Array.isArray(rows) || rows.length !== 1 || !rows[0].member_id) { pinGuardFail(sid); return res.status(401).json({ error: 'PIN が違います' }); }
+      pinGuardOk(sid);
       await logLogin(rows[0], 'pin', body.device);
       return res.status(200).json({ ok: true, staff: strip(rows[0]) });
     }

@@ -22314,18 +22314,13 @@ export default function App() {
     if (m) { sessionStorage.setItem('tsumugiActiveRecorder', JSON.stringify(m)); setActiveRecorder(m); }
   }, [staffSession?.storeId, staffSession?.kind, staffSession?.memberId, activeRecorder, mergedStaffMembers]); // eslint-disable-line react-hooks/exhaustive-deps
   const _sec = tsuSecurity(appData);
-  useEffect(() => {
-    if (!isSupabaseEnabled || !staffSession?.storeId || staffSession.kind === 'person' || staffSession.role === 'super_admin' || !activeRecorder) return;
-    const lockMin = Math.min(Math.max(Number(_sec.lockMin) || 30, 10), 60); // 10〜60分(「なし」は無い)
-    const LOCK_MS = lockMin * 60 * 1000; let last = Date.now();
-    const touch = () => { last = Date.now(); };
-    ['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.addEventListener(ev, touch, { passive: true }));
-    const iv = setInterval(() => { if (Date.now() - last > LOCK_MS) { try { sessionStorage.removeItem('tsumugiActiveRecorder'); } catch {} setActiveRecorder(null); } }, 30 * 1000);
-    return () => { clearInterval(iv); ['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.removeEventListener(ev, touch)); };
-  }, [staffSession?.storeId, staffSession?.kind, staffSession?.role, !!activeRecorder, _sec.lockMin]); // eslint-disable-line react-hooks/exhaustive-deps
+  // (ロックは既存の「無操作で自動ログアウト」の effect の中で PIN の壁に置き換える。下の完全ログアウトは PIN の壁があるときの ID・パスワードの再要求)
+  // ★ 本人ログインの PIN ロック(無操作後・自分の PIN で再開)
+  const [personLocked, setPersonLocked] = useState(false);
   // 完全ログアウト: 最後の操作から logoutHours 経ったら(端末を閉じていた時間も含む)ログアウト。「なし」なら何もしない
   useEffect(() => {
     if (!isSupabaseEnabled || !staffSession?.token || staffSession.role === 'super_admin') return;
+    const _pinWall = (staffSession.kind === 'person') ? !!staffSession.hasPin : !!_sec.pinRequired; if (!_pinWall) return; // PIN の壁が無い＝既存の30分ログアウトが働く
     const hours = Math.min(Math.max(Number(_sec.logoutHours) || 168, 24), 168); // 24時間〜7日(「なし」は無い)
     const KEY = 'tsumugiLastActive'; const touch = () => { try { localStorage.setItem(KEY, String(Date.now())); } catch {} };
     const check = () => { try { const t = Number(localStorage.getItem(KEY)) || 0; if (t && Date.now() - t > hours * 3600 * 1000) { handleStaffLogout(); } } catch {} };
@@ -22333,7 +22328,7 @@ export default function App() {
     ['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.addEventListener(ev, touch, { passive: true }));
     const iv = setInterval(check, 60 * 1000);
     return () => { clearInterval(iv); ['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.removeEventListener(ev, touch)); };
-  }, [staffSession?.token, staffSession?.role, _sec.logoutHours]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [staffSession?.token, staffSession?.role, staffSession?.kind, staffSession?.hasPin, _sec.pinRequired, _sec.logoutHours]); // eslint-disable-line react-hooks/exhaustive-deps
   // 証の自動延長: 残り20日を切ったら更新(使っている限り切れない)。退職なら失効→ログアウト
   useEffect(() => {
     if (!isSupabaseEnabled || !staffSession?.token) return;
@@ -22369,7 +22364,12 @@ export default function App() {
     // ★ 30分 無操作で自動ログアウト(2026-10-02 に 20分→30分)。 setTimeout はスリープ中に止まり判定漏れするため、
     //   「最終操作時刻(壁時計)」を保持し、 30秒ごと + 復帰時(visibilitychange/focus) に経過をチェックする。
     //   → 画面が暗くなってスリープしても、30分経過後に復帰した時点で必ず強制ログアウトされる。
-    const IDLE_MS = 30 * 60 * 1000; // ★ 2026-10-02 ユーザー指示: 20分→30分
+    // ★ 2026-10-19 段階4(ユーザー確認「ID・パスワードの壁が無くなるのでは」): 壁は「置き換え」にする。
+    //   ・PIN 必須の店舗(全員が本人 PIN を持つ)＝無操作で「どなたですか」(PIN)に戻る(ロックまでの分数は設定)。ID・パスワードは 完全ログアウト(24時間〜7日)で要求
+    //   ・本人ログインで PIN がある ＝ 無操作で PIN の画面(自分の PIN で再開)
+    //   ・それ以外(店舗共通ログインで PIN 必須でない・PIN の無い本人)＝ いままでどおり 30分で完全ログアウト(ID・パスワードから)
+    const _pinWall = (staffSession.kind === 'person') ? !!staffSession.hasPin : !!_sec.pinRequired;
+    const IDLE_MS = (_pinWall ? Math.min(Math.max(Number(_sec.lockMin) || 30, 10), 60) : 30) * 60 * 1000; // ★ 2026-10-02 ユーザー指示: 20分→30分
     const refMap = {
       record: [recordDirtyRef, recordSaveFnRef], master: [masterDirtyRef, masterSaveFnRef],
       settings: [settingsDirtyRef, settingsSaveFnRef], print: [printDirtyRef, printSaveFnRef],
@@ -22393,6 +22393,11 @@ export default function App() {
     const doIdleLogout = () => {
       if (loggingOut) return; loggingOut = true;
       flushAll(); // ★ 未保存を全部保存してからログアウト
+      if (_pinWall && staffSession.role !== 'super_admin') {
+        // PIN の壁: 本人ログインは PIN の画面、店舗共通は「どなたですか」へ(利用者情報は画面から消える)。ID・パスワードは消えない
+        setTimeout(() => { try { sessionStorage.removeItem('tsumugiActiveRecorder'); } catch {} if (staffSession.kind === 'person') setPersonLocked(true); else setActiveRecorder(null); loggingOut = false; lastActive = Date.now(); }, 700);
+        return;
+      }
       try { sessionStorage.setItem('tsumugiIdleLogout', '1'); } catch {}
       setTimeout(() => handleLogout(), 700); // 保存(クラウド反映)を待ってからログアウト
     };
@@ -22411,7 +22416,7 @@ export default function App() {
       window.removeEventListener('focus', onWake);
       window.removeEventListener('pageshow', onWake);
     };
-  }, [staffSession, currentView]);
+  }, [staffSession, currentView, _sec.pinRequired, _sec.lockMin]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSaveToCloud = (newData, options = {}) => {
     // ★ 古い端末のpushで新しいデータが巻き戻る問題への対策:
@@ -23381,6 +23386,7 @@ export default function App() {
       })()}
       {/* グローバルプリントプレビュー */}
       {meetingFloat && <MeetingFloatWidget appData={appData} onSave={handleSaveToCloud} float={meetingFloat} onClose={()=>setMeetingFloat(null)} />}
+      {personLocked && staffSession && <TsuPinPrompt member={{ id: staffSession.memberId, name: staffSession.displayName }} onCancel={() => { handleStaffLogout(); }} onVerify={async (pin) => { await supabaseStaffPinVerify(staffSession.token, staffSession.memberId, pin); setPersonLocked(false); }} />}
       {deviceNamePrompt && <TsuDeviceNamePrompt suggested={deviceNamePrompt.suggested} onDone={(v) => { const nm = String(v || '').trim() || deviceNamePrompt.suggested; updateDeviceName(nm); setDeviceNamePrompt(null); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `この端末の名前は「${nm}」です（設定 → システム → 端末名 で変更できます）` } })); } catch {} }} />}
       {/* ★ 2026-10-04: 直接ダウンロードの進行表示。iPad は「開く」(ユーザー操作)で新しいタブに表示 */}
       {pdfJob && (
@@ -39665,9 +39671,10 @@ function TsuLoginSecurityCard({ appData, onSave, staffCtx, isAdmin }) {
         )}
         {(isAdmin || staffCtx.role === 'manager' || staffCtx.role === 'super_admin') ? (
           <div className="grid gap-3">
-            <div className="flex items-center justify-between gap-3 flex-wrap"><div><div className="text-sm font-bold text-slate-800">記録者の選択に戻るまで</div><div className="text-xs text-slate-500">みんなで使う端末で、操作が無いとき。画面から利用者情報が消えます</div></div>
+            <div className="text-xs text-slate-600 leading-5 bg-slate-50 rounded-lg p-2">いまは「30分さわらないと ID・パスワードの画面に戻る」です。「PIN を必須にする」を入れた店舗では、ID・パスワードの壁が <b>本人の PIN の壁</b> に置き換わり、下の分数で「どなたですか」(PIN)に戻ります。ID・パスワードは「完全にログアウトするまで」の時間で改めて求めます。</div>
+            <div className="flex items-center justify-between gap-3 flex-wrap"><div><div className="text-sm font-bold text-slate-800">記録者の選択(PIN)に戻るまで</div><div className="text-xs text-slate-500">PIN 必須の店舗で、操作が無いとき。画面から利用者情報が消えます</div></div>
               <Sel value={Math.min(Number(sec.lockMin) || 30, 60)} opts={[[10,'10分'],[30,'30分'],[60,'60分']]} onChange={v => setSec({ lockMin: v })}/></div>
-            <div className="flex items-center justify-between gap-3 flex-wrap"><div><div className="text-sm font-bold text-slate-800">完全にログアウトするまで</div><div className="text-xs text-slate-500">端末を使わなかった時間。次に使うときはログインし直し</div></div>
+            <div className="flex items-center justify-between gap-3 flex-wrap"><div><div className="text-sm font-bold text-slate-800">完全にログアウトするまで</div><div className="text-xs text-slate-500">PIN 必須の店舗で、端末を使わなかった時間。次に使うときは ID・パスワードから</div></div>
               <Sel value={Math.min(Number(sec.logoutHours) || 168, 168)} opts={[[24,'24時間'],[168,'7日間']]} onChange={v => setSec({ logoutHours: v })}/></div>
             <label className="flex items-center justify-between gap-3 flex-wrap cursor-pointer"><div><div className="text-sm font-bold text-slate-800">PIN を必須にする</div><div className="text-xs text-slate-500">本人登録（PIN）が済んでいない職員は「どなたですか」で選べなくなります{noAcct.length ? `（未登録: ${noAcct.length}名）` : ''}</div></div>
               <input type="checkbox" checked={!!sec.pinRequired} onChange={e => { if (e.target.checked && noAcct.length && !window.confirm(`まだ本人登録が済んでいない職員が ${noAcct.length} 名います（${noAcct.slice(0,5).join('・')}${noAcct.length>5?' …':''}）。この人たちは記録できなくなります。PIN を必須にしますか？`)) return; setSec({ pinRequired: e.target.checked }); }} className="w-6 h-6"/></label>
