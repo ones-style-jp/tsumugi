@@ -39758,6 +39758,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   const [pauseEditModal, setPauseEditModal] = useState(null); // {origIdx, reason, fromDate, toDate} 休止履歴の編集
   const [resumeModal, setResumeModal] = useState(null); // {resumeDate} 利用再開日の入力(2026-08-10)
   const [patientStatusFilter, setPatientStatusFilter] = useState('利用中');
+  // ★ 2026-10-19(ユーザー要望「初回報告の『別の場所で保管』を一人一人クリックするのが面倒・一括選択を」): まとめて完了にする小窓
+  const [irBulk, setIrBulk] = useState(null); // null | { picked: Set }
   const [nameSearchQuery, setNameSearchQuery] = useState('');
   const [activeKanaFilter, setActiveKanaFilter] = useState('all');
   const [masterSort, setMasterSort] = useState('kana'); // 'kana'|'schedule'|'startDate'|'careLevel'|'cmOffice'|'bday'|'insurance'|'age'
@@ -41047,6 +41049,52 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             </div>
           </div>
           <div className="flex border-b border-slate-200 bg-white shrink-0">{['利用中', '休止', '退所済み'].map(s => (<button key={s} onClick={() => { setPatientStatusFilter(s); setActiveKanaFilter('all'); }} className={`flex-1 py-3 text-[13px] font-bold border-b-2 transition-colors ${patientStatusFilter === s ? (s === '休止' ? 'border-orange-500 text-orange-600' : s === '退所済み' ? 'border-slate-500 text-slate-600' : 'border-blue-600 text-blue-600') : 'border-transparent text-slate-400 hover:bg-slate-50'}`}>{s === '退所済み' ? '退所済' : s}</button>))}</div>
+          {patientStatusFilter === '利用中' && pendingInitialReportSet.size > 0 && (
+            <div data-testid="ir-bulk-bar" className="flex items-center justify-between gap-2 px-2 py-1.5 bg-amber-50 border-b border-amber-200 shrink-0">
+              <span className="text-[12px] font-bold text-amber-800">初回ご利用報告が未完了: {pendingInitialReportSet.size}名</span>
+              <button type="button" onClick={() => setIrBulk({ picked: new Set([...pendingInitialReportSet]) })} className="px-2.5 py-1.5 rounded-lg text-[12px] font-bold bg-white border border-amber-300 text-amber-800 whitespace-nowrap">まとめて「別の場所で保管」にする</button>
+            </div>
+          )}
+          {irBulk && (() => {
+            const list = (appData.patients||[]).filter(p => pendingInitialReportSet.has(p.id));
+            const tog = (id) => setIrBulk(b => { const n = new Set(b.picked); if (n.has(id)) n.delete(id); else n.add(id); return { picked: n }; });
+            const run = () => {
+              const ids = [...irBulk.picked]; if (!ids.length) return;
+              if (!window.confirm(`${ids.length}名の初回ご利用報告を「別の場所（紙・パソコンなど）で保管している」として完了にします。よろしいですか？\n（利用者マスタの「初回報告」バッジが消えます）`)) return;
+              const now = new Date().toISOString(); const _others = (appData.initialReports||[]).filter(r => !ids.includes(r.patientId));
+              const add = ids.map(pid => ({ id: `ir_${pid}`, patientId: pid, firstTicketId: null, firstDate: now.slice(0,10), createdAt: now, byExternal: true }));
+              onSave({ ...appData, initialReports: [..._others, ...add] }, { manual: true, message: `✓ ${ids.length}名の初回ご利用報告を「別の場所で保管」として完了にしました` });
+              setIrBulk(null);
+            };
+            return (
+              <div role="dialog" aria-modal="true" data-testid="ir-bulk-modal" style={{position:'fixed',inset:0,zIndex:200000,background:'rgba(15,23,42,0.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+                <div style={{width:'100%',maxWidth:460,maxHeight:'85vh',display:'flex',flexDirection:'column',background:'white',borderRadius:16,boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
+                  <div style={{padding:'16px 18px 8px'}}>
+                    <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b'}}>初回ご利用報告を「別の場所で保管」にする</div>
+                    <div style={{fontSize:13,color:'#64748b',marginTop:4,lineHeight:1.6}}>紙やパソコンなど、つむぎ以外で報告書を保管している方にチェックを付けてください（最初は全員にチェックが入っています）。</div>
+                    <div style={{display:'flex',gap:8,marginTop:8}}>
+                      <button type="button" onClick={() => setIrBulk({ picked: new Set(list.map(p => p.id)) })} className="px-2.5 py-1.5 rounded-lg text-[12px] font-bold bg-slate-100 text-slate-700">全員を選ぶ</button>
+                      <button type="button" onClick={() => setIrBulk({ picked: new Set() })} className="px-2.5 py-1.5 rounded-lg text-[12px] font-bold bg-slate-100 text-slate-700">全部外す</button>
+                      <span style={{marginLeft:'auto',fontSize:13,fontWeight:'bold',color:'#3d5021',alignSelf:'center'}}>{irBulk.picked.size} / {list.length}名</span>
+                    </div>
+                  </div>
+                  <div style={{overflowY:'auto',padding:'0 10px',flex:1}}>
+                    {list.map(p => (
+                      <label key={p.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 8px',borderTop:'1px solid #f1f5f9',minHeight:44,cursor:'pointer'}}>
+                        <input type="checkbox" checked={irBulk.picked.has(p.id)} onChange={() => tog(p.id)} style={{width:20,height:20}}/>
+                        <span style={{fontSize:15,fontWeight:'bold',color:'#1e293b'}}>{p.name}</span>
+                        <span style={{fontSize:12,color:'#64748b',marginLeft:'auto'}}>{p.careLevel || ''}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <div style={{display:'flex',gap:8,padding:'10px 14px 14px',borderTop:'1px solid #e2e8f0'}}>
+                    <button type="button" onClick={() => setIrBulk(null)} className="flex-1 px-4 py-3 bg-slate-100 text-slate-700 rounded-xl font-bold text-sm">キャンセル</button>
+                    <button type="button" onClick={run} disabled={!irBulk.picked.size} className="flex-1 px-4 py-3 bg-emerald-600 text-white rounded-xl font-bold text-sm disabled:opacity-50">{irBulk.picked.size}名を完了にする</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
           <div className="px-2 py-1.5 border-b border-slate-200 bg-white shrink-0 space-y-1"><div className="relative"><Search className="absolute left-2 top-1.5 text-slate-400 z-10" size={12} /><SuggestInput value={nameSearchQuery} onChangeText={setNameSearchQuery}
             options={(appData.patients||[]).map(p=>({key:p.id, label:p.name, sub:p.kana}))}
             onSelect={(o)=>{ const p=(appData.patients||[]).find(x=>String(x.id)===String(o.key)); if(!p) return; setNameSearchQuery(''); if(p.id!==editingPatientId){ const hasUnsaved=!!dirtyRef?.current||!!pendingShifts||!!pendingTickets; if(hasUnsaved){ setSwitchPatientConfirm({targetPatient:p}); return; } } setEditingPatientId(p.id); onPatientChange&&onPatientChange(p.id); setMobileRosterOpen(false); }}
