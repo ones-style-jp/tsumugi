@@ -31,6 +31,9 @@
 //   shared_device        { token(本人・管理者), device? }                    → { token, session } 「この端末をみんなで使う」: 店舗共通と同じ働きの証(shared)を発行
 //   renew                { token }                                            → { token }        証の延長(30日)。退職・削除なら 401
 //   店舗の設定 systemSettings.security.storeLoginDisabled=true なら、店舗共通(kind=store)の login は拒否(従業員ごとのログインへ切替済み)
+//   ★ 2026-10-19 本部の2段階認証: super_admin の login は、ID・パスワードが合ったら登録メールへ6桁の確認コードを送り { need_code: true, hint }。
+//     login に code を添えて再送すると証を発行。コードは10分有効・5回間違いで無効。本部にメールが無ければ従来どおり(警告を返す)
+//   ★ 2026-10-19 監視: ログイン失敗が 15分に10回(同じID)続いたら本部(super_admin のメール)へ通知。状態は app_secrets 'guard_login'
 //
 // token = 署名付きの短い文字列(HMAC-SHA256・30日)。DBに列を増やさずに済み、偽造できない。
 //   パスワードのハッシュ方式(SHA-256+固定ソルト)は従来どおりブラウザ側で計算して送る(平文は送らない)。
@@ -65,6 +68,7 @@ async function mintSbTokenChecked(staff) {
   } catch { return { tok: null, ok: false, reason: 'check_failed' }; }
 }
 const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const FAIL_DELAY = 400;
 const SAFE_COLS = 'id,store_id,username,role,last_name,first_name,display_name,email,phone,is_active,last_login,created_at,deleted_at';
 
 const hdrs = () => ({ apikey: SERVICE_KEY, Authorization: 'Bearer ' + SERVICE_KEY, 'Content-Type': 'application/json' });
@@ -95,6 +99,46 @@ async function pinGuardFail(sid) {
 }
 async function pinGuardOk(sid) { const all = await pinGuardLoad(); if (all[sid] && !all[sid].hard) { delete all[sid]; await pinGuardSave(all); } }
 async function pinGuardUnlock(sid) { const all = await pinGuardLoad(); delete all[sid]; await pinGuardSave(all); }
+// メール送信(Brevo)。送れなくても処理は止めない
+async function sendMail(to, subject, html) {
+  const apiKey = await getSecret('BREVO_API_KEY', 'brevo_api_key'); if (!apiKey) return false;
+  const senderEmail = (await getSecret('BREVO_SENDER_EMAIL', 'brevo_sender_email')) || 'noreply@ones-style.co.jp';
+  const list = [...new Set((to || []).filter(e => e && /@/.test(e)))].map(email => ({ email })); if (!list.length) return false;
+  const r = await fetch('https://api.brevo.com/v3/smtp/email', { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json', 'api-key': apiKey }, body: JSON.stringify({ sender: { email: senderEmail, name: 'つむぎ' }, to: list, subject: String(subject).slice(0, 100), htmlContent: html }) });
+  return r.ok;
+}
+async function hqEmails() { try { const rows = await sb(`staff?select=email&role=eq.super_admin&is_active=eq.true&deleted_at=is.null`); return (rows || []).map(r => r.email).filter(e => e && /@/.test(e)); } catch { return []; } }
+// 汎用の控え(app_secrets の1行・JSON)
+async function kvLoad(key) { try { const rows = await sb(`app_secrets?select=value&key=eq.${encodeURIComponent(key)}&limit=1`); const v = rows && rows[0] && rows[0].value; const j = v ? JSON.parse(v) : {}; return (j && typeof j === 'object') ? j : {}; } catch { return {}; } }
+async function kvSave(key, g) {
+  const value = JSON.stringify(g), updated_at = new Date().toISOString();
+  try { const r = await sb(`app_secrets?key=eq.${encodeURIComponent(key)}&select=key`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ value, updated_at, updated_by: 'staff-auth' }) }); if (Array.isArray(r) && r.length) return; } catch {}
+  try { await sb('app_secrets', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ key, value, updated_at, updated_by: 'staff-auth' }) }); } catch {}
+}
+// ★ 監視: ログイン失敗の記録(ID ごと・15分に10回で本部へ通知・通知は1時間に1回まで)
+async function loginFailNote(username) {
+  const g = await kvLoad('guard_login'); const now = Date.now(); const u = g[username] || { fails: [] };
+  u.fails = (u.fails || []).filter(t => now - t < 15 * 60 * 1000); u.fails.push(now);
+  let notify = false; if (u.fails.length >= 10 && (!u.notifiedAt || now - u.notifiedAt > 60 * 60 * 1000)) { u.notifiedAt = now; notify = true; }
+  g[username] = u; Object.keys(g).forEach(k => { if (g[k] && (!g[k].fails || !g[k].fails.length) && (!g[k].notifiedAt || now - g[k].notifiedAt > 24 * 3600 * 1000)) delete g[k]; });
+  await kvSave('guard_login', g);
+  if (notify) { try { await sendMail(await hqEmails(), `【つむぎ】ログインの失敗が続いています（ID: ${String(username).slice(0, 40)}）`, `<p>ログインID「${String(username).slice(0, 40)}」で、パスワードの間違いが 15 分に 10 回以上続いています。</p><p>総当たり攻撃の可能性があります。心当たりが無い場合は、そのIDのパスワード変更をご検討ください。</p><p>— つむぎ(自動送信)</p>`); } catch {} }
+}
+// ★ 本部の2段階認証: 6桁コードをメールへ(10分・5回まで)
+async function hqCodeIssue(staff) {
+  if (!staff.email || !/@/.test(staff.email)) return { skipped: true };
+  const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+  const g = await kvLoad('guard_hq2fa'); g[staff.id] = { hash: crypto.createHash('sha256').update(code + '|' + SERVICE_KEY).digest('hex'), exp: Date.now() + 10 * 60 * 1000, tries: 0 }; await kvSave('guard_hq2fa', g);
+  const ok = await sendMail([staff.email], '【つむぎ】管理局ログインの確認コード', `<p>つむぎ管理局のログインの確認コードです。</p><p style="font-size:28px;font-weight:bold;letter-spacing:6px">${code}</p><p>10分間有効です。心当たりが無い場合は、このメールを無視し、パスワードの変更をご検討ください。</p><p>— つむぎ(自動送信)</p>`);
+  return { ok, hint: staff.email.replace(/^(.{2}).*(@.*)$/, '$1***$2') };
+}
+async function hqCodeVerify(staff, code) {
+  const g = await kvLoad('guard_hq2fa'); const e = g[staff.id]; if (!e) return false;
+  if (Date.now() > e.exp || (e.tries || 0) >= 5) { delete g[staff.id]; await kvSave('guard_hq2fa', g); return false; }
+  const ok = crypto.createHash('sha256').update(String(code).replace(/[^0-9]/g, '') + '|' + SERVICE_KEY).digest('hex') === e.hash;
+  if (ok) delete g[staff.id]; else e.tries = (e.tries || 0) + 1;
+  await kvSave('guard_hq2fa', g); return ok;
+}
 // 停止(管理者解除待ち)になったら店舗のメールと管理者(本人アカウント)のメールへ知らせる。送れなくても処理は止めない
 async function notifyPinHardLock(sid) {
   const apiKey = await getSecret('BREVO_API_KEY', 'brevo_api_key'); if (!apiKey) return;
@@ -167,7 +211,16 @@ export default async function handler(req, res) {
       if (!username || !/^[0-9a-f]{64}$/.test(hash)) return res.status(400).json({ error: 'IDまたはパスワードが違います' });
       const rows = await sb(`staff?select=*,stores(id,name,short_name)&username=eq.${encodeURIComponent(username)}&password_hash=eq.${encodeURIComponent(hash)}&is_active=eq.true&deleted_at=is.null&limit=1`);
       const staff = Array.isArray(rows) ? rows[0] : null;
-      if (!staff) return res.status(401).json({ error: 'IDまたはパスワードが違います' });
+      if (!staff) { await loginFailNote(username); await sleep(FAIL_DELAY); return res.status(401).json({ error: 'IDまたはパスワードが違います' }); }
+      // ★ 2026-10-19 本部の2段階認証(super_admin): メールの確認コード
+      if (staff.role === 'super_admin') {
+        const code = String(body.code || '').replace(/[^0-9]/g, '');
+        if (!code) {
+          const r2 = await hqCodeIssue(staff);
+          if (!r2.skipped) return res.status(200).json({ need_code: true, hint: r2.hint, sent: !!r2.ok });
+          // 本部にメールが無い → 従来どおり通す(警告)
+        } else if (!(await hqCodeVerify(staff, code))) { await sleep(FAIL_DELAY); return res.status(401).json({ error: '確認コードが違うか、期限が切れています。もう一度ログインしてコードを受け取ってください', code_invalid: true }); }
+      }
       // ★ 段階4: 店舗の設定で「店舗IDでのログインを止める」が入っていれば、店舗共通ログインは拒否(本人のログインへ)
       if ((staff.kind || 'store') === 'store' && staff.role !== 'super_admin' && staff.store_id && (await storeSecurity(staff.store_id)).storeLoginDisabled) {
         return res.status(403).json({ error: 'この店舗は「従業員ごとのログイン」に切り替わりました。ご自身のログインIDとパスワードでログインしてください。', store_login_disabled: true });

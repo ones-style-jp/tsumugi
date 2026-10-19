@@ -19982,7 +19982,7 @@ const _tsumugiIsIOSLike = () => { try { return /iPad|iPhone|iPod/.test(navigator
 const _tsumugiIsStandalone = () => { try { return navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches); } catch { return false; } };
 const _tsumugiOsLabel = () => { try { const ua = navigator.userAgent; const m = ua.match(/OS (\d+)[_.](\d+)/); if (m && /iPhone|iPad/.test(ua)) return `iOS ${m[1]}.${m[2]}`; const v = ua.match(/Version\/(\d+\.\d+)/); return v ? `Safari ${v[1]}` : ''; } catch { return ''; } };
 function StaffLoginGate({ onLogin }) {
-  const [form, setForm] = useState({ username:'', password:'', error:'', loading:false, showPw:false });
+  const [form, setForm] = useState({ username:'', password:'', error:'', loading:false, showPw:false, code:'', needCode:false, hint:'' }); // ★ 2026-10-19: 本部の2段階認証(code)
   const _ios = _tsumugiIsIOSLike(); const _sa = _tsumugiIsStandalone();
   const [touchN, setTouchN] = useState(0);
   useEffect(() => {
@@ -19996,7 +19996,7 @@ function StaffLoginGate({ onLogin }) {
   const sbUrlShort = sbUrl ? sbUrl.replace('https://','').slice(0,30) + '...' : '(未設定)';
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!isSupabaseEnabled) {
+    if (!isSupabaseEnabled && !(String(import.meta.env.VITE_E2E_DEMO || '') === '1' && window.__tsumugiE2E && window.__tsumugiE2E.loginMock)) { // (自動テストでは API をモックして通す)
       setForm(f=>({...f, error:'Supabase が未接続です (Vercel 環境変数を確認してください)'}));
       return;
     }
@@ -20006,7 +20006,8 @@ function StaffLoginGate({ onLogin }) {
     }
     setForm(f=>({...f, loading:true, error:''}));
     try {
-      const staff = await supabaseStaffLogin({ username: form.username, password: form.password });
+      const staff = await supabaseStaffLogin({ username: form.username, password: form.password, code: form.needCode ? form.code : '' });
+      if (staff && staff._needCode) { setForm(f=>({...f, loading:false, needCode:true, hint: staff._hint || '', code:'', error: staff._sent ? '' : '確認コードのメールを送れませんでした。本部のメール設定をご確認ください'})); return; } // ★ 本部: 確認コードの入力へ
       const session = tsuBuildStaffSession(staff); // ★ 2026-10-19 段階4: kind(store/person)・memberId・hasPin も持つ
       sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(session));
       // ★ 2026-10-08(店舗報告: iPhoneでIDとパスワードを入力してログインした直後、画面の一部が白いまま。スクロールしても戻らず、押すと反応する):
@@ -20053,6 +20054,14 @@ function StaffLoginGate({ onLogin }) {
               </button>
             </div>
           </div>
+          {form.needCode && (
+            <div data-testid="hq-code" style={{marginBottom:14,padding:'12px 14px',background:'#f0f7e0',border:'1px solid #c5dea0',borderRadius:12}}>
+              <div style={{fontSize:13,fontWeight:'bold',color:'#3d5021',marginBottom:4}}>確認コード（メールに届いた6桁）</div>
+              <div style={{fontSize:12,color:'#5e8030',marginBottom:8}}>{form.hint ? `${form.hint} に送りました。10分間有効です。` : '登録メールに送りました。10分間有効です。'}</div>
+              <ImeSafeInput type="text" inputMode="numeric" value={form.code} onChange={e=>setForm(f=>({...f,code:toHalfWidth(e.target.value).replace(/[^0-9]/g,'').slice(0,6),error:''}))} placeholder="123456" autoComplete="one-time-code"
+                style={{width:'100%',padding:'12px 14px',border:'1px solid #cbd5e1',borderRadius:12,fontSize:20,fontWeight:'bold',letterSpacing:6,outline:'none',textAlign:'center',boxSizing:'border-box'}}/>
+            </div>
+          )}
           {form.error && <div style={{color:'#dc2626',fontSize:12,fontWeight:'bold',marginBottom:12,textAlign:'center',padding:'8px 12px',background:'#fef2f2',borderRadius:8}}>{form.error}</div>}
           <button type="submit" disabled={form.loading}
             style={{width:'100%',padding:'14px',background: form.loading ? '#cbd5e1' : '#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor: form.loading ? 'wait' : 'pointer',letterSpacing:1}}>
@@ -23204,6 +23213,9 @@ export default function App() {
   // ★ 自動テスト(VITE_E2E_DEMO=1 のビルドのみ・本番では空): 管理局「端末の更新状況」パネルを単体で表示する入口(2026-10-17)
   if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && /^#staffinvite=/.test(window.location.hash)) { // ★ 段階4 の自動テスト(本番では空)
     return <StaffInviteAcceptView code={window.location.hash.slice('#staffinvite='.length)} onLogin={(sess) => { window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), staffSession: sess }; }} />;
+  }
+  if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.location.hash === '#stafflogin') { // ★ 自動テスト: ログイン画面(2段階認証)
+    return <StaffLoginGate onLogin={(sess) => { window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), staffSession: sess }; }} />;
   }
   if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.location.hash === '#picker') { // ★ 段階4 の自動テスト: PIN 先行の「どなたですか」(本番では空)
     const _ms = [{ id: 'm1', name: '見本 花子', roleLabel: '介護職員' }, { id: 'm2', name: '見本 次郎', roleLabel: '生活相談員' }];
