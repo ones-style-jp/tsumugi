@@ -21,6 +21,7 @@
 //   invite_accept        { code, username, password_hash, pin_hash?, device? }→ { staff, token, sb_token... }  本人アカウント作成＋ログイン
 //   pin_set              { token, pin_hash }                                  → { ok }           本人(person)だけ
 //   pin_verify           { token, member_id, pin_hash, device? }              → { ok, staff }    店舗共通ログイン中に操作者を PIN で切替
+//   pin_login            { token, pin_hash, device? }                         → { ok, staff }    PIN だけで本人を特定(店舗内で PIN は重複しないので名前のタップが要らない)
 //   members_status       { token, store_id }                                  → { accounts:[{member_id, staff_id, name, is_active, has_pin, last_login, username}], invites:[...] }
 //   set_active           { token, staff_id, active }                          → { ok }           退職(false)/復帰(true)。店舗管理者 or 本部
 //   logins_list          { token, store_id, limit? }                          → { logins:[...] } 店舗管理者 or 本部
@@ -232,6 +233,15 @@ export default async function handler(req, res) {
       if (!st) return res.status(401).json({ error: 'PIN が違います' });
       await logLogin(st, 'pin', body.device);
       return res.status(200).json({ ok: true, staff: strip(st) });
+    }
+    if (action === 'pin_login') {
+      await sleep(300);
+      const sid = String(t.store_id || body.store_id || ''); const pin = String(body.pin_hash || '').trim();
+      if (!sid || !/^[0-9a-f]{64}$/.test(pin)) return res.status(400).json({ error: 'PIN が違います' });
+      const rows = await sb(`staff?select=${SAFE_COLS},member_id,kind&store_id=eq.${encodeURIComponent(sid)}&kind=eq.person&pin_hash=eq.${encodeURIComponent(pin)}&is_active=eq.true&deleted_at=is.null&limit=2`);
+      if (!Array.isArray(rows) || rows.length !== 1 || !rows[0].member_id) return res.status(401).json({ error: 'PIN が違います' });
+      await logLogin(rows[0], 'pin', body.device);
+      return res.status(200).json({ ok: true, staff: strip(rows[0]) });
     }
     if (action === 'members_status') {
       const sid = String(body.store_id || t.store_id || ''); if (!sid || !(canManageStore(sid) || (t.store_id && String(t.store_id) === String(sid)))) return res.status(403).json({ error: '権限がありません' });

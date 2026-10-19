@@ -47,7 +47,7 @@ import {
   deviceIdentityReady, kvSet, lsSetSmall, deviceStorageStatus, // ★ 2026-10-18: 端末ID・端末名の第2・第3の保存先(IndexedDB・Cookie)と保存の状態
   setFilesContext, // ★ 2026-10-19 データ保護(段階3c): 写真・書類の署名はサーバー(/api/files)で
   supabaseStaffInviteCreate, supabaseStaffInviteLookup, supabaseStaffInviteAccept, supabaseStaffPinSet, supabaseStaffPinVerify, supabaseStaffMembersStatus, supabaseStaffSetActive, supabaseStaffLoginsList, // ★ 2026-10-19 段階4
-  supabaseStaffSharedDevice, supabaseStaffRenew, tsuTokenExp, // ★ 2026-10-19 段階4 続き
+  supabaseStaffSharedDevice, supabaseStaffRenew, tsuTokenExp, supabaseStaffPinLogin, // ★ 2026-10-19 段階4 続き
   cloudUndoPush, cloudUndoList, cloudUndoDelete,
   supabaseLoadDiseaseMaster,
   supabaseSaveDiseaseMaster,
@@ -18549,7 +18549,13 @@ function TsuPinPrompt({ member, onVerify, onCancel }) {
     </div>
   );
 }
-function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdmin, onSelect, onAddMember, onRemoveMember, onTransferAdmin, onLogout, onBackToStores, adminAuth, onSetAdminAuth, loading, roleChoices, pinMembers, onVerifyPin, pinRequired }) {
+function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdmin, onSelect, onAddMember, onRemoveMember, onTransferAdmin, onLogout, onBackToStores, adminAuth, onSetAdminAuth, loading, roleChoices, pinMembers, onVerifyPin, pinRequired, onPinLogin }) {
+  // ★ 2026-10-19(ユーザー要望「ステップを減らす」): PIN を持つ職員がいる店舗では、名前をタップせずに PIN を入れるだけで本人として入れる
+  const [quickPin, setQuickPin] = React.useState(''); const [quickErr, setQuickErr] = React.useState(''); const [quickBusy, setQuickBusy] = React.useState(false);
+  const quickPress = async (d) => {
+    if (quickBusy) return; const n = (quickPin + d).slice(0, 4); setQuickPin(n); setQuickErr('');
+    if (n.length === 4 && onPinLogin) { setQuickBusy(true); try { const m = await onPinLogin(n); if (m) { setQuickPin(''); onSelect(m); return; } setQuickErr('PIN が違います'); } catch (e) { setQuickErr(e?.message || 'PIN が違います'); } setQuickPin(''); setQuickBusy(false); }
+  };
   const [pendingAdmin, setPendingAdmin] = React.useState(null); // 管理者選択 → 認証待ち
   const [pendingPin, setPendingPin] = React.useState(null); // ★ 2026-10-19 段階4: 本人アカウント＋PIN のある職員 → PIN 待ち
   // 管理者メンバーを選んだ時はパスワード認証を挟む。 ★ つむぎ管理局(super_admin)は本部認証済みなので店舗のPINを省略して入れる
@@ -18588,6 +18594,19 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
           <div style={{fontSize:24,fontWeight:'bold',color:'#3d5021',fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif",marginTop:6,letterSpacing:2}}>こんにちは、どなたですか？</div>
           <div style={{fontSize:12,color:'#5e8030',marginTop:6}}>記録に名前を残すため、入る前に教えてください</div>
         </div>
+        {!isSuperAdmin && onPinLogin && pinMembers && pinMembers.size > 0 && (
+          <div data-testid="quick-pin" style={{background:'white',borderRadius:20,padding:'16px 20px',boxShadow:'0 8px 28px rgba(0,0,0,0.08)',marginBottom:14}}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap'}}>
+              <div><div style={{fontSize:15,fontWeight:'bold',color:'#1e293b'}}>PIN で入る</div><div style={{fontSize:12,color:'#64748b'}}>4桁を入れるだけで、あなたとして記録を始めます{pinRequired ? '' : '（PIN が無い方は下の名前から）'}</div></div>
+              <div style={{display:'flex',gap:10}}>{[0,1,2,3].map(i => <div key={i} style={{width:14,height:14,borderRadius:7,background: quickPin.length > i ? '#3d5021' : '#e2e8f0'}}/>)}</div>
+            </div>
+            {quickErr && <div style={{color:'#b91c1c',fontSize:13,fontWeight:'bold',marginTop:6}}>{quickErr}</div>}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:8,marginTop:10,maxWidth:520}}>
+              {['1','2','3','4','5','6','7','8','9','0'].map(d => <button key={d} type="button" onClick={() => quickPress(d)} style={{minHeight:48,fontSize:20,fontWeight:'bold',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:12,cursor:'pointer',color:'#1e293b'}}>{d}</button>)}
+              <button type="button" onClick={() => { setQuickPin(p => p.slice(0, -1)); setQuickErr(''); }} style={{minHeight:48,fontSize:18,fontWeight:'bold',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:12,cursor:'pointer',color:'#475569',gridColumn:'span 2'}}>⌫</button>
+            </div>
+          </div>
+        )}
         <div style={{background:'white',borderRadius:20,padding:24,boxShadow:'0 8px 28px rgba(0,0,0,0.08)'}}>
           {loading && (members || []).length === 0 ? (
             /* ★ 2026-09-03: 店舗データ読込前に「メンバーなし」画面が出て、数秒後に突然スタッフが
@@ -22288,6 +22307,7 @@ export default function App() {
       sharedDevice: async () => { const r = await supabaseStaffSharedDevice(staffSession.token); if (!r || !r.token) throw new Error('設定できませんでした'); const next = { ...r.session, token: r.token }; sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(next)); sessionStorage.removeItem('tsumugiActiveRecorder'); window.location.reload(); } };
   }, [staffSession, _staffAcct, mergedStaffMembers, _reloadStaffAcct]); // eslint-disable-line react-hooks/exhaustive-deps
   const _verifyPin = React.useCallback(async (m, pin) => { await supabaseStaffPinVerify(staffSession.token, m.id, pin); }, [staffSession?.token]);
+  const _pinLogin = React.useCallback(async (pin) => { const r = await supabaseStaffPinLogin(staffSession.token, pin); const mid = r && r.staff && r.staff.member_id; const m = mergedStaffMembers.find(x => String(x.id) === String(mid)); if (m && (m.isAdmin || m.roleLabel === '管理者')) { try { sessionStorage.setItem('tsumugiAdminVerified', '1'); } catch {} } return m || null; }, [staffSession?.token, mergedStaffMembers]);
   useEffect(() => {
     if (!isSupabaseEnabled || !staffSession?.storeId || staffSession.kind !== 'person' || !staffSession.memberId || activeRecorder) return;
     const m = mergedStaffMembers.find(x => String(x.id) === String(staffSession.memberId));
@@ -22296,7 +22316,7 @@ export default function App() {
   const _sec = tsuSecurity(appData);
   useEffect(() => {
     if (!isSupabaseEnabled || !staffSession?.storeId || staffSession.kind === 'person' || staffSession.role === 'super_admin' || !activeRecorder) return;
-    const lockMin = Number(_sec.lockMin) || 0; if (!lockMin) return; // 「なし」
+    const lockMin = Number(_sec.lockMin) || 30; // 「なし」は無い(最短10分・最長120分)
     const LOCK_MS = lockMin * 60 * 1000; let last = Date.now();
     const touch = () => { last = Date.now(); };
     ['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.addEventListener(ev, touch, { passive: true }));
@@ -22306,7 +22326,7 @@ export default function App() {
   // 完全ログアウト: 最後の操作から logoutHours 経ったら(端末を閉じていた時間も含む)ログアウト。「なし」なら何もしない
   useEffect(() => {
     if (!isSupabaseEnabled || !staffSession?.token || staffSession.role === 'super_admin') return;
-    const hours = Number(_sec.logoutHours) || 0; if (!hours) return;
+    const hours = Number(_sec.logoutHours) || 168; // 「なし」は無い(24時間〜30日)
     const KEY = 'tsumugiLastActive'; const touch = () => { try { localStorage.setItem(KEY, String(Date.now())); } catch {} };
     const check = () => { try { const t = Number(localStorage.getItem(KEY)) || 0; if (t && Date.now() - t > hours * 3600 * 1000) { handleStaffLogout(); } } catch {} };
     check(); touch();
@@ -23079,7 +23099,7 @@ export default function App() {
   }
   // ★ ログイン済み + 店舗確定 + 記録者未選択 → RecorderPicker
   if (isSupabaseEnabled && staffSession?.storeId && !activeRecorder) {
-    return <RecorderPickerGate roleChoices={staffRoleChoices(appData)} pinMembers={_pinMembers} onVerifyPin={_verifyPin} pinRequired={!!_sec.pinRequired}
+    return <RecorderPickerGate roleChoices={staffRoleChoices(appData)} pinMembers={_pinMembers} onVerifyPin={_verifyPin} pinRequired={!!_sec.pinRequired} onPinLogin={_pinLogin}
       storeName={staffSession.storeName || staffSession.storeShortName}
       storeId={staffSession.storeId}
       loading={isSupabaseEnabled && (!appData._sbStoreId || appData._sbStoreId !== staffSession.storeId)}
@@ -23177,6 +23197,12 @@ export default function App() {
   // ★ 自動テスト(VITE_E2E_DEMO=1 のビルドのみ・本番では空): 管理局「端末の更新状況」パネルを単体で表示する入口(2026-10-17)
   if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && /^#staffinvite=/.test(window.location.hash)) { // ★ 段階4 の自動テスト(本番では空)
     return <StaffInviteAcceptView code={window.location.hash.slice('#staffinvite='.length)} onLogin={(sess) => { window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), staffSession: sess }; }} />;
+  }
+  if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.location.hash === '#picker') { // ★ 段階4 の自動テスト: PIN 先行の「どなたですか」(本番では空)
+    const _ms = [{ id: 'm1', name: '見本 花子', roleLabel: '介護職員' }, { id: 'm2', name: '見本 次郎', roleLabel: '生活相談員' }];
+    return <RecorderPickerGate storeName="テスト店" storeId="s1" members={_ms} canManage={false} isSuperAdmin={false} roleChoices={['介護職員']} pinMembers={new Set(['m1'])} pinRequired={!!(window.__tsumugiE2E && window.__tsumugiE2E.pinRequired)}
+      onPinLogin={async (pin) => { if (pin === '1234') return _ms[0]; throw new Error('PIN が違います'); }} onVerifyPin={async (m, pin) => { if (pin !== '1234') throw new Error('PIN が違います'); }}
+      onSelect={(m) => { window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), picked: m.id }; }} onLogout={() => {}} />;
   }
   if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.location.hash === '#pinprompt') {
     return <div style={{minHeight:'100vh'}}><TsuPinPrompt member={{ id: 'm1', name: '見本 花子' }} onCancel={() => { window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), pinCancel: true }; }} onVerify={async (pin) => { if (pin !== '1234') throw new Error('PIN が違います'); window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), pinOk: true }; }} /></div>;
@@ -39640,9 +39666,9 @@ function TsuLoginSecurityCard({ appData, onSave, staffCtx, isAdmin }) {
         {(isAdmin || staffCtx.role === 'manager' || staffCtx.role === 'super_admin') ? (
           <div className="grid gap-3">
             <div className="flex items-center justify-between gap-3 flex-wrap"><div><div className="text-sm font-bold text-slate-800">記録者の選択に戻るまで</div><div className="text-xs text-slate-500">みんなで使う端末で、操作が無いとき。画面から利用者情報が消えます</div></div>
-              <Sel value={sec.lockMin} opts={[[10,'10分'],[30,'30分'],[60,'60分'],[0,'なし']]} onChange={v => setSec({ lockMin: v })}/></div>
+              <Sel value={sec.lockMin || 30} opts={[[10,'10分'],[30,'30分'],[60,'60分'],[120,'120分']]} onChange={v => setSec({ lockMin: v })}/></div>
             <div className="flex items-center justify-between gap-3 flex-wrap"><div><div className="text-sm font-bold text-slate-800">完全にログアウトするまで</div><div className="text-xs text-slate-500">端末を使わなかった時間。次に使うときはログインし直し</div></div>
-              <Sel value={sec.logoutHours} opts={[[12,'12時間'],[24,'24時間'],[168,'7日間'],[0,'なし']]} onChange={v => setSec({ logoutHours: v })}/></div>
+              <Sel value={sec.logoutHours || 168} opts={[[24,'24時間'],[168,'7日間'],[720,'30日間']]} onChange={v => setSec({ logoutHours: v })}/></div>
             <label className="flex items-center justify-between gap-3 flex-wrap cursor-pointer"><div><div className="text-sm font-bold text-slate-800">PIN を必須にする</div><div className="text-xs text-slate-500">本人登録（PIN）が済んでいない職員は「どなたですか」で選べなくなります{noAcct.length ? `（未登録: ${noAcct.length}名）` : ''}</div></div>
               <input type="checkbox" checked={!!sec.pinRequired} onChange={e => { if (e.target.checked && noAcct.length && !window.confirm(`まだ本人登録が済んでいない職員が ${noAcct.length} 名います（${noAcct.slice(0,5).join('・')}${noAcct.length>5?' …':''}）。この人たちは記録できなくなります。PIN を必須にしますか？`)) return; setSec({ pinRequired: e.target.checked }); }} className="w-6 h-6"/></label>
             <label className="flex items-center justify-between gap-3 flex-wrap cursor-pointer"><div><div className="text-sm font-bold text-slate-800">店舗IDでのログインを止める</div><div className="text-xs text-slate-500">全員が本人登録を終えたら。以後は本人のID・パスワードと「この端末をみんなで使う」だけでログインします</div></div>
