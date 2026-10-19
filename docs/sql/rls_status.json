@@ -1,7 +1,7 @@
 {
   "_説明": "データ保護 段階3 の適用状況。本部が SQL を実行したら true にして commit する(scripts/run_tests.py の T-SEC-04/05/06 がこの値で期待を切り替える)",
   "3a_sync_ops_undo_snapshots": true,
-  "3_functions_guarded": false,
+  "3_functions_guarded": true,
   "3b_app_state_ticket_records_stores_notices": false,
   "3c_storage_private": false,
   "3c_probe_path": "fs/1/b188a279bf272fab.png",
