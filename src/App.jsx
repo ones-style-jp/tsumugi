@@ -28574,7 +28574,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                           if(fitnessRecs.length>0){
                             fitHtml+=`<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#f8fafc;"><th style="padding:5px 8px;text-align:left;color:#475569;border:1px solid #94a3b8;font-weight:bold;">測定日</th>${fitnessItems.map(it=>`<th style="padding:5px 8px;text-align:center;color:#475569;border:1px solid #94a3b8;font-weight:bold;">${it.name}(${it.unit})</th>`).join('')}</tr></thead><tbody>`;
                             [...fitnessRecs].reverse().forEach((r,ri)=>{
-                              fitHtml+=`<tr style="background:${ri%2===0?'white':'#fafbfc'};"><td style="padding:4px 8px;font-weight:bold;color:#475569;border:1px solid #94a3b8;white-space:nowrap;">${r.date}</td>${fitnessItems.map(it=>{const v=r.values?.[it.id];return `<td style="padding:4px 8px;text-align:center;font-weight:bold;color:#1e293b;border:1px solid #94a3b8;">${v!==undefined&&v!==''?v:'—'}</td>`;}).join('')}</tr>`;
+                              fitHtml+=`<tr style="background:${ri%2===0?'white':'#fafbfc'};"><td style="padding:4px 8px;font-weight:bold;color:#475569;border:1px solid #94a3b8;white-space:nowrap;">${r.date}</td>${fitnessItems.map(it=>{const v=r.values?.[it.id];const nt=r.notes?.[it.id];return `<td style="padding:4px 8px;text-align:center;font-weight:bold;color:#1e293b;border:1px solid #94a3b8;">${v!==undefined&&v!==''?v:'—'}${nt?`<div style="font-size:9px;font-weight:normal;color:#64748b;">（${_escH(nt)}）</div>`:''}</td>`;}).join('')}</tr>`;
                             });
                             fitHtml+=`</tbody></table>`;
                             if(fitnessRecs.length>=2){
@@ -36093,6 +36093,31 @@ const tpSeatLayout = (c, list) => {
   (list || []).forEach((m, i) => { const sN = Number(m && m.seat); if (m && m.seat != null && m.seat !== '' && sN >= 0 && sN < capN && !bySeat[sN]) bySeat[sN] = { m, i }; else unseated.push({ m, i }); });
   return { capN, rows: tpSeatRowsFor(c, capN), bySeat, unseated };
 };
+// ★ 2026-10-20(ユーザー要望): 運転者の選択に「その他（名前を入力）」。職員一覧に無い人(応援・家族の送迎など)の名前をその場で入れる
+function TsuDriverSelect({ value, names, onChange, placeholder, className, testid }) {
+  const [editing, setEditing] = React.useState(false); const [txt, setTxt] = React.useState('');
+  const v = String(value || ''); const list = names || [];
+  const isOther = !!v && !list.includes(v);
+  const commit = () => { const n = txt.trim().slice(0, 20); setEditing(false); if (n) onChange(n); };
+  if (editing) return (
+    <span className="flex items-center gap-1 flex-1 min-w-0" data-testid={testid ? `${testid}-other` : undefined}>
+      <input autoFocus value={txt} maxLength={20} onChange={e => setTxt(e.target.value)} placeholder="運転者の名前"
+        onKeyDown={e => { if (e.key === 'Enter' && !(e.nativeEvent && e.nativeEvent.isComposing)) { e.preventDefault(); commit(); } else if (e.key === 'Escape') { setEditing(false); } }}
+        className="text-[12px] font-bold border border-indigo-300 rounded bg-white px-1.5 py-1 flex-1 min-w-0 outline-none"/>
+      <button type="button" onMouseDown={e => e.preventDefault()} onClick={commit} className="whitespace-nowrap text-[11px] font-bold text-white bg-indigo-600 rounded px-2 py-1 shrink-0">決定</button>
+      <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => setEditing(false)} className="whitespace-nowrap text-[11px] font-bold text-slate-600 border border-slate-300 rounded px-1.5 py-1 bg-white shrink-0">戻る</button>
+    </span>
+  );
+  return (
+    <select data-testid={testid} value={v} title="運転者" className={className}
+      onChange={e => { const x = e.target.value; if (x === '__other__') { setTxt(isOther ? v : ''); setEditing(true); return; } onChange(x); }}>
+      <option value="">{placeholder || '運転者: 未選択'}</option>
+      {list.map(n => <option key={n} value={n}>{n}</option>)}
+      {isOther && <option value={v}>{v}（その他）</option>}
+      <option value="__other__">その他（名前を入力）</option>
+    </select>
+  );
+}
 function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowPrintPreview, navigateTo }) {
   const ds = appData.diarySettings || {};
   const cars = tsuCarsNorm(ds.cars && ds.cars.length ? ds.cars : [{id:'car1',name:'1号車',type:''},{id:'car2',name:'2号車',type:''}]); // ★ 2026-10-15: 車の名前は tsuCarName にそろえる
@@ -38187,10 +38212,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                               <div className="flex items-center gap-1.5">
                                 <span className="font-bold text-[15px] text-slate-800 truncate shrink-0 max-w-[45%]">{c.name}</span>
                                                                 {(Number(c.cap)>0 && (pl.cars?.[c.id]||[]).length>Number(c.cap)) && <span className="text-[10px] font-extrabold text-white bg-red-600 rounded px-1.5 py-0.5 shrink-0">定員超過</span>}
-                                <select value={(pl.driver||{})[c.id]||''} onChange={e=>setDriver(iso, sl, c.id, e.target.value)} title="運転者" className="text-[12px] font-bold border border-slate-300 rounded bg-white px-1 py-1 flex-1 min-w-0">
-                                  <option value="">運転者: 未選択</option>
-                                  {_driverNames.map(n=><option key={n} value={n}>{n}</option>)}
-                                </select>
+                                <TsuDriverSelect value={(pl.driver||{})[c.id]||''} names={_driverNames} onChange={nm=>setDriver(iso, sl, c.id, nm)} placeholder="運転者: 未選択" testid={`tp-driver-${c.id}`} className="text-[12px] font-bold border border-slate-300 rounded bg-white px-1 py-1 flex-1 min-w-0" />
                                 <button onClick={()=>openNavi(iso, sl, c.id)} title="この車の乗車順でGoogleマップの経路案内を開く" className="whitespace-nowrap text-[11px] font-bold text-blue-600 border border-blue-300 rounded px-2 py-1 bg-white hover:bg-blue-50 shrink-0">ナビ</button>
                               </div>
                             </div>
@@ -38482,10 +38504,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                   {seatBox(c, 0, lay.bySeat[0], '助手席')}
                   <div className="rounded-lg border-2 border-slate-200 bg-slate-100 min-h-[60px] flex flex-col items-center justify-center gap-1 px-1 py-1">
                     <span className="text-[10px] font-bold text-slate-400">運転席</span>
-                    <select data-testid={`tp-seat-driver-${c.id}`} value={(dr.driver||{})[c.id] || ''} onChange={e => setDropDriver(iso, sl, c.id, e.target.value)} className="w-full text-[12px] font-bold border border-slate-300 rounded bg-white px-1 py-1">
-                      <option value="">運転者を選ぶ</option>
-                      {_driverNames.map(n => <option key={n} value={n}>{n}</option>)}
-                    </select>
+                    <TsuDriverSelect testid={`tp-seat-driver-${c.id}`} value={(dr.driver||{})[c.id] || ''} names={_driverNames} onChange={nm => setDropDriver(iso, sl, c.id, nm)} placeholder="運転者を選ぶ" className="w-full text-[12px] font-bold border border-slate-300 rounded bg-white px-1 py-1" />
                   </div>
                 </div>
                 {lay.rows.map((n, ri) => <div key={ri} className="grid gap-2" style={{ gridTemplateColumns: `repeat(${n}, 1fr)` }}>{Array.from({ length: n }, () => { const sN = k++; return seatBox(c, sN, lay.bySeat[sN]); })}</div>)}
@@ -38741,6 +38760,10 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
   React.useEffect(() => { if (isMobileView && !selectedPatientId) setMobileRosterOpen(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [values, setValues] = useState({});
+  // ★ 2026-10-20(ユーザー要望): 項目ごとの備考(例: 5m歩行で杖使用)。30文字まで。r.notes に保存
+  const [fitNotes, setFitNotes] = useState({});
+  const [fitNoteOpen, setFitNoteOpen] = useState({});
+  const FIT_NOTE_MAX = 30;
   // ★ 数値入力用テンキー (提供記録入力と同じ DigitalKeypad)。 身長・体重・体力測定の各項目で使う。
   //   field は測定項目のid。 iPad等でOSキーボードを出さずに素早く入力できるようにする。
   const [keypad, setKeypad] = useState({ isOpen: false, field: null, value: '', isFirstInput: true });
@@ -38876,25 +38899,25 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
     const existing = records.find(r => r.patientId === selectedPatientId && r.date === date);
     let newRecords;
     if (existing) {
-      newRecords = records.map(r => r.id === existing.id ? { ...r, values: { ...r.values, ...values }, recorder: recorderName || r.recorder, _hist: _fitHistPush(r, recorderName), _savedAt: syncNow() } : r);
+      newRecords = records.map(r => r.id === existing.id ? { ...r, values: { ...r.values, ...values }, ...(Object.keys(fitNotes).length ? { notes: { ...(r.notes||{}), ...fitNotes } } : {}), recorder: recorderName || r.recorder, _hist: _fitHistPush(r, recorderName), _savedAt: syncNow() } : r);
     } else {
-      newRecords = [...records, { id: Date.now(), patientId: selectedPatientId, date, values, recorder: recorderName, _savedAt: syncNow() }];
+      newRecords = [...records, { id: Date.now(), patientId: selectedPatientId, date, values, ...(Object.keys(fitNotes).length ? { notes: { ...fitNotes } } : {}), recorder: recorderName, _savedAt: syncNow() }];
     }
     markClean(); onSave({ ...appData, fitnessRecords: newRecords });
-    setValues({});
+    setValues({}); setFitNotes({}); setFitNoteOpen({});
     alert('保存しました');
   };
 
   // 未保存ポップアップから呼ばれる用 (alert 抜き)
   const flushSave = () => {
-    if (!selectedPatientId || Object.keys(values).length === 0) { markClean(); return; }
+    if (!selectedPatientId || (Object.keys(values).length === 0 && Object.keys(fitNotes).length === 0)) { markClean(); return; }
     const recorderName = getActiveRecorderName();
     const existing = records.find(r => r.patientId === selectedPatientId && r.date === date);
     let newRecords;
     if (existing) {
-      newRecords = records.map(r => r.id === existing.id ? { ...r, values: { ...r.values, ...values }, recorder: recorderName || r.recorder, _hist: _fitHistPush(r, recorderName), _savedAt: syncNow() } : r);
+      newRecords = records.map(r => r.id === existing.id ? { ...r, values: { ...r.values, ...values }, ...(Object.keys(fitNotes).length ? { notes: { ...(r.notes||{}), ...fitNotes } } : {}), recorder: recorderName || r.recorder, _hist: _fitHistPush(r, recorderName), _savedAt: syncNow() } : r);
     } else {
-      newRecords = [...records, { id: Date.now(), patientId: selectedPatientId, date, values, recorder: recorderName, _savedAt: syncNow() }];
+      newRecords = [...records, { id: Date.now(), patientId: selectedPatientId, date, values, ...(Object.keys(fitNotes).length ? { notes: { ...fitNotes } } : {}), recorder: recorderName, _savedAt: syncNow() }];
     }
     markClean(); onSave({ ...appData, fitnessRecords: newRecords });
   };
@@ -38914,9 +38937,9 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
             <div className="font-bold text-slate-800 mb-1">体力測定が保存されていません</div>
             <div className="text-sm text-slate-600 mb-4">{(allPats.find(x => x.id === selectedPatientId) || {}).name || ''} 様（測定日 {date}）の入力を保存しますか？</div>
             <div className="space-y-2">
-              <button data-testid="fit-switch-save" onClick={() => { const go = fitSwitchAsk.go; flushSave(); setValues({}); setFitSwitchAsk(null); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: '体力測定を保存しました' } })); } catch {} go(); }}
+              <button data-testid="fit-switch-save" onClick={() => { const go = fitSwitchAsk.go; flushSave(); setValues({}); setFitNotes({}); setFitNoteOpen({}); setFitSwitchAsk(null); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: '体力測定を保存しました' } })); } catch {} go(); }}
                 className="w-full py-3 rounded-xl text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 active:scale-95">保存して移る</button>
-              <button data-testid="fit-switch-discard" onClick={() => { const go = fitSwitchAsk.go; markClean(); setValues({}); setFitSwitchAsk(null); go(); }}
+              <button data-testid="fit-switch-discard" onClick={() => { const go = fitSwitchAsk.go; markClean(); setValues({}); setFitNotes({}); setFitNoteOpen({}); setFitSwitchAsk(null); go(); }}
                 className="w-full py-2.5 rounded-xl text-sm font-bold bg-white border border-red-300 text-red-700 hover:bg-red-50">保存しないで移る（入力は消えます）</button>
               <button data-testid="fit-switch-cancel" onClick={() => setFitSwitchAsk(null)}
                 className="w-full py-2 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200">キャンセル（入力に戻る）</button>
@@ -39053,7 +39076,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                 const dueStr = due ? `${due.getMonth()+1}/${due.getDate()}` : '未測定';
                 return (
                   <div key={p.id} className="relative">
-                    <button onClick={() => { if (p.id === selectedPatientId) { setMobileRosterOpen(false); return; } guardFitSwitch(() => { setSelectedPatientId(p.id); onPatientChange&&onPatientChange(p.id); setValues({}); setMobileRosterOpen(false); }); }}
+                    <button onClick={() => { if (p.id === selectedPatientId) { setMobileRosterOpen(false); return; } guardFitSwitch(() => { setSelectedPatientId(p.id); onPatientChange&&onPatientChange(p.id); setValues({}); setFitNotes({}); setFitNoteOpen({}); setMobileRosterOpen(false); }); }}
                       className={`w-full text-left px-3 py-3 rounded-xl flex items-center justify-between border gap-2 transition-all ${selectedPatientId === p.id ? 'bg-blue-50 border-blue-200 shadow-sm' : isOver ? 'bg-red-50 border-red-100 hover:bg-red-100' : 'border-transparent hover:bg-white'}`}>
                       <div className="flex flex-col min-w-0 flex-1">
                                                 <span className="font-bold text-sm text-slate-800 truncate">{p.name}</span>
@@ -39166,9 +39189,12 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                       <div className="px-1.5 sm:px-4 py-2 font-bold text-[13px] sm:text-sm text-slate-700 leading-tight flex items-center gap-1.5">
                         {item.side !== 'L' ? <span>{item.pairName || fitPairBaseName(item.name)}<span className="text-xs text-slate-400 ml-0.5">（{item.unit}）</span></span> : <span className="invisible">{item.pairName || fitPairBaseName(item.name)}</span>}
                         <span className={`shrink-0 text-[11px] font-bold rounded px-1.5 py-0.5 ${item.side === 'L' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{item.side === 'L' ? '左' : '右'}</span>
+                        {!(fitNoteOpen[item.id] || (fitNotes[item.id] ?? '') !== '') && <button type="button" data-testid={`fit-note-btn-${item.id}`} onClick={() => setFitNoteOpen(o => ({ ...o, [item.id]: true }))} className="text-[11px] font-bold text-indigo-600 hover:underline whitespace-nowrap">＋備考</button>}
                       </div>
                     ) : (
-                    <div className="px-1.5 sm:px-4 py-3 font-bold text-[13px] sm:text-sm text-slate-700 leading-tight">{item.name}<span className="text-xs text-slate-400 ml-0.5">（{item.unit}）</span></div>
+                    <div className="px-1.5 sm:px-4 py-3 font-bold text-[13px] sm:text-sm text-slate-700 leading-tight">{item.name}<span className="text-xs text-slate-400 ml-0.5">（{item.unit}）</span>
+                      {!(fitNoteOpen[item.id] || (fitNotes[item.id] ?? '') !== '') && <button type="button" data-testid={`fit-note-btn-${item.id}`} onClick={() => setFitNoteOpen(o => ({ ...o, [item.id]: true }))} className="block mt-0.5 text-[11px] font-bold text-indigo-600 hover:underline">＋備考</button>}
+                    </div>
                     )}
                     <div className="px-1 sm:px-4 py-2">
                       {/* ★ タップでテンキーを表示。 手入力(OSキーボード)も可能で、全角は半角へ自動変換する */}
@@ -39194,6 +39220,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                        ) : (
                         prev !== undefined && prev !== '' ? <span className="font-bold text-slate-700">{prev}<span className="text-xs text-slate-400 ml-0.5">{item.unit}</span></span> : <span className="text-slate-300">—</span>
                        )}
+                      {lastRecord?.notes?.[item.id] ? <div data-testid={`fit-prev-note-${item.id}`} className="text-[10px] text-slate-500 leading-tight mt-0.5 break-words">（{lastRecord.notes[item.id]}）</div> : null}
                     </div>
                     <div className="px-1 sm:px-4 py-2 text-center">
                       {avg !== null ? <span className="font-bold text-green-700">{avg}<span className="text-xs text-green-500 ml-0.5">{item.unit}</span></span> : <span className="text-slate-300">—</span>}
@@ -39202,6 +39229,17 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                       <div data-testid={`fit-max-${item.id}`} className="contents"><ExtCell x={e.mx} unit={item.unit} color="#b45309" /></div>
                       <div data-testid={`fit-min-${item.id}`} className="contents"><ExtCell x={e.mn} unit={item.unit} color="#1d4ed8" /></div>
                     </>; })()}
+                    {(fitNoteOpen[item.id] || (fitNotes[item.id] ?? '') !== '') && (
+                      <div data-testid={`fit-note-${item.id}`} className="px-1.5 sm:px-4 pb-2 flex items-center gap-2" style={{ gridColumn: '1 / -1' }}>
+                        <span className="text-[11px] font-bold text-slate-500 shrink-0">備考</span>
+                        <input type="text" autoFocus={!(fitNotes[item.id] ?? '')} value={fitNotes[item.id] ?? ''} maxLength={FIT_NOTE_MAX}
+                          onChange={e => { const v = String(e.target.value).slice(0, FIT_NOTE_MAX); setFitNotes(n => ({ ...n, [item.id]: v })); markDirty(); }}
+                          placeholder={`例: 杖使用・介助あり・休憩1回（${FIT_NOTE_MAX}文字まで）`}
+                          className="flex-1 min-w-0 px-2 py-1.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-indigo-400"/>
+                        <span className={`text-[11px] font-bold shrink-0 ${(fitNotes[item.id] || '').length >= FIT_NOTE_MAX ? 'text-red-600' : 'text-slate-400'}`}>{(fitNotes[item.id] || '').length}/{FIT_NOTE_MAX}</span>
+                        <button type="button" onClick={() => { setFitNotes(n => { const x = { ...n }; if ((x[item.id] ?? '') !== '') { x[item.id] = ''; markDirty(); } else delete x[item.id]; return x; }); setFitNoteOpen(o => ({ ...o, [item.id]: false })); }} className="text-[11px] font-bold text-slate-500 border border-slate-300 rounded px-1.5 py-1 bg-white shrink-0">閉じる</button>
+                      </div>
+                    )}
                   </div>
                 );
               }).flatMap((row, i) => (fitnessItems[i] && fitnessItems[i].id === 'weight') ? [row, (
@@ -39318,6 +39356,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                                 ) : (
                                   cur !== '' && cur !== undefined ? <span className="font-bold text-slate-700" style={{whiteSpace:'nowrap'}}>{cur}</span> : <span className="text-slate-300">—</span>
                                 )}
+                                {r.notes?.[item.id] ? <div className="text-[10px] text-slate-500 leading-tight mt-0.5" style={{maxWidth:120,margin:'2px auto 0'}}>（{r.notes[item.id]}）</div> : null}
                               </td>
                             );
                             return item.id === 'weight' ? [_cell, <td key="__bmi" className="px-2 py-1 text-center"><BmiBadge bmi={_bmiOfRec(r, ri)} small /></td>] : [_cell];
