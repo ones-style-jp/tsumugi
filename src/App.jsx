@@ -24541,7 +24541,74 @@ export default function App() {
 }
 
 // === RecordView ===
+// ★ 2026-10-20(ユーザー要望): 提供記録の運動を一括で○(実際に行ったものだけを記録する前提。行わなかった人は×に)
+function TsuBulkExerciseModal({ rows, items, baselineOf, onApply, onClose }) {
+  const [step, setStep] = React.useState(1);
+  const [picked, setPicked] = React.useState(() => new Set());
+  const [cells, setCells] = React.useState({}); // `${rowId}|${itemId}` -> 'o' | 'x'
+  const _isNone = (b) => /^[ー\-－×✕xX]+$/.test(String(b || '').trim());
+  const stateOf = (r, it) => {
+    const cur = r.exercises ? r.exercises[it.id] : '';
+    if (cur !== undefined && cur !== null && String(typeof cur === 'object' ? (cur.value || '') : cur).trim() !== '') return { k: 'filled', v: String(typeof cur === 'object' ? cur.value : cur) };
+    const b = baselineOf(r.id, it.id);
+    if (_isNone(b)) return { k: 'none', v: 'ー' };
+    if (it.type !== 'toggle' && !/[0-9０-９]/.test(b)) return { k: 'nobase', v: '基準値なし' };
+    return { k: 'target', v: b };
+  };
+  const goStep2 = () => { const c = {}; rows.forEach(r => items.filter(it => picked.has(it.id)).forEach(it => { if (stateOf(r, it).k === 'target') c[`${r.id}|${it.id}`] = 'o'; })); setCells(c); setStep(2); };
+  const nO = Object.values(cells).filter(v => v === 'o').length, nX = Object.values(cells).filter(v => v === 'x').length;
+  const pickedItems = items.filter(it => picked.has(it.id));
+  return (
+    <div role="dialog" aria-modal="true" data-testid="bulk-ex-modal" style={{position:'fixed',inset:0,zIndex:2000030,background:'rgba(15,23,42,0.55)',display:'flex',alignItems:'center',justifyContent:'center',padding:12}}>
+      <div style={{width:'100%',maxWidth:720,maxHeight:'92vh',display:'flex',flexDirection:'column',background:'white',borderRadius:16,boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
+        <div style={{padding:'14px 16px 8px'}}>
+          <div style={{fontSize:17,fontWeight:'bold',color:'#1e293b'}}>運動を一括で○{step === 2 ? '（行わなかった方は×に）' : ''}</div>
+          <div data-testid="bulk-ex-caution" style={{marginTop:8,padding:'8px 10px',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:10,fontSize:12.5,color:'#991b1b',lineHeight:1.6}}>
+            実際に行った運動だけを記録してください。行っていない運動に○が残ったまま保存すると、記録と実態が合わず、<b>運営指導で減算や返還の対象になる可能性</b>があります。行わなかった方は必ず「×」にしてください。
+          </div>
+          <div style={{fontSize:12,color:'#64748b',marginTop:6,lineHeight:1.6}}>対象は出席している方だけです。提供内容(基準値)が「ー」の方（運動なし）と、基準値に数値が無い方には○を付けません。すでに入力済みのマスはそのままです。個別機能訓練は対象外（1人ずつ確認して入力してください）。</div>
+        </div>
+        <div style={{overflow:'auto',padding:'0 12px',flex:1}}>
+          {step === 1 ? (
+            <div data-testid="bulk-ex-items" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:8,padding:'6px 2px 10px'}}>
+              {items.map(it => (
+                <label key={it.id} style={{display:'flex',alignItems:'center',gap:8,padding:'10px 10px',border:'1px solid #e2e8f0',borderRadius:10,minHeight:44,cursor:'pointer',background: picked.has(it.id) ? '#eef2ff' : 'white'}}>
+                  <input type="checkbox" checked={picked.has(it.id)} onChange={() => setPicked(s0 => { const n = new Set(s0); if (n.has(it.id)) n.delete(it.id); else n.add(it.id); return n; })} style={{width:20,height:20}}/>
+                  <span style={{fontSize:14,fontWeight:'bold',color:'#1e293b'}}>{it.name}</span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <table data-testid="bulk-ex-table" style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+              <thead><tr><th style={{textAlign:'left',padding:'6px 4px',position:'sticky',top:0,background:'white',color:'#64748b',fontWeight:'normal'}}>利用者</th>{pickedItems.map(it => <th key={it.id} style={{padding:'6px 4px',position:'sticky',top:0,background:'white',color:'#334155',whiteSpace:'nowrap'}}>{it.name}</th>)}</tr></thead>
+              <tbody>{rows.map(r => (
+                <tr key={r.id} style={{borderTop:'1px solid #f1f5f9'}}>
+                  <td style={{padding:'6px 4px',fontWeight:'bold',color:'#1e293b',whiteSpace:'nowrap'}}>{r.name}</td>
+                  {pickedItems.map(it => { const st = stateOf(r, it); const key = `${r.id}|${it.id}`; const c = cells[key];
+                    if (st.k !== 'target') return <td key={it.id} style={{padding:'4px',textAlign:'center'}}><span title={st.k === 'none' ? '運動なし（基準値が「ー」）' : st.k === 'nobase' ? '基準値に数値がありません' : '入力済み'} style={{display:'inline-block',minWidth:52,padding:'8px 6px',borderRadius:8,background:'#f1f5f9',color:'#94a3b8',fontSize:12,fontWeight:'bold'}}>{st.k === 'filled' ? `${st.v}（入力済）` : st.v}</span></td>;
+                    return <td key={it.id} style={{padding:'4px',textAlign:'center'}}><button type="button" data-testid={`bulk-ex-cell-${r.id}-${it.id}`} onClick={() => setCells(x => ({ ...x, [key]: x[key] === 'o' ? 'x' : 'o' }))} style={{minWidth:52,minHeight:40,borderRadius:8,border:'2px solid ' + (c === 'o' ? '#2563eb' : '#dc2626'),background: c === 'o' ? '#eff6ff' : '#fef2f2',color: c === 'o' ? '#1d4ed8' : '#b91c1c',fontSize:18,fontWeight:'bold',cursor:'pointer'}}>{c === 'o' ? '○' : '×'}</button></td>; })}
+                </tr>))}</tbody>
+            </table>
+          )}
+          {step === 1 && rows.length === 0 && <div style={{padding:12,color:'#64748b',fontSize:13}}>この時間帯に出席している方がいません。</div>}
+        </div>
+        <div style={{display:'flex',gap:8,padding:'10px 14px 14px',borderTop:'1px solid #e2e8f0',alignItems:'center',flexWrap:'wrap'}}>
+          {step === 2 && <span style={{fontSize:13,fontWeight:'bold',color:'#334155'}}>○ {nO}件・× {nX}件</span>}
+          <span style={{flex:1}}/>
+          {step === 1 ? <>
+            <button type="button" onClick={onClose} className="px-4 py-3 bg-slate-100 text-slate-700 rounded-xl font-bold text-sm">キャンセル</button>
+            <button type="button" data-testid="bulk-ex-next" disabled={!picked.size || !rows.length} onClick={goStep2} className="px-4 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm disabled:opacity-50">次へ（行わなかった方を×に）</button>
+          </> : <>
+            <button type="button" onClick={() => setStep(1)} className="px-4 py-3 bg-slate-100 text-slate-700 rounded-xl font-bold text-sm">戻る</button>
+            <button type="button" data-testid="bulk-ex-apply" disabled={!nO && !nX} onClick={() => { if (!window.confirm(`○ ${nO}件・× ${nX}件を記録に入れます。\n実際に行った運動だけが○になっているか確認しましたか？`)) return; onApply(cells); }} className="px-4 py-3 bg-blue-600 text-white rounded-xl font-bold text-sm disabled:opacity-50">記録に入れる</button>
+          </>}
+        </div>
+      </div>
+    </div>
+  );
+}
 function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate, setSelectedDate, dirtyRef, saveFnRef, sharedAmpm, setSharedAmpm, showTip, hideTip, isSidebarOpen, setIsSidebarOpen, deviceName }) {
+  const [bulkExOpen, setBulkExOpen] = useState(false); // ★ 2026-10-20: 運動を一括で○
   const _exW = exColWidthFor(effExerciseItems(appData.systemSettings)); // ★ 運動列の共通幅(2026-10-05)
   // ★ 2026-10-08(ユーザー要望「個別運動の項目名・基準値が通常画面で見切れる。少しだけ列を広げてもよい」): 運動列の幅は運動メニューの
   //   名前だけで決めており、個別運動で選ぶ種目の名前(長いものが多い)は見ていなかった。個別運動の列だけ、種目名が約10.5pxの字で
@@ -26447,6 +26514,14 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               </div>
             )}
             <div data-testid="rec-actions" className="w-full sm:w-auto sm:ml-auto grid grid-cols-3 sm:flex items-center gap-1.5 sm:gap-2 sm:flex-wrap">
+              {filterMode === 'single' && <button type="button" data-testid="rec-act-bulkex" onClick={() => setBulkExOpen(true)} className="col-span-3 sm:col-span-1 order-last sm:order-none bg-white border border-indigo-300 text-indigo-700 hover:bg-indigo-50 px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="出席している方の運動をまとめて○にします(行わなかった方は×に)">運動を一括で○</button>}
+              {bulkExOpen && ReactDOM.createPortal(<TsuBulkExerciseModal
+                rows={(displayRecords || []).filter(r => ['出席', '臨時', '振替'].includes(r.status || '出席'))}
+                items={effExerciseItems(appData.systemSettings).filter(it => it.type !== 'individual')}
+                baselineOf={_exBaselineOf}
+                onClose={() => setBulkExOpen(false)}
+                onApply={(cells) => { let n = 0; Object.entries(cells).forEach(([k, v]) => { const i = k.lastIndexOf('|'); const rid = k.slice(0, i), fld = k.slice(i + 1); const r = (displayRecords || []).find(x => String(x.id) === rid); if (!r) return; updateExercise(r.id, fld, v === 'o' ? '○' : '×'); n++; }); setBulkExOpen(false); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `${n}件を入れました。内容を確かめて「保存」を押してください` } })); } catch {} }}
+              />, document.body)}
               {/* ★ 連絡帳は一番左(全画面の左)に配置(2026-08-28 店舗要望) */}
               <button data-testid="rec-act-renraku" onClick={() => { handleSaveClick(); navigateTo('print'); }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 sm:px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap">連絡帳</button>
               <button onClick={()=>setIsFullscreen(v=>!v)} className="bg-slate-700 hover:bg-slate-800 text-white px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title={isFullscreen?'通常表示':'全画面表示'}>
@@ -39205,6 +39280,15 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
 
             {/* 入力フォーム */}
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+              {/* ★ 2026-10-20(ユーザー要望): 備考はだいたい毎回同じなので、前回の備考を上に見やすく出し、まとめて入れられるように */}
+              {(() => { const pn = (lastRecord && lastRecord.notes) || {}; const list = fitnessItems.filter(it => String(pn[it.id] || '').trim()); if (!list.length) return null; return (
+                <div data-testid="fit-prev-notes" className="px-3 sm:px-4 py-2.5 bg-amber-50 border-b border-amber-200 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                  <span className="text-[12px] font-bold text-amber-900 shrink-0">前回の備考{lastRecord?.date ? `（${_fitDateLbl(lastRecord.date)}）` : ''}</span>
+                  {list.map(it => <span key={it.id} className="text-[13px] font-bold text-slate-800 bg-white border border-amber-200 rounded-lg px-2 py-0.5"><span className="text-slate-500 font-normal mr-1">{it.name}</span>{pn[it.id]}</span>)}
+                  <button type="button" data-testid="fit-copy-prev-notes" onClick={() => { const add = {}; const op = {}; list.forEach(it => { add[it.id] = String(pn[it.id]).slice(0, FIT_NOTE_MAX); op[it.id] = true; }); setFitNotes(n => ({ ...add, ...Object.fromEntries(Object.entries(n).filter(([, v]) => String(v || '').trim())) })); setFitNoteOpen(o => ({ ...o, ...op })); markDirty(); }}
+                    className="ml-auto text-[12px] font-bold text-amber-900 bg-white border border-amber-300 rounded-lg px-2.5 py-1 whitespace-nowrap">前回と同じ備考を入れる</button>
+                </div>
+              ); })()}
               <div className="grid bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500" style={{gridTemplateColumns:'1.35fr 1.1fr 1fr 0.9fr 1fr 1fr'}}>
                 <div className="px-1.5 sm:px-4 py-2">項目</div>
                 <div className="px-1.5 sm:px-4 py-2 text-center">今回入力</div>
@@ -39303,7 +39387,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                 <span className="text-slate-500">65歳以上の目標は 21.5〜24.9（厚生労働省「日本人の食事摂取基準」）。21.5未満は<span className="font-bold rounded px-1 whitespace-nowrap" style={{ color: '#a16207', background: '#fef9c3', border: '1px solid #fde047' }}>目標より低め</span></span>
               </div>
               {/* ★ 2026-10-20(ユーザー要望): その日の体力測定全体のメモ(特変など) */}
-              {(() => { const _todayRec = records.find(r => r.patientId === selectedPatientId && r.date === date); const mv = fitMemo !== null ? fitMemo : String(_todayRec?.memo || ''); return (
+              {(() => { const mv = fitMemo !== null ? fitMemo : ''; return ( /* ★ 2026-10-20: 毎回違う内容なので、保存したメモは入力欄に出さない(過去の記録の表で見る) */
                 <div data-testid="fit-memo" className="px-3 sm:px-4 py-3 border-t border-slate-200 bg-white">
                   <div className="flex items-center justify-between mb-1"><span className="text-sm font-bold text-slate-700">この日の測定メモ（特変など）</span><span className={`text-[11px] font-bold ${mv.length >= FIT_MEMO_MAX ? 'text-red-600' : 'text-slate-400'}`}>{mv.length}/{FIT_MEMO_MAX}</span></div>
                   <textarea value={mv} maxLength={FIT_MEMO_MAX} rows={2} onChange={e => { setFitMemo(String(e.target.value).slice(0, FIT_MEMO_MAX)); markDirty(); }}
@@ -41988,7 +42072,12 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 return(<div key={si.id} className="flex-1 min-w-[120px]"><label className="block text-sm font-bold text-slate-600 mb-1">{si.label}</label><select disabled={isOff} value={localPatient[fkey]||''} onChange={e=>updateLP(fkey,e.target.value)} className="w-full px-3 py-3 bg-slate-50 border border-slate-300 rounded-xl font-bold text-base outline-none cursor-pointer disabled:opacity-60">{opts.map(o=><option key={o} value={o}>{o}</option>)}</select></div>);
               })}</div>
               {/* ★ 個別運動(type:'individual')のスロットはここに基準値を持たせない。 基準値は下の「個別運動メニュー」で管理(重複解消)。 */}
-              <div><h3 className="text-sm font-bold text-slate-600 mb-3">運動メニュー</h3><div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">{(effExerciseItems(appData.systemSettings)).filter(item => item.type !== 'individual').map(item => { const isActive = keypad.isOpen && keypad.exerciseId === item.id; return (<div key={item.id} className={`p-2.5 rounded-xl border ${isActive ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-300' : 'bg-slate-50 border-slate-200'}`}><label className="block text-[12px] font-bold text-slate-500 mb-1 text-center leading-tight" style={{wordBreak:'break-all'}}>{item.name}{(item.defaultUnit || item.defaultUnit2) && item.type !== 'individual' && <span className="text-[9px] text-slate-400 font-normal ml-1 whitespace-nowrap">({[item.defaultUnit, item.defaultUnit2].filter(Boolean).join('/')})</span>}</label><input type="text" inputMode="text" readOnly={_mKeypadOn} disabled={isOff} value={(localPatient.plannedExercises && localPatient.plannedExercises[item.id]) || ""}
+              <div><h3 className="text-sm font-bold text-slate-600 mb-1">運動メニュー</h3>
+                <div data-testid="pe-legend" className="text-[11.5px] text-slate-600 leading-5 mb-3 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                  基準値の入れ方: <b>数値</b>（例: 10分・20回）＝その方がふだん行う量。<b>「ー」＝この運動は行わない（運動なし）</b>。提供記録の「運動を一括で○」でも○は付きません。<br/>
+                  提供記録では <b>○</b>＝基準値どおり実施／<b>×</b>＝基準値はあるが、その日は行わなかった／<b>ー</b>＝運動なし（基準値が「ー」）です。
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">{(effExerciseItems(appData.systemSettings)).filter(item => item.type !== 'individual').map(item => { const isActive = keypad.isOpen && keypad.exerciseId === item.id; return (<div key={item.id} className={`p-2.5 rounded-xl border ${isActive ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-300' : 'bg-slate-50 border-slate-200'}`}><label className="block text-[12px] font-bold text-slate-500 mb-1 text-center leading-tight" style={{wordBreak:'break-all'}}>{item.name}{(item.defaultUnit || item.defaultUnit2) && item.type !== 'individual' && <span className="text-[9px] text-slate-400 font-normal ml-1 whitespace-nowrap">({[item.defaultUnit, item.defaultUnit2].filter(Boolean).join('/')})</span>}</label><input type="text" inputMode="text" readOnly={_mKeypadOn} disabled={isOff} value={(localPatient.plannedExercises && localPatient.plannedExercises[item.id]) || ""}
                 onClick={() => { if (!isOff && _mKeypadOn) setKeypad({ isOpen: true, field: 'plannedExercise', exerciseId: item.id, value: (localPatient.plannedExercises && localPatient.plannedExercises[item.id]) || "", isFirstInput: true, mode: 'exercise' }); }}
                 onChange={_mKeypadOn ? undefined : (e)=>updateLP('plannedExercises', { ...(localPatient.plannedExercises || {}), [item.id]: e.target.value })}
                 onBlur={_mKeypadOn ? undefined : (e)=>{ let v=(e.target.value||'').trim(); if(v && item.defaultUnit && /[0-9０-９]/.test(v) && !v.endsWith(item.defaultUnit)) updateLP('plannedExercises', { ...(localPatient.plannedExercises || {}), [item.id]: `${v}${item.defaultUnit}` }); }}
