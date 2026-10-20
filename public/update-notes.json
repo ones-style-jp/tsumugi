@@ -1,7 +1,14 @@
 {
-  "version": "upd-2026-1021-trial351",
+  "version": "upd-2026-1021-trial352",
   "updatedAt": "2026-10-21",
   "notes": [
+    {
+      "id": "upd-2026-1021-trial352-prune",
+      "type": "improvement",
+      "title": "送迎表：車から外した方の送りの時間は消すように",
+      "body": "・どの車にも乗っていない方の送りの時間は、送迎表を保存するときに消えます（あとで乗せたときに古い時間が出ないように）。",
+      "date": "2026-10-21"
+    },
     {
       "id": "upd-2026-1021-trial351-datedit",
       "type": "improvement",

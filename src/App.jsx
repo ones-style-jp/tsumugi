@@ -36653,7 +36653,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     return _draftPlan(iso, sl);
   };
   const savePlan = (iso, sl, plan) => {
-    const { _draft, ...rest0 } = plan; const rest = _withArriveEst(iso, sl, rest0); // ★ 2026-10-16: 到着の目安を最後の方の時間から入れ直す
+    const { _draft, ...rest0 } = plan; const rest = _pruneDropAt(_withArriveEst(iso, sl, rest0)); // ★ 2026-10-16: 到着の目安を最後の方の時間から入れ直す ★ 2026-10-21: 乗っていない方の送りの時間は消す
     const k = `${iso}_${sl}`;
     const next = _stampChg(plans[k], { ...rest, _savedAt: syncNow() });
     _pushUndo('手での変更', { [k]: next });
@@ -36666,6 +36666,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   // ★ 2026-10-01(試験版・ユーザー要望「送りを変えたとき下部の休みのところに入るのが微妙・人数が多いと入りきらない」):
   //   運行表では送りの一覧を下部に書かず、送りが迎えと違う方だけ名前の右に小さく「送2号車」「送徒歩」「早退」などを付ける。
   //   送りの順番(迎えの逆順など)の違いは付けない(車が同じなら印なし)。
+  // ★ 2026-10-21: 送りの時間は、どの車(迎え・送り)・徒歩・その他にも入っていない方の分を消す(外した方の古い時間が、あとで乗せたときに出ないように)
+  const _pruneDropAt = (pl) => { if (!pl || !pl.dropAt) return pl; const all = [...Object.values(pl.cars || {}).flat(), ...(pl.walkers || []), ...(pl.others || [])]; if (pl.drop) all.push(...Object.values(pl.drop.cars || {}).flat(), ...(pl.drop.walkers || []), ...(pl.drop.others || []));
+    const ids = new Set(all.filter(Boolean).map(m => String(m.pid))); const gone = Object.keys(pl.dropAt).filter(k => !ids.has(k)); if (!gone.length) return pl; const a2 = { ...pl.dropAt }, au = { ...(pl.dropAtAuto || {}) }; gone.forEach(k => { delete a2[k]; delete au[k]; }); return { ...pl, dropAt: a2, dropAtAuto: au }; };
   // ★ 2026-10-21: 送りで家に着く時間(pl.dropAt[利用者]・目安は pl.dropAtAuto)。前の版で座席表の席に入れた at も読む
   const _legacyDropAt = (pl, pid) => { const dc = pl && pl.dropMode === 'custom' && pl.drop && pl.drop.cars; if (dc) for (const ms of Object.values(dc)) { const m = (ms || []).find(x => x && x.pid === pid); if (m && m.at) return m; } return null; };
   const _dropAtOf = (pl, pid) => { if (!pl) return ''; const v = (pl.dropAt || {})[String(pid)]; if (v) return v; const lm = _legacyDropAt(pl, pid); return lm ? lm.at : ''; };
