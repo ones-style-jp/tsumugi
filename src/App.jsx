@@ -34959,8 +34959,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                   {/* 状況のバナー: 次回予定の未入力 → 連絡事項の入力状況 */}
                   <div className="px-5 pt-3 space-y-2">
                     {miss > 0 ? (
-                      <button type="button" data-testid="cb-hub-banner-miss" onClick={() => open(() => setIsScheduleModalOpen(true))} className="w-full text-left bg-red-50 border border-red-200 rounded-xl px-3.5 py-2.5">
-                        <div className="text-sm font-bold text-red-700">次回予定が未入力の方が {miss}名 います</div>
+                      <button type="button" data-testid="cb-hub-banner-miss" onClick={() => { if (tsumugiTransportOn(appData)) { setInputHub(false); if (navigateTo) navigateTo('transport'); return; } open(() => setIsScheduleModalOpen(true)); }} className="w-full text-left bg-red-50 border border-red-200 rounded-xl px-3.5 py-2.5">
+                        <div className="text-sm font-bold text-red-700">{tsumugiTransportOn(appData) ? `送迎表でお迎え時間が決まっていない方が ${miss}名 います` : `次回予定が未入力の方が ${miss}名 います`}</div>
                         <div className="text-[11px] text-red-600 mt-0.5 truncate">{missingNextList.slice(0, 4).map(r => `${r.name} 様`).join('、')}{miss > 4 ? ` ほか${miss - 4}名` : ''}　→ 押すと入力できます</div>
                       </button>
                     ) : (
@@ -34969,7 +34969,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                     <div className="text-[11px] text-slate-500 px-1">連絡事項：{allOn ? '全員あて あり' : '全員あて なし'}・個別 {renN}名</div>
                   </div>
                   <div className="p-5 pt-3 space-y-2">
-                    {card('cb-hub-next', '次回予定', tsumugiTransportOn(appData) ? '次回の利用日・お迎え時間（時間は送迎表から入ります）' : '次回の利用日・お迎え時間',
+                    {/* ★ 2026-10-21(ユーザー): 送迎表を使う店舗は、次回のお迎え時間を送迎表で決めるので、ここでは入力しない */}
+                    {!tsumugiTransportOn(appData) && card('cb-hub-next', '次回予定', '次回の利用日・お迎え時間',
                       miss > 0 ? <span className="bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap">未入力{miss}名</span> : <span className="bg-emerald-100 text-emerald-700 text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap">入力済み</span>,
                       () => open(() => setIsScheduleModalOpen(true)))}
                     {card('cb-hub-renraku', '連絡事項', '全員あて・個別の連絡（表示期間つき）',
@@ -35281,14 +35282,14 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
           <div className="fixed inset-0 bg-slate-900/60 z-[9999] flex items-start justify-center p-4 pt-24">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden">
               <div className="px-6 py-4 bg-amber-50 border-b border-amber-200">
-                <div className="font-bold text-slate-800 text-base">次回予定が未入力の方がいます（{printMissingConfirm.names.length}名）</div>
+                <div className="font-bold text-slate-800 text-base">{tsumugiTransportOn(appData) ? '送迎表でお迎え時間が決まっていない方がいます' : '次回予定が未入力の方がいます'}（{printMissingConfirm.names.length}名）</div>
                 <div className="text-xs text-slate-500 mt-1">このまま進むと、連絡帳の「次回お迎え時間」が空欄で出力されます。</div>
               </div>
               <div className="px-6 py-3 max-h-52 overflow-y-auto">
                 {printMissingConfirm.names.map((n,i)=>(<div key={i} className="text-sm font-bold text-slate-700 py-1 border-b border-slate-100 last:border-0">{n} 様</div>))}
               </div>
               <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
-                <button onClick={()=>{ setPrintMissingConfirm(null); setIsScheduleModalOpen(true); }} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm">入力しに戻る</button>
+                <button onClick={()=>{ setPrintMissingConfirm(null); if (tsumugiTransportOn(appData)) { if (navigateTo) navigateTo('transport'); return; } setIsScheduleModalOpen(true); }} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm">{tsumugiTransportOn(appData) ? '送迎表を開く' : '入力しに戻る'}</button>
                 <button onClick={()=>{ setPrintMissingConfirm(null); _openPrintSelect(); }} className="px-5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl font-bold text-sm">このまま進む</button>
               </div>
             </div>
@@ -37075,12 +37076,30 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   // 手で決めた出発はそのまま。空の車と目安の車だけ入れ直す
   const fillDropDepartEst = (iso, sl) => { const pl0 = getPlan(iso, sl); if (!pl0.drop) return 0; const todo = cars.filter(c => { const d0 = (pl0.drop.depart||{})[c.id]; return (!d0 || (pl0.drop.departAuto||{})[c.id]) && _dropDepartEst(pl0, sl, c.id); }); if (!todo.length) return 0;
     mutate(iso, sl, (p2) => { if (!p2.drop) return; const dep = { ...(p2.drop.depart||{}) }; const au = { ...(p2.drop.departAuto||{}) }; todo.forEach(c => { const e = _dropDepartEst(p2, sl, c.id); if (e) { dep[c.id] = e.v; au[c.id] = true; } }); p2.drop.depart = dep; p2.drop.departAuto = au; }); return todo.length; };
+  // ★ 2026-10-21(店舗要望「送りも何時ごろ着くかヘルパーに聞かれる」): 送りの一人ずつの「家に着く時間」。目安は atAuto
+  const setDropAt = (iso, sl, cid, pid, v) => mutate(iso, sl, (pl) => { if (!pl.drop || !pl.drop.cars) return; const list = pl.drop.cars[cid] || []; pl.drop.cars = { ...pl.drop.cars, [cid]: list.map(m => { if (!m || m.pid !== pid) return m; const { at, atAuto, ...rest } = m; return v ? { ...rest, at: v } : rest; }) }; });
+  //   目安 = 出発時間 ＋ 施設→1人目の移動時間。次の方 = 前の方の時間 ＋ 前の方が降りるのにかかる時間(乗車にかかる時間・未設定は1分) ＋ 移動時間。手で決めた時間はそのまま
+  const fillDropAtEst = async (iso, sl) => {
+    const pl0 = getPlan(iso, sl); if (!pl0.drop || !pl0.drop.cars) return { n: 0, why: 'nodrop' };
+    const fac = _facilityAddr(); if (!fac) return { n: 0, why: 'nofac' };
+    const res = {}; let why = '';
+    for (const c of cars) { const list = (pl0.drop.cars[c.id] || []).filter(Boolean); if (!list.length) continue;
+      const dep = _minTp((pl0.drop.depart || {})[c.id]); if (dep == null) { why = why || 'nodep'; continue; }
+      const addrs = list.map(m => _routeAddrOf(m.pid)); if (addrs.some(a => !a)) { why = why || 'noaddr'; continue; }
+      try { const r = await fetch('/api/route-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ origin: fac, stops: addrs, keepOrder: true }) }); const j = await r.json().catch(() => ({})); const lg = Array.isArray(j.legSeconds) ? j.legSeconds : null;
+        if (j.error || !lg || lg.length < list.length) { why = why || 'api'; continue; }
+        let t = dep; const out = {}; list.forEach((m, i) => { if (i > 0) { const prev = (appData.patients || []).find(x => x.id === list[i - 1].pid) || {}; t += Math.max(1, Number(prev.pickupMinutes) || 1); } t += Math.max(0, Math.ceil((lg[i] || 0) / 60)); out[String(m.pid)] = _hmTp(t); }); res[c.id] = out;
+      } catch { why = why || 'api'; } }
+    const ids = Object.keys(res); if (!ids.length) return { n: 0, why };
+    let n = 0; mutate(iso, sl, (p2) => { if (!p2.drop || !p2.drop.cars) return; const nc = { ...p2.drop.cars }; ids.forEach(cid => { nc[cid] = (nc[cid] || []).map(m => { if (!m) return m; const v = res[cid][String(m.pid)]; if (!v || (m.at && !m.atAuto)) return m; n++; return { ...m, at: v, atAuto: true }; }); }); p2.drop.cars = nc; });
+    return { n, why };
+  };
   // 座席表のダウンロード(A4縦・その日の AM送り と PM送り)。用紙=外側、余白=内側の div(印刷の余白ルール)
   const buildSeatPrintHtml = (iso) => {
     const esc = (t) => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
     const d = new Date(iso); const dl = `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日（${'日月火水木金土'[d.getDay()]}）`;
     const fac = appData.systemSettings?.facilityInfo?.name || '';
-    const cell = (b) => `<div class="st${b ? '' : ' em'}">${b ? `<b class="no">${b.i + 1}</b><span class="nm">${tpNameLines(_pname(b.m.pid)).map(x => `<span>${esc(x)}</span>`).join('')}</span>` : ''}</div>`;
+    const cell = (b) => `<div class="st${b ? '' : ' em'}">${b ? `<b class="no">${b.i + 1}</b><span class="nm">${tpNameLines(_pname(b.m.pid)).map(x => `<span>${esc(x)}</span>`).join('')}${b.m.at ? `<span class="at">着 ${esc(b.m.at)}</span>` : ''}</span>` : ''}</div>`;
     const carHtml = (c, pl) => {
       const custom = pl.dropMode === 'custom' && pl.drop;
       const lay = tpSeatLayout(c, custom ? (pl.drop.cars?.[c.id]||[]) : []);
@@ -37101,7 +37120,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const tail = [wk.length ? `徒歩: ${wk.map(m => esc(_pname(m.pid))).join('・')}` : '', ot.length ? `その他: ${ot.map(m => `${esc(_pname(m.pid))}${m.why ? `（${esc(m.why)}）` : ''}`).join('・')}` : '', _ny.length ? `送り未定: ${_ny.map(pid => esc(_pname(pid))).join('・')}` : ''].filter(Boolean).join('　');
       return `<div class="sl"><div class="sh">${sl === 'AM' ? 'AM送り' : 'PM送り'}</div><div class="cars">${cars.map(c => carHtml(c, pl)).join('')}</div>${tail ? `<div class="tail">${tail}</div>` : ''}</div>`;
     };
-    const css = `<style>.sp{font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif;color:#111}.sp .hd{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1.5px solid #333;padding-bottom:2mm;margin-bottom:4mm}.sp .hd b{font-size:16px}.sp .sl{margin-bottom:9mm}.sp .sh{font-size:18px;font-weight:bold;text-align:center;margin-bottom:4mm}.sp .cars{display:flex;justify-content:space-around;align-items:flex-start;gap:4mm}.sp .car{display:flex;flex-direction:column;align-items:center}.sp .cn{font-size:16px;font-weight:bold;margin-bottom:2mm;display:flex;gap:3mm;align-items:baseline}.sp .dep{font-size:12px;font-weight:bold;color:#333}.sp .body{width:100%;box-sizing:border-box;border:2.5px solid #222;border-radius:16mm 16mm 4mm 4mm;padding:11mm 2.5mm 3.5mm;display:flex;flex-direction:column;gap:2.5mm}.sp .row{display:grid;gap:2mm}.sp .st{border:1.5px solid #222;border-radius:1.5mm;height:21.5mm;display:flex;align-items:center;gap:1.2mm;padding:0 1.2mm;box-sizing:border-box;overflow:hidden}.sp .st.em{border-style:solid}.sp .st.drv{background:#eee;justify-content:center;font-size:11px;color:#555;text-align:center}.sp .dvn b{font-size:13px;color:#111}.sp .no{display:inline-flex;align-items:center;justify-content:center;width:6mm;height:6mm;border-radius:50%;background:#222;color:#fff;font-size:12px;flex:none}.sp .nm{font-size:14px;font-weight:bold;line-height:1.25;display:flex;flex-direction:column}.sp .ex{font-size:10px;margin-top:1.5mm;max-width:100%}.sp .memo{font-size:14px;margin-top:2.5mm}.sp .tail{font-size:12px;margin-top:3mm;text-align:center}</style>`;
+    const css = `<style>.sp .st .at{display:block;font-size:8pt;font-weight:700;margin-top:0.5mm}.sp{font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif;color:#111}.sp .hd{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1.5px solid #333;padding-bottom:2mm;margin-bottom:4mm}.sp .hd b{font-size:16px}.sp .sl{margin-bottom:9mm}.sp .sh{font-size:18px;font-weight:bold;text-align:center;margin-bottom:4mm}.sp .cars{display:flex;justify-content:space-around;align-items:flex-start;gap:4mm}.sp .car{display:flex;flex-direction:column;align-items:center}.sp .cn{font-size:16px;font-weight:bold;margin-bottom:2mm;display:flex;gap:3mm;align-items:baseline}.sp .dep{font-size:12px;font-weight:bold;color:#333}.sp .body{width:100%;box-sizing:border-box;border:2.5px solid #222;border-radius:16mm 16mm 4mm 4mm;padding:11mm 2.5mm 3.5mm;display:flex;flex-direction:column;gap:2.5mm}.sp .row{display:grid;gap:2mm}.sp .st{border:1.5px solid #222;border-radius:1.5mm;height:21.5mm;display:flex;align-items:center;gap:1.2mm;padding:0 1.2mm;box-sizing:border-box;overflow:hidden}.sp .st.em{border-style:solid}.sp .st.drv{background:#eee;justify-content:center;font-size:11px;color:#555;text-align:center}.sp .dvn b{font-size:13px;color:#111}.sp .no{display:inline-flex;align-items:center;justify-content:center;width:6mm;height:6mm;border-radius:50%;background:#222;color:#fff;font-size:12px;flex:none}.sp .nm{font-size:14px;font-weight:bold;line-height:1.25;display:flex;flex-direction:column}.sp .ex{font-size:10px;margin-top:1.5mm;max-width:100%}.sp .memo{font-size:14px;margin-top:2.5mm}.sp .tail{font-size:12px;margin-top:3mm;text-align:center}</style>`;
     return `<div style="background:white;width:210mm;height:297mm;box-sizing:border-box;overflow:hidden"><div class="sp" style="padding:12mm 12mm">${css}<div class="hd"><b>送迎 座席表（送り）</b><span>${dl}　${esc(fac)}</span></div>${slotHtml('AM')}${slotHtml('PM')}</div></div>`;
   };
   const downloadSeatChart = (iso) => { window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `送迎座席表_${iso}`, pageSize: 'A4 portrait', html: buildSeatPrintHtml(iso), elementId: null } })); };
@@ -37229,6 +37248,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const [seatOrd, setSeatOrd] = useState(null); // 順番を変える方 {cid, pid}
   const [ordDrag, setOrdDrag] = useState(null); const ordDragRef = React.useRef(null); // ★ 2026-10-15: 送りの順番の一覧でつかんでいる方 {cid, pid, y0, dy, over}
   const [seatKp, setSeatKp] = useState(null); // ★ 2026-10-15: 送りの出発時間のテンキー {iso, sl, cid}
+  const [seatAtKp, setSeatAtKp] = useState(null); // ★ 2026-10-21: 送りで家に着く時間のテンキー {iso, sl, cid, pid}
+  const [dropAtBusy, setDropAtBusy] = useState(false);
   // ★ 2026-10-16(ユーザー要望「次の週の順番などを変えた後に前週コピーすると、そのまま入ってしまう」): 前週コピーは
   //   mode='fill'=この週でまだ作っていない午前・午後だけ写す(作った・直したコマはそのまま) / 'all'=全部写し直す(従来)
   const [copyAsk, setCopyAsk] = useState(false);
@@ -37258,6 +37279,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               { const _drvOk = new Set(_driverNames); const _noOther = (m) => { if (!m) return; Object.keys(m).forEach(cid => { if (m[cid] && !_drvOk.has(m[cid])) delete m[cid]; }); }; _noOther(cp.driver); if (cp.drop) _noOther(cp.drop.driver); }
               // ★ 2026-10-15: 前の週の到着・送りの出発は、この週の「目安」として写す(手で決め直すと目安が外れる)
               if (cp.arrive) { cp.arriveAuto = {}; Object.keys(cp.arrive).forEach(cid => { if (cp.arrive[cid] && (cp.cars?.[cid]||[]).length) cp.arriveAuto[cid] = true; else delete cp.arrive[cid]; }); }
+              if (cp.drop && cp.drop.cars) Object.values(cp.drop.cars).forEach(ms => (ms || []).forEach(m => { if (m && m.at) m.atAuto = true; })); // ★ 2026-10-21: 送りの着く時間も目安として写す
               if (cp.drop && cp.drop.depart) { cp.drop.departAuto = {}; Object.keys(cp.drop.depart).forEach(cid => { if (cp.drop.depart[cid] && (cp.drop.cars?.[cid]||[]).length) cp.drop.departAuto[cid] = true; else delete cp.drop.depart[cid]; }); }
               delete cp._final; delete cp._finalAt; delete cp._finalId; delete cp._base; delete cp._baseAt; delete cp._baseId; delete cp._chgAt; delete cp._telDone; // ★ 完成の控えは週ごと(コピー先は未確定から)
               // ★ 2026-10-16(ユーザー要望「この週で変えたところは作成中でも変えないで」「前週コピーのあと未割当の方を車に乗せて、もう一度押すと未割当に戻る」):
@@ -38810,6 +38832,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 <button type="button" data-testid="tp-seat-no" onClick={() => setSeatOrd(seatOrd && seatOrd.pid === b.m.pid ? null : { cid: c.id, pid: b.m.pid })} title="押すと送りの順番を変えられます" className={`shrink-0 w-7 h-7 rounded-full text-white text-[13px] font-bold ${seatOrd && seatOrd.pid === b.m.pid ? 'bg-amber-500' : 'bg-indigo-600'}`}>{b.i + 1}</button>
                 {nameSpan(b.m.pid, 'flex-1 min-w-0 text-[13px] text-slate-800 leading-tight', true)}
               </div>
+              {/* ★ 2026-10-21(店舗要望): 送りで家に着く時間。押すとテンキー */}
+              <button type="button" data-testid={`tp-seat-at-${b.m.pid}`} onClick={() => setSeatAtKp({ iso, sl, cid: c.id, pid: b.m.pid })} title="家に着く時間"
+                className={`mt-0.5 ml-8 self-start px-1.5 py-0.5 rounded border text-[11px] font-bold tabular-nums whitespace-nowrap ${b.m.at ? (b.m.atAuto ? 'border-slate-300 text-slate-500 bg-white' : 'border-indigo-300 text-indigo-700 bg-indigo-50') : 'border-dashed border-slate-300 text-slate-400 bg-white'}`}>着 {b.m.at || '--:--'}{b.m.at && b.m.atAuto ? ' 目安' : ''}</button>
               <button type="button" onClick={() => unseatDrop(iso, sl, b.m.pid)} className="absolute top-0 right-0 w-6 h-6 text-[13px] leading-none text-slate-400 hover:text-red-600" aria-label="席から外す" title="席から外す（席未定へ）">×</button>
             </> : <span className="text-center text-[11px] text-slate-400 pt-1">{_dragging ? 'ここへ' : '空き'}</span>}
           </div>); };
@@ -38880,6 +38905,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 </div>
                 <div className="flex-1"/>
                 {dr ? <button type="button" data-testid="tp-seat-depart-est" onClick={() => { const n = fillDropDepartEst(iso, sl); if (!n) alert('目安を入れられる車がありません。\n（送りの方が乗っていない車と、出発時間を手で決めた車はそのままです）'); }} title="1単位目・2単位目の終了時刻に、乗る方の「乗車にかかる時間」（利用者マスタ・未設定は1分）を足した時間を入れます。手で決めた出発時間はそのままです" className="px-3 py-2 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-800 rounded-lg text-sm font-bold">出発の目安を入れる</button> : null}
+                {dr ? <button type="button" data-testid="tp-seat-at-est" disabled={dropAtBusy} onClick={async () => { setDropAtBusy(true); try { const r2 = await fillDropAtEst(iso, sl); if (!r2.n) alert(r2.why === 'nodep' ? '先に各車の「出発」の時間を入れてください。' : r2.why === 'noaddr' ? '住所が入っていない方がいるため、移動時間を調べられませんでした。' : r2.why === 'nofac' ? '事業所の住所が入っていません（各種設定→事業所情報）。' : r2.why === 'api' ? '移動時間を調べられませんでした。席の「着」を押して手で入れてください。' : '目安を入れられる方がいません（手で決めた時間はそのままです）。'); } finally { setDropAtBusy(false); } }} title="出発時間と移動時間から、一人ずつ家に着く時間の目安を入れます（手で決めた時間はそのまま）" className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-indigo-800 rounded-lg text-sm font-bold disabled:opacity-50">{dropAtBusy ? '調べています…' : '着く時間の目安を入れる'}</button> : null}
                 <button type="button" data-testid="tp-seat-dl" onClick={() => downloadSeatChart(iso)} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold">ダウンロード</button>
               </div>
               {!dr ? (
@@ -38940,6 +38966,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         <TsuTimeKeypad title={`${c.name || ''}　送りの出発時間`} hint={r.e != null ? `${_hmTp(r.e)} 以降に出発（${r.unit}の終了）` : ''} initial={((pl0.drop && pl0.drop.depart) || {})[seatKp.cid] || ''}
           suggest={(() => { const e = _dropDepartEst(pl0, seatKp.sl, seatKp.cid); return e ? { label: `目安 ${e.v} を入れる（${e.n}名・乗車 ${e.add}分）`, value: e.v } : null; })()}
           onClose={() => setSeatKp(null)} onCommit={(v) => { if (setDropDepart(seatKp.iso, seatKp.sl, seatKp.cid, v) !== false) setSeatKp(null); }}/>); })()}
+      {seatAtKp && (() => { const pl0 = getPlan(seatAtKp.iso, seatAtKp.sl); const list = ((pl0.drop && pl0.drop.cars) || {})[seatAtKp.cid] || []; const m0 = list.find(x => x && x.pid === seatAtKp.pid) || {}; const dep = ((pl0.drop && pl0.drop.depart) || {})[seatAtKp.cid] || ''; return (
+        <TsuTimeKeypad title={`${_pname(seatAtKp.pid)} 様　家に着く時間`} hint={dep ? `出発 ${dep}` : '車の出発時間はまだです'} initial={m0.at || ''}
+          suggest={m0.at && m0.atAuto ? { label: `目安 ${m0.at} で決める`, value: m0.at } : null}
+          onClose={() => setSeatAtKp(null)} onCommit={(v) => { setDropAt(seatAtKp.iso, seatAtKp.sl, seatAtKp.cid, seatAtKp.pid, v); setSeatAtKp(null); }}/>); })()}
       {copyAsk && ReactDOM.createPortal((() => { let made = 0, fill = 0; days.forEach(d => ['AM','PM'].forEach(sl => { const pd = new Date(d); pd.setDate(pd.getDate() - 7); if (!plans[`${_iso(pd)}_${sl}`]) return; if (plans[`${_iso(d)}_${sl}`]) made++; else fill++; })); return (
         <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4" style={{ zIndex: 10000 }} onClick={() => setCopyAsk(false)} data-testid="tp-copy-ask">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
@@ -39003,7 +39033,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 <div className="border border-slate-200 rounded-lg divide-y divide-slate-100" data-testid="tp-sv-order">
                   {list.map((m, i) => { const pp = ptOf(m.pid); const addr = [_addrDisp(pp.address), pp.addressBuilding, pp.addressRoom].filter(Boolean).join(' '); const calls = tsumugiPickupCalls(pp); return (
                     <div key={m.pid} className="px-2.5 py-1.5">
-                      <div className="flex items-center gap-2"><span className="shrink-0 w-6 h-6 rounded-full bg-indigo-600 text-white text-[12px] font-bold flex items-center justify-center">{i + 1}</span><span className="font-bold text-[16px] text-slate-900">{_pname(m.pid)}</span></div>
+                      <div className="flex items-center gap-2"><span className="shrink-0 w-6 h-6 rounded-full bg-indigo-600 text-white text-[12px] font-bold flex items-center justify-center">{i + 1}</span><span className="font-bold text-[16px] text-slate-900">{_pname(m.pid)}</span>{m.at ? <span data-testid={`tp-sv-at-${m.pid}`} className="ml-auto shrink-0 text-[15px] font-bold tabular-nums text-indigo-700">着 {m.at}{m.atAuto ? <span className="text-[11px] text-slate-500 ml-0.5">目安</span> : null}</span> : null}</div>
                       <div className="pl-8 flex items-baseline gap-x-3 flex-wrap text-[13px] leading-snug">
                         {addr ? <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([pp.address, pp.addressBuilding].filter(Boolean).join(' '))}`} target="_blank" rel="noopener noreferrer" className="text-slate-800 underline decoration-dotted underline-offset-2">{addr}</a> : <span className="text-[12px] text-slate-400">住所未登録</span>}
                         {calls.map((cc, j) => <a key={cc.phone} href={`tel:${cc.phone.replace(/[^0-9+]/g, '')}`} className={`whitespace-nowrap tabular-nums ${j === 0 ? 'text-slate-700' : 'text-slate-500'}`}>{cc.label !== '本人' || j > 0 ? `${cc.label} ` : ''}{cc.phone}</a>)}
@@ -48965,6 +48995,14 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           _setDrv('a', plan.driver);
           const _dropX = (plan.dropMode === 'custom' && plan.drop) ? plan.drop : null;
           if (_dropX) _setDrv('d', _dropX.driver);
+          // ★ 2026-10-21(不具合修正・ユーザー報告「3台→2台に直して取り込み直しても日誌は3台のまま」): 送迎表でその向きに誰も乗っていない車は、運転者と時間を消す
+          { const _pickUsed = new Set(Object.keys(plan.cars||{}).filter(cid => ((plan.cars||{})[cid]||[]).length));
+            const _dropUsed = new Set(Object.keys(_dropSrc.cars||{}).filter(cid => ((_dropSrc.cars||{})[cid]||[]).length));
+            const _cids = new Set([...(ds.cars||[]).map(c => c && c.id).filter(Boolean), ...Object.keys(_ct2), ...Object.keys(_drv2).map(k => { const m = k.match(/^[ad]_(.+)_[^_]+$/); return m ? m[1] : ''; }).filter(Boolean)]);
+            _cids.forEach(cid => {
+              if (!_pickUsed.has(cid)) { Object.keys(_drv2).forEach(k => { if (k.startsWith(`a_${cid}_`)) delete _drv2[k]; }); if (_ct2[cid] && 'arrive' in _ct2[cid]) { const { arrive, ...rest } = _ct2[cid]; _ct2[cid] = rest; } }
+              if (!_dropUsed.has(cid)) { Object.keys(_drv2).forEach(k => { if (k.startsWith(`d_${cid}_`)) delete _drv2[k]; }); if (_ct2[cid] && 'depart' in _ct2[cid]) { const { depart, ...rest } = _ct2[cid]; _ct2[cid] = rest; } }
+            }); }
           // ★ 2026-10-15(ユーザー要望「取り込みで日誌が全部終わるように」): 迎えの到着(送迎表の各車の最後)と送りの出発(座席表)も入れる。
           //   日誌が空の車は入れる。日誌に違う時間が入っている車は確認して上書き。送迎表で「目安」のままの時間は確認してから入れる(目安は日誌の時間を上書きしない)
           const _tc = [];
