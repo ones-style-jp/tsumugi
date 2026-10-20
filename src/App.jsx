@@ -26631,10 +26631,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       )}
 
       {_rvMarks.length > 0 && (
-        <div data-testid="rv-marks-bar" className="no-print flex items-center gap-2 flex-wrap px-3 py-1.5 mb-1 rounded-lg bg-blue-50 border border-blue-200 text-[13px] font-bold text-blue-900">
+        <div data-testid="rv-marks-bar" className="no-print flex items-center gap-2 flex-wrap px-3 py-1.5 mb-1 rounded-lg bg-yellow-50 border border-yellow-300 text-[13px] font-bold text-yellow-900">
           <span>印を付けた方 {_rvMarks.length}名</span>
-          <span className="text-[11px] font-normal text-blue-800">（名前を長押しで付け外し・この端末の表示だけ）</span>
-          <button type="button" data-testid="rv-marks-clear" onClick={() => _setRvMarks([])} className="ml-auto px-3 py-1 rounded-lg bg-white border border-blue-300 text-blue-900">印をすべて外す</button>
+          <span className="text-[11px] font-normal text-yellow-800">（名前を長押しで付け外し・この端末の表示だけ）</span>
+          <button type="button" data-testid="rv-marks-clear" onClick={() => _setRvMarks([])} className="ml-auto px-3 py-1 rounded-lg bg-white border border-yellow-400 text-yellow-900">印をすべて外す</button>
         </div>
       )}
       <style>{`#record-table tbody tr { min-height: 32px !important; } #record-table tbody tr td { min-height: 32px !important; padding-top: 2px !important; padding-bottom: 2px !important; box-sizing: border-box !important; } /* 個別運動列: 他の列と同じ行高に収める (min-height強制を外す) */ #record-table tbody tr td[data-ind-cell] { min-height: 0 !important; height: auto !important; max-height: none !important; overflow: visible !important; vertical-align: middle !important; }  #record-table tr.readonly-row input:disabled, #record-table tr.readonly-row button:disabled, #record-table tr.readonly-row textarea:disabled, #record-table tr.readonly-row select:disabled { opacity: 1 !important; color: #000 !important; -webkit-text-fill-color: #000 !important; } /* 列見出しを縦スクロール時も常に上部固定 + 行高を狭く */ #record-table thead th { position: -webkit-sticky !important; position: sticky !important; top: 0 !important; height: 32px !important; min-height: 32px !important; max-height: 32px !important; padding-top: 4px !important; padding-bottom: 4px !important; line-height: 1.1 !important; font-size: 11px !important; }`}</style>
@@ -26925,7 +26925,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 <div className="mt-2 flex items-center gap-1.5">
                   {!isReadOnly && !isAbsent && !isPause && <TsuTokkiPresetSelect appData={appData} testid={`rv-ctokki-pick-${p.id}`} label="一言" onPick={(ph) => updateRecord(p.id, 'tokki', tsuTokkiAppend(p.tokki, ph))}
                     className="shrink-0 w-[4.5rem] h-11 px-1 text-[14px] font-bold border border-slate-300 rounded-lg bg-white text-slate-700 outline-none"/>}
-                  {!isReadOnly && !isAbsent && !isPause && !appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-ctokki-mic-${p.id}`} onText={(t) => updateRecord(p.id, 'tokki', tsuTokkiAppend(p.tokki, t))} className="w-11 h-11" size={20}/>}
+                  {!isReadOnly && !isAbsent && !isPause && !appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-ctokki-mic-${p.id}`} getBase={() => p.tokki || ''} onLive={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} onText={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} className="w-11 h-11" size={20}/>}
                   <input type="text" disabled={isReadOnly} value={p.tokki||''} maxLength={TOKKI_MAX} title="100文字まで（それ以上は支援経過表へ）" onChange={e=>updateRecord(p.id,'tokki',e.target.value.slice(0, TOKKI_MAX))} placeholder={isReadOnly?'':(isAbsent?'欠席理由...':(isPause?'休止中の特記...':'特記...'))} className="flex-1 min-w-0 h-11 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-50"/>
                 </div>{!isReadOnly && <div className="text-right -mt-0.5"><CharCount value={p.tokki} max={TOKKI_MAX}/></div>}
               </div>
@@ -26961,8 +26961,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">状態</th>
               {_kibunOn && <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800 text-xs">気分<div className="text-[8px] font-normal text-slate-400">通所/帰宅</div></th>}
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800 text-xs">体温</th>
-              <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">開始 血圧/脈</th>
-              {_showEn && <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">{secondBpLabel(appData)} 血圧/脈</th>}
+              {/* ★ 2026-10-20(ユーザー要望): 「開始 血圧」は血圧の欄の真上、「脈」は脈の欄の真上に(マスの中と同じ幅・左寄せでそろえる) */}
+              <th className="px-1 py-3 font-bold border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800" data-testid="rv-th-bpst"><div className="flex items-center gap-1"><span style={{width:78,textAlign:'center'}}>開始 血圧</span><span style={{width:55,marginLeft:4,textAlign:'center'}}>脈</span></div></th>
+              {_showEn && <th className="px-1 py-3 font-bold border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800" data-testid="rv-th-bpen"><div className="flex items-center gap-1"><span style={{width:78,textAlign:'center'}}>{secondBpLabel(appData)} 血圧</span><span style={{width:55,marginLeft:4,textAlign:'center'}}>脈</span></div></th>}
               {(effExerciseItems(appData.systemSettings)).map((item) => (
                 <th key={item.id} className={`px-1 py-2 font-medium text-center border leading-tight sticky top-0 z-40 text-xs ${item.type==='individual' ? 'bg-emerald-800 text-emerald-50 border-emerald-700' : 'bg-slate-800 border-slate-700 text-white'}`} style={{maxWidth:_exW,whiteSpace:'normal',wordBreak:'break-all'}}>
                   {item.name}
@@ -27111,7 +27112,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     const isEditingThis = keypad.isOpen && keypad.recordId === p.id && keypad.field === fBpCombo;
                     const display = isEditingThis ? (keypad.value||'') : (vBu && vBd ? `${vBu}/${vBd}` : (vBu || vBd || ''));
                     return (<>
-                    <div className="flex items-center justify-center gap-1">
+                    <div className="flex items-center justify-start gap-1">
                       {/* ★ 編集中は input で文字列を出し、 通常時は div + span × 2 で 上/下 を個別色付け */}
                       {!_keypadOn ? (
                         <input type="text" inputMode="text" placeholder="上/下" disabled={isAbsent || isReadOnly || isPause} data-bp-input={`${p.id}-${fBpCombo}`}
@@ -27133,7 +27134,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                           ) : (vBu ? <span className={getBpUpColorClass(vBu)}>{vBu}</span> : <span className="text-slate-300">　　　</span>)}
                         </div>
                       )}
-                      <input type="text" inputMode="numeric" readOnly={_keypadOn} disabled={isAbsent || isReadOnly || isPause} value={vPl} onClick={() => { if(_keypadOn){ openKeypad(p.id, fPl, vPl, isAbsent); setActiveCell(`${p.id}-${fPl}`); } }} onChange={_keypadOn ? undefined : (e)=>updateRecord(p.id, fPl, e.target.value)} style={{fontSize:14,padding:'0 1px',width:55,height:42,boxSizing:'border-box'}} className={`border rounded-lg text-center ${_keypadOn?'cursor-pointer':''} ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(vPl, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-${fPl}` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
+                      <input type="text" inputMode="numeric" readOnly={_keypadOn} disabled={isAbsent || isReadOnly || isPause} value={vPl} onClick={() => { if(_keypadOn){ openKeypad(p.id, fPl, vPl, isAbsent); setActiveCell(`${p.id}-${fPl}`); } }} onChange={_keypadOn ? undefined : (e)=>updateRecord(p.id, fPl, e.target.value)} style={{fontSize:14,padding:'0 1px',width:55,height:42,boxSizing:'border-box'}} className={`border rounded-lg text-center ${_keypadOn?'cursor-pointer':''} ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(vPl, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-${fPl}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white shadow-inner'}`} />
                       {_reOn && !(isAbsent || isReadOnly || isPause) && <button type="button" data-testid={`bp-re-St-${p.id}`} title="再検: 今の値を○回目として下に控え、欄を空にします（新しく入れた値が最後の値になります）" onClick={()=>applyBpRemeasure(p.id, 'St')} className={`shrink-0 text-[10px] font-bold rounded px-1 py-0.5 border ${bpReHas(p,'St',timeFilter) ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-slate-50 border-slate-300 text-slate-600 hover:bg-blue-50'}`}>再{bpReHas(p,'St',timeFilter) ? bpReList(p,timeFilter).filter(e=>e.phase==='St').length : ''}</button>}
                     </div>
                     <BpReMini entries={bpReList(p, timeFilter).filter(e => e.phase === 'St')} canEdit={!(isAbsent || isReadOnly || isPause)} onDelete={(at) => removeBpRemeasureAt(p.id, at)} />
@@ -27146,7 +27147,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     const isEditingThis = keypad.isOpen && keypad.recordId === p.id && keypad.field === fBpCombo;
                     const display = isEditingThis ? (keypad.value||'') : (vBu && vBd ? `${vBu}/${vBd}` : (vBu || vBd || ''));
                     return (<>
-                    <div className="flex items-center justify-center gap-1">
+                    <div className="flex items-center justify-start gap-1">
                       {!_keypadOn ? (
                         <input type="text" inputMode="text" placeholder="上/下" disabled={isAbsent || isReadOnly || isPause} data-bp-input={`${p.id}-${fBpCombo}`}
                           key={`bpk-${p.id}-${fBpCombo}-${vBu}-${vBd}`} defaultValue={(vBu && vBd) ? `${vBu}/${vBd}` : (vBu||'')}
@@ -27167,7 +27168,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                           ) : (vBu ? <span className={getBpUpColorClass(vBu)}>{vBu}</span> : <span className="text-slate-300">　　　</span>)}
                         </div>
                       )}
-                      <input type="text" inputMode="numeric" readOnly={_keypadOn} disabled={isAbsent || isReadOnly || isPause} value={vPl} onClick={() => { if(_keypadOn){ openKeypad(p.id, fPl, vPl, isAbsent); setActiveCell(`${p.id}-${fPl}`); } }} onChange={_keypadOn ? undefined : (e)=>updateRecord(p.id, fPl, e.target.value)} style={{fontSize:14,padding:'0 1px',width:55,height:42,boxSizing:'border-box'}} className={`border rounded-lg text-center ${_keypadOn?'cursor-pointer':''} ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(vPl, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-${fPl}` ? 'border-blue-500 ring-2 ring-blue-300 bg-emerald-50' : 'border-emerald-200 bg-emerald-50 shadow-inner'}`} />
+                      <input type="text" inputMode="numeric" readOnly={_keypadOn} disabled={isAbsent || isReadOnly || isPause} value={vPl} onClick={() => { if(_keypadOn){ openKeypad(p.id, fPl, vPl, isAbsent); setActiveCell(`${p.id}-${fPl}`); } }} onChange={_keypadOn ? undefined : (e)=>updateRecord(p.id, fPl, e.target.value)} style={{fontSize:14,padding:'0 1px',width:55,height:42,boxSizing:'border-box'}} className={`border rounded-lg text-center ${_keypadOn?'cursor-pointer':''} ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(vPl, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-${fPl}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-slate-300 bg-white shadow-inner'}`} />
                       {_reOn && !(isAbsent || isReadOnly || isPause) && <button type="button" data-testid={`bp-re-En-${p.id}`} title="再検: 今の値を○回目として下に控え、欄を空にします（新しく入れた値が最後の値になります）" onClick={()=>applyBpRemeasure(p.id, 'En')} className={`shrink-0 text-[10px] font-bold rounded px-1 py-0.5 border ${bpReHas(p,'En',timeFilter) ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-slate-50 border-slate-300 text-slate-600 hover:bg-blue-50'}`}>再{bpReHas(p,'En',timeFilter) ? bpReList(p,timeFilter).filter(e=>e.phase==='En').length : ''}</button>}
                     </div>
                     <BpReMini entries={bpReList(p, timeFilter).filter(e => e.phase === 'En')} canEdit={!(isAbsent || isReadOnly || isPause)} onDelete={(at) => removeBpRemeasureAt(p.id, at)} />
@@ -27346,7 +27347,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                             <div style={{display:'flex',flexDirection:'column',gap:2,flexShrink:0,width:44,justifyContent:'center'}}>
                               <TsuTokkiPresetSelect appData={appData} testid={`rv-tokki-pick-${p.id}`} onPick={(ph) => updateRecord(p.id, 'tokki', tsuTokkiAppend(p.tokki, ph))}
                                 className="w-full text-[11px] font-bold border border-slate-300 rounded bg-white text-slate-700 outline-none" style={{height:24,padding:'0 2px'}}/>
-                              {!appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-tokki-mic-${p.id}`} onText={(t) => updateRecord(p.id, 'tokki', tsuTokkiAppend(p.tokki, t))} className="w-11" style={{height:24}} size={14}/>}
+                              {!appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-tokki-mic-${p.id}`} getBase={() => p.tokki || ''} onLive={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} onText={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} className="w-11" style={{height:24}} size={14}/>}
                             </div>
                           )}
                           {/* ★ 欠席・休止の特記=休みの理由は家族へ必ず表示する(2026-08-21): 非表示ボタン自体を出さない */}
@@ -27651,7 +27652,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   {!isReadOnly && !isAbsent && !isPause && (() => { const _add = (ph) => { const el = _zoomTokkiRef.current; const next = tsuTokkiAppend(el ? el.value : p.tokki, ph); if (el) el.value = next; updateRecord(p.id, 'tokki', next); }; return (
                     <div className="flex flex-col gap-2 shrink-0" style={{width:96}}>
                       <TsuTokkiPresetSelect appData={appData} testid="rv-ztokki-pick" label="一言" onPick={_add} className="w-full h-12 px-2 text-[17px] font-bold border-2 border-slate-300 rounded-xl bg-white text-slate-700 outline-none"/>
-                      {!appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid="rv-ztokki-mic" onText={_add} className="w-full h-12" size={22}/>}
+                      {!appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid="rv-ztokki-mic" getBase={() => (_zoomTokkiRef.current ? _zoomTokkiRef.current.value : p.tokki) || ''} onLive={(t, base) => { const el = _zoomTokkiRef.current; if (el) el.value = tsuTokkiAppend(base, t); }} onText={(t, base) => { const el = _zoomTokkiRef.current; const next = tsuTokkiAppend(base, t); if (el) el.value = next; updateRecord(p.id, 'tokki', next); }} className="w-full h-12" size={22}/>}
                     </div>
                   ); })()}
                   <textarea ref={_zoomTokkiRef} disabled={isReadOnly} defaultValue={p.tokki||''} key={`zoom-tokki-${p.id}-${zoomPid}`}
@@ -36287,22 +36288,26 @@ function TsuTokkiPresetSelect({ appData, onPick, className, style, testid, label
 }
 // ★ 2026-10-20(ユーザー案): 特記のマイク。ブラウザの音声認識(Safari/Chrome)で話した言葉を文字にする。使えない端末ではボタンを出さない
 const tsuVoiceSupported = () => { try { return typeof window !== 'undefined' && !!(window.SpeechRecognition || window.webkitSpeechRecognition); } catch { return false; } };
-function TsuMicButton({ onText, disabled, testid, className, style, size = 15 }) {
+function TsuMicButton({ onText, onLive, getBase, disabled, testid, className, style, size = 15 }) {
   const [on, setOn] = React.useState(false); const [msg, setMsg] = React.useState(''); const [live, setLive] = React.useState('');
   const recRef = React.useRef(null); const txtRef = React.useRef(''); const doneRef = React.useRef(true); const errRef = React.useRef(false); const timerRef = React.useRef(null);
   const onTextRef = React.useRef(onText); onTextRef.current = onText;
-  React.useEffect(() => () => { try { recRef.current && recRef.current.abort(); } catch {} clearTimeout(timerRef.current); }, []);
+  // ★ 2026-10-20(ユーザー要望「吹き出しではなく、欄にそのまま書かれていく方が見やすい」): onLive があれば、聞き取り中の言葉を欄へ(0.25秒ごと)
+  const onLiveRef = React.useRef(onLive); onLiveRef.current = onLive; const baseRef = React.useRef(''); const liveTRef = React.useRef(null);
+  React.useEffect(() => () => { try { recRef.current && recRef.current.abort(); } catch {} clearTimeout(timerRef.current); clearTimeout(liveTRef.current); }, []);
   if (!tsuVoiceSupported()) return null;
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(''), 4000); };
   // ★ 2026-10-20(不具合修正・iPhone/iPad の Safari で文字が入らない): 確定した結果が来なくても、聞き終わったら控えた文字(途中の結果)を入れる
-  const commit = () => { if (doneRef.current) return; doneRef.current = true; const t = String(txtRef.current || '').trim(); txtRef.current = ''; setLive(''); if (t) { try { onTextRef.current(t); } catch {} } else if (!errRef.current) flash('声が聞き取れませんでした。もう一度押して、少しはっきり話してください'); };
+  const commit = () => { if (doneRef.current) return; doneRef.current = true; clearTimeout(liveTRef.current); liveTRef.current = null; const t = String(txtRef.current || '').trim(); txtRef.current = ''; setLive(''); if (t) { try { onTextRef.current(t, baseRef.current); } catch {} } else if (!errRef.current) flash('声が聞き取れませんでした。もう一度押して、少しはっきり話してください'); };
   const toggle = () => {
     if (on) { try { recRef.current && recRef.current.stop(); } catch {} return; }
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition; let rec;
     try { rec = new SR(); } catch { flash('この端末では音声入力が使えません'); return; }
     rec.lang = 'ja-JP'; rec.interimResults = true; rec.maxAlternatives = 1; rec.continuous = false;
     txtRef.current = ''; doneRef.current = false; errRef.current = false; setLive('');
-    rec.onresult = (ev) => { try { let t = ''; const rs = ev.results || []; for (let i = 0; i < rs.length; i++) { const r = rs[i]; t += (r && r[0] && r[0].transcript) || ''; } t = t.trim(); if (t) { txtRef.current = t; setLive(t); } } catch {} };
+    try { baseRef.current = getBase ? String(getBase() || '') : ''; } catch { baseRef.current = ''; }
+    rec.onresult = (ev) => { try { let t = ''; const rs = ev.results || []; for (let i = 0; i < rs.length; i++) { const r = rs[i]; t += (r && r[0] && r[0].transcript) || ''; } t = t.trim(); if (t) { txtRef.current = t; setLive(t);
+      if (onLiveRef.current && !liveTRef.current) liveTRef.current = setTimeout(() => { liveTRef.current = null; if (!doneRef.current && onLiveRef.current) { try { onLiveRef.current(txtRef.current, baseRef.current); } catch {} } }, 250); } } catch {} };
     rec.onspeechend = () => { try { rec.stop(); } catch {} };
     rec.onerror = (ev) => { const c = ev && ev.error; if (c === 'aborted') return; if (c === 'no-speech' && txtRef.current) return; errRef.current = true; flash(c === 'not-allowed' || c === 'service-not-allowed' ? 'マイクが許可されていません（端末の設定でマイクと音声認識を許可してください）' : c === 'no-speech' ? '声が聞き取れませんでした。もう一度押してください' : c === 'network' ? '音声入力は通信が必要です。電波を確かめてください' : '音声入力ができませんでした'); };
     rec.onend = () => { clearTimeout(timerRef.current); setOn(false); recRef.current = null; commit(); };
@@ -36316,8 +36321,9 @@ function TsuMicButton({ onText, disabled, testid, className, style, size = 15 })
         className={`${className || ''} ${on ? 'bg-red-600 border-red-600 text-white animate-pulse' : 'bg-white border-slate-300 text-slate-600'} border rounded-lg inline-flex items-center justify-center disabled:opacity-40`} style={style}>
         <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><line x1="12" y1="18" x2="12" y2="22"/></svg>
       </button>
-      {on && <span data-testid={testid ? `${testid}-live` : undefined} role="status" className="absolute left-0 bottom-full mb-1 z-[60] max-w-[16rem] whitespace-normal text-[12px] font-bold text-white bg-red-600 rounded px-2 py-1 shadow">{live ? `聞き取り中: ${live}` : '聞き取り中… 話してください'}</span>}
-      {msg && <span role="status" className="absolute left-0 top-full mt-1 z-[60] whitespace-nowrap text-[11px] font-bold text-white bg-slate-800 rounded px-2 py-1 shadow">{msg}</span>}
+      {on && !onLive && <span data-testid={testid ? `${testid}-live` : undefined} role="status" className="absolute left-0 bottom-full mb-1 z-[60] max-w-[16rem] whitespace-normal text-[12px] font-bold text-white bg-red-600 rounded px-2 py-1 shadow">{live ? `聞き取り中: ${live}` : '聞き取り中… 話してください'}</span>}
+      {/* ★ 2026-10-20: 知らせは画面の下に(表のマスの中だと隠れた) */}
+      {msg && ReactDOM.createPortal(<div role="status" data-testid={testid ? `${testid}-msg` : undefined} style={{position:'fixed',left:'50%',transform:'translateX(-50%)',bottom:'calc(env(safe-area-inset-bottom, 0px) + 88px)',zIndex:10060,maxWidth:'90vw'}} className="text-[14px] font-bold text-white bg-slate-800 rounded-xl px-4 py-2.5 shadow-lg text-center">{msg}</div>, document.body)}
     </span>
   );
 }
