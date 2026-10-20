@@ -26765,7 +26765,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           </div>
         )}
         {/* ★ スマホ用カード表示 (md未満)。 PC/iPad は下のテーブル。 横長の表をスマホで縦カードに */}
-        <div className={searchActive ? 'hidden' : 'md:hidden p-2 space-y-3'} onPointerDownCapture={_rvTapRow}>
+        <div className={searchActive ? 'hidden' : 'md:hidden p-2 space-y-3 tsu-rv-cards'} onPointerDownCapture={_rvTapRow}>
           {displayRecords.length===0 && <div className="text-center text-slate-400 font-bold py-8">対象の利用者がいません</div>}
           {displayRecords.map((p) => {
             const masterData = (appData.patients||[]).find(pt => pt.id === p.patientId || pt.id === p.id || pt.name === p.name) || {};

@@ -1,7 +1,14 @@
 {
-  "version": "upd-2026-1021-trial346",
+  "version": "upd-2026-1021-trial347",
   "updatedAt": "2026-10-21",
   "notes": [
+    {
+      "id": "upd-2026-1021-trial347-phonecard",
+      "type": "improvement",
+      "title": "スマホの提供記録：表示できる量を増やしました",
+      "body": "・利用者ごとの枠を画面の端から端まで広げ、枠の内側の余白と、枠どうし・ボタンどうしの間を詰めました（ボタンの押しやすさは変えていません）。\n・入力中の方の黄色の枠は、枠の内側に出ます。",
+      "date": "2026-10-21"
+    },
     {
       "id": "upd-2026-1021-trial346-marks",
       "type": "improvement",

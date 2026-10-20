@@ -481,3 +481,15 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
 
 /* ★ 2026-10-20(不具合修正): スマホでは2列のまとまりを1列に(分析(稼働)の男女比・介護度内訳が見切れた) */
 @media (max-width: 767px) { .tsu-ph-1col { grid-template-columns: minmax(0, 1fr) !important; } }
+
+/* ★ 2026-10-21(ユーザー要望「スマホのときもう少し表示領域を増やして」): スマホの提供記録のカードを端から端まで・余白と間隔を詰める(押せる大きさは変えない) */
+@media (max-width: 767px) {
+  .tsu-rv-cards { padding: 4px 0 !important; }
+  .record-view-scroll:has(> .tsu-rv-cards) { border-left-width: 0 !important; border-right-width: 0 !important; border-radius: 0 !important; }
+  .tsu-rv-cards > * + * { margin-top: 6px !important; }
+  .tsu-rv-cards > [data-rec-card] { border-radius: 0 !important; border-left-width: 0 !important; border-right-width: 0 !important; padding: 8px 10px !important; }
+  .tsu-rv-cards > [data-rec-card]:not([data-rv-cur]) { box-shadow: none !important; }
+  .tsu-rv-cards > [data-rec-card][data-rv-cur] { box-shadow: inset 0 0 0 3px #eab308 !important; }
+  .tsu-rv-cards > [data-rec-card] .grid { gap: 6px !important; }
+  .tsu-rv-cards > [data-rec-card] .mb-2, .tsu-rv-cards > [data-rec-card] .mb-2\.5 { margin-bottom: 6px !important; }
+}
