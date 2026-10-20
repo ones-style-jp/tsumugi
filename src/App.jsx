@@ -36093,15 +36093,45 @@ const tpSeatLayout = (c, list) => {
   (list || []).forEach((m, i) => { const sN = Number(m && m.seat); if (m && m.seat != null && m.seat !== '' && sN >= 0 && sN < capN && !bySeat[sN]) bySeat[sN] = { m, i }; else unseated.push({ m, i }); });
   return { capN, rows: tpSeatRowsFor(c, capN), bySeat, unseated };
 };
+// ★ 2026-10-20(ユーザー要望): 体力測定の項目の備考の定型文(各種設定→体力測定で店舗ごとに作る)。未設定ならこの既定
+const FIT_NOTE_PRESETS_DEFAULT = ['杖使用', '介助あり', '踏み台使用', '休憩あり', '途中で中止', '車椅子のまま'];
+const FIT_NOTE_MAX = 15, FIT_MEMO_MAX = 200, FIT_PRESET_MAX_N = 30;
+const tsuFitNotePresets = (appData) => { const v = appData && appData.systemSettings && appData.systemSettings.fitnessNotePresets; return Array.isArray(v) ? v : FIT_NOTE_PRESETS_DEFAULT; };
+// ★ 2026-10-20(ユーザー要望): 各種設定→体力測定「備考の定型文」。店舗ごとに作り、体力測定の各項目の備考でプルダウンから選べる
+function TsuFitNotePresetCard({ appData, onSave }) {
+  const list = tsuFitNotePresets(appData); const [txt, setTxt] = React.useState('');
+  const save = (next, msg) => onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), fitnessNotePresets: next, _updatedAt: syncNow() } }, { manual: true, message: msg });
+  const add = () => { const t = txt.trim().slice(0, FIT_NOTE_MAX); if (!t) return; if (list.includes(t)) { alert(`「${t}」はすでにあります`); return; } if (list.length >= FIT_PRESET_MAX_N) { alert(`定型文は${FIT_PRESET_MAX_N}件までです`); return; } save([...list, t], `✓ 「${t}」を追加しました`); setTxt(''); };
+  return (
+    <div data-testid="fit-preset-card" className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+      <h3 className="text-base font-bold text-slate-800 mb-2 border-b border-slate-200 pb-2">備考の定型文</h3>
+      <p className="text-xs text-slate-500 mb-3">体力測定の各項目の「＋備考」で、プルダウンから選べる言葉です（例: 杖使用・介助あり・踏み台使用）。店舗の使い方に合わせて追加・削除してください（{FIT_NOTE_MAX}文字まで・{FIT_PRESET_MAX_N}件まで）。</p>
+      <div className="flex flex-wrap gap-2 mb-3">
+        {list.length === 0 && <span className="text-xs text-slate-400">まだありません</span>}
+        {list.map(t => (
+          <span key={t} className="inline-flex items-center gap-1 pl-3 pr-1 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-sm font-bold text-indigo-800">
+            {t}
+            <button type="button" aria-label={`${t} を削除`} onClick={() => { if (!window.confirm(`定型文「${t}」を削除しますか？\n（すでに記録した備考は消えません）`)) return; save(list.filter(x => x !== t), `✓ 「${t}」を削除しました`); }} className="w-6 h-6 rounded-full text-indigo-500 hover:bg-indigo-100 font-bold leading-none">×</button>
+          </span>
+        ))}
+      </div>
+      <div className="flex gap-2 flex-wrap">
+        <input value={txt} maxLength={FIT_NOTE_MAX} onChange={e => setTxt(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !(e.nativeEvent && e.nativeEvent.isComposing)) { e.preventDefault(); add(); } }} placeholder={`新しい定型文（${FIT_NOTE_MAX}文字まで）`} className="flex-1 min-w-[180px] px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-indigo-400"/>
+        <button type="button" onClick={add} disabled={!txt.trim()} className="px-4 py-2 rounded-lg text-sm font-bold bg-indigo-600 text-white disabled:opacity-50">追加</button>
+        {!Array.isArray(appData?.systemSettings?.fitnessNotePresets) ? null : <button type="button" onClick={() => { if (!window.confirm('定型文を最初の内容（杖使用・介助あり など）に戻しますか？')) return; save(FIT_NOTE_PRESETS_DEFAULT, '✓ 定型文を最初の内容に戻しました'); }} className="px-3 py-2 rounded-lg text-sm font-bold bg-white border border-slate-300 text-slate-600">最初の内容に戻す</button>}
+      </div>
+    </div>
+  );
+}
 // ★ 2026-10-20(ユーザー要望): 運転者の選択に「その他（名前を入力）」。職員一覧に無い人(応援・家族の送迎など)の名前をその場で入れる
 function TsuDriverSelect({ value, names, onChange, placeholder, className, testid }) {
   const [editing, setEditing] = React.useState(false); const [txt, setTxt] = React.useState('');
   const v = String(value || ''); const list = names || [];
   const isOther = !!v && !list.includes(v);
-  const commit = () => { const n = txt.trim().slice(0, 20); setEditing(false); if (n) onChange(n); };
+  const commit = () => { const n = txt.trim().slice(0, 10); setEditing(false); if (n) onChange(n); }; // ★ 2026-10-20: 日本の名前が入る長さ(10文字)まで
   if (editing) return (
     <span className="flex items-center gap-1 flex-1 min-w-0" data-testid={testid ? `${testid}-other` : undefined}>
-      <input autoFocus value={txt} maxLength={20} onChange={e => setTxt(e.target.value)} placeholder="運転者の名前"
+      <input autoFocus value={txt} maxLength={10} onChange={e => setTxt(e.target.value)} placeholder="運転者の名前"
         onKeyDown={e => { if (e.key === 'Enter' && !(e.nativeEvent && e.nativeEvent.isComposing)) { e.preventDefault(); commit(); } else if (e.key === 'Escape') { setEditing(false); } }}
         className="text-[12px] font-bold border border-indigo-300 rounded bg-white px-1.5 py-1 flex-1 min-w-0 outline-none"/>
       <button type="button" onMouseDown={e => e.preventDefault()} onClick={commit} className="whitespace-nowrap text-[11px] font-bold text-white bg-indigo-600 rounded px-2 py-1 shrink-0">決定</button>
@@ -38763,7 +38793,11 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
   // ★ 2026-10-20(ユーザー要望): 項目ごとの備考(例: 5m歩行で杖使用)。30文字まで。r.notes に保存
   const [fitNotes, setFitNotes] = useState({});
   const [fitNoteOpen, setFitNoteOpen] = useState({});
-  const FIT_NOTE_MAX = 30;
+  // ★ 2026-10-20: その日の体力測定全体のメモ(特変など・200文字)。null=まだ触っていない(保存済みのメモをそのまま表示)
+  const [fitMemo, setFitMemo] = useState(null);
+  const _fitPresets = tsuFitNotePresets(appData);
+  const addFitPreset = (txt) => { const t = String(txt || '').trim().slice(0, FIT_NOTE_MAX); if (!t) return; if (_fitPresets.includes(t)) { try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `「${t}」は定型文にあります` } })); } catch {} return; } if (_fitPresets.length >= FIT_PRESET_MAX_N) { alert(`定型文は${FIT_PRESET_MAX_N}件までです（各種設定 → 体力測定 で整理できます）`); return; }
+    onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), fitnessNotePresets: [..._fitPresets, t], _updatedAt: syncNow() } }, { manual: true, message: `✓ 「${t}」を定型文に追加しました` }); };
   // ★ 数値入力用テンキー (提供記録入力と同じ DigitalKeypad)。 身長・体重・体力測定の各項目で使う。
   //   field は測定項目のid。 iPad等でOSキーボードを出さずに素早く入力できるようにする。
   const [keypad, setKeypad] = useState({ isOpen: false, field: null, value: '', isFirstInput: true });
@@ -38899,25 +38933,25 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
     const existing = records.find(r => r.patientId === selectedPatientId && r.date === date);
     let newRecords;
     if (existing) {
-      newRecords = records.map(r => r.id === existing.id ? { ...r, values: { ...r.values, ...values }, ...(Object.keys(fitNotes).length ? { notes: { ...(r.notes||{}), ...fitNotes } } : {}), recorder: recorderName || r.recorder, _hist: _fitHistPush(r, recorderName), _savedAt: syncNow() } : r);
+      newRecords = records.map(r => r.id === existing.id ? { ...r, values: { ...r.values, ...values }, ...(Object.keys(fitNotes).length ? { notes: { ...(r.notes||{}), ...fitNotes } } : {}), ...(fitMemo !== null ? { memo: fitMemo } : {}), recorder: recorderName || r.recorder, _hist: _fitHistPush(r, recorderName), _savedAt: syncNow() } : r);
     } else {
-      newRecords = [...records, { id: Date.now(), patientId: selectedPatientId, date, values, ...(Object.keys(fitNotes).length ? { notes: { ...fitNotes } } : {}), recorder: recorderName, _savedAt: syncNow() }];
+      newRecords = [...records, { id: Date.now(), patientId: selectedPatientId, date, values, ...(Object.keys(fitNotes).length ? { notes: { ...fitNotes } } : {}), ...(fitMemo ? { memo: fitMemo } : {}), recorder: recorderName, _savedAt: syncNow() }];
     }
     markClean(); onSave({ ...appData, fitnessRecords: newRecords });
-    setValues({}); setFitNotes({}); setFitNoteOpen({});
+    setValues({}); setFitNotes({}); setFitNoteOpen({}); setFitMemo(null); setFitMemo(null);
     alert('保存しました');
   };
 
   // 未保存ポップアップから呼ばれる用 (alert 抜き)
   const flushSave = () => {
-    if (!selectedPatientId || (Object.keys(values).length === 0 && Object.keys(fitNotes).length === 0)) { markClean(); return; }
+    if (!selectedPatientId || (Object.keys(values).length === 0 && Object.keys(fitNotes).length === 0 && fitMemo === null)) { markClean(); return; }
     const recorderName = getActiveRecorderName();
     const existing = records.find(r => r.patientId === selectedPatientId && r.date === date);
     let newRecords;
     if (existing) {
-      newRecords = records.map(r => r.id === existing.id ? { ...r, values: { ...r.values, ...values }, ...(Object.keys(fitNotes).length ? { notes: { ...(r.notes||{}), ...fitNotes } } : {}), recorder: recorderName || r.recorder, _hist: _fitHistPush(r, recorderName), _savedAt: syncNow() } : r);
+      newRecords = records.map(r => r.id === existing.id ? { ...r, values: { ...r.values, ...values }, ...(Object.keys(fitNotes).length ? { notes: { ...(r.notes||{}), ...fitNotes } } : {}), ...(fitMemo !== null ? { memo: fitMemo } : {}), recorder: recorderName || r.recorder, _hist: _fitHistPush(r, recorderName), _savedAt: syncNow() } : r);
     } else {
-      newRecords = [...records, { id: Date.now(), patientId: selectedPatientId, date, values, ...(Object.keys(fitNotes).length ? { notes: { ...fitNotes } } : {}), recorder: recorderName, _savedAt: syncNow() }];
+      newRecords = [...records, { id: Date.now(), patientId: selectedPatientId, date, values, ...(Object.keys(fitNotes).length ? { notes: { ...fitNotes } } : {}), ...(fitMemo ? { memo: fitMemo } : {}), recorder: recorderName, _savedAt: syncNow() }];
     }
     markClean(); onSave({ ...appData, fitnessRecords: newRecords });
   };
@@ -38937,9 +38971,9 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
             <div className="font-bold text-slate-800 mb-1">体力測定が保存されていません</div>
             <div className="text-sm text-slate-600 mb-4">{(allPats.find(x => x.id === selectedPatientId) || {}).name || ''} 様（測定日 {date}）の入力を保存しますか？</div>
             <div className="space-y-2">
-              <button data-testid="fit-switch-save" onClick={() => { const go = fitSwitchAsk.go; flushSave(); setValues({}); setFitNotes({}); setFitNoteOpen({}); setFitSwitchAsk(null); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: '体力測定を保存しました' } })); } catch {} go(); }}
+              <button data-testid="fit-switch-save" onClick={() => { const go = fitSwitchAsk.go; flushSave(); setValues({}); setFitNotes({}); setFitNoteOpen({}); setFitMemo(null); setFitSwitchAsk(null); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: '体力測定を保存しました' } })); } catch {} go(); }}
                 className="w-full py-3 rounded-xl text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 active:scale-95">保存して移る</button>
-              <button data-testid="fit-switch-discard" onClick={() => { const go = fitSwitchAsk.go; markClean(); setValues({}); setFitNotes({}); setFitNoteOpen({}); setFitSwitchAsk(null); go(); }}
+              <button data-testid="fit-switch-discard" onClick={() => { const go = fitSwitchAsk.go; markClean(); setValues({}); setFitNotes({}); setFitNoteOpen({}); setFitMemo(null); setFitSwitchAsk(null); go(); }}
                 className="w-full py-2.5 rounded-xl text-sm font-bold bg-white border border-red-300 text-red-700 hover:bg-red-50">保存しないで移る（入力は消えます）</button>
               <button data-testid="fit-switch-cancel" onClick={() => setFitSwitchAsk(null)}
                 className="w-full py-2 rounded-xl text-sm font-bold bg-slate-100 text-slate-600 hover:bg-slate-200">キャンセル（入力に戻る）</button>
@@ -39076,7 +39110,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                 const dueStr = due ? `${due.getMonth()+1}/${due.getDate()}` : '未測定';
                 return (
                   <div key={p.id} className="relative">
-                    <button onClick={() => { if (p.id === selectedPatientId) { setMobileRosterOpen(false); return; } guardFitSwitch(() => { setSelectedPatientId(p.id); onPatientChange&&onPatientChange(p.id); setValues({}); setFitNotes({}); setFitNoteOpen({}); setMobileRosterOpen(false); }); }}
+                    <button onClick={() => { if (p.id === selectedPatientId) { setMobileRosterOpen(false); return; } guardFitSwitch(() => { setSelectedPatientId(p.id); onPatientChange&&onPatientChange(p.id); setValues({}); setFitNotes({}); setFitNoteOpen({}); setFitMemo(null); setMobileRosterOpen(false); }); }}
                       className={`w-full text-left px-3 py-3 rounded-xl flex items-center justify-between border gap-2 transition-all ${selectedPatientId === p.id ? 'bg-blue-50 border-blue-200 shadow-sm' : isOver ? 'bg-red-50 border-red-100 hover:bg-red-100' : 'border-transparent hover:bg-white'}`}>
                       <div className="flex flex-col min-w-0 flex-1">
                                                 <span className="font-bold text-sm text-slate-800 truncate">{p.name}</span>
@@ -39232,10 +39266,16 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                     {(fitNoteOpen[item.id] || (fitNotes[item.id] ?? '') !== '') && (
                       <div data-testid={`fit-note-${item.id}`} className="px-1.5 sm:px-4 pb-2 flex items-center gap-2" style={{ gridColumn: '1 / -1' }}>
                         <span className="text-[11px] font-bold text-slate-500 shrink-0">備考</span>
-                        <input type="text" autoFocus={!(fitNotes[item.id] ?? '')} value={fitNotes[item.id] ?? ''} maxLength={FIT_NOTE_MAX}
+                        <select data-testid={`fit-note-preset-${item.id}`} value="" onChange={e => { const t = e.target.value; if (!t) return; setFitNotes(n => { const cur = String(n[item.id] || ''); const nx = (cur ? (cur.includes(t) ? cur : `${cur}・${t}`) : t).slice(0, FIT_NOTE_MAX); return { ...n, [item.id]: nx }; }); markDirty(); }}
+                          className="shrink-0 max-w-[38%] px-1 py-1.5 border border-slate-300 rounded-lg text-[12px] font-bold bg-white">
+                          <option value="">定型文</option>
+                          {_fitPresets.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                        <input type="text" value={fitNotes[item.id] ?? ''} maxLength={FIT_NOTE_MAX}
                           onChange={e => { const v = String(e.target.value).slice(0, FIT_NOTE_MAX); setFitNotes(n => ({ ...n, [item.id]: v })); markDirty(); }}
-                          placeholder={`例: 杖使用・介助あり・休憩1回（${FIT_NOTE_MAX}文字まで）`}
+                          placeholder={`自由に入力（${FIT_NOTE_MAX}文字まで）`}
                           className="flex-1 min-w-0 px-2 py-1.5 border border-slate-300 rounded-lg text-sm outline-none focus:border-indigo-400"/>
+                        {(() => { const t = String(fitNotes[item.id] || '').trim(); return t && !_fitPresets.includes(t) && !t.includes('・') ? <button type="button" data-testid={`fit-note-addpreset-${item.id}`} onClick={() => addFitPreset(t)} className="text-[11px] font-bold text-indigo-700 border border-indigo-300 rounded px-1.5 py-1 bg-white shrink-0 whitespace-nowrap">定型文に追加</button> : null; })()}
                         <span className={`text-[11px] font-bold shrink-0 ${(fitNotes[item.id] || '').length >= FIT_NOTE_MAX ? 'text-red-600' : 'text-slate-400'}`}>{(fitNotes[item.id] || '').length}/{FIT_NOTE_MAX}</span>
                         <button type="button" onClick={() => { setFitNotes(n => { const x = { ...n }; if ((x[item.id] ?? '') !== '') { x[item.id] = ''; markDirty(); } else delete x[item.id]; return x; }); setFitNoteOpen(o => ({ ...o, [item.id]: false })); }} className="text-[11px] font-bold text-slate-500 border border-slate-300 rounded px-1.5 py-1 bg-white shrink-0">閉じる</button>
                       </div>
@@ -39262,6 +39302,15 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                   <span key={t2} className="font-bold rounded px-1.5 whitespace-nowrap" style={{ color: c, background: bg, border: `1px solid ${bd}` }}>{t2}</span>))}
                 <span className="text-slate-500">65歳以上の目標は 21.5〜24.9（厚生労働省「日本人の食事摂取基準」）。21.5未満は<span className="font-bold rounded px-1 whitespace-nowrap" style={{ color: '#a16207', background: '#fef9c3', border: '1px solid #fde047' }}>目標より低め</span></span>
               </div>
+              {/* ★ 2026-10-20(ユーザー要望): その日の体力測定全体のメモ(特変など) */}
+              {(() => { const _todayRec = records.find(r => r.patientId === selectedPatientId && r.date === date); const mv = fitMemo !== null ? fitMemo : String(_todayRec?.memo || ''); return (
+                <div data-testid="fit-memo" className="px-3 sm:px-4 py-3 border-t border-slate-200 bg-white">
+                  <div className="flex items-center justify-between mb-1"><span className="text-sm font-bold text-slate-700">この日の測定メモ（特変など）</span><span className={`text-[11px] font-bold ${mv.length >= FIT_MEMO_MAX ? 'text-red-600' : 'text-slate-400'}`}>{mv.length}/{FIT_MEMO_MAX}</span></div>
+                  <textarea value={mv} maxLength={FIT_MEMO_MAX} rows={2} onChange={e => { setFitMemo(String(e.target.value).slice(0, FIT_MEMO_MAX)); markDirty(); }}
+                    placeholder="例: 当日は膝の痛みの訴えあり、歩行は慎重に実施。前回より立ち上がりが安定。（モニタリングの文案づくりにも使われます）"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-indigo-400 resize-y"/>
+                </div>
+              ); })()}
             </div>
 
             {/* ★ 2026-10-02(ユーザー要望): BMIの推移グラフ(過去の記録＋入力中の今回) */}
@@ -39336,6 +39385,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                           <td className="px-4 py-2 font-bold text-slate-600 whitespace-nowrap">
                             <div>{r.date}</div>
                             {r.recorder && <div className="text-[10px] font-normal text-slate-500 mt-0.5">担当: {r.recorder}</div>}
+                            {r.memo && <div className="text-[10px] font-normal text-slate-600 mt-0.5 whitespace-normal" style={{maxWidth:180}} title={r.memo}>メモ: {r.memo.length > 40 ? r.memo.slice(0, 40) + '…' : r.memo}</div>}
                           </td>
                           {fitnessItems.flatMap(item => {
                             const cur = r.values?.[item.id] ?? '';
@@ -45915,6 +45965,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
           {/* 分析（稼働） */}
           {activeTab === 'fitness' && (
             <div className="space-y-4">
+              <TsuFitNotePresetCard appData={appData} onSave={onSave} />
               {/* 対象介護度カード */}
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
                 <h3 className="text-base font-bold text-slate-800 mb-4 border-b border-slate-200 pb-2">体力測定 対象介護度</h3>
@@ -53240,8 +53291,8 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
 
       const fitnessText = d.fitnessRecs.length > 0
         ? d.fitnessRecs.map(r => {
-            const vals = (d.fitnessItems||[]).map(it => r.values?.[it.id] ? `${it.name}:${r.values[it.id]}${it.unit||''}` : null).filter(Boolean).join('、');
-            return `${r.date}（${vals||'データあり'}）`;
+            const vals = (d.fitnessItems||[]).map(it => r.values?.[it.id] ? `${it.name}:${r.values[it.id]}${it.unit||''}${r.notes?.[it.id] ? `（${r.notes[it.id]}）` : ''}` : null).filter(Boolean).join('、');
+            return `${r.date}（${vals||'データあり'}）${r.memo ? `［測定時のメモ: ${String(r.memo).slice(0, FIT_MEMO_MAX)}］` : ''}`; // ★ 2026-10-20: 項目の備考とその日のメモも参考にする
           }).join(' / ')
         : '記録なし';
 
