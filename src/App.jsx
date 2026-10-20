@@ -13027,6 +13027,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
   const [mgrDates, setMgrDates] = useState({}); // {eventId: 'YYYY-MM-DD'} 指定日以降削除用
   const [iconPopup, setIconPopup] = useState(null); // {date, birthdays:[], expiries:[]}
   const [viewMode, setViewMode] = useState('month'); // 'month' | 'week'
+  const _schPhone = useTsuIsPhone(); // ★ 2026-10-20: スマホは週表示を画面の幅に収める
   // ★ 週表示の日付行を固定する位置＝上の紫ヘッダーの高さ(2026-09-27: 固定行がヘッダーの下に潜り、予定が透けて見えた)
   //   ヘッダーがスクロール領域の内側にある環境(iPad等)と外側にある環境の両方で正しく効くよう、
   //   「ヘッダー下端 − スクロール領域の上端」を実測して sticky の top にする(外側なら 0)。
@@ -13201,13 +13202,13 @@ function ScheduleView({ appData, onSave, navigateTo }) {
           <button onClick={()=>openNew(selDay)} style={{background:'white',color:'#6d28d9',border:'none',borderRadius:10,padding:'8px 16px',fontWeight:'bold',fontSize:13,cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>予定を追加</button>
         </div>
       </div></TsuPhonePin>
-      <div style={{flex:1,overflow:'auto',padding:16}}>
-        <div style={{maxWidth:1480,margin:'0 auto',display:'flex',flexDirection:'column',gap:16}}>{/* ★ 2026-09-27: 月表示の横幅を広げ、予定の内容が読めるように(1000→1480) */}
+      <div style={{flex:1,overflow:'auto',padding:_schPhone?0:16}}>{/* ★ 2026-10-20(ユーザー要望): スマホは画面いっぱいに(外側の余白なし) */}
+        <div style={{maxWidth:1480,margin:'0 auto',display:'flex',flexDirection:'column',gap:_schPhone?8:16}}>{/* ★ 2026-09-27: 月表示の横幅を広げ、予定の内容が読めるように(1000→1480) */}
           {/* ★ 「今日の予定」はホームと重複のため削除(2026-08-21)。 選択日(既定=今日)の予定で確認できる */}
           {/* カレンダー + 選択日 */}
-          <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr)',gap:16}}>
-            <div style={{background:'white',borderRadius:16,border:'1px solid #e2e8f0',boxShadow:'0 1px 6px rgba(0,0,0,0.06)',padding:16}}>
-              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12,gap:8,flexWrap:'wrap'}}>
+          <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr)',gap:_schPhone?8:16}}>
+            <div data-testid="sch-cal-card" style={_schPhone ? {background:'white',borderBottom:'1px solid #e2e8f0',padding:'8px 0 0'} : {background:'white',borderRadius:16,border:'1px solid #e2e8f0',boxShadow:'0 1px 6px rgba(0,0,0,0.06)',padding:16}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:_schPhone?6:12,gap:8,flexWrap:'wrap',padding:_schPhone?'0 8px':0}}>
                 <div style={{display:'flex',gap:3,background:'#f1f5f9',borderRadius:10,padding:3}}>
                   {[['month','月'],['week','週']].map(([v,l])=>(
                     <button key={v} onClick={()=>setViewMode(v)} style={{border:'none',borderRadius:8,padding:'5px 16px',fontWeight:'bold',fontSize:13,cursor:'pointer',background:viewMode===v?'white':'transparent',color:viewMode===v?'#4338ca':'#64748b',boxShadow:viewMode===v?'0 1px 3px rgba(0,0,0,0.1)':'none'}}>{l}</button>
@@ -13228,8 +13229,8 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                 )}
               </div>
               {viewMode==='month' && (
-              <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4}}>
-                {dow.map((w,i)=>(<div key={w} style={{textAlign:'center',fontSize:11,fontWeight:'bold',padding:'2px 0',color:i===0?'#ef4444':i===6?'#3b82f6':'#64748b'}}>{w}</div>))}
+              <div data-testid="sch-month-grid" style={{display:'grid',gridTemplateColumns:'repeat(7,minmax(0,1fr))',gap:_schPhone?0:4}}>
+                {dow.map((w,i)=>(<div key={w} style={{textAlign:'center',fontSize:11,fontWeight:'bold',padding:_schPhone?'3px 0':'2px 0',color:i===0?'#ef4444':i===6?'#3b82f6':'#64748b',...(_schPhone?{borderBottom:'1px solid #e2e8f0'}:{})}}>{w}</div>))}
                 {cells.map((d,i)=>{
                   const dstr = d.ds;
                   const evs = evOf(dstr);
@@ -13241,23 +13242,27 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                   const closed = isClosedDate(dstr);
                   const bg = isSel ? '#eef2ff' : (holi ? '#fef2f2' : (closed ? '#f8fafc' : 'white'));
                   return (
-                    <div key={dstr} onClick={()=>setSelDay(dstr)}
+                    <div key={dstr} data-testid={isToday?'sch-today':undefined} data-sel={isSel?'1':undefined} onClick={()=>setSelDay(dstr)}
                       onDragOver={dragEvId?ev=>ev.preventDefault():undefined}
                       onDrop={dragEvId?()=>{ const be=events.find(x=>x.id===dragEvId); if(be) moveEvent(be,dstr); setDragEvId(null); }:undefined}
-                      style={{minHeight:96,opacity:d.other?0.62:1,textAlign:'left',background:bg,border:`1px solid ${isSel?'#818cf8':(dragEvId?'#c7d2fe':'#e2e8f0')}`,borderRadius:8,padding:'3px 4px',cursor:'pointer',display:'flex',flexDirection:'column',gap:2,overflow:'hidden'}}>
-                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-                        <span style={{fontSize:12,fontWeight:'bold',width:20,height:20,lineHeight:'20px',textAlign:'center',borderRadius:'50%',background:isToday?'#6366f1':'transparent',color:isToday?'white':(holi?'#ef4444':(i%7===0?'#ef4444':i%7===6?'#3b82f6':'#334155'))}}>{d.other?`${parseInt(dstr.slice(5,7))}/${d.d}`:d.d}</span>
+                      style={_schPhone
+                        ? {minHeight:88,minWidth:0,opacity:d.other?0.55:1,textAlign:'left',background:bg,borderRight:i%7===6?'none':'1px solid #eef0f4',borderBottom:'1px solid #eef0f4',boxShadow:isSel?'inset 0 0 0 2px #818cf8':'none',padding:'2px 1px',cursor:'pointer',display:'flex',flexDirection:'column',gap:1,overflow:'hidden'}
+                        : {minHeight:96,opacity:d.other?0.62:1,textAlign:'left',background:bg,border:`1px solid ${isSel?'#818cf8':(dragEvId?'#c7d2fe':'#e2e8f0')}`,borderRadius:8,padding:'3px 4px',cursor:'pointer',display:'flex',flexDirection:'column',gap:2,overflow:'hidden'}}>
+                      <div style={{display:'flex',alignItems:'center',justifyContent:_schPhone?'flex-start':'space-between',gap:_schPhone?2:0}}>{/* ★ 2026-10-20: スマホは印を日にちのすぐ右に(右端だと隣の日付にくっついて見えた) */}
+                        <span style={{fontSize:12,fontWeight:'bold',width:20,height:20,lineHeight:'20px',textAlign:'center',borderRadius:'50%',background:isToday?'#6366f1':'transparent',color:isToday?'white':(holi?'#ef4444':(i%7===0?'#ef4444':i%7===6?'#3b82f6':'#334155')),flexShrink:0}}>{d.other&&!_schPhone?`${parseInt(dstr.slice(5,7))}/${d.d}`:d.d}</span>
                         <div style={{display:'flex',alignItems:'center',gap:1}}>
                           {bdays.length>0 && <span onClick={ev=>{ev.stopPropagation();setIconPopup({date:dstr,birthdays:bdays,expiries:[]});}} title="お誕生日（タップで一覧）" style={{fontSize:8,fontWeight:'bold',color:'#a16207',background:'#fefce8',border:'1px solid #fde68a',borderRadius:4,padding:'0 3px',cursor:'pointer',lineHeight:1.4}}>誕</span>}
                           {exps.length>0 && <span onClick={ev=>{ev.stopPropagation();setIconPopup({date:dstr,birthdays:[],expiries:exps});}} title="要注意（認定満了など・タップで一覧）" style={{fontSize:8,fontWeight:'bold',color:'#b91c1c',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:4,padding:'0 3px',cursor:'pointer',lineHeight:1.4}}>注</span>}
-                          {closed && <span style={{fontSize:8,fontWeight:'bold',color:'#64748b'}}>定休</span>}
+                          {closed && <span style={{fontSize:8,fontWeight:'bold',color:'#64748b'}}>{_schPhone?'休':'定休'}</span>}
                         </div>
                       </div>
                       {holi && holidayName(dstr) && <span style={{fontSize:8,fontWeight:'bold',color:'#ef4444',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{holidayName(dstr)}</span>}
                       {evs.slice(0,4).map(e=>{ const drg = !e._occ && (!e.repeat||e.repeat==='none'); return (
                         <div key={e.id+(e._occ?'_o':'')} draggable={drg} onDragStart={drg?ev=>{setDragEvId(e.id);}:undefined} onDragEnd={()=>setDragEvId(null)} onClick={ev=>{ev.stopPropagation(); setEvDetail(e);}}
                           title={`${e.title}${patName(e)?'／'+patName(e):''}`}
-                          style={{fontSize:10,fontWeight:'bold',color:'white',background:e.color||'#6366f1',borderRadius:4,padding:'1px 4px',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden',overflowWrap:'anywhere',lineHeight:1.25,maxWidth:'100%',cursor:drg?'grab':'pointer'}}>{e.repeat&&e.repeat!=='none'?'[繰]':''}{e.start?`${e.start} `:''}{e.title}{patName(e)?`／${patName(e)}`:''}</div>
+                          style={{fontSize:10,fontWeight:'bold',color:'white',background:e.color||'#6366f1',borderRadius:_schPhone?3:4,padding:_schPhone?'1px 2px':'1px 4px',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden',overflowWrap:'anywhere',lineHeight:1.25,maxWidth:'100%',cursor:drg?'grab':'pointer'}}>{_schPhone
+                            ? <>{e.start ? <span style={{whiteSpace:'nowrap'}}>{String(e.start).replace(/^0(\d)/,'$1')} </span> : null}{e.title}{patName(e)?`／${patName(e)}`:''}</>
+                            : <>{e.repeat&&e.repeat!=='none'?'[繰]':''}{e.start?`${e.start} `:''}{e.title}{patName(e)?`／${patName(e)}`:''}</>}</div>
                       );})}
                       {evs.length>4 && <span style={{fontSize:9,color:'#64748b',fontWeight:'bold'}}>他{evs.length-4}件</span>}
                     </div>
@@ -13268,7 +13273,8 @@ function ScheduleView({ appData, onSave, navigateTo }) {
               {viewMode==='week' && (() => {
                 const wd = weekDaysOf(selDay);
                 const HStart=8, HEnd=19, hourH=64; const gridH=(HEnd-HStart)*hourH; // ★ 2026-09-27: 30分の予定でも2行(件名＋利用者名)が入るよう 42→64px/時
-                const cols = `40px repeat(7,minmax(92px,1fr))`;
+                // ★ 2026-10-20(不具合修正・ユーザー報告「週表示が見切れておかしい」): 1日の最低幅92pxでスマホの幅を超え、カードの外にはみ出していた。7日を画面の幅に収める
+                const cols = _schPhone ? `28px repeat(7,minmax(0,1fr))` : `40px repeat(7,minmax(0,1fr))`;
                 const toTop = (t) => { const a=String(t).split(':'); const mins=(Number(a[0])||0)*60+(Number(a[1])||0); return Math.max(0,(mins-HStart*60)/60*hourH); };
                 const durH = (e) => { if(!e.start) return hourH*0.5; const s=e.start.split(':'),en=(e.end||'').split(':'); const sm=(Number(s[0])||0)*60+(Number(s[1])||0); const em=en.length>=2?(Number(en[0])||0)*60+(Number(en[1])||0):sm+30; return Math.max(28,(Math.max(20,em-sm))/60*hourH); };
                 const dropCell = (ds) => dragEvId ? { onDragOver:ev=>ev.preventDefault(), onDrop:()=>{ const be=events.find(x=>x.id===dragEvId); if(be) moveEvent(be,ds); setDragEvId(null); } } : {};
@@ -13283,8 +13289,8 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                           <div style={{fontSize:11,fontWeight:'bold',color:(i===0||holi)?'#ef4444':i===6?'#3b82f6':'#64748b'}}>{dow[i]}</div>
                           <div style={{fontSize:15,fontWeight:'bold',color:isT?'#4338ca':'#1e293b'}}>{dd}</div>
                           <div style={{display:'flex',justifyContent:'center',alignItems:'center',gap:2,minHeight:12}}>
-                            {bdays.length>0 && <span onClick={ev=>{ev.stopPropagation();setIconPopup({date:ds,birthdays:bdays,expiries:[]});}} title="お誕生日（タップで一覧）" style={{fontSize:9,fontWeight:'bold',color:'#a16207',background:'#fefce8',border:'1px solid #fde68a',borderRadius:4,padding:'0 4px',cursor:'pointer'}}>誕生日</span>}
-                            {exps.length>0 && <span onClick={ev=>{ev.stopPropagation();setIconPopup({date:ds,birthdays:[],expiries:exps});}} title="要注意（タップで一覧）" style={{fontSize:9,fontWeight:'bold',color:'#b91c1c',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:4,padding:'0 4px',cursor:'pointer'}}>要注意</span>}
+                            {bdays.length>0 && <span onClick={ev=>{ev.stopPropagation();setIconPopup({date:ds,birthdays:bdays,expiries:[]});}} title="お誕生日（タップで一覧）" style={{fontSize:_schPhone?8:9,fontWeight:'bold',color:'#a16207',background:'#fefce8',border:'1px solid #fde68a',borderRadius:4,padding:_schPhone?'0 2px':'0 4px',cursor:'pointer'}}>{_schPhone?'誕':'誕生日'}</span>}
+                            {exps.length>0 && <span onClick={ev=>{ev.stopPropagation();setIconPopup({date:ds,birthdays:[],expiries:exps});}} title="要注意（タップで一覧）" style={{fontSize:_schPhone?8:9,fontWeight:'bold',color:'#b91c1c',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:4,padding:_schPhone?'0 2px':'0 4px',cursor:'pointer'}}>{_schPhone?'注':'要注意'}</span>}
                             {closed && <span style={{fontSize:8,color:'#64748b',fontWeight:'bold'}}>定休</span>}
                           </div>
                         </div>); })}
@@ -13299,7 +13305,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                     </div>
                     <div style={{display:'grid',gridTemplateColumns:cols}}>
                       <div style={{position:'relative',height:gridH,borderRight:'1px solid #e2e8f0'}}>
-                        {Array.from({length:HEnd-HStart},(_,h)=>(<div key={h} style={{position:'absolute',top:h*hourH-6,right:3,fontSize:9,color:'#64748b',fontWeight:'bold'}}>{HStart+h}:00</div>))}
+                        {Array.from({length:HEnd-HStart},(_,h)=>(<div key={h} style={{position:'absolute',top:h*hourH-6,right:_schPhone?2:3,fontSize:9,color:'#64748b',fontWeight:'bold'}}>{_schPhone?`${HStart+h}時`:`${HStart+h}:00`}</div>))}
                       </div>
                       {wd.map(ds=>{ const timed=evOf(ds).filter(e=>e.start); const closed=isClosedDate(ds); return (
                         <div key={ds} {...dropCell(ds)} onClick={(ev)=>{ const rect=ev.currentTarget.getBoundingClientRect(); const y=ev.clientY-rect.top; let mins=HStart*60+Math.round((y/hourH*60)/15)*15; mins=Math.max(HStart*60,Math.min(HEnd*60-15,mins)); const hh=String(Math.floor(mins/60)).padStart(2,'0'),mm=String(mins%60).padStart(2,'0'); setModal({date:ds,start:`${hh}:${mm}`,end:addMin(`${hh}:${mm}`,60),title:'',note:'',color:COLORS[0]}); }}
@@ -13309,19 +13315,25 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                           {Array.from({length:HEnd-HStart},(_,h)=>(<div key={h} style={{position:'absolute',top:h*hourH,left:0,right:0,borderTop:'1px solid #f1f5f9'}}/>))}
                           {timed.map(e=>{ const drg=!e._occ&&(!e.repeat||e.repeat==='none'); return (
                             <div key={e.id+(e._occ?'_o':'')} draggable={drg} onDragStart={drg?()=>setDragEvId(e.id):undefined} onDragEnd={()=>setDragEvId(null)} onClick={ev=>{ev.stopPropagation();setEvDetail(e);}} title={`${timeLabel(e)} ${e.title}`}
-                              style={{position:'absolute',top:toTop(e.start),left:2,right:2,height:durH(e),background:e.color||'#6366f1',color:'white',borderRadius:4,padding:'1px 4px',fontSize:9,fontWeight:'bold',overflow:'hidden',cursor:drg?'grab':'pointer',boxShadow:'0 1px 2px rgba(0,0,0,0.25)'}}>
+                              style={{position:'absolute',top:toTop(e.start),left:_schPhone?1:2,right:_schPhone?1:2,height:durH(e),background:e.color||'#6366f1',color:'white',borderRadius:4,padding:_schPhone?'1px 2px':'1px 4px',fontSize:9,fontWeight:'bold',overflow:'hidden',cursor:drg?'grab':'pointer',boxShadow:'0 1px 2px rgba(0,0,0,0.25)'}}>
+                              {_schPhone ? <>
+                                {/* ★ 2026-10-20: スマホは列が細いので、時刻の下に件名・利用者名を折り返して出す */}
+                                <div style={{whiteSpace:'nowrap',overflow:'hidden'}}>{e.start}</div>
+                                <div style={{overflowWrap:'anywhere',lineHeight:1.2}}>{e.title}{patName(e)?`／${patName(e)}`:''}</div>
+                              </> : <>
                               <div style={{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{e.repeat&&e.repeat!=='none'?'[繰]':''}{e.start} {e.title}</div>
                               {patName(e)&&<div style={{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',opacity:0.9}}>／{patName(e)}</div>}
+                              </>}
                             </div>); })}
                         </div>); })}
                     </div>
-                    <div style={{fontSize:10,color:'#64748b',marginTop:6}}>※ 空いている時間帯をクリックするとその時刻で予定を追加できます。予定はドラッグで別の日へ移動できます（繰り返し予定を除く）。</div>
+                    <div style={{fontSize:10,color:'#64748b',marginTop:6,padding:_schPhone?'0 8px 8px':0}}>※ 空いている時間帯をクリックするとその時刻で予定を追加できます。予定はドラッグで別の日へ移動できます（繰り返し予定を除く）。</div>
                   </div>
                 );
               })()}
             </div>
             {/* 選択日の予定 */}
-            <div style={{background:'white',borderRadius:16,border:'1px solid #e2e8f0',boxShadow:'0 1px 6px rgba(0,0,0,0.06)',padding:16}}>
+            <div style={_schPhone ? {background:'white',borderTop:'1px solid #e2e8f0',borderBottom:'1px solid #e2e8f0',padding:'12px 12px'} : {background:'white',borderRadius:16,border:'1px solid #e2e8f0',boxShadow:'0 1px 6px rgba(0,0,0,0.06)',padding:16}}>
               <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
                 <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b'}}>{fmtJp(selDay)} の予定</div>
                 <button onClick={()=>openNew(selDay)} style={{whiteSpace:'nowrap',background:'#6366f1',color:'white',border:'none',borderRadius:8,padding:'5px 12px',fontWeight:'bold',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:4}}>追加</button>
@@ -13331,9 +13343,9 @@ function ScheduleView({ appData, onSave, navigateTo }) {
               ) : (
                 <div style={{display:'flex',flexDirection:'column',gap:8}}>
                   {selEvents.map(e=>(
-                    <div key={e.id} style={{display:'flex',alignItems:'center',gap:10,background:'#f8fafc',border:'1px solid #e2e8f0',borderLeft:`5px solid ${e.color||'#6366f1'}`,borderRadius:10,padding:'8px 12px'}}>
-                      <span style={{fontSize:13,fontWeight:'bold',color:'#1e293b',minWidth:96,fontVariantNumeric:'tabular-nums'}}>{timeLabel(e)}</span>
-                      <div style={{flex:1,minWidth:0}}>
+                    <div key={e.id} style={{display:'flex',alignItems:'center',gap:_schPhone?6:10,flexWrap:_schPhone?'wrap':'nowrap',background:'#f8fafc',border:'1px solid #e2e8f0',borderLeft:`5px solid ${e.color||'#6366f1'}`,borderRadius:10,padding:_schPhone?'8px 10px':'8px 12px'}}>
+                      <span style={{fontSize:13,fontWeight:'bold',color:'#1e293b',minWidth:_schPhone?0:96,fontVariantNumeric:'tabular-nums'}}>{timeLabel(e)}</span>
+                      <div style={{flex:_schPhone?'1 1 60%':1,minWidth:0}}>
                         <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b'}}>{e.title}{patName(e)?<span style={{fontSize:12,color:'#6366f1',marginLeft:6}}>／{patName(e)} 様</span>:null}</div>
                         {e.patientId && (()=>{ const p=(appData.patients||[]).find(x=>x.id===e.patientId); return p ? <div style={{fontSize:11,color:'#4338ca',fontWeight:'bold'}}>
                           {/* ★ 利用者名タップで利用者マスタへ(2026-08-28) */}
@@ -36213,29 +36225,50 @@ function TsuFitNotePresetCard({ appData, onSave }) {
   );
 }
 // ★ 2026-10-20(ユーザー要望): 運転者の選択に「その他（名前を入力）」。職員一覧に無い人(応援・家族の送迎など)の名前をその場で入れる
+const TSU_DRIVER_OTHER_MAX = 10; // ★ 2026-10-20: 日本の名前が入る長さ(10文字)まで
+// ★ 2026-10-20(ユーザー要望「その他の名前の欄が1文字しか見えない」): その他の運転者の名前は小窓で入れる
+function TsuDriverOtherPrompt({ initial, onCancel, onOk, testid }) {
+  useTsuBackLock(true);
+  const [txt, setTxt] = React.useState(initial || '');
+  const n = String(txt || '').trim();
+  const ok = () => { if (!n) return; onOk(n.slice(0, TSU_DRIVER_OTHER_MAX)); };
+  return (
+    <div data-testid={testid ? `${testid}-other` : undefined} onClick={onCancel} style={{position:'fixed',inset:0,zIndex:400,background:'rgba(15,23,42,0.5)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div onClick={e => e.stopPropagation()} role="dialog" aria-label="運転者の名前" style={{background:'white',borderRadius:16,width:400,maxWidth:'100%',padding:'18px 18px 16px',boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
+        <div style={{fontSize:17,fontWeight:'bold',color:'#1e293b'}}>運転者の名前（その他）</div>
+        <div style={{fontSize:13,color:'#475569',lineHeight:1.6,marginTop:6}}>職員の一覧にいない方（応援の方・ご家族など）の名前を入れます。この日・この時間帯だけの運転者です（前週コピーでは次の週に写りません）。</div>
+        <input autoFocus value={txt} maxLength={TSU_DRIVER_OTHER_MAX} onChange={e => setTxt(e.target.value)} placeholder="例: 山田 花子"
+          data-testid={testid ? `${testid}-other-input` : undefined}
+          onKeyDown={e => { if (e.key === 'Enter' && !(e.nativeEvent && e.nativeEvent.isComposing)) { e.preventDefault(); ok(); } else if (e.key === 'Escape') { onCancel(); } }}
+          style={{width:'100%',boxSizing:'border-box',marginTop:12,padding:'10px 12px',border:'2px solid #c7d2fe',borderRadius:10,fontSize:16,fontWeight:'bold',color:'#1e293b',outline:'none'}}/>
+        <div style={{fontSize:12,fontWeight:'bold',textAlign:'right',marginTop:4,color:String(txt||'').length>=TSU_DRIVER_OTHER_MAX?'#dc2626':'#94a3b8'}}>{String(txt||'').length}/{TSU_DRIVER_OTHER_MAX}文字</div>
+        <div style={{display:'flex',gap:8,marginTop:10}}>
+          <button type="button" onClick={onCancel} style={{flex:1,minHeight:44,borderRadius:10,border:'1px solid #cbd5e1',background:'white',color:'#475569',fontWeight:'bold',fontSize:15}}>やめる</button>
+          <button type="button" data-testid={testid ? `${testid}-other-ok` : undefined} onClick={ok} disabled={!n} style={{flex:1,minHeight:44,borderRadius:10,border:'none',background:n?'#4f46e5':'#c7d2fe',color:'white',fontWeight:'bold',fontSize:15}}>決定</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 function TsuDriverSelect({ value, names, onChange, placeholder, className, testid }) {
-  const [editing, setEditing] = React.useState(false); const [txt, setTxt] = React.useState('');
+  const [editing, setEditing] = React.useState(false);
   const v = String(value || ''); const list = names || [];
   const isOther = !!v && !list.includes(v);
-  const commit = () => { const n = txt.trim().slice(0, 10); setEditing(false); if (n) onChange(n); }; // ★ 2026-10-20: 日本の名前が入る長さ(10文字)まで
-  if (editing) return (
-    <span className="flex items-center gap-1 flex-1 min-w-0" data-testid={testid ? `${testid}-other` : undefined}>
-      <input autoFocus value={txt} maxLength={10} onChange={e => setTxt(e.target.value)} placeholder="運転者の名前"
-        onKeyDown={e => { if (e.key === 'Enter' && !(e.nativeEvent && e.nativeEvent.isComposing)) { e.preventDefault(); commit(); } else if (e.key === 'Escape') { setEditing(false); } }}
-        className="text-[12px] font-bold border border-indigo-300 rounded bg-white px-1.5 py-1 flex-1 min-w-0 outline-none"/>
-      <button type="button" onMouseDown={e => e.preventDefault()} onClick={commit} className="whitespace-nowrap text-[11px] font-bold text-white bg-indigo-600 rounded px-2 py-1 shrink-0">決定</button>
-      <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => setEditing(false)} className="whitespace-nowrap text-[11px] font-bold text-slate-600 border border-slate-300 rounded px-1.5 py-1 bg-white shrink-0">戻る</button>
+  // ★ 2026-10-20(ユーザー要望「名前は全体的に表示されるように」): 欄が狭くても名前が切れないよう、見た目は折り返す札・その上に透明の選ぶ欄を重ねる
+  return (<>
+    <span className={`${className || ''} relative flex items-center gap-0.5 focus-within:ring-2 focus-within:ring-indigo-300`} data-testid={testid ? `${testid}-label` : undefined}>
+      <span aria-hidden="true" className={`flex-1 min-w-0 text-left leading-tight ${v ? 'break-all text-slate-800' : 'truncate whitespace-nowrap text-slate-500'}`}>{v || placeholder || '運転者: 未選択'}{isOther && <span className="ml-1 text-[10px] font-bold text-indigo-600 whitespace-nowrap">その他</span>}</span>
+      <ChevronDown size={12} aria-hidden="true" className="shrink-0 text-slate-400"/>
+      <select data-testid={testid} value={v} title={v ? `運転者: ${v}` : '運転者'} aria-label="運転者" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+        onChange={e => { const x = e.target.value; if (x === '__other__') { setEditing(true); return; } onChange(x); }}>
+        <option value="">{placeholder || '運転者: 未選択'}</option>
+        {list.map(n => <option key={n} value={n}>{n}</option>)}
+        {isOther && <option value={v}>{v}（その他）</option>}
+        <option value="__other__">その他（名前を入力）</option>
+      </select>
     </span>
-  );
-  return (
-    <select data-testid={testid} value={v} title="運転者" className={className}
-      onChange={e => { const x = e.target.value; if (x === '__other__') { setTxt(isOther ? v : ''); setEditing(true); return; } onChange(x); }}>
-      <option value="">{placeholder || '運転者: 未選択'}</option>
-      {list.map(n => <option key={n} value={n}>{n}</option>)}
-      {isOther && <option value={v}>{v}（その他）</option>}
-      <option value="__other__">その他（名前を入力）</option>
-    </select>
-  );
+    {editing && ReactDOM.createPortal(<TsuDriverOtherPrompt testid={testid} initial={isOther ? v : ''} onCancel={() => setEditing(false)} onOk={nm => { setEditing(false); onChange(nm); }}/>, document.body)}
+  </>);
 }
 function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowPrintPreview, navigateTo }) {
   const ds = appData.diarySettings || {};
@@ -37050,6 +37083,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               const _att = new Set(_attendees(_iso(d), sl).filter(a => !a.furikae && !a.rinji).map(a => String(a.pid)));
               const _filt = (pl) => { if (!pl) return; Object.keys(pl.cars||{}).forEach(cid => { const a = pl.cars[cid]||[]; pl.cars[cid] = a.filter(m => _att.has(String(m && m.pid))); nSkip += a.length - pl.cars[cid].length; }); ['walkers','others','un'].forEach(k => { if (Array.isArray(pl[k])) { const a = pl[k]; pl[k] = a.filter(m => _att.has(String(m && m.pid))); nSkip += a.length - pl[k].length; } }); };
               _filt(cp); if (cp.drop) _filt(cp.drop);
+              // ★ 2026-10-20(ユーザー要望「その他の運転者は臨時なので、次の日などには反映されなくていい」): 職員の一覧に無い名前(その他で入れた運転者)は写さない
+              { const _drvOk = new Set(_driverNames); const _noOther = (m) => { if (!m) return; Object.keys(m).forEach(cid => { if (m[cid] && !_drvOk.has(m[cid])) delete m[cid]; }); }; _noOther(cp.driver); if (cp.drop) _noOther(cp.drop.driver); }
               // ★ 2026-10-15: 前の週の到着・送りの出発は、この週の「目安」として写す(手で決め直すと目安が外れる)
               if (cp.arrive) { cp.arriveAuto = {}; Object.keys(cp.arrive).forEach(cid => { if (cp.arrive[cid] && (cp.cars?.[cid]||[]).length) cp.arriveAuto[cid] = true; else delete cp.arrive[cid]; }); }
               if (cp.drop && cp.drop.depart) { cp.drop.departAuto = {}; Object.keys(cp.drop.depart).forEach(cid => { if (cp.drop.depart[cid] && (cp.drop.cars?.[cid]||[]).length) cp.drop.departAuto[cid] = true; else delete cp.drop.depart[cid]; }); }
@@ -39884,14 +39919,14 @@ function TsuLoginSecurityCard({ appData, onSave, staffCtx, isAdmin }) {
         {(isAdmin || staffCtx.role === 'manager' || staffCtx.role === 'super_admin') ? (
           <div className="grid gap-3">
             <div className="text-xs text-slate-600 leading-5 bg-slate-50 rounded-lg p-2">いまは「30分さわらないと ID・パスワードの画面に戻る」です。「PIN を必須にする」を入れた店舗では、ID・パスワードの壁が <b>本人の PIN の壁</b> に置き換わり、下の分数で「どなたですか」(PIN)に戻ります。ID・パスワードは「完全にログアウトするまで」の時間で改めて求めます。</div>
-            <div className="flex items-center justify-between gap-3 flex-wrap"><div><div className="text-sm font-bold text-slate-800">記録者の選択(PIN)に戻るまで</div><div className="text-xs text-slate-500">PIN 必須の店舗で、操作が無いとき。画面から利用者情報が消えます</div></div>
-              <Sel value={Math.min(Number(sec.lockMin) || 30, 60)} opts={[[10,'10分'],[30,'30分'],[60,'60分']]} onChange={v => setSec({ lockMin: v })}/></div>
-            <div className="flex items-center justify-between gap-3 flex-wrap"><div><div className="text-sm font-bold text-slate-800">完全にログアウトするまで</div><div className="text-xs text-slate-500">PIN 必須の店舗で、端末を使わなかった時間。次に使うときは ID・パスワードから</div></div>
-              <Sel value={Math.min(Number(sec.logoutHours) || 168, 168)} opts={[[24,'24時間'],[168,'7日間']]} onChange={v => setSec({ logoutHours: v })}/></div>
-            <label className="flex items-center justify-between gap-3 flex-wrap cursor-pointer"><div><div className="text-sm font-bold text-slate-800">PIN を必須にする</div><div className="text-xs text-slate-500">本人登録（PIN）が済んでいない職員は「どなたですか」で選べなくなります{noAcct.length ? `（未登録: ${noAcct.length}名）` : ''}。PIN の間違いは 5回で15分停止 → さらに5回で60分 → さらに5回で管理者が解除するまで停止（店舗と管理者へメール）</div></div>
-              <input type="checkbox" checked={!!sec.pinRequired} onChange={e => { if (e.target.checked && noAcct.length && !window.confirm(`まだ本人登録が済んでいない職員が ${noAcct.length} 名います（${noAcct.slice(0,5).join('・')}${noAcct.length>5?' …':''}）。この人たちは記録できなくなります。PIN を必須にしますか？`)) return; setSec({ pinRequired: e.target.checked }); }} className="w-6 h-6"/></label>
-            <label className="flex items-center justify-between gap-3 flex-wrap cursor-pointer"><div><div className="text-sm font-bold text-slate-800">店舗IDでのログインを止める</div><div className="text-xs text-slate-500">全員が本人登録を終えたら。以後は本人のID・パスワードと「この端末をみんなで使う」だけでログインします</div></div>
-              <input type="checkbox" checked={!!sec.storeLoginDisabled} onChange={e => { if (e.target.checked && !window.confirm('店舗IDでのログインを止めます。管理者の本人ログインから「この端末をみんなで使う」を設定できることを確認してから入れてください。よろしいですか？')) return; setSec({ storeLoginDisabled: e.target.checked }); }} className="w-6 h-6"/></label>
+            <div className="flex items-center justify-between gap-3"><div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">記録者の選択(PIN)に戻るまで</div><div className="text-xs text-slate-500">PIN 必須の店舗で、操作が無いとき。画面から利用者情報が消えます</div></div>
+              <div className="shrink-0"><Sel value={Math.min(Number(sec.lockMin) || 30, 60)} opts={[[10,'10分'],[30,'30分'],[60,'60分']]} onChange={v => setSec({ lockMin: v })}/></div></div>
+            <div className="flex items-center justify-between gap-3"><div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">完全にログアウトするまで</div><div className="text-xs text-slate-500">PIN 必須の店舗で、端末を使わなかった時間。次に使うときは ID・パスワードから</div></div>
+              <div className="shrink-0"><Sel value={Math.min(Number(sec.logoutHours) || 168, 168)} opts={[[24,'24時間'],[168,'7日間']]} onChange={v => setSec({ logoutHours: v })}/></div></div>
+            <label data-testid="sec-row-pin" className="flex items-center justify-between gap-3 cursor-pointer"><div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">PIN を必須にする</div><div className="text-xs text-slate-500">本人登録（PIN）が済んでいない職員は「どなたですか」で選べなくなります{noAcct.length ? `（未登録: ${noAcct.length}名）` : ''}。PIN の間違いは 5回で15分停止 → さらに5回で60分 → さらに5回で管理者が解除するまで停止（店舗と管理者へメール）</div></div>
+              <input type="checkbox" checked={!!sec.pinRequired} onChange={e => { if (e.target.checked && noAcct.length && !window.confirm(`まだ本人登録が済んでいない職員が ${noAcct.length} 名います（${noAcct.slice(0,5).join('・')}${noAcct.length>5?' …':''}）。この人たちは記録できなくなります。PIN を必須にしますか？`)) return; setSec({ pinRequired: e.target.checked }); }} className="w-6 h-6 shrink-0"/></label>
+            <label data-testid="sec-row-storeid" className="flex items-center justify-between gap-3 cursor-pointer"><div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">店舗IDでのログインを止める</div><div className="text-xs text-slate-500">全員が本人登録を終えたら。以後は本人のID・パスワードと「この端末をみんなで使う」だけでログインします</div></div>
+              <input type="checkbox" checked={!!sec.storeLoginDisabled} onChange={e => { if (e.target.checked && !window.confirm('店舗IDでのログインを止めます。管理者の本人ログインから「この端末をみんなで使う」を設定できることを確認してから入れてください。よろしいですか？')) return; setSec({ storeLoginDisabled: e.target.checked }); }} className="w-6 h-6 shrink-0"/></label>
           </div>
         ) : <div className="text-xs text-slate-500">ロックや PIN の設定は管理者が行います。</div>}
       </div>
@@ -48878,25 +48913,41 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         const _anySt = Object.keys(_st).some(k => _st[k]);
         const recSeen = new Set();
         const recList = ds.staff.filter(x => x.name && _staffOk(x) && (!_anySt || _st[x.id] || _rc[x.id])).filter(x => { const k = normalizeName(x.name).trim(); if (recSeen.has(k)) return false; recSeen.add(k); return true; });
-        const chip = (on, label, onClick, key, tid) => (<button key={key} type="button" data-testid={tid} onClick={onClick} className={`min-h-[44px] px-3 rounded-xl border-2 text-[15px] font-bold flex items-center gap-2 ${on ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-300 text-slate-700'}`}><span className={`inline-flex w-5 h-5 rounded border-2 items-center justify-center text-xs ${on ? 'bg-white text-blue-600 border-white' : 'border-slate-400'}`}>{on ? '✓' : ''}</span>{label}</button>);
+        // ★ 2026-10-20(ユーザー要望「文字が大きく入力はしやすいが、どこに何があるか見づらい」): まとまりごとに枠と見出しの帯・役割は左の列にそろえる・
+        //   ボタンは高さ44pxのまま文字14px・選んだ人は薄い青＋青い枠＋青いチェック(濃い塗りつぶしをやめて名前を読みやすく)
+        const chip = (on, label, onClick, key, tid) => (<button key={key} type="button" data-testid={tid} aria-pressed={on} onClick={onClick} className={`min-h-[44px] px-2.5 rounded-lg border text-[14px] font-bold flex items-center gap-1.5 ${on ? 'bg-blue-50 border-blue-500 text-blue-900 ring-1 ring-blue-500' : 'bg-white border-slate-300 text-slate-700'}`}><span className={`inline-flex w-5 h-5 shrink-0 rounded border-2 items-center justify-center text-[11px] ${on ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-slate-300'}`}>{on ? '✓' : ''}</span>{label}</button>);
+        const sec = (title, hint, right, body, tid) => (
+          <section data-testid={tid} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="flex items-baseline gap-2 px-3 py-2 bg-slate-100 border-b border-slate-200">
+              <span className="text-[15px] font-bold text-slate-800 whitespace-nowrap">{title}</span>
+              {hint && <span className="text-[12px] text-slate-500 min-w-0">{hint}</span>}
+              {right ? <span className="ml-auto text-[12px] font-bold text-blue-700 whitespace-nowrap">{right}</span> : null}
+            </div>
+            {body}
+          </section>
+        );
+        const row = (label, body, key) => (
+          <div key={key} className="flex items-start gap-2 px-2 py-2">
+            <div className="w-[4.5rem] shrink-0 pt-[13px] text-[12px] font-bold text-slate-600 leading-tight">{label === '機能訓練指導員' ? <>機能訓練<br/>指導員</> : label}</div>
+            <div className="flex-1 min-w-0 flex flex-wrap gap-1.5">{body}</div>
+          </div>
+        );
+        const _nOn = new Set(groups.flatMap(([, l]) => l.filter(x => x.name && _staffOn(x)).map(x => normalizeName(x.name).trim()))).size;
+        const _nRec = recList.filter(x => _rc[x.id]).length;
         return (
-          <div data-testid="diary-phone-checks" className="px-2 py-2 bg-white border-b border-slate-200 space-y-2">
-            <div className="text-[13px] font-bold text-slate-600">担当職員（出勤した人を押す）</div>
-            {groups.map(([role, l]) => (
-              <div key={role}>
-                <div className="text-[12px] font-bold text-slate-500 mb-1">{role}</div>
-                <div className="flex flex-wrap gap-2">{l.filter(x => x.name).map(x => chip(_staffOn(x), x.name, () => { toggleStaffRow(x); if (!_st[x.id] && !appData.diarySettings?.hideStaffTemp) setTempModal({ staffId: x.id, staffName: x.name, value: (log.staffTemp || {})[x.id] || '' }); }, `${role}_${x.id}_${x._sub ? 's' : 'm'}`, `dpc-staff-${x.id}`))}</div>
+          <div data-testid="diary-phone-checks" className="px-2 py-2 bg-slate-50 border-b border-slate-200 space-y-2">
+            {sec('担当職員', '出勤した人を押す', `${_nOn}名`, (
+              <div className="divide-y divide-slate-100">
+                {groups.map(([role, l]) => row(role, l.filter(x => x.name).map(x => chip(_staffOn(x), x.name, () => { toggleStaffRow(x); if (!_st[x.id] && !appData.diarySettings?.hideStaffTemp) setTempModal({ staffId: x.id, staffName: x.name, value: (log.staffTemp || {})[x.id] || '' }); }, `${role}_${x.id}_${x._sub ? 's' : 'm'}`, `dpc-staff-${x.id}`)), role))}
               </div>
-            ))}
-            {recList.length > 0 && <div>
-              <div className="text-[13px] font-bold text-slate-600 mb-1">記録者</div>
-              <div className="flex flex-wrap gap-2">{recList.map(x => chip(!!_rc[x.id], x.name, () => toggle('recorder', x.id), `rec_${x.id}`, `dpc-rec-${x.id}`))}</div>
-            </div>}
+            ), 'dpc-sec-staff')}
+            {recList.length > 0 && sec('記録者', null, `${_nRec}名`, (
+              <div className="flex flex-wrap gap-1.5 p-2">{recList.map(x => chip(!!_rc[x.id], x.name, () => toggle('recorder', x.id), `rec_${x.id}`, `dpc-rec-${x.id}`))}</div>
+            ), 'dpc-sec-rec')}
             {/* ★ 2026-10-08(ユーザー報告「日誌の送迎のボタンも小さくて押しづらい」): 車ごとに 迎え・送り の時刻と送迎者を大きなボタンで(用紙と同じ項目・同じ動き)。
                 割り当てのない側は押せない(用紙のグレーと同じ) */}
-            {(ds.cars || []).length > 0 && <div data-testid="dpc-cars">
-              <div className="text-[13px] font-bold text-slate-600 mb-1">送迎（車ごと）</div>
-              <div className="space-y-2">
+            {(ds.cars || []).length > 0 && <div data-testid="dpc-cars">{sec('送迎', '車ごと', null, (
+              <div className="divide-y divide-slate-200">
                 {ds.cars.map(car => {
                   const ct = (log.carTimes || {})[car.id] || {};
                   const _drv = log.driver || {};
@@ -48907,26 +48958,30 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
                     const unused = !diaryCarUsed(log, kind, car.id, _carUseOpts) && !(isPick ? ct.arrive : ct.depart);
                     const tv = isPick ? ct.arrive : ct.depart;
                     return (
-                      <div className={`rounded-lg px-2 py-1.5 ${unused ? 'bg-slate-100 opacity-60' : 'bg-slate-50'}`}>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-[13px] font-bold text-slate-700 w-8">{isPick ? '迎え' : '送り'}</span>
-                          <button type="button" disabled={unused} data-testid={`dpc-time-${kind}-${car.id}`} onClick={() => openTimeKeypad(car.id, isPick ? 'arrive' : 'depart', tv)} className="min-h-[40px] px-3 rounded-lg border-2 border-slate-300 bg-white text-[15px] font-bold text-blue-700 disabled:opacity-50">{isPick ? '到着' : '出発'} {tv || '__:__'}</button>
-                          {unused && <span className="text-[11px] text-slate-500">割り当てなし</span>}
+                      <div className={`flex items-start gap-2 ${unused ? 'opacity-60' : ''}`}>
+                        <div className="w-[4.5rem] shrink-0 pt-[13px] text-[12px] font-bold text-slate-600">{isPick ? '迎え' : '送り'}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <button type="button" disabled={unused} data-testid={`dpc-time-${kind}-${car.id}`} onClick={() => openTimeKeypad(car.id, isPick ? 'arrive' : 'depart', tv)} className="min-h-[44px] px-3 rounded-lg border border-slate-300 bg-slate-50 text-[14px] font-bold text-blue-700 tabular-nums disabled:opacity-50">{isPick ? '到着' : '出発'} {tv || '__:__'}</button>
+                            {unused && <span className="text-[12px] text-slate-500">割り当てなし</span>}
+                          </div>
+                          {!unused && <div className="flex flex-wrap gap-1.5 mt-1.5">{cand(prefix).map(x => chip(!!_drv[prefix + x.id], x.name, () => toggle('driver', prefix + x.id), `${prefix}${x.id}`, `dpc-drv-${prefix}${x.id}`))}</div>}
                         </div>
-                        {!unused && <div className="flex flex-wrap gap-2">{cand(prefix).map(x => chip(!!_drv[prefix + x.id], x.name, () => toggle('driver', prefix + x.id), `${prefix}${x.id}`, `dpc-drv-${prefix}${x.id}`))}</div>}
                       </div>
                     );
                   };
                   return (
-                    <div key={car.id} className="border border-slate-200 rounded-xl p-2">
+                    <div key={car.id} className="px-2 py-2">
                       <div className="text-[14px] font-bold text-slate-800 mb-1">{car.name}</div>
-                      <div className="space-y-1.5">{side('pick')}{side('drop')}</div>
+                      <div className="space-y-2">{side('pick')}{side('drop')}</div>
                     </div>
                   );
                 })}
               </div>
-            </div>}
-            <div>{chip(!!log.managerConfirmed, `${managerName}は上記記録を確認しました`, () => updateLog({ managerConfirmed: !log.managerConfirmed }), 'mgr', 'dpc-mgr')}</div>
+            ), 'dpc-sec-cars')}</div>}
+            {sec('管理者の確認', null, log.managerConfirmed ? '確認済み' : '', (
+              <div className="p-2">{chip(!!log.managerConfirmed, `${managerName}は上記記録を確認しました`, () => updateLog({ managerConfirmed: !log.managerConfirmed }), 'mgr', 'dpc-mgr')}</div>
+            ), 'dpc-sec-mgr')}
           </div>
         );
       })()}
@@ -54999,6 +55054,7 @@ function CopyFaxButton({ value }) {
 }
 function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview }) {
   const _absPhone = useTsuIsPhone(); // ★ 2026-10-15: スマホのカレンダーは名前を上の段・状態を下の段に
+  const [_absSelDay, _setAbsSelDay] = useState(''); // ★ 2026-10-20(ユーザー要望): スケジュールと同じく、押した日を薄い紫に(最初は今日)
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
   const [currentMonth, setCurrentMonth] = React.useState(() => { const d=new Date(); return new Date(d.getFullYear(),d.getMonth(),1); });
@@ -55548,7 +55604,7 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
       </div></TsuPhonePin>
 
       {/* カレンダー (ルートがスクロール。 曜日ヘッダーはメインヘッダーの下に sticky 固定) */}
-      <div style={{padding:'0 20px 20px'}}>
+      <div style={{padding:_absPhone?'0 0 12px':'0 20px 20px'}}>{/* ★ 2026-10-20: スマホは画面いっぱいに(スケジュールとそろえる) */}
         <div style={{background:'white',borderLeft:'1px solid #e2e8f0',borderRight:'1px solid #e2e8f0',borderBottom:'1px solid #e2e8f0',borderBottomLeftRadius:14,borderBottomRightRadius:14,boxShadow:'0 1px 6px rgba(0,0,0,0.08)'}}>
           {/* 曜日ヘッダー（メインヘッダー(約56px)の下に固定） */}
           <div style={{position:'sticky',top:56,zIndex:25,display:'grid',gridTemplateColumns:'repeat(7,minmax(0,1fr))',background:'#334155',borderTop:'1px solid #e2e8f0'}}>
@@ -55572,12 +55628,15 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                 // ★ 2026-10-20: new Date('YYYY-MM-DD') は世界標準時の0時になり、日本時間では今日と一致しなかった(「今日」の印が出ていなかった)。日付の文字で比べる
                 const isToday = dateStr === `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
                 const isClosed = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(di);
+                // ★ 2026-10-20(ユーザー要望): スケジュールと同じ見え方。今日=日にちを紫の丸で囲む・選んだ日=薄い紫＋紫の枠(最初は今日・押した日に移る)
+                const isSel = (_absSelDay || (isToday ? dateStr : '')) === dateStr;
                 return (
-                  <div key={di} data-testid={isToday ? 'abs-today' : undefined} style={{minHeight:90,minWidth:0,borderRight:'1px solid #f1f5f9',padding:_absPhone?'6px 2px 4px':'6px 4px 4px',opacity:day.other?0.75:1,background:isClosed?'#f1f5f9':isToday?'#fffbeb':'white',position:'relative',...(isToday ? { boxShadow:'inset 0 0 0 3px #f59e0b', borderRadius:6, zIndex:1 } : {})}}>{/* ★ 2026-10-20(ユーザー要望): 今日の日付を枠で目立たせる */}
+                  <div key={di} data-testid={isToday ? 'abs-today' : undefined} data-sel={isSel ? '1' : undefined} onClick={() => _setAbsSelDay(dateStr)} style={{minHeight:90,minWidth:0,borderRight:'1px solid #f1f5f9',padding:_absPhone?'6px 2px 4px':'6px 4px 4px',opacity:day.other?0.75:1,background:isSel?'#eef2ff':isClosed?'#f1f5f9':'white',position:'relative',cursor:'pointer',...(isSel ? { boxShadow:'inset 0 0 0 2px #818cf8', zIndex:1 } : {})}}>
                     <div style={{fontSize:13,fontWeight:'bold',color:isClosed?'#cbd5e1':di===0?'#dc2626':di===6?'#2563eb':'#334155',marginBottom:4,display:'flex',alignItems:'center',gap:4}}>
-                      {day.other ? `${day.m}/${day.d}` : day.d}
+                      {isToday
+                        ? <span data-testid="abs-today-num" style={{display:'inline-block',minWidth:22,height:22,lineHeight:'22px',padding:day.other?'0 5px':0,borderRadius:11,textAlign:'center',background:'#6366f1',color:'white',flexShrink:0}}>{day.other ? `${day.m}/${day.d}` : day.d}</span>
+                        : (day.other ? `${day.m}/${day.d}` : day.d)}
                       {day.other&&<span style={{fontSize:9,color:'#94a3b8'}}>翌月</span>}
-                      {isToday&&!isClosed&&<span style={{fontSize:9,background:'#f59e0b',color:'white',borderRadius:4,padding:'1px 3px',fontWeight:'bold',whiteSpace:'nowrap',flexShrink:0}}>今日</span>}
                       {isClosed&&<span style={{fontSize:9,color:'#64748b'}}>定休</span>}
                     </div>
                     {absences.map(({patient:pat, tokki, furikae},ai)=>{
