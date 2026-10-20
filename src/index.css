@@ -174,7 +174,7 @@ button, a, input, select, textarea, label, [role="button"] { touch-action: manip
   .tsu-mon-table td.tsu-mon-name > div:first-child { font-size: 15px !important; }
   .tsu-mon-table td.tsu-mon-name > button { width: auto !important; margin-top: 0 !important; padding: 0 12px !important; height: 32px; font-size: 12px !important; }
   .tsu-mon-table td.tsu-mon-name > button:first-of-type { margin-left: auto !important; }
-  .tsu-mon-table td.tsu-mon-body { flex: 1 1 100%; }
+  .tsu-mon-table td.tsu-mon-body { flex: 1 1 100%; min-width: 0; max-width: 100%; } /* ★ 2026-10-20: 縮んでよい(無いと本文の長さまで広がり見切れる) */
   .tsu-mon-sel { min-height: 34px !important; height: 34px; padding: 0 6px !important; }
 }
 
