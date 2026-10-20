@@ -11143,7 +11143,7 @@ const longPressTapProps = (fn) => ({
 // ★ 2026-10-07(店舗要望: 定員15名などで運動をするとき、グループ分けとは別に利用者を自由な順に並べたい):
 //   サービス提供記録 入力の「並び替え」。 表示中(午前/午後)の利用者を長押しドラッグ(または上へ/下へ)で並べ替えて保存。
 //   並び順は店舗の設定 systemSettings.recordOrder(利用者IDの並び・全端末で共有)。 記録の中身は利用者IDで紐づくので、並べ替えても日誌・連絡帳などとずれない
-function RecordOrderModal({ rows, onSave, onClose }) {
+function RecordOrderModal({ rows, onSave, onClose, onReset }) {
   const [list, setList] = React.useState(() => rows.map(r => ({ id: r.id, name: r.name, kana: r.kana, status: r.status || '出席' })));
   const dnd = useLongPressReorder(list, setList);
   const mv = (i, d) => setList(prev => { const j = i + d; if (j < 0 || j >= prev.length) return prev; const a = [...prev]; [a[i], a[j]] = [a[j], a[i]]; return a; });
@@ -11167,19 +11167,23 @@ function RecordOrderModal({ rows, onSave, onClose }) {
             </div>))}
         </div>
         <div className="px-4 py-3 border-t border-slate-200 flex items-center gap-2 flex-wrap">
-          <button type="button" data-testid="rec-order-kana" onClick={() => setList(prev => [...prev].sort((a, b) => String(a.kana || a.name || '').localeCompare(String(b.kana || b.name || ''), 'ja')))} className="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-600">あいうえお順に戻す</button>
+          <button type="button" data-testid="rec-order-kana" onClick={() => setList(prev => [...prev].sort(tsuNameCmp))} className="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-600">あいうえお順に戻す</button>
+          {onReset && <button type="button" data-testid="rec-order-reset" onClick={onReset} title="保存した並び順を消して、ふりがなのあいうえお順に戻します(お店全体)" className="px-3 py-2 rounded-xl border border-red-300 bg-white text-xs font-bold text-red-700">保存した並び順を消す</button>}
           <button type="button" onClick={onClose} className="whitespace-nowrap ml-auto px-4 py-2 rounded-xl bg-slate-100 text-sm font-bold text-slate-600">キャンセル</button>
           <button type="button" data-testid="rec-order-save" onClick={() => onSave(list.map(r => r.id))} className="px-5 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold">この順で保存</button>
         </div>
       </div>
     </div>), document.body);
 }
+// ★ 2026-10-20(不具合修正): 名前順の比べ方をそろえる。ふりがなを ひらがな・空白なし・全角 にして比べ、無ければ名前。同じなら名前→ID(毎回必ず同じ順)
+function tsuKanaKey(p) { const s = String((p && (p.kana || p.name)) || ''); try { return s.normalize('NFKC').replace(/[\s\u3000]/g, '').replace(/[\u30a1-\u30f6]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0x60)); } catch { return s; } }
+function tsuNameCmp(a, b) { return tsuKanaKey(a).localeCompare(tsuKanaKey(b), 'ja') || String((a && a.name) || '').localeCompare(String((b && b.name) || ''), 'ja') || String((a && a.id) ?? '').localeCompare(String((b && b.id) ?? '')); }
 // 並び順(利用者IDの配列)の中で、表示中の利用者だけを新しい順に入れ替える(ほかの方どうしの順番はそのまま)
 const tsumugiMergeRecordOrder = (patients, curOrder, subsetNewOrder) => {
   const idx = new Map((Array.isArray(curOrder) ? curOrder : []).map((id, i) => [String(id), i]));
   const all = (patients || []).filter(p => p && p.id != null).slice().sort((a, b) => {
     const ia = idx.has(String(a.id)) ? idx.get(String(a.id)) : Infinity, ib = idx.has(String(b.id)) ? idx.get(String(b.id)) : Infinity;
-    if (ia !== ib) return ia - ib; return String(a.kana || a.name || '').localeCompare(String(b.kana || b.name || ''), 'ja');
+    if (ia !== ib) return ia - ib; return tsuNameCmp(a, b);
   }).map(p => p.id);
   const sub = new Set(subsetNewOrder.map(String));
   const queue = [...subsetNewOrder];
@@ -24752,8 +24756,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
          const rank = (s) => s === '出席' ? 0 : (s === '振替' || s === '臨時') ? 1 : s === '欠席' ? 2 : s === '休止' ? 3 : s === '休業' ? 4 : 5;
          const rdiff = rank(a.status) - rank(b.status);
          if (rdiff !== 0) return rdiff;
-         // 同じステータス内では あいうえお順 (kana)
-         return (a.kana || '').localeCompare(b.kana || '', 'ja');
+         // 同じステータス内では あいうえお順 (kana)。★ 2026-10-20: 書き方のちがい・未登録でも毎回同じ順に(tsuNameCmp)
+         return tsuNameCmp(a, b);
       });
     // ★診断: 画面(localPatients)を作り直した。 rec=appData内の当日記録数 / dat=うち実データ入りの数。
     //   「画面が空なのに rec/dat が多い」=表示の問題、「dat が少ない」=そもそもデータが端末に無い、を切り分ける。
@@ -25815,12 +25819,18 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     const _rk = (s) => (s === '出席' || s === '振替' || s === '臨時') ? 0 : s === '欠席' ? 2 : s === '休止' ? 3 : s === '休業' ? 4 : 5;
     displayRecords = [...displayRecords].sort((a, b) => (_rk(a.status || '出席') - _rk(b.status || '出席'))
       || ((_oi.has(String(a.id)) ? _oi.get(String(a.id)) : Infinity) - (_oi.has(String(b.id)) ? _oi.get(String(b.id)) : Infinity))
-      || String(a.kana || '').localeCompare(String(b.kana || ''), 'ja'));
+      || tsuNameCmp(a, b));
   }
   const _recOrderRows = filterMode === 'single' ? displayRecords : [];
   const saveRecordOrder = (subset) => {
     const next = tsumugiMergeRecordOrder(appData.patients, _recOrder, subset);
     onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), recordOrder: next } }, { manual: true, message: '✓ 利用者の並び順を保存しました' });
+    setRecOrderOpen(false);
+  };
+  // ★ 2026-10-20(不具合修正): 保存した並び順を消して あいうえお順に戻す(並び順はお店全体で共通)
+  const resetRecordOrder = () => {
+    if (!window.confirm('保存した並び順を消して、ふりがなのあいうえお順に戻しますか？\n（並び順は、すべての端末・午前午後・毎日で共通です）')) return;
+    onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), recordOrder: [] } }, { manual: true, message: '✓ 並び順を消して、あいうえお順に戻しました' });
     setRecOrderOpen(false);
   };
   // ★ 本日分の人数集計 (出席/欠席/休止/振替/休業)。表に列は足さず、ヘッダーにチップ表示。検索の影響を受けないよう検索前に集計。
@@ -26052,8 +26062,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         className={`px-4 py-2 text-sm font-bold transition-all shrink-0 ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-50'}`}>{v}</button>
                     ))}
                   </div>
-                  <button type="button" data-testid="rec-order-btn" onClick={() => setRecOrderOpen(true)} title="表示中の利用者の並び順を変えます(長押しドラッグ)" className={`px-3 py-2 rounded-xl text-sm font-bold border shrink-0 ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}>並び替え</button>
-                  {recOrderOpen && <RecordOrderModal rows={_recOrderRows} onSave={saveRecordOrder} onClose={() => setRecOrderOpen(false)}/>}
+                  <button type="button" data-testid="rec-order-btn" onClick={() => setRecOrderOpen(true)} title={_recOrderOn ? '保存した並び順で表示中です(お店全体・すべての端末・午前午後・毎日に効きます)。押すと並べ替え・消すことができます' : '表示中の利用者の並び順を変えます(長押しドラッグ)。保存した並び順はお店全体に効きます'} className={`px-3 py-2 rounded-xl text-sm font-bold border shrink-0 ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}>並び替え</button>
+                  {recOrderOpen && <RecordOrderModal rows={_recOrderRows} onSave={saveRecordOrder} onReset={_recOrderOn ? resetRecordOrder : null} onClose={() => setRecOrderOpen(false)}/>}
                   {attCountChips && <div className="hidden sm:block">{attCountChips}</div>}
               </div>
             )}
@@ -30899,7 +30909,7 @@ function AttrSection({appData, tY, tM, baseMonth, attrMonth, setAttrMonth, perio
       <div data-print-strip="attr-months" style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:14}}>
         {monthOptions.map(m=>{const [my,mm]=m.split('-').map(Number);return <button key={m} onClick={()=>setAttrMonth(m)} style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:'bold',border:`1.5px solid ${m===_effMonth?'#ec4899':'#e2e8f0'}`,background:m===_effMonth?'#fce7f3':'white',color:m===_effMonth?'#be185d':'#64748b',cursor:'pointer'}}>{mm}月</button>;})}
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:14}}>
+      <div className="tsu-ph-1col" style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr)',gap:16,marginBottom:14}}>{/* ★ 2026-10-20(不具合修正): スマホは1列(2列だと介護度内訳の凡例が画面の外に見切れた) */}
         <div style={{background:'#f8fafc',borderRadius:12,padding:'12px'}}>
           <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:8}}>■ 男女比</div>
           <div style={{height:18,borderRadius:9,overflow:'hidden',display:'flex',marginBottom:6}}><div style={{flex:malePct,background:'#3b82f6'}}/><div style={{flex:femalePct,background:'#f472b6'}}/></div>
