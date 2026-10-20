@@ -36288,20 +36288,26 @@ function TsuTokkiPresetSelect({ appData, onPick, className, style, testid, label
 // ★ 2026-10-20(ユーザー案): 特記のマイク。ブラウザの音声認識(Safari/Chrome)で話した言葉を文字にする。使えない端末ではボタンを出さない
 const tsuVoiceSupported = () => { try { return typeof window !== 'undefined' && !!(window.SpeechRecognition || window.webkitSpeechRecognition); } catch { return false; } };
 function TsuMicButton({ onText, disabled, testid, className, style, size = 15 }) {
-  const [on, setOn] = React.useState(false); const [msg, setMsg] = React.useState(''); const recRef = React.useRef(null);
-  React.useEffect(() => () => { try { recRef.current && recRef.current.abort(); } catch {} }, []);
+  const [on, setOn] = React.useState(false); const [msg, setMsg] = React.useState(''); const [live, setLive] = React.useState('');
+  const recRef = React.useRef(null); const txtRef = React.useRef(''); const doneRef = React.useRef(true); const errRef = React.useRef(false); const timerRef = React.useRef(null);
+  const onTextRef = React.useRef(onText); onTextRef.current = onText;
+  React.useEffect(() => () => { try { recRef.current && recRef.current.abort(); } catch {} clearTimeout(timerRef.current); }, []);
   if (!tsuVoiceSupported()) return null;
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(''), 4000); };
+  // ★ 2026-10-20(不具合修正・iPhone/iPad の Safari で文字が入らない): 確定した結果が来なくても、聞き終わったら控えた文字(途中の結果)を入れる
+  const commit = () => { if (doneRef.current) return; doneRef.current = true; const t = String(txtRef.current || '').trim(); txtRef.current = ''; setLive(''); if (t) { try { onTextRef.current(t); } catch {} } else if (!errRef.current) flash('声が聞き取れませんでした。もう一度押して、少しはっきり話してください'); };
   const toggle = () => {
     if (on) { try { recRef.current && recRef.current.stop(); } catch {} return; }
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition; let rec;
     try { rec = new SR(); } catch { flash('この端末では音声入力が使えません'); return; }
-    rec.lang = 'ja-JP'; rec.interimResults = false; rec.maxAlternatives = 1; rec.continuous = false;
-    rec.onresult = (ev) => { try { const t = Array.from(ev.results || []).map(r => (r && r[0] && r[0].transcript) || '').join('').trim(); if (t) onText(t); } catch {} };
-    rec.onerror = (ev) => { const c = ev && ev.error; flash(c === 'not-allowed' || c === 'service-not-allowed' ? 'マイクが許可されていません（端末の設定でマイクを許可してください）' : c === 'no-speech' ? '声が聞き取れませんでした。もう一度押してください' : '音声入力ができませんでした'); };
-    rec.onend = () => { setOn(false); recRef.current = null; };
+    rec.lang = 'ja-JP'; rec.interimResults = true; rec.maxAlternatives = 1; rec.continuous = false;
+    txtRef.current = ''; doneRef.current = false; errRef.current = false; setLive('');
+    rec.onresult = (ev) => { try { let t = ''; const rs = ev.results || []; for (let i = 0; i < rs.length; i++) { const r = rs[i]; t += (r && r[0] && r[0].transcript) || ''; } t = t.trim(); if (t) { txtRef.current = t; setLive(t); } } catch {} };
+    rec.onspeechend = () => { try { rec.stop(); } catch {} };
+    rec.onerror = (ev) => { const c = ev && ev.error; if (c === 'aborted') return; if (c === 'no-speech' && txtRef.current) return; errRef.current = true; flash(c === 'not-allowed' || c === 'service-not-allowed' ? 'マイクが許可されていません（端末の設定でマイクと音声認識を許可してください）' : c === 'no-speech' ? '声が聞き取れませんでした。もう一度押してください' : c === 'network' ? '音声入力は通信が必要です。電波を確かめてください' : '音声入力ができませんでした'); };
+    rec.onend = () => { clearTimeout(timerRef.current); setOn(false); recRef.current = null; commit(); };
     recRef.current = rec;
-    try { rec.start(); setOn(true); setMsg(''); } catch { flash('音声入力ができませんでした'); }
+    try { rec.start(); setOn(true); setMsg(''); timerRef.current = setTimeout(() => { try { rec.stop(); } catch {} }, 15000); } catch { doneRef.current = true; flash('音声入力ができませんでした'); }
   };
   return (
     <span className="relative inline-flex" style={{ flexShrink: 0 }}>
@@ -36310,7 +36316,8 @@ function TsuMicButton({ onText, disabled, testid, className, style, size = 15 })
         className={`${className || ''} ${on ? 'bg-red-600 border-red-600 text-white animate-pulse' : 'bg-white border-slate-300 text-slate-600'} border rounded-lg inline-flex items-center justify-center disabled:opacity-40`} style={style}>
         <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><line x1="12" y1="18" x2="12" y2="22"/></svg>
       </button>
-      {msg && <span role="status" className="absolute right-0 top-full mt-1 z-[60] whitespace-nowrap text-[11px] font-bold text-white bg-slate-800 rounded px-2 py-1 shadow">{msg}</span>}
+      {on && <span data-testid={testid ? `${testid}-live` : undefined} role="status" className="absolute left-0 bottom-full mb-1 z-[60] max-w-[16rem] whitespace-normal text-[12px] font-bold text-white bg-red-600 rounded px-2 py-1 shadow">{live ? `聞き取り中: ${live}` : '聞き取り中… 話してください'}</span>}
+      {msg && <span role="status" className="absolute left-0 top-full mt-1 z-[60] whitespace-nowrap text-[11px] font-bold text-white bg-slate-800 rounded px-2 py-1 shadow">{msg}</span>}
     </span>
   );
 }
