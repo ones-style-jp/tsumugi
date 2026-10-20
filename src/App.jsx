@@ -48025,6 +48025,14 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           _setDrv('a', plan.driver);
           const _dropX = (plan.dropMode === 'custom' && plan.drop) ? plan.drop : null;
           if (_dropX) _setDrv('d', _dropX.driver);
+          // ★ 2026-10-21(不具合修正・ユーザー報告「3台→2台に直して取り込み直しても日誌は3台のまま」): 送迎表でその向きに誰も乗っていない車は、運転者と時間を消す
+          { const _pickUsed = new Set(Object.keys(plan.cars||{}).filter(cid => ((plan.cars||{})[cid]||[]).length));
+            const _dropUsed = new Set(Object.keys(_dropSrc.cars||{}).filter(cid => ((_dropSrc.cars||{})[cid]||[]).length));
+            const _cids = new Set([...(ds.cars||[]).map(c => c && c.id).filter(Boolean), ...Object.keys(_ct2), ...Object.keys(_drv2).map(k => { const m = k.match(/^[ad]_(.+)_[^_]+$/); return m ? m[1] : ''; }).filter(Boolean)]);
+            _cids.forEach(cid => {
+              if (!_pickUsed.has(cid)) { Object.keys(_drv2).forEach(k => { if (k.startsWith(`a_${cid}_`)) delete _drv2[k]; }); if (_ct2[cid] && 'arrive' in _ct2[cid]) { const { arrive, ...rest } = _ct2[cid]; _ct2[cid] = rest; } }
+              if (!_dropUsed.has(cid)) { Object.keys(_drv2).forEach(k => { if (k.startsWith(`d_${cid}_`)) delete _drv2[k]; }); if (_ct2[cid] && 'depart' in _ct2[cid]) { const { depart, ...rest } = _ct2[cid]; _ct2[cid] = rest; } }
+            }); }
           // ★ 2026-10-15(ユーザー要望「取り込みで日誌が全部終わるように」): 迎えの到着(送迎表の各車の最後)と送りの出発(座席表)も入れる。
           //   日誌が空の車は入れる。日誌に違う時間が入っている車は確認して上書き。送迎表で「目安」のままの時間は確認してから入れる(目安は日誌の時間を上書きしない)
           const _tc = [];
