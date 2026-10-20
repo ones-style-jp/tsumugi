@@ -26471,6 +26471,13 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   <button type="button" data-testid="rec-order-btn" onClick={() => setRecOrderOpen(true)} title={_recOrderOn ? `${_recOrderLabel}のクラスは保存した並び順で表示中です。押すと並べ替え・消すことができます` : `${_recOrderLabel}のクラスの並び順を変えます(長押しドラッグ)。ほかの曜日・午前午後には効きません`} className={`px-3 py-2 rounded-xl text-sm font-bold border shrink-0 ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}>並び替え</button>
                   {recOrderOpen && <RecordOrderModal rows={_recOrderRows} label={_recOrderLabel} onSave={saveRecordOrder} onReset={_recOrderOn ? resetRecordOrder : null} onClose={() => setRecOrderOpen(false)}/>}
                   {attCountChips && <div className="hidden sm:block">{attCountChips}</div>}
+                  {/* ★ 2026-10-21(ユーザー要望「印の数と外すは上の帯に。表が一段下がると目が疲れる」): 印が無いときも見えないまま場所だけ取り、出し入れで高さを変えない */}
+                  <div data-testid="rv-marks-bar" aria-hidden={_rvMarks.length ? undefined : true} title="名前を長押しで印の付け外し（この端末の表示だけ）"
+                    className="no-print hidden sm:inline-flex items-center gap-1.5 shrink-0 h-10 pl-2.5 pr-1 rounded-xl bg-yellow-50 border border-yellow-300 text-[13px] font-bold text-yellow-900"
+                    style={{visibility: _rvMarks.length ? 'visible' : 'hidden', minWidth: '7.5rem'}}>
+                    <span className="whitespace-nowrap">印 {_rvMarks.length}名</span>
+                    <button type="button" data-testid="rv-marks-clear" tabIndex={_rvMarks.length ? 0 : -1} onClick={() => _setRvMarks([])} className="ml-auto h-8 px-2 rounded-lg bg-white border border-yellow-400 text-yellow-900 text-[12px] whitespace-nowrap">外す</button>
+                  </div>
               </div>
             )}
             {filterMode === 'month' && (
@@ -26630,11 +26637,11 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
         </div>
       )}
 
+      {/* ★ 2026-10-21: スマホは上の帯がたたまれているので、印があるときだけ左下に小さく(固定・表は動かない) */}
       {_rvMarks.length > 0 && (
-        <div data-testid="rv-marks-bar" className="no-print flex items-center gap-2 flex-wrap px-3 py-1.5 mb-1 rounded-lg bg-yellow-50 border border-yellow-300 text-[13px] font-bold text-yellow-900">
-          <span>印を付けた方 {_rvMarks.length}名</span>
-          <span className="text-[11px] font-normal text-yellow-800">（名前を長押しで付け外し・この端末の表示だけ）</span>
-          <button type="button" data-testid="rv-marks-clear" onClick={() => _setRvMarks([])} className="ml-auto px-3 py-1 rounded-lg bg-white border border-yellow-400 text-yellow-900">印をすべて外す</button>
+        <div data-testid="rv-marks-bar-phone" className="no-print sm:hidden fixed left-3 z-40 inline-flex items-center gap-2 pl-3 pr-1 h-11 rounded-xl bg-yellow-50 border border-yellow-300 text-[14px] font-bold text-yellow-900 shadow-md" style={{bottom:'calc(env(safe-area-inset-bottom, 0px) + 44px)'}}>
+          <span className="whitespace-nowrap">印 {_rvMarks.length}名</span>
+          <button type="button" data-testid="rv-marks-clear-phone" onClick={() => _setRvMarks([])} className="h-9 px-3 rounded-lg bg-white border border-yellow-400 text-yellow-900 whitespace-nowrap">外す</button>
         </div>
       )}
       <style>{`#record-table tbody tr { min-height: 32px !important; } #record-table tbody tr td { min-height: 32px !important; padding-top: 2px !important; padding-bottom: 2px !important; box-sizing: border-box !important; } /* 個別運動列: 他の列と同じ行高に収める (min-height強制を外す) */ #record-table tbody tr td[data-ind-cell] { min-height: 0 !important; height: auto !important; max-height: none !important; overflow: visible !important; vertical-align: middle !important; }  #record-table tr.readonly-row input:disabled, #record-table tr.readonly-row button:disabled, #record-table tr.readonly-row textarea:disabled, #record-table tr.readonly-row select:disabled { opacity: 1 !important; color: #000 !important; -webkit-text-fill-color: #000 !important; } /* 列見出しを縦スクロール時も常に上部固定 + 行高を狭く */ #record-table thead th { position: -webkit-sticky !important; position: sticky !important; top: 0 !important; height: 32px !important; min-height: 32px !important; max-height: 32px !important; padding-top: 4px !important; padding-bottom: 4px !important; line-height: 1.1 !important; font-size: 11px !important; }`}</style>
