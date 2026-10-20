@@ -12399,7 +12399,7 @@ function RosterView({ appData, onSave }) {
   const th = { position:'sticky', top:0, zIndex:2, background:'#f8fafc', borderBottom:'2px solid #cbd5e1', fontSize:11, fontWeight:'bold', color:'#475569', padding:'6px 4px', textAlign:'center', whiteSpace:'nowrap' };
   return (
     <div style={{height:'100%',overflow:'auto',background:'#f0f4f9'}}>
-      <div style={{maxWidth:1400,margin:'0 auto',padding:16,display:'flex',flexDirection:'column',gap:12}}>
+      <div className="tsu-ph-cards" style={{maxWidth:1400,margin:'0 auto',padding:16,display:'flex',flexDirection:'column',gap:12}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10}}>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
             <button onClick={()=>shiftMonth(-1)} style={{padding:'6px 12px',background:'white',border:'1px solid #cbd5e1',borderRadius:8,fontWeight:'bold',cursor:'pointer'}}>← 前月</button>
@@ -12760,7 +12760,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
     // ★ ホームは縮小 transform を使わず等倍で表示する(親ラッパー側で dashboard を transform 対象外に)。
     //   これにより transform 内の入れ子スクロールで起きる iOS/一部環境のタップ座標ズレを根本回避。
     <div style={{height:'100%',overflow:'auto',background:'#f0f4f9'}}>
-      <div style={{maxWidth:1040,margin:'0 auto',padding:16,display:'flex',flexDirection:'column',gap:16}}>
+      <div className="tsu-ph-cards" style={{maxWidth:1040,margin:'0 auto',padding:16,display:'flex',flexDirection:'column',gap:16}}>
         {/* 挨拶 */}
         {/* ★ 1行表示(2026-08-18): 日付と挨拶を横並びにして高さを詰める */}
         <div style={{background:'linear-gradient(135deg,#4f46e5,#7c3aed)',borderRadius:16,color:'white',padding:'12px 22px',display:'flex',alignItems:'baseline',flexWrap:'wrap',gap:'6px 14px'}}>
@@ -13713,7 +13713,7 @@ function DisasterView({ appData, onSave, staffSession }) {
       </div></TsuPhonePin>
       {tab === 'notice' && <EmergencyNoticeView appData={appData} onSave={onSave} staffSession={staffSession} safety={safety} setSafety={setSafety} place={place} setPlace={setPlace} evacOptions={evacOptions} />}
       {tab === 'safety' && (
-        <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+        <div className="flex-1 overflow-y-auto p-4 bg-slate-50 tsu-ph-cards">
           <div className="max-w-6xl mx-auto">
             <div className="flex items-center gap-2 flex-wrap mb-3">
               {[['now', `通所中（${slot === 'AM' ? '午前' : '午後'}）`, attendingNow.size], ['others', '在宅', activePats.length - attendingNow.size], ['all', '全員', activePats.length]].map(([k, lb, n]) => (
@@ -13753,7 +13753,7 @@ function DisasterView({ appData, onSave, staffSession }) {
         </div>
       )}
       {tab === 'evac' && (
-        <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+        <div className="flex-1 overflow-y-auto p-4 bg-slate-50 tsu-ph-cards">
           <div className="max-w-4xl mx-auto space-y-4">
             <div className="bg-white rounded-2xl border border-slate-200 p-4">
               <div className="flex items-center gap-2 mb-3"><div className="text-sm font-bold text-slate-800">避難場所</div><div className="ml-auto flex gap-2">{editing ? <><button type="button" onClick={() => saveBcp(draft)} className="whitespace-nowrap px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold">保存</button><button type="button" onClick={() => { setDraft(bcp); setEditing(false); }} className="whitespace-nowrap px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-600 text-xs font-bold">やめる</button></> : <button type="button" onClick={() => { setDraft(bcp); setEditing(true); }} className="whitespace-nowrap px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-700 text-xs font-bold">編集</button>}</div></div>
@@ -13788,7 +13788,7 @@ function DisasterView({ appData, onSave, staffSession }) {
         </div>
       )}
       {tab === 'stock' && (
-        <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+        <div className="flex-1 overflow-y-auto p-4 bg-slate-50 tsu-ph-cards">
           <div className="max-w-4xl mx-auto">
             <div className="bg-white rounded-2xl border border-slate-200 p-4">
               <div className="flex items-center gap-2 mb-3"><div className="text-sm font-bold text-slate-800">備蓄品と保管場所</div><div className="ml-auto flex gap-2">{editing ? <><button type="button" onClick={() => saveBcp(draft)} className="whitespace-nowrap px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold">保存</button><button type="button" onClick={() => { setDraft(bcp); setEditing(false); }} className="whitespace-nowrap px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-600 text-xs font-bold">やめる</button></> : <button type="button" onClick={() => { setDraft(bcp); setEditing(true); }} className="whitespace-nowrap px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-700 text-xs font-bold">編集</button>}</div></div>
@@ -13955,7 +13955,7 @@ function EmergencyNoticeView({ appData, onSave, staffSession, safety: safetyProp
         <AlertTriangle size={18} className="text-red-600" />
         <div className="text-sm font-bold text-red-800">災害時などの緊急連絡を、ご家族・担当ケアマネへ一斉に送ります（メール＋家族画面のお知らせ）</div>
       </div>
-      <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+      <div className="flex-1 overflow-y-auto p-4 bg-slate-50 tsu-ph-cards">
         <div className="max-w-4xl mx-auto grid gap-4 md:grid-cols-[1fr_300px]">
           <div className="space-y-4">
             <div className="bg-white rounded-2xl border border-slate-200 p-4">
@@ -14422,7 +14422,7 @@ function FamilyAdminView({ appData, onSave }) {
   );
   return (
     // ★ 2026-10-08(ユーザー要望: スマホで投稿・履歴のときタブが上に詰まっていない): スマホはどのタブでもタブを上端に詰めて画面に固定
-    <div className={`h-full overflow-auto bg-slate-50 ${tab==='preview'?'p-0':(_faPhone ? 'px-3 pb-3 pt-0' : 'p-3 sm:p-6')}`}>
+    <div className={`h-full overflow-auto bg-slate-50 tsu-ph-cards ${tab==='preview'?'p-0':(_faPhone ? 'px-3 pb-3 pt-0' : 'p-3 sm:p-6')}`}>
       <div className={tab==='preview'?'':'max-w-5xl mx-auto'}>
         <TsuPhonePin testId="pin-family-admin">
         <div className={`flex items-center gap-2 bg-white shadow-sm border border-slate-200 ${(tab==='preview' || _faPhone)?'sticky top-0 z-50 border-b p-1.5':'rounded-2xl p-1.5 mb-4'}`}>
@@ -28222,7 +28222,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           </div>
           <div className="ml-auto text-xs font-bold opacity-80">利用中 {allPats.length}名</div>
         </div>
-        <div className="max-w-5xl mx-auto p-6">
+        <div className="max-w-5xl mx-auto p-6 tsu-ph-cards">
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
             {/* ★ スマホで自動的にキーボードが出てしまうため autoFocus は付けない */}
             <input type="text" placeholder="氏名・フリガナ・ID で検索" value={patientSearch}
@@ -31521,7 +31521,7 @@ function ClassRosterView({ appData, onSave, onShowPrintPreview }) {
       </div>
         {_crPhone && <div className="flex gap-1.5 px-3 py-2 bg-slate-50 border-b border-slate-200" data-testid="cr-day-tabs">{_crAllDays.map(d => <button key={d} type="button" onClick={() => setCrDay(d)} className={`flex-1 h-10 rounded-xl text-sm font-bold border ${_crDay === d ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300'}`}>{DOWJ[d]}</button>)}</div>}
       </div></TsuPhonePin>
-      <div className="flex-1 overflow-auto p-3">
+      <div className="flex-1 overflow-auto p-3 tsu-ph-cards">
         {rows > 11 && !_crPhone && <div className="text-[11px] text-slate-500 mb-1">定員が多いため各曜日を2列で表示しています（画面が狭い場合は横にスクロールできます）</div>}
         <div className="overflow-x-auto" data-testid="cr-scroll">{/* ★ 2026-10-04: 午前・午後は同じ横スクロール(曜日の列が連動して動く) */}
           <div className="bg-white rounded-xl border border-slate-200 p-2 mb-3">{renderBlock('AM', '午前', false)}</div>
@@ -31674,7 +31674,7 @@ function JissekiView({ appData, onSave, onShowPrintPreview }) {
   );
   return (
     <div style={{height:'100%',overflow:'auto',background:'#f0f4f9'}}>
-      <div style={{maxWidth:1500,margin:'0 auto',padding:16,display:'flex',flexDirection:'column',gap:12}}>
+      <div className="tsu-ph-cards" style={{maxWidth:1500,margin:'0 auto',padding:16,display:'flex',flexDirection:'column',gap:12}}>
         {/* タブ。2026-10-09(ユーザー要望「上部で固定」): タブと月の切替をスクロールしても上に残す(PC・iPad=止まる帯 / スマホ=画面に固定) */}
         <TsuPhonePin testId="pin-jisseki"><div className="tsu-jm-wrap sticky top-0 z-20" style={{background:'#f0f4f9',margin:'-16px -16px 0',padding:'12px 16px 8px'}}>
         <div className="tsu-jm-bar" style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
@@ -32698,7 +32698,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         </div>
       )}
 
-      <div id="print-content-operation" style={{padding:'16px 20px',maxWidth:960,margin:'0 auto'}}>
+      <div id="print-content-operation" className="tsu-ph-cards" style={{padding:'16px 20px',maxWidth:960,margin:'0 auto'}}>
 
         {/* 1. 月全体稼働率 */}
         <div id="ops-rate" data-sec="ops-rate" style={{scrollMarginTop:170}}/>
@@ -36956,6 +36956,12 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const [editCall, setEditCall] = useState(null); // ★ 2026-10-13: 名前タップの小窓の「送迎時の連絡先」(開くときに利用者の値を入れる)
   // ★ 運転者候補: 日誌の担当職員から。役職が違うだけの同名は1件に(2026-09-28 ユーザー指摘)
   const _driverNames = React.useMemo(() => { const seen = new Set(); const out = []; (ds.staff||[]).forEach(st => { const n = String(st?.name||'').trim(); if (!n || st._tempHelp) return; const k = normalizeName(n).replace(/[\s　]/g,''); if (seen.has(k)) return; seen.add(k); out.push(n); }); return out; }, [ds.staff]);
+  // ★ 2026-10-20(ユーザー要望): 日誌で追加した「この日だけ」の担当者も、その日・その時間帯(午前/午後/両方)の運転者の一覧に出す
+  const _driverNamesFor = (iso, sl) => {
+    const key = (n) => normalizeName(n).replace(/[\s　]/g,''); const seen = new Set(_driverNames.map(key)); const extra = [];
+    (ds.staff||[]).forEach(st => { if (!st || !st._tempHelp || st._helpDate !== iso) return; if (st.ampm && st.ampm !== 'both' && st.ampm !== sl) return; const n = String(st.name||'').trim(); if (!n || seen.has(key(n))) return; seen.add(key(n)); extra.push(n); });
+    return extra.length ? [..._driverNames, ...extra] : _driverNames;
+  };
   // ★ 印刷の選択(週間／日ごと・チェックした日だけ)(2026-09-28 ユーザー要望: 日ごとに5回押すのが手間)
   const [printModal, setPrintModal] = useState(null); // {mode:'week'|'days', days:Set<iso>}
   // ★ 長押しドラッグ移動(2026-09-12h 店舗要望): 名前を長押し(0.2秒)→そのまま別の車/徒歩/その他/未割当へドロップ。
@@ -38366,7 +38372,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                               <div className="flex items-center gap-1.5">
                                 <span className="font-bold text-[15px] text-slate-800 truncate shrink-0 max-w-[45%]">{c.name}</span>
                                                                 {(Number(c.cap)>0 && (pl.cars?.[c.id]||[]).length>Number(c.cap)) && <span className="text-[10px] font-extrabold text-white bg-red-600 rounded px-1.5 py-0.5 shrink-0">定員超過</span>}
-                                <TsuDriverSelect value={(pl.driver||{})[c.id]||''} names={_driverNames} onChange={nm=>setDriver(iso, sl, c.id, nm)} placeholder="運転者: 未選択" testid={`tp-driver-${c.id}`} className="text-[12px] font-bold border border-slate-300 rounded bg-white px-1 py-1 flex-1 min-w-0" />
+                                <TsuDriverSelect value={(pl.driver||{})[c.id]||''} names={_driverNamesFor(iso, sl)} onChange={nm=>setDriver(iso, sl, c.id, nm)} placeholder="運転者: 未選択" testid={`tp-driver-${c.id}`} className="text-[12px] font-bold border border-slate-300 rounded bg-white px-1 py-1 flex-1 min-w-0" />
                                 <button onClick={()=>openNavi(iso, sl, c.id)} title="この車の乗車順でGoogleマップの経路案内を開く" className="whitespace-nowrap text-[11px] font-bold text-blue-600 border border-blue-300 rounded px-2 py-1 bg-white hover:bg-blue-50 shrink-0">ナビ</button>
                               </div>
                             </div>
@@ -38658,7 +38664,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                   {seatBox(c, 0, lay.bySeat[0], '助手席')}
                   <div className="rounded-lg border-2 border-slate-200 bg-slate-100 min-h-[60px] flex flex-col items-center justify-center gap-1 px-1 py-1">
                     <span className="text-[10px] font-bold text-slate-400">運転席</span>
-                    <TsuDriverSelect testid={`tp-seat-driver-${c.id}`} value={(dr.driver||{})[c.id] || ''} names={_driverNames} onChange={nm => setDropDriver(iso, sl, c.id, nm)} placeholder="運転者を選ぶ" className="w-full text-[12px] font-bold border border-slate-300 rounded bg-white px-1 py-1" />
+                    <TsuDriverSelect testid={`tp-seat-driver-${c.id}`} value={(dr.driver||{})[c.id] || ''} names={_driverNamesFor(iso, sl)} onChange={nm => setDropDriver(iso, sl, c.id, nm)} placeholder="運転者を選ぶ" className="w-full text-[12px] font-bold border border-slate-300 rounded bg-white px-1 py-1" />
                   </div>
                 </div>
                 {lay.rows.map((n, ri) => <div key={ri} className="grid gap-2" style={{ gridTemplateColumns: `repeat(${n}, 1fr)` }}>{Array.from({ length: n }, () => { const sN = k++; return seatBox(c, sN, lay.bySeat[sN]); })}</div>)}
@@ -45092,7 +45098,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
       </div></TsuPhonePin>
 
       {/* コンテンツ */}
-      <div className="flex-1 md:overflow-y-auto p-3 sm:p-6 pb-8">
+      <div className="flex-1 md:overflow-y-auto p-3 sm:p-6 pb-8 tsu-ph-cards">
         {/* ★ ケアマネタブは2カラムのため広めに取る(表示領域の崩れ対策・2026-08-31) */}
         <div className={`${activeTab === 'cm' ? 'max-w-6xl' : 'max-w-4xl'} mx-auto space-y-6 pb-6`}>
 
@@ -49303,7 +49309,7 @@ function KinouPatientView({ appData, navigateTo, targetPatientId, onShowPrintPre
         <KeikakuPatientSelect patients={patients} pid={pid} onChange={setPid}/>
         <KeikakuTabs current="kinou_patient" navigateTo={navigateTo} family="kinou" pid={pid} appData={appData}/>
       </div>
-      <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+      <div className="flex-1 overflow-y-auto p-4 bg-slate-50 tsu-ph-cards">
         {!patient ? <div className="text-center text-slate-400 py-20 font-bold">利用者を登録してください</div> : (
         <div className="max-w-4xl mx-auto space-y-4" data-testid="kk-patient-view">
           <div className="text-lg font-bold text-slate-800">{patient.name} 様 <span className="text-sm font-normal text-slate-500 ml-1">{patient.careLevel || ''}</span></div>
@@ -49415,7 +49421,7 @@ function KeikakuYoteiView({ appData, navigateTo, family = 'tsusho' }) {
         </div>
         {overdueN > 0 && <span className="text-xs font-bold bg-red-100 text-red-700 px-2.5 py-1 rounded-lg">期限超過 {overdueN}件</span>}
       </div>
-      <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+      <div className="flex-1 overflow-y-auto p-4 bg-slate-50 tsu-ph-cards">
         <div className="max-w-4xl mx-auto space-y-4">
           <div className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-xl px-4 py-2.5">
             {family === 'kinou'
@@ -49811,7 +49817,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
         {printRec && <button onClick={()=>onShowPrintPreview('ケアマネ送付セット（個別機能訓練計画書）','A4','kk-fax-set')} title="送付状(変更点一覧つき)+今回の計画書+前回の計画書(評価入り)をまとめて印刷します" className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">ケアマネ送付セット</button>}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+      <div className="flex-1 overflow-y-auto p-4 bg-slate-50 tsu-ph-cards">
         {!pid ? <div className="text-center text-slate-400 py-20 font-bold">利用者を登録してください</div> : editing ? (
           <div className="max-w-4xl mx-auto space-y-4">
             {/* 計画書連携: 他様式から取り込む */}
@@ -50381,7 +50387,7 @@ function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
         </>}
         {printRec && <button onClick={()=>onShowPrintPreview('生活機能チェックシート','A4','sk-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">ダウンロード</button>}
       </div>
-      <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+      <div className="flex-1 overflow-y-auto p-4 bg-slate-50 tsu-ph-cards">
         {!pid ? <div className="text-center text-slate-400 py-20 font-bold">利用者を登録してください</div> : editing ? (
           <div className="max-w-4xl mx-auto space-y-4">
             <div className="bg-white rounded-xl border border-slate-200 p-4">
@@ -50526,7 +50532,7 @@ function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
         </>}
         {printRec && <button onClick={()=>onShowPrintPreview('興味・関心チェックシート','A4','ki-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">ダウンロード</button>}
       </div>
-      <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+      <div className="flex-1 overflow-y-auto p-4 bg-slate-50 tsu-ph-cards">
         {!pid ? <div className="text-center text-slate-400 py-20 font-bold">利用者を登録してください</div> : editing ? (
           <div className="max-w-3xl mx-auto space-y-4">
             <div className="bg-white rounded-xl border border-slate-200 p-4 grid grid-cols-2 gap-3">
@@ -50884,7 +50890,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
         {printRec && <button onClick={()=>onShowPrintPreview('通所介護計画書','A4','tk-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">ダウンロード</button>}
         {printRec && <button onClick={()=>onShowPrintPreview('ケアマネ送付セット（通所介護計画書）','A4','tk-fax-set')} title="送付状(変更点一覧つき)+今回の計画書+前回の計画書(評価入り)をまとめて印刷します" className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">ケアマネ送付セット</button>}
       </div>
-      <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+      <div className="flex-1 overflow-y-auto p-4 bg-slate-50 tsu-ph-cards">
         {!pid ? <div className="text-center text-slate-400 py-20 font-bold">利用者を登録してください</div> : editing ? (
           <div className="max-w-4xl mx-auto space-y-4">
             <div className="bg-indigo-50 rounded-xl border border-indigo-200 p-4">
@@ -52626,7 +52632,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+      <div className="flex-1 overflow-y-auto p-4 bg-slate-50 tsu-ph-cards">
         {!pid ? <div className="text-center text-slate-400 py-20 font-bold">利用者を登録してください</div> : (
         <div className="max-w-4xl mx-auto space-y-4">
           {_isSubmit && (<>

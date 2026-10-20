@@ -174,7 +174,7 @@ button, a, input, select, textarea, label, [role="button"] { touch-action: manip
   .tsu-mon-table td.tsu-mon-name > div:first-child { font-size: 15px !important; }
   .tsu-mon-table td.tsu-mon-name > button { width: auto !important; margin-top: 0 !important; padding: 0 12px !important; height: 32px; font-size: 12px !important; }
   .tsu-mon-table td.tsu-mon-name > button:first-of-type { margin-left: auto !important; }
-  .tsu-mon-table td.tsu-mon-body { flex: 1 1 100%; }
+  .tsu-mon-table td.tsu-mon-body { flex: 1 1 100%; min-width: 0; max-width: 100%; } /* ★ 2026-10-20: 縮んでよい(無いと本文の長さまで広がり見切れる) */
   .tsu-mon-sel { min-height: 34px !important; height: 34px; padding: 0 6px !important; }
 }
 
@@ -451,3 +451,16 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
 /* ★ 2026-10-13(ユーザー要望「サイドバーがあると設定・ダウンロードが2行目に落ちて左に寄る」):
    右寄せのための空白(flex-1 の空の div)や ml-auto を持つ折返しバーは、2行目以降も右寄せにする(1行目は空白が伸びるので従来どおり) */
 .flex.flex-wrap:has(> .flex-1:empty), .flex.flex-wrap:has(> .ml-auto) { justify-content: flex-end; }
+
+/* ★ 2026-10-20(ユーザー要望「スマホではカレンダーと同じく、全ての画面を画面いっぱいに」): スマホだけ、いちばん外側の枠(角丸・左右の線・影)をなくして端から端まで使う。
+   tsu-ph-pad0 = 左右の余白0 / tsu-ph-cards = 左右の余白を12pxにそろえ、中の外側の枠(子・孫・ひ孫まで。枠の中の枠はそのまま)だけ12pxはみ出させて端まで(枠の外の説明文やボタンは端から12px) */
+@media (max-width: 767px) {
+  .tsu-ph-pad0 { padding-left: 0 !important; padding-right: 0 !important; }
+  .tsu-ph-cards { padding-left: 12px !important; padding-right: 12px !important; }
+  .tsu-ph-cards > :is(div, section):is([class*="rounded"], [style*="border-radius"]),
+  .tsu-ph-cards > :not([class*="rounded"]):not([style*="border-radius"]) > :is(div, section):is([class*="rounded"], [style*="border-radius"]),
+  .tsu-ph-cards > :not([class*="rounded"]):not([style*="border-radius"]) > :not([class*="rounded"]):not([style*="border-radius"]) > :is(div, section):is([class*="rounded"], [style*="border-radius"]) {
+    border-radius: 0 !important; border-left-width: 0 !important; border-right-width: 0 !important; box-shadow: none !important;
+    margin-left: -12px !important; margin-right: -12px !important; width: calc(100% + 24px) !important; max-width: none !important; box-sizing: border-box !important;
+  }
+}
