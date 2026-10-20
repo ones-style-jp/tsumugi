@@ -12963,6 +12963,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
   const [mgrDates, setMgrDates] = useState({}); // {eventId: 'YYYY-MM-DD'} 指定日以降削除用
   const [iconPopup, setIconPopup] = useState(null); // {date, birthdays:[], expiries:[]}
   const [viewMode, setViewMode] = useState('month'); // 'month' | 'week'
+  const _schPhone = useTsuIsPhone(); // ★ 2026-10-20: スマホは週表示を画面の幅に収める
   // ★ 週表示の日付行を固定する位置＝上の紫ヘッダーの高さ(2026-09-27: 固定行がヘッダーの下に潜り、予定が透けて見えた)
   //   ヘッダーがスクロール領域の内側にある環境(iPad等)と外側にある環境の両方で正しく効くよう、
   //   「ヘッダー下端 − スクロール領域の上端」を実測して sticky の top にする(外側なら 0)。
@@ -13204,7 +13205,8 @@ function ScheduleView({ appData, onSave, navigateTo }) {
               {viewMode==='week' && (() => {
                 const wd = weekDaysOf(selDay);
                 const HStart=8, HEnd=19, hourH=64; const gridH=(HEnd-HStart)*hourH; // ★ 2026-09-27: 30分の予定でも2行(件名＋利用者名)が入るよう 42→64px/時
-                const cols = `40px repeat(7,minmax(92px,1fr))`;
+                // ★ 2026-10-20(不具合修正・ユーザー報告「週表示が見切れておかしい」): 1日の最低幅92pxでスマホの幅を超え、カードの外にはみ出していた。7日を画面の幅に収める
+                const cols = _schPhone ? `28px repeat(7,minmax(0,1fr))` : `40px repeat(7,minmax(0,1fr))`;
                 const toTop = (t) => { const a=String(t).split(':'); const mins=(Number(a[0])||0)*60+(Number(a[1])||0); return Math.max(0,(mins-HStart*60)/60*hourH); };
                 const durH = (e) => { if(!e.start) return hourH*0.5; const s=e.start.split(':'),en=(e.end||'').split(':'); const sm=(Number(s[0])||0)*60+(Number(s[1])||0); const em=en.length>=2?(Number(en[0])||0)*60+(Number(en[1])||0):sm+30; return Math.max(28,(Math.max(20,em-sm))/60*hourH); };
                 const dropCell = (ds) => dragEvId ? { onDragOver:ev=>ev.preventDefault(), onDrop:()=>{ const be=events.find(x=>x.id===dragEvId); if(be) moveEvent(be,ds); setDragEvId(null); } } : {};
@@ -13219,8 +13221,8 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                           <div style={{fontSize:11,fontWeight:'bold',color:(i===0||holi)?'#ef4444':i===6?'#3b82f6':'#64748b'}}>{dow[i]}</div>
                           <div style={{fontSize:15,fontWeight:'bold',color:isT?'#4338ca':'#1e293b'}}>{dd}</div>
                           <div style={{display:'flex',justifyContent:'center',alignItems:'center',gap:2,minHeight:12}}>
-                            {bdays.length>0 && <span onClick={ev=>{ev.stopPropagation();setIconPopup({date:ds,birthdays:bdays,expiries:[]});}} title="お誕生日（タップで一覧）" style={{fontSize:9,fontWeight:'bold',color:'#a16207',background:'#fefce8',border:'1px solid #fde68a',borderRadius:4,padding:'0 4px',cursor:'pointer'}}>誕生日</span>}
-                            {exps.length>0 && <span onClick={ev=>{ev.stopPropagation();setIconPopup({date:ds,birthdays:[],expiries:exps});}} title="要注意（タップで一覧）" style={{fontSize:9,fontWeight:'bold',color:'#b91c1c',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:4,padding:'0 4px',cursor:'pointer'}}>要注意</span>}
+                            {bdays.length>0 && <span onClick={ev=>{ev.stopPropagation();setIconPopup({date:ds,birthdays:bdays,expiries:[]});}} title="お誕生日（タップで一覧）" style={{fontSize:_schPhone?8:9,fontWeight:'bold',color:'#a16207',background:'#fefce8',border:'1px solid #fde68a',borderRadius:4,padding:_schPhone?'0 2px':'0 4px',cursor:'pointer'}}>{_schPhone?'誕':'誕生日'}</span>}
+                            {exps.length>0 && <span onClick={ev=>{ev.stopPropagation();setIconPopup({date:ds,birthdays:[],expiries:exps});}} title="要注意（タップで一覧）" style={{fontSize:_schPhone?8:9,fontWeight:'bold',color:'#b91c1c',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:4,padding:_schPhone?'0 2px':'0 4px',cursor:'pointer'}}>{_schPhone?'注':'要注意'}</span>}
                             {closed && <span style={{fontSize:8,color:'#64748b',fontWeight:'bold'}}>定休</span>}
                           </div>
                         </div>); })}
@@ -13235,7 +13237,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                     </div>
                     <div style={{display:'grid',gridTemplateColumns:cols}}>
                       <div style={{position:'relative',height:gridH,borderRight:'1px solid #e2e8f0'}}>
-                        {Array.from({length:HEnd-HStart},(_,h)=>(<div key={h} style={{position:'absolute',top:h*hourH-6,right:3,fontSize:9,color:'#64748b',fontWeight:'bold'}}>{HStart+h}:00</div>))}
+                        {Array.from({length:HEnd-HStart},(_,h)=>(<div key={h} style={{position:'absolute',top:h*hourH-6,right:_schPhone?2:3,fontSize:9,color:'#64748b',fontWeight:'bold'}}>{_schPhone?`${HStart+h}時`:`${HStart+h}:00`}</div>))}
                       </div>
                       {wd.map(ds=>{ const timed=evOf(ds).filter(e=>e.start); const closed=isClosedDate(ds); return (
                         <div key={ds} {...dropCell(ds)} onClick={(ev)=>{ const rect=ev.currentTarget.getBoundingClientRect(); const y=ev.clientY-rect.top; let mins=HStart*60+Math.round((y/hourH*60)/15)*15; mins=Math.max(HStart*60,Math.min(HEnd*60-15,mins)); const hh=String(Math.floor(mins/60)).padStart(2,'0'),mm=String(mins%60).padStart(2,'0'); setModal({date:ds,start:`${hh}:${mm}`,end:addMin(`${hh}:${mm}`,60),title:'',note:'',color:COLORS[0]}); }}
@@ -13245,9 +13247,15 @@ function ScheduleView({ appData, onSave, navigateTo }) {
                           {Array.from({length:HEnd-HStart},(_,h)=>(<div key={h} style={{position:'absolute',top:h*hourH,left:0,right:0,borderTop:'1px solid #f1f5f9'}}/>))}
                           {timed.map(e=>{ const drg=!e._occ&&(!e.repeat||e.repeat==='none'); return (
                             <div key={e.id+(e._occ?'_o':'')} draggable={drg} onDragStart={drg?()=>setDragEvId(e.id):undefined} onDragEnd={()=>setDragEvId(null)} onClick={ev=>{ev.stopPropagation();setEvDetail(e);}} title={`${timeLabel(e)} ${e.title}`}
-                              style={{position:'absolute',top:toTop(e.start),left:2,right:2,height:durH(e),background:e.color||'#6366f1',color:'white',borderRadius:4,padding:'1px 4px',fontSize:9,fontWeight:'bold',overflow:'hidden',cursor:drg?'grab':'pointer',boxShadow:'0 1px 2px rgba(0,0,0,0.25)'}}>
+                              style={{position:'absolute',top:toTop(e.start),left:_schPhone?1:2,right:_schPhone?1:2,height:durH(e),background:e.color||'#6366f1',color:'white',borderRadius:4,padding:_schPhone?'1px 2px':'1px 4px',fontSize:9,fontWeight:'bold',overflow:'hidden',cursor:drg?'grab':'pointer',boxShadow:'0 1px 2px rgba(0,0,0,0.25)'}}>
+                              {_schPhone ? <>
+                                {/* ★ 2026-10-20: スマホは列が細いので、時刻の下に件名・利用者名を折り返して出す */}
+                                <div style={{whiteSpace:'nowrap',overflow:'hidden'}}>{e.start}</div>
+                                <div style={{overflowWrap:'anywhere',lineHeight:1.2}}>{e.title}{patName(e)?`／${patName(e)}`:''}</div>
+                              </> : <>
                               <div style={{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{e.repeat&&e.repeat!=='none'?'[繰]':''}{e.start} {e.title}</div>
                               {patName(e)&&<div style={{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',opacity:0.9}}>／{patName(e)}</div>}
+                              </>}
                             </div>); })}
                         </div>); })}
                     </div>
