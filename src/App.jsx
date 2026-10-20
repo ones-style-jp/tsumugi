@@ -11207,7 +11207,7 @@ const longPressTapProps = (fn) => ({
 // ★ 2026-10-07(店舗要望: 定員15名などで運動をするとき、グループ分けとは別に利用者を自由な順に並べたい):
 //   サービス提供記録 入力の「並び替え」。 表示中(午前/午後)の利用者を長押しドラッグ(または上へ/下へ)で並べ替えて保存。
 //   並び順は店舗の設定 systemSettings.recordOrder(利用者IDの並び・全端末で共有)。 記録の中身は利用者IDで紐づくので、並べ替えても日誌・連絡帳などとずれない
-function RecordOrderModal({ rows, onSave, onClose }) {
+function RecordOrderModal({ rows, onSave, onClose, onReset }) {
   const [list, setList] = React.useState(() => rows.map(r => ({ id: r.id, name: r.name, kana: r.kana, status: r.status || '出席' })));
   const dnd = useLongPressReorder(list, setList);
   const mv = (i, d) => setList(prev => { const j = i + d; if (j < 0 || j >= prev.length) return prev; const a = [...prev]; [a[i], a[j]] = [a[j], a[i]]; return a; });
@@ -11231,19 +11231,23 @@ function RecordOrderModal({ rows, onSave, onClose }) {
             </div>))}
         </div>
         <div className="px-4 py-3 border-t border-slate-200 flex items-center gap-2 flex-wrap">
-          <button type="button" data-testid="rec-order-kana" onClick={() => setList(prev => [...prev].sort((a, b) => String(a.kana || a.name || '').localeCompare(String(b.kana || b.name || ''), 'ja')))} className="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-600">あいうえお順に戻す</button>
+          <button type="button" data-testid="rec-order-kana" onClick={() => setList(prev => [...prev].sort(tsuNameCmp))} className="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-600">あいうえお順に戻す</button>
+          {onReset && <button type="button" data-testid="rec-order-reset" onClick={onReset} title="保存した並び順を消して、ふりがなのあいうえお順に戻します(お店全体)" className="px-3 py-2 rounded-xl border border-red-300 bg-white text-xs font-bold text-red-700">保存した並び順を消す</button>}
           <button type="button" onClick={onClose} className="whitespace-nowrap ml-auto px-4 py-2 rounded-xl bg-slate-100 text-sm font-bold text-slate-600">キャンセル</button>
           <button type="button" data-testid="rec-order-save" onClick={() => onSave(list.map(r => r.id))} className="px-5 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold">この順で保存</button>
         </div>
       </div>
     </div>), document.body);
 }
+// ★ 2026-10-20(不具合修正): 名前順の比べ方をそろえる。ふりがなを ひらがな・空白なし・全角 にして比べ、無ければ名前。同じなら名前→ID(毎回必ず同じ順)
+function tsuKanaKey(p) { const s = String((p && (p.kana || p.name)) || ''); try { return s.normalize('NFKC').replace(/[\s\u3000]/g, '').replace(/[\u30a1-\u30f6]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0x60)); } catch { return s; } }
+function tsuNameCmp(a, b) { return tsuKanaKey(a).localeCompare(tsuKanaKey(b), 'ja') || String((a && a.name) || '').localeCompare(String((b && b.name) || ''), 'ja') || String((a && a.id) ?? '').localeCompare(String((b && b.id) ?? '')); }
 // 並び順(利用者IDの配列)の中で、表示中の利用者だけを新しい順に入れ替える(ほかの方どうしの順番はそのまま)
 const tsumugiMergeRecordOrder = (patients, curOrder, subsetNewOrder) => {
   const idx = new Map((Array.isArray(curOrder) ? curOrder : []).map((id, i) => [String(id), i]));
   const all = (patients || []).filter(p => p && p.id != null).slice().sort((a, b) => {
     const ia = idx.has(String(a.id)) ? idx.get(String(a.id)) : Infinity, ib = idx.has(String(b.id)) ? idx.get(String(b.id)) : Infinity;
-    if (ia !== ib) return ia - ib; return String(a.kana || a.name || '').localeCompare(String(b.kana || b.name || ''), 'ja');
+    if (ia !== ib) return ia - ib; return tsuNameCmp(a, b);
   }).map(p => p.id);
   const sub = new Set(subsetNewOrder.map(String));
   const queue = [...subsetNewOrder];
@@ -24824,6 +24828,20 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
   }, []);
   const [kinouGroupSel, setKinouGroupSel] = useState(''); // ★ 上に集めて表示するグループ('' = 通常の並び)
+  // ★ 2026-10-20(店舗要望): 押した行を枠で囲む(入力中の行=青・data-rv-cur は描き直さずに付け替える)／名前の長押しで印(オレンジ・何人でも・この端末の表示だけ)
+  const [_rvMarks, _setRvMarks] = useState([]);
+  const _rvLp = React.useRef({ t: null, fired: false, x: 0, y: 0 });
+  const _rvTapRow = (e) => { try { const el = e.target && e.target.closest && e.target.closest('tr[data-rv-pid],[data-rec-card]'); if (!el || el.hasAttribute('data-rv-cur')) return; const box = el.parentElement; if (box) box.querySelectorAll('[data-rv-cur]').forEach(x => x.removeAttribute('data-rv-cur')); el.setAttribute('data-rv-cur', '1'); } catch {} };
+  React.useEffect(() => { try { document.querySelectorAll('[data-rv-cur]').forEach(x => x.removeAttribute('data-rv-cur')); } catch {} }, [selectedDate, timeFilter, filterMode]);
+  const _rvLpStop = () => { const r = _rvLp.current; if (r.t) { clearTimeout(r.t); r.t = null; } };
+  const _rvLpHandlers = (pid) => ({
+    onPointerDown: (e) => { if (e.button) return; const r = _rvLp.current; _rvLpStop(); r.fired = false; r.x = e.clientX; r.y = e.clientY; r.t = setTimeout(() => { r.t = null; r.fired = true; _setRvMarks(m => m.includes(pid) ? m.filter(x => x !== pid) : [...m, pid]); try { navigator.vibrate && navigator.vibrate(25); } catch {} }, 500); },
+    onPointerMove: (e) => { const r = _rvLp.current; if (r.t && (Math.abs(e.clientX - r.x) > 8 || Math.abs(e.clientY - r.y) > 8)) _rvLpStop(); },
+    onPointerUp: _rvLpStop, onPointerLeave: _rvLpStop, onPointerCancel: _rvLpStop,
+    onContextMenu: (e) => e.preventDefault(),
+  });
+  const _rvLpClick = (fn) => () => { if (_rvLp.current.fired) { _rvLp.current.fired = false; return; } fn(); };
+  const _zoomTokkiRef = React.useRef(null);
   const [recOrderOpen, setRecOrderOpen] = useState(false); // ★ 2026-10-07: 利用者の並び替え
   // ★ 拡大入力ビュー(2026-09-09 店舗要望): 高齢のスタッフでも見やすいよう、1名分のバイタル・運動・特記を大きな字で表示・入力
   const [zoomPid, setZoomPid] = useState(null);
@@ -25137,8 +25155,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
          const rank = (s) => s === '出席' ? 0 : (s === '振替' || s === '臨時') ? 1 : s === '欠席' ? 2 : s === '休止' ? 3 : s === '休業' ? 4 : 5;
          const rdiff = rank(a.status) - rank(b.status);
          if (rdiff !== 0) return rdiff;
-         // 同じステータス内では あいうえお順 (kana)
-         return (a.kana || '').localeCompare(b.kana || '', 'ja');
+         // 同じステータス内では あいうえお順 (kana)。★ 2026-10-20: 書き方のちがい・未登録でも毎回同じ順に(tsuNameCmp)
+         return tsuNameCmp(a, b);
       });
     // ★診断: 画面(localPatients)を作り直した。 rec=appData内の当日記録数 / dat=うち実データ入りの数。
     //   「画面が空なのに rec/dat が多い」=表示の問題、「dat が少ない」=そもそもデータが端末に無い、を切り分ける。
@@ -26200,12 +26218,18 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     const _rk = (s) => (s === '出席' || s === '振替' || s === '臨時') ? 0 : s === '欠席' ? 2 : s === '休止' ? 3 : s === '休業' ? 4 : 5;
     displayRecords = [...displayRecords].sort((a, b) => (_rk(a.status || '出席') - _rk(b.status || '出席'))
       || ((_oi.has(String(a.id)) ? _oi.get(String(a.id)) : Infinity) - (_oi.has(String(b.id)) ? _oi.get(String(b.id)) : Infinity))
-      || String(a.kana || '').localeCompare(String(b.kana || ''), 'ja'));
+      || tsuNameCmp(a, b));
   }
   const _recOrderRows = filterMode === 'single' ? displayRecords : [];
   const saveRecordOrder = (subset) => {
     const next = tsumugiMergeRecordOrder(appData.patients, _recOrder, subset);
     onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), recordOrder: next } }, { manual: true, message: '✓ 利用者の並び順を保存しました' });
+    setRecOrderOpen(false);
+  };
+  // ★ 2026-10-20(不具合修正): 保存した並び順を消して あいうえお順に戻す(並び順はお店全体で共通)
+  const resetRecordOrder = () => {
+    if (!window.confirm('保存した並び順を消して、ふりがなのあいうえお順に戻しますか？\n（並び順は、すべての端末・午前午後・毎日で共通です）')) return;
+    onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), recordOrder: [] } }, { manual: true, message: '✓ 並び順を消して、あいうえお順に戻しました' });
     setRecOrderOpen(false);
   };
   // ★ 本日分の人数集計 (出席/欠席/休止/振替/休業)。表に列は足さず、ヘッダーにチップ表示。検索の影響を受けないよう検索前に集計。
@@ -26437,8 +26461,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         className={`px-4 py-2 text-sm font-bold transition-all shrink-0 ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-50'}`}>{v}</button>
                     ))}
                   </div>
-                  <button type="button" data-testid="rec-order-btn" onClick={() => setRecOrderOpen(true)} title="表示中の利用者の並び順を変えます(長押しドラッグ)" className={`px-3 py-2 rounded-xl text-sm font-bold border shrink-0 ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}>並び替え</button>
-                  {recOrderOpen && <RecordOrderModal rows={_recOrderRows} onSave={saveRecordOrder} onClose={() => setRecOrderOpen(false)}/>}
+                  <button type="button" data-testid="rec-order-btn" onClick={() => setRecOrderOpen(true)} title={_recOrderOn ? '保存した並び順で表示中です(お店全体・すべての端末・午前午後・毎日に効きます)。押すと並べ替え・消すことができます' : '表示中の利用者の並び順を変えます(長押しドラッグ)。保存した並び順はお店全体に効きます'} className={`px-3 py-2 rounded-xl text-sm font-bold border shrink-0 ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}>並び替え</button>
+                  {recOrderOpen && <RecordOrderModal rows={_recOrderRows} onSave={saveRecordOrder} onReset={_recOrderOn ? resetRecordOrder : null} onClose={() => setRecOrderOpen(false)}/>}
                   {attCountChips && <div className="hidden sm:block">{attCountChips}</div>}
               </div>
             )}
@@ -26599,6 +26623,13 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
         </div>
       )}
 
+      {_rvMarks.length > 0 && (
+        <div data-testid="rv-marks-bar" className="no-print flex items-center gap-2 flex-wrap px-3 py-1.5 mb-1 rounded-lg bg-amber-50 border border-amber-300 text-[13px] font-bold text-amber-900">
+          <span>印を付けた方 {_rvMarks.length}名</span>
+          <span className="text-[11px] font-normal text-amber-800">（名前を長押しで付け外し・この端末の表示だけ）</span>
+          <button type="button" data-testid="rv-marks-clear" onClick={() => _setRvMarks([])} className="ml-auto px-3 py-1 rounded-lg bg-white border border-amber-400 text-amber-900">印をすべて外す</button>
+        </div>
+      )}
       <style>{`#record-table tbody tr { min-height: 32px !important; } #record-table tbody tr td { min-height: 32px !important; padding-top: 2px !important; padding-bottom: 2px !important; box-sizing: border-box !important; } /* 個別運動列: 他の列と同じ行高に収める (min-height強制を外す) */ #record-table tbody tr td[data-ind-cell] { min-height: 0 !important; height: auto !important; max-height: none !important; overflow: visible !important; vertical-align: middle !important; }  #record-table tr.readonly-row input:disabled, #record-table tr.readonly-row button:disabled, #record-table tr.readonly-row textarea:disabled, #record-table tr.readonly-row select:disabled { opacity: 1 !important; color: #000 !important; -webkit-text-fill-color: #000 !important; } /* 列見出しを縦スクロール時も常に上部固定 + 行高を狭く */ #record-table thead th { position: -webkit-sticky !important; position: sticky !important; top: 0 !important; height: 32px !important; min-height: 32px !important; max-height: 32px !important; padding-top: 4px !important; padding-bottom: 4px !important; line-height: 1.1 !important; font-size: 11px !important; }`}</style>
       {/* ★ 画面上部の横スクロールバー(自前描画・2026-08-11): ネイティブのスクロールバーは
           OS/ブラウザ設定で非表示になり得るため、つまみを自前で描画して常時表示する。
@@ -26720,7 +26751,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           </div>
         )}
         {/* ★ スマホ用カード表示 (md未満)。 PC/iPad は下のテーブル。 横長の表をスマホで縦カードに */}
-        <div className={searchActive ? 'hidden' : 'md:hidden p-2 space-y-3'}>
+        <div className={searchActive ? 'hidden' : 'md:hidden p-2 space-y-3'} onPointerDownCapture={_rvTapRow}>
           {displayRecords.length===0 && <div className="text-center text-slate-400 font-bold py-8">対象の利用者がいません</div>}
           {displayRecords.map((p) => {
             const masterData = (appData.patients||[]).find(pt => pt.id === p.patientId || pt.id === p.id || pt.name === p.name) || {};
@@ -26740,9 +26771,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             const vBuSt=p[`bpUpSt_${tf}`]||'', vBdSt=p[`bpDnSt_${tf}`]||'';
             const vBuEn=p[`bpUpEn_${tf}`]||'', vBdEn=p[`bpDnEn_${tf}`]||'';
             return (
-              <div key={`m-${p.id}`} data-rec-card={p.id} className={`bg-white rounded-xl border-2 shadow-sm p-3 transition-shadow ${isAbsent||isPause?'border-slate-200 opacity-70':'border-slate-300'} ${recFlash===p.id?'ring-4 ring-amber-400':''}`}>
+              <div key={`m-${p.id}`} data-rec-card={p.id} data-rv-mark={_rvMarks.includes(p.id) ? '1' : undefined} className={`bg-white rounded-xl border-2 shadow-sm p-3 transition-shadow ${isAbsent||isPause?'border-slate-200 opacity-70':'border-slate-300'} ${recFlash===p.id?'ring-4 ring-amber-400':''}`}>
                 <div className="flex items-center justify-between gap-2 mb-2.5">
-                  <button onClick={()=>setPatientInfoModal(masterData)} className="font-bold text-base text-slate-800 flex items-center gap-1 min-w-0"><span className="truncate">{p.name}</span><span className="text-[10px] text-blue-500 shrink-0">ⓘ</span></button>
+                  <button {..._rvLpHandlers(p.id)} onClick={_rvLpClick(()=>setPatientInfoModal(masterData))} data-testid={`rv-cname-${p.id}`} style={{WebkitUserSelect:'none',userSelect:'none',WebkitTouchCallout:'none'}} className="font-bold text-base text-slate-800 flex items-center gap-1 min-w-0"><span className="truncate">{p.name}</span><span className="text-[10px] text-blue-500 shrink-0">ⓘ</span></button>
                   <button type="button" onClick={()=>setZoomPid(p.id)} title="この方だけを大きな文字で入力します" className="shrink-0 text-teal-600 hover:text-teal-800 bg-teal-50 border border-teal-200 rounded-md p-1.5" style={{lineHeight:0}}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><line x1="15.6" y1="15.6" x2="21" y2="21"/><line x1="10.5" y1="8" x2="10.5" y2="13"/><line x1="8" y1="10.5" x2="13" y2="10.5"/></svg></button>
                   {isReadOnly||isPause ? <span className={`px-3 py-1.5 rounded-lg text-sm font-bold ${config.lightColor} ${config.textColor}`}>{p.status||'出席'}</span>
                     : <select value={p.status||'出席'} onChange={e=>handleStatusChange(p.id,e.target.value)} className={`px-2 py-1.5 rounded-lg text-sm font-bold border-0 shadow-sm outline-none ${config.lightColor} ${config.textColor} ring-1 ring-inset ${config.ring}`}>{(()=>{
@@ -26878,17 +26909,24 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         if (_isMarkOnly && _cellActive && ph) {
                           return <span className="text-sm font-bold"><span className="text-blue-700" style={{opacity:0.35}}>{disp}</span><span className="text-slate-500 ml-1" style={{opacity:0.75}}>{ph}</span></span>;
                         }
-                        return <span className="text-sm font-bold text-blue-700">{disp || <span className="text-slate-500">{ph||'＋'}</span>}</span>;
+                        return <span className="text-sm font-bold text-blue-700">{disp || <span className="text-slate-600">{ph||'＋'}</span>}</span>;
                       })()}
                     </button>
                     );})}
                 </div>}
                 <input type="text" disabled={isReadOnly} value={p.tokki||''} maxLength={TOKKI_MAX} title="100文字まで（それ以上は支援経過表へ）" onChange={e=>updateRecord(p.id,'tokki',e.target.value.slice(0, TOKKI_MAX))} placeholder={isReadOnly?'':(isAbsent?'欠席理由...':(isPause?'休止中の特記...':'特記...'))} className="mt-2 w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-50"/>{!isReadOnly && <div className="text-right -mt-0.5"><CharCount value={p.tokki} max={TOKKI_MAX}/></div>}
+                {!isReadOnly && !isAbsent && !isPause && (
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <TsuTokkiPresetSelect appData={appData} testid={`rv-ctokki-pick-${p.id}`} label="一言を選ぶ" onPick={(ph) => updateRecord(p.id, 'tokki', tsuTokkiAppend(p.tokki, ph))}
+                      className="flex-1 min-w-0 h-11 px-2 text-[15px] font-bold border border-slate-300 rounded-lg bg-white text-slate-700 outline-none"/>
+                    {!appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-ctokki-mic-${p.id}`} onText={(t) => updateRecord(p.id, 'tokki', tsuTokkiAppend(p.tokki, t))} className="w-12 h-11" size={20}/>}
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
-        <table id="record-table" draggable={false} onDragStart={e=>e.preventDefault()} className={searchActive ? 'hidden' : 'hidden md:table text-sm text-left relative'} style={{
+        <table id="record-table" draggable={false} onDragStart={e=>e.preventDefault()} onPointerDownCapture={_rvTapRow} className={searchActive ? 'hidden' : 'hidden md:table text-sm text-left relative'} style={{
           tableLayout:'fixed',borderCollapse:'separate',borderSpacing:0,
           minWidth:'max-content',width:'max-content',
           // ★ 全画面時のみ 1.1 倍拡大 (transform-origin top-left でレイアウト整合)
@@ -26945,7 +26983,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               const isActiveRow = !!activeCell && String(activeCell).startsWith(`${p.id}-`);
 
               return (
-                <tr key={`${filterMode}-${p.id}`} data-rv-pid={p.id} data-rv-status={p.status || ''} className={`group transition-colors ${(isAbsent || isPause) ? 'text-slate-400' : isActiveRow ? 'bg-blue-50' : 'hover:bg-blue-50/50'} ${isReadOnly ? 'readonly-row' : ''}`} style={{
+                <tr key={`${filterMode}-${p.id}`} data-rv-pid={p.id} data-rv-status={p.status || ''} data-rv-mark={_rvMarks.includes(p.id) ? '1' : undefined} className={`group transition-colors ${(isAbsent || isPause) ? 'text-slate-400' : isActiveRow ? 'bg-blue-50' : 'hover:bg-blue-50/50'} ${isReadOnly ? 'readonly-row' : ''}`} style={{
                   // ★ 全画面時: ビューポートを直接基準にして 10 名ぴったり
                   //   100vh - 80px (title bar + scrollbar の最小) / 10
                   //   minHeight も同じ式で「行が縮まない」よう強制
@@ -26986,7 +27024,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                             </span>
                           )}
                           <div className={`flex flex-row items-center justify-center w-full gap-1 whitespace-nowrap truncate cursor-pointer hover:text-blue-600 ${(isAbsent || isPause) ? 'text-slate-400' : 'text-slate-800'}`}
-                            onClick={()=>setPatientInfoModal(masterData)}>
+                            data-testid={`rv-name-${p.id}`} title="押すと利用者情報・長押しで印（何人でも）" style={{WebkitUserSelect:'none',userSelect:'none',WebkitTouchCallout:'none'}}
+                            {..._rvLpHandlers(p.id)} onClick={_rvLpClick(()=>setPatientInfoModal(masterData))}>
                             {_kinouOn && p[_kinouGField] && <span data-testid={`kinou-group-badge-${p.id}`} className={`text-[10px] font-bold rounded px-1 leading-tight ${kinouGroupSel === p[_kinouGField] ? 'bg-emerald-600 text-white' : 'bg-emerald-100 text-emerald-800'}`}>{p[_kinouGField]}</span>}
                             <span className="text-sm">{nameParts[0]}</span>
                             {nameParts[1] && <span className="text-sm">{nameParts[1]}</span>}
@@ -27175,7 +27214,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                             onBlur={_keypadOn ? undefined : (e)=>{ if (_circleBlocked(p.id, item.id, e.target.value)) { updateExercise(p.id, item.id, {...cur, itemId: cur.itemId||effItemId, value: ''}); return; } updateExercise(p.id, item.id, {...cur, itemId: cur.itemId||effItemId, value: applyExUnits(e.target.value, selItem)}); }}
                             placeholder={_indPh}
                             style={{fontSize:_indValFs,padding:'0 1px',height:31,boxSizing:'border-box',letterSpacing:'-0.3px',fontWeight: _indIsCircle ? 900 : 'bold', WebkitTextStroke: _indIsCircle ? '1.1px currentColor' : undefined, lineHeight:1, cursor: selItem?'pointer':'default'}}
-                            className={`w-full text-center border rounded bg-white outline-none disabled:opacity-40 placeholder-slate-400 ${activeCell===`${p.id}-${item.id}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-emerald-300 focus:border-emerald-500'}`}/>
+                            className={`w-full text-center border rounded bg-white outline-none disabled:opacity-40 placeholder-slate-500 ${activeCell===`${p.id}-${item.id}` ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-emerald-300 focus:border-emerald-500'}`}/>
                         </td>
                       );
                     }
@@ -27231,7 +27270,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                           }}
                           onBlur={(e) => { if (item.useKeypad && _keypadOn) return; if (_circleBlocked(p.id, item.id, e.target.value)) { updateExercise(p.id, item.id, ''); return; } updateExercise(p.id, item.id, applyExUnits(e.target.value, item)); }}
                           style={{width:_exW - 6,height:42,boxSizing:'border-box',padding:'0 1px',textAlign:'center',fontSize: _isCircle ? 25 : _isCross ? 18 : _isDash ? 20 : _exFitFs(displayVal || String(placeholderText || ''), 14, 8, _exW - 14), fontWeight: _isCircle ? 900 : _isSym ? 400 : 'bold', WebkitTextStroke: _isCircle ? (_ghost ? '1.1px rgba(59,130,246,0.28)' : '1.1px currentColor') : undefined, color: _ghost ? 'rgba(59,130,246,0.28)' : (_isDash ? '#94a3b8' : undefined), lineHeight: 1}}
-                          className={`border rounded-lg outline-none placeholder-slate-300 disabled:bg-transparent disabled:opacity-60 ${item.useKeypad && _keypadOn && !isReadOnly ? 'cursor-pointer' : ''} ${isReadOnly ? 'border-transparent shadow-none' : isActive ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'bg-white border-slate-300 shadow-inner'}`}
+                          className={`border rounded-lg outline-none placeholder-slate-500 disabled:bg-transparent disabled:opacity-60 ${item.useKeypad && _keypadOn && !isReadOnly ? 'cursor-pointer' : ''} ${isReadOnly ? 'border-transparent shadow-none' : isActive ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'bg-white border-slate-300 shadow-inner'}`}
                           placeholder={placeholderText} />
                         {_ghost && <span style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none',fontSize:12,fontWeight:'bold',color:'#64748b'}}>{placeholderText}</span>}
                         </span>
@@ -27312,6 +27351,14 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                             style={{fontSize:14,lineHeight:1.4,padding:'2px 6px',height:'100%'}}
                             placeholder={isReadOnly ? "" : (isAbsent ? "欠席理由等..." : "特記事項...")} />
                           {!isReadOnly && <CharCount value={p.tokki} max={TOKKI_MAX} style={{alignSelf:'flex-end'}}/>}
+                          {/* ★ 2026-10-20(店舗要望): 一言を選んで足す・マイクで声の入力 */}
+                          {!isReadOnly && !isAbsent && !isPause && (
+                            <div style={{display:'flex',flexDirection:'column',gap:2,flexShrink:0,width:44,justifyContent:'center'}}>
+                              <TsuTokkiPresetSelect appData={appData} testid={`rv-tokki-pick-${p.id}`} onPick={(ph) => updateRecord(p.id, 'tokki', tsuTokkiAppend(p.tokki, ph))}
+                                className="w-full text-[11px] font-bold border border-slate-300 rounded bg-white text-slate-700 outline-none" style={{height:24,padding:'0 2px'}}/>
+                              {!appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-tokki-mic-${p.id}`} onText={(t) => updateRecord(p.id, 'tokki', tsuTokkiAppend(p.tokki, t))} className="w-11" style={{height:24}} size={14}/>}
+                            </div>
+                          )}
                         </div>
                       );
                     })()}
@@ -27593,9 +27640,15 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 </div>
                 <div>
                   <div style={{fontSize:16,fontWeight:'bold',color:'#0f172a',marginBottom:8}}>{isAbsent?'欠席理由':'様子・特記'}</div>
-                  <textarea disabled={isReadOnly} defaultValue={p.tokki||''} key={`zoom-tokki-${p.id}-${zoomPid}`}
+                  <textarea ref={_zoomTokkiRef} disabled={isReadOnly} defaultValue={p.tokki||''} key={`zoom-tokki-${p.id}-${zoomPid}`}
                     onBlur={e=>updateRecord(p.id,'tokki',e.target.value)} rows={4}
                     style={{width:'100%',boxSizing:'border-box',fontSize:19,lineHeight:1.7,padding:'12px 14px',border:'2px solid #94a3b8',borderRadius:14,outline:'none',background:'white',color:'#0f172a'}}/>
+                  {!isReadOnly && !isAbsent && !isPause && (() => { const _add = (ph) => { const el = _zoomTokkiRef.current; const next = tsuTokkiAppend(el ? el.value : p.tokki, ph); if (el) el.value = next; updateRecord(p.id, 'tokki', next); }; return (
+                    <div className="mt-2 flex items-center gap-2">
+                      <TsuTokkiPresetSelect appData={appData} testid="rv-ztokki-pick" label="一言を選ぶ" onPick={_add} className="flex-1 min-w-0 h-12 px-3 text-[17px] font-bold border-2 border-slate-300 rounded-xl bg-white text-slate-700 outline-none"/>
+                      {!appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid="rv-ztokki-mic" onText={_add} className="w-14 h-12" size={22}/>}
+                    </div>
+                  ); })()}
                 </div>
               </div>
             </div>
@@ -27917,6 +27970,11 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   // ★ ケアマネ閲覧モード = 事業所と同じフルセット内容を読取専用で表示。 縦型 (スマホ) でも見やすく縦並びに
   const compactMode = familyMode || cmViewerMode; // 基本指標を縦並びにする判定
   const [basicOpen, setBasicOpen] = useState(false); // ★ 2026-09-28: ご家族/ケアマネでは基本情報を折りたたみ(既定は閉)
+  // ★ 2026-10-20(ユーザー要望): グラフの入れ物の幅を測り、記録が少ないときは間隔を広げて枠の幅いっぱいに描く
+  const [_chW, _setChW] = useState({});
+  const _chRef = (k) => (el) => { if (!el) return; const w = el.clientWidth || 0; _setChW(prev => (Math.abs((prev[k] || 0) - w) > 4 ? { ...prev, [k]: w } : prev)); };
+  React.useEffect(() => { const h = () => _setChW({}); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
+  const _fillStep = (k, n, base, used) => (n > 0 && _chW[k] ? Math.max(base, Math.floor((_chW[k] - used - 2) / n)) : base);
   // familyMode 時の sticky top 既定値: stickyTopOffset 未指定なら 56 (FamilyView 内)
   const stickyTop = familyMode ? (stickyTopOffset != null ? stickyTopOffset : 56) : 0;
   // familyMode: 利用者家族・ケアマネ向け表示。一部セクション (詳細記録/欠席/休止) を非表示にし、印刷ボタンも隠す
@@ -28948,7 +29006,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
       </div>
       )}
       </div></TsuPhonePin>{/* end sticky wrapper */}
-      <div id="print-content-analysis" style={{padding:'20px 24px',maxWidth:1280,margin:'0 auto'}}>
+      <div id="print-content-analysis" className="tsu-ph-cards" style={{padding:'20px 24px',maxWidth:1280,margin:'0 auto'}}>
 
         {/* ★ 表示内容ポップアップ(2026-08-28): 事業所のみ。 ご本人/ご家族/ケアマネ・他関係者の閲覧範囲一覧 */}
         {!familyMode && !cmViewerMode && !selfMode && showScopeInfo && (
@@ -29734,7 +29792,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                 return result;
               })() : null;
               const chartKibun = kibunMonthly || kibunData;
-              const _STEP=useMonthly?60:(chartKibun.length<=14?50:chartKibun.length<=30?28:14);
+              const _STEP=_fillStep('mood', chartKibun.length, useMonthly?60:(chartKibun.length<=14?50:chartKibun.length<=30?28:14), 40+16);
               const PAD_L=40,PAD_R=16,PAD_T=12,PAD_B=32;
               const ROW_H=26;
               const H=PAD_T+4*ROW_H+PAD_B;
@@ -29746,7 +29804,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
               const toPolyline=(pts)=>pts.map(p=>p.join(',')).join(' ');
               const showLabel=(i)=>useMonthly||chartKibun.length<=14||i===0||i===chartKibun.length-1||i%Math.ceil(chartKibun.length/8)===0;
               return (
-                <div style={{overflowX:'auto',position:'relative'}} onMouseLeave={()=>setMoodTooltip(null)}>
+                <div ref={_chRef('mood')} style={{overflowX:'auto',position:'relative'}} onMouseLeave={()=>setMoodTooltip(null)}>
                   {moodTooltip&&(
                     <div style={{position:'fixed',left:moodTooltip.px+12,top:moodTooltip.py-8,background:'rgba(15,23,42,0.92)',color:'white',borderRadius:10,padding:'8px 12px',fontSize:13,zIndex:9999,pointerEvents:'none',minWidth:140,boxShadow:'0 4px 16px rgba(0,0,0,0.3)'}}>
                       <div style={{fontWeight:'bold',marginBottom:4,borderBottom:'1px solid rgba(255,255,255,0.2)',paddingBottom:4}}>{moodTooltip.label}</div>
@@ -29930,7 +29988,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           const maxPulseDate=maxPulse!=null?pulseA.find(x=>x.v===maxPulse)?.date:'';
           const minPulseDate=minPulse!=null?pulseA.find(x=>x.v===minPulse)?.date:'';
 
-          const isMonthly = dailyData.length<=12; const _STEP=isMonthly?60:(dailyData.length<=14?50:dailyData.length<=30?28:14); const PAD_X=20; const W=dailyData.length*_STEP+PAD_X*2,H=180,LW=110;
+          const isMonthly = dailyData.length<=12; const _STEP=_fillStep('vital', dailyData.length, isMonthly?60:(dailyData.length<=14?50:dailyData.length<=30?28:14), 110+40); const PAD_X=20; const W=dailyData.length*_STEP+PAD_X*2,H=180,LW=110;
           const VitalChart = ({field,color1,color2,yMin,yMax,refLines,normalBand,title,legend1,legend2,unit}) => {
             let pts1=dailyData.map((d,i)=>({v:d[field],i,d})).filter(p=>p.v!==null);
             let pts2=color2?dailyData.map((d,i)=>({v:d.bpDn,i,d})).filter(p=>p.v!==null):[];
@@ -29979,7 +30037,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                   ))}
                 </div>
                 {/* グラフ本体（横スクロール） */}
-                <div className="vital-scroll" style={{flex:1,minWidth:0,overflowX:'auto'}} onMouseLeave={()=>setVitalTooltip(null)}>
+                <div ref={_chRef('vital')} className="vital-scroll" style={{flex:1,minWidth:0,overflowX:'auto'}} onMouseLeave={()=>setVitalTooltip(null)}>
                 <svg width={W+LW} height={H+22} style={{display:'block'}}>
                   {/* Y軸目盛グリッド線のみ */}
                   {yTicks.map(v=>(
@@ -30407,7 +30465,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
               </div>
             );
 
-            const useExMonthly = parseInt(period,10)>=6||period==='all'; const exData = useExMonthly ? monthlyEx.filter(d=>d.hasData) : dailyEx; const _STEP2=useExMonthly?60:(exData.length<=14?50:exData.length<=30?28:14); const PAD_EX=16; const W2=exData.length*_STEP2+PAD_EX*2,H2=160,LW2=60;
+            const useExMonthly = parseInt(period,10)>=6||period==='all'; const exData = useExMonthly ? monthlyEx.filter(d=>d.hasData) : dailyEx; const _STEP2=_fillStep('ex', exData.length, useExMonthly?60:(exData.length<=14?50:exData.length<=30?28:14), 60+32); const PAD_EX=16; const W2=exData.length*_STEP2+PAD_EX*2,H2=160,LW2=60;
             const maxV=exData.length?Math.max(...exData.map(d=>d.val||d.avg||0)):1;
             const minV=exData.length?Math.min(...exData.map(d=>d.val||d.avg||0)):0;
             const maxD=unit==='fraction'&&exData.some(d=>d.den||d.denAvg)?Math.max(...exData.filter(d=>d.den||d.denAvg).map(d=>d.den||d.denAvg)):null;
@@ -30472,7 +30530,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                           <div key={v} style={{position:'absolute',right:4,top:yP2(v)-5,fontSize:8,color:graphType==='weight_reps'?'#1e40af':'#475569',fontWeight:'bold',lineHeight:1,textAlign:'right',whiteSpace:'nowrap'}}>{v}{unitLabel}</div>
                         ))}
                       </div>
-                      <div style={{flex:1,minWidth:0,overflowX:'auto'}}>
+                      <div ref={_chRef('ex')} style={{flex:1,minWidth:0,overflowX:'auto'}}>
                     <svg width={W2+LW2} height={H2} style={{display:'block'}}>
                       {yTicks2.map(v=>(
                         <g key={v}>
@@ -31292,7 +31350,7 @@ function AttrSection({appData, tY, tM, baseMonth, attrMonth, setAttrMonth, perio
       <div data-print-strip="attr-months" style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:14}}>
         {monthOptions.map(m=>{const [my,mm]=m.split('-').map(Number);return <button key={m} onClick={()=>setAttrMonth(m)} style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:'bold',border:`1.5px solid ${m===_effMonth?'#ec4899':'#e2e8f0'}`,background:m===_effMonth?'#fce7f3':'white',color:m===_effMonth?'#be185d':'#64748b',cursor:'pointer'}}>{mm}月</button>;})}
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:14}}>
+      <div className="tsu-ph-1col" style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr)',gap:16,marginBottom:14}}>{/* ★ 2026-10-20(不具合修正): スマホは1列(2列だと介護度内訳の凡例が画面の外に見切れた) */}
         <div style={{background:'#f8fafc',borderRadius:12,padding:'12px'}}>
           <div style={{fontSize:12,fontWeight:'bold',color:'#64748b',marginBottom:8}}>■ 男女比</div>
           <div style={{height:18,borderRadius:9,overflow:'hidden',display:'flex',marginBottom:6}}><div style={{flex:malePct,background:'#3b82f6'}}/><div style={{flex:femalePct,background:'#f472b6'}}/></div>
@@ -36199,6 +36257,81 @@ const FIT_NOTE_PRESETS_DEFAULT = ['杖使用', '介助あり', '踏み台使用'
 const FIT_NOTE_MAX = 15, FIT_MEMO_MAX = 200, FIT_PRESET_MAX_N = 30;
 const tsuFitNotePresets = (appData) => { const v = appData && appData.systemSettings && appData.systemSettings.fitnessNotePresets; return Array.isArray(v) ? v : FIT_NOTE_PRESETS_DEFAULT; };
 // ★ 2026-10-20(ユーザー要望): 各種設定→体力測定「備考の定型文」。店舗ごとに作り、体力測定の各項目の備考でプルダウンから選べる
+// ★ 2026-10-20(店舗要望): 提供記録の特記に足す「一言」(よく使う言葉)。各種設定→提供記録で追加・削除
+const TOKKI_PRESET_MAX = 15, TOKKI_PRESET_MAX_N = 20;
+const TOKKI_PRESETS_DEFAULT = ['体調不良', '歩行不安定', 'ふらつきあり', '眠気あり', '疲れやすい'];
+const tsuTokkiPresets = (appData) => { const a = appData?.systemSettings?.tokkiPresets; return Array.isArray(a) ? a.filter(x => typeof x === 'string' && x.trim()) : TOKKI_PRESETS_DEFAULT; };
+// 今の特記の後ろに足す(同じ言葉は二度入れない・区切りは「・」・100文字まで)
+const tsuTokkiAppend = (cur, phrase) => { const c = String(cur || '').trim(); const ph = String(phrase || '').trim(); if (!ph || c.includes(ph)) return c; const sep = !c ? '' : /[。、・\s]$/.test(c) ? '' : '・'; return (c + sep + ph).slice(0, TOKKI_MAX); };
+function TsuTokkiPresetSelect({ appData, onPick, className, style, testid, label = '一言' }) {
+  const list = tsuTokkiPresets(appData); if (!list.length) return null;
+  return (
+    <select data-testid={testid} value="" title="よく使う一言を特記に足します" aria-label="特記に一言を足す" className={className} style={style}
+      onChange={e => { const v = e.target.value; if (v) onPick(v); }}>
+      <option value="">{label}</option>
+      {list.map(t => <option key={t} value={t}>{t}</option>)}
+    </select>
+  );
+}
+// ★ 2026-10-20(ユーザー案): 特記のマイク。ブラウザの音声認識(Safari/Chrome)で話した言葉を文字にする。使えない端末ではボタンを出さない
+const tsuVoiceSupported = () => { try { return typeof window !== 'undefined' && !!(window.SpeechRecognition || window.webkitSpeechRecognition); } catch { return false; } };
+function TsuMicButton({ onText, disabled, testid, className, style, size = 15 }) {
+  const [on, setOn] = React.useState(false); const [msg, setMsg] = React.useState(''); const recRef = React.useRef(null);
+  React.useEffect(() => () => { try { recRef.current && recRef.current.abort(); } catch {} }, []);
+  if (!tsuVoiceSupported()) return null;
+  const flash = (m) => { setMsg(m); setTimeout(() => setMsg(''), 4000); };
+  const toggle = () => {
+    if (on) { try { recRef.current && recRef.current.stop(); } catch {} return; }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition; let rec;
+    try { rec = new SR(); } catch { flash('この端末では音声入力が使えません'); return; }
+    rec.lang = 'ja-JP'; rec.interimResults = false; rec.maxAlternatives = 1; rec.continuous = false;
+    rec.onresult = (ev) => { try { const t = Array.from(ev.results || []).map(r => (r && r[0] && r[0].transcript) || '').join('').trim(); if (t) onText(t); } catch {} };
+    rec.onerror = (ev) => { const c = ev && ev.error; flash(c === 'not-allowed' || c === 'service-not-allowed' ? 'マイクが許可されていません（端末の設定でマイクを許可してください）' : c === 'no-speech' ? '声が聞き取れませんでした。もう一度押してください' : '音声入力ができませんでした'); };
+    rec.onend = () => { setOn(false); recRef.current = null; };
+    recRef.current = rec;
+    try { rec.start(); setOn(true); setMsg(''); } catch { flash('音声入力ができませんでした'); }
+  };
+  return (
+    <span className="relative inline-flex" style={{ flexShrink: 0 }}>
+      <button type="button" data-testid={testid} disabled={disabled} onClick={toggle} aria-label={on ? '音声入力を止める' : '声で入力'} aria-pressed={on}
+        title={on ? '聞き取り中… もう一度押すと止めます' : '声で入力（押してから話すと、言葉が特記に入ります）'}
+        className={`${className || ''} ${on ? 'bg-red-600 border-red-600 text-white animate-pulse' : 'bg-white border-slate-300 text-slate-600'} border rounded-lg inline-flex items-center justify-center disabled:opacity-40`} style={style}>
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><line x1="12" y1="18" x2="12" y2="22"/></svg>
+      </button>
+      {msg && <span role="status" className="absolute right-0 top-full mt-1 z-[60] whitespace-nowrap text-[11px] font-bold text-white bg-slate-800 rounded px-2 py-1 shadow">{msg}</span>}
+    </span>
+  );
+}
+function TsuTokkiPresetCard({ appData, onSave }) {
+  const list = tsuTokkiPresets(appData); const [txt, setTxt] = React.useState('');
+  const voiceOff = !!appData?.systemSettings?.tokkiVoiceOff;
+  const save = (patch, msg) => onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), ...patch, _updatedAt: syncNow() } }, { manual: true, message: msg });
+  const add = () => { const t = txt.trim().slice(0, TOKKI_PRESET_MAX); if (!t) return; if (list.includes(t)) { alert(`「${t}」はすでにあります`); return; } if (list.length >= TOKKI_PRESET_MAX_N) { alert(`一言は${TOKKI_PRESET_MAX_N}件までです`); return; } save({ tokkiPresets: [...list, t] }, `✓ 「${t}」を追加しました`); setTxt(''); };
+  return (
+    <div data-testid="tokki-preset-card" className="bg-white p-3 sm:p-6 rounded-2xl shadow-sm border border-slate-200">
+      <h3 className="text-base font-bold text-slate-800 mb-2 border-b border-slate-200 pb-2">特記の一言・音声入力</h3>
+      <p className="text-xs text-slate-500 mb-3">サービス提供記録の特記の横の「一言」から選ぶと、特記の後ろに足されます（バイタルや運動だけでは分からない様子を、打たずに入れるため）。店舗に合わせて追加・削除してください（{TOKKI_PRESET_MAX}文字まで・{TOKKI_PRESET_MAX_N}件まで）。</p>
+      <div className="flex flex-wrap gap-2 mb-3">
+        {list.length === 0 && <span className="text-xs text-slate-400">まだありません（一言のプルダウンは出ません）</span>}
+        {list.map(t => (
+          <span key={t} className="inline-flex items-center gap-1 pl-3 pr-1 py-1 rounded-full bg-sky-50 border border-sky-200 text-sm font-bold text-sky-900">
+            {t}
+            <button type="button" aria-label={`${t} を削除`} onClick={() => { if (!window.confirm(`一言「${t}」を削除しますか？\n（すでに記録した特記は消えません）`)) return; save({ tokkiPresets: list.filter(x => x !== t) }, `✓ 「${t}」を削除しました`); }} className="w-6 h-6 rounded-full text-sky-600 hover:bg-sky-100 font-bold leading-none">×</button>
+          </span>
+        ))}
+      </div>
+      <div className="flex gap-2 flex-wrap mb-4">
+        <input value={txt} maxLength={TOKKI_PRESET_MAX} onChange={e => setTxt(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !(e.nativeEvent && e.nativeEvent.isComposing)) { e.preventDefault(); add(); } }} placeholder={`新しい一言（${TOKKI_PRESET_MAX}文字まで）`} className="flex-1 min-w-[180px] px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-sky-400"/>
+        <button type="button" onClick={add} disabled={!txt.trim()} className="px-4 py-2 rounded-lg text-sm font-bold bg-sky-600 text-white disabled:opacity-50">追加</button>
+        {Array.isArray(appData?.systemSettings?.tokkiPresets) && <button type="button" onClick={() => { if (!window.confirm('一言を最初の内容（体調不良・歩行不安定 など）に戻しますか？')) return; save({ tokkiPresets: TOKKI_PRESETS_DEFAULT }, '✓ 一言を最初の内容に戻しました'); }} className="px-3 py-2 rounded-lg text-sm font-bold bg-white border border-slate-300 text-slate-600">最初の内容に戻す</button>}
+      </div>
+      <label className="flex items-center justify-between gap-3 cursor-pointer border-t border-slate-100 pt-3">
+        <div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">特記にマイク（音声入力）のボタンを出す</div><div className="text-xs text-slate-500">押してから話すと、言葉が特記に入ります。声の文字起こしは端末のブラウザの音声認識（iPad は Apple、Chrome は Google）が行います。iPad のキーボードのマイクと同じしくみです。使えない端末ではボタンは出ません。</div></div>
+        <input type="checkbox" data-testid="tokki-voice-toggle" checked={!voiceOff} onChange={e => save({ tokkiVoiceOff: !e.target.checked }, e.target.checked ? '✓ マイクのボタンを出します' : 'マイクのボタンを出さないようにしました')} className="w-6 h-6 shrink-0"/>
+      </label>
+    </div>
+  );
+}
 function TsuFitNotePresetCard({ appData, onSave }) {
   const list = tsuFitNotePresets(appData); const [txt, setTxt] = React.useState('');
   const save = (next, msg) => onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), fitnessNotePresets: next, _updatedAt: syncNow() } }, { manual: true, message: msg });
@@ -45732,6 +45865,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                 }} className="px-4 py-2 bg-slate-800 text-white rounded-lg font-bold text-sm disabled:opacity-40 flex items-center gap-1 shrink-0"><Plus size={14}/>追加</button>
               </div>
             </SectionCard>
+            <TsuTokkiPresetCard appData={appData} onSave={onSave} />
           </>)}
 
           {/* 日誌 */}
