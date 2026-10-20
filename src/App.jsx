@@ -54217,14 +54217,15 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                 const dateStr = `${day.y}-${String(day.m).padStart(2,'0')}-${String(day.d).padStart(2,'0')}`;
                 const absences = absencesByDate[dateStr] || [];
                 const today = new Date(); today.setHours(0,0,0,0);
-                const isToday = new Date(dateStr).getTime()===today.getTime();
+                // ★ 2026-10-20: new Date('YYYY-MM-DD') は世界標準時の0時になり、日本時間では今日と一致しなかった(「今日」の印が出ていなかった)。日付の文字で比べる
+                const isToday = dateStr === `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
                 const isClosed = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(di);
                 return (
                   <div key={di} style={{minHeight:90,minWidth:0,borderRight:'1px solid #f1f5f9',padding:_absPhone?'6px 2px 4px':'6px 4px 4px',opacity:day.other?0.75:1,background:isClosed?'#f1f5f9':isToday?'#fffbeb':'white',position:'relative'}}>
                     <div style={{fontSize:13,fontWeight:'bold',color:isClosed?'#cbd5e1':di===0?'#dc2626':di===6?'#2563eb':'#334155',marginBottom:4,display:'flex',alignItems:'center',gap:4}}>
                       {day.other ? `${day.m}/${day.d}` : day.d}
                       {day.other&&<span style={{fontSize:9,color:'#94a3b8'}}>翌月</span>}
-                      {isToday&&!isClosed&&<span style={{fontSize:9,background:'#f59e0b',color:'white',borderRadius:4,padding:'1px 4px',fontWeight:'bold'}}>今日</span>}
+                      {isToday&&!isClosed&&<span style={{fontSize:9,background:'#f59e0b',color:'white',borderRadius:4,padding:'1px 3px',fontWeight:'bold',whiteSpace:'nowrap',flexShrink:0}}>今日</span>}
                       {isClosed&&<span style={{fontSize:9,color:'#64748b'}}>定休</span>}
                     </div>
                     {absences.map(({patient:pat, tokki, furikae},ai)=>{
