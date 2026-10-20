@@ -11218,7 +11218,7 @@ function RecordOrderModal({ rows, onSave, onClose, onReset, label }) {
         <div className="px-4 py-3 border-b border-slate-200">
           <div className="text-base font-bold text-slate-800">利用者の並び替え{label ? `（${label}）` : ''}</div>
           {label && <div data-testid="rec-order-class" className="text-xs font-bold text-indigo-700 mt-0.5">{label}のクラスだけの並び順です（ほかの曜日・午前午後には効きません）</div>}
-          <div className="text-xs text-slate-500 mt-0.5 leading-relaxed">名前を長押しして上下に動かすか、「上へ」「下へ」で並べ替えて「この順で保存」を押してください。表の並び(利用者名・状態・運動など)がこの順になります。振替・臨時の方もこの順に並びます。欠席・休止の方はこれまでどおり下にまとめて表示します。</div>
+          <div className="text-xs text-slate-500 mt-0.5 leading-relaxed">名前を長押しして動かすか「上へ」「下へ」で並べ、「この順で保存」。欠席・休止の方は下にまとまります。</div>
         </div>
         <div className="flex-1 overflow-y-auto p-3 space-y-1.5" data-testid="rec-order-list">
           {list.map((r, i) => (
@@ -24595,9 +24595,9 @@ function TsuBulkExerciseModal({ rows, items, baselineOf, onApply, onClose }) {
         <div style={{padding:'14px 16px 8px'}}>
           <div style={{fontSize:17,fontWeight:'bold',color:'#1e293b'}}>運動の一括○{step === 2 ? '（行わなかった方は×に）' : ''}</div>
           <div data-testid="bulk-ex-caution" style={{marginTop:8,padding:'8px 10px',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:10,fontSize:12.5,color:'#991b1b',lineHeight:1.6}}>
-            実際に行った運動だけを記録してください。行っていない運動に○が残ったまま保存すると、記録と実態が合わず、<b>運営指導で減算や返還の対象になる可能性</b>があります。行わなかった方は必ず「×」にしてください。
+            行わなかった方は必ず「×」に。○のまま保存すると<b>運営指導で減算・返還の対象になることがあります</b>。
           </div>
-          <div style={{fontSize:12,color:'#64748b',marginTop:6,lineHeight:1.6}}>対象は出席している方だけです。提供内容(基準値)が「ー」の方（運動なし）と、基準値に数値が無い方には○を付けません。すでに入力済みのマスはそのままです。個別機能訓練は対象外（1人ずつ確認して入力してください）。</div>
+          <div style={{fontSize:12,color:'#64748b',marginTop:6,lineHeight:1.6}}>出席の方だけ。基準値が「ー」・数値なしの方、入力済みのマス、個別機能訓練は対象外です。</div>
         </div>
         <div style={{overflow:'auto',padding:'0 12px',flex:1,overscrollBehavior:'contain',WebkitOverflowScrolling:'touch'}}>
           {step === 1 ? (
@@ -26520,7 +26520,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-200 shrink-0">
                         <div className="min-w-0">
                           <div className="text-base font-bold text-slate-800">個別機能訓練のグループ（{timeFilter === 'PM' ? '午後' : '午前'}）</div>
-                          <div className="text-xs text-slate-500">名前を長押しして動かすと移動できます（名前をタップ→移動先のグループをタップでも可）。1グループ最大{KINOU_GROUP_MAX}名。「＋グループ追加」に入れると新しいグループができます。</div>
+                          <div className="text-xs text-slate-500">名前を長押しして動かします（名前→グループの順にタップでも可）。1グループ最大{KINOU_GROUP_MAX}名。</div>
                         </div>
                         <button type="button" data-testid="kg-reset" disabled={!isEditMode} onClick={resetKinouGroups} title="表示中の午前/午後のグループ分けを全員「グループなし」に戻します" className="ml-auto shrink-0 px-3 py-2 rounded-xl border border-red-300 bg-white text-red-600 text-sm font-bold hover:bg-red-50 disabled:opacity-50">リセット</button>
                         <button type="button" data-testid="kg-copy-last-week" disabled={!isEditMode} onClick={copyKinouGroupsFromLastWeek} title="同じ曜日・同じ午前/午後の先週の割り振りをそのまま使います(先週が休みなら最大4週前までさかのぼります)" className="shrink-0 px-3 py-2 rounded-xl border border-emerald-400 bg-emerald-50 text-emerald-800 text-sm font-bold hover:bg-emerald-100 disabled:opacity-50">先週の割り振りをコピー</button>
@@ -27445,7 +27445,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     );
                   })}
               </div>
-              <div className="px-5 py-3 bg-slate-50 border-t text-[11px] text-slate-500">※ 戻すとその日の記録が選んだ時点のものに置き換わり、クラウド・他端末にも反映されます。 保存のたびに自動で履歴が残ります（最新25件）。</div>
+              <div className="px-5 py-3 bg-slate-50 border-t text-[11px] text-slate-500">※ 戻すと、選んだ時点の記録に置き換わります（ほかの端末にも反映）。履歴は保存のたびに残ります（最新25件）。</div>
             </div>
           </div>
         );
@@ -27855,7 +27855,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     onFocus={(e) => { if (Date.now() - _lpLastFireAt < 600) e.target.blur(); }}
                     placeholder="例: 昨夜あまり眠れなかったとのこと" className="w-full px-5 py-4 rounded-2xl bg-slate-100 text-slate-800 border-2 border-slate-300 outline-none text-2xl leading-relaxed" />
                   <div className="flex justify-between items-baseline mt-1">
-                    <div className="text-slate-400 text-base font-bold">「決定」で特記欄に入ります（特記は100文字まで）。iPad・スマホはキーボードのマイクで音声入力できます</div>
+                    <div className="text-slate-400 text-base font-bold">「決定」で特記に入ります（100文字まで）</div>
                     <CharCount value={kibunNote} max={_room}/>
                   </div>
                   {_base ? <div className="mt-3 text-base text-slate-500"><span className="font-bold">今の特記：</span>{_base}</div> : null}
@@ -35011,7 +35011,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                     <button type="button" data-testid="cb-timebold-1" onClick={()=>setSS({renrakuTimeBold:true})} className={tabBtn(ss.renrakuTimeBold!==false)}>太字</button>
                     <button type="button" data-testid="cb-timebold-0" onClick={()=>setSS({renrakuTimeBold:false})} className={tabBtn(ss.renrakuTimeBold===false)}>ふつう</button>
                   </div>
-                  <div className="text-[10px] text-slate-400 mt-1">連絡帳の「次回お迎え時間」の時刻（○時○分頃）に付きます。日付は黒のままです（画面・PDFとも）。</div>
+                  <div className="text-[10px] text-slate-400 mt-1">「次回お迎え時間」の時刻に付く色です（日付は黒）。</div>
                 </div>
                 <div>
                   <div className="text-[11px] font-bold text-slate-500 mb-1">面数（1枚に何人分）</div>
@@ -35028,16 +35028,16 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                       <button onClick={()=>setSS({renrakuPaper:'b6port'})} className={tabBtn(paper==='b6port')}>B6（手差しトレイ）</button>
                       <button onClick={()=>setSS({renrakuPaper:'b5land'})} className={tabBtn(paper==='b5land')}>B5（中央にB6配置）</button>
                     </div>
-                    <div className="text-[10px] text-slate-400 mt-1">おすすめはB6用紙への直接印刷。うまくいかない機種は「B5（中央にB6配置）」で普通のB5用紙に印刷できます。</div>
+                    <div className="text-[10px] text-slate-400 mt-1">B6用紙に直接印刷がおすすめ。うまくいかないときは「B5（中央にB6）」。</div>
                     {paper==='b6port' && (
                       <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg p-2">
                         <div className="text-[11px] font-bold text-amber-800 mb-1">手差しトレイでのB6印刷のしかた</div>
                         <ol className="text-[10px] text-amber-800 leading-relaxed list-decimal ml-4 space-y-0.5">
-                          <li>複合機の手差しトレイ（側面の折りたたみトレイ）にB6用紙をセットし、ガイドを用紙の幅に合わせる</li>
-                          <li>複合機の画面に用紙サイズの確認が出たら「B6」を選ぶ（一覧に無い機種は「カスタム 128×182mm」で登録）</li>
-                          <li>ダウンロードしたPDFを開いて印刷し、印刷画面の「詳細設定」で用紙サイズ「B6（JIS）」・給紙トレイ「手差し」・倍率「実際のサイズ（100%）」を選ぶ（Chromeは次回から覚えます）。<b>用紙サイズがA4のままだと、左上に小さく寄って印刷されます</b></li>
+                          <li>手差しトレイにB6用紙を入れ、ガイドを合わせる</li>
+                          <li>用紙サイズを聞かれたら「B6」（無ければ「カスタム 128×182mm」）</li>
+                          <li>PDFの印刷画面の「詳細設定」で「B6（JIS）」・「手差し」・「実際のサイズ（100%）」。<b>A4のままだと左上に小さく寄ります</b></li>
                         </ol>
-                        <div className="text-[10px] text-amber-700 mt-1">※ ほとんどの複合機は手差しトレイでB6サイズに対応していますが、機種により手順が異なります。最初は1枚だけテスト印刷してから本番の印刷をおすすめします。</div>
+                        <div className="text-[10px] text-amber-700 mt-1">※ 機種で手順が違います。最初は1枚だけ試し印刷を。</div>
                       </div>
                     )}
                   </div>
@@ -35053,7 +35053,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                         <button onClick={()=>setSS({renrakuPunchPos:'top'})} className={tabBtn(ss.renrakuPunchPos==='top')}>上（上綴じ）</button>
                       </div>
                     )}
-                    <div className="text-[10px] text-slate-400 mt-1">B5横に2人分を印刷し、中央でカット→B6×2枚。人数が奇数のときは最後の1面が空欄（手書き用）になります。「上」を選ぶと上に余白を取り、各面を少し小さく印刷します。</div>
+                    <div className="text-[10px] text-slate-400 mt-1">B5横に2人分→中央でカット。奇数のときは最後が空欄。「上」は上に余白を取って少し小さく印刷します。</div>
                   </div>
                 )}
                 {/* ★ 2026-10-05(ユーザー要望): プレビューが無くなったので、印刷位置の微調整をここに戻す。図で用紙のどこに出るかが見える */}
@@ -35080,7 +35080,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                           <button type="button" data-testid="cb-pos-test" onClick={() => doPrintBlank(1)} disabled={cbPdfBusy} className="mt-1.5 px-2.5 py-1 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 font-bold text-[11px] disabled:opacity-50">{cbPdfBusy ? '作成中…' : '試し刷り用（空の連絡帳1枚）をダウンロード'}</button>
                         </div>
                       </div>
-                      <div className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 mt-2">複合機で右や下が切れるときに使います。PDFを印刷するときは、印刷画面の「詳細設定」で<b>用紙サイズを「{renrakuSheetGeom(ss).faces.length === 2 || ss.renrakuPaper !== 'b6port' ? 'B5（JIS）・横' : 'B6（JIS）'}」</b>、倍率を<b>「実際のサイズ（100%）」</b>にしてください（A4のままだと左上に寄り、「用紙に合わせる」だと大きさが変わります）。</div>
+                      <div className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 mt-2">右や下が切れるときに。PDFは印刷画面の「詳細設定」で<b>用紙「{renrakuSheetGeom(ss).faces.length === 2 || ss.renrakuPaper !== 'b6port' ? 'B5（JIS）・横' : 'B6（JIS）'}」</b>・<b>「実際のサイズ（100%）」</b>に。</div>
                     </div>
                   );
                 })()}
@@ -35109,7 +35109,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                 <button onClick={()=>setOvCleanup(null)} className="text-slate-400 hover:text-slate-600 font-bold text-xl">✕</button>
               </div>
               <div className="px-6 py-2 text-[11px] text-slate-500 border-b border-slate-100">
-                チェックした行の保存値を消去して自動計算（送迎時間マスタ・基本利用日・休止期間と連動）に戻します。「8時」など分なしの時刻は焼き付きの可能性が高いため最初からチェック済みです。手入力で意図した変更はチェックを外してください。
+                チェックした行の保存値を消して、自動の計算に戻します。分なしの時刻（例「8時」）は最初からチェックしています。
               </div>
               <div className="flex-1 overflow-y-auto p-4">
                 {ovCleanup.items.length === 0 ? (
@@ -35299,7 +35299,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
           <div data-testid="cb-paper-tip" className="fixed left-1/2 -translate-x-1/2 bottom-6 z-[9998] bg-slate-900 text-white rounded-xl shadow-2xl px-4 py-3 flex items-start gap-3" style={{ maxWidth: 'min(560px, calc(100vw - 32px))' }}>
             <div className="text-sm leading-relaxed">
               <div className="font-bold">PDFを印刷するときは、用紙サイズを「{cbPaperTip.paper}」に</div>
-              <div className="text-[12px] text-slate-300 mt-0.5">印刷画面の「詳細設定」で用紙サイズと倍率「実際のサイズ（100%）」を選んでください。A4のままだと左上に寄って印刷されます（Chromeは次回から覚えます）。</div>
+              <div className="text-[12px] text-slate-300 mt-0.5">印刷画面の「詳細設定」で用紙サイズと「実際のサイズ（100%）」を選んでください。</div>
             </div>
             <button type="button" onClick={() => setCbPaperTip(null)} className="text-slate-400 hover:text-white text-lg leading-none">×</button>
           </div>
@@ -35309,7 +35309,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
           <div className="fixed inset-0 bg-slate-900/50 z-[9999] flex items-start justify-center p-4 pt-24" onClick={() => setBlankDl(null)}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5" onClick={e => e.stopPropagation()} data-testid="cb-blank-modal">
               <div className="font-bold text-slate-800">空の連絡帳をダウンロード</div>
-              <div className="text-xs text-slate-500 mt-1">氏名・記録が空欄の連絡帳を、印刷設定の用紙・面数・印刷位置のままPDFにします（表示されない方がいたときの手書き用）。</div>
+              <div className="text-xs text-slate-500 mt-1">氏名・記録が空欄の連絡帳をPDFにします（手書き用）。</div>
               <div className="flex items-center justify-center gap-3 my-4">
                 <button type="button" onClick={() => setBlankDl(v => ({ n: Math.max(1, v.n - 1) }))} className="w-10 h-10 rounded-xl border border-slate-300 bg-white text-xl font-bold text-slate-700">−</button>
                 <div className="text-center"><div data-testid="cb-blank-n" className="text-3xl font-bold text-slate-800 tabular-nums">{blankDl.n}</div><div className="text-[11px] text-slate-500">枚（{(appData.systemSettings?.renrakuMode === '1' ? 1 : 2) * blankDl.n}人分）</div></div>
@@ -36343,7 +36343,7 @@ function TsuTokkiPresetCard({ appData, onSave }) {
   return (
     <div data-testid="tokki-preset-card" className="bg-white p-3 sm:p-6 rounded-2xl shadow-sm border border-slate-200">
       <h3 className="text-base font-bold text-slate-800 mb-2 border-b border-slate-200 pb-2">特記の一言・音声入力</h3>
-      <p className="text-xs text-slate-500 mb-3">サービス提供記録の特記の横の「一言」から選ぶと、特記の後ろに足されます（バイタルや運動だけでは分からない様子を、打たずに入れるため）。店舗に合わせて追加・削除してください（{TOKKI_PRESET_MAX}文字まで・{TOKKI_PRESET_MAX_N}件まで）。</p>
+      <p className="text-xs text-slate-500 mb-3">提供記録の特記の「一言」で選べる言葉です（{TOKKI_PRESET_MAX}文字・{TOKKI_PRESET_MAX_N}件まで）。</p>
       <div className="flex flex-wrap gap-2 mb-3">
         {list.length === 0 && <span className="text-xs text-slate-400">まだありません（一言のプルダウンは出ません）</span>}
         {list.map(t => (
@@ -36359,7 +36359,7 @@ function TsuTokkiPresetCard({ appData, onSave }) {
         {Array.isArray(appData?.systemSettings?.tokkiPresets) && <button type="button" onClick={() => { if (!window.confirm('一言を最初の内容（体調不良・歩行不安定 など）に戻しますか？')) return; save({ tokkiPresets: TOKKI_PRESETS_DEFAULT }, '✓ 一言を最初の内容に戻しました'); }} className="px-3 py-2 rounded-lg text-sm font-bold bg-white border border-slate-300 text-slate-600">最初の内容に戻す</button>}
       </div>
       <label className="flex items-center justify-between gap-3 cursor-pointer border-t border-slate-100 pt-3">
-        <div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">特記にマイク（音声入力）のボタンを出す</div><div className="text-xs text-slate-500">押してから話すと、言葉が特記に入ります。声の文字起こしは端末のブラウザの音声認識（iPad は Apple、Chrome は Google）が行います。iPad のキーボードのマイクと同じしくみです。使えない端末ではボタンは出ません。</div></div>
+        <div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">特記にマイク（音声入力）のボタンを出す</div><div className="text-xs text-slate-500">押してから話すと特記に入ります（端末の音声認識を使います）。</div></div>
         <input type="checkbox" data-testid="tokki-voice-toggle" checked={!voiceOff} onChange={e => save({ tokkiVoiceOff: !e.target.checked }, e.target.checked ? '✓ マイクのボタンを出します' : 'マイクのボタンを出さないようにしました')} className="w-6 h-6 shrink-0"/>
       </label>
     </div>
@@ -36372,7 +36372,7 @@ function TsuFitNotePresetCard({ appData, onSave }) {
   return (
     <div data-testid="fit-preset-card" className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
       <h3 className="text-base font-bold text-slate-800 mb-2 border-b border-slate-200 pb-2">備考の定型文</h3>
-      <p className="text-xs text-slate-500 mb-3">体力測定の各項目の「＋備考」で、プルダウンから選べる言葉です（例: 杖使用・介助あり・踏み台使用）。店舗の使い方に合わせて追加・削除してください（{FIT_NOTE_MAX}文字まで・{FIT_PRESET_MAX_N}件まで）。</p>
+      <p className="text-xs text-slate-500 mb-3">体力測定の「＋備考」で選べる言葉です（{FIT_NOTE_MAX}文字・{FIT_PRESET_MAX_N}件まで）。</p>
       <div className="flex flex-wrap gap-2 mb-3">
         {list.length === 0 && <span className="text-xs text-slate-400">まだありません</span>}
         {list.map(t => (
@@ -38153,14 +38153,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         {/* ★ 2026-10-15: 施設に着く時間(事業所情報の開始の1分前)を表示。未入力なら入力を促す */}
         <div className="text-[12px] text-slate-600 mb-3 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2" data-testid="ac-arrive">
           <span className="font-bold text-slate-700">施設に着く時間</span>　{['AM','PM'].map(s2 => { const t = _targetArrive(s2); return <span key={s2} className="mr-3">{s2 === 'AM' ? '午前' : '午後'} {t == null ? <b className="text-amber-700">未入力</b> : <b>{_fmtHM(t)}</b>}</span>; })}
-          <span className="block text-[10px] text-slate-500 mt-0.5">各種設定→事業所情報の1単位目・2単位目の開始時間の1分前に着くように、お迎え時間を逆算します{['AM','PM'].some(s2 => _targetArrive(s2) == null) ? '（未入力の時間帯は計算できません。事業所情報で入れてください）' : ''}</span>
+          <span className="block text-[10px] text-slate-500 mt-0.5">開始時間の1分前に着くよう、お迎え時間を逆算します{['AM','PM'].some(s2 => _targetArrive(s2) == null) ? '（未入力の時間帯は計算できません。事業所情報で入れてください）' : ''}</span>
         </div>
         <div className="text-[12px] font-bold text-slate-500 mb-1">計算するもの</div>
         {/* ★ 2026-09-30(ユーザー要望): チェックを大きく・配車と時間はそれぞれ選べる(両方=配車と時間を一度に) */}
         <div className="flex flex-col gap-2 mb-3">
           <label className="flex items-center gap-3 text-[15px] cursor-pointer py-1"><input type="checkbox" data-testid="ac-haisha" checked={autoCalc.haisha} onChange={e=>setAutoCalc(o=>({...o, haisha:e.target.checked}))} style={{width:26,height:26,flexShrink:0,accentColor:'#059669'}}/><span><b>配車</b>（近所ごとに車を組み直し、乗車順を決める）</span></label>
           <label className="flex items-center gap-3 text-[15px] cursor-pointer py-1"><input type="checkbox" data-testid="ac-jikan" checked={autoCalc.jikan} onChange={e=>setAutoCalc(o=>({...o, jikan:e.target.checked}))} style={{width:26,height:26,flexShrink:0,accentColor:'#059669'}}/><span><b>時間</b>（お迎え時間を計算）</span></label>
-          <div className="text-[11px] text-slate-500 pl-9">配車は最初に組むとき用のため、最初はチェックが外れています（時間だけ＝車と順番はそのまま／両方＝車の組み直しと時間を一度に／配車だけ＝今の時間はそのまま）</div>
+          <div className="text-[11px] text-slate-500 pl-9">配車は最初に組むときだけ使います（時間だけ＝車と順番はそのまま）</div>
         </div>
         <div className="text-[12px] font-bold text-slate-500 mb-1">曜日</div>
         <div className="flex flex-col gap-1.5 mb-3" data-testid="ac-days">
@@ -38306,7 +38306,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <div className="fixed inset-0 bg-slate-900/50 flex items-start justify-center p-4 pt-20" style={{zIndex:10000}}>
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5" data-testid="tp-stale-modal">
                 <div className="font-bold text-slate-800 mb-1">休み・休止になった方が送迎表に残っています</div>
-                <div className="text-[11px] text-slate-500 mb-3">月間スケジュールや提供記録で休み・休止・振替にした方です。反映すると車から外れて「休み」の欄に出ます（確定後なら入力画面に赤字の「確定後に外れた」も出ます。運行表には載りません）。あとからでも各コマの注意から反映できます。</div>
+                <div className="text-[11px] text-slate-500 mb-3">休み・休止・振替にした方です。反映すると車から外れて「休み」に出ます。</div>
                 <div className="max-h-60 overflow-auto text-sm space-y-1 mb-4">
                   {staleModal.map(x => { const d = new Date(x.iso); return <div key={`${x.iso}_${x.sl}`}><span className="font-bold text-slate-700">{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{x.sl==='AM'?'午前':'午後'}</span>：{x.ids.map(pid => _pname(pid)).join('、')}</div>; })}
                 </div>
@@ -38915,7 +38915,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 </div>
               ) : (
                 <div className="p-4 space-y-4">
-                  <div className="text-[12px] text-slate-500">名前を長押ししてつかみ、席に入れます。<b className="text-slate-700">丸の番号が送りの順番</b>です（押すと変えられます）。席に入れた順に番号が付き、入れ替えは別の席へ、席から外すときは「席が決まっていない方」へ落とします。運転席で送りの運転者、車の上で送りの出発時間を選べます（「出発の目安を入れる」で、終了時刻に乗る方の乗車にかかる時間を足した目安が入ります）。</div>
+                  <div className="text-[12px] text-slate-500">名前を長押しして席へ。<b className="text-slate-700">丸の番号が送りの順番</b>（押すと変更）。運転席で運転者、車の上で出発時間、席の「着」で家に着く時間を入れます。</div>
                   {/* ★ 2026-10-15: 席が決まっていない方(共通の置き場)。席の方をここへ落とすと席から外れる(車の人数=席の数なので定員を超えない) */}
                   <div data-tpdrop="dsu" data-tpiso={iso} data-tpslot={sl} className={`rounded-xl border px-3 py-2 text-[13px] min-h-[44px] ${_over('dsu') ? 'border-amber-600 ring-2 ring-amber-300 bg-amber-100' : 'border-amber-300 bg-amber-50'}`} data-testid="tp-seat-notyet">
                     <span className="text-[11px] font-bold text-amber-800 mr-2">席が決まっていない方</span>
@@ -38937,13 +38937,13 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                       {!(dr.others||[]).length && <span className="text-[11px] text-slate-400">{_dragging ? 'ここへ' : 'なし'}</span>}
                     </div>
                   </div>
-                  <div className="text-[11px] text-slate-400">決めた送り（車・運転者・出発時間）は日誌の「送迎表取込」で日誌にも入ります。確定した週も、送りはこの画面で変えられます。席の形は車の定員（運転者を除く）から作っています。2列目・3列目の席の数は、送迎表の「設定」の「座席表の並び」で変えられます。</div>
+                  <div className="text-[11px] text-slate-400">決めた送りは、日誌の「送迎表取込」で日誌にも入ります。席の数は「設定」の「座席表の並び」で変えられます。</div>
                 </div>)}
               {/* ★ 2026-10-15(ユーザー要望「午前に送ってそのまま午後のお迎えに行くので、午前の送りの座席表の下に午後の送迎表が見えると使いやすい」): 見るだけ(変えるのは送迎表で) */}
               {sl === 'AM' && (() => { const pm = getPlan(iso, 'PM'); const pmCars = cars.filter(c => ((pm.cars||{})[c.id]||[]).length); const pmWalk = pm.walkers || [], pmOther = pm.others || [], pmUn = pm.un || [];
                 if (!pmCars.length && !pmWalk.length && !pmOther.length && !pmUn.length) return null; return (
                 <div className="border-t-2 border-indigo-200 px-4 pt-3 pb-4" data-testid="tp-seat-pm">
-                  <div className="flex items-baseline gap-2 flex-wrap mb-2"><span className="text-sm font-bold text-indigo-800">この日の午後の迎え（送迎表）</span><span className="text-[11px] text-slate-500">午前の送りのあと、そのまま午後のお迎えに行くときの確認用です。変えるときは送迎表で変えてください。</span></div>
+                  <div className="flex items-baseline gap-2 flex-wrap mb-2"><span className="text-sm font-bold text-indigo-800">この日の午後の迎え（送迎表）</span><span className="text-[11px] text-slate-500">午前の送りのあと午後のお迎えに行くときの確認用（変更は送迎表で）。</span></div>
                   {pmCars.length ? (
                   <div className="flex flex-wrap gap-3">
                     {pmCars.map(c => { const ms = pm.cars[c.id] || []; const drv = (pm.driver||{})[c.id] || ''; const av = (pm.arrive||{})[c.id] || ''; const au = !!av && !!(pm.arriveAuto||{})[c.id]; return (
@@ -38974,10 +38974,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4" style={{ zIndex: 10000 }} onClick={() => setCopyAsk(false)} data-testid="tp-copy-ask">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
             <div className="text-lg font-bold text-slate-800 mb-1">前週コピー</div>
-            <div className="text-[13px] text-slate-600 mb-3">前の週の送迎表（車の割り当て・時間・運転者・備考）を、この週へ写します。前の週に振替で来た方や、この週にお休みの方は写しません。前の週の到着・送りの出発の時間は「目安」として入ります。</div>
+            <div className="text-[13px] text-slate-600 mb-3">前の週の送迎表をこの週へ写します（振替・お休みの方は写しません。時間は「目安」で入ります）。</div>
             <button type="button" data-testid="tp-copy-fill" disabled={!fill && !made} onClick={() => runPrevWeekCopy('fill')} className="w-full text-left rounded-xl border-2 border-blue-600 bg-blue-50 hover:bg-blue-100 px-4 py-3 mb-2 disabled:opacity-40">
               <div className="font-bold text-blue-800">前の週に合わせる（この週で直したところは残す）</div>
-              <div className="text-[12px] text-slate-600 mt-0.5">まだ作っていない {fill}コマは前の週をそのまま写します。すでに作ってある {made}コマは、この週で直したところ（乗せた方・時間・運転者・到着）はそのまま残し、前の週のほうで変わったところ（前回写したあとに直した時間や車など）だけを写します。</div>
+              <div className="text-[12px] text-slate-600 mt-0.5">まだ作っていない {fill}コマはそのまま写します。作ってある {made}コマは、この週で直したところを残し、前の週で変わったところだけ写します。</div>
             </button>
             <button type="button" data-testid="tp-copy-all" onClick={() => runPrevWeekCopy('all')} className="w-full text-left rounded-xl border-2 border-slate-300 bg-white hover:bg-slate-50 px-4 py-3 mb-3">
               <div className="font-bold text-slate-800">前の週で全部上書きする（{fill + made}コマ）</div>
@@ -39041,7 +39041,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                     </div>); })}
                 </div>
               </div>
-              <div className="text-[11px] text-slate-400">スマホでは見るだけです。席・順番・運転者・出発時間を変えるときは、パソコン・iPadの座席表で変えてください。</div>
+              <div className="text-[11px] text-slate-400">スマホでは見るだけです（変更はパソコン・iPadで）。</div>
             </>)}
           </div>
         </div>); })(), document.body)}
@@ -39058,7 +39058,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 mb-4 text-[12px] text-slate-600" data-testid="tp-set-arrive-info">
               <div className="font-bold text-slate-700 mb-0.5">施設に着く時間（自動計算）</div>
               {['AM','PM'].map(s2 => { const st = _classStart(s2); return <div key={s2}>{s2 === 'AM' ? '午前' : '午後'}: {st ? <><b>{tsuHmMinus(st, 1)}</b><span className="text-slate-400">（{s2 === 'PM' ? '2単位目' : '1単位目'}の開始 {st} の1分前）</span></> : <span className="text-amber-700 font-bold">事業所情報の{s2 === 'PM' ? '2単位目' : '1単位目'}の時間が未入力です（各種設定→事業所情報）</span>}</div>; })}
-              <div className="text-[11px] text-slate-500 mt-1">お迎え時間は「その方の家に着く時間（ピンポンの時間）」です。事業所情報の1単位目・2単位目の開始時間の1分前に施設へ着くように逆算し、次の方の時間は「前の方の時間＋乗車にかかる時間＋移動時間」になります。</div>
+              <div className="text-[11px] text-slate-500 mt-1">お迎え時間＝家に着く時間。開始の1分前に施設へ着くよう逆算します。</div>
             </div>
             <div className="font-bold text-sm text-slate-700 mb-2">車の定員（運転者を除く乗車人数）</div>
             <div className="space-y-2 mb-4">
@@ -39079,7 +39079,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                   </div>); })()}
                 </div>
               ))}
-              <div className="text-[10px] text-slate-400">座席表の並び: 1列目は運転席と助手席です。2列目・3列目の席の数が車によって違うときに選んでください。</div>
+              <div className="text-[10px] text-slate-400">座席表の並び: 2列目・3列目の席の数が車で違うときに選びます。</div>
             </div>
             <div className="flex justify-end gap-2">
               <button onClick={()=>setTpSettings(false)} className="whitespace-nowrap px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">閉じる</button>
@@ -39511,7 +39511,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
               <div className="fixed inset-0 bg-slate-900/50 flex items-start justify-center p-4 pt-16" style={{zIndex:100000}} onClick={() => setFitUndoOpen(false)}>
                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-5" onClick={e => e.stopPropagation()} data-testid="fit-undo-modal">
                   <div className="font-bold text-slate-800 mb-1">{selectedPat?.name} 様の体力測定を元に戻す</div>
-                  <div className="text-[11px] text-slate-500 mb-3">保存のたびに直前の値を控えています(各記録10回まで)。「1つ前に戻す」で上書き前の値に戻ります。新しく作ってしまった記録は「削除」で取り消せます。</div>
+                  <div className="text-[11px] text-slate-500 mb-3">保存のたびに直前の値を控えます（10回まで）。「1つ前に戻す」で戻せます。</div>
                   <div className="max-h-72 overflow-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
                     {patRecords.length === 0 && <div className="p-4 text-xs text-slate-500">記録がありません</div>}
                     {patRecords.slice().sort((a, b) => (Number(b._savedAt) || 0) - (Number(a._savedAt) || 0)).map(r => { const h = (r._hist || [])[0]; return (
@@ -40111,7 +40111,7 @@ function TsuLoginSecurityCard({ appData, onSave, staffCtx, isAdmin }) {
             {staffCtx.role === 'manager' && (
               <div className="mt-3 pt-3 border-t border-emerald-200">
                 <div className="text-sm font-bold text-emerald-900">この端末をみんなで使う</div>
-                <div className="text-xs text-slate-600 mt-1 mb-2 leading-5">共有の iPad などで設定します。設定後はこの端末は店舗のログイン状態になり、職員は「どなたですか」で名前と PIN を選んで使います。誰が設定したかは記録に残ります。</div>
+                <div className="text-xs text-slate-600 mt-1 mb-2 leading-5">共有の iPad で設定します。職員は「どなたですか」で名前と PIN を選んで使います。</div>
                 <button type="button" onClick={async () => { if (!window.confirm('この端末を「みんなで使う」端末にします。あなたのログインは解除され、職員が名前と PIN で使えるようになります。よろしいですか？')) return; try { await staffCtx.sharedDevice(); } catch (e) { alert(e?.message || '設定できませんでした'); } }} className="px-3 py-2 rounded-lg text-sm font-bold bg-white border border-emerald-400 text-emerald-800">この端末をみんなで使う</button>
               </div>
             )}
@@ -40119,14 +40119,14 @@ function TsuLoginSecurityCard({ appData, onSave, staffCtx, isAdmin }) {
         )}
         {(isAdmin || staffCtx.role === 'manager' || staffCtx.role === 'super_admin') ? (
           <div className="grid gap-3">
-            <div className="text-xs text-slate-600 leading-5 bg-slate-50 rounded-lg p-2">いまは「30分さわらないと ID・パスワードの画面に戻る」です。「PIN を必須にする」を入れた店舗では、ID・パスワードの壁が <b>本人の PIN の壁</b> に置き換わり、下の分数で「どなたですか」(PIN)に戻ります。ID・パスワードは「完全にログアウトするまで」の時間で改めて求めます。</div>
+            <div className="text-xs text-slate-600 leading-5 bg-slate-50 rounded-lg p-2">「PIN を必須にする」と、さわらない時間が過ぎると <b>「どなたですか」(PIN)</b> に戻ります。ID・パスワードは「完全にログアウトするまで」の時間で求めます。</div>
             <div className="flex items-center justify-between gap-3"><div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">記録者の選択(PIN)に戻るまで</div><div className="text-xs text-slate-500">PIN 必須の店舗で、操作が無いとき。画面から利用者情報が消えます</div></div>
               <div className="shrink-0"><Sel value={Math.min(Number(sec.lockMin) || 30, 60)} opts={[[10,'10分'],[30,'30分'],[60,'60分']]} onChange={v => setSec({ lockMin: v })}/></div></div>
             <div className="flex items-center justify-between gap-3"><div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">完全にログアウトするまで</div><div className="text-xs text-slate-500">PIN 必須の店舗で、端末を使わなかった時間。次に使うときは ID・パスワードから</div></div>
               <div className="shrink-0"><Sel value={Math.min(Number(sec.logoutHours) || 168, 168)} opts={[[24,'24時間'],[168,'7日間']]} onChange={v => setSec({ logoutHours: v })}/></div></div>
-            <label data-testid="sec-row-pin" className="flex items-center justify-between gap-3 cursor-pointer"><div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">PIN を必須にする</div><div className="text-xs text-slate-500">本人登録（PIN）が済んでいない職員は「どなたですか」で選べなくなります{noAcct.length ? `（未登録: ${noAcct.length}名）` : ''}。PIN の間違いは 5回で15分停止 → さらに5回で60分 → さらに5回で管理者が解除するまで停止（店舗と管理者へメール）</div></div>
+            <label data-testid="sec-row-pin" className="flex items-center justify-between gap-3 cursor-pointer"><div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">PIN を必須にする</div><div className="text-xs text-slate-500">本人登録（PIN）が済んでいない職員は選べなくなります{noAcct.length ? `（未登録: ${noAcct.length}名）` : ''}。間違いが続くと PIN を止めます</div></div>
               <input type="checkbox" checked={!!sec.pinRequired} onChange={e => { if (e.target.checked && noAcct.length && !window.confirm(`まだ本人登録が済んでいない職員が ${noAcct.length} 名います（${noAcct.slice(0,5).join('・')}${noAcct.length>5?' …':''}）。この人たちは記録できなくなります。PIN を必須にしますか？`)) return; setSec({ pinRequired: e.target.checked }); }} className="w-6 h-6 shrink-0"/></label>
-            <label data-testid="sec-row-storeid" className="flex items-center justify-between gap-3 cursor-pointer"><div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">店舗IDでのログインを止める</div><div className="text-xs text-slate-500">全員が本人登録を終えたら。以後は本人のID・パスワードと「この端末をみんなで使う」だけでログインします</div></div>
+            <label data-testid="sec-row-storeid" className="flex items-center justify-between gap-3 cursor-pointer"><div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">店舗IDでのログインを止める</div><div className="text-xs text-slate-500">全員が本人登録を終えたら入れます</div></div>
               <input type="checkbox" checked={!!sec.storeLoginDisabled} onChange={e => { if (e.target.checked && !window.confirm('店舗IDでのログインを止めます。管理者の本人ログインから「この端末をみんなで使う」を設定できることを確認してから入れてください。よろしいですか？')) return; setSec({ storeLoginDisabled: e.target.checked }); }} className="w-6 h-6 shrink-0"/></label>
           </div>
         ) : <div className="text-xs text-slate-500">ロックや PIN の設定は管理者が行います。</div>}
@@ -48878,7 +48878,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
                 style={{width:'100%',padding:'8px 12px',border:'1px solid #ddd',borderRadius:8,fontSize:14,fontWeight:'bold',outline:'none',boxSizing:'border-box'}}/>
             </div>
             {/* ★ 2026-09-29 ユーザー指示: ここからの追加は常に「この日だけ」。恒常スタッフは各種設定の担当職員で登録 */}
-            <div style={{fontSize:11,color:'#0c4a6e',background:'#f0f9ff',border:'1px solid #bae6fd',borderRadius:8,padding:'8px 10px',marginBottom:16,lineHeight:1.5}}>ここで追加した担当者は<b>この日の日誌だけ</b>に表示されます（ヘルプなど）。今後も使うスタッフは「各種設定 → 担当職員」で登録してください。</div>
+            <div style={{fontSize:11,color:'#0c4a6e',background:'#f0f9ff',border:'1px solid #bae6fd',borderRadius:8,padding:'8px 10px',marginBottom:16,lineHeight:1.5}}>ここで追加した担当者は<b>この日の日誌だけ</b>に出ます。いつものスタッフは「各種設定→担当職員」で登録してください。</div>
             {ds.staff.filter(s=>s.name&&!s.id.startsWith('ds')&&(!s._tempHelp||s._helpDate===_diaryIsoDate)).length > 0 && (
               <div style={{marginBottom:16,maxHeight:140,overflowY:'auto',border:'1px solid #eee',borderRadius:8,padding:'4px 0'}}>
                 <div style={{fontSize:11,fontWeight:'bold',color:'#888',padding:'4px 10px 2px'}}>追加済み（削除可）</div>
@@ -49095,7 +49095,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             <div className="fixed inset-0 z-[70] bg-slate-900/50 flex items-center justify-center p-4" onClick={()=>setKenmuModal(null)}>
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5" onClick={e=>e.stopPropagation()} data-testid="kenmu-modal">
                 <div className="text-base font-bold text-slate-800 mb-1">「{kenmuModal}」を兼務する職員</div>
-                <div className="text-xs text-slate-500 mb-3">この日の担当職員に選ばれている人から選びます。兼務は同じ時間帯に1人1役として数えられるため、その人の本来の役職の人数が基準を下回らないかご確認ください。</div>
+                <div className="text-xs text-slate-500 mb-3">この日の担当職員から選びます。本来の役職の人数が足りなくならないかご確認ください。</div>
                 {stl.length === 0 ? (
                   <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3">先に担当職員欄で出勤者を選んでください（兼務できるのは別の役職の人です）。</div>
                 ) : (
