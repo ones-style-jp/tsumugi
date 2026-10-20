@@ -11207,7 +11207,7 @@ const longPressTapProps = (fn) => ({
 // ★ 2026-10-07(店舗要望: 定員15名などで運動をするとき、グループ分けとは別に利用者を自由な順に並べたい):
 //   サービス提供記録 入力の「並び替え」。 表示中(午前/午後)の利用者を長押しドラッグ(または上へ/下へ)で並べ替えて保存。
 //   並び順は店舗の設定 systemSettings.recordOrder(利用者IDの並び・全端末で共有)。 記録の中身は利用者IDで紐づくので、並べ替えても日誌・連絡帳などとずれない
-function RecordOrderModal({ rows, onSave, onClose, onReset }) {
+function RecordOrderModal({ rows, onSave, onClose, onReset, label }) {
   const [list, setList] = React.useState(() => rows.map(r => ({ id: r.id, name: r.name, kana: r.kana, status: r.status || '出席' })));
   const dnd = useLongPressReorder(list, setList);
   const mv = (i, d) => setList(prev => { const j = i + d; if (j < 0 || j >= prev.length) return prev; const a = [...prev]; [a[i], a[j]] = [a[j], a[i]]; return a; });
@@ -11216,7 +11216,8 @@ function RecordOrderModal({ rows, onSave, onClose, onReset }) {
     <div className="fixed inset-0 z-[10050] bg-slate-900/40 flex items-start justify-center p-3 sm:p-6" data-testid="rec-order-modal">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="px-4 py-3 border-b border-slate-200">
-          <div className="text-base font-bold text-slate-800">利用者の並び替え</div>
+          <div className="text-base font-bold text-slate-800">利用者の並び替え{label ? `（${label}）` : ''}</div>
+          {label && <div data-testid="rec-order-class" className="text-xs font-bold text-indigo-700 mt-0.5">{label}のクラスだけの並び順です（ほかの曜日・午前午後には効きません）</div>}
           <div className="text-xs text-slate-500 mt-0.5 leading-relaxed">名前を長押しして上下に動かすか、「上へ」「下へ」で並べ替えて「この順で保存」を押してください。表の並び(利用者名・状態・運動など)がこの順になります。振替・臨時の方もこの順に並びます。欠席・休止の方はこれまでどおり下にまとめて表示します。</div>
         </div>
         <div className="flex-1 overflow-y-auto p-3 space-y-1.5" data-testid="rec-order-list">
@@ -11232,7 +11233,7 @@ function RecordOrderModal({ rows, onSave, onClose, onReset }) {
         </div>
         <div className="px-4 py-3 border-t border-slate-200 flex items-center gap-2 flex-wrap">
           <button type="button" data-testid="rec-order-kana" onClick={() => setList(prev => [...prev].sort(tsuNameCmp))} className="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-600">あいうえお順に戻す</button>
-          {onReset && <button type="button" data-testid="rec-order-reset" onClick={onReset} title="保存した並び順を消して、ふりがなのあいうえお順に戻します(お店全体)" className="px-3 py-2 rounded-xl border border-red-300 bg-white text-xs font-bold text-red-700">保存した並び順を消す</button>}
+          {onReset && <button type="button" data-testid="rec-order-reset" onClick={onReset} title="このクラスの保存した並び順を消して、ふりがなのあいうえお順に戻します" className="px-3 py-2 rounded-xl border border-red-300 bg-white text-xs font-bold text-red-700">保存した並び順を消す</button>}
           <button type="button" onClick={onClose} className="whitespace-nowrap ml-auto px-4 py-2 rounded-xl bg-slate-100 text-sm font-bold text-slate-600">キャンセル</button>
           <button type="button" data-testid="rec-order-save" onClick={() => onSave(list.map(r => r.id))} className="px-5 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold">この順で保存</button>
         </div>
@@ -26210,7 +26211,13 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   }
 
   // ★ 2026-10-07: 店舗の並び順(systemSettings.recordOrder)で表示。状態の順(出席→振替→欠席→休止→休業)は従来どおり先
-  const _recOrder = appData.systemSettings?.recordOrder;
+  // ★ 2026-10-20(ユーザー要望「並び替えは AM・PM 分けて。AM を並べたら PM も次の日も紫になる。クラスごとに」): 並び順はクラス(曜日×午前/午後)ごとに
+  //   systemSettings.recordOrders['火_AM'] などへ保存。前のお店全体の並び順(recordOrder)は使わない
+  const _rvDow = (() => { const a = String(selectedDate || '').split('-').map(Number); return (a.length === 3 && a.every(n => !isNaN(n))) ? new Date(a[0], a[1] - 1, a[2]).getDay() : new Date().getDay(); })();
+  const _rvDowJ = ['日','月','火','水','木','金','土'][_rvDow];
+  const _recOrderKey = `${_rvDowJ}_${timeFilter === 'PM' ? 'PM' : 'AM'}`;
+  const _recOrderLabel = `${_rvDowJ}曜・${timeFilter === 'PM' ? '午後' : '午前'}`;
+  const _recOrder = (appData.systemSettings?.recordOrders || {})[_recOrderKey];
   const _recOrderOn = Array.isArray(_recOrder) && _recOrder.length > 0;
   if (filterMode === 'single' && _recOrderOn) {
     const _oi = new Map(_recOrder.map((id, i) => [String(id), i]));
@@ -26223,13 +26230,13 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const _recOrderRows = filterMode === 'single' ? displayRecords : [];
   const saveRecordOrder = (subset) => {
     const next = tsumugiMergeRecordOrder(appData.patients, _recOrder, subset);
-    onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), recordOrder: next } }, { manual: true, message: '✓ 利用者の並び順を保存しました' });
+    onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), recordOrders: { ...(appData.systemSettings?.recordOrders || {}), [_recOrderKey]: next } } }, { manual: true, message: `✓ ${_recOrderLabel}のクラスの並び順を保存しました` });
     setRecOrderOpen(false);
   };
   // ★ 2026-10-20(不具合修正): 保存した並び順を消して あいうえお順に戻す(並び順はお店全体で共通)
   const resetRecordOrder = () => {
-    if (!window.confirm('保存した並び順を消して、ふりがなのあいうえお順に戻しますか？\n（並び順は、すべての端末・午前午後・毎日で共通です）')) return;
-    onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), recordOrder: [] } }, { manual: true, message: '✓ 並び順を消して、あいうえお順に戻しました' });
+    if (!window.confirm(`${_recOrderLabel}のクラスの並び順を消して、ふりがなのあいうえお順に戻しますか？\n（ほかの曜日・午前午後の並び順はそのままです）`)) return;
+    onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), recordOrders: { ...(appData.systemSettings?.recordOrders || {}), [_recOrderKey]: [] } } }, { manual: true, message: `✓ ${_recOrderLabel}のクラスの並び順を消して、あいうえお順に戻しました` });
     setRecOrderOpen(false);
   };
   // ★ 本日分の人数集計 (出席/欠席/休止/振替/休業)。表に列は足さず、ヘッダーにチップ表示。検索の影響を受けないよう検索前に集計。
@@ -26461,8 +26468,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         className={`px-4 py-2 text-sm font-bold transition-all shrink-0 ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-50'}`}>{v}</button>
                     ))}
                   </div>
-                  <button type="button" data-testid="rec-order-btn" onClick={() => setRecOrderOpen(true)} title={_recOrderOn ? '保存した並び順で表示中です(お店全体・すべての端末・午前午後・毎日に効きます)。押すと並べ替え・消すことができます' : '表示中の利用者の並び順を変えます(長押しドラッグ)。保存した並び順はお店全体に効きます'} className={`px-3 py-2 rounded-xl text-sm font-bold border shrink-0 ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}>並び替え</button>
-                  {recOrderOpen && <RecordOrderModal rows={_recOrderRows} onSave={saveRecordOrder} onReset={_recOrderOn ? resetRecordOrder : null} onClose={() => setRecOrderOpen(false)}/>}
+                  <button type="button" data-testid="rec-order-btn" onClick={() => setRecOrderOpen(true)} title={_recOrderOn ? `${_recOrderLabel}のクラスは保存した並び順で表示中です。押すと並べ替え・消すことができます` : `${_recOrderLabel}のクラスの並び順を変えます(長押しドラッグ)。ほかの曜日・午前午後には効きません`} className={`px-3 py-2 rounded-xl text-sm font-bold border shrink-0 ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}>並び替え</button>
+                  {recOrderOpen && <RecordOrderModal rows={_recOrderRows} label={_recOrderLabel} onSave={saveRecordOrder} onReset={_recOrderOn ? resetRecordOrder : null} onClose={() => setRecOrderOpen(false)}/>}
                   {attCountChips && <div className="hidden sm:block">{attCountChips}</div>}
               </div>
             )}
@@ -26624,10 +26631,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       )}
 
       {_rvMarks.length > 0 && (
-        <div data-testid="rv-marks-bar" className="no-print flex items-center gap-2 flex-wrap px-3 py-1.5 mb-1 rounded-lg bg-amber-50 border border-amber-300 text-[13px] font-bold text-amber-900">
+        <div data-testid="rv-marks-bar" className="no-print flex items-center gap-2 flex-wrap px-3 py-1.5 mb-1 rounded-lg bg-blue-50 border border-blue-200 text-[13px] font-bold text-blue-900">
           <span>印を付けた方 {_rvMarks.length}名</span>
-          <span className="text-[11px] font-normal text-amber-800">（名前を長押しで付け外し・この端末の表示だけ）</span>
-          <button type="button" data-testid="rv-marks-clear" onClick={() => _setRvMarks([])} className="ml-auto px-3 py-1 rounded-lg bg-white border border-amber-400 text-amber-900">印をすべて外す</button>
+          <span className="text-[11px] font-normal text-blue-800">（名前を長押しで付け外し・この端末の表示だけ）</span>
+          <button type="button" data-testid="rv-marks-clear" onClick={() => _setRvMarks([])} className="ml-auto px-3 py-1 rounded-lg bg-white border border-blue-300 text-blue-900">印をすべて外す</button>
         </div>
       )}
       <style>{`#record-table tbody tr { min-height: 32px !important; } #record-table tbody tr td { min-height: 32px !important; padding-top: 2px !important; padding-bottom: 2px !important; box-sizing: border-box !important; } /* 個別運動列: 他の列と同じ行高に収める (min-height強制を外す) */ #record-table tbody tr td[data-ind-cell] { min-height: 0 !important; height: auto !important; max-height: none !important; overflow: visible !important; vertical-align: middle !important; }  #record-table tr.readonly-row input:disabled, #record-table tr.readonly-row button:disabled, #record-table tr.readonly-row textarea:disabled, #record-table tr.readonly-row select:disabled { opacity: 1 !important; color: #000 !important; -webkit-text-fill-color: #000 !important; } /* 列見出しを縦スクロール時も常に上部固定 + 行高を狭く */ #record-table thead th { position: -webkit-sticky !important; position: sticky !important; top: 0 !important; height: 32px !important; min-height: 32px !important; max-height: 32px !important; padding-top: 4px !important; padding-bottom: 4px !important; line-height: 1.1 !important; font-size: 11px !important; }`}</style>
@@ -26914,14 +26921,13 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     </button>
                     );})}
                 </div>}
-                <input type="text" disabled={isReadOnly} value={p.tokki||''} maxLength={TOKKI_MAX} title="100文字まで（それ以上は支援経過表へ）" onChange={e=>updateRecord(p.id,'tokki',e.target.value.slice(0, TOKKI_MAX))} placeholder={isReadOnly?'':(isAbsent?'欠席理由...':(isPause?'休止中の特記...':'特記...'))} className="mt-2 w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-50"/>{!isReadOnly && <div className="text-right -mt-0.5"><CharCount value={p.tokki} max={TOKKI_MAX}/></div>}
-                {!isReadOnly && !isAbsent && !isPause && (
-                  <div className="mt-1.5 flex items-center gap-2">
-                    <TsuTokkiPresetSelect appData={appData} testid={`rv-ctokki-pick-${p.id}`} label="一言を選ぶ" onPick={(ph) => updateRecord(p.id, 'tokki', tsuTokkiAppend(p.tokki, ph))}
-                      className="flex-1 min-w-0 h-11 px-2 text-[15px] font-bold border border-slate-300 rounded-lg bg-white text-slate-700 outline-none"/>
-                    {!appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-ctokki-mic-${p.id}`} onText={(t) => updateRecord(p.id, 'tokki', tsuTokkiAppend(p.tokki, t))} className="w-12 h-11" size={20}/>}
-                  </div>
-                )}
+                {/* ★ 2026-10-20(ユーザー指示「一言と音声は欄の左側に」): 一言・マイク・特記を1行に */}
+                <div className="mt-2 flex items-center gap-1.5">
+                  {!isReadOnly && !isAbsent && !isPause && <TsuTokkiPresetSelect appData={appData} testid={`rv-ctokki-pick-${p.id}`} label="一言" onPick={(ph) => updateRecord(p.id, 'tokki', tsuTokkiAppend(p.tokki, ph))}
+                    className="shrink-0 w-[4.5rem] h-11 px-1 text-[14px] font-bold border border-slate-300 rounded-lg bg-white text-slate-700 outline-none"/>}
+                  {!isReadOnly && !isAbsent && !isPause && !appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-ctokki-mic-${p.id}`} onText={(t) => updateRecord(p.id, 'tokki', tsuTokkiAppend(p.tokki, t))} className="w-11 h-11" size={20}/>}
+                  <input type="text" disabled={isReadOnly} value={p.tokki||''} maxLength={TOKKI_MAX} title="100文字まで（それ以上は支援経過表へ）" onChange={e=>updateRecord(p.id,'tokki',e.target.value.slice(0, TOKKI_MAX))} placeholder={isReadOnly?'':(isAbsent?'欠席理由...':(isPause?'休止中の特記...':'特記...'))} className="flex-1 min-w-0 h-11 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none disabled:opacity-50"/>
+                </div>{!isReadOnly && <div className="text-right -mt-0.5"><CharCount value={p.tokki} max={TOKKI_MAX}/></div>}
               </div>
             );
           })}
@@ -27335,6 +27341,14 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         //   既定=表示(通常運用)。 押すと利用者家族の閲覧画面にだけ非表示。
                         //   ケアマネには設定に関わらず常に表示(閲覧側ゲートで cmViewerMode は素通し)。
                         <div style={{display:'flex',gap:2,alignItems:'stretch',height:'100%'}}>
+                          {/* ★ 2026-10-20(店舗要望・ユーザー指示「欄の左側に」): 一言を選んで足す・マイクで声の入力 */}
+                          {!isReadOnly && !isAbsent && !isPause && (
+                            <div style={{display:'flex',flexDirection:'column',gap:2,flexShrink:0,width:44,justifyContent:'center'}}>
+                              <TsuTokkiPresetSelect appData={appData} testid={`rv-tokki-pick-${p.id}`} onPick={(ph) => updateRecord(p.id, 'tokki', tsuTokkiAppend(p.tokki, ph))}
+                                className="w-full text-[11px] font-bold border border-slate-300 rounded bg-white text-slate-700 outline-none" style={{height:24,padding:'0 2px'}}/>
+                              {!appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-tokki-mic-${p.id}`} onText={(t) => updateRecord(p.id, 'tokki', tsuTokkiAppend(p.tokki, t))} className="w-11" style={{height:24}} size={14}/>}
+                            </div>
+                          )}
                           {/* ★ 欠席・休止の特記=休みの理由は家族へ必ず表示する(2026-08-21): 非表示ボタン自体を出さない */}
                           {hasTokki && !isReadOnly && p.status !== '欠席' && p.status !== '休止' && (
                             <button type="button" onClick={toggleVisible}
@@ -27351,14 +27365,6 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                             style={{fontSize:14,lineHeight:1.4,padding:'2px 6px',height:'100%'}}
                             placeholder={isReadOnly ? "" : (isAbsent ? "欠席理由等..." : "特記事項...")} />
                           {!isReadOnly && <CharCount value={p.tokki} max={TOKKI_MAX} style={{alignSelf:'flex-end'}}/>}
-                          {/* ★ 2026-10-20(店舗要望): 一言を選んで足す・マイクで声の入力 */}
-                          {!isReadOnly && !isAbsent && !isPause && (
-                            <div style={{display:'flex',flexDirection:'column',gap:2,flexShrink:0,width:44,justifyContent:'center'}}>
-                              <TsuTokkiPresetSelect appData={appData} testid={`rv-tokki-pick-${p.id}`} onPick={(ph) => updateRecord(p.id, 'tokki', tsuTokkiAppend(p.tokki, ph))}
-                                className="w-full text-[11px] font-bold border border-slate-300 rounded bg-white text-slate-700 outline-none" style={{height:24,padding:'0 2px'}}/>
-                              {!appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-tokki-mic-${p.id}`} onText={(t) => updateRecord(p.id, 'tokki', tsuTokkiAppend(p.tokki, t))} className="w-11" style={{height:24}} size={14}/>}
-                            </div>
-                          )}
                         </div>
                       );
                     })()}
@@ -27640,15 +27646,18 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 </div>
                 <div>
                   <div style={{fontSize:16,fontWeight:'bold',color:'#0f172a',marginBottom:8}}>{isAbsent?'欠席理由':'様子・特記'}</div>
-                  <textarea ref={_zoomTokkiRef} disabled={isReadOnly} defaultValue={p.tokki||''} key={`zoom-tokki-${p.id}-${zoomPid}`}
-                    onBlur={e=>updateRecord(p.id,'tokki',e.target.value)} rows={4}
-                    style={{width:'100%',boxSizing:'border-box',fontSize:19,lineHeight:1.7,padding:'12px 14px',border:'2px solid #94a3b8',borderRadius:14,outline:'none',background:'white',color:'#0f172a'}}/>
+                  <div style={{display:'flex',gap:10,alignItems:'stretch'}}>
+                  {/* ★ 2026-10-20(ユーザー指示「一言と音声は欄の左側に」) */}
                   {!isReadOnly && !isAbsent && !isPause && (() => { const _add = (ph) => { const el = _zoomTokkiRef.current; const next = tsuTokkiAppend(el ? el.value : p.tokki, ph); if (el) el.value = next; updateRecord(p.id, 'tokki', next); }; return (
-                    <div className="mt-2 flex items-center gap-2">
-                      <TsuTokkiPresetSelect appData={appData} testid="rv-ztokki-pick" label="一言を選ぶ" onPick={_add} className="flex-1 min-w-0 h-12 px-3 text-[17px] font-bold border-2 border-slate-300 rounded-xl bg-white text-slate-700 outline-none"/>
-                      {!appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid="rv-ztokki-mic" onText={_add} className="w-14 h-12" size={22}/>}
+                    <div className="flex flex-col gap-2 shrink-0" style={{width:96}}>
+                      <TsuTokkiPresetSelect appData={appData} testid="rv-ztokki-pick" label="一言" onPick={_add} className="w-full h-12 px-2 text-[17px] font-bold border-2 border-slate-300 rounded-xl bg-white text-slate-700 outline-none"/>
+                      {!appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid="rv-ztokki-mic" onText={_add} className="w-full h-12" size={22}/>}
                     </div>
                   ); })()}
+                  <textarea ref={_zoomTokkiRef} disabled={isReadOnly} defaultValue={p.tokki||''} key={`zoom-tokki-${p.id}-${zoomPid}`}
+                    onBlur={e=>updateRecord(p.id,'tokki',e.target.value)} rows={4}
+                    style={{flex:1,minWidth:0,width:'100%',boxSizing:'border-box',fontSize:19,lineHeight:1.7,padding:'12px 14px',border:'2px solid #94a3b8',borderRadius:14,outline:'none',background:'white',color:'#0f172a'}}/>
+                  </div>
                 </div>
               </div>
             </div>
@@ -27972,8 +27981,11 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   const [basicOpen, setBasicOpen] = useState(false); // ★ 2026-09-28: ご家族/ケアマネでは基本情報を折りたたみ(既定は閉)
   // ★ 2026-10-20(ユーザー要望): グラフの入れ物の幅を測り、記録が少ないときは間隔を広げて枠の幅いっぱいに描く
   const [_chW, _setChW] = useState({});
-  const _chRef = (k) => (el) => { if (!el) return; const w = el.clientWidth || 0; _setChW(prev => (Math.abs((prev[k] || 0) - w) > 4 ? { ...prev, [k]: w } : prev)); };
-  React.useEffect(() => { const h = () => _setChW({}); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
+  // ★ 2026-10-20(不具合修正・スマホでエラー React #185): 体温・血圧・脈拍が同じ印で測り、入れ物の幅が少しずつ違うと「測る→描き直す」が交互に続いた。
+  //   いちばんせまい幅だけを使い(広がる方向には変えない)、1つの印で直すのは6回まで
+  const _chN = React.useRef({});
+  const _chRef = (k) => (el) => { if (!el) return; const w = el.clientWidth || 0; if (!w) return; const cur = _chW[k]; if (cur && w >= cur - 4) return; if ((_chN.current[k] || 0) >= 6) return; _chN.current[k] = (_chN.current[k] || 0) + 1; _setChW(prev => (prev[k] && w >= prev[k] - 4) ? prev : { ...prev, [k]: w }); };
+  React.useEffect(() => { const h = () => { _chN.current = {}; _setChW({}); }; window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
   const _fillStep = (k, n, base, used) => (n > 0 && _chW[k] ? Math.max(base, Math.floor((_chW[k] - used - 2) / n)) : base);
   // familyMode 時の sticky top 既定値: stickyTopOffset 未指定なら 56 (FamilyView 内)
   const stickyTop = familyMode ? (stickyTopOffset != null ? stickyTopOffset : 56) : 0;

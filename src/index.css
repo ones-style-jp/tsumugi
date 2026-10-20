@@ -465,19 +465,19 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
   }
 }
 
-/* ★ 2026-10-20(店舗要望): 提供記録で押した行を薄い色＋枠で囲む(入力中=青)・名前の長押しで付けた印(オレンジ・何人でも)。
-   内側の影で描くので、各マスの色(血圧の色・○×など)の上に薄く重なる */
-#record-table tr[data-rv-mark] > td { box-shadow: inset 0 2px 0 #f59e0b, inset 0 -2px 0 #f59e0b, inset 0 0 0 999px rgba(245,158,11,0.12); }
-#record-table tr[data-rv-mark] > td:first-child { box-shadow: inset 2px 0 0 #f59e0b, inset 0 2px 0 #f59e0b, inset 0 -2px 0 #f59e0b, inset 0 0 0 999px rgba(245,158,11,0.12); }
-#record-table tr[data-rv-mark] > td:last-child { box-shadow: inset -2px 0 0 #f59e0b, inset 0 2px 0 #f59e0b, inset 0 -2px 0 #f59e0b, inset 0 0 0 999px rgba(245,158,11,0.12); }
-#record-table tr[data-rv-cur] > td { box-shadow: inset 0 2px 0 #3b82f6, inset 0 -2px 0 #3b82f6, inset 0 0 0 999px rgba(59,130,246,0.08); }
-#record-table tr[data-rv-cur] > td:first-child { box-shadow: inset 2px 0 0 #3b82f6, inset 0 2px 0 #3b82f6, inset 0 -2px 0 #3b82f6, inset 0 0 0 999px rgba(59,130,246,0.08); }
-#record-table tr[data-rv-cur] > td:last-child { box-shadow: inset -2px 0 0 #3b82f6, inset 0 2px 0 #3b82f6, inset 0 -2px 0 #3b82f6, inset 0 0 0 999px rgba(59,130,246,0.08); }
-#record-table tr[data-rv-cur][data-rv-mark] > td { box-shadow: inset 0 2px 0 #3b82f6, inset 0 -2px 0 #3b82f6, inset 0 0 0 999px rgba(245,158,11,0.14); }
-#record-table tr[data-rv-cur][data-rv-mark] > td:first-child { box-shadow: inset 2px 0 0 #3b82f6, inset 0 2px 0 #3b82f6, inset 0 -2px 0 #3b82f6, inset 0 0 0 999px rgba(245,158,11,0.14); }
-#record-table tr[data-rv-cur][data-rv-mark] > td:last-child { box-shadow: inset -2px 0 0 #3b82f6, inset 0 2px 0 #3b82f6, inset 0 -2px 0 #3b82f6, inset 0 0 0 999px rgba(245,158,11,0.14); }
-[data-rec-card][data-rv-mark] { background-color: #fffbeb !important; border-color: #f59e0b !important; }
-[data-rec-card][data-rv-cur] { box-shadow: 0 0 0 3px #3b82f6 !important; }
+/* ★ 2026-10-20(店舗要望): 提供記録で押した行を薄い色＋枠で囲む(入力中)・名前の長押しで付けた印(何人でも)。
+   ★ 2026-10-20(ユーザー指示): 印と入力中は同じ青系に。背景に色を付けるので、枠は薄い色(印=blue-200・入力中=blue-300)。内側の影で描くので各マスの色の上に薄く重なる */
+#record-table tr[data-rv-mark] > td { box-shadow: inset 0 2px 0 #bfdbfe, inset 0 -2px 0 #bfdbfe, inset 0 0 0 999px rgba(59,130,246,0.13); }
+#record-table tr[data-rv-mark] > td:first-child { box-shadow: inset 2px 0 0 #bfdbfe, inset 0 2px 0 #bfdbfe, inset 0 -2px 0 #bfdbfe, inset 0 0 0 999px rgba(59,130,246,0.13); }
+#record-table tr[data-rv-mark] > td:last-child { box-shadow: inset -2px 0 0 #bfdbfe, inset 0 2px 0 #bfdbfe, inset 0 -2px 0 #bfdbfe, inset 0 0 0 999px rgba(59,130,246,0.13); }
+#record-table tr[data-rv-cur] > td { box-shadow: inset 0 2px 0 #93c5fd, inset 0 -2px 0 #93c5fd, inset 0 0 0 999px rgba(59,130,246,0.06); }
+#record-table tr[data-rv-cur] > td:first-child { box-shadow: inset 2px 0 0 #93c5fd, inset 0 2px 0 #93c5fd, inset 0 -2px 0 #93c5fd, inset 0 0 0 999px rgba(59,130,246,0.06); }
+#record-table tr[data-rv-cur] > td:last-child { box-shadow: inset -2px 0 0 #93c5fd, inset 0 2px 0 #93c5fd, inset 0 -2px 0 #93c5fd, inset 0 0 0 999px rgba(59,130,246,0.06); }
+#record-table tr[data-rv-cur][data-rv-mark] > td { box-shadow: inset 0 2px 0 #93c5fd, inset 0 -2px 0 #93c5fd, inset 0 0 0 999px rgba(59,130,246,0.16); }
+#record-table tr[data-rv-cur][data-rv-mark] > td:first-child { box-shadow: inset 2px 0 0 #93c5fd, inset 0 2px 0 #93c5fd, inset 0 -2px 0 #93c5fd, inset 0 0 0 999px rgba(59,130,246,0.16); }
+#record-table tr[data-rv-cur][data-rv-mark] > td:last-child { box-shadow: inset -2px 0 0 #93c5fd, inset 0 2px 0 #93c5fd, inset 0 -2px 0 #93c5fd, inset 0 0 0 999px rgba(59,130,246,0.16); }
+[data-rec-card][data-rv-mark] { background-color: #eff6ff !important; border-color: #bfdbfe !important; }
+[data-rec-card][data-rv-cur] { box-shadow: 0 0 0 3px #93c5fd !important; }
 @media print { #record-table tr[data-rv-cur] > td, #record-table tr[data-rv-mark] > td { box-shadow: none !important; } }
 
 /* ★ 2026-10-20(不具合修正): スマホでは2列のまとまりを1列に(分析(稼働)の男女比・介護度内訳が見切れた) */
