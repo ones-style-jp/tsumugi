@@ -18530,6 +18530,7 @@ function StaffInviteAcceptView({ code, onLogin }) {
 }
 // ★ 2026-10-19 段階4: 共有 iPad で本人に切り替えるときの PIN 入力(4桁)
 function TsuPinPrompt({ member, onVerify, onCancel }) {
+  useTsuBackLock(true);
   const [pin, setPin] = React.useState(''); const [err, setErr] = React.useState(''); const [busy, setBusy] = React.useState(false);
   const go = async (v) => { if (busy) return; setBusy(true); setErr(''); try { await onVerify(v); } catch (e) { setErr(e?.message || 'PIN が違います'); setPin(''); setBusy(false); } };
   const press = (d) => { if (busy) return; const n = (pin + d).slice(0, 4); setPin(n); if (n.length === 4) go(n); };
@@ -19165,6 +19166,7 @@ function GlobalAiPanel({ staffSession }) {
 }
 // ★ 2026-10-17(ユーザー要望): 店舗で初めて使う端末に一度だけ出す「この端末の名前」の確認。候補(店舗名1 など)が入っているので、そのまま「この名前で使う」か、書き換えて保存
 function TsuDeviceNamePrompt({ suggested, onDone }) {
+  useTsuBackLock(true);
   const [v, setV] = React.useState(suggested || '');
   const ref = React.useRef(null);
   React.useEffect(() => { const t = setTimeout(() => { try { ref.current && ref.current.select(); } catch {} }, 150); return () => clearTimeout(t); }, []);
@@ -24541,8 +24543,20 @@ export default function App() {
 }
 
 // === RecordView ===
+// ★ 2026-10-20(ユーザー報告「スマホで小窓を開いてスクロールすると後ろの画面が動く」): 小窓が開いている間だけ後ろの画面(本体の箱・記録の表)のスクロールを止める。
+//   入れ子で開いても数で管理し、最後の小窓が閉じたら元に戻す
+let _tsuBackLockN = 0;
+const useTsuBackLock = (on = true) => {
+  React.useEffect(() => {
+    if (!on || typeof document === 'undefined') return;
+    if (!document.getElementById('tsu-back-lock-style')) { const st = document.createElement('style'); st.id = 'tsu-back-lock-style'; st.textContent = 'html.tsu-back-lock,html.tsu-back-lock body{overflow:hidden!important;overscroll-behavior:none!important}html.tsu-back-lock #tsuContentScroller,html.tsu-back-lock .record-view-scroll{overflow:hidden!important;touch-action:none!important}'; document.head.appendChild(st); }
+    _tsuBackLockN++; document.documentElement.classList.add('tsu-back-lock');
+    return () => { _tsuBackLockN = Math.max(0, _tsuBackLockN - 1); if (!_tsuBackLockN) document.documentElement.classList.remove('tsu-back-lock'); };
+  }, [on]);
+};
 // ★ 2026-10-20(ユーザー要望): 提供記録の運動を一括で○(実際に行ったものだけを記録する前提。行わなかった人は×に)
 function TsuBulkExerciseModal({ rows, items, baselineOf, onApply, onClose }) {
+  useTsuBackLock(true);
   const [step, setStep] = React.useState(1);
   const [picked, setPicked] = React.useState(() => new Set());
   const [cells, setCells] = React.useState({}); // `${rowId}|${itemId}` -> 'o' | 'x'
@@ -24562,13 +24576,13 @@ function TsuBulkExerciseModal({ rows, items, baselineOf, onApply, onClose }) {
     <div role="dialog" aria-modal="true" data-testid="bulk-ex-modal" style={{position:'fixed',inset:0,zIndex:2000030,background:'rgba(15,23,42,0.55)',display:'flex',alignItems:'center',justifyContent:'center',padding:12}}>
       <div style={{width:'100%',maxWidth:720,maxHeight:'92vh',display:'flex',flexDirection:'column',background:'white',borderRadius:16,boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
         <div style={{padding:'14px 16px 8px'}}>
-          <div style={{fontSize:17,fontWeight:'bold',color:'#1e293b'}}>運動を一括で○{step === 2 ? '（行わなかった方は×に）' : ''}</div>
+          <div style={{fontSize:17,fontWeight:'bold',color:'#1e293b'}}>運動の一括○{step === 2 ? '（行わなかった方は×に）' : ''}</div>
           <div data-testid="bulk-ex-caution" style={{marginTop:8,padding:'8px 10px',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:10,fontSize:12.5,color:'#991b1b',lineHeight:1.6}}>
             実際に行った運動だけを記録してください。行っていない運動に○が残ったまま保存すると、記録と実態が合わず、<b>運営指導で減算や返還の対象になる可能性</b>があります。行わなかった方は必ず「×」にしてください。
           </div>
           <div style={{fontSize:12,color:'#64748b',marginTop:6,lineHeight:1.6}}>対象は出席している方だけです。提供内容(基準値)が「ー」の方（運動なし）と、基準値に数値が無い方には○を付けません。すでに入力済みのマスはそのままです。個別機能訓練は対象外（1人ずつ確認して入力してください）。</div>
         </div>
-        <div style={{overflow:'auto',padding:'0 12px',flex:1}}>
+        <div style={{overflow:'auto',padding:'0 12px',flex:1,overscrollBehavior:'contain',WebkitOverflowScrolling:'touch'}}>
           {step === 1 ? (
             <div data-testid="bulk-ex-items" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:8,padding:'6px 2px 10px'}}>
               {items.map(it => (
@@ -26513,8 +26527,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 ), document.body)}
               </div>
             )}
-            <div data-testid="rec-actions" className="w-full sm:w-auto sm:ml-auto grid grid-cols-3 sm:flex items-center gap-1.5 sm:gap-2 sm:flex-wrap">
-              {filterMode === 'single' && <button type="button" data-testid="rec-act-bulkex" onClick={() => setBulkExOpen(true)} className="col-span-3 sm:col-span-1 order-last sm:order-none bg-white border border-indigo-300 text-indigo-700 hover:bg-indigo-50 px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="出席している方の運動をまとめて○にします(行わなかった方は×に)">運動を一括で○</button>}
+            <div data-testid="rec-actions" className={`w-full sm:w-auto sm:ml-auto grid ${filterMode === 'single' ? 'grid-cols-4' : 'grid-cols-3'} sm:flex items-center gap-1.5 sm:gap-2 sm:flex-wrap`}>
+              {filterMode === 'single' && <button type="button" data-testid="rec-act-bulkex" onClick={() => setBulkExOpen(true)} className="order-last sm:order-none bg-white border border-indigo-300 text-indigo-700 hover:bg-indigo-50 px-1 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="出席している方の運動をまとめて○にします(行わなかった方は×に)">一括○</button>}
               {bulkExOpen && ReactDOM.createPortal(<TsuBulkExerciseModal
                 rows={(displayRecords || []).filter(r => ['出席', '臨時', '振替'].includes(r.status || '出席'))}
                 items={effExerciseItems(appData.systemSettings).filter(it => it.type !== 'individual')}
@@ -55555,14 +55569,15 @@ function AbsenceFaxView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
                 const dateStr = `${day.y}-${String(day.m).padStart(2,'0')}-${String(day.d).padStart(2,'0')}`;
                 const absences = absencesByDate[dateStr] || [];
                 const today = new Date(); today.setHours(0,0,0,0);
-                const isToday = new Date(dateStr).getTime()===today.getTime();
+                // ★ 2026-10-20: new Date('YYYY-MM-DD') は世界標準時の0時になり、日本時間では今日と一致しなかった(「今日」の印が出ていなかった)。日付の文字で比べる
+                const isToday = dateStr === `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
                 const isClosed = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(di);
                 return (
-                  <div key={di} style={{minHeight:90,minWidth:0,borderRight:'1px solid #f1f5f9',padding:_absPhone?'6px 2px 4px':'6px 4px 4px',opacity:day.other?0.75:1,background:isClosed?'#f1f5f9':isToday?'#fffbeb':'white',position:'relative'}}>
+                  <div key={di} data-testid={isToday ? 'abs-today' : undefined} style={{minHeight:90,minWidth:0,borderRight:'1px solid #f1f5f9',padding:_absPhone?'6px 2px 4px':'6px 4px 4px',opacity:day.other?0.75:1,background:isClosed?'#f1f5f9':isToday?'#fffbeb':'white',position:'relative',...(isToday ? { boxShadow:'inset 0 0 0 3px #f59e0b', borderRadius:6, zIndex:1 } : {})}}>{/* ★ 2026-10-20(ユーザー要望): 今日の日付を枠で目立たせる */}
                     <div style={{fontSize:13,fontWeight:'bold',color:isClosed?'#cbd5e1':di===0?'#dc2626':di===6?'#2563eb':'#334155',marginBottom:4,display:'flex',alignItems:'center',gap:4}}>
                       {day.other ? `${day.m}/${day.d}` : day.d}
                       {day.other&&<span style={{fontSize:9,color:'#94a3b8'}}>翌月</span>}
-                      {isToday&&!isClosed&&<span style={{fontSize:9,background:'#f59e0b',color:'white',borderRadius:4,padding:'1px 4px',fontWeight:'bold'}}>今日</span>}
+                      {isToday&&!isClosed&&<span style={{fontSize:9,background:'#f59e0b',color:'white',borderRadius:4,padding:'1px 3px',fontWeight:'bold',whiteSpace:'nowrap',flexShrink:0}}>今日</span>}
                       {isClosed&&<span style={{fontSize:9,color:'#64748b'}}>定休</span>}
                     </div>
                     {absences.map(({patient:pat, tokki, furikae},ai)=>{
