@@ -57464,8 +57464,8 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
               const esc = (s)=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
               const th = 'border:1px solid #94a3b8;background:#e2e8f0;padding:4px 6px;font-size:10px;white-space:nowrap;text-align:center;';
               const td = 'border:1px solid #94a3b8;padding:4px 6px;font-size:11px;text-align:center;';
-              const head = `<tr><th style="${th}">日付</th><th style="${th}">担当</th>${fitItems.map(it=>`<th style="${th}">${esc(it.name)}<br/><span style="font-weight:normal;color:#475569;">（${esc(it.unit)}）</span></th>`).join('')}</tr>`;
-              const rows = fitRecs.map(r=>`<tr><td style="${td}font-weight:bold;white-space:nowrap;">${esc(r.date)}</td><td style="${td}white-space:nowrap;">${esc(r.recorder||'')}</td>${fitItems.map(it=>{const v=r.values?.[it.id];return `<td style="${td}">${(v!==''&&v!=null)?`<b>${esc(v)}</b>`:''}</td>`;}).join('')}</tr>`).join('');
+              const head = `<tr><th style="${th}">日付</th><th style="${th}">担当</th>${fitItems.map(it=>`<th style="${th}">${esc(it.name)}<br/><span style="font-weight:normal;color:#475569;">（${esc(it.unit)}）</span></th>`).join('')}<th style="${th}">測定メモ</th></tr>`;
+              const rows = fitRecs.map(r=>`<tr><td style="${td}font-weight:bold;white-space:nowrap;">${esc(r.date)}</td><td style="${td}white-space:nowrap;">${esc(r.recorder||'')}</td>${fitItems.map(it=>{const v=r.values?.[it.id];const nt=r.notes?.[it.id];return `<td style="${td}">${(v!==''&&v!=null)?`<b>${esc(v)}</b>`:''}${nt?`<div style="font-size:9px;color:#475569;">（${esc(nt)}）</div>`:''}</td>`;}).join('')}<td style="${td}text-align:left;font-size:10px;">${esc(r.memo||'')}</td></tr>`).join('');
               const html = `<div style="font-family:sans-serif;">
                 <div style="text-align:center;font-size:16px;font-weight:bold;letter-spacing:6px;margin-bottom:8px;">体力測定の記録</div>
                 <table style="width:100%;border-collapse:collapse;margin-bottom:8px;"><tr>
@@ -57501,13 +57501,15 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                             <th className="px-3 py-2 text-left font-bold text-slate-500 whitespace-nowrap sticky left-0 bg-slate-50 z-10" style={{boxShadow:'2px 0 0 #e2e8f0'}}>日付</th>
                             <th className="px-3 py-2 text-left font-bold text-slate-500 whitespace-nowrap">担当</th>
                             {fitItems.map(it=><th key={it.id} className="px-3 py-2 text-center font-bold text-slate-500 whitespace-nowrap">{it.name}<br/><span className="font-normal text-slate-400">（{it.unit}）</span></th>)}
+                            <th className="px-3 py-2 text-left font-bold text-slate-500 whitespace-nowrap">測定メモ</th>
                           </tr></thead>
                           <tbody>
                             {fitRecs.map((r,ri)=>(
                               <tr key={r.id} className={ri%2?'bg-slate-50':'bg-white'}>
                                 <td className={`px-3 py-1.5 font-bold text-slate-600 whitespace-nowrap sticky left-0 z-10 ${ri%2?'bg-slate-50':'bg-white'}`} style={{boxShadow:'2px 0 0 #e2e8f0'}}>{r.date}</td>
                                 <td className="px-3 py-1.5 text-slate-500 whitespace-nowrap">{r.recorder||'—'}</td>
-                                {fitItems.map(it=>{ const v=r.values?.[it.id]; return <td key={it.id} className="px-3 py-1.5 text-center">{(v!==''&&v!=null)?<span className="font-bold text-slate-700">{v}</span>:<span className="text-slate-300">—</span>}</td>; })}
+                                {fitItems.map(it=>{ const v=r.values?.[it.id]; const nt=r.notes?.[it.id]; return <td key={it.id} className="px-3 py-1.5 text-center">{(v!==''&&v!=null)?<span className="font-bold text-slate-700">{v}</span>:<span className="text-slate-300">—</span>}{nt ? <div data-testid={`pf-fit-note-${it.id}`} className="text-[10px] text-slate-500 leading-tight whitespace-nowrap">（{nt}）</div> : null}</td>; })}
+                                <td data-testid="pf-fit-memo" className="px-3 py-1.5 text-left text-[11px] text-slate-600" style={{minWidth:160,maxWidth:280}}>{r.memo || <span className="text-slate-300">—</span>}</td>
                               </tr>
                             ))}
                           </tbody>
