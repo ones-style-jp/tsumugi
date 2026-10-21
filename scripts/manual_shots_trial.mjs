@@ -75,4 +75,25 @@ const seedTp = (page, custom) => page.evaluate(([iso, custom]) => { const d = JS
   await go(page, 'print'); await page.locator('button:visible', { hasText: /^各種入力/ }).first().click().catch(() => {}); await page.waitForTimeout(600);
   await shot('trial_cb_hub', async () => { const c = page.getByTestId('cb-hub-renraku').locator('xpath=ancestor::div[contains(@class,"rounded-2xl")][1]'); await page.screenshot({ path: `${OUT}/trial_cb_hub.png`, clip: await clipOf(page, c, 4) }); });
   await page.context().close(); }
+// ---- 連絡帳 送り時間反映(PC・2026-10-21): 今日の方3名が「今日+2日」にも来る・次回の送迎表に送りの時間
+{ const page = await open({ viewport: { width: 1280, height: 900 } });
+  const nx = new Date(); nx.setDate(nx.getDate() + 2); if (nx.getDay() === 0) nx.setDate(nx.getDate() + 1); const nIso = `${nx.getFullYear()}-${String(nx.getMonth() + 1).padStart(2, '0')}-${String(nx.getDate()).padStart(2, '0')}`;
+  const P = await page.evaluate(([iso, nIso]) => { const d = JSON.parse(localStorage.getItem('daycareAppData_v3')); d.diarySettings.cars = [{ id: 'c1', name: '1号車', type: '', cap: '6' }];
+    d.systemSettings = d.systemSettings || {}; d.systemSettings.transportEnabled = true; const dw = new Date(iso + 'T00:00:00').getDay(), nw = new Date(nIso + 'T00:00:00').getDay();
+    const act = d.patients.filter(p => p.status === '利用中' && !p.endDate).slice(0, 4);
+    d.patients.forEach(p => { if (act.includes(p)) return; if (Array.isArray(p.scheduleAmPm)) { p.scheduleAmPm = [...p.scheduleAmPm]; p.scheduleAmPm[dw] = ''; } });
+    act.forEach(p => { p.scheduleAmPm = ['', '', '', '', '', '', '']; p.scheduleAmPm[dw] = 'AM'; p.scheduleAmPm[nw] = 'AM'; p.scheduleChangeHistory = []; });
+    d.ticketRecords = (d.ticketRecords || []).filter(t => !act.some(p => p.id === t.patientId)); d.monthlyShifts = {};
+    d.transportPlans = { [`${nIso}_AM`]: { cars: { c1: act.slice(0, 3).map((p, i) => ({ pid: p.id, t: `8:${30 + i * 6}` })) }, walkers: [{ pid: act[3].id, t: '徒歩' }], others: [], un: [], dropAt: { [String(act[0].id)]: '12:36', [String(act[1].id)]: '12:29', [String(act[2].id)]: '12:22' }, dropAtAuto: { [String(act[0].id)]: true, [String(act[1].id)]: true, [String(act[2].id)]: true }, _savedAt: Date.now() } };
+    localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); return act.map(p => p.id); }, [iso, nIso]);
+  await go(page, 'print', { date: iso });
+  await page.locator('button:visible', { hasText: /^各種入力/ }).first().click().catch(() => {}); await page.waitForTimeout(500);
+  await page.getByTestId('cb-hub-renraku').click(); await page.waitForTimeout(700);
+  await shot('trial_cb_renraku_btn', async () => { const hd = page.getByTestId('renraku-dropnote-btn').locator('xpath=ancestor::div[1]'); const bb = await hd.boundingBox(); await page.screenshot({ path: `${OUT}/trial_cb_renraku_btn.png`, clip: { x: bb.x - 16, y: bb.y - 14, width: bb.width + 32, height: bb.height + 28 } }); });
+  await page.getByTestId('renraku-dropnote-btn').click(); await page.waitForTimeout(600);
+  await shot('trial_cb_dropnote', async () => { const m = page.getByTestId('cb-dropnote-modal').locator('> div').first(); await page.screenshot({ path: `${OUT}/trial_cb_dropnote.png`, clip: await clipOf(page, m, 4) }); });
+  await page.getByTestId('cb-dropnote-apply').click(); await page.waitForTimeout(900);
+  await page.locator('button:visible', { hasText: /^キャンセル$/ }).last().click().catch(() => {}); await page.waitForTimeout(600);
+  await shot('trial_cb_dropnote_card', async () => { const ln = page.getByTestId(`cb-dropnote-${P[0]}`).first(); await ln.scrollIntoViewIfNeeded(); await page.waitForTimeout(300); const box = ln.locator('xpath=ancestor::div[2]'); await page.screenshot({ path: `${OUT}/trial_cb_dropnote_card.png`, clip: await clipOf(page, box, 8) }); });
+  await page.context().close(); }
 console.log('done', done.length, done.join(' ')); await b.close();
