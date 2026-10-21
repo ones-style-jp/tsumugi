@@ -501,15 +501,21 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
   .tsu-rv-cards > [data-rec-card] .mb-2, .tsu-rv-cards > [data-rec-card] .mb-2\.5 { margin-bottom: 6px !important; }
 }
 
-/* ★ 2026-10-21(ユーザー要望「大きい画面では左右の空白が大きい」): パソコンの大きい画面では中身の幅の上限を広げる。
-   14インチ(画面の幅 1680px 未満)までは今までどおり。印刷には効かない(screen だけ)。
-   tsu-wide = ホーム・分析(稼働)・分析(個人)の利用者一覧 / tsu-wide-t = 表の画面(送迎表・月次実績・カレンダー・勤務表・利用者マスタ。27インチだけ) */
+/* ★ 2026-10-21(ユーザー要望「大きい画面では左右の空白が大きい」→「14インチでも空く。9〜10インチのタブレットでも横幅きっちり使って」):
+   タブレット・パソコン(画面の幅 768px 以上)では、ホーム・分析(稼働)・分析(個人)・利用者一覧・管理局の最初の画面(tsu-wide)と
+   表の画面(送迎表・月次実績・カレンダー・勤務表・利用者マスタ = tsu-wide-t)は画面の幅いっぱい。
+   入力の画面(各種設定・利用者マスタの詳細・災害時・お知らせ管理 = tsu-wide-f)は 1280px まで。スマホ(768px未満)と印刷(screen だけ)は今までどおり */
+@media screen and (min-width: 768px) {
+  .tsu-wide, .tsu-wide-t { max-width: none !important; }
+  .tsu-wide-f { max-width: 1280px !important; }
+}
+@media screen and (min-width: 1400px) {
+  .tsu-hq-stores { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
 @media screen and (min-width: 1680px) {
-  .tsu-wide { max-width: 1360px !important; }
   .tsu-wide-grid { grid-template-columns: repeat(5, minmax(0, 1fr)) !important; }
 }
 @media screen and (min-width: 2200px) {
-  .tsu-wide { max-width: 1760px !important; }
   .tsu-wide-grid { grid-template-columns: repeat(6, minmax(0, 1fr)) !important; }
-  .tsu-wide-t { max-width: 2100px !important; }
+  .tsu-hq-stores { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
 }

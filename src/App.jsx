@@ -13821,7 +13821,7 @@ function DisasterView({ appData, onSave, staffSession }) {
       {tab === 'notice' && <EmergencyNoticeView appData={appData} onSave={onSave} staffSession={staffSession} safety={safety} setSafety={setSafety} place={place} setPlace={setPlace} evacOptions={evacOptions} />}
       {tab === 'safety' && (
         <div className="flex-1 overflow-y-auto p-4 bg-slate-50 tsu-ph-cards">
-          <div className="max-w-6xl mx-auto">
+          <div className="max-w-6xl mx-auto tsu-wide-f">
             <div className="flex items-center gap-2 flex-wrap mb-3">
               {[['now', `通所中（${slot === 'AM' ? '午前' : '午後'}）`, attendingNow.size], ['others', '在宅', activePats.length - attendingNow.size], ['all', '全員', activePats.length]].map(([k, lb, n]) => (
                 <button key={k} type="button" onClick={() => setScope(k)} className={`px-3 py-1.5 rounded-lg text-sm font-bold border ${scope === k ? 'bg-red-50 border-red-300 text-red-800' : 'bg-white border-slate-300 text-slate-700'}`}>{lb} {n}名</button>
@@ -13861,7 +13861,7 @@ function DisasterView({ appData, onSave, staffSession }) {
       )}
       {tab === 'evac' && (
         <div className="flex-1 overflow-y-auto p-4 bg-slate-50 tsu-ph-cards">
-          <div className="max-w-4xl mx-auto space-y-4">
+          <div className="max-w-4xl mx-auto space-y-4 tsu-wide-f">
             <div className="bg-white rounded-2xl border border-slate-200 p-4">
               <div className="flex items-center gap-2 mb-3"><div className="text-sm font-bold text-slate-800">避難場所</div><div className="ml-auto flex gap-2">{editing ? <><button type="button" onClick={() => saveBcp(draft)} className="whitespace-nowrap px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold">保存</button><button type="button" onClick={() => { setDraft(bcp); setEditing(false); }} className="whitespace-nowrap px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-600 text-xs font-bold">やめる</button></> : <button type="button" onClick={() => { setDraft(bcp); setEditing(true); }} className="whitespace-nowrap px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-700 text-xs font-bold">編集</button>}</div></div>
               {editing ? (
@@ -13896,7 +13896,7 @@ function DisasterView({ appData, onSave, staffSession }) {
       )}
       {tab === 'stock' && (
         <div className="flex-1 overflow-y-auto p-4 bg-slate-50 tsu-ph-cards">
-          <div className="max-w-4xl mx-auto">
+          <div className="max-w-4xl mx-auto tsu-wide-f">
             <div className="bg-white rounded-2xl border border-slate-200 p-4">
               <div className="flex items-center gap-2 mb-3"><div className="text-sm font-bold text-slate-800">備蓄品と保管場所</div><div className="ml-auto flex gap-2">{editing ? <><button type="button" onClick={() => saveBcp(draft)} className="whitespace-nowrap px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold">保存</button><button type="button" onClick={() => { setDraft(bcp); setEditing(false); }} className="whitespace-nowrap px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-600 text-xs font-bold">やめる</button></> : <button type="button" onClick={() => { setDraft(bcp); setEditing(true); }} className="whitespace-nowrap px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-700 text-xs font-bold">編集</button>}</div></div>
               {editing ? (
@@ -14063,7 +14063,7 @@ function EmergencyNoticeView({ appData, onSave, staffSession, safety: safetyProp
         <div className="text-sm font-bold text-red-800">災害時などの緊急連絡を、ご家族・担当ケアマネへ一斉に送ります（メール＋家族画面のお知らせ）</div>
       </div>
       <div className="flex-1 overflow-y-auto p-4 bg-slate-50 tsu-ph-cards">
-        <div className="max-w-4xl mx-auto grid gap-4 md:grid-cols-[1fr_300px]">
+        <div className="max-w-4xl mx-auto grid gap-4 md:grid-cols-[1fr_300px] tsu-wide-f">
           <div className="space-y-4">
             <div className="bg-white rounded-2xl border border-slate-200 p-4">
               <div className="text-xs font-bold text-slate-500 mb-2">定型文から始める（あとから自由に直せます）</div>
@@ -14530,7 +14530,7 @@ function FamilyAdminView({ appData, onSave }) {
   return (
     // ★ 2026-10-08(ユーザー要望: スマホで投稿・履歴のときタブが上に詰まっていない): スマホはどのタブでもタブを上端に詰めて画面に固定
     <div className={`h-full overflow-auto bg-slate-50 tsu-ph-cards ${tab==='preview'?'p-0':(_faPhone ? 'px-3 pb-3 pt-0' : 'p-3 sm:p-6')}`}>
-      <div className={tab==='preview'?'':'max-w-5xl mx-auto'}>
+      <div className={tab==='preview'?'':'max-w-5xl mx-auto tsu-wide-f'}>
         <TsuPhonePin testId="pin-family-admin">
         <div className={`flex items-center gap-2 bg-white shadow-sm border border-slate-200 ${(tab==='preview' || _faPhone)?'sticky top-0 z-50 border-b p-1.5':'rounded-2xl p-1.5 mb-4'}`}>
           {/* ★ 2026-10-08: スマホは短い名前で1行に(投稿/プレビュー/履歴) */}
@@ -19716,7 +19716,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
 
   return (
     <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#d4e7a5 0%,#f0f7e0 100%)',padding:24,boxSizing:'border-box'}}>
-      <div style={{maxWidth:900,margin:'0 auto'}}>
+      <div className="tsu-wide" style={{maxWidth:900,margin:'0 auto'}}>{/* ★ 2026-10-21: タブレット・パソコンでは幅いっぱい */}
         {/* ヘッダー */}
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:24,flexWrap:'wrap',gap:12}}>
           <div>
@@ -19766,7 +19766,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
                 return groups.map(([org, list]) => (
                   <div key={org}>
                     <div style={{fontSize:12,fontWeight:'bold',color:'#5e8030',marginBottom:8,paddingBottom:4,borderBottom:'2px solid #e5efd0'}}>{org} <span style={{color:'#a3b58a',fontWeight:'normal'}}>({list.length}店舗)</span></div>
-                    <div style={{display:'grid',gap:10}}>
+                    <div className="tsu-hq-stores" style={{display:'grid',gap:10}}>{/* ★ 2026-10-21: 広い画面では店舗を2〜3列に */}
                       {list.map(s => {
                         const staffList = storeStaff[s.id] || [];
                         const showing = showLoginFor[s.id];
@@ -28091,6 +28091,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   // ★ ケアマネ閲覧モード = 事業所と同じフルセット内容を読取専用で表示。 縦型 (スマホ) でも見やすく縦並びに
   const compactMode = familyMode || cmViewerMode; // 基本指標を縦並びにする判定
   const [basicOpen, setBasicOpen] = useState(false); // ★ 2026-09-28: ご家族/ケアマネでは基本情報を折りたたみ(既定は閉)
+  const [anaNarrow, setAnaNarrow] = useState(false); // ★ 2026-10-21: ダウンロードの間だけ今までの幅(1280px)に戻す(画面を広げた分が紙に出ないように)
   // ★ 2026-10-20(ユーザー要望): グラフの入れ物の幅を測り、記録が少ないときは間隔を広げて枠の幅いっぱいに描く
   const [_chW, _setChW] = useState({});
   // ★ 2026-10-20(不具合修正・スマホでエラー React #185): 体温・血圧・脈拍が同じ印で測り、入れ物の幅が少しずつ違うと「測る→描き直す」が交互に続いた。
@@ -28683,6 +28684,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
           <button type="button" id="personal-print-hidden-trigger" style={{display:'none'}} onClick={async()=>{
                     // 期間設定を保存して 3ヶ月チャンクで連続生成
                     const origPeriod = period, origBaseMonth = baseMonth;
+                    setAnaNarrow(true); await new Promise(r => setTimeout(r, 300)); // ★ 2026-10-21: 先に今までの幅へ(グラフの描き直しを待つ)
                     const computeChunks = () => {
                       if (period === 'custom') {
                         const [fY,fM] = customFrom.split('-').map(Number);
@@ -29044,7 +29046,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                       }
                     } finally {
                       // 元の期間に復元
-                      setPeriod(origPeriod); setBaseMonth(origBaseMonth);
+                      setPeriod(origPeriod); setBaseMonth(origBaseMonth); setAnaNarrow(false);
                       if(overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
                     }
                     const title = `分析_個人_${selectedPatient?.name||''}（3ヶ月×${chunks.length}）`;
@@ -29130,7 +29132,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
       </div>
       )}
       </div></TsuPhonePin>{/* end sticky wrapper */}
-      <div id="print-content-analysis" className="tsu-ph-cards" style={{padding:'20px 24px',maxWidth:1280,margin:'0 auto'}}>
+      <div id="print-content-analysis" className={`tsu-ph-cards${(!anaNarrow && !familyMode && !cmViewerMode && !selfMode) ? ' tsu-wide' : ''}`} style={{padding:'20px 24px',maxWidth:1280,margin:'0 auto'}}>
 
         {/* ★ 表示内容ポップアップ(2026-08-28): 事業所のみ。 ご本人/ご家族/ケアマネ・他関係者の閲覧範囲一覧 */}
         {!familyMode && !cmViewerMode && !selfMode && showScopeInfo && (
@@ -42236,7 +42238,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
 <button onClick={()=>saveMasterInfo(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-bold flex items-center whitespace-nowrap shrink-0 shadow-lg active:scale-95 text-sm">保存</button></div>)}</div>
           </div>
           <div className="flex border-b border-slate-200 bg-slate-50 shrink-0 px-6"><button onClick={() => setActiveDetailTab('basic')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${activeDetailTab === 'basic' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>基本情報</button><button onClick={() => setActiveDetailTab('service')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${activeDetailTab === 'service' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>サービス提供内容</button><button onClick={() => setActiveDetailTab('history')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${activeDetailTab === 'history' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>変更履歴</button></div>
-          <div className="flex-1 overflow-auto p-6"><div className="max-w-5xl mx-auto space-y-5 pb-12 master-detail-content">
+          <div className="flex-1 overflow-auto p-6"><div className="max-w-5xl mx-auto space-y-5 pb-12 master-detail-content tsu-wide-f">
           <style>{`
             /* 画面幅が狭い時（iPad縦 等）は基本情報の grid を 1 列に折り畳む */
             @media (max-width: 900px) {
@@ -44678,8 +44680,12 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         const ALL = shiftStatusModal.isBase ? ['出席', '欠席', '振替', '休止', '休業'] : ['出席', '臨時', '欠席', '振替', '休止', '休業'];
         // 振替セルは「取り消し」確認のみ
         const isOnFurikae = normCu === '振替';
+        // ★ 2026-10-21(ユーザー指摘「何も変えていないのに取り消しがある」): 予定のない日(基本の利用日でない空のセル)は「取り消し」を出さない。
+        //   その日に記録が残っているとき(振替の残骸など)だけ取り消せるようにする
+        const _isEmptyCell = cu === '空欄' || cu == null || cu === '';
+        const _recHere = _isEmptyCell && (effTickets||[]).some(t => t && localPatient && t.patientId === localPatient.id && recMatchesDateYear(t, `${currentMonth.getMonth()+1}月${shiftStatusModal.day}日`, currentMonth.getFullYear()));
         // ★ 基本利用日でないのに「出席」で残っているセル(振替の残骸・臨時など)も取り消せるように。
-        const isNonBaseAttend = normCu === '出席' && !shiftStatusModal.isBase;
+        const isNonBaseAttend = normCu === '出席' && !shiftStatusModal.isBase && (!_isEmptyCell || _recHere);
         // ★ 状態が変更されている場合 (欠席/休業/振替/休止) + 非利用日の出席 は「取り消し」ボタンも表示
         const hasNonDefault = normCu === '欠席' || normCu === '休業' || isOnFurikae || isNonBaseAttend;
         const baseOptions = isOnFurikae ? [] : ALL.filter(s => s !== normCu && !(s === '臨時' && cu === '臨時'));
@@ -44702,7 +44708,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               </div>
               <div className="p-6 space-y-3">
                 <div className="text-sm text-slate-600 mb-3 font-bold">
-                  {currentMonth.getMonth()+1}月{shiftStatusModal.day}日（{shiftStatusModal.ap}）— 現在: <span className="text-slate-800">{normCu}</span>
+                  {currentMonth.getMonth()+1}月{shiftStatusModal.day}日（{shiftStatusModal.ap}）— 現在: <span className="text-slate-800" data-testid="ms-status-current">{(_isEmptyCell && !_recHere) ? '予定なし' : normCu}</span>
                 </div>
                 {_mSchedRecReason[shiftStatusModal.day] && (
                   <div className="text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-xl p-3 mb-1 whitespace-pre-wrap">{_mSchedRecReason[shiftStatusModal.day]}</div>
@@ -45708,7 +45714,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
       {/* コンテンツ */}
       <div className="flex-1 md:overflow-y-auto p-3 sm:p-6 pb-8 tsu-ph-cards">
         {/* ★ ケアマネタブは2カラムのため広めに取る(表示領域の崩れ対策・2026-08-31) */}
-        <div className={`${activeTab === 'cm' ? 'max-w-6xl' : 'max-w-4xl'} mx-auto space-y-6 pb-6`}>
+        <div className={`${activeTab === 'cm' ? 'max-w-6xl' : 'max-w-4xl'} mx-auto space-y-6 pb-6 tsu-wide-f`}>
 
           {/* 気分の理由 (カスタマイズ) */}
           {/* ★ 2026-10-14(ユーザー要望): 個別機能訓練計画書(3-3)の定型文を店舗ごとに編集(1行=1つ)。空にすると既定に戻る */}
