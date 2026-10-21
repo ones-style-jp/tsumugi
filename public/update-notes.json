@@ -1,7 +1,14 @@
 {
-  "version": "upd-2026-1021a",
+  "version": "upd-2026-1021b",
   "updatedAt": "2026-10-21",
   "notes": [
+    {
+      "id": "upd-2026-1021b-androidscroll",
+      "type": "fix",
+      "title": "Android のスマホで画面がスクロールできない不具合を修正",
+      "body": "・Android のスマホ（OPPO など）で、送迎表・サービス提供記録・連絡帳・利用者マスタなどの画面が指でスクロールできないことがありました。\n・どの画面も指でスクロールできるようにしました。iPhone・iPad・パソコンの動きは変わりません。",
+      "date": "2026-10-21"
+    },
     {
       "id": "upd-2026-1021a-tpimport",
       "type": "fix",

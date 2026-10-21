@@ -331,6 +331,13 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
   #tsuContentScroller .sticky.top-0[data-tsu-doc]:not(th):not(thead):not(tr) { top: 47px !important; }
   #tsuContentScroller [style*="position: sticky"][style*="top: 0px"][data-tsu-doc]:not(th):not(thead):not(tr) { top: 47px !important; }
 }
+/* ★ 2026-10-21(不具合修正・店舗報告「スマホの OPPO(Android)だと送迎表がスクロールできない」): スマホ幅はページ全体がスクロールする作り(上)。
+   各画面の内側の枠(overflow:auto)は中身の高さまで伸びて自分ではスクロールしないが、タッチ端末向けの overscroll-behavior:none(旧iPad対策)が残り、
+   Android の Chrome は「この枠の外へスクロールを伝えない」と扱ってページのスクロールまで止めていた(iPhone は止めない)。スマホ幅では外へ伝える。
+   ページ(html/body)の none はそのまま(引っ張って更新・はね返りは出ない)。ポップアップの後ろが動かないのは tsuInstallModalScrollGuard で守る */
+@media (max-width: 767px) {
+  .overflow-auto, .overflow-x-auto, .overflow-y-auto, .overflow-scroll, .record-view-scroll, #tsuContentScroller { overscroll-behavior: auto !important; }
+}
 @supports not (overflow-x: clip) {
   @media (max-width: 767px) { body, #root { overflow-x: visible !important; } }
 }
