@@ -37057,7 +37057,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   // ★ 2026-10-01(試験版): 徒歩の方の時刻。個別に入れた時刻があればそれ、無ければ(保存値「徒歩」)クラスの開始時刻
   const _walkT = (m, sl) => { const v = _fmtT(m && m.t); return /^\d{1,2}:(\d{2}|--)$/.test(v) ? v : _classStart(sl); };
   // ==== 印刷(A4横・1週間・午前+午後) ====
-  const buildPrintHtml = () => {
+  const buildPrintHtml = (slots = ['AM','PM'], info = null) => { // ★ 2026-10-21: slots=載せる時間帯(午前だけ/午後だけの紙)・info に1枚に入るかを返す
     const esc = (t) => String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
     // ★ 2026-09-14 デザイン刷新(他AI試作の採用): 各車のヘッダ(車名太字+運転者)直下にその車の列見出し(氏名/時間/次回)。
     //   人数/定員の表示なし。罫線は薄く(車の枠のみ濃い)。空席行は「その車の週間最大乗車数」までは通常の高さ、
@@ -37135,8 +37135,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     // ★ 2026-09-16f: 本文の有効高さを実測に基づいて補正(190mm=718px − 題字28 − 日付見出し6mm − 凡例17 − セル余白12 ≒ 638)。
     const availPx = 630 + 19 + 22; // ★ 2026-10-13: 凡例を右上へ(+19)・印字域を196mmに(+22)
     let fz = 20; // 上限20px(利用者が少ない店舗で大きくなりすぎないように)
-    while (fz > 8) { const uh = Math.ceil(fz * 1.25) + 3; const tu = Math.max(unitsOf('AM', fz) + unitsOf('PM', fz), 6); if (tu * uh <= availPx && _nameW(fz) + _timeW(fz) + _nextW(fz) + _sendW(fz) <= _dayPx(fz)) break; fz--; }
-    const uAM = unitsOf('AM', fz), uPM = unitsOf('PM', fz);
+    const _fitH = (f) => { const uh = Math.ceil(f * 1.25) + 3; const tu = Math.max(slots.reduce((a, sl) => a + unitsOf(sl, f), 0), 6); return tu * uh <= availPx; };
+    while (fz > 8) { if (_fitH(fz) && _nameW(fz) + _timeW(fz) + _nextW(fz) + _sendW(fz) <= _dayPx(fz)) break; fz--; }
+    if (info) { info.fitsH = _fitH(fz); info.fz = fz; }
+    const uAM = slots.includes('AM') ? unitsOf('AM', fz) : 0, uPM = slots.includes('PM') ? unitsOf('PM', fz) : 0;
     const totalU = Math.max(uAM + uPM, 6);
     const fzS = _fzS(fz);
     const fzB = _fzB(fz); // ★ 2026-10-01b: 休み等は一回り小さく(2026-09-16f は本文と同じ大きさだった)
@@ -37232,11 +37234,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const _last = days[days.length-1] || _mon;
     const fname = String(appData.systemSettings?.facilityInfo?.name || 'つむぎ');
     return `<div id="transport-print-inner" style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;background:#fff;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
-      <div style="position:relative;text-align:center;flex:none;margin:0 0 2mm;"><span style="position:absolute;left:0;top:4px;font-size:10px;">${esc(fname)}</span><span style="font-size:17px;font-weight:bold;letter-spacing:10px;">運行表</span><span style="position:absolute;right:0;top:1px;font-size:11px;text-align:right;white-space:nowrap;"><span style="outline:1.5px solid #c82c35;outline-offset:-1px;padding:0 3px;">時間の赤枠</span>=時間変更　<span style="background:#a7f3d0;padding:0 4px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 4px;">水色</span>=初回　　${_mon.getMonth()+1}/${_mon.getDate()}（${DOWJ[_mon.getDay()]}）〜${_last.getMonth()+1}/${_last.getDate()}（${DOWJ[_last.getDay()]}）</span></div>
+      <div style="position:relative;text-align:center;flex:none;margin:0 0 2mm;"><span style="position:absolute;left:0;top:4px;font-size:10px;">${esc(fname)}</span><span style="font-size:17px;font-weight:bold;letter-spacing:10px;">運行表${slots.length === 1 ? (slots[0] === 'AM' ? '（午前）' : '（午後）') : ''}</span><span style="position:absolute;right:0;top:1px;font-size:11px;text-align:right;white-space:nowrap;"><span style="outline:1.5px solid #c82c35;outline-offset:-1px;padding:0 3px;">時間の赤枠</span>=時間変更　<span style="background:#a7f3d0;padding:0 4px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 4px;">水色</span>=初回　　${_mon.getMonth()+1}/${_mon.getDate()}（${DOWJ[_mon.getDay()]}）〜${_last.getMonth()+1}/${_last.getDate()}（${DOWJ[_last.getDay()]}）</span></div>
       <table style="border-collapse:collapse;width:100%;table-layout:fixed;flex:none;height:${_tblH}px;">
         <colgroup><col style="width:${_slW}px"/><col style="width:${_carColW(fz)}px"/>${days.map(() => '<col/>').join('')}</colgroup>
         <thead><tr style="height:23px;"><th style="border:1px solid #65736a;background:#edf0ec;"></th><th style="border:1px solid #65736a;background:#edf0ec;font-size:9px;font-weight:normal;">車</th>${header}</tr></thead>
-        <tbody>${row('AM','午前')}${row('PM','午後')}</tbody>
+        <tbody>${slots.includes('AM') ? row('AM','午前') : ''}${slots.includes('PM') ? row('PM','午後') : ''}</tbody>
       </table>
           </div>`;
   };
@@ -37412,7 +37414,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   };
   const doPrint = (content = 'sheet') => {
     // ★ 2026-09-28: 内容は印刷モーダルで選択(sheet=運行表のみ / both=運行表+連絡先一覧 / contacts=連絡先一覧のみ)。confirm は廃止
-    const html = buildPrintHtml();
+    const _wi = {}; const html = buildPrintHtml(['AM','PM'], _wi);
+    // ★ 2026-10-21(不具合修正): 1枚に入りきらない(車・人数が多い)ときは、下が切れないよう午前1枚・午後1枚に分ける
+    const _sheetPages = _wi.fitsH === false ? null : html;
     const withContacts = content === 'both' || content === 'contacts';
     // ★ 2026-09-16(店舗指摘): 実機で右端(金曜)が見切れる→印字可能域(約275×190mm)に縮小して中央配置
     // ★ 2026-09-16c(店舗指摘): margin:autoは印刷ホストのbody>*{margin:0!important}で無効化され左上に寄る→全面ラッパー+flexで中央配置
@@ -37422,7 +37426,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       return;
     }
     const page2 = withContacts ? buildContactsPages().map(pg => _wrap(pg, true)).join('') : '';
-    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `${_wrap(html, false)}${page2}`, elementId: null } }));
+    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `${_sheetPages ? _wrap(_sheetPages, false) : ['AM','PM'].map((sl, k) => _wrap(buildPrintHtml([sl]), k > 0)).join('')}${page2}`, elementId: null } }));
   };
 
   const _autoCalcModal = autoCalc && (
@@ -37960,14 +37964,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5" onClick={e=>e.stopPropagation()}>
             <div className="text-base font-bold text-slate-800 mb-3">送迎表を印刷</div>
             <div className="flex gap-2 mb-3">
-              <button onClick={()=>setPrintModal(m=>({...m, mode:'week'}))} className={`flex-1 py-2 rounded-xl text-sm font-bold border ${printModal.mode==='week'?'bg-blue-600 text-white border-blue-600':'bg-white border-slate-300 text-slate-600'}`}>週間（A4横・1枚）</button>
+              <button onClick={()=>setPrintModal(m=>({...m, mode:'week'}))} className={`flex-1 py-2 rounded-xl text-sm font-bold border ${printModal.mode==='week'?'bg-blue-600 text-white border-blue-600':'bg-white border-slate-300 text-slate-600'}`}>週間（A4横）</button>
               <button onClick={()=>setPrintModal(m=>({...m, mode:'days'}))} className={`flex-1 py-2 rounded-xl text-sm font-bold border ${printModal.mode==='days'?'bg-blue-600 text-white border-blue-600':'bg-white border-slate-300 text-slate-600'}`}>日ごと（A4縦・1日1枚）</button>
             </div>
             {printModal.mode==='week' && (
               <div className="border border-slate-200 rounded-xl p-3 mb-3">
                 <div className="text-xs font-bold text-slate-600 mb-1.5">印刷する内容</div>
                 <div className="flex flex-col gap-1.5">
-                  {[['sheet','運行表のみ（1枚）'],['both','運行表 ＋ 利用者連絡先一覧（2枚）'],['contacts','利用者連絡先一覧のみ（1枚）']].map(([k,l]) => (
+                  {[['sheet','運行表のみ'],['both','運行表 ＋ 利用者連絡先一覧'],['contacts','利用者連絡先一覧のみ']].map(([k,l]) => (
                     <label key={k} className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-bold cursor-pointer ${printModal.weekContent===k?'bg-blue-50 border-blue-300 text-blue-800':'bg-white border-slate-200 text-slate-600'}`}>
                       <input type="radio" name="tp-week-content" checked={printModal.weekContent===k} onChange={()=>setPrintModal(m=>({...m, weekContent:k}))} className="accent-blue-600"/>{l}
                     </label>
