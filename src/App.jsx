@@ -37227,7 +37227,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const header = days.map(d => `<th style="border:1px solid #65736a;background:#edf0ec;font-size:11px;padding:3px;">${d.getMonth()+1}/${d.getDate()}（${DOWJ[d.getDay()]}）</th>`).join('');
     // ★ 2026-10-01(iPad): 表の高さは px で指定(Safari は flex＋height:100% の表が親いっぱいになり、題字・凡例の分はみ出して凡例が切れていた)
     //   本文 190mm≒718px − 題字(約30px) − 凡例(約19px) − 余裕3px。日付の見出し 6mm≒23px を除いた残りを午前・午後に行数比で配分
-    const _tblH = 740 - 30 - 3, _bodyH = _tblH - 23; // ★ 2026-10-13: 凡例を右上へ移し(下の19px)・印字域196mm≒740px(旧190mm=718px)
+    const _tblH = 740 - 36 - 4, _bodyH = _tblH - 23; // ★ 2026-10-21(不具合修正): 題字は実際は約33px。表が紙の枠から2pxはみ出し、いちばん下の横線が切れていた // ★ 2026-10-13: 凡例を右上へ移し(下の19px)・印字域196mm≒740px(旧190mm=718px)
     const row = (sl, label) => `<tr style="height:${Math.round((sl==='AM'?uAM:uPM)/totalU*_bodyH)}px;"><td style="border:1px solid #65736a;padding:0;background:${sl==='AM'?'#faf0d9':'#e8edf7'};"><div style="display:flex;align-items:center;justify-content:center;height:100%;"><span style="writing-mode:vertical-rl;font-weight:bold;font-size:13px;letter-spacing:2px;white-space:nowrap;">${label}</span></div></td>
       <td style="border:1px solid #89958c;vertical-align:top;padding:3px 2px;background:#fafbf9;">${carLabels(sl)}</td>
       ${days.map(d => `<td style="border:1px solid #89958c;vertical-align:top;padding:3px;background:#fff;">${dayBlock(_iso(d), sl)}</td>`).join('')}</tr>`;
