@@ -105,6 +105,6 @@ const seedTp = (page, custom) => page.evaluate(([iso, custom]) => { const d = JS
   await shot('trial_cb_nextjump', async () => { const m = page.getByTestId('cb-nextjump-modal').locator('> div').first(); const bb = await m.boundingBox(); await page.screenshot({ path: `${OUT}/trial_cb_nextjump.png`, clip: { x: bb.x - 4, y: bb.y - 4, width: bb.width + 8, height: Math.min(bb.height + 8, 520) } }); });
   await go(page, 'transport'); await page.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 800 }).catch(() => {});
   await page.locator('button:visible', { hasText: /^ダウンロード$/ }).first().click(); await page.waitForTimeout(500);
-  await shot('trial_tp_print_opt', async () => { const m = page.getByTestId('tp-print-dropat').locator('xpath=ancestor::div[contains(@class,"rounded-2xl")][1]'); await page.screenshot({ path: `${OUT}/trial_tp_print_opt.png`, clip: await clipOf(page, m, 4) }); });
+  await shot('trial_tp_print_opt', async () => { const m = page.getByTestId('tp-print-dropmode').locator('xpath=ancestor::div[contains(@class,"rounded-2xl")][1]'); await page.screenshot({ path: `${OUT}/trial_tp_print_opt.png`, clip: await clipOf(page, m, 4) }); });
   await page.context().close(); }
 console.log('done', done.length, done.join(' ')); await b.close();
