@@ -50260,6 +50260,9 @@ const LIFE_CARELEVEL_CODE = { '非該当':'01','事業対象者':'06','要支援
 const lifeCareLevelCode = (v) => LIFE_CARELEVEL_CODE[String(v||'').normalize('NFKC').replace(/[\s　]/g,'').replace(/（/g,'(').replace(/）/g,')')] || '';
 // 障害高齢者の日常生活自立度 自立=1/J1=2/J2=3/A1=4/A2=5/B1=6/B2=7/C1=8/C2=9
 const LIFE_ADL_LEVEL_CODE = { '自立':'1','J1':'2','J2':'3','A1':'4','A2':'5','B1':'6','B2':'7','C1':'8','C2':'9' };
+// ★ 2026-10-14(不具合修正・2026-10-21 安定版へ): フェイスシートの保存先は patient.personalFile.faceSheet(patient.faceSheet は添付専用)。
+//   LIFEのCSV作成が patient.faceSheet を読んでいたため、自立度が常に空になり「自立度が未設定」のエラーになっていた(3-3計画書の _kkFsAuto と同じ場所を見る)
+const lifeFsOf = (p) => (p && p.personalFile && p.personalFile.faceSheet) || (p && p.faceSheet) || {};
 // 認知症高齢者の日常生活自立度 自立=1/Ⅰ=2/Ⅱa=3/Ⅱb=4/Ⅲa=5/Ⅲb=6/Ⅳ=7/M=8
 const LIFE_DEM_LEVEL_CODE = { '自立':'1','Ⅰ':'2','Ⅱa':'3','Ⅱb':'4','Ⅲa':'5','Ⅲb':'6','Ⅳ':'7','M':'8' };
 // 評価時点 開始=1/利用中=2/終了=3
@@ -50319,8 +50322,8 @@ const buildTifi2024Row = (patient, adlRec, sci, settings, targetYm) => {
   row.external_system_management_number = lifeMgmtNo(patient?.insuranceNo, targetYm, 'TIFI2024');
   row.facility_outpatient_category = st.facilityOutpatientCategory || '2';
   row.care_level = lifeCareLevelCode(patient?.careLevel);
-  row.impaired_elderly_independence_degree = LIFE_ADL_LEVEL_CODE[normalizeAdlLevel(patient?.faceSheet?.adlLevel)] || '';
-  row.dementia_elderly_independence_degree = LIFE_DEM_LEVEL_CODE[normalizeDemLevel(patient?.faceSheet?.dementiaLevel)] || '';
+  row.impaired_elderly_independence_degree = LIFE_ADL_LEVEL_CODE[normalizeAdlLevel(lifeFsOf(patient).adlLevel)] || '';
+  row.dementia_elderly_independence_degree = LIFE_DEM_LEVEL_CODE[normalizeDemLevel(lifeFsOf(patient).dementiaLevel)] || '';
   row.evaluate_date = lifeYmd(adlRec?.evalDate);
   row.status = LIFE_STATUS_CODE[String(s.status||'利用中')] || '';
   (s.emergencies||[]).slice(0,5).forEach((e,i)=>{ const p=String(i+1).padStart(2,'0'); if(!e) return; row[`emergency_hospitalization_date_${p}`]=lifeYmd(e.date); row[`emergency_hospitalization_complaint_fever_${p}`]=e.fever?'1':''; row[`emergency_hospitalization_complaint_fall_down_${p}`]=e.fall?'1':''; row[`emergency_hospitalization_complaint_other_${p}`]=e.other?'1':''; row[`emergency_hospitalization_complaint_other_content_${p}`]=e.otherContent||''; });
@@ -50375,8 +50378,8 @@ const buildAint2024Row = (patient, adlRec, sci, settings, targetYm) => {
   row.insured_no = lifeZero10(patient?.insuranceNo);
   row.external_system_management_number = lifeMgmtNo(patient?.insuranceNo, targetYm, 'AINT2024');
   row.care_level = lifeCareLevelCode(patient?.careLevel);
-  row.impaired_elderly_independence_degree = LIFE_ADL_LEVEL_CODE[normalizeAdlLevel(patient?.faceSheet?.adlLevel)] || '';
-  row.dementia_elderly_independence_degree = LIFE_DEM_LEVEL_CODE[normalizeDemLevel(patient?.faceSheet?.dementiaLevel)] || '';
+  row.impaired_elderly_independence_degree = LIFE_ADL_LEVEL_CODE[normalizeAdlLevel(lifeFsOf(patient).adlLevel)] || '';
+  row.dementia_elderly_independence_degree = LIFE_DEM_LEVEL_CODE[normalizeDemLevel(lifeFsOf(patient).dementiaLevel)] || '';
   row.evaluate_date = lifeYmd(adlRec?.evalDate);
   row.status = LIFE_STATUS_CODE[String(s.status||'利用中')] || '';
   const biCols = ['barthel_index_meal','barthel_transfer','barthel_index_personal_hygiene_and_adjustment','barthel_index_toilet_activity','barthel_index_bathing','barthel_index_flat_ground_walking','barthel_index_stair_movement','barthel_index_changing_clothes','barthel_index_defecation_manage','barthel_index_urination_manage'];
@@ -50429,8 +50432,8 @@ const buildFunc2024Row = (patient, rec, sci, settings, targetYm) => {
   row.evaluate_date = reiwaToYmd(r.recordDate);
   row.job_category = lifeJobCode(r.recorderJob) || lifeJobCode(st.defaultJob) || ''; // ★ 2026-09-21: 公式v0310のNo.8(職種・原則必須)。記録の職種→事業所情報の既定値の順
   row.care_level = lifeCareLevelCode(patient?.careLevel);
-  row.impaired_elderly_independence_degree = LIFE_ADL_LEVEL_CODE[normalizeAdlLevel(patient?.faceSheet?.adlLevel)] || '';
-  row.dementia_elderly_independence_degree = LIFE_DEM_LEVEL_CODE[normalizeDemLevel(patient?.faceSheet?.dementiaLevel)] || '';
+  row.impaired_elderly_independence_degree = LIFE_ADL_LEVEL_CODE[normalizeAdlLevel(lifeFsOf(patient).adlLevel)] || '';
+  row.dementia_elderly_independence_degree = LIFE_DEM_LEVEL_CODE[normalizeDemLevel(lifeFsOf(patient).dementiaLevel)] || '';
   // ADL 10項目(生活機能チェックのadl): status=BI段階コード / 課題=自動判定
   [['meal','eat','食事'],['transfer_bed_chair','transfer','移乗'],['personal_hygiene_and_adjustment','groom','整容'],['toilet_behavior','toilet','トイレ動作'],['bathe','bath','入浴'],['walking','walk','歩行'],['up_stairs','stairs','階段昇降'],['dressing','dress','更衣'],['defecation','stool','排便管理'],['urination','urine','排尿管理']]
     .forEach(([col,barKey,jp])=>{ row[`${col}_status`] = biOf(barKey); row[`is_${col}_assignment`] = lifeFuncAssign(adl[jp]); });
@@ -50540,8 +50543,8 @@ const buildIdua2024Row = (patient, rec, sci, settings, targetYm) => {
   row.last_date = reiwaToYmd(r.prevDate);
   row.first_date = reiwaToYmd(r.firstDate);
   row.care_level = lifeCareLevelCode(patient?.careLevel);
-  row.impaired_elderly_independence_degree = LIFE_ADL_LEVEL_CODE[normalizeAdlLevel(patient?.faceSheet?.adlLevel)] || '';
-  row.dementia_elderly_independence_degree = LIFE_DEM_LEVEL_CODE[normalizeDemLevel(patient?.faceSheet?.dementiaLevel)] || '';
+  row.impaired_elderly_independence_degree = LIFE_ADL_LEVEL_CODE[normalizeAdlLevel(lifeFsOf(patient).adlLevel)] || '';
+  row.dementia_elderly_independence_degree = LIFE_DEM_LEVEL_CODE[normalizeDemLevel(lifeFsOf(patient).dementiaLevel)] || '';
   row.user_request = r.honninKibou || '';
   row.user_family_request = r.kazokuKibou || '';
   row.social_participation = r.shakaiSanka || '';
@@ -50658,8 +50661,8 @@ const buildLifeUserInfoRow = (patient, settings) => {
   row.certified_date = lifeDateYmd(p.certifiedDate);
   row.care_period_start = lifeDateYmd(p.careLevelFrom); row.care_period_end = lifeDateYmd(p.careLevelTo);
   row.care_level = lifeCareLevelCode(p.careLevel);
-  row.impaired_elderly_independence_degree = LIFE_ADL_LEVEL_CODE[normalizeAdlLevel(p.faceSheet?.adlLevel)] || '';
-  row.dementia_elderly_independence_degree = LIFE_DEM_LEVEL_CODE[normalizeDemLevel(p.faceSheet?.dementiaLevel)] || '';
+  row.impaired_elderly_independence_degree = LIFE_ADL_LEVEL_CODE[normalizeAdlLevel(lifeFsOf(p).adlLevel)] || '';
+  row.dementia_elderly_independence_degree = LIFE_DEM_LEVEL_CODE[normalizeDemLevel(lifeFsOf(p).dementiaLevel)] || '';
   row.start_date = lifeDateYmd(p.startDate); row.end_date = lifeDateYmd(p.endDate);
   row.death_date = ''; row.remarks = '';
   row.version = st.version || LIFE_VERSION_DEFAULT;
@@ -51621,7 +51624,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
               <table style={{width:'100%',borderCollapse:'collapse',marginBottom:'6px'}}><tbody>
                 <tr><td style={{...lab,width:'16%'}}>事業所名</td><td style={{...cell,width:'34%'}}>{fac.name||''}</td><td style={{...lab,width:'16%'}}>評価日</td><td style={{...cell,width:'34%'}}>{_a.evalDate||''}</td></tr>
                 <tr><td style={lab}>利用者氏名</td><td style={cell}>{patient?.name||''} 様</td><td style={lab}>要介護度</td><td style={cell}>{patient?.careLevel||''}</td></tr>
-                <tr><td style={lab}>障害高齢者の日常生活自立度</td><td style={cell}>{normalizeAdlLevel(patient?.faceSheet?.adlLevel)||''}</td><td style={lab}>認知症高齢者の日常生活自立度</td><td style={cell}>{normalizeDemLevel(patient?.faceSheet?.dementiaLevel)||''}</td></tr>
+                <tr><td style={lab}>障害高齢者の日常生活自立度</td><td style={cell}>{normalizeAdlLevel(lifeFsOf(patient).adlLevel)||''}</td><td style={lab}>認知症高齢者の日常生活自立度</td><td style={cell}>{normalizeDemLevel(lifeFsOf(patient).dementiaLevel)||''}</td></tr>
               </tbody></table>
             );
             const biTable=(
