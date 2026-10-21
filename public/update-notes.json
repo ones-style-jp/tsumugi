@@ -1,7 +1,14 @@
 {
-  "version": "upd-2026-1021-trial353",
+  "version": "upd-2026-1021-trial354",
   "updatedAt": "2026-10-21",
   "notes": [
+    {
+      "id": "upd-2026-1021-trial354-dropnote-date",
+      "type": "improvement",
+      "title": "送り時間反映：送迎表に時間がない方も次回の日付を表示",
+      "body": "・「送り時間反映」の一覧で、送迎表に送りの時間がない方にも次回の日付を出しました（どの日の送迎表に時間を入れればよいか分かるように）。",
+      "date": "2026-10-21"
+    },
     {
       "id": "upd-2026-1021-trial353-androidscroll",
       "type": "fix",

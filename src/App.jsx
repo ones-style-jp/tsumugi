@@ -10997,7 +10997,7 @@ function TsuDropNoteModal({ appData, selectedDate, records, onClose, onApply }) 
             <label key={x.pid} data-testid={`cb-dropnote-row-${x.pid}`} className={`flex items-center gap-3 px-2 py-2.5 rounded-lg border-b border-slate-100 ${x.at ? 'cursor-pointer hover:bg-slate-50' : 'opacity-60'}`}>
               <input type="checkbox" className="w-5 h-5 shrink-0" disabled={!x.at} checked={!!x.at && sel.has(x.pid)} onChange={() => tog(x.pid)} data-testid={`cb-dropnote-chk-${x.pid}`}/>
               <span className="w-[6.5em] shrink-0 font-bold text-slate-800 text-[15px] truncate">{x.name}</span>
-              <span className="flex-1 min-w-0 text-[13px] text-slate-600">{x.at ? <>{x.next} <b className="text-slate-900 tabular-nums">{tsuDropNoteParts(x.next, x.at).time}</b></> : <span className="text-slate-400">{/\d/.test(String(x.next)) ? '送迎表に送りの時間なし' : '次回の日付なし'}</span>}
+              <span className="flex-1 min-w-0 text-[13px] text-slate-600">{x.at ? <>{x.next} <b className="text-slate-900 tabular-nums">{tsuDropNoteParts(x.next, x.at).time}</b></> : (/\d/.test(String(x.next)) ? <>{x.next} <span className="text-slate-400">送迎表に送りの時間なし</span></> : <span className="text-slate-400">次回の日付なし</span>)}
                 {ov ? <span className="block text-[11px] font-bold text-red-600">連絡事項の欄に入りきりません</span> : null}</span>
             </label>); })}
         </div>
