@@ -17066,7 +17066,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
       {/* 固定ヘッダー: 全要素を1行に統合 — 緑基調 (文字は濃緑でコントラスト確保) */}
       <div style={{position:'sticky',top:0,zIndex:60,background:'#d4e7a5',boxShadow:'0 2px 12px rgba(125,170,61,0.3)'}}>
         <div style={{color:'#3d5021',padding:'10px 16px'}}>
-          <div style={{maxWidth:1200,margin:'0 auto',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+          <div className={tab === 'analysis' ? 'tsu-wide' : undefined} style={{maxWidth:1200,margin:'0 auto',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>{/* ★ 2026-10-21: 分析の画面では上の帯も広く */}
             {/* 左: 事業所名 + 利用者名 */}
             <div className="family-header-info" style={{flexShrink:1,minWidth:0}}>
               <div className="family-header-title" style={{fontSize:11,opacity:0.85,fontWeight:'bold',letterSpacing:1,color:'#5e8030'}}>{facility.name||'デイケアサービス'}</div>
@@ -29132,7 +29132,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
       </div>
       )}
       </div></TsuPhonePin>{/* end sticky wrapper */}
-      <div id="print-content-analysis" className={`tsu-ph-cards${(!anaNarrow && !familyMode && !cmViewerMode && !selfMode) ? ' tsu-wide' : ''}`} style={{padding:'20px 24px',maxWidth:1280,margin:'0 auto'}}>
+      <div id="print-content-analysis" className={`tsu-ph-cards${!anaNarrow ? ' tsu-wide' : ''}`} style={{padding:'20px 24px',maxWidth:1280,margin:'0 auto'}}>
 
         {/* ★ 表示内容ポップアップ(2026-08-28): 事業所のみ。 ご本人/ご家族/ケアマネ・他関係者の閲覧範囲一覧 */}
         {!familyMode && !cmViewerMode && !selfMode && showScopeInfo && (
@@ -35248,7 +35248,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         {/* ★ 2026-10-05(ユーザー要望「ダウンロードが早いので連絡帳の印刷ボタンも不要」): 「印刷」ボタンは廃止。ダウンロードのPDFから印刷する */}
       </div>
       </TsuPhoneFold>
-      <div className="max-w-[800px] mx-auto space-y-8 pb-32 pt-6">
+      <div className="max-w-[800px] mx-auto space-y-8 pb-32 pt-6 tsu-wide">{/* ★ 2026-10-21: パソコンでは用紙を横に並べる(index.css tsu-cb-list) */}
 
         {/* ★ 次回予定の焼き付き残骸チェック一覧 */}
         {ovCleanup && (
@@ -35590,12 +35590,12 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
             );
           }
           return (
-            <div className="flex flex-col items-center gap-8">
+            <div className="flex flex-col items-center gap-8 tsu-cb-list" data-testid="cb-list">
               {displayRecords.map((record, ri) => {
                 const patient = (appData.patients||[]).find(p => p.id === record.patientId);
                 if (!patient) return null;
                 return (
-                  <div key={record.id} className="flex justify-center w-full">
+                  <div key={record.id} className="flex justify-center w-full tsu-cb-item">
                     <ContactBookCard record={record} patient={patient} selectedDate={selectedDate} config={appData.contactBookConfig} appData={appData} onOpenConfig={() => setIsConfigOpen(true)} onEditPatientValue={openPatientValueEdit} onEditRenraku={(p)=>setRenrakuModal({ patientId: p.id })} />
                   </div>
                 );

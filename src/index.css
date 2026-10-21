@@ -519,3 +519,9 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
   .tsu-wide-grid { grid-template-columns: repeat(6, minmax(0, 1fr)) !important; }
   .tsu-hq-stores { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
 }
+
+/* ★ 2026-10-21(ユーザー要望「連絡帳も2列表示とか」): パソコン(768px以上)では連絡帳の用紙(B5縦)を横に並べられるだけ並べる */
+@media screen and (min-width: 768px) {
+  .tsu-cb-list { flex-direction: row !important; flex-wrap: wrap; justify-content: center; align-items: flex-start !important; }
+  .tsu-cb-item { width: auto !important; }
+}
