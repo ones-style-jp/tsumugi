@@ -37247,6 +37247,20 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const pt = (appData.patients || []).find(x => x.id === last.pid) || {}; const t2 = lt + Math.max(1, Number(pt.pickupMinutes) || 1) + leg; const v = `${Math.floor(t2 / 60)}:${String(t2 % 60).padStart(2, '0')}`;
       if (arr[c.id] !== v || !au[c.id]) { arr[c.id] = v; au[c.id] = true; ch = true; } });
     return ch ? { ...pl, arrive: arr, arriveAuto: au } : pl; };
+  // ★ 2026-10-21(ユーザー要望「自動計算で到着時間だけも選んで計算」): 到着の目安をその場で計算する。施設までの移動時間が控えに無ければGoogleマップで調べて控える。
+  //   手で決めた到着はそのまま。お迎えの時間が入っていない車は計算しない
+  const _calcArrives = async (iso, sl, pl) => { if (!pl || !pl.cars) return { pl, n: 0, why: '', changed: false }; const fac = _facilityAddr(); if (!fac) return { pl, n: 0, why: 'nofac', changed: false };
+    let why = ''; const facLeg = { ...(pl.facLeg || {}) };
+    for (const c of cars) { const ms = (pl.cars || {})[c.id] || []; if (!ms.length) continue; if ((pl.arrive || {})[c.id] && !(pl.arriveAuto || {})[c.id]) continue;
+      let last = null, lt = -1; ms.forEach(m => { const f = _fmtT(m.t); if (!/^\d{1,2}:\d{2}$/.test(f)) return; const t = _tMin(m.t); if (t >= lt) { lt = t; last = m; } });
+      if (!last) { why = why || 'notime'; continue; }
+      const k = String(last.pid); if (_facLegOf(last.pid, { ...pl, facLeg }) != null) continue;
+      const addr = _routeAddrOf(last.pid); if (!addr) { why = why || 'noaddr'; continue; }
+      try { const r = await fetch('/api/route-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ origin: fac, stops: [addr], keepOrder: true }) }); const j = await r.json().catch(() => ({})); const sec = Array.isArray(j.legSeconds) ? j.legSeconds[1] : null;
+        if (j.error || sec == null) { why = why || 'api'; continue; } const min = Math.max(1, Math.ceil(sec / 60)); _tsuFacLegMin.set(k, min); facLeg[k] = min; } catch { why = why || 'api'; } }
+    const pl3 = _withArriveEst(iso, sl, { ...pl, facLeg }); const n = cars.filter(c => ((pl3.arrive || {})[c.id] || '') !== ((pl.arrive || {})[c.id] || '')).length;
+    const changed = JSON.stringify([pl3.arrive || {}, pl3.arriveAuto || {}, pl3.facLeg || {}]) !== JSON.stringify([pl.arrive || {}, pl.arriveAuto || {}, pl.facLeg || {}]);
+    return { pl: pl3, n, why, changed }; };
   const setArrive = (iso, sl, cid, v) => { const t = _minTp(v); const r = _svcRangeTp(sl); if (t != null && r.s != null && t > r.s && !window.confirm(`提供時間（${r.unit}の開始 ${_hmTp(r.s)}）を過ぎての到着になります。\nこのまま ${v} で登録してよろしいですか？`)) return false; mutate(iso, sl, (pl) => { const a = { ...(pl.arrive||{}) }; if (v) a[cid] = v; else delete a[cid]; pl.arrive = a; const au = { ...(pl.arriveAuto||{}) }; delete au[cid]; pl.arriveAuto = au; }); return true; };
   // ★ 2026-10-15(ユーザー要望「人数を見て出発時間の目安をボタンで」): 送りの出発の目安 = 終了時刻 + 乗る方の「乗車にかかる時間」(利用者マスタ・未設定は1分)の合計
   const _dropDepartEst = (pl, sl, cid) => { const list = ((pl && pl.drop && pl.drop.cars) || {})[cid] || []; const r = _svcRangeTp(sl); if (!list.length || r.e == null) return null; const add = list.reduce((a, m) => { const pt = (appData.patients||[]).find(x => x.id === m.pid) || {}; return a + Math.max(1, Number(pt.pickupMinutes) || 1); }, 0); return { v: _hmTp(r.e + add), n: list.length, add }; };
@@ -37925,28 +37939,36 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const runAutoCalc = async (opt) => {
     const selDays = days.filter(d => opt.days.has(_iso(d)));
     const selSlots = ['AM','PM'].filter(s => opt.slots.has(s));
-    if (!opt.haisha && !opt.jikan) { alert('「配車」か「時間」のどちらかにチェックを入れてください'); return; }
+    if (!opt.haisha && !opt.jikan && !opt.arrive && !opt.drop) { alert('計算するものを1つ以上選んでください'); return; }
     if (!selDays.length || !selSlots.length) { alert('曜日と午前・午後を1つ以上選んでください'); return; }
     if (opt.cars && !opt.cars.size) { alert('車を1台以上選んでください'); return; }
-    { const _nm = _noStartMsg(selSlots); if (_nm) { alert(_nm); return; } } // ★ 2026-10-15: 開始時間が未入力なら計算しない
+    if (opt.haisha || opt.jikan) { const _nm = _noStartMsg(selSlots); if (_nm) { alert(_nm); return; } } // ★ 2026-10-15: 開始時間が未入力なら計算しない(到着・送りだけのときは不要)
     setAutoCalc(null);
     setRouting('week');
     try {
       if (!(await _probeMaps())) { setRouting(null); return; }
-      const allMsgs = []; let nChanged = 0; let nDropAt = 0;
+      const allMsgs = []; let nChanged = 0; let nDropAt = 0; let nArrive = 0; let _whyA = '', _whyD = '';
       const acc = { ...plans };
+      const _baseOf = (iso, sl) => { const b0 = acc[`${iso}_${sl}`] || getPlan(iso, sl); const { _draft, ...rest } = b0 || {}; return rest; }; // 下書き(まだ保存していないコマ)は印を外して使う
       for (const d of selDays) { for (const sl of selSlots) {
-        const _key = `${_iso(d)}_${sl}`;
-        // 配車のみ(時間は計算しない)のときは、組み直し後に各利用者の元の時間を戻す(無ければ空欄)
-        const _oldT = {}; { const op = acc[_key] || getPlan(_iso(d), sl); Object.values(op.cars || {}).flat().forEach(m => { if (m && m.pid != null) _oldT[m.pid] = m.t || ''; }); (op.un || []).forEach(m => { if (m && m.pid != null && _oldT[m.pid] == null) _oldT[m.pid] = m.t || ''; }); }
-        const { msgs, changed, entry } = await _autoRouteCore(_iso(d), sl, acc, { ...(opt.haisha ? {} : { keepOrder: true }), ...(opt.cars && opt.cars.size < cars.length ? { carIds: opt.cars } : {}) });
-        if (changed && entry && opt.haisha && !opt.jikan) { Object.keys(entry.cars || {}).forEach(cid => { entry.cars[cid] = (entry.cars[cid] || []).map(m => ({ ...m, t: _oldT[m.pid] != null ? _oldT[m.pid] : '' })); }); }
-        allMsgs.push(...msgs); if (changed && entry) { acc[_key] = entry; nChanged++; }
-        // ★ 2026-10-21(ユーザー要望「送りも自動計算」): 時間を計算したときは、送りで家に着く時間の目安も入れる(手で決めた時間はそのまま)
-        if (opt.jikan) { const _counted = !!(changed && entry); const base = acc[_key] || getPlan(_iso(d), sl); try { const { res } = await _calcDropAts(sl, base); const r2 = _applyDropAts(base, res); if (r2.n) { acc[_key] = { ...r2.pl, _savedAt: syncNow() }; nDropAt += r2.n; if (!_counted) nChanged++; } } catch {} }
+        const _key = `${_iso(d)}_${sl}`; let _counted = false;
+        if (opt.haisha || opt.jikan) {
+          // 配車のみ(時間は計算しない)のときは、組み直し後に各利用者の元の時間を戻す(無ければ空欄)
+          const _oldT = {}; { const op = acc[_key] || getPlan(_iso(d), sl); Object.values(op.cars || {}).flat().forEach(m => { if (m && m.pid != null) _oldT[m.pid] = m.t || ''; }); (op.un || []).forEach(m => { if (m && m.pid != null && _oldT[m.pid] == null) _oldT[m.pid] = m.t || ''; }); }
+          const { msgs, changed, entry } = await _autoRouteCore(_iso(d), sl, acc, { ...(opt.haisha ? {} : { keepOrder: true }), ...(opt.cars && opt.cars.size < cars.length ? { carIds: opt.cars } : {}) });
+          if (changed && entry && opt.haisha && !opt.jikan) { Object.keys(entry.cars || {}).forEach(cid => { entry.cars[cid] = (entry.cars[cid] || []).map(m => ({ ...m, t: _oldT[m.pid] != null ? _oldT[m.pid] : '' })); }); }
+          allMsgs.push(...msgs); if (changed && entry) { acc[_key] = entry; nChanged++; _counted = true; }
+        }
+        // ★ 2026-10-21(ユーザー要望「到着時間だけも自動計算」): 到着の目安(手で決めた到着はそのまま)
+        if (opt.arrive) { try { const ra = await _calcArrives(_iso(d), sl, _baseOf(_iso(d), sl)); if (ra.changed) { acc[_key] = { ...ra.pl, _savedAt: syncNow() }; nArrive += ra.n; if (!_counted) { nChanged++; _counted = true; } } if (ra.why && !_whyA) _whyA = ra.why; } catch {} }
+        // ★ 2026-10-21(ユーザー要望「送りも自動計算」・「帰りの時間だけも」): 送りで家に着く時間の目安(手で決めた時間はそのまま)
+        if (opt.drop) { try { const base = _baseOf(_iso(d), sl); const { res, why } = await _calcDropAts(sl, base); const r2 = _applyDropAts(base, res); if (r2.n) { acc[_key] = { ...r2.pl, _savedAt: syncNow() }; nDropAt += r2.n; if (!_counted) { nChanged++; _counted = true; } } if (why && !_whyD) _whyD = why; } catch {} }
       } }
       if (nChanged) _saveBulk('自動計算', acc);
-      alert(`${opt.haisha && opt.jikan ? '配車と時間' : (opt.haisha ? '配車' : '時間')}の自動計算が終わりました（${nChanged}コマ更新${nDropAt ? `・送りの時間 ${nDropAt}名` : ''}）。${nChanged ? '\n「元に戻す」で計算の前に戻せます。' : ''}` + (allMsgs.length ? '\n\n' + allMsgs.join('\n') : ''));
+      const _lbl = [opt.haisha ? '配車' : '', opt.jikan ? 'お迎え' : '', opt.arrive ? '到着' : '', opt.drop ? '送り' : ''].filter(Boolean).join('・');
+      const _whyTxt = { nofac: '事業所の住所が無いため計算できません（各種設定→事業所情報）。', notime: 'お迎えの時間が入っていない車は、到着を計算できません。', noaddr: '住所が入っていない方がいる車は計算できません。', api: '地図で調べられなかった車があります。', nodep: '終了時間か送りの出発が無い車は、送りを計算できません。' };
+      const _notes = [opt.arrive && !nArrive && _whyA ? _whyTxt[_whyA] : '', opt.drop && !nDropAt && _whyD ? _whyTxt[_whyD] : ''].filter(Boolean);
+      alert(`${_lbl}の自動計算が終わりました（${nChanged}コマ更新${nArrive ? `・到着 ${nArrive}台` : ''}${nDropAt ? `・送りの時間 ${nDropAt}名` : ''}）。${nChanged ? '\n「元に戻す」で計算の前に戻せます。' : ''}` + ((allMsgs.length || _notes.length) ? '\n\n' + [...allMsgs, ..._notes].join('\n') : ''));
     } catch (e) { alert('計算に失敗しました: ' + String(e && e.message || e)); }
     setRouting(null);
   };
@@ -38034,6 +38056,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     ['AM','PM'].forEach(sl => days.forEach(d => { const iso = _iso(d); const pl0 = getPlan(iso, sl);
       [ ...Object.values(pl0.cars||{}), pl0.walkers||[], pl0.others||[] ].forEach(ms => (ms||[]).forEach(m => { const mk = (m.mark || _dotOf(plans[`${iso}_${sl}`], iso, m.pid)) ? 1 : 0; const tg = _dropLabelP(pl0, m.pid); if (tg) { _anyDropTag = true; _maxSendEm = Math.max(_maxSendEm, _emW(_sendLabel(tg))); } _maxNameEm = Math.max(_maxNameEm, _emW(_pname(m.pid)) + mk); })); }));
     if (opt.dropTable) _anyDropTag = false; // ★ 2026-10-21: 送りは下の「送り」の表に出すので、迎えの行には出さない
+    else if (!_noDropAtPrintRef.current) _anyDropTag = true; // ★ 2026-10-21(不具合修正): 「名前の右に時間」を選んだら、送りの時間がまだ無い週も送りの欄を出す(空欄は手書き用)
     const _hasDrv = ['AM','PM'].some(sl => days.some(d => { const p0 = getPlan(_iso(d), sl); return Object.values(p0.driver||{}).some(Boolean) || (opt.dropTable && p0.dropMode === 'custom' && p0.drop && Object.values(p0.drop.driver||{}).some(Boolean)); })); // ★ 2026-10-21: 送りの表では座席表の送りの運転者も
     const _carColW = (f) => Math.ceil(Math.min(f, 14) * 1.25) + 16;     // 左端の車名の列(縦書き1列＋余白)
     const _drvW = (f) => _hasDrv ? Math.ceil(Math.min(f, 11) * 1.2) + 9 : 0; // 各日の運転者の細い欄
@@ -38520,8 +38543,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         {/* ★ 2026-09-30(ユーザー要望): チェックを大きく・配車と時間はそれぞれ選べる(両方=配車と時間を一度に) */}
         <div className="flex flex-col gap-2 mb-3">
           <label className="flex items-center gap-3 text-[15px] cursor-pointer py-1"><input type="checkbox" data-testid="ac-haisha" checked={autoCalc.haisha} onChange={e=>setAutoCalc(o=>({...o, haisha:e.target.checked}))} style={{width:26,height:26,flexShrink:0,accentColor:'#059669'}}/><span><b>配車</b>（近所ごとに車を組み直し、乗車順を決める）</span></label>
-          <label className="flex items-center gap-3 text-[15px] cursor-pointer py-1"><input type="checkbox" data-testid="ac-jikan" checked={autoCalc.jikan} onChange={e=>setAutoCalc(o=>({...o, jikan:e.target.checked}))} style={{width:26,height:26,flexShrink:0,accentColor:'#059669'}}/><span><b>時間</b>（お迎え・送りの時間を計算）</span></label>
-          <div className="text-[11px] text-slate-500 pl-9">配車は最初に組むときだけ使います（時間だけ＝車と順番はそのまま）</div>
+          <label className="flex items-center gap-3 text-[15px] cursor-pointer py-1"><input type="checkbox" data-testid="ac-jikan" checked={autoCalc.jikan} onChange={e=>setAutoCalc(o=>({...o, jikan:e.target.checked}))} style={{width:26,height:26,flexShrink:0,accentColor:'#059669'}}/><span><b>お迎えの時間</b>（施設に着く時間から逆算）</span></label>
+          {/* ★ 2026-10-21(ユーザー要望「到着時間と帰りの時間だけも選んで自動計算」) */}
+          <label className="flex items-center gap-3 text-[15px] cursor-pointer py-1"><input type="checkbox" data-testid="ac-arrivecalc" checked={!!autoCalc.arrive} onChange={e=>setAutoCalc(o=>({...o, arrive:e.target.checked}))} style={{width:26,height:26,flexShrink:0,accentColor:'#059669'}}/><span><b>到着の時間</b>（施設に着く目安）</span></label>
+          <label className="flex items-center gap-3 text-[15px] cursor-pointer py-1"><input type="checkbox" data-testid="ac-drop" checked={!!autoCalc.drop} onChange={e=>setAutoCalc(o=>({...o, drop:e.target.checked}))} style={{width:26,height:26,flexShrink:0,accentColor:'#059669'}}/><span><b>送りの時間</b>（家に着く目安）</span></label>
+          <div className="text-[11px] text-slate-500 pl-9">配車は最初に組むときだけ使います。到着・送りは、手で直した時間はそのままです</div>
         </div>
         <div className="text-[12px] font-bold text-slate-500 mb-1">曜日</div>
         <div className="flex flex-col gap-1.5 mb-3" data-testid="ac-days">
@@ -38545,10 +38571,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               className={`px-4 py-1.5 rounded-lg text-sm font-bold border ${on?'bg-emerald-600 text-white border-emerald-600':'bg-white text-slate-500 border-slate-300'}`}>{c.name}</button>
           ); })}
         </div>
-        <div className="text-[11px] text-slate-500 mb-3 leading-relaxed">選んだ日・時間帯{autoCalc.cars && autoCalc.cars.size < cars.length ? `・車（${cars.filter(c=>autoCalc.cars.has(c.id)).map(c=>c.name).join('・') || 'なし'}）` : ''}の{[autoCalc.haisha ? '車の組み合わせ・乗車順' : '', autoCalc.jikan ? 'お迎え時間' : ''].filter(Boolean).join('と') || '（何も選ばれていません）'}が上書きされます。</div>
+        <div className="text-[11px] text-slate-500 mb-3 leading-relaxed">選んだ日・時間帯{autoCalc.cars && autoCalc.cars.size < cars.length ? `・車（${cars.filter(c=>autoCalc.cars.has(c.id)).map(c=>c.name).join('・') || 'なし'}）` : ''}の{[autoCalc.haisha ? '車の組み合わせ・乗車順' : '', autoCalc.jikan ? 'お迎え時間' : '', autoCalc.arrive ? '到着の目安' : '', autoCalc.drop ? '送りの目安' : ''].filter(Boolean).join('・') || '（何も選ばれていません）'}が上書きされます。</div>
         <div className="flex gap-2 justify-end">
           <button type="button" onClick={()=>setAutoCalc(null)} className="whitespace-nowrap px-4 py-2 rounded-xl text-sm font-bold bg-slate-100 text-slate-700">やめる</button>
-          <button type="button" onClick={()=>runAutoCalc({ haisha: autoCalc.haisha, jikan: autoCalc.jikan, days: autoCalc.days, slots: autoCalc.slots, cars: autoCalc.cars || new Set(cars.map(c=>c.id)) })} className="px-4 py-2 rounded-xl text-sm font-bold bg-emerald-600 text-white">計算する</button>
+          <button type="button" onClick={()=>runAutoCalc({ haisha: autoCalc.haisha, jikan: autoCalc.jikan, arrive: !!autoCalc.arrive, drop: !!autoCalc.drop, days: autoCalc.days, slots: autoCalc.slots, cars: autoCalc.cars || new Set(cars.map(c=>c.id)) })} className="px-4 py-2 rounded-xl text-sm font-bold bg-emerald-600 text-white">計算する</button>
         </div>
       </div>
     </div>
@@ -38599,7 +38625,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         </span>
           <div className="tsu-tpo-sp flex-1"/>
           <button onClick={()=>setCopyAsk(true)} data-testid="tp-copy-prev" className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="前の週の割り当て・時間・運転者・備考をこの週へ複製">前週コピー</button>
-          <button onClick={()=>setAutoCalc({ haisha: false, jikan: true, days: new Set(days.map(d=>_iso(d))), slots: new Set(['AM','PM']), cars: new Set(cars.map(c=>c.id)) })} disabled={!!routing} data-testid="tp-autocalc" className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-sm disabled:opacity-50" title="配車・時間を、日と時間帯を選んで自動で計算">{routing ? (
+          <button onClick={()=>setAutoCalc({ haisha: false, jikan: true, arrive: true, drop: true, days: new Set(days.map(d=>_iso(d))), slots: new Set(['AM','PM']), cars: new Set(cars.map(c=>c.id)) })} disabled={!!routing} data-testid="tp-autocalc" className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-sm disabled:opacity-50" title="配車・時間を、日と時間帯を選んで自動で計算">{routing ? (
             // ★ 2026-10-01(試験版・ユーザー要望): 計算中が分かるよう回る輪を付ける(点の点滅は「どちらかでいい」との指示で回る輪だけに)
             <span data-testid="tp-calculating" className="inline-flex items-center whitespace-nowrap"><BusySpin/>計算中…</span>
           ) : '自動計算'}</button>
