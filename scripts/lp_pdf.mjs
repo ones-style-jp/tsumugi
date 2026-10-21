@@ -4,7 +4,7 @@ import { chromium } from 'playwright';
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : d; };
 const BASE = arg('--base', 'http://localhost:4174'); const OUT = arg('--out', 'docs/マニュアル'); const SHOT = arg('--shot', '');
 const JOBS = [
-  ['lp-kazoku.html', 'つむぎのご案内_ご家族向け.pdf'],
+  // ['lp-kazoku.html', 'つむぎのご案内_ご家族向け.pdf'], // 2026-10-21 ユーザー指示でご家族向けPDFは廃止(サイトからも削除)
   ['lp-kankeisha.html', 'つむぎのご案内_ケアマネ向け.pdf'],
   ['sales-onepager.html', 'つむぎご案内_ご家族向け・ケアマネ向け.pdf'],
   ['lp-cm-touroku.html', 'つむぎアカウント登録のお願い_ケアマネ・居宅事業所向け.pdf'],
