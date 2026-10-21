@@ -10967,6 +10967,30 @@ const tsuRenrakuUsage = (htmlAll, htmlPat, dropLine) => {
     el.innerHTML = (htmlAll || '') + ((htmlAll && htmlPat) ? '<div style="height:6px"></div>' : '') + (htmlPat || '') + (dropLine ? `<div style="margin-top:${(htmlAll || htmlPat) ? 6 : 0}px">${esc(dropLine)}</div>` : '');
     document.body.appendChild(el); const r = el.scrollHeight / RENRAKU_BOX_H; el.remove(); return r; } catch { return 0; }
 };
+// ★ 2026-10-21(ユーザー決定): 送迎表を使う店舗の「次回の日付」。日付は月間スケジュールで変える(送迎表・提供記録・ご家族の画面とそろう)
+function TsuNextDateJumpModal({ appData, selectedDate, records, onClose, onJump }) {
+  const rows = (records || []).map(r => { const pt = (appData.patients || []).find(x => x.id === r.patientId); if (!pt) return null; return { pid: pt.id, name: pt.name, next: tsuCbNextDateOf(r, pt, selectedDate, appData) }; }).filter(Boolean);
+  return ReactDOM.createPortal((
+    <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-0 sm:p-4" style={{ zIndex: 10050 }} data-testid="cb-nextjump-modal">
+      <div className="bg-white sm:rounded-2xl shadow-2xl w-full h-full sm:h-auto sm:max-w-lg max-h-full sm:max-h-[92vh] flex flex-col">
+        <div className="px-4 sm:px-5 pt-4 pb-2 border-b border-slate-200">
+          <div className="flex items-center justify-between"><div className="text-lg font-bold text-slate-800">次回の日付</div><button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none px-2" aria-label="閉じる">✕</button></div>
+          <div className="text-[12px] text-slate-600 mt-1">次回の日付は月間スケジュールで変えます（送迎表・ご家族の画面もそろいます）。</div>
+        </div>
+        <div className="flex-1 overflow-y-auto px-2 sm:px-3 py-2" style={{ overscrollBehavior: 'contain' }}>
+          {!rows.length ? <div className="text-sm text-slate-500 p-4">この日の連絡帳の方がいません。</div> : rows.map(x => (
+            <div key={x.pid} data-testid={`cb-nextjump-row-${x.pid}`} className="flex items-center gap-3 px-2 py-2 border-b border-slate-100">
+              <span className="w-[6.5em] shrink-0 font-bold text-slate-800 text-[15px] truncate">{x.name}</span>
+              <span className="flex-1 min-w-0 text-[14px] text-slate-700 tabular-nums">{/\d/.test(String(x.next)) ? x.next : <span className="text-slate-400">次回の日付なし</span>}</span>
+              <button type="button" data-testid={`cb-nextjump-go-${x.pid}`} onClick={() => onJump(x.pid)} className="shrink-0 px-3 py-2 rounded-lg text-[13px] font-bold border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 whitespace-nowrap">月間スケジュール</button>
+            </div>))}
+        </div>
+        <div className="px-4 sm:px-5 py-3 border-t border-slate-200 flex justify-end" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}>
+          <button type="button" onClick={onClose} className="whitespace-nowrap px-5 py-2 rounded-lg font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 text-sm">閉じる</button>
+        </div>
+      </div>
+    </div>), document.body);
+}
 // ★ 2026-10-21: 「送り時間反映」。その日の連絡帳に、次回の送りの時間を入れる方を選ぶ(押したときだけ・次の連絡帳には入らない)
 function TsuDropNoteModal({ appData, selectedDate, records, onClose, onApply }) {
   const cfg = appData.contactBookConfig || {};
@@ -14951,9 +14975,9 @@ function LoginHelpModal({ kind, onClose }) {
         ) : (
           <div>
             <Q q="ログインできません" a={<>ログインIDとパスワードは、事業所からお渡しした紙またはメールをご確認ください。<b>英字・数字は半角</b>で入力してください（大文字・小文字も区別されます）。</>} />
-            <Q q="パスワードを忘れました" a={<>ログイン画面の<b>「パスワードをお忘れですか？」</b>から、登録メールアドレスに届く確認コードで再設定できます。メールが届かない（メール未登録）場合は事業所へご連絡ください。事業所で新しいパスワードを発行できます。</>} />
+            <Q q="パスワードを忘れました" a={<>ログイン画面の<b>「パスワードをお忘れですか？」</b>から、登録メールに届くコードで再設定できます。メールが届かないときは事業所へ（新しいパスワードを発行できます）。</>} />
             <Q q="画面が真っ白／エラーが出る・表示されない" a={<>まず画面を<b>再読み込み</b>してください。iPhone / iPad で直らない場合は、<b>設定 → Safari → 履歴とWebサイトデータを消去</b>してから開き直すか、Safariの<b>プライベートモード</b>でお試しください。</>} />
-            <Q q="QRコードが読み取れません" a={<>カメラアプリでQRにかざすと開けます。読み取れない場合は、事業所からお伝えしたURLをブラウザに直接入力してください。</>} />
+            <Q q="QRコードが読み取れません" a={<>カメラでQRを読むと開きます。読めないときは、事業所から伝えたURLを入力してください。</>} />
             <Q q="それでも解決しないとき" a={<>お手数ですが事業所、またはサポート（support@ones-style.co.jp）までご連絡ください。</>} />
           </div>
         )}
@@ -16277,7 +16301,7 @@ function FamilyView() {
                           <div style={{marginBottom:10}}>
                             <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>事業所</label>
                             <div style={{width:'100%',padding:'10px 12px',border:'1px solid #bae6fd',borderRadius:10,fontSize:13,boxSizing:'border-box',background:'#f0f9ff',fontWeight:'bold',color:'#0c4a6e'}}>{_inviteInfo.cmOffice}</div>
-                            <div style={{fontSize:10,color:'#0369a1',marginTop:4,lineHeight:1.5}}>※ デイサービス側で登録された事業所のため変更できません。内容に誤りがある場合はデイサービスへご連絡ください（修正のうえ再度招待メールをお送りします）。</div>
+                            <div style={{fontSize:10,color:'#0369a1',marginTop:4,lineHeight:1.5}}>※ デイサービスが登録した事業所のため変更できません。誤りがあればデイサービスへご連絡ください。</div>
                           </div>
                         ) : (
                         <div style={{marginBottom:10}}>
@@ -16427,7 +16451,7 @@ function FamilyView() {
                 </>
               ) : famReset.step === 1 ? (
                 <>
-                  <div style={{fontSize:12,color:'#64748b',lineHeight:1.7,marginBottom:12}}>ログインIDと、アカウントに登録したメールアドレスを入力してください。両方が登録内容と一致した場合のみ、そのメールに6桁の確認コードをお送りします（届かない場合は事業所へご連絡ください）。</div>
+                  <div style={{fontSize:12,color:'#64748b',lineHeight:1.7,marginBottom:12}}>ログインIDと登録したメールアドレスを入力してください。一致すると、6桁の確認コードをメールでお送りします。</div>
                   {famReset.err && <div style={{background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:8,padding:'8px 10px',marginBottom:10,fontSize:12,color:'#dc2626',fontWeight:'bold'}}>{famReset.err}</div>}
                   <ImeSafeInput value={famReset.username} onChange={e=>setFamReset(f=>({...f,username:toHalfWidth(e.target.value),err:''}))} placeholder="ログインID" autoComplete="username"
                     style={{width:'100%',padding:'11px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:14,outline:'none',boxSizing:'border-box',marginBottom:8}}/>
@@ -16452,7 +16476,7 @@ function FamilyView() {
                 </>
               ) : (
                 <>
-                  <div style={{fontSize:12,color:'#64748b',lineHeight:1.7,marginBottom:12}}>{famReset.masked ? <>メール（<b>{famReset.masked}</b>）に確認コードを送信しました。</> : <>ID・メールアドレスが登録内容と一致した場合、確認コードが届きます。届かない場合は入力内容をご確認いただくか、事業所へお問い合わせください。</>}<br/>6桁のコードと新しいパスワードを入力してください（コードは<b>10分有効・3回まで</b>入力できます）。</div>
+                  <div style={{fontSize:12,color:'#64748b',lineHeight:1.7,marginBottom:12}}>{famReset.masked ? <>メール（<b>{famReset.masked}</b>）に確認コードを送信しました。</> : <>一致すると確認コードが届きます。届かないときは入力をご確認のうえ、事業所へお問い合わせください。</>}<br/>6桁のコードと新しいパスワードを入力してください（コードは<b>10分有効・3回まで</b>入力できます）。</div>
                   {famReset.err && <div style={{background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:8,padding:'8px 10px',marginBottom:10,fontSize:12,color:'#dc2626',fontWeight:'bold'}}>{famReset.err}</div>}
                   <ImeSafeInput value={famReset.code} onChange={e=>setFamReset(f=>({...f,code:toHalfWidth(e.target.value).replace(/[^0-9]/g,'').slice(0,6),err:''}))} placeholder="確認コード（6桁）" inputMode="numeric"
                     style={{width:'100%',padding:'11px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:16,letterSpacing:4,outline:'none',boxSizing:'border-box',marginBottom:8,textAlign:'center',fontWeight:'bold'}}/>
@@ -16550,7 +16574,7 @@ function FamilyView() {
       <div data-testid="fam-relogin-gate" style={{minHeight:'100vh',background:'#f4f8ed',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
         <div style={{width:'100%',maxWidth:440,background:'white',borderRadius:16,padding:'24px 22px',boxShadow:'0 4px 16px rgba(0,0,0,0.08)'}}>
           <div style={{fontSize:18,fontWeight:'bold',color:'#3d5021',marginBottom:8}}>一度ログインし直してください</div>
-          <div style={{fontSize:15,color:'#475569',lineHeight:1.7,marginBottom:16}}>安全性を高めた新しい仕組みに切り替わりました。お手数ですが、ログインし直していただくと、これまでどおりご覧いただけます（ID・パスワードは変わりません）。</div>
+          <div style={{fontSize:15,color:'#475569',lineHeight:1.7,marginBottom:16}}>安全のため仕組みが新しくなりました。お手数ですが、ログインし直してください（ID・パスワードは変わりません）。</div>
           <button type="button" onClick={handleLogout} style={{width:'100%',minHeight:48,padding:'12px 16px',background:'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:16,fontWeight:'bold',cursor:'pointer'}}>ログイン画面へ</button>
         </div>
       </div>
@@ -17398,7 +17422,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                 <button onClick={()=>setFamReport(null)} style={{whiteSpace:'nowrap',marginTop:16,padding:'10px 24px',background:'#7daa3d',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>閉じる</button>
               </div>
             ) : (<>
-              <div style={{fontSize:11,color:'#64748b',lineHeight:1.7,background:'#fffbeb',border:'1px solid #fcd34d',borderRadius:8,padding:'10px',marginBottom:10}}>どの画面で・何が・どうおかしいか（ご意見・ご要望も可）をお書きください。画面状況・端末情報も自動で添付されます。</div>
+              <div style={{fontSize:11,color:'#64748b',lineHeight:1.7,background:'#fffbeb',border:'1px solid #fcd34d',borderRadius:8,padding:'10px',marginBottom:10}}>どの画面で何がおかしいか（ご要望も可）をお書きください。画面と端末の情報も自動で添付されます。</div>
               <textarea autoFocus value={famReport.desc} onChange={e=>setFamReport(b=>({...b,desc:e.target.value}))} rows={5}
                 placeholder="例: 写真が表示されない / お知らせが開けない など"
                 style={{width:'100%',boxSizing:'border-box',padding:'10px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',lineHeight:1.6,resize:'vertical'}}/>
@@ -17519,7 +17543,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                     利用者情報を編集する（フェイスシート）
                   </button>
                 )}
-                <div style={{fontSize:11,color:'#64748b',lineHeight:1.5}}>※ 編集はすべてフェイスシートで行います（基本情報・緊急連絡先・かかりつけ医の追加・既往歴・留意点など）。保存すると事業所にも反映されます。</div>
+                <div style={{fontSize:11,color:'#64748b',lineHeight:1.5}}>※ 変更はフェイスシートで行います。保存すると事業所にも届きます。</div>
                 {(() => { const log = (Array.isArray(patient?.docUpdates) ? patient.docUpdates : []).slice().reverse().slice(0, 20); if (!log.length) return null;
                   const fmt = (iso) => { try { const d = new Date(iso); return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; } catch { return ''; } };
                   const who = (u) => (u.by === 'caremanager' ? 'ケアマネ' : u.by === 'family' ? 'ご家族' : '事業所') + (u.byName ? `（${u.byName}）` : '');
@@ -17898,7 +17922,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                 同じメール+同じパスワードで複数利用者を閲覧している場合はリンク全アカウントをまとめて変更(切替が壊れないように) */}
             <div style={{marginTop:18,paddingTop:14,borderTop:'1px solid #e2e8f0'}}>
               <div style={{fontSize:13,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>パスワードの変更</div>
-              <div style={{fontSize:10,color:'#64748b',marginBottom:8,lineHeight:1.6}}>事業所から仮パスワードを受け取った場合は、ここでご自身のパスワードに変更してください。複数のご利用者を切り替えて見ている場合は、まとめて変更されます。</div>
+              <div style={{fontSize:10,color:'#64748b',marginBottom:8,lineHeight:1.6}}>事業所から仮パスワードを受け取ったときは、ここで変更してください（ご利用者を切り替えて見ている場合はまとめて変わります）。</div>
               {pwChangeForm.err && <div style={{background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:8,padding:'7px 10px',marginBottom:8,fontSize:11,color:'#dc2626',fontWeight:'bold'}}>{pwChangeForm.err}</div>}
               {pwChangeForm.msg && <div style={{background:'#f0fdf4',border:'1px solid #86efac',borderRadius:8,padding:'7px 10px',marginBottom:8,fontSize:11,color:'#166534',fontWeight:'bold'}}>✓ {pwChangeForm.msg}</div>}
               <div style={{display:'grid',gap:8}}>
@@ -18233,7 +18257,7 @@ function FamilyPatientView({ data, setData, patientId, accountId, onLogout, onSw
                   <div style={{fontSize:10,color:'#166534',marginBottom:8,lineHeight:1.6}}>
                     {inviteFamForm.sentAuto
                       ? `${inviteFamForm.email} にメールを自動送信しました。届かない場合は下のURLをコピーして共有してください。`
-                      : '自動送信ができなかったため、下のURLをコピーして、ご家族に LINE / メール / 電話などでお伝えください。'}
+                      : '自動で送れませんでした。下のURLをコピーして、LINE・メールなどでお伝えください。'}
                   </div>
                   <input readOnly value={inviteFamForm.createdUrl}
                     style={{width:'100%',padding:'8px 10px',border:'1px solid #d1fae5',borderRadius:8,fontSize:11,fontFamily:'monospace',background:'white',boxSizing:'border-box'}}/>
@@ -18613,7 +18637,7 @@ function StaffInviteAcceptView({ code, onLogin }) {
             <div><div style={{fontSize:13,fontWeight:'bold',color:'#475569',marginBottom:4}}>ログインID <span style={{color:'#dc2626'}}>*</span></div>{inp('username','text','例: hanako_m（4文字以上の半角英数字）',{autoCapitalize:'none',autoCorrect:'off'})}</div>
             <div><div style={{fontSize:13,fontWeight:'bold',color:'#475569',marginBottom:4}}>パスワード <span style={{color:'#dc2626'}}>*</span>（8文字以上・英字と数字）</div>{inp('password','password','パスワード')}</div>
             <div>{inp('password2','password','パスワード（確認）')}</div>
-            <div><div style={{fontSize:13,fontWeight:'bold',color:'#475569',marginBottom:4}}>PIN（数字4桁・任意）</div><div style={{fontSize:12,color:'#64748b',marginBottom:4,lineHeight:1.6}}>みんなで使う iPad で「自分に切り替える」ときに入力する番号です。あとからでも設定できます。</div>{inp('pin','password','0000',{inputMode:'numeric',maxLength:4})}</div>
+            <div><div style={{fontSize:13,fontWeight:'bold',color:'#475569',marginBottom:4}}>PIN（数字4桁・任意）</div><div style={{fontSize:12,color:'#64748b',marginBottom:4,lineHeight:1.6}}>共有のiPadで自分に切り替えるときの番号です（あとからでも設定できます）。</div>{inp('pin','password','0000',{inputMode:'numeric',maxLength:4})}</div>
             <div>{inp('pin2','password','PIN（確認）',{inputMode:'numeric',maxLength:4})}</div>
           </div>
           <button type="submit" disabled={busy} style={{marginTop:16,width:'100%',minHeight:48,padding:'12px 16px',background:busy?'#a3b98a':'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:16,fontWeight:'bold',cursor:'pointer'}}>{busy ? '登録中…' : '登録してログイン'}</button>
@@ -22927,7 +22951,7 @@ export default function App() {
                 syncLog('push-give-up', {});
                 // ★ 失敗した内容を IndexedDB に控える → 再読み込み後・オンライン復帰後に自動再送(2026-09-21)
                 const _kept = await _pendIdb.put(staffSession.storeId, cur); _pendPushRef.current = !!_kept;
-                setToastMsg(_kept ? '⚠ 同期に失敗しました（通信不良の可能性）。変更は端末に控えました。通信が回復すると自動で送信します（再読み込みしても消えません）' : '⚠ 同期に失敗しました（通信不良の可能性）。入力は端末に保持しています。通信を確認して、もう一度保存してください');
+                setToastMsg(_kept ? '⚠ 同期に失敗しました。変更は端末に控え、通信が戻ると自動で送ります（再読み込みしても消えません）' : '⚠ 同期に失敗しました。入力は端末に残っています。通信を確認して、もう一度保存してください');
                 setShowToast(true); setTimeout(()=>setShowToast(false),8000);
               } else if (_pendPushRef.current) { _pendPushRef.current = false; _pendIdb.del(staffSession.storeId); }
               cur = _pushNextRef.current; _pushNextRef.current = null;
@@ -22942,7 +22966,7 @@ export default function App() {
           const _tid = ++_saveToastSeqRef.current;
           const _show = (msg, ms) => { if (_saveToastSeqRef.current !== _tid) return; setToastMsg(msg); setShowToast(true); clearTimeout(_saveToastTimerRef.current); _saveToastTimerRef.current = setTimeout(() => { if (_saveToastSeqRef.current === _tid) setShowToast(false); }, ms); };
           if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-            _show('⚠ 通信がないため保存できませんでした。入力は端末に控えており、通信が戻ると自動で送ります（この画面を閉じないでください）', 8000);
+            _show('⚠ 通信がないため保存できませんでした。入力は端末に控え、通信が戻ると自動で送ります（画面を閉じないでください）', 8000);
           } else {
             _show('クラウドに保存しています…', 60000);
             Promise.all([_pushDone, _rowsPromise || Promise.resolve({ ok: true })]).then(([okPush, rowsRes]) => {
@@ -23647,11 +23671,11 @@ export default function App() {
             if (isIOS) {
               const isB5w = Math.round(pageW)===257, isB6w = Math.round(pageW)===128, isB5pw = Math.round(pageW)===182, isLand = pageW > pageH;
               const orient = isB6w ? '用紙サイズ「B6」' : isB5w ? '用紙「B5」＋「横向き」' : isLand ? '「横向き」' : '';
-              const hint = isB5pw ? '用紙「B5」＋「縦向き」で印刷してください（B5トレイにB6用紙を入れている場合、連絡帳がB6で中央に乗ります）' : orient ? `印刷オプションで ${orient} を選ぶと、はみ出さずにきれいに印刷できます` : '印刷オプションで用紙サイズ・向きを選べます';
+              const hint = isB5pw ? '用紙「B5」・「縦」で印刷してください（B6用紙をB5トレイに入れると中央に乗ります）' : orient ? `印刷オプションで ${orient} を選ぶと、はみ出さずにきれいに印刷できます` : '印刷オプションで用紙サイズ・向きを選べます';
               const bar = `<div class="no-print" style="position:fixed;top:0;left:0;right:0;background:#1e293b;color:#fff;padding:12px 16px;text-align:center;font-family:-apple-system,sans-serif;z-index:99999;box-shadow:0 2px 10px rgba(0,0,0,0.35);">
                   <button onclick="window.print()" style="font-size:17px;font-weight:bold;padding:11px 28px;background:#2563eb;color:#fff;border:none;border-radius:10px;cursor:pointer;">印刷 / PDF保存</button>
                   <div style="font-size:12px;margin-top:7px;color:#cbd5e1;">${hint}</div>
-                  <div style="font-size:11px;margin-top:5px;color:#fbbf24;font-weight:bold;">URL・日付（ヘッダー/フッター）を消すには、印刷画面で『PDF』として保存してください（PDFには付きません）。直接プリンタへ出す場合、iPad/iPhoneでは仕様上消せません。</div>
+                  <div style="font-size:11px;margin-top:5px;color:#fbbf24;font-weight:bold;">URL・日付（ヘッダー/フッター）を消すには『PDF』として保存してください。iPad/iPhoneから直接印刷すると消せません。</div>
                 </div><div class="no-print" style="height:104px;"></div>`;
               const w = window.open('', '_blank');
               if (!w) { alert('印刷用の画面を開けませんでした。Safari の設定でポップアップの許可をご確認ください。'); return; }
@@ -23701,7 +23725,7 @@ export default function App() {
                 <div style={{display:'flex',gap:10,rowGap:8,alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end',marginLeft:'auto'}}>
                   {/* ★ 連絡帳の印刷位置をプレビュー内で微調整(2026-09-29 ユーザー要望: 設定画面では動いた量が見えない)。1押し=1mm・±10mm・押すと設定に保存されプレビューが動く */}
                   {printPreviewContent.adjust && (() => { const a = printPreviewContent.adjust; const bs = {background:'#334155',color:'#fff',border:'1px solid #64748b',borderRadius:8,padding:'6px 10px',fontWeight:'bold',fontSize:13,cursor:'pointer',whiteSpace:'nowrap'}; const lb = {fontSize:12,fontWeight:'bold',color:'#cbd5e1',whiteSpace:'nowrap'}; const vv = (v) => v === 0 ? '0(中央)' : (v > 0 ? `+${v}` : `${v}`); return (
-                    <div title="1押し=1mm。押すと連絡帳の印刷設定に保存され、プレビューがその位置で組み直されます（カット線・穴あけ目印は動きません）" style={{display:'flex',alignItems:'center',gap:6,background:'#0f172a',border:'1px solid #475569',borderRadius:10,padding:'6px 10px',flexWrap:'wrap'}}>
+                    <div title="1回押すと1mm動きます（印刷設定に保存。カット線・穴の目印は動きません）" style={{display:'flex',alignItems:'center',gap:6,background:'#0f172a',border:'1px solid #475569',borderRadius:10,padding:'6px 10px',flexWrap:'wrap'}}>
                       <span style={lb}>印刷位置</span>
                       <span style={lb}>横</span><button onClick={()=>a.apply(a.x-1,a.y)} style={bs}>← 左</button><span style={{...lb,minWidth:52,textAlign:'center',color:'#fff'}}>{vv(a.x)}</span><button onClick={()=>a.apply(a.x+1,a.y)} style={bs}>右 →</button>
                       <span style={{...lb,marginLeft:6}}>縦</span><button onClick={()=>a.apply(a.x,a.y-1)} style={bs}>↑ 上</button><span style={{...lb,minWidth:52,textAlign:'center',color:'#fff'}}>{vv(a.y)}</span><button onClick={()=>a.apply(a.x,a.y+1)} style={bs}>↓ 下</button>
@@ -23709,7 +23733,7 @@ export default function App() {
                     </div>
                   ); })()}
                   {/* ★ 2026-10-03: サーバーPDF(他社SaaSと同じ「ダウンロード」)。印刷グループの左に独立して置く */}
-                  <button onClick={downloadPdfViaServer} disabled={pdfDl==='busy'} data-testid="pv-pdf-download" title="サーバーでPDFファイルを作ります（iPadは新しいタブで開く・PCはダウンロード。ヘッダー・フッター無し）"
+                  <button onClick={downloadPdfViaServer} disabled={pdfDl==='busy'} data-testid="pv-pdf-download" title="PDFを作ります（iPadは新しいタブ・PCはダウンロード）"
                     style={{background: pdfDl==='busy' ? '#94a3b8' : (pdfDl && pdfDl.error ? '#b91c1c' : '#0f766e'),color:'white',border:'none',borderRadius:10,padding:'10px 16px',fontWeight:'bold',fontSize:14,cursor: pdfDl==='busy' ? 'wait' : 'pointer',display:'flex',alignItems:'center',gap:6,marginRight:8,whiteSpace:'nowrap',boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
                     {pdfDl==='busy' ? <><BusySpin/>作成中…</> : (pdfDl && pdfDl.error ? `失敗: ${pdfDl.error}` : 'ダウンロード')}
                   </button>
@@ -24265,7 +24289,7 @@ export default function App() {
             </div>
             {/* ★ 控えめバナー: 自動同期が止まっている(最新未反映の可能性)ときだけ表示。 タップで再読み込み。 */}
             {syncStale && (
-              <div onClick={()=>window.location.reload()} title="自動同期が一時停止しています。最新の内容を反映するには再読み込みしてください。入力前に押すと安全です。"
+              <div onClick={()=>window.location.reload()} title="自動同期が止まっています。入力の前に再読み込みしてください。"
                 className="flex items-center gap-1 shrink-0 mr-2 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-300 rounded-full px-2.5 py-1 cursor-pointer hover:bg-amber-100 whitespace-nowrap active:scale-95">
                 <span>⚠ 未同期</span><span className="hidden sm:inline">· タップで再読み込み</span>
               </div>
@@ -24282,7 +24306,7 @@ export default function App() {
               return (
                 <div
                   className="hidden lg:flex items-center gap-1.5 shrink-0 mr-3 text-[11px] text-slate-400 whitespace-nowrap cursor-pointer hover:text-slate-600"
-                  title={isSelf ? 'この端末で最後に更新しました（最新です）' : `最新の更新は「${ls.device || '名称未設定の端末'}」で行われました。この端末にも反映されています。設定＞システムで端末名を変更できます。`}
+                  title={isSelf ? 'この端末で最後に更新しました（最新です）' : `最新の更新は「${ls.device || '名称未設定の端末'}」（この端末にも反映済み）。端末名は 設定→システム で変えられます。`}
                   onClick={() => navigateTo && navigateTo('settings', null, 'device')}>
                   <span className={`inline-block w-1.5 h-1.5 rounded-full ${isSelf ? 'bg-emerald-400' : 'bg-blue-400'}`}></span>
                   <span>最終更新: {ls.device || '名称未設定の端末'} · {atStr}</span>
@@ -24451,7 +24475,7 @@ export default function App() {
                         <button type="button" onClick={() => { try { navigator.clipboard.writeText(url); tsuPopNotice('招待URLをコピーしました'); } catch {} }} className="px-3 py-2 rounded-lg text-sm font-bold bg-white border border-slate-300 text-slate-700">URLをコピー</button>
                         <button type="button" onClick={issue} className="px-3 py-2 rounded-lg text-sm font-bold bg-white border border-slate-300 text-slate-700">コードを発行し直す</button>
                       </div>
-                      <div className="text-xs text-slate-500 mt-1">本人にこの URL（またはコード）を渡してください。本人がログインID・パスワード・PIN を決めると登録が完了します。</div>
+                      <div className="text-xs text-slate-500 mt-1">本人にこのURL（またはコード）を渡します。本人がID・パスワード・PINを決めると登録完了です。</div>
                     </div>
                   ) : (
                     <div className="text-sm text-slate-700 leading-6">
@@ -34343,6 +34367,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [renrakuModal, setRenrakuModal] = useState(null); // {patientId} 連絡事項の編集
   const [dropNoteOpen, setDropNoteOpen] = useState(false); // ★ 2026-10-21: 送り時間反映
+  const [nextJumpOpen, setNextJumpOpen] = useState(false); // ★ 2026-10-21: 次回の日付(月間スケジュールへ)
   const _renPhone = useTsuIsPhoneDevice(); // ★ 2026-10-08: スマホ(縦・横)は用紙を画面幅に合わせて全員分を表示
   const [showPrintCards, setShowPrintCards] = useState(false); // ★ 印刷用の隠しカードは印刷時だけ描画(スマホのメモリ対策)
   const [printMissingConfirm, setPrintMissingConfirm] = useState(null); // ★ 次回予定未入力の確認 {names:[]}(2026-09-09)
@@ -35081,6 +35106,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                       (renN > 0 || allOn || dropN > 0) ? <span className="bg-emerald-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap" data-testid="cb-hub-renraku-badge">{[allOn ? '全員' : '', renN>0 ? `個別${renN}名` : '', dropN>0 ? `送り${dropN}名` : ''].filter(Boolean).join('+')}</span> : null,
                       () => open(() => setRenrakuModal({ patientId: null })))}
                     {card('cb-hub-items', '項目', '連絡帳に載せる項目と、利用者ごとの値', null, () => open(() => setIsConfigOpen(true)))}
+                    {/* ★ 2026-10-21(ユーザー決定): 送迎表を使う店舗は、次回の日付を月間スケジュールで変える */}
+                    {tsumugiTransportOn(appData) && navigateTo && card('cb-hub-nextdate', '次回の日付', '振替・お休みは月間スケジュールで', null, () => open(() => setNextJumpOpen(true)))}
                   </div>
                 </div>
               </div>
@@ -35562,6 +35589,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       
       <DigitalKeypad isOpen={keypad.isOpen} anchorKey={`${keypad.recordId}-${keypad.field}`} value={keypad.value} isFirstInput={keypad.isFirstInput} mode={keypad.mode} onClose={() => { handleOverrideBlur(keypad.recordId, keypad.field, keypad.value); setKeypad({...keypad, isOpen: false}); }} onInput={handleKeypadInput} onEnter={handleKeypadEnter} onTab={handleKeypadTab} />
       {isConfigOpen && <ContactBookConfigModal config={appData.contactBookConfig} exerciseItems={effExerciseItems(appData.systemSettings)} onClose={() => setIsConfigOpen(false)} onSave={handleSaveConfig} patients={sortPatientsByKana((appData.patients||[]).filter(pt => pt.status === '利用中' && isPatientListable(pt)))} />}
+      {nextJumpOpen && <TsuNextDateJumpModal appData={appData} selectedDate={selectedDate} records={displayRecords} onClose={()=>setNextJumpOpen(false)} onJump={(pid)=>{ setNextJumpOpen(false); if (navigateTo) navigateTo('master', pid, 'schedule'); }} />}
       {dropNoteOpen && <TsuDropNoteModal appData={appData} selectedDate={selectedDate} records={displayRecords} onClose={()=>setDropNoteOpen(false)} onApply={applyDropNotes} />}
       {renrakuModal && <RenrakuModal appData={appData} patientId={renrakuModal.patientId} dayPatientIds={displayRecords.map(r=>r.patientId)} selectedDate={selectedDate} dayRecords={displayRecords} onOpenDrop={tsumugiTransportOn(appData) ? () => setDropNoteOpen(true) : null} onClose={()=>setRenrakuModal(null)} onSave={(d)=>{ markClean(); onSave(d, { manual: true, message: '✓ 連絡事項を保存しました' }); }} />}
     </div>
@@ -37910,7 +37938,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   // ★ 2026-10-01(試験版): 徒歩の方の時刻。個別に入れた時刻があればそれ、無ければ(保存値「徒歩」)クラスの開始時刻
   const _walkT = (m, sl) => { const v = _fmtT(m && m.t); return /^\d{1,2}:(\d{2}|--)$/.test(v) ? v : _classStart(sl); };
   // ==== 印刷(A4横・1週間・午前+午後) ====
-  const buildPrintHtml = () => {
+  // ★ 2026-10-21(ユーザー要望): ダウンロードで「送りの時間も入れる」を外したときは、印刷物に送りの時間を出さない(車名などの印だけ)
+  const _noDropAtPrintRef = useRef(false);
+  const _dropLabelP = (pl, pid) => _noDropAtPrintRef.current ? _dropTag(pl, pid) : _dropLabel(pl, pid);
+  const buildPrintHtml = (slots = ['AM','PM'], info = null) => { // ★ 2026-10-21: slots=載せる時間帯(午前だけ/午後だけの紙)・info に1枚に入るかを返す
     const esc = (t) => String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
     // ★ 2026-09-14 デザイン刷新(他AI試作の採用): 各車のヘッダ(車名太字+運転者)直下にその車の列見出し(氏名/時間/次回)。
     //   人数/定員の表示なし。罫線は薄く(車の枠のみ濃い)。空席行は「その車の週間最大乗車数」までは通常の高さ、
@@ -37949,7 +37980,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const _sendLabel = (tg) => String(tg || '').replace(/^送/, '');
     let _maxNameEm = 3, _anyDropTag = false, _maxSendEm = 2;
     ['AM','PM'].forEach(sl => days.forEach(d => { const iso = _iso(d); const pl0 = getPlan(iso, sl);
-      [ ...Object.values(pl0.cars||{}), pl0.walkers||[], pl0.others||[] ].forEach(ms => (ms||[]).forEach(m => { const mk = (m.mark || _dotOf(plans[`${iso}_${sl}`], iso, m.pid)) ? 1 : 0; const tg = _dropLabel(pl0, m.pid); if (tg) { _anyDropTag = true; _maxSendEm = Math.max(_maxSendEm, _emW(_sendLabel(tg))); } _maxNameEm = Math.max(_maxNameEm, _emW(_pname(m.pid)) + mk); })); }));
+      [ ...Object.values(pl0.cars||{}), pl0.walkers||[], pl0.others||[] ].forEach(ms => (ms||[]).forEach(m => { const mk = (m.mark || _dotOf(plans[`${iso}_${sl}`], iso, m.pid)) ? 1 : 0; const tg = _dropLabelP(pl0, m.pid); if (tg) { _anyDropTag = true; _maxSendEm = Math.max(_maxSendEm, _emW(_sendLabel(tg))); } _maxNameEm = Math.max(_maxNameEm, _emW(_pname(m.pid)) + mk); })); }));
     const _hasDrv = ['AM','PM'].some(sl => days.some(d => Object.values(getPlan(_iso(d), sl).driver||{}).some(Boolean)));
     const _carColW = (f) => Math.ceil(Math.min(f, 14) * 1.25) + 16;     // 左端の車名の列(縦書き1列＋余白)
     const _drvW = (f) => _hasDrv ? Math.ceil(Math.min(f, 11) * 1.2) + 9 : 0; // 各日の運転者の細い欄
@@ -37988,8 +38019,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     // ★ 2026-09-16f: 本文の有効高さを実測に基づいて補正(190mm=718px − 題字28 − 日付見出し6mm − 凡例17 − セル余白12 ≒ 638)。
     const availPx = 630 + 19 + 22; // ★ 2026-10-13: 凡例を右上へ(+19)・印字域を196mmに(+22)
     let fz = 20; // 上限20px(利用者が少ない店舗で大きくなりすぎないように)
-    while (fz > 8) { const uh = Math.ceil(fz * 1.25) + 3; const tu = Math.max(unitsOf('AM', fz) + unitsOf('PM', fz), 6); if (tu * uh <= availPx && _nameW(fz) + _timeW(fz) + _nextW(fz) + _sendW(fz) <= _dayPx(fz)) break; fz--; }
-    const uAM = unitsOf('AM', fz), uPM = unitsOf('PM', fz);
+    const _fitH = (f) => { const uh = Math.ceil(f * 1.25) + 3; const tu = Math.max(slots.reduce((a, sl) => a + unitsOf(sl, f), 0), 6); return tu * uh <= availPx; };
+    while (fz > 8) { if (_fitH(fz) && _nameW(fz) + _timeW(fz) + _nextW(fz) + _sendW(fz) <= _dayPx(fz)) break; fz--; }
+    if (info) { info.fitsH = _fitH(fz); info.fz = fz; }
+    const uAM = slots.includes('AM') ? unitsOf('AM', fz) : 0, uPM = slots.includes('PM') ? unitsOf('PM', fz) : 0;
     const totalU = Math.max(uAM + uPM, 6);
     const fzS = _fzS(fz);
     const fzB = _fzB(fz); // ★ 2026-10-01b: 休み等は一回り小さく(2026-09-16f は本文と同じ大きさだった)
@@ -38000,14 +38033,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const COLG = _anyDropTag
       ? `<colgroup><col style="width:${_nameW(fz) + Math.floor(_extraW * 0.5)}px"/><col style="width:${_timeW(fz) + Math.floor(_extraW * 0.3)}px"/><col style="width:${_nextW(fz)}px"/><col/></colgroup>`
       : `<colgroup><col style="width:${_nameW(fz) + Math.floor(_extraW * 0.5)}px"/><col style="width:${_timeW(fz) + Math.floor(_extraW * 0.3)}px"/><col/></colgroup>`;
-    const _sendTd = (m, iso, sl) => _anyDropTag ? `<td style="border-bottom:1px solid #d7dcd7;border-left:1px solid #e2e6e1;padding:1px 2px;font-size:${Math.max(7, Math.min(_fzS(fz), Math.floor((_sendW(fz) - 4) / Math.max(1, _emW(_sendLabel(_dropLabel(getPlan(iso, sl), m.pid)))))))}px;line-height:1.25;text-align:center;font-weight:700;color:#3730a3;white-space:nowrap;overflow:hidden;">${esc(_sendLabel(_dropLabel(getPlan(iso, sl), m.pid)))}</td>` : '';
+    const _sendTd = (m, iso, sl) => _anyDropTag ? `<td style="border-bottom:1px solid #d7dcd7;border-left:1px solid #e2e6e1;padding:1px 2px;font-size:${Math.max(7, Math.min(_fzS(fz), Math.floor((_sendW(fz) - 4) / Math.max(1, _emW(_sendLabel(_dropLabelP(getPlan(iso, sl), m.pid)))))))}px;line-height:1.25;text-align:center;font-weight:700;color:#3730a3;white-space:nowrap;overflow:hidden;">${esc(_sendLabel(_dropLabelP(getPlan(iso, sl), m.pid)))}</td>` : '';
     const _sendEmptyTd = () => _anyDropTag ? `<td style="border-bottom:1px solid #dfe3de;border-left:1px solid #eaece8;padding:1px 2px;font-size:${_fzS(fz)}px;line-height:1.25;">&nbsp;</td>` : '';
     const _padTd = () => '';
     const _rowStyle = `height:${_rowH}px;`;
     const _tagHtml = (tg, f) => tg ? `<span style="display:inline-block;margin-left:3px;padding:0 2px;border:1px solid #6366f1;border-radius:2px;color:#3730a3;background:#fff;font-size:${Math.max(7, Math.round(f * 0.62))}px;line-height:1.15;font-weight:700;vertical-align:middle;">${esc(tg)}</span>` : '';
     // ★ 2026-10-05(ユーザー指示): 印は画面と同じ判定(_dotOf=電話が必要な変更だけ)。以前は確定後の変更すべてに●が付き、画面(一覧)と食い違っていた
     const _telOf = (m, iso, sl) => !!(m.mark || _dotOf(plans[`${iso}_${sl}`], iso, m.pid));
-    const _nameTd = (m, iso, sl) => `<td style="border-bottom:1px solid #d7dcd7;padding:1px 3px;font-size:${fz}px;line-height:1.25;white-space:nowrap;overflow:hidden;font-weight:600;">${esc(_pname(m.pid))}${_anyDropTag ? '' : _tagHtml(_dropLabel(getPlan(iso, sl), m.pid), fz)}</td>`;
+    const _nameTd = (m, iso, sl) => `<td style="border-bottom:1px solid #d7dcd7;padding:1px 3px;font-size:${fz}px;line-height:1.25;white-space:nowrap;overflow:hidden;font-weight:600;">${esc(_pname(m.pid))}${_anyDropTag ? '' : _tagHtml(_dropLabelP(getPlan(iso, sl), m.pid), fz)}</td>`;
     const _rowBg = (m, iso, sl) => { const fk = _isFurikae(iso, sl, m.pid); const fv = !fk && _isFirstVisit(m.pid, iso); return fk ? '#a7f3d0' : (fv ? '#bae6fd' : '#fff'); };
     // その他の行: 時間・次回の欄をつなげて理由(家族送迎・途中参加など)。長い理由は欄に収まる大きさまで縮める
     const otherRow = (m, iso, sl) => { const why = String(m.why || ''); const w2 = Math.max(20, _dayPx(fz) - (_nameW(fz) + Math.floor(_extraW * 0.5)) - _sendW(fz) - 6); const fw = Math.max(6, Math.min(fz, Math.floor(w2 / Math.max(1, _emW(why)))));
@@ -38085,11 +38118,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const _last = days[days.length-1] || _mon;
     const fname = String(appData.systemSettings?.facilityInfo?.name || 'つむぎ');
     return `<div id="transport-print-inner" style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;background:#fff;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
-      <div style="position:relative;text-align:center;flex:none;margin:0 0 2mm;"><span style="position:absolute;left:0;top:4px;font-size:10px;">${esc(fname)}</span><span style="font-size:17px;font-weight:bold;letter-spacing:10px;">運行表</span><span style="position:absolute;right:0;top:1px;font-size:11px;text-align:right;white-space:nowrap;"><span style="outline:1.5px solid #c82c35;outline-offset:-1px;padding:0 3px;">時間の赤枠</span>=時間変更　<span style="background:#a7f3d0;padding:0 4px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 4px;">水色</span>=初回　　${_mon.getMonth()+1}/${_mon.getDate()}（${DOWJ[_mon.getDay()]}）〜${_last.getMonth()+1}/${_last.getDate()}（${DOWJ[_last.getDay()]}）</span></div>
+      <div style="position:relative;text-align:center;flex:none;margin:0 0 2mm;"><span style="position:absolute;left:0;top:4px;font-size:10px;">${esc(fname)}</span><span style="font-size:17px;font-weight:bold;letter-spacing:10px;">運行表${slots.length === 1 ? (slots[0] === 'AM' ? '（午前）' : '（午後）') : ''}</span><span style="position:absolute;right:0;top:1px;font-size:11px;text-align:right;white-space:nowrap;"><span style="outline:1.5px solid #c82c35;outline-offset:-1px;padding:0 3px;">時間の赤枠</span>=時間変更　<span style="background:#a7f3d0;padding:0 4px;">緑</span>=振替　<span style="background:#bae6fd;padding:0 4px;">水色</span>=初回　　${_mon.getMonth()+1}/${_mon.getDate()}（${DOWJ[_mon.getDay()]}）〜${_last.getMonth()+1}/${_last.getDate()}（${DOWJ[_last.getDay()]}）</span></div>
       <table style="border-collapse:collapse;width:100%;table-layout:fixed;flex:none;height:${_tblH}px;">
         <colgroup><col style="width:${_slW}px"/><col style="width:${_carColW(fz)}px"/>${days.map(() => '<col/>').join('')}</colgroup>
         <thead><tr style="height:23px;"><th style="border:1px solid #65736a;background:#edf0ec;"></th><th style="border:1px solid #65736a;background:#edf0ec;font-size:9px;font-weight:normal;">車</th>${header}</tr></thead>
-        <tbody>${row('AM','午前')}${row('PM','午後')}</tbody>
+        <tbody>${slots.includes('AM') ? row('AM','午前') : ''}${slots.includes('PM') ? row('PM','午後') : ''}</tbody>
       </table>
           </div>`;
   };
@@ -38199,8 +38232,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const ab = _absentees(iso, sl); if (ab.length) bottom.push({ t: `休み: ${ab.map(a=>a.name).join('、')}`, color: '#475569', ab: true }); // ★ 2026-10-01: 休みは名前の約8割
       return { sl, pl, blocks, bottom }; });
     const allM = slots.flatMap(x => x.blocks.flatMap(b => b.members));
-    const maxName = Math.max(4, ...slots.flatMap(x => x.blocks.flatMap(b => b.members.map(m => { const tg = _dropLabel(x.pl, m.pid); return _em(_pname(m.pid)) + ((m.mark || _chgOf(plans[`${iso}_${x.sl}`], m.pid)) ? 1 : 0) + (tg ? _em(tg) * 0.62 + 0.8 : 0); }))));
-    const _anyTagD = slots.some(x => x.blocks.some(b => b.members.some(m => _dropLabel(x.pl, m.pid))));
+    const maxName = Math.max(4, ...slots.flatMap(x => x.blocks.flatMap(b => b.members.map(m => { const tg = _dropLabelP(x.pl, m.pid); return _em(_pname(m.pid)) + ((m.mark || _chgOf(plans[`${iso}_${x.sl}`], m.pid)) ? 1 : 0) + (tg ? _em(tg) * 0.62 + 0.8 : 0); }))));
+    const _anyTagD = slots.some(x => x.blocks.some(b => b.members.some(m => _dropLabelP(x.pl, m.pid))));
     const maxTel = Math.max(0, ...allM.map(m => _em(telOf(_pt(m.pid)))));
     // 文字の大きさ(行の高さ H から)
     const F = (H) => { const fz = Math.min(22, Math.floor((H - 5) / 1.25)); return { fz, fzS: Math.max(10, Math.round(fz * 0.9)), fzB: Math.max(9, Math.round(fz * 2 / 3)), fzAb: fz, fzH: Math.max(11, Math.round(fz * 0.95)), /* ★ 2026-10-13(ユーザー要望): 休みは名前と同じ大きさ・車名の見出しも大きく */ fzC: Math.max(8, Math.round(fz * 0.5)) }; };
@@ -38223,7 +38256,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const at = (b && b.other) ? String(m.why || '') : addrOf(pt); const fit = Math.floor((w.addr - 12) / Math.max(1, _em(at))); const fA = Math.max(9, Math.min(fz, fit)); // 住所は名前と同じ大きさまで(長い住所は幅に合わせて縮小)
       const addrHtml = (b && b.other) ? `<span style="color:#6d28d9;font-weight:700;">${_escP(m.why || '')}</span>` : `${_escP([_addrDisp(pt.address), pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' '))}${pt.pickupPlace?`<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace)}）</span>`:''}`;
       return `<tr style="background:${bg};">
-        ${td(`${_escP(_pname(m.pid))}${_tagD(_dropLabel(pl, m.pid))}`, `font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}
+        ${td(`${_escP(_pname(m.pid))}${_tagD(_dropLabelP(pl, m.pid))}`, `font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}
         ${td((b && b.other) ? '' : _escP(_fmtT(m.t)), `font-size:${fz}px;font-weight:700;text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums;padding:0 2px;${(m.mark||_dotOf(plans[`${iso}_${sl}`], iso, m.pid)) ? 'outline:2px solid #c82c35;outline-offset:-3px;' : ''}`)}
         ${td(addrHtml, `font-size:${fA}px;line-height:1.15;${fit >= 9 ? 'white-space:nowrap;' : ''}overflow:hidden;`)}
         ${td(_escP(telOf(pt)), `font-size:${fzS}px;white-space:nowrap;font-variant-numeric:tabular-nums;padding:0 4px;`)}
@@ -38265,7 +38298,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   };
   const doPrint = (content = 'sheet') => {
     // ★ 2026-09-28: 内容は印刷モーダルで選択(sheet=運行表のみ / both=運行表+連絡先一覧 / contacts=連絡先一覧のみ)。confirm は廃止
-    const html = buildPrintHtml();
+    const _wi = {}; const html = buildPrintHtml(['AM','PM'], _wi);
+    // ★ 2026-10-21(不具合修正): 1枚に入りきらない(車・人数が多い)ときは、下が切れないよう午前1枚・午後1枚に分ける
+    const _sheetPages = _wi.fitsH === false ? null : html;
     const withContacts = content === 'both' || content === 'contacts';
     // ★ 2026-09-16(店舗指摘): 実機で右端(金曜)が見切れる→印字可能域(約275×190mm)に縮小して中央配置
     // ★ 2026-09-16c(店舗指摘): margin:autoは印刷ホストのbody>*{margin:0!important}で無効化され左上に寄る→全面ラッパー+flexで中央配置
@@ -38275,7 +38310,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       return;
     }
     const page2 = withContacts ? buildContactsPages().map(pg => _wrap(pg, true)).join('') : '';
-    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `${_wrap(html, false)}${page2}`, elementId: null } }));
+    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `${_sheetPages ? _wrap(_sheetPages, false) : ['AM','PM'].map((sl, k) => _wrap(buildPrintHtml([sl]), k > 0)).join('')}${page2}`, elementId: null } }));
   };
 
   const _autoCalcModal = autoCalc && (
@@ -38456,7 +38491,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <button onClick={()=>setSelectedDate(r.iso)} data-testid="tp-next-reminder" className="text-[11px] font-bold text-red-700 bg-red-50 border border-red-300 rounded-lg px-2 py-1 whitespace-nowrap hover:bg-red-100" title={`1週間後の日を含む週（${r.label}）の送迎表がまだ確定していません。押すとその週を開きます`}>次週分未確定 ›</button>
           ); })()}
           <button onClick={()=>{ setTpSetCap({}); setTpSettings(true); }} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="車の定員・座席表の並びの設定（施設に着く時間も確認できます）">設定</button>
-          <button onClick={()=>setPrintModal({ mode:'week', weekContent:'sheet', days:new Set(days.map(d=>_iso(d))) })} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">ダウンロード</button>
+          <button onClick={()=>setPrintModal({ mode:'week', weekContent:'sheet', days:new Set(days.map(d=>_iso(d))), dropAt: true })} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">ダウンロード</button>
         {/* ★ 2026-10-08(ユーザー指示): 上部の「?」(使い方の説明)は削除 */}
       </div>
         {_tpPhone && (
@@ -38848,14 +38883,19 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5" onClick={e=>e.stopPropagation()}>
             <div className="text-base font-bold text-slate-800 mb-3">送迎表を印刷</div>
             <div className="flex gap-2 mb-3">
-              <button onClick={()=>setPrintModal(m=>({...m, mode:'week'}))} className={`flex-1 py-2 rounded-xl text-sm font-bold border ${printModal.mode==='week'?'bg-blue-600 text-white border-blue-600':'bg-white border-slate-300 text-slate-600'}`}>週間（A4横・1枚）</button>
+              <button onClick={()=>setPrintModal(m=>({...m, mode:'week'}))} className={`flex-1 py-2 rounded-xl text-sm font-bold border ${printModal.mode==='week'?'bg-blue-600 text-white border-blue-600':'bg-white border-slate-300 text-slate-600'}`}>週間（A4横）</button>
               <button onClick={()=>setPrintModal(m=>({...m, mode:'days'}))} className={`flex-1 py-2 rounded-xl text-sm font-bold border ${printModal.mode==='days'?'bg-blue-600 text-white border-blue-600':'bg-white border-slate-300 text-slate-600'}`}>日ごと（A4縦・1日1枚）</button>
             </div>
+            {(printModal.mode==='week' || printModal.mode==='days') && (
+              <label className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg border border-slate-200 text-sm font-bold text-slate-700 cursor-pointer" data-testid="tp-print-dropat">
+                <input type="checkbox" checked={printModal.dropAt !== false} onChange={e => setPrintModal(m => ({ ...m, dropAt: e.target.checked }))} className="w-4 h-4 accent-blue-600"/>送りの時間も入れる
+              </label>
+            )}
             {printModal.mode==='week' && (
               <div className="border border-slate-200 rounded-xl p-3 mb-3">
                 <div className="text-xs font-bold text-slate-600 mb-1.5">印刷する内容</div>
                 <div className="flex flex-col gap-1.5">
-                  {[['sheet','運行表のみ（1枚）'],['both','運行表 ＋ 利用者連絡先一覧（2枚）'],['contacts','利用者連絡先一覧のみ（1枚）']].map(([k,l]) => (
+                  {[['sheet','運行表のみ'],['both','運行表 ＋ 利用者連絡先一覧'],['contacts','利用者連絡先一覧のみ']].map(([k,l]) => (
                     <label key={k} className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-bold cursor-pointer ${printModal.weekContent===k?'bg-blue-50 border-blue-300 text-blue-800':'bg-white border-slate-200 text-slate-600'}`}>
                       <input type="radio" name="tp-week-content" checked={printModal.weekContent===k} onChange={()=>setPrintModal(m=>({...m, weekContent:k}))} className="accent-blue-600"/>{l}
                     </label>
@@ -38880,7 +38920,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             )}
             <div className="flex gap-2">
               <button onClick={()=>setPrintModal(null)} className="whitespace-nowrap flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
-              <button onClick={()=>{ const pm = printModal; setPrintModal(null); if (pm.mode==='week') doPrint(pm.weekContent||'sheet'); else doPrintDays(days.map(d=>_iso(d)).filter(iso=>pm.days.has(iso))); }} disabled={printModal.mode==='days' && printModal.days.size===0} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm disabled:opacity-40">ダウンロード</button>
+              <button onClick={()=>{ const pm = printModal; setPrintModal(null); _noDropAtPrintRef.current = pm.dropAt === false; if (pm.mode==='week') doPrint(pm.weekContent||'sheet'); else doPrintDays(days.map(d=>_iso(d)).filter(iso=>pm.days.has(iso))); _noDropAtPrintRef.current = false; }} disabled={printModal.mode==='days' && printModal.days.size===0} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm disabled:opacity-40">ダウンロード</button>
             </div>
           </div>
         </div>
@@ -42067,7 +42107,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     </div>
                     {/* ★ ケアマネの閲覧アカウント表示・招待はサイドバー「ケアマネ事業所・担当者」へ一本化(2026-08-31 店舗要望)。
                         ここ(利用者マスタ)からのケアマネアカウント管理は撤去した */}
-                    <div className="text-[10px] text-slate-400 mt-2">※ ケアマネの閲覧登録・招待メールはサイドバー「ケアマネ事業所・担当者」から行えます。担当（事業所・担当者）の変更は「担当を変更」から。</div>
+                    <div className="text-[10px] text-slate-400 mt-2">※ ケアマネの招待は「ケアマネ事業所・担当者」から。担当の変更は「担当を変更」から。</div>
                   </div>);
                 })()}
 
@@ -42104,7 +42144,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                     {!isOff && <button type="button" onClick={()=>setPersonalFileModal({patient:localPatient, initialTab:'cat_1', focus:'facesheet:related'})} className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs font-bold whitespace-nowrap active:scale-95 flex items-center gap-1"><BookOpen size={13}/>フェイスシートで編集</button>}
                   </div>
                   {(localPatient.relatedParties||[]).length===0 ? (
-                    <div className="text-xs text-slate-400 border border-slate-200 rounded-lg px-3 py-3">登録されている関係者はいません（フェイスシートで追加できます。関係者がアカウント登録した場合も自動で追加されます）。</div>
+                    <div className="text-xs text-slate-400 border border-slate-200 rounded-lg px-3 py-3">関係者はいません（フェイスシートで追加できます）。</div>
                   ) : (
                     <div className="space-y-2">
                       {(localPatient.relatedParties||[]).map((rp,ri)=>(
@@ -42376,7 +42416,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               })()}
               <div><label className="block text-sm font-bold text-slate-600 mb-1.5">留意点（スタッフへの申し送り）</label><textarea disabled={isOff} value={localPatient.ryui || ""} onChange={e => updateLP('ryui', e.target.value)} rows={2} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl outline-none resize-none text-base disabled:opacity-60 leading-relaxed" /></div>
               <div><label className="block text-sm font-bold text-slate-600 mb-3">基本利用曜日</label><div className="grid grid-cols-7 gap-2 tsu-sched7">{['日', '月', '火', '水', '木', '金', '土'].map((d, i) => { const v = localPatient.scheduleAmPm?.[i] || ""; const isClosed = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(i); const colorCls = isClosed ? 'bg-slate-100 border-slate-200 text-slate-400' : v === 'AM' ? 'bg-red-50 border-red-300 text-red-700' : v === 'PM' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-400'; return (<div key={d} className="flex flex-col"><span className={`text-center text-[13px] font-bold mb-1 ${i===0?'text-red-400':i===6?'text-blue-400':'text-slate-500'}`}>{d}</span>{isClosed ? (<div className={`w-full h-[42px] flex items-center justify-center text-[14px] font-bold text-center border rounded-xl box-border bg-slate-100 border-slate-200 text-slate-400`}>定休</div>) : (<select disabled={isOff} value={v} onChange={e => updateSched(i, e.target.value)} className={`w-full h-[42px] text-[14px] font-bold text-center border rounded-xl box-border outline-none cursor-pointer disabled:opacity-60 ${colorCls}`}><option value="">無</option><option value="AM">AM</option><option value="PM">PM</option></select>)}</div>); })}</div>
-                <p className="text-[11px] text-slate-500 mt-1.5">毎週の決まった利用日です。振替・欠席・休業・休止など「その日だけ」の変更は下の月間スケジュールで行ってください。</p>
+                <p className="text-[11px] text-slate-500 mt-1.5">毎週の決まった利用日です。「その日だけ」の変更（振替・欠席・休止など）は下の月間スケジュールで。</p>
                 {/* ★ 基本利用曜日の変更履歴(最新5件)と「削除」(2026-09-23): 誤って変えて手で戻した後に残った履歴の復旧用 */}
                 {(() => {
                   const dN=['日','月','火','水','木','金','土'];
@@ -42393,7 +42433,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               </div>
               {/* 月間スケジュール */}
               <div ref={scheduleSectionRef} className={`scroll-mt-20 rounded-xl transition-all duration-500 ${monthlyHl ? 'ring-4 ring-amber-400 ring-offset-4 ring-offset-white' : ''}`}>
-                {monthlyHl && (<div className="mb-2 px-3 py-2 rounded-lg bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold">振替・欠席・休業・休止など「その日だけ」の変更はここ（月間スケジュール）の日付をタップして行います。上の基本利用曜日は変えないでください。</div>)}
+                {monthlyHl && (<div className="mb-2 px-3 py-2 rounded-lg bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold">「その日だけ」の変更（振替・欠席・休止など）は、ここで日付を押して行います。</div>)}
                 <div className="flex items-center justify-between mb-2"><label className="text-sm font-bold text-slate-600 flex items-center gap-1.5"><CalendarCheck size={16} />月間スケジュール</label><div className="flex items-center gap-2"><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronLeft size={16} /></button><span className="text-base font-bold text-slate-700 tabular-nums w-28 text-center">{currentMonth.getFullYear()}年{currentMonth.getMonth() + 1}月</span><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronRight size={16} /></button></div></div>
                 {/* ★ 2026-10-08(店舗報告: スマホで月間スケジュールの日付が見切れる): スマホは1日あたり28pxの幅で横にスクロール(CSS tsu-mstrip) */}
                 <div className="flex border border-slate-200 rounded-xl bg-slate-50 p-1 gap-0.5 tsu-mstrip">{allD.map(d => { const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d); const dow = dO.getDay(); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; const cl = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow); const hl = appData.holidays?.some(h => (h.date || h) === ds); const base = getScheduleOnDate(localPatient, ds)?.[dow] || ""; const bAM = base === "AM" || base === "1日"; const bPM = base === "PM" || base === "1日"; const sh = effShifts?.[mKey]?.[localPatient.id] || {}; const pi = getPauseReasonOnDate(localPatient, ds); const _inactive = !!localPatient && !isPatientActiveOnDate(localPatient, ds); /* ★ 利用開始日より前・利用終了日より後は「空欄(非利用日)」にして、どこで終了したか一目で分かるようにする。利用中に戻せば再表示。 */ /* 休止中: 基本利用日 (bAM/bPM=true) の枠だけ「休止」表示。それ以外は通常空欄 */ const _shAM = sh[`${d}_AM`] !== undefined ? sh[`${d}_AM`] : (_mSchedRecFuri[d]?.AM || (bAM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const _shPM = sh[`${d}_PM`] !== undefined ? sh[`${d}_PM`] : (_mSchedRecFuri[d]?.PM || (bPM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const cA = _inactive ? sSt("空欄", cl, hl) : (pi ? (bAM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shAM, bAM), cl, hl)); const cP = _inactive ? sSt("空欄", cl, hl) : (pi ? (bPM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shPM, bPM), cl, hl)); const ok = !cl && !hl && !pi && !isOff && !_inactive; return (<div key={d} className="flex-1 min-w-0 flex flex-col items-stretch bg-white border border-slate-200 rounded overflow-hidden"><div className={`w-full text-center text-[11px] font-bold py-1 bg-slate-100 border-b border-slate-200 leading-tight ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{d}<br/><span className="text-[9px] font-normal">{dN[dow]}</span></div><button disabled={!ok} title={_mSchedRecReason[d] || (cA.sub ? `${cA.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "AM")} className={`h-9 flex items-center justify-center border-b border-slate-100 text-[10px] leading-none whitespace-pre-wrap ${cA.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cA.t}</button><button disabled={!ok} title={_mSchedRecReason[d] || (cP.sub ? `${cP.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "PM")} className={`h-9 flex items-center justify-center text-[10px] leading-none whitespace-pre-wrap ${cP.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cP.t}</button></div>); })}</div>
@@ -42423,7 +42463,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                       <div className="text-[11px] text-slate-500 mt-2 leading-relaxed">
                         ・基本利用日に設定した曜日のみ表示されます<br/>
                         ・時間が決まっていない場合は「時」だけ入力（例: 9 → 9:--、後で 30 を追加すると 9:30）<br/>
-                        {tsumugiTransportOn(appData) ? '・毎週の決まった時間です。その週の実際の時間（休み・振替で動いた分）は送迎表で直します。連絡帳には送迎表の時間が入ります' : '・連絡帳のお迎え時間欄にもこの時刻が反映されます（連絡帳の次回予定で、その回だけの時間も入れられます）'}
+                        {tsumugiTransportOn(appData) ? '・毎週の決まった時間です。その週の時間は送迎表で直します（連絡帳には送迎表の時間が入ります）' : '・連絡帳のお迎え時間にも入ります（その回だけの時間は連絡帳の次回予定で）'}
                       </div>
                       {/* ★ 送迎表連動(2026-09-12 試験版): 待ち合わせ場所・所要時間。送迎表の利用者名タップでも編集可 */}
                       {/* ★ 2026-10-08: スマホは1項目1行(2列だと見出しが1文字ずつ縦に折れていた) */}
@@ -42443,9 +42483,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                         <div className="sm:col-span-2 min-w-0">
                           <label className="block text-xs font-bold text-slate-600 mb-1">送迎時の連絡先</label>
                           <PickupCallField disabled={isOff} patient={localPatient} value={{ callTo: localPatient.pickupCallTo || '', name: localPatient.pickupCallName || '', phone: localPatient.pickupCallPhone || '' }} onChange={v => { setLocalPatient(prev => ({ ...(prev || localPatient), pickupCallTo: v.callTo || '', pickupCallName: v.name || '', pickupCallPhone: v.phone || '' })); if (dirtyRef) dirtyRef.current = true; }} />
-                          <div className="text-[11px] text-slate-500 mt-1">送迎のときにかける相手。送迎表のスマホ表示と連絡先一覧に先頭で出ます（本人の番号も続けて出ます）。</div>
+                          <div className="text-[11px] text-slate-500 mt-1">送迎のときにかける相手です（送迎表のスマホ表示・連絡先一覧の先頭に出ます）。</div>
                         </div>
-                        <div className="sm:col-span-2 text-[11px] text-slate-500">乗車にかかる時間=車を停めてから（マンション1階等）お部屋へお迎えに行き、車に乗せ終わるまでの時間。送迎表のルート自動作成で移動時間に上乗せして逆算に使います（未入力は1分）。「徒歩」を選ぶと送迎表（運行表）では最初から徒歩欄に入り、車の配車対象になりません。</div>
+                        <div className="sm:col-span-2 text-[11px] text-slate-500">乗車にかかる時間＝車を停めてから乗せ終わるまで（送迎表の自動計算に使います・未入力は1分）。「徒歩」は送迎表で最初から徒歩欄に入ります。</div>
                       </div>
                     </div>
                   </div>
@@ -42556,7 +42596,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   <span className="text-blue-500 shrink-0 mt-0.5"><History size={15}/></span>
                   <div className="text-[12px] text-blue-900 leading-relaxed">
                     <span className="font-bold">履歴はここでは追加しません。</span>
-                    <span className="opacity-80">「基本情報」タブで介護度・負担割合・ケアマネを変更して保存すると、この変更履歴と<span className="font-bold">支援経過表に自動で記録</span>されます（保険証・負担割合証の写真も基本情報タブから添付）。誤って記録された履歴は、各行の編集・削除ボタンで直せます。</span>
+                    <span className="opacity-80">「基本情報」タブで介護度・負担割合・ケアマネを変更して保存すると、この変更履歴と<span className="font-bold">支援経過表に自動で記録</span>されます。誤った履歴は各行の編集・削除で直せます。</span>
                   </div>
                 </div>
                 <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden"><div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block"/><span className="font-bold text-sm text-slate-700">介護度 変更履歴</span></div>
@@ -42754,8 +42794,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             <h3 className="text-base font-bold text-slate-800 mb-1">サービス提供内容の変更を反映</h3>
             <p className="text-xs text-slate-500 mb-4">運動メニュー／個別運動の設定値が変わりました。反映方法を選んでください。</p>
             <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 mb-3 text-[11px] text-slate-600 leading-relaxed">
-              <b className="text-slate-800">過去全ての記録に反映</b>：これまでの全期間の表示（提供記録入力のグレー数値・月別の設定数値）が新しい値になります。入力の誤りを直す時に。<br/>
-              <b className="text-slate-800">日付を指定して反映</b>：選んだ日から新しい値（それ以前は旧値のまま）。月別の設定数値は翌月から。備考に「◯/◯ 重さ 3→4に変更」と自動記載されます。
+              <b className="text-slate-800">過去全ての記録に反映</b>：これまでの全部の期間が新しい値になります（入力の誤りを直すとき）。<br/>
+              <b className="text-slate-800">日付を指定して反映</b>：選んだ日から新しい値（それより前は元のまま）。備考に変更が自動で入ります。
             </div>
             <div className="flex items-center gap-2 mb-5">
               <span className="text-sm text-slate-500">変更日：</span>
@@ -42765,7 +42805,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             <div className="flex justify-end items-center gap-3 flex-wrap">
               <button onClick={()=>{ if (navAfterExRef) navAfterExRef.current = null; _pendingPatSwitchRef.current = null; setPlannedExModal(null); if (dirtyRef) dirtyRef.current = true; }}
                 className="px-4 py-2.5 rounded-xl font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 text-sm whitespace-nowrap mr-auto" title="反映せずにこの画面に留まり、編集を続けます">キャンセル</button>
-              <button onClick={applyPlannedExAllPast} className="px-4 py-2.5 rounded-xl font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-sm whitespace-nowrap" title="変更した項目を過去の全期間にさかのぼって反映します（他の項目の日付つき変更履歴はそのまま残ります）">過去全ての記録に反映</button>
+              <button onClick={applyPlannedExAllPast} className="px-4 py-2.5 rounded-xl font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-sm whitespace-nowrap" title="変えた項目を過去の全期間に反映します（ほかの項目の履歴はそのまま）">過去全ての記録に反映</button>
               <button onClick={()=>applyPlannedExChange(plannedExModal.fromDate)} className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow active:scale-95 text-sm whitespace-nowrap">日付を指定して反映</button>
             </div>
           </div>
@@ -42780,7 +42820,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 その日だけの変更は月間スケジュールで行うよう案内し、ワンタップでそこへ移動させる。 */}
             <div className="bg-amber-50 border border-amber-300 rounded-xl px-3 py-2.5 mb-3 text-xs text-amber-900">
               <div className="font-bold mb-1">毎週の決まった利用日を変えるときだけ使います</div>
-              <div className="leading-relaxed">振替・欠席・休業・休止など「その日だけ」の変更はここではなく、月間スケジュールで行ってください。基本利用日を変えると、適用開始日より前の月間スケジュールや提供記録一覧の表示にも影響します。</div>
+              <div className="leading-relaxed">「その日だけ」の変更（振替・欠席・休止など）は月間スケジュールで。基本利用日を変えると、適用開始日より前の表示にも影響します。</div>
               <button onClick={focusMonthlySchedule} className="mt-2 w-full py-2 rounded-lg font-bold text-amber-900 bg-white border border-amber-400 hover:bg-amber-100 active:scale-95 text-sm">その日だけの変更なので、月間スケジュールへ移動する</button>
             </div>
             <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mb-4 text-sm">
@@ -43249,7 +43289,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 <div className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-3">
                   <b>対応列:</b> {HEADERS.join(' / ')}<br/>
                   <b>ヒント:</b> エクスポートしたCSVをExcelで編集→再インポートで一括変更できます。<b>利用者ID</b> 空欄なら新規追加、既存IDなら更新。<br/>
-                  <b>番号:</b> 被保険者番号はExcelで先頭のゼロが落ちていても10桁に戻します(6〜9桁の数字のみ)。電話・FAXも先頭のゼロを戻し全角は半角にします。フェイスシートの項目を取り込むと、その方のフェイスシートの更新日が今日になります。<b>基本利用曜日</b>は出力のみ(変更は履歴と連動するため画面から)。
+                  <b>番号:</b> 被保険者番号・電話・FAXは、Excelで消えた先頭の0を戻します。フェイスシートの項目を取り込むと、その方の更新日が今日になります。<b>基本利用曜日</b>は出力のみ(変更は履歴と連動するため画面から)。
                 </div>
                 {csvModal.mode === 'import' && !csvModal.resolvingDup && (
                   <div className="space-y-2">
@@ -44642,7 +44682,7 @@ function AdminSettingsSection({ appData, onSave }) {
       </div>
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
         <div className="text-sm font-bold text-amber-800 mb-1">管理者の一時譲渡（期間限定）</div>
-        <div className="text-[11px] text-amber-700 mb-2">不在時など、指定した期間だけ他の従業員に管理者権限を渡します（その期間は対象者がパスワード無しで管理者操作できます）。</div>
+        <div className="text-[11px] text-amber-700 mb-2">決めた期間だけ、ほかの職員に管理者の権限を渡します（その間はパスワードなしで管理者の操作ができます）。</div>
         {delegate && (
           <div className="bg-white border border-amber-200 rounded-lg p-2 text-xs font-bold text-amber-800 mb-2 flex items-center justify-between gap-2">
             <span>現在の委任: {delegate.name}（{delegate.from}〜{delegate.until}）</span>
@@ -44661,7 +44701,7 @@ function AdminSettingsSection({ appData, onSave }) {
       </div>
       <div className="bg-red-50 border border-red-200 rounded-xl p-4">
         <div className="text-sm font-bold text-red-800 mb-1">管理者の完全譲渡（交代）</div>
-        <div className="text-[11px] text-red-700 mb-2">管理者を別の従業員に交代します。譲渡後は新しい管理者がパスワードを再設定します。現管理者は下で選んだ職種になります。</div>
+        <div className="text-[11px] text-red-700 mb-2">管理者を交代します。新しい管理者がパスワードを設定し、今の管理者は下で選ぶ職種になります。</div>
         <div className="flex gap-2 flex-wrap">
           <select value={tgt} onChange={e=>setTgt(e.target.value)} className={inp} style={{maxWidth:200}}>
             <option value="">新しい管理者を選択</option>
@@ -45436,7 +45476,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
           {/* ★ 2026-10-14(ユーザー要望): 個別機能訓練計画書(3-3)の定型文を店舗ごとに編集(1行=1つ)。空にすると既定に戻る */}
           {activeTab === 'keikaku' && (
             <SectionCard title="計画書の定型文（3-3・3-2・3-1・通所介護計画書）">
-              <p className="text-xs text-slate-500 mb-3">計画書の各欄で「定型文から ▼」やチェックで選べる文言です。1行に1つ。空にすると標準の文言に戻ります。保存すると全端末に反映されます。</p>
+              <p className="text-xs text-slate-500 mb-3">計画書の「定型文から ▼」で選べる文言です。1行に1つ（空にすると標準に戻ります）。</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {[['ryui','【3-3】機能訓練実施上の留意事項（チェックで複数選択）'],['goalKinou','【3-3】目標（機能）'],['goalKatsudo','【3-3】目標（活動）'],['goalSanka','【3-3】目標（参加）'],['progContent','【3-3】プログラム内容'],['progPoint','【3-3】プログラムの留意点'],['henka','【3-3】実施による変化'],['kadai','【3-3】課題とその要因'],['skNinchi','【3-2】認知機能・コミュニケーション'],['skKadai','【3-2】生活上の課題・背景因子'],['kyBikou','【3-1】備考（希望・エピソード）'],['tsGoal','【通所介護計画書】目標'],['tsContent','【通所介護計画書】目的とケアの提供方針・内容'],['tsEffect','【通所介護計画書】効果・満足度'],['tsRisk','【通所介護計画書】医学的リスク・留意事項']].map(([k,lb]) => { const cur = kkPresetsOf(ss)[k]; return (
                   <div key={k}><label className="block text-xs font-bold text-slate-600 mb-1">{lb} <span className="font-normal text-slate-400">（{cur.length}件）</span></label>
@@ -45497,7 +45537,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
             <SectionCard title="アドオン（オプション機能）">
               <div className="text-[12px] text-slate-500 mb-3">
                 {isSuperAdmin
-                  ? 'スイッチで各機能のON/OFFを切り替えます（即時反映）。店舗側ではON/OFFのみ表示され、変更はできません。'
+                  ? '各機能のON/OFFです（すぐ反映）。店舗では表示だけで、変更できません。'
                   : 'ご利用中のオプション機能の一覧です。追加・解約のご希望は本部までご連絡ください。'}
               </div>
               <div className="space-y-2">
@@ -45531,7 +45571,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
           {activeTab === 'life' && (<>
             <SectionCard title="LIFE連携（科学的介護）">
               <div className="space-y-4">
-                <div className="text-xs text-slate-600 leading-relaxed">LIFE（科学的介護情報システム）へ提出するCSVに使う事業所側の情報です。ここで登録した値を「LIFE・加算」画面が読み込みます。介護保険事業所番号は指定通知書、サービス種類コードは通所介護=15／地域密着型通所介護=78 です。</div>
+                <div className="text-xs text-slate-600 leading-relaxed">LIFEへ出すCSVに使う事業所の情報です。事業所番号は指定通知書を見て入力。サービス種類コードは 通所介護=15／地域密着型通所介護=78。</div>
                 {/* ★ LIFE(科学的介護)連携: CSV出力で使う事業所番号・保険者番号・サービス種類コード。 LIFE画面はここから読み込む。 */}
                 <div className="border border-cyan-200 bg-cyan-50/50 rounded-xl p-3">
                   <div className="text-sm font-bold text-cyan-800 mb-2">LIFE連携（科学的介護）用の情報</div>
@@ -45548,14 +45588,14 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                     <div><label className="block text-xs font-bold text-slate-600 mb-1">記入者の職種の既定値 <span className="font-normal text-slate-400">（生活機能チェックで職種未選択のときに使う）</span></label>
                       <select value={facilityInfo.lifeDefaultJob || ''} onChange={e => setFacilityInfo({...facilityInfo, lifeDefaultJob: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"><option value="">（未設定）</option>{LIFE_STAFF_JOBS.map(j => <option key={j.c} value={j.n}>{j.n}（{j.c}）</option>)}</select></div>
                   </div>
-                  <div className="text-[11px] text-slate-500 mt-2">※ 「LIFE・加算」画面のCSV出力はここの値を使います。保険者番号は利用者ごとに異なる場合、各利用者の画面で個別に上書きできます。参考元では事業所番号等を空欄で運用した実績もありますが、可能なら登録してください。</div>
+                  <div className="text-[11px] text-slate-500 mt-2">※ 保険者番号が利用者ごとに違うときは、各利用者の画面で上書きできます。</div>
                 </div>
               </div>
             </SectionCard>
           </>)}
           {activeTab === 'sidebar' && (
             <SectionCard title="サイドバーに表示する画面">
-              <div className="text-xs text-slate-500 mb-3 leading-relaxed">使わない画面はチェックを外すと、サイドバー（と画面右上の「移動」）に出なくなります。店舗の全端末で同じになります。データは消えません（チェックを戻すと元どおり）。ホーム・サービス提供記録・連絡帳・日誌・利用者マスタ・ケアマネ事業所・各種設定はいつも表示します。計画書は「アドオン」で切り替えます。</div>
+              <div className="text-xs text-slate-500 mb-3 leading-relaxed">使わない画面のチェックを外すと、サイドバーに出なくなります（店舗の全端末・データは消えません）。ホーム・提供記録・連絡帳・日誌・利用者マスタ・ケアマネ事業所・各種設定はいつも出ます。</div>
               <div className="space-y-2" data-testid="set-sidebar-list">
                 {(() => { let lastGroup = null; return SIDEBAR_OPTIONAL.map(it => { const on = tsumugiSideShown(appData, it.key); const head = it.group && it.group !== lastGroup ? it.group : null; lastGroup = it.group || null;
                   const toggle = (v) => {
@@ -45722,7 +45762,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
             {/* 施設休業日 */}
             <div ref={holidaySectionRef} className="scroll-mt-20">
             <SectionCard title="施設休業日の設定">
-              <p className="text-xs text-slate-500 mb-4">年末年始や夏季休暇等を登録すると、カレンダー上で全員一括「休業」扱いになります。西暦(年)ごとに登録・確認できます。</p>
+              <p className="text-xs text-slate-500 mb-4">年末年始・夏休みなどを入れると、その日は全員「休業」になります（年ごとに登録）。</p>
               {/* 西暦(年)の切替 + 前年コピー */}
               <div className="flex items-center gap-3 mb-4 flex-wrap">
                 <div className="flex items-center gap-1">
@@ -45795,7 +45835,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
           {activeTab === 'record' && (<>
             <SectionCard title="運動メニューの項目">
               <p className="text-xs text-slate-500 mb-3">利用者マスタの「運動メニュー」に表示される項目を管理します。<br/>
-                <b className="text-amber-700">※ 項目を追加・削除する場合は、下の「適用開始月」を選択してください。過去の記録は元の項目で残り続けます。</b>
+                <b className="text-amber-700">※ 項目を足す・消すときは、下の「適用開始月」を選びます（過去の記録はそのまま）。</b>
               </p>
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3 flex items-center gap-3 flex-wrap">
                 <label className="text-xs font-bold text-amber-800">この変更の適用開始月:</label>
@@ -45813,7 +45853,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                     {item.type === 'individual' ? (
                       <span className="w-20 text-[10px] text-emerald-600 text-center italic">下の項目で単位設定</span>
                     ) : (
-                      <div className="flex items-end gap-1" title="1単位＝1つ目の単位。 2単位＝2つ目の単位(空欄なら1単位のみ)。 区切り(×または/)は入力時に自動判定します。例: kg と 回 → 5×10 が 5kg×10回 に">
+                      <div className="flex items-end gap-1" title="単位は2つまで（例: kg と 回 → 5×10 が 5kg×10回）">
                         <div className="flex flex-col items-center">
                           <span className="text-[8px] text-slate-400 leading-none mb-0.5">1単位</span>
                           <input value={item.defaultUnit||''} onChange={e=>{
@@ -45916,7 +45956,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
               )}
             </SectionCard>
             <SectionCard title="個別運動メニューの項目">
-              <p className="text-xs text-slate-500 mb-3">サービス提供記録入力の「個別運動」プルダウンで選択できる項目を管理します（屋外歩行・平行棒・体操 等）。利用者マスタで利用者ごとに使用する項目を選べます（既定: 全選択）。</p>
+              <p className="text-xs text-slate-500 mb-3">提供記録の「個別運動」で選べる項目です（屋外歩行・平行棒など）。利用者ごとの項目は利用者マスタで選びます。</p>
               <p className="text-xs text-slate-400 mb-2">{indDnd.hint}</p>
               <div className="space-y-2 mb-3">
                 {individualExerciseItems.map((item, i) => (
@@ -45925,7 +45965,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                     <input value={item.name} onChange={e=>{
                       const arr=[...individualExerciseItems]; arr[i]={...arr[i],name:e.target.value}; setIndividualExerciseItems(arr);
                     }} className="flex-1 px-2 py-1 bg-white border border-emerald-200 rounded text-sm font-bold outline-none focus:border-emerald-500"/>
-                    <div className="flex items-end gap-1" title="1単位＝1つ目の単位。 2単位＝2つ目の単位(空欄なら1単位のみ)。 区切り(×または/)は入力時に自動判定します。例: kg と 回 → 5×10 が 5kg×10回 に">
+                    <div className="flex items-end gap-1" title="単位は2つまで（例: kg と 回 → 5×10 が 5kg×10回）">
                       <div className="flex flex-col items-center">
                         <span className="text-[8px] text-emerald-500 leading-none mb-0.5">1単位</span>
                         <input value={item.defaultUnit||''} onChange={e=>{
@@ -45967,14 +46007,14 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
               </label>
             </SectionCard>
             <SectionCard title="気分の入力（通所時・帰宅時）">
-              <p className="text-xs text-slate-500 mb-3">提供記録入力の「気分」欄（通所時・帰宅時）を使うかどうかを事業所ごとに選べます。OFFにすると提供記録入力（一覧・カード・拡大表示）から気分の欄が消えます。入力済みの気分は消えません（ONに戻すと表示されます）。ケアマネからは「あると分かりやすい」との声があります。</p>
+              <p className="text-xs text-slate-500 mb-3">提供記録の「気分」欄（通所・帰宅）を使うか選べます。OFFにすると欄が消えます（入力済みの気分は残ります）。</p>
               <label className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl p-3 cursor-pointer">
                 <input type="checkbox" data-testid="kibun-toggle" checked={ss.kibunDisabled !== true} onChange={e=>saveSS({ kibunDisabled: !e.target.checked }, e.target.checked ? '✓ 気分の入力欄を表示します' : '✓ 気分の入力欄を非表示にしました')} className="w-5 h-5" style={{accentColor:'#2563eb'}}/>
                 <span className="text-sm font-bold text-slate-700">通所時・帰宅時の気分を入力する{ss.kibunDisabled===true && <span className="ml-2 text-xs font-normal text-amber-600">現在OFF：気分の欄は表示されません</span>}</span>
               </label>
             </SectionCard>
             <SectionCard title="血圧・脈の測定">
-              <p className="text-xs text-slate-500 mb-3">提供記録入力で測る血圧・脈の列を店舗の運用に合わせて選べます。「開始時のみ」にすると終了時の列は表示されません（過去に入力した値がある日は表示されます）。測り直しは各列の<b>「再」ボタン</b>で記録します（それまでの値は「○回目」として記録に残り、入力欄は再測定の値に置き換わります）。</p>
+              <p className="text-xs text-slate-500 mb-3">提供記録の血圧・脈の列を選べます。「開始時のみ」にすると終了時の列は出ません。測り直しは各列の<b>「再」ボタン</b>で記録します（前の値は「○回目」として残ります）。</p>
               <div className="flex flex-col gap-2">
                 {[['end','開始時 ＋ 終了時（標準）'],['startOnly','開始時のみ（終了時は測らない）'],...((ss.secondBpMode==='recheckStart') ? [['recheckStart','開始時 ＋ 再測定（旧方式・2列目に再測定値を入力）']] : [])].map(([v,label])=>(
                   <label key={v} className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl p-3 cursor-pointer">
@@ -46014,7 +46054,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
               <input type="text" value={massageStaffInput} onChange={e=>setMassageStaffInput(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl font-bold outline-none mb-3"/>
             </SectionCard>
             <SectionCard title="サービス提供内容の項目管理">
-              <p className="text-xs text-slate-500 mb-4">利用者マスタのサービス提供内容に表示する項目を管理します。ポップアップ表示のチェックを入れると、提供記録入力で名前クリック時のポップアップに表示されます。</p>
+              <p className="text-xs text-slate-500 mb-4">利用者マスタの「サービス提供内容」の項目です。「ポップアップ表示」にチェックすると、提供記録で名前を押したときに出ます。</p>
               <div className="space-y-2 mb-4">
                 {serviceItems.map((item, i) => (
                   <div key={item.id} className="bg-slate-50 border border-slate-200 rounded-xl p-3">
@@ -46644,7 +46684,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
               {/* ★ 2026-10-08(ユーザー要望): テンキーの数字の並び(この端末だけ) */}
               <div className="mb-4 pb-4 border-b border-slate-200" data-testid="kp-layout-setting">
                 <div className="text-sm font-bold text-slate-700 mb-1">テンキーの数字の並び（この端末だけ）</div>
-                <p className="text-xs text-slate-500 mb-2">提供記録・体力測定・日誌などで出るテンキーの数字の並びです。端末ごとに選べます（他の端末は変わりません）。</p>
+                <p className="text-xs text-slate-500 mb-2">テンキーの数字の並びです（この端末だけ）。</p>
                 <div className="flex gap-2 flex-wrap">
                   {[['calc','電卓型','7 8 9 が上（これまでの並び）'],['phone','電話型','1 2 3 が上（スマホと同じ）']].map(([k,l,sub]) => (
                     <button key={k} type="button" data-testid={`kp-layout-${k}`} onClick={() => { try { localStorage.setItem(TSU_KP_LAYOUT_KEY, k); } catch {} setKpLayoutTick(t => t + 1); }}
@@ -46658,14 +46698,14 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
               </div>
               <label className="flex items-start gap-2 cursor-pointer">
                 <input type="checkbox" defaultChecked={isAutoFullscreenOn()} onChange={e=>{ try { localStorage.setItem(AUTO_FS_KEY, e.target.checked ? '1' : '0'); } catch {} }} className="mt-1 accent-blue-600"/>
-                <span className="text-sm text-slate-700"><b>ログイン後に担当者を選んだら自動で全画面にする（この端末だけ・パソコン向け）</b><br/><span className="text-xs text-slate-500">ブラウザのタブ・URL欄を隠して広く使えます。Esc または右上の「全画面」で戻せます。iPad・iPhone では効かないため、Safari の共有 →「ホーム画面に追加」から開くと常に全画面になります。</span></span>
+                <span className="text-sm text-slate-700"><b>ログイン後に担当者を選んだら自動で全画面にする（この端末だけ・パソコン向け）</b><br/><span className="text-xs text-slate-500">タブ・URL欄を隠して広く使えます（Escで戻ります）。iPad・iPhoneは「ホーム画面に追加」から開くと全画面になります。</span></span>
               </label>
             </SectionCard>
             <div ref={deviceSectionRef}>
             {!cmOnly && staffCtx && staffCtx.enabled && <TsuLoginSecurityCard appData={appData} onSave={onSave} staffCtx={staffCtx} isAdmin={isAdmin} />}
             {!cmOnly && <TsuOnboardingDocsPanel appData={appData} onSave={onSave} />}
             <SectionCard title="この端末の名前・最終更新">
-              <p className="text-xs text-slate-500 mb-3">この端末（iPad・PC 等）に名前を付けておくと、記録を保存したときに「どの端末で最後に更新したか」が全端末に表示されます。名前はこの端末だけに保存され、他の端末には送信されません。</p>
+              <p className="text-xs text-slate-500 mb-3">端末に名前を付けると、「どの端末で最後に更新したか」が表示されます（名前はこの端末だけに保存）。</p>
               {/* ★ 保存済みの端末名を常時表示(確定値がどこにも出ず、保存されたか分からない問題の解消) */}
               <div className="mb-2 bg-slate-100 border border-slate-200 rounded-xl px-4 py-2.5 flex items-center gap-2">
                 <span className="text-xs font-bold text-slate-500 shrink-0">現在の端末名</span>
@@ -46726,7 +46766,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                     <div className="text-xs font-bold text-slate-500 mb-0.5">最終更新</div>
                     <div className="text-sm font-bold text-slate-800">{lastSync.device || '名称未設定の端末'} <span className="text-slate-400 font-normal">/ {atStr}</span></div>
                     <div className={`text-[11px] mt-1 ${isSelf ? 'text-emerald-700' : 'text-blue-700'}`}>
-                      {isSelf ? '✓ この端末で最後に更新しました（この端末の内容が最新です）' : `最新の更新は別の端末「${lastSync.device || '名称未設定の端末'}」で行われました。この端末にも自動で反映されます。`}
+                      {isSelf ? '✓ この端末で最後に更新しました（この端末の内容が最新です）' : `最新の更新は別の端末「${lastSync.device || '名称未設定の端末'}」（この端末にも自動で反映されます）。`}
                     </div>
                   </div>
                 );
@@ -46734,7 +46774,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
             </SectionCard>
             </div>
             <SectionCard title="操作マニュアル・ご利用ガイド">
-              <p className="text-xs text-slate-500 mb-3">各マニュアルは新しいタブで開きます（印刷・PDF保存も可能）。ご家族・ケアマネ用は、そのURLをそのままお渡しいただけます。</p>
+              <p className="text-xs text-slate-500 mb-3">新しいタブで開きます（印刷・PDF保存も可）。ご家族・ケアマネ用はURLをそのまま渡せます。</p>
               <div className="grid sm:grid-cols-3 gap-3">
                 <a href="/manual-jigyosho.html" target="_blank" rel="noopener noreferrer" className="block p-4 rounded-xl border-2 border-green-200 bg-green-50 hover:bg-green-100 transition-colors text-center">
                   <div className="text-2xl mb-1"></div>
@@ -46868,7 +46908,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                       <div className="text-sm font-bold text-slate-700 mb-1.5">この端末のデータを「最新」として全体に反映</div>
                       <div className="text-[11px] text-slate-500 leading-relaxed mb-2">
                         すべての記録・設定に<b>今の時刻の印</b>を付けて保存します。これにより、<b>他の端末が持っている古いデータでは上書きされなくなります</b>。<br/>
-                        <b>正しい/最新のデータが表示されている端末で1回だけ</b>押してください（複数端末で押すと、最後に押した端末が優先されます）。実行後、他の端末はハードリロードしてください。
+                        <b>正しい/最新のデータが表示されている端末で1回だけ</b>押してください（最後に押した端末が優先）。そのあと、ほかの端末は再読み込みしてください。
                       </div>
                       <button type="button" disabled={stampingAll} onClick={()=>{
                         if (stampingAll) return;
@@ -47168,7 +47208,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                       const groupList = Object.entries(groups);
                       return (<>
                         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3 text-[11px] text-amber-800 font-bold leading-relaxed">
-                          氏名が同じ利用者（重複候補）です。<b>残す1人を選んで「統合」</b>すると、他の重複の記録（提供記録・シフト等）はすべて残す人へ引き継がれ、重複は削除されます（記録は失われません）。<br/>
+                          氏名が同じ利用者（重複候補）です。<b>残す1人を選んで「統合」</b>すると、重複の記録（提供記録など）は残す人へ引き継がれ、重複は消えます（記録は失われません）。<br/>
                           ※ 別人が同姓同名なだけの場合は統合しないでください。
                         </div>
                         {groupList.length===0 ? <div className="text-xs text-slate-400 p-3 border border-slate-200 rounded-xl">重複候補はありません</div> : (
@@ -47281,7 +47321,7 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
   return (
     <div className="space-y-6">
       <SC title="担当職員">
-        <p className="text-xs text-slate-500 mb-3">役職ごとの枠に職員を登録します。枠の「○○を追加」で追加すると役職は自動で決まり、副の役職（管理者不在時に生活相談員が代行する等）と保有資格（役職に合ったものから2つまで）を選べます。（同名+同役職の重複は自動的に1件にまとめて表示。日誌で追加した「この日だけ」の担当はここには出ません）</p>
+        <p className="text-xs text-slate-500 mb-3">役職ごとに職員を登録します。「○○を追加」で役職が決まり、副の役職と資格（2つまで）を選べます。日誌で足した「この日だけ」の担当はここに出ません。</p>
         <div className="space-y-2">
           {/* ★ 役職ごとのグループ表示(2026-09-29 ユーザー指示): 枠の「○○を追加」で追加すると役職は自動、副の役職だけ選ぶ */}
           {(() => {
@@ -47433,7 +47473,7 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
             職員に関する設定なので「担当職員」の枠に置く(送迎車両の枠に出ていた配置ミスを是正) */}
         <label className="flex items-start gap-2 mt-4 pt-3 border-t border-slate-200 cursor-pointer">
           <input type="checkbox" checked={!ds.hideStaffTemp} onChange={e=>{ const nd={...dsRef.current, hideStaffTemp: !e.target.checked}; dsRef.current=nd; setRenderKey(k=>k+1); if(onSave) onSave({...appData, diarySettings: nd}, { manual:true, message: e.target.checked?'✓ 日誌で職員の体温を表示・入力します':'✓ 日誌の職員体温を非表示にしました' }); }} className="mt-0.5 accent-blue-600"/>
-          <span className="text-sm text-slate-700"><b>日誌に職員の体温を表示・入力する</b><br/><span className="text-xs text-slate-500">ONのとき、担当職員にチェックを入れると体温入力の小窓が開き、氏名の下に「36.5℃」のように表示・印刷されます。職員の検温を日誌に残さない店舗はOFFにしてください（過去に入力した体温は消えません）。</span></span>
+          <span className="text-sm text-slate-700"><b>日誌に職員の体温を表示・入力する</b><br/><span className="text-xs text-slate-500">ONにすると、担当職員にチェックしたとき体温を入れられ、氏名の下に「36.5℃」と出ます。残さない店舗はOFFに（入力済みは消えません）。</span></span>
         </label>
       </SC>
       <SC title="送迎車両">
@@ -47454,7 +47494,7 @@ function DiarySettingsPanel({ appData, dsRef, markDirty, onSave }) {
         {/* ★ 送迎の1週間前自動コピー */}
         <label className="flex items-start gap-2 mt-4 pt-3 border-t border-slate-200 cursor-pointer">
           <input type="checkbox" checked={!!ds.autoCopySougei} onChange={e=>{ const nd={...dsRef.current, autoCopySougei: e.target.checked}; dsRef.current=nd; setRenderKey(k=>k+1); if(onSave) onSave({...appData, diarySettings: nd}, { manual:true, message: e.target.checked?'✓ 1週間前の送迎の自動コピーをONにしました':'自動コピーをOFFにしました' }); }} className="mt-0.5 accent-blue-600"/>
-          <span className="text-sm text-slate-700"><b>1週間前の送迎を自動コピー</b><br/><span className="text-xs text-slate-500">日誌を開いたとき、その日の送迎（迎え・送り・運転者・時間）が未入力なら、<b>7日前の同じ時間帯</b>の内容を自動で読み込みます。毎週同じ送迎体制の店舗向け（変わる場合はそのまま上書きできます）。送迎表を使っている店舗では、その日の送迎表が保存されている日はコピーせず、「送迎表取込」で送迎表の内容を入れます（送迎表が無い日だけコピーします）。</span></span>
+          <span className="text-sm text-slate-700"><b>1週間前の送迎を自動コピー</b><br/><span className="text-xs text-slate-500">日誌を開いたとき、その日の送迎（迎え・送り・運転者・時間）が未入力なら、<b>7日前の同じ時間帯</b>の内容を自動で読み込みます（毎週同じ送迎の店舗向け）。送迎表が保存されている日はコピーせず、「送迎表取込」で入れます。</span></span>
         </label>
       </SC>
       {['AM','PM'].map(ap=>(
@@ -52788,7 +52828,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
           <div className="flex-1 overflow-y-auto p-4">
             <div className="max-w-4xl mx-auto space-y-4 pb-24">
               <div className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-xl px-4 py-2.5">
-                ここで入力した内容は保存時に <b>ADL評価(LIFE・加算)・生活機能チェック(様式3-2)・興味関心チェック(様式3-1)</b> の各レコードへ同時に反映されます。④生活機能のADLを選ぶと②のBarthel点数が未入力の項目に自動で入ります。生活・認知機能尺度やVitality等の詳細は保存後にLIFE・加算画面の編集で入力できます。
+                ここで入力した内容は保存時に <b>ADL評価(LIFE・加算)・生活機能チェック(様式3-2)・興味関心チェック(様式3-1)</b> にまとめて入ります。④でADLを選ぶと、②のBarthel点数の空欄に自動で入ります。
               </div>
               {/* ① 基本 */}
               <div className="bg-white rounded-xl border border-slate-200 p-4">
@@ -52892,7 +52932,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                   )}
                 </div>
                 {batch.plan?.available && batch.plan?.on && (<>
-                  <div className="text-[10px] text-slate-400 mb-3">保存すると前回計画の「複製して更新」が自動で行われます。プログラム・希望・病名などは前回から引き継がれ、計画書(3-3)画面でいつでも編集できます。</div>
+                  <div className="text-[10px] text-slate-400 mb-3">保存すると前回の計画を引き継いで更新します（計画書(3-3)画面でいつでも直せます）。</div>
                   {batch.plan.prevId && (
                     <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3">
                       <div className="text-xs font-bold text-amber-700 mb-2">前回計画（作成日: {batch.plan.prevDate||'—'}）の達成度</div>
@@ -52990,15 +53030,15 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                 </div>)}
             </div>
             <ol className="mt-3 space-y-2 text-xs text-slate-700">
-              {[['提出する月を選んで確かめる', '提出年月を選び、下の「提出ダッシュボード」で「提出可」の人数を見ます。エラー・未評価の方は、行を押すとその方の評価の画面が開きます。'],
-                ['ファイルを保存する', '「算定中の様式をまとめて保存」を押すと、提出用のファイル（CSV）が様式ごとに保存されます。要介護と要支援・事業対象者で事業所番号が違う店舗は、事業所番号ごとに分かれます。'],
-                ['新LIFEに取り込む', '電子証明書を入れたパソコンで新LIFEにログインし（事業所番号ごと）、「外部データ取込」から保存したファイルを取り込みます。'],
-                ['結果を確かめる', '取込結果にエラーが無ければ完了です。直してから出し直しても、同じ方・同じ月の分は上書きされます（二重にはなりません）。']].map(([t, b], i) => (
+              {[['提出する月を選んで確かめる', '提出年月を選び、「提出ダッシュボード」で「提出可」の人数を見ます（エラーの方は行を押すと評価の画面へ）。'],
+                ['ファイルを保存する', '「算定中の様式をまとめて保存」で、提出用のCSVが様式ごとに保存されます（事業所番号が2つある店舗は番号ごとに分かれます）。'],
+                ['新LIFEに取り込む', '電子証明書のあるパソコンで新LIFEにログインし、「外部データ取込」でファイルを取り込みます。'],
+                ['結果を確かめる', 'エラーが無ければ完了。出し直しても同じ方・同じ月は上書きされます。']].map(([t, b], i) => (
                 <li key={i} className="flex gap-2"><span className="shrink-0 w-5 h-5 rounded-full bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center">{i + 1}</span><span><b>{t}</b>　{b}</span></li>))}
             </ol>
             <div className="mt-3 text-[11px] text-slate-500 leading-relaxed border-t border-slate-100 pt-2">
-              ・<b>利用者情報CSV</b>は、新LIFEにまだ登録されていない利用者がいる時だけ使います（カイポケなど他のソフトで登録済みの方には入れません）。<br/>
-              ・<b>本部が代わりに提出する場合</b>も手順は同じです。本部は管理局から店舗に入り、この画面でファイルを保存します（管理局の「本部の手順書」に詳しい手順があります）。
+              ・<b>利用者情報CSV</b>は、新LIFEに未登録の利用者がいるときだけ使います（他のソフトで登録済みの方には入れません）。<br/>
+              ・<b>本部が代わりに提出する場合</b>も同じ手順です。本部は管理局から店舗に入って保存します（管理局の「本部の手順書」）。
             </div>
           </div>
 
@@ -53055,8 +53095,8 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
             <div className="flex items-center justify-between flex-wrap gap-2 mb-2 mt-3">
               <div>
                 <div className="text-sm font-bold text-indigo-700">利用者情報CSV（新LIFEへの利用者登録・SERVICE_USER_INFO）</div>
-                <div className="text-[11px] text-slate-500 mt-0.5">新LIFEには利用者情報が引き継がれません。様式CSVを取り込む前に、この利用者情報CSVを取り込んでください（同時取込も可）。保険者番号・被保険者番号・性別・生年月日は介護保険証と完全一致が必要です。</div>
-                <div className="text-[11px] text-red-700 mt-0.5 font-bold">注意: カイポケ（まるっとLIFE）など他のソフトで新LIFEに登録済みの利用者には取り込まないでください（管理番号が異なるため二重登録になります）。新規の利用者や、他ソフトから完全に切り替えた店舗で使います。</div>
+                <div className="text-[11px] text-slate-500 mt-0.5">様式CSVの前に、この利用者情報CSVを取り込みます（同時も可）。保険者番号・被保険者番号・性別・生年月日は保険証と完全に一致が必要です。</div>
+                <div className="text-[11px] text-red-700 mt-0.5 font-bold">注意: カイポケ（まるっとLIFE）など他のソフトで新LIFEに登録済みの利用者には取り込まないでください（二重登録になります）。</div>
               </div>
               <div className="flex gap-2 flex-wrap">
                 <button type="button" onClick={exportUserInfo} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">利用者情報CSV出力</button>
@@ -53089,7 +53129,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                 </tbody>
               </table>
             </div>
-            <div className="text-[10px] text-slate-400 mt-2 leading-relaxed">※ 氏名・ふりがなは利用者マスタの「姓 名」（空白区切り）から姓・名に分けて出力します（ふりがなは半角カナに自動変換）。保険者番号は利用者ごとの登録が無ければ事業所情報の既定値を使います。エラーの行は出力から除外されるので、利用者マスタで修正してください。外部システム管理番号には被保険者番号を使うため、再出力しても新LIFE側では同じ利用者として上書きされます。</div>
+            <div className="text-[10px] text-slate-400 mt-2 leading-relaxed">※ 氏名は利用者マスタの「姓 名」（空白区切り）で分けます。エラーの行は出力されないので、利用者マスタで直してください。出し直しても新LIFEでは同じ方として上書きされます。</div>
           </details>
 
 
@@ -53135,7 +53175,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
               <ImeSafeInput value={pInsurer} onChange={e=>setPInsurer(e.target.value.normalize('NFKC').replace(/\D/g,'').slice(0,6))} placeholder="この利用者の保険者番号" className="px-2 py-1 bg-white border border-slate-300 rounded text-sm outline-none w-40"/>
               <button type="button" onClick={savePInsurer} disabled={pInsurer===(patient?.insurerNo||'')} className={`whitespace-nowrap px-3 py-1 rounded text-xs font-bold ${pInsurer===(patient?.insurerNo||'')?'bg-slate-100 text-slate-400':'bg-blue-600 text-white hover:bg-blue-700'}`}>保存</button>
             </div>
-            <div className="text-[10px] text-slate-400 mt-1">※ 被保険者番号(10桁)はフェイスシートで登録。保険者番号はCSVの insurer_no に使います（利用者ごと・未設定ならLIFE設定の既定を使用）。</div>
+            <div className="text-[10px] text-slate-400 mt-1">※ 被保険者番号(10桁)はフェイスシートで登録。保険者番号は未設定ならLIFE設定の既定を使います。</div>
           </div>
 
           {/* 共通データ: ADL(Barthel) */}
@@ -53313,7 +53353,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                   {vr.warns.length>0 && <div className="bg-amber-50 border border-amber-200 rounded-lg p-3"><div className="text-xs font-bold text-amber-700 mb-1">要確認（{vr.warns.length}件）</div><ul className="text-[11px] text-amber-700 list-disc pl-4 space-y-0.5">{vr.warns.map((e,i)=><li key={i}>{e}</li>)}</ul></div>}
                   {vr.errors.length===0 && <div className="text-xs font-bold text-emerald-600">✓ 必須項目は揃っています。出力できます。</div>}
                 </>)}
-                <div className="text-[10px] text-slate-400 leading-relaxed">※ 文字コードUTF-8・改行CR-LF。ファイル名に氏名・被保険者番号は含めません。{f.id==='TIFI2024'?'提出頻度は令和6年度改定で概ね3ヶ月ごと。「帳票印刷」で評価内容を紙様式で出力できます。':f.id==='AINT2024'?'初月と6か月後の評価を「対象月区分」で指定してください。「帳票印刷」でBI一覧を紙様式で出力できます。【経過措置】新LIFE移行に伴い、ADL維持等加算(Ⅰ)(Ⅱ)は令和9年3月提供分まで従前の区分を継続できます（旧LIFEで7か月以上の評価がある場合等・移管Q&A問7〜9）。適用中もADL値の新LIFEへの登録は続ける必要があります。':f.id==='FUNC2024'?'生活機能チェック(様式3-2)を元に出力します。帳票は生活機能チェックシート画面の「印刷/PDF」から。':f.id==='IDUA2024'?'個別機能訓練計画書(様式3-3)を元に出力します。帳票は計画書画面の「印刷/PDF」から。目標ICF・合併症・職種等のコードは計画書の「LIFE提出用コード」で指定（職種コードは要確認）。':''}事業所番号・保険者番号は各種設定→事業所情報で登録できます。</div>
+                <div className="text-[10px] text-slate-400 leading-relaxed">※ 文字コードUTF-8・改行CR-LF。ファイル名に氏名・被保険者番号は含めません。{f.id==='TIFI2024'?'提出頻度は令和6年度改定で概ね3ヶ月ごと。「帳票印刷」で評価内容を紙様式で出力できます。':f.id==='AINT2024'?'「対象月区分」で初月・6か月後を指定します（「帳票印刷」でBI一覧を印刷）。【経過措置】新LIFE移行に伴い、ADL維持等加算(Ⅰ)(Ⅱ)は令和9年3月提供分まで従前の区分を継続できます（旧LIFEで7か月以上の評価がある場合等・移管Q&A問7〜9）。適用中もADL値の新LIFEへの登録は続ける必要があります。':f.id==='FUNC2024'?'生活機能チェック(様式3-2)を元に出力します。帳票は生活機能チェックシート画面の「印刷/PDF」から。':f.id==='IDUA2024'?'個別機能訓練計画書(様式3-3)を元に出力します。帳票は計画書画面の「印刷/PDF」から。目標ICF・合併症・職種等のコードは計画書の「LIFE提出用コード」で指定（職種コードは要確認）。':''}事業所番号・保険者番号は各種設定→事業所情報で登録できます。</div>
               </div>
             );
           })}
@@ -57570,7 +57610,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
               <div className="text-[11px] text-amber-700 leading-relaxed">
                 利用者の基本情報・家族・連絡先・介護保険・医療・ケアマネ情報をまとめた書式です。<br/>
                 {Object.keys(faceSheet).length === 0
-                  ? 'まだ未入力の項目があります。「編集・追記」から入力してください（基本情報・ご家族登録の内容は自動で反映されます）。'
+                  ? '未入力の項目があります。「編集・追記」から入力してください。'
                   : `作成済 (最終更新: ${faceSheet.updatedAt ? new Date(faceSheet.updatedAt).toLocaleDateString('ja-JP') : '不明'}${faceSheet.updatedBy?` / ${faceSheet.updatedBy}`:''})`
                 }
                 {(personalFile.faceSheetHistory||[]).length > 0 && (
@@ -57666,7 +57706,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                             {_f.from.replace(/-/g,'/')} から「{_f.value}」に変更予定（開始日に自動で切り替わります。それまで現在の介護度のままです）
                           </div>
                         ) : null; })()}
-                        <div className="text-[10px] text-slate-400">認定開始日が未来の日付の場合は「変更予定」として保存され、開始日までは現在の介護度のまま表示・計算されます。</div>
+                        <div className="text-[10px] text-slate-400">認定開始日が先の日付なら「変更予定」になり、開始日までは今の介護度のままです。</div>
                         <div>
                           <label className="block text-[11px] font-bold text-slate-500 mb-0.5">介護度</label>
                           <select value={d.careLevel} onChange={e=>upd({careLevel:e.target.value})} style={{maxWidth:200}} className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none">
@@ -57860,7 +57900,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                         <span className="text-amber-700 shrink-0">編集済・未送付</span>
                       </div>
                     ))}
-                    <div className="text-[10px] text-amber-700 mt-1.5">印刷・PDF・FAX送信をすると上の「休み連絡」の送付履歴に記録されます。休み連絡カレンダーの該当日から開いて出力してください。</div>
+                    <div className="text-[10px] text-amber-700 mt-1.5">印刷・PDF・FAXすると、上の「休み連絡」の送付履歴に残ります。休み連絡のカレンダーの日から開いて出してください。</div>
                   </div>
                 )}
                 {faxList('各種連絡', genHist, 'general_fax')}
@@ -57954,11 +57994,11 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <button onClick={()=>setIrMode('form')} className="bg-amber-50 border-2 border-amber-300 hover:border-amber-500 rounded-2xl p-5 text-left active:scale-95">
                     <div className="text-base font-bold text-amber-900 mb-1">手入力で作成</div>
-                    <div className="text-xs text-amber-700 whitespace-normal break-words">バイタル・運動・様子を入力して報告書を作成します（初回通所の記録があれば自動で入ります）。印刷/PDFでケアマネへ送付できます。</div>
+                    <div className="text-xs text-amber-700 whitespace-normal break-words">バイタル・運動・様子を入れて報告書を作ります（初回の記録があれば自動で入ります）。</div>
                   </button>
                   <label className="bg-emerald-50 border-2 border-emerald-300 hover:border-emerald-500 rounded-2xl p-5 text-left cursor-pointer active:scale-95 block">
                     <div className="text-base font-bold text-emerald-900 mb-1">書類を添付して完了</div>
-                    <div className="text-xs text-emerald-700">作成済みの報告書（画像・PDF）を選ぶと、添付と同時に完了になります。複数枚まとめて選べます。</div>
+                    <div className="text-xs text-emerald-700">作った報告書（画像・PDF）を選ぶと、添付して完了になります（複数可）。</div>
                     <input type="file" accept="image/*,application/pdf" multiple className="hidden" onChange={(e)=>handleFileUpload(e, { completeInitialReport: true })}/>
                   </label>
                   {/* ★ 2026-10-16(ユーザー要望「つむぎより前からの方は紙やパソコンで保管している。添付せずに完了できるように」) */}
@@ -57968,7 +58008,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                       onSave({ ...appData, initialReports: [..._others, _entry] }, { manual: true, message: '✓ 初回ご利用報告を「別の場所で保管」として完了にしました' }); }}
                     className="bg-slate-50 border-2 border-slate-300 hover:border-slate-500 rounded-2xl p-5 text-left active:scale-95 sm:col-span-2">
                     <div className="text-base font-bold text-slate-800 mb-1">別の場所で保管している（添付せずに完了）</div>
-                    <div className="text-xs text-slate-600">紙のファイルやパソコンなど、つむぎ以外で報告書を保管している方はこちら。添付せずに完了になり、バッジが消えます。</div>
+                    <div className="text-xs text-slate-600">つむぎ以外（紙など）で保管している方はこちら。添付せずに完了になります。</div>
                   </button>
                 </div>
               </div>
@@ -58012,7 +58052,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
             return (
             <div className="space-y-4">
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 flex items-center justify-between gap-2 flex-wrap">
-                <span>初回通所時の様子をケアマネジャー向けにまとめます。 初回通所の記録があればバイタルが自動で入ります（編集可）。</span>
+                <span>初回の様子をケアマネ向けにまとめます（初回の記録があればバイタルが自動で入ります）。</span>
                 <button onClick={()=>setIrMode(null)} className="px-3 py-1 bg-white border border-amber-300 text-amber-800 rounded-lg font-bold text-xs shrink-0">← 戻る</button>
               </div>
               {_savedIR && <div className="text-[11px] text-emerald-700 font-bold">✓ 保存済み（{(_savedIR.createdAt||'').slice(0,10)} 作成）。 内容を編集して再保存できます。</div>}
@@ -58046,7 +58086,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                 </div>
               </div>
               <div><label className="block text-xs font-bold text-slate-500 mb-1">運動の記録（初回通所時）</label>
-                <textarea value={irForm.exercise} onChange={e=>setIrForm(f=>({...f,exercise:e.target.value}))} rows={4} placeholder="初回通所の運動記録があれば自動で入ります（例: ①バイク: 10分 / 平行棒: 10/20 …）。編集できます。" className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none resize-y"/></div>
+                <textarea value={irForm.exercise} onChange={e=>setIrForm(f=>({...f,exercise:e.target.value}))} rows={4} placeholder="初回の運動記録があれば自動で入ります（編集できます）。" className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none resize-y"/></div>
               <div><label className="block text-xs font-bold text-slate-500 mb-1">ご利用の様子（活動・表情など）</label>
                 <textarea value={irForm.content} onChange={e=>setIrForm(f=>({...f,content:e.target.value}))} rows={5} placeholder="例: 体操に積極的に取り組まれ、笑顔が見られました。運動メニューも一通りこなされ…" className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none resize-y"/></div>
               {/* ★ フォーム中は保存のみ(2026-08-30 店舗要望)。 印刷/PDFは保存後の完了画面から */}
@@ -58071,7 +58111,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                 <div className="text-sm font-bold text-blue-900">提供記録を年月で開く（画面そのまま出力）</div>
                 {navigateTo && <button onClick={()=>_open('')} className="text-[11px] font-bold text-blue-600 bg-white border border-blue-200 px-2 py-1 rounded hover:bg-blue-100">入力画面へ →</button>}
               </div>
-              <div className="text-[11px] text-blue-700 mb-2">年月を選ぶと提供記録の表で開きます。そのまま「プレビュー」で印刷／PDF保存（期間出力でまとめて出力も可）。<br/><b className="text-emerald-700">✓ 確定</b> = その月の最終通所が済んだ月（自動で保管済み。保存操作は不要です）。</div>
+              <div className="text-[11px] text-blue-700 mb-2">年月を選ぶと提供記録の表が開きます（「プレビュー」で印刷・PDF）。<br/><b className="text-emerald-700">✓ 確定</b> = その月の最終通所が済んだ月（自動で保管済み。保存操作は不要です）。</div>
               {_months.length===0 ? <div className="text-xs text-slate-500 italic">まだ記録がありません。</div> : (
                 <div className="flex flex-wrap gap-1.5">
                   {_months.map(ym => { const [y,m]=ym.split('-'); const arch=_isArchived(ym); return (
@@ -58148,7 +58188,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
               <div className="bg-sky-50 border border-sky-200 rounded-xl p-4 mb-4">
                 <div className="text-sm font-bold text-sky-900 mb-2 flex items-center gap-1.5"><ClipboardList size={15}/>モニタリング表（保管）</div>
                 {mons.length === 0 ? (
-                  <div className="text-xs text-slate-500">まだモニタリング表がありません。「モニタリング」画面で対象者を選び「個人ファイルに保存」から保存できます。</div>
+                  <div className="text-xs text-slate-500">モニタリング表はまだありません（「モニタリング」画面の「個人ファイルに保存」で入ります）。</div>
                 ) : (
                   <div className="space-y-2">
                     {mons.map(r => {
@@ -58187,7 +58227,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                 <div className="flex gap-1.5">
                   {/* ★ 小窓で記録(2026-08-28): 会議記録を新規作成してフロートメモで開く。 他の画面(分析個人等)を見ながら入力できる */}
                   <button onClick={()=>{ const _id = `meet_${Date.now()}`; const _td = new Date().toISOString().slice(0,10); updatePatient({ meetings: [...meetings, { id:_id, date:_td, dateLabel: toWarekiDateLabel(_td), dayOfWeek: dayOfWeekJp(_td), locationType:'事業所', location:'事業所', timeStart:'', timeEnd:'', attendees:'', reason:'', content:'' }] }, { silent:true }); window.dispatchEvent(new CustomEvent('tsumugi-meeting-float',{detail:{patientId: patient.id, meetingId:_id, isNew:true}})); onClose && onClose(); }}
-                    title="小窓(フロートメモ)で会議記録を作成。画面を切り替えても小窓は残るので、分析や提供記録を見ながら入力できます"
+                    title="小窓で会議の記録を作ります（ほかの画面を見ながら入力できます）"
                     className="px-3 py-1.5 bg-white border border-blue-300 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-bold">小窓で記録</button>
                   <button onClick={()=>{ setEditingMeeting(null); setShowMeetingForm(true); }}
                     className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold">+ 新規作成</button>
@@ -58299,7 +58339,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                 <button onClick={()=>printSupportProgress(spSelectedYear())} className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg text-[11px] font-bold flex items-center gap-1"><Printer size={13}/>この年を印刷 / PDF</button>
               </div>
             </div>
-            <p className="text-[11px] text-slate-400 mb-2">休み/各種連絡・体力測定・モニタリング・担当者会議・ケアマネ/介護度変更・サービス内容変更・基本情報変更・休止・初回報告などが<b>自動で表に反映</b>されます。日付・担当者・連絡元・内容はすべて編集でき、トラブルや利用者の変化は「＋ 行を追加」で追記できます。<b>下の年ボタンで対象の年を選ぶ</b>とその年の表が表示されます（印刷はA4縦・複数ページ）。</p>
+            <p className="text-[11px] text-slate-400 mb-2">休み/各種連絡・体力測定・モニタリング・担当者会議・ケアマネ/介護度変更・サービス内容変更・基本情報変更・休止・初回報告などが<b>自動で表に反映</b>されます。内容は編集でき、「＋ 行を追加」で追記できます。<b>下の年ボタンで対象の年を選ぶ</b>とその年の表が表示されます（印刷はA4縦・複数ページ）。</p>
             {(() => {
               const list = spMergedList();
               const byYear={}; list.forEach(e=>{ const y=(String(e.date||'').slice(0,4))||'未設定'; (byYear[y]=byYear[y]||[]).push(e); });
@@ -59487,7 +59527,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
                     </div>
                   ))}
                 </div>
-                <div className="text-[10px] text-slate-500 mt-1.5">※ ここで入れた内容は基本情報の緊急連絡先にも反映されます（同名は最新で上書き）。「削除」で消して保存すると、基本情報からも削除されます。</div>
+                <div className="text-[10px] text-slate-500 mt-1.5">※ 基本情報の緊急連絡先にも入ります。「削除」して保存すると基本情報からも消えます。</div>
               </div>
             ) : (
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-2">
@@ -59504,7 +59544,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
             <div data-fs-sec="related"></div>
             <Field label="その他関係者 (訪問看護・かかりつけ以外の連携先 等)">
               <div className="space-y-2">
-                {(fs.relatedParties||[]).length===0 && <div className="text-[12px] text-slate-400">未登録。「＋関係者を追加」から追加できます（関係者がアカウント登録した場合も自動で追加されます）。</div>}
+                {(fs.relatedParties||[]).length===0 && <div className="text-[12px] text-slate-400">未登録（「＋関係者を追加」から追加できます）。</div>}
                 {(fs.relatedParties||[]).map((rp,ri)=>{
                   const setRp=(field,val)=>{ const arr=[...(fs.relatedParties||[])]; arr[ri]={...arr[ri],[field]:val}; update('relatedParties', arr); };
                   return (
