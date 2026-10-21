@@ -25087,8 +25087,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       // この日が振替先。 振替元は tokki「M月D日…分振替」から逆引き
       destDateStr = thisDateStr;
       destAmpm = rec.furikaeAmpm || 'AM';
-      const m = (rec.tokki||'').match(/^(\d+月\d+日)(?:AM|PM|1日)?分振替$/);
+      const m = (rec.tokki||'').match(/^(\d+月\d+日)(?:AM|PM|1日)?分振替(?:（.*）)?$/); // ★ 2026-10-21: （理由）つきも
       srcDateStr = m ? m[1] : '';
+      // ★ 2026-10-21: 同じ日の振替で特記が書きかえられていても、この日のもう一方の時間帯が「欠席」なら同じ日の振替として戻す
+      if (!srcDateStr && (destAmpm === 'AM' || destAmpm === 'PM')) { const _mk0 = `${yr}-${String(dObj.getMonth()+1).padStart(2,'0')}`; const _o = appData.monthlyShifts?.[_mk0]?.[id]?.[`${dObj.getDate()}_${destAmpm === 'AM' ? 'PM' : 'AM'}`]; if (_o === '欠席') srcDateStr = thisDateStr; }
     } else if (rec && rec.status === '欠席' && /へ振替/.test(rec.tokki||'')) {
       // この日が振替元(欠席)。 振替先は tokki「M月D日…へ振替」から逆引き
       srcDateStr = thisDateStr;
@@ -35789,6 +35791,8 @@ const tpSeatLayout = (c, list) => {
   (list || []).forEach((m, i) => { const sN = Number(m && m.seat); if (m && m.seat != null && m.seat !== '' && sN >= 0 && sN < capN && !bySeat[sN]) bySeat[sN] = { m, i }; else unseated.push({ m, i }); });
   return { capN, rows: tpSeatRowsFor(c, capN), bySeat, unseated };
 };
+// ★ 2026-10-21(ユーザー要望「同じ日の午前⇔午後にも振替できるように」): 同じ日の振替の特記。記録は1件(状態=振替・furikaeAmpm=来る時間帯)、特記は元の時間帯で書く
+const tsuSdFuriTokki = (label, srcSl, reason) => `${label}${srcSl}分振替${reason ? `（${reason}）` : ''}`;
 function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowPrintPreview, navigateTo }) {
   const ds = appData.diarySettings || {};
   const cars = tsuCarsNorm(ds.cars && ds.cars.length ? ds.cars : [{id:'car1',name:'1号車',type:''},{id:'car2',name:'2号車',type:''}]); // ★ 2026-10-15: 車の名前は tsuCarName にそろえる
@@ -36656,7 +36660,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const shifts = JSON.parse(JSON.stringify(appData.monthlyShifts||{}));
     const setShift2 = (dObj, slX, val) => { const mk = `${dObj.getFullYear()}-${String(dObj.getMonth()+1).padStart(2,'0')}`; const k = `${dObj.getDate()}_${slX}`; shifts[mk] = shifts[mk]||{}; shifts[mk][pid] = shifts[mk][pid]||{}; shifts[mk][pid][k] = val; };
     const _delIds = [];
-    if (mv.origIso) {
+    // ★ 2026-10-21(ユーザー要望): 同じ日の振替を元の時間帯へ戻した → 取り消し(両方の印を消す・記録は中身があれば出席、無ければ削除)
+    const _sdBack = mv.origIso && mv.origIso === toIso && (mv.origSl || 'AM') === toSl;
+    const _sdFwd = !mv.origIso && fromIso === toIso && fromSl !== toSl;
+    if (mv.origIso && mv.origIso === toIso && !_sdBack) { alert('この日のうちで動かすときは、元の時間帯へ戻してください。'); setFkMove(null); return; }
+    if (_sdBack) {
+      const mkF = `${fD.getFullYear()}-${String(fD.getMonth()+1).padStart(2,'0')}`;
+      if (shifts[mkF] && shifts[mkF][pid]) { delete shifts[mkF][pid][`${fD.getDate()}_${fromSl}`]; if (shifts[mkF][pid][`${fD.getDate()}_${toSl}`] === '欠席') delete shifts[mkF][pid][`${fD.getDate()}_${toSl}`]; if (!Object.keys(shifts[mkF][pid]).length) delete shifts[mkF][pid]; }
+    } else if (mv.origIso) {
       // ★ 振替の日を変える: いまの振替日(from)はセルを消し、その記録は中身(バイタル等)が無ければ削除。元の休み(orig)は欠席のまま理由と振替先を書き換え
       const mkF = `${fD.getFullYear()}-${String(fD.getMonth()+1).padStart(2,'0')}`;
       if (shifts[mkF] && shifts[mkF][pid]) { delete shifts[mkF][pid][`${fD.getDate()}_${fromSl}`]; if (!Object.keys(shifts[mkF][pid]).length) delete shifts[mkF][pid]; }
@@ -36668,7 +36679,12 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       if (idx >= 0) recs[idx] = { ...recs[idx], ...patch, _savedAt: syncNow() };
       else recs.push({ id: `tr_${pid}_${dObj.getFullYear()}_${dObj.getMonth()+1}_${dObj.getDate()}`, patientId: pid, name: pt.name, kana: pt.kana||'', date: dateStr, year: dObj.getFullYear(), dayOfWeek: dayNames[dObj.getDay()], temp:'',bpUpSt:'',bpDnSt:'',plSt:'',bpUpEn:'',bpDnEn:'',plEn:'',massage:'',exercises:{},actualTime:'', kibunArrival:'',kibunArrivalReason:'',kibunDeparture:'',kibunDepartureReason:'',done:false, ...patch, _savedAt: syncNow() });
     };
-    if (mv.origIso) {
+    if (_sdBack) {
+      const fi = recs.findIndex(r => r.patientId === pid && r.date === srcLabel && (r.year ? r.year === fD.getFullYear() : true));
+      if (fi >= 0) { if (ticketHasClinicalData(recs[fi])) recs[fi] = { ...recs[fi], status: '出席', furikaeAmpm: '', tokki: '', _savedAt: syncNow() }; else { _delIds.push(String(recs[fi].id)); recs.splice(fi, 1); } }
+    } else if (_sdFwd) {
+      upsert(tD, destLabel, { status: '振替', furikaeAmpm: toSl, tokki: tsuSdFuriTokki(srcLabel, fromSl, reasonText) });
+    } else if (mv.origIso) {
       const oD = new Date(mv.origIso); const oLabel = `${oD.getMonth()+1}月${oD.getDate()}日`;
       upsert(oD, oLabel, { status: '欠席', tokki: `${destLabel}${toSl}へ振替${reasonText ? '（'+reasonText+'）' : ''}` });
       upsert(tD, destLabel, { status: '振替', furikaeAmpm: toSl, tokki: `${oLabel}${mv.origSl || ''}分振替` });
@@ -36694,7 +36710,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     // ★ 2026-10-01(試験版): 振替は提供記録・月間スケジュールも変えるため「元に戻す」の対象外。それより前の操作を戻すと振替と食い違うので、元に戻すの履歴は空にする
     if (_undoList().length) { _undoList().length = 0; _setUndoTick(t => t + 1); }
     const _tomb = _delIds.length ? (() => { const t = { ...(appData.deletedIds||{}) }; t.ticketRecords = { ...(t.ticketRecords||{}) }; _delIds.forEach(id => { t.ticketRecords[id] = Date.now(); }); return t; })() : null;
-    onSave({ ...appData, monthlyShifts: shifts, ticketRecords: recs, transportPlans: tp, ...(_tomb ? { deletedIds: _tomb } : {}) }, { manual: true, message: mv.origIso ? `✓ ${pt.name}様の振替を${destLabel}(${toSl==='AM'?'午前':'午後'})へ変更しました` : `✓ ${pt.name}様を${destLabel}(${toSl==='AM'?'午前':'午後'})へ振替登録しました`, ...(_delIds.length ? { deleteRecordIds: _delIds } : {}) });
+    onSave({ ...appData, monthlyShifts: shifts, ticketRecords: recs, transportPlans: tp, ...(_tomb ? { deletedIds: _tomb } : {}) }, { manual: true, message: _sdBack ? `✓ ${pt.name}様の振替を取り消しました（${toSl === 'AM' ? '午前' : '午後'}に戻しました）` : mv.origIso ? `✓ ${pt.name}様の振替を${destLabel}(${toSl==='AM'?'午前':'午後'})へ変更しました` : `✓ ${pt.name}様を${destLabel}(${toSl==='AM'?'午前':'午後'})へ振替登録しました`, ...(_delIds.length ? { deleteRecordIds: _delIds } : {}) });
   };
   // ★ ルート計算のコア(1日分・時間帯1つ): 保存はせず計算後のプランを返す。
   //   呼び出し側が1回のonSaveへまとめる(2026-09-12d: 週間一括で「後の日の保存が前の日を消す」バグの修正)。
@@ -38040,10 +38056,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         return (
           <div className="fixed inset-0 bg-slate-900/60 flex items-start justify-center p-4 pt-20" style={{zIndex:10000}}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5">
-              <div className="font-bold text-slate-800 text-lg mb-1">{pt.name} 様{fkMove.origIso ? 'の振替の日を変更' : 'を振替として登録'}</div>
+              {/* ★ 2026-10-21: 同じ日の振替(_sdF)・元の時間帯へ戻す(_sdB) */}
+              <div className="font-bold text-slate-800 text-lg mb-1">{pt.name} 様{(fkMove.origIso && fkMove.origIso === fkMove.toIso && (fkMove.origSl || 'AM') === fkMove.toSl) ? 'の振替を取り消し' : fkMove.origIso ? 'の振替の日を変更' : (fkMove.fromIso === fkMove.toIso ? 'を同じ日の振替として登録' : 'を振替として登録')}</div>
               <div className="text-sm font-bold text-slate-600 mb-3 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
                 {fD.getMonth()+1}/{fD.getDate()}（{dayNames[fD.getDay()]}・{fkMove.fromSl==='AM'?'午前':'午後'}） → {tD.getMonth()+1}/{tD.getDate()}（{dayNames[tD.getDay()]}・{fkMove.toSl==='AM'?'午前':'午後'}）
-                <div className="text-[11px] font-normal text-slate-500 mt-1">{fkMove.origIso ? (() => { const o = new Date(fkMove.origIso); return `元の休み ${o.getMonth()+1}/${o.getDate()}（${dayNames[o.getDay()]}）は欠席のまま。${fD.getMonth()+1}/${fD.getDate()} の振替は取り消し（休みにはしません）、新しい日が振替になります。`; })() : '元の日は「欠席（振替）」になり、月間スケジュール・提供記録にも反映されます。'}</div>
+                <div className="text-[11px] font-normal text-slate-500 mt-1">{(fkMove.origIso && fkMove.origIso === fkMove.toIso && (fkMove.origSl || 'AM') === fkMove.toSl) ? '同じ日の振替を取り消して、元の時間帯に戻します。' : (!fkMove.origIso && fkMove.fromIso === fkMove.toIso) ? `${fkMove.fromSl === 'AM' ? '午前' : '午後'}は欠席、${fkMove.toSl === 'AM' ? '午前' : '午後'}に来ます（月間スケジュール・提供記録にも反映）。` : fkMove.origIso ? (() => { const o = new Date(fkMove.origIso); return `元の休み ${o.getMonth()+1}/${o.getDate()}（${dayNames[o.getDay()]}）は欠席のまま。${fD.getMonth()+1}/${fD.getDate()} の振替は取り消し（休みにはしません）、新しい日が振替になります。`; })() : '元の日は「欠席（振替）」になり、月間スケジュール・提供記録にも反映されます。'}</div>
               </div>
               <label className="block text-xs font-bold text-slate-600 mb-1">振替の理由（大分類）</label>
               <div className="flex flex-wrap gap-1.5 mb-2">
@@ -38056,7 +38073,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               {(fkMove.cat || fkMove.detail) && <div className="text-[11px] text-slate-500 mb-3">記録される理由: {composeAbsReason(fkMove.cat, fkMove.detail) || '（なし）'}</div>}
               <div className="flex justify-end gap-2 mt-3">
                 <button onClick={()=>setFkMove(null)} className="whitespace-nowrap px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
-                <button onClick={()=>{ const rs = composeAbsReason(fkMove.cat, fkMove.detail); executeFurikaeMove(fkMove, rs); setFkMove(null); }} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm">振替を登録</button>
+                <button onClick={()=>{ const rs = composeAbsReason(fkMove.cat, fkMove.detail); executeFurikaeMove(fkMove, rs); setFkMove(null); }} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm">{(fkMove.origIso && fkMove.origIso === fkMove.toIso && (fkMove.origSl || 'AM') === fkMove.toSl) ? '取り消す' : '振替を登録'}</button>
               </div>
             </div>
           </div>
@@ -40372,6 +40389,17 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     const destDateStr = `${currentMonth.getMonth()+1}月${day}日`;
     const _now = Date.now();
     const _removedIds = []; // ★ 削除した記録は墓石(deletedIds)に登録 → クラウドマージで復活させない
+    // ★ 2026-10-21: 同じ日の振替(振(M/D) が同じ日)を「元を欠席のまま」で取り消す → 記録はこの日の欠席(理由つき)、元の時間帯の欠席の印は残す
+    //   (提供記録・送迎表で作った同じ日の振替はセルが「振替」だけ → もう一方の時間帯が欠席で、記録の特記がこの日なら同じ日の振替)
+    const _isSdM = mSrc ? (parseInt(mSrc[1]) === currentMonth.getMonth() + 1 && parseInt(mSrc[2]) === day) : (() => { const o = sh[`${day}_${ap === 'AM' ? 'PM' : 'AM'}`]; const r0 = (effTickets||[]).find(r => r && r.patientId === localPatient.id && r.date === destDateStr && r.status === '振替'); return o === '欠席' && !!r0 && String(r0.tokki || '').startsWith(destDateStr); })();
+    if (_isSdM && srcAction !== 'restore') {
+      const _rsAbs = (t) => { const mm = String(t || '').match(/分振替（(.*)）$/); return mm ? mm[1] : ''; };
+      const upd2 = (effTickets||[]).map(r => (r && r.patientId === localPatient.id && r.date === destDateStr && r.status === '振替') ? (obsMarkRecEditRec(r,'status'), obsMarkRecEditRec(r,'furikaeAmpm'), obsMarkRecEditRec(r,'tokki'), { ...r, status: '欠席', furikaeAmpm: '', tokki: _rsAbs(r.tokki), _savedAt: _now }) : r);
+      const ns3 = JSON.parse(JSON.stringify(effShifts)); if (ns3[mKey]?.[localPatient.id]) delete ns3[mKey][localPatient.id][`${day}_${ap}`];
+      setPendingShifts(null); setPendingTickets(null); if (dirtyRef) dirtyRef.current = false;
+      onSave({ ...appData, monthlyShifts: ns3, ticketRecords: upd2 }, { manual: true, message: '✓ 振替を取り消しました（欠席のまま）' });
+      return;
+    }
     // ★ 振替先の記録: バイタル等のデータがあれば消さずに残す(出席として保持・振替の目印tokkiは消す)。空枠だけ削除。
     let updated = (effTickets||[]).map(r => {
       if (!(r && r.patientId === localPatient.id && r.date === destDateStr && r.status === '振替')) return r;
@@ -40501,6 +40529,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
           if (ticketHasClinicalData(t)) { ['status','furikaeAmpm','tokki'].forEach(f=>obsMarkRecEditRec(t,f)); return { ...t, status: '出席', furikaeAmpm: '', tokki: '', _savedAt: syncNow() }; }
           removed.push(t); return null;
         }).filter(Boolean);
+        // ★ 2026-10-21: 同じ日の振替の元(欠席)を取り消す → この日のもう一方の時間帯の振替の印も消す(記録は上で出席に戻すか削除)
+        if (_srcRec && _srcRec.status === '振替' && ns2[mKey]?.[localPatient.id]) { const _ok = `${day}_${ap === 'AM' ? 'PM' : 'AM'}`; if (String(ns2[mKey][localPatient.id][_ok] || '').startsWith('振')) delete ns2[mKey][localPatient.id][_ok]; }
         // ★ 振替先セルのシフト表示「振(x/x)」も削除(同年内の月として扱う)
         if (_pairM) {
           const _pKey = `${currentMonth.getFullYear()}-${String(parseInt(_pairM[1])).padStart(2,'0')}`;
@@ -40671,6 +40701,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     const destDateObj = _mode === 'forward' ? fd : new Date(currentMonth.getFullYear(), destMonth-1, destDay);
     const srcDow = dN[srcDateObj.getDay()];
     const destDow = dN[destDateObj.getDay()];
+    // ★ 2026-10-21: 同じ日の振替。同じ時間帯・その日の基本が1日の方はできない
+    const _sdM = srcDateObj.getFullYear() === destDateObj.getFullYear() && srcDateObj.getMonth() === destDateObj.getMonth() && srcDateObj.getDate() === destDateObj.getDate();
+    if (_sdM && (srcAmpm === destAmpm || (localPatient.scheduleAmPm?.[srcDateObj.getDay()] || '') === '1日' || (srcAmpm !== 'AM' && srcAmpm !== 'PM') || (destAmpm !== 'AM' && destAmpm !== 'PM'))) { alert('同じ日の振替は、午前の方は午後へ、午後の方は午前へだけできます。'); return; }
     // 振替先のシフトを設定（destDateObj が表示中の月なら）
     if (destDateObj.getFullYear() === currentMonth.getFullYear() && destDateObj.getMonth() === currentMonth.getMonth()) {
       const destBase = localPatient.scheduleAmPm?.[destDateObj.getDay()] || '';
@@ -40691,6 +40724,15 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     // ★ _savedAt を必ず更新 = クラウドマージで「古い出席記録が新しい欠席/振替を上書き」して戻る不具合を防ぐ
     const _furiNow = syncNow();
     const srcIdx = ur.findIndex(r => r.patientId === localPatient.id && recMatchesDateYear(r, srcLabel, srcYear));
+    if (_sdM) { // 同じ日: 休む側の記録は作らず、この日の記録1件を振替に
+      const _tok = tsuSdFuriTokki(srcLabel, srcAmpm, _reason);
+      if (srcIdx >= 0) { ['status','furikaeAmpm','tokki'].forEach(f=>obsMarkRecEditRec(ur[srcIdx],f)); ur[srcIdx] = { ...ur[srcIdx], status: '振替', furikaeAmpm: destAmpm, tokki: _tok, year: srcYear, _savedAt: _furiNow }; }
+      else ur.push({ id: `tr_${localPatient.id}_${srcYear}_${srcDateObj.getMonth()+1}_${srcDateObj.getDate()}`, patientId: localPatient.id, name: localPatient.name, kana: localPatient.kana, date: srcLabel, year: srcYear, dayOfWeek: srcDow, status: '振替', furikaeAmpm: destAmpm, tokki: _tok, temp: '', bpUpSt: '', bpDnSt: '', plSt: '', bpUpEn: '', bpDnEn: '', plEn: '', massage: '', exercises: {}, _savedAt: _furiNow });
+      setPendingShifts(null); setPendingTickets(null);
+      if (dirtyRef) dirtyRef.current = false;
+      onSave({ ...appData, monthlyShifts: ns, ticketRecords: ur }, { manual: true, message: '✓ 振替を保存しました' });
+      return;
+    }
     if (srcIdx >= 0) { ['status','tokki'].forEach(f=>obsMarkRecEditRec(ur[srcIdx],f)); ur[srcIdx] = { ...ur[srcIdx], status: '欠席', tokki: srcTokki, year: srcYear, _savedAt: _furiNow }; }
     else ur.push({ id: `tr_${localPatient.id}_${srcYear}_${srcDateObj.getMonth()+1}_${srcDateObj.getDate()}`, patientId: localPatient.id, name: localPatient.name, kana: localPatient.kana, date: srcLabel, year: srcYear, dayOfWeek: srcDow, status: '欠席', temp: '', bpUpSt: '', bpDnSt: '', plSt: '', bpUpEn: '', bpDnEn: '', plEn: '', massage: '', exercises: {}, tokki: srcTokki, _savedAt: _furiNow });
     // 振替先 ticketRecord（振替）の新規作成 / 更新
@@ -41341,7 +41383,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 {monthlyHl && (<div className="mb-2 px-3 py-2 rounded-lg bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold">振替・欠席・休業・休止など「その日だけ」の変更はここ（月間スケジュール）の日付をタップして行います。上の基本利用曜日は変えないでください。</div>)}
                 <div className="flex items-center justify-between mb-2"><label className="text-sm font-bold text-slate-600 flex items-center gap-1.5"><CalendarCheck size={16} />月間スケジュール</label><div className="flex items-center gap-2"><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronLeft size={16} /></button><span className="text-base font-bold text-slate-700 tabular-nums w-28 text-center">{currentMonth.getFullYear()}年{currentMonth.getMonth() + 1}月</span><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronRight size={16} /></button></div></div>
                 {/* ★ 2026-10-08(店舗報告: スマホで月間スケジュールの日付が見切れる): スマホは1日あたり28pxの幅で横にスクロール(CSS tsu-mstrip) */}
-                <div className="flex border border-slate-200 rounded-xl bg-slate-50 p-1 gap-0.5 tsu-mstrip">{allD.map(d => { const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d); const dow = dO.getDay(); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; const cl = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow); const hl = appData.holidays?.some(h => (h.date || h) === ds); const base = getScheduleOnDate(localPatient, ds)?.[dow] || ""; const bAM = base === "AM" || base === "1日"; const bPM = base === "PM" || base === "1日"; const sh = effShifts?.[mKey]?.[localPatient.id] || {}; const pi = getPauseReasonOnDate(localPatient, ds); const _inactive = !!localPatient && !isPatientActiveOnDate(localPatient, ds); /* ★ 利用開始日より前・利用終了日より後は「空欄(非利用日)」にして、どこで終了したか一目で分かるようにする。利用中に戻せば再表示。 */ /* 休止中: 基本利用日 (bAM/bPM=true) の枠だけ「休止」表示。それ以外は通常空欄 */ const _shAM = sh[`${d}_AM`] !== undefined ? sh[`${d}_AM`] : (_mSchedRecFuri[d]?.AM || (bAM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const _shPM = sh[`${d}_PM`] !== undefined ? sh[`${d}_PM`] : (_mSchedRecFuri[d]?.PM || (bPM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const cA = _inactive ? sSt("空欄", cl, hl) : (pi ? (bAM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shAM, bAM), cl, hl)); const cP = _inactive ? sSt("空欄", cl, hl) : (pi ? (bPM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shPM, bPM), cl, hl)); const ok = !cl && !hl && !pi && !isOff && !_inactive; return (<div key={d} className="flex-1 min-w-0 flex flex-col items-stretch bg-white border border-slate-200 rounded overflow-hidden"><div className={`w-full text-center text-[11px] font-bold py-1 bg-slate-100 border-b border-slate-200 leading-tight ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{d}<br/><span className="text-[9px] font-normal">{dN[dow]}</span></div><button disabled={!ok} title={_mSchedRecReason[d] || (cA.sub ? `${cA.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "AM")} className={`h-9 flex items-center justify-center border-b border-slate-100 text-[10px] leading-none whitespace-pre-wrap ${cA.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cA.t}</button><button disabled={!ok} title={_mSchedRecReason[d] || (cP.sub ? `${cP.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "PM")} className={`h-9 flex items-center justify-center text-[10px] leading-none whitespace-pre-wrap ${cP.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cP.t}</button></div>); })}</div>
+                <div className="flex border border-slate-200 rounded-xl bg-slate-50 p-1 gap-0.5 tsu-mstrip">{allD.map(d => { const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d); const dow = dO.getDay(); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; const cl = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow); const hl = appData.holidays?.some(h => (h.date || h) === ds); const base = getScheduleOnDate(localPatient, ds)?.[dow] || ""; const bAM = base === "AM" || base === "1日"; const bPM = base === "PM" || base === "1日"; const sh = effShifts?.[mKey]?.[localPatient.id] || {}; const pi = getPauseReasonOnDate(localPatient, ds); const _inactive = !!localPatient && !isPatientActiveOnDate(localPatient, ds); /* ★ 利用開始日より前・利用終了日より後は「空欄(非利用日)」にして、どこで終了したか一目で分かるようにする。利用中に戻せば再表示。 */ /* 休止中: 基本利用日 (bAM/bPM=true) の枠だけ「休止」表示。それ以外は通常空欄 */ const _shAM = sh[`${d}_AM`] !== undefined ? sh[`${d}_AM`] : (_mSchedRecFuri[d]?.AM || (bAM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const _shPM = sh[`${d}_PM`] !== undefined ? sh[`${d}_PM`] : (_mSchedRecFuri[d]?.PM || (bPM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const cA = _inactive ? sSt("空欄", cl, hl) : (pi ? (bAM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shAM, bAM), cl, hl)); const cP = _inactive ? sSt("空欄", cl, hl) : (pi ? (bPM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shPM, bPM), cl, hl)); const ok = !cl && !hl && !pi && !isOff && !_inactive; return (<div key={d} className="flex-1 min-w-0 flex flex-col items-stretch bg-white border border-slate-200 rounded overflow-hidden"><div className={`w-full text-center text-[11px] font-bold py-1 bg-slate-100 border-b border-slate-200 leading-tight ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{d}<br/><span className="text-[9px] font-normal">{dN[dow]}</span></div><button disabled={!ok} title={_mSchedRecReason[d] || (cA.sub ? `${cA.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "AM")} data-testid={`ms-cell-${d}-AM`} className={`h-9 flex items-center justify-center border-b border-slate-100 text-[10px] leading-none whitespace-pre-wrap ${cA.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cA.t}</button><button disabled={!ok} title={_mSchedRecReason[d] || (cP.sub ? `${cP.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "PM")} data-testid={`ms-cell-${d}-PM`} className={`h-9 flex items-center justify-center text-[10px] leading-none whitespace-pre-wrap ${cP.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cP.t}</button></div>); })}</div>
                 <div className="flex gap-2 mt-2 text-[11px] text-slate-400 font-bold flex-wrap items-center"><span>上段:AM/下段:PM</span><span className="text-blue-600 bg-blue-50 px-1 rounded">出席</span><span className="text-red-500 bg-red-50 px-1 rounded">欠席</span><span className="text-emerald-600 bg-emerald-50 px-1 rounded">振替</span><span className="text-cyan-700 bg-cyan-50 px-1 rounded">臨時</span><span className="text-white bg-slate-600 px-1 rounded">休業</span><span>空欄=非利用日</span></div></div>
               {/* お迎え時間: 基本利用曜日に設定がある日のみ表示 */}
               {(() => {
@@ -43416,13 +43458,13 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             const dow = dOM.getDay();
             const sched = localPatient.scheduleAmPm?.[dow] || '';
             const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-            // クリックされた日 (振替先) と同じ日は除外
-            if (d === furikaeModal.day) continue;
-            if (sched === 'AM' || sched === '1日') {
-              result.push({day: d, dow, ampm: 'AM', dateStr, label: `${month+1}月${d}日（${dN[dow]}）午前`});
+            // ★ 2026-10-21(ユーザー要望「同じ日の午前/午後も振替の選択肢に」): 同じ日はもう一方の時間帯だけ(同じ時間帯は除外)
+            const _same = d === furikaeModal.day;
+            if ((sched === 'AM' || sched === '1日') && !(_same && (furikaeModal.ampm === 'AM' || sched === '1日'))) {
+              result.push({day: d, dow, ampm: 'AM', dateStr, label: `${month+1}月${d}日（${dN[dow]}）午前${_same ? '（同じ日）' : ''}`});
             }
-            if (sched === 'PM' || sched === '1日') {
-              result.push({day: d, dow, ampm: 'PM', dateStr, label: `${month+1}月${d}日（${dN[dow]}）午後`});
+            if ((sched === 'PM' || sched === '1日') && !(_same && (furikaeModal.ampm === 'PM' || sched === '1日'))) {
+              result.push({day: d, dow, ampm: 'PM', dateStr, label: `${month+1}月${d}日（${dN[dow]}）午後${_same ? '（同じ日）' : ''}`});
             }
           }
           return result;
@@ -43442,6 +43484,14 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               </div>
               {isFwd ? (
                 <>
+                  {(() => { // ★ 2026-10-21(ユーザー要望): 同じ日のもう一方の時間帯へ(その日の基本が1日の方は出さない)
+                    const _dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), furikaeModal.day); const _b = localPatient.scheduleAmPm?.[_dO.getDay()] || '';
+                    if (_b === '1日' || (furikaeModal.ampm !== 'AM' && furikaeModal.ampm !== 'PM')) return null;
+                    const _iso = `${_dO.getFullYear()}-${String(_dO.getMonth()+1).padStart(2,'0')}-${String(_dO.getDate()).padStart(2,'0')}`; const _dst = furikaeModal.ampm === 'AM' ? 'PM' : 'AM';
+                    const _on = furikaeModal.fromDate === _iso && furikaeModal.furikaeAmpm === _dst;
+                    return <button type="button" data-testid="ms-furi-sameday" onClick={() => setFurikaeModal({ ...furikaeModal, fromDate: _iso, furikaeAmpm: _dst })}
+                      className={`w-full py-2.5 rounded-xl text-sm font-bold border transition-all ${_on ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:border-emerald-500'}`}>同じ日の{_dst === 'PM' ? '午後' : '午前'}へ</button>;
+                  })()}
                   <div><label className="text-xs font-bold text-slate-500 block mb-1">{otherLabel}の日付</label><input type="date" value={furikaeModal.fromDate} onChange={e => _pickFuriFrom({ fromDate: e.target.value })} className="w-full p-3 bg-white border border-slate-300 rounded-xl font-bold outline-none" /></div>
                   <div><label className="text-xs font-bold text-slate-500 block mb-1">{otherLabel}の時間帯</label>
                     <div className="flex gap-2">{[['AM','午前'],['PM','午後']].map(([val,label])=>(
