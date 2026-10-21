@@ -96,4 +96,15 @@ const seedTp = (page, custom) => page.evaluate(([iso, custom]) => { const d = JS
   await page.locator('button:visible', { hasText: /^キャンセル$/ }).last().click().catch(() => {}); await page.waitForTimeout(600);
   await shot('trial_cb_dropnote_card', async () => { const ln = page.getByTestId(`cb-dropnote-${P[0]}`).first(); await ln.scrollIntoViewIfNeeded(); await page.waitForTimeout(300); const box = ln.locator('xpath=ancestor::div[2]'); await page.screenshot({ path: `${OUT}/trial_cb_dropnote_card.png`, clip: await clipOf(page, box, 8) }); });
   await page.context().close(); }
+// ---- 連絡帳「次回の日付」・送迎表のダウンロード(PC・2026-10-21)
+{ const page = await open({ viewport: { width: 1280, height: 900 } });
+  await page.evaluate(() => { const d = JSON.parse(localStorage.getItem('daycareAppData_v3')); d.systemSettings = d.systemSettings || {}; d.systemSettings.transportEnabled = true; localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); });
+  await go(page, 'print');
+  await page.locator('button:visible', { hasText: /^各種入力/ }).first().click().catch(() => {}); await page.waitForTimeout(500);
+  await page.getByTestId('cb-hub-nextdate').click(); await page.waitForTimeout(600);
+  await shot('trial_cb_nextjump', async () => { const m = page.getByTestId('cb-nextjump-modal').locator('> div').first(); const bb = await m.boundingBox(); await page.screenshot({ path: `${OUT}/trial_cb_nextjump.png`, clip: { x: bb.x - 4, y: bb.y - 4, width: bb.width + 8, height: Math.min(bb.height + 8, 520) } }); });
+  await go(page, 'transport'); await page.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 800 }).catch(() => {});
+  await page.locator('button:visible', { hasText: /^ダウンロード$/ }).first().click(); await page.waitForTimeout(500);
+  await shot('trial_tp_print_opt', async () => { const m = page.getByTestId('tp-print-dropat').locator('xpath=ancestor::div[contains(@class,"rounded-2xl")][1]'); await page.screenshot({ path: `${OUT}/trial_tp_print_opt.png`, clip: await clipOf(page, m, 4) }); });
+  await page.context().close(); }
 console.log('done', done.length, done.join(' ')); await b.close();
