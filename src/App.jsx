@@ -10932,6 +10932,84 @@ const getTransportTimeFor = (patientId, nextDateDisplay, yearHint, appData) => {
   return '';
 };
 
+// ★ 2026-10-21(ユーザー要望「送りの時間は、連絡帳の連絡事項に。当日ではなく次回来るときの送りの時間」):
+//   送迎表の、その日の送りで家に着く時間(dropAt・自動計算の目安も含む)。送りで車に乗る方だけ(座席表の日は送りの車、迎えと同じ日は迎えの車)。
+//   徒歩・その他(ご家族の送りなど)・時間が無いときは ''。年は連絡帳の日付から(12月→1月は翌年)
+const getTransportDropAtFor = (patientId, nextDateDisplay, baseIso, appData) => {
+  if (!tsumugiTransportOn(appData)) return '';
+  try {
+    const m = String(nextDateDisplay || '').match(/(\d+)月(\d+)日/); if (!m) return '';
+    const bm = String(baseIso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); let y = bm ? Number(bm[1]) : new Date().getFullYear();
+    if (bm && (+m[1] < +bm[2] || (+m[1] === +bm[2] && +m[2] < +bm[3]))) y += 1;
+    const iso = `${y}-${String(+m[1]).padStart(2,'0')}-${String(+m[2]).padStart(2,'0')}`;
+    const tp = appData.transportPlans || {};
+    for (const sl of ['AM','PM']) {
+      const plan = tp[`${iso}_${sl}`]; if (!plan || typeof plan !== 'object') continue;
+      const custom = plan.dropMode === 'custom' && plan.drop;
+      let mm = null; for (const L of Object.values((custom ? plan.drop.cars : plan.cars) || {})) { mm = (L || []).find(x => x && x.pid === patientId); if (mm) break; }
+      if (!mm) { const anyIn = [...Object.values(plan.cars || {}).flat(), ...(plan.walkers || []), ...(plan.others || []), ...(plan.un || [])].some(x => x && x.pid === patientId); if (anyIn) return ''; continue; }
+      const v = String((plan.dropAt || {})[String(patientId)] || (custom && mm.at) || '').trim();
+      return /^\d{1,2}:\d{2}$/.test(v) ? v : '';
+    }
+  } catch {}
+  return '';
+};
+// 連絡事項に入れる1行。時刻は「12時30分ごろ」
+const tsuDropNoteParts = (nextDateDisplay, at) => { const tm = String(at || '').match(/^(\d{1,2}):(\d{2})$/); const d = String(nextDateDisplay || '').trim(); if (!tm || !/\d/.test(d)) return null; return { head: `次回のお送り：${d}`, time: `${+tm[1]}時${tm[2]}分ごろ` }; };
+const tsuDropNoteText = (nextDateDisplay, at) => { const pr = tsuDropNoteParts(nextDateDisplay, at); return pr ? `${pr.head} ${pr.time}` : ''; };
+// 連絡帳の「次回お迎え時間」の日付と同じ決め方(手入力の日付 → 自動計算)
+const tsuCbNextDateOf = (record, patient, selectedDate, appData) => { if (!patient) return ''; if (/\d/.test(String((record && record.nextDateOverride) ?? ''))) return String(record.nextDateOverride); try { return String(getNextVisitInfo(patient, selectedDate, appData.monthlyShifts, appData).date || ''); } catch { return ''; } };
+// 連絡帳の連絡事項の欄の大きさで、1人分(全員あて＋個別＋送りの1行)が入るか(使用率 0〜)。RenrakuModal と同じ測り方
+const tsuRenrakuUsage = (htmlAll, htmlPat, dropLine) => {
+  try { const el = document.createElement('div'); el.setAttribute('aria-hidden', 'true');
+    el.style.cssText = `position:absolute;left:-9999px;top:0;width:${RENRAKU_BOX_W}px;padding:0;line-height:1.5;white-space:pre-wrap;word-break:break-word;font-size:16.5px;visibility:hidden;pointer-events:none`;
+    const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    el.innerHTML = (htmlAll || '') + ((htmlAll && htmlPat) ? '<div style="height:6px"></div>' : '') + (htmlPat || '') + (dropLine ? `<div style="margin-top:${(htmlAll || htmlPat) ? 6 : 0}px">${esc(dropLine)}</div>` : '');
+    document.body.appendChild(el); const r = el.scrollHeight / RENRAKU_BOX_H; el.remove(); return r; } catch { return 0; }
+};
+// ★ 2026-10-21: 「送り時間反映」。その日の連絡帳に、次回の送りの時間を入れる方を選ぶ(押したときだけ・次の連絡帳には入らない)
+function TsuDropNoteModal({ appData, selectedDate, records, onClose, onApply }) {
+  const cfg = appData.contactBookConfig || {};
+  const _inR = (o) => !!o && (!o.from || selectedDate >= o.from) && (!o.until || selectedDate <= o.until);
+  const rows = React.useMemo(() => (records || []).map(r => { const pt = (appData.patients || []).find(x => x.id === r.patientId); if (!pt) return null;
+    const next = tsuCbNextDateOf(r, pt, selectedDate, appData); const at = getTransportDropAtFor(pt.id, next, selectedDate, appData);
+    return { pid: pt.id, name: pt.name, next, at, line: tsuDropNoteText(next, at), on: r.renrakuDropAt === '1', pt }; }).filter(Boolean), [records, appData, selectedDate]);
+  const [sel, setSel] = React.useState(() => { const anyOn = rows.some(x => x.on); return new Set(rows.filter(x => x.at && (anyOn ? x.on : true)).map(x => x.pid)); });
+  const _allH = renrakuHasText(cfg.renrakuAll) && _inR(cfg.renrakuAll) ? renrakuToHtml(cfg.renrakuAll) : '';
+  const over = rows.filter(x => sel.has(x.pid) && x.line && tsuRenrakuUsage(_allH, (renrakuHasText(x.pt.contactBookRenraku) && _inR(x.pt.contactBookRenraku)) ? renrakuToHtml(x.pt.contactBookRenraku) : '', x.line) > 0.92);
+  const nWith = rows.filter(x => x.at).length;
+  const tog = (pid) => setSel(s0 => { const s1 = new Set(s0); if (s1.has(pid)) s1.delete(pid); else s1.add(pid); return s1; });
+  const d0 = new Date(selectedDate + 'T00:00:00');
+  return ReactDOM.createPortal((
+    <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-0 sm:p-4" style={{ zIndex: 10050 }} data-testid="cb-dropnote-modal">
+      <div className="bg-white sm:rounded-2xl shadow-2xl w-full h-full sm:h-auto sm:max-w-lg max-h-full sm:max-h-[92vh] flex flex-col">
+        <div className="px-4 sm:px-5 pt-4 pb-2 border-b border-slate-200">
+          <div className="flex items-center justify-between"><div className="text-lg font-bold text-slate-800">送り時間反映</div><button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none px-2" aria-label="閉じる">✕</button></div>
+          <div className="text-[12px] text-slate-600 mt-1">{d0.getMonth() + 1}月{d0.getDate()}日の連絡帳の連絡事項に、<b>次回</b>の送りの時間（送迎表）を入れます。次の連絡帳には入りません。</div>
+          <div className="flex items-center gap-2 mt-2">
+            <button type="button" data-testid="cb-dropnote-all" onClick={() => setSel(new Set(rows.filter(x => x.at).map(x => x.pid)))} className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-300 bg-white text-slate-700">全員選ぶ</button>
+            <button type="button" data-testid="cb-dropnote-none" onClick={() => setSel(new Set())} className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-300 bg-white text-slate-700">全員外す</button>
+            <span className="ml-auto text-[12px] text-slate-500">{sel.size}名を選択</span>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto px-2 sm:px-3 py-2" style={{ overscrollBehavior: 'contain' }}>
+          {!rows.length ? <div className="text-sm text-slate-500 p-4">この日の連絡帳の方がいません。</div> : rows.map(x => { const ov = over.some(o => o.pid === x.pid); return (
+            <label key={x.pid} data-testid={`cb-dropnote-row-${x.pid}`} className={`flex items-center gap-3 px-2 py-2.5 rounded-lg border-b border-slate-100 ${x.at ? 'cursor-pointer hover:bg-slate-50' : 'opacity-60'}`}>
+              <input type="checkbox" className="w-5 h-5 shrink-0" disabled={!x.at} checked={!!x.at && sel.has(x.pid)} onChange={() => tog(x.pid)} data-testid={`cb-dropnote-chk-${x.pid}`}/>
+              <span className="w-[6.5em] shrink-0 font-bold text-slate-800 text-[15px] truncate">{x.name}</span>
+              <span className="flex-1 min-w-0 text-[13px] text-slate-600">{x.at ? <>{x.next} <b className="text-slate-900 tabular-nums">{tsuDropNoteParts(x.next, x.at).time}</b></> : <span className="text-slate-400">{/\d/.test(String(x.next)) ? '送迎表に送りの時間なし' : '次回の日付なし'}</span>}
+                {ov ? <span className="block text-[11px] font-bold text-red-600">連絡事項の欄に入りきりません</span> : null}</span>
+            </label>); })}
+        </div>
+        <div className="px-4 sm:px-5 py-3 border-t border-slate-200 flex items-center gap-2" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}>
+          {over.length ? <span className="text-[11px] font-bold text-red-600 flex-1">欄に入りきらない方がいます。外すか、連絡事項を短くしてください。</span> : <span className="text-[11px] text-slate-500 flex-1">{nWith ? '' : '送迎表に送りの時間が入っている方がいません。'}</span>}
+          <button type="button" onClick={onClose} className="whitespace-nowrap px-4 py-2 rounded-lg font-bold text-slate-500 hover:bg-slate-100 text-sm">キャンセル</button>
+          <button type="button" data-testid="cb-dropnote-apply" disabled={!!over.length} onClick={() => { const w = {}; rows.forEach(x => { w[x.pid] = !!(x.at && sel.has(x.pid)); }); onApply(w); }} className="whitespace-nowrap px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white rounded-lg font-bold shadow text-sm">反映する</button>
+        </div>
+      </div>
+    </div>), document.body);
+}
+
 const getScheduleOnDate = (patient, dateStr) => {
   const sched = [...(patient?.scheduleAmPm || ['','','','','','',''])];
   if (!dateStr) return sched;
@@ -34036,7 +34114,7 @@ function RichEditor({ initialHtml, onChange, onRegister }) {
 const RENRAKU_BOX_W = 564;
 const RENRAKU_BOX_H = 228;
 // 連絡帳の連絡事項 編集モーダル (全員共通／個別・リッチ入力・表示期間・定型文)
-function RenrakuModal({ appData, patientId, dayPatientIds, onClose, onSave }) {
+function RenrakuModal({ appData, patientId, dayPatientIds, onClose, onSave, selectedDate, dayRecords, onOpenDrop }) {
   const cfg = appData.contactBookConfig || {};
   // 個別編集できる利用者 = 本日(その日)の連絡帳に出ている利用者のみ
   const _dayIds = dayPatientIds || [];
@@ -34073,6 +34151,8 @@ function RenrakuModal({ appData, patientId, dayPatientIds, onClose, onSave }) {
   }
   const [warn, setWarn] = React.useState('');
   const [usage, setUsage] = React.useState(0);
+  // ★ 2026-10-21: この日の連絡帳に入る「次回のお送り」の1行(送り時間反映を押した方だけ)
+  const _dropLineOf = (pid) => { const r = (dayRecords || []).find(x => x.patientId === pid); if (!r || r.renrakuDropAt !== '1' || !selectedDate) return ''; const pt = (appData.patients || []).find(x => x.id === pid); const nx = tsuCbNextDateOf(r, pt, selectedDate, appData); return tsuDropNoteText(nx, getTransportDropAtFor(pid, nx, selectedDate, appData)); };
   const [clearN, setClearN] = React.useState({}); // ★ 連絡事項エディタを空で再マウントするための世代カウンタ(クリアボタン用)
   const measureRef = React.useRef(null);
   const allInsertRef = React.useRef(null); // 全員エディタへ挿入
@@ -34094,12 +34174,14 @@ function RenrakuModal({ appData, patientId, dayPatientIds, onClose, onSave }) {
     const el = measureRef.current; if (!el) return;
     const ph = pat?.html || '';
     el.innerHTML = (all.html||'') + ((all.html&&ph)?'<div style="height:6px"></div>':'') + ph;
+    // ★ 2026-10-21: 「送り時間反映」の1行も欄の量に入れる
+    { const _dl = _dropLineOf(curPid); if (_dl) { const dv = document.createElement('div'); dv.style.marginTop = ((all.html || ph) ? 6 : 0) + 'px'; dv.textContent = _dl; el.appendChild(dv); } }
     // ★ 2026-10-04(ユーザー指示「文字数制限を」): 文字の太さ・大きさで変わるため文字数ではなく実測で判定し、欄の92%を超えたら保存できない
     //   (PDFはサーバーのフォント(Noto Sans JP)で少し幅が広くなるため、8%の余裕を取る)
     const _ratio = el.scrollHeight / RENRAKU_BOX_H;
     setUsage(Math.round(_ratio * 100));
     setWarn(_ratio > 0.92 ? `連絡帳の欄に収まりません（使用 ${Math.round(_ratio*100)}%・上限92%）。改行や文字を減らすか、文字を小さくしてください。保存できません。` : '');
-  }, [all.html, pat?.html]);
+  }, [all.html, pat?.html, curPid, appData]);
   const save = () => {
     const clean = (o) => ({ html: renrakuHasText(o) ? o.html : '', from: o?.from||'', until: o?.until||'' });
     // ★ all / patMap / templates は「モーダルを開いた時点のスナップショット」。 開いている間に他端末が
@@ -34175,6 +34257,7 @@ function RenrakuModal({ appData, patientId, dayPatientIds, onClose, onSave }) {
         <style>{`.renraku-editor:empty:before{content:'連絡事項を入力（文字を選んで色・太字・大きさ）';color:#94a3b8;}`}</style>
         <div className="flex items-center justify-between mb-3">
           <div className="text-lg font-bold text-slate-800">連絡事項の編集</div>
+          {onOpenDrop ? <button type="button" data-testid="renraku-dropnote-btn" onClick={onOpenDrop} className="ml-auto mr-1 px-3 py-1.5 rounded-lg text-xs font-bold border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 whitespace-nowrap" title="次回の送りの時間（送迎表）を、この日の連絡帳の連絡事項に入れます">送り時間反映{(dayRecords || []).some(x => x.renrakuDropAt === '1') ? `（${(dayRecords || []).filter(x => x.renrakuDropAt === '1').length}名）` : ''}</button> : null}
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none px-2">✕</button>
         </div>
         <div className="space-y-3">
@@ -34187,6 +34270,7 @@ function RenrakuModal({ appData, patientId, dayPatientIds, onClose, onSave }) {
               </select>
             )
           })}
+          {curPid && _dropLineOf(curPid) ? <div data-testid="renraku-dropnote-line" className="text-[12px] text-indigo-800 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">この方の連絡帳の最後に入ります（送り時間反映）：<b>{_dropLineOf(curPid)}</b></div> : null}
           {warn && <div className="text-xs font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{warn}</div>}
           {/* 定型文: 登録 / 一覧 */}
           <div className="rounded-xl border border-slate-200 p-3">
@@ -34258,6 +34342,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   const markClean = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=false; },[dirtyRef]);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [renrakuModal, setRenrakuModal] = useState(null); // {patientId} 連絡事項の編集
+  const [dropNoteOpen, setDropNoteOpen] = useState(false); // ★ 2026-10-21: 送り時間反映
   const _renPhone = useTsuIsPhoneDevice(); // ★ 2026-10-08: スマホ(縦・横)は用紙を画面幅に合わせて全員分を表示
   const [showPrintCards, setShowPrintCards] = useState(false); // ★ 印刷用の隠しカードは印刷時だけ描画(スマホのメモリ対策)
   const [printMissingConfirm, setPrintMissingConfirm] = useState(null); // ★ 次回予定未入力の確認 {names:[]}(2026-09-09)
@@ -34856,6 +34941,24 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       onSave({ ...appData, ticketRecords: recs }, { silent: true }); // ★ 即時クラウド保存
   };
 
+  // ★ 2026-10-21(ユーザー要望「送り時間反映」): その日の記録に印(renrakuDropAt)を付ける/外す。変えた方だけ書く(_fieldTs で新しい方が残る)
+  const applyDropNotes = (wants) => {
+      const now = syncNow(); const recs = [...(appData.ticketRecords || [])]; let n = 0, nOn = 0;
+      displayRecords.forEach(r => {
+        const want = !!wants[r.patientId]; if (want) nOn++; const cur = r.renrakuDropAt === '1'; if (want === cur) return;
+        const patch = { renrakuDropAt: want ? '1' : '' }; n++;
+        const idx = recs.findIndex(x => String(x.id) === String(r.id));
+        if (idx >= 0) { recs[idx] = { ...recs[idx], ...patch, _savedAt: now, _fieldTs: { ...(recs[idx]._fieldTs || {}), renrakuDropAt: now } }; }
+        else if (want && String(r.id).startsWith('auto-')) {
+          const pid = Number(String(r.id).slice(5)); const d = new Date(selectedDate);
+          recs.push({ id: `tr_${pid}_${targetYear}_${d.getMonth()+1}_${d.getDate()}`, patientId: pid, date: targetDateStr, year: targetYear, status: '出席', ...patch, _savedAt: now, _fieldTs: { renrakuDropAt: now } });
+        }
+      });
+      setDropNoteOpen(false);
+      if (!n) return;
+      onSave({ ...appData, ticketRecords: recs }, { manual: true, message: nOn ? `✓ ${nOn}名の連絡事項に送りの時間を入れました` : '✓ 送りの時間を外しました' });
+  };
+
   const handleKeypadInput = (newValue, isFirst) => {
       setKeypad(prev => ({ ...prev, value: newValue, isFirstInput: isFirst }));
       handleLocalOverrideChange(keypad.recordId, keypad.field, newValue);
@@ -34935,6 +35038,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
           const _ids = new Set(displayRecords.map(r=>r.patientId));
           const renN = (appData.patients||[]).filter(p => _ids.has(p.id) && renrakuHasText(p.contactBookRenraku) && _inR(p.contactBookRenraku)).length;
           const allOn = renrakuHasText(appData.contactBookConfig?.renrakuAll) && _inR(appData.contactBookConfig?.renrakuAll);
+          const dropN = tsumugiTransportOn(appData) ? displayRecords.filter(r => r.renrakuDropAt === '1').length : 0; // ★ 2026-10-21: 送り時間反映の人数
           const miss = missingNextList.length;
           const open = (fn) => { setInputHub(false); fn(); };
           const card = (testid, title, desc, badge, onClick) => (
@@ -34974,7 +35078,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                       miss > 0 ? <span className="bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap">未入力{miss}名</span> : <span className="bg-emerald-100 text-emerald-700 text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap">入力済み</span>,
                       () => open(() => setIsScheduleModalOpen(true)))}
                     {card('cb-hub-renraku', '連絡事項', '全員あて・個別の連絡（表示期間つき）',
-                      (renN > 0 || allOn) ? <span className="bg-emerald-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap">{allOn ? '全員' : ''}{allOn && renN>0 ? '+' : ''}{renN>0 ? `個別${renN}名` : ''}</span> : null,
+                      (renN > 0 || allOn || dropN > 0) ? <span className="bg-emerald-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap" data-testid="cb-hub-renraku-badge">{[allOn ? '全員' : '', renN>0 ? `個別${renN}名` : '', dropN>0 ? `送り${dropN}名` : ''].filter(Boolean).join('+')}</span> : null,
                       () => open(() => setRenrakuModal({ patientId: null })))}
                     {card('cb-hub-items', '項目', '連絡帳に載せる項目と、利用者ごとの値', null, () => open(() => setIsConfigOpen(true)))}
                   </div>
@@ -35458,7 +35562,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       
       <DigitalKeypad isOpen={keypad.isOpen} anchorKey={`${keypad.recordId}-${keypad.field}`} value={keypad.value} isFirstInput={keypad.isFirstInput} mode={keypad.mode} onClose={() => { handleOverrideBlur(keypad.recordId, keypad.field, keypad.value); setKeypad({...keypad, isOpen: false}); }} onInput={handleKeypadInput} onEnter={handleKeypadEnter} onTab={handleKeypadTab} />
       {isConfigOpen && <ContactBookConfigModal config={appData.contactBookConfig} exerciseItems={effExerciseItems(appData.systemSettings)} onClose={() => setIsConfigOpen(false)} onSave={handleSaveConfig} patients={sortPatientsByKana((appData.patients||[]).filter(pt => pt.status === '利用中' && isPatientListable(pt)))} />}
-      {renrakuModal && <RenrakuModal appData={appData} patientId={renrakuModal.patientId} dayPatientIds={displayRecords.map(r=>r.patientId)} onClose={()=>setRenrakuModal(null)} onSave={(d)=>{ markClean(); onSave(d, { manual: true, message: '✓ 連絡事項を保存しました' }); }} />}
+      {dropNoteOpen && <TsuDropNoteModal appData={appData} selectedDate={selectedDate} records={displayRecords} onClose={()=>setDropNoteOpen(false)} onApply={applyDropNotes} />}
+      {renrakuModal && <RenrakuModal appData={appData} patientId={renrakuModal.patientId} dayPatientIds={displayRecords.map(r=>r.patientId)} selectedDate={selectedDate} dayRecords={displayRecords} onOpenDrop={tsumugiTransportOn(appData) ? () => setDropNoteOpen(true) : null} onClose={()=>setRenrakuModal(null)} onSave={(d)=>{ markClean(); onSave(d, { manual: true, message: '✓ 連絡事項を保存しました' }); }} />}
     </div>
   );
 }
@@ -35786,6 +35891,8 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
             const _inRange = (o) => (!o.from || selectedDate >= o.from) && (!o.until || selectedDate <= o.until);
             const _showAll = renrakuHasText(_all) && _inRange(_all);
             const _showPat = renrakuHasText(_pat) && _inRange(_pat);
+            // ★ 2026-10-21(ユーザー要望): 「送り時間反映」を押した日の連絡帳だけ、次回の送りの時間(送迎表)を最後に1行
+            const _dropP = (record && record.renrakuDropAt === '1' && patient && patient.id !== '__blank__') ? tsuDropNoteParts(nextDateDisplay, getTransportDropAtFor(patient.id, nextDateDisplay, selectedDate, appData)) : null;
             return (
             <div className="shrink-0 mb-2">
               <div className="font-bold text-slate-800" style={{fontSize:16,marginBottom:3}}>連絡事項</div>
@@ -35793,6 +35900,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
               <div title="連絡事項の編集は上部の「連絡事項」ボタンから" className="border-2 border-black bg-white" style={{height:'15.5rem',padding:'8px 10px',overflow:'hidden',whiteSpace:'pre-wrap',wordBreak:'break-word',fontSize:16.5,lineHeight:1.5,boxSizing:'border-box'}}>
                 {_showAll && <div style={{marginBottom:6}} dangerouslySetInnerHTML={{__html: renrakuToHtml(_all)}}/>}
                 {_showPat && <div dangerouslySetInnerHTML={{__html: renrakuToHtml(_pat)}}/>}
+                {_dropP && <div data-testid={`cb-dropnote-${patient.id}`} style={{marginTop:(_showAll||_showPat)?6:0}}>{_dropP.head} <b>{_dropP.time}</b></div>}
               </div>
             </div>
             );
@@ -36667,8 +36775,16 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   //   運行表では送りの一覧を下部に書かず、送りが迎えと違う方だけ名前の右に小さく「送2号車」「送徒歩」「早退」などを付ける。
   //   送りの順番(迎えの逆順など)の違いは付けない(車が同じなら印なし)。
   // ★ 2026-10-21: 送りの時間は、どの車(迎え・送り)・徒歩・その他にも入っていない方の分を消す(外した方の古い時間が、あとで乗せたときに出ないように)
-  const _pruneDropAt = (pl) => { if (!pl || !pl.dropAt) return pl; const all = [...Object.values(pl.cars || {}).flat(), ...(pl.walkers || []), ...(pl.others || [])]; if (pl.drop) all.push(...Object.values(pl.drop.cars || {}).flat(), ...(pl.drop.walkers || []), ...(pl.drop.others || []));
-    const ids = new Set(all.filter(Boolean).map(m => String(m.pid))); const gone = Object.keys(pl.dropAt).filter(k => !ids.has(k)); if (!gone.length) return pl; const a2 = { ...pl.dropAt }, au = { ...(pl.dropAtAuto || {}) }; gone.forEach(k => { delete a2[k]; delete au[k]; }); return { ...pl, dropAt: a2, dropAtAuto: au }; };
+  const _pruneDropAt = (pl) => { if (!pl) return pl; let out = pl;
+    if (pl.dropAt) { const all = [...Object.values(pl.cars || {}).flat(), ...(pl.walkers || []), ...(pl.others || [])]; if (pl.drop) all.push(...Object.values(pl.drop.cars || {}).flat(), ...(pl.drop.walkers || []), ...(pl.drop.others || []));
+      const ids = new Set(all.filter(Boolean).map(m => String(m.pid)));
+      // ★ 2026-10-21(ユーザー要望): 着く時間の「目安」は、送りの車に乗っている方の分だけ残す(手で決めた時間は従来どおり)
+      const inCar = new Set(Object.values(_dropListsOf(pl)).flat().map(m => String(m.pid))); const au0 = pl.dropAtAuto || {};
+      const gone = Object.keys(pl.dropAt).filter(k => !ids.has(k) || (au0[k] && !inCar.has(k)));
+      if (gone.length) { const a2 = { ...pl.dropAt }, au = { ...au0 }; gone.forEach(k => { delete a2[k]; delete au[k]; }); out = { ...out, dropAt: a2, dropAtAuto: au }; } }
+    // ★ 2026-10-21(ユーザー要望): 送りの出発の目安も、誰も乗っていない車の分は消す(手で決めた出発はそのまま)
+    if (out.drop && out.drop.departAuto) { const dc = out.drop.cars || {}; const emp = Object.keys(out.drop.departAuto).filter(cid => out.drop.departAuto[cid] && !((dc[cid] || []).length)); if (emp.length) { const dep = { ...(out.drop.depart || {}) }, dau = { ...out.drop.departAuto }; emp.forEach(cid => { delete dep[cid]; delete dau[cid]; }); out = { ...out, drop: { ...out.drop, depart: dep, departAuto: dau } }; } }
+    return out; };
   // ★ 2026-10-21: 送りで家に着く時間(pl.dropAt[利用者]・目安は pl.dropAtAuto)。前の版で座席表の席に入れた at も読む
   const _legacyDropAt = (pl, pid) => { const dc = pl && pl.dropMode === 'custom' && pl.drop && pl.drop.cars; if (dc) for (const ms of Object.values(dc)) { const m = (ms || []).find(x => x && x.pid === pid); if (m && m.at) return m; } return null; };
   const _dropAtOf = (pl, pid) => { if (!pl) return ''; const v = (pl.dropAt || {})[String(pid)]; if (v) return v; const lm = _legacyDropAt(pl, pid); return lm ? lm.at : ''; };
@@ -37082,6 +37198,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const setArrive = (iso, sl, cid, v) => { const t = _minTp(v); const r = _svcRangeTp(sl); if (t != null && r.s != null && t > r.s && !window.confirm(`提供時間（${r.unit}の開始 ${_hmTp(r.s)}）を過ぎての到着になります。\nこのまま ${v} で登録してよろしいですか？`)) return false; mutate(iso, sl, (pl) => { const a = { ...(pl.arrive||{}) }; if (v) a[cid] = v; else delete a[cid]; pl.arrive = a; const au = { ...(pl.arriveAuto||{}) }; delete au[cid]; pl.arriveAuto = au; }); return true; };
   // ★ 2026-10-15(ユーザー要望「人数を見て出発時間の目安をボタンで」): 送りの出発の目安 = 終了時刻 + 乗る方の「乗車にかかる時間」(利用者マスタ・未設定は1分)の合計
   const _dropDepartEst = (pl, sl, cid) => { const list = ((pl && pl.drop && pl.drop.cars) || {})[cid] || []; const r = _svcRangeTp(sl); if (!list.length || r.e == null) return null; const add = list.reduce((a, m) => { const pt = (appData.patients||[]).find(x => x.id === m.pid) || {}; return a + Math.max(1, Number(pt.pickupMinutes) || 1); }, 0); return { v: _hmTp(r.e + add), n: list.length, add }; };
+  // ★ 2026-10-21(ユーザー要望「座席表で利用者が選ばれていない車には送りの目安を出さない」): 表示する出発。誰も乗っていない車の目安は出さない(手で決めた出発は出す)
+  const _depShow = (dr, cid) => { const v = ((dr && dr.depart) || {})[cid] || ''; if (v && ((dr && dr.departAuto) || {})[cid] && !(((dr && dr.cars) || {})[cid] || []).length) return ''; return v; };
   // 手で決めた出発はそのまま。空の車と目安の車だけ入れ直す
   const fillDropDepartEst = (iso, sl) => { const pl0 = getPlan(iso, sl); if (!pl0.drop) return 0; const todo = cars.filter(c => { const d0 = (pl0.drop.depart||{})[c.id]; return (!d0 || (pl0.drop.departAuto||{})[c.id]) && _dropDepartEst(pl0, sl, c.id); }); if (!todo.length) return 0;
     mutate(iso, sl, (p2) => { if (!p2.drop) return; const dep = { ...(p2.drop.depart||{}) }; const au = { ...(p2.drop.departAuto||{}) }; todo.forEach(c => { const e = _dropDepartEst(p2, sl, c.id); if (e) { dep[c.id] = e.v; au[c.id] = true; } }); p2.drop.depart = dep; p2.drop.departAuto = au; }); return todo.length; };
@@ -37117,7 +37235,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const maxCols = Math.max(2, ...lay.rows);
       let k = 1;
       const back = lay.rows.map(n => `<div class="row" style="grid-template-columns:repeat(${n},1fr)">${Array.from({ length: n }, () => cell(lay.bySeat[k++], pl)).join('')}</div>`).join('');
-      const _dv = custom ? ((pl.drop.driver||{})[c.id] || '') : ''; const _dp = custom ? ((pl.drop.depart||{})[c.id] || '') : '';
+      const _dv = custom ? ((pl.drop.driver||{})[c.id] || '') : ''; const _dp = custom ? _depShow(pl.drop, c.id) : '';
       const front = `<div class="row" style="grid-template-columns:1fr 1fr">${cell(lay.bySeat[0], pl)}<div class="st drv">${_dv ? `<span class="dvn">運転<br/><b>${esc(_dv)}</b></span>` : '運転席'}</div></div>`;
       const ex = custom && lay.unseated.length ? `<div class="ex">席未定: ${lay.unseated.map(x => `${x.i + 1}.${esc(_pname(x.m.pid))}`).join('　')}</div>` : '';
       const same = !custom ? `<div class="ex">迎えと同じ: ${(pl.cars?.[c.id]||[]).map(m => esc(_pname(m.pid))).join('・') || 'なし'}</div>` : '';
@@ -38861,7 +38979,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           return (
             <div key={c.id} className="flex flex-col items-center gap-1.5" style={{ width: maxCols * 120 + 30 }} data-testid={`tp-seatcar-${c.id}`}>
               <div className="text-sm font-bold text-slate-800 flex items-center gap-2 flex-wrap justify-center">{c.name} <span className="text-[11px] font-normal text-slate-400">{Object.keys(lay.bySeat).length}/{lay.capN}名</span>
-                <span className="flex items-center gap-1 text-[11px] font-bold text-slate-500">出発<button type="button" data-testid={`tp-seat-depart-${c.id}`} onClick={() => setSeatKp({ iso, sl, cid: c.id })} title="押すとテンキーで入力できます" className="min-w-[4.4em] px-1.5 py-0.5 border-2 border-slate-300 rounded text-[13px] font-bold text-center tabular-nums bg-white text-blue-700 hover:bg-blue-50">{(dr.depart||{})[c.id] || '—:—'}</button>{(dr.departAuto||{})[c.id] && (dr.depart||{})[c.id] ? <span className="text-[10px] font-bold text-amber-800 bg-amber-100 rounded px-1">目安</span> : null}</span>
+                <span className="flex items-center gap-1 text-[11px] font-bold text-slate-500">出発<button type="button" data-testid={`tp-seat-depart-${c.id}`} onClick={() => setSeatKp({ iso, sl, cid: c.id })} title="押すとテンキーで入力できます" className="min-w-[4.4em] px-1.5 py-0.5 border-2 border-slate-300 rounded text-[13px] font-bold text-center tabular-nums bg-white text-blue-700 hover:bg-blue-50">{_depShow(dr, c.id) || '—:—'}</button>{(dr.departAuto||{})[c.id] && _depShow(dr, c.id) ? <span className="text-[10px] font-bold text-amber-800 bg-amber-100 rounded px-1">目安</span> : null}</span>
               </div>
               <div className="relative w-full bg-white border-[3px] border-slate-700 px-2.5 pb-3 pt-7 flex flex-col gap-2" style={{ borderRadius: '42px 42px 14px 14px' }}>
                 <span className="absolute -left-[13px] top-9 w-3 h-2.5 border-2 border-slate-700 rounded-l-md bg-white" aria-hidden="true"/>
@@ -39019,7 +39137,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             {bb ? <><span className="shrink-0 w-6 h-6 rounded-full bg-indigo-600 text-white text-[12px] font-bold flex items-center justify-center">{bb.i + 1}</span><span className="min-w-0 text-[13px] font-bold text-slate-800 leading-tight">{tpNameLines(_pname(bb.m.pid)).map((x, j) => <span key={j} className="block truncate">{x}</span>)}</span></> : <span className="w-full text-center text-[11px] text-slate-400">空き</span>}
           </div>); };
         const ptOf = (pid) => (appData.patients||[]).find(x => x.id === pid) || {};
-        let k = 1; const dep = c ? ((dr.depart||{})[c.id] || '') : ''; const depAuto = !!(c && dep && (dr.departAuto||{})[c.id]); const drv = c ? ((dr.driver||{})[c.id] || '') : ''; const memo = c ? ((dr.carMemo||{})[c.id] || '') : '';
+        let k = 1; const dep = c ? _depShow(dr, c.id) : ''; const depAuto = !!(c && dep && (dr.departAuto||{})[c.id]); const drv = c ? ((dr.driver||{})[c.id] || '') : ''; const memo = c ? ((dr.carMemo||{})[c.id] || '') : '';
         return (
         <div className="fixed inset-0 bg-white flex flex-col" style={{ zIndex: 10000 }} data-testid="tp-seat-view">
           <div className="flex items-center gap-2 px-3 pb-2 border-b border-slate-200" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 8px)' }}>
