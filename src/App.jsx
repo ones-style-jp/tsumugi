@@ -25344,8 +25344,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   //   記録者とは別に「個別機能訓練の実施担当(機能訓練指導員)」を持つ。既定=各種設定の担当職員で最初に登録された機能訓練指導員。
   //   行ごとに変えることもでき(2人が別々の利用者を担当する場合)、「未算定」も選べる。提供記録の印刷に「個別: ○○」と出る。
   const _kinouOn = !!appData.systemSettings?.facilityInfo?.kobetsuKinouAddon;
-  const _iconBar = React.useMemo(() => { try { return localStorage.getItem('tsuIconBar') === '1' && tsuViewW() >= 768; } catch { return false; } }, []); // ★ 2026-10-22: 上の帯をアイコン＋短い文字に(試し・この端末だけ)
-  const _ib = (Icon, txt) => <span className="inline-flex items-center gap-1"><Icon size={15} strokeWidth={2.4}/>{txt}</span>;
+  // ★ 2026-10-22: 上の帯の試し(この端末だけ)。'1'=アイコン＋短い文字 / 's'=短い文字だけ(アイコンは1つで約19px 幅が増えるため) / それ以外=今まで
+  const _iconMode = React.useMemo(() => { try { const v = localStorage.getItem('tsuIconBar'); return tsuViewW() >= 768 && (v === '1' || v === 's') ? v : ''; } catch { return ''; } }, []);
+  const _iconBar = !!_iconMode;
+  const _ib = (Icon, txt) => _iconMode === 's' ? txt : <span className="inline-flex items-center gap-1"><Icon size={15} strokeWidth={2.4}/>{txt}</span>;
   const _kinouList = Array.from(new Set((appData.diarySettings?.staff || []).filter(st => st && st.name && !st._tempHelp && (st.role === '機能訓練指導員' || st.role2 === '機能訓練指導員')).map(st => String(st.name).trim()).filter(Boolean)));
   // ★ 2026-09-29 ユーザー指示: 上部の値は画面の state ではなく各行(kinouStaff_AM/PM)から求める(他画面から戻っても・AM/PMを切り替えても正しく出る)。
   //   上部で選ぶ=その区分の全員に適用、「利用者ごと」パネルで個別に変更。既定(未入力)は最初の機能訓練指導員。
@@ -33971,7 +33973,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                 <colgroup><col style={{width:44}}/>{Array.from({length: N}).map((_, i)=><col key={i}/>)}</colgroup>
                 <tbody>
                   {pr.map((r, ri) => {
-                    const isA=r.status==='欠席'||r.status==='休業'||(r.status!=='振替'&&r.status!=='臨時'&&!ticketHasClinicalData(r)&&isAbsentFromTokki(r.tokki)); // ★ 2026-10-22: 特記の言葉で欠席とみなすのは、数値が1つも入っていない記録だけ(「…で終了」「来週は休み」などで出席の日が空になっていた)
+                    const isA=r.status==='欠席'||r.status==='休業'||r.status==='休止'; // ★ 2026-10-22(ユーザー指示): 出席か欠席かは状態(出席・欠席・休止・休業)だけで決める。特記の言葉(休み・終了など)は見ない
                     const isF=(()=>{try{return new Date(tY,tM-1,r.dayNum)>new Date();}catch{return false;}})();
                     const mt=isF&&r.status==='出席';
                     const v=(x)=>(isA||mt)?'':(x||'');
@@ -38177,7 +38179,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const unitsOf = (sl, f) => unitsBaseOf(sl, f) + _exFor(sl, f);
     // ★ 2026-09-16f: 本文の有効高さを実測に基づいて補正(190mm=718px − 題字28 − 日付見出し6mm − 凡例17 − セル余白12 ≒ 638)。
     const availPx = 630 + 19 + 22; // ★ 2026-10-13: 凡例を右上へ(+19)・印字域を196mmに(+22)
-    let fz = Math.min(20, opt.fzMax || 20); // 上限20px(利用者が少ない店舗で大きくなりすぎないように)。★ 2026-10-21: 測って入らないときは呼び出し側が上限を下げて作り直す
+    const _fzCap = opt.fzCap || 20; let fz = Math.min(_fzCap, opt.fzMax || _fzCap); // ★ 2026-10-22: 「文字を大きく」は上限 26px(fzCap)。上限20px(利用者が少ない店舗で大きくなりすぎないように)。★ 2026-10-21: 測って入らないときは呼び出し側が上限を下げて作り直す
     const _fitH = (f) => { const uh = Math.ceil(f * 1.25) + 3; const tu = Math.max(slots.reduce((a, sl) => a + unitsBaseOf(sl, f) + _exFor(sl, f) + (opt.dropTable ? unitsOfDrop(sl, f) : 0), 0), 6); return tu * uh <= availPx; };
     while (fz > 8) { if (_fitH(fz) && _nameW(fz) + _timeW(fz) + _nextW(fz) + _sendW(fz) <= _dayPx(fz)) break; fz--; }
     if (info) { info.fitsH = _fitH(fz); info.fz = fz; }
@@ -38580,13 +38582,13 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     // ★ 2026-10-21: 組み立てた紙面を画面の外に置いて測り、入りきらなければ文字の上限を下げて作り直す(見積りだけだと休みなどが切れることがある)
     const _wOvf = (h0) => { if (typeof document === 'undefined') return 0; try { const el = document.createElement('div'); el.style.cssText = 'position:absolute;left:-30000px;top:0;width:1069px;height:740px;overflow:hidden;visibility:hidden;'; el.innerHTML = h0; document.body.appendChild(el); const root = el.firstElementChild; const o = root ? root.scrollHeight - root.clientHeight : 0; el.remove(); return o; } catch { return 0; } };
     const _buildW = (sls0, po) => { let inf = {}; let h0 = buildPrintHtml(sls0, inf, po); let g = 0; while (_wOvf(h0) > 0 && inf.fz > 8 && g++ < 12) { const fm = inf.fz - 1; inf = {}; h0 = buildPrintHtml(sls0, inf, { ...po, fzMax: fm }); } return { html: h0, ok: _wOvf(h0) <= 0 && inf.fitsH !== false }; };
-    let _one = popt.dropTable ? null : _buildW(['AM','PM'], {});
+    let _one = (popt.dropTable || popt.big) ? null : _buildW(['AM','PM'], {}); // ★ 2026-10-22: 文字を大きく=はじめから午前・午後を別の紙に
     if (_one && !_one.ok) { const _e = _buildW(['AM','PM'], { exEach: true }); if (_e.ok) _one = _e; } // 休みの欄を同じ大きさにすると入らない週は、必要な分ずつにして1枚に
     const html = _one ? _one.html : '';
     // ★ 2026-10-21(不具合修正): 1枚に入りきらない(車・人数が多い)ときは、下が切れないよう午前1枚・午後1枚に分ける
     const _sheetPages = (_one && _one.ok) ? html : null;
     const _slotsUsed = ['AM','PM'].filter(sl => days.some(d => { const pl = getPlan(_iso(d), sl); return [...Object.values(pl.cars || {}).flat(), ...(pl.walkers || []), ...(pl.others || [])].length > 0; }));
-    const _splitSlots = popt.dropTable && _slotsUsed.length ? _slotsUsed : ['AM','PM'];
+    const _splitSlots = (popt.dropTable || popt.big) && _slotsUsed.length ? _slotsUsed : ['AM','PM'];
     const withContacts = content === 'both' || content === 'contacts';
     // ★ 2026-09-16(店舗指摘): 実機で右端(金曜)が見切れる→印字可能域(約275×190mm)に縮小して中央配置
     // ★ 2026-09-16c(店舗指摘): margin:autoは印刷ホストのbody>*{margin:0!important}で無効化され左上に寄る→全面ラッパー+flexで中央配置
@@ -38596,7 +38598,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       return;
     }
     const page2 = withContacts ? buildContactsPages().map(pg => _wrap(pg, true)).join('') : '';
-    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `${_sheetPages ? _wrap(_sheetPages, false) : _splitSlots.map((sl, k) => _wrap(_buildW([sl], { dropTable: !!popt.dropTable }).html, k > 0)).join('')}${page2}`, elementId: null } }));
+    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `${_sheetPages ? _wrap(_sheetPages, false) : _splitSlots.map((sl, k) => _wrap(_buildW([sl], { dropTable: !!popt.dropTable, ...(popt.big ? { fzCap: 26 } : {}) }).html, k > 0)).join('')}${page2}`, elementId: null } }));
   };
 
   const _autoCalcModal = autoCalc && (
@@ -38780,7 +38782,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <button onClick={()=>setSelectedDate(r.iso)} data-testid="tp-next-reminder" className="text-[11px] font-bold text-red-700 bg-red-50 border border-red-300 rounded-lg px-2 py-1 whitespace-nowrap hover:bg-red-100" title={`1週間後の週（${r.label}）の送迎表が未確定です。押すと開きます`}>次週分未確定 ›</button>
           ); })()}
           <button onClick={()=>{ setTpSetCap({}); setTpSettings(true); }} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="車の定員・座席表の並びの設定（施設に着く時間も確認できます）">設定</button>
-          <button onClick={()=>setPrintModal({ mode:'week', weekContent:'sheet', days:new Set(days.map(d=>_iso(d))), dropAt: true, dropMode2: 'none' })} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">ダウンロード</button>
+          <button onClick={()=>setPrintModal({ mode:'week', weekContent:'sheet', days:new Set(days.map(d=>_iso(d))), dropAt: true, dropMode2: 'none', big: (() => { try { return localStorage.getItem('tsuTpPrintBig') === '1'; } catch { return false; } })() })} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">ダウンロード</button>
         {/* ★ 2026-10-08(ユーザー指示): 上部の「?」(使い方の説明)は削除 */}
       </div>
         {_tpPhone && (
@@ -39187,6 +39189,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 <div className="text-[10px] text-slate-500 mt-1.5">送りの表＝車ごとに、送る順の名前と家に着く時間。</div>
               </div>
             )}
+            {printModal.mode==='week' && (
+              <label className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg border border-slate-200 text-sm font-bold text-slate-700 cursor-pointer" data-testid="tp-print-big">
+                <input type="checkbox" checked={!!printModal.big} onChange={e => { const on = e.target.checked; try { localStorage.setItem('tsuTpPrintBig', on ? '1' : '0'); } catch {} setPrintModal(m => ({ ...m, big: on })); }} className="w-4 h-4 accent-blue-600"/>文字を大きく（午前と午後を別の紙に）
+              </label>
+            )}
             {printModal.mode==='days' && (
               <label className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg border border-slate-200 text-sm font-bold text-slate-700 cursor-pointer" data-testid="tp-print-dropat">
                 <input type="checkbox" checked={printModal.dropAt !== false} onChange={e => setPrintModal(m => ({ ...m, dropAt: e.target.checked }))} className="w-4 h-4 accent-blue-600"/>送りの時間も入れる
@@ -39221,7 +39228,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             )}
             <div className="flex gap-2">
               <button onClick={()=>setPrintModal(null)} className="whitespace-nowrap flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
-              <button onClick={()=>{ const pm = printModal; setPrintModal(null); _noDropAtPrintRef.current = pm.mode==='week' ? (pm.dropMode2 || 'none') === 'none' : pm.dropAt === false; if (pm.mode==='week') doPrint(pm.weekContent||'sheet', { dropTable: pm.dropMode2 === 'table' }); else doPrintDays(days.map(d=>_iso(d)).filter(iso=>pm.days.has(iso))); _noDropAtPrintRef.current = false; }} disabled={printModal.mode==='days' && printModal.days.size===0} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm disabled:opacity-40">ダウンロード</button>
+              <button onClick={()=>{ const pm = printModal; setPrintModal(null); _noDropAtPrintRef.current = pm.mode==='week' ? (pm.dropMode2 || 'none') === 'none' : pm.dropAt === false; if (pm.mode==='week') doPrint(pm.weekContent||'sheet', { dropTable: pm.dropMode2 === 'table', big: !!pm.big }); else doPrintDays(days.map(d=>_iso(d)).filter(iso=>pm.days.has(iso))); _noDropAtPrintRef.current = false; }} disabled={printModal.mode==='days' && printModal.days.size===0} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm disabled:opacity-40">ダウンロード</button>
             </div>
           </div>
         </div>
@@ -47022,8 +47029,10 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
             <SectionCard title="この端末の表示">
               {/* ★ 2026-10-08(ユーザー要望): テンキーの数字の並び(この端末だけ) */}
               <div className="mb-4 pb-4 border-b border-slate-200" data-testid="kp-layout-setting">
-                <label className="flex items-start gap-2 mb-3 cursor-pointer" data-testid="set-iconbar"><input type="checkbox" defaultChecked={(() => { try { return localStorage.getItem('tsuIconBar') === '1'; } catch { return false; } })()} onChange={e => { try { localStorage.setItem('tsuIconBar', e.target.checked ? '1' : '0'); } catch {} }} className="mt-1 accent-blue-600"/>
-                  <span className="text-sm text-slate-700"><b>上の帯をアイコン＋短い文字にする（試し・この端末だけ）</b><br/><span className="text-xs text-slate-500">今は提供記録の上の帯だけです。画面を開き直すと変わります。</span></span></label>
+                <div className="mb-3" data-testid="set-iconbar"><div className="text-sm font-bold text-slate-700 mb-1">上の帯の文字（試し・この端末だけ）</div>
+                  <div className="flex gap-2 flex-wrap">{[['0', '今まで'], ['s', '短い文字だけ'], ['1', 'アイコン＋短い文字']].map(([v, lb]) => { const cur = (() => { try { const x = localStorage.getItem('tsuIconBar'); return x === '1' || x === 's' ? x : '0'; } catch { return '0'; } })(); return (
+                    <label key={v} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 bg-white cursor-pointer text-sm"><input type="radio" name="tsuIconBar" defaultChecked={cur === v} onChange={() => { try { localStorage.setItem('tsuIconBar', v); } catch {} }} className="accent-blue-600"/>{lb}</label>); })}</div>
+                  <div className="text-xs text-slate-500 mt-1">今は提供記録の上の帯だけです。画面を開き直すと変わります。</div></div>
                 <div className="text-sm font-bold text-slate-700 mb-1">テンキーの数字の並び（この端末だけ）</div>
                 <p className="text-xs text-slate-500 mb-2">テンキーの数字の並びです（この端末だけ）。</p>
                 <div className="flex gap-2 flex-wrap">
