@@ -11254,16 +11254,22 @@ const generateMonthlySchedule = (patients, year, month, monthlyShifts, ticketRec
       const _todayEnd = new Date(); _todayEnd.setHours(23, 59, 59, 999);
       if (dateObj > _todayEnd) {
         // ★ 2026-10-22(ユーザー要望「本日より後の日付も状態は予定として日付だけでも出す」): 月の表(画面・ダウンロード)から
-        //   呼ぶときだけ(opts.includeFuture)、今日より後の「来る日」(基本利用日・振替・臨時。欠席・休業の日は出さない)を
+        //   呼ぶときだけ(opts.includeFuture)、今日より後の「来る日」(基本利用日・振替・臨時)を
         //   状態「予定」・中身は空で出す。月間スケジュールで振替を入れると、その日付の順に並ぶ。ほかの呼び出し(集計・一括出力)は今までどおり。
-        if (!(opts && opts.includeFuture) || !isComing) continue;
-        const _exSt = existing && existing.status;
-        if (_exSt === '欠席' || _exSt === '休業' || _exSt === '休止') continue;
+        //   ★ 同日(ユーザー指示「欠席も普通に欠席として表示して大丈夫」): 欠席・休業の日も、過ぎた日と同じ決め方で「欠席」「休業」と出す。
+        if (!(opts && opts.includeFuture)) continue;
+        let _fSt = '出席';
+        if (isHoliday || isClosedDay) _fSt = '休業';
+        else if (stateAM === '欠席' || statePM === '欠席') _fSt = '欠席';
+        const _exSt = (existing && existing.status) || _fSt;
+        const _fComing = _exSt === '出席' || _exSt === '振替' || _exSt === '臨時';
+        if (_fComing && !isComing) continue;
         results.push({ id: existing?.id || `gen-${patient.id}-${day}`, patientId: patient.id, name: patient.name, kana: patient.kana,
           date: displayDate, year: existing?.year ?? year, dayNum: day, dayOfWeek: dayNames[dayOfWeek], isBaseDay: isBaseAM || isBasePM,
-          status: '予定', isPlanned: true, temp: '', bpRe: [], bpTSt_AM: '', bpTSt_PM: '', bpTEn_AM: '', bpTEn_PM: '', kinouStaff: '',
+          status: _fComing ? '予定' : _exSt, isPlanned: _fComing, temp: '', bpRe: [], bpTSt_AM: '', bpTSt_PM: '', bpTEn_AM: '', bpTEn_PM: '', kinouStaff: '',
           bpUpSt: '', bpDnSt: '', plSt: '', bpUpEn: '', bpDnEn: '', plEn: '', massage: '', exercises: {}, tokki: '', actualTime: '',
-          kibunArrival: '', kibunArrivalReason: '', kibunDeparture: '', kibunDepartureReason: '', recorder: '', done: false, isEmpty: true });
+          kibunArrival: '', kibunArrivalReason: '', kibunDeparture: '', kibunDepartureReason: '', recorder: '', done: false, isEmpty: true,
+          ...(_fComing ? {} : { tokki: existing?.tokki || (_exSt === '休業' ? (isHoliday ? ((((holidays||[]).find(x=>(x&&(x.date||x))===dateStr))||{}).name || '休業日') : (isClosedDay ? '定休日' : '')) : '') }) });
         continue;
       }
 
