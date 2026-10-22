@@ -1,7 +1,14 @@
 {
-  "version": "upd-2026-1022-trial374",
+  "version": "upd-2026-1022-trial375",
   "updatedAt": "2026-10-22",
   "notes": [
+    {
+      "id": "upd-2026-1022-trial375-masshist",
+      "type": "fix",
+      "title": "介護整体の「直近の実施」に別の店舗の記録が出ることがある件",
+      "body": "・介護整体の「直近の実施」には、この店舗の担当の一覧にいる人で、同じ方の記録だけを出すようにしました。",
+      "date": "2026-10-22"
+    },
     {
       "id": "upd-2026-1022-trial374-zoommassage",
       "type": "fix",

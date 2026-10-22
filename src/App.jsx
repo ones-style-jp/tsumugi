@@ -27620,8 +27620,14 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
         // ★ id は文字列(tr_...)で Number 化すると NaN になり並ばないため、実日付で判定する。未来日は除外。
         const _mhToday = new Date(); _mhToday.setHours(23,59,59,999);
         const _mhDate = (r) => { const m=(r.date||'').match(/(\d+)月(\d+)日/); if(!m) return null; const y=r.year||new Date().getFullYear(); return new Date(y, +m[1]-1, +m[2]); };
+        // ★ 2026-10-22(ユーザー報告「西馬込店の直近の実施に扇橋店の実施が出る」): 利用者の番号(1,2,3…)は店舗の中だけの番号で、
+        //   以前の店舗切替の事故のころに紛れ込んだ別の店舗の記録が同じ番号で出ていた。直近の実施には
+        //   「この店舗の担当の一覧にいる人」かつ「名前が同じ利用者」の記録だけを出す。
+        const _mhNm = (s) => String(s || '').replace(/[\s\u3000]/g, '');
+        const _mhRecNm = _mhNm(rec.name);
+        const _mhStaff = new Set((staffList || []).map(s => String(s)));
         const hist=(appData.ticketRecords||[])
-          .filter(r=>r.patientId===massageMenu.pid && r.massage && r.id!==rec.id)
+          .filter(r=>r.patientId===massageMenu.pid && r.massage && r.id!==rec.id && _mhStaff.has(String(r.massage)) && (!_mhRecNm || !r.name || _mhNm(r.name) === _mhRecNm))
           .map(r=>({r,d:_mhDate(r)}))
           .filter(x=>x.d && x.d<=_mhToday)
           .sort((a,b)=>b.d-a.d)
