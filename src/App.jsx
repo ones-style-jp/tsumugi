@@ -25862,6 +25862,16 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   // ★ 2026-10-22(ユーザー要望): テンキーを閉じたら、選んでいたマスの枠(activeCell)と行の黄色(data-rv-cur)も消す。
   //   マスを押した処理(setActiveCell)のあとに消すため、次の順番(setTimeout 0)で行う
   const _rvClearSel = () => setTimeout(() => { setActiveCell(null); try { document.querySelectorAll('[data-rv-cur]').forEach(x => x.removeAttribute('data-rv-cur')); } catch {} }, 0);
+  const _kpLastRef = React.useRef(null);
+  React.useEffect(() => {
+    if (keypad.isOpen) { _kpLastRef.current = { id: keypad.recordId, key: `${keypad.recordId}-${keypad.field}` }; return; }
+    const last = _kpLastRef.current; if (!last) return; _kpLastRef.current = null;
+    const t = setTimeout(() => {
+      setActiveCell(c => (c === last.key ? null : c));
+      try { document.querySelectorAll(`#record-table tr[data-rv-pid="${last.id}"][data-rv-cur], [data-rec-card="${last.id}"][data-rv-cur]`).forEach(el => { const ae = document.activeElement; if (ae && el.contains(ae) && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) && !ae.readOnly) return; el.removeAttribute('data-rv-cur'); }); } catch {}
+    }, 350);
+    return () => clearTimeout(t);
+  }, [keypad.isOpen, keypad.recordId, keypad.field]); // eslint-disable-line react-hooks/exhaustive-deps
   const openKeypad = (recordId, field, currentValue, isAbsent, force, reopen) => {
     if (isAbsent || (!_keypadOn && !force)) return;
     // ★ 2026-10-15(ユーザー要望): テンキーが出ているセルをもう一度押したら閉じる(閉じるボタンと同じ扱い)。reopen=開き直し(○の後など)は閉じない
