@@ -2017,6 +2017,23 @@ const tsuPcBrowserZoom = () => { try {
 // ★ 2026-10-11(ユーザー報告: iPad でしばらくしてからログインすると、見出し・上部のメニューが白いまま/見出しがぼやけて見える。縦にして横に戻すと直る):
 //   iPad の Safari が画面の一部を古い描画のまま出し続ける。部品を消して出し直す(display)だけでは大きさが同じなので描き直されないことがあるため、
 //   回転と同じように「アプリ全体の高さを 2 フレームだけ 1px 変える」ことで、画面全体を描き直させる。iPad/PC 幅の iPhone・iPad だけ(スマホ幅はページ全体のスクロールなので触らない)
+// ★ 2026-10-22(ユーザー「何もしないとかすれていて、文字の入力でキーボードが出るとかすみがなくなる」): iPad で上の帯などがかすれる件の3回目の対策。
+//   入力欄を押したときは表示設定の「拡大の上限」を一瞬 1倍にしている(tsuInstallIosFocusZoomGuard)。そのとき iPad が倍率を計算し直して全体を描き直すため、かすみが消える。
+//   同じ切り替えを、描き直しの最後に 0.35秒だけ行う(指で拡大している最中・入力欄を使っている最中はしない。その間に入力欄の処理が変えたときは戻さない)
+let _tsuNudgeT = null, _tsuNudgePrev = null, _tsuNudgeTmp = null;
+const tsuScaleNudge = () => { try {
+  if (!tsumugiIsIOS() || tsuViewW() < 768) return;
+  const vv = window.visualViewport; if (vv && Math.abs(vv.scale - 1) > 0.01) return;
+  const ae = document.activeElement; if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;
+  const m = document.querySelector('meta[name="viewport"]'); if (!m) return;
+  // 切り替え中にもう一度呼ばれたら、時間だけ延ばす(元の設定は最初に控えたもの。重なって 1倍のまま戻らなくなるのを防ぐ)
+  if (!_tsuNudgeT) {
+    const prev = m.getAttribute('content') || ''; const mx = /maximum-scale=([\d.]+)/.exec(prev); const cur = mx ? parseFloat(mx[1]) : NaN;
+    const tmp = !mx ? `${prev}, maximum-scale=1.0` : (Math.abs(cur - 1) < 0.001 ? prev.replace(/maximum-scale=[\d.]+/, 'maximum-scale=1.01') : prev.replace(/maximum-scale=[\d.]+/, 'maximum-scale=1.0'));
+    _tsuNudgePrev = prev; _tsuNudgeTmp = tmp; m.setAttribute('content', tmp); window.__tsuScaleNudged = (window.__tsuScaleNudged || 0) + 1;
+  } else clearTimeout(_tsuNudgeT);
+  _tsuNudgeT = setTimeout(() => { try { _tsuNudgeT = null; if (m.getAttribute('content') === _tsuNudgeTmp) m.setAttribute('content', _tsuNudgePrev); } catch {} }, 350);
+} catch {} };
 const tsuForceRepaint = () => { try {
   if (!tsumugiIsIOS() || tsuViewW() < 768) return;
   const el = document.querySelector('.tsu-app-root'); if (!el || el.dataset.tsuRp === '1') return;
@@ -2029,15 +2046,14 @@ const tsuForceRepaint = () => { try {
   //   しばらく置いて開き直すと写しが上に残ることがある(Web 側の描き直しでは剥がれず、回転=画面の作り直しで消える)。
   //   回転と同じ作り直しを起こすため、表示設定(viewport)を2フレームだけ切り替えて戻す(見た目は変わらない)。ホーム画面のアプリのときだけ
   let meta = null, prevMeta = '';
-  // ★ 2026-10-16: 指で拡大している間は表示設定を切り替えない(拡大が戻るため)
-  try { if (!(window.visualViewport && window.visualViewport.scale > 1.01) && (navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches))) { meta = document.querySelector('meta[name="viewport"]'); if (meta) { prevMeta = meta.getAttribute('content') || ''; meta.setAttribute('content', prevMeta.replace('viewport-fit=cover', 'viewport-fit=contain')); } } } catch {}
-  const parts = [document.querySelector('header.tsu-app-header'), document.querySelector('[data-testid="app-sidebar"]')].filter(Boolean);
-  parts.forEach(x => { x.dataset.tsuOp = x.style.opacity || ''; x.style.opacity = '0.99'; });
+  // ★ 2026-10-22(ユーザー報告「上の帯と左のメニューの上がかすれる」): 表示設定(viewport)の切り替えはやめた(かすれて見えるのはこの切り替えと下の別の層の処理をかけた2か所だけだったため)。
+  //   白い幕は 2026-10-22 から本文の部分だけに掛けるので、上の帯・左のメニューに幕の跡は残らない
+  const parts = []; // ★ 2026-10-22: 上の帯・左のメニューを一瞬だけ別の層にする処理(opacity 0.99)もやめた(その層が1px違う幅で描かれたまま引き伸ばされ、かすれて見えていたとみる)
   requestAnimationFrame(() => requestAnimationFrame(() => { try { el.style.height = prevH; el.style.width = prevW; delete el.dataset.tsuRp;
     parts.forEach(x => { x.style.opacity = x.dataset.tsuOp || ''; delete x.dataset.tsuOp; });
     if (meta) meta.setAttribute('content', prevMeta);
     // ★ 2026-10-22(ユーザー報告「ログインや再表示のあと、縦でも横でもタブレットの上部がかすれる」): 描き直しのあと、上の帯を作り直して新しく描かせる(App が tsu:hdr-remount で key を変える)
-    setTimeout(() => { try { window.dispatchEvent(new Event('tsu:hdr-remount')); } catch {} }, 120); } catch {} }));
+    setTimeout(() => { try { window.dispatchEvent(new Event('tsu:hdr-remount')); } catch {} }, 120); setTimeout(tsuScaleNudge, 200); } catch {} }));
 } catch {} };
 // ★ 2026-10-05(ユーザー要望「印刷位置が目視でわかるように」): 連絡帳の用紙上の配置(mm)。ContactBookView._layoutRenraku と同じ数値
 //   (あちらを変えたらここも合わせる)。印刷設定の「印刷位置の微調整」の図に使う
@@ -33816,7 +33832,11 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
           // ★ ユーザー指示(2026-10-02): 運動は1行10項目。上段が埋まるまで上段、超えた分だけ下段。介護整体は数に入れず最後の段の右端に付ける
           const _mg = { id: '__massage', name: '介護整体' };
           const bands = ex.length > TK_EX_PER_ROW ? [ex.slice(0, TK_EX_PER_ROW), [...ex.slice(TK_EX_PER_ROW), _mg]] : [[...ex, _mg]];
-          const N = Math.max(...bands.map(b => b.length)); // 列数(10 or 11)
+          const _minN = (1 + (_kOnR ? 1 : 0) + 1 + 1 + (_showEnT ? 1 : 0) + 1 + 1) + 2; // ★ 2026-10-22: 1段目の欄(状態〜個別)＋再検に2列 が入る数を最低に(運動が少ない・未設定の方で表が崩れていた)
+          const N = Math.max(_minN, ...bands.map(b => b.length)); // 列数
+          // ★ 2026-10-22(ユーザー要望): 個別運動の見出しは運動の名前。その日の記録の運動 → 無ければ今の設定 → 無ければ枠の名前(個別運動①)
+          const _indAll = appData.systemSettings?.individualExerciseItems || []; const _indDef = tsuIndSlotDefaults(sp, appData.systemSettings);
+          const _indNameOf = (it, rec) => { if (it.type !== 'individual') return it.name; const c = rec && rec.exercises && rec.exercises[it.id]; const cid = (c && typeof c === 'object' && c.itemId && c.itemId !== IND_NONE) ? c.itemId : (c && typeof c === 'object' && c.itemId === IND_NONE ? '' : (_indDef[it.id] || '')); const sel = cid ? _indAll.find(ii => ii.id === cid) : null; return sel ? sel.name : it.name; };
           // 1段目は 状態/気分/体温/開始/終了/再検/記録者/個別 を列をまたいで置く(再検が残り)
           const SP1 = (() => { const st = 1, ki = _kOnR ? 1 : 0, tp = 1, st1 = 1, en = _showEnT ? 1 : 0, rec = 1, kin = 1; const used = st + ki + tp + st1 + en + rec + kin; return { st, ki, tp, st1, en, rec, kin, re: Math.max(1, N - used) }; })();
           const _bikouText = pi === 0 ? computeServiceChangeBikou(sp, tY, tM, appData) : '';
@@ -33901,13 +33921,13 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                 {bands.map((band, bi) => (<Fragment key={`pb${bi}`}>
                 <tr style={{height:20}}>
                   <th className="border border-slate-400 px-0 text-center overflow-hidden" style={{background:'#cbd5e1',color:'#1e293b'}}><AutoFitText text={bi ? '運動' : '運動'} max={10} min={6} bold/></th>
-                  {band.filter(it => it.id !== '__massage').map(it=>(<th key={it.id} className="border border-slate-400 px-0 text-center overflow-hidden" style={{background:'#e2e8f0',color:'#1e293b'}}><AutoFitText text={it.name} max={10} min={5} bold/></th>))}
+                  {band.filter(it => it.id !== '__massage').map(it=>(<th key={it.id} className="border border-slate-400 px-0 text-center overflow-hidden" style={{background:'#e2e8f0',color:'#1e293b'}}><AutoFitText text={_indNameOf(it, null)} max={10} min={5} bold/></th>))}
                   {Array.from({length: N - band.filter(it => it.id !== '__massage').length}).map((_, i)=><th key={`b${i}`} className="border border-slate-400" style={{background:'#e2e8f0'}}></th>)}
                 </tr>
                 <tr style={{height:22}}>
                   <td className="border border-slate-400 px-0 text-center overflow-hidden" style={{background:'#f1f5f9'}}><AutoFitText text="設定数値" max={10} min={6} bold/></td>
                   {band.filter(it => it.id !== '__massage').map(it=>{
-                    if (it.type === 'individual') { const d = _indPlanDisp(it); return (<td key={it.id} className="border border-slate-400 px-0 text-center overflow-hidden">{d ? <AutoFitText text={`${d.name}${d.val ? ' ' + d.val : ''}`} max={10} min={5} bold/> : null}</td>); }
+                    if (it.type === 'individual') { const d = _indPlanDisp(it); return (<td key={it.id} className="border border-slate-400 px-0 text-center overflow-hidden">{d && d.val ? <AutoFitText text={d.val} max={12} min={6} bold/> : null}</td>); }
                     return (<td key={it.id} className="border border-slate-400 px-0 text-center overflow-hidden"><AutoFitText text={_planUnit(plannedM[it.id], it.defaultUnit)} max={12} min={6} bold/></td>);
                   })}
                   {Array.from({length: N - band.filter(it => it.id !== '__massage').length}).map((_, i)=><td key={`c${i}`} className="border border-slate-400"></td>)}
@@ -33951,7 +33971,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                 <colgroup><col style={{width:44}}/>{Array.from({length: N}).map((_, i)=><col key={i}/>)}</colgroup>
                 <tbody>
                   {pr.map((r, ri) => {
-                    const isA=r.status==='欠席'||r.status==='休業'||isAbsentFromTokki(r.tokki);
+                    const isA=r.status==='欠席'||r.status==='休業'||(r.status!=='振替'&&r.status!=='臨時'&&!ticketHasClinicalData(r)&&isAbsentFromTokki(r.tokki)); // ★ 2026-10-22: 特記の言葉で欠席とみなすのは、数値が1つも入っていない記録だけ(「…で終了」「来週は休み」などで出席の日が空になっていた)
                     const isF=(()=>{try{return new Date(tY,tM-1,r.dayNum)>new Date();}catch{return false;}})();
                     const mt=isF&&r.status==='出席';
                     const v=(x)=>(isA||mt)?'':(x||'');
@@ -33968,9 +33988,9 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                         isIndividual = true;
                         const allInd = appData.systemSettings?.individualExerciseItems || [];
                         const sel = allInd.find(ii => ii.id === raw.itemId);
-                        if (sel && raw.value) display = `${sel.name} ${applyExUnits(raw.value, sel)}`; else if (sel) display = sel.name;
+                        if (sel && raw.value) display = applyExUnits(raw.value, sel); // ★ 2026-10-22: 名前は見出しに出すので、欄は値だけ
                       } else if (typeof raw !== 'object') { display = v(raw); }
-                      const baseFs = isIndividual ? 9 : 12;
+                      const baseFs = 12;
                       const len = (display||'').length;
                       const adjFs = len > 8 ? Math.max(7, baseFs - 3) : len > 5 ? Math.max(8, baseFs - 1) : baseFs;
                       return (<td key={it.id} className="border border-slate-400 px-0 text-center font-bold"><div className="cell-wrap" style={{justifyContent:'center',fontSize: adjFs, lineHeight:1.1, overflow:'hidden'}}>{isA||mt?'':display}</div></td>);
@@ -34019,7 +34039,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                         </tr>
                         {bands.map((band, bi) => (<Fragment key={`b${bi}`}>
                           <tr className="hd-row">
-                            {band.map(it => _th(it.id === '__massage' ? '介護整体' : it.name, 1, it.id))}
+                            {band.map(it => _th(it.id === '__massage' ? '介護整体' : _indNameOf(it, r), 1, it.id))}
                             {Array.from({length: N - band.length}).map((_, i)=><th key={`hb${i}`} className="border border-slate-400" style={{background:'#e2e8f0'}}></th>)}
                           </tr>
                           <tr className={`ex-row ${rc}`}>
@@ -34054,7 +34074,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                       </tr>
                       {bands.map((band, bi) => (<Fragment key={`eb${bi}`}>
                         <tr className="hd-row">
-                          {band.map(it => <th key={it.id} className="border border-slate-400 overflow-hidden" style={{background:'#e2e8f0',color:'#1e293b'}}><AutoFitText text={it.id === '__massage' ? '介護整体' : it.name} max={9} min={5} bold/></th>)}
+                          {band.map(it => <th key={it.id} className="border border-slate-400 overflow-hidden" style={{background:'#e2e8f0',color:'#1e293b'}}><AutoFitText text={it.id === '__massage' ? '介護整体' : _indNameOf(it, null)} max={9} min={5} bold/></th>)}
                           {Array.from({length: N - band.length}).map((_, k)=><th key={`hb${k}`} className="border border-slate-400" style={{background:'#e2e8f0'}}></th>)}
                         </tr>
                         <tr className="ex-row">{Array.from({length: N}).map((_, k)=><td key={k} className="border border-slate-400"></td>)}</tr>
