@@ -14463,7 +14463,6 @@ function FamilyAdminView({ appData, onSave }) {
     onSave({ ...appData, ...patch });
   };
   const purgeAnnTrash = (id) => {
-    if (!tsuAdminGate(() => purgeAnnTrash(id), 'お知らせの完全削除')) return; // ★ 2026-10-23
     const t = annTrash.find(x => x.id === id);
     if (!t) return;
     if (!window.confirm('完全に削除します。元に戻せません。よろしいですか?')) return;
@@ -14882,7 +14881,7 @@ function FamilyAdminView({ appData, onSave }) {
                         const text = historyDetail.kind==='photo' ? (historyDetail.item.caption||'') : `${historyDetail.item.title}\n\n${historyDetail.item.body||''}`;
                         navigator.clipboard?.writeText(text); alert('クリップボードにコピーしました');
                       }} className="flex-1 py-2 text-xs font-bold bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg">内容をコピー</button>
-                      <button onClick={(e)=>{ if (!tsuAdminClick(e, 'お知らせ・写真の削除')) return;
+                      <button onClick={()=>{
                         if (!window.confirm('この項目を削除します。\n（ゴミ箱に移動し、7日間は復元できます）')) return;
                         const _trashEntry = { ...historyDetail.item, _deletedAt: new Date().toISOString(), _kind: historyDetail.kind };
                         const _trash = [...(appData.trashedAnnouncements||[]), _trashEntry];
@@ -18491,9 +18490,10 @@ function tsuIsAdminNow() {
   try {
     if (typeof window !== 'undefined' && window.__tsuAdminPassAt && Date.now() - window.__tsuAdminPassAt < 15000) return true;
     if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && !(window.__tsumugiE2E && window.__tsumugiE2E.adminGateTest)) return true;
-    const ss = JSON.parse(sessionStorage.getItem('tsumugiStaffSession') || 'null'); if (ss && ss.role === 'super_admin') return true;
-    if (sessionStorage.getItem('tsumugiAdminVerified') === '1') return true;
+    // ★ 2026-10-23(ユーザー報告「本部で入って管理者でない職員を選んでも一括削除が見える」): 本部でも、選んだ記録者が管理者でなければ通さない
     const rec = JSON.parse(sessionStorage.getItem('tsumugiActiveRecorder') || 'null');
+    if (rec && rec.id === 'hq_viewer') return true;
+    if (sessionStorage.getItem('tsumugiAdminVerified') === '1') return true;
     return !!(rec && (rec.isSuperAdmin || isMemberAdmin(rec, (typeof window !== 'undefined' && window.__tsuGateSS) || null)));
   } catch { return false; }
 }
@@ -18505,6 +18505,8 @@ function tsuRequestAdmin(retry, what) {
 }
 // 関数の先頭で使う: 管理者なら true。違えば関所を出して false(通ったら retry をもう一度呼ぶ)
 function tsuAdminGate(retry, what) { if (tsuIsAdminNow()) return true; tsuRequestAdmin(retry, what); return false; }
+// ★ 2026-10-23(ユーザー指示): 個人ファイルの削除は、各種設定 → ログイン・管理者 → 管理者の設定「個人ファイルの削除に管理者パスワードを求める」が入のときだけ関所。切のときは確認だけ(誰でも)
+function tsuPfGate(retry, what) { try { if (!(window.__tsuGateSS && window.__tsuGateSS.personalFileDeletePw)) return true; } catch { return true; } return tsuAdminGate(retry, what); }
 // ボタンの onClick の先頭で使う: 通ったら同じボタンをもう一度押す
 function tsuAdminClick(e, what) { const el = e && e.currentTarget; return tsuAdminGate(() => { try { if (el && el.isConnected) el.click(); } catch {} }, what); }
 function TsuAdminGate({ what, onDone }) {
@@ -20486,10 +20488,11 @@ export default function App() {
   const lastLocalEditRef = React.useRef(0);
   // ★ 意図的に利用者を全削除した時刻。 直後は「0件安全ガード(クラウド復元)」を無効化し、削除を確定させる。
   const intentionalEmptyRef = React.useRef(0);
-  // ★ つむぎ管理局(super_admin)が店舗に入ったら、その店舗の「管理者」として全ての管理者専用機能を解放する。
+  // ★ つむぎ管理局(super_admin)が店舗に入ったら管理者として解放していたが、2026-10-23(ユーザー報告)からは
+  //   「つむぎ管理局として入る（確認用）」を選んだときだけ(店舗の職員を選んだら、その方の役割で動く)。印は記録者を選ぶときに付ける。
   React.useEffect(() => {
     if (staffSession?.role === 'super_admin' && staffSession?.storeId) {
-      try { sessionStorage.setItem('tsumugiAdminVerified', '1'); } catch {}
+      try { const rec = JSON.parse(sessionStorage.getItem('tsumugiActiveRecorder') || 'null'); if (rec && rec.id === 'hq_viewer') sessionStorage.setItem('tsumugiAdminVerified', '1'); } catch {}
     }
   }, [staffSession?.role, staffSession?.storeId]);
   // ★ つむぎ管理局(super_admin)が店舗に入ったら、記録者は本部名ではなく「その店舗の管理者」を自動選択
@@ -23398,8 +23401,8 @@ export default function App() {
       onSelect={(m) => {
         sessionStorage.setItem('tsumugiActiveRecorder', JSON.stringify(m));
         setActiveRecorder(m);
-        // ★ 2026-10-23: 管理者でない方を選んだら「管理者として確かめた」印を消す(前の管理者の印が残って削除できてしまうのを防ぐ)
-        try { if (m && m.id !== 'hq_viewer' && !isMemberAdmin(m, appData.systemSettings)) sessionStorage.removeItem('tsumugiAdminVerified'); } catch {}
+        // ★ 2026-10-23: 管理者でない方を選んだら「管理者として確かめた」印を消す(前の管理者の印が残って削除できてしまうのを防ぐ)。管理局(確認用)は付ける
+        try { if (m && m.id === 'hq_viewer') sessionStorage.setItem('tsumugiAdminVerified', '1'); else if (m && !isMemberAdmin(m, appData.systemSettings)) sessionStorage.removeItem('tsumugiAdminVerified'); } catch {}
         // ★ つむぎ管理局(確認用)はメンバー/担当職員に登録しない
         if (m.id === 'hq_viewer') return;
         // ★ ログインで選んだ記録者を日誌の担当職員にも確実に登録しておく。
@@ -25692,7 +25695,6 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       return;
     }
     if (newStatus === '取り消し') {
-      if (!tsuAdminGate(() => handleStatusChange(id, newStatus), '振替・臨時の取り消し')) return; // ★ 2026-10-23: 記録の削除は管理者だけ
       cancelFurikae(id);
       return;
     }
@@ -37803,7 +37805,6 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const _delIds = [];
     // ★ 2026-10-21(ユーザー要望): 同じ日の振替を元の時間帯へ戻した → 取り消し(両方の印を消す・記録は中身があれば出席、無ければ削除)
     const _sdBack = mv.origIso && mv.origIso === toIso && (mv.origSl || 'AM') === toSl;
-    if (_sdBack && !tsuAdminGate(() => executeFurikaeMove(mv, reasonText), '振替の取り消し')) return; // ★ 2026-10-23: 記録の削除は管理者だけ
     const _sdFwd = !mv.origIso && fromIso === toIso && fromSl !== toSl;
     if (mv.origIso && mv.origIso === toIso && !_sdBack) { alert('この日のうちで動かすときは、元の時間帯へ戻してください。'); setFkMove(null); return; }
     if (_sdBack) {
@@ -40392,7 +40393,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                           })}
                           {editPast && (
                             <td className="px-2 py-1 text-center">
-                              <button onClick={(e) => { if (!tsuAdminClick(e, '体力測定の記録の削除')) return; if(!window.confirm(`${r.date} の記録を削除します。よろしいですか？`)) return;
+                              <button onClick={() => { if(!window.confirm(`${r.date} の記録を削除します。よろしいですか？`)) return;
                                   // ★ 墓石(tombstone)に追加して同期マージでの復活を防ぐ + 即時クラウド保存
                                   const _td = { ...(appData.deletedIds||{}), fitnessRecords: { ...((appData.deletedIds||{}).fitnessRecords||{}), [String(r.id)]: Date.now() } };
                                   markClean();
@@ -42045,7 +42046,6 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
       }
     }
     if (newStatus === '取り消し') {
-      if (!tsuAdminGate(() => applyShiftStatus(newStatus), '月間スケジュールの取り消し')) return; // ★ 2026-10-23: 記録の削除は管理者だけ
       // 振替セルなら振替取り消し、それ以外なら状態をクリア (空欄 = 既定に戻す)
       const cu = shiftStatusModal.currentStatus;
       const isOnFurikae = typeof cu === 'string' && cu.startsWith('振');
@@ -45184,6 +45184,15 @@ function AdminSettingsSection({ appData, onSave }) {
   const nonAdmins = members.filter(m=>!(m.isAdmin||m.roleLabel==='管理者'));
   return (
     <div className="space-y-4">
+      {/* ★ 2026-10-23(ユーザー指示): 個人ファイルの削除に管理者パスワードを求めるかを店舗で選べる(既定は求めない=確認だけ) */}
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4" data-testid="pf-delete-pw">
+        <div className="text-sm font-bold text-slate-700 mb-2">個人ファイルの削除</div>
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input type="checkbox" checked={!!ss.personalFileDeletePw} onChange={e => saveSS({ personalFileDeletePw: e.target.checked }, e.target.checked ? '✓ 個人ファイルの削除に管理者パスワードを求めます' : '✓ 個人ファイルの削除は確認だけにしました')} className="w-6 h-6 shrink-0"/>
+          <span className="text-sm text-slate-700">削除するときに<b>管理者パスワード</b>を求める（切のときは、どなたでも確認だけで削除できます）</span>
+        </label>
+        <div className="text-xs text-slate-500 mt-1">対象: 個人ファイルの書類・写真、カテゴリ、会議記録、支援経過、月のスナップショット。</div>
+      </div>
       <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
         <div className="text-sm font-bold text-slate-700 mb-2">管理者パスワードの変更</div>
         <div className="space-y-2">
@@ -45530,7 +45539,10 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
   //   管理者がまだ1人もいない(初期設定)時のみ全員に開放。
   const _hasAnyAdmin = (appData.storeMembers||[]).some(m => m && (m.isAdmin || (m.roleLabel||'') === '管理者'));
   // ★ つむぎ管理局(本部/スーパー管理者)でログインした場合は、各事業所の管理者扱いにして重要設定も閲覧・変更可
-  const canAdmin = adminUnlocked || !_hasAnyAdmin || !!isSuperAdmin;
+  // ★ 2026-10-23(ユーザー報告): 本部でも「管理局として入る」を選んだときだけ管理者扱い(店舗の職員を選んだらその方の役割)。印は描くたびに読む(記録者を切り替えた直後も合うように)
+  const _recNow = (() => { try { return JSON.parse(sessionStorage.getItem('tsumugiActiveRecorder') || 'null'); } catch { return null; } })();
+  const _verifiedNow = (() => { try { return sessionStorage.getItem('tsumugiAdminVerified') === '1'; } catch { return false; } })();
+  const canAdmin = adminUnlocked || _verifiedNow || !_hasAnyAdmin || isMemberAdmin(_recNow, appData.systemSettings) || (!!isSuperAdmin && !!_recNow && _recNow.id === 'hq_viewer');
   const [showSettingsAdminGate, setShowSettingsAdminGate] = useState(false);
   const settingsSaveAdminAuth = (auth) => { onSave({ ...appData, systemSettings:{ ...(appData.systemSettings||{}), adminAuth:{ ...(appData.systemSettings?.adminAuth||{}), ...auth, setAt: Date.now() } } }); };
   const [exerciseItems, _setExerciseItemsSync] = useState(effExerciseItems(appData.systemSettings));
@@ -48083,7 +48095,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                   adminName="管理者"
                   existingHash={_adminAuth?.passwordHash}
                   onSetAuth={settingsSaveAdminAuth}
-                  onSuccess={()=>{ setShowSettingsAdminGate(false); setAdminUnlocked(true); }}
+                  onSuccess={()=>{ setShowSettingsAdminGate(false); setAdminUnlocked(true); try { sessionStorage.setItem('tsumugiAdminVerified', '1'); } catch {} }}
                   onCancel={()=>setShowSettingsAdminGate(false)}
                 />
               )}
@@ -50906,7 +50918,6 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
   React.useEffect(() => { if (!saveFnRef) return; saveFnRef.current = () => { if (editing) saveRecord(); }; });
 
   const delRecord = (id) => {
-    if (!tsuAdminGate(() => delRecord(id), '計画書の削除')) return; // ★ 2026-10-23: 記録の削除は管理者だけ
     if (!window.confirm('この計画書を削除します。よろしいですか？')) return;
     onSave({ ...appData, kinouKeikakuRecords: (appData.kinouKeikakuRecords||[]).filter(r=>r.id!==id), deletedIds: addTombstone(appData,'kinouKeikakuRecords',id) }, { manual:true, message:'削除しました' });
     if (editing?.id === id) setEditing(null);
@@ -51519,7 +51530,7 @@ function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
   const updMap = (group,key,val) => { setEditing(e=>({...e,[group]:{...(e[group]||{}),[key]:val}})); markDirty(); };
   const saveRecord = (close=true) => { if(!editing) return; const list=[...(appData.seikatsuKinouRecords||[])]; const i=list.findIndex(r=>r.id===editing.id); const rec={...editing, draft: !close, _savedAt:syncNow()}; if(i>=0)list[i]=rec; else list.push(rec); onSave({...appData,seikatsuKinouRecords:list},{manual:true,message: close?'✓ 生活機能チェックシートを保存しました':'✓ 一時保存しました'}); if(dirtyRef)dirtyRef.current=false; if(close) setEditing(null); else setEditing(rec); };
   React.useEffect(()=>{ if(!saveFnRef) return; saveFnRef.current=()=>{ if(editing) saveRecord(); }; });
-  const delRecord = (id) => { if (!tsuAdminGate(() => delRecord(id), '生活機能チェックの削除')) return; if(!window.confirm('削除しますか？')) return; onSave({...appData,seikatsuKinouRecords:(appData.seikatsuKinouRecords||[]).filter(r=>r.id!==id), deletedIds: addTombstone(appData,'seikatsuKinouRecords',id)},{manual:true,message:'削除しました'}); if(editing?.id===id)setEditing(null); };
+  const delRecord = (id) => { if(!window.confirm('削除しますか？')) return; onSave({...appData,seikatsuKinouRecords:(appData.seikatsuKinouRecords||[]).filter(r=>r.id!==id), deletedIds: addTombstone(appData,'seikatsuKinouRecords',id)},{manual:true,message:'削除しました'}); if(editing?.id===id)setEditing(null); };
   const dupRecord = (r) => setEditing({...r, id:`sk_${pid}_${Date.now()}`, createdAt:Date.now(), recordDate:toReiwa(new Date().toISOString().slice(0,10))});
   // ★ 2026-10-14: 「利用者ごと」の履歴から 編集(edit:<id>)・ダウンロード(print:<id>)
   const [printPickId, setPrintPickId] = React.useState(null);
@@ -51669,7 +51680,7 @@ function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
   const delCustom = (i) => { setEditing(e=>({...e, custom:e.custom.filter((_,idx)=>idx!==i)})); markDirty(); };
   const saveRecord = (close=true) => { if(!editing) return; const list=[...(appData.kyomiKanshinRecords||[])]; const i=list.findIndex(r=>r.id===editing.id); const rec={...editing, draft: !close, _savedAt:syncNow()}; if(i>=0)list[i]=rec; else list.push(rec); onSave({...appData,kyomiKanshinRecords:list},{manual:true,message: close?'✓ 興味・関心チェックシートを保存しました':'✓ 一時保存しました'}); if(dirtyRef)dirtyRef.current=false; if(close) setEditing(null); else setEditing(rec); };
   React.useEffect(()=>{ if(!saveFnRef) return; saveFnRef.current=()=>{ if(editing) saveRecord(); }; });
-  const delRecord = (id) => { if (!tsuAdminGate(() => delRecord(id), '興味・関心チェックの削除')) return; if(!window.confirm('削除しますか？')) return; onSave({...appData,kyomiKanshinRecords:(appData.kyomiKanshinRecords||[]).filter(r=>r.id!==id), deletedIds: addTombstone(appData,'kyomiKanshinRecords',id)},{manual:true,message:'削除しました'}); if(editing?.id===id)setEditing(null); };
+  const delRecord = (id) => { if(!window.confirm('削除しますか？')) return; onSave({...appData,kyomiKanshinRecords:(appData.kyomiKanshinRecords||[]).filter(r=>r.id!==id), deletedIds: addTombstone(appData,'kyomiKanshinRecords',id)},{manual:true,message:'削除しました'}); if(editing?.id===id)setEditing(null); };
   const dupRecord = (r) => setEditing({...r, id:`ki_${pid}_${Date.now()}`, createdAt:Date.now(), recordDate:toReiwa(new Date().toISOString().slice(0,10))});
   // ★ 2026-10-14: 「利用者ごと」の履歴から 編集(edit:<id>)・ダウンロード(print:<id>)
   const [printPickId, setPrintPickId] = React.useState(null);
@@ -51987,7 +51998,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
     else setEditing(rec); // 保存済みレコードで編集を継続(以降は上書き保存になる)
   };
   React.useEffect(()=>{ if(!saveFnRef) return; saveFnRef.current=()=>{ if(editing) saveRecord(); }; });
-  const delRecord=(id)=>{ if (!tsuAdminGate(() => delRecord(id), '通所介護計画書の削除')) return; if(!window.confirm('この計画書を削除します。よろしいですか？')) return; onSave({...appData, tsushoKeikakuRecords:(appData.tsushoKeikakuRecords||[]).filter(r=>r.id!==id), deletedIds: addTombstone(appData,'tsushoKeikakuRecords',id)}, {manual:true, message:'削除しました'}); if(editing?.id===id) setEditing(null); };
+  const delRecord=(id)=>{ if(!window.confirm('この計画書を削除します。よろしいですか？')) return; onSave({...appData, tsushoKeikakuRecords:(appData.tsushoKeikakuRecords||[]).filter(r=>r.id!==id), deletedIds: addTombstone(appData,'tsushoKeikakuRecords',id)}, {manual:true, message:'削除しました'}); if(editing?.id===id) setEditing(null); };
   const dupRecord=(r)=>{ setEditing(_migrate({...r, id:`tk_${pid}_${Date.now()}`, createdAt:Date.now(), prevDate:r.createdDate||'', createdDate:toReiwa(new Date().toISOString().slice(0,10)), longAchieve:'', shortAchieve:'', soukatsu:'', saihyokaDate:'', setsumeiDate:'', setsumeisha:'', doui:''})); };
   // ★ 作成予定からの遷移(navFocus='start_edit'): 最新が一時保存(draft)ならそれを再開、
   //   完成版があれば「複製して更新」、無ければ新規(2026-09-08 店舗要望: 一時保存の続きから作成)
@@ -53568,7 +53579,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
     setEditing(null);
   };
   React.useEffect(()=>{ if(saveFnRef) saveFnRef.current = ()=>{ if(editing) save(); }; });
-  const delRec = (id)=>{ if (!tsuAdminGate(() => delRec(id), 'ADL評価の削除')) return; if(!window.confirm('このADL評価を削除しますか？')) return; const _t={...(appData.deletedIds||{})}; _t.adlRecords={...(_t.adlRecords||{}), [String(id)]: Date.now()}; /* ★墓石: id単位マージ対象化に伴い復活防止(2026-09-07) */ onSave({ ...appData, adlRecords:(appData.adlRecords||[]).filter(r=>r.id!==id), deletedIds: _t }, { manual:true, message:'削除しました' }); if(editing?.id===id) setEditing(null); };
+  const delRec = (id)=>{ if(!window.confirm('このADL評価を削除しますか？')) return; const _t={...(appData.deletedIds||{})}; _t.adlRecords={...(_t.adlRecords||{}), [String(id)]: Date.now()}; /* ★墓石: id単位マージ対象化に伴い復活防止(2026-09-07) */ onSave({ ...appData, adlRecords:(appData.adlRecords||[]).filter(r=>r.id!==id), deletedIds: _t }, { manual:true, message:'削除しました' }); if(editing?.id===id) setEditing(null); };
   const enabledKasan = [
     ['kasan_kinou2','個別機能訓練加算Ⅱ','個別機能訓練計画（3-3/3-1/3-2）＋ADLをLIFEへ。'],
     ['kasan_kagaku','科学的介護推進体制加算','ADL・IADL・口腔・栄養・認知症・既往等の総論を概ね3ヶ月ごとにLIFEへ。'],
@@ -56065,7 +56076,7 @@ function FaxHistoryListModal({ history, typeLabel, patients, onDelete, onClose }
                   {h.memo && <div style={{fontSize:12,color:'#334155',marginTop:3,whiteSpace:'pre-wrap'}}>{String(h.memo).slice(0,120)}{String(h.memo).length>120?'…':''}</div>}
                   {h.note && <div style={{fontSize:11,color:'#64748b',marginTop:3,fontStyle:'italic'}}>{h.note}</div>}
                 </div>
-                <button onClick={(e)=>{ if (!tsuAdminClick(e, '送付履歴の削除')) return; if(window.confirm('この履歴を削除しますか?')) onDelete(h.id); }} className="text-slate-300 hover:text-red-500 text-sm"></button>
+                <button onClick={()=>{ if(window.confirm('この履歴を削除しますか?')) onDelete(h.id); }} className="text-slate-300 hover:text-red-500 text-sm"></button>
               </div>
             ))
           )}
@@ -57961,7 +57972,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
     }
   };
   const spDel = (row) => {
-    if (!tsuAdminGate(() => spDel(row), '支援経過の削除')) return; // ★ 2026-10-23: 記録の削除は管理者だけ
+    if (!tsuPfGate(() => spDel(row), '支援経過の削除')) return; // ★ 2026-10-23: 設定が入のときだけ管理者パスワード
     if(!window.confirm('この行を削除しますか？')) return;
     const stored = personalFile.supportProgress || [];
     if (row.srcKey) {
@@ -58087,7 +58098,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
   };
 
   const handleDeleteFile = (fileId) => {
-    if (!tsuAdminGate(() => handleDeleteFile(fileId), 'ファイルの削除')) return; // ★ 2026-10-23: 記録の削除は管理者だけ
+    if (!tsuPfGate(() => handleDeleteFile(fileId), 'ファイルの削除')) return; // ★ 2026-10-23: 設定が入のときだけ管理者パスワード
     if (!window.confirm('このファイルを削除しますか?\n（ゴミ箱に移動し、7日間は復元できます。その後は自動で完全削除）')) return;
     const target = (personalFile.files || []).find(f => f.id === fileId);
     if (!target) return;
@@ -58116,7 +58127,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
     }
   };
   const purgeFromTrash = (trashId) => {
-    if (!tsuAdminGate(() => purgeFromTrash(trashId), 'ファイルの完全削除')) return; // ★ 2026-10-23
+    if (!tsuPfGate(() => purgeFromTrash(trashId), 'ファイルの完全削除')) return; // ★ 2026-10-23
     const t = (personalFile.trash || []).find(x => x.id === trashId);
     if (!t) return;
     if (!window.confirm('このファイルを完全に削除します。元に戻せません。よろしいですか?')) return;
@@ -58150,7 +58161,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
   };
 
   const handleDeleteCustomCategory = (catId) => {
-    if (!tsuAdminGate(() => handleDeleteCustomCategory(catId), 'カテゴリの削除')) return; // ★ 2026-10-23
+    if (!tsuPfGate(() => handleDeleteCustomCategory(catId), 'カテゴリの削除')) return; // ★ 2026-10-23
     if (!window.confirm('このカテゴリと中のファイルすべて削除します。よろしいですか?')) return;
     updatePatient({
       categories: customCategories.filter(c => c.id !== catId),
@@ -58971,7 +58982,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                       </div>
                       <div className="flex gap-1">
                         <button onClick={()=>setPdfPreviewMonthly(s)} className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[11px] font-bold">ダウンロード</button>
-                        <button onClick={(e)=>{ if (!tsuAdminClick(e, '月のスナップショットの削除')) return; if(window.confirm('この月のスナップショットを削除しますか?')) updatePatient({ monthlyServiceRecords: monthlyServiceRecords.filter(x => x.id !== s.id) }); }}
+                        <button onClick={(e)=>{ if (!tsuPfGate(() => { try { e.target.click(); } catch {} }, '月のスナップショットの削除')) return; if(window.confirm('この月のスナップショットを削除しますか?')) updatePatient({ monthlyServiceRecords: monthlyServiceRecords.filter(x => x.id !== s.id) }); }}
                           className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[11px] font-bold">削除</button>
                       </div>
                     </div>
@@ -59060,7 +59071,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                           className="px-2 py-1 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded text-[11px] font-bold">小窓</button>
                         <button onClick={()=>tsuMeetingDownload(patient, m, appData)} data-testid={`meeting-dl-${m.id}`} title="サービス担当者会議録(A4 1枚)をPDFでダウンロードします" className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[11px] font-bold">ダウンロード</button>
                         <button onClick={()=>{ setEditingMeeting(m); setShowMeetingForm(true); }} className="whitespace-nowrap px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-[11px] font-bold">編集</button>
-                        <button onClick={(e)=>{ if (!tsuAdminClick(e, '会議記録の削除')) return; if(window.confirm('この会議記録を削除しますか?')) updatePatient({ meetings: meetings.filter(x => x.id !== m.id) }); }}
+                        <button onClick={(e)=>{ if (!tsuPfGate(() => { try { e.target.click(); } catch {} }, '会議記録の削除')) return; if(window.confirm('この会議記録を削除しますか?')) updatePatient({ meetings: meetings.filter(x => x.id !== m.id) }); }}
                           className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-600 rounded text-[11px] font-bold">削除</button>
                       </div>
                     </div>
