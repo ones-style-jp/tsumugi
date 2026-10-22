@@ -1,3 +1,4 @@
+-- ★ 2026-10-22: 初期パスワードはこのファイルから消した(リポジトリに残さない)。もう一度使うときは本部で決めたパスワードに置き換えて実行する
 -- =============================================
 -- Tsumugi マルチテナント拡張 (Phase 2)
 -- =============================================
@@ -104,8 +105,8 @@ create trigger trg_staff_updated before update on public.staff
 
 -- =========================================================
 -- 7. 初期データ: 本部管理者 + 1 店舗目 (扇橋店) を作成
---    パスワードは仮で 'tsumugi2026!' → 初回ログイン後に変更推奨
---    SHA-256(salt='tsumugi_v1_' + 'tsumugi2026!') の結果をセット
+--    パスワードは仮で '＜初期パスワード（本部で管理・ここには書かない）＞' → 初回ログイン後に変更推奨
+--    SHA-256(salt='tsumugi_v1_' + '＜初期パスワード（本部で管理・ここには書かない）＞') の結果をセット
 -- =========================================================
 insert into public.stores (id, name, short_name, org_name, status)
 values
@@ -113,18 +114,18 @@ values
 on conflict (id) do nothing;
 
 -- 本部管理者 (super_admin) — masabou さん用
--- 初期パスワード: tsumugi2026!
--- SHA-256(tsumugi_v1_tsumugi2026!) を事前計算:
+-- 初期パスワード: ＜初期パスワード（本部で管理・ここには書かない）＞
+-- SHA-256(tsumugi_v1_＜初期パスワード（本部で管理・ここには書かない）＞) を事前計算:
 insert into public.staff (store_id, username, password_hash, role, last_name, first_name, email)
 values
-  (NULL, 'admin', encode(digest('tsumugi_v1_tsumugi2026!','sha256'),'hex'),
+  (NULL, 'admin', encode(digest('tsumugi_v1_＜初期パスワード（本部で管理・ここには書かない）＞','sha256'),'hex'),
    'super_admin', '本部', '管理者', 'honbu@ones-style.co.jp')
 on conflict (username) do nothing;
 
--- 扇橋店 manager — 初期パスワード: ougibashi2026!
+-- 扇橋店 manager — 初期パスワード: ＜初期パスワード（本部で管理・ここには書かない）＞
 insert into public.staff (store_id, username, password_hash, role, last_name, first_name)
 values
-  ('store_ougibashi', 'ougibashi_admin', encode(digest('tsumugi_v1_ougibashi2026!','sha256'),'hex'),
+  ('store_ougibashi', 'ougibashi_admin', encode(digest('tsumugi_v1_＜初期パスワード（本部で管理・ここには書かない）＞','sha256'),'hex'),
    'manager', '管理者', '扇橋')
 on conflict (username) do nothing;
 
