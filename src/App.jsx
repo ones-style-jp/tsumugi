@@ -25364,7 +25364,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   //   行ごとに変えることもでき(2人が別々の利用者を担当する場合)、「未算定」も選べる。提供記録の印刷に「個別: ○○」と出る。
   const _kinouOn = !!appData.systemSettings?.facilityInfo?.kobetsuKinouAddon;
   // ★ 2026-10-22: 上の帯の試し(この端末だけ)。'1'=アイコン＋短い文字 / 's'=短い文字だけ(アイコンは1つで約19px 幅が増えるため) / それ以外=今まで
-  const _iconMode = React.useMemo(() => { try { const v = localStorage.getItem('tsuIconBar'); return tsuViewW() >= 768 && (v === '1' || v === 's') ? v : ''; } catch { return ''; } }, []);
+  //   ★ 同日夕(ユーザー指示「アイコンは無しでいい」): アイコン＋短い文字はやめ、前に選んでいた端末('1')も短い文字だけにする
+  const _iconMode = React.useMemo(() => { try { const v = localStorage.getItem('tsuIconBar'); return tsuViewW() >= 768 && (v === '1' || v === 's') ? 's' : ''; } catch { return ''; } }, []);
   const _iconBar = !!_iconMode;
   const _ib = (Icon, txt) => _iconMode === 's' ? txt : <span className="inline-flex items-center gap-1"><Icon size={15} strokeWidth={2.4}/>{txt}</span>;
   const _kinouList = Array.from(new Set((appData.diarySettings?.staff || []).filter(st => st && st.name && !st._tempHelp && (st.role === '機能訓練指導員' || st.role2 === '機能訓練指導員')).map(st => String(st.name).trim()).filter(Boolean)));
@@ -47082,8 +47083,8 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
             <SectionCard title="この端末の表示">
               {/* ★ 2026-10-08(ユーザー要望): テンキーの数字の並び(この端末だけ) */}
               <div className="mb-4 pb-4 border-b border-slate-200" data-testid="kp-layout-setting">
-                <div className="mb-3" data-testid="set-iconbar"><div className="text-sm font-bold text-slate-700 mb-1">上の帯の文字（試し・この端末だけ）</div>
-                  <div className="flex gap-2 flex-wrap">{[['0', '今まで'], ['s', '短い文字だけ'], ['1', 'アイコン＋短い文字']].map(([v, lb]) => { const cur = (() => { try { const x = localStorage.getItem('tsuIconBar'); return x === '1' || x === 's' ? x : '0'; } catch { return '0'; } })(); return (
+                <div className="mb-3" data-testid="set-iconbar"><div className="text-sm font-bold text-slate-700 mb-1">上の帯の文字（この端末だけ）</div>
+                  <div className="flex gap-2 flex-wrap">{[['0', '今まで'], ['s', '短い文字だけ']].map(([v, lb]) => { const cur = (() => { try { const x = localStorage.getItem('tsuIconBar'); return x === '1' || x === 's' ? 's' : '0'; } catch { return '0'; } })(); return (
                     <label key={v} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 bg-white cursor-pointer text-sm"><input type="radio" name="tsuIconBar" defaultChecked={cur === v} onChange={() => { try { localStorage.setItem('tsuIconBar', v); } catch {} }} className="accent-blue-600"/>{lb}</label>); })}</div>
                   <div className="text-xs text-slate-500 mt-1">今は提供記録の上の帯だけです。画面を開き直すと変わります。</div></div>
                 <div className="text-sm font-bold text-slate-700 mb-1">テンキーの数字の並び（この端末だけ）</div>

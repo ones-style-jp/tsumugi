@@ -1,7 +1,14 @@
 {
-  "version": "upd-2026-1022-trial377",
+  "version": "upd-2026-1022-trial378",
   "updatedAt": "2026-10-22",
   "notes": [
+    {
+      "id": "upd-2026-1022-trial378-noicon",
+      "type": "improve",
+      "title": "提供記録の上の帯：アイコンの表示をやめました",
+      "body": "・各種設定 → システムの「上の帯の文字」は「今まで」と「短い文字だけ」の2つにしました。アイコンを選んでいた端末は「短い文字だけ」になります。",
+      "date": "2026-10-22"
+    },
     {
       "id": "upd-2026-1022-trial377-tickabs",
       "type": "improve",
