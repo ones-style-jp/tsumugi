@@ -2038,6 +2038,27 @@ export async function supabaseStaffLogin({ username, password, code }) {
   return rest;
 }
 
+// ★ 2026-10-23 本部のパスキー(Touch ID・Face ID)。登録は管理局から、ログインはログイン画面の「パスキーで入る」
+const _pkU2B = (s) => { let t = String(s || '').replace(/-/g, '+').replace(/_/g, '/'); t += '==='.slice((t.length + 3) % 4); const b = atob(t); const u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u.buffer; };
+const _pkB2U = (buf) => { const u = new Uint8Array(buf); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+export const tsuPasskeyAvailable = () => { try { return typeof window !== 'undefined' && !!window.PublicKeyCredential && !!navigator.credentials && window.isSecureContext; } catch { return false; } };
+export async function supabaseHqPasskeyRegister(token) {
+  const { options } = await staffApi({ action: 'passkey_reg_options', token });
+  const cred = await navigator.credentials.create({ publicKey: { ...options, challenge: _pkU2B(options.challenge), user: { ...options.user, id: _pkU2B(options.user.id) }, excludeCredentials: (options.excludeCredentials || []).map(c => ({ ...c, id: _pkU2B(c.id) })) } });
+  const r = cred.response;
+  return staffApi({ action: 'passkey_reg_verify', token, device: _devName(), credential: { id: cred.id, type: cred.type, response: { clientDataJSON: _pkB2U(r.clientDataJSON), attestationObject: _pkB2U(r.attestationObject) } } });
+}
+export async function supabaseHqPasskeyLogin() {
+  const { options } = await staffApi({ action: 'passkey_login_options' });
+  const cred = await navigator.credentials.get({ publicKey: { ...options, challenge: _pkU2B(options.challenge), allowCredentials: [] } });
+  const r = cred.response;
+  const j = await staffApi({ action: 'passkey_login_verify', device: _devName(), credential: { id: _pkB2U(cred.rawId), type: cred.type, response: { clientDataJSON: _pkB2U(r.clientDataJSON), authenticatorData: _pkB2U(r.authenticatorData), signature: _pkB2U(r.signature), userHandle: r.userHandle ? _pkB2U(r.userHandle) : '' } } });
+  if (j.sb_token) setSbAccessToken(j.sb_token, j.sb_exp);
+  return { ...(j.staff || {}), _token: j.token || '' };
+}
+export async function supabaseHqPasskeyList(token) { return (await staffApi({ action: 'passkey_list', token })).passkeys || []; }
+export async function supabaseHqPasskeyDelete(token, id) { return (await staffApi({ action: 'passkey_delete', token, id })).passkeys || []; }
+
 // ★ 2026-10-17 データ保護(段階1): ログインの証から Supabase の証を取り直す(起動時・12時間ごと)。サーバーに秘密が無ければ null(従来どおり)
 export async function supabaseStaffRefreshSbToken(staffToken) {
   if (!supabase || !staffToken) return { ok: false };

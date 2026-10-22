@@ -34,11 +34,20 @@
 //   ★ 2026-10-19 本部の2段階認証: super_admin の login は、ID・パスワードが合ったら登録メールへ6桁の確認コードを送り { need_code: true, hint }。
 //     login に code を添えて再送すると証を発行。コードは5分有効・3回間違いで無効(2026-10-19 ユーザー指示で厳しく)。本部にメールが無ければ従来どおり
 //   ★ 2026-10-19 監視: ログイン失敗が 15分に10回(同じID)続いたら本部(super_admin のメール)へ通知。状態は app_secrets 'guard_login'
+//   ★ 2026-10-23 本部のパスキー(Touch ID・Face ID)(ユーザー指示「毎回の確認コードが手間。安全はそのままでマスターキーのように」):
+//   passkey_reg_options  { token(本部) }              → { options }   登録の問いかけ(5分)
+//   passkey_reg_verify   { token, credential, device } → { ok, passkeys }  指紋・顔で本人を確かめた鍵だけ登録(最大10)
+//   passkey_list / passkey_delete { token, id? }       → { passkeys }
+//   passkey_login_options {}                            → { options }   ログインの問いかけ(2分・1回だけ)
+//   passkey_login_verify { credential, device }         → login と同じ { staff, token, sb_token… }  ID・パスワード・確認コードは要らない
+//   鍵は app_secrets 'hq_passkeys'(本部の職員ID → 公開鍵の一覧)。秘密の鍵は端末から出ない。使えるのは super_admin だけ。
+//   アドレス(サイト)ごとの鍵なので、試験版と安定版はそれぞれ登録する。
 //
 // token = 署名付きの短い文字列(HMAC-SHA256・30日)。DBに列を増やさずに済み、偽造できない。
 //   パスワードのハッシュ方式(SHA-256+固定ソルト)は従来どおりブラウザ側で計算して送る(平文は送らない)。
 import crypto from 'crypto';
 import { getSecret } from './_secrets.js';
+import { verifyRegistration, verifyAuthentication, b64u as wb64u, unb64u as wunb64u } from './_webauthn.js';
 
 const SUPA_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -159,6 +168,20 @@ async function storeSecurity(storeId) {
 async function logLogin(staff, kind, device) {
   try { await sb('staff_logins', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ store_id: staff.store_id || null, staff_id: staff.id, member_id: staff.member_id || null, name: staff.display_name || `${staff.last_name || ''} ${staff.first_name || ''}`.trim(), kind, device: String(device || '').slice(0, 60) || null }) }); } catch {}
 }
+// ★ 2026-10-23 パスキー: 画面のアドレス(origin)と、この窓口のアドレス(host)が同じときだけ使う
+const PK_KEY = 'hq_passkeys', PK_CHAL = 'guard_passkey_chal';
+function rpOf(req) {
+  let u; try { u = new URL(String(req.headers.origin || '')); } catch { return null; }
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().split(':')[0];
+  if (!host || u.hostname !== host) return null;
+  if (u.protocol !== 'https:' && u.hostname !== 'localhost') return null;
+  return { id: host, origin: u.origin };
+}
+function pkPrune(ch) { const now = Date.now(); Object.keys(ch || {}).forEach(k => { if (!ch[k] || !(ch[k].exp > now)) delete ch[k]; }); return ch || {}; }
+async function hqStaffById(id) {
+  const rows = await sb(`staff?select=*,stores(id,name,short_name)&id=eq.${encodeURIComponent(id)}&is_active=eq.true&deleted_at=is.null&limit=1`);
+  const s = Array.isArray(rows) ? rows[0] : null; return s && s.role === 'super_admin' ? s : null;
+}
 function makeToken(staff) {
   const payload = b64u(JSON.stringify({ sid: staff.id, role: staff.role, store_id: staff.store_id || null, exp: Date.now() + TOKEN_TTL_MS }));
   return payload + '.' + sign(payload);
@@ -228,6 +251,59 @@ export default async function handler(req, res) {
       try { await sb(`staff?id=eq.${encodeURIComponent(staff.id)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ last_login: new Date().toISOString() }) }); } catch {}
       const mc = await mintSbTokenChecked(staff);
       await logLogin(staff, staff.kind === 'person' ? 'person' : 'store', body.device); // ★ 段階4: ログイン記録(表が無ければ何もしない)
+      return res.status(200).json({ staff: strip(staff), token: makeToken(staff), sb_token: mc.tok, sb_exp: mc.tok ? Date.now() + SB_TOKEN_TTL_SEC * 1000 : null, sb_reason: mc.ok ? undefined : mc.reason });
+    }
+    // ★ 2026-10-23 本部のパスキー
+    if (action === 'passkey_reg_options' || action === 'passkey_reg_verify' || action === 'passkey_list' || action === 'passkey_delete') {
+      const t = readToken(body.token); if (!t || t.role !== 'super_admin') return res.status(403).json({ error: '本部のアカウントだけが使えます' });
+      const staff = await hqStaffById(t.sid); if (!staff) return res.status(403).json({ error: '本部のアカウントだけが使えます' });
+      const all = await kvLoad(PK_KEY); const mine = Array.isArray(all[staff.id]) ? all[staff.id] : [];
+      const view = (list) => list.map(c => ({ id: c.id, rp: c.rp, device: c.device || '', at: c.at, lastUsed: c.lastUsed || null }));
+      if (action === 'passkey_list') return res.status(200).json({ passkeys: view(mine) });
+      if (action === 'passkey_delete') { const next = mine.filter(c => c.id !== String(body.id || '')); all[staff.id] = next; await kvSave(PK_KEY, all); return res.status(200).json({ ok: true, passkeys: view(next) }); }
+      const rp = rpOf(req); if (!rp) return res.status(400).json({ error: 'この画面からは登録できません（アドレスを確かめてください）' });
+      const ch = pkPrune(await kvLoad(PK_CHAL));
+      if (action === 'passkey_reg_options') {
+        const challenge = wb64u(crypto.randomBytes(32)); ch['reg:' + staff.id] = { c: challenge, exp: Date.now() + 5 * 60 * 1000, rp: rp.id }; await kvSave(PK_CHAL, ch);
+        return res.status(200).json({ options: { challenge, rp: { name: 'つむぎ管理局', id: rp.id }, user: { id: wb64u(Buffer.from('staff:' + staff.id)), name: staff.username, displayName: staff.display_name || staff.username },
+          pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }], timeout: 60000, attestation: 'none',
+          authenticatorSelection: { residentKey: 'required', userVerification: 'required' }, excludeCredentials: mine.filter(c => c.rp === rp.id).map(c => ({ type: 'public-key', id: c.id })) } });
+      }
+      const e = ch['reg:' + staff.id]; delete ch['reg:' + staff.id]; await kvSave(PK_CHAL, ch);
+      if (!e || e.rp !== rp.id) return res.status(400).json({ error: '登録の時間が切れました。もう一度押してください' });
+      let cred; try { cred = verifyRegistration((body.credential && body.credential.response) || {}, { challenge: e.c, origin: rp.origin, rpId: rp.id }); }
+      catch (err) { return res.status(400).json({ error: 'パスキーを登録できませんでした（' + String((err && err.message) || err).slice(0, 40) + '）' }); }
+      const next = [...mine.filter(c => c.id !== cred.id), { ...cred, rp: rp.id, device: String(body.device || '').slice(0, 40), at: new Date().toISOString(), lastUsed: null }].slice(-10);
+      all[staff.id] = next; await kvSave(PK_KEY, all);
+      return res.status(200).json({ ok: true, passkeys: view(next) });
+    }
+    if (action === 'passkey_login_options') {
+      const rp = rpOf(req); if (!rp) return res.status(400).json({ error: 'この画面からは使えません' });
+      const ch = pkPrune(await kvLoad(PK_CHAL)); const challenge = wb64u(crypto.randomBytes(32));
+      ch['auth:' + challenge] = { exp: Date.now() + 2 * 60 * 1000, rp: rp.id };
+      const ak = Object.keys(ch).filter(k => k.startsWith('auth:')); if (ak.length > 200) ak.slice(0, ak.length - 200).forEach(k => { delete ch[k]; });
+      await kvSave(PK_CHAL, ch);
+      return res.status(200).json({ options: { challenge, rpId: rp.id, timeout: 60000, userVerification: 'required', allowCredentials: [] } });
+    }
+    if (action === 'passkey_login_verify') {
+      const fail = async (msg) => { await sleep(FAIL_DELAY); return res.status(401).json({ error: msg || 'パスキーで入れませんでした' }); };
+      const rp = rpOf(req); if (!rp) return fail('この画面からは使えません');
+      const c = body.credential || {}; const resp = c.response || {};
+      let challenge = ''; try { challenge = JSON.parse(wunb64u(resp.clientDataJSON).toString('utf8')).challenge || ''; } catch {}
+      const ch = pkPrune(await kvLoad(PK_CHAL)); const e = challenge ? ch['auth:' + challenge] : null;
+      if (e) { delete ch['auth:' + challenge]; await kvSave(PK_CHAL, ch); }   // 問いかけは1回だけ
+      if (!e || e.rp !== rp.id) return fail('時間が切れました。もう一度押してください');
+      const uh = wunb64u(resp.userHandle || '').toString('utf8'); const sid = uh.startsWith('staff:') ? uh.slice(6) : '';
+      if (!sid) return fail();
+      const all = await kvLoad(PK_KEY); const mine = Array.isArray(all[sid]) ? all[sid] : [];
+      const cred = mine.find(x => x.id === String(c.id || '') && x.rp === rp.id);
+      if (!cred) { await loginFailNote('passkey'); return fail('このパスキーは登録されていません'); }
+      let out; try { out = verifyAuthentication(resp, cred, { challenge, origin: rp.origin, rpId: rp.id }); } catch { await loginFailNote('passkey'); return fail(); }
+      const staff = await hqStaffById(sid); if (!staff) return fail();
+      cred.signCount = out.signCount; cred.lastUsed = new Date().toISOString(); all[sid] = mine; await kvSave(PK_KEY, all);
+      try { await sb(`staff?id=eq.${encodeURIComponent(staff.id)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ last_login: new Date().toISOString() }) }); } catch {}
+      const mc = await mintSbTokenChecked(staff);
+      await logLogin(staff, 'passkey', body.device);
       return res.status(200).json({ staff: strip(staff), token: makeToken(staff), sb_token: mc.tok, sb_exp: mc.tok ? Date.now() + SB_TOKEN_TTL_SEC * 1000 : null, sb_reason: mc.ok ? undefined : mc.reason });
     }
     // ★ 2026-10-19 段階4: 招待コードの確認と本人アカウントの作成(ログイン不要)

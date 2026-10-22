@@ -82,6 +82,7 @@ import {
   supabaseLoadStateForStore,
   supabaseLoadStateMetaForStore,
   supabaseStaffLogin,
+  supabaseHqPasskeyRegister, supabaseHqPasskeyLogin, supabaseHqPasskeyList, supabaseHqPasskeyDelete, tsuPasskeyAvailable, // ★ 2026-10-23 本部のパスキー
   portalLoadState, portalSubscribeState, portalResolveStore, portalListStores, hasPortalToken, setPortalToken, // ★ 2026-10-18 データ保護(段階3.5): ポータルのサーバー経由
   supabaseStaffRefreshSbToken, setSbAccessToken, getSbAccessState, // ★ 2026-10-17 データ保護(段階1)
   supabaseStaffChangePassword,
@@ -19607,6 +19608,40 @@ function SystemNoticesPanel({ stores, staffSession }) {
   );
 }
 
+function HqPasskeyPanel({ staffSession }) {
+  const tok = staffSession && staffSession.token;
+  const [list, setList] = React.useState(null); const [busy, setBusy] = React.useState(false); const [msg, setMsg] = React.useState('');
+  React.useEffect(() => { if (!tok) return; (async () => { try { setList(await supabaseHqPasskeyList(tok)); } catch (e) { setList([]); setMsg((e && e.message) || '読み込めませんでした'); } })(); }, [tok]);
+  const host = typeof window !== 'undefined' ? window.location.hostname : '';
+  const fmt = (s) => { try { const d = new Date(s); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; } catch { return ''; } };
+  const reg = async () => {
+    if (!tsuPasskeyAvailable()) { setMsg('この端末・ブラウザではパスキーを使えません'); return; }
+    setBusy(true); setMsg('');
+    try { const r = await supabaseHqPasskeyRegister(tok); setList(r.passkeys || []); setMsg('この端末にパスキーを登録しました。次からログイン画面の「パスキーで入る」で入れます。'); }
+    catch (e) { setMsg(e && e.name === 'NotAllowedError' ? '登録を取り消しました' : ((e && e.message) || '登録できませんでした')); }
+    finally { setBusy(false); }
+  };
+  const del = async (id) => { if (!window.confirm('このパスキーを外しますか？（その端末では、パスキーで入れなくなります）')) return; try { setList(await supabaseHqPasskeyDelete(tok, id)); } catch (e) { setMsg((e && e.message) || '外せませんでした'); } };
+  if (!tok || staffSession.role !== 'super_admin') return null;
+  return (
+    <div data-testid="hq-passkey" style={{background:'white',borderRadius:16,padding:'16px 18px',boxShadow:'0 4px 16px rgba(0,0,0,0.06)',margin:'16px 0'}}>
+      <div style={{fontSize:15,fontWeight:'bold',color:'#1e293b'}}>パスキー（本部のログイン）</div>
+      <div style={{fontSize:12,color:'#475569',marginTop:4,lineHeight:1.6}}>指紋（Touch ID）や顔（Face ID）で、ID・パスワード・確認コードなしで入れます。端末ごと・アドレスごと（試験版・安定版）に登録します。秘密の鍵は端末から出ません。端末をなくしたときは、ここで外してください。</div>
+      <button type="button" data-testid="hq-passkey-reg" onClick={reg} disabled={busy} style={{marginTop:10,padding:'10px 16px',background:'#3d5021',color:'white',border:'none',borderRadius:10,fontSize:13,fontWeight:'bold',cursor: busy ? 'wait' : 'pointer'}}>{busy ? '登録中…' : 'この端末にパスキーを登録'}</button>
+      {msg && <div style={{fontSize:12,fontWeight:'bold',color:'#334155',marginTop:8}}>{msg}</div>}
+      <div style={{marginTop:10,fontSize:12}}>
+        {list === null ? <span style={{color:'#64748b'}}>読み込み中…</span> : list.length === 0 ? <span style={{color:'#64748b'}}>まだ登録はありません</span> : list.map(c => (
+          <div key={c.id} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 0',borderTop:'1px solid #e2e8f0'}}>
+            <span style={{fontWeight:'bold',color:'#1e293b',minWidth:120}}>{c.device || '名前のない端末'}</span>
+            <span style={{color: c.rp === host ? '#146c43' : '#64748b'}}>{c.rp === host ? 'このアドレス' : c.rp}</span>
+            <span style={{color:'#64748b'}}>登録 {fmt(c.at)}{c.lastUsed ? `・最後に使用 ${fmt(c.lastUsed)}` : ''}</span>
+            <button type="button" onClick={() => del(c.id)} style={{marginLeft:'auto',padding:'4px 10px',background:'#fef2f2',color:'#b91c1c',border:'1px solid #fecaca',borderRadius:8,fontSize:11,fontWeight:'bold',cursor:'pointer'}}>外す</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
   const [stores, setStores] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -19925,6 +19960,8 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
         <div ref={_secDevices} style={{scrollMarginTop:56}}>
         <HqDevicePanel stores={stores}/>
         </div>
+        {/* ★ 2026-10-23(ユーザー指示「毎回の確認コードが手間。安全はそのままでマスターキーのように」): 本部のパスキー */}
+        <HqPasskeyPanel staffSession={staffSession}/>
         {/* ★ J: 全店共通ポリシー編集 (折りたたみ) */}
         <div ref={_secAi} style={{scrollMarginTop:56}}>
         <GlobalAiPanel staffSession={staffSession}/>
@@ -20213,6 +20250,23 @@ function StaffLoginGate({ onLogin }) {
     try {
       const staff = await supabaseStaffLogin({ username: form.username, password: form.password, code: form.needCode ? form.code : '' });
       if (staff && staff._needCode) { setForm(f=>({...f, loading:false, needCode:true, hint: staff._hint || '', code:'', error: staff._sent ? '' : '確認コードのメールを送れませんでした。本部のメール設定をご確認ください'})); return; } // ★ 本部: 確認コードの入力へ
+      await finishLogin(staff);
+    } catch (err) {
+      const msg = err?.message || 'ログインに失敗しました';
+      // 接続情報を付加してデバッグしやすく
+      const debug = msg.includes('fetch') ? ` [接続先: ${sbUrlShort}]` : '';
+      setForm(f=>({...f, loading:false, error: msg + debug}));
+    }
+  };
+  // ★ 2026-10-23 本部のパスキー(Touch ID・Face ID): ID・パスワード・確認コードなしで入る(登録は管理局の「パスキー」から)
+  const passkeyLogin = async () => {
+    if (!isSupabaseEnabled) { setForm(f=>({...f, error:'Supabase が未接続です'})); return; }
+    setForm(f=>({...f, loading:true, error:''}));
+    try { const staff = await supabaseHqPasskeyLogin(); await finishLogin(staff); }
+    catch (err) { setForm(f=>({...f, loading:false, error: err && err.name === 'NotAllowedError' ? 'パスキーでのログインを取り消しました' : ((err && err.message) || 'パスキーで入れませんでした')})); }
+  };
+  const finishLogin = async (staff) => {
+    {
       const session = tsuBuildStaffSession(staff); // ★ 2026-10-19 段階4: kind(store/person)・memberId・hasPin も持つ
       sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(session));
       // ★ 2026-10-08(店舗報告: iPhoneでIDとパスワードを入力してログインした直後、画面の一部が白いまま。スクロールしても戻らず、押すと反応する):
@@ -20227,11 +20281,6 @@ function StaffLoginGate({ onLogin }) {
         try { window.location.reload(); return; } catch {}
       }
       onLogin(session);
-    } catch (err) {
-      const msg = err?.message || 'ログインに失敗しました';
-      // 接続情報を付加してデバッグしやすく
-      const debug = msg.includes('fetch') ? ` [接続先: ${sbUrlShort}]` : '';
-      setForm(f=>({...f, loading:false, error: msg + debug}));
     }
   };
   return (
@@ -20273,6 +20322,12 @@ function StaffLoginGate({ onLogin }) {
             {form.loading ? <><BusySpin/>ログイン中...</> : 'ログイン'}
           </button>
         </form>
+        {tsuPasskeyAvailable() && (
+          <button type="button" data-testid="passkey-login" onClick={passkeyLogin} disabled={form.loading}
+            style={{width:'100%',marginTop:10,padding:'12px',background:'white',color:'#3d5021',border:'2px solid #94c456',borderRadius:12,fontSize:14,fontWeight:'bold',cursor: form.loading ? 'wait' : 'pointer'}}>
+            パスキーで入る（本部・Touch ID / Face ID）
+          </button>
+        )}
         <div style={{marginTop:18,fontSize:10,color:'#64748b',textAlign:'center',lineHeight:1.7}}>
           ご家族の方は <a href="?family" style={{color:'#5e8030',fontWeight:'bold'}}>こちら</a> からログイン<br/>
           お困りの場合はサポートまでお問い合わせください<br/>
