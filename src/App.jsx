@@ -33341,7 +33341,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                 <colgroup><col style={{width:44}}/>{Array.from({length: N}).map((_, i)=><col key={i}/>)}</colgroup>
                 <tbody>
                   {pr.map((r, ri) => {
-                    const isA=r.status==='欠席'||r.status==='休業'||(r.status!=='振替'&&r.status!=='臨時'&&!ticketHasClinicalData(r)&&isAbsentFromTokki(r.tokki)); // ★ 2026-10-22: 特記の言葉で欠席とみなすのは、数値が1つも入っていない記録だけ(「…で終了」「来週は休み」などで出席の日が空になっていた)
+                    const isA=r.status==='欠席'||r.status==='休業'||r.status==='休止'; // ★ 2026-10-22(ユーザー指示): 出席か欠席かは状態(出席・欠席・休止・休業)だけで決める。特記の言葉(休み・終了など)は見ない
                     const isF=(()=>{try{return new Date(tY,tM-1,r.dayNum)>new Date();}catch{return false;}})();
                     const mt=isF&&r.status==='出席';
                     const v=(x)=>(isA||mt)?'':(x||'');
