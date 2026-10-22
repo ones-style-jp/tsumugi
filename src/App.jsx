@@ -11206,7 +11206,7 @@ const parseExerciseValue = (val) => {
 };
 
 // === 月間スケジュール生成関数 ===
-const generateMonthlySchedule = (patients, year, month, monthlyShifts, ticketRecords, holidays, closedDays) => {
+const generateMonthlySchedule = (patients, year, month, monthlyShifts, ticketRecords, holidays, closedDays, opts) => {
   const results = [];
   const daysInMonth = new Date(year, month, 0).getDate();
   const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
@@ -11252,7 +11252,20 @@ const generateMonthlySchedule = (patients, year, month, monthlyShifts, ticketRec
 
       // ★ 未来日は表示しない(その日を過ぎてから表示)。 空の自動作成記録が未来日に出席で並ぶのを防ぐため無条件で除外。
       const _todayEnd = new Date(); _todayEnd.setHours(23, 59, 59, 999);
-      if (dateObj > _todayEnd) continue;
+      if (dateObj > _todayEnd) {
+        // ★ 2026-10-22(ユーザー要望「本日より後の日付も状態は予定として日付だけでも出す」): 月の表(画面・ダウンロード)から
+        //   呼ぶときだけ(opts.includeFuture)、今日より後の「来る日」(基本利用日・振替・臨時。欠席・休業の日は出さない)を
+        //   状態「予定」・中身は空で出す。月間スケジュールで振替を入れると、その日付の順に並ぶ。ほかの呼び出し(集計・一括出力)は今までどおり。
+        if (!(opts && opts.includeFuture) || !isComing) continue;
+        const _exSt = existing && existing.status;
+        if (_exSt === '欠席' || _exSt === '休業' || _exSt === '休止') continue;
+        results.push({ id: existing?.id || `gen-${patient.id}-${day}`, patientId: patient.id, name: patient.name, kana: patient.kana,
+          date: displayDate, year: existing?.year ?? year, dayNum: day, dayOfWeek: dayNames[dayOfWeek], isBaseDay: isBaseAM || isBasePM,
+          status: '予定', isPlanned: true, temp: '', bpRe: [], bpTSt_AM: '', bpTSt_PM: '', bpTEn_AM: '', bpTEn_PM: '', kinouStaff: '',
+          bpUpSt: '', bpDnSt: '', plSt: '', bpUpEn: '', bpDnEn: '', plEn: '', massage: '', exercises: {}, tokki: '', actualTime: '',
+          kibunArrival: '', kibunArrivalReason: '', kibunDeparture: '', kibunDepartureReason: '', recorder: '', done: false, isEmpty: true });
+        continue;
+      }
 
       let status = "出席";
       if (isHoliday || isClosedDay) status = "休業";
@@ -33734,7 +33747,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
   const fi = appData.systemSettings?.facilityInfo || {};
   const records = useMemo(() => {
     if (!sp) return [];
-    return generateMonthlySchedule([sp], tY, tM, appData.monthlyShifts, appData.ticketRecords || [], appData.holidays, (appData.systemSettings?.facilityInfo?.closedDays||[0])).sort((a, b) => a.dayNum - b.dayNum);
+    return generateMonthlySchedule([sp], tY, tM, appData.monthlyShifts, appData.ticketRecords || [], appData.holidays, (appData.systemSettings?.facilityInfo?.closedDays||[0]), { includeFuture: true }).sort((a, b) => a.dayNum - b.dayNum);
   }, [appData, sp, tY, tM]);
   // ★ 2026-10-02(試験版・ユーザー指示): 提供記録は1日=「バイタル行(状態/気分/体温/血圧/再検)」「運動行(運動すべて+介護整体)」「特記行」の3行。
   //   列は運動項目の数で均等に割る。1ページ5日(備考2行)。用紙(A4横)に必ず収まる高さで固定し、画面にも用紙内にスクロールを出さない。
@@ -33782,7 +33795,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
     while ((cy<ty2 || (cy===ty2 && cm<=tm2)) && months.length<120) { months.push({y:cy,m:cm}); cm++; if(cm>12){cm=1;cy++;} }
     if (months.length === 0) months.push({ y: tY, m: tM });
     return months.map(({y,m}) => {
-      const mRecords = generateMonthlySchedule([sp], y, m, appData.monthlyShifts, appData.ticketRecords || [], appData.holidays, closedDaysTV).sort((a,b)=>a.dayNum-b.dayNum);
+      const mRecords = generateMonthlySchedule([sp], y, m, appData.monthlyShifts, appData.ticketRecords || [], appData.holidays, closedDaysTV, { includeFuture: true }).sort((a,b)=>a.dayNum-b.dayNum);
       const mEx = getExerciseItemsForDate(appData.systemSettings, `${y}-${String(m).padStart(2,'0')}-01`, y) || effExerciseItems(appData.systemSettings);
       const mPlanned = getPlannedExercisesForMonth(sp, y, m);
       const _pp = _perPage((mEx||[]).length);
