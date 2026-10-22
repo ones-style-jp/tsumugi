@@ -5,7 +5,8 @@ import {
   Printer, CheckCircle2, CloudUpload, Loader2, Plus, Trash2, X, FileText, BarChart3, TrendingUp,
   ArrowLeft, ArrowRight, Menu, BookOpen, Lock, Unlock, QrCode, MoveUp, MoveDown, GripVertical, AlertTriangle,
   ChevronLeft, ChevronRight, Save, UserPlus, Clock, CalendarOff, CalendarRange, PenTool, History,
-  ChevronDown, ChevronUp, Thermometer, Heart, Copy, Edit3, Edit2, MessageSquare, Briefcase, Car
+  ChevronDown, ChevronUp, Thermometer, Heart, Copy, Edit3, Edit2, MessageSquare, Briefcase, Car,
+  ArrowUpDown, Maximize2, Undo2, CheckCheck, // ★ 2026-10-22: 上の帯のアイコン(試し)
 } from 'lucide-react';
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
@@ -2014,6 +2015,23 @@ const tsuPcBrowserZoom = () => { try {
 // ★ 2026-10-11(ユーザー報告: iPad でしばらくしてからログインすると、見出し・上部のメニューが白いまま/見出しがぼやけて見える。縦にして横に戻すと直る):
 //   iPad の Safari が画面の一部を古い描画のまま出し続ける。部品を消して出し直す(display)だけでは大きさが同じなので描き直されないことがあるため、
 //   回転と同じように「アプリ全体の高さを 2 フレームだけ 1px 変える」ことで、画面全体を描き直させる。iPad/PC 幅の iPhone・iPad だけ(スマホ幅はページ全体のスクロールなので触らない)
+// ★ 2026-10-22(ユーザー「何もしないとかすれていて、文字の入力でキーボードが出るとかすみがなくなる」): iPad で上の帯などがかすれる件の3回目の対策。
+//   入力欄を押したときは表示設定の「拡大の上限」を一瞬 1倍にしている(tsuInstallIosFocusZoomGuard)。そのとき iPad が倍率を計算し直して全体を描き直すため、かすみが消える。
+//   同じ切り替えを、描き直しの最後に 0.35秒だけ行う(指で拡大している最中・入力欄を使っている最中はしない。その間に入力欄の処理が変えたときは戻さない)
+let _tsuNudgeT = null, _tsuNudgePrev = null, _tsuNudgeTmp = null;
+const tsuScaleNudge = () => { try {
+  if (!tsumugiIsIOS() || tsuViewW() < 768) return;
+  const vv = window.visualViewport; if (vv && Math.abs(vv.scale - 1) > 0.01) return;
+  const ae = document.activeElement; if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;
+  const m = document.querySelector('meta[name="viewport"]'); if (!m) return;
+  // 切り替え中にもう一度呼ばれたら、時間だけ延ばす(元の設定は最初に控えたもの。重なって 1倍のまま戻らなくなるのを防ぐ)
+  if (!_tsuNudgeT) {
+    const prev = m.getAttribute('content') || ''; const mx = /maximum-scale=([\d.]+)/.exec(prev); const cur = mx ? parseFloat(mx[1]) : NaN;
+    const tmp = !mx ? `${prev}, maximum-scale=1.0` : (Math.abs(cur - 1) < 0.001 ? prev.replace(/maximum-scale=[\d.]+/, 'maximum-scale=1.01') : prev.replace(/maximum-scale=[\d.]+/, 'maximum-scale=1.0'));
+    _tsuNudgePrev = prev; _tsuNudgeTmp = tmp; m.setAttribute('content', tmp); window.__tsuScaleNudged = (window.__tsuScaleNudged || 0) + 1;
+  } else clearTimeout(_tsuNudgeT);
+  _tsuNudgeT = setTimeout(() => { try { _tsuNudgeT = null; if (m.getAttribute('content') === _tsuNudgeTmp) m.setAttribute('content', _tsuNudgePrev); } catch {} }, 350);
+} catch {} };
 const tsuForceRepaint = () => { try {
   if (!tsumugiIsIOS() || tsuViewW() < 768) return;
   const el = document.querySelector('.tsu-app-root'); if (!el || el.dataset.tsuRp === '1') return;
@@ -2026,13 +2044,14 @@ const tsuForceRepaint = () => { try {
   //   しばらく置いて開き直すと写しが上に残ることがある(Web 側の描き直しでは剥がれず、回転=画面の作り直しで消える)。
   //   回転と同じ作り直しを起こすため、表示設定(viewport)を2フレームだけ切り替えて戻す(見た目は変わらない)。ホーム画面のアプリのときだけ
   let meta = null, prevMeta = '';
-  // ★ 2026-10-16: 指で拡大している間は表示設定を切り替えない(拡大が戻るため)
-  try { if (!(window.visualViewport && window.visualViewport.scale > 1.01) && (navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches))) { meta = document.querySelector('meta[name="viewport"]'); if (meta) { prevMeta = meta.getAttribute('content') || ''; meta.setAttribute('content', prevMeta.replace('viewport-fit=cover', 'viewport-fit=contain')); } } } catch {}
-  const parts = [document.querySelector('header.tsu-app-header'), document.querySelector('[data-testid="app-sidebar"]')].filter(Boolean);
-  parts.forEach(x => { x.dataset.tsuOp = x.style.opacity || ''; x.style.opacity = '0.99'; });
+  // ★ 2026-10-22(ユーザー報告「上の帯と左のメニューの上がかすれる」): 表示設定(viewport)の切り替えはやめた(かすれて見えるのはこの切り替えと下の別の層の処理をかけた2か所だけだったため)。
+  //   白い幕は 2026-10-22 から本文の部分だけに掛けるので、上の帯・左のメニューに幕の跡は残らない
+  const parts = []; // ★ 2026-10-22: 上の帯・左のメニューを一瞬だけ別の層にする処理(opacity 0.99)もやめた(その層が1px違う幅で描かれたまま引き伸ばされ、かすれて見えていたとみる)
   requestAnimationFrame(() => requestAnimationFrame(() => { try { el.style.height = prevH; el.style.width = prevW; delete el.dataset.tsuRp;
     parts.forEach(x => { x.style.opacity = x.dataset.tsuOp || ''; delete x.dataset.tsuOp; });
-    if (meta) meta.setAttribute('content', prevMeta); } catch {} }));
+    if (meta) meta.setAttribute('content', prevMeta);
+    // ★ 2026-10-22(ユーザー報告「ログインや再表示のあと、縦でも横でもタブレットの上部がかすれる」): 描き直しのあと、上の帯を作り直して新しく描かせる(App が tsu:hdr-remount で key を変える)
+    setTimeout(() => { try { window.dispatchEvent(new Event('tsu:hdr-remount')); } catch {} }, 120); setTimeout(tsuScaleNudge, 200); } catch {} }));
 } catch {} };
 // ★ 2026-10-05(ユーザー要望「印刷位置が目視でわかるように」): 連絡帳の用紙上の配置(mm)。ContactBookView._layoutRenraku と同じ数値
 //   (あちらを変えたらここも合わせる)。印刷設定の「印刷位置の微調整」の図に使う
@@ -11185,7 +11204,7 @@ const parseExerciseValue = (val) => {
 };
 
 // === 月間スケジュール生成関数 ===
-const generateMonthlySchedule = (patients, year, month, monthlyShifts, ticketRecords, holidays, closedDays) => {
+const generateMonthlySchedule = (patients, year, month, monthlyShifts, ticketRecords, holidays, closedDays, opts) => {
   const results = [];
   const daysInMonth = new Date(year, month, 0).getDate();
   const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
@@ -11231,7 +11250,26 @@ const generateMonthlySchedule = (patients, year, month, monthlyShifts, ticketRec
 
       // ★ 未来日は表示しない(その日を過ぎてから表示)。 空の自動作成記録が未来日に出席で並ぶのを防ぐため無条件で除外。
       const _todayEnd = new Date(); _todayEnd.setHours(23, 59, 59, 999);
-      if (dateObj > _todayEnd) continue;
+      if (dateObj > _todayEnd) {
+        // ★ 2026-10-22(ユーザー要望「本日より後の日付も状態は予定として日付だけでも出す」): 月の表(画面・ダウンロード)から
+        //   呼ぶときだけ(opts.includeFuture)、今日より後の「来る日」(基本利用日・振替・臨時)を
+        //   状態「予定」・中身は空で出す。月間スケジュールで振替を入れると、その日付の順に並ぶ。ほかの呼び出し(集計・一括出力)は今までどおり。
+        //   ★ 同日(ユーザー指示「欠席も普通に欠席として表示して大丈夫」): 欠席・休業の日も、過ぎた日と同じ決め方で「欠席」「休業」と出す。
+        if (!(opts && opts.includeFuture)) continue;
+        let _fSt = '出席';
+        if (isHoliday || isClosedDay) _fSt = '休業';
+        else if (stateAM === '欠席' || statePM === '欠席') _fSt = '欠席';
+        const _exSt = (existing && existing.status) || _fSt;
+        const _fComing = _exSt === '出席' || _exSt === '振替' || _exSt === '臨時';
+        if (_fComing && !isComing) continue;
+        results.push({ id: existing?.id || `gen-${patient.id}-${day}`, patientId: patient.id, name: patient.name, kana: patient.kana,
+          date: displayDate, year: existing?.year ?? year, dayNum: day, dayOfWeek: dayNames[dayOfWeek], isBaseDay: isBaseAM || isBasePM,
+          status: _fComing ? '予定' : _exSt, isPlanned: _fComing, temp: '', bpRe: [], bpTSt_AM: '', bpTSt_PM: '', bpTEn_AM: '', bpTEn_PM: '', kinouStaff: '',
+          bpUpSt: '', bpDnSt: '', plSt: '', bpUpEn: '', bpDnEn: '', plEn: '', massage: '', exercises: {}, tokki: '', actualTime: '',
+          kibunArrival: '', kibunArrivalReason: '', kibunDeparture: '', kibunDepartureReason: '', recorder: '', done: false, isEmpty: true,
+          ...(_fComing ? {} : { tokki: existing?.tokki || (_exSt === '休業' ? (isHoliday ? ((((holidays||[]).find(x=>(x&&(x.date||x))===dateStr))||{}).name || '休業日') : (isClosedDay ? '定休日' : '')) : '') }) });
+        continue;
+      }
 
       let status = "出席";
       if (isHoliday || isClosedDay) status = "休業";
@@ -21732,13 +21770,16 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     if (typeof window === 'undefined') return true;
     // ★ 2026-10-09(ユーザー要望・スマホ限定): ログインしたら(起動したら)サイドバーは閉じた状態にし、ホーム画面の全体が見えるように(開閉の記憶は使わない)
-    if (tsuViewW() < 768) return false;
+    // ★ 2026-10-22: 縦向きのタブレット(1024px 未満)も同じ(メニューは本文の上に重ねて出すため)
+    if (tsuViewW() < 1024) return false;
     // ★ ユーザーが開閉ボタンで選んだ状態を記憶して復元(2026-08-11)。 従来は毎回「画面幅>=768」で
     //   自動判定していたため、再読み込みや更新のたびに設定が初期化され「常に表示にしているのに
     //   表示されない」ことがあった。 記憶が無い端末は従来どおり画面幅で判定。
     try { const s = localStorage.getItem('tsumugiSidebarOpen'); if (s === '1') return true; if (s === '0') return false; } catch {}
     return tsuViewW() >= 768;
   });
+  // ★ 2026-10-22: 横向き(並べて出す)から縦向き(重ねて出す・1024px 未満)に回したら、メニューを閉じる(本文に重なったままにしない)
+  React.useEffect(() => { let wide = tsuViewW() >= 1024; const on = () => { const w = tsuViewW() >= 1024; if (wide && !w) setIsSidebarOpen(false); wide = w; }; window.addEventListener('resize', on); return () => window.removeEventListener('resize', on); }, []);
   // ★ iOS Safari 対策: サイドバー開閉で flex レイアウトが変わると position:sticky が再計算されず、
   //   上部バー(期間/利用者選択/ジャンプ等)が固定されなくなる。 開閉のたびにメイン領域を一瞬だけ
   //   reflow させて sticky を強制再計算させる (同一タスク内なので画面のちらつきは出ない)。
@@ -21830,7 +21871,8 @@ export default function App() {
   //   ②の安全策で縮小をやめたとき、実際の幅のまま並べていたため列が詰まって文字が切れていた。
   //   縮小が効かないときは 1100px のまま(文字の大きさを変えず)横スクロールで見る。縮小の幅指定も % ではなく px にする(iPad の WebKit で効きやすい)
   const [zoomOff, setZoomOff] = useState(false);
-  const _zoomNear1 = contentScale >= 0.94 && !pcZoomWide; // ★ 2026-10-16: PC で拡大したときは 1100px のまま(幅に押し込めると列が詰まる)
+  // ★ 2026-10-22(ユーザー要望「全ての画面の大きさに対応」): タブレット・パソコンでは縮めない(縮めずに並べる)。以前は 1100px に足りないと縮め、10〜11インチの縦で文字が 4〜7px になっていた
+  const _zoomNear1 = true || (contentScale >= 0.94 && !pcZoomWide); // eslint-disable-line no-constant-binary-expression
   const _zoomActive = !_zoomNear1 && !zoomOff;
   const _zoomScroll = !_zoomNear1 && zoomOff;
   // ★ 2026-10-06: 一度 72% を下限にしたが、上部のボタン(ダウンロード等)が右へはみ出して見えなくなるため、下限なしで幅に合わせる
@@ -21863,6 +21905,9 @@ export default function App() {
   //   (サイドバーの項目名が白地に薄く透けて見える=幕つきの描画)。幕を一瞬で消すと、その下で変わらない所(見出し・上部の帯・サイドバー)が
   //   描き直されず幕つきのまま残ることがある。幕は0.3秒かけて薄くしてから外す(薄くなる間ずっと画面が更新されるので古い描画が残らない)
   const [_ovFading, _setOvFading] = useState(false);
+  // ★ 2026-10-22: iPad で上の帯がかすれる件の2回目の対策。描き直し(tsuForceRepaint)のあとに上の帯を作り直す(新しい要素として描かれる)
+  const [_hdrKey, _setHdrKey] = useState(0);
+  useEffect(() => { const on = () => _setHdrKey(k => (k + 1) % 1000); window.addEventListener('tsu:hdr-remount', on); return () => window.removeEventListener('tsu:hdr-remount', on); }, []);
   // ★ 2026-10-22(ユーザー報告「ホーム画面のアプリで上部の文字がかすれる」): 白い幕は本文の部分だけ。上の帯・左のメニューに白い幕の描き跡が残らないように
   const _ovBox = (() => { if (!_tsuLoadingOv && !_ovFading) return null; try { if (tsuViewW() < 768) return null; const m = document.getElementById('appMainArea'); const h = m && m.querySelector('header.tsu-app-header'); if (!m || !h) return null; const r = m.getBoundingClientRect(); const hb = h.getBoundingClientRect(); if (!(r.width > 200 && hb.bottom > 0)) return null; return { top: Math.round(hb.bottom), left: Math.max(0, Math.round(r.left)), right: 0, bottom: 0 }; } catch { return null; } })();
   const _ovWasRef = React.useRef(_tsuLoadingOv);
@@ -22965,7 +23010,7 @@ export default function App() {
   }, []);
 
   // ★ 2026-10-09(ユーザー要望・スマホ限定): サイドバーの項目(連絡帳・日誌など)を押したら、自動でサイドバーを閉じる
-  const _sideNav = (...a) => { try { if (tsuViewW() < 768) setIsSidebarOpen(false); } catch {} navigateTo(...a); };
+  const _sideNav = (...a) => { try { if (tsuViewW() < 1024) setIsSidebarOpen(false); } catch {} navigateTo(...a); }; // ★ 2026-10-22: 重ねて出す幅(1024px 未満)では画面を移ったら閉じる
   const navigateTo = (view, patientId = null, focus = null) => {
     if (view !== 'master' && view !== 'ticket') { try { sessionStorage.removeItem('tsumugiPFOrigin'); } catch {} }
     const isDirty = (currentView === 'record' && recordDirtyRef.current) ||
@@ -23784,17 +23829,17 @@ export default function App() {
         document.body
       )}
 
-      {/* ★ モバイル時のサイドバー背景オーバーレイ (タップで閉じる) */}
+      {/* ★ モバイル時のサイドバー背景オーバーレイ (タップで閉じる)。★ 2026-10-22: 縦向きのタブレット(1024px 未満)も重ねて出すので同じ */}
       {isSidebarOpen && (
-        <div onClick={()=>setIsSidebarOpen(false)} className="md:hidden fixed inset-0 bg-black/50 z-40" aria-hidden="true"/>
+        <div onClick={()=>setIsSidebarOpen(false)} className="lg:hidden fixed inset-0 bg-black/50 z-40" aria-hidden="true"/>
       )}
       {/* ★ 2026-10-08(ユーザー報告「スマホ縦でサイドバーのメニューが消える。横にして縦に戻すと出る」): iPhone の WebKit は、
           幅0・透明から開く(幅と透明度のアニメーション)と、中のスクロール枠(メニュー)を描かないことがある。
           スマホ幅は常に幅256pxのまま画面の左外から滑り込ませる(transform)。iPad・PC(md以上)は従来どおり幅の開閉 */}
       <div data-testid="app-sidebar" className={`no-print bg-slate-900 text-slate-300 flex flex-col shadow-2xl ${
         isSidebarOpen
-          ? `w-64 fixed inset-y-0 left-0 z-50 translate-x-0 transition-transform duration-300 ${tsumugiIsIOS() ? 'md:transition-none' : 'md:transition-all'} md:transform-none md:relative md:flex-shrink-0 md:z-auto md:opacity-100`
-          : `w-64 fixed inset-y-0 left-0 z-50 -translate-x-full invisible md:visible transition-transform duration-300 ${tsumugiIsIOS() ? 'md:transition-none' : 'md:transition-all'} md:transform-none md:relative md:translate-x-0 md:w-0 md:opacity-0 md:overflow-hidden md:flex-shrink-0 md:z-auto`
+          ? `w-64 fixed inset-y-0 left-0 z-50 translate-x-0 transition-transform duration-300 ${tsumugiIsIOS() ? 'lg:transition-none' : 'lg:transition-all'} lg:transform-none lg:relative lg:flex-shrink-0 lg:z-auto lg:opacity-100`
+          : `w-64 fixed inset-y-0 left-0 z-50 -translate-x-full invisible lg:visible transition-transform duration-300 ${tsumugiIsIOS() ? 'lg:transition-none' : 'lg:transition-all'} lg:transform-none lg:relative lg:translate-x-0 lg:w-0 lg:opacity-0 lg:overflow-hidden lg:flex-shrink-0 lg:z-auto`
       }`}>
           <div className="w-64 h-full flex flex-col">
             <div className="h-16 flex items-center px-5 border-b" style={{background:'#fafef1',borderColor:'#d4e7a5'}}>
@@ -24060,7 +24105,7 @@ export default function App() {
       </div>
 
       <div id="appMainArea" className="flex-1 flex flex-col overflow-hidden bg-slate-50 relative min-w-0">
-          <header className="tsu-app-header h-12 bg-white border-b border-slate-200 flex items-center justify-between px-3 md:px-6 z-10 shadow-sm flex-shrink-0">
+          <header key={`hdr${_hdrKey}`} className="tsu-app-header h-12 bg-white border-b border-slate-200 flex items-center justify-between px-3 md:px-6 z-10 shadow-sm flex-shrink-0">
             <div className="flex items-center min-w-0 flex-1">
               <button onClick={() => { const nv = !isSidebarOpen; try { localStorage.setItem('tsumugiSidebarOpen', nv ? '1' : '0'); } catch {} setIsSidebarOpen(nv); }} className="p-2 mr-2 md:mr-4 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors outline-none flex-shrink-0"><Menu size={22} /></button>
               <h1 className="text-base md:text-lg font-bold text-slate-700 truncate whitespace-nowrap">
@@ -25083,6 +25128,11 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   //   記録者とは別に「個別機能訓練の実施担当(機能訓練指導員)」を持つ。既定=各種設定の担当職員で最初に登録された機能訓練指導員。
   //   行ごとに変えることもでき(2人が別々の利用者を担当する場合)、「未算定」も選べる。提供記録の印刷に「個別: ○○」と出る。
   const _kinouOn = !!appData.systemSettings?.facilityInfo?.kobetsuKinouAddon;
+  // ★ 2026-10-22: 上の帯の試し(この端末だけ)。'1'=アイコン＋短い文字 / 's'=短い文字だけ(アイコンは1つで約19px 幅が増えるため) / それ以外=今まで
+  //   ★ 同日夕(ユーザー指示「アイコンは無しでいい」): アイコン＋短い文字はやめ、前に選んでいた端末('1')も短い文字だけにする
+  const _iconMode = React.useMemo(() => { try { const v = localStorage.getItem('tsuIconBar'); return tsuViewW() >= 768 && (v === '1' || v === 's') ? 's' : ''; } catch { return ''; } }, []);
+  const _iconBar = !!_iconMode;
+  const _ib = (Icon, txt) => _iconMode === 's' ? txt : <span className="inline-flex items-center gap-1"><Icon size={15} strokeWidth={2.4}/>{txt}</span>;
   const _kinouList = Array.from(new Set((appData.diarySettings?.staff || []).filter(st => st && st.name && !st._tempHelp && (st.role === '機能訓練指導員' || st.role2 === '機能訓練指導員')).map(st => String(st.name).trim()).filter(Boolean)));
   // ★ 2026-09-29 ユーザー指示: 上部の値は画面の state ではなく各行(kinouStaff_AM/PM)から求める(他画面から戻っても・AM/PMを切り替えても正しく出る)。
   //   上部で選ぶ=その区分の全員に適用、「利用者ごと」パネルで個別に変更。既定(未入力)は最初の機能訓練指導員。
@@ -26320,20 +26370,20 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       } : {}),
     }}>
       {!isFullscreen ? (
-      <TsuPhoneFold storageKey="record" summary={(() => { const _d = new Date(selectedDate + 'T00:00:00'); return (<>
-        <TsuDatePick testId="rec-fold-date" value={selectedDate} label={isNaN(_d) ? '日付' : `${_d.getMonth()+1}/${_d.getDate()}(${'日月火水木金土'[_d.getDay()]})`}
+      <TsuPhoneFold storageKey="record" summary={(() => { const _d = new Date(selectedDate + 'T00:00:00'); const _foldNarrow = tsuViewW() < 390; /* ★ 2026-10-22: 360〜375px で「保存」が切れていた → 曜日を外す */ return (<>
+        <TsuDatePick testId="rec-fold-date" value={selectedDate} label={isNaN(_d) ? '日付' : (_foldNarrow ? `${_d.getMonth()+1}/${_d.getDate()}` : `${_d.getMonth()+1}/${_d.getDate()}(${'日月火水木金土'[_d.getDay()]})`)}
           onChange={v => { const closed=(appData.systemSettings?.facilityInfo?.closedDays||[0]); setSelectedDate(nearestOpenDate(v, closed, [])); }} />
         <div className="flex rounded-lg overflow-hidden border border-slate-300 shrink-0">
-          {['AM','PM'].map(v=>(<button key={v} type="button" onClick={()=>setTimeFilter(v)} className={`px-2 h-10 text-sm font-bold ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600'}`}>{v}</button>))}
+          {['AM','PM'].map(v=>(<button key={v} type="button" onClick={()=>setTimeFilter(v)} className={`${_foldNarrow ? 'px-1.5' : 'px-2'} h-10 text-sm font-bold ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600'}`}>{v}</button>))}
         </div>
         {/* ★ 2026-10-16: 利用者を選んでそのカードへ移る */}
-        <button type="button" data-testid="rec-fold-jump" onClick={openRecJump} aria-expanded={!!recJump} className={`shrink-0 h-10 px-2 rounded-lg text-sm font-bold border ${recJump ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-700 border-slate-300'}`}>利用者</button>
+        <button type="button" data-testid="rec-fold-jump" onClick={openRecJump} aria-expanded={!!recJump} className={`shrink-0 h-10 ${_foldNarrow ? 'px-1.5' : 'px-2'} rounded-lg text-sm font-bold border ${recJump ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-700 border-slate-300'}`}>利用者</button>
         {/* ★ 2026-10-08(ユーザー要望): 出席・欠席などの人数も1行目に(小さく2段)。連絡帳は「操作」の中へ */}
         {/* ★ 2026-10-16: 1行目に「利用者」を入れたので、出席・欠席などの人数は「利用者」の一覧の上に移した(1行目では潰れて読めないため) */}
-        <button type="button" data-testid="rec-fold-save" onClick={()=>handleSaveClick(false)} className="whitespace-nowrap shrink-0 h-10 px-2 rounded-xl bg-blue-600 text-white text-sm font-bold ml-auto">保存</button>
+        <button type="button" data-testid="rec-fold-save" onClick={()=>handleSaveClick(false)} className={`whitespace-nowrap shrink-0 h-10 ${_foldNarrow ? 'px-1.5' : 'px-2'} rounded-xl bg-blue-600 text-white text-sm font-bold ml-auto`}>保存</button>
       </>); })()}>
       <>
-      <div data-testid="rec-toolbar" className="bg-white px-2 py-2 sm:px-4 sm:py-3 rounded-2xl shadow-sm border border-slate-200 flex flex-row items-center gap-2 sm:gap-3 flex-wrap flex-shrink-0 sticky top-0 z-30 mb-2 sm:mb-4">
+      <div data-testid="rec-toolbar" data-iconbar={_iconBar ? '1' : undefined} className={`bg-white px-2 py-2 ${_iconBar ? 'sm:px-3 sm:py-2.5 sm:gap-2' : 'sm:px-4 sm:py-3 sm:gap-3'} rounded-2xl shadow-sm border border-slate-200 flex flex-row items-center gap-2 flex-wrap flex-shrink-0 sticky top-0 z-30 mb-2 sm:mb-4`}>
             {/* ★ 「本日/月全体」トグルは廃止。 月全体は「提供記録(月次)」で確認できるため、当日のみ表示。 */}
             {/* ★ 2026-10-07(店舗報告: スマホ縦で上部のボタンが2段にずれて並ぶ): スマホ幅は 1段目=日付(残りの幅いっぱい)+AM/PM、
                 2段目=並び替え+人数、3段目=個別機能訓練、4段目=連絡帳/全画面/元に戻す/保存 を同じ幅の4つ並びにそろえる。iPad・PCは従来どおり */}
@@ -26345,15 +26395,15 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   //   休業日の記録確認や事後入力ができないと困るため)。
                   const closed=(appData.systemSettings?.facilityInfo?.closedDays||[0]);
                   setSelectedDate(nearestOpenDate(e.target.value, closed, []));
-                }} className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold outline-none cursor-pointer text-slate-700 hidden sm:block sm:shrink-0" style={{minHeight:40,minWidth:150}} />
+                }} className={`bg-slate-50 border border-slate-300 rounded-xl ${_iconBar ? 'px-2' : 'px-3'} py-2 text-sm font-bold outline-none cursor-pointer text-slate-700 hidden sm:block sm:shrink-0`} style={{minHeight:40,minWidth:_iconBar ? 128 : 150, ...(_iconBar ? { width: 138 } : {})}} />
                   {/* ★ 2026-10-08(ユーザー指示): スマホは1行目(要約)に AM/PM・保存・連絡帳があるので、開いた中には出さない */}
                   <div className="hidden sm:flex rounded-xl overflow-hidden border border-slate-300 shrink-0">
                     {['AM','PM'].map(v=>(
                       <button key={v} type="button" onClick={()=>setTimeFilter(v)}
-                        className={`px-4 py-2 text-sm font-bold transition-all shrink-0 ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-50'}`}>{v}</button>
+                        className={`${_iconBar ? 'px-3' : 'px-4'} py-2 text-sm font-bold transition-all shrink-0 ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-50'}`}>{v}</button>
                     ))}
                   </div>
-                  <button type="button" data-testid="rec-order-btn" onClick={() => setRecOrderOpen(true)} title={_recOrderOn ? `${_recOrderLabel}のクラスは保存した並び順です（押すと並べ替え・消去）` : `${_recOrderLabel}のクラスの並び順を変えます（ほかの曜日・時間帯はそのまま）`} className={`px-3 py-2 rounded-xl text-sm font-bold border shrink-0 ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}>並び替え</button>
+                  <button type="button" data-testid="rec-order-btn" onClick={() => setRecOrderOpen(true)} title={_recOrderOn ? `${_recOrderLabel}のクラスは保存した並び順です（押すと並べ替え・消去）` : `${_recOrderLabel}のクラスの並び順を変えます（ほかの曜日・時間帯はそのまま）`} className={`${_iconBar ? 'px-2.5' : 'px-3'} py-2 rounded-xl text-sm font-bold border shrink-0 ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}>{_iconBar ? _ib(ArrowUpDown, '並替') : '並び替え'}</button>
                   {recOrderOpen && <RecordOrderModal rows={_recOrderRows} label={_recOrderLabel} onSave={saveRecordOrder} onReset={_recOrderOn ? resetRecordOrder : null} onClose={() => setRecOrderOpen(false)}/>}
                   {attCountChips && <div className="hidden sm:block">{attCountChips}</div>}
               </div>
@@ -26382,7 +26432,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             {/* ★ 2026-09-29 ユーザー指示: 「氏名で検索」は使わないため非表示(検索の仕組み自体は残す) */}
             {_kinouOn && (
               <div data-testid="kinou-box" className="relative flex items-center gap-1 sm:gap-1.5 bg-emerald-50 border border-emerald-200 rounded-xl px-1.5 sm:px-2 py-1 flex-1 min-w-0 sm:flex-none" title="個別機能訓練をした指導員。選ぶと表示中の全員に入ります（人ごとは「利用者ごと」）">
-                <span className="text-[10px] sm:text-[11px] font-bold text-emerald-800 whitespace-nowrap leading-tight text-center shrink-0">個別機能訓練<br/>実施者</span>
+                <span className="text-[10px] sm:text-[11px] font-bold text-emerald-800 whitespace-nowrap leading-tight text-center shrink-0">{_iconBar ? <>個別<br/>実施</> : <>個別機能訓練<br/>実施者</>}</span>
                 <select data-testid="kinou-default" value={_kinouEff} disabled={!isEditMode} onChange={e=>applyKinouAll(e.target.value)} className="text-sm font-bold bg-white border border-emerald-300 rounded-lg px-1 sm:px-2 py-1 outline-none disabled:opacity-60 min-w-0 flex-1 sm:flex-none">
                   {!_kinouList.includes(_kinouEff) && _kinouEff && _kinouEff !== '未算定' && <option value={_kinouEff}>{_kinouEff}</option>}
                   {_kinouList.map(n => <option key={n} value={n}>{n}</option>)}
@@ -26460,13 +26510,13 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             {/* ★ 2026-10-21(ユーザー要望「印の数と外すは上の帯に。表が一段下がると目が疲れる」): 印が無いときも見えないまま場所だけ取り、出し入れで高さを変えない */}
             <div data-testid="rv-marks-bar" aria-hidden={_rvMarks.length ? undefined : true} title="名前を長押しで印の付け外し（この端末の表示だけ）"
               className="no-print hidden sm:inline-flex items-center gap-1.5 shrink-0 h-10 pl-2.5 pr-1 rounded-xl bg-yellow-50 border border-yellow-300 text-[13px] font-bold text-yellow-900"
-              style={{visibility: _rvMarks.length ? 'visible' : 'hidden', minWidth: '7.5rem'}}>
+              style={{visibility: _rvMarks.length ? 'visible' : 'hidden', minWidth: _iconBar ? '6rem' : '7.5rem'}}>
               <span className="whitespace-nowrap">印 {_rvMarks.length}名</span>
               <button type="button" data-testid="rv-marks-clear" tabIndex={_rvMarks.length ? 0 : -1} onClick={() => _setRvMarks([])} className="ml-auto h-8 px-2 rounded-lg bg-white border border-yellow-400 text-yellow-900 text-[12px] whitespace-nowrap">外す</button>
             </div>
             </>)}
             <div data-testid="rec-actions" className={`w-full sm:w-auto sm:ml-auto grid ${filterMode === 'single' ? 'grid-cols-4' : 'grid-cols-3'} sm:flex items-center gap-1.5 sm:gap-2 sm:flex-wrap`}>
-              {filterMode === 'single' && <button type="button" data-testid="rec-act-bulkex" onClick={() => setBulkExOpen(true)} className="order-last sm:order-none bg-white border border-indigo-300 text-indigo-700 hover:bg-indigo-50 px-1 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="出席している方の運動をまとめて○にします(行わなかった方は×に)">一括○</button>}
+              {filterMode === 'single' && <button type="button" data-testid="rec-act-bulkex" onClick={() => setBulkExOpen(true)} className="order-last sm:order-none bg-white border border-indigo-300 text-indigo-700 hover:bg-indigo-50 px-1 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="出席している方の運動をまとめて○にします(行わなかった方は×に)">{_iconBar ? _ib(CheckCheck, '一括○') : '一括○'}</button>}
               {bulkExOpen && ReactDOM.createPortal(<TsuBulkExerciseModal
                 rows={(displayRecords || []).filter(r => ['出席', '臨時', '振替'].includes(r.status || '出席'))}
                 items={effExerciseItems(appData.systemSettings).filter(it => it.type !== 'individual')}
@@ -26475,14 +26525,14 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 onApply={(cells) => { let n = 0; Object.entries(cells).forEach(([k, v]) => { const i = k.lastIndexOf('|'); const rid = k.slice(0, i), fld = k.slice(i + 1); const r = (displayRecords || []).find(x => String(x.id) === rid); if (!r) return; updateExercise(r.id, fld, v === 'o' ? '○' : '×'); n++; }); setBulkExOpen(false); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `${n}件を入れました。内容を確かめて「保存」を押してください` } })); } catch {} }}
               />, document.body)}
               {/* ★ 連絡帳は一番左(全画面の左)に配置(2026-08-28 店舗要望) */}
-              <button data-testid="rec-act-renraku" onClick={() => { handleSaveClick(); navigateTo('print'); }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 sm:px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap">連絡帳</button>
+              <button data-testid="rec-act-renraku" onClick={() => { handleSaveClick(); navigateTo('print'); }} className={`bg-emerald-600 hover:bg-emerald-700 text-white px-2 ${_iconBar ? 'sm:px-2.5' : 'sm:px-4'} py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap`}>{_iconBar ? _ib(Printer, '連絡帳') : '連絡帳'}</button>
               <button onClick={()=>setIsFullscreen(v=>!v)} className="bg-slate-700 hover:bg-slate-800 text-white px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title={isFullscreen?'通常表示':'全画面表示'}>
-                {isFullscreen ? '通常表示' : '全画面'}
+                {isFullscreen ? '通常表示' : (_iconBar ? _ib(Maximize2, '全画面') : '全画面')}
               </button>
-              <button onClick={()=>setRestoreModal(true)} className="bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="保存した記録を丸ごと復元(元に戻す)">元に戻す</button>
+              <button onClick={()=>setRestoreModal(true)} className="bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="保存した記録を丸ごと復元(元に戻す)">{_iconBar ? _ib(Undo2, '戻す') : '元に戻す'}</button>
               {/* ★ onClick={handleSaveClick} だとクリックイベントが第1引数(auto)に渡り auto=truthy(自動保存扱い)になり、
                   「保存しました」が出ず担当者チェックも飛ばされていた。 明示的に auto=false で呼ぶ。 */}
-              <button onClick={()=>handleSaveClick(false)} className="hidden sm:block bg-blue-600 hover:bg-blue-700 text-white px-2 sm:px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap">保存</button>
+              <button onClick={()=>handleSaveClick(false)} className={`hidden sm:block bg-blue-600 hover:bg-blue-700 text-white px-2 ${_iconBar ? 'sm:px-3' : 'sm:px-4'} py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap`}>{_iconBar ? _ib(Save, '保存') : '保存'}</button>
             </div>
       </div>
       {_vitalPanel}
@@ -32714,7 +32764,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         </div>
       )}
 
-      <div id="print-content-operation" className={`tsu-ph-cards${opsNarrow ? '' : ' tsu-wide'}`} style={{padding:'16px 20px',maxWidth:960,margin:'0 auto'}}>
+      <div id="print-content-operation" className={`tsu-ph-cards${opsNarrow ? '' : ' tsu-wide'}`} style={{padding:'16px 20px',maxWidth:960,margin:'0 auto',...((opsNarrow && tsuViewW() >= 768) ? { width: 960, minWidth: 960, boxSizing: 'border-box' } : {})}}>{/* ★ 2026-10-22: 縮めなくなったので、タブレット・パソコンのダウンロードの間は幅を960pxちょうどに(画面の幅で紙が変わらないように) */}
 
         {/* 1. 月全体稼働率 */}
         <div id="ops-rate" data-sec="ops-rate" style={{scrollMarginTop:170}}/>
@@ -33469,7 +33519,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
   const fi = appData.systemSettings?.facilityInfo || {};
   const records = useMemo(() => {
     if (!sp) return [];
-    return generateMonthlySchedule([sp], tY, tM, appData.monthlyShifts, appData.ticketRecords || [], appData.holidays, (appData.systemSettings?.facilityInfo?.closedDays||[0])).sort((a, b) => a.dayNum - b.dayNum);
+    return generateMonthlySchedule([sp], tY, tM, appData.monthlyShifts, appData.ticketRecords || [], appData.holidays, (appData.systemSettings?.facilityInfo?.closedDays||[0]), { includeFuture: true }).sort((a, b) => a.dayNum - b.dayNum);
   }, [appData, sp, tY, tM]);
   // ★ 2026-10-02(試験版・ユーザー指示): 提供記録は1日=「バイタル行(状態/気分/体温/血圧/再検)」「運動行(運動すべて+介護整体)」「特記行」の3行。
   //   列は運動項目の数で均等に割る。1ページ5日(備考2行)。用紙(A4横)に必ず収まる高さで固定し、画面にも用紙内にスクロールを出さない。
@@ -33517,7 +33567,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
     while ((cy<ty2 || (cy===ty2 && cm<=tm2)) && months.length<120) { months.push({y:cy,m:cm}); cm++; if(cm>12){cm=1;cy++;} }
     if (months.length === 0) months.push({ y: tY, m: tM });
     return months.map(({y,m}) => {
-      const mRecords = generateMonthlySchedule([sp], y, m, appData.monthlyShifts, appData.ticketRecords || [], appData.holidays, closedDaysTV).sort((a,b)=>a.dayNum-b.dayNum);
+      const mRecords = generateMonthlySchedule([sp], y, m, appData.monthlyShifts, appData.ticketRecords || [], appData.holidays, closedDaysTV, { includeFuture: true }).sort((a,b)=>a.dayNum-b.dayNum);
       const mEx = getExerciseItemsForDate(appData.systemSettings, `${y}-${String(m).padStart(2,'0')}-01`, y) || effExerciseItems(appData.systemSettings);
       const mPlanned = getPlannedExercisesForMonth(sp, y, m);
       const _pp = _perPage((mEx||[]).length);
@@ -33604,6 +33654,9 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
           const bands = ex.length > TK_EX_PER_ROW ? [ex.slice(0, TK_EX_PER_ROW), [...ex.slice(TK_EX_PER_ROW), _mg]] : [[...ex, _mg]];
           const _minN = (1 + (_kOnR ? 1 : 0) + 1 + 1 + (_showEnT ? 1 : 0) + 1 + 1) + 2; // ★ 2026-10-22: 1段目の欄(状態〜個別)＋再検に2列 が入る数を最低に(運動が少ない・未設定の方で表が崩れていた)
           const N = Math.max(_minN, ...bands.map(b => b.length)); // 列数
+          // ★ 2026-10-22(ユーザー要望): 個別運動の見出しは運動の名前。その日の記録の運動 → 無ければ今の設定 → 無ければ枠の名前(個別運動①)
+          const _indAll = appData.systemSettings?.individualExerciseItems || []; const _indDef = tsuIndSlotDefaults(sp, appData.systemSettings);
+          const _indNameOf = (it, rec) => { if (it.type !== 'individual') return it.name; const c = rec && rec.exercises && rec.exercises[it.id]; const cid = (c && typeof c === 'object' && c.itemId && c.itemId !== IND_NONE) ? c.itemId : (c && typeof c === 'object' && c.itemId === IND_NONE ? '' : (_indDef[it.id] || '')); const sel = cid ? _indAll.find(ii => ii.id === cid) : null; return sel ? sel.name : it.name; };
           // 1段目は 状態/気分/体温/開始/終了/再検/記録者/個別 を列をまたいで置く(再検が残り)
           const SP1 = (() => { const st = 1, ki = _kOnR ? 1 : 0, tp = 1, st1 = 1, en = _showEnT ? 1 : 0, rec = 1, kin = 1; const used = st + ki + tp + st1 + en + rec + kin; return { st, ki, tp, st1, en, rec, kin, re: Math.max(1, N - used) }; })();
           const _bikouText = pi === 0 ? computeServiceChangeBikou(sp, tY, tM, appData) : '';
@@ -33688,13 +33741,13 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                 {bands.map((band, bi) => (<Fragment key={`pb${bi}`}>
                 <tr style={{height:20}}>
                   <th className="border border-slate-400 px-0 text-center overflow-hidden" style={{background:'#cbd5e1',color:'#1e293b'}}><AutoFitText text={bi ? '運動' : '運動'} max={10} min={6} bold/></th>
-                  {band.filter(it => it.id !== '__massage').map(it=>(<th key={it.id} className="border border-slate-400 px-0 text-center overflow-hidden" style={{background:'#e2e8f0',color:'#1e293b'}}><AutoFitText text={it.name} max={10} min={5} bold/></th>))}
+                  {band.filter(it => it.id !== '__massage').map(it=>(<th key={it.id} className="border border-slate-400 px-0 text-center overflow-hidden" style={{background:'#e2e8f0',color:'#1e293b'}}><AutoFitText text={_indNameOf(it, null)} max={10} min={5} bold/></th>))}
                   {Array.from({length: N - band.filter(it => it.id !== '__massage').length}).map((_, i)=><th key={`b${i}`} className="border border-slate-400" style={{background:'#e2e8f0'}}></th>)}
                 </tr>
                 <tr style={{height:22}}>
                   <td className="border border-slate-400 px-0 text-center overflow-hidden" style={{background:'#f1f5f9'}}><AutoFitText text="設定数値" max={10} min={6} bold/></td>
                   {band.filter(it => it.id !== '__massage').map(it=>{
-                    if (it.type === 'individual') { const d = _indPlanDisp(it); return (<td key={it.id} className="border border-slate-400 px-0 text-center overflow-hidden">{d ? <AutoFitText text={`${d.name}${d.val ? ' ' + d.val : ''}`} max={10} min={5} bold/> : null}</td>); }
+                    if (it.type === 'individual') { const d = _indPlanDisp(it); return (<td key={it.id} className="border border-slate-400 px-0 text-center overflow-hidden">{d && d.val ? <AutoFitText text={d.val} max={12} min={6} bold/> : null}</td>); }
                     return (<td key={it.id} className="border border-slate-400 px-0 text-center overflow-hidden"><AutoFitText text={_planUnit(plannedM[it.id], it.defaultUnit)} max={12} min={6} bold/></td>);
                   })}
                   {Array.from({length: N - band.filter(it => it.id !== '__massage').length}).map((_, i)=><td key={`c${i}`} className="border border-slate-400"></td>)}
@@ -33755,9 +33808,9 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                         isIndividual = true;
                         const allInd = appData.systemSettings?.individualExerciseItems || [];
                         const sel = allInd.find(ii => ii.id === raw.itemId);
-                        if (sel && raw.value) display = `${sel.name} ${applyExUnits(raw.value, sel)}`; else if (sel) display = sel.name;
+                        if (sel && raw.value) display = applyExUnits(raw.value, sel); // ★ 2026-10-22: 名前は見出しに出すので、欄は値だけ
                       } else if (typeof raw !== 'object') { display = v(raw); }
-                      const baseFs = isIndividual ? 9 : 12;
+                      const baseFs = 12;
                       const len = (display||'').length;
                       const adjFs = len > 8 ? Math.max(7, baseFs - 3) : len > 5 ? Math.max(8, baseFs - 1) : baseFs;
                       return (<td key={it.id} className="border border-slate-400 px-0 text-center font-bold"><div className="cell-wrap" style={{justifyContent:'center',fontSize: adjFs, lineHeight:1.1, overflow:'hidden'}}>{isA||mt?'':display}</div></td>);
@@ -33806,7 +33859,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                         </tr>
                         {bands.map((band, bi) => (<Fragment key={`b${bi}`}>
                           <tr className="hd-row">
-                            {band.map(it => _th(it.id === '__massage' ? '介護整体' : it.name, 1, it.id))}
+                            {band.map(it => _th(it.id === '__massage' ? '介護整体' : _indNameOf(it, r), 1, it.id))}
                             {Array.from({length: N - band.length}).map((_, i)=><th key={`hb${i}`} className="border border-slate-400" style={{background:'#e2e8f0'}}></th>)}
                           </tr>
                           <tr className={`ex-row ${rc}`}>
@@ -33841,7 +33894,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                       </tr>
                       {bands.map((band, bi) => (<Fragment key={`eb${bi}`}>
                         <tr className="hd-row">
-                          {band.map(it => <th key={it.id} className="border border-slate-400 overflow-hidden" style={{background:'#e2e8f0',color:'#1e293b'}}><AutoFitText text={it.id === '__massage' ? '介護整体' : it.name} max={9} min={5} bold/></th>)}
+                          {band.map(it => <th key={it.id} className="border border-slate-400 overflow-hidden" style={{background:'#e2e8f0',color:'#1e293b'}}><AutoFitText text={it.id === '__massage' ? '介護整体' : _indNameOf(it, null)} max={9} min={5} bold/></th>)}
                           {Array.from({length: N - band.length}).map((_, k)=><th key={`hb${k}`} className="border border-slate-400" style={{background:'#e2e8f0'}}></th>)}
                         </tr>
                         <tr className="ex-row">{Array.from({length: N}).map((_, k)=><td key={k} className="border border-slate-400"></td>)}</tr>
@@ -34206,6 +34259,16 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   const [dropNoteOpen, setDropNoteOpen] = useState(false); // ★ 2026-10-21: 送り時間反映
   const [nextJumpOpen, setNextJumpOpen] = useState(false); // ★ 2026-10-21: 次回の日付(月間スケジュールへ)
   const _renPhone = useTsuIsPhoneDevice(); // ★ 2026-10-08: スマホ(縦・横)は用紙を画面幅に合わせて全員分を表示
+  // ★ 2026-10-22(ユーザー「10インチでも連絡帳をちょっと縮小すれば横2列でいけるのかな」): 一覧の幅から用紙の大きさ(倍率)を決める
+  //   用紙(182mm≈688px)が等倍で2枚並ぶなら等倍。並ばないが 0.6倍以上で2枚入るなら縮めて2列。それ以外は等倍1列
+  const _cbListRef = React.useRef(null); const [_cbS, _setCbS] = useState(1);
+  React.useEffect(() => {
+    const el = _cbListRef.current; if (!el || _renPhone) { _setCbS(1); return; }
+    const PW = 182 * 96 / 25.4, GAP = 32;
+    const calc = () => { const w = el.clientWidth; let sc = 1; if (w < PW * 2 + GAP) { const t = (w - GAP) / (PW * 2); sc = t >= 0.6 ? Math.floor(t * 100) / 100 : 1; } _setCbS(prev => (Math.abs(prev - sc) < 0.005 ? prev : sc)); };
+    calc(); let ro = null; try { ro = new ResizeObserver(calc); ro.observe(el); } catch { window.addEventListener('resize', calc); }
+    return () => { if (ro) ro.disconnect(); else window.removeEventListener('resize', calc); };
+  });
   const [showPrintCards, setShowPrintCards] = useState(false); // ★ 印刷用の隠しカードは印刷時だけ描画(スマホのメモリ対策)
   const [printMissingConfirm, setPrintMissingConfirm] = useState(null); // ★ 次回予定未入力の確認 {names:[]}(2026-09-09)
   const [showPrintSettings, setShowPrintSettings] = useState(false); // ★ 右上「詳細設定」パネル(面数/用紙/補助線)
@@ -35408,13 +35471,21 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
             );
           }
           return (
-            <div className="flex flex-col items-center gap-8 tsu-cb-list" data-testid="cb-list">
+            <div ref={_cbListRef} className="flex flex-col items-center gap-8 tsu-cb-list" data-testid="cb-list" data-cb-scale={_cbS}>
               {displayRecords.map((record, ri) => {
                 const patient = (appData.patients||[]).find(p => p.id === record.patientId);
                 if (!patient) return null;
                 return (
                   <div key={record.id} className="flex justify-center w-full tsu-cb-item">
+                    {_cbS < 1 ? (
+                      <div style={{ width: Math.ceil(182 * 96 / 25.4 * _cbS), height: Math.ceil(257 * 96 / 25.4 * _cbS), overflow: 'hidden', flexShrink: 0 }}>{/* ★ 2026-10-22: 縮めて2列(当たり判定は transform なのでずれない) */}
+                        <div style={{ width: 'max-content', transform: `scale(${_cbS})`, transformOrigin: 'top left' }}>
+                          <ContactBookCard record={record} patient={patient} selectedDate={selectedDate} config={appData.contactBookConfig} appData={appData} onOpenConfig={() => setIsConfigOpen(true)} onEditPatientValue={openPatientValueEdit} onEditRenraku={(p)=>setRenrakuModal({ patientId: p.id })} />
+                        </div>
+                      </div>
+                    ) : (
                     <ContactBookCard record={record} patient={patient} selectedDate={selectedDate} config={appData.contactBookConfig} appData={appData} onOpenConfig={() => setIsConfigOpen(true)} onEditPatientValue={openPatientValueEdit} onEditRenraku={(p)=>setRenrakuModal({ patientId: p.id })} />
+                    )}
                   </div>
                 );
               })}
@@ -37926,7 +37997,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const unitsOf = (sl, f) => unitsBaseOf(sl, f) + _exFor(sl, f);
     // ★ 2026-09-16f: 本文の有効高さを実測に基づいて補正(190mm=718px − 題字28 − 日付見出し6mm − 凡例17 − セル余白12 ≒ 638)。
     const availPx = 630 + 19 + 22; // ★ 2026-10-13: 凡例を右上へ(+19)・印字域を196mmに(+22)
-    let fz = Math.min(20, opt.fzMax || 20); // 上限20px(利用者が少ない店舗で大きくなりすぎないように)。★ 2026-10-21: 測って入らないときは呼び出し側が上限を下げて作り直す
+    const _fzCap = opt.fzCap || 20; let fz = Math.min(_fzCap, opt.fzMax || _fzCap); // ★ 2026-10-22: 「文字を大きく」は上限 26px(fzCap)。上限20px(利用者が少ない店舗で大きくなりすぎないように)。★ 2026-10-21: 測って入らないときは呼び出し側が上限を下げて作り直す
     const _fitH = (f) => { const uh = Math.ceil(f * 1.25) + 3; const tu = Math.max(slots.reduce((a, sl) => a + unitsBaseOf(sl, f) + _exFor(sl, f) + (opt.dropTable ? unitsOfDrop(sl, f) : 0), 0), 6); return tu * uh <= availPx; };
     while (fz > 8) { if (_fitH(fz) && _nameW(fz) + _timeW(fz) + _nextW(fz) + _sendW(fz) <= _dayPx(fz)) break; fz--; }
     if (info) { info.fitsH = _fitH(fz); info.fz = fz; }
@@ -38328,14 +38399,20 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     // ★ 2026-09-28: 内容は印刷モーダルで選択(sheet=運行表のみ / both=運行表+連絡先一覧 / contacts=連絡先一覧のみ)。confirm は廃止
     // ★ 2026-10-21: 組み立てた紙面を画面の外に置いて測り、入りきらなければ文字の上限を下げて作り直す(見積りだけだと休みなどが切れることがある)
     const _wOvf = (h0) => { if (typeof document === 'undefined') return 0; try { const el = document.createElement('div'); el.style.cssText = 'position:absolute;left:-30000px;top:0;width:1069px;height:740px;overflow:hidden;visibility:hidden;'; el.innerHTML = h0; document.body.appendChild(el); const root = el.firstElementChild; const o = root ? root.scrollHeight - root.clientHeight : 0; el.remove(); return o; } catch { return 0; } };
-    const _buildW = (sls0, po) => { let inf = {}; let h0 = buildPrintHtml(sls0, inf, po); let g = 0; while (_wOvf(h0) > 0 && inf.fz > 8 && g++ < 12) { const fm = inf.fz - 1; inf = {}; h0 = buildPrintHtml(sls0, inf, { ...po, fzMax: fm }); } return { html: h0, ok: _wOvf(h0) <= 0 && inf.fitsH !== false }; };
-    let _one = popt.dropTable ? null : _buildW(['AM','PM'], {});
-    if (_one && !_one.ok) { const _e = _buildW(['AM','PM'], { exEach: true }); if (_e.ok) _one = _e; } // 休みの欄を同じ大きさにすると入らない週は、必要な分ずつにして1枚に
+    const _buildW = (sls0, po) => { let inf = {}; let h0 = buildPrintHtml(sls0, inf, po); let g = 0; while (_wOvf(h0) > 0 && inf.fz > 8 && g++ < 12) { const fm = inf.fz - 1; inf = {}; h0 = buildPrintHtml(sls0, inf, { ...po, fzMax: fm }); } return { html: h0, ok: _wOvf(h0) <= 0 && inf.fitsH !== false, fz: inf.fz || 0 }; };
+    // ★ 2026-10-22(ユーザー「老眼の人にも見えるよう、できる限り常に文字は大きく」): 文字の上限 26px。1枚と別の紙の両方で入るいちばん大きい文字を比べる
+    const _FZCAP = 26;
+    const _slotsUsed = ['AM','PM'].filter(sl => days.some(d => { const pl = getPlan(_iso(d), sl); return [...Object.values(pl.cars || {}).flat(), ...(pl.walkers || []), ...(pl.others || [])].length > 0; }));
+    let _one = popt.dropTable ? null : _buildW(['AM','PM'], { fzCap: _FZCAP });
+    if (_one && !_one.ok) { const _e = _buildW(['AM','PM'], { exEach: true, fzCap: _FZCAP }); if (_e.ok) _one = _e; } // 休みの欄を同じ大きさにすると入らない週は、必要な分ずつにして1枚に
+    // 午前・午後を別の紙にすると 2px 以上大きくなるときだけ別の紙に(人数が少なく1枚でも同じ大きさの週は1枚のまま)
+    let _splitBuilt = null;
+    // ★ 2026-10-22(ユーザー「送りの時間を入れないときは2枚ではなく1枚に」): 送りを入れないときは別の紙に分けない(1枚に入る大きさ。入らない週は今までどおり2枚)
+    if (_one && _one.ok && _slotsUsed.length && !_noDropAtPrintRef.current) { const sb = _slotsUsed.map(sl => _buildW([sl], { fzCap: _FZCAP })); const fzS = Math.min(...sb.map(x => x.fz)); if (sb.every(x => x.ok) && fzS >= _one.fz + 2) { _splitBuilt = sb; _one = null; } }
     const html = _one ? _one.html : '';
     // ★ 2026-10-21(不具合修正): 1枚に入りきらない(車・人数が多い)ときは、下が切れないよう午前1枚・午後1枚に分ける
     const _sheetPages = (_one && _one.ok) ? html : null;
-    const _slotsUsed = ['AM','PM'].filter(sl => days.some(d => { const pl = getPlan(_iso(d), sl); return [...Object.values(pl.cars || {}).flat(), ...(pl.walkers || []), ...(pl.others || [])].length > 0; }));
-    const _splitSlots = popt.dropTable && _slotsUsed.length ? _slotsUsed : ['AM','PM'];
+    const _splitSlots = (popt.dropTable || _splitBuilt) && _slotsUsed.length ? _slotsUsed : ['AM','PM'];
     const withContacts = content === 'both' || content === 'contacts';
     // ★ 2026-09-16(店舗指摘): 実機で右端(金曜)が見切れる→印字可能域(約275×190mm)に縮小して中央配置
     // ★ 2026-09-16c(店舗指摘): margin:autoは印刷ホストのbody>*{margin:0!important}で無効化され左上に寄る→全面ラッパー+flexで中央配置
@@ -38345,7 +38422,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       return;
     }
     const page2 = withContacts ? buildContactsPages().map(pg => _wrap(pg, true)).join('') : '';
-    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `${_sheetPages ? _wrap(_sheetPages, false) : _splitSlots.map((sl, k) => _wrap(_buildW([sl], { dropTable: !!popt.dropTable }).html, k > 0)).join('')}${page2}`, elementId: null } }));
+    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `${_sheetPages ? _wrap(_sheetPages, false) : _splitSlots.map((sl, k) => _wrap(((_splitBuilt && _splitBuilt[k]) ? _splitBuilt[k] : _buildW([sl], { dropTable: !!popt.dropTable, fzCap: _FZCAP })).html, k > 0)).join('')}${page2}`, elementId: null } }));
   };
 
   const _autoCalcModal = autoCalc && (
@@ -46686,6 +46763,10 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
             <SectionCard title="この端末の表示">
               {/* ★ 2026-10-08(ユーザー要望): テンキーの数字の並び(この端末だけ) */}
               <div className="mb-4 pb-4 border-b border-slate-200" data-testid="kp-layout-setting">
+                <div className="mb-3" data-testid="set-iconbar"><div className="text-sm font-bold text-slate-700 mb-1">上の帯の文字（この端末だけ）</div>
+                  <div className="flex gap-2 flex-wrap">{[['0', '今まで'], ['s', '短い文字だけ']].map(([v, lb]) => { const cur = (() => { try { const x = localStorage.getItem('tsuIconBar'); return x === '1' || x === 's' ? 's' : '0'; } catch { return '0'; } })(); return (
+                    <label key={v} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 bg-white cursor-pointer text-sm"><input type="radio" name="tsuIconBar" defaultChecked={cur === v} onChange={() => { try { localStorage.setItem('tsuIconBar', v); } catch {} }} className="accent-blue-600"/>{lb}</label>); })}</div>
+                  <div className="text-xs text-slate-500 mt-1">今は提供記録の上の帯だけです。画面を開き直すと変わります。</div></div>
                 <div className="text-sm font-bold text-slate-700 mb-1">テンキーの数字の並び（この端末だけ）</div>
                 <p className="text-xs text-slate-500 mb-2">テンキーの数字の並びです（この端末だけ）。</p>
                 <div className="flex gap-2 flex-wrap">
