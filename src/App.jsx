@@ -25859,11 +25859,14 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       setRecFlash(id); setTimeout(() => setRecFlash(f => (f === id ? null : f)), 1800);
     }, 30);
   };
+  // ★ 2026-10-22(ユーザー要望): テンキーを閉じたら、選んでいたマスの枠(activeCell)と行の黄色(data-rv-cur)も消す。
+  //   マスを押した処理(setActiveCell)のあとに消すため、次の順番(setTimeout 0)で行う
+  const _rvClearSel = () => setTimeout(() => { setActiveCell(null); try { document.querySelectorAll('[data-rv-cur]').forEach(x => x.removeAttribute('data-rv-cur')); } catch {} }, 0);
   const openKeypad = (recordId, field, currentValue, isAbsent, force, reopen) => {
     if (isAbsent || (!_keypadOn && !force)) return;
     // ★ 2026-10-15(ユーザー要望): テンキーが出ているセルをもう一度押したら閉じる(閉じるボタンと同じ扱い)。reopen=開き直し(○の後など)は閉じない
-    if (!reopen && keypad.isOpen && keypad.recordId === recordId && keypad.field === field) { _checkVitalRange(keypad.field, keypad.value); setKeypad(prev => ({ ...prev, isOpen: false })); return; }
-    { const _oc = window.__tsuKpOutsideClose; const _ev = window.event; if (!reopen && _oc && _oc.key === `${recordId}-${field}` && _ev && _ev.target === _oc.el && Date.now() - _oc.t < 1500) { window.__tsuKpOutsideClose = null; return; } }
+    if (!reopen && keypad.isOpen && keypad.recordId === recordId && keypad.field === field) { _checkVitalRange(keypad.field, keypad.value); setKeypad(prev => ({ ...prev, isOpen: false })); _rvClearSel(); return; }
+    { const _oc = window.__tsuKpOutsideClose; const _ev = window.event; if (!reopen && _oc && _oc.key === `${recordId}-${field}` && _ev && _ev.target === _oc.el && Date.now() - _oc.t < 1500) { window.__tsuKpOutsideClose = null; _rvClearSel(); return; } }
     kpConfirmRef.current = false; // 新しいセルを開いたら未確定に
     const isEx = !!(effExerciseItems(appData.systemSettings)).find(i => i.id === field);
     // ★ openedValue=開いた時点の値(2026-08-11): 「既に○が入っているセルを開いた時だけ」基準値を
@@ -25881,7 +25884,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     // ★ 2026-10-05: 基準値の無い運動の○は入れない(テンキーの○ボタンは押すと閉じるので、同じセルで開き直して数値を打てるように)
     if (_circleBlocked(keypad.recordId, keypad.field, newValue)) {
       const _r = keypad.recordId, _f = keypad.field, _v = keypad.openedValue || '';
-      setTimeout(() => { openKeypad(_r, _f, _v, false, false, true); setActiveCell(`${_r}-${_f}`); }, 60);
+      setTimeout(() => { openKeypad(_r, _f, _v, false, false, true); setActiveCell(`${_r}-${_f}`); try { document.querySelectorAll(`#record-table tr[data-rv-pid="${_r}"], [data-rec-card="${_r}"]`).forEach(_el => _el.setAttribute('data-rv-cur', '1')); } catch {} }, 60); // ★ 2026-10-22: 行の黄色も付け直す
       return;
     }
     let formatted = newValue;
@@ -26511,7 +26514,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             <div className="space-y-0 leading-tight">
               <div><span className="text-black font-bold">正常 収縮期 100〜129 / 拡張期 60〜84 mmHg</span></div>
               <div><span className="text-amber-600 font-bold">高血圧Ⅰ度 130〜139/85〜89</span>　<span className="text-red-600 font-bold">Ⅱ度 140〜159/90〜99</span>　<span className="text-red-700 font-bold">Ⅲ度 160以上/100以上</span></div>
-              <div><span className="text-blue-600 font-bold">低血圧 収縮期 90未満</span><span className="text-slate-400 ml-1">（起立性低血圧に注意）</span></div>
+              <div><span className="text-blue-600 font-bold">低血圧 収縮期 90未満</span><span className="text-slate-400 ml-1">（起立性低血圧に注意。拡張期だけ低いときは色なし）</span></div>
             </div>
           </div>
           <div className="w-px bg-slate-200 self-stretch"/>
@@ -26575,13 +26578,6 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   <button type="button" data-testid="rec-order-btn" onClick={() => setRecOrderOpen(true)} title={_recOrderOn ? `${_recOrderLabel}のクラスは保存した並び順です（押すと並べ替え・消去）` : `${_recOrderLabel}のクラスの並び順を変えます（ほかの曜日・時間帯はそのまま）`} className={`px-3 py-2 rounded-xl text-sm font-bold border shrink-0 ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}>並び替え</button>
                   {recOrderOpen && <RecordOrderModal rows={_recOrderRows} label={_recOrderLabel} onSave={saveRecordOrder} onReset={_recOrderOn ? resetRecordOrder : null} onClose={() => setRecOrderOpen(false)}/>}
                   {attCountChips && <div className="hidden sm:block">{attCountChips}</div>}
-                  {/* ★ 2026-10-21(ユーザー要望「印の数と外すは上の帯に。表が一段下がると目が疲れる」): 印が無いときも見えないまま場所だけ取り、出し入れで高さを変えない */}
-                  <div data-testid="rv-marks-bar" aria-hidden={_rvMarks.length ? undefined : true} title="名前を長押しで印の付け外し（この端末の表示だけ）"
-                    className="no-print hidden sm:inline-flex items-center gap-1.5 shrink-0 h-10 pl-2.5 pr-1 rounded-xl bg-yellow-50 border border-yellow-300 text-[13px] font-bold text-yellow-900"
-                    style={{visibility: _rvMarks.length ? 'visible' : 'hidden', minWidth: '7.5rem'}}>
-                    <span className="whitespace-nowrap">印 {_rvMarks.length}名</span>
-                    <button type="button" data-testid="rv-marks-clear" tabIndex={_rvMarks.length ? 0 : -1} onClick={() => _setRvMarks([])} className="ml-auto h-8 px-2 rounded-lg bg-white border border-yellow-400 text-yellow-900 text-[12px] whitespace-nowrap">外す</button>
-                  </div>
               </div>
             )}
             {filterMode === 'month' && (
@@ -26681,6 +26677,16 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 ), document.body)}
               </div>
             )}
+            {/* ★ 2026-10-22(ユーザー要望): 「印 ○名・外す」は個別機能訓練の右へ(印が無いときの空きが個別機能訓練の左に出ないように) */}
+            {filterMode === 'single' && (<>
+            {/* ★ 2026-10-21(ユーザー要望「印の数と外すは上の帯に。表が一段下がると目が疲れる」): 印が無いときも見えないまま場所だけ取り、出し入れで高さを変えない */}
+            <div data-testid="rv-marks-bar" aria-hidden={_rvMarks.length ? undefined : true} title="名前を長押しで印の付け外し（この端末の表示だけ）"
+              className="no-print hidden sm:inline-flex items-center gap-1.5 shrink-0 h-10 pl-2.5 pr-1 rounded-xl bg-yellow-50 border border-yellow-300 text-[13px] font-bold text-yellow-900"
+              style={{visibility: _rvMarks.length ? 'visible' : 'hidden', minWidth: '7.5rem'}}>
+              <span className="whitespace-nowrap">印 {_rvMarks.length}名</span>
+              <button type="button" data-testid="rv-marks-clear" tabIndex={_rvMarks.length ? 0 : -1} onClick={() => _setRvMarks([])} className="ml-auto h-8 px-2 rounded-lg bg-white border border-yellow-400 text-yellow-900 text-[12px] whitespace-nowrap">外す</button>
+            </div>
+            </>)}
             <div data-testid="rec-actions" className={`w-full sm:w-auto sm:ml-auto grid ${filterMode === 'single' ? 'grid-cols-4' : 'grid-cols-3'} sm:flex items-center gap-1.5 sm:gap-2 sm:flex-wrap`}>
               {filterMode === 'single' && <button type="button" data-testid="rec-act-bulkex" onClick={() => setBulkExOpen(true)} className="order-last sm:order-none bg-white border border-indigo-300 text-indigo-700 hover:bg-indigo-50 px-1 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="出席している方の運動をまとめて○にします(行わなかった方は×に)">一括○</button>}
               {bulkExOpen && ReactDOM.createPortal(<TsuBulkExerciseModal
@@ -27629,7 +27635,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           <span>⚠ {vitalWarn}</span>
           <button onClick={()=>setVitalWarn(null)} style={{whiteSpace:'nowrap',background:'rgba(255,255,255,0.2)',border:'none',color:'white',borderRadius:8,padding:'4px 10px',fontWeight:'bold',cursor:'pointer',fontSize:12}}>閉じる</button>
         </div>, document.body)}
-      <DigitalKeypad isOpen={keypad.isOpen} anchorKey={`${keypad.recordId}-${keypad.field}`} zoom={isFullscreen ? 1.2 : 1} value={keypad.value} isFirstInput={keypad.isFirstInput} mode={keypad.mode} onClose={() => { _checkVitalRange(keypad.field, keypad.value); setKeypad({...keypad, isOpen: false}); }} onInput={handleKeypadInput} onEnter={handleKeypadEnter} onTab={handleTab} quickButtons={appData.systemSettings?.exerciseQuickButtons} prefixButtons={String(keypad.field||'').startsWith('temp') ? ['35.','36.','37.'] : null}
+      <DigitalKeypad isOpen={keypad.isOpen} anchorKey={`${keypad.recordId}-${keypad.field}`} zoom={isFullscreen ? 1.2 : 1} value={keypad.value} isFirstInput={keypad.isFirstInput} mode={keypad.mode} onClose={() => { _checkVitalRange(keypad.field, keypad.value); setKeypad({...keypad, isOpen: false}); { const _oc = window.__tsuKpOutsideClose; const _onRow = _oc && Date.now() - _oc.t < 400 && _oc.el && _oc.el.closest && _oc.el.closest('tr[data-rv-pid],[data-rec-card]'); if (!_onRow) _rvClearSel(); } /* ★ 2026-10-22: 閉じるボタン・空いた所で閉じたら枠も消す(行・マスを押したときはそちらで決める) */ }} onInput={handleKeypadInput} onEnter={handleKeypadEnter} onTab={handleTab} quickButtons={appData.systemSettings?.exerciseQuickButtons} prefixButtons={String(keypad.field||'').startsWith('temp') ? ['35.','36.','37.'] : null}
         unitSep={(()=>{ const _ei=(appData.systemSettings?.exerciseItems||appSettings.exerciseItems).find(i=>i.id===keypad.field); if(_ei && _ei.type!=='individual') return _ei.unitSep||''; const _rec=(filterMode==='single'?localPatients:localTicketRecords).find(x=>x.id===keypad.recordId); const _cur=_rec&&_rec.exercises&&_rec.exercises[keypad.field]; const _iid=(_cur&&typeof _cur==='object')?_cur.itemId:null; if(_iid){ const _ii=(appData.systemSettings?.individualExerciseItems||appSettings.individualExerciseItems||[]).find(x=>x.id===_iid); return (_ii&&_ii.unitSep)||''; } return ''; })()}/>
 
       {/* ★ 拡大入力ビュー(2026-09-09 店舗要望): 1名分を大きな文字・濃い色で入力。テンキー等は通常入力と共通 */}
