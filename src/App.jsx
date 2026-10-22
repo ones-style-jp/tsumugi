@@ -38581,14 +38581,19 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     // ★ 2026-09-28: 内容は印刷モーダルで選択(sheet=運行表のみ / both=運行表+連絡先一覧 / contacts=連絡先一覧のみ)。confirm は廃止
     // ★ 2026-10-21: 組み立てた紙面を画面の外に置いて測り、入りきらなければ文字の上限を下げて作り直す(見積りだけだと休みなどが切れることがある)
     const _wOvf = (h0) => { if (typeof document === 'undefined') return 0; try { const el = document.createElement('div'); el.style.cssText = 'position:absolute;left:-30000px;top:0;width:1069px;height:740px;overflow:hidden;visibility:hidden;'; el.innerHTML = h0; document.body.appendChild(el); const root = el.firstElementChild; const o = root ? root.scrollHeight - root.clientHeight : 0; el.remove(); return o; } catch { return 0; } };
-    const _buildW = (sls0, po) => { let inf = {}; let h0 = buildPrintHtml(sls0, inf, po); let g = 0; while (_wOvf(h0) > 0 && inf.fz > 8 && g++ < 12) { const fm = inf.fz - 1; inf = {}; h0 = buildPrintHtml(sls0, inf, { ...po, fzMax: fm }); } return { html: h0, ok: _wOvf(h0) <= 0 && inf.fitsH !== false }; };
-    let _one = (popt.dropTable || popt.big) ? null : _buildW(['AM','PM'], {}); // ★ 2026-10-22: 文字を大きく=はじめから午前・午後を別の紙に
-    if (_one && !_one.ok) { const _e = _buildW(['AM','PM'], { exEach: true }); if (_e.ok) _one = _e; } // 休みの欄を同じ大きさにすると入らない週は、必要な分ずつにして1枚に
+    const _buildW = (sls0, po) => { let inf = {}; let h0 = buildPrintHtml(sls0, inf, po); let g = 0; while (_wOvf(h0) > 0 && inf.fz > 8 && g++ < 12) { const fm = inf.fz - 1; inf = {}; h0 = buildPrintHtml(sls0, inf, { ...po, fzMax: fm }); } return { html: h0, ok: _wOvf(h0) <= 0 && inf.fitsH !== false, fz: inf.fz || 0 }; };
+    // ★ 2026-10-22(ユーザー「老眼の人にも見えるよう、できる限り常に文字は大きく」): 文字の上限 26px。1枚と別の紙の両方で入るいちばん大きい文字を比べる
+    const _FZCAP = 26;
+    const _slotsUsed = ['AM','PM'].filter(sl => days.some(d => { const pl = getPlan(_iso(d), sl); return [...Object.values(pl.cars || {}).flat(), ...(pl.walkers || []), ...(pl.others || [])].length > 0; }));
+    let _one = popt.dropTable ? null : _buildW(['AM','PM'], { fzCap: _FZCAP });
+    if (_one && !_one.ok) { const _e = _buildW(['AM','PM'], { exEach: true, fzCap: _FZCAP }); if (_e.ok) _one = _e; } // 休みの欄を同じ大きさにすると入らない週は、必要な分ずつにして1枚に
+    // 午前・午後を別の紙にすると 2px 以上大きくなるときだけ別の紙に(人数が少なく1枚でも同じ大きさの週は1枚のまま)
+    let _splitBuilt = null;
+    if (_one && _one.ok && _slotsUsed.length) { const sb = _slotsUsed.map(sl => _buildW([sl], { fzCap: _FZCAP })); const fzS = Math.min(...sb.map(x => x.fz)); if (sb.every(x => x.ok) && fzS >= _one.fz + 2) { _splitBuilt = sb; _one = null; } }
     const html = _one ? _one.html : '';
     // ★ 2026-10-21(不具合修正): 1枚に入りきらない(車・人数が多い)ときは、下が切れないよう午前1枚・午後1枚に分ける
     const _sheetPages = (_one && _one.ok) ? html : null;
-    const _slotsUsed = ['AM','PM'].filter(sl => days.some(d => { const pl = getPlan(_iso(d), sl); return [...Object.values(pl.cars || {}).flat(), ...(pl.walkers || []), ...(pl.others || [])].length > 0; }));
-    const _splitSlots = (popt.dropTable || popt.big) && _slotsUsed.length ? _slotsUsed : ['AM','PM'];
+    const _splitSlots = (popt.dropTable || _splitBuilt) && _slotsUsed.length ? _slotsUsed : ['AM','PM'];
     const withContacts = content === 'both' || content === 'contacts';
     // ★ 2026-09-16(店舗指摘): 実機で右端(金曜)が見切れる→印字可能域(約275×190mm)に縮小して中央配置
     // ★ 2026-09-16c(店舗指摘): margin:autoは印刷ホストのbody>*{margin:0!important}で無効化され左上に寄る→全面ラッパー+flexで中央配置
@@ -38598,7 +38603,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       return;
     }
     const page2 = withContacts ? buildContactsPages().map(pg => _wrap(pg, true)).join('') : '';
-    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `${_sheetPages ? _wrap(_sheetPages, false) : _splitSlots.map((sl, k) => _wrap(_buildW([sl], { dropTable: !!popt.dropTable, ...(popt.big ? { fzCap: 26 } : {}) }).html, k > 0)).join('')}${page2}`, elementId: null } }));
+    window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${_iso(_mon)}週`, pageSize: '297mm 210mm', html: `${_sheetPages ? _wrap(_sheetPages, false) : _splitSlots.map((sl, k) => _wrap(((_splitBuilt && _splitBuilt[k]) ? _splitBuilt[k] : _buildW([sl], { dropTable: !!popt.dropTable, fzCap: _FZCAP })).html, k > 0)).join('')}${page2}`, elementId: null } }));
   };
 
   const _autoCalcModal = autoCalc && (
@@ -38782,7 +38787,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <button onClick={()=>setSelectedDate(r.iso)} data-testid="tp-next-reminder" className="text-[11px] font-bold text-red-700 bg-red-50 border border-red-300 rounded-lg px-2 py-1 whitespace-nowrap hover:bg-red-100" title={`1週間後の週（${r.label}）の送迎表が未確定です。押すと開きます`}>次週分未確定 ›</button>
           ); })()}
           <button onClick={()=>{ setTpSetCap({}); setTpSettings(true); }} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="車の定員・座席表の並びの設定（施設に着く時間も確認できます）">設定</button>
-          <button onClick={()=>setPrintModal({ mode:'week', weekContent:'sheet', days:new Set(days.map(d=>_iso(d))), dropAt: true, dropMode2: 'none', big: (() => { try { return localStorage.getItem('tsuTpPrintBig') === '1'; } catch { return false; } })() })} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">ダウンロード</button>
+          <button onClick={()=>setPrintModal({ mode:'week', weekContent:'sheet', days:new Set(days.map(d=>_iso(d))), dropAt: true, dropMode2: 'none' })} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">ダウンロード</button>
         {/* ★ 2026-10-08(ユーザー指示): 上部の「?」(使い方の説明)は削除 */}
       </div>
         {_tpPhone && (
@@ -39189,11 +39194,6 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 <div className="text-[10px] text-slate-500 mt-1.5">送りの表＝車ごとに、送る順の名前と家に着く時間。</div>
               </div>
             )}
-            {printModal.mode==='week' && (
-              <label className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg border border-slate-200 text-sm font-bold text-slate-700 cursor-pointer" data-testid="tp-print-big">
-                <input type="checkbox" checked={!!printModal.big} onChange={e => { const on = e.target.checked; try { localStorage.setItem('tsuTpPrintBig', on ? '1' : '0'); } catch {} setPrintModal(m => ({ ...m, big: on })); }} className="w-4 h-4 accent-blue-600"/>文字を大きく（午前と午後を別の紙に）
-              </label>
-            )}
             {printModal.mode==='days' && (
               <label className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg border border-slate-200 text-sm font-bold text-slate-700 cursor-pointer" data-testid="tp-print-dropat">
                 <input type="checkbox" checked={printModal.dropAt !== false} onChange={e => setPrintModal(m => ({ ...m, dropAt: e.target.checked }))} className="w-4 h-4 accent-blue-600"/>送りの時間も入れる
@@ -39228,7 +39228,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             )}
             <div className="flex gap-2">
               <button onClick={()=>setPrintModal(null)} className="whitespace-nowrap flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
-              <button onClick={()=>{ const pm = printModal; setPrintModal(null); _noDropAtPrintRef.current = pm.mode==='week' ? (pm.dropMode2 || 'none') === 'none' : pm.dropAt === false; if (pm.mode==='week') doPrint(pm.weekContent||'sheet', { dropTable: pm.dropMode2 === 'table', big: !!pm.big }); else doPrintDays(days.map(d=>_iso(d)).filter(iso=>pm.days.has(iso))); _noDropAtPrintRef.current = false; }} disabled={printModal.mode==='days' && printModal.days.size===0} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm disabled:opacity-40">ダウンロード</button>
+              <button onClick={()=>{ const pm = printModal; setPrintModal(null); _noDropAtPrintRef.current = pm.mode==='week' ? (pm.dropMode2 || 'none') === 'none' : pm.dropAt === false; if (pm.mode==='week') doPrint(pm.weekContent||'sheet', { dropTable: pm.dropMode2 === 'table' }); else doPrintDays(days.map(d=>_iso(d)).filter(iso=>pm.days.has(iso))); _noDropAtPrintRef.current = false; }} disabled={printModal.mode==='days' && printModal.days.size===0} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm disabled:opacity-40">ダウンロード</button>
             </div>
           </div>
         </div>
