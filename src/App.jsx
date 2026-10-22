@@ -25415,7 +25415,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const _kinouOn = !!appData.systemSettings?.facilityInfo?.kobetsuKinouAddon;
   // ★ 2026-10-22: 上の帯の試し(この端末だけ)。'1'=アイコン＋短い文字 / 's'=短い文字だけ(アイコンは1つで約19px 幅が増えるため) / それ以外=今まで
   //   ★ 同日夕(ユーザー指示「アイコンは無しでいい」): アイコン＋短い文字はやめ、前に選んでいた端末('1')も短い文字だけにする
-  const _iconMode = React.useMemo(() => { try { const v = localStorage.getItem('tsuIconBar'); return tsuViewW() >= 768 && (v === '1' || v === 's') ? 's' : ''; } catch { return ''; } }, []);
+  const _iconMode = ''; // ★ 2026-10-23(ユーザー指示「今までか短い文字のどっちかでいい・選べなくていい」): 今までの文字に固定(選択の欄はなくした)
   const _iconBar = !!_iconMode;
   const _ib = (Icon, txt) => _iconMode === 's' ? txt : <span className="inline-flex items-center gap-1"><Icon size={15} strokeWidth={2.4}/>{txt}</span>;
   const _kinouList = Array.from(new Set((appData.diarySettings?.staff || []).filter(st => st && st.name && !st._tempHelp && (st.role === '機能訓練指導員' || st.role2 === '機能訓練指導員')).map(st => String(st.name).trim()).filter(Boolean)));
@@ -45058,9 +45058,23 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   );
 }
 // === SettingsView用 SectionCard（外部定義必須 - 内部定義だとIME破壊）===
+// ★ 2026-10-23(ユーザー要望「各種設定のスクロールが増えたので、タブの中の項目へ上からジャンプできるボタンを」): タブの中の欄(SectionCard)へ飛ぶボタン
+function TsuSecJump({ dep }) {
+  const ref = React.useRef(null); const [items, setItems] = React.useState([]);
+  const _els = () => { const box = ref.current && ref.current.parentElement; return box ? [...box.querySelectorAll('[data-sec-title]')].filter(el => el.offsetParent) : []; };
+  // 描くたびに欄を数え直す(中身が同じなら入れ替えない=描き直しがくり返さない)
+  React.useEffect(() => { const t = setTimeout(() => { const next = _els().map((el, i) => ({ i, title: el.getAttribute('data-sec-title') })); setItems(prev => (prev.map(x => x.title).join('|') === next.map(x => x.title).join('|') ? prev : next)); }, 60); return () => clearTimeout(t); });
+  if (items.length < 2) return <div ref={ref} />;
+  return (
+    <div ref={ref} data-testid="sec-jump" className="flex flex-wrap gap-2 items-center">
+      <span className="text-xs font-bold text-slate-500 mr-1">この中の項目:</span>
+      {items.map(it => <button key={it.i} type="button" onClick={() => { const el = _els()[it.i]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} className="px-3 py-1.5 rounded-full border border-slate-300 bg-white text-slate-700 text-xs font-bold hover:bg-slate-50 active:scale-95">{it.title}</button>)}
+    </div>
+  );
+}
 function SectionCard({ title, children }) {
   return (
-    <div className="bg-white p-3 sm:p-6 rounded-2xl shadow-sm border border-slate-200">
+    <div data-sec-title={typeof title === 'string' ? title : undefined} style={{ scrollMarginTop: 72 }} className="bg-white p-3 sm:p-6 rounded-2xl shadow-sm border border-slate-200">
       <h3 className="text-base font-bold text-slate-800 mb-2 sm:mb-4 border-b border-slate-200 pb-2">{title}</h3>
       {children}
     </div>
@@ -46048,6 +46062,9 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
     { id: 'keikaku', label: '計画書' },
     { id: 'addon', label: 'アドオン' },
     { id: 'system', label: 'システム' },
+    { id: 'login', label: 'ログイン・管理者' },
+    { id: 'data', label: 'データ管理' },
+    { id: 'manual', label: 'マニュアル' },
   ];
 
   return (
@@ -46178,6 +46195,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
       <div className="flex-1 md:overflow-y-auto p-3 sm:p-6 pb-8 tsu-ph-cards">
         {/* ★ ケアマネタブは2カラムのため広めに取る(表示領域の崩れ対策・2026-08-31) */}
         <div className={`${activeTab === 'cm' ? 'max-w-6xl' : 'max-w-4xl'} mx-auto space-y-6 pb-6 tsu-wide-f`}>
+          <TsuSecJump dep={activeTab} />
 
           {/* 気分の理由 (カスタマイズ) */}
           {/* ★ 2026-10-14(ユーザー要望): 個別機能訓練計画書(3-3)の定型文を店舗ごとに編集(1行=1つ)。空にすると既定に戻る */}
@@ -46278,17 +46296,17 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
           {activeTab === 'life' && (<>
             <SectionCard title="LIFE連携（科学的介護）">
               <div className="space-y-4">
-                <div className="text-xs text-slate-600 leading-relaxed">LIFEへ出すCSVに使う事業所の情報です。事業所番号は指定通知書を見て入力。サービス種類コードは 通所介護=15／地域密着型通所介護=78。</div>
+                <div className="text-xs text-slate-600 leading-relaxed">LIFEへ出すCSVに使う情報です。事業所番号・保険者番号・サービス種類コードは「事業所情報」のタブで入力します（請求などでも使うため）。</div>
                 {/* ★ LIFE(科学的介護)連携: CSV出力で使う事業所番号・保険者番号・サービス種類コード。 LIFE画面はここから読み込む。 */}
                 <div className="border border-cyan-200 bg-cyan-50/50 rounded-xl p-3">
                   <div className="text-sm font-bold text-cyan-800 mb-2">LIFE連携（科学的介護）用の情報</div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div><label className="block text-xs font-bold text-slate-600 mb-1">介護保険事業所番号（10桁） <span className="font-normal text-slate-400">（「事業所情報」タブで入力）</span></label><div className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl font-bold text-sm text-slate-700">{facilityInfo.officeNumber || <span className="text-red-500">未設定</span>}</div></div>
-                    <div><label className="block text-xs font-bold text-slate-600 mb-1">保険者番号（6桁・利用者共通の既定）</label><ImeSafeInput type="text" inputMode="numeric" value={facilityInfo.insurerNo || ""} onChange={e => setFacilityInfo({...facilityInfo, insurerNo: e.target.value.replace(/[^0-9]/g,'').slice(0,6)})} placeholder="市区町村により異なる" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
-                    <div><label className="block text-xs font-bold text-slate-600 mb-1">サービス種類コード</label><ImeSafeInput type="text" inputMode="numeric" value={facilityInfo.serviceCode || ""} onChange={e => setFacilityInfo({...facilityInfo, serviceCode: e.target.value.replace(/[^0-9]/g,'').slice(0,2)})} placeholder="通所介護=78" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
+                    <div><label className="block text-xs font-bold text-slate-600 mb-1">保険者番号（6桁） <span className="font-normal text-slate-400">（「事業所情報」タブで入力）</span></label><div className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl font-bold text-sm text-slate-700">{facilityInfo.insurerNo || <span className="text-red-500">未設定</span>}</div></div>
+                    <div><label className="block text-xs font-bold text-slate-600 mb-1">サービス種類コード <span className="font-normal text-slate-400">（「事業所情報」タブで入力）</span></label><div className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl font-bold text-sm text-slate-700">{facilityInfo.serviceCode || <span className="text-red-500">未設定</span>}</div></div>
                     {/* ★ 2026-10-14(扇橋): 要介護(通所介護=139…/78)と要支援・事業対象者(総合事業=13A…/A6・A7)で事業所番号・サービス種類が別。利用者の介護度で自動的に切り替えて出力する */}
                     <div><label className="block text-xs font-bold text-slate-600 mb-1">総合事業の事業所番号 <span className="font-normal text-slate-400">（「事業所情報」タブで入力）</span></label><div className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl font-bold text-sm text-slate-700">{facilityInfo.officeNumber2 || <span className="text-slate-400">（なし）</span>}</div></div>
-                    <div><label className="block text-xs font-bold text-slate-600 mb-1">総合事業用のサービス種類コード <span className="font-normal text-slate-400">（例: A6＝通所型独自、A7＝通所型独自/定率）</span></label><ImeSafeInput type="text" value={facilityInfo.serviceCode2 || ""} onChange={e => setFacilityInfo({...facilityInfo, serviceCode2: e.target.value.toUpperCase().replace(/[^0-9A-Z]/g,'').slice(0,2)})} placeholder="例: A7" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
+                    <div><label className="block text-xs font-bold text-slate-600 mb-1">総合事業用のサービス種類コード <span className="font-normal text-slate-400">（「事業所情報」タブで入力）</span></label><div className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl font-bold text-sm text-slate-700">{facilityInfo.serviceCode2 || <span className="text-slate-400">（なし）</span>}</div></div>
                     <div><label className="block text-xs font-bold text-slate-600 mb-1">CSVバージョン</label><input type="text" value={facilityInfo.lifeCsvVersion || ""} onChange={e => setFacilityInfo({...facilityInfo, lifeCsvVersion: e.target.value.trim()})} placeholder="0310（3.10版の固定値・空欄なら0310）" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                     <div><label className="block text-xs font-bold text-slate-600 mb-1">リハ・個別機能／栄養／口腔の一体的取組 <span className="font-normal text-slate-400">（生活機能チェック・個別機能訓練のCSV必須項目）</span></label>
                       <select value={facilityInfo.lifeTrinity || '0'} onChange={e => setFacilityInfo({...facilityInfo, lifeTrinity: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"><option value="0">0：無し（既定）</option><option value="1">1：有り（一体的取組を実施している）</option></select></div>
@@ -46331,7 +46349,11 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                 {/* ★ 2026-10-14(ユーザー指示): 事業所番号はLIFE専用ではない(請求等でも使う)ので事業所情報に入力欄を置く(保存先は従来どおり facilityInfo.officeNumber/officeNumber2) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div><label className="block text-sm font-bold text-slate-600 mb-1.5">介護保険事業所番号（10桁）</label><ImeSafeInput type="text" inputMode="numeric" value={facilityInfo.officeNumber || ""} onChange={e => setFacilityInfo({...facilityInfo, officeNumber: e.target.value.replace(/[^0-9]/g,'').slice(0,10)})} placeholder="例: 1390800348" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
+                  {/* ★ 2026-10-23(ユーザー指示「LIFE連携の番号は事業所情報に移すんじゃなかった？」): 保険者番号・サービス種類コードもここで入力(保存先は同じ facilityInfo) */}
+                  <div><label className="block text-sm font-bold text-slate-600 mb-1.5">サービス種類コード <span className="text-[10px] font-normal text-slate-400">（通所介護=15／地域密着型通所介護=78）</span></label><ImeSafeInput type="text" inputMode="numeric" value={facilityInfo.serviceCode || ""} onChange={e => setFacilityInfo({...facilityInfo, serviceCode: e.target.value.replace(/[^0-9]/g,'').slice(0,2)})} placeholder="例: 78" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                   <div><label className="block text-sm font-bold text-slate-600 mb-1.5">総合事業の事業所番号 <span className="text-[10px] font-normal text-slate-400">（要支援・事業対象者の方に使う番号。無ければ空欄）</span></label><ImeSafeInput type="text" value={facilityInfo.officeNumber2 || ""} onChange={e => setFacilityInfo({...facilityInfo, officeNumber2: e.target.value.toUpperCase().replace(/[^0-9A-Z]/g,'').slice(0,10)})} placeholder="例: 13A0800386" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
+                  <div><label className="block text-sm font-bold text-slate-600 mb-1.5">総合事業用のサービス種類コード <span className="text-[10px] font-normal text-slate-400">（例: A6＝通所型独自、A7＝通所型独自/定率）</span></label><ImeSafeInput type="text" value={facilityInfo.serviceCode2 || ""} onChange={e => setFacilityInfo({...facilityInfo, serviceCode2: e.target.value.toUpperCase().replace(/[^0-9A-Z]/g,'').slice(0,2)})} placeholder="例: A7" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
+                  <div><label className="block text-sm font-bold text-slate-600 mb-1.5">保険者番号（6桁） <span className="text-[10px] font-normal text-slate-400">（利用者共通の既定。利用者ごとに違うときは利用者の画面で）</span></label><ImeSafeInput type="text" inputMode="numeric" value={facilityInfo.insurerNo || ""} onChange={e => setFacilityInfo({...facilityInfo, insurerNo: e.target.value.replace(/[^0-9]/g,'').slice(0,6)})} placeholder="市区町村により異なる" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                 </div>
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">事業所名</label><input type="text" value={facilityInfo.name} onChange={e => setFacilityInfo({...facilityInfo, name: e.target.value})} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                 {/* ★ 管理者名: スタッフ切替/日誌の「管理者」と自動連動(表示のみ・ここでは編集不可)。
@@ -47390,10 +47412,6 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
             <SectionCard title="この端末の表示">
               {/* ★ 2026-10-08(ユーザー要望): テンキーの数字の並び(この端末だけ) */}
               <div className="mb-4 pb-4 border-b border-slate-200" data-testid="kp-layout-setting">
-                <div className="mb-3" data-testid="set-iconbar"><div className="text-sm font-bold text-slate-700 mb-1">上の帯の文字（この端末だけ）</div>
-                  <div className="flex gap-2 flex-wrap">{[['0', '今まで'], ['s', '短い文字だけ']].map(([v, lb]) => { const cur = (() => { try { const x = localStorage.getItem('tsuIconBar'); return x === '1' || x === 's' ? 's' : '0'; } catch { return '0'; } })(); return (
-                    <label key={v} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 bg-white cursor-pointer text-sm"><input type="radio" name="tsuIconBar" defaultChecked={cur === v} onChange={() => { try { localStorage.setItem('tsuIconBar', v); } catch {} }} className="accent-blue-600"/>{lb}</label>); })}</div>
-                  <div className="text-xs text-slate-500 mt-1">今は提供記録の上の帯だけです。画面を開き直すと変わります。</div></div>
                 <div className="text-sm font-bold text-slate-700 mb-1">テンキーの数字の並び（この端末だけ）</div>
                 <p className="text-xs text-slate-500 mb-2">テンキーの数字の並びです（この端末だけ）。</p>
                 <div className="flex gap-2 flex-wrap">
@@ -47413,7 +47431,6 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
               </label>
             </SectionCard>
             <div ref={deviceSectionRef}>
-            {!cmOnly && staffCtx && staffCtx.enabled && <TsuLoginSecurityCard appData={appData} onSave={onSave} staffCtx={staffCtx} isAdmin={isAdmin} />}
             {!cmOnly && <TsuOnboardingDocsPanel appData={appData} onSave={onSave} />}
             <SectionCard title="この端末の名前・最終更新">
               <p className="text-xs text-slate-500 mb-3">端末に名前を付けると、「どの端末で最後に更新したか」が表示されます（名前はこの端末だけに保存）。</p>
@@ -47484,6 +47501,9 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
               })()}
             </SectionCard>
             </div>
+          </>)}
+          {/* ★ 2026-10-23(ユーザー指示): マニュアルは別のタブに(今後、請求・LIFE などのマニュアルも入れる) */}
+          {activeTab === 'manual' && (<>
             <SectionCard title="操作マニュアル・ご利用ガイド">
               <p className="text-xs text-slate-500 mb-3">新しいタブで開きます（印刷・PDF保存も可）。ご家族・ケアマネ用はURLをそのまま渡せます。</p>
               <div className="grid sm:grid-cols-3 gap-3">
@@ -47504,6 +47524,10 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                 </a>
               </div>
             </SectionCard>
+          </>)}
+          {/* ★ 2026-10-23(ユーザー指示): ログイン情報・管理者の設定は「ログイン・管理者」のタブに */}
+          {activeTab === 'login' && (<>
+            {!cmOnly && staffCtx && staffCtx.enabled && <TsuLoginSecurityCard appData={appData} onSave={onSave} staffCtx={staffCtx} isAdmin={isAdmin} />}
             <SectionCard title="ログイン情報">
               {(!canAdmin) ? (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-center">
@@ -47565,16 +47589,6 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                   </div>
                 );
               })()}
-              {showSettingsAdminGate && (
-                <AdminAuthModal
-                  mode={_adminAuth?.passwordHash ? 'verify' : 'set'}
-                  adminName="管理者"
-                  existingHash={_adminAuth?.passwordHash}
-                  onSetAuth={settingsSaveAdminAuth}
-                  onSuccess={()=>{ setShowSettingsAdminGate(false); setAdminUnlocked(true); }}
-                  onCancel={()=>setShowSettingsAdminGate(false)}
-                />
-              )}
             </SectionCard>
             <SectionCard title="管理者の設定">
               {(!canAdmin) ? (
@@ -47588,6 +47602,9 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                 <AdminSettingsSection appData={appData} onSave={onSave} />
               )}
             </SectionCard>
+          </>)}
+          {/* ★ 2026-10-23(ユーザー指示): データ管理は「データ管理」のタブに */}
+          {activeTab === 'data' && (<>
             {/* ★ 2026-09-17: 店舗ごとのAPIキー設定は廃止。本部(つむぎ管理局)が1つ登録したキーを全店で使う。
                 キーをここに置くとクラウド上に平文で保存され、公開キーで読めてしまうため、安全面でも廃止した。 */}
             <SectionCard title="データ管理">
@@ -48004,6 +48021,17 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
               );
             })()}
           </>)}
+          {/* ★ 管理者として認証(どのタブから押しても出る) */}
+          {showSettingsAdminGate && (
+                <AdminAuthModal
+                  mode={_adminAuth?.passwordHash ? 'verify' : 'set'}
+                  adminName="管理者"
+                  existingHash={_adminAuth?.passwordHash}
+                  onSetAuth={settingsSaveAdminAuth}
+                  onSuccess={()=>{ setShowSettingsAdminGate(false); setAdminUnlocked(true); }}
+                  onCancel={()=>setShowSettingsAdminGate(false)}
+                />
+              )}
 
         </div>
       </div>
