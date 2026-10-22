@@ -20806,7 +20806,7 @@ export default function App() {
   // ★ 自動テスト(VITE_E2E_DEMO=1 のビルドのみ・本番では空): 他端末の提供記録がテーブルから届いた状況を再現する入口
   useEffect(() => {
     if (String(import.meta.env.VITE_E2E_DEMO || '') !== '1') return;
-    try { window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), applyRemoteRecords: (patches) => {
+    try { window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), peek: () => appDataRef.current, applyRemoteRecords: (patches) => {
       applyingRemoteRef.current = true;
       setAppData(prev => ({ ...prev, ticketRecords: (prev.ticketRecords || []).map(r => { const pt = (patches || []).find(x => String(x.id) === String(r.id)); return pt ? { ...r, ...pt, _fieldTs: { ...(r._fieldTs || {}), ...(pt._fieldTs || {}) } } : r; }) }));
     } }; } catch {}
@@ -45120,6 +45120,207 @@ function AdminSettingsSection({ appData, onSave }) {
   );
 }
 
+// ★ 2026-10-22(ユーザー要望「テスト店舗に利用者70名くらい・週1〜3回・平日の午前午後に10名ずつ・9月分から記録・送迎・住所・フェイスシートも入ったデモ用の店舗」):
+//   デモ用の見本データを作る。使えるのはテスト店舗(store_test)と自動テスト用のビルドだけ。
+//   実在の人・住所は使わない: 名前は「見本」「架空」などの名字、住所は町名＋丁目まで、電話は 03-0000- / 090-0000-。
+//   作った利用者・提供記録・送迎表には _demo の印を付ける(「見本データを消す」で消せる)。振替は作らない(欠席だけ)。
+const TSU_DEMO_STORES = ['store_test'];
+const tsuDemoAllowed = (appData) => String(import.meta.env.VITE_E2E_DEMO || '') === '1' || TSU_DEMO_STORES.includes(String((appData && appData._sbStoreId) || ''));
+function tsuBuildDemoStore(appData, opts = {}) {
+  let seed = opts.seed || 20261022;
+  const rnd = () => { seed |= 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const pick = (a) => a[Math.floor(rnd() * a.length)];
+  const ri = (a, b) => a + Math.floor(rnd() * (b - a + 1));
+  const shuffle = (a) => { const x = [...a]; for (let i = x.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [x[i], x[j]] = [x[j], x[i]]; } return x; };
+  const pad = (n) => String(n).padStart(2, '0');
+  const now = Date.now();
+  const ss0 = appData.systemSettings || {};
+  const existing = Array.isArray(appData.patients) ? appData.patients : [];
+  const _nm = (s) => String(s || '').replace(/[\s　]/g, '');
+  const exNames = new Set(existing.map(p => _nm(p && p.name)));
+  // ---- 名前(架空) ----
+  const SUR = [['見本', 'みほん'], ['架空', 'かくう'], ['仮名', 'かめい'], ['例示', 'れいじ'], ['試作', 'しさく'], ['模擬', 'もぎ'], ['標本', 'ひょうほん'], ['参考', 'さんこう'], ['雛形', 'ひながた'], ['練習', 'れんしゅう'], ['体験', 'たいけん'], ['演習', 'えんしゅう']];
+  const MEN = [['清', 'きよし'], ['正男', 'まさお'], ['博', 'ひろし'], ['勇', 'いさむ'], ['茂', 'しげる'], ['実', 'みのる'], ['進', 'すすむ'], ['豊', 'ゆたか'], ['勝', 'まさる'], ['昭', 'あきら'], ['一郎', 'いちろう'], ['二郎', 'じろう'], ['三郎', 'さぶろう'], ['武', 'たけし'], ['修', 'おさむ'], ['隆', 'たかし'], ['和夫', 'かずお'], ['健一', 'けんいち'], ['義男', 'よしお'], ['敏夫', 'としお']];
+  const WOMEN = [['花子', 'はなこ'], ['幸子', 'さちこ'], ['京子', 'きょうこ'], ['和子', 'かずこ'], ['節子', 'せつこ'], ['久子', 'ひさこ'], ['美代子', 'みよこ'], ['光子', 'みつこ'], ['ハル', 'はる'], ['トメ', 'とめ'], ['キミ', 'きみ'], ['ヨシ', 'よし'], ['フミ', 'ふみ'], ['静子', 'しずこ'], ['千代', 'ちよ'], ['栄子', 'えいこ'], ['文子', 'ふみこ'], ['春江', 'はるえ'], ['敏子', 'としこ'], ['照子', 'てるこ']];
+  const FAM = [['太郎', 'たろう'], ['誠', 'まこと'], ['聡', 'さとし'], ['恵子', 'けいこ'], ['由美', 'ゆみ'], ['明美', 'あけみ'], ['直子', 'なおこ'], ['健太', 'けんた'], ['裕子', 'ゆうこ'], ['大輔', 'だいすけ']];
+  const N = opts.count || 70, NW = Math.round(N * 0.6);
+  const combos = shuffle([...shuffle(WOMEN.flatMap(w => SUR.map(s => [s, w, '女性']))).slice(0, 400), ...shuffle(MEN.flatMap(m => SUR.map(s => [s, m, '男性']))).slice(0, 400)]);
+  const people = []; const used = new Set();
+  const take = (g, n) => { for (const c of combos) { if (people.filter(x => x[2] === g).length >= n) break; if (c[2] !== g) continue; const nm = `${c[0][0]}${c[1][0]}`; if (used.has(nm) || exNames.has(nm)) continue; used.add(nm); people.push(c); } };
+  take('女性', NW); take('男性', N - NW);
+  const ppl = shuffle(people);
+  // ---- 曜日と時間帯: 週3回5名・週2回20名・週1回45名(70名のとき) → 平日の午前・午後に10名ずつ ----
+  const n3 = Math.round(N * 5 / 70), n2 = Math.round(N * 20 / 70), n1 = N - n3 - n2;
+  const freq = [...Array(n3).fill(3), ...Array(n2).fill(2), ...Array(n1).fill(1)];
+  const sessOf = freq.map(() => '');
+  const want = { AM: 50, PM: 50 }; const got = { AM: 0, PM: 0 };
+  freq.forEach((k, i) => { const s = (got.AM + k <= want.AM && (got.AM <= got.PM || got.PM + k > want.PM)) ? 'AM' : 'PM'; sessOf[i] = s; got[s] += k; });
+  const days = freq.map(() => []);
+  ['AM', 'PM'].forEach(s => {
+    const cap = { 1: 10, 2: 10, 3: 10, 4: 10, 5: 10 };
+    freq.map((k, i) => ({ k, i })).filter(x => sessOf[x.i] === s).sort((a, b) => b.k - a.k).forEach(({ k, i }) => {
+      const order = shuffle([1, 2, 3, 4, 5]).sort((a, b) => cap[b] - cap[a]);
+      const ch = order.slice(0, k).filter(d => cap[d] > 0); ch.forEach(d => { cap[d]--; }); days[i] = ch.sort();
+    });
+  });
+  // ---- 運動の項目 ----
+  let exItems = (effExerciseItems(ss0) || []).map(x => ({ ...x }));
+  let indItems = Array.isArray(ss0.individualExerciseItems) ? ss0.individualExerciseItems.map(x => ({ ...x })) : [];
+  const ss = { ...ss0 };
+  const DEMO_IND = [['ie_demo_ball', 'ボール挟み', '回', ''], ['ie_demo_knee', '膝伸ばし（枕）', '秒', 'セット'], ['ie_demo_stand', '立ち上がり練習', '回', ''], ['ie_demo_toe', 'つま先上げ', '回', ''], ['ie_demo_towel', 'タオルギャザー', '回', '']];
+  if (!indItems.length) { indItems = DEMO_IND.map(([id, name, u, u2]) => ({ id, name, defaultUnit: u, ...(u2 ? { defaultUnit2: u2 } : {}) })); ss.individualExerciseItems = indItems; }
+  let slots = exItems.filter(x => x && x.type === 'individual');
+  if (!slots.length) {
+    const add = [{ id: 'ind_demo1', name: '個別運動①', type: 'individual' }, { id: 'ind_demo2', name: '個別運動②', type: 'individual' }];
+    exItems = [...exItems, ...add]; ss.exerciseItems = exItems; slots = add;
+    // 9月より後に運動の項目を変えた履歴があれば、その版にも同じ枠を足す(9月・10月の表に出るように)
+    if (Array.isArray(ss0.exerciseItemsHistory) && ss0.exerciseItemsHistory.length) {
+      ss.exerciseItemsHistory = ss0.exerciseItemsHistory.map(h => (h && (!h.effectiveTo || h.effectiveTo >= '2026-09-01') && Array.isArray(h.items) && !h.items.some(it => it && it.type === 'individual')) ? { ...h, items: [...h.items, ...add] } : h);
+    }
+  }
+  const normItems = exItems.filter(x => x && x.type !== 'individual');
+  const planVal = (it) => { const u = it.defaultUnit || ''; if (u === '分') return `${pick([5, 8, 10, 10, 15])}分`; if (u === 'kg') return `${pick([1, 2, 3, 3, 5])}kg`; if (u === '回') return `${pick([10, 15, 20, 30])}回`; if (u === '往復') return `${pick([3, 5, 5, 10])}往復`; return String(pick([5, 10, 15])); };
+  // ★ 値は数字だけ(単位は項目の単位を画面が付ける: 10×3 → 10秒×3セット・15 → 15回)
+  const indVal = (it) => (it && it.defaultUnit2) ? `${pick([5, 10])}×${pick([2, 3])}` : String(pick([10, 15, 20]));
+  // ---- ケアマネ(架空) ----
+  const CMS = [
+    { office: '（見本）しんじゅくケアプランセンター', name: '見本 ケア子', phone: '03-0000-1101', fax: '03-0000-1102' },
+    { office: '（見本）にししんじゅく居宅介護支援事業所', name: '架空 支援', phone: '03-0000-1201', fax: '03-0000-1202' },
+    { office: '（見本）おおくぼケアマネジメント', name: '例示 まもる', phone: '03-0000-1301', fax: '03-0000-1302' },
+    { office: '（見本）おちあい地域包括支援センター', name: '参考 ゆき', phone: '03-0000-1401', fax: '03-0000-1402' },
+  ];
+  const cmL = Array.isArray(ss0.careManagers) ? [...ss0.careManagers] : []; let cmAdded = false;
+  CMS.forEach(c => { if (!cmL.some(x => x && x.office === c.office && x.name === c.name)) { cmL.push({ office: c.office, name: c.name, phone: c.phone, phoneDirect: '', fax: c.fax }); cmAdded = true; } });
+  if (cmAdded) ss.careManagers = cmL;
+  const coL = Array.isArray(ss0.cmOffices) ? [...ss0.cmOffices] : []; let coAdded = false;
+  CMS.forEach(c => { if (!coL.some(x => x && x.name === c.office)) { coL.push({ name: c.office, phone: c.phone, fax: c.fax }); coAdded = true; } });
+  if (coAdded) ss.cmOffices = coL;
+  // ---- 住所: 施設の近く(新宿区のとき)・町名＋丁目まで ----
+  const fiAddr = String((ss0.facilityInfo && ss0.facilityInfo.address) || '');
+  const TOWNS = /新宿区/.test(fiAddr) || !fiAddr
+    ? [['西新宿', 8], ['北新宿', 4], ['百人町', 4], ['大久保', 3], ['高田馬場', 4], ['中落合', 4], ['上落合', 3], ['西落合', 4], ['下落合', 4], ['中井', 2], ['新宿', 7], ['四谷', 4], ['戸山', 3], ['若松町', 0], ['富久町', 0], ['余丁町', 0], ['河田町', 0]]
+    : null;
+  const KAN = ['', '一', '二', '三', '四', '五', '六', '七', '八'];
+  const prefCity = (/^(東京都|北海道|(?:京都|大阪)府|.{2,3}県)(.+?[区市町村])/.exec(fiAddr) || [null, '東京都', '新宿区']);
+  const _fiTown = ((/[区市町村]([^0-9０-９\-－−一二三四五六七八九十丁]+)/.exec(fiAddr.replace(prefCity[1] + prefCity[2], prefCity[2])) || [])[1] || '').trim();
+  const mkAddr = () => { if (!TOWNS) return { prefecture: prefCity[1], city: prefCity[2], addressLine: _fiTown ? `${_fiTown}${KAN[ri(1, 4)]}丁目` : '（見本）' }; const [t, c] = pick(TOWNS); return { prefecture: '東京都', city: '新宿区', addressLine: c ? `${t}${KAN[ri(1, c)]}丁目` : t }; };
+  // ---- 職員 ----
+  const dStaff = (appData.diarySettings && Array.isArray(appData.diarySettings.staff)) ? appData.diarySettings.staff.filter(s => s && s.name && !s._tempHelp) : [];
+  const recorders = dStaff.length ? dStaff.map(s => String(s.name)) : ['見本 職員'];
+  const kinouSt = dStaff.filter(s => s.role === '機能訓練指導員' || s.role2 === '機能訓練指導員').map(s => String(s.name));
+  const kinouOn = !!(ss0.facilityInfo && ss0.facilityInfo.kobetsuKinouAddon);
+  const msStaff = (Array.isArray(ss0.massageStaff) ? ss0.massageStaff : []).filter(x => x && !/^[○×〇ー－-]$/.test(String(x)) && x !== 'ヘルプ');
+  const msTypes = (Array.isArray(ss0.massageTypes) ? ss0.massageTypes : ['通常']).filter(x => x && x !== '無し');
+  // ---- 利用者 ----
+  const maxId = existing.reduce((m, p) => Math.max(m, Number(p && p.id) || 0), Number(appData.patientIdSeq) || 0);
+  const KIOU = ['高血圧症', '糖尿病', '脳梗塞後遺症（右片麻痺）', '変形性膝関節症', '骨粗鬆症', '腰部脊柱管狭窄症', '慢性心不全', 'パーキンソン病', 'アルツハイマー型認知症', '関節リウマチ', '大腿骨頸部骨折（術後）', '脂質異常症'];
+  const RYUI = ['歩行時にふらつきあり。移動は見守り。', '水分をとるよう声かけ。', '難聴あり。正面からゆっくり話す。', '血圧が高めのため、運動の前に確認。', '右膝の痛みあり。負荷は少なめに。', '転倒歴あり。立ち上がりは手すりを使う。', '甘いものは控えめに（ご家族の希望）。', '特になし。'];
+  const HOBBY = ['園芸', '囲碁', 'カラオケ', '手芸', '散歩', '読書', '書道', '料理', '将棋', '俳句'];
+  const LIFEH = ['元会社員。定年後は町会の活動に参加。', '商店を営んでいた。話し好き。', '元教員。読書が日課。', '専業主婦として家族を支えてきた。', '大工として長く働いた。手先が器用。', '和裁の仕事をしていた。'];
+  const NEEDS = ['歩く力を保ち、買い物に一人で行きたい。', '家での入浴を続けたい。', '友人と会う楽しみを続けたい。', '転ばずに暮らしたい。', '体力をつけて旅行に行きたい。'];
+  const CLV = ['要支援1', '要支援2', '要介護1', '要介護1', '要介護2', '要介護2', '要介護3', '要介護4', '事業対象者'];
+  const patients = ppl.map((c, i) => {
+    const id = maxId + 1 + i; const [sur, given, gender] = c; const fam = pick(FAM);
+    const s = sessOf[i]; const sched = Array(7).fill(''); days[i].forEach(d => { sched[d] = s; });
+    const walk = i % 17 === 5; const ptimes = Array(7).fill('');
+    const baseMin = s === 'AM' ? (8 * 60 + 30 + 5 * ri(0, 8)) : (13 * 60 + 5 * ri(0, 8));
+    days[i].forEach(d => { ptimes[d] = walk ? '徒歩' : `${pad(Math.floor(baseMin / 60))}:${pad(baseMin % 60)}`; });
+    const by = ri(1930, 1953), bm = ri(1, 12), bd = ri(1, 28);
+    const sy = ri(2023, 2026), sm = sy === 2026 ? ri(1, 8) : ri(1, 12);
+    const cl = pick(CLV); const cm = (cl === '要支援1' || cl === '要支援2' || cl === '事業対象者') ? CMS[3] : CMS[ri(0, 2)];
+    const ad = mkAddr(); const ph = String(1000 + i).slice(-4);
+    const kiou = shuffle(KIOU).slice(0, ri(1, 2)).join('、');
+    const plan = {}; normItems.forEach(it => { plan[it.id] = planVal(it); });
+    const myInd = shuffle(indItems).slice(0, Math.min(slots.length, indItems.length));
+    const slotDef = {}; slots.forEach((sl, k) => { if (myInd[k]) slotDef[sl.id] = myInd[k].id; });
+    const indDefs = myInd.map(it => ({ itemId: it.id, defaultValue: indVal(it) }));
+    const relation = pick(['長男', '長女', '次男', '次女', '長男の妻']);
+    const adl = pick(['J1', 'J2', 'A1', 'A2', 'B1']); const dem = pick(['自立', 'Ⅰ', 'Ⅱa', 'Ⅱb', 'Ⅲa']);
+    const created = `${sy}-${pad(sm)}-01`;
+    return {
+      id, name: `${sur[0]} ${given[0]}`, kana: `${sur[1]} ${given[1]}`, lastName: sur[0], firstName: given[0], kanaLast: sur[1], kanaFirst: given[1],
+      status: '利用中', gender, birthDate: `${by}-${pad(bm)}-${pad(bd)}`, careLevel: cl, careLevelFrom: '2026-04-01', careLevelTo: '2027-03-31',
+      costBurden: rnd() < 0.85 ? '90%' : pick(['80%', '70%']), insuranceNo: `99${String(10000000 + id).slice(-8)}`,
+      startDate: created, endDate: '', autoDeleteAfter5Years: false,
+      scheduleAmPm: sched, pickupType: 'fixed', pickupTimes: ptimes, pickupPlace: pick(PICKUP_PLACES), pickupMinutes: walk ? 'walk' : ri(2, 6),
+      zipCode: '', ...ad, building: '', address: `${ad.prefecture}${ad.city}${ad.addressLine}`,
+      phone: `03-0000-${ph}`, phoneMobile: '',
+      familyName: `${sur[0]} ${fam[0]}`, familyLastName: sur[0], familyFirstName: fam[0], familyKana: `${sur[1]} ${fam[1]}`, familyRelation: relation, familyPhone: '', familyPhoneMobile: `090-0000-${ph}`, familyEmail: '',
+      emergencyContacts: rnd() < 0.5 ? [{ name: `${sur[0]} ${pick(FAM)[0]}`, relation: pick(['次男', '次女', '孫']), phone: '', phoneMobile: `080-0000-${ph}`, email: '' }] : [],
+      cmOffice: cm.office, cmName: cm.name, cmPhone: cm.phone, cmFax: cm.fax, cmOfficePhone: cm.phone,
+      medicalInstitution: pick(['（見本）新宿みほん内科クリニック', '（見本）西新宿かくう整形外科', '（見本）おおくぼれいじ医院']), medicalContact: '03-0000-2000', doctor: pick(['見本 一郎', '架空 健', '例示 誠']),
+      kiou, ryui: pick(RYUI), massageNeed: rnd() < 0.45 && msTypes.length ? pick(msTypes) : '', onyokuDenryo: '無し',
+      plannedExercises: plan, individualExercises: indDefs, individualExerciseSlotDefaults: slotDef,
+      personalFile: { faceSheet: {
+        receptionDate: created, receptionMethod: pick(['電話', '来所', 'ケアマネより紹介']), receptionStaff: recorders[0], creator: recorders[0], createdDate: created, firstCreatedDate: created, updatedDate: '2026-09-01',
+        householdType: pick(['独居', '高齢者世帯', '家族と同居']), familyMembers: `${relation}（${sur[0]} ${fam[0]}）`, keyPerson: `${relation}（${sur[0]} ${fam[0]}）`,
+        chronicDiseases: kiou, medication: pick(['降圧剤（朝）', '血糖降下薬（朝・夕）', '鎮痛剤（痛むとき）', 'なし']), allergies: 'なし', adlLevel: adl, dementiaLevel: dem,
+        lifeHistory: pick(LIFEH), currentSituation: `週${freq[i]}回の通所で体を動かしている。`, otherServices: pick(['なし', '訪問介護 週1回', '福祉用具（歩行器）']), needs: pick(NEEDS),
+        hobby: pick(HOBBY), personality: pick(['穏やか', '社交的', 'まじめ', 'にぎやかな場が好き']), pickupNotes: walk ? '徒歩で来所' : '玄関前で待っている', bikou: '※ デモ用の見本（架空）です',
+      } },
+      _demo: true,
+    };
+  });
+  // ---- 月間スケジュールと提供記録(9月1日〜昨日)・送迎表(10月の平日) ----
+  const ms = JSON.parse(JSON.stringify(appData.monthlyShifts || {}));
+  const hol = new Set((appData.holidays || []).map(h => String((h && (h.date || h)) || '')));
+  const DN = ['日', '月', '火', '水', '木', '金', '土'];
+  const endD = opts.endDate ? new Date(opts.endDate) : (() => { const t = new Date(); t.setHours(0, 0, 0, 0); t.setDate(t.getDate() - 1); return t; })();
+  const ABS = ['体調不良のため欠席', '通院のため欠席', 'ご家族の都合により欠席', '発熱のため欠席', '法事のため欠席'];
+  const TOKKI = ['お変わりなく過ごされました。', '運動に意欲的に取り組まれました。', '膝の痛みの訴えあり。様子をみる。', '他の利用者と会話を楽しまれていました。', '少し疲れた様子。休みながら運動。', '体操を楽しそうにされていました。'];
+  const MOOD = ['good', 'good', 'excellent', 'normal', 'good', 'excellent', 'normal', 'bad'];
+  const bp = {}; patients.forEach(p => { bp[p.id] = { up: ri(112, 148), dn: ri(62, 88), pl: ri(62, 86) }; });
+  const records = [];
+  for (let d = new Date(2026, 8, 1); d <= endD; d.setDate(d.getDate() + 1)) {
+    const dow = d.getDay(); if (dow === 0 || dow === 6) continue;
+    const y = d.getFullYear(), m = d.getMonth() + 1, day = d.getDate(); const ds = `${y}-${pad(m)}-${pad(day)}`; if (hol.has(ds)) continue;
+    const ym = `${y}-${pad(m)}`;
+    patients.forEach(p => {
+      const s = p.scheduleAmPm[dow]; if (!s || ds < p.startDate) return;
+      const base = { id: `tr_${p.id}_${y}_${m}_${day}`, patientId: p.id, name: p.name, kana: p.kana, date: `${m}月${day}日`, year: y, dayOfWeek: DN[dow], recorder: pick(recorders), _demo: true,
+        _savedAt: new Date(y, m - 1, day, 16, ri(0, 50)).getTime() };
+      if (rnd() < 0.045) {
+        ms[ym] = ms[ym] || {}; ms[ym][p.id] = { ...(ms[ym][p.id] || {}), [`${day}_${s}`]: '欠席' };
+        records.push({ ...base, status: '欠席', tokki: pick(ABS), exercises: {} }); return;
+      }
+      const b = bp[p.id]; const t = (rnd() < 0.03 ? 37.1 : 36.0 + Math.floor(rnd() * 9) / 10).toFixed(1);
+      const v = { temp: t, bpUpSt: String(b.up + ri(-8, 8)), bpDnSt: String(b.dn + ri(-6, 6)), plSt: String(b.pl + ri(-6, 6)), bpUpEn: String(b.up + ri(-12, 2)), bpDnEn: String(b.dn + ri(-8, 2)), plEn: String(b.pl + ri(-8, 2)) };
+      const vit = {}; Object.keys(v).forEach(k => { vit[k] = v[k]; vit[`${k}_${s}`] = v[k]; });
+      const ex = {}; normItems.forEach(it => { ex[it.id] = p.plannedExercises[it.id]; });
+      slots.forEach(sl => { const iid = p.individualExerciseSlotDefaults[sl.id]; if (!iid) return; const def = (p.individualExercises.find(x => x.itemId === iid) || {}).defaultValue || ''; ex[sl.id] = { itemId: iid, value: def }; });
+      const ms1 = p.massageNeed && msStaff.length && rnd() < 0.8 ? pick(msStaff) : '';
+      const ks = kinouOn && kinouSt.length ? kinouSt[0] : '';
+      records.push({ ...base, status: '出席', ...vit, exercises: ex, massage: ms1, done: !!ms1, kibunArrival: pick(MOOD), kibunDeparture: pick(MOOD.filter(x => x !== 'bad')),
+        tokki: rnd() < 0.15 ? pick(TOKKI) : '', ...(ks ? { kinouStaff: ks, [`kinouStaff_${s}`]: ks } : {}) });
+    });
+  }
+  // 送迎表(10月の平日・まだ無い日だけ): 車は日誌の設定の最初の3台(無ければ 1〜3号車を足す)
+  let ds0 = appData.diarySettings || {}; let cars = Array.isArray(ds0.cars) ? ds0.cars.filter(c => c && c.id) : [];
+  let diarySettings = ds0;
+  if (cars.length < 3) { const add = [1, 2, 3].map(n => ({ id: `car${n}`, name: `${n}号車`, type: '' })).filter(c => !cars.some(x => x.id === c.id)); cars = [...cars, ...add].slice(0, Math.max(3, cars.length)); diarySettings = { ...ds0, cars }; }
+  const useCars = cars.slice(0, 3);
+  const tp = { ...(appData.transportPlans || {}) }; let planCount = 0;
+  for (let d = new Date(2026, 9, 1); d <= new Date(2026, 9, 31); d.setDate(d.getDate() + 1)) {
+    const dow = d.getDay(); if (dow === 0 || dow === 6) continue;
+    const ds = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; if (hol.has(ds)) continue;
+    const ym = ds.slice(0, 7);
+    ['AM', 'PM'].forEach(s => {
+      const key = `${ds}_${s}`; if (tp[key]) return;
+      const come = patients.filter(p => p.scheduleAmPm[dow] === s && !(ms[ym] && ms[ym][p.id] && ms[ym][p.id][`${d.getDate()}_${s}`] === '欠席'));
+      if (!come.length) return;
+      const walkers = come.filter(p => p.pickupTimes[dow] === '徒歩').map(p => ({ pid: p.id, t: '徒歩' }));
+      const ride = come.filter(p => p.pickupTimes[dow] !== '徒歩').sort((a, b) => String(a.addressLine).localeCompare(String(b.addressLine), 'ja'));
+      const carsObj = {}; useCars.forEach(c => { carsObj[c.id] = []; });
+      const per = Math.ceil(ride.length / useCars.length) || 1;
+      ride.forEach((p, k) => { const c = useCars[Math.min(useCars.length - 1, Math.floor(k / per))]; const pos = carsObj[c.id].length; const st = s === 'AM' ? 8 * 60 + 30 : 13 * 60; const mm = st + pos * 7; carsObj[c.id].push({ pid: p.id, t: `${Math.floor(mm / 60)}:${pad(mm % 60)}`, mark: false }); });
+      tp[key] = { cars: carsObj, walkers, others: [], un: [], memo: '', _savedAt: now, _demo: true }; planCount++;
+    });
+  }
+  const newSeq = (appData.patientIdSeq != null) ? Math.max(Number(appData.patientIdSeq) || 0, maxId + N) : null;
+  const slotCount = {}; patients.forEach(p => p.scheduleAmPm.forEach((v, dw) => { if (v) { const k = `${dw}_${v}`; slotCount[k] = (slotCount[k] || 0) + 1; } }));
+  return { patients, records, systemSettings: ss, diarySettings, monthlyShifts: ms, transportPlans: tp, planCount, patientIdSeq: newSeq, slotCount };
+}
+
 function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAdmin, navFocus, onFocusHandled, deviceName, updateDeviceName, lastSync, cmOnly, loginLogLoader, staffCtx }) {
   // ★ 2026-10-19 段階4: ログイン記録(管理者だけ・サーバーから取得)
   const [loginLog, setLoginLog] = useState(null);
@@ -45241,6 +45442,56 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
   const [cmOffices, setCmOffices] = useState(appData.systemSettings?.cmOffices || []);
   const [cmPersons, setCmPersons] = useState(appData.systemSettings?.careManagers || []);
   const [stampingAll, setStampingAll] = useState(false); // 「最新として確定」処理中フラグ
+  // ★ 2026-10-22: デモ用の見本データ(テスト店舗だけ)。保存は週ごとに分けて送るので、毎回いちばん新しい appData と onSave を使う
+  const [demoBusy, setDemoBusy] = useState(false); const [demoMsg, setDemoMsg] = useState('');
+  const _demoAppRef = React.useRef(appData); _demoAppRef.current = appData;
+  const _demoSaveRef = React.useRef(onSave); _demoSaveRef.current = onSave;
+  const _demoWait = (ms) => new Promise(r => setTimeout(r, ms));
+  const runDemoFill = async () => {
+    if (demoBusy) return;
+    if (!window.confirm('デモ用の見本データを入れます。\n架空の利用者70名（平日の午前・午後に10名ずつ）と、9月1日〜昨日の提供記録・住所・フェイスシート・10月の送迎表です。\nよろしいですか？')) return;
+    setDemoBusy(true); setDemoMsg('見本を作っています…');
+    try {
+      const base = _demoAppRef.current;
+      const g = tsuBuildDemoStore(base);
+      _demoSaveRef.current({ ...base, patients: [...(base.patients || []), ...g.patients], systemSettings: g.systemSettings, diarySettings: g.diarySettings, monthlyShifts: g.monthlyShifts, transportPlans: g.transportPlans, ...(g.patientIdSeq != null ? { patientIdSeq: g.patientIdSeq } : {}) }, { silent: true });
+      await _demoWait(2500);
+      const wk = {};
+      g.records.forEach(r => { const mo = parseInt(r.date, 10), dd = parseInt(String(r.date).split('月')[1], 10); const d = new Date(r.year, mo - 1, dd); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); const k = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; (wk[k] = wk[k] || []).push(r); });
+      const keys = Object.keys(wk);
+      for (let i = 0; i < keys.length; i++) {
+        setDemoMsg(`提供記録を入れています… ${i + 1}/${keys.length}`);
+        const cur = _demoAppRef.current;
+        const have = new Set((cur.ticketRecords || []).map(r => String(r && r.id)));
+        const add = wk[keys[i]].filter(r => !have.has(String(r.id)));
+        if (add.length) _demoSaveRef.current({ ...cur, ticketRecords: [...(cur.ticketRecords || []), ...add] }, { silent: true });
+        await _demoWait(2000);
+      }
+      setDemoMsg(`入れました：利用者 ${g.patients.length}名・提供記録 ${g.records.length}件・送迎表 ${g.planCount}件`);
+    } catch (e) { setDemoMsg('入れられませんでした：' + ((e && e.message) || '')); }
+    finally { setDemoBusy(false); }
+  };
+  const runDemoClear = async () => {
+    if (demoBusy) return;
+    const cur = _demoAppRef.current;
+    const dp = (cur.patients || []).filter(p => p && p._demo); if (!dp.length) return;
+    if (!window.confirm(`見本の利用者 ${dp.length}名と、その提供記録・月間スケジュール・送迎表を消します。よろしいですか？`)) return;
+    setDemoBusy(true); setDemoMsg('消しています…');
+    try {
+      const ids = new Set(dp.map(p => String(p.id))); const t = Date.now();
+      const recIds = (cur.ticketRecords || []).filter(r => r && (r._demo || ids.has(String(r.patientId)))).map(r => String(r.id));
+      const recSet = new Set(recIds);
+      const del = { ...(cur.deletedIds || {}) };
+      del.patients = { ...(del.patients || {}) }; ids.forEach(id => { del.patients[id] = t; });
+      del.ticketRecords = { ...(del.ticketRecords || {}) }; recIds.forEach(id => { del.ticketRecords[id] = t; });
+      const ms = {}; Object.keys(cur.monthlyShifts || {}).forEach(mk => { const m = { ...((cur.monthlyShifts || {})[mk] || {}) }; ids.forEach(id => { delete m[id]; }); ms[mk] = m; });
+      const tp = { ...(cur.transportPlans || {}) }; Object.keys(tp).forEach(k => { if (tp[k] && tp[k]._demo) tp[k] = { cars: {}, walkers: [], others: [], un: [], memo: '', _savedAt: t }; });
+      _demoSaveRef.current({ ...cur, patients: (cur.patients || []).filter(p => !(p && ids.has(String(p.id)))), ticketRecords: (cur.ticketRecords || []).filter(r => !(r && recSet.has(String(r.id)))), monthlyShifts: ms, transportPlans: tp, deletedIds: del }, { silent: true, deleteRecordIds: recIds });
+      await _demoWait(1500);
+      setDemoMsg(`消しました：利用者 ${dp.length}名・提供記録 ${recIds.length}件`);
+    } catch (e) { setDemoMsg('消せませんでした：' + ((e && e.message) || '')); }
+    finally { setDemoBusy(false); }
+  };
   const [strayScan, setStrayScan] = useState(null); // 残骸(日付が基本利用日と不一致)記録の検査結果 null=未実行 / 配列=検出結果
   // ★ CSV取込やクラウド同期で最新のケアマネ事業所/担当者が来たら、編集中でなければ画面の状態を最新に追従。
   //   これが無いと、古い(空の)スナップショットのまま各種設定を保存 → careManagers が空で上書きされ消える不具合になる。
@@ -47355,6 +47606,18 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                         {stampingAll ? <><BusySpin/>確定処理中…</> : 'この端末のデータを最新として確定'}
                       </button>
                     </div>
+                    {/* ★ 2026-10-22: デモ用の見本データ(テスト店舗だけ) */}
+                    {tsuDemoAllowed(appData) && (() => { const _dc = (appData.patients || []).filter(p => p && p._demo).length; return (
+                      <div className="border-t border-slate-200 pt-3" data-testid="demo-store">
+                        <div className="text-sm font-bold text-slate-700 mb-1.5">デモ用の見本データ（テスト店舗だけ）</div>
+                        <div className="text-[11px] text-slate-500 leading-relaxed mb-2">架空の利用者70名（週1〜3回・平日の午前と午後に10名ずつ）と、9月1日〜昨日の提供記録・住所・フェイスシート・10月の送迎表を入れます。今入っている見本: {_dc}名</div>
+                        <div className="flex gap-2 flex-wrap">
+                          <button type="button" data-testid="demo-fill" disabled={demoBusy || _dc > 0} onClick={runDemoFill} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm active:scale-95 disabled:opacity-50">{demoBusy ? <><BusySpin/>処理中…</> : '見本データを入れる'}</button>
+                          <button type="button" data-testid="demo-clear" disabled={demoBusy || _dc === 0} onClick={runDemoClear} className="px-4 py-2 bg-white border border-red-300 text-red-700 hover:bg-red-50 rounded-xl font-bold text-sm active:scale-95 disabled:opacity-50">見本データを消す</button>
+                        </div>
+                        {demoMsg && <div className="text-xs font-bold text-slate-700 mt-2" data-testid="demo-msg">{demoMsg}</div>}
+                      </div>
+                    ); })()}
                     {/* ★ 残骸データ(日付が基本利用日と一致しない提供記録)の検査・削除 */}
                     <div className="border-t border-slate-200 pt-3">
                       <div className="text-sm font-bold text-slate-700 mb-1.5">日付がおかしい記録（残骸）の検査・削除</div>
