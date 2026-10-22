@@ -44,6 +44,7 @@
   @media print{body{background:#fff}section,.toc{box-shadow:none;break-inside:avoid}.cover{box-shadow:none}}
   .fig img{max-width:100%;height:auto;border-radius:14px;border:1px solid var(--line);box-shadow:0 4px 14px rgba(0,0,0,.08);background:#fff}
   .fig.sp img{max-width:340px}
+  .fig.md img{max-width:min(480px,100%)}
   .fig2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:18px 0}.fig2 .fig{margin:0}
   .tbl{border-collapse:collapse;width:100%;font-size:14px;margin:12px 0}.tbl th,.tbl td{border:1px solid var(--line);padding:6px 10px;text-align:left;vertical-align:top}.tbl th{background:var(--green-l);white-space:nowrap}
   .mail{background:#fff;border:1px dashed #94a3b8;border-radius:12px;padding:14px 18px;font-size:14px;line-height:1.8;margin:12px 0}.mail .subj{font-weight:700;color:var(--green-d);border-bottom:1px solid var(--line);padding-bottom:6px;margin-bottom:8px}
@@ -51,7 +52,7 @@
   p.lead{color:var(--sub);font-size:14.5px;margin:2px 0 12px}
   code{background:#f1f5f9;padding:1px 6px;border-radius:5px;font-size:13px}
   @media (max-width:640px){.fig2{grid-template-columns:1fr}}
-  @media print{.fig img{max-height:120mm;box-shadow:none}.fig.sp img{max-width:60mm}.toc ol{columns:2}h2.sec{break-after:avoid}}
+  @media print{.fig img{max-height:120mm;box-shadow:none}.fig.sp img{max-width:60mm}.fig.md img{max-width:min(95mm,100%)}.toc ol{columns:2}h2.sec{break-after:avoid}}
 </style>
 </head>
 <body>
@@ -60,7 +61,7 @@
   <div class="badge">事業所・スタッフ向け</div>
   <h1>操作マニュアル</h1>
   <div class="sub">通所介護 業務支援システム「つむぎ」<br>サイドバーの順に、すべての画面と操作を説明します</div>
-  <div class="sub" style="font-size:12px;margin-top:10px">2026年9月版（画面は見本データです。機能追加のたびに画像を更新します）</div>
+  <div class="sub" style="font-size:12px;margin-top:10px">2026年10月版（画面は見本データです。機能追加のたびに画像を更新します）</div>
 </div>
 
 <div class="wrap">
@@ -90,6 +91,7 @@
       <li><a href="#settings">各種設定</a></li>
       <li><a href="#kinou-keikaku">計画書・LIFE（アドオン）</a></li>
       <li><a href="#save">保存・バックアップ</a></li>
+      <li><a href="#trialnew">10月の新しい機能（2026年10月22日）</a></li>
       <li><a href="#qa">こんなときは（よくある質問）</a></li>
       <li><a href="#help">困ったときは</a></li>
     </ol>
@@ -170,7 +172,8 @@
       <li><b>今日の日付とあいさつ</b>（今ログインしている担当者の名前が出ます）。</li>
       <li><b>つむぎ運営からのお知らせ</b>… アプリのアップデート内容やメンテナンス予定など、<b>開発（つむぎ運営）から届くお知らせ</b>です。色でℹ️お知らせ／メンテナンス／重要を区別します。</li>
       <li><b>本日のスケジュール</b>… 今日の予定を時間順に表示（右の「カレンダー →」で予定管理へ）。</li>
-      <li><b>お知らせ</b>… 自分の事業所がご家族・関係者に投稿したお知らせの直近分。</li>
+      <li><b>お知らせ</b>… 自分の事業所がご家族・関係者に投稿したお知らせの直近分。色は付けず、ふつうの白い行で出ます。</li>
+      <li>「家族・ケアマネからの更新」と「お知らせ」は、スマホは5件、タブレット・パソコンは10件ずつ出ます（下の番号でページ送り）。</li>
       <li><b>記録・入力のタイル</b>… 提供記録入力／連絡帳／日誌／体力測定／休み連絡／各種連絡／モニタリング／利用者マスタへ、<b>1タップで移動</b>できます。</li>
       <li><b>計画書（アドオン）</b>… アドオンを有効にしている事業所だけ、計画書のタイルが出ます。</li>
       <li><b>分析（個人・稼働）／家族関係者 投稿／スケジュール／各種設定</b>のタイル。</li>
@@ -341,7 +344,7 @@
 </ol>
 <div class="note"><b>連絡帳との連動</b>連絡帳の「次回お迎え時間」には<b>送迎表の時間</b>がそのまま入ります（変えるときは送迎表で）。ご家族・ケアマネの画面のお迎え時間は、確定前は「予定（確定前）」、確定後は「確定」と表示されます。</div>
 <div class="fig "><img src="/manual/img/staff_transport_sheet.jpg" alt="週の運行表" loading="lazy"><div class="cap">週の運行表（A4横）。送りを別に設定した週は「氏名・時間・次回・送り」の4列</div></div>
-<div class="note"><b>ダウンロード（運行表）</b>… 上部の <span class="kbd">ダウンロード</span> で、1週間分（A4横・定員分の枠。入りきらないときは午前・午後の2枚）、1日分（住所・電話つき大判）、利用者連絡先一覧をPDFにできます。週の運行表は、送りを別に設定した週だけ<b>「送り」の列</b>が入り、送りの車が迎えと違う方だけ車名（徒歩・早退なども）が入ります（1日分の運行表と確定済み一覧は、名前の横に「送2号車」などの印）。</div>
+<div class="note"><b>ダウンロード（運行表）</b>… 上部の <span class="kbd">ダウンロード</span> で、1週間分（A4横・定員分の枠。入りきらないときは午前・午後の2枚）、1日分（A4横・迎えと送り・住所・電話つき）、利用者連絡先一覧をPDFにできます。週の運行表は、送りを別に設定した週だけ<b>「送り」の列</b>が入り、送りの車が迎えと違う方だけ車名（徒歩・早退なども）が入ります（確定済み一覧は、名前の横に「送2号車」などの印）。</div>
 <div class="note"><b>表示がおかしいと思ったら</b>送迎表は「利用者マスタの基本利用曜日」「月間スケジュール」「提供記録の出欠」の3つから作られます。出るはずの方が出ない／休みに出るときは、まず月間スケジュールと基本利用曜日を確認してください。利用開始日より前・退所後の方は表示されません。</div>
 
   </section>
@@ -728,8 +731,187 @@
   <li>それでも心配なときは、少し待ってからもう一度「保存」を押してください。</li>
 </ul>
   </section>
+  <section id="trialnew">
+<h2 class="sec"><span class="n">24</span>10月の新しい機能（2026年10月22日）</h2>
+<div class="lead">2026年10月22日から全店で使える機能です。職員アンケートでいただいたご要望をもとにしています。</div>
+
+<h3>サービス提供記録 入力：行の枠と印</h3>
+<div class="fig "><img src="/manual/img/trial_rv_highlight.jpg" alt="押した行は黄色の枠。名前を長押しした方は薄い黄色（印）" loading="lazy"><div class="cap">押した行は黄色の枠。名前を長押しした方は薄い黄色（印）</div></div>
+<ul>
+  <li><b>行の枠</b>… 名前や運動の欄を押すと、その行が黄色の枠で囲まれます。今どの方を入力しているかが分かります。</li>
+  <li>テンキーを閉じると（同じマスをもう一度押す・×・空いた所を押す）、マスと行の黄色も消えます。</li>
+  <li><b>印（何人でも）</b>… 名前を<b>長押し（0.5秒）</b>すると、その行が薄い黄色になります。もう一度長押しで外れます。グループ分けや、まとめて入力する方の目印に使えます。</li>
+  <li>印を付けると、上の帯の個別機能訓練の右に「印 ○名」と <span class="kbd">外す</span> が出ます（スマホは画面の左下）。表の位置は動きません。</li>
+  <li>印はこの端末の表示だけです。記録には残りません。</li>
+  <li>運動の回数の文字を濃くして、見やすくしました。</li>
+</ul>
+
+<h3>特記：一言と音声入力</h3>
+<div class="fig "><img src="/manual/img/trial_rv_tokki.jpg" alt="特記の左に「一言」とマイク" loading="lazy"><div class="cap">特記の左に「一言」とマイク</div></div>
+<ol class="steps">
+  <li><span class="kbd">一言</span> を押すと、よく使う言葉（体調不良・歩行不安定など）を選べます。選ぶと特記に入ります。</li>
+  <li>マイクを押して話すと、話した言葉がそのまま特記の欄に書き込まれていきます。話し終わると確定します。</li>
+  <li>一言の言葉は <b>各種設定 → サービス提供内容</b> で変えられます（この章の「各種設定」）。</li>
+</ol>
+<div class="note"><b>音声入力について</b>端末の音声認識を使います。パソコンのChrome、iPhone・iPadのSafariとホーム画面のつむぎで使えます。初めて使うときはマイクの許可を聞かれるので「許可」を押してください。</div>
+
+<h3>運動の一括○</h3>
+<div class="fig md"><img src="/manual/img/trial_rv_bulkex.jpg" alt="運動の一括○。行わなかった方は押して×に" loading="lazy"><div class="cap">運動の一括○。行わなかった方は押して×に</div></div>
+<ol class="steps">
+  <li>上の <span class="kbd">一括○</span> を押します。</li>
+  <li>まとめて○にする運動を選び、<span class="kbd">次へ（行わなかった方を×に）</span>。</li>
+  <li>出席している方の一覧が出ます。<b>行わなかった方</b>の○を押して×にします。</li>
+  <li><span class="kbd">記録に入れる</span> を押し、確認が出たら、実際に行った運動だけが○になっているか見てからOKを押します。</li>
+</ol>
+<div class="warn"><b>行わなかった方は必ず×に</b>○のまま保存すると、運営指導で減算・返還の対象になることがあります。</div>
+
+<h3>並び替え（曜日・午前／午後ごと）</h3>
+<div class="fig md"><img src="/manual/img/trial_rv_order.jpg" alt="並び替えは曜日・午前／午後のクラスごと" loading="lazy"><div class="cap">並び替えは曜日・午前／午後のクラスごと</div></div>
+<ul>
+  <li>並び替えた順は、<b>そのクラス（例：水曜・午前）だけ</b>に残ります。ほかの曜日や午後の順は変わりません。</li>
+  <li>名前を長押しして動かすか、<span class="kbd">上へ</span><span class="kbd">下へ</span> で動かし、<span class="kbd">この順で保存</span>。</li>
+  <li><span class="kbd">あいうえお順に戻す</span> でフリガナ順に戻ります。欠席・休止の方は下にまとまります。</li>
+</ul>
+<div class="note"><b>前の版で並べ替えていた店舗へ</b>クラスごとの順は、それぞれのクラスでもう一度並べて保存してください。</div>
+
+<h3>スマホの提供記録</h3>
+<div class="fig sp"><img src="/manual/img/trial_rv_phone.jpg" alt="スマホは1人1枚のカード。押した方は黄色の枠" loading="lazy"><div class="cap">スマホは1人1枚のカード。押した方は黄色の枠</div></div>
+<p>スマホでは、利用者ごとのカードが画面の幅いっぱいに並びます。カードを押すと黄色の枠が付きます。一言とマイクはカードのいちばん下にあります。</p>
+
+<h3>体力測定：備考</h3>
+<div class="fig "><img src="/manual/img/trial_fit_note.jpg" alt="項目ごとの備考と、前回の備考" loading="lazy"><div class="cap">項目ごとの備考と、前回の備考</div></div>
+<ol class="steps">
+  <li>項目の下の <span class="kbd">＋備考</span> を押します。</li>
+  <li>定型文（杖使用・介助ありなど）を選ぶか、自由に入れます（15文字まで）。</li>
+  <li>前回の備考は上の黄色の帯に出ます。<span class="kbd">前回と同じ備考を入れる</span> で、まとめて入ります（もう入れた備考はそのまま）。</li>
+</ol>
+<p>定型文は <b>各種設定 → 体力測定</b> で変えられます。</p>
+
+<h3>送迎表：送りの時間</h3>
+<div class="fig2"><div class="fig md"><img src="/manual/img/trial_tp_grid_dropat.jpg" alt="作成中の運行表。迎えの時間の右が送りの時間" loading="lazy"><div class="cap">作成中の運行表。迎えの時間の右が送りの時間</div></div><div class="fig md"><img src="/manual/img/trial_tp_seat.jpg" alt="座席表（送り）。家に着く時間の目安" loading="lazy"><div class="cap">座席表（送り）。家に着く時間の目安</div></div></div>
+<ul>
+  <li>迎えの時間の右に「送12:36」のように、<b>送りで家に着く時間</b>が出ます。押すと時間を入れ直せます。</li>
+  <li><span class="kbd">自動計算</span> の「計算するもの」は <b>配車・お迎えの時間・到着の時間・送りの時間</b> の4つです。最初は お迎え・到着・送り が選ばれています。到着だけ、送りだけを選んで計算することもできます（車と順番、お迎えの時間はそのまま）。送りは迎えの逆の順で、出発はクラスの終わり＋乗る時間です。</li>
+  <li>灰色の時間は自動計算の目安、紫の時間は手で入れた時間です。手で入れた時間は、自動計算をしても変わりません。</li>
+</ul>
+<div class="fig md"><img src="/manual/img/trial_tp_autocalc.jpg" alt="自動計算の画面（計算するもの）" loading="lazy"><div class="cap">自動計算の「計算するもの」。到着・送りだけでも計算できます</div></div>
+<ul>
+  <li>座席表で誰も乗っていない車には、出発の目安は出ません。送りの車に乗っていない方の着く時間の目安も消えます（手で入れた時間はそのまま）。</li>
+  <li>送りの時間は、連絡帳の「送り時間反映」でご家族に伝えられます（この章の「連絡帳：送り時間反映」）。</li>
+  <li>確定した後の一覧と、ダウンロードの運行表にも送りの時間が出ます。</li>
+</ul>
+<div class="fig "><img src="/manual/img/trial_tp_sheet.jpg" alt="ダウンロードした運行表（送りの時間つき）" loading="lazy"><div class="cap">ダウンロードした運行表（送りの時間つき）</div></div>
+
+<h3>送迎表：ダウンロード（送りの入れ方を選ぶ）</h3>
+<div class="fig md"><img src="/manual/img/trial_tp_print_opt.jpg" alt="送迎表を印刷の画面" loading="lazy"><div class="cap">ダウンロードの画面。週間の運行表は「送り」を3つから選べます（最初は「入れない」）</div></div>
+<ul>
+  <li><b>入れない（お迎えだけ）</b>… 最初はこれが選ばれています。お迎えだけの紙です。送りの時間も送りの車も出ません。</li>
+  <li><b>名前の右に時間（1枚）</b>… 1人1行に「お迎え・次回・送り」を並べます。送りの車が迎えと違う方は「12:30 2号車」のように時間のあとに車名が出ます。送りの時間がまだ入っていない週も送りの欄は出ます（手書きでも使えます）。送りの車が迎えと同じ週に向いています。</li>
+  <li><b>送りの表を別に（午前・午後で2枚）</b>… 時間帯ごとの紙の上に迎え、下に<b>送りの表</b>が入ります。送りの表は、送りの車ごとに<b>送る順番どおり</b>の名前と家に着く時間です（座席表で決めた車・順番・運転者もそのまま）。</li>
+  <li>1日の運行表は「送りの時間も入れる」のチェックで、送りの欄を入れる・入れないを選びます。</li>
+  <li>週の運行表は、車や人数が多くて1枚に入りきらないときだけ、<b>午前1枚・午後1枚</b>の2枚になります（下が切れて名前が抜けないように）。</li>
+  <li>休みの方は名字だけです（同じ名字の方は「見本（花）」のように名前の1文字をつけます。「髙橋」と「高橋」のように字の形が違うだけの名字も同じ名字として数えます）。休みの欄は午前と午後で同じ大きさです。</li>
+</ul>
+<div class="fig "><img src="/manual/img/trial_tp_sheet_droptable.jpg" alt="送りの表を別にした週の運行表（午前の紙）" loading="lazy"><div class="cap">「送りの表を別に」の午前の紙。上が迎え、下が送り（水曜は座席表で2号車の方を1号車へ）</div></div>
+
+<h3>送迎表：1日の運行表（A4横）</h3>
+<div class="fig "><img src="/manual/img/trial_tp_day_quad.jpg" alt="1日の運行表（A4横）" loading="lazy"><div class="cap">1日の運行表。左上＝午前の迎え、右上＝午前の送り、左下＝午後の迎え、右下＝午後の送り</div></div>
+<ul>
+  <li>ダウンロードの <b>日ごと（A4横・1日1枚）</b> で、選んだ日の分を続けて作ります。</li>
+  <li>迎えは車ごとに名前・時間・住所（待ち合わせ）・電話、送りは送りの車ごとに<b>送る順番どおり</b>の名前と時間です。送りの氏名・時間の幅は迎えと同じにして、空いた分だけ迎えの<b>住所の欄を広く</b>しています。</li>
+  <li>車名と運転者は左端の縦書きの欄に出ます。運転者は名字だけです（同じ名字の職員がいるときは下の名前）。</li>
+  <li>休みの方は名字だけです（同じ名字の方は「見本（進）」のように名前の1文字。1文字目も同じなら2文字）。</li>
+  <li>人数が多くて1枚に入りきらない日は、午前・午後を別の紙にします。</li>
+</ul>
+
+<h3>送迎表：運転者</h3>
+<div class="fig md"><img src="/manual/img/trial_tp_driver_other.jpg" alt="運転者を「その他」にしたとき" loading="lazy"><div class="cap">運転者を「その他」にしたとき</div></div>
+<ol class="steps">
+  <li>運転者で <b>その他</b> を選びます。</li>
+  <li>名前を入れて（10文字まで）<span class="kbd">決定</span>。</li>
+</ol>
+<ul>
+  <li>その日・その時間帯だけの運転者です。前週コピーでは次の週に写りません。</li>
+  <li>日誌の担当職員に臨時で足した方は、その日の運転者の一覧に出ます（午前に足したら午前、両方なら両方）。</li>
+</ul>
+
+<h3>日誌</h3>
+<div class="fig sp"><img src="/manual/img/trial_diary_phone.jpg" alt="スマホの日誌" loading="lazy"><div class="cap">スマホの日誌</div></div>
+<ul>
+  <li>スマホの文字を少し小さくして、1画面で見える量を増やしました。</li>
+  <li><span class="kbd">送迎表取込</span> をやり直すと、使わなくなった車の運転者と時間も消えます（例：3台で取り込んだ後、2台に直して取り込み直したとき）。この直しは安定版にも入っています。</li>
+</ul>
+
+<h3>休み連絡・カレンダー（スマホ）</h3>
+<div class="fig2"><div class="fig sp"><img src="/manual/img/trial_abs_today.jpg" alt="休み連絡のカレンダー" loading="lazy"><div class="cap">休み連絡のカレンダー</div></div><div class="fig sp"><img src="/manual/img/trial_sched_phone.jpg" alt="カレンダー（スマホ）" loading="lazy"><div class="cap">カレンダー（スマホ）</div></div></div>
+<ul>
+  <li>休み連絡のカレンダーも、カレンダーと同じく<b>今日は丸で囲み</b>、選んだ日は色が付きます。</li>
+  <li>カレンダーはスマホで画面いっぱいに出ます。週の表示も見切れません。</li>
+</ul>
+
+<h3>連絡帳</h3>
+<div class="fig md"><img src="/manual/img/trial_cb_hub.jpg" alt="各種入力（送迎表を使う店舗）" loading="lazy"><div class="cap">各種入力（送迎表を使う店舗）</div></div>
+<p>送迎表を使う店舗では、各種入力に「次回予定の変更」がありません。次回のお迎えの時間は送迎表で決めます（連絡帳には送迎表の時間が入ります）。</p>
+
+<h3>連絡帳：次回の日付（月間スケジュールへ）</h3>
+<p>送迎表を使う店舗では、次回の日付は連絡帳では打たず、<b>月間スケジュール</b>で変えます。月間スケジュールで変えると、送迎表・提供記録・ご家族の画面もそろいます。</p>
+<div class="fig md"><img src="/manual/img/trial_cb_nextjump.jpg" alt="次回の日付の一覧" loading="lazy"><div class="cap">各種入力 → 次回の日付</div></div>
+<ol class="steps">
+  <li>連絡帳の <span class="kbd">各種入力</span> → <span class="kbd">次回の日付</span> を開くと、その日の方の次回の日付が並びます。</li>
+  <li>変えたい方の <span class="kbd">月間スケジュール</span> を押すと、利用者マスタのその方の月間スケジュールが開きます（黄色の枠）。</li>
+  <li>日付を押して振替・欠席などを入れます。連絡帳に戻ると、次回の日付と送迎表の時間が新しくなります。</li>
+</ol>
+<p>送迎表を使わない店舗は今までどおり、各種入力の「次回予定」で日付と時間を入れます。</p>
+
+<h3>連絡帳：送り時間反映（次回のお送りの時間）</h3>
+<p>ご家族に「次回は何時ごろ家に着くか」を伝えたいときに使います。入れるかどうかは店舗で決めてください（押さなければ何も入りません）。</p>
+<div class="fig md"><img src="/manual/img/trial_cb_renraku_btn.jpg" alt="連絡事項の編集の上にある送り時間反映" loading="lazy"><div class="cap">連絡事項の編集の右上に「送り時間反映」</div></div>
+<ol class="steps">
+  <li>連絡帳の <span class="kbd">各種入力</span> → <span class="kbd">連絡事項</span> を開き、右上の <span class="kbd">送り時間反映</span> を押します。</li>
+  <li>その日の連絡帳の方が並びます。右側は<b>次回来る日</b>と、その日の送迎表の<b>送りで家に着く時間</b>です。入れる方にチェックを付けます（初めは時間がある方全員に付いています）。</li>
+  <li><span class="kbd">反映する</span> を押すと、選んだ方の連絡帳の連絡事項の最後に「次回のお送り：10月23日（金） 12時36分ごろ」と入ります。</li>
+</ol>
+<div class="fig2"><div class="fig "><img src="/manual/img/trial_cb_dropnote.jpg" alt="送り時間反映で入れる方を選ぶ" loading="lazy"><div class="cap">入れる方を選ぶ（時間がない方は選べません）</div></div><div class="fig "><img src="/manual/img/trial_cb_dropnote_card.jpg" alt="連絡帳の連絡事項に入った次回のお送り" loading="lazy"><div class="cap">連絡帳の連絡事項に入った1行</div></div></div>
+<ul>
+  <li>入るのは<b>その日の連絡帳だけ</b>です。次の連絡帳には入らないので、毎回押してください。</li>
+  <li>時間は送迎表から読みます。反映したあとで送迎表の時間を直すと、連絡帳の時間も変わります。</li>
+  <li>「送迎表に送りの時間なし」と出る方は、出ている日の送迎表で送りの時間を入れるか、自動計算で目安を入れてから押します。徒歩・ご家族の送りの方には入りません。</li>
+  <li>外すときは、チェックを外して（または <span class="kbd">全員外す</span>）<span class="kbd">反映する</span>。</li>
+  <li>連絡事項の欄に入りきらない方は赤字で知らせます。連絡事項を短くするか、その方を外してください。</li>
+</ul>
+
+<h3>各種設定</h3>
+<div class="fig "><img src="/manual/img/trial_set_tokki.jpg" alt="サービス提供内容 → 特記の一言・音声入力" loading="lazy"><div class="cap">サービス提供内容 → 特記の一言・音声入力</div></div>
+<div class="fig "><img src="/manual/img/trial_set_fitpreset.jpg" alt="体力測定 → 備考の定型文" loading="lazy"><div class="cap">体力測定 → 備考の定型文</div></div>
+<ul>
+  <li><b>特記の一言</b>… 言葉を足す（15文字まで・20件まで）／×で消す。マイクを出さないときはチェックを外します。</li>
+  <li><b>備考の定型文</b>… 15文字まで・30件まで。</li>
+</ul>
+
+<h3>クラス在籍表</h3>
+<p>曜日・氏名・介護度の見出しの行を、利用者の行より少し低くしました。その分、利用者の行が広くなっています（画面・印刷とも）。</p>
+
+<h3>大きい画面（パソコン・モニター）</h3>
+<div class="fig "><img src="/manual/img/trial_wide_roster.jpg" alt="大きい画面のクラス在籍表" loading="lazy"><div class="cap">24インチくらいの画面のクラス在籍表。表が横いっぱいに広がります</div></div>
+<div class="fig "><img src="/manual/img/trial_cb_wide.jpg" alt="大きい画面の連絡帳" loading="lazy"><div class="cap">24インチくらいの画面の連絡帳。用紙が2枚ずつ並びます</div></div>
+<ul>
+  <li>iPad などのタブレットやパソコンでは、ホーム・分析（稼働）・分析（個人）・利用者一覧・送迎表などの表の画面・管理局の最初の画面を、画面の幅いっぱいに出します。分析は12か月分の表が横に収まります（ダウンロードの紙は今までどおり）。</li>
+  <li>各種設定・利用者マスタの詳細・災害時・お知らせ管理などの入力の画面は、1280px まで広がります。管理局の店舗一覧は、広い画面では2列（とても広い画面では3列）です。</li>
+  <li>クラス在籍表は、画面の幅に合わせて氏名の欄が広がり、文字も少し大きくなります。</li>
+  <li>連絡帳は、用紙を横に並べて出します（24インチくらいで2枚、27インチくらいで3枚）。印刷・ダウンロードは今までどおりです。</li>
+  <li>ご家族・ケアマネの画面の分析も、タブレットやパソコンでは幅いっぱいに出ます。</li>
+  <li>スマホは今までどおりです。</li>
+</ul>
+
+<h3>スマホの画面・分析</h3>
+<ul>
+  <li>スマホでは、どの画面も画面の幅いっぱいに出ます（左右の余白を減らしました）。モニタリングの見切れも直しました。</li>
+  <li>分析（個人）は画面の幅いっぱいに出て、記録が少ないときもグラフが枠いっぱいに広がります。分析（稼働）の介護度内訳の凡例が見切れないようにしました。</li>
+  <li>画面の説明文を短くしました（提供記録・送迎表・日誌・モニタリング・カレンダーなど）。細かい使い方はこのマニュアルで確かめてください。</li>
+</ul>
+  </section>
   <section id="qa">
-<h2 class="sec"><span class="n">24</span>こんなときは（よくある質問）</h2>
+<h2 class="sec"><span class="n">25</span>こんなときは（よくある質問）</h2>
 <div class="lead">これまでに各店舗からいただいた質問・指摘と、その答えです。</div>
 <h3>提供記録・月間スケジュール</h3>
 <div class="qa"><div class="q">欠席にしたのに、日誌や休み連絡に理由が出ない。</div><div class="a">欠席の理由は「状態」を欠席にするときの画面で選びます。月間スケジュールから欠席にした場合も同じです。理由を入れ忘れたら、提供記録入力で状態をもう一度押して入力してください。</div></div>
@@ -746,19 +928,20 @@
 <h3>印刷・連絡帳</h3>
 <div class="qa"><div class="q">連絡帳をダウンロードして印刷すると左上に小さく寄る。</div><div class="a">印刷画面の用紙サイズがA4のままです。「詳細設定」で用紙サイズを「B6（JIS）」（2面の店舗は「B5（JIS）」・横）、倍率を「実際のサイズ（100%）」にしてください（8章）。</div></div>
 <div class="qa"><div class="q">印刷すると左上に寄る／余白がない／ヘッダー・フッターが入る。</div><div class="a">2026年10月5日から、書類は「ダウンロード」でサーバーが作るPDFになり、どの端末でも余白・用紙サイズが設定どおりで、ブラウザのヘッダー・フッターは入りません。iPadでは新しいタブで開いたPDFを共有→プリントしてください。連絡帳の「印刷」だけはブラウザ印刷なので、用紙サイズ・向きを印刷画面で選びます。</div></div>
-<div class="qa"><div class="q">連絡帳の次回お迎え時間に「未定」と出る。</div><div class="a">現在は「未定」を印字せず、空欄「　月　日（　）」で出ます（手書き用）。次回予定を確定させたい場合は「次回予定の変更」で日付と時間を入れてください。</div></div>
+<div class="qa"><div class="q">連絡帳の次回お迎え時間に「未定」と出る。</div><div class="a">現在は「未定」を印字せず、空欄「　月　日（　）」で出ます（手書き用）。次回のお迎えの時間は送迎表で決めます（送迎表を使わない店舗は「次回予定の変更」で日付と時間を入れてください）。</div></div>
 <h3>AI・モニタリング</h3>
 <div class="qa"><div class="q">「AIで下書き」を押しても何も起きない／0名になる。</div><div class="a">対象の利用者にチェックを入れてから押してください。2026年9月にエラーの握りつぶしをやめ、失敗した人と理由が表示されるようにしました。それでも動かない場合は本部へ（AIの設定は本部で一括管理しています）。</div></div>
 <div class="qa"><div class="q">当月分のモニタリングが作れない。</div><div class="a">当月分は毎月15日以降に作成できます（AI費用の管理のため）。過去の月はいつでも作れます。</div></div>
 <h3>ログイン・同期</h3>
 <div class="qa"><div class="q">「同期に失敗しました」がよく出る。</div><div class="a">通信が遅い環境で起きます。2026年9月に店舗データを軽くし、失敗した変更を自動で再送するようにしました。頻発する店舗はWi-Fi環境を本部へご相談ください。</div></div>
+<div class="qa"><div class="q">Android のスマホ（OPPO など）で、画面が指でスクロールできない（日誌だけは動く）。</div><div class="a">2026年10月21日に直しました（安定版 1021b・試験版 trial353）。画面を再読み込みして、サイドバーのいちばん下の「アプリ版」が upd-2026-1021b 以降になっているか確認してください。それでも動かないときは、機種名・画面名を本部へお知らせください。</div></div>
 <div class="qa"><div class="q">古い画面のまま新機能が出ない。</div><div class="a">ブラウザを再読み込みしてください。ホームの版数が最新（運営からのお知らせに記載）と同じか確認します。</div></div>
 <div class="qa"><div class="q">管理者パスワードを忘れた。</div><div class="a">「管理者パスワードの再設定」で登録メール宛のコードから再設定できます。メール未登録の場合は本部でリセットします。</div></div>
 
   </section>
   <section id="help">
 
-    <h2 class="sec"><span class="n">25</span>困ったときは</h2>
+    <h2 class="sec"><span class="n">26</span>困ったときは</h2>
     <ul>
       <li><b>表示が崩れる/固定されない</b> … 画面を一度更新（リロード）。</li>
       <li><b>データが古い気がする</b> … 少し待つと自動更新。改善しなければリロード。</li>

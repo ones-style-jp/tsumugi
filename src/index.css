@@ -459,5 +459,69 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
    右寄せのための空白(flex-1 の空の div)や ml-auto を持つ折返しバーは、2行目以降も右寄せにする(1行目は空白が伸びるので従来どおり) */
 .flex.flex-wrap:has(> .flex-1:empty), .flex.flex-wrap:has(> .ml-auto) { justify-content: flex-end; }
 
+/* ★ 2026-10-20(ユーザー要望「スマホではカレンダーと同じく、全ての画面を画面いっぱいに」): スマホだけ、いちばん外側の枠(角丸・左右の線・影)をなくして端から端まで使う。
+   tsu-ph-pad0 = 左右の余白0 / tsu-ph-cards = 左右の余白を12pxにそろえ、中の外側の枠(子・孫・ひ孫まで。枠の中の枠はそのまま)だけ12pxはみ出させて端まで(枠の外の説明文やボタンは端から12px) */
+@media (max-width: 767px) {
+  .tsu-ph-pad0 { padding-left: 0 !important; padding-right: 0 !important; }
+  .tsu-ph-cards { padding-left: 12px !important; padding-right: 12px !important; }
+  .tsu-ph-cards > :is(div, section):is([class*="rounded"], [style*="border-radius"]),
+  .tsu-ph-cards > :not([class*="rounded"]):not([style*="border-radius"]) > :is(div, section):is([class*="rounded"], [style*="border-radius"]),
+  .tsu-ph-cards > :not([class*="rounded"]):not([style*="border-radius"]) > :not([class*="rounded"]):not([style*="border-radius"]) > :is(div, section):is([class*="rounded"], [style*="border-radius"]) {
+    border-radius: 0 !important; border-left-width: 0 !important; border-right-width: 0 !important; box-shadow: none !important;
+    margin-left: -12px !important; margin-right: -12px !important; width: calc(100% + 24px) !important; max-width: none !important; box-sizing: border-box !important;
+  }
+}
+
+/* ★ 2026-10-20(店舗要望): 提供記録で押した行(入力中)・名前の長押しで付けた印(何人でも)。
+   ★ 2026-10-20(ユーザー「まだ見づらい。青だから？」): 青いボタンなどに溶けないよう、蛍光ペンのような黄色の系統に。
+   入力中=黄色の背景＋濃い黄色の枠(#eab308)／印=薄い黄色の背景だけ／両方=印より少し濃い背景＋枠。内側の影で描くので各マスの色の上に重なる */
+#record-table tr[data-rv-mark] > td { box-shadow: inset 0 0 0 999px rgba(253,224,71,0.28); }
+#record-table tr[data-rv-cur] > td { box-shadow: inset 0 2px 0 #eab308, inset 0 -2px 0 #eab308, inset 0 0 0 999px rgba(253,224,71,0.38); }
+#record-table tr[data-rv-cur] > td:first-child { box-shadow: inset 2px 0 0 #eab308, inset 0 2px 0 #eab308, inset 0 -2px 0 #eab308, inset 0 0 0 999px rgba(253,224,71,0.38); }
+#record-table tr[data-rv-cur] > td:last-child { box-shadow: inset -2px 0 0 #eab308, inset 0 2px 0 #eab308, inset 0 -2px 0 #eab308, inset 0 0 0 999px rgba(253,224,71,0.38); }
+#record-table tr[data-rv-cur][data-rv-mark] > td { box-shadow: inset 0 2px 0 #eab308, inset 0 -2px 0 #eab308, inset 0 0 0 999px rgba(253,224,71,0.50); }
+#record-table tr[data-rv-cur][data-rv-mark] > td:first-child { box-shadow: inset 2px 0 0 #eab308, inset 0 2px 0 #eab308, inset 0 -2px 0 #eab308, inset 0 0 0 999px rgba(253,224,71,0.50); }
+#record-table tr[data-rv-cur][data-rv-mark] > td:last-child { box-shadow: inset -2px 0 0 #eab308, inset 0 2px 0 #eab308, inset 0 -2px 0 #eab308, inset 0 0 0 999px rgba(253,224,71,0.50); }
+[data-rec-card][data-rv-mark] { background-color: #fefce8 !important; }
+[data-rec-card][data-rv-cur] { box-shadow: 0 0 0 3px #eab308 !important; background-color: #fefce8 !important; }
+@media print { #record-table tr[data-rv-cur] > td, #record-table tr[data-rv-mark] > td { box-shadow: none !important; } }
+
 /* ★ 2026-10-20(不具合修正): スマホでは2列のまとまりを1列に(分析(稼働)の男女比・介護度内訳が見切れた) */
 @media (max-width: 767px) { .tsu-ph-1col { grid-template-columns: minmax(0, 1fr) !important; } }
+
+/* ★ 2026-10-21(ユーザー要望「スマホのときもう少し表示領域を増やして」): スマホの提供記録のカードを端から端まで・余白と間隔を詰める(押せる大きさは変えない) */
+@media (max-width: 767px) {
+  .tsu-rv-cards { padding: 4px 0 !important; }
+  .record-view-scroll:has(> .tsu-rv-cards) { border-left-width: 0 !important; border-right-width: 0 !important; border-radius: 0 !important; }
+  .tsu-rv-cards > * + * { margin-top: 6px !important; }
+  .tsu-rv-cards > [data-rec-card] { border-radius: 0 !important; border-left-width: 0 !important; border-right-width: 0 !important; padding: 8px 10px !important; }
+  .tsu-rv-cards > [data-rec-card]:not([data-rv-cur]) { box-shadow: none !important; }
+  .tsu-rv-cards > [data-rec-card][data-rv-cur] { box-shadow: inset 0 0 0 3px #eab308 !important; }
+  .tsu-rv-cards > [data-rec-card] .grid { gap: 6px !important; }
+  .tsu-rv-cards > [data-rec-card] .mb-2, .tsu-rv-cards > [data-rec-card] .mb-2\.5 { margin-bottom: 6px !important; }
+}
+
+/* ★ 2026-10-21(ユーザー要望「大きい画面では左右の空白が大きい」→「14インチでも空く。9〜10インチのタブレットでも横幅きっちり使って」):
+   タブレット・パソコン(画面の幅 768px 以上)では、ホーム・分析(稼働)・分析(個人)・利用者一覧・管理局の最初の画面(tsu-wide)と
+   表の画面(送迎表・月次実績・カレンダー・勤務表・利用者マスタ = tsu-wide-t)は画面の幅いっぱい。
+   入力の画面(各種設定・利用者マスタの詳細・災害時・お知らせ管理 = tsu-wide-f)は 1280px まで。スマホ(768px未満)と印刷(screen だけ)は今までどおり */
+@media screen and (min-width: 768px) {
+  .tsu-wide, .tsu-wide-t { max-width: none !important; }
+  .tsu-wide-f { max-width: 1280px !important; }
+}
+@media screen and (min-width: 1400px) {
+  .tsu-hq-stores { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+@media screen and (min-width: 1680px) {
+  .tsu-wide-grid { grid-template-columns: repeat(5, minmax(0, 1fr)) !important; }
+}
+@media screen and (min-width: 2200px) {
+  .tsu-wide-grid { grid-template-columns: repeat(6, minmax(0, 1fr)) !important; }
+  .tsu-hq-stores { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+}
+
+/* ★ 2026-10-21(ユーザー要望「連絡帳も2列表示とか」): パソコン(768px以上)では連絡帳の用紙(B5縦)を横に並べられるだけ並べる */
+@media screen and (min-width: 768px) {
+  .tsu-cb-list { flex-direction: row !important; flex-wrap: wrap; justify-content: center; align-items: flex-start !important; }
+  .tsu-cb-item { width: auto !important; }
+}
