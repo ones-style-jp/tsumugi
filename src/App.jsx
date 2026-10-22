@@ -18746,7 +18746,8 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
   };
   return (
     <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#d4e7a5 0%,#f0f7e0 100%)',padding:24,boxSizing:'border-box'}}>
-      <div style={{maxWidth:600,margin:'0 auto'}}>
+      {/* ★ 2026-10-22(ユーザー要望「どなたですか？も画面に合わせて横いっぱい使っていい」): 幅600pxの固定をやめ、画面の幅いっぱいに(名前のボタンは幅に合わせて1列の数が増える) */}
+      <div data-testid="picker-wrap" style={{maxWidth:'none',margin:'0 auto'}}>
         <div style={{textAlign:'center',marginBottom:24}}>
           <div style={{fontSize:11,fontWeight:'bold',color:'#5e8030',letterSpacing:2}}>{storeName || '事業所'}</div>
           <div style={{fontSize:24,fontWeight:'bold',color:'#3d5021',fontFamily:"'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro',sans-serif",marginTop:6,letterSpacing:2}}>こんにちは、どなたですか？</div>

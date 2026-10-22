@@ -1,7 +1,14 @@
 {
-  "version": "upd-2026-1022-trial379",
+  "version": "upd-2026-1022-trial380",
   "updatedAt": "2026-10-22",
   "notes": [
+    {
+      "id": "upd-2026-1022-trial380-picker",
+      "type": "improve",
+      "title": "「こんにちは、どなたですか？」を画面の幅いっぱいに",
+      "body": "・職員を選ぶ画面を、画面の幅いっぱいに広げました。タブレットやパソコンでは、1列に並ぶ名前の数が増えます。",
+      "date": "2026-10-22"
+    },
     {
       "id": "upd-2026-1022-trial379-demo",
       "type": "feature",
