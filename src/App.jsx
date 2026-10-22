@@ -25473,7 +25473,11 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const _kinouOn = !!appData.systemSettings?.facilityInfo?.kobetsuKinouAddon;
   // ★ 2026-10-22: 上の帯の試し(この端末だけ)。'1'=アイコン＋短い文字 / 's'=短い文字だけ(アイコンは1つで約19px 幅が増えるため) / それ以外=今まで
   //   ★ 同日夕(ユーザー指示「アイコンは無しでいい」): アイコン＋短い文字はやめ、前に選んでいた端末('1')も短い文字だけにする
-  const _iconMode = ''; // ★ 2026-10-23(ユーザー指示「今までか短い文字のどっちかでいい・選べなくていい」): 今までの文字に固定(選択の欄はなくした)
+  // ★ 2026-10-23(ユーザー指示「今までか短い文字のどっちかでいい・選べなくていい」+「iPad 第8世代(横1080px)で上の帯が2行になる」):
+  //   選ぶ欄はなくし、画面の幅で自動に。1200px未満(10インチのiPadなど)は短い文字(並替・戻す・個別/実施・日付の欄を細く)、それ以上は今までの文字
+  const [_vwBar, _setVwBar] = useState(() => tsuViewW());
+  useEffect(() => { const on = () => _setVwBar(tsuViewW()); window.addEventListener('resize', on); window.addEventListener('orientationchange', on); return () => { window.removeEventListener('resize', on); window.removeEventListener('orientationchange', on); }; }, []);
+  const _iconMode = (_vwBar >= 640 && _vwBar < 1200) ? 's' : '';
   const _iconBar = !!_iconMode;
   const _ib = (Icon, txt) => _iconMode === 's' ? txt : <span className="inline-flex items-center gap-1"><Icon size={15} strokeWidth={2.4}/>{txt}</span>;
   const _kinouList = Array.from(new Set((appData.diarySettings?.staff || []).filter(st => st && st.name && !st._tempHelp && (st.role === '機能訓練指導員' || st.role2 === '機能訓練指導員')).map(st => String(st.name).trim()).filter(Boolean)));
@@ -26726,19 +26730,19 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
         <button type="button" data-testid="rec-fold-save" onClick={()=>handleSaveClick(false)} className={`whitespace-nowrap shrink-0 h-10 ${_foldNarrow ? 'px-1.5' : 'px-2'} rounded-xl bg-blue-600 text-white text-sm font-bold ml-auto`}>保存</button>
       </>); })()}>
       <>
-      <div data-testid="rec-toolbar" data-iconbar={_iconBar ? '1' : undefined} className={`bg-white px-2 py-2 ${_iconBar ? 'sm:px-3 sm:py-2.5 sm:gap-2' : 'sm:px-4 sm:py-3 sm:gap-3'} rounded-2xl shadow-sm border border-slate-200 flex flex-row items-center gap-2 flex-wrap flex-shrink-0 sticky top-0 z-30 mb-2 sm:mb-4`}>
+      <div data-testid="rec-toolbar" data-iconbar={_iconBar ? '1' : undefined} className={`bg-white px-2 py-2 ${_iconBar ? 'sm:px-2 sm:py-2.5 sm:gap-1.5' : 'sm:px-4 sm:py-3 sm:gap-3'} rounded-2xl shadow-sm border border-slate-200 flex flex-row items-center gap-2 flex-wrap flex-shrink-0 sticky top-0 z-30 mb-2 sm:mb-4`}>
             {/* ★ 「本日/月全体」トグルは廃止。 月全体は「提供記録(月次)」で確認できるため、当日のみ表示。 */}
             {/* ★ 2026-10-07(店舗報告: スマホ縦で上部のボタンが2段にずれて並ぶ): スマホ幅は 1段目=日付(残りの幅いっぱい)+AM/PM、
                 2段目=並び替え+人数、3段目=個別機能訓練、4段目=連絡帳/全画面/元に戻す/保存 を同じ幅の4つ並びにそろえる。iPad・PCは従来どおり */}
             {filterMode === 'single' && (
-              <div className="flex items-center gap-2 flex-wrap w-auto">
+              <div className={`flex items-center ${_iconBar ? 'gap-1.5' : 'gap-2'} flex-wrap w-auto`}>
                   <input type="date" value={selectedDate} onChange={(e) => {
                   if(!e.target.value) return;
                   // ★ 定休日だけ近い営業日にずらす。 休業日(臨時休業)は選択・閲覧可能にする(店舗要望:
                   //   休業日の記録確認や事後入力ができないと困るため)。
                   const closed=(appData.systemSettings?.facilityInfo?.closedDays||[0]);
                   setSelectedDate(nearestOpenDate(e.target.value, closed, []));
-                }} className={`bg-slate-50 border border-slate-300 rounded-xl ${_iconBar ? 'px-2' : 'px-3'} py-2 text-sm font-bold outline-none cursor-pointer text-slate-700 hidden sm:block sm:shrink-0`} style={{minHeight:40,minWidth:_iconBar ? 128 : 150, ...(_iconBar ? { width: 138 } : {})}} />
+                }} className={`bg-slate-50 border border-slate-300 rounded-xl ${_iconBar ? 'px-2' : 'px-3'} py-2 text-sm font-bold outline-none cursor-pointer text-slate-700 hidden sm:block sm:shrink-0`} style={{minHeight:40,minWidth:_iconBar ? 130 : 150, ...(_iconBar ? { width: 130 } : {})}} />
                   {/* ★ 2026-10-08(ユーザー指示): スマホは1行目(要約)に AM/PM・保存・連絡帳があるので、開いた中には出さない */}
                   <div className="hidden sm:flex rounded-xl overflow-hidden border border-slate-300 shrink-0">
                     {['AM','PM'].map(v=>(
@@ -26783,7 +26787,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   {!_kinouList.length && !_kinouEff && <option value="">（機能訓練指導員が未登録）</option>}
                 </select>
                 <button type="button" data-testid="kinou-group-btn" onClick={()=>{ setKinouGroupPanel(true); setKgSel(null); }} className="text-[11px] font-bold rounded-lg px-2 py-1 border bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-100">グループ</button>
-                {kinouGroupSel && <button type="button" data-testid="kinou-group-top-chip" onClick={() => setKinouGroupSel('')} title="押すと上にまとめる表示をやめます" className="text-[11px] font-bold rounded-lg px-2 py-1 border bg-emerald-600 text-white border-emerald-600 whitespace-nowrap">{kinouGroupSel}を上に表示中 ×</button>}
+                {kinouGroupSel && <button type="button" data-testid="kinou-group-top-chip" onClick={() => setKinouGroupSel('')} title="押すと上にまとめる表示をやめます" className="text-[11px] font-bold rounded-lg px-2 py-1 border bg-emerald-600 text-white border-emerald-600 whitespace-nowrap">{_iconBar ? `${kinouGroupSel}を上に ×` : `${kinouGroupSel}を上に表示中 ×`}</button>}
                 {/* ★ グループ振り分けボード(2026-09-30): 画面の最前面に出す(表の見出しの下に隠れないよう body 直下へ) */}
                 {kinouGroupPanel && ReactDOM.createPortal((
                   <div className="fixed inset-0 z-[10050] bg-slate-900/40 flex items-start justify-center p-3 sm:p-6" data-testid="kinou-group-panel">
@@ -26853,12 +26857,12 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             {/* ★ 2026-10-21(ユーザー要望「印の数と外すは上の帯に。表が一段下がると目が疲れる」): 印が無いときも見えないまま場所だけ取り、出し入れで高さを変えない */}
             <div data-testid="rv-marks-bar" aria-hidden={_rvMarks.length ? undefined : true} title="名前を長押しで印の付け外し（この端末の表示だけ）"
               className="no-print hidden sm:inline-flex items-center gap-1.5 shrink-0 h-10 pl-2.5 pr-1 rounded-xl bg-yellow-50 border border-yellow-300 text-[13px] font-bold text-yellow-900"
-              style={{visibility: _rvMarks.length ? 'visible' : 'hidden', minWidth: _iconBar ? '6rem' : '7.5rem'}}>
-              <span className="whitespace-nowrap">印 {_rvMarks.length}名</span>
-              <button type="button" data-testid="rv-marks-clear" tabIndex={_rvMarks.length ? 0 : -1} onClick={() => _setRvMarks([])} className="ml-auto h-8 px-2 rounded-lg bg-white border border-yellow-400 text-yellow-900 text-[12px] whitespace-nowrap">外す</button>
+              style={{visibility: _rvMarks.length ? 'visible' : 'hidden', minWidth: _iconBar ? '4.6rem' : '7.5rem'}}>
+              <span className="whitespace-nowrap">印 {_rvMarks.length}{_iconBar ? '' : '名'}</span>
+              <button type="button" data-testid="rv-marks-clear" tabIndex={_rvMarks.length ? 0 : -1} onClick={() => _setRvMarks([])} className="ml-auto h-8 px-2 rounded-lg bg-white border border-yellow-400 text-yellow-900 text-[12px] whitespace-nowrap">{_iconBar ? '×' : '外す'}</button>
             </div>
             </>)}
-            <div data-testid="rec-actions" className={`w-full sm:w-auto sm:ml-auto grid ${filterMode === 'single' ? 'grid-cols-4' : 'grid-cols-3'} sm:flex items-center gap-1.5 sm:gap-2 sm:flex-wrap`}>
+            <div data-testid="rec-actions" className={`w-full sm:w-auto sm:ml-auto grid ${filterMode === 'single' ? 'grid-cols-4' : 'grid-cols-3'} sm:flex items-center gap-1.5 ${_iconBar ? 'sm:gap-1.5' : 'sm:gap-2'} sm:flex-wrap`}>
               {filterMode === 'single' && <button type="button" data-testid="rec-act-bulkex" onClick={() => setBulkExOpen(true)} className="order-last sm:order-none bg-white border border-indigo-300 text-indigo-700 hover:bg-indigo-50 px-1 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="出席している方の運動をまとめて○にします(行わなかった方は×に)">{_iconBar ? _ib(CheckCheck, '一括○') : '一括○'}</button>}
               {bulkExOpen && ReactDOM.createPortal(<TsuBulkExerciseModal
                 rows={(displayRecords || []).filter(r => ['出席', '臨時', '振替'].includes(r.status || '出席'))}
