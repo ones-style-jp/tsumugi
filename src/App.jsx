@@ -38589,7 +38589,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     if (_one && !_one.ok) { const _e = _buildW(['AM','PM'], { exEach: true, fzCap: _FZCAP }); if (_e.ok) _one = _e; } // 休みの欄を同じ大きさにすると入らない週は、必要な分ずつにして1枚に
     // 午前・午後を別の紙にすると 2px 以上大きくなるときだけ別の紙に(人数が少なく1枚でも同じ大きさの週は1枚のまま)
     let _splitBuilt = null;
-    if (_one && _one.ok && _slotsUsed.length) { const sb = _slotsUsed.map(sl => _buildW([sl], { fzCap: _FZCAP })); const fzS = Math.min(...sb.map(x => x.fz)); if (sb.every(x => x.ok) && fzS >= _one.fz + 2) { _splitBuilt = sb; _one = null; } }
+    // ★ 2026-10-22(ユーザー「送りの時間を入れないときは2枚ではなく1枚に」): 送りを入れないときは別の紙に分けない(1枚に入る大きさ。入らない週は今までどおり2枚)
+    if (_one && _one.ok && _slotsUsed.length && !_noDropAtPrintRef.current) { const sb = _slotsUsed.map(sl => _buildW([sl], { fzCap: _FZCAP })); const fzS = Math.min(...sb.map(x => x.fz)); if (sb.every(x => x.ok) && fzS >= _one.fz + 2) { _splitBuilt = sb; _one = null; } }
     const html = _one ? _one.html : '';
     // ★ 2026-10-21(不具合修正): 1枚に入りきらない(車・人数が多い)ときは、下が切れないよう午前1枚・午後1枚に分ける
     const _sheetPages = (_one && _one.ok) ? html : null;
