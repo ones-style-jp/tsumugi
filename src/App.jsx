@@ -21846,13 +21846,16 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     if (typeof window === 'undefined') return true;
     // ★ 2026-10-09(ユーザー要望・スマホ限定): ログインしたら(起動したら)サイドバーは閉じた状態にし、ホーム画面の全体が見えるように(開閉の記憶は使わない)
-    if (tsuViewW() < 768) return false;
+    // ★ 2026-10-22: 縦向きのタブレット(1024px 未満)も同じ(メニューは本文の上に重ねて出すため)
+    if (tsuViewW() < 1024) return false;
     // ★ ユーザーが開閉ボタンで選んだ状態を記憶して復元(2026-08-11)。 従来は毎回「画面幅>=768」で
     //   自動判定していたため、再読み込みや更新のたびに設定が初期化され「常に表示にしているのに
     //   表示されない」ことがあった。 記憶が無い端末は従来どおり画面幅で判定。
     try { const s = localStorage.getItem('tsumugiSidebarOpen'); if (s === '1') return true; if (s === '0') return false; } catch {}
     return tsuViewW() >= 768;
   });
+  // ★ 2026-10-22: 横向き(並べて出す)から縦向き(重ねて出す・1024px 未満)に回したら、メニューを閉じる(本文に重なったままにしない)
+  React.useEffect(() => { let wide = tsuViewW() >= 1024; const on = () => { const w = tsuViewW() >= 1024; if (wide && !w) setIsSidebarOpen(false); wide = w; }; window.addEventListener('resize', on); return () => window.removeEventListener('resize', on); }, []);
   // ★ iOS Safari 対策: サイドバー開閉で flex レイアウトが変わると position:sticky が再計算されず、
   //   上部バー(期間/利用者選択/ジャンプ等)が固定されなくなる。 開閉のたびにメイン領域を一瞬だけ
   //   reflow させて sticky を強制再計算させる (同一タスク内なので画面のちらつきは出ない)。
@@ -21944,7 +21947,8 @@ export default function App() {
   //   ②の安全策で縮小をやめたとき、実際の幅のまま並べていたため列が詰まって文字が切れていた。
   //   縮小が効かないときは 1100px のまま(文字の大きさを変えず)横スクロールで見る。縮小の幅指定も % ではなく px にする(iPad の WebKit で効きやすい)
   const [zoomOff, setZoomOff] = useState(false);
-  const _zoomNear1 = contentScale >= 0.94 && !pcZoomWide; // ★ 2026-10-16: PC で拡大したときは 1100px のまま(幅に押し込めると列が詰まる)
+  // ★ 2026-10-22(ユーザー要望「全ての画面の大きさに対応」): タブレット・パソコンでは縮めない(縮めずに並べる)。以前は 1100px に足りないと縮め、10〜11インチの縦で文字が 4〜7px になっていた
+  const _zoomNear1 = true || (contentScale >= 0.94 && !pcZoomWide); // eslint-disable-line no-constant-binary-expression
   const _zoomActive = !_zoomNear1 && !zoomOff;
   const _zoomScroll = !_zoomNear1 && zoomOff;
   // ★ 2026-10-06: 一度 72% を下限にしたが、上部のボタン(ダウンロード等)が右へはみ出して見えなくなるため、下限なしで幅に合わせる
@@ -23139,7 +23143,7 @@ export default function App() {
   }, []);
 
   // ★ 2026-10-09(ユーザー要望・スマホ限定): サイドバーの項目(連絡帳・日誌など)を押したら、自動でサイドバーを閉じる
-  const _sideNav = (...a) => { try { if (tsuViewW() < 768) setIsSidebarOpen(false); } catch {} navigateTo(...a); };
+  const _sideNav = (...a) => { try { if (tsuViewW() < 1024) setIsSidebarOpen(false); } catch {} navigateTo(...a); }; // ★ 2026-10-22: 重ねて出す幅(1024px 未満)では画面を移ったら閉じる
   const navigateTo = (view, patientId = null, focus = null) => {
     if (view !== 'master' && view !== 'ticket') { try { sessionStorage.removeItem('tsumugiPFOrigin'); } catch {} }
     const isDirty = (currentView === 'record' && recordDirtyRef.current) ||
@@ -23978,17 +23982,17 @@ export default function App() {
         document.body
       )}
 
-      {/* ★ モバイル時のサイドバー背景オーバーレイ (タップで閉じる) */}
+      {/* ★ モバイル時のサイドバー背景オーバーレイ (タップで閉じる)。★ 2026-10-22: 縦向きのタブレット(1024px 未満)も重ねて出すので同じ */}
       {isSidebarOpen && (
-        <div onClick={()=>setIsSidebarOpen(false)} className="md:hidden fixed inset-0 bg-black/50 z-40" aria-hidden="true"/>
+        <div onClick={()=>setIsSidebarOpen(false)} className="lg:hidden fixed inset-0 bg-black/50 z-40" aria-hidden="true"/>
       )}
       {/* ★ 2026-10-08(ユーザー報告「スマホ縦でサイドバーのメニューが消える。横にして縦に戻すと出る」): iPhone の WebKit は、
           幅0・透明から開く(幅と透明度のアニメーション)と、中のスクロール枠(メニュー)を描かないことがある。
           スマホ幅は常に幅256pxのまま画面の左外から滑り込ませる(transform)。iPad・PC(md以上)は従来どおり幅の開閉 */}
       <div data-testid="app-sidebar" className={`no-print bg-slate-900 text-slate-300 flex flex-col shadow-2xl ${
         isSidebarOpen
-          ? `w-64 fixed inset-y-0 left-0 z-50 translate-x-0 transition-transform duration-300 ${tsumugiIsIOS() ? 'md:transition-none' : 'md:transition-all'} md:transform-none md:relative md:flex-shrink-0 md:z-auto md:opacity-100`
-          : `w-64 fixed inset-y-0 left-0 z-50 -translate-x-full invisible md:visible transition-transform duration-300 ${tsumugiIsIOS() ? 'md:transition-none' : 'md:transition-all'} md:transform-none md:relative md:translate-x-0 md:w-0 md:opacity-0 md:overflow-hidden md:flex-shrink-0 md:z-auto`
+          ? `w-64 fixed inset-y-0 left-0 z-50 translate-x-0 transition-transform duration-300 ${tsumugiIsIOS() ? 'lg:transition-none' : 'lg:transition-all'} lg:transform-none lg:relative lg:flex-shrink-0 lg:z-auto lg:opacity-100`
+          : `w-64 fixed inset-y-0 left-0 z-50 -translate-x-full invisible lg:visible transition-transform duration-300 ${tsumugiIsIOS() ? 'lg:transition-none' : 'lg:transition-all'} lg:transform-none lg:relative lg:translate-x-0 lg:w-0 lg:opacity-0 lg:overflow-hidden lg:flex-shrink-0 lg:z-auto`
       }`}>
           <div className="w-64 h-full flex flex-col">
             <div className="h-16 flex items-center px-5 border-b" style={{background:'#fafef1',borderColor:'#d4e7a5'}}>
@@ -32916,7 +32920,7 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
         </div>
       )}
 
-      <div id="print-content-operation" className={`tsu-ph-cards${opsNarrow ? '' : ' tsu-wide'}`} style={{padding:'16px 20px',maxWidth:960,margin:'0 auto'}}>
+      <div id="print-content-operation" className={`tsu-ph-cards${opsNarrow ? '' : ' tsu-wide'}`} style={{padding:'16px 20px',maxWidth:960,margin:'0 auto',...((opsNarrow && tsuViewW() >= 768) ? { width: 960, minWidth: 960, boxSizing: 'border-box' } : {})}}>{/* ★ 2026-10-22: 縮めなくなったので、タブレット・パソコンのダウンロードの間は幅を960pxちょうどに(画面の幅で紙が変わらないように) */}
 
         {/* 1. 月全体稼働率 */}
         <div id="ops-rate" data-sec="ops-rate" style={{scrollMarginTop:170}}/>
