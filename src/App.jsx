@@ -2034,7 +2034,9 @@ const tsuForceRepaint = () => { try {
   parts.forEach(x => { x.dataset.tsuOp = x.style.opacity || ''; x.style.opacity = '0.99'; });
   requestAnimationFrame(() => requestAnimationFrame(() => { try { el.style.height = prevH; el.style.width = prevW; delete el.dataset.tsuRp;
     parts.forEach(x => { x.style.opacity = x.dataset.tsuOp || ''; delete x.dataset.tsuOp; });
-    if (meta) meta.setAttribute('content', prevMeta); } catch {} }));
+    if (meta) meta.setAttribute('content', prevMeta);
+    // ★ 2026-10-22(ユーザー報告「ログインや再表示のあと、縦でも横でもタブレットの上部がかすれる」): 描き直しのあと、上の帯を作り直して新しく描かせる(App が tsu:hdr-remount で key を変える)
+    setTimeout(() => { try { window.dispatchEvent(new Event('tsu:hdr-remount')); } catch {} }, 120); } catch {} }));
 } catch {} };
 // ★ 2026-10-05(ユーザー要望「印刷位置が目視でわかるように」): 連絡帳の用紙上の配置(mm)。ContactBookView._layoutRenraku と同じ数値
 //   (あちらを変えたらここも合わせる)。印刷設定の「印刷位置の微調整」の図に使う
@@ -21981,6 +21983,9 @@ export default function App() {
   //   (サイドバーの項目名が白地に薄く透けて見える=幕つきの描画)。幕を一瞬で消すと、その下で変わらない所(見出し・上部の帯・サイドバー)が
   //   描き直されず幕つきのまま残ることがある。幕は0.3秒かけて薄くしてから外す(薄くなる間ずっと画面が更新されるので古い描画が残らない)
   const [_ovFading, _setOvFading] = useState(false);
+  // ★ 2026-10-22: iPad で上の帯がかすれる件の2回目の対策。描き直し(tsuForceRepaint)のあとに上の帯を作り直す(新しい要素として描かれる)
+  const [_hdrKey, _setHdrKey] = useState(0);
+  useEffect(() => { const on = () => _setHdrKey(k => (k + 1) % 1000); window.addEventListener('tsu:hdr-remount', on); return () => window.removeEventListener('tsu:hdr-remount', on); }, []);
   // ★ 2026-10-22(ユーザー報告「ホーム画面のアプリで上部の文字がかすれる」): 白い幕は本文の部分だけ。上の帯・左のメニューに白い幕の描き跡が残らないように
   const _ovBox = (() => { if (!_tsuLoadingOv && !_ovFading) return null; try { if (tsuViewW() < 768) return null; const m = document.getElementById('appMainArea'); const h = m && m.querySelector('header.tsu-app-header'); if (!m || !h) return null; const r = m.getBoundingClientRect(); const hb = h.getBoundingClientRect(); if (!(r.width > 200 && hb.bottom > 0)) return null; return { top: Math.round(hb.bottom), left: Math.max(0, Math.round(r.left)), right: 0, bottom: 0 }; } catch { return null; } })();
   const _ovWasRef = React.useRef(_tsuLoadingOv);
@@ -24258,7 +24263,7 @@ export default function App() {
       </div>
 
       <div id="appMainArea" className="flex-1 flex flex-col overflow-hidden bg-slate-50 relative min-w-0">
-          <header className="tsu-app-header h-12 bg-white border-b border-slate-200 flex items-center justify-between px-3 md:px-6 z-10 shadow-sm flex-shrink-0">
+          <header key={`hdr${_hdrKey}`} className="tsu-app-header h-12 bg-white border-b border-slate-200 flex items-center justify-between px-3 md:px-6 z-10 shadow-sm flex-shrink-0">
             <div className="flex items-center min-w-0 flex-1">
               <button onClick={() => { const nv = !isSidebarOpen; try { localStorage.setItem('tsumugiSidebarOpen', nv ? '1' : '0'); } catch {} setIsSidebarOpen(nv); }} className="p-2 mr-2 md:mr-4 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors outline-none flex-shrink-0"><Menu size={22} /></button>
               <h1 className="text-base md:text-lg font-bold text-slate-700 truncate whitespace-nowrap">
@@ -26559,17 +26564,17 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       } : {}),
     }}>
       {!isFullscreen ? (
-      <TsuPhoneFold storageKey="record" summary={(() => { const _d = new Date(selectedDate + 'T00:00:00'); return (<>
-        <TsuDatePick testId="rec-fold-date" value={selectedDate} label={isNaN(_d) ? '日付' : `${_d.getMonth()+1}/${_d.getDate()}(${'日月火水木金土'[_d.getDay()]})`}
+      <TsuPhoneFold storageKey="record" summary={(() => { const _d = new Date(selectedDate + 'T00:00:00'); const _foldNarrow = tsuViewW() < 390; /* ★ 2026-10-22: 360〜375px で「保存」が切れていた → 曜日を外す */ return (<>
+        <TsuDatePick testId="rec-fold-date" value={selectedDate} label={isNaN(_d) ? '日付' : (_foldNarrow ? `${_d.getMonth()+1}/${_d.getDate()}` : `${_d.getMonth()+1}/${_d.getDate()}(${'日月火水木金土'[_d.getDay()]})`)}
           onChange={v => { const closed=(appData.systemSettings?.facilityInfo?.closedDays||[0]); setSelectedDate(nearestOpenDate(v, closed, [])); }} />
         <div className="flex rounded-lg overflow-hidden border border-slate-300 shrink-0">
-          {['AM','PM'].map(v=>(<button key={v} type="button" onClick={()=>setTimeFilter(v)} className={`px-2 h-10 text-sm font-bold ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600'}`}>{v}</button>))}
+          {['AM','PM'].map(v=>(<button key={v} type="button" onClick={()=>setTimeFilter(v)} className={`${_foldNarrow ? 'px-1.5' : 'px-2'} h-10 text-sm font-bold ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600'}`}>{v}</button>))}
         </div>
         {/* ★ 2026-10-16: 利用者を選んでそのカードへ移る */}
-        <button type="button" data-testid="rec-fold-jump" onClick={openRecJump} aria-expanded={!!recJump} className={`shrink-0 h-10 px-2 rounded-lg text-sm font-bold border ${recJump ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-700 border-slate-300'}`}>利用者</button>
+        <button type="button" data-testid="rec-fold-jump" onClick={openRecJump} aria-expanded={!!recJump} className={`shrink-0 h-10 ${_foldNarrow ? 'px-1.5' : 'px-2'} rounded-lg text-sm font-bold border ${recJump ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-700 border-slate-300'}`}>利用者</button>
         {/* ★ 2026-10-08(ユーザー要望): 出席・欠席などの人数も1行目に(小さく2段)。連絡帳は「操作」の中へ */}
         {/* ★ 2026-10-16: 1行目に「利用者」を入れたので、出席・欠席などの人数は「利用者」の一覧の上に移した(1行目では潰れて読めないため) */}
-        <button type="button" data-testid="rec-fold-save" onClick={()=>handleSaveClick(false)} className="whitespace-nowrap shrink-0 h-10 px-2 rounded-xl bg-blue-600 text-white text-sm font-bold ml-auto">保存</button>
+        <button type="button" data-testid="rec-fold-save" onClick={()=>handleSaveClick(false)} className={`whitespace-nowrap shrink-0 h-10 ${_foldNarrow ? 'px-1.5' : 'px-2'} rounded-xl bg-blue-600 text-white text-sm font-bold ml-auto`}>保存</button>
       </>); })()}>
       <>
       <div data-testid="rec-toolbar" className="bg-white px-2 py-2 sm:px-4 sm:py-3 rounded-2xl shadow-sm border border-slate-200 flex flex-row items-center gap-2 sm:gap-3 flex-wrap flex-shrink-0 sticky top-0 z-30 mb-2 sm:mb-4">
@@ -34411,6 +34416,16 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   const [dropNoteOpen, setDropNoteOpen] = useState(false); // ★ 2026-10-21: 送り時間反映
   const [nextJumpOpen, setNextJumpOpen] = useState(false); // ★ 2026-10-21: 次回の日付(月間スケジュールへ)
   const _renPhone = useTsuIsPhoneDevice(); // ★ 2026-10-08: スマホ(縦・横)は用紙を画面幅に合わせて全員分を表示
+  // ★ 2026-10-22(ユーザー「10インチでも連絡帳をちょっと縮小すれば横2列でいけるのかな」): 一覧の幅から用紙の大きさ(倍率)を決める
+  //   用紙(182mm≈688px)が等倍で2枚並ぶなら等倍。並ばないが 0.6倍以上で2枚入るなら縮めて2列。それ以外は等倍1列
+  const _cbListRef = React.useRef(null); const [_cbS, _setCbS] = useState(1);
+  React.useEffect(() => {
+    const el = _cbListRef.current; if (!el || _renPhone) { _setCbS(1); return; }
+    const PW = 182 * 96 / 25.4, GAP = 32;
+    const calc = () => { const w = el.clientWidth; let sc = 1; if (w < PW * 2 + GAP) { const t = (w - GAP) / (PW * 2); sc = t >= 0.6 ? Math.floor(t * 100) / 100 : 1; } _setCbS(prev => (Math.abs(prev - sc) < 0.005 ? prev : sc)); };
+    calc(); let ro = null; try { ro = new ResizeObserver(calc); ro.observe(el); } catch { window.addEventListener('resize', calc); }
+    return () => { if (ro) ro.disconnect(); else window.removeEventListener('resize', calc); };
+  });
   const [showPrintCards, setShowPrintCards] = useState(false); // ★ 印刷用の隠しカードは印刷時だけ描画(スマホのメモリ対策)
   const [printMissingConfirm, setPrintMissingConfirm] = useState(null); // ★ 次回予定未入力の確認 {names:[]}(2026-09-09)
   const [showPrintSettings, setShowPrintSettings] = useState(false); // ★ 右上「詳細設定」パネル(面数/用紙/補助線)
@@ -35613,13 +35628,21 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
             );
           }
           return (
-            <div className="flex flex-col items-center gap-8 tsu-cb-list" data-testid="cb-list">
+            <div ref={_cbListRef} className="flex flex-col items-center gap-8 tsu-cb-list" data-testid="cb-list" data-cb-scale={_cbS}>
               {displayRecords.map((record, ri) => {
                 const patient = (appData.patients||[]).find(p => p.id === record.patientId);
                 if (!patient) return null;
                 return (
                   <div key={record.id} className="flex justify-center w-full tsu-cb-item">
+                    {_cbS < 1 ? (
+                      <div style={{ width: Math.ceil(182 * 96 / 25.4 * _cbS), height: Math.ceil(257 * 96 / 25.4 * _cbS), overflow: 'hidden', flexShrink: 0 }}>{/* ★ 2026-10-22: 縮めて2列(当たり判定は transform なのでずれない) */}
+                        <div style={{ width: 'max-content', transform: `scale(${_cbS})`, transformOrigin: 'top left' }}>
+                          <ContactBookCard record={record} patient={patient} selectedDate={selectedDate} config={appData.contactBookConfig} appData={appData} onOpenConfig={() => setIsConfigOpen(true)} onEditPatientValue={openPatientValueEdit} onEditRenraku={(p)=>setRenrakuModal({ patientId: p.id })} />
+                        </div>
+                      </div>
+                    ) : (
                     <ContactBookCard record={record} patient={patient} selectedDate={selectedDate} config={appData.contactBookConfig} appData={appData} onOpenConfig={() => setIsConfigOpen(true)} onEditPatientValue={openPatientValueEdit} onEditRenraku={(p)=>setRenrakuModal({ patientId: p.id })} />
+                    )}
                   </div>
                 );
               })}
