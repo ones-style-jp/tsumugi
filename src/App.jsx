@@ -12993,7 +12993,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           {(() => {
             // ★ 家族・ケアマネがビューアから行った編集/添付/招待/登録の未確認通知を集約
             const ext = (appData.patients||[]).flatMap(p => (Array.isArray(p.docUpdates)?p.docUpdates:[]).filter(u => (u.by==='family'||u.by==='caremanager') && !u.readOffice).map(u => ({...u, _pid:p.id, _pname:p.name}))).sort((a,b)=>String(b.at||'').localeCompare(String(a.at||''))).slice(0,50);
-            const _extShown = _pageSlice(ext, extPage, 5);
+            const _homePer = tsuViewW() < 768 ? 5 : 10; const _extShown = _pageSlice(ext, extPage, _homePer); // ★ 2026-10-22: スマホ5件・タブレット/パソコン10件
             // ★ 常時表示: 更新が無くてもカードは出し、無い旨を表示する
             const _fmt = (iso)=>{ try{ const d=new Date(iso); return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; }catch{ return ''; } };
             const _unread = ext.filter(u=>!isRead(u.id)).length;
@@ -13023,7 +13023,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                     </button>
                   ); })}
                 </div>
-                {renderPager(ext.length, 5, extPage, setExtPage)}
+                {renderPager(ext.length, (tsuViewW() < 768 ? 5 : 10), extPage, setExtPage)}
                 <div style={{fontSize:10,color:'#a16207',marginTop:6}}>タップで詳細（見ると既読でグレーに）。</div>
                 </>)}
               </Card>
@@ -13038,17 +13038,17 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
               <div style={{display:'flex',flexDirection:'column',gap:6}}>
                 {/* ★ #4: 事業所からのお知らせは既読管理しない(投稿したら表示のみ)。 タップで詳細は見られるが既読は付けない。 */}
                 {/* ★ 1行表示(2026-08-21): バッジ+日付+題名(+写真枚数)。 タップで詳細モーダル(本文・写真) */}
-                {_pageSlice(news, newsPage, 5).map(a=>{ const _c=a._kind==='個別'?'#b45309':'#1d4ed8'; const _ph=(Array.isArray(a.photos)?a.photos.length:0); return (
+                {_pageSlice(news, newsPage, (tsuViewW() < 768 ? 5 : 10)).map(a=>{ const _c=a._kind==='個別'?'#b45309':'#1d4ed8'; const _ph=(Array.isArray(a.photos)?a.photos.length:0); return (
                   <button key={a.id} onClick={()=>setNoticeDetail({id:a.id,badge:a._group==='mon' ? `個別・${a.members.length}名` : `${a._kind}${a.patientId?`・${patName(a.patientId)}`:''}`,badgeColor:_c,date:(a.postedAt?String(a.postedAt).slice(0,10):(a.date||'')),title:a.title||'(写真)',body:a.body,patientId:a.patientId,photos:a.photos})}
-                    style={{textAlign:'left',width:'100%',cursor:'pointer',background:(a._kind==='個別'?'#fffbeb':'#eff6ff'),border:`1px solid ${_c+'55'}`,borderRadius:8,padding:'6px 10px',display:'flex',alignItems:'center',gap:8,minWidth:0}}>
+                    style={{textAlign:'left',width:'100%',cursor:'pointer',background:'#ffffff',border:'1px solid #e2e8f0',borderRadius:8,padding:'6px 10px',display:'flex',alignItems:'center',gap:8,minWidth:0}} data-testid="home-news-row">{/* ★ 2026-10-22: ハイライトなし(店舗から送ったお知らせのため) */}
                     <span style={{fontSize:9,fontWeight:'bold',color:_c,background:(a._kind==='個別'?'#fef3c7':'#dbeafe'),borderRadius:4,padding:'2px 6px',whiteSpace:'nowrap',flexShrink:0}}>{a._group==='mon' ? `個別・${a.members.length}名` : <>{a._kind}{a.patientId?`・${patName(a.patientId)}`:''}</>}</span>
                     <span style={{fontSize:10,color:'#64748b',whiteSpace:'nowrap',flexShrink:0}}>{a.postedAt ? String(a.postedAt).slice(0,10) : (a.date||'')}</span>
-                    <span style={{fontSize:12.5,fontWeight:'bold',color:_c,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',flex:1,minWidth:0}}>{a.title||'(写真)'}</span>
+                    <span style={{fontSize:12.5,fontWeight:'bold',color:'#1e293b',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',flex:1,minWidth:0}}>{a.title||'(写真)'}</span>
                     {_ph>0 && <span style={{fontSize:9,fontWeight:'bold',color:'#475569',background:'#e2e8f0',borderRadius:999,padding:'2px 7px',whiteSpace:'nowrap',flexShrink:0}}>写真{_ph}枚</span>}
                     <span style={{fontSize:9,color:'#94a3b8',flexShrink:0}}>詳細 ›</span>
                   </button>
                 ); })}
-                {renderPager(news.length, 5, newsPage, setNewsPage)}
+                {renderPager(news.length, (tsuViewW() < 768 ? 5 : 10), newsPage, setNewsPage)}
               </div>
             )}
           </Card>
@@ -21977,6 +21977,8 @@ export default function App() {
   //   (サイドバーの項目名が白地に薄く透けて見える=幕つきの描画)。幕を一瞬で消すと、その下で変わらない所(見出し・上部の帯・サイドバー)が
   //   描き直されず幕つきのまま残ることがある。幕は0.3秒かけて薄くしてから外す(薄くなる間ずっと画面が更新されるので古い描画が残らない)
   const [_ovFading, _setOvFading] = useState(false);
+  // ★ 2026-10-22(ユーザー報告「ホーム画面のアプリで上部の文字がかすれる」): 白い幕は本文の部分だけ。上の帯・左のメニューに白い幕の描き跡が残らないように
+  const _ovBox = (() => { if (!_tsuLoadingOv && !_ovFading) return null; try { if (tsuViewW() < 768) return null; const m = document.getElementById('appMainArea'); const h = m && m.querySelector('header.tsu-app-header'); if (!m || !h) return null; const r = m.getBoundingClientRect(); const hb = h.getBoundingClientRect(); if (!(r.width > 200 && hb.bottom > 0)) return null; return { top: Math.round(hb.bottom), left: Math.max(0, Math.round(r.left)), right: 0, bottom: 0 }; } catch { return null; } })();
   const _ovWasRef = React.useRef(_tsuLoadingOv);
   useEffect(() => {
     if (_ovWasRef.current && !_tsuLoadingOv) { _setOvFading(true); const t = setTimeout(() => { _setOvFading(false); setTimeout(tsuForceRepaint, 60); setTimeout(tsuForceRepaint, 700); }, 380); _ovWasRef.current = false; return () => clearTimeout(t); }
@@ -23875,13 +23877,14 @@ export default function App() {
       {/* ★ 2026-09-03追加: 手元データが別店舗のもの(_sbStoreId不一致)の間も必ずゲートする。
           店舗ログイン/切替直後に前店舗の利用者名が一瞬見える(個人情報)のを防ぐ。 */}
       {(_tsuLoadingOv || _ovFading) && ReactDOM.createPortal(
-        <div data-testid="loading-overlay" data-fading={_tsuLoadingOv ? '0' : '1'} style={{position:'fixed',inset:0,zIndex:2000003,background:'rgba(255,255,255,0.92)',
+        <div data-testid="loading-overlay-guard" style={{position:'fixed',inset:0,zIndex:2000002,background:'transparent',pointerEvents: _tsuLoadingOv ? 'auto' : 'none'}}>{/* ★ 2026-10-22: 上の帯・左のメニューは透明な覆いで押せないようにするだけ(白く塗らない) */}
+        <div data-testid="loading-overlay" data-fading={_tsuLoadingOv ? '0' : '1'} style={{position:'fixed',...(_ovBox || { inset: 0 }),zIndex:2000003,background:'rgba(255,255,255,0.92)',
           opacity: _tsuLoadingOv ? 1 : 0, transition: 'opacity 0.3s ease', pointerEvents: _tsuLoadingOv ? 'auto' : 'none',
           display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:14}}>
           <div style={{width:46,height:46,border:'5px solid #d7e3c4',borderTopColor:'#7daa3d',borderRadius:'50%',animation:'tsumugiSpin 0.9s linear infinite'}}/>
           <div style={{fontSize:15,fontWeight:'bold',color:'#475569'}}>最新のデータを取得しています…</div>
           <style>{`@keyframes tsumugiSpin{to{transform:rotate(360deg)}}`}</style>
-        </div>, document.body)}
+        </div></div>, document.body)}
       {/* ★ 同期の診断パネル。 URL に ?syncdebug=1 を付けた時だけ表示 (原因調査用)。 */}
       <SyncDebugPanel />
       {/* ★ 新バージョン通知バナー (安全時は自動更新するが、すぐ更新したい場合の手動ボタンも出す)。
@@ -25869,7 +25872,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     const t = setTimeout(() => {
       setActiveCell(c => (c === last.key ? null : c));
       try { document.querySelectorAll(`#record-table tr[data-rv-pid="${last.id}"][data-rv-cur], [data-rec-card="${last.id}"][data-rv-cur]`).forEach(el => { const ae = document.activeElement; if (ae && el.contains(ae) && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) && !ae.readOnly) return; el.removeAttribute('data-rv-cur'); }); } catch {}
-    }, 350);
+    }, 0); // ★ 2026-10-22(ユーザー「テンキーが消えるのと同時に」): 待たずに、押した処理のすぐ後で消す
     return () => clearTimeout(t);
   }, [keypad.isOpen, keypad.recordId, keypad.field]); // eslint-disable-line react-hooks/exhaustive-deps
   const openKeypad = (recordId, field, currentValue, isAbsent, force, reopen) => {
