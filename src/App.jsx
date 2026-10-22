@@ -27047,7 +27047,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                             <button type="button" disabled={dis || !_sel} data-testid={`m-ind-btn-${item.id}-${p.id}`}
                               onClick={()=>{ if (!_cur.itemId && _effId) updateExercise(p.id, item.id, {..._cur, itemId: _effId}); openKeypad(p.id, item.id, _cur.value || '', isAbsent); setActiveCell(_ak); }}
                               className="w-full text-sm font-bold text-blue-700 disabled:opacity-60" style={{minHeight:26}}>
-                              {_disp || <span className="text-slate-500">{_sel ? (_ph || '＋') : '種目を選ぶ'}</span>}
+                              <span style={{display:'block',width:'100%',overflow:'hidden',textAlign:'center'}}>{/* ★ 2026-10-22(ユーザー指示): 「10秒×3セット」などを折り返さず1行に(入らないときは文字を小さく) */}<AutoFitText text={_disp || (_sel ? (_ph || '＋') : '種目を選ぶ')} max={14} min={8} bold color={_disp ? undefined : '#64748b'}/></span>
                             </button>
                           )}
                         </div>
@@ -27076,10 +27076,19 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         if (_isMarkOnly && _cellActive && ph) {
                           return <span className="text-sm font-bold"><span className="text-blue-700" style={{opacity:0.35}}>{disp}</span><span className="text-slate-500 ml-1" style={{opacity:0.75}}>{ph}</span></span>;
                         }
-                        return <span className="text-sm font-bold text-blue-700">{disp || <span className="text-slate-600">{ph||'＋'}</span>}</span>;
+                        return <span className="font-bold text-blue-700" style={{display:'block',width:'100%',overflow:'hidden',textAlign:'center'}}><AutoFitText text={disp || ph || '＋'} max={14} min={8} bold color={disp ? undefined : '#475569'}/></span>;
                       })()}
                     </button>
                     );})}
+                  {/* ★ 2026-10-22(ユーザー指示「スマホの縦画面でも介護整体が抜けている」): 一覧と同じ吹き出しで担当を選ぶ・実施にする */}
+                  {(() => { const _mmOpen = massageMenu && massageMenu.recId === p.id; return (
+                    <button key="__massage" type="button" disabled={dis} data-testid={`m-massage-${p.id}`}
+                      onClick={(e)=>{ e.stopPropagation(); if (_mmOpen) { setMassageMenu(null); return; } const r0=e.currentTarget.getBoundingClientRect(); setMassageMenu({ pid: p.patientId || p.id, recId:p.id, cx:Math.min(Math.max(r0.left+r0.width/2, 100), (window.innerWidth||400) - 100), cy:r0.top, cyB:r0.bottom, view: p.massage ? 'main' : 'pick' }); }}
+                      className={`rounded-lg border py-1.5 px-1 disabled:opacity-60 flex flex-col items-center min-w-0 ${_mmOpen ? 'border-amber-500 ring-2 ring-amber-300 bg-yellow-50' : p.done ? 'border-orange-400 bg-orange-50' : 'border-slate-200 bg-slate-50'}`}>
+                      <span className="text-[12px] font-bold text-slate-600 truncate w-full text-center">介護整体{p.done ? '・済' : ''}</span>
+                      <span className="font-bold text-slate-800" style={{display:'block',width:'100%',overflow:'hidden',textAlign:'center'}}><AutoFitText text={p.massage || '選ぶ'} max={14} min={8} bold color={p.massage ? undefined : '#64748b'}/></span>
+                    </button>
+                  ); })()}
                 </div>}
                 {/* ★ 2026-10-20(ユーザー指示「一言と音声は欄の左側に」): 一言・マイク・特記を1行に */}
                 <div className="mt-2 flex items-center gap-1.5">
@@ -27783,7 +27792,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                             className={`rounded-2xl border-2 p-3 flex flex-col items-center gap-1 disabled:opacity-40 active:scale-95 ${_act?'border-amber-500 ring-2 ring-amber-300 bg-yellow-50':'border-emerald-500 bg-emerald-50/40'}`}>
                             <span style={{fontSize:11,fontWeight:'bold',color:'#047857'}}>{item.name}</span>
                             <span style={{fontSize:15,fontWeight:'bold',color:'#1e293b',textAlign:'center',lineHeight:1.3}}>{_sel ? _sel.name : '未選択'}</span>
-                            <span style={{fontSize: /^[○×〇ー－-]+$/.test(String(_disp).trim()) ? 32 : 28, fontWeight: /^[○×〇ー－-]+$/.test(String(_disp).trim()) ? 900 : 'bold', color: _disp?'#0f172a':'#64748b', lineHeight:1.15, textAlign:'center'}}>{_disp || (_ph ? _ph : 'ー')}</span>
+                            {/* ★ 2026-10-22(ユーザー指示): 「10秒×3セット」などを折り返さず1行に(入らないときは文字を小さく) */}
+                            {/^[○×〇ー－-]+$/.test(String(_disp).trim())
+                              ? <span style={{fontSize:32, fontWeight:900, color:'#0f172a', lineHeight:1.15}}>{_disp}</span>
+                              : <span style={{display:'block',width:'100%',overflow:'hidden',textAlign:'center', color: _disp?'#0f172a':'#64748b', lineHeight:1.15}}><AutoFitText text={_disp || (_ph ? _ph : 'ー')} max={28} min={12} bold/></span>}
                             {_disp && _ph && <span style={{fontSize:12,color:'#475569'}}>目安: {_ph}</span>}
                           </button>
                         );
@@ -27798,12 +27810,27 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                           className={`rounded-2xl border-2 p-3 flex flex-col items-center gap-1 disabled:opacity-40 active:scale-95 ${(keypad.isOpen && keypad.recordId === p.id && keypad.field === item.id)?'border-amber-500 ring-2 ring-amber-300 bg-yellow-50':'border-slate-400 bg-white'}`}>
                           <span style={{fontSize:15,fontWeight:'bold',color:'#1e293b',textAlign:'center',lineHeight:1.3}}>{item.name}</span>
                           {/* ★ 2026-09-11(店舗要望): 運動は基本黒。○×ーの記号は特太(900)で見やすく */}
-                          <span style={{fontSize: /^[○×〇ー－-]+$/.test(String(disp).trim()) ? 32 : 28, fontWeight: /^[○×〇ー－-]+$/.test(String(disp).trim()) ? 900 : 'bold', color: disp?'#0f172a':'#64748b', lineHeight:1.15, textAlign:'center'}}>{disp || (ph ? ph : 'ー')}</span>
+                          {/^[○×〇ー－-]+$/.test(String(disp).trim())
+                            ? <span style={{fontSize:32, fontWeight:900, color:'#0f172a', lineHeight:1.15}}>{disp}</span>
+                            : <span style={{display:'block',width:'100%',overflow:'hidden',textAlign:'center', color: disp?'#0f172a':'#64748b', lineHeight:1.15}}><AutoFitText text={disp || (ph ? ph : 'ー')} max={28} min={12} bold/></span>}
                           {disp && ph && <span style={{fontSize:12,color:'#475569'}}>目安: {ph}</span>}
                         </button>
                       );
                     })}
                   </div>
+                </div>
+                {/* ★ 2026-10-22(ユーザー指示「虫眼鏡で押したときに介護整体が選べない」): 一覧と同じ吹き出しで担当を選ぶ・実施にする */}
+                <div>
+                  <div style={{fontSize:16,fontWeight:'bold',color:'#0f172a',marginBottom:8}}>介護整体</div>
+                  {(() => { const _mmOpen = massageMenu && massageMenu.recId === p.id; return (
+                    <button type="button" disabled={dis} data-testid="zoom-massage"
+                      onClick={(e)=>{ e.stopPropagation(); if (_mmOpen) { setMassageMenu(null); return; } const r0=e.currentTarget.getBoundingClientRect(); setMassageMenu({ pid: p.patientId || p.id, recId:p.id, cx:Math.min(Math.max(r0.left+r0.width/2, 100), (window.innerWidth||400) - 100), cy:r0.top, cyB:r0.bottom, view: p.massage ? 'main' : 'pick' }); }}
+                      className={`rounded-2xl border-2 p-3 flex flex-col items-center gap-1 disabled:opacity-40 active:scale-95 ${_mmOpen?'border-amber-500 ring-2 ring-amber-300 bg-yellow-50': p.done ? 'border-orange-400 bg-orange-50' : 'border-slate-400 bg-white'}`}
+                      style={{width:'100%',maxWidth:240}}>
+                      <span style={{fontSize:28,fontWeight:'bold',lineHeight:1.15,color: p.massage ? '#0f172a' : '#64748b'}}>{p.massage || '選ぶ'}</span>
+                      {!!p.massage && <span style={{fontSize:14,fontWeight:'bold',color: p.done ? '#c2410c' : '#475569'}}>{p.done ? '実施済み' : '未実施'}</span>}
+                    </button>
+                  ); })()}
                 </div>
                 <div>
                   <div style={{fontSize:16,fontWeight:'bold',color:'#0f172a',marginBottom:8}}>{isAbsent?'欠席理由':'様子・特記'}</div>
