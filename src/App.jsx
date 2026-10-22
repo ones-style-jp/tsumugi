@@ -33205,7 +33205,8 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
           // ★ ユーザー指示(2026-10-02): 運動は1行10項目。上段が埋まるまで上段、超えた分だけ下段。介護整体は数に入れず最後の段の右端に付ける
           const _mg = { id: '__massage', name: '介護整体' };
           const bands = ex.length > TK_EX_PER_ROW ? [ex.slice(0, TK_EX_PER_ROW), [...ex.slice(TK_EX_PER_ROW), _mg]] : [[...ex, _mg]];
-          const N = Math.max(...bands.map(b => b.length)); // 列数(10 or 11)
+          const _minN = (1 + (_kOnR ? 1 : 0) + 1 + 1 + (_showEnT ? 1 : 0) + 1 + 1) + 2; // ★ 2026-10-22: 1段目の欄(状態〜個別)＋再検に2列 が入る数を最低に(運動が少ない・未設定の方で表が崩れていた)
+          const N = Math.max(_minN, ...bands.map(b => b.length)); // 列数
           // 1段目は 状態/気分/体温/開始/終了/再検/記録者/個別 を列をまたいで置く(再検が残り)
           const SP1 = (() => { const st = 1, ki = _kOnR ? 1 : 0, tp = 1, st1 = 1, en = _showEnT ? 1 : 0, rec = 1, kin = 1; const used = st + ki + tp + st1 + en + rec + kin; return { st, ki, tp, st1, en, rec, kin, re: Math.max(1, N - used) }; })();
           const _bikouText = pi === 0 ? computeServiceChangeBikou(sp, tY, tM, appData) : '';
@@ -33340,7 +33341,7 @@ function TicketView({ appData, targetPatientId, onSave, navigateTo, onPatientCha
                 <colgroup><col style={{width:44}}/>{Array.from({length: N}).map((_, i)=><col key={i}/>)}</colgroup>
                 <tbody>
                   {pr.map((r, ri) => {
-                    const isA=r.status==='欠席'||r.status==='休業'||isAbsentFromTokki(r.tokki);
+                    const isA=r.status==='欠席'||r.status==='休業'||(r.status!=='振替'&&r.status!=='臨時'&&!ticketHasClinicalData(r)&&isAbsentFromTokki(r.tokki)); // ★ 2026-10-22: 特記の言葉で欠席とみなすのは、数値が1つも入っていない記録だけ(「…で終了」「来週は休み」などで出席の日が空になっていた)
                     const isF=(()=>{try{return new Date(tY,tM-1,r.dayNum)>new Date();}catch{return false;}})();
                     const mt=isF&&r.status==='出席';
                     const v=(x)=>(isA||mt)?'':(x||'');
