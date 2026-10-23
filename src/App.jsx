@@ -24938,6 +24938,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   // ★ 2026-10-07(店舗報告: スマホ縦で基準値の欄が大きく、入力欄が狭くなる): スマホ幅は最初から「正常範囲だけの1行」にする(押すと詳しく開く)
   const [vitalCollapsed, setVitalCollapsed] = useState(() => { try { return tsuViewW() < 640; } catch { return false; } });
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fsPick, setFsPick] = useState(false); // ★ 2026-10-23(ユーザー): 「全画面」を押したときに見せ方を選ぶ(共有のiPadで人ごとに変えられるように)
   const [_fsModeTick, _setFsModeTick] = useState(0); // ★ 2026-10-23: 全画面の見せ方を変えたら描き直す
   const _fsFit = tsuFsMode() === 'fit';
   // 'fit' は 1行58px を人数分並べたものが画面に入る倍率(0.45〜1.2)。行の中身(入力欄・ボタン)が58pxより縮まないため、高さではなく倍率で合わせる
@@ -26893,9 +26894,22 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               />, document.body)}
               {/* ★ 連絡帳は一番左(全画面の左)に配置(2026-08-28 店舗要望) */}
               <button data-testid="rec-act-renraku" onClick={() => { handleSaveClick(); navigateTo('print'); }} className={`bg-emerald-600 hover:bg-emerald-700 text-white px-2 ${_iconBar ? 'sm:px-2.5' : 'sm:px-4'} py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap`}>{_iconBar ? _ib(Printer, '連絡帳') : '連絡帳'}</button>
-              <button onClick={()=>setIsFullscreen(v=>!v)} className="bg-slate-700 hover:bg-slate-800 text-white px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title={isFullscreen?'通常表示':'全画面表示'}>
+              <button data-testid="rec-act-fullscreen" onClick={()=>{ if (isFullscreen) setIsFullscreen(false); else setFsPick(true); }} className="bg-slate-700 hover:bg-slate-800 text-white px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title={isFullscreen?'通常表示':'全画面表示'}>
                 {isFullscreen ? '通常表示' : (_iconBar ? _ib(Maximize2, '全画面') : '全画面')}
               </button>
+              {fsPick && ReactDOM.createPortal((
+                <div data-testid="fs-pick" style={{position:'fixed',inset:0,zIndex:2147483000,background:'rgba(15,23,42,0.45)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={() => setFsPick(false)}>
+                  <div style={{background:'white',borderRadius:18,padding:18,width:'100%',maxWidth:460,boxShadow:'0 20px 60px rgba(0,0,0,0.35)'}} onClick={e => e.stopPropagation()}>
+                    <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>全画面の見せ方</div>
+                    <div style={{fontSize:12,color:'#64748b',marginBottom:12}}>この端末で前に選んだものに印が付いています。全画面の中でも切り替えられます。</div>
+                    {[['zoom','大きく表示','文字を1.2倍に。10人分より多いときはスクロール'],['fit','全員を1画面に','来ている方の人数と画面の大きさに合わせて、全員が画面に入る大きさに']].map(([k, l, sub]) => (
+                      <button key={k} type="button" data-testid={`fs-pick-${k}`} onClick={() => { try { localStorage.setItem(TSU_FS_MODE_KEY, k); } catch {} _setFsModeTick(t => t + 1); setFsPick(false); setIsFullscreen(true); }}
+                        style={{display:'block',width:'100%',textAlign:'left',padding:'12px 14px',marginBottom:8,borderRadius:12,border: tsuFsMode() === k ? '2px solid #2563eb' : '2px solid #e2e8f0',background: tsuFsMode() === k ? '#eff6ff' : 'white',cursor:'pointer'}}>
+                        <div style={{fontSize:15,fontWeight:'bold',color: tsuFsMode() === k ? '#1d4ed8' : '#1e293b'}}>{tsuFsMode() === k ? '● ' : ''}{l}</div><div style={{fontSize:12,color:'#64748b'}}>{sub}</div>
+                      </button>))}
+                    <div style={{textAlign:'right'}}><button type="button" onClick={() => setFsPick(false)} style={{padding:'8px 16px',borderRadius:10,border:'none',background:'#f1f5f9',color:'#334155',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>やめる</button></div>
+                  </div>
+                </div>), document.body)}
               <button onClick={()=>setRestoreModal(true)} className="bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="保存した記録を丸ごと復元(元に戻す)">{_iconBar ? _ib(Undo2, '戻す') : '元に戻す'}</button>
               {/* ★ onClick={handleSaveClick} だとクリックイベントが第1引数(auto)に渡り auto=truthy(自動保存扱い)になり、
                   「保存しました」が出ず担当者チェックも飛ばされていた。 明示的に auto=false で呼ぶ。 */}
@@ -26936,6 +26950,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           <div className="flex-1 hidden sm:block"/>
           <div className="basis-full sm:hidden" />
           <button onClick={()=>{ handleSaveClick(); navigateTo('print'); }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap" title="連絡帳の作成・印刷へ"><Printer size={13} className="mr-1"/>連絡帳</button>
+          <button type="button" data-testid="fs-mode-switch" onClick={() => { try { localStorage.setItem(TSU_FS_MODE_KEY, _fsFit ? 'zoom' : 'fit'); } catch {} _setFsModeTick(t => t + 1); }} className="bg-white/90 text-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border border-slate-300" title="全画面の見せ方を切り替えます（この端末）">{_fsFit ? '大きく表示' : '全員を1画面に'}</button>{/* ★ 2026-10-23: 全画面の中でも見せ方を切り替えられる */}
           <button onClick={closeFullscreen} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap">通常表示に戻る</button>
           <button onClick={()=>setRestoreModal(true)} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap" title="保存した記録を丸ごと復元">元に戻す</button>
           <button onClick={()=>handleSaveClick(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap"><CloudUpload size={13} className="mr-1"/>保存</button>
@@ -30738,13 +30753,12 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                 return { ex, name: _indName(ex), cells, daily, any: cells.some(Boolean), isTog, unitL };
               });
               const W = 300, H = 64, P = 6;
-              const bars = (cells) => { const vs = cells.map(c => c ? c.v : 0); const mx = Math.max(...vs, 0.001); const bw = (W - 2 * P) / Math.max(1, cells.length); return (
-                <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{display:'block'}}>{cells.map((c, i) => { const h = c ? Math.max(2, (c.v / mx) * (H - 24)) : 0; const x = P + i * bw; return (<g key={i}>{c && <rect x={x + 2} y={H - 14 - h} width={Math.max(4, bw - 4)} height={h} rx={2} fill="#6366f1" opacity={0.85}/>}{c && <text x={x + bw / 2} y={H - 16 - h} textAnchor="middle" fontSize="9" fill="#1e293b" fontWeight="bold">{c.t}</text>}<text x={x + bw / 2} y={H - 3} textAnchor="middle" fontSize="9" fill="#64748b">{months[i]}月</text></g>); })}</svg>); };
-              const line = (pts, isTog, unitL) => { if (!pts.length) return <span style={{color:'#cbd5e1',fontSize:11}}>記録なし</span>; const vs = pts.map(p => p.v); const mx = Math.max(...vs, isTog ? 100 : 0.001), mn = Math.min(...vs, 0); const x = (i) => P + (pts.length > 1 ? i * (W - 2 * P) / (pts.length - 1) : (W / 2 - P)); const y = (v) => H - 14 - ((v - mn) / ((mx - mn) || 1)) * (H - 28); const d = pts.map((pt, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(pt.v).toFixed(1)}`).join(' '); const fmt = (v) => isTog ? `${Math.round(v)}%` : `${Math.round(v * 10) / 10}${unitL}`; const last = pts[pts.length - 1]; const imax = vs.indexOf(Math.max(...vs)); return (
+              const line = (pts, isTog, unitL, all) => { if (!pts.length) return <span style={{color:'#cbd5e1',fontSize:11}}>記録なし</span>; const vs = pts.map(p => p.v); const mx = Math.max(...vs, isTog ? 100 : 0.001), mn = Math.min(...vs, 0); const x = (i) => P + (pts.length > 1 ? i * (W - 2 * P) / (pts.length - 1) : (W / 2 - P)); const y = (v) => H - 14 - ((v - mn) / ((mx - mn) || 1)) * (H - 28); const d = pts.map((pt, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(pt.v).toFixed(1)}`).join(' '); const fmt = (v) => isTog ? `${Math.round(v)}%` : `${Math.round(v * 10) / 10}${unitL}`; const last = pts[pts.length - 1]; const imax = vs.indexOf(Math.max(...vs)); return (
                 <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{display:'block'}}><path d={d} fill="none" stroke="#6366f1" strokeWidth="2"/>{pts.map((pt, i) => <circle key={i} cx={x(i)} cy={y(pt.v)} r={pts.length > 40 ? 1.5 : 2.5} fill="#6366f1"/>)}
                   <text x={x(0)} y={H - 3} fontSize="9" fill="#64748b">{pts[0].d}</text><text x={x(pts.length - 1)} y={H - 3} textAnchor="end" fontSize="9" fill="#64748b">{last.d}</text>
+                  {all ? pts.map((pt, i) => <text key={`l${i}`} x={Math.min(W - 2, Math.max(14, x(i)))} y={Math.max(9, y(pt.v) - 5)} textAnchor="middle" fontSize="9" fill="#1e293b" fontWeight="bold">{fmt(pt.v)}</text>) : (<>
                   <text x={Math.min(W - 2, Math.max(28, x(imax)))} y={Math.max(9, y(vs[imax]) - 5)} textAnchor="middle" fontSize="9" fill="#1e293b" fontWeight="bold">{fmt(vs[imax])}</text>
-                  {imax !== pts.length - 1 && <text x={x(pts.length - 1)} y={Math.min(H - 16, y(last.v) + 12)} textAnchor="end" fontSize="9" fill="#4338ca" fontWeight="bold">{fmt(last.v)}</text>}</svg>); };
+                  {imax !== pts.length - 1 && <text x={x(pts.length - 1)} y={Math.min(H - 16, y(last.v) + 12)} textAnchor="end" fontSize="9" fill="#4338ca" fontWeight="bold">{fmt(last.v)}</text>}</>)}</svg>); };
               return (
                 <div style={{background:'white',borderRadius:14,padding:'14px 16px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #94a3b8',overflowX:'auto'}} data-testid="ex-summary">
                   <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:6}}>
@@ -30758,7 +30772,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                       <tr key={row.ex.id} style={{opacity: row.any ? 1 : 0.45}}>
                         <td style={{padding:'5px 6px',borderBottom:'1px solid #f1f5f9',whiteSpace:'nowrap',verticalAlign:'middle'}}><button type="button" onClick={() => setSelExId(row.ex.id)} style={{background:'none',border:'none',padding:0,fontWeight:'bold',color:'#4338ca',cursor:'pointer',fontSize:12}}>{row.name}</button></td>
                         {exSumMode === 'month' && row.cells.map((c, i) => <td key={i} style={{padding:'4px 6px',borderBottom:'1px solid #f1f5f9',textAlign:'center',whiteSpace:'nowrap',verticalAlign:'middle'}}>{c ? <><div style={{fontWeight:'bold',color:'#1e293b'}}>{c.t}</div><div style={{fontSize:10,color:'#94a3b8'}}>{c.s}</div></> : <span style={{color:'#cbd5e1'}}>—</span>}</td>)}
-                        <td style={{padding:'3px 6px',borderBottom:'1px solid #f1f5f9',verticalAlign:'middle'}}>{exSumMode === 'month' ? (row.any ? bars(row.cells) : <span style={{color:'#cbd5e1',fontSize:11}}>記録なし</span>) : line(row.daily, row.isTog, row.unitL)}</td>
+                        <td style={{padding:'3px 6px',borderBottom:'1px solid #f1f5f9',verticalAlign:'middle'}}>{exSumMode === 'month' ? line(row.cells.map((c, i) => c ? { d: `${months[i]}月`, v: c.v } : null).filter(Boolean), row.isTog, row.unitL, true) : line(row.daily, row.isTog, row.unitL)}</td>
                       </tr>))}</tbody>
                   </table>
                 </div>
@@ -39358,8 +39372,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                         {pl.dropMode==='custom' && pl.drop && (
                           <div className="border border-indigo-200 bg-indigo-50/40 rounded-lg p-1.5 space-y-1.5">
                             {(() => { const _k = `${iso}_${sl}`; const _open = !!dropBoxOpen[_k]; const _cnt = cars.map(c => `${c.name}${(pl.drop.cars?.[c.id]||[]).length}`).join('・'); const _inD0 = new Set([...Object.values(pl.drop.cars||{}).flat(), ...(pl.drop.walkers||[]), ...(pl.drop.others||[])].map(m => m.pid)); const _ny0 = [...new Set([...Object.values(pl.cars||{}).flat(), ...(pl.walkers||[]), ...(pl.others||[])].map(m => m.pid))].filter(pid => !_inD0.has(pid)).length; return (
-                            <button type="button" data-testid={`tp-dropbox-toggle-${iso}-${sl}`} onClick={() => setDropBoxOpen(o => ({ ...o, [_k]: !_open }))} className="w-full text-left text-[11px] font-bold text-indigo-700 flex items-center gap-1">
-                              <span>{_open ? '▼' : '▶'}</span><span>送り（帰り）の車</span><span className="font-normal text-slate-500">{_cnt}</span>{_ny0 ? <span className="text-amber-800 bg-amber-50 border border-amber-300 rounded px-1">席が決まっていない方 {_ny0}名</span> : null}
+                            <button type="button" data-testid={`tp-dropbox-toggle-${iso}-${sl}`} onClick={() => setDropBoxOpen(o => ({ ...o, [_k]: !_open }))} className="w-full text-left text-[11px] font-bold text-indigo-700 flex items-center gap-1 whitespace-nowrap overflow-hidden" title={_cnt}>
+                              <span className="shrink-0">{_open ? '▼' : '▶'}</span><span className="shrink-0">送りの車</span><span className="font-normal text-slate-500 truncate min-w-0">{_cnt}</span>{_ny0 ? <span className="shrink-0 text-amber-800 bg-amber-50 border border-amber-300 rounded px-1">未定{_ny0}名</span> : null}
                             </button>); })()}
                             {!!dropBoxOpen[`${iso}_${sl}`] && (<>
                             {(() => { const _inD2 = new Set([...Object.values(pl.drop.cars||{}).flat(), ...(pl.drop.walkers||[]), ...(pl.drop.others||[])].map(m => m.pid)); const _ny2 = [...new Set([...Object.values(pl.cars||{}).flat(), ...(pl.walkers||[]), ...(pl.others||[]), ...(pl.un||[])].map(m => m.pid))].filter(pid => !_inD2.has(pid)); return _ny2.length ? (
@@ -47569,20 +47583,6 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
           {activeTab === 'system' && (<>
             <SectionCard title="この端末の表示">
               {/* ★ 2026-10-08(ユーザー要望): テンキーの数字の並び(この端末だけ) */}
-              {/* ★ 2026-10-23(ユーザー要望): 提供記録の「全画面」の見せ方(この端末だけ) */}
-              <div className="mb-4 pb-4 border-b border-slate-200" data-testid="fs-mode-setting">
-                <div className="text-sm font-bold text-slate-700 mb-1">提供記録の「全画面」の見せ方（この端末だけ）</div>
-                <p className="text-xs text-slate-500 mb-2">提供記録の「全画面」を押したときの表の大きさです。</p>
-                <div className="flex gap-2 flex-wrap">
-                  {[['zoom','大きく表示','文字を1.2倍に。10人分より多いときはスクロール（これまでの見せ方）'],['fit','全員を1画面に','来ている方の人数で割って、全員が画面に入る大きさに（人数が多いと小さくなります）']].map(([k,l,sub]) => (
-                    <button key={k} type="button" data-testid={`fs-mode-${k}`} onClick={() => { try { localStorage.setItem(TSU_FS_MODE_KEY, k); } catch {} try { window.dispatchEvent(new Event('tsu:fsmode')); } catch {} setKpLayoutTick(t => t + 1); }}
-                      className={`flex-1 min-w-[160px] px-3 py-2 rounded-xl border-2 text-left ${tsuFsMode() === k ? 'border-blue-600 bg-blue-50' : 'border-slate-200 bg-white'}`}>
-                      <div className={`text-sm font-bold ${tsuFsMode() === k ? 'text-blue-700' : 'text-slate-700'}`}>{tsuFsMode() === k ? '● ' : ''}{l}</div>
-                      <div className="text-[11px] text-slate-500">{sub}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
               <div className="mb-4 pb-4 border-b border-slate-200" data-testid="kp-layout-setting">
                 <div className="text-sm font-bold text-slate-700 mb-1">テンキーの数字の並び（この端末だけ）</div>
                 <p className="text-xs text-slate-500 mb-2">テンキーの数字の並びです（この端末だけ）。</p>
