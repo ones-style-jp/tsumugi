@@ -39615,7 +39615,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
       {/* サイドバー */}
       <div className={`bg-white shadow-md border border-slate-300 flex flex-col overflow-hidden
         fixed inset-y-0 left-0 z-50 w-[88%] max-w-[320px] rounded-none transition-transform duration-300 ${mobileRosterOpen ? 'translate-x-0' : '-translate-x-full'}
-        md:static md:translate-x-0 md:rounded-2xl md:flex-shrink-0 md:w-auto md:transition-all ${sidebarCollapsed ? 'md:w-[44px]' : 'md:w-[240px]'}`}>
+        md:static md:z-auto md:translate-x-0 md:rounded-2xl md:flex-shrink-0 md:w-auto md:transition-all ${sidebarCollapsed ? 'md:w-[44px]' : 'md:w-[240px]'}`}>
         {(sidebarCollapsed && !isMobileView) ? (
           <button onClick={() => setSidebarCollapsed(false)} className="h-full flex flex-col items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50">
             <ChevronRight size={18} />
@@ -41909,7 +41909,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
       {mobileRosterOpen && <div onClick={() => setMobileRosterOpen(false)} className="md:hidden fixed inset-0 bg-black/50 z-40" aria-hidden="true" />}
       <div className={`bg-white shadow-md border border-slate-300 flex flex-col overflow-hidden min-h-0
         fixed inset-y-0 left-0 z-50 w-[88%] max-w-[360px] rounded-none transition-transform duration-300 ${mobileRosterOpen ? 'translate-x-0' : '-translate-x-full'}
-        md:static md:translate-x-0 md:rounded-2xl md:flex-shrink-0 md:w-auto md:transition-all ${isSidebarCollapsed ? 'md:w-[44px]' : 'md:w-[340px]'}`}>
+        md:static md:z-auto md:translate-x-0 md:rounded-2xl md:flex-shrink-0 md:w-auto md:transition-all ${isSidebarCollapsed ? 'md:w-[44px]' : 'md:w-[340px]'}`}>{/* ★ 2026-10-23: md:z-auto … flexの子は static でも z-index が効くため、z-50 のままだとサイドバー(z-50・DOMで前)より上に描かれて押せなかった(iPad縦) */}
         {(isSidebarCollapsed && !isMobileView) ? (<button onClick={() => setIsSidebarCollapsed(false)} className="h-full flex flex-col items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50"><ChevronRight size={18} /><span className="text-[9px] font-bold mt-2" style={{ writingMode: 'vertical-rl' }}>名簿</span></button>) : (<>
           <div className="p-3 border-b border-slate-200 bg-slate-50 shrink-0">
             <div className="flex justify-between items-center mb-2">
