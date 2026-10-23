@@ -12957,20 +12957,34 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           const pmap = new Map(pats.map(p => [p.id, p]));
           const dowN = now.getDay(); const todayJ = `${now.getMonth()+1}月${now.getDate()}日`;
           const todayIso = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
-          const recs = (appData.ticketRecords||[]).filter(r => r && r.date === todayJ && (!r.year || Number(r.year) === now.getFullYear()));
+          const recs = (appData.ticketRecords||[]).filter(r => r && recMatchesDateYear(r, todayJ, now.getFullYear()));
           const byPid = new Map(); recs.forEach(r => { if (!byPid.has(r.patientId)) byPid.set(r.patientId, r); });
           const slotOf = (p) => (p && getScheduleOnDate(p, todayIso)[dowN]) || ''; // ★ 2026-10-23: 曜日の変更履歴も見た「その日の基本利用日」(提供記録と同じ)
-          const inSlot = (p, sl) => { const v = slotOf(p); return v === sl || v === '1日'; };
-          const recSlots = (r) => { if (r.furikaeAmpm === 'AM' || r.furikaeAmpm === 'PM') return [r.furikaeAmpm]; if (r.furikaeAmpm === '1日') return ['AM', 'PM']; const v = slotOf(pmap.get(r.patientId)); return v === '1日' ? ['AM', 'PM'] : v ? [v] : ['AM']; };
-          // 出席・欠席は「その時間帯に来る予定の方」の記録だけ数える(基本利用日と合わない残骸の記録は数えない)。振替・臨時は予定に足す
-          const slotStats = (sl) => { const planned = new Set(pats.filter(p => inSlot(p, sl)).map(p => p.id)); let att = 0, abs = 0, furi = 0; recs.forEach(r => { if (!recSlots(r).includes(sl)) return; if (r.status === '振替' || r.status === '臨時') { if (pmap.has(r.patientId)) { furi++; planned.add(r.patientId); } return; } if (!planned.has(r.patientId)) return; if (r.status === '出席') att++; else if (r.status === '欠席') abs++; }); return { n: planned.size, att, abs, furi }; };
+          // ★ 2026-10-23(ユーザー指摘「午後は10名中1名休みで9名なのに7名」): 提供記録入力の一覧と同じ数え方。
+          //   その時間帯に来る方 = 基本利用日(その日時点)／月間表のシフト(〇・出席・臨時・振)／記録の振替・臨時(furikaeAmpm)。記録が無い方は「出席」扱い(提供記録入力の既定と同じ)
+          const monthKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`; const dayNum = now.getDate();
+          const allPats = (appData.patients||[]).filter(p => p && isPatientActiveOnDate(p, todayIso));
+          const recOf = (p) => recs.find(r => r.patientId === p.id);
+          const slotStats = (sl) => { let att = 0, abs = 0, furi = 0, rinji = 0, pause = 0; allPats.forEach(p => {
+            const base = slotOf(p); const isBase = base === sl || base === '1日';
+            const sh = appData.monthlyShifts?.[monthKey]?.[p.id]?.[`${dayNum}_${sl}`]; const st = sh !== undefined ? String(sh) : (isBase ? '〇' : '空欄');
+            const rec = recOf(p);
+            let coming = st === '〇' || st === '出席' || st === '臨時' || st.startsWith('振') || (st === '欠席' && isBase);
+            if (rec && (rec.status === '振替' || rec.status === '臨時')) { const fa = rec.furikaeAmpm; if (fa === sl || fa === '1日' || (!fa && isBase)) coming = true; else if (fa) coming = false; }
+            if (!coming) return;
+            let status = rec ? rec.status : (st === '欠席' ? '欠席' : '出席');
+            if (!rec && getPauseReasonOnDate(p, todayIso)) status = '休止';
+            if (status === '欠席') abs++; else if (status === '休止') pause++; else if (status === '振替') { furi++; att++; } else if (status === '臨時') { rinji++; att++; } else att++;
+          }); return { att, abs, furi, rinji, pause, n: att + abs + pause }; };
           const am = slotStats('AM'), pm = slotStats('PM');
           // 今月の稼働率(定員ベース・今日まで): 延べ利用コマ ÷ (定員 × 営業コマ)。分析(稼働)の periodCapStats と同じ考え方の簡易版(1日利用=2コマ)
           const cap = Number(ss.facilityInfo?.capacity) || 10; const closed = ss.facilityInfo?.closedDays || [0];
           const holMap = new Map(); (appData.holidays||[]).forEach(h => { const d = String((h && (h.date||h)) || ''); if (d) holMap.set(d, (h && h.ampm && h.ampm !== '1日') ? h.ampm : '1日'); });
           let slots = 0; for (let d = 1; d <= now.getDate(); d++) { const dt = new Date(now.getFullYear(), now.getMonth(), d); if (closed.includes(dt.getDay())) continue; const iso = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`; const h = holMap.get(iso); if (h === '1日') continue; slots += (h === 'AM' || h === 'PM') ? 1 : 2; }
-          const mPrefix = `${now.getMonth()+1}月`;
-          const used = (appData.ticketRecords||[]).filter(r => r && String(r.date||'').startsWith(mPrefix) && (!r.year || Number(r.year) === now.getFullYear()) && (r.status === '出席' || r.status === '振替' || r.status === '臨時')).reduce((a, r) => { if ((r.status === '振替' || r.status === '臨時') && r.furikaeAmpm) return a + (r.furikaeAmpm === '1日' ? 2 : 1); const p = pmap.get(r.patientId); const dm = String(r.date||'').match(/(\d+)月(\d+)日/); if (!p || !dm) return a; const dt = new Date(now.getFullYear(), Number(dm[1])-1, Number(dm[2])); const ap = getScheduleOnDate(p, `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`)[dt.getDay()] || ''; if (!ap) return a; /* 基本利用日でない日の記録(残骸)は数えない */ return a + (ap === '1日' ? 2 : 1); }, 0);
+          // ★ 2026-10-23(ユーザー指摘「分析(稼働)は83%なのにホームは75%」): 分析(稼働)の periodCapStats と同じ数え方(利用期間内の記録・年月一致・今日まで・出席/振替/臨時・1日利用=2コマ)
+          const ymNow = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`; const pmAll = new Map((appData.patients||[]).map(p => [p.id, p]));
+          const recsM = (appData.ticketRecords||[]).filter(r => { if (!r || !recordWithinPatientPeriod(r, pmAll.get(r.patientId))) return false; const mM = String(r.date||'').match(/(\d+)月/); if (!mM) return false; const mo = parseInt(mM[1]); const matched = r.year ? (`${r.year}-${String(mo).padStart(2,'0')}` === ymNow) : (mo === now.getMonth()+1); if (!matched) return false; const dm = String(r.date).match(/(\d+)月(\d+)日/); return !(dm && parseInt(dm[2]) > now.getDate()); });
+          const used = recsM.reduce((a, r) => { if (r.status !== '出席' && r.status !== '振替' && r.status !== '臨時') return a; if ((r.status === '振替' || r.status === '臨時') && r.furikaeAmpm) return a + (r.furikaeAmpm === '1日' ? 2 : 1); const p = pmAll.get(r.patientId); const dm = String(r.date||'').match(/(\d+)月(\d+)日/); if (p && dm && r.year) { const d = new Date(Number(r.year), Number(dm[1])-1, Number(dm[2])); if (!isNaN(d.getTime())) { const ap = p.scheduleAmPm?.[d.getDay()] || ''; return a + (ap === '1日' ? 2 : 1); } } return a + 1; }, 0);
           const rate = slots ? Math.round(used / (cap * slots) * 100) : 0;
           const tile = (label, value, sub, color, view, tid) => <button key={label} type="button" data-testid={tid} onClick={() => view && navigateTo(view)} style={{flex:'1 1 150px',minWidth:0,background:'white',border:'1px solid #e2e8f0',borderRadius:12,padding:'8px 12px',textAlign:'left',cursor: view ? 'pointer' : 'default'}}><div style={{fontSize:11,color:'#64748b',fontWeight:'bold'}}>{label}</div><div style={{fontSize:22,fontWeight:'bold',color,lineHeight:1.2}}>{value}</div>{sub && <div style={{fontSize:10,color:'#94a3b8',marginTop:2}}>{sub}</div>}</button>;
           // ---- 本日／今週／今月の業務(2026-10-23 ユーザー要望「3段階に分けて。モニタリングは最後の週になったら今週・今日に、送迎表は今週に」) ----
@@ -13064,8 +13078,8 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
               <div style={{background:'linear-gradient(135deg,#4f46e5,#7c3aed)',color:'white',padding:'14px 20px',display:'flex',flexDirection:'column',gap:10}}>
                 {_greet}
                 <div data-testid="home-today" style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-                  {chip('home-today-am', '今日の予定 午前', `${am.n}名`, `出席 ${am.att}・欠席 ${am.abs}・振替/臨時 ${am.furi}`, 'record')}
-                  {chip('home-today-pm', '今日の予定 午後', `${pm.n}名`, `出席 ${pm.att}・欠席 ${pm.abs}・振替/臨時 ${pm.furi}`, 'record')}
+                  {chip('home-today-am', '午前の出席者', `${am.att}名`, `欠席 ${am.abs}・振替 ${am.furi}・臨時 ${am.rinji}・休止 ${am.pause}`, 'record')}
+                  {chip('home-today-pm', '午後の出席者', `${pm.att}名`, `欠席 ${pm.abs}・振替 ${pm.furi}・臨時 ${pm.rinji}・休止 ${pm.pause}`, 'record')}
                   {chip('home-today-rate', '今月の稼働率', `${rate}%`, `定員 ${cap}名・今日まで ${slots}コマ`, 'dash_operation')}
                 </div>
               </div>
@@ -26926,7 +26940,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   {!_kinouList.length && !_kinouEff && <option value="">（機能訓練指導員が未登録）</option>}
                 </select>
                 <button type="button" data-testid="kinou-group-btn" onClick={()=>{ setKinouGroupPanel(true); setKgSel(null); }} className="text-[11px] font-bold rounded-lg px-2 py-1 border bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-100" title="グループ（指導員ごとに利用者を振り分け）" aria-label="グループ">{_iconBar ? <Users size={16} strokeWidth={2.4}/> : 'グループ'}</button>
-                {kinouGroupSel && <button type="button" data-testid="kinou-group-top-chip" onClick={() => setKinouGroupSel('')} title="押すと上にまとめる表示をやめます" className="text-[11px] font-bold rounded-lg px-2 py-1 border bg-emerald-600 text-white border-emerald-600 whitespace-nowrap">{_iconBar ? `${kinouGroupSel}を上に ×` : `${kinouGroupSel}を上に表示中 ×`}</button>}
+                {kinouGroupSel && <button type="button" data-testid="kinou-group-top-chip" onClick={() => setKinouGroupSel('')} title="押すと上にまとめる表示をやめます" className="text-[11px] font-bold rounded-lg px-2 py-1 border bg-emerald-600 text-white border-emerald-600 whitespace-nowrap">{`${kinouGroupSel}を上に ×`}</button>}
                 {/* ★ グループ振り分けボード(2026-09-30): 画面の最前面に出す(表の見出しの下に隠れないよう body 直下へ) */}
                 {kinouGroupPanel && ReactDOM.createPortal((
                   <div className="fixed inset-0 z-[10050] bg-slate-900/40 flex items-start justify-center p-3 sm:p-6" data-testid="kinou-group-panel">
@@ -26996,8 +27010,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             {/* ★ 2026-10-21(ユーザー要望「印の数と外すは上の帯に。表が一段下がると目が疲れる」): 印が無いときも見えないまま場所だけ取り、出し入れで高さを変えない */}
             <div data-testid="rv-marks-bar" aria-hidden={_rvMarks.length ? undefined : true} title="名前を長押しで印の付け外し（この端末の表示だけ）"
               className="no-print hidden sm:inline-flex items-center gap-1.5 shrink-0 h-10 pl-2.5 pr-1 rounded-xl bg-yellow-50 border border-yellow-300 text-[13px] font-bold text-yellow-900"
-              style={{visibility: _rvMarks.length ? 'visible' : 'hidden', minWidth: _iconBar ? '4.6rem' : '7.5rem'}}>
-              <span className="whitespace-nowrap">印 {_rvMarks.length}{_iconBar ? '' : '名'}</span>
+              style={{visibility: _rvMarks.length ? 'visible' : 'hidden', minWidth: '4.6rem'}}>
+              <span className="whitespace-nowrap">印 {_rvMarks.length}</span>
               <button type="button" data-testid="rv-marks-clear" tabIndex={_rvMarks.length ? 0 : -1} onClick={() => _setRvMarks([])} className="ml-auto h-8 px-2 rounded-lg bg-white border border-yellow-400 text-yellow-900 text-[12px] whitespace-nowrap">{_iconBar ? '×' : '外す'}</button>
             </div>
             </>)}
