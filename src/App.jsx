@@ -12957,44 +12957,73 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           const used = (appData.ticketRecords||[]).filter(r => r && String(r.date||'').startsWith(mPrefix) && (!r.year || Number(r.year) === now.getFullYear()) && (r.status === '出席' || r.status === '振替' || r.status === '臨時')).reduce((a, r) => { if ((r.status === '振替' || r.status === '臨時') && r.furikaeAmpm) return a + (r.furikaeAmpm === '1日' ? 2 : 1); const p = pmap.get(r.patientId); const dm = String(r.date||'').match(/(\d+)月(\d+)日/); if (p && dm) { const ap = p.scheduleAmPm?.[new Date(now.getFullYear(), Number(dm[1])-1, Number(dm[2])).getDay()] || ''; return a + (ap === '1日' ? 2 : 1); } return a + 1; }, 0);
           const rate = slots ? Math.round(used / (cap * slots) * 100) : 0;
           const tile = (label, value, sub, color, view, tid) => <button key={label} type="button" data-testid={tid} onClick={() => view && navigateTo(view)} style={{flex:'1 1 150px',minWidth:0,background:'white',border:'1px solid #e2e8f0',borderRadius:12,padding:'8px 12px',textAlign:'left',cursor: view ? 'pointer' : 'default'}}><div style={{fontSize:11,color:'#64748b',fontWeight:'bold'}}>{label}</div><div style={{fontSize:22,fontWeight:'bold',color,lineHeight:1.2}}>{value}</div>{sub && <div style={{fontSize:10,color:'#94a3b8',marginTop:2}}>{sub}</div>}</button>;
-          // ---- 本日の業務 ----
-          const tasks = [];
-          // 日誌(午前/午後の未入力・未確認)。休業日/定休日のコマは出さない
+          // ---- 本日／今週／今月の業務(2026-10-23 ユーザー要望「3段階に分けて。モニタリングは最後の週になったら今週・今日に、送迎表は今週に」) ----
+          //   各項目に期日を持たせ、期日が今日まで(期限切れ含む)=本日、今週(日曜まで)=今週、それ以降の今月分=今月
+          const t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          const weekEnd = new Date(t0.getFullYear(), t0.getMonth(), t0.getDate() + ((7 - dowN) % 7)); // 今週の日曜
+          const monthEnd = new Date(t0.getFullYear(), t0.getMonth() + 1, 0);
+          const isoOf = (dt) => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+          const isBiz = (dt) => !closed.includes(dt.getDay()) && holMap.get(isoOf(dt)) !== '1日';
+          const lastBizOnOrBefore = (dt) => { const d = new Date(dt); for (let k = 0; k < 14; k++) { if (isBiz(d)) return d; d.setDate(d.getDate() - 1); } return dt; };
+          const tierOf = (due) => due <= t0 ? 'today' : due <= weekEnd ? 'week' : 'month';
+          const tasks = { today: [], week: [], month: [] };
+          const add = (due, t) => { if (due > monthEnd && due > weekEnd) return; tasks[tierOf(due)].push(t); };
+          // 日誌(午前/午後の未入力・未確認)=本日。休業日/定休日のコマは出さない
           if (!(diarySlotKyugyo(appData, todayIso, dowN, 'AM') && diarySlotKyugyo(appData, todayIso, dowN, 'PM'))) {
             const seg = (ap) => { if (diarySlotKyugyo(appData, todayIso, dowN, ap)) return null; const l = (appData.diaryLogs||{})[`${todayIso}_${ap}`]; const it = diaryPendingItems(l, todayIso, appData.diarySettings?.cars, appData); const missing = !l; return (missing || (it && it.length)) ? `${ap === 'AM' ? '午前' : '午後'}${missing ? '（未入力）' : `（${it.join('・')} 未確認）`}` : null; };
             const segs = ['AM', 'PM'].map(seg).filter(Boolean);
-            if (segs.length) tasks.push({ key: 'diary', label: '日誌', sub: segs.join('・'), view: 'diary', color: '#8b5cf6' });
+            if (segs.length) add(t0, { key: 'diary', label: '日誌', sub: segs.join('・'), view: 'diary', color: '#8b5cf6' });
           }
-          // 体力測定: 今日来る方のうち、当月の測定対象(未測定の方・前回測定＋周期が今月以前)
+          // 体力測定: 当月の測定対象(未測定の方・前回測定＋周期が今月以前)。今日来る方=本日、今週来る方=今週、それ以外=今月
           if (!ss.fitnessCycle?.disabled && !ss.sidebarHidden?.fitness) {
             const cyc = ss.fitnessCycle; const unit = cyc?.unit || 'ヶ月';
             const addC = (d, p) => { const nd = new Date(d); const n = fitCycleNumFor(cyc, p); if (unit === 'ヶ月') nd.setMonth(nd.getMonth() + n); else if (unit === '週') nd.setDate(nd.getDate() + n * 7); else if (unit === '年') nd.setFullYear(nd.getFullYear() + n); return nd; };
-            const coming = new Set([...pats.filter(p => slotOf(p)).map(p => p.id), ...recs.filter(r => r.status === '振替' || r.status === '臨時').map(r => r.patientId)]);
-            recs.forEach(r => { if (r.status === '欠席') coming.delete(r.patientId); });
-            const t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            const due = [...coming].map(id => pmap.get(id)).filter(Boolean).filter(p => { const pr = (appData.fitnessRecords||[]).filter(r => r && r.patientId === p.id && r.date).sort((a, b) => String(b.date).localeCompare(String(a.date))); if (!pr.length) return true; const nd = addC(new Date(pr[0].date), p); return Math.floor((nd - t0) / (86400000 * 30)) <= 0; });
-            if (due.length) tasks.push({ key: 'fitness', label: `体力測定 ${due.length}名`, sub: '今日来る方のうち当月の測定対象', view: 'fitness', color: '#10b981' });
+            const isDue = (p) => { const pr = (appData.fitnessRecords||[]).filter(r => r && r.patientId === p.id && r.date).sort((a, b) => String(b.date).localeCompare(String(a.date))); if (!pr.length) return true; const nd = addC(new Date(pr[0].date), p); return Math.floor((nd - t0) / (86400000 * 30)) <= 0; };
+            const duePats = pats.filter(p => isPatientListable(p) && isDue(p));
+            const comingToday = new Set([...pats.filter(p => slotOf(p)).map(p => p.id), ...recs.filter(r => r.status === '振替' || r.status === '臨時').map(r => r.patientId)]); recs.forEach(r => { if (r.status === '欠席') comingToday.delete(r.patientId); });
+            const comingWeek = new Set(); for (let k = 1; k <= 7; k++) { const dt = new Date(t0.getFullYear(), t0.getMonth(), t0.getDate() + k); if (dt > weekEnd) break; if (!isBiz(dt)) continue; pats.forEach(p => { if (p.scheduleAmPm?.[dt.getDay()]) comingWeek.add(p.id); }); }
+            const nT = duePats.filter(p => comingToday.has(p.id)).length, nW = duePats.filter(p => !comingToday.has(p.id) && comingWeek.has(p.id)).length, nM = duePats.length - nT - nW;
+            if (nT) add(t0, { key: 'fitness', label: `体力測定 ${nT}名`, sub: '今日来る方のうち当月の測定対象', view: 'fitness', color: '#10b981' });
+            if (nW) add(weekEnd, { key: 'fitness', label: `体力測定 ${nW}名`, sub: '今週来る方のうち当月の測定対象', view: 'fitness', color: '#10b981' });
+            if (nM) add(monthEnd, { key: 'fitness', label: `体力測定 ${nM}名`, sub: '当月の測定対象（来週以降に来る方）', view: 'fitness', color: '#10b981' });
           }
-          // 計画書(期限30日以内・期限切れ・未作成・一時保存中): 通所介護計画書 と 個別機能訓練計画書/加算の評価
+          // 計画書(期限30日以内・期限切れ・未作成・一時保存中): 期日で本日/今週/今月に。通所介護計画書 と 個別機能訓練計画書/加算の評価
           const dues = computePlanDues(appData);
-          const tk = dues.filter(d => d.kind === 'tsusho'), kk = dues.filter(d => d.kind !== 'tsusho');
-          if (tk.length) tasks.push({ key: 'tsusho', label: `通所介護計画書 ${new Set(tk.map(d => d.patient.id)).size}名`, sub: `${tk.filter(d => d.overdue).length ? `期限切れ ${tk.filter(d => d.overdue).length}名・` : ''}${tk.filter(d => d.note === '未作成').length ? `未作成 ${tk.filter(d => d.note === '未作成').length}名・` : ''}30日以内に作る方`, view: 'keikaku_yotei', color: '#0891b2' });
-          if (kk.length) tasks.push({ key: 'kinou', label: `個別機能訓練計画書・加算の評価 ${new Set(kk.map(d => d.patient.id)).size}名`, sub: `${kk.filter(d => d.overdue).length ? `期限切れ ${kk.filter(d => d.overdue).length}名・` : ''}${[...new Set(kk.map(d => d.label))].join('／')}`, view: 'kinou_yotei', color: '#6366f1' });
-          // モニタリング: 前月分が未作成(15日まで)・今月分が未作成(20日から)
+          [['tsusho', '通所介護計画書', 'keikaku_yotei', '#0891b2', (d) => d.kind === 'tsusho'], ['kinou', '個別機能訓練計画書・加算の評価', 'kinou_yotei', '#6366f1', (d) => d.kind !== 'tsusho']].forEach(([key, label, view, color, f]) => {
+            const L = dues.filter(f); if (!L.length) return;
+            const by = { today: [], week: [], month: [] }; L.forEach(d => { const due = new Date(d.due); due.setHours(0,0,0,0); by[tierOf(due)].push(d); });
+            [['today', t0, '期限が今日まで（期限切れ・未作成・一時保存中を含む）'], ['week', weekEnd, '今週が期限'], ['month', monthEnd, '今月〜30日以内が期限']].forEach(([tier, due, sub]) => { const n = new Set(by[tier].map(d => d.patient.id)).size; if (!n) return; const ov = by[tier].filter(d => d.overdue).length; add(due, { key: `${key}_${tier}`, label: `${label} ${n}名`, sub: `${ov ? `期限切れ ${ov}名・` : ''}${sub}${key === 'kinou' ? `（${[...new Set(by[tier].map(d => d.label))].join('／')}）` : ''}`, view, color }); });
+          });
+          // モニタリング: 前月分が未作成=本日(期限切れ)。今月分=月末の最後の営業日が期日(最後の週になったら今週→当日になったら本日)
           if (!ss.sidebarHidden?.monitoring) {
             const listable = pats.filter(p => isPatientListable(p));
             const missingFor = (y, m) => { const period = `${y}年${m}月`; const done = new Set((appData.monitoringRecords||[]).filter(r => r && r.period === period).map(r => r.patientId)); return listable.filter(p => !done.has(p.id)).length; };
             const py = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear(), pmn = now.getMonth() === 0 ? 12 : now.getMonth();
-            if (now.getDate() <= 15) { const n = missingFor(py, pmn); if (n) tasks.push({ key: 'mon_prev', label: `モニタリング（${pmn}月分） 未作成 ${n}名`, sub: '前月の分をまとめてご家族・ケアマネへ', view: 'monitoring', color: '#0e7490' }); }
-            if (now.getDate() >= 20) { const n = missingFor(now.getFullYear(), now.getMonth() + 1); if (n) tasks.push({ key: 'mon_cur', label: `モニタリング（${now.getMonth() + 1}月分） 未作成 ${n}名`, sub: '月末までに', view: 'monitoring', color: '#0e7490' }); }
+            const nPrev = now.getDate() <= 15 ? missingFor(py, pmn) : 0; /* 前月分は15日まで出す(ずっと出続けないように) */ if (nPrev) add(t0, { key: 'mon_prev', label: `モニタリング（${pmn}月分） 未作成 ${nPrev}名`, sub: '前月の分（期限切れ）。まとめてご家族・ケアマネへ', view: 'monitoring', color: '#0e7490' });
+            const nCur = missingFor(now.getFullYear(), now.getMonth() + 1); if (nCur) add(lastBizOnOrBefore(monthEnd), { key: 'mon_cur', label: `モニタリング（${now.getMonth() + 1}月分） 未作成 ${nCur}名`, sub: `月末（${monthEnd.getMonth()+1}/${monthEnd.getDate()}）まで`, view: 'monitoring', color: '#0e7490' });
           }
-          // 来週の送迎表(営業日のうち、午前も午後も保存されていない日)
+          // 来週の送迎表(営業日のうち、午前も午後も保存されていない日)=今週の最後の営業日が期日
           if (tsumugiTransportOn(appData)) {
-            const nextMon = new Date(now.getFullYear(), now.getMonth(), now.getDate() + ((8 - dowN) % 7 || 7));
+            const nextMon = new Date(t0.getFullYear(), t0.getMonth(), t0.getDate() + ((8 - dowN) % 7 || 7));
             const dn = ['日', '月', '火', '水', '木', '金', '土']; const miss = [];
-            for (let k = 0; k < 7; k++) { const dt = new Date(nextMon.getFullYear(), nextMon.getMonth(), nextMon.getDate() + k); const dw = dt.getDay(); if (closed.includes(dw)) continue; const iso = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`; if (holMap.get(iso) === '1日') continue; if (!tsuTpPlanHas(appData, iso, 'AM') && !tsuTpPlanHas(appData, iso, 'PM')) miss.push(`${dt.getMonth()+1}/${dt.getDate()}(${dn[dw]})`); }
-            if (miss.length) tasks.push({ key: 'transport', label: `来週の送迎表 未作成 ${miss.length}日`, sub: miss.join('・'), view: 'transport', color: '#f59e0b' });
+            for (let k = 0; k < 7; k++) { const dt = new Date(nextMon.getFullYear(), nextMon.getMonth(), nextMon.getDate() + k); if (!isBiz(dt)) continue; const iso = isoOf(dt); if (!tsuTpPlanHas(appData, iso, 'AM') && !tsuTpPlanHas(appData, iso, 'PM')) miss.push(`${dt.getMonth()+1}/${dt.getDate()}(${dn[dt.getDay()]})`); }
+            if (miss.length) add(lastBizOnOrBefore(weekEnd), { key: 'transport', label: `来週の送迎表 未作成 ${miss.length}日`, sub: miss.join('・'), view: 'transport', color: '#f59e0b' });
           }
+          const taskList = (tier, title, tid) => (
+            <div key={tier} data-testid={tid} style={{flex:'1 1 260px',minWidth:0,background:'white',border:'1px solid #e2e8f0',borderRadius:12,padding:'10px 12px'}}>
+              <div style={{fontSize:13,fontWeight:'bold',color: tier === 'today' ? '#b45309' : tier === 'week' ? '#1e40af' : '#475569',marginBottom:6}}>{title}<span style={{fontSize:11,fontWeight:'normal',color:'#94a3b8',marginLeft:6}}>{tier === 'today' ? '期限が今日まで' : tier === 'week' ? `〜${weekEnd.getMonth()+1}/${weekEnd.getDate()}` : `〜${monthEnd.getMonth()+1}/${monthEnd.getDate()}`}</span></div>
+              {tasks[tier].length === 0 ? <div style={{fontSize:12,color:'#94a3b8'}}>なし</div> : (
+                <div style={{display:'flex',flexDirection:'column',gap:5}}>
+                  {tasks[tier].map(t => (
+                    <button key={t.key} type="button" data-testid={`home-task-${t.key}`} onClick={() => navigateTo(t.view)} style={{display:'flex',flexDirection:'column',alignItems:'flex-start',gap:1,width:'100%',textAlign:'left',background:'#f8fafc',border:'1px solid #e2e8f0',borderLeft:`4px solid ${t.color}`,borderRadius:8,padding:'6px 10px',cursor:'pointer'}}>
+                      <span style={{fontSize:13,fontWeight:'bold',color:'#1e293b'}}>{t.label}<span style={{fontSize:11,fontWeight:'bold',color:t.color,marginLeft:8}}>開く →</span></span>
+                      <span style={{fontSize:11,color:'#64748b'}}>{t.sub}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
           return (
             <React.Fragment>
               <div data-testid="home-today" style={{display:'flex',gap:8,flexWrap:'wrap'}}>
@@ -13002,20 +13031,11 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                 {tile('今日の予定（午後）', `${pm.n}名`, `出席 ${pm.att}・欠席 ${pm.abs}・振替/臨時 ${pm.furi}`, '#1e293b', 'record', 'home-today-pm')}
                 {tile('今月の稼働率', `${rate}%`, `定員 ${cap}名・今日まで ${slots}コマ（分析（稼働）と同じ計算）`, rate >= 80 ? '#15803d' : rate >= 60 ? '#1e40af' : '#b45309', 'dash_operation', 'home-today-rate')}
               </div>
-              <DashCard style={{padding:'12px 16px'}}>
-                <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b',marginBottom:8}}>本日の業務</div>
-                {tasks.length === 0 ? <div data-testid="home-tasks-none" style={{fontSize:13,color:'#64748b'}}>今日の業務はありません（日誌・体力測定・計画書・モニタリング・来週の送迎表はすべて済んでいます）。</div> : (
-                  <div data-testid="home-tasks" style={{display:'flex',flexDirection:'column',gap:6}}>
-                    {tasks.map(t => (
-                      <button key={t.key} type="button" data-testid={`home-task-${t.key}`} onClick={() => navigateTo(t.view)} style={{display:'flex',alignItems:'center',gap:10,width:'100%',textAlign:'left',background:'#f8fafc',border:'1px solid #e2e8f0',borderLeft:`4px solid ${t.color}`,borderRadius:8,padding:'7px 12px',cursor:'pointer'}}>
-                        <span style={{fontSize:13,fontWeight:'bold',color:'#1e293b',whiteSpace:'nowrap'}}>{t.label}</span>
-                        <span style={{fontSize:11,color:'#64748b',flex:1,minWidth:0}}>{t.sub}</span>
-                        <span style={{fontSize:11,fontWeight:'bold',color:t.color,whiteSpace:'nowrap'}}>開く →</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </DashCard>
+              <div data-testid="home-tasks" style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                {taskList('today', '本日の業務', 'home-tasks-today')}
+                {taskList('week', '今週の業務', 'home-tasks-week')}
+                {taskList('month', '今月の業務', 'home-tasks-month')}
+              </div>
             </React.Fragment>
           );
         } catch { return null; } })()}
