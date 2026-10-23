@@ -10721,11 +10721,14 @@ const getPauseReasonOnDate = (p, dateStr) => {
     //   「期間内=休止」で判定する。 終了日なし(無期限)の履歴だけは、現在休止中の時のみ有効
     //   (古い未終了の残骸で全期間が休止になるのを防ぐ)。
     if (!p || !p.pauseHistory || p.pauseHistory.length === 0) return null;
-    const targetDate = new Date(dateStr);
+    // ★ 2026-10-23(ユーザー報告「10/28〜11/6 休止なのに次回が10/28」): 日付だけの文字('2026-10-28')を new Date にすると UTC 0時(=JST 9時)になり、
+    //   ローカル0時の Date(次回の候補計算など)と比べると休止の初日だけ「休止前」と誤判定していた → 年月日の文字(YYYY-MM-DD)同士で比べる
+    const _ymd = (v) => { if (v instanceof Date) return isNaN(v.getTime()) ? '' : `${v.getFullYear()}-${String(v.getMonth()+1).padStart(2,'0')}-${String(v.getDate()).padStart(2,'0')}`; const str = String(v || '').trim(); const m = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/); if (m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`; const d = new Date(str); return isNaN(d.getTime()) ? '' : `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+    const target = _ymd(dateStr); if (!target) return null;
     const sorted = [...p.pauseHistory].sort((a, b) => new Date(b.fromDate) - new Date(a.fromDate));
     const match = sorted.find(h => {
-        if (!h.fromDate || new Date(h.fromDate) > targetDate) return false;
-        if (h.toDate) { const td = new Date(h.toDate); td.setHours(23, 59, 59, 999); return targetDate <= td; }
+        const f = _ymd(h.fromDate); if (!f || f > target) return false;
+        if (h.toDate) { const e = _ymd(h.toDate); return !e || target <= e; }
         return p.status === '休止';
     });
     return match ? { reason: match.reason, fromDate: match.fromDate } : null;
