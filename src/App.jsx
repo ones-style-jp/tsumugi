@@ -37361,11 +37361,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               _filt(cp); if (cp.drop) _filt(cp.drop);
               // ★ 2026-10-20(ユーザー要望「その他の運転者は臨時なので、次の日などには反映されなくていい」): 職員の一覧に無い名前(その他で入れた運転者)は写さない
               { const _drvOk = new Set(_driverNames); const _noOther = (m) => { if (!m) return; Object.keys(m).forEach(cid => { if (m[cid] && !_drvOk.has(m[cid])) delete m[cid]; }); }; _noOther(cp.driver); if (cp.drop) _noOther(cp.drop.driver); }
-              // ★ 2026-10-15: 前の週の到着・送りの出発は、この週の「目安」として写す(手で決め直すと目安が外れる)
-              if (cp.arrive) { cp.arriveAuto = {}; Object.keys(cp.arrive).forEach(cid => { if (cp.arrive[cid] && (cp.cars?.[cid]||[]).length) cp.arriveAuto[cid] = true; else delete cp.arrive[cid]; }); }
-              if (cp.drop && cp.drop.cars) Object.values(cp.drop.cars).forEach(ms => (ms || []).forEach(m => { if (m && m.at) m.atAuto = true; })); // ★ 2026-10-21: 送りの着く時間も目安として写す
-              if (cp.dropAt) { cp.dropAtAuto = {}; Object.keys(cp.dropAt).forEach(k => { if (cp.dropAt[k]) cp.dropAtAuto[k] = true; }); }
-              if (cp.drop && cp.drop.depart) { cp.drop.departAuto = {}; Object.keys(cp.drop.depart).forEach(cid => { if (cp.drop.depart[cid] && (cp.drop.cars?.[cid]||[]).length) cp.drop.departAuto[cid] = true; else delete cp.drop.depart[cid]; }); }
+              // ★ 2026-10-15: 前の週の到着・送りの出発を写す。
+              // ★ 2026-10-23(ユーザー報告「前週コピーで到着の目安が9時を超える。前の週は9時前に決めていたのに」): 以前は写した到着を全部「目安」にしていたため、
+              //   次に保存したときに目安が「最後の方の時間＋移動時間」で計算し直され、前の週で手で決めた時間が消えていた。
+              //   → 前の週で手で決めた時間は「手で決めた」のまま写す(計算し直さない)。前の週で目安だったものだけ目安のまま
+              if (cp.arrive) { const _sa = src.arriveAuto || {}; cp.arriveAuto = {}; Object.keys(cp.arrive).forEach(cid => { if (cp.arrive[cid] && (cp.cars?.[cid]||[]).length) { if (_sa[cid]) cp.arriveAuto[cid] = true; } else delete cp.arrive[cid]; }); }
+              // 送りの着く時間(m.atAuto)は、前の週の目安かどうかをそのまま写す(深いコピーで残る)
+              if (cp.dropAt) { const _sd = src.dropAtAuto || {}; cp.dropAtAuto = {}; Object.keys(cp.dropAt).forEach(k => { if (cp.dropAt[k] && _sd[k]) cp.dropAtAuto[k] = true; }); }
+              if (cp.drop && cp.drop.depart) { const _sp = (src.drop && src.drop.departAuto) || {}; cp.drop.departAuto = {}; Object.keys(cp.drop.depart).forEach(cid => { if (cp.drop.depart[cid] && (cp.drop.cars?.[cid]||[]).length) { if (_sp[cid]) cp.drop.departAuto[cid] = true; } else delete cp.drop.depart[cid]; }); }
               delete cp._final; delete cp._finalAt; delete cp._finalId; delete cp._base; delete cp._baseAt; delete cp._baseId; delete cp._chgAt; delete cp._telDone; // ★ 完成の控えは週ごと(コピー先は未確定から)
               // ★ 2026-10-16(ユーザー要望「この週で変えたところは作成中でも変えないで」「前週コピーのあと未割当の方を車に乗せて、もう一度押すと未割当に戻る」):
               //   「前の週と見比べて写す」= この週にすでにあるコマは、この週で車・徒歩・その他に入っている方(この週で決めたこと)と時間・運転者はそのまま。
@@ -37398,7 +37401,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 });
                 let drvN = 0, arrN = 0;
                 Object.keys(cp.driver||{}).forEach(cid => { const b0 = baseDrv[cid] || '', s0 = (cp.driver||{})[cid] || '', c0 = (merged.driver||{})[cid] || ''; if ((!base && c0) || c0 !== b0 || s0 === b0 || !s0) return; merged.driver = { ...(merged.driver||{}), [cid]: s0 }; drvN++; });
-                Object.keys(cp.arrive||{}).forEach(cid => { const b0 = _fmtT(baseArr[cid] || ''), s0 = _fmtT((cp.arrive||{})[cid] || ''), c0 = _fmtT((merged.arrive||{})[cid] || ''); if ((!base && c0) || c0 !== b0 || s0 === b0 || !s0) return; merged.arrive = { ...(merged.arrive||{}), [cid]: (cp.arrive||{})[cid] }; merged.arriveAuto = { ...(merged.arriveAuto||{}), [cid]: true }; arrN++; });
+                Object.keys(cp.arrive||{}).forEach(cid => { const b0 = _fmtT(baseArr[cid] || ''), s0 = _fmtT((cp.arrive||{})[cid] || ''), c0 = _fmtT((merged.arrive||{})[cid] || ''); if ((!base && c0) || c0 !== b0 || s0 === b0 || !s0) return; merged.arrive = { ...(merged.arrive||{}), [cid]: (cp.arrive||{})[cid] }; const _mau = { ...(merged.arriveAuto||{}) }; if ((cp.arriveAuto||{})[cid]) _mau[cid] = true; else delete _mau[cid]; merged.arriveAuto = _mau; arrN++; }); // ★ 2026-10-23: 前の週で手で決めた到着は手で決めたまま
                 const changed = added + moved + drvN + arrN;
                 merged._copyBase = srcSnap; // 次に見比べるときの控え(前の週の今の内容)
                 if (!changed) { nKeep++; np[`${_iso(d)}_${sl}`] = { ...merged, _savedAt: cur._savedAt || syncNow() }; nBaseOnly++; return; }
