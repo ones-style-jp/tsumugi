@@ -11476,6 +11476,9 @@ function useLongPressReorder(items, onReorder, opts) {
 // ★ 2026-10-08(ユーザー要望): テンキーの数字の並びを端末ごとに選べる。
 //   'calc'=電卓型(上から 7 8 9 / 4 5 6 / 1 2 3・これまでの並び・既定)、'phone'=電話型(上から 1 2 3 / 4 5 6 / 7 8 9・スマホの数字入力と同じ)
 const TSU_KP_LAYOUT_KEY = 'tsumugiKeypadLayout';
+// ★ 2026-10-23(ユーザー要望): 提供記録の「全画面」の見せ方(この端末だけ)。'zoom'=1.2倍に大きく(10人分で割る・今まで) / 'fit'=来ている全員が画面に入る大きさ
+const TSU_FS_MODE_KEY = 'tsumugiFullscreenMode';
+const tsuFsMode = () => { try { return localStorage.getItem(TSU_FS_MODE_KEY) === 'fit' ? 'fit' : 'zoom'; } catch { return 'zoom'; } };
 const tsuKpLayout = () => { try { return localStorage.getItem(TSU_KP_LAYOUT_KEY) === 'phone' ? 'phone' : 'calc'; } catch { return 'calc'; } };
 const tsuKpDigits9 = () => tsuKpLayout() === 'phone' ? [1,2,3,4,5,6,7,8,9] : [7,8,9,4,5,6,1,2,3];
 function DigitalKeypad({ isOpen, anchorKey, value, isFirstInput, onInput, onEnter, onTab, onClose, mode, quickButtons, prefixButtons, zoom = 1, unitSep = '', unit2 = '' }) {
@@ -24935,6 +24938,11 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   // ★ 2026-10-07(店舗報告: スマホ縦で基準値の欄が大きく、入力欄が狭くなる): スマホ幅は最初から「正常範囲だけの1行」にする(押すと詳しく開く)
   const [vitalCollapsed, setVitalCollapsed] = useState(() => { try { return tsuViewW() < 640; } catch { return false; } });
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [_fsModeTick, _setFsModeTick] = useState(0); // ★ 2026-10-23: 全画面の見せ方を変えたら描き直す
+  const _fsFit = tsuFsMode() === 'fit';
+  // 'fit' は 1行58px を人数分並べたものが画面に入る倍率(0.45〜1.2)。行の中身(入力欄・ボタン)が58pxより縮まないため、高さではなく倍率で合わせる
+  const _fsZoom = isFullscreen ? (_fsFit ? Math.max(0.45, Math.min(1.2, Math.round(((typeof window !== 'undefined' ? window.innerHeight : 800) - 100) / (Math.max(1, (localPatients || []).length) * 58) * 100) / 100)) : 1.2) : 1;
+  useEffect(() => { const on = (e) => { if (!e || !e.key || e.key === TSU_FS_MODE_KEY) _setFsModeTick(t => t + 1); }; window.addEventListener('storage', on); window.addEventListener('tsu:fsmode', on); return () => { window.removeEventListener('storage', on); window.removeEventListener('tsu:fsmode', on); }; }, []);
   // ★ 2026-10-11: 全画面(画面全体を覆う)を一瞬で外すと、iPad では下の見出し・上部の帯が古い描画のまま白く残ることがある。0.3秒かけて薄くしてから外す
   const [fsClosing, setFsClosing] = useState(false);
   const closeFullscreen = () => { if (fsClosing) return; setFsClosing(true); setTimeout(() => { setIsFullscreen(false); setFsClosing(false); }, 320); };
@@ -25467,6 +25475,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const _reOn = (appData.systemSettings?.secondBpMode || 'end') !== 'recheckStart';
   // ★ 気分(通所/帰宅)の入力欄を出すか(各種設定・2026-09-29 ユーザー要望: 事業所ごとの自己判断)
   const _kibunOn = appData.systemSettings?.kibunDisabled !== true;
+  // ★ 2026-10-23(ユーザー要望): 気分を「通所時だけ」「帰宅時だけ」「両方」から選べる(各種設定 → サービス提供内容)
+  const _kibunTimings = (() => { const v = appData.systemSettings?.kibunTimings; return v === 'arrival' ? ['arrival'] : v === 'departure' ? ['departure'] : ['arrival', 'departure']; })();
+  const _kibunBoth = _kibunTimings.length === 2;
   // ★ 個別機能訓練の実施担当(2026-09-29 ユーザー要望): 運動を回すフロア担当がスタッフ切替で記録者になる運用のため、
   //   記録者とは別に「個別機能訓練の実施担当(機能訓練指導員)」を持つ。既定=各種設定の担当職員で最初に登録された機能訓練指導員。
   //   行ごとに変えることもでき(2人が別々の利用者を担当する場合)、「未算定」も選べる。提供記録の印刷に「個別: ○○」と出る。
@@ -27091,8 +27102,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         </>);
                       })()}</select>}
                 </div>
-                {_kibunOn && <div className="grid grid-cols-2 gap-2 mb-2">
-                  {['arrival','departure'].map(t=>{ const mo=KIBUN_MOODS.find(m=>m.key===p[t==='arrival'?'kibunArrival':'kibunDeparture']); return (
+                {_kibunOn && <div className={`grid ${_kibunBoth ? 'grid-cols-2' : 'grid-cols-1'} gap-2 mb-2`}>
+                  {_kibunTimings.map(t=>{ const mo=KIBUN_MOODS.find(m=>m.key===p[t==='arrival'?'kibunArrival':'kibunDeparture']); return (
                     <button key={t} disabled={dis} onClick={()=>openKibunModal(p.id,t)} className={`rounded-lg py-2 flex items-center justify-center gap-2 disabled:opacity-40 ${mo?mo.color+' font-bold':'bg-slate-100 text-slate-400'}`}>
                       <span className="text-xs font-bold text-slate-700">{t==='arrival'?'通所':'帰宅'}</span><span className="text-2xl leading-none">{mo?mo.emoji:'＋'}</span>
                     </button>
@@ -27238,13 +27249,13 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           minWidth:'max-content',width:'max-content',
           // ★ 全画面時のみ 1.1 倍拡大 (transform-origin top-left でレイアウト整合)
           // ★ 全画面時 1.2 倍拡大: zoom を使う (transform だと sticky が壊れて利用者名列が動く)
-          ...(isFullscreen ? { zoom: 1.2 } : {}),
+          ...(isFullscreen && _fsZoom !== 1 ? { zoom: _fsZoom } : {}),
         }}>
           <colgroup>
             {filterMode === 'month' && <col style={{width:'80px'}} />}
             <col style={{width:'130px'}} />{/* 利用者名 */}
             <col style={{width:'72px'}} />{/* 状態 */}
-            {_kibunOn && <col style={{width:'78px'}} />}{/* 気分(各種設定で非表示可) */}
+            {_kibunOn && <col style={{width: _kibunBoth ? '78px' : '46px'}} />}{/* 気分(各種設定で非表示可・通所/帰宅のどちらかだけなら細く) */}
             <col style={{width:'60px'}} />{/* 体温 */}
             <col style={{width:'145px'}} />{/* 開始 血圧 + 脈 (75+60+gap) */}
             {_showEn && <col style={{width:'145px'}} />}{/* 終了 血圧 + 脈 ★ 列を隠すときは col も外す(2026-09-29: 列ズレで①の列が広がっていた) */}
@@ -27260,7 +27271,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               {filterMode === 'month' && <th className="px-2 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 left-0 z-50 bg-slate-900">日付</th>}
               <th className={`px-2 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-50 bg-slate-900 ${filterMode === 'month' ? 'left-[80px]' : 'left-0'}`}>利用者名</th>
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800">状態</th>
-              {_kibunOn && <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800 text-xs">気分<div className="text-[8px] font-normal text-slate-400">通所/帰宅</div></th>}
+              {_kibunOn && <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800 text-xs">気分<div className="text-[8px] font-normal text-slate-400">{_kibunBoth ? '通所/帰宅' : (_kibunTimings[0] === 'arrival' ? '通所' : '帰宅')}</div></th>}
               <th className="px-1 py-3 font-bold text-center border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800 text-xs">体温</th>
               {/* ★ 2026-10-20(ユーザー要望): 「開始 血圧」は血圧の欄の真上、「脈」は脈の欄の真上に(マスの中と同じ幅・左寄せでそろえる) */}
               <th className="px-1 py-3 font-bold border border-slate-700 whitespace-nowrap sticky top-0 z-40 bg-slate-800" data-testid="rv-th-bpst"><div className="flex items-center gap-1"><span style={{width:78,textAlign:'center'}}>開始 血圧</span><span style={{width:55,marginLeft:4,textAlign:'center'}}>脈</span></div></th>
@@ -27295,11 +27306,12 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   // ★ 全画面時: ビューポートを直接基準にして 10 名ぴったり
                   //   100vh - 80px (title bar + scrollbar の最小) / 10
                   //   minHeight も同じ式で「行が縮まない」よう強制
+                  // ★ 2026-10-23: 'fit' は来ている全員で割る(見出し48px・下の余白を引く)。最小32px
                   height: isFullscreen
-                    ? `calc((100dvh - 80px) / ${Math.min(10, Math.max(1, localPatients.length))})`
+                    ? (_fsFit ? 58 : `calc((100dvh - 80px) / ${Math.min(10, Math.max(1, localPatients.length))})`)
                     : dynamicRowHeight,
                   minHeight: isFullscreen
-                    ? `calc((100dvh - 80px) / ${Math.min(10, Math.max(1, localPatients.length))})`
+                    ? (_fsFit ? 58 : `calc((100dvh - 80px) / ${Math.min(10, Math.max(1, localPatients.length))})`)
                     : 48,
                 }}>
                   {filterMode === 'month' && (
@@ -27375,7 +27387,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   {_kibunOn && (
                   <td className={`px-0.5 py-0 text-center border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`} style={{height:32,maxHeight:32,overflow:'visible',padding:'1px'}}>
                     <div style={{display:'flex',flexDirection:'row',height:'100%',gap:1}}>
-                    {(['arrival','departure']).map((timing, ti) => {
+                    {_kibunTimings.map((timing, ti) => {
                       const moodKey = timing === 'arrival' ? 'kibunArrival' : 'kibunDeparture';
                       const moodVal = p[moodKey] || '';
                       const moodObj = KIBUN_MOODS.find(m => m.key === moodVal);
@@ -27600,7 +27612,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                           onClick={(e)=>{ e.stopPropagation();
                             if (_mmOpen) { setMassageMenu(null); return; }
                             const btn=e.currentTarget; const r0=btn.getBoundingClientRect();
-                            const zoom=isFullscreen?1.2:1; const ratio=btn.offsetWidth?(r0.width/btn.offsetWidth):1;
+                            const zoom=_fsZoom; const ratio=btn.offsetWidth?(r0.width/btn.offsetWidth):1;
                             const corr=(zoom>1 && Math.abs(ratio-1)<0.08)?zoom:1; // 全画面zoomでgetBoundingClientRectがzoom未反映の端末を補正
                             setMassageMenu({ pid, recId:p.id, cx:(r0.left+r0.width/2)*corr, cy:r0.top*corr, cyB:r0.bottom*corr, view: p.massage ? 'main' : 'pick' });
                           }}
@@ -27645,10 +27657,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         <div style={{display:'flex',gap:2,alignItems:'stretch',height:'100%'}}>
                           {/* ★ 2026-10-20(店舗要望・ユーザー指示「欄の左側に」): 一言を選んで足す・マイクで声の入力 */}
                           {!isReadOnly && !isAbsent && !isPause && (
-                            <div style={{display:'flex',flexDirection:'column',gap:2,flexShrink:0,width:44,justifyContent:'center'}}>
+                            <div style={{display:'flex',flexDirection:'column',gap:2,flexShrink:0,width:52,justifyContent:'center'}}>{/* ★ 2026-10-23(ユーザー報告「一言の右が切れる」): 44→52px */}
                               <TsuTokkiPresetSelect appData={appData} testid={`rv-tokki-pick-${p.id}`} onPick={(ph) => updateRecord(p.id, 'tokki', tsuTokkiAppend(p.tokki, ph))}
-                                className="w-full text-[11px] font-bold border border-slate-300 rounded bg-white text-slate-700 outline-none" style={{height:24,padding:'0 2px'}}/>
-                              {!appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-tokki-mic-${p.id}`} getBase={() => p.tokki || ''} onLive={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} onText={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} className="w-11" style={{height:24}} size={14}/>}
+                                className="w-full text-[11px] font-bold border border-slate-300 rounded bg-white text-slate-700 outline-none" style={{height:24,padding:'0 14px 0 3px'}}/>
+                              {!appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-tokki-mic-${p.id}`} getBase={() => p.tokki || ''} onLive={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} onText={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} className="w-full" style={{height:24}} size={14}/>}
                             </div>
                           )}
                           {/* ★ 欠席・休止の特記=休みの理由は家族へ必ず表示する(2026-08-21): 非表示ボタン自体を出さない */}
@@ -27825,7 +27837,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           <span>⚠ {vitalWarn}</span>
           <button onClick={()=>setVitalWarn(null)} style={{whiteSpace:'nowrap',background:'rgba(255,255,255,0.2)',border:'none',color:'white',borderRadius:8,padding:'4px 10px',fontWeight:'bold',cursor:'pointer',fontSize:12}}>閉じる</button>
         </div>, document.body)}
-      <DigitalKeypad isOpen={keypad.isOpen} anchorKey={`${keypad.recordId}-${keypad.field}`} zoom={isFullscreen ? 1.2 : 1} value={keypad.value} isFirstInput={keypad.isFirstInput} mode={keypad.mode} onClose={() => { _checkVitalRange(keypad.field, keypad.value); setKeypad({...keypad, isOpen: false}); { const _oc = window.__tsuKpOutsideClose; const _onRow = _oc && Date.now() - _oc.t < 400 && _oc.el && _oc.el.closest && _oc.el.closest('tr[data-rv-pid],[data-rec-card]'); if (!_onRow) _rvClearSel(); } /* ★ 2026-10-22: 閉じるボタン・空いた所で閉じたら枠も消す(行・マスを押したときはそちらで決める) */ }} onInput={handleKeypadInput} onEnter={handleKeypadEnter} onTab={handleTab} quickButtons={appData.systemSettings?.exerciseQuickButtons} prefixButtons={String(keypad.field||'').startsWith('temp') ? ['35.','36.','37.'] : null}
+      <DigitalKeypad isOpen={keypad.isOpen} anchorKey={`${keypad.recordId}-${keypad.field}`} zoom={_fsZoom} value={keypad.value} isFirstInput={keypad.isFirstInput} mode={keypad.mode} onClose={() => { _checkVitalRange(keypad.field, keypad.value); setKeypad({...keypad, isOpen: false}); { const _oc = window.__tsuKpOutsideClose; const _onRow = _oc && Date.now() - _oc.t < 400 && _oc.el && _oc.el.closest && _oc.el.closest('tr[data-rv-pid],[data-rec-card]'); if (!_onRow) _rvClearSel(); } /* ★ 2026-10-22: 閉じるボタン・空いた所で閉じたら枠も消す(行・マスを押したときはそちらで決める) */ }} onInput={handleKeypadInput} onEnter={handleKeypadEnter} onTab={handleTab} quickButtons={appData.systemSettings?.exerciseQuickButtons} prefixButtons={String(keypad.field||'').startsWith('temp') ? ['35.','36.','37.'] : null}
         unitSep={(()=>{ const _ei=(appData.systemSettings?.exerciseItems||appSettings.exerciseItems).find(i=>i.id===keypad.field); if(_ei && _ei.type!=='individual') return _ei.unitSep||''; const _rec=(filterMode==='single'?localPatients:localTicketRecords).find(x=>x.id===keypad.recordId); const _cur=_rec&&_rec.exercises&&_rec.exercises[keypad.field]; const _iid=(_cur&&typeof _cur==='object')?_cur.itemId:null; if(_iid){ const _ii=(appData.systemSettings?.individualExerciseItems||appSettings.individualExerciseItems||[]).find(x=>x.id===_iid); return (_ii&&_ii.unitSep)||''; } return ''; })()}/>
 
       {/* ★ 拡大入力ビュー(2026-09-09 店舗要望): 1名分を大きな文字・濃い色で入力。テンキー等は通常入力と共通 */}
@@ -27880,7 +27892,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     <span style={{fontSize:15,fontWeight:'bold',color:'#1e293b'}}>状態</span>
                     <span style={{fontSize:26,fontWeight:'bold',lineHeight:1.1,color:({'出席':'#2563eb','欠席':'#dc2626','振替':'#059669','休止':'#f97316','休業':'#64748b'})[p.status||'出席']||'#2563eb'}}>{p.status||'出席'}</span>
                   </div>
-                  {_kibunOn && ['arrival','departure'].map(t=>{ const mo=KIBUN_MOODS.find(m=>m.key===p[t==='arrival'?'kibunArrival':'kibunDeparture']); return (
+                  {_kibunOn && _kibunTimings.map(t=>{ const mo=KIBUN_MOODS.find(m=>m.key===p[t==='arrival'?'kibunArrival':'kibunDeparture']); return (
                     <button key={t} type="button" disabled={dis} onClick={()=>openKibunModal(p.id,t)}
                       className={`disabled:opacity-40 active:scale-95 ${mo?mo.color:''}`}
                       style={{borderRadius:16,border:'2px solid #94a3b8',background:mo?undefined:'white',padding:'10px 6px',display:'flex',flexDirection:'column',alignItems:'center',gap:4,cursor:'pointer'}}>
@@ -30638,7 +30650,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
 <div style={{fontSize:14,fontWeight:'bold',color:'#475569',marginBottom:10,paddingBottom:6,borderBottom:'2px solid #e2e8f0'}}>運動トレンド</div>
           {(() => {
             const allExItems = effExerciseItems(appData.systemSettings);
-            const _selExId = selExId || (allExItems.length>0?allExItems[0].id:null);
+            const _showSummary = selExId === '__all';
+            const _selExId = (!selExId || _showSummary) ? (allExItems.length>0?allExItems[0].id:null) : selExId;
             const selEx = allExItems.find(e=>e.id===_selExId);
             if(!selEx) return null;
             // ★ 個別運動(type='individual')は「個別運動①」ではなく、その利用者が実際に選んでいる
@@ -30659,7 +30672,8 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             };
 
             // ★ 値の解決: ◯=その月の設定数値を参照 / 数値=そのまま / ×・ー・空=反映しない('') / 個別運動オブジェクトは value
-            const _exMonthVal = (r) => {
+            //   ★ 2026-10-23: 「まとめ」(全部の運動)でも使えるよう、運動の項目を引数にした形(_exMonthValOf)にし、選んでいる運動はその特別な場合
+            const _exMonthValOf = (selEx) => (r) => {
               // ★ id が変わっていても同名の項目から拾う(店舗ごとに項目を作り直すと id が変わり、
               //   その店舗だけ「記録なし」になっていた)。 連絡帳と同じ解決規則に揃える。
               let raw = resolveExerciseValue(r.exercises, selEx.id,
@@ -30696,6 +30710,33 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
                 return (pv && pv !== 'ー') ? pv : '○';
               }
               return raw;
+            };
+            const _exMonthVal = _exMonthValOf(selEx);
+            // ★ 2026-10-23(ユーザー要望「運動ごとに押さないと比べられない」): 全部の運動の月ごとの平均(○×の運動は実施率)を1つの表に
+            const _exSummary = () => {
+              const months = monthlyData.map(d => d.month);
+              const rows = allExItems.map(ex => {
+                const f = _exMonthValOf(ex); const vals = validRecs.map(r => f(r)).filter(Boolean);
+                const first = vals.find(Boolean) || ''; const isTog = !first || first === '○' || first === 'ー';
+                const num = (v) => { if (!v || v === 'ー') return null; if (v === '○') return isTog ? 1 : null; const m = String(v).match(/(\d+(?:\.\d+)?)/); return m ? +m[1] : null; };
+                const unitL = ex.defaultUnit || ((String(first).match(/^[\d.]+(.+)$/) || [])[1] || '').trim();
+                const cells = months.map(mo => { const recs = validRecs.filter(r => { const mm = r && r.date ? r.date.match(/(\d+)月/) : null; return mm && +mm[1] === mo; }); const ns = recs.map(r => num(f(r))).filter(v => v !== null); if (!ns.length) return null; const avg = ns.reduce((a, b) => a + b, 0) / ns.length; return isTog ? { t: `${Math.round(avg * 100)}%`, s: `${ns.filter(v => v === 1).length}/${recs.length}` } : { t: `${Math.round(avg * 10) / 10}${unitL}`, s: `${ns.length}回` }; });
+                return { ex, name: _indName(ex), cells, any: cells.some(Boolean), isTog };
+              });
+              return (
+                <div style={{background:'white',borderRadius:14,padding:'14px 16px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #94a3b8',overflowX:'auto'}} data-testid="ex-summary">
+                  <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b',marginBottom:6}}>全部の運動 — 月ごとの平均（○×の運動は実施率）</div>
+                  <div style={{fontSize:11,color:'#64748b',marginBottom:8}}>上の数字が平均（または実施率）、下の小さい数字がその月の回数です。運動の名前を押すと、その運動のグラフに移ります。</div>
+                  <table style={{borderCollapse:'collapse',fontSize:12,minWidth:'100%'}}>
+                    <thead><tr><th style={{textAlign:'left',padding:'4px 6px',borderBottom:'2px solid #e2e8f0',color:'#475569',whiteSpace:'nowrap'}}>運動</th>{months.map(mo => <th key={mo} style={{padding:'4px 6px',borderBottom:'2px solid #e2e8f0',color:'#475569',textAlign:'center',whiteSpace:'nowrap'}}>{mo}月</th>)}</tr></thead>
+                    <tbody>{rows.map(row => (
+                      <tr key={row.ex.id} style={{opacity: row.any ? 1 : 0.45}}>
+                        <td style={{padding:'5px 6px',borderBottom:'1px solid #f1f5f9',whiteSpace:'nowrap'}}><button type="button" onClick={() => setSelExId(row.ex.id)} style={{background:'none',border:'none',padding:0,fontWeight:'bold',color:'#4338ca',cursor:'pointer',fontSize:12}}>{row.name}</button></td>
+                        {row.cells.map((c, i) => <td key={i} style={{padding:'4px 6px',borderBottom:'1px solid #f1f5f9',textAlign:'center',whiteSpace:'nowrap'}}>{c ? <><div style={{fontWeight:'bold',color:'#1e293b'}}>{c.t}</div><div style={{fontSize:10,color:'#94a3b8'}}>{c.s}</div></> : <span style={{color:'#cbd5e1'}}>—</span>}</td>)}
+                      </tr>))}</tbody>
+                  </table>
+                </div>
+              );
             };
 
             const parseVal = v => { if(!v||v==='○'||v==='ー') return null; const n=parseFloat(v.replace(/[^\d.]/g,'')); return isNaN(n)?null:n; };
@@ -30756,12 +30797,14 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
 
             const tabs = (
               <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:12}}>
+                <button type="button" data-testid="ex-summary-btn" onClick={()=>setSelExId('__all')} style={{padding:'5px 14px',borderRadius:20,fontSize:14,fontWeight:'bold',border:'none',cursor:'pointer',background:selExId==='__all'?'#0f766e':'#ccfbf1',color:selExId==='__all'?'white':'#0f766e'}}>まとめ（全部）</button>
                 {allExItems.map(ex=>(
                   <button key={ex.id} onClick={()=>setSelExId(ex.id)} style={{padding:'5px 14px',borderRadius:20,fontSize:14,fontWeight:'bold',border:'none',cursor:'pointer',background:_selExId===ex.id?'#6366f1':'#f1f5f9',color:_selExId===ex.id?'white':'#64748b'}}>{_indName(ex)}</button>
                 ))}
               </div>
             );
 
+            if (_showSummary) return (<div>{tabs}{_exSummary()}</div>);
             if(unit==='text'||dailyEx.length===0) return (
               <div>
                 {tabs}
@@ -46812,6 +46855,14 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                 <input type="checkbox" data-testid="kibun-toggle" checked={ss.kibunDisabled !== true} onChange={e=>saveSS({ kibunDisabled: !e.target.checked }, e.target.checked ? '✓ 気分の入力欄を表示します' : '✓ 気分の入力欄を非表示にしました')} className="w-5 h-5" style={{accentColor:'#2563eb'}}/>
                 <span className="text-sm font-bold text-slate-700">通所時・帰宅時の気分を入力する{ss.kibunDisabled===true && <span className="ml-2 text-xs font-normal text-amber-600">現在OFF：気分の欄は表示されません</span>}</span>
               </label>
+              {/* ★ 2026-10-23(ユーザー要望): 入力するなら、通所時だけ／帰宅時だけ／両方 を選べる */}
+              {ss.kibunDisabled !== true && (
+                <div className="mt-3 flex gap-2 flex-wrap" data-testid="kibun-timings">
+                  {[['both','通所時と帰宅時'],['arrival','通所時だけ'],['departure','帰宅時だけ']].map(([k,l]) => { const cur = (ss.kibunTimings === 'arrival' || ss.kibunTimings === 'departure') ? ss.kibunTimings : 'both'; return (
+                    <button key={k} type="button" data-testid={`kibun-timing-${k}`} onClick={() => saveSS({ kibunTimings: k }, `✓ 気分は「${l}」を入力します`)}
+                      className={`px-4 py-2 rounded-xl border-2 text-sm font-bold ${cur === k ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-700'}`}>{cur === k ? '● ' : ''}{l}</button>); })}
+                </div>
+              )}
             </SectionCard>
             <SectionCard title="血圧・脈の測定">
               <p className="text-xs text-slate-500 mb-3">提供記録の血圧・脈の列を選べます。「開始時のみ」にすると終了時の列は出ません。測り直しは各列の<b>「再」ボタン</b>で記録します（前の値は「○回目」として残ります）。</p>
@@ -47482,6 +47533,20 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
           {activeTab === 'system' && (<>
             <SectionCard title="この端末の表示">
               {/* ★ 2026-10-08(ユーザー要望): テンキーの数字の並び(この端末だけ) */}
+              {/* ★ 2026-10-23(ユーザー要望): 提供記録の「全画面」の見せ方(この端末だけ) */}
+              <div className="mb-4 pb-4 border-b border-slate-200" data-testid="fs-mode-setting">
+                <div className="text-sm font-bold text-slate-700 mb-1">提供記録の「全画面」の見せ方（この端末だけ）</div>
+                <p className="text-xs text-slate-500 mb-2">提供記録の「全画面」を押したときの表の大きさです。</p>
+                <div className="flex gap-2 flex-wrap">
+                  {[['zoom','大きく表示','文字を1.2倍に。10人分より多いときはスクロール（これまでの見せ方）'],['fit','全員を1画面に','来ている方の人数で割って、全員が画面に入る大きさに（人数が多いと小さくなります）']].map(([k,l,sub]) => (
+                    <button key={k} type="button" data-testid={`fs-mode-${k}`} onClick={() => { try { localStorage.setItem(TSU_FS_MODE_KEY, k); } catch {} try { window.dispatchEvent(new Event('tsu:fsmode')); } catch {} setKpLayoutTick(t => t + 1); }}
+                      className={`flex-1 min-w-[160px] px-3 py-2 rounded-xl border-2 text-left ${tsuFsMode() === k ? 'border-blue-600 bg-blue-50' : 'border-slate-200 bg-white'}`}>
+                      <div className={`text-sm font-bold ${tsuFsMode() === k ? 'text-blue-700' : 'text-slate-700'}`}>{tsuFsMode() === k ? '● ' : ''}{l}</div>
+                      <div className="text-[11px] text-slate-500">{sub}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="mb-4 pb-4 border-b border-slate-200" data-testid="kp-layout-setting">
                 <div className="text-sm font-bold text-slate-700 mb-1">テンキーの数字の並び（この端末だけ）</div>
                 <p className="text-xs text-slate-500 mb-2">テンキーの数字の並びです（この端末だけ）。</p>
