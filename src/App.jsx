@@ -2147,7 +2147,7 @@ function MaskToggle({ small, storeKey, onChange }) {
   React.useEffect(() => { _tsumugiMaskOn = on; try { if (storeKey) localStorage.setItem(`tsumugiMask:${storeKey}`, on ? '1' : '0'); } catch {} if (onChange) onChange(on); return () => { _tsumugiMaskOn = false; }; }, [on]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <label data-testid="mask-toggle" title="ONにすると、ダウンロードする書類の利用者氏名・ふりがなを1文字おきに○へ置き換えます（例: 髙橋正樹→髙○正○）" style={{display:'inline-flex',alignItems:'center',gap:5,padding: small ? '4px 8px' : '6px 10px',borderRadius:8,border:'1px solid',borderColor: on ? '#f59e0b' : '#cbd5e1',background: on ? '#fef3c7' : 'white',color: on ? '#b45309' : '#475569',fontSize: small ? 11 : 12,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap',userSelect:'none'}}>
-      <input type="checkbox" checked={on} onChange={e => setOn(e.target.checked)} style={{width:14,height:14}}/><span className="tsu-mask-pre">氏名</span>マスキング
+      <input type="checkbox" checked={on} onChange={e => setOn(e.target.checked)} style={{width:14,height:14}}/>マスキング
     </label>
   );
 }
@@ -11484,6 +11484,25 @@ const TSU_FS_MODE_KEY = 'tsumugiFullscreenMode';
 // ★ 2026-10-23(ユーザー要望「ランキングは縦に1,2,3…」): 列ごとの行数。1列目を最低10行(人数がそれ以下なら全員)まで縦に並べてから次の列へ
 const tsuRankRows = (n, cols) => Math.max(1, Math.ceil(n / Math.max(1, cols)), Math.min(n, 10));
 const TSU_USE_KEY = 'tsumugiUseCount';
+// ★ 2026-10-23(ユーザー要望): 事業所情報のサービス種類コードはプルダウンで(通所系のコード。他は「その他」で手入力)
+const TSU_SVC_CODES = [['15','通所介護'],['78','地域密着型通所介護'],['16','通所リハビリテーション'],['72','認知症対応型通所介護'],['66','介護予防通所リハビリテーション'],['74','介護予防認知症対応型通所介護']];
+const TSU_SOGO_CODES = [['A5','通所型サービス（みなし・介護予防通所介護相当）'],['A6','通所型サービス（独自）'],['A7','通所型サービス（独自／定率）'],['A8','通所型サービス（独自／定額）']];
+// 値が一覧に無ければ「その他」として手入力欄を出す
+function TsuSvcCodeField({ list, value, onChange, testId, maxLen = 2, upper = false }) {
+  const inList = list.some(([c]) => c === value);
+  const [other, setOther] = React.useState(() => !!value && !inList);
+  const sel = other ? '__other' : (inList ? value : '');
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <select data-testid={testId} value={sel} onChange={e => { const v = e.target.value; if (v === '__other') { setOther(true); onChange(''); } else { setOther(false); onChange(v); } }} className="px-3 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none min-w-0 flex-1">
+        <option value="">（未設定）</option>
+        {list.map(([c, l]) => <option key={c} value={c}>{c}　{l}</option>)}
+        <option value="__other">その他（番号を入力）</option>
+      </select>
+      {other && <ImeSafeInput type="text" value={value || ''} onChange={e => onChange((upper ? e.target.value.normalize('NFKC').toUpperCase().replace(/[^0-9A-Z]/g, '') : e.target.value.normalize('NFKC').replace(/[^0-9]/g, '')).slice(0, maxLen))} placeholder="コード" className="w-24 px-3 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/>}
+    </div>
+  );
+}
 function tsuUseCount(src, view) {
   try {
     if (!view || typeof view !== 'string') return;
@@ -12905,7 +12924,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
   const [devPage, setDevPage] = React.useState(0);   // つむぎ運営からのお知らせ(4件/頁)
   // ★ 運営からのお知らせは既定で閉じたバー表示(2026-08-18): 業務ではスケジュール・家族/ケアマネ更新が主役のため。
   //   新着があればバーに件数バッジを出し、タップで開閉する。
-  const [devOpen, setDevOpen] = React.useState(false);
+  const [devOpen, setDevOpen] = React.useState(true); // ★ 2026-10-23(ユーザー要望): 家族・ケアマネからの更新と同じく、閉じずに表示
   const [extPage, setExtPage] = React.useState(0);   // 家族・ケアマネからの更新(5件/頁)
   const [newsPage, setNewsPage] = React.useState(0); // お知らせ(5件/頁)
   const _pageSlice = (arr, page, size) => { const pages = Math.max(1, Math.ceil((arr.length||0)/size)); const p = Math.min(Math.max(0,page), pages-1); return arr.slice(p*size, p*size+size); };
@@ -12927,17 +12946,12 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
   return (
     // ★ ホームは縮小 transform を使わず等倍で表示する(親ラッパー側で dashboard を transform 対象外に)。
     //   これにより transform 内の入れ子スクロールで起きる iOS/一部環境のタップ座標ズレを根本回避。
-    <div style={{height:'100%',overflow:'auto',background:'#f0f4f9'}}>
+    <div data-testid="home-scroll" style={{height:'100%',overflow:'auto',background:'#f0f4f9',overscrollBehavior:'contain',WebkitOverflowScrolling:'touch'}}>{/* ★ 2026-10-23(iPadで上が白くなる): 端まで引っぱっても外(body)へ連鎖しない */}
       <div className="tsu-ph-cards tsu-wide" style={{maxWidth:1040,margin:'0 auto',padding:16,display:'flex',flexDirection:'column',gap:16}}>{/* ★ 2026-10-21: 大きい画面では広く(index.css tsu-wide) */}
-        {/* 挨拶 */}
-        {/* ★ 1行表示(2026-08-18): 日付と挨拶を横並びにして高さを詰める */}
-        <div style={{background:'linear-gradient(135deg,#4f46e5,#7c3aed)',borderRadius:16,color:'white',padding:'12px 22px',display:'flex',alignItems:'baseline',flexWrap:'wrap',gap:'6px 14px'}}>
-          <div style={{fontSize:19,fontWeight:'bold',whiteSpace:'nowrap'}}>{now.getFullYear()}年{now.getMonth()+1}月{now.getDate()}日（{dow}）</div>
-          <div style={{fontSize:13,opacity:0.9}}>{activeRecorder?.name ? `${activeRecorder.name} さん、今日もよろしくお願いします。` : 'ようこそ'}</div>
-        </div>
-        {/* ★ 2026-10-23(ユーザー要望「稼働率などもろもろ一目で分かるものをホームに」→「予定は午前/午後で分けて・まだ記録のない方は不要・本日の業務を」):
-              今日の予定(午前/午後)・今月の稼働率(定員ベース・今日まで)・本日の業務(日誌・体力測定・計画書・モニタリング・来週の送迎表) */}
-        {(() => { try {
+        {/* ★ 2026-10-23(ユーザー要望「稼働率などもろもろ一目で分かるものをホームに」→「予定は午前/午後で分けて・本日/今週/今月の業務を」→「マス目状で見にくい。今日の予定など大元が分かるデザインに」):
+              1枚の「今日」の板: 上の帯=日付・挨拶・今日の予定(午前/午後)・今月の稼働率、下=本日の業務(大)・今週/今月の業務(小) */}
+        {(() => { const _greet = <div style={{display:'flex',alignItems:'baseline',flexWrap:'wrap',gap:'4px 14px'}}><div style={{fontSize:20,fontWeight:'bold',whiteSpace:'nowrap'}}>{now.getFullYear()}年{now.getMonth()+1}月{now.getDate()}日（{dow}）</div><div style={{fontSize:13,opacity:0.9}}>{activeRecorder?.name ? `${activeRecorder.name} さん、今日もよろしくお願いします。` : 'ようこそ'}</div></div>;
+          try {
           const ss = appData.systemSettings || {};
           const pats = (appData.patients||[]).filter(p => p && p.status === '利用中');
           const pmap = new Map(pats.map(p => [p.id, p]));
@@ -13015,48 +13029,53 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
             if (rem) add(lastBizOnOrBefore(weekEnd), { key: 'transport', label: `来週の送迎表（${rem.label}） 未確定`, sub: `${miss.length ? `未作成 ${miss.join('・')}。` : ''}送迎表で確認して「確定」を押す`, view: 'transport', jump: rem.iso, color: '#dc2626' });
             else if (miss.length) add(lastBizOnOrBefore(weekEnd), { key: 'transport', label: `来週の送迎表 未作成 ${miss.length}日`, sub: miss.join('・'), view: 'transport', color: '#f59e0b' });
           }
-          const taskList = (tier, title, tid) => (
-            <div key={tier} data-testid={tid} style={{flex:'1 1 260px',minWidth:0,background:'white',border:'1px solid #e2e8f0',borderRadius:12,padding:'10px 12px'}}>
-              <div style={{fontSize:13,fontWeight:'bold',color: tier === 'today' ? '#b45309' : tier === 'week' ? '#1e40af' : '#475569',marginBottom:6,display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>{title}<span style={{fontSize:11,fontWeight:'normal',color:'#94a3b8'}}>{tier === 'today' ? '期限が今日まで' : tier === 'week' ? `〜${weekEnd.getMonth()+1}/${weekEnd.getDate()}` : `〜${monthEnd.getMonth()+1}/${monthEnd.getDate()}`}</span>
-                {tier === 'today' && <span style={{marginLeft:'auto',display:'flex',gap:4}}>{todayEvents.some(e => !isRead(e.id)) && <button type="button" onClick={()=>{ todayEvents.forEach(e => { if (!isRead(e.id)) markRead(e.id); }); }} style={{fontSize:10,fontWeight:'bold',color:'#4338ca',background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:8,padding:'2px 8px',cursor:'pointer',whiteSpace:'nowrap'}}>全て既読</button>}<button type="button" onClick={()=>navigateTo('schedule')} style={{fontSize:10,fontWeight:'bold',color:'#6366f1',background:'#eef2ff',border:'none',borderRadius:8,padding:'2px 8px',cursor:'pointer',whiteSpace:'nowrap'}}>カレンダー →</button></span>}</div>
+          const chip = (tid, label, value, sub, view) => <button key={tid} type="button" data-testid={tid} onClick={() => view && navigateTo(view)} style={{background:'rgba(255,255,255,0.16)',border:'1px solid rgba(255,255,255,0.4)',borderRadius:12,padding:'6px 14px',color:'white',textAlign:'left',cursor:'pointer',minWidth:0,flex:'0 1 auto'}}><div style={{fontSize:11,opacity:0.9,fontWeight:'bold',whiteSpace:'nowrap'}}>{label}</div><div style={{fontSize:22,fontWeight:'bold',lineHeight:1.15}}>{value}</div>{sub && <div style={{fontSize:10,opacity:0.85,whiteSpace:'nowrap'}}>{sub}</div>}</button>;
+          const taskBtn = (t, big) => (
+            <button key={t.key} type="button" data-testid={`home-task-${t.key}`} onClick={() => { if (t.jump) { try { sessionStorage.setItem('tsumugiTpJump', t.jump); } catch {} } navigateTo(t.view); }} style={{display:'flex',flexDirection:'column',alignItems:'flex-start',gap:1,width:'100%',textAlign:'left',background:'white',border:'1px solid #e2e8f0',borderLeft:`4px solid ${t.color}`,borderRadius:8,padding: big ? '7px 12px' : '5px 10px',cursor:'pointer'}}>
+              <span style={{fontSize: big ? 14 : 12.5,fontWeight:'bold',color:'#1e293b'}}>{t.label}<span style={{fontSize:11,fontWeight:'bold',color:t.color,marginLeft:8}}>開く →</span></span>
+              {t.sub && <span style={{fontSize:11,color:'#64748b'}}>{t.sub}</span>}
+            </button>);
+          const section = (tier, title, tid, big) => (
+            <div key={tier} data-testid={tid} style={{flex: big ? '1 1 100%' : '1 1 240px',minWidth:0}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:6,paddingBottom:4,borderBottom:`2px solid ${tier === 'today' ? '#f59e0b' : tier === 'week' ? '#93c5fd' : '#cbd5e1'}`}}>
+                <span style={{fontSize: big ? 15 : 13,fontWeight:'bold',color: tier === 'today' ? '#b45309' : tier === 'week' ? '#1e40af' : '#475569'}}>{title}</span>
+                <span style={{fontSize:11,color:'#94a3b8'}}>{tier === 'today' ? '期限が今日まで' : tier === 'week' ? `〜${weekEnd.getMonth()+1}/${weekEnd.getDate()}` : `〜${monthEnd.getMonth()+1}/${monthEnd.getDate()}`}</span>
+                {tier === 'today' && <span style={{marginLeft:'auto',display:'flex',gap:4}}>{todayEvents.some(e => !isRead(e.id)) && <button type="button" onClick={()=>{ todayEvents.forEach(e => { if (!isRead(e.id)) markRead(e.id); }); }} style={{fontSize:10,fontWeight:'bold',color:'#4338ca',background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:8,padding:'2px 8px',cursor:'pointer',whiteSpace:'nowrap'}}>全て既読</button>}<button type="button" onClick={()=>navigateTo('schedule')} style={{fontSize:10,fontWeight:'bold',color:'#6366f1',background:'#eef2ff',border:'none',borderRadius:8,padding:'2px 8px',cursor:'pointer',whiteSpace:'nowrap'}}>カレンダー →</button></span>}
+              </div>
               {tier === 'today' && todayEvents.length > 0 && (
                 <div data-testid="home-today-events" style={{display:'flex',flexDirection:'column',gap:4,marginBottom:6}}>
                   {todayEvents.map(e => { const pt = e.patientId ? (appData.patients||[]).find(x=>x.id===e.patientId) : null; const _r = isRead(e.id); return (
                     <button key={e.id} type="button" onClick={()=>openDetail({id:e.id,badge:'予定',badgeColor:e.color||'#6366f1',date:'',title:e.title,body:`時間：${e.start?`${e.start}${e.end?`〜${e.end}`:''}`:'終日'}${pt?`\n利用者：${pt.name} 様`:''}${e.note?`\n\n${e.note}`:''}`})}
-                      style={{textAlign:'left',cursor:'pointer',width:'100%',display:'flex',alignItems:'baseline',gap:8,background:_r?'#f8fafc':'#eef2ff',border:`1px solid ${_r?'#e2e8f0':'#c7d2fe'}`,borderLeft:`4px solid ${e.color||'#6366f1'}`,borderRadius:8,padding:'5px 10px'}}>
-                      <span style={{fontSize:12,fontWeight:'bold',color:'#4338ca',whiteSpace:'nowrap',fontVariantNumeric:'tabular-nums'}}>{e.start?`${e.start}${e.end?`〜${e.end}`:''}`:'終日'}</span>
-                      <span style={{fontSize:13,fontWeight:'bold',color:_r?'#64748b':'#1e293b',flex:1,minWidth:0}}>{e.title}{pt && <span style={{fontSize:10,fontWeight:'bold',color:'#4338ca',background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:4,padding:'0 5px',marginLeft:6}}>{pt.name} 様</span>}</span>
+                      style={{textAlign:'left',cursor:'pointer',width:'100%',display:'flex',alignItems:'baseline',gap:8,background:_r?'#f8fafc':'#eef2ff',border:`1px solid ${_r?'#e2e8f0':'#c7d2fe'}`,borderLeft:`4px solid ${e.color||'#6366f1'}`,borderRadius:8,padding:'6px 12px'}}>
+                      <span style={{fontSize:13,fontWeight:'bold',color:'#4338ca',whiteSpace:'nowrap',fontVariantNumeric:'tabular-nums'}}>{e.start?`${e.start}${e.end?`〜${e.end}`:''}`:'終日'}</span>
+                      <span style={{fontSize:14,fontWeight:'bold',color:_r?'#64748b':'#1e293b',flex:1,minWidth:0}}>{e.title}{pt && <span style={{fontSize:10,fontWeight:'bold',color:'#4338ca',background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:4,padding:'0 5px',marginLeft:6}}>{pt.name} 様</span>}</span>
                       {_r && <span style={{fontSize:9,color:'#64748b'}}>既読</span>}
                     </button>); })}
                 </div>
               )}
               {tasks[tier].length === 0 ? (tier === 'today' && todayEvents.length ? null : <div style={{fontSize:12,color:'#94a3b8'}}>なし</div>) : (
-                <div style={{display:'flex',flexDirection:'column',gap:5}}>
-                  {tasks[tier].map(t => (
-                    <button key={t.key} type="button" data-testid={`home-task-${t.key}`} onClick={() => { if (t.jump) { try { sessionStorage.setItem('tsumugiTpJump', t.jump); } catch {} } navigateTo(t.view); }} style={{display:'flex',flexDirection:'column',alignItems:'flex-start',gap:1,width:'100%',textAlign:'left',background:'#f8fafc',border:'1px solid #e2e8f0',borderLeft:`4px solid ${t.color}`,borderRadius:8,padding:'6px 10px',cursor:'pointer'}}>
-                      <span style={{fontSize:13,fontWeight:'bold',color:'#1e293b'}}>{t.label}<span style={{fontSize:11,fontWeight:'bold',color:t.color,marginLeft:8}}>開く →</span></span>
-                      <span style={{fontSize:11,color:'#64748b'}}>{t.sub}</span>
-                    </button>
-                  ))}
-                </div>
+                <div style={{display: big ? 'grid' : 'flex',gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))',flexDirection:'column',gap:6}}>{tasks[tier].map(t => taskBtn(t, big))}</div>
               )}
             </div>
           );
           return (
-            <React.Fragment>
-              <div data-testid="home-today" style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-                {tile('今日の予定（午前）', `${am.n}名`, `出席 ${am.att}・欠席 ${am.abs}・振替/臨時 ${am.furi}`, '#1e293b', 'record', 'home-today-am')}
-                {tile('今日の予定（午後）', `${pm.n}名`, `出席 ${pm.att}・欠席 ${pm.abs}・振替/臨時 ${pm.furi}`, '#1e293b', 'record', 'home-today-pm')}
-                {tile('今月の稼働率', `${rate}%`, `定員 ${cap}名・今日まで ${slots}コマ（分析（稼働）と同じ計算）`, rate >= 80 ? '#15803d' : rate >= 60 ? '#1e40af' : '#b45309', 'dash_operation', 'home-today-rate')}
+            <div data-testid="home-hero" style={{background:'white',borderRadius:16,border:'1px solid #e2e8f0',boxShadow:'0 1px 6px rgba(0,0,0,0.06)',overflow:'hidden'}}>
+              <div style={{background:'linear-gradient(135deg,#4f46e5,#7c3aed)',color:'white',padding:'14px 20px',display:'flex',flexDirection:'column',gap:10}}>
+                {_greet}
+                <div data-testid="home-today" style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                  {chip('home-today-am', '今日の予定 午前', `${am.n}名`, `出席 ${am.att}・欠席 ${am.abs}・振替/臨時 ${am.furi}`, 'record')}
+                  {chip('home-today-pm', '今日の予定 午後', `${pm.n}名`, `出席 ${pm.att}・欠席 ${pm.abs}・振替/臨時 ${pm.furi}`, 'record')}
+                  {chip('home-today-rate', '今月の稼働率', `${rate}%`, `定員 ${cap}名・今日まで ${slots}コマ`, 'dash_operation')}
+                </div>
               </div>
-              <div data-testid="home-tasks" style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-                {taskList('today', '本日の業務', 'home-tasks-today')}
-                {taskList('week', '今週の業務', 'home-tasks-week')}
-                {taskList('month', '今月の業務', 'home-tasks-month')}
+              <div data-testid="home-tasks" style={{padding:'12px 16px 14px',display:'flex',flexWrap:'wrap',gap:'12px 20px',background:'#fcfcfd'}}>
+                {section('today', '本日の業務', 'home-tasks-today', true)}
+                {section('week', '今週の業務', 'home-tasks-week', false)}
+                {section('month', '今月の業務', 'home-tasks-month', false)}
               </div>
-            </React.Fragment>
+            </div>
           );
-        } catch { return null; } })()}
+        } catch { return <div style={{background:'linear-gradient(135deg,#4f46e5,#7c3aed)',borderRadius:16,color:'white',padding:'12px 22px'}}>{_greet}</div>; } })()}
         {/* ★ 2026-10-23: つむぎ運営のお知らせは下(本日のスケジュールの場所)へ。来週の送迎表の未確定の赤い帯は「今週の業務」の1行に */}
         {/* 本日のスケジュール + お知らせ */}
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:16}}>
@@ -20145,7 +20164,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
             </div>
             <div style={{marginBottom:12}}>
               <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>住所</label>
-              <input value={editStore.address||''} onChange={e=>setEditStore(s=>({...s,address:e.target.value,error:''}))} placeholder="東京都江東区扇橋1-4-9" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+              <input value={editStore.address||''} onChange={e=>setEditStore(s=>({...s,address:e.target.value,error:''}))} placeholder="例: 東京都新宿区西新宿2-8-1" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
             </div>
             <div style={{marginBottom:12}}>
               <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',marginBottom:5}}>建物名・部屋番号 <span style={{fontWeight:'normal',color:'#64748b'}}>(任意)</span></label>
@@ -20200,7 +20219,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
               </div>
               <div style={{marginBottom:12}}>
                 <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>住所</label>
-                <input value={storeForm.address} onChange={e=>setStoreForm(f=>({...f,address:e.target.value}))} placeholder="東京都江東区扇橋..." style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+                <input value={storeForm.address} onChange={e=>setStoreForm(f=>({...f,address:e.target.value}))} placeholder="例: 東京都新宿区西新宿..." style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
               </div>
               <div style={{marginBottom:12}}>
                 <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>建物名・部屋番号 <span style={{fontWeight:'normal',color:'#64748b'}}>(任意)</span></label>
@@ -25598,6 +25617,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const _iconBar = !!_iconMode;
   const _ib = (Icon, txt) => _iconMode === 's' ? txt : <span className="inline-flex items-center gap-1"><Icon size={15} strokeWidth={2.4}/>{txt}</span>;
   const _kinouList = Array.from(new Set((appData.diarySettings?.staff || []).filter(st => st && st.name && !st._tempHelp && (st.role === '機能訓練指導員' || st.role2 === '機能訓練指導員')).map(st => String(st.name).trim()).filter(Boolean)));
+  // ★ 2026-10-23(ユーザー要望): 短い文字のときの指導員名は姓だけ(同じ姓がいれば 姓(名の1文字))。値(保存される名前)はフルネームのまま
+  const _kinouShort = (n) => { const parts = String(n || '').trim().split(/[\s\u3000]+/); const sei = parts[0] || String(n || ''); const dup = _kinouList.filter(x => String(x).trim().split(/[\s\u3000]+/)[0] === sei).length > 1; return (dup && parts[1]) ? `${sei}(${parts[1][0]})` : sei; };
   // ★ 2026-09-29 ユーザー指示: 上部の値は画面の state ではなく各行(kinouStaff_AM/PM)から求める(他画面から戻っても・AM/PMを切り替えても正しく出る)。
   //   上部で選ぶ=その区分の全員に適用、「利用者ごと」パネルで個別に変更。既定(未入力)は最初の機能訓練指導員。
   const _kinouField = `kinouStaff_${(timeFilter === 'PM') ? 'PM' : 'AM'}`;
@@ -26859,7 +26880,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   //   休業日の記録確認や事後入力ができないと困るため)。
                   const closed=(appData.systemSettings?.facilityInfo?.closedDays||[0]);
                   setSelectedDate(nearestOpenDate(e.target.value, closed, []));
-                }} className={`bg-slate-50 border border-slate-300 rounded-xl ${_iconBar ? 'px-2' : 'px-3'} py-2 text-sm font-bold outline-none cursor-pointer text-slate-700 hidden sm:block sm:shrink-0`} style={{minHeight:40,minWidth:_iconBar ? 130 : 150, ...(_iconBar ? { width: 130 } : {})}} />
+                }} className={`bg-slate-50 border border-slate-300 rounded-xl ${_iconBar ? 'px-2' : 'px-3'} py-2 text-sm font-bold outline-none cursor-pointer text-slate-700 hidden sm:block sm:shrink-0`} style={{minHeight:40,minWidth:_iconBar ? 148 : 150, ...(_iconBar ? { width: 148 } : {})}} />{/* ★ 2026-10-23: 130px だと日付が暦の印と重なる(iPad) */}
                   {/* ★ 2026-10-08(ユーザー指示): スマホは1行目(要約)に AM/PM・保存・連絡帳があるので、開いた中には出さない */}
                   <div className="hidden sm:flex rounded-xl overflow-hidden border border-slate-300 shrink-0">
                     {['AM','PM'].map(v=>(
@@ -26867,7 +26888,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         className={`${_iconBar ? 'px-3' : 'px-4'} py-2 text-sm font-bold transition-all shrink-0 ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-50'}`}>{v}</button>
                     ))}
                   </div>
-                  <button type="button" data-testid="rec-order-btn" onClick={() => setRecOrderOpen(true)} title={_recOrderOn ? `${_recOrderLabel}のクラスは保存した並び順です（押すと並べ替え・消去）` : `${_recOrderLabel}のクラスの並び順を変えます（ほかの曜日・時間帯はそのまま）`} className={`${_iconBar ? 'px-2.5' : 'px-3'} py-2 rounded-xl text-sm font-bold border shrink-0 ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}>{_iconBar ? _ib(ArrowUpDown, '並替') : '並び替え'}</button>
+                  <button type="button" data-testid="rec-order-btn" onClick={() => setRecOrderOpen(true)} title={_recOrderOn ? `${_recOrderLabel}のクラスは保存した並び順です（押すと並べ替え・消去）` : `${_recOrderLabel}のクラスの並び順を変えます（ほかの曜日・時間帯はそのまま）`} className={`${_iconBar ? 'px-2.5' : 'px-3'} py-2 rounded-xl text-sm font-bold border shrink-0 ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}>{_iconBar ? <ArrowUpDown size={17} strokeWidth={2.4} aria-label="並び替え"/> : '並び替え'}</button>{/* ★ 2026-10-23(ユーザー): 短いときは並び替えのアイコンだけ */}
                   {recOrderOpen && <RecordOrderModal rows={_recOrderRows} label={_recOrderLabel} onSave={saveRecordOrder} onReset={_recOrderOn ? resetRecordOrder : null} onClose={() => setRecOrderOpen(false)}/>}
                   {attCountChips && <div className="hidden sm:block">{attCountChips}</div>}
               </div>
@@ -26897,13 +26918,13 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             {_kinouOn && (
               <div data-testid="kinou-box" className="relative flex items-center gap-1 sm:gap-1.5 bg-emerald-50 border border-emerald-200 rounded-xl px-1.5 sm:px-2 py-1 flex-1 min-w-0 sm:flex-none" title="個別機能訓練をした指導員。選ぶと表示中の全員に入ります（人ごとは「利用者ごと」）">
                 <span className="text-[10px] sm:text-[11px] font-bold text-emerald-800 whitespace-nowrap leading-tight text-center shrink-0">{_iconBar ? <>個別<br/>実施</> : <>個別機能訓練<br/>実施者</>}</span>
-                <select data-testid="kinou-default" value={_kinouEff} disabled={!isEditMode} onChange={e=>applyKinouAll(e.target.value)} className="text-sm font-bold bg-white border border-emerald-300 rounded-lg px-1 sm:px-2 py-1 outline-none disabled:opacity-60 min-w-0 flex-1 sm:flex-none">
-                  {!_kinouList.includes(_kinouEff) && _kinouEff && _kinouEff !== '未算定' && <option value={_kinouEff}>{_kinouEff}</option>}
-                  {_kinouList.map(n => <option key={n} value={n}>{n}</option>)}
+                <select data-testid="kinou-default" value={_kinouEff} disabled={!isEditMode} onChange={e=>applyKinouAll(e.target.value)} className={`text-sm font-bold bg-white border border-emerald-300 rounded-lg ${_iconBar ? 'appearance-none px-2' : 'px-1 sm:px-2'} py-1 outline-none disabled:opacity-60 min-w-0 flex-1 sm:flex-none`} title={_kinouEff || ''}>
+                  {!_kinouList.includes(_kinouEff) && _kinouEff && _kinouEff !== '未算定' && <option value={_kinouEff}>{_iconBar ? _kinouShort(_kinouEff) : _kinouEff}</option>}
+                  {_kinouList.map(n => <option key={n} value={n}>{_iconBar ? _kinouShort(n) : n}</option>)}
                   <option value="未算定">未算定</option>
                   {!_kinouList.length && !_kinouEff && <option value="">（機能訓練指導員が未登録）</option>}
                 </select>
-                <button type="button" data-testid="kinou-group-btn" onClick={()=>{ setKinouGroupPanel(true); setKgSel(null); }} className="text-[11px] font-bold rounded-lg px-2 py-1 border bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-100">グループ</button>
+                <button type="button" data-testid="kinou-group-btn" onClick={()=>{ setKinouGroupPanel(true); setKgSel(null); }} className="text-[11px] font-bold rounded-lg px-2 py-1 border bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-100" title="グループ（指導員ごとに利用者を振り分け）" aria-label="グループ">{_iconBar ? <Users size={16} strokeWidth={2.4}/> : 'グループ'}</button>
                 {kinouGroupSel && <button type="button" data-testid="kinou-group-top-chip" onClick={() => setKinouGroupSel('')} title="押すと上にまとめる表示をやめます" className="text-[11px] font-bold rounded-lg px-2 py-1 border bg-emerald-600 text-white border-emerald-600 whitespace-nowrap">{_iconBar ? `${kinouGroupSel}を上に ×` : `${kinouGroupSel}を上に表示中 ×`}</button>}
                 {/* ★ グループ振り分けボード(2026-09-30): 画面の最前面に出す(表の見出しの下に隠れないよう body 直下へ) */}
                 {kinouGroupPanel && ReactDOM.createPortal((
@@ -39070,18 +39091,18 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           ) : '自動計算'}</button>
           {(() => { const ul = _undoList(); const last = ul[ul.length - 1]; return (
             <button onClick={undoLast} disabled={!last || !!routing} data-testid="tp-undo" title={last ? `直前の操作「${last.label}」の前に戻す（あと${ul.length}回まで戻せます）` : '元に戻せる操作はありません'} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed">
-              元に戻す
+              戻す
             </button>
           ); })()}
           {/* ★ 週の完成確定(2026-09-28): 確定後の変更は赤丸で自動表示 */}
           {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return (
             <button onClick={() => fa ? setFinalMenu(v => !v) : finalizeWeek()} data-testid="tp-finalize" className={`${_tpPhone ? 'hidden ' : ''}px-2.5 py-2 rounded-xl font-bold text-xs border whitespace-nowrap ${fa?'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100':'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`} title={fa?`確定 ${_fmtStamp(fa)}。押すと今の内容で確定を更新(赤丸は付け直し)`:'この週の送迎表を確定します。以後の変更には赤丸が付きます'}>
-              {fa ? <>確定済<span className="ml-1 font-normal text-[11px]">（{_fmtStamp(fa)}）</span><span className="ml-1 text-[9px]">▼</span></> : '確定'}
+              {fa ? <>確定済<span className="ml-1 font-normal text-[10px] leading-tight inline-block text-left align-middle">{(() => { const [d0, t0] = String(_fmtStamp(fa)).split(' '); return <>{d0}<br/>{t0 || ''}</>; })()}</span><span className="ml-1 text-[9px]">▼</span></> : '確定'}{/* ★ 2026-10-23(ユーザー): 日付の下に時刻 */}
             </button>
           ); })()}
           {/* ★ 2026-10-13(ユーザー提案): 変更内容は確定済みメニューとは別の専用ボタンから(全体・曜日・午前午後で絞り込み) */}
           {(() => { const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return tot ? (
-            <button type="button" onClick={() => setChgPanel({ iso: '', sl: '' })} data-testid="tp-chg-btn" className={`${_tpPhone ? 'hidden ' : ''}px-2.5 py-2 rounded-xl font-bold text-xs border whitespace-nowrap bg-red-50 border-red-300 text-red-800 hover:bg-red-100`}>変更内容 {tot}件</button>) : null; })()}
+            <button type="button" onClick={() => setChgPanel({ iso: '', sl: '' })} data-testid="tp-chg-btn" className={`${_tpPhone ? 'hidden ' : ''}px-2.5 py-2 rounded-xl font-bold text-xs border whitespace-nowrap bg-red-50 border-red-300 text-red-800 hover:bg-red-100`}>変更 {tot}件</button>) : null; })()}
           {tpFocus && <button type="button" data-testid="tp-focus-clear" onClick={() => setTpFocus(null)} className="px-2.5 py-2 rounded-xl font-bold text-xs border border-amber-300 bg-yellow-100 text-amber-900 whitespace-nowrap">黄色の表示を消す</button>}
           {!!_finalAtOfWeek() && tpEdit && <button type="button" data-testid="tp-board-mode" onClick={()=>setTpEdit(false)} className="px-2.5 py-2 rounded-xl font-bold text-xs border border-emerald-300 bg-emerald-50 text-emerald-800 whitespace-nowrap">一覧に戻る</button>}
           {finalMenu && ReactDOM.createPortal((
@@ -40370,7 +40391,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                     className="px-3 py-2 border border-slate-300 rounded-xl font-bold text-sm outline-none" />
                 </div>
                 <button onClick={save} className="whitespace-nowrap mt-4 px-6 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 shadow active:scale-95">保存</button>
-                <button type="button" data-testid="fit-undo-btn" onClick={() => setFitUndoOpen(true)} title="保存した記録を1つ前の値に戻す／誤って作った記録を取り消す" className="mt-4 px-3 py-2 bg-white border border-slate-300 text-slate-700 rounded-xl font-bold text-sm hover:bg-slate-50 whitespace-nowrap">元に戻す</button>
+                <button type="button" data-testid="fit-undo-btn" onClick={() => setFitUndoOpen(true)} title="保存した記録を1つ前の値に戻す／誤って作った記録を取り消す" className="mt-4 px-3 py-2 bg-white border border-slate-300 text-slate-700 rounded-xl font-bold text-sm hover:bg-slate-50 whitespace-nowrap">戻す</button>
               </div>
             </div>
             {fitUndoOpen && ReactDOM.createPortal((
@@ -46005,6 +46026,9 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
   const [officeSearch, setOfficeSearch] = useState('');   // ★ ケアマネ事業所の検索
   const [managerSearch, setManagerSearch] = useState(''); // ★ 担当ケアマネの検索
   const [facilityInfo, setFacilityInfo] = useState(appData.systemSettings?.facilityInfo || { name: "", phone: "", fax: "", address: "", manager: "" });
+  // ★ 2026-10-23(ユーザー要望「事業所によって介護と支援で番号を分けている所も、1つの番号の所もある」): 総合事業(要支援・事業対象者)の番号を「介護と同じ／別」で切り替える。
+  //   保存先は従来どおり officeNumber2/serviceCode2(空=介護と同じ)。sogoSeparate は画面の選択の控え
+  const _sogoSep = facilityInfo.sogoSeparate != null ? !!facilityInfo.sogoSeparate : !!facilityInfo.officeNumber2;
   // ★ 同意ポリシーの編集UIは管理局(全店共通)専用へ移設済み(各種設定からは撤去)。
 
   // dirtyRef: facilityInfo等が変わったらdirtyをセット
@@ -46643,12 +46667,17 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
               <div className="space-y-4">
                 {/* ★ 2026-10-14(ユーザー指示): 事業所番号はLIFE専用ではない(請求等でも使う)ので事業所情報に入力欄を置く(保存先は従来どおり facilityInfo.officeNumber/officeNumber2) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div><label className="block text-sm font-bold text-slate-600 mb-1.5">介護保険事業所番号（10桁）</label><ImeSafeInput type="text" inputMode="numeric" value={facilityInfo.officeNumber || ""} onChange={e => setFacilityInfo({...facilityInfo, officeNumber: e.target.value.replace(/[^0-9]/g,'').slice(0,10)})} placeholder="例: 1390800348" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
+                  <div><label className="block text-sm font-bold text-slate-600 mb-1.5">介護保険事業所番号（10桁）</label><ImeSafeInput type="text" inputMode="numeric" value={facilityInfo.officeNumber || ""} onChange={e => setFacilityInfo({...facilityInfo, officeNumber: e.target.value.normalize('NFKC').replace(/[^0-9]/g,'').slice(0,10)})} placeholder="例: 1300000000" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                   {/* ★ 2026-10-23(ユーザー指示「LIFE連携の番号は事業所情報に移すんじゃなかった？」): 保険者番号・サービス種類コードもここで入力(保存先は同じ facilityInfo) */}
-                  <div><label className="block text-sm font-bold text-slate-600 mb-1.5">サービス種類コード <span className="text-[10px] font-normal text-slate-400">（通所介護=15／地域密着型通所介護=78）</span></label><ImeSafeInput type="text" inputMode="numeric" value={facilityInfo.serviceCode || ""} onChange={e => setFacilityInfo({...facilityInfo, serviceCode: e.target.value.replace(/[^0-9]/g,'').slice(0,2)})} placeholder="例: 78" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
-                  <div><label className="block text-sm font-bold text-slate-600 mb-1.5">総合事業の事業所番号 <span className="text-[10px] font-normal text-slate-400">（要支援・事業対象者の方に使う番号。無ければ空欄）</span></label><ImeSafeInput type="text" value={facilityInfo.officeNumber2 || ""} onChange={e => setFacilityInfo({...facilityInfo, officeNumber2: e.target.value.toUpperCase().replace(/[^0-9A-Z]/g,'').slice(0,10)})} placeholder="例: 13A0800386" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
-                  <div><label className="block text-sm font-bold text-slate-600 mb-1.5">総合事業用のサービス種類コード <span className="text-[10px] font-normal text-slate-400">（例: A6＝通所型独自、A7＝通所型独自/定率）</span></label><ImeSafeInput type="text" value={facilityInfo.serviceCode2 || ""} onChange={e => setFacilityInfo({...facilityInfo, serviceCode2: e.target.value.toUpperCase().replace(/[^0-9A-Z]/g,'').slice(0,2)})} placeholder="例: A7" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
-                  <div><label className="block text-sm font-bold text-slate-600 mb-1.5">保険者番号（6桁） <span className="text-[10px] font-normal text-slate-400">（利用者共通の既定。利用者ごとに違うときは利用者の画面で）</span></label><ImeSafeInput type="text" inputMode="numeric" value={facilityInfo.insurerNo || ""} onChange={e => setFacilityInfo({...facilityInfo, insurerNo: e.target.value.replace(/[^0-9]/g,'').slice(0,6)})} placeholder="市区町村により異なる" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
+                  <div><label className="block text-sm font-bold text-slate-600 mb-1.5">サービス種類コード <span className="text-[10px] font-normal text-slate-400">（通所介護=15／地域密着型通所介護=78）</span></label><TsuSvcCodeField list={TSU_SVC_CODES} testId="svc-code" value={facilityInfo.serviceCode || ''} onChange={v => setFacilityInfo({...facilityInfo, serviceCode: v})}/></div>
+                  <div className="md:col-span-2" data-testid="sogo-mode"><label className="block text-sm font-bold text-slate-600 mb-1.5">総合事業（要支援・事業対象者）の事業所番号 <span className="text-[10px] font-normal text-slate-400">（事業所によって、介護と1つの番号のところと、別の番号のところがあります）</span></label>
+                    <div className="flex gap-2 flex-wrap">
+                      {[['same', '介護保険と同じ番号（1つの番号で両方）'], ['sep', '介護とは別の番号がある']].map(([k, l]) => <button key={k} type="button" data-testid={`sogo-mode-${k}`} onClick={() => setFacilityInfo(k === 'sep' ? { ...facilityInfo, sogoSeparate: true } : { ...facilityInfo, sogoSeparate: false, officeNumber2: '', serviceCode2: '' })} className={`px-3 py-2 rounded-xl text-sm font-bold border ${(_sogoSep ? 'sep' : 'same') === k ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{l}</button>)}
+                    </div>
+                  </div>
+                  {_sogoSep && <div><label className="block text-sm font-bold text-slate-600 mb-1.5">総合事業の事業所番号 <span className="text-[10px] font-normal text-slate-400">（要支援・事業対象者の方に使う番号）</span></label><ImeSafeInput type="text" value={facilityInfo.officeNumber2 || ""} onChange={e => setFacilityInfo({...facilityInfo, officeNumber2: e.target.value.normalize('NFKC').toUpperCase().replace(/[^0-9A-Z]/g,'').slice(0,10)})} placeholder="例: 13A0000000" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>}
+                  {_sogoSep && <div><label className="block text-sm font-bold text-slate-600 mb-1.5">総合事業用のサービス種類コード</label><TsuSvcCodeField list={TSU_SOGO_CODES} testId="svc-code2" upper value={facilityInfo.serviceCode2 || ''} onChange={v => setFacilityInfo({...facilityInfo, serviceCode2: v})}/></div>}
+                  <div><label className="block text-sm font-bold text-slate-600 mb-1.5">保険者番号（6桁） <span className="text-[10px] font-normal text-slate-400">（利用者共通の既定。利用者ごとに違うときは利用者の画面で）</span></label><ImeSafeInput type="text" inputMode="numeric" value={facilityInfo.insurerNo || ""} onChange={e => setFacilityInfo({...facilityInfo, insurerNo: e.target.value.normalize('NFKC').replace(/[^0-9]/g,'').slice(0,6)})} placeholder="例: 130000（市区町村により異なる）" className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                 </div>
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">事業所名</label><input type="text" value={facilityInfo.name} onChange={e => setFacilityInfo({...facilityInfo, name: e.target.value})} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/></div>
                 {/* ★ 管理者名: スタッフ切替/日誌の「管理者」と自動連動(表示のみ・ここでは編集不可)。
@@ -47456,7 +47485,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                     }} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold whitespace-nowrap shadow active:scale-95">住所検索</button>
                   </div>
                 </div>
-                <div><label className="block text-sm font-bold text-slate-600 mb-1.5">住所</label><input type="text" value={newOffice.address||''} onChange={e => setNewOffice({...newOffice, address: e.target.value})} placeholder="例: 東京都江東区扇橋1-1-1" className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm"/></div>
+                <div><label className="block text-sm font-bold text-slate-600 mb-1.5">住所</label><input type="text" value={newOffice.address||''} onChange={e => setNewOffice({...newOffice, address: e.target.value})} placeholder="例: 東京都新宿区西新宿2-8-1" className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm"/></div>
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">建物名・部屋番号</label><input type="text" value={newOffice.addressBuilding||''} onChange={e => setNewOffice({...newOffice, addressBuilding: e.target.value})} placeholder="例: メイゾン白子101" className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm"/></div>
                 <button type="button" onClick={() => { if(!newOffice.name){alert("事業所名を入力してください");return;} persistCm([...cmOffices,{...newOffice}], null, '✓ ケアマネ事業所を追加しました'); setNewOffice({name:"",phone:"",fax:"",zipCode:"",address:"",addressBuilding:""}); }} className="px-5 py-2 bg-slate-800 text-white rounded-lg font-bold text-sm active:scale-95 flex items-center"><Plus size={16} className="mr-1"/>追加</button>
               </div>
@@ -54620,7 +54649,7 @@ function MonitoringSheetModal({ patient, cmFax: cmFaxProp, facility, period, rec
             <div className="text-xs font-bold text-slate-500">【モニタリング結果】各項目をプルダウンで選び、必要に応じて内容を記入します。</div>
             <button onClick={runAi} disabled={aiLoading} title={hasApiKey?'AIで全項目の下書きを生成':'各種設定→モニタリングでAPIキーを設定してください'}
               className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-300 text-white whitespace-nowrap">
-              {aiLoading ? <><BusySpin/>生成中…</> : 'AIで下書き'}
+              {aiLoading ? <><BusySpin/>生成中…</> : 'AI'}
             </button>
           </div>
           {aiErr && <div className="text-xs text-red-600 font-bold bg-red-50 border border-red-200 rounded-lg px-3 py-2">{aiErr}</div>}
@@ -55593,7 +55622,7 @@ ${optionsDesc}
         <TsuDatePick type="month" testId="mon-fold-month" value={targetMonth} label={String(targetMonth||'').replace(/^(\d{4})-(\d{2})$/, (m0, y, mo) => `${Number(mo)}月`)} onChange={v => setTargetMonth(v)} />
         {sheetBatchProg
           ? <button type="button" onClick={cancelGenerate} className="shrink-0 h-10 px-2 rounded-xl text-[13px] font-bold border border-red-300 bg-red-50 text-red-600 whitespace-nowrap ml-auto"><BusySpin/>{sheetBatchProg.done}/{sheetBatchProg.total} 中止</button>
-          : <button type="button" data-testid="mon-fold-ai" onClick={generateAllSheets} className="shrink-0 h-10 px-2 rounded-xl text-[13px] font-bold border border-violet-300 bg-violet-50 text-violet-700 whitespace-nowrap ml-auto">AI下書き</button>}
+          : <button type="button" data-testid="mon-fold-ai" onClick={generateAllSheets} className="shrink-0 h-10 px-2 rounded-xl text-[13px] font-bold border border-violet-300 bg-violet-50 text-violet-700 whitespace-nowrap ml-auto">AI</button>}
         <button type="button" data-testid="mon-fold-confirm" onClick={bulkConfirm} className="shrink-0 h-10 px-2 rounded-xl text-[13px] font-bold bg-emerald-500 text-white whitespace-nowrap">{checkedIds.size && !allChecked ? `${attendedPats.filter(p=>checkedIds.has(p.id)&&!getSheetRecord(p.id)?.confirmed).length}名確定` : '一括確定'}</button>
         <button type="button" data-testid="mon-fold-save" onClick={()=>{ markClean(); onSave({...appData}, {manual:true, message:'✓ 保存しました'}); }} className="whitespace-nowrap shrink-0 h-10 px-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold">保存</button>
       </>}>
