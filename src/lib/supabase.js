@@ -172,7 +172,7 @@ export const deviceIdentityReady = (async () => {
 })();
 const DIAG_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 // (name, ver) で呼ぶ。鍵は端末ID。古い版が書いた「端末名|版」の鍵は同じ端末名なら消す(同じ端末が2行に見えないように)
-export async function supabaseUploadSyncDiag(storeId, name, ver) {
+export async function supabaseUploadSyncDiag(storeId, name, ver, use) { // ★ 2026-10-23: use=画面を開いた回数(月ごと・任意)
   if (!supabase || !storeId) return false;
   try {
     const logs = getSyncLog().slice(-60); // ★ 2026-10-17: 記録が無くても送る(端末の生存確認と証の有無を管理局で見るため)
@@ -187,7 +187,7 @@ export async function supabaseUploadSyncDiag(storeId, name, ver) {
         const at = Number(d[k] && d[k].at); if (!at || now - at > DIAG_KEEP_MS) { delete d[k]; if (d.__names && typeof d.__names === 'object' && d.__names[k]) { d.__names = { ...d.__names }; delete d.__names[k]; } continue; } // 30日見ていない端末の控え(と名前の割当)は消す(行が太らない・番号が空く)
         if (k.includes('|') && k.slice(0, k.lastIndexOf('|')) === nm) delete d[k]; // 旧形式(端末名|版)の自分の控え
       }
-      d[id] = { at: now, logs, sb, name: nm, ver: vr };
+      d[id] = { at: now, logs, sb, name: nm, ver: vr, ...((use && typeof use === 'object' && Object.keys(use).length) ? { use } : {}) };
       return d;
     }, { maxRetries: 1 });
     return !!(r && r.ok);
@@ -223,7 +223,7 @@ export async function supabaseListSyncDiag() {
     const storeId = String(row.key || '').slice(5);
     const d = (row.data && typeof row.data === 'object') ? row.data : {};
     const devices = Object.keys(d).filter(k => !k.startsWith('__')).map(tag => { const v = d[tag] || {}; const i = tag.lastIndexOf('|');
-      if (v && v.name) return { tag, name: String(v.name), ver: String(v.ver || ''), at: Number(v.at) || 0, sb: (typeof v.sb === 'boolean') ? v.sb : null }; // 新形式(鍵=端末ID)
+      if (v && v.name) return { tag, name: String(v.name), ver: String(v.ver || ''), at: Number(v.at) || 0, sb: (typeof v.sb === 'boolean') ? v.sb : null, use: (v.use && typeof v.use === 'object') ? v.use : null }; // 新形式(鍵=端末ID)
       return { tag, name: i >= 0 ? tag.slice(0, i) : tag, ver: i >= 0 ? tag.slice(i + 1) : '', at: Number(v.at) || 0, sb: (typeof v.sb === 'boolean') ? v.sb : null }; }) // 旧形式(鍵=端末名|版)
       .sort((a, b) => b.at - a.at);
     return { storeId, devices };
