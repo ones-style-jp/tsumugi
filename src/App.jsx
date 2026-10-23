@@ -10731,6 +10731,17 @@ const getPauseReasonOnDate = (p, dateStr) => {
     return match ? { reason: match.reason, fromDate: match.fromDate } : null;
 };
 
+// ★ 2026-10-23(ユーザー報告「しばらく休みの方の次回が、欠席になっている10/28のまま・時間が未入力」): 連絡帳の次回の上書き(nextDateOverride)が、
+//   その後に欠席・休止(記録／月間表のシフト／休止期間)になった日を指している=古い上書きなら、自動計算(次の来所日)に戻す
+const tsuNextOverrideStale = (patient, ov, baseIso, appData) => { try {
+  const m = String(ov || '').match(/(\d+)月(\d+)日/); if (!m || !patient) return false;
+  const b = new Date(baseIso); let y = b.getFullYear(); if (+m[1] < b.getMonth() + 1) y += 1; const dt = new Date(y, +m[1] - 1, +m[2]); if (isNaN(dt.getTime())) return false;
+  if (getPauseReasonOnDate(patient, dt)) return true;
+  const r = (appData?.ticketRecords || []).find(x => x && x.patientId === patient.id && recMatchesDateYear(x, `${+m[1]}月${+m[2]}日`, y));
+  if (r && (r.status === '欠席' || r.status === '休止' || r.status === '休業')) return true;
+  const sh = appData?.monthlyShifts?.[`${y}-${String(+m[1]).padStart(2, '0')}`]?.[patient.id] || {}; const vals = ['AM', 'PM', '1日'].map(k => sh[`${+m[2]}_${k}`]).filter(v => v !== undefined).map(String);
+  if (vals.length && vals.every(v => v === '欠席' || v === '休業' || v === '休止')) return true;
+  return false; } catch { return false; } };
 const getNextVisitInfo = (patient, currentDateStr, monthlyShifts, appData) => {
     if (!patient) return { date: "未定", time: "　時　分" };
     const current = new Date(currentDateStr);
@@ -10768,7 +10779,11 @@ const getNextVisitInfo = (patient, currentDateStr, monthlyShifts, appData) => {
         if (_recStatus === '欠席' || _recStatus === '休業' || _recStatus === '休止') continue;
         let shiftAM = monthlyShifts?.[monthKey]?.[patient.id]?.[`${day}_AM`];
         let shiftPM = monthlyShifts?.[monthKey]?.[patient.id]?.[`${day}_PM`];
-        const baseAmPm = patient.scheduleAmPm?.[dayOfWeek] || "";
+        // ★ 2026-10-23(ユーザー報告「休みの方の次回が、月間表で欠席の10/28になる」): 1日利用の方の月間表のシフトは「日_1日」の鍵に入る(欠席など)。AM/PM の鍵が無ければそれを使う
+        const shiftDay = monthlyShifts?.[monthKey]?.[patient.id]?.[`${day}_1日`];
+        if (shiftDay !== undefined) { if (shiftAM === undefined) shiftAM = shiftDay; if (shiftPM === undefined) shiftPM = shiftDay; }
+        const _isoN = `${nextDate.getFullYear()}-${String(nextDate.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+        const baseAmPm = (getScheduleOnDate(patient, _isoN)?.[dayOfWeek]) || ""; // ★ その日時点の基本利用日(曜日の変更履歴も見る)
         const isBaseAM = baseAmPm === "AM" || baseAmPm === "1日";
         const isBasePM = baseAmPm === "PM" || baseAmPm === "1日";
         const stateAM = shiftAM !== undefined ? shiftAM : (isBaseAM ? "〇" : "空欄");
@@ -35070,7 +35085,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     const patient = (appData.patients||[]).find(pt => pt.id === r.patientId);
     if (!patient) return false;
     const info = getNextVisitInfo(patient, selectedDate, appData.monthlyShifts, appData);
-    const nd = /\d|未定/.test(String(r.nextDateOverride ?? '')) ? r.nextDateOverride : info.date;
+    const nd = (/\d|未定/.test(String(r.nextDateOverride ?? '')) && !tsuNextOverrideStale(patient, r.nextDateOverride, selectedDate, appData)) ? r.nextDateOverride : info.date; // ★ 2026-10-23
     const _ndS = String(nd || '').trim();
     if (_ndS === '未定') return false;
     if (!/\d/.test(_ndS)) return true;               // 次回日付が空欄
@@ -35821,7 +35836,10 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                           {isOverridden && <span className="block text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold mt-0.5 w-fit">変更済</span>}
                         </div>
                         <div className="flex-1">
-                          <div className="text-[10px] font-bold text-slate-400 mb-1">次回利用日</div>
+                          <div className="text-[10px] font-bold text-slate-400 mb-1 flex items-center gap-2">次回利用日
+                            {/* ★ 2026-10-23(ユーザー要望): 「未定」を押すと日付と時間を空欄で渡す(もう一度押すと元の自動計算に戻る) */}
+                            {(() => { const _dUndec = String(localData.nextDateOverride || '').trim() === '未定'; return <button type="button" data-testid={`cb-next-undec-${r.patientId}`} onClick={() => setLocalOverrides(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), nextDateOverride: _dUndec ? '' : '未定', nextTimeOverride: _dUndec ? '' : '未定' } }))} className={`text-[10px] font-bold rounded px-2 py-0.5 border ${_dUndec ? 'bg-slate-600 text-white border-slate-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{_dUndec ? '未定（空欄）' : '未定'}</button>; })()}
+                          </div>
                           <div className={`flex items-center gap-1 p-1.5 border rounded-lg ${/\d|未定/.test(String(r.nextDateOverride ?? '')) ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
                             <ImeSafeInput type="text" inputMode="numeric" value={curMonth} maxLength={2}
                               onBlur={()=>_skipClosedDate(r.id, r.patientId)}
@@ -36146,7 +36164,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
   //     旧実装(undefined以外を全て採用)では、null残骸のある利用者だけ空欄表示になっていた。
   if (_isBlankFace) {
       // 手書き用: 空欄テンプレのまま
-  } else if (/\d|未定/.test(String(record.nextDateOverride ?? ''))) {
+  } else if (/\d|未定/.test(String(record.nextDateOverride ?? '')) && !tsuNextOverrideStale(patient, record.nextDateOverride, selectedDate, appData)) { // ★ 2026-10-23: 欠席・休止になった日の古い上書きは自動計算へ
       nextDateDisplay = record.nextDateOverride;
   } else {
       const info = getNextVisitInfo(patient, selectedDate, appData.monthlyShifts, appData);
