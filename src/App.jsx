@@ -24941,7 +24941,16 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const [_fsModeTick, _setFsModeTick] = useState(0); // ★ 2026-10-23: 全画面の見せ方を変えたら描き直す
   const _fsFit = tsuFsMode() === 'fit';
   // 'fit' は 1行58px を人数分並べたものが画面に入る倍率(0.45〜1.2)。行の中身(入力欄・ボタン)が58pxより縮まないため、高さではなく倍率で合わせる
-  const _fsZoom = isFullscreen ? (_fsFit ? Math.max(0.45, Math.min(1.2, Math.round(((typeof window !== 'undefined' ? window.innerHeight : 800) - 100) / (Math.max(1, (localPatients || []).length) * 58) * 100) / 100)) : 1.2) : 1;
+  // ★ 2026-10-23(ユーザー報告「11人なのに小さすぎる」): 人数×58px の計算は、表示していない方(午後の方など)まで数えて小さくなっていた。
+  //   表の実際の高さと、上の帯の下から画面の下までの高さを測って倍率を決める(0.45〜1.2)。AM/PM を切り替えたり人数が変わったら測り直す
+  const [_fitZoom, _setFitZoom] = useState(1);
+  useEffect(() => {
+    if (!isFullscreen || !_fsFit) return;
+    const calc = () => { try { const t = document.getElementById('record-table'); if (!t) return; const cz = parseFloat(getComputedStyle(t).zoom) || 1; const natural = t.getBoundingClientRect().height / cz; const tb = document.querySelector('[data-testid="rec-toolbar"]'); const top = tb ? tb.getBoundingClientRect().bottom : 110; const avail = window.innerHeight - top - 24; if (!natural || avail <= 0) return; const z = Math.max(0.45, Math.min(1.2, Math.floor(avail / natural * 100) / 100)); _setFitZoom(prev => (Math.abs(prev - z) < 0.015 ? prev : z)); } catch {} };
+    calc(); const t1 = setTimeout(calc, 150), t2 = setTimeout(calc, 600); const iv = setInterval(calc, 1500); window.addEventListener('resize', calc);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearInterval(iv); window.removeEventListener('resize', calc); };
+  }, [isFullscreen, _fsFit, _fsModeTick]);
+  const _fsZoom = isFullscreen ? (_fsFit ? _fitZoom : 1.2) : 1;
   useEffect(() => { const on = (e) => { if (!e || !e.key || e.key === TSU_FS_MODE_KEY) _setFsModeTick(t => t + 1); }; window.addEventListener('storage', on); window.addEventListener('tsu:fsmode', on); return () => { window.removeEventListener('storage', on); window.removeEventListener('tsu:fsmode', on); }; }, []);
   // ★ 2026-10-11: 全画面(画面全体を覆う)を一瞬で外すと、iPad では下の見出し・上部の帯が古い描画のまま白く残ることがある。0.3秒かけて薄くしてから外す
   const [fsClosing, setFsClosing] = useState(false);
@@ -27659,7 +27668,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                           {!isReadOnly && !isAbsent && !isPause && (
                             <div style={{display:'flex',flexDirection:'column',gap:2,flexShrink:0,width:52,justifyContent:'center'}}>{/* ★ 2026-10-23(ユーザー報告「一言の右が切れる」): 44→52px */}
                               <TsuTokkiPresetSelect appData={appData} testid={`rv-tokki-pick-${p.id}`} onPick={(ph) => updateRecord(p.id, 'tokki', tsuTokkiAppend(p.tokki, ph))}
-                                className="w-full text-[11px] font-bold border border-slate-300 rounded bg-white text-slate-700 outline-none" style={{height:24,padding:'0 14px 0 3px'}}/>
+                                className="w-full text-[11px] font-bold border border-slate-300 rounded bg-white text-slate-700 outline-none appearance-none" style={{height:24,padding:'0 2px',textAlign:'center',textAlignLast:'center',WebkitAppearance:'none',MozAppearance:'none',backgroundImage:'none'}}/>{/* ★ 2026-10-23(ユーザー指示): 下の矢印は出さない */}
                               {!appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-tokki-mic-${p.id}`} getBase={() => p.tokki || ''} onLive={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} onText={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} className="w-full" style={{height:24}} size={14}/>}
                             </div>
                           )}
@@ -28382,6 +28391,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   const [showScopeInfo, setShowScopeInfo] = useState(false); // ★ 「表示内容」ポップアップ(事業所のみ)
   const [vitalPhase, setVitalPhase] = useState('start'); // 血圧・脈グラフの表示: 'start'(通所時) / 'end'(終了時) / 'both'(両方)
   const [selExId, setSelExId] = useState(null);
+  const [exSumMode, setExSumMode] = useState('month'); // ★ 2026-10-23: まとめ(全部)の 月ごと／日ごと
   const [selFitId, setSelFitId] = useState(null);
   // ★ 2026-10-08(ユーザー要望「分析(個人)の上部が場所を取りすぎ」): スマホは 戻る・利用者・期間 の1行だけを出し、月・マスキング・表示内容・ダウンロードは「操作」で開く
   const [pdOpsOpen, setPdOpsOpen] = useState(() => { try { return localStorage.getItem('tsuFold_dashPersonal') === '1'; } catch { return false; } });
@@ -30714,25 +30724,41 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
             const _exMonthVal = _exMonthValOf(selEx);
             // ★ 2026-10-23(ユーザー要望「運動ごとに押さないと比べられない」): 全部の運動の月ごとの平均(○×の運動は実施率)を1つの表に
             const _exSummary = () => {
+              // ★ 2026-10-23(ユーザー要望「まとめにグラフを。月ごとの平均と、日ごとでも」): 運動ごとに 月ごと(棒)／日ごと(折れ線) の小さなグラフ
               const months = monthlyData.map(d => d.month);
+              const _dOf = (r) => { const mm = (r.date || '').match(/(\d+)月(\d+)日/); return mm ? new Date(r.year || new Date().getFullYear(), +mm[1] - 1, +mm[2]).getTime() : 0; };
+              const asc = [...validRecs].sort((a, b) => _dOf(a) - _dOf(b));
               const rows = allExItems.map(ex => {
                 const f = _exMonthValOf(ex); const vals = validRecs.map(r => f(r)).filter(Boolean);
                 const first = vals.find(Boolean) || ''; const isTog = !first || first === '○' || first === 'ー';
                 const num = (v) => { if (!v || v === 'ー') return null; if (v === '○') return isTog ? 1 : null; const m = String(v).match(/(\d+(?:\.\d+)?)/); return m ? +m[1] : null; };
-                const unitL = ex.defaultUnit || ((String(first).match(/^[\d.]+(.+)$/) || [])[1] || '').trim();
-                const cells = months.map(mo => { const recs = validRecs.filter(r => { const mm = r && r.date ? r.date.match(/(\d+)月/) : null; return mm && +mm[1] === mo; }); const ns = recs.map(r => num(f(r))).filter(v => v !== null); if (!ns.length) return null; const avg = ns.reduce((a, b) => a + b, 0) / ns.length; return isTog ? { t: `${Math.round(avg * 100)}%`, s: `${ns.filter(v => v === 1).length}/${recs.length}` } : { t: `${Math.round(avg * 10) / 10}${unitL}`, s: `${ns.length}回` }; });
-                return { ex, name: _indName(ex), cells, any: cells.some(Boolean), isTog };
+                const unitL = isTog ? '' : (ex.defaultUnit || ((String(first).match(/^[\d.]+(.+)$/) || [])[1] || '').trim());
+                const cells = months.map(mo => { const recs = validRecs.filter(r => { const mm = r && r.date ? r.date.match(/(\d+)月/) : null; return mm && +mm[1] === mo; }); const ns = recs.map(r => num(f(r))).filter(v => v !== null); if (!ns.length) return null; const avg = ns.reduce((a, b) => a + b, 0) / ns.length; return isTog ? { v: avg * 100, t: `${Math.round(avg * 100)}%`, s: `${ns.filter(v => v === 1).length}/${recs.length}` } : { v: avg, t: `${Math.round(avg * 10) / 10}${unitL}`, s: `${ns.length}回` }; });
+                const daily = asc.map(r => { const v = num(f(r)); return v === null ? null : { d: r.date.replace(/(\d+)月(\d+)日/, '$1/$2'), v: isTog ? v * 100 : v }; }).filter(Boolean);
+                return { ex, name: _indName(ex), cells, daily, any: cells.some(Boolean), isTog, unitL };
               });
+              const W = 300, H = 64, P = 6;
+              const bars = (cells) => { const vs = cells.map(c => c ? c.v : 0); const mx = Math.max(...vs, 0.001); const bw = (W - 2 * P) / Math.max(1, cells.length); return (
+                <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{display:'block'}}>{cells.map((c, i) => { const h = c ? Math.max(2, (c.v / mx) * (H - 24)) : 0; const x = P + i * bw; return (<g key={i}>{c && <rect x={x + 2} y={H - 14 - h} width={Math.max(4, bw - 4)} height={h} rx={2} fill="#6366f1" opacity={0.85}/>}{c && <text x={x + bw / 2} y={H - 16 - h} textAnchor="middle" fontSize="9" fill="#1e293b" fontWeight="bold">{c.t}</text>}<text x={x + bw / 2} y={H - 3} textAnchor="middle" fontSize="9" fill="#64748b">{months[i]}月</text></g>); })}</svg>); };
+              const line = (pts, isTog, unitL) => { if (!pts.length) return <span style={{color:'#cbd5e1',fontSize:11}}>記録なし</span>; const vs = pts.map(p => p.v); const mx = Math.max(...vs, isTog ? 100 : 0.001), mn = Math.min(...vs, 0); const x = (i) => P + (pts.length > 1 ? i * (W - 2 * P) / (pts.length - 1) : (W / 2 - P)); const y = (v) => H - 14 - ((v - mn) / ((mx - mn) || 1)) * (H - 28); const d = pts.map((pt, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(pt.v).toFixed(1)}`).join(' '); const fmt = (v) => isTog ? `${Math.round(v)}%` : `${Math.round(v * 10) / 10}${unitL}`; const last = pts[pts.length - 1]; const imax = vs.indexOf(Math.max(...vs)); return (
+                <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{display:'block'}}><path d={d} fill="none" stroke="#6366f1" strokeWidth="2"/>{pts.map((pt, i) => <circle key={i} cx={x(i)} cy={y(pt.v)} r={pts.length > 40 ? 1.5 : 2.5} fill="#6366f1"/>)}
+                  <text x={x(0)} y={H - 3} fontSize="9" fill="#64748b">{pts[0].d}</text><text x={x(pts.length - 1)} y={H - 3} textAnchor="end" fontSize="9" fill="#64748b">{last.d}</text>
+                  <text x={Math.min(W - 2, Math.max(28, x(imax)))} y={Math.max(9, y(vs[imax]) - 5)} textAnchor="middle" fontSize="9" fill="#1e293b" fontWeight="bold">{fmt(vs[imax])}</text>
+                  {imax !== pts.length - 1 && <text x={x(pts.length - 1)} y={Math.min(H - 16, y(last.v) + 12)} textAnchor="end" fontSize="9" fill="#4338ca" fontWeight="bold">{fmt(last.v)}</text>}</svg>); };
               return (
                 <div style={{background:'white',borderRadius:14,padding:'14px 16px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)',border:'1px solid #94a3b8',overflowX:'auto'}} data-testid="ex-summary">
-                  <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b',marginBottom:6}}>全部の運動 — 月ごとの平均（○×の運動は実施率）</div>
-                  <div style={{fontSize:11,color:'#64748b',marginBottom:8}}>上の数字が平均（または実施率）、下の小さい数字がその月の回数です。運動の名前を押すと、その運動のグラフに移ります。</div>
+                  <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:6}}>
+                    <div style={{fontSize:14,fontWeight:'bold',color:'#1e293b'}}>全部の運動 — {exSumMode === 'day' ? '日ごとの値' : '月ごとの平均'}（○×の運動は実施率）</div>
+                    <div style={{display:'inline-flex',gap:4,background:'#f1f5f9',borderRadius:10,padding:3}}>{[['month','月ごと'],['day','日ごと']].map(([k, l]) => <button key={k} type="button" data-testid={`ex-sum-${k}`} onClick={() => setExSumMode(k)} style={{padding:'4px 12px',borderRadius:8,border:'none',fontSize:12,fontWeight:'bold',cursor:'pointer',background: exSumMode === k ? '#6366f1' : 'transparent', color: exSumMode === k ? 'white' : '#475569'}}>{l}</button>)}</div>
+                  </div>
+                  <div style={{fontSize:11,color:'#64748b',marginBottom:8}}>{exSumMode === 'day' ? '選んでいる期間の1回ごとの値です（いちばん大きい値と最新の値を数字で）。' : '上の数字が平均（または実施率）、下の小さい数字がその月の回数です。'}運動の名前を押すと、その運動の大きなグラフに移ります。</div>
                   <table style={{borderCollapse:'collapse',fontSize:12,minWidth:'100%'}}>
-                    <thead><tr><th style={{textAlign:'left',padding:'4px 6px',borderBottom:'2px solid #e2e8f0',color:'#475569',whiteSpace:'nowrap'}}>運動</th>{months.map(mo => <th key={mo} style={{padding:'4px 6px',borderBottom:'2px solid #e2e8f0',color:'#475569',textAlign:'center',whiteSpace:'nowrap'}}>{mo}月</th>)}</tr></thead>
+                    <thead><tr><th style={{textAlign:'left',padding:'4px 6px',borderBottom:'2px solid #e2e8f0',color:'#475569',whiteSpace:'nowrap'}}>運動</th>{exSumMode === 'month' && months.map(mo => <th key={mo} style={{padding:'4px 6px',borderBottom:'2px solid #e2e8f0',color:'#475569',textAlign:'center',whiteSpace:'nowrap'}}>{mo}月</th>)}<th style={{padding:'4px 6px',borderBottom:'2px solid #e2e8f0',color:'#475569',textAlign:'left'}}>グラフ</th></tr></thead>
                     <tbody>{rows.map(row => (
                       <tr key={row.ex.id} style={{opacity: row.any ? 1 : 0.45}}>
-                        <td style={{padding:'5px 6px',borderBottom:'1px solid #f1f5f9',whiteSpace:'nowrap'}}><button type="button" onClick={() => setSelExId(row.ex.id)} style={{background:'none',border:'none',padding:0,fontWeight:'bold',color:'#4338ca',cursor:'pointer',fontSize:12}}>{row.name}</button></td>
-                        {row.cells.map((c, i) => <td key={i} style={{padding:'4px 6px',borderBottom:'1px solid #f1f5f9',textAlign:'center',whiteSpace:'nowrap'}}>{c ? <><div style={{fontWeight:'bold',color:'#1e293b'}}>{c.t}</div><div style={{fontSize:10,color:'#94a3b8'}}>{c.s}</div></> : <span style={{color:'#cbd5e1'}}>—</span>}</td>)}
+                        <td style={{padding:'5px 6px',borderBottom:'1px solid #f1f5f9',whiteSpace:'nowrap',verticalAlign:'middle'}}><button type="button" onClick={() => setSelExId(row.ex.id)} style={{background:'none',border:'none',padding:0,fontWeight:'bold',color:'#4338ca',cursor:'pointer',fontSize:12}}>{row.name}</button></td>
+                        {exSumMode === 'month' && row.cells.map((c, i) => <td key={i} style={{padding:'4px 6px',borderBottom:'1px solid #f1f5f9',textAlign:'center',whiteSpace:'nowrap',verticalAlign:'middle'}}>{c ? <><div style={{fontWeight:'bold',color:'#1e293b'}}>{c.t}</div><div style={{fontSize:10,color:'#94a3b8'}}>{c.s}</div></> : <span style={{color:'#cbd5e1'}}>—</span>}</td>)}
+                        <td style={{padding:'3px 6px',borderBottom:'1px solid #f1f5f9',verticalAlign:'middle'}}>{exSumMode === 'month' ? (row.any ? bars(row.cells) : <span style={{color:'#cbd5e1',fontSize:11}}>記録なし</span>) : line(row.daily, row.isTog, row.unitL)}</td>
                       </tr>))}</tbody>
                   </table>
                 </div>
@@ -37727,6 +37753,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   // ★ 2026-10-16(ユーザー要望「次の週の順番などを変えた後に前週コピーすると、そのまま入ってしまう」): 前週コピーは
   //   mode='fill'=この週でまだ作っていない午前・午後だけ写す(作った・直したコマはそのまま) / 'all'=全部写し直す(従来)
   const [copyAsk, setCopyAsk] = useState(false);
+  const [dropBoxOpen, setDropBoxOpen] = useState({}); // ★ 2026-10-23(ユーザー要望): 作成中の「送り（帰り）の車」はコマごとに折りたたみ(既定は閉じる)
   const [legTick, setLegTick] = useState(0); const _legWantRef = React.useRef(new Set()); // ★ 2026-10-16: 移動時間を調べ終わった合図
   const runPrevWeekCopy = (mode) => {
             setCopyAsk(false);
@@ -39133,39 +39160,40 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                         //   表示中の日のうちその車の行数(乗る方＋外れた方)が一番多い日に合わせて空の行で埋める。乗る方がいない日も見出しと空の行を出す(1日表示のときはそのまま)
                         const _rowsOf = (iso2, cid) => { const pl2 = getPlan(iso2, sl); const fin2 = _baseOf(pl2) || {}; const ms2 = (pl2.cars||{})[cid] || []; const rm2 = new Set(_removedSince(pl2).map(String)); return ms2.length + ((fin2.cars||{})[cid] || []).filter(m => m && rm2.has(String(m.pid)) && !ms2.some(x => String(x.pid) === String(m.pid))).length; };
                         const _align = _tpViewDays.length > 1; const _maxRows = {}; if (_align) cars.forEach(c => { _maxRows[c.id] = Math.max(0, ..._tpViewDays.map(d2 => _rowsOf(_iso(d2), c.id))); });
-                        const _padRow = (k) => <div key={`pad-${k}`} aria-hidden="true" className="text-[12px] leading-tight py-0.5" data-testid="tp-fb-pad">&nbsp;</div>;
-                        const _padArrive = <div className="flex items-center gap-1 text-[12px] leading-tight py-0.5 mt-0.5 border-t border-dotted border-slate-200" aria-hidden="true"><span className="font-bold text-slate-300 shrink-0 text-[11px]" style={{width:'7.2em'}}>施設に到着</span><span className="shrink-0 font-bold tabular-nums rounded px-1 -my-0.5 border border-transparent">&nbsp;</span></div>;
+                        {/* ★ 2026-10-23(ユーザー要望「確定後は時間の右に空白が多いので、作成中と同じくらい大きく」): 12→15px */}
+                        const _padRow = (k) => <div key={`pad-${k}`} aria-hidden="true" className="text-[15px] leading-tight py-0.5" data-testid="tp-fb-pad">&nbsp;</div>;
+                        const _padArrive = <div className="flex items-center gap-1 text-[15px] leading-tight py-0.5 mt-0.5 border-t border-dotted border-slate-200" aria-hidden="true"><span className="font-bold text-slate-300 shrink-0 text-[11px]" style={{width:'7.2em'}}>施設に到着</span><span className="shrink-0 font-bold tabular-nums rounded px-1 -my-0.5 border border-transparent">&nbsp;</span></div>;
                         return cars.map(c => { const ms = (pl.cars||{})[c.id] || []; const rmHere = ((_fin.cars||{})[c.id] || []).filter(m => m && _rmSet.has(String(m.pid)) && !ms.some(x => String(x.pid) === String(m.pid)));
                           if (!ms.length && !rmHere.length) { if (!_align || !_maxRows[c.id]) return null; return (
                             <div key={c.id} data-testid={`tp-fb-car-empty-${iso}-${sl}-${c.id}`}>
-                              <div className="text-[13px] font-bold text-slate-400 border-b border-dashed border-slate-300 flex items-baseline gap-3 flex-wrap">{c.name}</div>
+                              <div className="text-[14px] font-bold text-slate-400 border-b border-dashed border-slate-300 flex items-baseline gap-3 flex-wrap">{c.name}</div>
                               {Array.from({ length: _maxRows[c.id] }, (_, i) => _padRow(i))}
                               {_padArrive}
                             </div>); }
                           const drv = (pl.driver||{})[c.id] || '';
                           const rows = [...ms.map(m => ({ ...m, _rm: false })), ...rmHere.map(m => ({ ...m, _rm: true }))].sort((a, b) => _mins(a.t) - _mins(b.t)); const _pads = _align ? Math.max(0, (_maxRows[c.id] || 0) - rows.length) : 0; return (
                           <div key={c.id}>
-                            <div className="text-[13px] font-bold text-slate-800 border-b border-dashed border-slate-300 flex items-baseline gap-3 flex-wrap">{c.name}{drv ? <span className="text-slate-700"><span className="text-[10px] font-normal text-slate-500 mr-1">運転</span>{drv}</span> : null}</div>
+                            <div className="text-[14px] font-bold text-slate-800 border-b border-dashed border-slate-300 flex items-baseline gap-3 flex-wrap">{c.name}{drv ? <span className="text-slate-700"><span className="text-[10px] font-normal text-slate-500 mr-1">運転</span>{drv}</span> : null}</div>
                             {/* ★ 2026-10-03 ユーザー指示: 運行表と同じく左に名前・右に時間。時間の桁数が違っても名前の開始位置が揃うよう、赤丸→名前(可変)→時間(固定幅・右寄せ) */}
                             {rows.map(m => { if (m._rm) return (
-                              <div key={`rm-${m.pid}`} className="flex items-center gap-1 text-[12px] leading-tight py-0.5 opacity-50" data-testid={`tp-fb-rm-${iso}-${sl}-${m.pid}`} data-tpfb={`${iso}_${sl}_${m.pid}`} title={_absReasonOfPid(m.pid, iso, sl)}>
+                              <div key={`rm-${m.pid}`} className="flex items-center gap-1 text-[15px] leading-tight py-0.5 opacity-50" data-testid={`tp-fb-rm-${iso}-${sl}-${m.pid}`} data-tpfb={`${iso}_${sl}_${m.pid}`} title={_absReasonOfPid(m.pid, iso, sl)}>
                                 <span className="truncate font-bold text-slate-600 shrink-0 line-through" style={{width:'7.2em'}}>{_pname(m.pid)}</span>
                                 <span className="shrink-0 font-bold tabular-nums text-slate-600 border-2 border-transparent rounded px-1 -my-0.5 line-through">{_fmtT(m.t)||'—'}</span>
                               </div>);
                               const dot = m.mark || _dotOf(pl, iso, m.pid); const tg = _dropTag(pl, m.pid); return (
-                              <div key={m.pid} className={`flex items-center gap-1 text-[12px] leading-tight py-0.5 ${_isFurikae(iso, sl, m.pid) ? 'bg-emerald-100 rounded' : (_isFirstVisit(m.pid, iso) ? 'bg-sky-100 rounded' : '')}`} data-testid={`tp-fb-${iso}-${sl}-${m.pid}`} data-tpfb={`${iso}_${sl}_${m.pid}`}>
+                              <div key={m.pid} className={`flex items-center gap-1 text-[15px] leading-tight py-0.5 ${_isFurikae(iso, sl, m.pid) ? 'bg-emerald-100 rounded' : (_isFirstVisit(m.pid, iso) ? 'bg-sky-100 rounded' : '')}`} data-testid={`tp-fb-${iso}-${sl}-${m.pid}`} data-tpfb={`${iso}_${sl}_${m.pid}`}>
                                 {/* 名前は固定幅(約7文字)・時間はその直後(開始位置は全行で同じ)。2026-10-03 ユーザー: 名前と時間の距離を近く。★ 2026-10-21: 送りの時間がある日は少し詰める(右端で切れないように) */}
                                 <span className="truncate font-bold text-slate-800 shrink-0" style={{width: Object.values(pl.dropAt || {}).some(Boolean) ? '6.2em' : '7.2em'}}>{_pname(m.pid)}</span>
                                 <span data-tel={dot ? '1' : '0'} className={`shrink-0 font-bold tabular-nums text-slate-800 border-2 rounded px-1 -my-0.5 ${dot ? 'border-red-600' : 'border-transparent'}`}>{_fmtT(m.t)||'—'}</span>
-                                {tg ? <span className="text-[9px] text-slate-500 truncate min-w-0">{tg}</span> : null}
-                                {(() => { const _da = _dropAtOf(pl, m.pid); return _da ? <span data-testid={`tp-fb-dat-${iso}-${sl}-${m.pid}`} className={`shrink-0 ml-auto text-[10px] font-bold tabular-nums whitespace-nowrap ${_dropAtAutoOf(pl, m.pid) ? 'text-slate-500' : 'text-indigo-700'}`}>送{_da}</span> : null; })()}
+                                {tg ? <span className="text-[11px] text-slate-500 truncate min-w-0">{tg}</span> : null}
+                                {(() => { const _da = _dropAtOf(pl, m.pid); return _da ? <span data-testid={`tp-fb-dat-${iso}-${sl}-${m.pid}`} className={`shrink-0 ml-auto text-[12px] font-bold tabular-nums whitespace-nowrap ${_dropAtAutoOf(pl, m.pid) ? 'text-slate-500' : 'text-indigo-700'}`}>送{_da}</span> : null; })()}
                               </div>); })}
                             {Array.from({ length: _pads }, (_, i) => _padRow(i))}
                             {ms.length ? (() => { const av = (pl.arrive||{})[c.id] || ''; const au = !!av && !!(pl.arriveAuto||{})[c.id]; return (
-                              <div className="flex items-center gap-1 text-[12px] leading-tight py-0.5 mt-0.5 border-t border-dotted border-slate-300" data-testid={`tp-fb-arrive-row-${iso}-${sl}-${c.id}`}>
-                                <span className="font-bold text-slate-500 shrink-0 text-[11px]" style={{width:'7.2em'}}>施設に到着</span>
+                              <div className="flex items-center gap-1 text-[15px] leading-tight py-0.5 mt-0.5 border-t border-dotted border-slate-300" data-testid={`tp-fb-arrive-row-${iso}-${sl}-${c.id}`}>
+                                <span className="font-bold text-slate-500 shrink-0 text-[13px]" style={{width:'7.2em'}}>施設に到着</span>
                                 <button type="button" data-testid={`tp-fb-arrive-${iso}-${sl}-${c.id}`} data-auto={au ? '1' : '0'} onClick={() => setArrKp({ iso, sl, cid: c.id })} title="押して到着時間を入力（「送迎表取込」で日誌へ入ります）" data-late={(au && _arriveLate(sl, av)) ? '1' : '0'} className={`shrink-0 font-bold tabular-nums rounded px-1 -my-0.5 border bg-white hover:bg-blue-50 ${au ? (_arriveLate(sl, av) ? 'border-2 border-dashed border-red-500 text-red-600 bg-red-50' : 'border-dashed border-amber-400 text-slate-400') : 'border-slate-300 text-slate-800'}`}>{av || '—:—'}</button>
-                                {au ? <span className="text-[9px] font-bold text-amber-800 bg-amber-100 rounded px-1">目安</span> : null}
+                                {au ? <span className="text-[11px] font-bold text-amber-800 bg-amber-100 rounded px-1">目安</span> : null}
                               </div>); })() : (_align ? _padArrive : null)}
                           </div>); }); })()}
                         {(pl.walkers||[]).length ? <div><div className="text-[10px] font-bold text-slate-500 border-b border-dashed border-slate-200">徒歩</div>{(pl.walkers||[]).map(m => <div key={m.pid} data-tpfb={`${iso}_${sl}_${m.pid}`} className={`flex items-center gap-1 text-[12px] py-0.5 ${_isFurikae(iso, sl, m.pid) ? 'bg-emerald-100 rounded' : (_isFirstVisit(m.pid, iso) ? 'bg-sky-100 rounded' : '')}`}><span className="truncate font-bold text-slate-800 shrink-0" style={{width:'7.2em'}}>{_pname(m.pid)}</span><span className={`shrink-0 font-bold text-slate-800 tabular-nums border-2 rounded px-1 -my-0.5 ${(m.mark||_dotOf(pl, iso, m.pid)) ? 'border-red-600' : 'border-transparent'}`}>{/\d/.test(String(m.t||''))?_fmtT(m.t):_classStart(sl)}</span></div>)}</div> : null}
@@ -39250,7 +39278,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                                   <span aria-hidden="true" data-testid={`tp-dot-${iso}-${sl}-${m.pid}`} data-on={(m.mark||_ac)?'1':'0'} className="block w-4 h-4 rounded-full border border-slate-300 bg-transparent" data-chg={_di.ac ? '1' : '0'}/>
                                 </button>); })()}
                                 <button onClick={()=>{ if (!dragMv) setEditP({pid:m.pid}); }} {..._dragHandlers(m.pid, iso, sl)} title="タップ=場所・乗車時間の編集 / 長押し=つかんで移動(別の日に落とすと振替)" className="text-[16px] font-bold text-slate-800 flex-1 min-w-0 text-left leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{touchAction:'pan-y'}}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></button>
-                                <TpTimeInput value={_fmtT(m.t)} normalize={_normTimeInput} onCommit={v => setTime(iso, sl, m.pid, v)} data-testid={`tp-time-${m.pid}`} data-tel={(m.mark || _dotOf(pl, iso, m.pid)) ? '1' : '0'} placeholder="—:—" className={`w-[58px] text-center text-[16px] font-bold rounded px-0.5 py-1 outline-none shrink-0 ${(m.mark || _dotOf(pl, iso, m.pid)) ? 'border-2 border-red-600 text-slate-800' : 'border border-slate-300'}`} style={{fontVariantNumeric:'tabular-nums'}}/>
+                                <TpTimeInput value={_fmtT(m.t)} normalize={_normTimeInput} onCommit={v => setTime(iso, sl, m.pid, v)} data-testid={`tp-time-${m.pid}`} data-tel={(m.mark || _dotOf(pl, iso, m.pid)) ? '1' : '0'} data-notime={/^\d{1,2}:\d{2}$/.test(String(_fmtT(m.t) || '')) ? '0' : '1'} placeholder="—:—" className={`w-[58px] text-center text-[16px] font-bold rounded px-0.5 py-1 outline-none shrink-0 ${(m.mark || _dotOf(pl, iso, m.pid)) ? 'border-2 border-red-600 text-slate-800' : (/^\d{1,2}:\d{2}$/.test(String(_fmtT(m.t) || '')) ? 'border border-slate-300' : 'border-2 border-amber-400 bg-amber-50')}`} style={{fontVariantNumeric:'tabular-nums'}}/>
                                 {/* ★ 2026-10-21: 送りで家に着く時間。押すとテンキーで直せる(送りが迎えと同じ日もここで)。その日に送りの時間が1つでもあれば、空いている方にも出す */}
                                 {(() => { const _da = _dropAtOf(pl, m.pid); const _any = Object.values(pl.dropAt || {}).some(Boolean); if (!_da && !_any) return null; return <button type="button" data-testid={`tp-dat-${m.pid}`} onClick={() => setSeatAtKp({ iso, sl, cid: c.id, pid: m.pid })} title="送りで家に着く時間（押すと入力）" className={`shrink-0 text-[11px] font-bold tabular-nums whitespace-nowrap rounded px-0.5 ${_da ? (_dropAtAutoOf(pl, m.pid) ? 'text-slate-400' : 'text-indigo-600') : 'text-slate-300 border border-dashed border-slate-300'}`}>送{_da || '--:--'}</button>; })()}
                               </div>
@@ -39329,7 +39357,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                         </div>
                         {pl.dropMode==='custom' && pl.drop && (
                           <div className="border border-indigo-200 bg-indigo-50/40 rounded-lg p-1.5 space-y-1.5">
-                            <div className="text-[10px] font-bold text-indigo-700">送り（帰り）の車</div>
+                            {(() => { const _k = `${iso}_${sl}`; const _open = !!dropBoxOpen[_k]; const _cnt = cars.map(c => `${c.name}${(pl.drop.cars?.[c.id]||[]).length}`).join('・'); const _inD0 = new Set([...Object.values(pl.drop.cars||{}).flat(), ...(pl.drop.walkers||[]), ...(pl.drop.others||[])].map(m => m.pid)); const _ny0 = [...new Set([...Object.values(pl.cars||{}).flat(), ...(pl.walkers||[]), ...(pl.others||[])].map(m => m.pid))].filter(pid => !_inD0.has(pid)).length; return (
+                            <button type="button" data-testid={`tp-dropbox-toggle-${iso}-${sl}`} onClick={() => setDropBoxOpen(o => ({ ...o, [_k]: !_open }))} className="w-full text-left text-[11px] font-bold text-indigo-700 flex items-center gap-1">
+                              <span>{_open ? '▼' : '▶'}</span><span>送り（帰り）の車</span><span className="font-normal text-slate-500">{_cnt}</span>{_ny0 ? <span className="text-amber-800 bg-amber-50 border border-amber-300 rounded px-1">席が決まっていない方 {_ny0}名</span> : null}
+                            </button>); })()}
+                            {!!dropBoxOpen[`${iso}_${sl}`] && (<>
                             {(() => { const _inD2 = new Set([...Object.values(pl.drop.cars||{}).flat(), ...(pl.drop.walkers||[]), ...(pl.drop.others||[])].map(m => m.pid)); const _ny2 = [...new Set([...Object.values(pl.cars||{}).flat(), ...(pl.walkers||[]), ...(pl.others||[]), ...(pl.un||[])].map(m => m.pid))].filter(pid => !_inD2.has(pid)); return _ny2.length ? (
                               <div className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-300 rounded px-1.5 py-0.5" data-testid={`tp-drop-notyet-${iso}-${sl}`}>席が決まっていない方: {_ny2.map(pid => <span key={pid} className="mr-2"><span {..._dragHandlers(pid, iso, sl, 'drop')} className="underline decoration-dotted decoration-amber-400 underline-offset-2 select-none" style={{touchAction:'pan-y', WebkitTouchCallout:'none', WebkitUserSelect:'none'}}>{_pname(pid)}</span></span>)}</div>) : null; })()}
                             {cars.map(c => { const _dz = `d:${c.id}`; const _dOver = dragMv && dragMv.kind==='drop' && dragMv.over && dragMv.over.zone===_dz && dragMv.over.iso===iso && dragMv.over.slot===sl; return (
@@ -39359,6 +39391,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                                 <span key={m.pid} className="mr-2"><span {..._dragHandlers(m.pid, iso, sl, 'drop')} className="underline decoration-dotted decoration-violet-300 underline-offset-2 select-none" style={{touchAction:'pan-y', WebkitTouchCallout:'none', WebkitUserSelect:'none'}} onContextMenu={e=>e.preventDefault()}>{_pname(m.pid)}</span><span className="ml-0.5 inline-block align-middle">{_whySel(iso, sl, m, true)}</span></span>
                               ))}{!(pl.drop.others||[]).length && <span className="text-slate-400 font-normal">ここにドロップ</span>}</div>
                             )}
+                            </>)}
                           </div>
                         )}
                         {/* ★ 2026-10-01(試験版・ユーザー要望): 送迎表の備考欄は廃止(全店で未使用だった) */}
