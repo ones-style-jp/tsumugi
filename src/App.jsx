@@ -20616,7 +20616,8 @@ export default function App() {
   //   保存した画面名を初期値に採用(5分以内のみ有効・使い捨て)。 通常の起動はこれまで通りホーム。
   const [currentView, setCurrentView] = useState(() => {
     try {
-      const raw = sessionStorage.getItem('tsumugi_resume_view');
+      const _noResume = sessionStorage.getItem('tsumugiNoResume') === '1'; if (_noResume) sessionStorage.removeItem('tsumugiNoResume'); // ★ 2026-10-26: ログアウト直後はホームから
+      const raw = _noResume ? null : sessionStorage.getItem('tsumugi_resume_view');
       if (raw) {
         sessionStorage.removeItem('tsumugi_resume_view');
         const o = JSON.parse(raw);
@@ -22385,6 +22386,8 @@ export default function App() {
   const handleLogout = () => {
     sessionStorage.removeItem('tsumugiStaffSession');
     sessionStorage.removeItem('tsumugiActiveRecorder');
+    // ★ 2026-10-26(ユーザー報告「ログアウトしてログインするとホームでなく事業所情報になる」): 見ていた画面の控え(今すぐ更新用)はログアウトでは使わない
+    try { sessionStorage.removeItem('tsumugi_resume_view'); sessionStorage.removeItem('tsumugiSettingsOrigin'); sessionStorage.setItem('tsumugiNoResume', '1'); } catch {}
     // ★ 2026-10-08(店舗報告: iPhoneでアプリを開いたままログアウト→ログインすると画面の上の方が白いまま。アプリを起動し直すと正常):
     //   同じ画面のままログイン画面⇔アプリを切り替えると、iPhone の描画が前の画面の区画を残す。ログアウトしたら画面を読み込み直し、
     //   起動し直したときと同じ状態でログイン画面を出す(店舗切替と同じ方式。メモリも片付く)。
@@ -45538,20 +45541,62 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
 }
 // === SettingsView用 SectionCard（外部定義必須 - 内部定義だとIME破壊）===
 // ★ 2026-10-23(ユーザー要望「各種設定のスクロールが増えたので、タブの中の項目へ上からジャンプできるボタンを」): タブの中の欄(SectionCard)へ飛ぶボタン
+// ★ 2026-10-26(ユーザー要望「各種設定の検索は、この中ではなくすべてから。候補も出す」): 各種設定の項目の一覧(どの見出しにどの項目があるか・探すときの言葉)
+const TSU_SETTINGS_INDEX = [
+  ['facility','事業所情報','事業所名 住所 電話 FAX 管理者 定員 営業曜日 サービス提供時間 事業所番号 介護保険 総合事業 サービス種類コード 保険者番号 介護 支援 郵便番号 施設の住所 地図'],
+  ['facility','営業曜日・祝日の設定','定休日 営業日 祝日 日曜'],
+  ['facility','施設休業日の設定','休業日 臨時休業 半日休業 夏季休暇 年末年始'],
+  ['sidebar','サイドバーに表示する画面','サイドバー メニュー 画面 表示 非表示 送迎表 体力測定 カレンダー 勤務表'],
+  ['life','LIFE連携（科学的介護）','LIFE 科学的介護 CSV 提出 事業所番号 保険者番号 様式'],
+  ['record','運動メニューの項目','運動 メニュー 項目 マシン 単位 分 回 セット'],
+  ['record','個別運動メニューの項目','個別運動 個別機能訓練 項目'],
+  ['record','テンキー（点キー）の表示','テンキー 入力 血圧 体温 数字'],
+  ['record','体調の入力（通所時・帰宅時）','体調 気分 通所時 帰宅時 入力する しない'],
+  ['record','血圧・脈の測定','血圧 脈 再検 終了時 2回目 測定'],
+  ['record','テンキー補完ボタンの管理','テンキー 補完 候補 ボタン'],
+  ['record','介護整体者の登録','介護整体 整体 実施者 職員'],
+  ['record','サービス提供内容の項目管理','提供記録 項目 列 表示 一言 特記'],
+  ['record','体調の理由（カスタマイズ）','体調 理由 候補 カスタマイズ'],
+  ['diary','日誌','日誌 車両 車 定員 送迎車両 自動コピー 1週間前 職員 担当者 申し送り'],
+  ['fitness','体力測定','体力測定 周期 項目 備考 定型文 実施しない'],
+  ['keikaku','計画書の定型文（3-3・3-2・3-1・通所介護計画書）','計画書 定型文 個別機能訓練 通所介護 文例'],
+  ['addon','アドオン（オプション機能）','アドオン オプション 計画書 加算 LIFE 興味関心 生活機能'],
+  ['system','この端末の表示','表示 全画面 文字 大きさ 自動 この端末'],
+  ['system','この端末の名前・最終更新','端末名 端末の名前 最終更新 同期 iPad パソコン'],
+  ['login','ログイン情報','ログイン ID パスワード 変更 店舗 従業員 PIN 本人登録 招待'],
+  ['login','管理者の設定','管理者 パスワード メール 譲渡 削除 個人ファイル 関所'],
+  ['data','データ管理','データ バックアップ 書き出し 取り込み CSV 削除 残骸 見本 復旧'],
+  ['manual','操作マニュアル・ご利用ガイド','マニュアル ガイド 使い方 PDF ご家族 ケアマネ'],
+];
+function TsuSettingsSearch({ tabs, onPick }) {
+  const [q, setQ] = React.useState(''); const [open, setOpen] = React.useState(false);
+  const t = String(q || '').trim(); const tabLabel = (id) => ((tabs || []).find(x => x.id === id) || {}).label || id;
+  const hits = t ? TSU_SETTINGS_INDEX.filter(([tab, title, kw]) => (tabs || []).some(x => x.id === tab) && (title.includes(t) || kw.includes(t) || tabLabel(tab).includes(t))).slice(0, 10) : [];
+  return (
+    <div className="relative" data-testid="settings-search">
+      <input type="search" value={q} onChange={e => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} placeholder="設定を検索（例: 事業所番号・端末名・運動）" autoComplete="off" name="tsu-settings-q" data-testid="settings-search-input" className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm outline-none bg-white" />
+      {open && t && (
+        <div data-testid="settings-search-list" className="absolute left-0 right-0 top-full mt-1 z-30 bg-white border border-slate-300 rounded-xl shadow-xl overflow-hidden">
+          {hits.length === 0 ? <div className="px-3 py-2 text-xs text-slate-500">見つかりません（別の言葉で）</div> : hits.map(([tab, title, kw], i) => (
+            <button key={`${tab}_${title}`} type="button" data-testid={`settings-search-hit-${i}`} onMouseDown={(e) => { e.preventDefault(); onPick(tab, title); setQ(''); setOpen(false); }} className="w-full text-left px-3 py-2 border-b border-slate-100 last:border-0 hover:bg-blue-50">
+              <div className="text-sm font-bold text-slate-800">{title}</div><div className="text-[11px] text-slate-500">{tabLabel(tab)}</div>
+            </button>))}
+        </div>
+      )}
+    </div>
+  );
+}
 function TsuSecJump({ dep, origin, onBack }) {
   const ref = React.useRef(null); const [items, setItems] = React.useState([]);
   // ★ 2026-10-26(ユーザー要望): 各種設定の中を文字で検索(この見出しの中の項目を、文字を含むものだけに絞る)
-  const [q, setQ] = React.useState('');
-  React.useEffect(() => { const box = ref.current && ref.current.parentElement; if (!box) return; const t = String(q || '').trim(); [...box.querySelectorAll('[data-sec-title]')].forEach(el => { el.style.display = (!t || (el.textContent || '').includes(t)) ? '' : 'none'; }); return () => { [...box.querySelectorAll('[data-sec-title]')].forEach(el => { el.style.display = ''; }); }; }, [q, dep]);
   const _els = () => { const box = ref.current && ref.current.parentElement; return box ? [...box.querySelectorAll('[data-sec-title]')].filter(el => el.offsetParent) : []; };
   // 描くたびに欄を数え直す(中身が同じなら入れ替えない=描き直しがくり返さない)
   React.useEffect(() => { const t = setTimeout(() => { const next = _els().map((el, i) => ({ i, title: el.getAttribute('data-sec-title') })); setItems(prev => (prev.map(x => x.title).join('|') === next.map(x => x.title).join('|') ? prev : next)); }, 60); return () => clearTimeout(t); });
   const _back = (origin && onBack) ? <button type="button" data-testid="sec-back" onClick={onBack} className="px-3 py-1.5 rounded-full border border-blue-300 bg-blue-50 text-blue-800 text-xs font-bold whitespace-nowrap">{origin}に戻る</button> : null;
-  const _search = <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="この中を検索" data-testid="sec-search" className="px-3 py-1.5 rounded-full border border-slate-300 text-xs outline-none w-36" />;
-  if (items.length < 2) return <div ref={ref} className="flex flex-wrap gap-2 items-center">{_back}{_search}</div>;
+  if (items.length < 2) return <div ref={ref} className="flex flex-wrap gap-2 items-center">{_back}</div>;
   return (
     <div ref={ref} data-testid="sec-jump" className="flex flex-wrap gap-2 items-center">
-      {_back}{_search}
+      {_back}
       <span className="text-xs font-bold text-slate-500 mr-1">この中の項目:</span>
       {items.map(it => <button key={it.i} type="button" onClick={() => { const el = _els()[it.i]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} className="px-3 py-1.5 rounded-full border border-slate-300 bg-white text-slate-700 text-xs font-bold hover:bg-slate-50 active:scale-95">{it.title}</button>)}
     </div>
@@ -45626,9 +45671,9 @@ function AdminSettingsSection({ appData, onSave }) {
       <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
         <div className="text-sm font-bold text-slate-700 mb-2">管理者パスワードの変更</div>
         <div className="space-y-2">
-          {auth.passwordHash && <input type="password" value={pw.old} onChange={e=>setPw(p=>({...p,old:e.target.value}))} placeholder="現在の管理者パスワード" className={inp}/>}
-          <input type="password" value={pw.n1} onChange={e=>setPw(p=>({...p,n1:e.target.value}))} placeholder="新しい管理者パスワード(4文字以上)" className={inp}/>
-          <input type="password" value={pw.n2} onChange={e=>setPw(p=>({...p,n2:e.target.value}))} placeholder="新しい管理者パスワード(確認)" className={inp}/>
+          {auth.passwordHash && <input type="password" autoComplete="new-password" name="tsu-adm-old" value={pw.old} onChange={e=>setPw(p=>({...p,old:e.target.value}))} placeholder="現在の管理者パスワード" className={inp}/>}
+          <input type="password" autoComplete="new-password" name="tsu-adm-n1" value={pw.n1} onChange={e=>setPw(p=>({...p,n1:e.target.value}))} placeholder="新しい管理者パスワード(4文字以上)" className={inp}/>
+          <input type="password" autoComplete="new-password" name="tsu-adm-n2" value={pw.n2} onChange={e=>setPw(p=>({...p,n2:e.target.value}))} placeholder="新しい管理者パスワード(確認)" className={inp}/>
           {pw.err && <div className="text-xs font-bold text-red-600">{pw.err}</div>}
           {pw.ok && <div className="text-xs font-bold text-emerald-600">✓ {pw.ok}</div>}
           <button type="button" onClick={changePw} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm active:scale-95">変更する</button>
@@ -45638,7 +45683,7 @@ function AdminSettingsSection({ appData, onSave }) {
         <div className="text-sm font-bold text-slate-700 mb-1">再設定用メールアドレス</div>
         <div className="text-[11px] text-slate-500 mb-2">パスワードを忘れた時の再設定に使います（任意・推奨）。</div>
         <div className="flex gap-2">
-          <input type="email" value={email} onChange={e=>{setEmail(e.target.value);setEmailMsg('');}} placeholder="admin@example.com" className={inp}/>
+          <input type="email" autoComplete="off" name="tsu-adm-mail" value={email} onChange={e=>{setEmail(e.target.value);setEmailMsg('');}} placeholder="admin@example.com" className={inp}/>
           <button type="button" onClick={()=>{ saveSS({adminAuth:{...auth, email:email.trim()}}, '✓ メールを保存しました'); setEmailMsg('保存しました'); }} className="px-4 py-2 bg-slate-800 text-white rounded-lg font-bold text-sm whitespace-nowrap">保存</button>
         </div>
         {emailMsg && <div className="text-xs font-bold text-emerald-600 mt-1">✓ {emailMsg}</div>}
@@ -46695,6 +46740,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
       <div className="flex-1 md:overflow-y-auto p-3 sm:p-6 pb-8 tsu-ph-cards">
         {/* ★ ケアマネタブは2カラムのため広めに取る(表示領域の崩れ対策・2026-08-31) */}
         <div className={`${activeTab === 'cm' ? 'max-w-6xl' : 'max-w-4xl'} mx-auto space-y-6 pb-6 tsu-wide-f`}>
+          <TsuSettingsSearch tabs={tabs} onPick={(tab, title) => { setActiveTab(tab); setTimeout(() => { try { const el = [...document.querySelectorAll('[data-sec-title]')].find(x => x.getAttribute('data-sec-title') === title); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {} }, 250); }} />
           <TsuSecJump dep={activeTab} origin={(() => { try { const o = sessionStorage.getItem('tsumugiSettingsOrigin'); return (o && o !== 'settings' && TSU_VIEW_LABELS[o]) ? TSU_VIEW_LABELS[o] : ''; } catch { return ''; } })()} onBack={() => { try { const o = sessionStorage.getItem('tsumugiSettingsOrigin'); sessionStorage.removeItem('tsumugiSettingsOrigin'); if (o && navigateTo) navigateTo(o); } catch {} }} />
 
           {/* 気分の理由 (カスタマイズ) */}
@@ -47979,6 +48025,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
               <label className="block text-sm font-bold text-slate-600 mb-1.5">端末名</label>
               <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
                 <input
+                  autoComplete="off" name="tsu-device-name"
                   value={deviceNameDraft}
                   onChange={e => { setDeviceNameDraft(e.target.value); setDeviceNameSaved(false); }}
                   placeholder="例: 事務所PC / iPad（相談員） / 送迎iPhone"
@@ -48071,8 +48118,8 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                     ) : (
                       <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
                         <p className="text-xs text-slate-500">ログイン情報が未設定です。初回は ID とパスワードを登録してください。</p>
-                        <input value={newCred.id} onChange={e=>setNewCred(p=>({...p,id:e.target.value}))} placeholder="ログインID" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
-                        <input type="password" value={newCred.pass} onChange={e=>setNewCred(p=>({...p,pass:e.target.value}))} placeholder="パスワード" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
+                        <input autoComplete="off" name="tsu-new-id" value={newCred.id} onChange={e=>setNewCred(p=>({...p,id:e.target.value}))} placeholder="ログインID" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
+                        <input type="password" autoComplete="new-password" name="tsu-new-pass" value={newCred.pass} onChange={e=>setNewCred(p=>({...p,pass:e.target.value}))} placeholder="パスワード" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
                         <button type="button" disabled={!newCred.id||!newCred.pass} onClick={()=>{const creds=[{storeName:facilityInfo.name||'事業所',id:newCred.id,pass:newCred.pass}];onSave({...appData,systemSettings:{...appData.systemSettings,loginCredentials:creds}});setNewCred({storeName:'',id:'',pass:''});}} className="px-4 py-2 bg-slate-800 text-white rounded-lg font-bold text-sm disabled:opacity-40">登録</button>
                       </div>
                     )}
@@ -48080,9 +48127,9 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                       <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl">
                         <div className="text-sm font-bold text-blue-800 mb-3">パスワード変更</div>
                         <div className="space-y-2">
-                          <input type="password" value={pwChange.old} onChange={e=>setPwChange({...pwChange,old:e.target.value})} placeholder="現在のパスワード" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
-                          <input type="password" value={pwChange.new1} onChange={e=>setPwChange({...pwChange,new1:e.target.value})} placeholder="新しいパスワード" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
-                          <input type="password" value={pwChange.new2} onChange={e=>setPwChange({...pwChange,new2:e.target.value})} placeholder="新しいパスワード（確認）" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
+                          <input type="password" autoComplete="new-password" name="tsu-pw-old" value={pwChange.old} onChange={e=>setPwChange({...pwChange,old:e.target.value})} placeholder="現在のパスワード" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
+                          <input type="password" autoComplete="new-password" name="tsu-pw-n1" value={pwChange.new1} onChange={e=>setPwChange({...pwChange,new1:e.target.value})} placeholder="新しいパスワード" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
+                          <input type="password" autoComplete="new-password" name="tsu-pw-n2" value={pwChange.new2} onChange={e=>setPwChange({...pwChange,new2:e.target.value})} placeholder="新しいパスワード（確認）" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
                           {pwChange.error && <div className="text-xs font-bold text-red-600">{pwChange.error}</div>}
                           <div className="text-[11px] text-slate-500 leading-relaxed">パスワード要件: <b>8文字以上</b>、<b>英字</b>と<b>数字</b>を両方含む</div>
                           <button type="button" onClick={()=>{
