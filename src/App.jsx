@@ -20407,11 +20407,11 @@ function StaffLoginGate({ onLogin }) {
     try {
       // ★ 2026-10-26(ユーザー提案「IDとPWを打ったら、登録されていればメール認証でなくパスキーに」): この端末にパスキーがあれば(登録時かパスキーで入れたときに印)、
       //   ①確認コードのメールを送らずに ID/PW を確かめ(noMail) ②自動でパスキー(Touch ID/Face ID) ③取り消し・失敗なら、もう一度ログインしてメールを送りコード入力へ
-      let _hasPk = false; try { _hasPk = localStorage.getItem('tsumugiHqPasskeyDev') === '1'; } catch {}
-      const _tryPk = _hasPk && tsuPasskeyAvailable() && !form.needCode;
+      // ★ 2026-10-26(ユーザー指摘「登録されているのにメールが届く」): 端末の印に頼らず、パスキーが使える端末なら noMail で問い合わせ、サーバーが「パスキーの登録あり」と返したときだけ自動でパスキー(メールは送られない)
+      const _tryPk = tsuPasskeyAvailable() && !form.needCode;
       const staff = await supabaseStaffLogin({ username: form.username, password: form.password, code: form.needCode ? form.code : '', noMail: _tryPk });
       if (staff && staff._needCode) { // ★ 本部: 確認コードの入力へ
-        if (_tryPk) {
+        if (_tryPk && staff._passkeyFirst) {
           try { const st2 = await supabaseHqPasskeyLogin(); await finishLogin(st2); return; }
           catch (e2) { // パスキーを取り消した・使えない → メールを送ってコード入力へ
             const st3 = await supabaseStaffLogin({ username: form.username, password: form.password, code: '' });

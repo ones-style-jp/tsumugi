@@ -240,7 +240,8 @@ export default async function handler(req, res) {
         const code = String(body.code || '').replace(/[^0-9]/g, '');
         if (!code) {
           // ★ 2026-10-26(ユーザー: パスキーが登録されていても確認コードのメールが届く): 端末にパスキーがある端末は no_mail で来る → メールは送らず「コード待ち」だけ返し、端末側でパスキーを先に試す(失敗したら no_mail なしでもう一度来てメールを送る)
-          if (body.no_mail === true) return res.status(200).json({ need_code: true, hint: '', sent: false, passkey_first: true });
+          // ★ 2026-10-26: サーバーで「この本部ユーザーにパスキーの登録があるか」を見る。あればメールを送らず端末にパスキーを先に試させる。無ければ従来どおりメールを送る
+          if (body.no_mail === true) { try { const allPk = await kvLoad(PK_KEY); if (Array.isArray(allPk[staff.id]) && allPk[staff.id].length > 0) return res.status(200).json({ need_code: true, hint: '', sent: false, passkey_first: true }); } catch {} }
           const r2 = await hqCodeIssue(staff);
           if (!r2.skipped) return res.status(200).json({ need_code: true, hint: r2.hint, sent: !!r2.ok });
           // 本部にメールが無い → 従来どおり通す(警告)
