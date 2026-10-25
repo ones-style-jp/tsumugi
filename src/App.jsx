@@ -13089,21 +13089,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
               )}
             </div>
           );
-          return (
-            <div data-testid="home-hero" style={{background:'white',borderRadius:16,border:'1px solid #e2e8f0',boxShadow:'0 1px 6px rgba(0,0,0,0.06)',overflow:'hidden'}}>
-              <div style={{background:'linear-gradient(135deg,#4f46e5,#7c3aed)',color:'white',padding:'14px 20px',display:'flex',flexDirection:'column',gap:10}}>
-                {_greet}
-                <div data-testid="home-today" style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-                  {chip('home-today-am', '午前の出席者', `${am.att}名`, `欠席 ${am.abs}・振替 ${am.furi}・臨時 ${am.rinji}・休止 ${am.pause}`, 'record')}
-                  {chip('home-today-pm', '午後の出席者', `${pm.att}名`, `欠席 ${pm.abs}・振替 ${pm.furi}・臨時 ${pm.rinji}・休止 ${pm.pause}`, 'record')}
-                  {chip('home-today-rate', '今月の稼働率', `${rate}%`, `定員 ${cap}名・今日まで ${slots}コマ`, 'dash_operation')}
-                </div>
-              </div>
-              <div data-testid="home-tasks" style={{padding:'12px 16px 14px',display:'flex',flexWrap:'wrap',gap:'12px 20px',background:'#fcfcfd',position:'relative'}}>
-                {onSave && <div style={{position:'absolute',right:12,top:8}}>
-                  <button type="button" data-testid="home-tasks-cfg" onClick={() => setHtCfgOpen(v => !v)} title="ホームに出す業務の種類を選びます" style={{fontSize:11,fontWeight:'bold',color:'#64748b',background:'white',border:'1px solid #e2e8f0',borderRadius:8,padding:'3px 10px',cursor:'pointer'}}>表示設定</button>
-                  {htCfgOpen && (
-                    <div data-testid="home-tasks-cfg-panel" style={{position:'absolute',right:0,top:30,zIndex:40,background:'white',border:'1px solid #cbd5e1',borderRadius:12,boxShadow:'0 12px 32px rgba(0,0,0,0.18)',padding:12,width:300}}>
+          const _htCfgBody = (<>
                       <div style={{fontSize:11,fontWeight:'bold',color:'#64748b',marginBottom:6}}>ホームに出す業務（店舗の設定）</div>
                       {[['diary','日誌（未入力・未確認）'],['events','カレンダーの今日の予定'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
                         <div key={k} data-testid={`home-tasks-cfg-${k}`} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid #f1f5f9',fontSize:12}}>
@@ -13111,9 +13097,29 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                           {k !== 'diary' && k !== 'events' && <label style={{display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',cursor:'pointer',color:'#64748b'}}><input type="checkbox" checked={!!c.todayOnly} disabled={c.on === false} onChange={e => set({ todayOnly: e.target.checked })}/>本日だけ</label>}
                         </div>); })}
                       <div style={{textAlign:'right',marginTop:6}}><button type="button" onClick={() => setHtCfgOpen(false)} style={{fontSize:11,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'none',borderRadius:8,padding:'4px 12px',cursor:'pointer'}}>閉じる</button></div>
-                    </div>
-                  )}
-                </div>}
+                    </>);
+          return (
+            <div data-testid="home-hero" style={{background:'white',borderRadius:16,border:'1px solid #e2e8f0',boxShadow:'0 1px 6px rgba(0,0,0,0.06)',overflow:'hidden'}}>
+              <div style={{background:'linear-gradient(135deg,#4f46e5,#7c3aed)',color:'white',padding:'14px 20px',display:'flex',flexDirection:'column',gap:10}}>
+                {/* ★ 2026-10-26(ユーザー報告「表示設定とカレンダーの位置が被っている」): 表示設定は業務の欄に重ねず、上の帯の右端に置く */}
+                <div style={{display:'flex',alignItems:'flex-start',gap:10}}>
+                  <div style={{flex:1,minWidth:0}}>{_greet}</div>
+                  {onSave && <div style={{position:'relative',flex:'none'}}>
+                    <button type="button" data-testid="home-tasks-cfg" onClick={() => setHtCfgOpen(v => !v)} title="ホームに出す業務の種類を選びます" style={{fontSize:11,fontWeight:'bold',color:'white',background:'rgba(255,255,255,0.18)',border:'1px solid rgba(255,255,255,0.55)',borderRadius:8,padding:'3px 10px',cursor:'pointer',whiteSpace:'nowrap'}}>表示設定</button>
+                    {htCfgOpen && (
+                      <div data-testid="home-tasks-cfg-panel" style={{position:'absolute',right:0,top:30,zIndex:40,background:'white',color:'#1e293b',border:'1px solid #cbd5e1',borderRadius:12,boxShadow:'0 12px 32px rgba(0,0,0,0.18)',padding:12,width:300,textAlign:'left'}}>
+                        {_htCfgBody}
+                      </div>
+                    )}
+                  </div>}
+                </div>
+                <div data-testid="home-today" style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                  {chip('home-today-am', '午前の出席者', `${am.att}名`, `欠席 ${am.abs}・振替 ${am.furi}・臨時 ${am.rinji}・休止 ${am.pause}`, 'record')}
+                  {chip('home-today-pm', '午後の出席者', `${pm.att}名`, `欠席 ${pm.abs}・振替 ${pm.furi}・臨時 ${pm.rinji}・休止 ${pm.pause}`, 'record')}
+                  {chip('home-today-rate', '今月の稼働率', `${rate}%`, `定員 ${cap}名・今日まで ${slots}コマ`, 'dash_operation')}
+                </div>
+              </div>
+              <div data-testid="home-tasks" style={{padding:'12px 16px 14px',display:'flex',flexWrap:'wrap',gap:'12px 20px',background:'#fcfcfd',position:'relative'}}>
                 {section('today', '本日の業務', 'home-tasks-today', true)}
                 {section('week', '今週の業務', 'home-tasks-week', false)}
                 {section('month', '今月の業務', 'home-tasks-month', false)}
