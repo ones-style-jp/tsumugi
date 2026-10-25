@@ -12309,7 +12309,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
         {patient && (
           <button onClick={()=>{ setPreviewPid(null); setPatSearch(''); }} title="利用者一覧に戻る"
             className="px-3 py-2 rounded-lg text-sm font-bold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 shrink-0 whitespace-nowrap">
-            ← 一覧
+            一覧
           </button>
         )}
         {/* ★ 2026-10-09(ユーザー要望「利用者を選択・検索・ログイン画面を開くを1行に。検索はどちらか決めて」):
@@ -12920,7 +12920,8 @@ const DashTile = ({icon, label, sub, color, view, navigateTo}) => (
     {sub && <div style={{fontSize:9,color:'#64748b'}}>{sub}</div>}
   </button>
 );
-function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes, isNoticeRead, markNoticeRead }) {
+function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes, isNoticeRead, markNoticeRead, onSave }) {
+  const [htCfgOpen, setHtCfgOpen] = React.useState(false); // ★ 2026-10-26: ホームに出す業務の表示設定
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
   const dow = ['日','月','火','水','木','金','土'][now.getDay()];
@@ -13019,7 +13020,11 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           // 今日その方が来る時間帯('AM'|'PM'|'1日'|'')。振替/臨時の記録があればその時間帯、欠席なら''
           const slotToday = (pid) => { const r = byPid.get(pid); if (r && (r.status === '振替' || r.status === '臨時')) return r.furikaeAmpm || slotOf(pmap.get(pid)) || 'AM'; if (r && r.status === '欠席') return ''; return slotOf(pmap.get(pid)); };
           const ampmText = (ids) => { let a = 0, p = 0, none = 0; ids.forEach(id => { const v = slotToday(id); if (v === '1日') { a++; p++; } else if (v === 'AM') a++; else if (v === 'PM') p++; else none++; }); return { t: `午前 ${a}名・午後 ${p}名`, none }; };
-          const add = (due, t) => { if (due > monthEnd && due > weekEnd) return; tasks[tierOf(due)].push(t); };
+          // ★ 2026-10-26(ユーザー要望「ホームに載せる通知の種類を選べるように。体力測定は要らない、本日の業務にしか出さない など」): systemSettings.homeTasks[種類]={on, todayOnly}
+          const ht = ss.homeTasks || {};
+          const _typeOf = (key) => (key.startsWith('tsusho') || key.startsWith('kinou')) ? 'keikaku' : key.startsWith('mon_') ? 'monitoring' : key.startsWith('fitness') ? 'fitness' : key; // ★ 2026-10-26: 体力測定の鍵は fitness_t/_w/_m(React の key の重複で消えない不具合の対策)
+          const add = (due, t) => { const c = ht[_typeOf(t.key)] || {}; if (c.on === false) return; const tier = tierOf(due); if (c.todayOnly && tier !== 'today') return; if (due > monthEnd && due > weekEnd) return; tasks[tier].push(t); };
+          const _evOn = (ht.events || {}).on !== false;
           // 日誌(午前/午後の未入力・未確認)=本日。休業日/定休日のコマは出さない
           if (!(diarySlotKyugyo(appData, todayIso, dowN, 'AM') && diarySlotKyugyo(appData, todayIso, dowN, 'PM'))) {
             const seg = (ap) => { if (diarySlotKyugyo(appData, todayIso, dowN, ap)) return null; const l = (appData.diaryLogs||{})[`${todayIso}_${ap}`]; const it = diaryPendingItems(l, todayIso, appData.diarySettings?.cars, appData); const missing = !l; return (missing || (it && it.length)) ? `${ap === 'AM' ? '午前' : '午後'}${missing ? '（未入力）' : `（${it.join('・')} 未確認）`}` : null; };
@@ -13035,9 +13040,9 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
             const comingToday = new Set([...pats.filter(p => slotOf(p)).map(p => p.id), ...recs.filter(r => r.status === '振替' || r.status === '臨時').map(r => r.patientId)]); recs.forEach(r => { if (r.status === '欠席') comingToday.delete(r.patientId); });
             const comingWeek = new Set(); for (let k = 1; k <= 7; k++) { const dt = new Date(t0.getFullYear(), t0.getMonth(), t0.getDate() + k); if (dt > weekEnd) break; if (!isBiz(dt)) continue; pats.forEach(p => { if (p.scheduleAmPm?.[dt.getDay()]) comingWeek.add(p.id); }); }
             const nT = duePats.filter(p => comingToday.has(p.id)).length, nW = duePats.filter(p => !comingToday.has(p.id) && comingWeek.has(p.id)).length, nM = duePats.length - nT - nW;
-            if (nT) add(t0, { key: 'fitness', label: `体力測定 ${ampmText(duePats.filter(p => comingToday.has(p.id)).map(p => p.id)).t}`, sub: '今日来る方のうち当月の測定対象', view: 'fitness', color: '#10b981' });
-            if (nW) add(weekEnd, { key: 'fitness', label: `体力測定 ${nW}名`, sub: '今週来る方のうち当月の測定対象', view: 'fitness', color: '#10b981' });
-            if (nM) add(monthEnd, { key: 'fitness', label: `体力測定 ${nM}名`, sub: '当月の測定対象（来週以降に来る方）', view: 'fitness', color: '#10b981' });
+            if (nT) add(t0, { key: 'fitness_t', label: `体力測定 ${ampmText(duePats.filter(p => comingToday.has(p.id)).map(p => p.id)).t}`, sub: '今日来る方のうち当月の測定対象', view: 'fitness', color: '#10b981' });
+            if (nW) add(weekEnd, { key: 'fitness_w', label: `体力測定 ${nW}名`, sub: '今週来る方のうち当月の測定対象', view: 'fitness', color: '#10b981' });
+            if (nM) add(monthEnd, { key: 'fitness_m', label: `体力測定 ${nM}名`, sub: '当月の測定対象（来週以降に来る方）', view: 'fitness', color: '#10b981' });
           }
           // 計画書(期限30日以内・期限切れ・未作成・一時保存中): 期日で本日/今週/今月に。通所介護計画書 と 個別機能訓練計画書/加算の評価
           const dues = computePlanDues(appData);
@@ -13068,7 +13073,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                 <span style={{fontSize:11,color:'#94a3b8'}}>{tier === 'today' ? '期限が今日まで' : tier === 'week' ? `〜${weekEnd.getMonth()+1}/${weekEnd.getDate()}` : `〜${monthEnd.getMonth()+1}/${monthEnd.getDate()}`}</span>
                 {tier === 'today' && <span style={{marginLeft:'auto',display:'flex',gap:4}}>{todayEvents.some(e => !isRead(e.id)) && <button type="button" onClick={()=>{ todayEvents.forEach(e => { if (!isRead(e.id)) markRead(e.id); }); }} style={{fontSize:10,fontWeight:'bold',color:'#4338ca',background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:8,padding:'2px 8px',cursor:'pointer',whiteSpace:'nowrap'}}>全て既読</button>}<button type="button" onClick={()=>navigateTo('schedule')} style={{fontSize:10,fontWeight:'bold',color:'#6366f1',background:'#eef2ff',border:'none',borderRadius:8,padding:'2px 8px',cursor:'pointer',whiteSpace:'nowrap'}}>カレンダー →</button></span>}
               </div>
-              {tier === 'today' && todayEvents.length > 0 && (
+              {tier === 'today' && _evOn && todayEvents.length > 0 && (
                 <div data-testid="home-today-events" style={{display:'flex',flexDirection:'column',gap:4,marginBottom:6}}>
                   {todayEvents.map(e => { const pt = e.patientId ? (appData.patients||[]).find(x=>x.id===e.patientId) : null; const _r = isRead(e.id); return (
                     <button key={e.id} type="button" onClick={()=>openDetail({id:e.id,badge:'予定',badgeColor:e.color||'#6366f1',date:'',title:e.title,body:`時間：${e.start?`${e.start}${e.end?`〜${e.end}`:''}`:'終日'}${pt?`\n利用者：${pt.name} 様`:''}${e.note?`\n\n${e.note}`:''}`})}
@@ -13079,7 +13084,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                     </button>); })}
                 </div>
               )}
-              {tasks[tier].length === 0 ? (tier === 'today' && todayEvents.length ? null : <div style={{fontSize:12,color:'#94a3b8'}}>なし</div>) : (
+              {tasks[tier].length === 0 ? (tier === 'today' && _evOn && todayEvents.length ? null : <div style={{fontSize:12,color:'#94a3b8'}}>なし</div>) : (
                 <div style={{display:'flex',flexDirection:'column',gap:6}}>{tasks[tier].map(t => taskBtn(t, big))}</div>
               )}
             </div>
@@ -13094,7 +13099,21 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                   {chip('home-today-rate', '今月の稼働率', `${rate}%`, `定員 ${cap}名・今日まで ${slots}コマ`, 'dash_operation')}
                 </div>
               </div>
-              <div data-testid="home-tasks" style={{padding:'12px 16px 14px',display:'flex',flexWrap:'wrap',gap:'12px 20px',background:'#fcfcfd'}}>
+              <div data-testid="home-tasks" style={{padding:'12px 16px 14px',display:'flex',flexWrap:'wrap',gap:'12px 20px',background:'#fcfcfd',position:'relative'}}>
+                {onSave && <div style={{position:'absolute',right:12,top:8}}>
+                  <button type="button" data-testid="home-tasks-cfg" onClick={() => setHtCfgOpen(v => !v)} title="ホームに出す業務の種類を選びます" style={{fontSize:11,fontWeight:'bold',color:'#64748b',background:'white',border:'1px solid #e2e8f0',borderRadius:8,padding:'3px 10px',cursor:'pointer'}}>表示設定</button>
+                  {htCfgOpen && (
+                    <div data-testid="home-tasks-cfg-panel" style={{position:'absolute',right:0,top:30,zIndex:40,background:'white',border:'1px solid #cbd5e1',borderRadius:12,boxShadow:'0 12px 32px rgba(0,0,0,0.18)',padding:12,width:300}}>
+                      <div style={{fontSize:11,fontWeight:'bold',color:'#64748b',marginBottom:6}}>ホームに出す業務（店舗の設定）</div>
+                      {[['diary','日誌（未入力・未確認）'],['events','カレンダーの今日の予定'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
+                        <div key={k} data-testid={`home-tasks-cfg-${k}`} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid #f1f5f9',fontSize:12}}>
+                          <label style={{display:'flex',alignItems:'center',gap:4,flex:1,minWidth:0,cursor:'pointer'}}><input type="checkbox" checked={c.on !== false} onChange={e => set({ on: e.target.checked })}/>{l}</label>
+                          {k !== 'diary' && k !== 'events' && <label style={{display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',cursor:'pointer',color:'#64748b'}}><input type="checkbox" checked={!!c.todayOnly} disabled={c.on === false} onChange={e => set({ todayOnly: e.target.checked })}/>本日だけ</label>}
+                        </div>); })}
+                      <div style={{textAlign:'right',marginTop:6}}><button type="button" onClick={() => setHtCfgOpen(false)} style={{fontSize:11,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'none',borderRadius:8,padding:'4px 12px',cursor:'pointer'}}>閉じる</button></div>
+                    </div>
+                  )}
+                </div>}
                 {section('today', '本日の業務', 'home-tasks-today', true)}
                 {section('week', '今週の業務', 'home-tasks-week', false)}
                 {section('month', '今月の業務', 'home-tasks-month', false)}
@@ -19755,7 +19774,7 @@ function HqPasskeyPanel({ staffSession }) {
   const reg = async () => {
     if (!tsuPasskeyAvailable()) { setMsg('この端末・ブラウザではパスキーを使えません'); return; }
     setBusy(true); setMsg('');
-    try { const r = await supabaseHqPasskeyRegister(tok); setList(r.passkeys || []); setMsg('この端末にパスキーを登録しました。次からログイン画面の「パスキーで入る」で入れます。'); }
+    try { const r = await supabaseHqPasskeyRegister(tok); setList(r.passkeys || []); try { localStorage.setItem('tsumugiHqPasskeyDev', '1'); } catch {} setMsg('この端末にパスキーを登録しました。次からは、IDとパスワードを入れると確認コードの代わりにパスキー(Touch ID / Face ID)で入れます。'); }
     catch (e) { setMsg(e && e.name === 'NotAllowedError' ? '登録を取り消しました' : ((e && e.message) || '登録できませんでした')); }
     finally { setBusy(false); }
   };
@@ -20362,7 +20381,15 @@ const _tsumugiIsIOSLike = () => { try { return /iPad|iPhone|iPod/.test(navigator
 const _tsumugiIsStandalone = () => { try { return navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches); } catch { return false; } };
 const _tsumugiOsLabel = () => { try { const ua = navigator.userAgent; const m = ua.match(/OS (\d+)[_.](\d+)/); if (m && /iPhone|iPad/.test(ua)) return `iOS ${m[1]}.${m[2]}`; const v = ua.match(/Version\/(\d+\.\d+)/); return v ? `Safari ${v[1]}` : ''; } catch { return ''; } };
 function StaffLoginGate({ onLogin }) {
-  const [form, setForm] = useState({ username:'', password:'', error:'', loading:false, showPw:false, code:'', needCode:false, hint:'' }); // ★ 2026-10-19: 本部の2段階認証(code)
+  const [form, setForm] = useState({ username:'', password:'', error:'', loading:false, showPw:false, code:'', needCode:false, hint:'', sent:false, sentAt:'', mailErr:'' }); // ★ 2026-10-19: 本部の2段階認証(code) ★ 2026-10-26: 送信済み(時刻)・送れなかった理由
+  // ★ 2026-10-26(ユーザー「まだメールが送られない。送ったら送信済みとわかるように」): サーバーの返事(送れた・宛先・時刻・理由)をそのまま画面に
+  const _hhmm = (s) => { try { const d = s ? new Date(s) : new Date(); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; } catch { return ''; } };
+  const _toCode = (st, extraErr) => setForm(f=>({...f, loading:false, needCode:true, hint: st._hint || '', code:'', sent: !!st._sent, sentAt: st._sent ? _hhmm(st._sentAt) : '', mailErr: st._sent ? '' : (st._mailErr || '理由が分かりません'), error: extraErr || ''}));
+  const resendCode = async () => {
+    if (form.loading) return; setForm(f=>({...f, loading:true, error:''}));
+    try { const st = await supabaseStaffLogin({ username: form.username, password: form.password, code: '' }); if (st && st._needCode) { _toCode(st, ''); return; } await finishLogin(st); }
+    catch (err) { setForm(f=>({...f, loading:false, sent:false, mailErr: (err && err.message) || '送れませんでした', error:''})); }
+  };
   const _ios = _tsumugiIsIOSLike(); const _sa = _tsumugiIsStandalone();
   const [touchN, setTouchN] = useState(0);
   useEffect(() => {
@@ -20386,8 +20413,27 @@ function StaffLoginGate({ onLogin }) {
     }
     setForm(f=>({...f, loading:true, error:''}));
     try {
-      const staff = await supabaseStaffLogin({ username: form.username, password: form.password, code: form.needCode ? form.code : '' });
-      if (staff && staff._needCode) { setForm(f=>({...f, loading:false, needCode:true, hint: staff._hint || '', code:'', error: staff._sent ? '' : '確認コードのメールを送れませんでした。本部のメール設定をご確認ください'})); return; } // ★ 本部: 確認コードの入力へ
+      // ★ 2026-10-26(ユーザー提案「IDとPWを打ったら、登録されていればメール認証でなくパスキーに」): この端末にパスキーがあれば(登録時かパスキーで入れたときに印)、
+      //   ①確認コードのメールを送らずに ID/PW を確かめ(noMail) ②自動でパスキー(Touch ID/Face ID) ③取り消し・失敗なら、もう一度ログインしてメールを送りコード入力へ
+      // ★ 2026-10-26(ユーザー指摘「登録されているのにメールが届く」): 端末の印に頼らず、パスキーが使える端末なら noMail で問い合わせ、サーバーが「パスキーの登録あり」と返したときだけ自動でパスキー(メールは送られない)
+      // ★ 2026-10-26(ユーザー報告「パスキーを登録していない端末でログインするとパスキーが起動し、登録されていないから入れない。メールも来ない」):
+      //   自動でパスキーを試すのは「この端末でパスキーを登録した・パスキーで入れたことがある」端末だけ(印 tsumugiHqPasskeyDev)。印の無い端末は従来どおりメールを送り、コード入力画面の「パスキーで入る」を押せばパスキーも使える
+      const _pkDev = (() => { try { return localStorage.getItem('tsumugiHqPasskeyDev') === '1'; } catch { return false; } })();
+      const _tryPk = tsuPasskeyAvailable() && !form.needCode && _pkDev;
+      const staff = await supabaseStaffLogin({ username: form.username, password: form.password, code: form.needCode ? form.code : '', noMail: _tryPk });
+      if (staff && staff._needCode) { // ★ 本部: 確認コードの入力へ
+        if (_tryPk && staff._passkeyFirst) {
+          try { const st2 = await supabaseHqPasskeyLogin(); await finishLogin(st2); return; }
+          catch (e2) { // パスキーを取り消した・使えない → メールを送ってコード入力へ
+            const _cancel = !!(e2 && e2.name === 'NotAllowedError');
+            if (!_cancel) { try { localStorage.removeItem('tsumugiHqPasskeyDev'); } catch {} } // ★ 2026-10-26: この端末のパスキーでは入れなかった → 次からは自動で試さない(メールが先)
+            let st3; try { st3 = await supabaseStaffLogin({ username: form.username, password: form.password, code: '' }); }
+            catch (e3) { setForm(f=>({...f, loading:false, needCode:true, code:'', sent:false, mailErr: (e3 && e3.message) || '送れませんでした', error: _cancel ? 'パスキーを取り消しました' : `パスキーで入れませんでした（${(e2 && e2.message) || ''}）`})); return; }
+            if (st3 && st3._needCode) { _toCode(st3, _cancel ? 'パスキーを取り消しました。メールの確認コードを入れてください' : `パスキーで入れませんでした（${(e2 && e2.message) || ''}）。メールの確認コードを入れてください`); return; }
+            await finishLogin(st3); return; }
+        }
+        _toCode(staff, '');
+        return; }
       await finishLogin(staff);
     } catch (err) {
       const msg = err?.message || 'ログインに失敗しました';
@@ -20400,7 +20446,7 @@ function StaffLoginGate({ onLogin }) {
   const passkeyLogin = async () => {
     if (!isSupabaseEnabled) { setForm(f=>({...f, error:'Supabase が未接続です'})); return; }
     setForm(f=>({...f, loading:true, error:''}));
-    try { const staff = await supabaseHqPasskeyLogin(); await finishLogin(staff); }
+    try { const staff = await supabaseHqPasskeyLogin(); try { localStorage.setItem('tsumugiHqPasskeyDev', '1'); } catch {} await finishLogin(staff); } // ★ 2026-10-26: パスキーで入れた端末に印(次からは自動)
     catch (err) { setForm(f=>({...f, loading:false, error: err && err.name === 'NotAllowedError' ? 'パスキーでのログインを取り消しました' : ((err && err.message) || 'パスキーで入れませんでした')})); }
   };
   const finishLogin = async (staff) => {
@@ -20449,7 +20495,12 @@ function StaffLoginGate({ onLogin }) {
           {form.needCode && (
             <div data-testid="hq-code" style={{marginBottom:14,padding:'12px 14px',background:'#f0f7e0',border:'1px solid #c5dea0',borderRadius:12}}>
               <div style={{fontSize:13,fontWeight:'bold',color:'#3d5021',marginBottom:4}}>確認コード（メールに届いた6桁）</div>
-              <div style={{fontSize:12,color:'#5e8030',marginBottom:8}}>{form.hint ? `${form.hint} に送りました。5分間有効・間違いは3回までです。` : '登録メールに送りました。5分間有効・間違いは3回までです。'}</div>
+              {form.sent ? (
+                <div data-testid="hq-code-sent" style={{fontSize:12,color:'#166534',marginBottom:8,padding:'6px 10px',background:'#dcfce7',border:'1px solid #86efac',borderRadius:8}}><b>送信済み</b>　{form.hint || '登録メール'} に {form.sentAt} に送りました。5分間有効・間違いは3回までです。届かないときは迷惑メールもご確認ください。</div>
+              ) : (
+                <div data-testid="hq-code-unsent" style={{fontSize:12,color:'#991b1b',marginBottom:8,padding:'6px 10px',background:'#fee2e2',border:'1px solid #fca5a5',borderRadius:8}}><b>メールを送れませんでした</b>　{form.mailErr || ''}{form.hint ? `（宛先 ${form.hint}）` : ''}</div>
+              )}
+              <button type="button" data-testid="hq-code-resend" onClick={resendCode} disabled={form.loading} style={{marginBottom:8,padding:'6px 12px',background:'white',color:'#3d5021',border:'1px solid #94c456',borderRadius:8,fontSize:12,fontWeight:'bold',cursor: form.loading ? 'wait' : 'pointer'}}>{form.sent ? 'もう一度送る' : '送り直す'}</button>
               <ImeSafeInput type="text" inputMode="numeric" value={form.code} onChange={e=>setForm(f=>({...f,code:toHalfWidth(e.target.value).replace(/[^0-9]/g,'').slice(0,6),error:''}))} placeholder="123456" autoComplete="one-time-code"
                 style={{width:'100%',padding:'12px 14px',border:'1px solid #cbd5e1',borderRadius:12,fontSize:20,fontWeight:'bold',letterSpacing:6,outline:'none',textAlign:'center',boxSizing:'border-box'}}/>
             </div>
@@ -20460,12 +20511,12 @@ function StaffLoginGate({ onLogin }) {
             {form.loading ? <><BusySpin/>ログイン中...</> : 'ログイン'}
           </button>
         </form>
-        {tsuPasskeyAvailable() && (
+        {form.needCode && tsuPasskeyAvailable() && (
           <button type="button" data-testid="passkey-login" onClick={passkeyLogin} disabled={form.loading}
             style={{width:'100%',marginTop:10,padding:'12px',background:'white',color:'#3d5021',border:'2px solid #94c456',borderRadius:12,fontSize:14,fontWeight:'bold',cursor: form.loading ? 'wait' : 'pointer'}}>
-            パスキーで入る（本部・Touch ID / Face ID）
+            確認コードの代わりにパスキーで入る（Touch ID / Face ID）
           </button>
-        )}
+        )}{/* ★ 2026-10-26(ユーザー): 本部のパスキーのボタンは、IDとパスワードが合って確認コード待ちのときだけ出す(ふだんは出さない) */}
         <div style={{marginTop:18,fontSize:10,color:'#64748b',textAlign:'center',lineHeight:1.7}}>
           ご家族の方は <a href="?family" style={{color:'#5e8030',fontWeight:'bold'}}>こちら</a> からログイン<br/>
           お困りの場合はサポートまでお問い合わせください<br/>
@@ -20584,7 +20635,8 @@ export default function App() {
   //   保存した画面名を初期値に採用(5分以内のみ有効・使い捨て)。 通常の起動はこれまで通りホーム。
   const [currentView, setCurrentView] = useState(() => {
     try {
-      const raw = sessionStorage.getItem('tsumugi_resume_view');
+      const _noResume = sessionStorage.getItem('tsumugiNoResume') === '1'; if (_noResume) sessionStorage.removeItem('tsumugiNoResume'); // ★ 2026-10-26: ログアウト直後はホームから
+      const raw = _noResume ? null : sessionStorage.getItem('tsumugi_resume_view');
       if (raw) {
         sessionStorage.removeItem('tsumugi_resume_view');
         const o = JSON.parse(raw);
@@ -22353,6 +22405,8 @@ export default function App() {
   const handleLogout = () => {
     sessionStorage.removeItem('tsumugiStaffSession');
     sessionStorage.removeItem('tsumugiActiveRecorder');
+    // ★ 2026-10-26(ユーザー報告「ログアウトしてログインするとホームでなく事業所情報になる」): 見ていた画面の控え(今すぐ更新用)はログアウトでは使わない
+    try { sessionStorage.removeItem('tsumugi_resume_view'); sessionStorage.removeItem('tsumugiSettingsOrigin'); sessionStorage.setItem('tsumugiNoResume', '1'); } catch {}
     // ★ 2026-10-08(店舗報告: iPhoneでアプリを開いたままログアウト→ログインすると画面の上の方が白いまま。アプリを起動し直すと正常):
     //   同じ画面のままログイン画面⇔アプリを切り替えると、iPhone の描画が前の画面の区画を残す。ログアウトしたら画面を読み込み直し、
     //   起動し直したときと同じ状態でログイン画面を出す(店舗切替と同じ方式。メモリも片付く)。
@@ -23429,6 +23483,7 @@ export default function App() {
   const _sideNav = (...a) => { try { tsuUseCount('side', a[0]); if (tsuViewW() < 1024) setIsSidebarOpen(false); } catch {} navigateTo(...a); }; // ★ 2026-10-22: 重ねて出す幅(1024px 未満)では画面を移ったら閉じる
   const navigateTo = (view, patientId = null, focus = null) => {
     if (view !== 'master' && view !== 'ticket') { try { sessionStorage.removeItem('tsumugiPFOrigin'); } catch {} }
+    try { if (view === 'settings' && currentView !== 'settings') sessionStorage.setItem('tsumugiSettingsOrigin', currentView); } catch {} // ★ 2026-10-26: 各種設定の「○○に戻る」
     const isDirty = (currentView === 'record' && recordDirtyRef.current) ||
                    (currentView === 'master' && masterDirtyRef.current) ||
                    (currentView === 'settings' && settingsDirtyRef.current) ||
@@ -23816,7 +23871,7 @@ export default function App() {
       {deviceNamePrompt && <TsuDeviceNamePrompt suggested={deviceNamePrompt.suggested} onDone={(v) => { const nm = String(v || '').trim() || deviceNamePrompt.suggested; updateDeviceName(nm); setDeviceNamePrompt(null); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `この端末の名前は「${nm}」です（設定 → システム → 端末名 で変更できます）` } })); } catch {} }} />}
       {/* ★ 2026-10-04: 直接ダウンロードの進行表示。iPad は「開く」(ユーザー操作)で新しいタブに表示 */}
       {pdfJob && (
-        <div data-testid="pdf-job" style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',zIndex:9950,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={()=>{ if (pdfJob.status !== 'busy') setPdfJob(null); }}>
+        <div data-testid="pdf-job" style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',zIndex:10090 /* ★ 2026-10-26(ユーザー: 座席表からダウンロードするとPDFの画面が後ろに来る): 座席表(10000)より前に */,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={()=>{ if (pdfJob.status !== 'busy') setPdfJob(null); }}>
           <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:16,padding:'22px 26px',maxWidth:420,width:'100%',boxShadow:'0 20px 60px rgba(0,0,0,0.35)',textAlign:'center'}}>
             <div style={{fontSize:12,color:'#64748b',marginBottom:6}}>{pdfJob.title}</div>
             {pdfJob.status === 'busy' && <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}><BusySpin/>PDFを作成しています…</div>}
@@ -24675,13 +24730,13 @@ export default function App() {
             {/* ★ 日誌(diary)もzoom例外(2026-08-31): 日誌はシート側でdiaryViewScaleの拡縮を持ち、全体zoomと二重になると
                 iPad Safariでタップ座標がズレてシート内のチェック/時間セルが反応しなくなるため */}
             <div style={isMobileLayout ? {width:'100%',minWidth:0} : (currentView==='dashboard' || currentView==='print' || currentView==='master' || currentView==='diary' || currentView==='ticket' || _zoomNear1) ? {width:'100%',minWidth:0,height:'100%'} : _zoomScroll ? {width:`${DESIGN_WIDTH}px`, minWidth:DESIGN_WIDTH, height:'100%'} : {width:`${DESIGN_WIDTH}px`, minWidth:DESIGN_WIDTH, zoom: _zoomVal, height: scrollerH > 0 ? `${Math.floor(scrollerH / _zoomVal)}px` : '100%'}}>
-            {currentView === 'dashboard' ? <DashboardView appData={appData} navigateTo={navigateTo} activeRecorder={activeRecorder} notices={visibleNotices} devNotes={devUpdateNotes} isNoticeRead={isNoticeRead} markNoticeRead={markNoticeRead} /> :
+            {currentView === 'dashboard' ? <DashboardView appData={appData} navigateTo={navigateTo} activeRecorder={activeRecorder} notices={visibleNotices} devNotes={devUpdateNotes} isNoticeRead={isNoticeRead} markNoticeRead={markNoticeRead} onSave={handleSaveToCloud} /> :
              currentView === 'record' ? <RecordView appData={appData} activeRecorder={activeRecorder} onSave={handleSaveToCloud} navigateTo={navigateTo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={recordDirtyRef} saveFnRef={recordSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} showTip={showTip} hideTip={hideTip} isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} deviceName={effDeviceName} /> :
              currentView === 'ticket' ? <TicketView appData={appData} targetPatientId={targetPatientId} onBack={()=>navigateBack('master')} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  onSave={handleSaveToCloud} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={ticketDirtyRef} saveFnRef={ticketSaveFnRef} /> :
              currentView === 'print' ? <ContactBookView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={printDirtyRef} saveFnRef={printSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} /> :
              currentView === 'master' ? <MasterView appData={appData} onSave={handleSaveToCloud} targetPatientId={targetPatientId} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={masterDirtyRef} saveFnRef={masterSaveFnRef} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} exPendingRef={masterExPendingRef} navAfterExRef={masterNavAfterExRef} /> :
              currentView === 'dash_personal' ? <PersonalDashboardView appData={appData} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  navigateTo={navigateTo} onPatientChange={setTargetPatientId} isSidebarOpen={isSidebarOpen} /> :
-             currentView === 'settings' ? <SettingsView appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} isSuperAdmin={staffSession?.role === 'super_admin'} isAdmin={staffSession?.role === 'super_admin' || staffSession?.role === 'manager'} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} deviceName={deviceName} updateDeviceName={updateDeviceName} lastSync={appData._lastSync} loginLogLoader={isSupabaseEnabled && staffSession?.token && staffSession?.storeId && (staffSession.role === 'manager' || staffSession.role === 'super_admin') ? (() => supabaseStaffLoginsList(staffSession.token, staffSession.storeId, 200)) : null} staffCtx={_staffCtx || ((String(import.meta.env.VITE_E2E_DEMO || '') === '1' && window.__tsumugiE2E && window.__tsumugiE2E.staffCtx) || null)} /> :
+             currentView === 'settings' ? <SettingsView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} isSuperAdmin={staffSession?.role === 'super_admin'} isAdmin={staffSession?.role === 'super_admin' || staffSession?.role === 'manager'} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} deviceName={deviceName} updateDeviceName={updateDeviceName} lastSync={appData._lastSync} loginLogLoader={isSupabaseEnabled && staffSession?.token && staffSession?.storeId && (staffSession.role === 'manager' || staffSession.role === 'super_admin') ? (() => supabaseStaffLoginsList(staffSession.token, staffSession.storeId, 200)) : null} staffCtx={_staffCtx || ((String(import.meta.env.VITE_E2E_DEMO || '') === '1' && window.__tsumugiE2E && window.__tsumugiE2E.staffCtx) || null)} /> :
              currentView === 'cmmaster' ? <SettingsView cmOnly appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} isSuperAdmin={staffSession?.role === 'super_admin'} isAdmin={staffSession?.role === 'super_admin' || staffSession?.role === 'manager'} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} deviceName={deviceName} updateDeviceName={updateDeviceName} lastSync={appData._lastSync} /> :
              currentView === 'family_admin' ? <FamilyAdminView appData={appData} onSave={handleSaveToCloud} /> :
              currentView === 'emergency' ? <DisasterView appData={appData} onSave={handleSaveToCloud} staffSession={staffSession} /> :
@@ -37856,7 +37911,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const esc = (t) => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
     const d = new Date(iso); const dl = `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日（${'日月火水木金土'[d.getDay()]}）`;
     const fac = appData.systemSettings?.facilityInfo?.name || '';
-    const cell = (b, pl) => `<div class="st${b ? '' : ' em'}">${b ? `<b class="no">${b.i + 1}</b><span class="nm">${tpNameLines(_pname(b.m.pid)).map(x => `<span>${esc(x)}</span>`).join('')}${_dropAtOf(pl, b.m.pid) ? `<span class="at">着 ${esc(_dropAtOf(pl, b.m.pid))}</span>` : ''}</span>` : ''}</div>`;
+    const cell = (b, pl) => `<div class="st${b ? '' : ' em'}">${b ? `<b class="no">${b.i + 1}</b><span class="nm">${tpNameLines(_pname(b.m.pid)).map(x => `<span>${esc(x)}</span>`).join('')}${_dropShown && _dropAtOf(pl, b.m.pid) ? `<span class="at">着 ${esc(_dropAtOf(pl, b.m.pid))}</span>` : ''}</span>` : ''}</div>`;
     const carHtml = (c, pl) => {
       const custom = pl.dropMode === 'custom' && pl.drop;
       const lay = tpSeatLayout(c, custom ? (pl.drop.cars?.[c.id]||[]) : []);
@@ -38994,8 +39049,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       if ((pl.walkers||[]).length) pick.push({ name: '徒歩', walk: true, members: (pl.walkers||[]).map(m => ({ ...m, t: _walkT(m, sl) })), cap: 0 });
       if ((pl.others||[]).length) pick.push({ name: 'その他', other: true, members: (pl.others||[]), cap: 0 });
       const lists = _dropListsOf(pl); const ddrv = (custom ? pl.drop.driver : pl.driver) || {};
-      const drop = withDrop ? cars.filter(c => (lists[c.id] || []).length).map(c => ({ name: c.name, drv: _dsD(ddrv[c.id] || ''), members: lists[c.id], car: true })) : [];
-      if (withDrop) { const dw = (custom ? pl.drop.walkers : pl.walkers) || [], dot = (custom ? pl.drop.others : pl.others) || [];
+      // ★ 2026-10-26(ユーザー要望「送りの時間を非表示なら横ではなく縦に。送りの車は入れてよい」): 送りの時間を出さないときも送りの車と乗る方は載せる(迎えの下に・時間なし)
+      const drop = cars.filter(c => (lists[c.id] || []).length).map(c => ({ name: c.name, drv: _dsD(ddrv[c.id] || ''), members: lists[c.id], car: true }));
+      { const dw = (custom ? pl.drop.walkers : pl.walkers) || [], dot = (custom ? pl.drop.others : pl.others) || [];
         if (dw.length) drop.push({ name: '徒歩', walk: true, members: dw }); if (dot.length) drop.push({ name: 'その他', other: true, members: dot }); }
       const ab = _absentees(iso, sl);
       return { sl, pl, pick, drop, ab: ab.length ? `休み: ${ab.map(a => _asD(a.name)).join('、')}` : '' }; });
@@ -39015,7 +39071,13 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       return { name, time, tel, dtime, dropW, pickW, addr: pickW - LABW(f) - 3 - name - time - tel }; };
     const rowsOf = (b, lv) => b.car ? (lv === 0 ? Math.max(b.members.length, b.cap, 1) : lv === 1 ? Math.max(b.members.length, Math.min(b.cap, b.members.length + 1), 1) : Math.max(b.members.length, 1)) : Math.max(b.members.length, 1);
     const blkH = (bs, H, f, lv) => bs.reduce((h, b, bi) => h + 5 + (bi === 0 ? Math.ceil(f.fzC * 1.3) + 3 : 0) + rowsOf(b, lv) * (H + 1), 0);
-    const slotH = (x, H, f, lv) => { const band = Math.ceil(f.fz * 1.3) + 6; const abH = x.ab ? Math.ceil(_em(x.ab) * f.fzB / W(f).pickW + 0.01) * Math.ceil(f.fzB * 1.45) + 4 : 0; return band + Math.max(blkH(x.pick, H, f, lv) + abH, withDrop ? blkH(x.drop, H, f, lv) : 0); };
+    // ★ 2026-10-26: 送りの時間を出さないとき(withDrop=false)は、送りを迎えの下に「車ごとに1行(車名・運転者｜氏名を横に並べる)」で載せる。その高さの見積り
+    const _stk = !withDrop;
+    const stkLab = (f) => Math.max(60, Math.ceil(Math.max(0, ...slots.flatMap(x => x.drop.flatMap(b => [_em(b.name) * f.fzS, _em(b.drv || '') * f.fzC]))) + 14));
+    const stkTxt = (b) => b.members.map(m => _nm(m) + (b.other && m.why ? `（${m.why}）` : '')).join('　');
+    const stkRowH = (b, f) => { const lines = Math.max(1, Math.ceil(_em(stkTxt(b)) * f.fz * 1.04 / Math.max(100, PAGE_W - stkLab(f) - 24))); return Math.max(Math.ceil(f.fzS * 1.3) + (b.drv ? Math.ceil(f.fzC * 1.3) : 0) + 6, lines * Math.ceil(f.fz * 1.3) + 6); };
+    const stkH = (x, f) => _stk ? (Math.ceil(f.fz * 1.3) + 6) + 4 + (x.drop.length ? x.drop.reduce((h, b) => h + 3 + stkRowH(b, f) + 2, 0) : Math.ceil(f.fzB * 1.45) + 6) : 0;
+    const slotH = (x, H, f, lv) => { const band = Math.ceil(f.fz * 1.3) + 6; const abH = x.ab ? Math.ceil(_em(x.ab) * f.fzB / W(f).pickW + 0.01) * Math.ceil(f.fzB * 1.45) + 4 : 0; return band + Math.max(blkH(x.pick, H, f, lv) + abH, withDrop ? blkH(x.drop, H, f, lv) : 0) + stkH(x, f); };
     const totalH = (H, lv) => { const f = F(H); return slots.reduce((h, x, k) => h + (k ? 10 : 0) + slotH(x, H, f, lv), 0); };
     const _fits = (H, lv) => { const f0 = F(H), w = W(f0); return totalH(H, lv) <= PAGE_H && w.addr >= 120; };
     let H = 0, LV = 0;
@@ -39051,7 +39113,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const slotRow = (x, k) => { const L = x.sl === 'AM' ? '午前' : '午後';
       const pickCol = `<div style="width:${w.pickW}px;flex:none;">${band(`${L}　迎え`, x.sl === 'AM' ? '#faf0d9' : '#e8edf7', '#172b20')}${x.pick.map((b, bi) => blockHtml(b, bi, x, 'pick')).join('')}${x.ab ? `<div style="font-size:${fzB}px;line-height:1.45;margin-top:4px;color:#475569;">${_escP(x.ab)}</div>` : ''}</div>`;
       const dropCol = withDrop ? `<div style="width:${w.dropW}px;flex:none;">${band(`${L}　送り`, '#ecebfb', '#3730a3')}${x.drop.length ? x.drop.map((b, bi) => blockHtml(b, bi, x, 'drop')).join('') : `<div style="font-size:${fzB}px;color:#64748b;margin-top:6px;">送りの車がありません</div>`}</div>` : '';
-      return `<div style="display:flex;gap:${GAP}px;align-items:flex-start;margin-top:${k ? 10 : 4}px;">${pickCol}${dropCol}</div>`; };
+      // ★ 2026-10-26(ユーザー要望): 送りの時間を出さないときは、送りを迎えの下に(車ごとに1行・時間なし)
+      const dropStack = () => { const lab = stkLab(f); const row = (b) => { const nameColor = b.walk ? '#9a4a0b' : (b.other ? '#6d28d9' : '#172b20'); const bg = b.walk ? '#fdf1e3' : (b.other ? '#f1edfb' : '#ecebfb');
+          return `<div data-tp-stack="1" style="display:flex;margin-top:3px;border:1px solid #66756b;"><div style="flex:none;width:${lab}px;background:${bg};padding:2px 6px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;overflow:hidden;white-space:nowrap;"><b style="font-size:${fzS}px;line-height:1.3;color:${nameColor};">${_escP(b.name)}</b>${b.drv ? `<span style="font-size:${fzC}px;line-height:1.3;color:#111827;font-weight:700;">${_escP(b.drv)}</span>` : ''}</div><div style="flex:1;min-width:0;border-left:1px solid #66756b;padding:2px 8px;font-size:${fz}px;line-height:1.3;font-weight:700;overflow:hidden;">${b.members.map(m => _escP(_nm(m)) + (b.other && m.why ? `<span style="color:#6d28d9;">（${_escP(m.why)}）</span>` : '')).join('<span style="display:inline-block;width:1em;"></span>')}</div></div>`; };
+        return `<div style="margin-top:4px;">${band(`${L}　送り`, '#ecebfb', '#3730a3')}${x.drop.length ? x.drop.map(row).join('') : `<div style="font-size:${fzB}px;color:#64748b;margin-top:6px;">送りの車がありません</div>`}</div>`; };
+      return `<div style="display:flex;gap:${GAP}px;align-items:flex-start;margin-top:${k ? 10 : 4}px;">${pickCol}${dropCol}</div>${_stk ? dropStack() : ''}`; };
     return `<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
       <div style="position:relative;text-align:center;flex:none;height:28px;"><span style="position:absolute;left:0;top:6px;font-size:10px;">${_escP(String(appData.systemSettings?.facilityInfo?.name||'つむぎ'))}</span><span style="font-size:18px;font-weight:bold;letter-spacing:8px;">運行表${onlySl ? (onlySl === 'AM' ? '（午前）' : '（午後）') : ''}</span><span style="position:absolute;right:0;top:3px;font-size:14px;font-weight:700;">${d.getMonth()+1}/${d.getDate()}（${DOWJ[d.getDay()]}）</span></div>
       <div style="flex:1;min-height:0;overflow:hidden;">${slots.map((x, k) => slotRow(x, k)).join('')}</div>
@@ -39864,8 +39930,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 {nameSpan(b.m.pid, 'flex-1 min-w-0 text-[13px] text-slate-800 leading-tight', true)}
               </div>
               {/* ★ 2026-10-21(店舗要望): 送りで家に着く時間。押すとテンキー */}
-              <button type="button" data-testid={`tp-seat-at-${b.m.pid}`} onClick={() => setSeatAtKp({ iso, sl, cid: c.id, pid: b.m.pid })} title="家に着く時間"
-                className={`mt-0.5 ml-8 self-start max-w-full px-1 py-0.5 rounded border text-[11px] font-bold tabular-nums whitespace-nowrap overflow-hidden ${_dropAtOf(pl, b.m.pid) ? (_dropAtAutoOf(pl, b.m.pid) ? 'border-slate-300 text-slate-500 bg-white' : 'border-indigo-300 text-indigo-700 bg-indigo-50') : 'border-dashed border-slate-300 text-slate-400 bg-white'}`}>{/* ★ 2026-10-23(ユーザー: 小さい車の席では「着 12:22 目安」がはみ出す): 「着12:22頃」(目安)／「着12:22」(決めた時間) の短い形に */}着{_dropAtOf(pl, b.m.pid) || '--:--'}{_dropAtOf(pl, b.m.pid) && _dropAtAutoOf(pl, b.m.pid) ? '頃' : ''}</button>
+              {_dropShown && <button type="button" data-testid={`tp-seat-at-${b.m.pid}`} onClick={() => setSeatAtKp({ iso, sl, cid: c.id, pid: b.m.pid })} title="家に着く時間"
+                className={`mt-0.5 ml-8 self-start max-w-full px-1 py-0.5 rounded border text-[11px] font-bold tabular-nums whitespace-nowrap overflow-hidden ${_dropAtOf(pl, b.m.pid) ? (_dropAtAutoOf(pl, b.m.pid) ? 'border-slate-300 text-slate-500 bg-white' : 'border-indigo-300 text-indigo-700 bg-indigo-50') : 'border-dashed border-slate-300 text-slate-400 bg-white'}`}>{/* ★ 2026-10-23(ユーザー: 小さい車の席では「着 12:22 目安」がはみ出す): 「着12:22頃」(目安)／「着12:22」(決めた時間) の短い形に */}着{_dropAtOf(pl, b.m.pid) || '--:--'}{_dropAtOf(pl, b.m.pid) && _dropAtAutoOf(pl, b.m.pid) ? '頃' : ''}</button>}{/* ★ 2026-10-26(ユーザー): 送りの時間を非表示の店舗は「着」も出さない */}
               <button type="button" onClick={() => unseatDrop(iso, sl, b.m.pid)} className="absolute top-0 right-0 w-6 h-6 text-[13px] leading-none text-slate-400 hover:text-red-600" aria-label="席から外す" title="席から外す（席未定へ）">×</button>
             </> : <span className="text-center text-[11px] text-slate-400 pt-1">{_dragging ? 'ここへ' : '空き'}</span>}
           </div>); };
@@ -39936,7 +40002,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 </div>
                 <div className="flex-1"/>
                 {dr ? <button type="button" data-testid="tp-seat-depart-est" onClick={() => { const n = fillDropDepartEst(iso, sl); if (!n) alert('目安を入れられる車がありません。\n（送りの方が乗っていない車と、出発時間を手で決めた車はそのままです）'); }} title="終了時刻に乗車にかかる時間を足した目安を入れます（手で決めた時間はそのまま）" className="px-3 py-2 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-800 rounded-lg text-sm font-bold">出発の目安を入れる</button> : null}
-                {dr ? <button type="button" data-testid="tp-seat-at-est" disabled={dropAtBusy} onClick={async () => { setDropAtBusy(true); try { const r2 = await fillDropAtEst(iso, sl); if (!r2.n) alert(r2.why === 'nodep' ? '先に各車の「出発」の時間を入れてください。' : r2.why === 'noaddr' ? '住所が入っていない方がいるため、移動時間を調べられませんでした。' : r2.why === 'nofac' ? '事業所の住所が入っていません（各種設定→事業所情報）。' : r2.why === 'api' ? '移動時間を調べられませんでした。席の「着」を押して手で入れてください。' : '目安を入れられる方がいません（手で決めた時間はそのままです）。'); } finally { setDropAtBusy(false); } }} title="家に着く時間の目安を入れます（手で決めた時間はそのまま）" className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-indigo-800 rounded-lg text-sm font-bold disabled:opacity-50">{dropAtBusy ? '調べています…' : '着く時間の目安を入れる'}</button> : null}
+                {dr && _dropShown ? <button type="button" data-testid="tp-seat-at-est" disabled={dropAtBusy} onClick={async () => { setDropAtBusy(true); try { const r2 = await fillDropAtEst(iso, sl); if (!r2.n) alert(r2.why === 'nodep' ? '先に各車の「出発」の時間を入れてください。' : r2.why === 'noaddr' ? '住所が入っていない方がいるため、移動時間を調べられませんでした。' : r2.why === 'nofac' ? '事業所の住所が入っていません（各種設定→事業所情報）。' : r2.why === 'api' ? '移動時間を調べられませんでした。席の「着」を押して手で入れてください。' : '目安を入れられる方がいません（手で決めた時間はそのままです）。'); } finally { setDropAtBusy(false); } }} title="家に着く時間の目安を入れます（手で決めた時間はそのまま）" className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-indigo-800 rounded-lg text-sm font-bold disabled:opacity-50">{dropAtBusy ? '調べています…' : '着く時間の目安を入れる'}</button> : null}
                 <button type="button" data-testid="tp-seat-dl" onClick={() => downloadSeatChart(iso)} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold">ダウンロード</button>
               </div>
               {!dr ? (
@@ -45505,14 +45571,62 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
 }
 // === SettingsView用 SectionCard（外部定義必須 - 内部定義だとIME破壊）===
 // ★ 2026-10-23(ユーザー要望「各種設定のスクロールが増えたので、タブの中の項目へ上からジャンプできるボタンを」): タブの中の欄(SectionCard)へ飛ぶボタン
-function TsuSecJump({ dep }) {
+// ★ 2026-10-26(ユーザー要望「各種設定の検索は、この中ではなくすべてから。候補も出す」): 各種設定の項目の一覧(どの見出しにどの項目があるか・探すときの言葉)
+const TSU_SETTINGS_INDEX = [
+  ['facility','事業所情報','事業所名 住所 電話 FAX 管理者 定員 営業曜日 サービス提供時間 事業所番号 介護保険 総合事業 サービス種類コード 保険者番号 介護 支援 郵便番号 施設の住所 地図'],
+  ['facility','営業曜日・祝日の設定','定休日 営業日 祝日 日曜'],
+  ['facility','施設休業日の設定','休業日 臨時休業 半日休業 夏季休暇 年末年始'],
+  ['sidebar','サイドバーに表示する画面','サイドバー メニュー 画面 表示 非表示 送迎表 体力測定 カレンダー 勤務表'],
+  ['life','LIFE連携（科学的介護）','LIFE 科学的介護 CSV 提出 事業所番号 保険者番号 様式'],
+  ['record','運動メニューの項目','運動 メニュー 項目 マシン 単位 分 回 セット'],
+  ['record','個別運動メニューの項目','個別運動 個別機能訓練 項目'],
+  ['record','テンキー（点キー）の表示','テンキー 入力 血圧 体温 数字'],
+  ['record','体調の入力（通所時・帰宅時）','体調 気分 通所時 帰宅時 入力する しない'],
+  ['record','血圧・脈の測定','血圧 脈 再検 終了時 2回目 測定'],
+  ['record','テンキー補完ボタンの管理','テンキー 補完 候補 ボタン'],
+  ['record','介護整体者の登録','介護整体 整体 実施者 職員'],
+  ['record','サービス提供内容の項目管理','提供記録 項目 列 表示 一言 特記'],
+  ['record','体調の理由（カスタマイズ）','体調 理由 候補 カスタマイズ'],
+  ['diary','日誌','日誌 車両 車 定員 送迎車両 自動コピー 1週間前 職員 担当者 申し送り'],
+  ['fitness','体力測定','体力測定 周期 項目 備考 定型文 実施しない'],
+  ['keikaku','計画書の定型文（3-3・3-2・3-1・通所介護計画書）','計画書 定型文 個別機能訓練 通所介護 文例'],
+  ['addon','アドオン（オプション機能）','アドオン オプション 計画書 加算 LIFE 興味関心 生活機能'],
+  ['system','この端末の表示','表示 全画面 文字 大きさ 自動 この端末'],
+  ['system','この端末の名前・最終更新','端末名 端末の名前 最終更新 同期 iPad パソコン'],
+  ['login','ログイン情報','ログイン ID パスワード 変更 店舗 従業員 PIN 本人登録 招待'],
+  ['login','管理者の設定','管理者 パスワード メール 譲渡 削除 個人ファイル 関所'],
+  ['data','データ管理','データ バックアップ 書き出し 取り込み CSV 削除 残骸 見本 復旧'],
+  ['manual','操作マニュアル・ご利用ガイド','マニュアル ガイド 使い方 PDF ご家族 ケアマネ'],
+];
+function TsuSettingsSearch({ tabs, onPick }) {
+  const [q, setQ] = React.useState(''); const [open, setOpen] = React.useState(false);
+  const t = String(q || '').trim(); const tabLabel = (id) => ((tabs || []).find(x => x.id === id) || {}).label || id;
+  const hits = t ? TSU_SETTINGS_INDEX.filter(([tab, title, kw]) => (tabs || []).some(x => x.id === tab) && (title.includes(t) || kw.includes(t) || tabLabel(tab).includes(t))).slice(0, 10) : [];
+  return (
+    <div className="relative" data-testid="settings-search">
+      <input type="search" value={q} onChange={e => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} placeholder="設定を検索（例: 事業所番号・端末名・運動）" autoComplete="off" name="tsu-settings-q" data-testid="settings-search-input" className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm outline-none bg-white" />
+      {open && t && (
+        <div data-testid="settings-search-list" className="absolute left-0 right-0 top-full mt-1 z-30 bg-white border border-slate-300 rounded-xl shadow-xl overflow-hidden">
+          {hits.length === 0 ? <div className="px-3 py-2 text-xs text-slate-500">見つかりません（別の言葉で）</div> : hits.map(([tab, title, kw], i) => (
+            <button key={`${tab}_${title}`} type="button" data-testid={`settings-search-hit-${i}`} onMouseDown={(e) => { e.preventDefault(); onPick(tab, title); setQ(''); setOpen(false); }} className="w-full text-left px-3 py-2 border-b border-slate-100 last:border-0 hover:bg-blue-50">
+              <div className="text-sm font-bold text-slate-800">{title}</div><div className="text-[11px] text-slate-500">{tabLabel(tab)}</div>
+            </button>))}
+        </div>
+      )}
+    </div>
+  );
+}
+function TsuSecJump({ dep, origin, onBack }) {
   const ref = React.useRef(null); const [items, setItems] = React.useState([]);
+  // ★ 2026-10-26(ユーザー要望): 各種設定の中を文字で検索(この見出しの中の項目を、文字を含むものだけに絞る)
   const _els = () => { const box = ref.current && ref.current.parentElement; return box ? [...box.querySelectorAll('[data-sec-title]')].filter(el => el.offsetParent) : []; };
   // 描くたびに欄を数え直す(中身が同じなら入れ替えない=描き直しがくり返さない)
   React.useEffect(() => { const t = setTimeout(() => { const next = _els().map((el, i) => ({ i, title: el.getAttribute('data-sec-title') })); setItems(prev => (prev.map(x => x.title).join('|') === next.map(x => x.title).join('|') ? prev : next)); }, 60); return () => clearTimeout(t); });
-  if (items.length < 2) return <div ref={ref} />;
+  const _back = (origin && onBack) ? <button type="button" data-testid="sec-back" onClick={onBack} className="px-3 py-1.5 rounded-full border border-blue-300 bg-blue-50 text-blue-800 text-xs font-bold whitespace-nowrap">{origin}に戻る</button> : null;
+  if (items.length < 2) return <div ref={ref} className="flex flex-wrap gap-2 items-center">{_back}</div>;
   return (
     <div ref={ref} data-testid="sec-jump" className="flex flex-wrap gap-2 items-center">
+      {_back}
       <span className="text-xs font-bold text-slate-500 mr-1">この中の項目:</span>
       {items.map(it => <button key={it.i} type="button" onClick={() => { const el = _els()[it.i]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} className="px-3 py-1.5 rounded-full border border-slate-300 bg-white text-slate-700 text-xs font-bold hover:bg-slate-50 active:scale-95">{it.title}</button>)}
     </div>
@@ -45587,9 +45701,9 @@ function AdminSettingsSection({ appData, onSave }) {
       <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
         <div className="text-sm font-bold text-slate-700 mb-2">管理者パスワードの変更</div>
         <div className="space-y-2">
-          {auth.passwordHash && <input type="password" value={pw.old} onChange={e=>setPw(p=>({...p,old:e.target.value}))} placeholder="現在の管理者パスワード" className={inp}/>}
-          <input type="password" value={pw.n1} onChange={e=>setPw(p=>({...p,n1:e.target.value}))} placeholder="新しい管理者パスワード(4文字以上)" className={inp}/>
-          <input type="password" value={pw.n2} onChange={e=>setPw(p=>({...p,n2:e.target.value}))} placeholder="新しい管理者パスワード(確認)" className={inp}/>
+          {auth.passwordHash && <input type="password" autoComplete="new-password" name="tsu-adm-old" value={pw.old} onChange={e=>setPw(p=>({...p,old:e.target.value}))} placeholder="現在の管理者パスワード" className={inp}/>}
+          <input type="password" autoComplete="new-password" name="tsu-adm-n1" value={pw.n1} onChange={e=>setPw(p=>({...p,n1:e.target.value}))} placeholder="新しい管理者パスワード(4文字以上)" className={inp}/>
+          <input type="password" autoComplete="new-password" name="tsu-adm-n2" value={pw.n2} onChange={e=>setPw(p=>({...p,n2:e.target.value}))} placeholder="新しい管理者パスワード(確認)" className={inp}/>
           {pw.err && <div className="text-xs font-bold text-red-600">{pw.err}</div>}
           {pw.ok && <div className="text-xs font-bold text-emerald-600">✓ {pw.ok}</div>}
           <button type="button" onClick={changePw} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm active:scale-95">変更する</button>
@@ -45599,7 +45713,7 @@ function AdminSettingsSection({ appData, onSave }) {
         <div className="text-sm font-bold text-slate-700 mb-1">再設定用メールアドレス</div>
         <div className="text-[11px] text-slate-500 mb-2">パスワードを忘れた時の再設定に使います（任意・推奨）。</div>
         <div className="flex gap-2">
-          <input type="email" value={email} onChange={e=>{setEmail(e.target.value);setEmailMsg('');}} placeholder="admin@example.com" className={inp}/>
+          <input type="email" autoComplete="off" name="tsu-adm-mail" value={email} onChange={e=>{setEmail(e.target.value);setEmailMsg('');}} placeholder="admin@example.com" className={inp}/>
           <button type="button" onClick={()=>{ saveSS({adminAuth:{...auth, email:email.trim()}}, '✓ メールを保存しました'); setEmailMsg('保存しました'); }} className="px-4 py-2 bg-slate-800 text-white rounded-lg font-bold text-sm whitespace-nowrap">保存</button>
         </div>
         {emailMsg && <div className="text-xs font-bold text-emerald-600 mt-1">✓ {emailMsg}</div>}
@@ -45845,7 +45959,7 @@ function tsuBuildDemoStore(appData, opts = {}) {
   return { patients, records, systemSettings: ss, diarySettings, monthlyShifts: ms, transportPlans: tp, planCount, patientIdSeq: newSeq, slotCount };
 }
 
-function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAdmin, navFocus, onFocusHandled, deviceName, updateDeviceName, lastSync, cmOnly, loginLogLoader, staffCtx }) {
+function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAdmin, navFocus, onFocusHandled, deviceName, updateDeviceName, lastSync, cmOnly, loginLogLoader, staffCtx, navigateTo }) {
   // ★ 2026-10-19 段階4: ログイン記録(管理者だけ・サーバーから取得)
   const [loginLog, setLoginLog] = useState(null);
   const [, setKpLayoutTick] = useState(0); // テンキーの並びの選択を画面に反映するため(値は端末に保存)
@@ -46656,7 +46770,8 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
       <div className="flex-1 md:overflow-y-auto p-3 sm:p-6 pb-8 tsu-ph-cards">
         {/* ★ ケアマネタブは2カラムのため広めに取る(表示領域の崩れ対策・2026-08-31) */}
         <div className={`${activeTab === 'cm' ? 'max-w-6xl' : 'max-w-4xl'} mx-auto space-y-6 pb-6 tsu-wide-f`}>
-          <TsuSecJump dep={activeTab} />
+          <TsuSettingsSearch tabs={tabs} onPick={(tab, title) => { setActiveTab(tab); setTimeout(() => { try { const el = [...document.querySelectorAll('[data-sec-title]')].find(x => x.getAttribute('data-sec-title') === title); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {} }, 250); }} />
+          <TsuSecJump dep={activeTab} origin={(() => { try { const o = sessionStorage.getItem('tsumugiSettingsOrigin'); return (o && o !== 'settings' && TSU_VIEW_LABELS[o]) ? TSU_VIEW_LABELS[o] : ''; } catch { return ''; } })()} onBack={() => { try { const o = sessionStorage.getItem('tsumugiSettingsOrigin'); sessionStorage.removeItem('tsumugiSettingsOrigin'); if (o && navigateTo) navigateTo(o); } catch {} }} />
 
           {/* 気分の理由 (カスタマイズ) */}
           {/* ★ 2026-10-14(ユーザー要望): 個別機能訓練計画書(3-3)の定型文を店舗ごとに編集(1行=1つ)。空にすると既定に戻る */}
@@ -47940,6 +48055,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
               <label className="block text-sm font-bold text-slate-600 mb-1.5">端末名</label>
               <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
                 <input
+                  autoComplete="off" name="tsu-device-name"
                   value={deviceNameDraft}
                   onChange={e => { setDeviceNameDraft(e.target.value); setDeviceNameSaved(false); }}
                   placeholder="例: 事務所PC / iPad（相談員） / 送迎iPhone"
@@ -48032,8 +48148,8 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                     ) : (
                       <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
                         <p className="text-xs text-slate-500">ログイン情報が未設定です。初回は ID とパスワードを登録してください。</p>
-                        <input value={newCred.id} onChange={e=>setNewCred(p=>({...p,id:e.target.value}))} placeholder="ログインID" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
-                        <input type="password" value={newCred.pass} onChange={e=>setNewCred(p=>({...p,pass:e.target.value}))} placeholder="パスワード" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
+                        <input autoComplete="off" name="tsu-new-id" value={newCred.id} onChange={e=>setNewCred(p=>({...p,id:e.target.value}))} placeholder="ログインID" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
+                        <input type="password" autoComplete="new-password" name="tsu-new-pass" value={newCred.pass} onChange={e=>setNewCred(p=>({...p,pass:e.target.value}))} placeholder="パスワード" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
                         <button type="button" disabled={!newCred.id||!newCred.pass} onClick={()=>{const creds=[{storeName:facilityInfo.name||'事業所',id:newCred.id,pass:newCred.pass}];onSave({...appData,systemSettings:{...appData.systemSettings,loginCredentials:creds}});setNewCred({storeName:'',id:'',pass:''});}} className="px-4 py-2 bg-slate-800 text-white rounded-lg font-bold text-sm disabled:opacity-40">登録</button>
                       </div>
                     )}
@@ -48041,9 +48157,9 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                       <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl">
                         <div className="text-sm font-bold text-blue-800 mb-3">パスワード変更</div>
                         <div className="space-y-2">
-                          <input type="password" value={pwChange.old} onChange={e=>setPwChange({...pwChange,old:e.target.value})} placeholder="現在のパスワード" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
-                          <input type="password" value={pwChange.new1} onChange={e=>setPwChange({...pwChange,new1:e.target.value})} placeholder="新しいパスワード" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
-                          <input type="password" value={pwChange.new2} onChange={e=>setPwChange({...pwChange,new2:e.target.value})} placeholder="新しいパスワード（確認）" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
+                          <input type="password" autoComplete="new-password" name="tsu-pw-old" value={pwChange.old} onChange={e=>setPwChange({...pwChange,old:e.target.value})} placeholder="現在のパスワード" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
+                          <input type="password" autoComplete="new-password" name="tsu-pw-n1" value={pwChange.new1} onChange={e=>setPwChange({...pwChange,new1:e.target.value})} placeholder="新しいパスワード" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
+                          <input type="password" autoComplete="new-password" name="tsu-pw-n2" value={pwChange.new2} onChange={e=>setPwChange({...pwChange,new2:e.target.value})} placeholder="新しいパスワード（確認）" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold outline-none"/>
                           {pwChange.error && <div className="text-xs font-bold text-red-600">{pwChange.error}</div>}
                           <div className="text-[11px] text-slate-500 leading-relaxed">パスワード要件: <b>8文字以上</b>、<b>英字</b>と<b>数字</b>を両方含む</div>
                           <button type="button" onClick={()=>{
