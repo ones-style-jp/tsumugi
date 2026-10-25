@@ -25779,6 +25779,11 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     // このスナップショットより後に、別の端末が更新している場合は強めに警告する。
     const _newerElsewhere = !!(_ls && _ls.at && snap.t && _ls.at > snap.t && _lsDevice && _lsDevice !== (deviceName || '名称未設定の端末'));
     let _msg = `【元に戻す】\nこの端末${deviceName?`（${deviceName}）`:''}に保存された${_when?`（${_when} 時点の）`:''}記録を、全端末に「最新」として反映します。\n`;
+    // ★ 2026-10-25(ユーザー要望「戻すとどうなるか具体的に」): 今の記録と比べて、戻すと変わる項目の値を出す
+    try { const _dd = new Date(selectedDate); const _cur = (appData.ticketRecords||[]).filter(r => r && recMatchesDateYear(r, `${_dd.getMonth()+1}月${_dd.getDate()}日`, _dd.getFullYear()));
+      const _chg = _snapChanges(snap.recs, _cur); const _gone = _cur.filter(r => !(snap.recs||[]).some(x => x && x.patientId === r.patientId)).map(r => r.name || `ID:${r.patientId}`);
+      if (_chg.length || _gone.length) { _msg += `\n戻すと変わる内容（今 → 戻した後）:\n`; _chg.slice(0, 6).forEach(c => { _msg += `・${c.name}: ${(c.details || []).slice(0, 3).join('・')}${(c.details || []).length > 3 ? ' ほか' : ''}\n`; }); if (_chg.length > 6) _msg += `・ほか${_chg.length - 6}名\n`; if (_gone.length) _msg += `・${_gone.slice(0, 5).join('・')}${_gone.length > 5 ? ' ほか' : ''} の記録は、この時点には無いため消えます\n`; }
+      else _msg += `\n（今の記録と同じ内容です）\n`; } catch {}
     if (_lsWhen) _msg += `\n現在の最新: 「${_lsDevice || '名称未設定の端末'}」が ${_lsWhen} に更新\n`;
     if (_newerElsewhere) _msg += `\n⚠ この履歴（${_when}）より新しい更新が別の端末「${_lsDevice}」にあります。\n復元すると、その新しい内容が上書きされます。\n`;
     _msg += `\n他の端末で入力した、これより新しい内容がある場合は上書きされます。\n復元してよろしいですか？`;
@@ -25837,18 +25842,19 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     (newerRecs||[]).forEach(r=>{
       if(!r) return; const _hasOld=!!om[r.patientId]; const o=om[r.patientId]||{};
       const changed = [];
-      Object.keys(LBL).forEach(k=>{ if((r[k]||'')!==(o[k]||'') && !changed.includes(LBL[k])) changed.push(LBL[k]); });
+      const details = []; // ★ 2026-10-25(ユーザー要望): 項目ごとに「前 → 後」の値も出す
+      Object.keys(LBL).forEach(k=>{ if((r[k]||'')!==(o[k]||'')) { if(!changed.includes(LBL[k])) changed.push(LBL[k]); if(details.length<8) details.push(`${LBL[k]} ${String(o[k]||'なし').slice(0,12)} → ${String(r[k]||'なし').slice(0,12)}`); } });
       const ce=r.exercises||{}, oe=o.exercises||{};
       new Set([...Object.keys(ce),...Object.keys(oe)]).forEach(k=>{
         const cv=(ce[k]&&typeof ce[k]==='object')?(ce[k].value||''):(ce[k]||'');
         const sv=(oe[k]&&typeof oe[k]==='object')?(oe[k].value||''):(oe[k]||'');
-        if(cv!==sv){ const nm=_exName(k); if(!changed.includes(nm)) changed.push(nm); }
+        if(cv!==sv){ const nm=_exName(k); if(!changed.includes(nm)) changed.push(nm); if(details.length<8) details.push(`${nm} ${sv||'なし'} → ${cv||'なし'}`); }
       });
       // ★ 直前スナップにその人が居ない(=初出)場合、既定値の「状態=出席」だけの差は変更と数えない。
       //   初回保存で全員が「(状態) 他17名」のように出る過大表示の原因だった。
       //   実際に触った項目(バイタル/気分/運動 等)や、欠席・振替など既定以外の状態だけを表示する。
       if(!_hasOld && (r.status==='出席' || !r.status)){ const _i=changed.indexOf('状態'); if(_i>=0) changed.splice(_i,1); }
-      if(changed.length) results.push({ name: r.name || `ID:${r.patientId}`, fields: changed });
+      if(changed.length) results.push({ name: r.name || `ID:${r.patientId}`, fields: changed, details });
     });
     return results;
   };
@@ -27911,7 +27917,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       <div className="min-w-0"><div className="font-bold text-slate-700 text-sm">{_fmtT(s.t)}{i===0 && <span className="ml-2 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">最新</span>}{s._cloud && <span className="ml-1 text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full" title="他の端末で保存された控え">他の端末</span>}</div>
                         {/* ★ 主役は「この時点に戻すと何が残るか」。 データ内容の項目別サマリを大きく出す */}
                         <div className="text-[12px] font-bold mt-0.5" style={{color:'#047857'}}>戻した後の内容: {_snapSum(s.recs)}</div>
-                        <div className="text-[11px] text-slate-500 leading-snug mt-0.5" style={{display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>✎ この保存での変更: {chgLabel}</div>
+                        <div className="text-[11px] text-slate-500 leading-snug mt-0.5">✎ この保存での変更: {chgLabel}</div>
+                        {chg.length > 0 && <div className="text-[11px] text-slate-700 leading-snug mt-0.5">{chg.slice(0, 3).map((c, ci) => <div key={ci}>{c.name}: {(c.details || []).slice(0, 3).join('・')}{(c.details || []).length > 3 ? ' ほか' : ''}</div>)}{chg.length > 3 ? <div className="text-slate-400">ほか{chg.length - 3}名</div> : null}</div>}
                         <div className="text-[11px] text-slate-400 mt-0.5">入力あり {_cntData(s.recs)}名 / {(s.recs||[]).length}件</div></div>
                       <span className="text-xs font-bold text-blue-600 shrink-0">戻す →</span>
                     </button>
@@ -37154,6 +37161,19 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _beforeOf = (k) => { const raw = plans[k]; if (raw) { const { _savedAt, ...rest } = raw; return rest; } return _shownOf(k); };
   // ★ 2026-10-25(ユーザー質問「戻せる部分を一覧にして選んだところまで戻せるか」): 一覧から選んだ操作の前まで(それ以降の操作をまとめて)戻す
   const [undoListOpen, setUndoListOpen] = useState(false);
+  // ★ 2026-10-25(ユーザー要望「戻すと何がどうなるのか具体的に」): 操作前→操作後の変化を文にする(誰が何号車→何号車・お迎え/到着/送りの時間・運転者)
+  const _undoDiffLines = (e) => { const out = []; try {
+    const pn = (pid) => ((appData.patients||[]).find(p => String(p.id) === String(pid)) || {}).name || `ID:${pid}`; const cn = (cid) => ((cars.find(c => c.id === cid)) || {}).name || cid;
+    e.items.forEach(it => { let a; try { a = JSON.parse(it.after || '{}'); } catch { a = {}; } const b = it.before || {}; const [iso, sl] = it.k.split('_'); const dd = new Date(iso); const where = `${dd.getMonth()+1}/${dd.getDate()}（${DOWJ[dd.getDay()]}）${sl === 'AM' ? '午前' : '午後'}`;
+      const place = (pl, pid) => { for (const cid of Object.keys(pl.cars || {})) { const m = (pl.cars[cid] || []).find(x => x && String(x.pid) === String(pid)); if (m) return { w: cn(cid), t: String(m.t || '') }; } if ((pl.walkers||[]).some(x => x && String(x.pid) === String(pid))) return { w: '徒歩', t: '' }; if ((pl.others||[]).some(x => x && String(x.pid) === String(pid))) return { w: 'その他', t: '' }; return { w: '未定', t: '' }; };
+      const pids = new Set([...Object.values(b.cars||{}).flat(), ...(b.walkers||[]), ...(b.others||[]), ...(b.un||[]), ...Object.values(a.cars||{}).flat(), ...(a.walkers||[]), ...(a.others||[]), ...(a.un||[])].filter(Boolean).map(m => String(m.pid)));
+      pids.forEach(pid => { const pb = place(b, pid), pa = place(a, pid); if (pb.w !== pa.w) out.push(`${where} ${pn(pid)}さん: ${pb.w} → ${pa.w}`); else if (pb.t !== pa.t) out.push(`${where} ${pn(pid)}さん: お迎え ${pb.t || 'なし'} → ${pa.t || 'なし'}`); });
+      cars.forEach(c => { const ab = (b.arrive||{})[c.id]||'', aa = (a.arrive||{})[c.id]||''; if (ab !== aa) out.push(`${where} ${c.name}: 到着 ${ab || 'なし'} → ${aa || 'なし'}`); const db = (b.driver||{})[c.id]||'', da = (a.driver||{})[c.id]||''; if (db !== da) out.push(`${where} ${c.name}: 運転者 ${db || 'なし'} → ${da || 'なし'}`); });
+      const dab = b.dropAt||{}, daa = a.dropAt||{}; new Set([...Object.keys(dab), ...Object.keys(daa)]).forEach(pid => { if ((dab[pid]||'') !== (daa[pid]||'')) out.push(`${where} ${pn(pid)}さん: 送り ${dab[pid] || 'なし'} → ${daa[pid] || 'なし'}`); });
+      if ((b.dropMode||'') !== (a.dropMode||'')) out.push(`${where}: 送りを「${a.dropMode === 'custom' ? '座席表で決める' : '迎えと同じ'}」に`);
+      if (JSON.stringify((b.drop||{}).cars||{}) !== JSON.stringify((a.drop||{}).cars||{})) out.push(`${where}: 送りの座席の変更`);
+      if ((b.memo||'') !== (a.memo||'')) out.push(`${where}: メモの変更`);
+    }); } catch {} return out; };
   const _undoWhere = (e) => e.items.slice(0, 3).map(it => { const [iso, sl] = it.k.split('_'); const dd = new Date(iso); return `${dd.getMonth()+1}/${dd.getDate()}（${DOWJ[dd.getDay()]}）${sl === 'AM' ? '午前' : '午後'}`; }).join('、') + (e.items.length > 3 ? ` ほか${e.items.length - 3}` : '');
   const undoTo = (idx) => {
     const list = _undoList(); if (idx < 0 || idx >= list.length) return; const ents = list.slice(idx);
@@ -37161,7 +37181,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const okStore = ents.every(e => e.items.every(it => [ ...Object.values(it.before.cars||{}).flat(), ...(it.before.walkers||[]), ...(it.before.others||[]), ...(it.before.un||[]) ].every(m => !m || pids.has(String(m.pid)))));
     if (!okStore) { alert('この店舗の送迎表ではない操作が含まれるため、戻せません。'); return; }
     const e0 = ents[0]; const _d = new Date(e0.at); const when = `${_d.getHours()}:${String(_d.getMinutes()).padStart(2, '0')}`;
-    if (!window.confirm(`「${e0.label}」（${when}・${_undoWhere(e0)}）の前の状態まで戻します（${ents.length}回分の操作を取り消します）。\n\nよろしいですか？`)) return;
+    const _lines = ents.flatMap(_undoDiffLines); const _ltxt = _lines.length ? `\n\n取り消される変更（変更前 → 変更後）:\n${_lines.slice(0, 8).join('\n')}${_lines.length > 8 ? `\nほか${_lines.length - 8}件` : ''}` : '';
+    if (!window.confirm(`「${e0.label}」（${when}・${_undoWhere(e0)}）の前の状態まで戻します（${ents.length}回分の操作を取り消します）。${_ltxt}\n\nよろしいですか？`)) return;
     const np = { ...plans }; const ts = syncNow(); for (let i = ents.length - 1; i >= 0; i--) ents[i].items.forEach(it => { np[it.k] = { ...it.before, _savedAt: ts }; });
     list.splice(idx); _setUndoTick(t => t + 1); setUndoListOpen(false);
     ents.forEach(e => { try { if (e._cloudTimer) clearTimeout(e._cloudTimer); if (e._cid != null && appData._sbStoreId) cloudUndoDelete(appData._sbStoreId, e._cid); } catch {} });
@@ -39198,20 +39219,20 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <span data-testid="tp-calculating" className="inline-flex items-center whitespace-nowrap"><BusySpin/>計算中…</span>
           ) : '自動計算'}</button>
           {(() => { const ul = _undoList(); const last = ul[ul.length - 1]; return (
-            <button onClick={undoLast} disabled={!last || !!routing} data-testid="tp-undo" title={last ? `直前の操作「${last.label}」の前に戻す（あと${ul.length}回まで戻せます）` : '元に戻せる操作はありません'} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 h-10 px-3 rounded-xl font-bold text-sm inline-flex items-center whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed">
+            <button onClick={() => setUndoListOpen(v => !v)} disabled={!last || !!routing} data-testid="tp-undo" title={last ? `直前の操作「${last.label}」の前に戻す（あと${ul.length}回まで戻せます）` : '元に戻せる操作はありません'} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 h-10 px-3 rounded-xl font-bold text-sm inline-flex items-center whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed">
               戻す
             </button>
           ); })()}
           {(() => { const ul = _undoList(); if (!ul.length || _tpPhone) return null; return (
-            <span className="relative inline-flex">
-              <button type="button" data-testid="tp-undo-list" onClick={() => setUndoListOpen(v => !v)} title="戻せる操作の一覧（選んだところまで戻せます）" className="h-10 px-2 rounded-xl font-bold text-xs border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 inline-flex items-center">▼</button>
+            <span className="relative inline-flex">{/* ★ 2026-10-25(ユーザー): 「戻す」を押すと一覧。▼はやめた */}
               {undoListOpen && (
                 <div data-testid="tp-undo-menu" className="absolute left-0 top-11 z-[80] bg-white border border-slate-300 rounded-xl shadow-xl w-[22rem] max-h-[60vh] overflow-auto p-2">
-                  <div className="text-[11px] font-bold text-slate-500 px-1 pb-1">戻せる操作（新しい順）。押すと、その操作の前の状態まで戻します</div>
+                  <div className="text-[11px] font-bold text-slate-500 px-1 pb-1">戻せる操作（新しい順）。押すと、その操作の前の状態まで戻します（下の「変更前 → 変更後」が元に戻ります）</div>
                   {[...ul].map((e, i) => ({ e, i })).reverse().map(({ e, i }) => { const _d = new Date(e.at); const when = `${_d.getMonth()+1}/${_d.getDate()} ${_d.getHours()}:${String(_d.getMinutes()).padStart(2, '0')}`; return (
                     <button key={`${e.at}_${i}`} type="button" data-testid={`tp-undo-to-${i}`} onClick={() => undoTo(i)} className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-slate-50 border-b border-slate-100 last:border-0">
                       <div className="text-[12px] font-bold text-slate-800">{e.label}<span className="ml-2 text-[10px] font-normal text-slate-500">{when}{e._cloud ? '・別の端末' : ''}</span></div>
-                      <div className="text-[10px] text-slate-500">{_undoWhere(e)}（{ul.length - i}回分を取り消し）</div>
+                      {(() => { const L = _undoDiffLines(e); return L.length ? <div className="text-[11px] text-slate-700 leading-snug">{L.slice(0, 3).map((x, j) => <div key={j}>{x}</div>)}{L.length > 3 ? <div className="text-slate-400">ほか{L.length - 3}件</div> : null}</div> : <div className="text-[10px] text-slate-500">{_undoWhere(e)}</div>; })()}
+                      <div className="text-[10px] text-slate-400">{ul.length - i > 1 ? `ここまで戻す（${ul.length - i}回分を取り消し）` : 'この操作を取り消す'}</div>
                     </button>); })}
                   <div className="pt-1 text-right"><button type="button" onClick={() => setUndoListOpen(false)} className="text-[11px] font-bold text-slate-500 px-2 py-1">閉じる</button></div>
                 </div>
@@ -40079,7 +40100,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                   <span className="text-xs text-slate-500">名</span>
                 {(() => { const capNow = Number(String(tpSetCap[c.id] != null ? tpSetCap[c.id] : (c.cap || '')).replace(/[^0-9]/g, '')) || 0; const opts = tpSeatRowOptions(capNow); if (opts.length < 2) return null; const def = tpSeatRows(capNow).join('-'); const cur = opts.includes(String(c.seatRows || '')) ? String(c.seatRows) : ''; return (
                   <span className="flex items-center gap-2 flex-1 min-w-[12em]">
-                    <span className="text-xs text-slate-500 shrink-0 ml-2">座席表の並び</span>
+                    <span className="text-xs text-slate-500 shrink-0 ml-2">座席</span>
                     <select key={`${c.id}_${capNow}`} id={`tp-set-rows-${c.id}`} data-testid={`tp-set-rows-${c.id}`} defaultValue={cur} className="flex-1 min-w-0 px-2 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none">
                       <option value="">おまかせ（{tpSeatRowLabel(def)}）</option>
                       {opts.map(o => <option key={o} value={o}>{tpSeatRowLabel(o)}</option>)}
@@ -40087,7 +40108,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                   </span>); })()}
                 </div>
               ))}
-              <div className="text-[10px] text-slate-400">座席表の並び: 2列目・3列目の席の数が車で違うときに選びます。</div>
+              
             </div>
             <div className="flex justify-end gap-2">
               <button onClick={()=>setTpSettings(false)} className="whitespace-nowrap px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">閉じる</button>
@@ -40097,7 +40118,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 setTpSettings(false);
               }} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm">保存</button>
             </div>
-            <div className="text-[10px] text-slate-400 mt-3">定員は各種設定→日誌の送迎車両と共通です。</div>
+            
           </div>
         </div>
       ), document.body)}
