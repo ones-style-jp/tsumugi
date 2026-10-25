@@ -2146,7 +2146,7 @@ function MaskToggle({ small, storeKey, onChange }) {
   const [on, setOn] = React.useState(() => tsumugiMaskStored(storeKey));
   React.useEffect(() => { _tsumugiMaskOn = on; try { if (storeKey) localStorage.setItem(`tsumugiMask:${storeKey}`, on ? '1' : '0'); } catch {} if (onChange) onChange(on); return () => { _tsumugiMaskOn = false; }; }, [on]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <label data-testid="mask-toggle" title="ONにすると、ダウンロードする書類の利用者氏名・ふりがなを1文字おきに○へ置き換えます（例: 髙橋正樹→髙○正○）" style={{display:'inline-flex',alignItems:'center',gap:5,padding: small ? '4px 8px' : '6px 10px',borderRadius:8,border:'1px solid',borderColor: on ? '#f59e0b' : '#cbd5e1',background: on ? '#fef3c7' : 'white',color: on ? '#b45309' : '#475569',fontSize: small ? 11 : 12,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap',userSelect:'none'}}>
+    <label data-testid="mask-toggle" title="ONにすると、ダウンロードする書類の利用者氏名・ふりがなを1文字おきに○へ置き換えます（例: 髙橋正樹→髙○正○）" style={{display:'inline-flex',alignItems:'center',gap:5,height: small ? 34 : 40,boxSizing:'border-box',padding: small ? '0 10px' : '0 12px',borderRadius:8,border:'1px solid',borderColor: on ? '#f59e0b' : '#cbd5e1',background: on ? '#fef3c7' : 'white',color: on ? '#b45309' : '#475569',fontSize: small ? 11 : 12,fontWeight:'bold',cursor:'pointer',whiteSpace:'nowrap',userSelect:'none'}}>
       <input type="checkbox" checked={on} onChange={e => setOn(e.target.checked)} style={{width:14,height:14}}/>マスキング
     </label>
   );
@@ -13053,15 +13053,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
             const nPrev = now.getDate() <= 15 ? missingFor(py, pmn) : 0; /* 前月分は15日まで出す(ずっと出続けないように) */ if (nPrev) add(t0, { key: 'mon_prev', label: `モニタリング（${pmn}月分） 未確定 ${nPrev}名`, sub: '前月の分（期限切れ）。押すとその月の未作成の方だけ表示', view: 'monitoring', ss: ['tsumugiMonJump', JSON.stringify({ ym: `${py}-${String(pmn).padStart(2,'0')}`, filter: 'unentered' })], color: '#0e7490' });
             const nCur = missingFor(now.getFullYear(), now.getMonth() + 1); if (nCur) add(lastBizOnOrBefore(monthEnd), { key: 'mon_cur', label: `モニタリング（${now.getMonth() + 1}月分） 未確定 ${nCur}名`, sub: `月末（${monthEnd.getMonth()+1}/${monthEnd.getDate()}）まで。押すと未作成の方だけ表示`, view: 'monitoring', ss: ['tsumugiMonJump', JSON.stringify({ ym: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`, filter: 'unentered' })], color: '#0e7490' });
           }
-          // 来週の送迎表(営業日のうち、午前も午後も保存されていない日)=今週の最後の営業日が期日。★ 2026-10-25: 直近4週間に送迎表を作っている店舗だけ(基本の時間だけで回す店舗には出さない)
-          if (tpStoreUsesTransport(appData)) {
-            const nextMon = new Date(t0.getFullYear(), t0.getMonth(), t0.getDate() + ((8 - dowN) % 7 || 7));
-            const dn = ['日', '月', '火', '水', '木', '金', '土']; const miss = [];
-            for (let k = 0; k < 7; k++) { const dt = new Date(nextMon.getFullYear(), nextMon.getMonth(), nextMon.getDate() + k); if (!isBiz(dt)) continue; const iso = isoOf(dt); if (!tsuTpPlanHas(appData, iso, 'AM') && !tsuTpPlanHas(appData, iso, 'PM')) miss.push(`${dt.getMonth()+1}/${dt.getDate()}(${dn[dt.getDay()]})`); }
-            const rem = tpNextWeekReminder(appData); // ★ 2026-10-23: 赤い帯(1週間後の週の送迎表がまだ確定していません)はやめ、短い文でここに
-            if (rem) add(lastBizOnOrBefore(weekEnd), { key: 'transport', label: `来週の送迎表（${rem.label}） 未確定`, sub: `${miss.length ? `未作成 ${miss.join('・')}。` : ''}送迎表で確認して「確定」を押す`, view: 'transport', jump: rem.iso, color: '#dc2626' });
-            else if (miss.length) add(lastBizOnOrBefore(weekEnd), { key: 'transport', label: `来週の送迎表 未作成 ${miss.length}日`, sub: miss.join('・'), view: 'transport', color: '#f59e0b' });
-          }
+          // ★ 2026-10-25(ユーザー): 「来週の送迎表 未作成」はホームに出さない(確定の廃止とあわせて)
           const chip = (tid, label, value, sub, view) => <button key={tid} type="button" data-testid={tid} onClick={() => view && navigateTo(view)} style={{background:'white',border:'1px solid rgba(255,255,255,0.6)',borderRadius:12,padding:'6px 14px',color:'#1e293b',textAlign:'left',cursor:'pointer',minWidth:0,flex:'0 1 auto',boxShadow:'0 1px 3px rgba(0,0,0,0.15)'}}><div style={{fontSize:11,color:'#4f46e5',fontWeight:'bold',whiteSpace:'nowrap'}}>{label}</div><div style={{fontSize:22,fontWeight:'bold',lineHeight:1.15,color:'#1e293b'}}>{value}</div>{sub && <div style={{fontSize:10,color:'#64748b',whiteSpace:'nowrap'}}>{sub}</div>}</button>;
           const taskBtn = (t, big) => (
             <button key={t.key} type="button" data-testid={`home-task-${t.key}`} onClick={() => { try { if (t.jump) sessionStorage.setItem('tsumugiTpJump', t.jump); if (t.ss) sessionStorage.setItem(t.ss[0], t.ss[1]); } catch {} navigateTo(t.view); }} style={{display:'flex',flexDirection:'column',alignItems:'flex-start',gap:1,width:'100%',textAlign:'left',background:'white',border:'1px solid #e2e8f0',borderLeft:`4px solid ${t.color}`,borderRadius:8,padding: big ? '7px 12px' : '5px 10px',cursor:'pointer'}}>
@@ -26921,7 +26913,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         className={`${_iconBar ? 'px-3' : 'px-4'} py-2 text-sm font-bold transition-all shrink-0 ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-50'}`}>{v}</button>
                     ))}
                   </div>
-                  <button type="button" data-testid="rec-order-btn" onClick={() => setRecOrderOpen(true)} title={_recOrderOn ? `${_recOrderLabel}のクラスは保存した並び順です（押すと並べ替え・消去）` : `${_recOrderLabel}のクラスの並び順を変えます（ほかの曜日・時間帯はそのまま）`} className={`${_iconBar ? 'px-2.5' : 'px-3'} py-2 rounded-xl text-sm font-bold border shrink-0 ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}>{_iconBar ? <ArrowUpDown size={17} strokeWidth={2.4} aria-label="並び替え"/> : '並び替え'}</button>{/* ★ 2026-10-23(ユーザー): 短いときは並び替えのアイコンだけ */}
+                  <button type="button" data-testid="rec-order-btn" onClick={() => setRecOrderOpen(true)} title={_recOrderOn ? `${_recOrderLabel}のクラスは保存した並び順です（押すと並べ替え・消去）` : `${_recOrderLabel}のクラスの並び順を変えます（ほかの曜日・時間帯はそのまま）`} className={`${_iconBar ? 'px-2.5' : 'px-3'} py-2 rounded-xl text-sm font-bold border shrink-0 ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}><ArrowUpDown size={17} strokeWidth={2.4} aria-label="並び替え"/></button>{/* ★ 2026-10-23(ユーザー): 短いときは並び替えのアイコンだけ */}
                   {recOrderOpen && <RecordOrderModal rows={_recOrderRows} label={_recOrderLabel} onSave={saveRecordOrder} onReset={_recOrderOn ? resetRecordOrder : null} onClose={() => setRecOrderOpen(false)}/>}
                   {attCountChips && <div className="hidden sm:block">{attCountChips}</div>}
               </div>
@@ -26957,7 +26949,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   <option value="未算定">未算定</option>
                   {!_kinouList.length && !_kinouEff && <option value="">（機能訓練指導員が未登録）</option>}
                 </select>
-                <button type="button" data-testid="kinou-group-btn" onClick={()=>{ setKinouGroupPanel(true); setKgSel(null); }} className="text-[11px] font-bold rounded-lg px-2 py-1 border bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-100" title="グループ（指導員ごとに利用者を振り分け）" aria-label="グループ">{_iconBar ? <Users size={16} strokeWidth={2.4}/> : 'グループ'}</button>
+                <button type="button" data-testid="kinou-group-btn" onClick={()=>{ setKinouGroupPanel(true); setKgSel(null); }} className="text-[11px] font-bold rounded-lg px-2 py-1 border bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-100" title="グループ（指導員ごとに利用者を振り分け）" aria-label="グループ"><Users size={16} strokeWidth={2.4}/></button>
                 {kinouGroupSel && <button type="button" data-testid="kinou-group-top-chip" onClick={() => setKinouGroupSel('')} title="押すと上にまとめる表示をやめます" className="text-[11px] font-bold rounded-lg px-2 py-1 border bg-emerald-600 text-white border-emerald-600 whitespace-nowrap">{`${kinouGroupSel}を上に ×`}</button>}
                 {/* ★ グループ振り分けボード(2026-09-30): 画面の最前面に出す(表の見出しの下に隠れないよう body 直下へ) */}
                 {kinouGroupPanel && ReactDOM.createPortal((
@@ -37986,7 +37978,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const TSU_TP_DRIVE_ACK_MS = 30 * 60 * 1000;
   const [driveAck, setDriveAck] = useState(() => { try { return (Date.now() - Number(localStorage.getItem('tsumugiTpDriveAck') || 0)) < TSU_TP_DRIVE_ACK_MS; } catch { return false; } });
   const _ackDrive = () => { try { localStorage.setItem('tsumugiTpDriveAck', String(Date.now())); } catch {} setDriveAck(true); };
-  // ★ 2026-10-25(ユーザー要望「お迎えだけの送迎表にするか、送りも要るかを選べるように」): 上のボタンで「送り」の表示/非表示(店舗の設定 tpDropShown・既定は表示)
+  // ★ 2026-10-25(ユーザー要望「お迎えだけの送迎表にするか、送りも要るかを選べるように」→「座席表は要る。各利用者の到着時間だけ不要」): 上のボタンで「送りの時間」(各人の「送」と目安ボタン)の表示/非表示(店舗の設定 tpDropShown・既定は表示)
   const _dropShown = (appData.systemSettings?.tpDropShown !== false);
   const _toggleDropShown = () => { try { onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), tpDropShown: !_dropShown, _updatedAt: syncNow() } }, { manual: true, message: _dropShown ? '✓ 送りを表示しません（お迎えだけの送迎表）' : '✓ 送りを表示します' }); } catch {} };
   const [legTick, setLegTick] = useState(0); const _legWantRef = React.useRef(new Set()); // ★ 2026-10-16: 移動時間を調べ終わった合図
@@ -39270,7 +39262,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           {/* ★ 2026-10-01(試験版・ユーザー要望「文が長い」): 週の状態は短く「作成中」／確定を押したら「確定済」(押した日時つき) */}
           {/*   確定したあとは「確定済」のボタン(押すと今の内容で確定を更新)だけにして、横幅を取らないようにする */}
           {/* ★ 2026-10-13(ユーザー指示): 「作成中」の印は不要(確定済でなければ作成中と分かる) */}
-          <button type="button" data-testid="tp-drop-toggle" onClick={_toggleDropShown} className={`h-10 px-2.5 rounded-xl font-bold text-xs border whitespace-nowrap inline-flex items-center ${_dropShown ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-500'}`} title="送り（帰り）の欄を出すかどうか（お迎えだけで足りる店舗は非表示に。保存した送りの内容は消えません）">送り {_dropShown ? '表示' : '非表示'}</button>
+          <button type="button" data-testid="tp-drop-toggle" onClick={_toggleDropShown} className={`h-10 px-2.5 rounded-xl font-bold text-xs border whitespace-nowrap inline-flex items-center ${_dropShown ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-500'}`} title="各利用者の送りで家に着く時間（表の「送」と「家に着く目安を入れる」）を出すかどうか。座席表・送りの車はそのまま使えます">送りの時間 {_dropShown ? '表示' : '非表示'}</button>
           <button onClick={()=>{ setTpSetCap({}); setTpSettings(true); }} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="車の定員・座席表の並びの設定（施設に着く時間も確認できます）">設定</button>
           <button onClick={()=>setPrintModal({ mode:'week', weekContent:'sheet', days:new Set(days.map(d=>_iso(d))), dropAt: true, dropMode2: 'none' })} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">ダウンロード</button>
         {/* ★ 2026-10-08(ユーザー指示): 上部の「?」(使い方の説明)は削除 */}
@@ -39360,7 +39352,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               {!anyone ? <div className="px-3 py-2 text-[13px] text-slate-400">—</div> : (<>
                 {cars.map(c => { const ms = (pl.cars||{})[c.id] || []; const rmHere = ((_fin.cars||{})[c.id] || []).filter(m => m && _rmSet.has(String(m.pid)) && !ms.some(x => String(x.pid) === String(m.pid)));
                   // ★ 2026-10-15(ユーザー要望): 送りを座席表で決めた日は、車の名前・運転者の横に「送りの座席」(押すとその車の送りの座席表・見るだけ)。送りだけで使う車も見出しを出す
-                  const _dropMs = (_dropShown && pl.dropMode === 'custom' && pl.drop) ? ((pl.drop.cars||{})[c.id] || []) : [];
+                  const _dropMs = (pl.dropMode === 'custom' && pl.drop) ? ((pl.drop.cars||{})[c.id] || []) : [];
                   if (!ms.length && !rmHere.length && !_dropMs.length) return null; const drv = (pl.driver||{})[c.id] || '';
                   const rows = [...ms.map(m => ({ ...m, _rm: false })), ...rmHere.map(m => ({ ...m, _rm: true }))].sort((a, b) => _mins(a.t) - _mins(b.t));
                   const _av = (pl.arrive||{})[c.id] || ''; const _au = !!_av && !!(pl.arriveAuto||{})[c.id]; return (
@@ -39448,10 +39440,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                       </div>
                     )}
                     {/* ★ 2026-10-15: スマホは送りの座席表を見るだけ(車ごとに切り替え) */}
-                    {_dropShown && _tpPhone && anyone && pl.dropMode === 'custom' && pl.drop ? (
+                    {_tpPhone && anyone && pl.dropMode === 'custom' && pl.drop ? (
                       <div className="px-2 pb-1"><button type="button" data-testid={`tp-fb-seatview-${iso}-${sl}`} onClick={() => setSeatView({ iso, sl, cid: (cars.find(x => ((pl.drop.cars||{})[x.id]||[]).length) || {}).id })} className="text-[11px] font-bold rounded px-1.5 py-0.5 bg-indigo-600 text-white">送りの座席表</button></div>) : null}
                     {/* ★ 2026-10-15(ユーザー要望「確定しても送りの座席は後で変えることがある」): 迎えは確定のまま、送りは確定後も座席表で変えられる */}
-                    {_dropShown && !_tpPhone && anyone ? (
+                    {!_tpPhone && anyone ? (
                       <div className="px-2 pb-1 flex items-center gap-2 flex-wrap">
                         <label className="flex items-center gap-1 text-[10px] font-bold text-slate-500 cursor-pointer select-none">
                           <input type="checkbox" data-testid={`tp-fb-dropsame-${iso}-${sl}`} checked={pl.dropMode!=='custom'} onChange={()=>{ if (pl.dropMode==='custom') { if (!window.confirm('送りを「迎えと同じ」に戻します。\n座席表で決めた送り（席・順番・メモ）は消えます。よろしいですか？')) return; toggleDropMode(iso, sl); } else { toggleDropMode(iso, sl); setSeatMv({ iso, sl }); } }} className="w-3.5 h-3.5"/>送りは迎えと同じ
@@ -39594,13 +39586,13 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                           </div>
                         )}
                         {/* ★ 2026-10-15(ユーザー要望): 送りは「迎えと同じ」をチェックで。外すと座席表(車のイラスト)で席と順番を決める */}
-                        {_dropShown && <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <label className="flex items-center gap-1 text-[11px] font-bold text-slate-600 cursor-pointer select-none">
                             <input type="checkbox" data-testid={`tp-dropsame-${iso}-${sl}`} checked={pl.dropMode!=='custom'} onChange={()=>{ if (pl.dropMode==='custom') { if (!window.confirm('送りを「迎えと同じ」に戻します。\n座席表で決めた送り（席・順番・メモ）は消えます。よろしいですか？')) return; toggleDropMode(iso, sl); } else { toggleDropMode(iso, sl); setSeatMv({ iso, sl }); } }} className="w-4 h-4"/>
                             送りは迎えと同じ
                           </label>
                           {pl.dropMode==='custom' && <button type="button" data-testid={`tp-seatbtn-${iso}-${sl}`} onClick={()=>setSeatMv({ iso, sl })} className="text-[11px] font-bold rounded px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white">座席表で決める</button>}
-                        </div>}
+                        </div>
                         {/* ★ 2026-10-23(ユーザー要望・おすすめ案を採用): 迎えと同じの日も、ここで各車の送りの出発(既定=終了時刻＋乗車にかかる時間)と家に着く目安を扱う(順番=迎えの逆) */}
                         {_dropShown && pl.dropMode!=='custom' && (() => { const lists = _dropListsOf(pl); const cids = cars.filter(c => (lists[c.id] || []).length); if (!cids.length) return null; return (
                           <div data-testid={`tp-same-drop-${iso}-${sl}`} className="mt-1 flex items-center gap-2 flex-wrap text-[11px]">
@@ -39608,7 +39600,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                             {/* ★ 2026-10-23(ユーザー): 車ごとの出発ボタンは出さない(出発は終了時刻＋乗車にかかる時間で自動。変えたいときは座席表で) */}
                             <button type="button" data-testid={`tp-same-est-${iso}-${sl}`} disabled={dropAtBusy} onClick={async () => { setDropAtBusy(true); try { const r2 = await fillDropAtEst(iso, sl); if (!r2.n) alert(r2.why === 'nodep' ? '終了時刻が無いので計算できません（各種設定→提供時間）。' : r2.why === 'noaddr' ? '住所が入っていない方がいる車は計算できません。' : r2.why === 'nofac' ? '事業所の住所が無いため計算できません（各種設定→事業所情報）。' : r2.why === 'api' ? '地図で調べられなかった車があります。' : '目安を入れられる方がいません（手で決めた時間はそのままです）。'); } finally { setDropAtBusy(false); } }} className="shrink-0 rounded px-2 py-0.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold disabled:opacity-50">{dropAtBusy ? '計算中…' : '家に着く目安を入れる'}</button>
                           </div>); })()}
-                        {_dropShown && pl.dropMode==='custom' && pl.drop && (
+                        {pl.dropMode==='custom' && pl.drop && (
                           <div className="border border-indigo-200 bg-indigo-50/40 rounded-lg p-1.5 space-y-1.5">
                             {(() => { const _k = `${iso}_${sl}`; const _open = !!dropBoxOpen[_k]; const _inD0 = new Set([...Object.values(pl.drop.cars||{}).flat(), ...(pl.drop.walkers||[]), ...(pl.drop.others||[])].map(m => m.pid)); const _ny0 = [...new Set([...Object.values(pl.cars||{}).flat(), ...(pl.walkers||[]), ...(pl.others||[])].map(m => m.pid))].filter(pid => !_inD0.has(pid)).length; return (
                             <button type="button" data-testid={`tp-dropbox-toggle-${iso}-${sl}`} onClick={() => setDropBoxOpen(o => ({ ...o, [_k]: !_open }))} className="w-full text-left text-[11px] font-bold text-indigo-700 flex items-center gap-1 whitespace-nowrap overflow-hidden">
@@ -55786,9 +55778,6 @@ ${optionsDesc}
         <div className="tsu-mo-break2" />
         {/* ★ 2026-08-30 店舗要望: 選択チップと一括ボタンも同じ1行に統合 */}
         {/* ★ 2026-10-23(ユーザー): 「全員／通所なし／選択解除」の選択チップは絞り込みの中へ */}
-        {checkedIds.size > 0 && (
-          <span className="tsu-mo-sel" style={{fontSize:11,fontWeight:'bold',color:'#0284c7',margin:'0 6px'}}>{checkedIds.size}名選択中</span>
-        )}
         <span className="tsu-hide-phone" style={{borderLeft:'1px solid #bae6fd',height:18,margin:'0 4px'}}/>
         <span className="tsu-hide-phone" style={{fontSize:11,fontWeight:'bold',color:'#0369a1',marginRight:2}}>{checkedIds.size>0?`選んだ${checkedIds.size}名を：`:'全員を：'}</span>
         {/* ★ AIで下書き (チェックした人、無ければ全員) */}
@@ -55808,7 +55797,7 @@ ${optionsDesc}
         <div className="tsu-mo-break3" />
         <button type="button" className="tsu-hide-phone" data-testid="mon-bulk-confirm" onClick={bulkConfirm} title="選んだ方の未確定分をまとめて確定します（未作成の方は既定の文章で作成）"
           style={{padding:'7px 12px',borderRadius:10,fontSize:12,fontWeight:'bold',border:'none',background:'#10b981',color:'white',cursor:'pointer'}}>
-          {checkedIds.size && !allChecked ? `選んだ${attendedPats.filter(p=>checkedIds.has(p.id)&&!getSheetRecord(p.id)?.confirmed).length}名を確定` : '一括確定'}
+          {checkedIds.size && !allChecked ? '確定' : '一括確定'}
         </button>
         <span className="tsu-mo-3"><MaskToggle small storeKey="monitoring"/></span>
         <button type="button" className="tsu-mo-3" onClick={faxToCareManagers} title="作成済みの表を、ケアマネ宛先つきで1つのPDFにします"
