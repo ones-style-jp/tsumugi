@@ -10976,6 +10976,7 @@ const getTransportTimeFor = (patientId, nextDateDisplay, yearHint, appData) => {
 //   徒歩・その他(ご家族の送りなど)・時間が無いときは ''。年は連絡帳の日付から(12月→1月は翌年)
 const getTransportDropAtFor = (patientId, nextDateDisplay, baseIso, appData) => {
   if (!tsumugiTransportOn(appData)) return '';
+  if (appData?.systemSettings?.tpDropShown === false) return ''; // ★ 2026-10-25(ユーザー): 送りの時間を非表示の店舗は連絡帳にも出さない
   try {
     const m = String(nextDateDisplay || '').match(/(\d+)月(\d+)日/); if (!m) return '';
     const bm = String(baseIso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); let y = bm ? Number(bm[1]) : new Date().getFullYear();
@@ -37151,6 +37152,21 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     return () => { alive = false; }; }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const _shownOf = (k) => { const [iso, sl] = k.split('_'); const { _draft, ...rest } = getPlan(iso, sl); return rest; }; // 画面に出ている内容(変わったかの判定用)
   const _beforeOf = (k) => { const raw = plans[k]; if (raw) { const { _savedAt, ...rest } = raw; return rest; } return _shownOf(k); };
+  // ★ 2026-10-25(ユーザー質問「戻せる部分を一覧にして選んだところまで戻せるか」): 一覧から選んだ操作の前まで(それ以降の操作をまとめて)戻す
+  const [undoListOpen, setUndoListOpen] = useState(false);
+  const _undoWhere = (e) => e.items.slice(0, 3).map(it => { const [iso, sl] = it.k.split('_'); const dd = new Date(iso); return `${dd.getMonth()+1}/${dd.getDate()}（${DOWJ[dd.getDay()]}）${sl === 'AM' ? '午前' : '午後'}`; }).join('、') + (e.items.length > 3 ? ` ほか${e.items.length - 3}` : '');
+  const undoTo = (idx) => {
+    const list = _undoList(); if (idx < 0 || idx >= list.length) return; const ents = list.slice(idx);
+    const pids = new Set((appData.patients||[]).map(p => String(p.id)));
+    const okStore = ents.every(e => e.items.every(it => [ ...Object.values(it.before.cars||{}).flat(), ...(it.before.walkers||[]), ...(it.before.others||[]), ...(it.before.un||[]) ].every(m => !m || pids.has(String(m.pid)))));
+    if (!okStore) { alert('この店舗の送迎表ではない操作が含まれるため、戻せません。'); return; }
+    const e0 = ents[0]; const _d = new Date(e0.at); const when = `${_d.getHours()}:${String(_d.getMinutes()).padStart(2, '0')}`;
+    if (!window.confirm(`「${e0.label}」（${when}・${_undoWhere(e0)}）の前の状態まで戻します（${ents.length}回分の操作を取り消します）。\n\nよろしいですか？`)) return;
+    const np = { ...plans }; const ts = syncNow(); for (let i = ents.length - 1; i >= 0; i--) ents[i].items.forEach(it => { np[it.k] = { ...it.before, _savedAt: ts }; });
+    list.splice(idx); _setUndoTick(t => t + 1); setUndoListOpen(false);
+    ents.forEach(e => { try { if (e._cloudTimer) clearTimeout(e._cloudTimer); if (e._cid != null && appData._sbStoreId) cloudUndoDelete(appData._sbStoreId, e._cid); } catch {} });
+    onSave({ ...appData, transportPlans: np }, { manual: true, message: `✓ 「${e0.label}」の前まで戻しました(${ents.length}回分)` });
+  };
   const undoLast = () => {
     const list = _undoList(); const e = list[list.length - 1]; if (!e) return;
     const pids = new Set((appData.patients||[]).map(p => String(p.id)));
@@ -39186,6 +39202,21 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               戻す
             </button>
           ); })()}
+          {(() => { const ul = _undoList(); if (!ul.length || _tpPhone) return null; return (
+            <span className="relative inline-flex">
+              <button type="button" data-testid="tp-undo-list" onClick={() => setUndoListOpen(v => !v)} title="戻せる操作の一覧（選んだところまで戻せます）" className="h-10 px-2 rounded-xl font-bold text-xs border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 inline-flex items-center">▼</button>
+              {undoListOpen && (
+                <div data-testid="tp-undo-menu" className="absolute left-0 top-11 z-[80] bg-white border border-slate-300 rounded-xl shadow-xl w-[22rem] max-h-[60vh] overflow-auto p-2">
+                  <div className="text-[11px] font-bold text-slate-500 px-1 pb-1">戻せる操作（新しい順）。押すと、その操作の前の状態まで戻します</div>
+                  {[...ul].map((e, i) => ({ e, i })).reverse().map(({ e, i }) => { const _d = new Date(e.at); const when = `${_d.getMonth()+1}/${_d.getDate()} ${_d.getHours()}:${String(_d.getMinutes()).padStart(2, '0')}`; return (
+                    <button key={`${e.at}_${i}`} type="button" data-testid={`tp-undo-to-${i}`} onClick={() => undoTo(i)} className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-slate-50 border-b border-slate-100 last:border-0">
+                      <div className="text-[12px] font-bold text-slate-800">{e.label}<span className="ml-2 text-[10px] font-normal text-slate-500">{when}{e._cloud ? '・別の端末' : ''}</span></div>
+                      <div className="text-[10px] text-slate-500">{_undoWhere(e)}（{ul.length - i}回分を取り消し）</div>
+                    </button>); })}
+                  <div className="pt-1 text-right"><button type="button" onClick={() => setUndoListOpen(false)} className="text-[11px] font-bold text-slate-500 px-2 py-1">閉じる</button></div>
+                </div>
+              )}
+            </span>); })()}
           {/* ★ 週の完成確定(2026-09-28): 確定後の変更は赤丸で自動表示 */}
           {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return TSU_TP_FINAL_OFF ? null : (
             <button onClick={() => fa ? setFinalMenu(v => !v) : finalizeWeek()} data-testid="tp-finalize" className={`${_tpPhone ? 'hidden ' : ''}h-10 px-2.5 rounded-xl font-bold text-xs border whitespace-nowrap inline-flex items-center ${fa?'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100':'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`} title={fa?`確定 ${_fmtStamp(fa)}。押すと今の内容で確定を更新(赤丸は付け直し)`:'この週の送迎表を確定します。以後の変更には赤丸が付きます'}>
@@ -39672,21 +39703,21 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               <button onClick={()=>setPrintModal(m=>({...m, mode:'week'}))} className={`flex-1 py-2 rounded-xl text-sm font-bold border ${printModal.mode==='week'?'bg-blue-600 text-white border-blue-600':'bg-white border-slate-300 text-slate-600'}`}>週間（A4横）</button>
               <button onClick={()=>setPrintModal(m=>({...m, mode:'days'}))} className={`flex-1 py-2 rounded-xl text-sm font-bold border ${printModal.mode==='days'?'bg-blue-600 text-white border-blue-600':'bg-white border-slate-300 text-slate-600'}`}>日ごと（A4横・1日1枚）</button>
             </div>
-            {printModal.mode==='week' && (
+            {_dropShown && printModal.mode==='week' && (
               <div className="border border-slate-200 rounded-xl p-3 mb-3" data-testid="tp-print-dropmode">
                 <div className="text-xs font-bold text-slate-600 mb-1.5">送り</div>
                 <div className="flex flex-col gap-1.5">
                   {[['none','入れない（お迎えだけ）'],['col','名前の右に時間（1枚）'],['table','送りの表を別に（午前・午後で2枚）']].map(([k,l]) => (
-                    <label key={k} className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-bold cursor-pointer ${(printModal.dropMode2||'none')===k?'bg-indigo-50 border-indigo-300 text-indigo-800':'bg-white border-slate-200 text-slate-600'}`}>
-                      <input type="radio" name="tp-week-drop" data-testid={`tp-print-drop-${k}`} checked={(printModal.dropMode2||'none')===k} onChange={()=>setPrintModal(m=>({...m, dropMode2:k}))} className="accent-indigo-600"/>{l}
+                    <label key={k} className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-bold cursor-pointer ${((_dropShown ? printModal.dropMode2 : 'none')||'none')===k?'bg-indigo-50 border-indigo-300 text-indigo-800':'bg-white border-slate-200 text-slate-600'}`}>
+                      <input type="radio" name="tp-week-drop" data-testid={`tp-print-drop-${k}`} checked={((_dropShown ? printModal.dropMode2 : 'none')||'none')===k} onChange={()=>setPrintModal(m=>({...m, dropMode2:k}))} className="accent-indigo-600"/>{l}
                     </label>))}
                 </div>
                 <div className="text-[10px] text-slate-500 mt-1.5">送りの表＝車ごとに、送る順の名前と家に着く時間。</div>
               </div>
             )}
-            {printModal.mode==='days' && (
+            {_dropShown && printModal.mode==='days' && (
               <label className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg border border-slate-200 text-sm font-bold text-slate-700 cursor-pointer" data-testid="tp-print-dropat">
-                <input type="checkbox" checked={printModal.dropAt !== false} onChange={e => setPrintModal(m => ({ ...m, dropAt: e.target.checked }))} className="w-4 h-4 accent-blue-600"/>送りの時間も入れる
+                <input type="checkbox" checked={(_dropShown && printModal.dropAt !== false)} onChange={e => setPrintModal(m => ({ ...m, dropAt: e.target.checked }))} className="w-4 h-4 accent-blue-600"/>送りの時間も入れる
               </label>
             )}
             {printModal.mode==='week' && (
@@ -39718,7 +39749,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             )}
             <div className="flex gap-2">
               <button onClick={()=>setPrintModal(null)} className="whitespace-nowrap flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm">キャンセル</button>
-              <button onClick={()=>{ const pm = printModal; setPrintModal(null); _noDropAtPrintRef.current = pm.mode==='week' ? (pm.dropMode2 || 'none') === 'none' : pm.dropAt === false; if (pm.mode==='week') doPrint(pm.weekContent||'sheet', { dropTable: pm.dropMode2 === 'table' }); else doPrintDays(days.map(d=>_iso(d)).filter(iso=>pm.days.has(iso))); _noDropAtPrintRef.current = false; }} disabled={printModal.mode==='days' && printModal.days.size===0} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm disabled:opacity-40">ダウンロード</button>
+              <button onClick={()=>{ const pm = _dropShown ? printModal : { ...printModal, dropMode2: 'none', dropAt: false }; /* ★ 2026-10-25: 送りの時間を非表示の店舗は印刷物にも出さない */ setPrintModal(null); _noDropAtPrintRef.current = pm.mode==='week' ? (pm.dropMode2 || 'none') === 'none' : pm.dropAt === false; if (pm.mode==='week') doPrint(pm.weekContent||'sheet', { dropTable: pm.dropMode2 === 'table' }); else doPrintDays(days.map(d=>_iso(d)).filter(iso=>pm.days.has(iso))); _noDropAtPrintRef.current = false; }} disabled={printModal.mode==='days' && printModal.days.size===0} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm disabled:opacity-40">ダウンロード</button>
             </div>
           </div>
         </div>
@@ -40042,20 +40073,18 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <div className="font-bold text-sm text-slate-700 mb-2">車の定員（運転者を除く乗車人数）</div>
             <div className="space-y-2 mb-4">
               {cars.map((c, i) => (
-                <div key={c.id}><div className="flex items-center gap-2">
-                  {/* ★ 2026-09-12c: 車名が「シエン…」と見切れないよう幅固定をやめて折返し表示 */}
-                  <span className="text-sm font-bold text-slate-700 flex-1 min-w-0 break-words leading-tight">{c.name}</span>
-                  <input type="text" inputMode="numeric" defaultValue={c.cap||''} id={`tp-set-cap-${c.id}`} onChange={e=>{ const v = e.target.value; setTpSetCap(o=>({ ...o, [c.id]: v })); }} placeholder="定員" className="w-20 px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none text-center"/>
-                  <span className="text-xs text-slate-500">名（運転者を除く）</span>
-                </div>
+                <div key={c.id} className="flex items-center gap-2 flex-wrap">{/* ★ 2026-10-25(ユーザー): 車名→定員→座席表の並び を1行に。「（運転者を除く）」は見出しだけ */}
+                  <span className="text-sm font-bold text-slate-700 shrink-0 min-w-[5em] break-words leading-tight">{c.name}</span>
+                  <input type="text" inputMode="numeric" defaultValue={c.cap||''} id={`tp-set-cap-${c.id}`} onChange={e=>{ const v = e.target.value; setTpSetCap(o=>({ ...o, [c.id]: v })); }} placeholder="定員" className="w-16 px-2 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold outline-none text-center"/>
+                  <span className="text-xs text-slate-500">名</span>
                 {(() => { const capNow = Number(String(tpSetCap[c.id] != null ? tpSetCap[c.id] : (c.cap || '')).replace(/[^0-9]/g, '')) || 0; const opts = tpSeatRowOptions(capNow); if (opts.length < 2) return null; const def = tpSeatRows(capNow).join('-'); const cur = opts.includes(String(c.seatRows || '')) ? String(c.seatRows) : ''; return (
-                  <div className="flex items-center gap-2 mt-1 pl-2">
-                    <span className="text-xs text-slate-500 shrink-0">座席表の並び</span>
+                  <span className="flex items-center gap-2 flex-1 min-w-[12em]">
+                    <span className="text-xs text-slate-500 shrink-0 ml-2">座席表の並び</span>
                     <select key={`${c.id}_${capNow}`} id={`tp-set-rows-${c.id}`} data-testid={`tp-set-rows-${c.id}`} defaultValue={cur} className="flex-1 min-w-0 px-2 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none">
                       <option value="">おまかせ（{tpSeatRowLabel(def)}）</option>
                       {opts.map(o => <option key={o} value={o}>{tpSeatRowLabel(o)}</option>)}
                     </select>
-                  </div>); })()}
+                  </span>); })()}
                 </div>
               ))}
               <div className="text-[10px] text-slate-400">座席表の並び: 2列目・3列目の席の数が車で違うときに選びます。</div>
