@@ -12309,7 +12309,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
         {patient && (
           <button onClick={()=>{ setPreviewPid(null); setPatSearch(''); }} title="利用者一覧に戻る"
             className="px-3 py-2 rounded-lg text-sm font-bold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 shrink-0 whitespace-nowrap">
-            ← 一覧
+            一覧
           </button>
         )}
         {/* ★ 2026-10-09(ユーザー要望「利用者を選択・検索・ログイン画面を開くを1行に。検索はどちらか決めて」):
@@ -12920,7 +12920,8 @@ const DashTile = ({icon, label, sub, color, view, navigateTo}) => (
     {sub && <div style={{fontSize:9,color:'#64748b'}}>{sub}</div>}
   </button>
 );
-function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes, isNoticeRead, markNoticeRead }) {
+function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes, isNoticeRead, markNoticeRead, onSave }) {
+  const [htCfgOpen, setHtCfgOpen] = React.useState(false); // ★ 2026-10-26: ホームに出す業務の表示設定
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
   const dow = ['日','月','火','水','木','金','土'][now.getDay()];
@@ -13019,7 +13020,11 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           // 今日その方が来る時間帯('AM'|'PM'|'1日'|'')。振替/臨時の記録があればその時間帯、欠席なら''
           const slotToday = (pid) => { const r = byPid.get(pid); if (r && (r.status === '振替' || r.status === '臨時')) return r.furikaeAmpm || slotOf(pmap.get(pid)) || 'AM'; if (r && r.status === '欠席') return ''; return slotOf(pmap.get(pid)); };
           const ampmText = (ids) => { let a = 0, p = 0, none = 0; ids.forEach(id => { const v = slotToday(id); if (v === '1日') { a++; p++; } else if (v === 'AM') a++; else if (v === 'PM') p++; else none++; }); return { t: `午前 ${a}名・午後 ${p}名`, none }; };
-          const add = (due, t) => { if (due > monthEnd && due > weekEnd) return; tasks[tierOf(due)].push(t); };
+          // ★ 2026-10-26(ユーザー要望「ホームに載せる通知の種類を選べるように。体力測定は要らない、本日の業務にしか出さない など」): systemSettings.homeTasks[種類]={on, todayOnly}
+          const ht = ss.homeTasks || {};
+          const _typeOf = (key) => (key.startsWith('tsusho') || key.startsWith('kinou')) ? 'keikaku' : key.startsWith('mon_') ? 'monitoring' : key.startsWith('fitness') ? 'fitness' : key; // ★ 2026-10-26: 体力測定の鍵は fitness_t/_w/_m(React の key の重複で消えない不具合の対策)
+          const add = (due, t) => { const c = ht[_typeOf(t.key)] || {}; if (c.on === false) return; const tier = tierOf(due); if (c.todayOnly && tier !== 'today') return; if (due > monthEnd && due > weekEnd) return; tasks[tier].push(t); };
+          const _evOn = (ht.events || {}).on !== false;
           // 日誌(午前/午後の未入力・未確認)=本日。休業日/定休日のコマは出さない
           if (!(diarySlotKyugyo(appData, todayIso, dowN, 'AM') && diarySlotKyugyo(appData, todayIso, dowN, 'PM'))) {
             const seg = (ap) => { if (diarySlotKyugyo(appData, todayIso, dowN, ap)) return null; const l = (appData.diaryLogs||{})[`${todayIso}_${ap}`]; const it = diaryPendingItems(l, todayIso, appData.diarySettings?.cars, appData); const missing = !l; return (missing || (it && it.length)) ? `${ap === 'AM' ? '午前' : '午後'}${missing ? '（未入力）' : `（${it.join('・')} 未確認）`}` : null; };
@@ -13035,9 +13040,9 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
             const comingToday = new Set([...pats.filter(p => slotOf(p)).map(p => p.id), ...recs.filter(r => r.status === '振替' || r.status === '臨時').map(r => r.patientId)]); recs.forEach(r => { if (r.status === '欠席') comingToday.delete(r.patientId); });
             const comingWeek = new Set(); for (let k = 1; k <= 7; k++) { const dt = new Date(t0.getFullYear(), t0.getMonth(), t0.getDate() + k); if (dt > weekEnd) break; if (!isBiz(dt)) continue; pats.forEach(p => { if (p.scheduleAmPm?.[dt.getDay()]) comingWeek.add(p.id); }); }
             const nT = duePats.filter(p => comingToday.has(p.id)).length, nW = duePats.filter(p => !comingToday.has(p.id) && comingWeek.has(p.id)).length, nM = duePats.length - nT - nW;
-            if (nT) add(t0, { key: 'fitness', label: `体力測定 ${ampmText(duePats.filter(p => comingToday.has(p.id)).map(p => p.id)).t}`, sub: '今日来る方のうち当月の測定対象', view: 'fitness', color: '#10b981' });
-            if (nW) add(weekEnd, { key: 'fitness', label: `体力測定 ${nW}名`, sub: '今週来る方のうち当月の測定対象', view: 'fitness', color: '#10b981' });
-            if (nM) add(monthEnd, { key: 'fitness', label: `体力測定 ${nM}名`, sub: '当月の測定対象（来週以降に来る方）', view: 'fitness', color: '#10b981' });
+            if (nT) add(t0, { key: 'fitness_t', label: `体力測定 ${ampmText(duePats.filter(p => comingToday.has(p.id)).map(p => p.id)).t}`, sub: '今日来る方のうち当月の測定対象', view: 'fitness', color: '#10b981' });
+            if (nW) add(weekEnd, { key: 'fitness_w', label: `体力測定 ${nW}名`, sub: '今週来る方のうち当月の測定対象', view: 'fitness', color: '#10b981' });
+            if (nM) add(monthEnd, { key: 'fitness_m', label: `体力測定 ${nM}名`, sub: '当月の測定対象（来週以降に来る方）', view: 'fitness', color: '#10b981' });
           }
           // 計画書(期限30日以内・期限切れ・未作成・一時保存中): 期日で本日/今週/今月に。通所介護計画書 と 個別機能訓練計画書/加算の評価
           const dues = computePlanDues(appData);
@@ -13068,7 +13073,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                 <span style={{fontSize:11,color:'#94a3b8'}}>{tier === 'today' ? '期限が今日まで' : tier === 'week' ? `〜${weekEnd.getMonth()+1}/${weekEnd.getDate()}` : `〜${monthEnd.getMonth()+1}/${monthEnd.getDate()}`}</span>
                 {tier === 'today' && <span style={{marginLeft:'auto',display:'flex',gap:4}}>{todayEvents.some(e => !isRead(e.id)) && <button type="button" onClick={()=>{ todayEvents.forEach(e => { if (!isRead(e.id)) markRead(e.id); }); }} style={{fontSize:10,fontWeight:'bold',color:'#4338ca',background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:8,padding:'2px 8px',cursor:'pointer',whiteSpace:'nowrap'}}>全て既読</button>}<button type="button" onClick={()=>navigateTo('schedule')} style={{fontSize:10,fontWeight:'bold',color:'#6366f1',background:'#eef2ff',border:'none',borderRadius:8,padding:'2px 8px',cursor:'pointer',whiteSpace:'nowrap'}}>カレンダー →</button></span>}
               </div>
-              {tier === 'today' && todayEvents.length > 0 && (
+              {tier === 'today' && _evOn && todayEvents.length > 0 && (
                 <div data-testid="home-today-events" style={{display:'flex',flexDirection:'column',gap:4,marginBottom:6}}>
                   {todayEvents.map(e => { const pt = e.patientId ? (appData.patients||[]).find(x=>x.id===e.patientId) : null; const _r = isRead(e.id); return (
                     <button key={e.id} type="button" onClick={()=>openDetail({id:e.id,badge:'予定',badgeColor:e.color||'#6366f1',date:'',title:e.title,body:`時間：${e.start?`${e.start}${e.end?`〜${e.end}`:''}`:'終日'}${pt?`\n利用者：${pt.name} 様`:''}${e.note?`\n\n${e.note}`:''}`})}
@@ -13079,7 +13084,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                     </button>); })}
                 </div>
               )}
-              {tasks[tier].length === 0 ? (tier === 'today' && todayEvents.length ? null : <div style={{fontSize:12,color:'#94a3b8'}}>なし</div>) : (
+              {tasks[tier].length === 0 ? (tier === 'today' && _evOn && todayEvents.length ? null : <div style={{fontSize:12,color:'#94a3b8'}}>なし</div>) : (
                 <div style={{display:'flex',flexDirection:'column',gap:6}}>{tasks[tier].map(t => taskBtn(t, big))}</div>
               )}
             </div>
@@ -13094,7 +13099,21 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                   {chip('home-today-rate', '今月の稼働率', `${rate}%`, `定員 ${cap}名・今日まで ${slots}コマ`, 'dash_operation')}
                 </div>
               </div>
-              <div data-testid="home-tasks" style={{padding:'12px 16px 14px',display:'flex',flexWrap:'wrap',gap:'12px 20px',background:'#fcfcfd'}}>
+              <div data-testid="home-tasks" style={{padding:'12px 16px 14px',display:'flex',flexWrap:'wrap',gap:'12px 20px',background:'#fcfcfd',position:'relative'}}>
+                {onSave && <div style={{position:'absolute',right:12,top:8}}>
+                  <button type="button" data-testid="home-tasks-cfg" onClick={() => setHtCfgOpen(v => !v)} title="ホームに出す業務の種類を選びます" style={{fontSize:11,fontWeight:'bold',color:'#64748b',background:'white',border:'1px solid #e2e8f0',borderRadius:8,padding:'3px 10px',cursor:'pointer'}}>表示設定</button>
+                  {htCfgOpen && (
+                    <div data-testid="home-tasks-cfg-panel" style={{position:'absolute',right:0,top:30,zIndex:40,background:'white',border:'1px solid #cbd5e1',borderRadius:12,boxShadow:'0 12px 32px rgba(0,0,0,0.18)',padding:12,width:300}}>
+                      <div style={{fontSize:11,fontWeight:'bold',color:'#64748b',marginBottom:6}}>ホームに出す業務（店舗の設定）</div>
+                      {[['diary','日誌（未入力・未確認）'],['events','カレンダーの今日の予定'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
+                        <div key={k} data-testid={`home-tasks-cfg-${k}`} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid #f1f5f9',fontSize:12}}>
+                          <label style={{display:'flex',alignItems:'center',gap:4,flex:1,minWidth:0,cursor:'pointer'}}><input type="checkbox" checked={c.on !== false} onChange={e => set({ on: e.target.checked })}/>{l}</label>
+                          {k !== 'diary' && k !== 'events' && <label style={{display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',cursor:'pointer',color:'#64748b'}}><input type="checkbox" checked={!!c.todayOnly} disabled={c.on === false} onChange={e => set({ todayOnly: e.target.checked })}/>本日だけ</label>}
+                        </div>); })}
+                      <div style={{textAlign:'right',marginTop:6}}><button type="button" onClick={() => setHtCfgOpen(false)} style={{fontSize:11,fontWeight:'bold',color:'#475569',background:'#f1f5f9',border:'none',borderRadius:8,padding:'4px 12px',cursor:'pointer'}}>閉じる</button></div>
+                    </div>
+                  )}
+                </div>}
                 {section('today', '本日の業務', 'home-tasks-today', true)}
                 {section('week', '今週の業務', 'home-tasks-week', false)}
                 {section('month', '今月の業務', 'home-tasks-month', false)}
@@ -19755,7 +19774,7 @@ function HqPasskeyPanel({ staffSession }) {
   const reg = async () => {
     if (!tsuPasskeyAvailable()) { setMsg('この端末・ブラウザではパスキーを使えません'); return; }
     setBusy(true); setMsg('');
-    try { const r = await supabaseHqPasskeyRegister(tok); setList(r.passkeys || []); setMsg('この端末にパスキーを登録しました。次からログイン画面の「パスキーで入る」で入れます。'); }
+    try { const r = await supabaseHqPasskeyRegister(tok); setList(r.passkeys || []); try { localStorage.setItem('tsumugiHqPasskeyDev', '1'); } catch {} setMsg('この端末にパスキーを登録しました。次からは、IDとパスワードを入れると確認コードの代わりにパスキー(Touch ID / Face ID)で入れます。'); }
     catch (e) { setMsg(e && e.name === 'NotAllowedError' ? '登録を取り消しました' : ((e && e.message) || '登録できませんでした')); }
     finally { setBusy(false); }
   };
@@ -20387,7 +20406,12 @@ function StaffLoginGate({ onLogin }) {
     setForm(f=>({...f, loading:true, error:''}));
     try {
       const staff = await supabaseStaffLogin({ username: form.username, password: form.password, code: form.needCode ? form.code : '' });
-      if (staff && staff._needCode) { setForm(f=>({...f, loading:false, needCode:true, hint: staff._hint || '', code:'', error: staff._sent ? '' : '確認コードのメールを送れませんでした。本部のメール設定をご確認ください'})); return; } // ★ 本部: 確認コードの入力へ
+      if (staff && staff._needCode) { // ★ 本部: 確認コードの入力へ
+        setForm(f=>({...f, loading:false, needCode:true, hint: staff._hint || '', code:'', error: staff._sent ? '' : '確認コードのメールを送れませんでした。本部のメール設定をご確認ください'}));
+        // ★ 2026-10-26(ユーザー提案): この端末にパスキーが登録されていれば、確認コードの代わりにパスキー(Touch ID/Face ID)で入る。取り消したらコード入力のまま
+        let _hasPk = false; try { _hasPk = localStorage.getItem('tsumugiHqPasskeyDev') === '1'; } catch {}
+        if (_hasPk && tsuPasskeyAvailable()) { try { setForm(f=>({...f, loading:true})); const st2 = await supabaseHqPasskeyLogin(); await finishLogin(st2); return; } catch { setForm(f=>({...f, loading:false, error:''})); } }
+        return; }
       await finishLogin(staff);
     } catch (err) {
       const msg = err?.message || 'ログインに失敗しました';
@@ -20460,12 +20484,12 @@ function StaffLoginGate({ onLogin }) {
             {form.loading ? <><BusySpin/>ログイン中...</> : 'ログイン'}
           </button>
         </form>
-        {tsuPasskeyAvailable() && (
+        {form.needCode && tsuPasskeyAvailable() && (
           <button type="button" data-testid="passkey-login" onClick={passkeyLogin} disabled={form.loading}
             style={{width:'100%',marginTop:10,padding:'12px',background:'white',color:'#3d5021',border:'2px solid #94c456',borderRadius:12,fontSize:14,fontWeight:'bold',cursor: form.loading ? 'wait' : 'pointer'}}>
-            パスキーで入る（本部・Touch ID / Face ID）
+            確認コードの代わりにパスキーで入る（Touch ID / Face ID）
           </button>
-        )}
+        )}{/* ★ 2026-10-26(ユーザー): 本部のパスキーのボタンは、IDとパスワードが合って確認コード待ちのときだけ出す(ふだんは出さない) */}
         <div style={{marginTop:18,fontSize:10,color:'#64748b',textAlign:'center',lineHeight:1.7}}>
           ご家族の方は <a href="?family" style={{color:'#5e8030',fontWeight:'bold'}}>こちら</a> からログイン<br/>
           お困りの場合はサポートまでお問い合わせください<br/>
@@ -23429,6 +23453,7 @@ export default function App() {
   const _sideNav = (...a) => { try { tsuUseCount('side', a[0]); if (tsuViewW() < 1024) setIsSidebarOpen(false); } catch {} navigateTo(...a); }; // ★ 2026-10-22: 重ねて出す幅(1024px 未満)では画面を移ったら閉じる
   const navigateTo = (view, patientId = null, focus = null) => {
     if (view !== 'master' && view !== 'ticket') { try { sessionStorage.removeItem('tsumugiPFOrigin'); } catch {} }
+    try { if (view === 'settings' && currentView !== 'settings') sessionStorage.setItem('tsumugiSettingsOrigin', currentView); } catch {} // ★ 2026-10-26: 各種設定の「○○に戻る」
     const isDirty = (currentView === 'record' && recordDirtyRef.current) ||
                    (currentView === 'master' && masterDirtyRef.current) ||
                    (currentView === 'settings' && settingsDirtyRef.current) ||
@@ -24675,13 +24700,13 @@ export default function App() {
             {/* ★ 日誌(diary)もzoom例外(2026-08-31): 日誌はシート側でdiaryViewScaleの拡縮を持ち、全体zoomと二重になると
                 iPad Safariでタップ座標がズレてシート内のチェック/時間セルが反応しなくなるため */}
             <div style={isMobileLayout ? {width:'100%',minWidth:0} : (currentView==='dashboard' || currentView==='print' || currentView==='master' || currentView==='diary' || currentView==='ticket' || _zoomNear1) ? {width:'100%',minWidth:0,height:'100%'} : _zoomScroll ? {width:`${DESIGN_WIDTH}px`, minWidth:DESIGN_WIDTH, height:'100%'} : {width:`${DESIGN_WIDTH}px`, minWidth:DESIGN_WIDTH, zoom: _zoomVal, height: scrollerH > 0 ? `${Math.floor(scrollerH / _zoomVal)}px` : '100%'}}>
-            {currentView === 'dashboard' ? <DashboardView appData={appData} navigateTo={navigateTo} activeRecorder={activeRecorder} notices={visibleNotices} devNotes={devUpdateNotes} isNoticeRead={isNoticeRead} markNoticeRead={markNoticeRead} /> :
+            {currentView === 'dashboard' ? <DashboardView appData={appData} navigateTo={navigateTo} activeRecorder={activeRecorder} notices={visibleNotices} devNotes={devUpdateNotes} isNoticeRead={isNoticeRead} markNoticeRead={markNoticeRead} onSave={handleSaveToCloud} /> :
              currentView === 'record' ? <RecordView appData={appData} activeRecorder={activeRecorder} onSave={handleSaveToCloud} navigateTo={navigateTo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={recordDirtyRef} saveFnRef={recordSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} showTip={showTip} hideTip={hideTip} isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} deviceName={effDeviceName} /> :
              currentView === 'ticket' ? <TicketView appData={appData} targetPatientId={targetPatientId} onBack={()=>navigateBack('master')} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  onSave={handleSaveToCloud} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={ticketDirtyRef} saveFnRef={ticketSaveFnRef} /> :
              currentView === 'print' ? <ContactBookView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={printDirtyRef} saveFnRef={printSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} /> :
              currentView === 'master' ? <MasterView appData={appData} onSave={handleSaveToCloud} targetPatientId={targetPatientId} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={masterDirtyRef} saveFnRef={masterSaveFnRef} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} exPendingRef={masterExPendingRef} navAfterExRef={masterNavAfterExRef} /> :
              currentView === 'dash_personal' ? <PersonalDashboardView appData={appData} targetPatientId={targetPatientId} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  navigateTo={navigateTo} onPatientChange={setTargetPatientId} isSidebarOpen={isSidebarOpen} /> :
-             currentView === 'settings' ? <SettingsView appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} isSuperAdmin={staffSession?.role === 'super_admin'} isAdmin={staffSession?.role === 'super_admin' || staffSession?.role === 'manager'} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} deviceName={deviceName} updateDeviceName={updateDeviceName} lastSync={appData._lastSync} loginLogLoader={isSupabaseEnabled && staffSession?.token && staffSession?.storeId && (staffSession.role === 'manager' || staffSession.role === 'super_admin') ? (() => supabaseStaffLoginsList(staffSession.token, staffSession.storeId, 200)) : null} staffCtx={_staffCtx || ((String(import.meta.env.VITE_E2E_DEMO || '') === '1' && window.__tsumugiE2E && window.__tsumugiE2E.staffCtx) || null)} /> :
+             currentView === 'settings' ? <SettingsView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} isSuperAdmin={staffSession?.role === 'super_admin'} isAdmin={staffSession?.role === 'super_admin' || staffSession?.role === 'manager'} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} deviceName={deviceName} updateDeviceName={updateDeviceName} lastSync={appData._lastSync} loginLogLoader={isSupabaseEnabled && staffSession?.token && staffSession?.storeId && (staffSession.role === 'manager' || staffSession.role === 'super_admin') ? (() => supabaseStaffLoginsList(staffSession.token, staffSession.storeId, 200)) : null} staffCtx={_staffCtx || ((String(import.meta.env.VITE_E2E_DEMO || '') === '1' && window.__tsumugiE2E && window.__tsumugiE2E.staffCtx) || null)} /> :
              currentView === 'cmmaster' ? <SettingsView cmOnly appData={appData} onSave={handleSaveToCloud} dirtyRef={settingsDirtyRef} saveFnRef={settingsSaveFnRef} isSuperAdmin={staffSession?.role === 'super_admin'} isAdmin={staffSession?.role === 'super_admin' || staffSession?.role === 'manager'} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} deviceName={deviceName} updateDeviceName={updateDeviceName} lastSync={appData._lastSync} /> :
              currentView === 'family_admin' ? <FamilyAdminView appData={appData} onSave={handleSaveToCloud} /> :
              currentView === 'emergency' ? <DisasterView appData={appData} onSave={handleSaveToCloud} staffSession={staffSession} /> :
@@ -45505,14 +45530,20 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
 }
 // === SettingsView用 SectionCard（外部定義必須 - 内部定義だとIME破壊）===
 // ★ 2026-10-23(ユーザー要望「各種設定のスクロールが増えたので、タブの中の項目へ上からジャンプできるボタンを」): タブの中の欄(SectionCard)へ飛ぶボタン
-function TsuSecJump({ dep }) {
+function TsuSecJump({ dep, origin, onBack }) {
   const ref = React.useRef(null); const [items, setItems] = React.useState([]);
+  // ★ 2026-10-26(ユーザー要望): 各種設定の中を文字で検索(この見出しの中の項目を、文字を含むものだけに絞る)
+  const [q, setQ] = React.useState('');
+  React.useEffect(() => { const box = ref.current && ref.current.parentElement; if (!box) return; const t = String(q || '').trim(); [...box.querySelectorAll('[data-sec-title]')].forEach(el => { el.style.display = (!t || (el.textContent || '').includes(t)) ? '' : 'none'; }); return () => { [...box.querySelectorAll('[data-sec-title]')].forEach(el => { el.style.display = ''; }); }; }, [q, dep]);
   const _els = () => { const box = ref.current && ref.current.parentElement; return box ? [...box.querySelectorAll('[data-sec-title]')].filter(el => el.offsetParent) : []; };
   // 描くたびに欄を数え直す(中身が同じなら入れ替えない=描き直しがくり返さない)
   React.useEffect(() => { const t = setTimeout(() => { const next = _els().map((el, i) => ({ i, title: el.getAttribute('data-sec-title') })); setItems(prev => (prev.map(x => x.title).join('|') === next.map(x => x.title).join('|') ? prev : next)); }, 60); return () => clearTimeout(t); });
-  if (items.length < 2) return <div ref={ref} />;
+  const _back = (origin && onBack) ? <button type="button" data-testid="sec-back" onClick={onBack} className="px-3 py-1.5 rounded-full border border-blue-300 bg-blue-50 text-blue-800 text-xs font-bold whitespace-nowrap">← {origin}に戻る</button> : null;
+  const _search = <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="この中を検索" data-testid="sec-search" className="px-3 py-1.5 rounded-full border border-slate-300 text-xs outline-none w-36" />;
+  if (items.length < 2) return <div ref={ref} className="flex flex-wrap gap-2 items-center">{_back}{_search}</div>;
   return (
     <div ref={ref} data-testid="sec-jump" className="flex flex-wrap gap-2 items-center">
+      {_back}{_search}
       <span className="text-xs font-bold text-slate-500 mr-1">この中の項目:</span>
       {items.map(it => <button key={it.i} type="button" onClick={() => { const el = _els()[it.i]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} className="px-3 py-1.5 rounded-full border border-slate-300 bg-white text-slate-700 text-xs font-bold hover:bg-slate-50 active:scale-95">{it.title}</button>)}
     </div>
@@ -45845,7 +45876,7 @@ function tsuBuildDemoStore(appData, opts = {}) {
   return { patients, records, systemSettings: ss, diarySettings, monthlyShifts: ms, transportPlans: tp, planCount, patientIdSeq: newSeq, slotCount };
 }
 
-function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAdmin, navFocus, onFocusHandled, deviceName, updateDeviceName, lastSync, cmOnly, loginLogLoader, staffCtx }) {
+function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAdmin, navFocus, onFocusHandled, deviceName, updateDeviceName, lastSync, cmOnly, loginLogLoader, staffCtx, navigateTo }) {
   // ★ 2026-10-19 段階4: ログイン記録(管理者だけ・サーバーから取得)
   const [loginLog, setLoginLog] = useState(null);
   const [, setKpLayoutTick] = useState(0); // テンキーの並びの選択を画面に反映するため(値は端末に保存)
@@ -46656,7 +46687,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
       <div className="flex-1 md:overflow-y-auto p-3 sm:p-6 pb-8 tsu-ph-cards">
         {/* ★ ケアマネタブは2カラムのため広めに取る(表示領域の崩れ対策・2026-08-31) */}
         <div className={`${activeTab === 'cm' ? 'max-w-6xl' : 'max-w-4xl'} mx-auto space-y-6 pb-6 tsu-wide-f`}>
-          <TsuSecJump dep={activeTab} />
+          <TsuSecJump dep={activeTab} origin={(() => { try { const o = sessionStorage.getItem('tsumugiSettingsOrigin'); return (o && o !== 'settings' && TSU_VIEW_LABELS[o]) ? TSU_VIEW_LABELS[o] : ''; } catch { return ''; } })()} onBack={() => { try { const o = sessionStorage.getItem('tsumugiSettingsOrigin'); sessionStorage.removeItem('tsumugiSettingsOrigin'); if (o && navigateTo) navigateTo(o); } catch {} }} />
 
           {/* 気分の理由 (カスタマイズ) */}
           {/* ★ 2026-10-14(ユーザー要望): 個別機能訓練計画書(3-3)の定型文を店舗ごとに編集(1行=1つ)。空にすると既定に戻る */}
