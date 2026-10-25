@@ -27,9 +27,12 @@ language sql stable as $$
   select coalesce(auth.jwt() ->> 'staff_role', '') = 'super_admin'
 $$;
 -- サーバー(service_role キー: /api/*・本部の復旧ツール)か。証の店舗IDを持たないので常に通す
+-- ★ 2026-10-19 修正: security definer の関数の中では current_user が所有者(postgres)になり誰でも「サーバー扱い」になってしまったため、
+--   判定は証(JWT)の中身だけで行う。JWT が無い＝PostgREST を通らない直接の DB 接続(SQL Editor 等)も通す
 create or replace function public.tsumugi_is_service() returns boolean
 language sql stable as $$
-  select coalesce(auth.jwt() ->> 'role', '') = 'service_role' or current_user in ('postgres', 'service_role', 'supabase_admin')
+  select coalesce(auth.jwt() ->> 'role', '') = 'service_role'
+      or coalesce(current_setting('request.jwt.claims', true), '') = ''
 $$;
 -- 行の店舗IDにアクセスしてよいか(本部・サーバーは常に可)
 create or replace function public.tsumugi_can_access_store(p_store_id text) returns boolean
@@ -78,3 +81,5 @@ create policy undo_select_own on public.undo_snapshots for select to authenticat
 --   ターミナル(公開キーだけ → [] が返れば成功):
 --   curl -s "https://<プロジェクト>.supabase.co/rest/v1/undo_snapshots?select=id&limit=1" -H "apikey: <公開キー>" -H "Authorization: Bearer <公開キー>"
 --   店舗の端末: 提供記録の「元に戻す」の一覧が出る(証つきで読める)。
+
+-- ★ 実行したら docs/sql/rls_status.json の "3a_sync_ops_undo_snapshots" を true にして commit(scripts/run_tests.py の T-SEC-04/05/06 が「閉じていること」を毎回確かめるようになる)。戻したら false に。

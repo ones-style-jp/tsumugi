@@ -525,3 +525,6 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
   .tsu-cb-list { flex-direction: row !important; flex-wrap: wrap; justify-content: center; align-items: flex-start !important; }
   .tsu-cb-item { width: auto !important; }
 }
+
+/* ★ 2026-10-23(ユーザー要望): 上の白い見出し(画面の題名)と重なる、中の題名(休み連絡・各種連絡・クラス在籍表)はどの幅でも出さない */
+.tsu-gf-title, .tsu-cr-title, .tsu-abscal-title { display: none !important; }

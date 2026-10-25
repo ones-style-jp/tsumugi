@@ -172,7 +172,7 @@ export const deviceIdentityReady = (async () => {
 })();
 const DIAG_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 // (name, ver) で呼ぶ。鍵は端末ID。古い版が書いた「端末名|版」の鍵は同じ端末名なら消す(同じ端末が2行に見えないように)
-export async function supabaseUploadSyncDiag(storeId, name, ver) {
+export async function supabaseUploadSyncDiag(storeId, name, ver, use) { // ★ 2026-10-23: use=画面を開いた回数(月ごと・任意)
   if (!supabase || !storeId) return false;
   try {
     const logs = getSyncLog().slice(-60); // ★ 2026-10-17: 記録が無くても送る(端末の生存確認と証の有無を管理局で見るため)
@@ -187,7 +187,7 @@ export async function supabaseUploadSyncDiag(storeId, name, ver) {
         const at = Number(d[k] && d[k].at); if (!at || now - at > DIAG_KEEP_MS) { delete d[k]; if (d.__names && typeof d.__names === 'object' && d.__names[k]) { d.__names = { ...d.__names }; delete d.__names[k]; } continue; } // 30日見ていない端末の控え(と名前の割当)は消す(行が太らない・番号が空く)
         if (k.includes('|') && k.slice(0, k.lastIndexOf('|')) === nm) delete d[k]; // 旧形式(端末名|版)の自分の控え
       }
-      d[id] = { at: now, logs, sb, name: nm, ver: vr };
+      d[id] = { at: now, logs, sb, name: nm, ver: vr, ...((use && typeof use === 'object' && Object.keys(use).length) ? { use } : {}) };
       return d;
     }, { maxRetries: 1 });
     return !!(r && r.ok);
@@ -223,7 +223,7 @@ export async function supabaseListSyncDiag() {
     const storeId = String(row.key || '').slice(5);
     const d = (row.data && typeof row.data === 'object') ? row.data : {};
     const devices = Object.keys(d).filter(k => !k.startsWith('__')).map(tag => { const v = d[tag] || {}; const i = tag.lastIndexOf('|');
-      if (v && v.name) return { tag, name: String(v.name), ver: String(v.ver || ''), at: Number(v.at) || 0, sb: (typeof v.sb === 'boolean') ? v.sb : null }; // 新形式(鍵=端末ID)
+      if (v && v.name) return { tag, name: String(v.name), ver: String(v.ver || ''), at: Number(v.at) || 0, sb: (typeof v.sb === 'boolean') ? v.sb : null, use: (v.use && typeof v.use === 'object') ? v.use : null }; // 新形式(鍵=端末ID)
       return { tag, name: i >= 0 ? tag.slice(0, i) : tag, ver: i >= 0 ? tag.slice(i + 1) : '', at: Number(v.at) || 0, sb: (typeof v.sb === 'boolean') ? v.sb : null }; }) // 旧形式(鍵=端末名|版)
       .sort((a, b) => b.at - a.at);
     return { storeId, devices };
@@ -1989,11 +1989,34 @@ async function staffApi(payload) {
 }
 const _isNoServer = (e) => !!(e && e.noServer) && !!supabase;
 
-export async function supabaseStaffLogin({ username, password }) {
-  if (!supabase) throw new Error('Supabase 未接続');
+// ★ 2026-10-19 段階4(従業員ごとのログイン): 招待・本人登録・PIN・退職・ログイン記録(すべてサーバー /api/staff-auth)
+const _devName = () => { try { return localStorage.getItem('tsumugiDeviceName') || ''; } catch { return ''; } };
+export const hashPin = (pin) => hashPassword('pin:' + String(pin || ''));
+export async function supabaseStaffInviteCreate(token, { storeId, memberId, name, role, email }) { return (await staffApi({ action: 'invite_create', token, store_id: storeId, member_id: memberId, name, role, email: email || '' })).invite; }
+export async function supabaseStaffInviteLookup(code) { return (await staffApi({ action: 'invite_lookup', code: String(code || '') })).invite; }
+export async function supabaseStaffInviteAccept({ code, username, password, pin }) {
+  const password_hash = await hashPassword(password); const pin_hash = pin ? await hashPin(pin) : '';
+  const j = await staffApi({ action: 'invite_accept', code: String(code || ''), username: String(username || '').trim(), password_hash, pin_hash, device: _devName() });
+  if (j.sb_token) setSbAccessToken(j.sb_token, j.sb_exp);
+  return { ...(j.staff || {}), _token: j.token || '' };
+}
+export async function supabaseStaffPinSet(token, pin) { return staffApi({ action: 'pin_set', token, pin_hash: await hashPin(pin) }); }
+export async function supabaseStaffPinUnlock(token, storeId) { return staffApi({ action: 'pin_unlock', token, store_id: storeId }); }
+export async function supabaseStaffPinGuardStatus(token, storeId) { try { return await staffApi({ action: 'pin_guard_status', token, store_id: storeId }); } catch { return { hard: false, minutes: 0 }; } }
+export async function supabaseStaffPinLogin(token, pin) { return staffApi({ action: 'pin_login', token, pin_hash: await hashPin(pin), device: _devName() }); }
+export async function supabaseStaffPinVerify(token, memberId, pin) { return staffApi({ action: 'pin_verify', token, member_id: String(memberId), pin_hash: await hashPin(pin), device: _devName() }); }
+export async function supabaseStaffMembersStatus(token, storeId) { try { return await staffApi({ action: 'members_status', token, store_id: storeId }); } catch (e) { return { accounts: [], invites: [], error: e && e.message }; } }
+export async function supabaseStaffSetActive(token, staffId, active) { return staffApi({ action: 'set_active', token, staff_id: staffId, active: !!active }); }
+export async function supabaseStaffSharedDevice(token) { return staffApi({ action: 'shared_device', token, device: _devName() }); }
+export async function supabaseStaffRenew(token) { return staffApi({ action: 'renew', token }); }
+export function tsuTokenExp(token) { try { const p = String(token || '').split('.')[0]; const j = JSON.parse(atob(p.replace(/-/g, '+').replace(/_/g, '/'))); return Number(j.exp) || 0; } catch { return 0; } }
+export async function supabaseStaffLoginsList(token, storeId, limit) { try { return (await staffApi({ action: 'logins_list', token, store_id: storeId, limit: limit || 100 })).logins || []; } catch { return []; } }
+export async function supabaseStaffLogin({ username, password, code }) {
+  if (!supabase && !(String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.__tsumugiE2E && window.__tsumugiE2E.loginMock)) throw new Error('Supabase 未接続'); // (自動テストでは API をモック)
   const password_hash = await hashPassword(password);
   try {
-    const j = await staffApi({ action: 'login', username: String(username || '').trim(), password_hash });
+    const j = await staffApi({ action: 'login', username: String(username || '').trim(), password_hash, device: _devName(), code: code || undefined }); // ★ 段階4: 端末名も記録。本部は確認コード(2段階認証)
+    if (j && j.need_code) return { _needCode: true, _hint: j.hint || '', _sent: !!j.sent }; // ★ 2026-10-19: 本部の2段階認証 → コード入力へ
     if (j.sb_token) setSbAccessToken(j.sb_token, j.sb_exp); // ★ 2026-10-17: Supabase の証(発行されたときだけ)
     return { ...(j.staff || {}), _token: j.token || '' };
   } catch (e) {
@@ -2014,6 +2037,27 @@ export async function supabaseStaffLogin({ username, password }) {
   const { password_hash: _ph, ...rest } = data;
   return rest;
 }
+
+// ★ 2026-10-23 本部のパスキー(Touch ID・Face ID)。登録は管理局から、ログインはログイン画面の「パスキーで入る」
+const _pkU2B = (s) => { let t = String(s || '').replace(/-/g, '+').replace(/_/g, '/'); t += '==='.slice((t.length + 3) % 4); const b = atob(t); const u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u.buffer; };
+const _pkB2U = (buf) => { const u = new Uint8Array(buf); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+export const tsuPasskeyAvailable = () => { try { return typeof window !== 'undefined' && !!window.PublicKeyCredential && !!navigator.credentials && window.isSecureContext; } catch { return false; } };
+export async function supabaseHqPasskeyRegister(token) {
+  const { options } = await staffApi({ action: 'passkey_reg_options', token });
+  const cred = await navigator.credentials.create({ publicKey: { ...options, challenge: _pkU2B(options.challenge), user: { ...options.user, id: _pkU2B(options.user.id) }, excludeCredentials: (options.excludeCredentials || []).map(c => ({ ...c, id: _pkU2B(c.id) })) } });
+  const r = cred.response;
+  return staffApi({ action: 'passkey_reg_verify', token, device: _devName(), credential: { id: cred.id, type: cred.type, response: { clientDataJSON: _pkB2U(r.clientDataJSON), attestationObject: _pkB2U(r.attestationObject) } } });
+}
+export async function supabaseHqPasskeyLogin() {
+  const { options } = await staffApi({ action: 'passkey_login_options' });
+  const cred = await navigator.credentials.get({ publicKey: { ...options, challenge: _pkU2B(options.challenge), allowCredentials: [] } });
+  const r = cred.response;
+  const j = await staffApi({ action: 'passkey_login_verify', device: _devName(), credential: { id: _pkB2U(cred.rawId), type: cred.type, response: { clientDataJSON: _pkB2U(r.clientDataJSON), authenticatorData: _pkB2U(r.authenticatorData), signature: _pkB2U(r.signature), userHandle: r.userHandle ? _pkB2U(r.userHandle) : '' } } });
+  if (j.sb_token) setSbAccessToken(j.sb_token, j.sb_exp);
+  return { ...(j.staff || {}), _token: j.token || '' };
+}
+export async function supabaseHqPasskeyList(token) { return (await staffApi({ action: 'passkey_list', token })).passkeys || []; }
+export async function supabaseHqPasskeyDelete(token, id) { return (await staffApi({ action: 'passkey_delete', token, id })).passkeys || []; }
 
 // ★ 2026-10-17 データ保護(段階1): ログインの証から Supabase の証を取り直す(起動時・12時間ごと)。サーバーに秘密が無ければ null(従来どおり)
 export async function supabaseStaffRefreshSbToken(staffToken) {
