@@ -13053,8 +13053,8 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
             const nPrev = now.getDate() <= 15 ? missingFor(py, pmn) : 0; /* 前月分は15日まで出す(ずっと出続けないように) */ if (nPrev) add(t0, { key: 'mon_prev', label: `モニタリング（${pmn}月分） 未確定 ${nPrev}名`, sub: '前月の分（期限切れ）。押すとその月の未作成の方だけ表示', view: 'monitoring', ss: ['tsumugiMonJump', JSON.stringify({ ym: `${py}-${String(pmn).padStart(2,'0')}`, filter: 'unentered' })], color: '#0e7490' });
             const nCur = missingFor(now.getFullYear(), now.getMonth() + 1); if (nCur) add(lastBizOnOrBefore(monthEnd), { key: 'mon_cur', label: `モニタリング（${now.getMonth() + 1}月分） 未確定 ${nCur}名`, sub: `月末（${monthEnd.getMonth()+1}/${monthEnd.getDate()}）まで。押すと未作成の方だけ表示`, view: 'monitoring', ss: ['tsumugiMonJump', JSON.stringify({ ym: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`, filter: 'unentered' })], color: '#0e7490' });
           }
-          // 来週の送迎表(営業日のうち、午前も午後も保存されていない日)=今週の最後の営業日が期日
-          if (tsumugiTransportOn(appData)) {
+          // 来週の送迎表(営業日のうち、午前も午後も保存されていない日)=今週の最後の営業日が期日。★ 2026-10-25: 直近4週間に送迎表を作っている店舗だけ(基本の時間だけで回す店舗には出さない)
+          if (tpStoreUsesTransport(appData)) {
             const nextMon = new Date(t0.getFullYear(), t0.getMonth(), t0.getDate() + ((8 - dowN) % 7 || 7));
             const dn = ['日', '月', '火', '水', '木', '金', '土']; const miss = [];
             for (let k = 0; k < 7; k++) { const dt = new Date(nextMon.getFullYear(), nextMon.getMonth(), nextMon.getDate() + k); if (!isBiz(dt)) continue; const iso = isoOf(dt); if (!tsuTpPlanHas(appData, iso, 'AM') && !tsuTpPlanHas(appData, iso, 'PM')) miss.push(`${dt.getMonth()+1}/${dt.getDate()}(${dn[dt.getDay()]})`); }
@@ -28959,7 +28959,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   // ★ 2026-09-30(ユーザー決定): 送迎表を使っている店舗では、その日の送迎表が「完成」なら確定、まだなら「予定」と表示する
   const _tpUse = tpStoreUsesTransport(appData);
   const _pickupFixed = (info) => { try { const pl = (appData.transportPlans || {})[`${info.iso}_${info.ampm || 'AM'}`]; return !!(pl && pl._final); } catch { return false; } };
-  const _fixBadge = (v) => (!_tpUse || !v || !v.time || v.time === '徒歩') ? null : (v.fixed
+  const _fixBadge = (v) => (TSU_TP_FINAL_OFF || !_tpUse || !v || !v.time || v.time === '徒歩') ? null : (v.fixed /* ★ 2026-10-25: 確定の廃止=印を出さない */
     ? <span data-testid="pickup-fixed" style={{fontSize:12,fontWeight:'bold',color:'#166534',background:'#dcfce7',border:'1px solid #86efac',borderRadius:6,padding:'1px 8px'}}>確定</span>
     : <span data-testid="pickup-planned" style={{fontSize:12,fontWeight:'bold',color:'#92400e',background:'#fef3c7',border:'1px solid #fcd34d',borderRadius:6,padding:'1px 8px'}} title="事業所で送迎表を確定する前のため、時間が変わることがあります">予定（確定前）</span>);
   const todayVisit = (() => {
@@ -36765,6 +36765,50 @@ const tsuHmMinus = (hm, n) => { const m = String(hm || '').match(/(\d{1,2})[:：
 // ★ 2026-10-15(ユーザー相談「送迎表を使うなら日誌の1週間前コピーは要るのか」): 送迎表を使っている店舗で、その日・その時間帯の送迎表が保存されているか。
 //   保存されている日は、日誌の「1週間前の送迎を自動コピー」をせず「送迎表取込」で入れる(先週の割り当てが残って取り込み忘れになるのを防ぐ)
 const tsuTpPlanHas = (appData, iso, slot) => { if (!tsumugiTransportOn(appData)) return false; const pl = ((appData && appData.transportPlans) || {})[`${iso}_${slot}`]; if (!pl || typeof pl !== 'object') return false; return Object.values(pl.cars || {}).some(a => (a || []).length) || (pl.walkers || []).length > 0 || (pl.others || []).length > 0; };
+// ★ 2026-10-25: 送迎表→日誌(迎え/送り/運転者/時間)の変換。日誌の「送迎表取込」ボタンの中身を関数にした(日誌を開いたときに自動で反映するため)。
+//   opts.confirm = 確認(ボタンから=window.confirm／自動のときは常に true=目安の時間も入れ・送迎表の時間で上書き)
+const tsuTpImportPatch = (plan, log, ds, opts) => {
+          const _pk = {}, _dp = {}, _pw = {}, _dw2 = {}, _po = {}, _do2 = {};
+          Object.keys(plan.cars||{}).forEach(cid => (plan.cars[cid]||[]).forEach(m => { _pk[`${m.pid}_${cid}`] = true; }));
+          (plan.walkers||[]).forEach(m => { _pw[String(m.pid)] = true; });
+          (plan.others||[]).forEach(m => { _po[String(m.pid)] = true; });
+          // ★ 送り別割り当てがある日は送りをそちらから反映(2026-09-12d)
+          const _dropSrc = (plan.dropMode === 'custom' && plan.drop) ? plan.drop : { cars: plan.cars, walkers: plan.walkers, others: plan.others };
+          Object.keys(_dropSrc.cars||{}).forEach(cid => (_dropSrc.cars[cid]||[]).forEach(m => { _dp[`${m.pid}_${cid}`] = true; }));
+          (_dropSrc.walkers||[]).forEach(m => { _dw2[String(m.pid)] = true; });
+          (_dropSrc.others||[]).forEach(m => { _do2[String(m.pid)] = true; });
+          // ★ 2026-10-15(ユーザー要望): 送迎表の運転者(迎え=運転者の選択・送り=座席表の運転席)と時間(迎えの到着・送りの出発)も入れる。名前が同じ職員にチェック
+          const _sids = (nm) => (ds.staff||[]).filter(x => x && x.name && nm && normalizeName(x.name) === normalizeName(nm)).map(x => x.id);
+          const _drv2 = { ...(log.driver||{}) }; const _ct2 = { ...(log.carTimes||{}) }; const _pad = (v) => { const m = String(v||'').match(/(\d{1,2}):(\d{2})/); return m ? `${m[1].padStart(2,'0')}:${m[2]}` : ''; };
+          const _setDrv = (pref, map) => Object.keys(map||{}).forEach(cid => { const ids = _sids(map[cid]); if (!ids.length) return; Object.keys(_drv2).forEach(k => { if (k.startsWith(`${pref}_${cid}_`)) delete _drv2[k]; }); ids.forEach(id => { _drv2[`${pref}_${cid}_${id}`] = true; }); });
+          _setDrv('a', plan.driver);
+          const _dropX = (plan.dropMode === 'custom' && plan.drop) ? plan.drop : null;
+          if (_dropX) _setDrv('d', _dropX.driver);
+          // ★ 2026-10-21(不具合修正・ユーザー報告「3台→2台に直して取り込み直しても日誌は3台のまま」): 送迎表でその向きに誰も乗っていない車は、運転者と時間を消す
+          { const _pickUsed = new Set(Object.keys(plan.cars||{}).filter(cid => ((plan.cars||{})[cid]||[]).length));
+            const _dropUsed = new Set(Object.keys(_dropSrc.cars||{}).filter(cid => ((_dropSrc.cars||{})[cid]||[]).length));
+            const _cids = new Set([...(ds.cars||[]).map(c => c && c.id).filter(Boolean), ...Object.keys(_ct2), ...Object.keys(_drv2).map(k => { const m = k.match(/^[ad]_(.+)_[^_]+$/); return m ? m[1] : ''; }).filter(Boolean)]);
+            _cids.forEach(cid => {
+              if (!_pickUsed.has(cid)) { Object.keys(_drv2).forEach(k => { if (k.startsWith(`a_${cid}_`)) delete _drv2[k]; }); if (_ct2[cid] && 'arrive' in _ct2[cid]) { const { arrive, ...rest } = _ct2[cid]; _ct2[cid] = rest; } }
+              if (!_dropUsed.has(cid)) { Object.keys(_drv2).forEach(k => { if (k.startsWith(`d_${cid}_`)) delete _drv2[k]; }); if (_ct2[cid] && 'depart' in _ct2[cid]) { const { depart, ...rest } = _ct2[cid]; _ct2[cid] = rest; } }
+            }); }
+          // ★ 2026-10-15(ユーザー要望「取り込みで日誌が全部終わるように」): 迎えの到着(送迎表の各車の最後)と送りの出発(座席表)も入れる。
+          //   日誌が空の車は入れる。日誌に違う時間が入っている車は確認して上書き。送迎表で「目安」のままの時間は確認してから入れる(目安は日誌の時間を上書きしない)
+          const _tc = [];
+          Object.keys(plan.arrive||{}).forEach(cid => { const v = _pad(plan.arrive[cid]); if (v && ((plan.cars||{})[cid]||[]).length) _tc.push({ cid, f: 'arrive', v, auto: !!(plan.arriveAuto||{})[cid] }); });
+          if (_dropX) Object.keys(_dropX.depart||{}).forEach(cid => { const v = _pad(_dropX.depart[cid]); if (v && ((_dropX.cars||{})[cid]||[]).length) _tc.push({ cid, f: 'depart', v, auto: !!(_dropX.departAuto||{})[cid] }); });
+          const _cn = (cid) => ((ds.cars||[]).find(c => c && c.id === cid) || {}).name || cid;
+          const _hm0 = (v) => String(v||'').replace(/^0(\d):/, '$1:');
+          const _fl = (x) => `${_cn(x.cid)}　${x.f === 'arrive' ? '到着' : '出発'} ${_hm0(x.v)}`;
+          const _cur = (x) => ((_ct2[x.cid]||{})[x.f]) || '';
+          const _put = (x) => { _ct2[x.cid] = { ...(_ct2[x.cid]||{}), [x.f]: x.v }; };
+          const _autoNew = _tc.filter(x => x.auto && !_cur(x));
+          const _conf = _tc.filter(x => !x.auto && _cur(x) && _cur(x) !== x.v);
+          _tc.filter(x => !x.auto && !_cur(x)).forEach(_put);
+          if (_autoNew.length && opts.confirm(`送迎表で「目安」のままの時間があります。\n${_autoNew.map(_fl).join('\n')}\n\n目安の時間を日誌に入れますか？\n（キャンセル＝入れない）`)) _autoNew.forEach(_put);
+          if (_conf.length && opts.confirm(`日誌に入っている時間と、送迎表の時間が違う車があります。\n${_conf.map(x => `${_fl(x)}（日誌は ${_hm0(_cur(x))}）`).join('\n')}\n\n送迎表の時間で上書きしますか？\n（キャンセル＝日誌の時間のまま）`)) _conf.forEach(_put);
+          return { pick: _pk, drop: _dp, pick_walk: _pw, drop_walk: _dw2, pick_other: _po, drop_other: _do2, driver: _drv2, carTimes: _ct2 };
+};
 // ★ 2026-10-06(ユーザー要望「各種設定にサイドバーを新設して、送迎表や体力測定の表示・非表示を選べるように」):
 //   送迎表=transportEnabled、体力測定=fitnessCycle.disabled(「体力測定を実施しない」と同じ)、それ以外=systemSettings.sidebarHidden[キー]
 const SIDEBAR_OPTIONAL = [
@@ -36791,7 +36835,11 @@ const tsumugiSideShown = (appData, key) => {
 const tpStoreUsesTransport = (appData) => { if (!tsumugiTransportOn(appData)) return false; try { const lim = tpIsoOf(new Date(Date.now() - 28 * 86400000)); return Object.keys(appData?.transportPlans || {}).some(k => String(k).slice(0, 10) >= lim); } catch { return false; } };
 // ★ 2026-09-30(ユーザー指示で変更): 曜日に関係なく毎日、「今日から1週間後の日」を含む週の送迎表が完成していなければ知らせる
 //   (=今週と来週の2週分を常に完成させておく運用)。
+// ★ 2026-10-25(ユーザー決定「確定はあまり使わないのでなくす」): 送迎表の「確定」の仕組みを止める(確定ボタン・確定済・変更n件・次週分未確定・ご家族画面の予定/確定の印)。
+//   保存済みの _final/_finalAt は残るが見ない。戻すときは false に
+const TSU_TP_FINAL_OFF = true;
 const tpNextWeekReminder = (appData, now = new Date()) => {
+  if (TSU_TP_FINAL_OFF) return null;
   if (!tpStoreUsesTransport(appData)) return null;
   const target = new Date(now); target.setDate(target.getDate() + 7);
   const mon = tpMondayOf(target);
@@ -37295,7 +37343,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     return _draftPlan(iso, sl);
   };
   const savePlan = (iso, sl, plan) => {
-    const { _draft, ...rest0 } = plan; const rest = _pruneDropAt(_withArriveEst(iso, sl, rest0)); // ★ 2026-10-16: 到着の目安を最後の方の時間から入れ直す ★ 2026-10-21: 乗っていない方の送りの時間は消す
+    const { _draft, ...rest0 } = plan; const rest = _pruneDropAt(rest0); // ★ 2026-10-25(ユーザー: 動かすたびに到着が変わって面倒): 保存のたびの到着の目安の入れ直しはやめた(目安は「自動計算」「前週コピー」のときだけ) ★ 2026-10-21: 乗っていない方の送りの時間は消す
     const k = `${iso}_${sl}`;
     const next = _stampChg(plans[k], { ...rest, _savedAt: syncNow() });
     _pushUndo('手での変更', { [k]: next });
@@ -37343,7 +37391,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   //   確定を解除しても、その時の控えを _base に残して「確定時からの変更」を比べ続ける(作成中でも赤丸・黄色の枠が出る)。
   //   もう一度「確定」すると、その控えを基準のまま確定に戻す(解除中に変えた分の赤丸も消えない)。
   //   比べる基準 = 確定中は _final、解除中は _base。基準の一続きを _finalId / _baseId で見分ける(_stampChg の「白紙に戻すか」の判定)
-  const _baseOf = (pl) => (pl ? (pl._final || pl._base || null) : null);
+  const _baseOf = (pl) => ((TSU_TP_FINAL_OFF || !pl) ? null : (pl._final || pl._base || null)); // ★ 2026-10-25: 確定の廃止=控えとの比較(赤丸)もしない
   const _baseIdOf = (pl) => (pl ? (pl._final ? (pl._finalId || pl._finalAt || null) : (pl._base ? (pl._baseId || pl._baseAt || null) : null)) : null);
   const _chgOf = (pl, pid) => { const fin = _baseOf(pl); if (!fin) return ''; const now = _locOf(_snapPlan(pl), pid); if (!now) return ''; const was = _locOf(fin, pid); if (!was) return '確定後に追加'; if (now.zone !== was.zone) return was.zone==='walk'?'徒歩から車へ変更':(was.zone==='other'?'その他から変更':(now.zone==='walk'?'車から徒歩へ変更':(now.zone==='other'?'車からその他へ変更':'車が変更'))); if (now.zone === 'walk' && was.wt != null && now.wt != null && now.wt !== was.wt) return `到着時間が変更（${was.wt||'開始時刻'}→${now.wt||'開始時刻'}）`; if (now.zone !== 'walk' && now.zone !== 'other') { if ((now.t||'') !== (was.t||'')) return `時間が変更（${was.t||'未定'}→${now.t||'未定'}）`;
       // ★ 2026-10-02: 乗車順は「今も乗っている方どうしの並び」で比べる(休みで外れた方の分だけ前に詰まったのを変更と数えない)
@@ -37413,7 +37461,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const td = { ...(pl._telDone || {}), [pid]: { ck: String(((pl._chgAt || {})[pid]) || '0'), on: !!on, t: syncNow() } };
     onSave({ ...appData, transportPlans: { ...plans, [k]: { ...pl, _telDone: td, _savedAt: syncNow() } } }, { silent: true });
   };
-  const _finalAtOfWeek = () => { let best = ''; days.forEach(d => ['AM','PM'].forEach(sl => { const f = plans[`${_iso(d)}_${sl}`]?._finalAt; if (f && String(f) > String(best)) best = f; })); return best; };
+  const _finalAtOfWeek = () => { if (TSU_TP_FINAL_OFF) return ''; let best = ''; days.forEach(d => ['AM','PM'].forEach(sl => { const f = plans[`${_iso(d)}_${sl}`]?._finalAt; if (f && String(f) > String(best)) best = f; })); return best; };
   const _fmtStamp = (v) => { try { const d = new Date(v); if (isNaN(d)) return ''; return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; } catch { return ''; } };
   const finalizeWeek = () => {
     const already = !!_finalAtOfWeek();
@@ -37933,7 +37981,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   // ★ 2026-10-16(ユーザー要望「次の週の順番などを変えた後に前週コピーすると、そのまま入ってしまう」): 前週コピーは
   //   mode='fill'=この週でまだ作っていない午前・午後だけ写す(作った・直したコマはそのまま) / 'all'=全部写し直す(従来)
   const [copyAsk, setCopyAsk] = useState(false);
-  const [dropBoxOpen, setDropBoxOpen] = useState({}); // ★ 2026-10-23(ユーザー要望): 作成中の「送り（帰り）の車」はコマごとに折りたたみ(既定は閉じる)
+  const [dropBoxOpen, setDropBoxOpen] = useState({}); // ★ 2026-10-23(ユーザー要望): 作成中の「送り（帰り）の車」はコマごとに折りたたみ
+  // ★ 2026-10-25(ユーザー要望・スマホだけ): 送迎表を開いたとき「運転中は見ない」の注意。OKを押したら30分は出さない(1回の送迎のあいだは再表示しない)
+  const TSU_TP_DRIVE_ACK_MS = 30 * 60 * 1000;
+  const [driveAck, setDriveAck] = useState(() => { try { return (Date.now() - Number(localStorage.getItem('tsumugiTpDriveAck') || 0)) < TSU_TP_DRIVE_ACK_MS; } catch { return false; } });
+  const _ackDrive = () => { try { localStorage.setItem('tsumugiTpDriveAck', String(Date.now())); } catch {} setDriveAck(true); };
+  // ★ 2026-10-25(ユーザー要望「お迎えだけの送迎表にするか、送りも要るかを選べるように」): 上のボタンで「送り」の表示/非表示(店舗の設定 tpDropShown・既定は表示)
+  const _dropShown = (appData.systemSettings?.tpDropShown !== false);
+  const _toggleDropShown = () => { try { onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), tpDropShown: !_dropShown, _updatedAt: syncNow() } }, { manual: true, message: _dropShown ? '✓ 送りを表示しません（お迎えだけの送迎表）' : '✓ 送りを表示します' }); } catch {} };
   const [legTick, setLegTick] = useState(0); const _legWantRef = React.useRef(new Set()); // ★ 2026-10-16: 移動時間を調べ終わった合図
   const runPrevWeekCopy = (mode) => {
             setCopyAsk(false);
@@ -39108,6 +39163,15 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       {_autoCalcModal}
       <TsuPhonePin testId="pin-transport"><div className={`sticky top-0 z-30 ${_tpPhone ? 'tsu-tp-stick' : ''}`}>
       {/* ★ 2026-09-13c(店舗要望): 重複タイトルを削除し週切替を左端へ。バーは画面上部のタイトル帯に密着(スクロール中も固定)。凡例は同じ列に常時表示・操作説明は「?」に格納 */}
+      {_tpPhone && !driveAck && ReactDOM.createPortal((
+        <div data-testid="tp-drive-notice" className="fixed inset-0 z-[10060] bg-slate-900/70 flex items-center justify-center p-6">
+          <div className="bg-white rounded-2xl shadow-2xl p-5 w-full max-w-sm text-center">
+            <div className="text-[18px] font-bold text-red-700 mb-2">運転中は見ないでください</div>
+            <div className="text-[14px] text-slate-700 leading-relaxed mb-4">送迎表は、車を停めてから確認してください。<br/>走行中のスマホ操作は危険です。</div>
+            <button type="button" data-testid="tp-drive-ok" onClick={_ackDrive} className="w-full py-3 rounded-xl bg-blue-600 text-white text-[16px] font-bold">停車中です・確認する</button>
+            <div className="text-[11px] text-slate-400 mt-2">この表示は30分間は出ません</div>
+          </div>
+        </div>), document.body)}
       <div data-testid="tp-ops" className={`bg-white px-2 sm:px-3 py-1.5 border-b border-slate-200 shadow-sm flex items-center gap-2 flex-wrap ${_tpPhone && !_tpOpsOpen ? 'hidden' : ''}`}>
         <div className="tsu-tpo-week flex items-center gap-1">
           <button onClick={()=>moveWeek(-1)} className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-bold">◀ 前週</button>
@@ -39131,7 +39195,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             </button>
           ); })()}
           {/* ★ 週の完成確定(2026-09-28): 確定後の変更は赤丸で自動表示 */}
-          {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return (
+          {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return TSU_TP_FINAL_OFF ? null : (
             <button onClick={() => fa ? setFinalMenu(v => !v) : finalizeWeek()} data-testid="tp-finalize" className={`${_tpPhone ? 'hidden ' : ''}h-10 px-2.5 rounded-xl font-bold text-xs border whitespace-nowrap inline-flex items-center ${fa?'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100':'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`} title={fa?`確定 ${_fmtStamp(fa)}。押すと今の内容で確定を更新(赤丸は付け直し)`:'この週の送迎表を確定します。以後の変更には赤丸が付きます'}>
               {fa ? <>確定済<span className="ml-1 font-normal text-[10px] leading-tight inline-block text-left align-middle">{(() => { const [d0, t0] = String(_fmtStamp(fa)).split(' '); return <>{d0}<br/>{t0 || ''}</>; })()}</span><span className="ml-1 text-[9px]">▼</span></> : '確定'}{/* ★ 2026-10-23(ユーザー): 日付の下に時刻 */}
             </button>
@@ -39206,6 +39270,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           {/* ★ 2026-10-01(試験版・ユーザー要望「文が長い」): 週の状態は短く「作成中」／確定を押したら「確定済」(押した日時つき) */}
           {/*   確定したあとは「確定済」のボタン(押すと今の内容で確定を更新)だけにして、横幅を取らないようにする */}
           {/* ★ 2026-10-13(ユーザー指示): 「作成中」の印は不要(確定済でなければ作成中と分かる) */}
+          <button type="button" data-testid="tp-drop-toggle" onClick={_toggleDropShown} className={`h-10 px-2.5 rounded-xl font-bold text-xs border whitespace-nowrap inline-flex items-center ${_dropShown ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-500'}`} title="送り（帰り）の欄を出すかどうか（お迎えだけで足りる店舗は非表示に。保存した送りの内容は消えません）">送り {_dropShown ? '表示' : '非表示'}</button>
           <button onClick={()=>{ setTpSetCap({}); setTpSettings(true); }} className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl font-bold text-sm" title="車の定員・座席表の並びの設定（施設に着く時間も確認できます）">設定</button>
           <button onClick={()=>setPrintModal({ mode:'week', weekContent:'sheet', days:new Set(days.map(d=>_iso(d))), dropAt: true, dropMode2: 'none' })} className="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-xl font-bold text-sm">ダウンロード</button>
         {/* ★ 2026-10-08(ユーザー指示): 上部の「?」(使い方の説明)は削除 */}
@@ -39217,7 +39282,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               {(() => { const d = new Date(_tpDayIso + 'T00:00:00'); const _td = _tpDayIso === _iso(new Date()); return <span className={`flex-1 min-w-0 text-center text-[14px] font-bold whitespace-nowrap ${_td ? 'text-blue-700' : 'text-slate-800'}`} title={_td ? '今日' : undefined}>{d.getMonth()+1}/{d.getDate()}({DOWJ[d.getDay()]})</span>; })()}
               <button type="button" onClick={() => _tpStepDay(1)} className="h-10 w-8 shrink-0 rounded-lg border border-slate-300 bg-white font-bold text-slate-700" aria-label="次の日">▶</button>
               <button type="button" data-testid="tp-phone-week" onClick={() => setTpWeekOnPhone(true)} className="h-10 px-1.5 shrink-0 rounded-lg bg-slate-800 text-white text-[12px] font-bold whitespace-nowrap">1週間</button>
-              {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return (
+              {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return TSU_TP_FINAL_OFF ? null : (
                 <button type="button" onClick={() => fa ? setFinalMenu(v => !v) : finalizeWeek()} data-testid="tp-finalize-phone" className={`h-10 px-1.5 shrink-0 rounded-lg font-bold text-[12px] border whitespace-nowrap ${fa?'bg-emerald-50 border-emerald-400 text-emerald-800':'bg-white border-slate-300 text-slate-700'}`}>
                   {fa ? <>確定済{tot ? <span className="ml-0.5 bg-red-600 text-white rounded px-1">変更{tot}</span> : null}<span className="ml-0.5 text-[9px]">▼</span></> : '確定'}
                 </button>); })()}
@@ -39225,7 +39290,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             </>) : (<>
               <span className="flex-1 min-w-0 text-[12px] font-bold text-slate-600 truncate">1週間（横にスクロール）</span>
               <button type="button" data-testid="tp-phone-day" onClick={() => setTpWeekOnPhone(false)} className="h-10 px-2 shrink-0 rounded-lg bg-blue-600 text-white text-[12px] font-bold whitespace-nowrap">1日に戻る</button>
-              {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return (
+              {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return TSU_TP_FINAL_OFF ? null : (
                 <button type="button" onClick={() => fa ? setFinalMenu(v => !v) : finalizeWeek()} data-testid="tp-finalize-phone-w" className={`h-10 px-1.5 shrink-0 rounded-lg font-bold text-[12px] border whitespace-nowrap ${fa?'bg-emerald-50 border-emerald-400 text-emerald-800':'bg-white border-slate-300 text-slate-700'}`}>
                   {fa ? <>確定済{tot ? <span className="ml-0.5 bg-red-600 text-white rounded px-1">変更{tot}</span> : null}<span className="ml-0.5 text-[9px]">▼</span></> : '確定'}
                 </button>); })()}
@@ -39295,7 +39360,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               {!anyone ? <div className="px-3 py-2 text-[13px] text-slate-400">—</div> : (<>
                 {cars.map(c => { const ms = (pl.cars||{})[c.id] || []; const rmHere = ((_fin.cars||{})[c.id] || []).filter(m => m && _rmSet.has(String(m.pid)) && !ms.some(x => String(x.pid) === String(m.pid)));
                   // ★ 2026-10-15(ユーザー要望): 送りを座席表で決めた日は、車の名前・運転者の横に「送りの座席」(押すとその車の送りの座席表・見るだけ)。送りだけで使う車も見出しを出す
-                  const _dropMs = (pl.dropMode === 'custom' && pl.drop) ? ((pl.drop.cars||{})[c.id] || []) : [];
+                  const _dropMs = (_dropShown && pl.dropMode === 'custom' && pl.drop) ? ((pl.drop.cars||{})[c.id] || []) : [];
                   if (!ms.length && !rmHere.length && !_dropMs.length) return null; const drv = (pl.driver||{})[c.id] || '';
                   const rows = [...ms.map(m => ({ ...m, _rm: false })), ...rmHere.map(m => ({ ...m, _rm: true }))].sort((a, b) => _mins(a.t) - _mins(b.t));
                   const _av = (pl.arrive||{})[c.id] || ''; const _au = !!_av && !!(pl.arriveAuto||{})[c.id]; return (
@@ -39307,7 +39372,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                     {ms.length ? (
                       <div className="px-3 py-1.5 flex items-center gap-2 border-b border-slate-100 bg-slate-50" data-testid={`tp-dl-arrive-${iso}-${sl}-${c.id}`}>
                         <span className="shrink-0 font-bold text-[14px] text-slate-600" style={{width:'7.5em'}}>施設に到着</span>
-                        <button type="button" data-testid={`tp-dl-arrive-btn-${iso}-${sl}-${c.id}`} data-auto={_au ? '1' : '0'} data-late={(_au && _arriveLate(sl, _av)) ? '1' : '0'} onClick={() => setArrKp({ iso, sl, cid: c.id })} className={`shrink-0 font-bold tabular-nums text-[19px] rounded-lg border-2 px-2 py-0.5 bg-white ${_au ? (_arriveLate(sl, _av) ? 'border-dashed border-red-500 text-red-600 bg-red-50' : 'border-dashed border-amber-400 text-slate-400') : 'border-slate-300 text-slate-900'}`} style={{minWidth:'3.6em'}}>{_av || '—:—'}</button>
+                        <button type="button" data-testid={`tp-dl-arrive-btn-${iso}-${sl}-${c.id}`} data-auto={_au ? '1' : '0'} data-late={(_au && _arriveLate(sl, _av)) ? '1' : '0'} onClick={() => setArrKp({ iso, sl, cid: c.id })} className={`shrink-0 font-bold tabular-nums text-[19px] rounded-lg border-2 px-2 py-0.5 bg-white ${_au ? (_arriveLate(sl, _av) ? 'border-dashed border-red-500 text-red-600 bg-red-50' : 'border-dashed border-amber-400 text-slate-800') : 'border-slate-300 text-slate-900'}`} style={{minWidth:'3.6em'}}>{_av || '—:—'}</button>
                         {_au ? <span className="text-[11px] font-bold text-amber-800 bg-amber-100 rounded px-1.5">目安</span> : null}
                       </div>) : null}
                   </div>); })}
@@ -39373,7 +39438,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                             {ms.length ? (() => { const av = (pl.arrive||{})[c.id] || ''; const au = !!av && !!(pl.arriveAuto||{})[c.id]; return (
                               <div className="flex items-center gap-1 text-[15px] leading-tight py-0.5 mt-0.5 border-t border-dotted border-slate-300" data-testid={`tp-fb-arrive-row-${iso}-${sl}-${c.id}`}>
                                 <span className="font-bold text-slate-500 shrink-0 text-[13px]" style={{width:'7.2em'}}>施設に到着</span>
-                                <button type="button" data-testid={`tp-fb-arrive-${iso}-${sl}-${c.id}`} data-auto={au ? '1' : '0'} onClick={() => setArrKp({ iso, sl, cid: c.id })} title="押して到着時間を入力（「送迎表取込」で日誌へ入ります）" data-late={(au && _arriveLate(sl, av)) ? '1' : '0'} className={`shrink-0 font-bold tabular-nums rounded px-1 -my-0.5 border bg-white hover:bg-blue-50 ${au ? (_arriveLate(sl, av) ? 'border-2 border-dashed border-red-500 text-red-600 bg-red-50' : 'border-dashed border-amber-400 text-slate-400') : 'border-slate-300 text-slate-800'}`}>{av || '—:—'}</button>
+                                <button type="button" data-testid={`tp-fb-arrive-${iso}-${sl}-${c.id}`} data-auto={au ? '1' : '0'} onClick={() => setArrKp({ iso, sl, cid: c.id })} title="押して到着時間を入力（「送迎表取込」で日誌へ入ります）" data-late={(au && _arriveLate(sl, av)) ? '1' : '0'} className={`shrink-0 font-bold tabular-nums rounded px-1 -my-0.5 border bg-white hover:bg-blue-50 ${au ? (_arriveLate(sl, av) ? 'border-2 border-dashed border-red-500 text-red-600 bg-red-50' : 'border-dashed border-amber-400 text-slate-800') : 'border-slate-300 text-slate-800'}`}>{av || '—:—'}</button>
                                 {au ? <span className="text-[11px] font-bold text-amber-800 bg-amber-100 rounded px-1">目安</span> : null}
                               </div>); })() : (_align ? _padArrive : null)}
                           </div>); }); })()}
@@ -39383,10 +39448,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                       </div>
                     )}
                     {/* ★ 2026-10-15: スマホは送りの座席表を見るだけ(車ごとに切り替え) */}
-                    {_tpPhone && anyone && pl.dropMode === 'custom' && pl.drop ? (
+                    {_dropShown && _tpPhone && anyone && pl.dropMode === 'custom' && pl.drop ? (
                       <div className="px-2 pb-1"><button type="button" data-testid={`tp-fb-seatview-${iso}-${sl}`} onClick={() => setSeatView({ iso, sl, cid: (cars.find(x => ((pl.drop.cars||{})[x.id]||[]).length) || {}).id })} className="text-[11px] font-bold rounded px-1.5 py-0.5 bg-indigo-600 text-white">送りの座席表</button></div>) : null}
                     {/* ★ 2026-10-15(ユーザー要望「確定しても送りの座席は後で変えることがある」): 迎えは確定のまま、送りは確定後も座席表で変えられる */}
-                    {!_tpPhone && anyone ? (
+                    {_dropShown && !_tpPhone && anyone ? (
                       <div className="px-2 pb-1 flex items-center gap-2 flex-wrap">
                         <label className="flex items-center gap-1 text-[10px] font-bold text-slate-500 cursor-pointer select-none">
                           <input type="checkbox" data-testid={`tp-fb-dropsame-${iso}-${sl}`} checked={pl.dropMode!=='custom'} onChange={()=>{ if (pl.dropMode==='custom') { if (!window.confirm('送りを「迎えと同じ」に戻します。\n座席表で決めた送り（席・順番・メモ）は消えます。よろしいですか？')) return; toggleDropMode(iso, sl); } else { toggleDropMode(iso, sl); setSeatMv({ iso, sl }); } }} className="w-3.5 h-3.5"/>送りは迎えと同じ
@@ -39461,7 +39526,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                                 <button onClick={()=>{ if (!dragMv) setEditP({pid:m.pid}); }} {..._dragHandlers(m.pid, iso, sl)} title="タップ=場所・乗車時間の編集 / 長押し=つかんで移動(別の日に落とすと振替)" className="text-[16px] font-bold text-slate-800 flex-1 min-w-0 text-left leading-tight underline decoration-dotted decoration-slate-300 underline-offset-2" style={{touchAction:'pan-y'}}><AutoFitLine style={{width:'100%',maxWidth:'6.6em'}}>{_pname(m.pid)}</AutoFitLine></button>
                                 <TpTimeInput value={_fmtT(m.t)} normalize={_normTimeInput} onCommit={v => setTime(iso, sl, m.pid, v)} data-testid={`tp-time-${m.pid}`} data-tel={(m.mark || _dotOf(pl, iso, m.pid)) ? '1' : '0'} data-notime={/^\d{1,2}:\d{2}$/.test(String(_fmtT(m.t) || '')) ? '0' : '1'} placeholder="—:—" className={`w-[58px] text-center text-[16px] font-bold rounded px-0.5 py-1 outline-none shrink-0 ${(m.mark || _dotOf(pl, iso, m.pid)) ? 'border-2 border-red-600 text-slate-800' : (/^\d{1,2}:\d{2}$/.test(String(_fmtT(m.t) || '')) ? 'border border-slate-300' : 'border-2 border-amber-400 bg-amber-50')}`} style={{fontVariantNumeric:'tabular-nums'}}/>
                                 {/* ★ 2026-10-21: 送りで家に着く時間。押すとテンキーで直せる(送りが迎えと同じ日もここで)。その日に送りの時間が1つでもあれば、空いている方にも出す */}
-                                {(() => { const _da = _dropAtOf(pl, m.pid); const _any = Object.values(pl.dropAt || {}).some(Boolean); if (!_da && !_any && pl.dropMode === 'custom') return null; /* ★ 2026-10-23: 迎えと同じの日はいつも出す(ここから入れ始められる) */ return <button type="button" data-testid={`tp-dat-${m.pid}`} onClick={() => setSeatAtKp({ iso, sl, cid: c.id, pid: m.pid })} title="送りで家に着く時間（押すと入力）" className={`shrink-0 text-[11px] font-bold tabular-nums whitespace-nowrap rounded px-0.5 ${_da ? (_dropAtAutoOf(pl, m.pid) ? 'text-slate-400' : 'text-indigo-600') : 'text-slate-300 border border-dashed border-slate-300'}`}>送{_da || '--:--'}</button>; })()}
+                                {_dropShown && (() => { const _da = _dropAtOf(pl, m.pid); const _any = Object.values(pl.dropAt || {}).some(Boolean); if (!_da && !_any && pl.dropMode === 'custom') return null; /* ★ 2026-10-23: 迎えと同じの日はいつも出す(ここから入れ始められる) */ return <button type="button" data-testid={`tp-dat-${m.pid}`} onClick={() => setSeatAtKp({ iso, sl, cid: c.id, pid: m.pid })} title="送りで家に着く時間（押すと入力）" className={`shrink-0 text-[11px] font-bold tabular-nums whitespace-nowrap rounded px-0.5 ${_da ? (_dropAtAutoOf(pl, m.pid) ? 'text-slate-400' : 'text-indigo-600') : 'text-slate-300 border border-dashed border-slate-300'}`}>送{_da || '--:--'}</button>; })()}
                               </div>
                             ))}
                             {Array.from({ length: Math.max(0, _maxE(c.id) - (pl.cars?.[c.id]||[]).length) }, (_, i) => (i === 0 && !(pl.cars?.[c.id]||[]).length)
@@ -39472,7 +39537,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                               <div className="flex items-center gap-1 px-1 min-h-[30px] border-t border-dashed border-slate-300 bg-slate-50" data-testid={`tp-arrive-row-${iso}-${sl}-${c.id}`} title="施設に着いた時間（「送迎表取込」で日誌へ入ります）">
                                 <span className="w-6 shrink-0"/>
                                 <span className="flex-1 min-w-0 text-[12px] font-bold text-slate-500 flex items-center gap-1">施設に到着{au ? <span className="text-[10px] font-bold text-amber-800 bg-amber-100 rounded px-1">目安</span> : null}</span>
-                                <button type="button" data-testid={`tp-arrive-${iso}-${sl}-${c.id}`} data-auto={au ? '1' : '0'} onClick={() => { if (!dragMv) setArrKp({ iso, sl, cid: c.id }); }} data-late={(au && _arriveLate(sl, av)) ? '1' : '0'} title={(au && _arriveLate(sl, av)) ? `到着の目安が${sl === 'PM' ? '2単位目' : '1単位目'}の開始時間に間に合いません（お迎えを早めるか、実際の時間を入れてください）` : undefined} className={`w-[58px] text-center text-[16px] font-bold rounded px-0.5 py-1 shrink-0 border bg-white hover:bg-blue-50 ${au ? (_arriveLate(sl, av) ? 'border-2 border-dashed border-red-500 text-red-600 bg-red-50' : 'border-dashed border-amber-400 text-slate-400') : 'border-slate-300 text-slate-800'}`} style={{fontVariantNumeric:'tabular-nums'}}>{av || '—:—'}</button>
+                                <button type="button" data-testid={`tp-arrive-${iso}-${sl}-${c.id}`} data-auto={au ? '1' : '0'} onClick={() => { if (!dragMv) setArrKp({ iso, sl, cid: c.id }); }} data-late={(au && _arriveLate(sl, av)) ? '1' : '0'} title={(au && _arriveLate(sl, av)) ? `到着の目安が${sl === 'PM' ? '2単位目' : '1単位目'}の開始時間に間に合いません（お迎えを早めるか、実際の時間を入れてください）` : undefined} className={`w-[58px] text-center text-[16px] font-bold rounded px-0.5 py-1 shrink-0 border bg-white hover:bg-blue-50 ${au ? (_arriveLate(sl, av) ? 'border-2 border-dashed border-red-500 text-red-600 bg-red-50' : 'border-dashed border-amber-400 text-slate-800') : 'border-slate-300 text-slate-800'}`} style={{fontVariantNumeric:'tabular-nums'}}>{av || '—:—'}</button>
                               </div>); })()}
                             {!(pl.cars?.[c.id]||[]).length && (_maxE(c.id) > 0
                               ? <>{_padArrE}</>
@@ -39529,21 +39594,21 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                           </div>
                         )}
                         {/* ★ 2026-10-15(ユーザー要望): 送りは「迎えと同じ」をチェックで。外すと座席表(車のイラスト)で席と順番を決める */}
-                        <div className="flex items-center gap-2 flex-wrap">
+                        {_dropShown && <div className="flex items-center gap-2 flex-wrap">
                           <label className="flex items-center gap-1 text-[11px] font-bold text-slate-600 cursor-pointer select-none">
                             <input type="checkbox" data-testid={`tp-dropsame-${iso}-${sl}`} checked={pl.dropMode!=='custom'} onChange={()=>{ if (pl.dropMode==='custom') { if (!window.confirm('送りを「迎えと同じ」に戻します。\n座席表で決めた送り（席・順番・メモ）は消えます。よろしいですか？')) return; toggleDropMode(iso, sl); } else { toggleDropMode(iso, sl); setSeatMv({ iso, sl }); } }} className="w-4 h-4"/>
                             送りは迎えと同じ
                           </label>
                           {pl.dropMode==='custom' && <button type="button" data-testid={`tp-seatbtn-${iso}-${sl}`} onClick={()=>setSeatMv({ iso, sl })} className="text-[11px] font-bold rounded px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white">座席表で決める</button>}
-                        </div>
+                        </div>}
                         {/* ★ 2026-10-23(ユーザー要望・おすすめ案を採用): 迎えと同じの日も、ここで各車の送りの出発(既定=終了時刻＋乗車にかかる時間)と家に着く目安を扱う(順番=迎えの逆) */}
-                        {pl.dropMode!=='custom' && (() => { const lists = _dropListsOf(pl); const cids = cars.filter(c => (lists[c.id] || []).length); if (!cids.length) return null; return (
+                        {_dropShown && pl.dropMode!=='custom' && (() => { const lists = _dropListsOf(pl); const cids = cars.filter(c => (lists[c.id] || []).length); if (!cids.length) return null; return (
                           <div data-testid={`tp-same-drop-${iso}-${sl}`} className="mt-1 flex items-center gap-2 flex-wrap text-[11px]">
                             <span className="font-bold text-slate-500 shrink-0">送り（迎えの逆順）</span>
                             {/* ★ 2026-10-23(ユーザー): 車ごとの出発ボタンは出さない(出発は終了時刻＋乗車にかかる時間で自動。変えたいときは座席表で) */}
                             <button type="button" data-testid={`tp-same-est-${iso}-${sl}`} disabled={dropAtBusy} onClick={async () => { setDropAtBusy(true); try { const r2 = await fillDropAtEst(iso, sl); if (!r2.n) alert(r2.why === 'nodep' ? '終了時刻が無いので計算できません（各種設定→提供時間）。' : r2.why === 'noaddr' ? '住所が入っていない方がいる車は計算できません。' : r2.why === 'nofac' ? '事業所の住所が無いため計算できません（各種設定→事業所情報）。' : r2.why === 'api' ? '地図で調べられなかった車があります。' : '目安を入れられる方がいません（手で決めた時間はそのままです）。'); } finally { setDropAtBusy(false); } }} className="shrink-0 rounded px-2 py-0.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold disabled:opacity-50">{dropAtBusy ? '計算中…' : '家に着く目安を入れる'}</button>
                           </div>); })()}
-                        {pl.dropMode==='custom' && pl.drop && (
+                        {_dropShown && pl.dropMode==='custom' && pl.drop && (
                           <div className="border border-indigo-200 bg-indigo-50/40 rounded-lg p-1.5 space-y-1.5">
                             {(() => { const _k = `${iso}_${sl}`; const _open = !!dropBoxOpen[_k]; const _inD0 = new Set([...Object.values(pl.drop.cars||{}).flat(), ...(pl.drop.walkers||[]), ...(pl.drop.others||[])].map(m => m.pid)); const _ny0 = [...new Set([...Object.values(pl.cars||{}).flat(), ...(pl.walkers||[]), ...(pl.others||[])].map(m => m.pid))].filter(pid => !_inD0.has(pid)).length; return (
                             <button type="button" data-testid={`tp-dropbox-toggle-${iso}-${sl}`} onClick={() => setDropBoxOpen(o => ({ ...o, [_k]: !_open }))} className="w-full text-left text-[11px] font-bold text-indigo-700 flex items-center gap-1 whitespace-nowrap overflow-hidden">
@@ -39766,7 +39831,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           return (
             <div key={c.id} className="flex flex-col items-center gap-1.5" style={{ width: maxCols * 120 + 30 }} data-testid={`tp-seatcar-${c.id}`}>
               <div className="text-sm font-bold text-slate-800 flex items-center gap-2 flex-wrap justify-center">{c.name} <span className="text-[11px] font-normal text-slate-400">{Object.keys(lay.bySeat).length}/{lay.capN}名</span>
-                <span className="flex items-center gap-1 text-[11px] font-bold text-slate-500">出発<button type="button" data-testid={`tp-seat-depart-${c.id}`} onClick={() => setSeatKp({ iso, sl, cid: c.id })} title="押すとテンキーで入力できます" className="min-w-[4.4em] px-1.5 py-0.5 border-2 border-slate-300 rounded text-[13px] font-bold text-center tabular-nums bg-white text-blue-700 hover:bg-blue-50">{_depShow(dr, c.id) || '—:—'}</button>{(dr.departAuto||{})[c.id] && _depShow(dr, c.id) ? <span className="text-[10px] font-bold text-amber-800 bg-amber-100 rounded px-1">目安</span> : null}</span>
+                <span className="flex items-center gap-1 text-[11px] font-bold text-slate-500">出発<button type="button" data-testid={`tp-seat-depart-${c.id}`} onClick={() => setSeatKp({ iso, sl, cid: c.id })} title="押すとテンキーで入力できます" className="min-w-[4.4em] px-1.5 py-0.5 border-2 border-slate-300 rounded text-[13px] font-bold text-center tabular-nums bg-white text-blue-700 hover:bg-blue-50">{_depShow(dr, c.id) || (() => { const e2 = _dropDepartEst(getPlan(iso, sl), sl, c.id); return e2 ? `${e2.v}頃` : '—:—'; })()}</button>{(!_depShow(dr, c.id) || (dr.departAuto||{})[c.id]) ? <span className="text-[10px] font-bold text-amber-800 bg-amber-100 rounded px-1">目安</span> : null}</span>{/* ★ 2026-10-25(ユーザー): 出発の目安はボタンを押さなくても人数から自動で */}
               </div>
               <div className="relative w-full bg-white border-[3px] border-slate-700 px-2.5 pb-3 pt-7 flex flex-col gap-2" style={{ borderRadius: '42px 42px 14px 14px' }}>
                 <span className="absolute -left-[13px] top-9 w-3 h-2.5 border-2 border-slate-700 rounded-l-md bg-white" aria-hidden="true"/>
@@ -48801,7 +48866,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
             if (f==='driver'||f==='carTimes') return;
             loaded[f] = remapRow(prevLog[f]);
           });
-          _didAutoCopy = true;
+          _didAutoCopy = true; loaded._tpSrc = 'prev'; // ★ 2026-10-25: どこから入ったかの印
           // ★ 1週間前からの自動コピー(未確認)。 迎え/送り を項目別に保持し、
           //   その項目を編集したらバッジが1つずつ消える(確認済み扱い)。
           const _pend = {};
@@ -48811,6 +48876,21 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         }
       }
     }
+    // ★ 2026-10-25(ユーザー要望): 送迎表に車の割り当てがある日は、日誌を開いたときに自動で反映する(送迎表の方が新しければ入れ直す)。
+    //   日誌側で送迎を手で変えた日(_tpManual)は止める。割り当てが無く時間だけの送迎表の日は、1週間前コピー(上)のまま到着の時間だけ送迎表から
+    if (tsumugiTransportOn(appData) && !_dayIsKyugyo(selectedDate, dow) && !loaded._tpManual) { try {
+      const _plan = (nextAppData.transportPlans||{})[`${selectedDate}_${ampm}`];
+      if (_plan && typeof _plan === 'object') {
+        const _pAt = Number(_plan._savedAt || 0);
+        if (tsuTpPlanHas(nextAppData, selectedDate, ampm)) {
+          if (!loaded._tpAt || _pAt > Number(loaded._tpAt)) { Object.assign(loaded, tsuTpImportPatch(_plan, loaded, appData.diarySettings || {}, { confirm: () => true })); loaded._tpSrc = 'tp'; loaded._tpAt = Date.now(); loaded._sougeiPending = {}; }
+        } else if (_plan.arrive && Object.keys(_plan.arrive).length) {
+          const _ct = { ...(loaded.carTimes || {}) };
+          Object.keys(_plan.arrive).forEach(cid => { const m = String(_plan.arrive[cid] || '').match(/(\d{1,2}):(\d{2})/); if (m && !((_ct[cid] || {}).arrive)) _ct[cid] = { ...(_ct[cid] || {}), arrive: `${m[1].padStart(2, '0')}:${m[2]}` }; });
+          loaded.carTimes = _ct;
+        }
+      }
+    } catch {} }
     setLocalLog(loaded);
     logKeyRef.current = logKey;
     // ★ 自動コピー(1週間前の送迎)は「アプリが自動でやった変更」でありユーザーの編集ではないため、未保存扱いにしない。
@@ -48819,6 +48899,13 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     if (dirtyRef) dirtyRef.current = false;
   }, [logKey]); // eslint-disable-line
 
+  // ★ 2026-10-25: 開いている間に送迎表が変わったら(別端末の変更も)日誌にも自動で反映(手で変えた日は除く)
+  const _tpPlanAt = Number(((appData.transportPlans||{})[`${selectedDate}_${ampm}`] || {})._savedAt || 0);
+  React.useEffect(() => { try {
+    if (!tsumugiTransportOn(appData) || !_tpPlanAt) return;
+    const plan = (appData.transportPlans||{})[`${selectedDate}_${ampm}`]; if (!plan || !tsuTpPlanHas(appData, selectedDate, ampm)) return;
+    setLocalLog(prev => { if (!prev || prev._tpManual) return prev; if (prev._tpAt && _tpPlanAt <= Number(prev._tpAt)) return prev; return { ...prev, ...tsuTpImportPatch(plan, prev, appData.diarySettings || {}, { confirm: () => true }), _tpSrc: 'tp', _tpAt: Date.now(), _sougeiPending: {} }; });
+  } catch {} }, [_tpPlanAt]); // eslint-disable-line
   // ★ スタッフ切替時の自動チェック切替: アクティブ記録者が変わったら、
   //   記録者のチェックを 古いスタッフから新しいスタッフに付け替える
   //   (担当職員への自動チェックは廃止・2026-08-31 店舗要望。手動チェックには触らない)
@@ -48882,6 +48969,9 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   const updateLog = (patch) => {
     setLocalLog(prev => {
       const next = {...prev, ...patch};
+      // ★ 2026-10-25: 送迎表から自動で入った日に、迎え/送り/運転者/時間を手で変えたら自動反映を止める(_tpManual)。送迎表からの反映(_fromTp)は除く
+      if (patch && patch._fromTp) delete next._fromTp;
+      else if (prev && prev._tpSrc === 'tp' && ['pick','drop','pick_walk','drop_walk','pick_other','drop_other','driver','carTimes'].some(f => f in patch)) next._tpManual = true;
       // ★ 送迎を編集したら、その項目の「自動コピー未確認」バッジを外す(迎え/送り/運転者/時間 個別)
       if (next._sougeiPending && Object.keys(next._sougeiPending).length) {
         const _lbl = { pick:'迎え', pick_walk:'迎え', pick_other:'迎え', drop:'送り', drop_walk:'送り', drop_other:'送り', driver:'運転者', carTimes:'時間' };
@@ -50268,56 +50358,13 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
           担当者追加
         </button>
         {/* ★ 送迎表(運行表)からの取り込み(2026-09-12 試験版): 車割り当てを日誌の迎え/送りへ一括反映 */}
-        {tsumugiTransportOn(appData) && (<button disabled={isReadOnly} onClick={()=>{
-          const plan = (appData.transportPlans||{})[`${selectedDate}_${ampm}`];
-          if (!plan) { alert('この日の送迎表がまだ保存されていません。\n送迎表の画面で車割り当てを編集すると保存されます。'); return; }
-          if (!window.confirm('送迎表の車割り当てを、この日誌の「迎え」「送り」へ取り込みます（運転者・到着・出発の時間も入ります）。\n今の迎え/送りの割り当ては上書きされます。よろしいですか？')) return;
-          const _pk = {}, _dp = {}, _pw = {}, _dw2 = {}, _po = {}, _do2 = {};
-          Object.keys(plan.cars||{}).forEach(cid => (plan.cars[cid]||[]).forEach(m => { _pk[`${m.pid}_${cid}`] = true; }));
-          (plan.walkers||[]).forEach(m => { _pw[String(m.pid)] = true; });
-          (plan.others||[]).forEach(m => { _po[String(m.pid)] = true; });
-          // ★ 送り別割り当てがある日は送りをそちらから反映(2026-09-12d)
-          const _dropSrc = (plan.dropMode === 'custom' && plan.drop) ? plan.drop : { cars: plan.cars, walkers: plan.walkers, others: plan.others };
-          Object.keys(_dropSrc.cars||{}).forEach(cid => (_dropSrc.cars[cid]||[]).forEach(m => { _dp[`${m.pid}_${cid}`] = true; }));
-          (_dropSrc.walkers||[]).forEach(m => { _dw2[String(m.pid)] = true; });
-          (_dropSrc.others||[]).forEach(m => { _do2[String(m.pid)] = true; });
-          // ★ 2026-10-15(ユーザー要望): 送迎表の運転者(迎え=運転者の選択・送り=座席表の運転席)と時間(迎えの到着・送りの出発)も入れる。名前が同じ職員にチェック
-          const _sids = (nm) => (ds.staff||[]).filter(x => x && x.name && nm && normalizeName(x.name) === normalizeName(nm)).map(x => x.id);
-          const _drv2 = { ...(log.driver||{}) }; const _ct2 = { ...(log.carTimes||{}) }; const _pad = (v) => { const m = String(v||'').match(/(\d{1,2}):(\d{2})/); return m ? `${m[1].padStart(2,'0')}:${m[2]}` : ''; };
-          const _setDrv = (pref, map) => Object.keys(map||{}).forEach(cid => { const ids = _sids(map[cid]); if (!ids.length) return; Object.keys(_drv2).forEach(k => { if (k.startsWith(`${pref}_${cid}_`)) delete _drv2[k]; }); ids.forEach(id => { _drv2[`${pref}_${cid}_${id}`] = true; }); });
-          _setDrv('a', plan.driver);
-          const _dropX = (plan.dropMode === 'custom' && plan.drop) ? plan.drop : null;
-          if (_dropX) _setDrv('d', _dropX.driver);
-          // ★ 2026-10-21(不具合修正・ユーザー報告「3台→2台に直して取り込み直しても日誌は3台のまま」): 送迎表でその向きに誰も乗っていない車は、運転者と時間を消す
-          { const _pickUsed = new Set(Object.keys(plan.cars||{}).filter(cid => ((plan.cars||{})[cid]||[]).length));
-            const _dropUsed = new Set(Object.keys(_dropSrc.cars||{}).filter(cid => ((_dropSrc.cars||{})[cid]||[]).length));
-            const _cids = new Set([...(ds.cars||[]).map(c => c && c.id).filter(Boolean), ...Object.keys(_ct2), ...Object.keys(_drv2).map(k => { const m = k.match(/^[ad]_(.+)_[^_]+$/); return m ? m[1] : ''; }).filter(Boolean)]);
-            _cids.forEach(cid => {
-              if (!_pickUsed.has(cid)) { Object.keys(_drv2).forEach(k => { if (k.startsWith(`a_${cid}_`)) delete _drv2[k]; }); if (_ct2[cid] && 'arrive' in _ct2[cid]) { const { arrive, ...rest } = _ct2[cid]; _ct2[cid] = rest; } }
-              if (!_dropUsed.has(cid)) { Object.keys(_drv2).forEach(k => { if (k.startsWith(`d_${cid}_`)) delete _drv2[k]; }); if (_ct2[cid] && 'depart' in _ct2[cid]) { const { depart, ...rest } = _ct2[cid]; _ct2[cid] = rest; } }
-            }); }
-          // ★ 2026-10-15(ユーザー要望「取り込みで日誌が全部終わるように」): 迎えの到着(送迎表の各車の最後)と送りの出発(座席表)も入れる。
-          //   日誌が空の車は入れる。日誌に違う時間が入っている車は確認して上書き。送迎表で「目安」のままの時間は確認してから入れる(目安は日誌の時間を上書きしない)
-          const _tc = [];
-          Object.keys(plan.arrive||{}).forEach(cid => { const v = _pad(plan.arrive[cid]); if (v && ((plan.cars||{})[cid]||[]).length) _tc.push({ cid, f: 'arrive', v, auto: !!(plan.arriveAuto||{})[cid] }); });
-          if (_dropX) Object.keys(_dropX.depart||{}).forEach(cid => { const v = _pad(_dropX.depart[cid]); if (v && ((_dropX.cars||{})[cid]||[]).length) _tc.push({ cid, f: 'depart', v, auto: !!(_dropX.departAuto||{})[cid] }); });
-          const _cn = (cid) => ((ds.cars||[]).find(c => c && c.id === cid) || {}).name || cid;
-          const _hm0 = (v) => String(v||'').replace(/^0(\d):/, '$1:');
-          const _fl = (x) => `${_cn(x.cid)}　${x.f === 'arrive' ? '到着' : '出発'} ${_hm0(x.v)}`;
-          const _cur = (x) => ((_ct2[x.cid]||{})[x.f]) || '';
-          const _put = (x) => { _ct2[x.cid] = { ...(_ct2[x.cid]||{}), [x.f]: x.v }; };
-          const _autoNew = _tc.filter(x => x.auto && !_cur(x));
-          const _conf = _tc.filter(x => !x.auto && _cur(x) && _cur(x) !== x.v);
-          _tc.filter(x => !x.auto && !_cur(x)).forEach(_put);
-          if (_autoNew.length && window.confirm(`送迎表で「目安」のままの時間があります。\n${_autoNew.map(_fl).join('\n')}\n\n目安の時間を日誌に入れますか？\n（キャンセル＝入れない）`)) _autoNew.forEach(_put);
-          if (_conf.length && window.confirm(`日誌に入っている時間と、送迎表の時間が違う車があります。\n${_conf.map(x => `${_fl(x)}（日誌は ${_hm0(_cur(x))}）`).join('\n')}\n\n送迎表の時間で上書きしますか？\n（キャンセル＝日誌の時間のまま）`)) _conf.forEach(_put);
-          updateLog({ pick: _pk, drop: _dp, pick_walk: _pw, drop_walk: _dw2, pick_other: _po, drop_other: _do2, driver: _drv2, carTimes: _ct2, _sougeiPending: { ...(log._sougeiPending||{}), '迎え': false, '送り': false } });
-        }}
-          className="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed" title="送迎表の車割り当てを、この日の迎え/送りへ入れます">
-          送迎表取込
-          {/* ★ 2026-10-15: この日の送迎表があるのに日誌の送迎がまだ空なら「未取込」 */}
-          {tsuTpPlanHas(appData, selectedDate, ampm) && !['pick','drop','pick_walk','drop_walk','pick_other','drop_other'].some(f => log[f] && Object.keys(log[f]).some(k => log[f][k])) ? <span className="text-[10px] font-bold bg-white text-violet-700 rounded px-1 py-0.5" data-testid="diary-tp-notyet">未取込</span> : null}
-        </button>)}
+        {/* ★ 2026-10-25(ユーザー要望「取込ボタンは不要。送迎表から自動で入り、送迎表を変えたら日誌も変わる。どちらが反映されているか分かるように」):
+              送迎表に割り当てがある日は日誌を開いたときに自動で反映(tsuTpImportPatch)。手で変えた日(_tpManual)は止め、「送迎表に合わせ直す」で戻せる */}
+        {tsumugiTransportOn(appData) && (() => { const _has = tsuTpPlanHas(appData, selectedDate, ampm); const _src = log._tpSrc; return (
+          <span data-testid="diary-tp-src" data-src={log._tpManual ? 'manual' : (_src || '')} className={`text-[11px] font-bold rounded-lg px-2 py-1.5 border whitespace-nowrap inline-flex items-center gap-1 ${log._tpManual ? 'bg-amber-50 border-amber-300 text-amber-800' : _src === 'tp' ? 'bg-violet-50 border-violet-300 text-violet-700' : _src === 'prev' ? 'bg-slate-50 border-slate-300 text-slate-600' : 'bg-white border-slate-200 text-slate-400'}`} title="この日誌の送迎（迎え・送り・運転者・時間）がどこから入ったか。送迎表から自動のときは、送迎表を変えると日誌も変わります">
+            {log._tpManual ? '送迎: 手で変更' : _src === 'tp' ? '送迎: 送迎表から自動' : _src === 'prev' ? '送迎: 1週間前からコピー' : (_has ? '送迎: 送迎表あり' : '送迎: 未入力')}
+            {log._tpManual && _has && <button type="button" disabled={isReadOnly} data-testid="diary-tp-resync" onClick={() => { const plan = (appData.transportPlans||{})[`${selectedDate}_${ampm}`]; if (!plan) return; if (!window.confirm('送迎表の内容で、この日誌の迎え／送り／運転者／時間を入れ直します。よろしいですか？')) return; updateLog({ ...tsuTpImportPatch(plan, log, ds, { confirm: () => true }), _fromTp: true, _tpSrc: 'tp', _tpAt: Date.now(), _tpManual: false, _sougeiPending: {} }); }} className="underline">送迎表に合わせ直す</button>}
+          </span>); })()}
         {/* 送迎車割り当て */}
         <button disabled={isReadOnly} onClick={()=>{setCarAssignModal({prefix:'pick'});setCarAssignSelections({});}}
           className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-slate-50 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
