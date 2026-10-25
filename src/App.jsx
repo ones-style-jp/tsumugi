@@ -20381,7 +20381,15 @@ const _tsumugiIsIOSLike = () => { try { return /iPad|iPhone|iPod/.test(navigator
 const _tsumugiIsStandalone = () => { try { return navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches); } catch { return false; } };
 const _tsumugiOsLabel = () => { try { const ua = navigator.userAgent; const m = ua.match(/OS (\d+)[_.](\d+)/); if (m && /iPhone|iPad/.test(ua)) return `iOS ${m[1]}.${m[2]}`; const v = ua.match(/Version\/(\d+\.\d+)/); return v ? `Safari ${v[1]}` : ''; } catch { return ''; } };
 function StaffLoginGate({ onLogin }) {
-  const [form, setForm] = useState({ username:'', password:'', error:'', loading:false, showPw:false, code:'', needCode:false, hint:'' }); // ★ 2026-10-19: 本部の2段階認証(code)
+  const [form, setForm] = useState({ username:'', password:'', error:'', loading:false, showPw:false, code:'', needCode:false, hint:'', sent:false, sentAt:'', mailErr:'' }); // ★ 2026-10-19: 本部の2段階認証(code) ★ 2026-10-26: 送信済み(時刻)・送れなかった理由
+  // ★ 2026-10-26(ユーザー「まだメールが送られない。送ったら送信済みとわかるように」): サーバーの返事(送れた・宛先・時刻・理由)をそのまま画面に
+  const _hhmm = (s) => { try { const d = s ? new Date(s) : new Date(); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; } catch { return ''; } };
+  const _toCode = (st, extraErr) => setForm(f=>({...f, loading:false, needCode:true, hint: st._hint || '', code:'', sent: !!st._sent, sentAt: st._sent ? _hhmm(st._sentAt) : '', mailErr: st._sent ? '' : (st._mailErr || '理由が分かりません'), error: extraErr || ''}));
+  const resendCode = async () => {
+    if (form.loading) return; setForm(f=>({...f, loading:true, error:''}));
+    try { const st = await supabaseStaffLogin({ username: form.username, password: form.password, code: '' }); if (st && st._needCode) { _toCode(st, ''); return; } await finishLogin(st); }
+    catch (err) { setForm(f=>({...f, loading:false, sent:false, mailErr: (err && err.message) || '送れませんでした', error:''})); }
+  };
   const _ios = _tsumugiIsIOSLike(); const _sa = _tsumugiIsStandalone();
   const [touchN, setTouchN] = useState(0);
   useEffect(() => {
@@ -20420,11 +20428,11 @@ function StaffLoginGate({ onLogin }) {
             const _cancel = !!(e2 && e2.name === 'NotAllowedError');
             if (!_cancel) { try { localStorage.removeItem('tsumugiHqPasskeyDev'); } catch {} } // ★ 2026-10-26: この端末のパスキーでは入れなかった → 次からは自動で試さない(メールが先)
             let st3; try { st3 = await supabaseStaffLogin({ username: form.username, password: form.password, code: '' }); }
-            catch (e3) { setForm(f=>({...f, loading:false, error: `${_cancel ? 'パスキーを取り消しました' : 'パスキーで入れませんでした（' + ((e2 && e2.message) || '') + '）'}。確認コードのメールも送れませんでした（${(e3 && e3.message) || ''}）。もう一度「ログイン」を押してください`})); return; }
-            if (st3 && st3._needCode) { setForm(f=>({...f, loading:false, needCode:true, hint: st3._hint || '', code:'', error: st3._sent ? (_cancel ? 'パスキーを取り消しました。メールの確認コードを入れてください' : `パスキーで入れませんでした（${(e2 && e2.message) || ''}）。メールの確認コードを入れてください`) : '確認コードのメールを送れませんでした。本部のメール設定をご確認ください'})); return; }
+            catch (e3) { setForm(f=>({...f, loading:false, needCode:true, code:'', sent:false, mailErr: (e3 && e3.message) || '送れませんでした', error: _cancel ? 'パスキーを取り消しました' : `パスキーで入れませんでした（${(e2 && e2.message) || ''}）`})); return; }
+            if (st3 && st3._needCode) { _toCode(st3, _cancel ? 'パスキーを取り消しました。メールの確認コードを入れてください' : `パスキーで入れませんでした（${(e2 && e2.message) || ''}）。メールの確認コードを入れてください`); return; }
             await finishLogin(st3); return; }
         }
-        setForm(f=>({...f, loading:false, needCode:true, hint: staff._hint || '', code:'', error: staff._sent ? '' : '確認コードのメールを送れませんでした。本部のメール設定をご確認ください'}));
+        _toCode(staff, '');
         return; }
       await finishLogin(staff);
     } catch (err) {
@@ -20487,7 +20495,12 @@ function StaffLoginGate({ onLogin }) {
           {form.needCode && (
             <div data-testid="hq-code" style={{marginBottom:14,padding:'12px 14px',background:'#f0f7e0',border:'1px solid #c5dea0',borderRadius:12}}>
               <div style={{fontSize:13,fontWeight:'bold',color:'#3d5021',marginBottom:4}}>確認コード（メールに届いた6桁）</div>
-              <div style={{fontSize:12,color:'#5e8030',marginBottom:8}}>{form.hint ? `${form.hint} に送りました。5分間有効・間違いは3回までです。` : '登録メールに送りました。5分間有効・間違いは3回までです。'}</div>
+              {form.sent ? (
+                <div data-testid="hq-code-sent" style={{fontSize:12,color:'#166534',marginBottom:8,padding:'6px 10px',background:'#dcfce7',border:'1px solid #86efac',borderRadius:8}}><b>送信済み</b>　{form.hint || '登録メール'} に {form.sentAt} に送りました。5分間有効・間違いは3回までです。届かないときは迷惑メールもご確認ください。</div>
+              ) : (
+                <div data-testid="hq-code-unsent" style={{fontSize:12,color:'#991b1b',marginBottom:8,padding:'6px 10px',background:'#fee2e2',border:'1px solid #fca5a5',borderRadius:8}}><b>メールを送れませんでした</b>　{form.mailErr || ''}{form.hint ? `（宛先 ${form.hint}）` : ''}</div>
+              )}
+              <button type="button" data-testid="hq-code-resend" onClick={resendCode} disabled={form.loading} style={{marginBottom:8,padding:'6px 12px',background:'white',color:'#3d5021',border:'1px solid #94c456',borderRadius:8,fontSize:12,fontWeight:'bold',cursor: form.loading ? 'wait' : 'pointer'}}>{form.sent ? 'もう一度送る' : '送り直す'}</button>
               <ImeSafeInput type="text" inputMode="numeric" value={form.code} onChange={e=>setForm(f=>({...f,code:toHalfWidth(e.target.value).replace(/[^0-9]/g,'').slice(0,6),error:''}))} placeholder="123456" autoComplete="one-time-code"
                 style={{width:'100%',padding:'12px 14px',border:'1px solid #cbd5e1',borderRadius:12,fontSize:20,fontWeight:'bold',letterSpacing:6,outline:'none',textAlign:'center',boxSizing:'border-box'}}/>
             </div>

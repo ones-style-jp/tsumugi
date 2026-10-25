@@ -113,9 +113,12 @@ async function sendMail(to, subject, html) {
   const apiKey = await getSecret('BREVO_API_KEY', 'brevo_api_key'); if (!apiKey) return false;
   const senderEmail = (await getSecret('BREVO_SENDER_EMAIL', 'brevo_sender_email')) || 'noreply@ones-style.co.jp';
   const list = [...new Set((to || []).filter(e => e && /@/.test(e)))].map(email => ({ email })); if (!list.length) return false;
-  const r = await fetch('https://api.brevo.com/v3/smtp/email', { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json', 'api-key': apiKey }, body: JSON.stringify({ sender: { email: senderEmail, name: 'つむぎ' }, to: list, subject: String(subject).slice(0, 100), htmlContent: html }) });
+  _lastMailErr = ''; let r; try { r = await fetch('https://api.brevo.com/v3/smtp/email', { method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json', 'api-key': apiKey }, body: JSON.stringify({ sender: { email: senderEmail, name: 'つむぎ' }, to: list, subject: String(subject).slice(0, 100), htmlContent: html }) });
+  } catch (e) { _lastMailErr = 'メールのサーバーに接続できません（' + ((e && e.message) || '') + '）'; return false; }
+  if (!r.ok) { let t = ''; try { t = (await r.text()).slice(0, 200); } catch {} _lastMailErr = `メールのサーバーが拒否しました（${r.status}${t ? ' ' + t : ''}）`; } // ★ 2026-10-26: 失敗の理由を控える(本部の確認コードで表示)
   return r.ok;
 }
+let _lastMailErr = ''; // ★ 2026-10-26: 直前の sendMail の失敗理由
 async function hqEmails() { try { const rows = await sb(`staff?select=email&role=eq.super_admin&is_active=eq.true&deleted_at=is.null`); return (rows || []).map(r => r.email).filter(e => e && /@/.test(e)); } catch { return []; } }
 // 汎用の控え(app_secrets の1行・JSON)
 async function kvLoad(key) { try { const rows = await sb(`app_secrets?select=value&key=eq.${encodeURIComponent(key)}&limit=1`); const v = rows && rows[0] && rows[0].value; const j = v ? JSON.parse(v) : {}; return (j && typeof j === 'object') ? j : {}; } catch { return {}; } }
@@ -138,8 +141,8 @@ async function hqCodeIssue(staff) {
   if (!staff.email || !/@/.test(staff.email)) return { skipped: true };
   const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
   const g = await kvLoad('guard_hq2fa'); g[staff.id] = { hash: crypto.createHash('sha256').update(code + '|' + SERVICE_KEY).digest('hex'), exp: Date.now() + 5 * 60 * 1000, tries: 0 }; await kvSave('guard_hq2fa', g);
-  const ok = await sendMail([staff.email], '【つむぎ】管理局ログインの確認コード', `<p>つむぎ管理局のログインの確認コードです。</p><p style="font-size:28px;font-weight:bold;letter-spacing:6px">${code}</p><p>5分間有効です（間違いは3回まで）。心当たりが無い場合は、このメールを無視し、パスワードの変更をご検討ください。</p><p>— つむぎ(自動送信)</p>`);
-  return { ok, hint: staff.email.replace(/^(.{2}).*(@.*)$/, '$1***$2') };
+  _lastMailErr = ''; const ok = await sendMail([staff.email], '【つむぎ】管理局ログインの確認コード', `<p>つむぎ管理局のログインの確認コードです。</p><p style="font-size:28px;font-weight:bold;letter-spacing:6px">${code}</p><p>5分間有効です（間違いは3回まで）。心当たりが無い場合は、このメールを無視し、パスワードの変更をご検討ください。</p><p>— つむぎ(自動送信)</p>`);
+  return { ok, hint: staff.email.replace(/^(.{2}).*(@.*)$/, '$1***$2'), err: ok ? '' : (_lastMailErr || '送信の部品(BREVO_API_KEY)が設定されていません'), at: new Date().toISOString() };
 }
 async function hqCodeVerify(staff, code) {
   const g = await kvLoad('guard_hq2fa'); const e = g[staff.id]; if (!e) return false;
@@ -243,7 +246,7 @@ export default async function handler(req, res) {
           // ★ 2026-10-26: サーバーで「この本部ユーザーにパスキーの登録があるか」を見る。あればメールを送らず端末にパスキーを先に試させる。無ければ従来どおりメールを送る
           if (body.no_mail === true) { try { const allPk = await kvLoad(PK_KEY); if (Array.isArray(allPk[staff.id]) && allPk[staff.id].length > 0) return res.status(200).json({ need_code: true, hint: '', sent: false, passkey_first: true }); } catch {} }
           const r2 = await hqCodeIssue(staff);
-          if (!r2.skipped) return res.status(200).json({ need_code: true, hint: r2.hint, sent: !!r2.ok });
+          if (!r2.skipped) return res.status(200).json({ need_code: true, hint: r2.hint, sent: !!r2.ok, mail_err: r2.err || '', sent_at: r2.at }); // ★ 2026-10-26: 送れたか・理由・時刻も返す
           // 本部にメールが無い → 従来どおり通す(警告)
         } else if (!(await hqCodeVerify(staff, code))) { await sleep(FAIL_DELAY); return res.status(401).json({ error: '確認コードが違うか、期限が切れています。もう一度ログインしてコードを受け取ってください', code_invalid: true }); }
       }

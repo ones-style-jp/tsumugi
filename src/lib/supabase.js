@@ -2016,7 +2016,7 @@ export async function supabaseStaffLogin({ username, password, code, noMail }) {
   const password_hash = await hashPassword(password);
   try {
     const j = await staffApi({ action: 'login', username: String(username || '').trim(), password_hash, device: _devName(), code: code || undefined, no_mail: noMail ? true : undefined }); // ★ 段階4: 端末名も記録。本部は確認コード(2段階認証)
-    if (j && j.need_code) return { _needCode: true, _hint: j.hint || '', _sent: !!j.sent, _passkeyFirst: !!j.passkey_first }; // ★ 2026-10-19: 本部の2段階認証 → コード入力へ ★ 2026-10-26: passkey_first=パスキーの登録があるのでメールは送っていない
+    if (j && j.need_code) return { _needCode: true, _hint: j.hint || '', _sent: !!j.sent, _passkeyFirst: !!j.passkey_first, _mailErr: j.mail_err || '', _sentAt: j.sent_at || '' }; // ★ 2026-10-26: 送れなかった理由・送った時刻 // ★ 2026-10-19: 本部の2段階認証 → コード入力へ ★ 2026-10-26: passkey_first=パスキーの登録があるのでメールは送っていない
     if (j.sb_token) setSbAccessToken(j.sb_token, j.sb_exp); // ★ 2026-10-17: Supabase の証(発行されたときだけ)
     return { ...(j.staff || {}), _token: j.token || '' };
   } catch (e) {
