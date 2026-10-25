@@ -20405,12 +20405,20 @@ function StaffLoginGate({ onLogin }) {
     }
     setForm(f=>({...f, loading:true, error:''}));
     try {
-      const staff = await supabaseStaffLogin({ username: form.username, password: form.password, code: form.needCode ? form.code : '' });
+      // ★ 2026-10-26(ユーザー提案「IDとPWを打ったら、登録されていればメール認証でなくパスキーに」): この端末にパスキーがあれば(登録時かパスキーで入れたときに印)、
+      //   ①確認コードのメールを送らずに ID/PW を確かめ(noMail) ②自動でパスキー(Touch ID/Face ID) ③取り消し・失敗なら、もう一度ログインしてメールを送りコード入力へ
+      let _hasPk = false; try { _hasPk = localStorage.getItem('tsumugiHqPasskeyDev') === '1'; } catch {}
+      const _tryPk = _hasPk && tsuPasskeyAvailable() && !form.needCode;
+      const staff = await supabaseStaffLogin({ username: form.username, password: form.password, code: form.needCode ? form.code : '', noMail: _tryPk });
       if (staff && staff._needCode) { // ★ 本部: 確認コードの入力へ
+        if (_tryPk) {
+          try { const st2 = await supabaseHqPasskeyLogin(); await finishLogin(st2); return; }
+          catch (e2) { // パスキーを取り消した・使えない → メールを送ってコード入力へ
+            const st3 = await supabaseStaffLogin({ username: form.username, password: form.password, code: '' });
+            if (st3 && st3._needCode) { setForm(f=>({...f, loading:false, needCode:true, hint: st3._hint || '', code:'', error: st3._sent ? (e2 && e2.name === 'NotAllowedError' ? 'パスキーを取り消しました。メールの確認コードを入れてください' : '') : '確認コードのメールを送れませんでした。本部のメール設定をご確認ください'})); return; }
+            await finishLogin(st3); return; }
+        }
         setForm(f=>({...f, loading:false, needCode:true, hint: staff._hint || '', code:'', error: staff._sent ? '' : '確認コードのメールを送れませんでした。本部のメール設定をご確認ください'}));
-        // ★ 2026-10-26(ユーザー提案): この端末にパスキーが登録されていれば、確認コードの代わりにパスキー(Touch ID/Face ID)で入る。取り消したらコード入力のまま
-        let _hasPk = false; try { _hasPk = localStorage.getItem('tsumugiHqPasskeyDev') === '1'; } catch {}
-        if (_hasPk && tsuPasskeyAvailable()) { try { setForm(f=>({...f, loading:true})); const st2 = await supabaseHqPasskeyLogin(); await finishLogin(st2); return; } catch { setForm(f=>({...f, loading:false, error:''})); } }
         return; }
       await finishLogin(staff);
     } catch (err) {
@@ -20424,7 +20432,7 @@ function StaffLoginGate({ onLogin }) {
   const passkeyLogin = async () => {
     if (!isSupabaseEnabled) { setForm(f=>({...f, error:'Supabase が未接続です'})); return; }
     setForm(f=>({...f, loading:true, error:''}));
-    try { const staff = await supabaseHqPasskeyLogin(); await finishLogin(staff); }
+    try { const staff = await supabaseHqPasskeyLogin(); try { localStorage.setItem('tsumugiHqPasskeyDev', '1'); } catch {} await finishLogin(staff); } // ★ 2026-10-26: パスキーで入れた端末に印(次からは自動)
     catch (err) { setForm(f=>({...f, loading:false, error: err && err.name === 'NotAllowedError' ? 'パスキーでのログインを取り消しました' : ((err && err.message) || 'パスキーで入れませんでした')})); }
   };
   const finishLogin = async (staff) => {
@@ -45538,7 +45546,7 @@ function TsuSecJump({ dep, origin, onBack }) {
   const _els = () => { const box = ref.current && ref.current.parentElement; return box ? [...box.querySelectorAll('[data-sec-title]')].filter(el => el.offsetParent) : []; };
   // 描くたびに欄を数え直す(中身が同じなら入れ替えない=描き直しがくり返さない)
   React.useEffect(() => { const t = setTimeout(() => { const next = _els().map((el, i) => ({ i, title: el.getAttribute('data-sec-title') })); setItems(prev => (prev.map(x => x.title).join('|') === next.map(x => x.title).join('|') ? prev : next)); }, 60); return () => clearTimeout(t); });
-  const _back = (origin && onBack) ? <button type="button" data-testid="sec-back" onClick={onBack} className="px-3 py-1.5 rounded-full border border-blue-300 bg-blue-50 text-blue-800 text-xs font-bold whitespace-nowrap">← {origin}に戻る</button> : null;
+  const _back = (origin && onBack) ? <button type="button" data-testid="sec-back" onClick={onBack} className="px-3 py-1.5 rounded-full border border-blue-300 bg-blue-50 text-blue-800 text-xs font-bold whitespace-nowrap">{origin}に戻る</button> : null;
   const _search = <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="この中を検索" data-testid="sec-search" className="px-3 py-1.5 rounded-full border border-slate-300 text-xs outline-none w-36" />;
   if (items.length < 2) return <div ref={ref} className="flex flex-wrap gap-2 items-center">{_back}{_search}</div>;
   return (
