@@ -20408,14 +20408,20 @@ function StaffLoginGate({ onLogin }) {
       // ★ 2026-10-26(ユーザー提案「IDとPWを打ったら、登録されていればメール認証でなくパスキーに」): この端末にパスキーがあれば(登録時かパスキーで入れたときに印)、
       //   ①確認コードのメールを送らずに ID/PW を確かめ(noMail) ②自動でパスキー(Touch ID/Face ID) ③取り消し・失敗なら、もう一度ログインしてメールを送りコード入力へ
       // ★ 2026-10-26(ユーザー指摘「登録されているのにメールが届く」): 端末の印に頼らず、パスキーが使える端末なら noMail で問い合わせ、サーバーが「パスキーの登録あり」と返したときだけ自動でパスキー(メールは送られない)
-      const _tryPk = tsuPasskeyAvailable() && !form.needCode;
+      // ★ 2026-10-26(ユーザー報告「パスキーを登録していない端末でログインするとパスキーが起動し、登録されていないから入れない。メールも来ない」):
+      //   自動でパスキーを試すのは「この端末でパスキーを登録した・パスキーで入れたことがある」端末だけ(印 tsumugiHqPasskeyDev)。印の無い端末は従来どおりメールを送り、コード入力画面の「パスキーで入る」を押せばパスキーも使える
+      const _pkDev = (() => { try { return localStorage.getItem('tsumugiHqPasskeyDev') === '1'; } catch { return false; } })();
+      const _tryPk = tsuPasskeyAvailable() && !form.needCode && _pkDev;
       const staff = await supabaseStaffLogin({ username: form.username, password: form.password, code: form.needCode ? form.code : '', noMail: _tryPk });
       if (staff && staff._needCode) { // ★ 本部: 確認コードの入力へ
         if (_tryPk && staff._passkeyFirst) {
           try { const st2 = await supabaseHqPasskeyLogin(); await finishLogin(st2); return; }
           catch (e2) { // パスキーを取り消した・使えない → メールを送ってコード入力へ
-            const st3 = await supabaseStaffLogin({ username: form.username, password: form.password, code: '' });
-            if (st3 && st3._needCode) { setForm(f=>({...f, loading:false, needCode:true, hint: st3._hint || '', code:'', error: st3._sent ? (e2 && e2.name === 'NotAllowedError' ? 'パスキーを取り消しました。メールの確認コードを入れてください' : '') : '確認コードのメールを送れませんでした。本部のメール設定をご確認ください'})); return; }
+            const _cancel = !!(e2 && e2.name === 'NotAllowedError');
+            if (!_cancel) { try { localStorage.removeItem('tsumugiHqPasskeyDev'); } catch {} } // ★ 2026-10-26: この端末のパスキーでは入れなかった → 次からは自動で試さない(メールが先)
+            let st3; try { st3 = await supabaseStaffLogin({ username: form.username, password: form.password, code: '' }); }
+            catch (e3) { setForm(f=>({...f, loading:false, error: `${_cancel ? 'パスキーを取り消しました' : 'パスキーで入れませんでした（' + ((e2 && e2.message) || '') + '）'}。確認コードのメールも送れませんでした（${(e3 && e3.message) || ''}）。もう一度「ログイン」を押してください`})); return; }
+            if (st3 && st3._needCode) { setForm(f=>({...f, loading:false, needCode:true, hint: st3._hint || '', code:'', error: st3._sent ? (_cancel ? 'パスキーを取り消しました。メールの確認コードを入れてください' : `パスキーで入れませんでした（${(e2 && e2.message) || ''}）。メールの確認コードを入れてください`) : '確認コードのメールを送れませんでした。本部のメール設定をご確認ください'})); return; }
             await finishLogin(st3); return; }
         }
         setForm(f=>({...f, loading:false, needCode:true, hint: staff._hint || '', code:'', error: staff._sent ? '' : '確認コードのメールを送れませんでした。本部のメール設定をご確認ください'}));
@@ -23852,7 +23858,7 @@ export default function App() {
       {deviceNamePrompt && <TsuDeviceNamePrompt suggested={deviceNamePrompt.suggested} onDone={(v) => { const nm = String(v || '').trim() || deviceNamePrompt.suggested; updateDeviceName(nm); setDeviceNamePrompt(null); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `この端末の名前は「${nm}」です（設定 → システム → 端末名 で変更できます）` } })); } catch {} }} />}
       {/* ★ 2026-10-04: 直接ダウンロードの進行表示。iPad は「開く」(ユーザー操作)で新しいタブに表示 */}
       {pdfJob && (
-        <div data-testid="pdf-job" style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',zIndex:9950,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={()=>{ if (pdfJob.status !== 'busy') setPdfJob(null); }}>
+        <div data-testid="pdf-job" style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.45)',zIndex:10090 /* ★ 2026-10-26(ユーザー: 座席表からダウンロードするとPDFの画面が後ろに来る): 座席表(10000)より前に */,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={()=>{ if (pdfJob.status !== 'busy') setPdfJob(null); }}>
           <div onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:16,padding:'22px 26px',maxWidth:420,width:'100%',boxShadow:'0 20px 60px rgba(0,0,0,0.35)',textAlign:'center'}}>
             <div style={{fontSize:12,color:'#64748b',marginBottom:6}}>{pdfJob.title}</div>
             {pdfJob.status === 'busy' && <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}><BusySpin/>PDFを作成しています…</div>}
@@ -37892,7 +37898,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const esc = (t) => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
     const d = new Date(iso); const dl = `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日（${'日月火水木金土'[d.getDay()]}）`;
     const fac = appData.systemSettings?.facilityInfo?.name || '';
-    const cell = (b, pl) => `<div class="st${b ? '' : ' em'}">${b ? `<b class="no">${b.i + 1}</b><span class="nm">${tpNameLines(_pname(b.m.pid)).map(x => `<span>${esc(x)}</span>`).join('')}${_dropAtOf(pl, b.m.pid) ? `<span class="at">着 ${esc(_dropAtOf(pl, b.m.pid))}</span>` : ''}</span>` : ''}</div>`;
+    const cell = (b, pl) => `<div class="st${b ? '' : ' em'}">${b ? `<b class="no">${b.i + 1}</b><span class="nm">${tpNameLines(_pname(b.m.pid)).map(x => `<span>${esc(x)}</span>`).join('')}${_dropShown && _dropAtOf(pl, b.m.pid) ? `<span class="at">着 ${esc(_dropAtOf(pl, b.m.pid))}</span>` : ''}</span>` : ''}</div>`;
     const carHtml = (c, pl) => {
       const custom = pl.dropMode === 'custom' && pl.drop;
       const lay = tpSeatLayout(c, custom ? (pl.drop.cars?.[c.id]||[]) : []);
@@ -39030,8 +39036,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       if ((pl.walkers||[]).length) pick.push({ name: '徒歩', walk: true, members: (pl.walkers||[]).map(m => ({ ...m, t: _walkT(m, sl) })), cap: 0 });
       if ((pl.others||[]).length) pick.push({ name: 'その他', other: true, members: (pl.others||[]), cap: 0 });
       const lists = _dropListsOf(pl); const ddrv = (custom ? pl.drop.driver : pl.driver) || {};
-      const drop = withDrop ? cars.filter(c => (lists[c.id] || []).length).map(c => ({ name: c.name, drv: _dsD(ddrv[c.id] || ''), members: lists[c.id], car: true })) : [];
-      if (withDrop) { const dw = (custom ? pl.drop.walkers : pl.walkers) || [], dot = (custom ? pl.drop.others : pl.others) || [];
+      // ★ 2026-10-26(ユーザー要望「送りの時間を非表示なら横ではなく縦に。送りの車は入れてよい」): 送りの時間を出さないときも送りの車と乗る方は載せる(迎えの下に・時間なし)
+      const drop = cars.filter(c => (lists[c.id] || []).length).map(c => ({ name: c.name, drv: _dsD(ddrv[c.id] || ''), members: lists[c.id], car: true }));
+      { const dw = (custom ? pl.drop.walkers : pl.walkers) || [], dot = (custom ? pl.drop.others : pl.others) || [];
         if (dw.length) drop.push({ name: '徒歩', walk: true, members: dw }); if (dot.length) drop.push({ name: 'その他', other: true, members: dot }); }
       const ab = _absentees(iso, sl);
       return { sl, pl, pick, drop, ab: ab.length ? `休み: ${ab.map(a => _asD(a.name)).join('、')}` : '' }; });
@@ -39051,7 +39058,13 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       return { name, time, tel, dtime, dropW, pickW, addr: pickW - LABW(f) - 3 - name - time - tel }; };
     const rowsOf = (b, lv) => b.car ? (lv === 0 ? Math.max(b.members.length, b.cap, 1) : lv === 1 ? Math.max(b.members.length, Math.min(b.cap, b.members.length + 1), 1) : Math.max(b.members.length, 1)) : Math.max(b.members.length, 1);
     const blkH = (bs, H, f, lv) => bs.reduce((h, b, bi) => h + 5 + (bi === 0 ? Math.ceil(f.fzC * 1.3) + 3 : 0) + rowsOf(b, lv) * (H + 1), 0);
-    const slotH = (x, H, f, lv) => { const band = Math.ceil(f.fz * 1.3) + 6; const abH = x.ab ? Math.ceil(_em(x.ab) * f.fzB / W(f).pickW + 0.01) * Math.ceil(f.fzB * 1.45) + 4 : 0; return band + Math.max(blkH(x.pick, H, f, lv) + abH, withDrop ? blkH(x.drop, H, f, lv) : 0); };
+    // ★ 2026-10-26: 送りの時間を出さないとき(withDrop=false)は、送りを迎えの下に「車ごとに1行(車名・運転者｜氏名を横に並べる)」で載せる。その高さの見積り
+    const _stk = !withDrop;
+    const stkLab = (f) => Math.max(60, Math.ceil(Math.max(0, ...slots.flatMap(x => x.drop.flatMap(b => [_em(b.name) * f.fzS, _em(b.drv || '') * f.fzC]))) + 14));
+    const stkTxt = (b) => b.members.map(m => _nm(m) + (b.other && m.why ? `（${m.why}）` : '')).join('　');
+    const stkRowH = (b, f) => { const lines = Math.max(1, Math.ceil(_em(stkTxt(b)) * f.fz * 1.04 / Math.max(100, PAGE_W - stkLab(f) - 24))); return Math.max(Math.ceil(f.fzS * 1.3) + (b.drv ? Math.ceil(f.fzC * 1.3) : 0) + 6, lines * Math.ceil(f.fz * 1.3) + 6); };
+    const stkH = (x, f) => _stk ? (Math.ceil(f.fz * 1.3) + 6) + 4 + (x.drop.length ? x.drop.reduce((h, b) => h + 3 + stkRowH(b, f) + 2, 0) : Math.ceil(f.fzB * 1.45) + 6) : 0;
+    const slotH = (x, H, f, lv) => { const band = Math.ceil(f.fz * 1.3) + 6; const abH = x.ab ? Math.ceil(_em(x.ab) * f.fzB / W(f).pickW + 0.01) * Math.ceil(f.fzB * 1.45) + 4 : 0; return band + Math.max(blkH(x.pick, H, f, lv) + abH, withDrop ? blkH(x.drop, H, f, lv) : 0) + stkH(x, f); };
     const totalH = (H, lv) => { const f = F(H); return slots.reduce((h, x, k) => h + (k ? 10 : 0) + slotH(x, H, f, lv), 0); };
     const _fits = (H, lv) => { const f0 = F(H), w = W(f0); return totalH(H, lv) <= PAGE_H && w.addr >= 120; };
     let H = 0, LV = 0;
@@ -39087,7 +39100,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const slotRow = (x, k) => { const L = x.sl === 'AM' ? '午前' : '午後';
       const pickCol = `<div style="width:${w.pickW}px;flex:none;">${band(`${L}　迎え`, x.sl === 'AM' ? '#faf0d9' : '#e8edf7', '#172b20')}${x.pick.map((b, bi) => blockHtml(b, bi, x, 'pick')).join('')}${x.ab ? `<div style="font-size:${fzB}px;line-height:1.45;margin-top:4px;color:#475569;">${_escP(x.ab)}</div>` : ''}</div>`;
       const dropCol = withDrop ? `<div style="width:${w.dropW}px;flex:none;">${band(`${L}　送り`, '#ecebfb', '#3730a3')}${x.drop.length ? x.drop.map((b, bi) => blockHtml(b, bi, x, 'drop')).join('') : `<div style="font-size:${fzB}px;color:#64748b;margin-top:6px;">送りの車がありません</div>`}</div>` : '';
-      return `<div style="display:flex;gap:${GAP}px;align-items:flex-start;margin-top:${k ? 10 : 4}px;">${pickCol}${dropCol}</div>`; };
+      // ★ 2026-10-26(ユーザー要望): 送りの時間を出さないときは、送りを迎えの下に(車ごとに1行・時間なし)
+      const dropStack = () => { const lab = stkLab(f); const row = (b) => { const nameColor = b.walk ? '#9a4a0b' : (b.other ? '#6d28d9' : '#172b20'); const bg = b.walk ? '#fdf1e3' : (b.other ? '#f1edfb' : '#ecebfb');
+          return `<div data-tp-stack="1" style="display:flex;margin-top:3px;border:1px solid #66756b;"><div style="flex:none;width:${lab}px;background:${bg};padding:2px 6px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;overflow:hidden;white-space:nowrap;"><b style="font-size:${fzS}px;line-height:1.3;color:${nameColor};">${_escP(b.name)}</b>${b.drv ? `<span style="font-size:${fzC}px;line-height:1.3;color:#111827;font-weight:700;">${_escP(b.drv)}</span>` : ''}</div><div style="flex:1;min-width:0;border-left:1px solid #66756b;padding:2px 8px;font-size:${fz}px;line-height:1.3;font-weight:700;overflow:hidden;">${b.members.map(m => _escP(_nm(m)) + (b.other && m.why ? `<span style="color:#6d28d9;">（${_escP(m.why)}）</span>` : '')).join('<span style="display:inline-block;width:1em;"></span>')}</div></div>`; };
+        return `<div style="margin-top:4px;">${band(`${L}　送り`, '#ecebfb', '#3730a3')}${x.drop.length ? x.drop.map(row).join('') : `<div style="font-size:${fzB}px;color:#64748b;margin-top:6px;">送りの車がありません</div>`}</div>`; };
+      return `<div style="display:flex;gap:${GAP}px;align-items:flex-start;margin-top:${k ? 10 : 4}px;">${pickCol}${dropCol}</div>${_stk ? dropStack() : ''}`; };
     return `<div style="font-family:'Hiragino Sans','Meiryo',sans-serif;color:#172b20;width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">
       <div style="position:relative;text-align:center;flex:none;height:28px;"><span style="position:absolute;left:0;top:6px;font-size:10px;">${_escP(String(appData.systemSettings?.facilityInfo?.name||'つむぎ'))}</span><span style="font-size:18px;font-weight:bold;letter-spacing:8px;">運行表${onlySl ? (onlySl === 'AM' ? '（午前）' : '（午後）') : ''}</span><span style="position:absolute;right:0;top:3px;font-size:14px;font-weight:700;">${d.getMonth()+1}/${d.getDate()}（${DOWJ[d.getDay()]}）</span></div>
       <div style="flex:1;min-height:0;overflow:hidden;">${slots.map((x, k) => slotRow(x, k)).join('')}</div>
@@ -39900,8 +39917,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 {nameSpan(b.m.pid, 'flex-1 min-w-0 text-[13px] text-slate-800 leading-tight', true)}
               </div>
               {/* ★ 2026-10-21(店舗要望): 送りで家に着く時間。押すとテンキー */}
-              <button type="button" data-testid={`tp-seat-at-${b.m.pid}`} onClick={() => setSeatAtKp({ iso, sl, cid: c.id, pid: b.m.pid })} title="家に着く時間"
-                className={`mt-0.5 ml-8 self-start max-w-full px-1 py-0.5 rounded border text-[11px] font-bold tabular-nums whitespace-nowrap overflow-hidden ${_dropAtOf(pl, b.m.pid) ? (_dropAtAutoOf(pl, b.m.pid) ? 'border-slate-300 text-slate-500 bg-white' : 'border-indigo-300 text-indigo-700 bg-indigo-50') : 'border-dashed border-slate-300 text-slate-400 bg-white'}`}>{/* ★ 2026-10-23(ユーザー: 小さい車の席では「着 12:22 目安」がはみ出す): 「着12:22頃」(目安)／「着12:22」(決めた時間) の短い形に */}着{_dropAtOf(pl, b.m.pid) || '--:--'}{_dropAtOf(pl, b.m.pid) && _dropAtAutoOf(pl, b.m.pid) ? '頃' : ''}</button>
+              {_dropShown && <button type="button" data-testid={`tp-seat-at-${b.m.pid}`} onClick={() => setSeatAtKp({ iso, sl, cid: c.id, pid: b.m.pid })} title="家に着く時間"
+                className={`mt-0.5 ml-8 self-start max-w-full px-1 py-0.5 rounded border text-[11px] font-bold tabular-nums whitespace-nowrap overflow-hidden ${_dropAtOf(pl, b.m.pid) ? (_dropAtAutoOf(pl, b.m.pid) ? 'border-slate-300 text-slate-500 bg-white' : 'border-indigo-300 text-indigo-700 bg-indigo-50') : 'border-dashed border-slate-300 text-slate-400 bg-white'}`}>{/* ★ 2026-10-23(ユーザー: 小さい車の席では「着 12:22 目安」がはみ出す): 「着12:22頃」(目安)／「着12:22」(決めた時間) の短い形に */}着{_dropAtOf(pl, b.m.pid) || '--:--'}{_dropAtOf(pl, b.m.pid) && _dropAtAutoOf(pl, b.m.pid) ? '頃' : ''}</button>}{/* ★ 2026-10-26(ユーザー): 送りの時間を非表示の店舗は「着」も出さない */}
               <button type="button" onClick={() => unseatDrop(iso, sl, b.m.pid)} className="absolute top-0 right-0 w-6 h-6 text-[13px] leading-none text-slate-400 hover:text-red-600" aria-label="席から外す" title="席から外す（席未定へ）">×</button>
             </> : <span className="text-center text-[11px] text-slate-400 pt-1">{_dragging ? 'ここへ' : '空き'}</span>}
           </div>); };
@@ -39972,7 +39989,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 </div>
                 <div className="flex-1"/>
                 {dr ? <button type="button" data-testid="tp-seat-depart-est" onClick={() => { const n = fillDropDepartEst(iso, sl); if (!n) alert('目安を入れられる車がありません。\n（送りの方が乗っていない車と、出発時間を手で決めた車はそのままです）'); }} title="終了時刻に乗車にかかる時間を足した目安を入れます（手で決めた時間はそのまま）" className="px-3 py-2 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-800 rounded-lg text-sm font-bold">出発の目安を入れる</button> : null}
-                {dr ? <button type="button" data-testid="tp-seat-at-est" disabled={dropAtBusy} onClick={async () => { setDropAtBusy(true); try { const r2 = await fillDropAtEst(iso, sl); if (!r2.n) alert(r2.why === 'nodep' ? '先に各車の「出発」の時間を入れてください。' : r2.why === 'noaddr' ? '住所が入っていない方がいるため、移動時間を調べられませんでした。' : r2.why === 'nofac' ? '事業所の住所が入っていません（各種設定→事業所情報）。' : r2.why === 'api' ? '移動時間を調べられませんでした。席の「着」を押して手で入れてください。' : '目安を入れられる方がいません（手で決めた時間はそのままです）。'); } finally { setDropAtBusy(false); } }} title="家に着く時間の目安を入れます（手で決めた時間はそのまま）" className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-indigo-800 rounded-lg text-sm font-bold disabled:opacity-50">{dropAtBusy ? '調べています…' : '着く時間の目安を入れる'}</button> : null}
+                {dr && _dropShown ? <button type="button" data-testid="tp-seat-at-est" disabled={dropAtBusy} onClick={async () => { setDropAtBusy(true); try { const r2 = await fillDropAtEst(iso, sl); if (!r2.n) alert(r2.why === 'nodep' ? '先に各車の「出発」の時間を入れてください。' : r2.why === 'noaddr' ? '住所が入っていない方がいるため、移動時間を調べられませんでした。' : r2.why === 'nofac' ? '事業所の住所が入っていません（各種設定→事業所情報）。' : r2.why === 'api' ? '移動時間を調べられませんでした。席の「着」を押して手で入れてください。' : '目安を入れられる方がいません（手で決めた時間はそのままです）。'); } finally { setDropAtBusy(false); } }} title="家に着く時間の目安を入れます（手で決めた時間はそのまま）" className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-indigo-800 rounded-lg text-sm font-bold disabled:opacity-50">{dropAtBusy ? '調べています…' : '着く時間の目安を入れる'}</button> : null}
                 <button type="button" data-testid="tp-seat-dl" onClick={() => downloadSeatChart(iso)} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold">ダウンロード</button>
               </div>
               {!dr ? (
