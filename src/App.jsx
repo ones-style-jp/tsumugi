@@ -18846,6 +18846,16 @@ function tsuBuildStaffSession(staff) {
   return { staffId: staff.id, username: staff.username, role: staff.role, storeId: staff.store_id || null, storeName: staff.stores?.name || '', storeShortName: staff.stores?.short_name || '',
     displayName: staff.display_name || staff.username, token: staff._token || '', kind: staff.kind || 'store', memberId: staff.member_id || null, hasPin: !!staff.has_pin };
 }
+// ★ 2026-10-26(ユーザー「0000 や 1234 など分かりやすい PIN にしないように」): 同じ数字・連番(昇順/降順・0と9をまたぐ)・2桁の繰り返し・19xx/20xx(生年)は受け付けない
+function tsuWeakPin(p) {
+  const t = String(p || ''); if (!/^\d{4}$/.test(t)) return 'PIN は数字4桁です';
+  if (/^(\d)\1{3}$/.test(t)) return '同じ数字の並びは使えません';
+  if (/^(\d\d)\1$/.test(t)) return '同じ2桁の繰り返しは使えません';
+  const d = [...t].map(Number); const up = d.every((v, i) => i === 0 || v === (d[i - 1] + 1) % 10); const dn = d.every((v, i) => i === 0 || v === (d[i - 1] + 9) % 10);
+  if (up || dn) return '連番（1234 や 4321 など）は使えません';
+  if (/^(19|20)\d\d$/.test(t)) return '生まれ年など分かりやすい数字は使えません';
+  return '';
+}
 function StaffInviteAcceptView({ code, onLogin }) {
   const [inv, setInv] = React.useState(null); const [err, setErr] = React.useState(''); const [busy, setBusy] = React.useState(false);
   const [f, setF] = React.useState({ username: '', password: '', password2: '', pin: '', pin2: '' });
@@ -18854,7 +18864,7 @@ function StaffInviteAcceptView({ code, onLogin }) {
     if (!/^[A-Za-z0-9_.@\-]{4,64}$/.test(f.username)) return setErr('ログインIDは4文字以上の半角英数字(. _ @ -)で入力してください');
     if (f.password.length < 8 || !/[A-Za-z]/.test(f.password) || !/[0-9]/.test(f.password)) return setErr('パスワードは8文字以上で英字と数字を含めてください');
     if (f.password !== f.password2) return setErr('パスワード(確認)が一致しません');
-    if (f.pin && !/^\d{4}$/.test(f.pin)) return setErr('PIN は数字4桁です');
+    if (f.pin && tsuWeakPin(f.pin)) return setErr(tsuWeakPin(f.pin)); // ★ 2026-10-26: 分かりやすい PIN は不可
     if (f.pin !== f.pin2) return setErr('PIN(確認)が一致しません');
     setBusy(true);
     try { const staff = await supabaseStaffInviteAccept({ code, username: f.username, password: f.password, pin: f.pin }); const session = tsuBuildStaffSession(staff); sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(session)); try { history.replaceState(null, '', location.pathname); } catch {} onLogin(session); }
@@ -23053,7 +23063,8 @@ export default function App() {
           // ★ 直近5件と同一(端末×カテゴリ×内容)は重複記録しない=頻繁なサイレント保存でログが埋まるのを防ぐ
           const _recent = _oldLog.slice(0, 5);
           const _fresh = _alEntries.filter(e => !_recent.some(o => o && o.device===e.device && o.cat===e.cat && (o.detail||'')===(e.detail||'')));
-          if (_fresh.length) newData = { ...newData, auditLog: [..._fresh, ..._oldLog].slice(0, 300) };
+          // ★ 2026-10-26(ユーザー決定「種類ごとに100件・よく入力する提供記録は200件」): 種類ごとに上限を切る(全体で300件ではない)
+          if (_fresh.length) { const _cnt = {}; newData = { ...newData, auditLog: [..._fresh, ..._oldLog].filter(e => { if (!e) return false; const c = e.cat || ''; _cnt[c] = (_cnt[c] || 0) + 1; return _cnt[c] <= (c === '提供記録' ? 200 : 100); }) }; }
         }
       } catch (e) { console.warn('[auditLog] failed', e); }
       // ★ オブジェクト設定(systemSettings/diarySettings/contactBookConfig)の「変更フィールドだけ」に
@@ -24288,14 +24299,14 @@ export default function App() {
       {auditLogOpen && ReactDOM.createPortal((()=>{
         const _log = Array.isArray(appData.auditLog) ? appData.auditLog : [];
         const _cats = ['全て', ...Array.from(new Set(_log.map(e=>e && e.cat).filter(Boolean)))];
-        const _list = _log.filter(e => e && (auditLogCat==='全て' || e.cat===auditLogCat)).slice().sort((a,b)=>(Number(b.at)||0)-(Number(a.at)||0)).slice(0,300);
+        const _list = _log.filter(e => e && (auditLogCat==='全て' || e.cat===auditLogCat)).slice().sort((a,b)=>(Number(b.at)||0)-(Number(a.at)||0)); // ★ 2026-10-26: 上限は種類ごと(提供記録200・ほか100)
         const _fmt = (t)=>{ try { return new Date(Number(t)).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}); } catch { return ''; } };
         return (
           <div onClick={()=>setAuditLogOpen(false)} style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.55)',zIndex:99998,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
             <div className="tsu-cap-dvh" onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:20,width:'100%',maxWidth:640,maxHeight:'85vh',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,0.35)'}}>
               <div style={{padding:'14px 18px',borderBottom:'1px solid #e2e8f0',display:'flex',alignItems:'center',gap:8}}>
                 <div style={{fontWeight:'bold',color:'#1e293b'}}>変更ログ</div>
-                <div style={{fontSize:11,color:'#64748b'}}>いつ・どの端末（誰）で・何を変更したか（最新300件）</div>
+                <div style={{fontSize:11,color:'#64748b'}}>いつ・どの端末（誰）で・何を変更したか（提供記録は最新200件・ほかは種類ごとに100件）</div>
                 <button onClick={()=>setAuditLogOpen(false)} style={{whiteSpace:'nowrap',marginLeft:'auto',border:'none',background:'#f1f5f9',borderRadius:8,padding:'4px 10px',fontWeight:'bold',cursor:'pointer',color:'#475569'}}>閉じる</button>
               </div>
               <div style={{padding:'8px 14px',borderBottom:'1px solid #f1f5f9',display:'flex',gap:6,flexWrap:'wrap'}}>
@@ -29125,7 +29136,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   const _pickupChgOf = (info) => {
     try {
       const pl = (appData.transportPlans || {})[`${info.iso}_${info.ampm || 'AM'}`];
-      const fin = pl && pl._final; if (!fin) return null;
+      const fin = pl && (pl._final || pl._base); if (!fin) return null; // ★ 2026-10-26: 配布の控えも基準に
       const me = String(selectedPatient.id);
       const locIn = (cars, walkers) => {
         for (const cid of Object.keys(cars || {})) { const x = (cars[cid] || []).find(m => String(m && m.pid) === me); if (x) return _tpJp(x.t) || '未定'; }
@@ -37570,6 +37581,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     onSave({ ...appData, transportPlans: { ...plans, [k]: next } }, { silent: true });
   };
   const mutate = (iso, sl, fn) => { const cur = getPlan(iso, sl); const next = JSON.parse(JSON.stringify({ ...cur })); delete next._draft; fn(next); savePlan(iso, sl, next); };
+  // ★ 2026-10-26(ユーザー要望): 運行表を出した(ダウンロードした)ときに、そのコマの配置を「配布の控え(_base)」として残す(初めて出したときだけ)。以後の変更は赤枠・変更n件・要連絡に出る
+  const _stampHanded = (isos) => { try { const at = syncNow(); let np = null; (isos || []).forEach(iso => ['AM','PM'].forEach(sl => { const k = `${iso}_${sl}`; const pl = plans[k]; if (!pl || pl._base) return; if (![...Object.values(pl.cars || {}).flat(), ...(pl.walkers || []), ...(pl.others || [])].length) return; const { _draft, ...rest } = pl; np = np || { ...plans }; np[k] = { ...rest, _base: _snapPlan(pl), _baseAt: at, _baseId: at, _savedAt: at }; })); if (np) onSave({ ...appData, transportPlans: np }, { silent: true }); } catch {} };
   const _pname = (pid) => (appData.patients||[]).find(p => p.id === pid)?.name || '';
   const _noWhy = (m) => { const { why, ...rest } = m || {}; return rest; }; // ★ 2026-10-01: その他の理由は「その他」から出たら消す
   const _otherLabel = (m) => `${_pname(m.pid)}${m && m.why ? `（${m.why}）` : ''}`;
@@ -37608,12 +37621,13 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _snapPlan = (pl) => { const cars = {}; Object.keys(pl?.cars||{}).forEach(cid => { cars[cid] = (pl.cars[cid]||[]).map(m => ({ pid: m.pid, t: _fmtT(m.t) })); }); return { cars, walkers: (pl?.walkers||[]).map(m=>m.pid), walkT: Object.fromEntries((pl?.walkers||[]).map(m => [m.pid, /\d/.test(String(m.t||'')) ? _fmtT(m.t) : ''])), others: (pl?.others||[]).map(m=>m.pid), driver: { ...(pl?.driver||{}) } }; };
   const _locOf = (snap, pid) => { for (const cid of Object.keys(snap?.cars||{})) { const i = (snap.cars[cid]||[]).findIndex(m => m.pid === pid); if (i >= 0) return { zone: cid, idx: i, t: snap.cars[cid][i].t || '' }; } if ((snap?.walkers||[]).includes(pid)) return { zone: 'walk', wt: snap.walkT ? (snap.walkT[pid] || '') : null }; if ((snap?.others||[]).includes(pid)) return { zone: 'other' }; return null; };
   // ★ 2026-10-05(ユーザー報告「確定を解除してから時間を変えたのに赤くならない」・要望「休みの反映で確定を自動解除・変わった車をハイライト」):
-  //   確定を解除しても、その時の控えを _base に残して「確定時からの変更」を比べ続ける(作成中でも赤丸・黄色の枠が出る)。
+  //   確定を解除しても、その時の控えを _base に残して「運行表を出した後の変更」を比べ続ける(作成中でも赤丸・黄色の枠が出る)。
   //   もう一度「確定」すると、その控えを基準のまま確定に戻す(解除中に変えた分の赤丸も消えない)。
   //   比べる基準 = 確定中は _final、解除中は _base。基準の一続きを _finalId / _baseId で見分ける(_stampChg の「白紙に戻すか」の判定)
-  const _baseOf = (pl) => ((TSU_TP_FINAL_OFF || !pl) ? null : (pl._final || pl._base || null)); // ★ 2026-10-25: 確定の廃止=控えとの比較(赤丸)もしない
+  // ★ 2026-10-26(ユーザー要望「確定が無くなったので、前回の連絡書(運行表)を渡してから変わった分を赤く」): 確定の代わりに「運行表を初めて出した時点」の控え(_base)を基準にする
+  const _baseOf = (pl) => (!pl ? null : (TSU_TP_FINAL_OFF ? (pl._base || null) : (pl._final || pl._base || null)));
   const _baseIdOf = (pl) => (pl ? (pl._final ? (pl._finalId || pl._finalAt || null) : (pl._base ? (pl._baseId || pl._baseAt || null) : null)) : null);
-  const _chgOf = (pl, pid) => { const fin = _baseOf(pl); if (!fin) return ''; const now = _locOf(_snapPlan(pl), pid); if (!now) return ''; const was = _locOf(fin, pid); if (!was) return '確定後に追加'; if (now.zone !== was.zone) return was.zone==='walk'?'徒歩から車へ変更':(was.zone==='other'?'その他から変更':(now.zone==='walk'?'車から徒歩へ変更':(now.zone==='other'?'車からその他へ変更':'車が変更'))); if (now.zone === 'walk' && was.wt != null && now.wt != null && now.wt !== was.wt) return `到着時間が変更（${was.wt||'開始時刻'}→${now.wt||'開始時刻'}）`; if (now.zone !== 'walk' && now.zone !== 'other') { if ((now.t||'') !== (was.t||'')) return `時間が変更（${was.t||'未定'}→${now.t||'未定'}）`;
+  const _chgOf = (pl, pid) => { const fin = _baseOf(pl); if (!fin) return ''; const now = _locOf(_snapPlan(pl), pid); if (!now) return ''; const was = _locOf(fin, pid); if (!was) return '配布後に追加'; if (now.zone !== was.zone) return was.zone==='walk'?'徒歩から車へ変更':(was.zone==='other'?'その他から変更':(now.zone==='walk'?'車から徒歩へ変更':(now.zone==='other'?'車からその他へ変更':'車が変更'))); if (now.zone === 'walk' && was.wt != null && now.wt != null && now.wt !== was.wt) return `到着時間が変更（${was.wt||'開始時刻'}→${now.wt||'開始時刻'}）`; if (now.zone !== 'walk' && now.zone !== 'other') { if ((now.t||'') !== (was.t||'')) return `時間が変更（${was.t||'未定'}→${now.t||'未定'}）`;
       // ★ 2026-10-02: 乗車順は「今も乗っている方どうしの並び」で比べる(休みで外れた方の分だけ前に詰まったのを変更と数えない)
       const _curSnap = _snapPlan(pl); const _nowIds = new Set((_curSnap.cars[now.zone]||[]).map(m => m.pid)); const _wasOrder = (fin.cars[now.zone]||[]).filter(m => _nowIds.has(m.pid)).map(m => m.pid); const _nowOrder = (_curSnap.cars[now.zone]||[]).map(m => m.pid);
       if (_wasOrder.indexOf(pid) !== _nowOrder.indexOf(pid)) return '乗車順が変更'; } return ''; };
@@ -37673,7 +37687,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       if (ac === '車が変更') { const w = _locOf(fin, pid), n = _locOf(cur, pid); ac = `車が変更（${_carNmOf(w && w.zone)}→${_carNmOf(n && n.zone)}）`; }
       const _ck = String(((pl._chgAt || {})[pid]) || '0'); const _td = (pl._telDone || {})[pid];
       out.push({ iso, sl, pid, ac, tel: !!_dotOf(pl, iso, pid), done: !!(_td && typeof _td === 'object' && _td.on && String(_td.ck) === _ck) }); });
-    _removedSince(pl).forEach(pid => out.push({ iso, sl, pid, ac: '確定後に外れた（休みなど）', tel: false })); })); return out; };
+    _removedSince(pl).forEach(pid => out.push({ iso, sl, pid, ac: '配布後に外れた（休みなど）', tel: false })); })); return out; };
   // ★ 2026-10-07(ユーザー要望): 要連絡の「連絡済」を送迎表のコマに保存(全端末で共有)。値はその変更の時刻(_chgAt)=同じ方がまた変わったら未連絡に戻る
   const setTelDone = (iso, sl, pid, on) => {
     const k = `${iso}_${sl}`; const pl = plans[k]; if (!pl) return;
@@ -39274,15 +39288,18 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     // ★ 2026-09-16(店舗指摘): 実機で左右が見切れる→プリンタの印字可能域(約188×275mm)に縮小して中央配置
     //   ★ 2026-09-16c(店舗指摘): 印刷ホストがbody直下のmargin/paddingを0に強制するためmargin:autoの中央寄せが効かず左上に寄っていた
     //     →ページ全面ラッパー+flexで上下左右とも中央配置(marginに依存しない)
+    _stampHanded([iso]); // ★ 2026-10-26: 出した時点を基準に
     window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${iso}`, pageSize: '297mm 210mm', html: _dailyPages(iso).map((h0, k) => _dailyPageWrap(h0, k === 0)).join(''), elementId: null } }));
   };
   // ★ 日ごとの運行表(A4縦)を複数日まとめて印刷(2026-09-28)
   const doPrintDays = (isos) => {
+    _stampHanded(isos); // ★ 2026-10-26: 出した時点を基準に
     const pages = (isos||[]).flatMap(iso => _dailyPages(iso)).map((h0, i) => _dailyPageWrap(h0, i === 0)).join('');
     if (!pages) return;
     window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${isos[0]}${isos.length>1?`_他${isos.length-1}日`:''}`, pageSize: '297mm 210mm', html: pages, elementId: null } }));
   };
   const doPrint = (content = 'sheet', popt = {}) => {
+    if (content !== 'contacts') _stampHanded(days.map(d => _iso(d))); // ★ 2026-10-26: 運行表を出した時点を基準に(連絡先一覧だけのときは控えない)
     // ★ 2026-09-28: 内容は印刷モーダルで選択(sheet=運行表のみ / both=運行表+連絡先一覧 / contacts=連絡先一覧のみ)。confirm は廃止
     // ★ 2026-10-21: 組み立てた紙面を画面の外に置いて測り、入りきらなければ文字の上限を下げて作り直す(見積りだけだと休みなどが切れることがある)
     const _wOvf = (h0) => { if (typeof document === 'undefined') return 0; try { const el = document.createElement('div'); el.style.cssText = 'position:absolute;left:-30000px;top:0;width:1069px;height:740px;overflow:hidden;visibility:hidden;'; el.innerHTML = h0; document.body.appendChild(el); const root = el.firstElementChild; const o = root ? root.scrollHeight - root.clientHeight : 0; el.remove(); return o; } catch { return 0; } };
@@ -39467,13 +39484,13 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 </div>
               </div>
             </div>), document.body)}
-          {/* ★ 2026-10-13(ユーザー提案): 変更内容の専用パネル。全体／曜日／午前・午後で絞り込み。各コマの「確定時からの変更 N件」からはそのコマに絞って開く */}
+          {/* ★ 2026-10-13(ユーザー提案): 変更内容の専用パネル。全体／曜日／午前・午後で絞り込み。各コマの「運行表を出した後の変更 N件」からはそのコマに絞って開く */}
           {chgPanel && ReactDOM.createPortal((() => { const all = _chgListOfWeek(); const cl = all.filter(x => (!chgPanel.iso || x.iso === chgPanel.iso) && (!chgPanel.sl || x.sl === chgPanel.sl));
             const _fb = (on, extra) => `px-3 py-1.5 rounded-lg text-[13px] font-bold border whitespace-nowrap ${on ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'} ${extra||''}`;
             return (
             <div className="fixed inset-0 bg-slate-900/50 flex items-start justify-center p-4 pt-16" style={{zIndex:10000}} onClick={()=>setChgPanel(null)}>
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-5" onClick={e=>e.stopPropagation()} data-testid="tp-chg-panel">
-                <div className="flex items-center justify-between mb-3"><div className="font-bold text-slate-800 text-lg">{_finalAtOfWeek() ? '確定後の変更' : '確定時からの変更'}<span className="ml-1 text-sm font-normal text-slate-500">（{cl.length}件{(chgPanel.iso || chgPanel.sl) ? `／全体 ${all.length}件` : ''}）</span></div><button type="button" onClick={()=>setChgPanel(null)} className="whitespace-nowrap text-slate-500 text-sm font-bold px-2">閉じる</button></div>
+                <div className="flex items-center justify-between mb-3"><div className="font-bold text-slate-800 text-lg">{'運行表を出した後の変更'}<span className="ml-1 text-sm font-normal text-slate-500">（{cl.length}件{(chgPanel.iso || chgPanel.sl) ? `／全体 ${all.length}件` : ''}）</span></div><button type="button" onClick={()=>setChgPanel(null)} className="whitespace-nowrap text-slate-500 text-sm font-bold px-2">閉じる</button></div>
                 <div className="flex flex-wrap gap-1.5 mb-1.5" data-testid="tp-chg-filter-day">
                   <button type="button" className={_fb(!chgPanel.iso)} onClick={()=>setChgPanel(v=>({ ...v, iso: '' }))}>全体</button>
                   {days.map(d => { const iso = _iso(d); const n = all.filter(x => x.iso === iso).length; return <button key={iso} type="button" className={_fb(chgPanel.iso === iso, n ? '' : 'opacity-50')} onClick={()=>setChgPanel(v=>({ ...v, iso }))}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{n ? <span className="ml-0.5 text-red-600">{n}</span> : null}</button>; })}
@@ -39601,7 +39618,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <div key={sl} data-testid={`tp-dl-slot-${sl}`} className={`mt-2 mx-2 bg-white rounded-xl border-2 overflow-hidden ${sl==='AM' ? 'border-amber-300' : 'border-indigo-300'}`}>
               <div className={`px-3 py-1.5 flex items-center gap-2 text-[14px] font-bold ${sl==='AM'?'bg-amber-50 text-amber-800':'bg-indigo-50 text-indigo-800'}`}>{sl==='AM'?'午前':'午後'}
                 {pl._draft ? <span className="text-[10px] text-slate-500 bg-slate-200 rounded px-1 py-0.5 font-normal">下書き</span> : null}
-                {_baseOf(pl) && n ? <button type="button" data-testid={`tp-dl-chg-${sl}`} onClick={() => setChgPanel({ iso, sl })} className="text-[10px] text-white bg-red-600 rounded px-1.5 py-0.5 font-normal" title="押すと変更の一覧">{pl._final ? '確定後の変更' : '確定時からの変更'} {n}件 ▼</button> : null}
+                {_baseOf(pl) && n ? <button type="button" data-testid={`tp-dl-chg-${sl}`} onClick={() => setChgPanel({ iso, sl })} className="text-[10px] text-white bg-red-600 rounded px-1.5 py-0.5 font-normal" title="押すと変更の一覧">{pl._final ? '確定後の変更' : '運行表を出した後の変更'} {n}件 ▼</button> : null}
               </div>
               {!anyone ? <div className="px-3 py-2 text-[13px] text-slate-400">—</div> : (<>
                 {cars.map(c => { const ms = (pl.cars||{})[c.id] || []; const rmHere = ((_fin.cars||{})[c.id] || []).filter(m => m && _rmSet.has(String(m.pid)) && !ms.some(x => String(x.pid) === String(m.pid)));
@@ -39742,7 +39759,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                       <div className={`px-2 pt-1 flex items-center gap-1 justify-end ${sl==='AM'?'bg-amber-50/60':'bg-indigo-50/60'}`} style={{minHeight:18}}>
                         <span className="flex items-center gap-1">{pl._draft ? <span className="text-[9px] text-slate-500 bg-slate-200 rounded px-1 py-0.5">下書き</span> : null}
                           {_baseOf(pl) && (() => { const n = _chgCount(pl); const rm = _removedSince(pl); return n
-                            ? <button type="button" data-testid={`tp-chg-chip-${iso}-${sl}`} onClick={() => setChgPanel({ iso, sl })} className="text-[9px] text-white bg-red-600 rounded px-1 py-0.5" title={(rm.map(pid=>`${_pname(pid)}: 確定後に外れた`).join('\n')||'確定後に変更あり') + '\n押すと変更の一覧'}>{pl._final ? '確定後の変更' : '確定時からの変更'} {n}件 ▼</button>
+                            ? <button type="button" data-testid={`tp-chg-chip-${iso}-${sl}`} onClick={() => setChgPanel({ iso, sl })} className="text-[9px] text-white bg-red-600 rounded px-1 py-0.5" title={(rm.map(pid=>`${_pname(pid)}: 確定後に外れた`).join('\n')||'確定後に変更あり') + '\n押すと変更の一覧'}>{pl._final ? '確定後の変更' : '運行表を出した後の変更'} {n}件 ▼</button>
                             : null; })()}
                         </span>
                       </div>
@@ -39765,7 +39782,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                                 style={dragMv && dragMv.over && dragMv.over.iso===iso && dragMv.over.slot===sl && dragMv.over.zone===c.id && String(dragMv.over.pid)===String(m.pid) && !(dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)) ? {boxShadow:'inset 0 3px 0 #3b82f6', paddingTop:14, transition:'padding-top 0.12s'} : {transition:'padding-top 0.12s'}}
                                 className={`flex items-center gap-1 px-1 py-0 min-h-[28px] border-t border-slate-100 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''} ${_isFurikae(iso, sl, m.pid)?'bg-emerald-100':(_isFirstVisit(m.pid, iso)?'bg-sky-100':'')}`}>
                                 {(() => { const _di = _dotInfo(pl, iso, m.pid); const _ac = _di.dot ? _di.ac : ''; return (
-                                <button onClick={()=>toggleMark(iso, sl, m.pid)} title={_ac ? `確定後の変更: ${_ac}（電話が必要なため時間に赤枠）` : (_di.ac ? `確定時からの変更: ${_di.ac}（次の連絡帳に載るので印は不要）` : (m.mark ? 'タップで時間の赤枠(TEL)を外す' : 'タップで時間に赤枠(TEL)を付ける'))} className="shrink-0 w-6 h-8 flex items-center justify-center">
+                                <button onClick={()=>toggleMark(iso, sl, m.pid)} title={_ac ? `確定後の変更: ${_ac}（電話が必要なため時間に赤枠）` : (_di.ac ? `運行表を出した後の変更: ${_di.ac}（次の連絡帳に載るので印は不要）` : (m.mark ? 'タップで時間の赤枠(TEL)を外す' : 'タップで時間に赤枠(TEL)を付ける'))} className="shrink-0 w-6 h-8 flex items-center justify-center">
                                   {/* ★ 2026-10-02(試験版・ユーザー要望): 印はただの赤丸(中の白い点をやめる)。時間の欄の赤枠も廃止 */}
                                   <span aria-hidden="true" data-testid={`tp-dot-${iso}-${sl}-${m.pid}`} data-on={(m.mark||_ac)?'1':'0'} className="block w-4 h-4 rounded-full border border-slate-300 bg-transparent" data-chg={_di.ac ? '1' : '0'}/>
                                 </button>); })()}
@@ -41312,7 +41329,7 @@ function TsuLoginSecurityCard({ appData, onSave, staffCtx, isAdmin }) {
   const setSec = (patch) => onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), security: { ...sec, ...patch } } }, { manual: true, message: '✓ ログインとロックの設定を保存しました' });
   const [pin, setPin] = useState(''); const [pin2, setPin2] = useState(''); const [pinMsg, setPinMsg] = useState('');
   const [busy, setBusy] = useState(false);
-  const savePin = async () => { setPinMsg(''); if (!/^\d{4}$/.test(pin)) return setPinMsg('PIN は数字4桁です'); if (pin !== pin2) return setPinMsg('PIN(確認)が一致しません'); setBusy(true); try { await staffCtx.setPin(pin); setPin(''); setPin2(''); setPinMsg('PIN を保存しました'); } catch (e) { setPinMsg(e?.message || '保存できませんでした'); } setBusy(false); };
+  const savePin = async () => { setPinMsg(''); if (tsuWeakPin(pin)) return setPinMsg(tsuWeakPin(pin)); /* ★ 2026-10-26: 分かりやすい PIN は不可 */ if (pin !== pin2) return setPinMsg('PIN(確認)が一致しません'); setBusy(true); try { await staffCtx.setPin(pin); setPin(''); setPin2(''); setPinMsg('PIN を保存しました'); } catch (e) { setPinMsg(e?.message || '保存できませんでした'); } setBusy(false); };
   const Sel = ({ value, opts, onChange }) => <select value={String(value)} onChange={e => onChange(Number(e.target.value))} className="px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold bg-white">{opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>;
   const noAcct = staffCtx.membersWithoutAccount || [];
   const [guard, setGuard] = useState(null);
