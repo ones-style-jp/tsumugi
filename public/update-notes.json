@@ -1,7 +1,21 @@
 {
-  "version": "upd-2026-1026-trial422",
+  "version": "upd-2026-1026-trial423",
   "updatedAt": "2026-10-26",
   "notes": [
+    {
+      "id": "upd-2026-1026-trial423-weekdays",
+      "type": "update",
+      "title": "ホームの今週の業務を曜日ごとに",
+      "date": "2026-10-26",
+      "body": "今週の業務の見せ方",
+      "items": [
+        {
+          "kind": "change",
+          "where": "ホーム",
+          "change": "今週の業務は「10/27（火）」のように日付（曜日）の見出しで分けて並びます。期限が今週中のもの（体力測定など）は最後に「今週中」としてまとめます。"
+        }
+      ]
+    },
     {
       "id": "upd-2026-1026-trial422-hometasks",
       "type": "update",

@@ -13111,8 +13111,12 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                 </div>
               )}
               {tasks[tier].length === 0 ? (tier === 'today' && _evOn && todayEvents.length ? null : <div style={{fontSize:12,color:'#94a3b8'}}>なし</div>) : (
-                (() => { const L = tasks[tier].slice().sort((a, b) => (a._due - b._due) || 0); const LIM = 5; const more = L.length - LIM; const show = htMore[tier] || more <= 0 ? L : L.slice(0, LIM); return (
-                <div style={{display:'flex',flexDirection:'column',gap:6}}>{show.map(t => taskBtn(t, big))}
+                (() => { const L = tasks[tier].slice().sort((a, b) => { const ea = (tier === 'week' && !String(a.key).startsWith('events_') && a._due >= weekEnd) ? 1 : 0, eb = (tier === 'week' && !String(b.key).startsWith('events_') && b._due >= weekEnd) ? 1 : 0; return (ea - eb) || (a._due - b._due) || 0; }); const LIM = 5; const more = L.length - LIM; const show = htMore[tier] || more <= 0 ? L : L.slice(0, LIM);
+                  // ★ 2026-10-26(ユーザー「今週の業務は曜日ごとに分けると見やすい」): 今週は日付(曜日)ごとに見出しを付ける。期限が「今週中」(日曜)のもの(体力測定など)は最後に「今週中」
+                  const _gk = (t) => (tier === 'week') ? ((!String(t.key).startsWith('events_') && t._due >= weekEnd) ? '今週中' : `${t._due.getMonth()+1}/${t._due.getDate()}（${'日月火水木金土'[t._due.getDay()]}）`) : '';
+                  const _rows = []; let _lastG = null; show.forEach(t => { const g = _gk(t); if (g && g !== _lastG) { _rows.push(<div key={`g_${g}`} data-testid="home-week-day" style={{fontSize:11,fontWeight:'bold',color:'#1e40af',marginTop:_rows.length ? 4 : 0}}>{g}</div>); _lastG = g; } _rows.push(taskBtn(t, big)); });
+                  return (
+                <div style={{display:'flex',flexDirection:'column',gap:6}}>{_rows}
                   {more > 0 && <button type="button" data-testid={`home-tasks-more-${tier}`} onClick={() => setHtMore(m => ({ ...m, [tier]: !m[tier] }))} style={{alignSelf:'flex-start',fontSize:11,fontWeight:'bold',color:'#4338ca',background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}>{htMore[tier] ? '少なく表示' : `他${more}件を見る`}</button>}
                 </div>); })() /* ★ 2026-10-26(ユーザー「予定が多いと下に溜まる」): 期限が近い順・5件まで・残りは「他n件」 */
               )}

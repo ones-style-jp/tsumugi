@@ -25,5 +25,6 @@ async function start(prep) {
   const tier = inWeek ? 'week' : 'month'; const sec = page.getByTestId('home-tasks-' + tier); const more = page.getByTestId('home-tasks-more-' + tier); const rows0 = await sec.locator('[data-testid^="home-task-"]').count();
   r.limited = (await more.count()) === 1 && rows0 <= 5 && /他\d+件を見る/.test(await more.innerText()); if (r.limited) { await more.click(); await page.waitForTimeout(300); r.expands = (await sec.locator('[data-testid^="home-task-"]').count()) > rows0; } else { r.expands = false; console.log('MORE', tier, rows0, await more.count()); }
   r.noSub = true;
+  const heads = sec.getByTestId('home-week-day'); r.dayHeads = tier !== 'week' || ((await heads.count()) >= 1 && /（[月火水木金土日]）/.test(await heads.first().innerText())); if (!r.dayHeads) console.log('HEADS', await heads.count());
   await page.context().close(); }
 console.log(r, Object.values(r).every(Boolean) ? 'PASS' : 'FAIL'); await b.close();
