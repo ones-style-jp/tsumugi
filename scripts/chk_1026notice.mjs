@@ -28,7 +28,7 @@ async function start(view, prep, route) {
   await page.keyboard.press('ArrowLeft'); await page.waitForTimeout(300); r.prevWorks = /二つ目/.test(await det.innerText());
   r.lastDisabled = await page.getByTestId('notice-prev').isEnabled() && !(await page.getByTestId('notice-next').isEnabled()) === false; // 中央なので両方押せる
   /* trial424: 開いている間は背面ロック・上寄せ(スマホで上が見切れない) */
-  r.backLock = await page.evaluate(() => document.documentElement.classList.contains('tsu-back-lock')); r.topAligned = (await page.getByTestId('notice-overlay').evaluate(e => getComputedStyle(e).alignItems)) === 'flex-start';
+  r.backLock = await page.evaluate(() => document.documentElement.classList.contains('tsu-back-lock')); r.inBody = await page.evaluate(() => { const o = document.querySelector('[data-testid="notice-overlay"]'); return !!o && o.parentElement === document.body; }); /* trial425: スクロール枠の外(body 直下) */ r.topAligned = (await page.getByTestId('notice-overlay').evaluate(e => getComputedStyle(e).alignItems)) === 'flex-start';
   await page.keyboard.press('Escape'); await page.getByTestId('notice-overlay').click({ position: { x: 3, y: 3 } }).catch(() => {}); await page.waitForTimeout(300); r.unlocked = !(await page.evaluate(() => document.documentElement.classList.contains('tsu-back-lock')));
   if (!r.navShown || !r.itemsShown) console.log('DET', (await det.innerText()).slice(0, 300));
   await page.context().close(); }
