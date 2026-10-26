@@ -12937,6 +12937,7 @@ const DashTile = ({icon, label, sub, color, view, navigateTo}) => (
 );
 function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes, isNoticeRead, markNoticeRead, onSave }) {
   const [htCfgOpen, setHtCfgOpen] = React.useState(false); // ★ 2026-10-26: ホームに出す業務の表示設定
+  const [htMore, setHtMore] = React.useState({}); // ★ 2026-10-26: 業務の「他n件を見る」
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
   const dow = ['日','月','火','水','木','金','土'][now.getDay()];
@@ -13043,13 +13044,14 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           // ★ 2026-10-26(ユーザー要望「ホームに載せる通知の種類を選べるように。体力測定は要らない、本日の業務にしか出さない など」): systemSettings.homeTasks[種類]={on, todayOnly}
           const ht = ss.homeTasks || {};
           const _typeOf = (key) => (key.startsWith('tsusho') || key.startsWith('kinou')) ? 'keikaku' : key.startsWith('mon_') ? 'monitoring' : key.startsWith('fitness') ? 'fitness' : key.startsWith('events') ? 'events' : key; // ★ 2026-10-26: 体力測定の鍵は fitness_t/_w/_m(React の key の重複で消えない不具合の対策)
-          const add = (due, t) => { const c = ht[_typeOf(t.key)] || {}; if (c.on === false) return; const tier = tierOf(due); if (c.todayOnly && tier !== 'today') return; if (due > monthEnd && due > weekEnd) return; tasks[tier].push(t); };
+          const add = (due, t) => { const c = ht[_typeOf(t.key)] || {}; if (c.on === false) return; const tier = tierOf(due); if (c.todayOnly && tier !== 'today') return; if (due > monthEnd && due > weekEnd) return; tasks[tier].push({ ...t, _due: due }); }; // ★ 2026-10-26: 期限順に並べる
           const _evOn = (ht.events || {}).on !== false;
           // ★ 2026-10-26(ユーザー質問「カレンダーの契約・担会などは今週/今月の業務に出るのか」): 今日より後の予定を「今週」「今月」に出す(今日の分は本日の一覧)
           if (_evOn) { try { const _evs = (appData.scheduleEvents||[]).filter(e => e && e.date && String(e.date) > todayIso).map(e => ({ e, d: new Date(String(e.date) + 'T00:00:00') })).filter(x => !isNaN(x.d) && x.d <= monthEnd).sort((a, b) => String(a.e.date).localeCompare(String(b.e.date)) || String(a.e.start||'99').localeCompare(String(b.e.start||'99')));
             const _pn = (e) => { const p = e.patientId ? (appData.patients||[]).find(x => x.id === e.patientId) : null; return p ? ` ${p.name}様` : ''; };
             const _fmtE = (x) => `${x.d.getMonth()+1}/${x.d.getDate()} ${x.e.title || '予定'}${_pn(x.e)}`;
-            [['week', (x) => x.d <= weekEnd, 'events_w'], ['month', (x) => x.d > weekEnd, 'events_m']].forEach(([tier, f, key]) => { const L = _evs.filter(f); if (!L.length) return; add(L[0].d, { key, label: `カレンダーの予定 ${L.length}件`, sub: `${L.slice(0, 4).map(_fmtE).join('・')}${L.length > 4 ? ` 他${L.length - 4}件` : ''}`, view: 'schedule', color: '#6366f1' }); void tier; }); } catch {} }
+            // ★ 2026-10-26(ユーザー「何件ではなく1つずつ」): 予定ごとに1行(日付・題名・利用者名・時間)。押すとカレンダー
+            _evs.forEach(x => add(x.d, { key: `events_${x.e.id}`, label: `${_fmtE(x)}${x.e.start ? `　${x.e.start}` : ''}`, view: 'schedule', color: x.e.color || '#6366f1' })); } catch {} }
           // 日誌(午前/午後の未入力・未確認)=本日。休業日/定休日のコマは出さない
           if (!(diarySlotKyugyo(appData, todayIso, dowN, 'AM') && diarySlotKyugyo(appData, todayIso, dowN, 'PM'))) {
             const seg = (ap) => { if (diarySlotKyugyo(appData, todayIso, dowN, ap)) return null; const l = (appData.diaryLogs||{})[`${todayIso}_${ap}`]; const it = diaryPendingItems(l, todayIso, appData.diarySettings?.cars, appData); const missing = !l; return (missing || (it && it.length)) ? `${ap === 'AM' ? '午前' : '午後'}${missing ? '（未入力）' : `（${it.join('・')} 未確認）`}` : null; };
@@ -13066,8 +13068,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
             const comingWeek = new Set(); for (let k = 1; k <= 7; k++) { const dt = new Date(t0.getFullYear(), t0.getMonth(), t0.getDate() + k); if (dt > weekEnd) break; if (!isBiz(dt)) continue; pats.forEach(p => { if (p.scheduleAmPm?.[dt.getDay()]) comingWeek.add(p.id); }); }
             const nT = duePats.filter(p => comingToday.has(p.id)).length, nW = duePats.filter(p => !comingToday.has(p.id) && comingWeek.has(p.id)).length, nM = duePats.length - nT - nW;
             if (nT) add(t0, { key: 'fitness_t', label: `体力測定 ${ampmText(duePats.filter(p => comingToday.has(p.id)).map(p => p.id)).t}`, sub: '今日来る方のうち当月の測定対象', view: 'fitness', color: '#10b981' });
-            if (nW) add(weekEnd, { key: 'fitness_w', label: `体力測定 ${nW}名`, sub: '今週来る方のうち当月の測定対象', view: 'fitness', color: '#10b981' });
-            if (nM) add(monthEnd, { key: 'fitness_m', label: `体力測定 ${nM}名`, sub: '当月の測定対象（来週以降に来る方）', view: 'fitness', color: '#10b981' });
+            if (nW + nM) add(weekEnd, { key: 'fitness_w', label: `体力測定 ${nW + nM}名`, sub: '当月の測定対象（今日来ない方）', view: 'fitness', color: '#10b981' }); // ★ 2026-10-26(ユーザー): 今週来る方と来週以降を分けずに1つ
           }
           // 計画書(期限30日以内・期限切れ・未作成・一時保存中): 期日で本日/今週/今月に。通所介護計画書 と 個別機能訓練計画書/加算の評価
           const dues = computePlanDues(appData);
@@ -13087,9 +13088,9 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           // ★ 2026-10-25(ユーザー): 「来週の送迎表 未作成」はホームに出さない(確定の廃止とあわせて)
           const chip = (tid, label, value, sub, view) => <button key={tid} type="button" data-testid={tid} onClick={() => view && navigateTo(view)} style={{background:'white',border:'1px solid rgba(255,255,255,0.6)',borderRadius:12,padding:'6px 14px',color:'#1e293b',textAlign:'left',cursor:'pointer',minWidth:0,flex:'0 1 auto',boxShadow:'0 1px 3px rgba(0,0,0,0.15)'}}><div style={{fontSize:11,color:'#4f46e5',fontWeight:'bold',whiteSpace:'nowrap'}}>{label}</div><div style={{fontSize:22,fontWeight:'bold',lineHeight:1.15,color:'#1e293b'}}>{value}</div>{sub && <div style={{fontSize:10,color:'#64748b',whiteSpace:'nowrap'}}>{sub}</div>}</button>;
           const taskBtn = (t, big) => (
-            <button key={t.key} type="button" data-testid={`home-task-${t.key}`} onClick={() => { try { if (t.jump) sessionStorage.setItem('tsumugiTpJump', t.jump); if (t.ss) sessionStorage.setItem(t.ss[0], t.ss[1]); } catch {} navigateTo(t.view); }} style={{display:'flex',flexDirection:'column',alignItems:'flex-start',gap:1,width:'100%',textAlign:'left',background:'white',border:'1px solid #e2e8f0',borderLeft:`4px solid ${t.color}`,borderRadius:8,padding: big ? '7px 12px' : '5px 10px',cursor:'pointer'}}>
+            <button key={t.key} type="button" data-testid={`home-task-${t.key}`} title={t.sub || ''} onClick={() => { try { if (t.jump) sessionStorage.setItem('tsumugiTpJump', t.jump); if (t.ss) sessionStorage.setItem(t.ss[0], t.ss[1]); } catch {} navigateTo(t.view); }} style={{display:'flex',flexDirection:'column',alignItems:'flex-start',gap:1,width:'100%',textAlign:'left',background:'white',border:'1px solid #e2e8f0',borderLeft:`4px solid ${t.color}`,borderRadius:8,padding: big ? '7px 12px' : '5px 10px',cursor:'pointer'}}>
               <span style={{fontSize: big ? 14 : 12.5,fontWeight:'bold',color:'#1e293b'}}>{t.label}<span style={{fontSize:11,fontWeight:'bold',color:t.color,marginLeft:8}}>開く →</span></span>
-              {t.sub && <span style={{fontSize:11,color:'#64748b'}}>{t.sub}</span>}
+              {/* ★ 2026-10-26(ユーザー「下の字は不要」): 説明は出さない(title の吹き出しだけ) */}
             </button>);
           const section = (tier, title, tid, big) => (
             <div key={tier} data-testid={tid} style={{flex: big ? '1 1 100%' : '1 1 240px',minWidth:0}}>
@@ -13110,7 +13111,10 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                 </div>
               )}
               {tasks[tier].length === 0 ? (tier === 'today' && _evOn && todayEvents.length ? null : <div style={{fontSize:12,color:'#94a3b8'}}>なし</div>) : (
-                <div style={{display:'flex',flexDirection:'column',gap:6}}>{tasks[tier].map(t => taskBtn(t, big))}</div>
+                (() => { const L = tasks[tier].slice().sort((a, b) => (a._due - b._due) || 0); const LIM = 5; const more = L.length - LIM; const show = htMore[tier] || more <= 0 ? L : L.slice(0, LIM); return (
+                <div style={{display:'flex',flexDirection:'column',gap:6}}>{show.map(t => taskBtn(t, big))}
+                  {more > 0 && <button type="button" data-testid={`home-tasks-more-${tier}`} onClick={() => setHtMore(m => ({ ...m, [tier]: !m[tier] }))} style={{alignSelf:'flex-start',fontSize:11,fontWeight:'bold',color:'#4338ca',background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}>{htMore[tier] ? '少なく表示' : `他${more}件を見る`}</button>}
+                </div>); })() /* ★ 2026-10-26(ユーザー「予定が多いと下に溜まる」): 期限が近い順・5件まで・残りは「他n件」 */
               )}
             </div>
           );

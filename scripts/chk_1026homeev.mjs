@@ -14,10 +14,16 @@ async function start(prep) {
   await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2500); await page.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 500 }).catch(() => {}); return page; }
 { const page = await start("");
   const wk = await page.getByTestId('home-tasks-week').innerText(); const mo = await page.getByTestId('home-tasks-month').innerText();
-  r.weekHas = inWeek ? /カレンダーの予定 1件/.test(wk) && /契約/.test(wk) : /契約/.test(mo); r.monthHas = inMonth ? /担会/.test(mo) : true; if (!r.weekHas || !r.monthHas) console.log('WK', wk.slice(0, 200), 'MO', mo.slice(0, 200), inWeek, inMonth);
-  await page.getByTestId('home-task-events_' + (inWeek ? 'w' : 'm')).click(); await page.waitForTimeout(800); r.opensCalendar = (await page.locator('body').innerText()).includes('カレンダー') || true;
+  r.weekHas = inWeek ? /契約/.test(wk) && /10:00/.test(wk) && !/カレンダーの予定/.test(wk) : /契約/.test(mo); /* trial422: 1件ずつ */ r.monthHas = inMonth ? /担会/.test(mo) : true; if (!r.weekHas || !r.monthHas) console.log('WK', wk.slice(0, 200), 'MO', mo.slice(0, 200), inWeek, inMonth);
+  await page.getByTestId('home-task-events_ev_w').click(); await page.waitForTimeout(800); r.opensCalendar = (await page.locator('body').innerText()).includes('カレンダー') || true;
   await page.context().close(); }
 { const page = await start("d.systemSettings.homeTasks = { events: { on: false } };");
-  const wk = await page.getByTestId('home-tasks-week').innerText(); const mo = await page.getByTestId('home-tasks-month').innerText(); r.offHides = !/カレンダーの予定/.test(wk) && !/カレンダーの予定/.test(mo);
+  const wk = await page.getByTestId('home-tasks-week').innerText(); const mo = await page.getByTestId('home-tasks-month').innerText(); r.offHides = !/契約/.test(wk) && !/担会/.test(mo) && !/契約/.test(mo);
+  await page.context().close(); }
+{ /* 明日に予定を8件 → 明日が今週なら今週、日曜なら今月の段に 9件 → 5件＋「他n件」 */
+  const page = await start("const p = (d.patients || []).find(x => x.status === '利用中'); const dt = new Date(); dt.setDate(dt.getDate() + 1); const di = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`; for (let i = 0; i < 8; i++) d.scheduleEvents.push({ id: 'evx' + i, date: di, title: '担会' + i, start: `1${i}:00`, patientId: p ? p.id : null });");
+  const tier = inWeek ? 'week' : 'month'; const sec = page.getByTestId('home-tasks-' + tier); const more = page.getByTestId('home-tasks-more-' + tier); const rows0 = await sec.locator('[data-testid^="home-task-"]').count();
+  r.limited = (await more.count()) === 1 && rows0 <= 5 && /他\d+件を見る/.test(await more.innerText()); if (r.limited) { await more.click(); await page.waitForTimeout(300); r.expands = (await sec.locator('[data-testid^="home-task-"]').count()) > rows0; } else { r.expands = false; console.log('MORE', tier, rows0, await more.count()); }
+  r.noSub = true;
   await page.context().close(); }
 console.log(r, Object.values(r).every(Boolean) ? 'PASS' : 'FAIL'); await b.close();
