@@ -19268,6 +19268,37 @@ function DiseaseMasterPanel() {
 
 // ★ J: 全店共通の同意ポリシー編集(つむぎ管理局専用)。 予約レコードに1つだけ保存し、各店が読む。
 //   版(バージョン)を上げると、全店の管理局お知らせ(system_notices)に改定通知を自動掲載(I5)。
+// ★ 2026-10-26(ユーザー決定「計画書の定型文は本部で管理」): 全店共通の定型文(app_state の予約キー policies.kkPresets)。各店は読むだけ
+function GlobalKkPresetsPanel() {
+  const [open, setOpen] = React.useState(false); const [vals, setVals] = React.useState(null); const [msg, setMsg] = React.useState(''); const [busy, setBusy] = React.useState(false);
+  React.useEffect(() => { let alive = true; (async () => { try { const gp = await supabaseLoadGlobalPolicies(); if (!alive) return; const g = (gp && gp.kkPresets && typeof gp.kkPresets === 'object') ? gp.kkPresets : {}; const v = {}; KK_PRESET_LABELS.forEach(([k]) => { v[k] = (Array.isArray(g[k]) && g[k].length ? g[k] : KK_PRESETS_DEFAULT[k]).join('\n'); }); setVals(v); } catch { const v = {}; KK_PRESET_LABELS.forEach(([k]) => { v[k] = KK_PRESETS_DEFAULT[k].join('\n'); }); setVals(v); } })(); return () => { alive = false; }; }, []);
+  const save = async () => {
+    setBusy(true); setMsg('');
+    try { const cur = (await supabaseLoadGlobalPolicies()) || {}; const kk = {}; KK_PRESET_LABELS.forEach(([k]) => { const lines = String((vals || {})[k] || '').split('\n').map(x => x.trim()).filter(Boolean); if (lines.length) kk[k] = lines; });
+      const policies = { ...cur, kkPresets: kk }; const ok = await supabaseSaveGlobalPolicies(policies); if (!ok) { alert('保存に失敗しました(通信エラー)'); setBusy(false); return; }
+      setGlobalPolicyCache(policies); setMsg('✓ 保存しました（全店の計画書に反映されます）'); }
+    catch (e) { alert('保存に失敗: ' + ((e && e.message) || '')); }
+    setBusy(false);
+  };
+  return (
+    <div data-testid="global-kk-panel" className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 mt-3">
+      <button type="button" onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between gap-2 text-left">
+        <div><div className="text-sm font-bold text-slate-800">計画書の定型文（全店共通）</div><div className="text-xs text-slate-500">3-3・3-2・3-1・通所介護計画書の「定型文から ▼」で選べる文言。1行に1つ。空にすると既定に戻ります。</div></div>
+        <span className="text-xs font-bold text-slate-500 whitespace-nowrap">{open ? '閉じる' : '開く'}</span>
+      </button>
+      {open && (vals ? (
+        <div className="mt-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {KK_PRESET_LABELS.map(([k, lb]) => (
+              <div key={k}><label className="block text-xs font-bold text-slate-600 mb-1">{lb}</label>
+                <textarea data-testid={`global-kk-${k}`} value={vals[k] || ''} rows={6} onChange={e => setVals(v => ({ ...(v || {}), [k]: e.target.value }))} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm outline-none" /></div>))}
+          </div>
+          <div className="flex items-center gap-3 mt-3"><button type="button" data-testid="global-kk-save" disabled={busy} onClick={save} className="px-5 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold disabled:opacity-50">{busy ? '保存中…' : '保存（全店に反映）'}</button>{msg && <span className="text-xs font-bold text-emerald-700">{msg}</span>}</div>
+        </div>
+      ) : <div className="mt-3 text-xs text-slate-500">読み込み中…</div>)}
+    </div>
+  );
+}
 function GlobalPolicyPanel({ staffSession }) {
   const _defFam = { version: FAMILY_CONSENT_VERSION, date: FAMILY_CONSENT_DATE, text: POLICY_DEFAULT_FAMILY_TEXT };
   const _defOff = { version: OFFICE_CONSENT_VERSION, date: OFFICE_CONSENT_DATE, text: POLICY_DEFAULT_OFFICE_TEXT };
@@ -20147,6 +20178,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
         </div>
         <div ref={_secPolicy} style={{scrollMarginTop:56}}>
         <GlobalPolicyPanel staffSession={staffSession}/>
+        <GlobalKkPresetsPanel/>
         </div>
         {/* LIFE傷病名マスタのCSV取込(全店共通・置き換え式) */}
         <div ref={_secMaster} style={{scrollMarginTop:56}}>
@@ -22950,7 +22982,19 @@ export default function App() {
       //   読み取り専用の履歴なので同期のマージには影響しない(union併合)。 保存を壊さないよう try 内で完結。
       try {
         const _alNow = syncNow();
-        const _alDev = effDeviceName || '名称未設定の端末'; // ★ 2026-10-17: 管理局は「管理局」
+        // ★ 2026-10-26(ユーザー要望「共有 iPad では端末名＋今操作している人の名前を」): 端末名／担当者
+        const _alStaff = (staffSession && staffSession.role === 'super_admin') ? '' : ((activeRecorder && activeRecorder.id !== 'hq_viewer' && activeRecorder.name) || '');
+        const _alDev = (effDeviceName || '名称未設定の端末') + (_alStaff ? `／${_alStaff}` : ''); // ★ 2026-10-17: 管理局は「管理局」
+        // ★ 2026-10-26(ユーザー要望「項目名や運動の○×など具体的に」): 提供記録は項目ごとの変化を文字にする
+        const _alLbl = { status:'出欠', actualTime:'時間', temp:'体温', bpUpSt:'血圧上(開始)', bpDnSt:'血圧下(開始)', plSt:'脈(開始)', bpUpEn:'血圧上(終了)', bpDnEn:'血圧下(終了)', plEn:'脈(終了)', massage:'介護整体', tokki:'特記', kibunArrival:'体調(通所時)', kibunArrivalReason:'理由(通所時)', kibunDeparture:'体調(帰宅時)', kibunDepartureReason:'理由(帰宅時)', kinouStaff:'個別実施', recorder:'記録者', bpRe:'再検' };
+        const _alV = (v) => { const t = (v == null || v === '') ? '空' : (typeof v === 'object' ? (Array.isArray(v) && !v.length ? '空' : JSON.stringify(v)) : String(v)); return t.length > 12 ? t.slice(0, 12) + '…' : t; };
+        const _alRecDiff = (o, n) => { const parts = []; const _exs = effExerciseItems((newData && newData.systemSettings) || prev.systemSettings); const exN = (id) => ((_exs || []).find(x => x && x.id === id) || {}).name || String(id);
+          const keys = new Set([...Object.keys(o || {}), ...Object.keys(n || {})]);
+          keys.forEach(key => {
+            if (key === 'exercises') { const eo = (o && o.exercises) || {}, en = (n && n.exercises) || {}; new Set([...Object.keys(eo), ...Object.keys(en)]).forEach(id => { if (String(eo[id] ?? '') !== String(en[id] ?? '')) parts.push(`${exN(id)} ${_alV(eo[id])}→${_alV(en[id])}`); }); return; }
+            if (!_alLbl[key]) return; const a = o ? o[key] : undefined, b = n ? n[key] : undefined; const va = _alV(a), vb = _alV(b);
+            if (va !== vb) parts.push(`${_alLbl[key]} ${va}→${vb}`); }); // 空・未設定・空の配列は同じ「空」とみなす
+          return parts; };
         const _alCats = [
           ['ticketRecords','提供記録'], ['dailyLogs','日誌'], ['fitnessRecords','体力測定'],
           ['monitoringRecords','モニタリング'], ['faxHistory','連絡'], ['patients','利用者マスタ'],
@@ -22975,10 +23019,13 @@ export default function App() {
                 if (!_o) return true;          // 新規
                 try { return JSON.stringify(_o) !== JSON.stringify(r); } catch { return true; }
               });
-              const one = _chg[0];
+              // ★ 2026-10-26: 提供記録は「出欠・記録者・個別実施だけが変わった行」より、特記や運動など中身が変わった行を先に出す
+              const _alInfo = (r) => { if (k !== 'ticketRecords') return 0; try { return _alRecDiff(_pm.get(String(r.id)), r).filter(t => !/^(出欠|記録者|個別実施) /.test(t)).length; } catch { return 0; } };
+              const one = _chg.length > 1 ? (_chg.find(_alInfo) || _chg[0]) : _chg[0];
               if (one) {
                 const _pn = one.patientId != null ? ((newData.patients || prev.patients || []).find(p => p && p.id === one.patientId)?.name || '') : (one.patientName || '');
                 detail = [_pn, one.date, one.subject].filter(Boolean).join(' ').slice(0, 40);
+                if (k === 'ticketRecords') { const _o1 = _pm.get(String(one.id)); const _parts = _alRecDiff(_o1, one); if (_parts.length) detail += `: ${_parts.slice(0, 6).join('、')}${_parts.length > 6 ? ` 他${_parts.length - 6}項目` : ''}`; else if (!_o1) detail += ': 新規'; } // ★ 2026-10-26: 項目ごとの変化
                 if (_chg.length > 1) detail += ` 他${_chg.length - 1}件`;
               } else if (newData[k].length !== prev[k].length) {
                 detail = `件数 ${prev[k].length}→${newData[k].length}`;
@@ -24234,7 +24281,7 @@ export default function App() {
             <div className="tsu-cap-dvh" onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:20,width:'100%',maxWidth:640,maxHeight:'85vh',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,0.35)'}}>
               <div style={{padding:'14px 18px',borderBottom:'1px solid #e2e8f0',display:'flex',alignItems:'center',gap:8}}>
                 <div style={{fontWeight:'bold',color:'#1e293b'}}>変更ログ</div>
-                <div style={{fontSize:11,color:'#64748b'}}>いつ・どの端末で・何を変更したか（最新300件）</div>
+                <div style={{fontSize:11,color:'#64748b'}}>いつ・どの端末（誰）で・何を変更したか（最新300件）</div>
                 <button onClick={()=>setAuditLogOpen(false)} style={{whiteSpace:'nowrap',marginLeft:'auto',border:'none',background:'#f1f5f9',borderRadius:8,padding:'4px 10px',fontWeight:'bold',cursor:'pointer',color:'#475569'}}>閉じる</button>
               </div>
               <div style={{padding:'8px 14px',borderBottom:'1px solid #f1f5f9',display:'flex',gap:6,flexWrap:'wrap'}}>
@@ -24248,7 +24295,7 @@ export default function App() {
                     <div key={e.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',borderBottom:'1px solid #f8fafc'}}>
                       <span style={{fontSize:10,fontWeight:'bold',color:'#4338ca',background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:6,padding:'2px 7px',whiteSpace:'nowrap'}}>{e.cat}</span>
                       <div style={{minWidth:0,flex:1}}>
-                        <div style={{fontSize:12,color:'#1e293b',fontWeight:'bold',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{e.detail || '（更新）'}</div>
+                        <div style={{fontSize:12,color:'#1e293b',fontWeight:'bold',whiteSpace:'normal',wordBreak:'break-all',lineHeight:1.4}}>{e.detail || '（更新）'}</div>{/* ★ 2026-10-26: 項目ごとの変化は折り返して全部見せる */}
                         <div style={{fontSize:10,color:'#64748b'}}>{e.device||'端末不明'}</div>
                       </div>
                       <span style={{fontSize:11,color:'#64748b',whiteSpace:'nowrap'}}>{_fmt(e.at)}</span>
@@ -46852,11 +46899,12 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
           {/* ★ 2026-10-14(ユーザー要望): 個別機能訓練計画書(3-3)の定型文を店舗ごとに編集(1行=1つ)。空にすると既定に戻る */}
           {activeTab === 'keikaku' && (
             <SectionCard title="計画書の定型文（3-3・3-2・3-1・通所介護計画書）">
-              <p className="text-xs text-slate-500 mb-3">計画書の「定型文から ▼」で選べる文言です。1行に1つ（空にすると標準に戻ります）。</p>
+              {/* ★ 2026-10-26(ユーザー決定): 定型文は本部(つむぎ管理局)が全店共通で管理する。店舗では見るだけ */}
+              <div data-testid="kk-presets-info" className="mb-3 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 font-bold">計画書の定型文は本部（つむぎ管理局）が全店共通で管理しています。追加・変更のご希望は本部へお伝えください。</div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {[['ryui','【3-3】機能訓練実施上の留意事項（チェックで複数選択）'],['goalKinou','【3-3】目標（機能）'],['goalKatsudo','【3-3】目標（活動）'],['goalSanka','【3-3】目標（参加）'],['progContent','【3-3】プログラム内容'],['progPoint','【3-3】プログラムの留意点'],['henka','【3-3】実施による変化'],['kadai','【3-3】課題とその要因'],['skNinchi','【3-2】認知機能・コミュニケーション'],['skKadai','【3-2】生活上の課題・背景因子'],['kyBikou','【3-1】備考（希望・エピソード）'],['tsGoal','【通所介護計画書】目標'],['tsContent','【通所介護計画書】目的とケアの提供方針・内容'],['tsEffect','【通所介護計画書】効果・満足度'],['tsRisk','【通所介護計画書】医学的リスク・留意事項']].map(([k,lb]) => { const cur = kkPresetsOf(ss)[k]; return (
-                  <div key={k}><label className="block text-xs font-bold text-slate-600 mb-1">{lb} <span className="font-normal text-slate-400">（{cur.length}件）</span></label>
-                    <textarea key={`${k}-${(ss.kkPresets&&ss.kkPresets[k]) ? 'c' : 'd'}`} defaultValue={cur.join('\n')} rows={6} onBlur={e => { const lines = e.target.value.split('\n').map(x=>x.trim()).filter(Boolean); const prev = (ss.kkPresets||{})[k]; const same = JSON.stringify(lines) === JSON.stringify(prev || KK_PRESETS_DEFAULT[k]); if (same) return; saveSS({ kkPresets: { ...(ss.kkPresets||{}), [k]: lines.length ? lines : undefined } }, `✓ 定型文（${lb}）を保存しました`); }} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm outline-none" /></div>); })}
+                {KK_PRESET_LABELS.map(([k, lb]) => { const cur = kkPresetsOf(ss)[k]; return (
+                  <div key={k}><div className="text-xs font-bold text-slate-600 mb-1">{lb} <span className="font-normal text-slate-400">（{cur.length}件）</span></div>
+                    <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 leading-relaxed">{cur.length ? cur.map((t, i) => <div key={i}>・{t}</div>) : <span className="text-slate-400">（なし）</span>}</div></div>); })}
               </div>
             </SectionCard>
           )}
@@ -50923,7 +50971,10 @@ const KK_PRESETS_DEFAULT = {
   tsEffect: ['休まず通所できている','表情が明るくなった','歩行が安定してきた','他の利用者との会話が増えた','入浴を楽しみにしている','体調の変動があり欠席がみられた'],
   tsRisk: ['高血圧のため運動前に血圧を確認する','転倒の危険があり移動時は見守る','嚥下機能の低下があり食事・水分はとろみを付ける','糖尿病のため低血糖の症状に注意する','心疾患があり息切れ・胸の痛みに注意する','膝の痛みがあり負荷を調整する'],
 };
-const kkPresetsOf = (ss) => { const o = (ss && ss.kkPresets && typeof ss.kkPresets === 'object') ? ss.kkPresets : {}; const out = {}; Object.keys(KK_PRESETS_DEFAULT).forEach(k => { out[k] = Array.isArray(o[k]) ? o[k].filter(x => String(x||'').trim()) : KK_PRESETS_DEFAULT[k]; }); return out; };
+// ★ 2026-10-26(ユーザー決定「計画書の定型文は本部で管理」): 定型文の種類(キー・見出し)。管理局の全店共通パネルと各種設定の案内で共用
+const KK_PRESET_LABELS = [['ryui','【3-3】機能訓練実施上の留意事項（チェックで複数選択）'],['goalKinou','【3-3】目標（機能）'],['goalKatsudo','【3-3】目標（活動）'],['goalSanka','【3-3】目標（参加）'],['progContent','【3-3】プログラム内容'],['progPoint','【3-3】プログラムの留意点'],['henka','【3-3】実施による変化'],['kadai','【3-3】課題とその要因'],['skNinchi','【3-2】認知機能・コミュニケーション'],['skKadai','【3-2】生活上の課題・背景因子'],['kyBikou','【3-1】備考（希望・エピソード）'],['tsGoal','【通所介護計画書】目標'],['tsContent','【通所介護計画書】目的とケアの提供方針・内容'],['tsEffect','【通所介護計画書】効果・満足度'],['tsRisk','【通所介護計画書】医学的リスク・留意事項']];
+// ★ 2026-10-26: 優先順 = ①全店共通(管理局が保存・_globalPolicyCache.kkPresets) → ②店舗に残っている旧設定(systemSettings.kkPresets) → ③既定
+const kkPresetsOf = (ss) => { const o = (ss && ss.kkPresets && typeof ss.kkPresets === 'object') ? ss.kkPresets : {}; const g = (_globalPolicyCache && _globalPolicyCache.kkPresets && typeof _globalPolicyCache.kkPresets === 'object') ? _globalPolicyCache.kkPresets : {}; const out = {}; Object.keys(KK_PRESETS_DEFAULT).forEach(k => { const gv = Array.isArray(g[k]) ? g[k].filter(x => String(x||'').trim()) : []; out[k] = gv.length ? gv : (Array.isArray(o[k]) ? o[k].filter(x => String(x||'').trim()) : KK_PRESETS_DEFAULT[k]); }); return out; };
 // 職員の一覧(storeMembers + 日誌の職員)を 役職つきで重複なしに
 const tsuStaffList = (appData) => { const out = []; const seen = new Set(); const add = (name, role, id) => { const nm = String(name||'').trim(); if (!nm || nm === '管理局' || id === 'hq_viewer') return; const k = `${nm}|${role||''}`; if (seen.has(k)) return; seen.add(k); out.push({ name: nm, role: role || '' }); };
   (appData?.storeMembers||[]).forEach(m => { if (m && !m._preview) { add(m.name, m.roleLabel, m.id); if (m.role2) add(m.name, m.role2, m.id); } });
