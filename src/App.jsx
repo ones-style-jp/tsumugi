@@ -13320,7 +13320,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
         </Card>
       </div>
       {/* ★ お知らせ詳細モーダル */}
-      {noticeDetail && (
+      {noticeDetail && ReactDOM.createPortal((
         <div data-testid="notice-overlay" onClick={()=>setNoticeDetail(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:9999,padding:6,overflow:'hidden',overscrollBehavior:'contain'}}>{/* ★ 2026-10-26(ユーザー: スマホで上が見切れる): 上寄せ＋余白6px(小窓の上限 100dvh-12px に収まる)。短いときは margin auto で中央 */}
           <div className="tsu-cap-dvh" data-testid="notice-detail" onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:16,padding:20,width:520,maxWidth:'96vw',maxHeight:'85vh',overflow:'auto',overscrollBehavior:'contain',WebkitOverflowScrolling:'touch',margin:'auto 0',boxShadow:'0 20px 60px rgba(0,0,0,0.25)'}}
             onTouchStart={e => { try { _noticeTouch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; } catch {} }}
@@ -13367,7 +13367,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
             </div>
           </div>
         </div>
-      )}
+      ), document.body)}{/* ★ 2026-10-26(ユーザー: iPhone で上が見切れ、スクロールしても戻る): ホームのスクロール枠の外(body 直下)に描く */}
     </div>
   );
 }
