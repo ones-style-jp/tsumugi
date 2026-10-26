@@ -12954,7 +12954,12 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
   const isRead = isNoticeRead || (()=>false);
   const markRead = markNoticeRead || (()=>{});
   const [noticeDetail, setNoticeDetail] = React.useState(null);
-  const openDetail = (d) => { setNoticeDetail(d); if (d) markRead(d.id); };
+  // ★ 2026-10-26(店舗の意見「1つずつ開いて閉じるのが大変」): 開いたら左右送り(新しい←→古い)。一覧(_list)と位置(_idx)を持たせる
+  const openDetail = (d, list, idx) => { if (!d) { setNoticeDetail(null); return; } const nx = (Array.isArray(list) && list.length) ? { ...d, _list: list, _idx: (idx != null && idx >= 0) ? idx : Math.max(0, list.findIndex(x => x && x.id === d.id)) } : d; setNoticeDetail(nx); if (d._read !== false) markRead(d.id); };
+  const _noticeGo = (dir) => { const cur = noticeDetail; if (!cur || !Array.isArray(cur._list)) return; const i = (cur._idx || 0) + dir; if (i < 0 || i >= cur._list.length) return; const nx = { ...cur._list[i], _list: cur._list, _idx: i }; setNoticeDetail(nx); if (nx._read !== false) markRead(nx.id); };
+  const _noticeGoRef = React.useRef(_noticeGo); _noticeGoRef.current = _noticeGo;
+  React.useEffect(() => { if (!noticeDetail || !Array.isArray(noticeDetail._list)) return; const h = (e) => { if (e.key === 'ArrowLeft') _noticeGoRef.current(-1); else if (e.key === 'ArrowRight') _noticeGoRef.current(1); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [noticeDetail]);
+  const _noticeTouch = React.useRef(null);
   // ★ ホーム各カードのページ送り(＜ 1 2 3 ＞)。 下に長く伸びず、一定の高さで見やすくする。
   const [devPage, setDevPage] = React.useState(0);   // つむぎ運営からのお知らせ(4件/頁)
   // ★ 運営からのお知らせは既定で閉じたバー表示(2026-08-18): 業務ではスケジュール・家族/ケアマネ更新が主役のため。
@@ -13153,7 +13158,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           const fromHq = (notices||[]).filter(n=>!(n.ends_at && new Date(n.ends_at).getTime()<nowT)).map(n=>({ id:n.id, date:(n.created_at?String(n.created_at).slice(0,10):''), m: sevMeta[n.severity]||sevMeta.info, title:n.title, body:n.body }));
           const builtin = DEV_ANNOUNCEMENTS.map(a=>{ const mm=DEV_ANN_META[a.type]||DEV_ANN_META.info; return { id:a.id, date:a.date, m:{label:mm.label,emoji:mm.emoji,color:mm.color,bg:mm.bg}, title:a.title, body:a.body }; });
           // ★ update-notes.json からライブ取得した更新内容(再読み込みなしで反映)
-          const live = (devNotes||[]).map(a=>{ const mm=DEV_ANN_META[a.type]||DEV_ANN_META.info; return { id:a.id, date:a.date, m:{label:mm.label,emoji:mm.emoji,color:mm.color,bg:mm.bg}, title:a.title, body:a.body }; });
+          const live = (devNotes||[]).map(a=>{ const mm=DEV_ANN_META[a.type]||DEV_ANN_META.info; return { id:a.id, date:a.date, m:{label:mm.label,emoji:mm.emoji,color:mm.color,bg:mm.bg}, title:a.title, body:a.body, items:a.items }; }); // ★ 2026-10-26: items=構造化した変更点
           const _seen=new Set();
           const all = [...fromHq, ...live, ...builtin].filter(x=>{ if(!x.id||_seen.has(x.id)) return false; _seen.add(x.id); return true; }).sort((a,b)=>String(b.date).localeCompare(String(a.date))).slice(0,50);
           if (!all.length) return null;
@@ -13184,7 +13189,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                   クリックで従来どおり全文モーダル。 画面の半分以上を占領していたのを1/4程度へ。 */}
               <div style={{display:'flex',flexDirection:'column',gap:5}}>
                 {_devShown.map(a=>{ const _r=isRead(a.id); return (
-                  <button key={a.id} onClick={()=>openDetail({id:a.id,badge:`${a.m.emoji?a.m.emoji+' ':''}${a.m.label}`,badgeColor:a.m.color,date:a.date,title:a.title,body:a.body})}
+                  <button key={a.id} data-testid={`home-dev-row-${a.id}`} onClick={()=>{ const _d = (x) => ({id:x.id,badge:`${x.m.emoji?x.m.emoji+' ':''}${x.m.label}`,badgeColor:x.m.color,date:x.date,title:x.title,body:x.body,items:x.items}); openDetail(_d(a), all.map(_d)); }}
                     title={a.title}
                     style={{textAlign:'left',cursor:'pointer',width:'100%',border:`1px solid ${_r?'#e2e8f0':a.m.color+'66'}`,background:_r?'white':a.m.bg,borderRadius:8,padding:'5px 10px',display:'flex',alignItems:'center',gap:8,minWidth:0}}>
                     <span style={{fontSize:10,fontWeight:'bold',color:'white',background:_r?'#94a3b8':a.m.color,borderRadius:5,padding:'2px 7px',whiteSpace:'nowrap',flexShrink:0}}>{a.m.emoji} {a.m.label}</span>
@@ -13222,7 +13227,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                 <div style={{display:'flex',flexDirection:'column',gap:6}}>
                   {/* ★ 1行表示(2026-08-21): 利用者名・更新内容・日時のみ。 タップで詳細(更新者含む) */}
                   {_extShown.map(u=>{ const _r=isRead(u.id); const _c=u.by==='caremanager'?'#0891b2':'#7c3aed'; return (
-                    <button key={u.id} onClick={()=>openDetail({id:u.id,badge:u.by==='caremanager'?'ケアマネ':'ご家族',badgeColor:_c,date:_fmt(u.at),title:`利用者：${u._pname} 様`,body:`更新内容：${(u.items||[]).join('・')||'更新'}${docUpdateChangesText(u) ? `\n\n【変更の内容】\n${docUpdateChangesText(u)}` : ''}${u.byName?`\n更新者：${u.byName}`:''}`,patientId:u._pid})}
+                    <button key={u.id} onClick={()=>{ const _d = (u) => ({id:u.id,badge:u.by==='caremanager'?'ケアマネ':'ご家族',badgeColor:_c,date:_fmt(u.at),title:`利用者：${u._pname} 様`,body:`更新内容：${(u.items||[]).join('・')||'更新'}${docUpdateChangesText(u) ? `\n\n【変更の内容】\n${docUpdateChangesText(u)}` : ''}${u.byName?`\n更新者：${u.byName}`:''}`,patientId:u._pid}); openDetail(_d(u), ext.map(_d)); }}
                       style={{textAlign:'left',background:_r?'#f8fafc':'#fffbeb',border:`1px solid ${_r?'#e2e8f0':'#fde68a'}`,borderRadius:8,padding:'6px 10px',cursor:'pointer',opacity:_r?0.72:1,display:'flex',alignItems:'center',gap:8,minWidth:0,width:'100%'}}>
                       <span style={{fontSize:9,fontWeight:'bold',color:'white',background:_r?'#94a3b8':_c,borderRadius:4,padding:'2px 6px',whiteSpace:'nowrap',flexShrink:0}}>{u.by==='caremanager'?'ケアマネ':'ご家族'}</span>
                       <span style={{fontSize:12.5,fontWeight:'bold',color:_r?'#64748b':'#1e293b',whiteSpace:'nowrap',flexShrink:0}}>{u._pname} 様</span>
@@ -13248,7 +13253,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                 {/* ★ #4: 事業所からのお知らせは既読管理しない(投稿したら表示のみ)。 タップで詳細は見られるが既読は付けない。 */}
                 {/* ★ 1行表示(2026-08-21): バッジ+日付+題名(+写真枚数)。 タップで詳細モーダル(本文・写真) */}
                 {_pageSlice(news, newsPage, (tsuViewW() < 768 ? 5 : 10)).map(a=>{ const _c=a._kind==='個別'?'#b45309':'#1d4ed8'; const _ph=(Array.isArray(a.photos)?a.photos.length:0); return (
-                  <button key={a.id} onClick={()=>setNoticeDetail({id:a.id,badge:a._group==='mon' ? `個別・${a.members.length}名` : `${a._kind}${a.patientId?`・${patName(a.patientId)}`:''}`,badgeColor:_c,date:(a.postedAt?String(a.postedAt).slice(0,10):(a.date||'')),title:a.title||'(写真)',body:a.body,patientId:a.patientId,photos:a.photos})}
+                  <button key={a.id} onClick={()=>{ const _d = (a) => ({ ...{id:a.id,badge:a._group==='mon' ? `個別・${a.members.length}名` : `${a._kind}${a.patientId?`・${patName(a.patientId)}`:''}`,badgeColor:_c,date:(a.postedAt?String(a.postedAt).slice(0,10):(a.date||'')),title:a.title||'(写真)',body:a.body,patientId:a.patientId,photos:a.photos}, _read: false }); openDetail(_d(a), news.map(_d)); }}
                     style={{textAlign:'left',width:'100%',cursor:'pointer',background:'#ffffff',border:'1px solid #e2e8f0',borderRadius:8,padding:'6px 10px',display:'flex',alignItems:'center',gap:8,minWidth:0}} data-testid="home-news-row">{/* ★ 2026-10-22: ハイライトなし(店舗から送ったお知らせのため) */}
                     <span style={{fontSize:9,fontWeight:'bold',color:_c,background:(a._kind==='個別'?'#fef3c7':'#dbeafe'),borderRadius:4,padding:'2px 6px',whiteSpace:'nowrap',flexShrink:0}}>{a._group==='mon' ? `個別・${a.members.length}名` : <>{a._kind}{a.patientId?`・${patName(a.patientId)}`:''}</>}</span>
                     <span style={{fontSize:10,color:'#64748b',whiteSpace:'nowrap',flexShrink:0}}>{a.postedAt ? String(a.postedAt).slice(0,10) : (a.date||'')}</span>
@@ -13303,13 +13308,39 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
       {/* ★ お知らせ詳細モーダル */}
       {noticeDetail && (
         <div onClick={()=>setNoticeDetail(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999,padding:16}}>
-          <div className="tsu-cap-dvh" onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:16,padding:20,width:460,maxWidth:'96vw',maxHeight:'85vh',overflow:'auto',boxShadow:'0 20px 60px rgba(0,0,0,0.25)'}}>
+          <div className="tsu-cap-dvh" data-testid="notice-detail" onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:16,padding:20,width:520,maxWidth:'96vw',maxHeight:'85vh',overflow:'auto',boxShadow:'0 20px 60px rgba(0,0,0,0.25)'}}
+            onTouchStart={e => { try { _noticeTouch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; } catch {} }}
+            onTouchEnd={e => { try { const t0 = _noticeTouch.current; _noticeTouch.current = null; if (!t0) return; const dx = e.changedTouches[0].clientX - t0.x, dy = e.changedTouches[0].clientY - t0.y; if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) _noticeGo(dx < 0 ? 1 : -1); } catch {} }}>
+            {Array.isArray(noticeDetail._list) && noticeDetail._list.length > 1 && (
+              <div data-testid="notice-nav" style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>{/* ★ 2026-10-26: 左右送り(新しい←→古い)。スワイプ・矢印キーでも */}
+                <button type="button" data-testid="notice-prev" disabled={(noticeDetail._idx||0) <= 0} onClick={()=>_noticeGo(-1)} style={{padding:'6px 12px',borderRadius:8,border:'1px solid #cbd5e1',background:'#f8fafc',color:'#334155',fontWeight:'bold',fontSize:12,cursor:'pointer',opacity:(noticeDetail._idx||0) <= 0 ? 0.4 : 1}}>‹ 新しい</button>
+                <span style={{fontSize:12,fontWeight:'bold',color:'#64748b',whiteSpace:'nowrap'}}>{(noticeDetail._idx||0) + 1} / {noticeDetail._list.length}</span>
+                <button type="button" data-testid="notice-next" disabled={(noticeDetail._idx||0) >= noticeDetail._list.length - 1} onClick={()=>_noticeGo(1)} style={{padding:'6px 12px',borderRadius:8,border:'1px solid #cbd5e1',background:'#f8fafc',color:'#334155',fontWeight:'bold',fontSize:12,cursor:'pointer',opacity:(noticeDetail._idx||0) >= noticeDetail._list.length - 1 ? 0.4 : 1}}>古い ›</button>
+                <span style={{marginLeft:'auto',fontSize:10,color:'#94a3b8',whiteSpace:'nowrap'}}>左右にスワイプでも</span>
+              </div>
+            )}
             <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10,flexWrap:'wrap'}}>
               {noticeDetail.badge && <span style={{fontSize:11,fontWeight:'bold',color:'white',background:noticeDetail.badgeColor||'#64748b',borderRadius:6,padding:'2px 9px'}}>{noticeDetail.badge}</span>}
               {noticeDetail.date && <span style={{fontSize:11,color:'#64748b'}}>{noticeDetail.date}</span>}
             </div>
             <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b',marginBottom:10,lineHeight:1.4}}>{noticeDetail.title}</div>
-            {noticeDetail.body && <div style={{fontSize:13,color:'#334155',whiteSpace:'pre-wrap',lineHeight:1.75}}>{noticeDetail.body}</div>}
+            {Array.isArray(noticeDetail.items) && noticeDetail.items.length > 0 ? (() => { // ★ 2026-10-26(ユーザー要望): 変更点を「場所・原因→変更」で分かりやすく。文でだらだら書かない
+              const KINDS = [['bug','不具合の修正','#dc2626','#fef2f2'],['feat','新機能','#2563eb','#eff6ff'],['change','変更','#0f766e','#ecfdf5']];
+              const its = noticeDetail.items.filter(x => x && (x.change || x.what));
+              const places = Array.from(new Set(its.map(x => x.where).filter(Boolean)));
+              return (<div data-testid="notice-items">
+                <div style={{fontSize:12,color:'#475569',marginBottom:8}}>変更点 <b>{its.length}件</b>{places.length ? `（${places.join('・')}）` : ''}{noticeDetail.body ? ` ― ${noticeDetail.body}` : ''}</div>
+                {KINDS.map(([k, lb, c, bg]) => { const L = its.filter(x => (x.kind || 'change') === k); if (!L.length) return null; return (
+                  <div key={k} style={{marginBottom:10}}>
+                    <div style={{fontSize:12,fontWeight:'bold',color:c,marginBottom:4}}>{lb} {L.length}件</div>
+                    <div style={{display:'flex',flexDirection:'column',gap:5}}>{L.map((x, i) => (
+                      <div key={i} style={{border:`1px solid ${c}33`,background:bg,borderRadius:8,padding:'6px 10px',fontSize:13,color:'#1e293b',lineHeight:1.55}}>
+                        {x.where && <span style={{display:'inline-block',fontSize:10,fontWeight:'bold',color:'white',background:c,borderRadius:4,padding:'1px 6px',marginRight:6,verticalAlign:'middle'}}>{x.where}</span>}
+                        {x.cause && <span><span style={{fontSize:11,fontWeight:'bold',color:'#64748b'}}>原因</span> {x.cause} <span style={{color:'#94a3b8'}}>→</span> </span>}
+                        <span>{x.change || x.what}</span>
+                      </div>))}</div>
+                  </div>); })}
+              </div>); })() : (noticeDetail.body && <div style={{fontSize:13,color:'#334155',whiteSpace:'pre-wrap',lineHeight:1.75}}>{noticeDetail.body}</div>)}
             {Array.isArray(noticeDetail.photos) && noticeDetail.photos.length > 0 && (
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginTop:12}}>
                 {noticeDetail.photos.map((ph,i)=>(<StoredImage key={i} file={ph} style={{width:'100%',height:150,objectFit:'cover',borderRadius:10,border:'1px solid #e2e8f0'}}/>))}
@@ -37748,7 +37779,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _baseIdOf = (pl) => (pl ? (pl._final ? (pl._finalId || pl._finalAt || null) : (pl._base ? (pl._baseId || pl._baseAt || null) : null)) : null);
   const _chgOf = (pl, pid) => { const fin = _baseOf(pl); if (!fin) return ''; const now = _locOf(_snapPlan(pl), pid); if (!now) return ''; const was = _locOf(fin, pid); if (!was) return '配布後に追加'; if (now.zone !== was.zone) return was.zone==='walk'?'徒歩から車へ変更':(was.zone==='other'?'その他から変更':(now.zone==='walk'?'車から徒歩へ変更':(now.zone==='other'?'車からその他へ変更':'車が変更'))); if (now.zone === 'walk' && was.wt != null && now.wt != null && now.wt !== was.wt) return `到着時間が変更（${was.wt||'開始時刻'}→${now.wt||'開始時刻'}）`; if (now.zone !== 'walk' && now.zone !== 'other') { if ((now.t||'') !== (was.t||'')) return `時間が変更（${was.t||'未定'}→${now.t||'未定'}）`;
       // ★ 2026-10-02: 乗車順は「今も乗っている方どうしの並び」で比べる(休みで外れた方の分だけ前に詰まったのを変更と数えない)
-      const _curSnap = _snapPlan(pl); const _nowIds = new Set((_curSnap.cars[now.zone]||[]).map(m => m.pid)); const _wasOrder = (fin.cars[now.zone]||[]).filter(m => _nowIds.has(m.pid)).map(m => m.pid); const _nowOrder = (_curSnap.cars[now.zone]||[]).map(m => m.pid);
+      // ★ 2026-10-26(ユーザー「人を入れただけで車の全員に赤枠が付く」): 比べるのは前からいた人どうしの並び(新しく乗せた人は数えない)
+      const _curSnap = _snapPlan(pl); const _nowIds = new Set((_curSnap.cars[now.zone]||[]).map(m => m.pid)); const _wasIds = new Set((fin.cars[now.zone]||[]).map(m => m.pid)); const _wasOrder = (fin.cars[now.zone]||[]).filter(m => _nowIds.has(m.pid)).map(m => m.pid); const _nowOrder = (_curSnap.cars[now.zone]||[]).map(m => m.pid).filter(id => _wasIds.has(id));
       if (_wasOrder.indexOf(pid) !== _nowOrder.indexOf(pid)) return '乗車順が変更'; } return ''; };
   // ★ 2026-10-02(ユーザー要望「赤丸は、前の来所日の連絡帳を渡した後に変わった分だけ」):
   //   確定後の変更ごとに「変えた時刻」を pl._chgAt[pid] に控える(位置が変わるたびに更新・元に戻れば消す)。
