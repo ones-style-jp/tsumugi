@@ -25185,6 +25185,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     return () => { clearTimeout(t1); clearTimeout(t2); clearInterval(iv); window.removeEventListener('resize', calc); };
   }, [isFullscreen, _fsFit, _fsModeTick]);
   const _fsZoom = isFullscreen ? (_fsFit ? _fitZoom : 1.2) : 1;
+  // ★ 2026-10-26(ユーザー要望「一言かマイクのどちらかを無くしたとき、残った方を他と同じ高さに」): 表の特記セルで一言とマイクが1つだけなら、そのボタンを欄の高さいっぱいに
+  const _tkOne = (((tsuTokkiPresets(appData).length && !appData.systemSettings?.tokkiPresetOff) ? 1 : 0) + ((!appData.systemSettings?.tokkiVoiceOff && tsuVoiceSupported()) ? 1 : 0)) === 1;
   useEffect(() => { const on = (e) => { if (!e || !e.key || e.key === TSU_FS_MODE_KEY) _setFsModeTick(t => t + 1); }; window.addEventListener('storage', on); window.addEventListener('tsu:fsmode', on); return () => { window.removeEventListener('storage', on); window.removeEventListener('tsu:fsmode', on); }; }, []);
   // ★ 2026-10-11: 全画面(画面全体を覆う)を一瞬で外すと、iPad では下の見出し・上部の帯が古い描画のまま白く残ることがある。0.3秒かけて薄くしてから外す
   const [fsClosing, setFsClosing] = useState(false);
@@ -27021,7 +27023,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     ))}
                   </div>
                   <button type="button" data-testid="rec-order-btn" onClick={() => setRecOrderOpen(true)} title={_recOrderOn ? `${_recOrderLabel}のクラスは保存した並び順です（押すと並べ替え・消去）` : `${_recOrderLabel}のクラスの並び順を変えます（ほかの曜日・時間帯はそのまま）`} className={`${_iconBar ? 'px-2.5' : 'px-3'} py-2 rounded-xl text-sm font-bold border shrink-0 ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}><ArrowUpDown size={17} strokeWidth={2.4} aria-label="並び替え"/></button>{/* ★ 2026-10-23(ユーザー): 短いときは並び替えのアイコンだけ */}
-                  {recOrderOpen && <RecordOrderModal rows={_recOrderRows} label={_recOrderLabel} onSave={saveRecordOrder} onReset={_recOrderOn ? resetRecordOrder : null} onClose={() => setRecOrderOpen(false)}/>}
+                  
                   {attCountChips && <div className="hidden sm:block">{attCountChips}</div>}
               </div>
             )}
@@ -27134,13 +27136,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             </>)}
             <div data-testid="rec-actions" className={`w-full sm:w-auto sm:ml-auto grid ${filterMode === 'single' ? 'grid-cols-4' : 'grid-cols-3'} sm:flex items-center gap-1.5 ${_iconBar ? 'sm:gap-1.5' : 'sm:gap-2'} sm:flex-wrap`}>
               {filterMode === 'single' && <button type="button" data-testid="rec-act-bulkex" onClick={() => setBulkExOpen(true)} className="order-last sm:order-none bg-white border border-indigo-300 text-indigo-700 hover:bg-indigo-50 px-1 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="出席している方の運動をまとめて○にします(行わなかった方は×に)">{_iconBar ? _ib(CheckCheck, '一括○') : '一括○'}</button>}
-              {bulkExOpen && ReactDOM.createPortal(<TsuBulkExerciseModal
-                rows={(displayRecords || []).filter(r => ['出席', '臨時', '振替'].includes(r.status || '出席'))}
-                items={effExerciseItems(appData.systemSettings).filter(it => it.type !== 'individual')}
-                baselineOf={_exBaselineOf}
-                onClose={() => setBulkExOpen(false)}
-                onApply={(cells) => { let n = 0; Object.entries(cells).forEach(([k, v]) => { const i = k.lastIndexOf('|'); const rid = k.slice(0, i), fld = k.slice(i + 1); const r = (displayRecords || []).find(x => String(x.id) === rid); if (!r) return; updateExercise(r.id, fld, v === 'o' ? '○' : '×'); n++; }); setBulkExOpen(false); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `${n}件を入れました。内容を確かめて「保存」を押してください` } })); } catch {} }}
-              />, document.body)}
+              
               {/* ★ 連絡帳は一番左(全画面の左)に配置(2026-08-28 店舗要望) */}
               <button data-testid="rec-act-renraku" onClick={() => { handleSaveClick(); navigateTo('print'); }} className={`bg-emerald-600 hover:bg-emerald-700 text-white px-2 ${_iconBar ? 'sm:px-2.5' : 'sm:px-4'} py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap`}>{_iconBar ? _ib(Printer, '連絡帳') : '連絡帳'}</button>
               <button data-testid="rec-act-fullscreen" onClick={()=>{ if (isFullscreen) setIsFullscreen(false); else setFsPick(true); }} className="bg-slate-700 hover:bg-slate-800 text-white px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title={isFullscreen?'通常表示':'全画面表示'}>
@@ -27151,7 +27147,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   <div style={{background:'white',borderRadius:18,padding:18,width:'100%',maxWidth:460,boxShadow:'0 20px 60px rgba(0,0,0,0.35)'}} onClick={e => e.stopPropagation()}>
                     <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>全画面の見せ方</div>
                     <div style={{fontSize:12,color:'#64748b',marginBottom:12}}>この端末で前に選んだものに印が付いています。全画面の中でも切り替えられます。</div>
-                    {[['zoom','大きく表示','文字を1.2倍に。10人分より多いときはスクロール'],['fit','全員を1画面に','来ている方の人数と画面の大きさに合わせて、全員が画面に入る大きさに']].map(([k, l, sub]) => (
+                    {[['zoom','拡大表示','文字を1.2倍に。10人分より多いときはスクロール'],['fit','全員を1画面に','来ている方の人数と画面の大きさに合わせて、全員が画面に入る大きさに']].map(([k, l, sub]) => (
                       <button key={k} type="button" data-testid={`fs-pick-${k}`} onClick={() => { try { localStorage.setItem(TSU_FS_MODE_KEY, k); } catch {} _setFsModeTick(t => t + 1); setFsPick(false); setIsFullscreen(true); }}
                         style={{display:'block',width:'100%',textAlign:'left',padding:'12px 14px',marginBottom:8,borderRadius:12,border: tsuFsMode() === k ? '2px solid #2563eb' : '2px solid #e2e8f0',background: tsuFsMode() === k ? '#eff6ff' : 'white',cursor:'pointer'}}>
                         <div style={{fontSize:15,fontWeight:'bold',color: tsuFsMode() === k ? '#1d4ed8' : '#1e293b'}}>{tsuFsMode() === k ? '● ' : ''}{l}</div><div style={{fontSize:12,color:'#64748b'}}>{sub}</div>
@@ -27159,7 +27155,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     <div style={{textAlign:'right'}}><button type="button" onClick={() => setFsPick(false)} style={{padding:'8px 16px',borderRadius:10,border:'none',background:'#f1f5f9',color:'#334155',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>やめる</button></div>
                   </div>
                 </div>), document.body)}
-              <button onClick={()=>setRestoreModal(true)} className="bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="保存した記録を丸ごと復元(元に戻す)">{_iconBar ? _ib(Undo2, '戻す') : '元に戻す'}</button>
+              <button onClick={()=>setRestoreModal(true)} className="bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="保存した記録を丸ごと復元(元に戻す)">{_iconBar ? _ib(Undo2, '戻す') : '戻す'}</button>{/* ★ 2026-10-26(ユーザー): ほかと同じ「戻す」に */}
               {/* ★ onClick={handleSaveClick} だとクリックイベントが第1引数(auto)に渡り auto=truthy(自動保存扱い)になり、
                   「保存しました」が出ず担当者チェックも飛ばされていた。 明示的に auto=false で呼ぶ。 */}
               <button onClick={()=>handleSaveClick(false)} className={`hidden sm:block bg-blue-600 hover:bg-blue-700 text-white px-2 ${_iconBar ? 'sm:px-3' : 'sm:px-4'} py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap`}>{_iconBar ? _ib(Save, '保存') : '保存'}</button>
@@ -27196,16 +27192,45 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
         <div data-testid="rec-fs-bar" className="bg-slate-800 px-2 sm:px-4 py-2 flex flex-wrap items-center gap-2 sm:gap-3 flex-shrink-0 sticky top-0 z-50 shadow-md">
           <span className="text-white font-bold text-sm whitespace-nowrap truncate min-w-0"><span className="hidden sm:inline">サービス提供記録 入力 </span>{selectedDate && new Date(selectedDate).toLocaleDateString('ja-JP', {year:'numeric', month:'long', day:'numeric'})}</span>
           {attCountChips && <div className="ml-1 sm:ml-2">{attCountChips}</div>}
+          {/* ★ 2026-10-26(ユーザー要望「個別の実施・並び替え・一括○・印の外しも全画面で」) */}
+          {_kinouOn && (
+            <div data-testid="fs-kinou-box" className="flex items-center gap-1 bg-emerald-50 border border-emerald-200 rounded-lg px-1.5 py-0.5" title="個別機能訓練をした指導員。選ぶと表示中の全員に入ります（人ごとは「利用者ごと」）">
+              <span className="text-[10px] font-bold text-emerald-800 whitespace-nowrap leading-tight text-center">個別<br/>実施</span>
+              <select data-testid="fs-kinou-default" value={_kinouEff} disabled={!isEditMode} onChange={e=>applyKinouAll(e.target.value)} className="text-xs font-bold bg-white border border-emerald-300 rounded appearance-none px-1.5 py-1 outline-none disabled:opacity-60" title={_kinouEff || ''}>
+                {!_kinouList.includes(_kinouEff) && _kinouEff && _kinouEff !== '未算定' && <option value={_kinouEff}>{_kinouShort(_kinouEff)}</option>}
+                {_kinouList.map(n => <option key={n} value={n}>{_kinouShort(n)}</option>)}
+                <option value="未算定">未算定</option>
+                {!_kinouList.length && !_kinouEff && <option value="">（機能訓練指導員が未登録）</option>}
+              </select>
+            </div>
+          )}
+          {filterMode === 'single' && <button type="button" data-testid="fs-order-btn" onClick={() => setRecOrderOpen(true)} title={_recOrderOn ? `${_recOrderLabel}のクラスは保存した並び順です（押すと並べ替え・消去）` : `${_recOrderLabel}のクラスの並び順を変えます（ほかの曜日・時間帯はそのまま）`} className={`px-2 py-1.5 rounded-lg text-xs font-bold border whitespace-nowrap ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white/90 border-slate-300 text-slate-700'}`}><ArrowUpDown size={15} strokeWidth={2.4} aria-label="並び替え"/></button>}
+          {filterMode === 'single' && <button type="button" data-testid="fs-act-bulkex" onClick={() => setBulkExOpen(true)} className="bg-white/90 border border-indigo-300 text-indigo-700 px-2 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap" title="出席している方の運動をまとめて○にします(行わなかった方は×に)">一括○</button>}
+          {_rvMarks.length > 0 && (
+            <div data-testid="fs-marks-bar" className="inline-flex items-center gap-1.5 h-8 pl-2 pr-1 rounded-lg bg-yellow-50 border border-yellow-300 text-[12px] font-bold text-yellow-900" title="名前を長押しで印の付け外し（この端末の表示だけ）">
+              <span className="whitespace-nowrap">印 {_rvMarks.length}</span>
+              <button type="button" data-testid="fs-marks-clear" onClick={() => _setRvMarks([])} className="h-6 px-2 rounded bg-white border border-yellow-400 text-yellow-900 text-[12px] whitespace-nowrap">外す</button>
+            </div>
+          )}
           <div className="flex-1 hidden sm:block"/>
           <div className="basis-full sm:hidden" />
           <button onClick={()=>{ handleSaveClick(); navigateTo('print'); }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap" title="連絡帳の作成・印刷へ"><Printer size={13} className="mr-1"/>連絡帳</button>
-          <button type="button" data-testid="fs-mode-switch" onClick={() => { try { localStorage.setItem(TSU_FS_MODE_KEY, _fsFit ? 'zoom' : 'fit'); } catch {} _setFsModeTick(t => t + 1); }} className="bg-white/90 text-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border border-slate-300" title="全画面の見せ方を切り替えます（この端末）">{_fsFit ? '大きく表示' : '全員を1画面に'}</button>{/* ★ 2026-10-23: 全画面の中でも見せ方を切り替えられる */}
-          <button onClick={closeFullscreen} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap">通常表示に戻る</button>
-          <button onClick={()=>setRestoreModal(true)} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap" title="保存した記録を丸ごと復元">元に戻す</button>
+          <button type="button" data-testid="fs-mode-switch" onClick={() => { try { localStorage.setItem(TSU_FS_MODE_KEY, _fsFit ? 'zoom' : 'fit'); } catch {} _setFsModeTick(t => t + 1); }} className="bg-white/90 text-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border border-slate-300" title="全画面の見せ方を切り替えます（この端末）">{_fsFit ? '拡大表示' : '全員を1画面に'}</button>{/* ★ 2026-10-23: 全画面の中でも見せ方を切り替えられる */}
+          <button onClick={closeFullscreen} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap">通常表示へ</button>
+          <button onClick={()=>setRestoreModal(true)} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap" title="保存した記録を丸ごと復元（戻す）">戻す</button>
           <button onClick={()=>handleSaveClick(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap"><CloudUpload size={13} className="mr-1"/>保存</button>
         </div>
       )}
 
+      {/* ★ 2026-10-26: 並び替え・一括○の小窓は通常表示・全画面のどちらからでも開く(帯の外に置く) */}
+      {recOrderOpen && <RecordOrderModal rows={_recOrderRows} label={_recOrderLabel} onSave={saveRecordOrder} onReset={_recOrderOn ? resetRecordOrder : null} onClose={() => setRecOrderOpen(false)}/>}
+      {bulkExOpen && ReactDOM.createPortal(<TsuBulkExerciseModal
+                rows={(displayRecords || []).filter(r => ['出席', '臨時', '振替'].includes(r.status || '出席'))}
+                items={effExerciseItems(appData.systemSettings).filter(it => it.type !== 'individual')}
+                baselineOf={_exBaselineOf}
+                onClose={() => setBulkExOpen(false)}
+                onApply={(cells) => { let n = 0; Object.entries(cells).forEach(([k, v]) => { const i = k.lastIndexOf('|'); const rid = k.slice(0, i), fld = k.slice(i + 1); const r = (displayRecords || []).find(x => String(x.id) === rid); if (!r) return; updateExercise(r.id, fld, v === 'o' ? '○' : '×'); n++; }); setBulkExOpen(false); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `${n}件を入れました。内容を確かめて「保存」を押してください` } })); } catch {} }}
+              />, document.body)}
       {/* ★ 2026-10-21: スマホは上の帯がたたまれているので、印があるときだけ左下に小さく(固定・表は動かない) */}
       {_rvMarks.length > 0 && (
         <div data-testid="rv-marks-bar-phone" className="no-print sm:hidden fixed left-3 z-40 inline-flex items-center gap-2 pl-3 pr-1 h-11 rounded-xl bg-yellow-50 border border-yellow-300 text-[14px] font-bold text-yellow-900 shadow-md" style={{bottom:'calc(env(safe-area-inset-bottom, 0px) + 44px)'}}>
@@ -27932,8 +27957,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                           {!isReadOnly && !isAbsent && !isPause && (
                             <div style={{display:'flex',flexDirection:'column',gap:2,flexShrink:0,width:52,justifyContent:'center'}}>{/* ★ 2026-10-23(ユーザー報告「一言の右が切れる」): 44→52px */}
                               <TsuTokkiPresetSelect appData={appData} testid={`rv-tokki-pick-${p.id}`} onPick={(ph) => updateRecord(p.id, 'tokki', tsuTokkiAppend(p.tokki, ph))}
-                                className="w-full text-[11px] font-bold border border-slate-300 rounded bg-white text-slate-700 outline-none appearance-none" style={{height:24,padding:'0 2px',textAlign:'center',textAlignLast:'center',WebkitAppearance:'none',MozAppearance:'none',backgroundImage:'none'}}/>{/* ★ 2026-10-23(ユーザー指示): 下の矢印は出さない */}
-                              {!appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-tokki-mic-${p.id}`} getBase={() => p.tokki || ''} onLive={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} onText={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} className="w-full" style={{height:24}} size={14}/>}
+                                className="w-full text-[11px] font-bold border border-slate-300 rounded bg-white text-slate-700 outline-none appearance-none" style={{height: _tkOne ? 'auto' : 24, flex: _tkOne ? 1 : 'none', minHeight:24, padding:'0 2px',textAlign:'center',textAlignLast:'center',WebkitAppearance:'none',MozAppearance:'none',backgroundImage:'none', ...(_tkOne ? { fontSize: 13 } : {})}}/>{/* ★ 2026-10-23(ユーザー指示): 下の矢印は出さない ★ 2026-10-26: 1つだけなら欄いっぱい */}
+                              {!appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-tokki-mic-${p.id}`} getBase={() => p.tokki || ''} onLive={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} onText={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} className="w-full" style={{height: _tkOne ? 'auto' : 24, flex: _tkOne ? 1 : 'none', minHeight:24}} size={_tkOne ? 18 : 14}/>}
                             </div>
                           )}
                           {/* ★ 欠席・休止の特記=休みの理由は家族へ必ず表示する(2026-08-21): 非表示ボタン自体を出さない */}
@@ -27970,7 +27995,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       {restoreConfirm && ReactDOM.createPortal(
         <div style={{position:'fixed',inset:0,zIndex:2147483000,background:'rgba(15,23,42,0.55)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
           <div style={{background:'white',borderRadius:16,maxWidth:500,width:'100%',padding:20,boxShadow:'0 20px 60px rgba(0,0,0,0.35)'}}>
-            <div style={{fontWeight:'bold',fontSize:15,color:'#0f172a',marginBottom:10}}>記録を復元（元に戻す）</div>
+            <div style={{fontWeight:'bold',fontSize:15,color:'#0f172a',marginBottom:10}}>記録を復元（戻す）</div>
             <div style={{fontSize:13,color:'#334155',whiteSpace:'pre-line',lineHeight:1.6,maxHeight:'50vh',overflowY:'auto'}}>{restoreConfirm.msg}</div>
             <div style={{display:'flex',gap:10,marginTop:16,justifyContent:'flex-end'}}>
               <button onClick={()=>setRestoreConfirm(null)} style={{whiteSpace:'nowrap',padding:'10px 18px',borderRadius:10,border:'1px solid #cbd5e1',background:'white',fontWeight:'bold',fontSize:13,color:'#475569',cursor:'pointer'}}>キャンセル</button>
@@ -27996,7 +28021,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4" style={{zIndex:100000}} onClick={()=>setRestoreModal(false)}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] overflow-hidden flex flex-col" onClick={e=>e.stopPropagation()}>
               <div className="px-5 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-                <div><div className="font-bold text-slate-800">記録を復元（元に戻す）</div><div className="text-[11px] text-slate-500 mt-0.5">{new Date(selectedDate).toLocaleDateString('ja-JP')} の保存履歴から、その時点の記録に丸ごと戻します</div></div>
+                <div><div className="font-bold text-slate-800">記録を復元（戻す）</div><div className="text-[11px] text-slate-500 mt-0.5">{new Date(selectedDate).toLocaleDateString('ja-JP')} の保存履歴から、その時点の記録に丸ごと戻します</div></div>
                 <button onClick={()=>setRestoreModal(false)} className="p-2 text-slate-400 hover:bg-slate-200 rounded-full"><X size={18}/></button>
               </div>
               <div className="p-3 overflow-y-auto">
@@ -37071,6 +37096,7 @@ const tsuTokkiPresets = (appData) => { const a = appData?.systemSettings?.tokkiP
 const tsuTokkiAppend = (cur, phrase) => { const c = String(cur || '').trim(); const ph = String(phrase || '').trim(); if (!ph || c.includes(ph)) return c; const sep = !c ? '' : /[。、・\s]$/.test(c) ? '' : '・'; return (c + sep + ph).slice(0, TOKKI_MAX); };
 function TsuTokkiPresetSelect({ appData, onPick, className, style, testid, label = '一言' }) {
   const list = tsuTokkiPresets(appData); if (!list.length) return null;
+  if (appData && appData.systemSettings && appData.systemSettings.tokkiPresetOff) return null; // ★ 2026-10-26(ユーザー要望): 各種設定で「一言のボタンを出さない」
   return (
     <select data-testid={testid} value="" title="よく使う一言を特記に足します" aria-label="特記に一言を足す" className={className} style={style}
       onChange={e => { const v = e.target.value; if (v) onPick(v); }}>
@@ -37108,7 +37134,7 @@ function TsuMicButton({ onText, onLive, getBase, disabled, testid, className, st
     try { rec.start(); setOn(true); setMsg(''); timerRef.current = setTimeout(() => { try { rec.stop(); } catch {} }, 15000); } catch { doneRef.current = true; flash('音声入力ができませんでした'); }
   };
   return (
-    <span className="relative inline-flex" style={{ flexShrink: 0 }}>
+    <span className="relative inline-flex" style={{ flexShrink: 0, ...(style && style.flex ? { flex: style.flex, display: 'flex', flexDirection: 'column', minHeight: style.minHeight } : {}) }}>{/* ★ 2026-10-26: 欄いっぱい(flex)の指定は外側にも効かせる */}
       <button type="button" data-testid={testid} disabled={disabled} onClick={toggle} aria-label={on ? '音声入力を止める' : '声で入力'} aria-pressed={on}
         title={on ? '聞き取り中… もう一度押すと止めます' : '声で入力（押してから話すと、言葉が特記に入ります）'}
         className={`${className || ''} ${on ? 'bg-red-600 border-red-600 text-white animate-pulse' : 'bg-white border-slate-300 text-slate-600'} border rounded-lg inline-flex items-center justify-center disabled:opacity-40`} style={style}>
@@ -37146,6 +37172,10 @@ function TsuTokkiPresetCard({ appData, onSave }) {
       <label className="flex items-center justify-between gap-3 cursor-pointer border-t border-slate-100 pt-3">
         <div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">特記にマイク（音声入力）のボタンを出す</div><div className="text-xs text-slate-500">押してから話すと特記に入ります（端末の音声認識を使います）。</div></div>
         <input type="checkbox" data-testid="tokki-voice-toggle" checked={!voiceOff} onChange={e => save({ tokkiVoiceOff: !e.target.checked }, e.target.checked ? '✓ マイクのボタンを出します' : 'マイクのボタンを出さないようにしました')} className="w-6 h-6 shrink-0"/>
+      </label>
+      <label className="flex items-center justify-between gap-3 cursor-pointer border-t border-slate-100 pt-3 mt-3">{/* ★ 2026-10-26(ユーザー要望「一言の方にも出すかどうかのチェックを」) */}
+        <div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">特記に「一言」のボタンを出す</div><div className="text-xs text-slate-500">上の言葉から選んで特記に足すボタンです。出さないときは特記の欄だけになります。</div></div>
+        <input type="checkbox" data-testid="tokki-preset-toggle" checked={!appData?.systemSettings?.tokkiPresetOff} onChange={e => save({ tokkiPresetOff: !e.target.checked }, e.target.checked ? '✓ 一言のボタンを出します' : '一言のボタンを出さないようにしました')} className="w-6 h-6 shrink-0"/>
       </label>
     </div>
   );
