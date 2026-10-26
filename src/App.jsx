@@ -23347,6 +23347,17 @@ export default function App() {
   // ★ 旧データ(base64)を Supabase Storage へ自動移行して localStorage 容量を空ける。
   //   Storage化以前に保存した画像/PDF が base64 のまま残り「容量超過」になるのを解消。
   //   接続済み・店舗データ読込後に1回だけ実行。 成功した分だけ storagePath に置換 (非破壊)。
+  // ★ 2026-10-26(ユーザー指示): 過去の日誌の送迎の印の付け直し(店舗ごとに1回だけ・結果は systemSettings._diaryTpRepair1026 に控える)
+  const diaryTpRepairRef = React.useRef(false);
+  useEffect(() => {
+    if (diaryTpRepairRef.current) return; if (!appData || !appData.diaryLogs || !Object.keys(appData.diaryLogs).length) return;
+    if (isSupabaseEnabled && (!staffSession?.storeId || dataLoadedForStoreRef.current !== staffSession.storeId)) return;
+    if (appData.systemSettings && appData.systemSettings._diaryTpRepair1026) { diaryTpRepairRef.current = true; return; }
+    diaryTpRepairRef.current = true;
+    try { const r = tsuDiaryTpRepair(appData); const ss = { ...(appData.systemSettings||{}), _diaryTpRepair1026: Date.now(), _diaryTpRepairN: r.n };
+      if (r.changed) handleSaveToCloud({ ...appData, diaryLogs: r.diaryLogs, systemSettings: ss }, { manual: true, message: `過去の日誌 ${r.n} 件の送迎の印（車・運転者・時間）を付け直しました` });
+      else handleSaveToCloud({ ...appData, systemSettings: ss }, { silent: true }); } catch (e) { console.warn('[diaryTpRepair] failed', e); }
+  }, [appData.diaryLogs, staffSession?.storeId]); // eslint-disable-line react-hooks/exhaustive-deps
   const base64MigratedRef = React.useRef(false);
   useEffect(() => {
     if (!isSupabaseEnabled || base64MigratedRef.current) return;
@@ -36825,11 +36836,75 @@ const _tsuFacLegMin = new Map(); const _tsuFacLegAsk = new Set();
 const tsuHmMinus = (hm, n) => { const m = String(hm || '').match(/(\d{1,2})[:：](\d{2})/); if (!m) return ''; const t = Math.max(0, (+m[1]) * 60 + (+m[2]) - (n || 0)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
 // ★ 2026-10-15(ユーザー相談「送迎表を使うなら日誌の1週間前コピーは要るのか」): 送迎表を使っている店舗で、その日・その時間帯の送迎表が保存されているか。
 //   保存されている日は、日誌の「1週間前の送迎を自動コピー」をせず「送迎表取込」で入れる(先週の割り当てが残って取り込み忘れになるのを防ぐ)
+// ★ 2026-10-26(ユーザー指示「チェックが抜けているところは付け直して全店に反映」): 2026-09-01〜10-25 の「送迎表から自動」になった日誌に、
+//   送迎表の内容を足し戻し(消さない)、それでも乗る方・運転者・時間が無い車は 1週間前の同じ時間帯の日誌からコピー。元の値は _tpRepairPrev に控える
+const tsuDiaryTpRepair = (appData) => {
+  const logs = (appData && appData.diaryLogs) || {}; const plans = (appData && appData.transportPlans) || {}; const ds = (appData && appData.diarySettings) || {};
+  const out = { ...logs }; let n = 0; const now = Date.now();
+  const _people = [...(ds.staff||[]), ...((appData && appData.storeMembers) || [])]; // 日誌の職員IDは storeMembers 由来のこともある
+  const sids = (nm) => _people.filter(x => x && x.name && nm && normalizeName(x.name) === normalizeName(nm)).map(x => x.id);
+  const cidOf = (k) => k.slice(k.lastIndexOf('_') + 1);
+  Object.keys(logs).forEach(k => {
+    const log = logs[k]; if (!log || typeof log !== 'object' || log._tpSrc !== 'tp' || log._tpRepair) return;
+    const m = k.match(/^(\d{4}-\d{2}-\d{2})_(AM|PM)$/); if (!m || m[1] >= TSU_DIARY_TP_AUTO_FROM || m[1] < '2026-09-01') return;
+    const next = { ...log, pick: { ...(log.pick||{}) }, drop: { ...(log.drop||{}) }, pick_walk: { ...(log.pick_walk||{}) }, drop_walk: { ...(log.drop_walk||{}) }, driver: { ...(log.driver||{}) }, carTimes: { ...(log.carTimes||{}) } }; let changed = false;
+    const pl = plans[k];
+    if (pl && typeof pl === 'object') {
+      Object.keys(pl.cars||{}).forEach(cid => (pl.cars[cid]||[]).forEach(mm => { const key = `${mm.pid}_${cid}`; if (!next.pick[key]) { next.pick[key] = true; changed = true; } }));
+      const dsrc = (pl.dropMode === 'custom' && pl.drop) ? pl.drop : { cars: pl.cars, walkers: pl.walkers };
+      Object.keys(dsrc.cars||{}).forEach(cid => (dsrc.cars[cid]||[]).forEach(mm => { const key = `${mm.pid}_${cid}`; if (!next.drop[key]) { next.drop[key] = true; changed = true; } }));
+      (pl.walkers||[]).forEach(mm => { if (!next.pick_walk[String(mm.pid)]) { next.pick_walk[String(mm.pid)] = true; changed = true; } });
+      (dsrc.walkers||[]).forEach(mm => { if (!next.drop_walk[String(mm.pid)]) { next.drop_walk[String(mm.pid)] = true; changed = true; } });
+      Object.keys(pl.driver||{}).forEach(cid => sids(pl.driver[cid]).forEach(id => { const key = `a_${cid}_${id}`; if (!next.driver[key]) { next.driver[key] = true; changed = true; } }));
+      if (pl.dropMode === 'custom' && pl.drop) Object.keys(pl.drop.driver||{}).forEach(cid => sids(pl.drop.driver[cid]).forEach(id => { const key = `d_${cid}_${id}`; if (!next.driver[key]) { next.driver[key] = true; changed = true; } }));
+    }
+    const prevK = (() => { const d = new Date(m[1] + 'T00:00:00'); d.setDate(d.getDate() - 7); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}_${m[2]}`; })();
+    const prev = logs[prevK];
+    if (prev && typeof prev === 'object') {
+      const usedA = new Set(Object.keys(next.pick).filter(x => next.pick[x]).map(cidOf)), usedD = new Set(Object.keys(next.drop).filter(x => next.drop[x]).map(cidOf));
+      const hasDrv = (pref, cid) => Object.keys(next.driver).some(x => next.driver[x] && x.startsWith(`${pref}_${cid}_`));
+      const prevUsedA = new Set(Object.keys(prev.pick||{}).filter(x => prev.pick[x]).map(cidOf)), prevUsedD = new Set(Object.keys(prev.drop||{}).filter(x => prev.drop[x]).map(cidOf));
+      // 1週間前には使っていた車が、この日は乗る方も運転者も無い(自動反映で消えたとみる) → 1週間前の乗る方・運転者・時間をコピー
+      prevUsedA.forEach(cid => { if (usedA.has(cid) || hasDrv('a', cid)) return; Object.keys(prev.pick||{}).forEach(x => { if (prev.pick[x] && cidOf(x) === cid) { next.pick[x] = true; changed = true; } }); usedA.add(cid); });
+      prevUsedD.forEach(cid => { if (usedD.has(cid) || hasDrv('d', cid)) return; Object.keys(prev.drop||{}).forEach(x => { if (prev.drop[x] && cidOf(x) === cid) { next.drop[x] = true; changed = true; } }); usedD.add(cid); });
+      Object.keys(prev.driver||{}).forEach(x => { if (!prev.driver[x]) return; const mm = x.match(/^([ad])_(.+)_([^_]+)$/); if (!mm) return; const cid = mm[2];
+        if (mm[1] === 'a' && usedA.has(cid) && !hasDrv('a', cid)) { next.driver[x] = true; changed = true; }
+        if (mm[1] === 'd' && usedD.has(cid) && !hasDrv('d', cid)) { next.driver[x] = true; changed = true; } });
+      Object.keys(prev.carTimes||{}).forEach(cid => { const pc = prev.carTimes[cid] || {}; const cc = () => next.carTimes[cid] || {};
+        if (pc.arrive && !cc().arrive && usedA.has(cid)) { next.carTimes[cid] = { ...cc(), arrive: pc.arrive }; changed = true; }
+        if (pc.depart && !cc().depart && usedD.has(cid)) { next.carTimes[cid] = { ...cc(), depart: pc.depart }; changed = true; } });
+    }
+    if (changed) { out[k] = { ...next, _tpRepair: '1026', _tpRepairPrev: { pick: log.pick||{}, drop: log.drop||{}, pick_walk: log.pick_walk||{}, drop_walk: log.drop_walk||{}, driver: log.driver||{}, carTimes: log.carTimes||{} }, _savedAt: now }; n++; }
+  });
+  return { diaryLogs: out, n, changed: n > 0 };
+};
+// ★ 2026-10-26(ユーザー要望「日誌で送迎車の運転者のチェック・到着/出発を入れたら送迎表にも反映」): 足すだけ(日誌が空でも送迎表の値は消さない)
+const tsuDiaryToTransport = (appData, logKey, log) => { try {
+  if (!tsumugiTransportOn(appData) || !log || typeof log !== 'object') return null; const plans = (appData && appData.transportPlans) || {}; const pl = plans[logKey]; if (!pl || typeof pl !== 'object') return null;
+  const ds = (appData && appData.diarySettings) || {}; const _people = [...(ds.staff||[]), ...((appData && appData.storeMembers) || [])]; const nameOf = (sid) => (_people.find(x => x && String(x.id) === String(sid)) || {}).name || '';
+  const np = JSON.parse(JSON.stringify(pl)); let changed = false;
+  const drvA = {}, drvD = {}; Object.keys(log.driver||{}).forEach(k => { if (!log.driver[k]) return; const m = k.match(/^([ad])_(.+)_([^_]+)$/); if (!m) return; const nm = nameOf(m[3]); if (!nm) return; const box = m[1] === 'a' ? drvA : drvD; if (!box[m[2]]) box[m[2]] = nm; });
+  np.driver = { ...(np.driver||{}) }; Object.keys(drvA).forEach(cid => { if ((np.driver[cid]||'') !== drvA[cid]) { np.driver[cid] = drvA[cid]; changed = true; } });
+  if (np.dropMode === 'custom' && np.drop) { np.drop.driver = { ...(np.drop.driver||{}) }; Object.keys(drvD).forEach(cid => { if ((np.drop.driver[cid]||'') !== drvD[cid]) { np.drop.driver[cid] = drvD[cid]; changed = true; } }); }
+  const hm = (v) => { const m = String(v||'').match(/(\d{1,2}):(\d{2})/); return m ? `${+m[1]}:${m[2]}` : ''; };
+  np.arrive = { ...(np.arrive||{}) }; np.arriveAuto = { ...(np.arriveAuto||{}) };
+  Object.keys(log.carTimes||{}).forEach(cid => { const ct = log.carTimes[cid] || {}; const a = hm(ct.arrive); if (a && hm(np.arrive[cid]) !== a) { np.arrive[cid] = a; np.arriveAuto[cid] = false; changed = true; }
+    const d = hm(ct.depart); if (d && np.dropMode === 'custom' && np.drop) { np.drop.depart = { ...(np.drop.depart||{}) }; np.drop.departAuto = { ...(np.drop.departAuto||{}) }; if (hm(np.drop.depart[cid]) !== d) { np.drop.depart[cid] = d; np.drop.departAuto[cid] = false; changed = true; } } });
+  if (!changed) return null; np._savedAt = Date.now(); return { ...plans, [logKey]: np };
+} catch { return null; } };
 const tsuTpPlanHas = (appData, iso, slot) => { if (!tsumugiTransportOn(appData)) return false; const pl = ((appData && appData.transportPlans) || {})[`${iso}_${slot}`]; if (!pl || typeof pl !== 'object') return false; return Object.values(pl.cars || {}).some(a => (a || []).length) || (pl.walkers || []).length > 0 || (pl.others || []).length > 0; };
 // ★ 2026-10-25: 送迎表→日誌(迎え/送り/運転者/時間)の変換。日誌の「送迎表取込」ボタンの中身を関数にした(日誌を開いたときに自動で反映するため)。
 //   opts.confirm = 確認(ボタンから=window.confirm／自動のときは常に true=目安の時間も入れ・送迎表の時間で上書き)
+// ★ 2026-10-26(ユーザー報告「過去の日誌の送迎車のチェックが抜けた」): 送迎表からの自動反映はこの日以降の日誌だけ(過去の日誌には触れない)
+const TSU_DIARY_TP_AUTO_FROM = '2026-10-26';
 const tsuTpImportPatch = (plan, log, ds, opts) => {
           const _pk = {}, _dp = {}, _pw = {}, _dw2 = {}, _po = {}, _do2 = {};
+          // ★ 2026-10-26: 自動反映(keepUnknown)では、送迎表のどこにも出てこない方の印はそのまま残す(手で付けた印を消さない)
+          if (opts && opts.keepUnknown) { const _in = new Set(); Object.values(plan.cars||{}).forEach(a => (a||[]).forEach(m => _in.add(String(m.pid)))); (plan.walkers||[]).forEach(m => _in.add(String(m.pid))); (plan.others||[]).forEach(m => _in.add(String(m.pid))); (plan.un||[]).forEach(m => _in.add(String(m && m.pid != null ? m.pid : m)));
+            if (plan.dropMode === 'custom' && plan.drop) { Object.values(plan.drop.cars||{}).forEach(a => (a||[]).forEach(m => _in.add(String(m.pid)))); (plan.drop.walkers||[]).forEach(m => _in.add(String(m.pid))); (plan.drop.others||[]).forEach(m => _in.add(String(m.pid))); }
+            const _keep = (src, dst, pidOf) => Object.keys(src||{}).forEach(k => { if (src[k] && !_in.has(pidOf(k))) dst[k] = true; });
+            const _pidOfKey = (k) => k.slice(0, k.indexOf('_') > 0 ? k.indexOf('_') : k.length); const _pidSelf = (k) => k;
+            _keep(log.pick, _pk, _pidOfKey); _keep(log.drop, _dp, _pidOfKey); _keep(log.pick_walk, _pw, _pidSelf); _keep(log.drop_walk, _dw2, _pidSelf); _keep(log.pick_other, _po, _pidSelf); _keep(log.drop_other, _do2, _pidSelf); }
           Object.keys(plan.cars||{}).forEach(cid => (plan.cars[cid]||[]).forEach(m => { _pk[`${m.pid}_${cid}`] = true; }));
           (plan.walkers||[]).forEach(m => { _pw[String(m.pid)] = true; });
           (plan.others||[]).forEach(m => { _po[String(m.pid)] = true; });
@@ -49042,12 +49117,12 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     }
     // ★ 2026-10-25(ユーザー要望): 送迎表に車の割り当てがある日は、日誌を開いたときに自動で反映する(送迎表の方が新しければ入れ直す)。
     //   日誌側で送迎を手で変えた日(_tpManual)は止める。割り当てが無く時間だけの送迎表の日は、1週間前コピー(上)のまま到着の時間だけ送迎表から
-    if (tsumugiTransportOn(appData) && !_dayIsKyugyo(selectedDate, dow) && !loaded._tpManual) { try {
+    if (tsumugiTransportOn(appData) && !_dayIsKyugyo(selectedDate, dow) && !loaded._tpManual && String(selectedDate) >= TSU_DIARY_TP_AUTO_FROM) { try { // ★ 2026-10-26: 過去の日誌には触れない
       const _plan = (nextAppData.transportPlans||{})[`${selectedDate}_${ampm}`];
       if (_plan && typeof _plan === 'object') {
         const _pAt = Number(_plan._savedAt || 0);
         if (tsuTpPlanHas(nextAppData, selectedDate, ampm)) {
-          if (!loaded._tpAt || _pAt > Number(loaded._tpAt)) { Object.assign(loaded, tsuTpImportPatch(_plan, loaded, appData.diarySettings || {}, { confirm: () => true })); loaded._tpSrc = 'tp'; loaded._tpAt = Date.now(); loaded._sougeiPending = {}; }
+          if (!loaded._tpAt || _pAt > Number(loaded._tpAt)) { Object.assign(loaded, tsuTpImportPatch(_plan, loaded, appData.diarySettings || {}, { confirm: () => true, keepUnknown: true })); loaded._tpSrc = 'tp'; loaded._tpAt = Date.now(); loaded._sougeiPending = {}; }
         } else if (_plan.arrive && Object.keys(_plan.arrive).length) {
           const _ct = { ...(loaded.carTimes || {}) };
           Object.keys(_plan.arrive).forEach(cid => { const m = String(_plan.arrive[cid] || '').match(/(\d{1,2}):(\d{2})/); if (m && !((_ct[cid] || {}).arrive)) _ct[cid] = { ...(_ct[cid] || {}), arrive: `${m[1].padStart(2, '0')}:${m[2]}` }; });
@@ -49066,9 +49141,9 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
   // ★ 2026-10-25: 開いている間に送迎表が変わったら(別端末の変更も)日誌にも自動で反映(手で変えた日は除く)
   const _tpPlanAt = Number(((appData.transportPlans||{})[`${selectedDate}_${ampm}`] || {})._savedAt || 0);
   React.useEffect(() => { try {
-    if (!tsumugiTransportOn(appData) || !_tpPlanAt) return;
+    if (!tsumugiTransportOn(appData) || !_tpPlanAt || String(selectedDate) < TSU_DIARY_TP_AUTO_FROM) return; // ★ 2026-10-26: 過去の日誌には触れない
     const plan = (appData.transportPlans||{})[`${selectedDate}_${ampm}`]; if (!plan || !tsuTpPlanHas(appData, selectedDate, ampm)) return;
-    setLocalLog(prev => { if (!prev || prev._tpManual) return prev; if (prev._tpAt && _tpPlanAt <= Number(prev._tpAt)) return prev; return { ...prev, ...tsuTpImportPatch(plan, prev, appData.diarySettings || {}, { confirm: () => true }), _tpSrc: 'tp', _tpAt: Date.now(), _sougeiPending: {} }; });
+    setLocalLog(prev => { if (!prev || prev._tpManual) return prev; if (prev._tpAt && _tpPlanAt <= Number(prev._tpAt)) return prev; return { ...prev, ...tsuTpImportPatch(plan, prev, appData.diarySettings || {}, { confirm: () => true, keepUnknown: true }), _tpSrc: 'tp', _tpAt: Date.now(), _sougeiPending: {} }; });
   } catch {} }, [_tpPlanAt]); // eslint-disable-line
   // ★ スタッフ切替時の自動チェック切替: アクティブ記録者が変わったら、
   //   記録者のチェックを 古いスタッフから新しいスタッフに付け替える
@@ -49155,6 +49230,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     //   (コピー内容が正しく編集不要だった日は個別編集による解除が起きないため)。
     if (_logToSave._sougeiPending) { delete _logToSave._sougeiPending; setLocalLog(l => { const n = { ...l }; delete n._sougeiPending; return n; }); }
     const next = { ...appData, diaryLogs: { ...(appData.diaryLogs||{}), [logKey]: _logToSave }};
+    { const _tp = tsuDiaryToTransport(appData, logKey, _logToSave); if (_tp) next.transportPlans = _tp; } // ★ 2026-10-26: 運転者・到着/出発を送迎表にも
     if (pendingStaff) {
       next.diarySettings = { ..._baseDs, staff: pendingStaff };
       // ★ スタッフ切替(storeMembers)も担当職員に合わせて同期(削除の相互反映)
@@ -49183,6 +49259,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
       const _logToSave = { ...localLog, _savedAt: _ts };
       const base = appDataRef.current; // ★ 必ず最新のappData(closureのappDataは古い可能性がある)
       const next = { ...base, diaryLogs: { ...(base.diaryLogs||{}), [logKey]: _logToSave } };
+      { const _tp = tsuDiaryToTransport(base, logKey, _logToSave); if (_tp) next.transportPlans = _tp; } // ★ 2026-10-26: 運転者・到着/出発を送迎表にも
       if (pendingStaff) next.diarySettings = { ...(base.diarySettings || _baseDs), staff: pendingStaff };
       // ★ silent必須(2026-09-06 真因): handleSaveToCloudはmanual/silent指定の時だけクラウド送信する。
       //   無指定だと端末内のみで、再読み込みで消える(扇橋「保存が届かない」の真因)。
