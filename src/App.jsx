@@ -12961,6 +12961,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
   const _noticeGoRef = React.useRef(_noticeGo); _noticeGoRef.current = _noticeGo;
   React.useEffect(() => { if (!noticeDetail || !Array.isArray(noticeDetail._list)) return; const h = (e) => { if (e.key === 'ArrowLeft') _noticeGoRef.current(-1); else if (e.key === 'ArrowRight') _noticeGoRef.current(1); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [noticeDetail]);
   const _noticeTouch = React.useRef(null);
+  useTsuBackLock(!!noticeDetail); // ★ 2026-10-26(ユーザー: 小窓の外をスクロールすると背面が動く): 開いている間は背面を止める
   // ★ ホーム各カードのページ送り(＜ 1 2 3 ＞)。 下に長く伸びず、一定の高さで見やすくする。
   const [devPage, setDevPage] = React.useState(0);   // つむぎ運営からのお知らせ(4件/頁)
   // ★ 運営からのお知らせは既定で閉じたバー表示(2026-08-18): 業務ではスケジュール・家族/ケアマネ更新が主役のため。
@@ -13320,8 +13321,8 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
       </div>
       {/* ★ お知らせ詳細モーダル */}
       {noticeDetail && (
-        <div onClick={()=>setNoticeDetail(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999,padding:16}}>
-          <div className="tsu-cap-dvh" data-testid="notice-detail" onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:16,padding:20,width:520,maxWidth:'96vw',maxHeight:'85vh',overflow:'auto',boxShadow:'0 20px 60px rgba(0,0,0,0.25)'}}
+        <div data-testid="notice-overlay" onClick={()=>setNoticeDetail(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:9999,padding:6,overflow:'hidden',overscrollBehavior:'contain'}}>{/* ★ 2026-10-26(ユーザー: スマホで上が見切れる): 上寄せ＋余白6px(小窓の上限 100dvh-12px に収まる)。短いときは margin auto で中央 */}
+          <div className="tsu-cap-dvh" data-testid="notice-detail" onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:16,padding:20,width:520,maxWidth:'96vw',maxHeight:'85vh',overflow:'auto',overscrollBehavior:'contain',WebkitOverflowScrolling:'touch',margin:'auto 0',boxShadow:'0 20px 60px rgba(0,0,0,0.25)'}}
             onTouchStart={e => { try { _noticeTouch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; } catch {} }}
             onTouchEnd={e => { try { const t0 = _noticeTouch.current; _noticeTouch.current = null; if (!t0) return; const dx = e.changedTouches[0].clientX - t0.x, dy = e.changedTouches[0].clientY - t0.y; if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) _noticeGo(dx < 0 ? 1 : -1); } catch {} }}>
             {Array.isArray(noticeDetail._list) && noticeDetail._list.length > 1 && (
@@ -13748,7 +13749,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
               {e.patientId && <button type="button" onClick={()=>{ setEvDetail(null); _goMeeting(e.patientId); }}
                 style={{background:'#2563eb',border:'none',color:'white',borderRadius:10,padding:'11px 18px',fontWeight:'bold',fontSize:15,cursor:'pointer',marginRight:'auto'}}>担当者会議を記録</button>}
               {!e.patientId && <span style={{marginRight:'auto'}}/>}
-              <button onClick={()=>{ if(window.confirm('この予定を削除しますか？')){ delEvent(e); setEvDetail(null); } }} style={{whiteSpace:'nowrap',background:'#fef2f2',border:'1px solid #fecaca',color:'#dc2626',borderRadius:10,padding:'11px 18px',fontWeight:'bold',fontSize:15,cursor:'pointer'}}>削除</button>
+              <button onClick={()=>{ delEvent(e); setEvDetail(null); }} style={{whiteSpace:'nowrap',background:'#fef2f2',border:'1px solid #fecaca',color:'#dc2626',borderRadius:10,padding:'11px 18px',fontWeight:'bold',fontSize:15,cursor:'pointer'}}>削除</button>
               <button onClick={()=>{ setEvDetail(null); editEvent(e); }} style={{whiteSpace:'nowrap',background:'#4f46e5',border:'none',color:'white',borderRadius:10,padding:'11px 22px',fontWeight:'bold',fontSize:15,cursor:'pointer'}}>編集</button>
               <button onClick={()=>setEvDetail(null)} style={{whiteSpace:'nowrap',background:'#f1f5f9',border:'none',color:'#475569',borderRadius:10,padding:'11px 18px',fontWeight:'bold',fontSize:15,cursor:'pointer'}}>閉じる</button>
             </div>
