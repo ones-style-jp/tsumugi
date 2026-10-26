@@ -136,6 +136,20 @@ async function loginFailNote(username) {
   await kvSave('guard_login', g);
   if (notify) { try { await sendMail(await hqEmails(), `【つむぎ】ログインの失敗が続いています（ID: ${String(username).slice(0, 40)}）`, `<p>ログインID「${String(username).slice(0, 40)}」で、パスワードの間違いが 15 分に 10 回以上続いています。</p><p>総当たり攻撃の可能性があります。心当たりが無い場合は、そのIDのパスワード変更をご検討ください。</p><p>— つむぎ(自動送信)</p>`); } catch {} }
 }
+// ★ 2026-10-26(ユーザー決定「ログインしてから30分以内の再ログインは確認コードなし」): 確認コードかパスキーで入れた端末に「信頼の印」(乱数)を渡し、30分以内はID・パスワードだけで通す
+const HQ_TRUST_MS = 30 * 60 * 1000;
+const hqTrustHash = (t) => crypto.createHash('sha256').update(String(t) + '|trust|' + SERVICE_KEY).digest('hex');
+async function hqTrustIssue(staff, device) {
+  const t = wb64u(crypto.randomBytes(24)); const g = await kvLoad('guard_hq_trust'); const now = Date.now();
+  const list = (Array.isArray(g[staff.id]) ? g[staff.id] : []).filter(x => x && x.exp > now).slice(-9);
+  list.push({ h: hqTrustHash(t), exp: now + HQ_TRUST_MS, device: String(device || '').slice(0, 40), at: new Date(now).toISOString() });
+  g[staff.id] = list; await kvSave('guard_hq_trust', g); return { token: t, exp: now + HQ_TRUST_MS };
+}
+async function hqTrustCheck(staff, t) {
+  if (!t || typeof t !== 'string' || t.length > 64) return false;
+  const g = await kvLoad('guard_hq_trust'); const list = Array.isArray(g[staff.id]) ? g[staff.id] : []; const h = hqTrustHash(t); const now = Date.now();
+  return list.some(x => x && x.h === h && x.exp > now);
+}
 // ★ 本部の2段階認証: 6桁コードをメールへ(5分・3回まで)
 async function hqCodeIssue(staff) {
   if (!staff.email || !/@/.test(staff.email)) return { skipped: true };
@@ -239,9 +253,12 @@ export default async function handler(req, res) {
       const staff = Array.isArray(rows) ? rows[0] : null;
       if (!staff) { await loginFailNote(username); await sleep(FAIL_DELAY); return res.status(401).json({ error: 'IDまたはパスワードが違います' }); }
       // ★ 2026-10-19 本部の2段階認証(super_admin): メールの確認コード
+      let _trustOut = null; // ★ 2026-10-26: 返事に付ける信頼の印(本部がコードで入れたとき)
       if (staff.role === 'super_admin') {
         const code = String(body.code || '').replace(/[^0-9]/g, '');
-        if (!code) {
+        const _trusted = !code && (await hqTrustCheck(staff, body.hq_trust)); // ★ 2026-10-26: 30分以内に確認コード/パスキーで入れた端末 → コードなし
+        if (_trusted) { /* そのまま通す(印は延長しない=確認してから30分) */ }
+        else if (!code) {
           // ★ 2026-10-26(ユーザー: パスキーが登録されていても確認コードのメールが届く): 端末にパスキーがある端末は no_mail で来る → メールは送らず「コード待ち」だけ返し、端末側でパスキーを先に試す(失敗したら no_mail なしでもう一度来てメールを送る)
           // ★ 2026-10-26: サーバーで「この本部ユーザーにパスキーの登録があるか」を見る。あればメールを送らず端末にパスキーを先に試させる。無ければ従来どおりメールを送る
           if (body.no_mail === true) { try { const allPk = await kvLoad(PK_KEY); if (Array.isArray(allPk[staff.id]) && allPk[staff.id].length > 0) return res.status(200).json({ need_code: true, hint: '', sent: false, passkey_first: true }); } catch {} }
@@ -249,6 +266,7 @@ export default async function handler(req, res) {
           if (!r2.skipped) return res.status(200).json({ need_code: true, hint: r2.hint, sent: !!r2.ok, mail_err: r2.err || '', sent_at: r2.at }); // ★ 2026-10-26: 送れたか・理由・時刻も返す
           // 本部にメールが無い → 従来どおり通す(警告)
         } else if (!(await hqCodeVerify(staff, code))) { await sleep(FAIL_DELAY); return res.status(401).json({ error: '確認コードが違うか、期限が切れています。もう一度ログインしてコードを受け取ってください', code_invalid: true }); }
+        else { try { _trustOut = await hqTrustIssue(staff, body.device); } catch {} }
       }
       // ★ 段階4: 店舗の設定で「店舗IDでのログインを止める」が入っていれば、店舗共通ログインは拒否(本人のログインへ)
       if ((staff.kind || 'store') === 'store' && staff.role !== 'super_admin' && staff.store_id && (await storeSecurity(staff.store_id)).storeLoginDisabled) {
@@ -257,7 +275,7 @@ export default async function handler(req, res) {
       try { await sb(`staff?id=eq.${encodeURIComponent(staff.id)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ last_login: new Date().toISOString() }) }); } catch {}
       const mc = await mintSbTokenChecked(staff);
       await logLogin(staff, staff.kind === 'person' ? 'person' : 'store', body.device); // ★ 段階4: ログイン記録(表が無ければ何もしない)
-      return res.status(200).json({ staff: strip(staff), token: makeToken(staff), sb_token: mc.tok, sb_exp: mc.tok ? Date.now() + SB_TOKEN_TTL_SEC * 1000 : null, sb_reason: mc.ok ? undefined : mc.reason });
+      return res.status(200).json({ staff: strip(staff), token: makeToken(staff), sb_token: mc.tok, sb_exp: mc.tok ? Date.now() + SB_TOKEN_TTL_SEC * 1000 : null, sb_reason: mc.ok ? undefined : mc.reason, hq_trust: _trustOut ? _trustOut.token : undefined, hq_trust_exp: _trustOut ? _trustOut.exp : undefined });
     }
     // ★ 2026-10-23 本部のパスキー
     if (action === 'passkey_reg_options' || action === 'passkey_reg_verify' || action === 'passkey_list' || action === 'passkey_delete') {
@@ -310,7 +328,8 @@ export default async function handler(req, res) {
       try { await sb(`staff?id=eq.${encodeURIComponent(staff.id)}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ last_login: new Date().toISOString() }) }); } catch {}
       const mc = await mintSbTokenChecked(staff);
       await logLogin(staff, 'passkey', body.device);
-      return res.status(200).json({ staff: strip(staff), token: makeToken(staff), sb_token: mc.tok, sb_exp: mc.tok ? Date.now() + SB_TOKEN_TTL_SEC * 1000 : null, sb_reason: mc.ok ? undefined : mc.reason });
+      let _tr = null; try { _tr = await hqTrustIssue(staff, body.device); } catch {} // ★ 2026-10-26: パスキーで入れた端末も30分は確認なし
+      return res.status(200).json({ staff: strip(staff), token: makeToken(staff), sb_token: mc.tok, sb_exp: mc.tok ? Date.now() + SB_TOKEN_TTL_SEC * 1000 : null, sb_reason: mc.ok ? undefined : mc.reason, hq_trust: _tr ? _tr.token : undefined, hq_trust_exp: _tr ? _tr.exp : undefined });
     }
     // ★ 2026-10-19 段階4: 招待コードの確認と本人アカウントの作成(ログイン不要)
     if (action === 'invite_lookup' || action === 'invite_accept') {

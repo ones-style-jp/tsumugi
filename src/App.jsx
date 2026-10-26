@@ -10945,6 +10945,21 @@ const recordWithinPatientPeriod = (r, p) => { if (!p) return true; const iso = r
 //   仕組み: 現在の scheduleAmPm から、対象日付より後に適用された変更を逆順に巻き戻す。
 // ★ 送迎表(transportPlans)のお迎え時間を連絡帳の「次回お迎え時間」へ反映(2026-09-12d 試験版)。
 //   優先順: 手入力(nextTimeOverride) > 送迎表 > 従来の自動計算。表示形式は「H時MM分」。
+// ★ 2026-10-26(ユーザー要望「連絡帳で入れた次回の時間を次回の送迎表にも反映」): その日の送迎表に乗っていれば時間を書き換え、まだ乗っていなければ _cbT に控えて配置のときの初期値にする
+const tsuCbTimeToTransport = (plans, pat, forDate, selectedDate, timeStr, appData, now) => {
+  const dm = String(forDate || '').match(/(\d+)月(\d+)日/); if (!dm || !pat) return plans;
+  const yy = new Date(selectedDate).getFullYear(); const cand = new Date(yy, +dm[1] - 1, +dm[2]); const sd = new Date(selectedDate); sd.setHours(0, 0, 0, 0); const y = cand < sd ? yy + 1 : yy;
+  const iso = `${y}-${String(+dm[1]).padStart(2, '0')}-${String(+dm[2]).padStart(2, '0')}`;
+  const raw = String(timeStr || '').replace(/[\s　]/g, ''); const tm = raw.match(/^(\d{1,2})時(\d{1,2})?分?$/) || raw.match(/^(\d{1,2}):(\d{2})$/); if (!tm) return plans;
+  const t = `${+tm[1]}:${tm[2] != null && tm[2] !== '' ? String(tm[2]).padStart(2, '0') : '--'}`;
+  let slot = null; for (const sl of ['AM', 'PM']) { const pl = plans[`${iso}_${sl}`]; if (pl && (Object.values(pl.cars || {}).flat().some(m => m && m.pid === pat.id) || (pl.walkers || []).some(m => m && m.pid === pat.id))) { slot = sl; break; } }
+  if (!slot) { const base = (getScheduleOnDate(pat, iso) || {})[new Date(iso + 'T00:00:00').getDay()] || ''; slot = base === 'PM' ? 'PM' : 'AM'; }
+  const k = `${iso}_${slot}`; const pl = plans[k] ? JSON.parse(JSON.stringify(plans[k])) : { cars: {}, walkers: [], others: [], un: [], memo: '' };
+  Object.keys(pl.cars || {}).forEach(cid => { (pl.cars[cid] || []).forEach(m => { if (m && m.pid === pat.id) m.t = t; }); });
+  (pl.walkers || []).forEach(m => { if (m && m.pid === pat.id) m.t = t; });
+  pl._cbT = { ...(pl._cbT || {}), [pat.id]: t }; pl._savedAt = now;
+  return { ...plans, [k]: pl };
+};
 const getTransportTimeFor = (patientId, nextDateDisplay, yearHint, appData) => {
   if (!tsumugiTransportOn(appData)) return '';
   try {
@@ -12922,6 +12937,7 @@ const DashTile = ({icon, label, sub, color, view, navigateTo}) => (
 );
 function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes, isNoticeRead, markNoticeRead, onSave }) {
   const [htCfgOpen, setHtCfgOpen] = React.useState(false); // ★ 2026-10-26: ホームに出す業務の表示設定
+  const [htMore, setHtMore] = React.useState({}); // ★ 2026-10-26: 業務の「他n件を見る」
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
   const dow = ['日','月','火','水','木','金','土'][now.getDay()];
@@ -12939,7 +12955,12 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
   const isRead = isNoticeRead || (()=>false);
   const markRead = markNoticeRead || (()=>{});
   const [noticeDetail, setNoticeDetail] = React.useState(null);
-  const openDetail = (d) => { setNoticeDetail(d); if (d) markRead(d.id); };
+  // ★ 2026-10-26(店舗の意見「1つずつ開いて閉じるのが大変」): 開いたら左右送り(新しい←→古い)。一覧(_list)と位置(_idx)を持たせる
+  const openDetail = (d, list, idx) => { if (!d) { setNoticeDetail(null); return; } const nx = (Array.isArray(list) && list.length) ? { ...d, _list: list, _idx: (idx != null && idx >= 0) ? idx : Math.max(0, list.findIndex(x => x && x.id === d.id)) } : d; setNoticeDetail(nx); if (d._read !== false) markRead(d.id); };
+  const _noticeGo = (dir) => { const cur = noticeDetail; if (!cur || !Array.isArray(cur._list)) return; const i = (cur._idx || 0) + dir; if (i < 0 || i >= cur._list.length) return; const nx = { ...cur._list[i], _list: cur._list, _idx: i }; setNoticeDetail(nx); if (nx._read !== false) markRead(nx.id); };
+  const _noticeGoRef = React.useRef(_noticeGo); _noticeGoRef.current = _noticeGo;
+  React.useEffect(() => { if (!noticeDetail || !Array.isArray(noticeDetail._list)) return; const h = (e) => { if (e.key === 'ArrowLeft') _noticeGoRef.current(-1); else if (e.key === 'ArrowRight') _noticeGoRef.current(1); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [noticeDetail]);
+  const _noticeTouch = React.useRef(null);
   // ★ ホーム各カードのページ送り(＜ 1 2 3 ＞)。 下に長く伸びず、一定の高さで見やすくする。
   const [devPage, setDevPage] = React.useState(0);   // つむぎ運営からのお知らせ(4件/頁)
   // ★ 運営からのお知らせは既定で閉じたバー表示(2026-08-18): 業務ではスケジュール・家族/ケアマネ更新が主役のため。
@@ -13022,9 +13043,15 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           const ampmText = (ids) => { let a = 0, p = 0, none = 0; ids.forEach(id => { const v = slotToday(id); if (v === '1日') { a++; p++; } else if (v === 'AM') a++; else if (v === 'PM') p++; else none++; }); return { t: `午前 ${a}名・午後 ${p}名`, none }; };
           // ★ 2026-10-26(ユーザー要望「ホームに載せる通知の種類を選べるように。体力測定は要らない、本日の業務にしか出さない など」): systemSettings.homeTasks[種類]={on, todayOnly}
           const ht = ss.homeTasks || {};
-          const _typeOf = (key) => (key.startsWith('tsusho') || key.startsWith('kinou')) ? 'keikaku' : key.startsWith('mon_') ? 'monitoring' : key.startsWith('fitness') ? 'fitness' : key; // ★ 2026-10-26: 体力測定の鍵は fitness_t/_w/_m(React の key の重複で消えない不具合の対策)
-          const add = (due, t) => { const c = ht[_typeOf(t.key)] || {}; if (c.on === false) return; const tier = tierOf(due); if (c.todayOnly && tier !== 'today') return; if (due > monthEnd && due > weekEnd) return; tasks[tier].push(t); };
+          const _typeOf = (key) => (key.startsWith('tsusho') || key.startsWith('kinou')) ? 'keikaku' : key.startsWith('mon_') ? 'monitoring' : key.startsWith('fitness') ? 'fitness' : key.startsWith('events') ? 'events' : key; // ★ 2026-10-26: 体力測定の鍵は fitness_t/_w/_m(React の key の重複で消えない不具合の対策)
+          const add = (due, t) => { const c = ht[_typeOf(t.key)] || {}; if (c.on === false) return; const tier = tierOf(due); if (c.todayOnly && tier !== 'today') return; if (due > monthEnd && due > weekEnd) return; tasks[tier].push({ ...t, _due: due }); }; // ★ 2026-10-26: 期限順に並べる
           const _evOn = (ht.events || {}).on !== false;
+          // ★ 2026-10-26(ユーザー質問「カレンダーの契約・担会などは今週/今月の業務に出るのか」): 今日より後の予定を「今週」「今月」に出す(今日の分は本日の一覧)
+          if (_evOn) { try { const _evs = (appData.scheduleEvents||[]).filter(e => e && e.date && String(e.date) > todayIso).map(e => ({ e, d: new Date(String(e.date) + 'T00:00:00') })).filter(x => !isNaN(x.d) && x.d <= monthEnd).sort((a, b) => String(a.e.date).localeCompare(String(b.e.date)) || String(a.e.start||'99').localeCompare(String(b.e.start||'99')));
+            const _pn = (e) => { const p = e.patientId ? (appData.patients||[]).find(x => x.id === e.patientId) : null; return p ? ` ${p.name}様` : ''; };
+            const _fmtE = (x) => `${x.d.getMonth()+1}/${x.d.getDate()} ${x.e.title || '予定'}${_pn(x.e)}`;
+            // ★ 2026-10-26(ユーザー「何件ではなく1つずつ」): 予定ごとに1行(日付・題名・利用者名・時間)。押すとカレンダー
+            _evs.forEach(x => add(x.d, { key: `events_${x.e.id}`, label: `${_fmtE(x)}${x.e.start ? `　${x.e.start}` : ''}`, view: 'schedule', color: x.e.color || '#6366f1' })); } catch {} }
           // 日誌(午前/午後の未入力・未確認)=本日。休業日/定休日のコマは出さない
           if (!(diarySlotKyugyo(appData, todayIso, dowN, 'AM') && diarySlotKyugyo(appData, todayIso, dowN, 'PM'))) {
             const seg = (ap) => { if (diarySlotKyugyo(appData, todayIso, dowN, ap)) return null; const l = (appData.diaryLogs||{})[`${todayIso}_${ap}`]; const it = diaryPendingItems(l, todayIso, appData.diarySettings?.cars, appData); const missing = !l; return (missing || (it && it.length)) ? `${ap === 'AM' ? '午前' : '午後'}${missing ? '（未入力）' : `（${it.join('・')} 未確認）`}` : null; };
@@ -13041,8 +13068,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
             const comingWeek = new Set(); for (let k = 1; k <= 7; k++) { const dt = new Date(t0.getFullYear(), t0.getMonth(), t0.getDate() + k); if (dt > weekEnd) break; if (!isBiz(dt)) continue; pats.forEach(p => { if (p.scheduleAmPm?.[dt.getDay()]) comingWeek.add(p.id); }); }
             const nT = duePats.filter(p => comingToday.has(p.id)).length, nW = duePats.filter(p => !comingToday.has(p.id) && comingWeek.has(p.id)).length, nM = duePats.length - nT - nW;
             if (nT) add(t0, { key: 'fitness_t', label: `体力測定 ${ampmText(duePats.filter(p => comingToday.has(p.id)).map(p => p.id)).t}`, sub: '今日来る方のうち当月の測定対象', view: 'fitness', color: '#10b981' });
-            if (nW) add(weekEnd, { key: 'fitness_w', label: `体力測定 ${nW}名`, sub: '今週来る方のうち当月の測定対象', view: 'fitness', color: '#10b981' });
-            if (nM) add(monthEnd, { key: 'fitness_m', label: `体力測定 ${nM}名`, sub: '当月の測定対象（来週以降に来る方）', view: 'fitness', color: '#10b981' });
+            if (nW + nM) add(weekEnd, { key: 'fitness_w', label: `体力測定 ${nW + nM}名`, sub: '当月の測定対象（今日来ない方）', view: 'fitness', color: '#10b981' }); // ★ 2026-10-26(ユーザー): 今週来る方と来週以降を分けずに1つ
           }
           // 計画書(期限30日以内・期限切れ・未作成・一時保存中): 期日で本日/今週/今月に。通所介護計画書 と 個別機能訓練計画書/加算の評価
           const dues = computePlanDues(appData);
@@ -13062,9 +13088,9 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           // ★ 2026-10-25(ユーザー): 「来週の送迎表 未作成」はホームに出さない(確定の廃止とあわせて)
           const chip = (tid, label, value, sub, view) => <button key={tid} type="button" data-testid={tid} onClick={() => view && navigateTo(view)} style={{background:'white',border:'1px solid rgba(255,255,255,0.6)',borderRadius:12,padding:'6px 14px',color:'#1e293b',textAlign:'left',cursor:'pointer',minWidth:0,flex:'0 1 auto',boxShadow:'0 1px 3px rgba(0,0,0,0.15)'}}><div style={{fontSize:11,color:'#4f46e5',fontWeight:'bold',whiteSpace:'nowrap'}}>{label}</div><div style={{fontSize:22,fontWeight:'bold',lineHeight:1.15,color:'#1e293b'}}>{value}</div>{sub && <div style={{fontSize:10,color:'#64748b',whiteSpace:'nowrap'}}>{sub}</div>}</button>;
           const taskBtn = (t, big) => (
-            <button key={t.key} type="button" data-testid={`home-task-${t.key}`} onClick={() => { try { if (t.jump) sessionStorage.setItem('tsumugiTpJump', t.jump); if (t.ss) sessionStorage.setItem(t.ss[0], t.ss[1]); } catch {} navigateTo(t.view); }} style={{display:'flex',flexDirection:'column',alignItems:'flex-start',gap:1,width:'100%',textAlign:'left',background:'white',border:'1px solid #e2e8f0',borderLeft:`4px solid ${t.color}`,borderRadius:8,padding: big ? '7px 12px' : '5px 10px',cursor:'pointer'}}>
+            <button key={t.key} type="button" data-testid={`home-task-${t.key}`} title={t.sub || ''} onClick={() => { try { if (t.jump) sessionStorage.setItem('tsumugiTpJump', t.jump); if (t.ss) sessionStorage.setItem(t.ss[0], t.ss[1]); } catch {} navigateTo(t.view); }} style={{display:'flex',flexDirection:'column',alignItems:'flex-start',gap:1,width:'100%',textAlign:'left',background:'white',border:'1px solid #e2e8f0',borderLeft:`4px solid ${t.color}`,borderRadius:8,padding: big ? '7px 12px' : '5px 10px',cursor:'pointer'}}>
               <span style={{fontSize: big ? 14 : 12.5,fontWeight:'bold',color:'#1e293b'}}>{t.label}<span style={{fontSize:11,fontWeight:'bold',color:t.color,marginLeft:8}}>開く →</span></span>
-              {t.sub && <span style={{fontSize:11,color:'#64748b'}}>{t.sub}</span>}
+              {/* ★ 2026-10-26(ユーザー「下の字は不要」): 説明は出さない(title の吹き出しだけ) */}
             </button>);
           const section = (tier, title, tid, big) => (
             <div key={tier} data-testid={tid} style={{flex: big ? '1 1 100%' : '1 1 240px',minWidth:0}}>
@@ -13085,13 +13111,20 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                 </div>
               )}
               {tasks[tier].length === 0 ? (tier === 'today' && _evOn && todayEvents.length ? null : <div style={{fontSize:12,color:'#94a3b8'}}>なし</div>) : (
-                <div style={{display:'flex',flexDirection:'column',gap:6}}>{tasks[tier].map(t => taskBtn(t, big))}</div>
+                (() => { const L = tasks[tier].slice().sort((a, b) => { const ea = (tier === 'week' && !String(a.key).startsWith('events_') && a._due >= weekEnd) ? 1 : 0, eb = (tier === 'week' && !String(b.key).startsWith('events_') && b._due >= weekEnd) ? 1 : 0; return (ea - eb) || (a._due - b._due) || 0; }); const LIM = 5; const more = L.length - LIM; const show = htMore[tier] || more <= 0 ? L : L.slice(0, LIM);
+                  // ★ 2026-10-26(ユーザー「今週の業務は曜日ごとに分けると見やすい」): 今週は日付(曜日)ごとに見出しを付ける。期限が「今週中」(日曜)のもの(体力測定など)は最後に「今週中」
+                  const _gk = (t) => (tier === 'week') ? ((!String(t.key).startsWith('events_') && t._due >= weekEnd) ? '今週中' : `${t._due.getMonth()+1}/${t._due.getDate()}（${'日月火水木金土'[t._due.getDay()]}）`) : '';
+                  const _rows = []; let _lastG = null; show.forEach(t => { const g = _gk(t); if (g && g !== _lastG) { _rows.push(<div key={`g_${g}`} data-testid="home-week-day" style={{fontSize:11,fontWeight:'bold',color:'#1e40af',marginTop:_rows.length ? 4 : 0}}>{g}</div>); _lastG = g; } _rows.push(taskBtn(t, big)); });
+                  return (
+                <div style={{display:'flex',flexDirection:'column',gap:6}}>{_rows}
+                  {more > 0 && <button type="button" data-testid={`home-tasks-more-${tier}`} onClick={() => setHtMore(m => ({ ...m, [tier]: !m[tier] }))} style={{alignSelf:'flex-start',fontSize:11,fontWeight:'bold',color:'#4338ca',background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}>{htMore[tier] ? '少なく表示' : `他${more}件を見る`}</button>}
+                </div>); })() /* ★ 2026-10-26(ユーザー「予定が多いと下に溜まる」): 期限が近い順・5件まで・残りは「他n件」 */
               )}
             </div>
           );
           const _htCfgBody = (<>
                       <div style={{fontSize:11,fontWeight:'bold',color:'#64748b',marginBottom:6}}>ホームに出す業務（店舗の設定）</div>
-                      {[['diary','日誌（未入力・未確認）'],['events','カレンダーの今日の予定'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
+                      {[['diary','日誌（未入力・未確認）'],['events','カレンダーの予定（契約・担会など。本日は一覧、今週・今月はまとめ）'],['fitness','体力測定'],['keikaku','計画書（通所介護・個別機能訓練・加算）'],['monitoring','モニタリング']].map(([k, l]) => { const c = ht[k] || {}; const set = (patch) => { try { onSave({ ...appData, systemSettings: { ...ss, homeTasks: { ...ht, [k]: { ...c, ...patch } }, _updatedAt: syncNow() } }, { manual: true, message: '✓ ホームの表示設定を保存しました' }); } catch {} }; return (
                         <div key={k} data-testid={`home-tasks-cfg-${k}`} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderBottom:'1px solid #f1f5f9',fontSize:12}}>
                           <label style={{display:'flex',alignItems:'center',gap:4,flex:1,minWidth:0,cursor:'pointer'}}><input type="checkbox" checked={c.on !== false} onChange={e => set({ on: e.target.checked })}/>{l}</label>
                           {k !== 'diary' && k !== 'events' && <label style={{display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',cursor:'pointer',color:'#64748b'}}><input type="checkbox" checked={!!c.todayOnly} disabled={c.on === false} onChange={e => set({ todayOnly: e.target.checked })}/>本日だけ</label>}
@@ -13138,7 +13171,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           const fromHq = (notices||[]).filter(n=>!(n.ends_at && new Date(n.ends_at).getTime()<nowT)).map(n=>({ id:n.id, date:(n.created_at?String(n.created_at).slice(0,10):''), m: sevMeta[n.severity]||sevMeta.info, title:n.title, body:n.body }));
           const builtin = DEV_ANNOUNCEMENTS.map(a=>{ const mm=DEV_ANN_META[a.type]||DEV_ANN_META.info; return { id:a.id, date:a.date, m:{label:mm.label,emoji:mm.emoji,color:mm.color,bg:mm.bg}, title:a.title, body:a.body }; });
           // ★ update-notes.json からライブ取得した更新内容(再読み込みなしで反映)
-          const live = (devNotes||[]).map(a=>{ const mm=DEV_ANN_META[a.type]||DEV_ANN_META.info; return { id:a.id, date:a.date, m:{label:mm.label,emoji:mm.emoji,color:mm.color,bg:mm.bg}, title:a.title, body:a.body }; });
+          const live = (devNotes||[]).map(a=>{ const mm=DEV_ANN_META[a.type]||DEV_ANN_META.info; return { id:a.id, date:a.date, m:{label:mm.label,emoji:mm.emoji,color:mm.color,bg:mm.bg}, title:a.title, body:a.body, items:a.items }; }); // ★ 2026-10-26: items=構造化した変更点
           const _seen=new Set();
           const all = [...fromHq, ...live, ...builtin].filter(x=>{ if(!x.id||_seen.has(x.id)) return false; _seen.add(x.id); return true; }).sort((a,b)=>String(b.date).localeCompare(String(a.date))).slice(0,50);
           if (!all.length) return null;
@@ -13169,7 +13202,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                   クリックで従来どおり全文モーダル。 画面の半分以上を占領していたのを1/4程度へ。 */}
               <div style={{display:'flex',flexDirection:'column',gap:5}}>
                 {_devShown.map(a=>{ const _r=isRead(a.id); return (
-                  <button key={a.id} onClick={()=>openDetail({id:a.id,badge:`${a.m.emoji?a.m.emoji+' ':''}${a.m.label}`,badgeColor:a.m.color,date:a.date,title:a.title,body:a.body})}
+                  <button key={a.id} data-testid={`home-dev-row-${a.id}`} onClick={()=>{ const _d = (x) => ({id:x.id,badge:`${x.m.emoji?x.m.emoji+' ':''}${x.m.label}`,badgeColor:x.m.color,date:x.date,title:x.title,body:x.body,items:x.items}); openDetail(_d(a), all.map(_d)); }}
                     title={a.title}
                     style={{textAlign:'left',cursor:'pointer',width:'100%',border:`1px solid ${_r?'#e2e8f0':a.m.color+'66'}`,background:_r?'white':a.m.bg,borderRadius:8,padding:'5px 10px',display:'flex',alignItems:'center',gap:8,minWidth:0}}>
                     <span style={{fontSize:10,fontWeight:'bold',color:'white',background:_r?'#94a3b8':a.m.color,borderRadius:5,padding:'2px 7px',whiteSpace:'nowrap',flexShrink:0}}>{a.m.emoji} {a.m.label}</span>
@@ -13207,7 +13240,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                 <div style={{display:'flex',flexDirection:'column',gap:6}}>
                   {/* ★ 1行表示(2026-08-21): 利用者名・更新内容・日時のみ。 タップで詳細(更新者含む) */}
                   {_extShown.map(u=>{ const _r=isRead(u.id); const _c=u.by==='caremanager'?'#0891b2':'#7c3aed'; return (
-                    <button key={u.id} onClick={()=>openDetail({id:u.id,badge:u.by==='caremanager'?'ケアマネ':'ご家族',badgeColor:_c,date:_fmt(u.at),title:`利用者：${u._pname} 様`,body:`更新内容：${(u.items||[]).join('・')||'更新'}${docUpdateChangesText(u) ? `\n\n【変更の内容】\n${docUpdateChangesText(u)}` : ''}${u.byName?`\n更新者：${u.byName}`:''}`,patientId:u._pid})}
+                    <button key={u.id} onClick={()=>{ const _d = (u) => ({id:u.id,badge:u.by==='caremanager'?'ケアマネ':'ご家族',badgeColor:_c,date:_fmt(u.at),title:`利用者：${u._pname} 様`,body:`更新内容：${(u.items||[]).join('・')||'更新'}${docUpdateChangesText(u) ? `\n\n【変更の内容】\n${docUpdateChangesText(u)}` : ''}${u.byName?`\n更新者：${u.byName}`:''}`,patientId:u._pid}); openDetail(_d(u), ext.map(_d)); }}
                       style={{textAlign:'left',background:_r?'#f8fafc':'#fffbeb',border:`1px solid ${_r?'#e2e8f0':'#fde68a'}`,borderRadius:8,padding:'6px 10px',cursor:'pointer',opacity:_r?0.72:1,display:'flex',alignItems:'center',gap:8,minWidth:0,width:'100%'}}>
                       <span style={{fontSize:9,fontWeight:'bold',color:'white',background:_r?'#94a3b8':_c,borderRadius:4,padding:'2px 6px',whiteSpace:'nowrap',flexShrink:0}}>{u.by==='caremanager'?'ケアマネ':'ご家族'}</span>
                       <span style={{fontSize:12.5,fontWeight:'bold',color:_r?'#64748b':'#1e293b',whiteSpace:'nowrap',flexShrink:0}}>{u._pname} 様</span>
@@ -13233,7 +13266,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                 {/* ★ #4: 事業所からのお知らせは既読管理しない(投稿したら表示のみ)。 タップで詳細は見られるが既読は付けない。 */}
                 {/* ★ 1行表示(2026-08-21): バッジ+日付+題名(+写真枚数)。 タップで詳細モーダル(本文・写真) */}
                 {_pageSlice(news, newsPage, (tsuViewW() < 768 ? 5 : 10)).map(a=>{ const _c=a._kind==='個別'?'#b45309':'#1d4ed8'; const _ph=(Array.isArray(a.photos)?a.photos.length:0); return (
-                  <button key={a.id} onClick={()=>setNoticeDetail({id:a.id,badge:a._group==='mon' ? `個別・${a.members.length}名` : `${a._kind}${a.patientId?`・${patName(a.patientId)}`:''}`,badgeColor:_c,date:(a.postedAt?String(a.postedAt).slice(0,10):(a.date||'')),title:a.title||'(写真)',body:a.body,patientId:a.patientId,photos:a.photos})}
+                  <button key={a.id} onClick={()=>{ const _d = (a) => ({ ...{id:a.id,badge:a._group==='mon' ? `個別・${a.members.length}名` : `${a._kind}${a.patientId?`・${patName(a.patientId)}`:''}`,badgeColor:_c,date:(a.postedAt?String(a.postedAt).slice(0,10):(a.date||'')),title:a.title||'(写真)',body:a.body,patientId:a.patientId,photos:a.photos}, _read: false }); openDetail(_d(a), news.map(_d)); }}
                     style={{textAlign:'left',width:'100%',cursor:'pointer',background:'#ffffff',border:'1px solid #e2e8f0',borderRadius:8,padding:'6px 10px',display:'flex',alignItems:'center',gap:8,minWidth:0}} data-testid="home-news-row">{/* ★ 2026-10-22: ハイライトなし(店舗から送ったお知らせのため) */}
                     <span style={{fontSize:9,fontWeight:'bold',color:_c,background:(a._kind==='個別'?'#fef3c7':'#dbeafe'),borderRadius:4,padding:'2px 6px',whiteSpace:'nowrap',flexShrink:0}}>{a._group==='mon' ? `個別・${a.members.length}名` : <>{a._kind}{a.patientId?`・${patName(a.patientId)}`:''}</>}</span>
                     <span style={{fontSize:10,color:'#64748b',whiteSpace:'nowrap',flexShrink:0}}>{a.postedAt ? String(a.postedAt).slice(0,10) : (a.date||'')}</span>
@@ -13288,13 +13321,39 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
       {/* ★ お知らせ詳細モーダル */}
       {noticeDetail && (
         <div onClick={()=>setNoticeDetail(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999,padding:16}}>
-          <div className="tsu-cap-dvh" onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:16,padding:20,width:460,maxWidth:'96vw',maxHeight:'85vh',overflow:'auto',boxShadow:'0 20px 60px rgba(0,0,0,0.25)'}}>
+          <div className="tsu-cap-dvh" data-testid="notice-detail" onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:16,padding:20,width:520,maxWidth:'96vw',maxHeight:'85vh',overflow:'auto',boxShadow:'0 20px 60px rgba(0,0,0,0.25)'}}
+            onTouchStart={e => { try { _noticeTouch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; } catch {} }}
+            onTouchEnd={e => { try { const t0 = _noticeTouch.current; _noticeTouch.current = null; if (!t0) return; const dx = e.changedTouches[0].clientX - t0.x, dy = e.changedTouches[0].clientY - t0.y; if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) _noticeGo(dx < 0 ? 1 : -1); } catch {} }}>
+            {Array.isArray(noticeDetail._list) && noticeDetail._list.length > 1 && (
+              <div data-testid="notice-nav" style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>{/* ★ 2026-10-26: 左右送り(新しい←→古い)。スワイプ・矢印キーでも */}
+                <button type="button" data-testid="notice-prev" disabled={(noticeDetail._idx||0) <= 0} onClick={()=>_noticeGo(-1)} style={{padding:'6px 12px',borderRadius:8,border:'1px solid #cbd5e1',background:'#f8fafc',color:'#334155',fontWeight:'bold',fontSize:12,cursor:'pointer',opacity:(noticeDetail._idx||0) <= 0 ? 0.4 : 1}}>‹ 新しい</button>
+                <span style={{fontSize:12,fontWeight:'bold',color:'#64748b',whiteSpace:'nowrap'}}>{(noticeDetail._idx||0) + 1} / {noticeDetail._list.length}</span>
+                <button type="button" data-testid="notice-next" disabled={(noticeDetail._idx||0) >= noticeDetail._list.length - 1} onClick={()=>_noticeGo(1)} style={{padding:'6px 12px',borderRadius:8,border:'1px solid #cbd5e1',background:'#f8fafc',color:'#334155',fontWeight:'bold',fontSize:12,cursor:'pointer',opacity:(noticeDetail._idx||0) >= noticeDetail._list.length - 1 ? 0.4 : 1}}>古い ›</button>
+                <span style={{marginLeft:'auto',fontSize:10,color:'#94a3b8',whiteSpace:'nowrap'}}>左右にスワイプでも</span>
+              </div>
+            )}
             <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10,flexWrap:'wrap'}}>
               {noticeDetail.badge && <span style={{fontSize:11,fontWeight:'bold',color:'white',background:noticeDetail.badgeColor||'#64748b',borderRadius:6,padding:'2px 9px'}}>{noticeDetail.badge}</span>}
               {noticeDetail.date && <span style={{fontSize:11,color:'#64748b'}}>{noticeDetail.date}</span>}
             </div>
             <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b',marginBottom:10,lineHeight:1.4}}>{noticeDetail.title}</div>
-            {noticeDetail.body && <div style={{fontSize:13,color:'#334155',whiteSpace:'pre-wrap',lineHeight:1.75}}>{noticeDetail.body}</div>}
+            {Array.isArray(noticeDetail.items) && noticeDetail.items.length > 0 ? (() => { // ★ 2026-10-26(ユーザー要望): 変更点を「場所・原因→変更」で分かりやすく。文でだらだら書かない
+              const KINDS = [['bug','不具合の修正','#dc2626','#fef2f2'],['feat','新機能','#2563eb','#eff6ff'],['change','変更','#0f766e','#ecfdf5']];
+              const its = noticeDetail.items.filter(x => x && (x.change || x.what));
+              const places = Array.from(new Set(its.map(x => x.where).filter(Boolean)));
+              return (<div data-testid="notice-items">
+                <div style={{fontSize:12,color:'#475569',marginBottom:8}}>変更点 <b>{its.length}件</b>{places.length ? `（${places.join('・')}）` : ''}{noticeDetail.body ? ` ― ${noticeDetail.body}` : ''}</div>
+                {KINDS.map(([k, lb, c, bg]) => { const L = its.filter(x => (x.kind || 'change') === k); if (!L.length) return null; return (
+                  <div key={k} style={{marginBottom:10}}>
+                    <div style={{fontSize:12,fontWeight:'bold',color:c,marginBottom:4}}>{lb} {L.length}件</div>
+                    <div style={{display:'flex',flexDirection:'column',gap:5}}>{L.map((x, i) => (
+                      <div key={i} style={{border:`1px solid ${c}33`,background:bg,borderRadius:8,padding:'6px 10px',fontSize:13,color:'#1e293b',lineHeight:1.55}}>
+                        {x.where && <span style={{display:'inline-block',fontSize:10,fontWeight:'bold',color:'white',background:c,borderRadius:4,padding:'1px 6px',marginRight:6,verticalAlign:'middle'}}>{x.where}</span>}
+                        {x.cause && <span><span style={{fontSize:11,fontWeight:'bold',color:'#64748b'}}>原因</span> {x.cause} <span style={{color:'#94a3b8'}}>→</span> </span>}
+                        <span>{x.change || x.what}</span>
+                      </div>))}</div>
+                  </div>); })}
+              </div>); })() : (noticeDetail.body && <div style={{fontSize:13,color:'#334155',whiteSpace:'pre-wrap',lineHeight:1.75}}>{noticeDetail.body}</div>)}
             {Array.isArray(noticeDetail.photos) && noticeDetail.photos.length > 0 && (
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginTop:12}}>
                 {noticeDetail.photos.map((ph,i)=>(<StoredImage key={i} file={ph} style={{width:'100%',height:150,objectFit:'cover',borderRadius:10,border:'1px solid #e2e8f0'}}/>))}
@@ -18846,6 +18905,16 @@ function tsuBuildStaffSession(staff) {
   return { staffId: staff.id, username: staff.username, role: staff.role, storeId: staff.store_id || null, storeName: staff.stores?.name || '', storeShortName: staff.stores?.short_name || '',
     displayName: staff.display_name || staff.username, token: staff._token || '', kind: staff.kind || 'store', memberId: staff.member_id || null, hasPin: !!staff.has_pin };
 }
+// ★ 2026-10-26(ユーザー「0000 や 1234 など分かりやすい PIN にしないように」): 同じ数字・連番(昇順/降順・0と9をまたぐ)・2桁の繰り返し・19xx/20xx(生年)は受け付けない
+function tsuWeakPin(p) {
+  const t = String(p || ''); if (!/^\d{4}$/.test(t)) return 'PIN は数字4桁です';
+  if (/^(\d)\1{3}$/.test(t)) return '同じ数字の並びは使えません';
+  if (/^(\d\d)\1$/.test(t)) return '同じ2桁の繰り返しは使えません';
+  const d = [...t].map(Number); const up = d.every((v, i) => i === 0 || v === (d[i - 1] + 1) % 10); const dn = d.every((v, i) => i === 0 || v === (d[i - 1] + 9) % 10);
+  if (up || dn) return '連番（1234 や 4321 など）は使えません';
+  if (/^(19|20)\d\d$/.test(t)) return '生まれ年など分かりやすい数字は使えません';
+  return '';
+}
 function StaffInviteAcceptView({ code, onLogin }) {
   const [inv, setInv] = React.useState(null); const [err, setErr] = React.useState(''); const [busy, setBusy] = React.useState(false);
   const [f, setF] = React.useState({ username: '', password: '', password2: '', pin: '', pin2: '' });
@@ -18854,7 +18923,7 @@ function StaffInviteAcceptView({ code, onLogin }) {
     if (!/^[A-Za-z0-9_.@\-]{4,64}$/.test(f.username)) return setErr('ログインIDは4文字以上の半角英数字(. _ @ -)で入力してください');
     if (f.password.length < 8 || !/[A-Za-z]/.test(f.password) || !/[0-9]/.test(f.password)) return setErr('パスワードは8文字以上で英字と数字を含めてください');
     if (f.password !== f.password2) return setErr('パスワード(確認)が一致しません');
-    if (f.pin && !/^\d{4}$/.test(f.pin)) return setErr('PIN は数字4桁です');
+    if (f.pin && tsuWeakPin(f.pin)) return setErr(tsuWeakPin(f.pin)); // ★ 2026-10-26: 分かりやすい PIN は不可
     if (f.pin !== f.pin2) return setErr('PIN(確認)が一致しません');
     setBusy(true);
     try { const staff = await supabaseStaffInviteAccept({ code, username: f.username, password: f.password, pin: f.pin }); const session = tsuBuildStaffSession(staff); sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(session)); try { history.replaceState(null, '', location.pathname); } catch {} onLogin(session); }
@@ -18914,10 +18983,14 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
   const [quickPin, setQuickPin] = React.useState(''); const [quickErr, setQuickErr] = React.useState(''); const [quickBusy, setQuickBusy] = React.useState(false);
   const quickPress = async (d) => {
     if (quickBusy) return; const n = (quickPin + d).slice(0, 4); setQuickPin(n); setQuickErr('');
-    if (n.length === 4 && onPinLogin) { setQuickBusy(true); try { const m = await onPinLogin(n); if (m) { setQuickPin(''); onSelect(m); return; } setQuickErr('PIN が違います'); } catch (e) { setQuickErr(e?.message || 'PIN が違います'); } setQuickPin(''); setQuickBusy(false); }
+    if (n.length === 4 && onPinLogin) { setQuickBusy(true); try { const m = await onPinLogin(n); if (m) { setQuickPin(''); setQuickBusy(false); afterPin(m); return; } setQuickErr('PIN が違います'); } catch (e) { setQuickErr(e?.message || 'PIN が違います'); } setQuickPin(''); setQuickBusy(false); }
   };
   const [pendingAdmin, setPendingAdmin] = React.useState(null); // 管理者選択 → 認証待ち
   const [pendingPin, setPendingPin] = React.useState(null); // ★ 2026-10-19 段階4: 本人アカウント＋PIN のある職員 → PIN 待ち
+  // ★ 2026-10-26(ユーザー要望「同じ人で役職が複数ある人は、PIN のあとにどちらにするか選べるように」): 同じ名前の行が複数あれば役職を選んでから入る
+  const [roleChoice, setRoleChoice] = React.useState(null);
+  const _sameName = (m) => { const k = normalizeName(m.name || '').trim(); return (members || []).filter(x => x && x.id !== 'hq_viewer' && normalizeName(x.name || '').trim() === k); };
+  const afterPin = (m) => { const rows = _sameName(m); if (rows.length > 1) { setRoleChoice({ base: m, rows }); return; } onSelect(m); };
   // 管理者メンバーを選んだ時はパスワード認証を挟む。 ★ つむぎ管理局(super_admin)は本部認証済みなので店舗のPINを省略して入れる
   const selectMember = (m) => {
     tsumugiMaybeAutoFullscreen(); // ★ 端末設定ONなら、このクリックで全画面に
@@ -19066,7 +19139,19 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
           </div>
         </div>
       )}
-      {pendingPin && <TsuPinPrompt member={pendingPin} onCancel={() => setPendingPin(null)} onVerify={async (pin) => { const m = pendingPin; await onVerifyPin(m, pin); setPendingPin(null); try { if (m.isAdmin || m.roleLabel === '管理者') sessionStorage.setItem('tsumugiAdminVerified', '1'); } catch {} onSelect(m); }} />}
+      {pendingPin && <TsuPinPrompt member={pendingPin} onCancel={() => setPendingPin(null)} onVerify={async (pin) => { const m = pendingPin; await onVerifyPin(m, pin); setPendingPin(null); try { if (m.isAdmin || m.roleLabel === '管理者') sessionStorage.setItem('tsumugiAdminVerified', '1'); } catch {} afterPin(m); }} />}
+      {roleChoice && (
+        <div data-testid="role-choice" style={{position:'fixed',inset:0,zIndex:10070,background:'rgba(15,23,42,0.45)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={() => setRoleChoice(null)}>
+          <div onClick={e => e.stopPropagation()} style={{background:'white',borderRadius:16,padding:'20px 22px',maxWidth:420,width:'100%',boxShadow:'0 20px 60px rgba(0,0,0,0.35)'}}>
+            <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>{roleChoice.base.name} さん　どの役職で入りますか</div>
+            <div style={{fontSize:12,color:'#64748b',marginBottom:12}}>記録に残る役職が変わります</div>
+            <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              {roleChoice.rows.map(r => <button key={r.id} type="button" data-testid={`role-choice-${r.id}`} onClick={() => { const m = { ...r, isAdmin: r.isAdmin || r.roleLabel === '管理者' }; setRoleChoice(null); try { if (m.isAdmin) sessionStorage.setItem('tsumugiAdminVerified', '1'); } catch {} onSelect(m); }} style={{padding:'12px 14px',background: String(r.id) === String(roleChoice.base.id) ? '#7daa3d' : '#f8fafc',color: String(r.id) === String(roleChoice.base.id) ? 'white' : '#1e293b',border:'1px solid #cbd5e1',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',textAlign:'left'}}>{r.roleLabel || '役職なし'}</button>)}
+            </div>
+            <div style={{textAlign:'right',marginTop:10}}><button type="button" onClick={() => setRoleChoice(null)} style={{padding:'6px 14px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:8,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>やめる</button></div>
+          </div>
+        </div>
+      )}
       {pendingAdmin && (
         <AdminAuthModal
           mode={adminAuth?.passwordHash ? 'verify' : 'set'}
@@ -19252,6 +19337,37 @@ function DiseaseMasterPanel() {
 
 // ★ J: 全店共通の同意ポリシー編集(つむぎ管理局専用)。 予約レコードに1つだけ保存し、各店が読む。
 //   版(バージョン)を上げると、全店の管理局お知らせ(system_notices)に改定通知を自動掲載(I5)。
+// ★ 2026-10-26(ユーザー決定「計画書の定型文は本部で管理」): 全店共通の定型文(app_state の予約キー policies.kkPresets)。各店は読むだけ
+function GlobalKkPresetsPanel() {
+  const [open, setOpen] = React.useState(false); const [vals, setVals] = React.useState(null); const [msg, setMsg] = React.useState(''); const [busy, setBusy] = React.useState(false);
+  React.useEffect(() => { let alive = true; (async () => { try { const gp = await supabaseLoadGlobalPolicies(); if (!alive) return; const g = (gp && gp.kkPresets && typeof gp.kkPresets === 'object') ? gp.kkPresets : {}; const v = {}; KK_PRESET_LABELS.forEach(([k]) => { v[k] = (Array.isArray(g[k]) && g[k].length ? g[k] : KK_PRESETS_DEFAULT[k]).join('\n'); }); setVals(v); } catch { const v = {}; KK_PRESET_LABELS.forEach(([k]) => { v[k] = KK_PRESETS_DEFAULT[k].join('\n'); }); setVals(v); } })(); return () => { alive = false; }; }, []);
+  const save = async () => {
+    setBusy(true); setMsg('');
+    try { const cur = (await supabaseLoadGlobalPolicies()) || {}; const kk = {}; KK_PRESET_LABELS.forEach(([k]) => { const lines = String((vals || {})[k] || '').split('\n').map(x => x.trim()).filter(Boolean); if (lines.length) kk[k] = lines; });
+      const policies = { ...cur, kkPresets: kk }; const ok = await supabaseSaveGlobalPolicies(policies); if (!ok) { alert('保存に失敗しました(通信エラー)'); setBusy(false); return; }
+      setGlobalPolicyCache(policies); setMsg('✓ 保存しました（全店の計画書に反映されます）'); }
+    catch (e) { alert('保存に失敗: ' + ((e && e.message) || '')); }
+    setBusy(false);
+  };
+  return (
+    <div data-testid="global-kk-panel" className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 mt-3">
+      <button type="button" onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between gap-2 text-left">
+        <div><div className="text-sm font-bold text-slate-800">計画書の定型文（全店共通）</div><div className="text-xs text-slate-500">3-3・3-2・3-1・通所介護計画書の「定型文から ▼」で選べる文言。1行に1つ。空にすると既定に戻ります。</div></div>
+        <span className="text-xs font-bold text-slate-500 whitespace-nowrap">{open ? '閉じる' : '開く'}</span>
+      </button>
+      {open && (vals ? (
+        <div className="mt-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {KK_PRESET_LABELS.map(([k, lb]) => (
+              <div key={k}><label className="block text-xs font-bold text-slate-600 mb-1">{lb}</label>
+                <textarea data-testid={`global-kk-${k}`} value={vals[k] || ''} rows={6} onChange={e => setVals(v => ({ ...(v || {}), [k]: e.target.value }))} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm outline-none" /></div>))}
+          </div>
+          <div className="flex items-center gap-3 mt-3"><button type="button" data-testid="global-kk-save" disabled={busy} onClick={save} className="px-5 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold disabled:opacity-50">{busy ? '保存中…' : '保存（全店に反映）'}</button>{msg && <span className="text-xs font-bold text-emerald-700">{msg}</span>}</div>
+        </div>
+      ) : <div className="mt-3 text-xs text-slate-500">読み込み中…</div>)}
+    </div>
+  );
+}
 function GlobalPolicyPanel({ staffSession }) {
   const _defFam = { version: FAMILY_CONSENT_VERSION, date: FAMILY_CONSENT_DATE, text: POLICY_DEFAULT_FAMILY_TEXT };
   const _defOff = { version: OFFICE_CONSENT_VERSION, date: OFFICE_CONSENT_DATE, text: POLICY_DEFAULT_OFFICE_TEXT };
@@ -20131,6 +20247,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
         </div>
         <div ref={_secPolicy} style={{scrollMarginTop:56}}>
         <GlobalPolicyPanel staffSession={staffSession}/>
+        <GlobalKkPresetsPanel/>
         </div>
         {/* LIFE傷病名マスタのCSV取込(全店共通・置き換え式) */}
         <div ref={_secMaster} style={{scrollMarginTop:56}}>
@@ -20386,7 +20503,16 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
 const _tsumugiIsIOSLike = () => { try { return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); } catch { return false; } };
 const _tsumugiIsStandalone = () => { try { return navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches); } catch { return false; } };
 const _tsumugiOsLabel = () => { try { const ua = navigator.userAgent; const m = ua.match(/OS (\d+)[_.](\d+)/); if (m && /iPhone|iPad/.test(ua)) return `iOS ${m[1]}.${m[2]}`; const v = ua.match(/Version\/(\d+\.\d+)/); return v ? `Safari ${v[1]}` : ''; } catch { return ''; } };
+const TSU_RELOGIN_MS = 10 * 60 * 1000; // ★ 2026-10-26(ユーザー決定): 事業所のログアウト後に「続ける」が出る時間(10分)
+function tsuReloginTicket() { try { const j = JSON.parse(localStorage.getItem('tsumugiRelogin') || 'null'); if (!j || !j.session || !j.session.token || !j.at || Date.now() - j.at > TSU_RELOGIN_MS) return null; return j; } catch { return null; } }
+function tsuReloginClear() { try { localStorage.removeItem('tsumugiRelogin'); } catch {} }
 function StaffLoginGate({ onLogin }) {
+  const [relogin, setRelogin] = useState(() => tsuReloginTicket()); // ★ 2026-10-26: ログアウトから10分以内の「○○さんとして続ける／別の人」
+  useEffect(() => { if (!relogin) return; const left = Math.max(0, relogin.at + TSU_RELOGIN_MS - Date.now()); const t = setTimeout(() => setRelogin(null), left + 50); return () => clearTimeout(t); }, [relogin]);
+  const continueAs = (withRecorder) => { const j = tsuReloginTicket(); tsuReloginClear(); setRelogin(null); if (!j) return;
+    if (!withRecorder && j.session.kind === 'person') return; // 本人ログインの「別の人」= ふつうのログインへ
+    try { sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(j.session)); if (withRecorder && j.recorder) sessionStorage.setItem('tsumugiActiveRecorder', JSON.stringify(j.recorder)); else sessionStorage.removeItem('tsumugiActiveRecorder'); sessionStorage.setItem('tsumugiNoResume', '1'); } catch {}
+    onLogin(j.session); };
   const [form, setForm] = useState({ username:'', password:'', error:'', loading:false, showPw:false, code:'', needCode:false, hint:'', sent:false, sentAt:'', mailErr:'' }); // ★ 2026-10-19: 本部の2段階認証(code) ★ 2026-10-26: 送信済み(時刻)・送れなかった理由
   // ★ 2026-10-26(ユーザー「まだメールが送られない。送ったら送信済みとわかるように」): サーバーの返事(送れた・宛先・時刻・理由)をそのまま画面に
   const _hhmm = (s) => { try { const d = s ? new Date(s) : new Date(); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; } catch { return ''; } };
@@ -20457,6 +20583,7 @@ function StaffLoginGate({ onLogin }) {
   };
   const finishLogin = async (staff) => {
     {
+      tsuReloginClear(); // ★ 2026-10-26: ふつうにログインしたら「続ける」の控えは要らない
       const session = tsuBuildStaffSession(staff); // ★ 2026-10-19 段階4: kind(store/person)・memberId・hasPin も持つ
       sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(session));
       // ★ 2026-10-08(店舗報告: iPhoneでIDとパスワードを入力してログインした直後、画面の一部が白いまま。スクロールしても戻らず、押すと反応する):
@@ -20476,6 +20603,17 @@ function StaffLoginGate({ onLogin }) {
   return (
     <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'linear-gradient(135deg,#d4e7a5 0%,#f0f7e0 100%)',padding:24,boxSizing:'border-box'}}>
       <div style={{width:'100%',maxWidth:420,background:'white',borderRadius:24,padding:'32px 28px',boxShadow:'0 12px 40px rgba(125,170,61,0.25)',boxSizing:'border-box'}}>
+        {relogin && (
+          <div data-testid="relogin-box" style={{marginBottom:18,padding:'14px 16px',background:'#f0f7e0',border:'1px solid #c5dea0',borderRadius:14}}>
+            <div style={{fontSize:12,color:'#5e8030',fontWeight:'bold',marginBottom:6}}>{relogin.session.storeName || '事業所'}　さっきログアウトしました（10分以内）</div>
+            {relogin.recorder || relogin.session.kind === 'person' ? (
+              <button type="button" data-testid="relogin-continue" onClick={() => continueAs(true)} style={{width:'100%',padding:'12px',background:'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer'}}>{(relogin.recorder && relogin.recorder.name) || relogin.session.displayName} さんとして続ける</button>
+            ) : (
+              <button type="button" data-testid="relogin-continue" onClick={() => continueAs(false)} style={{width:'100%',padding:'12px',background:'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer'}}>この店舗で続ける（担当者を選ぶ）</button>
+            )}
+            <button type="button" data-testid="relogin-other" onClick={() => continueAs(false)} style={{width:'100%',marginTop:8,padding:'10px',background:'white',color:'#3d5021',border:'1px solid #94c456',borderRadius:12,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>{relogin.session.kind === 'person' ? '別の人でログインする' : '別の人（担当者を選び直す）'}</button>
+          </div>
+        )}{/* ★ 2026-10-26(ユーザー決定): 事業所はログアウトから10分以内なら確認だけで戻れる。別の人へは「どなたですか」(PIN あり)を通る */}
         {/* 紡ぎ ロゴ: 家族ログインと同じものをそのまま使用 */}
         <div style={{textAlign:'center',marginBottom:20}}>
           <img src="/preview/tsumugi-logo-full-transparent.png" alt="つむぎ Tsumugi" style={{width:'100%',maxWidth:200,height:'auto',display:'block',margin:'0 auto',objectFit:'contain'}}/>
@@ -22409,6 +22547,8 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    // ★ 2026-10-26(ユーザー決定「事業所はログアウトから10分以内なら○○さんとして続ける／別の人の確認だけ」): 店舗のログインと今の担当者を10分だけ端末に控える(本部は対象外=30分の信頼の印で代わり)
+    try { if (staffSession && staffSession.token && staffSession.role !== 'super_admin') localStorage.setItem('tsumugiRelogin', JSON.stringify({ at: Date.now(), session: staffSession, recorder: activeRecorder && activeRecorder.id !== 'hq_viewer' ? activeRecorder : null })); } catch {}
     sessionStorage.removeItem('tsumugiStaffSession');
     sessionStorage.removeItem('tsumugiActiveRecorder');
     // ★ 2026-10-26(ユーザー報告「ログアウトしてログインするとホームでなく事業所情報になる」): 見ていた画面の控え(今すぐ更新用)はログアウトでは使わない
@@ -22911,7 +23051,32 @@ export default function App() {
       //   読み取り専用の履歴なので同期のマージには影響しない(union併合)。 保存を壊さないよう try 内で完結。
       try {
         const _alNow = syncNow();
-        const _alDev = effDeviceName || '名称未設定の端末'; // ★ 2026-10-17: 管理局は「管理局」
+        // ★ 2026-10-26(ユーザー要望「共有 iPad では端末名＋今操作している人の名前を」): 端末名／担当者
+        const _alStaff = (staffSession && staffSession.role === 'super_admin') ? '' : ((activeRecorder && activeRecorder.id !== 'hq_viewer' && activeRecorder.name) || '');
+        const _alDev = (effDeviceName || '名称未設定の端末') + (_alStaff ? `／${_alStaff}` : ''); // ★ 2026-10-17: 管理局は「管理局」
+        // ★ 2026-10-26(ユーザー要望「項目名や運動の○×など具体的に」): 提供記録は項目ごとの変化を文字にする
+        const _alLbl = { status:'出欠', actualTime:'時間', temp:'体温', bpUpSt:'血圧上(開始)', bpDnSt:'血圧下(開始)', plSt:'脈(開始)', bpUpEn:'血圧上(終了)', bpDnEn:'血圧下(終了)', plEn:'脈(終了)', massage:'介護整体', tokki:'特記', kibunArrival:'体調(通所時)', kibunArrivalReason:'理由(通所時)', kibunDeparture:'体調(帰宅時)', kibunDepartureReason:'理由(帰宅時)', kinouStaff:'個別実施', recorder:'記録者', bpRe:'再検' };
+        const _alV = (v) => { const t = (v == null || v === '') ? '空' : (typeof v === 'object' ? (Array.isArray(v) && !v.length ? '空' : JSON.stringify(v)) : String(v)); return t.length > 12 ? t.slice(0, 12) + '…' : t; };
+        // ★ 2026-10-26(ユーザー「計画書などは項目名だけ出せばよい。中身までは細かすぎる」): 提供記録以外は変わった項目の名前だけ
+        const _alKkLbl = { createdDate:'作成日', prevDate:'前回作成日', firstDate:'初回作成日', honninKibou:'利用者本人の希望', kazokuKibou:'家族の希望', shakaiSanka:'利用者本人の社会参加の状況', kyotakuKankyo:'利用者の居宅の環境', byomei:'病名', hasshoDate:'発症日・受傷日', nyuinDate:'直近の入院日', taiinDate:'直近の退院日', chiryoKeika:'治療経過', gappei:'合併疾患・コントロール状態', ryuiPoint:'機能訓練実施上の留意事項', shortKinou:'（機能）', shortKatsudo:'（活動）', shortSanka:'（参加）', longKinou:'（機能）', longKatsudo:'（活動）', longSanka:'（参加）', jikangaiJisshi:'利用者本人・家族等がサービス利用時間以外に実施すること', tokki:'特記事項', henka:'個別機能訓練の実施による変化', kadai:'個別機能訓練実施における課題とその要因', setsumeiDate:'説明日', recordDate:'作成日', bikou:'備考', keii:'通所介護利用までの経緯', kenkoJotai:'健康状態', riyoubi:'利用曜日・時間帯' };
+        const _alPtLbl = { name:'氏名', kana:'ふりがな', birthday:'生年月日', gender:'性別', address:'住所', addressBuilding:'建物', addressRoom:'部屋番号', phone:'電話', phoneMobile:'携帯', status:'状態', careLevel:'要介護度', insurerNo:'保険者番号', insuredNo:'被保険者番号', scheduleAmPm:'基本利用曜日', schedule:'基本利用曜日', pickupPlace:'待ち合わせ場所', pickupMinutes:'乗降の分数', memo:'メモ', note:'メモ', faceSheet:'フェイスシート', changeLog:'変更履歴', files:'ファイル', labeledFiles:'添付ファイル', emergencyContacts:'緊急連絡先', cmName:'ケアマネ', cmOffice:'ケアマネ事業所', startDate:'利用開始日', endDate:'利用終了日', pauses:'休止', scheduleChangeHistory:'利用日の変更履歴' };
+        const _alDlLbl = { staff:'担当職員', kenmu:'兼務', gensan:'減算', managerConfirmed:'管理者確認', staffTemp:'職員の体温', patientRows:'利用者の行', carTimes:'送迎の時間', driver:'運転者', memo:'メモ', notes:'申し送り', weather:'天気', am:'午前', pm:'午後', transport:'送迎', _tpManual:'送迎(手で変更)' };
+        const _alCmLbl = { date:'日付', period:'対象月', tokki:'特記', memo:'メモ', note:'メモ', comment:'コメント', status:'状態', recorder:'記録者', staff:'担当', values:'測定値', items:'項目', createdAt:'作成', updatedAt:'更新', kinouStaff:'個別実施', confirmed:'確定', title:'題名', body:'本文', summary:'まとめ' };
+        const _alKeysDiff = (o, n, cat) => { const out = []; let extra = 0; const fitItems = ((newData && newData.systemSettings && newData.systemSettings.fitnessItems) || appSettings.fitnessItems || []);
+          const keys = new Set([...Object.keys(o || {}), ...Object.keys(n || {})]);
+          keys.forEach(key => { if (key === 'id' || key === 'patientId' || key === 'patientName' || key === 'name' && cat !== 'patients' || key.startsWith('_') || key === 'updatedAt' || key === 'updatedBy' || key === 'createdAt' || key === 'version') return;
+            let same; try { same = JSON.stringify((o || {})[key] ?? '') === JSON.stringify((n || {})[key] ?? ''); } catch { same = false; } if (same) return;
+            if (cat === 'patients' && key === 'faceSheet') { try { diffFaceSheetChanges((o || {}).faceSheet, (n || {}).faceSheet).forEach(c => out.push(c.label)); } catch { out.push('フェイスシート'); } return; }
+            if (cat === 'fitnessRecords' && key === 'values') { const vo = (o || {}).values || {}, vn = (n || {}).values || {}; new Set([...Object.keys(vo), ...Object.keys(vn)]).forEach(id => { if (String(vo[id] ?? '') !== String(vn[id] ?? '')) out.push((fitItems.find(x => x && x.id === id) || {}).name || id); }); return; }
+            const lb = (cat === 'patients' ? _alPtLbl[key] : cat === 'dailyLogs' ? _alDlLbl[key] : _alKkLbl[key]) || _alCmLbl[key]; if (lb) out.push(lb); else extra++; });
+          const u = Array.from(new Set(out)); return { names: u, extra }; };
+        const _alRecDiff = (o, n) => { const parts = []; const _exs = effExerciseItems((newData && newData.systemSettings) || prev.systemSettings); const exN = (id) => ((_exs || []).find(x => x && x.id === id) || {}).name || String(id);
+          const keys = new Set([...Object.keys(o || {}), ...Object.keys(n || {})]);
+          keys.forEach(key => {
+            if (key === 'exercises') { const eo = (o && o.exercises) || {}, en = (n && n.exercises) || {}; new Set([...Object.keys(eo), ...Object.keys(en)]).forEach(id => { if (String(eo[id] ?? '') !== String(en[id] ?? '')) parts.push(`${exN(id)} ${_alV(eo[id])}→${_alV(en[id])}`); }); return; }
+            if (!_alLbl[key]) return; const a = o ? o[key] : undefined, b = n ? n[key] : undefined; const va = _alV(a), vb = _alV(b);
+            if (va !== vb) parts.push(`${_alLbl[key]} ${va}→${vb}`); }); // 空・未設定・空の配列は同じ「空」とみなす
+          return parts; };
         const _alCats = [
           ['ticketRecords','提供記録'], ['dailyLogs','日誌'], ['fitnessRecords','体力測定'],
           ['monitoringRecords','モニタリング'], ['faxHistory','連絡'], ['patients','利用者マスタ'],
@@ -22936,10 +23101,14 @@ export default function App() {
                 if (!_o) return true;          // 新規
                 try { return JSON.stringify(_o) !== JSON.stringify(r); } catch { return true; }
               });
-              const one = _chg[0];
+              // ★ 2026-10-26: 提供記録は「出欠・記録者・個別実施だけが変わった行」より、特記や運動など中身が変わった行を先に出す
+              const _alInfo = (r) => { if (k !== 'ticketRecords') return 0; try { return _alRecDiff(_pm.get(String(r.id)), r).filter(t => !/^(出欠|記録者|個別実施) /.test(t)).length; } catch { return 0; } };
+              const one = _chg.length > 1 ? (_chg.find(_alInfo) || _chg[0]) : _chg[0];
               if (one) {
                 const _pn = one.patientId != null ? ((newData.patients || prev.patients || []).find(p => p && p.id === one.patientId)?.name || '') : (one.patientName || '');
                 detail = [_pn, one.date, one.subject].filter(Boolean).join(' ').slice(0, 40);
+                if (k === 'ticketRecords') { const _o1 = _pm.get(String(one.id)); const _parts = _alRecDiff(_o1, one); if (_parts.length) detail += `: ${_parts.slice(0, 6).join('、')}${_parts.length > 6 ? ` 他${_parts.length - 6}項目` : ''}`; else if (!_o1) detail += ': 新規'; } // ★ 2026-10-26: 項目ごとの変化
+                else { const _o1 = _pm.get(String(one.id)); if (!_o1) detail += ': 新規'; else { const d2 = _alKeysDiff(_o1, one, k); const nm = d2.names.slice(0, 6); if (nm.length || d2.extra) detail += `: ${nm.join('、')}${d2.names.length > 6 ? ` 他${d2.names.length - 6}項目` : ''}${d2.extra && !nm.length ? `${d2.extra}項目を変更` : ''}`; } } // ★ 2026-10-26: 項目名だけ
                 if (_chg.length > 1) detail += ` 他${_chg.length - 1}件`;
               } else if (newData[k].length !== prev[k].length) {
                 detail = `件数 ${prev[k].length}→${newData[k].length}`;
@@ -22953,7 +23122,8 @@ export default function App() {
           // ★ 直近5件と同一(端末×カテゴリ×内容)は重複記録しない=頻繁なサイレント保存でログが埋まるのを防ぐ
           const _recent = _oldLog.slice(0, 5);
           const _fresh = _alEntries.filter(e => !_recent.some(o => o && o.device===e.device && o.cat===e.cat && (o.detail||'')===(e.detail||'')));
-          if (_fresh.length) newData = { ...newData, auditLog: [..._fresh, ..._oldLog].slice(0, 300) };
+          // ★ 2026-10-26(ユーザー決定「種類ごとに100件・よく入力する提供記録は200件」): 種類ごとに上限を切る(全体で300件ではない)
+          if (_fresh.length) { const _cnt = {}; newData = { ...newData, auditLog: [..._fresh, ..._oldLog].filter(e => { if (!e) return false; const c = e.cat || ''; _cnt[c] = (_cnt[c] || 0) + 1; return _cnt[c] <= (c === '提供記録' ? 200 : 100); }) }; }
         }
       } catch (e) { console.warn('[auditLog] failed', e); }
       // ★ オブジェクト設定(systemSettings/diarySettings/contactBookConfig)の「変更フィールドだけ」に
@@ -23702,7 +23872,7 @@ export default function App() {
     return <StaffLoginGate onLogin={(sess) => { window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), staffSession: sess }; }} />;
   }
   if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.location.hash === '#picker') { // ★ 段階4 の自動テスト: PIN 先行の「どなたですか」(本番では空)
-    const _ms = [{ id: 'm1', name: '見本 花子', roleLabel: '介護職員' }, { id: 'm2', name: '見本 次郎', roleLabel: '生活相談員' }];
+    const _ms = [{ id: 'm1', name: '見本 花子', roleLabel: '介護職員' }, { id: 'm2', name: '見本 次郎', roleLabel: '生活相談員' }, ...((window.__tsumugiE2E && window.__tsumugiE2E.multiRole) ? [{ id: 'm3', name: '見本 花子', roleLabel: '生活相談員' }] : [])]; // ★ 2026-10-26: 同じ名前で役職が複数(役職の選択の自動テスト)
     return <RecorderPickerGate storeName="テスト店" storeId="s1" members={_ms} canManage={false} isSuperAdmin={false} roleChoices={['介護職員']} pinMembers={new Set(['m1'])} pinRequired={!!(window.__tsumugiE2E && window.__tsumugiE2E.pinRequired)}
       onPinLogin={async (pin) => { if (pin === '1234') return _ms[0]; throw new Error('PIN が違います'); }} onVerifyPin={async (m, pin) => { if (pin !== '1234') throw new Error('PIN が違います'); }}
       onSelect={(m) => { window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), picked: m.id }; }} onLogout={() => {}} />;
@@ -24199,14 +24369,14 @@ export default function App() {
       {auditLogOpen && ReactDOM.createPortal((()=>{
         const _log = Array.isArray(appData.auditLog) ? appData.auditLog : [];
         const _cats = ['全て', ...Array.from(new Set(_log.map(e=>e && e.cat).filter(Boolean)))];
-        const _list = _log.filter(e => e && (auditLogCat==='全て' || e.cat===auditLogCat)).slice().sort((a,b)=>(Number(b.at)||0)-(Number(a.at)||0)).slice(0,300);
+        const _list = _log.filter(e => e && (auditLogCat==='全て' || e.cat===auditLogCat)).slice().sort((a,b)=>(Number(b.at)||0)-(Number(a.at)||0)); // ★ 2026-10-26: 上限は種類ごと(提供記録200・ほか100)
         const _fmt = (t)=>{ try { return new Date(Number(t)).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}); } catch { return ''; } };
         return (
           <div onClick={()=>setAuditLogOpen(false)} style={{position:'fixed',inset:0,background:'rgba(15,23,42,0.55)',zIndex:99998,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
             <div className="tsu-cap-dvh" onClick={e=>e.stopPropagation()} style={{background:'white',borderRadius:20,width:'100%',maxWidth:640,maxHeight:'85vh',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,0.35)'}}>
               <div style={{padding:'14px 18px',borderBottom:'1px solid #e2e8f0',display:'flex',alignItems:'center',gap:8}}>
                 <div style={{fontWeight:'bold',color:'#1e293b'}}>変更ログ</div>
-                <div style={{fontSize:11,color:'#64748b'}}>いつ・どの端末で・何を変更したか（最新300件）</div>
+                <div style={{fontSize:11,color:'#64748b'}}>いつ・どの端末（誰）で・何を変更したか（提供記録は最新200件・ほかは種類ごとに100件）</div>
                 <button onClick={()=>setAuditLogOpen(false)} style={{whiteSpace:'nowrap',marginLeft:'auto',border:'none',background:'#f1f5f9',borderRadius:8,padding:'4px 10px',fontWeight:'bold',cursor:'pointer',color:'#475569'}}>閉じる</button>
               </div>
               <div style={{padding:'8px 14px',borderBottom:'1px solid #f1f5f9',display:'flex',gap:6,flexWrap:'wrap'}}>
@@ -24220,7 +24390,7 @@ export default function App() {
                     <div key={e.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',borderBottom:'1px solid #f8fafc'}}>
                       <span style={{fontSize:10,fontWeight:'bold',color:'#4338ca',background:'#eef2ff',border:'1px solid #c7d2fe',borderRadius:6,padding:'2px 7px',whiteSpace:'nowrap'}}>{e.cat}</span>
                       <div style={{minWidth:0,flex:1}}>
-                        <div style={{fontSize:12,color:'#1e293b',fontWeight:'bold',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{e.detail || '（更新）'}</div>
+                        <div style={{fontSize:12,color:'#1e293b',fontWeight:'bold',whiteSpace:'normal',wordBreak:'break-all',lineHeight:1.4}}>{e.detail || '（更新）'}</div>{/* ★ 2026-10-26: 項目ごとの変化は折り返して全部見せる */}
                         <div style={{fontSize:10,color:'#64748b'}}>{e.device||'端末不明'}</div>
                       </div>
                       <span style={{fontSize:11,color:'#64748b',whiteSpace:'nowrap'}}>{_fmt(e.at)}</span>
@@ -24818,7 +24988,7 @@ export default function App() {
               const mid = String(staffAddForm.editId); const acct = (_staffAcct.accounts || []).find(a => String(a.member_id) === mid) || null; const inv = (_staffAcct.invites || []).find(i => String(i.member_id) === mid) || null;
               const nm = `${staffAddForm.lastName || ''} ${staffAddForm.firstName || ''}`.trim();
               const url = inv ? `${location.origin}${location.pathname}?staffinvite=${inv.code}` : '';
-              const issue = async () => { try { await supabaseStaffInviteCreate(staffSession.token, { storeId: staffSession.storeId, memberId: mid, name: nm, role: staffAddForm.role === '管理者' ? 'manager' : 'member' }); await _reloadStaffAcct(); } catch (e) { alert(e?.message || '招待を発行できませんでした'); } };
+              const issue = async () => { if (!tsuAdminGate(issue, '招待コードの発行')) return; /* ★ 2026-10-26(ユーザー): 招待を出せるのは管理者だけ */ try { await supabaseStaffInviteCreate(staffSession.token, { storeId: staffSession.storeId, memberId: mid, name: nm, role: staffAddForm.role === '管理者' ? 'manager' : 'member' }); await _reloadStaffAcct(); } catch (e) { alert(e?.message || '招待を発行できませんでした'); } };
               const toggle = async () => { if (!acct) return; if (!window.confirm(acct.is_active ? `「${acct.name}」を退職にしますか？\n（この人のログインはすぐに使えなくなります。記録に残っている名前はそのままです）` : `「${acct.name}」を復帰にしますか？`)) return; try { await supabaseStaffSetActive(staffSession.token, acct.staff_id, !acct.is_active); await _reloadStaffAcct(); } catch (e) { alert(e?.message || '変更できませんでした'); } };
               return (
                 <div data-testid="member-account-panel" className="mt-4 p-3 rounded-xl border border-emerald-200 bg-emerald-50/60">
@@ -25157,6 +25327,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     return () => { clearTimeout(t1); clearTimeout(t2); clearInterval(iv); window.removeEventListener('resize', calc); };
   }, [isFullscreen, _fsFit, _fsModeTick]);
   const _fsZoom = isFullscreen ? (_fsFit ? _fitZoom : 1.2) : 1;
+  // ★ 2026-10-26(ユーザー要望「一言かマイクのどちらかを無くしたとき、残った方を他と同じ高さに」): 表の特記セルで一言とマイクが1つだけなら、そのボタンを欄の高さいっぱいに
+  const _tkOne = (((tsuTokkiPresets(appData).length && !appData.systemSettings?.tokkiPresetOff) ? 1 : 0) + ((!appData.systemSettings?.tokkiVoiceOff && tsuVoiceSupported()) ? 1 : 0)) === 1;
   useEffect(() => { const on = (e) => { if (!e || !e.key || e.key === TSU_FS_MODE_KEY) _setFsModeTick(t => t + 1); }; window.addEventListener('storage', on); window.addEventListener('tsu:fsmode', on); return () => { window.removeEventListener('storage', on); window.removeEventListener('tsu:fsmode', on); }; }, []);
   // ★ 2026-10-11: 全画面(画面全体を覆う)を一瞬で外すと、iPad では下の見出し・上部の帯が古い描画のまま白く残ることがある。0.3秒かけて薄くしてから外す
   const [fsClosing, setFsClosing] = useState(false);
@@ -26993,7 +27165,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     ))}
                   </div>
                   <button type="button" data-testid="rec-order-btn" onClick={() => setRecOrderOpen(true)} title={_recOrderOn ? `${_recOrderLabel}のクラスは保存した並び順です（押すと並べ替え・消去）` : `${_recOrderLabel}のクラスの並び順を変えます（ほかの曜日・時間帯はそのまま）`} className={`${_iconBar ? 'px-2.5' : 'px-3'} py-2 rounded-xl text-sm font-bold border shrink-0 ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}><ArrowUpDown size={17} strokeWidth={2.4} aria-label="並び替え"/></button>{/* ★ 2026-10-23(ユーザー): 短いときは並び替えのアイコンだけ */}
-                  {recOrderOpen && <RecordOrderModal rows={_recOrderRows} label={_recOrderLabel} onSave={saveRecordOrder} onReset={_recOrderOn ? resetRecordOrder : null} onClose={() => setRecOrderOpen(false)}/>}
+                  
                   {attCountChips && <div className="hidden sm:block">{attCountChips}</div>}
               </div>
             )}
@@ -27106,13 +27278,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             </>)}
             <div data-testid="rec-actions" className={`w-full sm:w-auto sm:ml-auto grid ${filterMode === 'single' ? 'grid-cols-4' : 'grid-cols-3'} sm:flex items-center gap-1.5 ${_iconBar ? 'sm:gap-1.5' : 'sm:gap-2'} sm:flex-wrap`}>
               {filterMode === 'single' && <button type="button" data-testid="rec-act-bulkex" onClick={() => setBulkExOpen(true)} className="order-last sm:order-none bg-white border border-indigo-300 text-indigo-700 hover:bg-indigo-50 px-1 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="出席している方の運動をまとめて○にします(行わなかった方は×に)">{_iconBar ? _ib(CheckCheck, '一括○') : '一括○'}</button>}
-              {bulkExOpen && ReactDOM.createPortal(<TsuBulkExerciseModal
-                rows={(displayRecords || []).filter(r => ['出席', '臨時', '振替'].includes(r.status || '出席'))}
-                items={effExerciseItems(appData.systemSettings).filter(it => it.type !== 'individual')}
-                baselineOf={_exBaselineOf}
-                onClose={() => setBulkExOpen(false)}
-                onApply={(cells) => { let n = 0; Object.entries(cells).forEach(([k, v]) => { const i = k.lastIndexOf('|'); const rid = k.slice(0, i), fld = k.slice(i + 1); const r = (displayRecords || []).find(x => String(x.id) === rid); if (!r) return; updateExercise(r.id, fld, v === 'o' ? '○' : '×'); n++; }); setBulkExOpen(false); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `${n}件を入れました。内容を確かめて「保存」を押してください` } })); } catch {} }}
-              />, document.body)}
+              
               {/* ★ 連絡帳は一番左(全画面の左)に配置(2026-08-28 店舗要望) */}
               <button data-testid="rec-act-renraku" onClick={() => { handleSaveClick(); navigateTo('print'); }} className={`bg-emerald-600 hover:bg-emerald-700 text-white px-2 ${_iconBar ? 'sm:px-2.5' : 'sm:px-4'} py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap`}>{_iconBar ? _ib(Printer, '連絡帳') : '連絡帳'}</button>
               <button data-testid="rec-act-fullscreen" onClick={()=>{ if (isFullscreen) setIsFullscreen(false); else setFsPick(true); }} className="bg-slate-700 hover:bg-slate-800 text-white px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title={isFullscreen?'通常表示':'全画面表示'}>
@@ -27123,7 +27289,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   <div style={{background:'white',borderRadius:18,padding:18,width:'100%',maxWidth:460,boxShadow:'0 20px 60px rgba(0,0,0,0.35)'}} onClick={e => e.stopPropagation()}>
                     <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>全画面の見せ方</div>
                     <div style={{fontSize:12,color:'#64748b',marginBottom:12}}>この端末で前に選んだものに印が付いています。全画面の中でも切り替えられます。</div>
-                    {[['zoom','大きく表示','文字を1.2倍に。10人分より多いときはスクロール'],['fit','全員を1画面に','来ている方の人数と画面の大きさに合わせて、全員が画面に入る大きさに']].map(([k, l, sub]) => (
+                    {[['zoom','拡大表示','文字を1.2倍に。10人分より多いときはスクロール'],['fit','全員を1画面に','来ている方の人数と画面の大きさに合わせて、全員が画面に入る大きさに']].map(([k, l, sub]) => (
                       <button key={k} type="button" data-testid={`fs-pick-${k}`} onClick={() => { try { localStorage.setItem(TSU_FS_MODE_KEY, k); } catch {} _setFsModeTick(t => t + 1); setFsPick(false); setIsFullscreen(true); }}
                         style={{display:'block',width:'100%',textAlign:'left',padding:'12px 14px',marginBottom:8,borderRadius:12,border: tsuFsMode() === k ? '2px solid #2563eb' : '2px solid #e2e8f0',background: tsuFsMode() === k ? '#eff6ff' : 'white',cursor:'pointer'}}>
                         <div style={{fontSize:15,fontWeight:'bold',color: tsuFsMode() === k ? '#1d4ed8' : '#1e293b'}}>{tsuFsMode() === k ? '● ' : ''}{l}</div><div style={{fontSize:12,color:'#64748b'}}>{sub}</div>
@@ -27131,7 +27297,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     <div style={{textAlign:'right'}}><button type="button" onClick={() => setFsPick(false)} style={{padding:'8px 16px',borderRadius:10,border:'none',background:'#f1f5f9',color:'#334155',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>やめる</button></div>
                   </div>
                 </div>), document.body)}
-              <button onClick={()=>setRestoreModal(true)} className="bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="保存した記録を丸ごと復元(元に戻す)">{_iconBar ? _ib(Undo2, '戻す') : '元に戻す'}</button>
+              <button onClick={()=>setRestoreModal(true)} className="bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="保存した記録を丸ごと復元(元に戻す)">{_iconBar ? _ib(Undo2, '戻す') : '戻す'}</button>{/* ★ 2026-10-26(ユーザー): ほかと同じ「戻す」に */}
               {/* ★ onClick={handleSaveClick} だとクリックイベントが第1引数(auto)に渡り auto=truthy(自動保存扱い)になり、
                   「保存しました」が出ず担当者チェックも飛ばされていた。 明示的に auto=false で呼ぶ。 */}
               <button onClick={()=>handleSaveClick(false)} className={`hidden sm:block bg-blue-600 hover:bg-blue-700 text-white px-2 ${_iconBar ? 'sm:px-3' : 'sm:px-4'} py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap`}>{_iconBar ? _ib(Save, '保存') : '保存'}</button>
@@ -27168,16 +27334,45 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
         <div data-testid="rec-fs-bar" className="bg-slate-800 px-2 sm:px-4 py-2 flex flex-wrap items-center gap-2 sm:gap-3 flex-shrink-0 sticky top-0 z-50 shadow-md">
           <span className="text-white font-bold text-sm whitespace-nowrap truncate min-w-0"><span className="hidden sm:inline">サービス提供記録 入力 </span>{selectedDate && new Date(selectedDate).toLocaleDateString('ja-JP', {year:'numeric', month:'long', day:'numeric'})}</span>
           {attCountChips && <div className="ml-1 sm:ml-2">{attCountChips}</div>}
+          {/* ★ 2026-10-26(ユーザー要望「個別の実施・並び替え・一括○・印の外しも全画面で」) */}
+          {_kinouOn && (
+            <div data-testid="fs-kinou-box" className="flex items-center gap-1 bg-emerald-50 border border-emerald-200 rounded-lg px-1.5 py-0.5" title="個別機能訓練をした指導員。選ぶと表示中の全員に入ります（人ごとは「利用者ごと」）">
+              <span className="text-[10px] font-bold text-emerald-800 whitespace-nowrap leading-tight text-center">個別<br/>実施</span>
+              <select data-testid="fs-kinou-default" value={_kinouEff} disabled={!isEditMode} onChange={e=>applyKinouAll(e.target.value)} className="text-xs font-bold bg-white border border-emerald-300 rounded appearance-none px-1.5 py-1 outline-none disabled:opacity-60" title={_kinouEff || ''}>
+                {!_kinouList.includes(_kinouEff) && _kinouEff && _kinouEff !== '未算定' && <option value={_kinouEff}>{_kinouShort(_kinouEff)}</option>}
+                {_kinouList.map(n => <option key={n} value={n}>{_kinouShort(n)}</option>)}
+                <option value="未算定">未算定</option>
+                {!_kinouList.length && !_kinouEff && <option value="">（機能訓練指導員が未登録）</option>}
+              </select>
+            </div>
+          )}
+          {filterMode === 'single' && <button type="button" data-testid="fs-order-btn" onClick={() => setRecOrderOpen(true)} title={_recOrderOn ? `${_recOrderLabel}のクラスは保存した並び順です（押すと並べ替え・消去）` : `${_recOrderLabel}のクラスの並び順を変えます（ほかの曜日・時間帯はそのまま）`} className={`px-2 py-1.5 rounded-lg text-xs font-bold border whitespace-nowrap ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white/90 border-slate-300 text-slate-700'}`}><ArrowUpDown size={15} strokeWidth={2.4} aria-label="並び替え"/></button>}
+          {filterMode === 'single' && <button type="button" data-testid="fs-act-bulkex" onClick={() => setBulkExOpen(true)} className="bg-white/90 border border-indigo-300 text-indigo-700 px-2 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap" title="出席している方の運動をまとめて○にします(行わなかった方は×に)">一括○</button>}
+          {_rvMarks.length > 0 && (
+            <div data-testid="fs-marks-bar" className="inline-flex items-center gap-1.5 h-8 pl-2 pr-1 rounded-lg bg-yellow-50 border border-yellow-300 text-[12px] font-bold text-yellow-900" title="名前を長押しで印の付け外し（この端末の表示だけ）">
+              <span className="whitespace-nowrap">印 {_rvMarks.length}</span>
+              <button type="button" data-testid="fs-marks-clear" onClick={() => _setRvMarks([])} className="h-6 px-2 rounded bg-white border border-yellow-400 text-yellow-900 text-[12px] whitespace-nowrap">外す</button>
+            </div>
+          )}
           <div className="flex-1 hidden sm:block"/>
           <div className="basis-full sm:hidden" />
           <button onClick={()=>{ handleSaveClick(); navigateTo('print'); }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap" title="連絡帳の作成・印刷へ"><Printer size={13} className="mr-1"/>連絡帳</button>
-          <button type="button" data-testid="fs-mode-switch" onClick={() => { try { localStorage.setItem(TSU_FS_MODE_KEY, _fsFit ? 'zoom' : 'fit'); } catch {} _setFsModeTick(t => t + 1); }} className="bg-white/90 text-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border border-slate-300" title="全画面の見せ方を切り替えます（この端末）">{_fsFit ? '大きく表示' : '全員を1画面に'}</button>{/* ★ 2026-10-23: 全画面の中でも見せ方を切り替えられる */}
-          <button onClick={closeFullscreen} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap">通常表示に戻る</button>
-          <button onClick={()=>setRestoreModal(true)} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap" title="保存した記録を丸ごと復元">元に戻す</button>
+          <button type="button" data-testid="fs-mode-switch" onClick={() => { try { localStorage.setItem(TSU_FS_MODE_KEY, _fsFit ? 'zoom' : 'fit'); } catch {} _setFsModeTick(t => t + 1); }} className="bg-white/90 text-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border border-slate-300" title="全画面の見せ方を切り替えます（この端末）">{_fsFit ? '拡大表示' : '全員を1画面に'}</button>{/* ★ 2026-10-23: 全画面の中でも見せ方を切り替えられる */}
+          <button onClick={closeFullscreen} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap">通常表示へ</button>
+          <button onClick={()=>setRestoreModal(true)} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap" title="保存した記録を丸ごと復元（戻す）">戻す</button>
           <button onClick={()=>handleSaveClick(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap"><CloudUpload size={13} className="mr-1"/>保存</button>
         </div>
       )}
 
+      {/* ★ 2026-10-26: 並び替え・一括○の小窓は通常表示・全画面のどちらからでも開く(帯の外に置く) */}
+      {recOrderOpen && <RecordOrderModal rows={_recOrderRows} label={_recOrderLabel} onSave={saveRecordOrder} onReset={_recOrderOn ? resetRecordOrder : null} onClose={() => setRecOrderOpen(false)}/>}
+      {bulkExOpen && ReactDOM.createPortal(<TsuBulkExerciseModal
+                rows={(displayRecords || []).filter(r => ['出席', '臨時', '振替'].includes(r.status || '出席'))}
+                items={effExerciseItems(appData.systemSettings).filter(it => it.type !== 'individual')}
+                baselineOf={_exBaselineOf}
+                onClose={() => setBulkExOpen(false)}
+                onApply={(cells) => { let n = 0; Object.entries(cells).forEach(([k, v]) => { const i = k.lastIndexOf('|'); const rid = k.slice(0, i), fld = k.slice(i + 1); const r = (displayRecords || []).find(x => String(x.id) === rid); if (!r) return; updateExercise(r.id, fld, v === 'o' ? '○' : '×'); n++; }); setBulkExOpen(false); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `${n}件を入れました。内容を確かめて「保存」を押してください` } })); } catch {} }}
+              />, document.body)}
       {/* ★ 2026-10-21: スマホは上の帯がたたまれているので、印があるときだけ左下に小さく(固定・表は動かない) */}
       {_rvMarks.length > 0 && (
         <div data-testid="rv-marks-bar-phone" className="no-print sm:hidden fixed left-3 z-40 inline-flex items-center gap-2 pl-3 pr-1 h-11 rounded-xl bg-yellow-50 border border-yellow-300 text-[14px] font-bold text-yellow-900 shadow-md" style={{bottom:'calc(env(safe-area-inset-bottom, 0px) + 44px)'}}>
@@ -27904,8 +28099,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                           {!isReadOnly && !isAbsent && !isPause && (
                             <div style={{display:'flex',flexDirection:'column',gap:2,flexShrink:0,width:52,justifyContent:'center'}}>{/* ★ 2026-10-23(ユーザー報告「一言の右が切れる」): 44→52px */}
                               <TsuTokkiPresetSelect appData={appData} testid={`rv-tokki-pick-${p.id}`} onPick={(ph) => updateRecord(p.id, 'tokki', tsuTokkiAppend(p.tokki, ph))}
-                                className="w-full text-[11px] font-bold border border-slate-300 rounded bg-white text-slate-700 outline-none appearance-none" style={{height:24,padding:'0 2px',textAlign:'center',textAlignLast:'center',WebkitAppearance:'none',MozAppearance:'none',backgroundImage:'none'}}/>{/* ★ 2026-10-23(ユーザー指示): 下の矢印は出さない */}
-                              {!appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-tokki-mic-${p.id}`} getBase={() => p.tokki || ''} onLive={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} onText={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} className="w-full" style={{height:24}} size={14}/>}
+                                className="w-full text-[11px] font-bold border border-slate-300 rounded bg-white text-slate-700 outline-none appearance-none" style={{height: _tkOne ? 'auto' : 24, flex: _tkOne ? 1 : 'none', minHeight:24, padding:'0 2px',textAlign:'center',textAlignLast:'center',WebkitAppearance:'none',MozAppearance:'none',backgroundImage:'none', ...(_tkOne ? { fontSize: 13 } : {})}}/>{/* ★ 2026-10-23(ユーザー指示): 下の矢印は出さない ★ 2026-10-26: 1つだけなら欄いっぱい */}
+                              {!appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-tokki-mic-${p.id}`} getBase={() => p.tokki || ''} onLive={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} onText={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} className="w-full" style={{height: _tkOne ? 'auto' : 24, flex: _tkOne ? 1 : 'none', minHeight:24}} size={_tkOne ? 18 : 14}/>}
                             </div>
                           )}
                           {/* ★ 欠席・休止の特記=休みの理由は家族へ必ず表示する(2026-08-21): 非表示ボタン自体を出さない */}
@@ -27942,7 +28137,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       {restoreConfirm && ReactDOM.createPortal(
         <div style={{position:'fixed',inset:0,zIndex:2147483000,background:'rgba(15,23,42,0.55)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
           <div style={{background:'white',borderRadius:16,maxWidth:500,width:'100%',padding:20,boxShadow:'0 20px 60px rgba(0,0,0,0.35)'}}>
-            <div style={{fontWeight:'bold',fontSize:15,color:'#0f172a',marginBottom:10}}>記録を復元（元に戻す）</div>
+            <div style={{fontWeight:'bold',fontSize:15,color:'#0f172a',marginBottom:10}}>記録を復元（戻す）</div>
             <div style={{fontSize:13,color:'#334155',whiteSpace:'pre-line',lineHeight:1.6,maxHeight:'50vh',overflowY:'auto'}}>{restoreConfirm.msg}</div>
             <div style={{display:'flex',gap:10,marginTop:16,justifyContent:'flex-end'}}>
               <button onClick={()=>setRestoreConfirm(null)} style={{whiteSpace:'nowrap',padding:'10px 18px',borderRadius:10,border:'1px solid #cbd5e1',background:'white',fontWeight:'bold',fontSize:13,color:'#475569',cursor:'pointer'}}>キャンセル</button>
@@ -27968,7 +28163,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4" style={{zIndex:100000}} onClick={()=>setRestoreModal(false)}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] overflow-hidden flex flex-col" onClick={e=>e.stopPropagation()}>
               <div className="px-5 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-                <div><div className="font-bold text-slate-800">記録を復元（元に戻す）</div><div className="text-[11px] text-slate-500 mt-0.5">{new Date(selectedDate).toLocaleDateString('ja-JP')} の保存履歴から、その時点の記録に丸ごと戻します</div></div>
+                <div><div className="font-bold text-slate-800">記録を復元（戻す）</div><div className="text-[11px] text-slate-500 mt-0.5">{new Date(selectedDate).toLocaleDateString('ja-JP')} の保存履歴から、その時点の記録に丸ごと戻します</div></div>
                 <button onClick={()=>setRestoreModal(false)} className="p-2 text-slate-400 hover:bg-slate-200 rounded-full"><X size={18}/></button>
               </div>
               <div className="p-3 overflow-y-auto">
@@ -29011,7 +29206,7 @@ function PersonalDashboardView({ appData, targetPatientId, navigateTo, onPatient
   const _pickupChgOf = (info) => {
     try {
       const pl = (appData.transportPlans || {})[`${info.iso}_${info.ampm || 'AM'}`];
-      const fin = pl && pl._final; if (!fin) return null;
+      const fin = pl && (pl._final || pl._base); if (!fin) return null; // ★ 2026-10-26: 配布の控えも基準に
       const me = String(selectedPatient.id);
       const locIn = (cars, walkers) => {
         for (const cid of Object.keys(cars || {})) { const x = (cars[cid] || []).find(m => String(m && m.pid) === me); if (x) return _tpJp(x.t) || '未定'; }
@@ -34945,6 +35140,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   const [printingIds, setPrintingIds] = useState([]); // ★ 印刷時に描画する利用者ID(全員ではなく印刷対象だけ描画)
   const [isBulkEditOpen, setIsBulkEditOpen] = useState(false);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  // ★ 2026-10-26(ユーザー「連絡帳に戻るはこの画面(次回予定)に戻ってほしい」): 月間スケジュールから戻ってきたら小窓を開き直す
+  React.useEffect(() => { try { if (sessionStorage.getItem('tsumugiCbReopenNext') === '1') { sessionStorage.removeItem('tsumugiCbReopenNext'); setIsScheduleModalOpen(true); } } catch {} }, []);
   const [localOverrides, setLocalOverrides] = useState({});
   // ★ 次回予定モーダルを開いた時点の値(=自動計算の表示値)。 保存時にこれと比べ、
   //   実際に手入力で変わった項目だけを保存する。 これをしないと、モーダルを開いて保存しただけで
@@ -35498,7 +35695,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       const now = syncNow();
       let recs = [...(appData.ticketRecords || [])];
       const base = _ovBaseRef.current || {};
-      let _changed = 0;
+      let _changed = 0; let _tpNext = null; // ★ 2026-10-26: 送迎表へ反映した結果
       Object.entries(localOverrides).forEach(([rid, ov]) => {
         if (!ov) return;
         // ★ 開いた時点の表示値から実際に変わった項目だけを保存する。
@@ -35513,6 +35710,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         if (patch.nextTimeOverride !== undefined) {
           const _forDate = String(ov.nextDateOverride || '').trim();
           if (_forDate) patch.nextTimeOverrideFor = _forDate;
+          // ★ 2026-10-26(ユーザー要望): 送迎表を使う店舗は、ここで入れた時間を次回の送迎表にも反映
+          if (tsumugiTransportOn(appData) && _forDate && /\d/.test(String(patch.nextTimeOverride || ''))) { try { const _pid = String(rid).startsWith('auto-') ? Number(String(rid).slice(5)) : ((recs.find(x => String(x.id) === String(rid)) || {}).patientId); const _pat = (appData.patients || []).find(p => p.id === _pid); if (_pat) _tpNext = tsuCbTimeToTransport(_tpNext || appData.transportPlans || {}, _pat, _forDate, selectedDate, String(patch.nextTimeOverride), appData, now); } catch {} }
         }
         _changed++;
         const idx = recs.findIndex(r => String(r.id) === String(rid));
@@ -35525,7 +35724,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       });
       markClean();
       if (!_changed) return; // 何も編集していない = 保存しない(誤って全員を確定値にしない)
-      onSave({ ...appData, ticketRecords: recs }, { silent: true }); // ★ 即時クラウド保存
+      onSave({ ...appData, ticketRecords: recs, ...(_tpNext ? { transportPlans: _tpNext } : {}) }, { silent: true }); // ★ 即時クラウド保存 ★ 2026-10-26: 送迎表にも反映
   };
 
   // ★ 2026-10-21(ユーザー要望「送り時間反映」): その日の記録に印(renrakuDropAt)を付ける/外す。変えた方だけ書く(_fieldTs で新しい方が残る)
@@ -35661,7 +35860,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                   </div>
                   <div className="p-5 pt-3 space-y-2">
                     {/* ★ 2026-10-21(ユーザー): 送迎表を使う店舗は、次回のお迎え時間を送迎表で決めるので、ここでは入力しない */}
-                    {!tsumugiTransportOn(appData) && card('cb-hub-next', '次回予定', '次回の利用日・お迎え時間',
+                    {card('cb-hub-next', '次回予定', tsumugiTransportOn(appData) ? '次回のお迎え時間（送迎表にも反映）・日付は月間で' : '次回の利用日・お迎え時間', /* ★ 2026-10-26(ユーザー要望): 送迎表を使う店舗でも時間を入れられるように復活 */
                       miss > 0 ? <span className="bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap">未入力{miss}名</span> : <span className="bg-emerald-100 text-emerald-700 text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap">入力済み</span>,
                       () => open(() => setIsScheduleModalOpen(true)))}
                     {card('cb-hub-renraku', '連絡事項', '全員あて・個別の連絡（表示期間つき）',
@@ -35669,7 +35868,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                       () => open(() => setRenrakuModal({ patientId: null })))}
                     {card('cb-hub-items', '項目', '連絡帳に載せる項目と、利用者ごとの値', null, () => open(() => setIsConfigOpen(true)))}
                     {/* ★ 2026-10-21(ユーザー決定): 送迎表を使う店舗は、次回の日付を月間スケジュールで変える */}
-                    {tsumugiTransportOn(appData) && navigateTo && card('cb-hub-nextdate', '次回の日付', '振替・お休みは月間スケジュールで', null, () => open(() => setNextJumpOpen(true)))}
+                    {/* ★ 2026-10-26: 「次回の日付」カードは「次回予定」に統合(日付は各行の「月間で変える」から) */}
                   </div>
                 </div>
               </div>
@@ -35836,7 +36035,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         )}
         {isScheduleModalOpen && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="tsu-cap-dvh bg-white rounded-3xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden" style={{maxHeight:'90vh'}}>
+            <div className="tsu-cap-dvh bg-white rounded-3xl shadow-2xl w-full max-w-4xl flex flex-col overflow-hidden" style={{maxHeight:'90vh'}}>{/* ★ 2026-10-26(ユーザー): 横に見切れないよう広く */}
               <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center flex-shrink-0">
                 <h2 className="text-lg font-bold text-slate-800 flex items-center"><Clock size={20} className="mr-2 text-blue-600"/> 次回予定の変更</h2>
                 {/* ★ 残骸チェックボタンは2026-09-09撤去(生成源の自動書込を全て塞ぎ振替も空欄化したため役目終了)。_scanOvZansai等の機能コードは温存 */}
@@ -35902,26 +36101,29 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                         return { ...prev, [r.id]: { ...cur, ...patch } };
                       });
                     };
+                    // ★ 2026-10-26(ユーザー要望): 送迎表を使う店舗は、日付を押すと月間スケジュール(利用者マスタ)へ。戻るボタンのために来た場所を控える
+                    const _tpOn = tsumugiTransportOn(appData);
+                    const _goMonthly = () => { try { sessionStorage.setItem('tsumugiMasterOrigin', JSON.stringify({ from: 'print', at: Date.now() })); sessionStorage.setItem('tsumugiCbReopenNext', '1'); } catch {} if (navigateTo) navigateTo('master', r.patientId, 'schedule'); }; // ★ 2026-10-26: 戻ったら次回予定の小窓を開き直す
                     return (
-                      <div key={r.id} className="flex items-center gap-3 bg-slate-50 border border-slate-200 p-3 rounded-xl">
+                      <div key={r.id} className="flex flex-wrap items-center gap-3 bg-slate-50 border border-slate-200 p-3 rounded-xl">{/* ★ 2026-10-26: 狭い画面は日付・時間を折り返す */}
                         <div className="w-24 font-bold text-slate-800 shrink-0 text-sm">
                           {/* ★ 振替バッジ(2026-09-09 店舗要望): 次回が基本利用日と別の振替日→日付確認とお迎え時間の手入力が必要と分かるように */}
                           {_auto.isFurikae && <span className="block text-[9px] bg-emerald-600 text-white px-1.5 py-0.5 rounded font-bold mb-0.5 w-fit">振替</span>}
                           {r.name}
                           {isOverridden && <span className="block text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold mt-0.5 w-fit">変更済</span>}
                         </div>
-                        <div className="flex-1">
+                        <div className="flex-1 min-w-[250px]">
                           <div className="text-[10px] font-bold text-slate-400 mb-1 flex items-center gap-2">次回利用日
                             {/* ★ 2026-10-23(ユーザー要望): 「未定」を押すと日付と時間を空欄で渡す(もう一度押すと元の自動計算に戻る) */}
                             {(() => { const _dUndec = String(localData.nextDateOverride || '').trim() === '未定'; return <button type="button" data-testid={`cb-next-undec-${r.patientId}`} onClick={() => setLocalOverrides(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), nextDateOverride: _dUndec ? '' : '未定', nextTimeOverride: _dUndec ? '' : '未定' } }))} className={`text-[10px] font-bold rounded px-2 py-0.5 border ${_dUndec ? 'bg-slate-600 text-white border-slate-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{_dUndec ? '未定（空欄）' : '未定'}</button>; })()}
                           </div>
                           <div className={`flex items-center gap-1 p-1.5 border rounded-lg ${/\d|未定/.test(String(r.nextDateOverride ?? '')) ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
-                            <ImeSafeInput type="text" inputMode="numeric" value={curMonth} maxLength={2}
+                            <ImeSafeInput type="text" inputMode="numeric" value={curMonth} maxLength={2} readOnly={_tpOn} onClick={_tpOn ? _goMonthly : undefined} data-testid={`cb-next-month-${r.patientId}`}
                               onBlur={()=>_skipClosedDate(r.id, r.patientId)}
                               onChange={e=>updateOverride('date', e.target.value.replace(/\D/g,''), curDay, curHour, curMin)}
                               placeholder="—" className="w-9 px-1 py-0.5 text-center bg-transparent border-0 outline-none font-bold text-sm"/>
                             <span className="text-xs font-bold text-slate-500">月</span>
-                            <ImeSafeInput type="text" inputMode="numeric" value={curDay} maxLength={2}
+                            <ImeSafeInput type="text" inputMode="numeric" value={curDay} maxLength={2} readOnly={_tpOn} onClick={_tpOn ? _goMonthly : undefined} data-testid={`cb-next-day-${r.patientId}`}
                               onBlur={()=>_skipClosedDate(r.id, r.patientId)}
                               onChange={e=>updateOverride('date', curMonth, e.target.value.replace(/\D/g,''), curHour, curMin)}
                               placeholder="—" className="w-9 px-1 py-0.5 text-center bg-transparent border-0 outline-none font-bold text-sm"/>
@@ -35930,9 +36132,10 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                             {localData.nextDateOverride && (()=>{ const _w=(localData.nextDateOverride.match(/（(.)）/)||[])[1]; if(!_w) return null;
                               const _wc=_w==='日'?'#dc2626':_w==='土'?'#2563eb':'#1e293b';
                               return <span className="ml-1 font-bold" style={{fontSize:15,color:_wc}}>({_w})</span>; })()}
+                            {_tpOn && <button type="button" data-testid={`cb-next-monthly-${r.patientId}`} onClick={_goMonthly} className="ml-auto text-[11px] font-bold text-blue-700 bg-white border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-50 whitespace-nowrap">月間で変える</button>}
                           </div>
                         </div>
-                        <div className="flex-1">
+                        <div className="flex-1 min-w-[250px]">
                           {/* ★ 2026-10-02(試験版・ユーザー決定「基本は送迎表で変更」): お迎え時間はここでは打たず、送迎表の時間を表示。
                                  変えるときは「送迎表で変更」でその日の送迎表へ。振替の曜日や時間が未定のときは「未定（空欄で渡す）」で連絡帳を空欄にする */}
                           {(() => { const _dStr = String(localData.nextDateOverride || '').trim(); const _tp = _dStr ? (getTransportTimeFor(r.patientId, _dStr, r.year, appData) || '') : ''; const _undec = String(localData.nextTimeOverride || '').trim() === '未定';
@@ -35950,12 +36153,17 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                             <label className="ml-auto flex items-center gap-1 text-[11px] font-bold text-slate-600 whitespace-nowrap"><input type="checkbox" checked={_undec} onChange={e => setLocalOverrides(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), nextTimeOverride: e.target.checked ? '未定' : '' } }))}/>未定（空欄で渡す）</label>
                           </div>
                           </>) : (<>
-                          <div className="text-[10px] font-bold text-slate-400 mb-1">お迎え時間（送迎表）{!_undec && !_tp && _dStr && <span className="ml-1 text-amber-600">送迎表に時間なし</span>}</div>
+                          <div className="text-[10px] font-bold text-slate-400 mb-1">お迎え時間{_undec ? <span className="ml-1 text-slate-400">（未定＝空欄で渡す）</span> : (_tp ? <span className="ml-1 text-emerald-700">送迎表 {_tp}</span> : (_dStr ? <span className="ml-1 text-amber-600">送迎表に時間なし（入れると送迎表にも入ります）</span> : null))}</div>{/* ★ 2026-10-26(ユーザー) */}
                           <div className={`flex items-center gap-2 p-1.5 border rounded-lg ${_undec ? 'border-slate-300 bg-slate-100' : _tp ? 'border-emerald-300 bg-emerald-50' : 'border-amber-400 bg-amber-50'}`}>
-                            <span className={`font-bold text-sm min-w-[52px] whitespace-nowrap ${_undec ? 'text-slate-400' : 'text-slate-800'}`}>{_undec ? '空欄' : (_tp === '徒歩' ? '徒歩' : (_tp || '—'))}</span>
-                            {_old && !_undec && <span className="text-[10px] text-slate-500" title="以前に連絡帳で手入力した時間（送迎表に時間があればそちらを使います）">手入力 {_old}</span>}
-                            <button type="button" onClick={_goTp} disabled={!_dStr} className="ml-auto text-[11px] font-bold text-blue-700 bg-white border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-50 disabled:opacity-40 whitespace-nowrap">送迎表で変更</button>
-                            <label className="flex items-center gap-1 text-[11px] font-bold text-slate-600 whitespace-nowrap"><input type="checkbox" checked={_undec} onChange={e => setLocalOverrides(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), nextTimeOverride: e.target.checked ? '未定' : '' } }))}/>未定（空欄）</label>
+                            {/* ★ 2026-10-26(ユーザー要望「連絡帳で時間を入れる人もいるので復活。入れた時間は次回の送迎表にも反映」) */}
+                            {_tp === '徒歩' && !_undec ? <span className="font-bold text-sm text-slate-800 whitespace-nowrap">徒歩</span> : (<span className="flex items-center gap-1" data-testid={`cb-next-time-${r.patientId}`}>
+                              <ImeSafeInput type="text" inputMode="numeric" value={_undec ? '' : curHour} maxLength={2} disabled={_undec} onChange={e=>updateOverride('time', curMonth, curDay, e.target.value.replace(/\D/g,''), curMin)} placeholder="—" className="w-9 px-1 py-0.5 text-center bg-white border border-slate-200 rounded outline-none font-bold text-sm"/>
+                              <span className="text-xs font-bold text-slate-500">時</span>
+                              <ImeSafeInput type="text" inputMode="numeric" value={_undec ? '' : curMin} maxLength={2} disabled={_undec} onChange={e=>updateOverride('time', curMonth, curDay, curHour, e.target.value.replace(/\D/g,''))} placeholder="—" className="w-9 px-1 py-0.5 text-center bg-white border border-slate-200 rounded outline-none font-bold text-sm"/>
+                              <span className="text-xs font-bold text-slate-500">分</span>
+                            </span>)}
+                            {void _old}
+                            <button type="button" onClick={_goTp} disabled={!_dStr} className="ml-auto text-[11px] font-bold text-blue-700 bg-white border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-50 disabled:opacity-40 whitespace-nowrap">送迎表で変更</button>{/* ★ 2026-10-26(ユーザー「未定が2つある」): 時間の未定は日付の「未定」にまとめた */}
                           </div>
                           </>)}
                             </>); })()}
@@ -36890,6 +37098,19 @@ const tsuDiaryToTransport = (appData, logKey, log) => { try {
   np.arrive = { ...(np.arrive||{}) }; np.arriveAuto = { ...(np.arriveAuto||{}) };
   Object.keys(log.carTimes||{}).forEach(cid => { const ct = log.carTimes[cid] || {}; const a = hm(ct.arrive); if (a && hm(np.arrive[cid]) !== a) { np.arrive[cid] = a; np.arriveAuto[cid] = false; changed = true; }
     const d = hm(ct.depart); if (d && np.dropMode === 'custom' && np.drop) { np.drop.depart = { ...(np.drop.depart||{}) }; np.drop.departAuto = { ...(np.drop.departAuto||{}) }; if (hm(np.drop.depart[cid]) !== d) { np.drop.depart[cid] = d; np.drop.departAuto[cid] = false; changed = true; } } });
+  // ★ 2026-10-26(ユーザー「日誌で送迎車を変更したら送迎表にも反映した方がいい」): 迎え(送りは送り別のときだけ)の乗る車。日誌で1台だけにチェックされている方を、その車へ足す/移す(消さない)
+  const _apply = (grid, walkGrid, box) => { if (!box) return; const cars = box.cars || (box.cars = {}); const walkers = box.walkers || (box.walkers = []);
+    const want = {}; Object.keys(grid||{}).forEach(k => { if (!grid[k]) return; const i = k.indexOf('_'); if (i <= 0) return; const pid = k.slice(0, i), cid = k.slice(i + 1); if (!(ds.cars||[]).some(c => c && String(c.id) === cid)) return; want[pid] = want[pid] === undefined ? cid : null; });
+    Object.keys(walkGrid||{}).forEach(pid => { if (walkGrid[pid]) want[pid] = want[pid] === undefined ? 'walk' : null; });
+    Object.keys(want).forEach(pid => { const dst = want[pid]; if (!dst) return; const P = isNaN(Number(pid)) ? pid : Number(pid);
+      let cur = null, curM = null; Object.keys(cars).forEach(cid => { const m = (cars[cid]||[]).find(x => x && String(x.pid) === pid); if (m) { cur = cid; curM = m; } }); if (!cur && walkers.some(x => x && String(x.pid) === pid)) { cur = 'walk'; curM = walkers.find(x => x && String(x.pid) === pid); }
+      if ((box.others||[]).some(x => x && String(x.pid) === pid)) return; if (cur === dst) return;
+      const t = (curM && curM.t) || ((pl._cbT||{})[pid]) || '';
+      if (cur && cur !== 'walk') cars[cur] = (cars[cur]||[]).filter(x => !(x && String(x.pid) === pid)); if (cur === 'walk') box.walkers = box.walkers.filter(x => !(x && String(x.pid) === pid));
+      if (dst === 'walk') box.walkers = [...(box.walkers||[]), { pid: P, t }]; else cars[dst] = [...(cars[dst]||[]), { pid: P, t }];
+      box.un = (box.un||[]).filter(x => String(x && x.pid != null ? x.pid : x) !== pid); changed = true; }); };
+  _apply(log.pick, log.pick_walk, np);
+  if (np.dropMode === 'custom' && np.drop) _apply(log.drop, log.drop_walk, np.drop);
   if (!changed) return null; np._savedAt = Date.now(); return { ...plans, [logKey]: np };
 } catch { return null; } };
 const tsuTpPlanHas = (appData, iso, slot) => { if (!tsumugiTransportOn(appData)) return false; const pl = ((appData && appData.transportPlans) || {})[`${iso}_${slot}`]; if (!pl || typeof pl !== 'object') return false; return Object.values(pl.cars || {}).some(a => (a || []).length) || (pl.walkers || []).length > 0 || (pl.others || []).length > 0; };
@@ -37107,6 +37328,7 @@ const tsuTokkiPresets = (appData) => { const a = appData?.systemSettings?.tokkiP
 const tsuTokkiAppend = (cur, phrase) => { const c = String(cur || '').trim(); const ph = String(phrase || '').trim(); if (!ph || c.includes(ph)) return c; const sep = !c ? '' : /[。、・\s]$/.test(c) ? '' : '・'; return (c + sep + ph).slice(0, TOKKI_MAX); };
 function TsuTokkiPresetSelect({ appData, onPick, className, style, testid, label = '一言' }) {
   const list = tsuTokkiPresets(appData); if (!list.length) return null;
+  if (appData && appData.systemSettings && appData.systemSettings.tokkiPresetOff) return null; // ★ 2026-10-26(ユーザー要望): 各種設定で「一言のボタンを出さない」
   return (
     <select data-testid={testid} value="" title="よく使う一言を特記に足します" aria-label="特記に一言を足す" className={className} style={style}
       onChange={e => { const v = e.target.value; if (v) onPick(v); }}>
@@ -37144,7 +37366,7 @@ function TsuMicButton({ onText, onLive, getBase, disabled, testid, className, st
     try { rec.start(); setOn(true); setMsg(''); timerRef.current = setTimeout(() => { try { rec.stop(); } catch {} }, 15000); } catch { doneRef.current = true; flash('音声入力ができませんでした'); }
   };
   return (
-    <span className="relative inline-flex" style={{ flexShrink: 0 }}>
+    <span className="relative inline-flex" style={{ flexShrink: 0, ...(style && style.flex ? { flex: style.flex, display: 'flex', flexDirection: 'column', minHeight: style.minHeight } : {}) }}>{/* ★ 2026-10-26: 欄いっぱい(flex)の指定は外側にも効かせる */}
       <button type="button" data-testid={testid} disabled={disabled} onClick={toggle} aria-label={on ? '音声入力を止める' : '声で入力'} aria-pressed={on}
         title={on ? '聞き取り中… もう一度押すと止めます' : '声で入力（押してから話すと、言葉が特記に入ります）'}
         className={`${className || ''} ${on ? 'bg-red-600 border-red-600 text-white animate-pulse' : 'bg-white border-slate-300 text-slate-600'} border rounded-lg inline-flex items-center justify-center disabled:opacity-40`} style={style}>
@@ -37182,6 +37404,10 @@ function TsuTokkiPresetCard({ appData, onSave }) {
       <label className="flex items-center justify-between gap-3 cursor-pointer border-t border-slate-100 pt-3">
         <div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">特記にマイク（音声入力）のボタンを出す</div><div className="text-xs text-slate-500">押してから話すと特記に入ります（端末の音声認識を使います）。</div></div>
         <input type="checkbox" data-testid="tokki-voice-toggle" checked={!voiceOff} onChange={e => save({ tokkiVoiceOff: !e.target.checked }, e.target.checked ? '✓ マイクのボタンを出します' : 'マイクのボタンを出さないようにしました')} className="w-6 h-6 shrink-0"/>
+      </label>
+      <label className="flex items-center justify-between gap-3 cursor-pointer border-t border-slate-100 pt-3 mt-3">{/* ★ 2026-10-26(ユーザー要望「一言の方にも出すかどうかのチェックを」) */}
+        <div className="min-w-0 flex-1"><div className="text-sm font-bold text-slate-800">特記に「一言」のボタンを出す</div><div className="text-xs text-slate-500">上の言葉から選んで特記に足すボタンです。出さないときは特記の欄だけになります。</div></div>
+        <input type="checkbox" data-testid="tokki-preset-toggle" checked={!appData?.systemSettings?.tokkiPresetOff} onChange={e => save({ tokkiPresetOff: !e.target.checked }, e.target.checked ? '✓ 一言のボタンを出します' : '一言のボタンを出さないようにしました')} className="w-6 h-6 shrink-0"/>
       </label>
     </div>
   );
@@ -37407,7 +37633,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const _tRaw = (_tOk && !furikae) ? (getPickupTimeForDow(p, dow, appData) || '') : '';
       // ★ 2026-09-12k: マスタで「徒歩」の方は最初から徒歩枠へ(車に混ざらない)
       const _isWalk = /徒歩/.test(String(getPickupTimeForDow(p, dow, appData) || '')) || /徒歩/.test(String(p.pickupTimes?.[dow] || '')) || String(p.pickupMinutes||'') === 'walk'; // ★ 2026-09-28: 乗車時間「徒歩」も徒歩欄へ
-      out.push({ pid: p.id, name: p.name, furikae, rinji, walk: _isWalk, time: _isWalk ? '' : _tRaw });
+      const _cbT = ((((appData.transportPlans || {})[`${iso}_${sl}`] || {})._cbT || {})[p.id]) || ''; // ★ 2026-10-26: 連絡帳で入れた次回の時間があればそれを初期値に
+      out.push({ pid: p.id, name: p.name, furikae, rinji, walk: _isWalk, time: _isWalk ? '' : (_cbT || _tRaw) });
     });
     return out;
   };
@@ -37515,6 +37742,10 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     onSave({ ...appData, transportPlans: { ...plans, [k]: next } }, { silent: true });
   };
   const mutate = (iso, sl, fn) => { const cur = getPlan(iso, sl); const next = JSON.parse(JSON.stringify({ ...cur })); delete next._draft; fn(next); savePlan(iso, sl, next); };
+  // ★ 2026-10-26(ユーザー要望): 運行表を出した(ダウンロードした)ときに、そのコマの配置を「配布の控え(_base)」として残す(初めて出したときだけ)。以後の変更は赤枠・変更n件・要連絡に出る
+  // ★ 2026-10-26(ユーザー「店舗によっては運行表を月1回しか出さないので、ダウンロード時点ではなく日付で」): 送迎日の7日前(それより前に開いていなければ、初めて開いた時点)の配置を自動で控える
+  React.useEffect(() => { try { const t0 = new Date(); t0.setHours(0, 0, 0, 0); const isos = []; for (let i = 0; i <= 7; i++) { const d = new Date(t0); d.setDate(t0.getDate() + i); isos.push(_iso(d)); } _stampHanded(isos); } catch {} }, [plans]); // eslint-disable-line react-hooks/exhaustive-deps
+  const _stampHanded = (isos) => { try { const at = syncNow(); let np = null; (isos || []).forEach(iso => ['AM','PM'].forEach(sl => { const k = `${iso}_${sl}`; const pl = plans[k]; if (!pl || pl._base) return; if (![...Object.values(pl.cars || {}).flat(), ...(pl.walkers || []), ...(pl.others || [])].length) return; const { _draft, ...rest } = pl; np = np || { ...plans }; np[k] = { ...rest, _base: _snapPlan(pl), _baseAt: at, _baseId: at, _savedAt: at }; })); if (np) onSave({ ...appData, transportPlans: np }, { silent: true }); } catch {} };
   const _pname = (pid) => (appData.patients||[]).find(p => p.id === pid)?.name || '';
   const _noWhy = (m) => { const { why, ...rest } = m || {}; return rest; }; // ★ 2026-10-01: その他の理由は「その他」から出たら消す
   const _otherLabel = (m) => `${_pname(m.pid)}${m && m.why ? `（${m.why}）` : ''}`;
@@ -37553,15 +37784,17 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const _snapPlan = (pl) => { const cars = {}; Object.keys(pl?.cars||{}).forEach(cid => { cars[cid] = (pl.cars[cid]||[]).map(m => ({ pid: m.pid, t: _fmtT(m.t) })); }); return { cars, walkers: (pl?.walkers||[]).map(m=>m.pid), walkT: Object.fromEntries((pl?.walkers||[]).map(m => [m.pid, /\d/.test(String(m.t||'')) ? _fmtT(m.t) : ''])), others: (pl?.others||[]).map(m=>m.pid), driver: { ...(pl?.driver||{}) } }; };
   const _locOf = (snap, pid) => { for (const cid of Object.keys(snap?.cars||{})) { const i = (snap.cars[cid]||[]).findIndex(m => m.pid === pid); if (i >= 0) return { zone: cid, idx: i, t: snap.cars[cid][i].t || '' }; } if ((snap?.walkers||[]).includes(pid)) return { zone: 'walk', wt: snap.walkT ? (snap.walkT[pid] || '') : null }; if ((snap?.others||[]).includes(pid)) return { zone: 'other' }; return null; };
   // ★ 2026-10-05(ユーザー報告「確定を解除してから時間を変えたのに赤くならない」・要望「休みの反映で確定を自動解除・変わった車をハイライト」):
-  //   確定を解除しても、その時の控えを _base に残して「確定時からの変更」を比べ続ける(作成中でも赤丸・黄色の枠が出る)。
+  //   確定を解除しても、その時の控えを _base に残して「運行表を出した後の変更」を比べ続ける(作成中でも赤丸・黄色の枠が出る)。
   //   もう一度「確定」すると、その控えを基準のまま確定に戻す(解除中に変えた分の赤丸も消えない)。
   //   比べる基準 = 確定中は _final、解除中は _base。基準の一続きを _finalId / _baseId で見分ける(_stampChg の「白紙に戻すか」の判定)
-  const _baseOf = (pl) => ((TSU_TP_FINAL_OFF || !pl) ? null : (pl._final || pl._base || null)); // ★ 2026-10-25: 確定の廃止=控えとの比較(赤丸)もしない
+  // ★ 2026-10-26(ユーザー要望「確定が無くなったので、前回の連絡書(運行表)を渡してから変わった分を赤く」): 確定の代わりに「運行表を初めて出した時点」の控え(_base)を基準にする
+  const _baseOf = (pl) => (!pl ? null : (TSU_TP_FINAL_OFF ? (pl._base || null) : (pl._final || pl._base || null)));
   const _baseIdOf = (pl) => (pl ? (pl._final ? (pl._finalId || pl._finalAt || null) : (pl._base ? (pl._baseId || pl._baseAt || null) : null)) : null);
-  const _chgOf = (pl, pid) => { const fin = _baseOf(pl); if (!fin) return ''; const now = _locOf(_snapPlan(pl), pid); if (!now) return ''; const was = _locOf(fin, pid); if (!was) return '確定後に追加'; if (now.zone !== was.zone) return was.zone==='walk'?'徒歩から車へ変更':(was.zone==='other'?'その他から変更':(now.zone==='walk'?'車から徒歩へ変更':(now.zone==='other'?'車からその他へ変更':'車が変更'))); if (now.zone === 'walk' && was.wt != null && now.wt != null && now.wt !== was.wt) return `到着時間が変更（${was.wt||'開始時刻'}→${now.wt||'開始時刻'}）`; if (now.zone !== 'walk' && now.zone !== 'other') { if ((now.t||'') !== (was.t||'')) return `時間が変更（${was.t||'未定'}→${now.t||'未定'}）`;
-      // ★ 2026-10-02: 乗車順は「今も乗っている方どうしの並び」で比べる(休みで外れた方の分だけ前に詰まったのを変更と数えない)
-      const _curSnap = _snapPlan(pl); const _nowIds = new Set((_curSnap.cars[now.zone]||[]).map(m => m.pid)); const _wasOrder = (fin.cars[now.zone]||[]).filter(m => _nowIds.has(m.pid)).map(m => m.pid); const _nowOrder = (_curSnap.cars[now.zone]||[]).map(m => m.pid);
-      if (_wasOrder.indexOf(pid) !== _nowOrder.indexOf(pid)) return '乗車順が変更'; } return ''; };
+  // ★ 2026-10-26(ユーザー決定「赤枠は時間が変わった人だけ。車が変わった・乗車順・徒歩/車の変更は数えない。配布後に振替で入った人は赤枠」):
+  //   比べるのは「乗る時間」だけ(車=乗車時間・徒歩=到着時間・その他=なし)。配布の控えに無い人は「配布後に追加」(連絡帳を渡した後の振替など。渡す前に決まっていた振替は控えに入っているので付かない)
+  const _tOfLoc = (l) => !l ? '' : (l.zone === 'walk' ? String(l.wt || '') : (l.zone === 'other' ? '' : String(l.t || '')));
+  const _chgOf = (pl, pid) => { const fin = _baseOf(pl); if (!fin) return ''; const now = _locOf(_snapPlan(pl), pid); if (!now) return ''; const was = _locOf(fin, pid); if (!was) return '配布後に追加';
+    const tN = _tOfLoc(now), tW = _tOfLoc(was); if (tN !== tW) return `時間が変更（${tW || '未定'}→${tN || '未定'}）`; return ''; };
   // ★ 2026-10-02(ユーザー要望「赤丸は、前の来所日の連絡帳を渡した後に変わった分だけ」):
   //   確定後の変更ごとに「変えた時刻」を pl._chgAt[pid] に控える(位置が変わるたびに更新・元に戻れば消す)。
   //   赤丸の判定 _noticeNeeded: 変えた日から送迎日の前日までに本人の来所(午前/午後)があり、その回の連絡帳が
@@ -37618,7 +37851,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       if (ac === '車が変更') { const w = _locOf(fin, pid), n = _locOf(cur, pid); ac = `車が変更（${_carNmOf(w && w.zone)}→${_carNmOf(n && n.zone)}）`; }
       const _ck = String(((pl._chgAt || {})[pid]) || '0'); const _td = (pl._telDone || {})[pid];
       out.push({ iso, sl, pid, ac, tel: !!_dotOf(pl, iso, pid), done: !!(_td && typeof _td === 'object' && _td.on && String(_td.ck) === _ck) }); });
-    _removedSince(pl).forEach(pid => out.push({ iso, sl, pid, ac: '確定後に外れた（休みなど）', tel: false })); })); return out; };
+    _removedSince(pl).forEach(pid => out.push({ iso, sl, pid, ac: '配布後に外れた（休みなど）', tel: false })); })); return out; };
   // ★ 2026-10-07(ユーザー要望): 要連絡の「連絡済」を送迎表のコマに保存(全端末で共有)。値はその変更の時刻(_chgAt)=同じ方がまた変わったら未連絡に戻る
   const setTelDone = (iso, sl, pid, on) => {
     const k = `${iso}_${sl}`; const pl = plans[k]; if (!pl) return;
@@ -39219,15 +39452,18 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     // ★ 2026-09-16(店舗指摘): 実機で左右が見切れる→プリンタの印字可能域(約188×275mm)に縮小して中央配置
     //   ★ 2026-09-16c(店舗指摘): 印刷ホストがbody直下のmargin/paddingを0に強制するためmargin:autoの中央寄せが効かず左上に寄っていた
     //     →ページ全面ラッパー+flexで上下左右とも中央配置(marginに依存しない)
+    _stampHanded([iso]); // ★ 2026-10-26: 出した時点を基準に
     window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${iso}`, pageSize: '297mm 210mm', html: _dailyPages(iso).map((h0, k) => _dailyPageWrap(h0, k === 0)).join(''), elementId: null } }));
   };
   // ★ 日ごとの運行表(A4縦)を複数日まとめて印刷(2026-09-28)
   const doPrintDays = (isos) => {
+    _stampHanded(isos); // ★ 2026-10-26: 出した時点を基準に
     const pages = (isos||[]).flatMap(iso => _dailyPages(iso)).map((h0, i) => _dailyPageWrap(h0, i === 0)).join('');
     if (!pages) return;
     window.dispatchEvent(new CustomEvent('setPrintHtml', { detail: { title: `運行表_${isos[0]}${isos.length>1?`_他${isos.length-1}日`:''}`, pageSize: '297mm 210mm', html: pages, elementId: null } }));
   };
   const doPrint = (content = 'sheet', popt = {}) => {
+    if (content !== 'contacts') _stampHanded(days.map(d => _iso(d))); // ★ 2026-10-26: 運行表を出した時点を基準に(連絡先一覧だけのときは控えない)
     // ★ 2026-09-28: 内容は印刷モーダルで選択(sheet=運行表のみ / both=運行表+連絡先一覧 / contacts=連絡先一覧のみ)。confirm は廃止
     // ★ 2026-10-21: 組み立てた紙面を画面の外に置いて測り、入りきらなければ文字の上限を下げて作り直す(見積りだけだと休みなどが切れることがある)
     const _wOvf = (h0) => { if (typeof document === 'undefined') return 0; try { const el = document.createElement('div'); el.style.cssText = 'position:absolute;left:-30000px;top:0;width:1069px;height:740px;overflow:hidden;visibility:hidden;'; el.innerHTML = h0; document.body.appendChild(el); const root = el.firstElementChild; const o = root ? root.scrollHeight - root.clientHeight : 0; el.remove(); return o; } catch { return 0; } };
@@ -39412,13 +39648,13 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 </div>
               </div>
             </div>), document.body)}
-          {/* ★ 2026-10-13(ユーザー提案): 変更内容の専用パネル。全体／曜日／午前・午後で絞り込み。各コマの「確定時からの変更 N件」からはそのコマに絞って開く */}
+          {/* ★ 2026-10-13(ユーザー提案): 変更内容の専用パネル。全体／曜日／午前・午後で絞り込み。各コマの「運行表を出した後の変更 N件」からはそのコマに絞って開く */}
           {chgPanel && ReactDOM.createPortal((() => { const all = _chgListOfWeek(); const cl = all.filter(x => (!chgPanel.iso || x.iso === chgPanel.iso) && (!chgPanel.sl || x.sl === chgPanel.sl));
             const _fb = (on, extra) => `px-3 py-1.5 rounded-lg text-[13px] font-bold border whitespace-nowrap ${on ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'} ${extra||''}`;
             return (
             <div className="fixed inset-0 bg-slate-900/50 flex items-start justify-center p-4 pt-16" style={{zIndex:10000}} onClick={()=>setChgPanel(null)}>
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-5" onClick={e=>e.stopPropagation()} data-testid="tp-chg-panel">
-                <div className="flex items-center justify-between mb-3"><div className="font-bold text-slate-800 text-lg">{_finalAtOfWeek() ? '確定後の変更' : '確定時からの変更'}<span className="ml-1 text-sm font-normal text-slate-500">（{cl.length}件{(chgPanel.iso || chgPanel.sl) ? `／全体 ${all.length}件` : ''}）</span></div><button type="button" onClick={()=>setChgPanel(null)} className="whitespace-nowrap text-slate-500 text-sm font-bold px-2">閉じる</button></div>
+                <div className="flex items-center justify-between mb-3"><div className="font-bold text-slate-800 text-lg">{'運行表を出した後の変更'}<span className="ml-1 text-sm font-normal text-slate-500">（{cl.length}件{(chgPanel.iso || chgPanel.sl) ? `／全体 ${all.length}件` : ''}）</span></div><button type="button" onClick={()=>setChgPanel(null)} className="whitespace-nowrap text-slate-500 text-sm font-bold px-2">閉じる</button></div>
                 <div className="flex flex-wrap gap-1.5 mb-1.5" data-testid="tp-chg-filter-day">
                   <button type="button" className={_fb(!chgPanel.iso)} onClick={()=>setChgPanel(v=>({ ...v, iso: '' }))}>全体</button>
                   {days.map(d => { const iso = _iso(d); const n = all.filter(x => x.iso === iso).length; return <button key={iso} type="button" className={_fb(chgPanel.iso === iso, n ? '' : 'opacity-50')} onClick={()=>setChgPanel(v=>({ ...v, iso }))}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{n ? <span className="ml-0.5 text-red-600">{n}</span> : null}</button>; })}
@@ -39546,7 +39782,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <div key={sl} data-testid={`tp-dl-slot-${sl}`} className={`mt-2 mx-2 bg-white rounded-xl border-2 overflow-hidden ${sl==='AM' ? 'border-amber-300' : 'border-indigo-300'}`}>
               <div className={`px-3 py-1.5 flex items-center gap-2 text-[14px] font-bold ${sl==='AM'?'bg-amber-50 text-amber-800':'bg-indigo-50 text-indigo-800'}`}>{sl==='AM'?'午前':'午後'}
                 {pl._draft ? <span className="text-[10px] text-slate-500 bg-slate-200 rounded px-1 py-0.5 font-normal">下書き</span> : null}
-                {_baseOf(pl) && n ? <button type="button" data-testid={`tp-dl-chg-${sl}`} onClick={() => setChgPanel({ iso, sl })} className="text-[10px] text-white bg-red-600 rounded px-1.5 py-0.5 font-normal" title="押すと変更の一覧">{pl._final ? '確定後の変更' : '確定時からの変更'} {n}件 ▼</button> : null}
+                {_baseOf(pl) && n ? <button type="button" data-testid={`tp-dl-chg-${sl}`} onClick={() => setChgPanel({ iso, sl })} className="text-[10px] text-white bg-red-600 rounded px-1.5 py-0.5 font-normal" title="押すと変更の一覧">{pl._final ? '確定後の変更' : '運行表を出した後の変更'} {n}件 ▼</button> : null}
               </div>
               {!anyone ? <div className="px-3 py-2 text-[13px] text-slate-400">—</div> : (<>
                 {cars.map(c => { const ms = (pl.cars||{})[c.id] || []; const rmHere = ((_fin.cars||{})[c.id] || []).filter(m => m && _rmSet.has(String(m.pid)) && !ms.some(x => String(x.pid) === String(m.pid)));
@@ -39687,7 +39923,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                       <div className={`px-2 pt-1 flex items-center gap-1 justify-end ${sl==='AM'?'bg-amber-50/60':'bg-indigo-50/60'}`} style={{minHeight:18}}>
                         <span className="flex items-center gap-1">{pl._draft ? <span className="text-[9px] text-slate-500 bg-slate-200 rounded px-1 py-0.5">下書き</span> : null}
                           {_baseOf(pl) && (() => { const n = _chgCount(pl); const rm = _removedSince(pl); return n
-                            ? <button type="button" data-testid={`tp-chg-chip-${iso}-${sl}`} onClick={() => setChgPanel({ iso, sl })} className="text-[9px] text-white bg-red-600 rounded px-1 py-0.5" title={(rm.map(pid=>`${_pname(pid)}: 確定後に外れた`).join('\n')||'確定後に変更あり') + '\n押すと変更の一覧'}>{pl._final ? '確定後の変更' : '確定時からの変更'} {n}件 ▼</button>
+                            ? <button type="button" data-testid={`tp-chg-chip-${iso}-${sl}`} onClick={() => setChgPanel({ iso, sl })} className="text-[9px] text-white bg-red-600 rounded px-1 py-0.5" title={(rm.map(pid=>`${_pname(pid)}: 確定後に外れた`).join('\n')||'確定後に変更あり') + '\n押すと変更の一覧'}>{pl._final ? '確定後の変更' : '運行表を出した後の変更'} {n}件 ▼</button>
                             : null; })()}
                         </span>
                       </div>
@@ -39710,7 +39946,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                                 style={dragMv && dragMv.over && dragMv.over.iso===iso && dragMv.over.slot===sl && dragMv.over.zone===c.id && String(dragMv.over.pid)===String(m.pid) && !(dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)) ? {boxShadow:'inset 0 3px 0 #3b82f6', paddingTop:14, transition:'padding-top 0.12s'} : {transition:'padding-top 0.12s'}}
                                 className={`flex items-center gap-1 px-1 py-0 min-h-[28px] border-t border-slate-100 ${dragMv&&dragMv.iso===iso&&dragMv.slot===sl&&String(dragMv.pid)===String(m.pid)?'opacity-40':''} ${_isFurikae(iso, sl, m.pid)?'bg-emerald-100':(_isFirstVisit(m.pid, iso)?'bg-sky-100':'')}`}>
                                 {(() => { const _di = _dotInfo(pl, iso, m.pid); const _ac = _di.dot ? _di.ac : ''; return (
-                                <button onClick={()=>toggleMark(iso, sl, m.pid)} title={_ac ? `確定後の変更: ${_ac}（電話が必要なため時間に赤枠）` : (_di.ac ? `確定時からの変更: ${_di.ac}（次の連絡帳に載るので印は不要）` : (m.mark ? 'タップで時間の赤枠(TEL)を外す' : 'タップで時間に赤枠(TEL)を付ける'))} className="shrink-0 w-6 h-8 flex items-center justify-center">
+                                <button onClick={()=>toggleMark(iso, sl, m.pid)} title={_ac ? `確定後の変更: ${_ac}（電話が必要なため時間に赤枠）` : (_di.ac ? `運行表を出した後の変更: ${_di.ac}（次の連絡帳に載るので印は不要）` : (m.mark ? 'タップで時間の赤枠(TEL)を外す' : 'タップで時間に赤枠(TEL)を付ける'))} className="shrink-0 w-6 h-8 flex items-center justify-center">
                                   {/* ★ 2026-10-02(試験版・ユーザー要望): 印はただの赤丸(中の白い点をやめる)。時間の欄の赤枠も廃止 */}
                                   <span aria-hidden="true" data-testid={`tp-dot-${iso}-${sl}-${m.pid}`} data-on={(m.mark||_ac)?'1':'0'} className="block w-4 h-4 rounded-full border border-slate-300 bg-transparent" data-chg={_di.ac ? '1' : '0'}/>
                                 </button>); })()}
@@ -41257,7 +41493,7 @@ function TsuLoginSecurityCard({ appData, onSave, staffCtx, isAdmin }) {
   const setSec = (patch) => onSave({ ...appData, systemSettings: { ...(appData.systemSettings || {}), security: { ...sec, ...patch } } }, { manual: true, message: '✓ ログインとロックの設定を保存しました' });
   const [pin, setPin] = useState(''); const [pin2, setPin2] = useState(''); const [pinMsg, setPinMsg] = useState('');
   const [busy, setBusy] = useState(false);
-  const savePin = async () => { setPinMsg(''); if (!/^\d{4}$/.test(pin)) return setPinMsg('PIN は数字4桁です'); if (pin !== pin2) return setPinMsg('PIN(確認)が一致しません'); setBusy(true); try { await staffCtx.setPin(pin); setPin(''); setPin2(''); setPinMsg('PIN を保存しました'); } catch (e) { setPinMsg(e?.message || '保存できませんでした'); } setBusy(false); };
+  const savePin = async () => { setPinMsg(''); if (tsuWeakPin(pin)) return setPinMsg(tsuWeakPin(pin)); /* ★ 2026-10-26: 分かりやすい PIN は不可 */ if (pin !== pin2) return setPinMsg('PIN(確認)が一致しません'); setBusy(true); try { await staffCtx.setPin(pin); setPin(''); setPin2(''); setPinMsg('PIN を保存しました'); } catch (e) { setPinMsg(e?.message || '保存できませんでした'); } setBusy(false); };
   const Sel = ({ value, opts, onChange }) => <select value={String(value)} onChange={e => onChange(Number(e.target.value))} className="px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold bg-white">{opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>;
   const noAcct = staffCtx.membersWithoutAccount || [];
   const [guard, setGuard] = useState(null);
@@ -43460,7 +43696,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               {/* 月間スケジュール */}
               <div ref={scheduleSectionRef} className={`scroll-mt-20 rounded-xl transition-all duration-500 ${monthlyHl ? 'ring-4 ring-amber-400 ring-offset-4 ring-offset-white' : ''}`}>
                 {monthlyHl && (<div className="mb-2 px-3 py-2 rounded-lg bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold">「その日だけ」の変更（振替・欠席・休止など）は、ここで日付を押して行います。</div>)}
-                <div className="flex items-center justify-between mb-2"><label className="text-sm font-bold text-slate-600 flex items-center gap-1.5"><CalendarCheck size={16} />月間スケジュール</label><div className="flex items-center gap-2"><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronLeft size={16} /></button><span className="text-base font-bold text-slate-700 tabular-nums w-28 text-center">{currentMonth.getFullYear()}年{currentMonth.getMonth() + 1}月</span><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronRight size={16} /></button></div></div>
+                <div className="flex items-center justify-between mb-2"><label className="text-sm font-bold text-slate-600 flex items-center gap-1.5"><CalendarCheck size={16} />月間スケジュール</label>{(() => { try { const o = JSON.parse(sessionStorage.getItem('tsumugiMasterOrigin') || 'null'); if (o && o.from === 'print' && Date.now() - Number(o.at || 0) < 30 * 60 * 1000 && typeof navigateTo === 'function') return <button type="button" data-testid="master-back-print" onClick={() => { try { sessionStorage.removeItem('tsumugiMasterOrigin'); } catch {} navigateTo('print'); }} className="ml-2 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white whitespace-nowrap">連絡帳に戻る</button>; } catch {} return null; })()}{/* ★ 2026-10-26(ユーザー要望): 連絡帳の日付から来たときは戻るボタン */}<div className="flex items-center gap-2"><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronLeft size={16} /></button><span className="text-base font-bold text-slate-700 tabular-nums w-28 text-center">{currentMonth.getFullYear()}年{currentMonth.getMonth() + 1}月</span><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronRight size={16} /></button></div></div>
                 {/* ★ 2026-10-08(店舗報告: スマホで月間スケジュールの日付が見切れる): スマホは1日あたり28pxの幅で横にスクロール(CSS tsu-mstrip) */}
                 <div className="flex border border-slate-200 rounded-xl bg-slate-50 p-1 gap-0.5 tsu-mstrip">{allD.map(d => { const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d); const dow = dO.getDay(); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; const cl = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow); const hl = appData.holidays?.some(h => (h.date || h) === ds); const base = getScheduleOnDate(localPatient, ds)?.[dow] || ""; const bAM = base === "AM" || base === "1日"; const bPM = base === "PM" || base === "1日"; const sh = effShifts?.[mKey]?.[localPatient.id] || {}; const pi = getPauseReasonOnDate(localPatient, ds); const _inactive = !!localPatient && !isPatientActiveOnDate(localPatient, ds); /* ★ 利用開始日より前・利用終了日より後は「空欄(非利用日)」にして、どこで終了したか一目で分かるようにする。利用中に戻せば再表示。 */ /* 休止中: 基本利用日 (bAM/bPM=true) の枠だけ「休止」表示。それ以外は通常空欄 */ const _shAM = sh[`${d}_AM`] !== undefined ? sh[`${d}_AM`] : (_mSchedRecFuri[d]?.AM || (bAM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const _shPM = sh[`${d}_PM`] !== undefined ? sh[`${d}_PM`] : (_mSchedRecFuri[d]?.PM || (bPM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const cA = _inactive ? sSt("空欄", cl, hl) : (pi ? (bAM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shAM, bAM), cl, hl)); const cP = _inactive ? sSt("空欄", cl, hl) : (pi ? (bPM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shPM, bPM), cl, hl)); const ok = !cl && !hl && !pi && !isOff && !_inactive; return (<div key={d} className="flex-1 min-w-0 flex flex-col items-stretch bg-white border border-slate-200 rounded overflow-hidden"><div className={`w-full text-center text-[11px] font-bold py-1 bg-slate-100 border-b border-slate-200 leading-tight ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{d}<br/><span className="text-[9px] font-normal">{dN[dow]}</span></div><button disabled={!ok} title={_mSchedRecReason[d] || (cA.sub ? `${cA.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "AM")} data-testid={`ms-cell-${d}-AM`} className={`h-9 flex items-center justify-center border-b border-slate-100 text-[10px] leading-none whitespace-pre-wrap ${cA.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cA.t}</button><button disabled={!ok} title={_mSchedRecReason[d] || (cP.sub ? `${cP.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "PM")} data-testid={`ms-cell-${d}-PM`} className={`h-9 flex items-center justify-center text-[10px] leading-none whitespace-pre-wrap ${cP.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cP.t}</button></div>); })}</div>
                 <div className="flex gap-2 mt-2 text-[11px] text-slate-400 font-bold flex-wrap items-center"><span>上段:AM/下段:PM</span><span className="text-blue-600 bg-blue-50 px-1 rounded">出席</span><span className="text-red-500 bg-red-50 px-1 rounded">欠席</span><span className="text-emerald-600 bg-emerald-50 px-1 rounded">振替</span><span className="text-cyan-700 bg-cyan-50 px-1 rounded">臨時</span><span className="text-white bg-slate-600 px-1 rounded">休業</span><span>空欄=非利用日</span></div></div>
@@ -46858,11 +47094,12 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
           {/* ★ 2026-10-14(ユーザー要望): 個別機能訓練計画書(3-3)の定型文を店舗ごとに編集(1行=1つ)。空にすると既定に戻る */}
           {activeTab === 'keikaku' && (
             <SectionCard title="計画書の定型文（3-3・3-2・3-1・通所介護計画書）">
-              <p className="text-xs text-slate-500 mb-3">計画書の「定型文から ▼」で選べる文言です。1行に1つ（空にすると標準に戻ります）。</p>
+              {/* ★ 2026-10-26(ユーザー決定): 定型文は本部(つむぎ管理局)が全店共通で管理する。店舗では見るだけ */}
+              <div data-testid="kk-presets-info" className="mb-3 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 font-bold">計画書の定型文は本部（つむぎ管理局）が全店共通で管理しています。追加・変更のご希望は本部へお伝えください。</div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {[['ryui','【3-3】機能訓練実施上の留意事項（チェックで複数選択）'],['goalKinou','【3-3】目標（機能）'],['goalKatsudo','【3-3】目標（活動）'],['goalSanka','【3-3】目標（参加）'],['progContent','【3-3】プログラム内容'],['progPoint','【3-3】プログラムの留意点'],['henka','【3-3】実施による変化'],['kadai','【3-3】課題とその要因'],['skNinchi','【3-2】認知機能・コミュニケーション'],['skKadai','【3-2】生活上の課題・背景因子'],['kyBikou','【3-1】備考（希望・エピソード）'],['tsGoal','【通所介護計画書】目標'],['tsContent','【通所介護計画書】目的とケアの提供方針・内容'],['tsEffect','【通所介護計画書】効果・満足度'],['tsRisk','【通所介護計画書】医学的リスク・留意事項']].map(([k,lb]) => { const cur = kkPresetsOf(ss)[k]; return (
-                  <div key={k}><label className="block text-xs font-bold text-slate-600 mb-1">{lb} <span className="font-normal text-slate-400">（{cur.length}件）</span></label>
-                    <textarea key={`${k}-${(ss.kkPresets&&ss.kkPresets[k]) ? 'c' : 'd'}`} defaultValue={cur.join('\n')} rows={6} onBlur={e => { const lines = e.target.value.split('\n').map(x=>x.trim()).filter(Boolean); const prev = (ss.kkPresets||{})[k]; const same = JSON.stringify(lines) === JSON.stringify(prev || KK_PRESETS_DEFAULT[k]); if (same) return; saveSS({ kkPresets: { ...(ss.kkPresets||{}), [k]: lines.length ? lines : undefined } }, `✓ 定型文（${lb}）を保存しました`); }} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm outline-none" /></div>); })}
+                {KK_PRESET_LABELS.map(([k, lb]) => { const cur = kkPresetsOf(ss)[k]; return (
+                  <div key={k}><div className="text-xs font-bold text-slate-600 mb-1">{lb} <span className="font-normal text-slate-400">（{cur.length}件）</span></div>
+                    <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 leading-relaxed">{cur.length ? cur.map((t, i) => <div key={i}>・{t}</div>) : <span className="text-slate-400">（なし）</span>}</div></div>); })}
               </div>
             </SectionCard>
           )}
@@ -50931,7 +51168,10 @@ const KK_PRESETS_DEFAULT = {
   tsEffect: ['休まず通所できている','表情が明るくなった','歩行が安定してきた','他の利用者との会話が増えた','入浴を楽しみにしている','体調の変動があり欠席がみられた'],
   tsRisk: ['高血圧のため運動前に血圧を確認する','転倒の危険があり移動時は見守る','嚥下機能の低下があり食事・水分はとろみを付ける','糖尿病のため低血糖の症状に注意する','心疾患があり息切れ・胸の痛みに注意する','膝の痛みがあり負荷を調整する'],
 };
-const kkPresetsOf = (ss) => { const o = (ss && ss.kkPresets && typeof ss.kkPresets === 'object') ? ss.kkPresets : {}; const out = {}; Object.keys(KK_PRESETS_DEFAULT).forEach(k => { out[k] = Array.isArray(o[k]) ? o[k].filter(x => String(x||'').trim()) : KK_PRESETS_DEFAULT[k]; }); return out; };
+// ★ 2026-10-26(ユーザー決定「計画書の定型文は本部で管理」): 定型文の種類(キー・見出し)。管理局の全店共通パネルと各種設定の案内で共用
+const KK_PRESET_LABELS = [['ryui','【3-3】機能訓練実施上の留意事項（チェックで複数選択）'],['goalKinou','【3-3】目標（機能）'],['goalKatsudo','【3-3】目標（活動）'],['goalSanka','【3-3】目標（参加）'],['progContent','【3-3】プログラム内容'],['progPoint','【3-3】プログラムの留意点'],['henka','【3-3】実施による変化'],['kadai','【3-3】課題とその要因'],['skNinchi','【3-2】認知機能・コミュニケーション'],['skKadai','【3-2】生活上の課題・背景因子'],['kyBikou','【3-1】備考（希望・エピソード）'],['tsGoal','【通所介護計画書】目標'],['tsContent','【通所介護計画書】目的とケアの提供方針・内容'],['tsEffect','【通所介護計画書】効果・満足度'],['tsRisk','【通所介護計画書】医学的リスク・留意事項']];
+// ★ 2026-10-26: 優先順 = ①全店共通(管理局が保存・_globalPolicyCache.kkPresets) → ②店舗に残っている旧設定(systemSettings.kkPresets) → ③既定
+const kkPresetsOf = (ss) => { const o = (ss && ss.kkPresets && typeof ss.kkPresets === 'object') ? ss.kkPresets : {}; const g = (_globalPolicyCache && _globalPolicyCache.kkPresets && typeof _globalPolicyCache.kkPresets === 'object') ? _globalPolicyCache.kkPresets : {}; const out = {}; Object.keys(KK_PRESETS_DEFAULT).forEach(k => { const gv = Array.isArray(g[k]) ? g[k].filter(x => String(x||'').trim()) : []; out[k] = gv.length ? gv : (Array.isArray(o[k]) ? o[k].filter(x => String(x||'').trim()) : KK_PRESETS_DEFAULT[k]); }); return out; };
 // 職員の一覧(storeMembers + 日誌の職員)を 役職つきで重複なしに
 const tsuStaffList = (appData) => { const out = []; const seen = new Set(); const add = (name, role, id) => { const nm = String(name||'').trim(); if (!nm || nm === '管理局' || id === 'hq_viewer') return; const k = `${nm}|${role||''}`; if (seen.has(k)) return; seen.add(k); out.push({ name: nm, role: role || '' }); };
   (appData?.storeMembers||[]).forEach(m => { if (m && !m._preview) { add(m.name, m.roleLabel, m.id); if (m.role2) add(m.name, m.role2, m.id); } });

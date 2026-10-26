@@ -2011,11 +2011,16 @@ export async function supabaseStaffSharedDevice(token) { return staffApi({ actio
 export async function supabaseStaffRenew(token) { return staffApi({ action: 'renew', token }); }
 export function tsuTokenExp(token) { try { const p = String(token || '').split('.')[0]; const j = JSON.parse(atob(p.replace(/-/g, '+').replace(/_/g, '/'))); return Number(j.exp) || 0; } catch { return 0; } }
 export async function supabaseStaffLoginsList(token, storeId, limit) { try { return (await staffApi({ action: 'logins_list', token, store_id: storeId, limit: limit || 100 })).logins || []; } catch { return []; } }
+// ★ 2026-10-26(ユーザー決定): 本部の「信頼の印」(確認コード/パスキーで入れてから30分)は端末(localStorage)に控える
+const HQ_TRUST_KEY = 'tsumugiHqTrust';
+export const tsuHqTrustGet = () => { try { const j = JSON.parse(localStorage.getItem(HQ_TRUST_KEY) || 'null'); return j && j.t && j.exp > Date.now() ? j.t : ''; } catch { return ''; } };
+const _hqTrustKeep = (j) => { try { if (j && j.hq_trust) localStorage.setItem(HQ_TRUST_KEY, JSON.stringify({ t: j.hq_trust, exp: Number(j.hq_trust_exp) || (Date.now() + 30 * 60 * 1000) })); } catch {} };
 export async function supabaseStaffLogin({ username, password, code, noMail }) { // ★ 2026-10-26: noMail=端末のパスキーを先に試す(確認コードのメールを送らない)
   if (!supabase && !(String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.__tsumugiE2E && window.__tsumugiE2E.loginMock)) throw new Error('Supabase 未接続'); // (自動テストでは API をモック)
   const password_hash = await hashPassword(password);
   try {
-    const j = await staffApi({ action: 'login', username: String(username || '').trim(), password_hash, device: _devName(), code: code || undefined, no_mail: noMail ? true : undefined }); // ★ 段階4: 端末名も記録。本部は確認コード(2段階認証)
+    const j = await staffApi({ action: 'login', username: String(username || '').trim(), password_hash, device: _devName(), code: code || undefined, no_mail: noMail ? true : undefined, hq_trust: tsuHqTrustGet() || undefined }); // ★ 段階4: 端末名も記録。本部は確認コード(2段階認証) ★ 2026-10-26: 信頼の印があれば送る(30分以内はコードなし)
+    _hqTrustKeep(j);
     if (j && j.need_code) return { _needCode: true, _hint: j.hint || '', _sent: !!j.sent, _passkeyFirst: !!j.passkey_first, _mailErr: j.mail_err || '', _sentAt: j.sent_at || '' }; // ★ 2026-10-26: 送れなかった理由・送った時刻 // ★ 2026-10-19: 本部の2段階認証 → コード入力へ ★ 2026-10-26: passkey_first=パスキーの登録があるのでメールは送っていない
     if (j.sb_token) setSbAccessToken(j.sb_token, j.sb_exp); // ★ 2026-10-17: Supabase の証(発行されたときだけ)
     return { ...(j.staff || {}), _token: j.token || '' };
@@ -2054,6 +2059,7 @@ export async function supabaseHqPasskeyLogin() {
   const r = cred.response;
   const j = await staffApi({ action: 'passkey_login_verify', device: _devName(), credential: { id: _pkB2U(cred.rawId), type: cred.type, response: { clientDataJSON: _pkB2U(r.clientDataJSON), authenticatorData: _pkB2U(r.authenticatorData), signature: _pkB2U(r.signature), userHandle: r.userHandle ? _pkB2U(r.userHandle) : '' } } });
   if (j.sb_token) setSbAccessToken(j.sb_token, j.sb_exp);
+  _hqTrustKeep(j); // ★ 2026-10-26: パスキーで入れた端末も30分は確認なし
   return { ...(j.staff || {}), _token: j.token || '' };
 }
 export async function supabaseHqPasskeyList(token) { return (await staffApi({ action: 'passkey_list', token })).passkeys || []; }
