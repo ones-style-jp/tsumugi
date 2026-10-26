@@ -34,8 +34,19 @@ const plans = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('day
   await page.getByTestId('cb-input-hub').click().catch(() => {}); await page.waitForTimeout(400); if (!(await page.getByTestId(`cb-next-monthly-${pid}`).count())) { await page.getByTestId('cb-hub-next').click(); await page.waitForTimeout(600); }
   await page.getByTestId(`cb-next-monthly-${pid}`).click(); await page.waitForTimeout(1200);
   r.toMaster = (await page.getByTestId('master-back-print').count()) === 1;
-  await page.getByTestId('master-back-print').click(); await page.waitForTimeout(1000); r.backToPrint = (await page.getByTestId('cb-input-hub').count()) === 1 && (await page.getByTestId('master-back-print').count()) === 0;
+  await page.getByTestId('master-back-print').click(); await page.waitForTimeout(1200); r.backToPrint = (await page.getByTestId('cb-input-hub').count()) === 1 && (await page.getByTestId('master-back-print').count()) === 0;
+  r.reopenNext = (await page.getByTestId(`cb-next-month-${pid}`).count()) === 1; /* trial418: 戻ったら次回予定の小窓が開いている */
+  const pnl = page.locator('.tsu-cap-dvh.max-w-4xl').first(); r.noHScroll = (await pnl.count()) === 1 && await pnl.evaluate(e => { const b = e.querySelector('.overflow-y-auto') || e; return b.scrollWidth <= b.clientWidth + 2; });
+  r.oneUndec = !/未定（空欄）/.test(await pnl.innerText()) && (await page.getByTestId(`cb-next-undec-${pid}`).count()) === 1;
   await page.context().close(); }
+// ②' スマホ幅: 次回予定の小窓が横に見切れない
+{ const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, locale: 'ja-JP', timezoneId: 'Asia/Tokyo', hasTouch: true }); const page = await ctx.newPage(); page.on('dialog', d => d.accept());
+  await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'networkidle' }); await page.waitForTimeout(700);
+  if (await page.getByText('担当者を選択', { exact: false }).count()) { await page.locator('button', { hasText: /見本|例示|架空/ }).first().click().catch(() => {}); await page.waitForTimeout(700); }
+  await page.evaluate((todayIso) => { localStorage.setItem('tsumugiSidebarOpen', '0'); sessionStorage.setItem('tsumugiCbReopenNext', '1'); sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'print', pid: null, date: todayIso, ampm: 'AM', t: Date.now() })); }, iso(today));
+  await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2500); await page.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 500 }).catch(() => {});
+  const pnl = page.locator('.tsu-cap-dvh.max-w-4xl').first(); r.phoneNoHScroll = (await pnl.count()) === 1 && await pnl.evaluate(e => { const b = e.querySelector('.overflow-y-auto') || e; return b.scrollWidth <= b.clientWidth + 2; }); if (!r.phoneNoHScroll) console.log('PHONE', await pnl.count());
+  await ctx.close(); }
 // ③ 送迎表の自動の控え
 { const { page } = await start('transport', "");
   await page.waitForTimeout(1500); const pl = await plans(page); const p3 = pl[`${iso(d3)}_AM`] || {};

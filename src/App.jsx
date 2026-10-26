@@ -35096,6 +35096,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   const [printingIds, setPrintingIds] = useState([]); // ★ 印刷時に描画する利用者ID(全員ではなく印刷対象だけ描画)
   const [isBulkEditOpen, setIsBulkEditOpen] = useState(false);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  // ★ 2026-10-26(ユーザー「連絡帳に戻るはこの画面(次回予定)に戻ってほしい」): 月間スケジュールから戻ってきたら小窓を開き直す
+  React.useEffect(() => { try { if (sessionStorage.getItem('tsumugiCbReopenNext') === '1') { sessionStorage.removeItem('tsumugiCbReopenNext'); setIsScheduleModalOpen(true); } } catch {} }, []);
   const [localOverrides, setLocalOverrides] = useState({});
   // ★ 次回予定モーダルを開いた時点の値(=自動計算の表示値)。 保存時にこれと比べ、
   //   実際に手入力で変わった項目だけを保存する。 これをしないと、モーダルを開いて保存しただけで
@@ -35989,7 +35991,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         )}
         {isScheduleModalOpen && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="tsu-cap-dvh bg-white rounded-3xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden" style={{maxHeight:'90vh'}}>
+            <div className="tsu-cap-dvh bg-white rounded-3xl shadow-2xl w-full max-w-4xl flex flex-col overflow-hidden" style={{maxHeight:'90vh'}}>{/* ★ 2026-10-26(ユーザー): 横に見切れないよう広く */}
               <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center flex-shrink-0">
                 <h2 className="text-lg font-bold text-slate-800 flex items-center"><Clock size={20} className="mr-2 text-blue-600"/> 次回予定の変更</h2>
                 {/* ★ 残骸チェックボタンは2026-09-09撤去(生成源の自動書込を全て塞ぎ振替も空欄化したため役目終了)。_scanOvZansai等の機能コードは温存 */}
@@ -36057,16 +36059,16 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                     };
                     // ★ 2026-10-26(ユーザー要望): 送迎表を使う店舗は、日付を押すと月間スケジュール(利用者マスタ)へ。戻るボタンのために来た場所を控える
                     const _tpOn = tsumugiTransportOn(appData);
-                    const _goMonthly = () => { try { sessionStorage.setItem('tsumugiMasterOrigin', JSON.stringify({ from: 'print', at: Date.now() })); } catch {} if (navigateTo) navigateTo('master', r.patientId, 'schedule'); };
+                    const _goMonthly = () => { try { sessionStorage.setItem('tsumugiMasterOrigin', JSON.stringify({ from: 'print', at: Date.now() })); sessionStorage.setItem('tsumugiCbReopenNext', '1'); } catch {} if (navigateTo) navigateTo('master', r.patientId, 'schedule'); }; // ★ 2026-10-26: 戻ったら次回予定の小窓を開き直す
                     return (
-                      <div key={r.id} className="flex items-center gap-3 bg-slate-50 border border-slate-200 p-3 rounded-xl">
+                      <div key={r.id} className="flex flex-wrap items-center gap-3 bg-slate-50 border border-slate-200 p-3 rounded-xl">{/* ★ 2026-10-26: 狭い画面は日付・時間を折り返す */}
                         <div className="w-24 font-bold text-slate-800 shrink-0 text-sm">
                           {/* ★ 振替バッジ(2026-09-09 店舗要望): 次回が基本利用日と別の振替日→日付確認とお迎え時間の手入力が必要と分かるように */}
                           {_auto.isFurikae && <span className="block text-[9px] bg-emerald-600 text-white px-1.5 py-0.5 rounded font-bold mb-0.5 w-fit">振替</span>}
                           {r.name}
                           {isOverridden && <span className="block text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold mt-0.5 w-fit">変更済</span>}
                         </div>
-                        <div className="flex-1">
+                        <div className="flex-1 min-w-[250px]">
                           <div className="text-[10px] font-bold text-slate-400 mb-1 flex items-center gap-2">次回利用日
                             {/* ★ 2026-10-23(ユーザー要望): 「未定」を押すと日付と時間を空欄で渡す(もう一度押すと元の自動計算に戻る) */}
                             {(() => { const _dUndec = String(localData.nextDateOverride || '').trim() === '未定'; return <button type="button" data-testid={`cb-next-undec-${r.patientId}`} onClick={() => setLocalOverrides(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), nextDateOverride: _dUndec ? '' : '未定', nextTimeOverride: _dUndec ? '' : '未定' } }))} className={`text-[10px] font-bold rounded px-2 py-0.5 border ${_dUndec ? 'bg-slate-600 text-white border-slate-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{_dUndec ? '未定（空欄）' : '未定'}</button>; })()}
@@ -36089,7 +36091,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                             {_tpOn && <button type="button" data-testid={`cb-next-monthly-${r.patientId}`} onClick={_goMonthly} className="ml-auto text-[11px] font-bold text-blue-700 bg-white border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-50 whitespace-nowrap">月間で変える</button>}
                           </div>
                         </div>
-                        <div className="flex-1">
+                        <div className="flex-1 min-w-[250px]">
                           {/* ★ 2026-10-02(試験版・ユーザー決定「基本は送迎表で変更」): お迎え時間はここでは打たず、送迎表の時間を表示。
                                  変えるときは「送迎表で変更」でその日の送迎表へ。振替の曜日や時間が未定のときは「未定（空欄で渡す）」で連絡帳を空欄にする */}
                           {(() => { const _dStr = String(localData.nextDateOverride || '').trim(); const _tp = _dStr ? (getTransportTimeFor(r.patientId, _dStr, r.year, appData) || '') : ''; const _undec = String(localData.nextTimeOverride || '').trim() === '未定';
@@ -36107,7 +36109,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                             <label className="ml-auto flex items-center gap-1 text-[11px] font-bold text-slate-600 whitespace-nowrap"><input type="checkbox" checked={_undec} onChange={e => setLocalOverrides(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), nextTimeOverride: e.target.checked ? '未定' : '' } }))}/>未定（空欄で渡す）</label>
                           </div>
                           </>) : (<>
-                          <div className="text-[10px] font-bold text-slate-400 mb-1">お迎え時間（送迎表）{!_undec && !_tp && _dStr && <span className="ml-1 text-amber-600">送迎表に時間なし</span>}</div>
+                          <div className="text-[10px] font-bold text-slate-400 mb-1">お迎え時間{_undec ? <span className="ml-1 text-slate-400">（未定＝空欄で渡す）</span> : (_tp ? <span className="ml-1 text-emerald-700">送迎表 {_tp}</span> : (_dStr ? <span className="ml-1 text-amber-600">送迎表に時間なし（入れると送迎表にも入ります）</span> : null))}</div>{/* ★ 2026-10-26(ユーザー) */}
                           <div className={`flex items-center gap-2 p-1.5 border rounded-lg ${_undec ? 'border-slate-300 bg-slate-100' : _tp ? 'border-emerald-300 bg-emerald-50' : 'border-amber-400 bg-amber-50'}`}>
                             {/* ★ 2026-10-26(ユーザー要望「連絡帳で時間を入れる人もいるので復活。入れた時間は次回の送迎表にも反映」) */}
                             {_tp === '徒歩' && !_undec ? <span className="font-bold text-sm text-slate-800 whitespace-nowrap">徒歩</span> : (<span className="flex items-center gap-1" data-testid={`cb-next-time-${r.patientId}`}>
@@ -36117,8 +36119,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                               <span className="text-xs font-bold text-slate-500">分</span>
                             </span>)}
                             {void _old}
-                            <button type="button" onClick={_goTp} disabled={!_dStr} className="ml-auto text-[11px] font-bold text-blue-700 bg-white border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-50 disabled:opacity-40 whitespace-nowrap">送迎表で変更</button>
-                            <label className="flex items-center gap-1 text-[11px] font-bold text-slate-600 whitespace-nowrap"><input type="checkbox" checked={_undec} onChange={e => setLocalOverrides(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), nextTimeOverride: e.target.checked ? '未定' : '' } }))}/>未定（空欄）</label>
+                            <button type="button" onClick={_goTp} disabled={!_dStr} className="ml-auto text-[11px] font-bold text-blue-700 bg-white border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-50 disabled:opacity-40 whitespace-nowrap">送迎表で変更</button>{/* ★ 2026-10-26(ユーザー「未定が2つある」): 時間の未定は日付の「未定」にまとめた */}
                           </div>
                           </>)}
                             </>); })()}
@@ -37053,6 +37054,19 @@ const tsuDiaryToTransport = (appData, logKey, log) => { try {
   np.arrive = { ...(np.arrive||{}) }; np.arriveAuto = { ...(np.arriveAuto||{}) };
   Object.keys(log.carTimes||{}).forEach(cid => { const ct = log.carTimes[cid] || {}; const a = hm(ct.arrive); if (a && hm(np.arrive[cid]) !== a) { np.arrive[cid] = a; np.arriveAuto[cid] = false; changed = true; }
     const d = hm(ct.depart); if (d && np.dropMode === 'custom' && np.drop) { np.drop.depart = { ...(np.drop.depart||{}) }; np.drop.departAuto = { ...(np.drop.departAuto||{}) }; if (hm(np.drop.depart[cid]) !== d) { np.drop.depart[cid] = d; np.drop.departAuto[cid] = false; changed = true; } } });
+  // ★ 2026-10-26(ユーザー「日誌で送迎車を変更したら送迎表にも反映した方がいい」): 迎え(送りは送り別のときだけ)の乗る車。日誌で1台だけにチェックされている方を、その車へ足す/移す(消さない)
+  const _apply = (grid, walkGrid, box) => { if (!box) return; const cars = box.cars || (box.cars = {}); const walkers = box.walkers || (box.walkers = []);
+    const want = {}; Object.keys(grid||{}).forEach(k => { if (!grid[k]) return; const i = k.indexOf('_'); if (i <= 0) return; const pid = k.slice(0, i), cid = k.slice(i + 1); if (!(ds.cars||[]).some(c => c && String(c.id) === cid)) return; want[pid] = want[pid] === undefined ? cid : null; });
+    Object.keys(walkGrid||{}).forEach(pid => { if (walkGrid[pid]) want[pid] = want[pid] === undefined ? 'walk' : null; });
+    Object.keys(want).forEach(pid => { const dst = want[pid]; if (!dst) return; const P = isNaN(Number(pid)) ? pid : Number(pid);
+      let cur = null, curM = null; Object.keys(cars).forEach(cid => { const m = (cars[cid]||[]).find(x => x && String(x.pid) === pid); if (m) { cur = cid; curM = m; } }); if (!cur && walkers.some(x => x && String(x.pid) === pid)) { cur = 'walk'; curM = walkers.find(x => x && String(x.pid) === pid); }
+      if ((box.others||[]).some(x => x && String(x.pid) === pid)) return; if (cur === dst) return;
+      const t = (curM && curM.t) || ((pl._cbT||{})[pid]) || '';
+      if (cur && cur !== 'walk') cars[cur] = (cars[cur]||[]).filter(x => !(x && String(x.pid) === pid)); if (cur === 'walk') box.walkers = box.walkers.filter(x => !(x && String(x.pid) === pid));
+      if (dst === 'walk') box.walkers = [...(box.walkers||[]), { pid: P, t }]; else cars[dst] = [...(cars[dst]||[]), { pid: P, t }];
+      box.un = (box.un||[]).filter(x => String(x && x.pid != null ? x.pid : x) !== pid); changed = true; }); };
+  _apply(log.pick, log.pick_walk, np);
+  if (np.dropMode === 'custom' && np.drop) _apply(log.drop, log.drop_walk, np.drop);
   if (!changed) return null; np._savedAt = Date.now(); return { ...plans, [logKey]: np };
 } catch { return null; } };
 const tsuTpPlanHas = (appData, iso, slot) => { if (!tsumugiTransportOn(appData)) return false; const pl = ((appData && appData.transportPlans) || {})[`${iso}_${slot}`]; if (!pl || typeof pl !== 'object') return false; return Object.values(pl.cars || {}).some(a => (a || []).length) || (pl.walkers || []).length > 0 || (pl.others || []).length > 0; };
