@@ -10945,6 +10945,21 @@ const recordWithinPatientPeriod = (r, p) => { if (!p) return true; const iso = r
 //   仕組み: 現在の scheduleAmPm から、対象日付より後に適用された変更を逆順に巻き戻す。
 // ★ 送迎表(transportPlans)のお迎え時間を連絡帳の「次回お迎え時間」へ反映(2026-09-12d 試験版)。
 //   優先順: 手入力(nextTimeOverride) > 送迎表 > 従来の自動計算。表示形式は「H時MM分」。
+// ★ 2026-10-26(ユーザー要望「連絡帳で入れた次回の時間を次回の送迎表にも反映」): その日の送迎表に乗っていれば時間を書き換え、まだ乗っていなければ _cbT に控えて配置のときの初期値にする
+const tsuCbTimeToTransport = (plans, pat, forDate, selectedDate, timeStr, appData, now) => {
+  const dm = String(forDate || '').match(/(\d+)月(\d+)日/); if (!dm || !pat) return plans;
+  const yy = new Date(selectedDate).getFullYear(); const cand = new Date(yy, +dm[1] - 1, +dm[2]); const sd = new Date(selectedDate); sd.setHours(0, 0, 0, 0); const y = cand < sd ? yy + 1 : yy;
+  const iso = `${y}-${String(+dm[1]).padStart(2, '0')}-${String(+dm[2]).padStart(2, '0')}`;
+  const raw = String(timeStr || '').replace(/[\s　]/g, ''); const tm = raw.match(/^(\d{1,2})時(\d{1,2})?分?$/) || raw.match(/^(\d{1,2}):(\d{2})$/); if (!tm) return plans;
+  const t = `${+tm[1]}:${tm[2] != null && tm[2] !== '' ? String(tm[2]).padStart(2, '0') : '--'}`;
+  let slot = null; for (const sl of ['AM', 'PM']) { const pl = plans[`${iso}_${sl}`]; if (pl && (Object.values(pl.cars || {}).flat().some(m => m && m.pid === pat.id) || (pl.walkers || []).some(m => m && m.pid === pat.id))) { slot = sl; break; } }
+  if (!slot) { const base = (getScheduleOnDate(pat, iso) || {})[new Date(iso + 'T00:00:00').getDay()] || ''; slot = base === 'PM' ? 'PM' : 'AM'; }
+  const k = `${iso}_${slot}`; const pl = plans[k] ? JSON.parse(JSON.stringify(plans[k])) : { cars: {}, walkers: [], others: [], un: [], memo: '' };
+  Object.keys(pl.cars || {}).forEach(cid => { (pl.cars[cid] || []).forEach(m => { if (m && m.pid === pat.id) m.t = t; }); });
+  (pl.walkers || []).forEach(m => { if (m && m.pid === pat.id) m.t = t; });
+  pl._cbT = { ...(pl._cbT || {}), [pat.id]: t }; pl._savedAt = now;
+  return { ...plans, [k]: pl };
+};
 const getTransportTimeFor = (patientId, nextDateDisplay, yearHint, appData) => {
   if (!tsumugiTransportOn(appData)) return '';
   try {
@@ -35623,7 +35638,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       const now = syncNow();
       let recs = [...(appData.ticketRecords || [])];
       const base = _ovBaseRef.current || {};
-      let _changed = 0;
+      let _changed = 0; let _tpNext = null; // ★ 2026-10-26: 送迎表へ反映した結果
       Object.entries(localOverrides).forEach(([rid, ov]) => {
         if (!ov) return;
         // ★ 開いた時点の表示値から実際に変わった項目だけを保存する。
@@ -35638,6 +35653,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         if (patch.nextTimeOverride !== undefined) {
           const _forDate = String(ov.nextDateOverride || '').trim();
           if (_forDate) patch.nextTimeOverrideFor = _forDate;
+          // ★ 2026-10-26(ユーザー要望): 送迎表を使う店舗は、ここで入れた時間を次回の送迎表にも反映
+          if (tsumugiTransportOn(appData) && _forDate && /\d/.test(String(patch.nextTimeOverride || ''))) { try { const _pid = String(rid).startsWith('auto-') ? Number(String(rid).slice(5)) : ((recs.find(x => String(x.id) === String(rid)) || {}).patientId); const _pat = (appData.patients || []).find(p => p.id === _pid); if (_pat) _tpNext = tsuCbTimeToTransport(_tpNext || appData.transportPlans || {}, _pat, _forDate, selectedDate, String(patch.nextTimeOverride), appData, now); } catch {} }
         }
         _changed++;
         const idx = recs.findIndex(r => String(r.id) === String(rid));
@@ -35650,7 +35667,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       });
       markClean();
       if (!_changed) return; // 何も編集していない = 保存しない(誤って全員を確定値にしない)
-      onSave({ ...appData, ticketRecords: recs }, { silent: true }); // ★ 即時クラウド保存
+      onSave({ ...appData, ticketRecords: recs, ...(_tpNext ? { transportPlans: _tpNext } : {}) }, { silent: true }); // ★ 即時クラウド保存 ★ 2026-10-26: 送迎表にも反映
   };
 
   // ★ 2026-10-21(ユーザー要望「送り時間反映」): その日の記録に印(renrakuDropAt)を付ける/外す。変えた方だけ書く(_fieldTs で新しい方が残る)
@@ -35786,7 +35803,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                   </div>
                   <div className="p-5 pt-3 space-y-2">
                     {/* ★ 2026-10-21(ユーザー): 送迎表を使う店舗は、次回のお迎え時間を送迎表で決めるので、ここでは入力しない */}
-                    {!tsumugiTransportOn(appData) && card('cb-hub-next', '次回予定', '次回の利用日・お迎え時間',
+                    {card('cb-hub-next', '次回予定', tsumugiTransportOn(appData) ? '次回のお迎え時間（送迎表にも反映）・日付は月間で' : '次回の利用日・お迎え時間', /* ★ 2026-10-26(ユーザー要望): 送迎表を使う店舗でも時間を入れられるように復活 */
                       miss > 0 ? <span className="bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap">未入力{miss}名</span> : <span className="bg-emerald-100 text-emerald-700 text-[10px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap">入力済み</span>,
                       () => open(() => setIsScheduleModalOpen(true)))}
                     {card('cb-hub-renraku', '連絡事項', '全員あて・個別の連絡（表示期間つき）',
@@ -35794,7 +35811,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                       () => open(() => setRenrakuModal({ patientId: null })))}
                     {card('cb-hub-items', '項目', '連絡帳に載せる項目と、利用者ごとの値', null, () => open(() => setIsConfigOpen(true)))}
                     {/* ★ 2026-10-21(ユーザー決定): 送迎表を使う店舗は、次回の日付を月間スケジュールで変える */}
-                    {tsumugiTransportOn(appData) && navigateTo && card('cb-hub-nextdate', '次回の日付', '振替・お休みは月間スケジュールで', null, () => open(() => setNextJumpOpen(true)))}
+                    {/* ★ 2026-10-26: 「次回の日付」カードは「次回予定」に統合(日付は各行の「月間で変える」から) */}
                   </div>
                 </div>
               </div>
@@ -36027,6 +36044,9 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                         return { ...prev, [r.id]: { ...cur, ...patch } };
                       });
                     };
+                    // ★ 2026-10-26(ユーザー要望): 送迎表を使う店舗は、日付を押すと月間スケジュール(利用者マスタ)へ。戻るボタンのために来た場所を控える
+                    const _tpOn = tsumugiTransportOn(appData);
+                    const _goMonthly = () => { try { sessionStorage.setItem('tsumugiMasterOrigin', JSON.stringify({ from: 'print', at: Date.now() })); } catch {} if (navigateTo) navigateTo('master', r.patientId, 'schedule'); };
                     return (
                       <div key={r.id} className="flex items-center gap-3 bg-slate-50 border border-slate-200 p-3 rounded-xl">
                         <div className="w-24 font-bold text-slate-800 shrink-0 text-sm">
@@ -36041,12 +36061,12 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                             {(() => { const _dUndec = String(localData.nextDateOverride || '').trim() === '未定'; return <button type="button" data-testid={`cb-next-undec-${r.patientId}`} onClick={() => setLocalOverrides(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), nextDateOverride: _dUndec ? '' : '未定', nextTimeOverride: _dUndec ? '' : '未定' } }))} className={`text-[10px] font-bold rounded px-2 py-0.5 border ${_dUndec ? 'bg-slate-600 text-white border-slate-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{_dUndec ? '未定（空欄）' : '未定'}</button>; })()}
                           </div>
                           <div className={`flex items-center gap-1 p-1.5 border rounded-lg ${/\d|未定/.test(String(r.nextDateOverride ?? '')) ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
-                            <ImeSafeInput type="text" inputMode="numeric" value={curMonth} maxLength={2}
+                            <ImeSafeInput type="text" inputMode="numeric" value={curMonth} maxLength={2} readOnly={_tpOn} onClick={_tpOn ? _goMonthly : undefined} data-testid={`cb-next-month-${r.patientId}`}
                               onBlur={()=>_skipClosedDate(r.id, r.patientId)}
                               onChange={e=>updateOverride('date', e.target.value.replace(/\D/g,''), curDay, curHour, curMin)}
                               placeholder="—" className="w-9 px-1 py-0.5 text-center bg-transparent border-0 outline-none font-bold text-sm"/>
                             <span className="text-xs font-bold text-slate-500">月</span>
-                            <ImeSafeInput type="text" inputMode="numeric" value={curDay} maxLength={2}
+                            <ImeSafeInput type="text" inputMode="numeric" value={curDay} maxLength={2} readOnly={_tpOn} onClick={_tpOn ? _goMonthly : undefined} data-testid={`cb-next-day-${r.patientId}`}
                               onBlur={()=>_skipClosedDate(r.id, r.patientId)}
                               onChange={e=>updateOverride('date', curMonth, e.target.value.replace(/\D/g,''), curHour, curMin)}
                               placeholder="—" className="w-9 px-1 py-0.5 text-center bg-transparent border-0 outline-none font-bold text-sm"/>
@@ -36055,6 +36075,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                             {localData.nextDateOverride && (()=>{ const _w=(localData.nextDateOverride.match(/（(.)）/)||[])[1]; if(!_w) return null;
                               const _wc=_w==='日'?'#dc2626':_w==='土'?'#2563eb':'#1e293b';
                               return <span className="ml-1 font-bold" style={{fontSize:15,color:_wc}}>({_w})</span>; })()}
+                            {_tpOn && <button type="button" data-testid={`cb-next-monthly-${r.patientId}`} onClick={_goMonthly} className="ml-auto text-[11px] font-bold text-blue-700 bg-white border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-50 whitespace-nowrap">月間で変える</button>}
                           </div>
                         </div>
                         <div className="flex-1">
@@ -36077,8 +36098,14 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
                           </>) : (<>
                           <div className="text-[10px] font-bold text-slate-400 mb-1">お迎え時間（送迎表）{!_undec && !_tp && _dStr && <span className="ml-1 text-amber-600">送迎表に時間なし</span>}</div>
                           <div className={`flex items-center gap-2 p-1.5 border rounded-lg ${_undec ? 'border-slate-300 bg-slate-100' : _tp ? 'border-emerald-300 bg-emerald-50' : 'border-amber-400 bg-amber-50'}`}>
-                            <span className={`font-bold text-sm min-w-[52px] whitespace-nowrap ${_undec ? 'text-slate-400' : 'text-slate-800'}`}>{_undec ? '空欄' : (_tp === '徒歩' ? '徒歩' : (_tp || '—'))}</span>
-                            {_old && !_undec && <span className="text-[10px] text-slate-500" title="以前に連絡帳で手入力した時間（送迎表に時間があればそちらを使います）">手入力 {_old}</span>}
+                            {/* ★ 2026-10-26(ユーザー要望「連絡帳で時間を入れる人もいるので復活。入れた時間は次回の送迎表にも反映」) */}
+                            {_tp === '徒歩' && !_undec ? <span className="font-bold text-sm text-slate-800 whitespace-nowrap">徒歩</span> : (<span className="flex items-center gap-1" data-testid={`cb-next-time-${r.patientId}`}>
+                              <ImeSafeInput type="text" inputMode="numeric" value={_undec ? '' : curHour} maxLength={2} disabled={_undec} onChange={e=>updateOverride('time', curMonth, curDay, e.target.value.replace(/\D/g,''), curMin)} placeholder="—" className="w-9 px-1 py-0.5 text-center bg-white border border-slate-200 rounded outline-none font-bold text-sm"/>
+                              <span className="text-xs font-bold text-slate-500">時</span>
+                              <ImeSafeInput type="text" inputMode="numeric" value={_undec ? '' : curMin} maxLength={2} disabled={_undec} onChange={e=>updateOverride('time', curMonth, curDay, curHour, e.target.value.replace(/\D/g,''))} placeholder="—" className="w-9 px-1 py-0.5 text-center bg-white border border-slate-200 rounded outline-none font-bold text-sm"/>
+                              <span className="text-xs font-bold text-slate-500">分</span>
+                            </span>)}
+                            {void _old}
                             <button type="button" onClick={_goTp} disabled={!_dStr} className="ml-auto text-[11px] font-bold text-blue-700 bg-white border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-50 disabled:opacity-40 whitespace-nowrap">送迎表で変更</button>
                             <label className="flex items-center gap-1 text-[11px] font-bold text-slate-600 whitespace-nowrap"><input type="checkbox" checked={_undec} onChange={e => setLocalOverrides(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), nextTimeOverride: e.target.checked ? '未定' : '' } }))}/>未定（空欄）</label>
                           </div>
@@ -37473,7 +37500,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       const _tRaw = (_tOk && !furikae) ? (getPickupTimeForDow(p, dow, appData) || '') : '';
       // ★ 2026-09-12k: マスタで「徒歩」の方は最初から徒歩枠へ(車に混ざらない)
       const _isWalk = /徒歩/.test(String(getPickupTimeForDow(p, dow, appData) || '')) || /徒歩/.test(String(p.pickupTimes?.[dow] || '')) || String(p.pickupMinutes||'') === 'walk'; // ★ 2026-09-28: 乗車時間「徒歩」も徒歩欄へ
-      out.push({ pid: p.id, name: p.name, furikae, rinji, walk: _isWalk, time: _isWalk ? '' : _tRaw });
+      const _cbT = ((((appData.transportPlans || {})[`${iso}_${sl}`] || {})._cbT || {})[p.id]) || ''; // ★ 2026-10-26: 連絡帳で入れた次回の時間があればそれを初期値に
+      out.push({ pid: p.id, name: p.name, furikae, rinji, walk: _isWalk, time: _isWalk ? '' : (_cbT || _tRaw) });
     });
     return out;
   };
@@ -37582,6 +37610,8 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   };
   const mutate = (iso, sl, fn) => { const cur = getPlan(iso, sl); const next = JSON.parse(JSON.stringify({ ...cur })); delete next._draft; fn(next); savePlan(iso, sl, next); };
   // ★ 2026-10-26(ユーザー要望): 運行表を出した(ダウンロードした)ときに、そのコマの配置を「配布の控え(_base)」として残す(初めて出したときだけ)。以後の変更は赤枠・変更n件・要連絡に出る
+  // ★ 2026-10-26(ユーザー「店舗によっては運行表を月1回しか出さないので、ダウンロード時点ではなく日付で」): 送迎日の7日前(それより前に開いていなければ、初めて開いた時点)の配置を自動で控える
+  React.useEffect(() => { try { const t0 = new Date(); t0.setHours(0, 0, 0, 0); const isos = []; for (let i = 0; i <= 7; i++) { const d = new Date(t0); d.setDate(t0.getDate() + i); isos.push(_iso(d)); } _stampHanded(isos); } catch {} }, [plans]); // eslint-disable-line react-hooks/exhaustive-deps
   const _stampHanded = (isos) => { try { const at = syncNow(); let np = null; (isos || []).forEach(iso => ['AM','PM'].forEach(sl => { const k = `${iso}_${sl}`; const pl = plans[k]; if (!pl || pl._base) return; if (![...Object.values(pl.cars || {}).flat(), ...(pl.walkers || []), ...(pl.others || [])].length) return; const { _draft, ...rest } = pl; np = np || { ...plans }; np[k] = { ...rest, _base: _snapPlan(pl), _baseAt: at, _baseId: at, _savedAt: at }; })); if (np) onSave({ ...appData, transportPlans: np }, { silent: true }); } catch {} };
   const _pname = (pid) => (appData.patients||[]).find(p => p.id === pid)?.name || '';
   const _noWhy = (m) => { const { why, ...rest } = m || {}; return rest; }; // ★ 2026-10-01: その他の理由は「その他」から出たら消す
@@ -43532,7 +43562,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               {/* 月間スケジュール */}
               <div ref={scheduleSectionRef} className={`scroll-mt-20 rounded-xl transition-all duration-500 ${monthlyHl ? 'ring-4 ring-amber-400 ring-offset-4 ring-offset-white' : ''}`}>
                 {monthlyHl && (<div className="mb-2 px-3 py-2 rounded-lg bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold">「その日だけ」の変更（振替・欠席・休止など）は、ここで日付を押して行います。</div>)}
-                <div className="flex items-center justify-between mb-2"><label className="text-sm font-bold text-slate-600 flex items-center gap-1.5"><CalendarCheck size={16} />月間スケジュール</label><div className="flex items-center gap-2"><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronLeft size={16} /></button><span className="text-base font-bold text-slate-700 tabular-nums w-28 text-center">{currentMonth.getFullYear()}年{currentMonth.getMonth() + 1}月</span><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronRight size={16} /></button></div></div>
+                <div className="flex items-center justify-between mb-2"><label className="text-sm font-bold text-slate-600 flex items-center gap-1.5"><CalendarCheck size={16} />月間スケジュール</label>{(() => { try { const o = JSON.parse(sessionStorage.getItem('tsumugiMasterOrigin') || 'null'); if (o && o.from === 'print' && Date.now() - Number(o.at || 0) < 30 * 60 * 1000 && typeof navigateTo === 'function') return <button type="button" data-testid="master-back-print" onClick={() => { try { sessionStorage.removeItem('tsumugiMasterOrigin'); } catch {} navigateTo('print'); }} className="ml-2 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white whitespace-nowrap">連絡帳に戻る</button>; } catch {} return null; })()}{/* ★ 2026-10-26(ユーザー要望): 連絡帳の日付から来たときは戻るボタン */}<div className="flex items-center gap-2"><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronLeft size={16} /></button><span className="text-base font-bold text-slate-700 tabular-nums w-28 text-center">{currentMonth.getFullYear()}年{currentMonth.getMonth() + 1}月</span><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronRight size={16} /></button></div></div>
                 {/* ★ 2026-10-08(店舗報告: スマホで月間スケジュールの日付が見切れる): スマホは1日あたり28pxの幅で横にスクロール(CSS tsu-mstrip) */}
                 <div className="flex border border-slate-200 rounded-xl bg-slate-50 p-1 gap-0.5 tsu-mstrip">{allD.map(d => { const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d); const dow = dO.getDay(); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; const cl = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow); const hl = appData.holidays?.some(h => (h.date || h) === ds); const base = getScheduleOnDate(localPatient, ds)?.[dow] || ""; const bAM = base === "AM" || base === "1日"; const bPM = base === "PM" || base === "1日"; const sh = effShifts?.[mKey]?.[localPatient.id] || {}; const pi = getPauseReasonOnDate(localPatient, ds); const _inactive = !!localPatient && !isPatientActiveOnDate(localPatient, ds); /* ★ 利用開始日より前・利用終了日より後は「空欄(非利用日)」にして、どこで終了したか一目で分かるようにする。利用中に戻せば再表示。 */ /* 休止中: 基本利用日 (bAM/bPM=true) の枠だけ「休止」表示。それ以外は通常空欄 */ const _shAM = sh[`${d}_AM`] !== undefined ? sh[`${d}_AM`] : (_mSchedRecFuri[d]?.AM || (bAM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const _shPM = sh[`${d}_PM`] !== undefined ? sh[`${d}_PM`] : (_mSchedRecFuri[d]?.PM || (bPM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const cA = _inactive ? sSt("空欄", cl, hl) : (pi ? (bAM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shAM, bAM), cl, hl)); const cP = _inactive ? sSt("空欄", cl, hl) : (pi ? (bPM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shPM, bPM), cl, hl)); const ok = !cl && !hl && !pi && !isOff && !_inactive; return (<div key={d} className="flex-1 min-w-0 flex flex-col items-stretch bg-white border border-slate-200 rounded overflow-hidden"><div className={`w-full text-center text-[11px] font-bold py-1 bg-slate-100 border-b border-slate-200 leading-tight ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{d}<br/><span className="text-[9px] font-normal">{dN[dow]}</span></div><button disabled={!ok} title={_mSchedRecReason[d] || (cA.sub ? `${cA.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "AM")} data-testid={`ms-cell-${d}-AM`} className={`h-9 flex items-center justify-center border-b border-slate-100 text-[10px] leading-none whitespace-pre-wrap ${cA.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cA.t}</button><button disabled={!ok} title={_mSchedRecReason[d] || (cP.sub ? `${cP.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "PM")} data-testid={`ms-cell-${d}-PM`} className={`h-9 flex items-center justify-center text-[10px] leading-none whitespace-pre-wrap ${cP.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cP.t}</button></div>); })}</div>
                 <div className="flex gap-2 mt-2 text-[11px] text-slate-400 font-bold flex-wrap items-center"><span>上段:AM/下段:PM</span><span className="text-blue-600 bg-blue-50 px-1 rounded">出席</span><span className="text-red-500 bg-red-50 px-1 rounded">欠席</span><span className="text-emerald-600 bg-emerald-50 px-1 rounded">振替</span><span className="text-cyan-700 bg-cyan-50 px-1 rounded">臨時</span><span className="text-white bg-slate-600 px-1 rounded">休業</span><span>空欄=非利用日</span></div></div>
