@@ -37777,11 +37777,11 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   // ★ 2026-10-26(ユーザー要望「確定が無くなったので、前回の連絡書(運行表)を渡してから変わった分を赤く」): 確定の代わりに「運行表を初めて出した時点」の控え(_base)を基準にする
   const _baseOf = (pl) => (!pl ? null : (TSU_TP_FINAL_OFF ? (pl._base || null) : (pl._final || pl._base || null)));
   const _baseIdOf = (pl) => (pl ? (pl._final ? (pl._finalId || pl._finalAt || null) : (pl._base ? (pl._baseId || pl._baseAt || null) : null)) : null);
-  const _chgOf = (pl, pid) => { const fin = _baseOf(pl); if (!fin) return ''; const now = _locOf(_snapPlan(pl), pid); if (!now) return ''; const was = _locOf(fin, pid); if (!was) return '配布後に追加'; if (now.zone !== was.zone) return was.zone==='walk'?'徒歩から車へ変更':(was.zone==='other'?'その他から変更':(now.zone==='walk'?'車から徒歩へ変更':(now.zone==='other'?'車からその他へ変更':'車が変更'))); if (now.zone === 'walk' && was.wt != null && now.wt != null && now.wt !== was.wt) return `到着時間が変更（${was.wt||'開始時刻'}→${now.wt||'開始時刻'}）`; if (now.zone !== 'walk' && now.zone !== 'other') { if ((now.t||'') !== (was.t||'')) return `時間が変更（${was.t||'未定'}→${now.t||'未定'}）`;
-      // ★ 2026-10-02: 乗車順は「今も乗っている方どうしの並び」で比べる(休みで外れた方の分だけ前に詰まったのを変更と数えない)
-      // ★ 2026-10-26(ユーザー「人を入れただけで車の全員に赤枠が付く」): 比べるのは前からいた人どうしの並び(新しく乗せた人は数えない)
-      const _curSnap = _snapPlan(pl); const _nowIds = new Set((_curSnap.cars[now.zone]||[]).map(m => m.pid)); const _wasIds = new Set((fin.cars[now.zone]||[]).map(m => m.pid)); const _wasOrder = (fin.cars[now.zone]||[]).filter(m => _nowIds.has(m.pid)).map(m => m.pid); const _nowOrder = (_curSnap.cars[now.zone]||[]).map(m => m.pid).filter(id => _wasIds.has(id));
-      if (_wasOrder.indexOf(pid) !== _nowOrder.indexOf(pid)) return '乗車順が変更'; } return ''; };
+  // ★ 2026-10-26(ユーザー決定「赤枠は時間が変わった人だけ。車が変わった・乗車順・徒歩/車の変更は数えない。配布後に振替で入った人は赤枠」):
+  //   比べるのは「乗る時間」だけ(車=乗車時間・徒歩=到着時間・その他=なし)。配布の控えに無い人は「配布後に追加」(連絡帳を渡した後の振替など。渡す前に決まっていた振替は控えに入っているので付かない)
+  const _tOfLoc = (l) => !l ? '' : (l.zone === 'walk' ? String(l.wt || '') : (l.zone === 'other' ? '' : String(l.t || '')));
+  const _chgOf = (pl, pid) => { const fin = _baseOf(pl); if (!fin) return ''; const now = _locOf(_snapPlan(pl), pid); if (!now) return ''; const was = _locOf(fin, pid); if (!was) return '配布後に追加';
+    const tN = _tOfLoc(now), tW = _tOfLoc(was); if (tN !== tW) return `時間が変更（${tW || '未定'}→${tN || '未定'}）`; return ''; };
   // ★ 2026-10-02(ユーザー要望「赤丸は、前の来所日の連絡帳を渡した後に変わった分だけ」):
   //   確定後の変更ごとに「変えた時刻」を pl._chgAt[pid] に控える(位置が変わるたびに更新・元に戻れば消す)。
   //   赤丸の判定 _noticeNeeded: 変えた日から送迎日の前日までに本人の来所(午前/午後)があり、その回の連絡帳が
