@@ -22988,6 +22988,19 @@ export default function App() {
         // ★ 2026-10-26(ユーザー要望「項目名や運動の○×など具体的に」): 提供記録は項目ごとの変化を文字にする
         const _alLbl = { status:'出欠', actualTime:'時間', temp:'体温', bpUpSt:'血圧上(開始)', bpDnSt:'血圧下(開始)', plSt:'脈(開始)', bpUpEn:'血圧上(終了)', bpDnEn:'血圧下(終了)', plEn:'脈(終了)', massage:'介護整体', tokki:'特記', kibunArrival:'体調(通所時)', kibunArrivalReason:'理由(通所時)', kibunDeparture:'体調(帰宅時)', kibunDepartureReason:'理由(帰宅時)', kinouStaff:'個別実施', recorder:'記録者', bpRe:'再検' };
         const _alV = (v) => { const t = (v == null || v === '') ? '空' : (typeof v === 'object' ? (Array.isArray(v) && !v.length ? '空' : JSON.stringify(v)) : String(v)); return t.length > 12 ? t.slice(0, 12) + '…' : t; };
+        // ★ 2026-10-26(ユーザー「計画書などは項目名だけ出せばよい。中身までは細かすぎる」): 提供記録以外は変わった項目の名前だけ
+        const _alKkLbl = { createdDate:'作成日', prevDate:'前回作成日', firstDate:'初回作成日', honninKibou:'利用者本人の希望', kazokuKibou:'家族の希望', shakaiSanka:'利用者本人の社会参加の状況', kyotakuKankyo:'利用者の居宅の環境', byomei:'病名', hasshoDate:'発症日・受傷日', nyuinDate:'直近の入院日', taiinDate:'直近の退院日', chiryoKeika:'治療経過', gappei:'合併疾患・コントロール状態', ryuiPoint:'機能訓練実施上の留意事項', shortKinou:'（機能）', shortKatsudo:'（活動）', shortSanka:'（参加）', longKinou:'（機能）', longKatsudo:'（活動）', longSanka:'（参加）', jikangaiJisshi:'利用者本人・家族等がサービス利用時間以外に実施すること', tokki:'特記事項', henka:'個別機能訓練の実施による変化', kadai:'個別機能訓練実施における課題とその要因', setsumeiDate:'説明日', recordDate:'作成日', bikou:'備考', keii:'通所介護利用までの経緯', kenkoJotai:'健康状態', riyoubi:'利用曜日・時間帯' };
+        const _alPtLbl = { name:'氏名', kana:'ふりがな', birthday:'生年月日', gender:'性別', address:'住所', addressBuilding:'建物', addressRoom:'部屋番号', phone:'電話', phoneMobile:'携帯', status:'状態', careLevel:'要介護度', insurerNo:'保険者番号', insuredNo:'被保険者番号', scheduleAmPm:'基本利用曜日', schedule:'基本利用曜日', pickupPlace:'待ち合わせ場所', pickupMinutes:'乗降の分数', memo:'メモ', note:'メモ', faceSheet:'フェイスシート', changeLog:'変更履歴', files:'ファイル', labeledFiles:'添付ファイル', emergencyContacts:'緊急連絡先', cmName:'ケアマネ', cmOffice:'ケアマネ事業所', startDate:'利用開始日', endDate:'利用終了日', pauses:'休止', scheduleChangeHistory:'利用日の変更履歴' };
+        const _alDlLbl = { staff:'担当職員', kenmu:'兼務', gensan:'減算', managerConfirmed:'管理者確認', staffTemp:'職員の体温', patientRows:'利用者の行', carTimes:'送迎の時間', driver:'運転者', memo:'メモ', notes:'申し送り', weather:'天気', am:'午前', pm:'午後', transport:'送迎', _tpManual:'送迎(手で変更)' };
+        const _alCmLbl = { date:'日付', period:'対象月', tokki:'特記', memo:'メモ', note:'メモ', comment:'コメント', status:'状態', recorder:'記録者', staff:'担当', values:'測定値', items:'項目', createdAt:'作成', updatedAt:'更新', kinouStaff:'個別実施', confirmed:'確定', title:'題名', body:'本文', summary:'まとめ' };
+        const _alKeysDiff = (o, n, cat) => { const out = []; let extra = 0; const fitItems = ((newData && newData.systemSettings && newData.systemSettings.fitnessItems) || appSettings.fitnessItems || []);
+          const keys = new Set([...Object.keys(o || {}), ...Object.keys(n || {})]);
+          keys.forEach(key => { if (key === 'id' || key === 'patientId' || key === 'patientName' || key === 'name' && cat !== 'patients' || key.startsWith('_') || key === 'updatedAt' || key === 'updatedBy' || key === 'createdAt' || key === 'version') return;
+            let same; try { same = JSON.stringify((o || {})[key] ?? '') === JSON.stringify((n || {})[key] ?? ''); } catch { same = false; } if (same) return;
+            if (cat === 'patients' && key === 'faceSheet') { try { diffFaceSheetChanges((o || {}).faceSheet, (n || {}).faceSheet).forEach(c => out.push(c.label)); } catch { out.push('フェイスシート'); } return; }
+            if (cat === 'fitnessRecords' && key === 'values') { const vo = (o || {}).values || {}, vn = (n || {}).values || {}; new Set([...Object.keys(vo), ...Object.keys(vn)]).forEach(id => { if (String(vo[id] ?? '') !== String(vn[id] ?? '')) out.push((fitItems.find(x => x && x.id === id) || {}).name || id); }); return; }
+            const lb = (cat === 'patients' ? _alPtLbl[key] : cat === 'dailyLogs' ? _alDlLbl[key] : _alKkLbl[key]) || _alCmLbl[key]; if (lb) out.push(lb); else extra++; });
+          const u = Array.from(new Set(out)); return { names: u, extra }; };
         const _alRecDiff = (o, n) => { const parts = []; const _exs = effExerciseItems((newData && newData.systemSettings) || prev.systemSettings); const exN = (id) => ((_exs || []).find(x => x && x.id === id) || {}).name || String(id);
           const keys = new Set([...Object.keys(o || {}), ...Object.keys(n || {})]);
           keys.forEach(key => {
@@ -23026,6 +23039,7 @@ export default function App() {
                 const _pn = one.patientId != null ? ((newData.patients || prev.patients || []).find(p => p && p.id === one.patientId)?.name || '') : (one.patientName || '');
                 detail = [_pn, one.date, one.subject].filter(Boolean).join(' ').slice(0, 40);
                 if (k === 'ticketRecords') { const _o1 = _pm.get(String(one.id)); const _parts = _alRecDiff(_o1, one); if (_parts.length) detail += `: ${_parts.slice(0, 6).join('、')}${_parts.length > 6 ? ` 他${_parts.length - 6}項目` : ''}`; else if (!_o1) detail += ': 新規'; } // ★ 2026-10-26: 項目ごとの変化
+                else { const _o1 = _pm.get(String(one.id)); if (!_o1) detail += ': 新規'; else { const d2 = _alKeysDiff(_o1, one, k); const nm = d2.names.slice(0, 6); if (nm.length || d2.extra) detail += `: ${nm.join('、')}${d2.names.length > 6 ? ` 他${d2.names.length - 6}項目` : ''}${d2.extra && !nm.length ? `${d2.extra}項目を変更` : ''}`; } } // ★ 2026-10-26: 項目名だけ
                 if (_chg.length > 1) detail += ` 他${_chg.length - 1}件`;
               } else if (newData[k].length !== prev[k].length) {
                 detail = `件数 ${prev[k].length}→${newData[k].length}`;
@@ -24893,7 +24907,7 @@ export default function App() {
               const mid = String(staffAddForm.editId); const acct = (_staffAcct.accounts || []).find(a => String(a.member_id) === mid) || null; const inv = (_staffAcct.invites || []).find(i => String(i.member_id) === mid) || null;
               const nm = `${staffAddForm.lastName || ''} ${staffAddForm.firstName || ''}`.trim();
               const url = inv ? `${location.origin}${location.pathname}?staffinvite=${inv.code}` : '';
-              const issue = async () => { try { await supabaseStaffInviteCreate(staffSession.token, { storeId: staffSession.storeId, memberId: mid, name: nm, role: staffAddForm.role === '管理者' ? 'manager' : 'member' }); await _reloadStaffAcct(); } catch (e) { alert(e?.message || '招待を発行できませんでした'); } };
+              const issue = async () => { if (!tsuAdminGate(issue, '招待コードの発行')) return; /* ★ 2026-10-26(ユーザー): 招待を出せるのは管理者だけ */ try { await supabaseStaffInviteCreate(staffSession.token, { storeId: staffSession.storeId, memberId: mid, name: nm, role: staffAddForm.role === '管理者' ? 'manager' : 'member' }); await _reloadStaffAcct(); } catch (e) { alert(e?.message || '招待を発行できませんでした'); } };
               const toggle = async () => { if (!acct) return; if (!window.confirm(acct.is_active ? `「${acct.name}」を退職にしますか？\n（この人のログインはすぐに使えなくなります。記録に残っている名前はそのままです）` : `「${acct.name}」を復帰にしますか？`)) return; try { await supabaseStaffSetActive(staffSession.token, acct.staff_id, !acct.is_active); await _reloadStaffAcct(); } catch (e) { alert(e?.message || '変更できませんでした'); } };
               return (
                 <div data-testid="member-account-panel" className="mt-4 p-3 rounded-xl border border-emerald-200 bg-emerald-50/60">
