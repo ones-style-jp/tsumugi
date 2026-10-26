@@ -18914,10 +18914,14 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
   const [quickPin, setQuickPin] = React.useState(''); const [quickErr, setQuickErr] = React.useState(''); const [quickBusy, setQuickBusy] = React.useState(false);
   const quickPress = async (d) => {
     if (quickBusy) return; const n = (quickPin + d).slice(0, 4); setQuickPin(n); setQuickErr('');
-    if (n.length === 4 && onPinLogin) { setQuickBusy(true); try { const m = await onPinLogin(n); if (m) { setQuickPin(''); onSelect(m); return; } setQuickErr('PIN が違います'); } catch (e) { setQuickErr(e?.message || 'PIN が違います'); } setQuickPin(''); setQuickBusy(false); }
+    if (n.length === 4 && onPinLogin) { setQuickBusy(true); try { const m = await onPinLogin(n); if (m) { setQuickPin(''); setQuickBusy(false); afterPin(m); return; } setQuickErr('PIN が違います'); } catch (e) { setQuickErr(e?.message || 'PIN が違います'); } setQuickPin(''); setQuickBusy(false); }
   };
   const [pendingAdmin, setPendingAdmin] = React.useState(null); // 管理者選択 → 認証待ち
   const [pendingPin, setPendingPin] = React.useState(null); // ★ 2026-10-19 段階4: 本人アカウント＋PIN のある職員 → PIN 待ち
+  // ★ 2026-10-26(ユーザー要望「同じ人で役職が複数ある人は、PIN のあとにどちらにするか選べるように」): 同じ名前の行が複数あれば役職を選んでから入る
+  const [roleChoice, setRoleChoice] = React.useState(null);
+  const _sameName = (m) => { const k = normalizeName(m.name || '').trim(); return (members || []).filter(x => x && x.id !== 'hq_viewer' && normalizeName(x.name || '').trim() === k); };
+  const afterPin = (m) => { const rows = _sameName(m); if (rows.length > 1) { setRoleChoice({ base: m, rows }); return; } onSelect(m); };
   // 管理者メンバーを選んだ時はパスワード認証を挟む。 ★ つむぎ管理局(super_admin)は本部認証済みなので店舗のPINを省略して入れる
   const selectMember = (m) => {
     tsumugiMaybeAutoFullscreen(); // ★ 端末設定ONなら、このクリックで全画面に
@@ -19066,7 +19070,19 @@ function RecorderPickerGate({ storeName, storeId, members, canManage, isSuperAdm
           </div>
         </div>
       )}
-      {pendingPin && <TsuPinPrompt member={pendingPin} onCancel={() => setPendingPin(null)} onVerify={async (pin) => { const m = pendingPin; await onVerifyPin(m, pin); setPendingPin(null); try { if (m.isAdmin || m.roleLabel === '管理者') sessionStorage.setItem('tsumugiAdminVerified', '1'); } catch {} onSelect(m); }} />}
+      {pendingPin && <TsuPinPrompt member={pendingPin} onCancel={() => setPendingPin(null)} onVerify={async (pin) => { const m = pendingPin; await onVerifyPin(m, pin); setPendingPin(null); try { if (m.isAdmin || m.roleLabel === '管理者') sessionStorage.setItem('tsumugiAdminVerified', '1'); } catch {} afterPin(m); }} />}
+      {roleChoice && (
+        <div data-testid="role-choice" style={{position:'fixed',inset:0,zIndex:10070,background:'rgba(15,23,42,0.45)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={() => setRoleChoice(null)}>
+          <div onClick={e => e.stopPropagation()} style={{background:'white',borderRadius:16,padding:'20px 22px',maxWidth:420,width:'100%',boxShadow:'0 20px 60px rgba(0,0,0,0.35)'}}>
+            <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>{roleChoice.base.name} さん　どの役職で入りますか</div>
+            <div style={{fontSize:12,color:'#64748b',marginBottom:12}}>記録に残る役職が変わります</div>
+            <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              {roleChoice.rows.map(r => <button key={r.id} type="button" data-testid={`role-choice-${r.id}`} onClick={() => { const m = { ...r, isAdmin: r.isAdmin || r.roleLabel === '管理者' }; setRoleChoice(null); try { if (m.isAdmin) sessionStorage.setItem('tsumugiAdminVerified', '1'); } catch {} onSelect(m); }} style={{padding:'12px 14px',background: String(r.id) === String(roleChoice.base.id) ? '#7daa3d' : '#f8fafc',color: String(r.id) === String(roleChoice.base.id) ? 'white' : '#1e293b',border:'1px solid #cbd5e1',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer',textAlign:'left'}}>{r.roleLabel || '役職なし'}</button>)}
+            </div>
+            <div style={{textAlign:'right',marginTop:10}}><button type="button" onClick={() => setRoleChoice(null)} style={{padding:'6px 14px',background:'#f1f5f9',color:'#475569',border:'none',borderRadius:8,fontSize:12,fontWeight:'bold',cursor:'pointer'}}>やめる</button></div>
+          </div>
+        </div>
+      )}
       {pendingAdmin && (
         <AdminAuthModal
           mode={adminAuth?.passwordHash ? 'verify' : 'set'}
@@ -20386,7 +20402,16 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
 const _tsumugiIsIOSLike = () => { try { return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); } catch { return false; } };
 const _tsumugiIsStandalone = () => { try { return navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches); } catch { return false; } };
 const _tsumugiOsLabel = () => { try { const ua = navigator.userAgent; const m = ua.match(/OS (\d+)[_.](\d+)/); if (m && /iPhone|iPad/.test(ua)) return `iOS ${m[1]}.${m[2]}`; const v = ua.match(/Version\/(\d+\.\d+)/); return v ? `Safari ${v[1]}` : ''; } catch { return ''; } };
+const TSU_RELOGIN_MS = 10 * 60 * 1000; // ★ 2026-10-26(ユーザー決定): 事業所のログアウト後に「続ける」が出る時間(10分)
+function tsuReloginTicket() { try { const j = JSON.parse(localStorage.getItem('tsumugiRelogin') || 'null'); if (!j || !j.session || !j.session.token || !j.at || Date.now() - j.at > TSU_RELOGIN_MS) return null; return j; } catch { return null; } }
+function tsuReloginClear() { try { localStorage.removeItem('tsumugiRelogin'); } catch {} }
 function StaffLoginGate({ onLogin }) {
+  const [relogin, setRelogin] = useState(() => tsuReloginTicket()); // ★ 2026-10-26: ログアウトから10分以内の「○○さんとして続ける／別の人」
+  useEffect(() => { if (!relogin) return; const left = Math.max(0, relogin.at + TSU_RELOGIN_MS - Date.now()); const t = setTimeout(() => setRelogin(null), left + 50); return () => clearTimeout(t); }, [relogin]);
+  const continueAs = (withRecorder) => { const j = tsuReloginTicket(); tsuReloginClear(); setRelogin(null); if (!j) return;
+    if (!withRecorder && j.session.kind === 'person') return; // 本人ログインの「別の人」= ふつうのログインへ
+    try { sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(j.session)); if (withRecorder && j.recorder) sessionStorage.setItem('tsumugiActiveRecorder', JSON.stringify(j.recorder)); else sessionStorage.removeItem('tsumugiActiveRecorder'); sessionStorage.setItem('tsumugiNoResume', '1'); } catch {}
+    onLogin(j.session); };
   const [form, setForm] = useState({ username:'', password:'', error:'', loading:false, showPw:false, code:'', needCode:false, hint:'', sent:false, sentAt:'', mailErr:'' }); // ★ 2026-10-19: 本部の2段階認証(code) ★ 2026-10-26: 送信済み(時刻)・送れなかった理由
   // ★ 2026-10-26(ユーザー「まだメールが送られない。送ったら送信済みとわかるように」): サーバーの返事(送れた・宛先・時刻・理由)をそのまま画面に
   const _hhmm = (s) => { try { const d = s ? new Date(s) : new Date(); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; } catch { return ''; } };
@@ -20457,6 +20482,7 @@ function StaffLoginGate({ onLogin }) {
   };
   const finishLogin = async (staff) => {
     {
+      tsuReloginClear(); // ★ 2026-10-26: ふつうにログインしたら「続ける」の控えは要らない
       const session = tsuBuildStaffSession(staff); // ★ 2026-10-19 段階4: kind(store/person)・memberId・hasPin も持つ
       sessionStorage.setItem('tsumugiStaffSession', JSON.stringify(session));
       // ★ 2026-10-08(店舗報告: iPhoneでIDとパスワードを入力してログインした直後、画面の一部が白いまま。スクロールしても戻らず、押すと反応する):
@@ -20476,6 +20502,17 @@ function StaffLoginGate({ onLogin }) {
   return (
     <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'linear-gradient(135deg,#d4e7a5 0%,#f0f7e0 100%)',padding:24,boxSizing:'border-box'}}>
       <div style={{width:'100%',maxWidth:420,background:'white',borderRadius:24,padding:'32px 28px',boxShadow:'0 12px 40px rgba(125,170,61,0.25)',boxSizing:'border-box'}}>
+        {relogin && (
+          <div data-testid="relogin-box" style={{marginBottom:18,padding:'14px 16px',background:'#f0f7e0',border:'1px solid #c5dea0',borderRadius:14}}>
+            <div style={{fontSize:12,color:'#5e8030',fontWeight:'bold',marginBottom:6}}>{relogin.session.storeName || '事業所'}　さっきログアウトしました（10分以内）</div>
+            {relogin.recorder || relogin.session.kind === 'person' ? (
+              <button type="button" data-testid="relogin-continue" onClick={() => continueAs(true)} style={{width:'100%',padding:'12px',background:'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer'}}>{(relogin.recorder && relogin.recorder.name) || relogin.session.displayName} さんとして続ける</button>
+            ) : (
+              <button type="button" data-testid="relogin-continue" onClick={() => continueAs(false)} style={{width:'100%',padding:'12px',background:'#7daa3d',color:'white',border:'none',borderRadius:12,fontSize:15,fontWeight:'bold',cursor:'pointer'}}>この店舗で続ける（担当者を選ぶ）</button>
+            )}
+            <button type="button" data-testid="relogin-other" onClick={() => continueAs(false)} style={{width:'100%',marginTop:8,padding:'10px',background:'white',color:'#3d5021',border:'1px solid #94c456',borderRadius:12,fontSize:13,fontWeight:'bold',cursor:'pointer'}}>{relogin.session.kind === 'person' ? '別の人でログインする' : '別の人（担当者を選び直す）'}</button>
+          </div>
+        )}{/* ★ 2026-10-26(ユーザー決定): 事業所はログアウトから10分以内なら確認だけで戻れる。別の人へは「どなたですか」(PIN あり)を通る */}
         {/* 紡ぎ ロゴ: 家族ログインと同じものをそのまま使用 */}
         <div style={{textAlign:'center',marginBottom:20}}>
           <img src="/preview/tsumugi-logo-full-transparent.png" alt="つむぎ Tsumugi" style={{width:'100%',maxWidth:200,height:'auto',display:'block',margin:'0 auto',objectFit:'contain'}}/>
@@ -22409,6 +22446,8 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    // ★ 2026-10-26(ユーザー決定「事業所はログアウトから10分以内なら○○さんとして続ける／別の人の確認だけ」): 店舗のログインと今の担当者を10分だけ端末に控える(本部は対象外=30分の信頼の印で代わり)
+    try { if (staffSession && staffSession.token && staffSession.role !== 'super_admin') localStorage.setItem('tsumugiRelogin', JSON.stringify({ at: Date.now(), session: staffSession, recorder: activeRecorder && activeRecorder.id !== 'hq_viewer' ? activeRecorder : null })); } catch {}
     sessionStorage.removeItem('tsumugiStaffSession');
     sessionStorage.removeItem('tsumugiActiveRecorder');
     // ★ 2026-10-26(ユーザー報告「ログアウトしてログインするとホームでなく事業所情報になる」): 見ていた画面の控え(今すぐ更新用)はログアウトでは使わない
@@ -23691,7 +23730,7 @@ export default function App() {
     return <StaffLoginGate onLogin={(sess) => { window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), staffSession: sess }; }} />;
   }
   if (String(import.meta.env.VITE_E2E_DEMO || '') === '1' && typeof window !== 'undefined' && window.location.hash === '#picker') { // ★ 段階4 の自動テスト: PIN 先行の「どなたですか」(本番では空)
-    const _ms = [{ id: 'm1', name: '見本 花子', roleLabel: '介護職員' }, { id: 'm2', name: '見本 次郎', roleLabel: '生活相談員' }];
+    const _ms = [{ id: 'm1', name: '見本 花子', roleLabel: '介護職員' }, { id: 'm2', name: '見本 次郎', roleLabel: '生活相談員' }, ...((window.__tsumugiE2E && window.__tsumugiE2E.multiRole) ? [{ id: 'm3', name: '見本 花子', roleLabel: '生活相談員' }] : [])]; // ★ 2026-10-26: 同じ名前で役職が複数(役職の選択の自動テスト)
     return <RecorderPickerGate storeName="テスト店" storeId="s1" members={_ms} canManage={false} isSuperAdmin={false} roleChoices={['介護職員']} pinMembers={new Set(['m1'])} pinRequired={!!(window.__tsumugiE2E && window.__tsumugiE2E.pinRequired)}
       onPinLogin={async (pin) => { if (pin === '1234') return _ms[0]; throw new Error('PIN が違います'); }} onVerifyPin={async (m, pin) => { if (pin !== '1234') throw new Error('PIN が違います'); }}
       onSelect={(m) => { window.__tsumugiE2E = { ...(window.__tsumugiE2E || {}), picked: m.id }; }} onLogout={() => {}} />;
