@@ -6,11 +6,18 @@ self.addEventListener('push', (e) => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch { d = { title: 'つむぎ', body: e.data ? e.data.text() : '' }; }
   const title = d.title || 'つむぎ';
-  e.waitUntil(self.registration.showNotification(title, {
-    body: d.body || '', tag: d.tag || undefined, renotify: !!d.tag,
-    icon: '/preview/tsumugi-favicon-chip-512.png', badge: '/preview/tsumugi-favicon-chip-512.png',
-    data: { url: d.url || '/' },
-  }));
+  e.waitUntil((async () => {
+    let shown = true, err = '';
+    try {
+      await self.registration.showNotification(title, {
+        body: d.body || '', tag: d.tag || undefined, renotify: !!d.tag,
+        icon: '/preview/tsumugi-favicon-chip-512.png', badge: '/preview/tsumugi-favicon-chip-512.png',
+        data: { url: d.url || '/' },
+      });
+    } catch (x) { shown = false; err = String((x && x.message) || x).slice(0, 120); }
+    // 2026-10-27: 開いている画面へ「この端末に届いた」と知らせる(テスト通知で、届いたのに表示されない=端末の通知の設定、と見分けるため)
+    try { const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true }); for (const c of list) c.postMessage({ type: 'tsu-push', tag: d.tag || '', shown, err }); } catch {}
+  })());
 });
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();

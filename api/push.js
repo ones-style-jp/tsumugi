@@ -150,7 +150,8 @@ export default async function handler(req, res) {
     }
     if (action === 'test') {
       const id = subId(body.endpoint, storeId); const sv = subs[id]; if (!sv) return res.status(404).json({ error: 'この店舗では、この端末はまだ通知先になっていません。「この端末に通知を届ける」を押してください', notRegistered: true });
-      const r = await sendTo(sv, { title: 'つむぎ 通知のテスト', body: 'この端末に予定のお知らせが届きます。', tag: 'tsumugi-test', url: (okOrigin(sv.origin) ? sv.origin : PROD) + '/' }, await vapid());
+      // 2026-10-27: 印(tag)は毎回ちがうものにする(同じ印だと前のテストの通知に上書きされ、音も表示も出ない端末がある)
+      const r = await sendTo(sv, { title: 'つむぎ 通知のテスト', body: 'この端末に予定のお知らせが届きます。', tag: `tsumugi-test-${Date.now()}`, url: (okOrigin(sv.origin) ? sv.origin : PROD) + '/' }, await vapid());
       if (r.gone) await delSub(id);
       return r.ok ? res.status(200).json({ ok: true }) : res.status(502).json({ error: `通知を送れませんでした(${r.status || '通信'})。もう一度「この端末に通知を届ける」を押してください` });
     }

@@ -24530,16 +24530,19 @@ export default function App() {
       )}
 
       {/* ★ モバイル時のサイドバー背景オーバーレイ (タップで閉じる)。★ 2026-10-22: 縦向きのタブレット(1024px 未満)も重ねて出すので同じ */}
+      {/* ★ 2026-10-27(ユーザー報告「タブレット縦・スマホ横でサイドバーを出すと、提供記録・連絡帳の見出し『利用者名』が浮き出る」): 表の見出しは貼り付き(z-50)で、
+          同じ高さのサイドバー(z-50)より後ろに書かれているため上に出ていた。重ねて出すとき(1024px 未満)は 幕=57・サイドバー=58 にする
+          (表の見出しより上・小窓(60 以上: スタッフ追加・不具合の報告・同意ポリシー・管理者の確認)より下)。並べて出すとき(lg)は従来どおり */}
       {isSidebarOpen && (
-        <div onClick={()=>setIsSidebarOpen(false)} className="lg:hidden fixed inset-0 bg-black/50 z-40" aria-hidden="true"/>
+        <div onClick={()=>setIsSidebarOpen(false)} className="lg:hidden fixed inset-0 bg-black/50 z-[57]" aria-hidden="true"/>
       )}
       {/* ★ 2026-10-08(ユーザー報告「スマホ縦でサイドバーのメニューが消える。横にして縦に戻すと出る」): iPhone の WebKit は、
           幅0・透明から開く(幅と透明度のアニメーション)と、中のスクロール枠(メニュー)を描かないことがある。
           スマホ幅は常に幅256pxのまま画面の左外から滑り込ませる(transform)。iPad・PC(md以上)は従来どおり幅の開閉 */}
       <div data-testid="app-sidebar" className={`no-print bg-slate-900 text-slate-300 flex flex-col shadow-2xl ${
         isSidebarOpen
-          ? `w-64 fixed inset-y-0 left-0 z-50 translate-x-0 transition-transform duration-300 ${tsumugiIsIOS() ? 'lg:transition-none' : 'lg:transition-all'} lg:transform-none lg:relative lg:flex-shrink-0 lg:z-auto lg:opacity-100`
-          : `w-64 fixed inset-y-0 left-0 z-50 -translate-x-full invisible lg:visible transition-transform duration-300 ${tsumugiIsIOS() ? 'lg:transition-none' : 'lg:transition-all'} lg:transform-none lg:relative lg:translate-x-0 lg:w-0 lg:opacity-0 lg:overflow-hidden lg:flex-shrink-0 lg:z-auto`
+          ? `w-64 fixed inset-y-0 left-0 z-[58] translate-x-0 transition-transform duration-300 ${tsumugiIsIOS() ? 'lg:transition-none' : 'lg:transition-all'} lg:transform-none lg:relative lg:flex-shrink-0 lg:z-auto lg:opacity-100`
+          : `w-64 fixed inset-y-0 left-0 z-[58] -translate-x-full invisible lg:visible transition-transform duration-300 ${tsumugiIsIOS() ? 'lg:transition-none' : 'lg:transition-all'} lg:transform-none lg:relative lg:translate-x-0 lg:w-0 lg:opacity-0 lg:overflow-hidden lg:flex-shrink-0 lg:z-auto`
       }`}>
           <div className="w-64 h-full flex flex-col">
             <div className="h-16 flex items-center px-5 border-b" style={{background:'#fafef1',borderColor:'#d4e7a5'}}>
@@ -26444,6 +26447,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const _keypadOn = (appData.systemSettings?.keypadDisabled !== true);
   // ★ 2026-10-16(ユーザー要望「スマホで利用者が多いと、どこだっけとスクロールするのが大変」): 上部の「利用者」から選ぶと、その方のカードへ移る
   const [recJump, setRecJump] = useState(null); // null=閉じる / { top, q }
+  // ★ 2026-10-27(ユーザー報告「縦表示で利用者をタップしてサイドバーを開くとバグった感じ」・決定「サイドバーを押したら一覧は閉じる」): 一覧(z 9000)がサイドバーの上に残っていた
+  React.useEffect(() => { if (isSidebarOpen) setRecJump(null); }, [isSidebarOpen]);
   const [recFlash, setRecFlash] = useState(null);
   const _recKana = (t) => String(t || '').replace(/[\u3041-\u3096]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 0x60)).replace(/[\s　]/g, '');
   const openRecJump = () => { const pin = document.querySelector('.tsu-pin'); const top = pin ? Math.round(pin.getBoundingClientRect().bottom) : 96; setRecJump(v => v ? null : { top, q: '' }); };
@@ -46006,13 +46011,44 @@ async function tsuPushDisable() { // ★ 2026-10-27: 今の店舗の分だけ止
   if (sub) { try { remaining = Number((await tsuPushApi({ action: 'unsubscribe', endpoint: sub.endpoint })).remaining) || 0; } catch {} if (!remaining) { try { await sub.unsubscribe(); } catch {} } }
   _tsuPushStoreMark(false); if (!remaining) { try { localStorage.removeItem('tsumugiPushOn'); localStorage.removeItem('tsumugiPushStores'); } catch {} }
 }
-async function tsuPushTest() { const sub = await tsuPushCurrentSub(); if (!sub) throw new Error('この端末はまだ通知を受け取る設定になっていません'); return tsuPushApi({ action: 'test', endpoint: sub.endpoint }); }
+// ★ 2026-10-27(ユーザー報告「Web でテスト通知を送っても届かない気がする」): 送ったあと、この端末に届いたかを画面で確かめる(sw-push.js が開いている画面へ知らせる)。
+//   届いたのに見えない=端末(パソコン・スマホ)の通知の設定でブラウザが止められている。届かない=ブラウザまで来ていない(開き直し・登録し直し)
+const TSU_PUSH_WAIT_MS = 15000;
+function tsuPushWaitArrive(ms) {
+  return new Promise((resolve) => {
+    try {
+      const sw = navigator.serviceWorker; let done = false; let t = null;
+      const fin = (v) => { if (done) return; done = true; try { sw.removeEventListener('message', h); } catch {} clearTimeout(t); resolve(v); };
+      const h = (ev) => { const d = ev && ev.data; if (d && d.type === 'tsu-push' && /^tsumugi-test/.test(String(d.tag || ''))) fin(d); };
+      t = setTimeout(() => fin(null), ms);
+      sw.addEventListener('message', h); try { if (sw.startMessages) sw.startMessages(); } catch {}
+    } catch { resolve(null); }
+  });
+}
+// 戻り値: null=時間内に届いた知らせなし / { shown:true } 表示した / { shown:false } 届いたが表示を許されなかった
+async function tsuPushTest() {
+  const sub = await tsuPushCurrentSub(); if (!sub) throw new Error('この端末はまだ通知を受け取る設定になっていません');
+  const wait = tsuPushWaitArrive(TSU_PUSH_WAIT_MS); // 送る前から待つ(すぐ届いたときに取りこぼさない)
+  await tsuPushApi({ action: 'test', endpoint: sub.endpoint });
+  return wait;
+}
+// 通知が出ないときの案内(この端末の種類に合わせて1つだけ出す)
+const tsuPushOsHelp = () => {
+  const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+  if (tsuIsIOSDevice()) return '「設定」→「通知」→「つむぎ」→「通知を許可」をオンにしてください。集中モード（おやすみモードなど）もオフにしてください。';
+  if (/Android/.test(ua)) return '「設定」→「アプリ」→「Chrome」→「通知」をオンにしてください。';
+  const br = /Edg\//.test(ua) ? 'Microsoft Edge' : (/Chrome\//.test(ua) ? 'Google Chrome' : (/Safari\//.test(ua) ? 'Safari' : 'お使いのブラウザ'));
+  if (/Macintosh|Mac OS X/.test(ua)) return `Mac の「システム設定」→「通知」→「${br}」（アプリとして入れたときは「つむぎ」）→「通知を許可」をオンにし、通知のスタイルを「バナー」か「通知パネル」にしてください。集中モード（おやすみモードなど）もオフにしてください。`;
+  if (/Windows/.test(ua)) return `Windows の「設定」→「システム」→「通知」→「${br}」をオンにしてください。「応答不可」（集中モード）もオフにしてください。`;
+  return '端末の通知の設定で、ブラウザの通知をオンにしてください。';
+};
 // 起動時(ログイン後): 許可済みで「届ける」にしていた端末は、登録を確かめ直す(ブラウザが登録を作り直したときのため)
 async function tsuPushRefresh() {
   try {
     if (!tsuPushSupported() || Notification.permission !== 'granted') return;
     if (!_tsuPushWanted()) return;
     const reg = (await _tsuPushReg()) || (await navigator.serviceWorker.register(TSU_PUSH_SW, { scope: '/' }));
+    try { reg.update(); } catch {} // ★ 2026-10-27: 通知の仕組み(sw-push.js)を新しい版にする
     let sub = await reg.pushManager.getSubscription();
     if (!sub) { const { publicKey } = await tsuPushApi({ action: 'key' }); sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: _tsuB64ToU8(publicKey) }); }
     let dev = ''; try { dev = localStorage.getItem('tsumugiDeviceName') || ''; } catch {}
@@ -46023,6 +46059,7 @@ async function tsuPushRefresh() {
 // 各種設定 → システム: この端末の通知
 function TsuPushDeviceCard() {
   const [st, setSt] = React.useState({ loading: true }); const [busy, setBusy] = React.useState(false); const [msg, setMsg] = React.useState('');
+  const [testRes, setTestRes] = React.useState(null); // ★ 2026-10-27: テスト通知の結果 'shown' | 'blocked' | 'none'
   const load = React.useCallback(async () => {
     const supported = tsuPushSupported(); const perm = supported ? Notification.permission : 'unsupported';
     let sub = supported ? await tsuPushCurrentSub() : null; let count = null, registered = null;
@@ -46031,7 +46068,10 @@ function TsuPushDeviceCard() {
     setSt({ loading: false, supported, perm, on: !!sub && perm === 'granted' && registered !== false, count, otherOnly: !!sub && registered === false });
   }, []);
   React.useEffect(() => { load(); }, [load]);
-  const run = async (fn, okMsg) => { setBusy(true); setMsg(''); try { await fn(); setMsg(okMsg); } catch (e) { setMsg(`⚠ ${(e && e.message) || '失敗しました'}`); } setBusy(false); load(); };
+  const run = async (fn, okMsg) => { setBusy(true); setMsg(''); setTestRes(null); try { await fn(); setMsg(okMsg); } catch (e) { setMsg(`⚠ ${(e && e.message) || '失敗しました'}`); } setBusy(false); load(); };
+  const runTest = async () => { setBusy(true); setTestRes(null); setMsg('テスト通知を送りました。この端末に届くのを待っています…');
+    try { const a = await tsuPushTest(); setTestRes(a ? (a.shown ? 'shown' : 'blocked') : 'none'); setMsg(''); } catch (e) { setMsg(`⚠ ${(e && e.message) || '失敗しました'}`); }
+    setBusy(false); };
   const iosNeedsHome = tsuIsIOSDevice() && !tsuIsStandaloneApp();
   const btn = 'px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50';
   return (
@@ -46048,12 +46088,20 @@ function TsuPushDeviceCard() {
           {st.perm === 'denied' && <div className="text-xs text-amber-800">端末の「設定」（またはブラウザのサイトの設定）で、つむぎ の通知を「許可」にしてから、下のボタンを押してください。</div>}
           <div className="flex gap-2 flex-wrap">
             {!st.on && <button type="button" data-testid="push-enable" disabled={busy} onClick={() => run(tsuPushEnable, '✓ この端末に通知が届くようにしました。「テスト通知」で確かめてください')} className={`${btn} bg-blue-600 text-white`}>この端末に通知を届ける</button>}
-            {st.on && <button type="button" data-testid="push-test" disabled={busy} onClick={() => run(tsuPushTest, '✓ テスト通知を送りました（数秒で届きます）')} className={`${btn} bg-white border border-blue-300 text-blue-700`}>テスト通知を送る</button>}
+            {st.on && <button type="button" data-testid="push-test" disabled={busy} onClick={runTest} className={`${btn} bg-white border border-blue-300 text-blue-700`}>テスト通知を送る</button>}
             {st.on && <button type="button" data-testid="push-disable" disabled={busy} onClick={() => run(tsuPushDisable, 'この端末には届かないようにしました')} className={`${btn} bg-white border border-slate-300 text-slate-600`}>この端末には届けない</button>}
           </div>
         </div>
       )}
       {msg && <div data-testid="push-msg" className="mt-2 text-xs font-bold text-slate-700">{msg}</div>}
+      {testRes && (
+        <div data-testid="push-test-result" data-res={testRes} className={`mt-2 rounded-xl border px-3 py-2 text-xs leading-relaxed ${testRes === 'shown' ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-amber-50 border-amber-200 text-amber-900'}`}>
+          <div className="font-bold text-sm">{testRes === 'shown' ? '✓ この端末に届きました' : testRes === 'blocked' ? 'この端末に届きましたが、表示が止められています' : `${TSU_PUSH_WAIT_MS / 1000}秒待っても、この端末に届いた知らせがありません`}</div>
+          {testRes === 'shown' && <div className="mt-1">画面の端に「つむぎ 通知のテスト」が出ます。出ていないときは、端末の通知の設定でブラウザの通知が止まっています。</div>}
+          {testRes === 'none' && <div className="mt-1">ブラウザを一度閉じて開き直してから、もう一度「テスト通知を送る」を押してください。続くときは「この端末には届けない」を押してから「この端末に通知を届ける」を押し直してください。</div>}
+          {testRes !== 'none' && <div className="mt-1 font-bold">出ないとき: {tsuPushOsHelp()}</div>}
+        </div>
+      )}
     </div>
   );
 }

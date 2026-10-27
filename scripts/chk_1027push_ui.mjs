@@ -33,6 +33,18 @@ await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(1800)
 await page.getByTestId('settings-search-input').fill('通知'); await page.waitForTimeout(300); await page.locator('[data-testid^="settings-search-hit-"]', { hasText: /この端末の通知/ }).first().click(); await page.waitForTimeout(1500);
 r.autoReRegister = calls.filter(c => c.action === 'subscribe').length > nSub0 && /この端末に届きます/.test(await page.getByTestId('push-state').innerText());
 await page.getByTestId('push-test').click(); await page.waitForTimeout(600); r.testCall = calls.some(c => c.action === 'test' && c.endpoint === 'https://push.example.test/abc') && /テスト通知を送りました/.test(await page.getByTestId('push-msg').innerText());
+// trial433: テスト通知が端末(sw-push.js)に届いたら、画面に「届きました」と出る(本物の通知の仕組みへ CDP で届ける)
+{ const cdp = await ctx.newCDPSession(page); const regs = []; cdp.on('ServiceWorker.workerRegistrationUpdated', ev => { for (const g of ev.registrations || []) regs.push(g); });
+  await cdp.send('ServiceWorker.enable'); await page.waitForTimeout(500);
+  const g = regs.find(x => String(x.scopeURL || '').startsWith(`http://localhost:${PORT}/`) && !x.isDeleted);
+  if (g) await cdp.send('ServiceWorker.deliverPushMessage', { origin: `http://localhost:${PORT}`, registrationId: g.registrationId, data: JSON.stringify({ title: 'つむぎ 通知のテスト', body: 'テスト', tag: 'tsumugi-test-1' }) });
+  await page.getByTestId('push-test-result').waitFor({ timeout: 8000 }).catch(() => {});
+  const res = await page.getByTestId('push-test-result').getAttribute('data-res').catch(() => null);
+  const txt = res ? await page.getByTestId('push-test-result').innerText() : '';
+  r.arriveShown = !!g && (res === 'shown' || res === 'blocked') && /出ないとき/.test(txt); if (!r.arriveShown) console.log('ARRIVE', !!g, res, txt.slice(0, 80)); }
+// 届いた知らせが無いときは、15秒待ったあとで「知らせがありません」と案内が出る
+await page.getByTestId('push-test').click(); await page.waitForTimeout(16500);
+r.arriveNone = (await page.getByTestId('push-test-result').getAttribute('data-res').catch(() => null)) === 'none' && /知らせがありません/.test(await page.getByTestId('push-test-result').innerText());
 // 店舗の設定: 担当者会議のラベルを外す → systemSettings.pushNotify.offColors に入る
 await page.getByTestId('push-cfg-label-3b82f6').click(); await page.waitForTimeout(600);
 r.labelOff = await page.evaluate(() => { const d = JSON.parse(localStorage.getItem('daycareAppData_v3')); return ((d.systemSettings.pushNotify || {}).offColors || []).includes('#3b82f6'); });
