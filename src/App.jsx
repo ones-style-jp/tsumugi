@@ -52885,7 +52885,8 @@ const tkIsoToReiwa = (v) => { const m = String(v || '').match(/^(\d{4})-(\d{2})-
 // 提供記録の運動(予定の値)と個別運動(既定)から、要支援の計画書の「個別の運動の実施内容」を作る
 const tkExercisesFromRecord = (patient, ss) => { try {
   const out = []; const iso = new Date().toISOString().slice(0, 10); const planned = getPlannedExercisesForDate(patient, iso) || {};
-  const nm = (x) => String(x || '').normalize('NFKC').trim(); const empty = (v) => !String(v ?? '').trim() || /^[ー—\-－―]+$/.test(String(v).trim());
+  // 半角カナだけ全角に(①などの丸数字はそのまま。NFKC を全体に掛けると ① が 1 になる)
+  const nm = (x) => String(x || '').replace(/[\uFF61-\uFF9F]+/g, (t) => t.normalize('NFKC')).trim(); const empty = (v) => !String(v ?? '').trim() || /^[ー—\-－―]+$/.test(String(v).trim());
   (effExerciseItems(ss) || []).filter(it => it && it.type !== 'individual').forEach(it => { const v = planned[it.id]; if (!empty(v)) out.push({ content: nm(it.name), amount: String(v).trim(), freq: '', note: '' }); });
   const menu = (ss && Array.isArray(ss.individualExerciseItems)) ? ss.individualExerciseItems : []; const ind = Array.isArray(patient?.individualExercises) ? patient.individualExercises : [];
   Object.values(tsuIndSlotDefaults(patient, ss) || {}).filter(Boolean).forEach(id => { const m = menu.find(x => x && x.id === id); if (!m) return; const d = ind.find(x => x && x.itemId === id); out.push({ content: nm(m.name), amount: String((d && d.defaultValue) || '').trim(), freq: '', note: '' }); });
@@ -53418,9 +53419,9 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                   {(editing.exercises || []).map((x, i) => (
                     <div key={i} className="grid grid-cols-12 gap-2 items-start bg-slate-50 border border-slate-200 rounded-lg p-2" data-testid="tk-ex-row">
                       <input value={x.content || ''} maxLength={30} onChange={e => updEx(i, { content: e.target.value.slice(0, 30) })} placeholder="運動の内容（例: バイク）" className="col-span-12 md:col-span-4 px-2 py-2 border border-slate-300 rounded text-sm outline-none bg-white"/>
-                      <input value={x.amount || ''} maxLength={20} onChange={e => updEx(i, { amount: e.target.value.slice(0, 20) })} placeholder="回数・時間（例: 10分）" className="col-span-6 md:col-span-2 px-2 py-2 border border-slate-300 rounded text-sm outline-none bg-white"/>
-                      <input value={x.freq || ''} maxLength={20} onChange={e => updEx(i, { freq: e.target.value.slice(0, 20) })} placeholder="頻度（例: 利用日ごと）" className="col-span-6 md:col-span-2 px-2 py-2 border border-slate-300 rounded text-sm outline-none bg-white"/>
-                      <input value={x.note || ''} maxLength={40} onChange={e => updEx(i, { note: e.target.value.slice(0, 40) })} placeholder="留意点（例: 膝の痛みに注意）" className="col-span-10 md:col-span-3 px-2 py-2 border border-slate-300 rounded text-sm outline-none bg-white"/>
+                      <input value={x.amount || ''} maxLength={20} onChange={e => updEx(i, { amount: e.target.value.slice(0, 20) })} placeholder="回数・時間" className="col-span-6 md:col-span-2 px-2 py-2 border border-slate-300 rounded text-sm outline-none bg-white"/>
+                      <input value={x.freq || ''} maxLength={20} onChange={e => updEx(i, { freq: e.target.value.slice(0, 20) })} placeholder="頻度" className="col-span-6 md:col-span-2 px-2 py-2 border border-slate-300 rounded text-sm outline-none bg-white"/>
+                      <input value={x.note || ''} maxLength={40} onChange={e => updEx(i, { note: e.target.value.slice(0, 40) })} placeholder="留意点" className="col-span-10 md:col-span-3 px-2 py-2 border border-slate-300 rounded text-sm outline-none bg-white"/>
                       <button type="button" onClick={() => delEx(i)} aria-label="この行を消す" className="col-span-2 md:col-span-1 h-10 rounded bg-white border border-slate-300 text-slate-500 text-sm font-bold">×</button>
                     </div>))}
                 </div>
