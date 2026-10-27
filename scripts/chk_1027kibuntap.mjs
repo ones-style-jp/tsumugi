@@ -20,5 +20,10 @@ if (opened) {
   await btn.evaluate(el => { const r0 = el.getBoundingClientRect(); const x = r0.x + r0.width / 2, y = r0.y + r0.height / 2; el.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, clientX: x, clientY: y, pointerId: 1, pointerType: 'touch' })); });
   await page.waitForTimeout(500); r.longPressSelects = (await page.getByText(/理由|どうしてですか|理由を選ぶ/).count()) > 0 || (await page.getByText('体調を選んでください').count()) === 0; void bb;
   if (!r.longPressSelects) console.log('after longpress still picker');
+  /* trial429: 戻る → 別の体調を 20px ずれた一瞬タップ(pointerdown→move→up)でも選ばれる(続けて押しても無視されない) */
+  const back = page.locator('button', { hasText: /戻る/ }).last(); if (await back.count()) { await back.evaluate(el => { const r0 = el.getBoundingClientRect(); const x = r0.x + r0.width / 2, y = r0.y + r0.height / 2; el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: x, clientY: y, pointerId: 2, pointerType: 'touch' })); el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: x, clientY: y, pointerId: 2, pointerType: 'touch' })); }); await page.waitForTimeout(150); }
+  r.backWorks = (await page.getByText('体調を選んでください').count()) === 1; if (!r.backWorks) console.log('back did not return to picker');
+  const b2 = page.locator('button', { hasText: /ふつう|普通|良い/ }).nth(1); if (await b2.count()) { await b2.evaluate(el => { const r0 = el.getBoundingClientRect(); const x = r0.x + r0.width / 2, y = r0.y + r0.height / 2; el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: x, clientY: y, pointerId: 3, pointerType: 'touch' })); el.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: x + 20, clientY: y + 8, pointerId: 3, pointerType: 'touch' })); el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: x + 20, clientY: y + 8, pointerId: 3, pointerType: 'touch' })); }); await page.waitForTimeout(400); }
+  r.quickTapSelects = (await page.getByText('体調を選んでください').count()) === 0; if (!r.quickTapSelects) console.log('quick tap did not select');
 }
 console.log(r, Object.values(r).every(Boolean) ? 'PASS' : 'FAIL'); await b.close();
