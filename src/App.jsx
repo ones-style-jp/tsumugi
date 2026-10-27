@@ -2016,6 +2016,8 @@ const tsuPcBrowserZoom = () => { try {
   for (const L of cands) { const base = dpr / L; if (_TSU_OS_SCALES.some(x => Math.abs(base / x - 1) < 0.02)) return L; }
   return 1;
 } catch { return 1; } };
+// ★ 2026-10-27: 上の帯の「かすみ・ぼやけ」の本当の原因は描き直しではなく、iPadOS 26 以降のホーム画面のアプリで OS が上端に掛けるぼかし(scroll edge effect)。
+//   index.html の見えない帯(tsu-edge-band)で止める。下の描き直しの工夫は「白いまま」の対策として残すが、かすみには効かない(かすみの対策を足さない)
 // ★ 2026-10-11(ユーザー報告: iPad でしばらくしてからログインすると、見出し・上部のメニューが白いまま/見出しがぼやけて見える。縦にして横に戻すと直る):
 //   iPad の Safari が画面の一部を古い描画のまま出し続ける。部品を消して出し直す(display)だけでは大きさが同じなので描き直されないことがあるため、
 //   回転と同じように「アプリ全体の高さを 2 フレームだけ 1px 変える」ことで、画面全体を描き直させる。iPad/PC 幅の iPhone・iPad だけ(スマホ幅はページ全体のスクロールなので触らない)

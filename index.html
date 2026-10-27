@@ -19,10 +19,24 @@
             //   入力欄に触れた瞬間だけ拡大の上限を1倍にして防ぐ
             if (m) m.setAttribute('content', 'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=4.0, user-scalable=yes, viewport-fit=cover');
             document.documentElement.classList.add('tsu-ios');
+            // ★ 2026-10-27: ホーム画面に追加したアプリ(全画面)のときの印。上端のぼかしを止める帯(tsu-edge-band)をこのときだけ出す
+            try { if (navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches) document.documentElement.classList.add('tsu-ios-app'); } catch (e2) {}
           }
         } catch (e) {}
       })();
     </script>
+    <!-- ★ 2026-10-27(ユーザー報告「iPad でログインすると上部が曇っている・ずっと直っていない」): 本当の原因は、iPadOS 26 以降のホーム画面のアプリで、
+         OS が画面の上端(状態表示の下 約40pt)にぼかしを掛けること(Liquid Glass の scroll edge effect)。描き直しの工夫(10/09〜10/22 の8回)では消えなかった。
+         WebKit は「上端の中央・上から4pxの所に、幅が画面の9割以上・高さ10pxより大きい・不透明な背景色の fixed の箱」があると、ぼかさずその色で塗る
+         (LocalFrameView::fixedContainerEdges)。スマホは上の帯が fixed の白なので出ない。iPad(768px以上)は上の帯が fixed ではないので出ていた。
+         そこで、見えない帯(背景色は白だが background-clip:text で何も塗らない・押しても下に通る・いちばん上)を、最初の描画からある形で置く。
+         iPhone/iPad のホーム画面のアプリで、幅 768px 以上のときだけ(Safari のタブ・パソコン・Android には出さない) -->
+    <style>
+      .tsu-edge-band { display: none; }
+      @media screen and (min-width: 768px) {
+        html.tsu-ios-app .tsu-edge-band { display: block; position: fixed; top: 0; left: 0; right: 0; height: 12px; background-color: #ffffff; -webkit-background-clip: text; background-clip: text; color: transparent; z-index: 2147483647; pointer-events: none; }
+      }
+    </style>
     <title>つむぎ｜デイサービス管理</title>
     <!-- ★ favicon: 正式マークPNG(無加工)を淡い緑の角丸チップに載せた合成版。
          白いブックマークバー/タブでも背景に溶けず、ダークモードでも明るいチップで視認できる -->
@@ -38,6 +52,7 @@
     <meta name="theme-color" content="#7daa3d" />
   </head>
   <body>
+    <div class="tsu-edge-band" aria-hidden="true"></div>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
