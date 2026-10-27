@@ -41,16 +41,36 @@ async function kvSave(key, g) {
   try { const r = await sb(`app_secrets?key=eq.${encodeURIComponent(key)}&select=key`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ value, updated_at, updated_by: 'push' }) }); if (Array.isArray(r) && r.length) return; } catch {}
   try { await sb('app_secrets', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ key, value, updated_at, updated_by: 'push' }) }); } catch {}
 }
-// 送信の鍵: 初回だけ作る。鍵を変えると全端末の登録が使えなくなるので、ある限り作り直さない
+// 送信の鍵: 初回だけ作る。鍵を変えると全端末の登録が使えなくなるので、ある限り作り直さない・上書きしない
+//   (読めなかったときに作り直すと上書きになるため、読み出しの失敗は失敗として返す)
 async function vapid() {
-  let v = await kvLoad('push_vapid');
-  if (v.publicKey && v.privateKey) return v;
-  const k = webpush.generateVAPIDKeys();
-  await kvSave('push_vapid', { publicKey: k.publicKey, privateKey: k.privateKey, at: new Date().toISOString() });
-  v = await kvLoad('push_vapid'); // 同時に作られた場合は保存された方を使う
-  return (v.publicKey && v.privateKey) ? v : { publicKey: k.publicKey, privateKey: k.privateKey };
+  const rd = async () => { const rows = await sb('app_secrets?select=value&key=eq.push_vapid&limit=1'); if (!Array.isArray(rows) || !rows.length) return { none: true }; let v = null; try { v = JSON.parse(rows[0].value || '{}'); } catch {} return (v && v.publicKey && v.privateKey) ? v : { broken: true }; };
+  let v = await rd(); if (v.publicKey) return v;
+  if (v.broken) throw new Error('通知の送信の鍵が読めません（本部へ連絡してください）');
+  const k = webpush.generateVAPIDKeys(); const now = new Date().toISOString();
+  try { await sb('app_secrets', { method: 'POST', headers: { Prefer: 'return=minimal,resolution=ignore-duplicates' }, body: JSON.stringify({ key: 'push_vapid', value: JSON.stringify({ publicKey: k.publicKey, privateKey: k.privateKey, at: now }), updated_at: now, updated_by: 'push' }) }); } catch {}
+  v = await rd(); if (v.publicKey) return v; // 同時に作られた場合も、保存された方を使う
+  throw new Error('通知の送信の鍵を作れませんでした');
 }
-const subId = (endpoint) => crypto.createHash('sha256').update(String(endpoint)).digest('hex').slice(0, 32);
+const subId = (endpoint, storeId) => crypto.createHash('sha256').update(String(endpoint) + '|' + String(storeId)).digest('hex').slice(0, 32);
+const SUB_PREFIX = 'push_sub_';
+async function loadSubs() {
+  const out = {};
+  const rows = await sb(`app_secrets?select=key,value&key=like.${SUB_PREFIX}*`);
+  (Array.isArray(rows) ? rows : []).forEach(r => { try { const v = JSON.parse(r.value || '{}'); if (v && v.endpoint && v.storeId) out[String(r.key).slice(SUB_PREFIX.length)] = v; } catch {} });
+  const legacy = await kvLoad('push_subs'); // 2026-10-27 の最初の形(1行にまとめていた)
+  Object.values(legacy).forEach(v => { if (v && v.endpoint && v.storeId) { const id = subId(v.endpoint, v.storeId); if (!out[id]) out[id] = { ...v, _legacy: true }; } });
+  return out;
+}
+async function saveSub(id, v) {
+  const value = JSON.stringify({ ...v, _legacy: undefined }), updated_at = new Date().toISOString(), key = SUB_PREFIX + id;
+  const r = await sb(`app_secrets?key=eq.${encodeURIComponent(key)}&select=key`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ value, updated_at, updated_by: 'push' }) });
+  if (Array.isArray(r) && r.length) return;
+  await sb('app_secrets', { method: 'POST', headers: { Prefer: 'return=minimal,resolution=merge-duplicates' }, body: JSON.stringify({ key, value, updated_at, updated_by: 'push' }) });
+}
+async function delSub(id) { try { await sb(`app_secrets?key=eq.${encodeURIComponent(SUB_PREFIX + id)}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } }); } catch {} }
+// 前の形の控えを1行ずつに移して空にする(書き込みのついでに1回)
+async function migrateLegacy(subs) { const L = Object.entries(subs).filter(([, v]) => v._legacy); if (!L.length) return; for (const [id, v] of L) { try { await saveSub(id, v); } catch {} delete v._legacy; } await kvSave('push_subs', {}); }
 const PROD = 'https://tsumugi.ones-style.co.jp';
 const okOrigin = (o) => { const s = String(o || ''); return s === PROD || /^https:\/\/tsumugi[a-z0-9-]*\.vercel\.app$/.test(s) || /^http:\/\/localhost(:\d+)?$/.test(s); };
 async function sendTo(sub, payload, v) {
@@ -65,7 +85,7 @@ async function storeData(storeId) {
 }
 
 async function runCron(nowMs, dryStore) {
-  const subs = await kvLoad('push_subs'); const sent = await kvLoad('push_sent');
+  const subs = await loadSubs(); const sent = await kvLoad('push_sent'); if (!dryStore) await migrateLegacy(subs);
   Object.keys(sent).forEach(k => { if (nowMs - Number(sent[k] || 0) > 3 * 86400000) delete sent[k]; });
   const byStore = {}; Object.entries(subs).forEach(([id, s]) => { if (s && s.storeId && s.endpoint) (byStore[s.storeId] = byStore[s.storeId] || []).push([id, s]); });
   const stores = dryStore ? [dryStore] : Object.keys(byStore);
@@ -85,7 +105,7 @@ async function runCron(nowMs, dryStore) {
   }
   if (dryStore) return { items: preview };
   await kvSave('push_sent', sent);
-  if (gone.size) { const fresh = await kvLoad('push_subs'); gone.forEach(id => { delete fresh[id]; }); await kvSave('push_subs', fresh); } // 読み直してから消す(同時の登録を消さない)
+  for (const id of gone) await delSub(id); // 1行ずつ消す(ほかの登録には触れない)
   return { stores: stores.length, sent: n };
 }
 
@@ -109,25 +129,29 @@ export default async function handler(req, res) {
     const storeId = String((isHq ? body.store_id : t.store_id) || '');
     if (!storeId) return res.status(400).json({ error: '店舗に入ってから設定してください' });
     if (action === 'preview') { if (!isHq) return res.status(403).json({ error: '本部だけが使えます' }); return res.status(200).json(await runCron(Number(body.now) || Date.now(), storeId)); }
-    const subs = await kvLoad('push_subs');
-    if (action === 'status') return res.status(200).json({ count: Object.values(subs).filter(s => s && s.storeId === storeId).length });
+    const subs = await loadSubs(); await migrateLegacy(subs);
+    const mineCount = () => Object.values(subs).filter(x => x && x.storeId === storeId).length;
+    if (action === 'status') { const ep = String(body.endpoint || ''); return res.status(200).json({ count: mineCount(), registered: ep ? !!subs[subId(ep, storeId)] : null }); }
     if (action === 'subscribe') {
-      const s = body.sub || {}; const ep = String(s.endpoint || ''); const k = s.keys || {};
+      const sv = body.sub || {}; const ep = String(sv.endpoint || ''); const k = sv.keys || {};
       if (!/^https:\/\//.test(ep) || ep.length > 1000 || !k.p256dh || !k.auth) return res.status(400).json({ error: '通知の登録の形が正しくありません' });
       const origin = okOrigin(body.origin) ? String(body.origin) : PROD;
-      const id = subId(ep); const prev = subs[id] || {};
-      subs[id] = { endpoint: ep, keys: { p256dh: String(k.p256dh).slice(0, 200), auth: String(k.auth).slice(0, 100) }, storeId, staffId: String(t.sid), device: String(body.device || '').slice(0, 40), origin, at: prev.at || new Date().toISOString(), seen: new Date().toISOString(), lastOk: prev.lastOk || null };
+      const id = subId(ep, storeId); const prev = subs[id] || {};
+      const v = { endpoint: ep, keys: { p256dh: String(k.p256dh).slice(0, 200), auth: String(k.auth).slice(0, 100) }, storeId, staffId: String(t.sid), device: String(body.device || '').slice(0, 40), origin, at: prev.at || new Date().toISOString(), seen: new Date().toISOString() };
+      await saveSub(id, v); subs[id] = v;
       // 1店舗の端末は 60 台まで(古いものから外す)
-      const mine = Object.entries(subs).filter(([, x]) => x && x.storeId === storeId).sort((a, b) => String(a[1].seen || '').localeCompare(String(b[1].seen || '')));
-      while (mine.length > 60) { const [rid] = mine.shift(); delete subs[rid]; }
-      await kvSave('push_subs', subs);
-      return res.status(200).json({ ok: true, count: Object.values(subs).filter(x => x && x.storeId === storeId).length });
+      const mine = Object.entries(subs).filter(([, x]) => x && x.storeId === storeId).sort((a2, b2) => String(a2[1].seen || '').localeCompare(String(b2[1].seen || '')));
+      while (mine.length > 60) { const [rid] = mine.shift(); await delSub(rid); delete subs[rid]; }
+      return res.status(200).json({ ok: true, count: mineCount() });
     }
-    if (action === 'unsubscribe') { const id = subId(body.endpoint); if (subs[id] && subs[id].storeId === storeId) { delete subs[id]; await kvSave('push_subs', subs); } return res.status(200).json({ ok: true }); }
+    if (action === 'unsubscribe') {
+      const ep = String(body.endpoint || ''); const id = subId(ep, storeId); if (subs[id]) { await delSub(id); delete subs[id]; }
+      return res.status(200).json({ ok: true, remaining: Object.values(subs).filter(x => x && x.endpoint === ep).length });
+    }
     if (action === 'test') {
-      const s = subs[subId(body.endpoint)]; if (!s || s.storeId !== storeId) return res.status(404).json({ error: 'この端末はまだ通知先に登録されていません' });
-      const r = await sendTo(s, { title: 'つむぎ 通知のテスト', body: 'この端末に予定のお知らせが届きます。', tag: 'tsumugi-test', url: (okOrigin(s.origin) ? s.origin : PROD) + '/' }, await vapid());
-      if (r.gone) { delete subs[subId(body.endpoint)]; await kvSave('push_subs', subs); }
+      const id = subId(body.endpoint, storeId); const sv = subs[id]; if (!sv) return res.status(404).json({ error: 'この店舗では、この端末はまだ通知先になっていません。「この端末に通知を届ける」を押してください', notRegistered: true });
+      const r = await sendTo(sv, { title: 'つむぎ 通知のテスト', body: 'この端末に予定のお知らせが届きます。', tag: 'tsumugi-test', url: (okOrigin(sv.origin) ? sv.origin : PROD) + '/' }, await vapid());
+      if (r.gone) await delSub(id);
       return r.ok ? res.status(200).json({ ok: true }) : res.status(502).json({ error: `通知を送れませんでした(${r.status || '通信'})。もう一度「この端末に通知を届ける」を押してください` });
     }
     return res.status(400).json({ error: '不明な操作です' });

@@ -13100,7 +13100,8 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
             const nCur = missingFor(now.getFullYear(), now.getMonth() + 1); if (nCur) add(lastBizOnOrBefore(monthEnd), { key: 'mon_cur', label: `モニタリング（${now.getMonth() + 1}月分） 未確定 ${nCur}名`, sub: `月末（${monthEnd.getMonth()+1}/${monthEnd.getDate()}）まで。押すと未作成の方だけ表示`, view: 'monitoring', ss: ['tsumugiMonJump', JSON.stringify({ ym: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`, filter: 'unentered' })], color: '#0e7490' });
           }
           // ★ 2026-10-25(ユーザー): 「来週の送迎表 未作成」はホームに出さない(確定の廃止とあわせて)
-          const chip = (tid, label, value, sub, view) => <button key={tid} type="button" data-testid={tid} onClick={() => view && navigateTo(view)} style={{background:'white',border:'1px solid rgba(255,255,255,0.6)',borderRadius:12,padding:'6px 14px',color:'#1e293b',textAlign:'left',cursor:'pointer',minWidth:0,flex:'0 1 auto',boxShadow:'0 1px 3px rgba(0,0,0,0.15)'}}><div style={{fontSize:11,color:'#4f46e5',fontWeight:'bold',whiteSpace:'nowrap'}}>{label}</div><div style={{fontSize:22,fontWeight:'bold',lineHeight:1.15,color:'#1e293b'}}>{value}</div>{sub && <div style={{fontSize:10,color:'#64748b',whiteSpace:'nowrap'}}>{sub}</div>}</button>;
+          const _ph3 = tsuViewW() < 640;
+          const chip = (tid, label, value, sub, view) => <button key={tid} type="button" data-testid={tid} onClick={() => view && navigateTo(view)} style={{background:'white',border:'1px solid rgba(255,255,255,0.6)',borderRadius:12,padding: _ph3 ? '6px 8px' : '6px 14px',color:'#1e293b',textAlign:'left',cursor:'pointer',minWidth:0,flex:'0 1 auto',boxShadow:'0 1px 3px rgba(0,0,0,0.15)'}}><div style={{fontSize:11,color:'#4f46e5',fontWeight:'bold',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{label}</div><div style={{fontSize: _ph3 ? 20 : 22,fontWeight:'bold',lineHeight:1.15,color:'#1e293b'}}>{value}</div>{sub && <div style={{fontSize:10,color:'#64748b',whiteSpace: _ph3 ? 'normal' : 'nowrap',lineHeight:1.35}}>{sub}</div>}</button>; // ★ 2026-10-27: スマホは3つを1行に(下の小さい字は折り返す・文字はそのまま)
           const taskBtn = (t, big) => (
             <button key={t.key} type="button" data-testid={`home-task-${t.key}`} title={t.sub || ''} onClick={() => { if (t.onOpen) { t.onOpen(); return; } try { if (t.jump) sessionStorage.setItem('tsumugiTpJump', t.jump); if (t.ss) sessionStorage.setItem(t.ss[0], t.ss[1]); } catch {} navigateTo(t.view); }} style={{display:'flex',flexDirection:'column',alignItems:'flex-start',gap:1,width:'100%',textAlign:'left',background:'white',border:'1px solid #e2e8f0',borderLeft:`4px solid ${t.color}`,borderRadius:8,padding: big ? '7px 12px' : '5px 10px',cursor:'pointer'}}>
               <span style={{fontSize: big ? 14 : 12.5,fontWeight:'bold',color:'#1e293b'}}>{t.label}</span>{/* ★ 2026-10-27(ユーザー): 「開く →」は不要(押せば飛ぶと分かる) */}
@@ -13160,7 +13161,7 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
                     )}
                   </div>}
                 </div>
-                <div data-testid="home-today" style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                <div data-testid="home-today" style={tsuViewW() < 640 ? {display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:6} : {display:'flex',gap:8,flexWrap:'wrap'}}>{/* ★ 2026-10-27(ユーザー): スマホは3つを1行に */}
                   {chip('home-today-am', '午前の出席者', `${am.att}名`, `欠席 ${am.abs}・振替 ${am.furi}・臨時 ${am.rinji}・休止 ${am.pause}`, 'record')}
                   {chip('home-today-pm', '午後の出席者', `${pm.att}名`, `欠席 ${pm.abs}・振替 ${pm.furi}・臨時 ${pm.rinji}・休止 ${pm.pause}`, 'record')}
                   {chip('home-today-rate', '今月の稼働率', `${rate}%`, _rateSub, 'dash_operation')}
@@ -45980,6 +45981,10 @@ async function tsuPushApi(payload) {
   return j;
 }
 async function _tsuPushReg() { return (await navigator.serviceWorker.getRegistration('/')) || null; }
+// ★ 2026-10-27: この端末で通知を届ける店舗(本部は店舗ごとに選べる)。前の印 tsumugiPushOn=1 は「今の店舗」とみなす
+const _tsuPushStores = () => { try { const a = JSON.parse(localStorage.getItem('tsumugiPushStores') || '[]'); return Array.isArray(a) ? a.map(String) : []; } catch { return []; } };
+const _tsuPushStoreMark = (on) => { try { if (on) localStorage.setItem('tsumugiPushOn', '1'); const sid = String(_tsuPushSession().storeId || ''); if (!sid) return; const a = new Set(_tsuPushStores()); if (on) a.add(sid); else a.delete(sid); localStorage.setItem('tsumugiPushStores', JSON.stringify([...a])); } catch {} };
+const _tsuPushWanted = () => { const sid = String(_tsuPushSession().storeId || ''); const a = _tsuPushStores(); if (a.length) return a.includes(sid); try { return localStorage.getItem('tsumugiPushOn') === '1'; } catch { return false; } };
 async function tsuPushCurrentSub() { try { const reg = await _tsuPushReg(); return reg ? await reg.pushManager.getSubscription() : null; } catch { return null; } }
 // ボタンを押したときだけ呼ぶ(許可を求めるのは押したときの処理の中でないと拒否される)
 async function tsuPushEnable() {
@@ -45993,25 +45998,26 @@ async function tsuPushEnable() {
   if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: _tsuB64ToU8(publicKey) });
   let dev = ''; try { dev = localStorage.getItem('tsumugiDeviceName') || ''; } catch {}
   const r = await tsuPushApi({ action: 'subscribe', sub: sub.toJSON(), device: dev, origin: location.origin });
-  try { localStorage.setItem('tsumugiPushOn', '1'); } catch {}
+  _tsuPushStoreMark(true);
   return r;
 }
-async function tsuPushDisable() {
-  const sub = await tsuPushCurrentSub();
-  if (sub) { try { await tsuPushApi({ action: 'unsubscribe', endpoint: sub.endpoint }); } catch {} try { await sub.unsubscribe(); } catch {} }
-  try { localStorage.removeItem('tsumugiPushOn'); } catch {}
+async function tsuPushDisable() { // ★ 2026-10-27: 今の店舗の分だけ止める。ほかの店舗で届けていなければ端末の登録も消す
+  const sub = await tsuPushCurrentSub(); let remaining = 0;
+  if (sub) { try { remaining = Number((await tsuPushApi({ action: 'unsubscribe', endpoint: sub.endpoint })).remaining) || 0; } catch {} if (!remaining) { try { await sub.unsubscribe(); } catch {} } }
+  _tsuPushStoreMark(false); if (!remaining) { try { localStorage.removeItem('tsumugiPushOn'); localStorage.removeItem('tsumugiPushStores'); } catch {} }
 }
 async function tsuPushTest() { const sub = await tsuPushCurrentSub(); if (!sub) throw new Error('この端末はまだ通知を受け取る設定になっていません'); return tsuPushApi({ action: 'test', endpoint: sub.endpoint }); }
 // 起動時(ログイン後): 許可済みで「届ける」にしていた端末は、登録を確かめ直す(ブラウザが登録を作り直したときのため)
 async function tsuPushRefresh() {
   try {
     if (!tsuPushSupported() || Notification.permission !== 'granted') return;
-    if (localStorage.getItem('tsumugiPushOn') !== '1') return;
+    if (!_tsuPushWanted()) return;
     const reg = (await _tsuPushReg()) || (await navigator.serviceWorker.register(TSU_PUSH_SW, { scope: '/' }));
     let sub = await reg.pushManager.getSubscription();
     if (!sub) { const { publicKey } = await tsuPushApi({ action: 'key' }); sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: _tsuB64ToU8(publicKey) }); }
     let dev = ''; try { dev = localStorage.getItem('tsumugiDeviceName') || ''; } catch {}
     await tsuPushApi({ action: 'subscribe', sub: sub.toJSON(), device: dev, origin: location.origin });
+    _tsuPushStoreMark(true);
   } catch {}
 }
 // 各種設定 → システム: この端末の通知
@@ -46019,9 +46025,10 @@ function TsuPushDeviceCard() {
   const [st, setSt] = React.useState({ loading: true }); const [busy, setBusy] = React.useState(false); const [msg, setMsg] = React.useState('');
   const load = React.useCallback(async () => {
     const supported = tsuPushSupported(); const perm = supported ? Notification.permission : 'unsupported';
-    const sub = supported ? await tsuPushCurrentSub() : null; let count = null;
-    try { count = (await tsuPushApi({ action: 'status' })).count; } catch {}
-    setSt({ loading: false, supported, perm, on: !!sub && perm === 'granted', count });
+    let sub = supported ? await tsuPushCurrentSub() : null; let count = null, registered = null;
+    try { const j = await tsuPushApi({ action: 'status', endpoint: sub ? sub.endpoint : '' }); count = j.count; registered = j.registered; } catch {}
+    if (sub && perm === 'granted' && registered === false && _tsuPushWanted()) { try { await tsuPushRefresh(); const j2 = await tsuPushApi({ action: 'status', endpoint: sub.endpoint }); count = j2.count; registered = j2.registered; } catch {} } // ★ 2026-10-27: 外れていたら戻す
+    setSt({ loading: false, supported, perm, on: !!sub && perm === 'granted' && registered !== false, count, otherOnly: !!sub && registered === false });
   }, []);
   React.useEffect(() => { load(); }, [load]);
   const run = async (fn, okMsg) => { setBusy(true); setMsg(''); try { await fn(); setMsg(okMsg); } catch (e) { setMsg(`⚠ ${(e && e.message) || '失敗しました'}`); } setBusy(false); load(); };
@@ -46035,7 +46042,7 @@ function TsuPushDeviceCard() {
       ) : (
         <div className="space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className={`text-sm font-bold px-3 py-1 rounded-full ${st.on ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`} data-testid="push-state">{st.on ? 'この端末に届きます' : (st.perm === 'denied' ? '通知がブロックされています' : 'この端末には届きません')}</span>
+            <span className={`text-sm font-bold px-3 py-1 rounded-full ${st.on ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`} data-testid="push-state">{st.on ? 'この端末に届きます' : (st.perm === 'denied' ? '通知がブロックされています' : (st.otherOnly ? 'この店舗の通知は、この端末にはまだ届きません' : 'この端末には届きません'))}</span>
             {st.count != null && <span className="text-xs text-slate-500">この店舗で届く端末 {st.count}台</span>}
           </div>
           {st.perm === 'denied' && <div className="text-xs text-amber-800">端末の「設定」（またはブラウザのサイトの設定）で、つむぎ の通知を「許可」にしてから、下のボタンを押してください。</div>}
