@@ -24517,16 +24517,19 @@ export default function App() {
       )}
 
       {/* ★ モバイル時のサイドバー背景オーバーレイ (タップで閉じる)。★ 2026-10-22: 縦向きのタブレット(1024px 未満)も重ねて出すので同じ */}
+      {/* ★ 2026-10-27(ユーザー報告「タブレット縦・スマホ横でサイドバーを出すと、提供記録・連絡帳の見出し『利用者名』が浮き出る」): 表の見出しは貼り付き(z-50)で、
+          同じ高さのサイドバー(z-50)より後ろに書かれているため上に出ていた。重ねて出すとき(1024px 未満)は 幕=57・サイドバー=58 にする
+          (表の見出しより上・小窓(60 以上: スタッフ追加・不具合の報告・同意ポリシー・管理者の確認)より下)。並べて出すとき(lg)は従来どおり */}
       {isSidebarOpen && (
-        <div onClick={()=>setIsSidebarOpen(false)} className="lg:hidden fixed inset-0 bg-black/50 z-40" aria-hidden="true"/>
+        <div onClick={()=>setIsSidebarOpen(false)} className="lg:hidden fixed inset-0 bg-black/50 z-[57]" aria-hidden="true"/>
       )}
       {/* ★ 2026-10-08(ユーザー報告「スマホ縦でサイドバーのメニューが消える。横にして縦に戻すと出る」): iPhone の WebKit は、
           幅0・透明から開く(幅と透明度のアニメーション)と、中のスクロール枠(メニュー)を描かないことがある。
           スマホ幅は常に幅256pxのまま画面の左外から滑り込ませる(transform)。iPad・PC(md以上)は従来どおり幅の開閉 */}
       <div data-testid="app-sidebar" className={`no-print bg-slate-900 text-slate-300 flex flex-col shadow-2xl ${
         isSidebarOpen
-          ? `w-64 fixed inset-y-0 left-0 z-50 translate-x-0 transition-transform duration-300 ${tsumugiIsIOS() ? 'lg:transition-none' : 'lg:transition-all'} lg:transform-none lg:relative lg:flex-shrink-0 lg:z-auto lg:opacity-100`
-          : `w-64 fixed inset-y-0 left-0 z-50 -translate-x-full invisible lg:visible transition-transform duration-300 ${tsumugiIsIOS() ? 'lg:transition-none' : 'lg:transition-all'} lg:transform-none lg:relative lg:translate-x-0 lg:w-0 lg:opacity-0 lg:overflow-hidden lg:flex-shrink-0 lg:z-auto`
+          ? `w-64 fixed inset-y-0 left-0 z-[58] translate-x-0 transition-transform duration-300 ${tsumugiIsIOS() ? 'lg:transition-none' : 'lg:transition-all'} lg:transform-none lg:relative lg:flex-shrink-0 lg:z-auto lg:opacity-100`
+          : `w-64 fixed inset-y-0 left-0 z-[58] -translate-x-full invisible lg:visible transition-transform duration-300 ${tsumugiIsIOS() ? 'lg:transition-none' : 'lg:transition-all'} lg:transform-none lg:relative lg:translate-x-0 lg:w-0 lg:opacity-0 lg:overflow-hidden lg:flex-shrink-0 lg:z-auto`
       }`}>
           <div className="w-64 h-full flex flex-col">
             <div className="h-16 flex items-center px-5 border-b" style={{background:'#fafef1',borderColor:'#d4e7a5'}}>
@@ -26431,6 +26434,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const _keypadOn = (appData.systemSettings?.keypadDisabled !== true);
   // ★ 2026-10-16(ユーザー要望「スマホで利用者が多いと、どこだっけとスクロールするのが大変」): 上部の「利用者」から選ぶと、その方のカードへ移る
   const [recJump, setRecJump] = useState(null); // null=閉じる / { top, q }
+  // ★ 2026-10-27(ユーザー報告「縦表示で利用者をタップしてサイドバーを開くとバグった感じ」・決定「サイドバーを押したら一覧は閉じる」): 一覧(z 9000)がサイドバーの上に残っていた
+  React.useEffect(() => { if (isSidebarOpen) setRecJump(null); }, [isSidebarOpen]);
   const [recFlash, setRecFlash] = useState(null);
   const _recKana = (t) => String(t || '').replace(/[\u3041-\u3096]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 0x60)).replace(/[\s　]/g, '');
   const openRecJump = () => { const pin = document.querySelector('.tsu-pin'); const top = pin ? Math.round(pin.getBoundingClientRect().bottom) : 96; setRecJump(v => v ? null : { top, q: '' }); };
