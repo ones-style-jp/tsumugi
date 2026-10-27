@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>つむぎ 予定の通知のご案内</title>
+<style>
+  /* 従業員向け「予定の通知」のご案内(A4縦・2ページ=1枚の表裏)。画面はすべて見本(架空)データ。2026-10-27 安定版 1027e */
+  :root{--ink:#1f2937;--sub:#5b6472;--line:#d9dee6;--green:#5b8c2a;--green-d:#3f6a1a;--green-l:#eef5e6;--amber:#9a6412;--amber-l:#fdf4e1;--blue:#2f5fa8;--blue-l:#e8eff9;--red:#b42318;--red-l:#fbeae8;--gray-l:#f3f4f6}
+  *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  html,body{margin:0;padding:0;background:#e9ebef;color:var(--ink);font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",Meiryo,sans-serif;font-size:13.2px;line-height:1.6}
+  .page{width:210mm;height:297mm;margin:10mm auto;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.12);position:relative;overflow:hidden;display:flex;flex-direction:column}
+  .in{padding:12mm 14mm 8mm;flex:1;display:flex;flex-direction:column;gap:2.3mm;min-height:0}
+  .p2{font-size:12.6px}.p2 table{font-size:12px}.p2 th,.p2 td{padding:4px 7px}
+  .run{display:flex;justify-content:space-between;align-items:baseline;font-size:11px;font-weight:700;color:var(--sub);border-bottom:1px solid var(--line);padding-bottom:4px}
+  .run b{color:var(--green-d);font-size:12px;letter-spacing:.06em}
+  h1{font-size:28px;margin:2px 0 0;color:var(--green-d);line-height:1.3;text-wrap:balance}
+  h1 small{display:block;font-size:15px;color:var(--ink);margin-top:4px;font-weight:700}
+  h2{font-size:19px;margin:0;color:var(--green-d);padding-bottom:5px;border-bottom:3px solid var(--green);text-wrap:balance}
+  h3{font-size:14.5px;margin:0 0 4px;color:var(--green-d)}
+  p{margin:0}
+  .lead{font-size:14px;color:var(--ink);line-height:1.7}
+  ul{margin:0;padding-left:1.2em}li{margin:2px 0}
+  table{border-collapse:collapse;width:100%;font-size:12.4px}
+  th,td{border:1px solid var(--line);padding:5px 7px;vertical-align:top;text-align:left}
+  th{background:var(--green-l);white-space:nowrap}
+  td.s{white-space:nowrap;font-weight:700}
+  .card{border:1px solid var(--line);border-radius:8px;padding:8px 11px;background:#fff}
+  .card.g{background:var(--green-l);border-color:#cfe0bb}.card.a{background:var(--amber-l);border-color:#ecd9a8}.card.b{background:var(--blue-l);border-color:#c5d6f2}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}.cols>*{min-width:0}
+  .cols3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;align-items:start}.cols3>*{min-width:0}
+  .when{display:flex;flex-direction:column;gap:6px}
+  .when .t{display:inline-block;align-self:flex-start;font-size:12px;font-weight:700;color:#fff;background:var(--green);border-radius:999px;padding:1px 11px}
+  .when .d{font-size:12.6px}
+  /* 通知の見本(端末の通知の形を描いたもの) */
+  .ntf{display:grid;grid-template-columns:30px 1fr;gap:8px;align-items:start;background:#f4f5f7;border:1px solid #dfe3ea;border-radius:14px;padding:9px 11px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  .ntf img{width:30px;height:30px;border-radius:7px}
+  .ntf .hd{display:flex;justify-content:space-between;font-size:11px;color:var(--sub)}
+  .ntf .tt{font-weight:700;font-size:13px;line-height:1.4}
+  .ntf .bd{font-size:12.6px;line-height:1.45}
+  .ex{font-size:10.5px;color:var(--sub);text-align:right;margin-top:2px}
+  .safe{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .safe>div{border:1px solid #cfe0bb;background:var(--green-l);border-radius:8px;padding:8px 10px;min-width:0}
+  .safe b{display:block;color:var(--green-d);font-size:13.5px;margin-bottom:2px}
+  .safe p{font-size:12.4px;line-height:1.55}
+  .ok{color:var(--green-d);font-weight:700}.ng{color:var(--red);font-weight:700}
+  .step{border:2px solid var(--green);border-radius:10px;padding:8px 9px 9px;display:flex;flex-direction:column;gap:6px;min-width:0}
+  .step .n{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:999px;background:var(--green);color:#fff;font-weight:700;font-size:13px;flex:none}
+  .step .h{display:flex;gap:7px;align-items:flex-start;font-weight:700;font-size:13px;line-height:1.45}
+  figure{margin:0}
+  figure img{display:block;width:100%;height:auto;border:1px solid #c9ced8;border-radius:8px}
+  figcaption{font-size:10.6px;color:var(--sub);margin-top:3px;line-height:1.45}
+  .note{font-size:11px;color:var(--sub)}
+  .kbd{display:inline-block;padding:0 6px;border:1px solid #b8c0cc;border-bottom-width:2px;border-radius:5px;background:#fff;font-size:12px;font-weight:700;white-space:nowrap;line-height:1.5}
+  .foot{margin-top:auto;padding-top:6px;border-top:1px solid var(--line);font-size:10px;color:var(--sub);display:flex;justify-content:space-between}
+  .admin{display:grid;grid-template-columns:33% 1fr;gap:11px;align-items:start}
+  .devs{display:grid;grid-template-columns:1fr 1fr;gap:3px 12px;margin-top:3px}.devs>div{min-width:0}.admin>*{min-width:0}
+  @media print{
+    @page{size:A4 portrait;margin:0}
+    html,body{background:#fff}
+    .page{margin:0;box-shadow:none;page-break-after:always;height:297mm}
+    .page:last-child{page-break-after:auto}
+  }
+</style>
+</head>
+<body>
+
+<!-- 表: 何が・いつ・どの端末に届くか -->
+<div class="page"><div class="in">
+  <div class="run"><b>つむぎ</b><span>従業員のみなさまへ ／ 2026年10月28日から</span></div>
+  <h1>予定の通知が使えるようになりました<small>担当者会議などの予定を、スマホ・タブレット・パソコンにお知らせします</small></h1>
+  <p class="lead">カレンダーに入れた予定を、時間が近づくと端末に通知でお知らせします。担当者会議などの予定を忘れないためのしくみです。通知を受け取る端末で、1回だけ設定してください（設定のしかたは裏面）。</p>
+
+  <h2>いつ届くか</h2>
+  <div class="cols">
+    <div class="card when">
+      <span class="t">前日の 17時</span>
+      <p class="d">あすの予定を<b>まとめて1回</b>お知らせします。</p>
+      <div class="ntf"><img src="preview/tsumugi-favicon-chip-128.png" alt=""><div><div class="hd"><span>つむぎ</span><span>17:00</span></div><div class="tt">あすの予定 2件（10/29 木）</div><div class="bd">10:30 担当者会議・14:00 見学</div></div></div>
+      <p class="ex">通知の例</p>
+    </div>
+    <div class="card when">
+      <span class="t">はじまる 30分前</span>
+      <p class="d">時間を入れた予定を、<b>1件ずつ</b>お知らせします。</p>
+      <div class="ntf"><img src="preview/tsumugi-favicon-chip-128.png" alt=""><div><div class="hd"><span>つむぎ</span><span>10:00</span></div><div class="tt">あと30分で予定があります</div><div class="bd">10:30 担当者会議</div></div></div>
+      <p class="ex">通知の例</p>
+    </div>
+  </div>
+  <ul class="note" style="font-size:12px;color:var(--ink)">
+    <li>夜（20時〜朝7時）は送りません。</li>
+    <li>時間を入れていない予定（終日）は、前日のお知らせだけです。</li>
+    <li>前日の時刻・何分前に送るか・どの予定を送るかは、店舗ごとに変えられます。変えるときは管理者の方が設定してください（裏面）。</li>
+  </ul>
+
+  <h2>安心して使えるように</h2>
+  <div class="safe">
+    <div><b>利用者名は出ません</b><p>通知の文は、予定の種類（担当者会議など）と時刻だけです。ロック画面に出ても安心です。</p></div>
+    <div><b>押すとカレンダーへ</b><p>通知を押すと、つむぎのカレンダーが開きます。中身を見るにはログインが必要です。</p></div>
+    <div><b>ログアウト中も届きます</b><p>止めたいときは、その端末で「この端末には届けない」を押します。</p></div>
+  </div>
+
+  <h2>届く端末</h2>
+  <table>
+    <tr><th>端末</th><th>設定する場所</th><th>アプリやブラウザを閉じているとき</th></tr>
+    <tr><td class="s">iPhone・iPad</td><td><b>ホーム画面に追加したつむぎ</b>で設定します（iOS 16.4 以上）。Safari や Chrome の画面のままでは届きません。</td><td><span class="ok">届きます</span></td></tr>
+    <tr><td class="s">Android の<br>スマホ・タブレット</td><td>Chrome の画面のまま設定できます。ホーム画面に追加しなくても届きます。</td><td><span class="ok">届きます</span></td></tr>
+    <tr><td class="s">パソコン</td><td>Chrome・Edge・Safari の画面のまま設定できます。</td><td>Chrome・Edge は<span class="ng">届きません</span>（開いている間だけ）。<br>Mac の Safari は<span class="ok">届きます</span>。</td></tr>
+  </table>
+  <div class="card a"><h3>覚えておくこと</h3>
+    <ul>
+      <li>通知は<b>店舗あて</b>です。その店舗の予定が、その店舗で設定した端末すべてに届きます。</li>
+      <li>設定は<b>端末ごと</b>です。事業所の iPad、パソコンなど、受け取りたい端末それぞれで設定してください。</li>
+      <li>端末を閉じていて届かなかった通知は、1時間以内に開けば遅れて届きます。</li>
+    </ul>
+  </div>
+  <div class="foot"><span>つむぎ 予定の通知のご案内（従業員向け）</span><span>1 / 2</span></div>
+</div></div>
+
+<!-- 裏: 設定のしかた・届かないとき・管理者の方へ -->
+<div class="page p2"><div class="in">
+  <div class="run"><b>つむぎ</b><span>従業員のみなさまへ ／ 2026年10月28日から</span></div>
+  <h2>設定のしかた（端末ごとに1回）</h2>
+  <div class="card b"><h3>iPhone・iPad は、はじめにホーム画面に追加します</h3>
+    <p>Safari でつむぎを開き、共有ボタン（または「…」）から<span class="kbd">ホーム画面に追加</span>を押します。追加した「つむぎ」をホーム画面から開いてログインし、下の 1〜3 を行います。Android・パソコンは、そのまま 1 から始めます。</p>
+  </div>
+  <div class="cols3">
+    <div class="step">
+      <div class="h"><span class="n">1</span><span>「各種設定」を開き、上の検索に「通知」と入れて「この端末の通知」を押します。</span></div>
+      <figure><img src="manual/img/push_search.jpg" alt="各種設定の検索に通知と入れたところ"><figcaption>検索の下に出る「この端末の通知」を押します。</figcaption></figure>
+    </div>
+    <div class="step">
+      <div class="h"><span class="n">2</span><span>「この端末に通知を届ける」を押し、端末の確認で「許可」を押します。</span></div>
+      <figure><img src="manual/img/push_card_off.jpg" alt="この端末に通知を届けるのボタン"><figcaption>押したあと「この端末に届きます」に変われば、登録できています。</figcaption></figure>
+    </div>
+    <div class="step">
+      <div class="h"><span class="n">3</span><span>「テスト通知を送る」を押して、届くか確かめます。</span></div>
+      <figure><img src="manual/img/push_card_test.jpg" alt="この端末に届きましたと出たところ"><figcaption>「この端末に届きました」と出て、画面の端に通知が出れば完了です。</figcaption></figure>
+    </div>
+  </div>
+
+  <h2>届かないとき</h2>
+  <table>
+    <tr><th>画面に出ること</th><th>すること</th></tr>
+    <tr><td class="s">届いた知らせが<br>ありません</td><td>つむぎ（またはブラウザ）を閉じて開き直し、もう一度「テスト通知を送る」を押します。続くときは「この端末には届けない」を押してから、「この端末に通知を届ける」を押し直します。</td></tr>
+    <tr><td class="s">この端末に届きました<br>（なのに通知が出ない）</td><td>端末の通知の設定で止まっています。次の場所でオンにしてください。
+      <div class="devs">
+        <div><b>iPhone・iPad</b>：「設定」の「通知」で「つむぎ」の「通知を許可」。集中モードもオフ。</div>
+        <div><b>Android</b>：「設定」の「アプリ」で「Chrome」の「通知」。</div>
+        <div><b>Mac</b>：「システム設定」の「通知」で「Google Chrome」など。アプリとして入れたときは「つむぎ」。</div>
+        <div><b>Windows</b>：「設定」の「システム」の「通知」で「Google Chrome」など。「応答不可」もオフ。</div>
+      </div></td></tr>
+    <tr><td class="s">通知がブロック<br>されています</td><td>端末の設定（パソコンはアドレス欄の左のマークから「サイトの設定」）で、つむぎの通知を「許可」にしてから、もう一度ボタンを押します。</td></tr>
+  </table>
+
+  <h2>管理者の方へ（店舗の設定）</h2>
+  <div class="admin">
+    <figure><img src="manual/img/push_store.jpg" alt="予定のお知らせ（店舗の設定）"></figure>
+    <div class="card g">
+      <p>「各種設定」の検索に「通知」と入れ、<b>「予定のお知らせ（店舗の設定）」</b>を開きます。店舗のすべての端末に共通の設定なので、変えるときは管理者の方が行ってください。</p>
+      <ul style="margin-top:5px">
+        <li><b>前日にお知らせ</b>：15時〜19時から選べます（はじめは17時）。</li>
+        <li><b>はじまる前にお知らせ</b>：15分前・30分前・60分前から選べます（はじめは30分前）。</li>
+        <li><b>お知らせする予定</b>：ラベルを押すと切り替わります。線が引かれたラベルの予定は送りません。</li>
+        <li>店舗全体で止めるときは「予定のお知らせを送る」を外します。</li>
+      </ul>
+      <p class="note" style="margin-top:5px">ラベルは、カレンダーで予定に付ける色の名前です（担当者会議・契約・見学など）。</p>
+    </div>
+  </div>
+  <div class="foot"><span>画面はすべて見本（架空）のデータです。</span><span>2 / 2</span></div>
+</div></div>
+
+</body>
+</html>
