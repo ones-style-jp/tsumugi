@@ -51363,13 +51363,16 @@ const tsuStaffList = (appData) => { const out = []; const seen = new Set(); cons
   (appData?.diarySettings?.staff||[]).forEach(st => { if (st && !st._tempHelp) { add(st.name, st.role, st.id); if (st.role2) add(st.name, st.role2, st.id); } });
   const order = { '管理者':0, '機能訓練指導員':1, '生活相談員':2, '看護師':3, '介護職員':4 }; return out.sort((a,b) => ((order[a.role]??9)-(order[b.role]??9)) || a.name.localeCompare(b.name,'ja')); };
 // 役職ごとの optgroup つき select(value=氏名)。onPick(name, role)
-function KKStaffSelect({ staff, value, onPick, placeholder, className }) {
+function KKStaffSelect({ staff, value, role, onPick, placeholder, className }) {
+  // ★ 2026-10-27: 値は「役職\u0001氏名」(同じ人が2つの役職を持つと、どちらを選んでも1つ目の役職になっていた)。role を渡すとその役職の行を選んだ形で出す
   const roles = [...new Set(staff.map(x => x.role || 'その他'))];
+  const key = (x) => `${x.role || 'その他'}\u0001${x.name}`;
+  const cur = staff.find(x => x.name === value && (x.role || '') === (role || '')) || staff.find(x => x.name === value);
   return (
-    <select value={staff.some(x => x.name === value) ? value : (value ? '__free__' : '')} onChange={e => { const v = e.target.value; if (v === '__free__' || v === '') { onPick('', ''); return; } const st = staff.find(x => x.name === v); onPick(v, st ? st.role : ''); }} className={className || 'w-full px-2 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none'}>
+    <select value={cur ? key(cur) : (value ? '__free__' : '')} onChange={e => { const v = e.target.value; if (v === '__free__' || v === '') { onPick('', ''); return; } const st = staff.find(x => key(x) === v); onPick(st ? st.name : '', st ? (st.role || '') : ''); }} className={className || 'w-full px-2 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none'}>
       <option value="">{placeholder || '（選択）'}</option>
-      {roles.map(r => <optgroup key={r} label={r}>{staff.filter(x => (x.role||'その他') === r).map(x => <option key={`${r}|${x.name}`} value={x.name}>{x.name}</option>)}</optgroup>)}
-      {value && !staff.some(x => x.name === value) ? <option value="__free__">{value}（直接入力）</option> : null}
+      {roles.map(r => <optgroup key={r} label={r}>{staff.filter(x => (x.role||'その他') === r).map(x => <option key={key(x)} value={key(x)}>{x.name}</option>)}</optgroup>)}
+      {value && !cur ? <option value="__free__">{value}（直接入力）</option> : null}
     </select>
   );
 }
@@ -52099,7 +52102,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
                 <KKDateField label="初回作成日" value={editing.firstDate} onChange={v=>upd({firstDate:v})}/>
                 {/* ★ 2026-10-14(ユーザー要望): 計画作成者・職種・共同作成者は職員のプルダウン(役職ごと)。共同作成者は複数チェック */}
                 <div><label className="block text-xs font-bold text-slate-600 mb-1">計画作成者</label>
-                  <KKStaffSelect staff={_kkStaff} value={editing.author||''} onPick={(name, role)=>upd({ author: name, ...(role ? { authorJob: role } : {}) })} placeholder="（職員を選択）"/>
+                  <KKStaffSelect staff={_kkStaff} value={editing.author||''} role={editing.authorJob||''} onPick={(name, role)=>upd({ author: name, ...(role ? { authorJob: role } : {}) })} placeholder="（職員を選択）"/>
                   <input value={editing.author||''} maxLength={60} onChange={e=>upd({author:e.target.value.slice(0,60)})} placeholder="直接入力もできます" className="mt-1 w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs outline-none"/></div>
                 <div><label className="block text-xs font-bold text-slate-600 mb-1">職種</label>
                   <select value={editing.authorJob||''} onChange={e=>upd({authorJob:e.target.value})} className="w-full px-2 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none">
