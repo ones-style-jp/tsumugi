@@ -1,7 +1,22 @@
 {
-  "version": "upd-2026-1026-trial425",
-  "updatedAt": "2026-10-26",
+  "version": "upd-2026-1027-trial426",
+  "updatedAt": "2026-10-27",
   "notes": [
+    {
+      "id": "upd-2026-1027-trial426-kibuntap",
+      "type": "update",
+      "title": "体調のボタンは長押しでも選べるように",
+      "date": "2026-10-27",
+      "body": "タブレット・スマホの体調の選択",
+      "items": [
+        {
+          "kind": "bug",
+          "where": "提供記録",
+          "cause": "iPhone・iPad で体調のボタンを長押しすると「押した」の合図が来ず、枠がグレーになるだけで選ばれなかった",
+          "change": "長押し（指を離さないまま）でも、指が動いていなければ選ばれるようにしました。軽く押しても同じです。"
+        }
+      ]
+    },
     {
       "id": "upd-2026-1026-trial425-portal",
       "type": "update",
