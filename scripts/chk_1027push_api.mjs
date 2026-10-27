@@ -1,10 +1,13 @@
 // 2026-10-27 通知 API(api/push.js)を偽の Supabase(app_secrets・app_state)と偽の送り先(https)で通す(trial432: 1端末×1店舗=1行)
+// 2026-10-28: 定時を1分おきに。夜は何も読まない・控えは変わったときだけ保存・1分後に重ねて送らない・10:12 の予定は 9:42 に「あと30分」
 //   実行: PUSH_TEST_CERT_DIR=<自己署名の鍵の場所> NODE_TLS_REJECT_UNAUTHORIZED=0 node scripts/chk_1027push_api.mjs
 import http from 'node:http'; import https from 'node:https'; import fs from 'node:fs'; import crypto from 'node:crypto';
 const r = {};
-const secrets = {}; const state = { s1: { scheduleEvents: [{ id: 'e1', date: '2026-10-28', start: '10:00', title: '担当者会議／架空 太郎', color: '#3b82f6' }], systemSettings: { pushNotify: { beforeMin: 30 } } }, s2: { scheduleEvents: [], systemSettings: {} } };
+const secrets = {}; const state = { s1: { scheduleEvents: [{ id: 'e1', date: '2026-10-28', start: '10:00', title: '担当者会議／架空 太郎', color: '#3b82f6' }, { id: 'e2', date: '2026-10-28', start: '10:12', title: '契約／架空 花子', color: '#ef4444' }], systemSettings: { pushNotify: { beforeMin: 30 } } }, s2: { scheduleEvents: [], systemSettings: {} } };
+let reqN = 0, sentWrites = 0;
 const sbSrv = http.createServer((q, s) => { const ch = []; q.on('data', c => ch.push(c)); q.on('end', () => {
   const u = new URL(q.url, 'http://x'); const body = ch.length ? JSON.parse(Buffer.concat(ch).toString()) : null; const kq = u.searchParams.get('key') || ''; const key = kq.replace(/^eq\./, '');
+  reqN++; if ((q.method === 'PATCH' && key === 'push_sent') || (q.method === 'POST' && body && body.key === 'push_sent')) sentWrites++;
   const send = (code, j) => { s.writeHead(code, { 'Content-Type': 'application/json' }); s.end(j === undefined ? '' : JSON.stringify(j)); };
   if (u.pathname === '/rest/v1/app_secrets') {
     if (q.method === 'GET') { if (kq.startsWith('like.')) { const pre = kq.slice(5).replace(/\*$/, ''); return send(200, Object.keys(secrets).filter(k => k.startsWith(pre)).map(k => ({ key: k, value: secrets[k] }))); } return send(200, secrets[key] != null ? [{ value: secrets[key] }] : []); }
@@ -49,11 +52,16 @@ r.testNotRegistered = (await call({ action: 'test', token: st2, endpoint: g.endp
 got.length = 0; const now = Date.UTC(2026, 9, 28, 9 - 9, 32);
 const c1 = await runCron(now); r.cronSent = c1.sent === 2 && got.includes('/push/a') && got.includes('/push/legacy') && got.includes('/push/gone');
 r.goneRemoved = (await call({ action: 'status', token: st1, endpoint: g.endpoint })).j.registered === false;
-got.length = 0; r.noDouble = (await runCron(now + 5 * 60e3)).sent === 0 && got.length === 0;
+got.length = 0; const w0 = sentWrites; r.noDouble = (await runCron(now + 60e3)).sent === 0 && got.length === 0; r.noSaveUnchanged = sentWrites === w0;
+// 夜(21:00)は何も読まない・送らない
+{ const n0 = reqN; got.length = 0; const cn = await runCron(Date.UTC(2026, 9, 28, 21 - 9, 0)); r.nightSkip = cn.night === true && reqN === n0 && got.length === 0; }
 // 本部の確認(送らない)・cron の保護
 const hq = tok({ sid: 'hq1', role: 'super_admin', store_id: null });
-const pv = await call({ action: 'preview', token: hq, store_id: 's1', now: Date.UTC(2026, 9, 27, 17 - 9, 5) }); r.preview = pv.code === 200 && pv.j.items.some(x => x.kind === 'dayBefore' && /あすの予定 1件/.test(x.title));
+const pv = await call({ action: 'preview', token: hq, store_id: 's1', now: Date.UTC(2026, 9, 27, 17 - 9, 5) }); r.preview = pv.code === 200 && pv.j.items.some(x => x.kind === 'dayBefore' && /あすの予定 2件/.test(x.title));
 r.cronGuard = (await call({}, 'GET', { 'user-agent': 'curl/8' })).code === 401;
+// 1分おき: 10:12 の予定は 9:41 にはまだ、9:42 に「あと30分」
+{ const p41 = await call({ action: 'preview', token: hq, store_id: 's1', now: Date.UTC(2026, 9, 28, 9 - 9, 41) }); const p42 = await call({ action: 'preview', token: hq, store_id: 's1', now: Date.UTC(2026, 9, 28, 9 - 9, 42) });
+  r.exact30 = !p41.j.items.some(x => x.key.includes('|b|e2|')) && p42.j.items.some(x => x.key.includes('|b|e2|') && x.title === 'あと30分で予定があります'); }
 // 止める: s1 の分だけ消え、s2 にはまだ残る(remaining=1)
 const un = await call({ action: 'unsubscribe', token: st1, endpoint: a.endpoint }); r.unsubStoreOnly = un.j.remaining === 1 && (await call({ action: 'status', token: st2, endpoint: a.endpoint })).j.registered === true;
 sbSrv.close(); pushSrv.close();

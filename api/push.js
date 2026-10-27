@@ -7,13 +7,13 @@
 //   test        { token, store_id?, endpoint }           → { ok }   この端末へテスト通知
 //   status      { token, store_id? }                     → { count } 店舗の通知先の端末数
 //   preview     { token(本部), store_id }                → { items } いま送るもの(送らない・確認用)
-// GET  /api/push (Vercel Cron・5分おき)     → 送る時刻になった予定の通知を送る(api/_push_plan.js)
+// GET  /api/push (Vercel Cron・1分おき)     → 送る時刻になった予定の通知を送る(api/_push_plan.js)
 //
 // 本部の作業は要らない: 鍵・通知先・送信済みの控えは、すべて既存の app_secrets(サーバーだけが読める表)に保存する。
 // 通知の文には利用者名・予定の題名を出さない(ロック画面に出るため)。押すとつむぎ(ログインを通る)のカレンダーが開く。
 import crypto from 'crypto';
 import webpush from 'web-push';
-import { planStore } from './_push_plan.js';
+import { planStore, JST_OFF } from './_push_plan.js';
 
 const SUPA_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -85,26 +85,34 @@ async function storeData(storeId) {
 }
 
 async function runCron(nowMs, dryStore) {
+  // ★ 2026-10-28(ユーザー「30分前にはちゃんと通知が来るように1分おきに」): 定時は5分おき→1分おき(vercel.json)。
+  //   毎分動くので、夜(20時〜7時・送るものが無い)は何も読まずに終え、送った控えは変わったときだけ保存する
+  if (!dryStore) { const jh = new Date(nowMs + JST_OFF).getUTCHours(); if (jh < 7 || jh >= 20) return { stores: 0, sent: 0, night: true }; }
   const subs = await loadSubs(); const sent = await kvLoad('push_sent'); if (!dryStore) await migrateLegacy(subs);
-  Object.keys(sent).forEach(k => { if (nowMs - Number(sent[k] || 0) > 3 * 86400000) delete sent[k]; });
+  let changed = false;
+  Object.keys(sent).forEach(k => { if (nowMs - Number(sent[k] || 0) > 3 * 86400000) { delete sent[k]; changed = true; } });
   const byStore = {}; Object.entries(subs).forEach(([id, s]) => { if (s && s.storeId && s.endpoint) (byStore[s.storeId] = byStore[s.storeId] || []).push([id, s]); });
   const stores = dryStore ? [dryStore] : Object.keys(byStore);
-  const v = dryStore ? null : await vapid();
-  let n = 0; const gone = new Set(); const preview = [];
+  // 1) 送るものを決める
+  const todo = []; const preview = [];
   for (const storeId of stores) {
     let d; try { d = await storeData(storeId); } catch { continue; }
     const items = planStore({ storeId, ...d }, nowMs, sent);
     if (dryStore) { preview.push(...items); continue; }
-    for (const it of items) {
-      sent[it.key] = nowMs; if (it.skip) continue;
-      for (const [id, s] of (byStore[storeId] || [])) {
-        const r = await sendTo(s, { title: it.title, body: it.body, tag: it.tag, url: (okOrigin(s.origin) ? s.origin : PROD) + it.path }, v);
-        if (r.ok) n++; else if (r.gone) gone.add(id);
-      }
-    }
+    for (const it of items) { sent[it.key] = nowMs; changed = true; if (!it.skip) todo.push([storeId, it]); }
   }
   if (dryStore) return { items: preview };
-  await kvSave('push_sent', sent);
+  // 2) 送る前に控えを保存する(1分おきなので、次の回と重ねて送らないため)。鍵が読めないときは控えも残さない(次の回に送り直す)
+  const v = todo.length ? await vapid() : null;
+  if (changed) await kvSave('push_sent', sent);
+  // 3) 送る
+  let n = 0; const gone = new Set();
+  for (const [storeId, it] of todo) {
+    for (const [id, s] of (byStore[storeId] || [])) {
+      const r = await sendTo(s, { title: it.title, body: it.body, tag: it.tag, url: (okOrigin(s.origin) ? s.origin : PROD) + it.path }, v);
+      if (r.ok) n++; else if (r.gone) gone.add(id);
+    }
+  }
   for (const id of gone) await delSub(id); // 1行ずつ消す(ほかの登録には触れない)
   return { stores: stores.length, sent: n };
 }
@@ -116,7 +124,7 @@ export default async function handler(req, res) {
   if (req.method === 'POST') { try { body = typeof req.body === 'object' && req.body ? req.body : JSON.parse(req.body || '{}'); } catch { body = {}; } }
   const action = String(body.action || (req.query && req.query.action) || '');
   try {
-    // ★ Vercel Cron(GET・5分おき)。CRON_SECRET を設定しているときはそれを確かめる
+    // ★ Vercel Cron(GET・1分おき・2026-10-28 までは5分おき)。CRON_SECRET を設定しているときはそれを確かめる
     if (req.method === 'GET' && (!action || action === 'cron')) {
       const secret = process.env.CRON_SECRET;
       const ua = String(req.headers['user-agent'] || '');

@@ -13,7 +13,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
 import __builtUpdateNotes from '../public/update-notes.json';
-import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone } from './lib/logic';
+import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, pickHolidays } from './lib/logic';
 import {
   isSupabaseEnabled,
   supabaseCreateInvite,
@@ -21867,6 +21867,14 @@ export default function App() {
               }
             } catch (e) { console.warn('[pull preserve] fax/ws failed', e); }
           }
+          // ★ 2026-10-28 施設休業日(holidays)も pull で保持: 手元で後から編集した(_holTs が新しい)ときだけ手元を残して送り直す。
+          //   丸ごと置き換えだと、登録した直後(送り終わる前)に受け取ると画面から消え、その端末の次の保存でクラウドからも消えていた
+          if (prev && prev._sbStoreId === newStoreId) {
+            try {
+              const ph = pickHolidays(prev, merged);
+              if (ph.from === 'local' && ph.ts && ph.ts > (Number(merged._holTs) || 0)) { merged.holidays = ph.holidays; merged._holTs = ph.ts; _mergedForPush = merged; syncLog('pull-preserve', { key: 'holidays', n: ph.holidays.length }); }
+            } catch (e) { console.warn('[pull preserve] holidays failed', e); }
+          }
           // ★ お知らせの既読(noticeReads)は pull で巻き戻さない。 pull は丸ごと置換なので、
           //   既読にした直後(push完了前)に受信すると未読へ戻ってしまう
           //   (「既読を押してすぐ閉じると既読にならない」症状の原因)。 両者の和集合を採る。
@@ -23110,12 +23118,17 @@ export default function App() {
           ['monitoringRecords','モニタリング'], ['faxHistory','連絡'], ['patients','利用者マスタ'],
           ['scheduleEvents','スケジュール'], ['tsushoKeikakuRecords','通所計画書'],
           ['kinouKeikakuRecords','機能訓練計画書'], ['seikatsuKinouRecords','生活機能'],
-          ['systemSettings','各種設定'], ['contactBookConfig','連絡帳設定'],
+          ['systemSettings','各種設定'], ['contactBookConfig','連絡帳設定'], ['holidays','施設休業日'], // ★ 2026-10-28: 休業日の変更も残す(消えたときに、いつ・どの端末かが分かるように)
         ];
         const _alEntries = [];
         _alCats.forEach(([k, cat]) => {
           if (prev[k] === newData[k]) return;                        // 参照同一=未変更
           if (prev[k] === undefined && newData[k] === undefined) return;
+          if (k === 'holidays') { // 休業日は id が無いので、中身が変わったときだけ日数で残す
+            let _same = false; try { _same = JSON.stringify(prev[k] || []) === JSON.stringify(newData[k] || []); } catch {}
+            if (!_same) _alEntries.push({ id: `al_${_alNow}_${k}_${Math.random().toString(36).slice(2, 5)}`, at: _alNow, device: _alDev, cat, detail: `休業日 ${(prev[k] || []).length}日→${(newData[k] || []).length}日` });
+            return;
+          }
           let detail = '';
           try {
             if (Array.isArray(newData[k]) && Array.isArray(prev[k])) {
@@ -23229,6 +23242,11 @@ export default function App() {
           if (_touched) _ts[mk] = _mkTs;
         });
         newData = { ...newData, _wsTs: _ts, _wsSavedAt: _now };
+      }
+      // ★ 2026-10-28 施設休業日(holidays): 中身が変わったときだけ時刻(_holTs)を刻む(同期は時刻の新しい方を採る・pickHolidays)
+      if (newData.holidays !== prev.holidays) {
+        let _hch; try { _hch = JSON.stringify(newData.holidays || []) !== JSON.stringify(prev.holidays || []); } catch { _hch = true; }
+        if (_hch) newData = { ...newData, _holTs: syncNow() };
       }
       // ★ 連絡帳設定(contactBookConfig=連絡事項/掲載期間/定型文 等)は「変更されたフィールドだけ」に
       //   時刻(_fieldTs[field])を刻む。 丸ごと時刻だと、古い端末が別項目を触っただけで
