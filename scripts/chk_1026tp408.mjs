@@ -22,7 +22,7 @@ const dailyHtml = async (page) => { await page.locator('button:visible', { hasTe
 // A. 送りの時間 非表示
 { const { page } = await start("d.systemSettings.tpDropShown = false;");
   await openSeat(page);
-  r.hidEstBtn = (await page.getByTestId('tp-seat-at-est').count()) === 0 && (await page.getByTestId('tp-seat-depart-est').count()) === 1; /* 出発の目安は残る */
+  r.hidEstBtn = (await page.getByTestId('tp-seat-at-est').count()) === 0 && (await page.getByTestId('tp-seat-depart-est').count()) === 0; /* trial431: 出発の目安のボタンもなくした(自動で入れ直す) */
   r.hidBadges = (await page.locator('[data-testid^="tp-seat-at-"]').count()) === 0;
   await page.getByTestId('tp-seat-dl').click(); await page.waitForTimeout(1200);
   const ph = await page.evaluate(() => window.__ph); const seat = ph.find(x => /座席表/.test(x.title));

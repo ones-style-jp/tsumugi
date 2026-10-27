@@ -37754,7 +37754,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     return _draftPlan(iso, sl);
   };
   const savePlan = (iso, sl, plan) => {
-    const { _draft, ...rest0 } = plan; const rest = _pruneDropAt(rest0); // ★ 2026-10-25(ユーザー: 動かすたびに到着が変わって面倒): 保存のたびの到着の目安の入れ直しはやめた(目安は「自動計算」「前週コピー」のときだけ) ★ 2026-10-21: 乗っていない方の送りの時間は消す
+    const { _draft, ...rest0 } = plan; const rest = _autoDropDepart(_pruneDropAt(rest0), sl); // ★ 2026-10-25(ユーザー: 動かすたびに到着が変わって面倒): 保存のたびの到着の目安の入れ直しはやめた(目安は「自動計算」「前週コピー」のときだけ) ★ 2026-10-21: 乗っていない方の送りの時間は消す
     const k = `${iso}_${sl}`;
     const next = _stampChg(plans[k], { ...rest, _savedAt: syncNow() });
     _pushUndo('手での変更', { [k]: next });
@@ -38215,6 +38215,16 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   // ★ 2026-10-23: 迎えと同じの日は迎えの逆順(_dropListsOf)で数える
   const _dropDepartEst = (pl, sl, cid) => { const list = _dropListsOf(pl)[cid] || []; const r = _svcRangeTp(sl); if (!list.length || r.e == null) return null; const add = list.reduce((a, m) => { const pt = (appData.patients||[]).find(x => x.id === m.pid) || {}; return a + _rideMinOf(pt, 'drop'); }, 0); return { v: _hmTp(r.e + add), n: list.length, add }; };
   // ★ 2026-10-21(ユーザー要望「座席表で利用者が選ばれていない車には送りの目安を出さない」): 表示する出発。誰も乗っていない車の目安は出さない(手で決めた出発は出す)
+  // ★ 2026-10-27(ユーザー「人をドラッグして切り替えたら出発の目安も自動で変わるように」): 送り別の日は、手で決めていない車(空・目安)の出発を、乗っている人から毎回入れ直す。誰も乗っていない車の目安は消す
+  const _autoDropDepart = (pl, sl) => { try {
+    if (!pl || pl.dropMode !== 'custom' || !pl.drop) return pl;
+    const dep = { ...(pl.drop.depart || {}) }, au = { ...(pl.drop.departAuto || {}) }; let ch = false;
+    const ids = new Set([...Object.keys(pl.drop.cars || {}), ...Object.keys(dep)]);
+    ids.forEach(cid => { const manual = dep[cid] && !au[cid]; if (manual) return; const e = _dropDepartEst(pl, sl, cid);
+      if (e) { if (dep[cid] !== e.v || !au[cid]) { dep[cid] = e.v; au[cid] = true; ch = true; } }
+      else if (dep[cid] || au[cid]) { delete dep[cid]; delete au[cid]; ch = true; } });
+    return ch ? { ...pl, drop: { ...pl.drop, depart: dep, departAuto: au } } : pl;
+  } catch { return pl; } };
   const _depShow = (dr, cid) => { const v = ((dr && dr.depart) || {})[cid] || ''; if (v && ((dr && dr.departAuto) || {})[cid] && !(((dr && dr.cars) || {})[cid] || []).length) return ''; return v; };
   // 手で決めた出発はそのまま。空の車と目安の車だけ入れ直す
   const fillDropDepartEst = (iso, sl) => { const pl0 = getPlan(iso, sl); if (!pl0.drop) return 0; const todo = cars.filter(c => { const d0 = (pl0.drop.depart||{})[c.id]; return (!d0 || (pl0.drop.departAuto||{})[c.id]) && _dropDepartEst(pl0, sl, c.id); }); if (!todo.length) return 0;
@@ -40277,7 +40287,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           return (
             <div key={c.id} className="flex flex-col items-center gap-1.5" style={{ width: maxCols * 120 + 30 }} data-testid={`tp-seatcar-${c.id}`}>
               <div className="text-sm font-bold text-slate-800 flex items-center gap-2 flex-wrap justify-center">{c.name} <span className="text-[11px] font-normal text-slate-400">{Object.keys(lay.bySeat).length}/{lay.capN}名</span>
-                <span className="flex items-center gap-1 text-[11px] font-bold text-slate-500">出発<button type="button" data-testid={`tp-seat-depart-${c.id}`} onClick={() => setSeatKp({ iso, sl, cid: c.id })} title="押すとテンキーで入力できます" className="min-w-[4.4em] px-1.5 py-0.5 border-2 border-slate-300 rounded text-[13px] font-bold text-center tabular-nums bg-white text-blue-700 hover:bg-blue-50">{_depShow(dr, c.id) || (() => { const e2 = _dropDepartEst(getPlan(iso, sl), sl, c.id); return e2 ? `${e2.v}頃` : '—:—'; })()}</button>{(!_depShow(dr, c.id) || (dr.departAuto||{})[c.id]) ? <span className="text-[10px] font-bold text-amber-800 bg-amber-100 rounded px-1">目安</span> : null}</span>{/* ★ 2026-10-25(ユーザー): 出発の目安はボタンを押さなくても人数から自動で */}
+                <span className="flex items-center gap-1 text-[11px] font-bold text-slate-500">出発<button type="button" data-testid={`tp-seat-depart-${c.id}`} onClick={() => setSeatKp({ iso, sl, cid: c.id })} title="押すとテンキーで入力できます" className="min-w-[4.4em] px-1.5 py-0.5 border-2 border-slate-300 rounded text-[13px] font-bold text-center tabular-nums bg-white text-blue-700 hover:bg-blue-50">{(_depShow(dr, c.id) && !(dr.departAuto||{})[c.id]) ? _depShow(dr, c.id) : (() => { const e2 = _dropDepartEst(getPlan(iso, sl), sl, c.id); return e2 ? `${e2.v}頃` : '—:—'; })()}</button>{(!_depShow(dr, c.id) || (dr.departAuto||{})[c.id]) ? <span className="text-[10px] font-bold text-amber-800 bg-amber-100 rounded px-1">目安</span> : null}</span>{/* ★ 2026-10-25(ユーザー): 出発の目安はボタンを押さなくても人数から自動で */}
               </div>
               <div className="relative w-full bg-white border-[3px] border-slate-700 px-2.5 pb-3 pt-7 flex flex-col gap-2" style={{ borderRadius: '42px 42px 14px 14px' }}>
                 <span className="absolute -left-[13px] top-9 w-3 h-2.5 border-2 border-slate-700 rounded-l-md bg-white" aria-hidden="true"/>
@@ -40337,7 +40347,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                   {['AM','PM'].map(s2 => <button key={s2} type="button" data-testid={`tp-seat-slot-${s2}`} onClick={() => { setSeatOrd(null); setSeatMv({ iso, sl: s2 }); }} className={`px-3 py-1.5 text-sm font-bold ${sl === s2 ? (s2 === 'AM' ? 'bg-amber-500 text-white' : 'bg-indigo-600 text-white') : 'bg-white text-slate-600'}`}>{s2 === 'AM' ? 'AM送り' : 'PM送り'}</button>)}
                 </div>
                 <div className="flex-1"/>
-                {dr ? <button type="button" data-testid="tp-seat-depart-est" onClick={() => { const n = fillDropDepartEst(iso, sl); if (!n) alert('目安を入れられる車がありません。\n（送りの方が乗っていない車と、出発時間を手で決めた車はそのままです）'); }} title="終了時刻に乗車にかかる時間を足した目安を入れます（手で決めた時間はそのまま）" className="px-3 py-2 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-800 rounded-lg text-sm font-bold">出発の目安を入れる</button> : null}
+                {/* ★ 2026-10-27(ユーザー「人数で自動で出るなら、出発の目安を入れるボタンは不要」): ボタンはなくし、保存のたびに自動で入れ直す(savePlan の _autoDropDepart) */}
                 {dr && _dropShown ? <button type="button" data-testid="tp-seat-at-est" disabled={dropAtBusy} onClick={async () => { setDropAtBusy(true); try { const r2 = await fillDropAtEst(iso, sl); if (!r2.n) alert(r2.why === 'nodep' ? '先に各車の「出発」の時間を入れてください。' : r2.why === 'noaddr' ? '住所が入っていない方がいるため、移動時間を調べられませんでした。' : r2.why === 'nofac' ? '事業所の住所が入っていません（各種設定→事業所情報）。' : r2.why === 'api' ? '移動時間を調べられませんでした。席の「着」を押して手で入れてください。' : '目安を入れられる方がいません（手で決めた時間はそのままです）。'); } finally { setDropAtBusy(false); } }} title="家に着く時間の目安を入れます（手で決めた時間はそのまま）" className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-indigo-800 rounded-lg text-sm font-bold disabled:opacity-50">{dropAtBusy ? '調べています…' : '着く時間の目安を入れる'}</button> : null}
                 <button type="button" data-testid="tp-seat-dl" onClick={() => downloadSeatChart(iso)} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold">ダウンロード</button>
               </div>
