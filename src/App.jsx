@@ -2726,6 +2726,8 @@ const parseJpDate = (s) => {
   return isNaN(d.getTime()) ? null : d;
 };
 // ★ 2026-10-27(不具合): 和暦の日付を文字のまま比べると「令和8年10月」が「令和8年9月」より前になる。日付に直して新しい順に並べる(同じ日は作った時刻の新しい順)
+// ★ 2026-10-28(不具合): new Date().toISOString() は世界標準時なので、日本の 0時〜9時は前の日になる。端末の日付で「今日」(YYYY-MM-DD)を作る
+const tsuTodayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const tsuJpKey = (v) => { const d = parseJpDate(v); return d ? d.getTime() : 0; };
 const tsuByJpDesc = (key) => (a, b) => (tsuJpKey(b && b[key]) - tsuJpKey(a && a[key])) || ((Number(b && b.createdAt) || 0) - (Number(a && a.createdAt) || 0));
 // 「令和8年3月」「令和8年3月31日」など月までの指定も拾う(目標の達成予定日用)
@@ -51896,7 +51898,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
   const _kkStaff = React.useMemo(() => tsuStaffList(appData), [appData.storeMembers, appData.diarySettings]);
   const newRecord = () => ({
     id: `kk_${pid}_${Date.now()}`, patientId: pid, createdAt: Date.now(),
-    createdDate: toReiwa(new Date().toISOString().slice(0,10)), prevDate: '', firstDate: '',
+    createdDate: toReiwa(tsuTodayIso()), prevDate: '', firstDate: '',
     author: '', authorJob: '機能訓練指導員', coAuthors: '',   // ★ 共同作成者(多職種共同作成の記録・2026-08-19)
     // ★ 自立度・希望・社会参加・居宅環境・病名・留意事項はフェイスシートから自動取込
     ..._kkFsAuto(patient),
@@ -51941,7 +51943,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
     onSave({ ...appData, kinouKeikakuRecords: (appData.kinouKeikakuRecords||[]).filter(r=>r.id!==id), deletedIds: addTombstone(appData,'kinouKeikakuRecords',id) }, { manual:true, message:'削除しました' });
     if (editing?.id === id) setEditing(null);
   };
-  const dupRecord = (r) => { setEditing({ ...r, id:`kk_${pid}_${Date.now()}`, createdAt:Date.now(), prevDate: r.createdDate||'', createdDate: toReiwa(new Date().toISOString().slice(0,10)), shortAchieve:'', longAchieve:'', henka:'', kadai:'', setsumeiDate:'', setsumeisha:'' }); };
+  const dupRecord = (r) => { setEditing({ ...r, id:`kk_${pid}_${Date.now()}`, createdAt:Date.now(), prevDate: r.createdDate||'', createdDate: toReiwa(tsuTodayIso()), shortAchieve:'', longAchieve:'', henka:'', kadai:'', setsumeiDate:'', setsumeisha:'' }); };
   // ★ 作成予定からの遷移(navFocus='start_edit'): 最新が一時保存(draft)ならそれを再開、
   //   完成版があれば「複製して更新」、無ければ新規(2026-09-08 店舗要望: 一時保存の続きから作成)
   React.useEffect(() => {
@@ -52544,13 +52546,13 @@ function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
   const facility = tsumugiFacilityInfo(appData);
   const toReiwa = (iso) => { if(!iso) return ''; const d=new Date(iso); if(isNaN(d.getTime())) return iso; return `令和${d.getFullYear()-2018}年${d.getMonth()+1}月${d.getDate()}日`; };
   const records = (appData.seikatsuKinouRecords||[]).filter(r => r.patientId === pid).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-  const newRecord = () => ({ id:`sk_${pid}_${Date.now()}`, patientId:pid, createdAt:Date.now(), recordDate:toReiwa(new Date().toISOString().slice(0,10)), recorder:'', adl:{}, kikyo:{}, iadl:{}, shinshin:{}, ninchi:'', kadai:patient?.ryui||'', bikou:'' });
+  const newRecord = () => ({ id:`sk_${pid}_${Date.now()}`, patientId:pid, createdAt:Date.now(), recordDate:toReiwa(tsuTodayIso()), recorder:'', adl:{}, kikyo:{}, iadl:{}, shinshin:{}, ninchi:'', kadai:patient?.ryui||'', bikou:'' });
   const upd = (patch) => { setEditing(e=>({...e,...patch})); markDirty(); };
   const updMap = (group,key,val) => { setEditing(e=>({...e,[group]:{...(e[group]||{}),[key]:val}})); markDirty(); };
   const saveRecord = (close=true) => { if(!editing) return; const list=[...(appData.seikatsuKinouRecords||[])]; const i=list.findIndex(r=>r.id===editing.id); const rec={...editing, draft: !close, _savedAt:syncNow()}; if(i>=0)list[i]=rec; else list.push(rec); onSave({...appData,seikatsuKinouRecords:list},{manual:true,message: close?'✓ 生活機能チェックシートを保存しました':'✓ 一時保存しました'}); if(dirtyRef)dirtyRef.current=false; if(close) setEditing(null); else setEditing(rec); };
   React.useEffect(()=>{ if(!saveFnRef) return; saveFnRef.current=()=>{ if(editing) saveRecord(); }; });
   const delRecord = (id) => { if(!window.confirm('削除しますか？')) return; onSave({...appData,seikatsuKinouRecords:(appData.seikatsuKinouRecords||[]).filter(r=>r.id!==id), deletedIds: addTombstone(appData,'seikatsuKinouRecords',id)},{manual:true,message:'削除しました'}); if(editing?.id===id)setEditing(null); };
-  const dupRecord = (r) => setEditing({...r, id:`sk_${pid}_${Date.now()}`, createdAt:Date.now(), recordDate:toReiwa(new Date().toISOString().slice(0,10))});
+  const dupRecord = (r) => setEditing({...r, id:`sk_${pid}_${Date.now()}`, createdAt:Date.now(), recordDate:toReiwa(tsuTodayIso())});
   // ★ 2026-10-14: 「利用者ごと」の履歴から 編集(edit:<id>)・ダウンロード(print:<id>)
   const [printPickId, setPrintPickId] = React.useState(null);
   const _retRef = useKkReturn(!!editing, navigateTo, pid);
@@ -52691,7 +52693,7 @@ function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
   const facility = tsumugiFacilityInfo(appData);
   const toReiwa = (iso) => { if(!iso) return ''; const d=new Date(iso); if(isNaN(d.getTime())) return iso; return `令和${d.getFullYear()-2018}年${d.getMonth()+1}月${d.getDate()}日`; };
   const records = (appData.kyomiKanshinRecords||[]).filter(r => r.patientId === pid).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-  const newRecord = () => ({ id:`ki_${pid}_${Date.now()}`, patientId:pid, createdAt:Date.now(), recordDate:toReiwa(new Date().toISOString().slice(0,10)), recorder:'', items:{}, custom:[], bikou:'' });
+  const newRecord = () => ({ id:`ki_${pid}_${Date.now()}`, patientId:pid, createdAt:Date.now(), recordDate:toReiwa(tsuTodayIso()), recorder:'', items:{}, custom:[], bikou:'' });
   const upd = (patch) => { setEditing(e=>({...e,...patch})); markDirty(); };
   const toggle = (name,key) => { setEditing(e=>{ const cur=e.items?.[name]||{}; return {...e, items:{...e.items,[name]:{...cur,[key]:!cur[key]}}}; }); markDirty(); };
   const toggleCustom = (i,key) => { setEditing(e=>({...e, custom:e.custom.map((c,idx)=>idx===i?{...c,[key]:!c[key]}:c)})); markDirty(); };
@@ -52700,7 +52702,7 @@ function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
   const saveRecord = (close=true) => { if(!editing) return; const list=[...(appData.kyomiKanshinRecords||[])]; const i=list.findIndex(r=>r.id===editing.id); const rec={...editing, draft: !close, _savedAt:syncNow()}; if(i>=0)list[i]=rec; else list.push(rec); onSave({...appData,kyomiKanshinRecords:list},{manual:true,message: close?'✓ 興味・関心チェックシートを保存しました':'✓ 一時保存しました'}); if(dirtyRef)dirtyRef.current=false; if(close) setEditing(null); else setEditing(rec); };
   React.useEffect(()=>{ if(!saveFnRef) return; saveFnRef.current=()=>{ if(editing) saveRecord(); }; });
   const delRecord = (id) => { if(!window.confirm('削除しますか？')) return; onSave({...appData,kyomiKanshinRecords:(appData.kyomiKanshinRecords||[]).filter(r=>r.id!==id), deletedIds: addTombstone(appData,'kyomiKanshinRecords',id)},{manual:true,message:'削除しました'}); if(editing?.id===id)setEditing(null); };
-  const dupRecord = (r) => setEditing({...r, id:`ki_${pid}_${Date.now()}`, createdAt:Date.now(), recordDate:toReiwa(new Date().toISOString().slice(0,10))});
+  const dupRecord = (r) => setEditing({...r, id:`ki_${pid}_${Date.now()}`, createdAt:Date.now(), recordDate:toReiwa(tsuTodayIso())});
   // ★ 2026-10-14: 「利用者ごと」の履歴から 編集(edit:<id>)・ダウンロード(print:<id>)
   const [printPickId, setPrintPickId] = React.useState(null);
   const _retRef = useKkReturn(!!editing, navigateTo, pid);
@@ -52929,7 +52931,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
   };
   const newRecord = ()=>({
     id:`tk_${pid}_${Date.now()}`, patientId:pid, createdAt:Date.now(),
-    createdDate:toReiwa(new Date().toISOString().slice(0,10)),
+    createdDate:toReiwa(tsuTodayIso()),
     prevDate:(records[0]?.createdDate||''), firstDate:(records[records.length-1]?.createdDate||''),
     author:'', authorJob:'生活相談員',
     ..._fsAuto(patient),
@@ -53018,7 +53020,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
   };
   React.useEffect(()=>{ if(!saveFnRef) return; saveFnRef.current=()=>{ if(editing) saveRecord(); }; });
   const delRecord=(id)=>{ if(!window.confirm('この計画書を削除します。よろしいですか？')) return; onSave({...appData, tsushoKeikakuRecords:(appData.tsushoKeikakuRecords||[]).filter(r=>r.id!==id), deletedIds: addTombstone(appData,'tsushoKeikakuRecords',id)}, {manual:true, message:'削除しました'}); if(editing?.id===id) setEditing(null); };
-  const dupRecord=(r)=>{ setEditing(_migrate({...r, id:`tk_${pid}_${Date.now()}`, createdAt:Date.now(), prevDate:r.createdDate||'', createdDate:toReiwa(new Date().toISOString().slice(0,10)), longAchieve:'', shortAchieve:'', soukatsu:'', saihyokaDate:'', setsumeiDate:'', setsumeisha:'', doui:''})); };
+  const dupRecord=(r)=>{ setEditing(_migrate({...r, id:`tk_${pid}_${Date.now()}`, createdAt:Date.now(), prevDate:r.createdDate||'', createdDate:toReiwa(tsuTodayIso()), longAchieve:'', shortAchieve:'', soukatsu:'', saihyokaDate:'', setsumeiDate:'', setsumeisha:'', doui:''})); };
   // ★ 作成予定からの遷移(navFocus='start_edit'): 最新が一時保存(draft)ならそれを再開、
   //   完成版があれば「複製して更新」、無ければ新規(2026-09-08 店舗要望: 一時保存の続きから作成)
   React.useEffect(() => {
@@ -54165,7 +54167,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
   const patient = (appData.patients||[]).find(p => p.id === pid);
   const addons = appData.systemSettings?.addons || {};
   const _age = (bd)=>{ if(!bd) return ''; const d=new Date(bd),n=new Date(); let a=n.getFullYear()-d.getFullYear(); if(n.getMonth()<d.getMonth()||(n.getMonth()===d.getMonth()&&n.getDate()<d.getDate()))a--; return a; };
-  const today = new Date().toISOString().slice(0,10);
+  const today = tsuTodayIso();
   const adlRecords = (appData.adlRecords||[]).filter(r => r.patientId===pid).sort((a,b)=>(b.evalDate||'').localeCompare(a.evalDate||''));
   const [editing, setEditing] = React.useState(null);
   // ★ LIFE連携の事業所情報は「各種設定→LIFE連携」タブ(保存先は systemSettings.facilityInfo)から読み込む(二重管理を避ける)
@@ -55769,7 +55771,7 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
     const _errs = []; // ★ 2026-09-17: 失敗した利用者と理由(最後にまとめて表示する)
     let aiBudget = _aiRemaining, aiUsedThisRun = 0; // ★ 今月のAI残り回数まで
     const rec = getActiveRecorderName() || '';
-    const today = new Date().toISOString().slice(0,10);
+    const today = tsuTodayIso();
     for (const p of targets) {
       if (cancelRef.current) break;
       try {
@@ -55835,14 +55837,14 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   const getOrInitSheetFor = (patient) => {
     const rec = getSheetRecord(patient.id);
     if (rec?.sheet) return rec.sheet;
-    return { implDate: new Date().toISOString().slice(0,10), recorder: getActiveRecorderName()||'',
+    return { implDate: tsuTodayIso(), recorder: getActiveRecorderName()||'',
       s1:{sel:'',text:''}, goal:{sel:'',text:''}, s2:{sel:'',text:''}, s3:{sel:'',text:''}, s4:{sel:'',text:''} };
   };
   const buildDefaultSheetFor = (patient) => {
     const rec = getSheetRecord(patient.id);
     if (rec?.sheet) return rec.sheet;
     const sel = buildAutoSel(patient); const noAtt = !hasAttendance(patient);
-    return { implDate: new Date().toISOString().slice(0,10), recorder: getActiveRecorderName()||'',
+    return { implDate: tsuTodayIso(), recorder: getActiveRecorderName()||'',
       s1:{sel: sel.s1||(noAtt?'実施できなかった':'実施できた'), text: buildAutoStatus(patient)},
       goal:{sel: sel.goal||'', text: noAtt?'当月は通所がなく評価が困難。':''},
       s2:{sel:'',text:''}, s3:{sel:'変化なし',text: buildAutoChange(patient)}, s4:{sel:'このまま継続',text:''} };
@@ -56734,7 +56736,7 @@ ${optionsDesc}
             autoSel={buildAutoSel(patient)}
             noAttendance={!hasAttendance(patient)}
             defaultRecorder={getActiveRecorderName() || ''}
-            defaultDate={new Date().toISOString().slice(0,10)}
+            defaultDate={tsuTodayIso()}
             onClose={()=>setSheetModal(null)}
             onSave={(sheet)=>saveSheet(patient, sheet)}
             onPrint={(sheet, forFax)=>printSheet(patient, sheet, forFax)}
@@ -60689,7 +60691,7 @@ function MeetingRecordForm({ patient, meeting, onSave, onClose, onFloat, appData
           <div className="text-base font-bold text-slate-800">サービス担当者会議記録表 (担会)</div>
           <div className="flex items-center gap-1.5">
             {/* ★ 小窓に切替(2026-08-28): 入力中の内容を保存して、画面切替でも残るフロートメモで続きを入力 */}
-            {onFloat && <button onClick={()=>{ const d = form.date || new Date().toISOString().slice(0,10); onFloat({ ...form, date: d, dateLabel: toWarekiDateLabel(d), dayOfWeek: dayOfWeekJp(d), location: locationLabel }); }}
+            {onFloat && <button onClick={()=>{ const d = form.date || tsuTodayIso(); onFloat({ ...form, date: d, dateLabel: toWarekiDateLabel(d), dayOfWeek: dayOfWeekJp(d), location: locationLabel }); }}
               title="ここまでの内容を保存して小窓(フロートメモ)に切り替えます。他の画面を見ながら続きを入力できます"
               className="px-3 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded-lg text-xs font-bold">小窓にする</button>}
             {/* ★ 2026-10-16(ユーザー「右上の×は下の終了と同じなので消す」)。★ 2026-10-17(ユーザー「保存と終了は上に」): 他の画面と同じく上の帯に */}
