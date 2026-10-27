@@ -11365,20 +11365,18 @@ const generateMonthlySchedule = (patients, year, month, monthlyShifts, ticketRec
 let _lpLastFireAt = 0;
 // ★ 2026-10-27(ユーザー報告「タブレット・スマホで体調を長押しすると枠がグレーになるだけで選ばれない」): iPhone/iPad は長押しすると pointerup ではなく
 //   pointercancel が来る(click も来ない)。取り消しでも指が動いていなければ「押した」とみなす。念のため touchend でも確定(二重は時刻ガード)
-const _lpFire = (fn) => { if (Date.now() - _lpLastFireAt < 500) return; _lpLastFireAt = Date.now(); fn(); };
+// ★ 2026-10-27(ユーザー「一瞬タップ・長押し・連打のどれでも必ず反応するように」): 二重の防止は「同じボタンで400ms以内」だけ(別のボタンの連続押しは止めない)。
+//   指が少しずれても(30px まで・または離した場所がボタンの上なら)押したとみなす。長押しの取り消し(pointercancel)・touchend でも確定
+const _lpFireEl = (t, fn) => { const now = Date.now(); if (t && t._lpAt && now - t._lpAt < 400) return; if (t) t._lpAt = now; _lpLastFireAt = now; fn(); };
+const _lpOver = (t, x, y) => { try { const el = document.elementFromPoint(x, y); return !!(el && (el === t || t.contains(el))); } catch { return false; } };
 const longPressTapProps = (fn) => ({
-  onPointerDown: (e) => { const t = e.currentTarget; t._lpSx = e.clientX; t._lpSy = e.clientY; t._lpMoved = false; },
-  onPointerMove: (e) => { const t = e.currentTarget; if (t._lpSx == null) return; if (Math.hypot(e.clientX - t._lpSx, e.clientY - t._lpSy) >= 12) t._lpMoved = true; },
-  onPointerUp: (e) => {
-    const t = e.currentTarget;
-    const dx = e.clientX - (t._lpSx ?? e.clientX), dy = e.clientY - (t._lpSy ?? e.clientY);
-    if (!t._lpMoved && Math.hypot(dx, dy) < 12) _lpFire(fn);
-    t._lpSx = null;
-  },
-  onPointerCancel: (e) => { const t = e.currentTarget; if (t._lpSx != null && !t._lpMoved) _lpFire(fn); t._lpSx = null; },
-  onTouchStart: (e) => { try { const t = e.currentTarget; const p = e.touches[0]; t._lpTx = p.clientX; t._lpTy = p.clientY; } catch {} },
-  onTouchEnd: (e) => { try { const t = e.currentTarget; const p = e.changedTouches[0]; if (t._lpTx != null && Math.hypot(p.clientX - t._lpTx, p.clientY - t._lpTy) < 12) { _lpFire(fn); e.preventDefault(); } t._lpTx = null; } catch {} },
-  onClick: (e) => { if (Date.now() - _lpLastFireAt < 500) { e.preventDefault(); return; } _lpLastFireAt = Date.now(); fn(); },
+  onPointerDown: (e) => { const t = e.currentTarget; t._lpSx = e.clientX; t._lpSy = e.clientY; t._lpMoved = false; t._lpDown = true; },
+  onPointerMove: (e) => { const t = e.currentTarget; if (!t._lpDown) return; if (Math.hypot(e.clientX - t._lpSx, e.clientY - t._lpSy) >= 30) t._lpMoved = true; },
+  onPointerUp: (e) => { const t = e.currentTarget; if (!t._lpDown) return; t._lpDown = false; if (!t._lpMoved || _lpOver(t, e.clientX, e.clientY)) _lpFireEl(t, fn); },
+  onPointerCancel: (e) => { const t = e.currentTarget; if (!t._lpDown) return; t._lpDown = false; if (!t._lpMoved) _lpFireEl(t, fn); },
+  onTouchStart: (e) => { try { const t = e.currentTarget; const p = e.touches[0]; t._lpTx = p.clientX; t._lpTy = p.clientY; t._lpTouch = true; } catch {} },
+  onTouchEnd: (e) => { try { const t = e.currentTarget; if (!t._lpTouch) return; t._lpTouch = false; const p = e.changedTouches[0]; const moved = Math.hypot(p.clientX - t._lpTx, p.clientY - t._lpTy); if (moved < 30 || _lpOver(t, p.clientX, p.clientY)) { _lpFireEl(t, fn); e.preventDefault(); } } catch {} },
+  onClick: (e) => { const t = e.currentTarget; if (t._lpAt && Date.now() - t._lpAt < 400) { e.preventDefault(); return; } _lpFireEl(t, fn); },
   onContextMenu: (e) => e.preventDefault(),
   style: { WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none', touchAction: 'manipulation' },
 });
