@@ -1,0 +1,30 @@
+// 日誌の送迎表取込: 3台で取り込み → 送迎表を2台に直して取り込み直す → 3台目の割り当て・運転者・時間が日誌に残らない
+import { chromium } from 'playwright';
+const OUT = '/private/tmp/claude-502/-Users-masabou/fa482dc7-6256-4b2b-92db-cbf4767db5bd/scratchpad';
+const PORT = process.env.PORT || ((i) => i >= 0 ? process.argv[i + 1] : 4173)(process.argv.indexOf('--port')); const r = {};
+const b = await chromium.launch(); const page = await (await b.newContext({ viewport: { width: 1366, height: 900 }, locale: 'ja-JP', timezoneId: 'Asia/Tokyo' })).newPage();
+page.on('dialog', d => d.accept()); page.on('pageerror', e => console.log('PAGEERROR', e.message.slice(0, 200)));
+await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'networkidle' }); await page.waitForTimeout(800);
+if (await page.getByText('担当者を選択', { exact: false }).count()) { await page.locator('button', { hasText: /見本|例示|架空/ }).first().click().catch(() => {}); await page.waitForTimeout(800); }
+const today = new Date(); const _t0 = new Date(); if (_t0.getDay() === 0) _t0.setDate(_t0.getDate() + 1); /* 日曜(定休)は翌日 */ const iso = `${_t0.getFullYear()}-${String(_t0.getMonth() + 1).padStart(2, '0')}-${String(_t0.getDate()).padStart(2, '0')}`;
+const setPlan = (cars3) => page.evaluate(([iso, cars3]) => { const d = JSON.parse(localStorage.getItem('daycareAppData_v3'));
+  d.diarySettings.cars = [{ id: 'c1', name: '1号車', type: '', cap: '5' }, { id: 'c2', name: '2号車', type: '', cap: '5' }, { id: 'c3', name: '3号車', type: '', cap: '5' }];
+  const st = (d.diarySettings.staff || []).filter(s => s && s.name && !s._tempHelp); const nm = (i) => st[i % st.length].name;
+  const act = d.patients.filter(p => p.status === '利用中').slice(0, 6); const dow = new Date(iso + 'T00:00:00').getDay(); act.forEach(p => { p.scheduleAmPm = ['', '', '', '', '', '', '']; p.scheduleAmPm[dow] = 'AM'; });
+  const m = (i, t) => ({ pid: act[i].id, t });
+  const cars = cars3 ? { c1: [m(0, '8:30'), m(1, '8:40')], c2: [m(2, '8:35'), m(3, '8:45')], c3: [m(4, '8:20'), m(5, '8:30')] } : { c1: [m(0, '8:30'), m(1, '8:40'), m(4, '8:45')], c2: [m(2, '8:35'), m(3, '8:45'), m(5, '8:50')] };
+  const driver = cars3 ? { c1: nm(0), c2: nm(1), c3: nm(2) } : { c1: nm(0), c2: nm(1) };
+  const arrive = cars3 ? { c1: '8:55', c2: '8:56', c3: '8:57' } : { c1: '8:58', c2: '8:59' };
+  d.transportPlans = { [`${iso}_AM`]: { cars, walkers: [], others: [], un: [], driver, arrive, _savedAt: Date.now() } };
+  localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); }, [iso, cars3]);
+const go = async () => { await page.evaluate((iso) => sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'diary', pid: null, date: iso, ampm: 'AM', t: Date.now() })), iso); await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(1800); await page.locator('button', { hasText: /^AM$/ }).first().click().catch(() => {}); await page.waitForTimeout(500); };
+const imp = async () => { /* trial400: 取込ボタンは無く、開いた(go)ときに自動で反映されているので保存だけ */ await page.locator('button:visible', { hasText: /^保存$/ }).first().click(); await page.waitForTimeout(1500); };
+const log = () => page.evaluate((iso) => { const d = JSON.parse(localStorage.getItem('daycareAppData_v3')); const ls = d.diaryLogs || {}; const k = Object.keys(ls).find(k => k.startsWith(iso) && /AM/.test(k)); return k ? ls[k] : null; }, iso);
+await setPlan(true); await go(); await imp();
+const l1 = await log(); r.first3cars = !!l1 && Object.keys(l1.pick || {}).some(k => l1.pick[k] && k.endsWith('_c3')) && !!((l1.carTimes || {}).c3 || {}).arrive && Object.keys(l1.driver || {}).some(k => k.startsWith('a_c3_'));
+await setPlan(false); await go(); await imp();
+const l2 = await log(); r.after2cars = !!l2 && !Object.keys(l2.pick || {}).some(k => l2.pick[k] && k.endsWith('_c3')) && !((l2.carTimes || {}).c3 || {}).arrive && !Object.keys(l2.driver || {}).some(k => k.startsWith('a_c3_') && l2.driver[k]);
+r.c1Updated = !!l2 && ((l2.carTimes || {}).c1 || {}).arrive === '08:58';
+if (!r.after2cars || !r.c1Updated) console.log(JSON.stringify({ pick: l2 && l2.pick, ct: l2 && l2.carTimes, drv: l2 && l2.driver }).slice(0, 600));
+await page.screenshot({ path: `${OUT}/tpimport.png` });
+console.log(r, Object.values(r).every(Boolean) ? 'PASS' : 'FAIL'); await b.close();
