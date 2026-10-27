@@ -20752,6 +20752,7 @@ export default function App() {
   };
   // ★ 2026-10-19 データ保護(段階3c): 写真・書類の署名 URL 用に、店舗IDとログインの証を部品側へ渡す
   useEffect(() => { try { setFilesContext({ storeId: staffSession?.storeId || null, staffToken: staffSession?.token || null }); } catch {} }, [staffSession?.storeId, staffSession?.token]);
+  useEffect(() => { if (staffSession?.token && staffSession?.storeId) tsuPushRefresh(); }, [staffSession?.token, staffSession?.storeId]); // ★ 2026-10-27: 通知の登録を確かめ直す
   // ★ 2026-10-17 データ保護(段階1): ログイン中は Supabase の証を起動時に取り直し、以後12時間ごとに更新(証は24時間有効)。
   //   ログインの証が切れていたら(サーバーが expired)ログアウトして入り直してもらう
   React.useEffect(() => {
@@ -20794,6 +20795,8 @@ export default function App() {
   //   保存した画面名を初期値に採用(5分以内のみ有効・使い捨て)。 通常の起動はこれまで通りホーム。
   const [currentView, setCurrentView] = useState(() => {
     try {
+      // ★ 2026-10-27: 通知を押して開いたとき(?tsugo=schedule)はカレンダーへ。URL の印は消す
+      try { const _q = new URLSearchParams(window.location.search); const _go = _q.get('tsugo'); if (_go === 'schedule') { _q.delete('tsugo'); const _u = window.location.pathname + (_q.toString() ? `?${_q}` : '') + window.location.hash; window.history.replaceState(null, '', _u); return 'schedule'; } } catch {}
       const _noResume = sessionStorage.getItem('tsumugiNoResume') === '1'; if (_noResume) sessionStorage.removeItem('tsumugiNoResume'); // ★ 2026-10-26: ログアウト直後はホームから
       const raw = _noResume ? null : sessionStorage.getItem('tsumugi_resume_view');
       if (raw) {
@@ -24473,7 +24476,8 @@ export default function App() {
             try {
               if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
                 const rs = await navigator.serviceWorker.getRegistrations();
-                await Promise.all(rs.map(r=>r.unregister()));
+                // ★ 2026-10-27: 通知用(sw-push.js)は消さない(消すと通知が届かなくなる)。それ以外の古い SW だけ外す
+                await Promise.all(rs.filter(r => !String(((r.active || r.waiting || r.installing) || {}).scriptURL || '').includes('sw-push')).map(r=>r.unregister()));
               }
             } catch {}
             // ★ 更新前に見ていた画面へ戻れるように保存(2026-08-28)
@@ -45925,6 +45929,8 @@ const TSU_SETTINGS_INDEX = [
   ['addon','アドオン（オプション機能）','アドオン オプション 計画書 加算 LIFE 興味関心 生活機能'],
   ['system','この端末の表示','表示 全画面 文字 大きさ 自動 この端末'],
   ['system','この端末の名前・最終更新','端末名 端末の名前 最終更新 同期 iPad パソコン'],
+  ['system','この端末の通知','通知 プッシュ お知らせ 担当者会議 予定 ホーム画面 テスト通知'],
+  ['system','予定のお知らせ（店舗の設定）','通知 予定 前日 30分前 ラベル 担当者会議 契約 見学 夜'],
   ['login','ログイン情報','ログイン ID パスワード 変更 店舗 従業員 PIN 本人登録 招待'],
   ['login','管理者の設定','管理者 パスワード メール 譲渡 削除 個人ファイル 関所'],
   ['data','データ管理','データ バックアップ 書き出し 取り込み CSV 削除 残骸 見本 復旧'],
@@ -45945,6 +45951,120 @@ function TsuSettingsSearch({ tabs, onPick }) {
             </button>))}
         </div>
       )}
+    </div>
+  );
+}
+// ★ 2026-10-27(ユーザー「担当者会議を忘れるので通知を」): Web プッシュ通知(第1段階=カレンダーの予定を、その店舗で通知を許可した端末へ)。
+//   サーバー api/push.js・送る時刻の判定 api/_push_plan.js・端末側 public/sw-push.js。通知の文に利用者名・予定の題名は出さない
+const TSU_PUSH_SW = '/sw-push.js';
+const tsuPushSupported = () => { try { return typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window; } catch { return false; } };
+const tsuIsStandaloneApp = () => { try { return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true; } catch { return false; } };
+const tsuIsIOSDevice = () => { try { return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); } catch { return false; } };
+const _tsuPushSession = () => { try { return JSON.parse(sessionStorage.getItem('tsumugiStaffSession') || 'null') || {}; } catch { return {}; } };
+const _tsuB64ToU8 = (b64) => { const p = '='.repeat((4 - (b64.length % 4)) % 4); const raw = atob((b64 + p).replace(/-/g, '+').replace(/_/g, '/')); const out = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i); return out; };
+async function tsuPushApi(payload) {
+  const ss = _tsuPushSession();
+  const r = await fetch('/api/push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: ss.token || '', store_id: ss.storeId || '', ...payload }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `通知の設定に失敗しました（${r.status}）`);
+  return j;
+}
+async function _tsuPushReg() { return (await navigator.serviceWorker.getRegistration('/')) || null; }
+async function tsuPushCurrentSub() { try { const reg = await _tsuPushReg(); return reg ? await reg.pushManager.getSubscription() : null; } catch { return null; } }
+// ボタンを押したときだけ呼ぶ(許可を求めるのは押したときの処理の中でないと拒否される)
+async function tsuPushEnable() {
+  if (!tsuPushSupported()) throw new Error(tsuIsIOSDevice() && !tsuIsStandaloneApp() ? 'iPhone・iPad は、ホーム画面に追加したつむぎから設定してください' : 'この端末・ブラウザは通知に対応していません');
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') throw new Error('通知が許可されませんでした。端末の「設定」で つむぎ の通知をオンにしてから、もう一度押してください');
+  const reg = await navigator.serviceWorker.register(TSU_PUSH_SW, { scope: '/' });
+  await navigator.serviceWorker.ready;
+  const { publicKey } = await tsuPushApi({ action: 'key' });
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: _tsuB64ToU8(publicKey) });
+  let dev = ''; try { dev = localStorage.getItem('tsumugiDeviceName') || ''; } catch {}
+  const r = await tsuPushApi({ action: 'subscribe', sub: sub.toJSON(), device: dev, origin: location.origin });
+  try { localStorage.setItem('tsumugiPushOn', '1'); } catch {}
+  return r;
+}
+async function tsuPushDisable() {
+  const sub = await tsuPushCurrentSub();
+  if (sub) { try { await tsuPushApi({ action: 'unsubscribe', endpoint: sub.endpoint }); } catch {} try { await sub.unsubscribe(); } catch {} }
+  try { localStorage.removeItem('tsumugiPushOn'); } catch {}
+}
+async function tsuPushTest() { const sub = await tsuPushCurrentSub(); if (!sub) throw new Error('この端末はまだ通知を受け取る設定になっていません'); return tsuPushApi({ action: 'test', endpoint: sub.endpoint }); }
+// 起動時(ログイン後): 許可済みで「届ける」にしていた端末は、登録を確かめ直す(ブラウザが登録を作り直したときのため)
+async function tsuPushRefresh() {
+  try {
+    if (!tsuPushSupported() || Notification.permission !== 'granted') return;
+    if (localStorage.getItem('tsumugiPushOn') !== '1') return;
+    const reg = (await _tsuPushReg()) || (await navigator.serviceWorker.register(TSU_PUSH_SW, { scope: '/' }));
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) { const { publicKey } = await tsuPushApi({ action: 'key' }); sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: _tsuB64ToU8(publicKey) }); }
+    let dev = ''; try { dev = localStorage.getItem('tsumugiDeviceName') || ''; } catch {}
+    await tsuPushApi({ action: 'subscribe', sub: sub.toJSON(), device: dev, origin: location.origin });
+  } catch {}
+}
+// 各種設定 → システム: この端末の通知
+function TsuPushDeviceCard() {
+  const [st, setSt] = React.useState({ loading: true }); const [busy, setBusy] = React.useState(false); const [msg, setMsg] = React.useState('');
+  const load = React.useCallback(async () => {
+    const supported = tsuPushSupported(); const perm = supported ? Notification.permission : 'unsupported';
+    const sub = supported ? await tsuPushCurrentSub() : null; let count = null;
+    try { count = (await tsuPushApi({ action: 'status' })).count; } catch {}
+    setSt({ loading: false, supported, perm, on: !!sub && perm === 'granted', count });
+  }, []);
+  React.useEffect(() => { load(); }, [load]);
+  const run = async (fn, okMsg) => { setBusy(true); setMsg(''); try { await fn(); setMsg(okMsg); } catch (e) { setMsg(`⚠ ${(e && e.message) || '失敗しました'}`); } setBusy(false); load(); };
+  const iosNeedsHome = tsuIsIOSDevice() && !tsuIsStandaloneApp();
+  const btn = 'px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50';
+  return (
+    <div data-testid="push-device-card">
+      <p className="text-xs text-slate-500 mb-3">カレンダーの予定（担当者会議など）を、前日とはじまる前にこの端末へお知らせします。通知の文には利用者名は出ません。</p>
+      {st.loading ? <div className="text-xs text-slate-500">確認しています…</div> : !st.supported ? (
+        <div data-testid="push-unsupported" className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">{iosNeedsHome ? <>iPhone・iPad は、<b>ホーム画面に追加したつむぎ</b>で使えます（Safari の共有ボタン → ホーム画面に追加）。追加したつむぎを開いて、ここをもう一度開いてください。iOS 16.4 以上が必要です。</> : 'この端末・ブラウザは通知に対応していません（Chrome・Edge・Safari の新しい版で使えます）。'}</div>
+      ) : (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`text-sm font-bold px-3 py-1 rounded-full ${st.on ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`} data-testid="push-state">{st.on ? 'この端末に届きます' : (st.perm === 'denied' ? '通知がブロックされています' : 'この端末には届きません')}</span>
+            {st.count != null && <span className="text-xs text-slate-500">この店舗で届く端末 {st.count}台</span>}
+          </div>
+          {st.perm === 'denied' && <div className="text-xs text-amber-800">端末の「設定」（またはブラウザのサイトの設定）で、つむぎ の通知を「許可」にしてから、下のボタンを押してください。</div>}
+          <div className="flex gap-2 flex-wrap">
+            {!st.on && <button type="button" data-testid="push-enable" disabled={busy} onClick={() => run(tsuPushEnable, '✓ この端末に通知が届くようにしました。「テスト通知」で確かめてください')} className={`${btn} bg-blue-600 text-white`}>この端末に通知を届ける</button>}
+            {st.on && <button type="button" data-testid="push-test" disabled={busy} onClick={() => run(tsuPushTest, '✓ テスト通知を送りました（数秒で届きます）')} className={`${btn} bg-white border border-blue-300 text-blue-700`}>テスト通知を送る</button>}
+            {st.on && <button type="button" data-testid="push-disable" disabled={busy} onClick={() => run(tsuPushDisable, 'この端末には届かないようにしました')} className={`${btn} bg-white border border-slate-300 text-slate-600`}>この端末には届けない</button>}
+          </div>
+        </div>
+      )}
+      {msg && <div data-testid="push-msg" className="mt-2 text-xs font-bold text-slate-700">{msg}</div>}
+    </div>
+  );
+}
+// 各種設定 → システム: 予定のお知らせ(店舗の設定・全端末共通)
+const TSU_PUSH_DEFAULT_LABELS = [{ color: '#3b82f6', label: '担当者会議' }, { color: '#ef4444', label: '契約' }, { color: '#10b981', label: '見学' }, { color: '#f59e0b', label: '避難訓練' }, { color: '#8b5cf6', label: '行事' }, { color: '#0ea5e9', label: 'その他' }];
+function TsuPushStoreCard({ appData, saveSS }) {
+  const ss = appData.systemSettings || {}; const cfg = { on: true, dayBefore: true, dayBeforeAt: '17:00', before: true, beforeMin: 30, offColors: [], ...(ss.pushNotify || {}) };
+  const labels = (Array.isArray(ss.scheduleColorLabels) && ss.scheduleColorLabels.length) ? ss.scheduleColorLabels : TSU_PUSH_DEFAULT_LABELS;
+  const off = new Set((cfg.offColors || []).map(x => String(x).toLowerCase()));
+  const set = (patch, m) => saveSS({ pushNotify: { ...cfg, ...patch } }, m || '✓ 予定のお知らせの設定を保存しました');
+  const sel = 'px-2 py-1 border border-slate-300 rounded-lg text-sm bg-white';
+  return (
+    <div data-testid="push-store-card" className="space-y-3">
+      <p className="text-xs text-slate-500">この店舗の、通知を届ける端末すべてに共通の設定です。夜（20時〜7時）は送りません。</p>
+      <label className="flex items-center gap-2 text-sm font-bold text-slate-700"><input type="checkbox" data-testid="push-cfg-on" checked={cfg.on !== false} onChange={e => set({ on: e.target.checked })} className="w-5 h-5"/>予定のお知らせを送る</label>
+      <div className={`space-y-2 ${cfg.on === false ? 'opacity-50 pointer-events-none' : ''}`}>
+        <div className="flex items-center gap-2 flex-wrap text-sm"><label className="flex items-center gap-2"><input type="checkbox" data-testid="push-cfg-daybefore" checked={cfg.dayBefore !== false} onChange={e => set({ dayBefore: e.target.checked })} className="w-5 h-5"/>前日にお知らせ</label>
+          <select data-testid="push-cfg-daybefore-at" value={cfg.dayBeforeAt || '17:00'} onChange={e => set({ dayBeforeAt: e.target.value })} className={sel}>{['15:00','16:00','17:00','18:00','19:00'].map(t => <option key={t} value={t}>{t}</option>)}</select><span className="text-xs text-slate-500">あすの予定をまとめて1回</span></div>
+        <div className="flex items-center gap-2 flex-wrap text-sm"><label className="flex items-center gap-2"><input type="checkbox" data-testid="push-cfg-before" checked={cfg.before !== false} onChange={e => set({ before: e.target.checked })} className="w-5 h-5"/>はじまる前にお知らせ</label>
+          <select data-testid="push-cfg-before-min" value={String(cfg.beforeMin || 30)} onChange={e => set({ beforeMin: Number(e.target.value) })} className={sel}>{[15, 30, 60].map(m => <option key={m} value={m}>{m}分前</option>)}</select><span className="text-xs text-slate-500">時間の入った予定だけ</span></div>
+        <div>
+          <div className="text-xs font-bold text-slate-600 mb-1">お知らせする予定（ラベル）</div>
+          <div className="flex flex-wrap gap-2">{labels.filter(l => l && l.color).map(l => { const on = !off.has(String(l.color).toLowerCase()); return (
+            <button key={l.color} type="button" data-testid={`push-cfg-label-${String(l.color).replace('#','')}`} onClick={() => { const next = new Set(off); if (on) next.add(String(l.color).toLowerCase()); else next.delete(String(l.color).toLowerCase()); set({ offColors: [...next] }); }}
+              className={`px-3 py-1.5 rounded-full text-xs font-bold border ${on ? 'text-white' : 'bg-white text-slate-400 line-through'}`} style={on ? { background: l.color, borderColor: l.color } : { borderColor: '#cbd5e1' }}>{l.label || 'ラベル'}</button>); })}</div>
+          <div className="text-[11px] text-slate-500 mt-1">押すと切り替わります（線が引かれたラベルはお知らせしません）。</div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -48354,6 +48474,8 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
             </SectionCard>
             <div ref={deviceSectionRef}>
             {!cmOnly && <TsuOnboardingDocsPanel appData={appData} onSave={onSave} />}
+            <SectionCard title="この端末の通知"><TsuPushDeviceCard/></SectionCard>
+            <SectionCard title="予定のお知らせ（店舗の設定）"><TsuPushStoreCard appData={appData} saveSS={saveSS}/></SectionCard>
             <SectionCard title="この端末の名前・最終更新">
               <p className="text-xs text-slate-500 mb-3">端末に名前を付けると、「どの端末で最後に更新したか」が表示されます（名前はこの端末だけに保存）。</p>
               {/* ★ 保存済みの端末名を常時表示(確定値がどこにも出ず、保存されたか分からない問題の解消) */}
