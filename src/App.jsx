@@ -51382,13 +51382,16 @@ const tsuStaffList = (appData) => { const out = []; const seen = new Set(); cons
   (appData?.diarySettings?.staff||[]).forEach(st => { if (st && !st._tempHelp) { add(st.name, st.role, st.id); if (st.role2) add(st.name, st.role2, st.id); } });
   const order = { '管理者':0, '機能訓練指導員':1, '生活相談員':2, '看護師':3, '介護職員':4 }; return out.sort((a,b) => ((order[a.role]??9)-(order[b.role]??9)) || a.name.localeCompare(b.name,'ja')); };
 // 役職ごとの optgroup つき select(value=氏名)。onPick(name, role)
-function KKStaffSelect({ staff, value, onPick, placeholder, className }) {
+function KKStaffSelect({ staff, value, role, onPick, placeholder, className }) {
+  // ★ 2026-10-27: 値は「役職\u0001氏名」(同じ人が2つの役職を持つと、どちらを選んでも1つ目の役職になっていた)。role を渡すとその役職の行を選んだ形で出す
   const roles = [...new Set(staff.map(x => x.role || 'その他'))];
+  const key = (x) => `${x.role || 'その他'}\u0001${x.name}`;
+  const cur = staff.find(x => x.name === value && (x.role || '') === (role || '')) || staff.find(x => x.name === value);
   return (
-    <select value={staff.some(x => x.name === value) ? value : (value ? '__free__' : '')} onChange={e => { const v = e.target.value; if (v === '__free__' || v === '') { onPick('', ''); return; } const st = staff.find(x => x.name === v); onPick(v, st ? st.role : ''); }} className={className || 'w-full px-2 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none'}>
+    <select value={cur ? key(cur) : (value ? '__free__' : '')} onChange={e => { const v = e.target.value; if (v === '__free__' || v === '') { onPick('', ''); return; } const st = staff.find(x => key(x) === v); onPick(st ? st.name : '', st ? (st.role || '') : ''); }} className={className || 'w-full px-2 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none'}>
       <option value="">{placeholder || '（選択）'}</option>
-      {roles.map(r => <optgroup key={r} label={r}>{staff.filter(x => (x.role||'その他') === r).map(x => <option key={`${r}|${x.name}`} value={x.name}>{x.name}</option>)}</optgroup>)}
-      {value && !staff.some(x => x.name === value) ? <option value="__free__">{value}（直接入力）</option> : null}
+      {roles.map(r => <optgroup key={r} label={r}>{staff.filter(x => (x.role||'その他') === r).map(x => <option key={key(x)} value={key(x)}>{x.name}</option>)}</optgroup>)}
+      {value && !cur ? <option value="__free__">{value}（直接入力）</option> : null}
     </select>
   );
 }
@@ -52118,7 +52121,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
                 <KKDateField label="初回作成日" value={editing.firstDate} onChange={v=>upd({firstDate:v})}/>
                 {/* ★ 2026-10-14(ユーザー要望): 計画作成者・職種・共同作成者は職員のプルダウン(役職ごと)。共同作成者は複数チェック */}
                 <div><label className="block text-xs font-bold text-slate-600 mb-1">計画作成者</label>
-                  <KKStaffSelect staff={_kkStaff} value={editing.author||''} onPick={(name, role)=>upd({ author: name, ...(role ? { authorJob: role } : {}) })} placeholder="（職員を選択）"/>
+                  <KKStaffSelect staff={_kkStaff} value={editing.author||''} role={editing.authorJob||''} onPick={(name, role)=>upd({ author: name, ...(role ? { authorJob: role } : {}) })} placeholder="（職員を選択）"/>
                   <input value={editing.author||''} maxLength={60} onChange={e=>upd({author:e.target.value.slice(0,60)})} placeholder="直接入力もできます" className="mt-1 w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs outline-none"/></div>
                 <div><label className="block text-xs font-bold text-slate-600 mb-1">職種</label>
                   <select value={editing.authorJob||''} onChange={e=>upd({authorJob:e.target.value})} className="w-full px-2 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none">
@@ -52920,7 +52923,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
     return h < 3 ? '2時間以上3時間未満' : '8時間以上9時間未満';
   };
   // ★ 職員名の候補 (計画作成者・説明者のプルダウン用)
-  const _staffOpts = Array.from(new Set((appData.diarySettings?.staff||[]).map(s=>String(s?.name||'').trim()).filter(Boolean)));
+  const _staffOpts = Array.from(new Set(_kkStaff.map(x=>x.name).concat((appData.diarySettings?.staff||[]).map(s=>String(s?.name||'').trim())).filter(Boolean))); // ★ 2026-10-27: 職員の一覧(日誌の職員を含む)
   const _roleOpts = Array.from(new Set((appData.diarySettings?.staff||[]).map(s=>String(s?.role||'').trim()).filter(Boolean).concat(['生活相談員','機能訓練指導員','看護師','介護職員','管理者'])));
   // ★ フェイスシート／基本情報から自動読込 (経緯・希望・健康状態・自立度 等)
   const _fsAuto = (p)=>{
@@ -52944,7 +52947,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
     id:`tk_${pid}_${Date.now()}`, patientId:pid, createdAt:Date.now(),
     createdDate:toReiwa(new Date().toISOString().slice(0,10)),
     prevDate:(records[0]?.createdDate||''), firstDate:(records[records.length-1]?.createdDate||''),
-    author:'', authorJob:'生活相談員',
+    author:'', authorJob:'生活相談員', coAuthors:'',
     ..._fsAuto(patient),
     riyoubi:_baseUseDays(patient), teikyoTime:_teikyoKubun(patient), hoshin:'',
     longSetDate:'', longDueDate:'', longGoal:'', longAchieve:'',
@@ -53139,13 +53142,22 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                 <KKDateField label="作成日" value={editing.createdDate} onChange={v=>upd({createdDate:v})}/>
                 <KKDateField label="前回作成日" value={editing.prevDate} onChange={v=>upd({prevDate:v})} ph="（初回は空欄）"/>
                 <KKDateField label="初回作成日" value={editing.firstDate} onChange={v=>upd({firstDate:v})}/>
+                {/* ★ 2026-10-27(ユーザー要望「作成者を選んだら日誌の役職と名前が選べるように・共同作成者も」): 個別機能訓練計画書と同じ形。選ぶと職種も入る */}
                 <div>
                   <label className="block text-xs font-bold text-slate-600 mb-1">計画作成者</label>
-                  <input value={editing.author||''} onChange={e=>upd({author:e.target.value})} list="tk-staff-names" placeholder="職員を選択／入力" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none"/>
+                  <div data-testid="tk-author"><KKStaffSelect staff={_kkStaff} value={editing.author||''} role={editing.authorJob||''} onPick={(name, role)=>upd({ author: name, ...(role ? { authorJob: role } : {}) })} placeholder="（職員を選択）"/></div>
+                  <input value={editing.author||''} maxLength={60} onChange={e=>upd({author:e.target.value.slice(0,60)})} placeholder="直接入力もできます" className="mt-1 w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs outline-none"/>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-600 mb-1">職種</label>
-                  <input value={editing.authorJob||''} onChange={e=>upd({authorJob:e.target.value})} list="tk-staff-roles" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none"/>
+                  <input value={editing.authorJob||''} onChange={e=>upd({authorJob:e.target.value})} list="tk-staff-roles" data-testid="tk-author-job" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none"/>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">共同作成者（多職種）</label>
+                  <details className="border border-slate-300 rounded-lg bg-white" data-testid="tk-coauthors"><summary className="px-2 py-2 text-sm cursor-pointer select-none text-slate-700">{editing.coAuthors ? editing.coAuthors : <span className="text-slate-400">（職員を選択・複数可）</span>}</summary>
+                    <div className="px-2 pb-2 max-h-48 overflow-auto">{_kkStaff.filter(x=>x.name!==editing.author).map(x => { const tok = `${x.role ? x.role + ' ' : ''}${x.name}`; const list = String(editing.coAuthors||'').split('／').map(t=>t.trim()).filter(Boolean); const on = list.includes(tok); return (
+                      <label key={tok} className="flex items-center gap-2 text-xs py-1 cursor-pointer"><input type="checkbox" checked={on} onChange={()=>{ const next = on ? list.filter(t=>t!==tok) : [...list, tok]; upd({coAuthors: next.join('／').slice(0,60)}); }}/>{tok}</label>); })}</div></details>
+                  <input value={editing.coAuthors||''} maxLength={60} onChange={e=>upd({coAuthors:e.target.value.slice(0,60)})} placeholder="直接入力もできます（／区切り）" className="mt-1 w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs outline-none"/>
                 </div>
               </div>
               <datalist id="tk-staff-names">{_staffOpts.map(x=><option key={x} value={x}/>)}</datalist>
@@ -53398,7 +53410,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
           +`<td style="${csm}text-align:center;vertical-align:middle;line-height:1.3;"><div style="font-size:7px;">性別</div><div style="font-size:10px;font-weight:bold;">${esc(patient?.gender||'')}</div></td>`
           +`<td style="${csm}text-align:center;vertical-align:middle;font-size:9px;line-height:1.4;"><div>${circ('大正',_era)}　/　${circ('昭和',_era)}</div><div>${_eraY||'　　'}年　${_bdOk?_bd.getMonth()+1:'　　'}月　${_bdOk?_bd.getDate():'　　'}日生　${_age(patient?.birthDate)!==''?_age(patient?.birthDate):'　　'}歳</div></td>`
           +`<td style="${csm}text-align:center;vertical-align:middle;line-height:1.3;"><div style="font-size:7px;">要介護度</div><div style="font-size:10px;font-weight:bold;">${esc(patient?.careLevel||'')}</div></td>`
-          +`<td style="${csm}font-size:9px;vertical-align:middle;line-height:1.6;"><div>計画作成者：${esc(rec.author)}</div><div>職種：${esc(rec.authorJob)}</div></td>`
+          +`<td style="${csm}font-size:9px;vertical-align:middle;line-height:${rec.coAuthors?1.35:1.6};"><div>計画作成者：${esc(rec.author)}</div><div>職種：${esc(rec.authorJob)}</div>${rec.coAuthors?`<div style="font-size:7.5px;">共同作成者：${esc(rec.coAuthors)}</div>`:''}</td>`
           +`</tr></table>`;
         const hdr3=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-top:-1px;">${cg(50,50)}<tr>`
           +`<td style="${csm}font-size:8.5px;text-align:center;">障害高齢者の日常生活自立度:　${TK_ADL_OPTS.map(o=>circ(o,rec.adlLevel)).join(' ')}</td>`
@@ -54475,6 +54487,19 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
       _aId: a?.id||null, _skId: skR?.id||null, _kyId: kyR?.id||null });
     setBatchMode(true); setEditing(null);
   };
+  // ★ 2026-10-27(ユーザー要望「タップする回数が多い」): 新しい評価のとき、前回の評価(ADL・科学的介護・生活機能・興味関心)を1回で写す。評価日・評価者・計画書の欄は写さない
+  const _bPrev = (batch && !batch._aId && !batch._skId && !batch._kyId) ? (_batchDates.find(d => d < String(batch.evalDate||'')) || null) : null;
+  const batchCopyPrev = () => { if (!batch || !_bPrev) return;
+    const a = (appData.adlRecords||[]).find(r=>r.patientId===pid && String(r.evalDate)===_bPrev) || null;
+    const skR = (appData.seikatsuKinouRecords||[]).find(r=>r.patientId===pid && _isoOfRec(r.recordDate)===_bPrev) || null;
+    const kyR = (appData.kyomiKanshinRecords||[]).find(r=>r.patientId===pid && _isoOfRec(r.recordDate)===_bPrev) || null;
+    const J = (v) => JSON.parse(JSON.stringify(v || {}));
+    setBatch(b => ({ ...b, _copiedFrom: _bPrev,
+      items: a ? { ...b.items, ...J(a.items) } : b.items,
+      science: a ? { ...J(a.science), ...Object.fromEntries(Object.entries(b.science||{}).filter(([, v]) => v !== '' && v != null && !(Array.isArray(v) && !v.length))) } : b.science,
+      sk: skR ? { adl: { ...J(skR.adl) }, kikyo: { ...J(skR.kikyo) }, iadl: { ...J(skR.iadl) }, shinshin: { ...J(skR.shinshin) } } : b.sk,
+      ky: kyR ? { items: J(kyR.items), custom: JSON.parse(JSON.stringify(kyR.custom || [])), bikou: kyR.bikou || '' } : b.ky }));
+    markDirty(); };
   const bset = (patch) => { setBatch(b=>({...b, ...patch})); markDirty(); };
   const bsetSci = (k,v) => { setBatch(b=>({...b, science:{...(b.science||{}),[k]:v}})); markDirty(); };
   const bsetItem = (k,v) => { setBatch(b=>({...b, items:{...b.items,[k]: v===''?'':Number(v)}})); markDirty(); };
@@ -54680,6 +54705,11 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
           </div>
           <div className="flex-1 overflow-y-auto p-4">
             <div className="max-w-4xl mx-auto space-y-4 pb-24">
+              {_bPrev && (
+                <div data-testid="kk-copy-prev-box" className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap">
+                  <div className="text-sm text-indigo-900 flex-1 min-w-[12em]">{batch._copiedFrom ? <>前回（{_bPrev.replace(/-/g,'/')}）の内容を写しました。<b>変わったところだけ</b>直してください。</> : <>前回（{_bPrev.replace(/-/g,'/')}）の評価があります。写してから、変わったところだけ直せます。</>}</div>
+                  {!batch._copiedFrom && <button type="button" data-testid="kk-copy-prev" onClick={batchCopyPrev} className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">前回の内容を写す</button>}
+                </div>)}
               <div className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-xl px-4 py-2.5">
                 ここで入力した内容は保存時に <b>ADL評価(LIFE・加算)・生活機能チェック(様式3-2)・興味関心チェック(様式3-1)</b> にまとめて入ります。④でADLを選ぶと、②のBarthel点数の空欄に自動で入ります。
               </div>
