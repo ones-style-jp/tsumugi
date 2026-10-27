@@ -2725,6 +2725,9 @@ const parseJpDate = (s) => {
   const d = new Date(t);
   return isNaN(d.getTime()) ? null : d;
 };
+// ★ 2026-10-27(不具合): 和暦の日付を文字のまま比べると「令和8年10月」が「令和8年9月」より前になる。日付に直して新しい順に並べる(同じ日は作った時刻の新しい順)
+const tsuJpKey = (v) => { const d = parseJpDate(v); return d ? d.getTime() : 0; };
+const tsuByJpDesc = (key) => (a, b) => (tsuJpKey(b && b[key]) - tsuJpKey(a && a[key])) || ((Number(b && b.createdAt) || 0) - (Number(a && a.createdAt) || 0));
 // 「令和8年3月」「令和8年3月31日」など月までの指定も拾う(目標の達成予定日用)
 const parseJpMonth = (s) => {
   const t = String(s ?? '').trim();
@@ -45943,6 +45946,7 @@ const TSU_SETTINGS_INDEX = [
   ['record','体調の理由（カスタマイズ）','体調 理由 候補 カスタマイズ'],
   ['diary','日誌','日誌 車両 車 定員 送迎車両 自動コピー 1週間前 職員 担当者 申し送り'],
   ['fitness','体力測定','体力測定 周期 項目 備考 定型文 実施しない'],
+  ['keikaku','要支援の計画書の名前','要支援 総合事業 個別サービス計画書 通所型サービス計画 名前 江東区'],
   ['keikaku','計画書の定型文（3-3・3-2・3-1・通所介護計画書）','計画書 定型文 個別機能訓練 通所介護 文例'],
   ['addon','アドオン（オプション機能）','アドオン オプション 計画書 加算 LIFE 興味関心 生活機能'],
   ['system','この端末の表示','表示 全画面 文字 大きさ 自動 この端末'],
@@ -47294,6 +47298,12 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
 
           {/* 気分の理由 (カスタマイズ) */}
           {/* ★ 2026-10-14(ユーザー要望): 個別機能訓練計画書(3-3)の定型文を店舗ごとに編集(1行=1つ)。空にすると既定に戻る */}
+          {activeTab === 'keikaku' && (
+            <SectionCard title="要支援の計画書の名前">
+              {/* ★ 2026-10-27(ユーザー「江東区では個別サービス計画書。地域によって名前が違うかも」): 国の様式は無く、名前・様式は市区町村ごと。店舗ごとに変えられる */}
+              <TsuShienTitleSetting ss={ss} saveSS={saveSS}/>
+            </SectionCard>
+          )}
           {activeTab === 'keikaku' && (
             <SectionCard title="計画書の定型文（3-3・3-2・3-1・通所介護計画書）">
               {/* ★ 2026-10-26(ユーザー決定): 定型文は本部(つむぎ管理局)が全店共通で管理する。店舗では見るだけ */}
@@ -51425,7 +51435,13 @@ function KKField({ label, value, onChange, rows, ph, max, presets, presetMode })
 // 個別機能訓練 関連書類のタブ帯 (計画書3-3 / 生活機能チェック3-2 / 興味関心3-1 を相互リンク)
 // ★ 2ハブ構成(2026-08-19): 書類ファミリーごとにタブを分離。
 //   通所ファミリー=通所介護計画書(全利用者対象)。 機能訓練ファミリー=3-3+別紙(3-2/3-1)+LIFE(加算アドオン店舗のみ)。
-const KEIKAKU_DOCS_TSUSHO = [['keikaku_yotei','作成予定'],['tsusho_keikaku','通所介護計画書']];
+// ★ 2026-10-27(ユーザー要望「計画書を作るときのアセスメント(居宅訪問・興味関心・生活機能)が同じタブにあると使いやすい」): 3-1・3-2 も通所介護計画書のタブに置く。
+//   居宅訪問チェックシート(平成27年の別紙様式2)は 令和3年から 3-2(生活機能チェック)に引き継がれている
+const KEIKAKU_DOCS_TSUSHO = [['keikaku_yotei','作成予定'],['tsusho_keikaku','通所介護計画書'],['kyomi_kanshin','興味・関心（3-1）'],['seikatsu_kinou','生活機能・居宅訪問（3-2）']];
+// 3-1・3-2 はどちらのタブからも開くので、最後に押したタブの組(通所/機能訓練)を覚えて、同じ組のタブを出す
+const _KK_FAM_KEY = 'tsumugiKkFamily';
+const _kkFamSet = (f) => { try { sessionStorage.setItem(_KK_FAM_KEY, f); } catch {} };
+const _kkFamGet = () => { try { return sessionStorage.getItem(_KK_FAM_KEY) || ''; } catch { return ''; } };
 // ★ 2026-10-14(ユーザー要望「タブとボタンが分かれすぎて迷う」): 個別機能訓練・LIFEのタブは 作成予定／利用者ごと／LIFE提出 の3つ。
 //   3-3・3-2・3-1・ADL評価は「利用者ごと」から開く書類(タブの横に「› 書類名」を出す)。選んだ利用者はタブを移っても引き継ぐ
 const KEIKAKU_DOCS_KINOU = [['kinou_yotei','作成予定'],['kinou_patient','利用者ごと'],['life_submit','LIFE提出']];
@@ -51433,13 +51449,16 @@ const KEIKAKU_SUB_LABEL = { kinou_keikaku:'個別機能訓練計画書（様式3
 const kkHasLife = (appData) => { const a = appData?.systemSettings?.addons || {}; return !!(a.kasan_kagaku || a.kasan_adl || a.kasan_kinou2); };
 function KeikakuTabs({ current, navigateTo, family, pid, appData }) {
   if (!navigateTo) return null;
-  const docs = family === 'tsusho' ? KEIKAKU_DOCS_TSUSHO : KEIKAKU_DOCS_KINOU.filter(([v]) => v !== 'life_submit' || !appData || kkHasLife(appData));
-  const sub = family !== 'tsusho' ? KEIKAKU_SUB_LABEL[current] : null;
+  const _shared = current === 'kyomi_kanshin' || current === 'seikatsu_kinou';
+  const fam = (_shared && _kkFamGet() === 'tsusho') ? 'tsusho' : family;
+  if (!_shared) _kkFamSet(fam === 'tsusho' ? 'tsusho' : 'kinou');
+  const docs = fam === 'tsusho' ? KEIKAKU_DOCS_TSUSHO : KEIKAKU_DOCS_KINOU.filter(([v]) => v !== 'life_submit' || !appData || kkHasLife(appData));
+  const sub = fam !== 'tsusho' ? KEIKAKU_SUB_LABEL[current] : null;
   const active = sub ? 'kinou_patient' : current;
   return (
     <div className="flex gap-1 flex-wrap items-center" data-testid="kk-tabs">
       {docs.map(([v,l]) => (
-        <button key={v} onClick={()=>navigateTo(v, pid ?? null)} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${active===v?'bg-blue-600 text-white':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{l}</button>
+        <button key={v} data-testid={`kk-tab-${v}`} onClick={()=>{ _kkFamSet(fam === 'tsusho' ? 'tsusho' : 'kinou'); navigateTo(v, pid ?? null); }} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${active===v?'bg-blue-600 text-white':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{l}</button>
       ))}
       {sub ? <span className="flex items-center gap-1 text-xs font-bold text-slate-600 ml-1 whitespace-nowrap" data-testid="kk-sub"><span className="text-slate-400">›</span>{sub}</span> : null}
     </div>
@@ -51864,7 +51883,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
   const exItems = appData.systemSettings?.exerciseItems || [];
   const facility = tsumugiFacilityInfo(appData);
   const records = (appData.kinouKeikakuRecords||[]).filter(r => r.patientId === pid)
-    .sort((a,b) => (b.createdDate||'').localeCompare(a.createdDate||''));
+    .sort((a,b) => tsuByJpDesc('createdDate')(a,b));
   // ★ 前回計画書の評価を新しい計画書の編集中に一緒に入力できるようにする(2026-08-13)。
   //   達成度は「前回の計画書」側に記入・保存される(送付セット印刷でも評価入りで出力)。
   const [prevEvalPatch, setPrevEvalPatch] = React.useState(null);
@@ -51974,7 +51993,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
 
 
   // ★ 計画書連携: この利用者の最新の 生活機能チェック / 興味・関心 レコードを取得
-  const _latestBy = (arr) => (arr||[]).filter(r=>r.patientId===pid).sort((a,b)=>(b.recordDate||'').localeCompare(a.recordDate||'')||((b.createdAt||0)-(a.createdAt||0)))[0] || null;
+  const _latestBy = (arr) => (arr||[]).filter(r=>r.patientId===pid).sort((a,b)=>tsuByJpDesc('recordDate')(a,b)||((b.createdAt||0)-(a.createdAt||0)))[0] || null;
   const latestSeikatsu = _latestBy(appData.seikatsuKinouRecords);
   const latestKyomi = _latestBy(appData.kyomiKanshinRecords);
   const _appendField = (key, text) => { if(!text) return; setEditing(e => { const cur=(e[key]||'').trim(); return {...e, [key]: cur ? `${cur}\n${text}` : text}; }); markDirty(); };
@@ -52033,7 +52052,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
         {editing ? <>
           <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} data-testid="kk-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold"><ChevronLeft size={16}/>閉じる</button>
-          <span className="text-sm font-bold text-slate-700 whitespace-nowrap">個別機能訓練計画書（様式3-3）の編集<span className="ml-2 font-normal text-slate-500">{patient?.name ? `${patient.name} 様` : ''}</span></span>
+          <span className="text-sm font-bold text-slate-700 whitespace-nowrap">個別機能訓練計画書（様式3-3）の編集{editing.zantei ? '（暫定）' : ''}<span className="ml-2 font-normal text-slate-500">{patient?.name ? `${patient.name} 様` : ''}</span></span>
         </> : <>
           <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>
           <KeikakuTabs current="kinou_keikaku" navigateTo={navigateTo} family="kinou" pid={pid} appData={appData}/>
@@ -52119,6 +52138,8 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
                 <KKDateField label="作成日" value={editing.createdDate} onChange={v=>upd({createdDate:v})}/>
                 <KKDateField label="前回作成日" value={editing.prevDate} onChange={v=>upd({prevDate:v})} ph="（初回は空欄）"/>
                 <KKDateField label="初回作成日" value={editing.firstDate} onChange={v=>upd({firstDate:v})}/>
+                {/* ★ 2026-10-27(ユーザー要望「個別機能訓練計画書も暫定が必要なら」): 介護認定の結果待ちで作るとき。印刷に「暫定」と出る */}
+                <label className="flex items-center gap-2 text-sm font-bold text-slate-700 cursor-pointer self-end pb-2"><input type="checkbox" data-testid="kk-zantei" checked={!!editing.zantei} onChange={e=>upd({zantei:e.target.checked})} className="w-5 h-5"/>暫定（介護認定の結果待ち）</label>
                 {/* ★ 2026-10-14(ユーザー要望): 計画作成者・職種・共同作成者は職員のプルダウン(役職ごと)。共同作成者は複数チェック */}
                 <div><label className="block text-xs font-bold text-slate-600 mb-1">計画作成者</label>
                   <KKStaffSelect staff={_kkStaff} value={editing.author||''} role={editing.authorJob||''} onPick={(name, role)=>upd({ author: name, ...(role ? { authorJob: role } : {}) })} placeholder="（職員を選択）"/>
@@ -52401,7 +52422,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
         const sheet = (pr) => (
         <div className="kk-sheet" style={{background:'white',color:'#000',width:'210mm',minHeight:'296mm',padding:'6mm 7mm 4mm',boxSizing:'border-box',fontFamily:'"Hiragino Sans","Meiryo","Yu Gothic Medium","Yu Gothic",sans-serif',lineHeight:1.3}}>
           <div className="kkfix" style={{fontSize:'10px'}}>別紙様式３－３</div>
-          <div className="kkfix" style={{textAlign:'center',fontSize:'15px',fontWeight:'bold',margin:'2px 0 6px'}}>【個別機能訓練計画書】</div>
+          <div className="kkfix" style={{textAlign:'center',fontSize:'15px',fontWeight:'bold',margin:'2px 0 6px'}}>【個別機能訓練計画書】{pr.zantei ? '（暫定）' : ''}</div>
           <table style={{width:'100%',borderCollapse:'collapse'}}><tbody>
             <tr><td style={cell}>作成日：{pr.createdDate||'令和　年　月　日'}</td><td style={cell}>前回作成日：{pr.prevDate||'令和　年　月　日'}</td><td style={cell}>初回作成日：{pr.firstDate||'令和　年　月　日'}</td></tr>
           </tbody></table>
@@ -52850,6 +52871,41 @@ const TK_TASSEI  = ['達成','一部','未達成'];
 const TK_ACHIEVE = ['達成','一部','未達'];
 const TK_MARU    = ['①','②','③','④','⑤'];
 const TK_UMU     = ['有','無'];
+// ★ 2026-10-27(ユーザー要望「要介護と要支援で計画書の内容が変わるので、それぞれ設置したい」「暫定の計画書を作れるように」):
+//   計画書ごとに種類(planType: kaigo=通所介護計画書(様式3-4) / shien=総合事業の計画書)を持つ。新しく作るときは利用者マスタの介護度で決まる。
+//   要支援の計画書の名前は市区町村で違う(国=通所型サービス計画・江東区=個別サービス計画書 など)ので、各種設定→計画書で店舗ごとに変えられる。
+//   暫定(zantei)=介護認定の結果待ちで作る計画書。見込みの介護度・申請日を持ち、結果が出たら「本計画にする」で作り直す(暫定は残す)
+const TK_SHIEN_TITLE_DEFAULT = '個別サービス計画書（介護予防・日常生活支援総合事業）';
+const tkShienTitle = (ss) => String((ss && ss.shienPlanTitle) || '').trim() || TK_SHIEN_TITLE_DEFAULT;
+const TK_LEVELS_KAIGO = ['要介護1','要介護2','要介護3','要介護4','要介護5'];
+const TK_LEVELS_SHIEN = ['要支援1','要支援2','事業対象者'];
+const tkLevelType = (lv) => { const v = String(lv || ''); if (!v) return null; return (v.includes('要介護') && !v.includes('経過的')) ? 'kaigo' : ((v.includes('要支援') || v.includes('事業対象') || v.includes('経過的')) ? 'shien' : null); };
+const tkPlanTypeOf = (rec, patient) => (rec && (rec.planType === 'kaigo' || rec.planType === 'shien')) ? rec.planType : ((rec && rec.zantei && tkLevelType(rec.zanteiLevel)) || (kpCareGroup(patient) === 'shien' ? 'shien' : 'kaigo'));
+const tkIsoToReiwa = (v) => { const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})/); if (!m) return String(v || ''); const y = Number(m[1]); return y >= 2019 ? `令和${y - 2018}年${Number(m[2])}月${Number(m[3])}日` : `平成${y - 1988}年${Number(m[2])}月${Number(m[3])}日`; };
+// 提供記録の運動(予定の値)と個別運動(既定)から、要支援の計画書の「個別の運動の実施内容」を作る
+const tkExercisesFromRecord = (patient, ss) => { try {
+  const out = []; const iso = new Date().toISOString().slice(0, 10); const planned = getPlannedExercisesForDate(patient, iso) || {};
+  const nm = (x) => String(x || '').normalize('NFKC').trim(); const empty = (v) => !String(v ?? '').trim() || /^[ー—\-－―]+$/.test(String(v).trim());
+  (effExerciseItems(ss) || []).filter(it => it && it.type !== 'individual').forEach(it => { const v = planned[it.id]; if (!empty(v)) out.push({ content: nm(it.name), amount: String(v).trim(), freq: '', note: '' }); });
+  const menu = (ss && Array.isArray(ss.individualExerciseItems)) ? ss.individualExerciseItems : []; const ind = Array.isArray(patient?.individualExercises) ? patient.individualExercises : [];
+  Object.values(tsuIndSlotDefaults(patient, ss) || {}).filter(Boolean).forEach(id => { const m = menu.find(x => x && x.id === id); if (!m) return; const d = ind.find(x => x && x.itemId === id); out.push({ content: nm(m.name), amount: String((d && d.defaultValue) || '').trim(), freq: '', note: '' }); });
+  return out.slice(0, 8);
+} catch { return []; } };
+// 各種設定 → 計画書: 要支援の計画書の名前(印刷の題名)。よく使う名前は押して選べる
+const TK_SHIEN_TITLE_PRESETS = [TK_SHIEN_TITLE_DEFAULT, '江東区総合事業個別サービス計画書（介護予防型通所）', '通所型サービス計画書'];
+function TsuShienTitleSetting({ ss, saveSS }) {
+  const cur = tkShienTitle(ss); const [v, setV] = React.useState(cur);
+  React.useEffect(() => { setV(cur); }, [cur]);
+  const save = (t) => { const x = String(t || '').trim().slice(0, 40); saveSS({ shienPlanTitle: x === TK_SHIEN_TITLE_DEFAULT ? '' : x }, '✓ 要支援の計画書の名前を保存しました'); };
+  return (
+    <div className="space-y-2" data-testid="tk-shien-title-setting">
+      <p className="text-xs text-slate-500">要支援・事業対象者の方の計画書（通所介護計画書の画面で作ります）の印刷の題名です。国の決まった名前は無く、市区町村で違います。</p>
+      <div className="flex gap-2 flex-wrap"><input value={v} maxLength={40} onChange={e => setV(e.target.value)} data-testid="tk-shien-title-input" className="flex-1 min-w-[14em] px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none bg-white"/>
+        <button type="button" data-testid="tk-shien-title-save" onClick={() => save(v)} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold">保存</button></div>
+      <div className="flex gap-2 flex-wrap">{TK_SHIEN_TITLE_PRESETS.map(t => <button key={t} type="button" onClick={() => { setV(t); save(t); }} className={`px-3 py-1.5 rounded-full border text-xs font-bold ${cur === t ? 'bg-blue-50 border-blue-300 text-blue-800' : 'bg-white border-slate-300 text-slate-600'}`}>{t}</button>)}</div>
+    </div>
+  );
+}
 function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId, navFocus, onFocusHandled }) {
   const _kkP = kkPresetsOf(appData.systemSettings); const _kkStaff = tsuStaffList(appData); // ★ 2026-10-14: 定型文・職員(各種設定→計画書)
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
@@ -52858,7 +52914,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
   const [editing, setEditing] = React.useState(null);
   const patient = (appData.patients||[]).find(p => p.id === pid);
   const facility = tsumugiFacilityInfo(appData);
-  const records = (appData.tsushoKeikakuRecords||[]).filter(r => r.patientId === pid).sort((a,b)=>(b.createdDate||'').localeCompare(a.createdDate||''));
+  const records = (appData.tsushoKeikakuRecords||[]).filter(r => r.patientId === pid).sort((a,b)=>tsuByJpDesc('createdDate')(a,b));
   // ★ 前回計画書の評価を新しい計画書の編集中に一緒に入力(2026-08-13)。 保存先は前回レコード側。
   const [prevEvalPatch, setPrevEvalPatch] = React.useState(null);
   const _prevRec = editing ? (records.filter(r => r.id !== editing.id && ((r.createdAt||0) < (editing.createdAt||Number.MAX_SAFE_INTEGER)))[0] || null) : null;
@@ -52948,6 +53004,10 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
     createdDate:toReiwa(new Date().toISOString().slice(0,10)),
     prevDate:(records[0]?.createdDate||''), firstDate:(records[records.length-1]?.createdDate||''),
     author:'', authorJob:'生活相談員', coAuthors:'',
+    // ★ 2026-10-27: 種類(要介護/要支援)・暫定・総合事業の欄。介護度が未登録(申請中など)の方は暫定にしておく
+    planType: kpCareGroup(patient) === 'shien' ? 'shien' : 'kaigo', zantei: kpCareGroup(patient) === 'none', zanteiLevel:'', shinseiDate:'',
+    cpOffice: patient?.cmOffice || '', cpAuthor: patient?.cmName || '', ninteiFrom: tkIsoToReiwa(patient?.careLevelFrom), ninteiTo: tkIsoToReiwa(patient?.careLevelTo), teikyoFrom:'', teikyoTo:'', cpGaiyou:'',
+    exercises: kpCareGroup(patient) === 'shien' ? tkExercisesFromRecord(patient, appData.systemSettings) : [], evaluator:'',
     ..._fsAuto(patient),
     riyoubi:_baseUseDays(patient), teikyoTime:_teikyoKubun(patient), hoshin:'',
     longSetDate:'', longDueDate:'', longGoal:'', longAchieve:'',
@@ -53005,6 +53065,32 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
     markDirty();
   };
   const upd = (patch)=>{ setEditing(e=>({...e,...patch})); markDirty(); };
+  // ★ 2026-10-27: 計画書の種類(要介護/要支援)・暫定
+  const _tkType = editing ? tkPlanTypeOf(editing, patient) : null; const _shien = _tkType === 'shien';
+  const _masterType = kpCareGroup(patient); // kaigo / shien / none(介護度が未登録)
+  const _typeFree = _masterType === 'none' || !!(editing && editing.zantei);
+  const _typeMismatch = !!(editing && !editing.zantei && _masterType !== 'none' && _tkType !== _masterType);
+  const _shienTitle = tkShienTitle(appData.systemSettings);
+  const _docTitle = (r) => tkPlanTypeOf(r, patient) === 'shien' ? _shienTitle : '通所介護計画書';
+  const updEx = (i, patch) => { setEditing(e => ({ ...e, exercises: (e.exercises || []).map((x, k) => k === i ? { ...x, ...patch } : x) })); markDirty(); };
+  const addEx = () => { setEditing(e => ({ ...e, exercises: [...(e.exercises || []), { content: '', amount: '', freq: '', note: '' }].slice(0, 8) })); markDirty(); };
+  const delEx = (i) => { setEditing(e => ({ ...e, exercises: (e.exercises || []).filter((_, k) => k !== i) })); markDirty(); };
+  const fillEx = () => { const L = tkExercisesFromRecord(patient, appData.systemSettings); if (!L.length) { alert('提供記録に、この方の運動の予定・個別運動の既定がありません'); return; } setEditing(e => { const cur = (e.exercises || []).filter(x => x && String(x.content || '').trim()); const have = new Set(cur.map(x => String(x.content).trim())); return { ...e, exercises: [...cur, ...L.filter(x => !have.has(x.content))].slice(0, 8) }; }); markDirty(); };
+  const setType = (t) => { if (!_typeFree) return; upd({ planType: t, ...(t === 'shien' && !(editing.exercises || []).length ? { exercises: tkExercisesFromRecord(patient, appData.systemSettings) } : {}), ...(editing.zanteiLevel && tkLevelType(editing.zanteiLevel) !== t ? { zanteiLevel: '' } : {}) }); };
+  // 暫定 → 本計画(認定の結果が出たら)。暫定の計画書は残し、新しい計画書を作る。区分が変わったら別の種類で作る
+  const finalizeZantei = (r) => {
+    if (_masterType === 'none') { alert('利用者マスタの介護度がまだ入っていません。認定の結果（介護度）を利用者マスタに入れてから押してください。'); return; }
+    const t = _masterType; const changed = t !== tkPlanTypeOf(r, patient);
+    const msg = changed ? `認定の結果が「${patient.careLevel}」になりました。${t === 'shien' ? '要支援' : '要介護'}の計画書を新しく作ります（暫定の目標・希望などを引き継ぎます）。説明・同意はもう一度もらってください。` : '暫定の計画書をもとに、本計画を新しく作ります（暫定の計画書は残ります）。説明・同意はもう一度もらってください。';
+    if (!window.confirm(msg)) return;
+    const src = _migrate(r);
+    setEditing({ ...src, id: `tk_${pid}_${Date.now()}`, createdAt: Date.now(), draft: false, planType: t, zantei: false, zanteiLevel: '', zanteiFromId: r.id,
+      prevDate: r.createdDate || '', createdDate: toReiwa(new Date().toISOString().slice(0, 10)), setsumeiDate: '', doui: '',
+      ninteiFrom: tkIsoToReiwa(patient?.careLevelFrom) || src.ninteiFrom || '', ninteiTo: tkIsoToReiwa(patient?.careLevelTo) || src.ninteiTo || '',
+      ...(t === 'shien' && !(src.exercises || []).length ? { exercises: tkExercisesFromRecord(patient, appData.systemSettings) } : {}),
+      tokki: [`暫定の計画書（${r.createdDate || ''}作成）から本計画へ`, String(src.tokki || '')].filter(x => String(x).trim()).join('\n') });
+    markDirty();
+  };
   const updProg = (i,patch)=>{ setEditing(e=>({...e, programs:(e.programs||[]).map((p,idx)=>idx===i?{...p,...patch}:p)})); markDirty(); };
   const addProg = ()=>{ setEditing(e=>({...e, programs:[...(e.programs||[]), blankProg()]})); markDirty(); };
   const delProg = (i)=>{ setEditing(e=>({...e, programs:(e.programs||[]).filter((_,idx)=>idx!==i)})); markDirty(); };
@@ -53051,8 +53137,8 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
 
 
   // ★ 計画書連携: 個別機能訓練計画書 / 興味・関心 から取り込む
-  const latestKinou=(appData.kinouKeikakuRecords||[]).filter(r=>r.patientId===pid).sort((a,b)=>String(b.createdDate||'').localeCompare(String(a.createdDate||''))||((b.createdAt||0)-(a.createdAt||0)))[0]||null;
-  const latestKyomi=(appData.kyomiKanshinRecords||[]).filter(r=>r.patientId===pid).sort((a,b)=>(b.recordDate||'').localeCompare(a.recordDate||'')||((b.createdAt||0)-(a.createdAt||0)))[0]||null;
+  const latestKinou=(appData.kinouKeikakuRecords||[]).filter(r=>r.patientId===pid).sort((a,b)=>tsuByJpDesc('createdDate')(a,b)||((b.createdAt||0)-(a.createdAt||0)))[0]||null;
+  const latestKyomi=(appData.kyomiKanshinRecords||[]).filter(r=>r.patientId===pid).sort((a,b)=>tsuByJpDesc('recordDate')(a,b)||((b.createdAt||0)-(a.createdAt||0)))[0]||null;
   const _appendField=(key,text)=>{ if(!text) return; setEditing(e=>{ const cur=(e[key]||'').trim(); return {...e,[key]:cur?`${cur}\n${text}`:text}; }); markDirty(); };
   const importFromKinou=(quiet)=>{
     if(!latestKinou){ if(!quiet && navigateTo && window.confirm('この利用者の個別機能訓練計画書がまだありません。作成画面を開きますか？')) navigateTo('kinou_keikaku'); return false; }
@@ -53107,7 +53193,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
         {editing ? <>
           <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} data-testid="kk-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold"><ChevronLeft size={16}/>閉じる</button>
-          <span className="text-sm font-bold text-slate-700 whitespace-nowrap">通所介護計画書の編集<span className="ml-2 font-normal text-slate-500">{patient?.name ? `${patient.name} 様` : ''}</span></span>
+          <span className="text-sm font-bold text-slate-700 whitespace-nowrap">{_shien ? '要支援の計画書の編集' : '通所介護計画書の編集'}{editing.zantei ? '（暫定）' : ''}<span className="ml-2 font-normal text-slate-500">{patient?.name ? `${patient.name} 様` : ''}</span></span>
         </> : <>
           <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>
           <KeikakuTabs current="tsusho_keikaku" navigateTo={navigateTo} family="tsusho" pid={pid} appData={appData}/>
@@ -53119,12 +53205,33 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
           <button onClick={()=>saveRecord(true)} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold shadow active:scale-95">保存して閉じる</button>
         </>}
         {printRec && <MaskToggle storeKey="tsusho"/>}
-        {printRec && <button onClick={()=>onShowPrintPreview('通所介護計画書','A4','tk-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">ダウンロード</button>}
-        {printRec && <button onClick={()=>onShowPrintPreview('ケアマネ送付セット（通所介護計画書）','A4','tk-fax-set')} title="送付状・今回と前回の計画書をまとめて印刷します" className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">ケアマネ送付セット</button>}
+        {printRec && <button onClick={()=>onShowPrintPreview(_docTitle(printRec),'A4','tk-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">ダウンロード</button>}
+        {printRec && <button onClick={()=>onShowPrintPreview(`ケアマネ送付セット（${_docTitle(printRec)}）`,'A4','tk-fax-set')} title="送付状・今回と前回の計画書をまとめて印刷します" className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">ケアマネ送付セット</button>}
       </div>
       <div className="flex-1 overflow-y-auto p-4 bg-slate-50 tsu-ph-cards">
         {!pid ? <div className="text-center text-slate-400 py-20 font-bold">利用者を登録してください</div> : editing ? (
           <div className="max-w-4xl mx-auto space-y-4">
+            {/* ★ 2026-10-27: 計画書の種類(要介護/要支援)と暫定 */}
+            <div data-testid="tk-type-bar" className={`bg-white rounded-xl border-2 p-4 space-y-2 ${_shien ? 'border-teal-300' : 'border-blue-300'}`}>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-bold text-slate-700">計画書の種類</span>
+                {[['kaigo','要介護（通所介護計画書）'],['shien',`要支援・事業対象者（${_shienTitle.replace(/（.*$/, '')}）`]].map(([t, l]) => (
+                  <button key={t} type="button" data-testid={`tk-type-${t}`} disabled={!_typeFree && _tkType !== t} onClick={() => setType(t)}
+                    className={`px-3 py-2 rounded-lg text-sm font-bold border ${_tkType === t ? (t === 'shien' ? 'bg-teal-600 text-white border-teal-600' : 'bg-blue-600 text-white border-blue-600') : 'bg-white text-slate-600 border-slate-300'} disabled:opacity-40`}>{l}</button>))}
+                {!_typeFree && <span className="text-[11px] text-slate-500">利用者マスタの介護度（{patient?.careLevel || ''}）で決まります</span>}
+              </div>
+              {_typeMismatch && <div data-testid="tk-type-mismatch" className="text-xs font-bold text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">利用者マスタの介護度（{patient?.careLevel}）と、この計画書の種類が合っていません。介護度が変わったときは、一覧の「複製して更新」ではなく「＋ 新規作成」で作り直してください。</div>}
+              <label className="flex items-center gap-2 text-sm font-bold text-slate-700 cursor-pointer"><input type="checkbox" data-testid="tk-zantei" checked={!!editing.zantei} onChange={e => upd({ zantei: e.target.checked })} className="w-5 h-5"/>暫定（介護認定の結果待ち）</label>
+              {editing.zantei && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div><label className="block text-xs font-bold text-slate-600 mb-1">見込みの介護度</label>
+                    <select data-testid="tk-zantei-level" value={editing.zanteiLevel || ''} onChange={e => { const v = e.target.value; const t = tkLevelType(v); upd({ zanteiLevel: v, ...(t ? { planType: t } : {}) }); }} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none">
+                      <option value="">（選択）</option><optgroup label="要介護">{TK_LEVELS_KAIGO.map(x => <option key={x} value={x}>{x}</option>)}</optgroup><optgroup label="要支援・事業対象者">{TK_LEVELS_SHIEN.map(x => <option key={x} value={x}>{x}</option>)}</optgroup>
+                    </select></div>
+                  <KKDateField label="認定の申請日" value={editing.shinseiDate} onChange={v => upd({ shinseiDate: v })}/>
+                  <div className="md:col-span-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">印刷に「暫定」と出ます。認定の結果が出たら、一覧の「本計画にする」で本計画を作り、もう一度説明・同意をもらってください。</div>
+                </div>)}
+            </div>
             <div className="bg-indigo-50 rounded-xl border border-indigo-200 p-4">
               <div className="text-sm font-bold text-indigo-700 mb-1 flex items-center gap-2">他の様式から取り込む（計画書連携）</div>
               <div className="text-[11px] text-indigo-900 opacity-70 mb-3">最新の各様式から空欄へ取り込みます（入力済みの欄はそのまま）。</div>
@@ -53162,6 +53269,13 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
               </div>
               <datalist id="tk-staff-names">{_staffOpts.map(x=><option key={x} value={x}/>)}</datalist>
               <datalist id="tk-staff-roles">{_roleOpts.map(x=><option key={x} value={x}/>)}</datalist>
+              {_shien && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3" data-testid="tk-shien-basic">
+                  <div><label className="block text-xs font-bold text-slate-600 mb-1">ケアプラン作成事業者（地域包括支援センターなど）</label><input value={editing.cpOffice||''} maxLength={60} onChange={e=>upd({cpOffice:e.target.value.slice(0,60)})} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none"/></div>
+                  <div><label className="block text-xs font-bold text-slate-600 mb-1">ケアプランの作成者</label><input value={editing.cpAuthor||''} maxLength={40} onChange={e=>upd({cpAuthor:e.target.value.slice(0,40)})} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none"/></div>
+                  <div className="grid grid-cols-2 gap-2"><KKDateField label="認定有効期間（から）" value={editing.ninteiFrom} onChange={v=>upd({ninteiFrom:v})}/><KKDateField label="（まで）" value={editing.ninteiTo} onChange={v=>upd({ninteiTo:v})}/></div>
+                  <div className="grid grid-cols-2 gap-2"><KKDateField label="サービス提供期間（から）" value={editing.teikyoFrom} onChange={v=>upd({teikyoFrom:v})}/><KKDateField label="（まで）" value={editing.teikyoTo} onChange={v=>upd({teikyoTo:v})}/></div>
+                </div>)}
               <div className="grid md:grid-cols-2 gap-3 mt-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-600 mb-1">障害高齢者の日常生活自立度</label>
@@ -53183,19 +53297,21 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                 <button onClick={importFromFaceSheet} className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-xs font-bold">フェイスシートから空欄を補完</button>
               </div>
               <div className="space-y-3">
-                <KKField label="通所介護利用までの経緯（活動歴や病歴）" value={editing.keii} onChange={v=>upd({keii:v})} rows={3}/>
+                {_shien ? <KKField label="介護予防サービス・支援計画（ケアプラン）の概要" value={editing.cpGaiyou} onChange={v=>upd({cpGaiyou:v})} rows={3}/> : <KKField label="通所介護利用までの経緯（活動歴や病歴）" value={editing.keii} onChange={v=>upd({keii:v})} rows={3}/>}
                 <div className="grid md:grid-cols-2 gap-3">
-                  <KKField label="利用者本人の希望" value={editing.honninKibou} onChange={v=>upd({honninKibou:v})} rows={3}/>
-                  <KKField label="家族の希望" value={editing.kazokuKibou} onChange={v=>upd({kazokuKibou:v})} rows={3}/>
+                  <KKField label={_shien ? "利用者本人の意向" : "利用者本人の希望"} value={editing.honninKibou} onChange={v=>upd({honninKibou:v})} rows={3}/>
+                  <KKField label={_shien ? "家族の意向" : "家族の希望"} value={editing.kazokuKibou} onChange={v=>upd({kazokuKibou:v})} rows={3}/>
                 </div>
+                {!_shien && <>
                 <KKField label="利用者本人の社会参加の状況" value={editing.shakaiSanka} onChange={v=>upd({shakaiSanka:v})} rows={2}/>
                 <KKField label="利用者の居宅の環境 ★（特によく使用する場所・使用したい場所の環境）" value={editing.kyotakuKankyo} onChange={v=>upd({kyotakuKankyo:v})} rows={2}/>
+                </>}
                 <div className="grid md:grid-cols-2 gap-3">
-                  <KKField label="健康状態 ★（病名・合併症・服薬状況等）" value={editing.kenkoJotai} onChange={v=>upd({kenkoJotai:v})} rows={3}/>
-                  <KKField presets={_kkP.tsRisk} label="ケアの上での医学的リスク ★（血圧・転倒・嚥下障害等）・留意事項" value={editing.iryoRisk} onChange={v=>upd({iryoRisk:v})} rows={3}/>
+                  <KKField label={_shien ? "健康状態（病名・合併症・服薬状況等）" : "健康状態 ★（病名・合併症・服薬状況等）"} value={editing.kenkoJotai} onChange={v=>upd({kenkoJotai:v})} rows={3}/>
+                  <KKField presets={_kkP.tsRisk} label={_shien ? "ケアの上での医学的リスク（血圧・転倒・嚥下障害等）・留意事項" : "ケアの上での医学的リスク ★（血圧・転倒・嚥下障害等）・留意事項"} value={editing.iryoRisk} onChange={v=>upd({iryoRisk:v})} rows={3}/>
                 </div>
               </div>
-              <div className="text-[10px] text-slate-400 mt-2">★ = 入浴介助加算（Ⅱ）を算定する場合に記入が必要な欄</div>
+              {!_shien && <div className="text-[10px] text-slate-400 mt-2">★ = 入浴介助加算（Ⅱ）を算定する場合に記入が必要な欄</div>}
             </div>
             <div className="bg-white rounded-xl border border-slate-200 p-4">
               <div className="text-sm font-bold text-blue-700 mb-3">Ⅱ　利用目標</div>
@@ -53226,10 +53342,10 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
               ))}
             </div>
             <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <div className="text-sm font-bold text-blue-700 mb-1">Ⅱ　サービス提供内容（①〜⑤）</div>
+              <div className="text-sm font-bold text-blue-700 mb-1">{_shien ? 'Ⅲ　サービス提供内容（①〜④）' : 'Ⅱ　サービス提供内容（①〜⑤）'}</div>
               <div className="text-[11px] text-slate-400 mb-3">長期・短期目標を達成するために必要なプログラムを具体的に設定してください。</div>
               <div className="space-y-3">
-                {(editing.services||[]).map((sv,i)=>(
+                {(editing.services||[]).slice(0, _shien ? 4 : 5).map((sv,i)=>(
                   <div key={i} className="bg-slate-50 rounded-lg p-3 border border-slate-200">
                     <div className="flex items-center gap-2 mb-2 flex-wrap">
                       <span className="text-base font-bold text-blue-700">{TK_MARU[i]}</span>
@@ -53291,6 +53407,25 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                 ))}
               </div>
             </div>
+            {_shien && (
+              <div className="bg-white rounded-xl border-2 border-teal-200 p-4" data-testid="tk-ex-card">
+                <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
+                  <div className="text-sm font-bold text-teal-700">Ⅳ　個別の運動（機能訓練）の実施内容</div>
+                  <button type="button" data-testid="tk-ex-fill" onClick={fillEx} className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-lg text-xs font-bold">提供記録の運動から入れる</button>
+                </div>
+                <div className="text-[11px] text-slate-500 mb-3">要支援の方は、この計画書に運動の内容を書けば、運動の計画書を別に作らなくて済みます（運動器機能向上加算は令和6年度に基本報酬へ包括）。</div>
+                <div className="space-y-2">
+                  {(editing.exercises || []).map((x, i) => (
+                    <div key={i} className="grid grid-cols-12 gap-2 items-start bg-slate-50 border border-slate-200 rounded-lg p-2" data-testid="tk-ex-row">
+                      <input value={x.content || ''} maxLength={30} onChange={e => updEx(i, { content: e.target.value.slice(0, 30) })} placeholder="運動の内容（例: バイク）" className="col-span-12 md:col-span-4 px-2 py-2 border border-slate-300 rounded text-sm outline-none bg-white"/>
+                      <input value={x.amount || ''} maxLength={20} onChange={e => updEx(i, { amount: e.target.value.slice(0, 20) })} placeholder="回数・時間（例: 10分）" className="col-span-6 md:col-span-2 px-2 py-2 border border-slate-300 rounded text-sm outline-none bg-white"/>
+                      <input value={x.freq || ''} maxLength={20} onChange={e => updEx(i, { freq: e.target.value.slice(0, 20) })} placeholder="頻度（例: 利用日ごと）" className="col-span-6 md:col-span-2 px-2 py-2 border border-slate-300 rounded text-sm outline-none bg-white"/>
+                      <input value={x.note || ''} maxLength={40} onChange={e => updEx(i, { note: e.target.value.slice(0, 40) })} placeholder="留意点（例: 膝の痛みに注意）" className="col-span-10 md:col-span-3 px-2 py-2 border border-slate-300 rounded text-sm outline-none bg-white"/>
+                      <button type="button" onClick={() => delEx(i)} aria-label="この行を消す" className="col-span-2 md:col-span-1 h-10 rounded bg-white border border-slate-300 text-slate-500 text-sm font-bold">×</button>
+                    </div>))}
+                </div>
+                {(editing.exercises || []).length < 8 && <button type="button" data-testid="tk-ex-add" onClick={addEx} className="mt-2 px-3 py-2 bg-white border border-dashed border-teal-300 text-teal-700 rounded-lg text-xs font-bold">＋ 運動を足す</button>}
+              </div>)}
             <div className="bg-white rounded-xl border border-slate-200 p-4">
               <div className="flex items-center justify-between mb-3">
                 <div className="text-sm font-bold text-blue-700">利用予定（特記事項に印字されます）</div>
@@ -53309,10 +53444,11 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
               <KKField label="特記事項" value={editing.tokki} onChange={v=>upd({tokki:v})} rows={3}/>
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <label className="text-xs font-bold text-slate-600">実施後の変化（総括）</label>
-                  <div className="flex items-center gap-1"><input value={editing.saihyokaDate||''} onChange={e=>upd({saihyokaDate:e.target.value})} placeholder="再評価日(令和○年○月○日)" className="px-2 py-1 border border-slate-300 rounded text-xs outline-none w-44"/><CalendarPickBtn size="xs" iso={(()=>{const d=parseJpDate(editing.saihyokaDate);return d?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`:'';})()} onPick={v=>{upd({saihyokaDate:v?`令和${new Date(v).getFullYear()-2018}年${new Date(v).getMonth()+1}月${new Date(v).getDate()}日`:''});}}/></div>
+                  <label className="text-xs font-bold text-slate-600">{_shien ? "評価（目標の達成状況・本人へ説明した内容）" : "実施後の変化（総括）"}</label>
+                  <div className="flex items-center gap-1"><input value={editing.saihyokaDate||''} onChange={e=>upd({saihyokaDate:e.target.value})} placeholder={_shien ? "評価年月日(令和○年○月○日)" : "再評価日(令和○年○月○日)"} className="px-2 py-1 border border-slate-300 rounded text-xs outline-none w-44"/><CalendarPickBtn size="xs" iso={(()=>{const d=parseJpDate(editing.saihyokaDate);return d?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`:'';})()} onPick={v=>{upd({saihyokaDate:v?`令和${new Date(v).getFullYear()-2018}年${new Date(v).getMonth()+1}月${new Date(v).getDate()}日`:''});}}/></div>
                 </div>
                 <KKField label="" value={editing.soukatsu} onChange={v=>upd({soukatsu:v})} rows={3}/>
+                {_shien && <div className="mt-2 max-w-xs"><label className="block text-xs font-bold text-slate-600 mb-1">評価者</label><KKStaffSelect staff={_kkStaff} value={editing.evaluator||''} onPick={(name)=>upd({ evaluator: name })} placeholder="（職員を選択）"/></div>}
               </div>
             </div>
             <div className="bg-white rounded-xl border border-slate-200 p-4 grid grid-cols-2 gap-3">
@@ -53324,7 +53460,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                   {editing.setsumeisha && !_staffOpts.includes(editing.setsumeisha) && <option value={editing.setsumeisha}>{editing.setsumeisha}</option>}
                 </select>
               </div>
-              <KKDateField label="説明・同意日" value={editing.setsumeiDate} onChange={v=>upd({setsumeiDate:v})}/>
+              <KKDateField label={_shien ? "説明・同意・交付日" : "説明・同意日"} value={editing.setsumeiDate} onChange={v=>upd({setsumeiDate:v})}/>
             </div>
           </div>
         ) : (
@@ -53360,11 +53496,12 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                 {records.map(r=>(
                   <div key={r.id} className="bg-white rounded-xl border border-slate-200 p-4 flex items-center justify-between gap-3">
                     <div>
-                      <div className="font-bold text-slate-800">作成日: {r.createdDate}{r.author?`／作成者: ${r.author}`:''}</div>
+                      <div className="font-bold text-slate-800 flex items-center gap-1.5 flex-wrap"><span className={`text-[11px] font-bold rounded-full px-2 py-0.5 ${tkPlanTypeOf(r, patient) === 'shien' ? 'bg-teal-100 text-teal-800' : 'bg-blue-100 text-blue-800'}`}>{tkPlanTypeOf(r, patient) === 'shien' ? '要支援' : '要介護'}</span>{r.zantei ? <span data-testid="tk-zantei-badge" className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-amber-100 text-amber-800">暫定{r.zanteiLevel ? `（見込み ${r.zanteiLevel}）` : ''}</span> : null}<span>作成日: {r.createdDate}{r.author?`／作成者: ${r.author}`:''}</span></div>
                       <div className="text-xs text-slate-500 mt-0.5 truncate" style={{maxWidth:420}}>短期目標: {r.shortGoal||'（未入力）'}</div>
                     </div>
                     <div className="flex gap-2 shrink-0">
                       <button onClick={()=>setEditing(_migrate(r))} className="whitespace-nowrap px-3 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-bold">編集</button>
+                      {r.zantei && <button type="button" data-testid="tk-finalize" onClick={()=>finalizeZantei(r)} className="whitespace-nowrap px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold">本計画にする</button>}
                       <button onClick={()=>dupRecord(r)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold">複製して更新</button>
                       <button onClick={()=>delRecord(r.id)} className="whitespace-nowrap px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold">削除</button>
                     </div>
@@ -53382,7 +53519,9 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
         const buildSheetHtml = (rec0) => {
         const rec = _migrate(rec0);
         // ★ 要支援・事業対象者は総合事業の個別サービス計画書として表題・種別を自動切替(2026-08-19)
-        const _yoshien = /要支援|事業対象者/.test(String(patient?.careLevel||''));
+        // ★ 2026-10-27: 計画書ごとの種類で切り替える(要支援=総合事業の計画書・江東区の様式の欄＋個別の運動)
+        const _yoshien = tkPlanTypeOf(rec0, patient) === 'shien';
+        const _nSvc = _yoshien ? 4 : 5;
         const esc=(s)=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         const B='1px solid #000';
         // cs=利用者入力を出す枠(pre-wrapで改行保持) / csm=HTMLを組むだけの枠
@@ -53409,7 +53548,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
           +`<td style="${csm}padding:0;vertical-align:middle;"><div style="font-size:7px;padding:0 4px;border-bottom:1px dotted #999;line-height:1.5;">ふりがな　${esc(patient?.kana||'')}</div><div style="font-size:11px;font-weight:bold;padding:1px 4px;line-height:1.5;">氏　名　${esc(patient?.name||'')}</div></td>`
           +`<td style="${csm}text-align:center;vertical-align:middle;line-height:1.3;"><div style="font-size:7px;">性別</div><div style="font-size:10px;font-weight:bold;">${esc(patient?.gender||'')}</div></td>`
           +`<td style="${csm}text-align:center;vertical-align:middle;font-size:9px;line-height:1.4;"><div>${circ('大正',_era)}　/　${circ('昭和',_era)}</div><div>${_eraY||'　　'}年　${_bdOk?_bd.getMonth()+1:'　　'}月　${_bdOk?_bd.getDate():'　　'}日生　${_age(patient?.birthDate)!==''?_age(patient?.birthDate):'　　'}歳</div></td>`
-          +`<td style="${csm}text-align:center;vertical-align:middle;line-height:1.3;"><div style="font-size:7px;">要介護度</div><div style="font-size:10px;font-weight:bold;">${esc(patient?.careLevel||'')}</div></td>`
+          +(rec.zantei ? `<td style="${csm}text-align:center;vertical-align:middle;line-height:1.25;"><div style="font-size:7px;">${_yoshien?'要支援度':'要介護度'}</div><div style="font-size:8.5px;font-weight:bold;">申請中</div><div style="font-size:7px;">${rec.zanteiLevel?`見込み ${esc(rec.zanteiLevel)}`:''}</div></td>` : `<td style="${csm}text-align:center;vertical-align:middle;line-height:1.3;"><div style="font-size:7px;">${_yoshien?'要支援度':'要介護度'}</div><div style="font-size:10px;font-weight:bold;">${esc(patient?.careLevel||'')}</div></td>`)
           +`<td style="${csm}font-size:9px;vertical-align:middle;line-height:${rec.coAuthors?1.35:1.6};"><div>計画作成者：${esc(rec.author)}</div><div>職種：${esc(rec.authorJob)}</div>${rec.coAuthors?`<div style="font-size:7.5px;">共同作成者：${esc(rec.coAuthors)}</div>`:''}</td>`
           +`</tr></table>`;
         const hdr3=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-top:-1px;">${cg(50,50)}<tr>`
@@ -53438,8 +53577,8 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
           +goalRow('短期',rec.shortSetDate,rec.shortDueDate,rec.shortGoal,rec.shortAchieve)
           +`</table>`;
         // --- Ⅱ サービス提供内容 (①〜⑤ × 評価3段 + 右列に1日の流れ) ---
-        const _svcs=[...(rec.services||[])].slice(0,5);
-        while(_svcs.length<5) _svcs.push({from:'',to:'',content:'',jisshi:'',tassei:'',effect:''});
+        const _svcs=[...(rec.services||[])].slice(0,_nSvc);
+        while(_svcs.length<_nSvc) _svcs.push({from:'',to:'',content:'',jisshi:'',tassei:'',effect:''});
         const _flow=(rec.flow||[]).filter(f=>f&&(String(f.time||'')+String(f.content||'')).trim());
         const flowTbl=`<table style="width:100%;height:100%;border-collapse:collapse;table-layout:fixed;">${cg(40,60)}`
           +`<tr><td colspan="2" style="${lab}font-size:8.5px;border-top:none;">プログラム（1日の流れ）</td></tr>`
@@ -53466,8 +53605,8 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
             tr+=`<td style="${csm}text-align:center;vertical-align:middle;font-size:7.5px;padding:1px;">${circ(TK_JISSHI[k],s.jisshi)}</td>`;
             tr+=`<td style="${csm}text-align:center;vertical-align:middle;font-size:7.5px;padding:1px;">${circ(TK_TASSEI[k],s.tassei)}</td>`;
             if(k===0) tr+=`<td style="${cs}" rowspan="3">${esc(s.effect)}</td>`;
-            if(i===0&&k===0) tr+=`<td style="border:${B};padding:0;vertical-align:top;" rowspan="13">${flowTbl}</td>`;
-            if(i===4&&k===1) tr+=`<td style="${lab}font-size:8.5px;" rowspan="2">送り（${circ('有',rec.okuri)}・${circ('無',rec.okuri)}）</td>`;
+            if(i===0&&k===0) tr+=`<td style="border:${B};padding:0;vertical-align:top;" rowspan="${3*_nSvc-2}">${flowTbl}</td>`;
+            if(i===_nSvc-1&&k===1) tr+=`<td style="${lab}font-size:8.5px;" rowspan="2">送り（${circ('有',rec.okuri)}・${circ('無',rec.okuri)}）</td>`;
             tr+='</tr>';
             svcRows+=tr;
           }
@@ -53501,9 +53640,55 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
           +`<div>${_yoshien?'（総合事業）通所型サービス':'（地域密着型）通所介護'}　${esc(facility.name)||'　　　　'}　　　${_fzip?'〒'+esc(_fzip):''}　住所：${esc(_faddr)}　　　管理者：${esc(_fmgr)}</div>`
           +`<div>　事業所No.${esc(_fno)}　　　　　　　　　Tel.${esc(facility.phone)}/Fax.${esc(facility.fax)}</div>`
           +`</div>`;
+        if (_yoshien) {
+          // --- 要支援(総合事業)の計画書: 江東区 別記第5号様式の欄(ケアプラン作成事業者・認定有効期間・提供期間・概要・意向・評価・説明同意交付)＋個別の運動 ---
+          const _ttl = tkShienTitle(appData.systemSettings);
+          const hdrS=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-top:-1px;">${cg(40,30,30)}<tr>`
+            +`<td style="${csm}font-size:8.5px;line-height:1.45;"><div style="font-size:7px;">ケアプラン作成事業者・作成者</div><div>${esc(rec.cpOffice)}${rec.cpAuthor?`　${esc(rec.cpAuthor)}`:''}</div></td>`
+            +`<td style="${csm}font-size:8.5px;line-height:1.45;"><div style="font-size:7px;">認定有効期間</div><div>${rec.zantei?`申請中${rec.shinseiDate?`（申請日 ${esc(rec.shinseiDate)}）`:''}`:`${esc(rec.ninteiFrom)||'　　年　月　日'} ～ ${esc(rec.ninteiTo)||'　　年　月　日'}`}</div></td>`
+            +`<td style="${csm}font-size:8.5px;line-height:1.45;"><div style="font-size:7px;">サービス提供期間</div><div>${esc(rec.teikyoFrom)||'　　年　月　日'} ～ ${esc(rec.teikyoTo)||'　　年　月　日'}</div></td>`
+            +`</tr></table>`;
+          const secS=`<table style="width:100%;height:100%;border-collapse:collapse;table-layout:fixed;">${cg(50,50)}`
+            +`<tr style="height:30%"><td style="${cs}" colspan="2"><span style="${cap}">介護予防サービス・支援計画（ケアプラン）の概要</span>${esc(rec.cpGaiyou)}</td></tr>`
+            +`<tr style="height:35%"><td style="${cs}"><span style="${cap}">利用者本人の意向</span>${esc(rec.honninKibou)}</td><td style="${cs}"><span style="${cap}">家族の意向</span>${esc(rec.kazokuKibou)}</td></tr>`
+            +`<tr style="height:35%"><td style="${cs}"><span style="${cap}">健康状態(病名､合併症､服薬状況等)</span>${esc(rec.kenkoJotai)}</td><td style="${cs}"><span style="${cap}">ケアの上での医学的リスク(血圧､転倒､嚥下障害等)･留意事項</span>${esc(rec.iryoRisk)}</td></tr>`
+            +`</table>`;
+          const _ex=[...(rec.exercises||[])].filter(x=>x&&(String(x.content||'')+String(x.amount||'')).trim()).slice(0,8);
+          while(_ex.length<5) _ex.push({content:'',amount:'',freq:'',note:''});
+          const exTbl=`<table style="width:100%;height:100%;border-collapse:collapse;table-layout:fixed;">${cg(34,16,16,34)}`
+            +`<tr style="height:1px;"><td colspan="4" style="${lab}font-size:9px;">個別の運動（機能訓練）の実施内容</td></tr>`
+            +`<tr style="height:1px;"><td style="${lab}font-size:7.5px;">運動の内容</td><td style="${lab}font-size:7.5px;">回数・時間</td><td style="${lab}font-size:7.5px;">頻度</td><td style="${lab}font-size:7.5px;">留意点</td></tr>`
+            +_ex.map(x=>`<tr style="height:${(100/_ex.length).toFixed(1)}%"><td style="${csm}font-size:8.5px;vertical-align:middle;">${esc(x.content)}</td><td style="${csm}font-size:8.5px;text-align:center;vertical-align:middle;">${esc(x.amount)}</td><td style="${csm}font-size:8.5px;text-align:center;vertical-align:middle;">${esc(x.freq)}</td><td style="${csm}font-size:8px;vertical-align:middle;">${esc(x.note)}</td></tr>`).join('')
+            +`</table>`;
+          const douiS=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;">${cg(28,30,42)}`
+            +`<tr><td colspan="3" style="${lab}font-size:8px;">上記の計画について説明を受け、同意し、交付を受けました</td></tr>`
+            +`<tr><td style="${lab}font-size:8.5px;">説明者</td><td style="${lab}font-size:8.5px;">説明・同意・交付日</td><td style="${lab}font-size:8.5px;">利用者（本人）署名</td></tr>`
+            +`<tr><td style="${csm}text-align:center;vertical-align:middle;height:9mm;font-size:10px;">${esc(rec.setsumeisha)}</td><td style="${csm}text-align:center;vertical-align:middle;font-size:9px;">${esc(rec.setsumeiDate)||'　　年　　月　　日'}</td><td style="${csm}"></td></tr>`
+            +`</table>`;
+          const bottomS=`<table style="width:100%;height:100%;border-collapse:collapse;table-layout:fixed;">${cg(53,47)}`
+            +`<tr style="height:42%"><td style="${cs}" colspan="2"><span style="${cap}">特記事項</span>${esc(_tokki)}</td></tr>`
+            +`<tr style="height:58%">`
+            +`<td style="${cs}"><span style="${cap}">評価　　評価年月日：　${esc(rec.saihyokaDate)||'　　　年　　月　　日'}　　評価者：　${esc(rec.evaluator)}</span><span style="${cap}font-weight:normal;">目標の達成状況（本人へ説明した内容）</span>${esc(rec.soukatsu)}</td>`
+            +`<td style="padding:0;vertical-align:bottom;">${douiS}</td>`
+            +`</tr></table>`;
+          return `<div style="width:210mm;height:297mm;padding:6mm 5mm 4mm;box-sizing:border-box;display:flex;flex-direction:column;font-family:'Hiragino Sans','Meiryo','Yu Gothic Medium','MS PGothic',sans-serif;color:#000;background:#fff;overflow:hidden;">`
+            +`<div style="flex:0 0 auto;font-size:9px;font-weight:bold;">（総合事業）通所型サービス</div>`
+            +`<div style="flex:0 0 auto;text-align:center;font-size:13px;font-weight:bold;letter-spacing:1px;margin:0.8mm 0 1.5mm;">【${esc(_ttl)}】${rec.zantei?'（暫定）':''}</div>`
+            +`<div style="flex:0 0 auto;">${hdr1}${hdr2}${hdrS}${hdr3}</div>`
+            +`<div style="flex:0 0 auto;font-size:9.5px;font-weight:bold;margin:1.6mm 0 0.6mm;border-bottom:1px solid #000;">Ⅰ　利用者の基本情報</div>`
+            +`<div style="flex:54 1 0;min-height:0;">${secS}</div>`
+            +`<div style="flex:0 0 auto;font-size:9.5px;font-weight:bold;margin:1.6mm 0 0.6mm;border-bottom:1px solid #000;">Ⅱ　目標　／　Ⅲ　サービス提供内容（通所型サービスにおける計画）</div>`
+            +`<div style="flex:34 1 0;min-height:0;">${goalTbl}</div>`
+            +`<div style="flex:104 1 0;min-height:0;margin-top:1.2mm;">${svcTbl}</div>`
+            +`<div style="flex:0 0 auto;font-size:9.5px;font-weight:bold;margin:1.6mm 0 0.6mm;border-bottom:1px solid #000;">Ⅳ　個別の運動（機能訓練）</div>`
+            +`<div style="flex:40 1 0;min-height:0;">${exTbl}</div>`
+            +`<div style="flex:52 1 0;min-height:0;margin-top:1.2mm;">${bottomS}</div>`
+            +footer
+            +`</div>`;
+        }
         const html=`<div style="width:210mm;height:297mm;padding:6mm 5mm 4mm;box-sizing:border-box;display:flex;flex-direction:column;font-family:'Hiragino Sans','Meiryo','Yu Gothic Medium','MS PGothic',sans-serif;color:#000;background:#fff;overflow:hidden;">`
           +`<div style="flex:0 0 auto;font-size:9px;font-weight:bold;">別紙様式３－４</div>`
-          +`<div style="flex:0 0 auto;text-align:center;font-size:13px;font-weight:bold;letter-spacing:1px;margin:0.8mm 0 1.5mm;">【（地域密着型）通所介護計画書】</div>`
+          +`<div style="flex:0 0 auto;text-align:center;font-size:13px;font-weight:bold;letter-spacing:1px;margin:0.8mm 0 1.5mm;">【（地域密着型）通所介護計画書】${rec.zantei?'（暫定）':''}</div>`
           +`<div style="flex:0 0 auto;">${hdr1}${hdr2}${hdr3}</div>`
           +`<div style="flex:0 0 auto;font-size:9.5px;font-weight:bold;margin:1.6mm 0 0.6mm;border-bottom:1px solid #000;">Ⅰ　利用者の基本情報</div>`
           +`<div style="flex:88 1 0;min-height:0;">${sec1}</div>`
@@ -53533,8 +53718,8 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
           +`<div style="font-size:13px;margin-top:8mm;font-weight:bold;">${esc2(patient?.cmOffice||'居宅介護支援事業所')}<br>${patient?.cmName?esc2(patient.cmName)+' 様':'ご担当者 様'}</div>`
           +((() => { const _f = tsumugiCmContact(patient, appData).fax; return _f ? `<div style="font-size:11px;color:#333;">FAX: ${esc2(_f)}</div>` : ''; })())
           +`<div style="text-align:right;font-size:11px;margin-top:6mm;">${esc2(facility.name||'')}<br>${esc2(facility.addressFull||'')}<br>TEL: ${esc2(facility.phone||'')}${facility.fax?'　FAX: '+esc2(facility.fax):''}</div>`
-          +`<div style="text-align:center;font-size:16px;font-weight:bold;margin:10mm 0 6mm;border-bottom:2px solid #000;padding-bottom:2mm;">通所介護計画書 送付のご案内</div>`
-          +`<div>いつもお世話になっております。<b>${esc2(patient?.name||'')} 様</b>の通所介護計画書を${prevForSet?'見直し・更新':'作成'}いたしましたので、下記のとおり送付いたします。ご査収のほどよろしくお願いいたします。</div>`
+          +`<div style="text-align:center;font-size:16px;font-weight:bold;margin:10mm 0 6mm;border-bottom:2px solid #000;padding-bottom:2mm;">${esc2(_docTitle(printRec))} 送付のご案内</div>`
+          +`<div>いつもお世話になっております。<b>${esc2(patient?.name||'')} 様</b>の${esc2(_docTitle(printRec))}を${prevForSet?'見直し・更新':'作成'}いたしましたので、下記のとおり送付いたします。ご査収のほどよろしくお願いいたします。</div>`
           +`<div style="margin-top:6mm;font-weight:bold;">【送付書類】</div>`
           +`<div style="padding-left:4mm;">1. 通所介護計画書（今回分／作成日: ${esc2(printRec.createdDate||'—')}）${prevForSet?`<br>2. 前回の通所介護計画書（評価記入済／作成日: ${esc2(prevForSet.createdDate||'—')}）`:''}</div>`
           +(prevForSet?`<div style="margin-top:5mm;"><div style="font-weight:bold;">【前回計画の評価】</div><div style="padding-left:4mm;">短期目標: ${esc2(prevForSet.shortAchieve||'未評価')}　／　長期目標: ${esc2(prevForSet.longAchieve||'未評価')}${prevForSet.soukatsu?`<br>総括: ${esc2(prevForSet.soukatsu)}`:''}</div></div>`:'')
@@ -54217,11 +54402,11 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
     return patients.map(p => {
       let latest=null, sci={}, pym='';
       if (src==='seikatsu') {
-        const recs = (appData.seikatsuKinouRecords||[]).filter(r=>r.patientId===p.id).sort((a,b)=>String(b.recordDate||'').localeCompare(String(a.recordDate||''))||((b.createdAt||0)-(a.createdAt||0)));
+        const recs = (appData.seikatsuKinouRecords||[]).filter(r=>r.patientId===p.id).sort((a,b)=>tsuByJpDesc('recordDate')(a,b)||((b.createdAt||0)-(a.createdAt||0)));
         latest = recs[0]||null;
         pym = latest ? reiwaToYmd(latest.recordDate).slice(0,6) : '';
       } else if (src==='kinou') {
-        const recs = (appData.kinouKeikakuRecords||[]).filter(r=>r.patientId===p.id).sort((a,b)=>String(b.createdDate||'').localeCompare(String(a.createdDate||''))||((b.createdAt||0)-(a.createdAt||0)));
+        const recs = (appData.kinouKeikakuRecords||[]).filter(r=>r.patientId===p.id).sort((a,b)=>tsuByJpDesc('createdDate')(a,b)||((b.createdAt||0)-(a.createdAt||0)));
         latest = recs[0]||null;
         pym = latest ? reiwaToYmd(latest.createdDate).slice(0,6) : '';
       } else {
@@ -54470,7 +54655,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
     // ★ 計画書(3-3)の見直しセクション用: 同じ評価日の計画書があればそれを編集、無ければ直近を「前回」として新規作成
     const wk0 = _toWareki(dateIso);
     const kks = (appData.kinouKeikakuRecords||[]).filter(r=>r.patientId===pid)
-      .sort((x,y)=>(String(y.createdDate||'')).localeCompare(String(x.createdDate||'')));
+      .sort((x,y)=>tsuByJpDesc('createdDate')(x,y));
     const sameDayKk = kks.find(r=>String(r.createdDate)===wk0) || null;
     const prevKk = kks.find(r=>String(r.createdDate)!==wk0) || null;
     const seedKk = sameDayKk || prevKk;
@@ -54592,10 +54777,10 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
   //   あくまで候補として入れるだけで、保存は職員が内容を確認してから行う。
   const latestSeikatsu = (appData.seikatsuKinouRecords||[])
     .filter(r => r && r.patientId === pid)
-    .sort((a,b) => String(b.recordDate||'').localeCompare(String(a.recordDate||'')) || ((b.createdAt||0)-(a.createdAt||0)))[0] || null;
+    .sort((a,b) => tsuByJpDesc('recordDate')(a,b) || ((b.createdAt||0)-(a.createdAt||0)))[0] || null;
   const latestKinou = (appData.kinouKeikakuRecords||[])
     .filter(r => r && r.patientId === pid)
-    .sort((a,b) => String(b.createdDate||'').localeCompare(String(a.createdDate||'')) || ((b.createdAt||0)-(a.createdAt||0)))[0] || null;
+    .sort((a,b) => tsuByJpDesc('createdDate')(a,b) || ((b.createdAt||0)-(a.createdAt||0)))[0] || null;
   const importFromSeikatsu = () => {
     if (!latestSeikatsu) { alert('この利用者の生活機能チェック（様式3-2）がまだありません。'); return; }
     const sug = seikatsuAdlToBarthel(latestSeikatsu.adl);
@@ -56268,8 +56453,8 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
       ? [ _added.length ? '今月から追加/再開: '+_added.join('、') : '', _removed.length ? '今月は実施なし: '+_removed.join('、') : '', _valChanged.length ? '量の変化(前月→今月): '+_valChanged.join('、') : '' ].filter(Boolean).join(' / ')
       : '前月から運動メニューに大きな変更なし';
     // ★ 通所介護計画書 / 個別機能訓練計画書(あれば)の目標 → ②目標の達成・進捗の評価に使う
-    const _tk = (appData.tsushoKeikakuRecords||[]).filter(r=>r.patientId===patient.id).sort((a,b)=>String(b.createdAt||b.createdDate||'').localeCompare(String(a.createdAt||a.createdDate||'')));
-    const _kk = (appData.kinouKeikakuRecords||[]).filter(r=>r.patientId===patient.id).sort((a,b)=>String(b.createdAt||b.createdDate||'').localeCompare(String(a.createdAt||a.createdDate||'')));
+    const _tk = (appData.tsushoKeikakuRecords||[]).filter(r=>r.patientId===patient.id).sort((a,b)=>((Number(b.createdAt)||tsuJpKey(b.createdDate))-(Number(a.createdAt)||tsuJpKey(a.createdDate))));
+    const _kk = (appData.kinouKeikakuRecords||[]).filter(r=>r.patientId===patient.id).sort((a,b)=>((Number(b.createdAt)||tsuJpKey(b.createdDate))-(Number(a.createdAt)||tsuJpKey(a.createdDate))));
     const _tkGoal = _tk.length ? [_tk[0].shortGoal&&`【通所介護計画】短期: ${_tk[0].shortGoal}`, _tk[0].longGoal&&`【通所介護計画】長期: ${_tk[0].longGoal}`].filter(Boolean).join(' / ') : '';
     const _kkGoal = _kk.length ? [_kk[0].shortKinou&&`短期(機能): ${_kk[0].shortKinou}`, _kk[0].shortKatsudo&&`短期(活動): ${_kk[0].shortKatsudo}`, _kk[0].longKinou&&`長期(機能): ${_kk[0].longKinou}`].filter(Boolean).join(' / ') : '';
     const _goalText = [_tkGoal, _kkGoal].filter(Boolean).join('\n');
@@ -56346,7 +56531,7 @@ ${optionsDesc}
   };
   // ★ 計画書連携: この利用者の最新の通所介護計画書の目標をモニタリング表に表示（②目標の評価対象を明示）
   const latestPlanGoals = (pid) => {
-    const r = (appData.tsushoKeikakuRecords||[]).filter(x=>x.patientId===pid).sort((a,b)=>(b.createdDate||'').localeCompare(a.createdDate||''))[0];
+    const r = (appData.tsushoKeikakuRecords||[]).filter(x=>x.patientId===pid).sort((a,b)=>tsuByJpDesc('createdDate')(a,b))[0];
     if (!r || (!r.longGoal && !r.shortGoal)) return null;
     return { long:r.longGoal||'', longP:r.longPeriod||'', short:r.shortGoal||'', shortP:r.shortPeriod||'', created:r.createdDate||'' };
   };
