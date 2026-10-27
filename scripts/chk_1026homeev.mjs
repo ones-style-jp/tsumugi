@@ -15,7 +15,10 @@ async function start(prep) {
 { const page = await start("");
   const wk = await page.getByTestId('home-tasks-week').innerText(); const mo = await page.getByTestId('home-tasks-month').innerText();
   r.weekHas = inWeek ? /契約/.test(wk) && /10:00/.test(wk) && !/カレンダーの予定/.test(wk) : /契約/.test(mo); /* trial422: 1件ずつ */ r.monthHas = inMonth ? /担会/.test(mo) : true; if (!r.weekHas || !r.monthHas) console.log('WK', wk.slice(0, 200), 'MO', mo.slice(0, 200), inWeek, inMonth);
-  await page.getByTestId('home-task-events_ev_w').click(); await page.waitForTimeout(800); r.opensCalendar = (await page.locator('body').innerText()).includes('カレンダー') || true;
+  await page.getByTestId('home-task-events_ev_w').click(); await page.waitForTimeout(500);
+  /* trial427: 予定を押すと詳細が開き、担当者会議を記録・利用者を開く・カレンダーへ がある。「開く →」は無い */
+  r.opensCalendar = (await page.getByTestId('notice-detail').count()) === 1 && (await page.getByTestId('notice-to-meeting').count()) === 1 && (await page.getByTestId('notice-to-calendar').count()) === 1 && !/開く →/.test(await page.getByTestId('home-tasks').innerText()) && !/カレンダー →/.test(await page.getByTestId('home-tasks').innerText());
+  await page.getByTestId('notice-to-calendar').click(); await page.waitForTimeout(800); r.toCalendar = (await page.getByTestId('notice-detail').count()) === 0;
   await page.context().close(); }
 { const page = await start("d.systemSettings.homeTasks = { events: { on: false } };");
   const wk = await page.getByTestId('home-tasks-week').innerText(); const mo = await page.getByTestId('home-tasks-month').innerText(); r.offHides = !/契約/.test(wk) && !/担会/.test(mo) && !/契約/.test(mo);
