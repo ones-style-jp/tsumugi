@@ -52903,8 +52903,8 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
     if(importFromFaceSheet(true)) done.push('フェイスシート');
     if(!String(editing?.riyoubi||'').trim()){ const s2=_baseUseDays(patient); if(s2){ upd({riyoubi:s2}); done.push('利用予定'); } }
     if(importFromKinou(true)) done.push('個別機能訓練');
-    if(importFromKyomi(true)) done.push('興味・関心');
-    alert(done.length?`取り込みました: ${done.join('・')}\n（空欄だけ。内容を確認してください）`:'取り込める項目がありませんでした（入力済みの欄は上書きしません）。');
+    // ★ 2026-10-27(店舗要望「一括自動生成で本人の希望に興味・関心が入ってしまう」): 一括では興味・関心を入れない(必要なら右の「興味・関心」ボタンで)
+    alert(done.length?`取り込みました: ${done.join('・')}\n（空欄だけ。内容を確認してください。興味・関心は「興味・関心」ボタンで）`:'取り込める項目がありませんでした（入力済みの欄は上書きしません）。');
   };
   // ★ 利用予定: 基本利用日(scheduleAmPm)＋送迎時間(pickupTimes)から「曜日（区分 時間）」を組み立てて反映
   const fillRiyoubi=()=>{ const s=_baseUseDays(patient); if(!s){ alert('この利用者の基本利用日が登録されていません（利用者マスタで設定してください）。'); return; } upd({riyoubi:s}); };
@@ -53013,7 +53013,9 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                         <button key={m} type="button" title="設定日(未入力なら今日)から自動計算します"
                           onClick={()=>{const base=parseJpDate(editing[k+'SetDate'])||parseJpMonth(editing[k+'SetDate'])||new Date();const d=new Date(base);d.setMonth(d.getMonth()+m);upd({[k+'DueDate']:`令和${d.getFullYear()-2018}年${d.getMonth()+1}月${d.getDate()}日`});}}
                           className="px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] font-bold text-slate-500 hover:bg-slate-100">{l}</button>
-                      ))}</div>
+                      ))}
+                      {/* ★ 2026-10-27(店舗要望): 達成予定日をその月の末日に(未入力なら設定日/今日の月の末日) */}
+                      <button type="button" data-testid={`tk-${k}-due-eom`} title="達成予定日をその月の末日にします（未入力なら設定日か今日の月）" onClick={()=>{const cur=parseJpDate(editing[k+'DueDate'])||parseJpMonth(editing[k+'DueDate'])||parseJpDate(editing[k+'SetDate'])||parseJpMonth(editing[k+'SetDate'])||new Date();const d=new Date(cur.getFullYear(),cur.getMonth()+1,0);upd({[k+'DueDate']:`令和${d.getFullYear()-2018}年${d.getMonth()+1}月${d.getDate()}日`});}} className="px-1.5 py-0.5 rounded border border-indigo-300 bg-indigo-50 text-[10px] font-bold text-indigo-700 hover:bg-indigo-100">月末</button></div>
                     {k==='long' && <button onClick={copyLongPeriodToServices} className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[11px] font-bold whitespace-nowrap">期間を①〜⑤へコピー</button>}
                     <span className="text-[11px] text-slate-400 ml-1">達成度</span>
                     {TK_ACHIEVE.map(o=>(
@@ -53278,10 +53280,11 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
         // 利用予定・提供時間区分は様式3-4に専用欄が無いため、特記事項の先頭に印字する
         const _riyo=[rec.riyoubi&&`利用予定：${rec.riyoubi}`, rec.teikyoTime&&`提供時間区分：${rec.teikyoTime}`].filter(Boolean).join('　／　');
         const _tokki=[_riyo, String(rec.tokki||'')].filter(s=>String(s).trim()).join('\n');
-        const douiTbl=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;">${cg(50,50)}`
-          +`<tr><td colspan="2" style="${lab}font-size:8.5px;">利用者・家族に対する本計画の説明者及び同意日</td></tr>`
-          +`<tr><td style="${lab}font-size:8.5px;">説明者</td><td style="${lab}font-size:8.5px;">説明・同意日</td></tr>`
-          +`<tr><td style="${csm}text-align:center;vertical-align:middle;height:9mm;font-size:10px;">${esc(rec.setsumeisha)}</td><td style="${csm}text-align:center;vertical-align:middle;font-size:9px;">${esc(rec.setsumeiDate)||'　　年　　月　　日'}</td></tr>`
+        // ★ 2026-10-27(店舗要望「本人署名欄が欲しい」): 説明者・説明・同意日の右に 利用者（本人）署名 の欄
+        const douiTbl=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;">${cg(28,30,42)}`
+          +`<tr><td colspan="3" style="${lab}font-size:8.5px;">利用者・家族に対する本計画の説明者及び同意日・署名</td></tr>`
+          +`<tr><td style="${lab}font-size:8.5px;">説明者</td><td style="${lab}font-size:8.5px;">説明・同意日</td><td style="${lab}font-size:8.5px;">利用者（本人）署名</td></tr>`
+          +`<tr><td style="${csm}text-align:center;vertical-align:middle;height:9mm;font-size:10px;">${esc(rec.setsumeisha)}</td><td style="${csm}text-align:center;vertical-align:middle;font-size:9px;">${esc(rec.setsumeiDate)||'　　年　　月　　日'}</td><td style="${csm}vertical-align:bottom;font-size:8px;color:#64748b;text-align:right;">印</td></tr>`
           +`</table>`;
         const bottom=`<table style="width:100%;height:100%;border-collapse:collapse;table-layout:fixed;">${cg(53,47)}`
           +`<tr style="height:44%">`
