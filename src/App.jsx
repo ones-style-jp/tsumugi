@@ -2725,6 +2725,9 @@ const parseJpDate = (s) => {
   const d = new Date(t);
   return isNaN(d.getTime()) ? null : d;
 };
+// ★ 2026-10-27(不具合): 和暦の日付を文字のまま比べると「令和8年10月」が「令和8年9月」より前になる。日付に直して新しい順に並べる(同じ日は作った時刻の新しい順)
+const tsuJpKey = (v) => { const d = parseJpDate(v); return d ? d.getTime() : 0; };
+const tsuByJpDesc = (key) => (a, b) => (tsuJpKey(b && b[key]) - tsuJpKey(a && a[key])) || ((Number(b && b.createdAt) || 0) - (Number(a && a.createdAt) || 0));
 // 「令和8年3月」「令和8年3月31日」など月までの指定も拾う(目標の達成予定日用)
 const parseJpMonth = (s) => {
   const t = String(s ?? '').trim();
@@ -51845,7 +51848,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
   const exItems = appData.systemSettings?.exerciseItems || [];
   const facility = tsumugiFacilityInfo(appData);
   const records = (appData.kinouKeikakuRecords||[]).filter(r => r.patientId === pid)
-    .sort((a,b) => (b.createdDate||'').localeCompare(a.createdDate||''));
+    .sort((a,b) => tsuByJpDesc('createdDate')(a,b));
   // ★ 前回計画書の評価を新しい計画書の編集中に一緒に入力できるようにする(2026-08-13)。
   //   達成度は「前回の計画書」側に記入・保存される(送付セット印刷でも評価入りで出力)。
   const [prevEvalPatch, setPrevEvalPatch] = React.useState(null);
@@ -51955,7 +51958,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
 
 
   // ★ 計画書連携: この利用者の最新の 生活機能チェック / 興味・関心 レコードを取得
-  const _latestBy = (arr) => (arr||[]).filter(r=>r.patientId===pid).sort((a,b)=>(b.recordDate||'').localeCompare(a.recordDate||'')||((b.createdAt||0)-(a.createdAt||0)))[0] || null;
+  const _latestBy = (arr) => (arr||[]).filter(r=>r.patientId===pid).sort((a,b)=>tsuByJpDesc('recordDate')(a,b)||((b.createdAt||0)-(a.createdAt||0)))[0] || null;
   const latestSeikatsu = _latestBy(appData.seikatsuKinouRecords);
   const latestKyomi = _latestBy(appData.kyomiKanshinRecords);
   const _appendField = (key, text) => { if(!text) return; setEditing(e => { const cur=(e[key]||'').trim(); return {...e, [key]: cur ? `${cur}\n${text}` : text}; }); markDirty(); };
@@ -52839,7 +52842,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
   const [editing, setEditing] = React.useState(null);
   const patient = (appData.patients||[]).find(p => p.id === pid);
   const facility = tsumugiFacilityInfo(appData);
-  const records = (appData.tsushoKeikakuRecords||[]).filter(r => r.patientId === pid).sort((a,b)=>(b.createdDate||'').localeCompare(a.createdDate||''));
+  const records = (appData.tsushoKeikakuRecords||[]).filter(r => r.patientId === pid).sort((a,b)=>tsuByJpDesc('createdDate')(a,b));
   // ★ 前回計画書の評価を新しい計画書の編集中に一緒に入力(2026-08-13)。 保存先は前回レコード側。
   const [prevEvalPatch, setPrevEvalPatch] = React.useState(null);
   const _prevRec = editing ? (records.filter(r => r.id !== editing.id && ((r.createdAt||0) < (editing.createdAt||Number.MAX_SAFE_INTEGER)))[0] || null) : null;
@@ -53032,8 +53035,8 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
 
 
   // ★ 計画書連携: 個別機能訓練計画書 / 興味・関心 から取り込む
-  const latestKinou=(appData.kinouKeikakuRecords||[]).filter(r=>r.patientId===pid).sort((a,b)=>String(b.createdDate||'').localeCompare(String(a.createdDate||''))||((b.createdAt||0)-(a.createdAt||0)))[0]||null;
-  const latestKyomi=(appData.kyomiKanshinRecords||[]).filter(r=>r.patientId===pid).sort((a,b)=>(b.recordDate||'').localeCompare(a.recordDate||'')||((b.createdAt||0)-(a.createdAt||0)))[0]||null;
+  const latestKinou=(appData.kinouKeikakuRecords||[]).filter(r=>r.patientId===pid).sort((a,b)=>tsuByJpDesc('createdDate')(a,b)||((b.createdAt||0)-(a.createdAt||0)))[0]||null;
+  const latestKyomi=(appData.kyomiKanshinRecords||[]).filter(r=>r.patientId===pid).sort((a,b)=>tsuByJpDesc('recordDate')(a,b)||((b.createdAt||0)-(a.createdAt||0)))[0]||null;
   const _appendField=(key,text)=>{ if(!text) return; setEditing(e=>{ const cur=(e[key]||'').trim(); return {...e,[key]:cur?`${cur}\n${text}`:text}; }); markDirty(); };
   const importFromKinou=(quiet)=>{
     if(!latestKinou){ if(!quiet && navigateTo && window.confirm('この利用者の個別機能訓練計画書がまだありません。作成画面を開きますか？')) navigateTo('kinou_keikaku'); return false; }
@@ -54186,11 +54189,11 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
     return patients.map(p => {
       let latest=null, sci={}, pym='';
       if (src==='seikatsu') {
-        const recs = (appData.seikatsuKinouRecords||[]).filter(r=>r.patientId===p.id).sort((a,b)=>String(b.recordDate||'').localeCompare(String(a.recordDate||''))||((b.createdAt||0)-(a.createdAt||0)));
+        const recs = (appData.seikatsuKinouRecords||[]).filter(r=>r.patientId===p.id).sort((a,b)=>tsuByJpDesc('recordDate')(a,b)||((b.createdAt||0)-(a.createdAt||0)));
         latest = recs[0]||null;
         pym = latest ? reiwaToYmd(latest.recordDate).slice(0,6) : '';
       } else if (src==='kinou') {
-        const recs = (appData.kinouKeikakuRecords||[]).filter(r=>r.patientId===p.id).sort((a,b)=>String(b.createdDate||'').localeCompare(String(a.createdDate||''))||((b.createdAt||0)-(a.createdAt||0)));
+        const recs = (appData.kinouKeikakuRecords||[]).filter(r=>r.patientId===p.id).sort((a,b)=>tsuByJpDesc('createdDate')(a,b)||((b.createdAt||0)-(a.createdAt||0)));
         latest = recs[0]||null;
         pym = latest ? reiwaToYmd(latest.createdDate).slice(0,6) : '';
       } else {
@@ -54439,7 +54442,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
     // ★ 計画書(3-3)の見直しセクション用: 同じ評価日の計画書があればそれを編集、無ければ直近を「前回」として新規作成
     const wk0 = _toWareki(dateIso);
     const kks = (appData.kinouKeikakuRecords||[]).filter(r=>r.patientId===pid)
-      .sort((x,y)=>(String(y.createdDate||'')).localeCompare(String(x.createdDate||'')));
+      .sort((x,y)=>tsuByJpDesc('createdDate')(x,y));
     const sameDayKk = kks.find(r=>String(r.createdDate)===wk0) || null;
     const prevKk = kks.find(r=>String(r.createdDate)!==wk0) || null;
     const seedKk = sameDayKk || prevKk;
@@ -54548,10 +54551,10 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
   //   あくまで候補として入れるだけで、保存は職員が内容を確認してから行う。
   const latestSeikatsu = (appData.seikatsuKinouRecords||[])
     .filter(r => r && r.patientId === pid)
-    .sort((a,b) => String(b.recordDate||'').localeCompare(String(a.recordDate||'')) || ((b.createdAt||0)-(a.createdAt||0)))[0] || null;
+    .sort((a,b) => tsuByJpDesc('recordDate')(a,b) || ((b.createdAt||0)-(a.createdAt||0)))[0] || null;
   const latestKinou = (appData.kinouKeikakuRecords||[])
     .filter(r => r && r.patientId === pid)
-    .sort((a,b) => String(b.createdDate||'').localeCompare(String(a.createdDate||'')) || ((b.createdAt||0)-(a.createdAt||0)))[0] || null;
+    .sort((a,b) => tsuByJpDesc('createdDate')(a,b) || ((b.createdAt||0)-(a.createdAt||0)))[0] || null;
   const importFromSeikatsu = () => {
     if (!latestSeikatsu) { alert('この利用者の生活機能チェック（様式3-2）がまだありません。'); return; }
     const sug = seikatsuAdlToBarthel(latestSeikatsu.adl);
@@ -56219,8 +56222,8 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
       ? [ _added.length ? '今月から追加/再開: '+_added.join('、') : '', _removed.length ? '今月は実施なし: '+_removed.join('、') : '', _valChanged.length ? '量の変化(前月→今月): '+_valChanged.join('、') : '' ].filter(Boolean).join(' / ')
       : '前月から運動メニューに大きな変更なし';
     // ★ 通所介護計画書 / 個別機能訓練計画書(あれば)の目標 → ②目標の達成・進捗の評価に使う
-    const _tk = (appData.tsushoKeikakuRecords||[]).filter(r=>r.patientId===patient.id).sort((a,b)=>String(b.createdAt||b.createdDate||'').localeCompare(String(a.createdAt||a.createdDate||'')));
-    const _kk = (appData.kinouKeikakuRecords||[]).filter(r=>r.patientId===patient.id).sort((a,b)=>String(b.createdAt||b.createdDate||'').localeCompare(String(a.createdAt||a.createdDate||'')));
+    const _tk = (appData.tsushoKeikakuRecords||[]).filter(r=>r.patientId===patient.id).sort((a,b)=>((Number(b.createdAt)||tsuJpKey(b.createdDate))-(Number(a.createdAt)||tsuJpKey(a.createdDate))));
+    const _kk = (appData.kinouKeikakuRecords||[]).filter(r=>r.patientId===patient.id).sort((a,b)=>((Number(b.createdAt)||tsuJpKey(b.createdDate))-(Number(a.createdAt)||tsuJpKey(a.createdDate))));
     const _tkGoal = _tk.length ? [_tk[0].shortGoal&&`【通所介護計画】短期: ${_tk[0].shortGoal}`, _tk[0].longGoal&&`【通所介護計画】長期: ${_tk[0].longGoal}`].filter(Boolean).join(' / ') : '';
     const _kkGoal = _kk.length ? [_kk[0].shortKinou&&`短期(機能): ${_kk[0].shortKinou}`, _kk[0].shortKatsudo&&`短期(活動): ${_kk[0].shortKatsudo}`, _kk[0].longKinou&&`長期(機能): ${_kk[0].longKinou}`].filter(Boolean).join(' / ') : '';
     const _goalText = [_tkGoal, _kkGoal].filter(Boolean).join('\n');
@@ -56297,7 +56300,7 @@ ${optionsDesc}
   };
   // ★ 計画書連携: この利用者の最新の通所介護計画書の目標をモニタリング表に表示（②目標の評価対象を明示）
   const latestPlanGoals = (pid) => {
-    const r = (appData.tsushoKeikakuRecords||[]).filter(x=>x.patientId===pid).sort((a,b)=>(b.createdDate||'').localeCompare(a.createdDate||''))[0];
+    const r = (appData.tsushoKeikakuRecords||[]).filter(x=>x.patientId===pid).sort((a,b)=>tsuByJpDesc('createdDate')(a,b))[0];
     if (!r || (!r.longGoal && !r.shortGoal)) return null;
     return { long:r.longGoal||'', longP:r.longPeriod||'', short:r.shortGoal||'', shortP:r.shortPeriod||'', created:r.createdDate||'' };
   };
