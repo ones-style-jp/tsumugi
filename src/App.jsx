@@ -51142,7 +51142,12 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
         {tsumugiTransportOn(appData) && (() => { const _has = tsuTpPlanHas(appData, selectedDate, ampm); const _src = log._tpSrc; return (
           <span data-testid="diary-tp-src" data-src={log._tpManual ? 'manual' : (_src || '')} className={`text-[11px] font-bold rounded-lg px-2 py-1.5 border whitespace-nowrap inline-flex items-center gap-1 ${log._tpManual ? 'bg-amber-50 border-amber-300 text-amber-800' : _src === 'tp' ? 'bg-violet-50 border-violet-300 text-violet-700' : _src === 'prev' ? 'bg-slate-50 border-slate-300 text-slate-600' : 'bg-white border-slate-200 text-slate-400'}`} title="この日誌の送迎（迎え・送り・運転者・時間）がどこから入ったか。送迎表から自動のときは、送迎表を変えると日誌も変わります">
             {log._tpManual ? '送迎: 手で変更' : _src === 'tp' ? '送迎: 送迎表から自動' : _src === 'prev' ? '送迎: 1週間前からコピー' : (_has ? '送迎: 送迎表あり' : '送迎: 未入力')}
-            {log._tpManual && _has && <button type="button" disabled={isReadOnly} data-testid="diary-tp-resync" onClick={() => { const plan = (appData.transportPlans||{})[`${selectedDate}_${ampm}`]; if (!plan) return; if (!window.confirm('送迎表の内容で、この日誌の迎え／送り／運転者／時間を入れ直します。よろしいですか？')) return; updateLog({ ...tsuTpImportPatch(plan, log, ds, { confirm: () => true }), _fromTp: true, _tpSrc: 'tp', _tpAt: Date.now(), _tpManual: false, _sougeiPending: {} }); }} className="underline">送迎表に合わせ直す</button>}
+            {/* ★ 2026-10-28(ユーザー報告「10月22日の午前・午後の送迎が日誌に反映されていない。送迎表には入っている」): 自動の反映は 10/26 以降の日誌だけ(10/26 の事故の対策)で、
+                それより前の日誌には取り込むボタンもなかった(10/25 に「送迎表取込」を廃止したため)。前の日は「送迎表から入れる」で押したときだけ入れる
+                (送迎表に出てこない方の印は残す・時間が違うときと目安の時間は確認してから) */}
+            {_has && (log._tpManual || String(selectedDate) < TSU_DIARY_TP_AUTO_FROM) && <button type="button" disabled={isReadOnly} data-testid="diary-tp-resync" onClick={() => { const plan = (appData.transportPlans||{})[`${selectedDate}_${ampm}`]; if (!plan) return; const _past = !log._tpManual && String(selectedDate) < TSU_DIARY_TP_AUTO_FROM;
+              if (!window.confirm(_past ? '送迎表の内容を、この日誌の迎え／送り／運転者／時間に入れます。\n（送迎表に出てこない方の印はそのまま残します）\nよろしいですか？' : '送迎表の内容で、この日誌の迎え／送り／運転者／時間を入れ直します。よろしいですか？')) return;
+              updateLog({ ...tsuTpImportPatch(plan, log, ds, _past ? { confirm: (m) => window.confirm(m), keepUnknown: true } : { confirm: () => true }), _fromTp: true, _tpSrc: 'tp', _tpAt: Date.now(), _tpManual: false, _sougeiPending: {} }); }} className="underline">{(!log._tpManual && String(selectedDate) < TSU_DIARY_TP_AUTO_FROM) ? '送迎表から入れる' : '送迎表に合わせ直す'}</button>}
           </span>); })()}
         {/* 送迎車割り当て */}
         <button disabled={isReadOnly} onClick={()=>{setCarAssignModal({prefix:'pick'});setCarAssignSelections({});}}
