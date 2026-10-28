@@ -7,6 +7,7 @@ import {
   monitoringStatusFromRate,
   exercisePrimaryNumber,
   mergeTpTelDone,
+  pickHolidays,
 } from './logic.js';
 
 describe('invite token', () => {
@@ -148,6 +149,28 @@ describe('mergeDraftRows (外した行・足した行)', () => {
     expect(r1.rows[0].status).toBe('欠席');
     const r2 = mergeDraftRows(fresh, r1.rows, r1.base);
     expect(r2.rows.map(r => r.id)).toEqual([2, 3]);
+  });
+});
+
+describe('施設休業日の同期(pickHolidays・2026-10-28)', () => {
+  const H1 = [{ date: '2026-12-29', name: '年末年始', ampm: '1日' }, { date: '2026-12-30', name: '年末年始', ampm: '1日' }];
+  it('古い中身の端末(時刻が古い)が送っても、クラウドの新しい休業日を消さない', () => {
+    const r = pickHolidays({ holidays: [], _holTs: 100 }, { holidays: H1, _holTs: 200 });
+    expect(r.from).toBe('cloud'); expect(r.holidays).toEqual(H1); expect(r.ts).toBe(200);
+  });
+  it('手元で後から編集した(時刻が新しい)ときは手元を採る(削除も含む)', () => {
+    expect(pickHolidays({ holidays: [], _holTs: 300 }, { holidays: H1, _holTs: 200 })).toEqual({ from: 'local', holidays: [], ts: 300 });
+    expect(pickHolidays({ holidays: H1, _holTs: 300 }, { holidays: [] }).from).toBe('local');
+  });
+  it('どちらにも時刻が無い(前の版のデータ)ときは手元。ただし手元が空でクラウドにあればクラウドを残す', () => {
+    expect(pickHolidays({ holidays: [] }, { holidays: H1 }).from).toBe('cloud');
+    expect(pickHolidays({}, { holidays: H1 }).holidays).toEqual(H1);
+    const L = [{ date: '2026-08-13', name: '夏季休暇' }];
+    expect(pickHolidays({ holidays: L }, { holidays: H1 }).holidays).toEqual(L);
+    expect(pickHolidays({ holidays: [] }, { holidays: [] }).from).toBe('local');
+  });
+  it('同じ時刻なら手元(送り直しで中身が変わらない)', () => {
+    expect(pickHolidays({ holidays: H1, _holTs: 200 }, { holidays: H1, _holTs: 200 }).from).toBe('local');
   });
 });
 

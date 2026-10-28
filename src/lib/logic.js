@@ -182,6 +182,19 @@ export const mergeDraftRows = (freshRows, draftRows, baseRows) => {
 //   要連絡の「連絡済」(_telDone: { pid: { ck, on, t } })だけは方ごとに t が新しい方を残す
 //   (2台がほぼ同時に同じコマを保存しても、もう一方で付けた/外した連絡済が消えない)。
 //   win=採用する側, lose=もう一方。変える必要が無ければ win をそのまま返す(同じ参照)
+// ★ 2026-10-28(ユーザー「事業所情報の施設休業日の設定が消えている」): 施設休業日(holidays=[{date,name,ampm}]・id なし)は
+//   同期で丸ごと置き換えていたため、古い中身の端末が別の画面で保存すると、他の端末で登録した休業日を消していた。
+//   保存の入口で中身が変わったときだけ時刻(_holTs)を刻み、送るとき(push)と受け取るとき(pull)は時刻の新しい方を採る。
+//   どちらにも時刻が無い(この版より前のデータ)ときは手元を採るが、手元が空でクラウドにあればクラウドを残す(空で消さない)。
+//   戻り値 { from: 'local'|'cloud', holidays, ts }
+export const pickHolidays = (local, cloud) => {
+  const lh = Array.isArray(local && local.holidays) ? local.holidays : [];
+  const ch = Array.isArray(cloud && cloud.holidays) ? cloud.holidays : [];
+  const lT = Number(local && local._holTs) || 0, cT = Number(cloud && cloud._holTs) || 0;
+  if (lT || cT) return (cT > lT) ? { from: 'cloud', holidays: ch, ts: cT } : { from: 'local', holidays: lh, ts: lT };
+  if (!lh.length && ch.length) return { from: 'cloud', holidays: ch, ts: 0 };
+  return { from: 'local', holidays: lh, ts: 0 };
+};
 export const mergeTpTelDone = (win, lose) => {
   const b = lose && lose._telDone;
   if (!win || !b || typeof b !== 'object') return win;

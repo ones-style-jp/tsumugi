@@ -1,7 +1,7 @@
 // Supabase クライアント (Phase 1: 家族認証のみ)
 // 環境変数が設定されていない場合は null を返し、呼び出し側で localStorage フォールバック
 import { createClient } from '@supabase/supabase-js';
-import { sameStateIgnoringMeta, mergeTpTelDone } from './logic.js';
+import { sameStateIgnoringMeta, mergeTpTelDone, pickHolidays } from './logic.js';
 import { portalMergePatientFromFamily, portalAppendDocUpdate, portalMergeFaceSheetFromCM, portalMergePatientDocsFromCM, portalMarkDocUpdatesRead } from './portalLogic.js'; // ★ 2026-10-18 データ保護: ポータルの書き込み計算(サーバー /api/portal と共通)
 
 const url = import.meta.env.VITE_SUPABASE_URL || '';
@@ -1417,6 +1417,13 @@ export async function supabaseMergeAndSyncStateForStore(storeId, localData) {
         if (!lc || !cc) merged.diarySettings = lc || cc;
         else merged.diarySettings = mergeObjFieldLevel(lc, cc);
       }
+    }
+    // ★ 2026-10-28 施設休業日(holidays): 丸ごと手元で置き換えていたため、古い中身の端末の保存で他端末の登録が消えていた。
+    //   編集した時刻(_holTs)の新しい方を採る(規則は logic.js の pickHolidays・pull と共通)。
+    {
+      const ph = pickHolidays(localData, cloud);
+      if (ph.from === 'cloud') { merged.holidays = ph.holidays; try { syncLog('push-keep-cloud', { key: 'holidays', n: ph.holidays.length }); } catch {} }
+      if (ph.ts) merged._holTs = ph.ts;
     }
     // ★ 休み連絡(faxDataStore=日付×利用者の連絡状態)は「日付|利用者」キー単位でマージし、同キーは新しい方(_updatedAt)。
     //   端末間で別々の人を編集しても消えないように。
