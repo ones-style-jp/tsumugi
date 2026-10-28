@@ -11813,7 +11813,7 @@ function DigitalKeypad({ isOpen, anchorKey, value, isFirstInput, onInput, onEnte
   // ★ body 直下に Portal でレンダリング。 全画面でない時に親要素の transform で
   //   position:fixed が閉じ込められ、テンキーが見切れて出てこない不具合を防ぐ。
   return ReactDOM.createPortal((
-    <div ref={keypadRef} data-testid="digital-keypad" data-dock={dock ? '1' : undefined} style={dock ? {
+    <div ref={keypadRef} data-testid="digital-keypad" data-tsu-nolock="1" data-dock={dock ? '1' : undefined} style={dock ? {
       position:'fixed', left:0, right:0, bottom:0, zIndex:99999,
       transform:'translateZ(0)', WebkitTransform:'translateZ(0)',
       background:'white', borderTopLeftRadius:16, borderTopRightRadius:16, borderTop:'2px solid #1e293b',
@@ -24859,7 +24859,7 @@ export default function App() {
               <button onClick={() => { const nv = !isSidebarOpen; try { localStorage.setItem('tsumugiSidebarOpen', nv ? '1' : '0'); } catch {} setIsSidebarOpen(nv); }} className="p-2 mr-2 md:mr-4 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors outline-none flex-shrink-0"><Menu size={22} /></button>
               <h1 className="text-base md:text-lg font-bold text-slate-700 truncate whitespace-nowrap">
                 {currentView === 'dashboard' ? 'ホーム' :
-                 currentView === 'record' ? `サービス提供記録 入力　${formatDateDisplay(selectedDate)}` :
+                 currentView === 'record' ? <span data-testid="hdr-record-title">{/* ★ 2026-10-28(ユーザー要望「スマホは『2026年10月…』と切れる。画面を見ればサービス提供記録と分かるので日付だけで」) */}<span className="hidden sm:inline">サービス提供記録 入力　</span>{formatDateDisplay(selectedDate)}</span> :
                  currentView === 'ticket' ? 'サービス提供記録' :
                  currentView === 'print' ? '連絡帳 作成・印刷' :
                  currentView === 'fitness' ? '体力測定' :
@@ -25268,12 +25268,15 @@ export default function App() {
 // ★ 2026-10-20(ユーザー報告「スマホで小窓を開いてスクロールすると後ろの画面が動く」): 小窓が開いている間だけ後ろの画面(本体の箱・記録の表)のスクロールを止める。
 //   入れ子で開いても数で管理し、最後の小窓が閉じたら元に戻す
 let _tsuBackLockN = 0;
+// ★ 2026-10-28: 止めている間は、小窓の中の箱(overflow-auto など)の端まで来ても後ろへ伝えない(contain)。
+//   スマホ幅は Android 対策(2026-10-21)で箱を auto にしているため、指を離した後の惰性が後ろの画面へ伝わっていた
+const _tsuEnsureLockStyle = () => { if (typeof document === 'undefined' || document.getElementById('tsu-back-lock-style')) return; const st = document.createElement('style'); st.id = 'tsu-back-lock-style'; st.textContent = 'html.tsu-back-lock,html.tsu-back-lock body{overflow:hidden!important;overscroll-behavior:none!important}html.tsu-back-lock #tsuContentScroller,html.tsu-back-lock .record-view-scroll{overflow:hidden!important;touch-action:none!important}html.tsu-back-lock .overflow-auto,html.tsu-back-lock .overflow-y-auto,html.tsu-back-lock .overflow-x-auto,html.tsu-back-lock .overflow-scroll{overscroll-behavior:contain!important}'; document.head.appendChild(st); };
+const _tsuSyncBackLock = () => { if (typeof document === 'undefined') return; const on = _tsuBackLockN > 0 || _tsuAutoLockOn; if (on) _tsuEnsureLockStyle(); document.documentElement.classList.toggle('tsu-back-lock', on); };
 const useTsuBackLock = (on = true) => {
   React.useEffect(() => {
     if (!on || typeof document === 'undefined') return;
-    if (!document.getElementById('tsu-back-lock-style')) { const st = document.createElement('style'); st.id = 'tsu-back-lock-style'; st.textContent = 'html.tsu-back-lock,html.tsu-back-lock body{overflow:hidden!important;overscroll-behavior:none!important}html.tsu-back-lock #tsuContentScroller,html.tsu-back-lock .record-view-scroll{overflow:hidden!important;touch-action:none!important}'; document.head.appendChild(st); }
-    _tsuBackLockN++; document.documentElement.classList.add('tsu-back-lock');
-    return () => { _tsuBackLockN = Math.max(0, _tsuBackLockN - 1); if (!_tsuBackLockN) document.documentElement.classList.remove('tsu-back-lock'); };
+    _tsuBackLockN++; _tsuSyncBackLock();
+    return () => { _tsuBackLockN = Math.max(0, _tsuBackLockN - 1); _tsuSyncBackLock(); };
   }, [on]);
 };
 // ★ 2026-10-20(ユーザー要望): 提供記録の運動を一括で○(実際に行ったものだけを記録する前提。行わなかった人は×に)
@@ -27096,6 +27099,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     const _in = displayRecords.filter(p => p[_kinouGField] === kinouGroupSel), _out = displayRecords.filter(p => p[_kinouGField] !== kinouGroupSel);
     displayRecords = [..._in, ..._out];
   }
+  // ★ 2026-10-28(ユーザー「拡大表示と全員を1画面にの違いは15人定員向け。10人定員では大きさが変わらない。スマホは全く変わらない」):
+  //   拡大表示は行の高さを「画面÷10人」にするので、10人以下ならどちらも全員が1画面に入り見た目が同じ。スマホは表ではなくカードなので倍率は効かない。
+  //   見せ方を選ぶのは、表示中の方が11人以上で、表の画面(768px以上)のときだけにする(それ以外は「全画面」でそのまま全画面へ・中の切り替えも出さない)
+  const _fsChoiceOn = tsuViewW() >= 768 && (displayRecords || []).length > 10;
   const _kinouEff = (() => { const cnt = {}; _kinouRows.forEach(p => { if (_kinouAbs(p)) return; const v = p[_kinouField]; if (v) cnt[v] = (cnt[v] || 0) + 1; }); const top = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0]; return top || _kinouList[0] || ''; })();
   const applyKinouAll = (name) => { _kinouRows.forEach(p => { if (_kinouAbs(p)) return; updateRecord(p.id, _kinouField, name); }); };
 
@@ -27360,15 +27367,15 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               
               {/* ★ 連絡帳は一番左(全画面の左)に配置(2026-08-28 店舗要望) */}
               <button data-testid="rec-act-renraku" onClick={() => { handleSaveClick(); navigateTo('print'); }} className={`bg-emerald-600 hover:bg-emerald-700 text-white px-2 ${_iconBar ? 'sm:px-2.5' : 'sm:px-4'} py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap`}>{_iconBar ? _ib(Printer, '連絡帳') : '連絡帳'}</button>
-              <button data-testid="rec-act-fullscreen" onClick={()=>{ if (isFullscreen) setIsFullscreen(false); else setFsPick(true); }} className="bg-slate-700 hover:bg-slate-800 text-white px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title={isFullscreen?'通常表示':'全画面表示'}>
-                {isFullscreen ? '通常表示' : (_iconBar ? _ib(Maximize2, '全画面') : '全画面')}
+              <button data-testid="rec-act-fullscreen" onClick={()=>{ if (isFullscreen) setIsFullscreen(false); else if (_fsChoiceOn) setFsPick(true); else setIsFullscreen(true); }} className="bg-slate-700 hover:bg-slate-800 text-white px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title={isFullscreen?'通常画面':'全画面表示'}>
+                {isFullscreen ? '通常画面' : (_iconBar ? _ib(Maximize2, '全画面') : '全画面')}
               </button>
               {fsPick && ReactDOM.createPortal((
                 <div data-testid="fs-pick" style={{position:'fixed',inset:0,zIndex:2147483000,background:'rgba(15,23,42,0.45)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={() => setFsPick(false)}>
                   <div style={{background:'white',borderRadius:18,padding:18,width:'100%',maxWidth:460,boxShadow:'0 20px 60px rgba(0,0,0,0.35)'}} onClick={e => e.stopPropagation()}>
                     <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>全画面の見せ方</div>
                     <div style={{fontSize:12,color:'#64748b',marginBottom:12}}>この端末で前に選んだものに印が付いています。全画面の中でも切り替えられます。</div>
-                    {[['zoom','拡大表示','文字を1.2倍に。10人分より多いときはスクロール'],['fit','全員を1画面に','来ている方の人数と画面の大きさに合わせて、全員が画面に入る大きさに']].map(([k, l, sub]) => (
+                    {[['zoom','拡大表示','1.2倍。11人以上はスクロール'],['fit','1画面表示','全員が画面に入る大きさに']].map(([k, l, sub]) => (
                       <button key={k} type="button" data-testid={`fs-pick-${k}`} onClick={() => { try { localStorage.setItem(TSU_FS_MODE_KEY, k); } catch {} _setFsModeTick(t => t + 1); setFsPick(false); setIsFullscreen(true); }}
                         style={{display:'block',width:'100%',textAlign:'left',padding:'12px 14px',marginBottom:8,borderRadius:12,border: tsuFsMode() === k ? '2px solid #2563eb' : '2px solid #e2e8f0',background: tsuFsMode() === k ? '#eff6ff' : 'white',cursor:'pointer'}}>
                         <div style={{fontSize:15,fontWeight:'bold',color: tsuFsMode() === k ? '#1d4ed8' : '#1e293b'}}>{tsuFsMode() === k ? '● ' : ''}{l}</div><div style={{fontSize:12,color:'#64748b'}}>{sub}</div>
@@ -27411,7 +27418,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
         // 全画面時: 浮いたボタンではなく、統合された上部ヘッダーバー
         // ★ 2026-10-08(ユーザー報告「スマホで全画面表示がおかしい」: 題名が1文字ずつ縦に折れ、ボタンが右にはみ出していた): スマホ幅は折り返して2段に
         <div data-testid="rec-fs-bar" className="bg-slate-800 px-2 sm:px-4 py-2 flex flex-wrap items-center gap-2 sm:gap-3 flex-shrink-0 sticky top-0 z-50 shadow-md">
-          <span className="text-white font-bold text-sm whitespace-nowrap truncate min-w-0"><span className="hidden sm:inline">サービス提供記録 入力 </span>{selectedDate && new Date(selectedDate).toLocaleDateString('ja-JP', {year:'numeric', month:'long', day:'numeric'})}</span>
+          <span data-testid="rec-fs-title" className="text-white font-bold text-sm whitespace-nowrap truncate min-w-0">{/* ★ 2026-10-28(ユーザー要望「全画面の左上の『サービス提供記録 入力 2026年10月28日』は長い。10月28日だけで」) */}{selectedDate && new Date(selectedDate).toLocaleDateString('ja-JP', {month:'long', day:'numeric'})}</span>
           {attCountChips && <div className="ml-1 sm:ml-2">{attCountChips}</div>}
           {/* ★ 2026-10-26(ユーザー要望「個別の実施・並び替え・一括○・印の外しも全画面で」) */}
           {_kinouOn && (
@@ -27436,8 +27443,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           <div className="flex-1 hidden sm:block"/>
           <div className="basis-full sm:hidden" />
           <button onClick={()=>{ handleSaveClick(); navigateTo('print'); }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap" title="連絡帳の作成・印刷へ"><Printer size={13} className="mr-1"/>連絡帳</button>
-          <button type="button" data-testid="fs-mode-switch" onClick={() => { try { localStorage.setItem(TSU_FS_MODE_KEY, _fsFit ? 'zoom' : 'fit'); } catch {} _setFsModeTick(t => t + 1); }} className="bg-white/90 text-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border border-slate-300" title="全画面の見せ方を切り替えます（この端末）">{_fsFit ? '拡大表示' : '全員を1画面に'}</button>{/* ★ 2026-10-23: 全画面の中でも見せ方を切り替えられる */}
-          <button onClick={closeFullscreen} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap">通常表示へ</button>
+          {_fsChoiceOn ? <button type="button" data-testid="fs-mode-switch" onClick={() => { try { localStorage.setItem(TSU_FS_MODE_KEY, _fsFit ? 'zoom' : 'fit'); } catch {} _setFsModeTick(t => t + 1); }} className="bg-white/90 text-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border border-slate-300" title="全画面の見せ方を切り替えます（この端末）">{_fsFit ? '拡大表示' : '1画面表示'}</button> : null}{/* ★ 2026-10-23: 全画面の中でも見せ方を切り替えられる */}
+          <button data-testid="rec-fs-close" onClick={closeFullscreen} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap">通常画面</button>{/* ★ 2026-10-28(ユーザー要望): 「通常表示へ」→「通常画面」 */}
           <button onClick={()=>setRestoreModal(true)} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap" title="保存した記録を丸ごと復元（戻す）">戻す</button>
           <button onClick={()=>handleSaveClick(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap"><CloudUpload size={13} className="mr-1"/>保存</button>
         </div>
@@ -35301,7 +35308,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       if (!recMatchesDateYear(r, targetDateStr, targetYear)) return false;
       if (!(r.status === '出席' || r.status === '臨時' || (r.status && r.status.startsWith('振')))) return false; // ★ 2026-09-28: 臨時利用も連絡帳の対象
       const _p = _pById.get(r.patientId);
-      if (_p && (getPauseReasonOnDate(_p, selectedDate) || isPatientResigned(_p) || !isPatientActiveOnDate(_p, selectedDate))) return false;
+      if (_p && (getPauseReasonOnDate(_p, selectedDate) || !isPatientActiveOnDate(_p, selectedDate))) return false; // ★ 2026-10-28: 今日の時点の終了(isPatientResigned)は見ない(終了日の当日の連絡帳に出す)
       return true;
     });
     // ★ 同一利用者・同一日に複数記録(振替の重複など)がある場合は1件に絞る(データの多い方を優先)。 二重表示を防ぐ。
@@ -37068,10 +37075,50 @@ const tpWeekFinalAt = (appData, monday) => {
 //   ホイール/指でスクロールしたとき、指の下から外側へたどって「その向きにまだスクロールできる箱」が先に見つかればそのまま、
 //   見つかる前に画面いっぱいの重ね表示(position:fixed・画面の9割以上)に着いたら、後ろの画面へは伝えない(止める)。
 //   ポップアップの中のスクロールはそのまま。ふつうの画面(重ね表示の外)には影響しない
+// ★ 2026-10-28(ユーザー報告「スマホで提供記録の『利用者』を押して下にスクロールすると背面が動く。スマホはこういうのが多いので徹底して」):
+//   重ね表示の判定を広げた: 画面の9割以上に加え、横いっぱい・高さの半分以上・上端が画面の上の方(35%まで)・下端が画面の下までの「下から出る一覧」も含める
+//   (提供記録の「利用者」一覧は見出しの下から画面の下までで、9割に届かず止まっていなかった)。見えていない(透明・非表示・押せない)ものとテンキー(data-tsu-nolock)は数えない
+const tsuIsBlockingOverlay = (el) => {
+  try {
+    if (!el || el.nodeType !== 1 || (el.closest && el.closest('[data-tsu-nolock]'))) return false;
+    const cs = getComputedStyle(el); if (cs.position !== 'fixed') return false;
+    if (cs.display === 'none' || cs.visibility === 'hidden' || cs.pointerEvents === 'none' || parseFloat(cs.opacity || '1') < 0.05) return false;
+    const r = el.getBoundingClientRect(); const vw = window.innerWidth, vh = window.innerHeight;
+    if (r.width < vw * 0.9) return false;
+    if (r.height >= vh * 0.9) return true;
+    return r.height >= vh * 0.5 && r.top <= vh * 0.35 && r.bottom >= vh * 0.9;
+  } catch { return false; }
+};
+//   タッチの端末では、重ね表示が出ている間は自動で背面(ページ・本体の箱・提供記録の表)を止める(小窓ごとの useTsuBackLock の付け忘れをなくす)。
+//   本体の画面そのもの(本体の箱 #tsuContentScroller や提供記録の表を中に持つ枠=外枠・提供記録の全画面)は小窓ではないので数えない。
+//   PC(マウス)は止めない(スクロールバーが消えて画面が横に揺れるため。ホイールは下の tsuInstallModalScrollGuard が止める)
+let _tsuAutoLockOn = false; let _tsuAutoLockInstalled = false;
+const tsuInstallAutoBackLock = () => {
+  if (_tsuAutoLockInstalled || typeof window === 'undefined' || typeof document === 'undefined' || typeof MutationObserver === 'undefined') return; _tsuAutoLockInstalled = true;
+  const touchy = () => { try { return window.innerWidth < 768 || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || (navigator.maxTouchPoints || 0) > 1; } catch { return false; } };
+  const scan = () => {
+    let on = false;
+    if (touchy()) {
+      const seen = new Set(); const nodes = [...document.getElementsByClassName('fixed'), ...document.querySelectorAll('[style*="fixed"]')];
+      for (let i = 0; i < nodes.length && !on; i++) { const el = nodes[i]; if (seen.has(el)) continue; seen.add(el);
+        if (!tsuIsBlockingOverlay(el)) continue;
+        if (el.querySelector('#tsuContentScroller,.record-view-scroll') || el.id === 'tsuContentScroller' || el.classList.contains('record-view-scroll')) continue;
+        on = true; }
+    }
+    if (on !== _tsuAutoLockOn) { _tsuAutoLockOn = on; _tsuSyncBackLock(); }
+  };
+  // 出たり消えたりは DOM の変化で拾う(まとめて120msごと)。ふわっと出る小窓(透明→表示)のため少し後にもう一度見る
+  let pend = false, t2 = 0;
+  const schedule = () => { if (!pend) { pend = true; setTimeout(() => { pend = false; scan(); }, 120); } clearTimeout(t2); t2 = setTimeout(scan, 480); };
+  const start = () => { try { new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] }); } catch {} schedule(); };
+  if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
+  window.addEventListener('resize', schedule); window.addEventListener('orientationchange', schedule);
+};
+if (typeof window !== 'undefined') tsuInstallAutoBackLock();
 let _tsuScrollGuardOn = false;
 const tsuInstallModalScrollGuard = () => {
   if (_tsuScrollGuardOn || typeof window === 'undefined' || typeof document === 'undefined') return; _tsuScrollGuardOn = true;
-  const isOverlay = (el) => { try { const cs = getComputedStyle(el); if (cs.position !== 'fixed') return false; const r = el.getBoundingClientRect(); return r.width >= window.innerWidth * 0.9 && r.height >= window.innerHeight * 0.9; } catch { return false; } };
+  const isOverlay = (el) => tsuIsBlockingOverlay(el);
   const canScroll = (el, dx, dy) => {
     let cs; try { cs = getComputedStyle(el); } catch { return false; }
     if (Math.abs(dy) >= Math.abs(dx)) { if (!/(auto|scroll)/.test(cs.overflowY) || el.scrollHeight <= el.clientHeight + 1) return false; return dy < 0 ? el.scrollTop > 0 : el.scrollTop + el.clientHeight < el.scrollHeight - 1; }
@@ -37083,7 +37130,8 @@ const tsuInstallModalScrollGuard = () => {
       if (canScroll(n, dx, dy)) return false;
       if (isOverlay(n)) return true;
     }
-    return false;
+    // ★ 2026-10-28: 背面を止めている間(小窓が出ている間)は、小窓の外(見えている背面の上の方など)を指で動かしても後ろへ伝えない
+    return document.documentElement.classList.contains('tsu-back-lock');
   };
   window.addEventListener('wheel', (e) => { if (e.ctrlKey || e.defaultPrevented) return; if (shouldBlock(e.target, e.deltaX, e.deltaY)) e.preventDefault(); }, { passive: false });
   let _tx = 0, _ty = 0;
@@ -37707,7 +37755,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     if (_hol && (!_hol.ampm || _hol.ampm === '1日' || _hol.ampm === sl)) return [];
     const out = [];
     (appData.patients||[]).forEach(p => {
-      if (isPatientResigned(p)) return;
+      // ★ 2026-10-28(ユーザー報告「10/27が最後の利用日で利用終了日を27日にしたら、月間スケジュール・提供記録は出席なのに送迎表だけ休み」):
+      //   ここに「今日の時点で終了しているか」(isPatientResigned)の判定があり、終了日の当日(過去の日)も来ない方と数えていた
+      //   (保存済みの送迎表では「休み・休止になった方」と出て、反映すると休みに移る)。判定はその日の利用期間(下)だけにする
       // ★ 2026-09-19(店舗指摘): 利用開始日より前・利用終了日より後の日には出さない(月間スケジュール・日誌と同じ判定)
       if (!isPatientActiveOnDate(p, iso)) return;
       const ov = appData.monthlyShifts?.[mk]?.[p.id]?.[`${dayNum}_${sl}`];
@@ -37745,8 +37795,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     if (_hol && (!_hol.ampm || _hol.ampm === '1日' || _hol.ampm === sl)) return [];
     const out = [];
     (appData.patients||[]).forEach(p => {
-      if (isPatientResigned(p)) return;
-      if (!isPatientActiveOnDate(p, iso)) return; // ★ 2026-09-19: 利用開始前・終了後は「休み」にも出さない
+      if (!isPatientActiveOnDate(p, iso)) return; // ★ 2026-09-19: 利用開始前・終了後は「休み」にも出さない(2026-10-28: 今日の時点の終了ではなく、その日の利用期間で)
       const base = getScheduleOnDate(p, iso)?.[dow] || '';
       const baseHit = base === sl || (base === '1日' && sl === 'AM');
       if (!baseHit) return;
@@ -39668,6 +39717,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   //   表示だけの切替(確定・保存・ダウンロードは従来どおり週単位)。iPad・PCは従来どおり
   const _tpPhone = useTsuIsPhone();
   const [_tpWeekOnPhone, setTpWeekOnPhone] = useState(false);
+  // ★ 2026-10-28(ユーザー要望「スマホは日誌と同じく AM・PM を切り替えるボタンがあれば、スクロールしなくても午後を見られる」): スマホの1日表示は午前か午後の一方だけ。
+  //   開いたときは今の時刻で(12時より前=午前・12時から=午後)
+  const [_tpPhoneSlot, setTpPhoneSlot] = useState(() => (new Date().getHours() >= 12 ? 'PM' : 'AM'));
   const _tpOneDay = _tpPhone && !_tpWeekOnPhone;
   // ★ 2026-10-08(ユーザー要望): スマホは 日付の切替・1週間・確定済(変更) を上に固定し、週の切替・前週コピー・自動計算・元に戻す・設定・ダウンロードは「操作」の中へ
   const [_tpOpsOpen, setTpOpsOpen] = useState(() => { try { return localStorage.getItem('tsuFold_transport') === '1'; } catch { return false; } });
@@ -39813,9 +39865,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         {_tpPhone && (
           <div className="bg-white px-1.5 py-1.5 border-b border-slate-200 flex items-center gap-1" data-testid="tp-phone-daybar">
             {_tpOneDay ? (<>
+              {/* ★ 2026-10-28(ユーザー要望「真ん中の日付が広いので狭めて、AM・PM の切り替えを」): 日付は中身の幅だけ・その右に AM/PM(日誌と同じ形) */}
               <button type="button" onClick={() => _tpStepDay(-1)} className="h-10 w-8 shrink-0 rounded-lg border border-slate-300 bg-white font-bold text-slate-700" aria-label="前の日">◀</button>
-              {(() => { const d = new Date(_tpDayIso + 'T00:00:00'); const _td = _tpDayIso === _iso(new Date()); return <span className={`flex-1 min-w-0 text-center text-[14px] font-bold whitespace-nowrap ${_td ? 'text-blue-700' : 'text-slate-800'}`} title={_td ? '今日' : undefined}>{d.getMonth()+1}/{d.getDate()}({DOWJ[d.getDay()]})</span>; })()}
+              {(() => { const d = new Date(_tpDayIso + 'T00:00:00'); const _td = _tpDayIso === _iso(new Date()); return <span data-testid="tp-phone-date" className={`shrink-0 px-0.5 text-center text-[14px] font-bold whitespace-nowrap ${_td ? 'text-blue-700' : 'text-slate-800'}`} title={_td ? '今日' : undefined}>{d.getMonth()+1}/{d.getDate()}({DOWJ[d.getDay()]})</span>; })()}
               <button type="button" onClick={() => _tpStepDay(1)} className="h-10 w-8 shrink-0 rounded-lg border border-slate-300 bg-white font-bold text-slate-700" aria-label="次の日">▶</button>
+              <div className="flex rounded-lg overflow-hidden border border-slate-300 shrink-0" data-testid="tp-phone-ampm">
+                {['AM','PM'].map(v => (<button key={v} type="button" data-testid={`tp-phone-ap-${v}`} onClick={() => setTpPhoneSlot(v)} className={`px-2 h-10 text-sm font-bold ${_tpPhoneSlot === v ? 'bg-blue-600 text-white' : 'bg-white text-slate-600'}`}>{v}</button>))}
+              </div>
+              <span className="flex-1 min-w-0" />
               <button type="button" data-testid="tp-phone-week" onClick={() => setTpWeekOnPhone(true)} className="h-10 px-1.5 shrink-0 rounded-lg bg-slate-800 text-white text-[12px] font-bold whitespace-nowrap">1週間</button>
               {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return TSU_TP_FINAL_OFF ? null : (
                 <button type="button" onClick={() => fa ? setFinalMenu(v => !v) : finalizeWeek()} data-testid="tp-finalize-phone" className={`h-10 px-1.5 shrink-0 rounded-lg font-bold text-[12px] border whitespace-nowrap ${fa?'bg-emerald-50 border-emerald-400 text-emerald-800':'bg-white border-slate-300 text-slate-700'}`}>
@@ -39884,8 +39941,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           </div>); };
         return (
         <div className="pb-4" data-testid="tp-day-list">
-          <div className={`px-3 py-1.5 text-[13px] font-bold text-center ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-700 text-white'}`}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{_hol ? <span className="ml-1 text-red-200">{_hol.ampm === 'AM' ? '午前休業' : _hol.ampm === 'PM' ? '午後休業' : '休業'}</span> : null}{!_finalAtOfWeek() ? <span className="ml-2 text-[11px] font-normal opacity-80">（編集はパソコン・iPadで）</span> : null}</div>
-          {['AM','PM'].map(sl => { const pl = getPlan(iso, sl); const abs = _absentees(iso, sl); const _fin = _baseOf(pl) || {}; const _rmSet = new Set(_removedSince(pl).map(String)); const n = _chgCount(pl);
+          {/* ★ 2026-10-28(ユーザー要望「上に日付があるので、この帯の日付は不要」): 帯は休業と「編集はパソコン・iPadで」だけ */}
+          <div data-testid="tp-day-band" className={`px-3 py-1.5 text-[13px] font-bold text-center ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-700 text-white'}`}>{_hol ? <span className="mr-2 text-red-200">{_hol.ampm === 'AM' ? '午前休業' : _hol.ampm === 'PM' ? '午後休業' : '休業'}</span> : null}{!_finalAtOfWeek() ? <span className="text-[11px] font-normal opacity-80">編集はパソコン・iPadで</span> : null}</div>
+          {[_tpPhoneSlot].map(sl => { const pl = getPlan(iso, sl); const abs = _absentees(iso, sl); const _fin = _baseOf(pl) || {}; const _rmSet = new Set(_removedSince(pl).map(String)); const n = _chgCount(pl);
             const anyone = Object.values(pl.cars||{}).some(a => (a||[]).length) || (pl.walkers||[]).length || (pl.others||[]).length || (pl.un||[]).length || _rmSet.size; return (
             <div key={sl} data-testid={`tp-dl-slot-${sl}`} className={`mt-2 mx-2 bg-white rounded-xl border-2 overflow-hidden ${sl==='AM' ? 'border-amber-300' : 'border-indigo-300'}`}>
               <div className={`px-3 py-1.5 flex items-center gap-2 text-[14px] font-bold ${sl==='AM'?'bg-amber-50 text-amber-800':'bg-indigo-50 text-indigo-800'}`}>{sl==='AM'?'午前':'午後'}
@@ -39898,18 +39956,12 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                   const _dropMs = (pl.dropMode === 'custom' && pl.drop) ? ((pl.drop.cars||{})[c.id] || []) : [];
                   if (!ms.length && !rmHere.length && !_dropMs.length) return null; const drv = (pl.driver||{})[c.id] || '';
                   const rows = [...ms.map(m => ({ ...m, _rm: false })), ...rmHere.map(m => ({ ...m, _rm: true }))].sort((a, b) => _mins(a.t) - _mins(b.t));
-                  const _av = (pl.arrive||{})[c.id] || ''; const _au = !!_av && !!(pl.arriveAuto||{})[c.id]; return (
+                  return (
                   <div key={c.id}>
                     <div className="px-3 py-1 flex items-center gap-x-3 gap-y-1 flex-wrap text-[16px] font-bold text-slate-800 bg-slate-100 border-y border-slate-200"><span>{c.name}{!ms.length && !rmHere.length ? <span className="ml-1 text-[12px] font-normal text-slate-500">（送りだけ）</span> : null}</span>{drv ? <span className="text-[15px] text-slate-800"><span className="text-[12px] font-normal text-slate-500 mr-1">運転</span>{drv}</span> : null}
                       {_dropMs.length ? <button type="button" data-testid={`tp-dl-seat-${iso}-${sl}-${c.id}`} onClick={() => setSeatView({ iso, sl, cid: c.id })} className="ml-auto shrink-0 text-[13px] font-bold text-white bg-indigo-600 rounded-lg px-2.5 py-1">送りの座席</button> : null}</div>
                     {rows.map(m => <Row key={`${m._rm?'rm-':''}${m.pid}`} m={m} pl={pl} sl={sl} rm={m._rm} />)}
-                    {/* ★ 2026-10-15(ユーザー要望「スマホでも到着を入れることがある」): その車の最後に、施設に到着(押すとテンキー)。自動計算・前週コピーの時間は「目安」 */}
-                    {ms.length ? (
-                      <div className="px-3 py-1.5 flex items-center gap-2 border-b border-slate-100 bg-slate-50" data-testid={`tp-dl-arrive-${iso}-${sl}-${c.id}`}>
-                        <span className="shrink-0 font-bold text-[14px] text-slate-600" style={{width:'7.5em'}}>施設に到着</span>
-                        <button type="button" data-testid={`tp-dl-arrive-btn-${iso}-${sl}-${c.id}`} data-auto={_au ? '1' : '0'} data-late={(_au && _arriveLate(sl, _av)) ? '1' : '0'} onClick={() => setArrKp({ iso, sl, cid: c.id })} className={`shrink-0 font-bold tabular-nums text-[19px] rounded-lg border-2 px-2 py-0.5 bg-white ${_au ? (_arriveLate(sl, _av) ? 'border-dashed border-red-500 text-red-600 bg-red-50' : 'border-dashed border-amber-400 text-slate-800') : 'border-slate-300 text-slate-900'}`} style={{minWidth:'3.6em'}}>{_av || '—:—'}</button>
-                        {_au ? <span className="text-[11px] font-bold text-amber-800 bg-amber-100 rounded px-1.5">目安</span> : null}
-                      </div>) : null}
+                    {/* ★ 2026-10-28(ユーザー要望「スマホの施設に到着(目安)は不要。編集はiPad・パソコンで」): スマホの1日表示から「施設に到着」を外した(週の表・iPad・パソコンはそのまま) */}
                   </div>); })}
                 {(pl.walkers||[]).length ? <div><div className="px-3 py-1 text-[13px] font-bold text-slate-700 bg-slate-100 border-y border-slate-200">徒歩</div>{(pl.walkers||[]).map(m => <Row key={m.pid} m={m} pl={pl} sl={sl} walk />)}</div> : null}
                 {(pl.others||[]).length ? <div><div className="px-3 py-1 text-[13px] font-bold text-slate-700 bg-slate-100 border-y border-slate-200">その他</div>{(pl.others||[]).map(m => <Row key={m.pid} m={m} pl={pl} sl={sl} />)}</div> : null}
@@ -40632,7 +40684,8 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
   const [mobileRosterOpen, setMobileRosterOpen] = useState(false); // ★ スマホは対象者一覧をスライドオーバー
   const isMobileView = typeof window !== 'undefined' && tsuViewW() < 768;
   // ★ 2026-10-16(ユーザー要望「対象者を選ぶを押すひと手間をなくす」): スマホで対象者が未選択なら、開いたときに名簿を出す
-  React.useEffect(() => { if (isMobileView && !selectedPatientId) setMobileRosterOpen(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // ★ 2026-10-28(ユーザー要望「利用者マスタと同じく、体力測定もいちいち『対象者を選ぶ』を押さなくても名前が出るように」): 前の画面で選んでいた方がいても、スマホは開いたら名簿を出す(利用者マスタと同じ)
+  React.useEffect(() => { if (isMobileView) setMobileRosterOpen(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [values, setValues] = useState({});
   // ★ 2026-10-20(ユーザー要望): 項目ごとの備考(例: 5m歩行で杖使用)。30文字まで。r.notes に保存
@@ -40849,7 +40902,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                   if(!mMatch) return false;
                   return parseInt(mMatch[1])===d2.getMonth()+1 && parseInt(mMatch[2])===d2.getDate() && (r.status==='出席'||r.status==='振替'||r.status==='臨時'); // ★ 振替・臨時も出席(2026-09-24)
                 }).filter(r=>{
-                  const _slot = fitAmpm || sharedAmpm;
+                  const _slot = fitAmpm; // ★ 2026-10-28: 全員のときは絞らない(上の _matchAmpm と同じ)
                   if(!_slot||_slot==='1日') return true;
                   const pat = (appData.patients||[]).find(p=>p.id===r.patientId);
                   const dow = new Date(selectedDate).getDay();
@@ -40858,7 +40911,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                 });
                 return recs.length>0 ? (
                   <div className="text-[9px] text-blue-600 font-bold mt-0.5">
-                    {dateStr} {(fitAmpm||sharedAmpm)&&(fitAmpm||sharedAmpm)!=='1日'?(fitAmpm||sharedAmpm):''} 出席 {recs.length}名
+                    {dateStr} {fitAmpm&&fitAmpm!=='1日'?fitAmpm:''} 出席 {recs.length}名
                   </div>
                 ) : null;
               })()}
@@ -40926,10 +40979,12 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
               //   (AM表示なら午前に来る人、PM表示なら午後に来る人。 提供記録入力と同じ基準=利用者の基本利用日)
               const _sd = selectedDate ? new Date(selectedDate) : now2;
               const _sdDow = _sd.getDay();
+              // ★ 2026-10-28(ユーザー報告「全員にしているのに、午前の方が帰ると午後の方だけになる」): 「全員」のときは提供記録・日誌の AM/PM(sharedAmpm)で絞らない。
+              //   この画面の 全員/AM/PM(fitAmpm)だけで決める(全員=午前・午後の当日出席をどちらも出す)
               const _matchAmpm = (p) => {
-                if(!sharedAmpm || sharedAmpm==='1日') return true;
+                if(!fitAmpm || fitAmpm==='1日') return true;
                 const sch = p?.scheduleAmPm?.[_sdDow] || '';
-                return sch===sharedAmpm || sch==='1日';
+                return sch===fitAmpm || sch==='1日';
               };
               const todayPresentIds = new Set((appData.ticketRecords||[]).filter(r=>{
                 const mm=r.date.match(/(\d+)月(\d+)日/);
@@ -44422,8 +44477,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
           }
           return -1;
         };
+        // ★ 2026-10-28(テンプレートを全部入れて試した結果): 全角の数字(１９４２年１月２日・２０２４／８／１)は日付と読めず文字のまま入っていた → 半角にしてから読む
         const normDate = (s) => {
-          const m = String(s||'').match(/(\d{4})[\/\-年.](\d{1,2})[\/\-月.](\d{1,2})/);
+          const m = _toHalf(String(s||'')).replace(/[／]/g, '/').replace(/[－‐–—]/g, '-').match(/(\d{4})[\/\-年.](\d{1,2})[\/\-月.](\d{1,2})/);
           return m ? `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}` : String(s||'').trim();
         };
         const splitName = (full) => { const a=String(full||'').trim().split(/[\s　]+/).filter(Boolean); return { last:a[0]||'', first:a.slice(1).join(' ')||'' }; };
@@ -44559,7 +44615,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               if (kana) { const s=splitName(kana); rec.kana=kana; rec.kanaLast=s.last; rec.kanaFirst=s.first; }
               set('gender', normGender(val(row,col.gender)));
               set('birthDate', col.birthDate>=0 && val(row,col.birthDate) ? normDate(val(row,col.birthDate)) : '');
-              set('zipCode', val(row,col.zipCode));
+              set('zipCode', _toHalf(val(row,col.zipCode)).replace(/[－‐–—ー]/g, '-').replace(/[\s　〒]/g, '')); // ★ 2026-10-28: 全角の郵便番号は半角に
               set('prefecture', val(row,col.prefecture));
               set('city', val(row,col.city));
               set('addressLine', val(row,col.addressLine));
