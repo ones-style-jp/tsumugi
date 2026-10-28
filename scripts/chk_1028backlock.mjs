@@ -4,7 +4,7 @@
 //   ②体力測定(スマホ)の名簿(横から出る一覧の暗い所): 止める印・後ろは動かない
 //   ③ふつうの画面(ホーム・提供記録・送迎表・日誌・利用者マスタ・各種設定・連絡帳)では止めない
 //   ④テンキー(画面の下に出る帯)では止めない(開いたままページを動かせる)
-//   ⑤iPad: 提供記録の全画面(画面そのもの)では止めない
+//   ⑤iPad: 提供記録の全画面(画面そのもの)では止めない ⑥iPad: 小窓の間も本体の箱の overflow を変えない(上が白くなる対策)・後ろは動かない
 //   実行: node scripts/chk_1028backlock.mjs [--port 4175]
 import { chromium } from 'playwright';
 const PORT = (() => { const i = process.argv.indexOf('--port'); return i >= 0 ? process.argv[i + 1] : '4175'; })();
@@ -59,6 +59,17 @@ const ctx2 = await b.newContext({ viewport: { width: 820, height: 1180 }, hasTou
 await p2.goto(`http://localhost:${PORT}/`, { waitUntil: 'networkidle' }); await p2.waitForTimeout(800);
 if (await p2.getByText('担当者を選択', { exact: false }).count()) { await p2.locator('button', { hasText: /見本|例示|架空/ }).first().click().catch(() => {}); await p2.waitForTimeout(800); }
 await p2.evaluate(() => { localStorage.setItem('tsumugiSidebarOpen', '0'); sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: 'record', pid: null, t: Date.now() })); }); await p2.reload({ waitUntil: 'networkidle' }); await p2.waitForTimeout(1600);
+// ⑥ iPad: 小窓(「戻す」)が出ている間も本体の箱(#tsuContentScroller)の overflow は変えない(2026-10-28 夜: iPad で上が白くなる不具合の対策)・小窓の上を指で動かしても後ろは動かない
+{ const cdp2 = await ctx2.newCDPSession(p2); await p2.evaluate(() => { const sc = document.getElementById('tsuContentScroller'); if (sc) sc.scrollTop = 0; });
+  const ov0 = await p2.evaluate(() => getComputedStyle(document.getElementById('tsuContentScroller')).overflowY);
+  await p2.locator('[data-testid="rec-toolbar"] button', { hasText: /^戻す$/ }).first().click(); await p2.waitForTimeout(700);
+  const st = await p2.evaluate(() => ({ lock: document.documentElement.classList.contains('tsu-back-lock'), ov: getComputedStyle(document.getElementById('tsuContentScroller')).overflowY, rv: getComputedStyle(document.querySelector('.record-view-scroll')).overflowY }));
+  const t0 = await p2.evaluate(() => [document.getElementById('tsuContentScroller').scrollTop, document.querySelector('.record-view-scroll').scrollTop]);
+  for (let i = 0; i < 3; i++) { await cdp2.send('Input.synthesizeScrollGesture', { x: 20, y: 900, yDistance: -300, xDistance: 0, gestureSourceType: 'touch', speed: 3000, preventFling: false }); await p2.waitForTimeout(900); }
+  const t1 = await p2.evaluate(() => [document.getElementById('tsuContentScroller').scrollTop, document.querySelector('.record-view-scroll').scrollTop]);
+  console.log('iPad 小窓', JSON.stringify(st), 'overflow前', ov0, 'scroll', t0, '->', t1);
+  r.ipadLockOn = st.lock; r.ipadNoOverflowToggle = st.ov === ov0 && st.rv !== 'hidden'; r.ipadBackStays = t0[0] === t1[0] && t0[1] === t1[1];
+  for (let k = 0; k < 3 && (await p2.locator('.fixed.inset-0').count()); k++) { await p2.mouse.click(8, 8); await p2.waitForTimeout(400); } } // 「戻す」の小窓は外側を押して閉じる
 await p2.getByTestId('rec-act-fullscreen').click(); await p2.waitForTimeout(500);
 if (await p2.getByTestId('fs-pick').count()) { r.fsPickLocks = await p2.evaluate(() => document.documentElement.classList.contains('tsu-back-lock')); await p2.getByTestId('fs-pick-zoom').click(); }
 await p2.waitForTimeout(900);

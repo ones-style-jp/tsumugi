@@ -11959,7 +11959,7 @@ function TsuPhonePin({ children, testId, z = 30, on = true }) {
     <div ref={ref} data-testid={testId} className="tsu-pin" style={{ position: 'fixed', top: 47, left: 0, right: 0, zIndex: z }}>{children}</div>
   </>);
 }
-function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = true }) {
+function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = true, below = null }) {
   const isPhone = useTsuIsPhone();
   const [open, setOpen] = React.useState(() => { try { return localStorage.getItem('tsuFold_' + storageKey) === '1'; } catch { return false; } });
   const foldRef = React.useRef(null); // ★ 2026-10-08: フックは必ず早期 return より前(向きを変えてスマホ幅⇔それ以外が切り替わると「フックの数が違う」エラーで画面が落ちていた)
@@ -11976,6 +11976,8 @@ function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = 
       </div>
       {/* 閉じているときも中身は消さずに高さ0で隠す(中にある確認の小窓=画面全体に出る窓 が開けなくならないように) */}
       <div data-testid={`fold-body-${storageKey}`} data-open={open ? '1' : '0'} aria-hidden={!open} className={open ? 'border-t border-slate-200' : ''} style={open ? undefined : { height: 0, overflow: 'hidden' }}>{children}</div>
+      {/* ★ 2026-10-28: 帯のすぐ下に重ねて出す行(提供記録の「印」など)。帯の高さは変えない(下の表・カードの位置が動かない) */}
+      {below ? <div className="relative" style={{ height: 0 }}><div className="absolute left-0 right-0 top-0">{below}</div></div> : null}
     </div>
   );
   return sticky ? <TsuPhonePin>{_inner}</TsuPhonePin> : _inner;
@@ -25270,7 +25272,11 @@ export default function App() {
 let _tsuBackLockN = 0;
 // ★ 2026-10-28: 止めている間は、小窓の中の箱(overflow-auto など)の端まで来ても後ろへ伝えない(contain)。
 //   スマホ幅は Android 対策(2026-10-21)で箱を auto にしているため、指を離した後の惰性が後ろの画面へ伝わっていた
-const _tsuEnsureLockStyle = () => { if (typeof document === 'undefined' || document.getElementById('tsu-back-lock-style')) return; const st = document.createElement('style'); st.id = 'tsu-back-lock-style'; st.textContent = 'html.tsu-back-lock,html.tsu-back-lock body{overflow:hidden!important;overscroll-behavior:none!important}html.tsu-back-lock #tsuContentScroller,html.tsu-back-lock .record-view-scroll{overflow:hidden!important;touch-action:none!important}html.tsu-back-lock .overflow-auto,html.tsu-back-lock .overflow-y-auto,html.tsu-back-lock .overflow-x-auto,html.tsu-back-lock .overflow-scroll{overscroll-behavior:contain!important}'; document.head.appendChild(st); };
+// ★ 2026-10-28 夜(ユーザー報告「iPadで少し下にスクロールすると画面の上が白くなる」): iPad・PC(768px以上)では、本体の箱(#tsuContentScroller・提供記録の表)の
+//   overflow を止める/戻すの切り替えをやめた。iPad の WebKit はスクロールする箱の overflow を途中で切り替えると、描き直さずに白く残すことがある。
+//   768px以上で後ろを止めるのは、指・ホイールの見張り(tsuInstallModalScrollGuard: 止めている間は小窓の外の動きを後ろへ伝えない)だけ。
+//   スマホ(ページ全体がスクロールする作り)は今までどおり html/body を止める
+const _tsuEnsureLockStyle = () => { if (typeof document === 'undefined' || document.getElementById('tsu-back-lock-style')) return; const st = document.createElement('style'); st.id = 'tsu-back-lock-style'; st.textContent = '@media (max-width:767px){html.tsu-back-lock,html.tsu-back-lock body{overflow:hidden!important;overscroll-behavior:none!important}html.tsu-back-lock .record-view-scroll{overflow:hidden!important;touch-action:none!important}html.tsu-back-lock .overflow-auto,html.tsu-back-lock .overflow-y-auto,html.tsu-back-lock .overflow-x-auto,html.tsu-back-lock .overflow-scroll{overscroll-behavior:contain!important}}'; document.head.appendChild(st); };
 const _tsuSyncBackLock = () => { if (typeof document === 'undefined') return; const on = _tsuBackLockN > 0 || _tsuAutoLockOn; if (on) _tsuEnsureLockStyle(); document.documentElement.classList.toggle('tsu-back-lock', on); };
 const useTsuBackLock = (on = true) => {
   React.useEffect(() => {
@@ -27185,7 +27191,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   // 厚労省バイタルサイン基準値パネル（折りたたみ可能・全画面時は非表示・コンパクト表示）。スマホは上部の「操作」の中に入る(2026-10-08)
   const _vitalPanel = (
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 px-3 py-1 flex-shrink-0 mb-2 text-[11px]">
+      <div data-testid="vital-ref" className="bg-white rounded-xl shadow-sm border border-slate-200 px-3 py-0.5 flex-shrink-0 mb-1 text-[11px]">{/* ★ 2026-10-28 夜(ユーザー指示「上下の空白が大きい」): 枠の内側 py-1→0.5・下 mb-2→1・中身の上 mt-1→0.5 */}
         <button onClick={()=>setVitalCollapsed(v=>!v)} data-testid="vital-ref-toggle" className="font-bold text-slate-500 text-[11px] flex items-center gap-1 w-full hover:text-slate-700 text-left">
           <Activity size={11} className="text-blue-500 shrink-0"/>
           <span className="shrink-0"><span className="sm:hidden">基準値</span><span className="hidden sm:inline">バイタルサイン 基準値（厚労省ガイドライン）</span></span>
@@ -27193,7 +27199,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           {vitalCollapsed && <span data-testid="vital-ref-compact" className="min-w-0 flex flex-wrap gap-x-2 text-slate-700 font-bold ml-1"><span>体温 36.0〜37.0℃</span><span>血圧 100〜129/60〜84</span><span>脈 60〜100</span></span>}
           <span className="ml-auto text-slate-400 shrink-0 pl-1">{vitalCollapsed?'▼ 詳しく':'▲ 閉じる'}</span>
         </button>
-        {!vitalCollapsed && <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1">
+        {!vitalCollapsed && <div className="flex flex-wrap gap-x-3 gap-y-1 mt-0.5">
           <div className="flex items-start gap-1.5 min-w-[180px]">
             <span className="font-bold text-slate-600 whitespace-nowrap shrink-0 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">体温</span>
             <div className="space-y-0 leading-tight">
@@ -27236,7 +27242,13 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       } : {}),
     }}>
       {!isFullscreen ? (
-      <TsuPhoneFold storageKey="record" summary={(() => { const _d = new Date(selectedDate + 'T00:00:00'); const _foldNarrow = tsuViewW() < 390; /* ★ 2026-10-22: 360〜375px で「保存」が切れていた → 曜日を外す */ return (<>
+      <TsuPhoneFold storageKey="record" below={_rvMarks.length > 0 ? (
+        // ★ 2026-10-28 夜(ユーザー指示「スマホの印の帯を上へ」): 左下に浮かべるとカードの一言・マイクに重なっていた → 上の帯のすぐ下に重ねて細い1行(印があるときだけ・表は動かない)
+        <div data-testid="rv-marks-bar-phone" className="no-print flex items-center gap-2 px-2 py-1 bg-yellow-50 border-b border-yellow-300 shadow-md text-[14px] font-bold text-yellow-900">
+          <span className="whitespace-nowrap">印 {_rvMarks.length}名</span>
+          <span className="min-w-0 truncate text-[11px] font-normal text-yellow-800">名前を長押しで付け外し</span>
+          <button type="button" data-testid="rv-marks-clear-phone" onClick={() => _setRvMarks([])} className="ml-auto shrink-0 h-8 px-3 rounded-lg bg-white border border-yellow-400 text-yellow-900 whitespace-nowrap">外す</button>
+        </div>) : null} summary={(() => { const _d = new Date(selectedDate + 'T00:00:00'); const _foldNarrow = tsuViewW() < 390; /* ★ 2026-10-22: 360〜375px で「保存」が切れていた → 曜日を外す */ return (<>
         <TsuDatePick testId="rec-fold-date" value={selectedDate} label={isNaN(_d) ? '日付' : (_foldNarrow ? `${_d.getMonth()+1}/${_d.getDate()}` : `${_d.getMonth()+1}/${_d.getDate()}(${'日月火水木金土'[_d.getDay()]})`)}
           onChange={v => { const closed=(appData.systemSettings?.facilityInfo?.closedDays||[0]); setSelectedDate(nearestOpenDate(v, closed, [])); }} />
         <div className="flex rounded-lg overflow-hidden border border-slate-300 shrink-0">
@@ -27430,12 +27442,13 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           <div className="basis-full sm:hidden" />
           <button onClick={()=>{ handleSaveClick(); navigateTo('print'); }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap" title="連絡帳の作成・印刷へ">連絡帳</button>{/* ★ 2026-10-28(ユーザー): 全画面のアイコンは外す */}
           {/* ★ 2026-10-28: 倍率(－ ○% ＋)。表の画面だけ。自分で変えたら「全員」で全員が入る倍率に戻す */}
+          {/* ★ 2026-10-28 夜(ユーザー指示): 「全員」は倍率の左に */}
+          {_fsUserZoom != null && <button type="button" data-testid="fs-zoom-fit" onClick={() => _saveFsZoom(null)} title="全員が1画面に入る大きさに戻します" className="hidden md:block bg-white/90 text-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border border-slate-300">全員</button>}
           <div data-testid="fs-zoom" className="hidden md:inline-flex items-stretch rounded-lg overflow-hidden border border-slate-300 bg-white/95 text-slate-800">
             <button type="button" data-testid="fs-zoom-minus" onClick={() => _fsZoomStep(-0.05)} disabled={_fsZoom <= 0.45} className="px-3 py-1 text-base font-bold leading-none disabled:opacity-40" aria-label="小さく">－</button>
             <span data-testid="fs-zoom-val" className="px-2 py-1.5 text-xs font-bold tabular-nums border-x border-slate-300 min-w-[3.4em] text-center">{Math.round(_fsZoom * 100)}%</span>
             <button type="button" data-testid="fs-zoom-plus" onClick={() => _fsZoomStep(0.05)} disabled={_fsZoom >= 1.6} className="px-3 py-1 text-base font-bold leading-none disabled:opacity-40" aria-label="大きく">＋</button>
           </div>
-          {_fsUserZoom != null && <button type="button" data-testid="fs-zoom-fit" onClick={() => _saveFsZoom(null)} title="全員が1画面に入る大きさに戻します" className="hidden md:block bg-white/90 text-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border border-slate-300">全員</button>}
           <button data-testid="rec-fs-close" onClick={closeFullscreen} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap">通常画面</button>{/* ★ 2026-10-28(ユーザー要望): 「通常表示へ」→「通常画面」 */}
           <button onClick={()=>setRestoreModal(true)} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap" title="保存した記録を丸ごと復元（戻す）">戻す</button>
           <button data-testid="rec-fs-save" onClick={()=>handleSaveClick(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap">保存</button>
@@ -27473,13 +27486,6 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 onClose={() => setBulkExOpen(false)}
                 onApply={(cells) => { let n = 0; Object.entries(cells).forEach(([k, v]) => { const i = k.lastIndexOf('|'); const rid = k.slice(0, i), fld = k.slice(i + 1); const r = (displayRecords || []).find(x => String(x.id) === rid); if (!r) return; updateExercise(r.id, fld, v === 'o' ? '○' : '×'); n++; }); setBulkExOpen(false); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `${n}件を入れました。内容を確かめて「保存」を押してください` } })); } catch {} }}
               />, document.body)}
-      {/* ★ 2026-10-21: スマホは上の帯がたたまれているので、印があるときだけ左下に小さく(固定・表は動かない) */}
-      {_rvMarks.length > 0 && (
-        <div data-testid="rv-marks-bar-phone" className="no-print sm:hidden fixed left-3 z-40 inline-flex items-center gap-2 pl-3 pr-1 h-11 rounded-xl bg-yellow-50 border border-yellow-300 text-[14px] font-bold text-yellow-900 shadow-md" style={{bottom:'calc(env(safe-area-inset-bottom, 0px) + 44px)'}}>
-          <span className="whitespace-nowrap">印 {_rvMarks.length}名</span>
-          <button type="button" data-testid="rv-marks-clear-phone" onClick={() => _setRvMarks([])} className="h-9 px-3 rounded-lg bg-white border border-yellow-400 text-yellow-900 whitespace-nowrap">外す</button>
-        </div>
-      )}
       <style>{`#record-table tbody tr { min-height: 32px !important; } #record-table tbody tr td { min-height: 32px !important; padding-top: 2px !important; padding-bottom: 2px !important; box-sizing: border-box !important; } /* 個別運動列: 他の列と同じ行高に収める (min-height強制を外す) */ #record-table tbody tr td[data-ind-cell] { min-height: 0 !important; height: auto !important; max-height: none !important; overflow: visible !important; vertical-align: middle !important; }  #record-table tr.readonly-row input:disabled, #record-table tr.readonly-row button:disabled, #record-table tr.readonly-row textarea:disabled, #record-table tr.readonly-row select:disabled { opacity: 1 !important; color: #000 !important; -webkit-text-fill-color: #000 !important; } /* 列見出しを縦スクロール時も常に上部固定 + 行高を狭く */ #record-table thead th { position: -webkit-sticky !important; position: sticky !important; top: 0 !important; height: 32px !important; min-height: 32px !important; max-height: 32px !important; padding-top: 4px !important; padding-bottom: 4px !important; line-height: 1.1 !important; font-size: 11px !important; }`}</style>
       {/* ★ 画面上部の横スクロールバー(自前描画・2026-08-11): ネイティブのスクロールバーは
           OS/ブラウザ設定で非表示になり得るため、つまみを自前で描画して常時表示する。
@@ -40148,9 +40154,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                               : <div className="px-2 py-1 text-[10px] text-slate-400">{dragMv&&dragMv.kind!=='drop'?'ここにドロップ':'なし'}</div>)}
                           </div>
                         ))}
-                        {_baseOf(pl) && (_removedSince(pl).length > 0) && (
-                          <div data-tpcell={`${iso}_${sl}`} className="text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">{pl._final ? '確定後に外れた' : '運行表を出した後に外れた'}:{/* ★ 2026-10-28(ユーザー「確定はなくなったので『確定時から外れた』は文言がおかしい」) */} {_removedSince(pl).map(pid=>_pname(pid)).join('、')}</div>
-                        )}
+                        {/* ★ 2026-10-28 夜(ユーザー指示): 「運行表を出した後に外れた」の赤い表示は外した(外れた方は休みの欄と「運行表を出した後の変更」の一覧に出る) */}
                         {(!!(pl.walkers||[]).length || (dragMv && dragMv.kind!=='drop')) && (
                           <div data-tpdrop="walk" data-tpiso={iso} data-tpslot={sl} className={`border rounded-lg px-2 py-1 ${dragMv&&dragMv.over&&dragMv.over.zone==='walk'&&dragMv.over.iso===iso&&dragMv.over.slot===sl?'border-orange-500 ring-2 ring-orange-300 bg-orange-50':'border-orange-300 bg-orange-50'}`}>
                             {/* ★ 2026-09-30(試験版・ユーザー要望): 徒歩は振替(緑)と見分けやすいようオレンジに */}
