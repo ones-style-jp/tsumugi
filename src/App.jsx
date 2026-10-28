@@ -11802,7 +11802,7 @@ function DigitalKeypad({ isOpen, anchorKey, value, isFirstInput, onInput, onEnte
   // ★ body 直下に Portal でレンダリング。 全画面でない時に親要素の transform で
   //   position:fixed が閉じ込められ、テンキーが見切れて出てこない不具合を防ぐ。
   return ReactDOM.createPortal((
-    <div ref={keypadRef} data-testid="digital-keypad" data-dock={dock ? '1' : undefined} style={dock ? {
+    <div ref={keypadRef} data-testid="digital-keypad" data-tsu-nolock="1" data-dock={dock ? '1' : undefined} style={dock ? {
       position:'fixed', left:0, right:0, bottom:0, zIndex:99999,
       transform:'translateZ(0)', WebkitTransform:'translateZ(0)',
       background:'white', borderTopLeftRadius:16, borderTopRightRadius:16, borderTop:'2px solid #1e293b',
@@ -25257,12 +25257,15 @@ export default function App() {
 // ★ 2026-10-20(ユーザー報告「スマホで小窓を開いてスクロールすると後ろの画面が動く」): 小窓が開いている間だけ後ろの画面(本体の箱・記録の表)のスクロールを止める。
 //   入れ子で開いても数で管理し、最後の小窓が閉じたら元に戻す
 let _tsuBackLockN = 0;
+// ★ 2026-10-28: 止めている間は、小窓の中の箱(overflow-auto など)の端まで来ても後ろへ伝えない(contain)。
+//   スマホ幅は Android 対策(2026-10-21)で箱を auto にしているため、指を離した後の惰性が後ろの画面へ伝わっていた
+const _tsuEnsureLockStyle = () => { if (typeof document === 'undefined' || document.getElementById('tsu-back-lock-style')) return; const st = document.createElement('style'); st.id = 'tsu-back-lock-style'; st.textContent = 'html.tsu-back-lock,html.tsu-back-lock body{overflow:hidden!important;overscroll-behavior:none!important}html.tsu-back-lock #tsuContentScroller,html.tsu-back-lock .record-view-scroll{overflow:hidden!important;touch-action:none!important}html.tsu-back-lock .overflow-auto,html.tsu-back-lock .overflow-y-auto,html.tsu-back-lock .overflow-x-auto,html.tsu-back-lock .overflow-scroll{overscroll-behavior:contain!important}'; document.head.appendChild(st); };
+const _tsuSyncBackLock = () => { if (typeof document === 'undefined') return; const on = _tsuBackLockN > 0 || _tsuAutoLockOn; if (on) _tsuEnsureLockStyle(); document.documentElement.classList.toggle('tsu-back-lock', on); };
 const useTsuBackLock = (on = true) => {
   React.useEffect(() => {
     if (!on || typeof document === 'undefined') return;
-    if (!document.getElementById('tsu-back-lock-style')) { const st = document.createElement('style'); st.id = 'tsu-back-lock-style'; st.textContent = 'html.tsu-back-lock,html.tsu-back-lock body{overflow:hidden!important;overscroll-behavior:none!important}html.tsu-back-lock #tsuContentScroller,html.tsu-back-lock .record-view-scroll{overflow:hidden!important;touch-action:none!important}'; document.head.appendChild(st); }
-    _tsuBackLockN++; document.documentElement.classList.add('tsu-back-lock');
-    return () => { _tsuBackLockN = Math.max(0, _tsuBackLockN - 1); if (!_tsuBackLockN) document.documentElement.classList.remove('tsu-back-lock'); };
+    _tsuBackLockN++; _tsuSyncBackLock();
+    return () => { _tsuBackLockN = Math.max(0, _tsuBackLockN - 1); _tsuSyncBackLock(); };
   }, [on]);
 };
 // ★ 2026-10-20(ユーザー要望): 提供記録の運動を一括で○(実際に行ったものだけを記録する前提。行わなかった人は×に)
@@ -35273,7 +35276,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       if (!recMatchesDateYear(r, targetDateStr, targetYear)) return false;
       if (!(r.status === '出席' || r.status === '臨時' || (r.status && r.status.startsWith('振')))) return false; // ★ 2026-09-28: 臨時利用も連絡帳の対象
       const _p = _pById.get(r.patientId);
-      if (_p && (getPauseReasonOnDate(_p, selectedDate) || isPatientResigned(_p) || !isPatientActiveOnDate(_p, selectedDate))) return false;
+      if (_p && (getPauseReasonOnDate(_p, selectedDate) || !isPatientActiveOnDate(_p, selectedDate))) return false; // ★ 2026-10-28: 今日の時点の終了(isPatientResigned)は見ない(終了日の当日の連絡帳に出す)
       return true;
     });
     // ★ 同一利用者・同一日に複数記録(振替の重複など)がある場合は1件に絞る(データの多い方を優先)。 二重表示を防ぐ。
@@ -37038,10 +37041,50 @@ const tpWeekFinalAt = (appData, monday) => {
 //   ホイール/指でスクロールしたとき、指の下から外側へたどって「その向きにまだスクロールできる箱」が先に見つかればそのまま、
 //   見つかる前に画面いっぱいの重ね表示(position:fixed・画面の9割以上)に着いたら、後ろの画面へは伝えない(止める)。
 //   ポップアップの中のスクロールはそのまま。ふつうの画面(重ね表示の外)には影響しない
+// ★ 2026-10-28(ユーザー報告「スマホで提供記録の『利用者』を押して下にスクロールすると背面が動く。スマホはこういうのが多いので徹底して」):
+//   重ね表示の判定を広げた: 画面の9割以上に加え、横いっぱい・高さの半分以上・上端が画面の上の方(35%まで)・下端が画面の下までの「下から出る一覧」も含める
+//   (提供記録の「利用者」一覧は見出しの下から画面の下までで、9割に届かず止まっていなかった)。見えていない(透明・非表示・押せない)ものとテンキー(data-tsu-nolock)は数えない
+const tsuIsBlockingOverlay = (el) => {
+  try {
+    if (!el || el.nodeType !== 1 || (el.closest && el.closest('[data-tsu-nolock]'))) return false;
+    const cs = getComputedStyle(el); if (cs.position !== 'fixed') return false;
+    if (cs.display === 'none' || cs.visibility === 'hidden' || cs.pointerEvents === 'none' || parseFloat(cs.opacity || '1') < 0.05) return false;
+    const r = el.getBoundingClientRect(); const vw = window.innerWidth, vh = window.innerHeight;
+    if (r.width < vw * 0.9) return false;
+    if (r.height >= vh * 0.9) return true;
+    return r.height >= vh * 0.5 && r.top <= vh * 0.35 && r.bottom >= vh * 0.9;
+  } catch { return false; }
+};
+//   タッチの端末では、重ね表示が出ている間は自動で背面(ページ・本体の箱・提供記録の表)を止める(小窓ごとの useTsuBackLock の付け忘れをなくす)。
+//   本体の画面そのもの(本体の箱 #tsuContentScroller や提供記録の表を中に持つ枠=外枠・提供記録の全画面)は小窓ではないので数えない。
+//   PC(マウス)は止めない(スクロールバーが消えて画面が横に揺れるため。ホイールは下の tsuInstallModalScrollGuard が止める)
+let _tsuAutoLockOn = false; let _tsuAutoLockInstalled = false;
+const tsuInstallAutoBackLock = () => {
+  if (_tsuAutoLockInstalled || typeof window === 'undefined' || typeof document === 'undefined' || typeof MutationObserver === 'undefined') return; _tsuAutoLockInstalled = true;
+  const touchy = () => { try { return window.innerWidth < 768 || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || (navigator.maxTouchPoints || 0) > 1; } catch { return false; } };
+  const scan = () => {
+    let on = false;
+    if (touchy()) {
+      const seen = new Set(); const nodes = [...document.getElementsByClassName('fixed'), ...document.querySelectorAll('[style*="fixed"]')];
+      for (let i = 0; i < nodes.length && !on; i++) { const el = nodes[i]; if (seen.has(el)) continue; seen.add(el);
+        if (!tsuIsBlockingOverlay(el)) continue;
+        if (el.querySelector('#tsuContentScroller,.record-view-scroll') || el.id === 'tsuContentScroller' || el.classList.contains('record-view-scroll')) continue;
+        on = true; }
+    }
+    if (on !== _tsuAutoLockOn) { _tsuAutoLockOn = on; _tsuSyncBackLock(); }
+  };
+  // 出たり消えたりは DOM の変化で拾う(まとめて120msごと)。ふわっと出る小窓(透明→表示)のため少し後にもう一度見る
+  let pend = false, t2 = 0;
+  const schedule = () => { if (!pend) { pend = true; setTimeout(() => { pend = false; scan(); }, 120); } clearTimeout(t2); t2 = setTimeout(scan, 480); };
+  const start = () => { try { new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] }); } catch {} schedule(); };
+  if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
+  window.addEventListener('resize', schedule); window.addEventListener('orientationchange', schedule);
+};
+if (typeof window !== 'undefined') tsuInstallAutoBackLock();
 let _tsuScrollGuardOn = false;
 const tsuInstallModalScrollGuard = () => {
   if (_tsuScrollGuardOn || typeof window === 'undefined' || typeof document === 'undefined') return; _tsuScrollGuardOn = true;
-  const isOverlay = (el) => { try { const cs = getComputedStyle(el); if (cs.position !== 'fixed') return false; const r = el.getBoundingClientRect(); return r.width >= window.innerWidth * 0.9 && r.height >= window.innerHeight * 0.9; } catch { return false; } };
+  const isOverlay = (el) => tsuIsBlockingOverlay(el);
   const canScroll = (el, dx, dy) => {
     let cs; try { cs = getComputedStyle(el); } catch { return false; }
     if (Math.abs(dy) >= Math.abs(dx)) { if (!/(auto|scroll)/.test(cs.overflowY) || el.scrollHeight <= el.clientHeight + 1) return false; return dy < 0 ? el.scrollTop > 0 : el.scrollTop + el.clientHeight < el.scrollHeight - 1; }
@@ -37053,7 +37096,8 @@ const tsuInstallModalScrollGuard = () => {
       if (canScroll(n, dx, dy)) return false;
       if (isOverlay(n)) return true;
     }
-    return false;
+    // ★ 2026-10-28: 背面を止めている間(小窓が出ている間)は、小窓の外(見えている背面の上の方など)を指で動かしても後ろへ伝えない
+    return document.documentElement.classList.contains('tsu-back-lock');
   };
   window.addEventListener('wheel', (e) => { if (e.ctrlKey || e.defaultPrevented) return; if (shouldBlock(e.target, e.deltaX, e.deltaY)) e.preventDefault(); }, { passive: false });
   let _tx = 0, _ty = 0;
@@ -37677,7 +37721,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     if (_hol && (!_hol.ampm || _hol.ampm === '1日' || _hol.ampm === sl)) return [];
     const out = [];
     (appData.patients||[]).forEach(p => {
-      if (isPatientResigned(p)) return;
+      // ★ 2026-10-28(ユーザー報告「10/27が最後の利用日で利用終了日を27日にしたら、月間スケジュール・提供記録は出席なのに送迎表だけ休み」):
+      //   ここに「今日の時点で終了しているか」(isPatientResigned)の判定があり、終了日の当日(過去の日)も来ない方と数えていた
+      //   (保存済みの送迎表では「休み・休止になった方」と出て、反映すると休みに移る)。判定はその日の利用期間(下)だけにする
       // ★ 2026-09-19(店舗指摘): 利用開始日より前・利用終了日より後の日には出さない(月間スケジュール・日誌と同じ判定)
       if (!isPatientActiveOnDate(p, iso)) return;
       const ov = appData.monthlyShifts?.[mk]?.[p.id]?.[`${dayNum}_${sl}`];
@@ -37715,8 +37761,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     if (_hol && (!_hol.ampm || _hol.ampm === '1日' || _hol.ampm === sl)) return [];
     const out = [];
     (appData.patients||[]).forEach(p => {
-      if (isPatientResigned(p)) return;
-      if (!isPatientActiveOnDate(p, iso)) return; // ★ 2026-09-19: 利用開始前・終了後は「休み」にも出さない
+      if (!isPatientActiveOnDate(p, iso)) return; // ★ 2026-09-19: 利用開始前・終了後は「休み」にも出さない(2026-10-28: 今日の時点の終了ではなく、その日の利用期間で)
       const base = getScheduleOnDate(p, iso)?.[dow] || '';
       const baseHit = base === sl || (base === '1日' && sl === 'AM');
       if (!baseHit) return;
@@ -40819,7 +40864,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                   if(!mMatch) return false;
                   return parseInt(mMatch[1])===d2.getMonth()+1 && parseInt(mMatch[2])===d2.getDate() && (r.status==='出席'||r.status==='振替'||r.status==='臨時'); // ★ 振替・臨時も出席(2026-09-24)
                 }).filter(r=>{
-                  const _slot = fitAmpm || sharedAmpm;
+                  const _slot = fitAmpm; // ★ 2026-10-28: 全員のときは絞らない(上の _matchAmpm と同じ)
                   if(!_slot||_slot==='1日') return true;
                   const pat = (appData.patients||[]).find(p=>p.id===r.patientId);
                   const dow = new Date(selectedDate).getDay();
@@ -40828,7 +40873,7 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
                 });
                 return recs.length>0 ? (
                   <div className="text-[9px] text-blue-600 font-bold mt-0.5">
-                    {dateStr} {(fitAmpm||sharedAmpm)&&(fitAmpm||sharedAmpm)!=='1日'?(fitAmpm||sharedAmpm):''} 出席 {recs.length}名
+                    {dateStr} {fitAmpm&&fitAmpm!=='1日'?fitAmpm:''} 出席 {recs.length}名
                   </div>
                 ) : null;
               })()}
@@ -40896,10 +40941,12 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
               //   (AM表示なら午前に来る人、PM表示なら午後に来る人。 提供記録入力と同じ基準=利用者の基本利用日)
               const _sd = selectedDate ? new Date(selectedDate) : now2;
               const _sdDow = _sd.getDay();
+              // ★ 2026-10-28(ユーザー報告「全員にしているのに、午前の方が帰ると午後の方だけになる」): 「全員」のときは提供記録・日誌の AM/PM(sharedAmpm)で絞らない。
+              //   この画面の 全員/AM/PM(fitAmpm)だけで決める(全員=午前・午後の当日出席をどちらも出す)
               const _matchAmpm = (p) => {
-                if(!sharedAmpm || sharedAmpm==='1日') return true;
+                if(!fitAmpm || fitAmpm==='1日') return true;
                 const sch = p?.scheduleAmPm?.[_sdDow] || '';
-                return sch===sharedAmpm || sch==='1日';
+                return sch===fitAmpm || sch==='1日';
               };
               const todayPresentIds = new Set((appData.ticketRecords||[]).filter(r=>{
                 const mm=r.date.match(/(\d+)月(\d+)日/);
@@ -44384,8 +44431,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
           }
           return -1;
         };
+        // ★ 2026-10-28(テンプレートを全部入れて試した結果): 全角の数字(１９４２年１月２日・２０２４／８／１)は日付と読めず文字のまま入っていた → 半角にしてから読む
         const normDate = (s) => {
-          const m = String(s||'').match(/(\d{4})[\/\-年.](\d{1,2})[\/\-月.](\d{1,2})/);
+          const m = _toHalf(String(s||'')).replace(/[／]/g, '/').replace(/[－‐–—]/g, '-').match(/(\d{4})[\/\-年.](\d{1,2})[\/\-月.](\d{1,2})/);
           return m ? `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}` : String(s||'').trim();
         };
         const splitName = (full) => { const a=String(full||'').trim().split(/[\s　]+/).filter(Boolean); return { last:a[0]||'', first:a.slice(1).join(' ')||'' }; };
@@ -44521,7 +44569,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               if (kana) { const s=splitName(kana); rec.kana=kana; rec.kanaLast=s.last; rec.kanaFirst=s.first; }
               set('gender', normGender(val(row,col.gender)));
               set('birthDate', col.birthDate>=0 && val(row,col.birthDate) ? normDate(val(row,col.birthDate)) : '');
-              set('zipCode', val(row,col.zipCode));
+              set('zipCode', _toHalf(val(row,col.zipCode)).replace(/[－‐–—ー]/g, '-').replace(/[\s　〒]/g, '')); // ★ 2026-10-28: 全角の郵便番号は半角に
               set('prefecture', val(row,col.prefecture));
               set('city', val(row,col.city));
               set('addressLine', val(row,col.addressLine));
