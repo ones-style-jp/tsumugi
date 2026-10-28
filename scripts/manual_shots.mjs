@@ -272,6 +272,7 @@ async function staffShots(browser) {
     const typeBp = async (v) => { await bp.click(); await page.waitForTimeout(300); for (const k of v) await key(k); await key('確定'); await page.waitForTimeout(400); };
     if (await bp.isVisible().catch(() => false)) {
       await typeBp('162/94');
+      page.once('dialog', d => d.accept().catch(() => {})); // ★ 2026-10-28: 再検は確認が出る(試験版)
       await row.locator(`[data-testid="bp-re-St-${pid}"]`).click(); await page.waitForTimeout(500);
       await typeBp('138/82');
       await page.keyboard.press('Escape'); await page.waitForTimeout(400);
