@@ -2,8 +2,8 @@
 //   ①上の見出し: スマホ=日付だけ(「サービス提供記録 入力」を出さない)・iPad/PC=今までどおり
 //   ②全画面の左上=「10月28日」だけ・戻るボタン=「通常画面」
 //   ③表示中が10人以下: 「全画面」で見せ方を聞かずにそのまま全画面・中の切り替えも出さない
-//   ④11人以上: 見せ方の選択(拡大表示/1画面表示)・中の切り替えは「1画面表示」
-//   ⑤スマホ: 11人以上でも見せ方を聞かない
+//   ④11人以上も見せ方を聞かない・帯に倍率(－ ○% ＋)(2026-10-28 trial447〜)
+//   ⑤スマホ: 見せ方を聞かない・倍率は出さない
 //   実行: node scripts/chk_1028recfs.mjs [--port 4175]
 import { chromium } from 'playwright';
 const PORT = (() => { const i = process.argv.indexOf('--port'); return i >= 0 ? process.argv[i + 1] : '4175'; })();
@@ -28,13 +28,11 @@ const open = async (vp, n) => { const ctx = await b.newContext({ viewport: vp, l
   const t = (await page.getByTestId('rec-fs-title').innerText()).trim(); console.log('fs title', JSON.stringify(t)); r.fsTitle = t === MD;
   r.fsClose = (await page.getByTestId('rec-fs-close').innerText()).trim() === '通常画面'; r.fewNoSwitch = (await page.getByTestId('fs-mode-switch').count()) === 0;
   await ctx.close(); }
-// ④ iPad 横・14人
+// ④ iPad 横・14人(2026-10-28 trial447〜: 見せ方は聞かない・帯に倍率(－ ○% ＋))
 { const { ctx, page, got } = await open({ width: 1180, height: 820 }, 14); console.log('ipad n', got);
-  await page.getByTestId('rec-act-fullscreen').click(); await page.waitForTimeout(600);
-  const pk = page.getByTestId('fs-pick'); r.manyPick = (await pk.count()) === 1;
-  const txt = r.manyPick ? await pk.innerText() : ''; console.log('pick', JSON.stringify(txt.slice(0, 160))); r.pickLabels = txt.includes('拡大表示') && txt.includes('1画面表示') && !txt.includes('全員を1画面に');
-  if (r.manyPick) { await page.getByTestId('fs-pick-zoom').click(); await page.waitForTimeout(800); }
-  r.manySwitch = ((await page.getByTestId('fs-mode-switch').innerText().catch(() => '')).trim()) === '1画面表示';
+  await page.getByTestId('rec-act-fullscreen').click(); await page.waitForTimeout(800);
+  r.manyNoPick = (await page.getByTestId('fs-pick').count()) === 0 && (await page.getByTestId('rec-fs-bar').count()) === 1;
+  r.zoomCtl = await page.getByTestId('fs-zoom').isVisible().catch(() => false); r.noSwitch = (await page.getByTestId('fs-mode-switch').count()) === 0;
   await ctx.close(); }
 // ①⑤ スマホ・14人
 { const { ctx, page } = await open({ width: 393, height: 820 }, 14);
@@ -42,7 +40,7 @@ const open = async (vp, n) => { const ctx = await b.newContext({ viewport: vp, l
   const fsBtn = page.getByTestId('rec-act-fullscreen');
   await page.getByTestId('fold-btn-record').click().catch(() => {}); await page.waitForTimeout(500); // スマホは「操作」の中
   await fsBtn.click(); await page.waitForTimeout(800);
-  r.phoneNoPick = (await page.getByTestId('fs-pick').count()) === 0 && (await page.getByTestId('rec-fs-bar').count()) === 1;
+  r.phoneNoPick = (await page.getByTestId('fs-pick').count()) === 0 && (await page.getByTestId('rec-fs-bar').count()) === 1; r.phoneNoZoom = !(await page.getByTestId('fs-zoom').isVisible().catch(() => false));
   await ctx.close(); }
 await b.close();
 const ok = Object.values(r).every(Boolean); console.log(r, ok ? 'PASS' : 'FAIL'); process.exit(ok ? 0 : 1);

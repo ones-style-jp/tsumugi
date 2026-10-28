@@ -25385,26 +25385,41 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   // ★ 2026-10-07(店舗報告: スマホ縦で基準値の欄が大きく、入力欄が狭くなる): スマホ幅は最初から「正常範囲だけの1行」にする(押すと詳しく開く)
   const [vitalCollapsed, setVitalCollapsed] = useState(() => { try { return tsuViewW() < 640; } catch { return false; } });
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [fsPick, setFsPick] = useState(false); // ★ 2026-10-23(ユーザー): 「全画面」を押したときに見せ方を選ぶ(共有のiPadで人ごとに変えられるように)
-  const [_fsModeTick, _setFsModeTick] = useState(0); // ★ 2026-10-23: 全画面の見せ方を変えたら描き直す
-  const _fsFit = tsuFsMode() === 'fit';
+  // ★ 2026-10-28(ユーザー提案「全画面は10人定員も15人定員も全員を1画面に。＋とーのボタンで真ん中に倍率、自分たちの見やすい大きさに調整」):
+  //   見せ方の選択(拡大表示/1画面表示)はやめ、全画面は最初から全員が入る倍率。帯の －/＋ で5%ずつ変えられ、この端末に覚える(「全員」で全員が入る倍率に戻す)。
+  //   スマホは表ではなくカードなので倍率は出さない
+  const [_fsUserZoom, _setFsUserZoom] = useState(() => { try { const v = parseFloat(localStorage.getItem('tsumugiFsZoom') || ''); return (isFinite(v) && v >= 0.3 && v <= 2) ? v : null; } catch { return null; } });
+  const _saveFsZoom = (v) => { _setFsUserZoom(v); try { if (v == null) localStorage.removeItem('tsumugiFsZoom'); else localStorage.setItem('tsumugiFsZoom', String(v)); } catch {} };
+  const _fsModeTick = 0; const _fsFit = true; // 全画面では常に全員が入る倍率を測る(使うのは自分で変えていないとき)
   // 'fit' は 1行58px を人数分並べたものが画面に入る倍率(0.45〜1.2)。行の中身(入力欄・ボタン)が58pxより縮まないため、高さではなく倍率で合わせる
   // ★ 2026-10-23(ユーザー報告「11人なのに小さすぎる」): 人数×58px の計算は、表示していない方(午後の方など)まで数えて小さくなっていた。
   //   表の実際の高さと、上の帯の下から画面の下までの高さを測って倍率を決める(0.45〜1.2)。AM/PM を切り替えたり人数が変わったら測り直す
   const [_fitZoom, _setFitZoom] = useState(1);
-  useEffect(() => {
+  // ★ 2026-10-28(ユーザー報告「1画面に全員表示にするとぐらつく」「10人も15人も下に1人分空いている」):
+  //   ①全画面を開くとまず等倍で描き、約0.8秒後に倍率を入れ直して大きさが変わっていた(ぐらつき)→ 描く前(useLayoutEffect)に倍率を決める。
+  //     1.5秒ごとの測り直しもやめ、表・表の枠の大きさが変わったとき(ResizeObserver)と窓の大きさが変わったときだけ測る。
+  //   ②上の帯の位置を通常画面の帯(全画面には無い)で測っていて、無いときは 110px とみなしていた・さらに 24px の予備と表の下の余白(64px)で、下が1人分ほど空いていた
+  //     → 表の枠(.record-view-scroll)の内側の高さに入る倍率にする(全画面では下の余白なし)。縮めるときはすぐ、広げるときは0.015以上のときだけ(行き来しない)
+  const _fitCalc = React.useCallback(() => { try { const t = document.getElementById('record-table'); if (!t) return; const sc = t.closest('.record-view-scroll'); const cz = parseFloat(getComputedStyle(t).zoom) || 1; const natural = t.getBoundingClientRect().height / cz;
+    let avail; if (sc) { const cs = getComputedStyle(sc); avail = sc.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0) - 2; } else { avail = window.innerHeight - t.getBoundingClientRect().top - 4; }
+    if (!natural || avail <= 0) return; const z = Math.max(0.45, Math.min(1.5, Math.floor(avail / natural * 100) / 100)); // 10人でも画面の下まで入るよう上限は1.5倍(前は1.2倍で下が空いた)
+    const over = sc ? (sc.scrollHeight - sc.clientHeight > 1) : true; // 縮めるのは、いまはみ出しているときだけ(測り直しで0.01ずつ動かない)
+    _setFitZoom(prev => ((z < prev && over) || z - prev >= 0.015) ? z : prev); } catch {} }, []);
+  React.useLayoutEffect(() => {
     if (!isFullscreen || !_fsFit) return;
-    const calc = () => { try { const t = document.getElementById('record-table'); if (!t) return; const cz = parseFloat(getComputedStyle(t).zoom) || 1; const natural = t.getBoundingClientRect().height / cz; const tb = document.querySelector('[data-testid="rec-toolbar"]'); const top = tb ? tb.getBoundingClientRect().bottom : 110; const avail = window.innerHeight - top - 24; if (!natural || avail <= 0) return; const z = Math.max(0.45, Math.min(1.2, Math.floor(avail / natural * 100) / 100)); _setFitZoom(prev => (Math.abs(prev - z) < 0.015 ? prev : z)); } catch {} };
-    calc(); const t1 = setTimeout(calc, 150), t2 = setTimeout(calc, 600); const iv = setInterval(calc, 1500); window.addEventListener('resize', calc);
-    return () => { clearTimeout(t1); clearTimeout(t2); clearInterval(iv); window.removeEventListener('resize', calc); };
-  }, [isFullscreen, _fsFit, _fsModeTick]);
-  const _fsZoom = isFullscreen ? (_fsFit ? _fitZoom : 1.2) : 1;
+    _fitCalc(); window.addEventListener('resize', _fitCalc); window.addEventListener('orientationchange', _fitCalc);
+    let ro = null; try { const t = document.getElementById('record-table'); if (t && typeof ResizeObserver !== 'undefined') { ro = new ResizeObserver(() => _fitCalc()); ro.observe(t); const sc = t.closest('.record-view-scroll'); if (sc) ro.observe(sc); } } catch {}
+    return () => { window.removeEventListener('resize', _fitCalc); window.removeEventListener('orientationchange', _fitCalc); try { ro && ro.disconnect(); } catch {} };
+  }, [isFullscreen, _fsFit, _fsModeTick, _fitCalc]);
+  const _fsZoom = isFullscreen ? (_fsUserZoom != null ? _fsUserZoom : _fitZoom) : 1;
+  const _fsZoomStep = (d) => _saveFsZoom(Math.max(0.45, Math.min(1.6, Math.round((_fsZoom + d) * 20) / 20)));
   // ★ 2026-10-26(ユーザー要望「一言かマイクのどちらかを無くしたとき、残った方を他と同じ高さに」): 表の特記セルで一言とマイクが1つだけなら、そのボタンを欄の高さいっぱいに
   const _tkOne = (((tsuTokkiPresets(appData).length && !appData.systemSettings?.tokkiPresetOff) ? 1 : 0) + ((!appData.systemSettings?.tokkiVoiceOff && tsuVoiceSupported()) ? 1 : 0)) === 1;
-  useEffect(() => { const on = (e) => { if (!e || !e.key || e.key === TSU_FS_MODE_KEY) _setFsModeTick(t => t + 1); }; window.addEventListener('storage', on); window.addEventListener('tsu:fsmode', on); return () => { window.removeEventListener('storage', on); window.removeEventListener('tsu:fsmode', on); }; }, []);
   // ★ 2026-10-11: 全画面(画面全体を覆う)を一瞬で外すと、iPad では下の見出し・上部の帯が古い描画のまま白く残ることがある。0.3秒かけて薄くしてから外す
-  const [fsClosing, setFsClosing] = useState(false);
-  const closeFullscreen = () => { if (fsClosing) return; setFsClosing(true); setTimeout(() => { setIsFullscreen(false); setFsClosing(false); }, 320); };
+  // ★ 2026-10-28(ユーザー要望「通常画面に戻るときホワイトアウトして、そのあとも間がある。スッと戻るように」): 0.3秒かけて薄くするのをやめてすぐ戻す。
+  //   iPad の描き残し(10/11)対策は、戻したあとに本体の描き直しを1回頼む(下の effect・tsu:repaint と本体の不透明度を一瞬だけ変える)
+  const fsClosing = false;
+  const closeFullscreen = () => { setIsFullscreen(false); };
   // ★ 画面の高さに応じて行高を動的計算
   //   利用者数が 10 名以上なら "10 名がぴったり" になるサイズ
   //   利用者数が 10 名未満なら "全員で画面を埋める" サイズ (空白を作らない)
@@ -25503,6 +25518,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       // ★ 2026-10-09(ユーザー報告): iPad で全画面を閉じると見出し・上部のメニューの所が白いまま描かれないことがある。
       //   サイドバーは全画面中から閉じたままで開閉の描き直しが走らないため、App に描き直しを頼む(iPhone/iPad のみ・App 側で判定)
       try { window.dispatchEvent(new Event('tsu:repaint')); } catch {}
+      try { const m = document.getElementById('appMainArea'); if (m) { m.style.opacity = '0.999'; requestAnimationFrame(() => requestAnimationFrame(() => { m.style.opacity = ''; })); } } catch {} // ★ 2026-10-28: 薄くする代わりの描き直し
     }
     // unmount/画面遷移時の保険: 全画面ON状態でアンマウントされたら元に戻す
     return () => {
@@ -25952,8 +25968,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   //   選ぶ欄はなくし、画面の幅で自動に。1200px未満(10インチのiPadなど)は短い文字(並替・戻す・個別/実施・日付の欄を細く)、それ以上は今までの文字
   // ★ 2026-10-23(ユーザー: MacBook 14インチでサイドバーを開いたままだと帯が2行になる): 画面の幅ではなく「帯そのものの幅」(サイドバーを除いた幅)で判定する。
   //   帯の幅は ResizeObserver で追う(サイドバーの開閉・窓の大きさの変化に追従)。測れないうちは画面の幅
-  const [_vwBar, _setVwBar] = useState(() => tsuViewW());
-  useEffect(() => {
+  // ★ 2026-10-28(ユーザー報告「サイドバーから提供記録入力を押すと、上の保存・戻すの帯がぐらつく」): 最初は画面の幅(サイドバーを含む)で決め、あとで帯の幅を測って
+  //   「アイコン＋文字」→「短い文字」に切り替わり、ボタンの幅がなめらかに縮んでいた(パソコン・大きいiPad)。最初からサイドバーの幅を引いた値にし、測るのは描く前に
+  const [_vwBar, _setVwBar] = useState(() => { const w = tsuViewW(); return w - ((isSidebarOpen && w >= 1024) ? 256 : 0); });
+  React.useLayoutEffect(() => {
     const el = () => document.querySelector('[data-testid="rec-toolbar"]');
     const on = () => { const e = el(); _setVwBar(e && e.clientWidth ? e.clientWidth : tsuViewW()); };
     on(); window.addEventListener('resize', on); window.addEventListener('orientationchange', on);
@@ -27104,10 +27122,6 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     const _in = displayRecords.filter(p => p[_kinouGField] === kinouGroupSel), _out = displayRecords.filter(p => p[_kinouGField] !== kinouGroupSel);
     displayRecords = [..._in, ..._out];
   }
-  // ★ 2026-10-28(ユーザー「拡大表示と全員を1画面にの違いは15人定員向け。10人定員では大きさが変わらない。スマホは全く変わらない」):
-  //   拡大表示は行の高さを「画面÷10人」にするので、10人以下ならどちらも全員が1画面に入り見た目が同じ。スマホは表ではなくカードなので倍率は効かない。
-  //   見せ方を選ぶのは、表示中の方が11人以上で、表の画面(768px以上)のときだけにする(それ以外は「全画面」でそのまま全画面へ・中の切り替えも出さない)
-  const _fsChoiceOn = tsuViewW() >= 768 && (displayRecords || []).length > 10;
   const _kinouEff = (() => { const cnt = {}; _kinouRows.forEach(p => { if (_kinouAbs(p)) return; const v = p[_kinouField]; if (v) cnt[v] = (cnt[v] || 0) + 1; }); const top = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0]; return top || _kinouList[0] || ''; })();
   const applyKinouAll = (name) => { _kinouRows.forEach(p => { if (_kinouAbs(p)) return; updateRecord(p.id, _kinouField, name); }); };
 
@@ -27218,7 +27232,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       ...(isFullscreen ? {
         position: 'fixed', inset: 0, height: '100dvh', width: '100vw',
         background: 'white', zIndex: 9999,
-        opacity: fsClosing ? 0 : 1, transition: 'opacity 0.3s ease', pointerEvents: fsClosing ? 'none' : 'auto',
+        pointerEvents: 'auto',
       } : {}),
     }}>
       {!isFullscreen ? (
@@ -27252,7 +27266,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   <div className="hidden sm:flex rounded-xl overflow-hidden border border-slate-300 shrink-0">
                     {['AM','PM'].map(v=>(
                       <button key={v} type="button" onClick={()=>setTimeFilter(v)}
-                        className={`${_iconBar ? 'px-3' : 'px-4'} py-2 text-sm font-bold transition-all shrink-0 ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-50'}`}>{v}</button>
+                        className={`${_iconBar ? 'px-3' : 'px-4'} py-2 text-sm font-bold transition-transform shrink-0 ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-50'}`}>{v}</button>
                     ))}
                   </div>
                   <button type="button" data-testid="rec-order-btn" onClick={() => setRecOrderOpen(true)} title={_recOrderOn ? `${_recOrderLabel}のクラスは保存した並び順です（押すと並べ替え・消去）` : `${_recOrderLabel}のクラスの並び順を変えます（ほかの曜日・時間帯はそのまま）`} className={`${_iconBar ? 'px-2.5' : 'px-3'} py-2 rounded-xl text-sm font-bold border shrink-0 ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}><ArrowUpDown size={17} strokeWidth={2.4} aria-label="並び替え"/></button>{/* ★ 2026-10-23(ユーザー): 短いときは並び替えのアイコンだけ */}
@@ -27368,30 +27382,17 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             </div>
             </>)}
             <div data-testid="rec-actions" className={`w-full sm:w-auto sm:ml-auto grid ${filterMode === 'single' ? 'grid-cols-4' : 'grid-cols-3'} sm:flex items-center gap-1.5 ${_iconBar ? 'sm:gap-1.5' : 'sm:gap-2'} sm:flex-wrap`}>
-              {filterMode === 'single' && <button type="button" data-testid="rec-act-bulkex" onClick={() => setBulkExOpen(true)} className="order-last sm:order-none bg-white border border-indigo-300 text-indigo-700 hover:bg-indigo-50 px-1 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="出席している方の運動をまとめて○にします(行わなかった方は×に)">{_iconBar ? _ib(CheckCheck, '一括○') : '一括○'}</button>}
+              {filterMode === 'single' && <button type="button" data-testid="rec-act-bulkex" onClick={() => setBulkExOpen(true)} className="order-last sm:order-none bg-white border border-indigo-300 text-indigo-700 hover:bg-indigo-50 px-1 sm:px-3 py-2 rounded-xl text-sm font-bold transition-transform active:scale-95 whitespace-nowrap" title="出席している方の運動をまとめて○にします(行わなかった方は×に)">{_iconBar ? _ib(CheckCheck, '一括○') : '一括○'}</button>}
               
               {/* ★ 連絡帳は一番左(全画面の左)に配置(2026-08-28 店舗要望) */}
-              <button data-testid="rec-act-renraku" onClick={() => { handleSaveClick(); navigateTo('print'); }} className={`bg-emerald-600 hover:bg-emerald-700 text-white px-2 ${_iconBar ? 'sm:px-2.5' : 'sm:px-4'} py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap`}>{_iconBar ? _ib(Printer, '連絡帳') : '連絡帳'}</button>
-              <button data-testid="rec-act-fullscreen" onClick={()=>{ if (isFullscreen) setIsFullscreen(false); else if (_fsChoiceOn) setFsPick(true); else setIsFullscreen(true); }} className="bg-slate-700 hover:bg-slate-800 text-white px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title={isFullscreen?'通常画面':'全画面表示'}>
+              <button data-testid="rec-act-renraku" onClick={() => { handleSaveClick(); navigateTo('print'); }} className={`bg-emerald-600 hover:bg-emerald-700 text-white px-2 ${_iconBar ? 'sm:px-2.5' : 'sm:px-4'} py-2 rounded-xl text-sm font-bold shadow-lg transition-transform active:scale-95 whitespace-nowrap`}>{_iconBar ? _ib(Printer, '連絡帳') : '連絡帳'}</button>
+              <button data-testid="rec-act-fullscreen" onClick={()=>{ if (isFullscreen) setIsFullscreen(false); else setIsFullscreen(true); }} className="bg-slate-700 hover:bg-slate-800 text-white px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title={isFullscreen?'通常画面':'全画面表示'}>
                 {isFullscreen ? '通常画面' : (_iconBar ? _ib(Maximize2, '全画面') : '全画面')}
               </button>
-              {fsPick && ReactDOM.createPortal((
-                <div data-testid="fs-pick" style={{position:'fixed',inset:0,zIndex:2147483000,background:'rgba(15,23,42,0.45)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={() => setFsPick(false)}>
-                  <div style={{background:'white',borderRadius:18,padding:18,width:'100%',maxWidth:460,boxShadow:'0 20px 60px rgba(0,0,0,0.35)'}} onClick={e => e.stopPropagation()}>
-                    <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>全画面の見せ方</div>
-                    <div style={{fontSize:12,color:'#64748b',marginBottom:12}}>この端末で前に選んだものに印が付いています。全画面の中でも切り替えられます。</div>
-                    {[['zoom','拡大表示','1.2倍。11人以上はスクロール'],['fit','1画面表示','全員が画面に入る大きさに']].map(([k, l, sub]) => (
-                      <button key={k} type="button" data-testid={`fs-pick-${k}`} onClick={() => { try { localStorage.setItem(TSU_FS_MODE_KEY, k); } catch {} _setFsModeTick(t => t + 1); setFsPick(false); setIsFullscreen(true); }}
-                        style={{display:'block',width:'100%',textAlign:'left',padding:'12px 14px',marginBottom:8,borderRadius:12,border: tsuFsMode() === k ? '2px solid #2563eb' : '2px solid #e2e8f0',background: tsuFsMode() === k ? '#eff6ff' : 'white',cursor:'pointer'}}>
-                        <div style={{fontSize:15,fontWeight:'bold',color: tsuFsMode() === k ? '#1d4ed8' : '#1e293b'}}>{tsuFsMode() === k ? '● ' : ''}{l}</div><div style={{fontSize:12,color:'#64748b'}}>{sub}</div>
-                      </button>))}
-                    <div style={{textAlign:'right'}}><button type="button" onClick={() => setFsPick(false)} style={{padding:'8px 16px',borderRadius:10,border:'none',background:'#f1f5f9',color:'#334155',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>やめる</button></div>
-                  </div>
-                </div>), document.body)}
-              <button onClick={()=>setRestoreModal(true)} className="bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="保存した記録を丸ごと復元(元に戻す)">{_iconBar ? _ib(Undo2, '戻す') : '戻す'}</button>{/* ★ 2026-10-26(ユーザー): ほかと同じ「戻す」に */}
+              <button onClick={()=>setRestoreModal(true)} className="bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-transform active:scale-95 whitespace-nowrap" title="保存した記録を丸ごと復元(元に戻す)">{_iconBar ? _ib(Undo2, '戻す') : '戻す'}</button>{/* ★ 2026-10-26(ユーザー): ほかと同じ「戻す」に */}
               {/* ★ onClick={handleSaveClick} だとクリックイベントが第1引数(auto)に渡り auto=truthy(自動保存扱い)になり、
                   「保存しました」が出ず担当者チェックも飛ばされていた。 明示的に auto=false で呼ぶ。 */}
-              <button onClick={()=>handleSaveClick(false)} className={`hidden sm:block bg-blue-600 hover:bg-blue-700 text-white px-2 ${_iconBar ? 'sm:px-3' : 'sm:px-4'} py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap`}>{_iconBar ? _ib(Save, '保存') : '保存'}</button>
+              <button onClick={()=>handleSaveClick(false)} className={`hidden sm:block bg-blue-600 hover:bg-blue-700 text-white px-2 ${_iconBar ? 'sm:px-3' : 'sm:px-4'} py-2 rounded-xl text-sm font-bold shadow-lg transition-transform active:scale-95 whitespace-nowrap`}>{_iconBar ? _ib(Save, '保存') : '保存'}</button>
             </div>
       </div>
       {_vitalPanel}
@@ -27427,11 +27428,17 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           )}
           <div className="flex-1 hidden sm:block"/>
           <div className="basis-full sm:hidden" />
-          <button onClick={()=>{ handleSaveClick(); navigateTo('print'); }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap" title="連絡帳の作成・印刷へ"><Printer size={13} className="mr-1"/>連絡帳</button>
-          {_fsChoiceOn ? <button type="button" data-testid="fs-mode-switch" onClick={() => { try { localStorage.setItem(TSU_FS_MODE_KEY, _fsFit ? 'zoom' : 'fit'); } catch {} _setFsModeTick(t => t + 1); }} className="bg-white/90 text-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border border-slate-300" title="全画面の見せ方を切り替えます（この端末）">{_fsFit ? '拡大表示' : '1画面表示'}</button> : null}{/* ★ 2026-10-23: 全画面の中でも見せ方を切り替えられる */}
+          <button onClick={()=>{ handleSaveClick(); navigateTo('print'); }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap" title="連絡帳の作成・印刷へ">連絡帳</button>{/* ★ 2026-10-28(ユーザー): 全画面のアイコンは外す */}
+          {/* ★ 2026-10-28: 倍率(－ ○% ＋)。表の画面だけ。自分で変えたら「全員」で全員が入る倍率に戻す */}
+          <div data-testid="fs-zoom" className="hidden md:inline-flex items-stretch rounded-lg overflow-hidden border border-slate-300 bg-white/95 text-slate-800">
+            <button type="button" data-testid="fs-zoom-minus" onClick={() => _fsZoomStep(-0.05)} disabled={_fsZoom <= 0.45} className="px-3 py-1 text-base font-bold leading-none disabled:opacity-40" aria-label="小さく">－</button>
+            <span data-testid="fs-zoom-val" className="px-2 py-1.5 text-xs font-bold tabular-nums border-x border-slate-300 min-w-[3.4em] text-center">{Math.round(_fsZoom * 100)}%</span>
+            <button type="button" data-testid="fs-zoom-plus" onClick={() => _fsZoomStep(0.05)} disabled={_fsZoom >= 1.6} className="px-3 py-1 text-base font-bold leading-none disabled:opacity-40" aria-label="大きく">＋</button>
+          </div>
+          {_fsUserZoom != null && <button type="button" data-testid="fs-zoom-fit" onClick={() => _saveFsZoom(null)} title="全員が1画面に入る大きさに戻します" className="hidden md:block bg-white/90 text-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border border-slate-300">全員</button>}
           <button data-testid="rec-fs-close" onClick={closeFullscreen} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap">通常画面</button>{/* ★ 2026-10-28(ユーザー要望): 「通常表示へ」→「通常画面」 */}
           <button onClick={()=>setRestoreModal(true)} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap" title="保存した記録を丸ごと復元（戻す）">戻す</button>
-          <button onClick={()=>handleSaveClick(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap"><CloudUpload size={13} className="mr-1"/>保存</button>
+          <button data-testid="rec-fs-save" onClick={()=>handleSaveClick(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap">保存</button>
         </div>
       )}
 
@@ -27485,7 +27492,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       </div>
       <div ref={el=>{ tableScrollRef.current=el; tableContainerRef.current=el; }} onScroll={_syncFromTable}
            draggable={false} onDragStart={e=>e.preventDefault()}
-           className="bg-white rounded-b-xl rounded-tr-xl shadow-md border border-slate-300 flex-1 min-h-0 relative pb-16 record-view-scroll" style={{WebkitOverflowScrolling:'auto',touchAction:'pan-x pan-y pinch-zoom',overscrollBehavior:'none',overscrollBehaviorX:'none',overscrollBehaviorY:'none',WebkitUserDrag:'none',userSelect:'none',WebkitUserSelect:'none',WebkitTouchCallout:'none',msUserSelect:'none',MozUserSelect:'none',overflowY:'scroll',overflowX:'scroll'}}>
+           className={`bg-white rounded-b-xl rounded-tr-xl shadow-md border border-slate-300 flex-1 min-h-0 relative ${isFullscreen ? 'pb-0' : 'pb-16'} record-view-scroll`} style={{WebkitOverflowScrolling:'auto',touchAction:'pan-x pan-y pinch-zoom',overscrollBehavior:'none',overscrollBehaviorX:'none',overscrollBehaviorY:'none',WebkitUserDrag:'none',userSelect:'none',WebkitUserSelect:'none',WebkitTouchCallout:'none',msUserSelect:'none',MozUserSelect:'none',overflowY:'scroll',overflowX:'scroll'}}>
         <style>{`
           /* iPad等: 長押しドラッグで表(セル/画像)が持ち上がって移動するのを防ぐ。スクロール(横/縦)のみ許可 */
           .record-view-scroll, .record-view-scroll * { -webkit-user-drag: none !important; -webkit-touch-callout: none !important; }
@@ -27841,10 +27848,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   //   minHeight も同じ式で「行が縮まない」よう強制
                   // ★ 2026-10-23: 'fit' は来ている全員で割る(見出し48px・下の余白を引く)。最小32px
                   height: isFullscreen
-                    ? (_fsFit ? 58 : `calc((100dvh - 80px) / ${Math.min(10, Math.max(1, localPatients.length))})`)
+                    ? 58
                     : dynamicRowHeight,
                   minHeight: isFullscreen
-                    ? (_fsFit ? 58 : `calc((100dvh - 80px) / ${Math.min(10, Math.max(1, localPatients.length))})`)
+                    ? 58
                     : 48,
                 }}>
                   {filterMode === 'month' && (
@@ -49878,7 +49885,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     //   (コピー内容が正しく編集不要だった日は個別編集による解除が起きないため)。
     if (_logToSave._sougeiPending) { delete _logToSave._sougeiPending; setLocalLog(l => { const n = { ...l }; delete n._sougeiPending; return n; }); }
     const next = { ...appData, diaryLogs: { ...(appData.diaryLogs||{}), [logKey]: _logToSave }};
-    { const _tp = tsuDiaryToTransport(appData, logKey, _logToSave); if (_tp) next.transportPlans = _tp; } // ★ 2026-10-26: 運転者・到着/出発を送迎表にも
+    // ★ 2026-10-28(ユーザー決定「送迎表から日誌の一方通行。日誌を変更したらそれが記録になるので、送迎表は変えなくていい」): 日誌の保存で送迎表を書き換えない(tsuDiaryToTransport は使わない)
     if (pendingStaff) {
       next.diarySettings = { ..._baseDs, staff: pendingStaff };
       // ★ スタッフ切替(storeMembers)も担当職員に合わせて同期(削除の相互反映)
@@ -49907,7 +49914,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
       const _logToSave = { ...localLog, _savedAt: _ts };
       const base = appDataRef.current; // ★ 必ず最新のappData(closureのappDataは古い可能性がある)
       const next = { ...base, diaryLogs: { ...(base.diaryLogs||{}), [logKey]: _logToSave } };
-      { const _tp = tsuDiaryToTransport(base, logKey, _logToSave); if (_tp) next.transportPlans = _tp; } // ★ 2026-10-26: 運転者・到着/出発を送迎表にも
+      // ★ 2026-10-28: 送迎表 → 日誌 の一方通行(日誌の保存で送迎表を書き換えない)
       if (pendingStaff) next.diarySettings = { ...(base.diarySettings || _baseDs), staff: pendingStaff };
       // ★ silent必須(2026-09-06 真因): handleSaveToCloudはmanual/silent指定の時だけクラウド送信する。
       //   無指定だと端末内のみで、再読み込みで消える(扇橋「保存が届かない」の真因)。
