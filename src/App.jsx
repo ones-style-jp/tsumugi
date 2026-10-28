@@ -46352,9 +46352,28 @@ function TsuSecJump({ dep, origin, onBack }) {
     </div>
   );
 }
+// ★ 2026-10-28 夜(ユーザー提案「事業所情報を押したら、左の項目の下にこの中の項目が出て、ほかを押したら折りたたまれる」):
+//   iPad・PC の各種設定の左の項目で、選んでいる項目の下に、その中の見出し(SectionCard の data-sec-title)を縦に並べる。押すとその見出しへ。
+//   いま見えている見出しに印(スクロールに合わせて)。スマホは上の「この中の項目」(TsuSecJump)のまま
+function TsuSecNav({ dep }) {
+  const [items, setItems] = React.useState([]); const [cur, setCur] = React.useState(0);
+  const box = () => document.querySelector('[data-testid="settings-content"]');
+  const els = () => { const b = box(); return b ? [...b.querySelectorAll('[data-sec-title]')].filter(el => el.offsetParent) : []; };
+  React.useEffect(() => { const t = setTimeout(() => { const next = els().map((el, i) => ({ i, title: el.getAttribute('data-sec-title') })); setItems(prev => (prev.map(x => x.title).join('|') === next.map(x => x.title).join('|') ? prev : next)); }, 60); return () => clearTimeout(t); });
+  React.useEffect(() => { const b = box(); if (!b) return; let raf = 0;
+    const on = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; const bar = document.querySelector('[data-testid="settings-topbar"]'); const lim = (bar ? bar.getBoundingClientRect().bottom : 0) + 16; const list = els(); let k = 0; list.forEach((el, i) => { if (el.getBoundingClientRect().top <= lim) k = i; }); if (list.length && b.scrollTop + b.clientHeight >= b.scrollHeight - 2) k = list.length - 1; setCur(k); }); };
+    b.addEventListener('scroll', on, { passive: true }); on(); return () => { b.removeEventListener('scroll', on); if (raf) cancelAnimationFrame(raf); }; }, [dep, items.length]);
+  if (items.length < 2) return null;
+  return (
+    <div data-testid="settings-secnav" className="pb-1 bg-slate-50/70 border-b border-slate-100">
+      {items.map(it => <button key={it.i} type="button" data-testid={`settings-sec-${it.i}`} onClick={() => { const el = els()[it.i]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); setCur(it.i); }}
+        className={`block w-full text-left pl-6 pr-2 py-1.5 text-[13px] leading-snug ${cur === it.i ? 'text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-100'}`}>{it.title}</button>)}
+    </div>
+  );
+}
 function SectionCard({ title, children }) {
   return (
-    <div data-sec-title={typeof title === 'string' ? title : undefined} style={{ scrollMarginTop: 96 }} className="bg-white p-3 sm:p-4 rounded-2xl shadow-sm border border-slate-200">{/* ★ 2026-10-28 夜: 余白を詰めた(p-6→4・見出しの下 mb-4→2)。固定した「この中の項目・検索」の下に見出しが来るよう scrollMarginTop 96 */}
+    <div data-sec-title={typeof title === 'string' ? title : undefined} className="scroll-mt-24 md:scroll-mt-14 bg-white p-3 sm:p-4 rounded-2xl shadow-sm border border-slate-200">{/* ★ 2026-10-28 夜: 余白を詰めた(p-6→4・見出しの下 mb-4→2)。固定した「この中の項目・検索」の下に見出しが来るよう scrollMarginTop 96 */}
       <h3 className="text-base font-bold text-slate-800 mb-2 border-b border-slate-200 pb-1.5">{title}</h3>
       {children}
     </div>
@@ -47481,7 +47500,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
           iPad・パソコン(768px以上)は 左=縦の項目・右=中身(保存は右上)。中身の上に「この中の項目」→検索の順で固定。中身の幅は 4xl まで(横に伸びすぎない)・余白を詰めた。
           スマホは今までどおり上に横の項目を固定 */}
       {/* ★ 2026-10-28 夜(ユーザー「ケアマネ事業所・担当者は1項目しかないので、今まで通りでいい」): 項目が1つだけのときは縦の項目を出さず、上の帯(保存は右)のまま */}
-      <div className={tabs.length > 1 ? 'md:hidden' : ''}>
+      <div className="md:hidden">{/* ★ 2026-10-28 夜: iPad・PC は上の横の帯を出さない(保存は検索の右) */}
       <TsuPhonePin testId="pin-settings-tabs"><div data-testid="settings-tabs" className="bg-white border-b border-slate-200 px-2 sm:px-4 pt-2 sm:pt-3 shrink-0 flex items-center gap-2 sm:gap-3 sticky top-0 z-30">
         <div className="flex gap-1 overflow-x-auto pb-0 flex-nowrap flex-1 min-w-0">
           {tabs.map(tab => (
@@ -47504,21 +47523,20 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
               className={`text-left px-3 py-2.5 text-sm font-bold border-l-4 ${activeTab === tab.id ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-transparent text-slate-600 hover:bg-slate-50'}`}>
               {tab.label}
             </button>
-          ))}
+          )).reduce((acc, btn, i) => { acc.push(btn); if (tabs[i] && tabs[i].id === activeTab) acc.push(<TsuSecNav key={`secnav-${activeTab}`} dep={activeTab} />); return acc; }, [])}
         </nav>}
       {/* コンテンツ */}
       <div data-testid="settings-content" className="flex-1 min-w-0 md:overflow-y-auto px-3 md:px-4 pb-8 tsu-ph-cards">
         {/* ★ ケアマネタブは2カラムのため広めに取る(表示領域の崩れ対策・2026-08-31) */}
         <div className={`${activeTab === 'cm' ? 'max-w-6xl' : 'max-w-4xl'} ${tabs.length > 1 ? '' : 'mx-auto'} space-y-3 pb-6`}>
+          {/* ★ 2026-10-28 夜(ユーザー「ケアマネ事業所・担当者の『ケアマネに戻る』『この中の項目』は不要」「○○に戻るのボタンもいらない」「検索欄を短くして、検索と保存を1行に」):
+              iPad・PC: 検索(短く)＋保存の1行を上に固定(この中の項目は左の項目の下)。スマホ: この中の項目(項目が2つ以上のとき)＋検索。「○○に戻る」はなくした */}
           <div data-testid="settings-topbar" className="md:sticky md:top-0 z-20 bg-slate-100 pt-2 pb-1.5 space-y-1.5">
-            {/* ★ 2026-10-28 夜(ユーザー「保存は右上にあった方が他の画面と同じでいい」): 縦の項目のときの保存は、この帯の右上(固定) */}
-            <div className="flex items-start gap-2">
-              <div className="flex-1 min-w-0">
-                <TsuSecJump dep={activeTab} origin={(() => { try { const o = sessionStorage.getItem('tsumugiSettingsOrigin'); return (o && o !== 'settings' && TSU_VIEW_LABELS[o]) ? TSU_VIEW_LABELS[o] : ''; } catch { return ''; } })()} onBack={() => { try { const o = sessionStorage.getItem('tsumugiSettingsOrigin'); sessionStorage.removeItem('tsumugiSettingsOrigin'); if (o && navigateTo) navigateTo(o); } catch {} }} />
-              </div>
-              {tabs.length > 1 && <button type="button" data-testid="settings-save" onClick={saveAll} className="hidden md:block shrink-0 px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md active:scale-95 text-sm">保存</button>}
+            {tabs.length > 1 && <div className="md:hidden"><TsuSecJump dep={activeTab} /></div>}
+            <div className="flex items-center gap-2">
+              <div className="flex-1 min-w-0 md:flex-none md:w-80 lg:w-96"><TsuSettingsSearch tabs={tabs} onPick={(tab, title) => { setActiveTab(tab); setTimeout(() => { try { const el = [...document.querySelectorAll('[data-sec-title]')].find(x => x.getAttribute('data-sec-title') === title); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {} }, 250); }} /></div>
+              <button type="button" data-testid="settings-save" onClick={saveAll} className="hidden md:block ml-auto shrink-0 px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md active:scale-95 text-sm">保存</button>
             </div>
-            <TsuSettingsSearch tabs={tabs} onPick={(tab, title) => { setActiveTab(tab); setTimeout(() => { try { const el = [...document.querySelectorAll('[data-sec-title]')].find(x => x.getAttribute('data-sec-title') === title); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {} }, 250); }} />
           </div>
 
           {/* 気分の理由 (カスタマイズ) */}
@@ -49395,7 +49413,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
 // セクションカード（DiarySettingsPanel 外で定義し、再レンダリングで再生成されないように）
 // ★ 2026-10-08(店舗報告: スマホで追加ボタン・送迎車両・スケジュールが枠の外に出る): スマホは余白を詰め、中身が枠より広くならないように(min-w-0)
 const _DSPSection = ({title, children}) => (
-  <div className="bg-white p-3 sm:p-4 rounded-2xl shadow-sm border border-slate-200 min-w-0 tsu-dsp" data-sec-title={typeof title === 'string' ? title : undefined} style={{ scrollMarginTop: 96 }}>
+  <div className="scroll-mt-24 md:scroll-mt-14 bg-white p-3 sm:p-4 rounded-2xl shadow-sm border border-slate-200 min-w-0 tsu-dsp" data-sec-title={typeof title === 'string' ? title : undefined}>
     <h3 className="text-base font-bold text-slate-800 mb-2 border-b border-slate-200 pb-1.5">{title}</h3>
     {children}
   </div>
