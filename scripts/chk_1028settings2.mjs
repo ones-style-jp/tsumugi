@@ -24,22 +24,29 @@ for (const [k, vp] of [['ipad', { width: 1180, height: 820 }], ['pc', { width: 1
   await page.getByTestId('settings-vtab-facility').click(); await page.waitForTimeout(700);
   // ③(trial451〜) この中の項目は左の選んでいる項目のすぐ下・上の帯は 検索(短く)＋保存 の1行・「○○に戻る」はない
   const tb = page.getByTestId('settings-topbar'); const srch = await page.getByTestId('settings-search').boundingBox(); const sv2 = await page.getByTestId('settings-save').boundingBox();
-  const act = await page.getByTestId('settings-vtab-facility').boundingBox(); const sn = await page.getByTestId('settings-secnav').boundingBox().catch(() => null);
+  const act = await page.getByTestId('settings-vtab-facility').boundingBox(); const sn = await page.getByTestId('settings-secnav-facility').boundingBox().catch(() => null);
   r[`${k}_secnavUnderTab`] = !!sn && Math.abs(sn.y - (act.y + act.height)) < 3 && (await page.getByTestId('sec-jump').isVisible().catch(() => false)) === false;
   r[`${k}_oneRow`] = Math.abs((srch.y + srch.height / 2) - (sv2.y + sv2.height / 2)) < 6 && srch.width <= 400 && (await page.getByTestId('sec-back').count()) === 0;
   const top0 = (await tb.boundingBox()).y; await page.getByTestId('settings-content').evaluate(e => { e.scrollTop = 700; }); await page.waitForTimeout(400); const top1 = (await tb.boundingBox()).y;
   r[`${k}_sticky`] = Math.abs(top1 - top0) < 2; console.log(k, 'vtabs', nv, '帯の位置', top0, '->', top1);
   // ④ 左の「この中の項目」の最後の見出しへ
-  const chips = page.locator('[data-testid="settings-secnav"] button'); const nc = await chips.count(); const lastTitle = (await chips.nth(nc - 1).innerText()).trim();
+  const chips = page.locator('[data-testid="settings-secnav-facility"] button'); const nc = await chips.count(); const lastTitle = (await chips.nth(nc - 1).innerText()).trim();
   await chips.nth(nc - 1).click(); await page.waitForTimeout(900);
   const pos = await page.evaluate((t) => { const el = [...document.querySelectorAll('[data-sec-title]')].find(x => x.getAttribute('data-sec-title') === t); const bar = document.querySelector('[data-testid="settings-topbar"]'); const sc = document.querySelector('[data-testid="settings-content"]'); return el ? { card: Math.round(el.getBoundingClientRect().top), bar: Math.round(bar.getBoundingClientRect().bottom), atEnd: sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 2 } : null; }, lastTitle);
   console.log(k, '項目', lastTitle, pos); r[`${k}_chipJump`] = !!pos && pos.card >= pos.bar - 2 && (pos.card < pos.bar + 60 || pos.atEnd); // 最後の見出しは下まで行ったら止まる
   // ⑤ 検索
   await page.getByTestId('settings-search-input').fill('端末名'); await page.waitForTimeout(300); await page.getByTestId('settings-search-hit-0').dispatchEvent('mousedown'); await page.waitForTimeout(1000);
   const cur = await page.locator('[data-testid^="settings-vtab-"][aria-current="page"]').innerText().catch(() => ''); console.log(k, '検索で移った先', cur); r[`${k}_search`] = /システム/.test(cur);
-  // 別の項目を押すと、前の項目の下は折りたたまれ、押した項目の下に出る
-  const sysb = await page.getByTestId('settings-vtab-system').boundingBox(); const sn2 = await page.getByTestId('settings-secnav').boundingBox().catch(() => null); const n2 = await page.getByTestId('settings-secnav').count();
-  r[`${k}_accordion`] = n2 === 1 && !!sn2 && Math.abs(sn2.y - (sysb.y + sysb.height)) < 3;
+  // (trial452〜) 開いた項目は、ほかを選んでも開いたまま・選んでいる項目をもう一度押すと閉じる・この端末に覚える
+  const sysOpen = (await page.getByTestId('settings-secnav-system').count()) === 1; const facStill = (await page.getByTestId('settings-secnav-facility').count()) === 1;
+  await page.getByTestId('settings-vtab-system').click(); await page.waitForTimeout(300); const sysClosed = (await page.getByTestId('settings-secnav-system').count()) === 0;
+  await page.getByTestId('settings-vtab-system').click(); await page.waitForTimeout(300); const sysReopen = (await page.getByTestId('settings-secnav-system').count()) === 1;
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('tsumugiSettingsOpenTabs') || '[]'));
+  console.log(k, '開いたまま', { sysOpen, facStill, sysClosed, sysReopen, stored }); r[`${k}_keepOpen`] = sysOpen && facStill && sysClosed && sysReopen && stored.includes('facility') && stored.includes('system');
+  // 選んでいない項目の見出しを押すと、その項目に切り替えてその見出しへ
+  await page.getByTestId('settings-sec-facility-2').click(); await page.waitForTimeout(1200);
+  const cur2 = await page.locator('[data-testid^="settings-vtab-"][aria-current="page"]').innerText().catch(() => ''); const pos2 = await page.evaluate(() => { const el = [...document.querySelectorAll('[data-sec-title]')].find(x => x.getAttribute('data-sec-title') === '施設休業日の設定'); const bar = document.querySelector('[data-testid="settings-topbar"]'); const sc = document.querySelector('[data-testid="settings-content"]'); return el ? { card: Math.round(el.getBoundingClientRect().top), bar: Math.round(bar.getBoundingClientRect().bottom), atEnd: sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 2 } : null; });
+  console.log(k, 'ほかの項目の見出しへ', cur2, pos2); r[`${k}_pickOther`] = /事業所情報/.test(cur2) && !!pos2 && pos2.card >= pos2.bar - 2 && (pos2.card < pos2.bar + 60 || pos2.atEnd);
   // ⑥ 幅と入力欄
   const w = await page.evaluate(() => { const c = document.querySelector('[data-testid="settings-content"] > div'); const inp = document.querySelector('[data-testid="settings-content"] input.py-2\\.5'); return { w: Math.round(c.getBoundingClientRect().width), pad: inp ? getComputedStyle(inp).paddingTop : '' }; });
   console.log(k, '中身の幅', w); r[`${k}_compact`] = w.w <= 897 && (w.pad === '' || w.pad === '6px');

@@ -46352,22 +46352,35 @@ function TsuSecJump({ dep, origin, onBack }) {
     </div>
   );
 }
-// ★ 2026-10-28 夜(ユーザー提案「事業所情報を押したら、左の項目の下にこの中の項目が出て、ほかを押したら折りたたまれる」):
-//   iPad・PC の各種設定の左の項目で、選んでいる項目の下に、その中の見出し(SectionCard の data-sec-title)を縦に並べる。押すとその見出しへ。
-//   いま見えている見出しに印(スクロールに合わせて)。スマホは上の「この中の項目」(TsuSecJump)のまま
-function TsuSecNav({ dep }) {
-  const [items, setItems] = React.useState([]); const [cur, setCur] = React.useState(0);
+// ★ 2026-10-28 夜(ユーザー提案「事業所情報を押したら、左の項目の下にこの中の項目が出る」): iPad・PC の各種設定の左の項目の下に、その中の見出し(SectionCard の data-sec-title)。押すとその見出しへ
+// ★ 2026-10-28 深夜(ユーザー報告「見出しを押すと、いったん前の見出しに戻ってから押したものになる(チカチカ)」「ほかを押すと折りたたまれて位置がずれて面倒。押したらずっと表示、もう一度押すと閉じる」):
+//   ①押して移る間(なめらかなスクロール中)は「いま見えている見出し」の判定を止める(指・ホイール・キーで動かしたら再開)。前はスクロールの途中で前の見出しに印が戻っていた
+//   ②開く/閉じるは項目ごとに覚える(この端末・tsumugiSettingsOpenTabs)。選んでいない項目の見出しも出し(前に開いたときの見出し・無ければ検索の見出し)、押すとその項目に切り替えてその見出しへ
+const _tsuSecCache = new Map();
+const _tsuSecStatic = (tab) => TSU_SETTINGS_INDEX.filter(x => x[0] === tab).map(x => x[1]);
+const tsuSecTitlesOf = (tab) => _tsuSecCache.get(tab) || _tsuSecStatic(tab);
+function TsuSecNav({ tab, active, onPickOther }) {
+  const [items, setItems] = React.useState(() => tsuSecTitlesOf(tab)); const [cur, setCur] = React.useState(0);
+  const lockRef = React.useRef(false); const selfRef = React.useRef(null);
+  // 開いたとき、左の項目の下の方で見出しが見えないところに出たら、左の欄を少しだけ動かして見えるように
+  React.useEffect(() => { const t = setTimeout(() => { try { const el = selfRef.current; const nav = el && el.closest('[data-testid="settings-vtabs"]'); if (!el || !nav) return; const r = el.getBoundingClientRect(), n = nav.getBoundingClientRect(); if (r.bottom > n.bottom) nav.scrollBy({ top: Math.min(r.bottom - n.bottom + 8, r.top - n.top - 48), behavior: 'smooth' }); } catch {} }, 80); return () => clearTimeout(t); }, []);
   const box = () => document.querySelector('[data-testid="settings-content"]');
   const els = () => { const b = box(); return b ? [...b.querySelectorAll('[data-sec-title]')].filter(el => el.offsetParent) : []; };
-  React.useEffect(() => { const t = setTimeout(() => { const next = els().map((el, i) => ({ i, title: el.getAttribute('data-sec-title') })); setItems(prev => (prev.map(x => x.title).join('|') === next.map(x => x.title).join('|') ? prev : next)); }, 60); return () => clearTimeout(t); });
-  React.useEffect(() => { const b = box(); if (!b) return; let raf = 0;
-    const on = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; const bar = document.querySelector('[data-testid="settings-topbar"]'); const lim = (bar ? bar.getBoundingClientRect().bottom : 0) + 16; const list = els(); let k = 0; list.forEach((el, i) => { if (el.getBoundingClientRect().top <= lim) k = i; }); if (list.length && b.scrollTop + b.clientHeight >= b.scrollHeight - 2) k = list.length - 1; setCur(k); }); };
-    b.addEventListener('scroll', on, { passive: true }); on(); return () => { b.removeEventListener('scroll', on); if (raf) cancelAnimationFrame(raf); }; }, [dep, items.length]);
+  const go = (title) => { const list = els(); const k = list.findIndex(x => x.getAttribute('data-sec-title') === title); const el = k >= 0 ? list[k] : null; lockRef.current = true; setCur(Math.max(0, k)); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  // 選んでいる項目は、画面の見出しで数え直す(中身が同じなら入れ替えない)
+  React.useEffect(() => { if (!active) return; const t = setTimeout(() => { const next = els().map(el => el.getAttribute('data-sec-title')); if (next.length) { _tsuSecCache.set(tab, next); setItems(prev => (prev.join('|') === next.join('|') ? prev : next)); } }, 60); return () => clearTimeout(t); });
+  React.useEffect(() => { if (!active) return; const b = box(); if (!b) return; let raf = 0;
+    const on = () => { if (lockRef.current || raf) return; raf = requestAnimationFrame(() => { raf = 0; if (lockRef.current) return; const bar = document.querySelector('[data-testid="settings-topbar"]'); const lim = (bar ? bar.getBoundingClientRect().bottom : 0) + 16; const list = els(); let k = 0; list.forEach((el, i) => { if (el.getBoundingClientRect().top <= lim) k = i; }); if (list.length && b.scrollTop + b.clientHeight >= b.scrollHeight - 2) k = list.length - 1; setCur(k); }); };
+    const user = () => { lockRef.current = false; };
+    const onGo = (e) => { const d = e && e.detail; if (d && d.tab === tab) go(d.title); };
+    b.addEventListener('scroll', on, { passive: true }); ['wheel', 'touchstart', 'keydown', 'pointerdown'].forEach(ev => b.addEventListener(ev, user, { passive: true })); window.addEventListener('tsu:secgo', onGo);
+    if (!lockRef.current) on();
+    return () => { b.removeEventListener('scroll', on); ['wheel', 'touchstart', 'keydown', 'pointerdown'].forEach(ev => b.removeEventListener(ev, user)); window.removeEventListener('tsu:secgo', onGo); if (raf) cancelAnimationFrame(raf); }; }, [active, items.length]);
   if (items.length < 2) return null;
   return (
-    <div data-testid="settings-secnav" className="pb-1 bg-slate-50/70 border-b border-slate-100">
-      {items.map(it => <button key={it.i} type="button" data-testid={`settings-sec-${it.i}`} onClick={() => { const el = els()[it.i]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); setCur(it.i); }}
-        className={`block w-full text-left pl-6 pr-2 py-1.5 text-[13px] leading-snug ${cur === it.i ? 'text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-100'}`}>{it.title}</button>)}
+    <div ref={selfRef} data-testid={`settings-secnav-${tab}`} data-active={active ? '1' : '0'} className="pb-1 bg-slate-50/70 border-b border-slate-100">
+      {items.map((title, i) => <button key={`${i}_${title}`} type="button" data-testid={`settings-sec-${tab}-${i}`} onClick={() => { if (active) go(title); else if (onPickOther) onPickOther(tab, title); }}
+        className={`block w-full text-left pl-6 pr-2 py-1.5 text-[13px] leading-snug ${active && cur === i ? 'text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-100'}`}>{title}</button>)}
     </div>
   );
 }
@@ -46706,6 +46719,13 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
   //   「消える問題」対策の同期追従・即保存(persistCm)ロジックを共有するため、タブ抽出はせず同一コンポーネントをモード分けで再利用。
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const [activeTab, setActiveTab] = useState(cmOnly ? 'cm' : 'facility');
+  // ★ 2026-10-28 深夜: 左の項目の下の見出しを開いている項目(この端末に覚える)。押したら開く・選んでいる項目をもう一度押すと閉じる・ほかを選んでも閉じない
+  const [_secOpen, _setSecOpen] = useState(() => { try { const a = JSON.parse(localStorage.getItem('tsumugiSettingsOpenTabs') || 'null'); return new Set(Array.isArray(a) ? a : [cmOnly ? 'cm' : 'facility']); } catch { return new Set([cmOnly ? 'cm' : 'facility']); } });
+  const _secSetOpen = (id, on) => _setSecOpen(prev => { const n = new Set(prev); if (on) n.add(id); else n.delete(id); try { localStorage.setItem('tsumugiSettingsOpenTabs', JSON.stringify([...n])); } catch {} return n; });
+  const _secTabClick = (id) => { if (activeTab !== id) { setActiveTab(id); _secSetOpen(id, true); } else _secSetOpen(id, !_secOpen.has(id)); };
+  const _secGo = (tab, title) => { if (activeTab !== tab) setActiveTab(tab); _secSetOpen(tab, true); setTimeout(() => { try { window.dispatchEvent(new CustomEvent('tsu:secgo', { detail: { tab, title } })); } catch {} }, activeTab !== tab ? 180 : 0); };
+  // 項目を切り替えたら中身は一番上から(iPad・PC の中身の箱)
+  useEffect(() => { try { const b = document.querySelector('[data-testid="settings-content"]'); if (b) b.scrollTop = 0; } catch {} }, [activeTab]);
   // ★ 各種設定→ケアマネ事業所・担当者(またはその逆)へ移ると、React が同じ SettingsView を使い回すため activeTab が前の画面のまま残り
   //   「ケアマネ事業所・担当者を押しても事業所情報のまま」になる(2026-09-24 扇橋報告)。cmOnly の切替時にタブを合わせる。
   React.useEffect(() => {
@@ -47518,12 +47538,14 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
       </div>
       <div className="flex-1 min-h-0 md:flex">
         {tabs.length > 1 && <nav data-testid="settings-vtabs" className="hidden md:flex md:flex-col w-44 lg:w-52 shrink-0 bg-white border-r border-slate-200 md:overflow-y-auto">
-          {tabs.map(tab => (
-            <button type="button" key={tab.id} data-testid={`settings-vtab-${tab.id}`} onClick={() => setActiveTab(tab.id)} aria-current={activeTab === tab.id ? 'page' : undefined}
-              className={`text-left px-3 py-2.5 text-sm font-bold border-l-4 ${activeTab === tab.id ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-transparent text-slate-600 hover:bg-slate-50'}`}>
-              {tab.label}
-            </button>
-          )).reduce((acc, btn, i) => { acc.push(btn); if (tabs[i] && tabs[i].id === activeTab) acc.push(<TsuSecNav key={`secnav-${activeTab}`} dep={activeTab} />); return acc; }, [])}
+          {tabs.map(tab => { const open = _secOpen.has(tab.id); const hasSec = tsuSecTitlesOf(tab.id).length >= 2; return (
+            <React.Fragment key={tab.id}>
+              <button type="button" data-testid={`settings-vtab-${tab.id}`} onClick={() => _secTabClick(tab.id)} aria-current={activeTab === tab.id ? 'page' : undefined} aria-expanded={hasSec ? open : undefined}
+                className={`text-left px-3 py-2.5 text-sm font-bold border-l-4 flex items-center gap-1 ${activeTab === tab.id ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-transparent text-slate-600 hover:bg-slate-50'}`}>
+                <span className="flex-1 min-w-0">{tab.label}</span>{hasSec ? <span className="shrink-0 text-[11px] text-slate-400" aria-hidden="true">{open ? '▾' : '▸'}</span> : null}
+              </button>
+              {open && <TsuSecNav tab={tab.id} active={activeTab === tab.id} onPickOther={_secGo} />}
+            </React.Fragment>); })}
         </nav>}
       {/* コンテンツ */}
       <div data-testid="settings-content" className="flex-1 min-w-0 md:overflow-y-auto px-3 md:px-4 pb-8 tsu-ph-cards">
@@ -47534,7 +47556,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
           <div data-testid="settings-topbar" className="md:sticky md:top-0 z-20 bg-slate-100 pt-2 pb-1.5 space-y-1.5">
             {tabs.length > 1 && <div className="md:hidden"><TsuSecJump dep={activeTab} /></div>}
             <div className="flex items-center gap-2">
-              <div className="flex-1 min-w-0 md:flex-none md:w-80 lg:w-96"><TsuSettingsSearch tabs={tabs} onPick={(tab, title) => { setActiveTab(tab); setTimeout(() => { try { const el = [...document.querySelectorAll('[data-sec-title]')].find(x => x.getAttribute('data-sec-title') === title); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {} }, 250); }} /></div>
+              <div className="flex-1 min-w-0 md:flex-none md:w-80 lg:w-96"><TsuSettingsSearch tabs={tabs} onPick={(tab, title) => { if (tsuViewW() >= 768 && tabs.length > 1) { _secGo(tab, title); return; } setActiveTab(tab); setTimeout(() => { try { const el = [...document.querySelectorAll('[data-sec-title]')].find(x => x.getAttribute('data-sec-title') === title); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {} }, 120); }} /></div>
               <button type="button" data-testid="settings-save" onClick={saveAll} className="hidden md:block ml-auto shrink-0 px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md active:scale-95 text-sm">保存</button>
             </div>
           </div>
