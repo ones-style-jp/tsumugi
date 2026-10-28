@@ -12333,7 +12333,7 @@ function SignupCompleteView({ context, appData, onSave }) {
 }
 
 // === 家族画面プレビュー & 特記編集 (FamilyAdminView内のタブ) ===
-function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid, familyTokkiOverrides, setTokkiOverride, initialViewer = 'family' }) {
+function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid, familyTokkiOverrides, setTokkiOverride, initialViewer = 'family', topOffset = 50 }) {
   const [previewInnerTab, setPreviewInnerTab] = useState('news'); // 'news' | 'records'
   // ★ 2026-10-03(ユーザー要望「閲覧管理で家族・ケアマネの閲覧期間(当月以外)も選べるように」): 家族・ケアマネ画面と同じ期間の選択
   const [pvPeriod, setPvPeriod] = useState('1'); // '1','3','6','12','all','custom'
@@ -12355,7 +12355,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
   return (
     <div className={isRecordsTab ? '' : 'space-y-3'}>
       {/* 上部枠: ←一覧 | ドロップダウン | (タブ:お知らせ/通所記録) | ログイン画面リンク — records 時は sticky */}
-      <div className={`bg-white border-slate-200 p-3 flex items-center gap-3 flex-wrap ${isRecordsTab ? 'border-b shadow-sm' : 'rounded-2xl shadow-sm border'}`} style={isRecordsTab ? {position:'sticky',top:50,zIndex:45,marginBottom:0} : undefined}>
+      <div className={`bg-white border-slate-200 p-3 flex items-center gap-3 flex-wrap ${isRecordsTab ? 'border-b shadow-sm' : 'rounded-2xl shadow-sm border'}`} style={isRecordsTab ? {position:'sticky',top:topOffset,zIndex:45,marginBottom:0} : undefined}>
         {patient && (
           <button onClick={()=>{ setPreviewPid(null); setPatSearch(''); }} title="利用者一覧に戻る"
             className="px-3 py-2 rounded-lg text-sm font-bold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 shrink-0 whitespace-nowrap">
@@ -12578,7 +12578,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
           cmViewerMode={viewer === 'caremanager'}
           cmSheetView={viewer === 'caremanager'}
           hidePatientSelector={true}
-          stickyTopOffset={114}
+          stickyTopOffset={topOffset + 64}
           navigateTo={()=>{}}
           onShowPrintPreview={()=>{}}
           externalPeriod={pvPeriod}
@@ -14798,7 +14798,7 @@ function FamilyAdminView({ appData, onSave }) {
   //   (1行目=全体/個別・種類・年・月、2行目=キーワード・該当件数)。パソコン・iPadは従来どおり履歴の中に置く
   const _hfSel = _faPhone ? 'tsu-fa-hsel min-w-0 px-1.5 py-1 bg-slate-50 border border-slate-300 rounded-lg font-bold outline-none' : 'px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none';
   const _histFilterBar = (
-    <div className={_faPhone ? 'bg-white border-b border-slate-200 px-2 pt-1.5 pb-2' : 'bg-white rounded-2xl shadow-sm border border-slate-200 p-4'} data-testid="fa-hist-filter">
+    <div className={_faPhone ? 'bg-white border-b border-slate-200 px-2 pt-1.5 pb-2' : 'bg-white rounded-2xl shadow-sm border border-slate-200 px-3 py-2'} data-testid="fa-hist-filter">
       <div className={_faPhone ? 'grid gap-1.5' : 'flex flex-wrap items-center gap-2'} style={_faPhone ? { gridTemplateColumns: '1.3fr 1.15fr 0.95fr 0.8fr' } : undefined}>
         {!_faPhone && <span className="text-xs font-bold text-slate-500">絞り込み:</span>}
         <select value={historyFilter.scope} onChange={e=>setHistoryFilter(f=>({...f,scope:e.target.value}))} className={_hfSel}>
@@ -14828,20 +14828,24 @@ function FamilyAdminView({ appData, onSave }) {
   );
   return (
     // ★ 2026-10-08(ユーザー要望: スマホで投稿・履歴のときタブが上に詰まっていない): スマホはどのタブでもタブを上端に詰めて画面に固定
-    <div className={`h-full overflow-auto bg-slate-50 tsu-ph-cards ${tab==='preview'?'p-0':(_faPhone ? 'px-3 pb-3 pt-0' : 'p-3 sm:p-6')}`}>
-      <div className={tab==='preview'?'':'max-w-5xl mx-auto tsu-wide-f'}>
+    // ★ 2026-10-28 夜(ユーザー「投稿・家族ケアマネ画面プレビュー・過去履歴で帯の位置が違う」「過去履歴は隙間が空いている」):
+    //   iPad・PC はどのタブでも同じ余白・同じ幅・同じ形の帯(高さ62px・上に固定)。プレビューの中の固定の帯はその下(topOffset)。過去履歴の余白を詰めた
+    <div className={`h-full overflow-auto bg-slate-50 tsu-ph-cards ${(tab==='preview' && _faPhone)?'p-0':(_faPhone ? 'px-3 pb-3 pt-0' : 'px-2 sm:px-3 pb-3 pt-2 sm:pt-3')}`}>
+      <div className={(tab==='preview' && _faPhone)?'':'max-w-5xl mx-auto tsu-wide-f'}>
         <TsuPhonePin testId="pin-family-admin">
-        <div className={`flex items-center gap-2 bg-white shadow-sm border border-slate-200 ${(tab==='preview' || _faPhone)?'sticky top-0 z-50 border-b p-1.5':'rounded-2xl p-1.5 mb-4'}`}>
+        <div data-testid="fa-tabs-wrap" className={_faPhone ? '' : 'sticky top-0 z-40 bg-slate-50 pb-2'}>
+        <div data-testid="fa-tabs" className={`flex items-center gap-2 bg-white shadow-sm border border-slate-200 ${_faPhone?'sticky top-0 z-50 border-b p-1.5':'rounded-2xl p-1.5'}`}>
           {/* ★ 2026-10-08: スマホは短い名前で1行に(投稿/プレビュー/履歴) */}
           {[['post','投稿 (お知らせ・写真)','投稿'],['preview','家族・ケアマネ画面プレビュー','プレビュー'],['history','過去履歴','履歴']].map(([k,l,sh])=>(
-            <button key={k} onClick={()=>setTab(k)} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors whitespace-nowrap ${tab===k?'bg-emerald-500 text-white shadow':'text-slate-500 hover:bg-slate-100'}`}><span className="hidden sm:inline">{l}</span><span className="sm:hidden">{sh}</span></button>
+            <button key={k} onClick={()=>setTab(k)} className={`flex-1 h-10 rounded-xl text-sm font-bold transition-colors whitespace-nowrap ${tab===k?'bg-emerald-500 text-white shadow':'text-slate-500 hover:bg-slate-100'}`}><span className="hidden sm:inline">{l}</span><span className="sm:hidden">{sh}</span></button>
           ))}
+        </div>
         </div>
         {_faPhone && tab==='history' && _histFilterBar}
         </TsuPhonePin>
         {_faPhone && tab!=='preview' && <div className="h-3" />}
         {tab === 'post' && (
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 space-y-3">
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 space-y-3">
             <h3 className="text-base font-bold text-slate-800 mb-1">お知らせ・写真を投稿</h3>
             <div className="text-[11px] text-slate-500">タイトル・本文・写真を一度に投稿できます (写真のみ・お知らせのみも可)</div>
             {/* ★ 2026-10-09(ユーザー要望): スマホでも「全体に表示」「個別に表示」を1行に(文字を少し小さく・個別は「複数可」と短く) */}
@@ -14994,10 +14998,10 @@ function FamilyAdminView({ appData, onSave }) {
           </div>
         )}
         {tab === 'preview' && (
-          <FamilyPreviewTab patients={patients} appData={appData} onSave={onSave} previewPid={previewPid} setPreviewPid={setPreviewPid} familyTokkiOverrides={familyTokkiOverrides} setTokkiOverride={setTokkiOverride} initialViewer={_pvJump?.kind || 'family'}/>
+          <FamilyPreviewTab patients={patients} appData={appData} onSave={onSave} previewPid={previewPid} setPreviewPid={setPreviewPid} familyTokkiOverrides={familyTokkiOverrides} setTokkiOverride={setTokkiOverride} initialViewer={_pvJump?.kind || 'family'} topOffset={_faPhone ? 50 : 62}/>
         )}
         {tab === 'history' && (
-          <div className="space-y-4">
+          <div className="space-y-2">
             {/* ゴミ箱 (削除後7日間は復元可) */}
             {annTrash.length > 0 && (
               <div className="bg-amber-50 rounded-2xl border border-amber-200 p-4">
@@ -15033,24 +15037,24 @@ function FamilyAdminView({ appData, onSave }) {
                   {filteredHistory.map(e => {
                     const pat = e.patientId ? patients.find(p=>p.id===e.patientId) || (appData.patients||[]).find(p=>p.id===e.patientId) : null;
                     return (
-                      <button key={e.id} onClick={()=>setHistoryDetail({kind:e._kind, item:e, patient:pat})} className="w-full px-5 py-3 flex items-center gap-3 hover:bg-slate-50 text-left">
+                      <button key={e.id} data-testid="fa-hist-row" onClick={()=>setHistoryDetail({kind:e._kind, item:e, patient:pat})} className="w-full px-3 py-2 flex items-center gap-2.5 hover:bg-slate-50 text-left">
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded shrink-0 ${e._kind==='news_all'?'bg-blue-100 text-blue-700':e._kind==='news_personal'?'bg-amber-100 text-amber-700':'bg-emerald-100 text-emerald-700'}`}>
                           {e._kind === 'news_all' ? '全体' : e._kind === 'news_personal' ? '個別' : '写真'}
                         </span>
-                        <span className="text-[11px] text-slate-400 w-24 shrink-0">{e.date}</span>
+                        <span className="text-[11px] text-slate-400 shrink-0 tabular-nums">{e.date}</span>
                         {e._kind === 'photo' ? (
-                          <><StoredImage file={e} alt="" className="w-10 h-10 object-cover rounded shrink-0"/><span className="text-sm text-slate-700 truncate flex-1">{_hl(e.caption || e.name || '(キャプションなし)')}</span>{e.class && <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{e.class}</span>}</>
+                          <><StoredImage file={e} alt="" className="w-10 h-10 object-cover rounded shrink-0"/><span className="text-sm text-slate-700 truncate min-w-0">{_hl(e.caption || e.name || '(キャプションなし)')}</span>{e.class && <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{e.class}</span>}</>
                         ) : (
                           <>
                             {/* お知らせに紐付いた写真があれば先頭1枚をサムネ表示 */}
                             {(e.photos || []).length > 0 && <StoredImage file={e.photos[0]} alt="" className="w-10 h-10 object-cover rounded shrink-0"/>}
-                            <span className="text-sm font-bold text-slate-800 truncate flex-1">{_hl(e.title || '(タイトルなし)')}{_hQ && _hNorm(e.body||e.content||'').includes(_hQ) && <span className="block text-[11px] font-normal text-slate-500 truncate">{_hl(_hExcerpt(e.body||e.content||''))}</span>}</span>
+                            <span className="text-sm font-bold text-slate-800 truncate min-w-0">{_hl(e.title || '(タイトルなし)')}{_hQ && _hNorm(e.body||e.content||'').includes(_hQ) && <span className="block text-[11px] font-normal text-slate-500 truncate">{_hl(_hExcerpt(e.body||e.content||''))}</span>}</span>
                             {(e.photos || []).length > 0 && <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded shrink-0">×{e.photos.length}</span>}
                             {pat && <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">{pat.name}</span>}
                             {e._group === 'mon' && <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded shrink-0" data-testid="mon-group">{e.members.length}名</span>}
                           </>
                         )}
-                        <span className="text-slate-300 text-xs">›</span>
+                        <span className="flex-1" /><span className="text-slate-300 text-xs">›</span>{/* 札(名前など)はタイトルのすぐ右・› だけ右端 */}
                       </button>
                     );
                   })}
@@ -47474,9 +47478,10 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
       )}
       {/* ★ 2026-10-28 夜(ユーザー提案「各種設定は横ではなく上下に項目を分け、押したら右に内容を」「マウスだと横の移動はスクロールバーを動かす必要がある。縦ならホイールだけ」
           「検索欄やこの中の項目の上下の余白が大きく、下が見える領域が減る。この中の項目を検索欄より上にして固定」「なるべく無駄な余白をなくし、1画面であまりスクロールせず見えるように」):
-          iPad・パソコン(768px以上)は 左=縦の項目(保存はその上)・右=中身。中身の上に「この中の項目」→検索の順で固定。中身の幅は 4xl まで(横に伸びすぎない)・余白を詰めた。
+          iPad・パソコン(768px以上)は 左=縦の項目・右=中身(保存は右上)。中身の上に「この中の項目」→検索の順で固定。中身の幅は 4xl まで(横に伸びすぎない)・余白を詰めた。
           スマホは今までどおり上に横の項目を固定 */}
-      <div className="md:hidden">
+      {/* ★ 2026-10-28 夜(ユーザー「ケアマネ事業所・担当者は1項目しかないので、今まで通りでいい」): 項目が1つだけのときは縦の項目を出さず、上の帯(保存は右)のまま */}
+      <div className={tabs.length > 1 ? 'md:hidden' : ''}>
       <TsuPhonePin testId="pin-settings-tabs"><div data-testid="settings-tabs" className="bg-white border-b border-slate-200 px-2 sm:px-4 pt-2 sm:pt-3 shrink-0 flex items-center gap-2 sm:gap-3 sticky top-0 z-30">
         <div className="flex gap-1 overflow-x-auto pb-0 flex-nowrap flex-1 min-w-0">
           {tabs.map(tab => (
@@ -47493,23 +47498,26 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
       </div></TsuPhonePin>
       </div>
       <div className="flex-1 min-h-0 md:flex">
-        <nav data-testid="settings-vtabs" className="hidden md:flex md:flex-col w-44 lg:w-52 shrink-0 bg-white border-r border-slate-200 md:overflow-y-auto">
-          <div className="p-2 border-b border-slate-200 sticky top-0 bg-white z-10">
-            <button type="button" data-testid="settings-save" onClick={saveAll} className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md active:scale-95 text-sm">保存</button>
-          </div>
+        {tabs.length > 1 && <nav data-testid="settings-vtabs" className="hidden md:flex md:flex-col w-44 lg:w-52 shrink-0 bg-white border-r border-slate-200 md:overflow-y-auto">
           {tabs.map(tab => (
             <button type="button" key={tab.id} data-testid={`settings-vtab-${tab.id}`} onClick={() => setActiveTab(tab.id)} aria-current={activeTab === tab.id ? 'page' : undefined}
               className={`text-left px-3 py-2.5 text-sm font-bold border-l-4 ${activeTab === tab.id ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-transparent text-slate-600 hover:bg-slate-50'}`}>
               {tab.label}
             </button>
           ))}
-        </nav>
+        </nav>}
       {/* コンテンツ */}
       <div data-testid="settings-content" className="flex-1 min-w-0 md:overflow-y-auto px-3 md:px-4 pb-8 tsu-ph-cards">
         {/* ★ ケアマネタブは2カラムのため広めに取る(表示領域の崩れ対策・2026-08-31) */}
-        <div className={`${activeTab === 'cm' ? 'max-w-6xl' : 'max-w-4xl'} space-y-3 pb-6`}>
+        <div className={`${activeTab === 'cm' ? 'max-w-6xl' : 'max-w-4xl'} ${tabs.length > 1 ? '' : 'mx-auto'} space-y-3 pb-6`}>
           <div data-testid="settings-topbar" className="md:sticky md:top-0 z-20 bg-slate-100 pt-2 pb-1.5 space-y-1.5">
-            <TsuSecJump dep={activeTab} origin={(() => { try { const o = sessionStorage.getItem('tsumugiSettingsOrigin'); return (o && o !== 'settings' && TSU_VIEW_LABELS[o]) ? TSU_VIEW_LABELS[o] : ''; } catch { return ''; } })()} onBack={() => { try { const o = sessionStorage.getItem('tsumugiSettingsOrigin'); sessionStorage.removeItem('tsumugiSettingsOrigin'); if (o && navigateTo) navigateTo(o); } catch {} }} />
+            {/* ★ 2026-10-28 夜(ユーザー「保存は右上にあった方が他の画面と同じでいい」): 縦の項目のときの保存は、この帯の右上(固定) */}
+            <div className="flex items-start gap-2">
+              <div className="flex-1 min-w-0">
+                <TsuSecJump dep={activeTab} origin={(() => { try { const o = sessionStorage.getItem('tsumugiSettingsOrigin'); return (o && o !== 'settings' && TSU_VIEW_LABELS[o]) ? TSU_VIEW_LABELS[o] : ''; } catch { return ''; } })()} onBack={() => { try { const o = sessionStorage.getItem('tsumugiSettingsOrigin'); sessionStorage.removeItem('tsumugiSettingsOrigin'); if (o && navigateTo) navigateTo(o); } catch {} }} />
+              </div>
+              {tabs.length > 1 && <button type="button" data-testid="settings-save" onClick={saveAll} className="hidden md:block shrink-0 px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md active:scale-95 text-sm">保存</button>}
+            </div>
             <TsuSettingsSearch tabs={tabs} onPick={(tab, title) => { setActiveTab(tab); setTimeout(() => { try { const el = [...document.querySelectorAll('[data-sec-title]')].find(x => x.getAttribute('data-sec-title') === title); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {} }, 250); }} />
           </div>
 

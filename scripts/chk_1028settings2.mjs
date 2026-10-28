@@ -2,7 +2,8 @@
 //   iPad(1180)・PC(1440): ①左に縦の項目(保存はその上)・上の横の項目は出ない ②縦の項目を押すと中身が変わる ③「この中の項目」が検索欄より上・下にスクロールしても上に固定
 //   ④「この中の項目」を押すとその見出しが固定の帯のすぐ下に来る ⑤検索で選ぶとその見出しへ ⑥中身の幅は 4xl(896px)まで・入力欄の上下が詰まっている
 //   スマホ: ⑦上に横の項目(今までどおり)・縦の項目は出ない
-//   家族関係者閲覧 管理: ⑧送付先のボタンに ☑/☐ がない ⑨「イベント/クラス」の欄がない(タイトル・表示日・本文)
+//   家族関係者閲覧 管理: ⑧送付先のボタンに ☑/☐ がない ⑨「イベント/クラス」の欄がない(タイトル・表示日・本文) ⑪どのタブでも帯の位置・大きさが同じ
+//   ⑩ケアマネ事業所・担当者(項目が1つ)は縦の項目なし・上の帯のまま
 //   実行: node scripts/chk_1028settings2.mjs [--port 4175]
 import { chromium } from 'playwright';
 const PORT = (() => { const i = process.argv.indexOf('--port'); return i >= 0 ? process.argv[i + 1] : '4175'; })();
@@ -17,7 +18,7 @@ const open = async (vp, view) => { const ctx = await b.newContext({ viewport: vp
 for (const [k, vp] of [['ipad', { width: 1180, height: 820 }], ['pc', { width: 1440, height: 900 }]]) {
   const { ctx, page } = await open(vp, 'settings');
   const nv = await page.locator('[data-testid^="settings-vtab-"]:visible').count(); const hz = await page.getByTestId('settings-tabs').isVisible().catch(() => false);
-  r[`${k}_vtabs`] = nv >= 8 && !hz && await page.getByTestId('settings-save').isVisible();
+  const sv = await page.getByTestId('settings-save').boundingBox().catch(() => null); r[`${k}_vtabs`] = nv >= 8 && !hz && !!sv && sv.x > vp.width / 2 && sv.y < 120; // 保存は右上
   await page.getByTestId('settings-vtab-diary').click(); await page.waitForTimeout(700);
   r[`${k}_switch`] = /送迎車両|日誌/.test(await page.getByTestId('settings-content').innerText());
   await page.getByTestId('settings-vtab-facility').click(); await page.waitForTimeout(700);
@@ -45,6 +46,13 @@ for (const [k, vp] of [['ipad', { width: 1180, height: 820 }], ['pc', { width: 1
   const txt = await page.locator('body').innerText();
   r.noCheckIcons = !/[☑☐]\s*(ご家族|ケアマネ|その他関係者)/.test(txt) && /ご家族/.test(txt);
   r.noEventClass = !txt.includes('イベント/クラス') && txt.includes('表示日'); console.log('家族関係者閲覧', r.noCheckIcons, r.noEventClass);
+  // ⑪ どのタブでも帯の位置・大きさが同じ(2026-10-28 夜 trial450)
+  const pos = []; for (const lb of ['投稿', 'プレビュー', '過去履歴']) { await page.locator('[data-testid="fa-tabs"] button', { hasText: lb }).first().click(); await page.waitForTimeout(700); const bb = await page.getByTestId('fa-tabs').boundingBox(); pos.push([bb.x, bb.y, bb.width, bb.height].map(Math.round).join(',')); }
+  console.log('家族関係者閲覧の帯', pos); r.faTabsSame = pos.every(x => x === pos[0]);
+  await ctx.close(); }
+// ⑩ ケアマネ事業所・担当者(項目が1つ)は縦の項目を出さず今までどおり(2026-10-28 夜 trial450)
+{ const { ctx, page } = await open({ width: 1180, height: 820 }, 'cmmaster');
+  r.cmNoVnav = (await page.getByTestId('settings-vtabs').count()) === 0 && await page.getByTestId('settings-tabs').isVisible(); console.log('ケアマネ', r.cmNoVnav);
   await ctx.close(); }
 await b.close();
 const ok = Object.values(r).every(Boolean); console.log(r, ok ? 'PASS' : 'FAIL'); process.exit(ok ? 0 : 1);
