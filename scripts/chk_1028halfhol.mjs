@@ -1,7 +1,7 @@
 // 2026-10-28 半日休業(ユーザー「全日と、雪などで午前だけ・午後だけも選べるように」「月間スケジュールで休業にしたら事業所情報の休業日一覧に出て、そこで直せるように」)
 //   見本の3人を 午前だけ(A)・午後だけ(B)・1日(C) の利用にし、今日を「午前のみ」の休業日にする
 //   ①提供記録入力: A=休業・B/C=休業にならない ②月間スケジュール(A): 今日の午前のマス=休業で押せない・午後のマスは押せる
-//   ③月間スケジュールで別の日の午後を「休業（店舗の休業日にする）」→ 午後のみで入る → 休業日の一覧に入る・その日の午後のマスが休業
+//   ③月間スケジュールで別の日の午後を「休業（施設休業日の設定へ）」→ 各種設定の施設休業日へ移り、その日と「午後のみ」が登録欄に入っている → 登録 → その日の午後のマスが休業
 //   ④各種設定→事業所情報の施設休業日: 一覧に「午前のみ」「午後のみ」・登録で「午後のみ」を選んで入れられる ⑤送迎表の見出しに「午前休業」
 //   実行: node scripts/chk_1028halfhol.mjs [--port 4175] [--shots 出力フォルダ]
 import { chromium } from 'playwright';
@@ -46,27 +46,26 @@ await page.locator('button:visible', { hasText: /^サービス提供内容$/ }).
 const cell = async (dn, ap) => { const c = page.getByTestId(`ms-cell-${dn}-${ap}`); await c.scrollIntoViewIfNeeded(); return { t: (await c.innerText()).trim(), dis: await c.isDisabled() }; };
 const am = await cell(now.getDate(), 'AM'), pm = await cell(now.getDate(), 'PM'); console.log('cells today', am, pm);
 r.cellAmKyugyo = am.t === '休業' && am.dis; r.cellPmOpen = pm.t !== '休業' && !pm.dis;
-// ③ 別の日の午後を「休業（店舗の休業日にする）」
+// ③ 別の日の午後を「休業（施設休業日の設定へ）」→ 各種設定の施設休業日へ移る・押した日と「午後のみ」が登録欄に入っている → 名称を書いて登録
 await page.getByTestId(`ms-cell-${D2}-PM`).click(); await page.waitForTimeout(400);
-await page.locator('button:visible', { hasText: /^休業（店舗の休業日にする）$/ }).first().click(); await page.waitForTimeout(500);
-r.modal = await page.getByTestId('ms-storehol-modal').isVisible();
-r.modalDefaultPM = /bg-slate-700/.test(await page.getByTestId('ms-storehol-ap-PM').getAttribute('class') || '');
-await page.getByTestId('ms-storehol-name').fill('雪のため（午後）');
-if (SHOTS) await page.screenshot({ path: `${SHOTS}/halfhol_modal.png` });
-await page.getByTestId('ms-storehol-save').click(); await page.waitForTimeout(1200);
+await page.locator('button:visible', { hasText: /^休業（施設休業日の設定へ）$/ }).first().click(); await page.waitForTimeout(1500);
+r.jumped = await page.locator('text=施設休業日の設定').first().isVisible().catch(() => false);
+const dIn = page.locator('input[type="date"]:visible'); const pf = [await dIn.nth(0).inputValue().catch(() => ''), await dIn.nth(1).inputValue().catch(() => '')];
+r.prefillDate = pf[0] === isoD(D2) && pf[1] === isoD(D2); r.prefillPM = /bg-slate-800/.test(await page.getByTestId('hol-add-ap-PM').getAttribute('class') || ''); console.log('prefill', pf, r.prefillPM);
+if (SHOTS) await page.screenshot({ path: `${SHOTS}/halfhol_jump.png` });
+await page.locator('input[placeholder="例: 夏季休暇"]:visible').first().fill('雪のため（午後）'); await page.locator('button:visible', { hasText: /^登録$/ }).first().click(); await page.waitForTimeout(1200);
 const h2 = (await hol()).find(h => h && h.date === isoD(D2)); console.log('saved', h2); r.savedPM = !!h2 && h2.ampm === 'PM' && h2.name === '雪のため（午後）';
-const am2 = await cell(D2, 'AM'), pm2 = await cell(D2, 'PM'); console.log('cells D2', am2, pm2); r.cellD2 = pm2.t === '休業' && pm2.dis && am2.t !== '休業' && !am2.dis;
-if (SHOTS) await page.screenshot({ path: `${SHOTS}/halfhol_master.png` });
-// ④ 各種設定→事業所情報の施設休業日
-await go('settings');
-await page.locator('button:visible', { hasText: /^事業所情報$/ }).first().click().catch(() => {}); await page.waitForTimeout(800);
-const sec = page.locator('text=施設休業日の設定').first(); await sec.scrollIntoViewIfNeeded(); await page.waitForTimeout(300);
+// ④ 一覧の印・登録で「午後のみ」
 const badges = await page.getByTestId('hol-ampm-badge').allInnerTexts(); console.log('badges', badges); r.listBadges = badges.includes('午前のみ') && badges.includes('午後のみ');
-const dIn = page.locator('input[type="date"]:visible'); await dIn.nth(0).fill(isoD(D3)); await dIn.nth(1).fill(isoD(D3));
+await dIn.nth(0).fill(isoD(D3)); await dIn.nth(1).fill(isoD(D3));
 await page.locator('input[placeholder="例: 夏季休暇"]:visible').first().fill('研修');
 await page.getByTestId('hol-add-ap-PM').click(); await page.locator('button:visible', { hasText: /^登録$/ }).first().click(); await page.waitForTimeout(1200);
 const h3 = (await hol()).find(h => h && h.date === isoD(D3)); console.log('added', h3); r.addPM = !!h3 && h3.ampm === 'PM' && h3.name === '研修';
-if (SHOTS) { await sec.scrollIntoViewIfNeeded(); await page.screenshot({ path: `${SHOTS}/halfhol_settings.png` }); }
+if (SHOTS) await page.screenshot({ path: `${SHOTS}/halfhol_settings.png` });
+// 月間スケジュールに戻って、その日の午後のマスが休業・午前は押せる
+await go('master'); await page.locator('button:visible').filter({ hasText: new RegExp('^' + info.A.name) }).first().click(); await page.waitForTimeout(1200);
+await page.locator('button:visible', { hasText: /^サービス提供内容$/ }).first().click(); await page.waitForTimeout(800);
+const am2 = await cell(D2, 'AM'), pm2 = await cell(D2, 'PM'); console.log('cells D2', am2, pm2); r.cellD2 = pm2.t === '休業' && pm2.dis && am2.t !== '休業' && !am2.dis;
 // ⑤ 送迎表の見出し
 await go('transport');
 const tph = await page.getByTestId(`tp-hol-${T}`).first().innerText().catch(() => ''); r.tpHeader = tph === '午前休業'; if (!r.tpHeader) console.log('transport header:', JSON.stringify(tph));

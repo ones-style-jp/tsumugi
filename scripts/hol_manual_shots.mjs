@@ -1,5 +1,5 @@
 // 2026-10-28 マニュアル24章「施設休業日：午前のみ・午後のみ」の画面写真(試験版 trial441)
-//   ①各種設定→事業所情報の施設休業日(半日の印・登録の時間帯) ②月間スケジュールの「休業」の小窓 ③月間スケジュールのマス(午前だけ休業)
+//   ①月間スケジュールのマス(午前だけ休業) ②マスを押した小窓 ③「休業（施設休業日の設定へ）」で移った先(押した日と時間帯が入った登録欄・半日の印)
 //   見本の事業所名・住所・電話は架空に置き換えて撮る(実在の店舗名・番号が残っていたら止める)
 //   実行: node scripts/hol_manual_shots.mjs [--base http://localhost:4175] [--out public/manual/img]
 import { chromium } from 'playwright';
@@ -23,18 +23,15 @@ const name = await page.evaluate(([Y, ISO]) => { const d = JSON.parse(localStora
   delete d._holTs; localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); localStorage.setItem('tsumugiSidebarOpen', '0'); return p.name; }, [Y, ISO]);
 const go = async (view) => { await page.evaluate((v) => sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: v, pid: null, t: Date.now() })), view); await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2200); await page.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 500 }).catch(() => {}); };
 const guard = async () => { const t = await page.locator('body').innerText(); const v = await page.evaluate(() => [...document.querySelectorAll('input,textarea')].map(e => e.value).join(' ')); if (/扇橋|6458/.test(t + v)) { console.log('NG: 実在の店舗名・番号が残っている'); process.exit(1); } };
-// ① 各種設定の施設休業日
-await go('settings'); await page.locator('button:visible', { hasText: /^事業所情報$/ }).first().click().catch(() => {}); await page.waitForTimeout(800); await guard();
-await page.getByTestId('hol-add-ap-AM').click(); await page.waitForTimeout(200);
-const card = page.locator('div.scroll-mt-20', { has: page.locator('text=施設休業日の設定') }).first(); await card.scrollIntoViewIfNeeded(); await page.waitForTimeout(300);
-await card.screenshot({ path: path.join(OUT, 'trial_hol_settings.jpg'), type: 'jpeg', quality: 82 }); console.log('saved trial_hol_settings.jpg');
-// ② ③ 月間スケジュール
+// ① 月間スケジュールのマス(午前だけ休業) ② マスを押した小窓(「休業（施設休業日の設定へ）」) ③ 移った先の施設休業日(押した日と時間帯が登録欄に入っている)
 await go('master'); await page.locator('button:visible').filter({ hasText: new RegExp('^' + name) }).first().click(); await page.waitForTimeout(1200);
 await page.locator('button:visible', { hasText: /^サービス提供内容$/ }).first().click(); await page.waitForTimeout(800); await guard();
 const strip = page.locator('.tsu-mstrip').first(); await strip.scrollIntoViewIfNeeded(); await page.waitForTimeout(300);
 await strip.screenshot({ path: path.join(OUT, 'trial_hol_strip.jpg'), type: 'jpeg', quality: 82 }); console.log('saved trial_hol_strip.jpg');
-await page.getByTestId(`ms-cell-${D2}-AM`).click(); await page.waitForTimeout(400);
-await page.locator('button:visible', { hasText: /^休業（店舗の休業日にする）$/ }).first().click(); await page.waitForTimeout(400);
-await page.getByTestId('ms-storehol-name').fill('雪のため'); await page.waitForTimeout(200);
-await page.locator('[data-testid="ms-storehol-modal"] > div').first().screenshot({ path: path.join(OUT, 'trial_hol_modal.jpg'), type: 'jpeg', quality: 82 }); console.log('saved trial_hol_modal.jpg');
+await page.getByTestId(`ms-cell-${D2}-AM`).click(); await page.waitForTimeout(500);
+await page.locator('div.rounded-3xl', { hasText: '状態を選択' }).first().screenshot({ path: path.join(OUT, 'trial_hol_popup.jpg'), type: 'jpeg', quality: 82 }); console.log('saved trial_hol_popup.jpg');
+await page.locator('button:visible', { hasText: /^休業（施設休業日の設定へ）$/ }).first().click(); await page.waitForTimeout(1500); await guard();
+await page.locator('input[placeholder="例: 夏季休暇"]:visible').first().fill('雪のため'); await page.waitForTimeout(200);
+const card = page.locator('div.scroll-mt-20', { has: page.locator('text=施設休業日の設定') }).first(); await card.scrollIntoViewIfNeeded(); await page.waitForTimeout(300);
+await card.screenshot({ path: path.join(OUT, 'trial_hol_settings.jpg'), type: 'jpeg', quality: 82 }); console.log('saved trial_hol_settings.jpg');
 await b.close();

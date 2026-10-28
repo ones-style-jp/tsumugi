@@ -41944,7 +41944,6 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   const [furikaeModal, setFurikaeModal] = useState({ isOpen: false, day: null, ampm: null, fromDate: "", reason: "", mode: 'forward' });
   // 月間スケジュールセルクリック時の状態選択ポップアップ
   const [shiftStatusModal, setShiftStatusModal] = useState({ isOpen: false, day: null, ap: null, currentStatus: '', isBase: false });
-  const [storeHolModal, setStoreHolModal] = useState(null); // ★ 2026-10-28 月間スケジュールの「休業」→店舗の休業日に入れる {day, ap, ampm, name}
   // 欠席/休業 選択時の理由入力モーダル
   const [absenceReasonModal, setAbsenceReasonModal] = useState({ isOpen: false, status: '', day: null, ap: null, isBase: false, reason: '', reasonCat: '' });
   // 振替取り消し: 元 (欠席) の状態をどうするか選択するモーダル
@@ -42912,6 +42911,14 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     const { day, ap, isBase } = shiftStatusModal;
     if (!localPatient) { setShiftStatusModal({isOpen:false,day:null,ap:null,currentStatus:'',isBase:false}); return; }
     setShiftStatusModal({isOpen:false,day:null,ap:null,currentStatus:'',isBase:false});
+    // ★ 2026-10-28(ユーザー「月間スケジュールで休業をクリックしたら施設休業日の設定にジャンプ。休業は個人ではなくクラスごと」):
+    //   休業はこの方だけに付けず、各種設定→事業所情報の施設休業日へ移る(提供記録入力の「休業」と同じ1か所)。押した日と時間帯を登録欄に入れておく
+    if (newStatus === '休業') {
+      const _dsH = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+      try { sessionStorage.setItem('tsumugiHolPrefill', JSON.stringify({ date: _dsH, ampm: (ap === 'AM' || ap === 'PM') ? ap : '1日', t: Date.now() })); } catch {}
+      navigateTo && navigateTo('settings', null, 'holidays');
+      return;
+    }
     // ★ 過去日を欠席/休業/振替/休止に変更しようとした時は警告(誤操作で過去の記録が変わるのを防ぐ)。
     if (['欠席','休業','振替','休止'].includes(newStatus)) {
       const _cd = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day); _cd.setHours(0,0,0,0);
@@ -42991,14 +42998,6 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     if (newStatus === '休止') {
       const today = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
       setPauseFromCellModal({ isOpen: true, reason: '', fromDate: today, toDate: '' });
-      return;
-    }
-    // ★ 2026-10-28(ユーザー「月間スケジュールで休業にしたら、事業所情報の休業日一覧に出て、そこで直せるように」): 休業はこの方だけでなく
-    //   店舗の休業日として入れる(その時間帯に来る全員が休業・各種設定→事業所情報の施設休業日に入る=提供記録入力の「休業」と同じ1か所)
-    if (newStatus === '休業') {
-      const _dsH = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-      const _exH = (appData.holidays||[]).find(h => h && String(h.date||h) === _dsH); const _exAp = _exH ? holidayAmpmOn(appData.holidays, _dsH) : null;
-      setStoreHolModal({ day, ap, ampm: (_exAp && _exAp !== ap) ? '1日' : ap, name: (_exH && _exH.name) || '' });
       return;
     }
     // ★ 欠席 / 休業 は理由入力モーダルを開く
@@ -45826,50 +45825,6 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
           </div>
         </div>
       )}
-      {/* ★ 2026-10-28 月間スケジュールの「休業」: 店舗の休業日(各種設定→事業所情報の施設休業日)に入れる。午前のみ・午後のみ・1日を選べる */}
-      {storeHolModal && (() => {
-        const _y = currentMonth.getFullYear(), _m = currentMonth.getMonth() + 1, _d = storeHolModal.day;
-        const _ds = `${_y}-${String(_m).padStart(2,'0')}-${String(_d).padStart(2,'0')}`; const _w = ['日','月','火','水','木','金','土'][new Date(_y, _m - 1, _d).getDay()];
-        const _save = () => {
-          const nh = (appData.holidays||[]).filter(h => !(h && String(h.date||h) === _ds));
-          const _ap = storeHolModal.ampm;
-          nh.push({ date: _ds, name: String(storeHolModal.name||'').trim() || '休業日', ...((_ap === 'AM' || _ap === 'PM') ? { ampm: _ap } : {}) });
-          nh.sort((a,b)=>String(a.date||a).localeCompare(String(b.date||b)));
-          setStoreHolModal(null);
-          onSave({ ...appData, holidays: nh }, { manual: true, message: `✓ ${_m}月${_d}日${_ap === 'AM' ? 'の午前' : _ap === 'PM' ? 'の午後' : ''}を店舗の休業日にしました` });
-        };
-        return (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" data-testid="ms-storehol-modal">
-            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
-                <h2 className="text-base font-bold text-slate-800">店舗の休業日にする</h2>
-                <button type="button" aria-label="閉じる" onClick={() => setStoreHolModal(null)} className="p-2 text-slate-400 hover:bg-slate-200 rounded-full"><X size={20}/></button>
-              </div>
-              <div className="p-6 space-y-4">
-                <div className="text-base font-bold text-slate-800">{_m}月{_d}日（{_w}）</div>
-                <div>
-                  <div className="text-sm font-bold text-slate-600 mb-1.5">休業する時間帯</div>
-                  <div className="flex gap-2">
-                    {[['AM','午前のみ'],['PM','午後のみ'],['1日','1日']].map(([v,l]) => (
-                      <button key={v} type="button" data-testid={`ms-storehol-ap-${v}`} onClick={() => setStoreHolModal(m => ({ ...m, ampm: v }))}
-                        className={`flex-1 min-h-[44px] rounded-xl border font-bold text-sm ${storeHolModal.ampm === v ? 'bg-slate-700 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-600'}`}>{l}</button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-600 mb-1.5" htmlFor="ms-storehol-name">理由</label>
-                  <input id="ms-storehol-name" data-testid="ms-storehol-name" type="text" value={storeHolModal.name} onChange={e => { const v = e.target.value; setStoreHolModal(m => ({ ...m, name: v })); }} placeholder="例: 雪のため" className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-base outline-none"/>
-                </div>
-                <div className="text-sm text-slate-600 leading-relaxed bg-slate-50 border border-slate-200 rounded-xl p-3">この時間帯に来る方は全員「休業」になります。各種設定 → 事業所情報の「施設休業日」に入るので、直すときや消すときはそこで行います。</div>
-              </div>
-              <div className="px-6 py-3 bg-slate-50 border-t flex gap-2 justify-end">
-                <button type="button" onClick={() => setStoreHolModal(null)} className="min-h-[44px] px-4 rounded-xl font-bold text-slate-600 hover:bg-slate-200 text-sm">キャンセル</button>
-                <button type="button" data-testid="ms-storehol-save" onClick={_save} className="min-h-[44px] px-5 rounded-xl font-bold text-white bg-slate-700 hover:bg-slate-800 text-sm">休業日にする</button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
       {shiftStatusModal.isOpen && (() => {
         const cu = shiftStatusModal.currentStatus;
         // 現在状態を 出席/欠席/振替/休業 の4種に正規化
@@ -45923,7 +45878,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   {options.map(opt => (
                     <button key={opt} onClick={() => applyShiftStatus(opt)}
                       className={`w-full py-3 rounded-xl text-white font-bold text-sm shadow-md active:scale-95 ${colorMap[opt]}`}>
-                      {opt === '臨時' ? '臨時利用（基本利用日以外の来所）' : opt === '休業' ? '休業（店舗の休業日にする）' : opt}
+                      {opt === '臨時' ? '臨時利用（基本利用日以外の来所）' : opt === '休業' ? '休業（施設休業日の設定へ）' : opt}
                     </button>
                   ))}
                 </div>
@@ -46627,6 +46582,10 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
   React.useEffect(() => {
     if (navFocus !== 'holidays') return;
     setActiveTab('facility');
+    // ★ 2026-10-28 月間スケジュールの「休業」から来たら、押した日と時間帯を登録欄に入れておく(名称を書いて「登録」)
+    try { const _pf = JSON.parse(sessionStorage.getItem('tsumugiHolPrefill') || 'null'); sessionStorage.removeItem('tsumugiHolPrefill');
+      if (_pf && /^\d{4}-\d{2}-\d{2}$/.test(String(_pf.date || '')) && Date.now() - (Number(_pf.t) || 0) < 10 * 60 * 1000) {
+        setHolidayStart(_pf.date); setHolidayEnd(_pf.date); setHolidayAmpm((_pf.ampm === 'AM' || _pf.ampm === 'PM') ? _pf.ampm : '1日'); setHolidayYear(Number(_pf.date.slice(0, 4))); } } catch {}
     const t = setTimeout(() => {
       try { holidaySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {}
       onFocusHandled && onFocusHandled();
