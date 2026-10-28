@@ -39849,15 +39849,16 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 {!cl.length ? <div className="text-xs text-slate-500 py-3" data-testid="tp-chg-none">この範囲に変更はありません。</div> : (
                   <div className="max-h-[65vh] overflow-auto border border-slate-200 rounded-lg divide-y divide-slate-100" data-testid="tp-chg-list">
                     {cl.map((x, i) => { const d = new Date(x.iso + 'T00:00:00'); return (
-                      <div key={i} className={`flex items-center gap-2 px-3 py-2.5 text-[15px] leading-snug ${x.tel && x.done ? 'opacity-60' : ''}`} data-testid="tp-chg-item">
+                      // ★ 2026-10-28 深夜(ユーザー「色合いが微妙」): 連絡済の行を丸ごと薄く(opacity)すると、名前・要連絡・チェックまでかすんでいた → 薄い緑の行・文字は灰色・要連絡は出さず緑のチェックと「連絡済」
+                      <div key={i} className={`flex items-center gap-2 px-3 py-2.5 text-[15px] leading-snug ${x.tel && x.done ? 'bg-emerald-50' : ''}`} data-testid="tp-chg-item" data-done={x.tel && x.done ? '1' : '0'}>
                         <button type="button" data-testid="tp-chg-item-focus" onClick={() => { setChgPanel(null); focusChg(x); }} className="flex-1 min-w-0 text-left" title="押すとこの方を黄色く表示（もう一度で消えます）">
                           <span className="font-bold text-slate-600 tabular-nums whitespace-nowrap">{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{x.sl==='AM'?'午前':'午後'}</span>
-                          <span className={`font-bold text-slate-800 ml-1.5 ${x.tel && x.done ? 'line-through' : ''}`}>{_pname(x.pid)}</span>
-                          <span className="text-slate-700 ml-1.5">{x.ac}</span>
-                          {x.tel && <span className="ml-1.5 text-[12px] font-bold text-red-700 border border-red-400 rounded px-1 whitespace-nowrap">要連絡</span>}
+                          <span className={`font-bold ml-1.5 ${x.tel && x.done ? 'text-slate-500' : 'text-slate-800'}`}>{_pname(x.pid)}</span>
+                          <span className={`ml-1.5 ${x.tel && x.done ? 'text-slate-500' : 'text-slate-700'}`}>{x.ac}</span>
+                          {x.tel && !x.done && <span className="ml-1.5 text-[12px] font-bold text-red-700 bg-red-50 border border-red-400 rounded px-1 whitespace-nowrap">要連絡</span>}
                         </button>
-                        {x.tel && <label className="flex items-center gap-1.5 text-[13px] font-bold text-slate-700 whitespace-nowrap cursor-pointer shrink-0" data-testid="tp-chg-item-done">
-                          <input type="checkbox" checked={!!x.done} onChange={e => setTelDone(x.iso, x.sl, x.pid, e.target.checked)} className="w-5 h-5"/>連絡済</label>}
+                        {x.tel && <label className={`flex items-center gap-1.5 text-[13px] font-bold whitespace-nowrap cursor-pointer shrink-0 ${x.done ? 'text-emerald-700' : 'text-slate-700'}`} data-testid="tp-chg-item-done">
+                          <input type="checkbox" checked={!!x.done} onChange={e => setTelDone(x.iso, x.sl, x.pid, e.target.checked)} className="w-5 h-5 accent-emerald-600"/>連絡済</label>}
                       </div>); })}
                   </div>)}
               </div>
@@ -46357,6 +46358,8 @@ function TsuSecJump({ dep, origin, onBack }) {
 //   ①押して移る間(なめらかなスクロール中)は「いま見えている見出し」の判定を止める(指・ホイール・キーで動かしたら再開)。前はスクロールの途中で前の見出しに印が戻っていた
 //   ②開く/閉じるは項目ごとに覚える(この端末・tsumugiSettingsOpenTabs)。選んでいない項目の見出しも出し(前に開いたときの見出し・無ければ検索の見出し)、押すとその項目に切り替えてその見出しへ
 const _tsuSecCache = new Map();
+// ★ 2026-10-28 深夜(ユーザー「検索で移った先を光らせる 入れて」): 移った先の見出しの枠を一瞬だけ青く光らせる(着いたころに)。動きを減らす設定の端末は枠を出すだけ
+const tsuFlashEl = (el, delay = 450) => { if (!el) return; setTimeout(() => { try { el.classList.remove('tsu-flash'); void el.offsetWidth; el.classList.add('tsu-flash'); setTimeout(() => el.classList.remove('tsu-flash'), 1700); } catch {} }, delay); };
 const _tsuSecStatic = (tab) => TSU_SETTINGS_INDEX.filter(x => x[0] === tab).map(x => x[1]);
 const tsuSecTitlesOf = (tab) => _tsuSecCache.get(tab) || _tsuSecStatic(tab);
 function TsuSecNav({ tab, active, onPickOther }) {
@@ -46366,13 +46369,13 @@ function TsuSecNav({ tab, active, onPickOther }) {
   React.useEffect(() => { const t = setTimeout(() => { try { const el = selfRef.current; const nav = el && el.closest('[data-testid="settings-vtabs"]'); if (!el || !nav) return; const r = el.getBoundingClientRect(), n = nav.getBoundingClientRect(); if (r.bottom > n.bottom) nav.scrollBy({ top: Math.min(r.bottom - n.bottom + 8, r.top - n.top - 48), behavior: 'smooth' }); } catch {} }, 80); return () => clearTimeout(t); }, []);
   const box = () => document.querySelector('[data-testid="settings-content"]');
   const els = () => { const b = box(); return b ? [...b.querySelectorAll('[data-sec-title]')].filter(el => el.offsetParent) : []; };
-  const go = (title) => { const list = els(); const k = list.findIndex(x => x.getAttribute('data-sec-title') === title); const el = k >= 0 ? list[k] : null; lockRef.current = true; setCur(Math.max(0, k)); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  const go = (title, flash) => { const list = els(); const k = list.findIndex(x => x.getAttribute('data-sec-title') === title); const el = k >= 0 ? list[k] : null; lockRef.current = true; setCur(Math.max(0, k)); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); if (flash) tsuFlashEl(el); } };
   // 選んでいる項目は、画面の見出しで数え直す(中身が同じなら入れ替えない)
   React.useEffect(() => { if (!active) return; const t = setTimeout(() => { const next = els().map(el => el.getAttribute('data-sec-title')); if (next.length) { _tsuSecCache.set(tab, next); setItems(prev => (prev.join('|') === next.join('|') ? prev : next)); } }, 60); return () => clearTimeout(t); });
   React.useEffect(() => { if (!active) return; const b = box(); if (!b) return; let raf = 0;
     const on = () => { if (lockRef.current || raf) return; raf = requestAnimationFrame(() => { raf = 0; if (lockRef.current) return; const bar = document.querySelector('[data-testid="settings-topbar"]'); const lim = (bar ? bar.getBoundingClientRect().bottom : 0) + 16; const list = els(); let k = 0; list.forEach((el, i) => { if (el.getBoundingClientRect().top <= lim) k = i; }); if (list.length && b.scrollTop + b.clientHeight >= b.scrollHeight - 2) k = list.length - 1; setCur(k); }); };
     const user = () => { lockRef.current = false; };
-    const onGo = (e) => { const d = e && e.detail; if (d && d.tab === tab) go(d.title); };
+    const onGo = (e) => { const d = e && e.detail; if (d && d.tab === tab) go(d.title, !!d.flash); };
     b.addEventListener('scroll', on, { passive: true }); ['wheel', 'touchstart', 'keydown', 'pointerdown'].forEach(ev => b.addEventListener(ev, user, { passive: true })); window.addEventListener('tsu:secgo', onGo);
     if (!lockRef.current) on();
     return () => { b.removeEventListener('scroll', on); ['wheel', 'touchstart', 'keydown', 'pointerdown'].forEach(ev => b.removeEventListener(ev, user)); window.removeEventListener('tsu:secgo', onGo); if (raf) cancelAnimationFrame(raf); }; }, [active, items.length]);
@@ -46723,7 +46726,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
   const [_secOpen, _setSecOpen] = useState(() => { try { const a = JSON.parse(localStorage.getItem('tsumugiSettingsOpenTabs') || 'null'); return new Set(Array.isArray(a) ? a : [cmOnly ? 'cm' : 'facility']); } catch { return new Set([cmOnly ? 'cm' : 'facility']); } });
   const _secSetOpen = (id, on) => _setSecOpen(prev => { const n = new Set(prev); if (on) n.add(id); else n.delete(id); try { localStorage.setItem('tsumugiSettingsOpenTabs', JSON.stringify([...n])); } catch {} return n; });
   const _secTabClick = (id) => { if (activeTab !== id) { setActiveTab(id); _secSetOpen(id, true); } else _secSetOpen(id, !_secOpen.has(id)); };
-  const _secGo = (tab, title) => { if (activeTab !== tab) setActiveTab(tab); _secSetOpen(tab, true); setTimeout(() => { try { window.dispatchEvent(new CustomEvent('tsu:secgo', { detail: { tab, title } })); } catch {} }, activeTab !== tab ? 180 : 0); };
+  const _secGo = (tab, title, flash = false) => { if (activeTab !== tab) setActiveTab(tab); _secSetOpen(tab, true); setTimeout(() => { try { window.dispatchEvent(new CustomEvent('tsu:secgo', { detail: { tab, title, flash } })); } catch {} }, activeTab !== tab ? 180 : 0); };
   // 項目を切り替えたら中身は一番上から(iPad・PC の中身の箱)
   useEffect(() => { try { const b = document.querySelector('[data-testid="settings-content"]'); if (b) b.scrollTop = 0; } catch {} }, [activeTab]);
   // ★ 各種設定→ケアマネ事業所・担当者(またはその逆)へ移ると、React が同じ SettingsView を使い回すため activeTab が前の画面のまま残り
@@ -47556,7 +47559,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
           <div data-testid="settings-topbar" className="md:sticky md:top-0 z-20 bg-slate-100 pt-2 pb-1.5 space-y-1.5">
             {tabs.length > 1 && <div className="md:hidden"><TsuSecJump dep={activeTab} /></div>}
             <div className="flex items-center gap-2">
-              <div className="flex-1 min-w-0 md:flex-none md:w-80 lg:w-96"><TsuSettingsSearch tabs={tabs} onPick={(tab, title) => { if (tsuViewW() >= 768 && tabs.length > 1) { _secGo(tab, title); return; } setActiveTab(tab); setTimeout(() => { try { const el = [...document.querySelectorAll('[data-sec-title]')].find(x => x.getAttribute('data-sec-title') === title); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {} }, 120); }} /></div>
+              <div className="flex-1 min-w-0 md:flex-none md:w-80 lg:w-96"><TsuSettingsSearch tabs={tabs} onPick={(tab, title) => { if (tsuViewW() >= 768 && tabs.length > 1) { _secGo(tab, title, true); return; } setActiveTab(tab); setTimeout(() => { try { const el = [...document.querySelectorAll('[data-sec-title]')].find(x => x.getAttribute('data-sec-title') === title); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); tsuFlashEl(el); } } catch {} }, 120); }} /></div>
               <button type="button" data-testid="settings-save" onClick={saveAll} className="hidden md:block ml-auto shrink-0 px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md active:scale-95 text-sm">保存</button>
             </div>
           </div>
@@ -59933,7 +59936,9 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
           .pf-tabs-scroll::-webkit-scrollbar-track{background:#e2e8f0;}
           .pf-tabs-scroll::-webkit-scrollbar-thumb{background:#94a3b8;border-radius:4px;}
           .pf-tabs-scroll::-webkit-scrollbar-thumb:hover{background:#64748b;}`}</style>
-        <div className="pf-tabs-scroll flex overflow-x-auto border-b border-slate-200 shrink-0 bg-slate-50 px-3 gap-1 items-stretch">
+        {/* ★ 2026-10-28 深夜(ユーザー「個人ファイルも横じゃなくてサイドバーにした方が見やすいかも」): iPad・PC は左に縦のカテゴリ・右に中身。スマホは今までどおり上に横 */}
+        <div className="flex-1 min-h-0 flex flex-col md:flex-row">
+        <div className="pf-tabs-scroll flex md:hidden overflow-x-auto border-b border-slate-200 shrink-0 bg-slate-50 px-3 gap-1 items-stretch">
           {allCategories.map((c, i) => {
             const prev = allCategories[i-1];
             const showDivider = i > 0 && (c.group || '') !== (prev?.group || '');
@@ -59950,9 +59955,20 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
           })}
           <button onClick={handleAddCustomCategory} className="px-3 py-3 text-xs font-bold text-emerald-600 hover:bg-emerald-50 whitespace-nowrap">+ カテゴリ追加</button>
         </div>
+        <nav data-testid="pf-vtabs" className="hidden md:flex md:flex-col w-48 lg:w-56 shrink-0 border-r border-slate-200 bg-slate-50 overflow-y-auto py-1">
+          {allCategories.map((c, i) => { const prev = allCategories[i-1]; const showDivider = i > 0 && (c.group || '') !== (prev?.group || ''); return (
+            <React.Fragment key={c.id}>
+              {showDivider && <div className="my-1 mx-3 border-t border-slate-200" />}
+              <div className={`flex items-center border-l-4 ${activeCat === c.id ? 'border-emerald-600 bg-white' : 'border-transparent hover:bg-slate-100'}`}>
+                <button type="button" data-testid={`pf-vtab-${c.id}`} onClick={() => setActiveCat(c.id)} aria-current={activeCat === c.id ? 'page' : undefined} className={`flex-1 min-w-0 text-left px-3 py-2.5 text-sm font-bold ${activeCat === c.id ? 'text-emerald-700' : 'text-slate-600'}`}>{c.emoji} {c.name}</button>
+                {!c.isDefault && <button type="button" onClick={() => handleDeleteCustomCategory(c.id)} className="px-2 text-slate-400 hover:text-red-500" aria-label="このカテゴリを消す">×</button>}
+              </div>
+            </React.Fragment>); })}
+          <button type="button" onClick={handleAddCustomCategory} className="mt-1 mx-2 px-3 py-2 text-xs font-bold text-emerald-600 hover:bg-emerald-50 rounded-lg text-left">+ カテゴリ追加</button>
+        </nav>
         {/* コンテンツ */}
-        <div className="flex-1 overflow-auto p-6">
-          <div className="mb-4">
+        <div data-testid="pf-content" className="flex-1 min-w-0 min-h-0 overflow-auto p-4 md:p-5">
+          <div className="mb-3">
             <div className="text-sm font-bold text-slate-700">{activeCategory.name}</div>
             {activeCategory.note && <div className="text-[11px] text-slate-500 mt-1">{activeCategory.note}</div>}
           </div>
@@ -60790,6 +60806,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
           </div>
           )}
         </div>
+        </div>{/* 縦のカテゴリと中身の横並び */}
       </div>
       {/* 担当者会議 入力モーダル */}
       {showMeetingForm && (
