@@ -24988,6 +24988,8 @@ export default function App() {
             {/* ★ 日誌(diary)もzoom例外(2026-08-31): 日誌はシート側でdiaryViewScaleの拡縮を持ち、全体zoomと二重になると
                 iPad Safariでタップ座標がズレてシート内のチェック/時間セルが反応しなくなるため */}
             <div style={isMobileLayout ? {width:'100%',minWidth:0} : (currentView==='dashboard' || currentView==='print' || currentView==='master' || currentView==='diary' || currentView==='ticket' || _zoomNear1) ? {width:'100%',minWidth:0,height:'100%'} : _zoomScroll ? {width:`${DESIGN_WIDTH}px`, minWidth:DESIGN_WIDTH, height:'100%'} : {width:`${DESIGN_WIDTH}px`, minWidth:DESIGN_WIDTH, zoom: _zoomVal, height: scrollerH > 0 ? `${Math.floor(scrollerH / _zoomVal)}px` : '100%'}}>
+            {/* ★ 2026-10-29(ユーザー「計画書関係もサイドバー方式に」): 計画書の画面は iPad・パソコンで左に縦の並び(KeikakuFrame)。ほかの画面はそのまま */}
+            <KeikakuFrame on={KK_FRAME_VIEWS.includes(currentView)} appData={appData} navigateTo={navigateTo} dueCounts={_dueCounts}>
             {currentView === 'dashboard' ? <DashboardView appData={appData} navigateTo={navigateTo} activeRecorder={activeRecorder} notices={visibleNotices} devNotes={devUpdateNotes} isNoticeRead={isNoticeRead} markNoticeRead={markNoticeRead} onSave={handleSaveToCloud} /> :
              currentView === 'record' ? <RecordView appData={appData} activeRecorder={activeRecorder} onSave={handleSaveToCloud} navigateTo={navigateTo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={recordDirtyRef} saveFnRef={recordSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} showTip={showTip} hideTip={hideTip} isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} deviceName={effDeviceName} /> :
              currentView === 'ticket' ? <TicketView appData={appData} targetPatientId={targetPatientId} onBack={()=>navigateBack('master')} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  onSave={handleSaveToCloud} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={ticketDirtyRef} saveFnRef={ticketSaveFnRef} /> :
@@ -25020,6 +25022,7 @@ export default function App() {
              currentView === 'kyomi_kanshin' ? <KyomiKanshinView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} targetPatientId={targetPatientId} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={kyomiKanshinDirtyRef} saveFnRef={kyomiKanshinSaveFnRef} /> :
              currentView === 'dash_operation' ? <OperationDashboardView appData={appData} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} setAppData={setAppData} /> :
              <div className="flex h-full items-center justify-center text-slate-400 font-bold">開発中</div>}
+            </KeikakuFrame>
           </div></div></main>
       {/* ★ サイドバーのスタッフ追加モーダル */}
       {staffAddModal && (
@@ -51778,16 +51781,79 @@ const _kkFamGet = () => { try { return sessionStorage.getItem(_KK_FAM_KEY) || ''
 const KEIKAKU_DOCS_KINOU = [['kinou_yotei','作成予定'],['kinou_patient','利用者ごと'],['life_submit','LIFE提出']];
 const KEIKAKU_SUB_LABEL = { kinou_keikaku:'個別機能訓練計画書（様式3-3）', seikatsu_kinou:'生活機能チェック（様式3-2）', kyomi_kanshin:'興味・関心チェック（様式3-1）', life_hub:'ADL評価・科学的介護' };
 const kkHasLife = (appData) => { const a = appData?.systemSettings?.addons || {}; return !!(a.kasan_kagaku || a.kasan_adl || a.kasan_kinou2); };
+// ★ 2026-10-29(ユーザー「計画書関係もサイドバー方式にした方がいいかも」・各種設定と個人ファイルに合わせる):
+//   iPad・パソコン(768px以上)は計画書の画面の左に縦の並び。上は「通所介護計画書」、下は「個別機能訓練・LIFE」(店舗で使っている方だけ)。
+//   個別機能訓練の 3-3・3-2・3-1・ADL評価 は「利用者ごと」の下に小さく並べる(10/14 の「タブは3つ」の形はそのまま)。3-1・3-2 は両方の組にあり、最後に押した組の方に印。
+//   今どこかは各画面の見出しの KeikakuTabs が知らせる(編集中は KeikakuTabs が無い=左の並びも出さない)。スマホは今までどおり上の横のボタン
+const KkSideCtx = React.createContext(null);
+const KK_FRAME_VIEWS = ['keikaku_yotei','tsusho_keikaku','kinou_yotei','kinou_patient','kinou_keikaku','seikatsu_kinou','kyomi_kanshin','life_hub','life_submit'];
+function KeikakuFrame({ on, appData, navigateTo, dueCounts, children }) {
+  const [reg, setReg] = React.useState(null);
+  const api = React.useMemo(() => ({ set: (tok, d) => setReg({ tok, ...d }), clear: (tok) => setReg(p => (p && p.tok === tok ? null : p)) }), []);
+  if (!on) return children;
+  return (
+    <KkSideCtx.Provider value={api}>
+      <div className="h-full md:flex" data-testid="kk-frame">
+        {reg ? <KeikakuSideNav reg={reg} appData={appData} navigateTo={navigateTo} dueCounts={dueCounts} onRefam={(f) => setReg(p => (p ? { ...p, fam: f } : p))}/> : null}
+        <div className="h-full md:flex-1 md:min-w-0">{children}</div>
+      </div>
+    </KkSideCtx.Provider>
+  );
+}
+function KeikakuSideNav({ reg, appData, navigateTo, dueCounts, onRefam }) {
+  const { current, fam, pid } = reg;
+  const hasLife = kkHasLife(appData);
+  const showTsusho = hasAddon(appData, 'tsusho_keikaku') || fam === 'tsusho';
+  const showKinou = hasAddon(appData, 'kinou_keikaku') || hasAnyLifeAddon(appData) || fam !== 'tsusho';
+  const _p = pid != null ? (appData.patients || []).find(p => p.id === pid) : null;
+  const _shienP = !!_p && kpCareGroup(_p) === 'shien'; // 要支援の方には 3-3 が無い(利用者ごとと同じ)
+  // 3-1・3-2 を開いたまま、もう一方の組の 3-1・3-2 を押したときは画面が変わらないので、印だけ移す
+  const go = (f, v) => { _kkFamSet(f); if (v === current && f !== fam && onRefam) onRefam(f); navigateTo(v, pid ?? null); };
+  const lbl = (t) => String(t).split(/(（[^）]*）)/).filter(Boolean).map((x, i) => (x.startsWith('（') ? <span key={i} className="whitespace-nowrap">{x}</span> : x)); // 狭いとき「（3-2）」の途中で折れないように
+  const badge = (n) => (n ? <span className="shrink-0 min-w-[1.5em] text-center rounded-full bg-amber-100 text-amber-800 text-[11px] leading-[1.6] px-1">{n}</span> : null);
+  const top = (f, v, label, n) => { const on = fam === f && current === v; return (
+    <button key={`${f}-${v}`} type="button" data-testid={`kk-side-${f}-${v}`} aria-current={on ? 'page' : undefined} onClick={() => go(f, v)}
+      className={`w-full text-left px-3 py-2.5 text-sm font-bold border-l-4 flex items-center gap-1.5 ${on ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-transparent text-slate-600 hover:bg-slate-50'}`}>
+      <span className="flex-1 min-w-0">{lbl(label)}</span>{badge(n)}
+    </button>); };
+  const subs = [
+    ...(_shienP ? [] : [['kinou_keikaku', '個別機能訓練計画書（3-3）']]),
+    ['seikatsu_kinou', '生活機能チェック（3-2）'], ['kyomi_kanshin', '興味・関心チェック（3-1）'],
+    ...(hasLife ? [['life_hub', 'ADL評価・科学的介護']] : []),
+  ];
+  const inSub = fam !== 'tsusho' && subs.some(([v]) => v === current);
+  const head = (t) => <div className="px-3 pt-3 pb-1 text-[11px] font-bold text-slate-400 tracking-wide">{t}</div>;
+  return (
+    <nav data-testid="kk-side" className="hidden md:flex md:flex-col w-52 lg:w-56 shrink-0 h-full bg-white border-r border-slate-200 overflow-y-auto pb-4">
+      {showTsusho && <>{head('通所介護計画書')}{KEIKAKU_DOCS_TSUSHO.map(([v, l]) => top('tsusho', v, l, v === 'keikaku_yotei' ? dueCounts?.tsusho : 0))}</>}
+      {showKinou && <>
+        <div className={showTsusho ? 'mt-2 border-t border-slate-100' : ''}>{head('個別機能訓練・LIFE')}</div>
+        {top('kinou', 'kinou_yotei', '作成予定', dueCounts?.kinou)}
+        <button type="button" data-testid="kk-side-kinou-kinou_patient" aria-current={fam !== 'tsusho' && current === 'kinou_patient' ? 'page' : undefined} onClick={() => go('kinou', 'kinou_patient')}
+          className={`w-full text-left px-3 py-2.5 text-sm font-bold border-l-4 ${fam !== 'tsusho' && current === 'kinou_patient' ? 'border-blue-600 bg-blue-50 text-blue-700' : inSub ? 'border-blue-200 text-blue-700 hover:bg-slate-50' : 'border-transparent text-slate-600 hover:bg-slate-50'}`}>利用者ごと</button>
+        <div className="pb-1 bg-slate-50/70 border-b border-slate-100" data-testid="kk-side-subs">
+          {subs.map(([v, l]) => { const on = fam !== 'tsusho' && current === v; return (
+            <button key={v} type="button" data-testid={`kk-side-kinou-${v}`} aria-current={on ? 'page' : undefined} onClick={() => go('kinou', v)}
+              className={`block w-full text-left pl-6 pr-2 py-1.5 text-[13px] leading-snug ${on ? 'text-blue-700 font-bold bg-blue-50' : 'text-slate-600 hover:bg-slate-100'}`}>{lbl(l)}</button>); })}
+        </div>
+        {hasLife && top('kinou', 'life_submit', 'LIFE提出', 0)}
+      </>}
+    </nav>
+  );
+}
 function KeikakuTabs({ current, navigateTo, family, pid, appData }) {
-  if (!navigateTo) return null;
+  const side = React.useContext(KkSideCtx);
   const _shared = current === 'kyomi_kanshin' || current === 'seikatsu_kinou';
   const fam = (_shared && _kkFamGet() === 'tsusho') ? 'tsusho' : family;
   if (!_shared) _kkFamSet(fam === 'tsusho' ? 'tsusho' : 'kinou');
+  // ★ 2026-10-29: 左の縦の並び(KeikakuFrame)に「今の画面・組・利用者」を知らせる。編集中はこの部品が無いので、左の並びも出ない(書類を広く使う)
+  React.useLayoutEffect(() => { if (!side || !navigateTo) return undefined; const tok = {}; side.set(tok, { current, fam, pid: pid ?? null }); return () => side.clear(tok); }, [side, navigateTo, current, fam, pid]);
+  if (!navigateTo) return null;
   const docs = fam === 'tsusho' ? KEIKAKU_DOCS_TSUSHO : KEIKAKU_DOCS_KINOU.filter(([v]) => v !== 'life_submit' || !appData || kkHasLife(appData));
   const sub = fam !== 'tsusho' ? KEIKAKU_SUB_LABEL[current] : null;
   const active = sub ? 'kinou_patient' : current;
   return (
-    <div className="flex gap-1 flex-wrap items-center" data-testid="kk-tabs">
+    <div className={`flex gap-1 flex-wrap items-center ${side ? 'md:hidden' : ''}`} data-testid="kk-tabs">
       {docs.map(([v,l]) => (
         <button key={v} data-testid={`kk-tab-${v}`} onClick={()=>{ _kkFamSet(fam === 'tsusho' ? 'tsusho' : 'kinou'); navigateTo(v, pid ?? null); }} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${active===v?'bg-blue-600 text-white':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{l}</button>
       ))}
@@ -51948,7 +52014,7 @@ function KinouPatientView({ appData, navigateTo, targetPatientId, onShowPrintPre
           </div>
         </div>)}
       </div>
-      {_dlEl ? <div style={{ display: 'none' }} aria-hidden="true">{_dlEl}</div> : null}
+      {_dlEl ? <div style={{ display: 'none' }} aria-hidden="true"><KkSideCtx.Provider value={null}>{_dlEl}</KkSideCtx.Provider></div> : null}{/* ★ 2026-10-29: 見えない書類の画面は左の並びに知らせない */}
     </div>
   );
 }

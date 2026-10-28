@@ -51,11 +51,11 @@ await page.locator('button', { hasText: '保存して閉じる' }).first().click
 const rb = await recs(ids.B); const fin = rb.find(x => !x.zantei); const zan = rb.find(x => x.zantei);
 r.finalSaved = rb.length === 2 && !!fin && !!zan && fin.planType === 'kaigo' && fin.zanteiFromId === zan.id && /暫定の計画書/.test(fin.tokki || '') && !fin.setsumeiDate;
 h = await printHtml(); r.kaigoPrint = h.includes('【（地域密着型）通所介護計画書】') && !h.includes('（暫定）');
-// 5) アセスメントのタブ: 通所介護計画書のタブから 3-1 を開くと、通所介護計画書のタブのまま
-r.assessTabs = (await page.getByTestId('kk-tab-kyomi_kanshin').count()) === 1 && (await page.getByTestId('kk-tab-seikatsu_kinou').count()) === 1;
-await page.getByTestId('kk-tab-kyomi_kanshin').click(); await page.waitForTimeout(1200);
-r.assessStaysTsusho = (await page.getByTestId('kk-tab-tsusho_keikaku').count()) === 1 && (await page.getByTestId('kk-tab-kinou_patient').count()) === 0;
-await page.getByTestId('kk-tab-tsusho_keikaku').click(); await page.waitForTimeout(1000); r.backToTsusho = (await page.getByTestId('tk-finalize').count()) >= 0 && (await page.locator('button', { hasText: '＋ 新規作成' }).count()) >= 1;
+// 5) アセスメント: 通所介護計画書の組から 3-1 を開くと、通所介護計画書の組のまま(2026-10-29〜 iPad・PC は左の縦の並び kk-side-*)
+r.assessTabs = (await page.getByTestId('kk-side-tsusho-kyomi_kanshin').count()) === 1 && (await page.getByTestId('kk-side-tsusho-seikatsu_kinou').count()) === 1 && (await page.locator('[data-testid="kk-tabs"]:visible').count()) === 0;
+await page.getByTestId('kk-side-tsusho-kyomi_kanshin').click(); await page.waitForTimeout(1200);
+r.assessStaysTsusho = (await page.getByTestId('kk-side-tsusho-kyomi_kanshin').getAttribute('aria-current')) === 'page' && (await page.getByTestId('kk-side-kinou-kyomi_kanshin').getAttribute('aria-current').catch(() => null)) !== 'page';
+await page.getByTestId('kk-side-tsusho-tsusho_keikaku').click(); await page.waitForTimeout(1000); r.backToTsusho = (await page.getByTestId('kk-side-tsusho-tsusho_keikaku').getAttribute('aria-current')) === 'page' && (await page.locator('button', { hasText: '＋ 新規作成' }).count()) >= 1;
 // 6) 個別機能訓練計画書の暫定 → 印刷の題名に（暫定）
 await go('kinou_keikaku', ids.B);
 await page.locator('button', { hasText: '＋ 新規作成' }).first().click(); await page.waitForTimeout(600);
