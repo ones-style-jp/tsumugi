@@ -26505,12 +26505,14 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   React.useEffect(() => { if (isSidebarOpen) setRecJump(null); }, [isSidebarOpen]);
   const [recFlash, setRecFlash] = useState(null);
   const _recKana = (t) => String(t || '').replace(/[\u3041-\u3096]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 0x60)).replace(/[\s　]/g, '');
-  const openRecJump = () => { const pin = document.querySelector('.tsu-pin'); const top = pin ? Math.round(pin.getBoundingClientRect().bottom) : 96; setRecJump(v => v ? null : { top, q: '' }); };
+  // ★ 2026-10-28(ユーザー要望「スマホの全画面でも利用者を選べるボタンを」): 全画面のときは全画面の帯の下から出す
+  const openRecJump = () => { const pin = document.querySelector(isFullscreen ? '[data-testid="rec-fs-bar"]' : '.tsu-pin'); const top = pin ? Math.round(pin.getBoundingClientRect().bottom) : 96; setRecJump(v => v ? null : { top, q: '' }); };
   const jumpToRecCard = (id) => {
     setRecJump(null);
     setTimeout(() => {
+      tsuBackLockRescan(); // ★ 2026-10-28: 一覧が閉じたら背面止めをすぐ外してから動かす
       const el = document.querySelector(`[data-rec-card="${id}"]`); if (!el) return;
-      const pin = document.querySelector('.tsu-pin'); const off = (pin ? pin.getBoundingClientRect().bottom : 96) + 8;
+      const pin = document.querySelector(isFullscreen ? '[data-testid="rec-fs-bar"]' : '.tsu-pin'); const off = (pin ? pin.getBoundingClientRect().bottom : 96) + 8;
       let sc = el.parentElement; while (sc && sc !== document.body && sc !== document.documentElement) { const st = getComputedStyle(sc); if (/(auto|scroll)/.test(st.overflowY) && sc.scrollHeight > sc.clientHeight + 1) break; sc = sc.parentElement; }
       const dy = el.getBoundingClientRect().top - off;
       if (sc && sc !== document.body && sc !== document.documentElement) sc.scrollBy({ top: dy, behavior: 'smooth' }); else window.scrollBy({ top: dy, behavior: 'smooth' });
@@ -27390,28 +27392,6 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             </div>
       </div>
       {_vitalPanel}
-      {/* ★ 2026-10-16: スマホの「利用者」一覧(押すとその方のカードへ)。名前・ふりがなで探せる */}
-      {recJump && ReactDOM.createPortal((
-        <div className="fixed inset-x-0 bottom-0" style={{ top: recJump.top, zIndex: 9000 }} data-testid="rec-jump">
-          <div className="absolute inset-0 bg-slate-900/40" onClick={() => setRecJump(null)} />
-          <div className="relative bg-white border-b border-slate-300 shadow-xl flex flex-col" style={{ maxHeight: '70vh' }}>
-            <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200">
-              <input type="search" value={recJump.q} onChange={e => { const v = e.target.value; setRecJump(o => o ? { ...o, q: v } : o); }} placeholder="名前で探す" data-testid="rec-jump-q" className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-[16px] outline-none" />
-              <button type="button" onClick={() => setRecJump(null)} className="whitespace-nowrap shrink-0 px-3 py-2 rounded-lg bg-slate-200 text-slate-700 text-sm font-bold">閉じる</button>
-            </div>
-            {attCounts && (() => { const defs = [['出席','#1e40af','#dbeafe'],['欠席','#991b1b','#fee2e2'],['振替','#166534','#dcfce7'],['臨時','#155e75','#cffafe'],['休止','#9a3412','#ffedd5'],['休業','#475569','#f1f5f9']].filter(([l]) => (attCounts[l]||0) > 0); if (!defs.length) return null; return (
-              <div data-testid="rec-jump-att" className="flex flex-wrap gap-1.5 px-3 pt-2">{defs.map(([l,fg,bg]) => <span key={l} style={{background:bg,color:fg,borderRadius:6,padding:'1px 8px',fontSize:13,fontWeight:'bold'}}>{l} {attCounts[l]}</span>)}</div>); })()}
-            <div className="overflow-y-auto p-2 grid grid-cols-2 gap-1.5" data-testid="rec-jump-list">
-              {(() => { const q = _recKana(recJump.q); const list = (displayRecords || []).filter(r => { if (!q) return true; const mp = (appData.patients||[]).find(pt => pt.id === r.patientId || pt.id === r.id) || {}; return _recKana(r.name).includes(q) || _recKana(mp.kana).includes(q); });
-                if (!list.length) return <div className="col-span-2 text-center text-[14px] text-slate-400 py-4">見つかりません</div>;
-                return list.map(r => { const st = r.status || '出席'; const off = st === '欠席' || st === '休業' || st === '休止'; return (
-                  <button key={r.id} type="button" data-testid="rec-jump-item" onClick={() => jumpToRecCard(r.id)} className={`min-h-[48px] px-2.5 py-1.5 rounded-lg border text-left flex items-center gap-1.5 ${off ? 'bg-slate-50 border-slate-200 text-slate-400' : 'bg-white border-slate-300 text-slate-800'}`}>
-                    <span className="flex-1 min-w-0 truncate text-[16px] font-bold">{r.name}</span>
-                    {st !== '出席' ? <span className="shrink-0 text-[11px] font-bold rounded px-1.5 py-0.5 bg-slate-100 text-slate-600">{st}</span> : null}
-                  </button>); }); })()}
-            </div>
-          </div>
-        </div>), document.body)}
       </>
       </TsuPhoneFold>
       ) : (
@@ -27420,6 +27400,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
         <div data-testid="rec-fs-bar" className="bg-slate-800 px-2 sm:px-4 py-2 flex flex-wrap items-center gap-2 sm:gap-3 flex-shrink-0 sticky top-0 z-50 shadow-md">
           <span data-testid="rec-fs-title" className="text-white font-bold text-sm whitespace-nowrap truncate min-w-0">{/* ★ 2026-10-28(ユーザー要望「全画面の左上の『サービス提供記録 入力 2026年10月28日』は長い。10月28日だけで」) */}{selectedDate && new Date(selectedDate).toLocaleDateString('ja-JP', {month:'long', day:'numeric'})}</span>
           {attCountChips && <div className="ml-1 sm:ml-2">{attCountChips}</div>}
+          {/* ★ 2026-10-28(ユーザー要望「スマホの全画面でも利用者を選べるボタンを」): スマホ(カードの画面)だけ。押すと通常画面と同じ一覧 */}
+          {filterMode === 'single' && <button type="button" data-testid="fs-rec-jump" onClick={openRecJump} aria-expanded={!!recJump} className={`md:hidden px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border ${recJump ? 'bg-slate-600 text-white border-slate-500' : 'bg-white text-slate-800 border-slate-300'}`}>利用者</button>}
           {/* ★ 2026-10-26(ユーザー要望「個別の実施・並び替え・一括○・印の外しも全画面で」) */}
           {_kinouOn && (
             <div data-testid="fs-kinou-box" className="flex items-center gap-1 bg-emerald-50 border border-emerald-200 rounded-lg px-1.5 py-0.5" title="個別機能訓練をした指導員。選ぶと表示中の全員に入ります（人ごとは「利用者ごと」）">
@@ -27450,6 +27432,28 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
         </div>
       )}
 
+      {/* ★ 2026-10-16: スマホの「利用者」一覧(押すとその方のカードへ)。名前・ふりがなで探せる。2026-10-28: 全画面からも開くので帯の外に置く */}
+      {recJump && ReactDOM.createPortal((
+        <div className="fixed inset-x-0 bottom-0" style={{ top: recJump.top, zIndex: isFullscreen ? 10040 : 9000 }} data-testid="rec-jump">{/* 全画面(9999)のときはその上に */}
+          <div className="absolute inset-0 bg-slate-900/40" onClick={() => setRecJump(null)} />
+          <div className="relative bg-white border-b border-slate-300 shadow-xl flex flex-col" style={{ maxHeight: '70vh' }}>
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200">
+              <input type="search" value={recJump.q} onChange={e => { const v = e.target.value; setRecJump(o => o ? { ...o, q: v } : o); }} placeholder="名前で探す" data-testid="rec-jump-q" className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-[16px] outline-none" />
+              <button type="button" onClick={() => setRecJump(null)} className="whitespace-nowrap shrink-0 px-3 py-2 rounded-lg bg-slate-200 text-slate-700 text-sm font-bold">閉じる</button>
+            </div>
+            {attCounts && (() => { const defs = [['出席','#1e40af','#dbeafe'],['欠席','#991b1b','#fee2e2'],['振替','#166534','#dcfce7'],['臨時','#155e75','#cffafe'],['休止','#9a3412','#ffedd5'],['休業','#475569','#f1f5f9']].filter(([l]) => (attCounts[l]||0) > 0); if (!defs.length) return null; return (
+              <div data-testid="rec-jump-att" className="flex flex-wrap gap-1.5 px-3 pt-2">{defs.map(([l,fg,bg]) => <span key={l} style={{background:bg,color:fg,borderRadius:6,padding:'1px 8px',fontSize:13,fontWeight:'bold'}}>{l} {attCounts[l]}</span>)}</div>); })()}
+            <div className="overflow-y-auto p-2 grid grid-cols-2 gap-1.5" data-testid="rec-jump-list">
+              {(() => { const q = _recKana(recJump.q); const list = (displayRecords || []).filter(r => { if (!q) return true; const mp = (appData.patients||[]).find(pt => pt.id === r.patientId || pt.id === r.id) || {}; return _recKana(r.name).includes(q) || _recKana(mp.kana).includes(q); });
+                if (!list.length) return <div className="col-span-2 text-center text-[14px] text-slate-400 py-4">見つかりません</div>;
+                return list.map(r => { const st = r.status || '出席'; const off = st === '欠席' || st === '休業' || st === '休止'; return (
+                  <button key={r.id} type="button" data-testid="rec-jump-item" onClick={() => jumpToRecCard(r.id)} className={`min-h-[48px] px-2.5 py-1.5 rounded-lg border text-left flex items-center gap-1.5 ${off ? 'bg-slate-50 border-slate-200 text-slate-400' : 'bg-white border-slate-300 text-slate-800'}`}>
+                    <span className="flex-1 min-w-0 truncate text-[16px] font-bold">{r.name}</span>
+                    {st !== '出席' ? <span className="shrink-0 text-[11px] font-bold rounded px-1.5 py-0.5 bg-slate-100 text-slate-600">{st}</span> : null}
+                  </button>); }); })()}
+            </div>
+          </div>
+        </div>), document.body)}
       {/* ★ 2026-10-26: 並び替え・一括○の小窓は通常表示・全画面のどちらからでも開く(帯の外に置く) */}
       {recOrderOpen && <RecordOrderModal rows={_recOrderRows} label={_recOrderLabel} onSave={saveRecordOrder} onReset={_recOrderOn ? resetRecordOrder : null} onClose={() => setRecOrderOpen(false)}/>}
       {bulkExOpen && ReactDOM.createPortal(<TsuBulkExerciseModal
@@ -37092,7 +37096,9 @@ const tsuIsBlockingOverlay = (el) => {
 //   タッチの端末では、重ね表示が出ている間は自動で背面(ページ・本体の箱・提供記録の表)を止める(小窓ごとの useTsuBackLock の付け忘れをなくす)。
 //   本体の画面そのもの(本体の箱 #tsuContentScroller や提供記録の表を中に持つ枠=外枠・提供記録の全画面)は小窓ではないので数えない。
 //   PC(マウス)は止めない(スクロールバーが消えて画面が横に揺れるため。ホイールは下の tsuInstallModalScrollGuard が止める)
-let _tsuAutoLockOn = false; let _tsuAutoLockInstalled = false;
+let _tsuAutoLockOn = false; let _tsuAutoLockInstalled = false; let _tsuAutoLockScan = null;
+// 小窓を閉じてすぐ画面を動かすとき(一覧から選んでその方へ移る など)に、止めを待たずに外す
+const tsuBackLockRescan = () => { try { if (_tsuAutoLockScan) _tsuAutoLockScan(); } catch {} };
 const tsuInstallAutoBackLock = () => {
   if (_tsuAutoLockInstalled || typeof window === 'undefined' || typeof document === 'undefined' || typeof MutationObserver === 'undefined') return; _tsuAutoLockInstalled = true;
   const touchy = () => { try { return window.innerWidth < 768 || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || (navigator.maxTouchPoints || 0) > 1; } catch { return false; } };
@@ -37107,6 +37113,7 @@ const tsuInstallAutoBackLock = () => {
     }
     if (on !== _tsuAutoLockOn) { _tsuAutoLockOn = on; _tsuSyncBackLock(); }
   };
+  _tsuAutoLockScan = scan;
   // 出たり消えたりは DOM の変化で拾う(まとめて120msごと)。ふわっと出る小窓(透明→表示)のため少し後にもう一度見る
   let pend = false, t2 = 0;
   const schedule = () => { if (!pend) { pend = true; setTimeout(() => { pend = false; scan(); }, 120); } clearTimeout(t2); t2 = setTimeout(scan, 480); };
@@ -44386,7 +44393,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         const HEADERS = ['利用者ID','氏名','フリガナ','性別','生年月日','郵便番号','都道府県','市区町村','町名番地','建物名','電話番号','携帯電話番号','緊急連絡先氏名','続柄','緊急連絡先電話','緊急連絡先電話（携帯）','緊急連絡先メール','被保険者番号','介護度','利用開始日','利用終了日','状態','既往歴','留意点','かかりつけ医','メールアドレス','認定有効期間（開始）','認定有効期間（終了）','負担割合','ケアマネ事業所','ケアマネ事業所電話','ケアマネ事業所FAX','担当ケアマネ','担当ケアマネ電話',
           // ★ 2026-10-12(ユーザー要望「基本情報・フェイスシートの情報は全て取込できるように」): 追加列(空欄は既存を上書きしない)
           //   (2026-10-12 ユーザー指示: 今のフェイスシートにある項目だけ。削除済みの趣味・家族構成などは入れない。自立度は計画書・LIFEで使う保存先がフェイスシートのため残す)
-          '部屋番号','医療機関','医療機関連絡先','FAX','世帯区分','障害高齢者の日常生活自立度','認知症高齢者の日常生活自立度','通所の経緯','備考','追記','基本利用曜日'];
+          '部屋番号','医療機関','医療機関連絡先','FAX','世帯区分','障害高齢者の日常生活自立度','認知症高齢者の日常生活自立度','通所の経緯','備考','追記',
+          // ★ 2026-10-28(ユーザー要望「基本利用曜日も取り込めるように。AMとPMで列を分けると分かりやすい」): 午前・午後の2列に「月、水」のように曜日を書く(両方に書いた曜日は1日)
+          '基本利用曜日（午前）','基本利用曜日（午後）'];
         const escCell = (v) => { const s = String(v??''); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
         // 利用者 → CSV 1行
         const patientToRow = (p) => {
@@ -44428,7 +44437,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             String(p.addressRoom || ''),
             (fsInstitutionsText(p.personalFile?.faceSheet) || p.medicalInstitution || ''), (p.personalFile?.faceSheet?.medicalContact || p.medicalContact || ''),
             ...['fax','householdType','adlLevel','dementiaLevel','lifeHistory','bikou','addendum'].map(k => String((p.personalFile?.faceSheet || {})[k] || '')),
-            (p.scheduleAmPm || []).map((v, i) => v ? `${['日','月','火','水','木','金','土'][i]}:${v}` : '').filter(Boolean).join(' '),
+            ...(() => { const sc = p.scheduleAmPm || [], am = [], pm = []; [1, 2, 3, 4, 5, 6, 0].forEach(i => { const v = sc[i]; if (v === 'AM' || v === '1日') am.push(['日','月','火','水','木','金','土'][i]); if (v === 'PM' || v === '1日') pm.push(['日','月','火','水','木','金','土'][i]); }); return [am.join('、'), pm.join('、')]; })(),
           ];
         };
         const buildCsv = () => [HEADERS.join(','), ...(appData.patients||[]).map(p => patientToRow(p).map(escCell).join(','))].join('\n');
@@ -44440,7 +44449,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
           URL.revokeObjectURL(url);
         };
         const downloadTemplate = () => {
-          const sample = ['','田中 太郎','たなか たろう','男性','1940-05-15','135-0011','東京都','江東区','扇橋1-2-3','メゾン白子101','03-1234-5678','090-1234-5678','田中 花子','長女','03-9999-8888','090-2222-3333','hanako@example.com','0123456789','要介護2','2024-06-01','','利用中','高血圧','歩行時見守り','〇〇クリニック 田中医師','tanaka@example.com','2024-04-01','2027-03-31','1割','ひかり居宅介護支援','03-1111-2222','03-1111-2223','鈴木 一郎','090-5555-6666'];
+          // ★ 2026-10-28: 見本の行は架空の名前・番号・住所に(実在の地名・事業所名・番号を使わない)。基本利用曜日の書き方の例つき
+          const sample = ['','見本 太郎','みほん たろう','男性','1940-05-15','000-0000','東京都','新宿区','西新宿2-8-1','見本ハイツ','03-0000-0000','090-0000-0000','見本 花子','長女','03-0000-0001','090-0000-0001','hanako@example.com','0000000000','要介護2','2024-06-01','','利用中','高血圧','歩行時見守り','〇〇クリニック 見本医師','taro@example.com','2024-04-01','2027-03-31','1割','見本居宅介護支援','03-0000-0002','03-0000-0003','見本 一郎','090-0000-0002',
+            '101','','','','','','','','','','月、木','水'];
           const csv = '﻿' + HEADERS.join(',') + '\n' + sample.map(escCell).join(',');
           const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
           const url = URL.createObjectURL(blob);
@@ -44541,7 +44552,28 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               fsHistory:   findCol(header,['通所の経緯','生活歴','経緯']),
               fsBikou:     findCol(header,['備考'],['送迎','緊急']),
               fsAddendum:  findCol(header,['追記']),
+              // ★ 2026-10-28: 基本利用曜日(午前・午後の2列。前の書き出しの1列「月:AM 水:PM」も読む)
+              schedAm:     findCol(header,['基本利用曜日午前','基本利用日午前','利用曜日午前','基本利用曜日am','基本利用日am','利用曜日am','午前の利用曜日','午前の利用日']),
+              schedPm:     findCol(header,['基本利用曜日午後','基本利用日午後','利用曜日午後','基本利用曜日pm','基本利用日pm','利用曜日pm','午後の利用曜日','午後の利用日']),
+              sched:       findCol(header,['基本利用曜日','基本利用日','利用曜日'],['午前','午後','am','pm']),
             };
+            const _DOWS = ['日','月','火','水','木','金','土'];
+            // 「月、水、金」「月・水」「月水金」「月曜日 水曜日」→ 曜日の番号。曜日でない文字があれば null(読めない)
+            const parseDays = (v) => { const t = _toHalf(String(v||'')).replace(/曜日|曜/g, '').trim(); if (!t) return []; const out = [];
+              for (const tk of t.split(/[\s　、,，・/／;；]+/).filter(Boolean)) { for (const ch of tk) { const i = _DOWS.indexOf(ch); if (i < 0) return null; if (!out.includes(i)) out.push(i); } }
+              return out; };
+            // 1列の書き方(前の書き出し): 「月:AM 水:PM 金:1日」(午前/午後/終日も可)
+            const parseSchedOne = (v) => { const t = _toHalf(String(v||'')).trim(); if (!t) return { s: null }; const sc = ['','','','','','',''];
+              for (const tk of t.split(/[\s　、,，;；]+/).filter(Boolean)) { const m = tk.match(/^([日月火水木金土])(?:曜日|曜)?[:：]?(am|pm|午前|午後|1日|終日)$/i); if (!m) return { err: t }; // 知らせには書いた値をそのまま出す
+                const ap = /^(am|午前)$/i.test(m[2]) ? 'AM' : /^(pm|午後)$/i.test(m[2]) ? 'PM' : '1日'; const i = _DOWS.indexOf(m[1]); sc[i] = (sc[i] && sc[i] !== ap) ? '1日' : ap; }
+              return { s: sc }; };
+            const schedFromRow = (row) => { const am = val(row,col.schedAm), pm = val(row,col.schedPm), one = val(row,col.sched);
+              if (am || pm) { const a = parseDays(am), b = parseDays(pm); if (a === null) return { err: am }; if (b === null) return { err: pm }; const sc = ['','','','','','',''];
+                a.forEach(i => { sc[i] = 'AM'; }); b.forEach(i => { sc[i] = sc[i] === 'AM' ? '1日' : 'PM'; }); return { s: sc }; }
+              if (one) return parseSchedOne(one);
+              return { s: null }; };
+            const _recPids = new Set((appData.ticketRecords || []).filter(t => t && t.patientId != null).map(t => t.patientId));
+            let schedSet = 0; const schedKept = [], schedErr = [];
             // ★ 2026-10-12(ユーザー要望): 番号の整形。Excel で先頭のゼロが落ちた番号を戻し、全角を半角に
             const normInsNo = (v) => { let t = _toHalf(String(v||'')).replace(/[\s　\-－]/g, ''); if (/^\d{1,9}$/.test(t) && t.length >= 6) t = t.padStart(10, '0'); return t; };
             const normTel = (v) => { let t = _toHalf(String(v||'')).trim().replace(/[\s　]/g, '').replace(/[－‐–—ー]/g, '-').replace(/[()（）]/g, ''); const dg = t.replace(/-/g, ''); if (/^\d{9,10}$/.test(dg) && !dg.startsWith('0')) t = '0' + t; return t; };
@@ -44599,6 +44631,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             };
             let added=0, updated=0, skipped=0;
             for (let r=1;r<rows.length;r++){
+              const _sc = schedFromRow(rows[r] || []);
               const row = rows[r]; if(!row.some(c=>(c||'').trim())) continue;
               const name = val(row,col.name), kana = val(row,col.kana);
               // ★ 氏名が空の行はスキップ (既存IDの更新行を除く)。 名前の無い空の利用者が量産されるのを防ぐ
@@ -44669,14 +44702,22 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   // keepBoth → target=null → 新規追加(両方残す)
                 }
               }
+              if (_sc.err) schedErr.push(`${name || ('ID:' + idNum)}（${_sc.err}）`);
               if (target) {
                 const idx = existing.findIndex(p=>p.id===target.id);
-                existing[idx] = applyEx({ ...existing[idx], ...rec }, emName, emRel, emPhone, doctor, emMobile, emEmail, fsPatch);
+                const _np = applyEx({ ...existing[idx], ...rec }, emName, emRel, emPhone, doctor, emMobile, emEmail, fsPatch);
+                // ★ 2026-10-28: すでにいる方の基本利用曜日は、曜日が空・変更履歴なし・記録なし(=まだ利用していない)ときだけ入れる。利用している方は画面で(適用日と履歴が要る)
+                if (_sc.s && !_sc.err && (_np.scheduleAmPm || []).join('|') !== _sc.s.join('|')) {
+                  if (!(_np.scheduleAmPm || []).some(Boolean) && !(_np.scheduleChangeHistory || []).length && !_recPids.has(_np.id)) { _np.scheduleAmPm = [..._sc.s]; schedSet++; }
+                  else schedKept.push(_np.name || `ID:${_np.id}`);
+                }
+                existing[idx] = _np;
                 updated++;
               } else {
                 maxId += 1;
                 let np = { kiou:'', ryui:'', scheduleAmPm:['','','','','','',''], pickupType:'fixed', pickupTimes:['','','','','','',''], autoDeleteAfter5Years:false, massageNeed:'通常', onyokuDenryo:'無し', pauseHistory:[], plannedExercises:{}, ...rec, id:maxId };
                 if (!np.status) np.status='利用中';
+                if (_sc.s && !_sc.err) { np.scheduleAmPm = [..._sc.s]; if (_sc.s.some(Boolean)) schedSet++; } // ★ 2026-10-28: 新しく登録する方は基本利用曜日も入れる
                 np = applyEx(np, emName, emRel, emPhone, doctor, emMobile, emEmail, fsPatch);
                 existing.push(np);
                 const k=normName(np.name); if(k) existingByName.set(k,maxId);
@@ -44701,7 +44742,9 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             }
             onSave({...appData, patients: existing, systemSettings: _nextSettings, patientIdSeq: Math.max(maxId, Number(appData.patientIdSeq)||0)});
             setCsvModal({isOpen:false, mode:null, importText:'', error:''});
-            alert(`取り込み完了: 新規 ${added} 件 / 更新 ${updated} 件${skipped?` / スキップ ${skipped} 件`:''}\n（空欄の項目は既存データを上書きしません／氏名が空の行・スキップ指定は取り込みません／ケアマネ事業所・担当者はマスタにも自動登録しました）`);
+            const _lst = (a) => a.slice(0, 5).join('、') + (a.length > 5 ? ` ほか${a.length - 5}名` : '');
+            const _schedMsg = [schedSet ? `基本利用曜日: ${schedSet}名に入れました` : '', schedKept.length ? `基本利用曜日は、すでに利用している方は変えていません（利用者マスタの画面で変更してください）: ${_lst(schedKept)}` : '', schedErr.length ? `基本利用曜日が読めず入れていません（「基本利用曜日（午前）」「基本利用曜日（午後）」の列に「月、水」のように書いてください）: ${_lst(schedErr)}` : ''].filter(Boolean).join('\n');
+            alert(`取り込み完了: 新規 ${added} 件 / 更新 ${updated} 件${skipped?` / スキップ ${skipped} 件`:''}${_schedMsg ? '\n' + _schedMsg : ''}\n（空欄の項目は既存データを上書きしません／氏名が空の行・スキップ指定は取り込みません／ケアマネ事業所・担当者はマスタにも自動登録しました）`);
           } catch (e) {
             setCsvModal(prev=>({...prev, error: e.message || String(e)}));
           }
@@ -44731,7 +44774,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 <div className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-3">
                   <b>対応列:</b> {HEADERS.join(' / ')}<br/>
                   <b>ヒント:</b> エクスポートしたCSVをExcelで編集→再インポートで一括変更できます。<b>利用者ID</b> 空欄なら新規追加、既存IDなら更新。<br/>
-                  <b>番号:</b> 被保険者番号・電話・FAXは、Excelで消えた先頭の0を戻します。フェイスシートの項目を取り込むと、その方の更新日が今日になります。<b>基本利用曜日</b>は出力のみ(変更は履歴と連動するため画面から)。
+                  <b>番号:</b> 被保険者番号・電話・FAXは、Excelで消えた先頭の0を戻します。フェイスシートの項目を取り込むと、その方の更新日が今日になります。<b>基本利用曜日（午前）（午後）</b>は「月、水、金」のように曜日を書きます（両方に書いた曜日は1日）。取り込むのは新しく登録する方と、まだ曜日も記録もない方だけです（すでに利用している方の変更は、適用日と履歴が要るため画面から）。
                 </div>
                 {csvModal.mode === 'import' && !csvModal.resolvingDup && (
                   <div className="space-y-2">

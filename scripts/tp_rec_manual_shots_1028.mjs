@@ -1,5 +1,5 @@
 // 2026-10-28 マニュアル24章「スマホの送迎表・提供記録の見出し・全画面」の画面写真(試験版 trial444)
-//   ①スマホの送迎表(日付の右に AM/PM・帯に日付なし・施設に到着なし) ②iPad の提供記録の全画面の帯(「10月28日」・「通常画面」)
+//   ①スマホの送迎表(日付の右に AM/PM・帯に日付なし・施設に到着なし) ②iPad の提供記録の全画面の帯(「10月28日」・「通常画面」) ③スマホの全画面の「利用者」(trial445)
 //   見本の事業所名・住所・電話は架空に置き換えて撮る(実在の店舗名・番号が残っていたら止める)
 //   実行: node scripts/tp_rec_manual_shots_1028.mjs [--base http://localhost:4175] [--out public/manual/img]
 import { chromium } from 'playwright';
@@ -34,5 +34,11 @@ const guard = async (page) => { const t = await page.locator('body').innerText()
   await seed(page, 'record'); await page.getByTestId('rec-act-fullscreen').click(); await page.waitForTimeout(1200);
   if (await page.getByTestId('fs-pick').count()) await page.getByTestId('fs-pick-zoom').click(); await page.waitForTimeout(800); await guard(page);
   await page.getByTestId('rec-fs-bar').screenshot({ path: path.join(OUT, 'trial_rec_fs_bar.jpg'), type: 'jpeg', quality: 82 }); console.log('saved trial_rec_fs_bar.jpg');
+  await ctx.close(); }
+// ③ スマホの提供記録の全画面で「利用者」を押したところ(trial445)
+{ const ctx = await b.newContext({ viewport: { width: 393, height: 760 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2, locale: 'ja-JP', timezoneId: 'Asia/Tokyo' }); const page = await ctx.newPage(); page.on('dialog', d => d.accept());
+  await seed(page, 'record'); await page.getByTestId('fold-btn-record').click().catch(() => {}); await page.waitForTimeout(400); await page.getByTestId('rec-act-fullscreen').click(); await page.waitForTimeout(1000);
+  await page.getByTestId('fs-rec-jump').click(); await page.waitForTimeout(700); await guard(page);
+  await page.screenshot({ path: path.join(OUT, 'trial_rec_fs_jump.jpg'), type: 'jpeg', quality: 82, clip: { x: 0, y: 0, width: 393, height: 560 } }); console.log('saved trial_rec_fs_jump.jpg');
   await ctx.close(); }
 await b.close();
