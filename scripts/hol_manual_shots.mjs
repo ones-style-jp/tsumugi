@@ -13,16 +13,20 @@ await page.goto(BASE + '/', { waitUntil: 'networkidle' }); await page.waitForTim
 if (await page.getByText('担当者を選択', { exact: false }).count()) { await page.locator('button', { hasText: /見本|例示|架空/ }).first().click().catch(() => {}); await page.waitForTimeout(800); }
 const now = new Date(); const Y = now.getFullYear(), M = now.getMonth() + 1; const last = new Date(Y, M, 0).getDate();
 const pad = (n) => String(n).padStart(2, '0');
-const D = Math.min(last, now.getDate() + 2); const ISO = `${Y}-${pad(M)}-${pad(D)}`; const D2 = Math.min(last, D + 1);
+const D = Math.min(last, now.getDate() + 2); const ISO = `${Y}-${pad(M)}-${pad(D)}`; const D2 = D + 1 <= last ? D + 1 : D - 1; // 月末は前の日(休業の日と重ならないように)
 const name = await page.evaluate(([Y, ISO]) => { const d = JSON.parse(localStorage.getItem('daycareAppData_v3')); const nm = '（見本）つむぎデイサービス', ph = '03-0000-0000';
   d.facilityName = nm; d.facilityPhone = ph; d.contactBookConfig = { ...(d.contactBookConfig || {}), facilityName: nm, facilityPhone: ph };
   d.systemSettings = d.systemSettings || {}; d.systemSettings.facilityInfo = { ...(d.systemSettings.facilityInfo || {}), name: nm, phone: ph, fax: '03-0000-0001', address: '東京都新宿区西新宿2-8-1', closedDays: [0] };
   const p = (d.patients || []).find(x => x.status === '利用中' && !x.endDate); p.scheduleAmPm = ['', 'AM', 'AM', 'AM', 'AM', 'AM', 'AM']; p.scheduleChangeHistory = []; p.pauseHistory = [];
   const mk = ISO.slice(0, 7); d.monthlyShifts = d.monthlyShifts || {}; d.monthlyShifts[mk] = d.monthlyShifts[mk] || {}; d.monthlyShifts[mk][p.id] = {};
   d.holidays = [{ date: ISO, name: '雪のため', ampm: 'AM' }, { date: `${Y}-11-20`, name: '研修', ampm: 'PM' }, { date: `${Y}-12-29`, name: '年末年始' }, { date: `${Y}-12-30`, name: '年末年始' }, { date: `${Y}-12-31`, name: '年末年始' }].filter((h, i, a) => a.findIndex(x => x.date === h.date) === i);
-  delete d._holTs; localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); localStorage.setItem('tsumugiSidebarOpen', '0'); return p.name; }, [Y, ISO]);
+  // 2026-10-29: 見本データの職員の名前(記録の介護整体の担当など)も架空に
+  const RE = [[/佐藤 健一/g, '見本 管理者'], [/長谷川/g, '見本D'], [/高橋/g, '見本A'], [/岩岡/g, '見本B'], [/田中/g, '見本C']];
+  const fix = (o) => { if (typeof o === 'string') { let t = o; for (const [r, v] of RE) t = t.replace(r, v); return t; } if (Array.isArray(o)) return o.map(fix); if (o && typeof o === 'object') { for (const k of Object.keys(o)) o[k] = fix(o[k]); return o; } return o; };
+  (d.patients || []).forEach((q, i) => { q.address = '東京都新宿区西新宿2-8-1'; q.addressBuilding = ''; q.addressRoom = ''; q.prefecture = ''; q.city = ''; q.addressLine = ''; q.zipCode = ''; q.phone = `03-0000-${String(1000 + i).slice(-4)}`; q.phoneMobile = ''; q.familyPhone = ''; q.familyPhoneMobile = ''; });
+  delete d._holTs; localStorage.setItem('daycareAppData_v3', JSON.stringify(fix(d))); localStorage.setItem('tsumugiSidebarOpen', '0'); return p.name; }, [Y, ISO]);
 const go = async (view) => { await page.evaluate((v) => sessionStorage.setItem('tsumugi_resume_view', JSON.stringify({ view: v, pid: null, t: Date.now() })), view); await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(2200); await page.locator('button:visible', { hasText: /^あとで$/ }).first().click({ timeout: 500 }).catch(() => {}); };
-const guard = async () => { const t = await page.locator('body').innerText(); const v = await page.evaluate(() => [...document.querySelectorAll('input,textarea')].map(e => e.value).join(' ')); if (/扇橋|6458/.test(t + v)) { console.log('NG: 実在の店舗名・番号が残っている'); process.exit(1); } };
+const guard = async () => { const t = await page.locator('body').innerText(); const v = await page.evaluate(() => [...document.querySelectorAll('input,textarea')].map(e => e.value).join(' ')); if (/扇橋|6458|ひかり|佐藤 健一|高橋|岩岡|長谷川|田中/.test(t + v)) { console.log('NG: 実在の店舗名・番号が残っている'); process.exit(1); } };
 // ① 月間スケジュールのマス(午前だけ休業) ② マスを押した小窓(「休業（施設休業日の設定へ）」) ③ 移った先の施設休業日(押した日と時間帯が登録欄に入っている)
 await go('master'); await page.locator('button:visible').filter({ hasText: new RegExp('^' + name) }).first().click(); await page.waitForTimeout(1200);
 await page.locator('button:visible', { hasText: /^サービス提供内容$/ }).first().click(); await page.waitForTimeout(800); await guard();
@@ -32,6 +36,6 @@ await page.getByTestId(`ms-cell-${D2}-AM`).click(); await page.waitForTimeout(50
 await page.locator('div.rounded-3xl', { hasText: '状態を選択' }).first().screenshot({ path: path.join(OUT, 'trial_hol_popup.jpg'), type: 'jpeg', quality: 82 }); console.log('saved trial_hol_popup.jpg');
 await page.locator('button:visible', { hasText: /^休業（施設休業日の設定へ）$/ }).first().click(); await page.waitForTimeout(1500); await guard();
 await page.locator('input[placeholder="例: 夏季休暇"]:visible').first().fill('雪のため'); await page.waitForTimeout(200);
-const card = page.locator('div.scroll-mt-20', { has: page.locator('text=施設休業日の設定') }).first(); await card.scrollIntoViewIfNeeded(); await page.waitForTimeout(300);
+const card = page.locator('[data-sec-title="施設休業日の設定"]').first(); // 2026-10-29: 見出しの箱は data-sec-title で探す(余白の決まりが変わったため) await card.scrollIntoViewIfNeeded(); await page.waitForTimeout(300);
 await card.screenshot({ path: path.join(OUT, 'trial_hol_settings.jpg'), type: 'jpeg', quality: 82 }); console.log('saved trial_hol_settings.jpg');
 await b.close();
