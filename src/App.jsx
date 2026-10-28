@@ -10930,6 +10930,15 @@ const isPatientResigned = (p) => {
 // ★ 2026-09-28(ユーザー指摘): 退所済み(利用終了日を過ぎた／status が退所・終了)は、利用者マスタの「退所済み」タブ以外の
 //   一覧(モニタリング・LIFE・記録系・ご家族プレビュー等)に出さない。休止は各画面の判定に任せる。
 const isPatientListable = (p) => !!p && !isPatientResigned(p) && !/退所|終了/.test(String(p.status || ''));
+// ★ 2026-10-28(ユーザー「月の途中で退所してもモニタリングは送る」): その月(y年m月)のモニタリングの対象か。
+//   退所していない方は従来どおり(isPatientListable)。利用終了日がその月の初日以降の方は、退所済み(状態が退所・終了)でもその月は対象に残す
+//   (終了日の当日も利用中=isPatientActiveOnDate と同じ)。利用開始日がその月より後の方は対象外
+const tsuMonListable = (p, y, m) => { if (!p) return false; const mm = String(m).padStart(2, '0'); const ms = `${y}-${mm}-01`, me = `${y}-${mm}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
+  if (p.startDate && String(p.startDate).slice(0, 10) > me) return false;
+  if (isPatientListable(p)) return true;
+  return !!p.endDate && String(p.endDate).slice(0, 10) >= ms; };
+// その月に1回でも通所(出席・振替・臨時)したか
+const tsuMonAttendedIn = (appData, p, y, m) => (appData?.ticketRecords || []).some(r => { const mt = r && r.date && String(r.date).match(/(\d+)月/); return !!mt && r.patientId === p.id && parseInt(mt[1]) === m && (!r.year || Number(r.year) === y) && (r.status === '出席' || r.status === '振替' || r.status === '臨時'); });
 const isPatientStartedByToday = (p) => { if (!p || !p.startDate) return true; const t = new Date(); const today = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`; return String(p.startDate).slice(0,10) <= today; };
 const isPatientActiveOnDate = (p, targetDateStr) => {
     if (!p || !targetDateStr) return true;
@@ -13102,8 +13111,9 @@ function DashboardView({ appData, navigateTo, activeRecorder, notices, devNotes,
           });
           // モニタリング: 前月分が未作成=本日(期限切れ)。今月分=月末の最後の営業日が期日(最後の週になったら今週→当日になったら本日)
           if (!ss.sidebarHidden?.monitoring) {
-            const listable = pats.filter(p => isPatientListable(p));
-            const missingFor = (y, m) => { const period = `${y}年${m}月`; const done = new Set((appData.monitoringRecords||[]).filter(r => r && r.period === period).map(r => r.patientId)); return listable.filter(p => !done.has(p.id)).length; };
+            // ★ 2026-10-28: 月の途中で退所した方も、その月に通所していればその月の対象(モニタリングの画面と同じ tsuMonListable)
+            const listableFor = (y, m) => (appData.patients||[]).filter(p => p && tsuMonListable(p, y, m) && (isPatientListable(p) ? p.status === '利用中' : tsuMonAttendedIn(appData, p, y, m)));
+            const missingFor = (y, m) => { const period = `${y}年${m}月`; const done = new Set((appData.monitoringRecords||[]).filter(r => r && r.period === period).map(r => r.patientId)); return listableFor(y, m).filter(p => !done.has(p.id)).length; };
             const py = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear(), pmn = now.getMonth() === 0 ? 12 : now.getMonth();
             const nPrev = now.getDate() <= 15 ? missingFor(py, pmn) : 0; /* 前月分は15日まで出す(ずっと出続けないように) */ if (nPrev) add(t0, { key: 'mon_prev', label: `モニタリング（${pmn}月分） 未確定 ${nPrev}名`, sub: '前月の分（期限切れ）。押すとその月の未作成の方だけ表示', view: 'monitoring', ss: ['tsumugiMonJump', JSON.stringify({ ym: `${py}-${String(pmn).padStart(2,'0')}`, filter: 'unentered' })], color: '#0e7490' });
             const nCur = missingFor(now.getFullYear(), now.getMonth() + 1); if (nCur) add(lastBizOnOrBefore(monthEnd), { key: 'mon_cur', label: `モニタリング（${now.getMonth() + 1}月分） 未確定 ${nCur}名`, sub: `月末（${monthEnd.getMonth()+1}/${monthEnd.getDate()}）まで。押すと未作成の方だけ表示`, view: 'monitoring', ss: ['tsumugiMonJump', JSON.stringify({ ym: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`, filter: 'unentered' })], color: '#0e7490' });
@@ -35173,10 +35183,17 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   const _cbListRef = React.useRef(null); const [_cbS, _setCbS] = useState(1);
   React.useEffect(() => {
     const el = _cbListRef.current; if (!el || _renPhone) { _setCbS(1); return; }
-    const PW = 182 * 96 / 25.4, GAP = 32;
-    const calc = () => { const w = el.clientWidth; let sc = 1; if (w < PW * 2 + GAP) { const t = (w - GAP) / (PW * 2); sc = t >= 0.6 ? Math.floor(t * 100) / 100 : 1; } _setCbS(prev => (Math.abs(prev - sc) < 0.005 ? prev : sc)); };
-    calc(); let ro = null; try { ro = new ResizeObserver(calc); ro.observe(el); } catch { window.addEventListener('resize', calc); }
-    return () => { if (ro) ro.disconnect(); else window.removeEventListener('resize', calc); };
+    const PW = 182 * 96 / 25.4, PH = 257 * 96 / 25.4, GAP = 32;
+    // ★ 2026-10-28(ユーザー「連絡帳で1画面で名前と次回お迎え時間を見れる大きさにしてほしい」): 横幅だけでなく、1枚の縦(名前〜次回お迎え時間)も
+    //   画面に入るよう縮める。見える高さ = スクロールする枠の高さ − 上に貼り付く帯(tsu-cb-bar) − 上下の余白。読みやすさのため 0.5倍まで
+    const viewAvail = () => { try { let sp = el.parentElement; while (sp && !/(auto|scroll)/.test(getComputedStyle(sp).overflowY)) sp = sp.parentElement;
+      const vh = sp ? sp.clientHeight : ((window.visualViewport && window.visualViewport.height) || window.innerHeight); const bar = document.querySelector('.tsu-cb-bar'); const bh = bar ? bar.getBoundingClientRect().height : 0;
+      return vh - bh - 40; } catch { return 0; } };
+    const calc = () => { const w = el.clientWidth; let sc = 1; if (w < PW * 2 + GAP) { const t = (w - GAP) / (PW * 2); sc = t >= 0.6 ? Math.floor(t * 100) / 100 : 1; }
+      const av = viewAvail(); if (av > 300 && PH * sc > av) sc = Math.max(0.5, Math.floor(av / PH * 100) / 100);
+      _setCbS(prev => (Math.abs(prev - sc) < 0.005 ? prev : sc)); };
+    calc(); let ro = null; try { ro = new ResizeObserver(calc); ro.observe(el); } catch {} window.addEventListener('resize', calc);
+    return () => { if (ro) ro.disconnect(); window.removeEventListener('resize', calc); };
   });
   const [showPrintCards, setShowPrintCards] = useState(false); // ★ 印刷用の隠しカードは印刷時だけ描画(スマホのメモリ対策)
   const [printMissingConfirm, setPrintMissingConfirm] = useState(null); // ★ 次回予定未入力の確認 {names:[]}(2026-09-09)
@@ -37391,6 +37408,12 @@ function TsuTokkiPresetSelect({ appData, onPick, className, style, testid, label
 }
 // ★ 2026-10-20(ユーザー案): 特記のマイク。ブラウザの音声認識(Safari/Chrome)で話した言葉を文字にする。使えない端末ではボタンを出さない
 const tsuVoiceSupported = () => { try { return typeof window !== 'undefined' && !!(window.SpeechRecognition || window.webkitSpeechRecognition); } catch { return false; } };
+// ★ 2026-10-28(ユーザー「タブレットでホーム画面に追加しているとマイクを押した途端に許可されていないと出る。許可のポップも出ない」):
+//   iPhone/iPad のホーム画面に追加したアプリでは、iOS がこの音声認識(webkitSpeechRecognition)を使わせず、許可も聞かずに
+//   すぐ service-not-allowed を返す(WebKit bug 225298「ホーム画面の web アプリでは使えない」)。キーボードの音声入力は使えるので、
+//   ホーム画面のアプリでは押したらその欄を開いてキーボードを出し、キーボードのマイクで話すよう案内する(キーボードは押した瞬間でないと出せない)
+const tsuIosHomeApp = () => { try { return document.documentElement.classList.contains('tsu-ios-app') || (/iP(hone|ad|od)/.test(navigator.userAgent || '') || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) && (navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)); } catch { return false; } };
+const tsuFocusNearField = (btn) => { let el = btn; for (let i = 0; i < 6 && el; i++) { el = el.parentElement; const f = el && el.querySelector('textarea:not([readonly]):not([disabled]), input[type="text"]:not([readonly]):not([disabled])'); if (f) { try { f.focus(); const n = String(f.value || '').length; f.setSelectionRange(n, n); } catch {} return true; } } return false; };
 function TsuMicButton({ onText, onLive, getBase, disabled, testid, className, style, size = 15 }) {
   const [on, setOn] = React.useState(false); const [msg, setMsg] = React.useState(''); const [live, setLive] = React.useState('');
   const recRef = React.useRef(null); const txtRef = React.useRef(''); const doneRef = React.useRef(true); const errRef = React.useRef(false); const timerRef = React.useRef(null);
@@ -37399,11 +37422,13 @@ function TsuMicButton({ onText, onLive, getBase, disabled, testid, className, st
   const onLiveRef = React.useRef(onLive); onLiveRef.current = onLive; const baseRef = React.useRef(''); const liveTRef = React.useRef(null);
   React.useEffect(() => () => { try { recRef.current && recRef.current.abort(); } catch {} clearTimeout(timerRef.current); clearTimeout(liveTRef.current); }, []);
   if (!tsuVoiceSupported()) return null;
-  const flash = (m) => { setMsg(m); setTimeout(() => setMsg(''), 4000); };
+  const [msgTop, setMsgTop] = React.useState(false);
+  const flash = (m, top) => { setMsg(m); setMsgTop(!!top); setTimeout(() => setMsg(''), top ? 6000 : 4000); };
   // ★ 2026-10-20(不具合修正・iPhone/iPad の Safari で文字が入らない): 確定した結果が来なくても、聞き終わったら控えた文字(途中の結果)を入れる
   const commit = () => { if (doneRef.current) return; doneRef.current = true; clearTimeout(liveTRef.current); liveTRef.current = null; const t = String(txtRef.current || '').trim(); txtRef.current = ''; setLive(''); if (t) { try { onTextRef.current(t, baseRef.current); } catch {} } else if (!errRef.current) flash('声が聞き取れませんでした。もう一度押して、少しはっきり話してください'); };
-  const toggle = () => {
+  const toggle = (ev) => {
     if (on) { try { recRef.current && recRef.current.stop(); } catch {} return; }
+    if (tsuIosHomeApp()) { const ok = tsuFocusNearField(ev && ev.currentTarget); flash(ok ? 'ホーム画面のアプリでは、このボタンの音声入力は使えません。出てきたキーボードのマイクのキーを押して話してください' : 'ホーム画面のアプリでは、このボタンの音声入力は使えません。欄を押して、キーボードのマイクのキーで話してください', true); return; }
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition; let rec;
     try { rec = new SR(); } catch { flash('この端末では音声入力が使えません'); return; }
     rec.lang = 'ja-JP'; rec.interimResults = true; rec.maxAlternatives = 1; rec.continuous = false;
@@ -37412,7 +37437,7 @@ function TsuMicButton({ onText, onLive, getBase, disabled, testid, className, st
     rec.onresult = (ev) => { try { let t = ''; const rs = ev.results || []; for (let i = 0; i < rs.length; i++) { const r = rs[i]; t += (r && r[0] && r[0].transcript) || ''; } t = t.trim(); if (t) { txtRef.current = t; setLive(t);
       if (onLiveRef.current && !liveTRef.current) liveTRef.current = setTimeout(() => { liveTRef.current = null; if (!doneRef.current && onLiveRef.current) { try { onLiveRef.current(txtRef.current, baseRef.current); } catch {} } }, 250); } } catch {} };
     rec.onspeechend = () => { try { rec.stop(); } catch {} };
-    rec.onerror = (ev) => { const c = ev && ev.error; if (c === 'aborted') return; if (c === 'no-speech' && txtRef.current) return; errRef.current = true; flash(c === 'not-allowed' || c === 'service-not-allowed' ? 'マイクが許可されていません（端末の設定でマイクと音声認識を許可してください）' : c === 'no-speech' ? '声が聞き取れませんでした。もう一度押してください' : c === 'network' ? '音声入力は通信が必要です。電波を確かめてください' : '音声入力ができませんでした'); };
+    rec.onerror = (ev) => { const c = ev && ev.error; if (c === 'aborted') return; if (c === 'no-speech' && txtRef.current) return; errRef.current = true; flash(c === 'not-allowed' || c === 'service-not-allowed' ? 'マイクが許可されていません。端末の「設定」でこのブラウザのマイクを「許可」に、「一般」→「キーボード」の「音声入力」をオンにしてください' : c === 'no-speech' ? '声が聞き取れませんでした。もう一度押してください' : c === 'network' ? '音声入力は通信が必要です。電波を確かめてください' : '音声入力ができませんでした'); };
     rec.onend = () => { clearTimeout(timerRef.current); setOn(false); recRef.current = null; commit(); };
     recRef.current = rec;
     try { rec.start(); setOn(true); setMsg(''); timerRef.current = setTimeout(() => { try { rec.stop(); } catch {} }, 15000); } catch { doneRef.current = true; flash('音声入力ができませんでした'); }
@@ -37426,7 +37451,7 @@ function TsuMicButton({ onText, onLive, getBase, disabled, testid, className, st
       </button>
       {on && !onLive && <span data-testid={testid ? `${testid}-live` : undefined} role="status" className="absolute left-0 bottom-full mb-1 z-[60] max-w-[16rem] whitespace-normal text-[12px] font-bold text-white bg-red-600 rounded px-2 py-1 shadow">{live ? `聞き取り中: ${live}` : '聞き取り中… 話してください'}</span>}
       {/* ★ 2026-10-20: 知らせは画面の下に(表のマスの中だと隠れた) */}
-      {msg && ReactDOM.createPortal(<div role="status" data-testid={testid ? `${testid}-msg` : undefined} style={{position:'fixed',left:'50%',transform:'translateX(-50%)',bottom:'calc(env(safe-area-inset-bottom, 0px) + 88px)',zIndex:10060,maxWidth:'90vw'}} className="text-[14px] font-bold text-white bg-slate-800 rounded-xl px-4 py-2.5 shadow-lg text-center">{msg}</div>, document.body)}
+      {msg && ReactDOM.createPortal(<div role="status" data-testid={testid ? `${testid}-msg` : undefined} style={{position:'fixed',left:'50%',transform:'translateX(-50%)',...(msgTop ? { top: 'calc(env(safe-area-inset-top, 0px) + 64px)' } : { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 88px)' }),zIndex:10060,maxWidth:'90vw'}} className="text-[14px] font-bold text-white bg-slate-800 rounded-xl px-4 py-2.5 shadow-lg text-center">{msg}</div>, document.body)}
     </span>
   );
 }
@@ -55835,7 +55860,8 @@ function MonitoringView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPrevi
   //   (その月のモニタリングは必要なため)。退所済み・利用開始前は従来どおり対象外。
   // ★ 2026-09-30 追加(ユーザー指示: 茂木さんのように休止中で今月来ていない方も「通所なし」に表示): 休止中の方は通所の有無にかかわらず対象
   const _monPaused = (p) => getPatientDisplayStatus(p) === '休止'; // ★ 2026-10-14: 休止予定(開始日が未来)は含めない
-  const allActive = (appData.patients||[]).filter(p => isPatientListable(p) && isPatientStartedByToday(p) && (p.status === '利用中' || _monPaused(p) || hasAttendance(p)));
+  // ★ 2026-10-28(ユーザー「月の途中で退所してもモニタリングは送る」): 選んだ月の途中で退所した方も、その月に通所していれば対象に残す
+  const allActive = (appData.patients||[]).filter(p => tsuMonListable(p, tY, tM) && isPatientStartedByToday(p) && (isPatientListable(p) ? (p.status === '利用中' || _monPaused(p) || hasAttendance(p)) : hasAttendance(p)));
   const careLevelOrd = ['事業対象者','要支援1','要支援2','要介護1','要介護2','要介護3','要介護4','要介護5'];
   const dowStr = ['日','月','火','水','木','金','土'];
   // ★ 利用曜日は月曜起点で統一(表示・並び替えとも月→日の順)
