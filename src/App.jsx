@@ -45801,7 +45801,15 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         // ★ 2026-10-21(ユーザー指摘「何も変えていないのに取り消しがある」): 予定のない日(基本の利用日でない空のセル)は「取り消し」を出さない。
         //   その日に記録が残っているとき(振替の残骸など)だけ取り消せるようにする
         const _isEmptyCell = cu === '空欄' || cu == null || cu === '';
-        const _recHere = _isEmptyCell && (effTickets||[]).some(t => t && localPatient && t.patientId === localPatient.id && recMatchesDateYear(t, `${currentMonth.getMonth()+1}月${shiftStatusModal.day}日`, currentMonth.getFullYear()));
+        // ★ 2026-10-28(ユーザー「午後に利用する人の午前を押すと取り消しが出る。基本利用日は午後で午前は関係ないので出さない方がいい」):
+        //   記録は1日に1件(午前・午後の区別なし)なので、もう一方の時間帯が基本の利用日、またはそのマスに予定(出席・欠席・振替など)がある日の記録は
+        //   そちらの記録で、このマスの残骸ではない。もう一方で来ない日の記録か、このマスへの振替・臨時(furikaeAmpm がこの時間帯)の記録だけを数える
+        const _apM = shiftStatusModal.ap, _otherAp = shiftStatusModal.ap === 'AM' ? 'PM' : 'AM';
+        const _dsM = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth()+1).padStart(2,'0')}-${String(shiftStatusModal.day).padStart(2,'0')}`;
+        const _baseM = (localPatient && (getScheduleOnDate(localPatient, _dsM) || [])[new Date(currentMonth.getFullYear(), currentMonth.getMonth(), shiftStatusModal.day).getDay()]) || '';
+        const _otherSh = localPatient ? ((effShifts?.[mKey]?.[localPatient.id]) || {})[`${shiftStatusModal.day}_${_otherAp}`] : undefined;
+        const _otherOwns = _baseM === _otherAp || _baseM === '1日' || (_otherSh !== undefined && _otherSh !== '' && _otherSh !== '空欄');
+        const _recHere = _isEmptyCell && (effTickets||[]).some(t => t && localPatient && t.patientId === localPatient.id && recMatchesDateYear(t, `${currentMonth.getMonth()+1}月${shiftStatusModal.day}日`, currentMonth.getFullYear()) && (!_otherOwns || t.furikaeAmpm === _apM));
         // ★ 基本利用日でないのに「出席」で残っているセル(振替の残骸・臨時など)も取り消せるように。
         const isNonBaseAttend = normCu === '出席' && !shiftStatusModal.isBase && (!_isEmptyCell || _recHere);
         // ★ 状態が変更されている場合 (欠席/休業/振替/休止) + 非利用日の出席 は「取り消し」ボタンも表示
