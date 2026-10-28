@@ -13,7 +13,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
 import __builtUpdateNotes from '../public/update-notes.json';
-import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, pickHolidays } from './lib/logic';
+import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel } from './lib/logic';
 import {
   isSupabaseEnabled,
   supabaseCreateInvite,
@@ -10772,7 +10772,7 @@ const getNextVisitInfo = (patient, currentDateStr, monthlyShifts, appData) => {
     const _recOn = (y, m, d) => _recMap.get(`${y}|${m}|${d}`) || _recMap.get(`|${m}|${d}`) || null;
     // ★ 施設休業日(夏季休暇・年末年始等)は来所日にならない。 これを見ていなかったため、
     //   休業期間中の基本利用日(例: 8/12)が次回として表示されていた → スキップして次の利用日(8/19等)へ。
-    const _holiSet = new Set((appData?.holidays||[]).map(h => (h && h.date) ? h.date : h));
+    const _holiSet = fullHolidaySet(appData?.holidays); // ★ 2026-10-28: 全日休業だけ飛ばす。半日休業はその時間帯だけ来ない(下で判定)
     for (let i = 1; i <= 30; i++) {
         const nextDate = new Date(current);
         nextDate.setDate(current.getDate() + i);
@@ -10798,8 +10798,10 @@ const getNextVisitInfo = (patient, currentDateStr, monthlyShifts, appData) => {
         const baseAmPm = (getScheduleOnDate(patient, _isoN)?.[dayOfWeek]) || ""; // ★ その日時点の基本利用日(曜日の変更履歴も見る)
         const isBaseAM = baseAmPm === "AM" || baseAmPm === "1日";
         const isBasePM = baseAmPm === "PM" || baseAmPm === "1日";
-        const stateAM = shiftAM !== undefined ? shiftAM : (isBaseAM ? "〇" : "空欄");
-        const statePM = shiftPM !== undefined ? shiftPM : (isBasePM ? "〇" : "空欄");
+        let stateAM = shiftAM !== undefined ? shiftAM : (isBaseAM ? "〇" : "空欄");
+        let statePM = shiftPM !== undefined ? shiftPM : (isBasePM ? "〇" : "空欄");
+        // ★ 2026-10-28 半日休業: 休業の時間帯には来ない(午前休業なら、午後の方と1日の方の午後だけ来る)
+        { const _hap = holidayAmpmOn(appData?.holidays, _isoN); if (_hap === 'AM') stateAM = '休業'; if (_hap === 'PM') statePM = '休業'; }
         // ★ 提供記録が 振替/臨時/出席 なら、基本利用日でなくても来所日として扱う(手前の振替を優先)
         const _recComing = (_recStatus === '振替' || _recStatus === '臨時' || _recStatus === '出席');
         const isComing = _recComing ||
@@ -11154,7 +11156,7 @@ const _isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0
 const nearestOpenDate = (isoDate, closedDays, holidays) => {
   if (!isoDate) return isoDate;
   const closed = Array.isArray(closedDays) ? closedDays : [0];
-  const holiSet = new Set((holidays||[]).map(h => (h && h.date) ? h.date : h));
+  const holiSet = fullHolidaySet(holidays); // ★ 2026-10-28: 半日休業の日は開いている(残りの半日)
   const isClosed = (d) => closed.includes(d.getDay()) || holiSet.has(_isoOf(d));
   const base = new Date(isoDate);
   if (isNaN(base.getTime())) return isoDate;
@@ -11175,7 +11177,7 @@ const nearestOpenDate = (isoDate, closedDays, holidays) => {
 //   (nearestOpenDateは後退もするが、次回予定は必ず未来方向へ送る)
 const forwardOpenDate = (isoDate, closedDays, holidays) => {
   const closed = Array.isArray(closedDays) ? closedDays : [0];
-  const holiSet = new Set((holidays||[]).map(h => (h && h.date) ? h.date : h));
+  const holiSet = fullHolidaySet(holidays); // ★ 2026-10-28: 半日休業の日は開いている(残りの半日)
   const d = new Date(isoDate);
   if (isNaN(d.getTime())) return isoDate;
   for (let i = 0; i < 62; i++) {
@@ -11277,7 +11279,10 @@ const generateMonthlySchedule = (patients, year, month, monthlyShifts, ticketRec
       // ★ 年対応: この月の記録は year で絞る (旧記録=year無しは後方互換で一致)
 
       const isClosedDay = closedDays.includes(dayOfWeek);
-      const isHoliday = holidays?.some(h => (h.date || h) === dateStr);
+      // ★ 2026-10-28 半日休業: 全日休業は今までどおり。 午前/午後だけの休業は、その時間帯に来る予定を「休業」にし、
+      //   来る時間帯が全部ふさがる方だけ、その日を休業にする(1日利用の方・もう半日の方は来る)
+      const _holAp = holidayAmpmOn(holidays, dateStr);
+      let isHoliday = _holAp === '1日';
 
       // ★ その日付時点で有効な基本利用曜日を使う (後から増回した曜日を過去に遡及表示しない)
       const baseAmPm = getScheduleOnDate(patient, dateStr)?.[dayOfWeek] || "";
@@ -11286,13 +11291,17 @@ const generateMonthlySchedule = (patients, year, month, monthlyShifts, ticketRec
 
       let shiftAM = monthlyShifts?.[monthKey]?.[patient.id]?.[`${day}_AM`];
       let shiftPM = monthlyShifts?.[monthKey]?.[patient.id]?.[`${day}_PM`];
-      const stateAM = shiftAM !== undefined ? shiftAM : (isBaseAM ? "〇" : "空欄");
-      const statePM = shiftPM !== undefined ? shiftPM : (isBasePM ? "〇" : "空欄");
+      let stateAM = shiftAM !== undefined ? shiftAM : (isBaseAM ? "〇" : "空欄");
+      let statePM = shiftPM !== undefined ? shiftPM : (isBasePM ? "〇" : "空欄");
+      { const _comeSt = (v) => v === "〇" || v === "出席" || v === "臨時" || String(v).startsWith("振");
+        if (_holAp === 'AM' && _comeSt(stateAM)) stateAM = "休業";
+        if (_holAp === 'PM' && _comeSt(statePM)) statePM = "休業"; }
 
       const isComing = !isClosedDay && !isHoliday && (
         (stateAM === "〇" || stateAM === "出席" || stateAM.startsWith("振") || stateAM === "臨時") ||
         (statePM === "〇" || statePM === "出席" || statePM.startsWith("振") || statePM === "臨時")
       );
+      if (!isHoliday && _holAp && !isComing && (stateAM === "休業" || statePM === "休業")) isHoliday = true;
 
       if (!isComing && !isClosedDay && !isHoliday) {
         const isAbsent = stateAM === "欠席" || statePM === "欠席";
@@ -13557,7 +13566,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
   const birthdaysOn = (dstr) => { const md=dstr.slice(5); return activePatients.filter(p=>{ const b=p.birthDate; return b && b.length>=10 && b.slice(5)===md; }).map(p=>({name:p.name, age: (()=>{ const [y,m,d]=dstr.split('-').map(Number); const [by]=String(p.birthDate).split('-').map(Number); let a=y-by; const bm=Number(String(p.birthDate).slice(5,7)); return a; })(), birthDate:p.birthDate})); };
   const expiriesOn = (dstr) => { const out=[]; activePatients.forEach(p=>{ if(p.careLevelTo && p.careLevelTo===dstr) out.push({name:p.name, kind:'認定有効期間の終了', careLevel:p.careLevel}); }); return out; };
   const isHolidayDate = (dstr) => (appData.holidays||[]).some(h => (h.date||h) === dstr);
-  const holidayName = (dstr) => { const h=(appData.holidays||[]).find(x=>(x.date||x)===dstr); return h && h.name ? h.name : ''; };
+  const holidayName = (dstr) => { const h=(appData.holidays||[]).find(x=>(x.date||x)===dstr); if (!h) return ''; const _l = holidayAmpmLabel(h.ampm); return h.name ? `${h.name}${_l ? `（${_l}）` : ''}` : (_l ? `休業（${_l}）` : ''); }; // ★ 2026-10-28 半日休業は（午前のみ）を添える
   const isClosedDate = (dstr) => { const [y,m,d]=dstr.split('-').map(Number); return (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(new Date(y,m-1,d).getDay()); };
   const timeLabel = (e) => e.start ? `${e.start}${e.end?`〜${e.end}`:''}` : '終日';
   const COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#0ea5e9','#64748b'];
@@ -22551,7 +22560,7 @@ export default function App() {
     const iso = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
     if (selectedDate !== iso) return;               // 既に別の日付を見ている場合は何もしない
     if (!cd.includes(today.getDay())) return;       // 今日が営業日なら何もしない
-    const holiSet = new Set((appData.holidays||[]).map(h => (h && h.date) ? h.date : h));
+    const holiSet = fullHolidaySet(appData.holidays);
     const d = new Date(today);
     for (let i = 0; i < 31; i++) {
       d.setDate(d.getDate() + 1);
@@ -23772,7 +23781,7 @@ export default function App() {
     //   送迎表から別の画面へ移ったときは今日(定休日なら次の営業日)に戻す。
     if (lastViewRef.current === 'transport' && currentView !== 'transport') {
       try {
-        const cd = appData?.systemSettings?.facilityInfo?.closedDays || []; const holiSet = new Set((appData.holidays||[]).map(h => (h && h.date) ? h.date : h));
+        const cd = appData?.systemSettings?.facilityInfo?.closedDays || []; const holiSet = fullHolidaySet(appData.holidays);
         const _iso2 = (x) => `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;
         const d = new Date(); let iso = _iso2(d);
         if (Array.isArray(cd) && cd.includes(d.getDay())) { for (let i = 0; i < 31; i++) { d.setDate(d.getDate() + 1); if (!cd.includes(d.getDay()) && !holiSet.has(_iso2(d))) { iso = _iso2(d); break; } } }
@@ -25682,6 +25691,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     // ★ 施設の休業日(各種設定>休業日)判定(2026-08-11): この日は利用者の状態を自動で「休業」にする
     const _selIsoHd = (() => { const d = new Date(selectedDate); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
     const _isHolidaySel = (appData.holidays || []).some(h => (h && (h.date || h)) === _selIsoHd);
+    const _holApSel = holidayAmpmOn(appData.holidays, _selIsoHd); // ★ 2026-10-28 半日休業: その時間帯だけに来る方を休業にする
     // ★ 休業日の名称(例: 夏季休業)を特記に自動記載するため取得(2026-08-11)
     const _holidayNameSel = (() => { if (!_isHolidaySel) return ''; const h = (appData.holidays || []).find(x => (x && (x.date || x)) === _selIsoHd); return (h && h.name) ? h.name : ''; })();
     const monthKey = `${new Date(selectedDate).getFullYear()}-${String(new Date(selectedDate).getMonth() + 1).padStart(2, '0')}`;
@@ -25853,12 +25863,16 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
            if ((_shR[`${dayNum}_AM`] === '振替' || _shR[`${dayNum}_PM`] === '振替') && (!pData.status || pData.status === '出席')) pData.status = '振替'; }
          // ★ 施設の休業日は状態を自動で「休業」にする(2026-08-11)。 休止中の人は休止のまま。
          //   バイタル等の実データが入力済みの記録は触らない(休業日設定の誤りで入力を隠さない保護)。
-         if (_isHolidaySel && pData.status !== '休止' && pData.status !== '休業' && !ticketHasClinicalData(pData)) {
+         // ★ 2026-10-28 半日休業: 午前/午後だけの休業は、来る時間帯が全部その休業にふさがる方だけ休業(1日の方・もう半日の方はそのまま)
+         const _holHere = _isHolidaySel && (_holApSel === '1日' || (() => { const _sh = appData.monthlyShifts?.[monthKey]?.[p.id] || {}; const _b = getScheduleOnDate(p, selectedDate)?.[dayOfWeek] || ''; const _bA = _b === 'AM' || _b === '1日', _bP = _b === 'PM' || _b === '1日';
+           const _sA = _sh[`${dayNum}_AM`] !== undefined ? _sh[`${dayNum}_AM`] : (_bA ? '〇' : '空欄'); const _sP = _sh[`${dayNum}_PM`] !== undefined ? _sh[`${dayNum}_PM`] : (_bP ? '〇' : '空欄');
+           const _c = (v) => v === '〇' || v === '出席' || v === '臨時' || String(v).startsWith('振'); return holidayClosesSlots(_holApSel, _c(_sA), _c(_sP)); })());
+         if (_holHere && pData.status !== '休止' && pData.status !== '休業' && !ticketHasClinicalData(pData)) {
              obsMarkRecEdit(p.id, selectedDate, 'status');
              pData.status = '休業';
          }
          // ★ 休業の特記に休業日の名称(例: 夏季休業)を自動記載(2026-08-11)。 既に特記がある場合は触らない。
-         if (_isHolidaySel && pData.status === '休業' && _holidayNameSel && !(pData.tokki && String(pData.tokki).trim())) {
+         if (_holHere && pData.status === '休業' && _holidayNameSel && !(pData.tokki && String(pData.tokki).trim())) {
              obsMarkRecEdit(p.id, selectedDate, 'tokki');
              pData.tokki = _holidayNameSel;
          }
@@ -26932,7 +26946,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     const dow2 = new Date(selectedDate).getDay();
     const targetDateStr3 = `${new Date(selectedDate).getMonth()+1}月${new Date(selectedDate).getDate()}日`;
     const _selYear4 = new Date(selectedDate).getFullYear();
+    const _holApTf = (() => { const d = new Date(selectedDate); return holidayAmpmOn(appData.holidays, `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`); })();
     displayRecords = displayRecords.filter(p => {
+      // ★ 2026-10-28 半日休業: 休業の時間帯の表には、休業になった方だけを出す(1日利用の方などは、もう半日の表に出る)。入力済みの記録は隠さない
+      if (_holApTf && _holApTf === timeFilter && p.status !== '休業' && p.status !== '休止' && !ticketHasClinicalData(p)) return false;
       // 振替の record があれば furikaeAmpm を優先（普段の曜日に来なくても表示する）
       const rec = (appData.ticketRecords||[]).find(r=>r.patientId===p.id && recMatchesDateYear(r, targetDateStr3, _selYear4));
       if (rec && (rec.status === '振替' || rec.status === '臨時')) {
@@ -32580,7 +32597,7 @@ function JissekiView({ appData, onSave, onShowPrintPreview }) {
   const days = Array.from({length:dim},(_,i)=>i+1);
   const dowJp = ['日','月','火','水','木','金','土'];
   const closedDays = appData.systemSettings?.facilityInfo?.closedDays || [0];
-  const holidaySet = new Set((appData.holidays||[]).map(h=>h.date||h));
+  const holidaySet = fullHolidaySet(appData.holidays); // ★ 2026-10-28: 半日休業の日は灰色にしない
   const mStart = `${jy}-${String(jm).padStart(2,'0')}-01`;
   const mEnd = `${jy}-${String(jm).padStart(2,'0')}-${String(dim).padStart(2,'0')}`;
   const byPat = new Map();
@@ -33749,7 +33766,9 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
               for (let d = 1; d <= daysInMonth; d++) {
                 const dow = new Date(year, month - 1, d).getDay();
                 if (_closed.includes(dow)) continue;
-                if (_hset.has(`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`)) continue;
+                const _wIso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                // ★ 2026-10-28 半日休業(午前/午後だけ)の日は 0.5日
+                if (_hset.has(_wIso)) { const _wa = holidayAmpmOn(appData.holidays, _wIso); if (_wa === 'AM' || _wa === 'PM') workDays += 0.5; continue; }
                 workDays++;
               }
               return workDays;
@@ -35695,7 +35714,9 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     if (cand < td) cand = new Date(y0+1, +mm[1]-1, +mm[2]);
     const iso = _isoOf(cand);
     const closed = (appData.systemSettings?.facilityInfo?.closedDays||[0]);
-    const holi = (appData.holidays||[]).some(h => ((h && h.date) ? h.date : h) === iso);
+    // ★ 2026-10-28 半日休業: その方の基本の時間帯がその休業にふさがるときだけ休業扱い(1日の方・もう半日の方・臨時はその日のまま)
+    const _hapS = holidayAmpmOn(appData.holidays, iso);
+    const holi = _hapS === '1日' || (!!_hapS && (() => { const _p0 = (appData.patients||[]).find(pt => pt.id === pid); const _b0 = _p0 ? (getScheduleOnDate(_p0, iso)?.[cand.getDay()] || '') : ''; return _b0 === _hapS; })());
     if (!closed.includes(cand.getDay()) && !holi) return _labelOfIso(iso);   // 営業日 → そのまま
     // 休業/定休 → その利用者の次の利用日へ(前日に立って次回を計算=入力日以降の最初の利用日)
     const _p = (appData.patients||[]).find(pt => pt.id === pid);
@@ -39823,7 +39844,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 const _today = iso === _iso(new Date());
                 return (
                   <div key={iso} id={`tpday-${iso}`} className={`px-2 py-1.5 text-sm font-bold text-white rounded-lg text-center ${_today?'bg-blue-600':'bg-slate-800'}`}>
-                    {d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）
+                    {d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{(() => { const _hw = holidayAmpmOn(appData.holidays, iso); return _hw ? <span className="ml-1 text-red-200" data-testid={`tp-hol-${iso}`}>{_hw === 'AM' ? '午前休業' : _hw === 'PM' ? '午後休業' : '休業'}</span> : null; })() /* ★ 2026-10-28 週の見出しにも休業(半日は午前休業/午後休業) */}
                   </div>
                 );
               })}
@@ -39863,7 +39884,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           </div>); };
         return (
         <div className="pb-4" data-testid="tp-day-list">
-          <div className={`px-3 py-1.5 text-[13px] font-bold text-center ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-700 text-white'}`}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{_hol ? <span className="ml-1 text-red-200">休業</span> : null}{!_finalAtOfWeek() ? <span className="ml-2 text-[11px] font-normal opacity-80">（編集はパソコン・iPadで）</span> : null}</div>
+          <div className={`px-3 py-1.5 text-[13px] font-bold text-center ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-700 text-white'}`}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{_hol ? <span className="ml-1 text-red-200">{_hol.ampm === 'AM' ? '午前休業' : _hol.ampm === 'PM' ? '午後休業' : '休業'}</span> : null}{!_finalAtOfWeek() ? <span className="ml-2 text-[11px] font-normal opacity-80">（編集はパソコン・iPadで）</span> : null}</div>
           {['AM','PM'].map(sl => { const pl = getPlan(iso, sl); const abs = _absentees(iso, sl); const _fin = _baseOf(pl) || {}; const _rmSet = new Set(_removedSince(pl).map(String)); const n = _chgCount(pl);
             const anyone = Object.values(pl.cars||{}).some(a => (a||[]).length) || (pl.walkers||[]).length || (pl.others||[]).length || (pl.un||[]).length || _rmSet.size; return (
             <div key={sl} data-testid={`tp-dl-slot-${sl}`} className={`mt-2 mx-2 bg-white rounded-xl border-2 overflow-hidden ${sl==='AM' ? 'border-amber-300' : 'border-indigo-300'}`}>
@@ -39907,7 +39928,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           <div data-testid="tp-fb-grid" className={`grid ${_tpOneDay ? 'tsu-tp-one' : ''}`} style={{gridTemplateColumns: (_tpPhone && !_tpOneDay) ? `repeat(${_tpViewDays.length}, 172px)` : `repeat(${_tpViewDays.length}, minmax(0, 1fr))`, gridTemplateRows:'auto auto auto', gridAutoFlow:'column', columnGap:8, rowGap:0, ...((_tpPhone && !_tpOneDay) ? { width: 'max-content' } : {})}}>
             {_tpViewDays.map(d => { const iso = _iso(d); const _hol = (appData.holidays||[]).find(h => (h && (h.date||h)) === iso); return (
               <React.Fragment key={iso}>
-                <div className={`px-2 py-1 text-xs font-bold text-center rounded-t-xl border border-b-0 border-slate-200 min-w-0 ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-100 text-slate-700'}`}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{_hol ? <span className="ml-1 text-red-600">休業</span> : null}</div>
+                <div className={`px-2 py-1 text-xs font-bold text-center rounded-t-xl border border-b-0 border-slate-200 min-w-0 ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-100 text-slate-700'}`}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{_hol ? <span className="ml-1 text-red-600">{_hol.ampm === 'AM' ? '午前休業' : _hol.ampm === 'PM' ? '午後休業' : '休業'}</span> : null}</div>
                 {['AM','PM'].map(sl => { const pl = getPlan(iso, sl); const abs = _absentees(iso, sl); const anyone = Object.values(pl.cars||{}).some(a => (a||[]).length) || (pl.walkers||[]).length || (pl.others||[]).length || (pl.un||[]).length || _removedSince(pl).length; return (
                   <div key={sl} data-testid={`tp-fb-cell-${iso}-${sl}`} data-tpcell={`${iso}_${sl}`} className={`bg-white border-x border-t border-slate-200 min-w-0 ${sl==='PM' ? 'border-b rounded-b-xl mb-1' : ''}`}>
                     <div className={`px-2 py-0.5 text-[11px] font-bold ${sl==='AM'?'bg-amber-50 text-amber-800':'bg-indigo-50 text-indigo-800'}`}>{sl==='AM'?'午前':'午後'}</div>
@@ -41923,6 +41944,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   const [furikaeModal, setFurikaeModal] = useState({ isOpen: false, day: null, ampm: null, fromDate: "", reason: "", mode: 'forward' });
   // 月間スケジュールセルクリック時の状態選択ポップアップ
   const [shiftStatusModal, setShiftStatusModal] = useState({ isOpen: false, day: null, ap: null, currentStatus: '', isBase: false });
+  const [storeHolModal, setStoreHolModal] = useState(null); // ★ 2026-10-28 月間スケジュールの「休業」→店舗の休業日に入れる {day, ap, ampm, name}
   // 欠席/休業 選択時の理由入力モーダル
   const [absenceReasonModal, setAbsenceReasonModal] = useState({ isOpen: false, status: '', day: null, ap: null, isBase: false, reason: '', reasonCat: '' });
   // 振替取り消し: 元 (欠席) の状態をどうするか選択するモーダル
@@ -42874,7 +42896,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const dow = dO.getDay();
     if ((appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow)) return;
-    if (appData.holidays?.some(h => (h.date || h) === ds)) return;
+    { const _hap = holidayAmpmOn(appData.holidays, ds); if (_hap === '1日' || _hap === ap) return; } // ★ 2026-10-28 半日休業はその時間帯だけ押せない
     if (getPauseReasonOnDate(localPatient, ds)) return;
     const base = getScheduleOnDate(localPatient, ds)?.[dow] || ""; // ★ その日付時点の基本利用曜日
     const ib = base === "1日" || base === ap;
@@ -42969,6 +42991,14 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     if (newStatus === '休止') {
       const today = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
       setPauseFromCellModal({ isOpen: true, reason: '', fromDate: today, toDate: '' });
+      return;
+    }
+    // ★ 2026-10-28(ユーザー「月間スケジュールで休業にしたら、事業所情報の休業日一覧に出て、そこで直せるように」): 休業はこの方だけでなく
+    //   店舗の休業日として入れる(その時間帯に来る全員が休業・各種設定→事業所情報の施設休業日に入る=提供記録入力の「休業」と同じ1か所)
+    if (newStatus === '休業') {
+      const _dsH = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+      const _exH = (appData.holidays||[]).find(h => h && String(h.date||h) === _dsH); const _exAp = _exH ? holidayAmpmOn(appData.holidays, _dsH) : null;
+      setStoreHolModal({ day, ap, ampm: (_exAp && _exAp !== ap) ? '1日' : ap, name: (_exH && _exH.name) || '' });
       return;
     }
     // ★ 欠席 / 休業 は理由入力モーダルを開く
@@ -43785,7 +43815,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 {monthlyHl && (<div className="mb-2 px-3 py-2 rounded-lg bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold">「その日だけ」の変更（振替・欠席・休止など）は、ここで日付を押して行います。</div>)}
                 <div className="flex items-center justify-between mb-2"><label className="text-sm font-bold text-slate-600 flex items-center gap-1.5"><CalendarCheck size={16} />月間スケジュール</label>{(() => { try { const o = JSON.parse(sessionStorage.getItem('tsumugiMasterOrigin') || 'null'); if (o && o.from === 'print' && Date.now() - Number(o.at || 0) < 30 * 60 * 1000 && typeof navigateTo === 'function') return <button type="button" data-testid="master-back-print" onClick={() => { try { sessionStorage.removeItem('tsumugiMasterOrigin'); } catch {} navigateTo('print'); }} className="ml-2 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white whitespace-nowrap">連絡帳に戻る</button>; } catch {} return null; })()}{/* ★ 2026-10-26(ユーザー要望): 連絡帳の日付から来たときは戻るボタン */}<div className="flex items-center gap-2"><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronLeft size={16} /></button><span className="text-base font-bold text-slate-700 tabular-nums w-28 text-center">{currentMonth.getFullYear()}年{currentMonth.getMonth() + 1}月</span><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronRight size={16} /></button></div></div>
                 {/* ★ 2026-10-08(店舗報告: スマホで月間スケジュールの日付が見切れる): スマホは1日あたり28pxの幅で横にスクロール(CSS tsu-mstrip) */}
-                <div className="flex border border-slate-200 rounded-xl bg-slate-50 p-1 gap-0.5 tsu-mstrip">{allD.map(d => { const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d); const dow = dO.getDay(); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; const cl = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow); const hl = appData.holidays?.some(h => (h.date || h) === ds); const base = getScheduleOnDate(localPatient, ds)?.[dow] || ""; const bAM = base === "AM" || base === "1日"; const bPM = base === "PM" || base === "1日"; const sh = effShifts?.[mKey]?.[localPatient.id] || {}; const pi = getPauseReasonOnDate(localPatient, ds); const _inactive = !!localPatient && !isPatientActiveOnDate(localPatient, ds); /* ★ 利用開始日より前・利用終了日より後は「空欄(非利用日)」にして、どこで終了したか一目で分かるようにする。利用中に戻せば再表示。 */ /* 休止中: 基本利用日 (bAM/bPM=true) の枠だけ「休止」表示。それ以外は通常空欄 */ const _shAM = sh[`${d}_AM`] !== undefined ? sh[`${d}_AM`] : (_mSchedRecFuri[d]?.AM || (bAM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const _shPM = sh[`${d}_PM`] !== undefined ? sh[`${d}_PM`] : (_mSchedRecFuri[d]?.PM || (bPM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const cA = _inactive ? sSt("空欄", cl, hl) : (pi ? (bAM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shAM, bAM), cl, hl)); const cP = _inactive ? sSt("空欄", cl, hl) : (pi ? (bPM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shPM, bPM), cl, hl)); const ok = !cl && !hl && !pi && !isOff && !_inactive; return (<div key={d} className="flex-1 min-w-0 flex flex-col items-stretch bg-white border border-slate-200 rounded overflow-hidden"><div className={`w-full text-center text-[11px] font-bold py-1 bg-slate-100 border-b border-slate-200 leading-tight ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{d}<br/><span className="text-[9px] font-normal">{dN[dow]}</span></div><button disabled={!ok} title={_mSchedRecReason[d] || (cA.sub ? `${cA.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "AM")} data-testid={`ms-cell-${d}-AM`} className={`h-9 flex items-center justify-center border-b border-slate-100 text-[10px] leading-none whitespace-pre-wrap ${cA.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cA.t}</button><button disabled={!ok} title={_mSchedRecReason[d] || (cP.sub ? `${cP.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "PM")} data-testid={`ms-cell-${d}-PM`} className={`h-9 flex items-center justify-center text-[10px] leading-none whitespace-pre-wrap ${cP.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cP.t}</button></div>); })}</div>
+                <div className="flex border border-slate-200 rounded-xl bg-slate-50 p-1 gap-0.5 tsu-mstrip">{allD.map(d => { const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d); const dow = dO.getDay(); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; const cl = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow); const _hapC = holidayAmpmOn(appData.holidays, ds); const hl = _hapC === '1日'; const hlA = hl || _hapC === 'AM', hlP = hl || _hapC === 'PM'; /* ★ 2026-10-28 半日休業はその時間帯だけ休業 */ const base = getScheduleOnDate(localPatient, ds)?.[dow] || ""; const bAM = base === "AM" || base === "1日"; const bPM = base === "PM" || base === "1日"; const sh = effShifts?.[mKey]?.[localPatient.id] || {}; const pi = getPauseReasonOnDate(localPatient, ds); const _inactive = !!localPatient && !isPatientActiveOnDate(localPatient, ds); /* ★ 利用開始日より前・利用終了日より後は「空欄(非利用日)」にして、どこで終了したか一目で分かるようにする。利用中に戻せば再表示。 */ /* 休止中: 基本利用日 (bAM/bPM=true) の枠だけ「休止」表示。それ以外は通常空欄 */ const _shAM = sh[`${d}_AM`] !== undefined ? sh[`${d}_AM`] : (_mSchedRecFuri[d]?.AM || (bAM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const _shPM = sh[`${d}_PM`] !== undefined ? sh[`${d}_PM`] : (_mSchedRecFuri[d]?.PM || (bPM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const cA = _inactive ? sSt("空欄", cl, hlA) : (pi ? (bAM ? sSt("休止", cl, hlA) : sSt("空欄", cl, hlA)) : sSt(curSt(_shAM, bAM), cl, hlA)); const cP = _inactive ? sSt("空欄", cl, hlP) : (pi ? (bPM ? sSt("休止", cl, hlP) : sSt("空欄", cl, hlP)) : sSt(curSt(_shPM, bPM), cl, hlP)); const okA = !cl && !hlA && !pi && !isOff && !_inactive, okP = !cl && !hlP && !pi && !isOff && !_inactive; return (<div key={d} className="flex-1 min-w-0 flex flex-col items-stretch bg-white border border-slate-200 rounded overflow-hidden"><div className={`w-full text-center text-[11px] font-bold py-1 bg-slate-100 border-b border-slate-200 leading-tight ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{d}<br/><span className="text-[9px] font-normal">{dN[dow]}</span></div><button disabled={!okA} title={_mSchedRecReason[d] || (cA.sub ? `${cA.sub} 分の振替` : undefined)} onClick={() => okA && shiftTog(d, "AM")} data-testid={`ms-cell-${d}-AM`} className={`h-9 flex items-center justify-center border-b border-slate-100 text-[10px] leading-none whitespace-pre-wrap ${cA.c} ${okA ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cA.t}</button><button disabled={!okP} title={_mSchedRecReason[d] || (cP.sub ? `${cP.sub} 分の振替` : undefined)} onClick={() => okP && shiftTog(d, "PM")} data-testid={`ms-cell-${d}-PM`} className={`h-9 flex items-center justify-center text-[10px] leading-none whitespace-pre-wrap ${cP.c} ${okP ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cP.t}</button></div>); })}</div>
                 <div className="flex gap-2 mt-2 text-[11px] text-slate-400 font-bold flex-wrap items-center"><span>上段:AM/下段:PM</span><span className="text-blue-600 bg-blue-50 px-1 rounded">出席</span><span className="text-red-500 bg-red-50 px-1 rounded">欠席</span><span className="text-emerald-600 bg-emerald-50 px-1 rounded">振替</span><span className="text-cyan-700 bg-cyan-50 px-1 rounded">臨時</span><span className="text-white bg-slate-600 px-1 rounded">休業</span><span>空欄=非利用日</span></div></div>
               {/* お迎え時間: 基本利用曜日に設定がある日のみ表示 */}
               {(() => {
@@ -45796,6 +45826,50 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
           </div>
         </div>
       )}
+      {/* ★ 2026-10-28 月間スケジュールの「休業」: 店舗の休業日(各種設定→事業所情報の施設休業日)に入れる。午前のみ・午後のみ・1日を選べる */}
+      {storeHolModal && (() => {
+        const _y = currentMonth.getFullYear(), _m = currentMonth.getMonth() + 1, _d = storeHolModal.day;
+        const _ds = `${_y}-${String(_m).padStart(2,'0')}-${String(_d).padStart(2,'0')}`; const _w = ['日','月','火','水','木','金','土'][new Date(_y, _m - 1, _d).getDay()];
+        const _save = () => {
+          const nh = (appData.holidays||[]).filter(h => !(h && String(h.date||h) === _ds));
+          const _ap = storeHolModal.ampm;
+          nh.push({ date: _ds, name: String(storeHolModal.name||'').trim() || '休業日', ...((_ap === 'AM' || _ap === 'PM') ? { ampm: _ap } : {}) });
+          nh.sort((a,b)=>String(a.date||a).localeCompare(String(b.date||b)));
+          setStoreHolModal(null);
+          onSave({ ...appData, holidays: nh }, { manual: true, message: `✓ ${_m}月${_d}日${_ap === 'AM' ? 'の午前' : _ap === 'PM' ? 'の午後' : ''}を店舗の休業日にしました` });
+        };
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" data-testid="ms-storehol-modal">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
+                <h2 className="text-base font-bold text-slate-800">店舗の休業日にする</h2>
+                <button type="button" aria-label="閉じる" onClick={() => setStoreHolModal(null)} className="p-2 text-slate-400 hover:bg-slate-200 rounded-full"><X size={20}/></button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div className="text-base font-bold text-slate-800">{_m}月{_d}日（{_w}）</div>
+                <div>
+                  <div className="text-sm font-bold text-slate-600 mb-1.5">休業する時間帯</div>
+                  <div className="flex gap-2">
+                    {[['AM','午前のみ'],['PM','午後のみ'],['1日','1日']].map(([v,l]) => (
+                      <button key={v} type="button" data-testid={`ms-storehol-ap-${v}`} onClick={() => setStoreHolModal(m => ({ ...m, ampm: v }))}
+                        className={`flex-1 min-h-[44px] rounded-xl border font-bold text-sm ${storeHolModal.ampm === v ? 'bg-slate-700 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-600'}`}>{l}</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-600 mb-1.5" htmlFor="ms-storehol-name">理由</label>
+                  <input id="ms-storehol-name" data-testid="ms-storehol-name" type="text" value={storeHolModal.name} onChange={e => { const v = e.target.value; setStoreHolModal(m => ({ ...m, name: v })); }} placeholder="例: 雪のため" className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-base outline-none"/>
+                </div>
+                <div className="text-sm text-slate-600 leading-relaxed bg-slate-50 border border-slate-200 rounded-xl p-3">この時間帯に来る方は全員「休業」になります。各種設定 → 事業所情報の「施設休業日」に入るので、直すときや消すときはそこで行います。</div>
+              </div>
+              <div className="px-6 py-3 bg-slate-50 border-t flex gap-2 justify-end">
+                <button type="button" onClick={() => setStoreHolModal(null)} className="min-h-[44px] px-4 rounded-xl font-bold text-slate-600 hover:bg-slate-200 text-sm">キャンセル</button>
+                <button type="button" data-testid="ms-storehol-save" onClick={_save} className="min-h-[44px] px-5 rounded-xl font-bold text-white bg-slate-700 hover:bg-slate-800 text-sm">休業日にする</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {shiftStatusModal.isOpen && (() => {
         const cu = shiftStatusModal.currentStatus;
         // 現在状態を 出席/欠席/振替/休業 の4種に正規化
@@ -45849,7 +45923,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   {options.map(opt => (
                     <button key={opt} onClick={() => applyShiftStatus(opt)}
                       className={`w-full py-3 rounded-xl text-white font-bold text-sm shadow-md active:scale-95 ${colorMap[opt]}`}>
-                      {opt === '臨時' ? '臨時利用（基本利用日以外の来所）' : opt}
+                      {opt === '臨時' ? '臨時利用（基本利用日以外の来所）' : opt === '休業' ? '休業（店舗の休業日にする）' : opt}
                     </button>
                   ))}
                 </div>
@@ -46586,6 +46660,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
   const [holidayStart, setHolidayStart] = useState("");
   const [holidayEnd, setHolidayEnd] = useState("");
   const [holidayName, setHolidayName] = useState("");
+  const [holidayAmpm, setHolidayAmpm] = useState("1日"); // ★ 2026-10-28 登録するときの休業の時間帯(1日/AM/PM)
   const [holidayYear, setHolidayYear] = useState(() => new Date().getFullYear()); // 施設休業日: 表示中の西暦
   const [holidayEditModal, setHolidayEditModal] = useState(null); // {origDates:[], name, start, end}
   const [massageInput, setMassageInput] = useState((appData.systemSettings?.massageTypes || []).join('、'));
@@ -47141,23 +47216,24 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
     const start = new Date(holidayStart); const end = new Date(holidayEnd);
     if (start > end) { alert("終了日は開始日以降に"); return; }
     const nh = [...(appData.holidays || [])];
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) { const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; const idx = nh.findIndex(h => (h.date||h) === ds); if (idx >= 0) nh.splice(idx, 1); nh.push({ date: ds, name: holidayName || "休業日" }); }
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) { const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; const idx = nh.findIndex(h => (h.date||h) === ds); if (idx >= 0) nh.splice(idx, 1); nh.push({ date: ds, name: holidayName || "休業日", ...((holidayAmpm === 'AM' || holidayAmpm === 'PM') ? { ampm: holidayAmpm } : {}) }); }
     nh.sort((a, b) => (a.date||a).localeCompare(b.date||b));
-    onSave({ ...appData, holidays: nh }, { manual: true, message: '✓ 休業日を登録しました' }); setHolidayStart(""); setHolidayEnd(""); setHolidayName("");
+    onSave({ ...appData, holidays: nh }, { manual: true, message: '✓ 休業日を登録しました' }); setHolidayStart(""); setHolidayEnd(""); setHolidayName(""); setHolidayAmpm("1日");
   };
   const removeHoliday = (ds) => onSave({ ...appData, holidays: (appData.holidays || []).filter(h => (h.date||h) !== ds) }, { manual: true, message: '✓ 削除しました' });
   // ★ 施設休業日を「名称が同じ連続した日付」で範囲にまとめる (夏季休暇 8/12〜8/14 のように表示)
   const _groupHolidays = (holidays) => {
-    const list = (holidays||[]).map(h => ({ date: String(h.date||h), name: h.name||'休業日' })).filter(h => /^\d{4}-\d{2}-\d{2}$/.test(h.date)).sort((a,b)=>a.date.localeCompare(b.date));
+    // ★ 2026-10-28: 半日休業(午前のみ/午後のみ)は時間帯も同じものだけまとめる
+    const list = (holidays||[]).map(h => ({ date: String(h.date||h), name: h.name||'休業日', ampm: (h && (h.ampm === 'AM' || h.ampm === 'PM')) ? h.ampm : '1日' })).filter(h => /^\d{4}-\d{2}-\d{2}$/.test(h.date)).sort((a,b)=>a.date.localeCompare(b.date));
     const groups = [];
     for (const h of list) {
       const last = groups[groups.length-1];
-      if (last && last.name === h.name) {
+      if (last && last.name === h.name && last.ampm === h.ampm) {
         const pd = new Date(last.end); pd.setDate(pd.getDate()+1);
         const next = `${pd.getFullYear()}-${String(pd.getMonth()+1).padStart(2,'0')}-${String(pd.getDate()).padStart(2,'0')}`;
         if (next === h.date) { last.end = h.date; last.dates.push(h.date); continue; }
       }
-      groups.push({ name: h.name, start: h.date, end: h.date, dates: [h.date] });
+      groups.push({ name: h.name, ampm: h.ampm, start: h.date, end: h.date, dates: [h.date] });
     }
     return groups;
   };
@@ -47171,7 +47247,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
     src.forEach(h => {
       const d = new Date(String(h.date||h)); d.setFullYear(d.getFullYear()+1);
       const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-      if (!nh.some(x => String(x.date||x)===ds)) { nh.push({ date: ds, name: h.name||'休業日' }); added++; }
+      if (!nh.some(x => String(x.date||x)===ds)) { nh.push({ date: ds, name: h.name||'休業日', ...((h && (h.ampm === 'AM' || h.ampm === 'PM')) ? { ampm: h.ampm } : {}) }); added++; }
     });
     if (!added) { alert('すでに登録済みです。'); return; }
     nh.sort((a,b)=>String(a.date||a).localeCompare(String(b.date||b)));
@@ -47649,7 +47725,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
             {/* 施設休業日 */}
             <div ref={holidaySectionRef} className="scroll-mt-20">
             <SectionCard title="施設休業日の設定">
-              <p className="text-xs text-slate-500 mb-4">年末年始・夏休みなどを入れると、その日は全員「休業」になります（年ごとに登録）。</p>
+              <p className="text-xs text-slate-500 mb-4">年末年始・夏休みなどを入れると、その日は全員「休業」になります（年ごとに登録）。雪などで午前だけ・午後だけ休むときは「午前のみ」「午後のみ」を選びます。</p>
               {/* 西暦(年)の切替 + 前年コピー */}
               <div className="flex items-center gap-3 mb-4 flex-wrap">
                 <div className="flex items-center gap-1">
@@ -47664,6 +47740,11 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                 <div className="pb-2 font-bold text-slate-400">〜</div>
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">終了日</label><input type="date" value={holidayEnd} onChange={e => setHolidayEnd(e.target.value)} className="px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm"/></div>
                 <div className="flex-1 min-w-[160px]"><label className="block text-sm font-bold text-slate-600 mb-1.5">名称</label><input type="text" value={holidayName} onChange={e => setHolidayName(e.target.value)} placeholder="例: 夏季休暇" className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm"/></div>
+                <div data-testid="hol-add-ampm"><div className="block text-sm font-bold text-slate-600 mb-1.5">時間帯</div>
+                  <div className="flex gap-1">{[['1日','1日'],['AM','午前のみ'],['PM','午後のみ']].map(([v,l]) => (
+                    <button key={v} type="button" data-testid={`hol-add-ap-${v}`} onClick={() => setHolidayAmpm(v)} className={`px-3 py-2 rounded-lg border font-bold text-sm ${holidayAmpm === v ? 'bg-slate-800 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-600'}`}>{l}</button>
+                  ))}</div>
+                </div>
                 <button type="button" onClick={addHolidayRange} className="px-5 py-2 bg-slate-800 text-white rounded-lg font-bold text-sm active:scale-95 flex items-center"><CalendarRange size={16} className="mr-1.5"/>登録</button>
               </div>
               {(() => {
@@ -47674,11 +47755,11 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[320px] overflow-y-auto">{groups.map(g => (
                     <div key={g.dates.join(',')} className="flex items-center justify-between bg-white border shadow-sm p-3 rounded-xl">
                       <div className="min-w-0">
-                        <span className="text-sm font-bold text-slate-800">{g.name}</span><br/>
+                        <span className="text-sm font-bold text-slate-800">{g.name}</span>{holidayAmpmLabel(g.ampm) && <span data-testid="hol-ampm-badge" className="ml-1.5 text-[11px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">{holidayAmpmLabel(g.ampm)}</span>}<br/>
                         <span className="text-xs text-slate-500">{_fmtJ(g.start)}{g.end!==g.start?` 〜 ${_fmtJ(g.end)}`:''}<span className="text-slate-400 ml-1">（{g.dates.length}日）</span></span>
                       </div>
                       <div className="flex gap-1 shrink-0">
-                        <button type="button" onClick={()=>setHolidayEditModal({origDates:g.dates, name:g.name, start:g.start, end:g.end, ampm:(()=>{ const h0=(appData.holidays||[]).find(h=>String(h.date||h)===g.dates[0]); return (h0 && h0.ampm) || '1日'; })()})} className="text-blue-400 hover:text-blue-600 p-1" title="編集"><Edit3 size={15}/></button>
+                        <button type="button" onClick={()=>setHolidayEditModal({origDates:g.dates, name:g.name, start:g.start, end:g.end, ampm: g.ampm || '1日'})} className="text-blue-400 hover:text-blue-600 p-1" title="編集"><Edit3 size={15}/></button>
                         <button type="button" onClick={()=>{ if(window.confirm(`「${g.name}」（${_fmtJ(g.start)}${g.end!==g.start?`〜${_fmtJ(g.end)}`:''}）を削除しますか？`)) removeHolidayRange(g.dates); }} className="text-slate-300 hover:text-red-500 p-1" title="削除"><Trash2 size={15}/></button>
                       </div>
                     </div>

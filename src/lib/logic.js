@@ -195,6 +195,19 @@ export const pickHolidays = (local, cloud) => {
   if (!lh.length && ch.length) return { from: 'cloud', holidays: ch, ts: 0 };
   return { from: 'local', holidays: lh, ts: 0 };
 };
+// ★ 2026-10-28 半日休業(ユーザー「全日と、雪などで午前だけ・午後だけも選べるように」): 施設休業日の時間帯を1か所で決める。
+//   holidays=[{date,name,ampm?}] ampm: 'AM'|'PM'=半日・無し/'1日'=全日。 文字列だけの古い形('2026-12-29')は全日。
+//   holidayAmpmOn → その日の休業の時間帯 ('1日'|'AM'|'PM'|null)。 fullHolidaySet → 全日休業の日付だけ(日付送り・営業日数の判定用)。
+//   holidayClosesSlots → その方がその日に来る時間帯が休業で全部ふさがるか(1日利用の方は、半日休業なら残りの半日で来る)。
+export const holidayOn = (holidays, iso) => (Array.isArray(holidays) ? holidays : []).find(h => h && String(h.date || h) === String(iso)) || null;
+export const holidayAmpmOn = (holidays, iso) => { const h = holidayOn(holidays, iso); if (!h) return null; const a = h.ampm; return (a === 'AM' || a === 'PM') ? a : '1日'; };
+export const fullHolidaySet = (holidays) => new Set((Array.isArray(holidays) ? holidays : []).filter(h => h && !(h.ampm === 'AM' || h.ampm === 'PM')).map(h => String(h.date || h)));
+export const holidayClosesSlots = (ap, comingAM, comingPM) => {
+  if (!ap) return false; if (ap === '1日') return true;
+  if (!comingAM && !comingPM) return false;
+  return (!comingAM || ap === 'AM') && (!comingPM || ap === 'PM');
+};
+export const holidayAmpmLabel = (ap) => ap === 'AM' ? '午前のみ' : ap === 'PM' ? '午後のみ' : '';
 export const mergeTpTelDone = (win, lose) => {
   const b = lose && lose._telDone;
   if (!win || !b || typeof b !== 'object') return win;
