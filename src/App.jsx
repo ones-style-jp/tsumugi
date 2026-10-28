@@ -39815,7 +39815,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           ); })()}
           {/* ★ 2026-10-13(ユーザー提案): 変更内容は確定済みメニューとは別の専用ボタンから(全体・曜日・午前午後で絞り込み) */}
           {(() => { const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return tot ? (
-            <button type="button" onClick={() => setChgPanel({ iso: '', sl: '' })} data-testid="tp-chg-btn" className={`${_tpPhone ? 'hidden ' : ''}h-10 px-2.5 rounded-xl font-bold text-xs border whitespace-nowrap inline-flex items-center bg-red-50 border-red-300 text-red-800 hover:bg-red-100`}>変更 {tot}件</button>) : null; })()}
+            <button type="button" onClick={() => setChgPanel({ iso: '', sl: '' })} data-testid="tp-chg-btn" className={`${_tpPhone ? 'hidden ' : ''}h-10 px-2.5 rounded-xl font-bold text-xs border whitespace-nowrap inline-flex items-center bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100`}>変更 {tot}件</button>) : null; })()}
           {tpFocus && <button type="button" data-testid="tp-focus-clear" onClick={() => setTpFocus(null)} className="px-2.5 py-2 rounded-xl font-bold text-xs border border-amber-300 bg-yellow-100 text-amber-900 whitespace-nowrap">黄色の表示を消す</button>}
           {!!_finalAtOfWeek() && tpEdit && <button type="button" data-testid="tp-board-mode" onClick={()=>setTpEdit(false)} className="px-2.5 py-2 rounded-xl font-bold text-xs border border-emerald-300 bg-emerald-50 text-emerald-800 whitespace-nowrap">一覧に戻る</button>}
           {finalMenu && ReactDOM.createPortal((
@@ -39833,14 +39833,15 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             </div>), document.body)}
           {/* ★ 2026-10-13(ユーザー提案): 変更内容の専用パネル。全体／曜日／午前・午後で絞り込み。各コマの「運行表を出した後の変更 N件」からはそのコマに絞って開く */}
           {chgPanel && ReactDOM.createPortal((() => { const all = _chgListOfWeek(); const cl = all.filter(x => (!chgPanel.iso || x.iso === chgPanel.iso) && (!chgPanel.sl || x.sl === chgPanel.sl));
-            const _fb = (on, extra) => `px-3 py-1.5 rounded-lg text-[13px] font-bold border whitespace-nowrap ${on ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'} ${extra||''}`;
+            // ★ 2026-10-29(ユーザー「黒と赤が、つむぎの色と合っていない」): 選んだボタンは黒→つむぎの緑、件数・要連絡は赤→やわらかい橙
+            const _fb = (on, extra) => `px-3 py-1.5 rounded-lg text-[13px] font-bold border whitespace-nowrap ${on ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-700 border-slate-300 hover:bg-emerald-50'} ${extra||''}`;
             return (
             <div className="fixed inset-0 bg-slate-900/50 flex items-start justify-center p-4 pt-16" style={{zIndex:10000}} onClick={()=>setChgPanel(null)}>
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-5" onClick={e=>e.stopPropagation()} data-testid="tp-chg-panel">
                 <div className="flex items-center justify-between mb-3"><div className="font-bold text-slate-800 text-lg">{'運行表を出した後の変更'}<span className="ml-1 text-sm font-normal text-slate-500">（{cl.length}件{(chgPanel.iso || chgPanel.sl) ? `／全体 ${all.length}件` : ''}）</span></div><button type="button" onClick={()=>setChgPanel(null)} className="whitespace-nowrap text-slate-500 text-sm font-bold px-2">閉じる</button></div>
                 <div className="flex flex-wrap gap-1.5 mb-1.5" data-testid="tp-chg-filter-day">
                   <button type="button" className={_fb(!chgPanel.iso)} onClick={()=>setChgPanel(v=>({ ...v, iso: '' }))}>全体</button>
-                  {days.map(d => { const iso = _iso(d); const n = all.filter(x => x.iso === iso).length; return <button key={iso} type="button" className={_fb(chgPanel.iso === iso, n ? '' : 'opacity-50')} onClick={()=>setChgPanel(v=>({ ...v, iso }))}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{n ? <span className="ml-0.5 text-red-600">{n}</span> : null}</button>; })}
+                  {days.map(d => { const iso = _iso(d); const n = all.filter(x => x.iso === iso).length; return <button key={iso} type="button" className={_fb(chgPanel.iso === iso, n ? '' : 'opacity-50')} onClick={()=>setChgPanel(v=>({ ...v, iso }))}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{n ? <span className="ml-1 inline-block min-w-[1.4em] text-center rounded-full bg-amber-100 text-amber-800 text-[11px] leading-[1.5]">{n}</span> : null}</button>; })}
                 </div>
                 <div className="flex gap-1.5 mb-3" data-testid="tp-chg-filter-slot">
                   {[['', '午前・午後'], ['AM', '午前'], ['PM', '午後']].map(([v, l]) => <button key={v} type="button" className={_fb(chgPanel.sl === v)} onClick={()=>setChgPanel(p=>({ ...p, sl: v }))}>{l}</button>)}
@@ -39855,7 +39856,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                           <span className="font-bold text-slate-600 tabular-nums whitespace-nowrap">{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{x.sl==='AM'?'午前':'午後'}</span>
                           <span className={`font-bold ml-1.5 ${x.tel && x.done ? 'text-slate-500' : 'text-slate-800'}`}>{_pname(x.pid)}</span>
                           <span className={`ml-1.5 ${x.tel && x.done ? 'text-slate-500' : 'text-slate-700'}`}>{x.ac}</span>
-                          {x.tel && !x.done && <span className="ml-1.5 text-[12px] font-bold text-red-700 bg-red-50 border border-red-400 rounded px-1 whitespace-nowrap">要連絡</span>}
+                          {x.tel && !x.done && <span className="ml-1.5 text-[12px] font-bold text-amber-800 bg-amber-50 border border-amber-400 rounded px-1 whitespace-nowrap">要連絡</span>}
                         </button>
                         {x.tel && <label className={`flex items-center gap-1.5 text-[13px] font-bold whitespace-nowrap cursor-pointer shrink-0 ${x.done ? 'text-emerald-700' : 'text-slate-700'}`} data-testid="tp-chg-item-done">
                           <input type="checkbox" checked={!!x.done} onChange={e => setTelDone(x.iso, x.sl, x.pid, e.target.checked)} className="w-5 h-5 accent-emerald-600"/>連絡済</label>}
@@ -39972,7 +39973,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             <div key={sl} data-testid={`tp-dl-slot-${sl}`} className={`mt-2 mx-2 bg-white rounded-xl border-2 overflow-hidden ${sl==='AM' ? 'border-amber-300' : 'border-indigo-300'}`}>
               <div className={`px-3 py-1.5 flex items-center gap-2 text-[14px] font-bold ${sl==='AM'?'bg-amber-50 text-amber-800':'bg-indigo-50 text-indigo-800'}`}>{sl==='AM'?'午前':'午後'}
                 {pl._draft ? <span className="text-[10px] text-slate-500 bg-slate-200 rounded px-1 py-0.5 font-normal">下書き</span> : null}
-                {_baseOf(pl) && n ? <button type="button" data-testid={`tp-dl-chg-${sl}`} onClick={() => setChgPanel({ iso, sl })} className="text-[10px] text-white bg-red-600 rounded px-1.5 py-0.5 font-normal" title="押すと変更の一覧">{pl._final ? '確定後の変更' : '運行表を出した後の変更'} {n}件 ▼</button> : null}
+                {_baseOf(pl) && n ? <button type="button" data-testid={`tp-dl-chg-${sl}`} onClick={() => setChgPanel({ iso, sl })} className="text-[10px] text-white bg-amber-600 rounded px-1.5 py-0.5 font-normal" title="押すと変更の一覧">{pl._final ? '確定後の変更' : '運行表を出した後の変更'} {n}件 ▼</button> : null}
               </div>
               {!anyone ? <div className="px-3 py-2 text-[13px] text-slate-400">—</div> : (<>
                 {cars.map(c => { const ms = (pl.cars||{})[c.id] || []; const rmHere = ((_fin.cars||{})[c.id] || []).filter(m => m && _rmSet.has(String(m.pid)) && !ms.some(x => String(x.pid) === String(m.pid)));
@@ -46714,7 +46715,17 @@ function tsuBuildDemoStore(appData, opts = {}) {
   return { patients, records, systemSettings: ss, diarySettings, monthlyShifts: ms, transportPlans: tp, planCount, patientIdSeq: newSeq, slotCount };
 }
 
-function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAdmin, navFocus, onFocusHandled, deviceName, updateDeviceName, lastSync, cmOnly, loginLogLoader, staffCtx, navigateTo }) {
+function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSuperAdmin, isAdmin, navFocus, onFocusHandled, deviceName, updateDeviceName, lastSync, cmOnly, loginLogLoader, staffCtx, navigateTo }) {
+  // ★ 2026-10-29(ユーザー「未保存の印入れてみて」): 保存していない入力がある項目の横に印(●)。保存は今までどおり1つのボタンで全部。
+  //   「保存していない」の判定(dirtyRef)はそのまま使い、true になったときに開いていた項目を控える(_dirtyTabs)。false(保存・元に戻した)になったら全部消す。
+  //   App 側で直接 false にした(移るときの確認で保存した)ときは1秒ごとに見て消す
+  const [_dirtyTabs, _setDirtyTabs] = useState(() => new Set());
+  const _activeTabRef = React.useRef(cmOnly ? 'cm' : 'facility');
+  const dirtyRef = React.useMemo(() => ({
+    get current() { return _dirtyRefIn ? !!_dirtyRefIn.current : false; },
+    set current(v) { if (_dirtyRefIn) _dirtyRefIn.current = v; if (v) { const t = _activeTabRef.current; _setDirtyTabs(prev => (prev.has(t) ? prev : new Set([...prev, t]))); } else _setDirtyTabs(prev => (prev.size ? new Set() : prev)); },
+  }), [_dirtyRefIn]);
+  React.useEffect(() => { const iv = setInterval(() => { if (_dirtyRefIn && !_dirtyRefIn.current) _setDirtyTabs(prev => (prev.size ? new Set() : prev)); }, 1000); return () => clearInterval(iv); }, [_dirtyRefIn]);
   // ★ 2026-10-19 段階4: ログイン記録(管理者だけ・サーバーから取得)
   const [loginLog, setLoginLog] = useState(null);
   const [, setKpLayoutTick] = useState(0); // テンキーの並びの選択を画面に反映するため(値は端末に保存)
@@ -46722,6 +46733,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
   //   「消える問題」対策の同期追従・即保存(persistCm)ロジックを共有するため、タブ抽出はせず同一コンポーネントをモード分けで再利用。
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const [activeTab, setActiveTab] = useState(cmOnly ? 'cm' : 'facility');
+  _activeTabRef.current = activeTab;
   // ★ 2026-10-28 深夜: 左の項目の下の見出しを開いている項目(この端末に覚える)。押したら開く・選んでいる項目をもう一度押すと閉じる・ほかを選んでも閉じない
   const [_secOpen, _setSecOpen] = useState(() => { try { const a = JSON.parse(localStorage.getItem('tsumugiSettingsOpenTabs') || 'null'); return new Set(Array.isArray(a) ? a : [cmOnly ? 'cm' : 'facility']); } catch { return new Set([cmOnly ? 'cm' : 'facility']); } });
   const _secSetOpen = (id, on) => _setSecOpen(prev => { const n = new Set(prev); if (on) n.add(id); else n.delete(id); try { localStorage.setItem('tsumugiSettingsOpenTabs', JSON.stringify([...n])); } catch {} return n; });
@@ -47523,13 +47535,13 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
           iPad・パソコン(768px以上)は 左=縦の項目・右=中身(保存は右上)。中身の上に「この中の項目」→検索の順で固定。中身の幅は 4xl まで(横に伸びすぎない)・余白を詰めた。
           スマホは今までどおり上に横の項目を固定 */}
       {/* ★ 2026-10-28 夜(ユーザー「ケアマネ事業所・担当者は1項目しかないので、今まで通りでいい」): 項目が1つだけのときは縦の項目を出さず、上の帯(保存は右)のまま */}
-      <div className="md:hidden">{/* ★ 2026-10-28 夜: iPad・PC は上の横の帯を出さない(保存は検索の右) */}
+      {tabs.length > 1 && <div className="md:hidden">{/* ★ 2026-10-28 夜: iPad・PC は上の横の帯を出さない(保存は検索の右)。★ 2026-10-29: 項目が1つの画面(ケアマネ)はスマホでも出さない */}
       <TsuPhonePin testId="pin-settings-tabs"><div data-testid="settings-tabs" className="bg-white border-b border-slate-200 px-2 sm:px-4 pt-2 sm:pt-3 shrink-0 flex items-center gap-2 sm:gap-3 sticky top-0 z-30">
         <div className="flex gap-1 overflow-x-auto pb-0 flex-nowrap flex-1 min-w-0">
           {tabs.map(tab => (
             <button type="button" key={tab.id} onClick={() => setActiveTab(tab.id)}
               className={`px-4 py-2 text-sm font-bold whitespace-nowrap rounded-t-xl border-b-2 transition-all ${activeTab === tab.id ? 'border-blue-600 text-blue-700 bg-blue-50' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}>
-              {tab.label}
+              {tab.label}{_dirtyTabs.has(tab.id) ? <span className="ml-1 inline-block w-2 h-2 rounded-full bg-amber-500 align-middle" title="保存していない入力があります" /> : null}
             </button>
           ))}
         </div>
@@ -47538,31 +47550,32 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
           保存
         </button>
       </div></TsuPhonePin>
-      </div>
+      </div>}
       <div className="flex-1 min-h-0 md:flex">
         {tabs.length > 1 && <nav data-testid="settings-vtabs" className="hidden md:flex md:flex-col w-44 lg:w-52 shrink-0 bg-white border-r border-slate-200 md:overflow-y-auto">
           {tabs.map(tab => { const open = _secOpen.has(tab.id); const hasSec = tsuSecTitlesOf(tab.id).length >= 2; return (
             <React.Fragment key={tab.id}>
               <button type="button" data-testid={`settings-vtab-${tab.id}`} onClick={() => _secTabClick(tab.id)} aria-current={activeTab === tab.id ? 'page' : undefined} aria-expanded={hasSec ? open : undefined}
                 className={`text-left px-3 py-2.5 text-sm font-bold border-l-4 flex items-center gap-1 ${activeTab === tab.id ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-transparent text-slate-600 hover:bg-slate-50'}`}>
-                <span className="flex-1 min-w-0">{tab.label}</span>{hasSec ? <span className="shrink-0 text-[11px] text-slate-400" aria-hidden="true">{open ? '▾' : '▸'}</span> : null}
+                <span className="flex-1 min-w-0">{tab.label}</span>{_dirtyTabs.has(tab.id) ? <span data-testid={`settings-dirty-${tab.id}`} className="shrink-0 w-2.5 h-2.5 rounded-full bg-amber-500" title="保存していない入力があります" /> : null}{hasSec ? <span className="shrink-0 text-[11px] text-slate-400" aria-hidden="true">{open ? '▾' : '▸'}</span> : null}
               </button>
               {open && <TsuSecNav tab={tab.id} active={activeTab === tab.id} onPickOther={_secGo} />}
             </React.Fragment>); })}
         </nav>}
       {/* コンテンツ */}
-      <div data-testid="settings-content" className="flex-1 min-w-0 md:overflow-y-auto px-3 md:px-4 pb-8 tsu-ph-cards">
+      <div data-testid="settings-content" className={`flex-1 min-w-0 md:overflow-y-auto px-3 md:px-4 pb-8 tsu-ph-cards ${tabs.length > 1 ? '' : 'pt-3'}`}>
         {/* ★ ケアマネタブは2カラムのため広めに取る(表示領域の崩れ対策・2026-08-31) */}
         <div className={`${activeTab === 'cm' ? 'max-w-6xl' : 'max-w-4xl'} ${tabs.length > 1 ? '' : 'mx-auto'} space-y-3 pb-6`}>
           {/* ★ 2026-10-28 夜(ユーザー「ケアマネ事業所・担当者の『ケアマネに戻る』『この中の項目』は不要」「○○に戻るのボタンもいらない」「検索欄を短くして、検索と保存を1行に」):
               iPad・PC: 検索(短く)＋保存の1行を上に固定(この中の項目は左の項目の下)。スマホ: この中の項目(項目が2つ以上のとき)＋検索。「○○に戻る」はなくした */}
-          <div data-testid="settings-topbar" className="md:sticky md:top-0 z-20 bg-slate-100 pt-2 pb-1.5 space-y-1.5">
+          {tabs.length > 1 && <div data-testid="settings-topbar" className="md:sticky md:top-0 z-20 bg-slate-100 pt-2 pb-1.5 space-y-1.5">{/* ★ 2026-10-29(ユーザー「ケアマネ事業所・担当者の上の検索と保存は不要」): 項目が1つの画面では出さない(ケアマネの追加・編集・削除・取り込み・名刺はその場で保存) */}
             {tabs.length > 1 && <div className="md:hidden"><TsuSecJump dep={activeTab} /></div>}
             <div className="flex items-center gap-2">
               <div className="flex-1 min-w-0 md:flex-none md:w-80 lg:w-96"><TsuSettingsSearch tabs={tabs} onPick={(tab, title) => { if (tsuViewW() >= 768 && tabs.length > 1) { _secGo(tab, title, true); return; } setActiveTab(tab); setTimeout(() => { try { const el = [...document.querySelectorAll('[data-sec-title]')].find(x => x.getAttribute('data-sec-title') === title); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); tsuFlashEl(el); } } catch {} }, 120); }} /></div>
-              <button type="button" data-testid="settings-save" onClick={saveAll} className="hidden md:block ml-auto shrink-0 px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md active:scale-95 text-sm">保存</button>
+              {_dirtyTabs.size > 0 && <span data-testid="settings-unsaved-hint" className="hidden md:inline-flex ml-auto items-center gap-1 text-[12px] font-bold text-amber-700 whitespace-nowrap"><span className="w-2.5 h-2.5 rounded-full bg-amber-500" />保存していない入力があります</span>}
+              <button type="button" data-testid="settings-save" onClick={saveAll} className={`hidden md:block ${_dirtyTabs.size > 0 ? '' : 'ml-auto'} shrink-0 px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md active:scale-95 text-sm`}>保存</button>
             </div>
-          </div>
+          </div>}
 
           {/* 気分の理由 (カスタマイズ) */}
           {/* ★ 2026-10-14(ユーザー要望): 個別機能訓練計画書(3-3)の定型文を店舗ごとに編集(1行=1つ)。空にすると既定に戻る */}
@@ -48318,8 +48331,9 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                             if(byName.has(name)){ const idx=byName.get(name); list[idx]={...list[idx],...rec}; updated++; }
                             else { list.push(rec); byName.set(name,list.length-1); added++; }
                           }
-                          setCmOffices(list);
-                          alert(`ケアマネ事業所 取り込み完了: 新規 ${added} 件 / 更新 ${updated} 件\n（法人名は事業所のグループ分け用に取り込みます。空欄は上書きしません）\n※下部の「保存」を押すと確定します。`);
+                          // ★ 2026-10-29(ユーザー「ケアマネ事業所・担当者の上の検索と保存は不要」): 保存ボタンをなくすので、取り込んだらその場で保存する
+                          persistCm(list, null, `✓ ケアマネ事業所を取り込みました（新規 ${added} 件 / 更新 ${updated} 件）`);
+                          alert(`ケアマネ事業所 取り込み完了: 新規 ${added} 件 / 更新 ${updated} 件\n（法人名は事業所のグループ分け用に取り込みます。空欄は上書きしません）\n保存しました。`);
                         };
                         reader.readAsArrayBuffer(f);
                         e.target.value='';
@@ -48390,7 +48404,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                                     if(loaded===files.length) {
                                       const newPersons=[...cmPersons];
                                       newPersons[origIdx]={...newPersons[origIdx], businessCard:cur};
-                                      setCmPersons(newPersons);
+                                      persistCm(null, newPersons, '✓ 名刺を保存しました'); // ★ 2026-10-29: その場で保存(保存ボタンをなくしたため)
                                     }
                                   });
                                 });
@@ -48510,7 +48524,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                                     className="rounded border border-slate-200 cursor-pointer"
                                     style={{height:60,width:'auto',background:'#fff'}}/>
                                   <button type="button"
-                                    onClick={()=>{const newCards=cards.filter(x=>x.id!==img.id); const newPersons=[...cmPersons]; newPersons[origIdx]={...newPersons[origIdx], businessCard:newCards}; setCmPersons(newPersons);}}
+                                    onClick={()=>{const newCards=cards.filter(x=>x.id!==img.id); const newPersons=[...cmPersons]; newPersons[origIdx]={...newPersons[origIdx], businessCard:newCards}; persistCm(null, newPersons, '名刺を削除しました');}}
                                     style={{position:'absolute',top:-4,right:-4,background:'#ef4444',color:'white',border:'none',borderRadius:'50%',width:18,height:18,fontSize:10,fontWeight:'bold',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
                                 </div>
                               ))}

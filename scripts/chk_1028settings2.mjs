@@ -65,7 +65,15 @@ for (const [k, vp] of [['ipad', { width: 1180, height: 820 }], ['pc', { width: 1
   await ctx.close(); }
 // ⑩ ケアマネ事業所・担当者(項目が1つ)は縦の項目を出さず今までどおり(2026-10-28 夜 trial450)
 { const { ctx, page } = await open({ width: 1180, height: 820 }, 'cmmaster');
-  r.cmNoVnav = (await page.getByTestId('settings-vtabs').count()) === 0 && await page.getByTestId('settings-save').isVisible(); r.cmNoChips = !(await page.getByTestId('sec-jump').isVisible().catch(() => false)) && (await page.getByTestId('sec-back').count()) === 0 && !(await page.locator('text=この中の項目').isVisible().catch(() => false)); console.log('ケアマネ', r.cmNoVnav, r.cmNoChips);
+  // (trial454〜) ケアマネ事業所・担当者は 縦の項目・検索・保存・この中の項目・戻る を出さない(追加・編集・削除・名刺はその場で保存)
+  r.cmNoVnav = (await page.getByTestId('settings-vtabs').count()) === 0 && (await page.getByTestId('settings-topbar').count()) === 0 && !(await page.getByTestId('settings-save').isVisible().catch(() => false)); r.cmNoChips = !(await page.getByTestId('sec-jump').isVisible().catch(() => false)) && (await page.getByTestId('sec-back').count()) === 0 && !(await page.locator('text=この中の項目').isVisible().catch(() => false)); console.log('ケアマネ', r.cmNoVnav, r.cmNoChips);
+  // 名刺の写真を足すと、その場で保存される(保存ボタンを押さなくても店舗のデータに入る)
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const fi = page.locator('label', { hasText: '名刺' }).locator('input[type="file"]').first();
+  if (await fi.count()) { const before = await page.evaluate(() => (JSON.parse(localStorage.getItem('daycareAppData_v3')).systemSettings.careManagers || []).reduce((a, c) => a + ((c.businessCard || []).length), 0));
+    await fi.setInputFiles({ name: 'card.png', mimeType: 'image/png', buffer: png }); await page.waitForTimeout(2000);
+    const after = await page.evaluate(() => (JSON.parse(localStorage.getItem('daycareAppData_v3')).systemSettings.careManagers || []).reduce((a, c) => a + ((c.businessCard || []).length), 0));
+    console.log('名刺', before, '->', after); r.cmCardSavedNow = after === before + 1; } else { console.log('名刺の欄なし'); r.cmCardSavedNow = 'skip'; }
   await ctx.close(); }
 await b.close();
-const ok = Object.values(r).every(Boolean); console.log(r, ok ? 'PASS' : 'FAIL'); process.exit(ok ? 0 : 1);
+const ok = Object.values(r).every(v => v === true || v === 'skip'); console.log(r, ok ? 'PASS' : 'FAIL'); process.exit(ok ? 0 : 1);
