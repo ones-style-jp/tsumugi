@@ -14862,7 +14862,7 @@ function FamilyAdminView({ appData, onSave }) {
                   return (
                     <button key={k} type="button" onClick={()=>setPostForm(f=>{ const cur=f.audience||[]; return {...f, audience: cur.includes(k) ? cur.filter(x=>x!==k) : [...cur,k]}; })}
                       className={`px-3 py-2 rounded-xl border-2 font-bold text-sm ${on?'bg-emerald-50 border-emerald-400 text-emerald-700':'bg-white border-slate-200 text-slate-400'}`}>
-                      {on?'☑':'☐'} {label}
+                      {label}{/* ★ 2026-10-28 夜(ユーザー指示): チェックの印は不要(色で分かる) */}
                     </button>
                   );
                 })}
@@ -14944,16 +14944,12 @@ function FamilyAdminView({ appData, onSave }) {
               </div>
             )}
             <div className="grid grid-cols-12 gap-3">{/* ★ 2026-10-08(スマホで表示日の欄が枠からはみ出す): スマホは1項目1行 */}
-              <div className="col-span-12 md:col-span-6">
+              {/* ★ 2026-10-28 夜(ユーザー指示「タイトルと表示日、本文だけでいい」): イベント/クラスの欄はなくした(前に入れた分はそのまま残る) */}
+              <div className="col-span-12 md:col-span-9">
                 <label className="block text-xs font-bold text-slate-500 mb-1">タイトル (写真のみの場合は省略可)</label>
                 <input value={postForm.title} onChange={e=>setPostForm(f=>({...f,title:e.target.value}))} placeholder="例: 8月の誕生会を開催しました" className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
               </div>
-              <div className="col-span-12 md:col-span-4">
-                <label className="block text-xs font-bold text-slate-500 mb-1">イベント/クラス (任意)</label>
-                <input value={postForm.eventClass} onChange={e=>setPostForm(f=>({...f,eventClass:e.target.value}))} placeholder="例: 7月誕生会" list="event-classes" className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm outline-none"/>
-                <datalist id="event-classes">{photoClasses.map(c=><option key={c} value={c}/>)}</datalist>
-              </div>
-              <div className="col-span-12 md:col-span-2 min-w-0">
+              <div className="col-span-12 md:col-span-3 min-w-0">
                 <label className="block text-xs font-bold text-slate-500 mb-1">表示日</label>
                 <input type="date" value={postForm.date} onChange={e=>setPostForm(f=>({...f,date:e.target.value}))} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
               </div>
@@ -46161,7 +46157,7 @@ function TsuSettingsSearch({ tabs, onPick }) {
   const hits = t ? TSU_SETTINGS_INDEX.filter(([tab, title, kw]) => (tabs || []).some(x => x.id === tab) && (title.includes(t) || kw.includes(t) || tabLabel(tab).includes(t))).slice(0, 10) : [];
   return (
     <div className="relative" data-testid="settings-search">
-      <input type="search" value={q} onChange={e => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} placeholder="設定を検索（例: 事業所番号・端末名・運動）" autoComplete="off" name="tsu-settings-q" data-testid="settings-search-input" className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm outline-none bg-white" />
+      <input type="search" value={q} onChange={e => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} placeholder="設定を検索（例: 事業所番号・端末名・運動）" autoComplete="off" name="tsu-settings-q" data-testid="settings-search-input" className="w-full px-3 py-1.5 rounded-xl border border-slate-300 text-sm outline-none bg-white" />
       {open && t && (
         <div data-testid="settings-search-list" className="absolute left-0 right-0 top-full mt-1 z-30 bg-white border border-slate-300 rounded-xl shadow-xl overflow-hidden">
           {hits.length === 0 ? <div className="px-3 py-2 text-xs text-slate-500">見つかりません（別の言葉で）</div> : hits.map(([tab, title, kw], i) => (
@@ -46339,23 +46335,23 @@ function TsuPushStoreCard({ appData, saveSS }) {
 function TsuSecJump({ dep, origin, onBack }) {
   const ref = React.useRef(null); const [items, setItems] = React.useState([]);
   // ★ 2026-10-26(ユーザー要望): 各種設定の中を文字で検索(この見出しの中の項目を、文字を含むものだけに絞る)
-  const _els = () => { const box = ref.current && ref.current.parentElement; return box ? [...box.querySelectorAll('[data-sec-title]')].filter(el => el.offsetParent) : []; };
+  const _els = () => { const box = ref.current && (ref.current.closest('[data-testid="settings-content"]') || ref.current.parentElement); return box ? [...box.querySelectorAll('[data-sec-title]')].filter(el => el.offsetParent) : []; }; // ★ 2026-10-28: 「この中の項目」を上の固定の帯に移したので、中身全体から探す
   // 描くたびに欄を数え直す(中身が同じなら入れ替えない=描き直しがくり返さない)
   React.useEffect(() => { const t = setTimeout(() => { const next = _els().map((el, i) => ({ i, title: el.getAttribute('data-sec-title') })); setItems(prev => (prev.map(x => x.title).join('|') === next.map(x => x.title).join('|') ? prev : next)); }, 60); return () => clearTimeout(t); });
-  const _back = (origin && onBack) ? <button type="button" data-testid="sec-back" onClick={onBack} className="px-3 py-1.5 rounded-full border border-blue-300 bg-blue-50 text-blue-800 text-xs font-bold whitespace-nowrap">{origin}に戻る</button> : null;
-  if (items.length < 2) return <div ref={ref} className="flex flex-wrap gap-2 items-center">{_back}</div>;
+  const _back = (origin && onBack) ? <button type="button" data-testid="sec-back" onClick={onBack} className="px-3 py-1 rounded-full border border-blue-300 bg-blue-50 text-blue-800 text-xs font-bold whitespace-nowrap">{origin}に戻る</button> : null;
+  if (items.length < 2) return <div ref={ref} className="flex flex-wrap gap-1.5 items-center">{_back}</div>;
   return (
-    <div ref={ref} data-testid="sec-jump" className="flex flex-wrap gap-2 items-center">
+    <div ref={ref} data-testid="sec-jump" className="flex flex-wrap gap-1.5 items-center">
       {_back}
       <span className="text-xs font-bold text-slate-500 mr-1">この中の項目:</span>
-      {items.map(it => <button key={it.i} type="button" onClick={() => { const el = _els()[it.i]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} className="px-3 py-1.5 rounded-full border border-slate-300 bg-white text-slate-700 text-xs font-bold hover:bg-slate-50 active:scale-95">{it.title}</button>)}
+      {items.map(it => <button key={it.i} type="button" onClick={() => { const el = _els()[it.i]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} className="px-3 py-1 rounded-full border border-slate-300 bg-white text-slate-700 text-xs font-bold hover:bg-slate-50 active:scale-95">{it.title}</button>)}
     </div>
   );
 }
 function SectionCard({ title, children }) {
   return (
-    <div data-sec-title={typeof title === 'string' ? title : undefined} style={{ scrollMarginTop: 72 }} className="bg-white p-3 sm:p-6 rounded-2xl shadow-sm border border-slate-200">
-      <h3 className="text-base font-bold text-slate-800 mb-2 sm:mb-4 border-b border-slate-200 pb-2">{title}</h3>
+    <div data-sec-title={typeof title === 'string' ? title : undefined} style={{ scrollMarginTop: 96 }} className="bg-white p-3 sm:p-4 rounded-2xl shadow-sm border border-slate-200">{/* ★ 2026-10-28 夜: 余白を詰めた(p-6→4・見出しの下 mb-4→2)。固定した「この中の項目・検索」の下に見出しが来るよう scrollMarginTop 96 */}
+      <h3 className="text-base font-bold text-slate-800 mb-2 border-b border-slate-200 pb-1.5">{title}</h3>
       {children}
     </div>
   );
@@ -47476,7 +47472,11 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
           </div>
         </div>
       )}
-      {/* 上部タブナビ（横）+ 右側に保存ボタン */}
+      {/* ★ 2026-10-28 夜(ユーザー提案「各種設定は横ではなく上下に項目を分け、押したら右に内容を」「マウスだと横の移動はスクロールバーを動かす必要がある。縦ならホイールだけ」
+          「検索欄やこの中の項目の上下の余白が大きく、下が見える領域が減る。この中の項目を検索欄より上にして固定」「なるべく無駄な余白をなくし、1画面であまりスクロールせず見えるように」):
+          iPad・パソコン(768px以上)は 左=縦の項目(保存はその上)・右=中身。中身の上に「この中の項目」→検索の順で固定。中身の幅は 4xl まで(横に伸びすぎない)・余白を詰めた。
+          スマホは今までどおり上に横の項目を固定 */}
+      <div className="md:hidden">
       <TsuPhonePin testId="pin-settings-tabs"><div data-testid="settings-tabs" className="bg-white border-b border-slate-200 px-2 sm:px-4 pt-2 sm:pt-3 shrink-0 flex items-center gap-2 sm:gap-3 sticky top-0 z-30">
         <div className="flex gap-1 overflow-x-auto pb-0 flex-nowrap flex-1 min-w-0">
           {tabs.map(tab => (
@@ -47491,13 +47491,27 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
           保存
         </button>
       </div></TsuPhonePin>
-
+      </div>
+      <div className="flex-1 min-h-0 md:flex">
+        <nav data-testid="settings-vtabs" className="hidden md:flex md:flex-col w-44 lg:w-52 shrink-0 bg-white border-r border-slate-200 md:overflow-y-auto">
+          <div className="p-2 border-b border-slate-200 sticky top-0 bg-white z-10">
+            <button type="button" data-testid="settings-save" onClick={saveAll} className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md active:scale-95 text-sm">保存</button>
+          </div>
+          {tabs.map(tab => (
+            <button type="button" key={tab.id} data-testid={`settings-vtab-${tab.id}`} onClick={() => setActiveTab(tab.id)} aria-current={activeTab === tab.id ? 'page' : undefined}
+              className={`text-left px-3 py-2.5 text-sm font-bold border-l-4 ${activeTab === tab.id ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-transparent text-slate-600 hover:bg-slate-50'}`}>
+              {tab.label}
+            </button>
+          ))}
+        </nav>
       {/* コンテンツ */}
-      <div className="flex-1 md:overflow-y-auto p-3 sm:p-6 pb-8 tsu-ph-cards">
+      <div data-testid="settings-content" className="flex-1 min-w-0 md:overflow-y-auto px-3 md:px-4 pb-8 tsu-ph-cards">
         {/* ★ ケアマネタブは2カラムのため広めに取る(表示領域の崩れ対策・2026-08-31) */}
-        <div className={`${activeTab === 'cm' ? 'max-w-6xl' : 'max-w-4xl'} mx-auto space-y-6 pb-6 tsu-wide-f`}>
-          <TsuSettingsSearch tabs={tabs} onPick={(tab, title) => { setActiveTab(tab); setTimeout(() => { try { const el = [...document.querySelectorAll('[data-sec-title]')].find(x => x.getAttribute('data-sec-title') === title); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {} }, 250); }} />
-          <TsuSecJump dep={activeTab} origin={(() => { try { const o = sessionStorage.getItem('tsumugiSettingsOrigin'); return (o && o !== 'settings' && TSU_VIEW_LABELS[o]) ? TSU_VIEW_LABELS[o] : ''; } catch { return ''; } })()} onBack={() => { try { const o = sessionStorage.getItem('tsumugiSettingsOrigin'); sessionStorage.removeItem('tsumugiSettingsOrigin'); if (o && navigateTo) navigateTo(o); } catch {} }} />
+        <div className={`${activeTab === 'cm' ? 'max-w-6xl' : 'max-w-4xl'} space-y-3 pb-6`}>
+          <div data-testid="settings-topbar" className="md:sticky md:top-0 z-20 bg-slate-100 pt-2 pb-1.5 space-y-1.5">
+            <TsuSecJump dep={activeTab} origin={(() => { try { const o = sessionStorage.getItem('tsumugiSettingsOrigin'); return (o && o !== 'settings' && TSU_VIEW_LABELS[o]) ? TSU_VIEW_LABELS[o] : ''; } catch { return ''; } })()} onBack={() => { try { const o = sessionStorage.getItem('tsumugiSettingsOrigin'); sessionStorage.removeItem('tsumugiSettingsOrigin'); if (o && navigateTo) navigateTo(o); } catch {} }} />
+            <TsuSettingsSearch tabs={tabs} onPick={(tab, title) => { setActiveTab(tab); setTimeout(() => { try { const el = [...document.querySelectorAll('[data-sec-title]')].find(x => x.getAttribute('data-sec-title') === title); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {} }, 250); }} />
+          </div>
 
           {/* 気分の理由 (カスタマイズ) */}
           {/* ★ 2026-10-14(ユーザー要望): 個別機能訓練計画書(3-3)の定型文を店舗ごとに編集(1行=1つ)。空にすると既定に戻る */}
@@ -49365,6 +49379,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
 
         </div>
       </div>
+      </div>
     </div>
   );
 }
@@ -49372,8 +49387,8 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
 // セクションカード（DiarySettingsPanel 外で定義し、再レンダリングで再生成されないように）
 // ★ 2026-10-08(店舗報告: スマホで追加ボタン・送迎車両・スケジュールが枠の外に出る): スマホは余白を詰め、中身が枠より広くならないように(min-w-0)
 const _DSPSection = ({title, children}) => (
-  <div className="bg-white p-3 sm:p-6 rounded-2xl shadow-sm border border-slate-200 min-w-0 tsu-dsp">
-    <h3 className="text-base font-bold text-slate-800 mb-3 sm:mb-4 border-b border-slate-200 pb-2">{title}</h3>
+  <div className="bg-white p-3 sm:p-4 rounded-2xl shadow-sm border border-slate-200 min-w-0 tsu-dsp" data-sec-title={typeof title === 'string' ? title : undefined} style={{ scrollMarginTop: 96 }}>
+    <h3 className="text-base font-bold text-slate-800 mb-2 border-b border-slate-200 pb-1.5">{title}</h3>
     {children}
   </div>
 );

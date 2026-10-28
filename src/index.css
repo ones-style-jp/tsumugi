@@ -528,3 +528,14 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
 
 /* ★ 2026-10-23(ユーザー要望): 上の白い見出し(画面の題名)と重なる、中の題名(休み連絡・各種連絡・クラス在籍表)はどの幅でも出さない */
 .tsu-gf-title, .tsu-cr-title, .tsu-abscal-title { display: none !important; }
+
+/* ★ 2026-10-28 夜(ユーザー「各種設定は検索欄やこの中の項目の上下の余白が大きく、下が見える領域が減る」「なるべく無駄な余白をなくして、1画面であまりスクロールせず見えるように」):
+   iPad・パソコン(768px以上)の各種設定の中だけ、入力欄の上下と、項目どうしの間を詰める。スマホ(押しやすさ44pxの決まり)は今までどおり */
+@media screen and (min-width: 768px) {
+  [data-testid="settings-content"] input.py-2\.5, [data-testid="settings-content"] select.py-2\.5, [data-testid="settings-content"] textarea.py-2\.5,
+  [data-testid="settings-content"] input.py-3, [data-testid="settings-content"] select.py-3 { padding-top: 6px !important; padding-bottom: 6px !important; }
+  [data-testid="settings-content"] .space-y-4 > :not([hidden]) ~ :not([hidden]) { margin-top: 10px !important; }
+  [data-testid="settings-content"] .space-y-5 > :not([hidden]) ~ :not([hidden]) { margin-top: 12px !important; }
+  [data-testid="settings-content"] .space-y-6 > :not([hidden]) ~ :not([hidden]) { margin-top: 12px !important; }
+  [data-testid="settings-content"] label.mb-1\.5, [data-testid="settings-content"] label.mb-2 { margin-bottom: 3px !important; }
+}
