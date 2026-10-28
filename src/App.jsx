@@ -25381,12 +25381,22 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   // ★ 2026-10-23(ユーザー報告「11人なのに小さすぎる」): 人数×58px の計算は、表示していない方(午後の方など)まで数えて小さくなっていた。
   //   表の実際の高さと、上の帯の下から画面の下までの高さを測って倍率を決める(0.45〜1.2)。AM/PM を切り替えたり人数が変わったら測り直す
   const [_fitZoom, _setFitZoom] = useState(1);
-  useEffect(() => {
+  // ★ 2026-10-28(ユーザー報告「1画面に全員表示にするとぐらつく」「10人も15人も下に1人分空いている」):
+  //   ①全画面を開くとまず等倍で描き、約0.8秒後に倍率を入れ直して大きさが変わっていた(ぐらつき)→ 描く前(useLayoutEffect)に倍率を決める。
+  //     1.5秒ごとの測り直しもやめ、表・表の枠の大きさが変わったとき(ResizeObserver)と窓の大きさが変わったときだけ測る。
+  //   ②上の帯の位置を通常画面の帯(全画面には無い)で測っていて、無いときは 110px とみなしていた・さらに 24px の予備と表の下の余白(64px)で、下が1人分ほど空いていた
+  //     → 表の枠(.record-view-scroll)の内側の高さに入る倍率にする(全画面では下の余白なし)。縮めるときはすぐ、広げるときは0.015以上のときだけ(行き来しない)
+  const _fitCalc = React.useCallback(() => { try { const t = document.getElementById('record-table'); if (!t) return; const sc = t.closest('.record-view-scroll'); const cz = parseFloat(getComputedStyle(t).zoom) || 1; const natural = t.getBoundingClientRect().height / cz;
+    let avail; if (sc) { const cs = getComputedStyle(sc); avail = sc.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0) - 2; } else { avail = window.innerHeight - t.getBoundingClientRect().top - 4; }
+    if (!natural || avail <= 0) return; const z = Math.max(0.45, Math.min(1.5, Math.floor(avail / natural * 100) / 100)); // 10人でも画面の下まで入るよう上限は1.5倍(前は1.2倍で下が空いた)
+    const over = sc ? (sc.scrollHeight - sc.clientHeight > 1) : true; // 縮めるのは、いまはみ出しているときだけ(測り直しで0.01ずつ動かない)
+    _setFitZoom(prev => ((z < prev && over) || z - prev >= 0.015) ? z : prev); } catch {} }, []);
+  React.useLayoutEffect(() => {
     if (!isFullscreen || !_fsFit) return;
-    const calc = () => { try { const t = document.getElementById('record-table'); if (!t) return; const cz = parseFloat(getComputedStyle(t).zoom) || 1; const natural = t.getBoundingClientRect().height / cz; const tb = document.querySelector('[data-testid="rec-toolbar"]'); const top = tb ? tb.getBoundingClientRect().bottom : 110; const avail = window.innerHeight - top - 24; if (!natural || avail <= 0) return; const z = Math.max(0.45, Math.min(1.2, Math.floor(avail / natural * 100) / 100)); _setFitZoom(prev => (Math.abs(prev - z) < 0.015 ? prev : z)); } catch {} };
-    calc(); const t1 = setTimeout(calc, 150), t2 = setTimeout(calc, 600); const iv = setInterval(calc, 1500); window.addEventListener('resize', calc);
-    return () => { clearTimeout(t1); clearTimeout(t2); clearInterval(iv); window.removeEventListener('resize', calc); };
-  }, [isFullscreen, _fsFit, _fsModeTick]);
+    _fitCalc(); window.addEventListener('resize', _fitCalc); window.addEventListener('orientationchange', _fitCalc);
+    let ro = null; try { const t = document.getElementById('record-table'); if (t && typeof ResizeObserver !== 'undefined') { ro = new ResizeObserver(() => _fitCalc()); ro.observe(t); const sc = t.closest('.record-view-scroll'); if (sc) ro.observe(sc); } } catch {}
+    return () => { window.removeEventListener('resize', _fitCalc); window.removeEventListener('orientationchange', _fitCalc); try { ro && ro.disconnect(); } catch {} };
+  }, [isFullscreen, _fsFit, _fsModeTick, _fitCalc]);
   const _fsZoom = isFullscreen ? (_fsFit ? _fitZoom : 1.2) : 1;
   // ★ 2026-10-26(ユーザー要望「一言かマイクのどちらかを無くしたとき、残った方を他と同じ高さに」): 表の特記セルで一言とマイクが1つだけなら、そのボタンを欄の高さいっぱいに
   const _tkOne = (((tsuTokkiPresets(appData).length && !appData.systemSettings?.tokkiPresetOff) ? 1 : 0) + ((!appData.systemSettings?.tokkiVoiceOff && tsuVoiceSupported()) ? 1 : 0)) === 1;
@@ -25936,8 +25946,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   //   選ぶ欄はなくし、画面の幅で自動に。1200px未満(10インチのiPadなど)は短い文字(並替・戻す・個別/実施・日付の欄を細く)、それ以上は今までの文字
   // ★ 2026-10-23(ユーザー: MacBook 14インチでサイドバーを開いたままだと帯が2行になる): 画面の幅ではなく「帯そのものの幅」(サイドバーを除いた幅)で判定する。
   //   帯の幅は ResizeObserver で追う(サイドバーの開閉・窓の大きさの変化に追従)。測れないうちは画面の幅
-  const [_vwBar, _setVwBar] = useState(() => tsuViewW());
-  useEffect(() => {
+  // ★ 2026-10-28(ユーザー報告「サイドバーから提供記録入力を押すと、上の保存・戻すの帯がぐらつく」): 最初は画面の幅(サイドバーを含む)で決め、あとで帯の幅を測って
+  //   「アイコン＋文字」→「短い文字」に切り替わり、ボタンの幅がなめらかに縮んでいた(パソコン・大きいiPad)。最初からサイドバーの幅を引いた値にし、測るのは描く前に
+  const [_vwBar, _setVwBar] = useState(() => { const w = tsuViewW(); return w - ((isSidebarOpen && w >= 1024) ? 256 : 0); });
+  React.useLayoutEffect(() => {
     const el = () => document.querySelector('[data-testid="rec-toolbar"]');
     const on = () => { const e = el(); _setVwBar(e && e.clientWidth ? e.clientWidth : tsuViewW()); };
     on(); window.addEventListener('resize', on); window.addEventListener('orientationchange', on);
@@ -27224,7 +27236,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   <div className="hidden sm:flex rounded-xl overflow-hidden border border-slate-300 shrink-0">
                     {['AM','PM'].map(v=>(
                       <button key={v} type="button" onClick={()=>setTimeFilter(v)}
-                        className={`${_iconBar ? 'px-3' : 'px-4'} py-2 text-sm font-bold transition-all shrink-0 ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-50'}`}>{v}</button>
+                        className={`${_iconBar ? 'px-3' : 'px-4'} py-2 text-sm font-bold transition-transform shrink-0 ${timeFilter===v?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-50'}`}>{v}</button>
                     ))}
                   </div>
                   <button type="button" data-testid="rec-order-btn" onClick={() => setRecOrderOpen(true)} title={_recOrderOn ? `${_recOrderLabel}のクラスは保存した並び順です（押すと並べ替え・消去）` : `${_recOrderLabel}のクラスの並び順を変えます（ほかの曜日・時間帯はそのまま）`} className={`${_iconBar ? 'px-2.5' : 'px-3'} py-2 rounded-xl text-sm font-bold border shrink-0 ${_recOrderOn ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}><ArrowUpDown size={17} strokeWidth={2.4} aria-label="並び替え"/></button>{/* ★ 2026-10-23(ユーザー): 短いときは並び替えのアイコンだけ */}
@@ -27340,10 +27352,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             </div>
             </>)}
             <div data-testid="rec-actions" className={`w-full sm:w-auto sm:ml-auto grid ${filterMode === 'single' ? 'grid-cols-4' : 'grid-cols-3'} sm:flex items-center gap-1.5 ${_iconBar ? 'sm:gap-1.5' : 'sm:gap-2'} sm:flex-wrap`}>
-              {filterMode === 'single' && <button type="button" data-testid="rec-act-bulkex" onClick={() => setBulkExOpen(true)} className="order-last sm:order-none bg-white border border-indigo-300 text-indigo-700 hover:bg-indigo-50 px-1 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="出席している方の運動をまとめて○にします(行わなかった方は×に)">{_iconBar ? _ib(CheckCheck, '一括○') : '一括○'}</button>}
+              {filterMode === 'single' && <button type="button" data-testid="rec-act-bulkex" onClick={() => setBulkExOpen(true)} className="order-last sm:order-none bg-white border border-indigo-300 text-indigo-700 hover:bg-indigo-50 px-1 sm:px-3 py-2 rounded-xl text-sm font-bold transition-transform active:scale-95 whitespace-nowrap" title="出席している方の運動をまとめて○にします(行わなかった方は×に)">{_iconBar ? _ib(CheckCheck, '一括○') : '一括○'}</button>}
               
               {/* ★ 連絡帳は一番左(全画面の左)に配置(2026-08-28 店舗要望) */}
-              <button data-testid="rec-act-renraku" onClick={() => { handleSaveClick(); navigateTo('print'); }} className={`bg-emerald-600 hover:bg-emerald-700 text-white px-2 ${_iconBar ? 'sm:px-2.5' : 'sm:px-4'} py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap`}>{_iconBar ? _ib(Printer, '連絡帳') : '連絡帳'}</button>
+              <button data-testid="rec-act-renraku" onClick={() => { handleSaveClick(); navigateTo('print'); }} className={`bg-emerald-600 hover:bg-emerald-700 text-white px-2 ${_iconBar ? 'sm:px-2.5' : 'sm:px-4'} py-2 rounded-xl text-sm font-bold shadow-lg transition-transform active:scale-95 whitespace-nowrap`}>{_iconBar ? _ib(Printer, '連絡帳') : '連絡帳'}</button>
               <button data-testid="rec-act-fullscreen" onClick={()=>{ if (isFullscreen) setIsFullscreen(false); else setFsPick(true); }} className="bg-slate-700 hover:bg-slate-800 text-white px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title={isFullscreen?'通常表示':'全画面表示'}>
                 {isFullscreen ? '通常表示' : (_iconBar ? _ib(Maximize2, '全画面') : '全画面')}
               </button>
@@ -27360,10 +27372,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     <div style={{textAlign:'right'}}><button type="button" onClick={() => setFsPick(false)} style={{padding:'8px 16px',borderRadius:10,border:'none',background:'#f1f5f9',color:'#334155',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>やめる</button></div>
                   </div>
                 </div>), document.body)}
-              <button onClick={()=>setRestoreModal(true)} className="bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title="保存した記録を丸ごと復元(元に戻す)">{_iconBar ? _ib(Undo2, '戻す') : '戻す'}</button>{/* ★ 2026-10-26(ユーザー): ほかと同じ「戻す」に */}
+              <button onClick={()=>setRestoreModal(true)} className="bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-transform active:scale-95 whitespace-nowrap" title="保存した記録を丸ごと復元(元に戻す)">{_iconBar ? _ib(Undo2, '戻す') : '戻す'}</button>{/* ★ 2026-10-26(ユーザー): ほかと同じ「戻す」に */}
               {/* ★ onClick={handleSaveClick} だとクリックイベントが第1引数(auto)に渡り auto=truthy(自動保存扱い)になり、
                   「保存しました」が出ず担当者チェックも飛ばされていた。 明示的に auto=false で呼ぶ。 */}
-              <button onClick={()=>handleSaveClick(false)} className={`hidden sm:block bg-blue-600 hover:bg-blue-700 text-white px-2 ${_iconBar ? 'sm:px-3' : 'sm:px-4'} py-2 rounded-xl text-sm font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap`}>{_iconBar ? _ib(Save, '保存') : '保存'}</button>
+              <button onClick={()=>handleSaveClick(false)} className={`hidden sm:block bg-blue-600 hover:bg-blue-700 text-white px-2 ${_iconBar ? 'sm:px-3' : 'sm:px-4'} py-2 rounded-xl text-sm font-bold shadow-lg transition-transform active:scale-95 whitespace-nowrap`}>{_iconBar ? _ib(Save, '保存') : '保存'}</button>
             </div>
       </div>
       {_vitalPanel}
@@ -27455,7 +27467,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       </div>
       <div ref={el=>{ tableScrollRef.current=el; tableContainerRef.current=el; }} onScroll={_syncFromTable}
            draggable={false} onDragStart={e=>e.preventDefault()}
-           className="bg-white rounded-b-xl rounded-tr-xl shadow-md border border-slate-300 flex-1 min-h-0 relative pb-16 record-view-scroll" style={{WebkitOverflowScrolling:'auto',touchAction:'pan-x pan-y pinch-zoom',overscrollBehavior:'none',overscrollBehaviorX:'none',overscrollBehaviorY:'none',WebkitUserDrag:'none',userSelect:'none',WebkitUserSelect:'none',WebkitTouchCallout:'none',msUserSelect:'none',MozUserSelect:'none',overflowY:'scroll',overflowX:'scroll'}}>
+           className={`bg-white rounded-b-xl rounded-tr-xl shadow-md border border-slate-300 flex-1 min-h-0 relative ${isFullscreen ? 'pb-0' : 'pb-16'} record-view-scroll`} style={{WebkitOverflowScrolling:'auto',touchAction:'pan-x pan-y pinch-zoom',overscrollBehavior:'none',overscrollBehaviorX:'none',overscrollBehaviorY:'none',WebkitUserDrag:'none',userSelect:'none',WebkitUserSelect:'none',WebkitTouchCallout:'none',msUserSelect:'none',MozUserSelect:'none',overflowY:'scroll',overflowX:'scroll'}}>
         <style>{`
           /* iPad等: 長押しドラッグで表(セル/画像)が持ち上がって移動するのを防ぐ。スクロール(横/縦)のみ許可 */
           .record-view-scroll, .record-view-scroll * { -webkit-user-drag: none !important; -webkit-touch-callout: none !important; }
