@@ -395,7 +395,7 @@ ${body}</body></html>`;
         setProgress('利用者一覧をエクスポート中...');
         // ★ 2026-10-07: 住所は建物名・部屋番号も、ケアマネの電話/FAXは事業所・担当者マスタでも補う。携帯電話は末尾の列に追加(既存の列の並びは変えない)
         const headers = ['ID','氏名','ふりがな','性別','生年月日','電話','郵便番号','住所','被保険者番号','介護度','適用期間開始','適用期間終了','負担割合','ケアマネ事業所','ケアマネ名','ケアマネ電話','ケアマネFAX','利用開始日','利用終了日','状態','留意点','電話(携帯)'];
-        const rows = targetPatients.map(p => { const _c = tsumugiCmContact(p, appData); return [p.id,p.name,p.kana,p.gender,p.birthDate,p.phone,p.zipCode,[p.address, p.addressBuilding, p.addressRoom].filter(Boolean).join(' '),p.insuranceNo,p.careLevel,p.careLevelFrom,p.careLevelTo,p.costBurden,p.cmOffice,p.cmName,_c.phone,_c.fax,p.startDate,p.endDate,p.status,p.ryui,p.phoneMobile]; });
+        const rows = targetPatients.map(p => { const _c = tsumugiCmContact(p, appData); return [p.id,p.name,p.kana,p.gender,p.birthDate,p.phone,p.zipCode,[p.address, tsuBldRoom(p.addressBuilding, p.addressRoom)].filter(Boolean).join(' '),p.insuranceNo,p.careLevel,p.careLevelFrom,p.careLevelTo,p.costBurden,p.cmOffice,p.cmName,_c.phone,_c.fax,p.startDate,p.endDate,p.status,p.ryui,p.phoneMobile]; });
         root.file('01_利用者一覧.csv', toCsv(headers, rows));
         const ecHeaders = ['利用者ID','利用者名','続柄','氏名','電話(固定)','電話(携帯)','メール'];
         const ecRows = [];
@@ -2727,6 +2727,12 @@ const parseJpDate = (s) => {
 };
 // ★ 2026-10-27(不具合): 和暦の日付を文字のまま比べると「令和8年10月」が「令和8年9月」より前になる。日付に直して新しい順に並べる(同じ日は作った時刻の新しい順)
 // ★ 2026-10-28(不具合): new Date().toISOString() は世界標準時なので、日本の 0時〜9時は前の日になる。端末の日付で「今日」(YYYY-MM-DD)を作る
+// ★ 2026-10-29(ユーザー要望「フェイスシートの建物名は建物名＋部屋番号で1つに。部屋番号だけの欄はなくす。前に部屋番号が入っていたら建物名へ」):
+//   建物名と部屋番号は1つの欄(addressBuilding)。前の部屋番号(addressRoom)は建物名の後ろに足して見せ、フェイスシートを保存したときに建物名へ移す。
+//   建物名の最後がすでに部屋番号なら重ねない(CSV の書き出しで建物名に部屋番号を足していたため)
+const tsuBldRoom = (b, r) => { const bb = String(b ?? '').trim(), rr = String(r ?? '').trim(); if (!rr) return bb; if (!bb) return rr;
+  if (bb.endsWith(rr)) { const pc = bb.charAt(bb.length - rr.length - 1); if (bb.length === rr.length || !(/^[0-9０-９]/.test(rr) && /[0-9０-９]/.test(pc))) return bb; }
+  return `${bb} ${rr}`; };
 const tsuTodayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const tsuJpKey = (v) => { const d = parseJpDate(v); return d ? d.getTime() : 0; };
 const tsuByJpDesc = (key) => (a, b) => (tsuJpKey(b && b[key]) - tsuJpKey(a && a[key])) || ((Number(b && b.createdAt) || 0) - (Number(a && a.createdAt) || 0));
@@ -14087,7 +14093,7 @@ function DisasterView({ appData, onSave, staffSession }) {
     const rowList = pats.map(p => {
       const cs = contactsOf(p).slice(0, 2).map(c => `${esc(c.name || '')}${c.relation ? `(${esc(c.relation)})` : ''} ${esc(c.phoneMobile || c.phone || '')}`).join('<br/>');
       const st = (SAFETY_OPTIONS.find(x => x[0] === safety[String(p.id)]) || [])[1] || '';
-      return `<tr><td>${esc(p.name)}</td><td>${esc(st)}</td><td>${esc([p.address, p.addressBuilding, p.addressRoom].filter(Boolean).join(' '))}</td><td>${esc(p.phoneMobile || p.phone || '')}</td><td>${cs}</td><td>${esc(p.cmOffice || '')}<br/>${esc(p.cmName || '')} ${esc(tsumugiCmContact(p, appData).phone)}</td></tr>`.replace(/<td>/g, '<td style="border:1px solid #999;padding:3px 4px;vertical-align:top;height:8.5mm;">');
+      return `<tr><td>${esc(p.name)}</td><td>${esc(st)}</td><td>${esc([p.address, tsuBldRoom(p.addressBuilding, p.addressRoom)].filter(Boolean).join(' '))}</td><td>${esc(p.phoneMobile || p.phone || '')}</td><td>${cs}</td><td>${esc(p.cmOffice || '')}<br/>${esc(p.cmName || '')} ${esc(tsumugiCmContact(p, appData).phone)}</td></tr>`.replace(/<td>/g, '<td style="border:1px solid #999;padding:3px 4px;vertical-align:top;height:8.5mm;">');
     });
     const pageCount = Math.max(1, Math.ceil(rowList.length / PER_PAGE));
     const scopeLabel = scope === 'now' ? `通所中(${slot === 'AM' ? '午前' : '午後'})` : scope === 'others' ? '在宅' : '全員';
@@ -14159,7 +14165,7 @@ function DisasterView({ appData, onSave, staffSession }) {
                       <tr key={k} className="align-top">
                         <td className="px-3 py-2 font-bold text-slate-800 whitespace-nowrap">{p.name}</td>
                         <td data-label="安否" className="px-3 py-2"><div className="flex gap-1 flex-wrap">{SAFETY_OPTIONS.map(([key, lb]) => <button key={key} type="button" onClick={() => setSafety(s => ({ ...s, [k]: s[k] === key ? '' : key }))} className={`px-2 py-1 rounded-lg text-xs font-bold border ${st === key ? chip(key) : 'bg-white border-slate-300 text-slate-600'}`}>{lb}</button>)}</div></td>
-                        <td data-label="住所" className="px-3 py-2 text-xs text-slate-700">{[p.address, p.addressBuilding, p.addressRoom].filter(Boolean).join(' ')}</td>
+                        <td data-label="住所" className="px-3 py-2 text-xs text-slate-700">{[p.address, tsuBldRoom(p.addressBuilding, p.addressRoom)].filter(Boolean).join(' ')}</td>
                         <td data-label="電話" className="px-3 py-2 text-xs whitespace-nowrap">{(p.phoneMobile || p.phone) ? <a href={`tel:${(p.phoneMobile || p.phone).replace(/[^0-9+]/g, '')}`} className="text-blue-700 font-bold">{p.phoneMobile || p.phone}</a> : <span className="text-slate-300">—</span>}</td>
                         <td data-label="緊急連絡先" className="px-3 py-2 text-xs">{cs.length ? cs.map((c, i) => <div key={i}>{c.name || ''}{c.relation ? `(${c.relation})` : ''} {(c.phoneMobile || c.phone) && <a href={`tel:${String(c.phoneMobile || c.phone).replace(/[^0-9+]/g, '')}`} className="text-blue-700 font-bold">{c.phoneMobile || c.phone}</a>}</div>) : <span className="text-slate-300">—</span>}</td>
                         <td data-label="担当ケアマネ" className="px-3 py-2 text-xs">{p.cmOffice || p.cmName ? <div>{p.cmOffice}<br/>{p.cmName} {(() => { const _t = tsumugiCmContact(p, appData).phone; return _t ? <a href={`tel:${String(_t).replace(/[^0-9+]/g, '')}`} className="text-blue-700 font-bold">{_t}</a> : null; })()}</div> : <span className="text-slate-300">—</span>}</td>
@@ -20453,7 +20459,7 @@ function SuperAdminConsole({ staffSession, onSelectStore, onLogout }) {
               </div>
               <div style={{marginBottom:12}}>
                 <label style={{display:'block',fontSize:11,fontWeight:'bold',color:'#475569',marginBottom:4}}>建物名・部屋番号 <span style={{fontWeight:'normal',color:'#64748b'}}>(任意)</span></label>
-                <input value={storeForm.addressBuilding || ''} onChange={e=>setStoreForm(f=>({...f,addressBuilding:e.target.value}))} placeholder="例: メイゾン白子 101" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+                <input value={storeForm.addressBuilding || ''} onChange={e=>setStoreForm(f=>({...f,addressBuilding:e.target.value}))} placeholder="例: 見本ビル 101" style={{width:'100%',padding:'10px 12px',border:'1px solid #cbd5e1',borderRadius:10,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
               </div>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:16}}>
                 <div>
@@ -23223,7 +23229,8 @@ export default function App() {
         let changed = false;
         // ★ フィールド単位保護対象(基本利用日/送迎/緊急連絡先/介護度等)は、変更された項目だけ _fieldTs に刻む。
         //   これで別項目を編集して _savedAt 全体が更新されても、触っていない項目は古い端末で巻き戻らない。
-        const _PT_FL = ['individualExerciseSlotDefaults','individualExercises','individualExercisesHistory','scheduleAmPm','pickupType','pickupTimes','massageNeed','onyokuDenryo','plannedExercises','careLevel','careLevelFrom','careLevelTo','costBurden','costBurdenFrom','costBurdenTo','insuranceNo','startDate','endDate','serviceCode','serviceCodes','contactBookRenraku','cmOffice','cmName','cmPhone','cmFax','cmHistory','familyName','familyLastName','familyFirstName','familyKana','familyKanaLast','familyKanaFirst','familyRelation','familyPhone','familyPhoneMobile','familyEmail'];
+        // ★ 2026-10-29: 建物名・部屋番号(addressBuilding/addressRoom)も項目別に(部屋番号を空にして建物名へ移したのが、古い端末の値で戻らないように・supabase.js の PATIENT_FIELDLEVEL と同じ)
+        const _PT_FL = ['individualExerciseSlotDefaults','individualExercises','individualExercisesHistory','scheduleAmPm','pickupType','pickupTimes','massageNeed','onyokuDenryo','plannedExercises','careLevel','careLevelFrom','careLevelTo','costBurden','costBurdenFrom','costBurdenTo','insuranceNo','startDate','endDate','serviceCode','serviceCodes','contactBookRenraku','cmOffice','cmName','cmPhone','cmFax','cmHistory','addressBuilding','addressRoom','familyName','familyLastName','familyFirstName','familyKana','familyKanaLast','familyKanaFirst','familyRelation','familyPhone','familyPhoneMobile','familyEmail'];
         const stamped = newData.patients.map(p => {
           if (!p || p.id == null) return p;
           const old = prevMap.get(String(p.id));
@@ -39445,7 +39452,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const pts = _weekPids().map(pid => (appData.patients||[]).find(x=>x.id===pid)).filter(Boolean)
       .sort((a,b)=>String(a.kana||a.name||'').localeCompare(String(b.kana||b.name||''),'ja'));
     const _emW2 = (t) => [...String(t||'')].reduce((a, ch) => a + (ch === '　' ? 1 : (/[ -~]/.test(ch) ? (ch === ' ' ? 0.3 : 0.55) : 1)), 0);
-    const addrText = (pt) => `${[_addrDisp(pt.address), pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' ')}${pt.pickupPlace?`（${PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace}）`:''}${String(pt.pickupMinutes||'')==='walk'?'［徒歩］':''}`;
+    const addrText = (pt) => `${[_addrDisp(pt.address), tsuBldRoom(pt.addressBuilding, pt.addressRoom)].filter(Boolean).join(' ')}${pt.pickupPlace?`（${PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace}）`:''}${String(pt.pickupMinutes||'')==='walk'?'［徒歩］':''}`;
     // ★ 2026-10-01d(ユーザー要望): 左25人・右25人(1枚50人)で固定。表は用紙の下まで伸ばし、行の高さをそろえる(下の余白をなくす)。
     //   左の段から25人ずつ埋め、人がいない行は空欄(手書き用)で25行まで埋める。
     const ROWS = 25, HALF = 505, BODY_H = 650; // BODY_H=本文の高さの目安(px)
@@ -39481,7 +39488,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         // 住所は1行に収まるよう文字を縮める(9px未満になる長い住所だけ2行)
         const at = addrText(r.pt); const fitA = Math.floor((w.addr - 10) / Math.max(1, _emW2(at)));
         const fA = Math.max(9, Math.min(fA0, fitA)); const wrapA = fitA < 9;
-        html += `<tr>${iniTd}${td(_escP(r.pt.name), `padding:0 5px;font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}${td(`${_escP([_addrDisp(r.pt.address), r.pt.addressBuilding, r.pt.addressRoom].filter(Boolean).join(' '))}${r.pt.pickupPlace?`<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[r.pt.pickupPlace] || r.pt.pickupPlace)}）</span>`:''}${String(r.pt.pickupMinutes||'')==='walk'?`<span style="color:#047857;font-weight:700;">［徒歩］</span>`:''}`, `padding:0 5px;font-size:${fA}px;line-height:1.15;${wrapA ? '' : 'white-space:nowrap;'}overflow:hidden;`)}${(() => { const tt = telText(r.pt); const fit = Math.floor((w.tel - 8) / Math.max(1, _emW2(tt))); const fTt = Math.max(8, Math.min(fT, fit)); return td(_escP(tt), `padding:0 4px;font-size:${fTt}px;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;`); })()}</tr>`;
+        html += `<tr>${iniTd}${td(_escP(r.pt.name), `padding:0 5px;font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}${td(`${_escP([_addrDisp(r.pt.address), tsuBldRoom(r.pt.addressBuilding, r.pt.addressRoom)].filter(Boolean).join(' '))}${r.pt.pickupPlace?`<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[r.pt.pickupPlace] || r.pt.pickupPlace)}）</span>`:''}${String(r.pt.pickupMinutes||'')==='walk'?`<span style="color:#047857;font-weight:700;">［徒歩］</span>`:''}`, `padding:0 5px;font-size:${fA}px;line-height:1.15;${wrapA ? '' : 'white-space:nowrap;'}overflow:hidden;`)}${(() => { const tt = telText(r.pt); const fit = Math.floor((w.tel - 8) / Math.max(1, _emW2(tt))); const fTt = Math.max(8, Math.min(fT, fit)); return td(_escP(tt), `padding:0 4px;font-size:${fTt}px;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;`); })()}</tr>`;
       });
       // ★ 2026-10-01(iPad): 高さは px で(Safari・PDF化では height:100% が効かず表が縮んでいた)。本文 718px − 題字 − 注記 − 余裕
       return `<table style="border-collapse:collapse;width:100%;height:${718 - 26 - 18 - 4}px;table-layout:fixed;">
@@ -39512,7 +39519,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     // ★ 2026-10-01f(ユーザー要望): 日ごとでも車の定員分の行を出す(空いている席は空欄＝手書き用)。定員未設定の車は乗る人数分(最低1行)
     const _dRows = (pl, c) => Math.max(((pl.cars||{})[c.id]||[]).length, Number(c.cap) > 0 ? Number(c.cap) : 1);
     const _em = (t) => [...String(t||'')].reduce((a, ch) => a + (ch === '　' ? 1 : (/[0-9]/.test(ch) ? 0.62 : (/[ -~]/.test(ch) ? (ch === ' ' ? 0.3 : 0.55) : 1))), 0);
-    const addrOf = (pt) => `${[_addrDisp(pt.address), pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' ')}${pt.pickupPlace ? `（${PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace}）` : ''}`;
+    const addrOf = (pt) => `${[_addrDisp(pt.address), tsuBldRoom(pt.addressBuilding, pt.addressRoom)].filter(Boolean).join(' ')}${pt.pickupPlace ? `（${PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace}）` : ''}`;
     const telOf = (pt) => String(pt.phoneMobile || pt.phone || '');
     const PAGE_W = 738, PAGE_H = 1069 - 30 - 18; // 本文の幅・高さ(題字と凡例を除く) ★ 2026-10-13: 印字域 196×283mm(余白7mm・旧188×275)
     const slots = (onlySl ? [onlySl] : ['AM','PM']).map(sl => { const pl = getPlan(iso, sl);
@@ -39547,7 +39554,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const _tagD = (tg) => tg ? `<span style="display:inline-block;margin-left:4px;padding:0 3px;border:1px solid #6366f1;border-radius:2px;color:#3730a3;font-size:${Math.max(9, Math.round(fz * 0.62))}px;line-height:1.2;font-weight:700;vertical-align:middle;">${_escP(tg)}</span>` : '';
     const row = (m, sl, b, pl) => { const pt = _pt(m.pid); const fk = _isFurikae(iso, sl, m.pid); const fv = !fk && _isFirstVisit(m.pid, iso); const bg = fk?'#a7f3d0':(fv?'#bae6fd':'#fff');
       const at = (b && b.other) ? String(m.why || '') : addrOf(pt); const fit = Math.floor((w.addr - 12) / Math.max(1, _em(at))); const fA = Math.max(9, Math.min(fz, fit)); // 住所は名前と同じ大きさまで(長い住所は幅に合わせて縮小)
-      const addrHtml = (b && b.other) ? `<span style="color:#6d28d9;font-weight:700;">${_escP(m.why || '')}</span>` : `${_escP([_addrDisp(pt.address), pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' '))}${pt.pickupPlace?`<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace)}）</span>`:''}`;
+      const addrHtml = (b && b.other) ? `<span style="color:#6d28d9;font-weight:700;">${_escP(m.why || '')}</span>` : `${_escP([_addrDisp(pt.address), tsuBldRoom(pt.addressBuilding, pt.addressRoom)].filter(Boolean).join(' '))}${pt.pickupPlace?`<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace)}）</span>`:''}`;
       return `<tr style="background:${bg};">
         ${td(`${_escP(_pname(m.pid))}${_tagD(_dropLabelP(pl, m.pid))}`, `font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}
         ${td((b && b.other) ? '' : _escP(_fmtT(m.t)), `font-size:${fz}px;font-weight:700;text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums;padding:0 2px;${(m.mark||_dotOf(plans[`${iso}_${sl}`], iso, m.pid)) ? 'outline:2px solid #c82c35;outline-offset:-3px;' : ''}`)}
@@ -39632,9 +39639,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     const f = F(H); const { fz, fzS, fzH, fzC, fzB } = f; const w = W(f);
     const td = (inner, st) => `<td style="border:1px solid #66756b;height:${H}px;padding:0 5px;box-sizing:border-box;vertical-align:middle;${st}">${inner}</td>`;
     const pickRow = (m, sl, b) => { const pt = _pt(m.pid); const fk = _isFurikae(iso, sl, m.pid); const fv = !fk && _isFirstVisit(m.pid, iso); const bg = fk ? '#a7f3d0' : (fv ? '#bae6fd' : '#fff');
-      const at = b.other ? String(m.why || '') : `${[_addrDisp(pt.address), pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' ')}${pt.pickupPlace ? `（${PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace}）` : ''}`;
+      const at = b.other ? String(m.why || '') : `${[_addrDisp(pt.address), tsuBldRoom(pt.addressBuilding, pt.addressRoom)].filter(Boolean).join(' ')}${pt.pickupPlace ? `（${PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace}）` : ''}`;
       const fit = Math.floor((w.addr - 10) / Math.max(1, _em(at))); const fA = Math.max(8, Math.min(fz, fit));
-      const addrHtml = b.other ? `<span style="color:#6d28d9;font-weight:700;">${_escP(m.why || '')}</span>` : `${_escP([_addrDisp(pt.address), pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' '))}${pt.pickupPlace ? `<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace)}）</span>` : ''}`;
+      const addrHtml = b.other ? `<span style="color:#6d28d9;font-weight:700;">${_escP(m.why || '')}</span>` : `${_escP([_addrDisp(pt.address), tsuBldRoom(pt.addressBuilding, pt.addressRoom)].filter(Boolean).join(' '))}${pt.pickupPlace ? `<span style="color:#475569;">（${_escP(PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace)}）</span>` : ''}`;
       return `<tr style="background:${bg};">${td(_escP(_nm(m)), `font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}${td(b.other ? '' : _escP(_fmtT(m.t)), `font-size:${fz}px;font-weight:700;text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums;padding:0 2px;${(m.mark || _dotOf(plans[`${iso}_${sl}`], iso, m.pid)) ? 'outline:2px solid #c82c35;outline-offset:-3px;' : ''}`)}${td(addrHtml, `font-size:${fA}px;line-height:1.15;${fit >= 8 ? 'white-space:nowrap;' : ''}overflow:hidden;`)}${td(_escP(telOf(pt)), `font-size:${fzS}px;white-space:nowrap;font-variant-numeric:tabular-nums;padding:0 3px;`)}</tr>`; };
     const dropRow = (m, pl, b) => `<tr>${td(_escP(_nm(m)), `font-size:${fz}px;font-weight:700;white-space:nowrap;overflow:hidden;`)}${td(b.other ? `<span style="color:#6d28d9;">${_escP(m.why || '')}</span>` : _escP(b.walk ? '' : (_dropAtOf(pl, m.pid) || '')), `font-size:${b.other ? Math.max(7, Math.min(fz, Math.floor((w.dtime - 6) / Math.max(1, _em(m.why || ''))))) : fz}px;font-weight:700;text-align:center;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums;color:#3730a3;padding:0 2px;`)}</tr>`;
     const emptyP = () => `<tr>${td('&nbsp;', `font-size:${fz}px;`)}${td('', '')}${td('', '')}${td('', '')}</tr>`;
@@ -39993,7 +40000,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
       {_tpOneDay ? (() => { const iso = _tpDayIso; const d = new Date(iso + 'T00:00:00'); const _hol = (appData.holidays||[]).find(h => (h && (h.date||h)) === iso);
         const _pt = (pid) => (appData.patients||[]).find(x => x.id === pid) || {};
         const _tel = (pt) => [pt.phoneMobile, pt.phone].map(x => String(x||'').trim()).filter(Boolean);
-        const _addr = (pt) => [_addrDisp(pt.address), pt.addressBuilding, pt.addressRoom].filter(Boolean).join(' ');
+        const _addr = (pt) => [_addrDisp(pt.address), tsuBldRoom(pt.addressBuilding, pt.addressRoom)].filter(Boolean).join(' ');
         const _place = (pt) => pt.pickupPlace ? (PICKUP_PLACE_ALIAS[pt.pickupPlace] || pt.pickupPlace) : '';
         const _mins = (t) => { const m = String(_fmtT(t) || '').match(/(\d+):(\d+)/); return m ? (+m[1]) * 60 + (+m[2]) : 9999; };
         // ★ 2026-10-13(ユーザー指示): 1行目=名前・時間(近く)・住所、2行目=待ち合わせ場所・電話(横並び)。電話は枠で目立たせず文字だけ(携帯優先・固定はその次)。
@@ -40678,7 +40685,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
               <div>
                 <div className="text-[13px] font-bold text-slate-600 mb-1">送りの順番</div>
                 <div className="border border-slate-200 rounded-lg divide-y divide-slate-100" data-testid="tp-sv-order">
-                  {list.map((m, i) => { const pp = ptOf(m.pid); const addr = [_addrDisp(pp.address), pp.addressBuilding, pp.addressRoom].filter(Boolean).join(' '); const calls = tsumugiPickupCalls(pp); return (
+                  {list.map((m, i) => { const pp = ptOf(m.pid); const addr = [_addrDisp(pp.address), tsuBldRoom(pp.addressBuilding, pp.addressRoom)].filter(Boolean).join(' '); const calls = tsumugiPickupCalls(pp); return (
                     <div key={m.pid} className="px-2.5 py-1.5">
                       <div className="flex items-center gap-2"><span className="shrink-0 w-6 h-6 rounded-full bg-indigo-600 text-white text-[12px] font-bold flex items-center justify-center">{i + 1}</span><span className="font-bold text-[16px] text-slate-900">{_pname(m.pid)}</span>{_dropAtOf(pl, m.pid) ? <span data-testid={`tp-sv-at-${m.pid}`} className="ml-auto shrink-0 text-[15px] font-bold tabular-nums text-indigo-700">着 {_dropAtOf(pl, m.pid)}{_dropAtAutoOf(pl, m.pid) ? <span className="text-[11px] text-slate-500 ml-0.5">目安</span> : null}</span> : null}</div>
                       <div className="pl-8 flex items-baseline gap-x-3 flex-wrap text-[13px] leading-snug">
@@ -43581,7 +43588,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   {!isOff && <button type="button" onClick={()=>setPersonalFileModal({patient:localPatient, initialTab:'cat_1', focus:'facesheet:address'})} className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg text-xs font-bold whitespace-nowrap active:scale-95 flex items-center gap-1"><BookOpen size={13}/>フェイスシートで編集</button>}
                 </div>
                 <div className="border border-slate-200 rounded-lg overflow-hidden">
-                  <InfoRow label="住所">{(localPatient.zipCode||localPatient.address||localPatient.addressBuilding||localPatient.addressRoom) ? `${localPatient.zipCode?`〒${localPatient.zipCode} `:''}${localPatient.address||''}${localPatient.addressBuilding?` ${localPatient.addressBuilding}`:''}${localPatient.addressRoom?` ${localPatient.addressRoom}`:''}` : ''}</InfoRow>
+                  <InfoRow label="住所">{(localPatient.zipCode||localPatient.address||localPatient.addressBuilding||localPatient.addressRoom) ? `${localPatient.zipCode?`〒${localPatient.zipCode} `:''}${localPatient.address||''}${tsuBldRoom(localPatient.addressBuilding, localPatient.addressRoom) ? ` ${tsuBldRoom(localPatient.addressBuilding, localPatient.addressRoom)}` : ''}` : ''}</InfoRow>
                   <InfoRow label="電話（固定）">{localPatient.phone}</InfoRow>
                   <InfoRow label="電話（携帯）">{localPatient.phoneMobile}</InfoRow>
                   <InfoRow label="メール">{localPatient.email}</InfoRow>
@@ -44459,7 +44466,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         const HEADERS = ['利用者ID','氏名','フリガナ','性別','生年月日','郵便番号','都道府県','市区町村','町名番地','建物名','電話番号','携帯電話番号','緊急連絡先氏名','続柄','緊急連絡先電話','緊急連絡先電話（携帯）','緊急連絡先メール','被保険者番号','介護度','利用開始日','利用終了日','状態','既往歴','留意点','かかりつけ医','メールアドレス','認定有効期間（開始）','認定有効期間（終了）','負担割合','ケアマネ事業所','ケアマネ事業所電話','ケアマネ事業所FAX','担当ケアマネ','担当ケアマネ電話',
           // ★ 2026-10-12(ユーザー要望「基本情報・フェイスシートの情報は全て取込できるように」): 追加列(空欄は既存を上書きしない)
           //   (2026-10-12 ユーザー指示: 今のフェイスシートにある項目だけ。削除済みの趣味・家族構成などは入れない。自立度は計画書・LIFEで使う保存先がフェイスシートのため残す)
-          '部屋番号','医療機関','医療機関連絡先','FAX','世帯区分','障害高齢者の日常生活自立度','認知症高齢者の日常生活自立度','通所の経緯','備考','追記',
+          '医療機関','医療機関連絡先','FAX','世帯区分','障害高齢者の日常生活自立度','認知症高齢者の日常生活自立度','通所の経緯','備考','追記',
           // ★ 2026-10-28(ユーザー要望「基本利用曜日も取り込めるように。AMとPMで列を分けると分かりやすい」): 午前・午後の2列に「月、水」のように曜日を書く(両方に書いた曜日は1日)
           '基本利用曜日（午前）','基本利用曜日（午後）'];
         const escCell = (v) => { const s = String(v??''); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
@@ -44481,7 +44488,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             else if (pref || city) { const pc = pref + city; if (full.startsWith(pc)) { pr = pref; ct = city; line = full.slice(pc.length); } }
             let bld = String(pp.addressBuilding || '').trim();
             if (!bld && bld0 && line.endsWith(bld0)) { line = line.slice(0, -bld0.length); bld = bld0; }
-            return [pr, ct, line.trim(), [bld, String(pp.addressRoom || '').trim()].filter(Boolean).join(' ')];
+            return [pr, ct, line.trim(), tsuBldRoom(bld, pp.addressRoom)];
           };
           // ケアマネ事業所電話/FAX は cmOffices マスタから引く (無ければ patient 値)
           const _off = (appData.systemSettings?.cmOffices||[]).find(o=>o.name===p.cmOffice);
@@ -44499,8 +44506,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
             p.insuranceNo||'', p.careLevel||'', p.startDate||'', p.endDate||'', p.status||'',
             p.kiou||'', p.ryui||'', (fsDoctorsText(p.personalFile?.faceSheet) || p.doctor || ''),
             p.email||'', p.careLevelFrom||'', p.careLevelTo||'', p.costBurden||'',
-            p.cmOffice||'', cmOfficeTel, cmOfficeFax, p.cmName||'', _cmc.phone,
-            String(p.addressRoom || ''),
+            p.cmOffice||'', cmOfficeTel, cmOfficeFax, p.cmName||'', _cmc.phone, // ★ 2026-10-29: 部屋番号の列はなくした(建物名の列に建物名・部屋番号)
             (fsInstitutionsText(p.personalFile?.faceSheet) || p.medicalInstitution || ''), (p.personalFile?.faceSheet?.medicalContact || p.medicalContact || ''),
             ...['fax','householdType','adlLevel','dementiaLevel','lifeHistory','bikou','addendum'].map(k => String((p.personalFile?.faceSheet || {})[k] || '')),
             ...(() => { const sc = p.scheduleAmPm || [], am = [], pm = []; [1, 2, 3, 4, 5, 6, 0].forEach(i => { const v = sc[i]; if (v === 'AM' || v === '1日') am.push(['日','月','火','水','木','金','土'][i]); if (v === 'PM' || v === '1日') pm.push(['日','月','火','水','木','金','土'][i]); }); return [am.join('、'), pm.join('、')]; })(),
@@ -44516,8 +44522,8 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
         };
         const downloadTemplate = () => {
           // ★ 2026-10-28: 見本の行は架空の名前・番号・住所に(実在の地名・事業所名・番号を使わない)。基本利用曜日の書き方の例つき
-          const sample = ['','見本 太郎','みほん たろう','男性','1940-05-15','000-0000','東京都','新宿区','西新宿2-8-1','見本ハイツ','03-0000-0000','090-0000-0000','見本 花子','長女','03-0000-0001','090-0000-0001','hanako@example.com','0000000000','要介護2','2024-06-01','','利用中','高血圧','歩行時見守り','〇〇クリニック 見本医師','taro@example.com','2024-04-01','2027-03-31','1割','見本居宅介護支援','03-0000-0002','03-0000-0003','見本 一郎','090-0000-0002',
-            '101','','','','','','','','','','月、木','水'];
+          const sample = ['','見本 太郎','みほん たろう','男性','1940-05-15','000-0000','東京都','新宿区','西新宿2-8-1','見本ハイツ 101','03-0000-0000','090-0000-0000','見本 花子','長女','03-0000-0001','090-0000-0001','hanako@example.com','0000000000','要介護2','2024-06-01','','利用中','高血圧','歩行時見守り','〇〇クリニック 見本医師','taro@example.com','2024-04-01','2027-03-31','1割','見本居宅介護支援','03-0000-0002','03-0000-0003','見本 一郎','090-0000-0002',
+            '','','','','','','','','','月、木','水'];
           const csv = '﻿' + HEADERS.join(',') + '\n' + sample.map(escCell).join(',');
           const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
           const url = URL.createObjectURL(blob);
@@ -44705,7 +44711,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               const _isExistingIdRow = !isNaN(_idEarly) && existingIds.has(_idEarly);
               if (!name && !_isExistingIdRow) { skipped++; continue; }
               const insNo = val(row,col.insuranceNo);
-              // ★ 2026-10-12: 住所(address)は建物名を含めない(建物名は addressBuilding・部屋番号は addressRoom に分けて持つ=フェイスシートと同じ)
+              // ★ 2026-10-12: 住所(address)は建物名を含めない(建物名は addressBuilding。2026-10-29 から部屋番号も建物名・部屋番号の1つの欄=フェイスシートと同じ)
               const addr = [val(row,col.prefecture),val(row,col.city),val(row,col.addressLine)].filter(Boolean).join('');
               // ★ 空欄は rec に入れない (既存を上書きしない / 新規はデフォルト)
               const rec = {};
@@ -44723,8 +44729,12 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               set('phone', normTel(val(row,col.phone)));
               set('phoneMobile', normTel(val(row,col.mobile)));
               set('insuranceNo', normInsNo(insNo));
-              set('addressRoom', val(row,col.room));
-              if (val(row,col.building)) rec.addressBuilding = val(row,col.building); // フェイスシートの建物名(新方式)にも
+              // ★ 2026-10-29: 建物名・部屋番号は1つの欄。前の形の CSV の「部屋番号」の列は建物名の後ろに足す(同じものは重ねない)。
+              //   建物名が空で部屋番号だけのときは、今の建物名の後ろに足す(_roomIn・下のまとめで)
+              { const _bIn = val(row,col.building), _rIn = val(row,col.room);
+                if (_bIn) rec.addressBuilding = tsuBldRoom(_bIn, _rIn); // フェイスシートの建物名(新方式)にも
+                else if (_rIn) rec._roomIn = _rIn;
+                if (_bIn || _rIn) rec.addressRoom = ''; }
               set('medicalInstitution', val(row,col.medInst));
               set('medicalContact', normTel(val(row,col.medContact)));
               set('careLevel', normCare(val(row,col.careLevel)));
@@ -44772,6 +44782,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
               if (target) {
                 const idx = existing.findIndex(p=>p.id===target.id);
                 const _np = applyEx({ ...existing[idx], ...rec }, emName, emRel, emPhone, doctor, emMobile, emEmail, fsPatch);
+                if (rec._roomIn) _np.addressBuilding = tsuBldRoom(tsuBldRoom(existing[idx].addressBuilding, existing[idx].addressRoom), rec._roomIn); delete _np._roomIn; // ★ 2026-10-29
                 // ★ 2026-10-28: すでにいる方の基本利用曜日は、曜日が空・変更履歴なし・記録なし(=まだ利用していない)ときだけ入れる。利用している方は画面で(適用日と履歴が要る)
                 if (_sc.s && !_sc.err && (_np.scheduleAmPm || []).join('|') !== _sc.s.join('|')) {
                   if (!(_np.scheduleAmPm || []).some(Boolean) && !(_np.scheduleChangeHistory || []).length && !_recPids.has(_np.id)) { _np.scheduleAmPm = [..._sc.s]; schedSet++; }
@@ -44783,6 +44794,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 maxId += 1;
                 let np = { kiou:'', ryui:'', scheduleAmPm:['','','','','','',''], pickupType:'fixed', pickupTimes:['','','','','','',''], autoDeleteAfter5Years:false, massageNeed:'通常', onyokuDenryo:'無し', pauseHistory:[], plannedExercises:{}, ...rec, id:maxId };
                 if (!np.status) np.status='利用中';
+                if (np._roomIn) np.addressBuilding = np._roomIn; delete np._roomIn; // ★ 2026-10-29: 部屋番号だけのとき
                 if (_sc.s && !_sc.err) { np.scheduleAmPm = [..._sc.s]; if (_sc.s.some(Boolean)) schedSet++; } // ★ 2026-10-28: 新しく登録する方は基本利用曜日も入れる
                 np = applyEx(np, emName, emRel, emPhone, doctor, emMobile, emEmail, fsPatch);
                 existing.push(np);
@@ -61726,8 +61738,8 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
     gender: (patient?.gender ?? initial?.gender ?? ''),
     zipCode: (patient?.zipCode ?? initial?.zipCode ?? ''),
     address: (patient?.address ?? initial?.address ?? ''),
-    addressBuilding: (patient?.addressBuilding ?? initial?.addressBuilding ?? ''),
-    addressRoom: (patient?.addressRoom ?? initial?.addressRoom ?? ''), // ★ 部屋番号(2026-09-14 追加)
+    addressBuilding: tsuBldRoom(patient?.addressBuilding ?? initial?.addressBuilding ?? '', patient?.addressRoom ?? initial?.addressRoom ?? ''), // ★ 2026-10-29: 建物名・部屋番号は1つの欄(前の部屋番号は後ろに足す)
+    addressRoom: '', // ★ 2026-10-29: 部屋番号だけの欄はなくした(保存すると建物名・部屋番号へ移る)
     phone: (patient?.phone ?? initial?.phone ?? ''),
     phoneMobile: (patient?.phoneMobile ?? initial?.phoneMobile ?? ''),
     email: (patient?.email ?? initial?.email ?? ''),
@@ -61986,8 +61998,7 @@ function FaceSheetForm({ patient, appData, initial, onSave, onClose, canEditCont
                 </Field>
                 <div data-fs-sec="address"></div>
                 <Field label="住所"><input value={fs.address} onChange={e=>update('address', e.target.value)} placeholder="郵便番号から検索すると町名まで自動入力" className={inputCls}/></Field>
-                <Field label="建物名"><input value={fs.addressBuilding} onChange={e=>update('addressBuilding', e.target.value)} placeholder="例: コーポ白子" className={inputCls}/></Field>
-                <Field label="部屋番号"><input value={fs.addressRoom} onChange={e=>update('addressRoom', e.target.value)} placeholder="例: 101" className={inputCls}/></Field>
+                <Field label="建物名・部屋番号"><input value={fs.addressBuilding} onChange={e=>update('addressBuilding', e.target.value)} placeholder="例: 見本ハイツ 101" className={inputCls}/></Field>
                 <Field label="電話（固定）"><ImeSafeInput value={fs.phone} onChange={e=>update('phone', formatJpPhone(e.target.value))} placeholder="03-XXXX-XXXX" className={inputCls}/></Field>
                 <Field label="電話（携帯）"><ImeSafeInput value={fs.phoneMobile} onChange={e=>update('phoneMobile', formatJpPhone(e.target.value))} placeholder="090-XXXX-XXXX" className={inputCls}/></Field>
                 <Field label="メールアドレス"><input type="email" value={fs.email} onChange={e=>update('email', e.target.value)} placeholder="example@xxx.com" className={inputCls}/></Field>
@@ -62347,7 +62358,7 @@ function FaceSheetPdfPreview({ patient, appData, faceSheet, onClose }) {
               <Row label="性別" value={patient.gender}/>
               <Row label="生年月日" value={patient.birthDate}/>
               <Row label="郵便番号" value={patient.zipCode ? `〒${patient.zipCode}` : ''}/>
-              <Row label="住所" value={[patient.address, patient.addressBuilding, patient.addressRoom].filter(Boolean).join(' ')}/>
+              <Row label="住所" value={[patient.address, tsuBldRoom(patient.addressBuilding, patient.addressRoom)].filter(Boolean).join(' ')}/>
               <Row label="電話（固定）" value={patient.phone}/>
               <Row label="電話（携帯）" value={patient.phoneMobile}/>
               <Row label="メールアドレス" value={patient.email}/>
