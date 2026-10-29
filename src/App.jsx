@@ -979,9 +979,9 @@ const GLOBAL_STYLE = `
   /* iPad向けベースフォントサイズ */
   body { font-size: 15px; }
   
-  /* テーブル内のフォントサイズ調整 */
-  #record-table th { font-size: 13px !important; }
-  #record-table td { font-size: 13px !important; }
+  /* テーブル内のフォントサイズ調整(★ 2026-10-29: --tsu-fz は iPad の全画面で文字が拡大されないときの埋め合わせ・ふだんは 1) */
+  #record-table th { font-size: calc(13px * var(--tsu-fz, 1)) !important; }
+  #record-table td { font-size: calc(13px * var(--tsu-fz, 1)) !important; }
   @media print { .thp { position: static !important; } }
   #record-table tbody tr { height: 40px !important; max-height: 40px !important; }
   #record-table tbody tr td { height: 40px !important; max-height: 40px !important; overflow: hidden !important; padding-top: 3px !important; padding-bottom: 3px !important; box-sizing: border-box !important; }
@@ -991,7 +991,7 @@ const GLOBAL_STYLE = `
   
   /* ボタン */
   button { font-family: inherit; }
-  input, select, textarea { font-family: inherit; font-size: 15px; }
+  input, select, textarea { font-family: inherit; font-size: calc(15px * var(--tsu-fz, 1)); }
   /* ★ iOS Safari/iPad で select の表示が左寄せになる問題対応 → 中央揃え */
   select { text-align: center; text-align-last: center; }
   select option { text-align: center; }
@@ -1100,6 +1100,9 @@ const _exTextW = (str, px) => {
   if (w == null || !(w > 0)) w = [...String(str)].reduce((a, c) => a + (/[\x20-\x7e]/.test(c) ? 0.55 : 1), 0) * px;
   _exMeasureCache.set(k, w); return w;
 };
+// ★ 2026-10-29: 提供記録の表の文字の大きさ。iPad の Safari(2026年5月の WebKit の修正より前)は、全画面の倍率(zoom)で文字だけ拡大されないため、
+//   表に --tsu-fz(足りない倍率)を付けて文字の大きさに掛ける(付け方は RecordView の _fsFz)。付いていない所(パソコン・ほかの画面)は 1 で今までと同じ大きさ
+const tsuFz = (n) => `calc(${n}px * var(--tsu-fz, 1))`;
 const _exFitFs = (str, cap = 15, min = 8, avail = 70) => {
   const t = String(str || ''); if (!t) return cap;
   // 安全のため 1px の余裕を見る
@@ -2223,7 +2226,7 @@ const tsuFitMemoBox = (el, text, baseFs, lineHeight, minFs) => {
   const minH = Math.ceil(fs * lineHeight * 3) + (parseFloat(ecs.paddingTop) || 0) + (parseFloat(ecs.paddingBottom) || 0);
   return { fs, h: Math.min(avail, Math.max(minH, Math.ceil(full) + 2)), avail };
 };
-const CharCount = ({ value, max, style }) => { const n = String(value ?? '').length; return <span className="no-print" style={{ fontSize: 10, fontVariantNumeric: 'tabular-nums', color: n >= max ? '#dc2626' : n >= max * 0.9 ? '#d97706' : '#94a3b8', whiteSpace: 'nowrap', ...(style || {}) }}>{n} / {max}</span>; };
+const CharCount = ({ value, max, style }) => { const n = String(value ?? '').length; return <span className="no-print" style={{ fontSize: tsuFz(10), fontVariantNumeric: 'tabular-nums', color: n >= max ? '#dc2626' : n >= max * 0.9 ? '#d97706' : '#94a3b8', whiteSpace: 'nowrap', ...(style || {}) }}>{n} / {max}</span>; };
 // 日本の電話番号フォーマッタ: ハイフン無しの数字 → 自動でハイフン付与 (実装は下部 formatJpPhone)
 // ★ 稼働率/出席率の「予定(分母)」判定。 振替=出席扱い。 振替済みの欠席(tokkiに「へ振替」)は相殺で分母から除外。
 const isPlannedRec = (r) => !!r && (r.status==='出席'||r.status==='振替'||r.status==='臨時'||r.status==='休止'||(r.status==='欠席'&&!(r.tokki||'').includes('へ振替')));
@@ -25448,6 +25451,28 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   const _fsZoomMax = (() => { try { return Math.max(window.screen?.width || 0, window.screen?.height || 0, window.innerWidth || 0) >= 1600 ? 2 : 1.8; } catch { return 1.8; } })();
   const _fsZoom = isFullscreen ? (_fsUserZoom != null ? Math.min(_fsUserZoom, _fsZoomMax) : _fitZoom) : 1;
   const _fsZoomStep = (d) => _saveFsZoom(Math.max(0.45, Math.min(_fsZoomMax, Math.round((_fsZoom + d) * 20) / 20)));
+  // ★ 2026-10-29(ユーザー報告: iPad の全画面で倍率を上げると、枠は大きくなるのに名前・血圧・体温などの文字が小さいまま):
+  //   iPad の Safari は 2026年5月の WebKit の修正(bug 293617)より前だと、表に zoom をかけても文字の大きさが拡大されない(text-size-adjust:none の表では全部)。
+  //   全画面で倍率が変わるたびに、同じ文字の幅を表の中と外で測り、拡大されていなければ足りない倍率を _fsFz にする(表の文字の大きさに掛ける・tsuFz と index.css の tsu-fz-on)。
+  //   修正の入った iPad では 1 になり、二重には大きくならない。パソコンは測らない
+  const [_fsFz, _setFsFz] = React.useState(1);
+  React.useLayoutEffect(() => {
+    let f = 1;
+    try {
+      const t = isFullscreen && Math.abs(_fsZoom - 1) > 0.001 && document.documentElement.classList.contains('tsu-ios') ? document.getElementById('record-table') : null;
+      const th = t && t.querySelector('thead th');
+      if (th && t.parentElement) {
+        const mk = () => { const w = document.createElement('span'); w.setAttribute('aria-hidden', 'true');
+          w.style.cssText = 'position:absolute;left:0;top:0;visibility:hidden;pointer-events:none;white-space:nowrap;line-height:1;letter-spacing:normal;text-transform:none';
+          w.innerHTML = '<span style="font-size:20px;font-weight:400;font-style:normal">MMMMMMMMMM</span><span style="display:inline-block;width:100px;height:1px"></span>'; return w; };
+        const ratio = (w) => { const a = w.firstChild.getBoundingClientRect().width, b = w.lastChild.getBoundingClientRect().width; return a > 0 && b > 0 ? a / b : 0; };
+        const pIn = mk(), pOut = mk(); th.appendChild(pIn); t.parentElement.appendChild(pOut);
+        const rIn = ratio(pIn), rOut = ratio(pOut); pIn.remove(); pOut.remove();
+        if (rIn > 0 && rOut > 0) { const k = Math.round(rOut / rIn * 100) / 100; if (Math.abs(k - 1) >= 0.04 && k > 0.3 && k < 3) f = k; }
+      }
+    } catch {}
+    _setFsFz(prev => (Math.abs(prev - f) < 0.005 ? prev : f));
+  }, [isFullscreen, _fsZoom]);
   // ★ 2026-10-26(ユーザー要望「一言かマイクのどちらかを無くしたとき、残った方を他と同じ高さに」): 表の特記セルで一言とマイクが1つだけなら、そのボタンを欄の高さいっぱいに
   const _tkOne = (((tsuTokkiPresets(appData).length && !appData.systemSettings?.tokkiPresetOff) ? 1 : 0) + ((!appData.systemSettings?.tokkiVoiceOff && tsuVoiceSupported()) ? 1 : 0)) === 1;
   // ★ 2026-10-11: 全画面(画面全体を覆う)を一瞬で外すと、iPad では下の見出し・上部の帯が古い描画のまま白く残ることがある。0.3秒かけて薄くしてから外す
@@ -27518,7 +27543,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 onClose={() => setBulkExOpen(false)}
                 onApply={(cells) => { let n = 0; Object.entries(cells).forEach(([k, v]) => { const i = k.lastIndexOf('|'); const rid = k.slice(0, i), fld = k.slice(i + 1); const r = (displayRecords || []).find(x => String(x.id) === rid); if (!r) return; updateExercise(r.id, fld, v === 'o' ? '○' : '×'); n++; }); setBulkExOpen(false); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `${n}件を入れました。内容を確かめて「保存」を押してください` } })); } catch {} }}
               />, document.body)}
-      <style>{`#record-table tbody tr { min-height: 32px !important; } #record-table tbody tr td { min-height: 32px !important; padding-top: 2px !important; padding-bottom: 2px !important; box-sizing: border-box !important; } /* 個別運動列: 他の列と同じ行高に収める (min-height強制を外す) */ #record-table tbody tr td[data-ind-cell] { min-height: 0 !important; height: auto !important; max-height: none !important; overflow: visible !important; vertical-align: middle !important; }  #record-table tr.readonly-row input:disabled, #record-table tr.readonly-row button:disabled, #record-table tr.readonly-row textarea:disabled, #record-table tr.readonly-row select:disabled { opacity: 1 !important; color: #000 !important; -webkit-text-fill-color: #000 !important; } /* 列見出しを縦スクロール時も常に上部固定 + 行高を狭く */ #record-table thead th { position: -webkit-sticky !important; position: sticky !important; top: 0 !important; height: 32px !important; min-height: 32px !important; max-height: 32px !important; padding-top: 4px !important; padding-bottom: 4px !important; line-height: 1.1 !important; font-size: 11px !important; }`}</style>
+      <style>{`#record-table tbody tr { min-height: 32px !important; } #record-table tbody tr td { min-height: 32px !important; padding-top: 2px !important; padding-bottom: 2px !important; box-sizing: border-box !important; } /* 個別運動列: 他の列と同じ行高に収める (min-height強制を外す) */ #record-table tbody tr td[data-ind-cell] { min-height: 0 !important; height: auto !important; max-height: none !important; overflow: visible !important; vertical-align: middle !important; }  #record-table tr.readonly-row input:disabled, #record-table tr.readonly-row button:disabled, #record-table tr.readonly-row textarea:disabled, #record-table tr.readonly-row select:disabled { opacity: 1 !important; color: #000 !important; -webkit-text-fill-color: #000 !important; } /* 列見出しを縦スクロール時も常に上部固定 + 行高を狭く */ #record-table thead th { position: -webkit-sticky !important; position: sticky !important; top: 0 !important; height: 32px !important; min-height: 32px !important; max-height: 32px !important; padding-top: 4px !important; padding-bottom: 4px !important; line-height: 1.1 !important; font-size: calc(11px * var(--tsu-fz, 1)) !important; }`}</style>
       {/* ★ 画面上部の横スクロールバー(自前描画・2026-08-11): ネイティブのスクロールバーは
           OS/ブラウザ設定で非表示になり得るため、つまみを自前で描画して常時表示する。
           つまみのドラッグ・レールのクリックで表が横スクロールし、表のスクロールにも追従する。 */}
@@ -27822,12 +27847,13 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             );
           })}
         </div>
-        <table id="record-table" draggable={false} onDragStart={e=>e.preventDefault()} onPointerDownCapture={_rvTapRow} className={searchActive ? 'hidden' : 'hidden md:table text-sm text-left relative'} style={{
+        <table id="record-table" draggable={false} onDragStart={e=>e.preventDefault()} onPointerDownCapture={_rvTapRow} className={searchActive ? 'hidden' : `hidden md:table text-sm text-left relative${_fsFz !== 1 ? ' tsu-fz-on' : ''}`} style={{
           tableLayout:'fixed',borderCollapse:'separate',borderSpacing:0,
           minWidth:'max-content',width:'max-content',
           // ★ 全画面時のみ 1.1 倍拡大 (transform-origin top-left でレイアウト整合)
           // ★ 全画面時 1.2 倍拡大: zoom を使う (transform だと sticky が壊れて利用者名列が動く)
           ...(isFullscreen && _fsZoom !== 1 ? { zoom: _fsZoom } : {}),
+          ...(_fsFz !== 1 ? { '--tsu-fz': _fsFz } : {}), // ★ 2026-10-29: iPad で文字が拡大されないときの埋め合わせ(_fsFz)
         }}>
           <colgroup>
             {filterMode === 'month' && <col style={{width:'80px'}} />}
@@ -27917,7 +27943,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                       return (
                         <div style={{position:'relative',width:'100%',height:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:3}}>
                           {_showBadge && (
-                            <span style={{fontSize:8,fontWeight:'bold',background:'#f59e0b',color:'white',padding:'2px 6px',borderRadius:4,lineHeight:1,whiteSpace:'nowrap',marginBottom:2,alignSelf:'center',display:'inline-block'}}>
+                            <span style={{fontSize:tsuFz(8),fontWeight:'bold',background:'#f59e0b',color:'white',padding:'2px 6px',borderRadius:4,lineHeight:1,whiteSpace:'nowrap',marginBottom:2,alignSelf:'center',display:'inline-block'}}>
                               体力測定
                             </span>
                           )}
@@ -27978,8 +28004,8 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                             onPointerLeave={()=>{if(hideTip)hideTip();}}
                             className={`rounded transition-all disabled:opacity-40 ${moodObj ? moodObj.color + ' font-bold' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
                             style={{width:'100%',height:'100%',padding:'0px 1px',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:10,lineHeight:1}}>
-                            <span style={{fontSize:9,color:'#111827',fontWeight:'bold',lineHeight:1}}>{timing==='arrival'?'通所':'帰宅'}</span>
-                            <span style={{fontSize:22,lineHeight:1}}>{moodObj ? moodObj.emoji : '+'}</span>
+                            <span style={{fontSize:tsuFz(9),color:'#111827',fontWeight:'bold',lineHeight:1}}>{timing==='arrival'?'通所':'帰宅'}</span>
+                            <span style={{fontSize:tsuFz(22),lineHeight:1}}>{moodObj ? moodObj.emoji : '+'}</span>
                           </button>
                         </div>
                       );
@@ -27993,7 +28019,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                     <input type="text" inputMode="decimal" readOnly={_keypadOn} disabled={isAbsent || isReadOnly || isPause} value={vT}
                       onClick={() => { if(_keypadOn){ openKeypad(p.id, fT, vT, isAbsent); setActiveCell(`${p.id}-${fT}`); } }}
                       onChange={_keypadOn ? undefined : (e)=>updateRecord(p.id, fT, e.target.value)}
-                      style={{fontSize:14,padding:'0 1px',height:42,boxSizing:'border-box'}} className={`w-full border rounded-lg text-center font-bold shadow-inner outline-none ${_keypadOn?'cursor-pointer':''} disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'bg-transparent border-transparent shadow-none cursor-default' : activeCell===`${p.id}-${fT}` ? 'border-amber-500 ring-2 ring-amber-300 bg-yellow-50' : 'border-slate-300 bg-white'} ${getTempColorClass(vT)}`} />
+                      style={{fontSize:tsuFz(14),padding:'0 1px',height:42,boxSizing:'border-box'}} className={`w-full border rounded-lg text-center font-bold shadow-inner outline-none ${_keypadOn?'cursor-pointer':''} disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'bg-transparent border-transparent shadow-none cursor-default' : activeCell===`${p.id}-${fT}` ? 'border-amber-500 ring-2 ring-amber-300 bg-yellow-50' : 'border-slate-300 bg-white'} ${getTempColorClass(vT)}`} />
                     );})()}
                   </td>
                   <td className={`px-1 py-1 border border-slate-300 ${(isAbsent || isPause) ? 'bg-slate-100' : 'bg-white'}`}>
@@ -28009,23 +28035,23 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         <input type="text" inputMode="text" placeholder="上/下" disabled={isAbsent || isReadOnly || isPause} data-bp-input={`${p.id}-${fBpCombo}`}
                           key={`bpk-${p.id}-${fBpCombo}-${vBu}-${vBd}`} defaultValue={(vBu && vBd) ? `${vBu}/${vBd}` : (vBu||'')}
                           onBlur={(e)=>{ const c=(e.target.value||'').replace(/[^0-9/]/g,''); const parts=c.split('/'); updateRecord(p.id,fBu,(parts[0]||'').trim()); updateRecord(p.id,fBd,(parts[1]||'').trim()); }}
-                          style={{width:78,padding:'3px 2px',textAlign:'center',fontSize:14,fontWeight:'bold',height:42,boxSizing:'border-box'}}
+                          style={{width:78,padding:'3px 2px',textAlign:'center',fontSize:tsuFz(14),fontWeight:'bold',height:42,boxSizing:'border-box'}}
                           className={`border rounded-lg outline-none text-black shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none' : 'border-slate-300 bg-white'}`} />
                       ) : isEditingThis ? (
                         <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={display}
                           onClick={() => { openKeypad(p.id, fBpCombo, (vBu && vBd) ? `${vBu}/${vBd}` : (vBu||''), isAbsent); setActiveCell(`${p.id}-${fBpCombo}`); }}
-                          style={{width:78,padding:'3px 2px',textAlign:'center',fontSize:14,fontWeight:'bold',height:42,boxSizing:'border-box'}}
+                          style={{width:78,padding:'3px 2px',textAlign:'center',fontSize:tsuFz(14),fontWeight:'bold',height:42,boxSizing:'border-box'}}
                           className={`border rounded-lg cursor-pointer outline-none text-black shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-${fBpCombo}` ? 'border-amber-500 ring-2 ring-amber-300 bg-yellow-50' : 'border-slate-300 bg-white'}`} />
                       ) : (
                         <div data-testid={`bp-cell-${p.id}-${fBpCombo}`} onClick={() => { if (isAbsent || isReadOnly || isPause) return; openKeypad(p.id, fBpCombo, (vBu && vBd) ? `${vBu}/${vBd}` : (vBu||''), isAbsent); setActiveCell(`${p.id}-${fBpCombo}`); }}
-                          style={{width:78,padding:'3px 2px',textAlign:'center',fontSize:14,fontWeight:'bold',display:'flex',alignItems:'center',justifyContent:'center',gap:1,height:42,boxSizing:'border-box'}}
+                          style={{width:78,padding:'3px 2px',textAlign:'center',fontSize:tsuFz(14),fontWeight:'bold',display:'flex',alignItems:'center',justifyContent:'center',gap:1,height:42,boxSizing:'border-box'}}
                           className={`border rounded-lg cursor-pointer outline-none shadow-inner ${(isAbsent||isReadOnly||isPause)?'opacity-50':''} ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-${fBpCombo}` ? 'border-amber-500 ring-2 ring-amber-300 bg-yellow-50' : 'border-slate-300 bg-white'}`}>
                           {vBu && vBd ? (
                             <><span className={getBpUpColorClass(vBu)}>{vBu}</span><span className="text-slate-400">/</span><span className={getBpDnColorClass(vBd)}>{vBd}</span></>
                           ) : (vBu ? <span className={getBpUpColorClass(vBu)}>{vBu}</span> : <span className="text-slate-300">　　　</span>)}
                         </div>
                       )}
-                      <input type="text" inputMode="numeric" readOnly={_keypadOn} disabled={isAbsent || isReadOnly || isPause} value={vPl} onClick={() => { if(_keypadOn){ openKeypad(p.id, fPl, vPl, isAbsent); setActiveCell(`${p.id}-${fPl}`); } }} onChange={_keypadOn ? undefined : (e)=>updateRecord(p.id, fPl, e.target.value)} style={{fontSize:14,padding:'0 1px',width:55,height:42,boxSizing:'border-box'}} className={`border rounded-lg text-center ${_keypadOn?'cursor-pointer':''} ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(vPl, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-${fPl}` ? 'border-amber-500 ring-2 ring-amber-300 bg-yellow-50' : 'border-slate-300 bg-white shadow-inner'}`} />
+                      <input type="text" inputMode="numeric" readOnly={_keypadOn} disabled={isAbsent || isReadOnly || isPause} value={vPl} onClick={() => { if(_keypadOn){ openKeypad(p.id, fPl, vPl, isAbsent); setActiveCell(`${p.id}-${fPl}`); } }} onChange={_keypadOn ? undefined : (e)=>updateRecord(p.id, fPl, e.target.value)} style={{fontSize:tsuFz(14),padding:'0 1px',width:55,height:42,boxSizing:'border-box'}} className={`border rounded-lg text-center ${_keypadOn?'cursor-pointer':''} ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(vPl, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-${fPl}` ? 'border-amber-500 ring-2 ring-amber-300 bg-yellow-50' : 'border-slate-300 bg-white shadow-inner'}`} />
                       {_reOn && !(isAbsent || isReadOnly || isPause) && <button type="button" data-testid={`bp-re-St-${p.id}`} title="再検: 今の値を下に控えて欄を空にします（新しい値が最終になります）" onClick={()=>applyBpRemeasure(p.id, 'St')} className={`shrink-0 text-[10px] font-bold rounded px-1 py-0.5 border ${bpReHas(p,'St',timeFilter) ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-slate-50 border-slate-300 text-slate-600 hover:bg-blue-50'}`}>再{bpReHas(p,'St',timeFilter) ? bpReList(p,timeFilter).filter(e=>e.phase==='St').length : ''}</button>}
                     </div>
                     <BpReMini entries={bpReList(p, timeFilter).filter(e => e.phase === 'St')} canEdit={!(isAbsent || isReadOnly || isPause)} onDelete={(at) => removeBpRemeasureAt(p.id, at)} />
@@ -28043,23 +28069,23 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                         <input type="text" inputMode="text" placeholder="上/下" disabled={isAbsent || isReadOnly || isPause} data-bp-input={`${p.id}-${fBpCombo}`}
                           key={`bpk-${p.id}-${fBpCombo}-${vBu}-${vBd}`} defaultValue={(vBu && vBd) ? `${vBu}/${vBd}` : (vBu||'')}
                           onBlur={(e)=>{ const c=(e.target.value||'').replace(/[^0-9/]/g,''); const parts=c.split('/'); updateRecord(p.id,fBu,(parts[0]||'').trim()); updateRecord(p.id,fBd,(parts[1]||'').trim()); }}
-                          style={{width:78,padding:'3px 2px',textAlign:'center',fontSize:14,fontWeight:'bold',height:42,boxSizing:'border-box'}}
+                          style={{width:78,padding:'3px 2px',textAlign:'center',fontSize:tsuFz(14),fontWeight:'bold',height:42,boxSizing:'border-box'}}
                           className={`border rounded-lg outline-none text-black shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none' : 'border-slate-300 bg-white'}`} />
                       ) : isEditingThis ? (
                         <input type="text" readOnly disabled={isAbsent || isReadOnly || isPause} value={display}
                           onClick={() => { openKeypad(p.id, fBpCombo, (vBu && vBd) ? `${vBu}/${vBd}` : (vBu||''), isAbsent); setActiveCell(`${p.id}-${fBpCombo}`); }}
-                          style={{width:78,padding:'3px 2px',textAlign:'center',fontSize:14,fontWeight:'bold',height:42,boxSizing:'border-box'}}
+                          style={{width:78,padding:'3px 2px',textAlign:'center',fontSize:tsuFz(14),fontWeight:'bold',height:42,boxSizing:'border-box'}}
                           className={`border rounded-lg cursor-pointer outline-none text-black shadow-inner disabled:bg-transparent disabled:opacity-50 ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-${fBpCombo}` ? 'border-amber-500 ring-2 ring-amber-300 bg-yellow-50' : 'border-slate-300 bg-white'}`} />
                       ) : (
                         <div data-testid={`bp-cell-${p.id}-${fBpCombo}`} onClick={() => { if (isAbsent || isReadOnly || isPause) return; openKeypad(p.id, fBpCombo, (vBu && vBd) ? `${vBu}/${vBd}` : (vBu||''), isAbsent); setActiveCell(`${p.id}-${fBpCombo}`); }}
-                          style={{width:78,padding:'3px 2px',textAlign:'center',fontSize:14,fontWeight:'bold',display:'flex',alignItems:'center',justifyContent:'center',gap:1,height:42,boxSizing:'border-box'}}
+                          style={{width:78,padding:'3px 2px',textAlign:'center',fontSize:tsuFz(14),fontWeight:'bold',display:'flex',alignItems:'center',justifyContent:'center',gap:1,height:42,boxSizing:'border-box'}}
                           className={`border rounded-lg cursor-pointer outline-none shadow-inner ${(isAbsent||isReadOnly||isPause)?'opacity-50':''} ${isReadOnly ? 'border-transparent shadow-none cursor-default' : activeCell===`${p.id}-${fBpCombo}` ? 'border-amber-500 ring-2 ring-amber-300 bg-yellow-50' : 'border-slate-300 bg-white'}`}>
                           {vBu && vBd ? (
                             <><span className={getBpUpColorClass(vBu)}>{vBu}</span><span className="text-slate-400">/</span><span className={getBpDnColorClass(vBd)}>{vBd}</span></>
                           ) : (vBu ? <span className={getBpUpColorClass(vBu)}>{vBu}</span> : <span className="text-slate-300">　　　</span>)}
                         </div>
                       )}
-                      <input type="text" inputMode="numeric" readOnly={_keypadOn} disabled={isAbsent || isReadOnly || isPause} value={vPl} onClick={() => { if(_keypadOn){ openKeypad(p.id, fPl, vPl, isAbsent); setActiveCell(`${p.id}-${fPl}`); } }} onChange={_keypadOn ? undefined : (e)=>updateRecord(p.id, fPl, e.target.value)} style={{fontSize:14,padding:'0 1px',width:55,height:42,boxSizing:'border-box'}} className={`border rounded-lg text-center ${_keypadOn?'cursor-pointer':''} ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(vPl, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-${fPl}` ? 'border-amber-500 ring-2 ring-amber-300 bg-yellow-50' : 'border-slate-300 bg-white shadow-inner'}`} />
+                      <input type="text" inputMode="numeric" readOnly={_keypadOn} disabled={isAbsent || isReadOnly || isPause} value={vPl} onClick={() => { if(_keypadOn){ openKeypad(p.id, fPl, vPl, isAbsent); setActiveCell(`${p.id}-${fPl}`); } }} onChange={_keypadOn ? undefined : (e)=>updateRecord(p.id, fPl, e.target.value)} style={{fontSize:tsuFz(14),padding:'0 1px',width:55,height:42,boxSizing:'border-box'}} className={`border rounded-lg text-center ${_keypadOn?'cursor-pointer':''} ml-1 disabled:bg-transparent disabled:opacity-50 outline-none ${getPulseColorClass(vPl, true)} ${isReadOnly ? 'border-transparent bg-transparent cursor-default shadow-none' : activeCell===`${p.id}-${fPl}` ? 'border-amber-500 ring-2 ring-amber-300 bg-yellow-50' : 'border-slate-300 bg-white shadow-inner'}`} />
                       {_reOn && !(isAbsent || isReadOnly || isPause) && <button type="button" data-testid={`bp-re-En-${p.id}`} title="再検: 今の値を下に控えて欄を空にします（新しい値が最終になります）" onClick={()=>applyBpRemeasure(p.id, 'En')} className={`shrink-0 text-[10px] font-bold rounded px-1 py-0.5 border ${bpReHas(p,'En',timeFilter) ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-slate-50 border-slate-300 text-slate-600 hover:bg-blue-50'}`}>再{bpReHas(p,'En',timeFilter) ? bpReList(p,timeFilter).filter(e=>e.phase==='En').length : ''}</button>}
                     </div>
                     <BpReMini entries={bpReList(p, timeFilter).filter(e => e.phase === 'En')} canEdit={!(isAbsent || isReadOnly || isPause)} onDelete={(at) => removeBpRemeasureAt(p.id, at)} />
@@ -28101,7 +28127,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                           <select value={effItemId} disabled={isAbsent || isReadOnly || isPause}
                             onChange={e=>updateExercise(p.id, item.id, {...cur, itemId: e.target.value || (tsuIndSlotDefaults(targetPatient, appData.systemSettings)[item.id] ? IND_NONE : '')})}
                             className="w-full px-0.5 mb-0 font-bold bg-white border border-emerald-300 rounded outline-none focus:border-emerald-500 disabled:opacity-50 appearance-none"
-                            style={{WebkitAppearance:'none',MozAppearance:'none',backgroundImage:'none',textAlignLast:'center',fontSize:_indNameFs,height:19,boxSizing:'border-box',lineHeight:1}}>
+                            style={{WebkitAppearance:'none',MozAppearance:'none',backgroundImage:'none',textAlignLast:'center',fontSize:tsuFz(_indNameFs),height:19,boxSizing:'border-box',lineHeight:1}}>
                             <option value="">—</option>
                             {enabledItems.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
                           </select>
@@ -28111,7 +28137,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                             onChange={_keypadOn ? undefined : (e)=>updateExercise(p.id, item.id, {...cur, itemId: cur.itemId||effItemId, value: e.target.value})}
                             onBlur={_keypadOn ? undefined : (e)=>{ if (_circleBlocked(p.id, item.id, e.target.value)) { updateExercise(p.id, item.id, {...cur, itemId: cur.itemId||effItemId, value: ''}); return; } updateExercise(p.id, item.id, {...cur, itemId: cur.itemId||effItemId, value: applyExUnits(e.target.value, selItem)}); }}
                             placeholder={_indPh}
-                            style={{fontSize:_indValFs,padding:'0 1px',height:31,boxSizing:'border-box',letterSpacing:'-0.3px',fontWeight: _indIsCircle ? 900 : 'bold', WebkitTextStroke: _indIsCircle ? '1.1px currentColor' : undefined, lineHeight:1, cursor: selItem?'pointer':'default'}}
+                            style={{fontSize:tsuFz(_indValFs),padding:'0 1px',height:31,boxSizing:'border-box',letterSpacing:'-0.3px',fontWeight: _indIsCircle ? 900 : 'bold', WebkitTextStroke: _indIsCircle ? '1.1px currentColor' : undefined, lineHeight:1, cursor: selItem?'pointer':'default'}}
                             className={`w-full text-center border rounded bg-white outline-none disabled:opacity-40 placeholder-slate-500 ${activeCell===`${p.id}-${item.id}` ? 'border-amber-500 ring-2 ring-amber-300 bg-yellow-50' : 'border-emerald-300 focus:border-emerald-500'}`}/>
                         </td>
                       );
@@ -28167,10 +28193,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                             updateExercise(p.id, item.id, e.target.value);
                           }}
                           onBlur={(e) => { if (item.useKeypad && _keypadOn) return; if (_circleBlocked(p.id, item.id, e.target.value)) { updateExercise(p.id, item.id, ''); return; } updateExercise(p.id, item.id, applyExUnits(e.target.value, item)); }}
-                          style={{width:_exW - 6,height:42,boxSizing:'border-box',padding:'0 1px',textAlign:'center',fontSize: _isCircle ? 25 : _isCross ? 18 : _isDash ? 20 : _exFitFs(displayVal || String(placeholderText || ''), 14, 8, _exW - 14), fontWeight: _isCircle ? 900 : _isSym ? 400 : 'bold', WebkitTextStroke: _isCircle ? (_ghost ? '1.1px rgba(59,130,246,0.28)' : '1.1px currentColor') : undefined, color: _ghost ? 'rgba(59,130,246,0.28)' : (_isDash ? '#94a3b8' : undefined), lineHeight: 1}}
+                          style={{width:_exW - 6,height:42,boxSizing:'border-box',padding:'0 1px',textAlign:'center',fontSize: tsuFz(_isCircle ? 25 : _isCross ? 18 : _isDash ? 20 : _exFitFs(displayVal || String(placeholderText || ''), 14, 8, _exW - 14)), fontWeight: _isCircle ? 900 : _isSym ? 400 : 'bold', WebkitTextStroke: _isCircle ? (_ghost ? '1.1px rgba(59,130,246,0.28)' : '1.1px currentColor') : undefined, color: _ghost ? 'rgba(59,130,246,0.28)' : (_isDash ? '#94a3b8' : undefined), lineHeight: 1}}
                           className={`border rounded-lg outline-none placeholder-slate-500 disabled:bg-transparent disabled:opacity-60 ${item.useKeypad && _keypadOn && !isReadOnly ? 'cursor-pointer' : ''} ${isReadOnly ? 'border-transparent shadow-none' : isActive ? 'border-amber-500 ring-2 ring-amber-300 bg-yellow-50' : 'bg-white border-slate-300 shadow-inner'}`}
                           placeholder={placeholderText} />
-                        {_ghost && <span style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none',fontSize:12,fontWeight:'bold',color:'#64748b'}}>{placeholderText}</span>}
+                        {_ghost && <span style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none',fontSize:tsuFz(12),fontWeight:'bold',color:'#64748b'}}>{placeholderText}</span>}
                         </span>
                         );
                       })()}
@@ -28237,7 +28263,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                           {!isReadOnly && !isAbsent && !isPause && (
                             <div style={{display:'flex',flexDirection:'column',gap:2,flexShrink:0,width:52,justifyContent:'center'}}>{/* ★ 2026-10-23(ユーザー報告「一言の右が切れる」): 44→52px */}
                               <TsuTokkiPresetSelect appData={appData} testid={`rv-tokki-pick-${p.id}`} onPick={(ph) => updateRecord(p.id, 'tokki', tsuTokkiAppend(p.tokki, ph))}
-                                className="w-full text-[11px] font-bold border border-slate-300 rounded bg-white text-slate-700 outline-none appearance-none" style={{height: _tkOne ? 'auto' : 24, flex: _tkOne ? 1 : 'none', minHeight:24, padding:'0 2px',textAlign:'center',textAlignLast:'center',WebkitAppearance:'none',MozAppearance:'none',backgroundImage:'none', ...(_tkOne ? { fontSize: 13 } : {})}}/>{/* ★ 2026-10-23(ユーザー指示): 下の矢印は出さない ★ 2026-10-26: 1つだけなら欄いっぱい */}
+                                className="w-full text-[11px] font-bold border border-slate-300 rounded bg-white text-slate-700 outline-none appearance-none" style={{height: _tkOne ? 'auto' : 24, flex: _tkOne ? 1 : 'none', minHeight:24, padding:'0 2px',textAlign:'center',textAlignLast:'center',WebkitAppearance:'none',MozAppearance:'none',backgroundImage:'none', ...(_tkOne ? { fontSize: tsuFz(13) } : {})}}/>{/* ★ 2026-10-23(ユーザー指示): 下の矢印は出さない ★ 2026-10-26: 1つだけなら欄いっぱい */}
                               {!appData.systemSettings?.tokkiVoiceOff && <TsuMicButton testid={`rv-tokki-mic-${p.id}`} getBase={() => p.tokki || ''} onLive={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} onText={(t, base) => updateRecord(p.id, 'tokki', tsuTokkiAppend(base, t))} className="w-full" style={{height: _tkOne ? 'auto' : 24, flex: _tkOne ? 1 : 'none', minHeight:24}} size={_tkOne ? 18 : 14}/>}
                             </div>
                           )}
@@ -28247,14 +28273,14 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                               title={isVisible ? "押すとご家族の画面に出しません（ケアマネには表示）" : "家族に非表示中。押すと表示に戻します"}
                               style={{width:54,flexShrink:0,border:isVisible?'1px solid #cbd5e1':'1.5px solid #dc2626',borderRadius:6,fontWeight:'bold',cursor:'pointer',background:isVisible?'#f8fafc':'#dc2626',color:isVisible?'#64748b':'#fff',padding:'2px 3px',lineHeight:1.25,display:'flex',alignItems:'center',justifyContent:'center'}}>
                               {isVisible
-                                ? <span style={{fontSize:10,whiteSpace:'nowrap'}}>家族<br/>非表示</span>
-                                : <span style={{fontSize:8.5,whiteSpace:'nowrap'}}>非表示中</span>}
+                                ? <span style={{fontSize:tsuFz(10),whiteSpace:'nowrap'}}>家族<br/>非表示</span>
+                                : <span style={{fontSize:tsuFz(8.5),whiteSpace:'nowrap'}}>非表示中</span>}
                             </button>
                           )}
                           {/* ★ 2026-10-02(ユーザー指示): 特記は100文字まで(印刷の2行に収まる範囲)。それ以上は支援経過表へ */}
                           <textarea disabled={isReadOnly} value={p.tokki || ""} maxLength={TOKKI_MAX} title="100文字まで（それ以上は支援経過表へ）" onChange={(e) => updateRecord(p.id, 'tokki', e.target.value.slice(0, TOKKI_MAX))} rows={2}
                             className={`flex-1 px-2 border rounded-lg text-xs bg-transparent outline-none disabled:opacity-80 resize-none ${isReadOnly ? 'border-transparent' : 'border-slate-300 shadow-inner bg-white'}`}
-                            style={{fontSize:14,lineHeight:1.4,padding:'2px 6px',height:'100%'}}
+                            style={{fontSize:tsuFz(14),lineHeight:1.4,padding:'2px 6px',height:'100%'}}
                             placeholder={isReadOnly ? "" : (isAbsent ? "欠席理由等..." : "特記事項...")} />
                           {!isReadOnly && <CharCount value={p.tokki} max={TOKKI_MAX} style={{alignSelf:'flex-end'}}/>}
                         </div>

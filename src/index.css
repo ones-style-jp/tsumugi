@@ -547,6 +547,23 @@ input.tsu-fit[type="time"], input.tsu-fit[type="date"], input.tsu-fit[type="mont
 
 /* ★ 2026-10-29(ユーザー報告: iPad の全画面で倍率を上げると、枠と虫眼鏡は大きくなるのに、名前・血圧・通所/帰宅などの文字が小さいまま):
    iPad/iPhone の Safari は、横に広い表に CSS の zoom をかけると、文字の大きさだけ拡大されないことがある(WebKit の既知の不具合 bugs.webkit.org 272351)。
-   WebKit の担当者によると、新しい iOS では text-size-adjust: none で正しく拡大される(bug 293617 の修正)。iOS だけに付ける
-   (Mac の Safari では none が「拡大しても文字を大きくしない」の意味になるため、tsu-ios のときだけ) */
+   text-size-adjust: none にすると、2026年5月の修正(bug 293617)の入った iPad では正しく拡大され、入っていない iPad では表の文字が全部そろって拡大されなくなる
+   (10/29 ユーザーの iPad は後者: 前は入力欄の体温だけ拡大されていた)。そろって拡大されないときは、App.jsx の _fsFz が測って表に tsu-fz-on と --tsu-fz を付け、
+   下の決まりと tsuFz() で文字の大きさに倍率を掛ける。iOS だけ(Mac の Safari では none が「拡大しても文字を大きくしない」の意味になる) */
 html.tsu-ios #record-table { -webkit-text-size-adjust: none; text-size-adjust: none; }
+#record-table.tsu-fz-on { font-size: calc(0.875rem * var(--tsu-fz)); }
+#record-table.tsu-fz-on .text-xs { font-size: calc(0.75rem * var(--tsu-fz)); }
+#record-table.tsu-fz-on .text-sm { font-size: calc(0.875rem * var(--tsu-fz)); }
+#record-table.tsu-fz-on .text-base { font-size: calc(1rem * var(--tsu-fz)); }
+#record-table.tsu-fz-on .text-lg { font-size: calc(1.125rem * var(--tsu-fz)); }
+#record-table.tsu-fz-on .text-xl { font-size: calc(1.25rem * var(--tsu-fz)); }
+#record-table.tsu-fz-on .text-2xl { font-size: calc(1.5rem * var(--tsu-fz)); }
+#record-table.tsu-fz-on .text-\[8px\] { font-size: calc(8px * var(--tsu-fz)); }
+#record-table.tsu-fz-on .text-\[9px\] { font-size: calc(9px * var(--tsu-fz)); }
+#record-table.tsu-fz-on .text-\[10px\] { font-size: calc(10px * var(--tsu-fz)); }
+#record-table.tsu-fz-on .text-\[11px\] { font-size: calc(11px * var(--tsu-fz)); }
+#record-table.tsu-fz-on .text-\[12px\] { font-size: calc(12px * var(--tsu-fz)); }
+#record-table.tsu-fz-on .text-\[13px\] { font-size: calc(13px * var(--tsu-fz)); }
+#record-table.tsu-fz-on .text-\[14px\] { font-size: calc(14px * var(--tsu-fz)); }
+#record-table.tsu-fz-on .text-\[15px\] { font-size: calc(15px * var(--tsu-fz)); }
+#record-table.tsu-fz-on .text-\[16px\] { font-size: calc(16px * var(--tsu-fz)); }
