@@ -14,6 +14,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
 import __builtUpdateNotes from '../public/update-notes.json';
 import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel } from './lib/logic';
+import { PATIENT_TEXT_FL } from './lib/portalLogic.js'; // ★ 2026-10-29: 利用者の基本情報の文字の項目(項目ごとに新しい方を残す・_PT_FL)
 import {
   isSupabaseEnabled,
   supabaseCreateInvite,
@@ -23233,7 +23234,7 @@ export default function App() {
         // ★ フィールド単位保護対象(基本利用日/送迎/緊急連絡先/介護度等)は、変更された項目だけ _fieldTs に刻む。
         //   これで別項目を編集して _savedAt 全体が更新されても、触っていない項目は古い端末で巻き戻らない。
         // ★ 2026-10-29: 建物名・部屋番号(addressBuilding/addressRoom)も項目別に(部屋番号を空にして建物名へ移したのが、古い端末の値で戻らないように・supabase.js の PATIENT_FIELDLEVEL と同じ)
-        const _PT_FL = ['individualExerciseSlotDefaults','individualExercises','individualExercisesHistory','scheduleAmPm','pickupType','pickupTimes','massageNeed','onyokuDenryo','plannedExercises','careLevel','careLevelFrom','careLevelTo','costBurden','costBurdenFrom','costBurdenTo','insuranceNo','startDate','endDate','serviceCode','serviceCodes','contactBookRenraku','cmOffice','cmName','cmPhone','cmFax','cmHistory','addressBuilding','addressRoom','familyName','familyLastName','familyFirstName','familyKana','familyKanaLast','familyKanaFirst','familyRelation','familyPhone','familyPhoneMobile','familyEmail'];
+        const _PT_FL = ['individualExerciseSlotDefaults','individualExercises','individualExercisesHistory','scheduleAmPm','pickupType','pickupTimes','massageNeed','onyokuDenryo','plannedExercises','careLevel','careLevelFrom','careLevelTo','costBurden','costBurdenFrom','costBurdenTo','insuranceNo','startDate','endDate','serviceCode','serviceCodes','contactBookRenraku','cmOffice','cmName','cmPhone','cmFax','cmHistory','addressBuilding','addressRoom','familyName','familyLastName','familyFirstName','familyKana','familyKanaLast','familyKanaFirst','familyRelation','familyPhone','familyPhoneMobile','familyEmail', ...PATIENT_TEXT_FL]; // ★ 2026-10-29: 電話・住所・メール・既往歴など基本情報の文字の項目も(消して保存しても前の値で戻らないように)
         const stamped = newData.patients.map(p => {
           if (!p || p.id == null) return p;
           const old = prevMap.get(String(p.id));
@@ -23241,7 +23242,9 @@ export default function App() {
           changed = true;
           const _now = syncNow();
           const _fts = { ...(p._fieldTs || {}) };
-          _PT_FL.forEach(k => { let ch; try { ch = JSON.stringify(p[k]) !== JSON.stringify(old ? old[k] : undefined); } catch { ch = true; } if (ch) _fts[k] = _now; });
+          // ★ 2026-10-29: 「無し」と「空の文字」は同じとみなす(画面が無い項目を空の文字で書いただけのときに時刻を刻むと、ほかの端末で入れたばかりの値に勝ってしまうため)
+          const _emp = v => v === undefined || v === null || v === '';
+          _PT_FL.forEach(k => { const a = p[k], b = old ? old[k] : undefined; if (_emp(a) && _emp(b)) return; let ch; try { ch = JSON.stringify(a) !== JSON.stringify(b); } catch { ch = true; } if (ch) _fts[k] = _now; });
           // ★ personalFile は入れ子(保険証メタ/フェイスシート/担当者会議/アセスメント等)。 変更されたサブキーを
           //   pf:<key> で項目別に刻む。 これで別項目を触った端末が他店のpersonalFile更新を巻き戻さない。
           { const _pf = p.personalFile; const _opf = (old && old.personalFile && typeof old.personalFile === 'object') ? old.personalFile : {};
@@ -25435,7 +25438,11 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   //     1.5秒ごとの測り直しもやめ、表・表の枠の大きさが変わったとき(ResizeObserver)と窓の大きさが変わったときだけ測る。
   //   ②上の帯の位置を通常画面の帯(全画面には無い)で測っていて、無いときは 110px とみなしていた・さらに 24px の予備と表の下の余白(64px)で、下が1人分ほど空いていた
   //     → 表の枠(.record-view-scroll)の内側の高さに入る倍率にする(全画面では下の余白なし)。縮めるときはすぐ、広げるときは0.015以上のときだけ(行き来しない)
-  const _fitCalc = React.useCallback(() => { try { const t = document.getElementById('record-table'); if (!t) return; const sc = t.closest('.record-view-scroll'); const cz = parseFloat(getComputedStyle(t).zoom) || 1; const natural = t.getBoundingClientRect().height / cz;
+  // ★ 2026-10-29(ユーザー報告「iPad(無印 第8世代)は全画面が150%で開くが、欠席・休止の方まで全員見えるのは135%」): iPad の Safari は、zoom をかけた表の
+  //   getBoundingClientRect に倍率が入らないことがある(キーパッドの位置と同じ不具合)。それを倍率で割ると表の高さを小さく見て、上限の150%まで上げていた。
+  //   見た目の高さ÷レイアウトの高さ(offsetHeight)が今の倍率に近ければ倍率入り(パソコン・今まで通り)、1に近ければ倍率なし(そのまま使う)
+  const _fitCalc = React.useCallback(() => { try { const t = document.getElementById('record-table'); if (!t) return; const sc = t.closest('.record-view-scroll'); const cz = parseFloat(getComputedStyle(t).zoom) || 1; const _rh = t.getBoundingClientRect().height, _oh = t.offsetHeight || 0;
+    const natural = (cz !== 1 && _oh > 0 && Math.abs(_rh / _oh - 1) < 0.04 && Math.abs(cz - 1) >= 0.04) ? _rh : _rh / cz;
     let avail; if (sc) { const cs = getComputedStyle(sc); avail = sc.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0) - 2; } else { avail = window.innerHeight - t.getBoundingClientRect().top - 4; }
     if (!natural || avail <= 0) return; const z = Math.max(0.45, Math.min(1.5, Math.floor(avail / natural * 100) / 100)); // 10人でも画面の下まで入るよう上限は1.5倍(前は1.2倍で下が空いた)
     const over = sc ? (sc.scrollHeight - sc.clientHeight > 1) : true; // 縮めるのは、いまはみ出しているときだけ(測り直しで0.01ずつ動かない)
@@ -27453,11 +27460,11 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             <div data-testid="rec-actions" className={`w-full sm:w-auto sm:ml-auto grid ${filterMode === 'single' ? 'grid-cols-4' : 'grid-cols-3'} sm:flex items-center gap-1.5 ${_iconBar ? 'sm:gap-1.5' : 'sm:gap-2'} sm:flex-wrap`}>
               {filterMode === 'single' && <button type="button" data-testid="rec-act-bulkex" onClick={() => setBulkExOpen(true)} className="order-last sm:order-none bg-white border border-indigo-300 text-indigo-700 hover:bg-indigo-50 px-1 sm:px-3 py-2 rounded-xl text-sm font-bold transition-transform active:scale-95 whitespace-nowrap" title="出席している方の運動をまとめて○にします(行わなかった方は×に)">{_iconBar ? _ib(CheckCheck, '一括○') : '一括○'}</button>}
               
-              {/* ★ 連絡帳は一番左(全画面の左)に配置(2026-08-28 店舗要望) */}
-              <button data-testid="rec-act-renraku" onClick={() => { handleSaveClick(); navigateTo('print'); }} className={`bg-emerald-600 hover:bg-emerald-700 text-white px-2 ${_iconBar ? 'sm:px-2.5' : 'sm:px-4'} py-2 rounded-xl text-sm font-bold shadow-lg transition-transform active:scale-95 whitespace-nowrap`}>{_iconBar ? _ib(Printer, '連絡帳') : '連絡帳'}</button>
               <button data-testid="rec-act-fullscreen" onClick={()=>{ if (isFullscreen) setIsFullscreen(false); else setIsFullscreen(true); }} className="bg-slate-700 hover:bg-slate-800 text-white px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title={isFullscreen?'通常画面':'全画面表示'}>
                 {isFullscreen ? '通常画面' : (_iconBar ? _ib(Maximize2, '全画面') : '全画面')}
               </button>
+              {/* ★ 連絡帳は一番左(全画面の左)に配置(2026-08-28 店舗要望)→ 2026-10-29(ユーザー要望「倍率の－を押しているときに連絡帳を押してしまう」): 通常画面・全画面とも「戻す」のすぐ左 */}
+              <button data-testid="rec-act-renraku" onClick={() => { handleSaveClick(); navigateTo('print'); }} className={`bg-emerald-600 hover:bg-emerald-700 text-white px-2 ${_iconBar ? 'sm:px-2.5' : 'sm:px-4'} py-2 rounded-xl text-sm font-bold shadow-lg transition-transform active:scale-95 whitespace-nowrap`}>{_iconBar ? _ib(Printer, '連絡帳') : '連絡帳'}</button>
               <button onClick={()=>setRestoreModal(true)} className="bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-transform active:scale-95 whitespace-nowrap" title="保存した記録を丸ごと復元(元に戻す)">{_iconBar ? _ib(Undo2, '戻す') : '戻す'}</button>{/* ★ 2026-10-26(ユーザー): ほかと同じ「戻す」に */}
               {/* ★ onClick={handleSaveClick} だとクリックイベントが第1引数(auto)に渡り auto=truthy(自動保存扱い)になり、
                   「保存しました」が出ず担当者チェックも飛ばされていた。 明示的に auto=false で呼ぶ。 */}
@@ -27497,7 +27504,6 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           )}
           <div className="flex-1 hidden sm:block"/>
           <div className="basis-full sm:hidden" />
-          <button onClick={()=>{ handleSaveClick(); navigateTo('print'); }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap" title="連絡帳の作成・印刷へ">連絡帳</button>{/* ★ 2026-10-28(ユーザー): 全画面のアイコンは外す */}
           {/* ★ 2026-10-28: 倍率(－ ○% ＋)。表の画面だけ。自分で変えたら「全員」で全員が入る倍率に戻す */}
           {/* ★ 2026-10-28 夜(ユーザー指示): 「全員」は倍率の左に */}
           {_fsUserZoom != null && <button type="button" data-testid="fs-zoom-fit" onClick={() => _saveFsZoom(null)} title="全員が1画面に入る大きさに戻します" className="hidden md:block bg-white/90 text-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border border-slate-300">全員</button>}
@@ -27507,6 +27513,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             <button type="button" data-testid="fs-zoom-plus" onClick={() => _fsZoomStep(0.05)} disabled={_fsZoom >= _fsZoomMax - 0.001} className="px-3 py-1 text-base font-bold leading-none disabled:opacity-40" aria-label="大きく">＋</button>
           </div>
           <button data-testid="rec-fs-close" onClick={closeFullscreen} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap">通常画面</button>{/* ★ 2026-10-28(ユーザー要望): 「通常表示へ」→「通常画面」 */}
+          <button onClick={()=>{ handleSaveClick(); navigateTo('print'); }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap" data-testid="rec-fs-renraku" title="連絡帳の作成・印刷へ">連絡帳</button>{/* ★ 2026-10-28(ユーザー): 全画面のアイコンは外す。2026-10-29(ユーザー要望): 倍率の隣で押し間違えるので「戻す」のすぐ左へ */}
           <button onClick={()=>setRestoreModal(true)} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap" title="保存した記録を丸ごと復元（戻す）">戻す</button>
           <button data-testid="rec-fs-save" onClick={()=>handleSaveClick(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap">保存</button>
         </div>
