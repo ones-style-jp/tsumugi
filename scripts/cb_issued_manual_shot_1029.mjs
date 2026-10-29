@@ -21,7 +21,7 @@ await page.evaluate((D) => { const d = JSON.parse(localStorage.getItem('daycareA
   const [y, m, dd] = D.Y.split('-').map(Number); const md = `${m}月${dd}日`;
   d.ticketRecords = (d.ticketRecords || []).filter(x => x.date !== md);
   d.ticketRecords.push({ id: `tr_${P.id}_${y}_${m}_${dd}`, patientId: P.id, name: P.name, kana: P.kana || '', date: md, year: y, status: '出席', temp_AM: '36.5', bpUpSt_AM: '128', bpDnSt_AM: '70', plSt_AM: '66', massage: '見本A',
-    exercises: { u1: '10分', u2: '○', u3: '○' }, cbIssued: JSON.stringify({ d: D.tLabel, t: '9時10分', drop: '', at: Date.now() - 86400000 }), _savedAt: Date.now() - 86400000 });
+    exercises: { u1: '10分', u2: '○', u3: '○' }, cbIssued: JSON.stringify({ d: D.tLabel, t: '9時10分', drop: '', ra: '本日は秋の作品づくりをしました。', rp: '', at: Date.now() - 86400000 }), _savedAt: Date.now() - 86400000 });
   d.transportPlans = d.transportPlans || {}; d.transportPlans[`${D.T}_AM`] = { cars: { car1: [{ pid: P.id, t: '10:40' }] }, walkers: [], others: [], un: [], memo: '' };
   localStorage.setItem('daycareAppData_v3', JSON.stringify(d)); localStorage.setItem('tsumugiSidebarOpen', '0');
   sessionStorage.setItem('tsumugiActiveRecorder', JSON.stringify({ id: 'demo_rec', name: '見本 職員', roleLabel: '介護職員' }));

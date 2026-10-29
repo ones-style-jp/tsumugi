@@ -11037,12 +11037,18 @@ const tsuDropNoteText = (nextDateDisplay, at) => { const pr = tsuDropNoteParts(n
 // 連絡帳の「次回お迎え時間」の日付と同じ決め方(手入力の日付 → 自動計算)
 const tsuCbNextDateOf = (record, patient, selectedDate, appData) => { if (!patient) return ''; if (/\d/.test(String((record && record.nextDateOverride) ?? ''))) return String(record.nextDateOverride); try { return String(getNextVisitInfo(patient, selectedDate, appData.monthlyShifts, appData).date || ''); } catch { return ''; } };
 // ★ 2026-10-29(ユーザー要望「過去の連絡帳は、その日に渡した次回の日付・お迎え時間のままに」): 連絡帳を出力したとき、
-//   その方の次回利用日・お迎え時間・送りの時間を記録に控える(cbIssued・JSON の文字列 {d,t,drop,at})。前の日の連絡帳は、あとで送迎表や
+//   その方の次回利用日・お迎え時間・送りの時間・連絡事項(全員あて ra・個別 rp の HTML)を記録に控える(cbIssued・JSON の文字列 {d,t,drop,ra,rp,at})。前の日の連絡帳は、あとで送迎表や
 //   月間を変えても控えのまま出す(この日はこれを渡した、と分かるように)。当日と先の日は今までどおり(渡す前に直して出し直せる)。
 //   控えの無い前の日(出力していない・この直しより前)は今までどおり今の予定から出す
 const tsuCbIssuedOf = (record, selectedDate) => {
   if (!record || !record.cbIssued || !selectedDate || String(selectedDate).slice(0, 10) >= tsuTodayIso()) return null;
   try { const o = JSON.parse(record.cbIssued); return (o && typeof o === 'object') ? o : null; } catch { return null; }
+};
+// 前の日に次回予定を直したとき: 控えから次回(日付・時間・送り)だけ外す。連絡事項(ra/rp)の控えは残す
+const tsuCbIssuedClearNext = (record, selectedDate, now) => {
+  const o = tsuCbIssuedOf(record, selectedDate); if (!o) return {};
+  const keep = {}; if (typeof o.ra === 'string') keep.ra = o.ra; if (typeof o.rp === 'string') keep.rp = o.rp;
+  return { cbIssued: Object.keys(keep).length ? JSON.stringify({ ...keep, at: now }) : '', _fieldTs: { ...(record._fieldTs || {}), cbIssued: now } };
 };
 // 連絡帳の連絡事項の欄の大きさで、1人分(全員あて＋個別＋送りの1行)が入るか(使用率 0〜)。RenrakuModal と同じ測り方
 const tsuRenrakuUsage = (htmlAll, htmlPat, dropLine) => {
@@ -35165,6 +35171,8 @@ function RenrakuModal({ appData, patientId, dayPatientIds, onClose, onSave, sele
               </select>
             )
           })}
+          {/* ★ 2026-10-29(ユーザー要望): 前の日の連絡帳は、出力したときの連絡事項のまま(ここで直しても前の日の連絡帳は変わらない) */}
+          {(dayRecords || []).some(r => tsuCbIssuedOf(r, selectedDate)) && <div data-testid="renraku-issued-note" className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">この日の連絡帳は出力したときの連絡事項のまま表示しています。ここで直した内容は、これから出力する連絡帳に入ります。</div>}
           {curPid && _dropLineOf(curPid) ? <div data-testid="renraku-dropnote-line" className="text-[12px] text-indigo-800 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">この方の連絡帳の最後に入ります（送り時間反映）：<b>{_dropLineOf(curPid)}</b></div> : null}
           {warn && <div className="text-xs font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{warn}</div>}
           {/* 定型文: 登録 / 一覧 */}
@@ -35485,7 +35493,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   //   ★ 2026-09-09b: 時刻は「時」「分」の両方に数字が入って初めて入力済み扱い(「8時 分」の片入力は未入力に数える)。
   const _fullTime = (v) => /\d+\s*[:時]\s*\d+/.test(String(v ?? ''));
   const _nextPlanMissing = (r) => {
-    if (tsuCbIssuedOf(r, selectedDate)) return false; // ★ 2026-10-29: 前の日で控えがある方は、出力したときの内容で出す
+    { const _iss = tsuCbIssuedOf(r, selectedDate); if (_iss && typeof _iss.t === 'string') return false; } // ★ 2026-10-29: 前の日で次回の控えがある方は、出力したときの内容で出す
     const patient = (appData.patients||[]).find(pt => pt.id === r.patientId);
     if (!patient) return false;
     const info = getNextVisitInfo(patient, selectedDate, appData.monthlyShifts, appData);
@@ -35671,13 +35679,13 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     try {
       const at = syncNow(); const ids = new Set(targets.map(r => String(r.id)));
       const _slotOf = (r) => { if (r.furikaeAmpm === 'AM' || r.furikaeAmpm === 'PM') return r.furikaeAmpm; const _af = (sharedAmpm === 'AM' || sharedAmpm === 'PM') ? sharedAmpm : null; if (_af) return _af; const pt = (appData.patients||[]).find(x => x.id === r.patientId); const dow = new Date(selectedDate).getDay(); const v = pt?.scheduleAmPm?.[dow]; return v === 'PM' ? 'PM' : 'AM'; };
-      // ★ 2026-10-29(ユーザー要望): 出した内容(次回利用日・お迎え時間・送りの時間)も控える(前の日の連絡帳はこの控えで出す・tsuCbIssuedOf)。
+      // ★ 2026-10-29(ユーザー要望): 出した内容(次回利用日・お迎え時間・送りの時間・連絡事項)も控える(前の日の連絡帳はこの控えで出す・tsuCbIssuedOf)。
       //   出力に使った用紙(print-content-cb-○)の印から読むので、出したものと同じになる。前と同じ中身なら控えは書き直さない
-      const _issOf = (r) => { try { const el = document.querySelector(`#print-content-cb-${r.patientId} [data-cb-next-d]`); if (!el) return null; return { d: el.getAttribute('data-cb-next-d') || '', t: el.getAttribute('data-cb-next-t') || '', drop: el.getAttribute('data-cb-drop') || '' }; } catch { return null; } };
+      const _issOf = (r) => { try { const el = document.querySelector(`#print-content-cb-${r.patientId} [data-cb-next-d]`); if (!el) return null; return { d: el.getAttribute('data-cb-next-d') || '', t: el.getAttribute('data-cb-next-t') || '', drop: el.getAttribute('data-cb-drop') || '', ra: el.getAttribute('data-cb-ren-all') || '', rp: el.getAttribute('data-cb-ren-pat') || '' }; } catch { return null; } };
       let n = 0;
       const list = (appData.ticketRecords || []).map(r => { if (!r || !ids.has(String(r.id))) return r; const k = `cbPrintedAt_${_slotOf(r)}`; n++;
         const iss = _issOf(r); let cur = null; try { cur = r.cbIssued ? JSON.parse(r.cbIssued) : null; } catch {}
-        const _issNew = iss && (!cur || cur.d !== iss.d || cur.t !== iss.t || String(cur.drop || '') !== iss.drop);
+        const _issNew = iss && (!cur || cur.d !== iss.d || cur.t !== iss.t || String(cur.drop || '') !== iss.drop || cur.ra !== iss.ra || cur.rp !== iss.rp);
         return { ...r, [k]: at, ...(_issNew ? { cbIssued: JSON.stringify({ ...iss, at }) } : {}), _fieldTs: { ...(r._fieldTs || {}), [k]: at, ...(_issNew ? { cbIssued: at } : {}) }, _savedAt: at }; });
       if (n) onSave({ ...appData, ticketRecords: list }, { silent: true });
     } catch (e) { console.warn('cbPrintedAt stamp failed', e); }
@@ -35738,7 +35746,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       let recs = [...(appData.ticketRecords || [])];
       const idx = recs.findIndex(r => String(r.id) === String(recordId));
       if (idx >= 0) {
-        const _clr = tsuCbIssuedOf(recs[idx], selectedDate) ? { cbIssued: '', _fieldTs: { ...(recs[idx]._fieldTs || {}), cbIssued: now } } : {}; // ★ 2026-10-29: 前の日に直したら控えをやめる
+        const _clr = tsuCbIssuedClearNext(recs[idx], selectedDate, now); // ★ 2026-10-29: 前の日に直したら次回の控えをやめる(連絡事項の控えは残す)
         recs[idx] = { ...recs[idx], ...patch, ..._clr, _savedAt: now };
       } else if (String(recordId).startsWith('auto-')) {
         const pid = Number(String(recordId).slice(5));
@@ -35857,7 +35865,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         _changed++;
         const idx = recs.findIndex(r => String(r.id) === String(rid));
         // ★ 2026-10-29: 前の日の連絡帳で次回予定を直したら、控え(cbIssued)をやめて直した内容で出す(出力し直すとまた控える)
-        if (idx >= 0) { const _clr = tsuCbIssuedOf(recs[idx], selectedDate) ? { cbIssued: '', _fieldTs: { ...(recs[idx]._fieldTs || {}), cbIssued: now } } : {}; recs[idx] = { ...recs[idx], ...patch, ..._clr, _savedAt: now }; }
+        if (idx >= 0) { const _clr = tsuCbIssuedClearNext(recs[idx], selectedDate, now); recs[idx] = { ...recs[idx], ...patch, ..._clr, _savedAt: now }; }
         else if (String(rid).startsWith('auto-')) {
           const pid = Number(String(rid).slice(5));
           const pat = (appData.patients || []).find(p => p.id === pid);
@@ -36186,7 +36194,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
               <div className="flex-1 overflow-y-auto p-4">
                 <p className="text-xs text-slate-400 font-bold bg-slate-100 px-3 py-2 rounded-lg mb-4">月/日/時/分 を直接入力できます (例: 6月24日 12時30分)</p>
                 {/* ★ 2026-10-29: 前の日の連絡帳は出力したときの控えで出している。ここで直して保存したら、直した内容で出す */}
-                {displayRecords.some(r => tsuCbIssuedOf(r, selectedDate)) && <p data-testid="cb-issued-modal-note" className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-lg -mt-2 mb-4">前の日の連絡帳は、出力したときの次回利用日・お迎え時間で表示しています。ここで直して保存した方は、直した内容で表示します。</p>}
+                {displayRecords.some(r => tsuCbIssuedOf(r, selectedDate)) && <p data-testid="cb-issued-modal-note" className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-lg -mt-2 mb-4">前の日の連絡帳は、出力したときの次回利用日・お迎え時間で表示しています。ここで直して保存した方は、直した内容で表示します（連絡事項は出力したときのまま）。</p>}
                 <div className="space-y-3">
                   {displayRecords.map(r => {
                     const localData = localOverrides[r.id] || { nextDateOverride: "", nextTimeOverride: "" };
@@ -36462,7 +36470,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
 
         {/* ★ 2026-10-29(ユーザー要望): 前の日の連絡帳は、出力したときの控えで出していることを画面に書く(印刷には出ない) */}
         {(() => { const n = displayRecords.filter(r => tsuCbIssuedOf(r, selectedDate)).length; if (!n) return null;
-          return <div data-testid="cb-issued-note" className="mx-1 mb-2 text-base sm:text-[13px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">前の日の連絡帳です。次回利用日・お迎え時間は、この日に出力したときのまま表示しています（{n}名）。</div>; })()}
+          return <div data-testid="cb-issued-note" className="mx-1 mb-2 text-base sm:text-[13px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">前の日の連絡帳です。次回利用日・お迎え時間・連絡事項は、この日に出力したときのまま表示しています（{n}名）。</div>; })()}
         {(() => {
           // ★ スマホ(<768px)は重い連絡帳カードを全員分描画するとメモリ不足で落ちる(Safariが「問題が起きた」で再読込)。
           // ★ 2026-10-08(ユーザー要望): スマホでも連絡帳の全体を常に表示する。用紙は画面の幅にぴったり縮小(縦・横とも)、上下はスクロール。
@@ -36641,7 +36649,11 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
   // ★ 2026-10-29(ユーザー要望): 前の日の連絡帳は、出力したときの控え(次回利用日・お迎え時間・送りの時間)で出す(tsuCbIssuedOf)
   const _cbIss = _isBlankFace ? null : tsuCbIssuedOf(record, selectedDate);
   if (_cbIss) { if (typeof _cbIss.d === 'string') nextDateDisplay = _cbIss.d; if (typeof _cbIss.t === 'string') nextTimeDisplay = _cbIss.t; }
-  const _cbDropAt = (record.renrakuDropAt === '1' && !_isBlankFace) ? (_cbIss ? String(_cbIss.drop || '') : getTransportDropAtFor(patient.id, nextDateDisplay, selectedDate, appData)) : '';
+  const _cbDropAt = (record.renrakuDropAt === '1' && !_isBlankFace) ? ((_cbIss && typeof _cbIss.drop === 'string') ? _cbIss.drop : getTransportDropAtFor(patient.id, nextDateDisplay, selectedDate, appData)) : '';
+  // ★ 2026-10-29(ユーザー要望「連絡事項もこちらも渡した時のままに」): 連絡事項(全員あて・個別)も、前の日は控えの中身で出す(控えに無い古い控えは今の中身)
+  const _cbInR = (o) => !!o && (!o.from || selectedDate >= o.from) && (!o.until || selectedDate <= o.until); // 表示期間(from〜until)外は出さない
+  const _cbRenAll = (_cbIss && typeof _cbIss.ra === 'string') ? _cbIss.ra : ((renrakuHasText(config?.renrakuAll) && _cbInR(config.renrakuAll)) ? renrakuToHtml(config.renrakuAll) : '');
+  const _cbRenPat = (_cbIss && typeof _cbIss.rp === 'string') ? _cbIss.rp : ((renrakuHasText(patient?.contactBookRenraku) && _cbInR(patient.contactBookRenraku)) ? renrakuToHtml(patient.contactBookRenraku) : '');
 
   const ex = record.exercises || {};
   const dispEx = (val) => (val === "ー" || val === "×" || !val) ? "" : val;
@@ -36762,7 +36774,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
   };
 
   return (
-    <div style={{width:'182mm', minWidth:'182mm', maxWidth:'182mm', height:'257mm', boxSizing:'border-box'}} data-cb-next-d={nextDateDisplay} data-cb-next-t={nextTimeDisplay} data-cb-drop={_cbDropAt}
+    <div style={{width:'182mm', minWidth:'182mm', maxWidth:'182mm', height:'257mm', boxSizing:'border-box'}} data-cb-next-d={nextDateDisplay} data-cb-next-t={nextTimeDisplay} data-cb-drop={_cbDropAt} data-cb-ren-all={_cbRenAll} data-cb-ren-pat={_cbRenPat}
       className="cb-page bg-white border-2 border-black flex flex-col font-sans text-black shadow-xl relative group flex-shrink-0 overflow-hidden">
       <div className="absolute top-1 right-2 text-[9px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">※クリックで設定</div>
 
@@ -36846,11 +36858,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
           <div style={{height:"12px",flexShrink:0}} />
           {/* 連絡事項 — 全員共通＋個別。 クリックで編集 */}
           {(() => {
-            const _all = config?.renrakuAll; const _pat = patient?.contactBookRenraku;
-            // 表示期間(from〜until)外は表示しない (selectedDate は YYYY-MM-DD)
-            const _inRange = (o) => (!o.from || selectedDate >= o.from) && (!o.until || selectedDate <= o.until);
-            const _showAll = renrakuHasText(_all) && _inRange(_all);
-            const _showPat = renrakuHasText(_pat) && _inRange(_pat);
+            const _showAll = !!_cbRenAll, _showPat = !!_cbRenPat; // ★ 2026-10-29: 中身は上(_cbRenAll/_cbRenPat・前の日は控え)
             // ★ 2026-10-21(ユーザー要望): 「送り時間反映」を押した日の連絡帳だけ、次回の送りの時間(送迎表)を最後に1行
             const _dropP = (record && record.renrakuDropAt === '1' && patient && patient.id !== '__blank__') ? tsuDropNoteParts(nextDateDisplay, _cbDropAt) : null;
             return (
@@ -36858,8 +36866,8 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
               <div className="font-bold text-slate-800" style={{fontSize:16,marginBottom:3}}>連絡事項</div>
               {/* ★ 連絡事項は 8〜9 行分を固定確保(運動テーブルはその分自動で縮む)。 文字も少し大きく。 */}
               <div title="連絡事項の編集は上部の「連絡事項」ボタンから" className="border-2 border-black bg-white" style={{height:'15.5rem',padding:'8px 10px',overflow:'hidden',whiteSpace:'pre-wrap',wordBreak:'break-word',fontSize:16.5,lineHeight:1.5,boxSizing:'border-box'}}>
-                {_showAll && <div style={{marginBottom:6}} dangerouslySetInnerHTML={{__html: renrakuToHtml(_all)}}/>}
-                {_showPat && <div dangerouslySetInnerHTML={{__html: renrakuToHtml(_pat)}}/>}
+                {_showAll && <div style={{marginBottom:6}} dangerouslySetInnerHTML={{__html: _cbRenAll}}/>}
+                {_showPat && <div dangerouslySetInnerHTML={{__html: _cbRenPat}}/>}
                 {_dropP && <div data-testid={`cb-dropnote-${patient.id}`} style={{marginTop:(_showAll||_showPat)?6:0}}>{_dropP.head} <b>{_dropP.time}</b></div>}
               </div>
             </div>
