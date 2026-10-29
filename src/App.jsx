@@ -13,7 +13,7 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
 //   本番の /update-notes.json の version とこの値が違えば、ログイン画面で一度だけ自動再読み込みする。
 import __builtUpdateNotes from '../public/update-notes.json';
-import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, pickHolidays } from './lib/logic';
+import { encodeInviteToken, decodeInviteToken, normalizeInviteCode, deepSame, reconcileRemoteRecords, mergeDraftRows, mergeTpTelDone, pickHolidays, holidayAmpmOn, fullHolidaySet, holidayClosesSlots, holidayAmpmLabel } from './lib/logic';
 import {
   isSupabaseEnabled,
   supabaseCreateInvite,
@@ -2792,7 +2792,9 @@ const computePlanDues = (appData, baseDate, opts) => {
       push(p, 'tsusho', '通所介護計画書', due, 'tsusho_keikaku', goal ? '目標の達成予定' : '前回作成から6ヶ月');
     }
     // --- 個別機能訓練計画書 (3ヶ月ごと) ---
-    if (addons.kasan_kinou2 || (appData?.kinouKeikakuRecords||[]).some(r=>r.patientId===p.id)) {
+    // ★ 2026-10-28: 個別機能訓練計画書(個別機能訓練加算)・ADL維持等加算は要介護だけ。要支援・事業対象者は出さない(介護度が未登録の方は出す)
+    const _kaigoOk = kpCareGroup(p) !== 'shien';
+    if (_kaigoOk && (addons.kasan_kinou2 || (appData?.kinouKeikakuRecords||[]).some(r=>r.patientId===p.id))) {
       const _kkDraft = latestBy((appData?.kinouKeikakuRecords||[]).filter(r=>r&&r.draft), p.id, 'createdDate');
       const kk = latestBy((appData?.kinouKeikakuRecords||[]).filter(r=>r&&!r.draft), p.id, 'createdDate');
       if (_kkDraft && (!kk || _kkDraft.d >= kk.d)) push(p, 'kinou', '個別機能訓練計画書', today, 'kinou_keikaku', '一時保存中(続きから作成)');
@@ -2809,7 +2811,7 @@ const computePlanDues = (appData, baseDate, opts) => {
       if (!adl) push(p, 'kagaku', '科学的介護推進体制加算', today, 'life_hub', 'ADL評価が未実施');
       else push(p, 'kagaku', '科学的介護推進体制加算', addMonths(adl.d, 3), 'life_hub', '前回評価から3ヶ月');
     }
-    if (addons.kasan_adl) {
+    if (addons.kasan_adl && _kaigoOk) {
       if (!adl) push(p, 'adl', 'ADL維持等加算', today, 'life_hub', 'ADL評価が未実施');
       else push(p, 'adl', 'ADL維持等加算', addMonths(adl.d, 6), 'life_hub', '評価から6ヶ月後の再評価');
     }
@@ -10772,7 +10774,7 @@ const getNextVisitInfo = (patient, currentDateStr, monthlyShifts, appData) => {
     const _recOn = (y, m, d) => _recMap.get(`${y}|${m}|${d}`) || _recMap.get(`|${m}|${d}`) || null;
     // ★ 施設休業日(夏季休暇・年末年始等)は来所日にならない。 これを見ていなかったため、
     //   休業期間中の基本利用日(例: 8/12)が次回として表示されていた → スキップして次の利用日(8/19等)へ。
-    const _holiSet = new Set((appData?.holidays||[]).map(h => (h && h.date) ? h.date : h));
+    const _holiSet = fullHolidaySet(appData?.holidays); // ★ 2026-10-28: 全日休業だけ飛ばす。半日休業はその時間帯だけ来ない(下で判定)
     for (let i = 1; i <= 30; i++) {
         const nextDate = new Date(current);
         nextDate.setDate(current.getDate() + i);
@@ -10798,8 +10800,10 @@ const getNextVisitInfo = (patient, currentDateStr, monthlyShifts, appData) => {
         const baseAmPm = (getScheduleOnDate(patient, _isoN)?.[dayOfWeek]) || ""; // ★ その日時点の基本利用日(曜日の変更履歴も見る)
         const isBaseAM = baseAmPm === "AM" || baseAmPm === "1日";
         const isBasePM = baseAmPm === "PM" || baseAmPm === "1日";
-        const stateAM = shiftAM !== undefined ? shiftAM : (isBaseAM ? "〇" : "空欄");
-        const statePM = shiftPM !== undefined ? shiftPM : (isBasePM ? "〇" : "空欄");
+        let stateAM = shiftAM !== undefined ? shiftAM : (isBaseAM ? "〇" : "空欄");
+        let statePM = shiftPM !== undefined ? shiftPM : (isBasePM ? "〇" : "空欄");
+        // ★ 2026-10-28 半日休業: 休業の時間帯には来ない(午前休業なら、午後の方と1日の方の午後だけ来る)
+        { const _hap = holidayAmpmOn(appData?.holidays, _isoN); if (_hap === 'AM') stateAM = '休業'; if (_hap === 'PM') statePM = '休業'; }
         // ★ 提供記録が 振替/臨時/出席 なら、基本利用日でなくても来所日として扱う(手前の振替を優先)
         const _recComing = (_recStatus === '振替' || _recStatus === '臨時' || _recStatus === '出席');
         const isComing = _recComing ||
@@ -11032,6 +11036,20 @@ const tsuDropNoteParts = (nextDateDisplay, at) => { const tm = String(at || '').
 const tsuDropNoteText = (nextDateDisplay, at) => { const pr = tsuDropNoteParts(nextDateDisplay, at); return pr ? `${pr.head} ${pr.time}` : ''; };
 // 連絡帳の「次回お迎え時間」の日付と同じ決め方(手入力の日付 → 自動計算)
 const tsuCbNextDateOf = (record, patient, selectedDate, appData) => { if (!patient) return ''; if (/\d/.test(String((record && record.nextDateOverride) ?? ''))) return String(record.nextDateOverride); try { return String(getNextVisitInfo(patient, selectedDate, appData.monthlyShifts, appData).date || ''); } catch { return ''; } };
+// ★ 2026-10-29(ユーザー要望「過去の連絡帳は、その日に渡した次回の日付・お迎え時間のままに」): 連絡帳を出力したとき、
+//   その方の次回利用日・お迎え時間・送りの時間・連絡事項(全員あて ra・個別 rp の HTML)を記録に控える(cbIssued・JSON の文字列 {d,t,drop,ra,rp,at})。前の日の連絡帳は、あとで送迎表や
+//   月間を変えても控えのまま出す(この日はこれを渡した、と分かるように)。当日と先の日は今までどおり(渡す前に直して出し直せる)。
+//   控えの無い前の日(出力していない・この直しより前)は今までどおり今の予定から出す
+const tsuCbIssuedOf = (record, selectedDate) => {
+  if (!record || !record.cbIssued || !selectedDate || String(selectedDate).slice(0, 10) >= tsuTodayIso()) return null;
+  try { const o = JSON.parse(record.cbIssued); return (o && typeof o === 'object') ? o : null; } catch { return null; }
+};
+// 前の日に次回予定を直したとき: 控えから次回(日付・時間・送り)だけ外す。連絡事項(ra/rp)の控えは残す
+const tsuCbIssuedClearNext = (record, selectedDate, now) => {
+  const o = tsuCbIssuedOf(record, selectedDate); if (!o) return {};
+  const keep = {}; if (typeof o.ra === 'string') keep.ra = o.ra; if (typeof o.rp === 'string') keep.rp = o.rp;
+  return { cbIssued: Object.keys(keep).length ? JSON.stringify({ ...keep, at: now }) : '', _fieldTs: { ...(record._fieldTs || {}), cbIssued: now } };
+};
 // 連絡帳の連絡事項の欄の大きさで、1人分(全員あて＋個別＋送りの1行)が入るか(使用率 0〜)。RenrakuModal と同じ測り方
 const tsuRenrakuUsage = (htmlAll, htmlPat, dropLine) => {
   try { const el = document.createElement('div'); el.setAttribute('aria-hidden', 'true');
@@ -11154,7 +11172,7 @@ const _isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0
 const nearestOpenDate = (isoDate, closedDays, holidays) => {
   if (!isoDate) return isoDate;
   const closed = Array.isArray(closedDays) ? closedDays : [0];
-  const holiSet = new Set((holidays||[]).map(h => (h && h.date) ? h.date : h));
+  const holiSet = fullHolidaySet(holidays); // ★ 2026-10-28: 半日休業の日は開いている(残りの半日)
   const isClosed = (d) => closed.includes(d.getDay()) || holiSet.has(_isoOf(d));
   const base = new Date(isoDate);
   if (isNaN(base.getTime())) return isoDate;
@@ -11175,7 +11193,7 @@ const nearestOpenDate = (isoDate, closedDays, holidays) => {
 //   (nearestOpenDateは後退もするが、次回予定は必ず未来方向へ送る)
 const forwardOpenDate = (isoDate, closedDays, holidays) => {
   const closed = Array.isArray(closedDays) ? closedDays : [0];
-  const holiSet = new Set((holidays||[]).map(h => (h && h.date) ? h.date : h));
+  const holiSet = fullHolidaySet(holidays); // ★ 2026-10-28: 半日休業の日は開いている(残りの半日)
   const d = new Date(isoDate);
   if (isNaN(d.getTime())) return isoDate;
   for (let i = 0; i < 62; i++) {
@@ -11277,7 +11295,10 @@ const generateMonthlySchedule = (patients, year, month, monthlyShifts, ticketRec
       // ★ 年対応: この月の記録は year で絞る (旧記録=year無しは後方互換で一致)
 
       const isClosedDay = closedDays.includes(dayOfWeek);
-      const isHoliday = holidays?.some(h => (h.date || h) === dateStr);
+      // ★ 2026-10-28 半日休業: 全日休業は今までどおり。 午前/午後だけの休業は、その時間帯に来る予定を「休業」にし、
+      //   来る時間帯が全部ふさがる方だけ、その日を休業にする(1日利用の方・もう半日の方は来る)
+      const _holAp = holidayAmpmOn(holidays, dateStr);
+      let isHoliday = _holAp === '1日';
 
       // ★ その日付時点で有効な基本利用曜日を使う (後から増回した曜日を過去に遡及表示しない)
       const baseAmPm = getScheduleOnDate(patient, dateStr)?.[dayOfWeek] || "";
@@ -11286,13 +11307,17 @@ const generateMonthlySchedule = (patients, year, month, monthlyShifts, ticketRec
 
       let shiftAM = monthlyShifts?.[monthKey]?.[patient.id]?.[`${day}_AM`];
       let shiftPM = monthlyShifts?.[monthKey]?.[patient.id]?.[`${day}_PM`];
-      const stateAM = shiftAM !== undefined ? shiftAM : (isBaseAM ? "〇" : "空欄");
-      const statePM = shiftPM !== undefined ? shiftPM : (isBasePM ? "〇" : "空欄");
+      let stateAM = shiftAM !== undefined ? shiftAM : (isBaseAM ? "〇" : "空欄");
+      let statePM = shiftPM !== undefined ? shiftPM : (isBasePM ? "〇" : "空欄");
+      { const _comeSt = (v) => v === "〇" || v === "出席" || v === "臨時" || String(v).startsWith("振");
+        if (_holAp === 'AM' && _comeSt(stateAM)) stateAM = "休業";
+        if (_holAp === 'PM' && _comeSt(statePM)) statePM = "休業"; }
 
       const isComing = !isClosedDay && !isHoliday && (
         (stateAM === "〇" || stateAM === "出席" || stateAM.startsWith("振") || stateAM === "臨時") ||
         (statePM === "〇" || statePM === "出席" || statePM.startsWith("振") || statePM === "臨時")
       );
+      if (!isHoliday && _holAp && !isComing && (stateAM === "休業" || statePM === "休業")) isHoliday = true;
 
       if (!isComing && !isClosedDay && !isHoliday) {
         const isAbsent = stateAM === "欠席" || statePM === "欠席";
@@ -11950,7 +11975,7 @@ function TsuPhonePin({ children, testId, z = 30, on = true }) {
     <div ref={ref} data-testid={testId} className="tsu-pin" style={{ position: 'fixed', top: 47, left: 0, right: 0, zIndex: z }}>{children}</div>
   </>);
 }
-function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = true }) {
+function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = true, below = null }) {
   const isPhone = useTsuIsPhone();
   const [open, setOpen] = React.useState(() => { try { return localStorage.getItem('tsuFold_' + storageKey) === '1'; } catch { return false; } });
   const foldRef = React.useRef(null); // ★ 2026-10-08: フックは必ず早期 return より前(向きを変えてスマホ幅⇔それ以外が切り替わると「フックの数が違う」エラーで画面が落ちていた)
@@ -11967,6 +11992,8 @@ function TsuPhoneFold({ storageKey, summary, children, className = '', sticky = 
       </div>
       {/* 閉じているときも中身は消さずに高さ0で隠す(中にある確認の小窓=画面全体に出る窓 が開けなくならないように) */}
       <div data-testid={`fold-body-${storageKey}`} data-open={open ? '1' : '0'} aria-hidden={!open} className={open ? 'border-t border-slate-200' : ''} style={open ? undefined : { height: 0, overflow: 'hidden' }}>{children}</div>
+      {/* ★ 2026-10-28: 帯のすぐ下に重ねて出す行(提供記録の「印」など)。帯の高さは変えない(下の表・カードの位置が動かない) */}
+      {below ? <div className="relative" style={{ height: 0 }}><div className="absolute left-0 right-0 top-0">{below}</div></div> : null}
     </div>
   );
   return sticky ? <TsuPhonePin>{_inner}</TsuPhonePin> : _inner;
@@ -12322,7 +12349,7 @@ function SignupCompleteView({ context, appData, onSave }) {
 }
 
 // === 家族画面プレビュー & 特記編集 (FamilyAdminView内のタブ) ===
-function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid, familyTokkiOverrides, setTokkiOverride, initialViewer = 'family' }) {
+function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid, familyTokkiOverrides, setTokkiOverride, initialViewer = 'family', topOffset = 50 }) {
   const [previewInnerTab, setPreviewInnerTab] = useState('news'); // 'news' | 'records'
   // ★ 2026-10-03(ユーザー要望「閲覧管理で家族・ケアマネの閲覧期間(当月以外)も選べるように」): 家族・ケアマネ画面と同じ期間の選択
   const [pvPeriod, setPvPeriod] = useState('1'); // '1','3','6','12','all','custom'
@@ -12344,7 +12371,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
   return (
     <div className={isRecordsTab ? '' : 'space-y-3'}>
       {/* 上部枠: ←一覧 | ドロップダウン | (タブ:お知らせ/通所記録) | ログイン画面リンク — records 時は sticky */}
-      <div className={`bg-white border-slate-200 p-3 flex items-center gap-3 flex-wrap ${isRecordsTab ? 'border-b shadow-sm' : 'rounded-2xl shadow-sm border'}`} style={isRecordsTab ? {position:'sticky',top:50,zIndex:45,marginBottom:0} : undefined}>
+      <div className={`bg-white border-slate-200 p-3 flex items-center gap-3 flex-wrap ${isRecordsTab ? 'border-b shadow-sm' : 'rounded-2xl shadow-sm border'}`} style={isRecordsTab ? {position:'sticky',top:topOffset,zIndex:45,marginBottom:0} : undefined}>
         {patient && (
           <button onClick={()=>{ setPreviewPid(null); setPatSearch(''); }} title="利用者一覧に戻る"
             className="px-3 py-2 rounded-lg text-sm font-bold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 shrink-0 whitespace-nowrap">
@@ -12567,7 +12594,7 @@ function FamilyPreviewTab({ patients, appData, onSave, previewPid, setPreviewPid
           cmViewerMode={viewer === 'caremanager'}
           cmSheetView={viewer === 'caremanager'}
           hidePatientSelector={true}
-          stickyTopOffset={114}
+          stickyTopOffset={topOffset + 64}
           navigateTo={()=>{}}
           onShowPrintPreview={()=>{}}
           externalPeriod={pvPeriod}
@@ -13557,7 +13584,7 @@ function ScheduleView({ appData, onSave, navigateTo }) {
   const birthdaysOn = (dstr) => { const md=dstr.slice(5); return activePatients.filter(p=>{ const b=p.birthDate; return b && b.length>=10 && b.slice(5)===md; }).map(p=>({name:p.name, age: (()=>{ const [y,m,d]=dstr.split('-').map(Number); const [by]=String(p.birthDate).split('-').map(Number); let a=y-by; const bm=Number(String(p.birthDate).slice(5,7)); return a; })(), birthDate:p.birthDate})); };
   const expiriesOn = (dstr) => { const out=[]; activePatients.forEach(p=>{ if(p.careLevelTo && p.careLevelTo===dstr) out.push({name:p.name, kind:'認定有効期間の終了', careLevel:p.careLevel}); }); return out; };
   const isHolidayDate = (dstr) => (appData.holidays||[]).some(h => (h.date||h) === dstr);
-  const holidayName = (dstr) => { const h=(appData.holidays||[]).find(x=>(x.date||x)===dstr); return h && h.name ? h.name : ''; };
+  const holidayName = (dstr) => { const h=(appData.holidays||[]).find(x=>(x.date||x)===dstr); if (!h) return ''; const _l = holidayAmpmLabel(h.ampm); return h.name ? `${h.name}${_l ? `（${_l}）` : ''}` : (_l ? `休業（${_l}）` : ''); }; // ★ 2026-10-28 半日休業は（午前のみ）を添える
   const isClosedDate = (dstr) => { const [y,m,d]=dstr.split('-').map(Number); return (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(new Date(y,m-1,d).getDay()); };
   const timeLabel = (e) => e.start ? `${e.start}${e.end?`〜${e.end}`:''}` : '終日';
   const COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#0ea5e9','#64748b'];
@@ -14787,7 +14814,7 @@ function FamilyAdminView({ appData, onSave }) {
   //   (1行目=全体/個別・種類・年・月、2行目=キーワード・該当件数)。パソコン・iPadは従来どおり履歴の中に置く
   const _hfSel = _faPhone ? 'tsu-fa-hsel min-w-0 px-1.5 py-1 bg-slate-50 border border-slate-300 rounded-lg font-bold outline-none' : 'px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold outline-none';
   const _histFilterBar = (
-    <div className={_faPhone ? 'bg-white border-b border-slate-200 px-2 pt-1.5 pb-2' : 'bg-white rounded-2xl shadow-sm border border-slate-200 p-4'} data-testid="fa-hist-filter">
+    <div className={_faPhone ? 'bg-white border-b border-slate-200 px-2 pt-1.5 pb-2' : 'bg-white rounded-2xl shadow-sm border border-slate-200 px-3 py-2'} data-testid="fa-hist-filter">
       <div className={_faPhone ? 'grid gap-1.5' : 'flex flex-wrap items-center gap-2'} style={_faPhone ? { gridTemplateColumns: '1.3fr 1.15fr 0.95fr 0.8fr' } : undefined}>
         {!_faPhone && <span className="text-xs font-bold text-slate-500">絞り込み:</span>}
         <select value={historyFilter.scope} onChange={e=>setHistoryFilter(f=>({...f,scope:e.target.value}))} className={_hfSel}>
@@ -14817,20 +14844,24 @@ function FamilyAdminView({ appData, onSave }) {
   );
   return (
     // ★ 2026-10-08(ユーザー要望: スマホで投稿・履歴のときタブが上に詰まっていない): スマホはどのタブでもタブを上端に詰めて画面に固定
-    <div className={`h-full overflow-auto bg-slate-50 tsu-ph-cards ${tab==='preview'?'p-0':(_faPhone ? 'px-3 pb-3 pt-0' : 'p-3 sm:p-6')}`}>
-      <div className={tab==='preview'?'':'max-w-5xl mx-auto tsu-wide-f'}>
+    // ★ 2026-10-28 夜(ユーザー「投稿・家族ケアマネ画面プレビュー・過去履歴で帯の位置が違う」「過去履歴は隙間が空いている」):
+    //   iPad・PC はどのタブでも同じ余白・同じ幅・同じ形の帯(高さ62px・上に固定)。プレビューの中の固定の帯はその下(topOffset)。過去履歴の余白を詰めた
+    <div className={`h-full overflow-auto bg-slate-50 tsu-ph-cards ${(tab==='preview' && _faPhone)?'p-0':(_faPhone ? 'px-3 pb-3 pt-0' : 'px-2 sm:px-3 pb-3 pt-2 sm:pt-3')}`}>
+      <div className={(tab==='preview' && _faPhone)?'':'max-w-5xl mx-auto tsu-wide-f'}>
         <TsuPhonePin testId="pin-family-admin">
-        <div className={`flex items-center gap-2 bg-white shadow-sm border border-slate-200 ${(tab==='preview' || _faPhone)?'sticky top-0 z-50 border-b p-1.5':'rounded-2xl p-1.5 mb-4'}`}>
+        <div data-testid="fa-tabs-wrap" className={_faPhone ? '' : 'sticky top-0 z-40 bg-slate-50 pb-2'}>
+        <div data-testid="fa-tabs" className={`flex items-center gap-2 bg-white shadow-sm border border-slate-200 ${_faPhone?'sticky top-0 z-50 border-b p-1.5':'rounded-2xl p-1.5'}`}>
           {/* ★ 2026-10-08: スマホは短い名前で1行に(投稿/プレビュー/履歴) */}
           {[['post','投稿 (お知らせ・写真)','投稿'],['preview','家族・ケアマネ画面プレビュー','プレビュー'],['history','過去履歴','履歴']].map(([k,l,sh])=>(
-            <button key={k} onClick={()=>setTab(k)} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors whitespace-nowrap ${tab===k?'bg-emerald-500 text-white shadow':'text-slate-500 hover:bg-slate-100'}`}><span className="hidden sm:inline">{l}</span><span className="sm:hidden">{sh}</span></button>
+            <button key={k} onClick={()=>setTab(k)} className={`flex-1 h-10 rounded-xl text-sm font-bold transition-colors whitespace-nowrap ${tab===k?'bg-emerald-500 text-white shadow':'text-slate-500 hover:bg-slate-100'}`}><span className="hidden sm:inline">{l}</span><span className="sm:hidden">{sh}</span></button>
           ))}
+        </div>
         </div>
         {_faPhone && tab==='history' && _histFilterBar}
         </TsuPhonePin>
         {_faPhone && tab!=='preview' && <div className="h-3" />}
         {tab === 'post' && (
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 space-y-3">
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 space-y-3">
             <h3 className="text-base font-bold text-slate-800 mb-1">お知らせ・写真を投稿</h3>
             <div className="text-[11px] text-slate-500">タイトル・本文・写真を一度に投稿できます (写真のみ・お知らせのみも可)</div>
             {/* ★ 2026-10-09(ユーザー要望): スマホでも「全体に表示」「個別に表示」を1行に(文字を少し小さく・個別は「複数可」と短く) */}
@@ -14851,7 +14882,7 @@ function FamilyAdminView({ appData, onSave }) {
                   return (
                     <button key={k} type="button" onClick={()=>setPostForm(f=>{ const cur=f.audience||[]; return {...f, audience: cur.includes(k) ? cur.filter(x=>x!==k) : [...cur,k]}; })}
                       className={`px-3 py-2 rounded-xl border-2 font-bold text-sm ${on?'bg-emerald-50 border-emerald-400 text-emerald-700':'bg-white border-slate-200 text-slate-400'}`}>
-                      {on?'☑':'☐'} {label}
+                      {label}{/* ★ 2026-10-28 夜(ユーザー指示): チェックの印は不要(色で分かる) */}
                     </button>
                   );
                 })}
@@ -14933,16 +14964,12 @@ function FamilyAdminView({ appData, onSave }) {
               </div>
             )}
             <div className="grid grid-cols-12 gap-3">{/* ★ 2026-10-08(スマホで表示日の欄が枠からはみ出す): スマホは1項目1行 */}
-              <div className="col-span-12 md:col-span-6">
+              {/* ★ 2026-10-28 夜(ユーザー指示「タイトルと表示日、本文だけでいい」): イベント/クラスの欄はなくした(前に入れた分はそのまま残る) */}
+              <div className="col-span-12 md:col-span-9">
                 <label className="block text-xs font-bold text-slate-500 mb-1">タイトル (写真のみの場合は省略可)</label>
                 <input value={postForm.title} onChange={e=>setPostForm(f=>({...f,title:e.target.value}))} placeholder="例: 8月の誕生会を開催しました" className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
               </div>
-              <div className="col-span-12 md:col-span-4">
-                <label className="block text-xs font-bold text-slate-500 mb-1">イベント/クラス (任意)</label>
-                <input value={postForm.eventClass} onChange={e=>setPostForm(f=>({...f,eventClass:e.target.value}))} placeholder="例: 7月誕生会" list="event-classes" className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm outline-none"/>
-                <datalist id="event-classes">{photoClasses.map(c=><option key={c} value={c}/>)}</datalist>
-              </div>
-              <div className="col-span-12 md:col-span-2 min-w-0">
+              <div className="col-span-12 md:col-span-3 min-w-0">
                 <label className="block text-xs font-bold text-slate-500 mb-1">表示日</label>
                 <input type="date" value={postForm.date} onChange={e=>setPostForm(f=>({...f,date:e.target.value}))} className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-sm outline-none"/>
               </div>
@@ -14987,10 +15014,10 @@ function FamilyAdminView({ appData, onSave }) {
           </div>
         )}
         {tab === 'preview' && (
-          <FamilyPreviewTab patients={patients} appData={appData} onSave={onSave} previewPid={previewPid} setPreviewPid={setPreviewPid} familyTokkiOverrides={familyTokkiOverrides} setTokkiOverride={setTokkiOverride} initialViewer={_pvJump?.kind || 'family'}/>
+          <FamilyPreviewTab patients={patients} appData={appData} onSave={onSave} previewPid={previewPid} setPreviewPid={setPreviewPid} familyTokkiOverrides={familyTokkiOverrides} setTokkiOverride={setTokkiOverride} initialViewer={_pvJump?.kind || 'family'} topOffset={_faPhone ? 50 : 62}/>
         )}
         {tab === 'history' && (
-          <div className="space-y-4">
+          <div className="space-y-2">
             {/* ゴミ箱 (削除後7日間は復元可) */}
             {annTrash.length > 0 && (
               <div className="bg-amber-50 rounded-2xl border border-amber-200 p-4">
@@ -15026,24 +15053,24 @@ function FamilyAdminView({ appData, onSave }) {
                   {filteredHistory.map(e => {
                     const pat = e.patientId ? patients.find(p=>p.id===e.patientId) || (appData.patients||[]).find(p=>p.id===e.patientId) : null;
                     return (
-                      <button key={e.id} onClick={()=>setHistoryDetail({kind:e._kind, item:e, patient:pat})} className="w-full px-5 py-3 flex items-center gap-3 hover:bg-slate-50 text-left">
+                      <button key={e.id} data-testid="fa-hist-row" onClick={()=>setHistoryDetail({kind:e._kind, item:e, patient:pat})} className="w-full px-3 py-2 flex items-center gap-2.5 hover:bg-slate-50 text-left">
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded shrink-0 ${e._kind==='news_all'?'bg-blue-100 text-blue-700':e._kind==='news_personal'?'bg-amber-100 text-amber-700':'bg-emerald-100 text-emerald-700'}`}>
                           {e._kind === 'news_all' ? '全体' : e._kind === 'news_personal' ? '個別' : '写真'}
                         </span>
-                        <span className="text-[11px] text-slate-400 w-24 shrink-0">{e.date}</span>
+                        <span className="text-[11px] text-slate-400 shrink-0 tabular-nums">{e.date}</span>
                         {e._kind === 'photo' ? (
-                          <><StoredImage file={e} alt="" className="w-10 h-10 object-cover rounded shrink-0"/><span className="text-sm text-slate-700 truncate flex-1">{_hl(e.caption || e.name || '(キャプションなし)')}</span>{e.class && <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{e.class}</span>}</>
+                          <><StoredImage file={e} alt="" className="w-10 h-10 object-cover rounded shrink-0"/><span className="text-sm text-slate-700 truncate min-w-0">{_hl(e.caption || e.name || '(キャプションなし)')}</span>{e.class && <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{e.class}</span>}</>
                         ) : (
                           <>
                             {/* お知らせに紐付いた写真があれば先頭1枚をサムネ表示 */}
                             {(e.photos || []).length > 0 && <StoredImage file={e.photos[0]} alt="" className="w-10 h-10 object-cover rounded shrink-0"/>}
-                            <span className="text-sm font-bold text-slate-800 truncate flex-1">{_hl(e.title || '(タイトルなし)')}{_hQ && _hNorm(e.body||e.content||'').includes(_hQ) && <span className="block text-[11px] font-normal text-slate-500 truncate">{_hl(_hExcerpt(e.body||e.content||''))}</span>}</span>
+                            <span className="text-sm font-bold text-slate-800 truncate min-w-0">{_hl(e.title || '(タイトルなし)')}{_hQ && _hNorm(e.body||e.content||'').includes(_hQ) && <span className="block text-[11px] font-normal text-slate-500 truncate">{_hl(_hExcerpt(e.body||e.content||''))}</span>}</span>
                             {(e.photos || []).length > 0 && <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded shrink-0">×{e.photos.length}</span>}
                             {pat && <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">{pat.name}</span>}
                             {e._group === 'mon' && <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded shrink-0" data-testid="mon-group">{e.members.length}名</span>}
                           </>
                         )}
-                        <span className="text-slate-300 text-xs">›</span>
+                        <span className="flex-1" /><span className="text-slate-300 text-xs">›</span>{/* 札(名前など)はタイトルのすぐ右・› だけ右端 */}
                       </button>
                     );
                   })}
@@ -22551,7 +22578,7 @@ export default function App() {
     const iso = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
     if (selectedDate !== iso) return;               // 既に別の日付を見ている場合は何もしない
     if (!cd.includes(today.getDay())) return;       // 今日が営業日なら何もしない
-    const holiSet = new Set((appData.holidays||[]).map(h => (h && h.date) ? h.date : h));
+    const holiSet = fullHolidaySet(appData.holidays);
     const d = new Date(today);
     for (let i = 0; i < 31; i++) {
       d.setDate(d.getDate() + 1);
@@ -23772,7 +23799,7 @@ export default function App() {
     //   送迎表から別の画面へ移ったときは今日(定休日なら次の営業日)に戻す。
     if (lastViewRef.current === 'transport' && currentView !== 'transport') {
       try {
-        const cd = appData?.systemSettings?.facilityInfo?.closedDays || []; const holiSet = new Set((appData.holidays||[]).map(h => (h && h.date) ? h.date : h));
+        const cd = appData?.systemSettings?.facilityInfo?.closedDays || []; const holiSet = fullHolidaySet(appData.holidays);
         const _iso2 = (x) => `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;
         const d = new Date(); let iso = _iso2(d);
         if (Array.isArray(cd) && cd.includes(d.getDay())) { for (let i = 0; i < 31; i++) { d.setDate(d.getDate() + 1); if (!cd.includes(d.getDay()) && !holiSet.has(_iso2(d))) { iso = _iso2(d); break; } } }
@@ -24850,7 +24877,7 @@ export default function App() {
               <button onClick={() => { const nv = !isSidebarOpen; try { localStorage.setItem('tsumugiSidebarOpen', nv ? '1' : '0'); } catch {} setIsSidebarOpen(nv); }} className="p-2 mr-2 md:mr-4 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors outline-none flex-shrink-0"><Menu size={22} /></button>
               <h1 className="text-base md:text-lg font-bold text-slate-700 truncate whitespace-nowrap">
                 {currentView === 'dashboard' ? 'ホーム' :
-                 currentView === 'record' ? `サービス提供記録 入力　${formatDateDisplay(selectedDate)}` :
+                 currentView === 'record' ? <span data-testid="hdr-record-title">{/* ★ 2026-10-28(ユーザー要望「スマホは『2026年10月…』と切れる。画面を見ればサービス提供記録と分かるので日付だけで」) */}<span className="hidden sm:inline">サービス提供記録 入力　</span>{formatDateDisplay(selectedDate)}</span> :
                  currentView === 'ticket' ? 'サービス提供記録' :
                  currentView === 'print' ? '連絡帳 作成・印刷' :
                  currentView === 'fitness' ? '体力測定' :
@@ -24977,6 +25004,8 @@ export default function App() {
             {/* ★ 日誌(diary)もzoom例外(2026-08-31): 日誌はシート側でdiaryViewScaleの拡縮を持ち、全体zoomと二重になると
                 iPad Safariでタップ座標がズレてシート内のチェック/時間セルが反応しなくなるため */}
             <div style={isMobileLayout ? {width:'100%',minWidth:0} : (currentView==='dashboard' || currentView==='print' || currentView==='master' || currentView==='diary' || currentView==='ticket' || _zoomNear1) ? {width:'100%',minWidth:0,height:'100%'} : _zoomScroll ? {width:`${DESIGN_WIDTH}px`, minWidth:DESIGN_WIDTH, height:'100%'} : {width:`${DESIGN_WIDTH}px`, minWidth:DESIGN_WIDTH, zoom: _zoomVal, height: scrollerH > 0 ? `${Math.floor(scrollerH / _zoomVal)}px` : '100%'}}>
+            {/* ★ 2026-10-29(ユーザー「計画書関係もサイドバー方式に」): 計画書の画面は iPad・パソコンで左に縦の並び(KeikakuFrame)。ほかの画面はそのまま */}
+            <KeikakuFrame on={KK_FRAME_VIEWS.includes(currentView)} appData={appData} navigateTo={navigateTo} dueCounts={_dueCounts}>
             {currentView === 'dashboard' ? <DashboardView appData={appData} navigateTo={navigateTo} activeRecorder={activeRecorder} notices={visibleNotices} devNotes={devUpdateNotes} isNoticeRead={isNoticeRead} markNoticeRead={markNoticeRead} onSave={handleSaveToCloud} /> :
              currentView === 'record' ? <RecordView appData={appData} activeRecorder={activeRecorder} onSave={handleSaveToCloud} navigateTo={navigateTo} selectedDate={selectedDate} setSelectedDate={setSelectedDate} dirtyRef={recordDirtyRef} saveFnRef={recordSaveFnRef} sharedAmpm={sharedAmpm} setSharedAmpm={setSharedAmpm} showTip={showTip} hideTip={hideTip} isSidebarOpen={isSidebarOpen} setIsSidebarOpen={setIsSidebarOpen} deviceName={effDeviceName} /> :
              currentView === 'ticket' ? <TicketView appData={appData} targetPatientId={targetPatientId} onBack={()=>navigateBack('master')} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}}  onSave={handleSaveToCloud} navigateTo={navigateTo} onPatientChange={setTargetPatientId} dirtyRef={ticketDirtyRef} saveFnRef={ticketSaveFnRef} /> :
@@ -25009,6 +25038,7 @@ export default function App() {
              currentView === 'kyomi_kanshin' ? <KyomiKanshinView appData={appData} onSave={handleSaveToCloud} navigateTo={navigateTo} targetPatientId={targetPatientId} navFocus={navFocus} onFocusHandled={()=>setNavFocus(null)} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} dirtyRef={kyomiKanshinDirtyRef} saveFnRef={kyomiKanshinSaveFnRef} /> :
              currentView === 'dash_operation' ? <OperationDashboardView appData={appData} onShowPrintPreview={(title,pageSize,eid)=>{const el=eid?document.getElementById(eid):null;let html=el?el.outerHTML:null;if(html){html=html.replace(/display:\s*none[^;"']*/g,'display:block');html=html.replace(/visibility:\s*hidden/g,'visibility:visible');}setPrintPreviewContent({title,pageSize,elementId:eid,html});}} setAppData={setAppData} /> :
              <div className="flex h-full items-center justify-center text-slate-400 font-bold">開発中</div>}
+            </KeikakuFrame>
           </div></div></main>
       {/* ★ サイドバーのスタッフ追加モーダル */}
       {staffAddModal && (
@@ -25380,9 +25410,12 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   // ★ 2026-10-07(店舗報告: スマホ縦で基準値の欄が大きく、入力欄が狭くなる): スマホ幅は最初から「正常範囲だけの1行」にする(押すと詳しく開く)
   const [vitalCollapsed, setVitalCollapsed] = useState(() => { try { return tsuViewW() < 640; } catch { return false; } });
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [fsPick, setFsPick] = useState(false); // ★ 2026-10-23(ユーザー): 「全画面」を押したときに見せ方を選ぶ(共有のiPadで人ごとに変えられるように)
-  const [_fsModeTick, _setFsModeTick] = useState(0); // ★ 2026-10-23: 全画面の見せ方を変えたら描き直す
-  const _fsFit = tsuFsMode() === 'fit';
+  // ★ 2026-10-28(ユーザー提案「全画面は10人定員も15人定員も全員を1画面に。＋とーのボタンで真ん中に倍率、自分たちの見やすい大きさに調整」):
+  //   見せ方の選択(拡大表示/1画面表示)はやめ、全画面は最初から全員が入る倍率。帯の －/＋ で5%ずつ変えられ、この端末に覚える(「全員」で全員が入る倍率に戻す)。
+  //   スマホは表ではなくカードなので倍率は出さない
+  const [_fsUserZoom, _setFsUserZoom] = useState(() => { try { const v = parseFloat(localStorage.getItem('tsumugiFsZoom') || ''); return (isFinite(v) && v >= 0.3 && v <= 2) ? v : null; } catch { return null; } });
+  const _saveFsZoom = (v) => { _setFsUserZoom(v); try { if (v == null) localStorage.removeItem('tsumugiFsZoom'); else localStorage.setItem('tsumugiFsZoom', String(v)); } catch {} };
+  const _fsModeTick = 0; const _fsFit = true; // 全画面では常に全員が入る倍率を測る(使うのは自分で変えていないとき)
   // 'fit' は 1行58px を人数分並べたものが画面に入る倍率(0.45〜1.2)。行の中身(入力欄・ボタン)が58pxより縮まないため、高さではなく倍率で合わせる
   // ★ 2026-10-23(ユーザー報告「11人なのに小さすぎる」): 人数×58px の計算は、表示していない方(午後の方など)まで数えて小さくなっていた。
   //   表の実際の高さと、上の帯の下から画面の下までの高さを測って倍率を決める(0.45〜1.2)。AM/PM を切り替えたり人数が変わったら測り直す
@@ -25403,13 +25436,15 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     let ro = null; try { const t = document.getElementById('record-table'); if (t && typeof ResizeObserver !== 'undefined') { ro = new ResizeObserver(() => _fitCalc()); ro.observe(t); const sc = t.closest('.record-view-scroll'); if (sc) ro.observe(sc); } } catch {}
     return () => { window.removeEventListener('resize', _fitCalc); window.removeEventListener('orientationchange', _fitCalc); try { ro && ro.disconnect(); } catch {} };
   }, [isFullscreen, _fsFit, _fsModeTick, _fitCalc]);
-  const _fsZoom = isFullscreen ? (_fsFit ? _fitZoom : 1.2) : 1;
+  const _fsZoom = isFullscreen ? (_fsUserZoom != null ? _fsUserZoom : _fitZoom) : 1;
+  const _fsZoomStep = (d) => _saveFsZoom(Math.max(0.45, Math.min(1.6, Math.round((_fsZoom + d) * 20) / 20)));
   // ★ 2026-10-26(ユーザー要望「一言かマイクのどちらかを無くしたとき、残った方を他と同じ高さに」): 表の特記セルで一言とマイクが1つだけなら、そのボタンを欄の高さいっぱいに
   const _tkOne = (((tsuTokkiPresets(appData).length && !appData.systemSettings?.tokkiPresetOff) ? 1 : 0) + ((!appData.systemSettings?.tokkiVoiceOff && tsuVoiceSupported()) ? 1 : 0)) === 1;
-  useEffect(() => { const on = (e) => { if (!e || !e.key || e.key === TSU_FS_MODE_KEY) _setFsModeTick(t => t + 1); }; window.addEventListener('storage', on); window.addEventListener('tsu:fsmode', on); return () => { window.removeEventListener('storage', on); window.removeEventListener('tsu:fsmode', on); }; }, []);
   // ★ 2026-10-11: 全画面(画面全体を覆う)を一瞬で外すと、iPad では下の見出し・上部の帯が古い描画のまま白く残ることがある。0.3秒かけて薄くしてから外す
-  const [fsClosing, setFsClosing] = useState(false);
-  const closeFullscreen = () => { if (fsClosing) return; setFsClosing(true); setTimeout(() => { setIsFullscreen(false); setFsClosing(false); }, 320); };
+  // ★ 2026-10-28(ユーザー要望「通常画面に戻るときホワイトアウトして、そのあとも間がある。スッと戻るように」): 0.3秒かけて薄くするのをやめてすぐ戻す。
+  //   iPad の描き残し(10/11)対策は、戻したあとに本体の描き直しを1回頼む(下の effect・tsu:repaint と本体の不透明度を一瞬だけ変える)
+  const fsClosing = false;
+  const closeFullscreen = () => { setIsFullscreen(false); };
   // ★ 画面の高さに応じて行高を動的計算
   //   利用者数が 10 名以上なら "10 名がぴったり" になるサイズ
   //   利用者数が 10 名未満なら "全員で画面を埋める" サイズ (空白を作らない)
@@ -25508,6 +25543,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       // ★ 2026-10-09(ユーザー報告): iPad で全画面を閉じると見出し・上部のメニューの所が白いまま描かれないことがある。
       //   サイドバーは全画面中から閉じたままで開閉の描き直しが走らないため、App に描き直しを頼む(iPhone/iPad のみ・App 側で判定)
       try { window.dispatchEvent(new Event('tsu:repaint')); } catch {}
+      try { const m = document.getElementById('appMainArea'); if (m) { m.style.opacity = '0.999'; requestAnimationFrame(() => requestAnimationFrame(() => { m.style.opacity = ''; })); } } catch {} // ★ 2026-10-28: 薄くする代わりの描き直し
     }
     // unmount/画面遷移時の保険: 全画面ON状態でアンマウントされたら元に戻す
     return () => {
@@ -25699,6 +25735,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     // ★ 施設の休業日(各種設定>休業日)判定(2026-08-11): この日は利用者の状態を自動で「休業」にする
     const _selIsoHd = (() => { const d = new Date(selectedDate); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
     const _isHolidaySel = (appData.holidays || []).some(h => (h && (h.date || h)) === _selIsoHd);
+    const _holApSel = holidayAmpmOn(appData.holidays, _selIsoHd); // ★ 2026-10-28 半日休業: その時間帯だけに来る方を休業にする
     // ★ 休業日の名称(例: 夏季休業)を特記に自動記載するため取得(2026-08-11)
     const _holidayNameSel = (() => { if (!_isHolidaySel) return ''; const h = (appData.holidays || []).find(x => (x && (x.date || x)) === _selIsoHd); return (h && h.name) ? h.name : ''; })();
     const monthKey = `${new Date(selectedDate).getFullYear()}-${String(new Date(selectedDate).getMonth() + 1).padStart(2, '0')}`;
@@ -25870,12 +25907,16 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
            if ((_shR[`${dayNum}_AM`] === '振替' || _shR[`${dayNum}_PM`] === '振替') && (!pData.status || pData.status === '出席')) pData.status = '振替'; }
          // ★ 施設の休業日は状態を自動で「休業」にする(2026-08-11)。 休止中の人は休止のまま。
          //   バイタル等の実データが入力済みの記録は触らない(休業日設定の誤りで入力を隠さない保護)。
-         if (_isHolidaySel && pData.status !== '休止' && pData.status !== '休業' && !ticketHasClinicalData(pData)) {
+         // ★ 2026-10-28 半日休業: 午前/午後だけの休業は、来る時間帯が全部その休業にふさがる方だけ休業(1日の方・もう半日の方はそのまま)
+         const _holHere = _isHolidaySel && (_holApSel === '1日' || (() => { const _sh = appData.monthlyShifts?.[monthKey]?.[p.id] || {}; const _b = getScheduleOnDate(p, selectedDate)?.[dayOfWeek] || ''; const _bA = _b === 'AM' || _b === '1日', _bP = _b === 'PM' || _b === '1日';
+           const _sA = _sh[`${dayNum}_AM`] !== undefined ? _sh[`${dayNum}_AM`] : (_bA ? '〇' : '空欄'); const _sP = _sh[`${dayNum}_PM`] !== undefined ? _sh[`${dayNum}_PM`] : (_bP ? '〇' : '空欄');
+           const _c = (v) => v === '〇' || v === '出席' || v === '臨時' || String(v).startsWith('振'); return holidayClosesSlots(_holApSel, _c(_sA), _c(_sP)); })());
+         if (_holHere && pData.status !== '休止' && pData.status !== '休業' && !ticketHasClinicalData(pData)) {
              obsMarkRecEdit(p.id, selectedDate, 'status');
              pData.status = '休業';
          }
          // ★ 休業の特記に休業日の名称(例: 夏季休業)を自動記載(2026-08-11)。 既に特記がある場合は触らない。
-         if (_isHolidaySel && pData.status === '休業' && _holidayNameSel && !(pData.tokki && String(pData.tokki).trim())) {
+         if (_holHere && pData.status === '休業' && _holidayNameSel && !(pData.tokki && String(pData.tokki).trim())) {
              obsMarkRecEdit(p.id, selectedDate, 'tokki');
              pData.tokki = _holidayNameSel;
          }
@@ -25984,6 +26025,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     if (!rec[fBu] && !rec[fPl]) return; // 欄が空なら控えるものがない(通常どおり入力してもらう)
     const log = [...(Array.isArray(rec.bpRe) ? rec.bpRe : [])];
     const n = log.filter(e => e && e.phase === phase && e.ampm === tf).length + 1;
+    // ★ 2026-10-28(ユーザー提案「再検を押したら『再測定しますか？』が出ると誤タップが減る」): 押すとすぐ欄が空になるため、確認を1回はさむ(確認はここだけ・ボタン側には付けない)
+    { const _lb = phase === 'En' ? '終了時' : '開始時'; const _nm = String(rec.name || '').trim();
+      if (!window.confirm(`${_nm ? `${_nm}様　` : ''}${_lb}の血圧を再測定しますか？\n今の値（${rec[fBu] || '－'}/${rec[fBd] || '－'} 脈${rec[fPl] || '－'}）は「${n}回目」として下に残り、欄が空になります。`)) return; }
     const now = new Date();
     const time = String(rec[fT] || `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`);
     log.push({ phase, ampm: tf, n, up: String(rec[fBu] || ''), dn: String(rec[fBd] || ''), pl: String(rec[fPl] || ''), time, at: `${now.toISOString()}#${Math.random().toString(36).slice(2, 6)}` }); // at は識別子(同じ秒に2回押しても重ならないよう乱数を付ける)
@@ -26507,13 +26551,14 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   React.useEffect(() => { if (isSidebarOpen) setRecJump(null); }, [isSidebarOpen]);
   const [recFlash, setRecFlash] = useState(null);
   const _recKana = (t) => String(t || '').replace(/[\u3041-\u3096]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 0x60)).replace(/[\s　]/g, '');
-  const openRecJump = () => { const pin = document.querySelector('.tsu-pin'); const top = pin ? Math.round(pin.getBoundingClientRect().bottom) : 96; setRecJump(v => v ? null : { top, q: '' }); };
+  // ★ 2026-10-28(ユーザー要望「スマホの全画面でも利用者を選べるボタンを」): 全画面のときは全画面の帯の下から出す
+  const openRecJump = () => { const pin = document.querySelector(isFullscreen ? '[data-testid="rec-fs-bar"]' : '.tsu-pin'); const top = pin ? Math.round(pin.getBoundingClientRect().bottom) : 96; setRecJump(v => v ? null : { top, q: '' }); };
   const jumpToRecCard = (id) => {
     setRecJump(null);
     setTimeout(() => {
       tsuBackLockRescan(); // ★ 2026-10-28: 一覧が閉じたら背面止めをすぐ外してから動かす
       const el = document.querySelector(`[data-rec-card="${id}"]`); if (!el) return;
-      const pin = document.querySelector('.tsu-pin'); const off = (pin ? pin.getBoundingClientRect().bottom : 96) + 8;
+      const pin = document.querySelector(isFullscreen ? '[data-testid="rec-fs-bar"]' : '.tsu-pin'); const off = (pin ? pin.getBoundingClientRect().bottom : 96) + 8;
       let sc = el.parentElement; while (sc && sc !== document.body && sc !== document.documentElement) { const st = getComputedStyle(sc); if (/(auto|scroll)/.test(st.overflowY) && sc.scrollHeight > sc.clientHeight + 1) break; sc = sc.parentElement; }
       const dy = el.getBoundingClientRect().top - off;
       if (sc && sc !== document.body && sc !== document.documentElement) sc.scrollBy({ top: dy, behavior: 'smooth' }); else window.scrollBy({ top: dy, behavior: 'smooth' });
@@ -26796,6 +26841,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   ...((existing?.cbPrintedAt_PM ?? p.cbPrintedAt_PM) ? { cbPrintedAt_PM: existing?.cbPrintedAt_PM ?? p.cbPrintedAt_PM } : {}),
                   // ★ 2026-10-29(不具合修正): 連絡帳の「送り時間反映」の印も引き継ぐ(ここに書いていなかったため、提供記録を保存すると印が消えていた)
                   ...((existing?.renrakuDropAt ?? p.renrakuDropAt) != null ? { renrakuDropAt: existing?.renrakuDropAt ?? p.renrakuDropAt } : {}),
+                  ...((existing?.cbIssued ?? p.cbIssued) != null ? { cbIssued: existing?.cbIssued ?? p.cbIssued } : {}), // ★ 2026-10-29: 連絡帳の控え(tsuCbIssuedOf)
                   // ★ 担当者: スタッフ切替で選んでいるアクティブ記録者を保存
                   //   未選択の場合は 既存値を維持 (それ以外のフォールバックは使わない)
                   recorder: getRecorderName() || existing?.recorder || '',
@@ -26954,7 +27000,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     const dow2 = new Date(selectedDate).getDay();
     const targetDateStr3 = `${new Date(selectedDate).getMonth()+1}月${new Date(selectedDate).getDate()}日`;
     const _selYear4 = new Date(selectedDate).getFullYear();
+    const _holApTf = (() => { const d = new Date(selectedDate); return holidayAmpmOn(appData.holidays, `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`); })();
     displayRecords = displayRecords.filter(p => {
+      // ★ 2026-10-28 半日休業: 休業の時間帯の表には、休業になった方だけを出す(1日利用の方などは、もう半日の表に出る)。入力済みの記録は隠さない
+      if (_holApTf && _holApTf === timeFilter && p.status !== '休業' && p.status !== '休止' && !ticketHasClinicalData(p)) return false;
       // 振替の record があれば furikaeAmpm を優先（普段の曜日に来なくても表示する）
       const rec = (appData.ticketRecords||[]).find(r=>r.patientId===p.id && recMatchesDateYear(r, targetDateStr3, _selYear4));
       if (rec && (rec.status === '振替' || rec.status === '臨時')) {
@@ -27164,7 +27213,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
   // 厚労省バイタルサイン基準値パネル（折りたたみ可能・全画面時は非表示・コンパクト表示）。スマホは上部の「操作」の中に入る(2026-10-08)
   const _vitalPanel = (
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 px-3 py-1 flex-shrink-0 mb-2 text-[11px]">
+      <div data-testid="vital-ref" className="bg-white rounded-xl shadow-sm border border-slate-200 px-3 py-0.5 flex-shrink-0 mb-1 text-[11px]">{/* ★ 2026-10-28 夜(ユーザー指示「上下の空白が大きい」): 枠の内側 py-1→0.5・下 mb-2→1・中身の上 mt-1→0.5 */}
         <button onClick={()=>setVitalCollapsed(v=>!v)} data-testid="vital-ref-toggle" className="font-bold text-slate-500 text-[11px] flex items-center gap-1 w-full hover:text-slate-700 text-left">
           <Activity size={11} className="text-blue-500 shrink-0"/>
           <span className="shrink-0"><span className="sm:hidden">基準値</span><span className="hidden sm:inline">バイタルサイン 基準値（厚労省ガイドライン）</span></span>
@@ -27172,7 +27221,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           {vitalCollapsed && <span data-testid="vital-ref-compact" className="min-w-0 flex flex-wrap gap-x-2 text-slate-700 font-bold ml-1"><span>体温 36.0〜37.0℃</span><span>血圧 100〜129/60〜84</span><span>脈 60〜100</span></span>}
           <span className="ml-auto text-slate-400 shrink-0 pl-1">{vitalCollapsed?'▼ 詳しく':'▲ 閉じる'}</span>
         </button>
-        {!vitalCollapsed && <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1">
+        {!vitalCollapsed && <div className="flex flex-wrap gap-x-3 gap-y-1 mt-0.5">
           <div className="flex items-start gap-1.5 min-w-[180px]">
             <span className="font-bold text-slate-600 whitespace-nowrap shrink-0 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">体温</span>
             <div className="space-y-0 leading-tight">
@@ -27211,11 +27260,17 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
       ...(isFullscreen ? {
         position: 'fixed', inset: 0, height: '100dvh', width: '100vw',
         background: 'white', zIndex: 9999,
-        opacity: fsClosing ? 0 : 1, transition: 'opacity 0.3s ease', pointerEvents: fsClosing ? 'none' : 'auto',
+        pointerEvents: 'auto',
       } : {}),
     }}>
       {!isFullscreen ? (
-      <TsuPhoneFold storageKey="record" summary={(() => { const _d = new Date(selectedDate + 'T00:00:00'); const _foldNarrow = tsuViewW() < 390; /* ★ 2026-10-22: 360〜375px で「保存」が切れていた → 曜日を外す */ return (<>
+      <TsuPhoneFold storageKey="record" below={_rvMarks.length > 0 ? (
+        // ★ 2026-10-28 夜(ユーザー指示「スマホの印の帯を上へ」): 左下に浮かべるとカードの一言・マイクに重なっていた → 上の帯のすぐ下に重ねて細い1行(印があるときだけ・表は動かない)
+        <div data-testid="rv-marks-bar-phone" className="no-print flex items-center gap-2 px-2 py-1 bg-yellow-50 border-b border-yellow-300 shadow-md text-[14px] font-bold text-yellow-900">
+          <span className="whitespace-nowrap">印 {_rvMarks.length}名</span>
+          <span className="min-w-0 truncate text-[11px] font-normal text-yellow-800">名前を長押しで付け外し</span>
+          <button type="button" data-testid="rv-marks-clear-phone" onClick={() => _setRvMarks([])} className="ml-auto shrink-0 h-8 px-3 rounded-lg bg-white border border-yellow-400 text-yellow-900 whitespace-nowrap">外す</button>
+        </div>) : null} summary={(() => { const _d = new Date(selectedDate + 'T00:00:00'); const _foldNarrow = tsuViewW() < 390; /* ★ 2026-10-22: 360〜375px で「保存」が切れていた → 曜日を外す */ return (<>
         <TsuDatePick testId="rec-fold-date" value={selectedDate} label={isNaN(_d) ? '日付' : (_foldNarrow ? `${_d.getMonth()+1}/${_d.getDate()}` : `${_d.getMonth()+1}/${_d.getDate()}(${'日月火水木金土'[_d.getDay()]})`)}
           onChange={v => { const closed=(appData.systemSettings?.facilityInfo?.closedDays||[0]); setSelectedDate(nearestOpenDate(v, closed, [])); }} />
         <div className="flex rounded-lg overflow-hidden border border-slate-300 shrink-0">
@@ -27365,22 +27420,9 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
               
               {/* ★ 連絡帳は一番左(全画面の左)に配置(2026-08-28 店舗要望) */}
               <button data-testid="rec-act-renraku" onClick={() => { handleSaveClick(); navigateTo('print'); }} className={`bg-emerald-600 hover:bg-emerald-700 text-white px-2 ${_iconBar ? 'sm:px-2.5' : 'sm:px-4'} py-2 rounded-xl text-sm font-bold shadow-lg transition-transform active:scale-95 whitespace-nowrap`}>{_iconBar ? _ib(Printer, '連絡帳') : '連絡帳'}</button>
-              <button data-testid="rec-act-fullscreen" onClick={()=>{ if (isFullscreen) setIsFullscreen(false); else setFsPick(true); }} className="bg-slate-700 hover:bg-slate-800 text-white px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title={isFullscreen?'通常表示':'全画面表示'}>
-                {isFullscreen ? '通常表示' : (_iconBar ? _ib(Maximize2, '全画面') : '全画面')}
+              <button data-testid="rec-act-fullscreen" onClick={()=>{ if (isFullscreen) setIsFullscreen(false); else setIsFullscreen(true); }} className="bg-slate-700 hover:bg-slate-800 text-white px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-all active:scale-95 whitespace-nowrap" title={isFullscreen?'通常画面':'全画面表示'}>
+                {isFullscreen ? '通常画面' : (_iconBar ? _ib(Maximize2, '全画面') : '全画面')}
               </button>
-              {fsPick && ReactDOM.createPortal((
-                <div data-testid="fs-pick" style={{position:'fixed',inset:0,zIndex:2147483000,background:'rgba(15,23,42,0.45)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={() => setFsPick(false)}>
-                  <div style={{background:'white',borderRadius:18,padding:18,width:'100%',maxWidth:460,boxShadow:'0 20px 60px rgba(0,0,0,0.35)'}} onClick={e => e.stopPropagation()}>
-                    <div style={{fontSize:16,fontWeight:'bold',color:'#1e293b',marginBottom:4}}>全画面の見せ方</div>
-                    <div style={{fontSize:12,color:'#64748b',marginBottom:12}}>この端末で前に選んだものに印が付いています。全画面の中でも切り替えられます。</div>
-                    {[['zoom','拡大表示','文字を1.2倍に。10人分より多いときはスクロール'],['fit','全員を1画面に','来ている方の人数と画面の大きさに合わせて、全員が画面に入る大きさに']].map(([k, l, sub]) => (
-                      <button key={k} type="button" data-testid={`fs-pick-${k}`} onClick={() => { try { localStorage.setItem(TSU_FS_MODE_KEY, k); } catch {} _setFsModeTick(t => t + 1); setFsPick(false); setIsFullscreen(true); }}
-                        style={{display:'block',width:'100%',textAlign:'left',padding:'12px 14px',marginBottom:8,borderRadius:12,border: tsuFsMode() === k ? '2px solid #2563eb' : '2px solid #e2e8f0',background: tsuFsMode() === k ? '#eff6ff' : 'white',cursor:'pointer'}}>
-                        <div style={{fontSize:15,fontWeight:'bold',color: tsuFsMode() === k ? '#1d4ed8' : '#1e293b'}}>{tsuFsMode() === k ? '● ' : ''}{l}</div><div style={{fontSize:12,color:'#64748b'}}>{sub}</div>
-                      </button>))}
-                    <div style={{textAlign:'right'}}><button type="button" onClick={() => setFsPick(false)} style={{padding:'8px 16px',borderRadius:10,border:'none',background:'#f1f5f9',color:'#334155',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>やめる</button></div>
-                  </div>
-                </div>), document.body)}
               <button onClick={()=>setRestoreModal(true)} className="bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 px-2 sm:px-3 py-2 rounded-xl text-sm font-bold transition-transform active:scale-95 whitespace-nowrap" title="保存した記録を丸ごと復元(元に戻す)">{_iconBar ? _ib(Undo2, '戻す') : '戻す'}</button>{/* ★ 2026-10-26(ユーザー): ほかと同じ「戻す」に */}
               {/* ★ onClick={handleSaveClick} だとクリックイベントが第1引数(auto)に渡り auto=truthy(自動保存扱い)になり、
                   「保存しました」が出ず担当者チェックも飛ばされていた。 明示的に auto=false で呼ぶ。 */}
@@ -27388,36 +27430,16 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
             </div>
       </div>
       {_vitalPanel}
-      {/* ★ 2026-10-16: スマホの「利用者」一覧(押すとその方のカードへ)。名前・ふりがなで探せる */}
-      {recJump && ReactDOM.createPortal((
-        <div className="fixed inset-x-0 bottom-0" style={{ top: recJump.top, zIndex: 9000 }} data-testid="rec-jump">
-          <div className="absolute inset-0 bg-slate-900/40" onClick={() => setRecJump(null)} />
-          <div className="relative bg-white border-b border-slate-300 shadow-xl flex flex-col" style={{ maxHeight: '70vh' }}>
-            <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200">
-              <input type="search" value={recJump.q} onChange={e => { const v = e.target.value; setRecJump(o => o ? { ...o, q: v } : o); }} placeholder="名前で探す" data-testid="rec-jump-q" className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-[16px] outline-none" />
-              <button type="button" onClick={() => setRecJump(null)} className="whitespace-nowrap shrink-0 px-3 py-2 rounded-lg bg-slate-200 text-slate-700 text-sm font-bold">閉じる</button>
-            </div>
-            {attCounts && (() => { const defs = [['出席','#1e40af','#dbeafe'],['欠席','#991b1b','#fee2e2'],['振替','#166534','#dcfce7'],['臨時','#155e75','#cffafe'],['休止','#9a3412','#ffedd5'],['休業','#475569','#f1f5f9']].filter(([l]) => (attCounts[l]||0) > 0); if (!defs.length) return null; return (
-              <div data-testid="rec-jump-att" className="flex flex-wrap gap-1.5 px-3 pt-2">{defs.map(([l,fg,bg]) => <span key={l} style={{background:bg,color:fg,borderRadius:6,padding:'1px 8px',fontSize:13,fontWeight:'bold'}}>{l} {attCounts[l]}</span>)}</div>); })()}
-            <div className="overflow-y-auto p-2 grid grid-cols-2 gap-1.5" data-testid="rec-jump-list">
-              {(() => { const q = _recKana(recJump.q); const list = (displayRecords || []).filter(r => { if (!q) return true; const mp = (appData.patients||[]).find(pt => pt.id === r.patientId || pt.id === r.id) || {}; return _recKana(r.name).includes(q) || _recKana(mp.kana).includes(q); });
-                if (!list.length) return <div className="col-span-2 text-center text-[14px] text-slate-400 py-4">見つかりません</div>;
-                return list.map(r => { const st = r.status || '出席'; const off = st === '欠席' || st === '休業' || st === '休止'; return (
-                  <button key={r.id} type="button" data-testid="rec-jump-item" onClick={() => jumpToRecCard(r.id)} className={`min-h-[48px] px-2.5 py-1.5 rounded-lg border text-left flex items-center gap-1.5 ${off ? 'bg-slate-50 border-slate-200 text-slate-400' : 'bg-white border-slate-300 text-slate-800'}`}>
-                    <span className="flex-1 min-w-0 truncate text-[16px] font-bold">{r.name}</span>
-                    {st !== '出席' ? <span className="shrink-0 text-[11px] font-bold rounded px-1.5 py-0.5 bg-slate-100 text-slate-600">{st}</span> : null}
-                  </button>); }); })()}
-            </div>
-          </div>
-        </div>), document.body)}
       </>
       </TsuPhoneFold>
       ) : (
         // 全画面時: 浮いたボタンではなく、統合された上部ヘッダーバー
         // ★ 2026-10-08(ユーザー報告「スマホで全画面表示がおかしい」: 題名が1文字ずつ縦に折れ、ボタンが右にはみ出していた): スマホ幅は折り返して2段に
         <div data-testid="rec-fs-bar" className="bg-slate-800 px-2 sm:px-4 py-2 flex flex-wrap items-center gap-2 sm:gap-3 flex-shrink-0 sticky top-0 z-50 shadow-md">
-          <span className="text-white font-bold text-sm whitespace-nowrap truncate min-w-0"><span className="hidden sm:inline">サービス提供記録 入力 </span>{selectedDate && new Date(selectedDate).toLocaleDateString('ja-JP', {year:'numeric', month:'long', day:'numeric'})}</span>
+          <span data-testid="rec-fs-title" className="text-white font-bold text-sm whitespace-nowrap truncate min-w-0">{/* ★ 2026-10-28(ユーザー要望「全画面の左上の『サービス提供記録 入力 2026年10月28日』は長い。10月28日だけで」) */}{selectedDate && new Date(selectedDate).toLocaleDateString('ja-JP', {month:'long', day:'numeric'})}</span>
           {attCountChips && <div className="ml-1 sm:ml-2">{attCountChips}</div>}
+          {/* ★ 2026-10-28(ユーザー要望「スマホの全画面でも利用者を選べるボタンを」): スマホ(カードの画面)だけ。押すと通常画面と同じ一覧 */}
+          {filterMode === 'single' && <button type="button" data-testid="fs-rec-jump" onClick={openRecJump} aria-expanded={!!recJump} className={`md:hidden px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border ${recJump ? 'bg-slate-600 text-white border-slate-500' : 'bg-white text-slate-800 border-slate-300'}`}>利用者</button>}
           {/* ★ 2026-10-26(ユーザー要望「個別の実施・並び替え・一括○・印の外しも全画面で」) */}
           {_kinouOn && (
             <div data-testid="fs-kinou-box" className="flex items-center gap-1 bg-emerald-50 border border-emerald-200 rounded-lg px-1.5 py-0.5" title="個別機能訓練をした指導員。選ぶと表示中の全員に入ります（人ごとは「利用者ごと」）">
@@ -27440,14 +27462,43 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           )}
           <div className="flex-1 hidden sm:block"/>
           <div className="basis-full sm:hidden" />
-          <button onClick={()=>{ handleSaveClick(); navigateTo('print'); }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap" title="連絡帳の作成・印刷へ"><Printer size={13} className="mr-1"/>連絡帳</button>
-          <button type="button" data-testid="fs-mode-switch" onClick={() => { try { localStorage.setItem(TSU_FS_MODE_KEY, _fsFit ? 'zoom' : 'fit'); } catch {} _setFsModeTick(t => t + 1); }} className="bg-white/90 text-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border border-slate-300" title="全画面の見せ方を切り替えます（この端末）">{_fsFit ? '拡大表示' : '全員を1画面に'}</button>{/* ★ 2026-10-23: 全画面の中でも見せ方を切り替えられる */}
-          <button onClick={closeFullscreen} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap">通常表示へ</button>
+          <button onClick={()=>{ handleSaveClick(); navigateTo('print'); }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap" title="連絡帳の作成・印刷へ">連絡帳</button>{/* ★ 2026-10-28(ユーザー): 全画面のアイコンは外す */}
+          {/* ★ 2026-10-28: 倍率(－ ○% ＋)。表の画面だけ。自分で変えたら「全員」で全員が入る倍率に戻す */}
+          {/* ★ 2026-10-28 夜(ユーザー指示): 「全員」は倍率の左に */}
+          {_fsUserZoom != null && <button type="button" data-testid="fs-zoom-fit" onClick={() => _saveFsZoom(null)} title="全員が1画面に入る大きさに戻します" className="hidden md:block bg-white/90 text-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border border-slate-300">全員</button>}
+          <div data-testid="fs-zoom" className="hidden md:inline-flex items-stretch rounded-lg overflow-hidden border border-slate-300 bg-white/95 text-slate-800">
+            <button type="button" data-testid="fs-zoom-minus" onClick={() => _fsZoomStep(-0.05)} disabled={_fsZoom <= 0.45} className="px-3 py-1 text-base font-bold leading-none disabled:opacity-40" aria-label="小さく">－</button>
+            <span data-testid="fs-zoom-val" className="px-2 py-1.5 text-xs font-bold tabular-nums border-x border-slate-300 min-w-[3.4em] text-center">{Math.round(_fsZoom * 100)}%</span>
+            <button type="button" data-testid="fs-zoom-plus" onClick={() => _fsZoomStep(0.05)} disabled={_fsZoom >= 1.6} className="px-3 py-1 text-base font-bold leading-none disabled:opacity-40" aria-label="大きく">＋</button>
+          </div>
+          <button data-testid="rec-fs-close" onClick={closeFullscreen} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap">通常画面</button>{/* ★ 2026-10-28(ユーザー要望): 「通常表示へ」→「通常画面」 */}
           <button onClick={()=>setRestoreModal(true)} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap" title="保存した記録を丸ごと復元（戻す）">戻す</button>
-          <button onClick={()=>handleSaveClick(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap"><CloudUpload size={13} className="mr-1"/>保存</button>
+          <button data-testid="rec-fs-save" onClick={()=>handleSaveClick(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center whitespace-nowrap">保存</button>
         </div>
       )}
 
+      {/* ★ 2026-10-16: スマホの「利用者」一覧(押すとその方のカードへ)。名前・ふりがなで探せる。2026-10-28: 全画面からも開くので帯の外に置く */}
+      {recJump && ReactDOM.createPortal((
+        <div className="fixed inset-x-0 bottom-0" style={{ top: recJump.top, zIndex: isFullscreen ? 10040 : 9000 }} data-testid="rec-jump">{/* 全画面(9999)のときはその上に */}
+          <div className="absolute inset-0 bg-slate-900/40" onClick={() => setRecJump(null)} />
+          <div className="relative bg-white border-b border-slate-300 shadow-xl flex flex-col" style={{ maxHeight: '70vh' }}>
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200">
+              <input type="search" value={recJump.q} onChange={e => { const v = e.target.value; setRecJump(o => o ? { ...o, q: v } : o); }} placeholder="名前で探す" data-testid="rec-jump-q" className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-[16px] outline-none" />
+              <button type="button" onClick={() => setRecJump(null)} className="whitespace-nowrap shrink-0 px-3 py-2 rounded-lg bg-slate-200 text-slate-700 text-sm font-bold">閉じる</button>
+            </div>
+            {attCounts && (() => { const defs = [['出席','#1e40af','#dbeafe'],['欠席','#991b1b','#fee2e2'],['振替','#166534','#dcfce7'],['臨時','#155e75','#cffafe'],['休止','#9a3412','#ffedd5'],['休業','#475569','#f1f5f9']].filter(([l]) => (attCounts[l]||0) > 0); if (!defs.length) return null; return (
+              <div data-testid="rec-jump-att" className="flex flex-wrap gap-1.5 px-3 pt-2">{defs.map(([l,fg,bg]) => <span key={l} style={{background:bg,color:fg,borderRadius:6,padding:'1px 8px',fontSize:13,fontWeight:'bold'}}>{l} {attCounts[l]}</span>)}</div>); })()}
+            <div className="overflow-y-auto p-2 grid grid-cols-2 gap-1.5" data-testid="rec-jump-list">
+              {(() => { const q = _recKana(recJump.q); const list = (displayRecords || []).filter(r => { if (!q) return true; const mp = (appData.patients||[]).find(pt => pt.id === r.patientId || pt.id === r.id) || {}; return _recKana(r.name).includes(q) || _recKana(mp.kana).includes(q); });
+                if (!list.length) return <div className="col-span-2 text-center text-[14px] text-slate-400 py-4">見つかりません</div>;
+                return list.map(r => { const st = r.status || '出席'; const off = st === '欠席' || st === '休業' || st === '休止'; return (
+                  <button key={r.id} type="button" data-testid="rec-jump-item" onClick={() => jumpToRecCard(r.id)} className={`min-h-[48px] px-2.5 py-1.5 rounded-lg border text-left flex items-center gap-1.5 ${off ? 'bg-slate-50 border-slate-200 text-slate-400' : 'bg-white border-slate-300 text-slate-800'}`}>
+                    <span className="flex-1 min-w-0 truncate text-[16px] font-bold">{r.name}</span>
+                    {st !== '出席' ? <span className="shrink-0 text-[11px] font-bold rounded px-1.5 py-0.5 bg-slate-100 text-slate-600">{st}</span> : null}
+                  </button>); }); })()}
+            </div>
+          </div>
+        </div>), document.body)}
       {/* ★ 2026-10-26: 並び替え・一括○の小窓は通常表示・全画面のどちらからでも開く(帯の外に置く) */}
       {recOrderOpen && <RecordOrderModal rows={_recOrderRows} label={_recOrderLabel} onSave={saveRecordOrder} onReset={_recOrderOn ? resetRecordOrder : null} onClose={() => setRecOrderOpen(false)}/>}
       {bulkExOpen && ReactDOM.createPortal(<TsuBulkExerciseModal
@@ -27457,13 +27508,6 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 onClose={() => setBulkExOpen(false)}
                 onApply={(cells) => { let n = 0; Object.entries(cells).forEach(([k, v]) => { const i = k.lastIndexOf('|'); const rid = k.slice(0, i), fld = k.slice(i + 1); const r = (displayRecords || []).find(x => String(x.id) === rid); if (!r) return; updateExercise(r.id, fld, v === 'o' ? '○' : '×'); n++; }); setBulkExOpen(false); try { window.dispatchEvent(new CustomEvent('tsumugi-toast', { detail: { msg: `${n}件を入れました。内容を確かめて「保存」を押してください` } })); } catch {} }}
               />, document.body)}
-      {/* ★ 2026-10-21: スマホは上の帯がたたまれているので、印があるときだけ左下に小さく(固定・表は動かない) */}
-      {_rvMarks.length > 0 && (
-        <div data-testid="rv-marks-bar-phone" className="no-print sm:hidden fixed left-3 z-40 inline-flex items-center gap-2 pl-3 pr-1 h-11 rounded-xl bg-yellow-50 border border-yellow-300 text-[14px] font-bold text-yellow-900 shadow-md" style={{bottom:'calc(env(safe-area-inset-bottom, 0px) + 44px)'}}>
-          <span className="whitespace-nowrap">印 {_rvMarks.length}名</span>
-          <button type="button" data-testid="rv-marks-clear-phone" onClick={() => _setRvMarks([])} className="h-9 px-3 rounded-lg bg-white border border-yellow-400 text-yellow-900 whitespace-nowrap">外す</button>
-        </div>
-      )}
       <style>{`#record-table tbody tr { min-height: 32px !important; } #record-table tbody tr td { min-height: 32px !important; padding-top: 2px !important; padding-bottom: 2px !important; box-sizing: border-box !important; } /* 個別運動列: 他の列と同じ行高に収める (min-height強制を外す) */ #record-table tbody tr td[data-ind-cell] { min-height: 0 !important; height: auto !important; max-height: none !important; overflow: visible !important; vertical-align: middle !important; }  #record-table tr.readonly-row input:disabled, #record-table tr.readonly-row button:disabled, #record-table tr.readonly-row textarea:disabled, #record-table tr.readonly-row select:disabled { opacity: 1 !important; color: #000 !important; -webkit-text-fill-color: #000 !important; } /* 列見出しを縦スクロール時も常に上部固定 + 行高を狭く */ #record-table thead th { position: -webkit-sticky !important; position: sticky !important; top: 0 !important; height: 32px !important; min-height: 32px !important; max-height: 32px !important; padding-top: 4px !important; padding-bottom: 4px !important; line-height: 1.1 !important; font-size: 11px !important; }`}</style>
       {/* ★ 画面上部の横スクロールバー(自前描画・2026-08-11): ネイティブのスクロールバーは
           OS/ブラウザ設定で非表示になり得るため、つまみを自前で描画して常時表示する。
@@ -27832,10 +27876,10 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                   //   minHeight も同じ式で「行が縮まない」よう強制
                   // ★ 2026-10-23: 'fit' は来ている全員で割る(見出し48px・下の余白を引く)。最小32px
                   height: isFullscreen
-                    ? (_fsFit ? 58 : `calc((100dvh - 80px) / ${Math.min(10, Math.max(1, localPatients.length))})`)
+                    ? 58
                     : dynamicRowHeight,
                   minHeight: isFullscreen
-                    ? (_fsFit ? 58 : `calc((100dvh - 80px) / ${Math.min(10, Math.max(1, localPatients.length))})`)
+                    ? 58
                     : 48,
                 }}>
                   {filterMode === 'month' && (
@@ -32602,7 +32646,7 @@ function JissekiView({ appData, onSave, onShowPrintPreview }) {
   const days = Array.from({length:dim},(_,i)=>i+1);
   const dowJp = ['日','月','火','水','木','金','土'];
   const closedDays = appData.systemSettings?.facilityInfo?.closedDays || [0];
-  const holidaySet = new Set((appData.holidays||[]).map(h=>h.date||h));
+  const holidaySet = fullHolidaySet(appData.holidays); // ★ 2026-10-28: 半日休業の日は灰色にしない
   const mStart = `${jy}-${String(jm).padStart(2,'0')}-01`;
   const mEnd = `${jy}-${String(jm).padStart(2,'0')}-${String(dim).padStart(2,'0')}`;
   const byPat = new Map();
@@ -33771,7 +33815,9 @@ function OperationDashboardView({ appData, setAppData, onShowPrintPreview }) {
               for (let d = 1; d <= daysInMonth; d++) {
                 const dow = new Date(year, month - 1, d).getDay();
                 if (_closed.includes(dow)) continue;
-                if (_hset.has(`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`)) continue;
+                const _wIso = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                // ★ 2026-10-28 半日休業(午前/午後だけ)の日は 0.5日
+                if (_hset.has(_wIso)) { const _wa = holidayAmpmOn(appData.holidays, _wIso); if (_wa === 'AM' || _wa === 'PM') workDays += 0.5; continue; }
                 workDays++;
               }
               return workDays;
@@ -35125,6 +35171,8 @@ function RenrakuModal({ appData, patientId, dayPatientIds, onClose, onSave, sele
               </select>
             )
           })}
+          {/* ★ 2026-10-29(ユーザー要望): 前の日の連絡帳は、出力したときの連絡事項のまま(ここで直しても前の日の連絡帳は変わらない) */}
+          {(dayRecords || []).some(r => tsuCbIssuedOf(r, selectedDate)) && <div data-testid="renraku-issued-note" className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">この日の連絡帳は出力したときの連絡事項のまま表示しています。ここで直した内容は、これから出力する連絡帳に入ります。</div>}
           {curPid && _dropLineOf(curPid) ? <div data-testid="renraku-dropnote-line" className="text-[12px] text-indigo-800 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">この方の連絡帳の最後に入ります（送り時間反映）：<b>{_dropLineOf(curPid)}</b></div> : null}
           {warn && <div className="text-xs font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{warn}</div>}
           {/* 定型文: 登録 / 一覧 */}
@@ -35205,10 +35253,17 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   const _cbListRef = React.useRef(null); const [_cbS, _setCbS] = useState(1);
   React.useEffect(() => {
     const el = _cbListRef.current; if (!el || _renPhone) { _setCbS(1); return; }
-    const PW = 182 * 96 / 25.4, GAP = 32;
-    const calc = () => { const w = el.clientWidth; let sc = 1; if (w < PW * 2 + GAP) { const t = (w - GAP) / (PW * 2); sc = t >= 0.6 ? Math.floor(t * 100) / 100 : 1; } _setCbS(prev => (Math.abs(prev - sc) < 0.005 ? prev : sc)); };
-    calc(); let ro = null; try { ro = new ResizeObserver(calc); ro.observe(el); } catch { window.addEventListener('resize', calc); }
-    return () => { if (ro) ro.disconnect(); else window.removeEventListener('resize', calc); };
+    const PW = 182 * 96 / 25.4, PH = 257 * 96 / 25.4, GAP = 32;
+    // ★ 2026-10-28(ユーザー「連絡帳で1画面で名前と次回お迎え時間を見れる大きさにしてほしい」): 横幅だけでなく、1枚の縦(名前〜次回お迎え時間)も
+    //   画面に入るよう縮める。見える高さ = スクロールする枠の高さ − 上に貼り付く帯(tsu-cb-bar) − 上下の余白。読みやすさのため 0.5倍まで
+    const viewAvail = () => { try { let sp = el.parentElement; while (sp && !/(auto|scroll)/.test(getComputedStyle(sp).overflowY)) sp = sp.parentElement;
+      const vh = sp ? sp.clientHeight : ((window.visualViewport && window.visualViewport.height) || window.innerHeight); const bar = document.querySelector('.tsu-cb-bar'); const bh = bar ? bar.getBoundingClientRect().height : 0;
+      return vh - bh - 40; } catch { return 0; } };
+    const calc = () => { const w = el.clientWidth; let sc = 1; if (w < PW * 2 + GAP) { const t = (w - GAP) / (PW * 2); sc = t >= 0.6 ? Math.floor(t * 100) / 100 : 1; }
+      const av = viewAvail(); if (av > 300 && PH * sc > av) sc = Math.max(0.5, Math.floor(av / PH * 100) / 100);
+      _setCbS(prev => (Math.abs(prev - sc) < 0.005 ? prev : sc)); };
+    calc(); let ro = null; try { ro = new ResizeObserver(calc); ro.observe(el); } catch {} window.addEventListener('resize', calc);
+    return () => { if (ro) ro.disconnect(); window.removeEventListener('resize', calc); };
   });
   const [showPrintCards, setShowPrintCards] = useState(false); // ★ 印刷用の隠しカードは印刷時だけ描画(スマホのメモリ対策)
   const [printMissingConfirm, setPrintMissingConfirm] = useState(null); // ★ 次回予定未入力の確認 {names:[]}(2026-09-09)
@@ -35438,6 +35493,7 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
   //   ★ 2026-09-09b: 時刻は「時」「分」の両方に数字が入って初めて入力済み扱い(「8時 分」の片入力は未入力に数える)。
   const _fullTime = (v) => /\d+\s*[:時]\s*\d+/.test(String(v ?? ''));
   const _nextPlanMissing = (r) => {
+    { const _iss = tsuCbIssuedOf(r, selectedDate); if (_iss && typeof _iss.t === 'string') return false; } // ★ 2026-10-29: 前の日で次回の控えがある方は、出力したときの内容で出す
     const patient = (appData.patients||[]).find(pt => pt.id === r.patientId);
     if (!patient) return false;
     const info = getNextVisitInfo(patient, selectedDate, appData.monthlyShifts, appData);
@@ -35623,8 +35679,14 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     try {
       const at = syncNow(); const ids = new Set(targets.map(r => String(r.id)));
       const _slotOf = (r) => { if (r.furikaeAmpm === 'AM' || r.furikaeAmpm === 'PM') return r.furikaeAmpm; const _af = (sharedAmpm === 'AM' || sharedAmpm === 'PM') ? sharedAmpm : null; if (_af) return _af; const pt = (appData.patients||[]).find(x => x.id === r.patientId); const dow = new Date(selectedDate).getDay(); const v = pt?.scheduleAmPm?.[dow]; return v === 'PM' ? 'PM' : 'AM'; };
+      // ★ 2026-10-29(ユーザー要望): 出した内容(次回利用日・お迎え時間・送りの時間・連絡事項)も控える(前の日の連絡帳はこの控えで出す・tsuCbIssuedOf)。
+      //   出力に使った用紙(print-content-cb-○)の印から読むので、出したものと同じになる。前と同じ中身なら控えは書き直さない
+      const _issOf = (r) => { try { const el = document.querySelector(`#print-content-cb-${r.patientId} [data-cb-next-d]`); if (!el) return null; return { d: el.getAttribute('data-cb-next-d') || '', t: el.getAttribute('data-cb-next-t') || '', drop: el.getAttribute('data-cb-drop') || '', ra: el.getAttribute('data-cb-ren-all') || '', rp: el.getAttribute('data-cb-ren-pat') || '' }; } catch { return null; } };
       let n = 0;
-      const list = (appData.ticketRecords || []).map(r => { if (!r || !ids.has(String(r.id))) return r; const k = `cbPrintedAt_${_slotOf(r)}`; n++; return { ...r, [k]: at, _fieldTs: { ...(r._fieldTs || {}), [k]: at }, _savedAt: at }; });
+      const list = (appData.ticketRecords || []).map(r => { if (!r || !ids.has(String(r.id))) return r; const k = `cbPrintedAt_${_slotOf(r)}`; n++;
+        const iss = _issOf(r); let cur = null; try { cur = r.cbIssued ? JSON.parse(r.cbIssued) : null; } catch {}
+        const _issNew = iss && (!cur || cur.d !== iss.d || cur.t !== iss.t || String(cur.drop || '') !== iss.drop || cur.ra !== iss.ra || cur.rp !== iss.rp);
+        return { ...r, [k]: at, ...(_issNew ? { cbIssued: JSON.stringify({ ...iss, at }) } : {}), _fieldTs: { ...(r._fieldTs || {}), [k]: at, ...(_issNew ? { cbIssued: at } : {}) }, _savedAt: at }; });
       if (n) onSave({ ...appData, ticketRecords: list }, { silent: true });
     } catch (e) { console.warn('cbPrintedAt stamp failed', e); }
     // ★ 取得後は隠しカードを解放してメモリを戻す
@@ -35684,7 +35746,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
       let recs = [...(appData.ticketRecords || [])];
       const idx = recs.findIndex(r => String(r.id) === String(recordId));
       if (idx >= 0) {
-        recs[idx] = { ...recs[idx], ...patch, _savedAt: now };
+        const _clr = tsuCbIssuedClearNext(recs[idx], selectedDate, now); // ★ 2026-10-29: 前の日に直したら次回の控えをやめる(連絡事項の控えは残す)
+        recs[idx] = { ...recs[idx], ...patch, ..._clr, _savedAt: now };
       } else if (String(recordId).startsWith('auto-')) {
         const pid = Number(String(recordId).slice(5));
         const pat = (appData.patients || []).find(p => p.id === pid);
@@ -35710,7 +35773,9 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
     if (cand < td) cand = new Date(y0+1, +mm[1]-1, +mm[2]);
     const iso = _isoOf(cand);
     const closed = (appData.systemSettings?.facilityInfo?.closedDays||[0]);
-    const holi = (appData.holidays||[]).some(h => ((h && h.date) ? h.date : h) === iso);
+    // ★ 2026-10-28 半日休業: その方の基本の時間帯がその休業にふさがるときだけ休業扱い(1日の方・もう半日の方・臨時はその日のまま)
+    const _hapS = holidayAmpmOn(appData.holidays, iso);
+    const holi = _hapS === '1日' || (!!_hapS && (() => { const _p0 = (appData.patients||[]).find(pt => pt.id === pid); const _b0 = _p0 ? (getScheduleOnDate(_p0, iso)?.[cand.getDay()] || '') : ''; return _b0 === _hapS; })());
     if (!closed.includes(cand.getDay()) && !holi) return _labelOfIso(iso);   // 営業日 → そのまま
     // 休業/定休 → その利用者の次の利用日へ(前日に立って次回を計算=入力日以降の最初の利用日)
     const _p = (appData.patients||[]).find(pt => pt.id === pid);
@@ -35799,7 +35864,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         }
         _changed++;
         const idx = recs.findIndex(r => String(r.id) === String(rid));
-        if (idx >= 0) { recs[idx] = { ...recs[idx], ...patch, _savedAt: now }; }
+        // ★ 2026-10-29: 前の日の連絡帳で次回予定を直したら、控え(cbIssued)をやめて直した内容で出す(出力し直すとまた控える)
+        if (idx >= 0) { const _clr = tsuCbIssuedClearNext(recs[idx], selectedDate, now); recs[idx] = { ...recs[idx], ...patch, ..._clr, _savedAt: now }; }
         else if (String(rid).startsWith('auto-')) {
           const pid = Number(String(rid).slice(5));
           const pat = (appData.patients || []).find(p => p.id === pid);
@@ -36127,6 +36193,8 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
               </div>
               <div className="flex-1 overflow-y-auto p-4">
                 <p className="text-xs text-slate-400 font-bold bg-slate-100 px-3 py-2 rounded-lg mb-4">月/日/時/分 を直接入力できます (例: 6月24日 12時30分)</p>
+                {/* ★ 2026-10-29: 前の日の連絡帳は出力したときの控えで出している。ここで直して保存したら、直した内容で出す */}
+                {displayRecords.some(r => tsuCbIssuedOf(r, selectedDate)) && <p data-testid="cb-issued-modal-note" className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-lg -mt-2 mb-4">前の日の連絡帳は、出力したときの次回利用日・お迎え時間で表示しています。ここで直して保存した方は、直した内容で表示します（連絡事項は出力したときのまま）。</p>}
                 <div className="space-y-3">
                   {displayRecords.map(r => {
                     const localData = localOverrides[r.id] || { nextDateOverride: "", nextTimeOverride: "" };
@@ -36400,6 +36468,9 @@ function ContactBookView({ appData, selectedDate, setSelectedDate, onSave, dirty
         </div>
         )}
 
+        {/* ★ 2026-10-29(ユーザー要望): 前の日の連絡帳は、出力したときの控えで出していることを画面に書く(印刷には出ない) */}
+        {(() => { const n = displayRecords.filter(r => tsuCbIssuedOf(r, selectedDate)).length; if (!n) return null;
+          return <div data-testid="cb-issued-note" className="mx-1 mb-2 text-base sm:text-[13px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">前の日の連絡帳です。次回利用日・お迎え時間・連絡事項は、この日に出力したときのまま表示しています（{n}名）。</div>; })()}
         {(() => {
           // ★ スマホ(<768px)は重い連絡帳カードを全員分描画するとメモリ不足で落ちる(Safariが「問題が起きた」で再読込)。
           // ★ 2026-10-08(ユーザー要望): スマホでも連絡帳の全体を常に表示する。用紙は画面の幅にぴったり縮小(縦・横とも)、上下はスクロール。
@@ -36575,6 +36646,14 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
           }
       }
   }
+  // ★ 2026-10-29(ユーザー要望): 前の日の連絡帳は、出力したときの控え(次回利用日・お迎え時間・送りの時間)で出す(tsuCbIssuedOf)
+  const _cbIss = _isBlankFace ? null : tsuCbIssuedOf(record, selectedDate);
+  if (_cbIss) { if (typeof _cbIss.d === 'string') nextDateDisplay = _cbIss.d; if (typeof _cbIss.t === 'string') nextTimeDisplay = _cbIss.t; }
+  const _cbDropAt = (record.renrakuDropAt === '1' && !_isBlankFace) ? ((_cbIss && typeof _cbIss.drop === 'string') ? _cbIss.drop : getTransportDropAtFor(patient.id, nextDateDisplay, selectedDate, appData)) : '';
+  // ★ 2026-10-29(ユーザー要望「連絡事項もこちらも渡した時のままに」): 連絡事項(全員あて・個別)も、前の日は控えの中身で出す(控えに無い古い控えは今の中身)
+  const _cbInR = (o) => !!o && (!o.from || selectedDate >= o.from) && (!o.until || selectedDate <= o.until); // 表示期間(from〜until)外は出さない
+  const _cbRenAll = (_cbIss && typeof _cbIss.ra === 'string') ? _cbIss.ra : ((renrakuHasText(config?.renrakuAll) && _cbInR(config.renrakuAll)) ? renrakuToHtml(config.renrakuAll) : '');
+  const _cbRenPat = (_cbIss && typeof _cbIss.rp === 'string') ? _cbIss.rp : ((renrakuHasText(patient?.contactBookRenraku) && _cbInR(patient.contactBookRenraku)) ? renrakuToHtml(patient.contactBookRenraku) : '');
 
   const ex = record.exercises || {};
   const dispEx = (val) => (val === "ー" || val === "×" || !val) ? "" : val;
@@ -36695,7 +36774,7 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
   };
 
   return (
-    <div style={{width:'182mm', minWidth:'182mm', maxWidth:'182mm', height:'257mm', boxSizing:'border-box'}}
+    <div style={{width:'182mm', minWidth:'182mm', maxWidth:'182mm', height:'257mm', boxSizing:'border-box'}} data-cb-next-d={nextDateDisplay} data-cb-next-t={nextTimeDisplay} data-cb-drop={_cbDropAt} data-cb-ren-all={_cbRenAll} data-cb-ren-pat={_cbRenPat}
       className="cb-page bg-white border-2 border-black flex flex-col font-sans text-black shadow-xl relative group flex-shrink-0 overflow-hidden">
       <div className="absolute top-1 right-2 text-[9px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">※クリックで設定</div>
 
@@ -36779,20 +36858,16 @@ function ContactBookCard({ record, patient, selectedDate, config, appData, onOpe
           <div style={{height:"12px",flexShrink:0}} />
           {/* 連絡事項 — 全員共通＋個別。 クリックで編集 */}
           {(() => {
-            const _all = config?.renrakuAll; const _pat = patient?.contactBookRenraku;
-            // 表示期間(from〜until)外は表示しない (selectedDate は YYYY-MM-DD)
-            const _inRange = (o) => (!o.from || selectedDate >= o.from) && (!o.until || selectedDate <= o.until);
-            const _showAll = renrakuHasText(_all) && _inRange(_all);
-            const _showPat = renrakuHasText(_pat) && _inRange(_pat);
+            const _showAll = !!_cbRenAll, _showPat = !!_cbRenPat; // ★ 2026-10-29: 中身は上(_cbRenAll/_cbRenPat・前の日は控え)
             // ★ 2026-10-21(ユーザー要望): 「送り時間反映」を押した日の連絡帳だけ、次回の送りの時間(送迎表)を最後に1行
-            const _dropP = (record && record.renrakuDropAt === '1' && patient && patient.id !== '__blank__') ? tsuDropNoteParts(nextDateDisplay, getTransportDropAtFor(patient.id, nextDateDisplay, selectedDate, appData)) : null;
+            const _dropP = (record && record.renrakuDropAt === '1' && patient && patient.id !== '__blank__') ? tsuDropNoteParts(nextDateDisplay, _cbDropAt) : null;
             return (
             <div className="shrink-0 mb-2">
               <div className="font-bold text-slate-800" style={{fontSize:16,marginBottom:3}}>連絡事項</div>
               {/* ★ 連絡事項は 8〜9 行分を固定確保(運動テーブルはその分自動で縮む)。 文字も少し大きく。 */}
               <div title="連絡事項の編集は上部の「連絡事項」ボタンから" className="border-2 border-black bg-white" style={{height:'15.5rem',padding:'8px 10px',overflow:'hidden',whiteSpace:'pre-wrap',wordBreak:'break-word',fontSize:16.5,lineHeight:1.5,boxSizing:'border-box'}}>
-                {_showAll && <div style={{marginBottom:6}} dangerouslySetInnerHTML={{__html: renrakuToHtml(_all)}}/>}
-                {_showPat && <div dangerouslySetInnerHTML={{__html: renrakuToHtml(_pat)}}/>}
+                {_showAll && <div style={{marginBottom:6}} dangerouslySetInnerHTML={{__html: _cbRenAll}}/>}
+                {_showPat && <div dangerouslySetInnerHTML={{__html: _cbRenPat}}/>}
                 {_dropP && <div data-testid={`cb-dropnote-${patient.id}`} style={{marginTop:(_showAll||_showPat)?6:0}}>{_dropP.head} <b>{_dropP.time}</b></div>}
               </div>
             </div>
@@ -39707,6 +39782,9 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   //   表示だけの切替(確定・保存・ダウンロードは従来どおり週単位)。iPad・PCは従来どおり
   const _tpPhone = useTsuIsPhone();
   const [_tpWeekOnPhone, setTpWeekOnPhone] = useState(false);
+  // ★ 2026-10-28(ユーザー要望「スマホは日誌と同じく AM・PM を切り替えるボタンがあれば、スクロールしなくても午後を見られる」): スマホの1日表示は午前か午後の一方だけ。
+  //   開いたときは今の時刻で(12時より前=午前・12時から=午後)
+  const [_tpPhoneSlot, setTpPhoneSlot] = useState(() => (new Date().getHours() >= 12 ? 'PM' : 'AM'));
   const _tpOneDay = _tpPhone && !_tpWeekOnPhone;
   // ★ 2026-10-08(ユーザー要望): スマホは 日付の切替・1週間・確定済(変更) を上に固定し、週の切替・前週コピー・自動計算・元に戻す・設定・ダウンロードは「操作」の中へ
   const [_tpOpsOpen, setTpOpsOpen] = useState(() => { try { return localStorage.getItem('tsuFold_transport') === '1'; } catch { return false; } });
@@ -39779,7 +39857,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           ); })()}
           {/* ★ 2026-10-13(ユーザー提案): 変更内容は確定済みメニューとは別の専用ボタンから(全体・曜日・午前午後で絞り込み) */}
           {(() => { const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return tot ? (
-            <button type="button" onClick={() => setChgPanel({ iso: '', sl: '' })} data-testid="tp-chg-btn" className={`${_tpPhone ? 'hidden ' : ''}h-10 px-2.5 rounded-xl font-bold text-xs border whitespace-nowrap inline-flex items-center bg-red-50 border-red-300 text-red-800 hover:bg-red-100`}>変更 {tot}件</button>) : null; })()}
+            <button type="button" onClick={() => setChgPanel({ iso: '', sl: '' })} data-testid="tp-chg-btn" className={`${_tpPhone ? 'hidden ' : ''}h-10 px-2.5 rounded-xl font-bold text-xs border whitespace-nowrap inline-flex items-center bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100`}>変更 {tot}件</button>) : null; })()}
           {tpFocus && <button type="button" data-testid="tp-focus-clear" onClick={() => setTpFocus(null)} className="px-2.5 py-2 rounded-xl font-bold text-xs border border-amber-300 bg-yellow-100 text-amber-900 whitespace-nowrap">黄色の表示を消す</button>}
           {!!_finalAtOfWeek() && tpEdit && <button type="button" data-testid="tp-board-mode" onClick={()=>setTpEdit(false)} className="px-2.5 py-2 rounded-xl font-bold text-xs border border-emerald-300 bg-emerald-50 text-emerald-800 whitespace-nowrap">一覧に戻る</button>}
           {finalMenu && ReactDOM.createPortal((
@@ -39797,14 +39875,15 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             </div>), document.body)}
           {/* ★ 2026-10-13(ユーザー提案): 変更内容の専用パネル。全体／曜日／午前・午後で絞り込み。各コマの「運行表を出した後の変更 N件」からはそのコマに絞って開く */}
           {chgPanel && ReactDOM.createPortal((() => { const all = _chgListOfWeek(); const cl = all.filter(x => (!chgPanel.iso || x.iso === chgPanel.iso) && (!chgPanel.sl || x.sl === chgPanel.sl));
-            const _fb = (on, extra) => `px-3 py-1.5 rounded-lg text-[13px] font-bold border whitespace-nowrap ${on ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'} ${extra||''}`;
+            // ★ 2026-10-29(ユーザー「黒と赤が、つむぎの色と合っていない」): 選んだボタンは黒→つむぎの緑、件数・要連絡は赤→やわらかい橙
+            const _fb = (on, extra) => `px-3 py-1.5 rounded-lg text-[13px] font-bold border whitespace-nowrap ${on ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-700 border-slate-300 hover:bg-emerald-50'} ${extra||''}`;
             return (
             <div className="fixed inset-0 bg-slate-900/50 flex items-start justify-center p-4 pt-16" style={{zIndex:10000}} onClick={()=>setChgPanel(null)}>
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-5" onClick={e=>e.stopPropagation()} data-testid="tp-chg-panel">
                 <div className="flex items-center justify-between mb-3"><div className="font-bold text-slate-800 text-lg">{'運行表を出した後の変更'}<span className="ml-1 text-sm font-normal text-slate-500">（{cl.length}件{(chgPanel.iso || chgPanel.sl) ? `／全体 ${all.length}件` : ''}）</span></div><button type="button" onClick={()=>setChgPanel(null)} className="whitespace-nowrap text-slate-500 text-sm font-bold px-2">閉じる</button></div>
                 <div className="flex flex-wrap gap-1.5 mb-1.5" data-testid="tp-chg-filter-day">
                   <button type="button" className={_fb(!chgPanel.iso)} onClick={()=>setChgPanel(v=>({ ...v, iso: '' }))}>全体</button>
-                  {days.map(d => { const iso = _iso(d); const n = all.filter(x => x.iso === iso).length; return <button key={iso} type="button" className={_fb(chgPanel.iso === iso, n ? '' : 'opacity-50')} onClick={()=>setChgPanel(v=>({ ...v, iso }))}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{n ? <span className="ml-0.5 text-red-600">{n}</span> : null}</button>; })}
+                  {days.map(d => { const iso = _iso(d); const n = all.filter(x => x.iso === iso).length; return <button key={iso} type="button" className={_fb(chgPanel.iso === iso, n ? '' : 'opacity-50')} onClick={()=>setChgPanel(v=>({ ...v, iso }))}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{n ? <span className="ml-1 inline-block min-w-[1.4em] text-center rounded-full bg-amber-100 text-amber-800 text-[11px] leading-[1.5]">{n}</span> : null}</button>; })}
                 </div>
                 <div className="flex gap-1.5 mb-3" data-testid="tp-chg-filter-slot">
                   {[['', '午前・午後'], ['AM', '午前'], ['PM', '午後']].map(([v, l]) => <button key={v} type="button" className={_fb(chgPanel.sl === v)} onClick={()=>setChgPanel(p=>({ ...p, sl: v }))}>{l}</button>)}
@@ -39813,15 +39892,16 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 {!cl.length ? <div className="text-xs text-slate-500 py-3" data-testid="tp-chg-none">この範囲に変更はありません。</div> : (
                   <div className="max-h-[65vh] overflow-auto border border-slate-200 rounded-lg divide-y divide-slate-100" data-testid="tp-chg-list">
                     {cl.map((x, i) => { const d = new Date(x.iso + 'T00:00:00'); return (
-                      <div key={i} className={`flex items-center gap-2 px-3 py-2.5 text-[15px] leading-snug ${x.tel && x.done ? 'opacity-60' : ''}`} data-testid="tp-chg-item">
+                      // ★ 2026-10-28 深夜(ユーザー「色合いが微妙」): 連絡済の行を丸ごと薄く(opacity)すると、名前・要連絡・チェックまでかすんでいた → 薄い緑の行・文字は灰色・要連絡は出さず緑のチェックと「連絡済」
+                      <div key={i} className={`flex items-center gap-2 px-3 py-2.5 text-[15px] leading-snug ${x.tel && x.done ? 'bg-emerald-50' : ''}`} data-testid="tp-chg-item" data-done={x.tel && x.done ? '1' : '0'}>
                         <button type="button" data-testid="tp-chg-item-focus" onClick={() => { setChgPanel(null); focusChg(x); }} className="flex-1 min-w-0 text-left" title="押すとこの方を黄色く表示（もう一度で消えます）">
                           <span className="font-bold text-slate-600 tabular-nums whitespace-nowrap">{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{x.sl==='AM'?'午前':'午後'}</span>
-                          <span className={`font-bold text-slate-800 ml-1.5 ${x.tel && x.done ? 'line-through' : ''}`}>{_pname(x.pid)}</span>
-                          <span className="text-slate-700 ml-1.5">{x.ac}</span>
-                          {x.tel && <span className="ml-1.5 text-[12px] font-bold text-red-700 border border-red-400 rounded px-1 whitespace-nowrap">要連絡</span>}
+                          <span className={`font-bold ml-1.5 ${x.tel && x.done ? 'text-slate-500' : 'text-slate-800'}`}>{_pname(x.pid)}</span>
+                          <span className={`ml-1.5 ${x.tel && x.done ? 'text-slate-500' : 'text-slate-700'}`}>{x.ac}</span>
+                          {x.tel && !x.done && <span className="ml-1.5 text-[12px] font-bold text-amber-800 bg-amber-50 border border-amber-400 rounded px-1 whitespace-nowrap">要連絡</span>}
                         </button>
-                        {x.tel && <label className="flex items-center gap-1.5 text-[13px] font-bold text-slate-700 whitespace-nowrap cursor-pointer shrink-0" data-testid="tp-chg-item-done">
-                          <input type="checkbox" checked={!!x.done} onChange={e => setTelDone(x.iso, x.sl, x.pid, e.target.checked)} className="w-5 h-5"/>連絡済</label>}
+                        {x.tel && <label className={`flex items-center gap-1.5 text-[13px] font-bold whitespace-nowrap cursor-pointer shrink-0 ${x.done ? 'text-emerald-700' : 'text-slate-700'}`} data-testid="tp-chg-item-done">
+                          <input type="checkbox" checked={!!x.done} onChange={e => setTelDone(x.iso, x.sl, x.pid, e.target.checked)} className="w-5 h-5 accent-emerald-600"/>連絡済</label>}
                       </div>); })}
                   </div>)}
               </div>
@@ -39852,9 +39932,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         {_tpPhone && (
           <div className="bg-white px-1.5 py-1.5 border-b border-slate-200 flex items-center gap-1" data-testid="tp-phone-daybar">
             {_tpOneDay ? (<>
+              {/* ★ 2026-10-28(ユーザー要望「真ん中の日付が広いので狭めて、AM・PM の切り替えを」): 日付は中身の幅だけ・その右に AM/PM(日誌と同じ形) */}
               <button type="button" onClick={() => _tpStepDay(-1)} className="h-10 w-8 shrink-0 rounded-lg border border-slate-300 bg-white font-bold text-slate-700" aria-label="前の日">◀</button>
-              {(() => { const d = new Date(_tpDayIso + 'T00:00:00'); const _td = _tpDayIso === _iso(new Date()); return <span className={`flex-1 min-w-0 text-center text-[14px] font-bold whitespace-nowrap ${_td ? 'text-blue-700' : 'text-slate-800'}`} title={_td ? '今日' : undefined}>{d.getMonth()+1}/{d.getDate()}({DOWJ[d.getDay()]})</span>; })()}
+              {(() => { const d = new Date(_tpDayIso + 'T00:00:00'); const _td = _tpDayIso === _iso(new Date()); return <span data-testid="tp-phone-date" className={`shrink-0 px-0.5 text-center text-[14px] font-bold whitespace-nowrap ${_td ? 'text-blue-700' : 'text-slate-800'}`} title={_td ? '今日' : undefined}>{d.getMonth()+1}/{d.getDate()}({DOWJ[d.getDay()]})</span>; })()}
               <button type="button" onClick={() => _tpStepDay(1)} className="h-10 w-8 shrink-0 rounded-lg border border-slate-300 bg-white font-bold text-slate-700" aria-label="次の日">▶</button>
+              <div className="flex rounded-lg overflow-hidden border border-slate-300 shrink-0" data-testid="tp-phone-ampm">
+                {['AM','PM'].map(v => (<button key={v} type="button" data-testid={`tp-phone-ap-${v}`} onClick={() => setTpPhoneSlot(v)} className={`px-2 h-10 text-sm font-bold ${_tpPhoneSlot === v ? 'bg-blue-600 text-white' : 'bg-white text-slate-600'}`}>{v}</button>))}
+              </div>
+              <span className="flex-1 min-w-0" />
               <button type="button" data-testid="tp-phone-week" onClick={() => setTpWeekOnPhone(true)} className="h-10 px-1.5 shrink-0 rounded-lg bg-slate-800 text-white text-[12px] font-bold whitespace-nowrap">1週間</button>
               {(() => { const fa = _finalAtOfWeek(); const tot = days.reduce((a,d)=>a+['AM','PM'].reduce((b,sl)=>b+_chgCount(plans[`${_iso(d)}_${sl}`]),0),0); return TSU_TP_FINAL_OFF ? null : (
                 <button type="button" onClick={() => fa ? setFinalMenu(v => !v) : finalizeWeek()} data-testid="tp-finalize-phone" className={`h-10 px-1.5 shrink-0 rounded-lg font-bold text-[12px] border whitespace-nowrap ${fa?'bg-emerald-50 border-emerald-400 text-emerald-800':'bg-white border-slate-300 text-slate-700'}`}>
@@ -39883,7 +39968,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 const _today = iso === _iso(new Date());
                 return (
                   <div key={iso} id={`tpday-${iso}`} className={`px-2 py-1.5 text-sm font-bold text-white rounded-lg text-center ${_today?'bg-blue-600':'bg-slate-800'}`}>
-                    {d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）
+                    {d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{(() => { const _hw = holidayAmpmOn(appData.holidays, iso); return _hw ? <span className="ml-1 text-red-200" data-testid={`tp-hol-${iso}`}>{_hw === 'AM' ? '午前休業' : _hw === 'PM' ? '午後休業' : '休業'}</span> : null; })() /* ★ 2026-10-28 週の見出しにも休業(半日は午前休業/午後休業) */}
                   </div>
                 );
               })}
@@ -39923,13 +40008,14 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           </div>); };
         return (
         <div className="pb-4" data-testid="tp-day-list">
-          <div className={`px-3 py-1.5 text-[13px] font-bold text-center ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-700 text-white'}`}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{_hol ? <span className="ml-1 text-red-200">休業</span> : null}{!_finalAtOfWeek() ? <span className="ml-2 text-[11px] font-normal opacity-80">（編集はパソコン・iPadで）</span> : null}</div>
-          {['AM','PM'].map(sl => { const pl = getPlan(iso, sl); const abs = _absentees(iso, sl); const _fin = _baseOf(pl) || {}; const _rmSet = new Set(_removedSince(pl).map(String)); const n = _chgCount(pl);
+          {/* ★ 2026-10-28(ユーザー要望「上に日付があるので、この帯の日付は不要」): 帯は休業と「編集はパソコン・iPadで」だけ */}
+          <div data-testid="tp-day-band" className={`px-3 py-1.5 text-[13px] font-bold text-center ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-700 text-white'}`}>{_hol ? <span className="mr-2 text-red-200">{_hol.ampm === 'AM' ? '午前休業' : _hol.ampm === 'PM' ? '午後休業' : '休業'}</span> : null}{!_finalAtOfWeek() ? <span className="text-[11px] font-normal opacity-80">編集はパソコン・iPadで</span> : null}</div>
+          {[_tpPhoneSlot].map(sl => { const pl = getPlan(iso, sl); const abs = _absentees(iso, sl); const _fin = _baseOf(pl) || {}; const _rmSet = new Set(_removedSince(pl).map(String)); const n = _chgCount(pl);
             const anyone = Object.values(pl.cars||{}).some(a => (a||[]).length) || (pl.walkers||[]).length || (pl.others||[]).length || (pl.un||[]).length || _rmSet.size; return (
             <div key={sl} data-testid={`tp-dl-slot-${sl}`} className={`mt-2 mx-2 bg-white rounded-xl border-2 overflow-hidden ${sl==='AM' ? 'border-amber-300' : 'border-indigo-300'}`}>
               <div className={`px-3 py-1.5 flex items-center gap-2 text-[14px] font-bold ${sl==='AM'?'bg-amber-50 text-amber-800':'bg-indigo-50 text-indigo-800'}`}>{sl==='AM'?'午前':'午後'}
                 {pl._draft ? <span className="text-[10px] text-slate-500 bg-slate-200 rounded px-1 py-0.5 font-normal">下書き</span> : null}
-                {_baseOf(pl) && n ? <button type="button" data-testid={`tp-dl-chg-${sl}`} onClick={() => setChgPanel({ iso, sl })} className="text-[10px] text-white bg-red-600 rounded px-1.5 py-0.5 font-normal" title="押すと変更の一覧">{pl._final ? '確定後の変更' : '運行表を出した後の変更'} {n}件 ▼</button> : null}
+                {_baseOf(pl) && n ? <button type="button" data-testid={`tp-dl-chg-${sl}`} onClick={() => setChgPanel({ iso, sl })} className="text-[10px] text-white bg-amber-600 rounded px-1.5 py-0.5 font-normal" title="押すと変更の一覧">{pl._final ? '確定後の変更' : '運行表を出した後の変更'} {n}件 ▼</button> : null}
               </div>
               {!anyone ? <div className="px-3 py-2 text-[13px] text-slate-400">—</div> : (<>
                 {cars.map(c => { const ms = (pl.cars||{})[c.id] || []; const rmHere = ((_fin.cars||{})[c.id] || []).filter(m => m && _rmSet.has(String(m.pid)) && !ms.some(x => String(x.pid) === String(m.pid)));
@@ -39937,18 +40023,12 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                   const _dropMs = (pl.dropMode === 'custom' && pl.drop) ? ((pl.drop.cars||{})[c.id] || []) : [];
                   if (!ms.length && !rmHere.length && !_dropMs.length) return null; const drv = (pl.driver||{})[c.id] || '';
                   const rows = [...ms.map(m => ({ ...m, _rm: false })), ...rmHere.map(m => ({ ...m, _rm: true }))].sort((a, b) => _mins(a.t) - _mins(b.t));
-                  const _av = (pl.arrive||{})[c.id] || ''; const _au = !!_av && !!(pl.arriveAuto||{})[c.id]; return (
+                  return (
                   <div key={c.id}>
                     <div className="px-3 py-1 flex items-center gap-x-3 gap-y-1 flex-wrap text-[16px] font-bold text-slate-800 bg-slate-100 border-y border-slate-200"><span>{c.name}{!ms.length && !rmHere.length ? <span className="ml-1 text-[12px] font-normal text-slate-500">（送りだけ）</span> : null}</span>{drv ? <span className="text-[15px] text-slate-800"><span className="text-[12px] font-normal text-slate-500 mr-1">運転</span>{drv}</span> : null}
                       {_dropMs.length ? <button type="button" data-testid={`tp-dl-seat-${iso}-${sl}-${c.id}`} onClick={() => setSeatView({ iso, sl, cid: c.id })} className="ml-auto shrink-0 text-[13px] font-bold text-white bg-indigo-600 rounded-lg px-2.5 py-1">送りの座席</button> : null}</div>
                     {rows.map(m => <Row key={`${m._rm?'rm-':''}${m.pid}`} m={m} pl={pl} sl={sl} rm={m._rm} />)}
-                    {/* ★ 2026-10-15(ユーザー要望「スマホでも到着を入れることがある」): その車の最後に、施設に到着(押すとテンキー)。自動計算・前週コピーの時間は「目安」 */}
-                    {ms.length ? (
-                      <div className="px-3 py-1.5 flex items-center gap-2 border-b border-slate-100 bg-slate-50" data-testid={`tp-dl-arrive-${iso}-${sl}-${c.id}`}>
-                        <span className="shrink-0 font-bold text-[14px] text-slate-600" style={{width:'7.5em'}}>施設に到着</span>
-                        <button type="button" data-testid={`tp-dl-arrive-btn-${iso}-${sl}-${c.id}`} data-auto={_au ? '1' : '0'} data-late={(_au && _arriveLate(sl, _av)) ? '1' : '0'} onClick={() => setArrKp({ iso, sl, cid: c.id })} className={`shrink-0 font-bold tabular-nums text-[19px] rounded-lg border-2 px-2 py-0.5 bg-white ${_au ? (_arriveLate(sl, _av) ? 'border-dashed border-red-500 text-red-600 bg-red-50' : 'border-dashed border-amber-400 text-slate-800') : 'border-slate-300 text-slate-900'}`} style={{minWidth:'3.6em'}}>{_av || '—:—'}</button>
-                        {_au ? <span className="text-[11px] font-bold text-amber-800 bg-amber-100 rounded px-1.5">目安</span> : null}
-                      </div>) : null}
+                    {/* ★ 2026-10-28(ユーザー要望「スマホの施設に到着(目安)は不要。編集はiPad・パソコンで」): スマホの1日表示から「施設に到着」を外した(週の表・iPad・パソコンはそのまま) */}
                   </div>); })}
                 {(pl.walkers||[]).length ? <div><div className="px-3 py-1 text-[13px] font-bold text-slate-700 bg-slate-100 border-y border-slate-200">徒歩</div>{(pl.walkers||[]).map(m => <Row key={m.pid} m={m} pl={pl} sl={sl} walk />)}</div> : null}
                 {(pl.others||[]).length ? <div><div className="px-3 py-1 text-[13px] font-bold text-slate-700 bg-slate-100 border-y border-slate-200">その他</div>{(pl.others||[]).map(m => <Row key={m.pid} m={m} pl={pl} sl={sl} />)}</div> : null}
@@ -39967,7 +40047,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
           <div data-testid="tp-fb-grid" className={`grid ${_tpOneDay ? 'tsu-tp-one' : ''}`} style={{gridTemplateColumns: (_tpPhone && !_tpOneDay) ? `repeat(${_tpViewDays.length}, 172px)` : `repeat(${_tpViewDays.length}, minmax(0, 1fr))`, gridTemplateRows:'auto auto auto', gridAutoFlow:'column', columnGap:8, rowGap:0, ...((_tpPhone && !_tpOneDay) ? { width: 'max-content' } : {})}}>
             {_tpViewDays.map(d => { const iso = _iso(d); const _hol = (appData.holidays||[]).find(h => (h && (h.date||h)) === iso); return (
               <React.Fragment key={iso}>
-                <div className={`px-2 py-1 text-xs font-bold text-center rounded-t-xl border border-b-0 border-slate-200 min-w-0 ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-100 text-slate-700'}`}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{_hol ? <span className="ml-1 text-red-600">休業</span> : null}</div>
+                <div className={`px-2 py-1 text-xs font-bold text-center rounded-t-xl border border-b-0 border-slate-200 min-w-0 ${iso===_iso(new Date())?'bg-blue-600 text-white':'bg-slate-100 text-slate-700'}`}>{d.getMonth()+1}/{d.getDate()}（{DOWJ[d.getDay()]}）{_hol ? <span className="ml-1 text-red-600">{_hol.ampm === 'AM' ? '午前休業' : _hol.ampm === 'PM' ? '午後休業' : '休業'}</span> : null}</div>
                 {['AM','PM'].map(sl => { const pl = getPlan(iso, sl); const abs = _absentees(iso, sl); const anyone = Object.values(pl.cars||{}).some(a => (a||[]).length) || (pl.walkers||[]).length || (pl.others||[]).length || (pl.un||[]).length || _removedSince(pl).length; return (
                   <div key={sl} data-testid={`tp-fb-cell-${iso}-${sl}`} data-tpcell={`${iso}_${sl}`} className={`bg-white border-x border-t border-slate-200 min-w-0 ${sl==='PM' ? 'border-b rounded-b-xl mb-1' : ''}`}>
                     <div className={`px-2 py-0.5 text-[11px] font-bold ${sl==='AM'?'bg-amber-50 text-amber-800':'bg-indigo-50 text-indigo-800'}`}>{sl==='AM'?'午前':'午後'}</div>
@@ -40118,9 +40198,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                               : <div className="px-2 py-1 text-[10px] text-slate-400">{dragMv&&dragMv.kind!=='drop'?'ここにドロップ':'なし'}</div>)}
                           </div>
                         ))}
-                        {_baseOf(pl) && (_removedSince(pl).length > 0) && (
-                          <div data-tpcell={`${iso}_${sl}`} className="text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">{pl._final ? '確定後に外れた' : '確定時から外れた'}: {_removedSince(pl).map(pid=>_pname(pid)).join('、')}</div>
-                        )}
+                        {/* ★ 2026-10-28 夜(ユーザー指示): 「運行表を出した後に外れた」の赤い表示は外した(外れた方は休みの欄と「運行表を出した後の変更」の一覧に出る) */}
                         {(!!(pl.walkers||[]).length || (dragMv && dragMv.kind!=='drop')) && (
                           <div data-tpdrop="walk" data-tpiso={iso} data-tpslot={sl} className={`border rounded-lg px-2 py-1 ${dragMv&&dragMv.over&&dragMv.over.zone==='walk'&&dragMv.over.iso===iso&&dragMv.over.slot===sl?'border-orange-500 ring-2 ring-orange-300 bg-orange-50':'border-orange-300 bg-orange-50'}`}>
                             {/* ★ 2026-09-30(試験版・ユーザー要望): 徒歩は振替(緑)と見分けやすいようオレンジに */}
@@ -40671,7 +40749,8 @@ function FitnessView({ appData, onSave, selectedDate, sharedAmpm, setSharedAmpm,
   const [mobileRosterOpen, setMobileRosterOpen] = useState(false); // ★ スマホは対象者一覧をスライドオーバー
   const isMobileView = typeof window !== 'undefined' && tsuViewW() < 768;
   // ★ 2026-10-16(ユーザー要望「対象者を選ぶを押すひと手間をなくす」): スマホで対象者が未選択なら、開いたときに名簿を出す
-  React.useEffect(() => { if (isMobileView && !selectedPatientId) setMobileRosterOpen(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // ★ 2026-10-28(ユーザー要望「利用者マスタと同じく、体力測定もいちいち『対象者を選ぶ』を押さなくても名前が出るように」): 前の画面で選んでいた方がいても、スマホは開いたら名簿を出す(利用者マスタと同じ)
+  React.useEffect(() => { if (isMobileView) setMobileRosterOpen(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [values, setValues] = useState({});
   // ★ 2026-10-20(ユーザー要望): 項目ごとの備考(例: 5m歩行で杖使用)。30文字まで。r.notes に保存
@@ -42936,7 +43015,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const dow = dO.getDay();
     if ((appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow)) return;
-    if (appData.holidays?.some(h => (h.date || h) === ds)) return;
+    { const _hap = holidayAmpmOn(appData.holidays, ds); if (_hap === '1日' || _hap === ap) return; } // ★ 2026-10-28 半日休業はその時間帯だけ押せない
     if (getPauseReasonOnDate(localPatient, ds)) return;
     const base = getScheduleOnDate(localPatient, ds)?.[dow] || ""; // ★ その日付時点の基本利用曜日
     const ib = base === "1日" || base === ap;
@@ -42952,6 +43031,14 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
     const { day, ap, isBase } = shiftStatusModal;
     if (!localPatient) { setShiftStatusModal({isOpen:false,day:null,ap:null,currentStatus:'',isBase:false}); return; }
     setShiftStatusModal({isOpen:false,day:null,ap:null,currentStatus:'',isBase:false});
+    // ★ 2026-10-28(ユーザー「月間スケジュールで休業をクリックしたら施設休業日の設定にジャンプ。休業は個人ではなくクラスごと」):
+    //   休業はこの方だけに付けず、各種設定→事業所情報の施設休業日へ移る(提供記録入力の「休業」と同じ1か所)。押した日と時間帯を登録欄に入れておく
+    if (newStatus === '休業') {
+      const _dsH = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+      try { sessionStorage.setItem('tsumugiHolPrefill', JSON.stringify({ date: _dsH, ampm: (ap === 'AM' || ap === 'PM') ? ap : '1日', t: Date.now() })); } catch {}
+      navigateTo && navigateTo('settings', null, 'holidays');
+      return;
+    }
     // ★ 過去日を欠席/休業/振替/休止に変更しようとした時は警告(誤操作で過去の記録が変わるのを防ぐ)。
     if (['欠席','休業','振替','休止'].includes(newStatus)) {
       const _cd = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day); _cd.setHours(0,0,0,0);
@@ -43847,7 +43934,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 {monthlyHl && (<div className="mb-2 px-3 py-2 rounded-lg bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold">「その日だけ」の変更（振替・欠席・休止など）は、ここで日付を押して行います。</div>)}
                 <div className="flex items-center justify-between mb-2"><label className="text-sm font-bold text-slate-600 flex items-center gap-1.5"><CalendarCheck size={16} />月間スケジュール</label>{(() => { try { const o = JSON.parse(sessionStorage.getItem('tsumugiMasterOrigin') || 'null'); if (o && o.from === 'print' && Date.now() - Number(o.at || 0) < 30 * 60 * 1000 && typeof navigateTo === 'function') return <button type="button" data-testid="master-back-print" onClick={() => { try { sessionStorage.removeItem('tsumugiMasterOrigin'); } catch {} navigateTo('print'); }} className="ml-2 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white whitespace-nowrap">連絡帳に戻る</button>; } catch {} return null; })()}{/* ★ 2026-10-26(ユーザー要望): 連絡帳の日付から来たときは戻るボタン */}<div className="flex items-center gap-2"><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronLeft size={16} /></button><span className="text-base font-bold text-slate-700 tabular-nums w-28 text-center">{currentMonth.getFullYear()}年{currentMonth.getMonth() + 1}月</span><button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronRight size={16} /></button></div></div>
                 {/* ★ 2026-10-08(店舗報告: スマホで月間スケジュールの日付が見切れる): スマホは1日あたり28pxの幅で横にスクロール(CSS tsu-mstrip) */}
-                <div className="flex border border-slate-200 rounded-xl bg-slate-50 p-1 gap-0.5 tsu-mstrip">{allD.map(d => { const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d); const dow = dO.getDay(); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; const cl = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow); const hl = appData.holidays?.some(h => (h.date || h) === ds); const base = getScheduleOnDate(localPatient, ds)?.[dow] || ""; const bAM = base === "AM" || base === "1日"; const bPM = base === "PM" || base === "1日"; const sh = effShifts?.[mKey]?.[localPatient.id] || {}; const pi = getPauseReasonOnDate(localPatient, ds); const _inactive = !!localPatient && !isPatientActiveOnDate(localPatient, ds); /* ★ 利用開始日より前・利用終了日より後は「空欄(非利用日)」にして、どこで終了したか一目で分かるようにする。利用中に戻せば再表示。 */ /* 休止中: 基本利用日 (bAM/bPM=true) の枠だけ「休止」表示。それ以外は通常空欄 */ const _shAM = sh[`${d}_AM`] !== undefined ? sh[`${d}_AM`] : (_mSchedRecFuri[d]?.AM || (bAM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const _shPM = sh[`${d}_PM`] !== undefined ? sh[`${d}_PM`] : (_mSchedRecFuri[d]?.PM || (bPM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const cA = _inactive ? sSt("空欄", cl, hl) : (pi ? (bAM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shAM, bAM), cl, hl)); const cP = _inactive ? sSt("空欄", cl, hl) : (pi ? (bPM ? sSt("休止", cl, hl) : sSt("空欄", cl, hl)) : sSt(curSt(_shPM, bPM), cl, hl)); const ok = !cl && !hl && !pi && !isOff && !_inactive; return (<div key={d} className="flex-1 min-w-0 flex flex-col items-stretch bg-white border border-slate-200 rounded overflow-hidden"><div className={`w-full text-center text-[11px] font-bold py-1 bg-slate-100 border-b border-slate-200 leading-tight ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{d}<br/><span className="text-[9px] font-normal">{dN[dow]}</span></div><button disabled={!ok} title={_mSchedRecReason[d] || (cA.sub ? `${cA.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "AM")} data-testid={`ms-cell-${d}-AM`} className={`h-9 flex items-center justify-center border-b border-slate-100 text-[10px] leading-none whitespace-pre-wrap ${cA.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cA.t}</button><button disabled={!ok} title={_mSchedRecReason[d] || (cP.sub ? `${cP.sub} 分の振替` : undefined)} onClick={() => ok && shiftTog(d, "PM")} data-testid={`ms-cell-${d}-PM`} className={`h-9 flex items-center justify-center text-[10px] leading-none whitespace-pre-wrap ${cP.c} ${ok ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cP.t}</button></div>); })}</div>
+                <div className="flex border border-slate-200 rounded-xl bg-slate-50 p-1 gap-0.5 tsu-mstrip">{allD.map(d => { const dO = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d); const dow = dO.getDay(); const ds = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; const cl = (appData.systemSettings?.facilityInfo?.closedDays||[0]).includes(dow); const _hapC = holidayAmpmOn(appData.holidays, ds); const hl = _hapC === '1日'; const hlA = hl || _hapC === 'AM', hlP = hl || _hapC === 'PM'; /* ★ 2026-10-28 半日休業はその時間帯だけ休業 */ const base = getScheduleOnDate(localPatient, ds)?.[dow] || ""; const bAM = base === "AM" || base === "1日"; const bPM = base === "PM" || base === "1日"; const sh = effShifts?.[mKey]?.[localPatient.id] || {}; const pi = getPauseReasonOnDate(localPatient, ds); const _inactive = !!localPatient && !isPatientActiveOnDate(localPatient, ds); /* ★ 利用開始日より前・利用終了日より後は「空欄(非利用日)」にして、どこで終了したか一目で分かるようにする。利用中に戻せば再表示。 */ /* 休止中: 基本利用日 (bAM/bPM=true) の枠だけ「休止」表示。それ以外は通常空欄 */ const _shAM = sh[`${d}_AM`] !== undefined ? sh[`${d}_AM`] : (_mSchedRecFuri[d]?.AM || (bAM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const _shPM = sh[`${d}_PM`] !== undefined ? sh[`${d}_PM`] : (_mSchedRecFuri[d]?.PM || (bPM && _mSchedRecStatus[d] ? _mSchedRecStatus[d] : undefined)); const cA = _inactive ? sSt("空欄", cl, hlA) : (pi ? (bAM ? sSt("休止", cl, hlA) : sSt("空欄", cl, hlA)) : sSt(curSt(_shAM, bAM), cl, hlA)); const cP = _inactive ? sSt("空欄", cl, hlP) : (pi ? (bPM ? sSt("休止", cl, hlP) : sSt("空欄", cl, hlP)) : sSt(curSt(_shPM, bPM), cl, hlP)); const okA = !cl && !hlA && !pi && !isOff && !_inactive, okP = !cl && !hlP && !pi && !isOff && !_inactive; return (<div key={d} className="flex-1 min-w-0 flex flex-col items-stretch bg-white border border-slate-200 rounded overflow-hidden"><div className={`w-full text-center text-[11px] font-bold py-1 bg-slate-100 border-b border-slate-200 leading-tight ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{d}<br/><span className="text-[9px] font-normal">{dN[dow]}</span></div><button disabled={!okA} title={_mSchedRecReason[d] || (cA.sub ? `${cA.sub} 分の振替` : undefined)} onClick={() => okA && shiftTog(d, "AM")} data-testid={`ms-cell-${d}-AM`} className={`h-9 flex items-center justify-center border-b border-slate-100 text-[10px] leading-none whitespace-pre-wrap ${cA.c} ${okA ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cA.t}</button><button disabled={!okP} title={_mSchedRecReason[d] || (cP.sub ? `${cP.sub} 分の振替` : undefined)} onClick={() => okP && shiftTog(d, "PM")} data-testid={`ms-cell-${d}-PM`} className={`h-9 flex items-center justify-center text-[10px] leading-none whitespace-pre-wrap ${cP.c} ${okP ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}>{cP.t}</button></div>); })}</div>
                 <div className="flex gap-2 mt-2 text-[11px] text-slate-400 font-bold flex-wrap items-center"><span>上段:AM/下段:PM</span><span className="text-blue-600 bg-blue-50 px-1 rounded">出席</span><span className="text-red-500 bg-red-50 px-1 rounded">欠席</span><span className="text-emerald-600 bg-emerald-50 px-1 rounded">振替</span><span className="text-cyan-700 bg-cyan-50 px-1 rounded">臨時</span><span className="text-white bg-slate-600 px-1 rounded">休業</span><span>空欄=非利用日</span></div></div>
               {/* お迎え時間: 基本利用曜日に設定がある日のみ表示 */}
               {(() => {
@@ -45956,7 +46043,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                   {options.map(opt => (
                     <button key={opt} onClick={() => applyShiftStatus(opt)}
                       className={`w-full py-3 rounded-xl text-white font-bold text-sm shadow-md active:scale-95 ${colorMap[opt]}`}>
-                      {opt === '臨時' ? '臨時利用（基本利用日以外の来所）' : opt}
+                      {opt === '臨時' ? '臨時利用（基本利用日以外の来所）' : opt === '休業' ? '休業（施設休業日の設定へ）' : opt}
                     </button>
                   ))}
                 </div>
@@ -46100,6 +46187,7 @@ const TSU_SETTINGS_INDEX = [
   ['record','体調の理由（カスタマイズ）','体調 理由 候補 カスタマイズ'],
   ['diary','日誌','日誌 車両 車 定員 送迎車両 自動コピー 1週間前 職員 担当者 申し送り'],
   ['fitness','体力測定','体力測定 周期 項目 備考 定型文 実施しない'],
+  ['keikaku','要支援の計画書の名前','要支援 総合事業 個別サービス計画書 通所型サービス計画 名前 江東区'],
   ['keikaku','計画書の定型文（3-3・3-2・3-1・通所介護計画書）','計画書 定型文 個別機能訓練 通所介護 文例'],
   ['addon','アドオン（オプション機能）','アドオン オプション 計画書 加算 LIFE 興味関心 生活機能'],
   ['system','この端末の表示','表示 全画面 文字 大きさ 自動 この端末'],
@@ -46117,7 +46205,7 @@ function TsuSettingsSearch({ tabs, onPick }) {
   const hits = t ? TSU_SETTINGS_INDEX.filter(([tab, title, kw]) => (tabs || []).some(x => x.id === tab) && (title.includes(t) || kw.includes(t) || tabLabel(tab).includes(t))).slice(0, 10) : [];
   return (
     <div className="relative" data-testid="settings-search">
-      <input type="search" value={q} onChange={e => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} placeholder="設定を検索（例: 事業所番号・端末名・運動）" autoComplete="off" name="tsu-settings-q" data-testid="settings-search-input" className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm outline-none bg-white" />
+      <input type="search" value={q} onChange={e => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} placeholder="設定を検索（例: 事業所番号・端末名・運動）" autoComplete="off" name="tsu-settings-q" data-testid="settings-search-input" className="w-full px-3 py-1.5 rounded-xl border border-slate-300 text-sm outline-none bg-white" />
       {open && t && (
         <div data-testid="settings-search-list" className="absolute left-0 right-0 top-full mt-1 z-30 bg-white border border-slate-300 rounded-xl shadow-xl overflow-hidden">
           {hits.length === 0 ? <div className="px-3 py-2 text-xs text-slate-500">見つかりません（別の言葉で）</div> : hits.map(([tab, title, kw], i) => (
@@ -46295,23 +46383,57 @@ function TsuPushStoreCard({ appData, saveSS }) {
 function TsuSecJump({ dep, origin, onBack }) {
   const ref = React.useRef(null); const [items, setItems] = React.useState([]);
   // ★ 2026-10-26(ユーザー要望): 各種設定の中を文字で検索(この見出しの中の項目を、文字を含むものだけに絞る)
-  const _els = () => { const box = ref.current && ref.current.parentElement; return box ? [...box.querySelectorAll('[data-sec-title]')].filter(el => el.offsetParent) : []; };
+  const _els = () => { const box = ref.current && (ref.current.closest('[data-testid="settings-content"]') || ref.current.parentElement); return box ? [...box.querySelectorAll('[data-sec-title]')].filter(el => el.offsetParent) : []; }; // ★ 2026-10-28: 「この中の項目」を上の固定の帯に移したので、中身全体から探す
   // 描くたびに欄を数え直す(中身が同じなら入れ替えない=描き直しがくり返さない)
   React.useEffect(() => { const t = setTimeout(() => { const next = _els().map((el, i) => ({ i, title: el.getAttribute('data-sec-title') })); setItems(prev => (prev.map(x => x.title).join('|') === next.map(x => x.title).join('|') ? prev : next)); }, 60); return () => clearTimeout(t); });
-  const _back = (origin && onBack) ? <button type="button" data-testid="sec-back" onClick={onBack} className="px-3 py-1.5 rounded-full border border-blue-300 bg-blue-50 text-blue-800 text-xs font-bold whitespace-nowrap">{origin}に戻る</button> : null;
-  if (items.length < 2) return <div ref={ref} className="flex flex-wrap gap-2 items-center">{_back}</div>;
+  const _back = (origin && onBack) ? <button type="button" data-testid="sec-back" onClick={onBack} className="px-3 py-1 rounded-full border border-blue-300 bg-blue-50 text-blue-800 text-xs font-bold whitespace-nowrap">{origin}に戻る</button> : null;
+  if (items.length < 2) return <div ref={ref} className="flex flex-wrap gap-1.5 items-center">{_back}</div>;
   return (
-    <div ref={ref} data-testid="sec-jump" className="flex flex-wrap gap-2 items-center">
+    <div ref={ref} data-testid="sec-jump" className="flex flex-wrap gap-1.5 items-center">
       {_back}
       <span className="text-xs font-bold text-slate-500 mr-1">この中の項目:</span>
-      {items.map(it => <button key={it.i} type="button" onClick={() => { const el = _els()[it.i]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} className="px-3 py-1.5 rounded-full border border-slate-300 bg-white text-slate-700 text-xs font-bold hover:bg-slate-50 active:scale-95">{it.title}</button>)}
+      {items.map(it => <button key={it.i} type="button" onClick={() => { const el = _els()[it.i]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} className="px-3 py-1 rounded-full border border-slate-300 bg-white text-slate-700 text-xs font-bold hover:bg-slate-50 active:scale-95">{it.title}</button>)}
+    </div>
+  );
+}
+// ★ 2026-10-28 夜(ユーザー提案「事業所情報を押したら、左の項目の下にこの中の項目が出る」): iPad・PC の各種設定の左の項目の下に、その中の見出し(SectionCard の data-sec-title)。押すとその見出しへ
+// ★ 2026-10-28 深夜(ユーザー報告「見出しを押すと、いったん前の見出しに戻ってから押したものになる(チカチカ)」「ほかを押すと折りたたまれて位置がずれて面倒。押したらずっと表示、もう一度押すと閉じる」):
+//   ①押して移る間(なめらかなスクロール中)は「いま見えている見出し」の判定を止める(指・ホイール・キーで動かしたら再開)。前はスクロールの途中で前の見出しに印が戻っていた
+//   ②開く/閉じるは項目ごとに覚える(この端末・tsumugiSettingsOpenTabs)。選んでいない項目の見出しも出し(前に開いたときの見出し・無ければ検索の見出し)、押すとその項目に切り替えてその見出しへ
+const _tsuSecCache = new Map();
+// ★ 2026-10-28 深夜(ユーザー「検索で移った先を光らせる 入れて」): 移った先の見出しの枠を一瞬だけ青く光らせる(着いたころに)。動きを減らす設定の端末は枠を出すだけ
+const tsuFlashEl = (el, delay = 450) => { if (!el) return; setTimeout(() => { try { el.classList.remove('tsu-flash'); void el.offsetWidth; el.classList.add('tsu-flash'); setTimeout(() => el.classList.remove('tsu-flash'), 1700); } catch {} }, delay); };
+const _tsuSecStatic = (tab) => TSU_SETTINGS_INDEX.filter(x => x[0] === tab).map(x => x[1]);
+const tsuSecTitlesOf = (tab) => _tsuSecCache.get(tab) || _tsuSecStatic(tab);
+function TsuSecNav({ tab, active, onPickOther }) {
+  const [items, setItems] = React.useState(() => tsuSecTitlesOf(tab)); const [cur, setCur] = React.useState(0);
+  const lockRef = React.useRef(false); const selfRef = React.useRef(null);
+  // 開いたとき、左の項目の下の方で見出しが見えないところに出たら、左の欄を少しだけ動かして見えるように
+  React.useEffect(() => { const t = setTimeout(() => { try { const el = selfRef.current; const nav = el && el.closest('[data-testid="settings-vtabs"]'); if (!el || !nav) return; const r = el.getBoundingClientRect(), n = nav.getBoundingClientRect(); if (r.bottom > n.bottom) nav.scrollBy({ top: Math.min(r.bottom - n.bottom + 8, r.top - n.top - 48), behavior: 'smooth' }); } catch {} }, 80); return () => clearTimeout(t); }, []);
+  const box = () => document.querySelector('[data-testid="settings-content"]');
+  const els = () => { const b = box(); return b ? [...b.querySelectorAll('[data-sec-title]')].filter(el => el.offsetParent) : []; };
+  const go = (title, flash) => { const list = els(); const k = list.findIndex(x => x.getAttribute('data-sec-title') === title); const el = k >= 0 ? list[k] : null; lockRef.current = true; setCur(Math.max(0, k)); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); if (flash) tsuFlashEl(el); } };
+  // 選んでいる項目は、画面の見出しで数え直す(中身が同じなら入れ替えない)
+  React.useEffect(() => { if (!active) return; const t = setTimeout(() => { const next = els().map(el => el.getAttribute('data-sec-title')); if (next.length) { _tsuSecCache.set(tab, next); setItems(prev => (prev.join('|') === next.join('|') ? prev : next)); } }, 60); return () => clearTimeout(t); });
+  React.useEffect(() => { if (!active) return; const b = box(); if (!b) return; let raf = 0;
+    const on = () => { if (lockRef.current || raf) return; raf = requestAnimationFrame(() => { raf = 0; if (lockRef.current) return; const bar = document.querySelector('[data-testid="settings-topbar"]'); const lim = (bar ? bar.getBoundingClientRect().bottom : 0) + 16; const list = els(); let k = 0; list.forEach((el, i) => { if (el.getBoundingClientRect().top <= lim) k = i; }); if (list.length && b.scrollTop + b.clientHeight >= b.scrollHeight - 2) k = list.length - 1; setCur(k); }); };
+    const user = () => { lockRef.current = false; };
+    const onGo = (e) => { const d = e && e.detail; if (d && d.tab === tab) go(d.title, !!d.flash); };
+    b.addEventListener('scroll', on, { passive: true }); ['wheel', 'touchstart', 'keydown', 'pointerdown'].forEach(ev => b.addEventListener(ev, user, { passive: true })); window.addEventListener('tsu:secgo', onGo);
+    if (!lockRef.current) on();
+    return () => { b.removeEventListener('scroll', on); ['wheel', 'touchstart', 'keydown', 'pointerdown'].forEach(ev => b.removeEventListener(ev, user)); window.removeEventListener('tsu:secgo', onGo); if (raf) cancelAnimationFrame(raf); }; }, [active, items.length]);
+  if (items.length < 2) return null;
+  return (
+    <div ref={selfRef} data-testid={`settings-secnav-${tab}`} data-active={active ? '1' : '0'} className="pb-1 bg-slate-50/70 border-b border-slate-100">
+      {items.map((title, i) => <button key={`${i}_${title}`} type="button" data-testid={`settings-sec-${tab}-${i}`} onClick={() => { if (active) go(title); else if (onPickOther) onPickOther(tab, title); }}
+        className={`block w-full text-left pl-6 pr-2 py-1.5 text-[13px] leading-snug ${active && cur === i ? 'text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-100'}`}>{title}</button>)}
     </div>
   );
 }
 function SectionCard({ title, children }) {
   return (
-    <div data-sec-title={typeof title === 'string' ? title : undefined} style={{ scrollMarginTop: 72 }} className="bg-white p-3 sm:p-6 rounded-2xl shadow-sm border border-slate-200">
-      <h3 className="text-base font-bold text-slate-800 mb-2 sm:mb-4 border-b border-slate-200 pb-2">{title}</h3>
+    <div data-sec-title={typeof title === 'string' ? title : undefined} className="scroll-mt-24 md:scroll-mt-14 bg-white p-3 sm:p-4 rounded-2xl shadow-sm border border-slate-200">{/* ★ 2026-10-28 夜: 余白を詰めた(p-6→4・見出しの下 mb-4→2)。固定した「この中の項目・検索」の下に見出しが来るよう scrollMarginTop 96 */}
+      <h3 className="text-base font-bold text-slate-800 mb-2 border-b border-slate-200 pb-1.5">{title}</h3>
       {children}
     </div>
   );
@@ -46635,7 +46757,17 @@ function tsuBuildDemoStore(appData, opts = {}) {
   return { patients, records, systemSettings: ss, diarySettings, monthlyShifts: ms, transportPlans: tp, planCount, patientIdSeq: newSeq, slotCount };
 }
 
-function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAdmin, navFocus, onFocusHandled, deviceName, updateDeviceName, lastSync, cmOnly, loginLogLoader, staffCtx, navigateTo }) {
+function SettingsView({ appData, onSave, dirtyRef: _dirtyRefIn, saveFnRef, isSuperAdmin, isAdmin, navFocus, onFocusHandled, deviceName, updateDeviceName, lastSync, cmOnly, loginLogLoader, staffCtx, navigateTo }) {
+  // ★ 2026-10-29(ユーザー「未保存の印入れてみて」): 保存していない入力がある項目の横に印(●)。保存は今までどおり1つのボタンで全部。
+  //   「保存していない」の判定(dirtyRef)はそのまま使い、true になったときに開いていた項目を控える(_dirtyTabs)。false(保存・元に戻した)になったら全部消す。
+  //   App 側で直接 false にした(移るときの確認で保存した)ときは1秒ごとに見て消す
+  const [_dirtyTabs, _setDirtyTabs] = useState(() => new Set());
+  const _activeTabRef = React.useRef(cmOnly ? 'cm' : 'facility');
+  const dirtyRef = React.useMemo(() => ({
+    get current() { return _dirtyRefIn ? !!_dirtyRefIn.current : false; },
+    set current(v) { if (_dirtyRefIn) _dirtyRefIn.current = v; if (v) { const t = _activeTabRef.current; _setDirtyTabs(prev => (prev.has(t) ? prev : new Set([...prev, t]))); } else _setDirtyTabs(prev => (prev.size ? new Set() : prev)); },
+  }), [_dirtyRefIn]);
+  React.useEffect(() => { const iv = setInterval(() => { if (_dirtyRefIn && !_dirtyRefIn.current) _setDirtyTabs(prev => (prev.size ? new Set() : prev)); }, 1000); return () => clearInterval(iv); }, [_dirtyRefIn]);
   // ★ 2026-10-19 段階4: ログイン記録(管理者だけ・サーバーから取得)
   const [loginLog, setLoginLog] = useState(null);
   const [, setKpLayoutTick] = useState(0); // テンキーの並びの選択を画面に反映するため(値は端末に保存)
@@ -46643,6 +46775,14 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
   //   「消える問題」対策の同期追従・即保存(persistCm)ロジックを共有するため、タブ抽出はせず同一コンポーネントをモード分けで再利用。
   const markDirty = React.useCallback(()=>{ if(dirtyRef) dirtyRef.current=true; },[dirtyRef]);
   const [activeTab, setActiveTab] = useState(cmOnly ? 'cm' : 'facility');
+  _activeTabRef.current = activeTab;
+  // ★ 2026-10-28 深夜: 左の項目の下の見出しを開いている項目(この端末に覚える)。押したら開く・選んでいる項目をもう一度押すと閉じる・ほかを選んでも閉じない
+  const [_secOpen, _setSecOpen] = useState(() => { try { const a = JSON.parse(localStorage.getItem('tsumugiSettingsOpenTabs') || 'null'); return new Set(Array.isArray(a) ? a : [cmOnly ? 'cm' : 'facility']); } catch { return new Set([cmOnly ? 'cm' : 'facility']); } });
+  const _secSetOpen = (id, on) => _setSecOpen(prev => { const n = new Set(prev); if (on) n.add(id); else n.delete(id); try { localStorage.setItem('tsumugiSettingsOpenTabs', JSON.stringify([...n])); } catch {} return n; });
+  const _secTabClick = (id) => { if (activeTab !== id) { setActiveTab(id); _secSetOpen(id, true); } else _secSetOpen(id, !_secOpen.has(id)); };
+  const _secGo = (tab, title, flash = false) => { if (activeTab !== tab) setActiveTab(tab); _secSetOpen(tab, true); setTimeout(() => { try { window.dispatchEvent(new CustomEvent('tsu:secgo', { detail: { tab, title, flash } })); } catch {} }, activeTab !== tab ? 180 : 0); };
+  // 項目を切り替えたら中身は一番上から(iPad・PC の中身の箱)
+  useEffect(() => { try { const b = document.querySelector('[data-testid="settings-content"]'); if (b) b.scrollTop = 0; } catch {} }, [activeTab]);
   // ★ 各種設定→ケアマネ事業所・担当者(またはその逆)へ移ると、React が同じ SettingsView を使い回すため activeTab が前の画面のまま残り
   //   「ケアマネ事業所・担当者を押しても事業所情報のまま」になる(2026-09-24 扇橋報告)。cmOnly の切替時にタブを合わせる。
   React.useEffect(() => {
@@ -46659,6 +46799,10 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
   React.useEffect(() => {
     if (navFocus !== 'holidays') return;
     setActiveTab('facility');
+    // ★ 2026-10-28 月間スケジュールの「休業」から来たら、押した日と時間帯を登録欄に入れておく(名称を書いて「登録」)
+    try { const _pf = JSON.parse(sessionStorage.getItem('tsumugiHolPrefill') || 'null'); sessionStorage.removeItem('tsumugiHolPrefill');
+      if (_pf && /^\d{4}-\d{2}-\d{2}$/.test(String(_pf.date || '')) && Date.now() - (Number(_pf.t) || 0) < 10 * 60 * 1000) {
+        setHolidayStart(_pf.date); setHolidayEnd(_pf.date); setHolidayAmpm((_pf.ampm === 'AM' || _pf.ampm === 'PM') ? _pf.ampm : '1日'); setHolidayYear(Number(_pf.date.slice(0, 4))); } } catch {}
     const t = setTimeout(() => {
       try { holidaySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {}
       onFocusHandled && onFocusHandled();
@@ -46692,6 +46836,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
   const [holidayStart, setHolidayStart] = useState("");
   const [holidayEnd, setHolidayEnd] = useState("");
   const [holidayName, setHolidayName] = useState("");
+  const [holidayAmpm, setHolidayAmpm] = useState("1日"); // ★ 2026-10-28 登録するときの休業の時間帯(1日/AM/PM)
   const [holidayYear, setHolidayYear] = useState(() => new Date().getFullYear()); // 施設休業日: 表示中の西暦
   const [holidayEditModal, setHolidayEditModal] = useState(null); // {origDates:[], name, start, end}
   const [massageInput, setMassageInput] = useState((appData.systemSettings?.massageTypes || []).join('、'));
@@ -47247,23 +47392,24 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
     const start = new Date(holidayStart); const end = new Date(holidayEnd);
     if (start > end) { alert("終了日は開始日以降に"); return; }
     const nh = [...(appData.holidays || [])];
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) { const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; const idx = nh.findIndex(h => (h.date||h) === ds); if (idx >= 0) nh.splice(idx, 1); nh.push({ date: ds, name: holidayName || "休業日" }); }
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) { const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; const idx = nh.findIndex(h => (h.date||h) === ds); if (idx >= 0) nh.splice(idx, 1); nh.push({ date: ds, name: holidayName || "休業日", ...((holidayAmpm === 'AM' || holidayAmpm === 'PM') ? { ampm: holidayAmpm } : {}) }); }
     nh.sort((a, b) => (a.date||a).localeCompare(b.date||b));
-    onSave({ ...appData, holidays: nh }, { manual: true, message: '✓ 休業日を登録しました' }); setHolidayStart(""); setHolidayEnd(""); setHolidayName("");
+    onSave({ ...appData, holidays: nh }, { manual: true, message: '✓ 休業日を登録しました' }); setHolidayStart(""); setHolidayEnd(""); setHolidayName(""); setHolidayAmpm("1日");
   };
   const removeHoliday = (ds) => onSave({ ...appData, holidays: (appData.holidays || []).filter(h => (h.date||h) !== ds) }, { manual: true, message: '✓ 削除しました' });
   // ★ 施設休業日を「名称が同じ連続した日付」で範囲にまとめる (夏季休暇 8/12〜8/14 のように表示)
   const _groupHolidays = (holidays) => {
-    const list = (holidays||[]).map(h => ({ date: String(h.date||h), name: h.name||'休業日' })).filter(h => /^\d{4}-\d{2}-\d{2}$/.test(h.date)).sort((a,b)=>a.date.localeCompare(b.date));
+    // ★ 2026-10-28: 半日休業(午前のみ/午後のみ)は時間帯も同じものだけまとめる
+    const list = (holidays||[]).map(h => ({ date: String(h.date||h), name: h.name||'休業日', ampm: (h && (h.ampm === 'AM' || h.ampm === 'PM')) ? h.ampm : '1日' })).filter(h => /^\d{4}-\d{2}-\d{2}$/.test(h.date)).sort((a,b)=>a.date.localeCompare(b.date));
     const groups = [];
     for (const h of list) {
       const last = groups[groups.length-1];
-      if (last && last.name === h.name) {
+      if (last && last.name === h.name && last.ampm === h.ampm) {
         const pd = new Date(last.end); pd.setDate(pd.getDate()+1);
         const next = `${pd.getFullYear()}-${String(pd.getMonth()+1).padStart(2,'0')}-${String(pd.getDate()).padStart(2,'0')}`;
         if (next === h.date) { last.end = h.date; last.dates.push(h.date); continue; }
       }
-      groups.push({ name: h.name, start: h.date, end: h.date, dates: [h.date] });
+      groups.push({ name: h.name, ampm: h.ampm, start: h.date, end: h.date, dates: [h.date] });
     }
     return groups;
   };
@@ -47277,7 +47423,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
     src.forEach(h => {
       const d = new Date(String(h.date||h)); d.setFullYear(d.getFullYear()+1);
       const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-      if (!nh.some(x => String(x.date||x)===ds)) { nh.push({ date: ds, name: h.name||'休業日' }); added++; }
+      if (!nh.some(x => String(x.date||x)===ds)) { nh.push({ date: ds, name: h.name||'休業日', ...((h && (h.ampm === 'AM' || h.ampm === 'PM')) ? { ampm: h.ampm } : {}) }); added++; }
     });
     if (!added) { alert('すでに登録済みです。'); return; }
     nh.sort((a,b)=>String(a.date||a).localeCompare(String(b.date||b)));
@@ -47426,13 +47572,18 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
           </div>
         </div>
       )}
-      {/* 上部タブナビ（横）+ 右側に保存ボタン */}
+      {/* ★ 2026-10-28 夜(ユーザー提案「各種設定は横ではなく上下に項目を分け、押したら右に内容を」「マウスだと横の移動はスクロールバーを動かす必要がある。縦ならホイールだけ」
+          「検索欄やこの中の項目の上下の余白が大きく、下が見える領域が減る。この中の項目を検索欄より上にして固定」「なるべく無駄な余白をなくし、1画面であまりスクロールせず見えるように」):
+          iPad・パソコン(768px以上)は 左=縦の項目・右=中身(保存は右上)。中身の上に「この中の項目」→検索の順で固定。中身の幅は 4xl まで(横に伸びすぎない)・余白を詰めた。
+          スマホは今までどおり上に横の項目を固定 */}
+      {/* ★ 2026-10-28 夜(ユーザー「ケアマネ事業所・担当者は1項目しかないので、今まで通りでいい」): 項目が1つだけのときは縦の項目を出さず、上の帯(保存は右)のまま */}
+      {tabs.length > 1 && <div className="md:hidden">{/* ★ 2026-10-28 夜: iPad・PC は上の横の帯を出さない(保存は検索の右)。★ 2026-10-29: 項目が1つの画面(ケアマネ)はスマホでも出さない */}
       <TsuPhonePin testId="pin-settings-tabs"><div data-testid="settings-tabs" className="bg-white border-b border-slate-200 px-2 sm:px-4 pt-2 sm:pt-3 shrink-0 flex items-center gap-2 sm:gap-3 sticky top-0 z-30">
         <div className="flex gap-1 overflow-x-auto pb-0 flex-nowrap flex-1 min-w-0">
           {tabs.map(tab => (
             <button type="button" key={tab.id} onClick={() => setActiveTab(tab.id)}
               className={`px-4 py-2 text-sm font-bold whitespace-nowrap rounded-t-xl border-b-2 transition-all ${activeTab === tab.id ? 'border-blue-600 text-blue-700 bg-blue-50' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}>
-              {tab.label}
+              {tab.label}{_dirtyTabs.has(tab.id) ? <span className="ml-1 inline-block w-2 h-2 rounded-full bg-amber-500 align-middle" title="保存していない入力があります" /> : null}
             </button>
           ))}
         </div>
@@ -47441,16 +47592,41 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
           保存
         </button>
       </div></TsuPhonePin>
-
+      </div>}
+      <div className="flex-1 min-h-0 md:flex">
+        {tabs.length > 1 && <nav data-testid="settings-vtabs" className="hidden md:flex md:flex-col w-44 lg:w-52 shrink-0 bg-white border-r border-slate-200 md:overflow-y-auto">
+          {tabs.map(tab => { const open = _secOpen.has(tab.id); const hasSec = tsuSecTitlesOf(tab.id).length >= 2; return (
+            <React.Fragment key={tab.id}>
+              <button type="button" data-testid={`settings-vtab-${tab.id}`} onClick={() => _secTabClick(tab.id)} aria-current={activeTab === tab.id ? 'page' : undefined} aria-expanded={hasSec ? open : undefined}
+                className={`text-left px-3 py-2.5 text-sm font-bold border-l-4 flex items-center gap-1 ${activeTab === tab.id ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-transparent text-slate-600 hover:bg-slate-50'}`}>
+                <span className="flex-1 min-w-0">{tab.label}</span>{_dirtyTabs.has(tab.id) ? <span data-testid={`settings-dirty-${tab.id}`} className="shrink-0 w-2.5 h-2.5 rounded-full bg-amber-500" title="保存していない入力があります" /> : null}{hasSec ? <span className="shrink-0 text-[11px] text-slate-400" aria-hidden="true">{open ? '▾' : '▸'}</span> : null}
+              </button>
+              {open && <TsuSecNav tab={tab.id} active={activeTab === tab.id} onPickOther={_secGo} />}
+            </React.Fragment>); })}
+        </nav>}
       {/* コンテンツ */}
-      <div className="flex-1 md:overflow-y-auto p-3 sm:p-6 pb-8 tsu-ph-cards">
+      <div data-testid="settings-content" className={`flex-1 min-w-0 md:overflow-y-auto px-3 md:px-4 pb-8 tsu-ph-cards ${tabs.length > 1 ? '' : 'pt-3'}`}>
         {/* ★ ケアマネタブは2カラムのため広めに取る(表示領域の崩れ対策・2026-08-31) */}
-        <div className={`${activeTab === 'cm' ? 'max-w-6xl' : 'max-w-4xl'} mx-auto space-y-6 pb-6 tsu-wide-f`}>
-          <TsuSettingsSearch tabs={tabs} onPick={(tab, title) => { setActiveTab(tab); setTimeout(() => { try { const el = [...document.querySelectorAll('[data-sec-title]')].find(x => x.getAttribute('data-sec-title') === title); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {} }, 250); }} />
-          <TsuSecJump dep={activeTab} origin={(() => { try { const o = sessionStorage.getItem('tsumugiSettingsOrigin'); return (o && o !== 'settings' && TSU_VIEW_LABELS[o]) ? TSU_VIEW_LABELS[o] : ''; } catch { return ''; } })()} onBack={() => { try { const o = sessionStorage.getItem('tsumugiSettingsOrigin'); sessionStorage.removeItem('tsumugiSettingsOrigin'); if (o && navigateTo) navigateTo(o); } catch {} }} />
+        <div className={`${activeTab === 'cm' ? 'max-w-6xl' : 'max-w-4xl'} ${tabs.length > 1 ? '' : 'mx-auto'} space-y-3 pb-6`}>
+          {/* ★ 2026-10-28 夜(ユーザー「ケアマネ事業所・担当者の『ケアマネに戻る』『この中の項目』は不要」「○○に戻るのボタンもいらない」「検索欄を短くして、検索と保存を1行に」):
+              iPad・PC: 検索(短く)＋保存の1行を上に固定(この中の項目は左の項目の下)。スマホ: この中の項目(項目が2つ以上のとき)＋検索。「○○に戻る」はなくした */}
+          {tabs.length > 1 && <div data-testid="settings-topbar" className="md:sticky md:top-0 z-20 bg-slate-100 pt-2 pb-1.5 space-y-1.5">{/* ★ 2026-10-29(ユーザー「ケアマネ事業所・担当者の上の検索と保存は不要」): 項目が1つの画面では出さない(ケアマネの追加・編集・削除・取り込み・名刺はその場で保存) */}
+            {tabs.length > 1 && <div className="md:hidden"><TsuSecJump dep={activeTab} /></div>}
+            <div className="flex items-center gap-2">
+              <div className="flex-1 min-w-0 md:flex-none md:w-80 lg:w-96"><TsuSettingsSearch tabs={tabs} onPick={(tab, title) => { if (tsuViewW() >= 768 && tabs.length > 1) { _secGo(tab, title, true); return; } setActiveTab(tab); setTimeout(() => { try { const el = [...document.querySelectorAll('[data-sec-title]')].find(x => x.getAttribute('data-sec-title') === title); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); tsuFlashEl(el); } } catch {} }, 120); }} /></div>
+              {_dirtyTabs.size > 0 && <span data-testid="settings-unsaved-hint" className="hidden md:inline-flex ml-auto items-center gap-1 text-[12px] font-bold text-amber-700 whitespace-nowrap"><span className="w-2.5 h-2.5 rounded-full bg-amber-500" />保存していない入力があります</span>}
+              <button type="button" data-testid="settings-save" onClick={saveAll} className={`hidden md:block ${_dirtyTabs.size > 0 ? '' : 'ml-auto'} shrink-0 px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md active:scale-95 text-sm`}>保存</button>
+            </div>
+          </div>}
 
           {/* 気分の理由 (カスタマイズ) */}
           {/* ★ 2026-10-14(ユーザー要望): 個別機能訓練計画書(3-3)の定型文を店舗ごとに編集(1行=1つ)。空にすると既定に戻る */}
+          {activeTab === 'keikaku' && (
+            <SectionCard title="要支援の計画書の名前">
+              {/* ★ 2026-10-27(ユーザー「江東区では個別サービス計画書。地域によって名前が違うかも」): 国の様式は無く、名前・様式は市区町村ごと。店舗ごとに変えられる */}
+              <TsuShienTitleSetting ss={ss} saveSS={saveSS}/>
+            </SectionCard>
+          )}
           {activeTab === 'keikaku' && (
             <SectionCard title="計画書の定型文（3-3・3-2・3-1・通所介護計画書）">
               {/* ★ 2026-10-26(ユーザー決定): 定型文は本部(つむぎ管理局)が全店共通で管理する。店舗では見るだけ */}
@@ -47749,7 +47925,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
             {/* 施設休業日 */}
             <div ref={holidaySectionRef} className="scroll-mt-20">
             <SectionCard title="施設休業日の設定">
-              <p className="text-xs text-slate-500 mb-4">年末年始・夏休みなどを入れると、その日は全員「休業」になります（年ごとに登録）。</p>
+              <p className="text-xs text-slate-500 mb-4">年末年始・夏休みなどを入れると、その日は全員「休業」になります（年ごとに登録）。雪などで午前だけ・午後だけ休むときは「午前のみ」「午後のみ」を選びます。</p>
               {/* 西暦(年)の切替 + 前年コピー */}
               <div className="flex items-center gap-3 mb-4 flex-wrap">
                 <div className="flex items-center gap-1">
@@ -47764,6 +47940,11 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                 <div className="pb-2 font-bold text-slate-400">〜</div>
                 <div><label className="block text-sm font-bold text-slate-600 mb-1.5">終了日</label><input type="date" value={holidayEnd} onChange={e => setHolidayEnd(e.target.value)} className="px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm"/></div>
                 <div className="flex-1 min-w-[160px]"><label className="block text-sm font-bold text-slate-600 mb-1.5">名称</label><input type="text" value={holidayName} onChange={e => setHolidayName(e.target.value)} placeholder="例: 夏季休暇" className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none font-bold text-sm"/></div>
+                <div data-testid="hol-add-ampm"><div className="block text-sm font-bold text-slate-600 mb-1.5">時間帯</div>
+                  <div className="flex gap-1">{[['1日','1日'],['AM','午前のみ'],['PM','午後のみ']].map(([v,l]) => (
+                    <button key={v} type="button" data-testid={`hol-add-ap-${v}`} onClick={() => setHolidayAmpm(v)} className={`px-3 py-2 rounded-lg border font-bold text-sm ${holidayAmpm === v ? 'bg-slate-800 border-slate-800 text-white' : 'bg-white border-slate-300 text-slate-600'}`}>{l}</button>
+                  ))}</div>
+                </div>
                 <button type="button" onClick={addHolidayRange} className="px-5 py-2 bg-slate-800 text-white rounded-lg font-bold text-sm active:scale-95 flex items-center"><CalendarRange size={16} className="mr-1.5"/>登録</button>
               </div>
               {(() => {
@@ -47774,11 +47955,11 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[320px] overflow-y-auto">{groups.map(g => (
                     <div key={g.dates.join(',')} className="flex items-center justify-between bg-white border shadow-sm p-3 rounded-xl">
                       <div className="min-w-0">
-                        <span className="text-sm font-bold text-slate-800">{g.name}</span><br/>
+                        <span className="text-sm font-bold text-slate-800">{g.name}</span>{holidayAmpmLabel(g.ampm) && <span data-testid="hol-ampm-badge" className="ml-1.5 text-[11px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">{holidayAmpmLabel(g.ampm)}</span>}<br/>
                         <span className="text-xs text-slate-500">{_fmtJ(g.start)}{g.end!==g.start?` 〜 ${_fmtJ(g.end)}`:''}<span className="text-slate-400 ml-1">（{g.dates.length}日）</span></span>
                       </div>
                       <div className="flex gap-1 shrink-0">
-                        <button type="button" onClick={()=>setHolidayEditModal({origDates:g.dates, name:g.name, start:g.start, end:g.end, ampm:(()=>{ const h0=(appData.holidays||[]).find(h=>String(h.date||h)===g.dates[0]); return (h0 && h0.ampm) || '1日'; })()})} className="text-blue-400 hover:text-blue-600 p-1" title="編集"><Edit3 size={15}/></button>
+                        <button type="button" onClick={()=>setHolidayEditModal({origDates:g.dates, name:g.name, start:g.start, end:g.end, ampm: g.ampm || '1日'})} className="text-blue-400 hover:text-blue-600 p-1" title="編集"><Edit3 size={15}/></button>
                         <button type="button" onClick={()=>{ if(window.confirm(`「${g.name}」（${_fmtJ(g.start)}${g.end!==g.start?`〜${_fmtJ(g.end)}`:''}）を削除しますか？`)) removeHolidayRange(g.dates); }} className="text-slate-300 hover:text-red-500 p-1" title="削除"><Trash2 size={15}/></button>
                       </div>
                     </div>
@@ -48192,8 +48373,9 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                             if(byName.has(name)){ const idx=byName.get(name); list[idx]={...list[idx],...rec}; updated++; }
                             else { list.push(rec); byName.set(name,list.length-1); added++; }
                           }
-                          setCmOffices(list);
-                          alert(`ケアマネ事業所 取り込み完了: 新規 ${added} 件 / 更新 ${updated} 件\n（法人名は事業所のグループ分け用に取り込みます。空欄は上書きしません）\n※下部の「保存」を押すと確定します。`);
+                          // ★ 2026-10-29(ユーザー「ケアマネ事業所・担当者の上の検索と保存は不要」): 保存ボタンをなくすので、取り込んだらその場で保存する
+                          persistCm(list, null, `✓ ケアマネ事業所を取り込みました（新規 ${added} 件 / 更新 ${updated} 件）`);
+                          alert(`ケアマネ事業所 取り込み完了: 新規 ${added} 件 / 更新 ${updated} 件\n（法人名は事業所のグループ分け用に取り込みます。空欄は上書きしません）\n保存しました。`);
                         };
                         reader.readAsArrayBuffer(f);
                         e.target.value='';
@@ -48264,7 +48446,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                                     if(loaded===files.length) {
                                       const newPersons=[...cmPersons];
                                       newPersons[origIdx]={...newPersons[origIdx], businessCard:cur};
-                                      setCmPersons(newPersons);
+                                      persistCm(null, newPersons, '✓ 名刺を保存しました'); // ★ 2026-10-29: その場で保存(保存ボタンをなくしたため)
                                     }
                                   });
                                 });
@@ -48384,7 +48566,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
                                     className="rounded border border-slate-200 cursor-pointer"
                                     style={{height:60,width:'auto',background:'#fff'}}/>
                                   <button type="button"
-                                    onClick={()=>{const newCards=cards.filter(x=>x.id!==img.id); const newPersons=[...cmPersons]; newPersons[origIdx]={...newPersons[origIdx], businessCard:newCards}; setCmPersons(newPersons);}}
+                                    onClick={()=>{const newCards=cards.filter(x=>x.id!==img.id); const newPersons=[...cmPersons]; newPersons[origIdx]={...newPersons[origIdx], businessCard:newCards}; persistCm(null, newPersons, '名刺を削除しました');}}
                                     style={{position:'absolute',top:-4,right:-4,background:'#ef4444',color:'white',border:'none',borderRadius:'50%',width:18,height:18,fontSize:10,fontWeight:'bold',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
                                 </div>
                               ))}
@@ -49304,6 +49486,7 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
 
         </div>
       </div>
+      </div>
     </div>
   );
 }
@@ -49311,8 +49494,8 @@ function SettingsView({ appData, onSave, dirtyRef, saveFnRef, isSuperAdmin, isAd
 // セクションカード（DiarySettingsPanel 外で定義し、再レンダリングで再生成されないように）
 // ★ 2026-10-08(店舗報告: スマホで追加ボタン・送迎車両・スケジュールが枠の外に出る): スマホは余白を詰め、中身が枠より広くならないように(min-w-0)
 const _DSPSection = ({title, children}) => (
-  <div className="bg-white p-3 sm:p-6 rounded-2xl shadow-sm border border-slate-200 min-w-0 tsu-dsp">
-    <h3 className="text-base font-bold text-slate-800 mb-3 sm:mb-4 border-b border-slate-200 pb-2">{title}</h3>
+  <div className="scroll-mt-24 md:scroll-mt-14 bg-white p-3 sm:p-4 rounded-2xl shadow-sm border border-slate-200 min-w-0 tsu-dsp" data-sec-title={typeof title === 'string' ? title : undefined}>
+    <h3 className="text-base font-bold text-slate-800 mb-2 border-b border-slate-200 pb-1.5">{title}</h3>
     {children}
   </div>
 );
@@ -49828,7 +50011,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
     //   (コピー内容が正しく編集不要だった日は個別編集による解除が起きないため)。
     if (_logToSave._sougeiPending) { delete _logToSave._sougeiPending; setLocalLog(l => { const n = { ...l }; delete n._sougeiPending; return n; }); }
     const next = { ...appData, diaryLogs: { ...(appData.diaryLogs||{}), [logKey]: _logToSave }};
-    { const _tp = tsuDiaryToTransport(appData, logKey, _logToSave); if (_tp) next.transportPlans = _tp; } // ★ 2026-10-26: 運転者・到着/出発を送迎表にも
+    // ★ 2026-10-28(ユーザー決定「送迎表から日誌の一方通行。日誌を変更したらそれが記録になるので、送迎表は変えなくていい」): 日誌の保存で送迎表を書き換えない(tsuDiaryToTransport は使わない)
     if (pendingStaff) {
       next.diarySettings = { ..._baseDs, staff: pendingStaff };
       // ★ スタッフ切替(storeMembers)も担当職員に合わせて同期(削除の相互反映)
@@ -49857,7 +50040,7 @@ function DailyLogView({ appData, onSave, selectedDate, setSelectedDate, sharedAm
       const _logToSave = { ...localLog, _savedAt: _ts };
       const base = appDataRef.current; // ★ 必ず最新のappData(closureのappDataは古い可能性がある)
       const next = { ...base, diaryLogs: { ...(base.diaryLogs||{}), [logKey]: _logToSave } };
-      { const _tp = tsuDiaryToTransport(base, logKey, _logToSave); if (_tp) next.transportPlans = _tp; } // ★ 2026-10-26: 運転者・到着/出発を送迎表にも
+      // ★ 2026-10-28: 送迎表 → 日誌 の一方通行(日誌の保存で送迎表を書き換えない)
       if (pendingStaff) next.diarySettings = { ...(base.diarySettings || _baseDs), staff: pendingStaff };
       // ★ silent必須(2026-09-06 真因): handleSaveToCloudはmanual/silent指定の時だけクラウド送信する。
       //   無指定だと端末内のみで、再読み込みで消える(扇橋「保存が届かない」の真因)。
@@ -51557,13 +51740,51 @@ function KKStaffSelect({ staff, value, role, onPick, placeholder, className }) {
     </select>
   );
 }
-function KKField({ label, value, onChange, rows, ph, max, presets, presetMode }) {
+// ★ 2026-10-28(ユーザー要望「140字や180字と制限が緩い。改行したら入らないのでは・はみ出したり潰れたりする」):
+//   計画書の欄は、印刷の枠に実際に入る量(1行の字数 c × 行数 l)で制限する。値は scripts/measure_boxcap.mjs で印刷の枠を測ったもの
+//   (行頭の禁則で1字送られることがあるので c は測った値から1字引いてある)。全角=1字・半角=0.6字。改行はその行を使い切る。
+//   p=1行目の前に印刷される字数(「（機能）」「備考：」)。3-2 の3つの欄はページの余り(31行)を3つで分ける。印刷の形を変えたら測り直す
+const TSU_BOXCAP = {
+  tk:  { keii:{c:81,l:3}, honninKibou:{c:39,l:2}, kazokuKibou:{c:39,l:2}, shakaiSanka:{c:81,l:1}, kyotakuKankyo:{c:81,l:2}, kenkoJotai:{c:39,l:2}, iryoRisk:{c:39,l:2},
+         longGoal:{c:52,l:1}, shortGoal:{c:52,l:1}, svcContent:{c:31,l:1}, svcEffect:{c:15,l:2}, tokki:{c:42,l:3}, soukatsu:{c:42,l:5} },
+  tkS: { cpGaiyou:{c:81,l:2}, honninKibou:{c:39,l:3}, kazokuKibou:{c:39,l:3}, kenkoJotai:{c:39,l:3}, iryoRisk:{c:39,l:3}, longGoal:{c:52,l:1}, shortGoal:{c:52,l:1},
+         svcContent:{c:31,l:1}, svcEffect:{c:15,l:2}, tokki:{c:81,l:3}, soukatsu:{c:42,l:4}, exContent:{c:28,l:1}, exAmount:{c:12,l:1}, exFreq:{c:12,l:1}, exNote:{c:29,l:1} },
+  kk:  { honninKibou:{c:22,l:3}, kazokuKibou:{c:18,l:3}, shakaiSanka:{c:22,l:3}, kyotakuKankyo:{c:18,l:3}, byomei:{c:12,l:1}, chiryoKeika:{c:54,l:1}, gappei:{c:54,l:1}, ryuiPoint:{c:54,l:1},
+         shortKinou:{c:36,l:1,p:4}, longKinou:{c:33,l:1,p:4}, shortKatsudo:{c:36,l:1,p:4}, longKatsudo:{c:33,l:1,p:4}, shortSanka:{c:36,l:1,p:4}, longSanka:{c:33,l:1,p:4},
+         jikangaiJisshi:{c:13,l:2}, tokki:{c:13,l:2}, henka:{c:36,l:3}, kadai:{c:33,l:3} },
+  sk:  { ninchi:{c:33,l:10}, kadai:{c:33,l:10}, bikou:{c:33,l:10} },
+  ky:  { bikou:{c:67,l:19,p:3} },
+};
+const tsuChW = (ch) => (/[\u0020-\u007e\uff61-\uff9f]/.test(ch) ? 0.6 : 1);
+const tsuStrW = (t) => { let w = 0; for (const ch of String(t ?? '')) w += tsuChW(ch); return w; };
+// 何行使うか(改行ごとに行を分け、各行は c 字で折り返す)
+const tsuBoxLines = (text, box) => String(text ?? '').split('\n').reduce((n, ln, i) => n + Math.max(1, Math.ceil((tsuStrW(ln) + (i === 0 ? (box.p || 0) : 0)) / box.c - 1e-9)), 0);
+const tsuBoxOk = (text, box) => !box || tsuBoxLines(text, box) <= box.l;
+// 入りきらない分を後ろから切る
+const tsuBoxFit = (text, box) => { if (!box) return String(text ?? ''); let a = Array.from(String(text ?? '')); while (a.length && !tsuBoxOk(a.join(''), box)) a.pop(); return a.join(''); };
+// あと何字入るか(今の行の続きに書く場合)
+const tsuBoxLeft = (text, box) => { const ls = String(text ?? '').split('\n'); let used = 0; ls.forEach((ln, i) => { const w = tsuStrW(ln) + (i === 0 ? (box.p || 0) : 0); used += (i < ls.length - 1) ? Math.max(1, Math.ceil(w / box.c - 1e-9)) * box.c : w; }); return Math.floor(box.l * box.c - used + 1e-9); };
+function TsuBoxCount({ value, box }) {
+  const over = !tsuBoxOk(value, box); const left = tsuBoxLeft(value, box);
+  return <span data-testid="box-count" data-over={over ? '1' : '0'} title={`印刷の枠: 1行${box.c}字・${box.l}行まで（改行するとその行を使います）`} className={`text-[11px] font-bold whitespace-nowrap ${over ? 'text-red-600' : left <= 5 ? 'text-amber-700' : 'text-slate-400'}`}>{over ? '印刷に入りきりません' : `あと${Math.max(0, left)}字`}</span>;
+}
+// 1行の入力(要支援の計画書の運動など)。日本語の変換中は切らず、確定したら入る分だけにする
+function TsuBoxInput({ value, onChange, box, className, placeholder, testid }) {
+  const comp = React.useRef(false);
+  return <input value={value || ''} data-testid={testid} placeholder={placeholder} className={className} maxLength={box ? Math.ceil(box.c * box.l * 1.7) + 4 : undefined}
+    onCompositionStart={() => { comp.current = true; }} onCompositionEnd={e => { comp.current = false; onChange(tsuBoxFit(e.currentTarget.value, box)); }}
+    onChange={e => { const v = e.target.value; onChange((comp.current || (e.nativeEvent && e.nativeEvent.isComposing)) ? v : tsuBoxFit(v, box)); }}/>;
+}
+function KKField({ label, value, onChange, rows, ph, max, presets, presetMode, box }) {
   // ★ 2026-10-03: 計画書の欄は印刷で見切れないよう文字数制限(既定: 1行=60字・複数行=行数×60字)。右上に 現在/最大
-  const lim = max || (rows ? rows * 60 : 60);
+  const lim = box ? Math.ceil(box.c * box.l * 1.7) + 4 : (max || (rows ? rows * 60 : 60));
+  const _fit = (t) => box ? tsuBoxFit(t, box) : String(t ?? '').slice(0, lim);
+  const _comp = React.useRef(false); const [_full, _setFull] = React.useState(false);
+  const _tooLong = (t) => { if (box && !tsuBoxOk(t, box)) { _setFull(true); setTimeout(() => _setFull(false), 2500); return true; } return false; };
   // ★ 2026-10-14: 定型文(presets)。presetMode='check'=チェックで追加/除去(留意事項)・既定=選ぶと追記(複数行)/置換(1行)
   const _has = (t) => String(value||'').split(/[、\n]/).map(x=>x.trim()).includes(t);
-  const _toggle = (t) => { const parts = String(value||'').split(/[、\n]/).map(x=>x.trim()).filter(Boolean); const next = parts.includes(t) ? parts.filter(x=>x!==t) : [...parts, t]; onChange(next.join('、').slice(0, lim)); };
-  const _pick = (t) => { if (!t) return; const cur = String(value||'').trim(); onChange(((!rows || !cur) ? t : `${cur}\n${t}`).slice(0, lim)); };
+  const _toggle = (t) => { const parts = String(value||'').split(/[、\n]/).map(x=>x.trim()).filter(Boolean); const adding = !parts.includes(t); const next = (adding ? [...parts, t] : parts.filter(x=>x!==t)).join('、'); if (adding && _tooLong(next)) return; onChange(_fit(next)); };
+  const _pick = (t) => { if (!t) return; const cur = String(value||'').trim(); let next = (!rows || !cur) ? t : `${cur}\n${t}`; if (box && !tsuBoxOk(next, box) && cur && rows) next = `${cur}、${t}`; if (_tooLong(next)) return; onChange(_fit(next)); };
   return (
     <div>
       {/* ★ 2026-10-14(ユーザー指摘「計画書の文字がおかしい」): 3列の狭い欄で見出しが1文字ずつ縦に折れていた。見出しは折り返さず、定型文の選択は幅が足りなければ次の行へ */}
@@ -51571,14 +51792,14 @@ function KKField({ label, value, onChange, rows, ph, max, presets, presetMode })
         {label ? <label style={{display:'block',fontSize:12,fontWeight:'bold',color:'#475569',whiteSpace:'nowrap'}}>{label}</label> : <span/>}
         <span style={{display:'flex',alignItems:'center',gap:6,marginLeft:'auto',minWidth:0,flex:'0 1 auto'}}>
           {presets && presets.length && presetMode !== 'check' ? <select value="" onChange={e=>_pick(e.target.value)} className="text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 outline-none min-w-0 w-[9.5em] max-w-[220px]" title="定型文を選ぶと入ります（複数行の欄は下に追記）"><option value="">定型文から ▼</option>{presets.map((t,i)=><option key={i} value={t}>{t}</option>)}</select> : null}
-          <CharCount value={value} max={lim}/>
+          {_full ? <span className="text-[11px] font-bold text-red-600 whitespace-nowrap">印刷に入りきらないので入れられません</span> : box ? <TsuBoxCount value={value} box={box}/> : <CharCount value={value} max={lim}/>}
         </span>
       </div>
       {presets && presets.length && presetMode === 'check' ? <div className="flex flex-wrap gap-1 mb-1.5">{presets.map((t,i)=><label key={i} className={`text-[11px] font-bold rounded-full border px-2 py-0.5 cursor-pointer select-none ${_has(t)?'bg-blue-600 border-blue-600 text-white':'bg-white border-slate-300 text-slate-600'}`}><input type="checkbox" className="hidden" checked={_has(t)} onChange={()=>_toggle(t)}/>{t}</label>)}</div> : null}
       {rows ? (
-        <textarea value={value||''} maxLength={lim} onChange={e=>onChange(e.target.value.slice(0, lim))} rows={rows} placeholder={ph||''} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none resize-none focus:border-blue-400"/>
+        <textarea value={value||''} maxLength={lim} onCompositionStart={()=>{ _comp.current = true; }} onCompositionEnd={e=>{ _comp.current = false; onChange(_fit(e.currentTarget.value)); }} onChange={e=>{ const v = e.target.value; onChange((box && (_comp.current || (e.nativeEvent && e.nativeEvent.isComposing))) ? v : _fit(v)); }} rows={box ? Math.max(1, Math.min(box.l, 5)) : rows} placeholder={ph||''} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none resize-none focus:border-blue-400"/>
       ) : (
-        <input value={value||''} maxLength={lim} onChange={e=>onChange(e.target.value.slice(0, lim))} placeholder={ph||''} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-400"/>
+        <input value={value||''} maxLength={lim} onCompositionStart={()=>{ _comp.current = true; }} onCompositionEnd={e=>{ _comp.current = false; onChange(_fit(e.currentTarget.value)); }} onChange={e=>{ const v = e.target.value; onChange((box && (_comp.current || (e.nativeEvent && e.nativeEvent.isComposing))) ? v : _fit(v)); }} placeholder={ph||''} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none focus:border-blue-400"/>
       )}
     </div>
   );
@@ -51587,21 +51808,93 @@ function KKField({ label, value, onChange, rows, ph, max, presets, presetMode })
 // 個別機能訓練 関連書類のタブ帯 (計画書3-3 / 生活機能チェック3-2 / 興味関心3-1 を相互リンク)
 // ★ 2ハブ構成(2026-08-19): 書類ファミリーごとにタブを分離。
 //   通所ファミリー=通所介護計画書(全利用者対象)。 機能訓練ファミリー=3-3+別紙(3-2/3-1)+LIFE(加算アドオン店舗のみ)。
-const KEIKAKU_DOCS_TSUSHO = [['keikaku_yotei','作成予定'],['tsusho_keikaku','通所介護計画書']];
+// ★ 2026-10-27(ユーザー要望「計画書を作るときのアセスメント(居宅訪問・興味関心・生活機能)が同じタブにあると使いやすい」): 3-1・3-2 も通所介護計画書のタブに置く。
+//   居宅訪問チェックシート(平成27年の別紙様式2)は 令和3年から 3-2(生活機能チェック)に引き継がれている
+const KEIKAKU_DOCS_TSUSHO = [['keikaku_yotei','作成予定'],['tsusho_keikaku','通所介護計画書'],['kyomi_kanshin','興味・関心（3-1）'],['seikatsu_kinou','生活機能・居宅訪問（3-2）']];
+// 3-1・3-2 はどちらのタブからも開くので、最後に押したタブの組(通所/機能訓練)を覚えて、同じ組のタブを出す
+const _KK_FAM_KEY = 'tsumugiKkFamily';
+const _kkFamSet = (f) => { try { sessionStorage.setItem(_KK_FAM_KEY, f); } catch {} };
+const _kkFamGet = () => { try { return sessionStorage.getItem(_KK_FAM_KEY) || ''; } catch { return ''; } };
 // ★ 2026-10-14(ユーザー要望「タブとボタンが分かれすぎて迷う」): 個別機能訓練・LIFEのタブは 作成予定／利用者ごと／LIFE提出 の3つ。
 //   3-3・3-2・3-1・ADL評価は「利用者ごと」から開く書類(タブの横に「› 書類名」を出す)。選んだ利用者はタブを移っても引き継ぐ
 const KEIKAKU_DOCS_KINOU = [['kinou_yotei','作成予定'],['kinou_patient','利用者ごと'],['life_submit','LIFE提出']];
 const KEIKAKU_SUB_LABEL = { kinou_keikaku:'個別機能訓練計画書（様式3-3）', seikatsu_kinou:'生活機能チェック（様式3-2）', kyomi_kanshin:'興味・関心チェック（様式3-1）', life_hub:'ADL評価・科学的介護' };
 const kkHasLife = (appData) => { const a = appData?.systemSettings?.addons || {}; return !!(a.kasan_kagaku || a.kasan_adl || a.kasan_kinou2); };
+// ★ 2026-10-29(ユーザー「計画書関係もサイドバー方式にした方がいいかも」・各種設定と個人ファイルに合わせる):
+//   iPad・パソコン(768px以上)は計画書の画面の左に縦の並び。上は「通所介護計画書」、下は「個別機能訓練・LIFE」(店舗で使っている方だけ)。
+//   個別機能訓練の 3-3・3-2・3-1・ADL評価 は「利用者ごと」の下に小さく並べる(10/14 の「タブは3つ」の形はそのまま)。3-1・3-2 は両方の組にあり、最後に押した組の方に印。
+//   今どこかは各画面の見出しの KeikakuTabs が知らせる(編集中は KeikakuTabs が無い=左の並びも出さない)。スマホは今までどおり上の横のボタン
+const KkSideCtx = React.createContext(null);
+const KK_FRAME_VIEWS = ['keikaku_yotei','tsusho_keikaku','kinou_yotei','kinou_patient','kinou_keikaku','seikatsu_kinou','kyomi_kanshin','life_hub','life_submit'];
+function KeikakuFrame({ on, appData, navigateTo, dueCounts, children }) {
+  const [reg, setReg] = React.useState(null);
+  const api = React.useMemo(() => ({ set: (tok, d) => setReg({ tok, ...d }), clear: (tok) => setReg(p => (p && p.tok === tok ? null : p)) }), []);
+  if (!on) return children;
+  return (
+    <KkSideCtx.Provider value={api}>
+      <div className="h-full md:flex" data-testid="kk-frame">
+        {reg ? <KeikakuSideNav reg={reg} appData={appData} navigateTo={navigateTo} dueCounts={dueCounts} onRefam={(f) => setReg(p => (p ? { ...p, fam: f } : p))}/> : null}
+        <div className="h-full md:flex-1 md:min-w-0">{children}</div>
+      </div>
+    </KkSideCtx.Provider>
+  );
+}
+function KeikakuSideNav({ reg, appData, navigateTo, dueCounts, onRefam }) {
+  const { current, fam, pid } = reg;
+  const hasLife = kkHasLife(appData);
+  const showTsusho = hasAddon(appData, 'tsusho_keikaku') || fam === 'tsusho';
+  const showKinou = hasAddon(appData, 'kinou_keikaku') || hasAnyLifeAddon(appData) || fam !== 'tsusho';
+  const _p = pid != null ? (appData.patients || []).find(p => p.id === pid) : null;
+  const _shienP = !!_p && kpCareGroup(_p) === 'shien'; // 要支援の方には 3-3 が無い(利用者ごとと同じ)
+  // 3-1・3-2 を開いたまま、もう一方の組の 3-1・3-2 を押したときは画面が変わらないので、印だけ移す
+  const go = (f, v) => { _kkFamSet(f); if (v === current && f !== fam && onRefam) onRefam(f); navigateTo(v, pid ?? null); };
+  const lbl = (t) => String(t).split(/(（[^）]*）)/).filter(Boolean).map((x, i) => (x.startsWith('（') ? <span key={i} className="whitespace-nowrap">{x}</span> : x)); // 狭いとき「（3-2）」の途中で折れないように
+  const badge = (n) => (n ? <span className="shrink-0 min-w-[1.5em] text-center rounded-full bg-amber-100 text-amber-800 text-[11px] leading-[1.6] px-1">{n}</span> : null);
+  const top = (f, v, label, n) => { const on = fam === f && current === v; return (
+    <button key={`${f}-${v}`} type="button" data-testid={`kk-side-${f}-${v}`} aria-current={on ? 'page' : undefined} onClick={() => go(f, v)}
+      className={`w-full text-left px-3 py-2.5 text-sm font-bold border-l-4 flex items-center gap-1.5 ${on ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-transparent text-slate-600 hover:bg-slate-50'}`}>
+      <span className="flex-1 min-w-0">{lbl(label)}</span>{badge(n)}
+    </button>); };
+  const subs = [
+    ...(_shienP ? [] : [['kinou_keikaku', '個別機能訓練計画書（3-3）']]),
+    ['seikatsu_kinou', '生活機能チェック（3-2）'], ['kyomi_kanshin', '興味・関心チェック（3-1）'],
+    ...(hasLife ? [['life_hub', 'ADL評価・科学的介護']] : []),
+  ];
+  const inSub = fam !== 'tsusho' && subs.some(([v]) => v === current);
+  const head = (t) => <div className="px-3 pt-3 pb-1 text-[11px] font-bold text-slate-400 tracking-wide">{t}</div>;
+  return (
+    <nav data-testid="kk-side" className="hidden md:flex md:flex-col w-52 lg:w-56 shrink-0 h-full bg-white border-r border-slate-200 overflow-y-auto pb-4">
+      {showTsusho && <>{head('通所介護計画書')}{KEIKAKU_DOCS_TSUSHO.map(([v, l]) => top('tsusho', v, l, v === 'keikaku_yotei' ? dueCounts?.tsusho : 0))}</>}
+      {showKinou && <>
+        <div className={showTsusho ? 'mt-2 border-t border-slate-100' : ''}>{head('個別機能訓練・LIFE')}</div>
+        {top('kinou', 'kinou_yotei', '作成予定', dueCounts?.kinou)}
+        <button type="button" data-testid="kk-side-kinou-kinou_patient" aria-current={fam !== 'tsusho' && current === 'kinou_patient' ? 'page' : undefined} onClick={() => go('kinou', 'kinou_patient')}
+          className={`w-full text-left px-3 py-2.5 text-sm font-bold border-l-4 ${fam !== 'tsusho' && current === 'kinou_patient' ? 'border-blue-600 bg-blue-50 text-blue-700' : inSub ? 'border-blue-200 text-blue-700 hover:bg-slate-50' : 'border-transparent text-slate-600 hover:bg-slate-50'}`}>利用者ごと</button>
+        <div className="pb-1 bg-slate-50/70 border-b border-slate-100" data-testid="kk-side-subs">
+          {subs.map(([v, l]) => { const on = fam !== 'tsusho' && current === v; return (
+            <button key={v} type="button" data-testid={`kk-side-kinou-${v}`} aria-current={on ? 'page' : undefined} onClick={() => go('kinou', v)}
+              className={`block w-full text-left pl-6 pr-2 py-1.5 text-[13px] leading-snug ${on ? 'text-blue-700 font-bold bg-blue-50' : 'text-slate-600 hover:bg-slate-100'}`}>{lbl(l)}</button>); })}
+        </div>
+        {hasLife && top('kinou', 'life_submit', 'LIFE提出', 0)}
+      </>}
+    </nav>
+  );
+}
 function KeikakuTabs({ current, navigateTo, family, pid, appData }) {
+  const side = React.useContext(KkSideCtx);
+  const _shared = current === 'kyomi_kanshin' || current === 'seikatsu_kinou';
+  const fam = (_shared && _kkFamGet() === 'tsusho') ? 'tsusho' : family;
+  if (!_shared) _kkFamSet(fam === 'tsusho' ? 'tsusho' : 'kinou');
+  // ★ 2026-10-29: 左の縦の並び(KeikakuFrame)に「今の画面・組・利用者」を知らせる。編集中はこの部品が無いので、左の並びも出ない(書類を広く使う)
+  React.useLayoutEffect(() => { if (!side || !navigateTo) return undefined; const tok = {}; side.set(tok, { current, fam, pid: pid ?? null }); return () => side.clear(tok); }, [side, navigateTo, current, fam, pid]);
   if (!navigateTo) return null;
-  const docs = family === 'tsusho' ? KEIKAKU_DOCS_TSUSHO : KEIKAKU_DOCS_KINOU.filter(([v]) => v !== 'life_submit' || !appData || kkHasLife(appData));
-  const sub = family !== 'tsusho' ? KEIKAKU_SUB_LABEL[current] : null;
+  const docs = fam === 'tsusho' ? KEIKAKU_DOCS_TSUSHO : KEIKAKU_DOCS_KINOU.filter(([v]) => v !== 'life_submit' || !appData || kkHasLife(appData));
+  const sub = fam !== 'tsusho' ? KEIKAKU_SUB_LABEL[current] : null;
   const active = sub ? 'kinou_patient' : current;
   return (
-    <div className="flex gap-1 flex-wrap items-center" data-testid="kk-tabs">
+    <div className={`flex gap-1 flex-wrap items-center ${side ? 'md:hidden' : ''}`} data-testid="kk-tabs">
       {docs.map(([v,l]) => (
-        <button key={v} onClick={()=>navigateTo(v, pid ?? null)} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${active===v?'bg-blue-600 text-white':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{l}</button>
+        <button key={v} data-testid={`kk-tab-${v}`} onClick={()=>{ _kkFamSet(fam === 'tsusho' ? 'tsusho' : 'kinou'); navigateTo(v, pid ?? null); }} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${active===v?'bg-blue-600 text-white':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{l}</button>
       ))}
       {sub ? <span className="flex items-center gap-1 text-xs font-bold text-slate-600 ml-1 whitespace-nowrap" data-testid="kk-sub"><span className="text-slate-400">›</span>{sub}</span> : null}
     </div>
@@ -51673,10 +51966,14 @@ function KeikakuPatientSelect({ patients, pid, onChange }) {
 // ★ 2026-10-14(ユーザー要望「下は閲覧が目的」): 書類は日付ごとの履歴に「ダウンロード(PDF)」「編集」。
 //   ダウンロードはその書類の画面を見えない所で開いて印刷用の中身を作る(画面は移らない)。編集はその書類の画面へ
 function KinouPatientView({ appData, navigateTo, targetPatientId, onShowPrintPreview }) {
-  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
+  const hasLife = kkHasLife(appData);
+  // ★ 2026-10-28: 個別機能訓練計画書は要介護だけ。LIFE(科学的介護推進体制加算)は要支援も対象なので、LIFE のある店舗だけ要支援の方も出す(個別機能訓練計画書は出さない)
+  //   (個別機能訓練加算Ⅱ・ADL維持等加算は要介護だけなので、要支援の方を出すのは 科学的介護推進体制加算 のある店舗だけ)
+  const _kagakuOn = !!((appData.systemSettings || {}).addons || {}).kasan_kagaku;
+  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p) && (_kagakuOn || kpCareGroup(p) !== 'shien')));
   const [pid, setPid] = React.useState((targetPatientId!=null && patients.some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
   const patient = patients.find(p => p.id === pid);
-  const hasLife = kkHasLife(appData);
+  const _shienP = kpCareGroup(patient) === 'shien';
   const dues = React.useMemo(() => computePlanDues(appData, null, { includeFuture: true }).filter(d => d.patient && d.patient.id === pid && d.kind !== 'tsusho').sort((a,b) => a.due - b.due), [appData, pid]);
   const _hist = (arr, key) => (arr||[]).filter(r => r && r.patientId === pid).map(r => ({ r, d: parseJpDate(r[key]) })).filter(x => x.d).sort((a,b) => b.d - a.d);
   const _ymd = (d) => d ? `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}` : '';
@@ -51685,7 +51982,7 @@ function KinouPatientView({ appData, navigateTo, targetPatientId, onShowPrintPre
   const _dirtyDummy = React.useRef(false), _saveDummy = React.useRef(null);
   React.useEffect(() => { if (!dl) return; const t = setTimeout(() => setDl(null), 8000); return () => clearTimeout(t); }, [dl]); // 念のため(書類が見つからない等)
   const docs = [
-    { view:'kinou_keikaku', title:'個別機能訓練計画書', sub:'様式3-3・3か月ごとに見直し', list:_hist(appData.kinouKeikakuRecords, 'createdDate'), edit:(r) => navigateTo('kinou_keikaku', pid, `edit:${r.id}|ret:kinou_patient`) },
+    ...(_shienP ? [] : [{ view:'kinou_keikaku', title:'個別機能訓練計画書', sub:'様式3-3・3か月ごとに見直し', list:_hist(appData.kinouKeikakuRecords, 'createdDate'), edit:(r) => navigateTo('kinou_keikaku', pid, `edit:${r.id}|ret:kinou_patient`) }]),
     { view:'seikatsu_kinou', title:'生活機能チェック', sub:'様式3-2', list:_hist(appData.seikatsuKinouRecords, 'recordDate'), edit:(r) => navigateTo('seikatsu_kinou', pid, `edit:${r.id}|ret:kinou_patient`) },
     { view:'kyomi_kanshin', title:'興味・関心チェック', sub:'様式3-1', list:_hist(appData.kyomiKanshinRecords, 'recordDate'), edit:(r) => navigateTo('kyomi_kanshin', pid, `edit:${r.id}|ret:kinou_patient`) },
     ...(hasLife ? [{ view:'life_hub', title:'ADL評価・科学的介護', sub:'LIFE提出のもとになる評価', list:_hist(appData.adlRecords, 'evalDate'), edit:(r) => navigateTo('life_hub', pid, `batch:${r.evalDate}|ret:kinou_patient`) }] : []),
@@ -51722,6 +52019,7 @@ function KinouPatientView({ appData, navigateTo, targetPatientId, onShowPrintPre
               </div>)}
           </div>
           {/* 作るときはこれ1つ */}
+          {_shienP && <div data-testid="kk-shien-note" className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5">要支援・事業対象者の方は、個別機能訓練計画書の対象外です（要介護の方だけ）。ここでは LIFE（科学的介護）の評価だけを行います。</div>}
           {hasLife ? (
             <button type="button" data-testid="kk-start" onClick={() => navigateTo('life_hub', pid, 'batch|ret:kinou_patient')} className="w-full text-left bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl px-5 py-4 shadow active:scale-[0.99]">
               <div className="text-lg font-bold">評価・計画を始める</div>
@@ -51755,7 +52053,7 @@ function KinouPatientView({ appData, navigateTo, targetPatientId, onShowPrintPre
           </div>
         </div>)}
       </div>
-      {_dlEl ? <div style={{ display: 'none' }} aria-hidden="true">{_dlEl}</div> : null}
+      {_dlEl ? <div style={{ display: 'none' }} aria-hidden="true"><KkSideCtx.Provider value={null}>{_dlEl}</KkSideCtx.Provider></div> : null}{/* ★ 2026-10-29: 見えない書類の画面は左の並びに知らせない */}
     </div>
   );
 }
@@ -52019,8 +52317,8 @@ function LifeDiseaseSearch({ onPick }) {
 // === 個別機能訓練計画書 (アドオン: kinou_keikaku) ===
 function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId, navFocus, onFocusHandled }) {
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
-  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p)));
-  const [pid, setPid] = React.useState((targetPatientId!=null && (appData.patients||[]).some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null));
+  const patients = sortPatientsByKana((appData.patients||[]).filter(p => (p.status==='利用中' || p.status==='休止') && isPatientListable(p) && kpCareGroup(p) !== 'shien') /* ★ 2026-10-28: 要介護だけ */);
+  const [pid, setPid] = React.useState((targetPatientId!=null && patients.some(p=>p.id===targetPatientId)) ? targetPatientId : (patients[0]?.id ?? null)); // ★ 2026-10-28: 要支援の方を渡されたら先頭の方
   const [editing, setEditing] = React.useState(null); // 編集中レコード or null
   const patient = (appData.patients||[]).find(p => p.id === pid);
   const exItems = appData.systemSettings?.exerciseItems || [];
@@ -52195,7 +52493,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
         {editing ? <>
           <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} data-testid="kk-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold"><ChevronLeft size={16}/>閉じる</button>
-          <span className="text-sm font-bold text-slate-700 whitespace-nowrap">個別機能訓練計画書（様式3-3）の編集<span className="ml-2 font-normal text-slate-500">{patient?.name ? `${patient.name} 様` : ''}</span></span>
+          <span className="text-sm font-bold text-slate-700 whitespace-nowrap">個別機能訓練計画書（様式3-3）の編集{editing.zantei ? '（暫定）' : ''}<span className="ml-2 font-normal text-slate-500">{patient?.name ? `${patient.name} 様` : ''}</span></span>
         </> : <>
           <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>
           <KeikakuTabs current="kinou_keikaku" navigateTo={navigateTo} family="kinou" pid={pid} appData={appData}/>
@@ -52281,6 +52579,8 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
                 <KKDateField label="作成日" value={editing.createdDate} onChange={v=>upd({createdDate:v})}/>
                 <KKDateField label="前回作成日" value={editing.prevDate} onChange={v=>upd({prevDate:v})} ph="（初回は空欄）"/>
                 <KKDateField label="初回作成日" value={editing.firstDate} onChange={v=>upd({firstDate:v})}/>
+                {/* ★ 2026-10-27(ユーザー要望「個別機能訓練計画書も暫定が必要なら」): 介護認定の結果待ちで作るとき。印刷に「暫定」と出る */}
+                <label className="flex items-center gap-2 text-sm font-bold text-slate-700 cursor-pointer self-end pb-2"><input type="checkbox" data-testid="kk-zantei" checked={!!editing.zantei} onChange={e=>upd({zantei:e.target.checked})} className="w-5 h-5"/>暫定（介護認定の結果待ち）</label>
                 {/* ★ 2026-10-14(ユーザー要望): 計画作成者・職種・共同作成者は職員のプルダウン(役職ごと)。共同作成者は複数チェック */}
                 <div><label className="block text-xs font-bold text-slate-600 mb-1">計画作成者</label>
                   <KKStaffSelect staff={_kkStaff} value={editing.author||''} role={editing.authorJob||''} onPick={(name, role)=>upd({ author: name, ...(role ? { authorJob: role } : {}) })} placeholder="（職員を選択）"/>
@@ -52312,25 +52612,25 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
             <div className="bg-white rounded-xl border border-slate-200 p-4">
               <div className="text-sm font-bold text-blue-700 mb-3">Ⅰ 利用者の基本情報</div>
               <div className="grid md:grid-cols-2 gap-3">
-                <KKField label="利用者本人の希望" value={editing.honninKibou} onChange={v=>upd({honninKibou:v})} rows={2}/>
-                <KKField label="家族の希望" value={editing.kazokuKibou} onChange={v=>upd({kazokuKibou:v})} rows={2}/>
-                <KKField label="利用者本人の社会参加の状況" value={editing.shakaiSanka} onChange={v=>upd({shakaiSanka:v})} rows={2}/>
-                <KKField label="利用者の居宅の環境（環境因子）" value={editing.kyotakuKankyo} onChange={v=>upd({kyotakuKankyo:v})} rows={2}/>
+                <KKField label="利用者本人の希望" box={TSU_BOXCAP.kk.honninKibou} value={editing.honninKibou} onChange={v=>upd({honninKibou:v})} rows={2}/>
+                <KKField label="家族の希望" box={TSU_BOXCAP.kk.kazokuKibou} value={editing.kazokuKibou} onChange={v=>upd({kazokuKibou:v})} rows={2}/>
+                <KKField label="利用者本人の社会参加の状況" box={TSU_BOXCAP.kk.shakaiSanka} value={editing.shakaiSanka} onChange={v=>upd({shakaiSanka:v})} rows={2}/>
+                <KKField label="利用者の居宅の環境（環境因子）" box={TSU_BOXCAP.kk.kyotakuKankyo} value={editing.kyotakuKankyo} onChange={v=>upd({kyotakuKankyo:v})} rows={2}/>
               </div>
             </div>
             {/* 健康状態・経過 */}
             <div className="bg-white rounded-xl border border-slate-200 p-4">
               <div className="text-sm font-bold text-blue-700 mb-3">健康状態・経過</div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                <KKField label="病名" value={editing.byomei} onChange={v=>upd({byomei:v})}/>
+                <KKField label="病名" box={TSU_BOXCAP.kk.byomei} value={editing.byomei} onChange={v=>upd({byomei:v})}/>
                 <KKDateField label="発症日・受傷日" value={editing.hasshoDate} onChange={v=>upd({hasshoDate:v})}/>
                 <KKDateField label="直近の入院日" value={editing.nyuinDate} onChange={v=>upd({nyuinDate:v})}/>
                 <KKDateField label="直近の退院日" value={editing.taiinDate} onChange={v=>upd({taiinDate:v})}/>
               </div>
               <div className="grid md:grid-cols-1 gap-3">
-                <KKField label="治療経過（手術がある場合は手術日・術式等）" value={editing.chiryoKeika} onChange={v=>upd({chiryoKeika:v})} rows={2}/>
-                <KKField label="合併疾患・コントロール状態（高血圧・心疾患・呼吸器疾患・糖尿病等）" value={editing.gappei} onChange={v=>upd({gappei:v})} rows={2}/>
-                <KKField label="機能訓練実施上の留意事項（開始前・訓練中の留意事項、運動強度・負荷量等）" value={editing.ryuiPoint} onChange={v=>upd({ryuiPoint:v})} rows={2} presets={_kkP.ryui} presetMode="check"/>
+                <KKField label="治療経過（手術がある場合は手術日・術式等）" box={TSU_BOXCAP.kk.chiryoKeika} value={editing.chiryoKeika} onChange={v=>upd({chiryoKeika:v})} rows={2}/>
+                <KKField label="合併疾患・コントロール状態（高血圧・心疾患・呼吸器疾患・糖尿病等）" box={TSU_BOXCAP.kk.gappei} value={editing.gappei} onChange={v=>upd({gappei:v})} rows={2}/>
+                <KKField label="機能訓練実施上の留意事項（開始前・訓練中の留意事項、運動強度・負荷量等）" box={TSU_BOXCAP.kk.ryuiPoint} value={editing.ryuiPoint} onChange={v=>upd({ryuiPoint:v})} rows={2} presets={_kkP.ryui} presetMode="check"/>
               </div>
             </div>
             {/* Ⅱ 目標 */}
@@ -52340,16 +52640,16 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
                 <div className="space-y-2">
                   <div className="flex items-center gap-2"><span className="text-xs font-bold text-slate-600">短期目標（今後3ヶ月）</span>
                     <select value={editing.shortAchieve} onChange={e=>upd({shortAchieve:e.target.value})} className="px-2 py-1 border border-slate-300 rounded text-xs outline-none"><option value="">達成度</option><option>達成</option><option>一部</option><option>未達</option></select></div>
-                  <KKField label="（機能）" value={editing.shortKinou} onChange={v=>upd({shortKinou:v})} rows={2} presets={_kkP.goalKinou}/>
-                  <KKField label="（活動）" value={editing.shortKatsudo} onChange={v=>upd({shortKatsudo:v})} rows={2} presets={_kkP.goalKatsudo}/>
-                  <KKField label="（参加）" value={editing.shortSanka} onChange={v=>upd({shortSanka:v})} rows={2} presets={_kkP.goalSanka}/>
+                  <KKField label="（機能）" box={TSU_BOXCAP.kk.shortKinou} value={editing.shortKinou} onChange={v=>upd({shortKinou:v})} rows={2} presets={_kkP.goalKinou}/>
+                  <KKField label="（活動）" box={TSU_BOXCAP.kk.shortKatsudo} value={editing.shortKatsudo} onChange={v=>upd({shortKatsudo:v})} rows={2} presets={_kkP.goalKatsudo}/>
+                  <KKField label="（参加）" box={TSU_BOXCAP.kk.shortSanka} value={editing.shortSanka} onChange={v=>upd({shortSanka:v})} rows={2} presets={_kkP.goalSanka}/>
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-center gap-2"><span className="text-xs font-bold text-slate-600">長期目標</span>
                     <select value={editing.longAchieve} onChange={e=>upd({longAchieve:e.target.value})} className="px-2 py-1 border border-slate-300 rounded text-xs outline-none"><option value="">達成度</option><option>達成</option><option>一部</option><option>未達</option></select></div>
-                  <KKField label="（機能）" value={editing.longKinou} onChange={v=>upd({longKinou:v})} rows={2} presets={_kkP.goalKinou}/>
-                  <KKField label="（活動）" value={editing.longKatsudo} onChange={v=>upd({longKatsudo:v})} rows={2} presets={_kkP.goalKatsudo}/>
-                  <KKField label="（参加）" value={editing.longSanka} onChange={v=>upd({longSanka:v})} rows={2} presets={_kkP.goalSanka}/>
+                  <KKField label="（機能）" box={TSU_BOXCAP.kk.longKinou} value={editing.longKinou} onChange={v=>upd({longKinou:v})} rows={2} presets={_kkP.goalKinou}/>
+                  <KKField label="（活動）" box={TSU_BOXCAP.kk.longKatsudo} value={editing.longKatsudo} onChange={v=>upd({longKatsudo:v})} rows={2} presets={_kkP.goalKatsudo}/>
+                  <KKField label="（参加）" box={TSU_BOXCAP.kk.longSanka} value={editing.longSanka} onChange={v=>upd({longSanka:v})} rows={2} presets={_kkP.goalSanka}/>
                 </div>
               </div>
             </div>
@@ -52381,8 +52681,8 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
               <datalist id="kk-staff">{[...new Set([..._kkStaff.map(x=>x.name), ...STAFF_ROLE_GROUPS.filter(r=>r!=='管理者')])].map((t,i)=><option key={i} value={t}/>)}</datalist>
               <div className="mt-2"><label className="block text-xs font-bold text-slate-600 mb-1">プログラム立案者</label><KKStaffSelect staff={_kkStaff} value={editing.programPlanner||''} onPick={(name)=>upd({programPlanner:name})} placeholder="（職員を選択）"/><input value={editing.programPlanner||''} maxLength={60} onChange={e=>upd({programPlanner:e.target.value.slice(0,60)})} placeholder="直接入力もできます" className="mt-1 w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs outline-none"/></div>
               <div className="grid md:grid-cols-2 gap-3 mt-3">
-                <KKField label="利用者本人・家族等がサービス利用時間以外に実施すること" value={editing.jikangaiJisshi} onChange={v=>upd({jikangaiJisshi:v})} rows={2}/>
-                <KKField label="特記事項" value={editing.tokki} onChange={v=>upd({tokki:v})} rows={2}/>
+                <KKField label="利用者本人・家族等がサービス利用時間以外に実施すること" box={TSU_BOXCAP.kk.jikangaiJisshi} value={editing.jikangaiJisshi} onChange={v=>upd({jikangaiJisshi:v})} rows={2}/>
+                <KKField label="特記事項" box={TSU_BOXCAP.kk.tokki} value={editing.tokki} onChange={v=>upd({tokki:v})} rows={2}/>
               </div>
             </div>
             {/* Ⅲ 実施後の対応 */}
@@ -52390,8 +52690,8 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
               <div className="text-sm font-bold text-blue-700 mb-1">Ⅲ 個別機能訓練実施後の対応</div>
               <div className="text-[10px] text-slate-400 mb-3">※ 初回作成時は記載不要</div>
               <div className="grid md:grid-cols-2 gap-3">
-                <KKField label="個別機能訓練の実施による変化" value={editing.henka} onChange={v=>upd({henka:v})} rows={2} presets={_kkP.henka}/>
-                <KKField label="個別機能訓練実施における課題とその要因" value={editing.kadai} onChange={v=>upd({kadai:v})} rows={2} presets={_kkP.kadai}/>
+                <KKField label="個別機能訓練の実施による変化" box={TSU_BOXCAP.kk.henka} value={editing.henka} onChange={v=>upd({henka:v})} rows={2} presets={_kkP.henka}/>
+                <KKField label="個別機能訓練実施における課題とその要因" box={TSU_BOXCAP.kk.kadai} value={editing.kadai} onChange={v=>upd({kadai:v})} rows={2} presets={_kkP.kadai}/>
               </div>
             </div>
             {/* 説明 */}
@@ -52563,7 +52863,7 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
         const sheet = (pr) => (
         <div className="kk-sheet" style={{background:'white',color:'#000',width:'210mm',minHeight:'296mm',padding:'6mm 7mm 4mm',boxSizing:'border-box',fontFamily:'"Hiragino Sans","Meiryo","Yu Gothic Medium","Yu Gothic",sans-serif',lineHeight:1.3}}>
           <div className="kkfix" style={{fontSize:'10px'}}>別紙様式３－３</div>
-          <div className="kkfix" style={{textAlign:'center',fontSize:'15px',fontWeight:'bold',margin:'2px 0 6px'}}>【個別機能訓練計画書】</div>
+          <div className="kkfix" style={{textAlign:'center',fontSize:'15px',fontWeight:'bold',margin:'2px 0 6px'}}>【個別機能訓練計画書】{pr.zantei ? '（暫定）' : ''}</div>
           <table style={{width:'100%',borderCollapse:'collapse'}}><tbody>
             <tr><td style={cell}>作成日：{pr.createdDate||'令和　年　月　日'}</td><td style={cell}>前回作成日：{pr.prevDate||'令和　年　月　日'}</td><td style={cell}>初回作成日：{pr.firstDate||'令和　年　月　日'}</td></tr>
           </tbody></table>
@@ -52583,17 +52883,17 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
           <div className="kkfix" style={sec}>Ⅰ　利用者の基本情報<span style={{fontSize:'8px',fontWeight:'normal',marginLeft:8}}>※別紙様式3-1・3-2を別途活用すること</span></div>
           <div className="kkgrow" style={{flexGrow:34}}>
           <table style={{width:'100%',borderCollapse:'collapse'}}><tbody>
-            <tr style={{height:52}}><td style={{...lab,width:'18%'}}>利用者本人の希望</td><td style={{...cell,width:'32%'}}>{pr.honninKibou}</td><td style={{...lab,width:'18%'}}>家族の希望</td><td style={cell}>{pr.kazokuKibou}</td></tr>
-            <tr style={{height:52}}><td style={lab}>本人の社会参加の状況</td><td style={cell}>{pr.shakaiSanka}</td><td style={lab}>居宅の環境（環境因子）</td><td style={cell}>{pr.kyotakuKankyo}</td></tr>
+            <tr style={{height:52}}><td style={{...lab,width:'18%'}}>利用者本人の希望</td><td data-cap="honninKibou" style={{...cell,width:'32%'}}>{pr.honninKibou}</td><td style={{...lab,width:'18%'}}>家族の希望</td><td data-cap="kazokuKibou" style={cell}>{pr.kazokuKibou}</td></tr>
+            <tr style={{height:52}}><td style={lab}>本人の社会参加の状況</td><td data-cap="shakaiSanka" style={cell}>{pr.shakaiSanka}</td><td style={lab}>居宅の環境（環境因子）</td><td data-cap="kyotakuKankyo" style={cell}>{pr.kyotakuKankyo}</td></tr>
           </tbody></table></div>
 
           <div className="kkfix" style={sec}>健康状態・経過</div>
           <div className="kkgrow" style={{flexGrow:42}}>
           <table style={{width:'100%',borderCollapse:'collapse'}}><tbody>
-            <tr style={{height:24}}><td style={{...lab,width:'22%'}}>病名</td><td style={cell}>{pr.byomei}</td><td style={cell}>発症日・受傷日：{pr.hasshoDate}</td><td style={cell}>入院日：{pr.nyuinDate}</td><td style={cell}>退院日：{pr.taiinDate}</td></tr>
-            <tr style={{height:30}}><td style={lab}>治療経過</td><td style={cell} colSpan={4}>{pr.chiryoKeika}</td></tr>
-            <tr style={{height:30}}><td style={lab}>合併疾患・状態</td><td style={cell} colSpan={4}>{pr.gappei}</td></tr>
-            <tr style={{height:34}}><td style={lab}>機能訓練実施上の留意事項</td><td style={cell} colSpan={4}>{pr.ryuiPoint}</td></tr>
+            <tr style={{height:24}}><td style={{...lab,width:'22%'}}>病名</td><td data-cap="byomei" style={cell}>{pr.byomei}</td><td style={cell}>発症日・受傷日：{pr.hasshoDate}</td><td style={cell}>入院日：{pr.nyuinDate}</td><td style={cell}>退院日：{pr.taiinDate}</td></tr>
+            <tr style={{height:30}}><td style={lab}>治療経過</td><td data-cap="chiryoKeika" style={cell} colSpan={4}>{pr.chiryoKeika}</td></tr>
+            <tr style={{height:30}}><td style={lab}>合併疾患・状態</td><td data-cap="gappei" style={cell} colSpan={4}>{pr.gappei}</td></tr>
+            <tr style={{height:34}}><td style={lab}>機能訓練実施上の留意事項</td><td data-cap="ryuiPoint" style={cell} colSpan={4}>{pr.ryuiPoint}</td></tr>
           </tbody></table></div>
           <div className="kkfix" style={{fontSize:'8px',color:'#333',margin:'1px 0 0'}}>※①〜⑤に加えて、介護支援専門員から、居宅サービス計画上の利用者本人等の意向、総合的な支援方針等について確認すること。</div>
 
@@ -52602,9 +52902,9 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
           <div className="kkgrow" style={{flexGrow:40}}>
           <table style={{width:'100%',borderCollapse:'collapse'}}><tbody>
             <tr><td style={{...lab,width:'50%'}}>機能訓練の短期目標（今後3ヶ月）　目標達成度（達成・一部・未達）：{pr.shortAchieve||''}</td><td style={lab}>機能訓練の長期目標　目標達成度（達成・一部・未達）：{pr.longAchieve||''}</td></tr>
-            <tr style={{height:30}}><td style={cell}>（機能）{pr.shortKinou}</td><td style={cell}>（機能）{pr.longKinou}</td></tr>
-            <tr style={{height:30}}><td style={cell}>（活動）{pr.shortKatsudo}</td><td style={cell}>（活動）{pr.longKatsudo}</td></tr>
-            <tr style={{height:30}}><td style={cell}>（参加）{pr.shortSanka}</td><td style={cell}>（参加）{pr.longSanka}</td></tr>
+            <tr style={{height:30}}><td data-cap="shortKinou" style={cell}>（機能）{pr.shortKinou}</td><td data-cap="longKinou" style={cell}>（機能）{pr.longKinou}</td></tr>
+            <tr style={{height:30}}><td data-cap="shortKatsudo" style={cell}>（活動）{pr.shortKatsudo}</td><td data-cap="longKatsudo" style={cell}>（活動）{pr.longKatsudo}</td></tr>
+            <tr style={{height:30}}><td data-cap="shortSanka" style={cell}>（参加）{pr.shortSanka}</td><td data-cap="longSanka" style={cell}>（参加）{pr.longSanka}</td></tr>
           </tbody></table></div>
           <div style={{fontSize:'8px',color:'#333',margin:'1px 0 0'}}>※短期目標（長期目標を達成するために必要な行為）は、訓練実施期間内に達成を目指す項目のみを記載することとして差し支えない。目標達成の目安となる期間もあわせて記載すること。</div>
           <div className="kkfix" style={{fontSize:'10px',fontWeight:'bold',margin:'5px 0 2px'}}>個別機能訓練項目</div>
@@ -52637,14 +52937,14 @@ function KinouKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
           </tbody></table>
           <div className="kkgrow" style={{flexGrow:22}}>
           <table style={{width:'100%',borderCollapse:'collapse'}}><tbody>
-            <tr style={{height:46}}><td style={{...lab,width:'40%'}}>利用者本人・家族等がサービス利用時間以外に実施すること</td><td style={cell}>{pr.jikangaiJisshi}</td><td style={{...lab,width:'14%'}}>特記事項</td><td style={cell}>{pr.tokki}</td></tr>
+            <tr style={{height:46}}><td style={{...lab,width:'40%'}}>利用者本人・家族等がサービス利用時間以外に実施すること</td><td data-cap="jikangaiJisshi" style={cell}>{pr.jikangaiJisshi}</td><td style={{...lab,width:'14%'}}>特記事項</td><td data-cap="tokki" style={cell}>{pr.tokki}</td></tr>
           </tbody></table></div>
 
           <div className="kkfix" style={sec}>Ⅲ　個別機能訓練実施後の対応</div>
           <div className="kkgrow" style={{flexGrow:30}}>
           <table style={{width:'100%',borderCollapse:'collapse'}}><tbody>
             <tr><td style={{...lab,width:'50%',textAlign:'center'}}>個別機能訓練の実施による変化</td><td style={{...lab,textAlign:'center'}}>個別機能訓練実施における課題とその要因</td></tr>
-            <tr style={{height:64}}><td style={cell}>{pr.henka}</td><td style={cell}>{pr.kadai}</td></tr>
+            <tr style={{height:64}}><td data-cap="henka" style={cell}>{pr.henka}</td><td data-cap="kadai" style={cell}>{pr.kadai}</td></tr>
           </tbody></table></div>
           <div className="kkfix" style={{fontSize:'8px',color:'#333',margin:'1px 0 0'}}>※実施結果等をふまえ、目標の見直しや訓練項目の変更等を行った場合は計画書の再作成又は更新等を行うこと。初回作成時にはⅢについては記載不要である。</div>
 
@@ -52803,9 +53103,9 @@ function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
             {grpForm('IADL（手段的日常生活動作）','iadl',SEIKATSU_IADL,KK_STATUS)}
             {grpForm('心身機能・構造（程度）','shinshin',SEIKATSU_SHINSHIN,KK_SHINSHIN)}
             <div className="bg-white rounded-xl border border-slate-200 p-4 grid md:grid-cols-1 gap-3">
-              <KKField presets={_kkP.skNinchi} label="認知機能・コミュニケーション" value={editing.ninchi} onChange={v=>upd({ninchi:v})} rows={2}/>
-              <KKField presets={_kkP.skKadai} label="生活上の課題・背景因子" value={editing.kadai} onChange={v=>upd({kadai:v})} rows={2}/>
-              <KKField label="備考" value={editing.bikou} onChange={v=>upd({bikou:v})} rows={2}/>
+              <KKField presets={_kkP.skNinchi} label="認知機能・コミュニケーション" box={TSU_BOXCAP.sk.ninchi} value={editing.ninchi} onChange={v=>upd({ninchi:v})} rows={2}/>
+              <KKField presets={_kkP.skKadai} label="生活上の課題・背景因子" box={TSU_BOXCAP.sk.kadai} value={editing.kadai} onChange={v=>upd({kadai:v})} rows={2}/>
+              <KKField label="備考" box={TSU_BOXCAP.sk.bikou} value={editing.bikou} onChange={v=>upd({bikou:v})} rows={2}/>
             </div>
           </div>
         ) : (
@@ -52846,9 +53146,9 @@ function SeikatsuKinouView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
             </div>
           ))}
           <table style={{width:'100%',borderCollapse:'collapse',marginTop:'6px'}}><tbody>
-            <tr><td style={labB}>認知・コミュニケーション</td><td style={cellB}>{printRec.ninchi}</td></tr>
-            <tr><td style={labB}>生活上の課題・背景因子</td><td style={cellB}>{printRec.kadai}</td></tr>
-            <tr><td style={labB}>備考</td><td style={cellB}>{printRec.bikou}</td></tr>
+            <tr><td style={labB}>認知・コミュニケーション</td><td data-cap="ninchi" style={{...cellB,whiteSpace:'pre-wrap'}}>{printRec.ninchi}</td></tr>
+            <tr><td style={labB}>生活上の課題・背景因子</td><td data-cap="kadai" style={{...cellB,whiteSpace:'pre-wrap'}}>{printRec.kadai}</td></tr>
+            <tr><td style={labB}>備考</td><td data-cap="bikou" style={{...cellB,whiteSpace:'pre-wrap'}}>{printRec.bikou}</td></tr>
           </tbody></table>
           <div style={{fontSize:'10px',marginTop:'6px'}}>{facility.name||''}</div>
         </div>
@@ -52947,7 +53247,7 @@ function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
                 <button onClick={addCustom} className="px-3 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-bold">＋ 追加</button>
               </div>
             </div>
-            <div className="bg-white rounded-xl border border-slate-200 p-4"><KKField presets={_kkP.kyBikou} label="備考（具体的な希望・エピソード等）" value={editing.bikou} onChange={v=>upd({bikou:v})} rows={2}/></div>
+            <div className="bg-white rounded-xl border border-slate-200 p-4"><KKField presets={_kkP.kyBikou} label="備考（具体的な希望・エピソード等）" box={TSU_BOXCAP.ky.bikou} value={editing.bikou} onChange={v=>upd({bikou:v})} rows={2}/></div>
           </div>
         ) : (
           <div className="max-w-3xl mx-auto">
@@ -52982,7 +53282,7 @@ function KyomiKanshinView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPre
               ))}
             </tbody>
           </table>
-          {printRec.bikou && <div style={{fontSize:'10.5px',marginTop:'6px'}}>備考：{printRec.bikou}</div>}
+          {printRec.bikou && <div data-cap="bikou" style={{fontSize:'10.5px',marginTop:'6px',whiteSpace:'pre-wrap'}}>備考：{printRec.bikou}</div>}
         </div>
       )}
     </div>
@@ -53012,6 +53312,42 @@ const TK_TASSEI  = ['達成','一部','未達成'];
 const TK_ACHIEVE = ['達成','一部','未達'];
 const TK_MARU    = ['①','②','③','④','⑤'];
 const TK_UMU     = ['有','無'];
+// ★ 2026-10-27(ユーザー要望「要介護と要支援で計画書の内容が変わるので、それぞれ設置したい」「暫定の計画書を作れるように」):
+//   計画書ごとに種類(planType: kaigo=通所介護計画書(様式3-4) / shien=総合事業の計画書)を持つ。新しく作るときは利用者マスタの介護度で決まる。
+//   要支援の計画書の名前は市区町村で違う(国=通所型サービス計画・江東区=個別サービス計画書 など)ので、各種設定→計画書で店舗ごとに変えられる。
+//   暫定(zantei)=介護認定の結果待ちで作る計画書。見込みの介護度・申請日を持ち、結果が出たら「本計画にする」で作り直す(暫定は残す)
+const TK_SHIEN_TITLE_DEFAULT = '個別サービス計画書（介護予防・日常生活支援総合事業）';
+const tkShienTitle = (ss) => String((ss && ss.shienPlanTitle) || '').trim() || TK_SHIEN_TITLE_DEFAULT;
+const TK_LEVELS_KAIGO = ['要介護1','要介護2','要介護3','要介護4','要介護5'];
+const TK_LEVELS_SHIEN = ['要支援1','要支援2','事業対象者'];
+const tkLevelType = (lv) => { const v = String(lv || ''); if (!v) return null; return (v.includes('要介護') && !v.includes('経過的')) ? 'kaigo' : ((v.includes('要支援') || v.includes('事業対象') || v.includes('経過的')) ? 'shien' : null); };
+const tkPlanTypeOf = (rec, patient) => (rec && (rec.planType === 'kaigo' || rec.planType === 'shien')) ? rec.planType : ((rec && rec.zantei && tkLevelType(rec.zanteiLevel)) || (kpCareGroup(patient) === 'shien' ? 'shien' : 'kaigo'));
+const tkIsoToReiwa = (v) => { const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})/); if (!m) return String(v || ''); const y = Number(m[1]); return y >= 2019 ? `令和${y - 2018}年${Number(m[2])}月${Number(m[3])}日` : `平成${y - 1988}年${Number(m[2])}月${Number(m[3])}日`; };
+// 提供記録の運動(予定の値)と個別運動(既定)から、要支援の計画書の「個別の運動の実施内容」を作る
+const tkExercisesFromRecord = (patient, ss) => { try {
+  const out = []; const iso = tsuTodayIso(); const planned = getPlannedExercisesForDate(patient, iso) || {};
+  // 半角カナだけ全角に(①などの丸数字はそのまま。NFKC を全体に掛けると ① が 1 になる)
+  const nm = (x) => String(x || '').replace(/[\uFF61-\uFF9F]+/g, (t) => t.normalize('NFKC')).trim(); const empty = (v) => !String(v ?? '').trim() || /^[ー—\-－―]+$/.test(String(v).trim());
+  (effExerciseItems(ss) || []).filter(it => it && it.type !== 'individual').forEach(it => { const v = planned[it.id]; if (!empty(v)) out.push({ content: nm(it.name), amount: String(v).trim(), freq: '', note: '' }); });
+  const menu = (ss && Array.isArray(ss.individualExerciseItems)) ? ss.individualExerciseItems : []; const ind = Array.isArray(patient?.individualExercises) ? patient.individualExercises : [];
+  Object.values(tsuIndSlotDefaults(patient, ss) || {}).filter(Boolean).forEach(id => { const m = menu.find(x => x && x.id === id); if (!m) return; const d = ind.find(x => x && x.itemId === id); out.push({ content: nm(m.name), amount: String((d && d.defaultValue) || '').trim(), freq: '', note: '' }); });
+  return out.slice(0, 8);
+} catch { return []; } };
+// 各種設定 → 計画書: 要支援の計画書の名前(印刷の題名)。よく使う名前は押して選べる
+const TK_SHIEN_TITLE_PRESETS = [TK_SHIEN_TITLE_DEFAULT, '江東区総合事業個別サービス計画書（介護予防型通所）', '通所型サービス計画書'];
+function TsuShienTitleSetting({ ss, saveSS }) {
+  const cur = tkShienTitle(ss); const [v, setV] = React.useState(cur);
+  React.useEffect(() => { setV(cur); }, [cur]);
+  const save = (t) => { const x = String(t || '').trim().slice(0, 40); saveSS({ shienPlanTitle: x === TK_SHIEN_TITLE_DEFAULT ? '' : x }, '✓ 要支援の計画書の名前を保存しました'); };
+  return (
+    <div className="space-y-2" data-testid="tk-shien-title-setting">
+      <p className="text-xs text-slate-500">要支援・事業対象者の方の計画書（通所介護計画書の画面で作ります）の印刷の題名です。国の決まった名前は無く、市区町村で違います。</p>
+      <div className="flex gap-2 flex-wrap"><input value={v} maxLength={40} onChange={e => setV(e.target.value)} data-testid="tk-shien-title-input" className="flex-1 min-w-[14em] px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none bg-white"/>
+        <button type="button" data-testid="tk-shien-title-save" onClick={() => save(v)} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold">保存</button></div>
+      <div className="flex gap-2 flex-wrap">{TK_SHIEN_TITLE_PRESETS.map(t => <button key={t} type="button" onClick={() => { setV(t); save(t); }} className={`px-3 py-1.5 rounded-full border text-xs font-bold ${cur === t ? 'bg-blue-50 border-blue-300 text-blue-800' : 'bg-white border-slate-300 text-slate-600'}`}>{t}</button>)}</div>
+    </div>
+  );
+}
 function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPreview, navigateTo, targetPatientId, navFocus, onFocusHandled }) {
   const _kkP = kkPresetsOf(appData.systemSettings); const _kkStaff = tsuStaffList(appData); // ★ 2026-10-14: 定型文・職員(各種設定→計画書)
   const markDirty = () => { if (dirtyRef) dirtyRef.current = true; };
@@ -53085,7 +53421,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
     return h < 3 ? '2時間以上3時間未満' : '8時間以上9時間未満';
   };
   // ★ 職員名の候補 (計画作成者・説明者のプルダウン用)
-  const _staffOpts = Array.from(new Set((appData.diarySettings?.staff||[]).map(s=>String(s?.name||'').trim()).filter(Boolean)));
+  const _staffOpts = Array.from(new Set(_kkStaff.map(x=>x.name).concat((appData.diarySettings?.staff||[]).map(s=>String(s?.name||'').trim())).filter(Boolean))); // ★ 2026-10-27: 職員の一覧(日誌の職員を含む)
   const _roleOpts = Array.from(new Set((appData.diarySettings?.staff||[]).map(s=>String(s?.role||'').trim()).filter(Boolean).concat(['生活相談員','機能訓練指導員','看護師','介護職員','管理者'])));
   // ★ フェイスシート／基本情報から自動読込 (経緯・希望・健康状態・自立度 等)
   const _fsAuto = (p)=>{
@@ -53109,7 +53445,11 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
     id:`tk_${pid}_${Date.now()}`, patientId:pid, createdAt:Date.now(),
     createdDate:toReiwa(tsuTodayIso()),
     prevDate:(records[0]?.createdDate||''), firstDate:(records[records.length-1]?.createdDate||''),
-    author:'', authorJob:'生活相談員',
+    author:'', authorJob:'生活相談員', coAuthors:'',
+    // ★ 2026-10-27: 種類(要介護/要支援)・暫定・総合事業の欄。介護度が未登録(申請中など)の方は暫定にしておく
+    planType: kpCareGroup(patient) === 'shien' ? 'shien' : 'kaigo', zantei: kpCareGroup(patient) === 'none', zanteiLevel:'', shinseiDate:'',
+    cpOffice: patient?.cmOffice || '', cpAuthor: patient?.cmName || '', ninteiFrom: tkIsoToReiwa(patient?.careLevelFrom), ninteiTo: tkIsoToReiwa(patient?.careLevelTo), teikyoFrom:'', teikyoTo:'', cpGaiyou:'',
+    exercises: kpCareGroup(patient) === 'shien' ? tkExercisesFromRecord(patient, appData.systemSettings) : [], evaluator:'',
     ..._fsAuto(patient),
     riyoubi:_baseUseDays(patient), teikyoTime:_teikyoKubun(patient), hoshin:'',
     longSetDate:'', longDueDate:'', longGoal:'', longAchieve:'',
@@ -53167,6 +53507,36 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
     markDirty();
   };
   const upd = (patch)=>{ setEditing(e=>({...e,...patch})); markDirty(); };
+  // ★ 2026-10-27: 計画書の種類(要介護/要支援)・暫定
+  const _tkType = editing ? tkPlanTypeOf(editing, patient) : null; const _shien = _tkType === 'shien';
+  const _masterType = kpCareGroup(patient); // kaigo / shien / none(介護度が未登録)
+  const _typeFree = _masterType === 'none' || !!(editing && editing.zantei);
+  const _typeMismatch = !!(editing && !editing.zantei && _masterType !== 'none' && _tkType !== _masterType);
+  const _shienTitle = tkShienTitle(appData.systemSettings);
+  // ★ 2026-10-28: 欄ごとの印刷の枠(要介護=tk・要支援=tkS)。特記事項は印刷で先頭に「利用予定・提供時間区分」が入るので、その行数を引く
+  const _cap = _shien ? TSU_BOXCAP.tkS : TSU_BOXCAP.tk;
+  const _tokkiBox = (() => { if (!editing) return _cap.tokki; const b = _cap.tokki; const riyo = [editing.riyoubi && `利用予定：${editing.riyoubi}`, editing.teikyoTime && `提供時間区分：${editing.teikyoTime}`].filter(Boolean).join('　／　'); if (!riyo) return b; return { ...b, l: Math.max(1, b.l - tsuBoxLines(riyo, { c: b.c, l: 99 })) }; })();
+  const _riyoBox = { c: _cap.tokki.c, l: 1, p: 5 };
+  const _docTitle = (r) => tkPlanTypeOf(r, patient) === 'shien' ? _shienTitle : '通所介護計画書';
+  const updEx = (i, patch) => { setEditing(e => ({ ...e, exercises: (e.exercises || []).map((x, k) => k === i ? { ...x, ...patch } : x) })); markDirty(); };
+  const addEx = () => { setEditing(e => ({ ...e, exercises: [...(e.exercises || []), { content: '', amount: '', freq: '', note: '' }].slice(0, 8) })); markDirty(); };
+  const delEx = (i) => { setEditing(e => ({ ...e, exercises: (e.exercises || []).filter((_, k) => k !== i) })); markDirty(); };
+  const fillEx = () => { const L = tkExercisesFromRecord(patient, appData.systemSettings); if (!L.length) { alert('提供記録に、この方の運動の予定・個別運動の既定がありません'); return; } setEditing(e => { const cur = (e.exercises || []).filter(x => x && String(x.content || '').trim()); const have = new Set(cur.map(x => String(x.content).trim())); return { ...e, exercises: [...cur, ...L.filter(x => !have.has(x.content))].slice(0, 8) }; }); markDirty(); };
+  const setType = (t) => { if (!_typeFree) return; upd({ planType: t, ...(t === 'shien' && !(editing.exercises || []).length ? { exercises: tkExercisesFromRecord(patient, appData.systemSettings) } : {}), ...(editing.zanteiLevel && tkLevelType(editing.zanteiLevel) !== t ? { zanteiLevel: '' } : {}) }); };
+  // 暫定 → 本計画(認定の結果が出たら)。暫定の計画書は残し、新しい計画書を作る。区分が変わったら別の種類で作る
+  const finalizeZantei = (r) => {
+    if (_masterType === 'none') { alert('利用者マスタの介護度がまだ入っていません。認定の結果（介護度）を利用者マスタに入れてから押してください。'); return; }
+    const t = _masterType; const changed = t !== tkPlanTypeOf(r, patient);
+    const msg = changed ? `認定の結果が「${patient.careLevel}」になりました。${t === 'shien' ? '要支援' : '要介護'}の計画書を新しく作ります（暫定の目標・希望などを引き継ぎます）。説明・同意はもう一度もらってください。` : '暫定の計画書をもとに、本計画を新しく作ります（暫定の計画書は残ります）。説明・同意はもう一度もらってください。';
+    if (!window.confirm(msg)) return;
+    const src = _migrate(r);
+    setEditing({ ...src, id: `tk_${pid}_${Date.now()}`, createdAt: Date.now(), draft: false, planType: t, zantei: false, zanteiLevel: '', zanteiFromId: r.id,
+      prevDate: r.createdDate || '', createdDate: toReiwa(tsuTodayIso()), setsumeiDate: '', doui: '',
+      ninteiFrom: tkIsoToReiwa(patient?.careLevelFrom) || src.ninteiFrom || '', ninteiTo: tkIsoToReiwa(patient?.careLevelTo) || src.ninteiTo || '',
+      ...(t === 'shien' && !(src.exercises || []).length ? { exercises: tkExercisesFromRecord(patient, appData.systemSettings) } : {}),
+      tokki: [`暫定の計画書（${r.createdDate || ''}作成）から本計画へ`, String(src.tokki || '')].filter(x => String(x).trim()).join('\n') });
+    markDirty();
+  };
   const updProg = (i,patch)=>{ setEditing(e=>({...e, programs:(e.programs||[]).map((p,idx)=>idx===i?{...p,...patch}:p)})); markDirty(); };
   const addProg = ()=>{ setEditing(e=>({...e, programs:[...(e.programs||[]), blankProg()]})); markDirty(); };
   const delProg = (i)=>{ setEditing(e=>({...e, programs:(e.programs||[]).filter((_,idx)=>idx!==i)})); markDirty(); };
@@ -53255,8 +53625,8 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
     if(importFromFaceSheet(true)) done.push('フェイスシート');
     if(!String(editing?.riyoubi||'').trim()){ const s2=_baseUseDays(patient); if(s2){ upd({riyoubi:s2}); done.push('利用予定'); } }
     if(importFromKinou(true)) done.push('個別機能訓練');
-    if(importFromKyomi(true)) done.push('興味・関心');
-    alert(done.length?`取り込みました: ${done.join('・')}\n（空欄だけ。内容を確認してください）`:'取り込める項目がありませんでした（入力済みの欄は上書きしません）。');
+    // ★ 2026-10-27(店舗要望「一括自動生成で本人の希望に興味・関心が入ってしまう」): 一括では興味・関心を入れない(必要なら右の「興味・関心」ボタンで)
+    alert(done.length?`取り込みました: ${done.join('・')}\n（空欄だけ。内容を確認してください。興味・関心は「興味・関心」ボタンで）`:'取り込める項目がありませんでした（入力済みの欄は上書きしません）。');
   };
   // ★ 利用予定: 基本利用日(scheduleAmPm)＋送迎時間(pickupTimes)から「曜日（区分 時間）」を組み立てて反映
   const fillRiyoubi=()=>{ const s=_baseUseDays(patient); if(!s){ alert('この利用者の基本利用日が登録されていません（利用者マスタで設定してください）。'); return; } upd({riyoubi:s}); };
@@ -53269,7 +53639,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
         {editing ? <>
           <button onClick={()=>{ if(dirtyRef?.current && !window.confirm('編集中の内容を破棄しますか？（一時保存すれば残せます）')) return; if(dirtyRef) dirtyRef.current=false; setEditing(null); }} data-testid="kk-close" className="flex items-center gap-1 px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-bold"><ChevronLeft size={16}/>閉じる</button>
-          <span className="text-sm font-bold text-slate-700 whitespace-nowrap">通所介護計画書の編集<span className="ml-2 font-normal text-slate-500">{patient?.name ? `${patient.name} 様` : ''}</span></span>
+          <span className="text-sm font-bold text-slate-700 whitespace-nowrap">{_shien ? '要支援の計画書の編集' : '通所介護計画書の編集'}{editing.zantei ? '（暫定）' : ''}<span className="ml-2 font-normal text-slate-500">{patient?.name ? `${patient.name} 様` : ''}</span></span>
         </> : <>
           <KeikakuPatientSelect patients={patients} pid={pid} onChange={(id)=>{ setEditing(null); setPid(id); }}/>
           <KeikakuTabs current="tsusho_keikaku" navigateTo={navigateTo} family="tsusho" pid={pid} appData={appData}/>
@@ -53281,12 +53651,33 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
           <button onClick={()=>saveRecord(true)} className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-bold shadow active:scale-95">保存して閉じる</button>
         </>}
         {printRec && <MaskToggle storeKey="tsusho"/>}
-        {printRec && <button onClick={()=>onShowPrintPreview('通所介護計画書','A4','tk-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">ダウンロード</button>}
-        {printRec && <button onClick={()=>onShowPrintPreview('ケアマネ送付セット（通所介護計画書）','A4','tk-fax-set')} title="送付状・今回と前回の計画書をまとめて印刷します" className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">ケアマネ送付セット</button>}
+        {printRec && <button onClick={()=>onShowPrintPreview(_docTitle(printRec),'A4','tk-print-area')} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow active:scale-95">ダウンロード</button>}
+        {printRec && <button onClick={()=>onShowPrintPreview(`ケアマネ送付セット（${_docTitle(printRec)}）`,'A4','tk-fax-set')} title="送付状・今回と前回の計画書をまとめて印刷します" className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">ケアマネ送付セット</button>}
       </div>
       <div className="flex-1 overflow-y-auto p-4 bg-slate-50 tsu-ph-cards">
         {!pid ? <div className="text-center text-slate-400 py-20 font-bold">利用者を登録してください</div> : editing ? (
           <div className="max-w-4xl mx-auto space-y-4">
+            {/* ★ 2026-10-27: 計画書の種類(要介護/要支援)と暫定 */}
+            <div data-testid="tk-type-bar" className={`bg-white rounded-xl border-2 p-4 space-y-2 ${_shien ? 'border-teal-300' : 'border-blue-300'}`}>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-bold text-slate-700">計画書の種類</span>
+                {[['kaigo','要介護（通所介護計画書）'],['shien',`要支援・事業対象者（${_shienTitle.replace(/（.*$/, '')}）`]].map(([t, l]) => (
+                  <button key={t} type="button" data-testid={`tk-type-${t}`} disabled={!_typeFree && _tkType !== t} onClick={() => setType(t)}
+                    className={`px-3 py-2 rounded-lg text-sm font-bold border ${_tkType === t ? (t === 'shien' ? 'bg-teal-600 text-white border-teal-600' : 'bg-blue-600 text-white border-blue-600') : 'bg-white text-slate-600 border-slate-300'} disabled:opacity-40`}>{l}</button>))}
+                {!_typeFree && <span className="text-[11px] text-slate-500">利用者マスタの介護度（{patient?.careLevel || ''}）で決まります</span>}
+              </div>
+              {_typeMismatch && <div data-testid="tk-type-mismatch" className="text-xs font-bold text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">利用者マスタの介護度（{patient?.careLevel}）と、この計画書の種類が合っていません。介護度が変わったときは、一覧の「複製して更新」ではなく「＋ 新規作成」で作り直してください。</div>}
+              <label className="flex items-center gap-2 text-sm font-bold text-slate-700 cursor-pointer"><input type="checkbox" data-testid="tk-zantei" checked={!!editing.zantei} onChange={e => upd({ zantei: e.target.checked })} className="w-5 h-5"/>暫定（介護認定の結果待ち）</label>
+              {editing.zantei && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div><label className="block text-xs font-bold text-slate-600 mb-1">見込みの介護度</label>
+                    <select data-testid="tk-zantei-level" value={editing.zanteiLevel || ''} onChange={e => { const v = e.target.value; const t = tkLevelType(v); upd({ zanteiLevel: v, ...(t ? { planType: t } : {}) }); }} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none">
+                      <option value="">（選択）</option><optgroup label="要介護">{TK_LEVELS_KAIGO.map(x => <option key={x} value={x}>{x}</option>)}</optgroup><optgroup label="要支援・事業対象者">{TK_LEVELS_SHIEN.map(x => <option key={x} value={x}>{x}</option>)}</optgroup>
+                    </select></div>
+                  <KKDateField label="認定の申請日" value={editing.shinseiDate} onChange={v => upd({ shinseiDate: v })}/>
+                  <div className="md:col-span-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">印刷に「暫定」と出ます。認定の結果が出たら、一覧の「本計画にする」で本計画を作り、もう一度説明・同意をもらってください。</div>
+                </div>)}
+            </div>
             <div className="bg-indigo-50 rounded-xl border border-indigo-200 p-4">
               <div className="text-sm font-bold text-indigo-700 mb-1 flex items-center gap-2">他の様式から取り込む（計画書連携）</div>
               <div className="text-[11px] text-indigo-900 opacity-70 mb-3">最新の各様式から空欄へ取り込みます（入力済みの欄はそのまま）。</div>
@@ -53304,17 +53695,33 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                 <KKDateField label="作成日" value={editing.createdDate} onChange={v=>upd({createdDate:v})}/>
                 <KKDateField label="前回作成日" value={editing.prevDate} onChange={v=>upd({prevDate:v})} ph="（初回は空欄）"/>
                 <KKDateField label="初回作成日" value={editing.firstDate} onChange={v=>upd({firstDate:v})}/>
+                {/* ★ 2026-10-27(ユーザー要望「作成者を選んだら日誌の役職と名前が選べるように・共同作成者も」): 個別機能訓練計画書と同じ形。選ぶと職種も入る */}
                 <div>
                   <label className="block text-xs font-bold text-slate-600 mb-1">計画作成者</label>
-                  <input value={editing.author||''} onChange={e=>upd({author:e.target.value})} list="tk-staff-names" placeholder="職員を選択／入力" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none"/>
+                  <div data-testid="tk-author"><KKStaffSelect staff={_kkStaff} value={editing.author||''} role={editing.authorJob||''} onPick={(name, role)=>upd({ author: name, ...(role ? { authorJob: role } : {}) })} placeholder="（職員を選択）"/></div>
+                  <input value={editing.author||''} maxLength={60} onChange={e=>upd({author:e.target.value.slice(0,60)})} placeholder="直接入力もできます" className="mt-1 w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs outline-none"/>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-600 mb-1">職種</label>
-                  <input value={editing.authorJob||''} onChange={e=>upd({authorJob:e.target.value})} list="tk-staff-roles" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none"/>
+                  <input value={editing.authorJob||''} onChange={e=>upd({authorJob:e.target.value})} list="tk-staff-roles" data-testid="tk-author-job" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none"/>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">共同作成者（多職種）</label>
+                  <details className="border border-slate-300 rounded-lg bg-white" data-testid="tk-coauthors"><summary className="px-2 py-2 text-sm cursor-pointer select-none text-slate-700">{editing.coAuthors ? editing.coAuthors : <span className="text-slate-400">（職員を選択・複数可）</span>}</summary>
+                    <div className="px-2 pb-2 max-h-48 overflow-auto">{_kkStaff.filter(x=>x.name!==editing.author).map(x => { const tok = `${x.role ? x.role + ' ' : ''}${x.name}`; const list = String(editing.coAuthors||'').split('／').map(t=>t.trim()).filter(Boolean); const on = list.includes(tok); return (
+                      <label key={tok} className="flex items-center gap-2 text-xs py-1 cursor-pointer"><input type="checkbox" checked={on} onChange={()=>{ const next = on ? list.filter(t=>t!==tok) : [...list, tok]; upd({coAuthors: next.join('／').slice(0,60)}); }}/>{tok}</label>); })}</div></details>
+                  <input value={editing.coAuthors||''} maxLength={60} onChange={e=>upd({coAuthors:e.target.value.slice(0,60)})} placeholder="直接入力もできます（／区切り）" className="mt-1 w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs outline-none"/>
                 </div>
               </div>
               <datalist id="tk-staff-names">{_staffOpts.map(x=><option key={x} value={x}/>)}</datalist>
               <datalist id="tk-staff-roles">{_roleOpts.map(x=><option key={x} value={x}/>)}</datalist>
+              {_shien && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3" data-testid="tk-shien-basic">
+                  <div><label className="block text-xs font-bold text-slate-600 mb-1">ケアプラン作成事業者（地域包括支援センターなど）</label><input value={editing.cpOffice||''} maxLength={60} onChange={e=>upd({cpOffice:e.target.value.slice(0,60)})} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none"/></div>
+                  <div><label className="block text-xs font-bold text-slate-600 mb-1">ケアプランの作成者</label><input value={editing.cpAuthor||''} maxLength={40} onChange={e=>upd({cpAuthor:e.target.value.slice(0,40)})} className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none"/></div>
+                  <div className="grid grid-cols-2 gap-2"><KKDateField label="認定有効期間（から）" value={editing.ninteiFrom} onChange={v=>upd({ninteiFrom:v})}/><KKDateField label="（まで）" value={editing.ninteiTo} onChange={v=>upd({ninteiTo:v})}/></div>
+                  <div className="grid grid-cols-2 gap-2"><KKDateField label="サービス提供期間（から）" value={editing.teikyoFrom} onChange={v=>upd({teikyoFrom:v})}/><KKDateField label="（まで）" value={editing.teikyoTo} onChange={v=>upd({teikyoTo:v})}/></div>
+                </div>)}
               <div className="grid md:grid-cols-2 gap-3 mt-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-600 mb-1">障害高齢者の日常生活自立度</label>
@@ -53336,19 +53743,21 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                 <button onClick={importFromFaceSheet} className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-xs font-bold">フェイスシートから空欄を補完</button>
               </div>
               <div className="space-y-3">
-                <KKField label="通所介護利用までの経緯（活動歴や病歴）" value={editing.keii} onChange={v=>upd({keii:v})} rows={3}/>
+                {_shien ? <KKField label="介護予防サービス・支援計画（ケアプラン）の概要" box={_cap.cpGaiyou} value={editing.cpGaiyou} onChange={v=>upd({cpGaiyou:v})} rows={3}/> : <KKField label="通所介護利用までの経緯（活動歴や病歴）" box={_cap.keii} value={editing.keii} onChange={v=>upd({keii:v})} rows={3}/>}
                 <div className="grid md:grid-cols-2 gap-3">
-                  <KKField label="利用者本人の希望" value={editing.honninKibou} onChange={v=>upd({honninKibou:v})} rows={3}/>
-                  <KKField label="家族の希望" value={editing.kazokuKibou} onChange={v=>upd({kazokuKibou:v})} rows={3}/>
+                  <KKField label={_shien ? "利用者本人の意向" : "利用者本人の希望"} box={_cap.honninKibou} value={editing.honninKibou} onChange={v=>upd({honninKibou:v})} rows={3}/>
+                  <KKField label={_shien ? "家族の意向" : "家族の希望"} box={_cap.kazokuKibou} value={editing.kazokuKibou} onChange={v=>upd({kazokuKibou:v})} rows={3}/>
                 </div>
-                <KKField label="利用者本人の社会参加の状況" value={editing.shakaiSanka} onChange={v=>upd({shakaiSanka:v})} rows={2}/>
-                <KKField label="利用者の居宅の環境 ★（特によく使用する場所・使用したい場所の環境）" value={editing.kyotakuKankyo} onChange={v=>upd({kyotakuKankyo:v})} rows={2}/>
+                {!_shien && <>
+                <KKField label="利用者本人の社会参加の状況" box={_cap.shakaiSanka} value={editing.shakaiSanka} onChange={v=>upd({shakaiSanka:v})} rows={2}/>
+                <KKField label="利用者の居宅の環境 ★（特によく使用する場所・使用したい場所の環境）" box={_cap.kyotakuKankyo} value={editing.kyotakuKankyo} onChange={v=>upd({kyotakuKankyo:v})} rows={2}/>
+                </>}
                 <div className="grid md:grid-cols-2 gap-3">
-                  <KKField label="健康状態 ★（病名・合併症・服薬状況等）" value={editing.kenkoJotai} onChange={v=>upd({kenkoJotai:v})} rows={3}/>
-                  <KKField presets={_kkP.tsRisk} label="ケアの上での医学的リスク ★（血圧・転倒・嚥下障害等）・留意事項" value={editing.iryoRisk} onChange={v=>upd({iryoRisk:v})} rows={3}/>
+                  <KKField label={_shien ? "健康状態（病名・合併症・服薬状況等）" : "健康状態 ★（病名・合併症・服薬状況等）"} box={_cap.kenkoJotai} value={editing.kenkoJotai} onChange={v=>upd({kenkoJotai:v})} rows={3}/>
+                  <KKField presets={_kkP.tsRisk} label={_shien ? "ケアの上での医学的リスク（血圧・転倒・嚥下障害等）・留意事項" : "ケアの上での医学的リスク ★（血圧・転倒・嚥下障害等）・留意事項"} box={_cap.iryoRisk} value={editing.iryoRisk} onChange={v=>upd({iryoRisk:v})} rows={3}/>
                 </div>
               </div>
-              <div className="text-[10px] text-slate-400 mt-2">★ = 入浴介助加算（Ⅱ）を算定する場合に記入が必要な欄</div>
+              {!_shien && <div className="text-[10px] text-slate-400 mt-2">★ = 入浴介助加算（Ⅱ）を算定する場合に記入が必要な欄</div>}
             </div>
             <div className="bg-white rounded-xl border border-slate-200 p-4">
               <div className="text-sm font-bold text-blue-700 mb-3">Ⅱ　利用目標</div>
@@ -53365,22 +53774,24 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                         <button key={m} type="button" title="設定日(未入力なら今日)から自動計算します"
                           onClick={()=>{const base=parseJpDate(editing[k+'SetDate'])||parseJpMonth(editing[k+'SetDate'])||new Date();const d=new Date(base);d.setMonth(d.getMonth()+m);upd({[k+'DueDate']:`令和${d.getFullYear()-2018}年${d.getMonth()+1}月${d.getDate()}日`});}}
                           className="px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] font-bold text-slate-500 hover:bg-slate-100">{l}</button>
-                      ))}</div>
+                      ))}
+                      {/* ★ 2026-10-27(店舗要望): 達成予定日をその月の末日に(未入力なら設定日/今日の月の末日) */}
+                      <button type="button" data-testid={`tk-${k}-due-eom`} title="達成予定日をその月の末日にします（未入力なら設定日か今日の月）" onClick={()=>{const cur=parseJpDate(editing[k+'DueDate'])||parseJpMonth(editing[k+'DueDate'])||parseJpDate(editing[k+'SetDate'])||parseJpMonth(editing[k+'SetDate'])||new Date();const d=new Date(cur.getFullYear(),cur.getMonth()+1,0);upd({[k+'DueDate']:`令和${d.getFullYear()-2018}年${d.getMonth()+1}月${d.getDate()}日`});}} className="px-1.5 py-0.5 rounded border border-indigo-300 bg-indigo-50 text-[10px] font-bold text-indigo-700 hover:bg-indigo-100">月末</button></div>
                     {k==='long' && <button onClick={copyLongPeriodToServices} className="px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-[11px] font-bold whitespace-nowrap">期間を①〜⑤へコピー</button>}
                     <span className="text-[11px] text-slate-400 ml-1">達成度</span>
                     {TK_ACHIEVE.map(o=>(
                       <button key={o} onClick={()=>upd({[k+'Achieve']: editing[k+'Achieve']===o?'':o})} className={`px-2.5 py-1 rounded border text-xs font-bold ${editing[k+'Achieve']===o?'bg-emerald-500 text-white border-emerald-500':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{o}</button>
                     ))}
                   </div>
-                  <KKField presets={_kkP.tsGoal} label="" value={editing[k+'Goal']} onChange={v=>upd({[k+'Goal']:v})} rows={2}/>
+                  <KKField presets={_kkP.tsGoal} label="" box={_cap[k+'Goal']} value={editing[k+'Goal']} onChange={v=>upd({[k+'Goal']:v})} rows={2}/>
                 </div>
               ))}
             </div>
             <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <div className="text-sm font-bold text-blue-700 mb-1">Ⅱ　サービス提供内容（①〜⑤）</div>
+              <div className="text-sm font-bold text-blue-700 mb-1">{_shien ? 'Ⅲ　サービス提供内容（①〜④）' : 'Ⅱ　サービス提供内容（①〜⑤）'}</div>
               <div className="text-[11px] text-slate-400 mb-3">長期・短期目標を達成するために必要なプログラムを具体的に設定してください。</div>
               <div className="space-y-3">
-                {(editing.services||[]).map((sv,i)=>(
+                {(editing.services||[]).slice(0, _shien ? 4 : 5).map((sv,i)=>(
                   <div key={i} className="bg-slate-50 rounded-lg p-3 border border-slate-200">
                     <div className="flex items-center gap-2 mb-2 flex-wrap">
                       <span className="text-base font-bold text-blue-700">{TK_MARU[i]}</span>
@@ -53391,7 +53802,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                       <input value={sv.to||''} onChange={e=>updSvc(i,{to:e.target.value})} placeholder="令和○年○月○日" className="px-2 py-1 bg-white border border-slate-300 rounded text-xs outline-none w-32"/>
                       <CalendarPickBtn size="xs" iso={(()=>{const d=parseJpDate(sv.to);return d?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`:'';})()} onPick={v=>{const d=v?new Date(v):null; updSvc(i,{to:d?`令和${d.getFullYear()-2018}年${d.getMonth()+1}月${d.getDate()}日`:''});}}/>
                     </div>
-                    <KKField presets={_kkP.tsContent} label="目的とケアの提供方針・内容" value={sv.content} onChange={v=>updSvc(i,{content:v})} rows={2}/>
+                    <KKField presets={_kkP.tsContent} label="目的とケアの提供方針・内容" box={_cap.svcContent} value={sv.content} onChange={v=>updSvc(i,{content:v})} rows={2}/>
                     <div className="grid md:grid-cols-3 gap-3 mt-2">
                       <div>
                         <label className="block text-[11px] font-bold text-slate-500 mb-1">評価：実施</label>
@@ -53405,7 +53816,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                           <button key={o} onClick={()=>updSvc(i,{tassei: sv.tassei===o?'':o})} className={`px-2 py-1 rounded border text-[11px] font-bold ${sv.tassei===o?'bg-emerald-500 text-white border-emerald-500':'bg-white text-slate-600 border-slate-300 hover:bg-slate-100'}`}>{o}</button>
                         ))}</div>
                       </div>
-                      <KKField presets={_kkP.tsEffect} label="効果、満足度など" value={sv.effect} onChange={v=>updSvc(i,{effect:v})} rows={1}/>
+                      <KKField presets={_kkP.tsEffect} label="効果、満足度など" box={_cap.svcEffect} value={sv.effect} onChange={v=>updSvc(i,{effect:v})} rows={1}/>
                     </div>
                   </div>
                 ))}
@@ -53442,13 +53853,32 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                 ))}
               </div>
             </div>
+            {_shien && (
+              <div className="bg-white rounded-xl border-2 border-teal-200 p-4" data-testid="tk-ex-card">
+                <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
+                  <div className="text-sm font-bold text-teal-700">Ⅳ　個別の運動（機能訓練）の実施内容</div>
+                  <button type="button" data-testid="tk-ex-fill" onClick={fillEx} className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-lg text-xs font-bold">提供記録の運動から入れる</button>
+                </div>
+                <div className="text-[11px] text-slate-500 mb-3">要支援の方は、この計画書に運動の内容を書けば、運動の計画書を別に作らなくて済みます（運動器機能向上加算は令和6年度に基本報酬へ包括）。</div>
+                <div className="space-y-2">
+                  {(editing.exercises || []).map((x, i) => (
+                    <div key={i} className="grid grid-cols-12 gap-2 items-start bg-slate-50 border border-slate-200 rounded-lg p-2" data-testid="tk-ex-row">
+                      <TsuBoxInput value={x.content} box={TSU_BOXCAP.tkS.exContent} onChange={v => updEx(i, { content: v })} placeholder="運動の内容（例: バイク）" className="col-span-12 md:col-span-4 px-2 py-2 border border-slate-300 rounded text-sm outline-none bg-white" testid="tk-ex-content"/>
+                      <TsuBoxInput value={x.amount} box={TSU_BOXCAP.tkS.exAmount} onChange={v => updEx(i, { amount: v })} placeholder="回数・時間" className="col-span-6 md:col-span-2 px-2 py-2 border border-slate-300 rounded text-sm outline-none bg-white" testid="tk-ex-amount"/>
+                      <TsuBoxInput value={x.freq} box={TSU_BOXCAP.tkS.exFreq} onChange={v => updEx(i, { freq: v })} placeholder="頻度" className="col-span-6 md:col-span-2 px-2 py-2 border border-slate-300 rounded text-sm outline-none bg-white" testid="tk-ex-freq"/>
+                      <TsuBoxInput value={x.note} box={TSU_BOXCAP.tkS.exNote} onChange={v => updEx(i, { note: v })} placeholder="留意点" className="col-span-10 md:col-span-3 px-2 py-2 border border-slate-300 rounded text-sm outline-none bg-white" testid="tk-ex-note"/>
+                      <button type="button" onClick={() => delEx(i)} aria-label="この行を消す" className="col-span-2 md:col-span-1 h-10 rounded bg-white border border-slate-300 text-slate-500 text-sm font-bold">×</button>
+                    </div>))}
+                </div>
+                {(editing.exercises || []).length < 8 && <button type="button" data-testid="tk-ex-add" onClick={addEx} className="mt-2 px-3 py-2 bg-white border border-dashed border-teal-300 text-teal-700 rounded-lg text-xs font-bold">＋ 運動を足す</button>}
+              </div>)}
             <div className="bg-white rounded-xl border border-slate-200 p-4">
               <div className="flex items-center justify-between mb-3">
                 <div className="text-sm font-bold text-blue-700">利用予定（特記事項に印字されます）</div>
                 <button onClick={fillRiyoubi} className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-xs font-bold">基本利用日から反映</button>
               </div>
               <div className="grid md:grid-cols-2 gap-3">
-                <KKField label="利用曜日・時間帯" value={editing.riyoubi} onChange={v=>upd({riyoubi:v})} rows={2} ph="例: 月（AM 09:00）・水（1日）"/>
+                <KKField label="利用曜日・時間帯" box={_riyoBox} value={editing.riyoubi} onChange={v=>upd({riyoubi:v})} rows={2} ph="例: 月（AM 09:00）・水（1日）"/>
                 <div>
                   <label className="block text-xs font-bold text-slate-600 mb-1">提供時間区分</label>
                   <input value={editing.teikyoTime||''} onChange={e=>upd({teikyoTime:e.target.value})} list="tsusho-teikyo-times" placeholder="例: 3時間以上4時間未満" className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm outline-none"/>
@@ -53457,13 +53887,14 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
               </div>
             </div>
             <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
-              <KKField label="特記事項" value={editing.tokki} onChange={v=>upd({tokki:v})} rows={3}/>
+              <KKField label="特記事項" box={_tokkiBox} value={editing.tokki} onChange={v=>upd({tokki:v})} rows={3}/>
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <label className="text-xs font-bold text-slate-600">実施後の変化（総括）</label>
-                  <div className="flex items-center gap-1"><input value={editing.saihyokaDate||''} onChange={e=>upd({saihyokaDate:e.target.value})} placeholder="再評価日(令和○年○月○日)" className="px-2 py-1 border border-slate-300 rounded text-xs outline-none w-44"/><CalendarPickBtn size="xs" iso={(()=>{const d=parseJpDate(editing.saihyokaDate);return d?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`:'';})()} onPick={v=>{upd({saihyokaDate:v?`令和${new Date(v).getFullYear()-2018}年${new Date(v).getMonth()+1}月${new Date(v).getDate()}日`:''});}}/></div>
+                  <label className="text-xs font-bold text-slate-600">{_shien ? "評価（目標の達成状況・本人へ説明した内容）" : "実施後の変化（総括）"}</label>
+                  <div className="flex items-center gap-1"><input value={editing.saihyokaDate||''} onChange={e=>upd({saihyokaDate:e.target.value})} placeholder={_shien ? "評価年月日(令和○年○月○日)" : "再評価日(令和○年○月○日)"} className="px-2 py-1 border border-slate-300 rounded text-xs outline-none w-44"/><CalendarPickBtn size="xs" iso={(()=>{const d=parseJpDate(editing.saihyokaDate);return d?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`:'';})()} onPick={v=>{upd({saihyokaDate:v?`令和${new Date(v).getFullYear()-2018}年${new Date(v).getMonth()+1}月${new Date(v).getDate()}日`:''});}}/></div>
                 </div>
-                <KKField label="" value={editing.soukatsu} onChange={v=>upd({soukatsu:v})} rows={3}/>
+                <KKField label="" box={_cap.soukatsu} value={editing.soukatsu} onChange={v=>upd({soukatsu:v})} rows={3}/>
+                {_shien && <div className="mt-2 max-w-xs"><label className="block text-xs font-bold text-slate-600 mb-1">評価者</label><KKStaffSelect staff={_kkStaff} value={editing.evaluator||''} onPick={(name)=>upd({ evaluator: name })} placeholder="（職員を選択）"/></div>}
               </div>
             </div>
             <div className="bg-white rounded-xl border border-slate-200 p-4 grid grid-cols-2 gap-3">
@@ -53475,7 +53906,7 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                   {editing.setsumeisha && !_staffOpts.includes(editing.setsumeisha) && <option value={editing.setsumeisha}>{editing.setsumeisha}</option>}
                 </select>
               </div>
-              <KKDateField label="説明・同意日" value={editing.setsumeiDate} onChange={v=>upd({setsumeiDate:v})}/>
+              <KKDateField label={_shien ? "説明・同意・交付日" : "説明・同意日"} value={editing.setsumeiDate} onChange={v=>upd({setsumeiDate:v})}/>
             </div>
           </div>
         ) : (
@@ -53511,11 +53942,12 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
                 {records.map(r=>(
                   <div key={r.id} className="bg-white rounded-xl border border-slate-200 p-4 flex items-center justify-between gap-3">
                     <div>
-                      <div className="font-bold text-slate-800">作成日: {r.createdDate}{r.author?`／作成者: ${r.author}`:''}</div>
+                      <div className="font-bold text-slate-800 flex items-center gap-1.5 flex-wrap"><span className={`text-[11px] font-bold rounded-full px-2 py-0.5 ${tkPlanTypeOf(r, patient) === 'shien' ? 'bg-teal-100 text-teal-800' : 'bg-blue-100 text-blue-800'}`}>{tkPlanTypeOf(r, patient) === 'shien' ? '要支援' : '要介護'}</span>{r.zantei ? <span data-testid="tk-zantei-badge" className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-amber-100 text-amber-800">暫定{r.zanteiLevel ? `（見込み ${r.zanteiLevel}）` : ''}</span> : null}<span>作成日: {r.createdDate}{r.author?`／作成者: ${r.author}`:''}</span></div>
                       <div className="text-xs text-slate-500 mt-0.5 truncate" style={{maxWidth:420}}>短期目標: {r.shortGoal||'（未入力）'}</div>
                     </div>
                     <div className="flex gap-2 shrink-0">
                       <button onClick={()=>setEditing(_migrate(r))} className="whitespace-nowrap px-3 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-bold">編集</button>
+                      {r.zantei && <button type="button" data-testid="tk-finalize" onClick={()=>finalizeZantei(r)} className="whitespace-nowrap px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold">本計画にする</button>}
                       <button onClick={()=>dupRecord(r)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold">複製して更新</button>
                       <button onClick={()=>delRecord(r.id)} className="whitespace-nowrap px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold">削除</button>
                     </div>
@@ -53533,7 +53965,9 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
         const buildSheetHtml = (rec0) => {
         const rec = _migrate(rec0);
         // ★ 要支援・事業対象者は総合事業の個別サービス計画書として表題・種別を自動切替(2026-08-19)
-        const _yoshien = /要支援|事業対象者/.test(String(patient?.careLevel||''));
+        // ★ 2026-10-27: 計画書ごとの種類で切り替える(要支援=総合事業の計画書・江東区の様式の欄＋個別の運動)
+        const _yoshien = tkPlanTypeOf(rec0, patient) === 'shien';
+        const _nSvc = _yoshien ? 4 : 5;
         const esc=(s)=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         const B='1px solid #000';
         // cs=利用者入力を出す枠(pre-wrapで改行保持) / csm=HTMLを組むだけの枠
@@ -53560,8 +53994,8 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
           +`<td style="${csm}padding:0;vertical-align:middle;"><div style="font-size:7px;padding:0 4px;border-bottom:1px dotted #999;line-height:1.5;">ふりがな　${esc(patient?.kana||'')}</div><div style="font-size:11px;font-weight:bold;padding:1px 4px;line-height:1.5;">氏　名　${esc(patient?.name||'')}</div></td>`
           +`<td style="${csm}text-align:center;vertical-align:middle;line-height:1.3;"><div style="font-size:7px;">性別</div><div style="font-size:10px;font-weight:bold;">${esc(patient?.gender||'')}</div></td>`
           +`<td style="${csm}text-align:center;vertical-align:middle;font-size:9px;line-height:1.4;"><div>${circ('大正',_era)}　/　${circ('昭和',_era)}</div><div>${_eraY||'　　'}年　${_bdOk?_bd.getMonth()+1:'　　'}月　${_bdOk?_bd.getDate():'　　'}日生　${_age(patient?.birthDate)!==''?_age(patient?.birthDate):'　　'}歳</div></td>`
-          +`<td style="${csm}text-align:center;vertical-align:middle;line-height:1.3;"><div style="font-size:7px;">要介護度</div><div style="font-size:10px;font-weight:bold;">${esc(patient?.careLevel||'')}</div></td>`
-          +`<td style="${csm}font-size:9px;vertical-align:middle;line-height:1.6;"><div>計画作成者：${esc(rec.author)}</div><div>職種：${esc(rec.authorJob)}</div></td>`
+          +(rec.zantei ? `<td style="${csm}text-align:center;vertical-align:middle;line-height:1.25;"><div style="font-size:7px;">${_yoshien?'要支援度':'要介護度'}</div><div style="font-size:8.5px;font-weight:bold;">申請中</div><div style="font-size:7px;">${rec.zanteiLevel?`見込み ${esc(rec.zanteiLevel)}`:''}</div></td>` : `<td style="${csm}text-align:center;vertical-align:middle;line-height:1.3;"><div style="font-size:7px;">${_yoshien?'要支援度':'要介護度'}</div><div style="font-size:10px;font-weight:bold;">${esc(patient?.careLevel||'')}</div></td>`)
+          +`<td style="${csm}font-size:9px;vertical-align:middle;line-height:${rec.coAuthors?1.35:1.6};"><div>計画作成者：${esc(rec.author)}</div><div>職種：${esc(rec.authorJob)}</div>${rec.coAuthors?`<div style="font-size:7.5px;">共同作成者：${esc(rec.coAuthors)}</div>`:''}</td>`
           +`</tr></table>`;
         const hdr3=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-top:-1px;">${cg(50,50)}<tr>`
           +`<td style="${csm}font-size:8.5px;text-align:center;">障害高齢者の日常生活自立度:　${TK_ADL_OPTS.map(o=>circ(o,rec.adlLevel)).join(' ')}</td>`
@@ -53569,17 +54003,17 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
           +`</tr></table>`;
         // --- Ⅰ 利用者の基本情報 ---
         const sec1=`<table style="width:100%;height:100%;border-collapse:collapse;table-layout:fixed;">${cg(50,50)}`
-          +`<tr style="height:23%"><td style="${cs}" colspan="2"><span style="${cap}">通所介護利用までの経緯(活動歴や病歴)</span>${esc(rec.keii)}</td></tr>`
-          +`<tr style="height:22%"><td style="${cs}"><span style="${cap}">利用者本人の希望</span>${esc(rec.honninKibou)}</td><td style="${cs}"><span style="${cap}">家族の希望</span>${esc(rec.kazokuKibou)}</td></tr>`
-          +`<tr style="height:16%"><td style="${cs}" colspan="2"><span style="${cap}">利用者本人の社会参加の状況</span>${esc(rec.shakaiSanka)}</td></tr>`
-          +`<tr style="height:17%"><td style="${cs}" colspan="2"><span style="${cap}">利用者の居宅の環境（利用者の居宅での生活状況をふまえ、特によく使用する場所・使用したいと考えている場所の環境を記入）★</span>${esc(rec.kyotakuKankyo)}</td></tr>`
-          +`<tr style="height:22%"><td style="${cs}"><span style="${cap}">健康状態(病名､合併症(心疾患､呼吸器疾患等)､服薬状況等)★</span>${esc(rec.kenkoJotai)}</td><td style="${cs}"><span style="${cap}">ケアの上での医学的リスク(血圧､転倒､嚥下障害等)･留意事項★</span>${esc(rec.iryoRisk)}</td></tr>`
+          +`<tr style="height:23%"><td data-cap="keii" style="${cs}" colspan="2"><span style="${cap}">通所介護利用までの経緯(活動歴や病歴)</span>${esc(rec.keii)}</td></tr>`
+          +`<tr style="height:22%"><td data-cap="honninKibou" style="${cs}"><span style="${cap}">利用者本人の希望</span>${esc(rec.honninKibou)}</td><td data-cap="kazokuKibou" style="${cs}"><span style="${cap}">家族の希望</span>${esc(rec.kazokuKibou)}</td></tr>`
+          +`<tr style="height:16%"><td data-cap="shakaiSanka" style="${cs}" colspan="2"><span style="${cap}">利用者本人の社会参加の状況</span>${esc(rec.shakaiSanka)}</td></tr>`
+          +`<tr style="height:17%"><td data-cap="kyotakuKankyo" style="${cs}" colspan="2"><span style="${cap}">利用者の居宅の環境（利用者の居宅での生活状況をふまえ、特によく使用する場所・使用したいと考えている場所の環境を記入）★</span>${esc(rec.kyotakuKankyo)}</td></tr>`
+          +`<tr style="height:22%"><td data-cap="kenkoJotai" style="${cs}"><span style="${cap}">健康状態(病名､合併症(心疾患､呼吸器疾患等)､服薬状況等)★</span>${esc(rec.kenkoJotai)}</td><td data-cap="iryoRisk" style="${cs}"><span style="${cap}">ケアの上での医学的リスク(血圧､転倒､嚥下障害等)･留意事項★</span>${esc(rec.iryoRisk)}</td></tr>`
           +`</table>`;
         // --- Ⅱ 利用目標 (固定ラベル列は細く、入力欄=利用目標を最大化) ---
         const goalRow=(t,setD,dueD,goal,ach)=>`<tr>`
           +`<td style="${lab}font-size:8.5px;">${t}<br/>目標</td>`
           +`<td style="${csm}font-size:7px;vertical-align:middle;line-height:1.35;"><div>設定日　${esc(setD)||'　　年　　月'}</div><div>達成予定日　${esc(dueD)||'　　年　　月'}</div></td>`
-          +`<td style="${cs}">${esc(goal)}</td>`
+          +`<td data-cap="${t==='長期'?'longGoal':'shortGoal'}" style="${cs}">${esc(goal)}</td>`
           +`<td style="${lab}font-size:8px;">目標<br/>達成度</td>`
           +`<td style="${csm}text-align:center;vertical-align:middle;font-size:8px;">${TK_ACHIEVE.map(o=>circ(o,ach)).join('・')}</td>`
           +`</tr>`;
@@ -53589,8 +54023,8 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
           +goalRow('短期',rec.shortSetDate,rec.shortDueDate,rec.shortGoal,rec.shortAchieve)
           +`</table>`;
         // --- Ⅱ サービス提供内容 (①〜⑤ × 評価3段 + 右列に1日の流れ) ---
-        const _svcs=[...(rec.services||[])].slice(0,5);
-        while(_svcs.length<5) _svcs.push({from:'',to:'',content:'',jisshi:'',tassei:'',effect:''});
+        const _svcs=[...(rec.services||[])].slice(0,_nSvc);
+        while(_svcs.length<_nSvc) _svcs.push({from:'',to:'',content:'',jisshi:'',tassei:'',effect:''});
         const _flow=(rec.flow||[]).filter(f=>f&&(String(f.time||'')+String(f.content||'')).trim());
         const flowTbl=`<table style="width:100%;height:100%;border-collapse:collapse;table-layout:fixed;">${cg(40,60)}`
           +`<tr><td colspan="2" style="${lab}font-size:8.5px;border-top:none;">プログラム（1日の流れ）</td></tr>`
@@ -53612,13 +54046,13 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
             let tr='<tr>';
             if(k===0){
               tr+=`<td style="${lab}background:#fff;font-weight:normal;font-size:11px;" rowspan="3">${TK_MARU[i]}</td>`;
-              tr+=`<td style="${cs}" rowspan="3"><div style="font-size:8px;border-bottom:1px dotted #bbb;padding-bottom:1px;margin-bottom:2px;">${esc(s.from)||'　　月　　日'}　～　${esc(s.to)||'　　月　　日'}</div>${esc(s.content)}</td>`;
+              tr+=`<td data-cap="svcContent" style="${cs}" rowspan="3"><div style="font-size:8px;border-bottom:1px dotted #bbb;padding-bottom:1px;margin-bottom:2px;">${esc(s.from)||'　　月　　日'}　～　${esc(s.to)||'　　月　　日'}</div>${esc(s.content)}</td>`;
             }
             tr+=`<td style="${csm}text-align:center;vertical-align:middle;font-size:7.5px;padding:1px;">${circ(TK_JISSHI[k],s.jisshi)}</td>`;
             tr+=`<td style="${csm}text-align:center;vertical-align:middle;font-size:7.5px;padding:1px;">${circ(TK_TASSEI[k],s.tassei)}</td>`;
-            if(k===0) tr+=`<td style="${cs}" rowspan="3">${esc(s.effect)}</td>`;
-            if(i===0&&k===0) tr+=`<td style="border:${B};padding:0;vertical-align:top;" rowspan="13">${flowTbl}</td>`;
-            if(i===4&&k===1) tr+=`<td style="${lab}font-size:8.5px;" rowspan="2">送り（${circ('有',rec.okuri)}・${circ('無',rec.okuri)}）</td>`;
+            if(k===0) tr+=`<td data-cap="svcEffect" style="${cs}" rowspan="3">${esc(s.effect)}</td>`;
+            if(i===0&&k===0) tr+=`<td style="border:${B};padding:0;vertical-align:top;" rowspan="${3*_nSvc-2}">${flowTbl}</td>`;
+            if(i===_nSvc-1&&k===1) tr+=`<td style="${lab}font-size:8.5px;" rowspan="2">送り（${circ('有',rec.okuri)}・${circ('無',rec.okuri)}）</td>`;
             tr+='</tr>';
             svcRows+=tr;
           }
@@ -53630,17 +54064,18 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
         // 利用予定・提供時間区分は様式3-4に専用欄が無いため、特記事項の先頭に印字する
         const _riyo=[rec.riyoubi&&`利用予定：${rec.riyoubi}`, rec.teikyoTime&&`提供時間区分：${rec.teikyoTime}`].filter(Boolean).join('　／　');
         const _tokki=[_riyo, String(rec.tokki||'')].filter(s=>String(s).trim()).join('\n');
-        const douiTbl=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;">${cg(50,50)}`
-          +`<tr><td colspan="2" style="${lab}font-size:8.5px;">利用者・家族に対する本計画の説明者及び同意日</td></tr>`
-          +`<tr><td style="${lab}font-size:8.5px;">説明者</td><td style="${lab}font-size:8.5px;">説明・同意日</td></tr>`
-          +`<tr><td style="${csm}text-align:center;vertical-align:middle;height:9mm;font-size:10px;">${esc(rec.setsumeisha)}</td><td style="${csm}text-align:center;vertical-align:middle;font-size:9px;">${esc(rec.setsumeiDate)||'　　年　　月　　日'}</td></tr>`
+        // ★ 2026-10-27(店舗要望「本人署名欄が欲しい」): 説明者・説明・同意日の右に 利用者（本人）署名 の欄
+        const douiTbl=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;">${cg(28,30,42)}`
+          +`<tr><td colspan="3" style="${lab}font-size:8.5px;">利用者・家族に対する本計画の説明者及び同意日・署名</td></tr>`
+          +`<tr><td style="${lab}font-size:8.5px;">説明者</td><td style="${lab}font-size:8.5px;">説明・同意日</td><td style="${lab}font-size:8.5px;">利用者（本人）署名</td></tr>`
+          +`<tr><td style="${csm}text-align:center;vertical-align:middle;height:9mm;font-size:10px;">${esc(rec.setsumeisha)}</td><td style="${csm}text-align:center;vertical-align:middle;font-size:9px;">${esc(rec.setsumeiDate)||'　　年　　月　　日'}</td><td style="${csm}vertical-align:bottom;font-size:8px;color:#64748b;text-align:right;">印</td></tr>`
           +`</table>`;
         const bottom=`<table style="width:100%;height:100%;border-collapse:collapse;table-layout:fixed;">${cg(53,47)}`
           +`<tr style="height:44%">`
-          +`<td style="${cs}"><span style="${cap}">特記事項</span>${esc(_tokki)}</td>`
+          +`<td data-cap="tokki" style="${cs}"><span style="${cap}">特記事項</span>${esc(_tokki)}</td>`
           +`<td style="padding:1px 4px;font-size:7px;line-height:1.35;vertical-align:top;">※サービス提供内容の設定にあたっては、長期目標・短期目標として設定した目標を達成するために必要なプログラムとなるよう、具体的に設定すること。<br/>※入浴介助加算（Ⅱ）を算定する場合は、★が記載された欄等において必要な情報を記入すること。</td>`
           +`</tr><tr style="height:56%">`
-          +`<td style="${cs}"><span style="${cap}">実施後の変化(総括)　　再評価日：　${esc(rec.saihyokaDate)||'　　　年　　月　　日'}</span>${esc(rec.soukatsu)}</td>`
+          +`<td data-cap="soukatsu" style="${cs}"><span style="${cap}">実施後の変化(総括)　　再評価日：　${esc(rec.saihyokaDate)||'　　　年　　月　　日'}</span>${esc(rec.soukatsu)}</td>`
           +`<td style="padding:0;vertical-align:bottom;">${douiTbl}</td>`
           +`</tr></table>`;
         const _fzip=facility.zip||'';
@@ -53651,9 +54086,55 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
           +`<div>${_yoshien?'（総合事業）通所型サービス':'（地域密着型）通所介護'}　${esc(facility.name)||'　　　　'}　　　${_fzip?'〒'+esc(_fzip):''}　住所：${esc(_faddr)}　　　管理者：${esc(_fmgr)}</div>`
           +`<div>　事業所No.${esc(_fno)}　　　　　　　　　Tel.${esc(facility.phone)}/Fax.${esc(facility.fax)}</div>`
           +`</div>`;
+        if (_yoshien) {
+          // --- 要支援(総合事業)の計画書: 江東区 別記第5号様式の欄(ケアプラン作成事業者・認定有効期間・提供期間・概要・意向・評価・説明同意交付)＋個別の運動 ---
+          const _ttl = tkShienTitle(appData.systemSettings);
+          const hdrS=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;margin-top:-1px;">${cg(40,30,30)}<tr>`
+            +`<td style="${csm}font-size:8.5px;line-height:1.45;"><div style="font-size:7px;">ケアプラン作成事業者・作成者</div><div>${esc(rec.cpOffice)}${rec.cpAuthor?`　${esc(rec.cpAuthor)}`:''}</div></td>`
+            +`<td style="${csm}font-size:8.5px;line-height:1.45;"><div style="font-size:7px;">認定有効期間</div><div>${rec.zantei?`申請中${rec.shinseiDate?`（申請日 ${esc(rec.shinseiDate)}）`:''}`:`${esc(rec.ninteiFrom)||'　　年　月　日'} ～ ${esc(rec.ninteiTo)||'　　年　月　日'}`}</div></td>`
+            +`<td style="${csm}font-size:8.5px;line-height:1.45;"><div style="font-size:7px;">サービス提供期間</div><div>${esc(rec.teikyoFrom)||'　　年　月　日'} ～ ${esc(rec.teikyoTo)||'　　年　月　日'}</div></td>`
+            +`</tr></table>`;
+          const secS=`<table style="width:100%;height:100%;border-collapse:collapse;table-layout:fixed;">${cg(50,50)}`
+            +`<tr style="height:30%"><td data-cap="cpGaiyou" style="${cs}" colspan="2"><span style="${cap}">介護予防サービス・支援計画（ケアプラン）の概要</span>${esc(rec.cpGaiyou)}</td></tr>`
+            +`<tr style="height:35%"><td data-cap="honninKibou" style="${cs}"><span style="${cap}">利用者本人の意向</span>${esc(rec.honninKibou)}</td><td data-cap="kazokuKibou" style="${cs}"><span style="${cap}">家族の意向</span>${esc(rec.kazokuKibou)}</td></tr>`
+            +`<tr style="height:35%"><td data-cap="kenkoJotai" style="${cs}"><span style="${cap}">健康状態(病名､合併症､服薬状況等)</span>${esc(rec.kenkoJotai)}</td><td data-cap="iryoRisk" style="${cs}"><span style="${cap}">ケアの上での医学的リスク(血圧､転倒､嚥下障害等)･留意事項</span>${esc(rec.iryoRisk)}</td></tr>`
+            +`</table>`;
+          const _ex=[...(rec.exercises||[])].filter(x=>x&&(String(x.content||'')+String(x.amount||'')).trim()).slice(0,8);
+          while(_ex.length<5) _ex.push({content:'',amount:'',freq:'',note:''});
+          const exTbl=`<table style="width:100%;height:100%;border-collapse:collapse;table-layout:fixed;">${cg(34,16,16,34)}`
+            +`<tr style="height:1px;"><td colspan="4" style="${lab}font-size:9px;">個別の運動（機能訓練）の実施内容</td></tr>`
+            +`<tr style="height:1px;"><td style="${lab}font-size:7.5px;">運動の内容</td><td style="${lab}font-size:7.5px;">回数・時間</td><td style="${lab}font-size:7.5px;">頻度</td><td style="${lab}font-size:7.5px;">留意点</td></tr>`
+            +_ex.map(x=>`<tr style="height:${(100/_ex.length).toFixed(1)}%"><td data-cap="exContent" style="${csm}font-size:8.5px;vertical-align:middle;">${esc(x.content)}</td><td data-cap="exAmount" style="${csm}font-size:8.5px;text-align:center;vertical-align:middle;">${esc(x.amount)}</td><td data-cap="exFreq" style="${csm}font-size:8.5px;text-align:center;vertical-align:middle;">${esc(x.freq)}</td><td data-cap="exNote" style="${csm}font-size:8px;vertical-align:middle;">${esc(x.note)}</td></tr>`).join('')
+            +`</table>`;
+          const douiS=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;">${cg(28,30,42)}`
+            +`<tr><td colspan="3" style="${lab}font-size:8px;">上記の計画について説明を受け、同意し、交付を受けました</td></tr>`
+            +`<tr><td style="${lab}font-size:8.5px;">説明者</td><td style="${lab}font-size:8.5px;">説明・同意・交付日</td><td style="${lab}font-size:8.5px;">利用者（本人）署名</td></tr>`
+            +`<tr><td style="${csm}text-align:center;vertical-align:middle;height:9mm;font-size:10px;">${esc(rec.setsumeisha)}</td><td style="${csm}text-align:center;vertical-align:middle;font-size:9px;">${esc(rec.setsumeiDate)||'　　年　　月　　日'}</td><td style="${csm}"></td></tr>`
+            +`</table>`;
+          const bottomS=`<table style="width:100%;height:100%;border-collapse:collapse;table-layout:fixed;">${cg(53,47)}`
+            +`<tr style="height:42%"><td data-cap="tokki" style="${cs}" colspan="2"><span style="${cap}">特記事項</span>${esc(_tokki)}</td></tr>`
+            +`<tr style="height:58%">`
+            +`<td data-cap="soukatsu" style="${cs}"><span style="${cap}">評価　　評価年月日：　${esc(rec.saihyokaDate)||'　　　年　　月　　日'}　　評価者：　${esc(rec.evaluator)}</span><span style="${cap}font-weight:normal;">目標の達成状況（本人へ説明した内容）</span>${esc(rec.soukatsu)}</td>`
+            +`<td style="padding:0;vertical-align:bottom;">${douiS}</td>`
+            +`</tr></table>`;
+          return `<div style="width:210mm;height:297mm;padding:6mm 5mm 4mm;box-sizing:border-box;display:flex;flex-direction:column;font-family:'Hiragino Sans','Meiryo','Yu Gothic Medium','MS PGothic',sans-serif;color:#000;background:#fff;overflow:hidden;">`
+            +`<div style="flex:0 0 auto;font-size:9px;font-weight:bold;">（総合事業）通所型サービス</div>`
+            +`<div style="flex:0 0 auto;text-align:center;font-size:13px;font-weight:bold;letter-spacing:1px;margin:0.8mm 0 1.5mm;">【${esc(_ttl)}】${rec.zantei?'（暫定）':''}</div>`
+            +`<div style="flex:0 0 auto;">${hdr1}${hdr2}${hdrS}${hdr3}</div>`
+            +`<div style="flex:0 0 auto;font-size:9.5px;font-weight:bold;margin:1.6mm 0 0.6mm;border-bottom:1px solid #000;">Ⅰ　利用者の基本情報</div>`
+            +`<div style="flex:54 1 0;min-height:0;">${secS}</div>`
+            +`<div style="flex:0 0 auto;font-size:9.5px;font-weight:bold;margin:1.6mm 0 0.6mm;border-bottom:1px solid #000;">Ⅱ　目標　／　Ⅲ　サービス提供内容（通所型サービスにおける計画）</div>`
+            +`<div style="flex:34 1 0;min-height:0;">${goalTbl}</div>`
+            +`<div style="flex:74 1 0;min-height:0;margin-top:1.2mm;">${svcTbl}</div>`
+            +`<div style="flex:0 0 auto;font-size:9.5px;font-weight:bold;margin:1.6mm 0 0.6mm;border-bottom:1px solid #000;">Ⅳ　個別の運動（機能訓練）</div>`
+            +`<div style="flex:70 1 0;min-height:0;">${exTbl}</div>` /* ★ 2026-10-28: 8行の運動が入るように(サービス提供内容 104→74・運動 40→70) */
+            +`<div style="flex:52 1 0;min-height:0;margin-top:1.2mm;">${bottomS}</div>`
+            +footer
+            +`</div>`;
+        }
         const html=`<div style="width:210mm;height:297mm;padding:6mm 5mm 4mm;box-sizing:border-box;display:flex;flex-direction:column;font-family:'Hiragino Sans','Meiryo','Yu Gothic Medium','MS PGothic',sans-serif;color:#000;background:#fff;overflow:hidden;">`
           +`<div style="flex:0 0 auto;font-size:9px;font-weight:bold;">別紙様式３－４</div>`
-          +`<div style="flex:0 0 auto;text-align:center;font-size:13px;font-weight:bold;letter-spacing:1px;margin:0.8mm 0 1.5mm;">【（地域密着型）通所介護計画書】</div>`
+          +`<div style="flex:0 0 auto;text-align:center;font-size:13px;font-weight:bold;letter-spacing:1px;margin:0.8mm 0 1.5mm;">【（地域密着型）通所介護計画書】${rec.zantei?'（暫定）':''}</div>`
           +`<div style="flex:0 0 auto;">${hdr1}${hdr2}${hdr3}</div>`
           +`<div style="flex:0 0 auto;font-size:9.5px;font-weight:bold;margin:1.6mm 0 0.6mm;border-bottom:1px solid #000;">Ⅰ　利用者の基本情報</div>`
           +`<div style="flex:88 1 0;min-height:0;">${sec1}</div>`
@@ -53683,8 +54164,8 @@ function TsushoKeikakuView({ appData, onSave, dirtyRef, saveFnRef, onShowPrintPr
           +`<div style="font-size:13px;margin-top:8mm;font-weight:bold;">${esc2(patient?.cmOffice||'居宅介護支援事業所')}<br>${patient?.cmName?esc2(patient.cmName)+' 様':'ご担当者 様'}</div>`
           +((() => { const _f = tsumugiCmContact(patient, appData).fax; return _f ? `<div style="font-size:11px;color:#333;">FAX: ${esc2(_f)}</div>` : ''; })())
           +`<div style="text-align:right;font-size:11px;margin-top:6mm;">${esc2(facility.name||'')}<br>${esc2(facility.addressFull||'')}<br>TEL: ${esc2(facility.phone||'')}${facility.fax?'　FAX: '+esc2(facility.fax):''}</div>`
-          +`<div style="text-align:center;font-size:16px;font-weight:bold;margin:10mm 0 6mm;border-bottom:2px solid #000;padding-bottom:2mm;">通所介護計画書 送付のご案内</div>`
-          +`<div>いつもお世話になっております。<b>${esc2(patient?.name||'')} 様</b>の通所介護計画書を${prevForSet?'見直し・更新':'作成'}いたしましたので、下記のとおり送付いたします。ご査収のほどよろしくお願いいたします。</div>`
+          +`<div style="text-align:center;font-size:16px;font-weight:bold;margin:10mm 0 6mm;border-bottom:2px solid #000;padding-bottom:2mm;">${esc2(_docTitle(printRec))} 送付のご案内</div>`
+          +`<div>いつもお世話になっております。<b>${esc2(patient?.name||'')} 様</b>の${esc2(_docTitle(printRec))}を${prevForSet?'見直し・更新':'作成'}いたしましたので、下記のとおり送付いたします。ご査収のほどよろしくお願いいたします。</div>`
           +`<div style="margin-top:6mm;font-weight:bold;">【送付書類】</div>`
           +`<div style="padding-left:4mm;">1. 通所介護計画書（今回分／作成日: ${esc2(printRec.createdDate||'—')}）${prevForSet?`<br>2. 前回の通所介護計画書（評価記入済／作成日: ${esc2(prevForSet.createdDate||'—')}）`:''}</div>`
           +(prevForSet?`<div style="margin-top:5mm;"><div style="font-weight:bold;">【前回計画の評価】</div><div style="padding-left:4mm;">短期目標: ${esc2(prevForSet.shortAchieve||'未評価')}　／　長期目標: ${esc2(prevForSet.longAchieve||'未評価')}${prevForSet.soukatsu?`<br>総括: ${esc2(prevForSet.soukatsu)}`:''}</div></div>`:'')
@@ -54637,6 +55118,19 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
       _aId: a?.id||null, _skId: skR?.id||null, _kyId: kyR?.id||null });
     setBatchMode(true); setEditing(null);
   };
+  // ★ 2026-10-27(ユーザー要望「タップする回数が多い」): 新しい評価のとき、前回の評価(ADL・科学的介護・生活機能・興味関心)を1回で写す。評価日・評価者・計画書の欄は写さない
+  const _bPrev = (batch && !batch._aId && !batch._skId && !batch._kyId) ? (_batchDates.find(d => d < String(batch.evalDate||'')) || null) : null;
+  const batchCopyPrev = () => { if (!batch || !_bPrev) return;
+    const a = (appData.adlRecords||[]).find(r=>r.patientId===pid && String(r.evalDate)===_bPrev) || null;
+    const skR = (appData.seikatsuKinouRecords||[]).find(r=>r.patientId===pid && _isoOfRec(r.recordDate)===_bPrev) || null;
+    const kyR = (appData.kyomiKanshinRecords||[]).find(r=>r.patientId===pid && _isoOfRec(r.recordDate)===_bPrev) || null;
+    const J = (v) => JSON.parse(JSON.stringify(v || {}));
+    setBatch(b => ({ ...b, _copiedFrom: _bPrev,
+      items: a ? { ...b.items, ...J(a.items) } : b.items,
+      science: a ? { ...J(a.science), ...Object.fromEntries(Object.entries(b.science||{}).filter(([, v]) => v !== '' && v != null && !(Array.isArray(v) && !v.length))) } : b.science,
+      sk: skR ? { adl: { ...J(skR.adl) }, kikyo: { ...J(skR.kikyo) }, iadl: { ...J(skR.iadl) }, shinshin: { ...J(skR.shinshin) } } : b.sk,
+      ky: kyR ? { items: J(kyR.items), custom: JSON.parse(JSON.stringify(kyR.custom || [])), bikou: kyR.bikou || '' } : b.ky }));
+    markDirty(); };
   const bset = (patch) => { setBatch(b=>({...b, ...patch})); markDirty(); };
   const bsetSci = (k,v) => { setBatch(b=>({...b, science:{...(b.science||{}),[k]:v}})); markDirty(); };
   const bsetItem = (k,v) => { setBatch(b=>({...b, items:{...b.items,[k]: v===''?'':Number(v)}})); markDirty(); };
@@ -54842,6 +55336,11 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
           </div>
           <div className="flex-1 overflow-y-auto p-4">
             <div className="max-w-4xl mx-auto space-y-4 pb-24">
+              {_bPrev && (
+                <div data-testid="kk-copy-prev-box" className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap">
+                  <div className="text-sm text-indigo-900 flex-1 min-w-[12em]">{batch._copiedFrom ? <>前回（{_bPrev.replace(/-/g,'/')}）の内容を写しました。<b>変わったところだけ</b>直してください。</> : <>前回（{_bPrev.replace(/-/g,'/')}）の評価があります。写してから、変わったところだけ直せます。</>}</div>
+                  {!batch._copiedFrom && <button type="button" data-testid="kk-copy-prev" onClick={batchCopyPrev} className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow active:scale-95">前回の内容を写す</button>}
+                </div>)}
               <div className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-xl px-4 py-2.5">
                 ここで入力した内容は保存時に <b>ADL評価(LIFE・加算)・生活機能チェック(様式3-2)・興味関心チェック(様式3-1)</b> にまとめて入ります。④でADLを選ぶと、②のBarthel点数の空欄に自動で入ります。
               </div>
@@ -54931,7 +55430,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                     </div>
                   ); })}
                 </div>
-                <div className="mt-2"><KKField presets={_kkPL.kyBikou} label="備考" value={batch.ky.bikou} onChange={v=>{ setBatch(b=>({...b, ky:{...b.ky, bikou:v}})); markDirty(); }} rows={2}/></div>
+                <div className="mt-2"><KKField presets={_kkPL.kyBikou} label="備考" box={TSU_BOXCAP.ky.bikou} value={batch.ky.bikou} onChange={v=>{ setBatch(b=>({...b, ky:{...b.ky, bikou:v}})); markDirty(); }} rows={2}/></div>
               </div>
               {/* ⑥ 計画書の見直し(まるっとLIFE式: 更新が必要な項目だけ・2026-08-20) */}
               <div ref={el=>{_batchRefs.current.plan=el;}} className="bg-white rounded-xl border border-slate-200 p-4" style={{scrollMarginTop:8}}>
@@ -54965,7 +55464,7 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                   <div className="text-xs font-bold text-slate-600 mb-1.5">新しい短期目標（今後3ヶ月）</div>
                   <div className="grid md:grid-cols-3 gap-2 mb-3">
                     {[['shortKinou','（機能）','goalKinou'],['shortKatsudo','（活動）','goalKatsudo'],['shortSanka','（参加）','goalSanka']].map(([k,lb,pk])=>(
-                      <div key={k}><KKField presets={_kkPL[pk]} label={lb} value={batch.plan[k]||''} onChange={v=>bsetPlan({[k]:v})} rows={2}/></div>
+                      <div key={k}><KKField presets={_kkPL[pk]} label={lb} box={TSU_BOXCAP.kk[k]} value={batch.plan[k]||''} onChange={v=>bsetPlan({[k]:v})} rows={2}/></div>
                     ))}
                   </div>
                   <label className="flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer mb-1.5">
@@ -54975,14 +55474,14 @@ function LifeHubView({ appData, onSave, navigateTo, targetPatientId, navFocus, o
                   {batch.plan?.longOn && (
                     <div className="grid md:grid-cols-3 gap-2 mb-3">
                       {[['longKinou','（機能）','goalKinou'],['longKatsudo','（活動）','goalKatsudo'],['longSanka','（参加）','goalSanka']].map(([k,lb,pk])=>(
-                        <div key={k}><KKField presets={_kkPL[pk]} label={lb} value={batch.plan[k]||''} onChange={v=>bsetPlan({[k]:v})} rows={2}/></div>
+                        <div key={k}><KKField presets={_kkPL[pk]} label={lb} box={TSU_BOXCAP.kk[k]} value={batch.plan[k]||''} onChange={v=>bsetPlan({[k]:v})} rows={2}/></div>
                       ))}
                     </div>
                   )}
                   <div className="grid md:grid-cols-3 gap-2">
-                    <div><KKField presets={_kkPL.ryui} presetMode="check" label="機能訓練実施上の留意事項" value={batch.plan.ryuiPoint||''} onChange={v=>bsetPlan({ryuiPoint:v})} rows={2}/></div>
-                    <div><KKField presets={_kkPL.henka} label="実施による変化（Ⅲ）" value={batch.plan.henka||''} onChange={v=>bsetPlan({henka:v})} rows={2}/></div>
-                    <div><KKField presets={_kkPL.kadai} label="課題とその要因（Ⅲ）" value={batch.plan.kadai||''} onChange={v=>bsetPlan({kadai:v})} rows={2}/></div>
+                    <div><KKField presets={_kkPL.ryui} presetMode="check" label="機能訓練実施上の留意事項" box={TSU_BOXCAP.kk.ryuiPoint} value={batch.plan.ryuiPoint||''} onChange={v=>bsetPlan({ryuiPoint:v})} rows={2}/></div>
+                    <div><KKField presets={_kkPL.henka} label="実施による変化（Ⅲ）" box={TSU_BOXCAP.kk.henka} value={batch.plan.henka||''} onChange={v=>bsetPlan({henka:v})} rows={2}/></div>
+                    <div><KKField presets={_kkPL.kadai} label="課題とその要因（Ⅲ）" box={TSU_BOXCAP.kk.kadai} value={batch.plan.kadai||''} onChange={v=>bsetPlan({kadai:v})} rows={2}/></div>
                   </div>
                 </>)}
               </div>
@@ -59556,7 +60055,9 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
           .pf-tabs-scroll::-webkit-scrollbar-track{background:#e2e8f0;}
           .pf-tabs-scroll::-webkit-scrollbar-thumb{background:#94a3b8;border-radius:4px;}
           .pf-tabs-scroll::-webkit-scrollbar-thumb:hover{background:#64748b;}`}</style>
-        <div className="pf-tabs-scroll flex overflow-x-auto border-b border-slate-200 shrink-0 bg-slate-50 px-3 gap-1 items-stretch">
+        {/* ★ 2026-10-28 深夜(ユーザー「個人ファイルも横じゃなくてサイドバーにした方が見やすいかも」): iPad・PC は左に縦のカテゴリ・右に中身。スマホは今までどおり上に横 */}
+        <div className="flex-1 min-h-0 flex flex-col md:flex-row">
+        <div className="pf-tabs-scroll flex md:hidden overflow-x-auto border-b border-slate-200 shrink-0 bg-slate-50 px-3 gap-1 items-stretch">
           {allCategories.map((c, i) => {
             const prev = allCategories[i-1];
             const showDivider = i > 0 && (c.group || '') !== (prev?.group || '');
@@ -59573,9 +60074,20 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
           })}
           <button onClick={handleAddCustomCategory} className="px-3 py-3 text-xs font-bold text-emerald-600 hover:bg-emerald-50 whitespace-nowrap">+ カテゴリ追加</button>
         </div>
+        <nav data-testid="pf-vtabs" className="hidden md:flex md:flex-col w-48 lg:w-56 shrink-0 border-r border-slate-200 bg-slate-50 overflow-y-auto py-1">
+          {allCategories.map((c, i) => { const prev = allCategories[i-1]; const showDivider = i > 0 && (c.group || '') !== (prev?.group || ''); return (
+            <React.Fragment key={c.id}>
+              {showDivider && <div className="my-1 mx-3 border-t border-slate-200" />}
+              <div className={`flex items-center border-l-4 ${activeCat === c.id ? 'border-emerald-600 bg-white' : 'border-transparent hover:bg-slate-100'}`}>
+                <button type="button" data-testid={`pf-vtab-${c.id}`} onClick={() => setActiveCat(c.id)} aria-current={activeCat === c.id ? 'page' : undefined} className={`flex-1 min-w-0 text-left px-3 py-2.5 text-sm font-bold ${activeCat === c.id ? 'text-emerald-700' : 'text-slate-600'}`}>{c.emoji} {c.name}</button>
+                {!c.isDefault && <button type="button" onClick={() => handleDeleteCustomCategory(c.id)} className="px-2 text-slate-400 hover:text-red-500" aria-label="このカテゴリを消す">×</button>}
+              </div>
+            </React.Fragment>); })}
+          <button type="button" onClick={handleAddCustomCategory} className="mt-1 mx-2 px-3 py-2 text-xs font-bold text-emerald-600 hover:bg-emerald-50 rounded-lg text-left">+ カテゴリ追加</button>
+        </nav>
         {/* コンテンツ */}
-        <div className="flex-1 overflow-auto p-6">
-          <div className="mb-4">
+        <div data-testid="pf-content" className="flex-1 min-w-0 min-h-0 overflow-auto p-4 md:p-5">
+          <div className="mb-3">
             <div className="text-sm font-bold text-slate-700">{activeCategory.name}</div>
             {activeCategory.note && <div className="text-[11px] text-slate-500 mt-1">{activeCategory.note}</div>}
           </div>
@@ -60413,6 +60925,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
           </div>
           )}
         </div>
+        </div>{/* 縦のカテゴリと中身の横並び */}
       </div>
       {/* 担当者会議 入力モーダル */}
       {showMeetingForm && (

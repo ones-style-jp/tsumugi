@@ -8,6 +8,9 @@ import {
   exercisePrimaryNumber,
   mergeTpTelDone,
   pickHolidays,
+  holidayAmpmOn,
+  fullHolidaySet,
+  holidayClosesSlots,
 } from './logic.js';
 
 describe('invite token', () => {
@@ -190,5 +193,30 @@ describe('送迎表の連絡済の同期(mergeTpTelDone)', () => {
     const c = { _savedAt: 150, _telDone: { 1: { ck: '10', on: false, t: 50 } } };
     expect(mergeTpTelDone(a, c)).toBe(a);
     expect(mergeTpTelDone(a, { _savedAt: 1 })).toBe(a);
+  });
+});
+
+describe('半日休業(holidayAmpmOn・holidayClosesSlots・2026-10-28)', () => {
+  const H = [{ date: '2026-12-29', name: '年末年始' }, '2026-12-30', { date: '2027-01-20', name: '雪のため', ampm: 'AM' }, { date: '2027-01-21', name: '雪', ampm: 'PM' }, { date: '2027-01-22', ampm: '1日' }];
+  it('その日の時間帯', () => {
+    expect(holidayAmpmOn(H, '2026-12-29')).toBe('1日');
+    expect(holidayAmpmOn(H, '2026-12-30')).toBe('1日');
+    expect(holidayAmpmOn(H, '2027-01-20')).toBe('AM');
+    expect(holidayAmpmOn(H, '2027-01-21')).toBe('PM');
+    expect(holidayAmpmOn(H, '2027-01-22')).toBe('1日');
+    expect(holidayAmpmOn(H, '2027-01-23')).toBe(null);
+    expect(holidayAmpmOn(null, '2027-01-23')).toBe(null);
+  });
+  it('全日休業の日付だけ', () => {
+    expect([...fullHolidaySet(H)].sort()).toEqual(['2026-12-29', '2026-12-30', '2027-01-22']);
+  });
+  it('来る時間帯が全部ふさがるか', () => {
+    expect(holidayClosesSlots(null, true, false)).toBe(false);
+    expect(holidayClosesSlots('1日', false, false)).toBe(true);
+    expect(holidayClosesSlots('AM', true, false)).toBe(true);
+    expect(holidayClosesSlots('AM', false, true)).toBe(false);
+    expect(holidayClosesSlots('AM', true, true)).toBe(false);
+    expect(holidayClosesSlots('PM', false, true)).toBe(true);
+    expect(holidayClosesSlots('PM', false, false)).toBe(false);
   });
 });
