@@ -25438,14 +25438,16 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
     const over = sc ? (sc.scrollHeight - sc.clientHeight > 1) : true; // 縮めるのは、いまはみ出しているときだけ(測り直しで0.01ずつ動かない)
     _setFitZoom(prev => ((z < prev && over) || z - prev >= 0.015) ? z : prev); } catch {} }, []);
   React.useLayoutEffect(() => {
-    if (!isFullscreen || !_fsFit) return;
+    if (!isFullscreen || !_fsFit || _fsUserZoom != null) return; // ★ 2026-10-29: 自分で倍率を変えている間は測らない(大きい倍率で測ると1〜2%ずれ、「全員」で元の倍率に戻らなかった)
     _fitCalc(); window.addEventListener('resize', _fitCalc); window.addEventListener('orientationchange', _fitCalc);
     let ro = null; try { const t = document.getElementById('record-table'); if (t && typeof ResizeObserver !== 'undefined') { ro = new ResizeObserver(() => _fitCalc()); ro.observe(t); const sc = t.closest('.record-view-scroll'); if (sc) ro.observe(sc); } } catch {}
     return () => { window.removeEventListener('resize', _fitCalc); window.removeEventListener('orientationchange', _fitCalc); try { ro && ro.disconnect(); } catch {} };
-  }, [isFullscreen, _fsFit, _fsModeTick, _fitCalc]);
-  const _fsZoom = isFullscreen ? (_fsUserZoom != null ? _fsUserZoom : _fitZoom) : 1;
-  // ★ 2026-10-29(ユーザー「27インチなどの大きい画面なら200%でも10人入る」): ＋は200%まで(前は160%)
-  const _fsZoomStep = (d) => _saveFsZoom(Math.max(0.45, Math.min(2, Math.round((_fsZoom + d) * 20) / 20)));
+  }, [isFullscreen, _fsFit, _fsModeTick, _fitCalc, _fsUserZoom]);
+  // ★ 2026-10-29(ユーザー「27インチなどの大きい画面なら200%でも10人入る」「タブレットだと180%とか」): ＋の上限は画面の大きさで決める。
+  //   画面の長い辺が1600px以上(27インチなどのモニター・フルHD)は200%、それより小さい(iPad・ノートパソコン)は180%。前に覚えた倍率も上限までにする
+  const _fsZoomMax = (() => { try { return Math.max(window.screen?.width || 0, window.screen?.height || 0, window.innerWidth || 0) >= 1600 ? 2 : 1.8; } catch { return 1.8; } })();
+  const _fsZoom = isFullscreen ? (_fsUserZoom != null ? Math.min(_fsUserZoom, _fsZoomMax) : _fitZoom) : 1;
+  const _fsZoomStep = (d) => _saveFsZoom(Math.max(0.45, Math.min(_fsZoomMax, Math.round((_fsZoom + d) * 20) / 20)));
   // ★ 2026-10-26(ユーザー要望「一言かマイクのどちらかを無くしたとき、残った方を他と同じ高さに」): 表の特記セルで一言とマイクが1つだけなら、そのボタンを欄の高さいっぱいに
   const _tkOne = (((tsuTokkiPresets(appData).length && !appData.systemSettings?.tokkiPresetOff) ? 1 : 0) + ((!appData.systemSettings?.tokkiVoiceOff && tsuVoiceSupported()) ? 1 : 0)) === 1;
   // ★ 2026-10-11: 全画面(画面全体を覆う)を一瞬で外すと、iPad では下の見出し・上部の帯が古い描画のまま白く残ることがある。0.3秒かけて薄くしてから外す
@@ -27477,7 +27479,7 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
           <div data-testid="fs-zoom" className="hidden md:inline-flex items-stretch rounded-lg overflow-hidden border border-slate-300 bg-white/95 text-slate-800">
             <button type="button" data-testid="fs-zoom-minus" onClick={() => _fsZoomStep(-0.05)} disabled={_fsZoom <= 0.45} className="px-3 py-1 text-base font-bold leading-none disabled:opacity-40" aria-label="小さく">－</button>
             <span data-testid="fs-zoom-val" className="px-2 py-1.5 text-xs font-bold tabular-nums border-x border-slate-300 min-w-[3.4em] text-center">{Math.round(_fsZoom * 100)}%</span>
-            <button type="button" data-testid="fs-zoom-plus" onClick={() => _fsZoomStep(0.05)} disabled={_fsZoom >= 2} className="px-3 py-1 text-base font-bold leading-none disabled:opacity-40" aria-label="大きく">＋</button>
+            <button type="button" data-testid="fs-zoom-plus" onClick={() => _fsZoomStep(0.05)} disabled={_fsZoom >= _fsZoomMax - 0.001} className="px-3 py-1 text-base font-bold leading-none disabled:opacity-40" aria-label="大きく">＋</button>
           </div>
           <button data-testid="rec-fs-close" onClick={closeFullscreen} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap">通常画面</button>{/* ★ 2026-10-28(ユーザー要望): 「通常表示へ」→「通常画面」 */}
           <button onClick={()=>setRestoreModal(true)} className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap" title="保存した記録を丸ごと復元（戻す）">戻す</button>
