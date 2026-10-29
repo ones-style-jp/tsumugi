@@ -8,6 +8,7 @@ import {
   ChevronLeft, ChevronRight, Save, UserPlus, Clock, CalendarOff, CalendarRange, PenTool, History,
   ChevronDown, ChevronUp, Thermometer, Heart, Copy, Edit3, Edit2, MessageSquare, Briefcase, Car,
   ArrowUpDown, Maximize2, Undo2, CheckCheck, // ★ 2026-10-22: 上の帯のアイコン(試し)
+  SquareUser, Dumbbell, ScrollText, CalendarDays, // ★ 2026-10-29: 提供記録の名前から開く行き先(基本情報・運動メニュー・支援経過表・月間スケジュール)
 } from 'lucide-react';
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 // ★ ビルド時の update-notes.json を焼き込む(2026-09-03): 家族/ケアマネポータルの「古いタブ」検知用。
@@ -28901,18 +28902,23 @@ function RecordView({ appData, activeRecorder, onSave, navigateTo, selectedDate,
                 navigateTo && navigateTo('master', _pid);
               };
               // ★ 2026-10-02(試験版・ユーザー要望): ここから利用者マスタへ行くのは休み・欠席の扱いが目的なので、月間スケジュールを開いた状態で表示する
+              // ★ 2026-10-29(ユーザー要望): 利用者マスタの「基本情報」「運動メニュー(サービス提供内容)」と、個人ファイルの「支援経過表」へも飛べるように。モニタリングは要らない(外した)
+              const _goMaster = (focus) => { setPatientInfoModal(null); navigateTo && navigateTo('master', _pid, focus); };
+              const _goSupport = () => { setPatientInfoModal(null); try { sessionStorage.setItem('tsumugiReopenPF', JSON.stringify({ patientId: _pid, tab: 'cat_9' })); sessionStorage.setItem('tsumugiPFOrigin', 'record'); } catch {} navigateTo && navigateTo('master', _pid); };
               const _navs = [
-                { view:'master',        label:'月間スケジュール', icon:<Users size={16}/>, onClick: () => { setPatientInfoModal(null); navigateTo && navigateTo('master', _pid, 'schedule'); } },
+                { view:'__basic',       label:'基本情報',         icon:<SquareUser size={16}/>, onClick: () => _goMaster('basic') },
+                { view:'master',        label:'月間スケジュール', icon:<CalendarDays size={16}/>, onClick: () => _goMaster('schedule') },
+                { view:'__exercise',    label:'運動メニュー',     icon:<Dumbbell size={16}/>, onClick: () => _goMaster('exercise') },
                 { view:'__file',        label:'個人ファイル',     icon:<BookOpen size={16}/>, onClick:_goFile },
+                { view:'__support',     label:'支援経過表',       icon:<ScrollText size={16}/>, onClick:_goSupport },
                 { view:'ticket',        label:'サービス提供記録', icon:<FileText size={16}/> },
                 { view:'fitness',       label:'体力測定',         icon:<Activity size={16}/> },
                 { view:'dash_personal', label:'分析（個人）',     icon:<BarChart3 size={16}/> },
-                { view:'monitoring',    label:'モニタリング',     icon:<ClipboardList size={16}/> },
               ];
               return (
-                <div className="grid grid-cols-3 gap-2 mb-4">
+                <div data-testid="pt-nav" className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-4">
                   {_navs.map(n => (
-                    <button key={n.view} onClick={()=> n.onClick ? n.onClick() : _go(n.view)}
+                    <button key={n.view} data-testid={`pt-nav-${n.view.replace(/^__/, '')}`} onClick={()=> n.onClick ? n.onClick() : _go(n.view)}
                       className="flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 text-slate-600 hover:text-blue-600 active:scale-95 transition-all">
                       {n.icon}<span className="text-[11px] font-bold">{n.label}</span>
                     </button>
@@ -42128,6 +42134,17 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
   React.useEffect(() => { if (isMobileView && !localPatient) setMobileRosterOpen(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [activeDetailTab, setActiveDetailTab] = useState('basic');
   // ★ 提供記録入力の「振替/休止」からジャンプしてきたら、サービス提供内容タブ→月間スケジュールへスクロール。
+  // ★ 2026-10-29: 提供記録の名前から「基本情報」「運動メニュー」を開いたとき
+  React.useEffect(() => {
+    if (navFocus !== 'basic' && navFocus !== 'exercise') return;
+    if (!editingPatientId) return;
+    setActiveDetailTab(navFocus === 'basic' ? 'basic' : 'service');
+    const t = setTimeout(() => {
+      if (navFocus === 'exercise') { try { const el = document.querySelector('[data-testid="pe-exmenu"]'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch {} }
+      onFocusHandled && onFocusHandled();
+    }, 250);
+    return () => clearTimeout(t);
+  }, [navFocus, editingPatientId]);
   React.useEffect(() => {
     if (navFocus !== 'schedule') return;
     if (!editingPatientId) return; // 利用者詳細が開いてから
@@ -44083,7 +44100,7 @@ function MasterView({ appData, onSave, targetPatientId, navigateTo, onPatientCha
                 return(<div key={si.id} className="flex-1 min-w-[120px]"><label className="block text-sm font-bold text-slate-600 mb-1">{si.label}</label><select disabled={isOff} value={localPatient[fkey]||''} onChange={e=>updateLP(fkey,e.target.value)} className="w-full px-3 py-3 bg-slate-50 border border-slate-300 rounded-xl font-bold text-base outline-none cursor-pointer disabled:opacity-60">{opts.map(o=><option key={o} value={o}>{o}</option>)}</select></div>);
               })}</div>
               {/* ★ 個別運動(type:'individual')のスロットはここに基準値を持たせない。 基準値は下の「個別運動メニュー」で管理(重複解消)。 */}
-              <div><h3 className="text-sm font-bold text-slate-600 mb-1">運動メニュー</h3>
+              <div data-testid="pe-exmenu" style={{scrollMarginTop: 72}}><h3 className="text-sm font-bold text-slate-600 mb-1">運動メニュー</h3>
                 <div data-testid="pe-legend" className="text-[11.5px] text-slate-600 leading-5 mb-3 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
                   基準値の入れ方: <b>数値</b>（例: 10分・20回）＝その方がふだん行う量。<b>「ー」＝この運動は行わない（運動なし）</b>。提供記録の「運動を一括で○」でも○は付きません。<br/>
                   提供記録では <b>○</b>＝基準値どおり実施／<b>×</b>＝基準値はあるが、その日は行わなかった／<b>ー</b>＝運動なし（基準値が「ー」）です。
@@ -59657,6 +59674,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
   const _spActiveRec = (()=>{ try { return (JSON.parse(sessionStorage.getItem('tsumugiActiveRecorder')||'null')||{}).name || ''; } catch { return ''; } })();
   const _pfPhone = useTsuIsPhone(); // ★ 2026-10-13: スマホ幅の判定(支援経過表の詰めた一覧)
   const [spEditId, setSpEditId] = useState(null); // スマホの一覧で編集中の行
+  const [spMonth, setSpMonth] = useState(null); // ★ 2026-10-29(ユーザー要望): 支援経過表の月の絞り込み(null=その年の全部・1〜12)
   const [spYear, setSpYear] = useState(null); // 支援経過表: 選択中の年
   // 既存データから自動生成される行(srcKey付き)
   const spAutoEvents = () => {
@@ -59751,14 +59769,17 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
       updatePatient({ supportProgress: stored.filter(e=>e.id!==row.id) }, {manual:true, message:'✓ 削除しました'});
     }
   };
-  const spAdd = () => { const t=new Date().toISOString().slice(0,10); updatePatient({ supportProgress: [...(personalFile.supportProgress||[]), {id:`sp_${Date.now()}_${Math.random().toString(36).slice(2,6)}`, date:t, staff:_spActiveRec, from:'', content:''}] }, {manual:true, message:'✓ 行を追加しました'}); if(!spYear) setSpYear(String(new Date().getFullYear())); };
+  // ★ 2026-10-29(ユーザー要望「上の方が古いので、行は下に追加」): 行を追加は表の下。足した行(今日の日付)が見えるように年・月の絞り込みを合わせ、内容の欄へ移る
+  const spAdd = () => { const t=new Date().toISOString().slice(0,10); const _id=`sp_${Date.now()}_${Math.random().toString(36).slice(2,6)}`; updatePatient({ supportProgress: [...(personalFile.supportProgress||[]), {id:_id, date:t, staff:_spActiveRec, from:'', content:''}] }, {manual:true, message:'✓ 行を追加しました'});
+    setSpYear(t.slice(0,4)); setSpMonth(m => (m == null || m === +t.slice(5,7)) ? m : null); if (_pfPhone) setSpEditId(_id);
+    setTimeout(() => { try { const el = document.querySelector(`[data-sp-id="${_id}"]`); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); const ta = el.querySelector('textarea'); if (ta) ta.focus({ preventScroll: true }); } } catch {} }, 250); };
   // 支援経過表: 選択できる年の一覧(記録のある年+当年) と 現在の選択年
   const spYearList = () => { const list=spMergedList(); const ys=new Set(list.map(e=>String(e.date||'').slice(0,4)||'未設定')); ys.add(String(new Date().getFullYear())); return Array.from(ys).filter(Boolean).sort(); };
   const spSelectedYear = () => { const ys=spYearList(); const cur=String(new Date().getFullYear()); return (spYear && ys.includes(spYear)) ? spYear : (ys.includes(cur)?cur:ys[ys.length-1]); };
-  const printSupportProgress = (onlyYear) => {
+  const printSupportProgress = (onlyYear, onlyMonth) => {
     const esc = (s)=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
     const listAll = spMergedList();
-    const list = onlyYear ? listAll.filter(e=>String(e.date||'').slice(0,4)===String(onlyYear)) : listAll;
+    const list = (onlyYear ? listAll.filter(e=>String(e.date||'').slice(0,4)===String(onlyYear)) : listAll).filter(e => !onlyMonth || +String(e.date||'').slice(5,7) === +onlyMonth); // ★ 2026-10-29: 月を選んでいればその月だけ
     if (!list.length) { alert('支援経過の記録がありません。'); return; }
     const byYear = {}; list.forEach(e=>{ const y=(String(e.date||'').slice(0,4))||'未設定'; (byYear[y]=byYear[y]||[]).push(e); });
     const years = Object.keys(byYear).sort();
@@ -59780,7 +59801,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
       <style>@page{size:A4 portrait;margin:0}/* ★ margin:0 でブラウザ既定のヘッダー/フッター(日時・URL・ページ番号)を非表示に */
       body{font-family:'Hiragino Sans','Yu Gothic','Noto Sans JP',sans-serif;color:#1e293b;margin:0;padding:12mm 12mm 14mm;box-sizing:border-box}
       h1{font-size:20px;margin:0;text-align:center;letter-spacing:2px}.sub{font-size:13px;color:#334155;margin:6px 0 10px;text-align:left}.sub .nm{font-size:18px;font-weight:bold;color:#1e293b}tr{page-break-inside:avoid}thead{display:table-header-group}</style></head>
-      <body><h1>支援経過表</h1><div class="sub">利用者名：<span class="nm">${esc(patient.name)} 様</span>　　${esc(patient.careLevel||'')}${onlyYear?`　　（${esc(onlyYear)}年）`:''}</div>${sections}</body></html>`;
+      <body><h1>支援経過表</h1><div class="sub">利用者名：<span class="nm">${esc(patient.name)} 様</span>　　${esc(patient.careLevel||'')}${onlyYear?`　　（${esc(onlyYear)}年${onlyMonth?`${esc(onlyMonth)}月`:''}）`:''}</div>${sections}</body></html>`;
     const w = tsumugiDocWindow();
     if (!w) { alert('ポップアップがブロックされました。ブラウザの設定で許可してください。'); return; }
     w.document.write(html); w.document.close();
@@ -60172,7 +60193,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
           <button type="button" onClick={handleAddCustomCategory} className="mt-1 mx-2 px-3 py-2 text-xs font-bold text-emerald-600 hover:bg-emerald-50 rounded-lg text-left">+ カテゴリ追加</button>
         </nav>
         {/* コンテンツ */}
-        <div data-testid="pf-content" className="flex-1 min-w-0 min-h-0 overflow-auto p-4 md:p-5">
+        <div data-testid="pf-content" className={`flex-1 min-w-0 min-h-0 overflow-auto p-4 md:p-5${isSpTab ? ' flex flex-col' : ''}`}>
           <div className="mb-3">
             <div className="text-sm font-bold text-slate-700">{activeCategory.name}</div>
             {activeCategory.note && <div className="text-[11px] text-slate-500 mt-1">{activeCategory.note}</div>}
@@ -60866,8 +60887,8 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
           {/* ★ 初回ご利用報告タブでは、作成方法の選択中/手入力中はファイル欄を隠す(2026-08-30 店舗要望。
               完了後のみ表示=添付書類の確認用) */}
           {!(isInitialReportTab && (irMode === 'form' || !(appData.initialReports||[]).some(r => r.patientId === patient.id))) && (
-          <div onDragOver={(e)=>{ e.preventDefault(); setPfDragOver(true); }} onDragLeave={()=>setPfDragOver(false)} onDrop={handlePfDrop}
-            style={pfDragOver ? { outline: '3px dashed #10b981', outlineOffset: 4, borderRadius: 12, background: '#ecfdf5' } : undefined}>
+          <div onDragOver={(e)=>{ e.preventDefault(); setPfDragOver(true); }} onDragLeave={()=>setPfDragOver(false)} onDrop={handlePfDrop} data-testid="pf-files"
+            style={{ ...(pfDragOver ? { outline: '3px dashed #10b981', outlineOffset: 4, borderRadius: 12, background: '#ecfdf5' } : {}), ...(isSpTab ? { order: 9, marginTop: 8 } : {}) }}>{/* ★ 2026-10-29(ユーザー要望「支援経過表はファイルをあまり添付しないので下へ」): 支援経過表の見出しでは表の下に(並び順だけ・pf-content を縦の flex に) */}
           <div className="mb-1 flex items-center justify-between">
             <div className="text-sm font-bold text-slate-700">ファイル ({filesInCat.length})</div>
             {/* ★ ボタンは1つに統合(2026-08-30): ブラウザの制約で1つのダイアログでファイルとフォルダの両方は
@@ -60939,34 +60960,52 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
             <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
               <div className="text-sm font-bold text-slate-800 flex items-center gap-1.5"><ClipboardList size={15}/>支援経過表</div>
               <div className="flex gap-2 flex-wrap">
-                <button onClick={spAdd} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold">＋ 行を追加</button>
-                <button onClick={()=>printSupportProgress(spSelectedYear())} className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg text-[11px] font-bold flex items-center gap-1"><Printer size={13}/>この年を印刷 / PDF</button>
+                {/* ★ 2026-10-29(ユーザー要望「行が増えると下までいちいちスクロールする」): いちばん下(行を追加)へ飛ぶ。行を追加は表の下へ移した */}
+                <button type="button" data-testid="sp-jump-bottom" onClick={()=>{ try { const el = document.querySelector('[data-testid="sp-add-bottom"]'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {} }} className="px-3 py-1.5 bg-white border border-emerald-400 hover:bg-emerald-50 text-emerald-700 rounded-lg text-[11px] font-bold flex items-center gap-1"><ChevronDown size={13}/>いちばん下へ</button>
+                <button onClick={()=>printSupportProgress(spSelectedYear(), spMonth)} className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg text-[11px] font-bold flex items-center gap-1"><Printer size={13}/>{spMonth ? 'この月を印刷 / PDF' : 'この年を印刷 / PDF'}</button>
               </div>
             </div>
-            <p className="text-[11px] text-slate-400 mb-2">休み/各種連絡・体力測定・モニタリング・担当者会議・ケアマネ/介護度変更・サービス内容変更・基本情報変更・休止・初回報告などが<b>自動で表に反映</b>されます。内容は編集でき、「＋ 行を追加」で追記できます。<b>下の年ボタンで対象の年を選ぶ</b>とその年の表が表示されます（印刷はA4縦・複数ページ）。</p>
+            <p className="text-[11px] text-slate-400 mb-2">休み/各種連絡・体力測定・モニタリング・担当者会議・ケアマネ/介護度変更・サービス内容変更・基本情報変更・休止・初回報告などが<b>自動で表に反映</b>されます。内容は編集でき、表の下の「＋ 行を追加」で追記できます。<b>下の年と月のボタンで絞り込める</b>ほか、印刷も選んだ年（月）だけになります（A4縦・複数ページ）。</p>
             {(() => {
               const list = spMergedList();
               const byYear={}; list.forEach(e=>{ const y=(String(e.date||'').slice(0,4))||'未設定'; (byYear[y]=byYear[y]||[]).push(e); });
               const years = spYearList();
               const sel = spSelectedYear();
-              const rows = byYear[sel] || [];
+              const yearRows = byYear[sel] || [];
+              // ★ 2026-10-29(ユーザー要望): 年に加えて月でも絞り込む
+              const byMonth = {}; yearRows.forEach(e => { const m = +String(e.date||'').slice(5,7) || 0; byMonth[m] = (byMonth[m] || 0) + 1; });
+              const rows = spMonth ? yearRows.filter(e => +String(e.date||'').slice(5,7) === spMonth) : yearRows;
+              const _addBtn = (
+                <div className="flex justify-center mt-3"><button type="button" data-testid="sp-add-bottom" onClick={spAdd} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold">＋ 行を追加</button></div>);
               return (<>
                 {/* 年タブ */}
-                <div className="flex gap-1.5 flex-wrap mb-3">
+                <div className="flex gap-1.5 flex-wrap mb-2">
                   {years.map(y => (
-                    <button key={y} onClick={()=>setSpYear(y)}
+                    <button key={y} onClick={()=>{ setSpYear(y); setSpMonth(null); }}
                       className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${sel===y?'bg-emerald-600 text-white border-emerald-600':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
                       {y}年{byYear[y]?`（${byYear[y].length}）`:''}
                     </button>
                   ))}
                 </div>
-                {rows.length===0 ? (
-                  <div className="text-xs text-slate-400 py-3 text-center">{sel}年の記録はありません。「＋ 行を追加」で追記できます（既存データがあれば自動で表示されます）。</div>
+                {/* 月の絞り込み(記録のない月は押せない) */}
+                <div data-testid="sp-months" className="flex gap-1 flex-wrap mb-3">
+                  <button type="button" onClick={()=>setSpMonth(null)} className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border ${!spMonth?'bg-emerald-600 text-white border-emerald-600':'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>すべて（{yearRows.length}）</button>
+                  {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
+                    <button key={m} type="button" data-testid={`sp-month-${m}`} disabled={!byMonth[m]} onClick={()=>setSpMonth(m)}
+                      className={`px-2 py-1 rounded-lg text-[11px] font-bold border tabular-nums ${spMonth===m?'bg-emerald-600 text-white border-emerald-600':byMonth[m]?'bg-white text-slate-600 border-slate-300 hover:bg-slate-50':'bg-slate-50 text-slate-300 border-slate-200 cursor-default'}`}>
+                      {m}月{byMonth[m]?`（${byMonth[m]}）`:''}
+                    </button>
+                  ))}
+                </div>
+                {rows.length===0 ? (<>
+                  <div className="text-xs text-slate-400 py-3 text-center">{sel}年{spMonth?`${spMonth}月`:''}の記録はありません。下の「＋ 行を追加」で追記できます（既存データがあれば自動で表示されます）。</div>
+                  {_addBtn}
+                </>
                 ) : _pfPhone ? (
                   /* ★ 2026-10-13(ユーザー指摘「スマホで支援経過表の文字が大きい・連絡元が見切れる」): スマホは表ではなく詰めた一覧。行を押すと編集欄が開く */
                   <div className="divide-y divide-slate-200 border border-slate-200 rounded-lg" data-testid="sp-phone-list">
                     {rows.map(e => { const editing = spEditId === (e.srcKey||e.id); return (
-                      <div key={e.srcKey||e.id} className="px-2 py-1.5">
+                      <div key={e.srcKey||e.id} data-sp-id={e.srcKey||e.id} className="px-2 py-1.5">
                         {!editing ? (
                           <button type="button" className="w-full text-left" onClick={()=>setSpEditId(e.srcKey||e.id)}>
                             <div className="flex items-baseline gap-2 text-[11px] text-slate-500"><span className="font-bold text-slate-800 tabular-nums">{String(e.date||'').replace(/-/g,'/')}</span><span>{e.staff || <span className="text-slate-300">担当者なし</span>}</span><span className="ml-auto whitespace-nowrap">{e.from||''}</span></div>
@@ -60994,7 +61033,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                       </tr></thead>
                       <tbody>
                         {rows.map(e=>(
-                          <tr key={e.srcKey||e.id}>
+                          <tr key={e.srcKey||e.id} data-sp-id={e.srcKey||e.id}>
                             <td className="border border-slate-300 p-0.5 align-top"><input type="date" defaultValue={e.date} onBlur={ev=>ev.target.value!==e.date&&spEditRow(e,{date:ev.target.value})} className="w-full px-1 py-1 text-[11px] outline-none border border-transparent focus:border-blue-300 rounded"/></td>
                             <td className="border border-slate-300 p-0.5 align-top"><input defaultValue={e.staff} placeholder="担当者" onBlur={ev=>ev.target.value!==(e.staff||'')&&spEditRow(e,{staff:ev.target.value})} className="w-full px-1 py-1 text-[11px] outline-none border border-transparent focus:border-blue-300 rounded"/></td>
                             <td className="border border-slate-300 p-0.5 align-top"><input defaultValue={e.from} placeholder="連絡元" onBlur={ev=>ev.target.value!==(e.from||'')&&spEditRow(e,{from:ev.target.value})} className="w-full px-1 py-1 text-[11px] outline-none border border-transparent focus:border-blue-300 rounded"/></td>
@@ -61006,6 +61045,7 @@ function PersonalFileModal({ patient: patientProp, appData, onSave, onClose, nav
                     </table>
                   </div>
                 )}
+                {rows.length > 0 && _addBtn}
               </>);
             })()}
           </div>
