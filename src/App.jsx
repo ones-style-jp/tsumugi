@@ -37518,6 +37518,9 @@ const tpSeatLayout = (c, list) => {
   (list || []).forEach((m, i) => { const sN = Number(m && m.seat); if (m && m.seat != null && m.seat !== '' && sN >= 0 && sN < capN && !bySeat[sN]) bySeat[sN] = { m, i }; else unseated.push({ m, i }); });
   return { capN, rows: tpSeatRowsFor(c, capN), bySeat, unseated };
 };
+// ★ 2026-10-29(ユーザー報告「タントに3人しかいないのに番号が3・4・5」): 送りの順番は、席に入っている方だけで 1,2,3… と数える。
+//   同じ車に入っていて席の無い方(席未定・定員外)は、席のある方の後ろ(元の並びのまま)。座席表の丸の番号・送りの順番の一覧・運行表・着く時間の目安はこの並び
+const tpDropSeatFirst = (c, list) => { const lay = tpSeatLayout(c, list); return [...Object.values(lay.bySeat).sort((a, b) => a.i - b.i).map(x => x.m), ...lay.unseated.map(x => x.m)]; };
 // ★ 2026-10-20(ユーザー要望): 体力測定の項目の備考の定型文(各種設定→体力測定で店舗ごとに作る)。未設定ならこの既定
 const FIT_NOTE_PRESETS_DEFAULT = ['杖使用', '介助あり', '踏み台使用', '休憩あり', '途中で中止', '車椅子のまま'];
 const FIT_NOTE_MAX = 15, FIT_MEMO_MAX = 200, FIT_PRESET_MAX_N = 30;
@@ -38336,6 +38339,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   });
   // ★ 2026-10-15(ユーザー要望「座席表」): 席に入れる。その席に別の方がいれば入れ替え(同じ車から来たときは元の席へ・ほかから来たときは席未定へ)。
   //   別の車・まだ送りが決まっていない方から入れたときは、その車の送りの最後(番号=いちばん後ろ)に入る
+  const _seatFirstAll = (pl) => { Object.keys((pl.drop && pl.drop.cars) || {}).forEach(c2 => { const c = cars.find(x => x.id === c2); if (c && Array.isArray(pl.drop.cars[c2])) pl.drop.cars[c2] = tpDropSeatFirst(c, pl.drop.cars[c2]); }); }; // ★ 2026-10-29
   const assignSeat = (iso, sl, pid, cid, seat) => mutate(iso, sl, (pl) => {
     if (!pl.drop) return;
     pl.drop.cars = pl.drop.cars || {}; pl.drop.cars[cid] = pl.drop.cars[cid] || [];
@@ -38348,14 +38352,17 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
     if (occ) { if (from && from.cid === cid && carried.seat != null) occ.seat = carried.seat; else delete occ.seat; }
     if (from && from.cid === cid) pl.drop.cars[cid][from.i] = { ...carried, seat };
     else { if (from) pl.drop.cars[from.cid].splice(from.i, 1); pl.drop.cars[cid].push({ ...carried, seat }); }
+    _seatFirstAll(pl);
   });
-  const unseatDrop = (iso, sl, pid) => mutate(iso, sl, (pl) => { Object.keys(pl.drop?.cars||{}).forEach(c2 => (pl.drop.cars[c2]||[]).forEach(m => { if (m.pid === pid) delete m.seat; })); });
-  const setDropOrder = (iso, sl, cid, pid, to) => mutate(iso, sl, (pl) => { const arr = pl.drop?.cars?.[cid]; if (!arr) return; const i = arr.findIndex(m => m.pid === pid); if (i < 0) return; const [m] = arr.splice(i, 1); arr.splice(Math.max(0, Math.min(to, arr.length)), 0, m); });
+  const unseatDrop = (iso, sl, pid) => mutate(iso, sl, (pl) => { Object.keys(pl.drop?.cars||{}).forEach(c2 => (pl.drop.cars[c2]||[]).forEach(m => { if (m.pid === pid) delete m.seat; })); _seatFirstAll(pl); });
+  // to = 送りの順番の一覧(席のある方が先・tpDropSeatFirst)での位置
+  const setDropOrder = (iso, sl, cid, pid, to) => mutate(iso, sl, (pl) => { if (!pl.drop?.cars?.[cid]) return; _seatFirstAll(pl); const arr = pl.drop.cars[cid]; const i = arr.findIndex(m => m.pid === pid); if (i < 0) return; const [m] = arr.splice(i, 1); arr.splice(Math.max(0, Math.min(to, arr.length)), 0, m); _seatFirstAll(pl); });
   // 席未定の方を、送りの順に空いている席(助手席→後ろの前列から)へ入れる
   const fillSeats = (iso, sl, cid) => mutate(iso, sl, (pl) => {
     const arr = pl.drop?.cars?.[cid]; const c = cars.find(x => x.id === cid); if (!arr || !c) return;
     const lay = tpSeatLayout(c, arr); const free = []; for (let k = 0; k < lay.capN; k++) if (!lay.bySeat[k]) free.push(k);
     lay.unseated.forEach(({ i }) => { if (free.length) arr[i] = { ...arr[i], seat: free.shift() }; });
+    _seatFirstAll(pl);
   });
   const setDropCarMemo = (iso, sl, cid, text) => mutate(iso, sl, (pl) => { if (!pl.drop) return; pl.drop.carMemo = { ...(pl.drop.carMemo||{}), [cid]: String(text||'').slice(0, 40) }; });
   // ★ 2026-10-15: 席から「席が決まっていない方」へ戻す=送りの車・徒歩・その他から外す(車に入っている=席に座っている、なので定員を超えない)
@@ -38426,7 +38433,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
   const setDropAt = (iso, sl, cid, pid, v) => mutate(iso, sl, (pl) => { const k = String(pid); const a2 = { ...(pl.dropAt || {}) }, au = { ...(pl.dropAtAuto || {}) }; if (v) a2[k] = v; else delete a2[k]; delete au[k]; pl.dropAt = a2; pl.dropAtAuto = au;
     if (pl.drop && pl.drop.cars) { const nc = {}; Object.keys(pl.drop.cars).forEach(c2 => { nc[c2] = (pl.drop.cars[c2] || []).map(m => { if (!m || m.pid !== pid || !('at' in m || 'atAuto' in m)) return m; const { at, atAuto, ...rest } = m; return rest; }); }); pl.drop.cars = nc; } });
   //   送りの順番: 座席表の日はその順、迎えと同じ日は迎えの逆順(座席表の下書きと同じ)
-  const _dropListsOf = (pl) => { const out = {}; const custom = pl && pl.dropMode === 'custom' && pl.drop; cars.forEach(c => { const ms = custom ? ((pl.drop.cars || {})[c.id] || []) : [...(((pl && pl.cars) || {})[c.id] || [])].reverse(); const L = ms.filter(m => m && m.pid != null); if (L.length) out[c.id] = L; }); return out; };
+  const _dropListsOf = (pl) => { const out = {}; const custom = pl && pl.dropMode === 'custom' && pl.drop; cars.forEach(c => { const ms = custom ? tpDropSeatFirst(c, (pl.drop.cars || {})[c.id] || []) : [...(((pl && pl.cars) || {})[c.id] || [])].reverse(); const L = ms.filter(m => m && m.pid != null); if (L.length) out[c.id] = L; }); return out; };
   //   出発: 座席表で決めた出発 → 無ければ 終了時刻＋乗る方の「乗車にかかる時間」(未設定は1分)
   const _dropDepMin = (pl, sl, cid, list) => { const custom = pl && pl.dropMode === 'custom' && pl.drop; const v = custom ? _minTp((pl.drop.depart || {})[cid]) : _minTp(((pl && pl.dropDep) || {})[cid]); /* ★ 2026-10-23: 迎えと同じの日は pl.dropDep */ if (v != null) return v; const r = _svcRangeTp(sl); if (r.e == null) return null; return r.e + list.reduce((acc0, m) => { const pt = (appData.patients || []).find(x => x.id === m.pid) || {}; return acc0 + _rideMinOf(pt, 'drop'); }, 0); };
   //   目安 = 出発 ＋ 施設→1人目の移動時間。次の方 = 前の方の時間 ＋ 前の方が降りるのにかかる時間 ＋ 移動時間(Googleマップ)
@@ -40468,7 +40475,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
             {label ? <span className="absolute top-0.5 left-1 text-[9px] font-bold text-slate-400">{label}</span> : null}
             {b ? <>
               <div className="flex items-center gap-1.5 pt-1 pr-4">
-                <button type="button" data-testid="tp-seat-no" onClick={() => setSeatOrd(seatOrd && seatOrd.pid === b.m.pid ? null : { cid: c.id, pid: b.m.pid })} title="押すと送りの順番を変えられます" className={`shrink-0 w-7 h-7 rounded-full text-white text-[13px] font-bold ${seatOrd && seatOrd.pid === b.m.pid ? 'bg-amber-500' : 'bg-indigo-600'}`}>{b.i + 1}</button>
+                <button type="button" data-testid="tp-seat-no" onClick={() => setSeatOrd(seatOrd && seatOrd.pid === b.m.pid ? null : { cid: c.id, pid: b.m.pid })} title="押すと送りの順番を変えられます" className={`shrink-0 w-7 h-7 rounded-full text-white text-[13px] font-bold ${seatOrd && seatOrd.pid === b.m.pid ? 'bg-amber-500' : 'bg-indigo-600'}`}>{tpDropSeatFirst(c, dr.cars?.[c.id] || []).findIndex(x => x.pid === b.m.pid) + 1}</button>
                 {nameSpan(b.m.pid, 'flex-1 min-w-0 text-[13px] text-slate-800 leading-tight', true)}
               </div>
               {/* ★ 2026-10-21(店舗要望): 送りで家に着く時間。押すとテンキー */}
@@ -40499,7 +40506,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
                 {lay.rows.map((n, ri) => <div key={ri} className="grid gap-2" style={{ gridTemplateColumns: `repeat(${n}, 1fr)` }}>{Array.from({ length: n }, () => { const sN = k++; return seatBox(c, sN, lay.bySeat[sN]); })}</div>)}
               </div>
               {/* ★ 2026-10-15(ユーザー要望「番号を決めても別の所を変えると順番が変わる。番号を押したらその車の方を一覧で出し、ドラッグで並べ替え」) */}
-              {seatOrd && seatOrd.cid === c.id && list.length > 0 && (() => { const od = ordDrag && ordDrag.cid === c.id ? ordDrag : null; let p = 0; const bar = (k) => <div key={k} className="h-1 rounded bg-blue-600" data-testid="tp-ord-bar"/>; const out = [];
+              {seatOrd && seatOrd.cid === c.id && list.length > 0 && (() => { const list = tpDropSeatFirst(c, (dr.cars?.[c.id] || [])); const od = ordDrag && ordDrag.cid === c.id ? ordDrag : null; let p = 0; const bar = (k) => <div key={k} className="h-1 rounded bg-blue-600" data-testid="tp-ord-bar"/>; const out = [];
                 list.forEach((m, j) => { const isDrag = !!(od && od.pid === m.pid);
                   if (od && !isDrag) { if (od.over === p && od.over !== list.findIndex(x => x.pid === od.pid)) out.push(bar(`b${p}`)); p++; }
                   out.push(
@@ -40634,7 +40641,7 @@ function TransportView({ appData, onSave, selectedDate, setSelectedDate, onShowP
         const dcars = dr ? cars.filter(x => ((dr.cars||{})[x.id]||[]).length) : [];
         const c = dcars.find(x => x.id === seatView.cid) || dcars[0];
         const d0 = new Date(svIso + 'T00:00:00'); const dl = `${d0.getMonth()+1}/${d0.getDate()}（${DOWJ[d0.getDay()]}）`;
-        const list = c ? ((dr.cars||{})[c.id]||[]) : []; const lay = c ? tpSeatLayout(c, list) : null;
+        const list = c ? tpDropSeatFirst(c, (dr.cars||{})[c.id]||[]) : []; const lay = c ? tpSeatLayout(c, list) : null; // ★ 2026-10-29: 番号は席のある方だけで 1,2,3…
         const cell = (seat, label) => { const bb = lay.bySeat[seat]; return (
           <div key={seat} className={`relative rounded-lg border-2 min-h-[54px] flex items-center gap-1.5 px-1.5 pt-3 pb-1 ${bb ? 'border-slate-500 bg-white' : 'border-dashed border-slate-300 bg-slate-50'}`} data-testid={`tp-sv-seat-${seat}`}>
             {label ? <span className="absolute top-0 left-1 text-[9px] font-bold text-slate-400">{label}</span> : null}
